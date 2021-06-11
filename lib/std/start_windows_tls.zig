@@ -4,7 +4,7 @@
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
 const std = @import("std");
-const builtin = std.builtin;
+const builtin = @import("builtin");
 
 export var _tls_index: u32 = std.os.windows.TLS_OUT_OF_INDEXES;
 export var _tls_start: u8 linksection(".tls") = 0;
@@ -13,7 +13,7 @@ export var __xl_a: std.os.windows.PIMAGE_TLS_CALLBACK linksection(".CRT$XLA") = 
 export var __xl_z: std.os.windows.PIMAGE_TLS_CALLBACK linksection(".CRT$XLZ") = null;
 
 comptime {
-    if (builtin.arch == .i386) {
+    if (builtin.target.cpu.arch == .i386) {
         // The __tls_array is the offset of the ThreadLocalStoragePointer field
         // in the TEB block whose base address held in the %fs segment.
         asm (

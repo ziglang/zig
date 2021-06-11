@@ -3,7 +3,7 @@
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
-const builtin = @import("builtin");
+const builtin = std.builtin;
 const std = @import("std.zig");
 const os = std.os;
 const mem = std.mem;
@@ -501,7 +501,9 @@ pub const Dir = struct {
         },
         .linux => struct {
             dir: Dir,
-            buf: [8192]u8, // TODO align(@alignOf(os.dirent64)),
+            // The if guard is solely there to prevent compile errors from missing `os.linux.dirent64`
+            // definition when compiling for other OSes. It doesn't do anything when compiling for Linux.
+            buf: [8192]u8 align(if (builtin.os.tag != .linux) 1 else @alignOf(os.linux.dirent64)),
             index: usize,
             end_index: usize,
 
@@ -570,7 +572,7 @@ pub const Dir = struct {
             /// Memory such as file names referenced in this returned entry becomes invalid
             /// with subsequent calls to `next`, as well as when this `Dir` is deinitialized.
             pub fn next(self: *Self) Error!?Entry {
-                start_over: while (true) {
+                while (true) {
                     const w = os.windows;
                     if (self.index >= self.end_index) {
                         var io: w.IO_STATUS_BLOCK = undefined;
@@ -1262,11 +1264,9 @@ pub const Dir = struct {
     pub fn openDirWasi(self: Dir, sub_path: []const u8, args: OpenDirOptions) OpenError!Dir {
         const w = os.wasi;
         var base: w.rights_t = w.RIGHT_FD_FILESTAT_GET | w.RIGHT_FD_FDSTAT_SET_FLAGS | w.RIGHT_FD_FILESTAT_SET_TIMES;
-        if (args.iterate) {
-            base |= w.RIGHT_FD_READDIR;
-        }
         if (args.access_sub_paths) {
-            base |= w.RIGHT_PATH_CREATE_DIRECTORY |
+            base |= w.RIGHT_FD_READDIR |
+                w.RIGHT_PATH_CREATE_DIRECTORY |
                 w.RIGHT_PATH_CREATE_FILE |
                 w.RIGHT_PATH_LINK_SOURCE |
                 w.RIGHT_PATH_LINK_TARGET |
@@ -1363,15 +1363,6 @@ pub const Dir = struct {
             .SecurityDescriptor = null,
             .SecurityQualityOfService = null,
         };
-        if (sub_path_w[0] == '.' and sub_path_w[1] == 0) {
-            // Windows does not recognize this, but it does work with empty string.
-            nt_name.Length = 0;
-        }
-        if (sub_path_w[0] == '.' and sub_path_w[1] == '.' and sub_path_w[2] == 0) {
-            // If you're looking to contribute to zig and fix this, see here for an example of how to
-            // implement this: https://git.midipix.org/ntapi/tree/src/fs/ntapi_tt_open_physical_parent_directory.c
-            @panic("TODO opening '..' with a relative directory handle is not yet implemented on Windows");
-        }
         const open_reparse_point: w.DWORD = if (no_follow) w.FILE_OPEN_REPARSE_POINT else 0x0;
         var io: w.IO_STATUS_BLOCK = undefined;
         const rc = w.ntdll.NtCreateFile(

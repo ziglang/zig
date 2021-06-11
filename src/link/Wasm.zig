@@ -15,6 +15,7 @@ const codegen = @import("../codegen/wasm.zig");
 const link = @import("../link.zig");
 const trace = @import("../tracy.zig").trace;
 const build_options = @import("build_options");
+const wasi_libc = @import("../wasi_libc.zig");
 const Cache = @import("../Cache.zig");
 const TypedValue = @import("../TypedValue.zig");
 
@@ -175,9 +176,8 @@ pub fn allocateDeclIndexes(self: *Wasm, decl: *Module.Decl) !void {
 
     self.offset_table.items[block.offset_index] = 0;
 
-    const typed_value = decl.typed_value.most_recent.typed_value;
-    if (typed_value.ty.zigTypeTag() == .Fn) {
-        switch (typed_value.val.tag()) {
+    if (decl.ty.zigTypeTag() == .Fn) {
+        switch (decl.val.tag()) {
             // dependent on function type, appends it to the correct list
             .function => try self.funcs.append(self.base.allocator, decl),
             .extern_fn => try self.ext_funcs.append(self.base.allocator, decl),
@@ -191,7 +191,6 @@ pub fn allocateDeclIndexes(self: *Wasm, decl: *Module.Decl) !void {
 pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
     std.debug.assert(decl.link.wasm.init); // Must call allocateDeclIndexes()
 
-    const typed_value = decl.typed_value.most_recent.typed_value;
     const fn_data = &decl.fn_link.wasm;
     fn_data.functype.items.len = 0;
     fn_data.code.items.len = 0;
@@ -206,11 +205,12 @@ pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
         .err_msg = undefined,
         .locals = .{},
         .target = self.base.options.target,
+        .global_error_set = self.base.options.module.?.global_error_set,
     };
     defer context.deinit();
 
     // generate the 'code' section for the function declaration
-    const result = context.gen(typed_value) catch |err| switch (err) {
+    const result = context.gen(.{ .ty = decl.ty, .val = decl.val }) catch |err| switch (err) {
         error.CodegenFail => {
             decl.analysis = .codegen_failure;
             try module.failed_decls.put(module.gpa, decl, context.err_msg);
@@ -228,7 +228,7 @@ pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
     fn_data.functype = context.func_type_data.toUnmanaged();
 
     const block = &decl.link.wasm;
-    if (typed_value.ty.zigTypeTag() == .Fn) {
+    if (decl.ty.zigTypeTag() == .Fn) {
         // as locals are patched afterwards, the offsets of funcidx's are off,
         // here we update them to correct them
         for (fn_data.idx_refs.items) |*func| {
@@ -262,7 +262,7 @@ pub fn updateDeclExports(
 
 pub fn freeDecl(self: *Wasm, decl: *Module.Decl) void {
     if (self.getFuncidx(decl)) |func_idx| {
-        switch (decl.typed_value.most_recent.typed_value.val.tag()) {
+        switch (decl.val.tag()) {
             .function => _ = self.funcs.swapRemove(func_idx),
             .extern_fn => _ = self.ext_funcs.swapRemove(func_idx),
             else => unreachable,
@@ -423,13 +423,13 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
         const header_offset = try reserveVecSectionHeader(file);
         const writer = file.writer();
         var count: u32 = 0;
-        for (module.decl_exports.entries.items) |entry| {
-            for (entry.value) |exprt| {
+        for (module.decl_exports.values()) |exports| {
+            for (exports) |exprt| {
                 // Export name length + name
                 try leb.writeULEB128(writer, @intCast(u32, exprt.options.name.len));
                 try writer.writeAll(exprt.options.name);
 
-                switch (exprt.exported_decl.typed_value.most_recent.typed_value.ty.zigTypeTag()) {
+                switch (exprt.exported_decl.ty.zigTypeTag()) {
                     .Fn => {
                         // Type of the export
                         try writer.writeByte(wasm.externalKind(.function));
@@ -590,8 +590,8 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
         self.base.releaseLock();
 
         try man.addListOfFiles(self.base.options.objects);
-        for (comp.c_object_table.items()) |entry| {
-            _ = try man.addFile(entry.key.status.success.object_path, null);
+        for (comp.c_object_table.keys()) |key| {
+            _ = try man.addFile(key.status.success.object_path, null);
         }
         try man.addOptionalFile(module_obj_path);
         try man.addOptionalFile(compiler_rt_path);
@@ -638,7 +638,7 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
                 break :blk self.base.options.objects[0];
 
             if (comp.c_object_table.count() != 0)
-                break :blk comp.c_object_table.items()[0].key.status.success.object_path;
+                break :blk comp.c_object_table.keys()[0].status.success.object_path;
 
             if (module_obj_path) |p|
                 break :blk p;
@@ -653,8 +653,6 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
             try fs.cwd().copyFile(the_object_path, fs.cwd(), full_out_path, .{});
         }
     } else {
-        const is_obj = self.base.options.output_mode == .Obj;
-
         // Create an LLD command line and invoke it.
         var argv = std.ArrayList([]const u8).init(self.base.allocator);
         defer argv.deinit();
@@ -662,10 +660,6 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
         // This is necessary because LLD does not behave properly as a library -
         // it calls exit() and does not reset all global data between invocations.
         try argv.appendSlice(&[_][]const u8{ comp.self_exe_path.?, "wasm-ld" });
-        if (is_obj) {
-            try argv.append("-r");
-        }
-
         try argv.append("-error-limit=0");
 
         if (self.base.options.lto) {
@@ -687,6 +681,12 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
             // Put stack before globals so that stack overflow results in segfault immediately
             // before corrupting globals. See https://github.com/ziglang/zig/issues/4496
             try argv.append("--stack-first");
+
+            // Reactor execution model does not have _start so lld doesn't look for it.
+            if (self.base.options.wasi_exec_model) |exec_model| blk: {
+                if (exec_model != .crt1_reactor_o) break :blk;
+                try argv.append("--no-entry");
+            }
         } else {
             try argv.append("--no-entry"); // So lld doesn't look for _start.
             try argv.append("--export-all");
@@ -697,11 +697,33 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
             full_out_path,
         });
 
+        if (target.os.tag == .wasi) {
+            const is_exe_or_dyn_lib = self.base.options.output_mode == .Exe or
+                (self.base.options.output_mode == .Lib and self.base.options.link_mode == .Dynamic);
+            if (is_exe_or_dyn_lib) {
+                const wasi_emulated_libs = self.base.options.wasi_emulated_libs;
+                for (wasi_emulated_libs) |crt_file| {
+                    try argv.append(try comp.get_libc_crt_file(
+                        arena,
+                        wasi_libc.emulatedLibCRFileLibName(crt_file),
+                    ));
+                }
+
+                if (self.base.options.link_libc) {
+                    try argv.append(try comp.get_libc_crt_file(
+                        arena,
+                        wasi_libc.crtFileFullName(self.base.options.wasi_exec_model orelse .crt1_o),
+                    ));
+                    try argv.append(try comp.get_libc_crt_file(arena, "libc.a"));
+                }
+            }
+        }
+
         // Positional arguments to the linker such as object files.
         try argv.appendSlice(self.base.options.objects);
 
-        for (comp.c_object_table.items()) |entry| {
-            try argv.append(entry.key.status.success.object_path);
+        for (comp.c_object_table.keys()) |key| {
+            try argv.append(key.status.success.object_path);
         }
         if (module_obj_path) |p| {
             try argv.append(p);
@@ -802,7 +824,7 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
 /// TODO: we could maintain a hash map to potentially make this simpler
 fn getFuncidx(self: Wasm, decl: *Module.Decl) ?u32 {
     var offset: u32 = 0;
-    const slice = switch (decl.typed_value.most_recent.typed_value.val.tag()) {
+    const slice = switch (decl.val.tag()) {
         .function => blk: {
             // when the target is a regular function, we have to calculate
             // the offset of where the index starts

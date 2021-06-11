@@ -75,7 +75,7 @@ void bigint_shl_trunc(BigInt *dest, const BigInt *op1, const BigInt *op2, size_t
 void bigint_shr(BigInt *dest, const BigInt *op1, const BigInt *op2);
 
 void bigint_negate(BigInt *dest, const BigInt *op);
-void bigint_negate_wrap(BigInt *dest, const BigInt *op, size_t bit_count);
+void bigint_negate_wrap(BigInt *dest, const BigInt *op, size_t bit_count, bool is_signed);
 void bigint_not(BigInt *dest, const BigInt *op, size_t bit_count, bool is_signed);
 void bigint_truncate(BigInt *dest, const BigInt *op, size_t bit_count, bool is_signed);
 

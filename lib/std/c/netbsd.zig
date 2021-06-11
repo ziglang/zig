@@ -56,7 +56,7 @@ pub const pthread_cond_t = extern struct {
 
 pub const pthread_rwlock_t = extern struct {
     ptr_magic: c_uint = 0x99990009,
-    ptr_interlock: switch (std.builtin.arch) {
+    ptr_interlock: switch (std.builtin.cpu.arch) {
         .aarch64, .sparc, .x86_64, .i386 => u8,
         .arm, .powerpc => c_int,
         else => unreachable,
@@ -70,7 +70,7 @@ pub const pthread_rwlock_t = extern struct {
     ptr_private: ?*c_void = null,
 };
 
-const pthread_spin_t = switch (builtin.arch) {
+const pthread_spin_t = switch (builtin.cpu.arch) {
     .aarch64, .aarch64_be, .aarch64_32 => u8,
     .mips, .mipsel, .mips64, .mips64el => u32,
     .powerpc, .powerpc64, .powerpc64le => i32,
@@ -81,7 +81,7 @@ const pthread_spin_t = switch (builtin.arch) {
     else => @compileError("undefined pthread_spin_t for this arch"),
 };
 
-const padded_pthread_spin_t = switch (builtin.arch) {
+const padded_pthread_spin_t = switch (builtin.cpu.arch) {
     .i386, .x86_64 => u32,
     .sparc, .sparcel, .sparcv9 => u32,
     else => pthread_spin_t,

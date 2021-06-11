@@ -32,6 +32,8 @@ typedef int (__cdecl *_onexit_t)(void);
 _CRTIMP int __cdecl _initialize_onexit_table(_onexit_table_t*);
 _CRTIMP int __cdecl _register_onexit_function(_onexit_table_t*,_onexit_t);
 _CRTIMP int __cdecl _execute_onexit_table(_onexit_table_t*);
+_CRTIMP int __cdecl _crt_atexit(_PVFV func);
+_CRTIMP int __cdecl _crt_at_quick_exit(_PVFV func);
 
 #ifdef __cplusplus
 }

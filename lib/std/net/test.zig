@@ -38,26 +38,26 @@ test "parse and render IPv6 addresses" {
     for (ips) |ip, i| {
         var addr = net.Address.parseIp6(ip, 0) catch unreachable;
         var newIp = std.fmt.bufPrint(buffer[0..], "{}", .{addr}) catch unreachable;
-        std.testing.expect(std.mem.eql(u8, printed[i], newIp[1 .. newIp.len - 3]));
+        try std.testing.expect(std.mem.eql(u8, printed[i], newIp[1 .. newIp.len - 3]));
 
         if (std.builtin.os.tag == .linux) {
             var addr_via_resolve = net.Address.resolveIp6(ip, 0) catch unreachable;
             var newResolvedIp = std.fmt.bufPrint(buffer[0..], "{}", .{addr_via_resolve}) catch unreachable;
-            std.testing.expect(std.mem.eql(u8, printed[i], newResolvedIp[1 .. newResolvedIp.len - 3]));
+            try std.testing.expect(std.mem.eql(u8, printed[i], newResolvedIp[1 .. newResolvedIp.len - 3]));
         }
     }
 
-    testing.expectError(error.InvalidCharacter, net.Address.parseIp6(":::", 0));
-    testing.expectError(error.Overflow, net.Address.parseIp6("FF001::FB", 0));
-    testing.expectError(error.InvalidCharacter, net.Address.parseIp6("FF01::Fb:zig", 0));
-    testing.expectError(error.InvalidEnd, net.Address.parseIp6("FF01:0:0:0:0:0:0:FB:", 0));
-    testing.expectError(error.Incomplete, net.Address.parseIp6("FF01:", 0));
-    testing.expectError(error.InvalidIpv4Mapping, net.Address.parseIp6("::123.123.123.123", 0));
+    try testing.expectError(error.InvalidCharacter, net.Address.parseIp6(":::", 0));
+    try testing.expectError(error.Overflow, net.Address.parseIp6("FF001::FB", 0));
+    try testing.expectError(error.InvalidCharacter, net.Address.parseIp6("FF01::Fb:zig", 0));
+    try testing.expectError(error.InvalidEnd, net.Address.parseIp6("FF01:0:0:0:0:0:0:FB:", 0));
+    try testing.expectError(error.Incomplete, net.Address.parseIp6("FF01:", 0));
+    try testing.expectError(error.InvalidIpv4Mapping, net.Address.parseIp6("::123.123.123.123", 0));
     // TODO Make this test pass on other operating systems.
     if (std.builtin.os.tag == .linux) {
-        testing.expectError(error.Incomplete, net.Address.resolveIp6("ff01::fb%", 0));
-        testing.expectError(error.Overflow, net.Address.resolveIp6("ff01::fb%wlp3s0s0s0s0s0s0s0s0", 0));
-        testing.expectError(error.Overflow, net.Address.resolveIp6("ff01::fb%12345678901234", 0));
+        try testing.expectError(error.Incomplete, net.Address.resolveIp6("ff01::fb%", 0));
+        try testing.expectError(error.Overflow, net.Address.resolveIp6("ff01::fb%wlp3s0s0s0s0s0s0s0s0", 0));
+        try testing.expectError(error.Overflow, net.Address.resolveIp6("ff01::fb%12345678901234", 0));
     }
 }
 
@@ -68,7 +68,7 @@ test "invalid but parseable IPv6 scope ids" {
         return error.SkipZigTest;
     }
 
-    testing.expectError(error.InterfaceNotFound, net.Address.resolveIp6("ff01::fb%123s45678901234", 0));
+    try testing.expectError(error.InterfaceNotFound, net.Address.resolveIp6("ff01::fb%123s45678901234", 0));
 }
 
 test "parse and render IPv4 addresses" {
@@ -84,14 +84,14 @@ test "parse and render IPv4 addresses" {
     }) |ip| {
         var addr = net.Address.parseIp4(ip, 0) catch unreachable;
         var newIp = std.fmt.bufPrint(buffer[0..], "{}", .{addr}) catch unreachable;
-        std.testing.expect(std.mem.eql(u8, ip, newIp[0 .. newIp.len - 2]));
+        try std.testing.expect(std.mem.eql(u8, ip, newIp[0 .. newIp.len - 2]));
     }
 
-    testing.expectError(error.Overflow, net.Address.parseIp4("256.0.0.1", 0));
-    testing.expectError(error.InvalidCharacter, net.Address.parseIp4("x.0.0.1", 0));
-    testing.expectError(error.InvalidEnd, net.Address.parseIp4("127.0.0.1.1", 0));
-    testing.expectError(error.Incomplete, net.Address.parseIp4("127.0.0.", 0));
-    testing.expectError(error.InvalidCharacter, net.Address.parseIp4("100..0.1", 0));
+    try testing.expectError(error.Overflow, net.Address.parseIp4("256.0.0.1", 0));
+    try testing.expectError(error.InvalidCharacter, net.Address.parseIp4("x.0.0.1", 0));
+    try testing.expectError(error.InvalidEnd, net.Address.parseIp4("127.0.0.1.1", 0));
+    try testing.expectError(error.Incomplete, net.Address.parseIp4("127.0.0.", 0));
+    try testing.expectError(error.InvalidCharacter, net.Address.parseIp4("100..0.1", 0));
 }
 
 test "resolve DNS" {
@@ -169,8 +169,8 @@ test "listen on a port, send bytes, receive bytes" {
     var buf: [16]u8 = undefined;
     const n = try client.stream.reader().read(&buf);
 
-    testing.expectEqual(@as(usize, 12), n);
-    testing.expectEqualSlices(u8, "Hello world!", buf[0..n]);
+    try testing.expectEqual(@as(usize, 12), n);
+    try testing.expectEqualSlices(u8, "Hello world!", buf[0..n]);
 }
 
 test "listen on a port, send bytes, receive bytes" {
@@ -230,7 +230,7 @@ fn testClientToHost(allocator: *mem.Allocator, name: []const u8, port: u16) anye
     var buf: [100]u8 = undefined;
     const len = try connection.read(&buf);
     const msg = buf[0..len];
-    testing.expect(mem.eql(u8, msg, "hello from server\n"));
+    try testing.expect(mem.eql(u8, msg, "hello from server\n"));
 }
 
 fn testClient(addr: net.Address) anyerror!void {
@@ -242,7 +242,7 @@ fn testClient(addr: net.Address) anyerror!void {
     var buf: [100]u8 = undefined;
     const len = try socket_file.read(&buf);
     const msg = buf[0..len];
-    testing.expect(mem.eql(u8, msg, "hello from server\n"));
+    try testing.expect(mem.eql(u8, msg, "hello from server\n"));
 }
 
 fn testServer(server: *net.StreamServer) anyerror!void {
@@ -293,6 +293,6 @@ test "listen on a unix socket, send bytes, receive bytes" {
     var buf: [16]u8 = undefined;
     const n = try client.stream.reader().read(&buf);
 
-    testing.expectEqual(@as(usize, 12), n);
-    testing.expectEqualSlices(u8, "Hello world!", buf[0..n]);
+    try testing.expectEqual(@as(usize, 12), n);
+    try testing.expectEqualSlices(u8, "Hello world!", buf[0..n]);
 }

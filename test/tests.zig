@@ -98,15 +98,14 @@ const test_targets = blk: {
             },
             .link_libc = true,
         },
-        // https://github.com/ziglang/zig/issues/4926
-        //TestTarget{
-        //    .target = .{
-        //        .cpu_arch = .i386,
-        //        .os_tag = .linux,
-        //        .abi = .gnu,
-        //    },
-        //    .link_libc = true,
-        //},
+        TestTarget{
+            .target = .{
+                .cpu_arch = .i386,
+                .os_tag = .linux,
+                .abi = .gnu,
+            },
+            .link_libc = true,
+        },
 
         TestTarget{
             .target = .{
@@ -211,6 +210,22 @@ const test_targets = blk: {
         //    },
         //    .link_libc = true,
         //},
+
+        TestTarget{
+            .target = .{
+                .cpu_arch = .powerpc,
+                .os_tag = .linux,
+                .abi = .none,
+            },
+        },
+        TestTarget{
+            .target = .{
+                .cpu_arch = .powerpc,
+                .os_tag = .linux,
+                .abi = .musl,
+            },
+            .link_libc = true,
+        },
 
         TestTarget{
             .target = .{
@@ -384,7 +399,7 @@ pub fn addCompileErrorTests(b: *build.Builder, test_filter: ?[]const u8, modes: 
     return cases.step;
 }
 
-pub fn addStandaloneTests(b: *build.Builder, test_filter: ?[]const u8, modes: []const Mode) *build.Step {
+pub fn addStandaloneTests(b: *build.Builder, test_filter: ?[]const u8, modes: []const Mode, skip_non_native: bool, target: std.zig.CrossTarget) *build.Step {
     const cases = b.allocator.create(StandaloneContext) catch unreachable;
     cases.* = StandaloneContext{
         .b = b,
@@ -392,6 +407,8 @@ pub fn addStandaloneTests(b: *build.Builder, test_filter: ?[]const u8, modes: []
         .test_index = 0,
         .test_filter = test_filter,
         .modes = modes,
+        .skip_non_native = skip_non_native,
+        .target = target,
     };
 
     standalone.addCases(cases);
@@ -488,6 +505,7 @@ pub fn addPkgTests(
     is_wine_enabled: bool,
     is_qemu_enabled: bool,
     is_wasmtime_enabled: bool,
+    is_darling_enabled: bool,
     glibc_dir: ?[]const u8,
 ) *build.Step {
     const step = b.step(b.fmt("test-{s}", .{name}), desc);
@@ -507,7 +525,7 @@ pub fn addPkgTests(
         if (skip_single_threaded and test_target.single_threaded)
             continue;
 
-        const ArchTag = std.meta.Tag(builtin.Arch);
+        const ArchTag = std.meta.Tag(std.Target.Cpu.Arch);
         if (test_target.disable_native and
             test_target.target.getOsTag() == std.Target.current.os.tag and
             test_target.target.getCpuArch() == std.Target.current.cpu.arch)
@@ -549,6 +567,7 @@ pub fn addPkgTests(
         these_tests.enable_wine = is_wine_enabled;
         these_tests.enable_qemu = is_qemu_enabled;
         these_tests.enable_wasmtime = is_wasmtime_enabled;
+        these_tests.enable_darling = is_darling_enabled;
         these_tests.glibc_multi_install_dir = glibc_dir;
         these_tests.addIncludeDir("test");
 
@@ -571,11 +590,11 @@ pub const StackTracesContext = struct {
             if (config.exclude.exclude()) return;
         }
         if (@hasField(@TypeOf(config), "exclude_arch")) {
-            const exclude_arch: []const builtin.Cpu.Arch = &config.exclude_arch;
+            const exclude_arch: []const std.Target.Cpu.Arch = &config.exclude_arch;
             for (exclude_arch) |arch| if (arch == builtin.cpu.arch) return;
         }
         if (@hasField(@TypeOf(config), "exclude_os")) {
-            const exclude_os: []const builtin.Os.Tag = &config.exclude_os;
+            const exclude_os: []const std.Target.Os.Tag = &config.exclude_os;
             for (exclude_os) |os| if (os == builtin.os.tag) return;
         }
         for (self.modes) |mode| {
@@ -615,11 +634,11 @@ pub const StackTracesContext = struct {
             if (mode_config.exclude.exclude()) return;
         }
         if (@hasField(@TypeOf(mode_config), "exclude_arch")) {
-            const exclude_arch: []const builtin.Cpu.Arch = &mode_config.exclude_arch;
+            const exclude_arch: []const std.Target.Cpu.Arch = &mode_config.exclude_arch;
             for (exclude_arch) |arch| if (arch == builtin.cpu.arch) return;
         }
         if (@hasField(@TypeOf(mode_config), "exclude_os")) {
-            const exclude_os: []const builtin.Os.Tag = &mode_config.exclude_os;
+            const exclude_os: []const std.Target.Os.Tag = &mode_config.exclude_os;
             for (exclude_os) |os| if (os == builtin.os.tag) return;
         }
 
@@ -1119,6 +1138,8 @@ pub const StandaloneContext = struct {
     test_index: usize,
     test_filter: ?[]const u8,
     modes: []const Mode,
+    skip_non_native: bool,
+    target: std.zig.CrossTarget,
 
     pub fn addC(self: *StandaloneContext, root_src: []const u8) void {
         self.addAllArgs(root_src, true);
@@ -1128,10 +1149,10 @@ pub const StandaloneContext = struct {
         self.addAllArgs(root_src, false);
     }
 
-    pub fn addBuildFile(self: *StandaloneContext, build_file: []const u8) void {
+    pub fn addBuildFile(self: *StandaloneContext, build_file: []const u8, features: struct { build_modes: bool = false, cross_targets: bool = false }) void {
         const b = self.b;
 
-        const annotated_case_name = b.fmt("build {s} (Debug)", .{build_file});
+        const annotated_case_name = b.fmt("build {s}", .{build_file});
         if (self.test_filter) |filter| {
             if (mem.indexOf(u8, annotated_case_name, filter) == null) return;
         }
@@ -1150,12 +1171,30 @@ pub const StandaloneContext = struct {
             zig_args.append("--verbose") catch unreachable;
         }
 
-        const run_cmd = b.addSystemCommand(zig_args.items);
+        if (features.cross_targets and !self.target.isNative()) {
+            const target_arg = fmt.allocPrint(b.allocator, "-Dtarget={s}", .{self.target.zigTriple(b.allocator) catch unreachable}) catch unreachable;
+            zig_args.append(target_arg) catch unreachable;
+        }
 
-        const log_step = b.addLog("PASS {s}\n", .{annotated_case_name});
-        log_step.step.dependOn(&run_cmd.step);
+        const modes = if (features.build_modes) self.modes else &[1]Mode{.Debug};
+        for (modes) |mode| {
+            const arg = switch (mode) {
+                .Debug => "",
+                .ReleaseFast => "-Drelease-fast",
+                .ReleaseSafe => "-Drelease-safe",
+                .ReleaseSmall => "-Drelease-small",
+            };
+            const zig_args_base_len = zig_args.items.len;
+            if (arg.len > 0)
+                zig_args.append(arg) catch unreachable;
+            defer zig_args.resize(zig_args_base_len) catch unreachable;
 
-        self.step.dependOn(&log_step.step);
+            const run_cmd = b.addSystemCommand(zig_args.items);
+            const log_step = b.addLog("PASS {s} ({s})\n", .{ annotated_case_name, @tagName(mode) });
+            log_step.step.dependOn(&run_cmd.step);
+
+            self.step.dependOn(&log_step.step);
+        }
     }
 
     pub fn addAllArgs(self: *StandaloneContext, root_src: []const u8, link_libc: bool) void {

@@ -2,31 +2,134 @@ const Symbol = @This();
 
 const std = @import("std");
 const macho = std.macho;
+const mem = std.mem;
 
-const Allocator = std.mem.Allocator;
+const Allocator = mem.Allocator;
+const Dylib = @import("Dylib.zig");
+const Object = @import("Object.zig");
 
-pub const Tag = enum {
-    local,
-    weak,
-    strong,
-    import,
-    undef,
+pub const Type = enum {
+    regular,
+    proxy,
+    unresolved,
+    tentative,
 };
 
-tag: Tag,
+/// Symbol type.
+@"type": Type,
+
+/// Symbol name. Owned slice.
 name: []u8,
-address: u64,
-section: u8,
 
-/// Index of file where to locate this symbol.
-/// Depending on context, this is either an object file, or a dylib.
-file: ?u16 = null,
+/// Alias of.
+alias: ?*Symbol = null,
 
-/// Index of this symbol within the file's symbol table.
-index: ?u32 = null,
+/// Index in GOT table for indirection.
+got_index: ?u32 = null,
 
-pub fn deinit(self: *Symbol, allocator: *Allocator) void {
-    allocator.free(self.name);
+/// Index in stubs table for late binding.
+stubs_index: ?u32 = null,
+
+pub const Regular = struct {
+    base: Symbol,
+
+    /// Linkage type.
+    linkage: Linkage,
+
+    /// Symbol address.
+    address: u64,
+
+    /// Section ID where the symbol resides.
+    section: u8,
+
+    /// Whether the symbol is a weak ref.
+    weak_ref: bool,
+
+    /// Object file where to locate this symbol.
+    file: *Object,
+
+    /// Debug stab if defined.
+    stab: ?struct {
+        /// Stab kind
+        kind: enum {
+            function,
+            global,
+            static,
+        },
+
+        /// Size of the stab.
+        size: u64,
+    } = null,
+
+    /// True if symbol was already committed into the final
+    /// symbol table.
+    visited: bool = false,
+
+    pub const base_type: Symbol.Type = .regular;
+
+    pub const Linkage = enum {
+        translation_unit,
+        linkage_unit,
+        global,
+    };
+
+    pub fn isTemp(regular: *Regular) bool {
+        if (regular.linkage == .translation_unit) {
+            return mem.startsWith(u8, regular.base.name, "l") or mem.startsWith(u8, regular.base.name, "L");
+        }
+        return false;
+    }
+};
+
+pub const Proxy = struct {
+    base: Symbol,
+
+    /// Dylib where to locate this symbol.
+    dylib: ?*Dylib = null,
+
+    pub const base_type: Symbol.Type = .proxy;
+};
+
+pub const Unresolved = struct {
+    base: Symbol,
+
+    /// File where this symbol was referenced.
+    file: *Object,
+
+    pub const base_type: Symbol.Type = .unresolved;
+};
+
+pub const Tentative = struct {
+    base: Symbol,
+
+    /// Symbol size.
+    size: u64,
+
+    /// Symbol alignment as power of two.
+    alignment: u16,
+
+    /// File where this symbol was referenced.
+    file: *Object,
+
+    pub const base_type: Symbol.Type = .tentative;
+};
+
+pub fn deinit(base: *Symbol, allocator: *Allocator) void {
+    allocator.free(base.name);
+}
+
+pub fn cast(base: *Symbol, comptime T: type) ?*T {
+    if (base.@"type" != T.base_type) {
+        return null;
+    }
+    return @fieldParentPtr(T, "base", base);
+}
+
+pub fn getTopmostAlias(base: *Symbol) *Symbol {
+    if (base.alias) |alias| {
+        return alias.getTopmostAlias();
+    }
+    return base;
 }
 
 pub fn isStab(sym: macho.nlist_64) bool {
@@ -51,21 +154,20 @@ pub fn isUndf(sym: macho.nlist_64) bool {
     return type_ == macho.N_UNDF;
 }
 
+pub fn isIndr(sym: macho.nlist_64) bool {
+    const type_ = macho.N_TYPE & sym.n_type;
+    return type_ == macho.N_INDR;
+}
+
+pub fn isAbs(sym: macho.nlist_64) bool {
+    const type_ = macho.N_TYPE & sym.n_type;
+    return type_ == macho.N_ABS;
+}
+
 pub fn isWeakDef(sym: macho.nlist_64) bool {
-    return sym.n_desc == macho.N_WEAK_DEF;
+    return (sym.n_desc & macho.N_WEAK_DEF) != 0;
 }
 
-/// Symbol is local if it is defined and not an extern.
-pub fn isLocal(sym: macho.nlist_64) bool {
-    return isSect(sym) and !isExt(sym);
-}
-
-/// Symbol is global if it is defined and an extern.
-pub fn isGlobal(sym: macho.nlist_64) bool {
-    return isSect(sym) and isExt(sym);
-}
-
-/// Symbol is undefined if it is not defined and an extern.
-pub fn isUndef(sym: macho.nlist_64) bool {
-    return isUndf(sym) and isExt(sym);
+pub fn isWeakRef(sym: macho.nlist_64) bool {
+    return (sym.n_desc & macho.N_WEAK_REF) != 0;
 }

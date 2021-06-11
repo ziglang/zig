@@ -90,7 +90,7 @@ pub const DevicePath = union(DevicePathType) {
     End: EndDevicePath,
 };
 
-pub const DevicePathType = extern enum(u8) {
+pub const DevicePathType = enum(u8) {
     Hardware = 0x01,
     Acpi = 0x02,
     Messaging = 0x03,
@@ -108,7 +108,7 @@ pub const HardwareDevicePath = union(Subtype) {
     Controller: *const ControllerDevicePath,
     Bmc: *const BmcDevicePath,
 
-    pub const Subtype = extern enum(u8) {
+    pub const Subtype = enum(u8) {
         Pci = 1,
         PcCard = 2,
         MemoryMapped = 3,
@@ -167,7 +167,7 @@ pub const AcpiDevicePath = union(Subtype) {
     Adr: void, // TODO
     Nvdimm: void, // TODO
 
-    pub const Subtype = extern enum(u8) {
+    pub const Subtype = enum(u8) {
         Acpi = 1,
         ExpandedAcpi = 2,
         Adr = 3,
@@ -196,7 +196,7 @@ pub const MessagingDevicePath = union(Subtype) {
     Uart: void, // TODO
     Vendor: void, // TODO
 
-    pub const Subtype = extern enum(u8) {
+    pub const Subtype = enum(u8) {
         Atapi = 1,
         Scsi = 2,
         FibreChannel = 3,
@@ -230,7 +230,7 @@ pub const MediaDevicePath = union(Subtype) {
     RelativeOffsetRange: *const RelativeOffsetRangeDevicePath,
     RamDisk: *const RamDiskDevicePath,
 
-    pub const Subtype = extern enum(u8) {
+    pub const Subtype = enum(u8) {
         HardDrive = 1,
         Cdrom = 2,
         Vendor = 3,
@@ -316,7 +316,7 @@ pub const MediaDevicePath = union(Subtype) {
 pub const BiosBootSpecificationDevicePath = union(Subtype) {
     BBS101: *const BBS101DevicePath,
 
-    pub const Subtype = extern enum(u8) {
+    pub const Subtype = enum(u8) {
         BBS101 = 1,
         _,
     };
@@ -338,7 +338,7 @@ pub const EndDevicePath = union(Subtype) {
     EndEntire: *const EndEntireDevicePath,
     EndThisInstance: *const EndThisInstanceDevicePath,
 
-    pub const Subtype = extern enum(u8) {
+    pub const Subtype = enum(u8) {
         EndEntire = 0xff,
         EndThisInstance = 0x01,
         _,

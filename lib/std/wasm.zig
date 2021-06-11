@@ -200,11 +200,11 @@ test "Wasm - opcodes" {
     const local_get = opcode(.local_get);
     const i64_extend32_s = opcode(.i64_extend32_s);
 
-    testing.expectEqual(@as(u16, 0x41), i32_const);
-    testing.expectEqual(@as(u16, 0x0B), end);
-    testing.expectEqual(@as(u16, 0x1A), drop);
-    testing.expectEqual(@as(u16, 0x20), local_get);
-    testing.expectEqual(@as(u16, 0xC4), i64_extend32_s);
+    try testing.expectEqual(@as(u16, 0x41), i32_const);
+    try testing.expectEqual(@as(u16, 0x0B), end);
+    try testing.expectEqual(@as(u16, 0x1A), drop);
+    try testing.expectEqual(@as(u16, 0x20), local_get);
+    try testing.expectEqual(@as(u16, 0xC4), i64_extend32_s);
 }
 
 /// Enum representing all Wasm value types as per spec:
@@ -227,10 +227,10 @@ test "Wasm - valtypes" {
     const _f32 = valtype(.f32);
     const _f64 = valtype(.f64);
 
-    testing.expectEqual(@as(u8, 0x7F), _i32);
-    testing.expectEqual(@as(u8, 0x7E), _i64);
-    testing.expectEqual(@as(u8, 0x7D), _f32);
-    testing.expectEqual(@as(u8, 0x7C), _f64);
+    try testing.expectEqual(@as(u8, 0x7F), _i32);
+    try testing.expectEqual(@as(u8, 0x7E), _i64);
+    try testing.expectEqual(@as(u8, 0x7D), _f32);
+    try testing.expectEqual(@as(u8, 0x7C), _f64);
 }
 
 /// Wasm module sections as per spec:

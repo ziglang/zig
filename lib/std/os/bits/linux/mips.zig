@@ -12,7 +12,7 @@ const uid_t = linux.uid_t;
 const gid_t = linux.gid_t;
 const pid_t = linux.pid_t;
 
-pub const SYS = extern enum(usize) {
+pub const SYS = enum(usize) {
     pub const Linux = 4000;
 
     syscall = Linux + 0,

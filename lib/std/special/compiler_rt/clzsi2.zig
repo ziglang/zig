@@ -26,6 +26,8 @@ fn __clzsi2_generic(a: i32) callconv(.C) i32 {
 }
 
 fn __clzsi2_thumb1() callconv(.Naked) void {
+    @setRuntimeSafety(false);
+
     // Similar to the generic version with the last two rounds replaced by a LUT
     asm volatile (
         \\ movs r1, #32
@@ -58,6 +60,8 @@ fn __clzsi2_thumb1() callconv(.Naked) void {
 }
 
 fn __clzsi2_arm32() callconv(.Naked) void {
+    @setRuntimeSafety(false);
+
     asm volatile (
         \\ // Assumption: n != 0
         \\ // r0: n
@@ -104,13 +108,22 @@ fn __clzsi2_arm32() callconv(.Naked) void {
     unreachable;
 }
 
-pub const __clzsi2 = switch (std.Target.current.cpu.arch) {
-    .arm, .armeb => if (std.Target.arm.featureSetHas(std.Target.current.cpu.features, .noarm))
-        __clzsi2_thumb1
-    else
-        __clzsi2_arm32,
-    .thumb, .thumbeb => __clzsi2_thumb1,
-    else => __clzsi2_generic,
+pub const __clzsi2 = impl: {
+    switch (std.Target.current.cpu.arch) {
+        .arm, .armeb, .thumb, .thumbeb => {
+            const use_thumb1 =
+                (std.Target.current.cpu.arch.isThumb() or
+                std.Target.arm.featureSetHas(std.Target.current.cpu.features, .noarm)) and
+                !std.Target.arm.featureSetHas(std.Target.current.cpu.features, .thumb2);
+
+            if (use_thumb1) break :impl __clzsi2_thumb1
+            // From here on we're either targeting Thumb2 or ARM.
+            else if (!std.Target.current.cpu.arch.isThumb()) break :impl __clzsi2_arm32
+            // Use the generic implementation otherwise.
+            else break :impl __clzsi2_generic;
+        },
+        else => break :impl __clzsi2_generic,
+    }
 };
 
 test "test clzsi2" {

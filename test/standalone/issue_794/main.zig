@@ -3,5 +3,5 @@ const std = @import("std");
 const testing = std.testing;
 
 test "c import" {
-    comptime testing.expect(c.NUMBER == 1234);
+    comptime try testing.expect(c.NUMBER == 1234);
 }

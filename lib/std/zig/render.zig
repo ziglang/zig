@@ -83,12 +83,22 @@ fn renderMember(gpa: *Allocator, ais: *Ais, tree: ast.Tree, decl: ast.Node.Index
                 }
             }
             while (i < fn_token) : (i += 1) {
-                if (token_tags[i] == .keyword_inline) {
-                    // TODO remove this special case when 0.9.0 is released.
-                    // See the commit that introduced this comment for more details.
-                    continue;
-                }
                 try renderToken(ais, tree, i, .space);
+            }
+            switch (tree.nodes.items(.tag)[fn_proto]) {
+                .fn_proto_one, .fn_proto => {
+                    const callconv_expr = if (tree.nodes.items(.tag)[fn_proto] == .fn_proto_one)
+                        tree.extraData(datas[fn_proto].lhs, ast.Node.FnProtoOne).callconv_expr
+                    else
+                        tree.extraData(datas[fn_proto].lhs, ast.Node.FnProto).callconv_expr;
+                    if (callconv_expr != 0 and tree.nodes.items(.tag)[callconv_expr] == .enum_literal) {
+                        if (mem.eql(u8, "Inline", tree.tokenSlice(main_tokens[callconv_expr]))) {
+                            try ais.writer().writeAll("inline ");
+                        }
+                    }
+                },
+                .fn_proto_simple, .fn_proto_multi => {},
+                else => unreachable,
             }
             assert(datas[decl].rhs != 0);
             try renderExpression(gpa, ais, tree, fn_proto, .space);
@@ -269,7 +279,12 @@ fn renderExpression(gpa: *Allocator, ais: *Ais, tree: ast.Tree, node: ast.Node.I
                 try renderToken(ais, tree, suspend_token, .space);
                 return renderExpression(gpa, ais, tree, body, space);
             } else {
-                return renderToken(ais, tree, suspend_token, space);
+                // TODO remove this special case when 0.9.0 is released.
+                assert(space == .semicolon);
+                try renderToken(ais, tree, suspend_token, .space);
+                try ais.writer().writeAll("{}");
+                try ais.insertNewline();
+                return;
             }
         },
 
@@ -974,16 +989,18 @@ fn renderVarDecl(gpa: *Allocator, ais: *Ais, tree: ast.Tree, var_decl: ast.full.
         }
     }
 
-    assert(var_decl.ast.init_node != 0);
-    const eq_token = tree.firstToken(var_decl.ast.init_node) - 1;
-    const eq_space: Space = if (tree.tokensOnSameLine(eq_token, eq_token + 1)) .space else .newline;
-    {
-        ais.pushIndent();
-        try renderToken(ais, tree, eq_token, eq_space); // =
-        ais.popIndent();
+    if (var_decl.ast.init_node != 0) {
+        const eq_token = tree.firstToken(var_decl.ast.init_node) - 1;
+        const eq_space: Space = if (tree.tokensOnSameLine(eq_token, eq_token + 1)) .space else .newline;
+        {
+            ais.pushIndent();
+            try renderToken(ais, tree, eq_token, eq_space); // =
+            ais.popIndent();
+        }
+        ais.pushIndentOneShot();
+        return renderExpression(gpa, ais, tree, var_decl.ast.init_node, .semicolon); // ;
     }
-    ais.pushIndentOneShot();
-    try renderExpression(gpa, ais, tree, var_decl.ast.init_node, .semicolon);
+    return renderToken(ais, tree, var_decl.ast.mut_token + 2, .newline); // ;
 }
 
 fn renderIf(gpa: *Allocator, ais: *Ais, tree: ast.Tree, if_node: ast.full.If, space: Space) Error!void {
@@ -1241,9 +1258,6 @@ fn renderFnProto(gpa: *Allocator, ais: *Ais, tree: ast.Tree, fn_proto: ast.full.
     const token_tags = tree.tokens.items(.tag);
     const token_starts = tree.tokens.items(.start);
 
-    const is_inline = fn_proto.ast.fn_token > 0 and
-        token_tags[fn_proto.ast.fn_token - 1] == .keyword_inline;
-
     const after_fn_token = fn_proto.ast.fn_token + 1;
     const lparen = if (token_tags[after_fn_token] == .identifier) blk: {
         try renderToken(ais, tree, fn_proto.ast.fn_token, .space); // fn
@@ -1419,7 +1433,9 @@ fn renderFnProto(gpa: *Allocator, ais: *Ais, tree: ast.Tree, fn_proto: ast.full.
         try renderToken(ais, tree, section_rparen, .space); // )
     }
 
-    if (fn_proto.ast.callconv_expr != 0) {
+    if (fn_proto.ast.callconv_expr != 0 and
+        !mem.eql(u8, "Inline", tree.tokenSlice(tree.nodes.items(.main_token)[fn_proto.ast.callconv_expr])))
+    {
         const callconv_lparen = tree.firstToken(fn_proto.ast.callconv_expr) - 1;
         const callconv_rparen = tree.lastToken(fn_proto.ast.callconv_expr) + 1;
 
@@ -1427,8 +1443,6 @@ fn renderFnProto(gpa: *Allocator, ais: *Ais, tree: ast.Tree, fn_proto: ast.full.
         try renderToken(ais, tree, callconv_lparen, .none); // (
         try renderExpression(gpa, ais, tree, fn_proto.ast.callconv_expr, .none);
         try renderToken(ais, tree, callconv_rparen, .space); // )
-    } else if (is_inline) {
-        try ais.writer().writeAll("callconv(.Inline) ");
     }
 
     if (token_tags[maybe_bang] == .bang) {
@@ -1590,7 +1604,6 @@ fn renderStructInit(
     return renderToken(ais, tree, rbrace, space);
 }
 
-// TODO: handle comments between elements
 fn renderArrayInit(
     gpa: *Allocator,
     ais: *Ais,
@@ -2311,9 +2324,9 @@ fn renderComments(ais: *Ais, tree: ast.Tree, start: usize, end: usize) Error!boo
             // to the underlying writer, fixing up invaild whitespace.
             const disabled_source = tree.source[ais.disabled_offset.?..comment_start];
             try writeFixingWhitespace(ais.underlying_writer, disabled_source);
-            ais.disabled_offset = null;
             // Write with the canonical single space.
-            try ais.writer().writeAll("// zig fmt: on\n");
+            try ais.underlying_writer.writeAll("// zig fmt: on\n");
+            ais.disabled_offset = null;
         } else if (ais.disabled_offset == null and mem.eql(u8, comment_content, "zig fmt: off")) {
             // Write with the canonical single space.
             try ais.writer().writeAll("// zig fmt: off\n");
@@ -2551,8 +2564,8 @@ fn rowSize(tree: ast.Tree, exprs: []const ast.Node.Index, rtoken: ast.TokenIndex
 fn AutoIndentingStream(comptime UnderlyingWriter: type) type {
     return struct {
         const Self = @This();
-        pub const Error = UnderlyingWriter.Error;
-        pub const Writer = std.io.Writer(*Self, Error, write);
+        pub const WriteError = UnderlyingWriter.Error;
+        pub const Writer = std.io.Writer(*Self, WriteError, write);
 
         underlying_writer: UnderlyingWriter,
 
@@ -2578,7 +2591,7 @@ fn AutoIndentingStream(comptime UnderlyingWriter: type) type {
             return .{ .context = self };
         }
 
-        pub fn write(self: *Self, bytes: []const u8) Error!usize {
+        pub fn write(self: *Self, bytes: []const u8) WriteError!usize {
             if (bytes.len == 0)
                 return @as(usize, 0);
 
@@ -2601,7 +2614,7 @@ fn AutoIndentingStream(comptime UnderlyingWriter: type) type {
             self.indent_delta = new_indent_delta;
         }
 
-        fn writeNoIndent(self: *Self, bytes: []const u8) Error!usize {
+        fn writeNoIndent(self: *Self, bytes: []const u8) WriteError!usize {
             if (bytes.len == 0)
                 return @as(usize, 0);
 
@@ -2611,7 +2624,7 @@ fn AutoIndentingStream(comptime UnderlyingWriter: type) type {
             return bytes.len;
         }
 
-        pub fn insertNewline(self: *Self) Error!void {
+        pub fn insertNewline(self: *Self) WriteError!void {
             _ = try self.writeNoIndent("\n");
         }
 
@@ -2621,7 +2634,7 @@ fn AutoIndentingStream(comptime UnderlyingWriter: type) type {
         }
 
         /// Insert a newline unless the current line is blank
-        pub fn maybeInsertNewline(self: *Self) Error!void {
+        pub fn maybeInsertNewline(self: *Self) WriteError!void {
             if (!self.current_line_empty)
                 try self.insertNewline();
         }
@@ -2662,7 +2675,7 @@ fn AutoIndentingStream(comptime UnderlyingWriter: type) type {
         }
 
         /// Writes ' ' bytes if the current line is empty
-        fn applyIndent(self: *Self) Error!void {
+        fn applyIndent(self: *Self) WriteError!void {
             const current_indent = self.currentIndent();
             if (self.current_line_empty and current_indent > 0) {
                 if (self.disabled_offset == null) {

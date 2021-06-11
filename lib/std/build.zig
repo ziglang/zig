@@ -195,7 +195,8 @@ pub const Builder = struct {
             self.install_prefix = install_prefix orelse "/usr";
             self.install_path = fs.path.join(self.allocator, &[_][]const u8{ dest_dir, self.install_prefix }) catch unreachable;
         } else {
-            self.install_prefix = install_prefix orelse self.cache_root;
+            self.install_prefix = install_prefix orelse
+                (fs.path.join(self.allocator, &[_][]const u8{ self.build_root, "zig-out" }) catch unreachable);
             self.install_path = self.install_prefix;
         }
         self.lib_dir = fs.path.join(self.allocator, &[_][]const u8{ self.install_path, "lib" }) catch unreachable;
@@ -503,10 +504,10 @@ pub const Builder = struct {
         }
         self.available_options_list.append(available_option) catch unreachable;
 
-        const entry = self.user_input_options.getEntry(name) orelse return null;
-        entry.value.used = true;
+        const option_ptr = self.user_input_options.getPtr(name) orelse return null;
+        option_ptr.used = true;
         switch (type_id) {
-            .Bool => switch (entry.value.value) {
+            .Bool => switch (option_ptr.value) {
                 .Flag => return true,
                 .Scalar => |s| {
                     if (mem.eql(u8, s, "true")) {
@@ -525,7 +526,7 @@ pub const Builder = struct {
                     return null;
                 },
             },
-            .Int => switch (entry.value.value) {
+            .Int => switch (option_ptr.value) {
                 .Flag => {
                     warn("Expected -D{s} to be an integer, but received a boolean.\n\n", .{name});
                     self.markInvalidUserInput();
@@ -552,7 +553,7 @@ pub const Builder = struct {
                     return null;
                 },
             },
-            .Float => switch (entry.value.value) {
+            .Float => switch (option_ptr.value) {
                 .Flag => {
                     warn("Expected -D{s} to be a float, but received a boolean.\n\n", .{name});
                     self.markInvalidUserInput();
@@ -572,7 +573,7 @@ pub const Builder = struct {
                     return null;
                 },
             },
-            .Enum => switch (entry.value.value) {
+            .Enum => switch (option_ptr.value) {
                 .Flag => {
                     warn("Expected -D{s} to be a string, but received a boolean.\n\n", .{name});
                     self.markInvalidUserInput();
@@ -593,7 +594,7 @@ pub const Builder = struct {
                     return null;
                 },
             },
-            .String => switch (entry.value.value) {
+            .String => switch (option_ptr.value) {
                 .Flag => {
                     warn("Expected -D{s} to be a string, but received a boolean.\n\n", .{name});
                     self.markInvalidUserInput();
@@ -606,7 +607,7 @@ pub const Builder = struct {
                 },
                 .Scalar => |s| return s,
             },
-            .List => switch (entry.value.value) {
+            .List => switch (option_ptr.value) {
                 .Flag => {
                     warn("Expected -D{s} to be a list, but received a boolean.\n\n", .{name});
                     self.markInvalidUserInput();
@@ -768,7 +769,7 @@ pub const Builder = struct {
         const value = self.dupe(value_raw);
         const gop = try self.user_input_options.getOrPut(name);
         if (!gop.found_existing) {
-            gop.entry.value = UserInputOption{
+            gop.value_ptr.* = UserInputOption{
                 .name = name,
                 .value = UserValue{ .Scalar = value },
                 .used = false,
@@ -777,7 +778,7 @@ pub const Builder = struct {
         }
 
         // option already exists
-        switch (gop.entry.value.value) {
+        switch (gop.value_ptr.value) {
             UserValue.Scalar => |s| {
                 // turn it into a list
                 var list = ArrayList([]const u8).init(self.allocator);
@@ -810,7 +811,7 @@ pub const Builder = struct {
         const name = self.dupe(name_raw);
         const gop = try self.user_input_options.getOrPut(name);
         if (!gop.found_existing) {
-            gop.entry.value = UserInputOption{
+            gop.value_ptr.* = UserInputOption{
                 .name = name,
                 .value = UserValue{ .Flag = {} },
                 .used = false,
@@ -819,7 +820,7 @@ pub const Builder = struct {
         }
 
         // option already exists
-        switch (gop.entry.value.value) {
+        switch (gop.value_ptr.value) {
             UserValue.Scalar => |s| {
                 warn("Flag '-D{s}' conflicts with option '-D{s}={s}'.\n", .{ name, name, s });
                 return true;
@@ -865,10 +866,9 @@ pub const Builder = struct {
     pub fn validateUserInputDidItFail(self: *Builder) bool {
         // make sure all args are used
         var it = self.user_input_options.iterator();
-        while (true) {
-            const entry = it.next() orelse break;
-            if (!entry.value.used) {
-                warn("Invalid option: -D{s}\n\n", .{entry.key});
+        while (it.next()) |entry| {
+            if (!entry.value_ptr.used) {
+                warn("Invalid option: -D{s}\n\n", .{entry.key_ptr.*});
                 self.markInvalidUserInput();
             }
         }
@@ -1016,6 +1016,23 @@ pub const Builder = struct {
             .stale => warn("# installed\n", .{}),
             .fresh => warn("# up-to-date\n", .{}),
         };
+    }
+
+    pub fn truncateFile(self: *Builder, dest_path: []const u8) !void {
+        if (self.verbose) {
+            warn("truncate {s}\n", .{dest_path});
+        }
+        const cwd = fs.cwd();
+        var src_file = cwd.createFile(dest_path, .{}) catch |err| switch (err) {
+            error.FileNotFound => blk: {
+                if (fs.path.dirname(dest_path)) |dirname| {
+                    try cwd.makePath(dirname);
+                }
+                break :blk try cwd.createFile(dest_path, .{});
+            },
+            else => |e| return e,
+        };
+        src_file.close();
     }
 
     pub fn pathFromRoot(self: *Builder, rel_path: []const u8) []u8 {
@@ -1258,6 +1275,15 @@ fn isLibCLibrary(name: []const u8) bool {
     return false;
 }
 
+fn isLibCppLibrary(name: []const u8) bool {
+    const libcpp_libraries = [_][]const u8{ "c++", "stdc++" };
+    for (libcpp_libraries) |libcpp_lib_name| {
+        if (mem.eql(u8, name, libcpp_lib_name))
+            return true;
+    }
+    return false;
+}
+
 pub const FileSource = union(enum) {
     /// Relative to build root
     path: []const u8,
@@ -1319,10 +1345,11 @@ pub const LibExeObjStep = struct {
     version: ?Version,
     build_mode: builtin.Mode,
     kind: Kind,
-    major_only_filename: []const u8,
-    name_only_filename: []const u8,
+    major_only_filename: ?[]const u8,
+    name_only_filename: ?[]const u8,
     strip: bool,
     lib_paths: ArrayList([]const u8),
+    rpaths: ArrayList([]const u8),
     framework_dirs: ArrayList([]const u8),
     frameworks: BufSet,
     verbose_link: bool,
@@ -1363,6 +1390,7 @@ pub const LibExeObjStep = struct {
     c_macros: ArrayList([]const u8),
     output_dir: ?[]const u8,
     is_linking_libc: bool = false,
+    is_linking_libcpp: bool = false,
     vcpkg_bin_path: ?[]const u8 = null,
 
     /// This may be set in order to override the default install directory
@@ -1397,6 +1425,9 @@ pub const LibExeObjStep = struct {
     /// Uses system Wasmtime installation to run cross compiled wasm/wasi build artifacts.
     enable_wasmtime: bool = false,
 
+    /// Experimental. Uses system Darling installation to run cross compiled macOS build artifacts.
+    enable_darling: bool = false,
+
     /// After following the steps in https://github.com/ziglang/zig/wiki/Updating-libc#glibc,
     /// this will be the directory $glibc-build-dir/install/glibcs
     /// Given the example of the aarch64 target, this is the directory
@@ -1411,7 +1442,7 @@ pub const LibExeObjStep = struct {
 
     red_zone: ?bool = null,
 
-    subsystem: ?builtin.SubSystem = null,
+    subsystem: ?std.Target.SubSystem = null,
 
     /// Overrides the default stack size
     stack_size: ?u64 = null,
@@ -1508,13 +1539,14 @@ pub const LibExeObjStep = struct {
             .out_h_filename = builder.fmt("{s}.h", .{name}),
             .out_lib_filename = undefined,
             .out_pdb_filename = builder.fmt("{s}.pdb", .{name}),
-            .major_only_filename = undefined,
-            .name_only_filename = undefined,
+            .major_only_filename = null,
+            .name_only_filename = null,
             .packages = ArrayList(Pkg).init(builder.allocator),
             .include_dirs = ArrayList(IncludeDir).init(builder.allocator),
             .link_objects = ArrayList(LinkObject).init(builder.allocator),
             .c_macros = ArrayList([]const u8).init(builder.allocator),
             .lib_paths = ArrayList([]const u8).init(builder.allocator),
+            .rpaths = ArrayList([]const u8).init(builder.allocator),
             .framework_dirs = ArrayList([]const u8).init(builder.allocator),
             .object_src = undefined,
             .build_options_contents = std.ArrayList(u8).init(builder.allocator),
@@ -1630,13 +1662,17 @@ pub const LibExeObjStep = struct {
 
     pub fn linkFramework(self: *LibExeObjStep, framework_name: []const u8) void {
         assert(self.target.isDarwin());
-        self.frameworks.put(self.builder.dupe(framework_name)) catch unreachable;
+        // Note: No need to dupe because frameworks dupes internally.
+        self.frameworks.insert(framework_name) catch unreachable;
     }
 
     /// Returns whether the library, executable, or object depends on a particular system library.
     pub fn dependsOnSystemLibrary(self: LibExeObjStep, name: []const u8) bool {
         if (isLibCLibrary(name)) {
             return self.is_linking_libc;
+        }
+        if (isLibCppLibrary(name)) {
+            return self.is_linking_libcpp;
         }
         for (self.link_objects.items) |link_object| {
             switch (link_object) {
@@ -1666,6 +1702,13 @@ pub const LibExeObjStep = struct {
         if (!self.is_linking_libc) {
             self.is_linking_libc = true;
             self.link_objects.append(LinkObject{ .SystemLib = "c" }) catch unreachable;
+        }
+    }
+
+    pub fn linkLibCpp(self: *LibExeObjStep) void {
+        if (!self.is_linking_libcpp) {
+            self.is_linking_libcpp = true;
+            self.link_objects.append(LinkObject{ .SystemLib = "c++" }) catch unreachable;
         }
     }
 
@@ -1773,6 +1816,10 @@ pub const LibExeObjStep = struct {
     pub fn linkSystemLibrary(self: *LibExeObjStep, name: []const u8) void {
         if (isLibCLibrary(name)) {
             self.linkLibC();
+            return;
+        }
+        if (isLibCppLibrary(name)) {
+            self.linkLibCpp();
             return;
         }
         if (self.linkSystemLibraryPkgConfigOnly(name)) |_| {
@@ -1963,7 +2010,7 @@ pub const LibExeObjStep = struct {
             },
             std.builtin.Version => {
                 out.print(
-                    \\pub const {}: @import("builtin").Version = .{{
+                    \\pub const {}: @import("std").builtin.Version = .{{
                     \\    .major = {d},
                     \\    .minor = {d},
                     \\    .patch = {d},
@@ -2051,6 +2098,10 @@ pub const LibExeObjStep = struct {
         self.lib_paths.append(self.builder.dupe(path)) catch unreachable;
     }
 
+    pub fn addRPath(self: *LibExeObjStep, path: []const u8) void {
+        self.rpaths.append(self.builder.dupe(path)) catch unreachable;
+    }
+
     pub fn addFrameworkDir(self: *LibExeObjStep, dir_path: []const u8) void {
         self.framework_dirs.append(self.builder.dupe(dir_path)) catch unreachable;
     }
@@ -2128,8 +2179,8 @@ pub const LibExeObjStep = struct {
         // Inherit dependencies on darwin frameworks
         if (self.target.isDarwin() and !other.isDynamicLibrary()) {
             var it = other.frameworks.iterator();
-            while (it.next()) |entry| {
-                self.frameworks.put(entry.key) catch unreachable;
+            while (it.next()) |framework| {
+                self.frameworks.insert(framework.*) catch unreachable;
             }
         }
     }
@@ -2341,7 +2392,7 @@ pub const LibExeObjStep = struct {
             try zig_args.append("-ffunction-sections");
         }
         if (self.linker_allow_shlib_undefined) |x| {
-            try zig_args.append(if (x) "--allow-shlib-undefined" else "--no-allow-shlib-undefined");
+            try zig_args.append(if (x) "-fallow-shlib-undefined" else "-fno-allow-shlib-undefined");
         }
         if (self.single_threaded) {
             try zig_args.append("--single-threaded");
@@ -2479,9 +2530,19 @@ pub const LibExeObjStep = struct {
                 try zig_args.append("--test-cmd");
                 try zig_args.append(bin_name);
                 if (glibc_dir_arg) |dir| {
-                    const full_dir = try fs.path.join(builder.allocator, &[_][]const u8{
-                        dir,
-                        try self.target.linuxTriple(builder.allocator),
+                    // TODO look into making this a call to `linuxTriple`. This
+                    // needs the directory to be called "i686" rather than
+                    // "i386" which is why we do it manually here.
+                    const fmt_str = "{s}" ++ fs.path.sep_str ++ "{s}-{s}-{s}";
+                    const cpu_arch = self.target.getCpuArch();
+                    const os_tag = self.target.getOsTag();
+                    const abi = self.target.getAbi();
+                    const cpu_arch_name: []const u8 = if (cpu_arch == .i386)
+                        "i686"
+                    else
+                        @tagName(cpu_arch);
+                    const full_dir = try std.fmt.allocPrint(builder.allocator, fmt_str, .{
+                        dir, cpu_arch_name, @tagName(os_tag), @tagName(abi),
                     });
 
                     try zig_args.append("--test-cmd");
@@ -2501,6 +2562,11 @@ pub const LibExeObjStep = struct {
                 try zig_args.append(bin_name);
                 try zig_args.append("--test-cmd");
                 try zig_args.append("--dir=.");
+                try zig_args.append("--test-cmd-bin");
+            },
+            .darling => |bin_name| if (self.enable_darling) {
+                try zig_args.append("--test-cmd");
+                try zig_args.append(bin_name);
                 try zig_args.append("--test-cmd-bin");
             },
         }
@@ -2532,6 +2598,11 @@ pub const LibExeObjStep = struct {
             try zig_args.append(lib_path);
         }
 
+        for (self.rpaths.items) |rpath| {
+            try zig_args.append("-rpath");
+            try zig_args.append(rpath);
+        }
+
         for (self.c_macros.items) |c_macro| {
             try zig_args.append("-D");
             try zig_args.append(c_macro);
@@ -2544,9 +2615,9 @@ pub const LibExeObjStep = struct {
             }
 
             var it = self.frameworks.iterator();
-            while (it.next()) |entry| {
+            while (it.next()) |framework| {
                 zig_args.append("-framework") catch unreachable;
-                zig_args.append(entry.key) catch unreachable;
+                zig_args.append(framework.*) catch unreachable;
             }
         }
 
@@ -2656,7 +2727,7 @@ pub const LibExeObjStep = struct {
         }
 
         if (self.kind == Kind.Lib and self.is_dynamic and self.version != null and self.target.wantSharedLibSymLinks()) {
-            try doAtomicSymLinks(builder.allocator, self.getOutputPath(), self.major_only_filename, self.name_only_filename);
+            try doAtomicSymLinks(builder.allocator, self.getOutputPath(), self.major_only_filename.?, self.name_only_filename.?);
         }
     }
 };
@@ -2699,9 +2770,11 @@ pub const InstallArtifactStep = struct {
 
         builder.pushInstalledFile(self.dest_dir, artifact.out_filename);
         if (self.artifact.isDynamicLibrary()) {
-            if (self.artifact.version != null) {
-                builder.pushInstalledFile(.Lib, artifact.major_only_filename);
-                builder.pushInstalledFile(.Lib, artifact.name_only_filename);
+            if (artifact.major_only_filename) |name| {
+                builder.pushInstalledFile(.Lib, name);
+            }
+            if (artifact.name_only_filename) |name| {
+                builder.pushInstalledFile(.Lib, name);
             }
             if (self.artifact.target.isWindows()) {
                 builder.pushInstalledFile(.Lib, artifact.out_lib_filename);
@@ -2723,7 +2796,7 @@ pub const InstallArtifactStep = struct {
         const full_dest_path = builder.getInstallPath(self.dest_dir, self.artifact.out_filename);
         try builder.updateFile(self.artifact.getOutputPath(), full_dest_path);
         if (self.artifact.isDynamicLibrary() and self.artifact.version != null and self.artifact.target.wantSharedLibSymLinks()) {
-            try doAtomicSymLinks(builder.allocator, full_dest_path, self.artifact.major_only_filename, self.artifact.name_only_filename);
+            try doAtomicSymLinks(builder.allocator, full_dest_path, self.artifact.major_only_filename.?, self.artifact.name_only_filename.?);
         }
         if (self.pdb_dir) |pdb_dir| {
             const full_pdb_path = builder.getInstallPath(pdb_dir, self.artifact.out_pdb_filename);
@@ -2772,17 +2845,23 @@ pub const InstallDirectoryOptions = struct {
     source_dir: []const u8,
     install_dir: InstallDir,
     install_subdir: []const u8,
-    exclude_extensions: ?[]const []const u8 = null,
+    /// File paths which end in any of these suffixes will be excluded
+    /// from being installed.
+    exclude_extensions: []const []const u8 = &.{},
+    /// File paths which end in any of these suffixes will result in
+    /// empty files being installed. This is mainly intended for large
+    /// test.zig files in order to prevent needless installation bloat.
+    /// However if the files were not present at all, then
+    /// `@import("test.zig")` would be a compile error.
+    blank_extensions: []const []const u8 = &.{},
 
     fn dupe(self: InstallDirectoryOptions, b: *Builder) InstallDirectoryOptions {
         return .{
             .source_dir = b.dupe(self.source_dir),
             .install_dir = self.install_dir.dupe(b),
             .install_subdir = b.dupe(self.install_subdir),
-            .exclude_extensions = if (self.exclude_extensions) |extensions|
-                b.dupeStrings(extensions)
-            else
-                null,
+            .exclude_extensions = b.dupeStrings(self.exclude_extensions),
+            .blank_extensions = b.dupeStrings(self.blank_extensions),
         };
     }
 };
@@ -2810,17 +2889,29 @@ pub const InstallDirStep = struct {
         const full_src_dir = self.builder.pathFromRoot(self.options.source_dir);
         var it = try fs.walkPath(self.builder.allocator, full_src_dir);
         next_entry: while (try it.next()) |entry| {
-            if (self.options.exclude_extensions) |ext_list| for (ext_list) |ext| {
+            for (self.options.exclude_extensions) |ext| {
                 if (mem.endsWith(u8, entry.path, ext)) {
                     continue :next_entry;
                 }
-            };
+            }
 
             const rel_path = entry.path[full_src_dir.len + 1 ..];
-            const dest_path = try fs.path.join(self.builder.allocator, &[_][]const u8{ dest_prefix, rel_path });
+            const dest_path = try fs.path.join(self.builder.allocator, &[_][]const u8{
+                dest_prefix, rel_path,
+            });
+
             switch (entry.kind) {
                 .Directory => try fs.cwd().makePath(dest_path),
-                .File => try self.builder.updateFile(entry.path, dest_path),
+                .File => {
+                    for (self.options.blank_extensions) |ext| {
+                        if (mem.endsWith(u8, entry.path, ext)) {
+                            try self.builder.truncateFile(dest_path);
+                            continue :next_entry;
+                        }
+                    }
+
+                    try self.builder.updateFile(entry.path, dest_path);
+                },
                 else => continue,
             }
         }
@@ -3059,19 +3150,19 @@ test "Builder.dupePkg()" {
     const dupe_deps = dupe.dependencies.?;
 
     // probably the same top level package details
-    std.testing.expectEqualStrings(pkg_top.name, dupe.name);
+    try std.testing.expectEqualStrings(pkg_top.name, dupe.name);
 
     // probably the same dependencies
-    std.testing.expectEqual(original_deps.len, dupe_deps.len);
-    std.testing.expectEqual(original_deps[0].name, pkg_dep.name);
+    try std.testing.expectEqual(original_deps.len, dupe_deps.len);
+    try std.testing.expectEqual(original_deps[0].name, pkg_dep.name);
 
     // could segfault otherwise if pointers in duplicated package's fields are
     // the same as those in stack allocated package's fields
-    std.testing.expect(dupe_deps.ptr != original_deps.ptr);
-    std.testing.expect(dupe.name.ptr != pkg_top.name.ptr);
-    std.testing.expect(dupe.path.ptr != pkg_top.path.ptr);
-    std.testing.expect(dupe_deps[0].name.ptr != pkg_dep.name.ptr);
-    std.testing.expect(dupe_deps[0].path.ptr != pkg_dep.path.ptr);
+    try std.testing.expect(dupe_deps.ptr != original_deps.ptr);
+    try std.testing.expect(dupe.name.ptr != pkg_top.name.ptr);
+    try std.testing.expect(dupe.path.ptr != pkg_top.path.ptr);
+    try std.testing.expect(dupe_deps[0].name.ptr != pkg_dep.name.ptr);
+    try std.testing.expect(dupe_deps[0].path.ptr != pkg_dep.path.ptr);
 }
 
 test "LibExeObjStep.addBuildOption" {
@@ -3095,7 +3186,7 @@ test "LibExeObjStep.addBuildOption" {
     exe.addBuildOption(?[]const u8, "optional_string", null);
     exe.addBuildOption(std.SemanticVersion, "semantic_version", try std.SemanticVersion.parse("0.1.2-foo+bar"));
 
-    std.testing.expectEqualStrings(
+    try std.testing.expectEqualStrings(
         \\pub const option1: usize = 1;
         \\pub const option2: ?usize = null;
         \\pub const string: []const u8 = "zigisthebest";
@@ -3139,10 +3230,10 @@ test "LibExeObjStep.addPackage" {
     var exe = builder.addExecutable("not_an_executable", "/not/an/executable.zig");
     exe.addPackage(pkg_top);
 
-    std.testing.expectEqual(@as(usize, 1), exe.packages.items.len);
+    try std.testing.expectEqual(@as(usize, 1), exe.packages.items.len);
 
     const dupe = exe.packages.items[0];
-    std.testing.expectEqualStrings(pkg_top.name, dupe.name);
+    try std.testing.expectEqualStrings(pkg_top.name, dupe.name);
 }
 
 test {

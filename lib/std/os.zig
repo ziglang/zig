@@ -21,7 +21,7 @@
 
 const root = @import("root");
 const std = @import("std.zig");
-const builtin = @import("builtin");
+const builtin = std.builtin;
 const assert = std.debug.assert;
 const math = std.math;
 const mem = std.mem;
@@ -497,8 +497,14 @@ pub fn pread(fd: fd_t, buf: []u8, offset: u64) PReadError!usize {
     };
     const adjusted_len = math.min(max_count, buf.len);
 
+    const pread_sym = if (builtin.os.tag == .linux and builtin.link_libc)
+        system.pread64
+    else
+        system.pread;
+
+    const ioffset = @bitCast(i64, offset); // the OS treats this as unsigned
     while (true) {
-        const rc = system.pread(fd, buf.ptr, adjusted_len, offset);
+        const rc = pread_sym(fd, buf.ptr, adjusted_len, ioffset);
         switch (errno(rc)) {
             0 => return @intCast(usize, rc),
             EINTR => continue,
@@ -567,15 +573,13 @@ pub fn ftruncate(fd: fd_t, length: u64) TruncateError!void {
     }
 
     while (true) {
-        const rc = if (builtin.link_libc)
-            if (std.Target.current.os.tag == .linux)
-                system.ftruncate64(fd, @bitCast(off_t, length))
-            else
-                system.ftruncate(fd, @bitCast(off_t, length))
+        const ftruncate_sym = if (builtin.os.tag == .linux and builtin.link_libc)
+            system.ftruncate64
         else
-            system.ftruncate(fd, length);
+            system.ftruncate;
 
-        switch (errno(rc)) {
+        const ilen = @bitCast(i64, length); // the OS treats this as unsigned
+        switch (errno(ftruncate_sym(fd, ilen))) {
             0 => return,
             EINTR => continue,
             EFBIG => return error.FileTooBig,
@@ -637,8 +641,14 @@ pub fn preadv(fd: fd_t, iov: []const iovec, offset: u64) PReadError!usize {
 
     const iov_count = math.cast(u31, iov.len) catch math.maxInt(u31);
 
+    const preadv_sym = if (builtin.os.tag == .linux and builtin.link_libc)
+        system.preadv64
+    else
+        system.preadv;
+
+    const ioffset = @bitCast(i64, offset); // the OS treats this as unsigned
     while (true) {
-        const rc = system.preadv(fd, iov.ptr, iov_count, offset);
+        const rc = preadv_sym(fd, iov.ptr, iov_count, ioffset);
         switch (errno(rc)) {
             0 => return @bitCast(usize, rc),
             EINTR => continue,
@@ -895,8 +905,14 @@ pub fn pwrite(fd: fd_t, bytes: []const u8, offset: u64) PWriteError!usize {
     };
     const adjusted_len = math.min(max_count, bytes.len);
 
+    const pwrite_sym = if (builtin.os.tag == .linux and builtin.link_libc)
+        system.pwrite64
+    else
+        system.pwrite;
+
+    const ioffset = @bitCast(i64, offset); // the OS treats this as unsigned
     while (true) {
-        const rc = system.pwrite(fd, bytes.ptr, adjusted_len, offset);
+        const rc = pwrite_sym(fd, bytes.ptr, adjusted_len, ioffset);
         switch (errno(rc)) {
             0 => return @intCast(usize, rc),
             EINTR => continue,
@@ -977,9 +993,15 @@ pub fn pwritev(fd: fd_t, iov: []const iovec_const, offset: u64) PWriteError!usiz
         }
     }
 
+    const pwritev_sym = if (builtin.os.tag == .linux and builtin.link_libc)
+        system.pwritev64
+    else
+        system.pwritev;
+
     const iov_count = math.cast(u31, iov.len) catch math.maxInt(u31);
+    const ioffset = @bitCast(i64, offset); // the OS treats this as unsigned
     while (true) {
-        const rc = system.pwritev(fd, iov.ptr, iov_count, offset);
+        const rc = pwritev_sym(fd, iov.ptr, iov_count, ioffset);
         switch (errno(rc)) {
             0 => return @intCast(usize, rc),
             EINTR => continue,
@@ -1049,7 +1071,7 @@ pub const OpenError = error{
 } || UnexpectedError;
 
 /// Open and possibly create a file. Keeps trying if it gets interrupted.
-/// See also `openC`.
+/// See also `openZ`.
 pub fn open(file_path: []const u8, flags: u32, perm: mode_t) OpenError!fd_t {
     if (std.Target.current.os.tag == .windows) {
         const file_path_w = try windows.sliceToPrefixedFileW(file_path);
@@ -1068,8 +1090,14 @@ pub fn openZ(file_path: [*:0]const u8, flags: u32, perm: mode_t) OpenError!fd_t 
         const file_path_w = try windows.cStrToPrefixedFileW(file_path);
         return openW(file_path_w.span(), flags, perm);
     }
+
+    const open_sym = if (builtin.os.tag == .linux and builtin.link_libc)
+        system.open64
+    else
+        system.open;
+
     while (true) {
-        const rc = system.open(file_path, flags, perm);
+        const rc = open_sym(file_path, flags, perm);
         switch (errno(rc)) {
             0 => return @intCast(fd_t, rc),
             EINTR => continue,
@@ -1147,7 +1175,7 @@ pub fn openW(file_path_w: []const u16, flags: u32, perm: mode_t) OpenError!fd_t 
 
 /// Open and possibly create a file. Keeps trying if it gets interrupted.
 /// `file_path` is relative to the open directory handle `dir_fd`.
-/// See also `openatC`.
+/// See also `openatZ`.
 pub fn openat(dir_fd: fd_t, file_path: []const u8, flags: u32, mode: mode_t) OpenError!fd_t {
     if (builtin.os.tag == .wasi) {
         @compileError("use openatWasi instead");
@@ -1202,14 +1230,21 @@ pub fn openatZ(dir_fd: fd_t, file_path: [*:0]const u8, flags: u32, mode: mode_t)
         const file_path_w = try windows.cStrToPrefixedFileW(file_path);
         return openatW(dir_fd, file_path_w.span(), flags, mode);
     }
+
+    const openat_sym = if (builtin.os.tag == .linux and builtin.link_libc)
+        system.openat64
+    else
+        system.openat;
+
     while (true) {
-        const rc = system.openat(dir_fd, file_path, flags, mode);
+        const rc = openat_sym(dir_fd, file_path, flags, mode);
         switch (errno(rc)) {
             0 => return @intCast(fd_t, rc),
             EINTR => continue,
 
             EFAULT => unreachable,
             EINVAL => unreachable,
+            EBADF => unreachable,
             EACCES => return error.AccessDenied,
             EFBIG => return error.FileTooBig,
             EOVERFLOW => return error.FileTooBig,
@@ -1754,7 +1789,7 @@ pub const UnlinkError = error{
 } || UnexpectedError;
 
 /// Delete a name and possibly the file it refers to.
-/// See also `unlinkC`.
+/// See also `unlinkZ`.
 pub fn unlink(file_path: []const u8) UnlinkError!void {
     if (builtin.os.tag == .wasi) {
         @compileError("unlink is not supported in WASI; use unlinkat instead");
@@ -2693,10 +2728,21 @@ pub const SocketError = error{
 
 pub fn socket(domain: u32, socket_type: u32, protocol: u32) SocketError!socket_t {
     if (builtin.os.tag == .windows) {
-        // NOTE: windows translates the SOCK_NONBLOCK/SOCK_CLOEXEC flags into windows-analagous operations
+        // NOTE: windows translates the SOCK_NONBLOCK/SOCK_CLOEXEC flags into
+        // windows-analagous operations
         const filtered_sock_type = socket_type & ~@as(u32, SOCK_NONBLOCK | SOCK_CLOEXEC);
-        const flags: u32 = if ((socket_type & SOCK_CLOEXEC) != 0) windows.ws2_32.WSA_FLAG_NO_HANDLE_INHERIT else 0;
-        const rc = try windows.WSASocketW(@bitCast(i32, domain), @bitCast(i32, filtered_sock_type), @bitCast(i32, protocol), null, 0, flags);
+        const flags: u32 = if ((socket_type & SOCK_CLOEXEC) != 0)
+            windows.ws2_32.WSA_FLAG_NO_HANDLE_INHERIT
+        else
+            0;
+        const rc = try windows.WSASocketW(
+            @bitCast(i32, domain),
+            @bitCast(i32, filtered_sock_type),
+            @bitCast(i32, protocol),
+            null,
+            0,
+            flags,
+        );
         errdefer windows.closesocket(rc) catch unreachable;
         if ((socket_type & SOCK_NONBLOCK) != 0) {
             var mode: c_ulong = 1; // nonblocking
@@ -2758,9 +2804,9 @@ pub const ShutdownHow = enum { recv, send, both };
 pub fn shutdown(sock: socket_t, how: ShutdownHow) ShutdownError!void {
     if (builtin.os.tag == .windows) {
         const result = windows.ws2_32.shutdown(sock, switch (how) {
-            .recv => windows.SD_RECEIVE,
-            .send => windows.SD_SEND,
-            .both => windows.SD_BOTH,
+            .recv => windows.ws2_32.SD_RECEIVE,
+            .send => windows.ws2_32.SD_SEND,
+            .both => windows.ws2_32.SD_BOTH,
         });
         if (0 != result) switch (windows.ws2_32.WSAGetLastError()) {
             .WSAECONNABORTED => return error.ConnectionAborted,
@@ -3217,6 +3263,35 @@ pub fn getsockname(sock: socket_t, addr: *sockaddr, addrlen: *socklen_t) GetSock
     }
 }
 
+pub fn getpeername(sock: socket_t, addr: *sockaddr, addrlen: *socklen_t) GetSockNameError!void {
+    if (builtin.os.tag == .windows) {
+        const rc = windows.getpeername(sock, addr, addrlen);
+        if (rc == windows.ws2_32.SOCKET_ERROR) {
+            switch (windows.ws2_32.WSAGetLastError()) {
+                .WSANOTINITIALISED => unreachable,
+                .WSAENETDOWN => return error.NetworkSubsystemFailed,
+                .WSAEFAULT => unreachable, // addr or addrlen have invalid pointers or addrlen points to an incorrect value
+                .WSAENOTSOCK => return error.FileDescriptorNotASocket,
+                .WSAEINVAL => return error.SocketNotBound,
+                else => |err| return windows.unexpectedWSAError(err),
+            }
+        }
+        return;
+    } else {
+        const rc = system.getpeername(sock, addr, addrlen);
+        switch (errno(rc)) {
+            0 => return,
+            else => |err| return unexpectedErrno(err),
+
+            EBADF => unreachable, // always a race condition
+            EFAULT => unreachable,
+            EINVAL => unreachable, // invalid parameters
+            ENOTSOCK => return error.FileDescriptorNotASocket,
+            ENOBUFS => return error.SystemResources,
+        }
+    }
+}
+
 pub const ConnectError = error{
     /// For UNIX domain sockets, which are identified by pathname: Write permission is denied on  the  socket
     /// file,  or  search  permission  is  denied  for  one of the directories in the path prefix.
@@ -3408,8 +3483,13 @@ pub fn fstat(fd: fd_t) FStatError!Stat {
         @compileError("fstat is not yet implemented on Windows");
     }
 
-    var stat: Stat = undefined;
-    switch (errno(system.fstat(fd, &stat))) {
+    const fstat_sym = if (builtin.os.tag == .linux and builtin.link_libc)
+        system.fstat64
+    else
+        system.fstat;
+
+    var stat = mem.zeroes(Stat);
+    switch (errno(fstat_sym(fd, &stat))) {
         0 => return stat,
         EINVAL => unreachable,
         EBADF => unreachable, // Always a race condition.
@@ -3419,7 +3499,7 @@ pub fn fstat(fd: fd_t) FStatError!Stat {
     }
 }
 
-pub const FStatAtError = FStatError || error{ NameTooLong, FileNotFound };
+pub const FStatAtError = FStatError || error{ NameTooLong, FileNotFound, SymLinkLoop };
 
 /// Similar to `fstat`, but returns stat of a resource pointed to by `pathname`
 /// which is relative to `dirfd` handle.
@@ -3459,15 +3539,22 @@ pub fn fstatatWasi(dirfd: fd_t, pathname: []const u8, flags: u32) FStatAtError!S
 /// Same as `fstatat` but `pathname` is null-terminated.
 /// See also `fstatat`.
 pub fn fstatatZ(dirfd: fd_t, pathname: [*:0]const u8, flags: u32) FStatAtError!Stat {
-    var stat: Stat = undefined;
-    switch (errno(system.fstatat(dirfd, pathname, &stat, flags))) {
+    const fstatat_sym = if (builtin.os.tag == .linux and builtin.link_libc)
+        system.fstatat64
+    else
+        system.fstatat;
+
+    var stat = mem.zeroes(Stat);
+    switch (errno(fstatat_sym(dirfd, pathname, &stat, flags))) {
         0 => return stat,
         EINVAL => unreachable,
         EBADF => unreachable, // Always a race condition.
         ENOMEM => return error.SystemResources,
         EACCES => return error.AccessDenied,
+        EPERM => return error.AccessDenied,
         EFAULT => unreachable,
         ENAMETOOLONG => return error.NameTooLong,
+        ELOOP => return error.SymLinkLoop,
         ENOENT => return error.FileNotFound,
         ENOTDIR => return error.FileNotFound,
         else => |err| return unexpectedErrno(err),
@@ -3670,12 +3757,17 @@ pub fn mmap(
     fd: fd_t,
     offset: u64,
 ) MMapError![]align(mem.page_size) u8 {
+    const mmap_sym = if (builtin.os.tag == .linux and builtin.link_libc)
+        system.mmap64
+    else
+        system.mmap;
+
+    const ioffset = @bitCast(i64, offset); // the OS treats this as unsigned
+    const rc = mmap_sym(ptr, length, prot, flags, fd, ioffset);
     const err = if (builtin.link_libc) blk: {
-        const rc = std.c.mmap(ptr, length, prot, flags, fd, offset);
         if (rc != std.c.MAP_FAILED) return @ptrCast([*]align(mem.page_size) u8, @alignCast(mem.page_size, rc))[0..length];
         break :blk system._errno().*;
     } else blk: {
-        const rc = system.mmap(ptr, length, prot, flags, fd, offset);
         const err = errno(rc);
         if (err == 0) return @intToPtr([*]align(mem.page_size) u8, rc)[0..length];
         break :blk err;
@@ -3700,7 +3792,7 @@ pub fn mmap(
 /// Zig's munmap function does not, for two reasons:
 /// * It violates the Zig principle that resource deallocation must succeed.
 /// * The Windows function, VirtualFree, has this restriction.
-pub fn munmap(memory: []align(mem.page_size) u8) void {
+pub fn munmap(memory: []align(mem.page_size) const u8) void {
     switch (errno(system.munmap(memory.ptr, memory.len))) {
         0 => return,
         EINVAL => unreachable, // Invalid parameters.
@@ -4025,8 +4117,14 @@ pub fn lseek_SET(fd: fd_t, offset: u64) SeekError!void {
             else => |err| return unexpectedErrno(err),
         }
     }
-    const ipos = @bitCast(i64, offset); // the OS treats this as unsigned
-    switch (errno(system.lseek(fd, ipos, SEEK_SET))) {
+
+    const lseek_sym = if (builtin.os.tag == .linux and builtin.link_libc)
+        system.lseek64
+    else
+        system.lseek;
+
+    const ioffset = @bitCast(i64, offset); // the OS treats this as unsigned
+    switch (errno(lseek_sym(fd, ioffset, SEEK_SET))) {
         0 => return,
         EBADF => unreachable, // always a race condition
         EINVAL => return error.Unseekable,
@@ -4067,7 +4165,13 @@ pub fn lseek_CUR(fd: fd_t, offset: i64) SeekError!void {
             else => |err| return unexpectedErrno(err),
         }
     }
-    switch (errno(system.lseek(fd, offset, SEEK_CUR))) {
+    const lseek_sym = if (builtin.os.tag == .linux and builtin.link_libc)
+        system.lseek64
+    else
+        system.lseek;
+
+    const ioffset = @bitCast(i64, offset); // the OS treats this as unsigned
+    switch (errno(lseek_sym(fd, ioffset, SEEK_CUR))) {
         0 => return,
         EBADF => unreachable, // always a race condition
         EINVAL => return error.Unseekable,
@@ -4108,7 +4212,13 @@ pub fn lseek_END(fd: fd_t, offset: i64) SeekError!void {
             else => |err| return unexpectedErrno(err),
         }
     }
-    switch (errno(system.lseek(fd, offset, SEEK_END))) {
+    const lseek_sym = if (builtin.os.tag == .linux and builtin.link_libc)
+        system.lseek64
+    else
+        system.lseek;
+
+    const ioffset = @bitCast(i64, offset); // the OS treats this as unsigned
+    switch (errno(lseek_sym(fd, ioffset, SEEK_END))) {
         0 => return,
         EBADF => unreachable, // always a race condition
         EINVAL => return error.Unseekable,
@@ -4149,7 +4259,12 @@ pub fn lseek_CUR_get(fd: fd_t) SeekError!u64 {
             else => |err| return unexpectedErrno(err),
         }
     }
-    const rc = system.lseek(fd, 0, SEEK_CUR);
+    const lseek_sym = if (builtin.os.tag == .linux and builtin.link_libc)
+        system.lseek64
+    else
+        system.lseek;
+
+    const rc = lseek_sym(fd, 0, SEEK_CUR);
     switch (errno(rc)) {
         0 => return @bitCast(u64, rc),
         EBADF => unreachable, // always a race condition
@@ -4883,7 +4998,7 @@ pub fn sendmsg(
     flags: u32,
 ) SendMsgError!usize {
     while (true) {
-        const rc = system.sendmsg(sockfd, &msg, flags);
+        const rc = system.sendmsg(sockfd, @ptrCast(*const std.x.os.Socket.Message, &msg), @intCast(c_int, flags));
         if (builtin.os.tag == .windows) {
             if (rc == windows.ws2_32.SOCKET_ERROR) {
                 switch (windows.ws2_32.WSAGetLastError()) {
@@ -5167,9 +5282,14 @@ pub fn sendfile(
             // Here we match BSD behavior, making a zero count value send as many bytes as possible.
             const adjusted_count = if (in_len == 0) max_count else math.min(in_len, @as(size_t, max_count));
 
+            const sendfile_sym = if (builtin.link_libc)
+                system.sendfile64
+            else
+                system.sendfile;
+
             while (true) {
                 var offset: off_t = @bitCast(off_t, in_offset);
-                const rc = system.sendfile(out_fd, in_fd, &offset, adjusted_count);
+                const rc = sendfile_sym(out_fd, in_fd, &offset, adjusted_count);
                 switch (errno(rc)) {
                     0 => {
                         const amt = @bitCast(usize, rc);
@@ -5414,7 +5534,7 @@ pub const CopyFileRangeError = error{
 
 var has_copy_file_range_syscall = init: {
     const kernel_has_syscall = std.Target.current.os.isAtLeast(.linux, .{ .major = 4, .minor = 5 }) orelse true;
-    break :init std.atomic.Bool.init(kernel_has_syscall);
+    break :init std.atomic.Atomic(bool).init(kernel_has_syscall);
 };
 
 /// Transfer data between file descriptors at specified offsets.
@@ -5720,7 +5840,7 @@ pub const SetSockOptError = error{
 /// Set a socket's options.
 pub fn setsockopt(fd: socket_t, level: u32, optname: u32, opt: []const u8) SetSockOptError!void {
     if (builtin.os.tag == .windows) {
-        const rc = windows.ws2_32.setsockopt(fd, level, optname, opt.ptr, @intCast(socklen_t, opt.len));
+        const rc = windows.ws2_32.setsockopt(fd, @intCast(i32, level), @intCast(i32, optname), opt.ptr, @intCast(i32, opt.len));
         if (rc == windows.ws2_32.SOCKET_ERROR) {
             switch (windows.ws2_32.WSAGetLastError()) {
                 .WSANOTINITIALISED => unreachable,
@@ -5987,9 +6107,13 @@ pub fn prctl(option: PR, args: anytype) PrctlError!u31 {
 pub const GetrlimitError = UnexpectedError;
 
 pub fn getrlimit(resource: rlimit_resource) GetrlimitError!rlimit {
+    const getrlimit_sym = if (builtin.os.tag == .linux and builtin.link_libc)
+        system.getrlimit64
+    else
+        system.getrlimit;
+
     var limits: rlimit = undefined;
-    const rc = system.getrlimit(resource, &limits);
-    switch (errno(rc)) {
+    switch (errno(getrlimit_sym(resource, &limits))) {
         0 => return limits,
         EFAULT => unreachable, // bogus pointer
         EINVAL => unreachable,
@@ -5997,14 +6121,18 @@ pub fn getrlimit(resource: rlimit_resource) GetrlimitError!rlimit {
     }
 }
 
-pub const SetrlimitError = error{PermissionDenied} || UnexpectedError;
+pub const SetrlimitError = error{ PermissionDenied, LimitTooBig } || UnexpectedError;
 
 pub fn setrlimit(resource: rlimit_resource, limits: rlimit) SetrlimitError!void {
-    const rc = system.setrlimit(resource, &limits);
-    switch (errno(rc)) {
+    const setrlimit_sym = if (builtin.os.tag == .linux and builtin.link_libc)
+        system.setrlimit64
+    else
+        system.setrlimit;
+
+    switch (errno(setrlimit_sym(resource, &limits))) {
         0 => return,
         EFAULT => unreachable, // bogus pointer
-        EINVAL => unreachable,
+        EINVAL => return error.LimitTooBig, // this could also mean "invalid resource", but that would be unreachable
         EPERM => return error.PermissionDenied,
         else => |err| return unexpectedErrno(err),
     }

@@ -52,6 +52,6 @@ test "MultiWriter" {
     var fbs2 = io.fixedBufferStream(&buf2);
     var stream = multiWriter(.{ fbs1.writer(), fbs2.writer() });
     try stream.writer().print("HI", .{});
-    testing.expectEqualSlices(u8, "HI", fbs1.getWritten());
-    testing.expectEqualSlices(u8, "HI", fbs2.getWritten());
+    try testing.expectEqualSlices(u8, "HI", fbs1.getWritten());
+    try testing.expectEqualSlices(u8, "HI", fbs2.getWritten());
 }

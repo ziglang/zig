@@ -190,35 +190,24 @@ extern "C" {
 #define _sntscanf_l _snwscanf_l
 
 #define _fgettc fgetwc
-#define _fgettc_nolock _fgetwc_nolock
 #define _fgettchar _fgetwchar
 #define _fgetts fgetws
 #define _fputtc fputwc
-#define _fputtc_nolock _fputwc_nolock
 #define _fputtchar _fputwchar
 #define _fputts fputws
 #define _cputts _cputws
 #define _cgetts _cgetws
 #define _gettc getwc
-#define _gettc_nolock _getwc_nolock
 #define _gettch _getwch
-#define _gettch_nolock _getwch_nolock
 #define _gettche _getwche
-#define _gettche_nolock _getwche_nolock
 #define _gettchar getwchar
-#define _gettchar_nolock _getwchar_nolock
 #define _getts _getws
 #define _puttc putwc
-#define _puttc_nolock _putwc_nolock
 #define _puttchar putwchar
-#define _puttchar_nolock _putwchar_nolock
 #define _puttch _putwch
-#define _puttch_nolock _putwch_nolock
 #define _putts _putws
 #define _ungettc ungetwc
-#define _ungettc_nolock _ungetwc_nolock
 #define _ungettch _ungetwch
-#define _ungettch_nolock _ungetwch_nolock
 
 #define _tcstod wcstod
 #define _tcstol wcstol
@@ -334,7 +323,6 @@ extern "C" {
 #define _tchdir _wchdir
 #define _tgetcwd _wgetcwd
 #define _tgetdcwd _wgetdcwd
-#define _tgetdcwd_nolock _wgetdcwd_nolock
 #define _tmkdir _wmkdir
 #define _trmdir _wrmdir
 
@@ -566,35 +554,24 @@ extern "C" {
 #define _sntscanf_l _snscanf_l
 
 #define _fgettc fgetc
-#define _fgettc_nolock _fgetc_nolock
 #define _fgettchar _fgetchar
 #define _fgetts fgets
 #define _fputtc fputc
-#define _fputtc_nolock _fputc_nolock
 #define _fputtchar _fputchar
 #define _fputts fputs
 #define _cputts _cputs
 #define _gettc getc
-#define _gettc_nolock _getc_nolock
 #define _gettch _getch
-#define _gettch_nolock _getch_nolock
 #define _gettche _getche
-#define _gettche_nolock _getche_nolock
 #define _gettchar getchar
-#define _gettchar_nolock _getchar_nolock
 #define _getts gets
 #define _cgetts _cgets
 #define _puttc putc
-#define _puttc_nolock _putc_nolock
 #define _puttchar putchar
-#define _puttchar_nolock _putchar_nolock
 #define _puttch _putch
-#define _puttch_nolock _putch_nolock
 #define _putts puts
 #define _ungettc ungetc
-#define _ungettc_nolock _ungetc_nolock
 #define _ungettch _ungetch
-#define _ungettch_nolock _ungetch_nolock
 
 #define _tcstod strtod
 #define _tcstol strtol
@@ -670,7 +647,6 @@ extern "C" {
 #define _tchdir _chdir
 #define _tgetcwd _getcwd
 #define _tgetdcwd _getdcwd
-#define _tgetdcwd_nolock _getdcwd_nolock
 #define _tmkdir _mkdir
 #define _trmdir _rmdir
 
@@ -746,6 +722,33 @@ extern "C" {
 #define _tstati64 _stati64
 
 #define _tsetlocale setlocale
+
+#if __MSVCRT_VERSION__ >= 0x800
+#define _fgettc_nolock _fgetwc_nolock
+#define _fputtc_nolock _fputwc_nolock
+#define _gettc_nolock _getwc_nolock
+#define _gettch_nolock _getwch_nolock
+#define _gettche_nolock _getwche_nolock
+#define _gettchar_nolock _getwchar_nolock
+#define _puttc_nolock _putwc_nolock
+#define _puttchar_nolock _putwchar_nolock
+#define _puttch_nolock _putwch_nolock
+#define _ungettc_nolock _ungetwc_nolock
+#define _ungettch_nolock _ungetwch_nolock
+#define _tgetdcwd_nolock _wgetdcwd_nolock
+#define _fgettc_nolock _fgetc_nolock
+#define _fputtc_nolock _fputc_nolock
+#define _gettc_nolock _getc_nolock
+#define _gettch_nolock _getch_nolock
+#define _gettche_nolock _getche_nolock
+#define _gettchar_nolock _getchar_nolock
+#define _puttc_nolock _putc_nolock
+#define _puttchar_nolock _putchar_nolock
+#define _puttch_nolock _putch_nolock
+#define _ungettc_nolock _ungetc_nolock
+#define _ungettch_nolock _ungetch_nolock
+#define _tgetdcwd_nolock _getdcwd_nolock
+#endif
 
 #endif /* __CYGWIN__ */
 

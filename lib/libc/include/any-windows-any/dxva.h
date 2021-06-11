@@ -565,6 +565,88 @@ typedef struct _DXVA_Status_VPx
 
 #include <poppack.h>
 
+typedef enum _DXVA_VideoChromaSubsampling
+{
+    DXVA_VideoChromaSubsampling_Vertically_AlignedChromaPlanes  = 0x1,
+    DXVA_VideoChromaSubsampling_Vertically_Cosited              = 0x2,
+    DXVA_VideoChromaSubsampling_Horizontally_Cosited            = 0x4,
+    DXVA_VideoChromaSubsampling_ProgressiveChroma               = 0x8,
+
+    DXVA_VideoChromaSubsampling_Unknown = 0,
+    DXVA_VideoChromaSubsampling_Cosited = DXVA_VideoChromaSubsampling_Vertically_AlignedChromaPlanes
+            | DXVA_VideoChromaSubsampling_Vertically_Cosited
+            | DXVA_VideoChromaSubsampling_Horizontally_Cosited,
+    DXVA_VideoChromaSubsampling_DV_PAL = DXVA_VideoChromaSubsampling_Vertically_Cosited
+            | DXVA_VideoChromaSubsampling_Horizontally_Cosited,
+    DXVA_VideoChromaSubsampling_MPEG1 = DXVA_VideoChromaSubsampling_Vertically_AlignedChromaPlanes,
+    DXVA_VideoChromaSubsampling_MPEG2 = DXVA_VideoChromaSubsampling_Vertically_AlignedChromaPlanes
+            | DXVA_VideoChromaSubsampling_Horizontally_Cosited,
+} DXVA_VideoChromaSubsampling;
+
+typedef enum _DXVA_NominalRange
+{
+    DXVA_NominalRange_Unknown = 0,
+    DXVA_NominalRange_0_255 = 1,
+    DXVA_NominalRange_16_235 = 2,
+    DXVA_NominalRange_48_208 = 3,
+    DXVA_NominalRange_Normal = DXVA_NominalRange_0_255,
+    DXVA_NominalRange_Wide = DXVA_NominalRange_16_235,
+} DXVA_NominalRange;
+
+typedef enum _DXVA_VideoTransferMatrix
+{
+    DXVA_VideoTransferMatrix_Unknown = 0,
+    DXVA_VideoTransferMatrix_BT709 = 1,
+    DXVA_VideoTransferMatrix_BT601 = 2,
+    DXVA_VideoTransferMatrix_SMPTE240M = 3,
+} DXVA_VideoTransferMatrix;
+
+typedef enum _DXVA_VideoLighting
+{
+    DXVA_VideoLighting_Unknown = 0,
+    DXVA_VideoLighting_bright = 1,
+    DXVA_VideoLighting_office = 2,
+    DXVA_VideoLighting_dim = 3,
+    DXVA_VideoLighting_dark = 4,
+} DXVA_VideoLighting;
+
+typedef enum _DXVA_VideoPrimaries
+{
+    DXVA_VideoPrimaries_Unknown = 0,
+    DXVA_VideoPrimaries_reserved = 1,
+    DXVA_VideoPrimaries_BT709 = 2,
+    DXVA_VideoPrimaries_BT470_2_SysM = 3,
+    DXVA_VideoPrimaries_BT470_2_SysBG = 4,
+    DXVA_VideoPrimaries_SMPTE170M = 5,
+    DXVA_VideoPrimaries_SMPTE420M = 6,
+    DXVA_VideoPrimaries_EBU3213 = 7,
+    DXVA_VideoPrimaries_SMPTE_C = 8,
+} DXVA_VideoPrimaries;
+
+typedef enum _DXVA_VideoTransferFunction
+{
+    DXVA_VideoTransFunc_Unknown = 0,
+    DXVA_VideoTransFunc_10 = 1,
+    DXVA_VideoTransFunc_18 = 2,
+    DXVA_VideoTransFunc_20 = 3,
+    DXVA_VideoTransFunc_22 = 4,
+    DXVA_VideoTransFunc_22_709 = 5,
+    DXVA_VideoTransFunc_22_240M = 6,
+    DXVA_VideoTransFunc_22_8bit_sRGB = 7,
+    DXVA_VideoTransFunc_28 = 8,
+} DXVA_VideoTransferFunction;
+
+typedef struct _DXVA_ExtendedFormat
+{
+    UINT SampleFormat : 8;
+    UINT VideoChromaSubsampling : 4;
+    DXVA_NominalRange NominalRange : 3;
+    DXVA_VideoTransferMatrix VideoTransferMatrix : 3;
+    DXVA_VideoLighting VideoLighting : 4;
+    DXVA_VideoPrimaries VideoPrimaries : 5;
+    DXVA_VideoTransferFunction VideoTransferFunction : 5;
+} DXVA_ExtendedFormat;
+
 #ifdef __cplusplus
 }
 #endif

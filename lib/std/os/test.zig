@@ -19,14 +19,15 @@ const Thread = std.Thread;
 const a = std.testing.allocator;
 
 const builtin = @import("builtin");
-const AtomicRmwOp = builtin.AtomicRmwOp;
-const AtomicOrder = builtin.AtomicOrder;
+const AtomicRmwOp = std.builtin.AtomicRmwOp;
+const AtomicOrder = std.builtin.AtomicOrder;
+const native_os = builtin.target.os.tag;
 const tmpDir = std.testing.tmpDir;
 const Dir = std.fs.Dir;
 const ArenaAllocator = std.heap.ArenaAllocator;
 
 test "chdir smoke test" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+    if (native_os == .wasi) return error.SkipZigTest;
 
     // Get current working directory path
     var old_cwd_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
@@ -37,20 +38,22 @@ test "chdir smoke test" {
         try os.chdir(old_cwd);
         var new_cwd_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
         const new_cwd = try os.getcwd(new_cwd_buf[0..]);
-        expect(mem.eql(u8, old_cwd, new_cwd));
+        try expect(mem.eql(u8, old_cwd, new_cwd));
     }
     {
         // Next, change current working directory to one level above
         const parent = fs.path.dirname(old_cwd) orelse unreachable; // old_cwd should be absolute
         try os.chdir(parent);
+        // Restore cwd because process may have other tests that do not tolerate chdir.
+        defer os.chdir(old_cwd) catch unreachable;
         var new_cwd_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
         const new_cwd = try os.getcwd(new_cwd_buf[0..]);
-        expect(mem.eql(u8, parent, new_cwd));
+        try expect(mem.eql(u8, parent, new_cwd));
     }
 }
 
 test "open smoke test" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+    if (native_os == .wasi) return error.SkipZigTest;
 
     // TODO verify file attributes using `fstat`
 
@@ -68,7 +71,7 @@ test "open smoke test" {
 
     var file_path: []u8 = undefined;
     var fd: os.fd_t = undefined;
-    const mode: os.mode_t = if (builtin.os.tag == .windows) 0 else 0o666;
+    const mode: os.mode_t = if (native_os == .windows) 0 else 0o666;
 
     // Create some file using `open`.
     file_path = try fs.path.join(&arena.allocator, &[_][]const u8{ base_path, "some_file" });
@@ -77,7 +80,7 @@ test "open smoke test" {
 
     // Try this again with the same flags. This op should fail with error.PathAlreadyExists.
     file_path = try fs.path.join(&arena.allocator, &[_][]const u8{ base_path, "some_file" });
-    expectError(error.PathAlreadyExists, os.open(file_path, os.O_RDWR | os.O_CREAT | os.O_EXCL, mode));
+    try expectError(error.PathAlreadyExists, os.open(file_path, os.O_RDWR | os.O_CREAT | os.O_EXCL, mode));
 
     // Try opening without `O_EXCL` flag.
     file_path = try fs.path.join(&arena.allocator, &[_][]const u8{ base_path, "some_file" });
@@ -86,7 +89,7 @@ test "open smoke test" {
 
     // Try opening as a directory which should fail.
     file_path = try fs.path.join(&arena.allocator, &[_][]const u8{ base_path, "some_file" });
-    expectError(error.NotDir, os.open(file_path, os.O_RDWR | os.O_DIRECTORY, mode));
+    try expectError(error.NotDir, os.open(file_path, os.O_RDWR | os.O_DIRECTORY, mode));
 
     // Create some directory
     file_path = try fs.path.join(&arena.allocator, &[_][]const u8{ base_path, "some_dir" });
@@ -99,11 +102,11 @@ test "open smoke test" {
 
     // Try opening as file which should fail.
     file_path = try fs.path.join(&arena.allocator, &[_][]const u8{ base_path, "some_dir" });
-    expectError(error.IsDir, os.open(file_path, os.O_RDWR, mode));
+    try expectError(error.IsDir, os.open(file_path, os.O_RDWR, mode));
 }
 
 test "openat smoke test" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+    if (native_os == .wasi) return error.SkipZigTest;
 
     // TODO verify file attributes using `fstatat`
 
@@ -111,21 +114,21 @@ test "openat smoke test" {
     defer tmp.cleanup();
 
     var fd: os.fd_t = undefined;
-    const mode: os.mode_t = if (builtin.os.tag == .windows) 0 else 0o666;
+    const mode: os.mode_t = if (native_os == .windows) 0 else 0o666;
 
     // Create some file using `openat`.
     fd = try os.openat(tmp.dir.fd, "some_file", os.O_RDWR | os.O_CREAT | os.O_EXCL, mode);
     os.close(fd);
 
     // Try this again with the same flags. This op should fail with error.PathAlreadyExists.
-    expectError(error.PathAlreadyExists, os.openat(tmp.dir.fd, "some_file", os.O_RDWR | os.O_CREAT | os.O_EXCL, mode));
+    try expectError(error.PathAlreadyExists, os.openat(tmp.dir.fd, "some_file", os.O_RDWR | os.O_CREAT | os.O_EXCL, mode));
 
     // Try opening without `O_EXCL` flag.
     fd = try os.openat(tmp.dir.fd, "some_file", os.O_RDWR | os.O_CREAT, mode);
     os.close(fd);
 
     // Try opening as a directory which should fail.
-    expectError(error.NotDir, os.openat(tmp.dir.fd, "some_file", os.O_RDWR | os.O_DIRECTORY, mode));
+    try expectError(error.NotDir, os.openat(tmp.dir.fd, "some_file", os.O_RDWR | os.O_DIRECTORY, mode));
 
     // Create some directory
     try os.mkdirat(tmp.dir.fd, "some_dir", mode);
@@ -135,11 +138,11 @@ test "openat smoke test" {
     os.close(fd);
 
     // Try opening as file which should fail.
-    expectError(error.IsDir, os.openat(tmp.dir.fd, "some_dir", os.O_RDWR, mode));
+    try expectError(error.IsDir, os.openat(tmp.dir.fd, "some_dir", os.O_RDWR, mode));
 }
 
 test "symlink with relative paths" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+    if (native_os == .wasi) return error.SkipZigTest;
 
     const cwd = fs.cwd();
     cwd.deleteFile("file.txt") catch {};
@@ -148,7 +151,7 @@ test "symlink with relative paths" {
     // First, try relative paths in cwd
     try cwd.writeFile("file.txt", "nonsense");
 
-    if (builtin.os.tag == .windows) {
+    if (native_os == .windows) {
         os.windows.CreateSymbolicLink(
             cwd.fd,
             &[_]u16{ 's', 'y', 'm', 'l', 'i', 'n', 'k', 'e', 'd' },
@@ -169,14 +172,14 @@ test "symlink with relative paths" {
 
     var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
     const given = try os.readlink("symlinked", buffer[0..]);
-    expect(mem.eql(u8, "file.txt", given));
+    try expect(mem.eql(u8, "file.txt", given));
 
     try cwd.deleteFile("file.txt");
     try cwd.deleteFile("symlinked");
 }
 
 test "readlink on Windows" {
-    if (builtin.os.tag != .windows) return error.SkipZigTest;
+    if (native_os != .windows) return error.SkipZigTest;
 
     try testReadlink("C:\\ProgramData", "C:\\Users\\All Users");
     try testReadlink("C:\\Users\\Default", "C:\\Users\\Default User");
@@ -186,11 +189,11 @@ test "readlink on Windows" {
 fn testReadlink(target_path: []const u8, symlink_path: []const u8) !void {
     var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
     const given = try os.readlink(symlink_path, buffer[0..]);
-    expect(mem.eql(u8, target_path, given));
+    try expect(mem.eql(u8, target_path, given));
 }
 
 test "link with relative paths" {
-    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    if (native_os != .linux) return error.SkipZigTest;
     var cwd = fs.cwd();
 
     cwd.deleteFile("example.txt") catch {};
@@ -209,22 +212,22 @@ test "link with relative paths" {
         const estat = try os.fstat(efd.handle);
         const nstat = try os.fstat(nfd.handle);
 
-        testing.expectEqual(estat.ino, nstat.ino);
-        testing.expectEqual(@as(usize, 2), nstat.nlink);
+        try testing.expectEqual(estat.ino, nstat.ino);
+        try testing.expectEqual(@as(usize, 2), nstat.nlink);
     }
 
     try os.unlink("new.txt");
 
     {
         const estat = try os.fstat(efd.handle);
-        testing.expectEqual(@as(usize, 1), estat.nlink);
+        try testing.expectEqual(@as(usize, 1), estat.nlink);
     }
 
     try cwd.deleteFile("example.txt");
 }
 
 test "linkat with different directories" {
-    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    if (native_os != .linux) return error.SkipZigTest;
     var cwd = fs.cwd();
     var tmp = tmpDir(.{});
 
@@ -244,15 +247,15 @@ test "linkat with different directories" {
         const estat = try os.fstat(efd.handle);
         const nstat = try os.fstat(nfd.handle);
 
-        testing.expectEqual(estat.ino, nstat.ino);
-        testing.expectEqual(@as(usize, 2), nstat.nlink);
+        try testing.expectEqual(estat.ino, nstat.ino);
+        try testing.expectEqual(@as(usize, 2), nstat.nlink);
     }
 
     try os.unlinkat(tmp.dir.fd, "new.txt", 0);
 
     {
         const estat = try os.fstat(efd.handle);
-        testing.expectEqual(@as(usize, 1), estat.nlink);
+        try testing.expectEqual(@as(usize, 1), estat.nlink);
     }
 
     try cwd.deleteFile("example.txt");
@@ -260,11 +263,7 @@ test "linkat with different directories" {
 
 test "fstatat" {
     // enable when `fstat` and `fstatat` are implemented on Windows
-    if (builtin.os.tag == .windows) return error.SkipZigTest;
-    if (builtin.os.tag == .freebsd and builtin.mode == .ReleaseFast) {
-        // https://github.com/ziglang/zig/issues/8538
-        return error.SkipZigTest;
-    }
+    if (native_os == .windows) return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
@@ -279,9 +278,9 @@ test "fstatat" {
     defer file.close();
 
     // now repeat but using `fstatat` instead
-    const flags = if (builtin.os.tag == .wasi) 0x0 else os.AT_SYMLINK_NOFOLLOW;
+    const flags = if (native_os == .wasi) 0x0 else os.AT_SYMLINK_NOFOLLOW;
     const statat = try os.fstatat(tmp.dir.fd, "file.txt", flags);
-    expectEqual(stat, statat);
+    try expectEqual(stat, statat);
 }
 
 test "readlinkat" {
@@ -292,7 +291,7 @@ test "readlinkat" {
     try tmp.dir.writeFile("file.txt", "nonsense");
 
     // create a symbolic link
-    if (builtin.os.tag == .windows) {
+    if (native_os == .windows) {
         os.windows.CreateSymbolicLink(
             tmp.dir.fd,
             &[_]u16{ 'l', 'i', 'n', 'k' },
@@ -310,7 +309,7 @@ test "readlinkat" {
     // read the link
     var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
     const read_link = try os.readlinkat(tmp.dir.fd, "link", buffer[0..]);
-    expect(mem.eql(u8, "file.txt", read_link));
+    try expect(mem.eql(u8, "file.txt", read_link));
 }
 
 fn testThreadIdFn(thread_id: *Thread.Id) void {
@@ -325,13 +324,13 @@ test "std.Thread.getCurrentId" {
     const thread_id = thread.handle();
     thread.wait();
     if (Thread.use_pthreads) {
-        expect(thread_current_id == thread_id);
-    } else if (builtin.os.tag == .windows) {
-        expect(Thread.getCurrentId() != thread_current_id);
+        try expect(thread_current_id == thread_id);
+    } else if (native_os == .windows) {
+        try expect(Thread.getCurrentId() != thread_current_id);
     } else {
         // If the thread completes very quickly, then thread_id can be 0. See the
         // documentation comments for `std.Thread.handle`.
-        expect(thread_id == 0 or thread_current_id == thread_id);
+        try expect(thread_id == 0 or thread_current_id == thread_id);
     }
 }
 
@@ -350,7 +349,7 @@ test "spawn threads" {
     thread3.wait();
     thread4.wait();
 
-    expect(shared_ctx == 4);
+    try expect(shared_ctx == 4);
 }
 
 fn start1(ctx: void) u8 {
@@ -363,26 +362,26 @@ fn start2(ctx: *i32) u8 {
 }
 
 test "cpu count" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+    if (native_os == .wasi) return error.SkipZigTest;
 
     const cpu_count = try Thread.cpuCount();
-    expect(cpu_count >= 1);
+    try expect(cpu_count >= 1);
 }
 
 test "thread local storage" {
     if (builtin.single_threaded) return error.SkipZigTest;
     const thread1 = try Thread.spawn(testTls, {});
     const thread2 = try Thread.spawn(testTls, {});
-    testTls({});
+    try testTls({});
     thread1.wait();
     thread2.wait();
 }
 
 threadlocal var x: i32 = 1234;
-fn testTls(context: void) void {
-    if (x != 1234) @panic("bad start value");
+fn testTls(context: void) !void {
+    if (x != 1234) return error.TlsBadStartValue;
     x += 1;
-    if (x != 1235) @panic("bad end value");
+    if (x != 1235) return error.TlsBadEndValue;
 }
 
 test "getrandom" {
@@ -392,11 +391,11 @@ test "getrandom" {
     try os.getrandom(&buf_b);
     // If this test fails the chance is significantly higher that there is a bug than
     // that two sets of 50 bytes were equal.
-    expect(!mem.eql(u8, &buf_a, &buf_b));
+    try expect(!mem.eql(u8, &buf_a, &buf_b));
 }
 
 test "getcwd" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+    if (native_os == .wasi) return error.SkipZigTest;
 
     // at least call it so it gets compiled
     var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
@@ -404,14 +403,14 @@ test "getcwd" {
 }
 
 test "sigaltstack" {
-    if (builtin.os.tag == .windows or builtin.os.tag == .wasi) return error.SkipZigTest;
+    if (native_os == .windows or native_os == .wasi) return error.SkipZigTest;
 
     var st: os.stack_t = undefined;
     try os.sigaltstack(null, &st);
     // Setting a stack size less than MINSIGSTKSZ returns ENOMEM
     st.ss_flags = 0;
     st.ss_size = 1;
-    testing.expectError(error.SizeTooSmall, os.sigaltstack(&st, null));
+    try testing.expectError(error.SizeTooSmall, os.sigaltstack(&st, null));
 }
 
 // If the type is not available use void to avoid erroring out when `iter_fn` is
@@ -457,32 +456,32 @@ fn iter_fn(info: *dl_phdr_info, size: usize, counter: *usize) IterFnError!void {
 }
 
 test "dl_iterate_phdr" {
-    if (builtin.os.tag == .windows or builtin.os.tag == .wasi or builtin.os.tag == .macos)
+    if (native_os == .windows or native_os == .wasi or native_os == .macos)
         return error.SkipZigTest;
 
     var counter: usize = 0;
     try os.dl_iterate_phdr(&counter, IterFnError, iter_fn);
-    expect(counter != 0);
+    try expect(counter != 0);
 }
 
 test "gethostname" {
-    if (builtin.os.tag == .windows or builtin.os.tag == .wasi)
+    if (native_os == .windows or native_os == .wasi)
         return error.SkipZigTest;
 
     var buf: [os.HOST_NAME_MAX]u8 = undefined;
     const hostname = try os.gethostname(&buf);
-    expect(hostname.len != 0);
+    try expect(hostname.len != 0);
 }
 
 test "pipe" {
-    if (builtin.os.tag == .windows or builtin.os.tag == .wasi)
+    if (native_os == .windows or native_os == .wasi)
         return error.SkipZigTest;
 
     var fds = try os.pipe();
-    expect((try os.write(fds[1], "hello")) == 5);
+    try expect((try os.write(fds[1], "hello")) == 5);
     var buf: [16]u8 = undefined;
-    expect((try os.read(fds[0], buf[0..])) == 5);
-    testing.expectEqualSlices(u8, buf[0..5], "hello");
+    try expect((try os.read(fds[0], buf[0..])) == 5);
+    try testing.expectEqualSlices(u8, buf[0..5], "hello");
     os.close(fds[1]);
     os.close(fds[0]);
 }
@@ -494,24 +493,24 @@ test "argsAlloc" {
 
 test "memfd_create" {
     // memfd_create is linux specific.
-    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    if (native_os != .linux) return error.SkipZigTest;
     const fd = std.os.memfd_create("test", 0) catch |err| switch (err) {
         // Related: https://github.com/ziglang/zig/issues/4019
         error.SystemOutdated => return error.SkipZigTest,
         else => |e| return e,
     };
     defer std.os.close(fd);
-    expect((try std.os.write(fd, "test")) == 4);
+    try expect((try std.os.write(fd, "test")) == 4);
     try std.os.lseek_SET(fd, 0);
 
     var buf: [10]u8 = undefined;
     const bytes_read = try std.os.read(fd, &buf);
-    expect(bytes_read == 4);
-    expect(mem.eql(u8, buf[0..4], "test"));
+    try expect(bytes_read == 4);
+    try expect(mem.eql(u8, buf[0..4], "test"));
 }
 
 test "mmap" {
-    if (builtin.os.tag == .windows or builtin.os.tag == .wasi)
+    if (native_os == .windows or native_os == .wasi)
         return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
@@ -529,14 +528,14 @@ test "mmap" {
         );
         defer os.munmap(data);
 
-        testing.expectEqual(@as(usize, 1234), data.len);
+        try testing.expectEqual(@as(usize, 1234), data.len);
 
         // By definition the data returned by mmap is zero-filled
-        testing.expect(mem.eql(u8, data, &[_]u8{0x00} ** 1234));
+        try testing.expect(mem.eql(u8, data, &[_]u8{0x00} ** 1234));
 
         // Make sure the memory is writeable as requested
         std.mem.set(u8, data, 0x55);
-        testing.expect(mem.eql(u8, data, &[_]u8{0x55} ** 1234));
+        try testing.expect(mem.eql(u8, data, &[_]u8{0x55} ** 1234));
     }
 
     const test_out_file = "os_tmp_test";
@@ -576,7 +575,7 @@ test "mmap" {
 
         var i: u32 = 0;
         while (i < alloc_size / @sizeOf(u32)) : (i += 1) {
-            testing.expectEqual(i, try stream.readIntNative(u32));
+            try testing.expectEqual(i, try stream.readIntNative(u32));
         }
     }
 
@@ -600,7 +599,7 @@ test "mmap" {
 
         var i: u32 = alloc_size / 2 / @sizeOf(u32);
         while (i < alloc_size / @sizeOf(u32)) : (i += 1) {
-            testing.expectEqual(i, try stream.readIntNative(u32));
+            try testing.expectEqual(i, try stream.readIntNative(u32));
         }
     }
 
@@ -608,15 +607,15 @@ test "mmap" {
 }
 
 test "getenv" {
-    if (builtin.os.tag == .windows) {
-        expect(os.getenvW(&[_:0]u16{ 'B', 'O', 'G', 'U', 'S', 0x11, 0x22, 0x33, 0x44, 0x55 }) == null);
+    if (native_os == .windows) {
+        try expect(os.getenvW(&[_:0]u16{ 'B', 'O', 'G', 'U', 'S', 0x11, 0x22, 0x33, 0x44, 0x55 }) == null);
     } else {
-        expect(os.getenvZ("BOGUSDOESNOTEXISTENVVAR") == null);
+        try expect(os.getenvZ("BOGUSDOESNOTEXISTENVVAR") == null);
     }
 }
 
 test "fcntl" {
-    if (builtin.os.tag == .windows or builtin.os.tag == .wasi)
+    if (native_os == .windows or native_os == .wasi)
         return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
@@ -633,28 +632,28 @@ test "fcntl" {
     // Note: The test assumes createFile opens the file with O_CLOEXEC
     {
         const flags = try os.fcntl(file.handle, os.F_GETFD, 0);
-        expect((flags & os.FD_CLOEXEC) != 0);
+        try expect((flags & os.FD_CLOEXEC) != 0);
     }
     {
         _ = try os.fcntl(file.handle, os.F_SETFD, 0);
         const flags = try os.fcntl(file.handle, os.F_GETFD, 0);
-        expect((flags & os.FD_CLOEXEC) == 0);
+        try expect((flags & os.FD_CLOEXEC) == 0);
     }
     {
         _ = try os.fcntl(file.handle, os.F_SETFD, os.FD_CLOEXEC);
         const flags = try os.fcntl(file.handle, os.F_GETFD, 0);
-        expect((flags & os.FD_CLOEXEC) != 0);
+        try expect((flags & os.FD_CLOEXEC) != 0);
     }
 }
 
 test "signalfd" {
-    if (builtin.os.tag != .linux)
+    if (native_os != .linux)
         return error.SkipZigTest;
     _ = std.os.signalfd;
 }
 
 test "sync" {
-    if (builtin.os.tag != .linux)
+    if (native_os != .linux)
         return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
@@ -672,7 +671,7 @@ test "sync" {
 }
 
 test "fsync" {
-    if (builtin.os.tag != .linux and builtin.os.tag != .windows)
+    if (native_os != .linux and native_os != .windows)
         return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
@@ -702,13 +701,13 @@ test "getrlimit and setrlimit" {
 }
 
 test "shutdown socket" {
-    if (builtin.os.tag == .wasi)
+    if (native_os == .wasi)
         return error.SkipZigTest;
-    if (builtin.os.tag == .windows) {
+    if (native_os == .windows) {
         _ = try std.os.windows.WSAStartup(2, 2);
     }
     defer {
-        if (builtin.os.tag == .windows) {
+        if (native_os == .windows) {
             std.os.windows.WSACleanup() catch unreachable;
         }
     }
@@ -723,11 +722,11 @@ test "shutdown socket" {
 var signal_test_failed = true;
 
 test "sigaction" {
-    if (builtin.os.tag == .wasi or builtin.os.tag == .windows)
+    if (native_os == .wasi or native_os == .windows)
         return error.SkipZigTest;
 
     // https://github.com/ziglang/zig/issues/7427
-    if (builtin.os.tag == .linux and builtin.arch == .i386)
+    if (native_os == .linux and builtin.target.cpu.arch == .i386)
         return error.SkipZigTest;
 
     const S = struct {
@@ -748,12 +747,12 @@ test "sigaction" {
     os.sigaction(os.SIGUSR1, &sa, null);
     // Check that we can read it back correctly.
     os.sigaction(os.SIGUSR1, null, &old_sa);
-    testing.expectEqual(S.handler, old_sa.handler.sigaction.?);
-    testing.expect((old_sa.flags & os.SA_SIGINFO) != 0);
+    try testing.expectEqual(S.handler, old_sa.handler.sigaction.?);
+    try testing.expect((old_sa.flags & os.SA_SIGINFO) != 0);
     // Invoke the handler.
     try os.raise(os.SIGUSR1);
-    testing.expect(signal_test_failed == false);
+    try testing.expect(signal_test_failed == false);
     // Check if the handler has been correctly reset to SIG_DFL
     os.sigaction(os.SIGUSR1, null, &old_sa);
-    testing.expectEqual(os.SIG_DFL, old_sa.handler.sigaction);
+    try testing.expectEqual(os.SIG_DFL, old_sa.handler.sigaction);
 }

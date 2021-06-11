@@ -102,6 +102,11 @@ extern kern_return_t _kernelrpc_mach_vm_deallocate_trap(
 	mach_vm_size_t size
 	);
 
+extern kern_return_t task_dyld_process_info_notify_get(
+	mach_port_name_array_t names_addr,
+	natural_t *names_count_addr
+	);
+
 extern kern_return_t _kernelrpc_mach_vm_protect_trap(
 	mach_port_name_t target,
 	mach_vm_address_t address,

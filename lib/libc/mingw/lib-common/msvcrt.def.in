@@ -1015,6 +1015,7 @@ _stricmp_l
 _stricoll
 _stricoll_l
 _strlwr
+strlwr == _strlwr
 _strlwr_l
 _strlwr_s
 _strlwr_s_l
@@ -1161,6 +1162,7 @@ _wcsicmp_l
 _wcsicoll
 _wcsicoll_l
 _wcslwr
+wcslwr == _wcslwr
 _wcslwr_l
 _wcslwr_s
 _wcslwr_s_l

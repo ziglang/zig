@@ -112,6 +112,8 @@ enum Error {
     ErrorZigIsTheCCompiler,
     ErrorFileBusy,
     ErrorLocked,
+    ErrorInvalidCharacter,
+    ErrorUnicodePointTooLarge,
 };
 
 // ABI warning

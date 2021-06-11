@@ -27,13 +27,13 @@ fn compareResultF(result: f32, expected: u32) bool {
     return false;
 }
 
-fn test__divsf3(a: f32, b: f32, expected: u32) void {
+fn test__divsf3(a: f32, b: f32, expected: u32) !void {
     const x = __divsf3(a, b);
     const ret = compareResultF(x, expected);
-    testing.expect(ret == true);
+    try testing.expect(ret == true);
 }
 
 test "divsf3" {
-    test__divsf3(1.0, 3.0, 0x3EAAAAAB);
-    test__divsf3(2.3509887e-38, 2.0, 0x00800000);
+    try test__divsf3(1.0, 3.0, 0x3EAAAAAB);
+    try test__divsf3(2.3509887e-38, 2.0, 0x00800000);
 }

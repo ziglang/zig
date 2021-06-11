@@ -10,7 +10,7 @@ const log = std.log.scoped(.link);
 const DW = std.dwarf;
 const leb128 = std.leb;
 
-const ir = @import("../ir.zig");
+const ir = @import("../air.zig");
 const Module = @import("../Module.zig");
 const Compilation = @import("../Compilation.zig");
 const codegen = @import("../codegen.zig");
@@ -23,6 +23,7 @@ const File = link.File;
 const build_options = @import("build_options");
 const target_util = @import("../target.zig");
 const glibc = @import("../glibc.zig");
+const musl = @import("../musl.zig");
 const Cache = @import("../Cache.zig");
 const llvm_backend = @import("../codegen/llvm.zig");
 
@@ -1278,7 +1279,6 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
     const is_exe_or_dyn_lib = is_dyn_lib or self.base.options.output_mode == .Exe;
     const have_dynamic_linker = self.base.options.link_libc and
         self.base.options.link_mode == .Dynamic and is_exe_or_dyn_lib;
-    const link_in_crt = self.base.options.link_libc and self.base.options.output_mode == .Exe;
     const target = self.base.options.target;
     const gc_sections = self.base.options.gc_sections orelse !is_obj;
     const stack_size = self.base.options.stack_size_override orelse 16777216;
@@ -1318,8 +1318,8 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         try man.addOptionalFile(self.base.options.linker_script);
         try man.addOptionalFile(self.base.options.version_script);
         try man.addListOfFiles(self.base.options.objects);
-        for (comp.c_object_table.items()) |entry| {
-            _ = try man.addFile(entry.key.status.success.object_path, null);
+        for (comp.c_object_table.keys()) |key| {
+            _ = try man.addFile(key.status.success.object_path, null);
         }
         try man.addOptionalFile(module_obj_path);
         try man.addOptionalFile(compiler_rt_path);
@@ -1394,7 +1394,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
                 break :blk self.base.options.objects[0];
 
             if (comp.c_object_table.count() != 0)
-                break :blk comp.c_object_table.items()[0].key.status.success.object_path;
+                break :blk comp.c_object_table.keys()[0].status.success.object_path;
 
             if (module_obj_path) |p|
                 break :blk p;
@@ -1499,40 +1499,11 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         try argv.append("-o");
         try argv.append(full_out_path);
 
-        if (link_in_crt) {
-            const crt1o: []const u8 = o: {
-                if (target.os.tag == .netbsd) {
-                    break :o "crt0.o";
-                } else if (target.os.tag == .openbsd) {
-                    if (self.base.options.link_mode == .Static) {
-                        break :o "rcrt0.o";
-                    } else {
-                        break :o "crt0.o";
-                    }
-                } else if (target.isAndroid()) {
-                    if (self.base.options.link_mode == .Dynamic) {
-                        break :o "crtbegin_dynamic.o";
-                    } else {
-                        break :o "crtbegin_static.o";
-                    }
-                } else if (self.base.options.link_mode == .Static) {
-                    if (self.base.options.pie) {
-                        break :o "rcrt1.o";
-                    } else {
-                        break :o "crt1.o";
-                    }
-                } else {
-                    break :o "Scrt1.o";
-                }
-            };
-            try argv.append(try comp.get_libc_crt_file(arena, crt1o));
-            if (target_util.libc_needs_crti_crtn(target)) {
-                try argv.append(try comp.get_libc_crt_file(arena, "crti.o"));
-            }
-            if (target.os.tag == .openbsd) {
-                try argv.append(try comp.get_libc_crt_file(arena, "crtbegin.o"));
-            }
-        }
+        // csu prelude
+        var csu = try CsuObjects.init(arena, self.base.options, comp);
+        if (csu.crt0) |v| try argv.append(v);
+        if (csu.crti) |v| try argv.append(v);
+        if (csu.crtbegin) |v| try argv.append(v);
 
         // rpaths
         var rpath_table = std.StringHashMap(void).init(self.base.allocator);
@@ -1547,8 +1518,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
             var test_path = std.ArrayList(u8).init(self.base.allocator);
             defer test_path.deinit();
             for (self.base.options.lib_dirs) |lib_dir_path| {
-                for (self.base.options.system_libs.items()) |entry| {
-                    const link_lib = entry.key;
+                for (self.base.options.system_libs.keys()) |link_lib| {
                     test_path.shrinkRetainingCapacity(0);
                     const sep = fs.path.sep_str;
                     try test_path.writer().print("{s}" ++ sep ++ "lib{s}.so", .{ lib_dir_path, link_lib });
@@ -1597,8 +1567,8 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         // Positional arguments to the linker such as object files.
         try argv.appendSlice(self.base.options.objects);
 
-        for (comp.c_object_table.items()) |entry| {
-            try argv.append(entry.key.status.success.object_path);
+        for (comp.c_object_table.keys()) |key| {
+            try argv.append(key.status.success.object_path);
         }
 
         if (module_obj_path) |p| {
@@ -1627,10 +1597,9 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
 
         // Shared libraries.
         if (is_exe_or_dyn_lib) {
-            const system_libs = self.base.options.system_libs.items();
+            const system_libs = self.base.options.system_libs.keys();
             try argv.ensureCapacity(argv.items.len + system_libs.len);
-            for (system_libs) |entry| {
-                const link_lib = entry.key;
+            for (system_libs) |link_lib| {
                 // By this time, we depend on these libs being dynamically linked libraries and not static libraries
                 // (the check for that needs to be earlier), but they could be full paths to .so files, in which
                 // case we want to avoid prepending "-l".
@@ -1645,24 +1614,19 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
                 try argv.append(comp.libcxx_static_lib.?.full_object_path);
             }
 
+            // libunwind dep
+            if (self.base.options.link_libunwind) {
+                try argv.append(comp.libunwind_static_lib.?.full_object_path);
+            }
+
             // libc dep
             if (self.base.options.link_libc) {
                 if (self.base.options.libc_installation != null) {
-                    if (self.base.options.link_mode == .Static) {
-                        try argv.append("--start-group");
-                        try argv.append("-lc");
-                        try argv.append("-lm");
-                        try argv.append("--end-group");
-                    } else {
-                        try argv.append("-lc");
-                        try argv.append("-lm");
-                    }
-
-                    if (target.os.tag == .freebsd or target.os.tag == .netbsd or target.os.tag == .openbsd) {
-                        try argv.append("-lpthread");
-                    }
+                    const needs_grouping = self.base.options.link_mode == .Static;
+                    if (needs_grouping) try argv.append("--start-group");
+                    try argv.appendSlice(target_util.libcFullLinkFlags(target));
+                    if (needs_grouping) try argv.append("--end-group");
                 } else if (target.isGnuLibC()) {
-                    try argv.append(comp.libunwind_static_lib.?.full_object_path);
                     for (glibc.libs) |lib| {
                         const lib_path = try std.fmt.allocPrint(arena, "{s}{c}lib{s}.so.{d}", .{
                             comp.glibc_so_files.?.dir_path, fs.path.sep, lib.name, lib.sover,
@@ -1671,29 +1635,19 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
                     }
                     try argv.append(try comp.get_libc_crt_file(arena, "libc_nonshared.a"));
                 } else if (target.isMusl()) {
-                    try argv.append(comp.libunwind_static_lib.?.full_object_path);
                     try argv.append(try comp.get_libc_crt_file(arena, switch (self.base.options.link_mode) {
                         .Static => "libc.a",
                         .Dynamic => "libc.so",
                     }));
-                } else if (self.base.options.link_libcpp) {
-                    try argv.append(comp.libunwind_static_lib.?.full_object_path);
                 } else {
                     unreachable; // Compiler was supposed to emit an error for not being able to provide libc.
                 }
             }
         }
 
-        // crt end
-        if (link_in_crt) {
-            if (target.isAndroid()) {
-                try argv.append(try comp.get_libc_crt_file(arena, "crtend_android.o"));
-            } else if (target.os.tag == .openbsd) {
-                try argv.append(try comp.get_libc_crt_file(arena, "crtend.o"));
-            } else if (target_util.libc_needs_crti_crtn(target)) {
-                try argv.append(try comp.get_libc_crt_file(arena, "crtn.o"));
-            }
-        }
+        // crt postlude
+        if (csu.crtend) |v| try argv.append(v);
+        if (csu.crtn) |v| try argv.append(v);
 
         if (allow_shlib_undefined) {
             try argv.append("--allow-shlib-undefined");
@@ -2191,9 +2145,14 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
     if (build_options.have_llvm)
         if (self.llvm_object) |llvm_object| return try llvm_object.updateDecl(module, decl);
 
-    const typed_value = decl.typed_value.most_recent.typed_value;
-    if (typed_value.val.tag() == .extern_fn) {
+    if (decl.val.tag() == .extern_fn) {
         return; // TODO Should we do more when front-end analyzed extern decl?
+    }
+    if (decl.val.castTag(.variable)) |payload| {
+        const variable = payload.data;
+        if (variable.is_extern) {
+            return; // TODO Should we do more when front-end analyzed extern decl?
+        }
     }
 
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
@@ -2207,14 +2166,14 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
 
     var dbg_info_type_relocs: File.DbgInfoTypeRelocsTable = .{};
     defer {
-        var it = dbg_info_type_relocs.iterator();
-        while (it.next()) |entry| {
-            entry.value.relocs.deinit(self.base.allocator);
+        var it = dbg_info_type_relocs.valueIterator();
+        while (it.next()) |value| {
+            value.relocs.deinit(self.base.allocator);
         }
         dbg_info_type_relocs.deinit(self.base.allocator);
     }
 
-    const is_fn: bool = switch (typed_value.ty.zigTypeTag()) {
+    const is_fn: bool = switch (decl.ty.zigTypeTag()) {
         .Fn => true,
         else => false,
     };
@@ -2222,21 +2181,8 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
         // For functions we need to add a prologue to the debug line program.
         try dbg_line_buffer.ensureCapacity(26);
 
-        const line_off: u28 = blk: {
-            const tree = decl.container.file_scope.tree;
-            const node_tags = tree.nodes.items(.tag);
-            const node_datas = tree.nodes.items(.data);
-            const token_starts = tree.tokens.items(.start);
-
-            // TODO Look into improving the performance here by adding a token-index-to-line
-            // lookup table. Currently this involves scanning over the source code for newlines.
-            const fn_decl = decl.src_node;
-            assert(node_tags[fn_decl] == .fn_decl);
-            const block = node_datas[fn_decl].rhs;
-            const lbrace = tree.firstToken(block);
-            const line_delta = std.zig.lineDelta(tree.source, 0, token_starts[lbrace]);
-            break :blk @intCast(u28, line_delta);
-        };
+        const func = decl.val.castTag(.function).?.data;
+        const line_off = @intCast(u28, decl.src_line + func.lbrace_line);
 
         const ptr_width_bytes = self.ptrWidthBytes();
         dbg_line_buffer.appendSliceAssumeCapacity(&[_]u8{
@@ -2270,7 +2216,7 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
         const decl_name_with_null = decl.name[0 .. mem.lenZ(decl.name) + 1];
         try dbg_info_buffer.ensureCapacity(dbg_info_buffer.items.len + 25 + decl_name_with_null.len);
 
-        const fn_ret_type = typed_value.ty.fnReturnType();
+        const fn_ret_type = decl.ty.fnReturnType();
         const fn_ret_has_bits = fn_ret_type.hasCodeGenBits();
         if (fn_ret_has_bits) {
             dbg_info_buffer.appendAssumeCapacity(abbrev_subprogram);
@@ -2287,19 +2233,23 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
         if (fn_ret_has_bits) {
             const gop = try dbg_info_type_relocs.getOrPut(self.base.allocator, fn_ret_type);
             if (!gop.found_existing) {
-                gop.entry.value = .{
+                gop.value_ptr.* = .{
                     .off = undefined,
                     .relocs = .{},
                 };
             }
-            try gop.entry.value.relocs.append(self.base.allocator, @intCast(u32, dbg_info_buffer.items.len));
+            try gop.value_ptr.relocs.append(self.base.allocator, @intCast(u32, dbg_info_buffer.items.len));
             dbg_info_buffer.items.len += 4; // DW.AT_type,  DW.FORM_ref4
         }
         dbg_info_buffer.appendSliceAssumeCapacity(decl_name_with_null); // DW.AT_name, DW.FORM_string
     } else {
         // TODO implement .debug_info for global variables
     }
-    const res = try codegen.generateSymbol(&self.base, decl.srcLoc(), typed_value, &code_buffer, .{
+    const decl_val = if (decl.val.castTag(.variable)) |payload| payload.data.init else decl.val;
+    const res = try codegen.generateSymbol(&self.base, decl.srcLoc(), .{
+        .ty = decl.ty,
+        .val = decl_val,
+    }, &code_buffer, .{
         .dwarf = .{
             .dbg_line = &dbg_line_buffer,
             .dbg_info = &dbg_info_buffer,
@@ -2316,7 +2266,7 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
         },
     };
 
-    const required_alignment = typed_value.ty.abiAlignment(self.base.options.target);
+    const required_alignment = decl.ty.abiAlignment(self.base.options.target);
 
     const stt_bits: u8 = if (is_fn) elf.STT_FUNC else elf.STT_OBJECT;
 
@@ -2496,24 +2446,28 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
     // Now we emit the .debug_info types of the Decl. These will count towards the size of
     // the buffer, so we have to do it before computing the offset, and we can't perform the actual
     // relocations yet.
-    var it = dbg_info_type_relocs.iterator();
-    while (it.next()) |entry| {
-        entry.value.off = @intCast(u32, dbg_info_buffer.items.len);
-        try self.addDbgInfoType(entry.key, &dbg_info_buffer);
+    {
+        var it = dbg_info_type_relocs.iterator();
+        while (it.next()) |entry| {
+            entry.value_ptr.off = @intCast(u32, dbg_info_buffer.items.len);
+            try self.addDbgInfoType(entry.key_ptr.*, &dbg_info_buffer);
+        }
     }
 
     try self.updateDeclDebugInfoAllocation(text_block, @intCast(u32, dbg_info_buffer.items.len));
 
-    // Now that we have the offset assigned we can finally perform type relocations.
-    it = dbg_info_type_relocs.iterator();
-    while (it.next()) |entry| {
-        for (entry.value.relocs.items) |off| {
-            mem.writeInt(
-                u32,
-                dbg_info_buffer.items[off..][0..4],
-                text_block.dbg_info_off + entry.value.off,
-                target_endian,
-            );
+    {
+        // Now that we have the offset assigned we can finally perform type relocations.
+        var it = dbg_info_type_relocs.valueIterator();
+        while (it.next()) |value| {
+            for (value.relocs.items) |off| {
+                mem.writeInt(
+                    u32,
+                    dbg_info_buffer.items[off..][0..4],
+                    text_block.dbg_info_off + value.off,
+                    target_endian,
+                );
+            }
         }
     }
 
@@ -2678,14 +2632,13 @@ pub fn updateDeclExports(
     defer tracy.end();
 
     try self.global_symbols.ensureCapacity(self.base.allocator, self.global_symbols.items.len + exports.len);
-    const typed_value = decl.typed_value.most_recent.typed_value;
     if (decl.link.elf.local_sym_index == 0) return;
     const decl_sym = self.local_symbols.items[decl.link.elf.local_sym_index];
 
     for (exports) |exp| {
         if (exp.options.section) |section_name| {
             if (!mem.eql(u8, section_name, ".text")) {
-                try module.failed_exports.ensureCapacity(module.gpa, module.failed_exports.items().len + 1);
+                try module.failed_exports.ensureCapacity(module.gpa, module.failed_exports.count() + 1);
                 module.failed_exports.putAssumeCapacityNoClobber(
                     exp,
                     try Module.ErrorMsg.create(self.base.allocator, decl.srcLoc(), "Unimplemented: ExportOptions.section", .{}),
@@ -2703,7 +2656,7 @@ pub fn updateDeclExports(
             },
             .Weak => elf.STB_WEAK,
             .LinkOnce => {
-                try module.failed_exports.ensureCapacity(module.gpa, module.failed_exports.items().len + 1);
+                try module.failed_exports.ensureCapacity(module.gpa, module.failed_exports.count() + 1);
                 module.failed_exports.putAssumeCapacityNoClobber(
                     exp,
                     try Module.ErrorMsg.create(self.base.allocator, decl.srcLoc(), "Unimplemented: GlobalLinkage.LinkOnce", .{}),
@@ -2749,19 +2702,8 @@ pub fn updateDeclLineNumber(self: *Elf, module: *Module, decl: *const Module.Dec
 
     if (self.llvm_object) |_| return;
 
-    const tree = decl.container.file_scope.tree;
-    const node_tags = tree.nodes.items(.tag);
-    const node_datas = tree.nodes.items(.data);
-    const token_starts = tree.tokens.items(.start);
-
-    // TODO Look into improving the performance here by adding a token-index-to-line
-    // lookup table. Currently this involves scanning over the source code for newlines.
-    const fn_decl = decl.src_node;
-    assert(node_tags[fn_decl] == .fn_decl);
-    const block = node_datas[fn_decl].rhs;
-    const lbrace = tree.firstToken(block);
-    const line_delta = std.zig.lineDelta(tree.source, 0, token_starts[lbrace]);
-    const casted_line_off = @intCast(u28, line_delta);
+    const func = decl.val.castTag(.function).?.data;
+    const casted_line_off = @intCast(u28, decl.src_line + func.lbrace_line);
 
     const shdr = &self.sections.items[self.debug_line_section_index.?];
     const file_pos = shdr.sh_offset + decl.fn_link.elf.off + self.getRelocDbgLineOff();
@@ -3261,3 +3203,200 @@ fn padToIdeal(actual_size: anytype) @TypeOf(actual_size) {
     return std.math.add(@TypeOf(actual_size), actual_size, actual_size / ideal_factor) catch
         std.math.maxInt(@TypeOf(actual_size));
 }
+
+// Provide a blueprint of csu (c-runtime startup) objects for supported
+// link modes.
+//
+// This is for cross-mode targets only. For host-mode targets the system
+// compiler can be probed to produce a robust blueprint.
+//
+// Targets requiring a libc for which zig does not bundle a libc are
+// host-mode targets. Unfortunately, host-mode probes are not yet
+// implemented. For now the data is hard-coded here. Such targets are
+// { freebsd, netbsd, openbsd, dragonfly }.
+const CsuObjects = struct {
+    crt0: ?[]const u8 = null,
+    crti: ?[]const u8 = null,
+    crtbegin: ?[]const u8 = null,
+    crtend: ?[]const u8 = null,
+    crtn: ?[]const u8 = null,
+
+    fn init(arena: *mem.Allocator, link_options: link.Options, comp: *const Compilation) !CsuObjects {
+        // crt objects are only required for libc.
+        if (!link_options.link_libc) return CsuObjects{};
+
+        var result: CsuObjects = .{};
+
+        // TODO: https://github.com/ziglang/zig/issues/4629
+        // - use inline enum type
+        // - reduce to enum-literals for values
+        const Mode = enum {
+            dynamic_lib,
+            dynamic_exe,
+            dynamic_pie,
+            static_exe,
+            static_pie,
+        };
+
+        // Flatten crt case types.
+        const mode: Mode = switch (link_options.output_mode) {
+            .Obj => return CsuObjects{},
+            .Lib => switch (link_options.link_mode) {
+                .Dynamic => Mode.dynamic_lib,
+                .Static => return CsuObjects{},
+            },
+            .Exe => switch (link_options.link_mode) {
+                .Dynamic => if (link_options.pie) Mode.dynamic_pie else Mode.dynamic_exe,
+                .Static => if (link_options.pie) Mode.static_pie else Mode.static_exe,
+            },
+        };
+
+        if (link_options.target.isAndroid()) {
+            switch (mode) {
+                // zig fmt: off
+                .dynamic_lib => result.set( null, null, "crtbegin_so.o",      "crtend_so.o",      null ),
+                .dynamic_exe,
+                .dynamic_pie => result.set( null, null, "crtbegin_dynamic.o", "crtend_android.o", null ),
+                .static_exe,
+                .static_pie  => result.set( null, null, "crtbegin_static.o",  "crtend_android.o", null ),
+                // zig fmt: on
+            }
+        } else {
+            switch (link_options.target.os.tag) {
+                .linux => {
+                    switch (mode) {
+                        // zig fmt: off
+                        .dynamic_lib => result.set( null,      "crti.o", "crtbeginS.o", "crtendS.o", "crtn.o" ),
+                        .dynamic_exe => result.set( "crt1.o",  "crti.o", "crtbegin.o",  "crtend.o",  "crtn.o" ),
+                        .dynamic_pie => result.set( "Scrt1.o", "crti.o", "crtbeginS.o", "crtendS.o", "crtn.o" ),
+                        .static_exe  => result.set( "crt1.o",  "crti.o", "crtbeginT.o", "crtend.o",  "crtn.o" ),
+                        .static_pie  => result.set( "rcrt1.o", "crti.o", "crtbeginS.o", "crtendS.o", "crtn.o" ),
+                        // zig fmt: on
+                    }
+                    if (link_options.libc_installation) |_| {
+                        // hosted-glibc provides crtbegin/end objects in platform/compiler-specific dirs
+                        // and they are not known at comptime. For now null-out crtbegin/end objects;
+                        // there is no feature loss, zig has never linked those objects in before.
+                        // TODO: probe for paths, ie. `cc -print-file-name`
+                        result.crtbegin = null;
+                        result.crtend = null;
+                    } else {
+                        // Bundled glibc only has Scrt1.o .
+                        if (result.crt0 != null and link_options.target.isGnuLibC()) result.crt0 = "Scrt1.o";
+                    }
+                },
+                .dragonfly => switch (mode) {
+                    // zig fmt: off
+                    .dynamic_lib => result.set( null,      "crti.o", "crtbeginS.o",  "crtendS.o", "crtn.o" ),
+                    .dynamic_exe => result.set( "crt1.o",  "crti.o", "crtbegin.o",   "crtend.o",  "crtn.o" ),
+                    .dynamic_pie => result.set( "Scrt1.o", "crti.o", "crtbeginS.o",  "crtendS.o", "crtn.o" ),
+                    .static_exe  => result.set( "crt1.o",  "crti.o", "crtbegin.o",   "crtend.o",  "crtn.o" ),
+                    .static_pie  => result.set( "Scrt1.o", "crti.o", "crtbeginS.o",  "crtendS.o", "crtn.o" ),
+                    // zig fmt: on
+                },
+                .freebsd => switch (mode) {
+                    // zig fmt: off
+                    .dynamic_lib => result.set( null,      "crti.o", "crtbeginS.o", "crtendS.o", "crtn.o" ),
+                    .dynamic_exe => result.set( "crt1.o",  "crti.o", "crtbegin.o",  "crtend.o",  "crtn.o" ),
+                    .dynamic_pie => result.set( "Scrt1.o", "crti.o", "crtbeginS.o", "crtendS.o", "crtn.o" ),
+                    .static_exe  => result.set( "crt1.o",  "crti.o", "crtbeginT.o", "crtend.o",  "crtn.o" ),
+                    .static_pie  => result.set( "Scrt1.o", "crti.o", "crtbeginS.o", "crtendS.o", "crtn.o" ),
+                    // zig fmt: on
+                },
+                .netbsd => switch (mode) {
+                    // zig fmt: off
+                    .dynamic_lib => result.set( null,     "crti.o", "crtbeginS.o", "crtendS.o", "crtn.o" ),
+                    .dynamic_exe => result.set( "crt0.o", "crti.o", "crtbegin.o",  "crtend.o",  "crtn.o" ),
+                    .dynamic_pie => result.set( "crt0.o", "crti.o", "crtbeginS.o", "crtendS.o", "crtn.o" ),
+                    .static_exe  => result.set( "crt0.o", "crti.o", "crtbeginT.o", "crtend.o",  "crtn.o" ),
+                    .static_pie  => result.set( "crt0.o", "crti.o", "crtbeginT.o", "crtendS.o", "crtn.o" ),
+                    // zig fmt: on
+                },
+                .openbsd => switch (mode) {
+                    // zig fmt: off
+                    .dynamic_lib => result.set( null,      null, "crtbeginS.o", "crtendS.o", null ),
+                    .dynamic_exe,
+                    .dynamic_pie => result.set( "crt0.o",  null, "crtbegin.o",  "crtend.o",  null ),
+                    .static_exe,
+                    .static_pie  => result.set( "rcrt0.o", null, "crtbegin.o",  "crtend.o",  null ),
+                    // zig fmt: on
+                },
+                .haiku => switch (mode) {
+                    // zig fmt: off
+                    .dynamic_lib => result.set( null,          "crti.o", "crtbeginS.o", "crtendS.o", "crtn.o" ),
+                    .dynamic_exe => result.set( "start_dyn.o", "crti.o", "crtbegin.o",  "crtend.o",  "crtn.o" ),
+                    .dynamic_pie => result.set( "start_dyn.o", "crti.o", "crtbeginS.o", "crtendS.o", "crtn.o" ),
+                    .static_exe  => result.set( "start_dyn.o", "crti.o", "crtbegin.o",  "crtend.o",  "crtn.o" ),
+                    .static_pie  => result.set( "start_dyn.o", "crti.o", "crtbeginS.o", "crtendS.o", "crtn.o" ),
+                    // zig fmt: on
+                },
+                else => {},
+            }
+        }
+
+        // Convert each object to a full pathname.
+        if (link_options.libc_installation) |lci| {
+            const crt_dir_path = lci.crt_dir orelse return error.LibCInstallationMissingCRTDir;
+            switch (link_options.target.os.tag) {
+                .dragonfly => {
+                    if (result.crt0) |*obj| obj.* = try fs.path.join(arena, &[_][]const u8{ crt_dir_path, obj.* });
+                    if (result.crti) |*obj| obj.* = try fs.path.join(arena, &[_][]const u8{ crt_dir_path, obj.* });
+                    if (result.crtn) |*obj| obj.* = try fs.path.join(arena, &[_][]const u8{ crt_dir_path, obj.* });
+
+                    var gccv: []const u8 = undefined;
+                    if (link_options.target.os.version_range.semver.isAtLeast(.{ .major = 5, .minor = 4 }) orelse true) {
+                        gccv = "gcc80";
+                    } else {
+                        gccv = "gcc54";
+                    }
+
+                    if (result.crtbegin) |*obj| obj.* = try fs.path.join(arena, &[_][]const u8{ crt_dir_path, gccv, obj.* });
+                    if (result.crtend) |*obj| obj.* = try fs.path.join(arena, &[_][]const u8{ crt_dir_path, gccv, obj.* });
+                },
+                .haiku => {
+                    const gcc_dir_path = lci.gcc_dir orelse return error.LibCInstallationMissingCRTDir;
+                    if (result.crt0) |*obj| obj.* = try fs.path.join(arena, &[_][]const u8{ crt_dir_path, obj.* });
+                    if (result.crti) |*obj| obj.* = try fs.path.join(arena, &[_][]const u8{ crt_dir_path, obj.* });
+                    if (result.crtn) |*obj| obj.* = try fs.path.join(arena, &[_][]const u8{ crt_dir_path, obj.* });
+
+                    if (result.crtbegin) |*obj| obj.* = try fs.path.join(arena, &[_][]const u8{ gcc_dir_path, obj.* });
+                    if (result.crtend) |*obj| obj.* = try fs.path.join(arena, &[_][]const u8{ gcc_dir_path, obj.* });
+                },
+                else => {
+                    inline for (std.meta.fields(@TypeOf(result))) |f, i| {
+                        if (@field(result, f.name)) |*obj| {
+                            obj.* = try fs.path.join(arena, &[_][]const u8{ crt_dir_path, obj.* });
+                        }
+                    }
+                },
+            }
+        } else {
+            inline for (std.meta.fields(@TypeOf(result))) |f, i| {
+                if (@field(result, f.name)) |*obj| {
+                    if (comp.crt_files.get(obj.*)) |crtf| {
+                        obj.* = crtf.full_object_path;
+                    } else {
+                        @field(result, f.name) = null;
+                    }
+                }
+            }
+        }
+
+        return result;
+    }
+
+    fn set(
+        self: *CsuObjects,
+        crt0: ?[]const u8,
+        crti: ?[]const u8,
+        crtbegin: ?[]const u8,
+        crtend: ?[]const u8,
+        crtn: ?[]const u8,
+    ) void {
+        self.crt0 = crt0;
+        self.crti = crti;
+        self.crtbegin = crtbegin;
+        self.crtend = crtend;
+        self.crtn = crtn;
+    }
+};

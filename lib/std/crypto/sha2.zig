@@ -285,9 +285,9 @@ fn Sha2x32(comptime params: Sha2Params32) type {
 }
 
 test "sha224 single" {
-    htest.assertEqualHash(Sha224, "d14a028c2a3a2bc9476102bb288234c415a2b01f828ea62ac5b3e42f", "");
-    htest.assertEqualHash(Sha224, "23097d223405d8228642a477bda255b32aadbce4bda0b3f7e36c9da7", "abc");
-    htest.assertEqualHash(Sha224, "c97ca9a559850ce97a04a96def6d99a9e0e0e2ab14e6b8df265fc0b3", "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu");
+    try htest.assertEqualHash(Sha224, "d14a028c2a3a2bc9476102bb288234c415a2b01f828ea62ac5b3e42f", "");
+    try htest.assertEqualHash(Sha224, "23097d223405d8228642a477bda255b32aadbce4bda0b3f7e36c9da7", "abc");
+    try htest.assertEqualHash(Sha224, "c97ca9a559850ce97a04a96def6d99a9e0e0e2ab14e6b8df265fc0b3", "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu");
 }
 
 test "sha224 streaming" {
@@ -295,25 +295,25 @@ test "sha224 streaming" {
     var out: [28]u8 = undefined;
 
     h.final(out[0..]);
-    htest.assertEqual("d14a028c2a3a2bc9476102bb288234c415a2b01f828ea62ac5b3e42f", out[0..]);
+    try htest.assertEqual("d14a028c2a3a2bc9476102bb288234c415a2b01f828ea62ac5b3e42f", out[0..]);
 
     h = Sha224.init(.{});
     h.update("abc");
     h.final(out[0..]);
-    htest.assertEqual("23097d223405d8228642a477bda255b32aadbce4bda0b3f7e36c9da7", out[0..]);
+    try htest.assertEqual("23097d223405d8228642a477bda255b32aadbce4bda0b3f7e36c9da7", out[0..]);
 
     h = Sha224.init(.{});
     h.update("a");
     h.update("b");
     h.update("c");
     h.final(out[0..]);
-    htest.assertEqual("23097d223405d8228642a477bda255b32aadbce4bda0b3f7e36c9da7", out[0..]);
+    try htest.assertEqual("23097d223405d8228642a477bda255b32aadbce4bda0b3f7e36c9da7", out[0..]);
 }
 
 test "sha256 single" {
-    htest.assertEqualHash(Sha256, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "");
-    htest.assertEqualHash(Sha256, "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", "abc");
-    htest.assertEqualHash(Sha256, "cf5b16a778af8380036ce59e7b0492370b249b11e8f07a51afac45037afee9d1", "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu");
+    try htest.assertEqualHash(Sha256, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "");
+    try htest.assertEqualHash(Sha256, "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", "abc");
+    try htest.assertEqualHash(Sha256, "cf5b16a778af8380036ce59e7b0492370b249b11e8f07a51afac45037afee9d1", "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu");
 }
 
 test "sha256 streaming" {
@@ -321,19 +321,19 @@ test "sha256 streaming" {
     var out: [32]u8 = undefined;
 
     h.final(out[0..]);
-    htest.assertEqual("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", out[0..]);
+    try htest.assertEqual("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", out[0..]);
 
     h = Sha256.init(.{});
     h.update("abc");
     h.final(out[0..]);
-    htest.assertEqual("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", out[0..]);
+    try htest.assertEqual("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", out[0..]);
 
     h = Sha256.init(.{});
     h.update("a");
     h.update("b");
     h.update("c");
     h.final(out[0..]);
-    htest.assertEqual("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", out[0..]);
+    try htest.assertEqual("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", out[0..]);
 }
 
 test "sha256 aligned final" {
@@ -675,13 +675,13 @@ fn Sha2x64(comptime params: Sha2Params64) type {
 
 test "sha384 single" {
     const h1 = "38b060a751ac96384cd9327eb1b1e36a21fdb71114be07434c0cc7bf63f6e1da274edebfe76f65fbd51ad2f14898b95b";
-    htest.assertEqualHash(Sha384, h1, "");
+    try htest.assertEqualHash(Sha384, h1, "");
 
     const h2 = "cb00753f45a35e8bb5a03d699ac65007272c32ab0eded1631a8b605a43ff5bed8086072ba1e7cc2358baeca134c825a7";
-    htest.assertEqualHash(Sha384, h2, "abc");
+    try htest.assertEqualHash(Sha384, h2, "abc");
 
     const h3 = "09330c33f71147e83d192fc782cd1b4753111b173b3b05d22fa08086e3b0f712fcc7c71a557e2db966c3e9fa91746039";
-    htest.assertEqualHash(Sha384, h3, "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu");
+    try htest.assertEqualHash(Sha384, h3, "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu");
 }
 
 test "sha384 streaming" {
@@ -690,32 +690,32 @@ test "sha384 streaming" {
 
     const h1 = "38b060a751ac96384cd9327eb1b1e36a21fdb71114be07434c0cc7bf63f6e1da274edebfe76f65fbd51ad2f14898b95b";
     h.final(out[0..]);
-    htest.assertEqual(h1, out[0..]);
+    try htest.assertEqual(h1, out[0..]);
 
     const h2 = "cb00753f45a35e8bb5a03d699ac65007272c32ab0eded1631a8b605a43ff5bed8086072ba1e7cc2358baeca134c825a7";
 
     h = Sha384.init(.{});
     h.update("abc");
     h.final(out[0..]);
-    htest.assertEqual(h2, out[0..]);
+    try htest.assertEqual(h2, out[0..]);
 
     h = Sha384.init(.{});
     h.update("a");
     h.update("b");
     h.update("c");
     h.final(out[0..]);
-    htest.assertEqual(h2, out[0..]);
+    try htest.assertEqual(h2, out[0..]);
 }
 
 test "sha512 single" {
     const h1 = "cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e";
-    htest.assertEqualHash(Sha512, h1, "");
+    try htest.assertEqualHash(Sha512, h1, "");
 
     const h2 = "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f";
-    htest.assertEqualHash(Sha512, h2, "abc");
+    try htest.assertEqualHash(Sha512, h2, "abc");
 
     const h3 = "8e959b75dae313da8cf4f72814fc143f8f7779c6eb9f7fa17299aeadb6889018501d289e4900f7e4331b99dec4b5433ac7d329eeb6dd26545e96e55b874be909";
-    htest.assertEqualHash(Sha512, h3, "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu");
+    try htest.assertEqualHash(Sha512, h3, "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu");
 }
 
 test "sha512 streaming" {
@@ -724,21 +724,21 @@ test "sha512 streaming" {
 
     const h1 = "cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e";
     h.final(out[0..]);
-    htest.assertEqual(h1, out[0..]);
+    try htest.assertEqual(h1, out[0..]);
 
     const h2 = "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f";
 
     h = Sha512.init(.{});
     h.update("abc");
     h.final(out[0..]);
-    htest.assertEqual(h2, out[0..]);
+    try htest.assertEqual(h2, out[0..]);
 
     h = Sha512.init(.{});
     h.update("a");
     h.update("b");
     h.update("c");
     h.final(out[0..]);
-    htest.assertEqual(h2, out[0..]);
+    try htest.assertEqual(h2, out[0..]);
 }
 
 test "sha512 aligned final" {

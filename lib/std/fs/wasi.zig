@@ -167,15 +167,15 @@ pub const PreopenList = struct {
 };
 
 test "extracting WASI preopens" {
-    if (@import("builtin").os.tag != .wasi) return error.SkipZigTest;
+    if (std.builtin.os.tag != .wasi) return error.SkipZigTest;
 
     var preopens = PreopenList.init(std.testing.allocator);
     defer preopens.deinit();
 
     try preopens.populate();
 
-    std.testing.expectEqual(@as(usize, 1), preopens.asSlice().len);
+    try std.testing.expectEqual(@as(usize, 1), preopens.asSlice().len);
     const preopen = preopens.find(PreopenType{ .Dir = "." }) orelse unreachable;
-    std.testing.expect(preopen.@"type".eql(PreopenType{ .Dir = "." }));
-    std.testing.expectEqual(@as(usize, 3), preopen.fd);
+    try std.testing.expect(preopen.@"type".eql(PreopenType{ .Dir = "." }));
+    try std.testing.expectEqual(@as(usize, 3), preopen.fd);
 }

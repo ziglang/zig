@@ -318,14 +318,14 @@ pub const Base64DecoderWithIgnore = struct {
 
 test "base64" {
     @setEvalBranchQuota(8000);
-    testBase64() catch unreachable;
-    comptime testAllApis(standard, "comptime", "Y29tcHRpbWU=") catch unreachable;
+    try testBase64();
+    comptime try testAllApis(standard, "comptime", "Y29tcHRpbWU=");
 }
 
 test "base64 url_safe_no_pad" {
     @setEvalBranchQuota(8000);
-    testBase64UrlSafeNoPad() catch unreachable;
-    comptime testAllApis(url_safe_no_pad, "comptime", "Y29tcHRpbWU") catch unreachable;
+    try testBase64UrlSafeNoPad();
+    comptime try testAllApis(url_safe_no_pad, "comptime", "Y29tcHRpbWU");
 }
 
 fn testBase64() !void {
@@ -404,7 +404,7 @@ fn testAllApis(codecs: Codecs, expected_decoded: []const u8, expected_encoded: [
     {
         var buffer: [0x100]u8 = undefined;
         const encoded = codecs.Encoder.encode(&buffer, expected_decoded);
-        testing.expectEqualSlices(u8, expected_encoded, encoded);
+        try testing.expectEqualSlices(u8, expected_encoded, encoded);
     }
 
     // Base64Decoder
@@ -412,7 +412,7 @@ fn testAllApis(codecs: Codecs, expected_decoded: []const u8, expected_encoded: [
         var buffer: [0x100]u8 = undefined;
         var decoded = buffer[0..try codecs.Decoder.calcSizeForSlice(expected_encoded)];
         try codecs.Decoder.decode(decoded, expected_encoded);
-        testing.expectEqualSlices(u8, expected_decoded, decoded);
+        try testing.expectEqualSlices(u8, expected_decoded, decoded);
     }
 
     // Base64DecoderWithIgnore
@@ -421,8 +421,8 @@ fn testAllApis(codecs: Codecs, expected_decoded: []const u8, expected_encoded: [
         var buffer: [0x100]u8 = undefined;
         var decoded = buffer[0..try decoder_ignore_nothing.calcSizeUpperBound(expected_encoded.len)];
         var written = try decoder_ignore_nothing.decode(decoded, expected_encoded);
-        testing.expect(written <= decoded.len);
-        testing.expectEqualSlices(u8, expected_decoded, decoded[0..written]);
+        try testing.expect(written <= decoded.len);
+        try testing.expectEqualSlices(u8, expected_decoded, decoded[0..written]);
     }
 }
 
@@ -431,7 +431,7 @@ fn testDecodeIgnoreSpace(codecs: Codecs, expected_decoded: []const u8, encoded: 
     var buffer: [0x100]u8 = undefined;
     var decoded = buffer[0..try decoder_ignore_space.calcSizeUpperBound(encoded.len)];
     var written = try decoder_ignore_space.decode(decoded, encoded);
-    testing.expectEqualSlices(u8, expected_decoded, decoded[0..written]);
+    try testing.expectEqualSlices(u8, expected_decoded, decoded[0..written]);
 }
 
 fn testError(codecs: Codecs, encoded: []const u8, expected_err: anyerror) !void {

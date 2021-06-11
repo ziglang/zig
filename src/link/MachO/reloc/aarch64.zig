@@ -10,6 +10,7 @@ const reloc = @import("../reloc.zig");
 
 const Allocator = mem.Allocator;
 const Relocation = reloc.Relocation;
+const Symbol = @import("../Symbol.zig");
 
 pub const Branch = struct {
     base: Relocation,
@@ -24,7 +25,7 @@ pub const Branch = struct {
         log.debug("    | displacement 0x{x}", .{displacement});
 
         var inst = branch.inst;
-        inst.unconditional_branch_immediate.imm26 = @truncate(u26, @bitCast(u28, displacement) >> 2);
+        inst.unconditional_branch_immediate.imm26 = @truncate(u26, @bitCast(u28, displacement >> 2));
         mem.writeIntLittle(u32, branch.base.code[0..4], inst.toU32());
     }
 };
@@ -188,6 +189,7 @@ pub const Parser = struct {
     it: *reloc.RelocIterator,
     code: []u8,
     parsed: std.ArrayList(*Relocation),
+    symbols: []*Symbol,
     addend: ?u32 = null,
     subtractor: ?Relocation.Target = null,
 
@@ -226,7 +228,9 @@ pub const Parser = struct {
                     try parser.parseTlvpLoadPageOff(rel);
                 },
                 .ARM64_RELOC_POINTER_TO_GOT => {
-                    return error.ToDoRelocPointerToGot;
+                    // TODO Handle pointer to GOT. This reloc seems to appear in
+                    // __LD,__compact_unwind section which we currently don't handle.
+                    log.debug("Unhandled relocation ARM64_RELOC_POINTER_TO_GOT", .{});
                 },
             }
         }
@@ -271,7 +275,7 @@ pub const Parser = struct {
         var branch = try parser.allocator.create(Branch);
         errdefer parser.allocator.destroy(branch);
 
-        const target = Relocation.Target.from_reloc(rel);
+        const target = Relocation.Target.from_reloc(rel, parser.symbols);
 
         branch.* = .{
             .base = .{
@@ -292,7 +296,7 @@ pub const Parser = struct {
         assert(rel.r_length == 2);
 
         const rel_type = @intToEnum(macho.reloc_type_arm64, rel.r_type);
-        const target = Relocation.Target.from_reloc(rel);
+        const target = Relocation.Target.from_reloc(rel, parser.symbols);
 
         const offset = @intCast(u32, rel.r_address);
         const inst = parser.code[offset..][0..4];
@@ -398,7 +402,7 @@ pub const Parser = struct {
                 aarch64.Instruction.load_store_register,
             ), inst) };
         }
-        const target = Relocation.Target.from_reloc(rel);
+        const target = Relocation.Target.from_reloc(rel, parser.symbols);
 
         var page_off = try parser.allocator.create(PageOff);
         errdefer parser.allocator.destroy(page_off);
@@ -435,7 +439,7 @@ pub const Parser = struct {
         ), inst);
         assert(parsed_inst.size == 3);
 
-        const target = Relocation.Target.from_reloc(rel);
+        const target = Relocation.Target.from_reloc(rel, parser.symbols);
 
         var page_off = try parser.allocator.create(GotPageOff);
         errdefer parser.allocator.destroy(page_off);
@@ -494,7 +498,7 @@ pub const Parser = struct {
             }
         };
 
-        const target = Relocation.Target.from_reloc(rel);
+        const target = Relocation.Target.from_reloc(rel, parser.symbols);
 
         var page_off = try parser.allocator.create(TlvpPageOff);
         errdefer parser.allocator.destroy(page_off);
@@ -529,7 +533,7 @@ pub const Parser = struct {
         assert(rel.r_pcrel == 0);
         assert(parser.subtractor == null);
 
-        parser.subtractor = Relocation.Target.from_reloc(rel);
+        parser.subtractor = Relocation.Target.from_reloc(rel, parser.symbols);
 
         // Verify SUBTRACTOR is followed by UNSIGNED.
         const next = @intToEnum(macho.reloc_type_arm64, parser.it.peek().r_type);
@@ -552,7 +556,7 @@ pub const Parser = struct {
         var unsigned = try parser.allocator.create(reloc.Unsigned);
         errdefer parser.allocator.destroy(unsigned);
 
-        const target = Relocation.Target.from_reloc(rel);
+        const target = Relocation.Target.from_reloc(rel, parser.symbols);
         const is_64bit: bool = switch (rel.r_length) {
             3 => true,
             2 => false,
@@ -581,7 +585,7 @@ pub const Parser = struct {
     }
 };
 
-fn isArithmeticOp(inst: *const [4]u8) callconv(.Inline) bool {
+inline fn isArithmeticOp(inst: *const [4]u8) bool {
     const group_decode = @truncate(u5, inst[3]);
     return ((group_decode >> 2) == 4);
 }

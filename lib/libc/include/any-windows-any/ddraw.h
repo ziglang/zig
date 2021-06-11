@@ -228,6 +228,10 @@ typedef struct IDirectDrawGammaControl *LPDIRECTDRAWGAMMACONTROL;
 #define DDBLT_WAIT				0x01000000
 #define DDBLT_DEPTHFILL				0x02000000
 #define DDBLT_DONOTWAIT                         0x08000000
+#define DDBLT_PRESENTATION                      0x10000000
+#define DDBLT_LAST_PRESENTATION                 0x20000000
+#define DDBLT_EXTENDED_FLAGS                    0x40000000
+#define DDBLT_EXTENDED_LINEAR_CONTENT           0x00000004
 
 /* dwTrans for BltFast */
 #define DDBLTFAST_NOCOLORKEY			0x00000000
@@ -367,6 +371,30 @@ typedef struct _DDSCAPS {
 /* indicates surface is part of a stereo flipping chain */
 #define DDSCAPS2_STEREOSURFACELEFT      0x00080000
 #define DDSCAPS2_VOLUME                 0x00200000
+#define DDSCAPS2_NOTUSERLOCKABLE        0x00400000
+#define DDSCAPS2_POINTS                 0x00800000
+#define DDSCAPS2_RTPATCHES              0x01000000
+#define DDSCAPS2_NPATCHES               0x02000000
+#define DDSCAPS2_RESERVED3              0x04000000
+#define DDSCAPS2_DISCARDBACKBUFFER      0x10000000
+#define DDSCAPS2_ENABLEALPHACHANNEL     0x20000000
+#define DDSCAPS2_EXTENDEDFORMATPRIMARY  0x40000000
+#define DDSCAPS2_ADDITIONALPRIMARY      0x80000000
+
+/* DDSCAPS2.dwCaps3 */
+#define DDSCAPS3_MULTISAMPLE_MASK               0x0000001f
+#define DDSCAPS3_MULTISAMPLE_QUALITY_MASK       0x000000e0
+#define DDSCAPS3_MULTISAMPLE_QUALITY_SHIFT      5
+#define DDSCAPS3_RESERVED1                      0x00000100
+#define DDSCAPS3_RESERVED2                      0x00000200
+#define DDSCAPS3_LIGHTWEIGHTMIPMAP              0x00000400
+#define DDSCAPS3_AUTOGENMIPMAP                  0x00000800
+#define DDSCAPS3_DMAP                           0x00001000
+#ifndef D3D_DISABLE_9EX
+#define DDSCAPS3_CREATESHAREDRESOURCE           0x00002000
+#define DDSCAPS3_READONLYRESOURCE               0x00004000
+#define DDSCAPS3_OPENSHAREDRESOURCE             0x00008000
+#endif /* !D3D_DISABLE_9EX */
 
 typedef struct _DDSCAPS2 {
 	DWORD	dwCaps;	/* capabilities of surface wanted */
@@ -753,6 +781,7 @@ typedef struct _DDPIXELFORMAT {
 	DWORD	dwAlphaBitDepth;        /* C: how many bits for alpha channels*/
 	DWORD	dwLuminanceBitCount;
 	DWORD	dwBumpBitCount;
+	DWORD	dwPrivateFormatBitCount;
     } DUMMYUNIONNAME1;
     __GNU_EXTENSION union {
 	DWORD	dwRBitMask;             /* 10: mask for red bit*/
@@ -760,12 +789,17 @@ typedef struct _DDPIXELFORMAT {
 	DWORD	dwStencilBitDepth;
 	DWORD	dwLuminanceBitMask;
 	DWORD	dwBumpDuBitMask;
+	DWORD	dwOperations;
     } DUMMYUNIONNAME2;
     __GNU_EXTENSION union {
 	DWORD	dwGBitMask;             /* 14: mask for green bits*/
 	DWORD	dwUBitMask;             /* 14: mask for U bits*/
 	DWORD	dwZBitMask;
 	DWORD	dwBumpDvBitMask;
+	struct {
+		WORD	wFlipMSTypes;
+		WORD	wBltMSTypes;
+	} MultiSampleCaps;
     } DUMMYUNIONNAME3;
     __GNU_EXTENSION union {
 	DWORD   dwBBitMask;             /* 18: mask for blue bits*/
@@ -899,6 +933,9 @@ typedef struct _DDPIXELFORMAT {
 #define DDOVER_BOB                              0x00200000
 #define DDOVER_OVERRIDEBOBWEAVE                 0x00400000
 #define DDOVER_INTERLEAVED                      0x00800000
+#define DDOVER_BOBHARDWARE                      0x01000000
+#define DDOVER_ARGBSCALEFACTORS                 0x02000000
+#define DDOVER_DEGRADEARGBSCALING               0x04000000
 
 /* DDPIXELFORMAT.dwFlags */
 #define DDPF_ALPHAPIXELS		0x00000001
@@ -1098,6 +1135,10 @@ typedef HRESULT (CALLBACK *LPDDENUMSURFACESCALLBACK)(LPDIRECTDRAWSURFACE, LPDDSU
 typedef HRESULT (CALLBACK *LPDDENUMSURFACESCALLBACK2)(LPDIRECTDRAWSURFACE4, LPDDSURFACEDESC2, LPVOID);
 typedef HRESULT (CALLBACK *LPDDENUMSURFACESCALLBACK7)(LPDIRECTDRAWSURFACE7, LPDDSURFACEDESC2, LPVOID);
 
+#if (WINVER < 0x0500) && !defined(HMONITOR_DECLARED)
+DECLARE_HANDLE(HMONITOR);
+#define HMONITOR_DECLARED 1
+#endif
 typedef WINBOOL (CALLBACK *LPDDENUMCALLBACKEXA)(GUID *, LPSTR, LPSTR, LPVOID, HMONITOR);
 typedef WINBOOL (CALLBACK *LPDDENUMCALLBACKEXW)(GUID *, LPWSTR, LPWSTR, LPVOID, HMONITOR);
 DECL_WINELIB_TYPE_AW(LPDDENUMCALLBACKEX)

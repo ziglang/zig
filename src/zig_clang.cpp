@@ -1784,6 +1784,14 @@ unsigned ZigClangVarDecl_getAlignedAttribute(const struct ZigClangVarDecl *self,
     return 0;
 }
 
+const struct ZigClangFunctionDecl *ZigClangVarDecl_getCleanupAttribute(const struct ZigClangVarDecl *self) {
+    auto casted_self = reinterpret_cast<const clang::VarDecl *>(self);
+    if (const clang::CleanupAttr *CA = casted_self->getAttr<clang::CleanupAttr>()) {
+        return reinterpret_cast<const ZigClangFunctionDecl *>(CA->getFunctionDecl());
+    }
+    return nullptr;
+}
+
 unsigned ZigClangFieldDecl_getAlignedAttribute(const struct ZigClangFieldDecl *self, const ZigClangASTContext* ctx) {
     auto casted_self = reinterpret_cast<const clang::FieldDecl *>(self);
     auto casted_ctx = const_cast<clang::ASTContext *>(reinterpret_cast<const clang::ASTContext *>(ctx));
@@ -1818,6 +1826,11 @@ const ZigClangEnumDecl *ZigClangEnumDecl_getDefinition(const ZigClangEnumDecl *z
     const clang::EnumDecl *enum_decl = reinterpret_cast<const clang::EnumDecl *>(zig_enum_decl);
     const clang::EnumDecl *definition = enum_decl->getDefinition();
     return reinterpret_cast<const ZigClangEnumDecl *>(definition);
+}
+
+const ZigClangStringLiteral *ZigClangFileScopeAsmDecl_getAsmString(const ZigClangFileScopeAsmDecl *self) {
+    const clang::StringLiteral *result = reinterpret_cast<const clang::FileScopeAsmDecl*>(self)->getAsmString();
+    return reinterpret_cast<const ZigClangStringLiteral *>(result);
 }
 
 bool ZigClangRecordDecl_isUnion(const ZigClangRecordDecl *record_decl) {
@@ -2528,6 +2541,11 @@ double ZigClangFloatingLiteral_getValueAsApproximateDouble(const ZigClangFloatin
     return casted->getValueAsApproximateDouble();
 }
 
+ZigClangAPFloatBase_Semantics ZigClangFloatingLiteral_getRawSemantics(const ZigClangFloatingLiteral *self) {
+    auto casted = reinterpret_cast<const clang::FloatingLiteral *>(self);
+    return static_cast<ZigClangAPFloatBase_Semantics>(casted->getRawSemantics());
+}
+
 enum ZigClangStringLiteral_StringKind ZigClangStringLiteral_getKind(const struct ZigClangStringLiteral *self) {
     auto casted = reinterpret_cast<const clang::StringLiteral *>(self);
     return (ZigClangStringLiteral_StringKind)casted->getKind();
@@ -3080,6 +3098,13 @@ struct ZigClangSourceLocation ZigClangMacroDefinitionRecord_getSourceRange_getBe
 struct ZigClangSourceLocation ZigClangMacroDefinitionRecord_getSourceRange_getEnd(const struct ZigClangMacroDefinitionRecord *self) {
     auto casted = reinterpret_cast<const clang::MacroDefinitionRecord *>(self);
     return bitcast(casted->getSourceRange().getEnd());
+}
+
+struct ZigClangSourceLocation ZigClangLexer_getLocForEndOfToken(ZigClangSourceLocation loc, const ZigClangSourceManager *sm, const ZigClangASTUnit *unit) {
+    const clang::SourceManager *casted_sm = reinterpret_cast<const clang::SourceManager *>(sm);
+    const clang::ASTUnit *casted_unit = reinterpret_cast<const clang::ASTUnit *>(unit);
+    clang::SourceLocation endloc = clang::Lexer::getLocForEndOfToken(bitcast(loc), 0, *casted_sm, casted_unit->getLangOpts());
+    return bitcast(endloc);
 }
 
 ZigClangRecordDecl_field_iterator ZigClangRecordDecl_field_begin(const struct ZigClangRecordDecl *self) {

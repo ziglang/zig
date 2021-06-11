@@ -117,13 +117,30 @@ pub const level: Level = if (@hasDecl(root, "log_level"))
 else
     default_level;
 
+pub const ScopeLevel = struct {
+    scope: @Type(.EnumLiteral),
+    level: Level,
+};
+
+const scope_levels = if (@hasDecl(root, "scope_levels"))
+    root.scope_levels
+else
+    [0]ScopeLevel{};
+
 fn log(
     comptime message_level: Level,
     comptime scope: @Type(.EnumLiteral),
     comptime format: []const u8,
     args: anytype,
 ) void {
-    if (@enumToInt(message_level) <= @enumToInt(level)) {
+    const effective_log_level = blk: {
+        inline for (scope_levels) |scope_level| {
+            if (scope_level.scope == scope) break :blk scope_level.level;
+        }
+        break :blk level;
+    };
+
+    if (@enumToInt(message_level) <= @enumToInt(effective_log_level)) {
         if (@hasDecl(root, "log")) {
             root.log(message_level, scope, format, args);
         } else if (std.Target.current.os.tag == .freestanding) {

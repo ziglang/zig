@@ -47,7 +47,7 @@
  * C++ linkage (when GCC headers are explicitly included before intrin.h), but at least their
  * guards will prevent duplicated declarations and avoid conflicts.
  *
- * On GCC 4.9 we may always include those headers. On older GCCs, we may do it only if CPU
+ * On GCC 4.9 and Clang we may always include those headers. On older GCCs, we may do it only if CPU
  * features used by them are enabled, so we need to check macros like __SSE__ or __MMX__ first.
  */
 #if __MINGW_GNUC_PREREQ(4, 9) || defined(__clang__)
@@ -56,11 +56,7 @@
 
 #if defined(__GNUC__) && \
    (defined(__i386__) || defined(__x86_64__))
-  extern unsigned int __builtin_ia32_crc32qi (unsigned int, unsigned char);
-  extern unsigned int __builtin_ia32_crc32hi (unsigned int, unsigned short);
-  extern unsigned int __builtin_ia32_crc32si (unsigned int, unsigned int);
 #ifndef _MM_MALLOC_H_INCLUDED
-#define _MM_MALLOC_H_INCLUDED
 #include <stdlib.h>
 #include <errno.h>
 /* Make sure _mm_malloc and _mm_free are defined.  */
@@ -229,7 +225,7 @@ extern "C" {
 #define __MACHINEX86X_NOWIN64 __MACHINEZ
 #endif
 
-#if !(_M_ARM)
+#if !(defined(__arm__))
 #undef __MACHINESA
 #undef __MACHINEARMX
 #undef __MACHINECC

@@ -1,25 +1,15 @@
-#if __STDC_VERSION__ >= 199901L
-#include <stdbool.h>
-#else
-#define bool unsigned char
-#define true 1
-#define false 0
-#endif
-
 #if __STDC_VERSION__ >= 201112L
 #define zig_noreturn _Noreturn
+#define zig_threadlocal thread_local
 #elif __GNUC__
 #define zig_noreturn __attribute__ ((noreturn))
+#define zig_threadlocal __thread
 #elif _MSC_VER
 #define zig_noreturn __declspec(noreturn)
+#define zig_threadlocal __declspec(thread)
 #else
 #define zig_noreturn
-#endif
-
-#if defined(__GNUC__)
-#define zig_unreachable() __builtin_unreachable()
-#else
-#define zig_unreachable()
+#define zig_threadlocal zig_threadlocal_unavailable
 #endif
 
 #if __STDC_VERSION__ >= 199901L
@@ -28,6 +18,20 @@
 #define ZIG_RESTRICT __restrict
 #else
 #define ZIG_RESTRICT
+#endif
+
+#if __STDC_VERSION__ >= 199901L
+#include <stdbool.h>
+#else
+#define bool unsigned char
+#define true 1
+#define false 0
+#endif
+
+#if defined(__GNUC__)
+#define zig_unreachable() __builtin_unreachable()
+#else
+#define zig_unreachable()
 #endif
 
 #ifdef __cplusplus

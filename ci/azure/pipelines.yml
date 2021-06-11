@@ -2,9 +2,7 @@ jobs:
 - job: BuildMacOS
   pool:
     vmImage: 'macOS-10.15'
-
   timeoutInMinutes: 360
-
   steps:
   - task: DownloadSecureFile@1
     inputs:
@@ -15,9 +13,7 @@ jobs:
 - job: BuildMacOS_arm64
   pool:
     vmImage: 'macOS-10.15'
-
-  timeoutInMinutes: 60
-
+  timeoutInMinutes: 180
   steps:
   - task: DownloadSecureFile@1
     inputs:
@@ -28,9 +24,7 @@ jobs:
 - job: BuildLinux
   pool:
     vmImage: 'ubuntu-18.04'
-
   timeoutInMinutes: 360
-
   steps:
   - task: DownloadSecureFile@1
     inputs:

@@ -396,6 +396,10 @@ typedef struct __NCRYPT_UI_POLICY {
 #if NTDDI_VERSION >= 0x06020000
   SECURITY_STATUS WINAPI NCryptKeyDerivation (NCRYPT_KEY_HANDLE hKey, NCryptBufferDesc *pParameterList, PUCHAR pbDerivedKey, DWORD cbDerivedKey, DWORD *pcbResult, ULONG dwFlags);
 #endif
+#if NTDDI_VERSION >= NTDDI_WINTHRESHOLD
+SECURITY_STATUS WINAPI NCryptCreateClaim (NCRYPT_KEY_HANDLE hSubjectKey, NCRYPT_KEY_HANDLE hAuthorityKey, DWORD dwClaimType, NCryptBufferDesc *pParameterList, PBYTE pbClaimBlob, DWORD cbClaimBlob, DWORD *pcbResult, DWORD dwFlags);
+SECURITY_STATUS WINAPI NCryptVerifyClaim (NCRYPT_KEY_HANDLE hSubjectKey, NCRYPT_KEY_HANDLE hAuthorityKey, DWORD dwClaimType, NCryptBufferDesc *pParameterList, PBYTE pbClaimBlob, DWORD cbClaimBlob, NCryptBufferDesc *pOutput, DWORD dwFlags);
+#endif
 #endif
 
 #ifdef __cplusplus

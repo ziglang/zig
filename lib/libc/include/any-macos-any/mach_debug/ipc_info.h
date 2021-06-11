@@ -113,4 +113,11 @@ typedef struct ipc_info_tree_name {
 
 typedef ipc_info_tree_name_t *ipc_info_tree_name_array_t;
 
+typedef struct ipc_info_port {
+	natural_t iip_port_object;      /* port object identifier */
+	natural_t iip_receiver_object;  /* receiver task identifier (if any) */
+} ipc_info_port_t;
+
+typedef ipc_info_port_t *exception_handler_info_array_t;
+
 #endif  /* _MACH_DEBUG_IPC_INFO_H_ */

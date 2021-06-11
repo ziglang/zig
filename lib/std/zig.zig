@@ -24,6 +24,10 @@ pub fn hashSrc(src: []const u8) SrcHash {
     return out;
 }
 
+pub fn srcHashEql(a: SrcHash, b: SrcHash) bool {
+    return @bitCast(u128, a) == @bitCast(u128, b);
+}
+
 pub fn hashName(parent_hash: SrcHash, sep: []const u8, name: []const u8) SrcHash {
     var out: SrcHash = undefined;
     var hasher = std.crypto.hash.Blake3.init(.{});
@@ -156,8 +160,15 @@ pub fn binNameAlloc(allocator: *std.mem.Allocator, options: BinNameOptions) erro
         },
         .wasm => switch (options.output_mode) {
             .Exe => return std.fmt.allocPrint(allocator, "{s}{s}", .{ root_name, target.exeFileExt() }),
+            .Lib => {
+                switch (options.link_mode orelse .Static) {
+                    .Static => return std.fmt.allocPrint(allocator, "{s}{s}.a", .{
+                        target.libPrefix(), root_name,
+                    }),
+                    .Dynamic => return std.fmt.allocPrint(allocator, "{s}.wasm", .{root_name}),
+                }
+            },
             .Obj => return std.fmt.allocPrint(allocator, "{s}{s}", .{ root_name, target.oFileExt() }),
-            .Lib => return std.fmt.allocPrint(allocator, "{s}.wasm", .{root_name}),
         },
         .c => return std.fmt.allocPrint(allocator, "{s}.c", .{root_name}),
         .spirv => return std.fmt.allocPrint(allocator, "{s}.spv", .{root_name}),
@@ -253,26 +264,26 @@ pub fn parseCharLiteral(
 
 test "parseCharLiteral" {
     var bad_index: usize = undefined;
-    std.testing.expectEqual(try parseCharLiteral("'a'", &bad_index), 'a');
-    std.testing.expectEqual(try parseCharLiteral("'ä'", &bad_index), 'ä');
-    std.testing.expectEqual(try parseCharLiteral("'\\x00'", &bad_index), 0);
-    std.testing.expectEqual(try parseCharLiteral("'\\x4f'", &bad_index), 0x4f);
-    std.testing.expectEqual(try parseCharLiteral("'\\x4F'", &bad_index), 0x4f);
-    std.testing.expectEqual(try parseCharLiteral("'ぁ'", &bad_index), 0x3041);
-    std.testing.expectEqual(try parseCharLiteral("'\\u{0}'", &bad_index), 0);
-    std.testing.expectEqual(try parseCharLiteral("'\\u{3041}'", &bad_index), 0x3041);
-    std.testing.expectEqual(try parseCharLiteral("'\\u{7f}'", &bad_index), 0x7f);
-    std.testing.expectEqual(try parseCharLiteral("'\\u{7FFF}'", &bad_index), 0x7FFF);
+    try std.testing.expectEqual(try parseCharLiteral("'a'", &bad_index), 'a');
+    try std.testing.expectEqual(try parseCharLiteral("'ä'", &bad_index), 'ä');
+    try std.testing.expectEqual(try parseCharLiteral("'\\x00'", &bad_index), 0);
+    try std.testing.expectEqual(try parseCharLiteral("'\\x4f'", &bad_index), 0x4f);
+    try std.testing.expectEqual(try parseCharLiteral("'\\x4F'", &bad_index), 0x4f);
+    try std.testing.expectEqual(try parseCharLiteral("'ぁ'", &bad_index), 0x3041);
+    try std.testing.expectEqual(try parseCharLiteral("'\\u{0}'", &bad_index), 0);
+    try std.testing.expectEqual(try parseCharLiteral("'\\u{3041}'", &bad_index), 0x3041);
+    try std.testing.expectEqual(try parseCharLiteral("'\\u{7f}'", &bad_index), 0x7f);
+    try std.testing.expectEqual(try parseCharLiteral("'\\u{7FFF}'", &bad_index), 0x7FFF);
 
-    std.testing.expectError(error.InvalidCharacter, parseCharLiteral("'\\x0'", &bad_index));
-    std.testing.expectError(error.InvalidCharacter, parseCharLiteral("'\\x000'", &bad_index));
-    std.testing.expectError(error.InvalidCharacter, parseCharLiteral("'\\y'", &bad_index));
-    std.testing.expectError(error.InvalidCharacter, parseCharLiteral("'\\u'", &bad_index));
-    std.testing.expectError(error.InvalidCharacter, parseCharLiteral("'\\uFFFF'", &bad_index));
-    std.testing.expectError(error.InvalidCharacter, parseCharLiteral("'\\u{}'", &bad_index));
-    std.testing.expectError(error.InvalidCharacter, parseCharLiteral("'\\u{FFFFFF}'", &bad_index));
-    std.testing.expectError(error.InvalidCharacter, parseCharLiteral("'\\u{FFFF'", &bad_index));
-    std.testing.expectError(error.InvalidCharacter, parseCharLiteral("'\\u{FFFF}x'", &bad_index));
+    try std.testing.expectError(error.InvalidCharacter, parseCharLiteral("'\\x0'", &bad_index));
+    try std.testing.expectError(error.InvalidCharacter, parseCharLiteral("'\\x000'", &bad_index));
+    try std.testing.expectError(error.InvalidCharacter, parseCharLiteral("'\\y'", &bad_index));
+    try std.testing.expectError(error.InvalidCharacter, parseCharLiteral("'\\u'", &bad_index));
+    try std.testing.expectError(error.InvalidCharacter, parseCharLiteral("'\\uFFFF'", &bad_index));
+    try std.testing.expectError(error.InvalidCharacter, parseCharLiteral("'\\u{}'", &bad_index));
+    try std.testing.expectError(error.InvalidCharacter, parseCharLiteral("'\\u{FFFFFF}'", &bad_index));
+    try std.testing.expectError(error.InvalidCharacter, parseCharLiteral("'\\u{FFFF'", &bad_index));
+    try std.testing.expectError(error.InvalidCharacter, parseCharLiteral("'\\u{FFFF}x'", &bad_index));
 }
 
 test {

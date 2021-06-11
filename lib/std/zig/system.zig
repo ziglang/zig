@@ -14,6 +14,8 @@ const process = std.process;
 const Target = std.Target;
 const CrossTarget = std.zig.CrossTarget;
 const macos = @import("system/macos.zig");
+const native_endian = std.Target.current.cpu.arch.endian();
+const linux = @import("system/linux.zig");
 pub const windows = @import("system/windows.zig");
 
 pub const getSDKPath = macos.getSDKPath;
@@ -52,8 +54,10 @@ pub const NativePaths = struct {
                     };
                     try self.addIncludeDir(include_path);
                 } else {
+                    if (mem.startsWith(u8, word, "-frandom-seed=")) {
+                        continue;
+                    }
                     try self.addWarningFmt("Unrecognized C flag from NIX_CFLAGS_COMPILE: {s}", .{word});
-                    break;
                 }
             }
         } else |err| switch (err) {
@@ -207,11 +211,6 @@ pub const NativeTargetInfo = struct {
 
     dynamic_linker: DynamicLinker = DynamicLinker{},
 
-    /// Only some architectures have CPU detection implemented. This field reveals whether
-    /// CPU detection actually occurred. When this is `true` it means that the reported
-    /// CPU is baseline only because of a missing implementation for that architecture.
-    cpu_detection_unimplemented: bool = false,
-
     pub const DynamicLinker = Target.DynamicLinker;
 
     pub const DetectError = error{
@@ -256,28 +255,86 @@ pub const NativeTargetInfo = struct {
                     os.version_range.windows.max = detected_version;
                 },
                 .macos => try macos.detect(&os),
-                .freebsd => {
-                    var osreldate: u32 = undefined;
-                    var len: usize = undefined;
+                .freebsd, .netbsd, .dragonfly => {
+                    const key = switch (Target.current.os.tag) {
+                        .freebsd => "kern.osreldate",
+                        .netbsd, .dragonfly => "kern.osrevision",
+                        else => unreachable,
+                    };
+                    var value: u32 = undefined;
+                    var len: usize = @sizeOf(@TypeOf(value));
 
-                    std.os.sysctlbynameZ("kern.osreldate", &osreldate, &len, null, 0) catch |err| switch (err) {
+                    std.os.sysctlbynameZ(key, &value, &len, null, 0) catch |err| switch (err) {
                         error.NameTooLong => unreachable, // constant, known good value
                         error.PermissionDenied => unreachable, // only when setting values,
                         error.SystemResources => unreachable, // memory already on the stack
                         error.UnknownName => unreachable, // constant, known good value
-                        error.Unexpected => unreachable, // EFAULT: stack should be safe, EISDIR/ENOTDIR: constant, known good value
+                        error.Unexpected => return error.OSVersionDetectionFail,
                     };
 
-                    // https://www.freebsd.org/doc/en_US.ISO8859-1/books/porters-handbook/versions.html
-                    // Major * 100,000 has been convention since FreeBSD 2.2 (1997)
-                    // Minor * 1(0),000 summed has been convention since FreeBSD 2.2 (1997)
-                    // e.g. 492101 = 4.11-STABLE = 4.(9+2)
-                    const major = osreldate / 100_000;
-                    const minor1 = osreldate % 100_000 / 10_000; // usually 0 since 5.1
-                    const minor2 = osreldate % 10_000 / 1_000; // 0 before 5.1, minor version since
-                    const patch = osreldate % 1_000;
-                    os.version_range.semver.min = .{ .major = major, .minor = minor1 + minor2, .patch = patch };
-                    os.version_range.semver.max = .{ .major = major, .minor = minor1 + minor2, .patch = patch };
+                    switch (Target.current.os.tag) {
+                        .freebsd => {
+                            // https://www.freebsd.org/doc/en_US.ISO8859-1/books/porters-handbook/versions.html
+                            // Major * 100,000 has been convention since FreeBSD 2.2 (1997)
+                            // Minor * 1(0),000 summed has been convention since FreeBSD 2.2 (1997)
+                            // e.g. 492101 = 4.11-STABLE = 4.(9+2)
+                            const major = value / 100_000;
+                            const minor1 = value % 100_000 / 10_000; // usually 0 since 5.1
+                            const minor2 = value % 10_000 / 1_000; // 0 before 5.1, minor version since
+                            const patch = value % 1_000;
+                            os.version_range.semver.min = .{ .major = major, .minor = minor1 + minor2, .patch = patch };
+                            os.version_range.semver.max = os.version_range.semver.min;
+                        },
+                        .netbsd => {
+                            // #define __NetBSD_Version__ MMmmrrpp00
+                            //
+                            // M = major version
+                            // m = minor version; a minor number of 99 indicates current.
+                            // r = 0 (*)
+                            // p = patchlevel
+                            const major = value / 100_000_000;
+                            const minor = value % 100_000_000 / 1_000_000;
+                            const patch = value % 10_000 / 100;
+                            os.version_range.semver.min = .{ .major = major, .minor = minor, .patch = patch };
+                            os.version_range.semver.max = os.version_range.semver.min;
+                        },
+                        .dragonfly => {
+                            // https://github.com/DragonFlyBSD/DragonFlyBSD/blob/cb2cde83771754aeef9bb3251ee48959138dec87/Makefile.inc1#L15-L17
+                            // flat base10 format: Mmmmpp
+                            //   M = major
+                            //   m = minor; odd-numbers indicate current dev branch
+                            //   p = patch
+                            const major = value / 100_000;
+                            const minor = value % 100_000 / 100;
+                            const patch = value % 100;
+                            os.version_range.semver.min = .{ .major = major, .minor = minor, .patch = patch };
+                            os.version_range.semver.max = os.version_range.semver.min;
+                        },
+                        else => unreachable,
+                    }
+                },
+                .openbsd => {
+                    const mib: [2]c_int = [_]c_int{
+                        std.os.CTL_KERN,
+                        std.os.KERN_OSRELEASE,
+                    };
+                    var buf: [64]u8 = undefined;
+                    var len: usize = buf.len;
+
+                    std.os.sysctl(&mib, &buf, &len, null, 0) catch |err| switch (err) {
+                        error.NameTooLong => unreachable, // constant, known good value
+                        error.PermissionDenied => unreachable, // only when setting values,
+                        error.SystemResources => unreachable, // memory already on the stack
+                        error.UnknownName => unreachable, // constant, known good value
+                        error.Unexpected => return error.OSVersionDetectionFail,
+                    };
+
+                    if (std.builtin.Version.parse(buf[0 .. len - 1])) |ver| {
+                        os.version_range.semver.min = ver;
+                        os.version_range.semver.max = ver;
+                    } else |err| {
+                        return error.OSVersionDetectionFail;
+                    }
                 },
                 else => {
                     // Unimplemented, fall back to default version range.
@@ -308,8 +365,6 @@ pub const NativeTargetInfo = struct {
             os.version_range.linux.glibc = glibc;
         }
 
-        var cpu_detection_unimplemented = false;
-
         // Until https://github.com/ziglang/zig/issues/4592 is implemented (support detecting the
         // native CPU architecture as being different than the current target), we use this:
         const cpu_arch = cross_target.getCpuArch();
@@ -323,7 +378,6 @@ pub const NativeTargetInfo = struct {
                 Target.Cpu.baseline(cpu_arch),
             .explicit => |model| model.toCpu(cpu_arch),
         } orelse backup_cpu_detection: {
-            cpu_detection_unimplemented = true;
             break :backup_cpu_detection Target.Cpu.baseline(cpu_arch);
         };
         var result = try detectAbiAndDynamicLinker(allocator, cpu, os, cross_target);
@@ -348,10 +402,18 @@ pub const NativeTargetInfo = struct {
                     }
                 }
             },
+            .arm, .armeb => {
+                // XXX What do we do if the target has the noarm feature?
+                //     What do we do if the user specifies +thumb_mode?
+            },
+            .thumb, .thumbeb => {
+                result.target.cpu.features.addFeature(
+                    @enumToInt(std.Target.arm.Feature.thumb_mode),
+                );
+            },
             else => {},
         }
         cross_target.updateCpuFeatures(&result.target.cpu.features);
-        result.cpu_detection_unimplemented = cpu_detection_unimplemented;
         return result;
     }
 
@@ -603,7 +665,7 @@ pub const NativeTargetInfo = struct {
             elf.ELFDATA2MSB => .Big,
             else => return error.InvalidElfEndian,
         };
-        const need_bswap = elf_endian != std.builtin.endian;
+        const need_bswap = elf_endian != native_endian;
         if (hdr32.e_ident[elf.EI_VERSION] != 1) return error.InvalidElfVersion;
 
         const is_64 = switch (hdr32.e_ident[elf.EI_CLASS]) {
@@ -911,15 +973,22 @@ pub const NativeTargetInfo = struct {
             .x86_64, .i386 => {
                 return @import("system/x86.zig").detectNativeCpuAndFeatures(cpu_arch, os, cross_target);
             },
-            else => {
-                // This architecture does not have CPU model & feature detection yet.
-                // See https://github.com/ziglang/zig/issues/4591
-                return null;
-            },
+            else => {},
         }
+
+        switch (std.Target.current.os.tag) {
+            .linux => return linux.detectNativeCpuAndFeatures(),
+            .macos => return macos.detectNativeCpuAndFeatures(),
+            else => {},
+        }
+
+        // This architecture does not have CPU model & feature detection yet.
+        // See https://github.com/ziglang/zig/issues/4591
+        return null;
     }
 };
 
 test {
     _ = @import("system/macos.zig");
+    _ = @import("system/linux.zig");
 }

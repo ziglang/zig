@@ -15,7 +15,7 @@
  *
  *  <pre>
  *  @textblock
- *  simd_float4 vector = *(packed_simd_float4 *)&array[i];
+ *  simd_float4 vector = *(simd_packed_float4 *)&array[i];
  *  // do something with vector ...
  *  @/textblock
  *  </pre>

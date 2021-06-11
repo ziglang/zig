@@ -448,7 +448,9 @@ int ZigClang_main(int argc_, const char **argv_) {
     ApplyQAOverride(argv, OverrideStr, SavedStrings);
   }
 
-  std::string Path = GetExecutablePath(argv[0], CanonicalPrefixes);
+  // Pass local param `argv_[0]` as fallback.
+  // See https://github.com/ziglang/zig/pull/3292 .
+  std::string Path = GetExecutablePath(argv_[0], CanonicalPrefixes);
 
   // Whether the cc1 tool should be called inside the current process, or if we
   // should spawn a new clang subprocess (old behavior).

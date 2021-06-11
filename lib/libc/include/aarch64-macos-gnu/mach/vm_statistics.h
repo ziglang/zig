@@ -272,6 +272,7 @@ typedef struct vm_purgeable_info        *vm_purgeable_info_t;
 #define VM_FLAGS_NO_CACHE       0x0010
 #define VM_FLAGS_RESILIENT_CODESIGN     0x0020
 #define VM_FLAGS_RESILIENT_MEDIA        0x0040
+#define VM_FLAGS_PERMANENT      0x0080
 #define VM_FLAGS_OVERWRITE      0x4000  /* delete any existing mappings first */
 /*
  * VM_FLAGS_SUPERPAGE_MASK
@@ -295,6 +296,7 @@ typedef struct vm_purgeable_info        *vm_purgeable_info_t;
 	                         VM_FLAGS_4GB_CHUNK |           \
 	                         VM_FLAGS_RANDOM_ADDR |         \
 	                         VM_FLAGS_NO_CACHE |            \
+	                         VM_FLAGS_PERMANENT |           \
 	                         VM_FLAGS_OVERWRITE |           \
 	                         VM_FLAGS_SUPERPAGE_MASK |      \
 	                         VM_FLAGS_ALIAS_MASK)

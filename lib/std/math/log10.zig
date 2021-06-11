@@ -181,42 +181,42 @@ pub fn log10_64(x_: f64) f64 {
 }
 
 test "math.log10" {
-    testing.expect(log10(@as(f32, 0.2)) == log10_32(0.2));
-    testing.expect(log10(@as(f64, 0.2)) == log10_64(0.2));
+    try testing.expect(log10(@as(f32, 0.2)) == log10_32(0.2));
+    try testing.expect(log10(@as(f64, 0.2)) == log10_64(0.2));
 }
 
 test "math.log10_32" {
     const epsilon = 0.000001;
 
-    testing.expect(math.approxEqAbs(f32, log10_32(0.2), -0.698970, epsilon));
-    testing.expect(math.approxEqAbs(f32, log10_32(0.8923), -0.049489, epsilon));
-    testing.expect(math.approxEqAbs(f32, log10_32(1.5), 0.176091, epsilon));
-    testing.expect(math.approxEqAbs(f32, log10_32(37.45), 1.573452, epsilon));
-    testing.expect(math.approxEqAbs(f32, log10_32(89.123), 1.94999, epsilon));
-    testing.expect(math.approxEqAbs(f32, log10_32(123123.234375), 5.09034, epsilon));
+    try testing.expect(math.approxEqAbs(f32, log10_32(0.2), -0.698970, epsilon));
+    try testing.expect(math.approxEqAbs(f32, log10_32(0.8923), -0.049489, epsilon));
+    try testing.expect(math.approxEqAbs(f32, log10_32(1.5), 0.176091, epsilon));
+    try testing.expect(math.approxEqAbs(f32, log10_32(37.45), 1.573452, epsilon));
+    try testing.expect(math.approxEqAbs(f32, log10_32(89.123), 1.94999, epsilon));
+    try testing.expect(math.approxEqAbs(f32, log10_32(123123.234375), 5.09034, epsilon));
 }
 
 test "math.log10_64" {
     const epsilon = 0.000001;
 
-    testing.expect(math.approxEqAbs(f64, log10_64(0.2), -0.698970, epsilon));
-    testing.expect(math.approxEqAbs(f64, log10_64(0.8923), -0.049489, epsilon));
-    testing.expect(math.approxEqAbs(f64, log10_64(1.5), 0.176091, epsilon));
-    testing.expect(math.approxEqAbs(f64, log10_64(37.45), 1.573452, epsilon));
-    testing.expect(math.approxEqAbs(f64, log10_64(89.123), 1.94999, epsilon));
-    testing.expect(math.approxEqAbs(f64, log10_64(123123.234375), 5.09034, epsilon));
+    try testing.expect(math.approxEqAbs(f64, log10_64(0.2), -0.698970, epsilon));
+    try testing.expect(math.approxEqAbs(f64, log10_64(0.8923), -0.049489, epsilon));
+    try testing.expect(math.approxEqAbs(f64, log10_64(1.5), 0.176091, epsilon));
+    try testing.expect(math.approxEqAbs(f64, log10_64(37.45), 1.573452, epsilon));
+    try testing.expect(math.approxEqAbs(f64, log10_64(89.123), 1.94999, epsilon));
+    try testing.expect(math.approxEqAbs(f64, log10_64(123123.234375), 5.09034, epsilon));
 }
 
 test "math.log10_32.special" {
-    testing.expect(math.isPositiveInf(log10_32(math.inf(f32))));
-    testing.expect(math.isNegativeInf(log10_32(0.0)));
-    testing.expect(math.isNan(log10_32(-1.0)));
-    testing.expect(math.isNan(log10_32(math.nan(f32))));
+    try testing.expect(math.isPositiveInf(log10_32(math.inf(f32))));
+    try testing.expect(math.isNegativeInf(log10_32(0.0)));
+    try testing.expect(math.isNan(log10_32(-1.0)));
+    try testing.expect(math.isNan(log10_32(math.nan(f32))));
 }
 
 test "math.log10_64.special" {
-    testing.expect(math.isPositiveInf(log10_64(math.inf(f64))));
-    testing.expect(math.isNegativeInf(log10_64(0.0)));
-    testing.expect(math.isNan(log10_64(-1.0)));
-    testing.expect(math.isNan(log10_64(math.nan(f64))));
+    try testing.expect(math.isPositiveInf(log10_64(math.inf(f64))));
+    try testing.expect(math.isNegativeInf(log10_64(0.0)));
+    try testing.expect(math.isNan(log10_64(-1.0)));
+    try testing.expect(math.isNan(log10_64(math.nan(f64))));
 }

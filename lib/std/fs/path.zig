@@ -15,22 +15,23 @@ const math = std.math;
 const windows = std.os.windows;
 const fs = std.fs;
 const process = std.process;
+const native_os = builtin.target.os.tag;
 
 pub const sep_windows = '\\';
 pub const sep_posix = '/';
-pub const sep = if (builtin.os.tag == .windows) sep_windows else sep_posix;
+pub const sep = if (native_os == .windows) sep_windows else sep_posix;
 
 pub const sep_str_windows = "\\";
 pub const sep_str_posix = "/";
-pub const sep_str = if (builtin.os.tag == .windows) sep_str_windows else sep_str_posix;
+pub const sep_str = if (native_os == .windows) sep_str_windows else sep_str_posix;
 
 pub const delimiter_windows = ';';
 pub const delimiter_posix = ':';
-pub const delimiter = if (builtin.os.tag == .windows) delimiter_windows else delimiter_posix;
+pub const delimiter = if (native_os == .windows) delimiter_windows else delimiter_posix;
 
 /// Returns if the given byte is a valid path separator
 pub fn isSep(byte: u8) bool {
-    if (builtin.os.tag == .windows) {
+    if (native_os == .windows) {
         return byte == '/' or byte == '\\';
     } else {
         return byte == '/';
@@ -96,79 +97,79 @@ pub fn joinZ(allocator: *Allocator, paths: []const []const u8) ![:0]u8 {
     return out[0 .. out.len - 1 :0];
 }
 
-fn testJoinMaybeZWindows(paths: []const []const u8, expected: []const u8, zero: bool) void {
+fn testJoinMaybeZWindows(paths: []const []const u8, expected: []const u8, zero: bool) !void {
     const windowsIsSep = struct {
         fn isSep(byte: u8) bool {
             return byte == '/' or byte == '\\';
         }
     }.isSep;
-    const actual = joinSepMaybeZ(testing.allocator, sep_windows, windowsIsSep, paths, zero) catch @panic("fail");
+    const actual = try joinSepMaybeZ(testing.allocator, sep_windows, windowsIsSep, paths, zero);
     defer testing.allocator.free(actual);
-    testing.expectEqualSlices(u8, expected, if (zero) actual[0 .. actual.len - 1 :0] else actual);
+    try testing.expectEqualSlices(u8, expected, if (zero) actual[0 .. actual.len - 1 :0] else actual);
 }
 
-fn testJoinMaybeZPosix(paths: []const []const u8, expected: []const u8, zero: bool) void {
+fn testJoinMaybeZPosix(paths: []const []const u8, expected: []const u8, zero: bool) !void {
     const posixIsSep = struct {
         fn isSep(byte: u8) bool {
             return byte == '/';
         }
     }.isSep;
-    const actual = joinSepMaybeZ(testing.allocator, sep_posix, posixIsSep, paths, zero) catch @panic("fail");
+    const actual = try joinSepMaybeZ(testing.allocator, sep_posix, posixIsSep, paths, zero);
     defer testing.allocator.free(actual);
-    testing.expectEqualSlices(u8, expected, if (zero) actual[0 .. actual.len - 1 :0] else actual);
+    try testing.expectEqualSlices(u8, expected, if (zero) actual[0 .. actual.len - 1 :0] else actual);
 }
 
 test "join" {
     {
         const actual: []u8 = try join(testing.allocator, &[_][]const u8{});
         defer testing.allocator.free(actual);
-        testing.expectEqualSlices(u8, "", actual);
+        try testing.expectEqualSlices(u8, "", actual);
     }
     {
         const actual: [:0]u8 = try joinZ(testing.allocator, &[_][]const u8{});
         defer testing.allocator.free(actual);
-        testing.expectEqualSlices(u8, "", actual);
+        try testing.expectEqualSlices(u8, "", actual);
     }
     for (&[_]bool{ false, true }) |zero| {
-        testJoinMaybeZWindows(&[_][]const u8{}, "", zero);
-        testJoinMaybeZWindows(&[_][]const u8{ "c:\\a\\b", "c" }, "c:\\a\\b\\c", zero);
-        testJoinMaybeZWindows(&[_][]const u8{ "c:\\a\\b", "c" }, "c:\\a\\b\\c", zero);
-        testJoinMaybeZWindows(&[_][]const u8{ "c:\\a\\b\\", "c" }, "c:\\a\\b\\c", zero);
+        try testJoinMaybeZWindows(&[_][]const u8{}, "", zero);
+        try testJoinMaybeZWindows(&[_][]const u8{ "c:\\a\\b", "c" }, "c:\\a\\b\\c", zero);
+        try testJoinMaybeZWindows(&[_][]const u8{ "c:\\a\\b", "c" }, "c:\\a\\b\\c", zero);
+        try testJoinMaybeZWindows(&[_][]const u8{ "c:\\a\\b\\", "c" }, "c:\\a\\b\\c", zero);
 
-        testJoinMaybeZWindows(&[_][]const u8{ "c:\\", "a", "b\\", "c" }, "c:\\a\\b\\c", zero);
-        testJoinMaybeZWindows(&[_][]const u8{ "c:\\a\\", "b\\", "c" }, "c:\\a\\b\\c", zero);
+        try testJoinMaybeZWindows(&[_][]const u8{ "c:\\", "a", "b\\", "c" }, "c:\\a\\b\\c", zero);
+        try testJoinMaybeZWindows(&[_][]const u8{ "c:\\a\\", "b\\", "c" }, "c:\\a\\b\\c", zero);
 
-        testJoinMaybeZWindows(
+        try testJoinMaybeZWindows(
             &[_][]const u8{ "c:\\home\\andy\\dev\\zig\\build\\lib\\zig\\std", "io.zig" },
             "c:\\home\\andy\\dev\\zig\\build\\lib\\zig\\std\\io.zig",
             zero,
         );
 
-        testJoinMaybeZWindows(&[_][]const u8{ "c:\\", "a", "b/", "c" }, "c:\\a\\b/c", zero);
-        testJoinMaybeZWindows(&[_][]const u8{ "c:\\a/", "b\\", "/c" }, "c:\\a/b\\c", zero);
+        try testJoinMaybeZWindows(&[_][]const u8{ "c:\\", "a", "b/", "c" }, "c:\\a\\b/c", zero);
+        try testJoinMaybeZWindows(&[_][]const u8{ "c:\\a/", "b\\", "/c" }, "c:\\a/b\\c", zero);
 
-        testJoinMaybeZPosix(&[_][]const u8{}, "", zero);
-        testJoinMaybeZPosix(&[_][]const u8{ "/a/b", "c" }, "/a/b/c", zero);
-        testJoinMaybeZPosix(&[_][]const u8{ "/a/b/", "c" }, "/a/b/c", zero);
+        try testJoinMaybeZPosix(&[_][]const u8{}, "", zero);
+        try testJoinMaybeZPosix(&[_][]const u8{ "/a/b", "c" }, "/a/b/c", zero);
+        try testJoinMaybeZPosix(&[_][]const u8{ "/a/b/", "c" }, "/a/b/c", zero);
 
-        testJoinMaybeZPosix(&[_][]const u8{ "/", "a", "b/", "c" }, "/a/b/c", zero);
-        testJoinMaybeZPosix(&[_][]const u8{ "/a/", "b/", "c" }, "/a/b/c", zero);
+        try testJoinMaybeZPosix(&[_][]const u8{ "/", "a", "b/", "c" }, "/a/b/c", zero);
+        try testJoinMaybeZPosix(&[_][]const u8{ "/a/", "b/", "c" }, "/a/b/c", zero);
 
-        testJoinMaybeZPosix(
+        try testJoinMaybeZPosix(
             &[_][]const u8{ "/home/andy/dev/zig/build/lib/zig/std", "io.zig" },
             "/home/andy/dev/zig/build/lib/zig/std/io.zig",
             zero,
         );
 
-        testJoinMaybeZPosix(&[_][]const u8{ "a", "/c" }, "a/c", zero);
-        testJoinMaybeZPosix(&[_][]const u8{ "a/", "/c" }, "a/c", zero);
+        try testJoinMaybeZPosix(&[_][]const u8{ "a", "/c" }, "a/c", zero);
+        try testJoinMaybeZPosix(&[_][]const u8{ "a/", "/c" }, "a/c", zero);
     }
 }
 
 pub const isAbsoluteC = @compileError("deprecated: renamed to isAbsoluteZ");
 
 pub fn isAbsoluteZ(path_c: [*:0]const u8) bool {
-    if (builtin.os.tag == .windows) {
+    if (native_os == .windows) {
         return isAbsoluteWindowsZ(path_c);
     } else {
         return isAbsolutePosixZ(path_c);
@@ -176,7 +177,7 @@ pub fn isAbsoluteZ(path_c: [*:0]const u8) bool {
 }
 
 pub fn isAbsolute(path: []const u8) bool {
-    if (builtin.os.tag == .windows) {
+    if (native_os == .windows) {
         return isAbsoluteWindows(path);
     } else {
         return isAbsolutePosix(path);
@@ -235,42 +236,42 @@ pub fn isAbsolutePosixZ(path_c: [*:0]const u8) bool {
 }
 
 test "isAbsoluteWindows" {
-    testIsAbsoluteWindows("", false);
-    testIsAbsoluteWindows("/", true);
-    testIsAbsoluteWindows("//", true);
-    testIsAbsoluteWindows("//server", true);
-    testIsAbsoluteWindows("//server/file", true);
-    testIsAbsoluteWindows("\\\\server\\file", true);
-    testIsAbsoluteWindows("\\\\server", true);
-    testIsAbsoluteWindows("\\\\", true);
-    testIsAbsoluteWindows("c", false);
-    testIsAbsoluteWindows("c:", false);
-    testIsAbsoluteWindows("c:\\", true);
-    testIsAbsoluteWindows("c:/", true);
-    testIsAbsoluteWindows("c://", true);
-    testIsAbsoluteWindows("C:/Users/", true);
-    testIsAbsoluteWindows("C:\\Users\\", true);
-    testIsAbsoluteWindows("C:cwd/another", false);
-    testIsAbsoluteWindows("C:cwd\\another", false);
-    testIsAbsoluteWindows("directory/directory", false);
-    testIsAbsoluteWindows("directory\\directory", false);
-    testIsAbsoluteWindows("/usr/local", true);
+    try testIsAbsoluteWindows("", false);
+    try testIsAbsoluteWindows("/", true);
+    try testIsAbsoluteWindows("//", true);
+    try testIsAbsoluteWindows("//server", true);
+    try testIsAbsoluteWindows("//server/file", true);
+    try testIsAbsoluteWindows("\\\\server\\file", true);
+    try testIsAbsoluteWindows("\\\\server", true);
+    try testIsAbsoluteWindows("\\\\", true);
+    try testIsAbsoluteWindows("c", false);
+    try testIsAbsoluteWindows("c:", false);
+    try testIsAbsoluteWindows("c:\\", true);
+    try testIsAbsoluteWindows("c:/", true);
+    try testIsAbsoluteWindows("c://", true);
+    try testIsAbsoluteWindows("C:/Users/", true);
+    try testIsAbsoluteWindows("C:\\Users\\", true);
+    try testIsAbsoluteWindows("C:cwd/another", false);
+    try testIsAbsoluteWindows("C:cwd\\another", false);
+    try testIsAbsoluteWindows("directory/directory", false);
+    try testIsAbsoluteWindows("directory\\directory", false);
+    try testIsAbsoluteWindows("/usr/local", true);
 }
 
 test "isAbsolutePosix" {
-    testIsAbsolutePosix("", false);
-    testIsAbsolutePosix("/home/foo", true);
-    testIsAbsolutePosix("/home/foo/..", true);
-    testIsAbsolutePosix("bar/", false);
-    testIsAbsolutePosix("./baz", false);
+    try testIsAbsolutePosix("", false);
+    try testIsAbsolutePosix("/home/foo", true);
+    try testIsAbsolutePosix("/home/foo/..", true);
+    try testIsAbsolutePosix("bar/", false);
+    try testIsAbsolutePosix("./baz", false);
 }
 
-fn testIsAbsoluteWindows(path: []const u8, expected_result: bool) void {
-    testing.expectEqual(expected_result, isAbsoluteWindows(path));
+fn testIsAbsoluteWindows(path: []const u8, expected_result: bool) !void {
+    try testing.expectEqual(expected_result, isAbsoluteWindows(path));
 }
 
-fn testIsAbsolutePosix(path: []const u8, expected_result: bool) void {
-    testing.expectEqual(expected_result, isAbsolutePosix(path));
+fn testIsAbsolutePosix(path: []const u8, expected_result: bool) !void {
+    try testing.expectEqual(expected_result, isAbsolutePosix(path));
 }
 
 pub const WindowsPath = struct {
@@ -334,38 +335,38 @@ pub fn windowsParsePath(path: []const u8) WindowsPath {
 test "windowsParsePath" {
     {
         const parsed = windowsParsePath("//a/b");
-        testing.expect(parsed.is_abs);
-        testing.expect(parsed.kind == WindowsPath.Kind.NetworkShare);
-        testing.expect(mem.eql(u8, parsed.disk_designator, "//a/b"));
+        try testing.expect(parsed.is_abs);
+        try testing.expect(parsed.kind == WindowsPath.Kind.NetworkShare);
+        try testing.expect(mem.eql(u8, parsed.disk_designator, "//a/b"));
     }
     {
         const parsed = windowsParsePath("\\\\a\\b");
-        testing.expect(parsed.is_abs);
-        testing.expect(parsed.kind == WindowsPath.Kind.NetworkShare);
-        testing.expect(mem.eql(u8, parsed.disk_designator, "\\\\a\\b"));
+        try testing.expect(parsed.is_abs);
+        try testing.expect(parsed.kind == WindowsPath.Kind.NetworkShare);
+        try testing.expect(mem.eql(u8, parsed.disk_designator, "\\\\a\\b"));
     }
     {
         const parsed = windowsParsePath("\\\\a\\");
-        testing.expect(!parsed.is_abs);
-        testing.expect(parsed.kind == WindowsPath.Kind.None);
-        testing.expect(mem.eql(u8, parsed.disk_designator, ""));
+        try testing.expect(!parsed.is_abs);
+        try testing.expect(parsed.kind == WindowsPath.Kind.None);
+        try testing.expect(mem.eql(u8, parsed.disk_designator, ""));
     }
     {
         const parsed = windowsParsePath("/usr/local");
-        testing.expect(parsed.is_abs);
-        testing.expect(parsed.kind == WindowsPath.Kind.None);
-        testing.expect(mem.eql(u8, parsed.disk_designator, ""));
+        try testing.expect(parsed.is_abs);
+        try testing.expect(parsed.kind == WindowsPath.Kind.None);
+        try testing.expect(mem.eql(u8, parsed.disk_designator, ""));
     }
     {
         const parsed = windowsParsePath("c:../");
-        testing.expect(!parsed.is_abs);
-        testing.expect(parsed.kind == WindowsPath.Kind.Drive);
-        testing.expect(mem.eql(u8, parsed.disk_designator, "c:"));
+        try testing.expect(!parsed.is_abs);
+        try testing.expect(parsed.kind == WindowsPath.Kind.Drive);
+        try testing.expect(mem.eql(u8, parsed.disk_designator, "c:"));
     }
 }
 
 pub fn diskDesignator(path: []const u8) []const u8 {
-    if (builtin.os.tag == .windows) {
+    if (native_os == .windows) {
         return diskDesignatorWindows(path);
     } else {
         return "";
@@ -430,7 +431,7 @@ fn asciiEqlIgnoreCase(s1: []const u8, s2: []const u8) bool {
 
 /// On Windows, this calls `resolveWindows` and on POSIX it calls `resolvePosix`.
 pub fn resolve(allocator: *Allocator, paths: []const []const u8) ![]u8 {
-    if (builtin.os.tag == .windows) {
+    if (native_os == .windows) {
         return resolveWindows(allocator, paths);
     } else {
         return resolvePosix(allocator, paths);
@@ -447,7 +448,7 @@ pub fn resolve(allocator: *Allocator, paths: []const []const u8) ![]u8 {
 /// Without performing actual syscalls, resolving `..` could be incorrect.
 pub fn resolveWindows(allocator: *Allocator, paths: []const []const u8) ![]u8 {
     if (paths.len == 0) {
-        assert(builtin.os.tag == .windows); // resolveWindows called on non windows can't use getCwd
+        assert(native_os == .windows); // resolveWindows called on non windows can't use getCwd
         return process.getCwdAlloc(allocator);
     }
 
@@ -542,7 +543,7 @@ pub fn resolveWindows(allocator: *Allocator, paths: []const []const u8) ![]u8 {
                 result_disk_designator = result[0..result_index];
             },
             WindowsPath.Kind.None => {
-                assert(builtin.os.tag == .windows); // resolveWindows called on non windows can't use getCwd
+                assert(native_os == .windows); // resolveWindows called on non windows can't use getCwd
                 const cwd = try process.getCwdAlloc(allocator);
                 defer allocator.free(cwd);
                 const parsed_cwd = windowsParsePath(cwd);
@@ -557,7 +558,7 @@ pub fn resolveWindows(allocator: *Allocator, paths: []const []const u8) ![]u8 {
             },
         }
     } else {
-        assert(builtin.os.tag == .windows); // resolveWindows called on non windows can't use getCwd
+        assert(native_os == .windows); // resolveWindows called on non windows can't use getCwd
         // TODO call get cwd for the result_disk_designator instead of the global one
         const cwd = try process.getCwdAlloc(allocator);
         defer allocator.free(cwd);
@@ -628,7 +629,7 @@ pub fn resolveWindows(allocator: *Allocator, paths: []const []const u8) ![]u8 {
 /// Without performing actual syscalls, resolving `..` could be incorrect.
 pub fn resolvePosix(allocator: *Allocator, paths: []const []const u8) ![]u8 {
     if (paths.len == 0) {
-        assert(builtin.os.tag != .windows); // resolvePosix called on windows can't use getCwd
+        assert(native_os != .windows); // resolvePosix called on windows can't use getCwd
         return process.getCwdAlloc(allocator);
     }
 
@@ -650,7 +651,7 @@ pub fn resolvePosix(allocator: *Allocator, paths: []const []const u8) ![]u8 {
     if (have_abs) {
         result = try allocator.alloc(u8, max_size);
     } else {
-        assert(builtin.os.tag != .windows); // resolvePosix called on windows can't use getCwd
+        assert(native_os != .windows); // resolvePosix called on windows can't use getCwd
         const cwd = try process.getCwdAlloc(allocator);
         defer allocator.free(cwd);
         result = try allocator.alloc(u8, max_size + cwd.len + 1);
@@ -690,11 +691,11 @@ pub fn resolvePosix(allocator: *Allocator, paths: []const []const u8) ![]u8 {
 }
 
 test "resolve" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+    if (native_os == .wasi) return error.SkipZigTest;
 
     const cwd = try process.getCwdAlloc(testing.allocator);
     defer testing.allocator.free(cwd);
-    if (builtin.os.tag == .windows) {
+    if (native_os == .windows) {
         if (windowsParsePath(cwd).kind == WindowsPath.Kind.Drive) {
             cwd[0] = asciiUpper(cwd[0]);
         }
@@ -706,12 +707,12 @@ test "resolve" {
 }
 
 test "resolveWindows" {
-    if (builtin.arch == .aarch64) {
+    if (builtin.target.cpu.arch == .aarch64) {
         // TODO https://github.com/ziglang/zig/issues/3288
         return error.SkipZigTest;
     }
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
-    if (builtin.os.tag == .windows) {
+    if (native_os == .wasi) return error.SkipZigTest;
+    if (native_os == .windows) {
         const cwd = try process.getCwdAlloc(testing.allocator);
         defer testing.allocator.free(cwd);
         const parsed_cwd = windowsParsePath(cwd);
@@ -755,7 +756,7 @@ test "resolveWindows" {
 }
 
 test "resolvePosix" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+    if (native_os == .wasi) return error.SkipZigTest;
 
     try testResolvePosix(&[_][]const u8{ "/a/b", "c" }, "/a/b/c");
     try testResolvePosix(&[_][]const u8{ "/a/b", "c", "//d", "e///" }, "/d/e");
@@ -772,13 +773,13 @@ test "resolvePosix" {
 fn testResolveWindows(paths: []const []const u8, expected: []const u8) !void {
     const actual = try resolveWindows(testing.allocator, paths);
     defer testing.allocator.free(actual);
-    return testing.expect(mem.eql(u8, actual, expected));
+    try testing.expect(mem.eql(u8, actual, expected));
 }
 
 fn testResolvePosix(paths: []const []const u8, expected: []const u8) !void {
     const actual = try resolvePosix(testing.allocator, paths);
     defer testing.allocator.free(actual);
-    return testing.expect(mem.eql(u8, actual, expected));
+    try testing.expect(mem.eql(u8, actual, expected));
 }
 
 /// Strip the last component from a file path.
@@ -788,7 +789,7 @@ fn testResolvePosix(paths: []const []const u8, expected: []const u8) !void {
 ///
 /// If the path is the root directory, returns null.
 pub fn dirname(path: []const u8) ?[]const u8 {
-    if (builtin.os.tag == .windows) {
+    if (native_os == .windows) {
         return dirnameWindows(path);
     } else {
         return dirnamePosix(path);
@@ -856,73 +857,73 @@ pub fn dirnamePosix(path: []const u8) ?[]const u8 {
 }
 
 test "dirnamePosix" {
-    testDirnamePosix("/a/b/c", "/a/b");
-    testDirnamePosix("/a/b/c///", "/a/b");
-    testDirnamePosix("/a", "/");
-    testDirnamePosix("/", null);
-    testDirnamePosix("//", null);
-    testDirnamePosix("///", null);
-    testDirnamePosix("////", null);
-    testDirnamePosix("", null);
-    testDirnamePosix("a", null);
-    testDirnamePosix("a/", null);
-    testDirnamePosix("a//", null);
+    try testDirnamePosix("/a/b/c", "/a/b");
+    try testDirnamePosix("/a/b/c///", "/a/b");
+    try testDirnamePosix("/a", "/");
+    try testDirnamePosix("/", null);
+    try testDirnamePosix("//", null);
+    try testDirnamePosix("///", null);
+    try testDirnamePosix("////", null);
+    try testDirnamePosix("", null);
+    try testDirnamePosix("a", null);
+    try testDirnamePosix("a/", null);
+    try testDirnamePosix("a//", null);
 }
 
 test "dirnameWindows" {
-    testDirnameWindows("c:\\", null);
-    testDirnameWindows("c:\\foo", "c:\\");
-    testDirnameWindows("c:\\foo\\", "c:\\");
-    testDirnameWindows("c:\\foo\\bar", "c:\\foo");
-    testDirnameWindows("c:\\foo\\bar\\", "c:\\foo");
-    testDirnameWindows("c:\\foo\\bar\\baz", "c:\\foo\\bar");
-    testDirnameWindows("\\", null);
-    testDirnameWindows("\\foo", "\\");
-    testDirnameWindows("\\foo\\", "\\");
-    testDirnameWindows("\\foo\\bar", "\\foo");
-    testDirnameWindows("\\foo\\bar\\", "\\foo");
-    testDirnameWindows("\\foo\\bar\\baz", "\\foo\\bar");
-    testDirnameWindows("c:", null);
-    testDirnameWindows("c:foo", null);
-    testDirnameWindows("c:foo\\", null);
-    testDirnameWindows("c:foo\\bar", "c:foo");
-    testDirnameWindows("c:foo\\bar\\", "c:foo");
-    testDirnameWindows("c:foo\\bar\\baz", "c:foo\\bar");
-    testDirnameWindows("file:stream", null);
-    testDirnameWindows("dir\\file:stream", "dir");
-    testDirnameWindows("\\\\unc\\share", null);
-    testDirnameWindows("\\\\unc\\share\\foo", "\\\\unc\\share\\");
-    testDirnameWindows("\\\\unc\\share\\foo\\", "\\\\unc\\share\\");
-    testDirnameWindows("\\\\unc\\share\\foo\\bar", "\\\\unc\\share\\foo");
-    testDirnameWindows("\\\\unc\\share\\foo\\bar\\", "\\\\unc\\share\\foo");
-    testDirnameWindows("\\\\unc\\share\\foo\\bar\\baz", "\\\\unc\\share\\foo\\bar");
-    testDirnameWindows("/a/b/", "/a");
-    testDirnameWindows("/a/b", "/a");
-    testDirnameWindows("/a", "/");
-    testDirnameWindows("", null);
-    testDirnameWindows("/", null);
-    testDirnameWindows("////", null);
-    testDirnameWindows("foo", null);
+    try testDirnameWindows("c:\\", null);
+    try testDirnameWindows("c:\\foo", "c:\\");
+    try testDirnameWindows("c:\\foo\\", "c:\\");
+    try testDirnameWindows("c:\\foo\\bar", "c:\\foo");
+    try testDirnameWindows("c:\\foo\\bar\\", "c:\\foo");
+    try testDirnameWindows("c:\\foo\\bar\\baz", "c:\\foo\\bar");
+    try testDirnameWindows("\\", null);
+    try testDirnameWindows("\\foo", "\\");
+    try testDirnameWindows("\\foo\\", "\\");
+    try testDirnameWindows("\\foo\\bar", "\\foo");
+    try testDirnameWindows("\\foo\\bar\\", "\\foo");
+    try testDirnameWindows("\\foo\\bar\\baz", "\\foo\\bar");
+    try testDirnameWindows("c:", null);
+    try testDirnameWindows("c:foo", null);
+    try testDirnameWindows("c:foo\\", null);
+    try testDirnameWindows("c:foo\\bar", "c:foo");
+    try testDirnameWindows("c:foo\\bar\\", "c:foo");
+    try testDirnameWindows("c:foo\\bar\\baz", "c:foo\\bar");
+    try testDirnameWindows("file:stream", null);
+    try testDirnameWindows("dir\\file:stream", "dir");
+    try testDirnameWindows("\\\\unc\\share", null);
+    try testDirnameWindows("\\\\unc\\share\\foo", "\\\\unc\\share\\");
+    try testDirnameWindows("\\\\unc\\share\\foo\\", "\\\\unc\\share\\");
+    try testDirnameWindows("\\\\unc\\share\\foo\\bar", "\\\\unc\\share\\foo");
+    try testDirnameWindows("\\\\unc\\share\\foo\\bar\\", "\\\\unc\\share\\foo");
+    try testDirnameWindows("\\\\unc\\share\\foo\\bar\\baz", "\\\\unc\\share\\foo\\bar");
+    try testDirnameWindows("/a/b/", "/a");
+    try testDirnameWindows("/a/b", "/a");
+    try testDirnameWindows("/a", "/");
+    try testDirnameWindows("", null);
+    try testDirnameWindows("/", null);
+    try testDirnameWindows("////", null);
+    try testDirnameWindows("foo", null);
 }
 
-fn testDirnamePosix(input: []const u8, expected_output: ?[]const u8) void {
+fn testDirnamePosix(input: []const u8, expected_output: ?[]const u8) !void {
     if (dirnamePosix(input)) |output| {
-        testing.expect(mem.eql(u8, output, expected_output.?));
+        try testing.expect(mem.eql(u8, output, expected_output.?));
     } else {
-        testing.expect(expected_output == null);
+        try testing.expect(expected_output == null);
     }
 }
 
-fn testDirnameWindows(input: []const u8, expected_output: ?[]const u8) void {
+fn testDirnameWindows(input: []const u8, expected_output: ?[]const u8) !void {
     if (dirnameWindows(input)) |output| {
-        testing.expect(mem.eql(u8, output, expected_output.?));
+        try testing.expect(mem.eql(u8, output, expected_output.?));
     } else {
-        testing.expect(expected_output == null);
+        try testing.expect(expected_output == null);
     }
 }
 
 pub fn basename(path: []const u8) []const u8 {
-    if (builtin.os.tag == .windows) {
+    if (native_os == .windows) {
         return basenameWindows(path);
     } else {
         return basenamePosix(path);
@@ -983,54 +984,54 @@ pub fn basenameWindows(path: []const u8) []const u8 {
 }
 
 test "basename" {
-    testBasename("", "");
-    testBasename("/", "");
-    testBasename("/dir/basename.ext", "basename.ext");
-    testBasename("/basename.ext", "basename.ext");
-    testBasename("basename.ext", "basename.ext");
-    testBasename("basename.ext/", "basename.ext");
-    testBasename("basename.ext//", "basename.ext");
-    testBasename("/aaa/bbb", "bbb");
-    testBasename("/aaa/", "aaa");
-    testBasename("/aaa/b", "b");
-    testBasename("/a/b", "b");
-    testBasename("//a", "a");
+    try testBasename("", "");
+    try testBasename("/", "");
+    try testBasename("/dir/basename.ext", "basename.ext");
+    try testBasename("/basename.ext", "basename.ext");
+    try testBasename("basename.ext", "basename.ext");
+    try testBasename("basename.ext/", "basename.ext");
+    try testBasename("basename.ext//", "basename.ext");
+    try testBasename("/aaa/bbb", "bbb");
+    try testBasename("/aaa/", "aaa");
+    try testBasename("/aaa/b", "b");
+    try testBasename("/a/b", "b");
+    try testBasename("//a", "a");
 
-    testBasenamePosix("\\dir\\basename.ext", "\\dir\\basename.ext");
-    testBasenamePosix("\\basename.ext", "\\basename.ext");
-    testBasenamePosix("basename.ext", "basename.ext");
-    testBasenamePosix("basename.ext\\", "basename.ext\\");
-    testBasenamePosix("basename.ext\\\\", "basename.ext\\\\");
-    testBasenamePosix("foo", "foo");
+    try testBasenamePosix("\\dir\\basename.ext", "\\dir\\basename.ext");
+    try testBasenamePosix("\\basename.ext", "\\basename.ext");
+    try testBasenamePosix("basename.ext", "basename.ext");
+    try testBasenamePosix("basename.ext\\", "basename.ext\\");
+    try testBasenamePosix("basename.ext\\\\", "basename.ext\\\\");
+    try testBasenamePosix("foo", "foo");
 
-    testBasenameWindows("\\dir\\basename.ext", "basename.ext");
-    testBasenameWindows("\\basename.ext", "basename.ext");
-    testBasenameWindows("basename.ext", "basename.ext");
-    testBasenameWindows("basename.ext\\", "basename.ext");
-    testBasenameWindows("basename.ext\\\\", "basename.ext");
-    testBasenameWindows("foo", "foo");
-    testBasenameWindows("C:", "");
-    testBasenameWindows("C:.", ".");
-    testBasenameWindows("C:\\", "");
-    testBasenameWindows("C:\\dir\\base.ext", "base.ext");
-    testBasenameWindows("C:\\basename.ext", "basename.ext");
-    testBasenameWindows("C:basename.ext", "basename.ext");
-    testBasenameWindows("C:basename.ext\\", "basename.ext");
-    testBasenameWindows("C:basename.ext\\\\", "basename.ext");
-    testBasenameWindows("C:foo", "foo");
-    testBasenameWindows("file:stream", "file:stream");
+    try testBasenameWindows("\\dir\\basename.ext", "basename.ext");
+    try testBasenameWindows("\\basename.ext", "basename.ext");
+    try testBasenameWindows("basename.ext", "basename.ext");
+    try testBasenameWindows("basename.ext\\", "basename.ext");
+    try testBasenameWindows("basename.ext\\\\", "basename.ext");
+    try testBasenameWindows("foo", "foo");
+    try testBasenameWindows("C:", "");
+    try testBasenameWindows("C:.", ".");
+    try testBasenameWindows("C:\\", "");
+    try testBasenameWindows("C:\\dir\\base.ext", "base.ext");
+    try testBasenameWindows("C:\\basename.ext", "basename.ext");
+    try testBasenameWindows("C:basename.ext", "basename.ext");
+    try testBasenameWindows("C:basename.ext\\", "basename.ext");
+    try testBasenameWindows("C:basename.ext\\\\", "basename.ext");
+    try testBasenameWindows("C:foo", "foo");
+    try testBasenameWindows("file:stream", "file:stream");
 }
 
-fn testBasename(input: []const u8, expected_output: []const u8) void {
-    testing.expectEqualSlices(u8, expected_output, basename(input));
+fn testBasename(input: []const u8, expected_output: []const u8) !void {
+    try testing.expectEqualSlices(u8, expected_output, basename(input));
 }
 
-fn testBasenamePosix(input: []const u8, expected_output: []const u8) void {
-    testing.expectEqualSlices(u8, expected_output, basenamePosix(input));
+fn testBasenamePosix(input: []const u8, expected_output: []const u8) !void {
+    try testing.expectEqualSlices(u8, expected_output, basenamePosix(input));
 }
 
-fn testBasenameWindows(input: []const u8, expected_output: []const u8) void {
-    testing.expectEqualSlices(u8, expected_output, basenameWindows(input));
+fn testBasenameWindows(input: []const u8, expected_output: []const u8) !void {
+    try testing.expectEqualSlices(u8, expected_output, basenameWindows(input));
 }
 
 /// Returns the relative path from `from` to `to`. If `from` and `to` each
@@ -1038,7 +1039,7 @@ fn testBasenameWindows(input: []const u8, expected_output: []const u8) void {
 /// string is returned.
 /// On Windows this canonicalizes the drive to a capital letter and paths to `\\`.
 pub fn relative(allocator: *Allocator, from: []const u8, to: []const u8) ![]u8 {
-    if (builtin.os.tag == .windows) {
+    if (native_os == .windows) {
         return relativeWindows(allocator, from, to);
     } else {
         return relativePosix(allocator, from, to);
@@ -1164,11 +1165,11 @@ pub fn relativePosix(allocator: *Allocator, from: []const u8, to: []const u8) ![
 }
 
 test "relative" {
-    if (builtin.arch == .aarch64) {
+    if (builtin.target.cpu.arch == .aarch64) {
         // TODO https://github.com/ziglang/zig/issues/3288
         return error.SkipZigTest;
     }
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+    if (native_os == .wasi) return error.SkipZigTest;
 
     try testRelativeWindows("c:/blah\\blah", "d:/games", "D:\\games");
     try testRelativeWindows("c:/aaaa/bbbb", "c:/aaaa", "..");
@@ -1212,13 +1213,13 @@ test "relative" {
 fn testRelativePosix(from: []const u8, to: []const u8, expected_output: []const u8) !void {
     const result = try relativePosix(testing.allocator, from, to);
     defer testing.allocator.free(result);
-    testing.expectEqualSlices(u8, expected_output, result);
+    try testing.expectEqualSlices(u8, expected_output, result);
 }
 
 fn testRelativeWindows(from: []const u8, to: []const u8, expected_output: []const u8) !void {
     const result = try relativeWindows(testing.allocator, from, to);
     defer testing.allocator.free(result);
-    testing.expectEqualSlices(u8, expected_output, result);
+    try testing.expectEqualSlices(u8, expected_output, result);
 }
 
 /// Returns the extension of the file name (if any).
@@ -1241,47 +1242,47 @@ pub fn extension(path: []const u8) []const u8 {
     return filename[index..];
 }
 
-fn testExtension(path: []const u8, expected: []const u8) void {
-    std.testing.expectEqualStrings(expected, extension(path));
+fn testExtension(path: []const u8, expected: []const u8) !void {
+    try std.testing.expectEqualStrings(expected, extension(path));
 }
 
 test "extension" {
-    testExtension("", "");
-    testExtension(".", "");
-    testExtension("a.", ".");
-    testExtension("abc.", ".");
-    testExtension(".a", "");
-    testExtension(".file", "");
-    testExtension(".gitignore", "");
-    testExtension("file.ext", ".ext");
-    testExtension("file.ext.", ".");
-    testExtension("very-long-file.bruh", ".bruh");
-    testExtension("a.b.c", ".c");
-    testExtension("a.b.c/", ".c");
+    try testExtension("", "");
+    try testExtension(".", "");
+    try testExtension("a.", ".");
+    try testExtension("abc.", ".");
+    try testExtension(".a", "");
+    try testExtension(".file", "");
+    try testExtension(".gitignore", "");
+    try testExtension("file.ext", ".ext");
+    try testExtension("file.ext.", ".");
+    try testExtension("very-long-file.bruh", ".bruh");
+    try testExtension("a.b.c", ".c");
+    try testExtension("a.b.c/", ".c");
 
-    testExtension("/", "");
-    testExtension("/.", "");
-    testExtension("/a.", ".");
-    testExtension("/abc.", ".");
-    testExtension("/.a", "");
-    testExtension("/.file", "");
-    testExtension("/.gitignore", "");
-    testExtension("/file.ext", ".ext");
-    testExtension("/file.ext.", ".");
-    testExtension("/very-long-file.bruh", ".bruh");
-    testExtension("/a.b.c", ".c");
-    testExtension("/a.b.c/", ".c");
+    try testExtension("/", "");
+    try testExtension("/.", "");
+    try testExtension("/a.", ".");
+    try testExtension("/abc.", ".");
+    try testExtension("/.a", "");
+    try testExtension("/.file", "");
+    try testExtension("/.gitignore", "");
+    try testExtension("/file.ext", ".ext");
+    try testExtension("/file.ext.", ".");
+    try testExtension("/very-long-file.bruh", ".bruh");
+    try testExtension("/a.b.c", ".c");
+    try testExtension("/a.b.c/", ".c");
 
-    testExtension("/foo/bar/bam/", "");
-    testExtension("/foo/bar/bam/.", "");
-    testExtension("/foo/bar/bam/a.", ".");
-    testExtension("/foo/bar/bam/abc.", ".");
-    testExtension("/foo/bar/bam/.a", "");
-    testExtension("/foo/bar/bam/.file", "");
-    testExtension("/foo/bar/bam/.gitignore", "");
-    testExtension("/foo/bar/bam/file.ext", ".ext");
-    testExtension("/foo/bar/bam/file.ext.", ".");
-    testExtension("/foo/bar/bam/very-long-file.bruh", ".bruh");
-    testExtension("/foo/bar/bam/a.b.c", ".c");
-    testExtension("/foo/bar/bam/a.b.c/", ".c");
+    try testExtension("/foo/bar/bam/", "");
+    try testExtension("/foo/bar/bam/.", "");
+    try testExtension("/foo/bar/bam/a.", ".");
+    try testExtension("/foo/bar/bam/abc.", ".");
+    try testExtension("/foo/bar/bam/.a", "");
+    try testExtension("/foo/bar/bam/.file", "");
+    try testExtension("/foo/bar/bam/.gitignore", "");
+    try testExtension("/foo/bar/bam/file.ext", ".ext");
+    try testExtension("/foo/bar/bam/file.ext.", ".");
+    try testExtension("/foo/bar/bam/very-long-file.bruh", ".bruh");
+    try testExtension("/foo/bar/bam/a.b.c", ".c");
+    try testExtension("/foo/bar/bam/a.b.c/", ".c");
 }

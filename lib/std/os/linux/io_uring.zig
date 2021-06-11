@@ -937,16 +937,16 @@ pub fn io_uring_prep_fallocate(
 test "structs/offsets/entries" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
 
-    testing.expectEqual(@as(usize, 120), @sizeOf(io_uring_params));
-    testing.expectEqual(@as(usize, 64), @sizeOf(io_uring_sqe));
-    testing.expectEqual(@as(usize, 16), @sizeOf(io_uring_cqe));
+    try testing.expectEqual(@as(usize, 120), @sizeOf(io_uring_params));
+    try testing.expectEqual(@as(usize, 64), @sizeOf(io_uring_sqe));
+    try testing.expectEqual(@as(usize, 16), @sizeOf(io_uring_cqe));
 
-    testing.expectEqual(0, linux.IORING_OFF_SQ_RING);
-    testing.expectEqual(0x8000000, linux.IORING_OFF_CQ_RING);
-    testing.expectEqual(0x10000000, linux.IORING_OFF_SQES);
+    try testing.expectEqual(0, linux.IORING_OFF_SQ_RING);
+    try testing.expectEqual(0x8000000, linux.IORING_OFF_CQ_RING);
+    try testing.expectEqual(0x10000000, linux.IORING_OFF_SQES);
 
-    testing.expectError(error.EntriesZero, IO_Uring.init(0, 0));
-    testing.expectError(error.EntriesNotPowerOfTwo, IO_Uring.init(3, 0));
+    try testing.expectError(error.EntriesZero, IO_Uring.init(0, 0));
+    try testing.expectError(error.EntriesNotPowerOfTwo, IO_Uring.init(3, 0));
 }
 
 test "nop" {
@@ -959,11 +959,11 @@ test "nop" {
     };
     defer {
         ring.deinit();
-        testing.expectEqual(@as(os.fd_t, -1), ring.fd);
+        testing.expectEqual(@as(os.fd_t, -1), ring.fd) catch @panic("test failed");
     }
 
     const sqe = try ring.nop(0xaaaaaaaa);
-    testing.expectEqual(io_uring_sqe{
+    try testing.expectEqual(io_uring_sqe{
         .opcode = .NOP,
         .flags = 0,
         .ioprio = 0,
@@ -979,40 +979,40 @@ test "nop" {
         .__pad2 = [2]u64{ 0, 0 },
     }, sqe.*);
 
-    testing.expectEqual(@as(u32, 0), ring.sq.sqe_head);
-    testing.expectEqual(@as(u32, 1), ring.sq.sqe_tail);
-    testing.expectEqual(@as(u32, 0), ring.sq.tail.*);
-    testing.expectEqual(@as(u32, 0), ring.cq.head.*);
-    testing.expectEqual(@as(u32, 1), ring.sq_ready());
-    testing.expectEqual(@as(u32, 0), ring.cq_ready());
+    try testing.expectEqual(@as(u32, 0), ring.sq.sqe_head);
+    try testing.expectEqual(@as(u32, 1), ring.sq.sqe_tail);
+    try testing.expectEqual(@as(u32, 0), ring.sq.tail.*);
+    try testing.expectEqual(@as(u32, 0), ring.cq.head.*);
+    try testing.expectEqual(@as(u32, 1), ring.sq_ready());
+    try testing.expectEqual(@as(u32, 0), ring.cq_ready());
 
-    testing.expectEqual(@as(u32, 1), try ring.submit());
-    testing.expectEqual(@as(u32, 1), ring.sq.sqe_head);
-    testing.expectEqual(@as(u32, 1), ring.sq.sqe_tail);
-    testing.expectEqual(@as(u32, 1), ring.sq.tail.*);
-    testing.expectEqual(@as(u32, 0), ring.cq.head.*);
-    testing.expectEqual(@as(u32, 0), ring.sq_ready());
+    try testing.expectEqual(@as(u32, 1), try ring.submit());
+    try testing.expectEqual(@as(u32, 1), ring.sq.sqe_head);
+    try testing.expectEqual(@as(u32, 1), ring.sq.sqe_tail);
+    try testing.expectEqual(@as(u32, 1), ring.sq.tail.*);
+    try testing.expectEqual(@as(u32, 0), ring.cq.head.*);
+    try testing.expectEqual(@as(u32, 0), ring.sq_ready());
 
-    testing.expectEqual(io_uring_cqe{
+    try testing.expectEqual(io_uring_cqe{
         .user_data = 0xaaaaaaaa,
         .res = 0,
         .flags = 0,
     }, try ring.copy_cqe());
-    testing.expectEqual(@as(u32, 1), ring.cq.head.*);
-    testing.expectEqual(@as(u32, 0), ring.cq_ready());
+    try testing.expectEqual(@as(u32, 1), ring.cq.head.*);
+    try testing.expectEqual(@as(u32, 0), ring.cq_ready());
 
     const sqe_barrier = try ring.nop(0xbbbbbbbb);
     sqe_barrier.flags |= linux.IOSQE_IO_DRAIN;
-    testing.expectEqual(@as(u32, 1), try ring.submit());
-    testing.expectEqual(io_uring_cqe{
+    try testing.expectEqual(@as(u32, 1), try ring.submit());
+    try testing.expectEqual(io_uring_cqe{
         .user_data = 0xbbbbbbbb,
         .res = 0,
         .flags = 0,
     }, try ring.copy_cqe());
-    testing.expectEqual(@as(u32, 2), ring.sq.sqe_head);
-    testing.expectEqual(@as(u32, 2), ring.sq.sqe_tail);
-    testing.expectEqual(@as(u32, 2), ring.sq.tail.*);
-    testing.expectEqual(@as(u32, 2), ring.cq.head.*);
+    try testing.expectEqual(@as(u32, 2), ring.sq.sqe_head);
+    try testing.expectEqual(@as(u32, 2), ring.sq.sqe_tail);
+    try testing.expectEqual(@as(u32, 2), ring.sq.tail.*);
+    try testing.expectEqual(@as(u32, 2), ring.cq.head.*);
 }
 
 test "readv" {
@@ -1042,17 +1042,17 @@ test "readv" {
     var buffer = [_]u8{42} ** 128;
     var iovecs = [_]os.iovec{os.iovec{ .iov_base = &buffer, .iov_len = buffer.len }};
     const sqe = try ring.readv(0xcccccccc, fd_index, iovecs[0..], 0);
-    testing.expectEqual(linux.IORING_OP.READV, sqe.opcode);
+    try testing.expectEqual(linux.IORING_OP.READV, sqe.opcode);
     sqe.flags |= linux.IOSQE_FIXED_FILE;
 
-    testing.expectError(error.SubmissionQueueFull, ring.nop(0));
-    testing.expectEqual(@as(u32, 1), try ring.submit());
-    testing.expectEqual(linux.io_uring_cqe{
+    try testing.expectError(error.SubmissionQueueFull, ring.nop(0));
+    try testing.expectEqual(@as(u32, 1), try ring.submit());
+    try testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0xcccccccc,
         .res = buffer.len,
         .flags = 0,
     }, try ring.copy_cqe());
-    testing.expectEqualSlices(u8, &([_]u8{0} ** buffer.len), buffer[0..]);
+    try testing.expectEqualSlices(u8, &([_]u8{0} ** buffer.len), buffer[0..]);
 
     try ring.unregister_files();
 }
@@ -1083,46 +1083,46 @@ test "writev/fsync/readv" {
     };
 
     const sqe_writev = try ring.writev(0xdddddddd, fd, iovecs_write[0..], 17);
-    testing.expectEqual(linux.IORING_OP.WRITEV, sqe_writev.opcode);
-    testing.expectEqual(@as(u64, 17), sqe_writev.off);
+    try testing.expectEqual(linux.IORING_OP.WRITEV, sqe_writev.opcode);
+    try testing.expectEqual(@as(u64, 17), sqe_writev.off);
     sqe_writev.flags |= linux.IOSQE_IO_LINK;
 
     const sqe_fsync = try ring.fsync(0xeeeeeeee, fd, 0);
-    testing.expectEqual(linux.IORING_OP.FSYNC, sqe_fsync.opcode);
-    testing.expectEqual(fd, sqe_fsync.fd);
+    try testing.expectEqual(linux.IORING_OP.FSYNC, sqe_fsync.opcode);
+    try testing.expectEqual(fd, sqe_fsync.fd);
     sqe_fsync.flags |= linux.IOSQE_IO_LINK;
 
     const sqe_readv = try ring.readv(0xffffffff, fd, iovecs_read[0..], 17);
-    testing.expectEqual(linux.IORING_OP.READV, sqe_readv.opcode);
-    testing.expectEqual(@as(u64, 17), sqe_readv.off);
+    try testing.expectEqual(linux.IORING_OP.READV, sqe_readv.opcode);
+    try testing.expectEqual(@as(u64, 17), sqe_readv.off);
 
-    testing.expectEqual(@as(u32, 3), ring.sq_ready());
-    testing.expectEqual(@as(u32, 3), try ring.submit_and_wait(3));
-    testing.expectEqual(@as(u32, 0), ring.sq_ready());
-    testing.expectEqual(@as(u32, 3), ring.cq_ready());
+    try testing.expectEqual(@as(u32, 3), ring.sq_ready());
+    try testing.expectEqual(@as(u32, 3), try ring.submit_and_wait(3));
+    try testing.expectEqual(@as(u32, 0), ring.sq_ready());
+    try testing.expectEqual(@as(u32, 3), ring.cq_ready());
 
-    testing.expectEqual(linux.io_uring_cqe{
+    try testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0xdddddddd,
         .res = buffer_write.len,
         .flags = 0,
     }, try ring.copy_cqe());
-    testing.expectEqual(@as(u32, 2), ring.cq_ready());
+    try testing.expectEqual(@as(u32, 2), ring.cq_ready());
 
-    testing.expectEqual(linux.io_uring_cqe{
+    try testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0xeeeeeeee,
         .res = 0,
         .flags = 0,
     }, try ring.copy_cqe());
-    testing.expectEqual(@as(u32, 1), ring.cq_ready());
+    try testing.expectEqual(@as(u32, 1), ring.cq_ready());
 
-    testing.expectEqual(linux.io_uring_cqe{
+    try testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0xffffffff,
         .res = buffer_read.len,
         .flags = 0,
     }, try ring.copy_cqe());
-    testing.expectEqual(@as(u32, 0), ring.cq_ready());
+    try testing.expectEqual(@as(u32, 0), ring.cq_ready());
 
-    testing.expectEqualSlices(u8, buffer_write[0..], buffer_read[0..]);
+    try testing.expectEqualSlices(u8, buffer_write[0..], buffer_read[0..]);
 }
 
 test "write/read" {
@@ -1144,13 +1144,13 @@ test "write/read" {
     const buffer_write = [_]u8{97} ** 20;
     var buffer_read = [_]u8{98} ** 20;
     const sqe_write = try ring.write(0x11111111, fd, buffer_write[0..], 10);
-    testing.expectEqual(linux.IORING_OP.WRITE, sqe_write.opcode);
-    testing.expectEqual(@as(u64, 10), sqe_write.off);
+    try testing.expectEqual(linux.IORING_OP.WRITE, sqe_write.opcode);
+    try testing.expectEqual(@as(u64, 10), sqe_write.off);
     sqe_write.flags |= linux.IOSQE_IO_LINK;
     const sqe_read = try ring.read(0x22222222, fd, buffer_read[0..], 10);
-    testing.expectEqual(linux.IORING_OP.READ, sqe_read.opcode);
-    testing.expectEqual(@as(u64, 10), sqe_read.off);
-    testing.expectEqual(@as(u32, 2), try ring.submit());
+    try testing.expectEqual(linux.IORING_OP.READ, sqe_read.opcode);
+    try testing.expectEqual(@as(u64, 10), sqe_read.off);
+    try testing.expectEqual(@as(u32, 2), try ring.submit());
 
     const cqe_write = try ring.copy_cqe();
     const cqe_read = try ring.copy_cqe();
@@ -1158,17 +1158,17 @@ test "write/read" {
     // https://lwn.net/Articles/809820/
     if (cqe_write.res == -linux.EINVAL) return error.SkipZigTest;
     if (cqe_read.res == -linux.EINVAL) return error.SkipZigTest;
-    testing.expectEqual(linux.io_uring_cqe{
+    try testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0x11111111,
         .res = buffer_write.len,
         .flags = 0,
     }, cqe_write);
-    testing.expectEqual(linux.io_uring_cqe{
+    try testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0x22222222,
         .res = buffer_read.len,
         .flags = 0,
     }, cqe_read);
-    testing.expectEqualSlices(u8, buffer_write[0..], buffer_read[0..]);
+    try testing.expectEqualSlices(u8, buffer_write[0..], buffer_read[0..]);
 }
 
 test "openat" {
@@ -1187,7 +1187,7 @@ test "openat" {
     const flags: u32 = os.O_CLOEXEC | os.O_RDWR | os.O_CREAT;
     const mode: os.mode_t = 0o666;
     const sqe_openat = try ring.openat(0x33333333, linux.AT_FDCWD, path, flags, mode);
-    testing.expectEqual(io_uring_sqe{
+    try testing.expectEqual(io_uring_sqe{
         .opcode = .OPENAT,
         .flags = 0,
         .ioprio = 0,
@@ -1202,10 +1202,10 @@ test "openat" {
         .splice_fd_in = 0,
         .__pad2 = [2]u64{ 0, 0 },
     }, sqe_openat.*);
-    testing.expectEqual(@as(u32, 1), try ring.submit());
+    try testing.expectEqual(@as(u32, 1), try ring.submit());
 
     const cqe_openat = try ring.copy_cqe();
-    testing.expectEqual(@as(u64, 0x33333333), cqe_openat.user_data);
+    try testing.expectEqual(@as(u64, 0x33333333), cqe_openat.user_data);
     if (cqe_openat.res == -linux.EINVAL) return error.SkipZigTest;
     // AT_FDCWD is not fully supported before kernel 5.6:
     // See https://lore.kernel.org/io-uring/20200207155039.12819-1-axboe@kernel.dk/T/
@@ -1214,8 +1214,8 @@ test "openat" {
         return error.SkipZigTest;
     }
     if (cqe_openat.res <= 0) std.debug.print("\ncqe_openat.res={}\n", .{cqe_openat.res});
-    testing.expect(cqe_openat.res > 0);
-    testing.expectEqual(@as(u32, 0), cqe_openat.flags);
+    try testing.expect(cqe_openat.res > 0);
+    try testing.expectEqual(@as(u32, 0), cqe_openat.flags);
 
     os.close(cqe_openat.res);
 }
@@ -1236,13 +1236,13 @@ test "close" {
     defer std.fs.cwd().deleteFile(path) catch {};
 
     const sqe_close = try ring.close(0x44444444, file.handle);
-    testing.expectEqual(linux.IORING_OP.CLOSE, sqe_close.opcode);
-    testing.expectEqual(file.handle, sqe_close.fd);
-    testing.expectEqual(@as(u32, 1), try ring.submit());
+    try testing.expectEqual(linux.IORING_OP.CLOSE, sqe_close.opcode);
+    try testing.expectEqual(file.handle, sqe_close.fd);
+    try testing.expectEqual(@as(u32, 1), try ring.submit());
 
     const cqe_close = try ring.copy_cqe();
     if (cqe_close.res == -linux.EINVAL) return error.SkipZigTest;
-    testing.expectEqual(linux.io_uring_cqe{
+    try testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0x44444444,
         .res = 0,
         .flags = 0,
@@ -1273,12 +1273,12 @@ test "accept/connect/send/recv" {
     var accept_addr: os.sockaddr = undefined;
     var accept_addr_len: os.socklen_t = @sizeOf(@TypeOf(accept_addr));
     const accept = try ring.accept(0xaaaaaaaa, server, &accept_addr, &accept_addr_len, 0);
-    testing.expectEqual(@as(u32, 1), try ring.submit());
+    try testing.expectEqual(@as(u32, 1), try ring.submit());
 
     const client = try os.socket(address.any.family, os.SOCK_STREAM | os.SOCK_CLOEXEC, 0);
     defer os.close(client);
     const connect = try ring.connect(0xcccccccc, client, &address.any, address.getOsSockLen());
-    testing.expectEqual(@as(u32, 1), try ring.submit());
+    try testing.expectEqual(@as(u32, 1), try ring.submit());
 
     var cqe_accept = try ring.copy_cqe();
     if (cqe_accept.res == -linux.EINVAL) return error.SkipZigTest;
@@ -1293,11 +1293,11 @@ test "accept/connect/send/recv" {
         cqe_connect = a;
     }
 
-    testing.expectEqual(@as(u64, 0xaaaaaaaa), cqe_accept.user_data);
+    try testing.expectEqual(@as(u64, 0xaaaaaaaa), cqe_accept.user_data);
     if (cqe_accept.res <= 0) std.debug.print("\ncqe_accept.res={}\n", .{cqe_accept.res});
-    testing.expect(cqe_accept.res > 0);
-    testing.expectEqual(@as(u32, 0), cqe_accept.flags);
-    testing.expectEqual(linux.io_uring_cqe{
+    try testing.expect(cqe_accept.res > 0);
+    try testing.expectEqual(@as(u32, 0), cqe_accept.flags);
+    try testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0xcccccccc,
         .res = 0,
         .flags = 0,
@@ -1306,11 +1306,11 @@ test "accept/connect/send/recv" {
     const send = try ring.send(0xeeeeeeee, client, buffer_send[0..], 0);
     send.flags |= linux.IOSQE_IO_LINK;
     const recv = try ring.recv(0xffffffff, cqe_accept.res, buffer_recv[0..], 0);
-    testing.expectEqual(@as(u32, 2), try ring.submit());
+    try testing.expectEqual(@as(u32, 2), try ring.submit());
 
     const cqe_send = try ring.copy_cqe();
     if (cqe_send.res == -linux.EINVAL) return error.SkipZigTest;
-    testing.expectEqual(linux.io_uring_cqe{
+    try testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0xeeeeeeee,
         .res = buffer_send.len,
         .flags = 0,
@@ -1318,13 +1318,13 @@ test "accept/connect/send/recv" {
 
     const cqe_recv = try ring.copy_cqe();
     if (cqe_recv.res == -linux.EINVAL) return error.SkipZigTest;
-    testing.expectEqual(linux.io_uring_cqe{
+    try testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0xffffffff,
         .res = buffer_recv.len,
         .flags = 0,
     }, cqe_recv);
 
-    testing.expectEqualSlices(u8, buffer_send[0..buffer_recv.len], buffer_recv[0..]);
+    try testing.expectEqualSlices(u8, buffer_send[0..buffer_recv.len], buffer_recv[0..]);
 }
 
 test "timeout (after a relative time)" {
@@ -1343,12 +1343,12 @@ test "timeout (after a relative time)" {
 
     const started = std.time.milliTimestamp();
     const sqe = try ring.timeout(0x55555555, &ts, 0, 0);
-    testing.expectEqual(linux.IORING_OP.TIMEOUT, sqe.opcode);
-    testing.expectEqual(@as(u32, 1), try ring.submit());
+    try testing.expectEqual(linux.IORING_OP.TIMEOUT, sqe.opcode);
+    try testing.expectEqual(@as(u32, 1), try ring.submit());
     const cqe = try ring.copy_cqe();
     const stopped = std.time.milliTimestamp();
 
-    testing.expectEqual(linux.io_uring_cqe{
+    try testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0x55555555,
         .res = -linux.ETIME,
         .flags = 0,
@@ -1371,20 +1371,20 @@ test "timeout (after a number of completions)" {
     const ts = os.__kernel_timespec{ .tv_sec = 3, .tv_nsec = 0 };
     const count_completions: u64 = 1;
     const sqe_timeout = try ring.timeout(0x66666666, &ts, count_completions, 0);
-    testing.expectEqual(linux.IORING_OP.TIMEOUT, sqe_timeout.opcode);
-    testing.expectEqual(count_completions, sqe_timeout.off);
+    try testing.expectEqual(linux.IORING_OP.TIMEOUT, sqe_timeout.opcode);
+    try testing.expectEqual(count_completions, sqe_timeout.off);
     _ = try ring.nop(0x77777777);
-    testing.expectEqual(@as(u32, 2), try ring.submit());
+    try testing.expectEqual(@as(u32, 2), try ring.submit());
 
     const cqe_nop = try ring.copy_cqe();
-    testing.expectEqual(linux.io_uring_cqe{
+    try testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0x77777777,
         .res = 0,
         .flags = 0,
     }, cqe_nop);
 
     const cqe_timeout = try ring.copy_cqe();
-    testing.expectEqual(linux.io_uring_cqe{
+    try testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0x66666666,
         .res = 0,
         .flags = 0,
@@ -1403,15 +1403,15 @@ test "timeout_remove" {
 
     const ts = os.__kernel_timespec{ .tv_sec = 3, .tv_nsec = 0 };
     const sqe_timeout = try ring.timeout(0x88888888, &ts, 0, 0);
-    testing.expectEqual(linux.IORING_OP.TIMEOUT, sqe_timeout.opcode);
-    testing.expectEqual(@as(u64, 0x88888888), sqe_timeout.user_data);
+    try testing.expectEqual(linux.IORING_OP.TIMEOUT, sqe_timeout.opcode);
+    try testing.expectEqual(@as(u64, 0x88888888), sqe_timeout.user_data);
 
     const sqe_timeout_remove = try ring.timeout_remove(0x99999999, 0x88888888, 0);
-    testing.expectEqual(linux.IORING_OP.TIMEOUT_REMOVE, sqe_timeout_remove.opcode);
-    testing.expectEqual(@as(u64, 0x88888888), sqe_timeout_remove.addr);
-    testing.expectEqual(@as(u64, 0x99999999), sqe_timeout_remove.user_data);
+    try testing.expectEqual(linux.IORING_OP.TIMEOUT_REMOVE, sqe_timeout_remove.opcode);
+    try testing.expectEqual(@as(u64, 0x88888888), sqe_timeout_remove.addr);
+    try testing.expectEqual(@as(u64, 0x99999999), sqe_timeout_remove.user_data);
 
-    testing.expectEqual(@as(u32, 2), try ring.submit());
+    try testing.expectEqual(@as(u32, 2), try ring.submit());
 
     const cqe_timeout = try ring.copy_cqe();
     // IORING_OP_TIMEOUT_REMOVE is not supported by this kernel version:
@@ -1424,14 +1424,14 @@ test "timeout_remove" {
     {
         return error.SkipZigTest;
     }
-    testing.expectEqual(linux.io_uring_cqe{
+    try testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0x88888888,
         .res = -linux.ECANCELED,
         .flags = 0,
     }, cqe_timeout);
 
     const cqe_timeout_remove = try ring.copy_cqe();
-    testing.expectEqual(linux.io_uring_cqe{
+    try testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0x99999999,
         .res = 0,
         .flags = 0,
@@ -1453,13 +1453,13 @@ test "fallocate" {
     defer file.close();
     defer std.fs.cwd().deleteFile(path) catch {};
 
-    testing.expectEqual(@as(u64, 0), (try file.stat()).size);
+    try testing.expectEqual(@as(u64, 0), (try file.stat()).size);
 
     const len: u64 = 65536;
     const sqe = try ring.fallocate(0xaaaaaaaa, file.handle, 0, 0, len);
-    testing.expectEqual(linux.IORING_OP.FALLOCATE, sqe.opcode);
-    testing.expectEqual(file.handle, sqe.fd);
-    testing.expectEqual(@as(u32, 1), try ring.submit());
+    try testing.expectEqual(linux.IORING_OP.FALLOCATE, sqe.opcode);
+    try testing.expectEqual(file.handle, sqe.fd);
+    try testing.expectEqual(@as(u32, 1), try ring.submit());
 
     const cqe = try ring.copy_cqe();
     switch (-cqe.res) {
@@ -1473,11 +1473,11 @@ test "fallocate" {
         linux.EOPNOTSUPP => return error.SkipZigTest,
         else => |errno| std.debug.panic("unhandled errno: {}", .{errno}),
     }
-    testing.expectEqual(linux.io_uring_cqe{
+    try testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0xaaaaaaaa,
         .res = 0,
         .flags = 0,
     }, cqe);
 
-    testing.expectEqual(len, (try file.stat()).size);
+    try testing.expectEqual(len, (try file.stat()).size);
 }

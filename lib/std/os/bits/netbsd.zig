@@ -60,7 +60,7 @@ pub const addrinfo = extern struct {
     next: ?*addrinfo,
 };
 
-pub const EAI = extern enum(c_int) {
+pub const EAI = enum(c_int) {
     /// address family for hostname not supported
     ADDRFAMILY = 1,
 
@@ -225,6 +225,8 @@ pub const sockaddr = extern struct {
     /// actually longer; address value
     data: [14]u8,
 };
+
+pub const sockaddr_storage = std.x.os.Socket.Address.Native.Storage;
 
 pub const sockaddr_in = extern struct {
     len: u8 = @sizeOf(sockaddr_in),
@@ -718,9 +720,9 @@ pub const winsize = extern struct {
 
 const NSIG = 32;
 
-pub const SIG_ERR = @intToPtr(?Sigaction.sigaction_fn, maxInt(usize));
 pub const SIG_DFL = @intToPtr(?Sigaction.sigaction_fn, 0);
 pub const SIG_IGN = @intToPtr(?Sigaction.sigaction_fn, 1);
+pub const SIG_ERR = @intToPtr(?Sigaction.sigaction_fn, maxInt(usize));
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
 pub const Sigaction = extern struct {
@@ -796,16 +798,16 @@ pub const _ksiginfo = extern struct {
 pub const _SIG_WORDS = 4;
 pub const _SIG_MAXSIG = 128;
 
-pub fn _SIG_IDX(sig: usize) callconv(.Inline) usize {
+pub inline fn _SIG_IDX(sig: usize) usize {
     return sig - 1;
 }
-pub fn _SIG_WORD(sig: usize) callconv(.Inline) usize {
+pub inline fn _SIG_WORD(sig: usize) usize {
     return_SIG_IDX(sig) >> 5;
 }
-pub fn _SIG_BIT(sig: usize) callconv(.Inline) usize {
+pub inline fn _SIG_BIT(sig: usize) usize {
     return 1 << (_SIG_IDX(sig) & 31);
 }
-pub fn _SIG_VALID(sig: usize) callconv(.Inline) usize {
+pub inline fn _SIG_VALID(sig: usize) usize {
     return sig <= _SIG_MAXSIG and sig > 0;
 }
 
@@ -833,7 +835,7 @@ pub const ucontext_t = extern struct {
     stack: stack_t,
     mcontext: mcontext_t,
     __pad: [
-        switch (builtin.arch) {
+        switch (builtin.cpu.arch) {
             .i386 => 4,
             .mips, .mipsel, .mips64, .mips64el => 14,
             .arm, .armeb, .thumb, .thumbeb => 1,
@@ -1179,7 +1181,7 @@ pub const IPPROTO_PFSYNC = 240;
 /// raw IP packet
 pub const IPPROTO_RAW = 255;
 
-pub const rlimit_resource = extern enum(c_int) {
+pub const rlimit_resource = enum(c_int) {
     CPU = 0,
     FSIZE = 1,
     DATA = 2,
@@ -1190,11 +1192,11 @@ pub const rlimit_resource = extern enum(c_int) {
     NPROC = 7,
     NOFILE = 8,
     SBSIZE = 9,
-    AS = 10,
     VMEM = 10,
     NTHR = 11,
-
     _,
+
+    pub const AS: rlimit_resource = .VMEM;
 };
 
 pub const rlim_t = u64;

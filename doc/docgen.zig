@@ -284,6 +284,7 @@ const Code = struct {
     link_objects: []const []const u8,
     target_str: ?[]const u8,
     link_libc: bool,
+    link_mode: ?std.builtin.LinkMode,
     disable_cache: bool,
 
     const Id = union(enum) {
@@ -403,9 +404,9 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
                             .n = header_stack_size,
                         },
                     });
-                    if (try urls.fetchPut(urlized, tag_token)) |entry| {
+                    if (try urls.fetchPut(urlized, tag_token)) |kv| {
                         parseError(tokenizer, tag_token, "duplicate header url: #{s}", .{urlized}) catch {};
-                        parseError(tokenizer, entry.value, "other tag here", .{}) catch {};
+                        parseError(tokenizer, kv.value, "other tag here", .{}) catch {};
                         return error.ParseError;
                     }
                     if (last_action == Action.Open) {
@@ -533,6 +534,7 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
                     defer link_objects.deinit();
                     var target_str: ?[]const u8 = null;
                     var link_libc = false;
+                    var link_mode: ?std.builtin.LinkMode = null;
                     var disable_cache = false;
 
                     const source_token = while (true) {
@@ -562,6 +564,8 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
                             target_str = "wasm32-wasi";
                         } else if (mem.eql(u8, end_tag_name, "link_libc")) {
                             link_libc = true;
+                        } else if (mem.eql(u8, end_tag_name, "link_mode_dynamic")) {
+                            link_mode = .Dynamic;
                         } else if (mem.eql(u8, end_tag_name, "code_end")) {
                             _ = try eatToken(tokenizer, Token.Id.BracketClose);
                             break content_tok;
@@ -585,6 +589,7 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
                             .link_objects = link_objects.toOwnedSlice(),
                             .target_str = target_str,
                             .link_libc = link_libc,
+                            .link_mode = link_mode,
                             .disable_cache = disable_cache,
                         },
                     });
@@ -1018,7 +1023,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: any
     defer root_node.end();
 
     var env_map = try process.getEnvMap(allocator);
-    try env_map.set("ZIG_DEBUG_COLOR", "1");
+    try env_map.put("ZIG_DEBUG_COLOR", "1");
 
     const builtin_code = try getBuiltinCode(allocator, &env_map, zig_exe);
 
@@ -1467,6 +1472,18 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: any
                         if (code.target_str) |triple| {
                             try test_args.appendSlice(&[_][]const u8{ "-target", triple });
                             try out.print(" -target {s}", .{triple});
+                        }
+                        if (code.link_mode) |link_mode| {
+                            switch (link_mode) {
+                                .Static => {
+                                    try test_args.append("-static");
+                                    try out.print(" -static", .{});
+                                },
+                                .Dynamic => {
+                                    try test_args.append("-dynamic");
+                                    try out.print(" -dynamic", .{});
+                                },
+                            }
                         }
                         const result = exec(allocator, &env_map, test_args.items) catch return parseError(tokenizer, code.source_token, "test failed", .{});
                         const escaped_stderr = try escapeHtml(allocator, result.stderr);

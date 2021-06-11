@@ -117,9 +117,9 @@ pub const RunStep = struct {
 
         if (prev_path) |pp| {
             const new_path = self.builder.fmt("{s}" ++ [1]u8{fs.path.delimiter} ++ "{s}", .{ pp, search_path });
-            env_map.set(key, new_path) catch unreachable;
+            env_map.put(key, new_path) catch unreachable;
         } else {
-            env_map.set(key, self.builder.dupePath(search_path)) catch unreachable;
+            env_map.put(key, self.builder.dupePath(search_path)) catch unreachable;
         }
     }
 
@@ -134,10 +134,8 @@ pub const RunStep = struct {
 
     pub fn setEnvironmentVariable(self: *RunStep, key: []const u8, value: []const u8) void {
         const env_map = self.getEnvMap();
-        env_map.set(
-            self.builder.dupe(key),
-            self.builder.dupe(value),
-        ) catch unreachable;
+        // Note: no need to dupe these strings because BufMap does it internally.
+        env_map.put(key, value) catch unreachable;
     }
 
     pub fn expectStdErrEqual(self: *RunStep, bytes: []const u8) void {
@@ -190,6 +188,13 @@ pub const RunStep = struct {
         child.stdin_behavior = self.stdin_behavior;
         child.stdout_behavior = stdIoActionToBehavior(self.stdout_action);
         child.stderr_behavior = stdIoActionToBehavior(self.stderr_action);
+
+        if (self.builder.verbose) {
+            for (argv) |arg| {
+                warn("{s} ", .{arg});
+            }
+            warn("\n", .{});
+        }
 
         child.spawn() catch |err| {
             warn("Unable to spawn {s}: {s}\n", .{ argv[0], @errorName(err) });

@@ -38,7 +38,7 @@ struct IrInstGenCast;
 struct IrInstGenAlloca;
 struct IrInstGenCall;
 struct IrInstGenAwait;
-struct IrBasicBlockSrc;
+struct Stage1ZirBasicBlock;
 struct IrBasicBlockGen;
 struct ScopeDecls;
 struct ZigWindowsSDK;
@@ -51,7 +51,7 @@ struct ResultLocPeerParent;
 struct ResultLocBitCast;
 struct ResultLocCast;
 struct ResultLocReturn;
-struct IrExecutableGen;
+struct Stage1Air;
 
 enum FileExt {
     FileExtUnknown,
@@ -84,6 +84,7 @@ enum CallingConvention {
     CallingConventionAPCS,
     CallingConventionAAPCS,
     CallingConventionAAPCSVFP,
+    CallingConventionSysV
 };
 
 // This one corresponds to the builtin.zig enum.
@@ -109,51 +110,33 @@ enum X64CABIClass {
     X64CABIClass_SSE,
 };
 
-struct IrExecutableSrc {
-    ZigList<IrBasicBlockSrc *> basic_block_list;
+struct Stage1Zir {
+    ZigList<Stage1ZirBasicBlock *> basic_block_list;
     Buf *name;
     ZigFn *name_fn;
-    size_t mem_slot_count;
-    size_t next_debug_id;
-    size_t *backward_branch_count;
-    size_t *backward_branch_quota;
-    ZigFn *fn_entry;
-    Buf *c_import_buf;
-    AstNode *source_node;
-    IrExecutableGen *parent_exec;
-    IrAnalyze *analysis;
     Scope *begin_scope;
     ErrorMsg *first_err_trace_msg;
     ZigList<Tld *> tld_list;
 
     bool is_inline;
-    bool is_generic_instantiation;
     bool need_err_code_spill;
-
-    // This is a function for use in the debugger to print
-    // the source location.
-    void src();
 };
 
-struct IrExecutableGen {
+struct Stage1Air {
     ZigList<IrBasicBlockGen *> basic_block_list;
     Buf *name;
     ZigFn *name_fn;
     size_t mem_slot_count;
     size_t next_debug_id;
-    size_t *backward_branch_count;
-    size_t *backward_branch_quota;
-    ZigFn *fn_entry;
     Buf *c_import_buf;
     AstNode *source_node;
-    IrExecutableGen *parent_exec;
-    IrExecutableSrc *source_exec;
+    Stage1Air *parent_exec;
+    Stage1Zir *source_exec;
     Scope *begin_scope;
     ErrorMsg *first_err_trace_msg;
     ZigList<Tld *> tld_list;
 
     bool is_inline;
-    bool is_generic_instantiation;
     bool need_err_code_spill;
 
     // This is a function for use in the debugger to print
@@ -669,7 +652,7 @@ enum NodeType {
     NodeTypeIntLiteral,
     NodeTypeStringLiteral,
     NodeTypeCharLiteral,
-    NodeTypeSymbol,
+    NodeTypeIdentifier,
     NodeTypePrefixOpExpr,
     NodeTypePointerType,
     NodeTypeFnCallExpr,
@@ -709,15 +692,21 @@ enum NodeType {
     NodeTypeAwaitExpr,
     NodeTypeSuspend,
     NodeTypeAnyFrameType,
+    // main_token points to the identifier.
     NodeTypeEnumLiteral,
     NodeTypeAnyTypeField,
+};
+
+enum FnInline {
+    FnInlineAuto,
+    FnInlineAlways,
+    FnInlineNever,
 };
 
 struct AstNodeFnProto {
     Buf *name;
     ZigList<AstNode *> params;
     AstNode *return_type;
-    Token *return_anytype_token;
     AstNode *fn_def_node;
     // populated if this is an extern declaration
     Buf *lib_name;
@@ -727,14 +716,19 @@ struct AstNodeFnProto {
     AstNode *section_expr;
     // populated if the "callconv(S)" is present
     AstNode *callconv_expr;
-    Buf doc_comments;
+
+    TokenIndex doc_comments;
+
+    // This is set based only on the existence of a noinline or inline keyword.
+    // This is then resolved to an is_noinline bool and (potentially .Inline)
+    // calling convention in resolve_decl_fn() in analyze.cpp.
+    FnInline fn_inline;
 
     VisibMod visib_mod;
     bool auto_err_set;
     bool is_var_args;
     bool is_extern;
     bool is_export;
-    bool is_noinline;
 };
 
 struct AstNodeFnDef {
@@ -745,8 +739,8 @@ struct AstNodeFnDef {
 struct AstNodeParamDecl {
     Buf *name;
     AstNode *type;
-    Token *anytype_token;
-    Buf doc_comments;
+    TokenIndex doc_comments;
+    TokenIndex anytype_token;
     bool is_noalias;
     bool is_comptime;
     bool is_var_args;
@@ -789,9 +783,9 @@ struct AstNodeVariableDeclaration {
     AstNode *align_expr;
     // populated if the "section(S)" is present
     AstNode *section_expr;
-    Token *threadlocal_tok;
-    Buf doc_comments;
+    TokenIndex doc_comments;
 
+    TokenIndex threadlocal_tok;
     VisibMod visib_mod;
     bool is_const;
     bool is_comptime;
@@ -925,13 +919,14 @@ struct AstNodePrefixOpExpr {
 };
 
 struct AstNodePointerType {
-    Token *star_token;
+    TokenIndex star_token;
+    TokenIndex allow_zero_token;
+    TokenIndex bit_offset_start;
+    TokenIndex host_int_bytes;
+
     AstNode *sentinel;
     AstNode *align_expr;
-    BigInt *bit_offset_start;
-    BigInt *host_int_bytes;
     AstNode *op_expr;
-    Token *allow_zero_token;
     bool is_const;
     bool is_volatile;
 };
@@ -946,7 +941,7 @@ struct AstNodeArrayType {
     AstNode *sentinel;
     AstNode *child_type;
     AstNode *align_expr;
-    Token *allow_zero_token;
+    TokenIndex allow_zero_token;
     bool is_const;
     bool is_volatile;
 };
@@ -964,11 +959,11 @@ struct AstNodeIfBoolExpr {
 
 struct AstNodeTryExpr {
     Buf *var_symbol;
-    bool var_is_ptr;
     AstNode *target_node;
     AstNode *then_node;
     AstNode *else_node;
     Buf *err_symbol;
+    bool var_is_ptr;
 };
 
 struct AstNodeTestExpr {
@@ -983,12 +978,12 @@ struct AstNodeWhileExpr {
     Buf *name;
     AstNode *condition;
     Buf *var_symbol;
-    bool var_is_ptr;
     AstNode *continue_expr;
     AstNode *body;
     AstNode *else_node;
     Buf *err_symbol;
     bool is_inline;
+    bool var_is_ptr;
 };
 
 struct AstNodeForExpr {
@@ -1060,7 +1055,7 @@ struct AsmToken {
 };
 
 struct AstNodeAsmExpr {
-    Token *volatile_token;
+    TokenIndex volatile_token;
     AstNode *asm_template;
     ZigList<AsmOutput*> output_list;
     ZigList<AsmInput*> input_list;
@@ -1084,7 +1079,7 @@ struct AstNodeContainerDecl {
     AstNode *init_arg_expr; // enum(T), struct(endianness), or union(T), or union(enum(T))
     ZigList<AstNode *> fields;
     ZigList<AstNode *> decls;
-    Buf doc_comments;
+    TokenIndex doc_comments;
 
     ContainerKind kind;
     ContainerLayout layout;
@@ -1093,7 +1088,7 @@ struct AstNodeContainerDecl {
 };
 
 struct AstNodeErrorSetField {
-    Buf doc_comments;
+    TokenIndex doc_comments;
     AstNode *field_name;
 };
 
@@ -1108,28 +1103,8 @@ struct AstNodeStructField {
     AstNode *value;
     // populated if the "align(A)" is present
     AstNode *align_expr;
-    Buf doc_comments;
-    Token *comptime_token;
-};
-
-struct AstNodeStringLiteral {
-    Buf *buf;
-};
-
-struct AstNodeCharLiteral {
-    uint32_t value;
-};
-
-struct AstNodeFloatLiteral {
-    BigFloat *bigfloat;
-
-    // overflow is true if when parsing the number, we discovered it would not
-    // fit without losing data in a double
-    bool overflow;
-};
-
-struct AstNodeIntLiteral {
-    BigInt *bigint;
+    TokenIndex doc_comments;
+    TokenIndex comptime_token;
 };
 
 struct AstNodeStructValueField {
@@ -1148,17 +1123,12 @@ struct AstNodeContainerInitExpr {
     ContainerInitKind kind;
 };
 
-struct AstNodeNullLiteral {
+struct AstNodeIdentifier {
+    Buf *name;
 };
 
-struct AstNodeUndefinedLiteral {
-};
-
-struct AstNodeThisLiteral {
-};
-
-struct AstNodeSymbolExpr {
-    Buf *symbol;
+struct AstNodeEnumLiteral {
+    Buf *name;
 };
 
 struct AstNodeBoolLiteral {
@@ -1178,13 +1148,6 @@ struct AstNodeContinueExpr {
     Buf *name;
 };
 
-struct AstNodeUnreachableExpr {
-};
-
-
-struct AstNodeErrorType {
-};
-
 struct AstNodeAwaitExpr {
     AstNode *expr;
 };
@@ -1197,16 +1160,10 @@ struct AstNodeAnyFrameType {
     AstNode *payload_type; // can be NULL
 };
 
-struct AstNodeEnumLiteral {
-    Token *period;
-    Token *identifier;
-};
-
 struct AstNode {
     enum NodeType type;
+    TokenIndex main_token;
     bool already_traced_this_node;
-    size_t line;
-    size_t column;
     ZigType *owner;
     union {
         AstNodeFnDef fn_def;
@@ -1242,29 +1199,24 @@ struct AstNode {
         AstNodePtrDerefExpr ptr_deref_expr;
         AstNodeContainerDecl container_decl;
         AstNodeStructField struct_field;
-        AstNodeStringLiteral string_literal;
-        AstNodeCharLiteral char_literal;
-        AstNodeFloatLiteral float_literal;
-        AstNodeIntLiteral int_literal;
         AstNodeContainerInitExpr container_init_expr;
         AstNodeStructValueField struct_val_field;
-        AstNodeNullLiteral null_literal;
-        AstNodeUndefinedLiteral undefined_literal;
-        AstNodeThisLiteral this_literal;
-        AstNodeSymbolExpr symbol_expr;
         AstNodeBoolLiteral bool_literal;
         AstNodeBreakExpr break_expr;
         AstNodeContinueExpr continue_expr;
-        AstNodeUnreachableExpr unreachable_expr;
         AstNodeArrayType array_type;
         AstNodeInferredArrayType inferred_array_type;
-        AstNodeErrorType error_type;
         AstNodeErrorSetDecl err_set_decl;
         AstNodeErrorSetField err_set_field;
         AstNodeResumeExpr resume_expr;
         AstNodeAwaitExpr await_expr;
         AstNodeSuspend suspend;
         AstNodeAnyFrameType anyframe_type;
+
+        // These are part of an astgen workaround to use less memory by
+        // memoizing into the AST. Once astgen is modified to only run once
+        // per corresponding source, this workaround can be removed.
+        AstNodeIdentifier identifier;
         AstNodeEnumLiteral enum_literal;
     } data;
 
@@ -1399,9 +1351,11 @@ struct ZigPackage {
 struct RootStruct {
     ZigPackage *package;
     Buf *path; // relative to root_package->root_src_dir
-    ZigList<size_t> *line_offsets;
     Buf *source_code;
     ZigLLVMDIFile *di_file;
+    size_t token_count;
+    TokenId *token_ids;
+    TokenLoc *token_locs;
 };
 
 enum StructSpecial {
@@ -1693,10 +1647,9 @@ struct ZigFn {
     // in the case of async functions this is the implicit return type according to the
     // zig source code, not according to zig ir
     ZigType *src_implicit_return_type;
-    IrExecutableSrc *ir_executable;
-    IrExecutableGen analyzed_executable;
-    size_t prealloc_bbc;
-    size_t prealloc_backward_branch_quota;
+    Stage1Zir *stage1_zir;
+    Stage1Air analyzed_executable;
+    size_t branch_quota;
     AstNode **param_source_nodes;
     Buf **param_names;
     IrInstGen *err_code_spill;
@@ -2168,8 +2121,6 @@ struct CodeGen {
     unsigned pointer_size_bytes;
     bool is_big_endian;
     bool have_err_ret_tracing;
-    bool verbose_tokenize;
-    bool verbose_ast;
     bool verbose_ir;
     bool verbose_llvm_ir;
     bool verbose_cimport;
@@ -2316,11 +2267,11 @@ struct ScopeBlock {
     Scope base;
 
     Buf *name;
-    IrBasicBlockSrc *end_block;
+    Stage1ZirBasicBlock *end_block;
     IrInstSrc *is_comptime;
     ResultLocPeerParent *peer_parent;
     ZigList<IrInstSrc *> *incoming_values;
-    ZigList<IrBasicBlockSrc *> *incoming_blocks;
+    ZigList<Stage1ZirBasicBlock *> *incoming_blocks;
 
     AstNode *safety_set_node;
     AstNode *fast_math_set_node;
@@ -2372,11 +2323,11 @@ struct ScopeLoop {
 
     LVal lval;
     Buf *name;
-    IrBasicBlockSrc *break_block;
-    IrBasicBlockSrc *continue_block;
+    Stage1ZirBasicBlock *break_block;
+    Stage1ZirBasicBlock *continue_block;
     IrInstSrc *is_comptime;
     ZigList<IrInstSrc *> *incoming_values;
-    ZigList<IrBasicBlockSrc *> *incoming_blocks;
+    ZigList<Stage1ZirBasicBlock *> *incoming_blocks;
     ResultLocPeerParent *peer_parent;
     ScopeExpr *spill_scope;
 
@@ -2487,7 +2438,7 @@ enum AtomicRmwOp {
 // to another basic block.
 // Phi instructions must be first in a basic block.
 // The last instruction in a basic block must be of type unreachable.
-struct IrBasicBlockSrc {
+struct Stage1ZirBasicBlock {
     ZigList<IrInstSrc *> instruction_list;
     IrBasicBlockGen *child;
     Scope *scope;
@@ -2762,8 +2713,7 @@ enum IrInstGenId {
     IrInstGenIdExtern,
 };
 
-// Common fields between IrInstSrc and IrInstGen. This allows future passes
-// after pass2 to be added to zig.
+// Common fields between IrInstSrc and IrInstGen.
 struct IrInst {
     // if ref_count is zero and the instruction has no side effects,
     // the instruction can be omitted in codegen
@@ -2791,7 +2741,7 @@ struct IrInstSrc {
     // can find the instruction that corresponds to this value in the "new ir"
     // with this child field.
     IrInstGen *child;
-    IrBasicBlockSrc *owner_bb;
+    Stage1ZirBasicBlock *owner_bb;
 
     // for debugging purposes, these are useful to call to inspect the instruction
     void dump();
@@ -2836,8 +2786,8 @@ struct IrInstSrcCondBr {
     IrInstSrc base;
 
     IrInstSrc *condition;
-    IrBasicBlockSrc *then_block;
-    IrBasicBlockSrc *else_block;
+    Stage1ZirBasicBlock *then_block;
+    Stage1ZirBasicBlock *else_block;
     IrInstSrc *is_comptime;
     ResultLoc *result_loc;
 };
@@ -2853,7 +2803,7 @@ struct IrInstGenCondBr {
 struct IrInstSrcBr {
     IrInstSrc base;
 
-    IrBasicBlockSrc *dest_block;
+    Stage1ZirBasicBlock *dest_block;
     IrInstSrc *is_comptime;
 };
 
@@ -2865,14 +2815,14 @@ struct IrInstGenBr {
 
 struct IrInstSrcSwitchBrCase {
     IrInstSrc *value;
-    IrBasicBlockSrc *block;
+    Stage1ZirBasicBlock *block;
 };
 
 struct IrInstSrcSwitchBr {
     IrInstSrc base;
 
     IrInstSrc *target_value;
-    IrBasicBlockSrc *else_block;
+    Stage1ZirBasicBlock *else_block;
     size_t case_count;
     IrInstSrcSwitchBrCase *cases;
     IrInstSrc *is_comptime;
@@ -2918,7 +2868,7 @@ struct IrInstSrcPhi {
     IrInstSrc base;
 
     size_t incoming_count;
-    IrBasicBlockSrc **incoming_blocks;
+    Stage1ZirBasicBlock **incoming_blocks;
     IrInstSrc **incoming_values;
     ResultLocPeerParent *peer_parent;
 };
@@ -4582,7 +4532,7 @@ struct ResultLocPeerParent {
 
     bool skipped;
     bool done_resuming;
-    IrBasicBlockSrc *end_bb;
+    Stage1ZirBasicBlock *end_bb;
     ResultLoc *parent;
     ZigList<ResultLocPeer *> peers;
     ZigType *resolved_type;
@@ -4593,7 +4543,7 @@ struct ResultLocPeer {
     ResultLoc base;
 
     ResultLocPeerParent *parent;
-    IrBasicBlockSrc *next_bb;
+    Stage1ZirBasicBlock *next_bb;
     IrSuspendPosition suspend_pos;
 };
 

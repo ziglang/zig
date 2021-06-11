@@ -58,13 +58,13 @@ test "test_divdi3" {
     };
 
     for (cases) |case| {
-        test_one_divdi3(case[0], case[1], case[2]);
+        try test_one_divdi3(case[0], case[1], case[2]);
     }
 }
 
-fn test_one_divdi3(a: i64, b: i64, expected_q: i64) void {
+fn test_one_divdi3(a: i64, b: i64, expected_q: i64) !void {
     const q: i64 = __divdi3(a, b);
-    testing.expect(q == expected_q);
+    try testing.expect(q == expected_q);
 }
 
 pub fn __moddi3(a: i64, b: i64) callconv(.C) i64 {
@@ -98,13 +98,13 @@ test "test_moddi3" {
     };
 
     for (cases) |case| {
-        test_one_moddi3(case[0], case[1], case[2]);
+        try test_one_moddi3(case[0], case[1], case[2]);
     }
 }
 
-fn test_one_moddi3(a: i64, b: i64, expected_r: i64) void {
+fn test_one_moddi3(a: i64, b: i64, expected_r: i64) !void {
     const r: i64 = __moddi3(a, b);
-    testing.expect(r == expected_r);
+    try testing.expect(r == expected_r);
 }
 
 pub fn __udivdi3(a: u64, b: u64) callconv(.C) u64 {
@@ -121,16 +121,16 @@ pub fn __umoddi3(a: u64, b: u64) callconv(.C) u64 {
 }
 
 test "test_umoddi3" {
-    test_one_umoddi3(0, 1, 0);
-    test_one_umoddi3(2, 1, 0);
-    test_one_umoddi3(0x8000000000000000, 1, 0x0);
-    test_one_umoddi3(0x8000000000000000, 2, 0x0);
-    test_one_umoddi3(0xFFFFFFFFFFFFFFFF, 2, 0x1);
+    try test_one_umoddi3(0, 1, 0);
+    try test_one_umoddi3(2, 1, 0);
+    try test_one_umoddi3(0x8000000000000000, 1, 0x0);
+    try test_one_umoddi3(0x8000000000000000, 2, 0x0);
+    try test_one_umoddi3(0xFFFFFFFFFFFFFFFF, 2, 0x1);
 }
 
-fn test_one_umoddi3(a: u64, b: u64, expected_r: u64) void {
+fn test_one_umoddi3(a: u64, b: u64, expected_r: u64) !void {
     const r = __umoddi3(a, b);
-    testing.expect(r == expected_r);
+    try testing.expect(r == expected_r);
 }
 
 pub fn __divmodsi4(a: i32, b: i32, rem: *i32) callconv(.C) i32 {
@@ -159,14 +159,14 @@ test "test_divmodsi4" {
     };
 
     for (cases) |case| {
-        test_one_divmodsi4(case[0], case[1], case[2], case[3]);
+        try test_one_divmodsi4(case[0], case[1], case[2], case[3]);
     }
 }
 
-fn test_one_divmodsi4(a: i32, b: i32, expected_q: i32, expected_r: i32) void {
+fn test_one_divmodsi4(a: i32, b: i32, expected_q: i32, expected_r: i32) !void {
     var r: i32 = undefined;
     const q: i32 = __divmodsi4(a, b, &r);
-    testing.expect(q == expected_q and r == expected_r);
+    try testing.expect(q == expected_q and r == expected_r);
 }
 
 pub fn __udivmodsi4(a: u32, b: u32, rem: *u32) callconv(.C) u32 {
@@ -207,13 +207,13 @@ test "test_divsi3" {
     };
 
     for (cases) |case| {
-        test_one_divsi3(case[0], case[1], case[2]);
+        try test_one_divsi3(case[0], case[1], case[2]);
     }
 }
 
-fn test_one_divsi3(a: i32, b: i32, expected_q: i32) void {
+fn test_one_divsi3(a: i32, b: i32, expected_q: i32) !void {
     const q: i32 = __divsi3(a, b);
-    testing.expect(q == expected_q);
+    try testing.expect(q == expected_q);
 }
 
 pub fn __udivsi3(n: u32, d: u32) callconv(.C) u32 {
@@ -394,13 +394,13 @@ test "test_udivsi3" {
     };
 
     for (cases) |case| {
-        test_one_udivsi3(case[0], case[1], case[2]);
+        try test_one_udivsi3(case[0], case[1], case[2]);
     }
 }
 
-fn test_one_udivsi3(a: u32, b: u32, expected_q: u32) void {
+fn test_one_udivsi3(a: u32, b: u32, expected_q: u32) !void {
     const q: u32 = __udivsi3(a, b);
-    testing.expect(q == expected_q);
+    try testing.expect(q == expected_q);
 }
 
 pub fn __modsi3(n: i32, d: i32) callconv(.C) i32 {
@@ -425,13 +425,13 @@ test "test_modsi3" {
     };
 
     for (cases) |case| {
-        test_one_modsi3(case[0], case[1], case[2]);
+        try test_one_modsi3(case[0], case[1], case[2]);
     }
 }
 
-fn test_one_modsi3(a: i32, b: i32, expected_r: i32) void {
+fn test_one_modsi3(a: i32, b: i32, expected_r: i32) !void {
     const r: i32 = __modsi3(a, b);
-    testing.expect(r == expected_r);
+    try testing.expect(r == expected_r);
 }
 
 pub fn __umodsi3(n: u32, d: u32) callconv(.C) u32 {
@@ -577,13 +577,13 @@ test "test_umodsi3" {
     };
 
     for (cases) |case| {
-        test_one_umodsi3(case[0], case[1], case[2]);
+        try test_one_umodsi3(case[0], case[1], case[2]);
     }
 }
 
-fn test_one_umodsi3(a: u32, b: u32, expected_r: u32) void {
+fn test_one_umodsi3(a: u32, b: u32, expected_r: u32) !void {
     const r: u32 = __umodsi3(a, b);
-    testing.expect(r == expected_r);
+    try testing.expect(r == expected_r);
 }
 
 pub fn __mulsi3(a: i32, b: i32) callconv(.C) i32 {
@@ -602,44 +602,44 @@ pub fn __mulsi3(a: i32, b: i32) callconv(.C) i32 {
     return @bitCast(i32, r);
 }
 
-fn test_one_mulsi3(a: i32, b: i32, result: i32) void {
-    testing.expectEqual(result, __mulsi3(a, b));
+fn test_one_mulsi3(a: i32, b: i32, result: i32) !void {
+    try testing.expectEqual(result, __mulsi3(a, b));
 }
 
 test "mulsi3" {
-    test_one_mulsi3(0, 0, 0);
-    test_one_mulsi3(0, 1, 0);
-    test_one_mulsi3(1, 0, 0);
-    test_one_mulsi3(0, 10, 0);
-    test_one_mulsi3(10, 0, 0);
-    test_one_mulsi3(0, maxInt(i32), 0);
-    test_one_mulsi3(maxInt(i32), 0, 0);
-    test_one_mulsi3(0, -1, 0);
-    test_one_mulsi3(-1, 0, 0);
-    test_one_mulsi3(0, -10, 0);
-    test_one_mulsi3(-10, 0, 0);
-    test_one_mulsi3(0, minInt(i32), 0);
-    test_one_mulsi3(minInt(i32), 0, 0);
-    test_one_mulsi3(1, 1, 1);
-    test_one_mulsi3(1, 10, 10);
-    test_one_mulsi3(10, 1, 10);
-    test_one_mulsi3(1, maxInt(i32), maxInt(i32));
-    test_one_mulsi3(maxInt(i32), 1, maxInt(i32));
-    test_one_mulsi3(1, -1, -1);
-    test_one_mulsi3(1, -10, -10);
-    test_one_mulsi3(-10, 1, -10);
-    test_one_mulsi3(1, minInt(i32), minInt(i32));
-    test_one_mulsi3(minInt(i32), 1, minInt(i32));
-    test_one_mulsi3(46340, 46340, 2147395600);
-    test_one_mulsi3(-46340, 46340, -2147395600);
-    test_one_mulsi3(46340, -46340, -2147395600);
-    test_one_mulsi3(-46340, -46340, 2147395600);
-    test_one_mulsi3(4194303, 8192, @truncate(i32, 34359730176));
-    test_one_mulsi3(-4194303, 8192, @truncate(i32, -34359730176));
-    test_one_mulsi3(4194303, -8192, @truncate(i32, -34359730176));
-    test_one_mulsi3(-4194303, -8192, @truncate(i32, 34359730176));
-    test_one_mulsi3(8192, 4194303, @truncate(i32, 34359730176));
-    test_one_mulsi3(-8192, 4194303, @truncate(i32, -34359730176));
-    test_one_mulsi3(8192, -4194303, @truncate(i32, -34359730176));
-    test_one_mulsi3(-8192, -4194303, @truncate(i32, 34359730176));
+    try test_one_mulsi3(0, 0, 0);
+    try test_one_mulsi3(0, 1, 0);
+    try test_one_mulsi3(1, 0, 0);
+    try test_one_mulsi3(0, 10, 0);
+    try test_one_mulsi3(10, 0, 0);
+    try test_one_mulsi3(0, maxInt(i32), 0);
+    try test_one_mulsi3(maxInt(i32), 0, 0);
+    try test_one_mulsi3(0, -1, 0);
+    try test_one_mulsi3(-1, 0, 0);
+    try test_one_mulsi3(0, -10, 0);
+    try test_one_mulsi3(-10, 0, 0);
+    try test_one_mulsi3(0, minInt(i32), 0);
+    try test_one_mulsi3(minInt(i32), 0, 0);
+    try test_one_mulsi3(1, 1, 1);
+    try test_one_mulsi3(1, 10, 10);
+    try test_one_mulsi3(10, 1, 10);
+    try test_one_mulsi3(1, maxInt(i32), maxInt(i32));
+    try test_one_mulsi3(maxInt(i32), 1, maxInt(i32));
+    try test_one_mulsi3(1, -1, -1);
+    try test_one_mulsi3(1, -10, -10);
+    try test_one_mulsi3(-10, 1, -10);
+    try test_one_mulsi3(1, minInt(i32), minInt(i32));
+    try test_one_mulsi3(minInt(i32), 1, minInt(i32));
+    try test_one_mulsi3(46340, 46340, 2147395600);
+    try test_one_mulsi3(-46340, 46340, -2147395600);
+    try test_one_mulsi3(46340, -46340, -2147395600);
+    try test_one_mulsi3(-46340, -46340, 2147395600);
+    try test_one_mulsi3(4194303, 8192, @truncate(i32, 34359730176));
+    try test_one_mulsi3(-4194303, 8192, @truncate(i32, -34359730176));
+    try test_one_mulsi3(4194303, -8192, @truncate(i32, -34359730176));
+    try test_one_mulsi3(-4194303, -8192, @truncate(i32, 34359730176));
+    try test_one_mulsi3(8192, 4194303, @truncate(i32, 34359730176));
+    try test_one_mulsi3(-8192, 4194303, @truncate(i32, -34359730176));
+    try test_one_mulsi3(8192, -4194303, @truncate(i32, -34359730176));
+    try test_one_mulsi3(-8192, -4194303, @truncate(i32, 34359730176));
 }

@@ -131,11 +131,11 @@ test "math.modf" {
     const a = modf(@as(f32, 1.0));
     const b = modf32(1.0);
     // NOTE: No struct comparison on generic return type function? non-named, makes sense, but still.
-    expect(a.ipart == b.ipart and a.fpart == b.fpart);
+    try expect(a.ipart == b.ipart and a.fpart == b.fpart);
 
     const c = modf(@as(f64, 1.0));
     const d = modf64(1.0);
-    expect(a.ipart == b.ipart and a.fpart == b.fpart);
+    try expect(a.ipart == b.ipart and a.fpart == b.fpart);
 }
 
 test "math.modf32" {
@@ -143,24 +143,24 @@ test "math.modf32" {
     var r: modf32_result = undefined;
 
     r = modf32(1.0);
-    expect(math.approxEqAbs(f32, r.ipart, 1.0, epsilon));
-    expect(math.approxEqAbs(f32, r.fpart, 0.0, epsilon));
+    try expect(math.approxEqAbs(f32, r.ipart, 1.0, epsilon));
+    try expect(math.approxEqAbs(f32, r.fpart, 0.0, epsilon));
 
     r = modf32(2.545);
-    expect(math.approxEqAbs(f32, r.ipart, 2.0, epsilon));
-    expect(math.approxEqAbs(f32, r.fpart, 0.545, epsilon));
+    try expect(math.approxEqAbs(f32, r.ipart, 2.0, epsilon));
+    try expect(math.approxEqAbs(f32, r.fpart, 0.545, epsilon));
 
     r = modf32(3.978123);
-    expect(math.approxEqAbs(f32, r.ipart, 3.0, epsilon));
-    expect(math.approxEqAbs(f32, r.fpart, 0.978123, epsilon));
+    try expect(math.approxEqAbs(f32, r.ipart, 3.0, epsilon));
+    try expect(math.approxEqAbs(f32, r.fpart, 0.978123, epsilon));
 
     r = modf32(43874.3);
-    expect(math.approxEqAbs(f32, r.ipart, 43874, epsilon));
-    expect(math.approxEqAbs(f32, r.fpart, 0.300781, epsilon));
+    try expect(math.approxEqAbs(f32, r.ipart, 43874, epsilon));
+    try expect(math.approxEqAbs(f32, r.fpart, 0.300781, epsilon));
 
     r = modf32(1234.340780);
-    expect(math.approxEqAbs(f32, r.ipart, 1234, epsilon));
-    expect(math.approxEqAbs(f32, r.fpart, 0.340820, epsilon));
+    try expect(math.approxEqAbs(f32, r.ipart, 1234, epsilon));
+    try expect(math.approxEqAbs(f32, r.fpart, 0.340820, epsilon));
 }
 
 test "math.modf64" {
@@ -168,48 +168,48 @@ test "math.modf64" {
     var r: modf64_result = undefined;
 
     r = modf64(1.0);
-    expect(math.approxEqAbs(f64, r.ipart, 1.0, epsilon));
-    expect(math.approxEqAbs(f64, r.fpart, 0.0, epsilon));
+    try expect(math.approxEqAbs(f64, r.ipart, 1.0, epsilon));
+    try expect(math.approxEqAbs(f64, r.fpart, 0.0, epsilon));
 
     r = modf64(2.545);
-    expect(math.approxEqAbs(f64, r.ipart, 2.0, epsilon));
-    expect(math.approxEqAbs(f64, r.fpart, 0.545, epsilon));
+    try expect(math.approxEqAbs(f64, r.ipart, 2.0, epsilon));
+    try expect(math.approxEqAbs(f64, r.fpart, 0.545, epsilon));
 
     r = modf64(3.978123);
-    expect(math.approxEqAbs(f64, r.ipart, 3.0, epsilon));
-    expect(math.approxEqAbs(f64, r.fpart, 0.978123, epsilon));
+    try expect(math.approxEqAbs(f64, r.ipart, 3.0, epsilon));
+    try expect(math.approxEqAbs(f64, r.fpart, 0.978123, epsilon));
 
     r = modf64(43874.3);
-    expect(math.approxEqAbs(f64, r.ipart, 43874, epsilon));
-    expect(math.approxEqAbs(f64, r.fpart, 0.3, epsilon));
+    try expect(math.approxEqAbs(f64, r.ipart, 43874, epsilon));
+    try expect(math.approxEqAbs(f64, r.fpart, 0.3, epsilon));
 
     r = modf64(1234.340780);
-    expect(math.approxEqAbs(f64, r.ipart, 1234, epsilon));
-    expect(math.approxEqAbs(f64, r.fpart, 0.340780, epsilon));
+    try expect(math.approxEqAbs(f64, r.ipart, 1234, epsilon));
+    try expect(math.approxEqAbs(f64, r.fpart, 0.340780, epsilon));
 }
 
 test "math.modf32.special" {
     var r: modf32_result = undefined;
 
     r = modf32(math.inf(f32));
-    expect(math.isPositiveInf(r.ipart) and math.isNan(r.fpart));
+    try expect(math.isPositiveInf(r.ipart) and math.isNan(r.fpart));
 
     r = modf32(-math.inf(f32));
-    expect(math.isNegativeInf(r.ipart) and math.isNan(r.fpart));
+    try expect(math.isNegativeInf(r.ipart) and math.isNan(r.fpart));
 
     r = modf32(math.nan(f32));
-    expect(math.isNan(r.ipart) and math.isNan(r.fpart));
+    try expect(math.isNan(r.ipart) and math.isNan(r.fpart));
 }
 
 test "math.modf64.special" {
     var r: modf64_result = undefined;
 
     r = modf64(math.inf(f64));
-    expect(math.isPositiveInf(r.ipart) and math.isNan(r.fpart));
+    try expect(math.isPositiveInf(r.ipart) and math.isNan(r.fpart));
 
     r = modf64(-math.inf(f64));
-    expect(math.isNegativeInf(r.ipart) and math.isNan(r.fpart));
+    try expect(math.isNegativeInf(r.ipart) and math.isNan(r.fpart));
 
     r = modf64(math.nan(f64));
-    expect(math.isNan(r.ipart) and math.isNan(r.fpart));
+    try expect(math.isNan(r.ipart) and math.isNan(r.fpart));
 }

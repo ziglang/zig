@@ -126,48 +126,48 @@ fn hypot64(x: f64, y: f64) f64 {
 }
 
 test "math.hypot" {
-    expect(hypot(f32, 0.0, -1.2) == hypot32(0.0, -1.2));
-    expect(hypot(f64, 0.0, -1.2) == hypot64(0.0, -1.2));
+    try expect(hypot(f32, 0.0, -1.2) == hypot32(0.0, -1.2));
+    try expect(hypot(f64, 0.0, -1.2) == hypot64(0.0, -1.2));
 }
 
 test "math.hypot32" {
     const epsilon = 0.000001;
 
-    expect(math.approxEqAbs(f32, hypot32(0.0, -1.2), 1.2, epsilon));
-    expect(math.approxEqAbs(f32, hypot32(0.2, -0.34), 0.394462, epsilon));
-    expect(math.approxEqAbs(f32, hypot32(0.8923, 2.636890), 2.783772, epsilon));
-    expect(math.approxEqAbs(f32, hypot32(1.5, 5.25), 5.460083, epsilon));
-    expect(math.approxEqAbs(f32, hypot32(37.45, 159.835), 164.163742, epsilon));
-    expect(math.approxEqAbs(f32, hypot32(89.123, 382.028905), 392.286865, epsilon));
-    expect(math.approxEqAbs(f32, hypot32(123123.234375, 529428.707813), 543556.875, epsilon));
+    try expect(math.approxEqAbs(f32, hypot32(0.0, -1.2), 1.2, epsilon));
+    try expect(math.approxEqAbs(f32, hypot32(0.2, -0.34), 0.394462, epsilon));
+    try expect(math.approxEqAbs(f32, hypot32(0.8923, 2.636890), 2.783772, epsilon));
+    try expect(math.approxEqAbs(f32, hypot32(1.5, 5.25), 5.460083, epsilon));
+    try expect(math.approxEqAbs(f32, hypot32(37.45, 159.835), 164.163742, epsilon));
+    try expect(math.approxEqAbs(f32, hypot32(89.123, 382.028905), 392.286865, epsilon));
+    try expect(math.approxEqAbs(f32, hypot32(123123.234375, 529428.707813), 543556.875, epsilon));
 }
 
 test "math.hypot64" {
     const epsilon = 0.000001;
 
-    expect(math.approxEqAbs(f64, hypot64(0.0, -1.2), 1.2, epsilon));
-    expect(math.approxEqAbs(f64, hypot64(0.2, -0.34), 0.394462, epsilon));
-    expect(math.approxEqAbs(f64, hypot64(0.8923, 2.636890), 2.783772, epsilon));
-    expect(math.approxEqAbs(f64, hypot64(1.5, 5.25), 5.460082, epsilon));
-    expect(math.approxEqAbs(f64, hypot64(37.45, 159.835), 164.163728, epsilon));
-    expect(math.approxEqAbs(f64, hypot64(89.123, 382.028905), 392.286876, epsilon));
-    expect(math.approxEqAbs(f64, hypot64(123123.234375, 529428.707813), 543556.885247, epsilon));
+    try expect(math.approxEqAbs(f64, hypot64(0.0, -1.2), 1.2, epsilon));
+    try expect(math.approxEqAbs(f64, hypot64(0.2, -0.34), 0.394462, epsilon));
+    try expect(math.approxEqAbs(f64, hypot64(0.8923, 2.636890), 2.783772, epsilon));
+    try expect(math.approxEqAbs(f64, hypot64(1.5, 5.25), 5.460082, epsilon));
+    try expect(math.approxEqAbs(f64, hypot64(37.45, 159.835), 164.163728, epsilon));
+    try expect(math.approxEqAbs(f64, hypot64(89.123, 382.028905), 392.286876, epsilon));
+    try expect(math.approxEqAbs(f64, hypot64(123123.234375, 529428.707813), 543556.885247, epsilon));
 }
 
 test "math.hypot32.special" {
-    expect(math.isPositiveInf(hypot32(math.inf(f32), 0.0)));
-    expect(math.isPositiveInf(hypot32(-math.inf(f32), 0.0)));
-    expect(math.isPositiveInf(hypot32(0.0, math.inf(f32))));
-    expect(math.isPositiveInf(hypot32(0.0, -math.inf(f32))));
-    expect(math.isNan(hypot32(math.nan(f32), 0.0)));
-    expect(math.isNan(hypot32(0.0, math.nan(f32))));
+    try expect(math.isPositiveInf(hypot32(math.inf(f32), 0.0)));
+    try expect(math.isPositiveInf(hypot32(-math.inf(f32), 0.0)));
+    try expect(math.isPositiveInf(hypot32(0.0, math.inf(f32))));
+    try expect(math.isPositiveInf(hypot32(0.0, -math.inf(f32))));
+    try expect(math.isNan(hypot32(math.nan(f32), 0.0)));
+    try expect(math.isNan(hypot32(0.0, math.nan(f32))));
 }
 
 test "math.hypot64.special" {
-    expect(math.isPositiveInf(hypot64(math.inf(f64), 0.0)));
-    expect(math.isPositiveInf(hypot64(-math.inf(f64), 0.0)));
-    expect(math.isPositiveInf(hypot64(0.0, math.inf(f64))));
-    expect(math.isPositiveInf(hypot64(0.0, -math.inf(f64))));
-    expect(math.isNan(hypot64(math.nan(f64), 0.0)));
-    expect(math.isNan(hypot64(0.0, math.nan(f64))));
+    try expect(math.isPositiveInf(hypot64(math.inf(f64), 0.0)));
+    try expect(math.isPositiveInf(hypot64(-math.inf(f64), 0.0)));
+    try expect(math.isPositiveInf(hypot64(0.0, math.inf(f64))));
+    try expect(math.isPositiveInf(hypot64(0.0, -math.inf(f64))));
+    try expect(math.isNan(hypot64(math.nan(f64), 0.0)));
+    try expect(math.isNan(hypot64(0.0, math.nan(f64))));
 }

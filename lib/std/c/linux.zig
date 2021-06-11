@@ -3,12 +3,14 @@
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
-const builtin = @import("builtin");
 const std = @import("../std.zig");
 const maxInt = std.math.maxInt;
+const abi = std.Target.current.abi;
+const arch = std.Target.current.cpu.arch;
+const os_tag = std.Target.current.os.tag;
 usingnamespace std.c;
 
-pub const _errno = switch (builtin.abi) {
+pub const _errno = switch (abi) {
     .android => struct {
         extern "c" var __errno: c_int;
         fn getErrno() *c_int {
@@ -37,7 +39,7 @@ pub const NI_NAMEREQD = 0x08;
 pub const NI_DGRAM = 0x10;
 pub const NI_NUMERICSCOPE = 0x100;
 
-pub const EAI = extern enum(c_int) {
+pub const EAI = enum(c_int) {
     BADFLAGS = -1,
     NONAME = -2,
     AGAIN = -3,
@@ -60,6 +62,23 @@ pub const EAI = extern enum(c_int) {
 
     _,
 };
+
+pub extern "c" fn fallocate64(fd: fd_t, mode: c_int, offset: off_t, len: off_t) c_int;
+pub extern "c" fn fopen64(noalias filename: [*:0]const u8, noalias modes: [*:0]const u8) ?*FILE;
+pub extern "c" fn fstat64(fd: fd_t, buf: *libc_stat) c_int;
+pub extern "c" fn fstatat64(dirfd: fd_t, path: [*:0]const u8, stat_buf: *libc_stat, flags: u32) c_int;
+pub extern "c" fn ftruncate64(fd: c_int, length: off_t) c_int;
+pub extern "c" fn getrlimit64(resource: rlimit_resource, rlim: *rlimit) c_int;
+pub extern "c" fn lseek64(fd: fd_t, offset: i64, whence: c_int) i64;
+pub extern "c" fn mmap64(addr: ?*align(std.mem.page_size) c_void, len: usize, prot: c_uint, flags: c_uint, fd: fd_t, offset: i64) *c_void;
+pub extern "c" fn open64(path: [*:0]const u8, oflag: c_uint, ...) c_int;
+pub extern "c" fn openat64(fd: c_int, path: [*:0]const u8, oflag: c_uint, ...) c_int;
+pub extern "c" fn pread64(fd: fd_t, buf: [*]u8, nbyte: usize, offset: i64) isize;
+pub extern "c" fn preadv64(fd: c_int, iov: [*]const iovec, iovcnt: c_uint, offset: i64) isize;
+pub extern "c" fn pwrite64(fd: fd_t, buf: [*]const u8, nbyte: usize, offset: i64) isize;
+pub extern "c" fn pwritev64(fd: c_int, iov: [*]const iovec_const, iovcnt: c_uint, offset: i64) isize;
+pub extern "c" fn sendfile64(out_fd: fd_t, in_fd: fd_t, offset: ?*i64, count: usize) isize;
+pub extern "c" fn setrlimit64(resource: rlimit_resource, rlim: *const rlimit) c_int;
 
 pub extern "c" fn getrandom(buf_ptr: [*]u8, buf_len: usize, flags: c_uint) isize;
 pub extern "c" fn sched_getaffinity(pid: c_int, size: usize, set: *cpu_set_t) c_int;
@@ -89,8 +108,6 @@ pub extern "c" fn memfd_create(name: [*:0]const u8, flags: c_uint) c_int;
 pub extern "c" fn pipe2(fds: *[2]fd_t, flags: u32) c_int;
 
 pub extern "c" fn fallocate(fd: fd_t, mode: c_int, offset: off_t, len: off_t) c_int;
-
-pub extern "c" fn ftruncate64(fd: c_int, length: off_t) c_int;
 
 pub extern "c" fn sendfile(
     out_fd: fd_t,
@@ -124,7 +141,7 @@ pub const pthread_mutex_t = extern struct {
 pub const pthread_cond_t = extern struct {
     size: [__SIZEOF_PTHREAD_COND_T]u8 align(@alignOf(usize)) = [_]u8{0} ** __SIZEOF_PTHREAD_COND_T,
 };
-pub const pthread_rwlock_t = switch (std.builtin.abi) {
+pub const pthread_rwlock_t = switch (abi) {
     .android => switch (@sizeOf(usize)) {
         4 => extern struct {
             lock: std.c.pthread_mutex_t = std.c.PTHREAD_MUTEX_INITIALIZER,
@@ -144,7 +161,7 @@ pub const pthread_rwlock_t = switch (std.builtin.abi) {
             attr: i32 = 0,
             __reserved: [36]u8 = [_]u8{0} ** 36,
         },
-        else => unreachable,
+        else => @compileError("impossible pointer size"),
     },
     else => extern struct {
         size: [56]u8 align(@alignOf(usize)) = [_]u8{0} ** 56,
@@ -155,15 +172,16 @@ pub const sem_t = extern struct {
 };
 
 const __SIZEOF_PTHREAD_COND_T = 48;
-const __SIZEOF_PTHREAD_MUTEX_T = if (builtin.os.tag == .fuchsia) 40 else switch (builtin.abi) {
+const __SIZEOF_PTHREAD_MUTEX_T = if (os_tag == .fuchsia) 40 else switch (abi) {
     .musl, .musleabi, .musleabihf => if (@sizeOf(usize) == 8) 40 else 24,
-    .gnu, .gnuabin32, .gnuabi64, .gnueabi, .gnueabihf, .gnux32 => switch (builtin.arch) {
+    .gnu, .gnuabin32, .gnuabi64, .gnueabi, .gnueabihf, .gnux32 => switch (arch) {
         .aarch64 => 48,
-        .x86_64 => if (builtin.abi == .gnux32) 40 else 32,
+        .x86_64 => if (abi == .gnux32) 40 else 32,
         .mips64, .powerpc64, .powerpc64le, .sparcv9 => 40,
         else => if (@sizeOf(usize) == 8) 40 else 24,
     },
-    else => unreachable,
+    .android => if (@sizeOf(usize) == 8) 40 else 4,
+    else => @compileError("unsupported ABI"),
 };
 const __SIZEOF_SEM_T = 4 * @sizeOf(usize);
 

@@ -7,6 +7,7 @@ const std = @import("../std.zig");
 const assert = std.debug.assert;
 const builtin = @import("builtin");
 const macho = std.macho;
+const native_arch = builtin.target.cpu.arch;
 
 usingnamespace @import("../os/bits.zig");
 
@@ -34,13 +35,13 @@ extern "c" fn fstat(fd: fd_t, buf: *libc_stat) c_int;
 /// On x86_64 Darwin, fstat has to be manully linked with $INODE64 suffix to force 64bit version.
 /// Note that this is fixed on aarch64 and no longer necessary.
 extern "c" fn @"fstat$INODE64"(fd: fd_t, buf: *libc_stat) c_int;
-pub const _fstat = if (builtin.arch == .aarch64) fstat else @"fstat$INODE64";
+pub const _fstat = if (native_arch == .aarch64) fstat else @"fstat$INODE64";
 
 extern "c" fn fstatat(dirfd: fd_t, path: [*:0]const u8, stat_buf: *libc_stat, flags: u32) c_int;
 /// On x86_64 Darwin, fstatat has to be manully linked with $INODE64 suffix to force 64bit version.
 /// Note that this is fixed on aarch64 and no longer necessary.
 extern "c" fn @"fstatat$INODE64"(dirfd: fd_t, path_name: [*:0]const u8, buf: *libc_stat, flags: u32) c_int;
-pub const _fstatat = if (builtin.arch == .aarch64) fstatat else @"fstatat$INODE64";
+pub const _fstatat = if (native_arch == .aarch64) fstatat else @"fstatat$INODE64";
 
 pub extern "c" fn mach_absolute_time() u64;
 pub extern "c" fn mach_timebase_info(tinfo: ?*mach_timebase_info_data) void;
@@ -121,7 +122,7 @@ pub const AI_NUMERICHOST = 0x00000004;
 /// prevent service name resolution
 pub const AI_NUMERICSERV = 0x00001000;
 
-pub const EAI = extern enum(c_int) {
+pub const EAI = enum(c_int) {
     /// address family for hostname not supported
     ADDRFAMILY = 1,
 

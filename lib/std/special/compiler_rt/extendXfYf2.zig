@@ -23,6 +23,10 @@ pub fn __extendhfsf2(a: u16) callconv(.C) f32 {
     return @call(.{ .modifier = .always_inline }, extendXfYf2, .{ f32, f16, a });
 }
 
+pub fn __extendhftf2(a: u16) callconv(.C) f128 {
+    return @call(.{ .modifier = .always_inline }, extendXfYf2, .{ f128, f16, a });
+}
+
 pub fn __aeabi_h2f(arg: u16) callconv(.AAPCS) f32 {
     @setRuntimeSafety(false);
     return @call(.{ .modifier = .always_inline }, __extendhfsf2, .{arg});

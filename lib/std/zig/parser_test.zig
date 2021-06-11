@@ -4,6 +4,38 @@
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
 
+test "zig fmt: preserves clobbers in inline asm with stray comma" {
+    try testTransform(
+        \\fn foo() void {
+        \\    asm volatile (""
+        \\        : [_] "" (-> type),
+        \\        :
+        \\        : "clobber"
+        \\    );
+        \\    asm volatile (""
+        \\        :
+        \\        : [_] "" (type),
+        \\        : "clobber"
+        \\    );
+        \\}
+        \\
+    ,
+        \\fn foo() void {
+        \\    asm volatile (""
+        \\        : [_] "" (-> type)
+        \\        :
+        \\        : "clobber"
+        \\    );
+        \\    asm volatile (""
+        \\        :
+        \\        : [_] "" (type)
+        \\        : "clobber"
+        \\    );
+        \\}
+        \\
+    );
+}
+
 test "zig fmt: respect line breaks in struct field value declaration" {
     try testCanonical(
         \\const Foo = struct {
@@ -29,13 +61,48 @@ test "zig fmt: respect line breaks in struct field value declaration" {
     );
 }
 
-// TODO Remove this after zig 0.9.0 is released.
-test "zig fmt: rewrite inline functions as callconv(.Inline)" {
-    try testTransform(
+test "zig fmt: respect line breaks before functions" {
+    try testCanonical(
+        \\const std = @import("std");
+        \\
         \\inline fn foo() void {}
         \\
-    ,
+        \\noinline fn foo() void {}
+        \\
+        \\export fn foo() void {}
+        \\
+        \\extern fn foo() void;
+        \\
+        \\extern "foo" fn foo() void;
+        \\
+    );
+}
+
+test "zig fmt: rewrite callconv(.Inline) to the inline keyword" {
+    try testTransform(
         \\fn foo() callconv(.Inline) void {}
+        \\const bar = .Inline;
+        \\fn foo() callconv(bar) void {}
+        \\
+    ,
+        \\inline fn foo() void {}
+        \\const bar = .Inline;
+        \\fn foo() callconv(bar) void {}
+        \\
+    );
+}
+
+// TODO Remove this after zig 0.9.0 is released.
+test "zig fmt: rewrite suspend without block expression" {
+    try testTransform(
+        \\fn foo() void {
+        \\    suspend;
+        \\}
+        \\
+    ,
+        \\fn foo() void {
+        \\    suspend {}
+        \\}
         \\
     );
 }
@@ -941,7 +1008,7 @@ test "zig fmt: while else err prong with no block" {
         \\    const result = while (returnError()) |value| {
         \\        break value;
         \\    } else |err| @as(i32, 2);
-        \\    expect(result == 2);
+        \\    try expect(result == 2);
         \\}
         \\
     );
@@ -1315,6 +1382,27 @@ test "zig fmt: 'zig fmt: (off|on)' works in the middle of code" {
     );
 }
 
+test "zig fmt: 'zig fmt: on' indentation is unchanged" {
+    try testCanonical(
+        \\fn initOptionsAndLayouts(output: *Output, context: *Context) !void {
+        \\    // zig fmt: off
+        \\    try output.main_amount.init(output, "main_amount"); errdefer optput.main_amount.deinit();
+        \\    try output.main_factor.init(output, "main_factor"); errdefer optput.main_factor.deinit();
+        \\    try output.view_padding.init(output, "view_padding"); errdefer optput.view_padding.deinit();
+        \\    try output.outer_padding.init(output, "outer_padding"); errdefer optput.outer_padding.deinit();
+        \\    // zig fmt: on
+        \\
+        \\    // zig fmt: off
+        \\    try output.top.init(output, .top); errdefer optput.top.deinit();
+        \\    try output.right.init(output, .right); errdefer optput.right.deinit();
+        \\    try output.bottom.init(output, .bottom); errdefer optput.bottom.deinit();
+        \\    try output.left.init(output, .left); errdefer optput.left.deinit();
+        \\        // zig fmt: on
+        \\}
+        \\
+    );
+}
+
 test "zig fmt: pointer of unknown length" {
     try testCanonical(
         \\fn foo(ptr: [*]u8) void {}
@@ -1540,13 +1628,13 @@ test "zig fmt: if-else with comment before else" {
         \\comptime {
         \\    // cexp(finite|nan +- i inf|nan) = nan + i nan
         \\    if ((hx & 0x7fffffff) != 0x7f800000) {
-        \\        return Complex(f32).new(y - y, y - y);
+        \\        return Complex(f32).init(y - y, y - y);
         \\    } // cexp(-inf +- i inf|nan) = 0 + i0
         \\    else if (hx & 0x80000000 != 0) {
-        \\        return Complex(f32).new(0, 0);
+        \\        return Complex(f32).init(0, 0);
         \\    } // cexp(+inf +- i inf|nan) = inf + i nan
         \\    else {
-        \\        return Complex(f32).new(x, y - y);
+        \\        return Complex(f32).init(x, y - y);
         \\    }
         \\}
         \\
@@ -2199,16 +2287,16 @@ test "zig fmt: line comment between if block and else keyword" {
         \\test "aoeu" {
         \\    // cexp(finite|nan +- i inf|nan) = nan + i nan
         \\    if ((hx & 0x7fffffff) != 0x7f800000) {
-        \\        return Complex(f32).new(y - y, y - y);
+        \\        return Complex(f32).init(y - y, y - y);
         \\    }
         \\    // cexp(-inf +- i inf|nan) = 0 + i0
         \\    else if (hx & 0x80000000 != 0) {
-        \\        return Complex(f32).new(0, 0);
+        \\        return Complex(f32).init(0, 0);
         \\    }
         \\    // cexp(+inf +- i inf|nan) = inf + i nan
         \\    // another comment
         \\    else {
-        \\        return Complex(f32).new(x, y - y);
+        \\        return Complex(f32).init(x, y - y);
         \\    }
         \\}
         \\
@@ -2760,6 +2848,7 @@ test "zig fmt: precedence" {
         \\    a or b and c;
         \\    (a or b) and c;
         \\    (a or b) and c;
+        \\    a == b and c == d;
         \\}
         \\
     );
@@ -2798,17 +2887,17 @@ test "zig fmt: functions" {
         \\extern fn puts(s: *const u8) c_int;
         \\extern "c" fn puts(s: *const u8) c_int;
         \\export fn puts(s: *const u8) c_int;
-        \\fn puts(s: *const u8) callconv(.Inline) c_int;
+        \\inline fn puts(s: *const u8) c_int;
         \\noinline fn puts(s: *const u8) c_int;
         \\pub extern fn puts(s: *const u8) c_int;
         \\pub extern "c" fn puts(s: *const u8) c_int;
         \\pub export fn puts(s: *const u8) c_int;
-        \\pub fn puts(s: *const u8) callconv(.Inline) c_int;
+        \\pub inline fn puts(s: *const u8) c_int;
         \\pub noinline fn puts(s: *const u8) c_int;
         \\pub extern fn puts(s: *const u8) align(2 + 2) c_int;
         \\pub extern "c" fn puts(s: *const u8) align(2 + 2) c_int;
         \\pub export fn puts(s: *const u8) align(2 + 2) c_int;
-        \\pub fn puts(s: *const u8) align(2 + 2) callconv(.Inline) c_int;
+        \\pub inline fn puts(s: *const u8) align(2 + 2) c_int;
         \\pub noinline fn puts(s: *const u8) align(2 + 2) c_int;
         \\
     );
@@ -3644,9 +3733,9 @@ test "zig fmt: async functions" {
         \\fn simpleAsyncFn() void {
         \\    const a = async a.b();
         \\    x += 1;
-        \\    suspend;
+        \\    suspend {}
         \\    x += 1;
-        \\    suspend;
+        \\    suspend {}
         \\    const p: anyframe->void = async simpleAsyncFn() catch unreachable;
         \\    await p;
         \\}
@@ -4063,14 +4152,14 @@ test "zig fmt: hex literals with underscore separators" {
 test "zig fmt: decimal float literals with underscore separators" {
     try testTransform(
         \\pub fn main() void {
-        \\    const a:f64=(10.0e-0+(10.e+0))+10_00.00_00e-2+00_00.00_10e+4;
-        \\    const b:f64=010.0--0_10.+0_1_0.0_0+1e2;
+        \\    const a:f64=(10.0e-0+(10.0e+0))+10_00.00_00e-2+00_00.00_10e+4;
+        \\    const b:f64=010.0--0_10.0+0_1_0.0_0+1e2;
         \\    std.debug.warn("a: {}, b: {} -> a+b: {}\n", .{ a, b, a + b });
         \\}
     ,
         \\pub fn main() void {
-        \\    const a: f64 = (10.0e-0 + (10.e+0)) + 10_00.00_00e-2 + 00_00.00_10e+4;
-        \\    const b: f64 = 010.0 - -0_10. + 0_1_0.0_0 + 1e2;
+        \\    const a: f64 = (10.0e-0 + (10.0e+0)) + 10_00.00_00e-2 + 00_00.00_10e+4;
+        \\    const b: f64 = 010.0 - -0_10.0 + 0_1_0.0_0 + 1e2;
         \\    std.debug.warn("a: {}, b: {} -> a+b: {}\n", .{ a, b, a + b });
         \\}
         \\
@@ -4080,14 +4169,14 @@ test "zig fmt: decimal float literals with underscore separators" {
 test "zig fmt: hexadeciaml float literals with underscore separators" {
     try testTransform(
         \\pub fn main() void {
-        \\    const a: f64 = (0x10.0p-0+(0x10.p+0))+0x10_00.00_00p-8+0x00_00.00_10p+16;
-        \\    const b: f64 = 0x0010.0--0x00_10.+0x10.00+0x1p4;
+        \\    const a: f64 = (0x10.0p-0+(0x10.0p+0))+0x10_00.00_00p-8+0x00_00.00_10p+16;
+        \\    const b: f64 = 0x0010.0--0x00_10.0+0x10.00+0x1p4;
         \\    std.debug.warn("a: {}, b: {} -> a+b: {}\n", .{ a, b, a + b });
         \\}
     ,
         \\pub fn main() void {
-        \\    const a: f64 = (0x10.0p-0 + (0x10.p+0)) + 0x10_00.00_00p-8 + 0x00_00.00_10p+16;
-        \\    const b: f64 = 0x0010.0 - -0x00_10. + 0x10.00 + 0x1p4;
+        \\    const a: f64 = (0x10.0p-0 + (0x10.0p+0)) + 0x10_00.00_00p-8 + 0x00_00.00_10p+16;
+        \\    const b: f64 = 0x0010.0 - -0x00_10.0 + 0x10.00 + 0x1p4;
         \\    std.debug.warn("a: {}, b: {} -> a+b: {}\n", .{ a, b, a + b });
         \\}
         \\
@@ -4316,6 +4405,13 @@ test "zig fmt: regression test for #5722" {
         \\            return;
         \\        };
         \\}
+        \\
+    );
+}
+
+test "zig fmt: regression test for #8974" {
+    try testCanonical(
+        \\pub const VARIABLE;
         \\
     );
 }
@@ -4824,6 +4920,16 @@ test "recovery: missing comma" {
     });
 }
 
+test "recovery: non-associative operators" {
+    try testError(
+        \\const x = a == b == c;
+        \\const x = a == b != c;
+    , &[_]Error{
+        .expected_token,
+        .expected_token,
+    });
+}
+
 test "recovery: extra qualifier" {
     try testError(
         \\const a: *const const u8;
@@ -5001,6 +5107,21 @@ test "recovery: invalid comptime" {
     });
 }
 
+test "recovery: missing block after suspend" {
+    // TODO Enable this after zig 0.9.0 is released.
+    if (true) return error.SkipZigTest;
+
+    try testError(
+        \\fn foo() void {
+        \\    suspend;
+        \\    nosuspend;
+        \\}
+    , &[_]Error{
+        .expected_block_or_expr,
+        .expected_block_or_expr,
+    });
+}
+
 test "recovery: missing block after for/while loops" {
     try testError(
         \\test "" { while (foo) }
@@ -5050,9 +5171,21 @@ test "recovery: missing while rbrace" {
     });
 }
 
+test "recovery: nonfinal varargs" {
+    try testError(
+        \\extern fn f(a: u32, ..., b: u32) void;
+        \\extern fn g(a: u32, ..., b: anytype) void;
+        \\extern fn h(a: u32, ..., ...) void;
+    , &[_]Error{
+        .varargs_nonfinal,
+        .varargs_nonfinal,
+        .varargs_nonfinal,
+    });
+}
+
 const std = @import("std");
 const mem = std.mem;
-const warn = std.debug.warn;
+const print = std.debug.print;
 const io = std.io;
 const maxInt = std.math.maxInt;
 
@@ -5094,13 +5227,13 @@ fn testTransform(source: []const u8, expected_source: []const u8) !void {
         var failing_allocator = std.testing.FailingAllocator.init(&fixed_allocator.allocator, maxInt(usize));
         var anything_changed: bool = undefined;
         const result_source = try testParse(source, &failing_allocator.allocator, &anything_changed);
-        std.testing.expectEqualStrings(expected_source, result_source);
+        try std.testing.expectEqualStrings(expected_source, result_source);
         const changes_expected = source.ptr != expected_source.ptr;
         if (anything_changed != changes_expected) {
-            warn("std.zig.render returned {} instead of {}\n", .{ anything_changed, changes_expected });
+            print("std.zig.render returned {} instead of {}\n", .{ anything_changed, changes_expected });
             return error.TestFailed;
         }
-        std.testing.expect(anything_changed == changes_expected);
+        try std.testing.expect(anything_changed == changes_expected);
         failing_allocator.allocator.free(result_source);
         break :x failing_allocator.index;
     };
@@ -5115,7 +5248,7 @@ fn testTransform(source: []const u8, expected_source: []const u8) !void {
         } else |err| switch (err) {
             error.OutOfMemory => {
                 if (failing_allocator.allocated_bytes != failing_allocator.freed_bytes) {
-                    warn(
+                    print(
                         "\nfail_index: {d}/{d}\nallocated bytes: {d}\nfreed bytes: {d}\nallocations: {d}\ndeallocations: {d}\n",
                         .{
                             fail_index,
@@ -5129,8 +5262,7 @@ fn testTransform(source: []const u8, expected_source: []const u8) !void {
                     return error.MemoryLeakDetected;
                 }
             },
-            error.ParseError => @panic("test failed"),
-            else => @panic("test failed"),
+            else => return err,
         }
     }
 }
@@ -5144,8 +5276,8 @@ fn testError(source: []const u8, expected_errors: []const Error) !void {
     var tree = try std.zig.parse(std.testing.allocator, source);
     defer tree.deinit(std.testing.allocator);
 
-    std.testing.expect(tree.errors.len == expected_errors.len);
+    try std.testing.expectEqual(expected_errors.len, tree.errors.len);
     for (expected_errors) |expected, i| {
-        std.testing.expectEqual(expected, tree.errors[i].tag);
+        try std.testing.expectEqual(expected, tree.errors[i].tag);
     }
 }

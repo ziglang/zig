@@ -13,6 +13,7 @@ const Type = @import("type.zig").Type;
 const Cache = @import("Cache.zig");
 const build_options = @import("build_options");
 const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
+const wasi_libc = @import("wasi_libc.zig");
 
 pub const producer_string = if (std.builtin.is_test) "zig test" else "zig " ++ build_options.version;
 
@@ -30,7 +31,7 @@ pub const Options = struct {
     target: std.Target,
     output_mode: std.builtin.OutputMode,
     link_mode: std.builtin.LinkMode,
-    object_format: std.builtin.ObjectFormat,
+    object_format: std.Target.ObjectFormat,
     optimize_mode: std.builtin.Mode,
     machine_code_model: std.builtin.CodeModel,
     root_name: []const u8,
@@ -63,6 +64,7 @@ pub const Options = struct {
     system_linker_hack: bool,
     link_libc: bool,
     link_libcpp: bool,
+    link_libunwind: bool,
     function_sections: bool,
     eh_frame_hdr: bool,
     emit_relocs: bool,
@@ -109,11 +111,15 @@ pub const Options = struct {
     framework_dirs: []const []const u8,
     frameworks: []const []const u8,
     system_libs: std.StringArrayHashMapUnmanaged(void),
+    wasi_emulated_libs: []const wasi_libc.CRTFile,
     lib_dirs: []const []const u8,
     rpath_list: []const []const u8,
 
     version: ?std.builtin.Version,
     libc_installation: ?*const LibCInstallation,
+
+    /// WASI-only. Type of WASI execution model ("command" or "reactor").
+    wasi_exec_model: ?wasi_libc.CRTFile = null,
 
     pub fn effectiveOutputMode(options: Options) std.builtin.OutputMode {
         return if (options.use_lld) .Obj else options.output_mode;
@@ -161,7 +167,7 @@ pub const File = struct {
     };
 
     /// For DWARF .debug_info.
-    pub const DbgInfoTypeRelocsTable = std.HashMapUnmanaged(Type, DbgInfoTypeReloc, Type.hash, Type.eql, std.hash_map.DefaultMaxLoadPercentage);
+    pub const DbgInfoTypeRelocsTable = std.HashMapUnmanaged(Type, DbgInfoTypeReloc, Type.HashContext, std.hash_map.default_max_load_percentage);
 
     /// For DWARF .debug_info.
     pub const DbgInfoTypeReloc = struct {
@@ -300,6 +306,8 @@ pub const File = struct {
     /// May be called before or after updateDeclExports but must be called
     /// after allocateDeclIndexes for any given Decl.
     pub fn updateDecl(base: *File, module: *Module, decl: *Module.Decl) !void {
+        log.debug("updateDecl {*} ({s}), type={}", .{ decl, decl.name, decl.ty });
+        assert(decl.has_tv);
         switch (base.tag) {
             .coff => return @fieldParentPtr(Coff, "base", base).updateDecl(module, decl),
             .elf => return @fieldParentPtr(Elf, "base", base).updateDecl(module, decl),
@@ -311,6 +319,10 @@ pub const File = struct {
     }
 
     pub fn updateDeclLineNumber(base: *File, module: *Module, decl: *Module.Decl) !void {
+        log.debug("updateDeclLineNumber {*} ({s}), line={}", .{
+            decl, decl.name, decl.src_line + 1,
+        });
+        assert(decl.has_tv);
         switch (base.tag) {
             .coff => return @fieldParentPtr(Coff, "base", base).updateDeclLineNumber(module, decl),
             .elf => return @fieldParentPtr(Elf, "base", base).updateDeclLineNumber(module, decl),
@@ -323,6 +335,7 @@ pub const File = struct {
     /// Must be called before any call to updateDecl or updateDeclExports for
     /// any given Decl.
     pub fn allocateDeclIndexes(base: *File, decl: *Module.Decl) !void {
+        log.debug("allocateDeclIndexes {*} ({s})", .{ decl, decl.name });
         switch (base.tag) {
             .coff => return @fieldParentPtr(Coff, "base", base).allocateDeclIndexes(decl),
             .elf => return @fieldParentPtr(Elf, "base", base).allocateDeclIndexes(decl),
@@ -350,6 +363,7 @@ pub const File = struct {
         base.releaseLock();
         if (base.file) |f| f.close();
         if (base.intermediary_basename) |sub_path| base.allocator.free(sub_path);
+        base.options.system_libs.deinit(base.allocator);
         switch (base.tag) {
             .coff => {
                 const parent = @fieldParentPtr(Coff, "base", base);
@@ -397,15 +411,13 @@ pub const File = struct {
             const full_out_path = try emit.directory.join(comp.gpa, &[_][]const u8{emit.sub_path});
             defer comp.gpa.free(full_out_path);
             assert(comp.c_object_table.count() == 1);
-            const the_entry = comp.c_object_table.items()[0];
-            const cached_pp_file_path = the_entry.key.status.success.object_path;
+            const the_key = comp.c_object_table.keys()[0];
+            const cached_pp_file_path = the_key.status.success.object_path;
             try fs.cwd().copyFile(cached_pp_file_path, fs.cwd(), full_out_path, .{});
             return;
         }
         const use_lld = build_options.have_llvm and base.options.use_lld;
-        if (use_lld and base.options.output_mode == .Lib and base.options.link_mode == .Static and
-            !base.options.target.isWasm())
-        {
+        if (use_lld and base.options.output_mode == .Lib and base.options.link_mode == .Static) {
             return base.linkAsArchive(comp);
         }
         switch (base.tag) {
@@ -433,6 +445,7 @@ pub const File = struct {
 
     /// Called when a Decl is deleted from the Module.
     pub fn freeDecl(base: *File, decl: *Module.Decl) void {
+        log.debug("freeDecl {*} ({s})", .{ decl, decl.name });
         switch (base.tag) {
             .coff => @fieldParentPtr(Coff, "base", base).freeDecl(decl),
             .elf => @fieldParentPtr(Elf, "base", base).freeDecl(decl),
@@ -461,6 +474,8 @@ pub const File = struct {
         decl: *Module.Decl,
         exports: []const *Module.Export,
     ) !void {
+        log.debug("updateDeclExports {*} ({s})", .{ decl, decl.name });
+        assert(decl.has_tv);
         switch (base.tag) {
             .coff => return @fieldParentPtr(Coff, "base", base).updateDeclExports(module, decl, exports),
             .elf => return @fieldParentPtr(Elf, "base", base).updateDeclExports(module, decl, exports),
@@ -535,8 +550,8 @@ pub const File = struct {
             base.releaseLock();
 
             try man.addListOfFiles(base.options.objects);
-            for (comp.c_object_table.items()) |entry| {
-                _ = try man.addFile(entry.key.status.success.object_path, null);
+            for (comp.c_object_table.keys()) |key| {
+                _ = try man.addFile(key.status.success.object_path, null);
             }
             try man.addOptionalFile(module_obj_path);
             try man.addOptionalFile(compiler_rt_path);
@@ -570,12 +585,12 @@ pub const File = struct {
         var object_files = std.ArrayList([*:0]const u8).init(base.allocator);
         defer object_files.deinit();
 
-        try object_files.ensureCapacity(base.options.objects.len + comp.c_object_table.items().len + 2);
+        try object_files.ensureCapacity(base.options.objects.len + comp.c_object_table.count() + 2);
         for (base.options.objects) |obj_path| {
             object_files.appendAssumeCapacity(try arena.dupeZ(u8, obj_path));
         }
-        for (comp.c_object_table.items()) |entry| {
-            object_files.appendAssumeCapacity(try arena.dupeZ(u8, entry.key.status.success.object_path));
+        for (comp.c_object_table.keys()) |key| {
+            object_files.appendAssumeCapacity(try arena.dupeZ(u8, key.status.success.object_path));
         }
         if (module_obj_path) |p| {
             object_files.appendAssumeCapacity(try arena.dupeZ(u8, p));

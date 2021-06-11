@@ -7,10 +7,13 @@ const std = @import("std");
 const assert = std.debug.assert;
 const mem = std.mem;
 const testing = std.testing;
+const os = std.os;
+
+const Target = std.Target;
 
 /// Detect macOS version.
-/// `os` is not modified in case of error.
-pub fn detect(os: *std.Target.Os) !void {
+/// `target_os` is not modified in case of error.
+pub fn detect(target_os: *Target.Os) !void {
     // Drop use of osproductversion sysctl because:
     //   1. only available 10.13.4 High Sierra and later
     //   2. when used from a binary built against < SDK 11.0 it returns 10.16 and masks Big Sur 11.x version
@@ -60,8 +63,8 @@ pub fn detect(os: *std.Target.Os) !void {
             if (parseSystemVersion(bytes)) |ver| {
                 // never return non-canonical `10.(16+)`
                 if (!(ver.major == 10 and ver.minor >= 16)) {
-                    os.version_range.semver.min = ver;
-                    os.version_range.semver.max = ver;
+                    target_os.version_range.semver.min = ver;
+                    target_os.version_range.semver.max = ver;
                     return;
                 }
                 continue;
@@ -402,7 +405,7 @@ fn testVersionEquality(expected: std.builtin.Version, got: std.builtin.Version) 
     var b_got: [64]u8 = undefined;
     const s_got: []const u8 = try std.fmt.bufPrint(b_got[0..], "{}", .{got});
 
-    testing.expectEqualStrings(s_expected, s_got);
+    try testing.expectEqualStrings(s_expected, s_got);
 }
 
 /// Detect SDK path on Darwin.
@@ -410,7 +413,7 @@ fn testVersionEquality(expected: std.builtin.Version, got: std.builtin.Version) 
 /// `-syslibroot` param of the linker.
 /// The caller needs to free the resulting path slice.
 pub fn getSDKPath(allocator: *mem.Allocator) ![]u8 {
-    assert(std.Target.current.isDarwin());
+    assert(Target.current.isDarwin());
     const argv = &[_][]const u8{ "xcrun", "--show-sdk-path" };
     const result = try std.ChildProcess.exec(.{ .allocator = allocator, .argv = argv });
     defer {
@@ -425,4 +428,42 @@ pub fn getSDKPath(allocator: *mem.Allocator) ![]u8 {
     }
     const syslibroot = mem.trimRight(u8, result.stdout, "\r\n");
     return mem.dupe(allocator, u8, syslibroot);
+}
+
+pub fn detectNativeCpuAndFeatures() ?Target.Cpu {
+    var cpu_family: os.CPUFAMILY = undefined;
+    var len: usize = @sizeOf(os.CPUFAMILY);
+    os.sysctlbynameZ("hw.cpufamily", &cpu_family, &len, null, 0) catch |err| switch (err) {
+        error.NameTooLong => unreachable, // constant, known good value
+        error.PermissionDenied => unreachable, // only when setting values,
+        error.SystemResources => unreachable, // memory already on the stack
+        error.UnknownName => unreachable, // constant, known good value
+        error.Unexpected => unreachable, // EFAULT: stack should be safe, EISDIR/ENOTDIR: constant, known good value
+    };
+
+    const current_arch = Target.current.cpu.arch;
+    switch (current_arch) {
+        .aarch64, .aarch64_be, .aarch64_32 => {
+            const model = switch (cpu_family) {
+                .ARM_FIRESTORM_ICESTORM => &Target.aarch64.cpu.apple_a14,
+                .ARM_LIGHTNING_THUNDER => &Target.aarch64.cpu.apple_a13,
+                .ARM_VORTEX_TEMPEST => &Target.aarch64.cpu.apple_a12,
+                .ARM_MONSOON_MISTRAL => &Target.aarch64.cpu.apple_a11,
+                .ARM_HURRICANE => &Target.aarch64.cpu.apple_a10,
+                .ARM_TWISTER => &Target.aarch64.cpu.apple_a9,
+                .ARM_TYPHOON => &Target.aarch64.cpu.apple_a8,
+                .ARM_CYCLONE => &Target.aarch64.cpu.cyclone,
+                else => return null,
+            };
+
+            return Target.Cpu{
+                .arch = current_arch,
+                .model = model,
+                .features = model.features,
+            };
+        },
+        else => {},
+    }
+
+    return null;
 }

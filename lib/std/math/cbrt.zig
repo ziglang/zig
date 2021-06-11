@@ -125,44 +125,44 @@ fn cbrt64(x: f64) f64 {
 }
 
 test "math.cbrt" {
-    expect(cbrt(@as(f32, 0.0)) == cbrt32(0.0));
-    expect(cbrt(@as(f64, 0.0)) == cbrt64(0.0));
+    try expect(cbrt(@as(f32, 0.0)) == cbrt32(0.0));
+    try expect(cbrt(@as(f64, 0.0)) == cbrt64(0.0));
 }
 
 test "math.cbrt32" {
     const epsilon = 0.000001;
 
-    expect(cbrt32(0.0) == 0.0);
-    expect(math.approxEqAbs(f32, cbrt32(0.2), 0.584804, epsilon));
-    expect(math.approxEqAbs(f32, cbrt32(0.8923), 0.962728, epsilon));
-    expect(math.approxEqAbs(f32, cbrt32(1.5), 1.144714, epsilon));
-    expect(math.approxEqAbs(f32, cbrt32(37.45), 3.345676, epsilon));
-    expect(math.approxEqAbs(f32, cbrt32(123123.234375), 49.748501, epsilon));
+    try expect(cbrt32(0.0) == 0.0);
+    try expect(math.approxEqAbs(f32, cbrt32(0.2), 0.584804, epsilon));
+    try expect(math.approxEqAbs(f32, cbrt32(0.8923), 0.962728, epsilon));
+    try expect(math.approxEqAbs(f32, cbrt32(1.5), 1.144714, epsilon));
+    try expect(math.approxEqAbs(f32, cbrt32(37.45), 3.345676, epsilon));
+    try expect(math.approxEqAbs(f32, cbrt32(123123.234375), 49.748501, epsilon));
 }
 
 test "math.cbrt64" {
     const epsilon = 0.000001;
 
-    expect(cbrt64(0.0) == 0.0);
-    expect(math.approxEqAbs(f64, cbrt64(0.2), 0.584804, epsilon));
-    expect(math.approxEqAbs(f64, cbrt64(0.8923), 0.962728, epsilon));
-    expect(math.approxEqAbs(f64, cbrt64(1.5), 1.144714, epsilon));
-    expect(math.approxEqAbs(f64, cbrt64(37.45), 3.345676, epsilon));
-    expect(math.approxEqAbs(f64, cbrt64(123123.234375), 49.748501, epsilon));
+    try expect(cbrt64(0.0) == 0.0);
+    try expect(math.approxEqAbs(f64, cbrt64(0.2), 0.584804, epsilon));
+    try expect(math.approxEqAbs(f64, cbrt64(0.8923), 0.962728, epsilon));
+    try expect(math.approxEqAbs(f64, cbrt64(1.5), 1.144714, epsilon));
+    try expect(math.approxEqAbs(f64, cbrt64(37.45), 3.345676, epsilon));
+    try expect(math.approxEqAbs(f64, cbrt64(123123.234375), 49.748501, epsilon));
 }
 
 test "math.cbrt.special" {
-    expect(cbrt32(0.0) == 0.0);
-    expect(cbrt32(-0.0) == -0.0);
-    expect(math.isPositiveInf(cbrt32(math.inf(f32))));
-    expect(math.isNegativeInf(cbrt32(-math.inf(f32))));
-    expect(math.isNan(cbrt32(math.nan(f32))));
+    try expect(cbrt32(0.0) == 0.0);
+    try expect(cbrt32(-0.0) == -0.0);
+    try expect(math.isPositiveInf(cbrt32(math.inf(f32))));
+    try expect(math.isNegativeInf(cbrt32(-math.inf(f32))));
+    try expect(math.isNan(cbrt32(math.nan(f32))));
 }
 
 test "math.cbrt64.special" {
-    expect(cbrt64(0.0) == 0.0);
-    expect(cbrt64(-0.0) == -0.0);
-    expect(math.isPositiveInf(cbrt64(math.inf(f64))));
-    expect(math.isNegativeInf(cbrt64(-math.inf(f64))));
-    expect(math.isNan(cbrt64(math.nan(f64))));
+    try expect(cbrt64(0.0) == 0.0);
+    try expect(cbrt64(-0.0) == -0.0);
+    try expect(math.isPositiveInf(cbrt64(math.inf(f64))));
+    try expect(math.isNegativeInf(cbrt64(-math.inf(f64))));
+    try expect(math.isNan(cbrt64(math.nan(f64))));
 }

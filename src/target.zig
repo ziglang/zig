@@ -24,6 +24,10 @@ pub const available_libcs = [_]ArchOsAbi{
     .{ .arch = .arm, .os = .linux, .abi = .gnueabihf },
     .{ .arch = .arm, .os = .linux, .abi = .musleabi },
     .{ .arch = .arm, .os = .linux, .abi = .musleabihf },
+    .{ .arch = .thumb, .os = .linux, .abi = .gnueabi },
+    .{ .arch = .thumb, .os = .linux, .abi = .gnueabihf },
+    .{ .arch = .thumb, .os = .linux, .abi = .musleabi },
+    .{ .arch = .thumb, .os = .linux, .abi = .musleabihf },
     .{ .arch = .arm, .os = .windows, .abi = .gnu },
     .{ .arch = .csky, .os = .linux, .abi = .gnueabi },
     .{ .arch = .csky, .os = .linux, .abi = .gnueabihf },
@@ -53,6 +57,7 @@ pub const available_libcs = [_]ArchOsAbi{
     .{ .arch = .sparc, .os = .linux, .abi = .gnu },
     .{ .arch = .sparcv9, .os = .linux, .abi = .gnu },
     .{ .arch = .wasm32, .os = .freestanding, .abi = .musl },
+    .{ .arch = .wasm32, .os = .wasi, .abi = .musl },
     .{ .arch = .x86_64, .os = .linux, .abi = .gnu },
     .{ .arch = .x86_64, .os = .linux, .abi = .gnux32 },
     .{ .arch = .x86_64, .os = .linux, .abi = .musl },
@@ -94,23 +99,6 @@ pub fn libCGenericName(target: std.Target) [:0]const u8 {
     }
 }
 
-pub fn archMuslName(arch: std.Target.Cpu.Arch) [:0]const u8 {
-    switch (arch) {
-        .aarch64, .aarch64_be => return "aarch64",
-        .arm, .armeb => return "arm",
-        .mips, .mipsel => return "mips",
-        .mips64el, .mips64 => return "mips64",
-        .powerpc => return "powerpc",
-        .powerpc64, .powerpc64le => return "powerpc64",
-        .s390x => return "s390x",
-        .i386 => return "i386",
-        .x86_64 => return "x86_64",
-        .riscv64 => return "riscv64",
-        .wasm32, .wasm64 => return "wasm",
-        else => unreachable,
-    }
-}
-
 pub fn canBuildLibC(target: std.Target) bool {
     for (available_libcs) |libc| {
         if (target.cpu.arch == libc.arch and target.os.tag == libc.os and target.abi == libc.abi) {
@@ -141,6 +129,7 @@ pub fn libcNeedsLibUnwind(target: std.Target) bool {
         .watchos,
         .tvos,
         .freestanding,
+        .wasi, // Wasm/WASI currently doesn't offer support for libunwind, so don't link it.
         => false,
 
         .windows => target.abi != .msvc,
@@ -164,10 +153,6 @@ pub fn requiresPIC(target: std.Target, linking_libc: bool) bool {
 /// C compiler argument is valid to Clang.
 pub fn supports_fpic(target: std.Target) bool {
     return target.os.tag != .windows;
-}
-
-pub fn libc_needs_crti_crtn(target: std.Target) bool {
-    return !(target.cpu.arch.isRISCV() or target.isAndroid() or target.os.tag == .openbsd);
 }
 
 pub fn isSingleThreaded(target: std.Target) bool {
@@ -367,6 +352,55 @@ pub fn hasRedZone(target: std.Target) bool {
         .aarch64_32,
         => true,
 
+        else => false,
+    };
+}
+
+pub fn libcFullLinkFlags(target: std.Target) []const []const u8 {
+    // The linking order of these is significant and should match the order other
+    // c compilers such as gcc or clang use.
+    return switch (target.os.tag) {
+        .netbsd, .openbsd => &[_][]const u8{
+            "-lm",
+            "-lpthread",
+            "-lc",
+            "-lutil",
+        },
+        .haiku => &[_][]const u8{
+            "-lm",
+            "-lroot",
+            "-lpthread",
+            "-lc",
+        },
+        else => switch (target.abi) {
+            .android => &[_][]const u8{
+                "-lm",
+                "-lc",
+                "-ldl",
+            },
+            else => &[_][]const u8{
+                "-lm",
+                "-lpthread",
+                "-lc",
+                "-ldl",
+                "-lrt",
+                "-lutil",
+            },
+        },
+    };
+}
+
+pub fn clangMightShellOutForAssembly(target: std.Target) bool {
+    // Clang defaults to using the system assembler over the internal one
+    // when targeting a non-BSD OS.
+    return target.cpu.arch.isSPARC();
+}
+
+/// Each backend architecture in Clang has a different codepath which may or may not
+/// support an -mcpu flag.
+pub fn clangAssemblerSupportsMcpuArg(target: std.Target) bool {
+    return switch (target.cpu.arch) {
+        .arm, .armeb, .thumb, .thumbeb => true,
         else => false,
     };
 }

@@ -67,27 +67,27 @@ pub const c_abi_int_param_regs = [_]Register{ .x0, .x1, .x2, .x3, .x4, .x5, .x6,
 pub const c_abi_int_return_regs = [_]Register{ .x0, .x1, .x2, .x3, .x4, .x5, .x6, .x7 };
 
 test "Register.id" {
-    testing.expectEqual(@as(u5, 0), Register.x0.id());
-    testing.expectEqual(@as(u5, 0), Register.w0.id());
+    try testing.expectEqual(@as(u5, 0), Register.x0.id());
+    try testing.expectEqual(@as(u5, 0), Register.w0.id());
 
-    testing.expectEqual(@as(u5, 31), Register.xzr.id());
-    testing.expectEqual(@as(u5, 31), Register.wzr.id());
+    try testing.expectEqual(@as(u5, 31), Register.xzr.id());
+    try testing.expectEqual(@as(u5, 31), Register.wzr.id());
 
-    testing.expectEqual(@as(u5, 31), Register.sp.id());
-    testing.expectEqual(@as(u5, 31), Register.sp.id());
+    try testing.expectEqual(@as(u5, 31), Register.sp.id());
+    try testing.expectEqual(@as(u5, 31), Register.sp.id());
 }
 
 test "Register.size" {
-    testing.expectEqual(@as(u7, 64), Register.x19.size());
-    testing.expectEqual(@as(u7, 32), Register.w3.size());
+    try testing.expectEqual(@as(u7, 64), Register.x19.size());
+    try testing.expectEqual(@as(u7, 32), Register.w3.size());
 }
 
 test "Register.to64/to32" {
-    testing.expectEqual(Register.x0, Register.w0.to64());
-    testing.expectEqual(Register.x0, Register.x0.to64());
+    try testing.expectEqual(Register.x0, Register.w0.to64());
+    try testing.expectEqual(Register.x0, Register.x0.to64());
 
-    testing.expectEqual(Register.w3, Register.w3.to32());
-    testing.expectEqual(Register.w3, Register.x3.to32());
+    try testing.expectEqual(Register.w3, Register.w3.to32());
+    try testing.expectEqual(Register.w3, Register.x3.to32());
 }
 
 // zig fmt: off
@@ -169,33 +169,33 @@ pub const FloatingPointRegister = enum(u8) {
 // zig fmt: on
 
 test "FloatingPointRegister.id" {
-    testing.expectEqual(@as(u5, 0), FloatingPointRegister.b0.id());
-    testing.expectEqual(@as(u5, 0), FloatingPointRegister.h0.id());
-    testing.expectEqual(@as(u5, 0), FloatingPointRegister.s0.id());
-    testing.expectEqual(@as(u5, 0), FloatingPointRegister.d0.id());
-    testing.expectEqual(@as(u5, 0), FloatingPointRegister.q0.id());
+    try testing.expectEqual(@as(u5, 0), FloatingPointRegister.b0.id());
+    try testing.expectEqual(@as(u5, 0), FloatingPointRegister.h0.id());
+    try testing.expectEqual(@as(u5, 0), FloatingPointRegister.s0.id());
+    try testing.expectEqual(@as(u5, 0), FloatingPointRegister.d0.id());
+    try testing.expectEqual(@as(u5, 0), FloatingPointRegister.q0.id());
 
-    testing.expectEqual(@as(u5, 2), FloatingPointRegister.q2.id());
-    testing.expectEqual(@as(u5, 31), FloatingPointRegister.d31.id());
+    try testing.expectEqual(@as(u5, 2), FloatingPointRegister.q2.id());
+    try testing.expectEqual(@as(u5, 31), FloatingPointRegister.d31.id());
 }
 
 test "FloatingPointRegister.size" {
-    testing.expectEqual(@as(u8, 128), FloatingPointRegister.q1.size());
-    testing.expectEqual(@as(u8, 64), FloatingPointRegister.d2.size());
-    testing.expectEqual(@as(u8, 32), FloatingPointRegister.s3.size());
-    testing.expectEqual(@as(u8, 16), FloatingPointRegister.h4.size());
-    testing.expectEqual(@as(u8, 8), FloatingPointRegister.b5.size());
+    try testing.expectEqual(@as(u8, 128), FloatingPointRegister.q1.size());
+    try testing.expectEqual(@as(u8, 64), FloatingPointRegister.d2.size());
+    try testing.expectEqual(@as(u8, 32), FloatingPointRegister.s3.size());
+    try testing.expectEqual(@as(u8, 16), FloatingPointRegister.h4.size());
+    try testing.expectEqual(@as(u8, 8), FloatingPointRegister.b5.size());
 }
 
 test "FloatingPointRegister.toX" {
-    testing.expectEqual(FloatingPointRegister.q1, FloatingPointRegister.q1.to128());
-    testing.expectEqual(FloatingPointRegister.q2, FloatingPointRegister.b2.to128());
-    testing.expectEqual(FloatingPointRegister.q3, FloatingPointRegister.h3.to128());
+    try testing.expectEqual(FloatingPointRegister.q1, FloatingPointRegister.q1.to128());
+    try testing.expectEqual(FloatingPointRegister.q2, FloatingPointRegister.b2.to128());
+    try testing.expectEqual(FloatingPointRegister.q3, FloatingPointRegister.h3.to128());
 
-    testing.expectEqual(FloatingPointRegister.d0, FloatingPointRegister.q0.to64());
-    testing.expectEqual(FloatingPointRegister.s1, FloatingPointRegister.d1.to32());
-    testing.expectEqual(FloatingPointRegister.h2, FloatingPointRegister.s2.to16());
-    testing.expectEqual(FloatingPointRegister.b3, FloatingPointRegister.h3.to8());
+    try testing.expectEqual(FloatingPointRegister.d0, FloatingPointRegister.q0.to64());
+    try testing.expectEqual(FloatingPointRegister.s1, FloatingPointRegister.d1.to32());
+    try testing.expectEqual(FloatingPointRegister.h2, FloatingPointRegister.s2.to16());
+    try testing.expectEqual(FloatingPointRegister.b3, FloatingPointRegister.h3.to8());
 }
 
 /// Represents an instruction in the AArch64 instruction set
@@ -1225,6 +1225,6 @@ test "serialize instructions" {
 
     for (testcases) |case| {
         const actual = case.inst.toU32();
-        testing.expectEqual(case.expected, actual);
+        try testing.expectEqual(case.expected, actual);
     }
 }

@@ -124,6 +124,7 @@ struct ZigClangEnumType;
 struct ZigClangExpr;
 struct ZigClangFieldDecl;
 struct ZigClangFileID;
+struct ZigClangFileScopeAsmDecl;
 struct ZigClangFloatingLiteral;
 struct ZigClangForStmt;
 struct ZigClangFullSourceLoc;
@@ -881,6 +882,16 @@ enum ZigClangAPFloat_roundingMode {
     ZigClangAPFloat_roundingMode_Invalid = -1,
 };
 
+enum ZigClangAPFloatBase_Semantics {
+    ZigClangAPFloatBase_Semantics_IEEEhalf,
+    ZigClangAPFloatBase_Semantics_BFloat,
+    ZigClangAPFloatBase_Semantics_IEEEsingle,
+    ZigClangAPFloatBase_Semantics_IEEEdouble,
+    ZigClangAPFloatBase_Semantics_x87DoubleExtended,
+    ZigClangAPFloatBase_Semantics_IEEEquad,
+    ZigClangAPFloatBase_Semantics_PPCDoubleDouble,
+};
+
 enum ZigClangStringLiteral_StringKind {
     ZigClangStringLiteral_StringKind_Ascii,
     ZigClangStringLiteral_StringKind_Wide,
@@ -955,6 +966,8 @@ ZIG_EXTERN_C const char* ZigClangSourceManager_getCharacterData(const struct Zig
 
 ZIG_EXTERN_C struct ZigClangQualType ZigClangASTContext_getPointerType(const struct ZigClangASTContext*, struct ZigClangQualType T);
 
+ZIG_EXTERN_C struct ZigClangSourceLocation ZigClangLexer_getLocForEndOfToken(struct ZigClangSourceLocation,
+        const ZigClangSourceManager *, const ZigClangASTUnit *);
 
 // Can return null.
 ZIG_EXTERN_C struct ZigClangASTUnit *ZigClangLoadFromCommandLine(const char **args_begin, const char **args_end,
@@ -986,9 +999,12 @@ ZIG_EXTERN_C const struct ZigClangTypedefNameDecl *ZigClangTypedefNameDecl_getCa
 ZIG_EXTERN_C const struct ZigClangFunctionDecl *ZigClangFunctionDecl_getCanonicalDecl(const ZigClangFunctionDecl *self);
 ZIG_EXTERN_C const struct ZigClangVarDecl *ZigClangVarDecl_getCanonicalDecl(const ZigClangVarDecl *self);
 ZIG_EXTERN_C const char* ZigClangVarDecl_getSectionAttribute(const struct ZigClangVarDecl *self, size_t *len);
+ZIG_EXTERN_C const struct ZigClangFunctionDecl *ZigClangVarDecl_getCleanupAttribute(const struct ZigClangVarDecl *self);
 ZIG_EXTERN_C unsigned ZigClangVarDecl_getAlignedAttribute(const struct ZigClangVarDecl *self, const ZigClangASTContext* ctx);
 ZIG_EXTERN_C unsigned ZigClangFunctionDecl_getAlignedAttribute(const struct ZigClangFunctionDecl *self, const ZigClangASTContext* ctx);
 ZIG_EXTERN_C unsigned ZigClangFieldDecl_getAlignedAttribute(const struct ZigClangFieldDecl *self, const ZigClangASTContext* ctx);
+
+ZIG_EXTERN_C const struct ZigClangStringLiteral *ZigClangFileScopeAsmDecl_getAsmString(const struct ZigClangFileScopeAsmDecl *self);
 
 ZIG_EXTERN_C struct ZigClangQualType ZigClangParmVarDecl_getOriginalType(const struct ZigClangParmVarDecl *self);
 
@@ -1142,6 +1158,7 @@ ZIG_EXTERN_C struct ZigClangSourceLocation ZigClangDeclStmt_getBeginLoc(const st
 ZIG_EXTERN_C unsigned ZigClangAPFloat_convertToHexString(const struct ZigClangAPFloat *self, char *DST,
         unsigned HexDigits, bool UpperCase, enum ZigClangAPFloat_roundingMode RM);
 ZIG_EXTERN_C double ZigClangFloatingLiteral_getValueAsApproximateDouble(const ZigClangFloatingLiteral *self);
+ZIG_EXTERN_C ZigClangAPFloatBase_Semantics ZigClangFloatingLiteral_getRawSemantics(const ZigClangFloatingLiteral *self);
 
 ZIG_EXTERN_C enum ZigClangStringLiteral_StringKind ZigClangStringLiteral_getKind(const struct ZigClangStringLiteral *self);
 ZIG_EXTERN_C uint32_t ZigClangStringLiteral_getCodeUnit(const struct ZigClangStringLiteral *self, size_t i);

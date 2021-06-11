@@ -10,6 +10,7 @@ const aarch64 = @import("reloc/aarch64.zig");
 const x86_64 = @import("reloc/x86_64.zig");
 
 const Allocator = mem.Allocator;
+const Symbol = @import("Symbol.zig");
 
 pub const Relocation = struct {
     @"type": Type,
@@ -28,7 +29,8 @@ pub const Relocation = struct {
         source_addr: u64,
         target_addr: u64,
         subtractor: ?u64 = null,
-        source_sect_addr: ?u64 = null,
+        source_source_sect_addr: ?u64 = null,
+        source_target_sect_addr: ?u64 = null,
     };
 
     pub fn resolve(base: *Relocation, args: ResolveArgs) !void {
@@ -38,8 +40,10 @@ pub const Relocation = struct {
         log.debug("    | target address 0x{x}", .{args.target_addr});
         if (args.subtractor) |sub|
             log.debug("    | subtractor address 0x{x}", .{sub});
-        if (args.source_sect_addr) |addr|
-            log.debug("    | source section address 0x{x}", .{addr});
+        if (args.source_source_sect_addr) |addr|
+            log.debug("    | source source section address 0x{x}", .{addr});
+        if (args.source_target_sect_addr) |addr|
+            log.debug("    | source target section address 0x{x}", .{addr});
 
         return switch (base.@"type") {
             .unsigned => @fieldParentPtr(Unsigned, "base", base).resolve(args),
@@ -75,12 +79,12 @@ pub const Relocation = struct {
     };
 
     pub const Target = union(enum) {
-        symbol: u32,
+        symbol: *Symbol,
         section: u16,
 
-        pub fn from_reloc(reloc: macho.relocation_info) Target {
+        pub fn from_reloc(reloc: macho.relocation_info, symbols: []*Symbol) Target {
             return if (reloc.r_extern == 1) .{
-                .symbol = reloc.r_symbolnum,
+                .symbol = symbols[reloc.r_symbolnum],
             } else .{
                 .section = @intCast(u16, reloc.r_symbolnum - 1),
             };
@@ -103,7 +107,7 @@ pub const Unsigned = struct {
 
     pub fn resolve(unsigned: Unsigned, args: Relocation.ResolveArgs) !void {
         const addend = if (unsigned.base.target == .section)
-            unsigned.addend - @intCast(i64, args.source_sect_addr.?)
+            unsigned.addend - @intCast(i64, args.source_target_sect_addr.?)
         else
             unsigned.addend;
 
@@ -136,6 +140,7 @@ pub fn parse(
     arch: std.Target.Cpu.Arch,
     code: []u8,
     relocs: []const macho.relocation_info,
+    symbols: []*Symbol,
 ) ![]*Relocation {
     var it = RelocIterator{
         .buffer = relocs,
@@ -148,6 +153,7 @@ pub fn parse(
                 .it = &it,
                 .code = code,
                 .parsed = std.ArrayList(*Relocation).init(allocator),
+                .symbols = symbols,
             };
             defer parser.deinit();
             try parser.parse();
@@ -160,6 +166,7 @@ pub fn parse(
                 .it = &it,
                 .code = code,
                 .parsed = std.ArrayList(*Relocation).init(allocator),
+                .symbols = symbols,
             };
             defer parser.deinit();
             try parser.parse();
@@ -172,12 +179,12 @@ pub fn parse(
 
 pub const RelocIterator = struct {
     buffer: []const macho.relocation_info,
-    index: i64 = -1,
+    index: i32 = -1,
 
     pub fn next(self: *RelocIterator) ?macho.relocation_info {
         self.index += 1;
         if (self.index < self.buffer.len) {
-            const reloc = self.buffer[@intCast(u64, self.index)];
+            const reloc = self.buffer[@intCast(u32, self.index)];
             log.debug("relocation", .{});
             log.debug("    | type = {}", .{reloc.r_type});
             log.debug("    | offset = {}", .{reloc.r_address});
@@ -192,6 +199,6 @@ pub const RelocIterator = struct {
 
     pub fn peek(self: RelocIterator) macho.relocation_info {
         assert(self.index + 1 < self.buffer.len);
-        return self.buffer[@intCast(u64, self.index + 1)];
+        return self.buffer[@intCast(u32, self.index + 1)];
     }
 };

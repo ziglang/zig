@@ -51,7 +51,7 @@ pub const RuntimeServices = extern struct {
     pub const signature: u64 = 0x56524553544e5552;
 };
 
-pub const ResetType = extern enum(u32) {
+pub const ResetType = enum(u32) {
     ResetCold,
     ResetWarm,
     ResetShutdown,

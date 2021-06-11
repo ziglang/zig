@@ -66,7 +66,7 @@ const CompressVectorized = struct {
     const Lane = Vector(4, u32);
     const Rows = [4]Lane;
 
-    fn g(comptime even: bool, rows: *Rows, m: Lane) callconv(.Inline) void {
+    inline fn g(comptime even: bool, rows: *Rows, m: Lane) void {
         rows[0] +%= rows[1] +% m;
         rows[3] ^= rows[0];
         rows[3] = math.rotr(Lane, rows[3], if (even) 8 else 16);
@@ -75,13 +75,13 @@ const CompressVectorized = struct {
         rows[1] = math.rotr(Lane, rows[1], if (even) 7 else 12);
     }
 
-    fn diagonalize(rows: *Rows) callconv(.Inline) void {
+    inline fn diagonalize(rows: *Rows) void {
         rows[0] = @shuffle(u32, rows[0], undefined, [_]i32{ 3, 0, 1, 2 });
         rows[3] = @shuffle(u32, rows[3], undefined, [_]i32{ 2, 3, 0, 1 });
         rows[2] = @shuffle(u32, rows[2], undefined, [_]i32{ 1, 2, 3, 0 });
     }
 
-    fn undiagonalize(rows: *Rows) callconv(.Inline) void {
+    inline fn undiagonalize(rows: *Rows) void {
         rows[0] = @shuffle(u32, rows[0], undefined, [_]i32{ 1, 2, 3, 0 });
         rows[3] = @shuffle(u32, rows[3], undefined, [_]i32{ 2, 3, 0, 1 });
         rows[2] = @shuffle(u32, rows[2], undefined, [_]i32{ 3, 0, 1, 2 });
@@ -641,7 +641,7 @@ const reference_test = ReferenceTest{
     },
 };
 
-fn testBlake3(hasher: *Blake3, input_len: usize, expected_hex: [262]u8) void {
+fn testBlake3(hasher: *Blake3, input_len: usize, expected_hex: [262]u8) !void {
     // Save initial state
     const initial_state = hasher.*;
 
@@ -664,7 +664,7 @@ fn testBlake3(hasher: *Blake3, input_len: usize, expected_hex: [262]u8) void {
     // Compare to expected value
     var expected_bytes: [expected_hex.len / 2]u8 = undefined;
     _ = fmt.hexToBytes(expected_bytes[0..], expected_hex[0..]) catch unreachable;
-    testing.expectEqual(actual_bytes, expected_bytes);
+    try testing.expectEqual(actual_bytes, expected_bytes);
 
     // Restore initial state
     hasher.* = initial_state;
@@ -676,8 +676,8 @@ test "BLAKE3 reference test cases" {
     var derive_key = &Blake3.initKdf(reference_test.context_string, .{});
 
     for (reference_test.cases) |t| {
-        testBlake3(hash, t.input_len, t.hash.*);
-        testBlake3(keyed_hash, t.input_len, t.keyed_hash.*);
-        testBlake3(derive_key, t.input_len, t.derive_key.*);
+        try testBlake3(hash, t.input_len, t.hash.*);
+        try testBlake3(keyed_hash, t.input_len, t.keyed_hash.*);
+        try testBlake3(derive_key, t.input_len, t.derive_key.*);
     }
 }

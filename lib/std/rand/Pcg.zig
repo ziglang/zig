@@ -96,7 +96,7 @@ test "pcg sequence" {
     };
 
     for (seq) |s| {
-        std.testing.expect(s == r.next());
+        try std.testing.expect(s == r.next());
     }
 }
 
@@ -120,6 +120,6 @@ test "pcg fill" {
         var buf1: [3]u8 = undefined;
         std.mem.writeIntLittle(u32, &buf0, s);
         Pcg.fill(&r.random, &buf1);
-        std.testing.expect(std.mem.eql(u8, buf0[0..3], buf1[0..]));
+        try std.testing.expect(std.mem.eql(u8, buf0[0..3], buf1[0..]));
     }
 }

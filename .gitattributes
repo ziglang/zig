@@ -3,9 +3,9 @@
 langref.html.in text eol=lf
 deps/SoftFloat-3e/*.txt text eol=crlf
 
-deps/* linguist-vendored
-lib/include/* linguist-vendored
-lib/libc/* linguist-vendored
-lib/libcxx/* linguist-vendored
-lib/libcxxabi/* linguist-vendored
-lib/libunwind/* linguist-vendored
+deps/** linguist-vendored
+lib/include/** linguist-vendored
+lib/libc/** linguist-vendored
+lib/libcxx/** linguist-vendored
+lib/libcxxabi/** linguist-vendored
+lib/libunwind/** linguist-vendored

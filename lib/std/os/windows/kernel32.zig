@@ -89,7 +89,8 @@ pub extern "kernel32" fn GetCommandLineW() callconv(WINAPI) LPWSTR;
 pub extern "kernel32" fn GetConsoleMode(in_hConsoleHandle: HANDLE, out_lpMode: *DWORD) callconv(WINAPI) BOOL;
 
 pub extern "kernel32" fn GetConsoleScreenBufferInfo(hConsoleOutput: HANDLE, lpConsoleScreenBufferInfo: *CONSOLE_SCREEN_BUFFER_INFO) callconv(WINAPI) BOOL;
-pub extern "kernel32" fn FillConsoleOutputCharacterA(hConsoleOutput: HANDLE, cCharacter: TCHAR, nLength: DWORD, dwWriteCoord: COORD, lpNumberOfCharsWritten: LPDWORD) callconv(WINAPI) BOOL;
+pub extern "kernel32" fn FillConsoleOutputCharacterA(hConsoleOutput: HANDLE, cCharacter: CHAR, nLength: DWORD, dwWriteCoord: COORD, lpNumberOfCharsWritten: LPDWORD) callconv(WINAPI) BOOL;
+pub extern "kernel32" fn FillConsoleOutputCharacterW(hConsoleOutput: HANDLE, cCharacter: WCHAR, nLength: DWORD, dwWriteCoord: COORD, lpNumberOfCharsWritten: LPDWORD) callconv(WINAPI) BOOL;
 pub extern "kernel32" fn FillConsoleOutputAttribute(hConsoleOutput: HANDLE, wAttribute: WORD, nLength: DWORD, dwWriteCoord: COORD, lpNumberOfAttrsWritten: LPDWORD) callconv(WINAPI) BOOL;
 pub extern "kernel32" fn SetConsoleCursorPosition(hConsoleOutput: HANDLE, dwCursorPosition: COORD) callconv(WINAPI) BOOL;
 
@@ -136,10 +137,25 @@ pub extern "kernel32" fn GetFinalPathNameByHandleW(
     dwFlags: DWORD,
 ) callconv(WINAPI) DWORD;
 
+pub extern "kernel32" fn GetFullPathNameW(
+    lpFileName: [*:0]const u16,
+    nBufferLength: u32,
+    lpBuffer: ?[*:0]u16,
+    lpFilePart: ?*?[*:0]u16,
+) callconv(@import("std").os.windows.WINAPI) u32;
+
 pub extern "kernel32" fn GetOverlappedResult(hFile: HANDLE, lpOverlapped: *OVERLAPPED, lpNumberOfBytesTransferred: *DWORD, bWait: BOOL) callconv(WINAPI) BOOL;
 
 pub extern "kernel32" fn GetProcessHeap() callconv(WINAPI) ?HANDLE;
 pub extern "kernel32" fn GetQueuedCompletionStatus(CompletionPort: HANDLE, lpNumberOfBytesTransferred: LPDWORD, lpCompletionKey: *ULONG_PTR, lpOverlapped: *?*OVERLAPPED, dwMilliseconds: DWORD) callconv(WINAPI) BOOL;
+pub extern "kernel32" fn GetQueuedCompletionStatusEx(
+    CompletionPort: HANDLE,
+    lpCompletionPortEntries: [*]OVERLAPPED_ENTRY,
+    ulCount: ULONG,
+    ulNumEntriesRemoved: *ULONG,
+    dwMilliseconds: DWORD,
+    fAlertable: BOOL,
+) callconv(WINAPI) BOOL;
 
 pub extern "kernel32" fn GetSystemInfo(lpSystemInfo: *SYSTEM_INFO) callconv(WINAPI) void;
 pub extern "kernel32" fn GetSystemTimeAsFileTime(*FILETIME) callconv(WINAPI) void;
@@ -196,6 +212,16 @@ pub extern "kernel32" fn ReadFile(
 pub extern "kernel32" fn RemoveDirectoryW(lpPathName: [*:0]const u16) callconv(WINAPI) BOOL;
 
 pub extern "kernel32" fn SetConsoleTextAttribute(hConsoleOutput: HANDLE, wAttributes: WORD) callconv(WINAPI) BOOL;
+
+pub extern "kernel32" fn SetConsoleCtrlHandler(
+    HandlerRoutine: ?HANDLER_ROUTINE,
+    Add: BOOL,
+) callconv(WINAPI) BOOL;
+
+pub extern "kernel32" fn SetFileCompletionNotificationModes(
+    FileHandle: HANDLE,
+    Flags: UCHAR,
+) callconv(WINAPI) BOOL;
 
 pub extern "kernel32" fn SetFilePointerEx(
     in_fFile: HANDLE,

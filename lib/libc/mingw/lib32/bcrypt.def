@@ -12,6 +12,7 @@ BCryptConfigureContext@12
 BCryptConfigureContextFunction@20
 BCryptCreateContext@12
 BCryptCreateHash@28
+BCryptCreateMultiHash@32
 BCryptDecrypt@40
 BCryptDeleteContext@8
 BCryptDeriveKey@28
@@ -38,10 +39,13 @@ BCryptGenerateKeyPair@16
 BCryptGenerateSymmetricKey@28
 BCryptGetFipsAlgorithmMode@4
 BCryptGetProperty@24
+BCryptHash@28
 BCryptHashData@16
 BCryptImportKey@36
 BCryptImportKeyPair@28
+BCryptKeyDerivation@24
 BCryptOpenAlgorithmProvider@16
+BCryptProcessMultiOperations@20
 BCryptQueryContextConfiguration@16
 BCryptQueryContextFunctionConfiguration@24
 BCryptQueryContextFunctionProperty@28

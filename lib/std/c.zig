@@ -10,8 +10,6 @@ const page_size = std.mem.page_size;
 pub const tokenizer = @import("c/tokenizer.zig");
 pub const Token = tokenizer.Token;
 pub const Tokenizer = tokenizer.Tokenizer;
-pub const parse = @import("c/parse.zig").parse;
-pub const ast = @import("c/ast.zig");
 pub const builtins = @import("c/builtins.zig");
 
 test {
@@ -91,14 +89,14 @@ pub extern "c" fn ftruncate(fd: c_int, length: off_t) c_int;
 pub extern "c" fn raise(sig: c_int) c_int;
 pub extern "c" fn read(fd: fd_t, buf: [*]u8, nbyte: usize) isize;
 pub extern "c" fn readv(fd: c_int, iov: [*]const iovec, iovcnt: c_uint) isize;
-pub extern "c" fn pread(fd: fd_t, buf: [*]u8, nbyte: usize, offset: u64) isize;
-pub extern "c" fn preadv(fd: c_int, iov: [*]const iovec, iovcnt: c_uint, offset: u64) isize;
+pub extern "c" fn pread(fd: fd_t, buf: [*]u8, nbyte: usize, offset: off_t) isize;
+pub extern "c" fn preadv(fd: c_int, iov: [*]const iovec, iovcnt: c_uint, offset: off_t) isize;
 pub extern "c" fn writev(fd: c_int, iov: [*]const iovec_const, iovcnt: c_uint) isize;
-pub extern "c" fn pwritev(fd: c_int, iov: [*]const iovec_const, iovcnt: c_uint, offset: u64) isize;
+pub extern "c" fn pwritev(fd: c_int, iov: [*]const iovec_const, iovcnt: c_uint, offset: off_t) isize;
 pub extern "c" fn write(fd: fd_t, buf: [*]const u8, nbyte: usize) isize;
-pub extern "c" fn pwrite(fd: fd_t, buf: [*]const u8, nbyte: usize, offset: u64) isize;
-pub extern "c" fn mmap(addr: ?*align(page_size) c_void, len: usize, prot: c_uint, flags: c_uint, fd: fd_t, offset: u64) *c_void;
-pub extern "c" fn munmap(addr: *align(page_size) c_void, len: usize) c_int;
+pub extern "c" fn pwrite(fd: fd_t, buf: [*]const u8, nbyte: usize, offset: off_t) isize;
+pub extern "c" fn mmap(addr: ?*align(page_size) c_void, len: usize, prot: c_uint, flags: c_uint, fd: fd_t, offset: off_t) *c_void;
+pub extern "c" fn munmap(addr: *align(page_size) const c_void, len: usize) c_int;
 pub extern "c" fn mprotect(addr: *align(page_size) c_void, len: usize, prot: c_uint) c_int;
 pub extern "c" fn link(oldpath: [*:0]const u8, newpath: [*:0]const u8, flags: c_int) c_int;
 pub extern "c" fn linkat(oldfd: fd_t, oldpath: [*:0]const u8, newfd: fd_t, newpath: [*:0]const u8, flags: c_int) c_int;
@@ -153,6 +151,7 @@ pub extern "c" fn bind(socket: fd_t, address: ?*const sockaddr, address_len: soc
 pub extern "c" fn socketpair(domain: c_uint, sock_type: c_uint, protocol: c_uint, sv: *[2]fd_t) c_int;
 pub extern "c" fn listen(sockfd: fd_t, backlog: c_uint) c_int;
 pub extern "c" fn getsockname(sockfd: fd_t, noalias addr: *sockaddr, noalias addrlen: *socklen_t) c_int;
+pub extern "c" fn getpeername(sockfd: fd_t, noalias addr: *sockaddr, noalias addrlen: *socklen_t) c_int;
 pub extern "c" fn connect(sockfd: fd_t, sock_addr: *const sockaddr, addrlen: socklen_t) c_int;
 pub extern "c" fn accept(sockfd: fd_t, noalias addr: ?*sockaddr, noalias addrlen: ?*socklen_t) c_int;
 pub extern "c" fn accept4(sockfd: fd_t, noalias addr: ?*sockaddr, noalias addrlen: ?*socklen_t, flags: c_uint) c_int;
@@ -167,9 +166,10 @@ pub extern "c" fn sendto(
     dest_addr: ?*const sockaddr,
     addrlen: socklen_t,
 ) isize;
+pub extern "c" fn sendmsg(sockfd: fd_t, msg: *const std.x.os.Socket.Message, flags: c_int) isize;
 
-pub extern fn recv(sockfd: fd_t, arg1: ?*c_void, arg2: usize, arg3: c_int) isize;
-pub extern fn recvfrom(
+pub extern "c" fn recv(sockfd: fd_t, arg1: ?*c_void, arg2: usize, arg3: c_int) isize;
+pub extern "c" fn recvfrom(
     sockfd: fd_t,
     noalias buf: *c_void,
     len: usize,
@@ -177,6 +177,7 @@ pub extern fn recvfrom(
     noalias src_addr: ?*sockaddr,
     noalias addrlen: ?*socklen_t,
 ) isize;
+pub extern "c" fn recvmsg(sockfd: fd_t, msg: *std.x.os.Socket.Message, flags: c_int) isize;
 
 pub usingnamespace switch (builtin.os.tag) {
     .netbsd => struct {
@@ -207,6 +208,9 @@ pub usingnamespace switch (builtin.os.tag) {
         pub extern "c" fn sigprocmask(how: c_int, noalias set: ?*const sigset_t, noalias oset: ?*sigset_t) c_int;
         pub extern "c" fn socket(domain: c_uint, sock_type: c_uint, protocol: c_uint) c_int;
         pub extern "c" fn stat(noalias path: [*:0]const u8, noalias buf: *libc_stat) c_int;
+        pub extern "c" fn sigfillset(set: ?*sigset_t) void;
+        pub extern "c" fn alarm(seconds: c_uint) c_uint;
+        pub extern "c" fn sigwait(set: ?*sigset_t, sig: ?*c_int) c_int;
     },
     .windows => struct {
         // TODO: copied the else case and removed the socket function (because its in ws2_32)
@@ -221,6 +225,9 @@ pub usingnamespace switch (builtin.os.tag) {
         pub extern "c" fn sigaction(sig: c_int, noalias act: ?*const Sigaction, noalias oact: ?*Sigaction) c_int;
         pub extern "c" fn sigprocmask(how: c_int, noalias set: ?*const sigset_t, noalias oset: ?*sigset_t) c_int;
         pub extern "c" fn stat(noalias path: [*:0]const u8, noalias buf: *libc_stat) c_int;
+        pub extern "c" fn sigfillset(set: ?*sigset_t) void;
+        pub extern "c" fn alarm(seconds: c_uint) c_uint;
+        pub extern "c" fn sigwait(set: ?*sigset_t, sig: ?*c_int) c_int;
     },
     else => struct {
         pub extern "c" fn clock_getres(clk_id: c_int, tp: *timespec) c_int;
@@ -234,6 +241,9 @@ pub usingnamespace switch (builtin.os.tag) {
         pub extern "c" fn sigprocmask(how: c_int, noalias set: ?*const sigset_t, noalias oset: ?*sigset_t) c_int;
         pub extern "c" fn socket(domain: c_uint, sock_type: c_uint, protocol: c_uint) c_int;
         pub extern "c" fn stat(noalias path: [*:0]const u8, noalias buf: *libc_stat) c_int;
+        pub extern "c" fn sigfillset(set: ?*sigset_t) void;
+        pub extern "c" fn alarm(seconds: c_uint) c_uint;
+        pub extern "c" fn sigwait(set: ?*sigset_t, sig: ?*c_int) c_int;
     },
 };
 

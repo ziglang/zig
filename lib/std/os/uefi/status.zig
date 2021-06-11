@@ -5,7 +5,7 @@
 // and substantial portions of the software.
 const high_bit = 1 << @typeInfo(usize).Int.bits - 1;
 
-pub const Status = extern enum(usize) {
+pub const Status = enum(usize) {
     /// The operation completed successfully.
     Success = 0,
 

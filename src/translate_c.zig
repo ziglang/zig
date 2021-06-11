@@ -8,6 +8,7 @@ const ctok = std.c.tokenizer;
 const CToken = std.c.Token;
 const mem = std.mem;
 const math = std.math;
+const meta = std.meta;
 const ast = @import("translate_c/ast.zig");
 const Node = ast.Node;
 const Tag = Node.Tag;
@@ -446,7 +447,13 @@ fn declVisitorNamesOnly(c: *Context, decl: *const clang.Decl) Error!void {
             // TODO https://github.com/ziglang/zig/issues/3756
             // TODO https://github.com/ziglang/zig/issues/1802
             const name = if (isZigPrimitiveType(decl_name)) try std.fmt.allocPrint(c.arena, "{s}_{d}", .{ decl_name, c.getMangle() }) else decl_name;
-            try c.unnamed_typedefs.putNoClobber(c.gpa, addr, name);
+            const result = try c.unnamed_typedefs.getOrPut(c.gpa, addr);
+            if (result.found_existing) {
+                // One typedef can declare multiple names.
+                // Don't put this one in `decl_table` so it's processed later.
+                return;
+            }
+            result.value_ptr.* = name;
             // Put this typedef in the decl_table to avoid redefinitions.
             try c.decl_table.putNoClobber(c.gpa, @ptrToInt(typedef_decl.getCanonicalDecl()), name);
         }
@@ -473,11 +480,29 @@ fn declVisitor(c: *Context, decl: *const clang.Decl) Error!void {
         .Empty => {
             // Do nothing
         },
+        .FileScopeAsm => {
+            try transFileScopeAsm(c, &c.global_scope.base, @ptrCast(*const clang.FileScopeAsmDecl, decl));
+        },
         else => {
             const decl_name = try c.str(decl.getDeclKindName());
             try warn(c, &c.global_scope.base, decl.getLocation(), "ignoring {s} declaration", .{decl_name});
         },
     }
+}
+
+fn transFileScopeAsm(c: *Context, scope: *Scope, file_scope_asm: *const clang.FileScopeAsmDecl) Error!void {
+    const asm_string = file_scope_asm.getAsmString();
+    var len: usize = undefined;
+    const bytes_ptr = asm_string.getString_bytes_begin_size(&len);
+
+    const str = try std.fmt.allocPrint(c.arena, "\"{}\"", .{std.zig.fmtEscapes(bytes_ptr[0..len])});
+    const str_node = try Tag.string_literal.create(c.arena, str);
+
+    const asm_node = try Tag.asm_simple.create(c.arena, str_node);
+    const block = try Tag.block_single.create(c.arena, asm_node);
+    const comptime_node = try Tag.@"comptime".create(c.arena, block);
+
+    try scope.appendNode(comptime_node);
 }
 
 fn visitFnDecl(c: *Context, fn_decl: *const clang.FunctionDecl) Error!void {
@@ -1353,10 +1378,14 @@ fn transCreatePointerArithmeticSignedOp(
 
     const bitcast_node = try usizeCastForWrappingPtrArithmetic(c.arena, rhs_node);
 
-    const arith_args = .{ .lhs = lhs_node, .rhs = bitcast_node };
-    const arith_node = try if (is_add) Tag.add.create(c.arena, arith_args) else Tag.sub.create(c.arena, arith_args);
-
-    return maybeSuppressResult(c, scope, result_used, arith_node);
+    return transCreateNodeInfixOp(
+        c,
+        scope,
+        if (is_add) .add else .sub,
+        lhs_node,
+        bitcast_node,
+        result_used,
+    );
 }
 
 fn transBinaryOperator(
@@ -1627,6 +1656,22 @@ fn transDeclStmtOne(
                 .init = init_node,
             });
             try block_scope.statements.append(node);
+
+            const cleanup_attr = var_decl.getCleanupAttribute();
+            if (cleanup_attr) |fn_decl| {
+                const cleanup_fn_name = try c.str(@ptrCast(*const clang.NamedDecl, fn_decl).getName_bytes_begin());
+                const fn_id = try Tag.identifier.create(c.arena, cleanup_fn_name);
+
+                const varname = try Tag.identifier.create(c.arena, mangled_name);
+                const args = try c.arena.alloc(Node, 1);
+                args[0] = try Tag.address_of.create(c.arena, varname);
+
+                const cleanup_call = try Tag.call.create(c.arena, .{ .lhs = fn_id, .args = args });
+                const discard = try Tag.discard.create(c.arena, cleanup_call);
+                const deferred_cleanup = try Tag.@"defer".create(c.arena, discard);
+
+                try block_scope.statements.append(deferred_cleanup);
+            }
         },
         .Typedef => {
             try transTypeDef(c, scope, @ptrCast(*const clang.TypedefNameDecl, decl));
@@ -1636,6 +1681,9 @@ fn transDeclStmtOne(
         },
         .Enum => {
             try transEnumDecl(c, scope, @ptrCast(*const clang.EnumDecl, decl));
+        },
+        .Function => {
+            try visitFnDecl(c, @ptrCast(*const clang.FunctionDecl, decl));
         },
         else => |kind| return fail(
             c,
@@ -1737,7 +1785,7 @@ fn transImplicitCastExpr(
 }
 
 fn isBuiltinDefined(name: []const u8) bool {
-    inline for (std.meta.declarations(c_builtins)) |decl| {
+    inline for (meta.declarations(c_builtins)) |decl| {
         if (std.mem.eql(u8, name, decl.name)) return true;
     }
     return false;
@@ -1883,7 +1931,8 @@ fn finishBoolExpr(
         },
         .Enum => {
             // node != 0
-            return Tag.not_equal.create(c.arena, .{ .lhs = node, .rhs = Tag.zero_literal.init() });
+            const int_val = try Tag.enum_to_int.create(c.arena, node);
+            return Tag.not_equal.create(c.arena, .{ .lhs = int_val, .rhs = Tag.zero_literal.init() });
         },
         .Elaborated => {
             const elaborated_ty = @ptrCast(*const clang.ElaboratedType, ty);
@@ -2312,7 +2361,7 @@ fn transInitListExprArray(
     assert(@ptrCast(*const clang.Type, arr_type).isConstantArrayType());
     const const_arr_ty = @ptrCast(*const clang.ConstantArrayType, arr_type);
     const size_ap_int = const_arr_ty.getSize();
-    const all_count = size_ap_int.getLimitedValue(math.maxInt(usize));
+    const all_count = size_ap_int.getLimitedValue(usize);
     const leftover_count = all_count - init_count;
 
     if (all_count == 0) {
@@ -2415,6 +2464,10 @@ fn transInitListExpr(
     const qt = getExprQualType(c, @ptrCast(*const clang.Expr, expr));
     var qual_type = qt.getTypePtr();
     const source_loc = @ptrCast(*const clang.Expr, expr).getBeginLoc();
+
+    if (qualTypeWasDemotedToOpaque(c, qt)) {
+        return fail(c, error.UnsupportedTranslation, source_loc, "Cannot initialize opaque type", .{});
+    }
 
     if (qual_type.isRecordType()) {
         return maybeSuppressResult(c, scope, used, try transInitListExprRecord(
@@ -3153,7 +3206,7 @@ const ClangFunctionType = union(enum) {
     NoProto: *const clang.FunctionType,
 
     fn getReturnType(self: @This()) clang.QualType {
-        switch (@as(std.meta.Tag(@This()), self)) {
+        switch (@as(meta.Tag(@This()), self)) {
             .Proto => return self.Proto.getReturnType(),
             .NoProto => return self.NoProto.getReturnType(),
         }
@@ -3535,7 +3588,7 @@ fn transCPtrCast(
             expr
         else blk: {
             const child_type_node = try transQualType(c, scope, child_type, loc);
-            const alignof = try Tag.alignof.create(c.arena, child_type_node);
+            const alignof = try Tag.std_meta_alignment.create(c.arena, child_type_node);
             const align_cast = try Tag.align_cast.create(c.arena, .{ .lhs = alignof, .rhs = expr });
             break :blk align_cast;
         };
@@ -3543,9 +3596,22 @@ fn transCPtrCast(
     }
 }
 
-fn transFloatingLiteral(c: *Context, scope: *Scope, stmt: *const clang.FloatingLiteral, used: ResultUsed) TransError!Node {
+fn transFloatingLiteral(c: *Context, scope: *Scope, expr: *const clang.FloatingLiteral, used: ResultUsed) TransError!Node {
+    switch (expr.getRawSemantics()) {
+        .IEEEhalf, // f16
+        .IEEEsingle, // f32
+        .IEEEdouble, // f64
+        => {},
+        else => |format| return fail(
+            c,
+            error.UnsupportedTranslation,
+            expr.getBeginLoc(),
+            "unsupported floating point constant format {}",
+            .{format},
+        ),
+    }
     // TODO use something more accurate
-    var dbl = stmt.getValueAsApproximateDouble();
+    var dbl = expr.getValueAsApproximateDouble();
     const is_negative = dbl < 0;
     if (is_negative) dbl = -dbl;
     const str = if (dbl == std.math.floor(dbl))
@@ -4080,7 +4146,7 @@ fn transCreateNodeAPInt(c: *Context, int: *const clang.APSInt) !Node {
     }
 
     const big: math.big.int.Const = .{ .limbs = limbs, .positive = true };
-    const str = big.toStringAlloc(c.arena, 10, false) catch |err| switch (err) {
+    const str = big.toStringAlloc(c.arena, 10, .lower) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
     };
     const res = try Tag.integer_literal.create(c.arena, str);
@@ -4089,7 +4155,7 @@ fn transCreateNodeAPInt(c: *Context, int: *const clang.APSInt) !Node {
 }
 
 fn transCreateNodeNumber(c: *Context, num: anytype, num_kind: enum { int, float }) !Node {
-    const fmt_s = if (comptime std.meta.trait.isNumber(@TypeOf(num))) "{d}" else "{s}";
+    const fmt_s = if (comptime meta.trait.isNumber(@TypeOf(num))) "{d}" else "{s}";
     const str = try std.fmt.allocPrint(c.arena, fmt_s, .{num});
     if (num_kind == .float)
         return Tag.float_literal.create(c.arena, str)
@@ -4224,7 +4290,7 @@ fn transType(c: *Context, scope: *Scope, ty: *const clang.Type, source_loc: clan
             const const_arr_ty = @ptrCast(*const clang.ConstantArrayType, ty);
 
             const size_ap_int = const_arr_ty.getSize();
-            const size = size_ap_int.getLimitedValue(math.maxInt(usize));
+            const size = size_ap_int.getLimitedValue(usize);
             const elem_type = try transType(c, scope, const_arr_ty.getElementType().getTypePtr(), source_loc);
 
             return Tag.array_type.create(c.arena, .{ .len = size, .elem_type = elem_type });
@@ -4398,6 +4464,7 @@ fn transCC(
         .X86ThisCall => return CallingConvention.Thiscall,
         .AAPCS => return CallingConvention.AAPCS,
         .AAPCS_VFP => return CallingConvention.AAPCSVFP,
+        .X86_64SysV => return CallingConvention.SysV,
         else => return fail(
             c,
             error.UnsupportedType,
@@ -4622,6 +4689,7 @@ fn transPreprocessorEntities(c: *Context, unit: *clang.ASTUnit) Error!void {
                 const macro = @ptrCast(*clang.MacroDefinitionRecord, entity);
                 const raw_name = macro.getName_getNameStart();
                 const begin_loc = macro.getSourceRange_getBegin();
+                const end_loc = clang.Lexer.getLocForEndOfToken(macro.getSourceRange_getEnd(), c.source_manager, unit);
 
                 const name = try c.str(raw_name);
                 // TODO https://github.com/ziglang/zig/issues/3756
@@ -4632,7 +4700,9 @@ fn transPreprocessorEntities(c: *Context, unit: *clang.ASTUnit) Error!void {
                 }
 
                 const begin_c = c.source_manager.getCharacterData(begin_loc);
-                const slice = begin_c[0..mem.len(begin_c)];
+                const end_c = c.source_manager.getCharacterData(end_loc);
+                const slice_len = @ptrToInt(end_c) - @ptrToInt(begin_c);
+                const slice = begin_c[0..slice_len];
 
                 var tokenizer = std.c.Tokenizer{
                     .buffer = slice,
@@ -4747,8 +4817,11 @@ fn transMacroFnDefine(c: *Context, m: *MacroCtx) ParseError!void {
         const br = blk_last.castTag(.break_val).?;
         break :blk br.data.val;
     } else expr;
-    const return_type = if (typeof_arg.castTag(.std_meta_cast)) |some|
+
+    const return_type = if (typeof_arg.castTag(.std_meta_cast) orelse typeof_arg.castTag(.std_mem_zeroinit)) |some|
         some.data.lhs
+    else if (typeof_arg.castTag(.std_mem_zeroes)) |some|
+        some.data
     else
         try Tag.typeof.create(c.arena, typeof_arg);
 
@@ -4844,12 +4917,12 @@ fn parseCNumLit(c: *Context, m: *MacroCtx) ParseError!Node {
             // make the output less noisy by skipping promoteIntLiteral where
             // it's guaranteed to not be required because of C standard type constraints
             const guaranteed_to_fit = switch (suffix) {
-                .none => if (math.cast(i16, value)) |_| true else |_| false,
-                .u => if (math.cast(u16, value)) |_| true else |_| false,
-                .l => if (math.cast(i32, value)) |_| true else |_| false,
-                .lu => if (math.cast(u32, value)) |_| true else |_| false,
-                .ll => if (math.cast(i64, value)) |_| true else |_| false,
-                .llu => if (math.cast(u64, value)) |_| true else |_| false,
+                .none => !meta.isError(math.cast(i16, value)),
+                .u => !meta.isError(math.cast(u16, value)),
+                .l => !meta.isError(math.cast(i32, value)),
+                .lu => !meta.isError(math.cast(u32, value)),
+                .ll => !meta.isError(math.cast(i64, value)),
+                .llu => !meta.isError(math.cast(u64, value)),
                 .f => unreachable,
             };
 
@@ -4866,17 +4939,28 @@ fn parseCNumLit(c: *Context, m: *MacroCtx) ParseError!Node {
             }
         },
         .FloatLiteral => |suffix| {
-            if (lit_bytes[0] == '.')
+            if (suffix != .none) lit_bytes = lit_bytes[0 .. lit_bytes.len - 1];
+            const dot_index = mem.indexOfScalar(u8, lit_bytes, '.').?;
+            if (dot_index == 0) {
                 lit_bytes = try std.fmt.allocPrint(c.arena, "0{s}", .{lit_bytes});
-            if (suffix == .none) {
-                return transCreateNodeNumber(c, lit_bytes, .float);
+            } else if (dot_index + 1 == lit_bytes.len or !std.ascii.isDigit(lit_bytes[dot_index + 1])) {
+                // If the literal lacks a digit after the `.`, we need to
+                // add one since `1.` or `1.e10` would be invalid syntax in Zig.
+                lit_bytes = try std.fmt.allocPrint(c.arena, "{s}0{s}", .{
+                    lit_bytes[0 .. dot_index + 1],
+                    lit_bytes[dot_index + 1 ..],
+                });
             }
+
+            if (suffix == .none)
+                return transCreateNodeNumber(c, lit_bytes, .float);
+
             const type_node = try Tag.type.create(c.arena, switch (suffix) {
                 .f => "f32",
                 .l => "c_longdouble",
                 else => unreachable,
             });
-            const rhs = try transCreateNodeNumber(c, lit_bytes[0 .. lit_bytes.len - 1], .float);
+            const rhs = try transCreateNodeNumber(c, lit_bytes, .float);
             return Tag.as.create(c.arena, .{ .lhs = type_node, .rhs = rhs });
         },
         else => unreachable,
@@ -4999,7 +5083,7 @@ fn zigifyEscapeSequences(ctx: *Context, m: *MacroCtx) ![]const u8 {
                         num += c - 'A' + 10;
                     },
                     else => {
-                        i += std.fmt.formatIntBuf(bytes[i..], num, 16, false, std.fmt.FormatOptions{ .fill = '0', .width = 2 });
+                        i += std.fmt.formatIntBuf(bytes[i..], num, 16, .lower, std.fmt.FormatOptions{ .fill = '0', .width = 2 });
                         num = 0;
                         if (c == '\\')
                             state = .Escape
@@ -5025,7 +5109,7 @@ fn zigifyEscapeSequences(ctx: *Context, m: *MacroCtx) ![]const u8 {
                     };
                     num += c - '0';
                 } else {
-                    i += std.fmt.formatIntBuf(bytes[i..], num, 16, false, std.fmt.FormatOptions{ .fill = '0', .width = 2 });
+                    i += std.fmt.formatIntBuf(bytes[i..], num, 16, .lower, std.fmt.FormatOptions{ .fill = '0', .width = 2 });
                     num = 0;
                     count = 0;
                     if (c == '\\')
@@ -5039,7 +5123,7 @@ fn zigifyEscapeSequences(ctx: *Context, m: *MacroCtx) ![]const u8 {
         }
     }
     if (state == .Hex or state == .Octal)
-        i += std.fmt.formatIntBuf(bytes[i..], num, 16, false, std.fmt.FormatOptions{ .fill = '0', .width = 2 });
+        i += std.fmt.formatIntBuf(bytes[i..], num, 16, .lower, std.fmt.FormatOptions{ .fill = '0', .width = 2 });
     return bytes[0..i];
 }
 
@@ -5465,6 +5549,42 @@ fn parseCPostfixExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
                 }
             },
             .LBrace => {
+                // Check for designated field initializers
+                if (m.peek().? == .Period) {
+                    var init_vals = std.ArrayList(ast.Payload.ContainerInitDot.Initializer).init(c.gpa);
+                    defer init_vals.deinit();
+
+                    while (true) {
+                        if (m.next().? != .Period) {
+                            try m.fail(c, "unable to translate C expr: expected '.'", .{});
+                            return error.ParseError;
+                        }
+                        if (m.next().? != .Identifier) {
+                            try m.fail(c, "unable to translate C expr: expected identifier", .{});
+                            return error.ParseError;
+                        }
+                        const name = m.slice();
+                        if (m.next().? != .Equal) {
+                            try m.fail(c, "unable to translate C expr: expected '='", .{});
+                            return error.ParseError;
+                        }
+
+                        const val = try parseCCondExpr(c, m, scope);
+                        try init_vals.append(.{ .name = name, .value = val });
+                        switch (m.next().?) {
+                            .Comma => {},
+                            .RBrace => break,
+                            else => {
+                                try m.fail(c, "unable to translate C expr: expected ',' or '}}'", .{});
+                                return error.ParseError;
+                            },
+                        }
+                    }
+                    const tuple_node = try Tag.container_init_dot.create(c.arena, try c.arena.dupe(ast.Payload.ContainerInitDot.Initializer, init_vals.items));
+                    node = try Tag.std_mem_zeroinit.create(c.arena, .{ .lhs = node, .rhs = tuple_node });
+                    continue;
+                }
+
                 var init_vals = std.ArrayList(Node).init(c.gpa);
                 defer init_vals.deinit();
 
@@ -5646,14 +5766,14 @@ fn getFnProto(c: *Context, ref: Node) ?*ast.Payload.Func {
 
 fn addMacros(c: *Context) !void {
     var it = c.global_scope.macro_table.iterator();
-    while (it.next()) |kv| {
-        if (getFnProto(c, kv.value)) |proto_node| {
+    while (it.next()) |entry| {
+        if (getFnProto(c, entry.value_ptr.*)) |proto_node| {
             // If a macro aliases a global variable which is a function pointer, we conclude that
             // the macro is intended to represent a function that assumes the function pointer
             // variable is non-null and calls it.
-            try addTopLevelDecl(c, kv.key, try transCreateNodeMacroFn(c, kv.key, kv.value, proto_node));
+            try addTopLevelDecl(c, entry.key_ptr.*, try transCreateNodeMacroFn(c, entry.key_ptr.*, entry.value_ptr.*, proto_node));
         } else {
-            try addTopLevelDecl(c, kv.key, kv.value);
+            try addTopLevelDecl(c, entry.key_ptr.*, entry.value_ptr.*);
         }
     }
 }

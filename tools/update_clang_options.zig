@@ -336,6 +336,10 @@ const known_options = [_]KnownOpt{
         .name = "dynamiclib",
         .ident = "shared",
     },
+    .{
+        .name = "mexec-model",
+        .ident = "exec_model",
+    },
 };
 
 const blacklisted_options = [_][]const u8{};
@@ -412,16 +416,16 @@ pub fn main() anyerror!void {
     {
         var it = root_map.iterator();
         it_map: while (it.next()) |kv| {
-            if (kv.key.len == 0) continue;
-            if (kv.key[0] == '!') continue;
-            if (kv.value != .Object) continue;
-            if (!kv.value.Object.contains("NumArgs")) continue;
-            if (!kv.value.Object.contains("Name")) continue;
+            if (kv.key_ptr.len == 0) continue;
+            if (kv.key_ptr.*[0] == '!') continue;
+            if (kv.value_ptr.* != .Object) continue;
+            if (!kv.value_ptr.Object.contains("NumArgs")) continue;
+            if (!kv.value_ptr.Object.contains("Name")) continue;
             for (blacklisted_options) |blacklisted_key| {
-                if (std.mem.eql(u8, blacklisted_key, kv.key)) continue :it_map;
+                if (std.mem.eql(u8, blacklisted_key, kv.key_ptr.*)) continue :it_map;
             }
-            if (kv.value.Object.get("Name").?.String.len == 0) continue;
-            try all_objects.append(&kv.value.Object);
+            if (kv.value_ptr.Object.get("Name").?.String.len == 0) continue;
+            try all_objects.append(&kv.value_ptr.Object);
         }
     }
     // Some options have multiple matches. As an example, "-Wl,foo" matches both

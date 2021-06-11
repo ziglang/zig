@@ -27,13 +27,13 @@ fn compareResultD(result: f64, expected: u64) bool {
     return false;
 }
 
-fn test__divdf3(a: f64, b: f64, expected: u64) void {
+fn test__divdf3(a: f64, b: f64, expected: u64) !void {
     const x = __divdf3(a, b);
     const ret = compareResultD(x, expected);
-    testing.expect(ret == true);
+    try testing.expect(ret == true);
 }
 
 test "divdf3" {
-    test__divdf3(1.0, 3.0, 0x3fd5555555555555);
-    test__divdf3(4.450147717014403e-308, 2.0, 0x10000000000000);
+    try test__divdf3(1.0, 3.0, 0x3fd5555555555555);
+    try test__divdf3(4.450147717014403e-308, 2.0, 0x10000000000000);
 }

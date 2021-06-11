@@ -7,7 +7,6 @@ const std = @import("../std.zig");
 const build = std.build;
 const Step = build.Step;
 const Builder = build.Builder;
-const WriteFileStep = build.WriteFileStep;
 const LibExeObjStep = build.LibExeObjStep;
 const CheckFileStep = build.CheckFileStep;
 const fs = std.fs;

@@ -16,7 +16,7 @@ allocator: *Allocator,
 arch: ?std.Target.Cpu.Arch = null,
 file: ?fs.File = null,
 header: ?ar_hdr = null,
-name: ?[]u8 = null,
+name: ?[]const u8 = null,
 
 /// Parsed table of contents.
 /// Each symbol name points to a list of all definition
@@ -27,14 +27,14 @@ toc: std.StringArrayHashMapUnmanaged(std.ArrayListUnmanaged(u32)) = .{},
 // `struct ar_hdr', and as many bytes of member file data as its `ar_size'
 // member indicates, for each member file.
 /// String that begins an archive file.
-pub const ARMAG: *const [SARMAG:0]u8 = "!<arch>\n";
+const ARMAG: *const [SARMAG:0]u8 = "!<arch>\n";
 /// Size of that string.
-pub const SARMAG: u4 = 8;
+const SARMAG: u4 = 8;
 
 /// String in ar_fmag at the end of each header.
-pub const ARFMAG: *const [2:0]u8 = "`\n";
+const ARFMAG: *const [2:0]u8 = "`\n";
 
-pub const ar_hdr = extern struct {
+const ar_hdr = extern struct {
     /// Member file name, sometimes / terminated.
     ar_name: [16]u8,
 
@@ -58,9 +58,9 @@ pub const ar_hdr = extern struct {
 
     const NameOrLength = union(enum) {
         Name: []const u8,
-        Length: u64,
+        Length: u32,
     };
-    pub fn nameOrLength(self: ar_hdr) !NameOrLength {
+    fn nameOrLength(self: ar_hdr) !NameOrLength {
         const value = getValue(&self.ar_name);
         const slash_index = mem.indexOf(u8, value, "/") orelse return error.MalformedArchive;
         const len = value.len;
@@ -70,14 +70,14 @@ pub const ar_hdr = extern struct {
         } else {
             // Name follows the header directly and its length is encoded in
             // the name field.
-            const length = try std.fmt.parseInt(u64, value[slash_index + 1 ..], 10);
+            const length = try std.fmt.parseInt(u32, value[slash_index + 1 ..], 10);
             return NameOrLength{ .Length = length };
         }
     }
 
-    pub fn size(self: ar_hdr) !u64 {
+    fn size(self: ar_hdr) !u32 {
         const value = getValue(&self.ar_size);
-        return std.fmt.parseInt(u64, value, 10);
+        return std.fmt.parseInt(u32, value, 10);
     }
 
     fn getValue(raw: []const u8) []const u8 {
@@ -92,9 +92,11 @@ pub fn init(allocator: *Allocator) Archive {
 }
 
 pub fn deinit(self: *Archive) void {
-    for (self.toc.items()) |*entry| {
-        self.allocator.free(entry.key);
-        entry.value.deinit(self.allocator);
+    for (self.toc.keys()) |*key| {
+        self.allocator.free(key.*);
+    }
+    for (self.toc.values()) |*value| {
+        value.deinit(self.allocator);
     }
     self.toc.deinit(self.allocator);
 
@@ -187,15 +189,15 @@ fn parseTableOfContents(self: *Archive, reader: anytype) !void {
         defer if (res.found_existing) self.allocator.free(owned_name);
 
         if (!res.found_existing) {
-            res.entry.value = .{};
+            res.value_ptr.* = .{};
         }
 
-        try res.entry.value.append(self.allocator, object_offset);
+        try res.value_ptr.append(self.allocator, object_offset);
     }
 }
 
 /// Caller owns the Object instance.
-pub fn parseObject(self: Archive, offset: u32) !Object {
+pub fn parseObject(self: Archive, offset: u32) !*Object {
     var reader = self.file.?.reader();
     try reader.context.seekTo(offset);
 
@@ -208,17 +210,19 @@ pub fn parseObject(self: Archive, offset: u32) !Object {
 
     const object_name = try parseName(self.allocator, object_header, reader);
     defer self.allocator.free(object_name);
-    const object_basename = std.fs.path.basename(object_name);
 
-    log.debug("extracting object '{s}' from archive '{s}'", .{ object_basename, self.name.? });
+    log.debug("extracting object '{s}' from archive '{s}'", .{ object_name, self.name.? });
 
     const name = name: {
         var buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
         const path = try std.os.realpath(self.name.?, &buffer);
-        break :name try std.fmt.allocPrint(self.allocator, "{s}({s})", .{ path, object_basename });
+        break :name try std.fmt.allocPrint(self.allocator, "{s}({s})", .{ path, object_name });
     };
 
-    var object = Object.init(self.allocator);
+    var object = try self.allocator.create(Object);
+    errdefer self.allocator.destroy(object);
+
+    object.* = Object.init(self.allocator);
     object.arch = self.arch.?;
     object.file = try fs.cwd().openFile(self.name.?, .{});
     object.name = name;
@@ -228,4 +232,10 @@ pub fn parseObject(self: Archive, offset: u32) !Object {
     try reader.context.seekTo(0);
 
     return object;
+}
+
+pub fn isArchive(file: fs.File) !bool {
+    const magic = try file.reader().readBytesNoEof(Archive.SARMAG);
+    try file.seekTo(0);
+    return mem.eql(u8, &magic, Archive.ARMAG);
 }

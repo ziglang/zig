@@ -154,38 +154,38 @@ fn acos64(x: f64) f64 {
 }
 
 test "math.acos" {
-    expect(acos(@as(f32, 0.0)) == acos32(0.0));
-    expect(acos(@as(f64, 0.0)) == acos64(0.0));
+    try expect(acos(@as(f32, 0.0)) == acos32(0.0));
+    try expect(acos(@as(f64, 0.0)) == acos64(0.0));
 }
 
 test "math.acos32" {
     const epsilon = 0.000001;
 
-    expect(math.approxEqAbs(f32, acos32(0.0), 1.570796, epsilon));
-    expect(math.approxEqAbs(f32, acos32(0.2), 1.369438, epsilon));
-    expect(math.approxEqAbs(f32, acos32(0.3434), 1.220262, epsilon));
-    expect(math.approxEqAbs(f32, acos32(0.5), 1.047198, epsilon));
-    expect(math.approxEqAbs(f32, acos32(0.8923), 0.468382, epsilon));
-    expect(math.approxEqAbs(f32, acos32(-0.2), 1.772154, epsilon));
+    try expect(math.approxEqAbs(f32, acos32(0.0), 1.570796, epsilon));
+    try expect(math.approxEqAbs(f32, acos32(0.2), 1.369438, epsilon));
+    try expect(math.approxEqAbs(f32, acos32(0.3434), 1.220262, epsilon));
+    try expect(math.approxEqAbs(f32, acos32(0.5), 1.047198, epsilon));
+    try expect(math.approxEqAbs(f32, acos32(0.8923), 0.468382, epsilon));
+    try expect(math.approxEqAbs(f32, acos32(-0.2), 1.772154, epsilon));
 }
 
 test "math.acos64" {
     const epsilon = 0.000001;
 
-    expect(math.approxEqAbs(f64, acos64(0.0), 1.570796, epsilon));
-    expect(math.approxEqAbs(f64, acos64(0.2), 1.369438, epsilon));
-    expect(math.approxEqAbs(f64, acos64(0.3434), 1.220262, epsilon));
-    expect(math.approxEqAbs(f64, acos64(0.5), 1.047198, epsilon));
-    expect(math.approxEqAbs(f64, acos64(0.8923), 0.468382, epsilon));
-    expect(math.approxEqAbs(f64, acos64(-0.2), 1.772154, epsilon));
+    try expect(math.approxEqAbs(f64, acos64(0.0), 1.570796, epsilon));
+    try expect(math.approxEqAbs(f64, acos64(0.2), 1.369438, epsilon));
+    try expect(math.approxEqAbs(f64, acos64(0.3434), 1.220262, epsilon));
+    try expect(math.approxEqAbs(f64, acos64(0.5), 1.047198, epsilon));
+    try expect(math.approxEqAbs(f64, acos64(0.8923), 0.468382, epsilon));
+    try expect(math.approxEqAbs(f64, acos64(-0.2), 1.772154, epsilon));
 }
 
 test "math.acos32.special" {
-    expect(math.isNan(acos32(-2)));
-    expect(math.isNan(acos32(1.5)));
+    try expect(math.isNan(acos32(-2)));
+    try expect(math.isNan(acos32(1.5)));
 }
 
 test "math.acos64.special" {
-    expect(math.isNan(acos64(-2)));
-    expect(math.isNan(acos64(1.5)));
+    try expect(math.isNan(acos64(-2)));
+    try expect(math.isNan(acos64(1.5)));
 }

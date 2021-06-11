@@ -169,8 +169,10 @@ extern "C" {
 #define _wgetcwd_dbg(s,le,t,f,l) _wgetcwd(s,le)
 #define _getdcwd_dbg(d,s,le,t,f,l) _getdcwd(d,s,le)
 #define _wgetdcwd_dbg(d,s,le,t,f,l) _wgetdcwd(d,s,le)
+#if __MSVCRT_VERSION__ >= 0x800
 #define _getdcwd_lk_dbg(d,s,le,t,f,l) _getdcwd_nolock(d,s,le)
 #define _wgetdcwd_lk_dbg(d,s,le,t,f,l) _wgetdcwd_nolock(d,s,le)
+#endif
 
 #define _CrtSetReportHook(f) ((_CRT_REPORT_HOOK)0)
 #define _CrtGetReportHook() ((_CRT_REPORT_HOOK)0)

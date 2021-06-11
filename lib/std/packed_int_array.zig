@@ -7,8 +7,10 @@ const std = @import("std");
 const builtin = @import("builtin");
 const debug = std.debug;
 const testing = std.testing;
+const native_endian = builtin.target.cpu.arch.endian();
+const Endian = std.builtin.Endian;
 
-pub fn PackedIntIo(comptime Int: type, comptime endian: builtin.Endian) type {
+pub fn PackedIntIo(comptime Int: type, comptime endian: Endian) type {
     //The general technique employed here is to cast bytes in the array to a container
     // integer (having bits % 8 == 0) large enough to contain the number of bits we want,
     // then we can retrieve or store the new value with a relative minimum of masking
@@ -28,13 +30,13 @@ pub fn PackedIntIo(comptime Int: type, comptime endian: builtin.Endian) type {
     const min_io_bits = ((int_bits + 7) / 8) * 8;
 
     //in the worst case, this is the number of bytes we need to touch
-    // to read or write a value, as bits
+    // to read or write a value, as bits. To calculate for int_bits > 1,
+    // set aside 2 bits to touch the first and last bytes, then divide
+    // by 8 to see how many bytes can be filled up inbetween.
     const max_io_bits = switch (int_bits) {
         0 => 0,
         1 => 8,
-        2...9 => 16,
-        10...65535 => ((int_bits / 8) + 2) * 8,
-        else => unreachable,
+        else => ((int_bits - 2) / 8 + 2) * 8,
     };
 
     //we bitcast the desired Int type to an unsigned version of itself
@@ -71,7 +73,7 @@ pub fn PackedIntIo(comptime Int: type, comptime endian: builtin.Endian) type {
             const value_ptr = @ptrCast(*align(1) const Container, &bytes[start_byte]);
             var value = value_ptr.*;
 
-            if (endian != builtin.endian) value = @byteSwap(Container, value);
+            if (endian != native_endian) value = @byteSwap(Container, value);
 
             switch (endian) {
                 .Big => {
@@ -119,7 +121,7 @@ pub fn PackedIntIo(comptime Int: type, comptime endian: builtin.Endian) type {
             const target_ptr = @ptrCast(*align(1) Container, &bytes[start_byte]);
             var target = target_ptr.*;
 
-            if (endian != builtin.endian) target = @byteSwap(Container, target);
+            if (endian != native_endian) target = @byteSwap(Container, target);
 
             //zero the bits we want to replace in the existing bytes
             const inv_mask = @intCast(Container, std.math.maxInt(UnInt)) << keep_shift;
@@ -129,7 +131,7 @@ pub fn PackedIntIo(comptime Int: type, comptime endian: builtin.Endian) type {
             //merge the new value
             target |= value;
 
-            if (endian != builtin.endian) target = @byteSwap(Container, target);
+            if (endian != native_endian) target = @byteSwap(Container, target);
 
             //save it back
             target_ptr.* = target;
@@ -151,7 +153,7 @@ pub fn PackedIntIo(comptime Int: type, comptime endian: builtin.Endian) type {
             return new_slice;
         }
 
-        fn sliceCast(bytes: []u8, comptime NewInt: type, comptime new_endian: builtin.Endian, bit_offset: u3, old_len: usize) PackedIntSliceEndian(NewInt, new_endian) {
+        fn sliceCast(bytes: []u8, comptime NewInt: type, comptime new_endian: Endian, bit_offset: u3, old_len: usize) PackedIntSliceEndian(NewInt, new_endian) {
             const new_int_bits = comptime std.meta.bitCount(NewInt);
             const New = PackedIntSliceEndian(NewInt, new_endian);
 
@@ -172,13 +174,13 @@ pub fn PackedIntIo(comptime Int: type, comptime endian: builtin.Endian) type {
 /// are packed using native endianess and without storing any meta
 /// data. PackedIntArray(i3, 8) will occupy exactly 3 bytes of memory.
 pub fn PackedIntArray(comptime Int: type, comptime int_count: usize) type {
-    return PackedIntArrayEndian(Int, builtin.endian, int_count);
+    return PackedIntArrayEndian(Int, native_endian, int_count);
 }
 
 ///Creates a bit-packed array of integers of type Int. Bits
 /// are packed using specified endianess and without storing any meta
 /// data.
-pub fn PackedIntArrayEndian(comptime Int: type, comptime endian: builtin.Endian, comptime int_count: usize) type {
+pub fn PackedIntArrayEndian(comptime Int: type, comptime endian: Endian, comptime int_count: usize) type {
     const int_bits = comptime std.meta.bitCount(Int);
     const total_bits = int_bits * int_count;
     const total_bytes = (total_bits + 7) / 8;
@@ -247,7 +249,7 @@ pub fn PackedIntArrayEndian(comptime Int: type, comptime endian: builtin.Endian,
         ///Create a PackedIntSlice of the array using NewInt as the bit width integer
         /// and new_endian as the new endianess. NewInt's bit width must fit evenly within
         /// the array's Int's total bits.
-        pub fn sliceCastEndian(self: *Self, comptime NewInt: type, comptime new_endian: builtin.Endian) PackedIntSliceEndian(NewInt, new_endian) {
+        pub fn sliceCastEndian(self: *Self, comptime NewInt: type, comptime new_endian: Endian) PackedIntSliceEndian(NewInt, new_endian) {
             return Io.sliceCast(&self.bytes, NewInt, new_endian, 0, int_count);
         }
     };
@@ -257,13 +259,13 @@ pub fn PackedIntArrayEndian(comptime Int: type, comptime endian: builtin.Endian,
 /// Bits are packed using native endianess and without storing any meta
 /// data.
 pub fn PackedIntSlice(comptime Int: type) type {
-    return PackedIntSliceEndian(Int, builtin.endian);
+    return PackedIntSliceEndian(Int, native_endian);
 }
 
 ///Uses a slice as a bit-packed block of int_count integers of type Int.
 /// Bits are packed using specified endianess and without storing any meta
 /// data.
-pub fn PackedIntSliceEndian(comptime Int: type, comptime endian: builtin.Endian) type {
+pub fn PackedIntSliceEndian(comptime Int: type, comptime endian: Endian) type {
     const int_bits = comptime std.meta.bitCount(Int);
     const Io = PackedIntIo(Int, endian);
 
@@ -328,7 +330,7 @@ pub fn PackedIntSliceEndian(comptime Int: type, comptime endian: builtin.Endian)
         ///Create a PackedIntSlice of this slice using NewInt as the bit width integer
         /// and new_endian as the new endianess. NewInt's bit width must fit evenly within
         /// this slice's Int's total bits.
-        pub fn sliceCastEndian(self: Self, comptime NewInt: type, comptime new_endian: builtin.Endian) PackedIntSliceEndian(NewInt, new_endian) {
+        pub fn sliceCastEndian(self: Self, comptime NewInt: type, comptime new_endian: Endian) PackedIntSliceEndian(NewInt, new_endian) {
             return Io.sliceCast(self.bytes, NewInt, new_endian, self.bit_offset, self.int_count);
         }
     };
@@ -338,7 +340,7 @@ const we_are_testing_this_with_stage1_which_leaks_comptime_memory = true;
 
 test "PackedIntArray" {
     // TODO @setEvalBranchQuota generates panics in wasm32. Investigate.
-    if (builtin.arch == .wasm32) return error.SkipZigTest;
+    if (builtin.target.cpu.arch == .wasm32) return error.SkipZigTest;
     if (we_are_testing_this_with_stage1_which_leaks_comptime_memory) return error.SkipZigTest;
 
     @setEvalBranchQuota(10000);
@@ -348,12 +350,12 @@ test "PackedIntArray" {
     comptime var bits = 0;
     inline while (bits <= max_bits) : (bits += 1) {
         //alternate unsigned and signed
-        const sign: builtin.Signedness = if (bits % 2 == 0) .signed else .unsigned;
+        const sign: std.builtin.Signedness = if (bits % 2 == 0) .signed else .unsigned;
         const I = std.meta.Int(sign, bits);
 
         const PackedArray = PackedIntArray(I, int_count);
         const expected_bytes = ((bits * int_count) + 7) / 8;
-        testing.expect(@sizeOf(PackedArray) == expected_bytes);
+        try testing.expect(@sizeOf(PackedArray) == expected_bytes);
 
         var data = @as(PackedArray, undefined);
 
@@ -370,10 +372,18 @@ test "PackedIntArray" {
         count = 0;
         while (i < data.len()) : (i += 1) {
             const val = data.get(i);
-            testing.expect(val == count);
+            try testing.expect(val == count);
             if (bits > 0) count +%= 1;
         }
     }
+}
+
+test "PackedIntIo" {
+    const bytes = [_]u8{ 0b01101_000, 0b01011_110, 0b00011_101 };
+    try testing.expectEqual(@as(u15, 0x2bcd), PackedIntIo(u15, .Little).get(&bytes, 0, 3));
+    try testing.expectEqual(@as(u16, 0xabcd), PackedIntIo(u16, .Little).get(&bytes, 0, 3));
+    try testing.expectEqual(@as(u17, 0x1abcd), PackedIntIo(u17, .Little).get(&bytes, 0, 3));
+    try testing.expectEqual(@as(u18, 0x3abcd), PackedIntIo(u18, .Little).get(&bytes, 0, 3));
 }
 
 test "PackedIntArray init" {
@@ -381,7 +391,7 @@ test "PackedIntArray init" {
     const PackedArray = PackedIntArray(u3, 8);
     var packed_array = PackedArray.init([_]u3{ 0, 1, 2, 3, 4, 5, 6, 7 });
     var i = @as(usize, 0);
-    while (i < packed_array.len()) : (i += 1) testing.expectEqual(@intCast(u3, i), packed_array.get(i));
+    while (i < packed_array.len()) : (i += 1) try testing.expectEqual(@intCast(u3, i), packed_array.get(i));
 }
 
 test "PackedIntArray initAllTo" {
@@ -389,12 +399,12 @@ test "PackedIntArray initAllTo" {
     const PackedArray = PackedIntArray(u3, 8);
     var packed_array = PackedArray.initAllTo(5);
     var i = @as(usize, 0);
-    while (i < packed_array.len()) : (i += 1) testing.expectEqual(@as(u3, 5), packed_array.get(i));
+    while (i < packed_array.len()) : (i += 1) try testing.expectEqual(@as(u3, 5), packed_array.get(i));
 }
 
 test "PackedIntSlice" {
     // TODO @setEvalBranchQuota generates panics in wasm32. Investigate.
-    if (builtin.arch == .wasm32) return error.SkipZigTest;
+    if (builtin.target.cpu.arch == .wasm32) return error.SkipZigTest;
     if (we_are_testing_this_with_stage1_which_leaks_comptime_memory) return error.SkipZigTest;
 
     @setEvalBranchQuota(10000);
@@ -408,7 +418,7 @@ test "PackedIntSlice" {
     comptime var bits = 0;
     inline while (bits <= max_bits) : (bits += 1) {
         //alternate unsigned and signed
-        const sign: builtin.Signedness = if (bits % 2 == 0) .signed else .unsigned;
+        const sign: std.builtin.Signedness = if (bits % 2 == 0) .signed else .unsigned;
         const I = std.meta.Int(sign, bits);
         const P = PackedIntSlice(I);
 
@@ -427,7 +437,7 @@ test "PackedIntSlice" {
         count = 0;
         while (i < data.len()) : (i += 1) {
             const val = data.get(i);
-            testing.expect(val == count);
+            try testing.expect(val == count);
             if (bits > 0) count +%= 1;
         }
     }
@@ -454,48 +464,48 @@ test "PackedIntSlice of PackedInt(Array/Slice)" {
 
         //slice of array
         var packed_slice = packed_array.slice(2, 5);
-        testing.expect(packed_slice.len() == 3);
+        try testing.expect(packed_slice.len() == 3);
         const ps_bit_count = (bits * packed_slice.len()) + packed_slice.bit_offset;
         const ps_expected_bytes = (ps_bit_count + 7) / 8;
-        testing.expect(packed_slice.bytes.len == ps_expected_bytes);
-        testing.expect(packed_slice.get(0) == 2 % limit);
-        testing.expect(packed_slice.get(1) == 3 % limit);
-        testing.expect(packed_slice.get(2) == 4 % limit);
+        try testing.expect(packed_slice.bytes.len == ps_expected_bytes);
+        try testing.expect(packed_slice.get(0) == 2 % limit);
+        try testing.expect(packed_slice.get(1) == 3 % limit);
+        try testing.expect(packed_slice.get(2) == 4 % limit);
         packed_slice.set(1, 7 % limit);
-        testing.expect(packed_slice.get(1) == 7 % limit);
+        try testing.expect(packed_slice.get(1) == 7 % limit);
 
         //write through slice
-        testing.expect(packed_array.get(3) == 7 % limit);
+        try testing.expect(packed_array.get(3) == 7 % limit);
 
         //slice of a slice
         const packed_slice_two = packed_slice.slice(0, 3);
-        testing.expect(packed_slice_two.len() == 3);
+        try testing.expect(packed_slice_two.len() == 3);
         const ps2_bit_count = (bits * packed_slice_two.len()) + packed_slice_two.bit_offset;
         const ps2_expected_bytes = (ps2_bit_count + 7) / 8;
-        testing.expect(packed_slice_two.bytes.len == ps2_expected_bytes);
-        testing.expect(packed_slice_two.get(1) == 7 % limit);
-        testing.expect(packed_slice_two.get(2) == 4 % limit);
+        try testing.expect(packed_slice_two.bytes.len == ps2_expected_bytes);
+        try testing.expect(packed_slice_two.get(1) == 7 % limit);
+        try testing.expect(packed_slice_two.get(2) == 4 % limit);
 
         //size one case
         const packed_slice_three = packed_slice_two.slice(1, 2);
-        testing.expect(packed_slice_three.len() == 1);
+        try testing.expect(packed_slice_three.len() == 1);
         const ps3_bit_count = (bits * packed_slice_three.len()) + packed_slice_three.bit_offset;
         const ps3_expected_bytes = (ps3_bit_count + 7) / 8;
-        testing.expect(packed_slice_three.bytes.len == ps3_expected_bytes);
-        testing.expect(packed_slice_three.get(0) == 7 % limit);
+        try testing.expect(packed_slice_three.bytes.len == ps3_expected_bytes);
+        try testing.expect(packed_slice_three.get(0) == 7 % limit);
 
         //empty slice case
         const packed_slice_empty = packed_slice.slice(0, 0);
-        testing.expect(packed_slice_empty.len() == 0);
-        testing.expect(packed_slice_empty.bytes.len == 0);
+        try testing.expect(packed_slice_empty.len() == 0);
+        try testing.expect(packed_slice_empty.bytes.len == 0);
 
         //slicing at byte boundaries
         const packed_slice_edge = packed_array.slice(8, 16);
-        testing.expect(packed_slice_edge.len() == 8);
+        try testing.expect(packed_slice_edge.len() == 8);
         const pse_bit_count = (bits * packed_slice_edge.len()) + packed_slice_edge.bit_offset;
         const pse_expected_bytes = (pse_bit_count + 7) / 8;
-        testing.expect(packed_slice_edge.bytes.len == pse_expected_bytes);
-        testing.expect(packed_slice_edge.bit_offset == 0);
+        try testing.expect(packed_slice_edge.bytes.len == pse_expected_bytes);
+        try testing.expect(packed_slice_edge.bit_offset == 0);
     }
 }
 
@@ -539,33 +549,33 @@ test "PackedInt(Array/Slice) sliceCast" {
 
     var i = @as(usize, 0);
     while (i < packed_slice_cast_2.len()) : (i += 1) {
-        const val = switch (builtin.endian) {
+        const val = switch (native_endian) {
             .Big => 0b01,
             .Little => 0b10,
         };
-        testing.expect(packed_slice_cast_2.get(i) == val);
+        try testing.expect(packed_slice_cast_2.get(i) == val);
     }
     i = 0;
     while (i < packed_slice_cast_4.len()) : (i += 1) {
-        const val = switch (builtin.endian) {
+        const val = switch (native_endian) {
             .Big => 0b0101,
             .Little => 0b1010,
         };
-        testing.expect(packed_slice_cast_4.get(i) == val);
+        try testing.expect(packed_slice_cast_4.get(i) == val);
     }
     i = 0;
     while (i < packed_slice_cast_9.len()) : (i += 1) {
         const val = 0b010101010;
-        testing.expect(packed_slice_cast_9.get(i) == val);
+        try testing.expect(packed_slice_cast_9.get(i) == val);
         packed_slice_cast_9.set(i, 0b111000111);
     }
     i = 0;
     while (i < packed_slice_cast_3.len()) : (i += 1) {
-        const val = switch (builtin.endian) {
+        const val = switch (native_endian) {
             .Big => if (i % 2 == 0) @as(u3, 0b111) else @as(u3, 0b000),
             .Little => if (i % 2 == 0) @as(u3, 0b111) else @as(u3, 0b000),
         };
-        testing.expect(packed_slice_cast_3.get(i) == val);
+        try testing.expect(packed_slice_cast_3.get(i) == val);
     }
 }
 
@@ -575,58 +585,58 @@ test "PackedInt(Array/Slice)Endian" {
     {
         const PackedArrayBe = PackedIntArrayEndian(u4, .Big, 8);
         var packed_array_be = PackedArrayBe.init([_]u4{ 0, 1, 2, 3, 4, 5, 6, 7 });
-        testing.expect(packed_array_be.bytes[0] == 0b00000001);
-        testing.expect(packed_array_be.bytes[1] == 0b00100011);
+        try testing.expect(packed_array_be.bytes[0] == 0b00000001);
+        try testing.expect(packed_array_be.bytes[1] == 0b00100011);
 
         var i = @as(usize, 0);
         while (i < packed_array_be.len()) : (i += 1) {
-            testing.expect(packed_array_be.get(i) == i);
+            try testing.expect(packed_array_be.get(i) == i);
         }
 
         var packed_slice_le = packed_array_be.sliceCastEndian(u4, .Little);
         i = 0;
         while (i < packed_slice_le.len()) : (i += 1) {
             const val = if (i % 2 == 0) i + 1 else i - 1;
-            testing.expect(packed_slice_le.get(i) == val);
+            try testing.expect(packed_slice_le.get(i) == val);
         }
 
         var packed_slice_le_shift = packed_array_be.slice(1, 5).sliceCastEndian(u4, .Little);
         i = 0;
         while (i < packed_slice_le_shift.len()) : (i += 1) {
             const val = if (i % 2 == 0) i else i + 2;
-            testing.expect(packed_slice_le_shift.get(i) == val);
+            try testing.expect(packed_slice_le_shift.get(i) == val);
         }
     }
 
     {
         const PackedArrayBe = PackedIntArrayEndian(u11, .Big, 8);
         var packed_array_be = PackedArrayBe.init([_]u11{ 0, 1, 2, 3, 4, 5, 6, 7 });
-        testing.expect(packed_array_be.bytes[0] == 0b00000000);
-        testing.expect(packed_array_be.bytes[1] == 0b00000000);
-        testing.expect(packed_array_be.bytes[2] == 0b00000100);
-        testing.expect(packed_array_be.bytes[3] == 0b00000001);
-        testing.expect(packed_array_be.bytes[4] == 0b00000000);
+        try testing.expect(packed_array_be.bytes[0] == 0b00000000);
+        try testing.expect(packed_array_be.bytes[1] == 0b00000000);
+        try testing.expect(packed_array_be.bytes[2] == 0b00000100);
+        try testing.expect(packed_array_be.bytes[3] == 0b00000001);
+        try testing.expect(packed_array_be.bytes[4] == 0b00000000);
 
         var i = @as(usize, 0);
         while (i < packed_array_be.len()) : (i += 1) {
-            testing.expect(packed_array_be.get(i) == i);
+            try testing.expect(packed_array_be.get(i) == i);
         }
 
         var packed_slice_le = packed_array_be.sliceCastEndian(u11, .Little);
-        testing.expect(packed_slice_le.get(0) == 0b00000000000);
-        testing.expect(packed_slice_le.get(1) == 0b00010000000);
-        testing.expect(packed_slice_le.get(2) == 0b00000000100);
-        testing.expect(packed_slice_le.get(3) == 0b00000000000);
-        testing.expect(packed_slice_le.get(4) == 0b00010000011);
-        testing.expect(packed_slice_le.get(5) == 0b00000000010);
-        testing.expect(packed_slice_le.get(6) == 0b10000010000);
-        testing.expect(packed_slice_le.get(7) == 0b00000111001);
+        try testing.expect(packed_slice_le.get(0) == 0b00000000000);
+        try testing.expect(packed_slice_le.get(1) == 0b00010000000);
+        try testing.expect(packed_slice_le.get(2) == 0b00000000100);
+        try testing.expect(packed_slice_le.get(3) == 0b00000000000);
+        try testing.expect(packed_slice_le.get(4) == 0b00010000011);
+        try testing.expect(packed_slice_le.get(5) == 0b00000000010);
+        try testing.expect(packed_slice_le.get(6) == 0b10000010000);
+        try testing.expect(packed_slice_le.get(7) == 0b00000111001);
 
         var packed_slice_le_shift = packed_array_be.slice(1, 5).sliceCastEndian(u11, .Little);
-        testing.expect(packed_slice_le_shift.get(0) == 0b00010000000);
-        testing.expect(packed_slice_le_shift.get(1) == 0b00000000100);
-        testing.expect(packed_slice_le_shift.get(2) == 0b00000000000);
-        testing.expect(packed_slice_le_shift.get(3) == 0b00010000011);
+        try testing.expect(packed_slice_le_shift.get(0) == 0b00010000000);
+        try testing.expect(packed_slice_le_shift.get(1) == 0b00000000100);
+        try testing.expect(packed_slice_le_shift.get(2) == 0b00000000000);
+        try testing.expect(packed_slice_le_shift.get(3) == 0b00010000011);
     }
 }
 
@@ -641,7 +651,7 @@ test "PackedInt(Array/Slice)Endian" {
 test "PackedIntArray at end of available memory" {
     if (we_are_testing_this_with_stage1_which_leaks_comptime_memory) return error.SkipZigTest;
 
-    switch (builtin.os.tag) {
+    switch (builtin.target.os.tag) {
         .linux, .macos, .ios, .freebsd, .netbsd, .openbsd, .windows => {},
         else => return,
     }
@@ -662,7 +672,7 @@ test "PackedIntArray at end of available memory" {
 test "PackedIntSlice at end of available memory" {
     if (we_are_testing_this_with_stage1_which_leaks_comptime_memory) return error.SkipZigTest;
 
-    switch (builtin.os.tag) {
+    switch (builtin.target.os.tag) {
         .linux, .macos, .ios, .freebsd, .netbsd, .openbsd, .windows => {},
         else => return,
     }

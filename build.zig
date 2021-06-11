@@ -1,5 +1,5 @@
-const builtin = @import("builtin");
 const std = @import("std");
+const builtin = std.builtin;
 const Builder = std.build.Builder;
 const tests = @import("test/tests.zig");
 const BufMap = std.BufMap;
@@ -11,7 +11,7 @@ const fs = std.fs;
 const InstallDirectoryOptions = std.build.InstallDirectoryOptions;
 const assert = std.debug.assert;
 
-const zig_version = std.builtin.Version{ .major = 0, .minor = 8, .patch = 0 };
+const zig_version = std.builtin.Version{ .major = 0, .minor = 9, .patch = 0 };
 
 pub fn build(b: *Builder) !void {
     b.setPreferredReleaseMode(.ReleaseFast);
@@ -36,7 +36,7 @@ pub fn build(b: *Builder) !void {
     const docs_step = b.step("docs", "Build documentation");
     docs_step.dependOn(&docgen_cmd.step);
 
-    const test_step = b.step("test", "Run all the tests");
+    const toolchain_step = b.step("test-toolchain", "Run the tests for the toolchain");
 
     var test_stage2 = b.addTest("src/test.zig");
     test_stage2.setBuildMode(mode);
@@ -44,6 +44,7 @@ pub fn build(b: *Builder) !void {
 
     const fmt_build_zig = b.addFmt(&[_][]const u8{"build.zig"});
 
+    const skip_debug = b.option(bool, "skip-debug", "Main test suite skips debug builds") orelse false;
     const skip_release = b.option(bool, "skip-release", "Main test suite skips release builds") orelse false;
     const skip_release_small = b.option(bool, "skip-release-small", "Main test suite skips release-small builds") orelse skip_release;
     const skip_release_fast = b.option(bool, "skip-release-fast", "Main test suite skips release-fast builds") orelse skip_release;
@@ -53,6 +54,7 @@ pub fn build(b: *Builder) !void {
     const skip_compile_errors = b.option(bool, "skip-compile-errors", "Main test suite skips compile error tests") orelse false;
     const skip_run_translated_c = b.option(bool, "skip-run-translated-c", "Main test suite skips run-translated-c tests") orelse false;
     const skip_stage2_tests = b.option(bool, "skip-stage2-tests", "Main test suite skips self-hosted compiler tests") orelse false;
+    const skip_install_lib_files = b.option(bool, "skip-install-lib-files", "Do not copy lib/ files to installation prefix") orelse false;
 
     const only_install_lib_files = b.option(bool, "lib-files-only", "Only install library files") orelse false;
     const is_stage1 = b.option(bool, "stage1", "Build the stage1 compiler, put stage2 behind a feature flag") orelse false;
@@ -61,19 +63,23 @@ pub fn build(b: *Builder) !void {
     const enable_llvm = b.option(bool, "enable-llvm", "Build self-hosted compiler with LLVM backend enabled") orelse (is_stage1 or static_llvm);
     const config_h_path_option = b.option([]const u8, "config_h", "Path to the generated config.h");
 
-    b.installDirectory(InstallDirectoryOptions{
-        .source_dir = "lib",
-        .install_dir = .Lib,
-        .install_subdir = "zig",
-        .exclude_extensions = &[_][]const u8{
-            "test.zig",
-            "README.md",
-            ".z.0",
-            ".z.9",
-            ".gz",
-            "rfc1951.txt",
-        },
-    });
+    if (!skip_install_lib_files) {
+        b.installDirectory(InstallDirectoryOptions{
+            .source_dir = "lib",
+            .install_dir = .Lib,
+            .install_subdir = "zig",
+            .exclude_extensions = &[_][]const u8{
+                "README.md",
+                ".z.0",
+                ".z.9",
+                ".gz",
+                "rfc1951.txt",
+            },
+            .blank_extensions = &[_][]const u8{
+                "test.zig",
+            },
+        });
+    }
 
     if (only_install_lib_files)
         return;
@@ -82,6 +88,12 @@ pub fn build(b: *Builder) !void {
     const link_libc = b.option(bool, "force-link-libc", "Force self-hosted compiler to link libc") orelse enable_llvm;
     const strip = b.option(bool, "strip", "Omit debug information") orelse false;
 
+    const mem_leak_frames: u32 = b.option(u32, "mem-leak-frames", "How many stack frames to print when a memory leak occurs. Tests get 2x this amount.") orelse blk: {
+        if (strip) break :blk @as(u32, 0);
+        if (mode != .Debug) break :blk 0;
+        break :blk 4;
+    };
+
     const main_file = if (is_stage1) "src/stage1.zig" else "src/main.zig";
 
     var exe = b.addExecutable("zig", main_file);
@@ -89,9 +101,10 @@ pub fn build(b: *Builder) !void {
     exe.install();
     exe.setBuildMode(mode);
     exe.setTarget(target);
-    test_step.dependOn(&exe.step);
+    toolchain_step.dependOn(&exe.step);
     b.default_step.dependOn(&exe.step);
 
+    exe.addBuildOption(u32, "mem_leak_frames", mem_leak_frames);
     exe.addBuildOption(bool, "skip_non_native", skip_non_native);
     exe.addBuildOption(bool, "have_llvm", enable_llvm);
     if (enable_llvm) {
@@ -155,7 +168,7 @@ pub fn build(b: *Builder) !void {
 
         switch (mem.count(u8, git_describe, "-")) {
             0 => {
-                // Tagged release version (e.g. 0.7.0).
+                // Tagged release version (e.g. 0.8.0).
                 if (!mem.eql(u8, git_describe, version_string)) {
                     std.debug.print("Zig version '{s}' does not match Git tag '{s}'\n", .{ version_string, git_describe });
                     std.process.exit(1);
@@ -163,7 +176,7 @@ pub fn build(b: *Builder) !void {
                 break :v version_string;
             },
             2 => {
-                // Untagged development build (e.g. 0.7.0-684-gbbe2cca1a).
+                // Untagged development build (e.g. 0.8.0-684-gbbe2cca1a).
                 var it = mem.split(git_describe, "-");
                 const tagged_ancestor = it.next() orelse unreachable;
                 const commit_height = it.next() orelse unreachable;
@@ -217,6 +230,7 @@ pub fn build(b: *Builder) !void {
     const is_wine_enabled = b.option(bool, "enable-wine", "Use Wine to run cross compiled Windows tests") orelse false;
     const is_qemu_enabled = b.option(bool, "enable-qemu", "Use QEMU to run cross compiled foreign architecture tests") orelse false;
     const is_wasmtime_enabled = b.option(bool, "enable-wasmtime", "Use Wasmtime to enable and run WASI libstd tests") orelse false;
+    const is_darling_enabled = b.option(bool, "enable-darling", "[Experimental] Use Darling to run cross compiled macOS tests") orelse false;
     const glibc_multi_dir = b.option([]const u8, "enable-foreign-glibc", "Provide directory with glibc installations to run cross compiled tests that link glibc");
 
     test_stage2.addBuildOption(bool, "skip_non_native", skip_non_native);
@@ -226,19 +240,23 @@ pub fn build(b: *Builder) !void {
     test_stage2.addBuildOption(bool, "enable_qemu", is_qemu_enabled);
     test_stage2.addBuildOption(bool, "enable_wine", is_wine_enabled);
     test_stage2.addBuildOption(bool, "enable_wasmtime", is_wasmtime_enabled);
+    test_stage2.addBuildOption(u32, "mem_leak_frames", mem_leak_frames * 2);
+    test_stage2.addBuildOption(bool, "enable_darling", is_darling_enabled);
     test_stage2.addBuildOption(?[]const u8, "glibc_multi_install_dir", glibc_multi_dir);
     test_stage2.addBuildOption([]const u8, "version", version);
 
     const test_stage2_step = b.step("test-stage2", "Run the stage2 compiler tests");
     test_stage2_step.dependOn(&test_stage2.step);
     if (!skip_stage2_tests) {
-        test_step.dependOn(test_stage2_step);
+        toolchain_step.dependOn(test_stage2_step);
     }
 
     var chosen_modes: [4]builtin.Mode = undefined;
     var chosen_mode_index: usize = 0;
-    chosen_modes[chosen_mode_index] = builtin.Mode.Debug;
-    chosen_mode_index += 1;
+    if (!skip_debug) {
+        chosen_modes[chosen_mode_index] = builtin.Mode.Debug;
+        chosen_mode_index += 1;
+    }
     if (!skip_release_safe) {
         chosen_modes[chosen_mode_index] = builtin.Mode.ReleaseSafe;
         chosen_mode_index += 1;
@@ -254,33 +272,97 @@ pub fn build(b: *Builder) !void {
     const modes = chosen_modes[0..chosen_mode_index];
 
     // run stage1 `zig fmt` on this build.zig file just to make sure it works
-    test_step.dependOn(&fmt_build_zig.step);
+    toolchain_step.dependOn(&fmt_build_zig.step);
     const fmt_step = b.step("test-fmt", "Run zig fmt against build.zig to make sure it works");
     fmt_step.dependOn(&fmt_build_zig.step);
 
-    // TODO for the moment, skip wasm32-wasi until bugs are sorted out.
-    test_step.dependOn(tests.addPkgTests(b, test_filter, "test/stage1/behavior.zig", "behavior", "Run the behavior tests", modes, false, skip_non_native, skip_libc, is_wine_enabled, is_qemu_enabled, is_wasmtime_enabled, glibc_multi_dir));
+    toolchain_step.dependOn(tests.addPkgTests(
+        b,
+        test_filter,
+        "test/behavior.zig",
+        "behavior",
+        "Run the behavior tests",
+        modes,
+        false,
+        skip_non_native,
+        skip_libc,
+        is_wine_enabled,
+        is_qemu_enabled,
+        is_wasmtime_enabled,
+        is_darling_enabled,
+        glibc_multi_dir,
+    ));
 
-    test_step.dependOn(tests.addPkgTests(b, test_filter, "lib/std/std.zig", "std", "Run the standard library tests", modes, false, skip_non_native, skip_libc, is_wine_enabled, is_qemu_enabled, is_wasmtime_enabled, glibc_multi_dir));
+    toolchain_step.dependOn(tests.addPkgTests(
+        b,
+        test_filter,
+        "lib/std/special/compiler_rt.zig",
+        "compiler-rt",
+        "Run the compiler_rt tests",
+        modes,
+        true,
+        skip_non_native,
+        true,
+        is_wine_enabled,
+        is_qemu_enabled,
+        is_wasmtime_enabled,
+        is_darling_enabled,
+        glibc_multi_dir,
+    ));
 
-    test_step.dependOn(tests.addPkgTests(b, test_filter, "lib/std/special/compiler_rt.zig", "compiler-rt", "Run the compiler_rt tests", modes, true, skip_non_native, true, is_wine_enabled, is_qemu_enabled, is_wasmtime_enabled, glibc_multi_dir));
-    test_step.dependOn(tests.addPkgTests(b, test_filter, "lib/std/special/c.zig", "minilibc", "Run the mini libc tests", modes, true, skip_non_native, true, is_wine_enabled, is_qemu_enabled, is_wasmtime_enabled, glibc_multi_dir));
+    toolchain_step.dependOn(tests.addPkgTests(
+        b,
+        test_filter,
+        "lib/std/special/c.zig",
+        "minilibc",
+        "Run the mini libc tests",
+        modes,
+        true,
+        skip_non_native,
+        true,
+        is_wine_enabled,
+        is_qemu_enabled,
+        is_wasmtime_enabled,
+        is_darling_enabled,
+        glibc_multi_dir,
+    ));
 
-    test_step.dependOn(tests.addCompareOutputTests(b, test_filter, modes));
-    test_step.dependOn(tests.addStandaloneTests(b, test_filter, modes));
-    test_step.dependOn(tests.addStackTraceTests(b, test_filter, modes));
-    test_step.dependOn(tests.addCliTests(b, test_filter, modes));
-    test_step.dependOn(tests.addAssembleAndLinkTests(b, test_filter, modes));
-    test_step.dependOn(tests.addRuntimeSafetyTests(b, test_filter, modes));
-    test_step.dependOn(tests.addTranslateCTests(b, test_filter));
+    toolchain_step.dependOn(tests.addCompareOutputTests(b, test_filter, modes));
+    toolchain_step.dependOn(tests.addStandaloneTests(b, test_filter, modes, skip_non_native, target));
+    toolchain_step.dependOn(tests.addStackTraceTests(b, test_filter, modes));
+    toolchain_step.dependOn(tests.addCliTests(b, test_filter, modes));
+    toolchain_step.dependOn(tests.addAssembleAndLinkTests(b, test_filter, modes));
+    toolchain_step.dependOn(tests.addRuntimeSafetyTests(b, test_filter, modes));
+    toolchain_step.dependOn(tests.addTranslateCTests(b, test_filter));
     if (!skip_run_translated_c) {
-        test_step.dependOn(tests.addRunTranslatedCTests(b, test_filter, target));
+        toolchain_step.dependOn(tests.addRunTranslatedCTests(b, test_filter, target));
     }
     // tests for this feature are disabled until we have the self-hosted compiler available
-    // test_step.dependOn(tests.addGenHTests(b, test_filter));
+    // toolchain_step.dependOn(tests.addGenHTests(b, test_filter));
     if (!skip_compile_errors) {
-        test_step.dependOn(tests.addCompileErrorTests(b, test_filter, modes));
+        toolchain_step.dependOn(tests.addCompileErrorTests(b, test_filter, modes));
     }
+
+    const std_step = tests.addPkgTests(
+        b,
+        test_filter,
+        "lib/std/std.zig",
+        "std",
+        "Run the standard library tests",
+        modes,
+        false,
+        skip_non_native,
+        skip_libc,
+        is_wine_enabled,
+        is_qemu_enabled,
+        is_wasmtime_enabled,
+        is_darling_enabled,
+        glibc_multi_dir,
+    );
+
+    const test_step = b.step("test", "Run all the tests");
+    test_step.dependOn(toolchain_step);
+    test_step.dependOn(std_step);
     test_step.dependOn(docs_step);
 }
 
@@ -328,8 +410,7 @@ fn addCmakeCfgOptionsToExe(
             },
             else => |e| return e,
         };
-
-        exe.linkSystemLibrary("pthread");
+        exe.linkSystemLibrary("unwind");
     } else if (exe.target.isFreeBSD()) {
         try addCxxKnownPath(b, cfg, exe, "libc++.a", null, need_cpp_includes);
         exe.linkSystemLibrary("pthread");
@@ -337,20 +418,7 @@ fn addCmakeCfgOptionsToExe(
         try addCxxKnownPath(b, cfg, exe, "libc++.a", null, need_cpp_includes);
         try addCxxKnownPath(b, cfg, exe, "libc++abi.a", null, need_cpp_includes);
     } else if (exe.target.isDarwin()) {
-        if (addCxxKnownPath(b, cfg, exe, "libgcc_eh.a", "", need_cpp_includes)) {
-            // Compiler is GCC.
-            try addCxxKnownPath(b, cfg, exe, "libstdc++.a", null, need_cpp_includes);
-            exe.linkSystemLibrary("pthread");
-            // TODO LLD cannot perform this link.
-            // Set ZIG_SYSTEM_LINKER_HACK env var to use system linker ld instead.
-            // See https://github.com/ziglang/zig/issues/1535
-        } else |err| switch (err) {
-            error.RequiredLibraryNotFound => {
-                // System compiler, not gcc.
-                exe.linkSystemLibrary("c++");
-            },
-            else => |e| return e,
-        }
+        exe.linkSystemLibrary("c++");
     }
 
     if (cfg.dia_guids_lib.len != 0) {
@@ -673,7 +741,7 @@ const softfloat_sources = [_][]const u8{
 
 const stage1_sources = [_][]const u8{
     "src/stage1/analyze.cpp",
-    "src/stage1/ast_render.cpp",
+    "src/stage1/astgen.cpp",
     "src/stage1/bigfloat.cpp",
     "src/stage1/bigint.cpp",
     "src/stage1/buffer.cpp",
@@ -701,6 +769,7 @@ const zig_cpp_sources = [_][]const u8{
     // These are planned to stay even when we are self-hosted.
     "src/zig_llvm.cpp",
     "src/zig_clang.cpp",
+    "src/zig_llvm-ar.cpp",
     "src/zig_clang_driver.cpp",
     "src/zig_clang_cc1_main.cpp",
     "src/zig_clang_cc1as_main.cpp",

@@ -25,10 +25,6 @@ struct ErrorMsg {
 void print_err_msg(ErrorMsg *msg, ErrColor color);
 
 void err_msg_add_note(ErrorMsg *parent, ErrorMsg *note);
-ErrorMsg *err_msg_create_with_offset(Buf *path, size_t line, size_t column, size_t offset,
-        const char *source, Buf *msg);
-
-ErrorMsg *err_msg_create_with_line(Buf *path, size_t line, size_t column,
-        Buf *source, ZigList<size_t> *line_offsets, Buf *msg);
+ErrorMsg *err_msg_create_with_offset(Buf *path, uint32_t byte_offset, const char *source, Buf *msg);
 
 #endif

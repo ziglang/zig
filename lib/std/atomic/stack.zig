@@ -4,7 +4,7 @@
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
 const assert = std.debug.assert;
-const builtin = @import("builtin");
+const builtin = std.builtin;
 const expect = std.testing.expect;
 
 /// Many reader, many writer, non-allocating, thread-safe
@@ -110,14 +110,14 @@ test "std.atomic.stack" {
         {
             var i: usize = 0;
             while (i < put_thread_count) : (i += 1) {
-                expect(startPuts(&context) == 0);
+                try expect(startPuts(&context) == 0);
             }
         }
         context.puts_done = true;
         {
             var i: usize = 0;
             while (i < put_thread_count) : (i += 1) {
-                expect(startGets(&context) == 0);
+                try expect(startGets(&context) == 0);
             }
         }
     } else {

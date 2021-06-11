@@ -275,10 +275,7 @@ fn errorIllegalChar(comptime id: std.meta.Tag(Token), index: usize, char: u8) To
 }
 
 fn finishTarget(must_resolve: bool, bytes: []const u8) Token {
-    return if (must_resolve)
-        .{ .target_must_resolve = bytes }
-    else
-        .{ .target = bytes };
+    return if (must_resolve) .{ .target_must_resolve = bytes } else .{ .target = bytes };
 }
 
 const State = enum {
@@ -918,7 +915,7 @@ fn depTokenizer(input: []const u8, expect: []const u8) !void {
     }
 
     if (std.mem.eql(u8, expect, buffer.items)) {
-        testing.expect(true);
+        try testing.expect(true);
         return;
     }
 
@@ -930,7 +927,7 @@ fn depTokenizer(input: []const u8, expect: []const u8) !void {
     try printSection(out, ">>>> got", buffer.items);
     try printRuler(out);
 
-    testing.expect(false);
+    try testing.expect(false);
 }
 
 fn printSection(out: anytype, label: []const u8, bytes: []const u8) !void {
@@ -1029,13 +1026,13 @@ fn hexDump16(out: anytype, offset: usize, bytes: []const u8) !void {
 
 fn printDecValue(out: anytype, value: u64, width: u8) !void {
     var buffer: [20]u8 = undefined;
-    const len = std.fmt.formatIntBuf(buffer[0..], value, 10, false, .{ .width = width, .fill = '0' });
+    const len = std.fmt.formatIntBuf(buffer[0..], value, 10, .lower, .{ .width = width, .fill = '0' });
     try out.writeAll(buffer[0..len]);
 }
 
 fn printHexValue(out: anytype, value: u64, width: u8) !void {
     var buffer: [16]u8 = undefined;
-    const len = std.fmt.formatIntBuf(buffer[0..], value, 16, false, .{ .width = width, .fill = '0' });
+    const len = std.fmt.formatIntBuf(buffer[0..], value, 16, .lower, .{ .width = width, .fill = '0' });
     try out.writeAll(buffer[0..len]);
 }
 

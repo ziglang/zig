@@ -134,7 +134,7 @@ pub const SimpleNetworkReceiveFilter = packed struct {
     _pad: u27 = undefined,
 };
 
-pub const SimpleNetworkState = extern enum(u32) {
+pub const SimpleNetworkState = enum(u32) {
     Stopped,
     Started,
     Initialized,

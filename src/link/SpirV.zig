@@ -16,29 +16,40 @@
 //! All function declarations without a body (extern functions presumably).
 //! All regular functions.
 
+// Because SPIR-V requires re-compilation anyway, and so hot swapping will not work
+// anyway, we simply generate all the code in flushModule. This keeps
+// things considerably simpler.
+
 const SpirV = @This();
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
+const log = std.log.scoped(.link);
 
 const Module = @import("../Module.zig");
 const Compilation = @import("../Compilation.zig");
 const link = @import("../link.zig");
 const codegen = @import("../codegen/spirv.zig");
+const Word = codegen.Word;
+const ResultId = codegen.ResultId;
 const trace = @import("../tracy.zig").trace;
 const build_options = @import("build_options");
 const spec = @import("../codegen/spirv/spec.zig");
 
+// TODO: Should this struct be used at all rather than just a hashmap of aux data for every decl?
 pub const FnData = struct {
-    id: ?u32 = null,
-    code: std.ArrayListUnmanaged(u32) = .{},
+    // We're going to fill these in flushModule, and we're going to fill them unconditionally,
+    // so just set it to undefined.
+    id: ResultId = undefined,
 };
 
 base: link.File,
 
-// TODO: Does this file need to support multiple independent modules?
-spirv_module: codegen.SPIRVModule,
+/// This linker backend does not try to incrementally link output SPIR-V code.
+/// Instead, it tracks all declarations in this table, and iterates over it
+/// in the flush function.
+decl_table: std.AutoArrayHashMapUnmanaged(*Module.Decl, void) = .{},
 
 pub fn createEmpty(gpa: *Allocator, options: link.Options) !*SpirV {
     const spirv = try gpa.create(SpirV);
@@ -49,7 +60,6 @@ pub fn createEmpty(gpa: *Allocator, options: link.Options) !*SpirV {
             .file = null,
             .allocator = gpa,
         },
-        .spirv_module = codegen.SPIRVModule.init(gpa),
     };
 
     // TODO: Figure out where to put all of these
@@ -88,26 +98,12 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
 }
 
 pub fn deinit(self: *SpirV) void {
-    self.spirv_module.deinit();
+    self.decl_table.deinit(self.base.allocator);
 }
 
 pub fn updateDecl(self: *SpirV, module: *Module, decl: *Module.Decl) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const fn_data = &decl.fn_link.spirv;
-    if (fn_data.id == null) {
-        fn_data.id = self.spirv_module.allocId();
-    }
-
-    var managed_code = fn_data.code.toManaged(self.base.allocator);
-    managed_code.items.len = 0;
-
-    try self.spirv_module.genDecl(fn_data.id.?, &managed_code, decl);
-    fn_data.code = managed_code.toUnmanaged();
-
-    // Free excess allocated memory for this Decl.
-    fn_data.code.shrinkAndFree(self.base.allocator, fn_data.code.items.len);
+    // Keep track of all decls so we can iterate over them on flush().
+    _ = try self.decl_table.getOrPut(self.base.allocator, decl);
 }
 
 pub fn updateDeclExports(
@@ -118,10 +114,7 @@ pub fn updateDeclExports(
 ) !void {}
 
 pub fn freeDecl(self: *SpirV, decl: *Module.Decl) void {
-    var fn_data = decl.fn_link.spirv;
-    fn_data.code.deinit(self.base.allocator);
-    if (fn_data.id) |id| self.spirv_module.freeId(id);
-    decl.fn_link.spirv = undefined;
+    assert(self.decl_table.swapRemove(decl));
 }
 
 pub fn flush(self: *SpirV, comp: *Compilation) !void {
@@ -139,58 +132,76 @@ pub fn flushModule(self: *SpirV, comp: *Compilation) !void {
     const module = self.base.options.module.?;
     const target = comp.getTarget();
 
-    var binary = std.ArrayList(u32).init(self.base.allocator);
-    defer binary.deinit();
+    var spv = codegen.SPIRVModule.init(self.base.allocator, module);
+    defer spv.deinit();
 
-    // Note: The order of adding sections to the final binary
-    // follows the SPIR-V logical module format!
+    // Allocate an ID for every declaration before generating code,
+    // so that we can access them before processing them.
+    // TODO: We're allocating an ID unconditionally now, are there
+    // declarations which don't generate a result?
+    // TODO: fn_link is used here, but thats probably not the right field. It will work anyway though.
+    {
+        for (self.decl_table.keys()) |decl| {
+            if (!decl.has_tv) continue;
 
-    try binary.appendSlice(&[_]u32{
-        spec.magic_number,
-        (spec.version.major << 16) | (spec.version.minor << 8),
-        0, // TODO: Register Zig compiler magic number.
-        self.spirv_module.idBound(),
-        0, // Schema (currently reserved for future use in the SPIR-V spec).
-    });
-
-    try writeCapabilities(&binary, target);
-    try writeMemoryModel(&binary, target);
-
-    // Collect list of buffers to write.
-    // SPIR-V files support both little and big endian words. The actual format is
-    // disambiguated by the magic number, and so theoretically we don't need to worry
-    // about endian-ness when writing the final binary.
-    var all_buffers = std.ArrayList(std.os.iovec_const).init(self.base.allocator);
-    defer all_buffers.deinit();
-
-    // Pre-allocate enough for the binary info + all functions
-    try all_buffers.ensureCapacity(module.decl_table.count() + 1);
-
-    all_buffers.appendAssumeCapacity(wordsToIovConst(binary.items));
-
-    for (module.decl_table.items()) |entry| {
-        const decl = entry.value;
-        switch (decl.typed_value) {
-            .most_recent => |tvm| {
-                const fn_data = &decl.fn_link.spirv;
-                all_buffers.appendAssumeCapacity(wordsToIovConst(fn_data.code.items));
-            },
-            .never_succeeded => continue,
+            decl.fn_link.spirv.id = spv.allocResultId();
         }
     }
 
+    // Now, actually generate the code for all declarations.
+    {
+        var decl_gen = codegen.DeclGen.init(&spv);
+        defer decl_gen.deinit();
+
+        for (self.decl_table.keys()) |decl| {
+            if (!decl.has_tv) continue;
+
+            if (try decl_gen.gen(decl)) |msg| {
+                try module.failed_decls.put(module.gpa, decl, msg);
+                return; // TODO: Attempt to generate more decls?
+            }
+        }
+    }
+
+    try writeCapabilities(&spv.binary.capabilities_and_extensions, target);
+    try writeMemoryModel(&spv.binary.capabilities_and_extensions, target);
+
+    const header = [_]Word{
+        spec.magic_number,
+        (spec.version.major << 16) | (spec.version.minor << 8),
+        0, // TODO: Register Zig compiler magic number.
+        spv.resultIdBound(),
+        0, // Schema (currently reserved for future use in the SPIR-V spec).
+    };
+
+    // Note: The order of adding sections to the final binary
+    // follows the SPIR-V logical module format!
+    const buffers = &[_][]const Word{
+        &header,
+        spv.binary.capabilities_and_extensions.items,
+        spv.binary.debug_strings.items,
+        spv.binary.types_globals_constants.items,
+        spv.binary.fn_decls.items,
+    };
+
+    var iovc_buffers: [buffers.len]std.os.iovec_const = undefined;
+    for (iovc_buffers) |*iovc, i| {
+        const bytes = std.mem.sliceAsBytes(buffers[i]);
+        iovc.* = .{ .iov_base = bytes.ptr, .iov_len = bytes.len };
+    }
+
     var file_size: u64 = 0;
-    for (all_buffers.items) |iov| {
+    for (iovc_buffers) |iov| {
         file_size += iov.iov_len;
     }
 
     const file = self.base.file.?;
     try file.seekTo(0);
     try file.setEndPos(file_size);
-    try file.pwritevAll(all_buffers.items, 0);
+    try file.pwritevAll(&iovc_buffers, 0);
 }
 
-fn writeCapabilities(binary: *std.ArrayList(u32), target: std.Target) !void {
+fn writeCapabilities(binary: *std.ArrayList(Word), target: std.Target) !void {
     // TODO: Integrate with a hypothetical feature system
     const cap: spec.Capability = switch (target.os.tag) {
         .opencl => .Kernel,
@@ -199,10 +210,10 @@ fn writeCapabilities(binary: *std.ArrayList(u32), target: std.Target) !void {
         else => unreachable, // TODO
     };
 
-    try codegen.writeInstruction(binary, .OpCapability, &[_]u32{@enumToInt(cap)});
+    try codegen.writeInstruction(binary, .OpCapability, &[_]Word{@enumToInt(cap)});
 }
 
-fn writeMemoryModel(binary: *std.ArrayList(u32), target: std.Target) !void {
+fn writeMemoryModel(binary: *std.ArrayList(Word), target: std.Target) !void {
     const addressing_model = switch (target.os.tag) {
         .opencl => switch (target.cpu.arch) {
             .spirv32 => spec.AddressingModel.Physical32,
@@ -220,15 +231,7 @@ fn writeMemoryModel(binary: *std.ArrayList(u32), target: std.Target) !void {
         else => unreachable,
     };
 
-    try codegen.writeInstruction(binary, .OpMemoryModel, &[_]u32{
+    try codegen.writeInstruction(binary, .OpMemoryModel, &[_]Word{
         @enumToInt(addressing_model), @enumToInt(memory_model),
     });
-}
-
-fn wordsToIovConst(words: []const u32) std.os.iovec_const {
-    const bytes = std.mem.sliceAsBytes(words);
-    return .{
-        .iov_base = bytes.ptr,
-        .iov_len = bytes.len,
-    };
 }

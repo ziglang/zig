@@ -1621,6 +1621,16 @@ pub const cpu = struct {
             .apple_a7,
         }),
     };
+    pub const emag = CpuModel{
+        .name = "emag",
+        .llvm_name = null,
+        .features = featureSet(&[_]Feature{
+            .crc,
+            .crypto,
+            .perfmon,
+            .v8a,
+        }),
+    };
     pub const exynos_m1 = CpuModel{
         .name = "exynos_m1",
         .llvm_name = null,
@@ -1865,6 +1875,14 @@ pub const cpu = struct {
             .spe,
             .use_postra_scheduler,
             .v8_2a,
+        }),
+    };
+    pub const xgene1 = CpuModel{
+        .name = "xgene1",
+        .llvm_name = null,
+        .features = featureSet(&[_]Feature{
+            .perfmon,
+            .v8a,
         }),
     };
 };

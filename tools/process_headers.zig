@@ -377,14 +377,14 @@ pub fn main() !void {
                             const gop = try hash_to_contents.getOrPut(hash);
                             if (gop.found_existing) {
                                 max_bytes_saved += raw_bytes.len;
-                                gop.entry.value.hit_count += 1;
+                                gop.value_ptr.hit_count += 1;
                                 std.debug.warn("duplicate: {s} {s} ({:2})\n", .{
                                     libc_target.name,
                                     rel_path,
                                     std.fmt.fmtIntSizeDec(raw_bytes.len),
                                 });
                             } else {
-                                gop.entry.value = Contents{
+                                gop.value_ptr.* = Contents{
                                     .bytes = trimmed,
                                     .hit_count = 1,
                                     .hash = hash,
@@ -392,10 +392,10 @@ pub fn main() !void {
                                 };
                             }
                             const path_gop = try path_table.getOrPut(rel_path);
-                            const target_to_hash = if (path_gop.found_existing) path_gop.entry.value else blk: {
+                            const target_to_hash = if (path_gop.found_existing) path_gop.value_ptr.* else blk: {
                                 const ptr = try allocator.create(TargetToHash);
                                 ptr.* = TargetToHash.init(allocator);
-                                path_gop.entry.value = ptr;
+                                path_gop.value_ptr.* = ptr;
                                 break :blk ptr;
                             };
                             try target_to_hash.putNoClobber(dest_target, hash);
@@ -423,9 +423,9 @@ pub fn main() !void {
     while (path_it.next()) |path_kv| {
         var contents_list = std.ArrayList(*Contents).init(allocator);
         {
-            var hash_it = path_kv.value.iterator();
+            var hash_it = path_kv.value.*.iterator();
             while (hash_it.next()) |hash_kv| {
-                const contents = &hash_to_contents.getEntry(hash_kv.value).?.value;
+                const contents = hash_to_contents.get(hash_kv.value.*).?;
                 try contents_list.append(contents);
             }
         }
@@ -433,7 +433,7 @@ pub fn main() !void {
         const best_contents = contents_list.popOrNull().?;
         if (best_contents.hit_count > 1) {
             // worth it to make it generic
-            const full_path = try std.fs.path.join(allocator, &[_][]const u8{ out_dir, generic_name, path_kv.key });
+            const full_path = try std.fs.path.join(allocator, &[_][]const u8{ out_dir, generic_name, path_kv.key.* });
             try std.fs.cwd().makePath(std.fs.path.dirname(full_path).?);
             try std.fs.cwd().writeFile(full_path, best_contents.bytes);
             best_contents.is_generic = true;
@@ -443,17 +443,17 @@ pub fn main() !void {
                     missed_opportunity_bytes += this_missed_bytes;
                     std.debug.warn("Missed opportunity ({:2}): {s}\n", .{
                         std.fmt.fmtIntSizeDec(this_missed_bytes),
-                        path_kv.key,
+                        path_kv.key.*,
                     });
                 } else break;
             }
         }
-        var hash_it = path_kv.value.iterator();
+        var hash_it = path_kv.value.*.iterator();
         while (hash_it.next()) |hash_kv| {
-            const contents = &hash_to_contents.getEntry(hash_kv.value).?.value;
+            const contents = hash_to_contents.get(hash_kv.value.*).?;
             if (contents.is_generic) continue;
 
-            const dest_target = hash_kv.key;
+            const dest_target = hash_kv.key.*;
             const arch_name = switch (dest_target.arch) {
                 .specific => |a| @tagName(a),
                 else => @tagName(dest_target.arch),
@@ -463,7 +463,7 @@ pub fn main() !void {
                 @tagName(dest_target.os),
                 @tagName(dest_target.abi),
             });
-            const full_path = try std.fs.path.join(allocator, &[_][]const u8{ out_dir, out_subpath, path_kv.key });
+            const full_path = try std.fs.path.join(allocator, &[_][]const u8{ out_dir, out_subpath, path_kv.key.* });
             try std.fs.cwd().makePath(std.fs.path.dirname(full_path).?);
             try std.fs.cwd().writeFile(full_path, contents.bytes);
         }

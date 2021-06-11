@@ -387,17 +387,6 @@ pub fn PriorityDequeue(comptime T: type) type {
                     return;
                 },
             };
-            self.len = new_len;
-        }
-
-        /// Reduce length to `new_len`.
-        pub fn shrinkRetainingCapacity(self: *Self, new_len: usize) void {
-            assert(new_len <= self.items.len);
-
-            // Cannot shrink to smaller than the current queue size without invalidating the heap property
-            assert(new_len >= self.len);
-
-            self.len = new_len;
         }
 
         pub fn update(self: *Self, elem: T, new_elem: T) !void {
@@ -482,12 +471,12 @@ test "std.PriorityDequeue: add and remove min" {
     try queue.add(25);
     try queue.add(13);
 
-    expectEqual(@as(u32, 7), queue.removeMin());
-    expectEqual(@as(u32, 12), queue.removeMin());
-    expectEqual(@as(u32, 13), queue.removeMin());
-    expectEqual(@as(u32, 23), queue.removeMin());
-    expectEqual(@as(u32, 25), queue.removeMin());
-    expectEqual(@as(u32, 54), queue.removeMin());
+    try expectEqual(@as(u32, 7), queue.removeMin());
+    try expectEqual(@as(u32, 12), queue.removeMin());
+    try expectEqual(@as(u32, 13), queue.removeMin());
+    try expectEqual(@as(u32, 23), queue.removeMin());
+    try expectEqual(@as(u32, 25), queue.removeMin());
+    try expectEqual(@as(u32, 54), queue.removeMin());
 }
 
 test "std.PriorityDequeue: add and remove min structs" {
@@ -508,12 +497,12 @@ test "std.PriorityDequeue: add and remove min structs" {
     try queue.add(.{ .size = 25 });
     try queue.add(.{ .size = 13 });
 
-    expectEqual(@as(u32, 7), queue.removeMin().size);
-    expectEqual(@as(u32, 12), queue.removeMin().size);
-    expectEqual(@as(u32, 13), queue.removeMin().size);
-    expectEqual(@as(u32, 23), queue.removeMin().size);
-    expectEqual(@as(u32, 25), queue.removeMin().size);
-    expectEqual(@as(u32, 54), queue.removeMin().size);
+    try expectEqual(@as(u32, 7), queue.removeMin().size);
+    try expectEqual(@as(u32, 12), queue.removeMin().size);
+    try expectEqual(@as(u32, 13), queue.removeMin().size);
+    try expectEqual(@as(u32, 23), queue.removeMin().size);
+    try expectEqual(@as(u32, 25), queue.removeMin().size);
+    try expectEqual(@as(u32, 54), queue.removeMin().size);
 }
 
 test "std.PriorityDequeue: add and remove max" {
@@ -527,12 +516,12 @@ test "std.PriorityDequeue: add and remove max" {
     try queue.add(25);
     try queue.add(13);
 
-    expectEqual(@as(u32, 54), queue.removeMax());
-    expectEqual(@as(u32, 25), queue.removeMax());
-    expectEqual(@as(u32, 23), queue.removeMax());
-    expectEqual(@as(u32, 13), queue.removeMax());
-    expectEqual(@as(u32, 12), queue.removeMax());
-    expectEqual(@as(u32, 7), queue.removeMax());
+    try expectEqual(@as(u32, 54), queue.removeMax());
+    try expectEqual(@as(u32, 25), queue.removeMax());
+    try expectEqual(@as(u32, 23), queue.removeMax());
+    try expectEqual(@as(u32, 13), queue.removeMax());
+    try expectEqual(@as(u32, 12), queue.removeMax());
+    try expectEqual(@as(u32, 7), queue.removeMax());
 }
 
 test "std.PriorityDequeue: add and remove same min" {
@@ -546,12 +535,12 @@ test "std.PriorityDequeue: add and remove same min" {
     try queue.add(1);
     try queue.add(1);
 
-    expectEqual(@as(u32, 1), queue.removeMin());
-    expectEqual(@as(u32, 1), queue.removeMin());
-    expectEqual(@as(u32, 1), queue.removeMin());
-    expectEqual(@as(u32, 1), queue.removeMin());
-    expectEqual(@as(u32, 2), queue.removeMin());
-    expectEqual(@as(u32, 2), queue.removeMin());
+    try expectEqual(@as(u32, 1), queue.removeMin());
+    try expectEqual(@as(u32, 1), queue.removeMin());
+    try expectEqual(@as(u32, 1), queue.removeMin());
+    try expectEqual(@as(u32, 1), queue.removeMin());
+    try expectEqual(@as(u32, 2), queue.removeMin());
+    try expectEqual(@as(u32, 2), queue.removeMin());
 }
 
 test "std.PriorityDequeue: add and remove same max" {
@@ -565,20 +554,20 @@ test "std.PriorityDequeue: add and remove same max" {
     try queue.add(1);
     try queue.add(1);
 
-    expectEqual(@as(u32, 2), queue.removeMax());
-    expectEqual(@as(u32, 2), queue.removeMax());
-    expectEqual(@as(u32, 1), queue.removeMax());
-    expectEqual(@as(u32, 1), queue.removeMax());
-    expectEqual(@as(u32, 1), queue.removeMax());
-    expectEqual(@as(u32, 1), queue.removeMax());
+    try expectEqual(@as(u32, 2), queue.removeMax());
+    try expectEqual(@as(u32, 2), queue.removeMax());
+    try expectEqual(@as(u32, 1), queue.removeMax());
+    try expectEqual(@as(u32, 1), queue.removeMax());
+    try expectEqual(@as(u32, 1), queue.removeMax());
+    try expectEqual(@as(u32, 1), queue.removeMax());
 }
 
 test "std.PriorityDequeue: removeOrNull empty" {
     var queue = PDQ.init(testing.allocator, lessThanComparison);
     defer queue.deinit();
 
-    expect(queue.removeMinOrNull() == null);
-    expect(queue.removeMaxOrNull() == null);
+    try expect(queue.removeMinOrNull() == null);
+    try expect(queue.removeMaxOrNull() == null);
 }
 
 test "std.PriorityDequeue: edge case 3 elements" {
@@ -589,9 +578,9 @@ test "std.PriorityDequeue: edge case 3 elements" {
     try queue.add(3);
     try queue.add(2);
 
-    expectEqual(@as(u32, 2), queue.removeMin());
-    expectEqual(@as(u32, 3), queue.removeMin());
-    expectEqual(@as(u32, 9), queue.removeMin());
+    try expectEqual(@as(u32, 2), queue.removeMin());
+    try expectEqual(@as(u32, 3), queue.removeMin());
+    try expectEqual(@as(u32, 9), queue.removeMin());
 }
 
 test "std.PriorityDequeue: edge case 3 elements max" {
@@ -602,37 +591,37 @@ test "std.PriorityDequeue: edge case 3 elements max" {
     try queue.add(3);
     try queue.add(2);
 
-    expectEqual(@as(u32, 9), queue.removeMax());
-    expectEqual(@as(u32, 3), queue.removeMax());
-    expectEqual(@as(u32, 2), queue.removeMax());
+    try expectEqual(@as(u32, 9), queue.removeMax());
+    try expectEqual(@as(u32, 3), queue.removeMax());
+    try expectEqual(@as(u32, 2), queue.removeMax());
 }
 
 test "std.PriorityDequeue: peekMin" {
     var queue = PDQ.init(testing.allocator, lessThanComparison);
     defer queue.deinit();
 
-    expect(queue.peekMin() == null);
+    try expect(queue.peekMin() == null);
 
     try queue.add(9);
     try queue.add(3);
     try queue.add(2);
 
-    expect(queue.peekMin().? == 2);
-    expect(queue.peekMin().? == 2);
+    try expect(queue.peekMin().? == 2);
+    try expect(queue.peekMin().? == 2);
 }
 
 test "std.PriorityDequeue: peekMax" {
     var queue = PDQ.init(testing.allocator, lessThanComparison);
     defer queue.deinit();
 
-    expect(queue.peekMin() == null);
+    try expect(queue.peekMin() == null);
 
     try queue.add(9);
     try queue.add(3);
     try queue.add(2);
 
-    expect(queue.peekMax().? == 9);
-    expect(queue.peekMax().? == 9);
+    try expect(queue.peekMax().? == 9);
+    try expect(queue.peekMax().? == 9);
 }
 
 test "std.PriorityDequeue: sift up with odd indices" {
@@ -645,7 +634,7 @@ test "std.PriorityDequeue: sift up with odd indices" {
 
     const sorted_items = [_]u32{ 1, 2, 5, 6, 7, 7, 11, 12, 13, 14, 15, 15, 16, 21, 22, 24, 24, 25 };
     for (sorted_items) |e| {
-        expectEqual(e, queue.removeMin());
+        try expectEqual(e, queue.removeMin());
     }
 }
 
@@ -659,7 +648,7 @@ test "std.PriorityDequeue: sift up with odd indices" {
 
     const sorted_items = [_]u32{ 25, 24, 24, 22, 21, 16, 15, 15, 14, 13, 12, 11, 7, 7, 6, 5, 2, 1 };
     for (sorted_items) |e| {
-        expectEqual(e, queue.removeMax());
+        try expectEqual(e, queue.removeMax());
     }
 }
 
@@ -671,7 +660,7 @@ test "std.PriorityDequeue: addSlice min" {
 
     const sorted_items = [_]u32{ 1, 2, 5, 6, 7, 7, 11, 12, 13, 14, 15, 15, 16, 21, 22, 24, 24, 25 };
     for (sorted_items) |e| {
-        expectEqual(e, queue.removeMin());
+        try expectEqual(e, queue.removeMin());
     }
 }
 
@@ -683,7 +672,7 @@ test "std.PriorityDequeue: addSlice max" {
 
     const sorted_items = [_]u32{ 25, 24, 24, 22, 21, 16, 15, 15, 14, 13, 12, 11, 7, 7, 6, 5, 2, 1 };
     for (sorted_items) |e| {
-        expectEqual(e, queue.removeMax());
+        try expectEqual(e, queue.removeMax());
     }
 }
 
@@ -692,8 +681,8 @@ test "std.PriorityDequeue: fromOwnedSlice trivial case 0" {
     const queue_items = try testing.allocator.dupe(u32, &items);
     var queue = PDQ.fromOwnedSlice(testing.allocator, lessThanComparison, queue_items[0..]);
     defer queue.deinit();
-    expectEqual(@as(usize, 0), queue.len);
-    expect(queue.removeMinOrNull() == null);
+    try expectEqual(@as(usize, 0), queue.len);
+    try expect(queue.removeMinOrNull() == null);
 }
 
 test "std.PriorityDequeue: fromOwnedSlice trivial case 1" {
@@ -702,9 +691,9 @@ test "std.PriorityDequeue: fromOwnedSlice trivial case 1" {
     var queue = PDQ.fromOwnedSlice(testing.allocator, lessThanComparison, queue_items[0..]);
     defer queue.deinit();
 
-    expectEqual(@as(usize, 1), queue.len);
-    expectEqual(items[0], queue.removeMin());
-    expect(queue.removeMinOrNull() == null);
+    try expectEqual(@as(usize, 1), queue.len);
+    try expectEqual(items[0], queue.removeMin());
+    try expect(queue.removeMinOrNull() == null);
 }
 
 test "std.PriorityDequeue: fromOwnedSlice" {
@@ -715,7 +704,7 @@ test "std.PriorityDequeue: fromOwnedSlice" {
 
     const sorted_items = [_]u32{ 1, 2, 5, 6, 7, 7, 11, 12, 13, 14, 15, 15, 16, 21, 22, 24, 24, 25 };
     for (sorted_items) |e| {
-        expectEqual(e, queue.removeMin());
+        try expectEqual(e, queue.removeMin());
     }
 }
 
@@ -729,9 +718,9 @@ test "std.PriorityDequeue: update min queue" {
     try queue.update(55, 5);
     try queue.update(44, 4);
     try queue.update(11, 1);
-    expectEqual(@as(u32, 1), queue.removeMin());
-    expectEqual(@as(u32, 4), queue.removeMin());
-    expectEqual(@as(u32, 5), queue.removeMin());
+    try expectEqual(@as(u32, 1), queue.removeMin());
+    try expectEqual(@as(u32, 4), queue.removeMin());
+    try expectEqual(@as(u32, 5), queue.removeMin());
 }
 
 test "std.PriorityDequeue: update same min queue" {
@@ -744,10 +733,10 @@ test "std.PriorityDequeue: update same min queue" {
     try queue.add(2);
     try queue.update(1, 5);
     try queue.update(2, 4);
-    expectEqual(@as(u32, 1), queue.removeMin());
-    expectEqual(@as(u32, 2), queue.removeMin());
-    expectEqual(@as(u32, 4), queue.removeMin());
-    expectEqual(@as(u32, 5), queue.removeMin());
+    try expectEqual(@as(u32, 1), queue.removeMin());
+    try expectEqual(@as(u32, 2), queue.removeMin());
+    try expectEqual(@as(u32, 4), queue.removeMin());
+    try expectEqual(@as(u32, 5), queue.removeMin());
 }
 
 test "std.PriorityDequeue: update max queue" {
@@ -761,9 +750,9 @@ test "std.PriorityDequeue: update max queue" {
     try queue.update(44, 1);
     try queue.update(11, 4);
 
-    expectEqual(@as(u32, 5), queue.removeMax());
-    expectEqual(@as(u32, 4), queue.removeMax());
-    expectEqual(@as(u32, 1), queue.removeMax());
+    try expectEqual(@as(u32, 5), queue.removeMax());
+    try expectEqual(@as(u32, 4), queue.removeMax());
+    try expectEqual(@as(u32, 1), queue.removeMax());
 }
 
 test "std.PriorityDequeue: update same max queue" {
@@ -776,10 +765,10 @@ test "std.PriorityDequeue: update same max queue" {
     try queue.add(2);
     try queue.update(1, 5);
     try queue.update(2, 4);
-    expectEqual(@as(u32, 5), queue.removeMax());
-    expectEqual(@as(u32, 4), queue.removeMax());
-    expectEqual(@as(u32, 2), queue.removeMax());
-    expectEqual(@as(u32, 1), queue.removeMax());
+    try expectEqual(@as(u32, 5), queue.removeMax());
+    try expectEqual(@as(u32, 4), queue.removeMax());
+    try expectEqual(@as(u32, 2), queue.removeMax());
+    try expectEqual(@as(u32, 1), queue.removeMax());
 }
 
 test "std.PriorityDequeue: iterator" {
@@ -801,7 +790,7 @@ test "std.PriorityDequeue: iterator" {
         _ = map.remove(e);
     }
 
-    expectEqual(@as(usize, 0), map.count());
+    try expectEqual(@as(usize, 0), map.count());
 }
 
 test "std.PriorityDequeue: remove at index" {
@@ -821,10 +810,10 @@ test "std.PriorityDequeue: remove at index" {
         idx += 1;
     } else unreachable;
 
-    expectEqual(queue.removeIndex(two_idx), 2);
-    expectEqual(queue.removeMin(), 1);
-    expectEqual(queue.removeMin(), 3);
-    expectEqual(queue.removeMinOrNull(), null);
+    try expectEqual(queue.removeIndex(two_idx), 2);
+    try expectEqual(queue.removeMin(), 1);
+    try expectEqual(queue.removeMin(), 3);
+    try expectEqual(queue.removeMinOrNull(), null);
 }
 
 test "std.PriorityDequeue: iterator while empty" {
@@ -833,34 +822,30 @@ test "std.PriorityDequeue: iterator while empty" {
 
     var it = queue.iterator();
 
-    expectEqual(it.next(), null);
+    try expectEqual(it.next(), null);
 }
 
-test "std.PriorityDequeue: shrinkRetainingCapacity and shrinkAndFree" {
+test "std.PriorityDequeue: shrinkAndFree" {
     var queue = PDQ.init(testing.allocator, lessThanComparison);
     defer queue.deinit();
 
     try queue.ensureCapacity(4);
-    expect(queue.capacity() >= 4);
+    try expect(queue.capacity() >= 4);
 
     try queue.add(1);
     try queue.add(2);
     try queue.add(3);
-    expect(queue.capacity() >= 4);
-    expectEqual(@as(usize, 3), queue.len);
-
-    queue.shrinkRetainingCapacity(3);
-    expect(queue.capacity() >= 4);
-    expectEqual(@as(usize, 3), queue.len);
+    try expect(queue.capacity() >= 4);
+    try expectEqual(@as(usize, 3), queue.len);
 
     queue.shrinkAndFree(3);
-    expectEqual(@as(usize, 3), queue.capacity());
-    expectEqual(@as(usize, 3), queue.len);
+    try expectEqual(@as(usize, 3), queue.capacity());
+    try expectEqual(@as(usize, 3), queue.len);
 
-    expectEqual(@as(u32, 3), queue.removeMax());
-    expectEqual(@as(u32, 2), queue.removeMax());
-    expectEqual(@as(u32, 1), queue.removeMax());
-    expect(queue.removeMaxOrNull() == null);
+    try expectEqual(@as(u32, 3), queue.removeMax());
+    try expectEqual(@as(u32, 2), queue.removeMax());
+    try expectEqual(@as(u32, 1), queue.removeMax());
+    try expect(queue.removeMaxOrNull() == null);
 }
 
 test "std.PriorityDequeue: fuzz testing min" {
@@ -885,7 +870,7 @@ fn fuzzTestMin(rng: *std.rand.Random, comptime queue_size: usize) !void {
     var last_removed: ?u32 = null;
     while (queue.removeMinOrNull()) |next| {
         if (last_removed) |last| {
-            expect(last <= next);
+            try expect(last <= next);
         }
         last_removed = next;
     }
@@ -913,7 +898,7 @@ fn fuzzTestMax(rng: *std.rand.Random, queue_size: usize) !void {
     var last_removed: ?u32 = null;
     while (queue.removeMaxOrNull()) |next| {
         if (last_removed) |last| {
-            expect(last >= next);
+            try expect(last >= next);
         }
         last_removed = next;
     }
@@ -945,13 +930,13 @@ fn fuzzTestMinMax(rng: *std.rand.Random, queue_size: usize) !void {
         if (i % 2 == 0) {
             const next = queue.removeMin();
             if (last_min) |last| {
-                expect(last <= next);
+                try expect(last <= next);
             }
             last_min = next;
         } else {
             const next = queue.removeMax();
             if (last_max) |last| {
-                expect(last >= next);
+                try expect(last >= next);
             }
             last_max = next;
         }

@@ -53,25 +53,25 @@ pub fn log(comptime T: type, base: T, x: T) T {
 }
 
 test "math.log integer" {
-    expect(log(u8, 2, 0x1) == 0);
-    expect(log(u8, 2, 0x2) == 1);
-    expect(log(u16, 2, 0x72) == 6);
-    expect(log(u32, 2, 0xFFFFFF) == 23);
-    expect(log(u64, 2, 0x7FF0123456789ABC) == 62);
+    try expect(log(u8, 2, 0x1) == 0);
+    try expect(log(u8, 2, 0x2) == 1);
+    try expect(log(u16, 2, 0x72) == 6);
+    try expect(log(u32, 2, 0xFFFFFF) == 23);
+    try expect(log(u64, 2, 0x7FF0123456789ABC) == 62);
 }
 
 test "math.log float" {
     const epsilon = 0.000001;
 
-    expect(math.approxEqAbs(f32, log(f32, 6, 0.23947), -0.797723, epsilon));
-    expect(math.approxEqAbs(f32, log(f32, 89, 0.23947), -0.318432, epsilon));
-    expect(math.approxEqAbs(f64, log(f64, 123897, 12389216414), 1.981724596, epsilon));
+    try expect(math.approxEqAbs(f32, log(f32, 6, 0.23947), -0.797723, epsilon));
+    try expect(math.approxEqAbs(f32, log(f32, 89, 0.23947), -0.318432, epsilon));
+    try expect(math.approxEqAbs(f64, log(f64, 123897, 12389216414), 1.981724596, epsilon));
 }
 
 test "math.log float_special" {
-    expect(log(f32, 2, 0.2301974) == math.log2(@as(f32, 0.2301974)));
-    expect(log(f32, 10, 0.2301974) == math.log10(@as(f32, 0.2301974)));
+    try expect(log(f32, 2, 0.2301974) == math.log2(@as(f32, 0.2301974)));
+    try expect(log(f32, 10, 0.2301974) == math.log10(@as(f32, 0.2301974)));
 
-    expect(log(f64, 2, 213.23019799993) == math.log2(@as(f64, 213.23019799993)));
-    expect(log(f64, 10, 213.23019799993) == math.log10(@as(f64, 213.23019799993)));
+    try expect(log(f64, 2, 213.23019799993) == math.log2(@as(f64, 213.23019799993)));
+    try expect(log(f64, 10, 213.23019799993) == math.log10(@as(f64, 213.23019799993)));
 }

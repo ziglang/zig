@@ -101,6 +101,6 @@ const test_vectors = init: {
 
 test "compare f64" {
     for (test_vectors) |vector, i| {
-        std.testing.expect(test__cmpdf2(vector));
+        try std.testing.expect(test__cmpdf2(vector));
     }
 }

@@ -99,21 +99,21 @@ pub const Adler32 = struct {
 };
 
 test "adler32 sanity" {
-    testing.expectEqual(@as(u32, 0x620062), Adler32.hash("a"));
-    testing.expectEqual(@as(u32, 0xbc002ed), Adler32.hash("example"));
+    try testing.expectEqual(@as(u32, 0x620062), Adler32.hash("a"));
+    try testing.expectEqual(@as(u32, 0xbc002ed), Adler32.hash("example"));
 }
 
 test "adler32 long" {
     const long1 = [_]u8{1} ** 1024;
-    testing.expectEqual(@as(u32, 0x06780401), Adler32.hash(long1[0..]));
+    try testing.expectEqual(@as(u32, 0x06780401), Adler32.hash(long1[0..]));
 
     const long2 = [_]u8{1} ** 1025;
-    testing.expectEqual(@as(u32, 0x0a7a0402), Adler32.hash(long2[0..]));
+    try testing.expectEqual(@as(u32, 0x0a7a0402), Adler32.hash(long2[0..]));
 }
 
 test "adler32 very long" {
     const long = [_]u8{1} ** 5553;
-    testing.expectEqual(@as(u32, 0x707f15b2), Adler32.hash(long[0..]));
+    try testing.expectEqual(@as(u32, 0x707f15b2), Adler32.hash(long[0..]));
 }
 
 test "adler32 very long with variation" {
@@ -129,5 +129,5 @@ test "adler32 very long with variation" {
         break :blk result;
     };
 
-    testing.expectEqual(@as(u32, 0x5af38d6e), std.hash.Adler32.hash(long[0..]));
+    try testing.expectEqual(@as(u32, 0x5af38d6e), std.hash.Adler32.hash(long[0..]));
 }

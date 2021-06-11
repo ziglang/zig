@@ -4,7 +4,7 @@
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
 const std = @import("../std.zig");
-const builtin = @import("builtin");
+const builtin = std.builtin;
 const assert = std.debug.assert;
 const testing = std.testing;
 const mem = std.mem;
@@ -136,7 +136,7 @@ test "std.event.Lock" {
     testLock(&lock);
 
     const expected_result = [1]i32{3 * @intCast(i32, shared_test_data.len)} ** shared_test_data.len;
-    testing.expectEqualSlices(i32, &expected_result, &shared_test_data);
+    try testing.expectEqualSlices(i32, &expected_result, &shared_test_data);
 }
 fn testLock(lock: *Lock) void {
     var handle1 = async lockRunner(lock);

@@ -106,38 +106,38 @@ fn ilogb64(x: f64) i32 {
 }
 
 test "math.ilogb" {
-    expect(ilogb(@as(f32, 0.2)) == ilogb32(0.2));
-    expect(ilogb(@as(f64, 0.2)) == ilogb64(0.2));
+    try expect(ilogb(@as(f32, 0.2)) == ilogb32(0.2));
+    try expect(ilogb(@as(f64, 0.2)) == ilogb64(0.2));
 }
 
 test "math.ilogb32" {
-    expect(ilogb32(0.0) == fp_ilogb0);
-    expect(ilogb32(0.5) == -1);
-    expect(ilogb32(0.8923) == -1);
-    expect(ilogb32(10.0) == 3);
-    expect(ilogb32(-123984) == 16);
-    expect(ilogb32(2398.23) == 11);
+    try expect(ilogb32(0.0) == fp_ilogb0);
+    try expect(ilogb32(0.5) == -1);
+    try expect(ilogb32(0.8923) == -1);
+    try expect(ilogb32(10.0) == 3);
+    try expect(ilogb32(-123984) == 16);
+    try expect(ilogb32(2398.23) == 11);
 }
 
 test "math.ilogb64" {
-    expect(ilogb64(0.0) == fp_ilogb0);
-    expect(ilogb64(0.5) == -1);
-    expect(ilogb64(0.8923) == -1);
-    expect(ilogb64(10.0) == 3);
-    expect(ilogb64(-123984) == 16);
-    expect(ilogb64(2398.23) == 11);
+    try expect(ilogb64(0.0) == fp_ilogb0);
+    try expect(ilogb64(0.5) == -1);
+    try expect(ilogb64(0.8923) == -1);
+    try expect(ilogb64(10.0) == 3);
+    try expect(ilogb64(-123984) == 16);
+    try expect(ilogb64(2398.23) == 11);
 }
 
 test "math.ilogb32.special" {
-    expect(ilogb32(math.inf(f32)) == maxInt(i32));
-    expect(ilogb32(-math.inf(f32)) == maxInt(i32));
-    expect(ilogb32(0.0) == minInt(i32));
-    expect(ilogb32(math.nan(f32)) == maxInt(i32));
+    try expect(ilogb32(math.inf(f32)) == maxInt(i32));
+    try expect(ilogb32(-math.inf(f32)) == maxInt(i32));
+    try expect(ilogb32(0.0) == minInt(i32));
+    try expect(ilogb32(math.nan(f32)) == maxInt(i32));
 }
 
 test "math.ilogb64.special" {
-    expect(ilogb64(math.inf(f64)) == maxInt(i32));
-    expect(ilogb64(-math.inf(f64)) == maxInt(i32));
-    expect(ilogb64(0.0) == minInt(i32));
-    expect(ilogb64(math.nan(f64)) == maxInt(i32));
+    try expect(ilogb64(math.inf(f64)) == maxInt(i32));
+    try expect(ilogb64(-math.inf(f64)) == maxInt(i32));
+    try expect(ilogb64(0.0) == minInt(i32));
+    try expect(ilogb64(math.nan(f64)) == maxInt(i32));
 }

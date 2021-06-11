@@ -11,18 +11,20 @@
 //   provide `rename` when only the `renameat` syscall exists.
 // * Does not support POSIX thread cancellation.
 const std = @import("../std.zig");
-const builtin = std.builtin;
 const assert = std.debug.assert;
 const maxInt = std.math.maxInt;
 const elf = std.elf;
 const vdso = @import("linux/vdso.zig");
 const dl = @import("../dynamic_library.zig");
+const native_arch = std.Target.current.cpu.arch;
+const native_endian = native_arch.endian();
 
-pub usingnamespace switch (builtin.arch) {
+pub usingnamespace switch (native_arch) {
     .i386 => @import("linux/i386.zig"),
     .x86_64 => @import("linux/x86_64.zig"),
     .aarch64 => @import("linux/arm64.zig"),
     .arm => @import("linux/arm-eabi.zig"),
+    .thumb => @import("linux/thumb.zig"),
     .riscv64 => @import("linux/riscv64.zig"),
     .sparcv9 => @import("linux/sparc64.zig"),
     .mips, .mipsel => @import("linux/mips.zig"),
@@ -52,20 +54,36 @@ pub fn getauxval(index: usize) usize {
 // Some architectures (and some syscalls) require 64bit parameters to be passed
 // in a even-aligned register pair.
 const require_aligned_register_pair =
+    std.Target.current.cpu.arch.isPPC() or
     std.Target.current.cpu.arch.isMIPS() or
     std.Target.current.cpu.arch.isARM() or
     std.Target.current.cpu.arch.isThumb();
 
 // Split a 64bit value into a {LSB,MSB} pair.
-fn splitValue64(val: u64) [2]u32 {
-    switch (builtin.endian) {
+// The LE/BE variants specify the endianness to assume.
+fn splitValueLE64(val: i64) [2]u32 {
+    const u = @bitCast(u64, val);
+    return [2]u32{
+        @truncate(u32, u),
+        @truncate(u32, u >> 32),
+    };
+}
+fn splitValueBE64(val: i64) [2]u32 {
+    return [2]u32{
+        @truncate(u32, u >> 32),
+        @truncate(u32, u),
+    };
+}
+fn splitValue64(val: i64) [2]u32 {
+    const u = @bitCast(u64, val);
+    switch (native_endian) {
         .Little => return [2]u32{
-            @truncate(u32, val),
-            @truncate(u32, val >> 32),
+            @truncate(u32, u),
+            @truncate(u32, u >> 32),
         },
         .Big => return [2]u32{
-            @truncate(u32, val >> 32),
-            @truncate(u32, val),
+            @truncate(u32, u >> 32),
+            @truncate(u32, u),
         },
     }
 }
@@ -113,7 +131,7 @@ pub fn execve(path: [*:0]const u8, argv: [*:null]const ?[*:0]const u8, envp: [*:
 }
 
 pub fn fork() usize {
-    if (comptime builtin.arch.isSPARC()) {
+    if (comptime native_arch.isSPARC()) {
         return syscall_fork();
     } else if (@hasField(SYS, "fork")) {
         return syscall0(.fork);
@@ -127,7 +145,7 @@ pub fn fork() usize {
 /// It is advised to avoid this function and use clone instead, because
 /// the compiler is not aware of how vfork affects control flow and you may
 /// see different results in optimized builds.
-pub fn vfork() callconv(.Inline) usize {
+pub inline fn vfork() usize {
     return @call(.{ .modifier = .always_inline }, syscall0, .{.vfork});
 }
 
@@ -139,8 +157,8 @@ pub fn utimensat(dirfd: i32, path: ?[*:0]const u8, times: *const [2]timespec, fl
     return syscall4(.utimensat, @bitCast(usize, @as(isize, dirfd)), @ptrToInt(path), @ptrToInt(times), flags);
 }
 
-pub fn fallocate(fd: i32, mode: i32, offset: u64, length: u64) usize {
-    if (@sizeOf(usize) == 4) {
+pub fn fallocate(fd: i32, mode: i32, offset: i64, length: i64) usize {
+    if (usize_bits < 64) {
         const offset_halves = splitValue64(offset);
         const length_halves = splitValue64(length);
         return syscall6(
@@ -157,8 +175,8 @@ pub fn fallocate(fd: i32, mode: i32, offset: u64, length: u64) usize {
             .fallocate,
             @bitCast(usize, @as(isize, fd)),
             @bitCast(usize, @as(isize, mode)),
-            offset,
-            length,
+            @bitCast(u64, offset),
+            @bitCast(u64, length),
         );
     }
 }
@@ -241,7 +259,7 @@ pub fn umount2(special: [*:0]const u8, flags: u32) usize {
     return syscall2(.umount2, @ptrToInt(special), flags);
 }
 
-pub fn mmap(address: ?[*]u8, length: usize, prot: usize, flags: u32, fd: i32, offset: u64) usize {
+pub fn mmap(address: ?[*]u8, length: usize, prot: usize, flags: u32, fd: i32, offset: i64) usize {
     if (@hasField(SYS, "mmap2")) {
         // Make sure the offset is also specified in multiples of page size
         if ((offset & (MMAP2_UNIT - 1)) != 0)
@@ -254,7 +272,7 @@ pub fn mmap(address: ?[*]u8, length: usize, prot: usize, flags: u32, fd: i32, of
             prot,
             flags,
             @bitCast(usize, @as(isize, fd)),
-            @truncate(usize, offset / MMAP2_UNIT),
+            @truncate(usize, @bitCast(u64, offset) / MMAP2_UNIT),
         );
     } else {
         return syscall6(
@@ -264,7 +282,7 @@ pub fn mmap(address: ?[*]u8, length: usize, prot: usize, flags: u32, fd: i32, of
             prot,
             flags,
             @bitCast(usize, @as(isize, fd)),
-            offset,
+            @bitCast(u64, offset),
         );
     }
 }
@@ -306,8 +324,8 @@ pub fn read(fd: i32, buf: [*]u8, count: usize) usize {
     return syscall3(.read, @bitCast(usize, @as(isize, fd)), @ptrToInt(buf), count);
 }
 
-pub fn preadv(fd: i32, iov: [*]const iovec, count: usize, offset: u64) usize {
-    const offset_halves = splitValue64(offset);
+pub fn preadv(fd: i32, iov: [*]const iovec, count: usize, offset: i64) usize {
+    const offset_halves = splitValueLE64(offset);
     return syscall5(
         .preadv,
         @bitCast(usize, @as(isize, fd)),
@@ -318,7 +336,7 @@ pub fn preadv(fd: i32, iov: [*]const iovec, count: usize, offset: u64) usize {
     );
 }
 
-pub fn preadv2(fd: i32, iov: [*]const iovec, count: usize, offset: u64, flags: kernel_rwf) usize {
+pub fn preadv2(fd: i32, iov: [*]const iovec, count: usize, offset: i64, flags: kernel_rwf) usize {
     const offset_halves = splitValue64(offset);
     return syscall6(
         .preadv2,
@@ -339,8 +357,8 @@ pub fn writev(fd: i32, iov: [*]const iovec_const, count: usize) usize {
     return syscall3(.writev, @bitCast(usize, @as(isize, fd)), @ptrToInt(iov), count);
 }
 
-pub fn pwritev(fd: i32, iov: [*]const iovec_const, count: usize, offset: u64) usize {
-    const offset_halves = splitValue64(offset);
+pub fn pwritev(fd: i32, iov: [*]const iovec_const, count: usize, offset: i64) usize {
+    const offset_halves = splitValueLE64(offset);
     return syscall5(
         .pwritev,
         @bitCast(usize, @as(isize, fd)),
@@ -351,7 +369,7 @@ pub fn pwritev(fd: i32, iov: [*]const iovec_const, count: usize, offset: u64) us
     );
 }
 
-pub fn pwritev2(fd: i32, iov: [*]const iovec_const, count: usize, offset: u64, flags: kernel_rwf) usize {
+pub fn pwritev2(fd: i32, iov: [*]const iovec_const, count: usize, offset: i64, flags: kernel_rwf) usize {
     const offset_halves = splitValue64(offset);
     return syscall6(
         .pwritev2,
@@ -384,8 +402,8 @@ pub fn symlinkat(existing: [*:0]const u8, newfd: i32, newpath: [*:0]const u8) us
     return syscall3(.symlinkat, @ptrToInt(existing), @bitCast(usize, @as(isize, newfd)), @ptrToInt(newpath));
 }
 
-pub fn pread(fd: i32, buf: [*]u8, count: usize, offset: u64) usize {
-    if (@hasField(SYS, "pread64")) {
+pub fn pread(fd: i32, buf: [*]u8, count: usize, offset: i64) usize {
+    if (@hasField(SYS, "pread64") and usize_bits < 64) {
         const offset_halves = splitValue64(offset);
         if (require_aligned_register_pair) {
             return syscall6(
@@ -408,12 +426,14 @@ pub fn pread(fd: i32, buf: [*]u8, count: usize, offset: u64) usize {
             );
         }
     } else {
+        // Some architectures (eg. 64bit SPARC) pread is called pread64.
+        const S = if (!@hasField(SYS, "pread") and @hasField(SYS, "pread64")) .pread64 else .pread;
         return syscall4(
-            .pread,
+            S,
             @bitCast(usize, @as(isize, fd)),
             @ptrToInt(buf),
             count,
-            offset,
+            @bitCast(u64, offset),
         );
     }
 }
@@ -431,7 +451,7 @@ pub fn faccessat(dirfd: i32, path: [*:0]const u8, mode: u32, flags: u32) usize {
 }
 
 pub fn pipe(fd: *[2]i32) usize {
-    if (comptime (builtin.arch.isMIPS() or builtin.arch.isSPARC())) {
+    if (comptime (native_arch.isMIPS() or native_arch.isSPARC())) {
         return syscall_pipe(fd);
     } else if (@hasField(SYS, "pipe")) {
         return syscall1(.pipe, @ptrToInt(fd));
@@ -448,8 +468,8 @@ pub fn write(fd: i32, buf: [*]const u8, count: usize) usize {
     return syscall3(.write, @bitCast(usize, @as(isize, fd)), @ptrToInt(buf), count);
 }
 
-pub fn ftruncate(fd: i32, length: u64) usize {
-    if (@hasField(SYS, "ftruncate64")) {
+pub fn ftruncate(fd: i32, length: i64) usize {
+    if (@hasField(SYS, "ftruncate64") and usize_bits < 64) {
         const length_halves = splitValue64(length);
         if (require_aligned_register_pair) {
             return syscall4(
@@ -471,13 +491,13 @@ pub fn ftruncate(fd: i32, length: u64) usize {
         return syscall2(
             .ftruncate,
             @bitCast(usize, @as(isize, fd)),
-            @truncate(usize, length),
+            @bitCast(usize, length),
         );
     }
 }
 
-pub fn pwrite(fd: i32, buf: [*]const u8, count: usize, offset: u64) usize {
-    if (@hasField(SYS, "pwrite64")) {
+pub fn pwrite(fd: i32, buf: [*]const u8, count: usize, offset: i64) usize {
+    if (@hasField(SYS, "pwrite64") and usize_bits < 64) {
         const offset_halves = splitValue64(offset);
 
         if (require_aligned_register_pair) {
@@ -501,12 +521,14 @@ pub fn pwrite(fd: i32, buf: [*]const u8, count: usize, offset: u64) usize {
             );
         }
     } else {
+        // Some architectures (eg. 64bit SPARC) pwrite is called pwrite64.
+        const S = if (!@hasField(SYS, "pwrite") and @hasField(SYS, "pwrite64")) .pwrite64 else .pwrite;
         return syscall4(
-            .pwrite,
+            S,
             @bitCast(usize, @as(isize, fd)),
             @ptrToInt(buf),
             count,
-            offset,
+            @bitCast(u64, offset),
         );
     }
 }
@@ -912,7 +934,7 @@ pub fn sigaction(sig: u6, noalias act: ?*const Sigaction, noalias oact: ?*Sigact
     const ksa_arg = if (act != null) @ptrToInt(&ksa) else 0;
     const oldksa_arg = if (oact != null) @ptrToInt(&oldksa) else 0;
 
-    const result = switch (builtin.arch) {
+    const result = switch (native_arch) {
         // The sparc version of rt_sigaction needs the restorer function to be passed as an argument too.
         .sparc, .sparcv9 => syscall5(.rt_sigaction, sig, ksa_arg, oldksa_arg, @ptrToInt(ksa.restorer), mask_size),
         else => syscall4(.rt_sigaction, sig, ksa_arg, oldksa_arg, mask_size),
@@ -944,45 +966,45 @@ pub fn sigismember(set: *const sigset_t, sig: u6) bool {
 }
 
 pub fn getsockname(fd: i32, noalias addr: *sockaddr, noalias len: *socklen_t) usize {
-    if (builtin.arch == .i386) {
+    if (native_arch == .i386) {
         return socketcall(SC_getsockname, &[3]usize{ @bitCast(usize, @as(isize, fd)), @ptrToInt(addr), @ptrToInt(len) });
     }
     return syscall3(.getsockname, @bitCast(usize, @as(isize, fd)), @ptrToInt(addr), @ptrToInt(len));
 }
 
 pub fn getpeername(fd: i32, noalias addr: *sockaddr, noalias len: *socklen_t) usize {
-    if (builtin.arch == .i386) {
+    if (native_arch == .i386) {
         return socketcall(SC_getpeername, &[3]usize{ @bitCast(usize, @as(isize, fd)), @ptrToInt(addr), @ptrToInt(len) });
     }
     return syscall3(.getpeername, @bitCast(usize, @as(isize, fd)), @ptrToInt(addr), @ptrToInt(len));
 }
 
 pub fn socket(domain: u32, socket_type: u32, protocol: u32) usize {
-    if (builtin.arch == .i386) {
+    if (native_arch == .i386) {
         return socketcall(SC_socket, &[3]usize{ domain, socket_type, protocol });
     }
     return syscall3(.socket, domain, socket_type, protocol);
 }
 
 pub fn setsockopt(fd: i32, level: u32, optname: u32, optval: [*]const u8, optlen: socklen_t) usize {
-    if (builtin.arch == .i386) {
+    if (native_arch == .i386) {
         return socketcall(SC_setsockopt, &[5]usize{ @bitCast(usize, @as(isize, fd)), level, optname, @ptrToInt(optval), @intCast(usize, optlen) });
     }
     return syscall5(.setsockopt, @bitCast(usize, @as(isize, fd)), level, optname, @ptrToInt(optval), @intCast(usize, optlen));
 }
 
 pub fn getsockopt(fd: i32, level: u32, optname: u32, noalias optval: [*]u8, noalias optlen: *socklen_t) usize {
-    if (builtin.arch == .i386) {
+    if (native_arch == .i386) {
         return socketcall(SC_getsockopt, &[5]usize{ @bitCast(usize, @as(isize, fd)), level, optname, @ptrToInt(optval), @ptrToInt(optlen) });
     }
     return syscall5(.getsockopt, @bitCast(usize, @as(isize, fd)), level, optname, @ptrToInt(optval), @ptrToInt(optlen));
 }
 
-pub fn sendmsg(fd: i32, msg: *const msghdr_const, flags: u32) usize {
-    if (builtin.arch == .i386) {
-        return socketcall(SC_sendmsg, &[3]usize{ @bitCast(usize, @as(isize, fd)), @ptrToInt(msg), flags });
+pub fn sendmsg(fd: i32, msg: *const std.x.os.Socket.Message, flags: c_int) usize {
+    if (native_arch == .i386) {
+        return socketcall(SC_sendmsg, &[3]usize{ @bitCast(usize, @as(isize, fd)), @ptrToInt(msg), @bitCast(usize, @as(isize, flags)) });
     }
-    return syscall3(.sendmsg, @bitCast(usize, @as(isize, fd)), @ptrToInt(msg), flags);
+    return syscall3(.sendmsg, @bitCast(usize, @as(isize, fd)), @ptrToInt(msg), @bitCast(usize, @as(isize, flags)));
 }
 
 pub fn sendmmsg(fd: i32, msgvec: [*]mmsghdr_const, vlen: u32, flags: u32) usize {
@@ -1026,49 +1048,49 @@ pub fn sendmmsg(fd: i32, msgvec: [*]mmsghdr_const, vlen: u32, flags: u32) usize 
 }
 
 pub fn connect(fd: i32, addr: *const c_void, len: socklen_t) usize {
-    if (builtin.arch == .i386) {
+    if (native_arch == .i386) {
         return socketcall(SC_connect, &[3]usize{ @bitCast(usize, @as(isize, fd)), @ptrToInt(addr), len });
     }
     return syscall3(.connect, @bitCast(usize, @as(isize, fd)), @ptrToInt(addr), len);
 }
 
-pub fn recvmsg(fd: i32, msg: *msghdr, flags: u32) usize {
-    if (builtin.arch == .i386) {
-        return socketcall(SC_recvmsg, &[3]usize{ @bitCast(usize, @as(isize, fd)), @ptrToInt(msg), flags });
+pub fn recvmsg(fd: i32, msg: *std.x.os.Socket.Message, flags: c_int) usize {
+    if (native_arch == .i386) {
+        return socketcall(SC_recvmsg, &[3]usize{ @bitCast(usize, @as(isize, fd)), @ptrToInt(msg), @bitCast(usize, @as(isize, flags)) });
     }
-    return syscall3(.recvmsg, @bitCast(usize, @as(isize, fd)), @ptrToInt(msg), flags);
+    return syscall3(.recvmsg, @bitCast(usize, @as(isize, fd)), @ptrToInt(msg), @bitCast(usize, @as(isize, flags)));
 }
 
 pub fn recvfrom(fd: i32, noalias buf: [*]u8, len: usize, flags: u32, noalias addr: ?*sockaddr, noalias alen: ?*socklen_t) usize {
-    if (builtin.arch == .i386) {
+    if (native_arch == .i386) {
         return socketcall(SC_recvfrom, &[6]usize{ @bitCast(usize, @as(isize, fd)), @ptrToInt(buf), len, flags, @ptrToInt(addr), @ptrToInt(alen) });
     }
     return syscall6(.recvfrom, @bitCast(usize, @as(isize, fd)), @ptrToInt(buf), len, flags, @ptrToInt(addr), @ptrToInt(alen));
 }
 
 pub fn shutdown(fd: i32, how: i32) usize {
-    if (builtin.arch == .i386) {
+    if (native_arch == .i386) {
         return socketcall(SC_shutdown, &[2]usize{ @bitCast(usize, @as(isize, fd)), @bitCast(usize, @as(isize, how)) });
     }
     return syscall2(.shutdown, @bitCast(usize, @as(isize, fd)), @bitCast(usize, @as(isize, how)));
 }
 
 pub fn bind(fd: i32, addr: *const sockaddr, len: socklen_t) usize {
-    if (builtin.arch == .i386) {
+    if (native_arch == .i386) {
         return socketcall(SC_bind, &[3]usize{ @bitCast(usize, @as(isize, fd)), @ptrToInt(addr), @intCast(usize, len) });
     }
     return syscall3(.bind, @bitCast(usize, @as(isize, fd)), @ptrToInt(addr), @intCast(usize, len));
 }
 
 pub fn listen(fd: i32, backlog: u32) usize {
-    if (builtin.arch == .i386) {
+    if (native_arch == .i386) {
         return socketcall(SC_listen, &[2]usize{ @bitCast(usize, @as(isize, fd)), backlog });
     }
     return syscall2(.listen, @bitCast(usize, @as(isize, fd)), backlog);
 }
 
 pub fn sendto(fd: i32, buf: [*]const u8, len: usize, flags: u32, addr: ?*const sockaddr, alen: socklen_t) usize {
-    if (builtin.arch == .i386) {
+    if (native_arch == .i386) {
         return socketcall(SC_sendto, &[6]usize{ @bitCast(usize, @as(isize, fd)), @ptrToInt(buf), len, flags, @ptrToInt(addr), @intCast(usize, alen) });
     }
     return syscall6(.sendto, @bitCast(usize, @as(isize, fd)), @ptrToInt(buf), len, flags, @ptrToInt(addr), @intCast(usize, alen));
@@ -1095,21 +1117,21 @@ pub fn sendfile(outfd: i32, infd: i32, offset: ?*i64, count: usize) usize {
 }
 
 pub fn socketpair(domain: i32, socket_type: i32, protocol: i32, fd: [2]i32) usize {
-    if (builtin.arch == .i386) {
+    if (native_arch == .i386) {
         return socketcall(SC_socketpair, &[4]usize{ @intCast(usize, domain), @intCast(usize, socket_type), @intCast(usize, protocol), @ptrToInt(&fd[0]) });
     }
     return syscall4(.socketpair, @intCast(usize, domain), @intCast(usize, socket_type), @intCast(usize, protocol), @ptrToInt(&fd[0]));
 }
 
 pub fn accept(fd: i32, noalias addr: ?*sockaddr, noalias len: ?*socklen_t) usize {
-    if (builtin.arch == .i386) {
+    if (native_arch == .i386) {
         return socketcall(SC_accept, &[4]usize{ fd, addr, len, 0 });
     }
     return accept4(fd, addr, len, 0);
 }
 
 pub fn accept4(fd: i32, noalias addr: ?*sockaddr, noalias len: ?*socklen_t, flags: u32) usize {
-    if (builtin.arch == .i386) {
+    if (native_arch == .i386) {
         return socketcall(SC_accept4, &[4]usize{ @bitCast(usize, @as(isize, fd)), @ptrToInt(addr), @ptrToInt(len), flags });
     }
     return syscall4(.accept4, @bitCast(usize, @as(isize, fd)), @ptrToInt(addr), @ptrToInt(len), flags);
@@ -1142,8 +1164,6 @@ pub fn lstat(pathname: [*:0]const u8, statbuf: *kernel_stat) usize {
 pub fn fstatat(dirfd: i32, path: [*:0]const u8, stat_buf: *kernel_stat, flags: u32) usize {
     if (@hasField(SYS, "fstatat64")) {
         return syscall4(.fstatat64, @bitCast(usize, @as(isize, dirfd)), @ptrToInt(path), @ptrToInt(stat_buf), flags);
-    } else if (@hasField(SYS, "newfstatat")) {
-        return syscall4(.newfstatat, @bitCast(usize, @as(isize, dirfd)), @ptrToInt(path), @ptrToInt(stat_buf), flags);
     } else {
         return syscall4(.fstatat, @bitCast(usize, @as(isize, dirfd)), @ptrToInt(path), @ptrToInt(stat_buf), flags);
     }
@@ -1387,8 +1407,114 @@ pub fn madvise(address: [*]u8, len: usize, advice: u32) usize {
     return syscall3(.madvise, @ptrToInt(address), len, advice);
 }
 
+pub fn pidfd_open(pid: pid_t, flags: u32) usize {
+    return syscall2(.pidfd_open, @bitCast(usize, @as(isize, pid)), flags);
+}
+
+pub fn pidfd_getfd(pidfd: fd_t, targetfd: fd_t, flags: u32) usize {
+    return syscall3(
+        .pidfd_getfd,
+        @bitCast(usize, @as(isize, pidfd)),
+        @bitCast(usize, @as(isize, targetfd)),
+        flags,
+    );
+}
+
+pub fn pidfd_send_signal(pidfd: fd_t, sig: i32, info: ?*siginfo_t, flags: u32) usize {
+    return syscall4(
+        .pidfd_send_signal,
+        @bitCast(usize, @as(isize, pidfd)),
+        @bitCast(usize, @as(isize, sig)),
+        @ptrToInt(info),
+        flags,
+    );
+}
+
+pub fn process_vm_readv(pid: pid_t, local: [*]const iovec, local_count: usize, remote: [*]const iovec, remote_count: usize, flags: usize) usize {
+    return syscall6(
+        .process_vm_readv,
+        @bitCast(usize, @as(isize, pid)),
+        @ptrToInt(local),
+        local_count,
+        @ptrToInt(remote),
+        remote_count,
+        flags,
+    );
+}
+
+pub fn process_vm_writev(pid: pid_t, local: [*]const iovec, local_count: usize, remote: [*]const iovec, remote_count: usize, flags: usize) usize {
+    return syscall6(
+        .process_vm_writev,
+        @bitCast(usize, @as(isize, pid)),
+        @ptrToInt(local),
+        local_count,
+        @ptrToInt(remote),
+        remote_count,
+        flags,
+    );
+}
+
+pub fn fadvise(fd: fd_t, offset: i64, len: i64, advice: usize) usize {
+    if (comptime std.Target.current.cpu.arch.isMIPS()) {
+        // MIPS requires a 7 argument syscall
+
+        const offset_halves = splitValue64(offset);
+        const length_halves = splitValue64(len);
+
+        return syscall7(
+            .fadvise64,
+            @bitCast(usize, @as(isize, fd)),
+            0,
+            offset_halves[0],
+            offset_halves[1],
+            length_halves[0],
+            length_halves[1],
+            advice,
+        );
+    } else if (comptime std.Target.current.cpu.arch.isARM()) {
+        // ARM reorders the arguments
+
+        const offset_halves = splitValue64(offset);
+        const length_halves = splitValue64(len);
+
+        return syscall6(
+            .fadvise64_64,
+            @bitCast(usize, @as(isize, fd)),
+            advice,
+            offset_halves[0],
+            offset_halves[1],
+            length_halves[0],
+            length_halves[1],
+        );
+    } else if (@hasField(SYS, "fadvise64_64") and usize_bits != 64) {
+        // The extra usize check is needed to avoid SPARC64 because it provides both
+        // fadvise64 and fadvise64_64 but the latter behaves differently than other platforms.
+
+        const offset_halves = splitValue64(offset);
+        const length_halves = splitValue64(len);
+
+        return syscall6(
+            .fadvise64_64,
+            @bitCast(usize, @as(isize, fd)),
+            offset_halves[0],
+            offset_halves[1],
+            length_halves[0],
+            length_halves[1],
+            advice,
+        );
+    } else {
+        return syscall4(
+            .fadvise64,
+            @bitCast(usize, @as(isize, fd)),
+            @bitCast(usize, offset),
+            @bitCast(usize, len),
+            advice,
+        );
+    }
+}
+
 test {
-    if (builtin.os.tag == .linux) {
+    if (std.Target.current.os.tag == .linux) {
         _ = @import("linux/test.zig");
     }
 }

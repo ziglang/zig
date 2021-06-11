@@ -9,6 +9,7 @@ const reloc = @import("../reloc.zig");
 
 const Allocator = mem.Allocator;
 const Relocation = reloc.Relocation;
+const Symbol = @import("../Symbol.zig");
 
 pub const Branch = struct {
     base: Relocation,
@@ -32,16 +33,19 @@ pub const Signed = struct {
     pub fn resolve(signed: Signed, args: Relocation.ResolveArgs) !void {
         const target_addr = target_addr: {
             if (signed.base.target == .section) {
-                const source_target = @intCast(i64, signed.base.offset) + signed.addend + 4 + signed.correction;
-                const source_disp = source_target - @intCast(i64, args.source_sect_addr.?);
+                const source_target = @intCast(i64, args.source_source_sect_addr.?) + @intCast(i64, signed.base.offset) + signed.addend + 4;
+                const source_disp = source_target - @intCast(i64, args.source_target_sect_addr.?);
                 break :target_addr @intCast(i64, args.target_addr) + source_disp;
             }
             break :target_addr @intCast(i64, args.target_addr) + signed.addend;
         };
-        const displacement = try math.cast(i32, target_addr - @intCast(i64, args.source_addr) - signed.correction - 4);
+        const displacement = try math.cast(
+            i32,
+            target_addr - @intCast(i64, args.source_addr) - signed.correction - 4,
+        );
 
-        log.debug("    | calculated addend 0x{x}", .{signed.addend});
-        log.debug("    | calculated correction 0x{x}", .{signed.correction});
+        log.debug("    | addend 0x{x}", .{signed.addend});
+        log.debug("    | correction 0x{x}", .{signed.correction});
         log.debug("    | displacement 0x{x}", .{displacement});
 
         mem.writeIntLittle(u32, signed.base.code[0..4], @bitCast(u32, displacement));
@@ -95,6 +99,7 @@ pub const Parser = struct {
     it: *reloc.RelocIterator,
     code: []u8,
     parsed: std.ArrayList(*Relocation),
+    symbols: []*Symbol,
     subtractor: ?Relocation.Target = null,
 
     pub fn deinit(parser: *Parser) void {
@@ -145,7 +150,7 @@ pub const Parser = struct {
         var branch = try parser.allocator.create(Branch);
         errdefer parser.allocator.destroy(branch);
 
-        const target = Relocation.Target.from_reloc(rel);
+        const target = Relocation.Target.from_reloc(rel, parser.symbols);
 
         branch.* = .{
             .base = .{
@@ -165,25 +170,19 @@ pub const Parser = struct {
         assert(rel.r_length == 2);
 
         const rel_type = @intToEnum(macho.reloc_type_x86_64, rel.r_type);
-        const target = Relocation.Target.from_reloc(rel);
+        const target = Relocation.Target.from_reloc(rel, parser.symbols);
         const is_extern = rel.r_extern == 1;
 
         const offset = @intCast(u32, rel.r_address);
         const inst = parser.code[offset..][0..4];
-        const addend = mem.readIntLittle(i32, inst);
-
-        const correction: i4 = correction: {
-            if (is_extern) break :correction 0;
-
-            const corr: i4 = switch (rel_type) {
-                .X86_64_RELOC_SIGNED => 0,
-                .X86_64_RELOC_SIGNED_1 => 1,
-                .X86_64_RELOC_SIGNED_2 => 2,
-                .X86_64_RELOC_SIGNED_4 => 4,
-                else => unreachable,
-            };
-            break :correction corr;
+        const correction: i4 = switch (rel_type) {
+            .X86_64_RELOC_SIGNED => 0,
+            .X86_64_RELOC_SIGNED_1 => 1,
+            .X86_64_RELOC_SIGNED_2 => 2,
+            .X86_64_RELOC_SIGNED_4 => 4,
+            else => unreachable,
         };
+        const addend = mem.readIntLittle(i32, inst) + correction;
 
         var signed = try parser.allocator.create(Signed);
         errdefer parser.allocator.destroy(signed);
@@ -211,7 +210,7 @@ pub const Parser = struct {
 
         const offset = @intCast(u32, rel.r_address);
         const inst = parser.code[offset..][0..4];
-        const target = Relocation.Target.from_reloc(rel);
+        const target = Relocation.Target.from_reloc(rel, parser.symbols);
 
         var got_load = try parser.allocator.create(GotLoad);
         errdefer parser.allocator.destroy(got_load);
@@ -237,7 +236,7 @@ pub const Parser = struct {
 
         const offset = @intCast(u32, rel.r_address);
         const inst = parser.code[offset..][0..4];
-        const target = Relocation.Target.from_reloc(rel);
+        const target = Relocation.Target.from_reloc(rel, parser.symbols);
 
         var got = try parser.allocator.create(Got);
         errdefer parser.allocator.destroy(got);
@@ -263,7 +262,7 @@ pub const Parser = struct {
 
         const offset = @intCast(u32, rel.r_address);
         const inst = parser.code[offset..][0..4];
-        const target = Relocation.Target.from_reloc(rel);
+        const target = Relocation.Target.from_reloc(rel, parser.symbols);
 
         var tlv = try parser.allocator.create(Tlv);
         errdefer parser.allocator.destroy(tlv);
@@ -288,7 +287,7 @@ pub const Parser = struct {
         assert(rel.r_pcrel == 0);
         assert(parser.subtractor == null);
 
-        parser.subtractor = Relocation.Target.from_reloc(rel);
+        parser.subtractor = Relocation.Target.from_reloc(rel, parser.symbols);
 
         // Verify SUBTRACTOR is followed by UNSIGNED.
         const next = @intToEnum(macho.reloc_type_x86_64, parser.it.peek().r_type);
@@ -311,7 +310,7 @@ pub const Parser = struct {
         var unsigned = try parser.allocator.create(reloc.Unsigned);
         errdefer parser.allocator.destroy(unsigned);
 
-        const target = Relocation.Target.from_reloc(rel);
+        const target = Relocation.Target.from_reloc(rel, parser.symbols);
         const is_64bit: bool = switch (rel.r_length) {
             3 => true,
             2 => false,

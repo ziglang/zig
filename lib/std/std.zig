@@ -88,6 +88,7 @@ pub const time = @import("time.zig");
 pub const unicode = @import("unicode.zig");
 pub const valgrind = @import("valgrind.zig");
 pub const wasm = @import("wasm.zig");
+pub const x = @import("x.zig");
 pub const zig = @import("zig.zig");
 pub const start = @import("start.zig");
 

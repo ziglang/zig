@@ -1,6 +1,6 @@
 const std = @import("std");
 const elf = std.elf;
-const builtin = @import("builtin");
+const builtin = std.builtin;
 const assert = std.debug.assert;
 
 const R_AMD64_RELATIVE = 8;
@@ -9,7 +9,7 @@ const R_ARM_RELATIVE = 23;
 const R_AARCH64_RELATIVE = 1027;
 const R_RISCV_RELATIVE = 3;
 
-const ARCH_RELATIVE_RELOC = switch (builtin.arch) {
+const ARCH_RELATIVE_RELOC = switch (builtin.cpu.arch) {
     .i386 => R_386_RELATIVE,
     .x86_64 => R_AMD64_RELATIVE,
     .arm => R_ARM_RELATIVE,
@@ -21,7 +21,7 @@ const ARCH_RELATIVE_RELOC = switch (builtin.arch) {
 // Just a convoluted (but necessary) way to obtain the address of the _DYNAMIC[]
 // vector as PC-relative so that we can use it before any relocation is applied
 fn getDynamicSymbol() [*]elf.Dyn {
-    const addr = switch (builtin.arch) {
+    const addr = switch (builtin.cpu.arch) {
         .i386 => asm volatile (
             \\ .weak _DYNAMIC
             \\ .hidden _DYNAMIC
