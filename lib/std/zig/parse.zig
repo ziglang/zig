@@ -2616,7 +2616,7 @@ const Parser = struct {
         const found_payload = try p.parsePtrIndexPayload();
         if (found_payload == 0) try p.warn(.expected_loop_payload);
 
-        const then_expr = try p.expectExpr();
+        const then_expr = try p.expectTypeExpr();
         const else_token = p.eatToken(.keyword_else) orelse {
             return p.addNode(.{
                 .tag = .for_simple,
