@@ -442,6 +442,25 @@ fn updateMetadata(self: *Zld) !void {
             const flags = source_sect.flags;
 
             switch (flags) {
+                macho.S_REGULAR | macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS => {
+                    if (self.text_section_index != null) continue;
+
+                    self.text_section_index = @intCast(u16, text_seg.sections.items.len);
+                    try text_seg.addSection(self.allocator, .{
+                        .sectname = makeStaticString("__text"),
+                        .segname = makeStaticString("__TEXT"),
+                        .addr = 0,
+                        .size = 0,
+                        .offset = 0,
+                        .@"align" = 0,
+                        .reloff = 0,
+                        .nreloc = 0,
+                        .flags = macho.S_REGULAR | macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS,
+                        .reserved1 = 0,
+                        .reserved2 = 0,
+                        .reserved3 = 0,
+                    });
+                },
                 macho.S_REGULAR, macho.S_4BYTE_LITERALS, macho.S_8BYTE_LITERALS, macho.S_16BYTE_LITERALS => {
                     if (mem.eql(u8, segname, "__TEXT")) {
                         if (mem.eql(u8, sectname, "__ustring")) {
@@ -654,8 +673,32 @@ fn updateMetadata(self: *Zld) !void {
                         .reserved3 = 0,
                     });
                 },
+                macho.S_COALESCED |
+                    macho.S_ATTR_NO_TOC |
+                    macho.S_ATTR_STRIP_STATIC_SYMS |
+                    macho.S_ATTR_LIVE_SUPPORT => {
+                    log.debug("TODO __eh_frame section: type 0x{x}, name '{s},{s}'", .{
+                        flags, segname, sectname,
+                    });
+                    continue;
+                },
+                macho.S_REGULAR | macho.S_ATTR_DEBUG => {
+                    if (mem.eql(u8, "__LD", segname) and mem.eql(u8, "__compact_unwind", sectname)) {
+                        log.debug("TODO compact unwind section: type 0x{x}, name '{s},{s}'", .{
+                            flags, segname, sectname,
+                        });
+                    }
+                    continue;
+                },
                 else => {
-                    log.debug("unhandled section type 0x{x} for '{s}/{s}'", .{ flags, segname, sectname });
+                    if (mem.eql(u8, "__LLVM", segname) and mem.eql(u8, "__asm", sectname)) {
+                        log.debug("TODO LLVM bitcode section: type 0x{x}, name '{s},{s}'", .{
+                            flags, segname, sectname,
+                        });
+                        continue;
+                    }
+                    log.err("unhandled section type 0x{x} for '{s},{s}'", .{ flags, segname, sectname });
+                    return error.UnhandledSection;
                 },
             }
         }

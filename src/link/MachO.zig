@@ -807,6 +807,11 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                 rpaths.appendAssumeCapacity(key.*);
             }
 
+            // frameworks
+            for (self.base.options.frameworks) |framework| {
+                log.warn("frameworks not yet supported for '-framework {s}'", .{framework});
+            }
+
             if (self.base.options.verbose_link) {
                 var argv = std.ArrayList([]const u8).init(arena);
 
