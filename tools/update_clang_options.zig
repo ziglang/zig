@@ -51,7 +51,15 @@ const known_options = [_]KnownOpt{
         .ident = "pic",
     },
     .{
+        .name = "fpic",
+        .ident = "pic",
+    },
+    .{
         .name = "fno-PIC",
+        .ident = "no_pic",
+    },
+    .{
+        .name = "fno-pic",
         .ident = "no_pic",
     },
     .{
@@ -59,7 +67,27 @@ const known_options = [_]KnownOpt{
         .ident = "pie",
     },
     .{
+        .name = "fpie",
+        .ident = "pie",
+    },
+    .{
+        .name = "pie",
+        .ident = "pie",
+    },
+    .{
         .name = "fno-PIE",
+        .ident = "no_pie",
+    },
+    .{
+        .name = "fno-pie",
+        .ident = "no_pie",
+    },
+    .{
+        .name = "no-pie",
+        .ident = "no_pie",
+    },
+    .{
+        .name = "nopie",
         .ident = "no_pie",
     },
     .{
