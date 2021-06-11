@@ -857,24 +857,23 @@ fn getMatchingSection(self: *Zld, section: macho.section_64) ?MatchingSection {
                             .seg = self.text_segment_cmd_index.?,
                             .sect = self.ustring_section_index.?,
                         };
-                    } else {
-                        break :blk .{
-                            .seg = self.text_segment_cmd_index.?,
-                            .sect = self.text_const_section_index.?,
-                        };
                     }
-                } else if (mem.eql(u8, segname, "__DATA")) {
-                    if (mem.eql(u8, sectname, "__data")) {
-                        break :blk .{
-                            .seg = self.data_segment_cmd_index.?,
-                            .sect = self.data_section_index.?,
-                        };
-                    } else if (mem.eql(u8, sectname, "__const")) {
+                    break :blk .{
+                        .seg = self.text_segment_cmd_index.?,
+                        .sect = self.text_const_section_index.?,
+                    };
+                }
+                if (mem.eql(u8, segname, "__DATA")) {
+                    if (mem.eql(u8, sectname, "__const")) {
                         break :blk .{
                             .seg = self.data_const_segment_cmd_index.?,
                             .sect = self.data_const_section_index.?,
                         };
                     }
+                    break :blk .{
+                        .seg = self.data_segment_cmd_index.?,
+                        .sect = self.data_section_index.?,
+                    };
                 }
                 break :blk null;
             },
