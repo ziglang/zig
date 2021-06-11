@@ -1727,6 +1727,12 @@ fn parseInternal(comptime T: type, token: Token, tokens: *TokenStream, options: 
             if (options.field_aliases.len > field_names.len) return error.TooManyFieldAliases;
             var field_alias_map = buildFieldAliasMap(field_names, options, &list_data);
 
+            // re-index the alias map.  this is a no-op unless there are more than
+            // ArrayHashMap.linear_scan_max (8) entries.
+            var buf: [if (field_names.len > 8) field_names.len * 9 else 0]u8 = undefined;
+            var fba = std.heap.FixedBufferAllocator.init(&buf);
+            try field_alias_map.reIndex(&fba.allocator);
+
             while (true) {
                 switch ((try tokens.next()) orelse return error.UnexpectedEndOfJson) {
                     .ObjectEnd => break,
