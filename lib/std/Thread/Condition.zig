@@ -192,3 +192,98 @@ pub const AtomicCondition = struct {
             waiter.data.notify();
     }
 };
+
+test "Condition.signal" {
+    if (std.builtin.single_threaded) {
+        return;
+    }
+
+    const Signal = struct {
+        notified: bool = false,
+        mutex: Mutex = .{},
+        cond: Condition = .{},
+
+        fn wait(self: *@This()) void {
+            var held = self.mutex.acquire();
+            defer held.release();
+
+            while (!self.notified)
+                self.cond.wait(&held);
+        }
+
+        fn notify(self: *@This()) void {
+            var held = self.mutex.acquire();
+            defer held.release();
+
+            self.notified = true;
+            self.cond.signal();
+        }
+    };
+
+    const SignalThread = struct {
+        signals: []Signal,
+        index: usize,
+
+        fn run(self: @This()) void {
+            self.signals[self.index].wait();
+            self.signals[(self.index + 1) % self.signals.len].notify();
+        }
+    };
+
+    var signals = [_]Signal{.{}} ** 4;
+    var threads = [_]*std.Thread{undefined} ** signals.len;
+
+    for (threads) |*t, index| {
+        t.* = try std.Thread.spawn(SignalThread.run, .{
+            .signals = &signals,
+            .index = index,
+        });
+    }
+
+    signals[0].notify();
+
+    for (threads) |t| {
+        t.wait();
+    }
+}
+
+test "Condition.broadcast" {
+    if (std.builtin.single_threaded) {
+        return;
+    }
+
+    const Barrier = struct {
+        count: usize,
+        mutex: Mutex = .{},
+        cond: Condition = .{},
+
+        fn wait(self: *@This()) void {
+            var held = self.mutex.acquire();
+            defer held.release();
+
+            assert(self.count > 0);
+            self.count -= 1;
+
+            if (self.count == 0) {
+                self.cond.broadcast();
+                return;
+            }
+
+            while (self.count != 0) {
+                self.cond.wait(&held);
+            }
+        }
+    };
+    
+    var threads = [_]*std.Thread{undefined} ** 10;
+    var barrier = Barrier{ .count = threads.len };
+
+    for (threads) |*t| t.* = try std.Thread.spawn(Barrier.wait, &barrier);
+    for (threads) |t| t.wait();
+
+    try std.testing.expectEqual(@as(usize, 0), blk: {
+        const held = barrier.mutex.acquire();
+        defer held.release();
+        break :blk barrier.count;
+    });
+}
