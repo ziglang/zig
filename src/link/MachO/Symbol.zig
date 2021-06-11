@@ -12,6 +12,7 @@ pub const Type = enum {
     regular,
     proxy,
     unresolved,
+    tentative,
 };
 
 /// Symbol type.
@@ -60,6 +61,10 @@ pub const Regular = struct {
         size: u64,
     } = null,
 
+    /// True if symbol was already committed into the final
+    /// symbol table.
+    visited: bool = false,
+
     pub const base_type: Symbol.Type = .regular;
 
     pub const Linkage = enum {
@@ -92,6 +97,21 @@ pub const Unresolved = struct {
     file: *Object,
 
     pub const base_type: Symbol.Type = .unresolved;
+};
+
+pub const Tentative = struct {
+    base: Symbol,
+
+    /// Symbol size.
+    size: u64,
+
+    /// Symbol alignment as power of two.
+    alignment: u16,
+
+    /// File where this symbol was referenced.
+    file: *Object,
+
+    pub const base_type: Symbol.Type = .tentative;
 };
 
 pub fn deinit(base: *Symbol, allocator: *Allocator) void {

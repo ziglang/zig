@@ -54,6 +54,11 @@ pub const Section = struct {
     inner: macho.section_64,
     code: []u8,
     relocs: ?[]*Relocation,
+    target_map: ?struct {
+        segment_id: u16,
+        section_id: u16,
+        offset: u32,
+    } = null,
 
     pub fn deinit(self: *Section, allocator: *Allocator) void {
         allocator.free(self.code);
@@ -346,15 +351,15 @@ pub fn parseSymbols(self: *Object) !void {
         const sym_name = mem.spanZ(@ptrCast([*:0]const u8, strtab.ptr + sym.n_strx));
 
         if (Symbol.isStab(sym)) {
-            log.err("stab {s} in {s}", .{ sym_name, self.name.? });
+            log.err("unhandled symbol type: stab {s} in {s}", .{ sym_name, self.name.? });
             return error.UnhandledSymbolType;
         }
         if (Symbol.isIndr(sym)) {
-            log.err("indirect symbol {s} in {s}", .{ sym_name, self.name.? });
+            log.err("unhandled symbol type: indirect {s} in {s}", .{ sym_name, self.name.? });
             return error.UnhandledSymbolType;
         }
         if (Symbol.isAbs(sym)) {
-            log.err("absolute symbol {s} in {s}", .{ sym_name, self.name.? });
+            log.err("unhandled symbol type: absolute {s} in {s}", .{ sym_name, self.name.? });
             return error.UnhandledSymbolType;
         }
 
@@ -383,11 +388,18 @@ pub fn parseSymbols(self: *Object) !void {
             }
 
             if (sym.n_value != 0) {
-                log.err("common symbol {s} in {s}", .{ sym_name, self.name.? });
-                return error.UnhandledSymbolType;
-                // const comm_size = sym.n_value;
-                // const comm_align = (sym.n_desc >> 8) & 0x0f;
-                // log.warn("Common symbol: size 0x{x}, align 0x{x}", .{ comm_size, comm_align });
+                const tentative = try self.allocator.create(Symbol.Tentative);
+                errdefer self.allocator.destroy(tentative);
+                tentative.* = .{
+                    .base = .{
+                        .@"type" = .tentative,
+                        .name = name,
+                    },
+                    .size = sym.n_value,
+                    .alignment = (sym.n_desc >> 8) & 0x0f,
+                    .file = self,
+                };
+                break :symbol &tentative.base;
             }
 
             const undef = try self.allocator.create(Symbol.Unresolved);
