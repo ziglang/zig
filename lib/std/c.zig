@@ -208,6 +208,9 @@ pub usingnamespace switch (builtin.os.tag) {
         pub extern "c" fn sigprocmask(how: c_int, noalias set: ?*const sigset_t, noalias oset: ?*sigset_t) c_int;
         pub extern "c" fn socket(domain: c_uint, sock_type: c_uint, protocol: c_uint) c_int;
         pub extern "c" fn stat(noalias path: [*:0]const u8, noalias buf: *libc_stat) c_int;
+        pub extern "c" fn sigfillset(set: ?*sigset_t) void;
+        pub extern "c" fn alarm(seconds: c_uint) c_uint;
+        pub extern "c" fn sigwait(set: ?*sigset_t, sig: ?*c_int) c_int;
     },
     .windows => struct {
         // TODO: copied the else case and removed the socket function (because its in ws2_32)
@@ -222,6 +225,9 @@ pub usingnamespace switch (builtin.os.tag) {
         pub extern "c" fn sigaction(sig: c_int, noalias act: ?*const Sigaction, noalias oact: ?*Sigaction) c_int;
         pub extern "c" fn sigprocmask(how: c_int, noalias set: ?*const sigset_t, noalias oset: ?*sigset_t) c_int;
         pub extern "c" fn stat(noalias path: [*:0]const u8, noalias buf: *libc_stat) c_int;
+        pub extern "c" fn sigfillset(set: ?*sigset_t) void;
+        pub extern "c" fn alarm(seconds: c_uint) c_uint;
+        pub extern "c" fn sigwait(set: ?*sigset_t, sig: ?*c_int) c_int;
     },
     else => struct {
         pub extern "c" fn clock_getres(clk_id: c_int, tp: *timespec) c_int;
@@ -235,6 +241,9 @@ pub usingnamespace switch (builtin.os.tag) {
         pub extern "c" fn sigprocmask(how: c_int, noalias set: ?*const sigset_t, noalias oset: ?*sigset_t) c_int;
         pub extern "c" fn socket(domain: c_uint, sock_type: c_uint, protocol: c_uint) c_int;
         pub extern "c" fn stat(noalias path: [*:0]const u8, noalias buf: *libc_stat) c_int;
+        pub extern "c" fn sigfillset(set: ?*sigset_t) void;
+        pub extern "c" fn alarm(seconds: c_uint) c_uint;
+        pub extern "c" fn sigwait(set: ?*sigset_t, sig: ?*c_int) c_int;
     },
 };
 
