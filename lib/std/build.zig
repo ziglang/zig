@@ -637,21 +637,15 @@ pub const Builder = struct {
             "target",
             "The CPU architecture, OS, and ABI to build for",
         );
-        const mcpu = self.option([]const u8, "cpu", "Target CPU");
+        const mcpu = self.option([]const u8, "cpu", "Target CPU features to add or subtract");
 
         const triple = maybe_triple orelse return args.default_target;
-        const cpu_features = self.option(
-            []const u8,
-            "mcpu",
-            "The list of CPU features to add or subtract",
-        );
 
         var diags: CrossTarget.ParseOptions.Diagnostics = .{};
         const selected_target = CrossTarget.parse(.{
             .arch_os_abi = triple,
             .cpu_features = mcpu,
             .diagnostics = &diags,
-            .cpu_features = cpu_features,
         }) catch |err| switch (err) {
             error.UnknownCpuModel => {
                 warn("Unknown CPU: '{s}'\nAvailable CPUs for architecture '{s}':\n", .{
@@ -716,7 +710,7 @@ pub const Builder = struct {
                 if (mem.eql(u8, t_triple, selected_canonicalized_triple)) {
                     mismatch_triple = false;
                     whitelist_item = t;
-                    if (t.getCpuFeatures().subSet(selected_target.getCpuFeatures())) {
+                    if (t.getCpuFeatures().isSuperSetOf(selected_target.getCpuFeatures())) {
                         mismatch_cpu_features = false;
                         break :whitelist_check;
                     } else {
@@ -733,7 +727,8 @@ pub const Builder = struct {
                     warn(" {s}\n", .{t_triple});
                 }
                 warn("\n", .{});
-            } else { // mismatch_cpu_features
+            } else {
+                assert(mismatch_cpu_features);
                 const whitelist_cpu = whitelist_item.getCpu();
                 const selected_cpu = selected_target.getCpu();
                 warn("Chosen CPU model '{s}' does not match one of the supported targets:\n", .{

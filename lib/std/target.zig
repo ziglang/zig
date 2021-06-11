@@ -668,11 +668,11 @@ pub const Target = struct {
                     return mem.eql(usize, &set.ints, &other_set.ints);
                 }
 
-                /// Is the other set a sub set of this set
-                pub fn subSet(set: Set, other_set: Set) bool {
-                    return std.meta.eql((@as(std.meta.Vector(usize_count, usize), set.ints) &
-                        @as(std.meta.Vector(usize_count, usize), other_set.ints)),
-                        @as(std.meta.Vector(usize_count, usize), other_set.ints));
+                pub fn isSuperSetOf(set: Set, other_set: Set) bool {
+                    const V = std.meta.Vector(usize_count, usize);
+                    const set_v: V = set.ints;
+                    const other_v: V = other_set.ints;
+                    return @reduce(.And, (set_v & other_v) == other_v);
                 }
             };
 
