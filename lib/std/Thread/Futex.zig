@@ -75,7 +75,7 @@ const OsFutex = if (target.os.tag == .windows)
     WindowsFutex
 else if (target.os.tag == .linux)
     LinuxFutex
-else if (target.isDarwin())
+else if (comptime target.isDarwin())
     DarwinFutex
 else if (std.builtin.link_libc)
     PosixFutex
@@ -179,7 +179,7 @@ const DarwinFutex = struct {
         const addr = @ptrCast(*const c_void, ptr);
         const flags = darwin.UL_COMPARE_AND_WAIT | darwin.ULF_NO_ERRNO;
         const status = blk: {
-            if (target.os.version_range.semver.max >= 11) {
+            if (target.os.version_range.semver.max.major >= 11) {
                 break :blk darwin.__ulock_wait2(flags, addr, expect, timeout_us, 0);
             } else {
                 break :blk darwin.__ulock_wait(flags, addr, expect, timeout_us);
