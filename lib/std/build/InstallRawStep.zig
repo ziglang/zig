@@ -177,51 +177,51 @@ fn emitRaw(allocator: *Allocator, elf_path: []const u8, raw_path: []const u8) !v
     }
 }
 
-pub const InstallRawStep = struct {
-    step: Step,
-    builder: *Builder,
-    artifact: *LibExeObjStep,
-    dest_dir: InstallDir,
-    dest_filename: []const u8,
+const InstallRawStep = @This();
 
-    const Self = @This();
+pub const base_id = .install_raw;
 
-    pub fn create(builder: *Builder, artifact: *LibExeObjStep, dest_filename: []const u8) *Self {
-        const self = builder.allocator.create(Self) catch unreachable;
-        self.* = Self{
-            .step = Step.init(.InstallRaw, builder.fmt("install raw binary {s}", .{artifact.step.name}), builder.allocator, make),
-            .builder = builder,
-            .artifact = artifact,
-            .dest_dir = switch (artifact.kind) {
-                .Obj => unreachable,
-                .Test => unreachable,
-                .Exe => .Bin,
-                .Lib => unreachable,
-            },
-            .dest_filename = dest_filename,
-        };
-        self.step.dependOn(&artifact.step);
+step: Step,
+builder: *Builder,
+artifact: *LibExeObjStep,
+dest_dir: InstallDir,
+dest_filename: []const u8,
 
-        builder.pushInstalledFile(self.dest_dir, dest_filename);
-        return self;
+pub fn create(builder: *Builder, artifact: *LibExeObjStep, dest_filename: []const u8) *InstallRawStep {
+    const self = builder.allocator.create(InstallRawStep) catch unreachable;
+    self.* = InstallRawStep{
+        .step = Step.init(.install_raw, builder.fmt("install raw binary {s}", .{artifact.step.name}), builder.allocator, make),
+        .builder = builder,
+        .artifact = artifact,
+        .dest_dir = switch (artifact.kind) {
+            .obj => unreachable,
+            .@"test" => unreachable,
+            .exe => .bin,
+            .lib => unreachable,
+        },
+        .dest_filename = dest_filename,
+    };
+    self.step.dependOn(&artifact.step);
+
+    builder.pushInstalledFile(self.dest_dir, dest_filename);
+    return self;
+}
+
+fn make(step: *Step) !void {
+    const self = @fieldParentPtr(InstallRawStep, "step", step);
+    const builder = self.builder;
+
+    if (self.artifact.target.getObjectFormat() != .elf) {
+        warn("InstallRawStep only works with ELF format.\n", .{});
+        return error.InvalidObjectFormat;
     }
 
-    fn make(step: *Step) !void {
-        const self = @fieldParentPtr(Self, "step", step);
-        const builder = self.builder;
+    const full_src_path = self.artifact.getOutputSource().getPath(builder);
+    const full_dest_path = builder.getInstallPath(self.dest_dir, self.dest_filename);
 
-        if (self.artifact.target.getObjectFormat() != .elf) {
-            warn("InstallRawStep only works with ELF format.\n", .{});
-            return error.InvalidObjectFormat;
-        }
-
-        const full_src_path = self.artifact.getOutputPath();
-        const full_dest_path = builder.getInstallPath(self.dest_dir, self.dest_filename);
-
-        fs.cwd().makePath(builder.getInstallPath(self.dest_dir, "")) catch unreachable;
-        try emitRaw(builder.allocator, full_src_path, full_dest_path);
-    }
-};
+    fs.cwd().makePath(builder.getInstallPath(self.dest_dir, "")) catch unreachable;
+    try emitRaw(builder.allocator, full_src_path, full_dest_path);
+}
 
 test {
     std.testing.refAllDecls(InstallRawStep);

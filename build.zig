@@ -66,7 +66,7 @@ pub fn build(b: *Builder) !void {
     if (!skip_install_lib_files) {
         b.installDirectory(InstallDirectoryOptions{
             .source_dir = "lib",
-            .install_dir = .Lib,
+            .install_dir = .lib,
             .install_subdir = "zig",
             .exclude_extensions = &[_][]const u8{
                 "README.md",
