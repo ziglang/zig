@@ -187,10 +187,7 @@ pub fn flushModule(self: *SpirV, comp: *Compilation) !void {
     var iovc_buffers: [buffers.len]std.os.iovec_const = undefined;
     for (iovc_buffers) |*iovc, i| {
         const bytes = std.mem.sliceAsBytes(buffers[i]);
-        iovc.* = .{
-            .iov_base = bytes.ptr,
-            .iov_len = bytes.len
-        };
+        iovc.* = .{ .iov_base = bytes.ptr, .iov_len = bytes.len };
     }
 
     var file_size: u64 = 0;

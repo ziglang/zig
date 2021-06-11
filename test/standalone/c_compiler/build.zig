@@ -30,7 +30,7 @@ pub fn build(b: *Builder) void {
     exe_cpp.linkSystemLibrary("c++");
 
     // disable broken LTO links:
-    switch(target.getOsTag()) {
+    switch (target.getOsTag()) {
         .windows => {
             exe_cpp.want_lto = false;
         },

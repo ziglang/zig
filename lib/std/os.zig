@@ -6121,7 +6121,7 @@ pub fn getrlimit(resource: rlimit_resource) GetrlimitError!rlimit {
     }
 }
 
-pub const SetrlimitError = error{PermissionDenied, LimitTooBig} || UnexpectedError;
+pub const SetrlimitError = error{ PermissionDenied, LimitTooBig } || UnexpectedError;
 
 pub fn setrlimit(resource: rlimit_resource, limits: rlimit) SetrlimitError!void {
     const setrlimit_sym = if (builtin.os.tag == .linux and builtin.link_libc)

@@ -46,8 +46,7 @@ pub fn MultiArrayList(comptime S: type) type {
                     return &[_]F{};
                 }
                 const byte_ptr = self.ptrs[@enumToInt(field)];
-                const casted_ptr: [*]F = if (@sizeOf([*]F) == 0) undefined
-                    else @ptrCast([*]F, @alignCast(@alignOf(F), byte_ptr));
+                const casted_ptr: [*]F = if (@sizeOf([*]F) == 0) undefined else @ptrCast([*]F, @alignCast(@alignOf(F), byte_ptr));
                 return casted_ptr[0..self.len];
             }
 
@@ -197,7 +196,7 @@ pub fn MultiArrayList(comptime S: type) type {
             try self.ensureCapacity(gpa, self.len + 1);
             self.insertAssumeCapacity(index, elem);
         }
-        
+
         /// Inserts an item into an ordered list which has room for it.
         /// Shifts all elements after and including the specified index
         /// back by one and sets the given index to the specified element.
@@ -209,9 +208,9 @@ pub fn MultiArrayList(comptime S: type) type {
             const slices = self.slice();
             inline for (fields) |field_info, field_index| {
                 const field_slice = slices.items(@intToEnum(Field, field_index));
-                var i: usize = self.len-1;
+                var i: usize = self.len - 1;
                 while (i > index) : (i -= 1) {
-                    field_slice[i] = field_slice[i-1];
+                    field_slice[i] = field_slice[i - 1];
                 }
                 field_slice[index] = @field(elem, field_info.name);
             }
@@ -224,8 +223,8 @@ pub fn MultiArrayList(comptime S: type) type {
             const slices = self.slice();
             inline for (fields) |field_info, i| {
                 const field_slice = slices.items(@intToEnum(Field, i));
-                field_slice[index] = field_slice[self.len-1];
-                field_slice[self.len-1] = undefined;
+                field_slice[index] = field_slice[self.len - 1];
+                field_slice[self.len - 1] = undefined;
             }
             self.len -= 1;
         }
@@ -237,8 +236,8 @@ pub fn MultiArrayList(comptime S: type) type {
             inline for (fields) |field_info, field_index| {
                 const field_slice = slices.items(@intToEnum(Field, field_index));
                 var i = index;
-                while (i < self.len-1) : (i += 1) {
-                    field_slice[i] = field_slice[i+1];
+                while (i < self.len - 1) : (i += 1) {
+                    field_slice[i] = field_slice[i + 1];
                 }
                 field_slice[i] = undefined;
             }

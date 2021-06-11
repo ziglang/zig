@@ -182,7 +182,7 @@ test "Type.Optional" {
 }
 
 test "Type.ErrorUnion" {
-   try testTypes(&[_]type{
+    try testTypes(&[_]type{
         error{}!void,
         error{Error}!void,
     });

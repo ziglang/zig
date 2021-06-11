@@ -15,7 +15,7 @@ pub fn main() !void {
     const spec = try std.fs.cwd().readFileAlloc(allocator, spec_path, std.math.maxInt(usize));
 
     var tokens = std.json.TokenStream.init(spec);
-    var registry = try std.json.parse(g.Registry, &tokens, .{.allocator = allocator});
+    var registry = try std.json.parse(g.Registry, &tokens, .{ .allocator = allocator });
 
     var bw = std.io.bufferedWriter(std.io.getStdOut().writer());
     try render(bw.writer(), registry);
@@ -36,7 +36,8 @@ fn render(writer: anytype, registry: g.Registry) !void {
                 \\pub const version = Version{{ .major = {}, .minor = {}, .patch = {} }};
                 \\pub const magic_number: u32 = {s};
                 \\
-                , .{ core_reg.major_version, core_reg.minor_version, core_reg.revision, core_reg.magic_number },
+            ,
+                .{ core_reg.major_version, core_reg.minor_version, core_reg.revision, core_reg.magic_number },
             );
             try renderOpcodes(writer, core_reg.instructions);
             try renderOperandKinds(writer, core_reg.operand_kinds);
@@ -45,11 +46,12 @@ fn render(writer: anytype, registry: g.Registry) !void {
             try writer.print(
                 \\pub const version = Version{{ .major = {}, .minor = 0, .patch = {} }};
                 \\
-                , .{ ext_reg.version, ext_reg.revision },
+            ,
+                .{ ext_reg.version, ext_reg.revision },
             );
             try renderOpcodes(writer, ext_reg.instructions);
             try renderOperandKinds(writer, ext_reg.operand_kinds);
-        }
+        },
     }
 }
 
@@ -72,7 +74,7 @@ fn renderOperandKinds(writer: anytype, kinds: []const g.OperandKind) !void {
 }
 
 fn renderValueEnum(writer: anytype, enumeration: g.OperandKind) !void {
-    try writer.print("pub const {s} = extern enum(u32) {{\n", .{ enumeration.kind });
+    try writer.print("pub const {s} = extern enum(u32) {{\n", .{enumeration.kind});
 
     const enumerants = enumeration.enumerants orelse return error.InvalidRegistry;
     for (enumerants) |enumerant| {
@@ -85,7 +87,7 @@ fn renderValueEnum(writer: anytype, enumeration: g.OperandKind) !void {
 }
 
 fn renderBitEnum(writer: anytype, enumeration: g.OperandKind) !void {
-    try writer.print("pub const {s} = packed struct {{\n", .{ enumeration.kind });
+    try writer.print("pub const {s} = packed struct {{\n", .{enumeration.kind});
 
     var flags_by_bitpos = [_]?[]const u8{null} ** 32;
     const enumerants = enumeration.enumerants orelse return error.InvalidRegistry;
@@ -97,7 +99,7 @@ fn renderBitEnum(writer: anytype, enumeration: g.OperandKind) !void {
         }
 
         var bitpos = std.math.log2_int(u32, value);
-        if (flags_by_bitpos[bitpos]) |*existing|{
+        if (flags_by_bitpos[bitpos]) |*existing| {
             // Keep the shortest
             if (enumerant.enumerant.len < existing.len)
                 existing.* = enumerant.enumerant;
@@ -128,7 +130,7 @@ fn parseHexInt(text: []const u8) !u31 {
     const prefix = "0x";
     if (!std.mem.startsWith(u8, text, prefix))
         return error.InvalidHexInt;
-    return try std.fmt.parseInt(u31, text[prefix.len ..], 16);
+    return try std.fmt.parseInt(u31, text[prefix.len..], 16);
 }
 
 fn usageAndExit(file: std.fs.File, arg0: []const u8, code: u8) noreturn {
@@ -142,7 +144,6 @@ fn usageAndExit(file: std.fs.File, arg0: []const u8, code: u8) noreturn {
         \\The relevant specifications can be obtained from the SPIR-V registry:
         \\https://github.com/KhronosGroup/SPIRV-Headers/blob/master/include/spirv/unified1/
         \\
-        , .{arg0}
-    ) catch std.process.exit(1);
+    , .{arg0}) catch std.process.exit(1);
     std.process.exit(code);
 }
