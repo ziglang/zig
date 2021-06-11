@@ -664,8 +664,15 @@ pub const Target = struct {
                     return @ptrCast(*const [byte_count]u8, &set.ints);
                 }
 
-                pub fn eql(set: Set, other: Set) bool {
-                    return mem.eql(usize, &set.ints, &other.ints);
+                pub fn eql(set: Set, other_set: Set) bool {
+                    return mem.eql(usize, &set.ints, &other_set.ints);
+                }
+
+                pub fn isSuperSetOf(set: Set, other_set: Set) bool {
+                    const V = std.meta.Vector(usize_count, usize);
+                    const set_v: V = set.ints;
+                    const other_v: V = other_set.ints;
+                    return @reduce(.And, (set_v & other_v) == other_v);
                 }
             };
 
