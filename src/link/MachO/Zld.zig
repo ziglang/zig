@@ -720,8 +720,7 @@ fn updateMetadata(self: *Zld) !void {
         var added_size: u64 = 0;
         for (self.tentatives.values()) |sym| {
             const tent = sym.cast(Symbol.Tentative) orelse unreachable;
-            if (max_align > tent.alignment) continue;
-            max_align = tent.alignment;
+            max_align = math.max(max_align, tent.alignment);
             added_size += tent.size;
         }
 
