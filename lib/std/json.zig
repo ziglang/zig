@@ -1541,16 +1541,19 @@ test "skipValue" {
     }
 }
 
+const FieldAliasMap = std.StringArrayHashMapUnmanaged([]const u8);
+
 // build a map of aliases from field_name => alias_name
-fn buildFieldAliasMap(comptime T: type, options: ParseOptions, allocator: *mem.Allocator) !std.StringHashMapUnmanaged([]const u8) {
-    var result = std.StringHashMapUnmanaged([]const u8){};
-    if (options.field_aliases.len == 0) return result;
-    inline for (comptime std.meta.fieldNames(T)) |field_name| {
-        for (options.field_aliases) |entry| {
-            if (std.mem.eql(u8, field_name, entry.field)) {
-                try result.put(allocator, entry.field, entry.alias);
-            }
-        }
+fn buildFieldAliasMap(comptime field_names: []const []const u8, options: ParseOptions, list: []FieldAliasMap.Data) FieldAliasMap {
+    var result = FieldAliasMap{ .entries = FieldAliasMap.DataList{
+        .bytes = @ptrCast([*]u8, list.ptr),
+        .len = 0,
+        .capacity = field_names.len,
+    } };
+    inline for (field_names) |field_name| {
+        for (options.field_aliases) |field_alias|
+            if (std.mem.eql(u8, field_name, field_alias.field))
+                result.putAssumeCapacity(field_alias.field, field_alias.alias);
     }
     return result;
 }
@@ -1567,26 +1570,33 @@ test "field aliases" {
     try testing.expectEqual(@as(u8, 42), s.value);
 }
 
-test "many field_aliases" {
-    const S = struct { value: u8, zzz: u8 };
+test "many field aliases" {
+    const S = struct { value: u8, a: u8, z: u8 };
     const text =
-        \\{"__value": 42, "__zzz": 84}
+        \\{"__value": 42, "__a": 43, "__z": 44}
     ;
 
-    // make oversized list of aliases to check if stack allocated field_alias_map has enough memory
-    comptime var field_aliases = [1]FieldAlias{undefined} ** 256;
-    comptime for (field_aliases) |*fa, i| {
-        const c = [1]u8{@intCast(u8, 'A' + (i % 64))};
-        const cs = c ** (i / 64 + 1);
-        fa.field = &cs;
-        fa.alias = &("__" ++ cs);
-    };
+    // too many aliases
+    try testing.expectError(
+        error.TooManyFieldAliases,
+        parse(S, &TokenStream.init(text), .{ .field_aliases = &.{
+            .{ .field = "value", .alias = "__value" },
+            .{ .field = "a", .alias = "__a" },
+            .{ .field = "z", .alias = "__z" },
+            .{ .field = "oops", .alias = "__oops" },
+        } }),
+    );
 
     const s = try parse(S, &TokenStream.init(text), .{
-        .field_aliases = &(field_aliases ++ [1]FieldAlias{.{ .field = "value", .alias = "__value" }}),
+        .field_aliases = &.{
+            .{ .field = "value", .alias = "__value" },
+            .{ .field = "a", .alias = "__a" },
+            .{ .field = "z", .alias = "__z" },
+        },
     });
     try testing.expectEqual(@as(u8, 42), s.value);
-    try testing.expectEqual(@as(u8, 84), s.zzz);
+    try testing.expectEqual(@as(u8, 43), s.a);
+    try testing.expectEqual(@as(u8, 44), s.z);
 }
 
 test "field alias escapes" {
@@ -1710,9 +1720,12 @@ fn parseInternal(comptime T: type, token: Token, tokens: *TokenStream, options: 
                     }
                 }
             }
-            var buf: [structInfo.fields.len * (1 << 9)]u8 = undefined;
-            var fba = std.heap.FixedBufferAllocator.init(&buf);
-            var field_alias_map = try buildFieldAliasMap(T, options, &fba.allocator);
+
+            // construct a FieldAliasMap on the stack
+            const field_names = comptime std.meta.fieldNames(T);
+            var list_data: [field_names.len]FieldAliasMap.Data = undefined;
+            if (options.field_aliases.len > field_names.len) return error.TooManyFieldAliases;
+            var field_alias_map = buildFieldAliasMap(field_names, options, &list_data);
 
             while (true) {
                 switch ((try tokens.next()) orelse return error.UnexpectedEndOfJson) {
