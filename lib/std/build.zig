@@ -122,6 +122,12 @@ pub const Builder = struct {
         description: []const u8,
     };
 
+    pub const DirList = struct {
+        lib_dir: ?[]const u8 = null,
+        exe_dir: ?[]const u8 = null,
+        include_dir: ?[]const u8 = null,
+    };
+
     pub fn create(
         allocator: *Allocator,
         zig_exe: []const u8,
@@ -190,7 +196,7 @@ pub const Builder = struct {
     }
 
     /// This function is intended to be called by std/special/build_runner.zig, not a build.zig file.
-    pub fn resolveInstallPrefix(self: *Builder, install_prefix: ?[]const u8) void {
+    pub fn resolveInstallPrefix(self: *Builder, install_prefix: ?[]const u8, dir_list: DirList) void {
         if (self.dest_dir) |dest_dir| {
             self.install_prefix = install_prefix orelse "/usr";
             self.install_path = fs.path.join(self.allocator, &[_][]const u8{ dest_dir, self.install_prefix }) catch unreachable;
@@ -199,9 +205,29 @@ pub const Builder = struct {
                 (fs.path.join(self.allocator, &[_][]const u8{ self.build_root, "zig-out" }) catch unreachable);
             self.install_path = self.install_prefix;
         }
-        self.lib_dir = fs.path.join(self.allocator, &[_][]const u8{ self.install_path, "lib" }) catch unreachable;
-        self.exe_dir = fs.path.join(self.allocator, &[_][]const u8{ self.install_path, "bin" }) catch unreachable;
-        self.h_dir = fs.path.join(self.allocator, &[_][]const u8{ self.install_path, "include" }) catch unreachable;
+
+        var lib_list = [_][]const u8{ self.install_path, "lib" };
+        var exe_list = [_][]const u8{ self.install_path, "bin" };
+        var h_list = [_][]const u8{ self.install_path, "include" };
+
+        if (dir_list.lib_dir) |dir| {
+            if (std.fs.path.isAbsolute(dir)) lib_list[0] = self.dest_dir orelse "";
+            lib_list[1] = dir;
+        }
+
+        if (dir_list.exe_dir) |dir| {
+            if (std.fs.path.isAbsolute(dir)) exe_list[0] = self.dest_dir orelse "";
+            exe_list[1] = dir;
+        }
+
+        if (dir_list.include_dir) |dir| {
+            if (std.fs.path.isAbsolute(dir)) h_list[0] = self.dest_dir orelse "";
+            h_list[1] = dir;
+        }
+
+        self.lib_dir = fs.path.join(self.allocator, &lib_list) catch unreachable;
+        self.exe_dir = fs.path.join(self.allocator, &exe_list) catch unreachable;
+        self.h_dir = fs.path.join(self.allocator, &h_list) catch unreachable;
     }
 
     pub fn addExecutable(self: *Builder, name: []const u8, root_src: ?[]const u8) *LibExeObjStep {
