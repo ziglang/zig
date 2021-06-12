@@ -590,7 +590,8 @@ pub const Pdb = struct {
 
         var sect_cont_offset: usize = 0;
         if (section_contrib_size != 0) {
-            const version = reader.readEnum(SectionContrSubstreamVersion, .Little) catch |err| switch (err) {
+            // the version
+            _ = reader.readEnum(SectionContrSubstreamVersion, .Little) catch |err| switch (err) {
                 error.InvalidValue => return error.InvalidDebugInfo,
                 else => |e| return e,
             };
@@ -616,7 +617,8 @@ pub const Pdb = struct {
 
         // Parse the InfoStreamHeader.
         const version = try reader.readIntLittle(u32);
-        const signature = try reader.readIntLittle(u32);
+        // The signature
+        _ = try reader.readIntLittle(u32);
         const age = try reader.readIntLittle(u32);
         const guid = try reader.readBytesNoEof(16);
 

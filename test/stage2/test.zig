@@ -259,6 +259,7 @@ pub fn addCases(ctx: *TestContext) !void {
         case.addCompareOutput(
             \\pub fn main() void {
             \\    var x: usize = 0;
+            \\    _ = x;
             \\    const z = @TypeOf(x, @as(u128, 5));
             \\    assert(z == u128);
             \\}
@@ -283,9 +284,9 @@ pub fn addCases(ctx: *TestContext) !void {
         );
         case.addError(
             \\pub fn main() void {
-            \\    const z = @TypeOf(true, 1);
+            \\    _ = @TypeOf(true, 1);
             \\}
-        , &[_][]const u8{":2:15: error: incompatible types: 'bool' and 'comptime_int'"});
+        , &[_][]const u8{":2:9: error: incompatible types: 'bool' and 'comptime_int'"});
     }
 
     {
@@ -746,6 +747,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\        \\ cool thx
             \\        \\
             \\    ;
+            \\    _ = ignore;
             \\    add('ぁ', '\x03');
             \\}
             \\
@@ -987,6 +989,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\            return bar;
         \\        }
         \\    };
+        \\    _ = S;
         \\}
     , &.{
         ":5:20: error: 'bar' not accessible from inner function",
@@ -1072,6 +1075,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    @compileLog(b, 20, f, x);
             \\    @compileLog(1000);
             \\    var bruh: usize = true;
+            \\    _ = bruh;
             \\    unreachable;
             \\}
             \\export fn other() void {
@@ -1217,6 +1221,7 @@ pub fn addCases(ctx: *TestContext) !void {
         case.addError(
             \\pub fn main() void {
             \\    var x = null;
+            \\    _ = x;
             \\}
         , &[_][]const u8{
             ":2:9: error: variable of type '@Type(.Null)' must be const or comptime",
@@ -1456,14 +1461,14 @@ pub fn addCases(ctx: *TestContext) !void {
         case.addCompareOutput(
             \\pub fn main() void {
             \\    const E = error{ A, B, D } || error { A, B, C };
-            \\    const a = E.A;
-            \\    const b = E.B;
-            \\    const c = E.C;
-            \\    const d = E.D;
+            \\    E.A catch {};
+            \\    E.B catch {};
+            \\    E.C catch {};
+            \\    E.D catch {};
             \\    const E2 = error { X, Y } || @TypeOf(error.Z);
-            \\    const x = E2.X;
-            \\    const y = E2.Y;
-            \\    const z = E2.Z;
+            \\    E2.X catch {};
+            \\    E2.Y catch {};
+            \\    E2.Z catch {};
             \\    assert(anyerror || error { Z } == anyerror);
             \\}
             \\fn assert(b: bool) void {
@@ -1485,6 +1490,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\          [arg1] "{rdi}" (code)
             \\        : "rcx", "r11", "memory"
             \\    );
+            \\    _ = x;
             \\}
         , &[_][]const u8{":4:27: error: expected type, found comptime_int"});
     }

@@ -1005,7 +1005,7 @@ const Parser = struct {
                 },
             });
         };
-        const else_payload = try p.parsePayload();
+        _ = try p.parsePayload();
         const else_expr = try p.expectStatement();
         return p.addNode(.{
             .tag = .@"if",
@@ -1189,7 +1189,7 @@ const Parser = struct {
                 });
             }
         };
-        const else_payload = try p.parsePayload();
+        _ = try p.parsePayload();
         const else_expr = try p.expectStatement();
         return p.addNode(.{
             .tag = .@"while",

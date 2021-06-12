@@ -896,7 +896,6 @@ fn printLineFromFileAnyOs(out_stream: anytype, line_info: LineInfo) !void {
     var buf: [mem.page_size]u8 = undefined;
     var line: usize = 1;
     var column: usize = 1;
-    var abs_index: usize = 0;
     while (true) {
         const amt_read = try f.read(buf[0..]);
         const slice = buf[0..amt_read];
