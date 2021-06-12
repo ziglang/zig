@@ -107,6 +107,21 @@ test "zig fmt: rewrite suspend without block expression" {
     );
 }
 
+// TODO Remove this after zig 0.9.0 is released.
+test "zig fmt: rewrite @byteOffsetOf to @offsetOf" {
+    try testTransform(
+        \\fn foo() void {
+        \\    @byteOffsetOf(Foo, "bar");
+        \\}
+        \\
+    ,
+        \\fn foo() void {
+        \\    @offsetOf(Foo, "bar");
+        \\}
+        \\
+    );
+}
+
 test "zig fmt: simple top level comptime block" {
     try testCanonical(
         \\// line comment
