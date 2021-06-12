@@ -5627,44 +5627,20 @@ fn parseCSpecifierQualifierList(c: *Context, m: *MacroCtx, scope: *Scope) ParseE
                 return try Tag.identifier.create(c.arena, builtin_typedef_map.get(mangled_name) orelse mangled_name);
             }
         },
-        // eventually this will be replaced by std.c.parse which will handle these correctly
         .Keyword_void => return try Tag.type.create(c.arena, "c_void"),
         .Keyword_bool => return try Tag.type.create(c.arena, "bool"),
-        .Keyword_double => return try Tag.type.create(c.arena, "f64"),
-        .Keyword_long => return try Tag.type.create(c.arena, "c_long"),
-        .Keyword_int => return try Tag.type.create(c.arena, "c_int"),
-        .Keyword_float => return try Tag.type.create(c.arena, "f32"),
-        .Keyword_short => return try Tag.type.create(c.arena, "c_short"),
-        .Keyword_char => return try Tag.type.create(c.arena, "u8"),
-        .Keyword_unsigned => if (m.next()) |t| switch (t) {
-            .Keyword_char => return try Tag.type.create(c.arena, "u8"),
-            .Keyword_short => return try Tag.type.create(c.arena, "c_ushort"),
-            .Keyword_int => return try Tag.type.create(c.arena, "c_uint"),
-            .Keyword_long => if (m.peek() != null and m.peek().? == .Keyword_long) {
-                _ = m.next();
-                return try Tag.type.create(c.arena, "c_ulonglong");
-            } else return try Tag.type.create(c.arena, "c_ulong"),
-            else => {
-                m.i -= 1;
-                return try Tag.type.create(c.arena, "c_uint");
-            },
-        } else {
-            return try Tag.type.create(c.arena, "c_uint");
-        },
-        .Keyword_signed => if (m.next()) |t| switch (t) {
-            .Keyword_char => return try Tag.type.create(c.arena, "i8"),
-            .Keyword_short => return try Tag.type.create(c.arena, "c_short"),
-            .Keyword_int => return try Tag.type.create(c.arena, "c_int"),
-            .Keyword_long => if (m.peek() != null and m.peek().? == .Keyword_long) {
-                _ = m.next();
-                return try Tag.type.create(c.arena, "c_longlong");
-            } else return try Tag.type.create(c.arena, "c_long"),
-            else => {
-                m.i -= 1;
-                return try Tag.type.create(c.arena, "c_int");
-            },
-        } else {
-            return try Tag.type.create(c.arena, "c_int");
+        .Keyword_char,
+        .Keyword_int,
+        .Keyword_short,
+        .Keyword_long,
+        .Keyword_float,
+        .Keyword_double,
+        .Keyword_signed,
+        .Keyword_unsigned,
+        .Keyword_complex,
+        => {
+            m.i -= 1;
+            return try parseCNumericType(c, m, scope);
         },
         .Keyword_enum, .Keyword_struct, .Keyword_union => {
             // struct Foo will be declared as struct_Foo by transRecordDecl
@@ -5678,12 +5654,112 @@ fn parseCSpecifierQualifierList(c: *Context, m: *MacroCtx, scope: *Scope) ParseE
             const name = try std.fmt.allocPrint(c.arena, "{s}_{s}", .{ slice, m.slice() });
             return try Tag.identifier.create(c.arena, name);
         },
-        .Keyword_complex => {}, // TODO
         else => {},
     }
 
     m.i -= 1;
     return null;
+}
+
+fn parseCNumericType(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
+    const KwCounter = struct {
+        double: u8 = 0,
+        long: u8 = 0,
+        int: u8 = 0,
+        float: u8 = 0,
+        short: u8 = 0,
+        char: u8 = 0,
+        unsigned: u8 = 0,
+        signed: u8 = 0,
+        complex: u8 = 0,
+
+        fn eql(self: @This(), other: @This()) bool {
+            return meta.eql(self, other);
+        }
+    };
+
+    // Yes, these can be in *any* order
+    // This still doesn't cover cases where for example volatile is intermixed
+
+    var kw = KwCounter{};
+    // prevent overflow
+    var i: u8 = 0;
+    while (i < math.maxInt(u8)) : (i += 1) {
+        switch (m.next().?) {
+            .Keyword_double => kw.double += 1,
+            .Keyword_long => kw.long += 1,
+            .Keyword_int => kw.int += 1,
+            .Keyword_float => kw.float += 1,
+            .Keyword_short => kw.short += 1,
+            .Keyword_char => kw.char += 1,
+            .Keyword_unsigned => kw.unsigned += 1,
+            .Keyword_signed => kw.signed += 1,
+            .Keyword_complex => kw.complex += 1,
+            else => {
+                m.i -= 1;
+                break;
+            },
+        }
+    }
+
+    if (kw.eql(.{ .int = 1 }) or kw.eql(.{ .signed = 1 }) or kw.eql(.{ .signed = 1, .int = 1 }))
+        return Tag.type.create(c.arena, "c_int");
+
+    if (kw.eql(.{ .unsigned = 1 }) or kw.eql(.{ .unsigned = 1, .int = 1 }))
+        return Tag.type.create(c.arena, "c_uint");
+
+    if (kw.eql(.{ .long = 1 }) or kw.eql(.{ .signed = 1, .long = 1 }) or kw.eql(.{ .long = 1, .int = 1 }) or kw.eql(.{ .signed = 1, .long = 1, .int = 1 }))
+        return Tag.type.create(c.arena, "c_long");
+
+    if (kw.eql(.{ .unsigned = 1, .long = 1 }) or kw.eql(.{ .unsigned = 1, .long = 1, .int = 1 }))
+        return Tag.type.create(c.arena, "c_ulong");
+
+    if (kw.eql(.{ .long = 2 }) or kw.eql(.{ .signed = 1, .long = 2 }) or kw.eql(.{ .long = 2, .int = 1 }) or kw.eql(.{ .signed = 1, .long = 2, .int = 1 }))
+        return Tag.type.create(c.arena, "c_longlong");
+
+    if (kw.eql(.{ .unsigned = 1, .long = 2 }) or kw.eql(.{ .unsigned = 1, .long = 2, .int = 1 }))
+        return Tag.type.create(c.arena, "c_ulonglong");
+
+    if (kw.eql(.{ .signed = 1, .char = 1 }))
+        return Tag.type.create(c.arena, "i8");
+
+    if (kw.eql(.{ .char = 1 }) or kw.eql(.{ .unsigned = 1, .char = 1 }))
+        return Tag.type.create(c.arena, "u8");
+
+    if (kw.eql(.{ .short = 1 }) or kw.eql(.{ .signed = 1, .short = 1 }) or kw.eql(.{ .short = 1, .int = 1 }) or kw.eql(.{ .signed = 1, .short = 1, .int = 1 }))
+        return Tag.type.create(c.arena, "c_short");
+
+    if (kw.eql(.{ .unsigned = 1, .short = 1 }) or kw.eql(.{ .unsigned = 1, .short = 1, .int = 1 }))
+        return Tag.type.create(c.arena, "c_ushort");
+
+    if (kw.eql(.{ .float = 1 }))
+        return Tag.type.create(c.arena, "f32");
+
+    if (kw.eql(.{ .double = 1 }))
+        return Tag.type.create(c.arena, "f64");
+
+    if (kw.eql(.{ .long = 1, .double = 1 })) {
+        try m.fail(c, "unable to translate: TODO long double", .{});
+        return error.ParseError;
+    }
+
+    if (kw.eql(.{ .float = 1, .complex = 1 })) {
+        try m.fail(c, "unable to translate: TODO _Complex", .{});
+        return error.ParseError;
+    }
+
+    if (kw.eql(.{ .double = 1, .complex = 1 })) {
+        try m.fail(c, "unable to translate: TODO _Complex", .{});
+        return error.ParseError;
+    }
+
+    if (kw.eql(.{ .long = 1, .double = 1, .complex = 1 })) {
+        try m.fail(c, "unable to translate: TODO _Complex", .{});
+        return error.ParseError;
+    }
+
+    try m.fail(c, "unable to translate: invalid numeric type", .{});
+    return error.ParseError;
 }
 
 fn parseCAbstractDeclarator(c: *Context, m: *MacroCtx, scope: *Scope, node: Node) ParseError!Node {
