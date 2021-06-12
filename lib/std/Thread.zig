@@ -11,6 +11,7 @@
 data: Data,
 
 pub const AutoResetEvent = @import("Thread/AutoResetEvent.zig");
+pub const Futex = @import("Thread/Futex.zig");
 pub const ResetEvent = @import("Thread/ResetEvent.zig");
 pub const StaticResetEvent = @import("Thread/StaticResetEvent.zig");
 pub const Mutex = @import("Thread/Mutex.zig");
@@ -574,6 +575,7 @@ pub fn getCurrentThreadId() u64 {
 test "std.Thread" {
     if (!builtin.single_threaded) {
         _ = AutoResetEvent;
+        _ = Futex;
         _ = ResetEvent;
         _ = StaticResetEvent;
         _ = Mutex;
