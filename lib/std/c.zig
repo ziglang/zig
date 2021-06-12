@@ -10,7 +10,6 @@ const page_size = std.mem.page_size;
 pub const tokenizer = @import("c/tokenizer.zig");
 pub const Token = tokenizer.Token;
 pub const Tokenizer = tokenizer.Tokenizer;
-pub const builtins = @import("c/builtins.zig");
 
 test {
     _ = tokenizer;
