@@ -74,7 +74,7 @@ pub const Node = extern union {
         tuple,
         container_init,
         container_init_dot,
-        std_meta_cast,
+        helpers_cast,
         /// _ = operand;
         discard,
 
@@ -124,8 +124,8 @@ pub const Node = extern union {
         std_math_Log2Int,
         /// @intCast(lhs, rhs)
         int_cast,
-        /// @import("std").meta.promoteIntLiteral(value, type, radix)
-        std_meta_promoteIntLiteral,
+        /// @import("std").zig.c_translation.promoteIntLiteral(value, type, radix)
+        helpers_promoteIntLiteral,
         /// @import("std").meta.alignment(value)
         std_meta_alignment,
         /// @rem(lhs, rhs)
@@ -193,12 +193,12 @@ pub const Node = extern union {
         array_type,
         null_sentinel_array_type,
 
-        /// @import("std").meta.sizeof(operand)
-        std_meta_sizeof,
-        /// @import("std").meta.FlexibleArrayType(lhs, rhs)
-        std_meta_flexible_array_type,
-        /// @import("std").meta.shuffleVectorIndex(lhs, rhs)
-        std_meta_shuffle_vector_index,
+        /// @import("std").zig.c_translation.sizeof(operand)
+        helpers_sizeof,
+        /// @import("std").zig.c_translation.FlexibleArrayType(lhs, rhs)
+        helpers_flexible_array_type,
+        /// @import("std").zig.c_translation.shuffleVectorIndex(lhs, rhs)
+        helpers_shuffle_vector_index,
         /// @import("std").meta.Vector(lhs, rhs)
         std_meta_vector,
         /// @import("std").mem.zeroes(operand)
@@ -272,7 +272,7 @@ pub const Node = extern union {
                 .if_not_break,
                 .switch_else,
                 .block_single,
-                .std_meta_sizeof,
+                .helpers_sizeof,
                 .std_meta_alignment,
                 .bool_to_int,
                 .sizeof,
@@ -332,13 +332,13 @@ pub const Node = extern union {
                 .align_cast,
                 .array_access,
                 .std_mem_zeroinit,
-                .std_meta_flexible_array_type,
-                .std_meta_shuffle_vector_index,
+                .helpers_flexible_array_type,
+                .helpers_shuffle_vector_index,
                 .std_meta_vector,
                 .ptr_cast,
                 .div_exact,
                 .offset_of,
-                .std_meta_cast,
+                .helpers_cast,
                 => Payload.BinOp,
 
                 .integer_literal,
@@ -362,7 +362,7 @@ pub const Node = extern union {
                 .tuple => Payload.TupleInit,
                 .container_init => Payload.ContainerInit,
                 .container_init_dot => Payload.ContainerInitDot,
-                .std_meta_promoteIntLiteral => Payload.PromoteIntLiteral,
+                .helpers_promoteIntLiteral => Payload.PromoteIntLiteral,
                 .block => Payload.Block,
                 .c_pointer, .single_pointer => Payload.Pointer,
                 .array_type, .null_sentinel_array_type => Payload.Array,
@@ -868,7 +868,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             // pub usingnamespace @import("std").c.builtins;
             _ = try c.addToken(.keyword_pub, "pub");
             const usingnamespace_token = try c.addToken(.keyword_usingnamespace, "usingnamespace");
-            const import_node = try renderStdImport(c, "c", "builtins");
+            const import_node = try renderStdImport(c, &.{ "zig", "c_builtins" });
             _ = try c.addToken(.semicolon, ";");
 
             return c.addNode(.{
@@ -882,52 +882,52 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
         },
         .std_math_Log2Int => {
             const payload = node.castTag(.std_math_Log2Int).?.data;
-            const import_node = try renderStdImport(c, "math", "Log2Int");
+            const import_node = try renderStdImport(c, &.{ "math", "Log2Int" });
             return renderCall(c, import_node, &.{payload});
         },
-        .std_meta_cast => {
-            const payload = node.castTag(.std_meta_cast).?.data;
-            const import_node = try renderStdImport(c, "meta", "cast");
+        .helpers_cast => {
+            const payload = node.castTag(.helpers_cast).?.data;
+            const import_node = try renderStdImport(c, &.{ "zig", "c_translation", "cast" });
             return renderCall(c, import_node, &.{ payload.lhs, payload.rhs });
         },
-        .std_meta_promoteIntLiteral => {
-            const payload = node.castTag(.std_meta_promoteIntLiteral).?.data;
-            const import_node = try renderStdImport(c, "meta", "promoteIntLiteral");
+        .helpers_promoteIntLiteral => {
+            const payload = node.castTag(.helpers_promoteIntLiteral).?.data;
+            const import_node = try renderStdImport(c, &.{ "zig", "c_translation", "promoteIntLiteral" });
             return renderCall(c, import_node, &.{ payload.type, payload.value, payload.radix });
         },
         .std_meta_alignment => {
             const payload = node.castTag(.std_meta_alignment).?.data;
-            const import_node = try renderStdImport(c, "meta", "alignment");
+            const import_node = try renderStdImport(c, &.{ "meta", "alignment" });
             return renderCall(c, import_node, &.{payload});
         },
-        .std_meta_sizeof => {
-            const payload = node.castTag(.std_meta_sizeof).?.data;
-            const import_node = try renderStdImport(c, "meta", "sizeof");
+        .helpers_sizeof => {
+            const payload = node.castTag(.helpers_sizeof).?.data;
+            const import_node = try renderStdImport(c, &.{ "zig", "c_translation", "sizeof" });
             return renderCall(c, import_node, &.{payload});
         },
         .std_mem_zeroes => {
             const payload = node.castTag(.std_mem_zeroes).?.data;
-            const import_node = try renderStdImport(c, "mem", "zeroes");
+            const import_node = try renderStdImport(c, &.{ "mem", "zeroes" });
             return renderCall(c, import_node, &.{payload});
         },
         .std_mem_zeroinit => {
             const payload = node.castTag(.std_mem_zeroinit).?.data;
-            const import_node = try renderStdImport(c, "mem", "zeroInit");
+            const import_node = try renderStdImport(c, &.{ "mem", "zeroInit" });
             return renderCall(c, import_node, &.{ payload.lhs, payload.rhs });
         },
-        .std_meta_flexible_array_type => {
-            const payload = node.castTag(.std_meta_flexible_array_type).?.data;
-            const import_node = try renderStdImport(c, "meta", "FlexibleArrayType");
+        .helpers_flexible_array_type => {
+            const payload = node.castTag(.helpers_flexible_array_type).?.data;
+            const import_node = try renderStdImport(c, &.{ "zig", "c_translation", "FlexibleArrayType" });
             return renderCall(c, import_node, &.{ payload.lhs, payload.rhs });
         },
-        .std_meta_shuffle_vector_index => {
-            const payload = node.castTag(.std_meta_shuffle_vector_index).?.data;
-            const import_node = try renderStdImport(c, "meta", "shuffleVectorIndex");
+        .helpers_shuffle_vector_index => {
+            const payload = node.castTag(.helpers_shuffle_vector_index).?.data;
+            const import_node = try renderStdImport(c, &.{ "zig", "c_translation", "shuffleVectorIndex" });
             return renderCall(c, import_node, &.{ payload.lhs, payload.rhs });
         },
         .std_meta_vector => {
             const payload = node.castTag(.std_meta_vector).?.data;
-            const import_node = try renderStdImport(c, "meta", "Vector");
+            const import_node = try renderStdImport(c, &.{ "meta", "Vector" });
             return renderCall(c, import_node, &.{ payload.lhs, payload.rhs });
         },
         .call => {
@@ -2269,13 +2269,13 @@ fn renderNodeGrouped(c: *Context, node: Node) !NodeIndex {
         .alignof,
         .typeof,
         .typeinfo,
-        .std_meta_sizeof,
         .std_meta_alignment,
-        .std_meta_cast,
-        .std_meta_promoteIntLiteral,
         .std_meta_vector,
-        .std_meta_shuffle_vector_index,
-        .std_meta_flexible_array_type,
+        .helpers_sizeof,
+        .helpers_cast,
+        .helpers_promoteIntLiteral,
+        .helpers_shuffle_vector_index,
+        .helpers_flexible_array_type,
         .std_mem_zeroinit,
         .integer_literal,
         .float_literal,
@@ -2442,7 +2442,7 @@ fn renderBinOp(c: *Context, node: Node, tag: std.zig.ast.Node.Tag, tok_tag: Toke
     });
 }
 
-fn renderStdImport(c: *Context, first: []const u8, second: []const u8) !NodeIndex {
+fn renderStdImport(c: *Context, parts: []const []const u8) !NodeIndex {
     const import_tok = try c.addToken(.builtin, "@import");
     _ = try c.addToken(.l_paren, "(");
     const std_tok = try c.addToken(.string_literal, "\"std\"");
@@ -2463,8 +2463,9 @@ fn renderStdImport(c: *Context, first: []const u8, second: []const u8) !NodeInde
     });
 
     var access_chain = import_node;
-    access_chain = try renderFieldAccess(c, access_chain, first);
-    access_chain = try renderFieldAccess(c, access_chain, second);
+    for (parts) |part| {
+        access_chain = try renderFieldAccess(c, access_chain, part);
+    }
     return access_chain;
 }
 

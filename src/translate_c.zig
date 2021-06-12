@@ -12,7 +12,6 @@ const meta = std.meta;
 const ast = @import("translate_c/ast.zig");
 const Node = ast.Node;
 const Tag = Node.Tag;
-const c_builtins = std.c.builtins;
 
 const CallingConvention = std.builtin.CallingConvention;
 
@@ -863,7 +862,7 @@ fn buildFlexibleArrayFn(
     defer block_scope.deinit();
 
     const intermediate_type_name = try block_scope.makeMangledName(c, "Intermediate");
-    const intermediate_type = try Tag.std_meta_flexible_array_type.create(c.arena, .{ .lhs = self_type, .rhs = u8_type });
+    const intermediate_type = try Tag.helpers_flexible_array_type.create(c.arena, .{ .lhs = self_type, .rhs = u8_type });
     const intermediate_type_decl = try Tag.var_simple.create(c.arena, .{
         .name = intermediate_type_name,
         .init = intermediate_type,
@@ -872,7 +871,7 @@ fn buildFlexibleArrayFn(
     const intermediate_type_ident = try Tag.identifier.create(c.arena, intermediate_type_name);
 
     const return_type_name = try block_scope.makeMangledName(c, "ReturnType");
-    const return_type = try Tag.std_meta_flexible_array_type.create(c.arena, .{ .lhs = self_type, .rhs = element_type });
+    const return_type = try Tag.helpers_flexible_array_type.create(c.arena, .{ .lhs = self_type, .rhs = element_type });
     const return_type_decl = try Tag.var_simple.create(c.arena, .{
         .name = return_type_name,
         .init = return_type,
@@ -1290,9 +1289,19 @@ fn transStmt(
             return maybeSuppressResult(c, scope, result_used, shuffle_vec_node);
         },
         // When adding new cases here, see comment for maybeBlockify()
-        else => {
-            return fail(c, error.UnsupportedTranslation, stmt.getBeginLoc(), "TODO implement translation of stmt class {s}", .{@tagName(sc)});
-        },
+        .GCCAsmStmtClass,
+        .GotoStmtClass,
+        .IndirectGotoStmtClass,
+        .AttributedStmtClass,
+        .AddrLabelExprClass,
+        .AtomicExprClass,
+        .BlockExprClass,
+        .UserDefinedLiteralClass,
+        .BuiltinBitCastExprClass,
+        .DesignatedInitExprClass,
+        .LabelStmtClass,
+        => return fail(c, error.UnsupportedTranslation, stmt.getBeginLoc(), "TODO implement translation of stmt class {s}", .{@tagName(sc)}),
+        else => return fail(c, error.UnsupportedTranslation, stmt.getBeginLoc(), "unsupported stmt class {s}", .{@tagName(sc)}),
     }
 }
 
@@ -1374,7 +1383,7 @@ fn makeShuffleMask(c: *Context, scope: *Scope, expr: *const clang.ShuffleVectorE
 
     for (init_list) |*init, i| {
         const index_expr = try transExprCoercing(c, scope, expr.getExpr(@intCast(c_uint, i + 2)), .used);
-        const converted_index = try Tag.std_meta_shuffle_vector_index.create(c.arena, .{ .lhs = index_expr, .rhs = vector_len });
+        const converted_index = try Tag.helpers_shuffle_vector_index.create(c.arena, .{ .lhs = index_expr, .rhs = vector_len });
         init.* = converted_index;
     }
 
@@ -1820,13 +1829,10 @@ fn transDeclStmtOne(
         .Function => {
             try visitFnDecl(c, @ptrCast(*const clang.FunctionDecl, decl));
         },
-        else => |kind| return fail(
-            c,
-            error.UnsupportedTranslation,
-            decl.getLocation(),
-            "TODO implement translation of DeclStmt kind {s}",
-            .{@tagName(kind)},
-        ),
+        else => {
+            const decl_name = try c.str(decl.getDeclKindName());
+            try warn(c, &c.global_scope.base, decl.getLocation(), "ignoring {s} declaration", .{decl_name});
+        },
     }
 }
 
@@ -1902,7 +1908,7 @@ fn transImplicitCastExpr(
             const ne = try Tag.not_equal.create(c.arena, .{ .lhs = ptr_to_int, .rhs = Tag.zero_literal.init() });
             return maybeSuppressResult(c, scope, result_used, ne);
         },
-        .IntegralToBoolean => {
+        .IntegralToBoolean, .FloatingToBoolean => {
             const sub_expr_node = try transExpr(c, scope, sub_expr, .used);
 
             // The expression is already a boolean one, return it as-is
@@ -1924,14 +1930,14 @@ fn transImplicitCastExpr(
             c,
             error.UnsupportedTranslation,
             @ptrCast(*const clang.Stmt, expr).getBeginLoc(),
-            "TODO implement translation of CastKind {s}",
+            "unsupported CastKind {s}",
             .{@tagName(kind)},
         ),
     }
 }
 
 fn isBuiltinDefined(name: []const u8) bool {
-    inline for (meta.declarations(c_builtins)) |decl| {
+    inline for (meta.declarations(std.zig.c_builtins)) |decl| {
         if (std.mem.eql(u8, name, decl.name)) return true;
     }
     return false;
@@ -2358,8 +2364,10 @@ fn transCCast(
         return Tag.float_to_int.create(c.arena, .{ .lhs = dst_node, .rhs = expr });
     }
     if (!cIsFloating(src_type) and cIsFloating(dst_type)) {
+        var rhs = expr;
+        if (qualTypeIsBoolean(src_type)) rhs = try Tag.bool_to_int.create(c.arena, expr);
         // @intToFloat(dest_type, val)
-        return Tag.int_to_float.create(c.arena, .{ .lhs = dst_node, .rhs = expr });
+        return Tag.int_to_float.create(c.arena, .{ .lhs = dst_node, .rhs = rhs });
     }
     if (qualTypeIsBoolean(src_type) and !qualTypeIsBoolean(dst_type)) {
         // @boolToInt returns either a comptime_int or a u1
@@ -2370,7 +2378,7 @@ fn transCCast(
     }
     if (cIsEnum(dst_type)) {
         // import("std").meta.cast(dest_type, val)
-        return Tag.std_meta_cast.create(c.arena, .{ .lhs = dst_node, .rhs = expr });
+        return Tag.helpers_cast.create(c.arena, .{ .lhs = dst_node, .rhs = expr });
     }
     if (cIsEnum(src_type) and !cIsEnum(dst_type)) {
         // @enumToInt(val)
@@ -4547,6 +4555,10 @@ fn transType(c: *Context, scope: *Scope, ty: *const clang.Type, source_loc: clan
                 .rhs = try transQualType(c, scope, element_qt, source_loc),
             });
         },
+        .ExtInt, .ExtVector => {
+            const type_name = c.str(ty.getTypeClassName());
+            return fail(c, error.UnsupportedType, source_loc, "TODO implement translation of type: '{s}'", .{type_name});
+        },
         else => {
             const type_name = c.str(ty.getTypeClassName());
             return fail(c, error.UnsupportedType, source_loc, "unsupported type: '{s}'", .{type_name});
@@ -4982,7 +4994,7 @@ fn transMacroFnDefine(c: *Context, m: *MacroCtx) ParseError!void {
         break :blk br.data.val;
     } else expr;
 
-    const return_type = if (typeof_arg.castTag(.std_meta_cast) orelse typeof_arg.castTag(.std_mem_zeroinit)) |some|
+    const return_type = if (typeof_arg.castTag(.helpers_cast) orelse typeof_arg.castTag(.std_mem_zeroinit)) |some|
         some.data.lhs
     else if (typeof_arg.castTag(.std_mem_zeroes)) |some|
         some.data
@@ -5095,7 +5107,7 @@ fn parseCNumLit(c: *Context, m: *MacroCtx) ParseError!Node {
             if (guaranteed_to_fit) {
                 return Tag.as.create(c.arena, .{ .lhs = type_node, .rhs = literal_node });
             } else {
-                return Tag.std_meta_promoteIntLiteral.create(c.arena, .{
+                return Tag.helpers_promoteIntLiteral.create(c.arena, .{
                     .type = type_node,
                     .value = literal_node,
                     .radix = try Tag.enum_literal.create(c.arena, radix),
@@ -5578,7 +5590,7 @@ fn parseCCastExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
                     return parseCPostfixExpr(c, m, scope, type_name);
                 }
                 const node_to_cast = try parseCCastExpr(c, m, scope);
-                return Tag.std_meta_cast.create(c.arena, .{ .lhs = type_name, .rhs = node_to_cast });
+                return Tag.helpers_cast.create(c.arena, .{ .lhs = type_name, .rhs = node_to_cast });
             }
         },
         else => {},
@@ -5925,7 +5937,7 @@ fn parseCUnaryExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
                 break :blk inner;
             } else try parseCUnaryExpr(c, m, scope);
 
-            return Tag.std_meta_sizeof.create(c.arena, operand);
+            return Tag.helpers_sizeof.create(c.arena, operand);
         },
         .Keyword_alignof => {
             // TODO this won't work if using <stdalign.h>'s
