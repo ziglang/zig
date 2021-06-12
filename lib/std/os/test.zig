@@ -756,3 +756,32 @@ test "sigaction" {
     os.sigaction(os.SIGUSR1, null, &old_sa);
     try testing.expectEqual(os.SIG_DFL, old_sa.handler.sigaction);
 }
+
+test "dup & dup2" {
+    if (native_os != .linux) return error.SkipZigTest;
+
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    {
+        var file = try tmp.dir.createFile("os_dup_test", .{});
+        defer file.close();
+
+        var duped = std.fs.File{ .handle = try std.os.dup(file.handle) };
+        defer duped.close();
+        try duped.writeAll("dup");
+
+        // Tests aren't run in parallel so using the next fd shouldn't be an issue.
+        const new_fd = duped.handle + 1;
+        try std.os.dup2(file.handle, new_fd);
+        var dup2ed = std.fs.File{ .handle = new_fd };
+        defer dup2ed.close();
+        try dup2ed.writeAll("dup2");
+    }
+
+    var file = try tmp.dir.openFile("os_dup_test", .{});
+    defer file.close();
+
+    var buf: [7]u8 = undefined;
+    try testing.expectEqualStrings("dupdup2", buf[0..try file.readAll(&buf)]);
+}
