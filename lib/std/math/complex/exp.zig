@@ -124,20 +124,42 @@ fn exp64(z: Complex(f64)) Complex(f64) {
     }
 }
 
-const epsilon = 0.0001;
-
 test "complex.cexp32" {
-    const a = Complex(f32).init(5, 3);
-    const c = exp(a);
+    const tolerance_f32 = math.sqrt(math.epsilon(f32));
 
-    try testing.expect(math.approxEqAbs(f32, c.re, -146.927917, epsilon));
-    try testing.expect(math.approxEqAbs(f32, c.im, 20.944065, epsilon));
+    {
+        const a = Complex(f32).init(5, 3);
+        const c = exp(a);
+
+        try testing.expectApproxEqRel(@as(f32, -1.46927917e+02), c.re, tolerance_f32);
+        try testing.expectApproxEqRel(@as(f32, 2.0944065e+01), c.im, tolerance_f32);
+    }
+
+    {
+        const a = Complex(f32).init(88.8, 0x1p-149);
+        const c = exp(a);
+
+        try testing.expectApproxEqAbs(math.inf(f32), c.re, tolerance_f32);
+        try testing.expectApproxEqAbs(@as(f32, 5.15088629e-07), c.im, tolerance_f32);
+    }
 }
 
 test "complex.cexp64" {
-    const a = Complex(f64).init(5, 3);
-    const c = exp(a);
+    const tolerance_f64 = math.sqrt(math.epsilon(f64));
 
-    try testing.expect(math.approxEqAbs(f64, c.re, -146.927917, epsilon));
-    try testing.expect(math.approxEqAbs(f64, c.im, 20.944065, epsilon));
+    {
+        const a = Complex(f64).init(5, 3);
+        const c = exp(a);
+
+        try testing.expectApproxEqRel(@as(f64, -1.469279139083189e+02), c.re, tolerance_f64);
+        try testing.expectApproxEqRel(@as(f64, 2.094406620874596e+01), c.im, tolerance_f64);
+    }
+
+    {
+        const a = Complex(f64).init(709.8, 0x1p-1074);
+        const c = exp(a);
+
+        try testing.expectApproxEqAbs(math.inf(f64), c.re, tolerance_f64);
+        try testing.expectApproxEqAbs(@as(f64, 9.036659362159884e-16), c.im, tolerance_f64);
+    }
 }
