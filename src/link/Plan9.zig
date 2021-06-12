@@ -48,8 +48,8 @@ pub const DeclBlock = struct {
     };
 };
 
-// TODO change base addr based on target (right now it just works on amd64)
-const default_base_addr = 0x00200000;
+// TODO change base addr based on target (and section?) (right now it just works on amd64)
+const default_base_addr = 0x00200028;
 
 pub const CallReloc = struct {
     caller: *Module.Decl,
@@ -157,11 +157,13 @@ pub fn flushModule(self: *Plan9, comp: *Compilation) !void {
                     return;
                 },
             };
-            if (is_fn)
-                try self.text_buf.appendSlice(self.base.allocator, code)
-            else
+            if (is_fn) {
+                try self.text_buf.appendSlice(self.base.allocator, code);
+                try code_buffer.resize(0);
+            } else {
                 try self.data_buf.appendSlice(self.base.allocator, code);
-            code_buffer.items.len = 0;
+                try code_buffer.resize(0);
+            }
         }
     }
 
@@ -176,13 +178,17 @@ pub fn flushModule(self: *Plan9, comp: *Compilation) !void {
                 const off = reloc.offset_in_caller + l.offset;
                 std.mem.writeInt(u32, self.text_buf.items[off - 4 ..][0..4], callee_offset, endian);
             } else {
-                // what we are writing
                 const callee_offset = reloc.callee.link.plan9.offset + default_base_addr; // TODO this is different if its data
                 const off = reloc.offset_in_caller + l.offset;
                 std.mem.writeInt(u64, self.text_buf.items[off - 8 ..][0..8], callee_offset, endian);
             }
         }
     }
+
+    // edata, end, etext
+    self.syms.items[0].value = 0x200000; // TODO make this number other place, and what is it?
+    self.syms.items[1].value = 0x200000; // TODO make this number other place, and what is it?
+    self.syms.items[2].value = self.text_buf.items.len;
 
     var sym_buf = std.ArrayList(u8).init(self.base.allocator);
     defer sym_buf.deinit();
@@ -202,10 +208,14 @@ pub fn flushModule(self: *Plan9, comp: *Compilation) !void {
 
     const file = self.base.file.?;
 
-    const hdr_buf = self.hdr.toU8s();
+    var hdr_buf = self.hdr.toU8s();
     const hdr_slice: []const u8 = &hdr_buf;
     // account for the fat header
     const hdr_size: u8 = if (self.ptr_width == .p32) 32 else 40;
+    // write the fat header for debug info
+    if (self.ptr_width == .p64) {
+        mem.writeIntSliceBig(u64, hdr_buf[32..40], self.hdr.entry);
+    }
     // write it all!
     var vectors: [4]std.os.iovec_const = .{
         .{ .iov_base = hdr_slice.ptr, .iov_len = hdr_size },
@@ -289,6 +299,25 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
 
     if (std.builtin.mode == .Debug or std.builtin.mode == .ReleaseSafe)
         self.hdr.entry = 0x0;
+
+    // first 3 symbols in our table are edata, end, etext
+    try self.syms.appendSlice(self.base.allocator, &.{
+        .{
+            .value = 0xcafebabe,
+            .type = .B,
+            .name = "edata",
+        },
+        .{
+            .value = 0xcafebabe,
+            .type = .B,
+            .name = "end",
+        },
+        .{
+            .value = 0xcafebabe,
+            .type = .T,
+            .name = "etext",
+        },
+    });
 
     self.base.file = file;
     return self;
