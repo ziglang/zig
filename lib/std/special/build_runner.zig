@@ -61,6 +61,8 @@ pub fn main() !void {
     const stdout_stream = io.getStdOut().writer();
 
     var install_prefix: ?[]const u8 = null;
+    var dir_list = Builder.DirList{};
+
     while (nextArg(args, &arg_idx)) |arg| {
         if (mem.startsWith(u8, arg, "-D")) {
             const option_contents = arg[2..];
@@ -84,6 +86,21 @@ pub fn main() !void {
                 return usage(builder, false, stdout_stream);
             } else if (mem.eql(u8, arg, "-p") or mem.eql(u8, arg, "--prefix")) {
                 install_prefix = nextArg(args, &arg_idx) orelse {
+                    warn("Expected argument after {s}\n\n", .{arg});
+                    return usageAndErr(builder, false, stderr_stream);
+                };
+            } else if (mem.eql(u8, arg, "--lib-dir")) {
+                dir_list.lib_dir = nextArg(args, &arg_idx) orelse {
+                    warn("Expected argument after {s}\n\n", .{arg});
+                    return usageAndErr(builder, false, stderr_stream);
+                };
+            } else if (mem.eql(u8, arg, "--exe-dir")) {
+                dir_list.exe_dir = nextArg(args, &arg_idx) orelse {
+                    warn("Expected argument after {s}\n\n", .{arg});
+                    return usageAndErr(builder, false, stderr_stream);
+                };
+            } else if (mem.eql(u8, arg, "--include-dir")) {
+                dir_list.include_dir = nextArg(args, &arg_idx) orelse {
                     warn("Expected argument after {s}\n\n", .{arg});
                     return usageAndErr(builder, false, stderr_stream);
                 };
@@ -135,7 +152,7 @@ pub fn main() !void {
         }
     }
 
-    builder.resolveInstallPrefix(install_prefix);
+    builder.resolveInstallPrefix(install_prefix, dir_list);
     try runBuild(builder);
 
     if (builder.validateUserInputDidItFail())
@@ -163,7 +180,7 @@ fn runBuild(builder: *Builder) anyerror!void {
 fn usage(builder: *Builder, already_ran_build: bool, out_stream: anytype) !void {
     // run the build script to collect the options
     if (!already_ran_build) {
-        builder.resolveInstallPrefix(null);
+        builder.resolveInstallPrefix(null, .{});
         try runBuild(builder);
     }
 
@@ -189,6 +206,9 @@ fn usage(builder: *Builder, already_ran_build: bool, out_stream: anytype) !void 
         \\  -h, --help                  Print this help and exit
         \\  --verbose                   Print commands before executing them
         \\  -p, --prefix [path]         Override default install prefix
+        \\  --lib-dir [path]            Override default library directory path
+        \\  --exe-dir [path]            Override default executable directory path
+        \\  --include-dir [path]        Override default include directory path
         \\  --search-prefix [path]      Add a path to look for binaries, libraries, headers
         \\  --color [auto|off|on]       Enable or disable colored error messages
         \\
