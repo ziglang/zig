@@ -776,7 +776,7 @@ test "@unionInit on union w/ tag but no fields" {
         };
 
         comptime {
-            try expect(@sizeOf(Data) != 0);
+            std.debug.assert(@sizeOf(Data) != 0);
         }
 
         fn doTheTest() !void {

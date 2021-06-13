@@ -2923,6 +2923,7 @@ pub const usage_fmt =
     \\   --stdin                Format code from stdin; output to stdout
     \\   --check                List non-conforming files and exit with an error
     \\                          if the list is non-empty
+    \\   --ast-check            Run zig ast-check on every file
     \\
     \\
 ;
@@ -2930,6 +2931,7 @@ pub const usage_fmt =
 const Fmt = struct {
     seen: SeenMap,
     any_error: bool,
+    check_ast: bool,
     color: Color,
     gpa: *Allocator,
     out_buffer: std.ArrayList(u8),
@@ -2942,6 +2944,7 @@ pub fn cmdFmt(gpa: *Allocator, args: []const []const u8) !void {
     var color: Color = .auto;
     var stdin_flag: bool = false;
     var check_flag: bool = false;
+    var check_ast_flag: bool = false;
     var input_files = ArrayList([]const u8).init(gpa);
     defer input_files.deinit();
 
@@ -2967,6 +2970,8 @@ pub fn cmdFmt(gpa: *Allocator, args: []const []const u8) !void {
                     stdin_flag = true;
                 } else if (mem.eql(u8, arg, "--check")) {
                     check_flag = true;
+                } else if (mem.eql(u8, arg, "--ast-check")) {
+                    check_ast_flag = true;
                 } else {
                     fatal("unrecognized parameter: '{s}'", .{arg});
                 }
@@ -3017,6 +3022,7 @@ pub fn cmdFmt(gpa: *Allocator, args: []const []const u8) !void {
         .gpa = gpa,
         .seen = Fmt.SeenMap.init(gpa),
         .any_error = false,
+        .check_ast = check_ast_flag,
         .color = color,
         .out_buffer = std.ArrayList(u8).init(gpa),
     };
@@ -3085,7 +3091,7 @@ fn fmtPathDir(
     while (try dir_it.next()) |entry| {
         const is_dir = entry.kind == .Directory;
 
-        if (is_dir and std.mem.eql(u8, entry.name, "zig-cache")) continue;
+        if (is_dir and (mem.eql(u8, entry.name, "zig-cache") or mem.eql(u8, entry.name, "zig-out"))) continue;
 
         if (is_dir or mem.endsWith(u8, entry.name, ".zig")) {
             const full_path = try fs.path.join(fmt.gpa, &[_][]const u8{ file_path, entry.name });
@@ -3142,6 +3148,52 @@ fn fmtPathFile(
     if (tree.errors.len != 0) {
         fmt.any_error = true;
         return;
+    }
+
+    if (fmt.check_ast) {
+        const Module = @import("Module.zig");
+        const AstGen = @import("AstGen.zig");
+
+        var file: Module.Scope.File = .{
+            .status = .never_loaded,
+            .source_loaded = true,
+            .zir_loaded = false,
+            .sub_file_path = file_path,
+            .source = source_code,
+            .stat_size = stat.size,
+            .stat_inode = stat.inode,
+            .stat_mtime = stat.mtime,
+            .tree = tree,
+            .tree_loaded = true,
+            .zir = undefined,
+            .pkg = undefined,
+            .root_decl = null,
+        };
+
+        if (stat.size > max_src_size)
+            return error.FileTooBig;
+
+        file.zir = try AstGen.generate(fmt.gpa, file.tree);
+        file.zir_loaded = true;
+        defer file.zir.deinit(fmt.gpa);
+
+        if (file.zir.hasCompileErrors()) {
+            var arena_instance = std.heap.ArenaAllocator.init(fmt.gpa);
+            defer arena_instance.deinit();
+            var errors = std.ArrayList(Compilation.AllErrors.Message).init(fmt.gpa);
+            defer errors.deinit();
+
+            try Compilation.AllErrors.addZir(&arena_instance.allocator, &errors, &file);
+            const ttyconf: std.debug.TTY.Config = switch (fmt.color) {
+                .auto => std.debug.detectTTYConfig(),
+                .on => .escape_codes,
+                .off => .no_color,
+            };
+            for (errors.items) |full_err_msg| {
+                full_err_msg.renderToStdErr(ttyconf);
+            }
+            fmt.any_error = true;
+        }
     }
 
     // As a heuristic, we make enough capacity for the same as the input source.

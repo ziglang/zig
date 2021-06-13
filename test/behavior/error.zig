@@ -394,7 +394,7 @@ test "function pointer with return type that is error union with payload which i
         }
 
         fn doTheTest() !void {
-            var x = Foo{ .fun = bar };
+            var x = Foo{ .fun = @This().bar };
             try expectError(error.UnspecifiedErr, x.fun(1));
         }
     };

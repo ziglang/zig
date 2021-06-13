@@ -45,9 +45,9 @@ test "var params" {
     try expect(max_f64(1.2, 3.4) == 3.4);
 }
 
-comptime {
-    try expect(max_i32(12, 34) == 34);
-    try expect(max_f64(1.2, 3.4) == 3.4);
+test {
+    comptime try expect(max_i32(12, 34) == 34);
+    comptime try expect(max_f64(1.2, 3.4) == 3.4);
 }
 
 fn max_var(a: anytype, b: anytype) @TypeOf(a + b) {

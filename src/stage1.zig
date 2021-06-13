@@ -58,7 +58,7 @@ pub const OS = c_int;
 /// Matches std.builtin.BuildMode
 pub const BuildMode = c_int;
 
-pub const TargetSubsystem = extern enum(c_int) {
+pub const TargetSubsystem = enum(c_int) {
     Console,
     Windows,
     Posix,
@@ -171,7 +171,7 @@ export fn stage2_panic(ptr: [*]const u8, len: usize) void {
 }
 
 // ABI warning
-const Error = extern enum {
+const Error = enum(c_int) {
     None,
     OutOfMemory,
     InvalidFormat,

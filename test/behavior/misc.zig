@@ -546,19 +546,15 @@ const PackedUnion = packed union {
     a: u8,
     b: u32,
 };
-const PackedEnum = packed enum {
-    A,
-    B,
-};
 
 test "packed struct, enum, union parameters in extern function" {
     testPackedStuff(&(PackedStruct{
         .a = 1,
         .b = 2,
-    }), &(PackedUnion{ .a = 1 }), PackedEnum.A);
+    }), &(PackedUnion{ .a = 1 }));
 }
 
-export fn testPackedStuff(a: *const PackedStruct, b: *const PackedUnion, c: PackedEnum) void {}
+export fn testPackedStuff(a: *const PackedStruct, b: *const PackedUnion) void {}
 
 test "slicing zero length array" {
     const s1 = ""[0..];

@@ -3,7 +3,7 @@
 const Version = @import("std").builtin.Version;
 pub const version = Version{ .major = 1, .minor = 5, .patch = 4 };
 pub const magic_number: u32 = 0x07230203;
-pub const Opcode = extern enum(u16) {
+pub const Opcode = enum(u16) {
     OpNop = 0,
     OpUndef = 1,
     OpSourceContinued = 2,
@@ -382,12 +382,10 @@ pub const Opcode = extern enum(u16) {
     OpGroupNonUniformPartitionNV = 5296,
     OpWritePackedPrimitiveIndices4x8NV = 5299,
     OpReportIntersectionNV = 5334,
-    OpReportIntersectionKHR = 5334,
     OpIgnoreIntersectionNV = 5335,
     OpTerminateRayNV = 5336,
     OpTraceNV = 5337,
     OpTypeAccelerationStructureNV = 5341,
-    OpTypeAccelerationStructureKHR = 5341,
     OpExecuteCallableNV = 5344,
     OpTypeCooperativeMatrixNV = 5358,
     OpCooperativeMatrixLoadNV = 5359,
@@ -432,9 +430,7 @@ pub const Opcode = extern enum(u16) {
     OpAssumeTrueKHR = 5630,
     OpExpectKHR = 5631,
     OpDecorateString = 5632,
-    OpDecorateStringGOOGLE = 5632,
     OpMemberDecorateString = 5633,
-    OpMemberDecorateStringGOOGLE = 5633,
     OpVmeImageINTEL = 5699,
     OpTypeVmeImageINTEL = 5700,
     OpTypeAvcImePayloadINTEL = 5701,
@@ -585,6 +581,9 @@ pub const Opcode = extern enum(u16) {
     OpConstantCompositeContinuedINTEL = 6091,
     OpSpecConstantCompositeContinuedINTEL = 6092,
     _,
+
+    const OpReportIntersectionKHR = OpReportIntersectionNV;
+    const OpTypeAccelerationStructureKHR = OpTypeAccelerationStructureNV;
 };
 pub const ImageOperands = packed struct {
     Bias: bool align(@alignOf(u32)) = false,
@@ -926,7 +925,7 @@ pub const FragmentShadingRate = packed struct {
     _reserved_bit_30: bool = false,
     _reserved_bit_31: bool = false,
 };
-pub const SourceLanguage = extern enum(u32) {
+pub const SourceLanguage = enum(u32) {
     Unknown = 0,
     ESSL = 1,
     GLSL = 2,
@@ -935,7 +934,7 @@ pub const SourceLanguage = extern enum(u32) {
     HLSL = 5,
     _,
 };
-pub const ExecutionModel = extern enum(u32) {
+pub const ExecutionModel = enum(u32) {
     Vertex = 0,
     TessellationControl = 1,
     TessellationEvaluation = 2,
@@ -959,23 +958,21 @@ pub const ExecutionModel = extern enum(u32) {
     CallableKHR = 5318,
     _,
 };
-pub const AddressingModel = extern enum(u32) {
+pub const AddressingModel = enum(u32) {
     Logical = 0,
     Physical32 = 1,
     Physical64 = 2,
     PhysicalStorageBuffer64 = 5348,
-    PhysicalStorageBuffer64EXT = 5348,
     _,
 };
-pub const MemoryModel = extern enum(u32) {
+pub const MemoryModel = enum(u32) {
     Simple = 0,
     GLSL450 = 1,
     OpenCL = 2,
     Vulkan = 3,
-    VulkanKHR = 3,
     _,
 };
-pub const ExecutionMode = extern enum(u32) {
+pub const ExecutionMode = enum(u32) {
     Invocations = 0,
     SpacingEqual = 1,
     SpacingFractionalEven = 2,
@@ -1044,7 +1041,7 @@ pub const ExecutionMode = extern enum(u32) {
     SchedulerTargetFmaxMhzINTEL = 5903,
     _,
 };
-pub const StorageClass = extern enum(u32) {
+pub const StorageClass = enum(u32) {
     UniformConstant = 0,
     Input = 1,
     Uniform = 2,
@@ -1058,26 +1055,19 @@ pub const StorageClass = extern enum(u32) {
     AtomicCounter = 10,
     Image = 11,
     StorageBuffer = 12,
-    CallableDataNV = 5328,
     CallableDataKHR = 5328,
-    IncomingCallableDataNV = 5329,
     IncomingCallableDataKHR = 5329,
-    RayPayloadNV = 5338,
     RayPayloadKHR = 5338,
-    HitAttributeNV = 5339,
     HitAttributeKHR = 5339,
-    IncomingRayPayloadNV = 5342,
     IncomingRayPayloadKHR = 5342,
-    ShaderRecordBufferNV = 5343,
     ShaderRecordBufferKHR = 5343,
     PhysicalStorageBuffer = 5349,
-    PhysicalStorageBufferEXT = 5349,
     CodeSectionINTEL = 5605,
     DeviceOnlyINTEL = 5936,
     HostOnlyINTEL = 5937,
     _,
 };
-pub const Dim = extern enum(u32) {
+pub const Dim = enum(u32) {
     @"1D" = 0,
     @"2D" = 1,
     @"3D" = 2,
@@ -1087,7 +1077,7 @@ pub const Dim = extern enum(u32) {
     SubpassData = 6,
     _,
 };
-pub const SamplerAddressingMode = extern enum(u32) {
+pub const SamplerAddressingMode = enum(u32) {
     None = 0,
     ClampToEdge = 1,
     Clamp = 2,
@@ -1095,12 +1085,12 @@ pub const SamplerAddressingMode = extern enum(u32) {
     RepeatMirrored = 4,
     _,
 };
-pub const SamplerFilterMode = extern enum(u32) {
+pub const SamplerFilterMode = enum(u32) {
     Nearest = 0,
     Linear = 1,
     _,
 };
-pub const ImageFormat = extern enum(u32) {
+pub const ImageFormat = enum(u32) {
     Unknown = 0,
     Rgba32f = 1,
     Rgba16f = 2,
@@ -1145,7 +1135,7 @@ pub const ImageFormat = extern enum(u32) {
     R64i = 41,
     _,
 };
-pub const ImageChannelOrder = extern enum(u32) {
+pub const ImageChannelOrder = enum(u32) {
     R = 0,
     A = 1,
     RG = 2,
@@ -1168,7 +1158,7 @@ pub const ImageChannelOrder = extern enum(u32) {
     ABGR = 19,
     _,
 };
-pub const ImageChannelDataType = extern enum(u32) {
+pub const ImageChannelDataType = enum(u32) {
     SnormInt8 = 0,
     SnormInt16 = 1,
     UnormInt8 = 2,
@@ -1188,36 +1178,36 @@ pub const ImageChannelDataType = extern enum(u32) {
     UnormInt101010_2 = 16,
     _,
 };
-pub const FPRoundingMode = extern enum(u32) {
+pub const FPRoundingMode = enum(u32) {
     RTE = 0,
     RTZ = 1,
     RTP = 2,
     RTN = 3,
     _,
 };
-pub const FPDenormMode = extern enum(u32) {
+pub const FPDenormMode = enum(u32) {
     Preserve = 0,
     FlushToZero = 1,
     _,
 };
-pub const FPOperationMode = extern enum(u32) {
+pub const FPOperationMode = enum(u32) {
     IEEE = 0,
     ALT = 1,
     _,
 };
-pub const LinkageType = extern enum(u32) {
+pub const LinkageType = enum(u32) {
     Export = 0,
     Import = 1,
     LinkOnceODR = 2,
     _,
 };
-pub const AccessQualifier = extern enum(u32) {
+pub const AccessQualifier = enum(u32) {
     ReadOnly = 0,
     WriteOnly = 1,
     ReadWrite = 2,
     _,
 };
-pub const FunctionParameterAttribute = extern enum(u32) {
+pub const FunctionParameterAttribute = enum(u32) {
     Zext = 0,
     Sext = 1,
     ByVal = 2,
@@ -1228,7 +1218,7 @@ pub const FunctionParameterAttribute = extern enum(u32) {
     NoReadWrite = 7,
     _,
 };
-pub const Decoration = extern enum(u32) {
+pub const Decoration = enum(u32) {
     RelaxedPrecision = 0,
     SpecId = 1,
     Block = 2,
@@ -1334,7 +1324,7 @@ pub const Decoration = extern enum(u32) {
     VectorComputeCallableFunctionINTEL = 6087,
     _,
 };
-pub const BuiltIn = extern enum(u32) {
+pub const BuiltIn = enum(u32) {
     Position = 0,
     PointSize = 1,
     ClipDistance = 3,
@@ -1455,7 +1445,7 @@ pub const BuiltIn = extern enum(u32) {
     SMIDNV = 5377,
     _,
 };
-pub const Scope = extern enum(u32) {
+pub const Scope = enum(u32) {
     CrossDevice = 0,
     Device = 1,
     Workgroup = 2,
@@ -1466,7 +1456,7 @@ pub const Scope = extern enum(u32) {
     ShaderCallKHR = 6,
     _,
 };
-pub const GroupOperation = extern enum(u32) {
+pub const GroupOperation = enum(u32) {
     Reduce = 0,
     InclusiveScan = 1,
     ExclusiveScan = 2,
@@ -1476,13 +1466,13 @@ pub const GroupOperation = extern enum(u32) {
     PartitionedExclusiveScanNV = 8,
     _,
 };
-pub const KernelEnqueueFlags = extern enum(u32) {
+pub const KernelEnqueueFlags = enum(u32) {
     NoWait = 0,
     WaitKernel = 1,
     WaitWorkGroup = 2,
     _,
 };
-pub const Capability = extern enum(u32) {
+pub const Capability = enum(u32) {
     Matrix = 0,
     Shader = 1,
     Geometry = 2,
@@ -1560,8 +1550,6 @@ pub const Capability = extern enum(u32) {
     WorkgroupMemoryExplicitLayout16BitAccessKHR = 4430,
     SubgroupVoteKHR = 4431,
     StorageBuffer16BitAccess = 4433,
-    StorageUniformBufferBlock16 = 4433,
-    UniformAndStorageBuffer16BitAccess = 4434,
     StorageUniform16 = 4434,
     StoragePushConstant16 = 4435,
     StorageInputOutput16 = 4436,
@@ -1592,7 +1580,6 @@ pub const Capability = extern enum(u32) {
     ShaderClockKHR = 5055,
     SampleMaskOverrideCoverageNV = 5249,
     GeometryShaderPassthroughNV = 5251,
-    ShaderViewportIndexLayerEXT = 5254,
     ShaderViewportIndexLayerNV = 5254,
     ShaderViewportMaskNV = 5255,
     ShaderStereoViewNV = 5259,
@@ -1602,40 +1589,24 @@ pub const Capability = extern enum(u32) {
     ImageFootprintNV = 5282,
     FragmentBarycentricNV = 5284,
     ComputeDerivativeGroupQuadsNV = 5288,
-    FragmentDensityEXT = 5291,
     ShadingRateNV = 5291,
     GroupNonUniformPartitionedNV = 5297,
     ShaderNonUniform = 5301,
-    ShaderNonUniformEXT = 5301,
     RuntimeDescriptorArray = 5302,
-    RuntimeDescriptorArrayEXT = 5302,
     InputAttachmentArrayDynamicIndexing = 5303,
-    InputAttachmentArrayDynamicIndexingEXT = 5303,
     UniformTexelBufferArrayDynamicIndexing = 5304,
-    UniformTexelBufferArrayDynamicIndexingEXT = 5304,
     StorageTexelBufferArrayDynamicIndexing = 5305,
-    StorageTexelBufferArrayDynamicIndexingEXT = 5305,
     UniformBufferArrayNonUniformIndexing = 5306,
-    UniformBufferArrayNonUniformIndexingEXT = 5306,
     SampledImageArrayNonUniformIndexing = 5307,
-    SampledImageArrayNonUniformIndexingEXT = 5307,
     StorageBufferArrayNonUniformIndexing = 5308,
-    StorageBufferArrayNonUniformIndexingEXT = 5308,
     StorageImageArrayNonUniformIndexing = 5309,
-    StorageImageArrayNonUniformIndexingEXT = 5309,
     InputAttachmentArrayNonUniformIndexing = 5310,
-    InputAttachmentArrayNonUniformIndexingEXT = 5310,
     UniformTexelBufferArrayNonUniformIndexing = 5311,
-    UniformTexelBufferArrayNonUniformIndexingEXT = 5311,
     StorageTexelBufferArrayNonUniformIndexing = 5312,
-    StorageTexelBufferArrayNonUniformIndexingEXT = 5312,
     RayTracingNV = 5340,
     VulkanMemoryModel = 5345,
-    VulkanMemoryModelKHR = 5345,
     VulkanMemoryModelDeviceScope = 5346,
-    VulkanMemoryModelDeviceScopeKHR = 5346,
     PhysicalStorageBufferAddresses = 5347,
-    PhysicalStorageBufferAddressesEXT = 5347,
     ComputeDerivativeGroupLinearNV = 5350,
     RayTracingProvisionalKHR = 5353,
     CooperativeMatrixNV = 5357,
@@ -1685,18 +1656,18 @@ pub const Capability = extern enum(u32) {
     LongConstantCompositeINTEL = 6089,
     _,
 };
-pub const RayQueryIntersection = extern enum(u32) {
+pub const RayQueryIntersection = enum(u32) {
     RayQueryCandidateIntersectionKHR = 0,
     RayQueryCommittedIntersectionKHR = 1,
     _,
 };
-pub const RayQueryCommittedIntersectionType = extern enum(u32) {
+pub const RayQueryCommittedIntersectionType = enum(u32) {
     RayQueryCommittedIntersectionNoneKHR = 0,
     RayQueryCommittedIntersectionTriangleKHR = 1,
     RayQueryCommittedIntersectionGeneratedKHR = 2,
     _,
 };
-pub const RayQueryCandidateIntersectionType = extern enum(u32) {
+pub const RayQueryCandidateIntersectionType = enum(u32) {
     RayQueryCandidateIntersectionTriangleKHR = 0,
     RayQueryCandidateIntersectionAABBKHR = 1,
     _,
