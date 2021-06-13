@@ -365,6 +365,14 @@ pub const OVERLAPPED = extern struct {
 };
 pub const LPOVERLAPPED = *OVERLAPPED;
 
+pub const OVERLAPPED_ENTRY = extern struct {
+    lpCompletionKey: *usize,
+    lpOverlapped: ?*OVERLAPPED,
+    Internal: ULONG_PTR,
+    dwNumberOfBytesTransferred: DWORD,
+};
+pub const LPOVERLAPPED_ENTRY = *OVERLAPPED;
+
 pub const MAX_PATH = 260;
 
 // TODO issue #305
