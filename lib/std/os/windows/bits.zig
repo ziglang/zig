@@ -363,11 +363,24 @@ pub const FILE_INFORMATION_CLASS = enum(c_int) {
 pub const OVERLAPPED = extern struct {
     Internal: ULONG_PTR,
     InternalHigh: ULONG_PTR,
-    Offset: DWORD,
-    OffsetHigh: DWORD,
+    DUMMYUNIONNAME: extern union {
+        DUMMYSTRUCTNAME: extern struct {
+            Offset: DWORD,
+            OffsetHigh: DWORD,
+        },
+        Pointer: ?PVOID,
+    },
     hEvent: ?HANDLE,
 };
 pub const LPOVERLAPPED = *OVERLAPPED;
+
+pub const OVERLAPPED_ENTRY = extern struct {
+    lpCompletionKey: ULONG_PTR,
+    lpOverlapped: LPOVERLAPPED,
+    Internal: ULONG_PTR,
+    dwNumberOfBytesTransferred: DWORD,
+};
+pub const LPOVERLAPPED_ENTRY = *OVERLAPPED_ENTRY;
 
 pub const MAX_PATH = 260;
 
