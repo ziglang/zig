@@ -367,7 +367,7 @@ pub const LPOVERLAPPED = *OVERLAPPED;
 
 pub const OVERLAPPED_ENTRY = extern struct {
     lpCompletionKey: *usize,
-    lpOverlapped: ?*OVERLAPPED,
+    lpOverlapped: *OVERLAPPED,
     Internal: ULONG_PTR,
     dwNumberOfBytesTransferred: DWORD,
 };
