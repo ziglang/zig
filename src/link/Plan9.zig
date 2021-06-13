@@ -19,37 +19,73 @@ const assert = std.debug.assert;
 base: link.File,
 ptr_width: PtrWidth,
 error_flags: File.ErrorFlags = File.ErrorFlags{},
+bases: Bases,
 
 decl_table: std.AutoArrayHashMapUnmanaged(*Module.Decl, void) = .{},
 /// is just casted down when 32 bit
-syms: std.ArrayListUnmanaged(aout.Sym64) = .{},
+syms: std.ArrayListUnmanaged(aout.Sym) = .{},
 call_relocs: std.ArrayListUnmanaged(CallReloc) = .{},
 text_buf: std.ArrayListUnmanaged(u8) = .{},
 data_buf: std.ArrayListUnmanaged(u8) = .{},
 
 cur_decl: *Module.Decl = undefined,
 hdr: aout.ExecHdr = undefined,
+const Bases = struct { text: u32, data: u32 };
+
+fn getAddr(self: Plan9, addr: u32, t: aout.SymType) u32 {
+    return addr + switch (t) {
+        .T, .t => self.bases.text,
+        .D, .d, .B, .b => self.bases.data,
+        else => @panic("get address for more symbol types"),
+    };
+}
+/// opposite of getAddr
+fn takeAddr(self: Plan9, addr: u32, t: aout.SymType) u32 {
+    return addr - switch (t) {
+        .T, .t => self.bases.text,
+        .D, .d, .B, .b => self.bases.data, // TODO is .b correct here?
+        else => @panic("take address for more symbol types"),
+    };
+}
+
+fn getSymAddr(self: Plan9, s: aout.Sym) u32 {
+    return self.getAddr(@intCast(u32, s.value), s.type);
+}
 
 fn headerSize(self: Plan9) u32 {
     // fat header (currently unused)
     const fat: u8 = if (self.ptr_width == .p64) 8 else 0;
     return @sizeOf(aout.ExecHdr) + fat;
 }
+
 pub const DeclBlock = struct {
-    type: enum { text, data },
+    type: aout.SymType,
     // offset in the text or data sects
     offset: u32,
     // offset into syms
     sym_index: ?usize,
     pub const empty = DeclBlock{
-        .type = .text,
+        .type = .t,
         .offset = 0,
         .sym_index = null,
     };
 };
 
-// TODO change base addr based on target (and section?) (right now it just works on amd64)
-const default_base_addr = 0x00200028;
+pub fn defaultBaseAddrs(arch: std.Target.Cpu.Arch) Bases {
+    return switch (arch) {
+        .x86_64 => .{
+            // 0x28 => 40 == header size
+            .text = 0x200028,
+            .data = 0x400000,
+        },
+        .i386 => .{
+            // 0x20 => 32 == header size
+            .text = 0x200020,
+            .data = 0x400000,
+        },
+        else => std.debug.panic("find default base address for {}", .{arch}),
+    };
+}
 
 pub const CallReloc = struct {
     caller: *Module.Decl,
@@ -76,6 +112,7 @@ pub fn createEmpty(gpa: *Allocator, options: link.Options) !*Plan9 {
             .file = null,
         },
         .ptr_width = ptr_width,
+        .bases = undefined,
     };
     return self;
 }
@@ -115,31 +152,25 @@ pub fn flushModule(self: *Plan9, comp: *Compilation) !void {
             self.cur_decl = decl;
             const is_fn = (decl.ty.zigTypeTag() == .Fn);
             decl.link.plan9 = if (is_fn) .{
-                .offset = @intCast(u32, self.text_buf.items.len),
-                .type = .text,
+                .offset = self.getAddr(@intCast(u32, self.text_buf.items.len), .t),
+                .type = .t,
                 .sym_index = decl.link.plan9.sym_index,
             } else .{
-                .offset = @intCast(u32, self.data_buf.items.len),
-                .type = .data,
+                .offset = self.getAddr(@intCast(u32, self.data_buf.items.len), .d),
+                .type = .t,
                 .sym_index = decl.link.plan9.sym_index,
             };
             if (decl.link.plan9.sym_index == null) {
                 try self.syms.append(self.base.allocator, .{
                     .value = decl.link.plan9.offset,
-                    .type = switch (decl.link.plan9.type) {
-                        .text => .t,
-                        .data => .d,
-                    },
+                    .type = decl.link.plan9.type,
                     .name = mem.span(decl.name),
                 });
                 decl.link.plan9.sym_index = self.syms.items.len - 1;
             } else {
                 self.syms.items[decl.link.plan9.sym_index.?] = .{
                     .value = decl.link.plan9.offset,
-                    .type = switch (decl.link.plan9.type) {
-                        .text => .t,
-                        .data => .d,
-                    },
+                    .type = decl.link.plan9.type,
                     .name = mem.span(decl.name),
                 };
             }
@@ -174,21 +205,21 @@ pub fn flushModule(self: *Plan9, comp: *Compilation) !void {
             assert(l.sym_index != null); // we didn't process it already
             const endian = self.base.options.target.cpu.arch.endian();
             if (self.ptr_width == .p32) {
-                const callee_offset = @truncate(u32, reloc.callee.link.plan9.offset + default_base_addr); // TODO this is different if its data
-                const off = reloc.offset_in_caller + l.offset;
+                const callee_offset = @intCast(u32, reloc.callee.link.plan9.offset);
+                const off = self.takeAddr(@intCast(u32, reloc.offset_in_caller) + l.offset, reloc.caller.link.plan9.type);
                 std.mem.writeInt(u32, self.text_buf.items[off - 4 ..][0..4], callee_offset, endian);
             } else {
-                const callee_offset = reloc.callee.link.plan9.offset + default_base_addr; // TODO this is different if its data
-                const off = reloc.offset_in_caller + l.offset;
+                const callee_offset = reloc.callee.link.plan9.offset;
+                const off = self.takeAddr(@intCast(u32, reloc.offset_in_caller) + l.offset, reloc.caller.link.plan9.type);
                 std.mem.writeInt(u64, self.text_buf.items[off - 8 ..][0..8], callee_offset, endian);
             }
         }
     }
 
     // edata, end, etext
-    self.syms.items[0].value = 0x200000; // TODO make this number other place, and what is it?
-    self.syms.items[1].value = 0x200000; // TODO make this number other place, and what is it?
-    self.syms.items[2].value = self.text_buf.items.len;
+    self.syms.items[0].value = self.getAddr(0x0, .b); // what is this number
+    self.syms.items[1].value = self.getAddr(0x0, .b); // what is this number
+    self.syms.items[2].value = self.getAddr(@intCast(u32, self.text_buf.items.len), .t);
 
     var sym_buf = std.ArrayList(u8).init(self.base.allocator);
     defer sym_buf.deinit();
@@ -248,25 +279,19 @@ pub fn updateDeclExports(
             }
         }
         if (std.mem.eql(u8, exp.options.name, "_start")) {
-            std.debug.assert(decl.link.plan9.type == .text); // we tried to link a non-function as _start
-            self.hdr.entry = Plan9.default_base_addr + self.headerSize() + decl.link.plan9.offset;
+            std.debug.assert(decl.link.plan9.type == .t); // we tried to link a non-function as _start
+            self.hdr.entry = self.bases.text + decl.link.plan9.offset;
         }
         if (exp.link.plan9) |i| {
             self.syms.items[i] = .{
-                .value = decl.link.plan9.offset,
-                .type = switch (decl.link.plan9.type) {
-                    .text => .T,
-                    .data => .D,
-                },
+                .value = self.getAddr(decl.link.plan9.offset, decl.link.plan9.type),
+                .type = decl.link.plan9.type.toGlobal(),
                 .name = exp.options.name,
             };
         } else {
             try self.syms.append(self.base.allocator, .{
-                .value = decl.link.plan9.offset,
-                .type = switch (decl.link.plan9.type) {
-                    .text => .T,
-                    .data => .D,
-                },
+                .value = self.getAddr(decl.link.plan9.offset, decl.link.plan9.type),
+                .type = decl.link.plan9.type.toGlobal(),
                 .name = exp.options.name,
             });
             exp.link.plan9 = self.syms.items.len - 1;
@@ -299,6 +324,8 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
 
     if (std.builtin.mode == .Debug or std.builtin.mode == .ReleaseSafe)
         self.hdr.entry = 0x0;
+
+    self.bases = defaultBaseAddrs(options.target.cpu.arch);
 
     // first 3 symbols in our table are edata, end, etext
     try self.syms.appendSlice(self.base.allocator, &.{
@@ -333,9 +360,9 @@ pub fn writeSyms(self: *Plan9, buf: *std.ArrayList(u8)) !void {
     const writer = buf.writer();
     for (self.syms.items) |sym| {
         if (self.ptr_width == .p32) {
-            try writer.writeIntBig(u32, @intCast(u32, sym.value) + default_base_addr);
+            try writer.writeIntBig(u32, @intCast(u32, sym.value));
         } else {
-            try writer.writeIntBig(u64, sym.value + default_base_addr);
+            try writer.writeIntBig(u64, sym.value);
         }
         try writer.writeByte(@enumToInt(sym.type));
         try writer.writeAll(std.mem.span(sym.name));

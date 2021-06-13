@@ -46,18 +46,10 @@ pub const ExecHdr = extern struct {
     }
 };
 
-// uchar value[4];
-// char  type;
-// char  name[n];   /* NUL-terminated */
-pub const Sym32 = struct {
-    value: u32, // big endian in the file
-    type: SymType,
-    name: []const u8,
-};
 // uchar value[8];
 // char  type;
 // char  name[n];   /* NUL-terminated */
-pub const Sym64 = struct {
+pub const Sym = struct {
     value: u64, // big endian in the file
     type: SymType,
     name: []const u8,
@@ -93,6 +85,14 @@ pub const SymType = enum(u8) {
     z = 0x80 | 'z',
     Z = 0x80 | 'Z',
     m = 0x80 | 'm',
+    pub fn toGlobal(self: SymType) SymType {
+        return switch (self) {
+            .t => .T,
+            .b => .B,
+            .d => .D,
+            else => unreachable,
+        };
+    }
 };
 
 pub const HDR_MAGIC = 0x00008000;
