@@ -1438,7 +1438,7 @@ fn transSimpleOffsetOfExpr(
             }
         }
     }
-    return fail(c, error.UnsupportedTranslation, expr.getBeginLoc(), "Failed to translate simple OffsetOfExpr", .{});
+    return fail(c, error.UnsupportedTranslation, expr.getBeginLoc(), "failed to translate simple OffsetOfExpr", .{});
 }
 
 fn transOffsetOfExpr(
@@ -2619,7 +2619,7 @@ fn transInitListExpr(
     const source_loc = @ptrCast(*const clang.Expr, expr).getBeginLoc();
 
     if (qualTypeWasDemotedToOpaque(c, qt)) {
-        return fail(c, error.UnsupportedTranslation, source_loc, "Cannot initialize opaque type", .{});
+        return fail(c, error.UnsupportedTranslation, source_loc, "cannot initialize opaque type", .{});
     }
 
     if (qual_type.isRecordType()) {
@@ -3408,7 +3408,7 @@ fn transUnaryExprOrTypeTraitExpr(
             c,
             error.UnsupportedTranslation,
             loc,
-            "Unsupported type trait kind {}",
+            "unsupported type trait kind {}",
             .{kind},
         ),
     }
@@ -3450,13 +3450,15 @@ fn transUnaryOperator(c: *Context, scope: *Scope, stmt: *const clang.UnaryOperat
             return Tag.address_of.create(c.arena, try transExpr(c, scope, op_expr, used));
         },
         .Deref => {
+            if (qualTypeWasDemotedToOpaque(c, stmt.getType()))
+                return fail(c, error.UnsupportedTranslation, stmt.getBeginLoc(), "cannot dereference opaque type", .{});
+
             const node = try transExpr(c, scope, op_expr, used);
             var is_ptr = false;
             const fn_ty = qualTypeGetFnProto(op_expr.getType(), &is_ptr);
             if (fn_ty != null and is_ptr)
                 return node;
-            const unwrapped = try Tag.unwrap.create(c.arena, node);
-            return Tag.deref.create(c.arena, unwrapped);
+            return Tag.deref.create(c.arena, node);
         },
         .Plus => return transExpr(c, scope, op_expr, used),
         .Minus => {
