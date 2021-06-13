@@ -5154,7 +5154,7 @@ test "recovery: missing for payload" {
     try testError(
         \\comptime {
         \\    const a = for(a) {};
-        \\    const a: for(a) {};
+        \\    const a: for(a) blk: {};
         \\    for(a) {}
         \\}
     , &[_]Error{
