@@ -68,6 +68,9 @@ pub fn main() !void {
         usageAndExit(std.io.getStdErr(), args[0], 1);
     }
 
+    // Required for json parsing.
+    @setEvalBranchQuota(10000);
+
     const registry_path = try fs.path.join(allocator, &.{ spirv_headers_root, "include", "spirv", "unified1", "spirv.core.grammar.json" });
     const registry_json = try std.fs.cwd().readFileAlloc(allocator, registry_path, std.math.maxInt(usize));
     var tokens = std.json.TokenStream.init(registry_json);

@@ -234,17 +234,19 @@ const DestTarget = struct {
     os: OsTag,
     abi: Abi,
 
-    fn hash(a: DestTarget) u32 {
-        return @enumToInt(a.arch) +%
-            (@enumToInt(a.os) *% @as(u32, 4202347608)) +%
-            (@enumToInt(a.abi) *% @as(u32, 4082223418));
-    }
+    const HashContext = struct {
+        pub fn hash(self: @This(), a: DestTarget) u32 {
+            return @enumToInt(a.arch) +%
+                (@enumToInt(a.os) *% @as(u32, 4202347608)) +%
+                (@enumToInt(a.abi) *% @as(u32, 4082223418));
+        }
 
-    fn eql(a: DestTarget, b: DestTarget) bool {
-        return a.arch.eql(b.arch) and
-            a.os == b.os and
-            a.abi == b.abi;
-    }
+        pub fn eql(self: @This(), a: DestTarget, b: DestTarget) bool {
+            return a.arch.eql(b.arch) and
+                a.os == b.os and
+                a.abi == b.abi;
+        }
+    };
 };
 
 const Contents = struct {
@@ -259,7 +261,7 @@ const Contents = struct {
 };
 
 const HashToContents = std.StringHashMap(Contents);
-const TargetToHash = std.ArrayHashMap(DestTarget, []const u8, DestTarget.hash, DestTarget.eql, true);
+const TargetToHash = std.ArrayHashMap(DestTarget, []const u8, DestTarget.HashContext, true);
 const PathTable = std.StringHashMap(*TargetToHash);
 
 const LibCVendor = enum {
@@ -423,9 +425,9 @@ pub fn main() !void {
     while (path_it.next()) |path_kv| {
         var contents_list = std.ArrayList(*Contents).init(allocator);
         {
-            var hash_it = path_kv.value.*.iterator();
+            var hash_it = path_kv.value_ptr.*.iterator();
             while (hash_it.next()) |hash_kv| {
-                const contents = hash_to_contents.get(hash_kv.value.*).?;
+                const contents = hash_to_contents.getPtr(hash_kv.value_ptr.*).?;
                 try contents_list.append(contents);
             }
         }
@@ -433,7 +435,7 @@ pub fn main() !void {
         const best_contents = contents_list.popOrNull().?;
         if (best_contents.hit_count > 1) {
             // worth it to make it generic
-            const full_path = try std.fs.path.join(allocator, &[_][]const u8{ out_dir, generic_name, path_kv.key.* });
+            const full_path = try std.fs.path.join(allocator, &[_][]const u8{ out_dir, generic_name, path_kv.key_ptr.* });
             try std.fs.cwd().makePath(std.fs.path.dirname(full_path).?);
             try std.fs.cwd().writeFile(full_path, best_contents.bytes);
             best_contents.is_generic = true;
@@ -443,17 +445,17 @@ pub fn main() !void {
                     missed_opportunity_bytes += this_missed_bytes;
                     std.debug.warn("Missed opportunity ({:2}): {s}\n", .{
                         std.fmt.fmtIntSizeDec(this_missed_bytes),
-                        path_kv.key.*,
+                        path_kv.key_ptr.*,
                     });
                 } else break;
             }
         }
-        var hash_it = path_kv.value.*.iterator();
+        var hash_it = path_kv.value_ptr.*.iterator();
         while (hash_it.next()) |hash_kv| {
-            const contents = hash_to_contents.get(hash_kv.value.*).?;
+            const contents = hash_to_contents.get(hash_kv.value_ptr.*).?;
             if (contents.is_generic) continue;
 
-            const dest_target = hash_kv.key.*;
+            const dest_target = hash_kv.key_ptr.*;
             const arch_name = switch (dest_target.arch) {
                 .specific => |a| @tagName(a),
                 else => @tagName(dest_target.arch),
@@ -463,7 +465,7 @@ pub fn main() !void {
                 @tagName(dest_target.os),
                 @tagName(dest_target.abi),
             });
-            const full_path = try std.fs.path.join(allocator, &[_][]const u8{ out_dir, out_subpath, path_kv.key.* });
+            const full_path = try std.fs.path.join(allocator, &[_][]const u8{ out_dir, out_subpath, path_kv.key_ptr.* });
             try std.fs.cwd().makePath(std.fs.path.dirname(full_path).?);
             try std.fs.cwd().writeFile(full_path, contents.bytes);
         }
