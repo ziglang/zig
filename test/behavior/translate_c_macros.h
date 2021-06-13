@@ -16,3 +16,5 @@ struct Foo {
 };
 
 #define SIZE_OF_FOO sizeof(struct Foo)
+
+#define MAP_FAILED	((void *) -1)

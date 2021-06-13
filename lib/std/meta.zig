@@ -890,38 +890,10 @@ pub fn cast(comptime DestType: type, target: anytype) DestType {
     // this function should behave like transCCast in translate-c, except it's for macros and enums
     const SourceType = @TypeOf(target);
     switch (@typeInfo(DestType)) {
-        .Pointer => {
-            switch (@typeInfo(SourceType)) {
-                .Int, .ComptimeInt => {
-                    return @intToPtr(DestType, target);
-                },
-                .Pointer => {
-                    return castPtr(DestType, target);
-                },
-                .Optional => |opt| {
-                    if (@typeInfo(opt.child) == .Pointer) {
-                        return castPtr(DestType, target);
-                    }
-                },
-                else => {},
-            }
-        },
+        .Pointer => return castToPtr(DestType, SourceType, target),
         .Optional => |dest_opt| {
             if (@typeInfo(dest_opt.child) == .Pointer) {
-                switch (@typeInfo(SourceType)) {
-                    .Int, .ComptimeInt => {
-                        return @intToPtr(DestType, target);
-                    },
-                    .Pointer => {
-                        return castPtr(DestType, target);
-                    },
-                    .Optional => |target_opt| {
-                        if (@typeInfo(target_opt.child) == .Pointer) {
-                            return castPtr(DestType, target);
-                        }
-                    },
-                    else => {},
-                }
+                return castToPtr(DestType, SourceType, target);
             }
         },
         .Enum => |enum_type| {
@@ -977,6 +949,30 @@ fn castPtr(comptime DestType: type, target: anytype) DestType {
         return @ptrCast(DestType, @alignCast(dest.alignment, target));
 }
 
+fn castToPtr(comptime DestType: type, comptime SourceType: type, target: anytype) DestType {
+    switch (@typeInfo(SourceType)) {
+        .Int => {
+            return @intToPtr(DestType, castInt(usize, target));
+        },
+        .ComptimeInt => {
+            if (target < 0)
+                return @intToPtr(DestType, @bitCast(usize, @intCast(isize, target)))
+            else
+                return @intToPtr(DestType, @intCast(usize, target));
+        },
+        .Pointer => {
+            return castPtr(DestType, target);
+        },
+        .Optional => |target_opt| {
+            if (@typeInfo(target_opt.child) == .Pointer) {
+                return castPtr(DestType, target);
+            }
+        },
+        else => {},
+    }
+    return @as(DestType, target);
+}
+
 fn ptrInfo(comptime PtrType: type) TypeInfo.Pointer {
     return switch (@typeInfo(PtrType)) {
         .Optional => |opt_info| @typeInfo(opt_info.child).Pointer,
@@ -1026,6 +1022,12 @@ test "std.meta.cast" {
     try testing.expectEqual(cast(C_ENUM, @as(i8, 1)), .B);
     try testing.expectEqual(cast(C_ENUM, @as(u64, 1)), .B);
     try testing.expectEqual(cast(C_ENUM, @as(u64, 42)), @intToEnum(C_ENUM, 42));
+
+    var foo: c_int = -1;
+    try testing.expect(cast(*c_void, -1) == @intToPtr(*c_void, @bitCast(usize, @as(isize, -1))));
+    try testing.expect(cast(*c_void, foo) == @intToPtr(*c_void, @bitCast(usize, @as(isize, -1))));
+    try testing.expect(cast(?*c_void, -1) == @intToPtr(?*c_void, @bitCast(usize, @as(isize, -1))));
+    try testing.expect(cast(?*c_void, foo) == @intToPtr(?*c_void, @bitCast(usize, @as(isize, -1))));
 }
 
 /// Given a value returns its size as C's sizeof operator would.
