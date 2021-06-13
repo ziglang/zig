@@ -54,8 +54,12 @@ pub const Loop = struct {
             .windows => windows.OVERLAPPED{
                 .Internal = 0,
                 .InternalHigh = 0,
-                .Offset = 0,
-                .OffsetHigh = 0,
+                .DUMMYUNIONNAME = .{
+                    .DUMMYSTRUCTNAME = .{
+                        .Offset = 0,
+                        .OffsetHigh = 0,
+                    },
+                },
                 .hEvent = null,
             },
             else => {},
