@@ -1515,7 +1515,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub export fn foo() void {
         \\    var x: [*c]c_int = undefined;
-        \\    x.?.* = 1;
+        \\    x.* = 1;
         \\}
     });
 
@@ -1529,7 +1529,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub export fn foo() c_int {
         \\    var x: c_int = 1234;
         \\    var ptr: [*c]c_int = &x;
-        \\    return ptr.?.*;
+        \\    return ptr.*;
         \\}
     });
 
@@ -3243,7 +3243,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\            const tmp_2 = ref.*;
         \\            ref.* += 1;
         \\            break :blk_1 tmp_2;
-        \\        }).?.* = tmp;
+        \\        }).* = tmp;
         \\        break :blk tmp;
         \\    };
         \\}
@@ -3583,10 +3583,24 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    struct my_struct S = {.a = 1, .b = 2};
         \\}
     , &[_][]const u8{
-        \\warning: Cannot initialize opaque type
+        \\warning: cannot initialize opaque type
         ,
         \\warning: unable to translate function, demoted to extern
         \\pub extern fn initialize() void;
+    });
+
+    cases.add("Demote function that dereferences opaque type",
+        \\struct my_struct {
+        \\    unsigned a: 1;
+        \\};
+        \\void deref(struct my_struct *s) {
+        \\    *s;
+        \\}
+    , &[_][]const u8{
+        \\warning: cannot dereference opaque type
+        ,
+        \\warning: unable to translate function, demoted to extern
+        \\pub extern fn deref(arg_s: ?*struct_my_struct) void;
     });
 
     cases.add("Function prototype declared within function",

@@ -2294,7 +2294,6 @@ fn renderNodeGrouped(c: *Context, node: Node) !NodeIndex {
         .single_pointer,
         .unwrap,
         .deref,
-        .address_of,
         .not,
         .negate,
         .negate_wrap,
@@ -2349,6 +2348,7 @@ fn renderNodeGrouped(c: *Context, node: Node) !NodeIndex {
         .container_init,
         .container_init_dot,
         .block,
+        .address_of,
         => return c.addNode(.{
             .tag = .grouped_expression,
             .main_token = try c.addToken(.l_paren, "("),
