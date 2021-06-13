@@ -14,6 +14,9 @@ pub fn main() !void {
     const spec_path = args[1];
     const spec = try std.fs.cwd().readFileAlloc(allocator, spec_path, std.math.maxInt(usize));
 
+    // Required for json parsing.
+    @setEvalBranchQuota(10000);
+
     var tokens = std.json.TokenStream.init(spec);
     var registry = try std.json.parse(g.Registry, &tokens, .{ .allocator = allocator });
 

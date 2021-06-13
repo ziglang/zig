@@ -32,4 +32,12 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
         cases.addBuildFile("test/stage1/c_abi/build.zig", .{});
     }
     cases.addBuildFile("test/standalone/c_compiler/build.zig", .{ .build_modes = true, .cross_targets = true });
+
+    // Ensure the development tools are buildable.
+    cases.add("tools/gen_spirv_spec.zig");
+    cases.add("tools/gen_stubs.zig");
+    cases.add("tools/update_clang_options.zig");
+    cases.add("tools/update_cpu_features.zig");
+    cases.add("tools/update_glibc.zig");
+    cases.add("tools/update_spirv_features.zig");
 }
