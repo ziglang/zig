@@ -113,11 +113,13 @@ pub fn buildLibCXX(comp: *Compilation) !void {
     for (libcxx_files) |cxx_src| {
         var cflags = std.ArrayList([]const u8).init(arena);
 
-        if (target.os.tag == .windows) {
-            // Filesystem stuff isn't supported on Windows.
+        if (target.os.tag == .windows or target.os.tag == .wasi) {
+            // Filesystem stuff isn't supported on Windows and WASI.
             if (std.mem.startsWith(u8, cxx_src, "src/filesystem/"))
                 continue;
-        } else {
+        }
+
+        if (target.os.tag != .windows) {
             if (std.mem.startsWith(u8, cxx_src, "src/support/win32/"))
                 continue;
         }
@@ -133,7 +135,7 @@ pub fn buildLibCXX(comp: *Compilation) !void {
         try cflags.append("-fvisibility=hidden");
         try cflags.append("-fvisibility-inlines-hidden");
 
-        if (target.abi.isMusl()) {
+        if (target.abi.isMusl() or target.os.tag == .wasi) {
             try cflags.append("-D_LIBCPP_HAS_MUSL_LIBC");
         }
 
@@ -252,7 +254,7 @@ pub fn buildLibCXXABI(comp: *Compilation) !void {
         try cflags.append("-fvisibility=hidden");
         try cflags.append("-fvisibility-inlines-hidden");
 
-        if (target.abi.isMusl()) {
+        if (target.abi.isMusl() or target.os.tag == .wasi) {
             try cflags.append("-D_LIBCPP_HAS_MUSL_LIBC");
         }
 
