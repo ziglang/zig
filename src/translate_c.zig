@@ -5331,7 +5331,7 @@ fn parseCPrimaryExprInner(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!N
             // for handling type macros (EVIL)
             // TODO maybe detect and treat type macros as typedefs in parseCSpecifierQualifierList?
             m.i -= 1;
-            if (try parseCTypeName(c, m, scope)) |type_name| {
+            if (try parseCTypeName(c, m, scope, true)) |type_name| {
                 return type_name;
             }
             try m.fail(c, "unable to translate C expr: unexpected token .{s}", .{@tagName(tok)});
@@ -5543,33 +5543,9 @@ fn parseCMulExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     while (true) {
         switch (m.next().?) {
             .Asterisk => {
-                const next = m.peek().?;
-                if (next == .RParen or next == .Nl or next == .Eof) {
-                    // type *)
-
-                    // last token of `node`
-                    const prev_id = m.list[m.i - 1].id;
-
-                    if (prev_id == .Keyword_void) {
-                        const ptr = try Tag.single_pointer.create(c.arena, .{
-                            .is_const = false,
-                            .is_volatile = false,
-                            .elem_type = node,
-                        });
-                        return Tag.optional_type.create(c.arena, ptr);
-                    } else {
-                        return Tag.c_pointer.create(c.arena, .{
-                            .is_const = false,
-                            .is_volatile = false,
-                            .elem_type = node,
-                        });
-                    }
-                } else {
-                    // expr * expr
-                    const lhs = try macroBoolToInt(c, node);
-                    const rhs = try macroBoolToInt(c, try parseCCastExpr(c, m, scope));
-                    node = try Tag.mul.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
-                }
+                const lhs = try macroBoolToInt(c, node);
+                const rhs = try macroBoolToInt(c, try parseCCastExpr(c, m, scope));
+                node = try Tag.mul.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
             },
             .Slash => {
                 const lhs = try macroBoolToInt(c, node);
@@ -5592,7 +5568,7 @@ fn parseCMulExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
 fn parseCCastExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     switch (m.next().?) {
         .LParen => {
-            if (try parseCTypeName(c, m, scope)) |type_name| {
+            if (try parseCTypeName(c, m, scope, true)) |type_name| {
                 if (m.next().? != .RParen) {
                     try m.fail(c, "unable to translate C expr: expected ')'", .{});
                     return error.ParseError;
@@ -5611,19 +5587,21 @@ fn parseCCastExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     return parseCUnaryExpr(c, m, scope);
 }
 
-fn parseCTypeName(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!?Node {
-    if (try parseCSpecifierQualifierList(c, m, scope)) |node| {
+// allow_fail is set when unsure if we are parsing a type-name
+fn parseCTypeName(c: *Context, m: *MacroCtx, scope: *Scope, allow_fail: bool) ParseError!?Node {
+    if (try parseCSpecifierQualifierList(c, m, scope, allow_fail)) |node| {
         return try parseCAbstractDeclarator(c, m, scope, node);
     } else {
         return null;
     }
 }
 
-fn parseCSpecifierQualifierList(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!?Node {
-    switch (m.next().?) {
+fn parseCSpecifierQualifierList(c: *Context, m: *MacroCtx, scope: *Scope, allow_fail: bool) ParseError!?Node {
+    const tok = m.next().?;
+    switch (tok) {
         .Identifier => {
             const mangled_name = scope.getAlias(m.slice());
-            if (c.typedefs.contains(mangled_name)) {
+            if (!allow_fail or c.typedefs.contains(mangled_name)) {
                 return try Tag.identifier.create(c.arena, builtin_typedef_map.get(mangled_name) orelse mangled_name);
             }
         },
@@ -5657,8 +5635,13 @@ fn parseCSpecifierQualifierList(c: *Context, m: *MacroCtx, scope: *Scope) ParseE
         else => {},
     }
 
-    m.i -= 1;
-    return null;
+    if (allow_fail) {
+        m.i -= 1;
+        return null;
+    } else {
+        try m.fail(c, "unable to translate C expr: unexpected token .{s}", .{@tagName(tok)});
+        return error.ParseError;
+    }
 }
 
 fn parseCNumericType(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
@@ -5934,9 +5917,7 @@ fn parseCUnaryExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
         .Keyword_sizeof => {
             const operand = if (m.peek().? == .LParen) blk: {
                 _ = m.next();
-                // C grammar says this should be 'type-name' but we have to
-                // use parseCMulExpr to correctly handle pointer types.
-                const inner = try parseCMulExpr(c, m, scope);
+                const inner = (try parseCTypeName(c, m, scope, false)).?;
                 if (m.next().? != .RParen) {
                     try m.fail(c, "unable to translate C expr: expected ')'", .{});
                     return error.ParseError;
@@ -5953,9 +5934,7 @@ fn parseCUnaryExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
                 try m.fail(c, "unable to translate C expr: expected '('", .{});
                 return error.ParseError;
             }
-            // C grammar says this should be 'type-name' but we have to
-            // use parseCMulExpr to correctly handle pointer types.
-            const operand = try parseCMulExpr(c, m, scope);
+            const operand = (try parseCTypeName(c, m, scope, false)).?;
             if (m.next().? != .RParen) {
                 try m.fail(c, "unable to translate C expr: expected ')'", .{});
                 return error.ParseError;
