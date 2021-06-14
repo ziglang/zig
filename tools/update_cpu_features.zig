@@ -906,19 +906,19 @@ fn processOneTarget(job: Job) anyerror!void {
     {
         var it = root_map.iterator();
         root_it: while (it.next()) |kv| {
-            if (kv.key.len == 0) continue;
-            if (kv.key.*[0] == '!') continue;
-            if (kv.value.* != .Object) continue;
-            if (hasSuperclass(&kv.value.Object, "SubtargetFeature")) {
-                const llvm_name = kv.value.Object.get("Name").?.String;
+            if (kv.key_ptr.len == 0) continue;
+            if (kv.key_ptr.*[0] == '!') continue;
+            if (kv.value_ptr.* != .Object) continue;
+            if (hasSuperclass(&kv.value_ptr.Object, "SubtargetFeature")) {
+                const llvm_name = kv.value_ptr.Object.get("Name").?.String;
                 if (llvm_name.len == 0) continue;
 
                 var zig_name = try llvmNameToZigName(arena, llvm_name);
-                var desc = kv.value.Object.get("Desc").?.String;
+                var desc = kv.value_ptr.Object.get("Desc").?.String;
                 var deps = std.ArrayList([]const u8).init(arena);
                 var omit = false;
                 var flatten = false;
-                const implies = kv.value.Object.get("Implies").?.Array;
+                const implies = kv.value_ptr.Object.get("Implies").?.Array;
                 for (implies.items) |imply| {
                     const other_key = imply.Object.get("def").?.String;
                     const other_obj = &root_map.getPtr(other_key).?.Object;
@@ -964,13 +964,13 @@ fn processOneTarget(job: Job) anyerror!void {
                     try all_features.append(feature);
                 }
             }
-            if (hasSuperclass(&kv.value.Object, "Processor")) {
-                const llvm_name = kv.value.Object.get("Name").?.String;
+            if (hasSuperclass(&kv.value_ptr.Object, "Processor")) {
+                const llvm_name = kv.value_ptr.Object.get("Name").?.String;
                 if (llvm_name.len == 0) continue;
 
                 var zig_name = try llvmNameToZigName(arena, llvm_name);
                 var deps = std.ArrayList([]const u8).init(arena);
-                const features = kv.value.Object.get("Features").?.Array;
+                const features = kv.value_ptr.Object.get("Features").?.Array;
                 for (features.items) |feature| {
                     const feature_key = feature.Object.get("def").?.String;
                     const feature_obj = &root_map.getPtr(feature_key).?.Object;
@@ -983,7 +983,7 @@ fn processOneTarget(job: Job) anyerror!void {
                     )) orelse continue;
                     try deps.append(feature_zig_name);
                 }
-                const tune_features = kv.value.Object.get("TuneFeatures").?.Array;
+                const tune_features = kv.value_ptr.Object.get("TuneFeatures").?.Array;
                 for (tune_features.items) |feature| {
                     const feature_key = feature.Object.get("def").?.String;
                     const feature_obj = &root_map.getPtr(feature_key).?.Object;

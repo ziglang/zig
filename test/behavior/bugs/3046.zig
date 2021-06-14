@@ -13,7 +13,7 @@ var some_struct: SomeStruct = undefined;
 
 test "fixed" {
     some_struct = SomeStruct{
-        .field = couldFail() catch |_| @as(i32, 0),
+        .field = couldFail() catch @as(i32, 0),
     };
     try expect(some_struct.field == 1);
 }

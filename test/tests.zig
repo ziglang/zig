@@ -107,7 +107,6 @@ const test_targets = blk: {
             .link_libc = true,
         },
 
-
         TestTarget{
             .target = .{
                 .cpu_arch = .aarch64,
@@ -227,7 +226,6 @@ const test_targets = blk: {
             },
             .link_libc = true,
         },
-
 
         TestTarget{
             .target = .{
@@ -656,7 +654,7 @@ pub const StackTracesContext = struct {
         const b = self.b;
         const src_basename = "source.zig";
         const write_src = b.addWriteFile(src_basename, source);
-            const exe = b.addExecutableSource("test", write_src.getFileSource(src_basename).?);
+        const exe = b.addExecutableSource("test", write_src.getFileSource(src_basename).?);
         exe.setBuildMode(mode);
 
         const run_and_compare = RunAndCompareStep.create(
@@ -669,7 +667,6 @@ pub const StackTracesContext = struct {
 
         self.step.dependOn(&run_and_compare.step);
     }
-
 
     const RunAndCompareStep = struct {
         pub const base_id = .custom;

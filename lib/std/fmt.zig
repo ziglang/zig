@@ -359,7 +359,12 @@ pub fn format(
     }
 
     if (comptime arg_state.hasUnusedArgs()) {
-        @compileError("Unused arguments");
+        const missing_count = arg_state.args_len - @popCount(ArgSetType, arg_state.used_args);
+        switch (missing_count) {
+            0 => unreachable,
+            1 => @compileError("Unused argument in \"" ++ fmt ++ "\""),
+            else => @compileError((comptime comptimePrint("{d}", .{missing_count})) ++ " unused arguments in \"" ++ fmt ++ "\""),
+        }
     }
 }
 

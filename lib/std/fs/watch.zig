@@ -437,8 +437,12 @@ pub fn Watch(comptime V: type) type {
                     .overlapped = windows.OVERLAPPED{
                         .Internal = 0,
                         .InternalHigh = 0,
-                        .Offset = 0,
-                        .OffsetHigh = 0,
+                        .DUMMYUNIONNAME = .{
+                            .DUMMYSTRUCTNAME = .{
+                                .Offset = 0,
+                                .OffsetHigh = 0,
+                            },
+                        },
                         .hEvent = null,
                     },
                 },

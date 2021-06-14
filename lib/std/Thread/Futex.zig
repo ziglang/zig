@@ -84,7 +84,7 @@ else
 
 const WindowsFutex = struct {
     const windows = std.os.windows;
-    
+
     fn wait(ptr: *const Atomic(u32), expect: u32, timeout: ?u64) error{TimedOut}!void {
         var timeout_value: windows.LARGE_INTEGER = undefined;
         var timeout_ptr: ?*const windows.LARGE_INTEGER = null;
@@ -299,7 +299,7 @@ const PosixFutex = struct {
         state: State = .empty,
         cond: std.c.pthread_cond_t = .{},
         mutex: std.c.pthread_mutex_t = .{},
-        
+
         const Self = @This();
         const State = enum {
             empty,
@@ -381,7 +381,7 @@ test "Futex - wait/wake" {
 
     const wait_noop_result = Futex.wait(&value, 0, 0);
     try testing.expectError(error.TimedOut, wait_noop_result);
-    
+
     const wait_longer_result = Futex.wait(&value, 0, std.time.ns_per_ms);
     try testing.expectError(error.TimedOut, wait_longer_result);
 
@@ -416,7 +416,7 @@ test "Futex - Signal" {
         const Thread = struct {
             tx: *Self,
             rx: *Self,
-            
+
             const start_value = 1;
 
             fn run(self: Thread) void {
@@ -472,7 +472,7 @@ test "Futex - Broadcast" {
                 self.broadcast.store(BROADCAST_RECEIVED, .Release);
                 Futex.wake(&self.broadcast, 1);
             }
-        } 
+        }
 
         fn run() !void {
             var self = Self{};
@@ -542,7 +542,7 @@ test "Futex - Chain" {
                 if (chain.index + 1 < chain.self.threads.len) {
                     next_signal = &chain.self.threads[chain.index + 1].signal;
                 }
- 
+
                 this_signal.wait();
                 next_signal.notify();
             }
@@ -554,7 +554,7 @@ test "Futex - Chain" {
             for (self.threads) |*entry, index| {
                 entry.signal = .{};
                 entry.thread = try std.Thread.spawn(Chain.run, .{
-                    .self = &self, 
+                    .self = &self,
                     .index = index,
                 });
             }

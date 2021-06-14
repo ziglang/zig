@@ -2700,7 +2700,7 @@ fn writeStubHelperPreamble(self: *MachO) !void {
                 const this_addr = stub_helper.addr;
                 const target_addr = data.addr;
                 data_blk: {
-                    const displacement = math.cast(i21, target_addr - this_addr) catch |_| break :data_blk;
+                    const displacement = math.cast(i21, target_addr - this_addr) catch break :data_blk;
                     // adr x17, disp
                     mem.writeIntLittle(u32, code[0..4], aarch64.Instruction.adr(.x17, displacement).toU32());
                     // nop
@@ -2709,7 +2709,7 @@ fn writeStubHelperPreamble(self: *MachO) !void {
                 }
                 data_blk: {
                     const new_this_addr = this_addr + @sizeOf(u32);
-                    const displacement = math.cast(i21, target_addr - new_this_addr) catch |_| break :data_blk;
+                    const displacement = math.cast(i21, target_addr - new_this_addr) catch break :data_blk;
                     // nop
                     mem.writeIntLittle(u32, code[0..4], aarch64.Instruction.nop().toU32());
                     // adr x17, disp
@@ -2738,8 +2738,8 @@ fn writeStubHelperPreamble(self: *MachO) !void {
                 const this_addr = stub_helper.addr + 3 * @sizeOf(u32);
                 const target_addr = got.addr;
                 binder_blk: {
-                    const displacement = math.divExact(u64, target_addr - this_addr, 4) catch |_| break :binder_blk;
-                    const literal = math.cast(u18, displacement) catch |_| break :binder_blk;
+                    const displacement = math.divExact(u64, target_addr - this_addr, 4) catch break :binder_blk;
+                    const literal = math.cast(u18, displacement) catch break :binder_blk;
                     // ldr x16, label
                     mem.writeIntLittle(u32, code[12..16], aarch64.Instruction.ldr(.x16, .{
                         .literal = literal,
@@ -2750,8 +2750,8 @@ fn writeStubHelperPreamble(self: *MachO) !void {
                 }
                 binder_blk: {
                     const new_this_addr = this_addr + @sizeOf(u32);
-                    const displacement = math.divExact(u64, target_addr - new_this_addr, 4) catch |_| break :binder_blk;
-                    const literal = math.cast(u18, displacement) catch |_| break :binder_blk;
+                    const displacement = math.divExact(u64, target_addr - new_this_addr, 4) catch break :binder_blk;
+                    const literal = math.cast(u18, displacement) catch break :binder_blk;
                     // nop
                     mem.writeIntLittle(u32, code[12..16], aarch64.Instruction.nop().toU32());
                     // ldr x16, label
@@ -2816,8 +2816,8 @@ fn writeStub(self: *MachO, index: u32) !void {
                 const this_addr = stub_addr;
                 const target_addr = la_ptr_addr;
                 inner: {
-                    const displacement = math.divExact(u64, target_addr - this_addr, 4) catch |_| break :inner;
-                    const literal = math.cast(u18, displacement) catch |_| break :inner;
+                    const displacement = math.divExact(u64, target_addr - this_addr, 4) catch break :inner;
+                    const literal = math.cast(u18, displacement) catch break :inner;
                     // ldr x16, literal
                     mem.writeIntLittle(u32, code[0..4], aarch64.Instruction.ldr(.x16, .{
                         .literal = literal,
@@ -2828,8 +2828,8 @@ fn writeStub(self: *MachO, index: u32) !void {
                 }
                 inner: {
                     const new_this_addr = this_addr + @sizeOf(u32);
-                    const displacement = math.divExact(u64, target_addr - new_this_addr, 4) catch |_| break :inner;
-                    const literal = math.cast(u18, displacement) catch |_| break :inner;
+                    const displacement = math.divExact(u64, target_addr - new_this_addr, 4) catch break :inner;
+                    const literal = math.cast(u18, displacement) catch break :inner;
                     // nop
                     mem.writeIntLittle(u32, code[0..4], aarch64.Instruction.nop().toU32());
                     // ldr x16, literal

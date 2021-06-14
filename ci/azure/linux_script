@@ -59,6 +59,9 @@ unset CXX
 
 make $JOBS install
 
+# look for formatting errors
+release/bin/zig fmt --check --ast-check .. || (echo "Please run 'zig fmt' to fix the non-conforming files listed above." && false)
+
 # Here we rebuild zig but this time using the Zig binary we just now produced to
 # build zig1.o rather than relying on the one built with stage0. See
 # https://github.com/ziglang/zig/issues/6830 for more details.

@@ -5402,7 +5402,7 @@ fn analyzeRet(
 fn floatOpAllowed(tag: Zir.Inst.Tag) bool {
     // extend this swich as additional operators are implemented
     return switch (tag) {
-        .add, .sub => true,
+        .add, .sub, .mul, .div => true,
         else => false,
     };
 }

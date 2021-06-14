@@ -131,7 +131,7 @@ extern fn LLVMLookupIntrinsicID(Name: [*]const u8, NameLen: usize) c_uint;
 pub const disposeMessage = LLVMDisposeMessage;
 extern fn LLVMDisposeMessage(Message: [*:0]const u8) void;
 
-pub const VerifierFailureAction = extern enum {
+pub const VerifierFailureAction = enum(c_int) {
     AbortProcess,
     PrintMessage,
     ReturnStatus,
@@ -228,7 +228,7 @@ pub const Builder = opaque {
     extern fn LLVMBuildExtractValue(*const Builder, AggVal: *const Value, Index: c_uint, Name: [*:0]const u8) *const Value;
 };
 
-pub const IntPredicate = extern enum {
+pub const IntPredicate = enum(c_int) {
     EQ = 32,
     NE = 33,
     UGT = 34,
@@ -274,7 +274,7 @@ pub const TargetMachine = opaque {
     ) Bool;
 };
 
-pub const CodeMode = extern enum {
+pub const CodeMode = enum(c_int) {
     Default,
     JITDefault,
     Tiny,
@@ -284,14 +284,14 @@ pub const CodeMode = extern enum {
     Large,
 };
 
-pub const CodeGenOptLevel = extern enum {
+pub const CodeGenOptLevel = enum(c_int) {
     None,
     Less,
     Default,
     Aggressive,
 };
 
-pub const RelocMode = extern enum {
+pub const RelocMode = enum(c_int) {
     Default,
     Static,
     PIC,
@@ -301,7 +301,7 @@ pub const RelocMode = extern enum {
     ROPI_RWPI,
 };
 
-pub const CodeGenFileType = extern enum {
+pub const CodeGenFileType = enum(c_int) {
     AssemblyFile,
     ObjectFile,
 };
@@ -504,7 +504,7 @@ pub const LinkELF = ZigLLDLinkELF;
 pub const LinkMachO = ZigLLDLinkMachO;
 pub const LinkWasm = ZigLLDLinkWasm;
 
-pub const ObjectFormatType = extern enum(c_int) {
+pub const ObjectFormatType = enum(c_int) {
     Unknown,
     COFF,
     ELF,
@@ -528,7 +528,7 @@ extern fn ZigLLVMWriteArchive(
     os_type: OSType,
 ) bool;
 
-pub const OSType = extern enum(c_int) {
+pub const OSType = enum(c_int) {
     UnknownOS,
     Ananas,
     CloudABI,
@@ -567,7 +567,7 @@ pub const OSType = extern enum(c_int) {
     Emscripten,
 };
 
-pub const ArchType = extern enum(c_int) {
+pub const ArchType = enum(c_int) {
     UnknownArch,
     arm,
     armeb,

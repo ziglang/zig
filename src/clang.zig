@@ -45,7 +45,7 @@ pub const APValueLValueBase = extern struct {
     extern fn ZigClangAPValueLValueBase_dyn_cast_Expr(APValueLValueBase) ?*const Expr;
 };
 
-pub const APValueKind = extern enum {
+pub const APValueKind = enum(c_int) {
     None,
     Indeterminate,
     Int,
@@ -105,7 +105,7 @@ pub const APFloat = opaque {
     extern fn ZigClangAPFloat_toString(*const APFloat, precision: c_uint, maxPadding: c_uint, truncateZero: bool) [*:0]const u8;
 };
 
-pub const APFloatBaseSemantics = extern enum {
+pub const APFloatBaseSemantics = enum(c_int) {
     IEEEhalf,
     BFloat,
     IEEEsingle,
@@ -1037,7 +1037,7 @@ pub const InitListExpr = opaque {
     extern fn ZigClangInitListExpr_getInitializedFieldInUnion(*const InitListExpr) ?*FieldDecl;
 };
 
-pub const BO = extern enum {
+pub const BO = enum(c_int) {
     PtrMemD,
     PtrMemI,
     Mul,
@@ -1073,7 +1073,7 @@ pub const BO = extern enum {
     Comma,
 };
 
-pub const UO = extern enum {
+pub const UO = enum(c_int) {
     PostInc,
     PostDec,
     PreInc,
@@ -1090,7 +1090,7 @@ pub const UO = extern enum {
     Coawait,
 };
 
-pub const TypeClass = extern enum {
+pub const TypeClass = enum(c_int) {
     Adjusted,
     Decayed,
     ConstantArray,
@@ -1145,7 +1145,7 @@ pub const TypeClass = extern enum {
     ExtVector,
 };
 
-const StmtClass = extern enum {
+const StmtClass = enum(c_int) {
     NoStmtClass,
     GCCAsmStmtClass,
     MSAsmStmtClass,
@@ -1362,7 +1362,7 @@ const StmtClass = extern enum {
     WhileStmtClass,
 };
 
-pub const CK = extern enum {
+pub const CK = enum(c_int) {
     Dependent,
     BitCast,
     LValueBitCast,
@@ -1429,7 +1429,7 @@ pub const CK = extern enum {
     IntToOCLSampler,
 };
 
-pub const DeclKind = extern enum {
+pub const DeclKind = enum(c_int) {
     AccessSpec,
     Block,
     Captured,
@@ -1513,7 +1513,7 @@ pub const DeclKind = extern enum {
     TranslationUnit,
 };
 
-pub const BuiltinTypeKind = extern enum {
+pub const BuiltinTypeKind = enum(c_int) {
     OCLImage1dRO,
     OCLImage1dArrayRO,
     OCLImage1dBufferRO,
@@ -1687,7 +1687,7 @@ pub const BuiltinTypeKind = extern enum {
     OMPIterator,
 };
 
-pub const CallingConv = extern enum {
+pub const CallingConv = enum(c_int) {
     C,
     X86StdCall,
     X86FastCall,
@@ -1708,7 +1708,7 @@ pub const CallingConv = extern enum {
     AArch64VectorCall,
 };
 
-pub const StorageClass = extern enum {
+pub const StorageClass = enum(c_int) {
     None,
     Extern,
     Static,
@@ -1717,7 +1717,7 @@ pub const StorageClass = extern enum {
     Register,
 };
 
-pub const APFloat_roundingMode = extern enum(i8) {
+pub const APFloat_roundingMode = enum(i8) {
     TowardZero = 0,
     NearestTiesToEven = 1,
     TowardPositive = 2,
@@ -1727,7 +1727,7 @@ pub const APFloat_roundingMode = extern enum(i8) {
     Invalid = -1,
 };
 
-pub const StringLiteral_StringKind = extern enum {
+pub const StringLiteral_StringKind = enum(c_int) {
     Ascii,
     Wide,
     UTF8,
@@ -1735,7 +1735,7 @@ pub const StringLiteral_StringKind = extern enum {
     UTF32,
 };
 
-pub const CharacterLiteral_CharacterKind = extern enum {
+pub const CharacterLiteral_CharacterKind = enum(c_int) {
     Ascii,
     Wide,
     UTF8,
@@ -1743,13 +1743,13 @@ pub const CharacterLiteral_CharacterKind = extern enum {
     UTF32,
 };
 
-pub const VarDecl_TLSKind = extern enum {
+pub const VarDecl_TLSKind = enum(c_int) {
     None,
     Static,
     Dynamic,
 };
 
-pub const ElaboratedTypeKeyword = extern enum {
+pub const ElaboratedTypeKeyword = enum(c_int) {
     Struct,
     Interface,
     Union,
@@ -1759,21 +1759,21 @@ pub const ElaboratedTypeKeyword = extern enum {
     None,
 };
 
-pub const PreprocessedEntity_EntityKind = extern enum {
+pub const PreprocessedEntity_EntityKind = enum(c_int) {
     InvalidKind,
     MacroExpansionKind,
     MacroDefinitionKind,
     InclusionDirectiveKind,
 };
 
-pub const Expr_ConstantExprKind = extern enum {
+pub const Expr_ConstantExprKind = enum(c_int) {
     Normal,
     NonClassTemplateArgument,
     ClassTemplateArgument,
     ImmediateInvocation,
 };
 
-pub const UnaryExprOrTypeTrait_Kind = extern enum {
+pub const UnaryExprOrTypeTrait_Kind = enum(c_int) {
     SizeOf,
     AlignOf,
     VecStep,
@@ -1781,7 +1781,7 @@ pub const UnaryExprOrTypeTrait_Kind = extern enum {
     PreferredAlignOf,
 };
 
-pub const OffsetOfNode_Kind = extern enum {
+pub const OffsetOfNode_Kind = enum(c_int) {
     Array,
     Field,
     Identifier,

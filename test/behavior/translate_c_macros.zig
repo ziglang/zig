@@ -20,3 +20,7 @@ test "sizeof in macros" {
 test "reference to a struct type" {
     try expectEqual(@sizeOf(h.struct_Foo), h.SIZE_OF_FOO);
 }
+
+test "cast negative integer to pointer" {
+    try expectEqual(@intToPtr(?*c_void, @bitCast(usize, @as(isize, -1))), h.MAP_FAILED);
+}

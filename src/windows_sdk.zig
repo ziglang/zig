@@ -12,7 +12,7 @@ pub const ZigWindowsSDK = extern struct {
     msvc_lib_dir_ptr: ?[*]const u8,
     msvc_lib_dir_len: usize,
 };
-pub const ZigFindWindowsSdkError = extern enum {
+pub const ZigFindWindowsSdkError = enum(c_int) {
     None,
     OutOfMemory,
     NotFound,

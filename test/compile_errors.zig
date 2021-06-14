@@ -2,6 +2,14 @@ const tests = @import("tests.zig");
 const std = @import("std");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.add("std.fmt error for unused arguments",
+        \\pub fn main() !void {
+        \\    @import("std").debug.print("{d} {d} {d} {d} {d}", .{1,2,3,4,5,6,7,8,9,10,11,12,13,14,15});
+        \\}
+    , &.{
+        \\error: 10 unused arguments in "{d} {d} {d} {d} {d}"
+    });
+
     cases.add("lazy pointer with undefined element type",
         \\export fn foo() void {
         \\    comptime var T: type = undefined;

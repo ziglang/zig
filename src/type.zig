@@ -6,6 +6,8 @@ const Target = std.Target;
 const Module = @import("Module.zig");
 const log = std.log.scoped(.Type);
 
+const file_struct = @This();
+
 /// This is the raw data, with no bookkeeping, no memory awareness, no de-duplication.
 /// It's important for this type to be small.
 /// Types are not de-duplicated, which helps with multi-threading since it obviates the requirement
@@ -3000,12 +3002,12 @@ pub const Type = extern union {
             };
         }
 
-        pub fn init(comptime t: Tag) Type {
+        pub fn init(comptime t: Tag) file_struct.Type {
             comptime std.debug.assert(@enumToInt(t) < Tag.no_payload_count);
             return .{ .tag_if_small_enough = @enumToInt(t) };
         }
 
-        pub fn create(comptime t: Tag, ally: *Allocator, data: Data(t)) error{OutOfMemory}!Type {
+        pub fn create(comptime t: Tag, ally: *Allocator, data: Data(t)) error{OutOfMemory}!file_struct.Type {
             const ptr = try ally.create(t.Type());
             ptr.* = .{
                 .base = .{ .tag = t },

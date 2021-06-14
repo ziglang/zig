@@ -1,4 +1,4 @@
-const Foo = extern enum {
+const Foo = enum(c_int) {
     Bar = -1,
 };
 

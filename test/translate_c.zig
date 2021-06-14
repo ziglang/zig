@@ -238,7 +238,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     });
 
     cases.add("use cast param as macro fn return type",
-        \\#define MEM_PHYSICAL_TO_K0(x) (void*)((u32)(x) + SYS_BASE_CACHED)
+        \\#include <stdint.h>
+        \\#define MEM_PHYSICAL_TO_K0(x) (void*)((uint32_t)(x) + SYS_BASE_CACHED)
     , &[_][]const u8{
         \\pub inline fn MEM_PHYSICAL_TO_K0(x: anytype) ?*c_void {
         \\    return @import("std").meta.cast(?*c_void, @import("std").meta.cast(u32, x) + SYS_BASE_CACHED);
@@ -1515,7 +1516,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub export fn foo() void {
         \\    var x: [*c]c_int = undefined;
-        \\    x.?.* = 1;
+        \\    x.* = 1;
         \\}
     });
 
@@ -1529,7 +1530,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub export fn foo() c_int {
         \\    var x: c_int = 1234;
         \\    var ptr: [*c]c_int = &x;
-        \\    return ptr.?.*;
+        \\    return ptr.*;
         \\}
     });
 
@@ -1878,6 +1879,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     });
 
     cases.add("macro pointer cast",
+        \\typedef struct { int dummy; } NRF_GPIO_Type;
         \\#define NRF_GPIO ((NRF_GPIO_Type *) NRF_GPIO_BASE)
     , &[_][]const u8{
         \\pub const NRF_GPIO = @import("std").meta.cast([*c]NRF_GPIO_Type, NRF_GPIO_BASE);
@@ -3175,6 +3177,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     });
 
     cases.add("macro cast",
+        \\#include <stdint.h>
         \\#define FOO(bar) baz((void *)(baz))
         \\#define BAR (void*) a
         \\#define BAZ (uint32_t)(2)
@@ -3243,7 +3246,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\            const tmp_2 = ref.*;
         \\            ref.* += 1;
         \\            break :blk_1 tmp_2;
-        \\        }).?.* = tmp;
+        \\        }).* = tmp;
         \\        break :blk tmp;
         \\    };
         \\}
@@ -3583,10 +3586,24 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    struct my_struct S = {.a = 1, .b = 2};
         \\}
     , &[_][]const u8{
-        \\warning: Cannot initialize opaque type
+        \\warning: cannot initialize opaque type
         ,
         \\warning: unable to translate function, demoted to extern
         \\pub extern fn initialize() void;
+    });
+
+    cases.add("Demote function that dereferences opaque type",
+        \\struct my_struct {
+        \\    unsigned a: 1;
+        \\};
+        \\void deref(struct my_struct *s) {
+        \\    *s;
+        \\}
+    , &[_][]const u8{
+        \\warning: cannot dereference opaque type
+        ,
+        \\warning: unable to translate function, demoted to extern
+        \\pub extern fn deref(arg_s: ?*struct_my_struct) void;
     });
 
     cases.add("Function prototype declared within function",
@@ -3618,5 +3635,14 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    };
         \\    return foo.static.x;
         \\}
+    });
+
+    cases.add("macro with nontrivial cast",
+        \\#define MAP_FAILED ((void *) -1)
+        \\typedef long long LONG_PTR;
+        \\#define INVALID_HANDLE_VALUE ((void *)(LONG_PTR)-1)
+    , &[_][]const u8{
+        \\pub const MAP_FAILED = @import("std").meta.cast(?*c_void, -@as(c_int, 1));
+        \\pub const INVALID_HANDLE_VALUE = @import("std").meta.cast(?*c_void, @import("std").meta.cast(LONG_PTR, -@as(c_int, 1)));
     });
 }

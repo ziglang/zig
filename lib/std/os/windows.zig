@@ -455,8 +455,12 @@ pub fn ReadFile(in_hFile: HANDLE, buffer: []u8, offset: ?u64, io_mode: std.io.Mo
                 .overlapped = OVERLAPPED{
                     .Internal = 0,
                     .InternalHigh = 0,
-                    .Offset = @truncate(u32, off),
-                    .OffsetHigh = @truncate(u32, off >> 32),
+                    .DUMMYUNIONNAME = .{
+                        .DUMMYSTRUCTNAME = .{
+                            .Offset = @truncate(u32, off),
+                            .OffsetHigh = @truncate(u32, off >> 32),
+                        },
+                    },
                     .hEvent = null,
                 },
             },
@@ -491,8 +495,12 @@ pub fn ReadFile(in_hFile: HANDLE, buffer: []u8, offset: ?u64, io_mode: std.io.Mo
                 overlapped_data = .{
                     .Internal = 0,
                     .InternalHigh = 0,
-                    .Offset = @truncate(u32, off),
-                    .OffsetHigh = @truncate(u32, off >> 32),
+                    .DUMMYUNIONNAME = .{
+                        .DUMMYSTRUCTNAME = .{
+                            .Offset = @truncate(u32, off),
+                            .OffsetHigh = @truncate(u32, off >> 32),
+                        },
+                    },
                     .hEvent = null,
                 };
                 break :blk &overlapped_data;
@@ -535,8 +543,12 @@ pub fn WriteFile(
                 .overlapped = OVERLAPPED{
                     .Internal = 0,
                     .InternalHigh = 0,
-                    .Offset = @truncate(u32, off),
-                    .OffsetHigh = @truncate(u32, off >> 32),
+                    .DUMMYUNIONNAME = .{
+                        .DUMMYSTRUCTNAME = .{
+                            .Offset = @truncate(u32, off),
+                            .OffsetHigh = @truncate(u32, off >> 32),
+                        },
+                    },
                     .hEvent = null,
                 },
             },
@@ -571,8 +583,12 @@ pub fn WriteFile(
             overlapped_data = .{
                 .Internal = 0,
                 .InternalHigh = 0,
-                .Offset = @truncate(u32, off),
-                .OffsetHigh = @truncate(u32, off >> 32),
+                .DUMMYUNIONNAME = .{
+                    .DUMMYSTRUCTNAME = .{
+                        .Offset = @truncate(u32, off),
+                        .OffsetHigh = @truncate(u32, off >> 32),
+                    },
+                },
                 .hEvent = null,
             };
             break :blk &overlapped_data;
