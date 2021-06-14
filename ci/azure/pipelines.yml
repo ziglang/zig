@@ -38,7 +38,7 @@ jobs:
   timeoutInMinutes: 360
   steps:
   - powershell: |
-      (New-Object Net.WebClient).DownloadFile("https://github.com/msys2/msys2-installer/releases/download/2021-02-28/msys2-base-x86_64-20210228.sfx.exe", "sfx.exe")
+      (New-Object Net.WebClient).DownloadFile("https://github.com/msys2/msys2-installer/releases/download/2021-06-04/msys2-base-x86_64-20210604.sfx.exe", "sfx.exe")
       .\sfx.exe -y -o\
       del sfx.exe
     displayName: Download/Extract/Install MSYS2
