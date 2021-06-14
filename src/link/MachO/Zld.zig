@@ -65,6 +65,9 @@ stub_helper_section_index: ?u16 = null,
 text_const_section_index: ?u16 = null,
 cstring_section_index: ?u16 = null,
 ustring_section_index: ?u16 = null,
+gcc_except_tab: ?u16 = null,
+unwind_info: ?u16 = null,
+eh_frame: ?u16 = null,
 
 // __DATA_CONST segment sections
 got_section_index: ?u16 = null,
@@ -649,6 +652,7 @@ fn updateMetadata(self: *Zld) !void {
                         });
                         continue;
                     }
+
                     if (sect.isDebug()) {
                         if (mem.eql(u8, "__LD", segname) and mem.eql(u8, "__compact_unwind", sectname)) {
                             log.debug("TODO compact unwind section: type 0x{x}, name '{s},{s}'", .{
@@ -665,6 +669,24 @@ fn updateMetadata(self: *Zld) !void {
                             self.ustring_section_index = @intCast(u16, text_seg.sections.items.len);
                             try text_seg.addSection(self.allocator, .{
                                 .sectname = makeStaticString("__ustring"),
+                                .segname = makeStaticString("__TEXT"),
+                                .addr = 0,
+                                .size = 0,
+                                .offset = 0,
+                                .@"align" = 0,
+                                .reloff = 0,
+                                .nreloc = 0,
+                                .flags = macho.S_REGULAR,
+                                .reserved1 = 0,
+                                .reserved2 = 0,
+                                .reserved3 = 0,
+                            });
+                        } else if (mem.eql(u8, sectname, "__gcc_except_tab")) {
+                            if (self.gcc_except_tab != null) continue;
+
+                            self.gcc_except_tab = @intCast(u16, text_seg.sections.items.len);
+                            try text_seg.addSection(self.allocator, .{
+                                .sectname = makeStaticString("__gcc_except_tab"),
                                 .segname = makeStaticString("__TEXT"),
                                 .addr = 0,
                                 .size = 0,
@@ -975,6 +997,11 @@ fn getMatchingSection(self: *Zld, sect: Object.Section) ?MatchingSection {
                             .seg = self.text_segment_cmd_index.?,
                             .sect = self.ustring_section_index.?,
                         };
+                    } else if (mem.eql(u8, sectname, "__gcc_except_tab")) {
+                        break :blk .{
+                            .seg = self.text_segment_cmd_index.?,
+                            .sect = self.gcc_except_tab.?,
+                        };
                     } else {
                         break :blk .{
                             .seg = self.text_segment_cmd_index.?,
@@ -1031,6 +1058,7 @@ fn sortSections(self: *Zld) !void {
             &self.text_section_index,
             &self.stubs_section_index,
             &self.stub_helper_section_index,
+            &self.gcc_except_tab,
             &self.text_const_section_index,
             &self.cstring_section_index,
             &self.ustring_section_index,
