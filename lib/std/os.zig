@@ -41,7 +41,7 @@ pub const wasi = @import("os/wasi.zig");
 pub const windows = @import("os/windows.zig");
 
 comptime {
-    assert(@import("std") == std); // std lib tests require --override-lib-dir
+    assert(@import("std") == std); // std lib tests require --zig-lib-dir
 }
 
 test {

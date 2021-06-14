@@ -2716,10 +2716,10 @@ pub const LibExeObjStep = struct {
         }
 
         if (self.override_lib_dir) |dir| {
-            try zig_args.append("--override-lib-dir");
+            try zig_args.append("--zig-lib-dir");
             try zig_args.append(builder.pathFromRoot(dir));
         } else if (self.builder.override_lib_dir) |dir| {
-            try zig_args.append("--override-lib-dir");
+            try zig_args.append("--zig-lib-dir");
             try zig_args.append(builder.pathFromRoot(dir));
         }
 

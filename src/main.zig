@@ -310,7 +310,7 @@ const usage_build_generic =
     \\  --show-builtin            Output the source of @import("builtin") then exit
     \\  --cache-dir [path]        Override the local cache directory
     \\  --global-cache-dir [path] Override the global cache directory
-    \\  --override-lib-dir [path] Override path to Zig installation lib directory
+    \\  --zig-lib-dir [path]      Override path to Zig installation lib directory
     \\  --enable-cache            Output to cache directory; print path to stdout
     \\
     \\Compile Options:
@@ -888,7 +888,7 @@ fn buildOutputType(
                         if (i + 1 >= args.len) fatal("expected parameter after {s}", .{arg});
                         i += 1;
                         override_global_cache_dir = args[i];
-                    } else if (mem.eql(u8, arg, "--override-lib-dir")) {
+                    } else if (mem.eql(u8, arg, "--zig-lib-dir")) {
                         if (i + 1 >= args.len) fatal("expected parameter after {s}", .{arg});
                         i += 1;
                         override_lib_dir = args[i];
@@ -2664,7 +2664,7 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
                         i += 1;
                         build_file = args[i];
                         continue;
-                    } else if (mem.eql(u8, arg, "--override-lib-dir")) {
+                    } else if (mem.eql(u8, arg, "--zig-lib-dir")) {
                         if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
                         i += 1;
                         override_lib_dir = args[i];
