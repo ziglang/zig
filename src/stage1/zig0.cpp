@@ -351,7 +351,7 @@ int main(int argc, char **argv) {
                     out_name = argv[i];
                 } else if (strcmp(arg, "--dynamic-linker") == 0) {
                     dynamic_linker = argv[i];
-                } else if (strcmp(arg, "--override-lib-dir") == 0) {
+                } else if (strcmp(arg, "--zig-lib-dir") == 0) {
                     override_lib_dir = argv[i];
                 } else if (strcmp(arg, "--library") == 0 || strcmp(arg, "-l") == 0) {
                     if (strcmp(argv[i], "c") == 0) {
@@ -433,7 +433,7 @@ int main(int argc, char **argv) {
     }
 
     if (override_lib_dir == nullptr) {
-        fprintf(stderr, "missing --override-lib-dir\n");
+        fprintf(stderr, "missing --zig-lib-dir\n");
         return print_error_usage(arg0);
     }
 

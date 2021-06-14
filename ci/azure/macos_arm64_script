@@ -94,7 +94,7 @@ if [ "${BUILD_REASON}" != "PullRequest" ]; then
   # Produce the experimental std lib documentation.
   mkdir -p release/docs/std
   $ZIG test ../lib/std/std.zig \
-    --override-lib-dir ../lib \
+    --zig-lib-dir ../lib \
     -femit-docs=release/docs/std \
     -fno-emit-bin
 

@@ -119,9 +119,9 @@ pub fn main() !void {
                     warn("expected [auto|on|off] after --color, found '{s}'", .{next_arg});
                     return usageAndErr(builder, false, stderr_stream);
                 };
-            } else if (mem.eql(u8, arg, "--override-lib-dir")) {
+            } else if (mem.eql(u8, arg, "--zig-lib-dir")) {
                 builder.override_lib_dir = nextArg(args, &arg_idx) orelse {
-                    warn("Expected argument after --override-lib-dir\n\n", .{});
+                    warn("Expected argument after --zig-lib-dir\n\n", .{});
                     return usageAndErr(builder, false, stderr_stream);
                 };
             } else if (mem.eql(u8, arg, "--verbose-tokenize")) {
@@ -234,7 +234,7 @@ fn usage(builder: *Builder, already_ran_build: bool, out_stream: anytype) !void 
         \\Advanced Options:
         \\  --build-file [file]         Override path to build.zig
         \\  --cache-dir [path]          Override path to zig cache directory
-        \\  --override-lib-dir [arg]    Override path to Zig lib directory
+        \\  --zig-lib-dir [arg]         Override path to Zig lib directory
         \\  --verbose-tokenize          Enable compiler debug output for tokenization
         \\  --verbose-ast               Enable compiler debug output for parsing into an AST
         \\  --verbose-link              Enable compiler debug output for linking
