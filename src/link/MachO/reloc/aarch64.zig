@@ -141,6 +141,20 @@ pub const GotPageOff = struct {
     }
 };
 
+pub const PointerToGot = struct {
+    base: Relocation,
+
+    pub const base_type: Relocation.Type = .pointer_to_got;
+
+    pub fn resolve(ptr_to_got: PointerToGot, args: Relocation.ResolveArgs) !void {
+        const result = try math.cast(i32, @intCast(i64, args.target_addr) - @intCast(i64, args.source_addr));
+
+        log.debug("    | calculated value 0x{x}", .{result});
+
+        mem.writeIntLittle(u32, ptr_to_got.base.code[0..4], @bitCast(u32, result));
+    }
+};
+
 pub const TlvpPage = struct {
     base: Relocation,
     /// Always .PCRelativeAddress
@@ -228,9 +242,7 @@ pub const Parser = struct {
                     try parser.parseTlvpLoadPageOff(rel);
                 },
                 .ARM64_RELOC_POINTER_TO_GOT => {
-                    // TODO Handle pointer to GOT. This reloc seems to appear in
-                    // __LD,__compact_unwind section which we currently don't handle.
-                    log.debug("Unhandled relocation ARM64_RELOC_POINTER_TO_GOT", .{});
+                    try parser.parsePointerToGot(rel);
                 },
             }
         }
@@ -582,6 +594,31 @@ pub const Parser = struct {
 
         log.debug("    | emitting {}", .{unsigned});
         try parser.parsed.append(&unsigned.base);
+    }
+
+    fn parsePointerToGot(parser: *Parser, rel: macho.relocation_info) !void {
+        const rel_type = @intToEnum(macho.reloc_type_arm64, rel.r_type);
+        assert(rel_type == .ARM64_RELOC_POINTER_TO_GOT);
+        assert(rel.r_pcrel == 1);
+        assert(rel.r_length == 2);
+
+        var ptr_to_got = try parser.allocator.create(PointerToGot);
+        errdefer parser.allocator.destroy(ptr_to_got);
+
+        const target = Relocation.Target.from_reloc(rel, parser.symbols);
+        const offset = @intCast(u32, rel.r_address);
+
+        ptr_to_got.* = .{
+            .base = .{
+                .@"type" = .pointer_to_got,
+                .code = parser.code[offset..][0..4],
+                .offset = offset,
+                .target = target,
+            },
+        };
+
+        log.debug("    | emitting {}", .{ptr_to_got});
+        try parser.parsed.append(&ptr_to_got.base);
     }
 };
 
