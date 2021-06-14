@@ -76,7 +76,6 @@ pub const Token = struct {
 
     pub const Tag = enum {
         invalid,
-        invalid_ampersands,
         invalid_periodasterisks,
         identifier,
         string_literal,
@@ -210,7 +209,6 @@ pub const Token = struct {
                 .container_doc_comment,
                 => null,
 
-                .invalid_ampersands => "&&",
                 .invalid_periodasterisks => ".**",
                 .bang => "!",
                 .pipe => "|",
@@ -579,11 +577,6 @@ pub const Tokenizer = struct {
                 },
 
                 .ampersand => switch (c) {
-                    '&' => {
-                        result.tag = .invalid_ampersands;
-                        self.index += 1;
-                        break;
-                    },
                     '=' => {
                         result.tag = .ampersand_equal;
                         self.index += 1;

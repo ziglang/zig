@@ -1333,7 +1333,6 @@ const Parser = struct {
         .keyword_or = .{ .prec = 10, .tag = .bool_or },
 
         .keyword_and = .{ .prec = 20, .tag = .bool_and },
-        .invalid_ampersands = .{ .prec = 20, .tag = .bool_and },
 
         .equal_equal = .{ .prec = 30, .tag = .equal_equal, .assoc = Assoc.none },
         .bang_equal = .{ .prec = 30, .tag = .bang_equal, .assoc = Assoc.none },
@@ -1384,9 +1383,6 @@ const Parser = struct {
             switch (tok_tag) {
                 .keyword_catch => {
                     _ = try p.parsePayload();
-                },
-                .invalid_ampersands => {
-                    try p.warn(.invalid_and);
                 },
                 else => {},
             }

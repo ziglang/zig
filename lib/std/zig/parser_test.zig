@@ -4930,7 +4930,6 @@ test "recovery: missing comma" {
     , &[_]Error{
         .expected_token,
         .expected_token,
-        .invalid_and,
         .invalid_token,
     });
 }
@@ -4963,7 +4962,6 @@ test "recovery: missing return type" {
         \\test ""
     , &[_]Error{
         .expected_return_type,
-        .invalid_and,
         .expected_block,
     });
 }
@@ -4980,7 +4978,6 @@ test "recovery: continue after invalid decl" {
         .expected_token,
         .expected_pub_item,
         .expected_param_list,
-        .invalid_and,
     });
     try testError(
         \\threadlocal test "" {
@@ -4989,7 +4986,6 @@ test "recovery: continue after invalid decl" {
     , &[_]Error{
         .expected_var_decl,
         .expected_param_list,
-        .invalid_and,
     });
 }
 
@@ -4998,13 +4994,11 @@ test "recovery: invalid extern/inline" {
         \\inline test "" { a && b; }
     , &[_]Error{
         .expected_fn,
-        .invalid_and,
     });
     try testError(
         \\extern "" test "" { a && b; }
     , &[_]Error{
         .expected_var_decl_or_fn,
-        .invalid_and,
     });
 }
 
@@ -5016,9 +5010,7 @@ test "recovery: missing semicolon" {
         \\    @foo
         \\}
     , &[_]Error{
-        .invalid_and,
         .expected_token,
-        .invalid_and,
         .expected_token,
         .expected_param_list,
         .expected_token,
@@ -5038,7 +5030,6 @@ test "recovery: invalid container members" {
         .expected_expr,
         .expected_token,
         .expected_container_members,
-        .invalid_and,
         .expected_token,
     });
 }
@@ -5076,7 +5067,6 @@ test "recovery: invalid global error set access" {
     , &[_]Error{
         .expected_token,
         .expected_token,
-        .invalid_and,
     });
 }
 
@@ -5094,7 +5084,6 @@ test "recovery: invalid asterisk after pointer dereference" {
         \\}
     , &[_]Error{
         .asterisk_after_ptr_deref,
-        .invalid_and,
     });
 }
 
@@ -5110,7 +5099,6 @@ test "recovery: missing semicolon after if, for, while stmt" {
         .expected_semi_or_else,
         .expected_semi_or_else,
         .expected_semi_or_else,
-        .invalid_and,
     });
 }
 
