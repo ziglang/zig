@@ -757,7 +757,7 @@ const llvm_targets = [_]LlvmTarget{
             .{
                 .llvm_name = "lakemont",
                 .extra_deps = &.{"soft_float"},
-             },
+            },
         },
     },
     .{
