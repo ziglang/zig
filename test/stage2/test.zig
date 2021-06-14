@@ -881,6 +881,20 @@ pub fn addCases(ctx: *TestContext) !void {
         );
     }
     {
+        var case = ctx.exe("try in comptime in struct in test", linux_x64);
+        case.addError(
+            \\test "@unionInit on union w/ tag but no fields" {
+            \\    const S = struct {
+            \\        comptime {
+            \\            try expect(false);
+            \\        }
+            \\    };
+            \\}
+        ,
+            &.{":4:13: error: invalid 'try' outside function scope"},
+        );
+    }
+    {
         var case = ctx.exe("import private", linux_x64);
         case.addError(
             \\pub fn main() void {

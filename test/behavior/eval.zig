@@ -415,8 +415,8 @@ test "f128 at compile time is lossy" {
     try expect(@as(f128, 10384593717069655257060992658440192.0) + 1 == 10384593717069655257060992658440192.0);
 }
 
-comptime {
-    try expect(@as(f128, 1 << 113) == 10384593717069655257060992658440192);
+test {
+    comptime try expect(@as(f128, 1 << 113) == 10384593717069655257060992658440192);
 }
 
 pub fn TypeWithCompTimeSlice(comptime field_name: []const u8) type {

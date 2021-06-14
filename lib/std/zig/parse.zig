@@ -2005,9 +2005,12 @@ const Parser = struct {
         if (field_init != 0) {
             try p.scratch.append(p.gpa, field_init);
             while (true) {
-                 switch (p.token_tags[p.tok_i]) {
+                switch (p.token_tags[p.tok_i]) {
                     .comma => p.tok_i += 1,
-                    .r_brace => { p.tok_i += 1; break; },
+                    .r_brace => {
+                        p.tok_i += 1;
+                        break;
+                    },
                     .colon, .r_paren, .r_bracket => return p.failExpected(.r_brace),
                     // Likely just a missing comma; give error but continue parsing.
                     else => try p.warnExpected(.comma),
@@ -2045,7 +2048,10 @@ const Parser = struct {
             try p.scratch.append(p.gpa, elem_init);
             switch (p.token_tags[p.tok_i]) {
                 .comma => p.tok_i += 1,
-                .r_brace => { p.tok_i += 1; break; },
+                .r_brace => {
+                    p.tok_i += 1;
+                    break;
+                },
                 .colon, .r_paren, .r_bracket => return p.failExpected(.r_brace),
                 // Likely just a missing comma; give error but continue parsing.
                 else => try p.warnExpected(.comma),
@@ -2121,7 +2127,10 @@ const Parser = struct {
                 try p.scratch.append(p.gpa, param);
                 switch (p.token_tags[p.tok_i]) {
                     .comma => p.tok_i += 1,
-                    .r_paren => { p.tok_i += 1; break; },
+                    .r_paren => {
+                        p.tok_i += 1;
+                        break;
+                    },
                     .colon, .r_brace, .r_bracket => return p.failExpected(.r_paren),
                     // Likely just a missing comma; give error but continue parsing.
                     else => try p.warnExpected(.comma),
@@ -2129,7 +2138,7 @@ const Parser = struct {
             }
             const comma = (p.token_tags[p.tok_i - 2] == .comma);
             const params = p.scratch.items[scratch_top..];
-            switch(params.len) {
+            switch (params.len) {
                 0 => return p.addNode(.{
                     .tag = if (comma) .async_call_one_comma else .async_call_one,
                     .main_token = lparen,
@@ -2174,7 +2183,10 @@ const Parser = struct {
                 try p.scratch.append(p.gpa, param);
                 switch (p.token_tags[p.tok_i]) {
                     .comma => p.tok_i += 1,
-                    .r_paren => { p.tok_i += 1; break; },
+                    .r_paren => {
+                        p.tok_i += 1;
+                        break;
+                    },
                     .colon, .r_brace, .r_bracket => return p.failExpected(.r_paren),
                     // Likely just a missing comma; give error but continue parsing.
                     else => try p.warnExpected(.comma),
@@ -2182,7 +2194,7 @@ const Parser = struct {
             }
             const comma = (p.token_tags[p.tok_i - 2] == .comma);
             const params = p.scratch.items[scratch_top..];
-            res = switch(params.len) {
+            res = switch (params.len) {
                 0 => try p.addNode(.{
                     .tag = if (comma) .call_one_comma else .call_one,
                     .main_token = lparen,
@@ -2448,7 +2460,10 @@ const Parser = struct {
                         while (true) {
                             switch (p.token_tags[p.tok_i]) {
                                 .comma => p.tok_i += 1,
-                                .r_brace => { p.tok_i += 1; break; },
+                                .r_brace => {
+                                    p.tok_i += 1;
+                                    break;
+                                },
                                 .colon, .r_paren, .r_bracket => return p.failExpected(.r_brace),
                                 // Likely just a missing comma; give error but continue parsing.
                                 else => try p.warnExpected(.comma),
@@ -2497,7 +2512,10 @@ const Parser = struct {
                         try p.scratch.append(p.gpa, elem_init);
                         switch (p.token_tags[p.tok_i]) {
                             .comma => p.tok_i += 1,
-                            .r_brace => { p.tok_i += 1; break; },
+                            .r_brace => {
+                                p.tok_i += 1;
+                                break;
+                            },
                             .colon, .r_paren, .r_bracket => return p.failExpected(.r_brace),
                             // Likely just a missing comma; give error but continue parsing.
                             else => try p.warnExpected(.comma),
@@ -2555,7 +2573,10 @@ const Parser = struct {
                         const identifier = try p.expectToken(.identifier);
                         switch (p.token_tags[p.tok_i]) {
                             .comma => p.tok_i += 1,
-                            .r_brace => { p.tok_i += 1; break; },
+                            .r_brace => {
+                                p.tok_i += 1;
+                                break;
+                            },
                             .colon, .r_paren, .r_bracket => return p.failExpected(.r_brace),
                             // Likely just a missing comma; give error but continue parsing.
                             else => try p.warnExpected(.comma),
@@ -2992,14 +3013,14 @@ const Parser = struct {
         _ = try p.parsePtrPayload();
 
         const items = p.scratch.items[scratch_top..];
-        switch(items.len) {
+        switch (items.len) {
             0 => return p.addNode(.{
                 .tag = .switch_case_one,
                 .main_token = arrow_token,
                 .data = .{
                     .lhs = 0,
                     .rhs = try p.expectAssignExpr(),
-                }
+                },
             }),
             1 => return p.addNode(.{
                 .tag = .switch_case_one,
@@ -3007,7 +3028,7 @@ const Parser = struct {
                 .data = .{
                     .lhs = items[0],
                     .rhs = try p.expectAssignExpr(),
-                }
+                },
             }),
             else => return p.addNode(.{
                 .tag = .switch_case,
@@ -3375,7 +3396,10 @@ const Parser = struct {
             }
             switch (p.token_tags[p.tok_i]) {
                 .comma => p.tok_i += 1,
-                .r_paren => { p.tok_i += 1; break; },
+                .r_paren => {
+                    p.tok_i += 1;
+                    break;
+                },
                 .colon, .r_brace, .r_bracket => return p.failExpected(.r_paren),
                 // Likely just a missing comma; give error but continue parsing.
                 else => try p.warnExpected(.comma),
@@ -3444,7 +3468,10 @@ const Parser = struct {
             try p.scratch.append(p.gpa, param);
             switch (p.token_tags[p.tok_i]) {
                 .comma => p.tok_i += 1,
-                .r_paren => { p.tok_i += 1; break; },
+                .r_paren => {
+                    p.tok_i += 1;
+                    break;
+                },
                 // Likely just a missing comma; give error but continue parsing.
                 else => try p.warnExpected(.comma),
             }

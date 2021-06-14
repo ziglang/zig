@@ -4,7 +4,7 @@
 extern var a: c_int;
 extern "c" var b: c_int;
 export var c: c_int = 0;
-threadlocal var d: c_int;
+threadlocal var d: c_int = 0;
 extern threadlocal var e: c_int;
 extern "c" threadlocal var f: c_int;
 export threadlocal var g: c_int = 0;
@@ -24,7 +24,6 @@ fn container_init() void {
 fn type_expr_return1() if (true) A {}
 fn type_expr_return2() for (true) |_| A {}
 fn type_expr_return3() while (true) A {}
-fn type_expr_return4() comptime A {}
 
 fn switch_cases(x: i32) void {
     switch (x) {

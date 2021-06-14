@@ -59,7 +59,7 @@ fn appendRefsAssumeCapacity(astgen: *AstGen, refs: []const Zir.Inst.Ref) void {
     astgen.extra.appendSliceAssumeCapacity(coerced);
 }
 
-pub fn generate(gpa: *Allocator, tree: ast.Tree) InnerError!Zir {
+pub fn generate(gpa: *Allocator, tree: ast.Tree) Allocator.Error!Zir {
     var arena = std.heap.ArenaAllocator.init(gpa);
     defer arena.deinit();
 
@@ -662,7 +662,7 @@ fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) InnerEr
             const lhs = try expr(gz, scope, .ref, node_datas[node].lhs);
             const extra = tree.extraData(node_datas[node].rhs, ast.Node.SliceSentinel);
             const start = try expr(gz, scope, .{ .ty = .usize_type }, extra.start);
-            const end = try expr(gz, scope, .{ .ty = .usize_type }, extra.end);
+            const end = if (extra.end != 0) try expr(gz, scope, .{ .ty = .usize_type }, extra.end) else .none;
             const sentinel = try expr(gz, scope, .{ .ty = .usize_type }, extra.sentinel);
             const result = try gz.addPlNode(.slice_sentinel, node, Zir.Inst.SliceSentinel{
                 .lhs = lhs,
@@ -3877,6 +3877,10 @@ fn containerDecl(
     const node_tags = tree.nodes.items(.tag);
     const node_datas = tree.nodes.items(.data);
 
+    const prev_fn_block = astgen.fn_block;
+    astgen.fn_block = null;
+    defer astgen.fn_block = prev_fn_block;
+
     // We must not create any types until Sema. Here the goal is only to generate
     // ZIR for all the field types, alignments, and default value expressions.
 
@@ -3976,7 +3980,7 @@ fn containerDecl(
                     .nonexhaustive_node = nonexhaustive_node,
                 };
             };
-            if (counts.total_fields == 0) {
+            if (counts.total_fields == 0 and counts.nonexhaustive_node == 0) {
                 // One can construct an enum with no tags, and it functions the same as `noreturn`. But
                 // this is only useful for generic code; when explicitly using `enum {}` syntax, there
                 // must be at least one tag.
