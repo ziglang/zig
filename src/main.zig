@@ -2940,7 +2940,6 @@ const Fmt = struct {
 };
 
 pub fn cmdFmt(gpa: *Allocator, args: []const []const u8) !void {
-    const stderr_file = io.getStdErr();
     var color: Color = .auto;
     var stdin_flag: bool = false;
     var check_flag: bool = false;
@@ -2998,7 +2997,7 @@ pub fn cmdFmt(gpa: *Allocator, args: []const []const u8) !void {
         defer tree.deinit(gpa);
 
         for (tree.errors) |parse_error| {
-            try printErrMsgToFile(gpa, parse_error, tree, "<stdin>", stderr_file, color);
+            try printErrMsgToStdErr(gpa, parse_error, tree, "<stdin>", color);
         }
         if (tree.errors.len != 0) {
             process.exit(1);
@@ -3143,7 +3142,7 @@ fn fmtPathFile(
     defer tree.deinit(fmt.gpa);
 
     for (tree.errors) |parse_error| {
-        try printErrMsgToFile(fmt.gpa, parse_error, tree, file_path, std.io.getStdErr(), fmt.color);
+        try printErrMsgToStdErr(fmt.gpa, parse_error, tree, file_path, fmt.color);
     }
     if (tree.errors.len != 0) {
         fmt.any_error = true;
@@ -3219,12 +3218,11 @@ fn fmtPathFile(
     }
 }
 
-fn printErrMsgToFile(
+fn printErrMsgToStdErr(
     gpa: *mem.Allocator,
     parse_error: ast.Error,
     tree: ast.Tree,
     path: []const u8,
-    file: fs.File,
     color: Color,
 ) !void {
     const lok_token = parse_error.token;
@@ -3770,7 +3768,7 @@ pub fn cmdAstCheck(
     defer file.tree.deinit(gpa);
 
     for (file.tree.errors) |parse_error| {
-        try printErrMsgToFile(gpa, parse_error, file.tree, file.sub_file_path, io.getStdErr(), color);
+        try printErrMsgToStdErr(gpa, parse_error, file.tree, file.sub_file_path, color);
     }
     if (file.tree.errors.len != 0) {
         process.exit(1);
@@ -3891,7 +3889,7 @@ pub fn cmdChangelist(
     defer file.tree.deinit(gpa);
 
     for (file.tree.errors) |parse_error| {
-        try printErrMsgToFile(gpa, parse_error, file.tree, old_source_file, io.getStdErr(), .auto);
+        try printErrMsgToStdErr(gpa, parse_error, file.tree, old_source_file, .auto);
     }
     if (file.tree.errors.len != 0) {
         process.exit(1);
@@ -3928,7 +3926,7 @@ pub fn cmdChangelist(
     defer new_tree.deinit(gpa);
 
     for (new_tree.errors) |parse_error| {
-        try printErrMsgToFile(gpa, parse_error, new_tree, new_source_file, io.getStdErr(), .auto);
+        try printErrMsgToStdErr(gpa, parse_error, new_tree, new_source_file, .auto);
     }
     if (new_tree.errors.len != 0) {
         process.exit(1);
