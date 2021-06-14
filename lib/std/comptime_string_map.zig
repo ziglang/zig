@@ -6,7 +6,7 @@
 const std = @import("std.zig");
 const mem = std.mem;
 
-/// Like ComptimeStringHashMap but optimized for small sets of disparate string keys.
+/// Comptime string map optimized for small sets of disparate string keys.
 /// Works by separating the keys by length at comptime and only checking strings of
 /// equal length at runtime.
 ///
