@@ -1000,6 +1000,10 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
     , &[_][]const u8{":2:3: error: this is an error"});
 
+    ctx.compileError("double ampersand as boolean and", linux_x64,
+        \\const a = if (true && false) 1 else 2;
+    , &[_][]const u8{":1:20: error: `&&` is invalid; note that `and` is boolean AND"});
+
     {
         var case = ctx.obj("variable shadowing", linux_x64);
         case.addError(
