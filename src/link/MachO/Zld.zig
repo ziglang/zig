@@ -65,9 +65,9 @@ stub_helper_section_index: ?u16 = null,
 text_const_section_index: ?u16 = null,
 cstring_section_index: ?u16 = null,
 ustring_section_index: ?u16 = null,
-gcc_except_tab: ?u16 = null,
-unwind_info: ?u16 = null,
-eh_frame: ?u16 = null,
+gcc_except_tab_section_index: ?u16 = null,
+unwind_info_section_index: ?u16 = null,
+eh_frame_section_index: ?u16 = null,
 
 // __DATA_CONST segment sections
 got_section_index: ?u16 = null,
@@ -412,7 +412,7 @@ fn mapAndUpdateSections(
     const offset = mem.alignForwardGeneric(u64, target_sect.size, alignment);
     const size = mem.alignForwardGeneric(u64, source_sect.inner.size, alignment);
 
-    log.warn("{s}: '{s},{s}' mapped to '{s},{s}' from 0x{x} to 0x{x}", .{
+    log.debug("{s}: '{s},{s}' mapped to '{s},{s}' from 0x{x} to 0x{x}", .{
         object.name.?,
         parseName(&source_sect.inner.segname),
         parseName(&source_sect.inner.sectname),
@@ -625,8 +625,24 @@ fn updateMetadata(self: *Zld) !void {
                 },
                 macho.S_COALESCED => {
                     if (mem.eql(u8, "__TEXT", segname) and mem.eql(u8, "__eh_frame", sectname)) {
-                        log.debug("TODO __eh_frame section: type 0x{x}, name '{s},{s}'", .{
-                            sect.flags(), segname, sectname,
+                        // TODO I believe __eh_frame is currently part of __unwind_info section
+                        // in the latest ld64 output.
+                        if (self.eh_frame_section_index != null) continue;
+
+                        self.eh_frame_section_index = @intCast(u16, text_seg.sections.items.len);
+                        try text_seg.addSection(self.allocator, .{
+                            .sectname = makeStaticString("__eh_frame"),
+                            .segname = makeStaticString("__TEXT"),
+                            .addr = 0,
+                            .size = 0,
+                            .offset = 0,
+                            .@"align" = 0,
+                            .reloff = 0,
+                            .nreloc = 0,
+                            .flags = macho.S_REGULAR,
+                            .reserved1 = 0,
+                            .reserved2 = 0,
+                            .reserved3 = 0,
                         });
                         continue;
                     }
@@ -682,9 +698,9 @@ fn updateMetadata(self: *Zld) !void {
                                 .reserved3 = 0,
                             });
                         } else if (mem.eql(u8, sectname, "__gcc_except_tab")) {
-                            if (self.gcc_except_tab != null) continue;
+                            if (self.gcc_except_tab_section_index != null) continue;
 
-                            self.gcc_except_tab = @intCast(u16, text_seg.sections.items.len);
+                            self.gcc_except_tab_section_index = @intCast(u16, text_seg.sections.items.len);
                             try text_seg.addSection(self.allocator, .{
                                 .sectname = makeStaticString("__gcc_except_tab"),
                                 .segname = makeStaticString("__TEXT"),
@@ -818,7 +834,7 @@ fn updateMetadata(self: *Zld) !void {
                 try self.mapAndUpdateSections(object, @intCast(u16, sect_id), res.seg, res.sect);
                 continue;
             }
-            log.warn("section '{s},{s}' will be unmapped", .{ sect.segname(), sect.sectname() });
+            log.debug("section '{s},{s}' will be unmapped", .{ sect.segname(), sect.sectname() });
         }
     }
 
@@ -976,7 +992,13 @@ fn getMatchingSection(self: *Zld, sect: Object.Section) ?MatchingSection {
                 };
             },
             macho.S_COALESCED => {
-                // TODO coalesced sections
+                if (mem.eql(u8, "__TEXT", segname) and mem.eql(u8, "__eh_frame", sectname)) {
+                    break :blk .{
+                        .seg = self.text_segment_cmd_index.?,
+                        .sect = self.eh_frame_section_index.?,
+                    };
+                }
+
                 break :blk null;
             },
             macho.S_REGULAR => {
@@ -1000,7 +1022,7 @@ fn getMatchingSection(self: *Zld, sect: Object.Section) ?MatchingSection {
                     } else if (mem.eql(u8, sectname, "__gcc_except_tab")) {
                         break :blk .{
                             .seg = self.text_segment_cmd_index.?,
-                            .sect = self.gcc_except_tab.?,
+                            .sect = self.gcc_except_tab_section_index.?,
                         };
                     } else {
                         break :blk .{
@@ -1058,10 +1080,11 @@ fn sortSections(self: *Zld) !void {
             &self.text_section_index,
             &self.stubs_section_index,
             &self.stub_helper_section_index,
-            &self.gcc_except_tab,
-            &self.text_const_section_index,
+            &self.gcc_except_tab_section_index,
             &self.cstring_section_index,
             &self.ustring_section_index,
+            &self.text_const_section_index,
+            &self.eh_frame_section_index,
         };
         for (indices) |maybe_index| {
             const new_index: u16 = if (maybe_index.*) |index| blk: {
@@ -1846,7 +1869,7 @@ fn resolveStubsAndGotEntries(self: *Zld) !void {
             for (relocs) |rel| {
                 switch (rel.@"type") {
                     .unsigned => continue,
-                    .got_page, .got_page_off, .got_load, .got => {
+                    .got_page, .got_page_off, .got_load, .got, .pointer_to_got => {
                         const sym = rel.target.symbol.getTopmostAlias();
                         if (sym.got_index != null) continue;
 
@@ -1864,9 +1887,6 @@ fn resolveStubsAndGotEntries(self: *Zld) !void {
 
                         if (sym.stubs_index != null) continue;
                         if (sym.@"type" != .proxy) continue;
-                        // if (sym.cast(Symbol.Regular)) |reg| {
-                        //     if (!reg.weak_ref) continue;
-                        // }
 
                         const index = @intCast(u32, self.stubs.items.len);
                         sym.stubs_index = index;
@@ -1977,7 +1997,7 @@ fn resolveRelocsAndWriteSections(self: *Zld) !void {
                                 });
                             }
                         },
-                        .got_page, .got_page_off, .got_load, .got => {
+                        .got_page, .got_page_off, .got_load, .got, .pointer_to_got => {
                             const dc_seg = self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
                             const got = dc_seg.sections.items[self.got_section_index.?];
                             const final = rel.target.symbol.getTopmostAlias();
