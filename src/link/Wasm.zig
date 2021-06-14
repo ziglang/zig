@@ -716,6 +716,10 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
                     ));
                     try argv.append(try comp.get_libc_crt_file(arena, "libc.a"));
                 }
+
+                if (self.base.options.link_libcpp) {
+                    try argv.append(comp.libcxx_static_lib.?.full_object_path);
+                }
             }
         }
 
