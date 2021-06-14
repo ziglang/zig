@@ -114,7 +114,7 @@ pub fn buildLibCXX(comp: *Compilation) !void {
         var cflags = std.ArrayList([]const u8).init(arena);
 
         if (target.os.tag == .windows or target.os.tag == .wasi) {
-            // Filesystem stuff isn't supported on Windows and WASI.
+            // Filesystem stuff isn't supported on WASI and Windows.
             if (std.mem.startsWith(u8, cxx_src, "src/filesystem/"))
                 continue;
         }
@@ -131,12 +131,18 @@ pub fn buildLibCXX(comp: *Compilation) !void {
         try cflags.append("-D_LIBCXXABI_DISABLE_VISIBILITY_ANNOTATIONS");
         try cflags.append("-D_LIBCPP_DISABLE_VISIBILITY_ANNOTATIONS");
         try cflags.append("-D_LIBCPP_HAS_NO_VENDOR_AVAILABILITY_ANNOTATIONS");
-        try cflags.append("-D_LIBCPP_DISABLE_NEW_DELETE_DEFINITIONS");
         try cflags.append("-fvisibility=hidden");
         try cflags.append("-fvisibility-inlines-hidden");
 
-        if (target.abi.isMusl() or target.os.tag == .wasi) {
+        if (target.abi.isMusl()) {
             try cflags.append("-D_LIBCPP_HAS_MUSL_LIBC");
+        }
+
+        if (target.os.tag == .wasi) {
+            try cflags.append("-D_LIBCPP_HAS_MUSL_LIBC");
+            try cflags.append("-D_LIBCPP_HAS_NO_THREADS");
+            try cflags.append("-D_LIBCPP_ABI_VERSION=2");
+            try cflags.append("-fno-exceptions");
         }
 
         try cflags.append("-I");
@@ -240,14 +246,29 @@ pub fn buildLibCXXABI(comp: *Compilation) !void {
 
     const cxxabi_include_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libcxxabi", "include" });
     const cxx_include_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libcxx", "include" });
+    var c_source_files = std.ArrayList(Compilation.CSourceFile).init(arena);
+    try c_source_files.ensureCapacity(libcxxabi_files.len);
 
-    var c_source_files: [libcxxabi_files.len]Compilation.CSourceFile = undefined;
-    for (libcxxabi_files) |cxxabi_src, i| {
+    for (libcxxabi_files) |cxxabi_src| {
         var cflags = std.ArrayList([]const u8).init(arena);
 
-        try cflags.append("-DHAVE___CXA_THREAD_ATEXIT_IMPL");
+        if (target.os.tag == .wasi) {
+            if (std.mem.startsWith(u8, cxxabi_src, "src/cxa_thread_atexit.cpp"))
+                continue;
+
+            if (std.mem.startsWith(u8, cxxabi_src, "src/cxa_exception.cpp"))
+                continue;
+
+            if (std.mem.startsWith(u8, cxxabi_src, "src/cxa_personality.cpp"))
+                continue;
+
+            try cflags.append("-fno-exceptions");
+        } else {
+            try cflags.append("-DHAVE___CXA_THREAD_ATEXIT_IMPL");
+            try cflags.append("-D_LIBCPP_ENABLE_CXX17_REMOVED_UNEXPECTED_FUNCTIONS");
+        }
+
         try cflags.append("-D_LIBCPP_DISABLE_EXTERN_TEMPLATE");
-        try cflags.append("-D_LIBCPP_ENABLE_CXX17_REMOVED_UNEXPECTED_FUNCTIONS");
         try cflags.append("-D_LIBCXXABI_BUILDING_LIBRARY");
         try cflags.append("-D_LIBCXXABI_DISABLE_VISIBILITY_ANNOTATIONS");
         try cflags.append("-D_LIBCPP_DISABLE_VISIBILITY_ANNOTATIONS");
@@ -272,10 +293,10 @@ pub fn buildLibCXXABI(comp: *Compilation) !void {
         try cflags.append("-funwind-tables");
         try cflags.append("-std=c++11");
 
-        c_source_files[i] = .{
+        c_source_files.appendAssumeCapacity(.{
             .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libcxxabi", cxxabi_src }),
             .extra_flags = cflags.items,
-        };
+        });
     }
 
     const sub_compilation = try Compilation.create(comp.gpa, .{
@@ -305,7 +326,7 @@ pub fn buildLibCXXABI(comp: *Compilation) !void {
         .is_native_os = comp.bin_file.options.is_native_os,
         .is_native_abi = comp.bin_file.options.is_native_abi,
         .self_exe_path = comp.self_exe_path,
-        .c_source_files = &c_source_files,
+        .c_source_files = c_source_files.items,
         .verbose_cc = comp.verbose_cc,
         .verbose_link = comp.bin_file.options.verbose_link,
         .verbose_air = comp.verbose_air,
