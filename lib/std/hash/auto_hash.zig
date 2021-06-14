@@ -146,10 +146,12 @@ pub fn hash(hasher: anytype, key: anytype, comptime strat: HashStrategy) void {
         .Union => |info| {
             if (info.tag_type) |tag_type| {
                 const tag = meta.activeTag(key);
-                const s = hash(hasher, tag, strat);
+                hash(hasher, tag, strat);
                 inline for (info.fields) |field| {
                     if (@field(tag_type, field.name) == tag) {
-                        hash(hasher, @field(key, field.name), strat);
+                        if (field.field_type != void) {
+                            hash(hasher, @field(key, field.name), strat);
+                        }
                         // TODO use a labelled break when it does not crash the compiler. cf #2908
                         // break :blk;
                         return;
@@ -385,17 +387,23 @@ test "testHash union" {
         A: u32,
         B: bool,
         C: u32,
+        D: void,
     };
 
     const a = Foo{ .A = 18 };
     var b = Foo{ .B = true };
     const c = Foo{ .C = 18 };
+    const d: Foo = .D;
     try testing.expect(testHash(a) == testHash(a));
     try testing.expect(testHash(a) != testHash(b));
     try testing.expect(testHash(a) != testHash(c));
+    try testing.expect(testHash(a) != testHash(d));
 
     b = Foo{ .A = 18 };
     try testing.expect(testHash(a) == testHash(b));
+
+    b = .D;
+    try testing.expect(testHash(d) == testHash(b));
 }
 
 test "testHash vector" {
