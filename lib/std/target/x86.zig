@@ -2241,7 +2241,7 @@ pub const cpu = struct {
             .cx8,
             .slow_unaligned_mem_16,
             .vzeroupper,
-            .soft_float
+            .soft_float,
         }),
     };
     pub const nehalem = CpuModel{
