@@ -89,17 +89,17 @@ pub fn main() !void {
                     warn("Expected argument after {s}\n\n", .{arg});
                     return usageAndErr(builder, false, stderr_stream);
                 };
-            } else if (mem.eql(u8, arg, "--lib-dir")) {
+            } else if (mem.eql(u8, arg, "--prefix-lib-dir")) {
                 dir_list.lib_dir = nextArg(args, &arg_idx) orelse {
                     warn("Expected argument after {s}\n\n", .{arg});
                     return usageAndErr(builder, false, stderr_stream);
                 };
-            } else if (mem.eql(u8, arg, "--exe-dir")) {
+            } else if (mem.eql(u8, arg, "--prefix-exe-dir")) {
                 dir_list.exe_dir = nextArg(args, &arg_idx) orelse {
                     warn("Expected argument after {s}\n\n", .{arg});
                     return usageAndErr(builder, false, stderr_stream);
                 };
-            } else if (mem.eql(u8, arg, "--include-dir")) {
+            } else if (mem.eql(u8, arg, "--prefix-include-dir")) {
                 dir_list.include_dir = nextArg(args, &arg_idx) orelse {
                     warn("Expected argument after {s}\n\n", .{arg});
                     return usageAndErr(builder, false, stderr_stream);
@@ -203,13 +203,15 @@ fn usage(builder: *Builder, already_ran_build: bool, out_stream: anytype) !void 
     try out_stream.writeAll(
         \\
         \\General Options:
+        \\  -p, --prefix         [path] Override default install prefix
+        \\  --prefix-lib-dir     [path] Override default library directory path
+        \\  --prefix-exe-dir     [path] Override default executable directory path
+        \\  --prefix-include-dir [path] Override default include directory path
+        \\
+        \\  --search-prefix [path]      Add a path to look for binaries, libraries, headers
+        \\
         \\  -h, --help                  Print this help and exit
         \\  --verbose                   Print commands before executing them
-        \\  -p, --prefix [path]         Override default install prefix
-        \\  --lib-dir [path]            Override default library directory path
-        \\  --exe-dir [path]            Override default executable directory path
-        \\  --include-dir [path]        Override default include directory path
-        \\  --search-prefix [path]      Add a path to look for binaries, libraries, headers
         \\  --color [auto|off|on]       Enable or disable colored error messages
         \\
         \\Project-Specific Options:
