@@ -646,6 +646,26 @@ fn updateMetadata(self: *Zld) !void {
                         });
                         continue;
                     }
+
+                    // TODO audit this: is this the right mapping?
+                    if (self.data_const_section_index != null) continue;
+
+                    self.data_const_section_index = @intCast(u16, data_const_seg.sections.items.len);
+                    try data_const_seg.addSection(self.allocator, .{
+                        .sectname = makeStaticString("__const"),
+                        .segname = makeStaticString("__DATA_CONST"),
+                        .addr = 0,
+                        .size = 0,
+                        .offset = 0,
+                        .@"align" = 0,
+                        .reloff = 0,
+                        .nreloc = 0,
+                        .flags = macho.S_REGULAR,
+                        .reserved1 = 0,
+                        .reserved2 = 0,
+                        .reserved3 = 0,
+                    });
+                    continue;
                 },
                 macho.S_REGULAR => {
                     if (sect.isCode()) {
@@ -999,7 +1019,10 @@ fn getMatchingSection(self: *Zld, sect: Object.Section) ?MatchingSection {
                     };
                 }
 
-                break :blk null;
+                break :blk .{
+                    .seg = self.data_const_segment_cmd_index.?,
+                    .sect = self.data_const_section_index.?,
+                };
             },
             macho.S_REGULAR => {
                 if (sect.isCode()) {
@@ -2001,7 +2024,15 @@ fn resolveRelocsAndWriteSections(self: *Zld) !void {
                             const dc_seg = self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
                             const got = dc_seg.sections.items[self.got_section_index.?];
                             const final = rel.target.symbol.getTopmostAlias();
-                            args.target_addr = got.addr + final.got_index.? * @sizeOf(u64);
+                            const got_index = final.got_index orelse {
+                                // TODO remove this when we can link against TAPI files.
+                                log.err("undefined reference to symbol '{s}'", .{final.name});
+                                log.err("    | referenced in {s}", .{
+                                    rel.target.symbol.cast(Symbol.Unresolved).?.file.name.?,
+                                });
+                                return error.UndefinedSymbolReference;
+                            };
+                            args.target_addr = got.addr + got_index * @sizeOf(u64);
                         },
                         else => |tt| {
                             if (tt == .signed and rel.target == .section) {
@@ -2067,7 +2098,15 @@ fn relocTargetAddr(self: *Zld, object: *const Object, target: reloc.Relocation.T
                     log.debug("    | symbol stub '{s}'", .{sym.name});
                     const segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
                     const stubs = segment.sections.items[self.stubs_section_index.?];
-                    break :blk stubs.addr + proxy.base.stubs_index.? * stubs.reserved2;
+                    const stubs_index = proxy.base.stubs_index orelse {
+                        // TODO remove this when we can link against TAPI files.
+                        log.err("undefined reference to symbol '{s}'", .{final.name});
+                        log.err("    | referenced in {s}", .{
+                            sym.cast(Symbol.Unresolved).?.file.name.?,
+                        });
+                        return error.UndefinedSymbolReference;
+                    };
+                    break :blk stubs.addr + stubs_index * stubs.reserved2;
                 } else {
                     log.err("failed to resolve symbol '{s}' as a relocation target", .{sym.name});
                     return error.FailedToResolveRelocationTarget;
