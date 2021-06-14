@@ -1174,6 +1174,16 @@ fn buildOutputType(
                     .wl => {
                         var split_it = mem.split(it.only_arg, ",");
                         while (split_it.next()) |linker_arg| {
+                            // Handle nested-joined args like `-Wl,-rpath=foo`.
+                            // Must be prefixed with 1 or 2 dashes.
+                            if (linker_arg.len >= 3 and linker_arg[0] == '-' and linker_arg[2] != '-') {
+                                if (mem.indexOfScalar(u8, linker_arg, '=')) |equals_pos| {
+                                    try linker_args.append(linker_arg[0..equals_pos]);
+                                    try linker_args.append(linker_arg[equals_pos + 1 ..]);
+                                    continue;
+                                }
+                            }
+
                             try linker_args.append(linker_arg);
                         }
                     },
@@ -1382,7 +1392,7 @@ fn buildOutputType(
                     image_base_override = std.fmt.parseUnsigned(u64, linker_args.items[i], 0) catch |err| {
                         fatal("unable to parse '{s}': {s}", .{ arg, @errorName(err) });
                     };
-                } else if (mem.eql(u8, arg, "-T")) {
+                } else if (mem.eql(u8, arg, "-T") or mem.eql(u8, arg, "--script")) {
                     i += 1;
                     if (i >= linker_args.items.len) {
                         fatal("expected linker arg after '{s}'", .{arg});
@@ -1408,30 +1418,40 @@ fn buildOutputType(
                     // We don't need to care about these because these args are
                     // for resolving circular dependencies but our linker takes
                     // care of this without explicit args.
-                } else if (mem.startsWith(u8, arg, "--major-os-version") or
-                    mem.startsWith(u8, arg, "--minor-os-version"))
+                } else if (mem.eql(u8, arg, "--major-os-version") or
+                    mem.eql(u8, arg, "--minor-os-version"))
                 {
+                    i += 1;
+                    if (i >= linker_args.items.len) {
+                        fatal("expected linker arg after '{s}'", .{arg});
+                    }
                     // This option does not do anything.
-                } else if (mem.startsWith(u8, arg, "--major-subsystem-version=")) {
+                } else if (mem.eql(u8, arg, "--major-subsystem-version")) {
+                    i += 1;
+                    if (i >= linker_args.items.len) {
+                        fatal("expected linker arg after '{s}'", .{arg});
+                    }
+
                     major_subsystem_version = std.fmt.parseUnsigned(
                         u32,
-                        arg["--major-subsystem-version=".len..],
+                        linker_args.items[i],
                         10,
                     ) catch |err| {
                         fatal("unable to parse '{s}': {s}", .{ arg, @errorName(err) });
                     };
-                } else if (mem.startsWith(u8, arg, "--minor-subsystem-version=")) {
+                } else if (mem.eql(u8, arg, "--minor-subsystem-version")) {
+                    i += 1;
+                    if (i >= linker_args.items.len) {
+                        fatal("expected linker arg after '{s}'", .{arg});
+                    }
+
                     minor_subsystem_version = std.fmt.parseUnsigned(
                         u32,
-                        arg["--minor-subsystem-version=".len..],
+                        linker_args.items[i],
                         10,
                     ) catch |err| {
                         fatal("unable to parse '{s}': {s}", .{ arg, @errorName(err) });
                     };
-                } else if (mem.startsWith(u8, arg, "--major-os-version=") or
-                    mem.startsWith(u8, arg, "--minor-os-version="))
-                {
-                    // These args do nothing.
                 } else {
                     warn("unsupported linker arg: {s}", .{arg});
                 }
