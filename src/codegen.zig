@@ -2593,14 +2593,15 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         }
                         if (inst.func.value()) |func_value| {
                             if (func_value.castTag(.function)) |func_payload| {
-                                try self.genSetReg(inst.base.src, Type.initTag(.u64), .rax, .{ .immediate = 0xdeadbeefdeadbeef });
-                                try p9.addCallReloc(self.code, .{
-                                    .caller = p9.cur_decl,
-                                    .callee = func_payload.data.owner_decl,
-                                    .offset_in_caller = self.code.items.len,
-                                });
-                                // call rax
-                                try self.code.appendSlice(&.{ 0xff, 0xd0 });
+                                const ptr_bits = self.target.cpu.arch.ptrBitWidth();
+                                const ptr_bytes: u64 = @divExact(ptr_bits, 8);
+                                const got_addr = p9.bases.data;
+                                const got_index = func_payload.data.owner_decl.link.plan9.got_index.?;
+                                // ff 14 25 xx xx xx xx    call [addr]
+                                try self.code.ensureCapacity(self.code.items.len + 7);
+                                self.code.appendSliceAssumeCapacity(&[3]u8{ 0xff, 0x14, 0x25 });
+                                const fn_got_addr = got_addr + got_index * ptr_bytes;
+                                mem.writeIntLittle(u32, self.code.addManyAsArrayAssumeCapacity(4), @intCast(u32, fn_got_addr));
                             } else return self.fail(inst.base.src, "TODO implement calling extern fn on plan9", .{});
                         } else {
                             return self.fail(inst.base.src, "TODO implement calling runtime known function pointer", .{});
@@ -4272,6 +4273,10 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
                                 const decl = payload.data;
                                 const got_addr = coff_file.offset_table_virtual_address + decl.link.coff.offset_table_index * ptr_bytes;
+                                return MCValue{ .memory = got_addr };
+                            } else if (self.bin_file.cast(link.File.Plan9)) |p9| {
+                                const decl = payload.data;
+                                const got_addr = p9.bases.data + decl.link.plan9.got_index.? * ptr_bytes;
                                 return MCValue{ .memory = got_addr };
                             } else {
                                 return self.fail(src, "TODO codegen non-ELF const Decl pointer", .{});

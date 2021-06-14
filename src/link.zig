@@ -348,7 +348,7 @@ pub const File = struct {
             .macho => return @fieldParentPtr(MachO, "base", base).allocateDeclIndexes(decl),
             .c => return @fieldParentPtr(C, "base", base).allocateDeclIndexes(decl),
             .wasm => return @fieldParentPtr(Wasm, "base", base).allocateDeclIndexes(decl),
-            .plan9 => {},
+            .plan9 => return @fieldParentPtr(Plan9, "base", base).allocateDeclIndexes(decl),
             .spirv => {},
         }
     }

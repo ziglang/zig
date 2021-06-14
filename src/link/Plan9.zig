@@ -24,13 +24,19 @@ bases: Bases,
 decl_table: std.AutoArrayHashMapUnmanaged(*Module.Decl, void) = .{},
 /// is just casted down when 32 bit
 syms: std.ArrayListUnmanaged(aout.Sym) = .{},
-call_relocs: std.ArrayListUnmanaged(CallReloc) = .{},
 text_buf: std.ArrayListUnmanaged(u8) = .{},
 data_buf: std.ArrayListUnmanaged(u8) = .{},
 
-cur_decl: *Module.Decl = undefined,
 hdr: aout.ExecHdr = undefined,
-const Bases = struct { text: u32, data: u32 };
+
+entry_decl: ?*Module.Decl = null,
+
+got: std.ArrayListUnmanaged(u64) = .{},
+const Bases = struct {
+    text: u32,
+    /// the addr of the got
+    data: u32,
+};
 
 fn getAddr(self: Plan9, addr: u32, t: aout.SymType) u32 {
     return addr + switch (t) {
@@ -60,14 +66,17 @@ fn headerSize(self: Plan9) u32 {
 
 pub const DeclBlock = struct {
     type: aout.SymType,
-    // offset in the text or data sects
-    offset: u32,
-    // offset into syms
+    /// offset in the text or data sects
+    offset: ?u32,
+    /// offset into syms
     sym_index: ?usize,
+    /// offset into got
+    got_index: ?usize,
     pub const empty = DeclBlock{
         .type = .t,
-        .offset = 0,
+        .offset = null,
         .sym_index = null,
+        .got_index = null,
     };
 };
 
@@ -86,12 +95,6 @@ pub fn defaultBaseAddrs(arch: std.Target.Cpu.Arch) Bases {
         else => std.debug.panic("find default base address for {}", .{arch}),
     };
 }
-
-pub const CallReloc = struct {
-    caller: *Module.Decl,
-    callee: *Module.Decl,
-    offset_in_caller: usize,
-};
 
 pub const PtrWidth = enum { p32, p64 };
 
@@ -132,9 +135,12 @@ pub fn flush(self: *Plan9, comp: *Compilation) !void {
     }
     return self.flushModule(comp);
 }
+
 pub fn flushModule(self: *Plan9, comp: *Compilation) !void {
     const tracy = trace(@src());
     defer tracy.end();
+
+    log.debug("flushModule", .{});
 
     defer assert(self.hdr.entry != 0x0);
 
@@ -142,38 +148,76 @@ pub fn flushModule(self: *Plan9, comp: *Compilation) !void {
 
     self.text_buf.items.len = 0;
     self.data_buf.items.len = 0;
-    self.call_relocs.items.len = 0;
+    // ensure space to write the got later
+    assert(self.got.items.len == self.decl_table.count());
+    try self.data_buf.appendNTimes(self.base.allocator, 0x69, self.got.items.len * if (self.ptr_width == .p32) @as(u32, 4) else 8);
     // temporary buffer
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
     {
         for (self.decl_table.keys()) |decl| {
             if (!decl.has_tv) continue;
-            self.cur_decl = decl;
             const is_fn = (decl.ty.zigTypeTag() == .Fn);
+
+            log.debug("update the symbol table and got for decl {*} ({s})", .{ decl, decl.name });
             decl.link.plan9 = if (is_fn) .{
                 .offset = self.getAddr(@intCast(u32, self.text_buf.items.len), .t),
                 .type = .t,
                 .sym_index = decl.link.plan9.sym_index,
+                .got_index = decl.link.plan9.got_index,
             } else .{
                 .offset = self.getAddr(@intCast(u32, self.data_buf.items.len), .d),
-                .type = .t,
+                .type = .d,
                 .sym_index = decl.link.plan9.sym_index,
+                .got_index = decl.link.plan9.got_index,
             };
-            if (decl.link.plan9.sym_index == null) {
+            self.got.items[decl.link.plan9.got_index.?] = decl.link.plan9.offset.?;
+            if (decl.link.plan9.sym_index) |s| {
+                self.syms.items[s] = .{
+                    .value = decl.link.plan9.offset.?,
+                    .type = decl.link.plan9.type,
+                    .name = mem.span(decl.name),
+                };
+            } else {
                 try self.syms.append(self.base.allocator, .{
-                    .value = decl.link.plan9.offset,
+                    .value = decl.link.plan9.offset.?,
                     .type = decl.link.plan9.type,
                     .name = mem.span(decl.name),
                 });
                 decl.link.plan9.sym_index = self.syms.items.len - 1;
-            } else {
-                self.syms.items[decl.link.plan9.sym_index.?] = .{
-                    .value = decl.link.plan9.offset,
-                    .type = decl.link.plan9.type,
-                    .name = mem.span(decl.name),
-                };
             }
+
+            if (module.decl_exports.get(decl)) |exports| {
+                for (exports) |exp| {
+                    // plan9 does not support custom sections
+                    if (exp.options.section) |section_name| {
+                        if (!mem.eql(u8, section_name, ".text") or !mem.eql(u8, section_name, ".data")) {
+                            try module.failed_exports.put(module.gpa, exp, try Module.ErrorMsg.create(self.base.allocator, decl.srcLoc(), "plan9 does not support extra sections", .{}));
+                            break;
+                        }
+                    }
+                    if (std.mem.eql(u8, exp.options.name, "_start")) {
+                        std.debug.assert(decl.link.plan9.type == .t); // we tried to link a non-function as the entry
+                        self.entry_decl = decl;
+                    }
+                    if (exp.link.plan9) |i| {
+                        self.syms.items[i] = .{
+                            .value = decl.link.plan9.offset.?,
+                            .type = decl.link.plan9.type.toGlobal(),
+                            .name = exp.options.name,
+                        };
+                    } else {
+                        try self.syms.append(self.base.allocator, .{
+                            .value = decl.link.plan9.offset.?,
+                            .type = decl.link.plan9.type.toGlobal(),
+                            .name = exp.options.name,
+                        });
+                        exp.link.plan9 = self.syms.items.len - 1;
+                    }
+                }
+            }
+
+            log.debug("codegen decl {*} ({s})", .{ decl, decl.name });
             const res = try codegen.generateSymbol(&self.base, decl.srcLoc(), .{
                 .ty = decl.ty,
                 .val = decl.val,
@@ -190,31 +234,29 @@ pub fn flushModule(self: *Plan9, comp: *Compilation) !void {
             };
             if (is_fn) {
                 try self.text_buf.appendSlice(self.base.allocator, code);
-                try code_buffer.resize(0);
+                code_buffer.items.len = 0;
             } else {
                 try self.data_buf.appendSlice(self.base.allocator, code);
-                try code_buffer.resize(0);
+                code_buffer.items.len = 0;
             }
         }
     }
 
-    // Do relocations.
-    {
-        for (self.call_relocs.items) |reloc| {
-            const l: DeclBlock = reloc.caller.link.plan9;
-            assert(l.sym_index != null); // we didn't process it already
-            const endian = self.base.options.target.cpu.arch.endian();
-            if (self.ptr_width == .p32) {
-                const callee_offset = @intCast(u32, reloc.callee.link.plan9.offset);
-                const off = self.takeAddr(@intCast(u32, reloc.offset_in_caller) + l.offset, reloc.caller.link.plan9.type);
-                std.mem.writeInt(u32, self.text_buf.items[off - 4 ..][0..4], callee_offset, endian);
-            } else {
-                const callee_offset = reloc.callee.link.plan9.offset;
-                const off = self.takeAddr(@intCast(u32, reloc.offset_in_caller) + l.offset, reloc.caller.link.plan9.type);
-                std.mem.writeInt(u64, self.text_buf.items[off - 8 ..][0..8], callee_offset, endian);
-            }
+    // write the got
+    if (self.ptr_width == .p32) {
+        for (self.got.items) |p, i| {
+            mem.writeInt(u32, self.data_buf.items[i * 4 ..][0..4], @intCast(u32, p), self.base.options.target.cpu.arch.endian());
+        }
+    } else {
+        for (self.got.items) |p, i| {
+            mem.writeInt(u64, self.data_buf.items[i * 8 ..][0..8], p, self.base.options.target.cpu.arch.endian());
         }
     }
+
+    if (self.entry_decl == null) {
+        @panic("TODO we didn't have _start");
+    }
+    self.hdr.entry = self.entry_decl.?.link.plan9.offset.?;
 
     // edata, end, etext
     self.syms.items[0].value = self.getAddr(0x0, .b); // what is this number
@@ -267,43 +309,14 @@ pub fn updateDeclExports(
     decl: *Module.Decl,
     exports: []const *Module.Export,
 ) !void {
-    for (exports) |exp| {
-        if (exp.options.section) |section_name| {
-            if (!mem.eql(u8, section_name, ".text")) {
-                try module.failed_exports.ensureCapacity(module.gpa, module.failed_exports.count() + 1);
-                module.failed_exports.putAssumeCapacityNoClobber(
-                    exp,
-                    try Module.ErrorMsg.create(self.base.allocator, decl.srcLoc(), "plan9 does not support extra sections", .{}),
-                );
-                continue;
-            }
-        }
-        if (std.mem.eql(u8, exp.options.name, "_start")) {
-            std.debug.assert(decl.link.plan9.type == .t); // we tried to link a non-function as _start
-            self.hdr.entry = self.bases.text + decl.link.plan9.offset;
-        }
-        if (exp.link.plan9) |i| {
-            self.syms.items[i] = .{
-                .value = self.getAddr(decl.link.plan9.offset, decl.link.plan9.type),
-                .type = decl.link.plan9.type.toGlobal(),
-                .name = exp.options.name,
-            };
-        } else {
-            try self.syms.append(self.base.allocator, .{
-                .value = self.getAddr(decl.link.plan9.offset, decl.link.plan9.type),
-                .type = decl.link.plan9.type.toGlobal(),
-                .name = exp.options.name,
-            });
-            exp.link.plan9 = self.syms.items.len - 1;
-        }
-    }
+    // we do all the things in flush
 }
 pub fn deinit(self: *Plan9) void {
     self.decl_table.deinit(self.base.allocator);
-    self.call_relocs.deinit(self.base.allocator);
     self.syms.deinit(self.base.allocator);
     self.text_buf.deinit(self.base.allocator);
     self.data_buf.deinit(self.base.allocator);
+    self.got.deinit(self.base.allocator);
 }
 
 pub const Export = ?usize;
@@ -350,12 +363,6 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
     return self;
 }
 
-// tells its future self to write the addr of the callee decl into offset_in_caller.
-// writes it to the {4, 8} bytes before offset_in_caller
-pub fn addCallReloc(self: *Plan9, code: *std.ArrayList(u8), reloc: CallReloc) !void {
-    try self.call_relocs.append(self.base.allocator, reloc);
-}
-
 pub fn writeSyms(self: *Plan9, buf: *std.ArrayList(u8)) !void {
     const writer = buf.writer();
     for (self.syms.items) |sym| {
@@ -368,4 +375,9 @@ pub fn writeSyms(self: *Plan9, buf: *std.ArrayList(u8)) !void {
         try writer.writeAll(std.mem.span(sym.name));
         try writer.writeByte(0);
     }
+}
+
+pub fn allocateDeclIndexes(self: *Plan9, decl: *Module.Decl) !void {
+    try self.got.append(self.base.allocator, 0xdeadbeef);
+    decl.link.plan9.got_index = self.got.items.len - 1;
 }
