@@ -139,9 +139,8 @@ pub fn buildLibCXX(comp: *Compilation) !void {
         }
 
         if (target.os.tag == .wasi) {
-            try cflags.append("-D_LIBCPP_HAS_MUSL_LIBC");
+            // WASI doesn't support thread yet.
             try cflags.append("-D_LIBCPP_HAS_NO_THREADS");
-            try cflags.append("-D_LIBCPP_ABI_VERSION=2");
             try cflags.append("-fno-exceptions");
         }
 
@@ -253,29 +252,27 @@ pub fn buildLibCXXABI(comp: *Compilation) !void {
         var cflags = std.ArrayList([]const u8).init(arena);
 
         if (target.os.tag == .wasi) {
-            if (std.mem.startsWith(u8, cxxabi_src, "src/cxa_thread_atexit.cpp"))
+            // WASI doesn't support thread yet.
+            if (std.mem.startsWith(u8, cxxabi_src, "src/cxa_thread_atexit.cpp") or
+                std.mem.startsWith(u8, cxxabi_src, "src/cxa_exception.cpp") or
+                std.mem.startsWith(u8, cxxabi_src, "src/cxa_personality.cpp"))
                 continue;
-
-            if (std.mem.startsWith(u8, cxxabi_src, "src/cxa_exception.cpp"))
-                continue;
-
-            if (std.mem.startsWith(u8, cxxabi_src, "src/cxa_personality.cpp"))
-                continue;
-
+            try cflags.append("-D_LIBCXXABI_HAS_NO_THREADS");
+            // Also, exception is not supported yet.
             try cflags.append("-fno-exceptions");
         } else {
             try cflags.append("-DHAVE___CXA_THREAD_ATEXIT_IMPL");
-            try cflags.append("-D_LIBCPP_ENABLE_CXX17_REMOVED_UNEXPECTED_FUNCTIONS");
         }
 
         try cflags.append("-D_LIBCPP_DISABLE_EXTERN_TEMPLATE");
+        try cflags.append("-D_LIBCPP_ENABLE_CXX17_REMOVED_UNEXPECTED_FUNCTIONS");
         try cflags.append("-D_LIBCXXABI_BUILDING_LIBRARY");
         try cflags.append("-D_LIBCXXABI_DISABLE_VISIBILITY_ANNOTATIONS");
         try cflags.append("-D_LIBCPP_DISABLE_VISIBILITY_ANNOTATIONS");
         try cflags.append("-fvisibility=hidden");
         try cflags.append("-fvisibility-inlines-hidden");
 
-        if (target.abi.isMusl() or target.os.tag == .wasi) {
+        if (target.abi.isMusl()) {
             try cflags.append("-D_LIBCPP_HAS_MUSL_LIBC");
         }
 
