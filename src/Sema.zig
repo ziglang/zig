@@ -7368,6 +7368,15 @@ fn resolvePeerTypes(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, instructi
             continue;
         }
 
+        if (chosen.ty.zigTypeTag() == .ComptimeFloat and candidate.ty.isFloat()) {
+            chosen = candidate;
+            continue;
+        }
+
+        if (chosen.ty.isFloat() and candidate.ty.zigTypeTag() == .ComptimeFloat) {
+            continue;
+        }
+
         if (chosen.ty.zigTypeTag() == .Enum and candidate.ty.zigTypeTag() == .EnumLiteral) {
             continue;
         }
