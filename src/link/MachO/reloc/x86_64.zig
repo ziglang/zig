@@ -66,11 +66,15 @@ pub const GotLoad = struct {
 
 pub const Got = struct {
     base: Relocation,
+    addend: i32,
 
     pub const base_type: Relocation.Type = .got;
 
     pub fn resolve(got: Got, args: Relocation.ResolveArgs) !void {
-        const displacement = try math.cast(i32, @intCast(i64, args.target_addr) - @intCast(i64, args.source_addr) - 4);
+        const displacement = try math.cast(
+            i32,
+            @intCast(i64, args.target_addr) - @intCast(i64, args.source_addr) - 4 + got.addend,
+        );
         log.debug("    | displacement 0x{x}", .{displacement});
         mem.writeIntLittle(u32, got.base.code[0..4], @bitCast(u32, displacement));
     }
@@ -237,6 +241,7 @@ pub const Parser = struct {
         const offset = @intCast(u32, rel.r_address);
         const inst = parser.code[offset..][0..4];
         const target = Relocation.Target.from_reloc(rel, parser.symbols);
+        const addend = mem.readIntLittle(i32, inst);
 
         var got = try parser.allocator.create(Got);
         errdefer parser.allocator.destroy(got);
@@ -248,6 +253,7 @@ pub const Parser = struct {
                 .offset = offset,
                 .target = target,
             },
+            .addend = addend,
         };
 
         log.debug("    | emitting {}", .{got});

@@ -61,6 +61,8 @@ pub fn main() !void {
     const stdout_stream = io.getStdOut().writer();
 
     var install_prefix: ?[]const u8 = null;
+    var dir_list = Builder.DirList{};
+
     while (nextArg(args, &arg_idx)) |arg| {
         if (mem.startsWith(u8, arg, "-D")) {
             const option_contents = arg[2..];
@@ -87,12 +89,33 @@ pub fn main() !void {
                     warn("Expected argument after {s}\n\n", .{arg});
                     return usageAndErr(builder, false, stderr_stream);
                 };
+            } else if (mem.eql(u8, arg, "--prefix-lib-dir")) {
+                dir_list.lib_dir = nextArg(args, &arg_idx) orelse {
+                    warn("Expected argument after {s}\n\n", .{arg});
+                    return usageAndErr(builder, false, stderr_stream);
+                };
+            } else if (mem.eql(u8, arg, "--prefix-exe-dir")) {
+                dir_list.exe_dir = nextArg(args, &arg_idx) orelse {
+                    warn("Expected argument after {s}\n\n", .{arg});
+                    return usageAndErr(builder, false, stderr_stream);
+                };
+            } else if (mem.eql(u8, arg, "--prefix-include-dir")) {
+                dir_list.include_dir = nextArg(args, &arg_idx) orelse {
+                    warn("Expected argument after {s}\n\n", .{arg});
+                    return usageAndErr(builder, false, stderr_stream);
+                };
             } else if (mem.eql(u8, arg, "--search-prefix")) {
                 const search_prefix = nextArg(args, &arg_idx) orelse {
                     warn("Expected argument after --search-prefix\n\n", .{});
                     return usageAndErr(builder, false, stderr_stream);
                 };
                 builder.addSearchPrefix(search_prefix);
+            } else if (mem.eql(u8, arg, "--libc")) {
+                const libc_file = nextArg(args, &arg_idx) orelse {
+                    warn("Expected argument after --libc\n\n", .{});
+                    return usageAndErr(builder, false, stderr_stream);
+                };
+                builder.libc_file = libc_file;
             } else if (mem.eql(u8, arg, "--color")) {
                 const next_arg = nextArg(args, &arg_idx) orelse {
                     warn("expected [auto|on|off] after --color", .{});
@@ -102,9 +125,9 @@ pub fn main() !void {
                     warn("expected [auto|on|off] after --color, found '{s}'", .{next_arg});
                     return usageAndErr(builder, false, stderr_stream);
                 };
-            } else if (mem.eql(u8, arg, "--override-lib-dir")) {
+            } else if (mem.eql(u8, arg, "--zig-lib-dir")) {
                 builder.override_lib_dir = nextArg(args, &arg_idx) orelse {
-                    warn("Expected argument after --override-lib-dir\n\n", .{});
+                    warn("Expected argument after --zig-lib-dir\n\n", .{});
                     return usageAndErr(builder, false, stderr_stream);
                 };
             } else if (mem.eql(u8, arg, "--verbose-tokenize")) {
@@ -135,7 +158,7 @@ pub fn main() !void {
         }
     }
 
-    builder.resolveInstallPrefix(install_prefix);
+    builder.resolveInstallPrefix(install_prefix, dir_list);
     try runBuild(builder);
 
     if (builder.validateUserInputDidItFail())
@@ -163,7 +186,7 @@ fn runBuild(builder: *Builder) anyerror!void {
 fn usage(builder: *Builder, already_ran_build: bool, out_stream: anytype) !void {
     // run the build script to collect the options
     if (!already_ran_build) {
-        builder.resolveInstallPrefix(null);
+        builder.resolveInstallPrefix(null, .{});
         try runBuild(builder);
     }
 
@@ -186,10 +209,16 @@ fn usage(builder: *Builder, already_ran_build: bool, out_stream: anytype) !void 
     try out_stream.writeAll(
         \\
         \\General Options:
+        \\  -p, --prefix         [path] Override default install prefix
+        \\  --prefix-lib-dir     [path] Override default library directory path
+        \\  --prefix-exe-dir     [path] Override default executable directory path
+        \\  --prefix-include-dir [path] Override default include directory path
+        \\
+        \\  --search-prefix [path]      Add a path to look for binaries, libraries, headers
+        \\  --libc [file]               Provide a file which specifies libc paths
+        \\
         \\  -h, --help                  Print this help and exit
         \\  --verbose                   Print commands before executing them
-        \\  -p, --prefix [path]         Override default install prefix
-        \\  --search-prefix [path]      Add a path to look for binaries, libraries, headers
         \\  --color [auto|off|on]       Enable or disable colored error messages
         \\
         \\Project-Specific Options:
@@ -214,7 +243,7 @@ fn usage(builder: *Builder, already_ran_build: bool, out_stream: anytype) !void 
         \\Advanced Options:
         \\  --build-file [file]         Override path to build.zig
         \\  --cache-dir [path]          Override path to zig cache directory
-        \\  --override-lib-dir [arg]    Override path to Zig lib directory
+        \\  --zig-lib-dir [arg]         Override path to Zig lib directory
         \\  --verbose-tokenize          Enable compiler debug output for tokenization
         \\  --verbose-ast               Enable compiler debug output for parsing into an AST
         \\  --verbose-link              Enable compiler debug output for linking

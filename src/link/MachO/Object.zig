@@ -70,6 +70,43 @@ pub const Section = struct {
             allocator.free(relocs);
         }
     }
+
+    pub fn segname(self: Section) []const u8 {
+        return parseName(&self.inner.segname);
+    }
+
+    pub fn sectname(self: Section) []const u8 {
+        return parseName(&self.inner.sectname);
+    }
+
+    pub fn flags(self: Section) u32 {
+        return self.inner.flags;
+    }
+
+    pub fn sectionType(self: Section) u8 {
+        return @truncate(u8, self.flags() & 0xff);
+    }
+
+    pub fn sectionAttrs(self: Section) u32 {
+        return self.flags() & 0xffffff00;
+    }
+
+    pub fn isCode(self: Section) bool {
+        const attr = self.sectionAttrs();
+        return attr & macho.S_ATTR_PURE_INSTRUCTIONS != 0 and attr & macho.S_ATTR_SOME_INSTRUCTIONS != 0;
+    }
+
+    pub fn isDebug(self: Section) bool {
+        return self.sectionAttrs() & macho.S_ATTR_DEBUG != 0;
+    }
+
+    pub fn dontDeadStrip(self: Section) bool {
+        return self.sectionAttrs() & macho.S_ATTR_NO_DEAD_STRIP != 0;
+    }
+
+    pub fn dontDeadStripIfReferencesLive(self: Section) bool {
+        return self.sectionAttrs() & macho.S_ATTR_LIVE_SUPPORT != 0;
+    }
 };
 
 const DebugInfo = struct {

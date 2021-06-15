@@ -65,6 +65,9 @@ stub_helper_section_index: ?u16 = null,
 text_const_section_index: ?u16 = null,
 cstring_section_index: ?u16 = null,
 ustring_section_index: ?u16 = null,
+gcc_except_tab_section_index: ?u16 = null,
+unwind_info_section_index: ?u16 = null,
+eh_frame_section_index: ?u16 = null,
 
 // __DATA_CONST segment sections
 got_section_index: ?u16 = null,
@@ -435,19 +438,17 @@ fn updateMetadata(self: *Zld) !void {
         const data_seg = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
 
         // Create missing metadata
-        for (object_seg.sections.items) |source_sect, sect_id| {
-            if (sect_id == object.text_section_index.?) continue;
-            const segname = parseName(&source_sect.segname);
-            const sectname = parseName(&source_sect.sectname);
-            const flags = source_sect.flags;
+        for (object.sections.items) |sect, sect_id| {
+            const segname = sect.segname();
+            const sectname = sect.sectname();
 
-            switch (flags) {
-                macho.S_REGULAR | macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS => {
-                    if (self.text_section_index != null) continue;
+            switch (sect.sectionType()) {
+                macho.S_4BYTE_LITERALS, macho.S_8BYTE_LITERALS, macho.S_16BYTE_LITERALS, macho.S_LITERAL_POINTERS => {
+                    if (self.text_const_section_index != null) continue;
 
-                    self.text_section_index = @intCast(u16, text_seg.sections.items.len);
+                    self.text_const_section_index = @intCast(u16, text_seg.sections.items.len);
                     try text_seg.addSection(self.allocator, .{
-                        .sectname = makeStaticString("__text"),
+                        .sectname = makeStaticString("__const"),
                         .segname = makeStaticString("__TEXT"),
                         .addr = 0,
                         .size = 0,
@@ -455,70 +456,12 @@ fn updateMetadata(self: *Zld) !void {
                         .@"align" = 0,
                         .reloff = 0,
                         .nreloc = 0,
-                        .flags = macho.S_REGULAR | macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS,
+                        .flags = macho.S_REGULAR,
                         .reserved1 = 0,
                         .reserved2 = 0,
                         .reserved3 = 0,
                     });
-                },
-                macho.S_REGULAR, macho.S_4BYTE_LITERALS, macho.S_8BYTE_LITERALS, macho.S_16BYTE_LITERALS => {
-                    if (mem.eql(u8, segname, "__TEXT")) {
-                        if (mem.eql(u8, sectname, "__ustring")) {
-                            if (self.ustring_section_index != null) continue;
-
-                            self.ustring_section_index = @intCast(u16, text_seg.sections.items.len);
-                            try text_seg.addSection(self.allocator, .{
-                                .sectname = makeStaticString("__ustring"),
-                                .segname = makeStaticString("__TEXT"),
-                                .addr = 0,
-                                .size = 0,
-                                .offset = 0,
-                                .@"align" = 0,
-                                .reloff = 0,
-                                .nreloc = 0,
-                                .flags = macho.S_REGULAR,
-                                .reserved1 = 0,
-                                .reserved2 = 0,
-                                .reserved3 = 0,
-                            });
-                        } else {
-                            if (self.text_const_section_index != null) continue;
-
-                            self.text_const_section_index = @intCast(u16, text_seg.sections.items.len);
-                            try text_seg.addSection(self.allocator, .{
-                                .sectname = makeStaticString("__const"),
-                                .segname = makeStaticString("__TEXT"),
-                                .addr = 0,
-                                .size = 0,
-                                .offset = 0,
-                                .@"align" = 0,
-                                .reloff = 0,
-                                .nreloc = 0,
-                                .flags = macho.S_REGULAR,
-                                .reserved1 = 0,
-                                .reserved2 = 0,
-                                .reserved3 = 0,
-                            });
-                        }
-                    } else if (mem.eql(u8, segname, "__DATA") or mem.eql(u8, segname, "__DATA_CONST")) {
-                        if (self.data_const_section_index != null) continue;
-
-                        self.data_const_section_index = @intCast(u16, data_const_seg.sections.items.len);
-                        try data_const_seg.addSection(self.allocator, .{
-                            .sectname = makeStaticString("__const"),
-                            .segname = makeStaticString("__DATA_CONST"),
-                            .addr = 0,
-                            .size = 0,
-                            .offset = 0,
-                            .@"align" = 0,
-                            .reloff = 0,
-                            .nreloc = 0,
-                            .flags = macho.S_REGULAR,
-                            .reserved1 = 0,
-                            .reserved2 = 0,
-                            .reserved3 = 0,
-                        });
-                    }
+                    continue;
                 },
                 macho.S_CSTRING_LITERALS => {
                     if (self.cstring_section_index != null) continue;
@@ -538,6 +481,7 @@ fn updateMetadata(self: *Zld) !void {
                         .reserved2 = 0,
                         .reserved3 = 0,
                     });
+                    continue;
                 },
                 macho.S_MOD_INIT_FUNC_POINTERS => {
                     if (self.mod_init_func_section_index != null) continue;
@@ -557,6 +501,7 @@ fn updateMetadata(self: *Zld) !void {
                         .reserved2 = 0,
                         .reserved3 = 0,
                     });
+                    continue;
                 },
                 macho.S_MOD_TERM_FUNC_POINTERS => {
                     if (self.mod_term_func_section_index != null) continue;
@@ -576,6 +521,7 @@ fn updateMetadata(self: *Zld) !void {
                         .reserved2 = 0,
                         .reserved3 = 0,
                     });
+                    continue;
                 },
                 macho.S_ZEROFILL => {
                     if (mem.eql(u8, sectname, "__common")) {
@@ -615,6 +561,7 @@ fn updateMetadata(self: *Zld) !void {
                             .reserved3 = 0,
                         });
                     }
+                    continue;
                 },
                 macho.S_THREAD_LOCAL_VARIABLES => {
                     if (self.tlv_section_index != null) continue;
@@ -634,6 +581,7 @@ fn updateMetadata(self: *Zld) !void {
                         .reserved2 = 0,
                         .reserved3 = 0,
                     });
+                    continue;
                 },
                 macho.S_THREAD_LOCAL_REGULAR => {
                     if (self.tlv_data_section_index != null) continue;
@@ -653,6 +601,7 @@ fn updateMetadata(self: *Zld) !void {
                         .reserved2 = 0,
                         .reserved3 = 0,
                     });
+                    continue;
                 },
                 macho.S_THREAD_LOCAL_ZEROFILL => {
                     if (self.tlv_bss_section_index != null) continue;
@@ -672,58 +621,240 @@ fn updateMetadata(self: *Zld) !void {
                         .reserved2 = 0,
                         .reserved3 = 0,
                     });
-                },
-                macho.S_COALESCED |
-                    macho.S_ATTR_NO_TOC |
-                    macho.S_ATTR_STRIP_STATIC_SYMS |
-                    macho.S_ATTR_LIVE_SUPPORT => {
-                    log.debug("TODO __eh_frame section: type 0x{x}, name '{s},{s}'", .{
-                        flags, segname, sectname,
-                    });
                     continue;
                 },
-                macho.S_REGULAR | macho.S_ATTR_DEBUG => {
-                    if (mem.eql(u8, "__LD", segname) and mem.eql(u8, "__compact_unwind", sectname)) {
-                        log.debug("TODO compact unwind section: type 0x{x}, name '{s},{s}'", .{
-                            flags, segname, sectname,
-                        });
-                    }
-                    continue;
-                },
-                else => {
-                    if (mem.eql(u8, "__LLVM", segname) and mem.eql(u8, "__asm", sectname)) {
-                        log.debug("TODO LLVM bitcode section: type 0x{x}, name '{s},{s}'", .{
-                            flags, segname, sectname,
+                macho.S_COALESCED => {
+                    if (mem.eql(u8, "__TEXT", segname) and mem.eql(u8, "__eh_frame", sectname)) {
+                        // TODO I believe __eh_frame is currently part of __unwind_info section
+                        // in the latest ld64 output.
+                        if (self.eh_frame_section_index != null) continue;
+
+                        self.eh_frame_section_index = @intCast(u16, text_seg.sections.items.len);
+                        try text_seg.addSection(self.allocator, .{
+                            .sectname = makeStaticString("__eh_frame"),
+                            .segname = makeStaticString("__TEXT"),
+                            .addr = 0,
+                            .size = 0,
+                            .offset = 0,
+                            .@"align" = 0,
+                            .reloff = 0,
+                            .nreloc = 0,
+                            .flags = macho.S_REGULAR,
+                            .reserved1 = 0,
+                            .reserved2 = 0,
+                            .reserved3 = 0,
                         });
                         continue;
                     }
-                    log.err("unhandled section type 0x{x} for '{s},{s}'", .{ flags, segname, sectname });
-                    return error.UnhandledSection;
+
+                    // TODO audit this: is this the right mapping?
+                    if (self.data_const_section_index != null) continue;
+
+                    self.data_const_section_index = @intCast(u16, data_const_seg.sections.items.len);
+                    try data_const_seg.addSection(self.allocator, .{
+                        .sectname = makeStaticString("__const"),
+                        .segname = makeStaticString("__DATA_CONST"),
+                        .addr = 0,
+                        .size = 0,
+                        .offset = 0,
+                        .@"align" = 0,
+                        .reloff = 0,
+                        .nreloc = 0,
+                        .flags = macho.S_REGULAR,
+                        .reserved1 = 0,
+                        .reserved2 = 0,
+                        .reserved3 = 0,
+                    });
+                    continue;
                 },
+                macho.S_REGULAR => {
+                    if (sect.isCode()) {
+                        if (self.text_section_index != null) continue;
+
+                        self.text_section_index = @intCast(u16, text_seg.sections.items.len);
+                        try text_seg.addSection(self.allocator, .{
+                            .sectname = makeStaticString("__text"),
+                            .segname = makeStaticString("__TEXT"),
+                            .addr = 0,
+                            .size = 0,
+                            .offset = 0,
+                            .@"align" = 0,
+                            .reloff = 0,
+                            .nreloc = 0,
+                            .flags = macho.S_REGULAR | macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS,
+                            .reserved1 = 0,
+                            .reserved2 = 0,
+                            .reserved3 = 0,
+                        });
+                        continue;
+                    }
+
+                    if (sect.isDebug()) {
+                        if (mem.eql(u8, "__LD", segname) and mem.eql(u8, "__compact_unwind", sectname)) {
+                            log.debug("TODO compact unwind section: type 0x{x}, name '{s},{s}'", .{
+                                sect.flags(), segname, sectname,
+                            });
+                        }
+                        continue;
+                    }
+
+                    if (mem.eql(u8, segname, "__TEXT")) {
+                        if (mem.eql(u8, sectname, "__ustring")) {
+                            if (self.ustring_section_index != null) continue;
+
+                            self.ustring_section_index = @intCast(u16, text_seg.sections.items.len);
+                            try text_seg.addSection(self.allocator, .{
+                                .sectname = makeStaticString("__ustring"),
+                                .segname = makeStaticString("__TEXT"),
+                                .addr = 0,
+                                .size = 0,
+                                .offset = 0,
+                                .@"align" = 0,
+                                .reloff = 0,
+                                .nreloc = 0,
+                                .flags = macho.S_REGULAR,
+                                .reserved1 = 0,
+                                .reserved2 = 0,
+                                .reserved3 = 0,
+                            });
+                        } else if (mem.eql(u8, sectname, "__gcc_except_tab")) {
+                            if (self.gcc_except_tab_section_index != null) continue;
+
+                            self.gcc_except_tab_section_index = @intCast(u16, text_seg.sections.items.len);
+                            try text_seg.addSection(self.allocator, .{
+                                .sectname = makeStaticString("__gcc_except_tab"),
+                                .segname = makeStaticString("__TEXT"),
+                                .addr = 0,
+                                .size = 0,
+                                .offset = 0,
+                                .@"align" = 0,
+                                .reloff = 0,
+                                .nreloc = 0,
+                                .flags = macho.S_REGULAR,
+                                .reserved1 = 0,
+                                .reserved2 = 0,
+                                .reserved3 = 0,
+                            });
+                        } else {
+                            if (self.text_const_section_index != null) continue;
+
+                            self.text_const_section_index = @intCast(u16, text_seg.sections.items.len);
+                            try text_seg.addSection(self.allocator, .{
+                                .sectname = makeStaticString("__const"),
+                                .segname = makeStaticString("__TEXT"),
+                                .addr = 0,
+                                .size = 0,
+                                .offset = 0,
+                                .@"align" = 0,
+                                .reloff = 0,
+                                .nreloc = 0,
+                                .flags = macho.S_REGULAR,
+                                .reserved1 = 0,
+                                .reserved2 = 0,
+                                .reserved3 = 0,
+                            });
+                        }
+                        continue;
+                    }
+
+                    if (mem.eql(u8, segname, "__DATA_CONST")) {
+                        if (self.data_const_section_index != null) continue;
+
+                        self.data_const_section_index = @intCast(u16, data_const_seg.sections.items.len);
+                        try data_const_seg.addSection(self.allocator, .{
+                            .sectname = makeStaticString("__const"),
+                            .segname = makeStaticString("__DATA_CONST"),
+                            .addr = 0,
+                            .size = 0,
+                            .offset = 0,
+                            .@"align" = 0,
+                            .reloff = 0,
+                            .nreloc = 0,
+                            .flags = macho.S_REGULAR,
+                            .reserved1 = 0,
+                            .reserved2 = 0,
+                            .reserved3 = 0,
+                        });
+                        continue;
+                    }
+
+                    if (mem.eql(u8, segname, "__DATA")) {
+                        if (mem.eql(u8, sectname, "__const")) {
+                            if (self.data_const_section_index != null) continue;
+
+                            self.data_const_section_index = @intCast(u16, data_const_seg.sections.items.len);
+                            try data_const_seg.addSection(self.allocator, .{
+                                .sectname = makeStaticString("__const"),
+                                .segname = makeStaticString("__DATA_CONST"),
+                                .addr = 0,
+                                .size = 0,
+                                .offset = 0,
+                                .@"align" = 0,
+                                .reloff = 0,
+                                .nreloc = 0,
+                                .flags = macho.S_REGULAR,
+                                .reserved1 = 0,
+                                .reserved2 = 0,
+                                .reserved3 = 0,
+                            });
+                        } else {
+                            if (self.data_section_index != null) continue;
+
+                            self.data_section_index = @intCast(u16, data_seg.sections.items.len);
+                            try data_seg.addSection(self.allocator, .{
+                                .sectname = makeStaticString("__data"),
+                                .segname = makeStaticString("__DATA"),
+                                .addr = 0,
+                                .size = 0,
+                                .offset = 0,
+                                .@"align" = 0,
+                                .reloff = 0,
+                                .nreloc = 0,
+                                .flags = macho.S_REGULAR,
+                                .reserved1 = 0,
+                                .reserved2 = 0,
+                                .reserved3 = 0,
+                            });
+                        }
+
+                        continue;
+                    }
+
+                    if (mem.eql(u8, "__LLVM", segname) and mem.eql(u8, "__asm", sectname)) {
+                        log.debug("TODO LLVM asm section: type 0x{x}, name '{s},{s}'", .{
+                            sect.flags(), segname, sectname,
+                        });
+                        continue;
+                    }
+                },
+                else => {},
             }
+
+            log.err("{s}: unhandled section type 0x{x} for '{s},{s}'", .{
+                object.name.?,
+                sect.flags(),
+                segname,
+                sectname,
+            });
+            return error.UnhandledSection;
         }
 
         // Find ideal section alignment.
-        for (object_seg.sections.items) |source_sect| {
-            if (self.getMatchingSection(source_sect)) |res| {
+        for (object.sections.items) |sect| {
+            if (self.getMatchingSection(sect)) |res| {
                 const target_seg = &self.load_commands.items[res.seg].Segment;
                 const target_sect = &target_seg.sections.items[res.sect];
-                target_sect.@"align" = math.max(target_sect.@"align", source_sect.@"align");
+                target_sect.@"align" = math.max(target_sect.@"align", sect.inner.@"align");
             }
         }
 
         // Update section mappings
-        for (object_seg.sections.items) |source_sect, sect_id| {
-            const source_sect_id = @intCast(u16, sect_id);
-            if (self.getMatchingSection(source_sect)) |res| {
-                try self.mapAndUpdateSections(object, source_sect_id, res.seg, res.sect);
+        for (object.sections.items) |sect, sect_id| {
+            if (self.getMatchingSection(sect)) |res| {
+                try self.mapAndUpdateSections(object, @intCast(u16, sect_id), res.seg, res.sect);
                 continue;
             }
-
-            log.debug("section '{s},{s}' will be unmapped", .{
-                parseName(&source_sect.segname),
-                parseName(&source_sect.sectname),
-            });
+            log.debug("section '{s},{s}' will be unmapped", .{ sect.segname(), sect.sectname() });
         }
     }
 
@@ -819,13 +950,13 @@ const MatchingSection = struct {
     sect: u16,
 };
 
-fn getMatchingSection(self: *Zld, section: macho.section_64) ?MatchingSection {
-    const segname = parseName(&section.segname);
-    const sectname = parseName(&section.sectname);
+fn getMatchingSection(self: *Zld, sect: Object.Section) ?MatchingSection {
+    const segname = sect.segname();
+    const sectname = sect.sectname();
 
     const res: ?MatchingSection = blk: {
-        switch (section.flags) {
-            macho.S_4BYTE_LITERALS, macho.S_8BYTE_LITERALS, macho.S_16BYTE_LITERALS => {
+        switch (sect.sectionType()) {
+            macho.S_4BYTE_LITERALS, macho.S_8BYTE_LITERALS, macho.S_16BYTE_LITERALS, macho.S_LITERAL_POINTERS => {
                 break :blk .{
                     .seg = self.text_segment_cmd_index.?,
                     .sect = self.text_const_section_index.?,
@@ -855,11 +986,12 @@ fn getMatchingSection(self: *Zld, section: macho.section_64) ?MatchingSection {
                         .seg = self.data_segment_cmd_index.?,
                         .sect = self.common_section_index.?,
                     };
+                } else {
+                    break :blk .{
+                        .seg = self.data_segment_cmd_index.?,
+                        .sect = self.bss_section_index.?,
+                    };
                 }
-                break :blk .{
-                    .seg = self.data_segment_cmd_index.?,
-                    .sect = self.bss_section_index.?,
-                };
             },
             macho.S_THREAD_LOCAL_VARIABLES => {
                 break :blk .{
@@ -879,31 +1011,57 @@ fn getMatchingSection(self: *Zld, section: macho.section_64) ?MatchingSection {
                     .sect = self.tlv_bss_section_index.?,
                 };
             },
-            macho.S_REGULAR | macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS => {
+            macho.S_COALESCED => {
+                if (mem.eql(u8, "__TEXT", segname) and mem.eql(u8, "__eh_frame", sectname)) {
+                    break :blk .{
+                        .seg = self.text_segment_cmd_index.?,
+                        .sect = self.eh_frame_section_index.?,
+                    };
+                }
+
                 break :blk .{
-                    .seg = self.text_segment_cmd_index.?,
-                    .sect = self.text_section_index.?,
+                    .seg = self.data_const_segment_cmd_index.?,
+                    .sect = self.data_const_section_index.?,
                 };
             },
             macho.S_REGULAR => {
+                if (sect.isCode()) {
+                    break :blk .{
+                        .seg = self.text_segment_cmd_index.?,
+                        .sect = self.text_section_index.?,
+                    };
+                }
+                if (sect.isDebug()) {
+                    // TODO debug attributes
+                    break :blk null;
+                }
+
                 if (mem.eql(u8, segname, "__TEXT")) {
                     if (mem.eql(u8, sectname, "__ustring")) {
                         break :blk .{
                             .seg = self.text_segment_cmd_index.?,
                             .sect = self.ustring_section_index.?,
                         };
+                    } else if (mem.eql(u8, sectname, "__gcc_except_tab")) {
+                        break :blk .{
+                            .seg = self.text_segment_cmd_index.?,
+                            .sect = self.gcc_except_tab_section_index.?,
+                        };
+                    } else {
+                        break :blk .{
+                            .seg = self.text_segment_cmd_index.?,
+                            .sect = self.text_const_section_index.?,
+                        };
                     }
-                    break :blk .{
-                        .seg = self.text_segment_cmd_index.?,
-                        .sect = self.text_const_section_index.?,
-                    };
                 }
+
                 if (mem.eql(u8, segname, "__DATA_CONST")) {
                     break :blk .{
                         .seg = self.data_const_segment_cmd_index.?,
                         .sect = self.data_const_section_index.?,
                     };
                 }
+
                 if (mem.eql(u8, segname, "__DATA")) {
                     if (mem.eql(u8, sectname, "__const")) {
                         break :blk .{
@@ -916,11 +1074,10 @@ fn getMatchingSection(self: *Zld, section: macho.section_64) ?MatchingSection {
                         .sect = self.data_section_index.?,
                     };
                 }
+
                 break :blk null;
             },
-            else => {
-                break :blk null;
-            },
+            else => break :blk null,
         }
     };
 
@@ -946,9 +1103,11 @@ fn sortSections(self: *Zld) !void {
             &self.text_section_index,
             &self.stubs_section_index,
             &self.stub_helper_section_index,
-            &self.text_const_section_index,
+            &self.gcc_except_tab_section_index,
             &self.cstring_section_index,
             &self.ustring_section_index,
+            &self.text_const_section_index,
+            &self.eh_frame_section_index,
         };
         for (indices) |maybe_index| {
             const new_index: u16 = if (maybe_index.*) |index| blk: {
@@ -1732,8 +1891,7 @@ fn resolveStubsAndGotEntries(self: *Zld) !void {
             const relocs = sect.relocs orelse continue;
             for (relocs) |rel| {
                 switch (rel.@"type") {
-                    .unsigned => continue,
-                    .got_page, .got_page_off, .got_load, .got => {
+                    .got_page, .got_page_off, .got_load, .got, .pointer_to_got => {
                         const sym = rel.target.symbol.getTopmostAlias();
                         if (sym.got_index != null) continue;
 
@@ -1751,9 +1909,6 @@ fn resolveStubsAndGotEntries(self: *Zld) !void {
 
                         if (sym.stubs_index != null) continue;
                         if (sym.@"type" != .proxy) continue;
-                        // if (sym.cast(Symbol.Regular)) |reg| {
-                        //     if (!reg.weak_ref) continue;
-                        // }
 
                         const index = @intCast(u32, self.stubs.items.len);
                         sym.stubs_index = index;
@@ -1864,11 +2019,16 @@ fn resolveRelocsAndWriteSections(self: *Zld) !void {
                                 });
                             }
                         },
-                        .got_page, .got_page_off, .got_load, .got => {
+                        .got_page, .got_page_off, .got_load, .got, .pointer_to_got => {
                             const dc_seg = self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
                             const got = dc_seg.sections.items[self.got_section_index.?];
                             const final = rel.target.symbol.getTopmostAlias();
-                            args.target_addr = got.addr + final.got_index.? * @sizeOf(u64);
+                            const got_index = final.got_index orelse {
+                                log.err("expected GOT index relocating symbol '{s}'", .{final.name});
+                                log.err("this is an internal linker error", .{});
+                                return error.FailedToResolveRelocationTarget;
+                            };
+                            args.target_addr = got.addr + got_index * @sizeOf(u64);
                         },
                         else => |tt| {
                             if (tt == .signed and rel.target == .section) {
@@ -1934,9 +2094,15 @@ fn relocTargetAddr(self: *Zld, object: *const Object, target: reloc.Relocation.T
                     log.debug("    | symbol stub '{s}'", .{sym.name});
                     const segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
                     const stubs = segment.sections.items[self.stubs_section_index.?];
-                    break :blk stubs.addr + proxy.base.stubs_index.? * stubs.reserved2;
+                    const stubs_index = proxy.base.stubs_index orelse {
+                        log.err("expected stubs index when relocating symbol '{s}'", .{final.name});
+                        log.err("this is an internal linker error", .{});
+                        return error.FailedToResolveRelocationTarget;
+                    };
+                    break :blk stubs.addr + stubs_index * stubs.reserved2;
                 } else {
                     log.err("failed to resolve symbol '{s}' as a relocation target", .{sym.name});
+                    log.err("this is an internal linker error", .{});
                     return error.FailedToResolveRelocationTarget;
                 }
             },

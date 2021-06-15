@@ -758,10 +758,11 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                 }
             }
 
-            // Search for static libraries first, then dynamic libraries.
-            // TODO Respect flags such as -search_paths_first to the linker.
+            // Assume ld64 default: -search_paths_first
+            // Look in each directory for a dylib (tbd), and then for archive
+            // TODO implement alternative: -search_dylibs_first
             // TODO text-based API, or .tbd files.
-            const exts = &[_][]const u8{ "a", "dylib" };
+            const exts = &[_][]const u8{ "dylib", "a" };
 
             for (search_lib_names.items) |l_name| {
                 var found = false;
