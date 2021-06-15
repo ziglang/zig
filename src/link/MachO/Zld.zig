@@ -1891,7 +1891,6 @@ fn resolveStubsAndGotEntries(self: *Zld) !void {
             const relocs = sect.relocs orelse continue;
             for (relocs) |rel| {
                 switch (rel.@"type") {
-                    .unsigned => continue,
                     .got_page, .got_page_off, .got_load, .got, .pointer_to_got => {
                         const sym = rel.target.symbol.getTopmostAlias();
                         if (sym.got_index != null) continue;
@@ -2025,12 +2024,9 @@ fn resolveRelocsAndWriteSections(self: *Zld) !void {
                             const got = dc_seg.sections.items[self.got_section_index.?];
                             const final = rel.target.symbol.getTopmostAlias();
                             const got_index = final.got_index orelse {
-                                // TODO remove this when we can link against TAPI files.
-                                log.err("undefined reference to symbol '{s}'", .{final.name});
-                                log.err("    | referenced in {s}", .{
-                                    rel.target.symbol.cast(Symbol.Unresolved).?.file.name.?,
-                                });
-                                return error.UndefinedSymbolReference;
+                                log.err("expected GOT index relocating symbol '{s}'", .{final.name});
+                                log.err("this is an internal linker error", .{});
+                                return error.FailedToResolveRelocationTarget;
                             };
                             args.target_addr = got.addr + got_index * @sizeOf(u64);
                         },
@@ -2099,16 +2095,14 @@ fn relocTargetAddr(self: *Zld, object: *const Object, target: reloc.Relocation.T
                     const segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
                     const stubs = segment.sections.items[self.stubs_section_index.?];
                     const stubs_index = proxy.base.stubs_index orelse {
-                        // TODO remove this when we can link against TAPI files.
-                        log.err("undefined reference to symbol '{s}'", .{final.name});
-                        log.err("    | referenced in {s}", .{
-                            sym.cast(Symbol.Unresolved).?.file.name.?,
-                        });
-                        return error.UndefinedSymbolReference;
+                        log.err("expected stubs index when relocating symbol '{s}'", .{final.name});
+                        log.err("this is an internal linker error", .{});
+                        return error.FailedToResolveRelocationTarget;
                     };
                     break :blk stubs.addr + stubs_index * stubs.reserved2;
                 } else {
                     log.err("failed to resolve symbol '{s}' as a relocation target", .{sym.name});
+                    log.err("this is an internal linker error", .{});
                     return error.FailedToResolveRelocationTarget;
                 }
             },
