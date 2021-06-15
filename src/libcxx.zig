@@ -139,9 +139,8 @@ pub fn buildLibCXX(comp: *Compilation) !void {
         }
 
         if (target.os.tag == .wasi) {
-            // WASI doesn't support thread yet.
+            // WASI doesn't support thread and exception yet.
             try cflags.append("-D_LIBCPP_HAS_NO_THREADS");
-            // Also, exception is not supported yet.
             try cflags.append("-fno-exceptions");
         }
 
@@ -253,13 +252,12 @@ pub fn buildLibCXXABI(comp: *Compilation) !void {
         var cflags = std.ArrayList([]const u8).init(arena);
 
         if (target.os.tag == .wasi) {
-            // WASI doesn't support thread yet.
+            // WASI doesn't support thread and exception yet.
             if (std.mem.startsWith(u8, cxxabi_src, "src/cxa_thread_atexit.cpp") or
                 std.mem.startsWith(u8, cxxabi_src, "src/cxa_exception.cpp") or
                 std.mem.startsWith(u8, cxxabi_src, "src/cxa_personality.cpp"))
                 continue;
             try cflags.append("-D_LIBCXXABI_HAS_NO_THREADS");
-            // Also, exception is not supported yet.
             try cflags.append("-fno-exceptions");
         } else {
             try cflags.append("-DHAVE___CXA_THREAD_ATEXIT_IMPL");
