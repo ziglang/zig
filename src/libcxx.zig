@@ -141,6 +141,7 @@ pub fn buildLibCXX(comp: *Compilation) !void {
         if (target.os.tag == .wasi) {
             // WASI doesn't support thread yet.
             try cflags.append("-D_LIBCPP_HAS_NO_THREADS");
+            // Also, exception is not supported yet.
             try cflags.append("-fno-exceptions");
         }
 
