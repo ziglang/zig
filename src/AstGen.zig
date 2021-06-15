@@ -2405,7 +2405,7 @@ fn varDecl(
                 .name = ident_name,
                 .ptr = init_scope.rl_ptr,
                 .token_src = name_token,
-                .is_comptime = true,
+                .maybe_comptime = true,
             };
             return &sub_scope.base;
         },
@@ -2461,7 +2461,7 @@ fn varDecl(
                 .name = ident_name,
                 .ptr = var_data.alloc,
                 .token_src = name_token,
-                .is_comptime = is_comptime,
+                .maybe_comptime = is_comptime,
             };
             return &sub_scope.base;
         },
@@ -5405,7 +5405,7 @@ fn forExpr(
             .name = index_name,
             .ptr = index_ptr,
             .token_src = index_token,
-            .is_comptime = is_inline,
+            .maybe_comptime = is_inline,
         };
         break :blk &index_scope.base;
     };
@@ -6188,7 +6188,7 @@ fn identifier(
                 if (local_ptr.name == name_str_index) {
                     local_ptr.used = true;
                     if (hit_namespace) {
-                        if (local_ptr.is_comptime)
+                        if (local_ptr.maybe_comptime)
                             break
                         else
                             return astgen.failNodeNotes(ident, "'{s}' not accessible from inner function", .{ident_name}, &.{
@@ -6836,9 +6836,32 @@ fn builtinCall(
                 .identifier => {
                     const ident_token = main_tokens[params[0]];
                     decl_name = try astgen.identAsString(ident_token);
-                    // TODO look for local variables in scope matching `decl_name` and emit a compile
-                    // error. Only top-level declarations can be exported. Until this is done, the
-                    // compile error will end up being "use of undeclared identifier" in Sema.
+                    {
+                        var s = scope;
+                        while (true) switch (s.tag) {
+                            .local_val => {
+                                const local_val = s.cast(Scope.LocalVal).?;
+                                if (local_val.name == decl_name) {
+                                    local_val.used = true;
+                                    break;
+                                }
+                                s = local_val.parent;
+                            },
+                            .local_ptr => {
+                                const local_ptr = s.cast(Scope.LocalPtr).?;
+                                if (local_ptr.name == decl_name) {
+                                    if (!local_ptr.maybe_comptime)
+                                        return astgen.failNode(params[0], "unable to export runtime-known value", .{});
+                                    local_ptr.used = true;
+                                    break;
+                                }
+                                s = local_ptr.parent;
+                            },
+                            .gen_zir => s = s.cast(GenZir).?.parent,
+                            .defer_normal, .defer_error => s = s.cast(Scope.Defer).?.parent,
+                            .namespace, .top => break,
+                        };
+                    }
                 },
                 .field_access => {
                     const namespace_node = node_datas[params[0]].lhs;
@@ -6848,7 +6871,7 @@ fn builtinCall(
                     decl_name = try astgen.identAsString(field_ident);
                 },
                 else => return astgen.failNode(
-                    params[0], "the first @export parameter must be an identifier", .{},
+                    params[0], "symbol to export must identify a declaration", .{},
                 ),
             }
             const options = try comptimeExpr(gz, scope, .{ .ty = .export_options_type }, params[1]);
@@ -8431,7 +8454,8 @@ const Scope = struct {
         token_src: ast.TokenIndex,
         /// String table index.
         name: u32,
-        is_comptime: bool,
+        /// true means we find out during Sema whether the value is comptime. false means it is already known at AstGen the value is runtime-known.
+        maybe_comptime: bool,
         /// has this variable been referenced?
         used: bool = false,
     };
