@@ -1000,10 +1000,6 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
     , &[_][]const u8{":2:3: error: this is an error"});
 
-    ctx.compileError("double ampersand as boolean and", linux_x64,
-        \\const a = if (true && false) 1 else 2;
-    , &[_][]const u8{":1:20: error: `&&` is invalid; note that `and` is boolean AND"});
-
     {
         var case = ctx.obj("variable shadowing", linux_x64);
         case.addError(
@@ -1568,5 +1564,28 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    return;
             \\}
         , "HeHelHellHello");
+    }
+
+    {
+        var case = ctx.exe("double ampersand", linux_x64);
+
+        case.addError(
+            \\const a = if (true && false) 1 else 2;
+        , &[_][]const u8{":1:20: error: `&&` is invalid; note that `and` is boolean AND"});
+
+        case.addError(
+            \\pub fn main() void {
+            \\    const a = true;
+            \\    const b = false;
+            \\    const c = a & &b;
+            \\}
+        , &[_][]const u8{":4:17: error: incompatible types: 'bool' and '*const bool'"});
+
+        case.addCompareOutput(
+            \\pub fn main() void {
+            \\    const b: u8 = 1;
+            \\    const c = &&b;
+            \\}
+        , "");
     }
 }
