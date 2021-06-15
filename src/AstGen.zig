@@ -6706,18 +6706,33 @@ fn builtinCall(
 
         .@"export" => {
             const node_tags = tree.nodes.items(.tag);
+            const node_datas = tree.nodes.items(.data);
             // This function causes a Decl to be exported. The first parameter is not an expression,
             // but an identifier of the Decl to be exported.
-            if (node_tags[params[0]] != .identifier) {
-                return astgen.failNode(params[0], "the first @export parameter must be an identifier", .{});
+            var namespace: Zir.Inst.Ref = .none;
+            var decl_name: u32 = 0;
+            switch (node_tags[params[0]]) {
+                .identifier => {
+                    const ident_token = main_tokens[params[0]];
+                    decl_name = try astgen.identAsString(ident_token);
+                    // TODO look for local variables in scope matching `decl_name` and emit a compile
+                    // error. Only top-level declarations can be exported. Until this is done, the
+                    // compile error will end up being "use of undeclared identifier" in Sema.
+                },
+                .field_access => {
+                    const namespace_node = node_datas[params[0]].lhs;
+                    namespace = try typeExpr(gz, scope, namespace_node);
+                    const dot_token = main_tokens[params[0]];
+                    const field_ident = dot_token + 1;
+                    decl_name = try astgen.identAsString(field_ident);
+                },
+                else => return astgen.failNode(
+                    params[0], "the first @export parameter must be an identifier", .{},
+                ),
             }
-            const ident_token = main_tokens[params[0]];
-            const decl_name = try astgen.identAsString(ident_token);
-            // TODO look for local variables in scope matching `decl_name` and emit a compile
-            // error. Only top-level declarations can be exported. Until this is done, the
-            // compile error will end up being "use of undeclared identifier" in Sema.
             const options = try comptimeExpr(gz, scope, .{ .ty = .export_options_type }, params[1]);
             _ = try gz.addPlNode(.@"export", node, Zir.Inst.Export{
+                .namespace = namespace,
                 .decl_name = decl_name,
                 .options = options,
             });

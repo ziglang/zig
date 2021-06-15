@@ -1985,6 +1985,9 @@ fn zirExport(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!
     const lhs_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const rhs_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
     const decl_name = sema.code.nullTerminatedString(extra.decl_name);
+    if (extra.namespace != .none) {
+        return sema.mod.fail(&block.base, src, "TODO: implement exporting with field access", .{});
+    }
     const decl = try sema.lookupIdentifier(block, lhs_src, decl_name);
     const options = try sema.resolveInstConst(block, rhs_src, extra.options);
     const struct_obj = options.ty.castTag(.@"struct").?.data;
