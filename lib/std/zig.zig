@@ -16,6 +16,10 @@ pub const ast = @import("zig/ast.zig");
 pub const system = @import("zig/system.zig");
 pub const CrossTarget = @import("zig/cross_target.zig").CrossTarget;
 
+// Files needed by translate-c.
+pub const c_builtins = @import("zig/c_builtins.zig");
+pub const c_translation = @import("zig/c_translation.zig");
+
 pub const SrcHash = [16]u8;
 
 pub fn hashSrc(src: []const u8) SrcHash {
