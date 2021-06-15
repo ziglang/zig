@@ -17,7 +17,7 @@ const assert = std.debug.assert;
 // TODO use incremental compilation
 
 base: link.File,
-ptr_width: PtrWidth,
+sixtyfour_bit: bool,
 error_flags: File.ErrorFlags = File.ErrorFlags{},
 bases: Bases,
 
@@ -33,41 +33,35 @@ entry_decl: ?*Module.Decl = null,
 
 got: std.ArrayListUnmanaged(u64) = .{},
 const Bases = struct {
-    text: u32,
+    text: u64,
     /// the addr of the got
-    data: u32,
+    data: u64,
 };
 
-fn getAddr(self: Plan9, addr: u32, t: aout.SymType) u32 {
+fn getAddr(self: Plan9, addr: u64, t: aout.SymType) u64 {
     return addr + switch (t) {
-        .T, .t => self.bases.text,
+        .T, .t, .l, .L => self.bases.text,
         .D, .d, .B, .b => self.bases.data,
-        else => @panic("get address for more symbol types"),
+        else => unreachable,
     };
 }
 /// opposite of getAddr
-fn takeAddr(self: Plan9, addr: u32, t: aout.SymType) u32 {
+fn takeAddr(self: Plan9, addr: u64, t: aout.SymType) u64 {
     return addr - switch (t) {
-        .T, .t => self.bases.text,
-        .D, .d, .B, .b => self.bases.data, // TODO is .b correct here?
-        else => @panic("take address for more symbol types"),
+        .T, .t, .l, .L => self.bases.text,
+        .D, .d, .B, .b => self.bases.data,
+        else => unreachable,
     };
 }
 
-fn getSymAddr(self: Plan9, s: aout.Sym) u32 {
-    return self.getAddr(@intCast(u32, s.value), s.type);
-}
-
-fn headerSize(self: Plan9) u32 {
-    // fat header (currently unused)
-    const fat: u8 = if (self.ptr_width == .p64) 8 else 0;
-    return @sizeOf(aout.ExecHdr) + fat;
+fn getSymAddr(self: Plan9, s: aout.Sym) u64 {
+    return self.getAddr(s.value, s.type);
 }
 
 pub const DeclBlock = struct {
     type: aout.SymType,
     /// offset in the text or data sects
-    offset: ?u32,
+    offset: ?u64,
     /// offset into syms
     sym_index: ?usize,
     /// offset into got
@@ -101,9 +95,9 @@ pub const PtrWidth = enum { p32, p64 };
 pub fn createEmpty(gpa: *Allocator, options: link.Options) !*Plan9 {
     if (options.use_llvm)
         return error.LLVMBackendDoesNotSupportPlan9;
-    const ptr_width: PtrWidth = switch (options.target.cpu.arch.ptrBitWidth()) {
-        0...32 => .p32,
-        33...64 => .p64,
+    const sixtyfour_bit: bool = switch (options.target.cpu.arch.ptrBitWidth()) {
+        0...32 => false,
+        33...64 => true,
         else => return error.UnsupportedP9Architecture,
     };
     const self = try gpa.create(Plan9);
@@ -114,7 +108,7 @@ pub fn createEmpty(gpa: *Allocator, options: link.Options) !*Plan9 {
             .allocator = gpa,
             .file = null,
         },
-        .ptr_width = ptr_width,
+        .sixtyfour_bit = sixtyfour_bit,
         .bases = undefined,
     };
     return self;
@@ -150,7 +144,7 @@ pub fn flushModule(self: *Plan9, comp: *Compilation) !void {
     self.data_buf.items.len = 0;
     // ensure space to write the got later
     assert(self.got.items.len == self.decl_table.count());
-    try self.data_buf.appendNTimes(self.base.allocator, 0x69, self.got.items.len * if (self.ptr_width == .p32) @as(u32, 4) else 8);
+    try self.data_buf.appendNTimes(self.base.allocator, 0x69, self.got.items.len * if (!self.sixtyfour_bit) @as(u32, 4) else 8);
     // temporary buffer
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
@@ -161,12 +155,12 @@ pub fn flushModule(self: *Plan9, comp: *Compilation) !void {
 
             log.debug("update the symbol table and got for decl {*} ({s})", .{ decl, decl.name });
             decl.link.plan9 = if (is_fn) .{
-                .offset = self.getAddr(@intCast(u32, self.text_buf.items.len), .t),
+                .offset = self.getAddr(self.text_buf.items.len, .t),
                 .type = .t,
                 .sym_index = decl.link.plan9.sym_index,
                 .got_index = decl.link.plan9.got_index,
             } else .{
-                .offset = self.getAddr(@intCast(u32, self.data_buf.items.len), .d),
+                .offset = self.getAddr(self.data_buf.items.len, .d),
                 .type = .d,
                 .sym_index = decl.link.plan9.sym_index,
                 .got_index = decl.link.plan9.got_index,
@@ -243,7 +237,7 @@ pub fn flushModule(self: *Plan9, comp: *Compilation) !void {
     }
 
     // write the got
-    if (self.ptr_width == .p32) {
+    if (!self.sixtyfour_bit) {
         for (self.got.items) |p, i| {
             mem.writeInt(u32, self.data_buf.items[i * 4 ..][0..4], @intCast(u32, p), self.base.options.target.cpu.arch.endian());
         }
@@ -253,15 +247,12 @@ pub fn flushModule(self: *Plan9, comp: *Compilation) !void {
         }
     }
 
-    if (self.entry_decl == null) {
-        @panic("TODO we didn't have _start");
-    }
-    self.hdr.entry = self.entry_decl.?.link.plan9.offset.?;
+    self.hdr.entry = @truncate(u32, self.entry_decl.?.link.plan9.offset.?);
 
     // edata, end, etext
-    self.syms.items[0].value = self.getAddr(0x0, .b); // what is this number
-    self.syms.items[1].value = self.getAddr(0x0, .b); // what is this number
-    self.syms.items[2].value = self.getAddr(@intCast(u32, self.text_buf.items.len), .t);
+    self.syms.items[0].value = self.getAddr(0x0, .b);
+    self.syms.items[1].value = self.getAddr(0x0, .b);
+    self.syms.items[2].value = self.getAddr(self.text_buf.items.len, .t);
 
     var sym_buf = std.ArrayList(u8).init(self.base.allocator);
     defer sym_buf.deinit();
@@ -284,9 +275,9 @@ pub fn flushModule(self: *Plan9, comp: *Compilation) !void {
     var hdr_buf = self.hdr.toU8s();
     const hdr_slice: []const u8 = &hdr_buf;
     // account for the fat header
-    const hdr_size: u8 = if (self.ptr_width == .p32) 32 else 40;
-    // write the fat header for debug info
-    if (self.ptr_width == .p64) {
+    const hdr_size: u8 = if (!self.sixtyfour_bit) 32 else 40;
+    // write the fat header for 64 bit entry points
+    if (self.sixtyfour_bit) {
         mem.writeIntSliceBig(u64, hdr_buf[32..40], self.hdr.entry);
     }
     // write it all!
@@ -335,9 +326,6 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
     const self = try createEmpty(allocator, options);
     errdefer self.base.destroy();
 
-    if (std.builtin.mode == .Debug or std.builtin.mode == .ReleaseSafe)
-        self.hdr.entry = 0x0;
-
     self.bases = defaultBaseAddrs(options.target.cpu.arch);
 
     // first 3 symbols in our table are edata, end, etext
@@ -366,7 +354,7 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
 pub fn writeSyms(self: *Plan9, buf: *std.ArrayList(u8)) !void {
     const writer = buf.writer();
     for (self.syms.items) |sym| {
-        if (self.ptr_width == .p32) {
+        if (!self.sixtyfour_bit) {
             try writer.writeIntBig(u32, @intCast(u32, sym.value));
         } else {
             try writer.writeIntBig(u64, sym.value);

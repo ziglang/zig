@@ -28,6 +28,8 @@ pub const ExecHdr = extern struct {
     data: u32,
     bss: u32,
     syms: u32,
+    /// You should truncate this to 32 bits on 64 bit systems, then but the actual 8 bytes
+    /// in the fat header.
     entry: u32,
     spsz: u32,
     pcsz: u32,
