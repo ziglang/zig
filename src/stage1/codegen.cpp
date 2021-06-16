@@ -9289,6 +9289,10 @@ static void init(CodeGen *g) {
         ZigLLVMSetModulePIELevel(g->module);
     }
 
+    if (g->code_model != CodeModelDefault) {
+        ZigLLVMSetModuleCodeModel(g->module, to_llvm_code_model(g));
+    }
+
     const char *target_specific_cpu_args = "";
     const char *target_specific_features = "";
 
