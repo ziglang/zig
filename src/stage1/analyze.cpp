@@ -6444,12 +6444,12 @@ ZigValue *create_const_type(CodeGen *g, ZigType *type_value) {
 }
 
 void init_const_slice(CodeGen *g, ZigValue *const_val, ZigValue *array_val,
-        size_t start, size_t len, bool is_const)
+        size_t start, size_t len, bool is_const, ZigValue *sentinel)
 {
     assert(array_val->type->id == ZigTypeIdArray);
 
-    ZigType *ptr_type = get_pointer_to_type_extra(g, array_val->type->data.array.child_type,
-            is_const, false, PtrLenUnknown, 0, 0, 0, false);
+    ZigType *ptr_type = get_pointer_to_type_extra2(g, array_val->type->data.array.child_type,
+            is_const, false, PtrLenUnknown, 0, 0, 0, false, VECTOR_INDEX_NONE, nullptr, sentinel);
 
     const_val->special = ConstValSpecialStatic;
     const_val->type = get_slice_type(g, ptr_type);
@@ -6460,9 +6460,9 @@ void init_const_slice(CodeGen *g, ZigValue *const_val, ZigValue *array_val,
     init_const_usize(g, const_val->data.x_struct.fields[slice_len_index], len);
 }
 
-ZigValue *create_const_slice(CodeGen *g, ZigValue *array_val, size_t start, size_t len, bool is_const) {
+ZigValue *create_const_slice(CodeGen *g, ZigValue *array_val, size_t start, size_t len, bool is_const, ZigValue *sentinel) {
     ZigValue *const_val = g->pass1_arena->create<ZigValue>();
-    init_const_slice(g, const_val, array_val, start, len, is_const);
+    init_const_slice(g, const_val, array_val, start, len, is_const, sentinel);
     return const_val;
 }
 

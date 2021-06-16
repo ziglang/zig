@@ -5190,7 +5190,7 @@ static IrInstGen *ir_resolve_ptr_of_array_to_slice(IrAnalyze *ira, IrInst* sourc
     //    undef_array->type = array_type;
 
     //    IrInstGen *result = ir_const(ira, source_instr, wanted_type);
-    //    init_const_slice(ira->codegen, result->value, undef_array, 0, 0, false);
+    //    init_const_slice(ira->codegen, result->value, undef_array, 0, 0, false, nullptr);
     //    result->value->data.x_struct.fields[slice_ptr_index]->data.x_ptr.mut = ConstPtrMutComptimeConst;
     //    result->value->type = wanted_type;
     //    return result;
@@ -5217,7 +5217,7 @@ static IrInstGen *ir_resolve_ptr_of_array_to_slice(IrAnalyze *ira, IrInst* sourc
             undef_array->type = array_type;
 
             IrInstGen *result = ir_const(ira, source_instr, wanted_type);
-            init_const_slice(ira->codegen, result->value, undef_array, 0, 0, false);
+            init_const_slice(ira->codegen, result->value, undef_array, 0, 0, false, nullptr);
             result->value->data.x_struct.fields[slice_ptr_index]->data.x_ptr.mut = ConstPtrMutComptimeConst;
             result->value->type = wanted_type;
             return result;
@@ -5230,7 +5230,7 @@ static IrInstGen *ir_resolve_ptr_of_array_to_slice(IrAnalyze *ira, IrInst* sourc
                 IrInstGen *result = ir_const(ira, source_instr, wanted_type);
                 init_const_slice(ira->codegen, result->value, array_val,
                         array_ptr_val->data.x_ptr.data.base_array.elem_index,
-                        array_type->data.array.len, wanted_const);
+                        array_type->data.array.len, wanted_const, nullptr);
                 result->value->data.x_struct.fields[slice_ptr_index]->data.x_ptr.mut = array_ptr_val->data.x_ptr.mut;
                 result->value->type = wanted_type;
                 return result;
@@ -5243,7 +5243,7 @@ static IrInstGen *ir_resolve_ptr_of_array_to_slice(IrAnalyze *ira, IrInst* sourc
                 assert(array_ptr_val->type->id == ZigTypeIdPointer);
 
                 IrInstGen *result = ir_const(ira, source_instr, wanted_type);
-                init_const_slice(ira->codegen, result->value, pointee, 0, array_type->data.array.len, wanted_const);
+                init_const_slice(ira->codegen, result->value, pointee, 0, array_type->data.array.len, wanted_const, nullptr);
                 result->value->data.x_struct.fields[slice_ptr_index]->data.x_ptr.mut = array_ptr_val->data.x_ptr.mut;
                 result->value->type = wanted_type;
                 return result;
@@ -14449,7 +14449,7 @@ static IrInstGen *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstSrcElemP
                     }
 
                     init_const_slice(ira->codegen, array_ptr_val, array_init_val, 0, actual_array_type->data.array.len,
-                            false);
+                            false, nullptr);
                     array_ptr_val->data.x_struct.fields[slice_ptr_index]->data.x_ptr.mut = ConstPtrMutInfer;
                 } else {
                     ir_add_error_node(ira, elem_ptr_instruction->init_array_type_source_node,
@@ -17249,7 +17249,7 @@ static Error ir_make_type_info_decls(IrAnalyze *ira, IrInst* source_instr, ZigVa
     declaration_array->type = get_array_type(ira->codegen, type_info_declaration_type, declaration_count, nullptr);
     declaration_array->data.x_array.special = ConstArraySpecialNone;
     declaration_array->data.x_array.data.s_none.elements = ira->codegen->pass1_arena->allocate<ZigValue>(declaration_count);
-    init_const_slice(ira->codegen, out_val, declaration_array, 0, declaration_count, false);
+    init_const_slice(ira->codegen, out_val, declaration_array, 0, declaration_count, false, nullptr);
 
     // Loop through the declarations and generate info.
     decl_it = decls_scope->decl_table.entry_iterator();
@@ -17272,7 +17272,7 @@ static Error ir_make_type_info_decls(IrAnalyze *ira, IrInst* source_instr, ZigVa
 
         ZigValue **inner_fields = alloc_const_vals_ptrs(ira->codegen, 3);
         ZigValue *name = create_const_str_lit(ira->codegen, curr_entry->key)->data.x_ptr.data.ref.pointee;
-        init_const_slice(ira->codegen, inner_fields[0], name, 0, buf_len(curr_entry->key), true);
+        init_const_slice(ira->codegen, inner_fields[0], name, 0, buf_len(curr_entry->key), true, nullptr);
         inner_fields[1]->special = ConstValSpecialStatic;
         inner_fields[1]->type = ira->codegen->builtin_types.entry_bool;
         inner_fields[1]->data.x_bool = curr_entry->value->visib_mod == VisibModPub;
@@ -17368,7 +17368,7 @@ static Error ir_make_type_info_decls(IrAnalyze *ira, IrInst* source_instr, ZigVa
                     if (fn_node->is_extern && fn_node->lib_name != nullptr && buf_len(fn_node->lib_name) > 0) {
                         ZigValue *slice_val = ira->codegen->pass1_arena->create<ZigValue>();
                         ZigValue *lib_name = create_const_str_lit(ira->codegen, fn_node->lib_name)->data.x_ptr.data.ref.pointee;
-                        init_const_slice(ira->codegen, slice_val, lib_name, 0, buf_len(fn_node->lib_name), true);
+                        init_const_slice(ira->codegen, slice_val, lib_name, 0, buf_len(fn_node->lib_name), true, nullptr);
                         set_optional_payload(fn_decl_fields[5], slice_val);
                     } else {
                         set_optional_payload(fn_decl_fields[5], nullptr);
@@ -17388,14 +17388,14 @@ static Error ir_make_type_info_decls(IrAnalyze *ira, IrInst* source_instr, ZigVa
                     fn_arg_name_array->data.x_array.special = ConstArraySpecialNone;
                     fn_arg_name_array->data.x_array.data.s_none.elements = ira->codegen->pass1_arena->allocate<ZigValue>(fn_arg_count);
 
-                    init_const_slice(ira->codegen, fn_decl_fields[7], fn_arg_name_array, 0, fn_arg_count, false);
+                    init_const_slice(ira->codegen, fn_decl_fields[7], fn_arg_name_array, 0, fn_arg_count, false, nullptr);
 
                     for (size_t fn_arg_index = 0; fn_arg_index < fn_arg_count; fn_arg_index++) {
                         ZigVar *arg_var = fn_entry->variable_list.at(fn_arg_index);
                         ZigValue *fn_arg_name_val = &fn_arg_name_array->data.x_array.data.s_none.elements[fn_arg_index];
                         ZigValue *arg_name = create_const_str_lit(ira->codegen,
                                 buf_create_from_str(arg_var->name))->data.x_ptr.data.ref.pointee;
-                        init_const_slice(ira->codegen, fn_arg_name_val, arg_name, 0, strlen(arg_var->name), true);
+                        init_const_slice(ira->codegen, fn_arg_name_val, arg_name, 0, strlen(arg_var->name), true, nullptr);
                         fn_arg_name_val->parent.id = ConstParentIdArray;
                         fn_arg_name_val->parent.data.p_array.array_val = fn_arg_name_array;
                         fn_arg_name_val->parent.data.p_array.elem_index = fn_arg_index;
@@ -17531,7 +17531,7 @@ static void make_enum_field_val(IrAnalyze *ira, ZigValue *enum_field_val, TypeEn
     inner_fields[1]->type = ira->codegen->builtin_types.entry_num_lit_int;
 
     ZigValue *name = create_const_str_lit(ira->codegen, enum_field->name)->data.x_ptr.data.ref.pointee;
-    init_const_slice(ira->codegen, inner_fields[0], name, 0, buf_len(enum_field->name), true);
+    init_const_slice(ira->codegen, inner_fields[0], name, 0, buf_len(enum_field->name), true, nullptr);
 
     bigint_init_bigint(&inner_fields[1]->data.x_bigint, &enum_field->value);
 
@@ -17732,7 +17732,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
                 enum_field_array->data.x_array.special = ConstArraySpecialNone;
                 enum_field_array->data.x_array.data.s_none.elements = ira->codegen->pass1_arena->allocate<ZigValue>(enum_field_count);
 
-                init_const_slice(ira->codegen, fields[2], enum_field_array, 0, enum_field_count, false);
+                init_const_slice(ira->codegen, fields[2], enum_field_array, 0, enum_field_count, false, nullptr);
 
                 for (uint32_t enum_field_index = 0; enum_field_index < enum_field_count; enum_field_index++)
                 {
@@ -17785,7 +17785,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
                 error_array->data.x_array.special = ConstArraySpecialNone;
                 error_array->data.x_array.data.s_none.elements = ira->codegen->pass1_arena->allocate<ZigValue>(error_count);
 
-                init_const_slice(ira->codegen, slice_val, error_array, 0, error_count, false);
+                init_const_slice(ira->codegen, slice_val, error_array, 0, error_count, false, nullptr);
                 for (uint32_t error_index = 0; error_index < error_count; error_index++) {
                     ErrorTableEntry *error = type_entry->data.error_set.errors[error_index];
                     ZigValue *error_val = &error_array->data.x_array.data.s_none.elements[error_index];
@@ -17800,7 +17800,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
                         name = error->cached_error_name_val;
                     if (name == nullptr)
                         name = create_const_str_lit(ira->codegen, &error->name)->data.x_ptr.data.ref.pointee;
-                    init_const_slice(ira->codegen, inner_fields[0], name, 0, buf_len(&error->name), true);
+                    init_const_slice(ira->codegen, inner_fields[0], name, 0, buf_len(&error->name), true, nullptr);
 
                     error_val->data.x_struct.fields = inner_fields;
                     error_val->parent.id = ConstParentIdArray;
@@ -17881,7 +17881,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
                 union_field_array->data.x_array.special = ConstArraySpecialNone;
                 union_field_array->data.x_array.data.s_none.elements = ira->codegen->pass1_arena->allocate<ZigValue>(union_field_count);
 
-                init_const_slice(ira->codegen, fields[2], union_field_array, 0, union_field_count, false);
+                init_const_slice(ira->codegen, fields[2], union_field_array, 0, union_field_count, false, nullptr);
 
                 for (uint32_t union_field_index = 0; union_field_index < union_field_count; union_field_index++) {
                     TypeUnionField *union_field = &type_entry->data.unionation.fields[union_field_index];
@@ -17902,7 +17902,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
                     bigint_init_unsigned(&inner_fields[2]->data.x_bigint, union_field->align);
 
                     ZigValue *name = create_const_str_lit(ira->codegen, union_field->name)->data.x_ptr.data.ref.pointee;
-                    init_const_slice(ira->codegen, inner_fields[0], name, 0, buf_len(union_field->name), true);
+                    init_const_slice(ira->codegen, inner_fields[0], name, 0, buf_len(union_field->name), true, nullptr);
 
                     union_field_val->data.x_struct.fields = inner_fields;
                     union_field_val->parent.id = ConstParentIdArray;
@@ -17958,7 +17958,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
                 struct_field_array->data.x_array.special = ConstArraySpecialNone;
                 struct_field_array->data.x_array.data.s_none.elements = ira->codegen->pass1_arena->allocate<ZigValue>(struct_field_count);
 
-                init_const_slice(ira->codegen, fields[1], struct_field_array, 0, struct_field_count, false);
+                init_const_slice(ira->codegen, fields[1], struct_field_array, 0, struct_field_count, false, nullptr);
 
                 for (uint32_t struct_field_index = 0; struct_field_index < struct_field_count; struct_field_index++) {
                     TypeStructField *struct_field = type_entry->data.structure.fields[struct_field_index];
@@ -17994,7 +17994,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
                     bigint_init_unsigned(&inner_fields[4]->data.x_bigint, struct_field->align);
 
                     ZigValue *name = create_const_str_lit(ira->codegen, struct_field->name)->data.x_ptr.data.ref.pointee;
-                    init_const_slice(ira->codegen, inner_fields[0], name, 0, buf_len(struct_field->name), true);
+                    init_const_slice(ira->codegen, inner_fields[0], name, 0, buf_len(struct_field->name), true, nullptr);
 
                     struct_field_val->data.x_struct.fields = inner_fields;
                     struct_field_val->parent.id = ConstParentIdArray;
@@ -18074,7 +18074,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
                 fn_arg_array->data.x_array.special = ConstArraySpecialNone;
                 fn_arg_array->data.x_array.data.s_none.elements = ira->codegen->pass1_arena->allocate<ZigValue>(fn_arg_count);
 
-                init_const_slice(ira->codegen, fields[5], fn_arg_array, 0, fn_arg_count, false);
+                init_const_slice(ira->codegen, fields[5], fn_arg_array, 0, fn_arg_count, false, nullptr);
 
                 for (size_t fn_arg_index = 0; fn_arg_index < fn_arg_count; fn_arg_index++) {
                     FnTypeParamInfo *fn_param_info = &type_entry->data.fn.fn_type_id.param_info[fn_arg_index];
@@ -24150,7 +24150,7 @@ static IrInstGen *ir_analyze_instruction_src(IrAnalyze *ira, IrInstSrcSrc *instr
     RootStruct *root_struct = import->data.structure.root_struct;
     Buf *path = root_struct->path;
     ZigValue *file_name = create_const_str_lit(ira->codegen, path)->data.x_ptr.data.ref.pointee;
-    init_const_slice(ira->codegen, fields[0], file_name, 0, buf_len(path), true);
+    init_const_slice(ira->codegen, fields[0], file_name, 0, buf_len(path), true, nullptr);
     fields[0]->type = u8_slice;
 
     // fn_name: [:0]const u8
@@ -24158,7 +24158,7 @@ static IrInstGen *ir_analyze_instruction_src(IrAnalyze *ira, IrInstSrcSrc *instr
     fields[1]->special = ConstValSpecialStatic;
 
     ZigValue *fn_name = create_const_str_lit(ira->codegen, &fn_entry->symbol_name)->data.x_ptr.data.ref.pointee;
-    init_const_slice(ira->codegen, fields[1], fn_name, 0, buf_len(&fn_entry->symbol_name), true);
+    init_const_slice(ira->codegen, fields[1], fn_name, 0, buf_len(&fn_entry->symbol_name), true, nullptr);
     fields[1]->type = u8_slice;
 
 
