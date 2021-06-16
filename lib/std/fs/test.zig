@@ -278,7 +278,7 @@ test "directory operations on files" {
     try testing.expectError(error.NotDir, tmp_dir.dir.deleteDir(test_file_name));
 
     switch (builtin.os.tag) {
-        .wasi, .freebsd, .openbsd, .dragonfly => {},
+        .wasi, .freebsd, .netbsd, .openbsd, .dragonfly => {},
         else => {
             const absolute_path = try tmp_dir.dir.realpathAlloc(testing.allocator, test_file_name);
             defer testing.allocator.free(absolute_path);
@@ -308,17 +308,22 @@ test "file operations on directories" {
 
     try testing.expectError(error.IsDir, tmp_dir.dir.createFile(test_dir_name, .{}));
     try testing.expectError(error.IsDir, tmp_dir.dir.deleteFile(test_dir_name));
-    // Currently, WASI will return error.Unexpected (via ENOTCAPABLE) when attempting fd_read on a directory handle.
-    // TODO: Re-enable on WASI once https://github.com/bytecodealliance/wasmtime/issues/1935 is resolved.
-    if (builtin.os.tag != .wasi) {
-        try testing.expectError(error.IsDir, tmp_dir.dir.readFileAlloc(testing.allocator, test_dir_name, std.math.maxInt(usize)));
+    switch (builtin.os.tag) {
+        // NetBSD does not error when reading a directory.
+        .netbsd => {},
+        // Currently, WASI will return error.Unexpected (via ENOTCAPABLE) when attempting fd_read on a directory handle.
+        // TODO: Re-enable on WASI once https://github.com/bytecodealliance/wasmtime/issues/1935 is resolved.
+        .wasi => {},
+        else => {
+            try testing.expectError(error.IsDir, tmp_dir.dir.readFileAlloc(testing.allocator, test_dir_name, std.math.maxInt(usize)));
+        },
     }
     // Note: The `.write = true` is necessary to ensure the error occurs on all platforms.
     // TODO: Add a read-only test as well, see https://github.com/ziglang/zig/issues/5732
     try testing.expectError(error.IsDir, tmp_dir.dir.openFile(test_dir_name, .{ .write = true }));
 
     switch (builtin.os.tag) {
-        .wasi, .freebsd, .openbsd, .dragonfly => {},
+        .wasi, .freebsd, .netbsd, .openbsd, .dragonfly => {},
         else => {
             const absolute_path = try tmp_dir.dir.realpathAlloc(testing.allocator, test_dir_name);
             defer testing.allocator.free(absolute_path);
