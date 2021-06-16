@@ -6291,6 +6291,11 @@ ZigValue *create_const_str_lit(CodeGen *g, Buf *str) {
     return const_val;
 }
 
+ZigValue *create_sentineled_str_lit(CodeGen *g, Buf *str, ZigValue *sentinel) {
+    ZigValue *array_val = create_const_str_lit(g, str)->data.x_ptr.data.ref.pointee;
+    return create_const_slice(g, array_val, 0, buf_len(str), true, sentinel);
+}
+
 void init_const_bigint(ZigValue *const_val, ZigType *type, const BigInt *bigint) {
     const_val->special = ConstValSpecialStatic;
     const_val->type = type;

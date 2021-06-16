@@ -144,6 +144,7 @@ ScopeExpr *create_expr_scope(CodeGen *g, AstNode *node, Scope *parent);
 
 void init_const_str_lit(CodeGen *g, ZigValue *const_val, Buf *str, bool move_str);
 ZigValue *create_const_str_lit(CodeGen *g, Buf *str);
+ZigValue *create_sentineled_str_lit(CodeGen *g, Buf *str, ZigValue *sentinel);
 
 void init_const_bigint(ZigValue *const_val, ZigType *type, const BigInt *bigint);
 ZigValue *create_const_bigint(CodeGen *g, ZigType *type, const BigInt *bigint);
