@@ -732,8 +732,16 @@ test "sigaction" {
     const S = struct {
         fn handler(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const c_void) callconv(.C) void {
             // Check that we received the correct signal.
-            if (sig == os.SIGUSR1 and sig == info.signo)
-                signal_test_failed = false;
+            switch (native_os) {
+                .netbsd => {
+                    if (sig == os.SIGUSR1 and sig == info.info.signo)
+                        signal_test_failed = false;
+                },
+                else => {
+                    if (sig == os.SIGUSR1 and sig == info.signo)
+                        signal_test_failed = false;
+                },
+            }
         }
     };
 

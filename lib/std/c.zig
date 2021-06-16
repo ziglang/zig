@@ -192,6 +192,7 @@ pub usingnamespace switch (builtin.os.tag) {
         pub const sigaction = __sigaction14;
         pub const sigaltstack = __sigaltstack14;
         pub const sigprocmask = __sigprocmask14;
+        pub const socket = __socket30;
         pub const stat = __stat50;
     },
     .macos, .ios, .watchos, .tvos => struct {
