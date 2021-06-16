@@ -969,6 +969,12 @@ void ZigLLVMSetModulePIELevel(LLVMModuleRef module) {
     unwrap(module)->setPIELevel(PIELevel::Level::Large);
 }
 
+void ZigLLVMSetModuleCodeModel(LLVMModuleRef module, LLVMCodeModel code_model) {
+    bool JIT;
+    unwrap(module)->setCodeModel(*unwrap(code_model, JIT));
+    assert(!JIT);
+}
+
 static AtomicOrdering mapFromLLVMOrdering(LLVMAtomicOrdering Ordering) {
     switch (Ordering) {
         case LLVMAtomicOrderingNotAtomic: return AtomicOrdering::NotAtomic;
