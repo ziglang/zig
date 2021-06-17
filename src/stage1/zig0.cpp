@@ -41,7 +41,7 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  -femit-bin=[path]            Output machine code\n"
         "  --pkg-begin [name] [path]    make pkg available to import and push current pkg\n"
         "  --pkg-end                    pop current pkg\n"
-        "  -ODebug                      build with optimizations on and safety off\n"
+        "  -ODebug                      build with optimizations off and safety on\n"
         "  -OReleaseFast                build with optimizations on and safety off\n"
         "  -OReleaseSafe                build with optimizations on and safety on\n"
         "  -OReleaseSmall               build with size optimizations on and safety off\n"
