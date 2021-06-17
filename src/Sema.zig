@@ -2506,7 +2506,7 @@ fn zirErrorToInt(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerEr
     }
 
     try sema.requireRuntimeBlock(block, src);
-    return block.addUnOp(src, result_ty, .error_to_int, op_coerced);
+    return block.addUnOp(src, result_ty, .bitcast, op_coerced);
 }
 
 fn zirIntToError(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
@@ -2539,7 +2539,7 @@ fn zirIntToError(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerEr
         // const is_gt_max = @panic("TODO get max errors in compilation");
         // try sema.addSafetyCheck(block, is_gt_max, .invalid_error_code);
     }
-    return block.addUnOp(src, Type.initTag(.anyerror), .int_to_error, op);
+    return block.addUnOp(src, Type.initTag(.anyerror), .bitcast, op);
 }
 
 fn zirMergeErrorSets(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
