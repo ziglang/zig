@@ -5758,7 +5758,34 @@ fn zirIntToFloat(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerEr
 fn zirIntToPtr(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
-    return sema.mod.fail(&block.base, src, "TODO: Sema.zirIntToPtr", .{});
+
+    const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
+
+    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
+    const operand_res = try sema.resolveInst(extra.rhs);
+    const operand_coerced = try sema.coerce(block, Type.initTag(.usize), operand_res, operand_src);
+
+    const type_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
+    const type_res = try sema.resolveType(block, src, extra.lhs);
+    if (type_res.zigTypeTag() != .Pointer)
+        return sema.mod.fail(&block.base, type_src, "expected pointer, found '{}'", .{type_res});
+
+    const uncasted_operand = try sema.resolveInst(extra.rhs);
+    if (try sema.resolveDefinedValue(block, operand_src, operand_coerced)) |val| {
+        if (!type_res.isAllowzeroPtr() and val.isZero())
+            return sema.mod.fail(&block.base, operand_src, "pointer type '{}' does not allow address zero", .{type_res});
+        const val_payload = try sema.arena.create(Value.Payload.U64);
+        val_payload.* = .{
+            .base = Value.Payload{ .tag = .int_u64 },
+            .data = val.toUnsignedInt(),
+        };
+        return sema.mod.constInst(sema.arena, src, .{
+            .ty = type_res,
+            .val = Value.initPayload(&val_payload.base),
+        });
+    }
+    try sema.requireRuntimeBlock(block, src);
+    return block.addUnOp(src, type_res, .bitcast, operand_coerced);
 }
 
 fn zirErrSetCast(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
@@ -6805,9 +6832,12 @@ fn storePtr(
     if ((try sema.typeHasOnePossibleValue(block, src, elem_ty)) != null)
         return;
 
-    if (try sema.resolvePossiblyUndefinedValue(block, src, ptr)) |ptr_val| {
+    if (try sema.resolvePossiblyUndefinedValue(block, src, ptr)) |ptr_val| blk: {
         const const_val = (try sema.resolvePossiblyUndefinedValue(block, src, value)) orelse
             return sema.mod.fail(&block.base, src, "cannot store runtime value in compile time variable", .{});
+
+        if (ptr_val.tag() == .int_u64)
+            break :blk; // propogate it down to runtime
 
         const comptime_alloc = ptr_val.castTag(.comptime_alloc).?;
         if (comptime_alloc.data.runtime_index < block.runtime_index) {
@@ -6947,7 +6977,10 @@ fn analyzeLoad(
         .Pointer => ptr.ty.elemType(),
         else => return sema.mod.fail(&block.base, ptr_src, "expected pointer, found '{}'", .{ptr.ty}),
     };
-    if (try sema.resolveDefinedValue(block, ptr_src, ptr)) |ptr_val| {
+    if (try sema.resolveDefinedValue(block, ptr_src, ptr)) |ptr_val| blk: {
+        if (ptr_val.tag() == .int_u64)
+            break :blk; // do it at runtime
+
         return sema.mod.constInst(sema.arena, src, .{
             .ty = elem_ty,
             .val = try ptr_val.pointerDeref(sema.arena),
