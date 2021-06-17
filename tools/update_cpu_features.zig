@@ -754,6 +754,10 @@ const llvm_targets = [_]LlvmTarget{
                 .llvm_name = "i686",
                 .zig_name = "_i686",
             },
+            .{
+                .llvm_name = "lakemont",
+                .extra_deps = &.{"soft_float"},
+            },
         },
     },
     .{
