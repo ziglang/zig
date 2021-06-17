@@ -1236,7 +1236,7 @@ pub fn HashMapUnmanaged(
             metadata[0].fill(fingerprint);
             const new_key = &self.keys()[idx];
             const new_value = &self.values()[idx];
-            new_key.* = key;
+            new_key.* = undefined;
             new_value.* = undefined;
             self.size += 1;
 
