@@ -8,35 +8,13 @@ usingnamespace @import("bits.zig");
 pub extern "kernel32" fn AddVectoredExceptionHandler(First: c_ulong, Handler: ?VECTORED_EXCEPTION_HANDLER) callconv(WINAPI) ?*c_void;
 pub extern "kernel32" fn RemoveVectoredExceptionHandler(Handle: HANDLE) callconv(WINAPI) c_ulong;
 
+pub extern "kernel32" fn CancelIo(hFile: HANDLE) callconv(WINAPI) BOOL;
 pub extern "kernel32" fn CancelIoEx(hFile: HANDLE, lpOverlapped: ?LPOVERLAPPED) callconv(WINAPI) BOOL;
 
 pub extern "kernel32" fn CloseHandle(hObject: HANDLE) callconv(WINAPI) BOOL;
 
 pub extern "kernel32" fn CreateDirectoryW(lpPathName: [*:0]const u16, lpSecurityAttributes: ?*SECURITY_ATTRIBUTES) callconv(WINAPI) BOOL;
 pub extern "kernel32" fn SetEndOfFile(hFile: HANDLE) callconv(WINAPI) BOOL;
-
-pub extern "kernel32" fn GetCurrentProcessId() callconv(WINAPI) DWORD;
-
-pub extern "kernel32" fn CreateNamedPipeA(
-    lpName: [*:0]const u8,
-    dwOpenMode: DWORD,
-    dwPipeMode: DWORD,
-    nMaxInstances: DWORD,
-    nOutBufferSize: DWORD,
-    nInBufferSize: DWORD,
-    nDefaultTimeOut: DWORD,
-    lpSecurityAttributes: ?*const SECURITY_ATTRIBUTES,
-) callconv(WINAPI) HANDLE;
-pub extern "kernel32" fn CreateNamedPipeW(
-    lpName: LPCWSTR,
-    dwOpenMode: DWORD,
-    dwPipeMode: DWORD,
-    nMaxInstances: DWORD,
-    nOutBufferSize: DWORD,
-    nInBufferSize: DWORD,
-    nDefaultTimeOut: DWORD,
-    lpSecurityAttributes: ?*const SECURITY_ATTRIBUTES,
-) callconv(WINAPI) HANDLE;
 
 pub extern "kernel32" fn CreateEventExW(
     lpEventAttributes: ?*SECURITY_ATTRIBUTES,
@@ -55,22 +33,23 @@ pub extern "kernel32" fn CreateFileW(
     hTemplateFile: ?HANDLE,
 ) callconv(WINAPI) HANDLE;
 
-pub extern "kernel32" fn CreateFileA(
-    lpFileName: [*:0]const u8,
-    dwDesiredAccess: DWORD,
-    dwShareMode: DWORD,
-    lpSecurityAttributes: ?*const SECURITY_ATTRIBUTES,
-    dwCreationDisposition: DWORD,
-    dwFlagsAndAttributes: DWORD,
-    hTemplateFile: ?HANDLE,
-) callconv(WINAPI) HANDLE;
-
 pub extern "kernel32" fn CreatePipe(
     hReadPipe: *HANDLE,
     hWritePipe: *HANDLE,
     lpPipeAttributes: *const SECURITY_ATTRIBUTES,
     nSize: DWORD,
 ) callconv(WINAPI) BOOL;
+
+pub extern "kernel32" fn CreateNamedPipeW(
+    lpName: LPCWSTR,
+    dwOpenMode: DWORD,
+    dwPipeMode: DWORD,
+    nMaxInstances: DWORD,
+    nOutBufferSize: DWORD,
+    nInBufferSize: DWORD,
+    nDefaultTimeOut: DWORD,
+    lpSecurityAttributes: ?*const SECURITY_ATTRIBUTES,
+) callconv(WINAPI) HANDLE;
 
 pub extern "kernel32" fn CreateProcessW(
     lpApplicationName: ?LPWSTR,
@@ -131,6 +110,8 @@ pub extern "kernel32" fn GetCurrentDirectoryW(nBufferLength: DWORD, lpBuffer: ?[
 
 pub extern "kernel32" fn GetCurrentThread() callconv(WINAPI) HANDLE;
 pub extern "kernel32" fn GetCurrentThreadId() callconv(WINAPI) DWORD;
+
+pub extern "kernel32" fn GetCurrentProcessId() callconv(WINAPI) DWORD;
 
 pub extern "kernel32" fn GetCurrentProcess() callconv(WINAPI) HANDLE;
 
