@@ -850,8 +850,6 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .is_null_ptr => return self.genIsNullPtr(inst.castTag(.is_null_ptr).?),
                 .is_err => return self.genIsErr(inst.castTag(.is_err).?),
                 .is_err_ptr => return self.genIsErrPtr(inst.castTag(.is_err_ptr).?),
-                .error_to_int => return self.genErrorToInt(inst.castTag(.error_to_int).?),
-                .int_to_error => return self.genIntToError(inst.castTag(.int_to_error).?),
                 .load => return self.genLoad(inst.castTag(.load).?),
                 .loop => return self.genLoop(inst.castTag(.loop).?),
                 .not => return self.genNot(inst.castTag(.not).?),
@@ -2958,14 +2956,6 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
         fn genIsErrPtr(self: *Self, inst: *ir.Inst.UnOp) !MCValue {
             return self.fail(inst.base.src, "TODO load the operand and call genIsErr", .{});
-        }
-
-        fn genErrorToInt(self: *Self, inst: *ir.Inst.UnOp) !MCValue {
-            return self.resolveInst(inst.operand);
-        }
-
-        fn genIntToError(self: *Self, inst: *ir.Inst.UnOp) !MCValue {
-            return self.resolveInst(inst.operand);
         }
 
         fn genLoop(self: *Self, inst: *ir.Inst.Loop) !MCValue {
