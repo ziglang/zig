@@ -98,6 +98,7 @@ pub const CoffError = error{
     InvalidPEHeader,
     InvalidMachine,
     MissingCoffSection,
+    MissingStringTable,
 };
 
 // Official documentation of the format: https://docs.microsoft.com/en-us/windows/win32/debug/pe-format
@@ -160,6 +161,25 @@ pub const Coff = struct {
         }
 
         try self.loadOptionalHeader();
+    }
+
+    fn readStringFromTable(self: *Coff, offset: usize, buf: []u8) ![]const u8 {
+        if (self.coff_header.pointer_to_symbol_table == 0) {
+            // No symbol table therefore no string table
+            return error.MissingStringTable;
+        }
+        // The string table is at the end of the symbol table and symbols are 18 bytes long
+        const string_table_offset = self.coff_header.pointer_to_symbol_table + (self.coff_header.number_of_symbols * 18) + offset;
+        const in = self.in_file.reader();
+        const old_pos = try self.in_file.getPos();
+
+        try self.in_file.seekTo(string_table_offset);
+        defer {
+            self.in_file.seekTo(old_pos) catch unreachable;
+        }
+
+        const str = try in.readUntilDelimiterOrEof(buf, 0);
+        return str orelse "";
     }
 
     fn loadOptionalHeader(self: *Coff) !void {
@@ -258,11 +278,23 @@ pub const Coff = struct {
 
         const in = self.in_file.reader();
 
-        var name: [8]u8 = undefined;
+        var name: [32]u8 = undefined;
 
         var i: u16 = 0;
         while (i < self.coff_header.number_of_sections) : (i += 1) {
-            try in.readNoEof(name[0..]);
+            try in.readNoEof(name[0..8]);
+
+            if (name[0] == '/') {
+                // This is a long name and stored in the string table
+                const offset_len = mem.indexOfScalar(u8, name[1..], 0) orelse 7;
+
+                const str_offset = try std.fmt.parseInt(u32, name[1 .. offset_len + 1], 10);
+                const str = try self.readStringFromTable(str_offset, &name);
+                std.mem.set(u8, name[str.len..], 0);
+            } else {
+                std.mem.set(u8, name[8..], 0);
+            }
+
             try self.sections.append(Section{
                 .header = SectionHeader{
                     .name = name,
@@ -331,7 +363,7 @@ const SectionHeader = struct {
         virtual_size: u32,
     };
 
-    name: [8]u8,
+    name: [32]u8,
     misc: Misc,
     virtual_address: u32,
     size_of_raw_data: u32,
