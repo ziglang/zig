@@ -2937,7 +2937,6 @@ const Fmt = struct {
 };
 
 pub fn cmdFmt(gpa: *Allocator, args: []const []const u8) !void {
-    const stderr_file = io.getStdErr();
     var color: Color = .auto;
     var stdin_flag: bool = false;
     var check_flag: bool = false;
@@ -2992,7 +2991,7 @@ pub fn cmdFmt(gpa: *Allocator, args: []const []const u8) !void {
         defer tree.deinit(gpa);
 
         for (tree.errors) |parse_error| {
-            try printErrMsgToFile(gpa, parse_error, tree, "<stdin>", stderr_file, color);
+            try printErrMsgToStdErr(gpa, parse_error, tree, "<stdin>", color);
         }
         if (tree.errors.len != 0) {
             process.exit(1);
@@ -3136,7 +3135,7 @@ fn fmtPathFile(
     defer tree.deinit(fmt.gpa);
 
     for (tree.errors) |parse_error| {
-        try printErrMsgToFile(fmt.gpa, parse_error, tree, file_path, std.io.getStdErr(), fmt.color);
+        try printErrMsgToStdErr(fmt.gpa, parse_error, tree, file_path, fmt.color);
     }
     if (tree.errors.len != 0) {
         fmt.any_error = true;
@@ -3166,25 +3165,16 @@ fn fmtPathFile(
     }
 }
 
-fn printErrMsgToFile(
+fn printErrMsgToStdErr(
     gpa: *mem.Allocator,
     parse_error: ast.Error,
     tree: ast.Tree,
     path: []const u8,
-    file: fs.File,
     color: Color,
 ) !void {
-    const color_on = switch (color) {
-        .auto => file.isTty(),
-        .on => true,
-        .off => false,
-    };
     const lok_token = parse_error.token;
-
-    const token_starts = tree.tokens.items(.start);
-    const token_tags = tree.tokens.items(.tag);
-    const first_token_start = token_starts[lok_token];
     const start_loc = tree.tokenLocation(0, lok_token);
+    const source_line = tree.source[start_loc.line_start..start_loc.line_end];
 
     var text_buf = std.ArrayList(u8).init(gpa);
     defer text_buf.deinit();
@@ -3192,26 +3182,24 @@ fn printErrMsgToFile(
     try tree.renderError(parse_error, writer);
     const text = text_buf.items;
 
-    const stream = file.writer();
-    try stream.print("{s}:{d}:{d}: error: {s}\n", .{ path, start_loc.line + 1, start_loc.column + 1, text });
+    const message: Compilation.AllErrors.Message = .{
+        .src = .{
+            .src_path = path,
+            .msg = text,
+            .byte_offset = @intCast(u32, start_loc.line_start),
+            .line = @intCast(u32, start_loc.line),
+            .column = @intCast(u32, start_loc.column),
+            .source_line = source_line,
+        },
+    };
 
-    if (!color_on) return;
+    const ttyconf: std.debug.TTY.Config = switch (color) {
+        .auto => std.debug.detectTTYConfig(),
+        .on => .escape_codes,
+        .off => .no_color,
+    };
 
-    // Print \r and \t as one space each so that column counts line up
-    for (tree.source[start_loc.line_start..start_loc.line_end]) |byte| {
-        try stream.writeByte(switch (byte) {
-            '\r', '\t' => ' ',
-            else => byte,
-        });
-    }
-    try stream.writeByte('\n');
-    try stream.writeByteNTimes(' ', start_loc.column);
-    if (token_tags[lok_token].lexeme()) |lexeme| {
-        try stream.writeByteNTimes('~', lexeme.len);
-        try stream.writeByte('\n');
-    } else {
-        try stream.writeAll("^\n");
-    }
+    message.renderToStdErr(ttyconf);
 }
 
 pub const info_zen =
@@ -3726,7 +3714,7 @@ pub fn cmdAstCheck(
     defer file.tree.deinit(gpa);
 
     for (file.tree.errors) |parse_error| {
-        try printErrMsgToFile(gpa, parse_error, file.tree, file.sub_file_path, io.getStdErr(), color);
+        try printErrMsgToStdErr(gpa, parse_error, file.tree, file.sub_file_path, color);
     }
     if (file.tree.errors.len != 0) {
         process.exit(1);
@@ -3847,7 +3835,7 @@ pub fn cmdChangelist(
     defer file.tree.deinit(gpa);
 
     for (file.tree.errors) |parse_error| {
-        try printErrMsgToFile(gpa, parse_error, file.tree, old_source_file, io.getStdErr(), .auto);
+        try printErrMsgToStdErr(gpa, parse_error, file.tree, old_source_file, .auto);
     }
     if (file.tree.errors.len != 0) {
         process.exit(1);
@@ -3884,7 +3872,7 @@ pub fn cmdChangelist(
     defer new_tree.deinit(gpa);
 
     for (new_tree.errors) |parse_error| {
-        try printErrMsgToFile(gpa, parse_error, new_tree, new_source_file, io.getStdErr(), .auto);
+        try printErrMsgToStdErr(gpa, parse_error, new_tree, new_source_file, .auto);
     }
     if (new_tree.errors.len != 0) {
         process.exit(1);
