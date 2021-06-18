@@ -144,7 +144,7 @@ const FileEntry = struct {
 };
 
 const LineNumberProgram = struct {
-    address: usize,
+    address: u64,
     file: usize,
     line: i64,
     column: u64,
@@ -153,12 +153,12 @@ const LineNumberProgram = struct {
     end_sequence: bool,
 
     default_is_stmt: bool,
-    target_address: usize,
+    target_address: u64,
     include_dirs: []const []const u8,
     file_entries: *ArrayList(FileEntry),
 
     prev_valid: bool,
-    prev_address: usize,
+    prev_address: u64,
     prev_file: usize,
     prev_line: i64,
     prev_column: u64,
@@ -186,7 +186,7 @@ const LineNumberProgram = struct {
         self.prev_end_sequence = undefined;
     }
 
-    pub fn init(is_stmt: bool, include_dirs: []const []const u8, file_entries: *ArrayList(FileEntry), target_address: usize) LineNumberProgram {
+    pub fn init(is_stmt: bool, include_dirs: []const []const u8, file_entries: *ArrayList(FileEntry), target_address: u64) LineNumberProgram {
         return LineNumberProgram{
             .address = 0,
             .file = 1,
@@ -691,7 +691,7 @@ pub const DwarfInfo = struct {
         return result;
     }
 
-    pub fn getLineNumberInfo(di: *DwarfInfo, compile_unit: CompileUnit, target_address: usize) !debug.LineInfo {
+    pub fn getLineNumberInfo(di: *DwarfInfo, compile_unit: CompileUnit, target_address: u64) !debug.LineInfo {
         var stream = io.fixedBufferStream(di.debug_line);
         const in = &stream.reader();
         const seekable = &stream.seekableStream();
