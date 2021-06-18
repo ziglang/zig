@@ -2171,7 +2171,7 @@ fn addRpaths(self: *Zld, rpaths: []const []const u8) !void {
     for (rpaths) |rpath| {
         const cmdsize = @intCast(u32, mem.alignForwardGeneric(
             u64,
-            @sizeOf(macho.rpath_command) + rpath.len,
+            @sizeOf(macho.rpath_command) + rpath.len + 1,
             @sizeOf(u64),
         ));
         var rpath_cmd = emptyGenericCommandWithData(macho.rpath_command{
