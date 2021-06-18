@@ -1236,7 +1236,7 @@ pub fn HashMapUnmanaged(
             metadata[0].fill(fingerprint);
             const new_key = &self.keys()[idx];
             const new_value = &self.values()[idx];
-            new_key.* = key;
+            new_key.* = undefined;
             new_value.* = undefined;
             self.size += 1;
 
@@ -1881,6 +1881,52 @@ test "std.hash_map clone" {
     i = 0;
     while (i < 10) : (i += 1) {
         try testing.expect(copy.get(i).? == i * 10);
+    }
+}
+
+test "std.hash_map getOrPutAdapted" {
+    const AdaptedContext = struct {
+        fn eql(self: @This(), adapted_key: []const u8, test_key: u64) bool {
+            return std.fmt.parseInt(u64, adapted_key, 10) catch unreachable == test_key;
+        }
+        fn hash(self: @This(), adapted_key: []const u8) u64 {
+            const key = std.fmt.parseInt(u64, adapted_key, 10) catch unreachable;
+            return (AutoContext(u64){}).hash(key);
+        }
+    };
+    var map = AutoHashMap(u64, u64).init(testing.allocator);
+    defer map.deinit();
+
+    const keys = [_][]const u8{
+        "1231",
+        "4564",
+        "7894",
+        "1132",
+        "65235",
+        "95462",
+        "0112305",
+        "00658",
+        "0",
+        "2",
+    };
+
+    var real_keys: [keys.len]u64 = undefined;
+
+    inline for (keys) |key_str, i| {
+        const result = try map.getOrPutAdapted(key_str, AdaptedContext{});
+        try testing.expect(!result.found_existing);
+        real_keys[i] = std.fmt.parseInt(u64, key_str, 10) catch unreachable;
+        result.key_ptr.* = real_keys[i];
+        result.value_ptr.* = i * 2;
+    }
+
+    try testing.expectEqual(map.count(), keys.len);
+
+    inline for (keys) |key_str, i| {
+        const result = try map.getOrPutAdapted(key_str, AdaptedContext{});
+        try testing.expect(result.found_existing);
+        try testing.expectEqual(real_keys[i], result.key_ptr.*);
+        try testing.expectEqual(@as(u64, i) * 2, result.value_ptr.*);
     }
 }
 
