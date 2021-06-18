@@ -3015,7 +3015,7 @@ pub fn addCCArgs(
                     const prefix: []const u8 = if (target.cpu.arch == .riscv64) "rv64" else "rv32";
                     const prefix_len = 4;
                     assert(prefix.len == prefix_len);
-                    var march_buf: [prefix_len + letters.len]u8 = undefined;
+                    var march_buf: [prefix_len + letters.len + 1]u8 = undefined;
                     var march_index: usize = prefix_len;
                     mem.copy(u8, &march_buf, prefix);
 
