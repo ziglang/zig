@@ -5542,10 +5542,7 @@ pub const CopyFileRangeError = error{
     FileBusy,
 } || PReadError || PWriteError || UnexpectedError;
 
-var has_copy_file_range_syscall = init: {
-    const kernel_has_syscall = std.Target.current.os.isAtLeast(.linux, .{ .major = 4, .minor = 5 }) orelse true;
-    break :init std.atomic.Atomic(bool).init(kernel_has_syscall);
-};
+var has_copy_file_range_syscall = std.atomic.Atomic(bool).init(true);
 
 /// Transfer data between file descriptors at specified offsets.
 /// Returns the number of bytes written, which can less than requested.
@@ -5573,18 +5570,17 @@ var has_copy_file_range_syscall = init: {
 ///
 /// Maximum offsets on Linux are `math.maxInt(i64)`.
 pub fn copy_file_range(fd_in: fd_t, off_in: u64, fd_out: fd_t, off_out: u64, len: usize, flags: u32) CopyFileRangeError!usize {
-    const use_c = std.c.versionCheck(.{ .major = 2, .minor = 27, .patch = 0 }).ok;
+    const call_cfr = comptime if (builtin.link_libc)
+        std.c.versionCheck(.{ .major = 2, .minor = 27, .patch = 0 }).ok
+    else
+        std.Target.current.os.isAtLeast(.linux, .{ .major = 4, .minor = 5 }) orelse true;
 
-    if (std.Target.current.os.tag == .linux and
-        (use_c or has_copy_file_range_syscall.load(.Monotonic)))
-    {
-        const sys = if (use_c) std.c else linux;
-
+    if (call_cfr and has_copy_file_range_syscall.load(.Monotonic)) {
         var off_in_copy = @bitCast(i64, off_in);
         var off_out_copy = @bitCast(i64, off_out);
 
-        const rc = sys.copy_file_range(fd_in, &off_in_copy, fd_out, &off_out_copy, len, flags);
-        switch (sys.getErrno(rc)) {
+        const rc = system.copy_file_range(fd_in, &off_in_copy, fd_out, &off_out_copy, len, flags);
+        switch (system.getErrno(rc)) {
             0 => return @intCast(usize, rc),
             EBADF => return error.FilesOpenedWithWrongFlags,
             EFBIG => return error.FileTooBig,
@@ -5601,7 +5597,7 @@ pub fn copy_file_range(fd_in: fd_t, off_in: u64, fd_out: fd_t, off_out: u64, len
             EXDEV => {},
             // syscall added in Linux 4.5, use fallback
             ENOSYS => {
-                has_copy_file_range_syscall.store(true, .Monotonic);
+                has_copy_file_range_syscall.store(false, .Monotonic);
             },
             else => |err| return unexpectedErrno(err),
         }
