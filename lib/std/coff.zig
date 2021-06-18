@@ -184,18 +184,26 @@ pub const Coff = struct {
 
     fn loadOptionalHeader(self: *Coff) !void {
         const in = self.in_file.reader();
+        const opt_header_pos = try self.in_file.getPos();
+
         self.pe_header.magic = try in.readIntLittle(u16);
-        // For now we're only interested in finding the reference to the .pdb,
-        // so we'll skip most of this header, which size is different in 32
-        // 64 bits by the way.
-        var skip_size: u16 = undefined;
+        // All we care about is the image base value and PDB info
+        // The header structure is different for 32 or 64 bit
+        var num_rva_pos: u64 = undefined;
         if (self.pe_header.magic == IMAGE_NT_OPTIONAL_HDR32_MAGIC) {
-            skip_size = 2 * @sizeOf(u8) + 8 * @sizeOf(u16) + 18 * @sizeOf(u32);
+            num_rva_pos = opt_header_pos + 92;
+
+            try self.in_file.seekTo(opt_header_pos + 28);
+            const image_base32 = try in.readIntLittle(u32);
+            self.pe_header.image_base = image_base32;
         } else if (self.pe_header.magic == IMAGE_NT_OPTIONAL_HDR64_MAGIC) {
-            skip_size = 2 * @sizeOf(u8) + 8 * @sizeOf(u16) + 12 * @sizeOf(u32) + 5 * @sizeOf(u64);
+            num_rva_pos = opt_header_pos + 108;
+
+            try self.in_file.seekTo(opt_header_pos + 24);
+            self.pe_header.image_base = try in.readIntLittle(u64);
         } else return error.InvalidPEMagic;
 
-        try self.in_file.seekBy(skip_size);
+        try self.in_file.seekTo(num_rva_pos);
 
         const number_of_rva_and_sizes = try in.readIntLittle(u32);
         if (number_of_rva_and_sizes != IMAGE_NUMBEROF_DIRECTORY_ENTRIES)
@@ -320,6 +328,22 @@ pub const Coff = struct {
         }
         return null;
     }
+
+    // Return an owned slice full of the section data
+    pub fn getSectionData(self: *Coff, comptime name: []const u8, allocator: *mem.Allocator) ![]u8 {
+        const sec = for (self.sections.items) |*sec| {
+            if (mem.eql(u8, sec.header.name[0..name.len], name)) {
+                break sec;
+            }
+        } else {
+            return error.MissingCoffSection;
+        };
+        const in = self.in_file.reader();
+        try self.in_file.seekTo(sec.header.pointer_to_raw_data);
+        const out_buff = try allocator.alloc(u8, sec.header.misc.virtual_size);
+        try in.readNoEof(out_buff);
+        return out_buff;
+    }
 };
 
 const CoffHeader = struct {
@@ -340,6 +364,7 @@ const OptionalHeader = struct {
 
     magic: u16,
     data_directory: [IMAGE_NUMBEROF_DIRECTORY_ENTRIES]DataDirectory,
+    image_base: u64,
 };
 
 const DebugDirectoryEntry = packed struct {

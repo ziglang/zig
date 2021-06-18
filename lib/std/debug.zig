@@ -53,6 +53,10 @@ pub const SymbolInfo = struct {
         }
     }
 };
+const PdbOrDwarf = union(enum) {
+    pdb: pdb.Pdb,
+    dwarf: DW.DwarfInfo,
+};
 
 var stderr_mutex = std.Thread.Mutex{};
 
@@ -669,10 +673,32 @@ fn readCoffDebugInfo(allocator: *mem.Allocator, coff_file: File) !ModuleDebugInf
         var di = ModuleDebugInfo{
             .base_address = undefined,
             .coff = coff_obj,
-            .pdb = undefined,
+            .debug_data = undefined,
         };
 
         try di.coff.loadHeader();
+        try di.coff.loadSections();
+        if (di.coff.getSection(".debug_info")) |sec| {
+            // This coff file has embedded DWARF debug info
+            // TODO: free the section data slices
+            const debug_info_data = di.coff.getSectionData(".debug_info", allocator) catch null;
+            const debug_abbrev_data = di.coff.getSectionData(".debug_abbrev", allocator) catch null;
+            const debug_str_data = di.coff.getSectionData(".debug_str", allocator) catch null;
+            const debug_line_data = di.coff.getSectionData(".debug_line", allocator) catch null;
+            const debug_ranges_data = di.coff.getSectionData(".debug_ranges", allocator) catch null;
+
+            var dwarf = DW.DwarfInfo{
+                .endian = native_endian,
+                .debug_info = debug_info_data orelse return error.MissingDebugInfo,
+                .debug_abbrev = debug_abbrev_data orelse return error.MissingDebugInfo,
+                .debug_str = debug_str_data orelse return error.MissingDebugInfo,
+                .debug_line = debug_line_data orelse return error.MissingDebugInfo,
+                .debug_ranges = debug_ranges_data,
+            };
+            try DW.openDwarfDebugInfo(&dwarf, allocator);
+            di.debug_data = PdbOrDwarf{ .dwarf = dwarf };
+            return di;
+        }
 
         var path_buf: [windows.MAX_PATH]u8 = undefined;
         const len = try di.coff.getPdbPath(path_buf[0..]);
@@ -681,11 +707,12 @@ fn readCoffDebugInfo(allocator: *mem.Allocator, coff_file: File) !ModuleDebugInf
         const path = try fs.path.resolve(allocator, &[_][]const u8{raw_path});
         defer allocator.free(path);
 
-        di.pdb = try pdb.Pdb.init(allocator, path);
-        try di.pdb.parseInfoStream();
-        try di.pdb.parseDbiStream();
+        di.debug_data = PdbOrDwarf{ .pdb = undefined };
+        di.debug_data.pdb = try pdb.Pdb.init(allocator, path);
+        try di.debug_data.pdb.parseInfoStream();
+        try di.debug_data.pdb.parseDbiStream();
 
-        if (!mem.eql(u8, &di.coff.guid, &di.pdb.guid) or di.coff.age != di.pdb.age)
+        if (!mem.eql(u8, &di.coff.guid, &di.debug_data.pdb.guid) or di.coff.age != di.debug_data.pdb.age)
             return error.InvalidDebugInfo;
 
         return di;
@@ -1331,7 +1358,7 @@ pub const ModuleDebugInfo = switch (native_os) {
     },
     .uefi, .windows => struct {
         base_address: usize,
-        pdb: pdb.Pdb,
+        debug_data: PdbOrDwarf,
         coff: *coff.Coff,
 
         pub fn allocator(self: @This()) *mem.Allocator {
@@ -1342,8 +1369,18 @@ pub const ModuleDebugInfo = switch (native_os) {
             // Translate the VA into an address into this object
             const relocated_address = address - self.base_address;
 
+            switch (self.debug_data) {
+                .dwarf => |*dwarf| {
+                    const dwarf_address = relocated_address + self.coff.pe_header.image_base;
+                    return getSymbolFromDwarf(dwarf_address, dwarf);
+                },
+                .pdb => {
+                    // fallthrough to pdb handling
+                },
+            }
+
             var coff_section: *coff.Section = undefined;
-            const mod_index = for (self.pdb.sect_contribs) |sect_contrib| {
+            const mod_index = for (self.debug_data.pdb.sect_contribs) |sect_contrib| {
                 if (sect_contrib.Section > self.coff.sections.items.len) continue;
                 // Remember that SectionContribEntry.Section is 1-based.
                 coff_section = &self.coff.sections.items[sect_contrib.Section - 1];
@@ -1358,15 +1395,15 @@ pub const ModuleDebugInfo = switch (native_os) {
                 return SymbolInfo{};
             };
 
-            const module = (try self.pdb.getModule(mod_index)) orelse
+            const module = (try self.debug_data.pdb.getModule(mod_index)) orelse
                 return error.InvalidDebugInfo;
             const obj_basename = fs.path.basename(module.obj_file_name);
 
-            const symbol_name = self.pdb.getSymbolName(
+            const symbol_name = self.debug_data.pdb.getSymbolName(
                 module,
                 relocated_address - coff_section.header.virtual_address,
             ) orelse "???";
-            const opt_line_info = try self.pdb.getLineNumberInfo(
+            const opt_line_info = try self.debug_data.pdb.getLineNumberInfo(
                 module,
                 relocated_address - coff_section.header.virtual_address,
             );
@@ -1386,31 +1423,32 @@ pub const ModuleDebugInfo = switch (native_os) {
         pub fn getSymbolAtAddress(self: *@This(), address: usize) !SymbolInfo {
             // Translate the VA into an address into this object
             const relocated_address = address - self.base_address;
-
-            if (nosuspend self.dwarf.findCompileUnit(relocated_address)) |compile_unit| {
-                return SymbolInfo{
-                    .symbol_name = nosuspend self.dwarf.getSymbolName(relocated_address) orelse "???",
-                    .compile_unit_name = compile_unit.die.getAttrString(&self.dwarf, DW.AT_name) catch |err| switch (err) {
-                        error.MissingDebugInfo, error.InvalidDebugInfo => "???",
-                        else => return err,
-                    },
-                    .line_info = nosuspend self.dwarf.getLineNumberInfo(compile_unit.*, relocated_address) catch |err| switch (err) {
-                        error.MissingDebugInfo, error.InvalidDebugInfo => null,
-                        else => return err,
-                    },
-                };
-            } else |err| switch (err) {
-                error.MissingDebugInfo, error.InvalidDebugInfo => {
-                    return SymbolInfo{};
-                },
-                else => return err,
-            }
-
-            unreachable;
+            return getSymbolFromDwarf(relocated_address, &self.dwarf);
         }
     },
     else => DW.DwarfInfo,
 };
+
+fn getSymbolFromDwarf(address: u64, di: *DW.DwarfInfo) !SymbolInfo {
+    if (nosuspend di.findCompileUnit(address)) |compile_unit| {
+        return SymbolInfo{
+            .symbol_name = nosuspend di.getSymbolName(address) orelse "???",
+            .compile_unit_name = compile_unit.die.getAttrString(di, DW.AT_name) catch |err| switch (err) {
+                error.MissingDebugInfo, error.InvalidDebugInfo => "???",
+                else => return err,
+            },
+            .line_info = nosuspend di.getLineNumberInfo(compile_unit.*, address) catch |err| switch (err) {
+                error.MissingDebugInfo, error.InvalidDebugInfo => null,
+                else => return err,
+            },
+        };
+    } else |err| switch (err) {
+        error.MissingDebugInfo, error.InvalidDebugInfo => {
+            return SymbolInfo{};
+        },
+        else => return err,
+    }
+}
 
 /// TODO multithreaded awareness
 var debug_info_allocator: ?*mem.Allocator = null;
