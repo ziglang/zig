@@ -292,7 +292,7 @@ fn parseInputFiles(self: *Zld, files: []const []const u8) !void {
         }
 
         try_stub: {
-            var lib_stub = LibStub.loadFromFile(self.allocator, file) catch |_| {
+            var lib_stub = LibStub.loadFromFile(self.allocator, file) catch {
                 break :try_stub;
             };
             try classified.append(.{
