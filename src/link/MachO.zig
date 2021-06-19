@@ -760,10 +760,9 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
             }
 
             // Assume ld64 default: -search_paths_first
-            // Look in each directory for a dylib (tbd), and then for archive
+            // Look in each directory for a dylib (next, tbd), and then for archive
             // TODO implement alternative: -search_dylibs_first
-            // TODO text-based API, or .tbd files.
-            const exts = &[_][]const u8{ "dylib", "a" };
+            const exts = &[_][]const u8{ "dylib", "tbd", "a" };
 
             for (search_lib_names.items) |l_name| {
                 var found = false;
@@ -849,6 +848,9 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
             try zld.link(positionals.items, full_out_path, .{
                 .libs = libs.items,
                 .rpaths = rpaths.items,
+                .lib_system_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+                    "libc", "darwin", "libSystem.B.tbd",
+                }),
             });
 
             break :outer;

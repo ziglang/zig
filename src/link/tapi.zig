@@ -21,9 +21,10 @@ pub const LibStub = struct {
             value: []const u8,
         },
         install_name: []const u8,
-        current_version: union(enum) {
+        current_version: ?union(enum) {
             string: []const u8,
-            int: u32,
+            float: f64,
+            int: u64,
         },
         reexported_libraries: ?[]const struct {
             targets: []const []const u8,
@@ -33,7 +34,11 @@ pub const LibStub = struct {
             targets: []const []const u8,
             umbrella: []const u8,
         },
-        exports: []const struct {
+        exports: ?[]const struct {
+            targets: []const []const u8,
+            symbols: []const []const u8,
+        },
+        reexports: ?[]const struct {
             targets: []const []const u8,
             symbols: []const []const u8,
         },
@@ -44,10 +49,7 @@ pub const LibStub = struct {
         objc_classes: ?[]const []const u8,
     };
 
-    pub fn loadFromFile(allocator: *Allocator, file_path: []const u8) !LibStub {
-        const file = try fs.cwd().openFile(file_path, .{});
-        defer file.close();
-
+    pub fn loadFromFile(allocator: *Allocator, file: fs.File) !LibStub {
         const source = try file.readToEndAlloc(allocator, std.math.maxInt(u32));
         defer allocator.free(source);
 
