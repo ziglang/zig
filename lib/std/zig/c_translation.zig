@@ -11,19 +11,13 @@ const mem = std.mem;
 
 /// Given a type and value, cast the value to the type as c would.
 pub fn cast(comptime DestType: type, target: anytype) DestType {
-    // this function should behave like transCCast in translate-c, except it's for macros and enums
+    // this function should behave like transCCast in translate-c, except it's for macros
     const SourceType = @TypeOf(target);
     switch (@typeInfo(DestType)) {
         .Fn, .Pointer => return castToPtr(DestType, SourceType, target),
         .Optional => |dest_opt| {
             if (@typeInfo(dest_opt.child) == .Pointer or @typeInfo(dest_opt.child) == .Fn) {
                 return castToPtr(DestType, SourceType, target);
-            }
-        },
-        .Enum => |enum_type| {
-            if (@typeInfo(SourceType) == .Int or @typeInfo(SourceType) == .ComptimeInt) {
-                const intermediate = cast(enum_type.tag_type, target);
-                return @intToEnum(DestType, intermediate);
             }
         },
         .Int => {
@@ -35,9 +29,6 @@ pub fn cast(comptime DestType: type, target: anytype) DestType {
                     if (@typeInfo(opt.child) == .Pointer) {
                         return castInt(DestType, @ptrToInt(target));
                     }
-                },
-                .Enum => {
-                    return castInt(DestType, @enumToInt(target));
                 },
                 .Int => {
                     return castInt(DestType, target);
@@ -106,12 +97,6 @@ fn ptrInfo(comptime PtrType: type) std.builtin.TypeInfo.Pointer {
 }
 
 test "cast" {
-    const E = enum(u2) {
-        Zero,
-        One,
-        Two,
-    };
-
     var i = @as(i64, 10);
 
     try testing.expect(cast(*u8, 16) == @intToPtr(*u8, 16));
@@ -122,12 +107,9 @@ test "cast" {
     try testing.expect(cast(?*i64, @as(*align(1) i64, &i)) == &i);
     try testing.expect(cast(?*i64, @as(?*align(1) i64, &i)) == &i);
 
-    try testing.expect(cast(E, 1) == .One);
-
     try testing.expectEqual(@as(u32, 4), cast(u32, @intToPtr(*u32, 4)));
     try testing.expectEqual(@as(u32, 4), cast(u32, @intToPtr(?*u32, 4)));
     try testing.expectEqual(@as(u32, 10), cast(u32, @as(u64, 10)));
-    try testing.expectEqual(@as(u8, 2), cast(u8, E.Two));
 
     try testing.expectEqual(@bitCast(i32, @as(u32, 0x8000_0000)), cast(i32, @as(u32, 0x8000_0000)));
 
@@ -135,17 +117,6 @@ test "cast" {
     try testing.expectEqual(@intToPtr(*u8, 2), cast(*u8, @intToPtr(*volatile u8, 2)));
 
     try testing.expectEqual(@intToPtr(?*c_void, 2), cast(?*c_void, @intToPtr(*u8, 2)));
-
-    const C_ENUM = enum(c_int) {
-        A = 0,
-        B,
-        C,
-        _,
-    };
-    try testing.expectEqual(cast(C_ENUM, @as(i64, -1)), @intToEnum(C_ENUM, -1));
-    try testing.expectEqual(cast(C_ENUM, @as(i8, 1)), .B);
-    try testing.expectEqual(cast(C_ENUM, @as(u64, 1)), .B);
-    try testing.expectEqual(cast(C_ENUM, @as(u64, 42)), @intToEnum(C_ENUM, 42));
 
     var foo: c_int = -1;
     try testing.expect(cast(*c_void, -1) == @intToPtr(*c_void, @bitCast(usize, @as(isize, -1))));
@@ -162,7 +133,7 @@ test "cast" {
 pub fn sizeof(target: anytype) usize {
     const T: type = if (@TypeOf(target) == type) target else @TypeOf(target);
     switch (@typeInfo(T)) {
-        .Float, .Int, .Struct, .Union, .Enum, .Array, .Bool, .Vector => return @sizeOf(T),
+        .Float, .Int, .Struct, .Union, .Array, .Bool, .Vector => return @sizeOf(T),
         .Fn => {
             // sizeof(main) returns 1, sizeof(&main) returns pointer size.
             // We cannot distinguish those types in Zig, so use pointer size.
@@ -228,7 +199,6 @@ pub fn sizeof(target: anytype) usize {
 }
 
 test "sizeof" {
-    const E = enum(c_int) { One, _ };
     const S = extern struct { a: u32 };
 
     const ptr_size = @sizeOf(*c_void);
@@ -238,9 +208,6 @@ test "sizeof" {
     try testing.expect(sizeof(2) == @sizeOf(c_int));
 
     try testing.expect(sizeof(2.0) == @sizeOf(f64));
-
-    try testing.expect(sizeof(E) == @sizeOf(c_int));
-    try testing.expect(sizeof(E.One) == @sizeOf(c_int));
 
     try testing.expect(sizeof(S) == 4);
 

@@ -1099,27 +1099,37 @@ fn transEnumDecl(c: *Context, scope: *Scope, enum_decl: *const clang.EnumDecl) E
         }
         name = try std.fmt.allocPrint(c.arena, "enum_{s}", .{bare_name});
     }
-    if (!toplevel) _ = try bs.makeMangledName(c, name);
+    if (!toplevel) name = try bs.makeMangledName(c, name);
     try c.decl_table.putNoClobber(c.gpa, @ptrToInt(enum_decl.getCanonicalDecl()), name);
 
-    const is_pub = toplevel and !is_unnamed;
-    var redecls = std.ArrayList(Tag.enum_redecl.Data()).init(c.gpa);
-    defer redecls.deinit();
-
-    const init_node = if (enum_decl.getDefinition()) |enum_def| blk: {
-        var pure_enum = true;
+    const enum_type_node = if (enum_decl.getDefinition()) |enum_def| blk: {
         var it = enum_def.enumerator_begin();
-        var end_it = enum_def.enumerator_end();
+        const end_it = enum_def.enumerator_end();
         while (it.neq(end_it)) : (it = it.next()) {
             const enum_const = it.deref();
-            if (enum_const.getInitExpr()) |_| {
-                pure_enum = false;
-                break;
+            var enum_val_name: []const u8 = try c.str(@ptrCast(*const clang.NamedDecl, enum_const).getName_bytes_begin());
+            if (!toplevel) {
+                enum_val_name = try bs.makeMangledName(c, enum_val_name);
             }
-        }
 
-        var fields = std.ArrayList(ast.Payload.Enum.Field).init(c.gpa);
-        defer fields.deinit();
+            const enum_const_qt = @ptrCast(*const clang.ValueDecl, enum_const).getType();
+            const enum_const_loc = @ptrCast(*const clang.Decl, enum_const).getLocation();
+            const enum_const_type_node: ?Node = transQualType(c, scope, enum_const_qt, enum_const_loc) catch |err| switch (err) {
+                error.UnsupportedType => null,
+                else => |e| return e,
+            };
+
+            const enum_const_def = try Tag.enum_constant.create(c.arena, .{
+                .name = enum_val_name,
+                .is_public = toplevel,
+                .type = enum_const_type_node,
+                .value = try transCreateNodeAPInt(c, enum_const.getInitVal()),
+            });
+            if (toplevel)
+                try addTopLevelDecl(c, enum_val_name, enum_const_def)
+            else
+                try scope.appendNode(enum_const_def);
+        }
 
         const int_type = enum_decl.getIntegerType();
         // The underlying type may be null in case of forward-declared enum
@@ -1127,61 +1137,27 @@ fn transEnumDecl(c: *Context, scope: *Scope, enum_decl: *const clang.EnumDecl) E
         // default to the usual integer type used for all the enums.
 
         // default to c_int since msvc and gcc default to different types
-        const init_arg_expr = if (int_type.ptr != null)
+        break :blk if (int_type.ptr != null)
             transQualType(c, scope, int_type, enum_loc) catch |err| switch (err) {
                 error.UnsupportedType => {
-                    return failDecl(c, enum_loc, name, "unable to translate enum tag type", .{});
+                    return failDecl(c, enum_loc, name, "unable to translate enum integer type", .{});
                 },
                 else => |e| return e,
             }
         else
             try Tag.type.create(c.arena, "c_int");
-
-        it = enum_def.enumerator_begin();
-        end_it = enum_def.enumerator_end();
-        while (it.neq(end_it)) : (it = it.next()) {
-            const enum_const = it.deref();
-            const enum_val_name = try c.str(@ptrCast(*const clang.NamedDecl, enum_const).getName_bytes_begin());
-
-            const field_name = if (!is_unnamed and mem.startsWith(u8, enum_val_name, bare_name))
-                enum_val_name[bare_name.len..]
-            else
-                enum_val_name;
-
-            const int_node = if (!pure_enum)
-                try transCreateNodeAPInt(c, enum_const.getInitVal())
-            else
-                null;
-
-            try fields.append(.{
-                .name = field_name,
-                .value = int_node,
-            });
-
-            // In C each enum value is in the global namespace. So we put them there too.
-            // At this point we can rely on the enum emitting successfully.
-            try redecls.append(.{
-                .enum_val_name = enum_val_name,
-                .field_name = field_name,
-                .enum_name = name,
-            });
-        }
-
-        break :blk try Tag.@"enum".create(c.arena, .{
-            .int_type = init_arg_expr,
-            .fields = try c.arena.dupe(ast.Payload.Enum.Field, fields.items),
-        });
     } else blk: {
         try c.opaque_demotes.put(c.gpa, @ptrToInt(enum_decl.getCanonicalDecl()), {});
         break :blk Tag.opaque_literal.init();
     };
 
+    const is_pub = toplevel and !is_unnamed;
     const payload = try c.arena.create(ast.Payload.SimpleVarDecl);
     payload.* = .{
         .base = .{ .tag = ([2]Tag{ .var_simple, .pub_var_simple })[@boolToInt(is_pub)] },
         .data = .{
+            .init = enum_type_node,
             .name = name,
-            .init = init_node,
         },
     };
 
@@ -1191,18 +1167,6 @@ fn transEnumDecl(c: *Context, scope: *Scope, enum_decl: *const clang.EnumDecl) E
             try c.alias_list.append(.{ .alias = bare_name, .name = name });
     } else {
         try scope.appendNode(Node.initPayload(&payload.base));
-    }
-
-    for (redecls.items) |redecl| {
-        if (toplevel) {
-            try addTopLevelDecl(c, redecl.field_name, try Tag.pub_enum_redecl.create(c.arena, redecl));
-        } else {
-            try scope.appendNode(try Tag.enum_redecl.create(c.arena, .{
-                .enum_val_name = try bs.makeMangledName(c, redecl.enum_val_name),
-                .field_name = redecl.field_name,
-                .enum_name = redecl.enum_name,
-            }));
-        }
     }
 }
 
@@ -2096,8 +2060,7 @@ fn finishBoolExpr(
         },
         .Enum => {
             // node != 0
-            const int_val = try Tag.enum_to_int.create(c.arena, node);
-            return Tag.not_equal.create(c.arena, .{ .lhs = int_val, .rhs = Tag.zero_literal.init() });
+            return Tag.not_equal.create(c.arena, .{ .lhs = node, .rhs = Tag.zero_literal.init() });
         },
         .Elaborated => {
             const elaborated_ty = @ptrCast(*const clang.ElaboratedType, ty);
@@ -2309,21 +2272,22 @@ fn transCCast(
     if (dst_type.eq(src_type)) return expr;
     if (qualTypeIsPtr(dst_type) and qualTypeIsPtr(src_type))
         return transCPtrCast(c, scope, loc, dst_type, src_type, expr);
+    if (cIsEnum(dst_type)) return transCCast(c, scope, loc, cIntTypeForEnum(dst_type), src_type, expr);
+    if (cIsEnum(src_type)) return transCCast(c, scope, loc, dst_type, cIntTypeForEnum(src_type), expr);
 
     const dst_node = try transQualType(c, scope, dst_type, loc);
-    if (cIsInteger(dst_type) and (cIsInteger(src_type) or cIsEnum(src_type))) {
+    if (cIsInteger(dst_type) and cIsInteger(src_type)) {
         // 1. If src_type is an enum, determine the underlying signed int type
         // 2. Extend or truncate without changing signed-ness.
         // 3. Bit-cast to correct signed-ness
-        const src_int_type = if (cIsInteger(src_type)) src_type else cIntTypeForEnum(src_type);
-        const src_type_is_signed = cIsSignedInteger(src_int_type);
-        var src_int_expr = if (cIsInteger(src_type)) expr else try Tag.enum_to_int.create(c.arena, expr);
+        const src_type_is_signed = cIsSignedInteger(src_type);
+        var src_int_expr = expr;
 
         if (isBoolRes(src_int_expr)) {
             src_int_expr = try Tag.bool_to_int.create(c.arena, src_int_expr);
         }
 
-        switch (cIntTypeCmp(dst_type, src_int_type)) {
+        switch (cIntTypeCmp(dst_type, src_type)) {
             .lt => {
                 // @truncate(SameSignSmallerInt, src_int_expr)
                 const ty_node = try transQualTypeIntWidthOf(c, dst_type, src_type_is_signed);
@@ -2375,14 +2339,6 @@ fn transCCast(
         // instead of @as
         const bool_to_int = try Tag.bool_to_int.create(c.arena, expr);
         return Tag.as.create(c.arena, .{ .lhs = dst_node, .rhs = bool_to_int });
-    }
-    if (cIsEnum(dst_type)) {
-        // import("std").meta.cast(dest_type, val)
-        return Tag.helpers_cast.create(c.arena, .{ .lhs = dst_node, .rhs = expr });
-    }
-    if (cIsEnum(src_type) and !cIsEnum(dst_type)) {
-        // @enumToInt(val)
-        return Tag.enum_to_int.create(c.arena, expr);
     }
     // @as(dest_type, val)
     return Tag.as.create(c.arena, .{ .lhs = dst_node, .rhs = expr });
@@ -5969,7 +5925,6 @@ fn getContainer(c: *Context, node: Node) ?Node {
     switch (node.tag()) {
         .@"union",
         .@"struct",
-        .@"enum",
         .address_of,
         .bit_not,
         .not,
