@@ -1,6 +1,7 @@
 const Dylib = @This();
 
 const std = @import("std");
+const assert = std.debug.assert;
 const fs = std.fs;
 const log = std.log.scoped(.dylib);
 const macho = std.macho;
@@ -8,6 +9,7 @@ const mem = std.mem;
 
 const Allocator = mem.Allocator;
 const Symbol = @import("Symbol.zig");
+const LibStub = @import("../tapi.zig").LibStub;
 
 usingnamespace @import("commands.zig");
 
@@ -184,8 +186,88 @@ pub fn parseSymbols(self: *Dylib) !void {
     }
 }
 
-pub fn isDylib(file: fs.File) !bool {
-    const header = try file.reader().readStruct(macho.mach_header_64);
-    try file.seekTo(0);
+pub fn isDylib(file: fs.File) bool {
+    const header = file.reader().readStruct(macho.mach_header_64) catch return false;
+    file.seekTo(0) catch return false;
     return header.filetype == macho.MH_DYLIB;
+}
+
+pub fn parseFromStub(self: *Dylib, lib_stub: LibStub) !void {
+    assert(lib_stub.inner.len > 0);
+
+    log.debug("parsing shared library from stub '{s}'", .{self.name.?});
+
+    const umbrella_lib = lib_stub.inner[0];
+    self.id = .{
+        .name = try self.allocator.dupe(u8, umbrella_lib.install_name),
+        // TODO parse from the stub
+        .timestamp = 2,
+        .current_version = 0,
+        .compatibility_version = 0,
+    };
+
+    const target_string: []const u8 = switch (self.arch.?) {
+        .aarch64 => "arm64-macos",
+        .x86_64 => "x86_64-macos",
+        else => unreachable,
+    };
+
+    for (lib_stub.inner) |stub| {
+        if (!hasTarget(stub.targets, target_string)) continue;
+
+        if (stub.exports) |exports| {
+            for (exports) |exp| {
+                if (!hasTarget(exp.targets, target_string)) continue;
+
+                for (exp.symbols) |sym_name| {
+                    if (self.symbols.contains(sym_name)) continue;
+
+                    const name = try self.allocator.dupe(u8, sym_name);
+                    const proxy = try self.allocator.create(Symbol.Proxy);
+                    errdefer self.allocator.destroy(proxy);
+
+                    proxy.* = .{
+                        .base = .{
+                            .@"type" = .proxy,
+                            .name = name,
+                        },
+                        .dylib = self,
+                    };
+
+                    try self.symbols.putNoClobber(self.allocator, name, &proxy.base);
+                }
+            }
+        }
+
+        if (stub.reexports) |reexports| {
+            for (reexports) |reexp| {
+                if (!hasTarget(reexp.targets, target_string)) continue;
+
+                for (reexp.symbols) |sym_name| {
+                    if (self.symbols.contains(sym_name)) continue;
+
+                    const name = try self.allocator.dupe(u8, sym_name);
+                    const proxy = try self.allocator.create(Symbol.Proxy);
+                    errdefer self.allocator.destroy(proxy);
+
+                    proxy.* = .{
+                        .base = .{
+                            .@"type" = .proxy,
+                            .name = name,
+                        },
+                        .dylib = self,
+                    };
+
+                    try self.symbols.putNoClobber(self.allocator, name, &proxy.base);
+                }
+            }
+        }
+    }
+}
+
+fn hasTarget(targets: []const []const u8, target: []const u8) bool {
+    for (targets) |t| {
+        if (mem.eql(u8, t, target)) return true;
+    }
+    return false;
 }

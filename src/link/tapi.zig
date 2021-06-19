@@ -58,7 +58,17 @@ pub const LibStub = struct {
             .inner = undefined,
         };
 
-        lib_stub.inner = try lib_stub.yaml.parse([]Tbd);
+        lib_stub.inner = lib_stub.yaml.parse([]Tbd) catch |err| blk: {
+            switch (err) {
+                error.TypeMismatch => {
+                    // TODO clean this up.
+                    var out = try lib_stub.yaml.arena.allocator.alloc(Tbd, 1);
+                    out[0] = try lib_stub.yaml.parse(Tbd);
+                    break :blk out;
+                },
+                else => |e| return e,
+            }
+        };
 
         return lib_stub;
     }

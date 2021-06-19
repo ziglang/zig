@@ -234,8 +234,8 @@ pub fn parseObject(self: Archive, offset: u32) !*Object {
     return object;
 }
 
-pub fn isArchive(file: fs.File) !bool {
-    const magic = try file.reader().readBytesNoEof(Archive.SARMAG);
-    try file.seekTo(0);
+pub fn isArchive(file: fs.File) bool {
+    const magic = file.reader().readBytesNoEof(Archive.SARMAG) catch return false;
+    file.seekTo(0) catch return false;
     return mem.eql(u8, &magic, Archive.ARMAG);
 }
