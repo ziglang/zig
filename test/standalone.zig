@@ -33,6 +33,11 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
     }
     cases.addBuildFile("test/standalone/c_compiler/build.zig", .{ .build_modes = true, .cross_targets = true });
 
+    // Try to build and run a PIE executable.
+    if (std.Target.current.os.tag == .linux) {
+        cases.addBuildFile("test/standalone/pie/build.zig", .{});
+    }
+
     // Ensure the development tools are buildable.
     cases.add("tools/gen_spirv_spec.zig");
     cases.add("tools/gen_stubs.zig");

@@ -34,6 +34,7 @@ pub usingnamespace switch (native_arch) {
 };
 pub usingnamespace @import("bits.zig");
 pub const tls = @import("linux/tls.zig");
+pub const pie = @import("linux/start_pie.zig");
 pub const BPF = @import("linux/bpf.zig");
 pub usingnamespace @import("linux/io_uring.zig");
 
