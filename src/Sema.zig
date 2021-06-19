@@ -473,7 +473,7 @@ pub fn analyzeBody(
                 continue;
             },
             .set_cold => {
-                try sema.zirSetAlignStack(block, inst);
+                try sema.zirSetCold(block, inst);
                 i += 1;
                 continue;
             },
