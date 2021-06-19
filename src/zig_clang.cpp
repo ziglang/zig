@@ -3228,12 +3228,6 @@ bool ZigClangEnumDecl_enumerator_iterator_neq(
     return casted_a != casted_b;
 }
 
-const struct ZigClangExpr *ZigClangEnumConstantDecl_getInitExpr(const struct ZigClangEnumConstantDecl *self) {
-    auto casted = reinterpret_cast<const clang::EnumConstantDecl *>(self);
-    const clang::Expr *result = casted->getInitExpr();
-    return reinterpret_cast<const ZigClangExpr *>(result);
-}
-
 const struct ZigClangAPSInt *ZigClangEnumConstantDecl_getInitVal(const struct ZigClangEnumConstantDecl *self) {
     auto casted = reinterpret_cast<const clang::EnumConstantDecl *>(self);
     const llvm::APSInt *result = &casted->getInitVal();

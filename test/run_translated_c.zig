@@ -1598,4 +1598,53 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
         \\    return 0;
         \\}
     , "");
+
+    cases.add("Enum constants are assigned correct type. Issue #9153",
+        \\enum A { A0, A1=0xFFFFFFFF };
+        \\enum B { B0=-1, B1=0xFFFFFFFF };
+        \\enum C { C0=-1, C1=0 };
+        \\enum D { D0, D1=0xFFFFFFFFFFL };
+        \\enum E { E0=-1, E1=0xFFFFFFFFFFL };
+        \\int main(void) {
+        \\   signed char a0 = A0, a1 = A1;
+        \\   signed char b0 = B0, b1 = B1;
+        \\   signed char c0 = C0, c1 = C1;
+        \\   signed char d0 = D0, d1 = D1;
+        \\   signed char e0 = E0, e1 = E1;
+        \\   return 0;
+        \\}
+    , "");
+
+    cases.add("Enum constant matches enum name; multiple enumerations with same value",
+        \\#include <stdlib.h>
+        \\enum FOO {
+        \\    FOO = 1,
+        \\    BAR = 2,
+        \\    BAZ = 1,
+        \\};
+        \\int main(void) {
+        \\    enum FOO x = BAZ;
+        \\    if (x != 1) abort();
+        \\    if (x != BAZ) abort();
+        \\    if (x != FOO) abort();
+        \\}
+    , "");
+
+    cases.add("Scoped enums",
+        \\#include <stdlib.h>
+        \\int main(void) {
+        \\   enum Foo { A, B, C };
+        \\   enum Foo a = B;
+        \\   if (a != B) abort();
+        \\   if (a != 1) abort();
+        \\   {
+        \\      enum Foo { A = 5, B = 6, C = 7 };
+        \\      enum Foo a = B;
+        \\      if (a != B) abort();
+        \\      if (a != 6) abort();
+        \\   }
+        \\   if (a != B) abort();
+        \\   if (a != 1) abort();
+        \\}
+    , "");
 }

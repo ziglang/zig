@@ -389,9 +389,6 @@ pub const ElaboratedType = opaque {
 };
 
 pub const EnumConstantDecl = opaque {
-    pub const getInitExpr = ZigClangEnumConstantDecl_getInitExpr;
-    extern fn ZigClangEnumConstantDecl_getInitExpr(*const EnumConstantDecl) ?*const Expr;
-
     pub const getInitVal = ZigClangEnumConstantDecl_getInitVal;
     extern fn ZigClangEnumConstantDecl_getInitVal(*const EnumConstantDecl) *const APSInt;
 };

@@ -64,8 +64,6 @@ pub const Node = extern union {
         static_local_var,
         func,
         warning,
-        /// All enums are non-exhaustive
-        @"enum",
         @"struct",
         @"union",
         @"comptime",
@@ -146,10 +144,6 @@ pub const Node = extern union {
         float_to_int,
         /// @intToFloat(lhs, rhs)
         int_to_float,
-        /// @intToEnum(lhs, rhs)
-        int_to_enum,
-        /// @enumToInt(operand)
-        enum_to_int,
         /// @intToPtr(lhs, rhs)
         int_to_ptr,
         /// @ptrToInt(operand)
@@ -215,9 +209,8 @@ pub const Node = extern union {
         var_simple,
         /// pub const name = init;
         pub_var_simple,
-        /// pub const enum_field_name = @enumToInt(enum_name.field_name);
-        pub_enum_redecl,
-        enum_redecl,
+        /// pub? const name (: type)? = value
+        enum_constant,
 
         /// pub inline fn name(params) return_type body
         pub_inline_fn,
@@ -266,7 +259,6 @@ pub const Node = extern union {
                 .unwrap,
                 .deref,
                 .ptr_to_int,
-                .enum_to_int,
                 .empty_array,
                 .while_true,
                 .if_not_break,
@@ -324,7 +316,6 @@ pub const Node = extern union {
                 .float_cast,
                 .float_to_int,
                 .int_to_float,
-                .int_to_enum,
                 .int_to_ptr,
                 .array_cat,
                 .ellipsis3,
@@ -357,7 +348,6 @@ pub const Node = extern union {
                 .call => Payload.Call,
                 .var_decl => Payload.VarDecl,
                 .func => Payload.Func,
-                .@"enum" => Payload.Enum,
                 .@"struct", .@"union" => Payload.Record,
                 .tuple => Payload.TupleInit,
                 .container_init => Payload.ContainerInit,
@@ -369,7 +359,7 @@ pub const Node = extern union {
                 .arg_redecl, .alias, .fail_decl => Payload.ArgRedecl,
                 .log2_int_type => Payload.Log2IntType,
                 .var_simple, .pub_var_simple, .static_local_var => Payload.SimpleVarDecl,
-                .pub_enum_redecl, .enum_redecl => Payload.EnumRedecl,
+                .enum_constant => Payload.EnumConstant,
                 .array_filler => Payload.ArrayFiller,
                 .pub_inline_fn => Payload.PubInlineFn,
                 .field_access => Payload.FieldAccess,
@@ -554,19 +544,6 @@ pub const Payload = struct {
         type: Node,
     };
 
-    pub const Enum = struct {
-        base: Payload,
-        data: struct {
-            int_type: Node,
-            fields: []Field,
-        },
-
-        pub const Field = struct {
-            name: []const u8,
-            value: ?Node,
-        };
-    };
-
     pub const Record = struct {
         base: Payload,
         data: struct {
@@ -658,12 +635,13 @@ pub const Payload = struct {
         },
     };
 
-    pub const EnumRedecl = struct {
+    pub const EnumConstant = struct {
         base: Payload,
         data: struct {
-            enum_val_name: []const u8,
-            field_name: []const u8,
-            enum_name: []const u8,
+            name: []const u8,
+            is_public: bool,
+            type: ?Node,
+            value: Node,
         },
     };
 
@@ -1307,14 +1285,6 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             const payload = node.castTag(.int_to_float).?.data;
             return renderBuiltinCall(c, "@intToFloat", &.{ payload.lhs, payload.rhs });
         },
-        .int_to_enum => {
-            const payload = node.castTag(.int_to_enum).?.data;
-            return renderBuiltinCall(c, "@intToEnum", &.{ payload.lhs, payload.rhs });
-        },
-        .enum_to_int => {
-            const payload = node.castTag(.enum_to_int).?.data;
-            return renderBuiltinCall(c, "@enumToInt", &.{payload});
-        },
         .int_to_ptr => {
             const payload = node.castTag(.int_to_ptr).?.data;
             return renderBuiltinCall(c, "@intToPtr", &.{ payload.lhs, payload.rhs });
@@ -1814,91 +1784,28 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             return renderFieldAccess(c, lhs, payload.field_name);
         },
         .@"struct", .@"union" => return renderRecord(c, node),
-        .@"enum" => {
-            const payload = node.castTag(.@"enum").?.data;
-            _ = try c.addToken(.keyword_extern, "extern");
-            const enum_tok = try c.addToken(.keyword_enum, "enum");
-            _ = try c.addToken(.l_paren, "(");
-            const arg_expr = try renderNode(c, payload.int_type);
-            _ = try c.addToken(.r_paren, ")");
-            _ = try c.addToken(.l_brace, "{");
-            const members = try c.gpa.alloc(NodeIndex, payload.fields.len + 1);
-            defer c.gpa.free(members);
-            members[0] = 0;
+        .enum_constant => {
+            const payload = node.castTag(.enum_constant).?.data;
 
-            for (payload.fields) |field, i| {
-                const name_tok = try c.addIdentifier(field.name);
-                const value_expr = if (field.value) |some| blk: {
-                    _ = try c.addToken(.equal, "=");
-                    break :blk try renderNode(c, some);
-                } else 0;
-
-                members[i] = try c.addNode(.{
-                    .tag = .container_field_init,
-                    .main_token = name_tok,
-                    .data = .{
-                        .lhs = 0,
-                        .rhs = value_expr,
-                    },
-                });
-                _ = try c.addToken(.comma, ",");
-            }
-            // make non-exhaustive
-            members[payload.fields.len] = try c.addNode(.{
-                .tag = .container_field_init,
-                .main_token = try c.addIdentifier("_"),
-                .data = .{
-                    .lhs = 0,
-                    .rhs = 0,
-                },
-            });
-            _ = try c.addToken(.comma, ",");
-            _ = try c.addToken(.r_brace, "}");
-
-            const span = try c.listToSpan(members);
-            return c.addNode(.{
-                .tag = .container_decl_arg_trailing,
-                .main_token = enum_tok,
-                .data = .{
-                    .lhs = arg_expr,
-                    .rhs = try c.addExtra(NodeSubRange{
-                        .start = span.start,
-                        .end = span.end,
-                    }),
-                },
-            });
-        },
-        .pub_enum_redecl, .enum_redecl => {
-            const payload = @fieldParentPtr(Payload.EnumRedecl, "base", node.ptr_otherwise).data;
-            if (node.tag() == .pub_enum_redecl) _ = try c.addToken(.keyword_pub, "pub");
+            if (payload.is_public) _ = try c.addToken(.keyword_pub, "pub");
             const const_tok = try c.addToken(.keyword_const, "const");
-            _ = try c.addIdentifier(payload.enum_val_name);
+            _ = try c.addIdentifier(payload.name);
+
+            const type_node = if (payload.type) |enum_const_type| blk: {
+                _ = try c.addToken(.colon, ":");
+                break :blk try renderNode(c, enum_const_type);
+            } else 0;
+
             _ = try c.addToken(.equal, "=");
 
-            const enum_to_int_tok = try c.addToken(.builtin, "@enumToInt");
-            _ = try c.addToken(.l_paren, "(");
-            const enum_name = try c.addNode(.{
-                .tag = .identifier,
-                .main_token = try c.addIdentifier(payload.enum_name),
-                .data = undefined,
-            });
-            const field_access = try renderFieldAccess(c, enum_name, payload.field_name);
-            const init_node = try c.addNode(.{
-                .tag = .builtin_call_two,
-                .main_token = enum_to_int_tok,
-                .data = .{
-                    .lhs = field_access,
-                    .rhs = 0,
-                },
-            });
-            _ = try c.addToken(.r_paren, ")");
+            const init_node = try renderNode(c, payload.value);
             _ = try c.addToken(.semicolon, ";");
 
             return c.addNode(.{
                 .tag = .simple_var_decl,
                 .main_token = const_tok,
                 .data = .{
-                    .lhs = 0,
+                    .lhs = type_node,
                     .rhs = init_node,
                 },
             });
@@ -2210,7 +2117,7 @@ fn renderNullSentinelArrayType(c: *Context, len: usize, elem_type: Node) !NodeIn
 fn addSemicolonIfNeeded(c: *Context, node: Node) !void {
     switch (node.tag()) {
         .warning => unreachable,
-        .var_decl, .var_simple, .arg_redecl, .alias, .enum_redecl, .block, .empty_block, .block_single, .@"switch" => {},
+        .var_decl, .var_simple, .arg_redecl, .alias, .block, .empty_block, .block_single, .@"switch" => {},
         .while_true => {
             const payload = node.castTag(.while_true).?.data;
             return addSemicolonIfNotBlock(c, payload);
@@ -2258,13 +2165,11 @@ fn renderNodeGrouped(c: *Context, node: Node) !NodeIndex {
         .float_cast,
         .float_to_int,
         .int_to_float,
-        .int_to_enum,
         .int_to_ptr,
         .std_mem_zeroes,
         .std_math_Log2Int,
         .log2_int_type,
         .ptr_to_int,
-        .enum_to_int,
         .sizeof,
         .alignof,
         .typeof,
@@ -2340,7 +2245,6 @@ fn renderNodeGrouped(c: *Context, node: Node) !NodeIndex {
         .array_cat,
         .array_filler,
         .@"if",
-        .@"enum",
         .@"struct",
         .@"union",
         .array_init,
@@ -2366,8 +2270,7 @@ fn renderNodeGrouped(c: *Context, node: Node) !NodeIndex {
         .alias,
         .var_simple,
         .pub_var_simple,
-        .pub_enum_redecl,
-        .enum_redecl,
+        .enum_constant,
         .@"while",
         .@"switch",
         .@"break",
