@@ -85,7 +85,8 @@ pub const Proxy = struct {
     base: Symbol,
 
     /// Dylib where to locate this symbol.
-    dylib: *Dylib,
+    /// null means self-reference.
+    dylib: ?*Dylib = null,
 
     pub const base_type: Symbol.Type = .proxy;
 };

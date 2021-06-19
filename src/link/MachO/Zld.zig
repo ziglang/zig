@@ -1919,6 +1919,24 @@ fn resolveSymbols(self: *Zld) !void {
         }
 
         if (!found) {
+            if (mem.eql(u8, undef.name, "___dso_handle")) {
+                const proxy = self.imports.get(undef.name) orelse blk: {
+                    const name = try self.allocator.dupe(u8, undef.name);
+                    const proxy = try self.allocator.create(Symbol.Proxy);
+                    errdefer self.allocator.destroy(proxy);
+                    proxy.* = .{
+                        .base = .{
+                            .@"type" = .proxy,
+                            .name = name,
+                        },
+                    };
+                    try self.imports.putNoClobber(self.allocator, name, &proxy.base);
+                    break :blk &proxy.base;
+                };
+                undef.alias = proxy;
+                continue;
+            }
+
             log.err("undefined reference to symbol '{s}'", .{undef.name});
             log.err("    | referenced in {s}", .{
                 undef.cast(Symbol.Unresolved).?.file.name.?,
@@ -2796,7 +2814,7 @@ fn writeBindInfoTable(self: *Zld) !void {
                 try pointers.append(.{
                     .offset = base_offset + proxy.base.got_index.? * @sizeOf(u64),
                     .segment_id = segment_id,
-                    .dylib_ordinal = proxy.dylib.ordinal.?,
+                    .dylib_ordinal = if (proxy.dylib) |dylib| dylib.ordinal.? else 0,
                     .name = proxy.base.name,
                 });
             }
@@ -2815,7 +2833,7 @@ fn writeBindInfoTable(self: *Zld) !void {
         try pointers.append(.{
             .offset = base_offset,
             .segment_id = segment_id,
-            .dylib_ordinal = proxy.dylib.ordinal.?,
+            .dylib_ordinal = if (proxy.dylib) |dylib| dylib.ordinal.? else 0,
             .name = proxy.base.name,
         });
     }
@@ -2855,7 +2873,7 @@ fn writeLazyBindInfoTable(self: *Zld) !void {
             pointers.appendAssumeCapacity(.{
                 .offset = base_offset + sym.stubs_index.? * @sizeOf(u64),
                 .segment_id = segment_id,
-                .dylib_ordinal = proxy.dylib.ordinal.?,
+                .dylib_ordinal = if (proxy.dylib) |dylib| dylib.ordinal.? else 0,
                 .name = sym.name,
             });
         }
@@ -3163,11 +3181,12 @@ fn writeSymbolTable(self: *Zld) !void {
 
     for (self.imports.values()) |sym| {
         const proxy = sym.cast(Symbol.Proxy) orelse unreachable;
+        const dylib_ordinal = if (proxy.dylib) |dylib| dylib.ordinal.? else 0;
         try undefs.append(.{
             .n_strx = try self.makeString(sym.name),
             .n_type = macho.N_UNDF | macho.N_EXT,
             .n_sect = 0,
-            .n_desc = (proxy.dylib.ordinal.? * macho.N_SYMBOL_RESOLVER) | macho.REFERENCE_FLAG_UNDEFINED_NON_LAZY,
+            .n_desc = (dylib_ordinal * macho.N_SYMBOL_RESOLVER) | macho.REFERENCE_FLAG_UNDEFINED_NON_LAZY,
             .n_value = 0,
         });
     }
