@@ -551,7 +551,23 @@ fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) InnerEr
         .mul_wrap => return simpleBinOp(gz, scope, rl, node, .mulwrap),
         .div      => return simpleBinOp(gz, scope, rl, node, .div),
         .mod      => return simpleBinOp(gz, scope, rl, node, .mod_rem),
-        .bit_and  => return simpleBinOp(gz, scope, rl, node, .bit_and),
+        .bit_and  => {
+            const current_ampersand_token = main_tokens[node];
+            if (token_tags[current_ampersand_token + 1] == .ampersand) {
+                const token_starts = tree.tokens.items(.start);
+                const current_token_offset = token_starts[current_ampersand_token];
+                const next_token_offset = token_starts[current_ampersand_token + 1];
+                if (current_token_offset + 1 == next_token_offset) {
+                    return astgen.failTok(
+                        current_ampersand_token,
+                        "`&&` is invalid; note that `and` is boolean AND",
+                        .{},
+                    );
+                }
+            }
+
+            return simpleBinOp(gz, scope, rl, node, .bit_and);
+        },
         .bit_or   => return simpleBinOp(gz, scope, rl, node, .bit_or),
         .bit_xor  => return simpleBinOp(gz, scope, rl, node, .xor),
 

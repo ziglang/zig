@@ -1565,4 +1565,27 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
         , "HeHelHellHello");
     }
+
+    {
+        var case = ctx.exe("double ampersand", linux_x64);
+
+        case.addError(
+            \\pub const a = if (true && false) 1 else 2;
+        , &[_][]const u8{":1:24: error: `&&` is invalid; note that `and` is boolean AND"});
+
+        case.addError(
+            \\pub fn main() void {
+            \\    const a = true;
+            \\    const b = false;
+            \\    _ = a & &b;
+            \\}
+        , &[_][]const u8{":4:11: error: incompatible types: 'bool' and '*const bool'"});
+
+        case.addCompareOutput(
+            \\pub fn main() void {
+            \\    const b: u8 = 1;
+            \\    _ = &&b;
+            \\}
+        , "");
+    }
 }
