@@ -893,17 +893,20 @@ pub fn Vector(comptime len: u32, comptime child: type) type {
 /// - `ArgsTuple(fn(a: u32, b: f16) noreturn)` ⇒ `tuple { u32, f16 }`
 pub fn ArgsTuple(comptime Function: type) type {
     const info = @typeInfo(Function);
-    if (info != .Fn)
-        @compileError("ArgsTuple expects a function type");
-
-    const function_info = info.Fn;
+    const function_info = switch (info) {
+        .Fn => info.Fn,
+        .BoundFn => info.BoundFn,
+        else => @compileError("ArgsTuple expects a function type"),
+    };
     if (function_info.is_generic)
         @compileError("Cannot create ArgsTuple for generic function");
     if (function_info.is_var_args)
         @compileError("Cannot create ArgsTuple for variadic function");
 
-    var argument_field_list: [function_info.args.len]std.builtin.TypeInfo.StructField = undefined;
-    inline for (function_info.args) |arg, i| {
+    var args = function_info.args;
+    if (info == .BoundFn) args = args[1..];
+    var argument_field_list: [args.len]std.builtin.TypeInfo.StructField = undefined;
+    inline for (args) |arg, i| {
         const T = arg.arg_type.?;
         @setEvalBranchQuota(10_000);
         var num_buf: [128]u8 = undefined;
@@ -987,6 +990,15 @@ test "ArgsTuple" {
     TupleTester.assertTuple(.{u32}, ArgsTuple(fn (a: u32) []const u8));
     TupleTester.assertTuple(.{ u32, f16 }, ArgsTuple(fn (a: u32, b: f16) noreturn));
     TupleTester.assertTuple(.{ u32, f16, []const u8, void }, ArgsTuple(fn (a: u32, b: f16, c: []const u8, void) noreturn));
+
+    const S = struct {
+        a: u8 = 0,
+
+        fn method(self: @This(), n: u8) void {}
+    };
+
+    TupleTester.assertTuple(.{ S, u8 }, ArgsTuple(@TypeOf(S.method)));
+    TupleTester.assertTuple(.{u8}, ArgsTuple(@TypeOf((S{}).method)));
 }
 
 test "Tuple" {
