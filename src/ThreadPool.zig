@@ -21,7 +21,7 @@ const Runnable = struct {
 
 const Worker = struct {
     pool: *ThreadPool,
-    thread: *std.Thread,
+    thread: std.Thread,
     /// The node is for this worker only and must have an already initialized event
     /// when the thread is spawned.
     idle_node: IdleQueue.Node,
