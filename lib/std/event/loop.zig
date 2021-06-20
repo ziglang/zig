@@ -183,7 +183,7 @@ pub const Loop = struct {
             resume_node_count,
         );
 
-        self.extra_threads = try self.arena.allocator.alloc(*Thread, extra_thread_count);
+        self.extra_threads = try self.arena.allocator.alloc(Thread, extra_thread_count);
 
         try self.initOsData(extra_thread_count);
         errdefer self.deinitOsData();

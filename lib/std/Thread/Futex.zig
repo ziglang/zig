@@ -444,7 +444,7 @@ test "Futex - Broadcast" {
     }
 
     try (struct {
-        threads: [10]*std.Thread = undefined,
+        threads: [10]std.Thread = undefined,
         broadcast: Atomic(u32) = Atomic(u32).init(0),
         notified: Atomic(usize) = Atomic(usize).init(0),
 
@@ -475,7 +475,7 @@ test "Futex - Broadcast" {
             for (self.threads) |*thread|
                 thread.* = try std.Thread.spawn(runReceiver, &self);
             defer for (self.threads) |thread|
-                thread.wait();
+                thread.join();
 
             std.time.sleep(16 * std.time.ns_per_ms);
             self.broadcast.store(BROADCAST_SENT, .Monotonic);
