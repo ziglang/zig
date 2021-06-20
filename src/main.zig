@@ -616,7 +616,7 @@ fn buildOutputType(
     var subsystem: ?std.Target.SubSystem = null;
     var major_subsystem_version: ?u32 = null;
     var minor_subsystem_version: ?u32 = null;
-    var wasi_exec_model: ?wasi_libc.CRTFile = null;
+    var wasi_exec_model: ?[]const u8 = null;
 
     var system_libs = std.ArrayList([]const u8).init(gpa);
     defer system_libs.deinit();
@@ -1065,6 +1065,8 @@ fn buildOutputType(
                         mem.startsWith(u8, arg, "-I"))
                     {
                         try clang_argv.append(arg);
+                    } else if (mem.startsWith(u8, arg, "-mexec-model=")) {
+                        wasi_exec_model = arg["-mexec-model=".len..];
                     } else {
                         fatal("unrecognized parameter: '{s}'", .{arg});
                     }
@@ -1270,13 +1272,7 @@ fn buildOutputType(
                     .framework => try frameworks.append(it.only_arg),
                     .nostdlibinc => want_native_include_dirs = false,
                     .strip => strip = true,
-                    .exec_model => {
-                        if (std.mem.eql(u8, it.only_arg, "reactor")) {
-                            wasi_exec_model = .crt1_reactor_o;
-                        } else if (std.mem.eql(u8, it.only_arg, "command")) {
-                            wasi_exec_model = .crt1_command_o;
-                        }
-                    },
+                    .exec_model => wasi_exec_model = it.only_arg,
                 }
             }
             // Parse linker args.
