@@ -10,6 +10,7 @@
 
 const std = @import("std.zig");
 const os = std.os;
+const assert = std.debug.assert;
 const target = std.Target.current;
 const Atomic = std.atomic.Atomic;
 
@@ -259,11 +260,20 @@ const WindowsThreadImpl = struct {
             },
         };
 
-        const stack_size = std.math.min(64 * 1024, std.math.cast(u32, config.stack_size) catch std.math.maxInt(u32));
-
-        const parameter = @ptrCast(*c_void, impl);
+        // Windows appears to only support SYSTEM_INFO.dwAllocationGranularity minimum stack size.
+        // Going lower makes it default to that specified in the executable (~1mb).
+        // Its also fine if the limit here is incorrect as stack size is only a hint.
+        var stack_size = std.math.cast(u32, config.stack_size) catch std.math.maxInt(u32);
+        stack_size = std.math.max(64 * 1024, stack_size);
         
-        instance.thread.thread_handle = windows.CreateThread(null, stack_size, Impl.entry, parameter, 0, null) orelse {
+        instance.thread.thread_handle = windows.CreateThread(
+            null, 
+            stack_size, 
+            Instance.entry, 
+            @ptrCast(*c_void, instance), 
+            0, 
+            null,
+        ) orelse {
             return windows.unexpectedError(windows.kernel32.GetLastError());
         };
 
