@@ -62,6 +62,9 @@ pub const Options = struct {
     /// Darwin-only. If this is true, `use_llvm` is true, and `is_native_os` is true, this link code will
     /// use system linker `ld` instead of the LLD.
     system_linker_hack: bool,
+    /// Path to Zig-hosted libc stub file.
+    /// On Darwin, this is a path to libSystem.B.tbd stub file.
+    libc_stub_path: ?[]const u8,
     link_libc: bool,
     link_libcpp: bool,
     link_libunwind: bool,

@@ -181,7 +181,7 @@ pub fn closeFiles(self: Zld) void {
 const LinkArgs = struct {
     libs: []const []const u8,
     rpaths: []const []const u8,
-    lib_system_path: []const u8,
+    libc_stub_path: []const u8,
 };
 
 pub fn link(self: *Zld, files: []const []const u8, out_path: []const u8, args: LinkArgs) !void {
@@ -223,7 +223,7 @@ pub fn link(self: *Zld, files: []const []const u8, out_path: []const u8, args: L
     try self.addRpaths(args.rpaths);
     try self.parseInputFiles(files);
     try self.parseLibs(args.libs);
-    try self.parseLibSystem(args.lib_system_path);
+    try self.parseLibSystem(args.libc_stub_path);
     try self.resolveSymbols();
     try self.resolveStubsAndGotEntries();
     try self.updateMetadata();
