@@ -36,7 +36,8 @@ pub const LibStub = struct {
         },
         exports: ?[]const struct {
             targets: []const []const u8,
-            symbols: []const []const u8,
+            symbols: ?[]const []const u8,
+            objc_classes: ?[]const []const u8,
         },
         reexports: ?[]const struct {
             targets: []const []const u8,

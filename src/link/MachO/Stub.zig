@@ -60,7 +60,7 @@ pub fn parse(self: *Stub) !void {
     const lib_stub = self.lib_stub orelse return error.EmptyStubFile;
     if (lib_stub.inner.len == 0) return error.EmptyStubFile;
 
-    log.debug("parsing shared library from stub '{s}'", .{self.name.?});
+    log.warn("parsing shared library from stub '{s}'", .{self.name.?});
 
     const umbrella_lib = lib_stub.inner[0];
     self.id = .{
@@ -84,9 +84,24 @@ pub fn parse(self: *Stub) !void {
             for (exports) |exp| {
                 if (!hasTarget(exp.targets, target_string)) continue;
 
-                for (exp.symbols) |sym_name| {
-                    if (self.symbols.contains(sym_name)) continue;
-                    try self.symbols.putNoClobber(self.allocator, sym_name, {});
+                if (exp.symbols) |symbols| {
+                    for (symbols) |sym_name| {
+                        if (self.symbols.contains(sym_name)) continue;
+                        try self.symbols.putNoClobber(self.allocator, sym_name, {});
+                    }
+                }
+
+                if (exp.objc_classes) |classes| {
+                    for (classes) |sym_name| {
+                        log.warn("    | {s}", .{sym_name});
+                        const actual_sym_name = try std.fmt.allocPrint(
+                            self.allocator,
+                            "_OBJC_CLASS_$_{s}",
+                            .{sym_name},
+                        );
+                        if (self.symbols.contains(actual_sym_name)) continue;
+                        try self.symbols.putNoClobber(self.allocator, actual_sym_name, {});
+                    }
                 }
             }
         }
@@ -99,6 +114,20 @@ pub fn parse(self: *Stub) !void {
                     if (self.symbols.contains(sym_name)) continue;
                     try self.symbols.putNoClobber(self.allocator, sym_name, {});
                 }
+            }
+        }
+
+        if (stub.objc_classes) |classes| {
+            log.warn("  | objc_classes", .{});
+            for (classes) |sym_name| {
+                log.warn("    | {s}", .{sym_name});
+                const actual_sym_name = try std.fmt.allocPrint(
+                    self.allocator,
+                    "_OBJC_METACLASS_$_{s}",
+                    .{sym_name},
+                );
+                if (self.symbols.contains(actual_sym_name)) continue;
+                try self.symbols.putNoClobber(self.allocator, actual_sym_name, {});
             }
         }
     }
