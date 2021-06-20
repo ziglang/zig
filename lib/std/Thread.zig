@@ -24,16 +24,14 @@ pub const Condition = @import("Thread/Condition.zig");
 pub const spinLoopHint = @compileError("deprecated: use std.atomic.spinLoopHint");
 
 test "std.Thread" {
-    if (!builtin.single_threaded) {
-        // Doesn't use testing.refAllDecls() since that would pull in the compileError spinLoopHint.
-        _ = AutoResetEvent;
-        _ = Futex;
-        _ = ResetEvent;
-        _ = StaticResetEvent;
-        _ = Mutex;
-        _ = Semaphore;
-        _ = Condition;
-    }
+    // Doesn't use testing.refAllDecls() since that would pull in the compileError spinLoopHint.
+    _ = AutoResetEvent;
+    _ = Futex;
+    _ = ResetEvent;
+    _ = StaticResetEvent;
+    _ = Mutex;
+    _ = Semaphore;
+    _ = Condition;
 }
 
 pub const use_pthreads = target.os.tag != .windows and std.builtin.link_libc;
@@ -114,17 +112,13 @@ pub const SpawnError = error {
 /// `config` can be used as hints to the platform for now to spawn and execute the `function`.
 /// The caller must eventually either call `join()` to wait for the thread to finish and free its resources
 /// or call `detach()` to excuse the caller from calling `join()` and have the thread clean up its resources on completion`.
-pub fn spawn(
-    config: SpawnConfig, 
-    comptime function: anytype, 
-    args: std.meta.ArgsTuple(function),
-) SpawnError!Thread {
+pub fn spawn(config: SpawnConfig, comptime function: anytype, args: anytype) SpawnError!Thread {
     if (std.builtin.single_threaded) {
         @compileError("cannot spawn thread when building in single-threaded mode");
     }
 
-    const impl = try Thread.spawn(config, function, args);
-    return .{ .impl = impl };
+    const impl = try Impl.spawn(config, function, args);
+    return Thread{ .impl = impl };
 }
 
 /// Represents a kernel thread handle.
@@ -438,7 +432,7 @@ const LinuxThreadImpl = struct {
 
     fn getCurrentId() Id {
         return tls_thread_id orelse {
-            const tid = linux.gettid();
+            const tid = @bitCast(u32, linux.gettid());
             tls_thread_id = tid;
             return tid;
         };
@@ -550,7 +544,7 @@ const LinuxThreadImpl = struct {
         const instance = @ptrCast(*Instance, @alignCast(@alignOf(Instance), &mapped[instance_offset]));
         instance.* = .{
             .fn_args = args,
-            .thread = .{ .mapped = .mapped },
+            .thread = .{ .mapped = mapped },
         };
 
         const flags: u32 = os.CLONE_VM | os.CLONE_FS | os.CLONE_FILES |
@@ -591,7 +585,7 @@ const LinuxThreadImpl = struct {
     }
 
     fn join(self: Impl) void {
-        defer self.thread.free();
+        defer os.munmap(self.thread.mapped);
 
         var spin: u8 = 10;
         while (true) {

@@ -544,7 +544,7 @@ test "Futex - Chain" {
 
             for (self.threads) |*entry, index| {
                 entry.signal = .{};
-                entry.thread = try std.Thread.spawn(.{}, runThread .{&self, index});
+                entry.thread = try std.Thread.spawn(.{}, runThread, .{&self, index});
             }
 
             self.threads[0].signal.notify();
