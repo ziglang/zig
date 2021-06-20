@@ -16,7 +16,7 @@ const native_os = builtin.os.tag;
 
 var argc_argv_ptr: [*]usize = undefined;
 
-const start_sym_name = if (native_arch.isMIPS()) "__start" else if (builtin.is_wasi_reactor_exec_model) "_initialize" else "_start";
+const start_sym_name = if (native_arch.isMIPS()) "__start" else if (builtin.wasi_exec_model == .reactor) "_initialize" else "_start";
 
 comptime {
     // No matter what, we import the root file, so that any export, test, comptime
@@ -142,10 +142,9 @@ fn wasm_start() callconv(.C) void {
             _ = @call(.{ .modifier = .always_inline }, callMain, .{});
         },
         .wasi => {
-            if (builtin.is_wasi_reactor_exec_model) {
-                _ = @call(.{ .modifier = .always_inline }, callMain, .{});
-            } else {
-                std.os.wasi.proc_exit(@call(.{ .modifier = .always_inline }, callMain, .{}));
+            switch (builtin.wasi_exec_model) {
+                .reactor => _ = @call(.{ .modifier = .always_inline }, callMain, .{}),
+                .command => std.os.wasi.proc_exit(@call(.{ .modifier = .always_inline }, callMain, .{})),
             }
         },
         else => @compileError("unsupported OS"),

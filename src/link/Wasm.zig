@@ -682,17 +682,16 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
             // before corrupting globals. See https://github.com/ziglang/zig/issues/4496
             try argv.append("--stack-first");
 
-            if (self.base.options.wasi_exec_model) |model| {
-                if (std.mem.eql(u8, model, "reactor")) {
-                    // Reactor execution model does not have _start so lld doesn't look for it.
-                    try argv.append("--no-entry");
-                    // Make sure "_initialize" is exported even if this is pure Zig WASI reactor
-                    // where WASM_SYMBOL_EXPORTED flag in LLVM is not set on _initialize.
-                    try argv.appendSlice(&[_][]const u8{
-                        "--export",
-                        "_initialize",
-                    });
-                }
+            if (self.base.options.wasi_exec_model) |exec_model| blk: {
+                if (exec_model != .reactor) break :blk;
+                // Reactor execution model does not have _start so lld doesn't look for it.
+                try argv.append("--no-entry");
+                // Make sure "_initialize" is exported even if this is pure Zig WASI reactor
+                // where WASM_SYMBOL_EXPORTED flag in LLVM is not set on _initialize.
+                try argv.appendSlice(&[_][]const u8{
+                    "--export",
+                    "_initialize",
+                });
             }
         } else {
             try argv.append("--no-entry"); // So lld doesn't look for _start.

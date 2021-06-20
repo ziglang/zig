@@ -45,19 +45,17 @@ pub fn emulatedLibCRFileLibName(crt_file: CRTFile) []const u8 {
     };
 }
 
-pub fn getExecModelCRTFIle(wasi_exec_model: ?[]const u8) CRTFile {
+pub fn getExecModelCRTFIle(wasi_exec_model: ?std.builtin.WasiExecModel) CRTFile {
     return if (wasi_exec_model) |model|
-        if (std.mem.eql(u8, model, "reactor"))
-            CRTFile.crt1_reactor_o
-        else if (std.mem.eql(u8, model, "command"))
-            CRTFile.crt1_command_o
-        else
-            unreachable
+        switch (model) {
+            .reactor => CRTFile.crt1_reactor_o,
+            .command => CRTFile.crt1_command_o,
+        }
     else
         CRTFile.crt1_o;
 }
 
-pub fn execModelCRTFileFullName(wasi_exec_model: ?[]const u8) []const u8 {
+pub fn execModelCRTFileFullName(wasi_exec_model: ?std.builtin.WasiExecModel) []const u8 {
     return switch (getExecModelCRTFIle(wasi_exec_model)) {
         .crt1_o => "crt1.o",
         .crt1_reactor_o => "crt1-reactor.o",

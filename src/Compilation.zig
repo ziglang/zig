@@ -724,7 +724,7 @@ pub const InitOptions = struct {
     test_name_prefix: ?[]const u8 = null,
     subsystem: ?std.Target.SubSystem = null,
     /// WASI-only. Type of WASI execution model ("command" or "reactor").
-    wasi_exec_model: ?[]const u8 = null,
+    wasi_exec_model: ?std.builtin.WasiExecModel = null,
 };
 
 fn addPackageTableToCacheHash(
@@ -3638,10 +3638,14 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator) Alloc
         std.zig.fmtId(@tagName(comp.bin_file.options.machine_code_model)),
     });
 
+    const wasi_exec_model_fmt = if (comp.bin_file.options.wasi_exec_model) |model|
+        std.zig.fmtId(@tagName(model))
+    else
+        std.zig.fmtId(@tagName(std.builtin.WasiExecModel.command));
     try buffer.writer().print(
-        \\pub const is_wasi_reactor_exec_model = {};
+        \\pub const wasi_exec_model = std.builtin.WasiExecModel.{};
         \\
-    , .{if (comp.bin_file.options.wasi_exec_model) |model| std.mem.eql(u8, model, "reactor") else false});
+    , .{wasi_exec_model_fmt});
 
     if (comp.bin_file.options.is_test) {
         try buffer.appendSlice(

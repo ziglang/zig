@@ -457,6 +457,13 @@ pub const LinkMode = enum {
 
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
+pub const WasiExecModel = enum {
+    command,
+    reactor,
+};
+
+/// This data structure is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
 pub const Version = struct {
     major: u32,
     minor: u32,
