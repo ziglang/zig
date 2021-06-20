@@ -2139,10 +2139,7 @@ fn genDefers(
             .defer_error => {
                 const defer_scope = scope.cast(Scope.Defer).?;
                 scope = defer_scope.parent;
-                // TODO add this back when we have more errdefer support
-                // right now it is making stuff not get evaluated which causes
-                // unused vars.
-                // if (err_code == .none) continue;
+                if (err_code == .none) continue;
                 const expr_node = node_datas[defer_scope.defer_node].rhs;
                 const prev_in_defer = gz.in_defer;
                 gz.in_defer = true;
@@ -2168,12 +2165,26 @@ fn checkUsed(
             .gen_zir => scope = scope.cast(GenZir).?.parent,
             .local_val => {
                 const s = scope.cast(Scope.LocalVal).?;
-                if (!s.used) return astgen.failTok(s.token_src, "unused local constant", .{});
+                switch (s.used) {
+                    .used => {},
+                    .fn_param => return astgen.failTok(s.token_src, "unused function parameter", .{}),
+                    .constant => return astgen.failTok(s.token_src, "unused local constant", .{}),
+                    .variable => unreachable,
+                    .loop_index => unreachable,
+                    .capture => return astgen.failTok(s.token_src, "unused capture", .{}),
+                }
                 scope = s.parent;
             },
             .local_ptr => {
                 const s = scope.cast(Scope.LocalPtr).?;
-                if (!s.used) return astgen.failTok(s.token_src, "unused local variable", .{});
+                switch (s.used) {
+                    .used => {},
+                    .fn_param => unreachable,
+                    .constant => return astgen.failTok(s.token_src, "unused local constant", .{}),
+                    .variable => return astgen.failTok(s.token_src, "unused local variable", .{}),
+                    .loop_index => return astgen.failTok(s.token_src, "unused loop index capture", .{}),
+                    .capture => unreachable,
+                }
                 scope = s.parent;
             },
             .defer_normal, .defer_error => scope = scope.cast(Scope.Defer).?.parent,
@@ -2303,6 +2314,7 @@ fn varDecl(
                     .name = ident_name,
                     .inst = init_inst,
                     .token_src = name_token,
+                    .used = .constant,
                 };
                 return &sub_scope.base;
             }
@@ -2370,6 +2382,7 @@ fn varDecl(
                     .name = ident_name,
                     .inst = init_inst,
                     .token_src = name_token,
+                    .used = .constant,
                 };
                 return &sub_scope.base;
             }
@@ -2399,6 +2412,7 @@ fn varDecl(
                 .ptr = init_scope.rl_ptr,
                 .token_src = name_token,
                 .maybe_comptime = true,
+                .used = .constant,
             };
             return &sub_scope.base;
         },
@@ -2455,6 +2469,7 @@ fn varDecl(
                 .ptr = var_data.alloc,
                 .token_src = name_token,
                 .maybe_comptime = is_comptime,
+                .used = .variable,
             };
             return &sub_scope.base;
         },
@@ -2943,6 +2958,10 @@ fn fnDecl(
                 const name_token = param.name_token orelse {
                     return astgen.failNode(param.type_expr, "missing parameter name", .{});
                 };
+                if (param.type_expr != 0)
+                    _ = try typeExpr(&fn_gz, params_scope, param.type_expr);
+                if (mem.eql(u8, "_", tree.tokenSlice(name_token)))
+                    continue;
                 const param_name = try astgen.identAsString(name_token);
                 // Create an arg instruction. This is needed to emit a semantic analysis
                 // error for shadowing decls.
@@ -2955,17 +2974,19 @@ fn fnDecl(
                     .name = param_name,
                     .inst = arg_inst,
                     .token_src = name_token,
-                    // TODO make function paramater have different message instead of unused constant
+                    .used = .fn_param,
                 };
                 params_scope = &sub_scope.base;
 
                 // Additionally put the param name into `string_bytes` and reference it with
                 // `extra` so that we have access to the data in codegen, for debug info.
                 const str_index = try astgen.identAsString(name_token);
-                astgen.extra.appendAssumeCapacity(str_index);
+                try astgen.extra.append(astgen.gpa, str_index);
             }
+            _ = try typeExpr(&fn_gz, params_scope, fn_proto.ast.return_type);
 
             _ = try expr(&fn_gz, params_scope, .none, body_node);
+            try checkUsed(gz, &fn_gz.base, params_scope);
         }
 
         const need_implicit_ret = blk: {
@@ -3396,7 +3417,6 @@ fn structDeclInner(
     };
     defer block_scope.instructions.deinit(gpa);
 
-    // TODO should we change this to scope in other places too?
     var namespace: Scope.Namespace = .{ .parent = scope };
     defer namespace.decls.deinit(gpa);
 
@@ -3659,7 +3679,7 @@ fn unionDeclInner(
     };
     defer block_scope.instructions.deinit(gpa);
 
-    var namespace: Scope.Namespace = .{ .parent = &gz.base };
+    var namespace: Scope.Namespace = .{ .parent = scope };
     defer namespace.decls.deinit(gpa);
 
     var wip_decls: WipDecls = .{};
@@ -4060,7 +4080,7 @@ fn containerDecl(
             };
             defer block_scope.instructions.deinit(gpa);
 
-            var namespace: Scope.Namespace = .{ .parent = &gz.base };
+            var namespace: Scope.Namespace = .{ .parent = scope };
             defer namespace.decls.deinit(gpa);
 
             var wip_decls: WipDecls = .{};
@@ -4287,7 +4307,7 @@ fn containerDecl(
             return rvalue(gz, scope, rl, gz.indexToRef(decl_inst), node);
         },
         .keyword_opaque => {
-            var namespace: Scope.Namespace = .{ .parent = &gz.base };
+            var namespace: Scope.Namespace = .{ .parent = scope };
             defer namespace.decls.deinit(gpa);
 
             var wip_decls: WipDecls = .{};
@@ -4622,12 +4642,15 @@ fn orelseCatchExpr(
             .name = err_name,
             .inst = try then_scope.addUnNode(unwrap_code_op, operand, node),
             .token_src = payload,
+            .used = .capture,
         };
         break :blk &err_val_scope.base;
     };
 
     block_scope.break_count += 1;
     const then_result = try expr(&then_scope, then_sub_scope, block_scope.break_result_loc, rhs);
+    try checkUsed(parent_gz, &then_scope.base, then_sub_scope);
+
     // We hold off on the break instructions as well as copying the then/else
     // instructions into place until we know whether to keep store_to_block_ptr
     // instructions or not.
@@ -4900,27 +4923,38 @@ fn ifExpr(
     var payload_val_scope: Scope.LocalVal = undefined;
 
     const then_sub_scope = s: {
-        if (if_full.error_token) |error_token| {
-            const tag: Zir.Inst.Tag = if (payload_is_ref)
-                .err_union_payload_unsafe_ptr
-            else
-                .err_union_payload_unsafe;
-            const payload_inst = try then_scope.addUnNode(tag, cond.inst, node);
-            const ident_name = try astgen.identAsString(error_token);
-            payload_val_scope = .{
-                .parent = &then_scope.base,
-                .gen_zir = &then_scope,
-                .name = ident_name,
-                .inst = payload_inst,
-                .token_src = error_token,
-            };
-            break :s &payload_val_scope.base;
+        if (if_full.error_token != null) {
+            if (if_full.payload_token) |payload_token| {
+                const tag: Zir.Inst.Tag = if (payload_is_ref)
+                    .err_union_payload_unsafe_ptr
+                else
+                    .err_union_payload_unsafe;
+                const payload_inst = try then_scope.addUnNode(tag, cond.inst, node);
+                const token_name_index = payload_token + @boolToInt(payload_is_ref);
+                const ident_name = try astgen.identAsString(token_name_index);
+                const token_name_str = tree.tokenSlice(token_name_index);
+                if (mem.eql(u8, "_", token_name_str))
+                    break :s &then_scope.base;
+                payload_val_scope = .{
+                    .parent = &then_scope.base,
+                    .gen_zir = &then_scope,
+                    .name = ident_name,
+                    .inst = payload_inst,
+                    .token_src = payload_token,
+                    .used = .capture,
+                };
+                break :s &payload_val_scope.base;
+            } else {
+                break :s &then_scope.base;
+            }
         } else if (if_full.payload_token) |payload_token| {
             const ident_token = if (payload_is_ref) payload_token + 1 else payload_token;
             const tag: Zir.Inst.Tag = if (payload_is_ref)
                 .optional_payload_unsafe_ptr
             else
                 .optional_payload_unsafe;
+            if (mem.eql(u8, "_", tree.tokenSlice(ident_token)))
+                break :s &then_scope.base;
             const payload_inst = try then_scope.addUnNode(tag, cond.inst, node);
             const ident_name = try astgen.identAsString(ident_token);
             payload_val_scope = .{
@@ -4929,6 +4963,7 @@ fn ifExpr(
                 .name = ident_name,
                 .inst = payload_inst,
                 .token_src = ident_token,
+                .used = .capture,
             };
             break :s &payload_val_scope.base;
         } else {
@@ -4938,6 +4973,7 @@ fn ifExpr(
 
     block_scope.break_count += 1;
     const then_result = try expr(&then_scope, then_sub_scope, block_scope.break_result_loc, if_full.ast.then_expr);
+    try checkUsed(parent_gz, &then_scope.base, then_sub_scope);
     // We hold off on the break instructions as well as copying the then/else
     // instructions into place until we know whether to keep store_to_block_ptr
     // instructions or not.
@@ -4959,21 +4995,27 @@ fn ifExpr(
                     .err_union_code;
                 const payload_inst = try else_scope.addUnNode(tag, cond.inst, node);
                 const ident_name = try astgen.identAsString(error_token);
+                const error_token_str = tree.tokenSlice(error_token);
+                if (mem.eql(u8, "_", error_token_str))
+                    break :s &else_scope.base;
                 payload_val_scope = .{
                     .parent = &else_scope.base,
                     .gen_zir = &else_scope,
                     .name = ident_name,
                     .inst = payload_inst,
                     .token_src = error_token,
+                    .used = .capture,
                 };
                 break :s &payload_val_scope.base;
             } else {
                 break :s &else_scope.base;
             }
         };
+        const e = try expr(&else_scope, sub_scope, block_scope.break_result_loc, else_node);
+        try checkUsed(parent_gz, &else_scope.base, sub_scope);
         break :blk .{
             .src = else_node,
-            .result = try expr(&else_scope, sub_scope, block_scope.break_result_loc, else_node),
+            .result = e,
         };
     } else .{
         .src = if_full.ast.then_expr,
@@ -5161,21 +5203,29 @@ fn whileExpr(
     var payload_val_scope: Scope.LocalVal = undefined;
 
     const then_sub_scope = s: {
-        if (while_full.error_token) |error_token| {
-            const tag: Zir.Inst.Tag = if (payload_is_ref)
-                .err_union_payload_unsafe_ptr
-            else
-                .err_union_payload_unsafe;
-            const payload_inst = try then_scope.addUnNode(tag, cond.inst, node);
-            const ident_name = try astgen.identAsString(error_token);
-            payload_val_scope = .{
-                .parent = &then_scope.base,
-                .gen_zir = &then_scope,
-                .name = ident_name,
-                .inst = payload_inst,
-                .token_src = error_token,
-            };
-            break :s &payload_val_scope.base;
+        if (while_full.error_token != null) {
+            if (while_full.payload_token) |payload_token| {
+                const tag: Zir.Inst.Tag = if (payload_is_ref)
+                    .err_union_payload_unsafe_ptr
+                else
+                    .err_union_payload_unsafe;
+                const payload_inst = try then_scope.addUnNode(tag, cond.inst, node);
+                const ident_token = if (payload_is_ref) payload_token + 1 else payload_token;
+                if (mem.eql(u8, "_", tree.tokenSlice(ident_token)))
+                    break :s &then_scope.base;
+                const ident_name = try astgen.identAsString(payload_token + @boolToInt(payload_is_ref));
+                payload_val_scope = .{
+                    .parent = &then_scope.base,
+                    .gen_zir = &then_scope,
+                    .name = ident_name,
+                    .inst = payload_inst,
+                    .token_src = payload_token,
+                    .used = .capture,
+                };
+                break :s &payload_val_scope.base;
+            } else {
+                break :s &then_scope.base;
+            }
         } else if (while_full.payload_token) |payload_token| {
             const ident_token = if (payload_is_ref) payload_token + 1 else payload_token;
             const tag: Zir.Inst.Tag = if (payload_is_ref)
@@ -5184,12 +5234,15 @@ fn whileExpr(
                 .optional_payload_unsafe;
             const payload_inst = try then_scope.addUnNode(tag, cond.inst, node);
             const ident_name = try astgen.identAsString(ident_token);
+            if (mem.eql(u8, "_", tree.tokenSlice(ident_token)))
+                break :s &then_scope.base;
             payload_val_scope = .{
                 .parent = &then_scope.base,
                 .gen_zir = &then_scope,
                 .name = ident_name,
                 .inst = payload_inst,
                 .token_src = ident_token,
+                .used = .capture,
             };
             break :s &payload_val_scope.base;
         } else {
@@ -5199,6 +5252,7 @@ fn whileExpr(
 
     loop_scope.break_count += 1;
     const then_result = try expr(&then_scope, then_sub_scope, loop_scope.break_result_loc, while_full.ast.then_expr);
+    try checkUsed(parent_gz, &then_scope.base, then_sub_scope);
 
     var else_scope = parent_gz.makeSubBlock(&continue_scope.base);
     defer else_scope.instructions.deinit(astgen.gpa);
@@ -5217,21 +5271,26 @@ fn whileExpr(
                     .err_union_code;
                 const payload_inst = try else_scope.addUnNode(tag, cond.inst, node);
                 const ident_name = try astgen.identAsString(error_token);
+                if (mem.eql(u8, tree.tokenSlice(error_token), "_"))
+                    break :s &else_scope.base;
                 payload_val_scope = .{
                     .parent = &else_scope.base,
                     .gen_zir = &else_scope,
                     .name = ident_name,
                     .inst = payload_inst,
                     .token_src = error_token,
+                    .used = .capture,
                 };
                 break :s &payload_val_scope.base;
             } else {
                 break :s &else_scope.base;
             }
         };
+        const e = try expr(&else_scope, sub_scope, loop_scope.break_result_loc, else_node);
+        try checkUsed(parent_gz, &else_scope.base, sub_scope);
         break :blk .{
             .src = else_node,
-            .result = try expr(&else_scope, sub_scope, loop_scope.break_result_loc, else_node),
+            .result = e,
         };
     } else .{
         .src = while_full.ast.then_expr,
@@ -5362,6 +5421,7 @@ fn forExpr(
                 .name = name_str_index,
                 .inst = payload_inst,
                 .token_src = ident,
+                .used = .capture,
             };
             payload_sub_scope = &payload_val_scope.base;
         } else if (is_ptr) {
@@ -5385,12 +5445,14 @@ fn forExpr(
             .ptr = index_ptr,
             .token_src = index_token,
             .maybe_comptime = is_inline,
+            .used = .loop_index,
         };
         break :blk &index_scope.base;
     };
 
     loop_scope.break_count += 1;
     const then_result = try expr(&then_scope, then_sub_scope, loop_scope.break_result_loc, for_full.ast.then_expr);
+    try checkUsed(parent_gz, &then_scope.base, then_sub_scope);
 
     var else_scope = parent_gz.makeSubBlock(&cond_scope.base);
     defer else_scope.instructions.deinit(astgen.gpa);
@@ -5631,10 +5693,12 @@ fn switchExpr(
                 .name = capture_name,
                 .inst = capture,
                 .token_src = payload_token,
+                .used = .capture,
             };
             break :blk &capture_val_scope.base;
         };
         const case_result = try expr(&case_scope, sub_scope, block_scope.break_result_loc, case.ast.target_expr);
+        try checkUsed(parent_gz, &case_scope.base, sub_scope);
         if (!parent_gz.refIsNoReturn(case_result)) {
             block_scope.break_count += 1;
             _ = try case_scope.addBreak(.@"break", switch_block, case_result);
@@ -5723,6 +5787,7 @@ fn switchExpr(
                 .name = capture_name,
                 .inst = capture,
                 .token_src = payload_token,
+                .used = .capture,
             };
             break :blk &capture_val_scope.base;
         };
@@ -5756,6 +5821,7 @@ fn switchExpr(
             }
 
             const case_result = try expr(&case_scope, sub_scope, block_scope.break_result_loc, case.ast.target_expr);
+            try checkUsed(parent_gz, &case_scope.base, sub_scope);
             if (!parent_gz.refIsNoReturn(case_result)) {
                 block_scope.break_count += 1;
                 _ = try case_scope.addBreak(.@"break", switch_block, case_result);
@@ -5769,6 +5835,7 @@ fn switchExpr(
             const item_node = case.ast.values[0];
             const item_inst = try comptimeExpr(parent_gz, scope, item_rl, item_node);
             const case_result = try expr(&case_scope, sub_scope, block_scope.break_result_loc, case.ast.target_expr);
+            try checkUsed(parent_gz, &case_scope.base, sub_scope);
             if (!parent_gz.refIsNoReturn(case_result)) {
                 block_scope.break_count += 1;
                 _ = try case_scope.addBreak(.@"break", switch_block, case_result);
@@ -6147,24 +6214,21 @@ fn identifier(
         while (true) switch (s.tag) {
             .local_val => {
                 const local_val = s.cast(Scope.LocalVal).?;
+
                 if (local_val.name == name_str_index) {
-                    local_val.used = true;
-                }
-                if (hit_namespace) {
-                    // captures of non-locals need to be emitted as decl_val or decl_ref
-                    // This *might* be capturable depending on if it is comptime known
-                    s = local_val.parent;
-                    continue;
-                }
-                if (local_val.name == name_str_index) {
-                    return rvalue(gz, scope, rl, local_val.inst, ident);
+                    local_val.used = .used;
+                    // Captures of non-locals need to be emitted as decl_val or decl_ref.
+                    // This *might* be capturable depending on if it is comptime known.
+                    if (!hit_namespace) {
+                        return rvalue(gz, scope, rl, local_val.inst, ident);
+                    }
                 }
                 s = local_val.parent;
             },
             .local_ptr => {
                 const local_ptr = s.cast(Scope.LocalPtr).?;
                 if (local_ptr.name == name_str_index) {
-                    local_ptr.used = true;
+                    local_ptr.used = .used;
                     if (hit_namespace) {
                         if (local_ptr.maybe_comptime)
                             break
@@ -6456,7 +6520,7 @@ fn asmExpr(
                     .local_val => {
                         const local_val = s.cast(Scope.LocalVal).?;
                         if (local_val.name == str_index) {
-                            local_val.used = true;
+                            local_val.used = .used;
                             break;
                         }
                         s = local_val.parent;
@@ -6464,7 +6528,7 @@ fn asmExpr(
                     .local_ptr => {
                         const local_ptr = s.cast(Scope.LocalPtr).?;
                         if (local_ptr.name == str_index) {
-                            local_ptr.used = true;
+                            local_ptr.used = .used;
                             break;
                         }
                         s = local_ptr.parent;
@@ -6815,7 +6879,7 @@ fn builtinCall(
                             .local_val => {
                                 const local_val = s.cast(Scope.LocalVal).?;
                                 if (local_val.name == decl_name) {
-                                    local_val.used = true;
+                                    local_val.used = .used;
                                     break;
                                 }
                                 s = local_val.parent;
@@ -6825,7 +6889,7 @@ fn builtinCall(
                                 if (local_ptr.name == decl_name) {
                                     if (!local_ptr.maybe_comptime)
                                         return astgen.failNode(params[0], "unable to export runtime-known value", .{});
-                                    local_ptr.used = true;
+                                    local_ptr.used = .used;
                                     break;
                                 }
                                 s = local_ptr.parent;
@@ -8394,6 +8458,15 @@ const Scope = struct {
         top,
     };
 
+    // either .used or the type of the var/constant
+    const Used = enum {
+        fn_param,
+        constant,
+        variable,
+        loop_index,
+        capture,
+        used,
+    };
     /// This is always a `const` local and importantly the `inst` is a value type, not a pointer.
     /// This structure lives as long as the AST generation of the Block
     /// node that contains the variable.
@@ -8409,7 +8482,7 @@ const Scope = struct {
         /// String table index.
         name: u32,
         /// has this variable been referenced?
-        used: bool = false,
+        used: Used,
     };
 
     /// This could be a `const` or `var` local. It has a pointer instead of a value.
@@ -8429,7 +8502,7 @@ const Scope = struct {
         /// true means we find out during Sema whether the value is comptime. false means it is already known at AstGen the value is runtime-known.
         maybe_comptime: bool,
         /// has this variable been referenced?
-        used: bool = false,
+        used: Used,
     };
 
     const Defer = struct {
