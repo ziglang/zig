@@ -206,7 +206,7 @@ const WindowsThreadImpl = struct {
     pub const ThreadHandle = windows.HANDLE;
 
     fn getCurrentId() u64 {
-        return windows.kernel.GetCurrentThreadId();
+        return windows.kernel32.GetCurrentThreadId();
     }
 
     fn getCpuCount() !usize {
@@ -266,7 +266,7 @@ const WindowsThreadImpl = struct {
         var stack_size = std.math.cast(u32, config.stack_size) catch std.math.maxInt(u32);
         stack_size = std.math.max(64 * 1024, stack_size);
         
-        instance.thread.thread_handle = windows.CreateThread(
+        instance.thread.thread_handle = windows.kernel32.CreateThread(
             null, 
             stack_size, 
             Instance.entry, 
@@ -406,7 +406,7 @@ const PosixThreadImpl = struct {
             os.EAGAIN => error.SystemResources,
             os.EPERM => unreachable,
             os.EINVAL => unreachable,
-            else => os.unexpectedErrno(err),
+            else => |err| os.unexpectedErrno(err),
         };
     }
 
