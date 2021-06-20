@@ -3019,7 +3019,50 @@ pub fn cmdFmt(gpa: *Allocator, args: []const []const u8) !void {
         for (tree.errors) |parse_error| {
             try printErrMsgToStdErr(gpa, parse_error, tree, "<stdin>", color);
         }
-        if (tree.errors.len != 0) {
+        var has_ast_error = false;
+        if (check_ast_flag) {
+            const Module = @import("Module.zig");
+            const AstGen = @import("AstGen.zig");
+
+            var file: Module.Scope.File = .{
+                .status = .never_loaded,
+                .source_loaded = true,
+                .zir_loaded = false,
+                .sub_file_path = "<stdin>",
+                .source = source_code,
+                .stat_size = undefined,
+                .stat_inode = undefined,
+                .stat_mtime = undefined,
+                .tree = tree,
+                .tree_loaded = true,
+                .zir = undefined,
+                .pkg = undefined,
+                .root_decl = null,
+            };
+
+            file.zir = try AstGen.generate(gpa, file.tree);
+            file.zir_loaded = true;
+            defer file.zir.deinit(gpa);
+
+            if (file.zir.hasCompileErrors()) {
+                var arena_instance = std.heap.ArenaAllocator.init(gpa);
+                defer arena_instance.deinit();
+                var errors = std.ArrayList(Compilation.AllErrors.Message).init(gpa);
+                defer errors.deinit();
+
+                try Compilation.AllErrors.addZir(&arena_instance.allocator, &errors, &file);
+                const ttyconf: std.debug.TTY.Config = switch (color) {
+                    .auto => std.debug.detectTTYConfig(),
+                    .on => .escape_codes,
+                    .off => .no_color,
+                };
+                for (errors.items) |full_err_msg| {
+                    full_err_msg.renderToStdErr(ttyconf);
+                }
+                has_ast_error = true;
+            }
+        }
+        if (tree.errors.len != 0 or has_ast_error) {
             process.exit(1);
         }
         const formatted = try tree.render(gpa);
