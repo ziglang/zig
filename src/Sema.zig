@@ -5785,6 +5785,14 @@ fn zirIntToPtr(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerErro
         });
     }
     try sema.requireRuntimeBlock(block, src);
+    if (block.wantSafety()) {
+        const zero = try sema.mod.constInst(sema.arena, src, .{
+            .ty = Type.initTag(.u64),
+            .val = Value.initTag(.zero),
+        });
+        const is_non_zero = try block.addBinOp(src, Type.initTag(.bool), .cmp_neq, operand_coerced, zero);
+        try sema.addSafetyCheck(block, is_non_zero, .cast_to_null);
+    }
     return block.addUnOp(src, type_res, .bitcast, operand_coerced);
 }
 
@@ -6210,6 +6218,7 @@ pub const PanicId = enum {
     unreach,
     unwrap_null,
     unwrap_errunion,
+    cast_to_null,
     invalid_error_code,
 };
 
