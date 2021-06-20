@@ -1022,7 +1022,7 @@ static LLVMValueRef get_panic_msg_ptr_val(CodeGen *g, PanicMsgId msg_id) {
 
         Buf *buf_msg = panic_msg_buf(msg_id);
         ZigValue *array_val = create_const_str_lit(g, buf_msg)->data.x_ptr.data.ref.pointee;
-        init_const_slice(g, val, array_val, 0, buf_len(buf_msg), true);
+        init_const_slice(g, val, array_val, 0, buf_len(buf_msg), true, nullptr);
 
         render_const_val(g, val, "");
         render_const_val_global(g, val, "");
@@ -9428,7 +9428,7 @@ static void update_test_functions_builtin_decl(CodeGen *g) {
 
         ZigValue *name_field = this_val->data.x_struct.fields[0];
         ZigValue *name_array_val = create_const_str_lit(g, &test_fn_entry->symbol_name)->data.x_ptr.data.ref.pointee;
-        init_const_slice(g, name_field, name_array_val, 0, buf_len(&test_fn_entry->symbol_name), true);
+        init_const_slice(g, name_field, name_array_val, 0, buf_len(&test_fn_entry->symbol_name), true, nullptr);
 
         ZigValue *fn_field = this_val->data.x_struct.fields[1];
         fn_field->type = fn_type;
@@ -9452,7 +9452,7 @@ static void update_test_functions_builtin_decl(CodeGen *g) {
     }
     report_errors_and_maybe_exit(g);
 
-    ZigValue *test_fn_slice = create_const_slice(g, test_fn_array, 0, g->test_fns.length, true);
+    ZigValue *test_fn_slice = create_const_slice(g, test_fn_array, 0, g->test_fns.length, true, nullptr);
 
     update_compile_var(g, buf_create_from_str("test_functions"), test_fn_slice);
     assert(g->test_runner_package != nullptr);

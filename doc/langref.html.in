@@ -2986,7 +2986,7 @@ test "@typeInfo" {
     try expect(mem.eql(u8, @typeInfo(Small).Enum.fields[1].name, "two"));
 }
 
-// @tagName gives a []const u8 representation of an enum value:
+// @tagName gives a [:0]const u8 representation of an enum value:
 test "@tagName" {
     try expect(mem.eql(u8, @tagName(Small.three), "three"));
 }
@@ -3233,7 +3233,7 @@ test "union method" {
       {#code_end#}
       <p>
       {#link|@tagName#} can be used to return a {#link|comptime#}
-      {#syntax#}[]const u8{#endsyntax#} value representing the field name:
+      {#syntax#}[:0]const u8{#endsyntax#} value representing the field name:
       </p>
       {#code_begin|test#}
 const std = @import("std");
@@ -7447,7 +7447,7 @@ test "main" {
       {#see_also|@divFloor|@divExact#}
       {#header_close#}
       {#header_open|@embedFile#}
-      <pre>{#syntax#}@embedFile(comptime path: []const u8) *const [X:0]u8{#endsyntax#}</pre>
+      <pre>{#syntax#}@embedFile(comptime path: []const u8) *const [N:0]u8{#endsyntax#}</pre>
       <p>
       This function returns a compile time constant pointer to null-terminated,
       fixed-size array with length equal to the byte count of the file given by
@@ -7475,7 +7475,7 @@ test "main" {
       {#header_close#}
 
       {#header_open|@errorName#}
-      <pre>{#syntax#}@errorName(err: anyerror) []const u8{#endsyntax#}</pre>
+      <pre>{#syntax#}@errorName(err: anyerror) [:0]const u8{#endsyntax#}</pre>
       <p>
       This function returns the string representation of an error. The string representation
       of {#syntax#}error.OutOfMem{#endsyntax#} is {#syntax#}"OutOfMem"{#endsyntax#}.
@@ -8494,9 +8494,9 @@ fn doTheTest() !void {
       {#header_close#}
 
       {#header_open|@tagName#}
-      <pre>{#syntax#}@tagName(value: anytype) []const u8{#endsyntax#}</pre>
+      <pre>{#syntax#}@tagName(value: anytype) [:0]const u8{#endsyntax#}</pre>
       <p>
-      Converts an enum value or union value to a slice of bytes representing the name.</p><p>If the enum is non-exhaustive and the tag value does not map to a name, it invokes safety-checked {#link|Undefined Behavior#}.
+      Converts an enum value or union value to a string literal representing the name.</p><p>If the enum is non-exhaustive and the tag value does not map to a name, it invokes safety-checked {#link|Undefined Behavior#}.
       </p>
       {#header_close#}
 
@@ -8623,7 +8623,7 @@ test "integer truncation" {
       {#header_close#}
 
       {#header_open|@typeName#}
-      <pre>{#syntax#}@typeName(T: type) [N]u8{#endsyntax#}</pre>
+      <pre>{#syntax#}@typeName(T: type) *const [N:0]u8{#endsyntax#}</pre>
       <p>
       This function returns the string representation of a type, as
       an array. It is equivalent to a string literal of the type name.
