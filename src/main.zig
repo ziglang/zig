@@ -321,6 +321,7 @@ const usage_build_generic =
     \\            medium|large]
     \\  -mred-zone                Force-enable the "red-zone"
     \\  -mno-red-zone             Force-disable the "red-zone"
+    \\  -mexec-model=[value]      Execution model (WASI only)
     \\  --name [name]             Override root name (not a file path)
     \\  -O [mode]                 Choose what to optimize for
     \\    Debug                   (default) Optimizations off, safety on
