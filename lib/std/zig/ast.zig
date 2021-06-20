@@ -1866,6 +1866,7 @@ pub const Tree = struct {
     }
 
     fn fullStructInit(tree: Tree, info: full.StructInit.Ast) full.StructInit {
+        _ = tree;
         var result: full.StructInit = .{
             .ast = info,
         };

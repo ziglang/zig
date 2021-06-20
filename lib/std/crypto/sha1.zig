@@ -43,6 +43,7 @@ pub const Sha1 = struct {
     total_len: u64 = 0,
 
     pub fn init(options: Options) Self {
+        _ = options;
         return Self{
             .s = [_]u32{
                 0x67452301,

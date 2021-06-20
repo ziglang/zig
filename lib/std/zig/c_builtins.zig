@@ -136,6 +136,7 @@ pub inline fn __builtin_strcmp(s1: [*c]const u8, s2: [*c]const u8) c_int {
 }
 
 pub inline fn __builtin_object_size(ptr: ?*const c_void, ty: c_int) usize {
+    _ = ptr;
     // clang semantics match gcc's: https://gcc.gnu.org/onlinedocs/gcc/Object-Size-Checking.html
     // If it is not possible to determine which objects ptr points to at compile time,
     // __builtin_object_size should return (size_t) -1 for type 0 or 1 and (size_t) 0
@@ -186,6 +187,7 @@ pub inline fn __builtin_memcpy(
 /// The return value of __builtin_expect is `expr`. `c` is the expected value
 /// of `expr` and is used as a hint to the compiler in C. Here it is unused.
 pub inline fn __builtin_expect(expr: c_long, c: c_long) c_long {
+    _ = c;
     return expr;
 }
 

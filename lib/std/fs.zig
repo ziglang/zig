@@ -1541,7 +1541,7 @@ pub const Dir = struct {
         self: Dir,
         target_path: []const u8,
         sym_link_path: []const u8,
-        flags: SymLinkFlags,
+        _: SymLinkFlags,
     ) !void {
         return os.symlinkatWasi(target_path, self.fd, sym_link_path);
     }
@@ -1879,6 +1879,7 @@ pub const Dir = struct {
     /// * NtDll prefixed
     /// TODO currently this ignores `flags`.
     pub fn accessW(self: Dir, sub_path_w: [*:0]const u16, flags: File.OpenFlags) AccessError!void {
+        _ = flags;
         return os.faccessatW(self.fd, sub_path_w, 0, 0);
     }
 

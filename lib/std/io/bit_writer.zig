@@ -128,7 +128,7 @@ pub fn BitWriter(endian: builtin.Endian, comptime WriterType: type) type {
         pub fn write(self: *Self, buffer: []const u8) Error!usize {
             // TODO: I'm not sure this is a good idea, maybe flushBits should be forced
             if (self.bit_count > 0) {
-                for (buffer) |b, i|
+                for (buffer) |b|
                     try self.writeBits(b, u8_bit_count);
                 return buffer.len;
             }

@@ -441,6 +441,7 @@ pub fn flush(self: *MachO, comp: *Compilation) !void {
 }
 
 pub fn flushModule(self: *MachO, comp: *Compilation) !void {
+    _ = comp;
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -533,7 +534,7 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                 .target = self.base.options.target,
                 .output_mode = .Obj,
             });
-            const o_directory = self.base.options.module.?.zig_cache_artifact_directory;
+            const o_directory = module.zig_cache_artifact_directory;
             const full_obj_path = try o_directory.join(arena, &[_][]const u8{obj_basename});
             break :blk full_obj_path;
         }
@@ -1254,6 +1255,9 @@ fn freeTextBlock(self: *MachO, text_block: *TextBlock) void {
 }
 
 fn shrinkTextBlock(self: *MachO, text_block: *TextBlock, new_block_size: u64) void {
+    _ = self;
+    _ = text_block;
+    _ = new_block_size;
     // TODO check the new capacity, and if it crosses the size threshold into a big enough
     // capacity, insert a free list node for it.
 }

@@ -179,6 +179,7 @@ test "assign null directly to C pointer and test null equality" {
     try expect(!(x != null));
     try expect(!(null != x));
     if (x) |same_x| {
+        _ = same_x;
         @panic("fail");
     }
     var otherx: i32 = undefined;
@@ -189,7 +190,10 @@ test "assign null directly to C pointer and test null equality" {
     comptime try expect(null == y);
     comptime try expect(!(y != null));
     comptime try expect(!(null != y));
-    if (y) |same_y| @panic("fail");
+    if (y) |same_y| {
+        _ = same_y;
+        @panic("fail");
+    }
     const othery: i32 = undefined;
     comptime try expect((y orelse &othery) == &othery);
 

@@ -46,6 +46,8 @@ fn norm_f_inv(y: f64) f64 {
     return math.sqrt(-2.0 * math.ln(y));
 }
 fn norm_zero_case(random: *Random, u: f64) f64 {
+    _ = random;
+    _ = u;
     return 0.0;
 }
 

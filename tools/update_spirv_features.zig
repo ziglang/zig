@@ -37,6 +37,7 @@ const Version = struct {
     }
 
     fn lessThan(ctx: void, a: Version, b: Version) bool {
+        _ = ctx;
         return if (a.major == b.major)
             a.minor < b.minor
         else

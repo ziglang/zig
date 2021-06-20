@@ -53,6 +53,8 @@ pub const Address = union(enum) {
         opts: fmt.FormatOptions,
         writer: anytype,
     ) !void {
+        _ = opts;
+        _ = layout;
         switch (self) {
             .ipv4 => |address| try fmt.format(writer, "{}:{}", .{ address.host, address.port }),
             .ipv6 => |address| try fmt.format(writer, "{}:{}", .{ address.host, address.port }),

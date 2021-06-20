@@ -48,6 +48,7 @@ test "runtime parameter before var args" {
 }
 
 fn extraFn(extra: u32, args: anytype) !usize {
+    _ = extra;
     if (args.len >= 1) {
         try expect(args[0] == false);
     }
@@ -63,9 +64,11 @@ const foos = [_]fn (anytype) bool{
 };
 
 fn foo1(args: anytype) bool {
+    _ = args;
     return true;
 }
 fn foo2(args: anytype) bool {
+    _ = args;
     return false;
 }
 

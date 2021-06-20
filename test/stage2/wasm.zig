@@ -64,7 +64,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    foo(10, 20);
             \\    return 5;
             \\}
-            \\fn foo(x: u32, y: u32) void {}
+            \\fn foo(x: u32, y: u32) void { _ = x; _ = y; }
         , "5\n");
     }
 
@@ -95,6 +95,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    return i;
             \\}
             \\fn foo(x: u32, y: u32) void {
+            \\    _  = y;
             \\    var i: u32 = 10;
             \\    i = x;
             \\}

@@ -500,7 +500,7 @@ const Emit = union(enum) {
 };
 
 fn optionalBoolEnvVar(arena: *Allocator, name: []const u8) !bool {
-    if (std.process.getEnvVarOwned(arena, name)) |value| {
+    if (std.process.getEnvVarOwned(arena, name)) |_| {
         return true;
     } else |err| switch (err) {
         error.EnvironmentVariableNotFound => return false,
@@ -2560,7 +2560,7 @@ pub const usage_init =
 ;
 
 pub fn cmdInit(
-    gpa: *Allocator,
+    _: *Allocator,
     arena: *Allocator,
     args: []const []const u8,
     output_mode: std.builtin.OutputMode,

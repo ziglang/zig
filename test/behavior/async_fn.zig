@@ -133,6 +133,7 @@ test "@frameSize" {
             other(1);
         }
         fn other(param: i32) void {
+            _ = param;
             var local: i32 = undefined;
             _ = local;
             suspend {}
@@ -635,6 +636,8 @@ test "returning a const error from async function" {
         }
 
         fn fetchUrl(unused: i32, url: []const u8) ![]u8 {
+            _ = unused;
+            _ = url;
             frame = @frame();
             suspend {}
             ok = true;
@@ -711,6 +714,7 @@ fn testAsyncAwaitTypicalUsage(
 
         var global_download_frame: anyframe = undefined;
         fn fetchUrl(allocator: *std.mem.Allocator, url: []const u8) anyerror![]u8 {
+            _ = url;
             const result = try std.mem.dupe(allocator, u8, "expected download text");
             errdefer allocator.free(result);
             if (suspend_download) {
@@ -724,6 +728,7 @@ fn testAsyncAwaitTypicalUsage(
 
         var global_file_frame: anyframe = undefined;
         fn readFile(allocator: *std.mem.Allocator, filename: []const u8) anyerror![]u8 {
+            _ = filename;
             const result = try std.mem.dupe(allocator, u8, "expected file text");
             errdefer allocator.free(result);
             if (suspend_file) {
@@ -1226,6 +1231,7 @@ test "suspend in while loop" {
                 suspend {}
                 return val;
             } else |err| {
+                err catch {};
                 return 0;
             }
         }
@@ -1355,6 +1361,7 @@ test "async function passed 0-bit arg after non-0-bit arg" {
         }
 
         fn bar(x: i32, args: anytype) anyerror!void {
+            _ = args;
             global_frame = @frame();
             suspend {}
             global_int = x;
@@ -1650,6 +1657,8 @@ test "@asyncCall with pass-by-value arguments" {
         pub const AT = [5]u8;
 
         pub fn f(_fill0: u64, s: ST, _fill1: u64, a: AT, _fill2: u64) callconv(.Async) void {
+            _ = s;
+            _ = a;
             // Check that the array and struct arguments passed by value don't
             // end up overflowing the adjacent fields in the frame structure.
             expectEqual(F0, _fill0) catch @panic("test failure");
@@ -1677,6 +1686,7 @@ test "@asyncCall with arguments having non-standard alignment" {
 
     const S = struct {
         pub fn f(_fill0: u32, s: struct { x: u64 align(16) }, _fill1: u64) callconv(.Async) void {
+            _ = s;
             // The compiler inserts extra alignment for s, check that the
             // generated code picks the right slot for fill1.
             expectEqual(F0, _fill0) catch @panic("test failure");

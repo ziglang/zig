@@ -2,6 +2,7 @@ const std = @import("std");
 const expect = std.testing.expect;
 
 pub fn List(comptime T: type) type {
+    _ = T;
     return u32;
 }
 

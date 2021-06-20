@@ -37,9 +37,11 @@ pub fn binarySearch(
 test "binarySearch" {
     const S = struct {
         fn order_u32(context: void, lhs: u32, rhs: u32) math.Order {
+            _ = context;
             return math.order(lhs, rhs);
         }
         fn order_i32(context: void, lhs: i32, rhs: i32) math.Order {
+            _ = context;
             return math.order(lhs, rhs);
         }
     };
@@ -1133,6 +1135,7 @@ fn swap(
 pub fn asc(comptime T: type) fn (void, T, T) bool {
     const impl = struct {
         fn inner(context: void, a: T, b: T) bool {
+            _ = context;
             return a < b;
         }
     };
@@ -1144,6 +1147,7 @@ pub fn asc(comptime T: type) fn (void, T, T) bool {
 pub fn desc(comptime T: type) fn (void, T, T) bool {
     const impl = struct {
         fn inner(context: void, a: T, b: T) bool {
+            _ = context;
             return a > b;
         }
     };

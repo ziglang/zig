@@ -167,6 +167,7 @@ test "generic function with align param" {
 }
 
 fn whyWouldYouEverDoThis(comptime align_bytes: u8) align(align_bytes) u8 {
+    _ = align_bytes;
     return 0x1;
 }
 

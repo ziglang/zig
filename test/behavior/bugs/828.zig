@@ -4,6 +4,7 @@ const CountBy = struct {
     const One = CountBy{ .a = 1 };
 
     pub fn counter(self: *const CountBy) Counter {
+        _ = self;
         return Counter{ .i = 0 };
     }
 };
@@ -18,6 +19,7 @@ const Counter = struct {
 };
 
 fn constCount(comptime cb: *const CountBy, comptime unused: u32) void {
+    _ = unused;
     comptime {
         var cnt = cb.counter();
         if (cnt.i != 0) @compileError("Counter instance reused!");

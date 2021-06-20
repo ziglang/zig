@@ -108,6 +108,7 @@ const TlvOffset = struct {
     offset: u64,
 
     fn cmp(context: void, a: TlvOffset, b: TlvOffset) bool {
+        _ = context;
         return a.source_addr < b.source_addr;
     }
 };
@@ -437,7 +438,7 @@ fn updateMetadata(self: *Zld) !void {
         const data_seg = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
 
         // Create missing metadata
-        for (object.sections.items) |sect, sect_id| {
+        for (object.sections.items) |sect| {
             const segname = sect.segname();
             const sectname = sect.sectname();
 
@@ -1373,7 +1374,7 @@ fn allocateTentativeSymbols(self: *Zld) !void {
     }
 
     // Convert tentative definitions into regular symbols.
-    for (self.tentatives.values()) |sym, i| {
+    for (self.tentatives.values()) |sym| {
         const tent = sym.cast(Symbol.Tentative) orelse unreachable;
         const reg = try self.allocator.create(Symbol.Regular);
         errdefer self.allocator.destroy(reg);
@@ -1758,7 +1759,7 @@ fn resolveSymbolsInObject(self: *Zld, object: *Object) !void {
 
             t_sym.alias = sym;
             sym_ptr.* = sym;
-        } else if (sym.cast(Symbol.Unresolved)) |und| {
+        } else if (sym.cast(Symbol.Unresolved)) |_| {
             if (self.globals.get(sym.name)) |g_sym| {
                 sym.alias = g_sym;
                 continue;

@@ -102,6 +102,7 @@ pub fn deinit(self: *SpirV) void {
 }
 
 pub fn updateDecl(self: *SpirV, module: *Module, decl: *Module.Decl) !void {
+    _ = module;
     // Keep track of all decls so we can iterate over them on flush().
     _ = try self.decl_table.getOrPut(self.base.allocator, decl);
 }
@@ -111,7 +112,14 @@ pub fn updateDeclExports(
     module: *Module,
     decl: *const Module.Decl,
     exports: []const *Module.Export,
-) !void {}
+) !void {
+    if (false) {
+        self;
+        module;
+        decl;
+        exports;
+    }
+}
 
 pub fn freeDecl(self: *SpirV, decl: *Module.Decl) void {
     assert(self.decl_table.swapRemove(decl));

@@ -155,7 +155,7 @@ pub fn main() !void {
         }
         const fn_set = &target_funcs_gop.value_ptr.list;
 
-        for (lib_names) |lib_name, lib_name_index| {
+        for (lib_names) |lib_name| {
             const lib_prefix = if (std.mem.eql(u8, lib_name, "ld")) "" else "lib";
             const basename = try fmt.allocPrint(allocator, "{s}{s}.abilist", .{ lib_prefix, lib_name });
             const abi_list_filename = blk: {
@@ -263,7 +263,7 @@ pub fn main() !void {
 
     // Now the mapping of version and function to integer index is complete.
     // Here we create a mapping of function name to list of versions.
-    for (abi_lists) |*abi_list, abi_index| {
+    for (abi_lists) |*abi_list| {
         const value = target_functions.getPtr(@ptrToInt(abi_list)).?;
         const fn_vers_list = &value.fn_vers_list;
         for (value.list.items) |*ver_fn| {
@@ -286,7 +286,7 @@ pub fn main() !void {
         const abilist_txt = buffered.writer();
 
         // first iterate over the abi lists
-        for (abi_lists) |*abi_list, abi_index| {
+        for (abi_lists) |*abi_list| {
             const fn_vers_list = &target_functions.getPtr(@ptrToInt(abi_list)).?.fn_vers_list;
             for (abi_list.targets) |target, it_i| {
                 if (it_i != 0) try abilist_txt.writeByte(' ');
@@ -312,10 +312,12 @@ pub fn main() !void {
 }
 
 pub fn strCmpLessThan(context: void, a: []const u8, b: []const u8) bool {
+    _ = context;
     return std.mem.order(u8, a, b) == .lt;
 }
 
 pub fn versionLessThan(context: void, a: []const u8, b: []const u8) bool {
+    _ = context;
     const sep_chars = "GLIBC_.";
     var a_tokens = std.mem.tokenize(a, sep_chars);
     var b_tokens = std.mem.tokenize(b, sep_chars);

@@ -84,7 +84,7 @@ fn tlsCsprngFill(_: *const std.rand.Random, buffer: []u8) void {
                 os.MAP_PRIVATE | os.MAP_ANONYMOUS,
                 -1,
                 0,
-            ) catch |err| {
+            ) catch {
                 // Could not allocate memory for the local state, fall back to
                 // the OS syscall.
                 return fillWithOsEntropy(buffer);

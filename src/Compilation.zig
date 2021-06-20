@@ -523,6 +523,7 @@ pub const AllErrors = struct {
         errors: *std.ArrayList(Message),
         msg: []const u8,
     ) !void {
+        _ = arena;
         try errors.append(.{ .plain = .{ .msg = msg } });
     }
 

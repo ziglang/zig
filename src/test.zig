@@ -70,6 +70,8 @@ const ErrorMsg = union(enum) {
         options: std.fmt.FormatOptions,
         writer: anytype,
     ) !void {
+        _ = fmt;
+        _ = options;
         switch (self) {
             .src => |src| {
                 return writer.print("{s}:{d}:{d}: {s}: {s}", .{
@@ -592,6 +594,7 @@ pub const TestContext = struct {
         thread_pool: *ThreadPool,
         global_cache_directory: Compilation.Directory,
     ) !void {
+        _ = self;
         const target_info = try std.zig.system.NativeTargetInfo.detect(allocator, case.target);
         const target = target_info.target;
 

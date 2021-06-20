@@ -65,7 +65,7 @@ pub fn ScopedLoggingAllocator(
         ) error{OutOfMemory}![]u8 {
             const self = @fieldParentPtr(Self, "allocator", allocator);
             const result = self.parent_allocator.allocFn(self.parent_allocator, len, ptr_align, len_align, ra);
-            if (result) |buff| {
+            if (result) |_| {
                 logHelper(
                     success_log_level,
                     "alloc - success - len: {}, ptr_align: {}, len_align: {}",

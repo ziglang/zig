@@ -23,6 +23,7 @@ test "void parameters" {
     try voidFun(1, void{}, 2, {});
 }
 fn voidFun(a: i32, b: void, c: i32, d: void) !void {
+    _ = d;
     const v = b;
     const vv: void = if (a == 1) v else {};
     try expect(a + c == 3);
@@ -57,7 +58,9 @@ test "call function with empty string" {
     acceptsString("");
 }
 
-fn acceptsString(foo: []u8) void {}
+fn acceptsString(foo: []u8) void {
+    _ = foo;
+}
 
 fn @"weird function name"() i32 {
     return 1234;
@@ -70,7 +73,9 @@ test "implicit cast function unreachable return" {
     wantsFnWithVoid(fnWithUnreachable);
 }
 
-fn wantsFnWithVoid(f: fn () void) void {}
+fn wantsFnWithVoid(f: fn () void) void {
+    _ = f;
+}
 
 fn fnWithUnreachable() noreturn {
     unreachable;
@@ -162,6 +167,7 @@ const Point3 = struct {
     y: i32,
 
     fn addPointCoords(self: Point3, comptime T: type) i32 {
+        _ = T;
         return self.x + self.y;
     }
 };

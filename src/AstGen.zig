@@ -925,6 +925,7 @@ fn suspendExpr(
     rl: ResultLoc,
     node: ast.Node.Index,
 ) InnerError!Zir.Inst.Ref {
+    _ = rl;
     const astgen = gz.astgen;
     const gpa = astgen.gpa;
     const tree = astgen.tree;
@@ -1208,6 +1209,7 @@ fn arrayInitExprRlNone(
     elements: []const ast.Node.Index,
     tag: Zir.Inst.Tag,
 ) InnerError!Zir.Inst.Ref {
+    _ = rl;
     const astgen = gz.astgen;
     const gpa = astgen.gpa;
     const elem_list = try gpa.alloc(Zir.Inst.Ref, elements.len);
@@ -1233,6 +1235,9 @@ fn arrayInitExprRlTy(
     elem_ty_inst: Zir.Inst.Ref,
     tag: Zir.Inst.Tag,
 ) InnerError!Zir.Inst.Ref {
+    _ = rl;
+    _ = array_ty_inst;
+    _ = elem_ty_inst;
     const astgen = gz.astgen;
     const gpa = astgen.gpa;
 
@@ -1259,6 +1264,7 @@ fn arrayInitExprRlPtr(
     elements: []const ast.Node.Index,
     result_ptr: Zir.Inst.Ref,
 ) InnerError!Zir.Inst.Ref {
+    _ = rl;
     const astgen = gz.astgen;
     const gpa = astgen.gpa;
 
@@ -1368,6 +1374,7 @@ fn structInitExprRlNone(
     struct_init: ast.full.StructInit,
     tag: Zir.Inst.Tag,
 ) InnerError!Zir.Inst.Ref {
+    _ = rl;
     const astgen = gz.astgen;
     const gpa = astgen.gpa;
     const tree = astgen.tree;
@@ -1403,6 +1410,7 @@ fn structInitExprRlPtr(
     struct_init: ast.full.StructInit,
     result_ptr: Zir.Inst.Ref,
 ) InnerError!Zir.Inst.Ref {
+    _ = rl;
     const astgen = gz.astgen;
     const gpa = astgen.gpa;
     const tree = astgen.tree;
@@ -1439,6 +1447,7 @@ fn structInitExprRlTy(
     ty_inst: Zir.Inst.Ref,
     tag: Zir.Inst.Tag,
 ) InnerError!Zir.Inst.Ref {
+    _ = rl;
     const astgen = gz.astgen;
     const gpa = astgen.gpa;
     const tree = astgen.tree;
@@ -1781,6 +1790,7 @@ fn blockExprStmts(
     node: ast.Node.Index,
     statements: []const ast.Node.Index,
 ) !void {
+    _ = node;
     const astgen = gz.astgen;
     const tree = astgen.tree;
     const node_tags = tree.nodes.items(.tag);
@@ -2117,6 +2127,7 @@ fn genDefers(
     inner_scope: *Scope,
     err_code: Zir.Inst.Ref,
 ) InnerError!void {
+    _ = err_code;
     const astgen = gz.astgen;
     const tree = astgen.tree;
     const node_datas = tree.nodes.items(.data);
@@ -2201,6 +2212,7 @@ fn deferStmt(
     block_arena: *Allocator,
     scope_tag: Scope.Tag,
 ) InnerError!*Scope {
+    _ = gz;
     const defer_scope = try block_arena.create(Scope.Defer);
     defer_scope.* = .{
         .base = .{ .tag = scope_tag },
@@ -4703,6 +4715,8 @@ fn finishThenElseBlock(
     then_break_block: Zir.Inst.Index,
     break_tag: Zir.Inst.Tag,
 ) InnerError!Zir.Inst.Ref {
+    _ = then_src;
+    _ = else_src;
     // We now have enough information to decide whether the result instruction should
     // be communicated via result location pointer or break instructions.
     const strat = rl.strategy(block_scope);
@@ -4886,7 +4900,7 @@ fn ifExpr(
         inst: Zir.Inst.Ref,
         bool_bit: Zir.Inst.Ref,
     } = c: {
-        if (if_full.error_token) |error_token| {
+        if (if_full.error_token) |_| {
             const cond_rl: ResultLoc = if (payload_is_ref) .ref else .none;
             const err_union = try expr(&block_scope, &block_scope.base, cond_rl, if_full.ast.cond_expr);
             const tag: Zir.Inst.Tag = if (payload_is_ref) .is_err_ptr else .is_err;
@@ -4894,7 +4908,7 @@ fn ifExpr(
                 .inst = err_union,
                 .bool_bit = try block_scope.addUnNode(tag, err_union, node),
             };
-        } else if (if_full.payload_token) |payload_token| {
+        } else if (if_full.payload_token) |_| {
             const cond_rl: ResultLoc = if (payload_is_ref) .ref else .none;
             const optional = try expr(&block_scope, &block_scope.base, cond_rl, if_full.ast.cond_expr);
             const tag: Zir.Inst.Tag = if (payload_is_ref) .is_non_null_ptr else .is_non_null;
@@ -5146,7 +5160,7 @@ fn whileExpr(
         inst: Zir.Inst.Ref,
         bool_bit: Zir.Inst.Ref,
     } = c: {
-        if (while_full.error_token) |error_token| {
+        if (while_full.error_token) |_| {
             const cond_rl: ResultLoc = if (payload_is_ref) .ref else .none;
             const err_union = try expr(&continue_scope, &continue_scope.base, cond_rl, while_full.ast.cond_expr);
             const tag: Zir.Inst.Tag = if (payload_is_ref) .is_err_ptr else .is_err;
@@ -5154,7 +5168,7 @@ fn whileExpr(
                 .inst = err_union,
                 .bool_bit = try continue_scope.addUnNode(tag, err_union, node),
             };
-        } else if (while_full.payload_token) |payload_token| {
+        } else if (while_full.payload_token) |_| {
             const cond_rl: ResultLoc = if (payload_is_ref) .ref else .none;
             const optional = try expr(&continue_scope, &continue_scope.base, cond_rl, while_full.ast.cond_expr);
             const tag: Zir.Inst.Tag = if (payload_is_ref) .is_non_null_ptr else .is_non_null;
@@ -6665,6 +6679,7 @@ fn unionInitRlPtr(
     union_type: Zir.Inst.Ref,
     field_name: Zir.Inst.Ref,
 ) InnerError!Zir.Inst.Ref {
+    _ = rl;
     const union_init_ptr = try parent_gz.addPlNode(.union_init_ptr, node, Zir.Inst.UnionInitPtr{
         .result_ptr = result_ptr,
         .union_type = union_type,
@@ -6753,6 +6768,8 @@ fn bitCastRlPtr(
     result_ptr: Zir.Inst.Ref,
     rhs: ast.Node.Index,
 ) InnerError!Zir.Inst.Ref {
+    _ = rl;
+    _ = scope;
     const casted_result_ptr = try gz.addPlNode(.bitcast_result_ptr, node, Zir.Inst.Bin{
         .lhs = dest_type,
         .rhs = result_ptr,
@@ -8013,6 +8030,7 @@ fn rvalue(
     result: Zir.Inst.Ref,
     src_node: ast.Node.Index,
 ) InnerError!Zir.Inst.Ref {
+    _ = scope;
     switch (rl) {
         .none, .none_or_ref => return result,
         .discard => {

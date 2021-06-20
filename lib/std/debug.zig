@@ -325,6 +325,7 @@ pub fn writeStackTrace(
     debug_info: *DebugInfo,
     tty_config: TTY.Config,
 ) !void {
+    _ = allocator;
     if (builtin.strip_debug_info) return error.MissingDebugInfo;
     var frame_index: usize = 0;
     var frames_left: usize = std.math.min(stack_trace.index, stack_trace.instruction_addresses.len);
@@ -930,6 +931,7 @@ const MachoSymbol = struct {
     }
 
     fn addressLessThan(context: void, lhs: MachoSymbol, rhs: MachoSymbol) bool {
+        _ = context;
         return lhs.address() < rhs.address();
     }
 };
@@ -1134,6 +1136,7 @@ pub const DebugInfo = struct {
 
         if (os.dl_iterate_phdr(&ctx, anyerror, struct {
             fn callback(info: *os.dl_phdr_info, size: usize, context: *CtxTy) !void {
+                _ = size;
                 // The base address is too high
                 if (context.address < info.dlpi_addr)
                     return;
@@ -1189,6 +1192,8 @@ pub const DebugInfo = struct {
     }
 
     fn lookupModuleHaiku(self: *DebugInfo, address: usize) !*ModuleDebugInfo {
+        _ = self;
+        _ = address;
         @panic("TODO implement lookup module for Haiku");
     }
 };

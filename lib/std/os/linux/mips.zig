@@ -18,6 +18,7 @@ pub fn syscall0(number: SYS) usize {
 }
 
 pub fn syscall_pipe(fd: *[2]i32) usize {
+    _ = fd;
     return asm volatile (
         \\ .set noat
         \\ .set noreorder

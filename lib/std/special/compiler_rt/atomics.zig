@@ -80,18 +80,21 @@ var spinlocks: SpinlockTable = SpinlockTable{};
 // Those work on any object no matter the pointer alignment nor its size.
 
 fn __atomic_load(size: u32, src: [*]u8, dest: [*]u8, model: i32) callconv(.C) void {
+    _ = model;
     var sl = spinlocks.get(@ptrToInt(src));
     defer sl.release();
     @memcpy(dest, src, size);
 }
 
 fn __atomic_store(size: u32, dest: [*]u8, src: [*]u8, model: i32) callconv(.C) void {
+    _ = model;
     var sl = spinlocks.get(@ptrToInt(dest));
     defer sl.release();
     @memcpy(dest, src, size);
 }
 
 fn __atomic_exchange(size: u32, ptr: [*]u8, val: [*]u8, old: [*]u8, model: i32) callconv(.C) void {
+    _ = model;
     var sl = spinlocks.get(@ptrToInt(ptr));
     defer sl.release();
     @memcpy(old, ptr, size);
@@ -106,6 +109,8 @@ fn __atomic_compare_exchange(
     success: i32,
     failure: i32,
 ) callconv(.C) i32 {
+    _ = success;
+    _ = failure;
     var sl = spinlocks.get(@ptrToInt(ptr));
     defer sl.release();
     for (ptr[0..size]) |b, i| {
@@ -135,6 +140,7 @@ comptime {
 fn atomicLoadFn(comptime T: type) fn (*T, i32) callconv(.C) T {
     return struct {
         fn atomic_load_N(src: *T, model: i32) callconv(.C) T {
+            _ = model;
             if (@sizeOf(T) > largest_atomic_size) {
                 var sl = spinlocks.get(@ptrToInt(src));
                 defer sl.release();
@@ -162,6 +168,7 @@ comptime {
 fn atomicStoreFn(comptime T: type) fn (*T, T, i32) callconv(.C) void {
     return struct {
         fn atomic_store_N(dst: *T, value: T, model: i32) callconv(.C) void {
+            _ = model;
             if (@sizeOf(T) > largest_atomic_size) {
                 var sl = spinlocks.get(@ptrToInt(dst));
                 defer sl.release();
@@ -189,6 +196,7 @@ comptime {
 fn atomicExchangeFn(comptime T: type) fn (*T, T, i32) callconv(.C) T {
     return struct {
         fn atomic_exchange_N(ptr: *T, val: T, model: i32) callconv(.C) T {
+            _ = model;
             if (@sizeOf(T) > largest_atomic_size) {
                 var sl = spinlocks.get(@ptrToInt(ptr));
                 defer sl.release();
@@ -218,6 +226,8 @@ comptime {
 fn atomicCompareExchangeFn(comptime T: type) fn (*T, *T, T, i32, i32) callconv(.C) i32 {
     return struct {
         fn atomic_compare_exchange_N(ptr: *T, expected: *T, desired: T, success: i32, failure: i32) callconv(.C) i32 {
+            _ = success;
+            _ = failure;
             if (@sizeOf(T) > largest_atomic_size) {
                 var sl = spinlocks.get(@ptrToInt(ptr));
                 defer sl.release();
@@ -255,6 +265,7 @@ comptime {
 fn fetchFn(comptime T: type, comptime op: builtin.AtomicRmwOp) fn (*T, T, i32) callconv(.C) T {
     return struct {
         pub fn fetch_op_N(ptr: *T, val: T, model: i32) callconv(.C) T {
+            _ = model;
             if (@sizeOf(T) > largest_atomic_size) {
                 var sl = spinlocks.get(@ptrToInt(ptr));
                 defer sl.release();

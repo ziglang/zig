@@ -23,6 +23,7 @@ pub fn ComptimeStringMap(comptime V: type, comptime kvs: anytype) type {
         var sorted_kvs: [kvs.len]KV = undefined;
         const lenAsc = (struct {
             fn lenAsc(context: void, a: KV, b: KV) bool {
+                _ = context;
                 return a.key.len < b.key.len;
             }
         }).lenAsc;

@@ -417,6 +417,8 @@ pub fn addStandaloneTests(b: *build.Builder, test_filter: ?[]const u8, modes: []
 }
 
 pub fn addCliTests(b: *build.Builder, test_filter: ?[]const u8, modes: []const Mode) *build.Step {
+    _ = test_filter;
+    _ = modes;
     const step = b.step("test-cli", "Test the command line interface");
 
     const exe = b.addExecutable("test-cli", "test/cli.zig");

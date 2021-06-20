@@ -2104,7 +2104,7 @@ const Parser = struct {
     /// FnCallArguments <- LPAREN ExprList RPAREN
     /// ExprList <- (Expr COMMA)* Expr?
     fn parseSuffixExpr(p: *Parser) !Node.Index {
-        if (p.eatToken(.keyword_async)) |async_token| {
+        if (p.eatToken(.keyword_async)) |_| {
             var res = try p.expectPrimaryTypeExpr();
             while (true) {
                 const node = try p.parseSuffixOp(res);

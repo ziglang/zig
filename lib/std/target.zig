@@ -157,7 +157,7 @@ pub const Target = struct {
             pub fn format(
                 self: WindowsVersion,
                 comptime fmt: []const u8,
-                options: std.fmt.FormatOptions,
+                _: std.fmt.FormatOptions,
                 out_stream: anytype,
             ) !void {
                 if (fmt.len > 0 and fmt[0] == 's') {

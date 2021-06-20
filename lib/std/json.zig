@@ -1221,11 +1221,11 @@ test "json.token premature object close" {
 pub fn validate(s: []const u8) bool {
     var p = StreamingParser.init();
 
-    for (s) |c, i| {
+    for (s) |c| {
         var token1: ?Token = undefined;
         var token2: ?Token = undefined;
 
-        p.feed(c, &token1, &token2) catch |err| {
+        p.feed(c, &token1, &token2) catch {
             return false;
         };
     }
@@ -1410,7 +1410,7 @@ fn parsedEqual(a: anytype, b: @TypeOf(a)) bool {
             if (a == null or b == null) return false;
             return parsedEqual(a.?, b.?);
         },
-        .Union => |unionInfo| {
+        .Union => {
             if (info.tag_type) |UnionTag| {
                 const tag_a = std.meta.activeTag(a);
                 const tag_b = std.meta.activeTag(b);
@@ -1771,7 +1771,7 @@ fn parseInternal(comptime T: type, token: Token, tokens: *TokenStream, options: 
                             const source_slice = stringToken.slice(tokens.slice, tokens.i - 1);
                             switch (stringToken.escapes) {
                                 .None => return allocator.dupe(u8, source_slice),
-                                .Some => |some_escapes| {
+                                .Some => {
                                     const output = try allocator.alloc(u8, stringToken.decodedLength());
                                     errdefer allocator.free(output);
                                     try unescapeValidString(output, source_slice);
@@ -2391,7 +2391,7 @@ pub const Parser = struct {
         const slice = s.slice(input, i);
         switch (s.escapes) {
             .None => return Value{ .String = if (p.copy_strings) try allocator.dupe(u8, slice) else slice },
-            .Some => |some_escapes| {
+            .Some => {
                 const output = try allocator.alloc(u8, s.decodedLength());
                 errdefer allocator.free(output);
                 try unescapeValidString(output, slice);
@@ -2401,6 +2401,7 @@ pub const Parser = struct {
     }
 
     fn parseNumber(p: *Parser, n: std.meta.TagPayload(Token, Token.Number), input: []const u8, i: usize) !Value {
+        _ = p;
         return if (n.is_integer)
             Value{
                 .Integer = std.fmt.parseInt(i64, n.slice(input, i), 10) catch |e| switch (e) {
@@ -2815,7 +2816,7 @@ pub fn stringify(
             if (child_options.whitespace) |*child_whitespace| {
                 child_whitespace.indent_level += 1;
             }
-            inline for (S.fields) |Field, field_i| {
+            inline for (S.fields) |Field| {
                 // don't include void fields
                 if (Field.field_type == void) continue;
 
@@ -3114,6 +3115,7 @@ test "stringify struct with custom stringifier" {
             options: StringifyOptions,
             out_stream: anytype,
         ) !void {
+            _ = value;
             try out_stream.writeAll("[\"something special\",");
             try stringify(42, options, out_stream);
             try out_stream.writeByte(']');

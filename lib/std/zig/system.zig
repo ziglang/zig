@@ -200,6 +200,7 @@ pub const NativePaths = struct {
     }
 
     fn appendArray(self: *NativePaths, array: *ArrayList([:0]u8), s: []const u8) !void {
+        _ = self;
         const item = try array.allocator.dupeZ(u8, s);
         errdefer array.allocator.free(item);
         try array.append(item);
@@ -332,7 +333,7 @@ pub const NativeTargetInfo = struct {
                     if (std.builtin.Version.parse(buf[0 .. len - 1])) |ver| {
                         os.version_range.semver.min = ver;
                         os.version_range.semver.max = ver;
-                    } else |err| {
+                    } else |_| {
                         return error.OSVersionDetectionFail;
                     }
                 },

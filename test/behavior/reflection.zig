@@ -15,6 +15,11 @@ test "reflection: function return type, var args, and param types" {
 }
 
 fn dummy(a: bool, b: i32, c: f32) i32 {
+    if (false) {
+        a;
+        b;
+        c;
+    }
     return 1234;
 }
 

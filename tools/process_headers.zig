@@ -236,12 +236,14 @@ const DestTarget = struct {
 
     const HashContext = struct {
         pub fn hash(self: @This(), a: DestTarget) u32 {
+            _ = self;
             return @enumToInt(a.arch) +%
                 (@enumToInt(a.os) *% @as(u32, 4202347608)) +%
                 (@enumToInt(a.abi) *% @as(u32, 4082223418));
         }
 
         pub fn eql(self: @This(), a: DestTarget, b: DestTarget) bool {
+            _ = self;
             return a.arch.eql(b.arch) and
                 a.os == b.os and
                 a.abi == b.abi;
@@ -256,6 +258,7 @@ const Contents = struct {
     is_generic: bool,
 
     fn hitCountLessThan(context: void, lhs: *const Contents, rhs: *const Contents) bool {
+        _ = context;
         return lhs.hit_count < rhs.hit_count;
     }
 };

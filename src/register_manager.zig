@@ -265,6 +265,8 @@ fn MockFunction(comptime Register: type) type {
         }
 
         pub fn spillInstruction(self: *Self, src: LazySrcLoc, reg: Register, inst: *ir.Inst) !void {
+            _ = src;
+            _ = inst;
             try self.spilled.append(self.allocator, reg);
         }
     };

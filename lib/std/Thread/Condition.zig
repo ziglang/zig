@@ -40,12 +40,18 @@ else
 
 pub const SingleThreadedCondition = struct {
     pub fn wait(cond: *SingleThreadedCondition, mutex: *Mutex) void {
+        _ = cond;
+        _ = mutex;
         unreachable; // deadlock detected
     }
 
-    pub fn signal(cond: *SingleThreadedCondition) void {}
+    pub fn signal(cond: *SingleThreadedCondition) void {
+        _ = cond;
+    }
 
-    pub fn broadcast(cond: *SingleThreadedCondition) void {}
+    pub fn broadcast(cond: *SingleThreadedCondition) void {
+        _ = cond;
+    }
 };
 
 pub const WindowsCondition = struct {

@@ -216,7 +216,7 @@ pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
             try module.failed_decls.put(module.gpa, decl, context.err_msg);
             return;
         },
-        else => |e| return err,
+        else => |e| return e,
     };
 
     const code: []const u8 = switch (result) {
@@ -258,7 +258,14 @@ pub fn updateDeclExports(
     module: *Module,
     decl: *const Module.Decl,
     exports: []const *Module.Export,
-) !void {}
+) !void {
+    if (false) {
+        self;
+        module;
+        decl;
+        exports;
+    }
+}
 
 pub fn freeDecl(self: *Wasm, decl: *Module.Decl) void {
     if (self.getFuncidx(decl)) |func_idx| {
@@ -300,6 +307,7 @@ pub fn flush(self: *Wasm, comp: *Compilation) !void {
 }
 
 pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
+    _ = comp;
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -557,7 +565,7 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
                 .target = self.base.options.target,
                 .output_mode = .Obj,
             });
-            const o_directory = self.base.options.module.?.zig_cache_artifact_directory;
+            const o_directory = module.zig_cache_artifact_directory;
             const full_obj_path = try o_directory.join(arena, &[_][]const u8{obj_basename});
             break :blk full_obj_path;
         }

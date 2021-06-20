@@ -149,7 +149,7 @@ pub fn BitReader(endian: builtin.Endian, comptime ReaderType: type) type {
             var out_bits_total = @as(usize, 0);
             //@NOTE: I'm not sure this is a good idea, maybe alignToByte should be forced
             if (self.bit_count > 0) {
-                for (buffer) |*b, i| {
+                for (buffer) |*b| {
                     b.* = try self.readBits(u8, u8_bit_count, &out_bits);
                     out_bits_total += out_bits;
                 }

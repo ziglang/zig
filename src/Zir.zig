@@ -4433,6 +4433,7 @@ const Writer = struct {
     }
 
     fn writeInstIndex(self: *Writer, stream: anytype, inst: Inst.Index) !void {
+        _ = self;
         return stream.print("%{d}", .{inst});
     }
 
@@ -4453,6 +4454,7 @@ const Writer = struct {
         name: []const u8,
         flag: bool,
     ) !void {
+        _ = self;
         if (!flag) return;
         try stream.writeAll(name);
     }

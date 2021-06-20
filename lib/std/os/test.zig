@@ -353,6 +353,7 @@ test "spawn threads" {
 }
 
 fn start1(ctx: void) u8 {
+    _ = ctx;
     return 0;
 }
 
@@ -379,6 +380,7 @@ test "thread local storage" {
 
 threadlocal var x: i32 = 1234;
 fn testTls(context: void) !void {
+    _ = context;
     if (x != 1234) return error.TlsBadStartValue;
     x += 1;
     if (x != 1235) return error.TlsBadEndValue;
@@ -425,6 +427,7 @@ const IterFnError = error{
 };
 
 fn iter_fn(info: *dl_phdr_info, size: usize, counter: *usize) IterFnError!void {
+    _ = size;
     // Count how many libraries are loaded
     counter.* += @as(usize, 1);
 
@@ -731,6 +734,7 @@ test "sigaction" {
 
     const S = struct {
         fn handler(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const c_void) callconv(.C) void {
+            _ = ctx_ptr;
             // Check that we received the correct signal.
             switch (native_os) {
                 .netbsd => {

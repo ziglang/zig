@@ -431,6 +431,10 @@ test "Type.Fn" {
 
     const foo = struct {
         fn func(a: usize, b: bool) align(4) callconv(.C) usize {
+            if (false) {
+                a;
+                b;
+            }
             return 0;
         }
     }.func;
@@ -444,7 +448,9 @@ test "Type.BoundFn" {
     if (builtin.target.cpu.arch == .wasm32 or builtin.target.cpu.arch == .wasm64) return error.SkipZigTest;
 
     const TestStruct = packed struct {
-        pub fn foo(self: *const @This()) align(4) callconv(.Unspecified) void {}
+        pub fn foo(self: *const @This()) align(4) callconv(.Unspecified) void {
+            _ = self;
+        }
     };
     const test_instance: TestStruct = undefined;
     try testing.expect(std.meta.eql(

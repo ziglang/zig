@@ -422,6 +422,7 @@ test {
 }
 
 pub fn TypeWithCompTimeSlice(comptime field_name: []const u8) type {
+    _ = field_name;
     return struct {
         pub const Node = struct {};
     };
@@ -698,7 +699,9 @@ test "refer to the type of a generic function" {
     f(i32);
 }
 
-fn doNothingWithType(comptime T: type) void {}
+fn doNothingWithType(comptime T: type) void {
+    _ = T;
+}
 
 test "zero extend from u0 to u1" {
     var zero_u0: u0 = 0;
@@ -819,7 +822,9 @@ test "two comptime calls with array default initialized to undefined" {
                 result.getCpuArch();
             }
 
-            pub fn getCpuArch(self: CrossTarget) void {}
+            pub fn getCpuArch(self: CrossTarget) void {
+                _ = self;
+            }
         };
 
         const DynamicLinker = struct {

@@ -35,6 +35,7 @@ pub const ManagedNetworkProtocol = extern struct {
     /// Translates an IP multicast address to a hardware (MAC) multicast address.
     /// This function may be unsupported in some MNP implementations.
     pub fn mcastIpToMac(self: *const ManagedNetworkProtocol, ipv6flag: bool, ipaddress: *const c_void, mac_address: *MacAddress) Status {
+        _ = mac_address;
         return self._mcast_ip_to_mac(self, ipv6flag, ipaddress);
     }
 

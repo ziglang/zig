@@ -194,6 +194,7 @@ pub fn PackedIntArrayEndian(comptime Int: type, comptime endian: Endian, comptim
 
         ///Returns the number of elements in the packed array
         pub fn len(self: Self) usize {
+            _ = self;
             return int_count;
         }
 

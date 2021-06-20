@@ -823,31 +823,35 @@ pub fn addCases(ctx: *TestContext) !void {
         \\
     );
     ctx.h("header with single param function", linux_x64,
-        \\export fn start(a: u8) void{}
+        \\export fn start(a: u8) void{
+        \\    _ = a;
+        \\}
     ,
         \\ZIG_EXTERN_C void start(uint8_t a0);
         \\
     );
     ctx.h("header with multiple param function", linux_x64,
-        \\export fn start(a: u8, b: u8, c: u8) void{}
+        \\export fn start(a: u8, b: u8, c: u8) void{
+        \\  _ = a; _ = b; _ = c;
+        \\}
     ,
         \\ZIG_EXTERN_C void start(uint8_t a0, uint8_t a1, uint8_t a2);
         \\
     );
     ctx.h("header with u32 param function", linux_x64,
-        \\export fn start(a: u32) void{}
+        \\export fn start(a: u32) void{ _ = a; }
     ,
         \\ZIG_EXTERN_C void start(uint32_t a0);
         \\
     );
     ctx.h("header with usize param function", linux_x64,
-        \\export fn start(a: usize) void{}
+        \\export fn start(a: usize) void{ _ = a; }
     ,
         \\ZIG_EXTERN_C void start(uintptr_t a0);
         \\
     );
     ctx.h("header with bool param function", linux_x64,
-        \\export fn start(a: bool) void{}
+        \\export fn start(a: bool) void{_ = a;}
     ,
         \\ZIG_EXTERN_C void start(bool a0);
         \\
@@ -871,7 +875,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\
     );
     ctx.h("header with multiple includes", linux_x64,
-        \\export fn start(a: u32, b: usize) void{}
+        \\export fn start(a: u32, b: usize) void{ _ = a; _ = b; }
     ,
         \\ZIG_EXTERN_C void start(uint32_t a0, uintptr_t a1);
         \\

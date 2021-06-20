@@ -182,6 +182,7 @@ test "empty struct method call" {
 }
 const EmptyStruct = struct {
     fn method(es: *const EmptyStruct) i32 {
+        _ = es;
         return 1234;
     }
 };
@@ -452,9 +453,11 @@ fn alloc(comptime T: type) []T {
 test "call method with mutable reference to struct with no fields" {
     const S = struct {
         fn doC(s: *const @This()) bool {
+            _ = s;
             return true;
         }
         fn do(s: *@This()) bool {
+            _ = s;
             return true;
         }
     };
@@ -625,11 +628,13 @@ test "for loop over pointers to struct, getting field from struct pointer" {
         var ok = true;
 
         fn eql(a: []const u8) bool {
+            _ = a;
             return true;
         }
 
         const ArrayList = struct {
             fn toSlice(self: *ArrayList) []*Foo {
+                _ = self;
                 return @as([*]*Foo, undefined)[0..0];
             }
         };

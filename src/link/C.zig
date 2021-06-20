@@ -76,7 +76,12 @@ pub fn deinit(self: *C) void {
     self.decl_table.deinit(self.base.allocator);
 }
 
-pub fn allocateDeclIndexes(self: *C, decl: *Module.Decl) !void {}
+pub fn allocateDeclIndexes(self: *C, decl: *Module.Decl) !void {
+    if (false) {
+        self;
+        decl;
+    }
+}
 
 pub fn freeDecl(self: *C, decl: *Module.Decl) void {
     _ = self.decl_table.swapRemove(decl);
@@ -307,4 +312,11 @@ pub fn updateDeclExports(
     module: *Module,
     decl: *Module.Decl,
     exports: []const *Module.Export,
-) !void {}
+) !void {
+    if (false) {
+        exports;
+        decl;
+        module;
+        self;
+    }
+}

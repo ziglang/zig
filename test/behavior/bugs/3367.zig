@@ -3,7 +3,9 @@ const Foo = struct {
 };
 
 const Mixin = struct {
-    pub fn two(self: Foo) void {}
+    pub fn two(self: Foo) void {
+        _ = self;
+    }
 };
 
 test "container member access usingnamespace decls" {

@@ -12,6 +12,7 @@ const ListenerContext = struct {
 const ContextAllocator = MemoryPool(TestContext);
 
 fn MemoryPool(comptime T: type) type {
+    _ = T;
     return struct {
         n: usize,
     };

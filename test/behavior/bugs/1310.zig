@@ -16,6 +16,8 @@ pub const InvocationTable_ = struct_InvocationTable_;
 pub const VM_ = struct_VM_;
 
 fn agent_callback(_vm: [*]VM, options: [*]u8) callconv(.C) i32 {
+    _ = _vm;
+    _ = options;
     return 11;
 }
 

@@ -139,6 +139,11 @@ var failAllocator = Allocator{
     .resizeFn = Allocator.noResize,
 };
 fn failAllocatorAlloc(self: *Allocator, n: usize, alignment: u29, len_align: u29, ra: usize) Allocator.Error![]u8 {
+    _ = self;
+    _ = n;
+    _ = alignment;
+    _ = len_align;
+    _ = ra;
     return error.OutOfMemory;
 }
 

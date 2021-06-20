@@ -219,6 +219,7 @@ pub const Hash = struct {
     const Self = @This();
 
     pub fn init(options: Options) Self {
+        _ = options;
         return Self{
             .state = State{ .data = [_]u32{0} ** (State.BLOCKBYTES / 4) },
             .buf_off = 0,

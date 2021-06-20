@@ -346,7 +346,7 @@ test "ed25519 test vectors" {
             .expected = error.IdentityElement, // 11 - small-order A
         },
     };
-    for (entries) |entry, i| {
+    for (entries) |entry| {
         var msg: [entry.msg_hex.len / 2]u8 = undefined;
         _ = try fmt.hexToBytes(&msg, entry.msg_hex);
         var public_key: [32]u8 = undefined;

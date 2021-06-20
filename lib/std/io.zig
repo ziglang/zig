@@ -161,6 +161,7 @@ pub const null_writer = @as(NullWriter, .{ .context = {} });
 
 const NullWriter = Writer(void, error{}, dummyWrite);
 fn dummyWrite(context: void, data: []const u8) error{}!usize {
+    _ = context;
     return data.len;
 }
 

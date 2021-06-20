@@ -139,7 +139,10 @@ test "comptime test error for empty error set" {
 const EmptyErrorSet = error{};
 
 fn testComptimeTestErrorEmptySet(x: EmptyErrorSet!i32) !void {
-    if (x) |v| try expect(v == 1234) else |err| @compileError("bad");
+    if (x) |v| try expect(v == 1234) else |err| {
+        _ = err;
+        @compileError("bad");
+    }
 }
 
 test "syntax: optional operator in front of error union operator" {
@@ -394,6 +397,7 @@ test "function pointer with return type that is error union with payload which i
         const Err = error{UnspecifiedErr};
 
         fn bar(a: i32) anyerror!*Foo {
+            _ = a;
             return Err.UnspecifiedErr;
         }
 
@@ -448,7 +452,9 @@ test "error payload type is correctly resolved" {
 
 test "error union comptime caching" {
     const S = struct {
-        fn foo(comptime arg: anytype) void {}
+        fn foo(comptime arg: anytype) void {
+            arg catch {};
+        }
     };
 
     S.foo(@as(anyerror!void, {}));

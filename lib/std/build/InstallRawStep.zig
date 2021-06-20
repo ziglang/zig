@@ -139,6 +139,7 @@ const BinaryElfOutput = struct {
     }
 
     fn segmentSortCompare(context: void, left: *BinaryElfSegment, right: *BinaryElfSegment) bool {
+        _ = context;
         if (left.physicalAddress < right.physicalAddress) {
             return true;
         }
@@ -149,6 +150,7 @@ const BinaryElfOutput = struct {
     }
 
     fn sectionSortCompare(context: void, left: *BinaryElfSection, right: *BinaryElfSection) bool {
+        _ = context;
         return left.binaryOffset < right.binaryOffset;
     }
 };

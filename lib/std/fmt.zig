@@ -369,6 +369,7 @@ pub fn format(
 }
 
 pub fn formatAddress(value: anytype, options: FormatOptions, writer: anytype) @TypeOf(writer).Error!void {
+    _ = options;
     const T = @TypeOf(value);
 
     switch (@typeInfo(T)) {
@@ -553,7 +554,7 @@ pub fn formatType(
             .Many, .C => {
                 if (actual_fmt.len == 0)
                     @compileError("cannot format pointer without a specifier (i.e. {s} or {*})");
-                if (ptr_info.sentinel) |sentinel| {
+                if (ptr_info.sentinel) |_| {
                     return formatType(mem.span(value), actual_fmt, options, writer, max_depth);
                 }
                 if (ptr_info.child == u8) {
@@ -741,6 +742,8 @@ fn formatSliceHexImpl(comptime case: Case) type {
             options: std.fmt.FormatOptions,
             writer: anytype,
         ) !void {
+            _ = fmt;
+            _ = options;
             var buf: [2]u8 = undefined;
 
             for (bytes) |c| {
@@ -777,6 +780,8 @@ fn formatSliceEscapeImpl(comptime case: Case) type {
             options: std.fmt.FormatOptions,
             writer: anytype,
         ) !void {
+            _ = fmt;
+            _ = options;
             var buf: [4]u8 = undefined;
 
             buf[0] = '\\';
@@ -820,6 +825,7 @@ fn formatSizeImpl(comptime radix: comptime_int) type {
             options: FormatOptions,
             writer: anytype,
         ) !void {
+            _ = fmt;
             if (value == 0) {
                 return writer.writeAll("0B");
             }
@@ -903,6 +909,7 @@ pub fn formatAsciiChar(
     options: FormatOptions,
     writer: anytype,
 ) !void {
+    _ = options;
     return writer.writeAll(@as(*const [1]u8, &c));
 }
 
@@ -1362,6 +1369,8 @@ pub fn formatIntBuf(out_buf: []u8, value: anytype, base: u8, case: Case, options
 }
 
 fn formatDuration(ns: u64, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+    _ = fmt;
+    _ = options;
     var ns_remaining = ns;
     inline for (.{
         .{ .ns = 365 * std.time.ns_per_day, .sep = 'y' },
@@ -2152,6 +2161,7 @@ test "custom" {
             options: FormatOptions,
             writer: anytype,
         ) !void {
+            _ = options;
             if (fmt.len == 0 or comptime std.mem.eql(u8, fmt, "p")) {
                 return std.fmt.format(writer, "({d:.3},{d:.3})", .{ self.x, self.y });
             } else if (comptime std.mem.eql(u8, fmt, "d")) {
@@ -2340,6 +2350,7 @@ test "formatType max_depth" {
             options: FormatOptions,
             writer: anytype,
         ) !void {
+            _ = options;
             if (fmt.len == 0) {
                 return std.fmt.format(writer, "({d:.3},{d:.3})", .{ self.x, self.y });
             } else {

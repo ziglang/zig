@@ -345,7 +345,7 @@ pub const Loop = struct {
                 );
                 errdefer windows.CloseHandle(self.os_data.io_port);
 
-                for (self.eventfd_resume_nodes) |*eventfd_node, i| {
+                for (self.eventfd_resume_nodes) |*eventfd_node| {
                     eventfd_node.* = std.atomic.Stack(ResumeNode.EventFd).Node{
                         .data = ResumeNode.EventFd{
                             .base = ResumeNode{

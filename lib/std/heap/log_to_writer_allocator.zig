@@ -37,9 +37,9 @@ pub fn LogToWriterAllocator(comptime Writer: type) type {
             const self = @fieldParentPtr(Self, "allocator", allocator);
             self.writer.print("alloc : {}", .{len}) catch {};
             const result = self.parent_allocator.allocFn(self.parent_allocator, len, ptr_align, len_align, ra);
-            if (result) |buff| {
+            if (result) |_| {
                 self.writer.print(" success!\n", .{}) catch {};
-            } else |err| {
+            } else |_| {
                 self.writer.print(" failure!\n", .{}) catch {};
             }
             return result;

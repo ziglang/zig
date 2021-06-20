@@ -375,6 +375,7 @@ fn SMHasherTest(comptime hash_fn: anytype) u32 {
 }
 
 fn CityHash32hashIgnoreSeed(str: []const u8, seed: u32) u32 {
+    _ = seed;
     return CityHash32.hash(str);
 }
 

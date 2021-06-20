@@ -899,6 +899,7 @@ fn writeStringTable(self: *DebugSymbols) !void {
 }
 
 pub fn updateDeclLineNumber(self: *DebugSymbols, module: *Module, decl: *const Module.Decl) !void {
+    _ = module;
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -926,6 +927,8 @@ pub fn initDeclDebugBuffers(
     module: *Module,
     decl: *Module.Decl,
 ) !DeclDebugBuffers {
+    _ = self;
+    _ = module;
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -1188,6 +1191,7 @@ fn addDbgInfoType(
     dbg_info_buffer: *std.ArrayList(u8),
     target: std.Target,
 ) !void {
+    _ = self;
     switch (ty.zigTypeTag()) {
         .Void => unreachable,
         .NoReturn => unreachable,
@@ -1364,6 +1368,7 @@ fn getRelocDbgInfoSubprogramHighPC() u32 {
 }
 
 fn dbgLineNeededHeaderBytes(self: DebugSymbols, module: *Module) u32 {
+    _ = self;
     const directory_entry_format_count = 1;
     const file_name_entry_format_count = 1;
     const directory_count = 1;
@@ -1378,6 +1383,7 @@ fn dbgLineNeededHeaderBytes(self: DebugSymbols, module: *Module) u32 {
 }
 
 fn dbgInfoNeededHeaderBytes(self: DebugSymbols) u32 {
+    _ = self;
     return 120;
 }
 

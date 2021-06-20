@@ -25,6 +25,10 @@ pub fn StringHashMap(comptime V: type) type {
 }
 
 pub fn HashMap(comptime K: type, comptime V: type) type {
+    if (false) {
+        K;
+        V;
+    }
     return struct {
         size: usize,
         max_distance_from_start_index: usize,

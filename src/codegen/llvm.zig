@@ -154,6 +154,7 @@ pub const Object = struct {
     object_pathZ: [:0]const u8,
 
     pub fn create(allocator: *Allocator, sub_path: []const u8, options: link.Options) !*Object {
+        _ = sub_path;
         const self = try allocator.create(Object);
         errdefer allocator.destroy(self);
 
@@ -742,6 +743,7 @@ pub const FuncGen = struct {
     }
 
     fn genRetVoid(self: *FuncGen, inst: *Inst.NoOp) ?*const llvm.Value {
+        _ = inst;
         _ = self.builder.buildRetVoid();
         return null;
     }
@@ -873,6 +875,7 @@ pub const FuncGen = struct {
     }
 
     fn genUnreach(self: *FuncGen, inst: *Inst.NoOp) ?*const llvm.Value {
+        _ = inst;
         _ = self.builder.buildUnreachable();
         return null;
     }
@@ -1013,6 +1016,7 @@ pub const FuncGen = struct {
     }
 
     fn genBreakpoint(self: *FuncGen, inst: *Inst.NoOp) !?*const llvm.Value {
+        _ = inst;
         const llvn_fn = self.getIntrinsic("llvm.debugtrap");
         _ = self.builder.buildCall(llvn_fn, null, 0, "");
         return null;

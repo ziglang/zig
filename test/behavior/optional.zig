@@ -161,6 +161,7 @@ test "self-referential struct through a slice of optional" {
 test "assigning to an unwrapped optional field in an inline loop" {
     comptime var maybe_pos_arg: ?comptime_int = null;
     inline for ("ab") |x| {
+        _ = x;
         maybe_pos_arg = 0;
         if (maybe_pos_arg.? != 0) {
             @compileError("bad");

@@ -92,6 +92,7 @@ pub fn MultiArrayList(comptime S: type) type {
             }
             const Sort = struct {
                 fn lessThan(trash: *i32, lhs: Data, rhs: Data) bool {
+                    _ = trash;
                     return lhs.alignment > rhs.alignment;
                 }
             };
@@ -221,7 +222,7 @@ pub fn MultiArrayList(comptime S: type) type {
         /// retain list ordering.
         pub fn swapRemove(self: *Self, index: usize) void {
             const slices = self.slice();
-            inline for (fields) |field_info, i| {
+            inline for (fields) |_, i| {
                 const field_slice = slices.items(@intToEnum(Field, i));
                 field_slice[index] = field_slice[self.len - 1];
                 field_slice[self.len - 1] = undefined;
@@ -233,7 +234,7 @@ pub fn MultiArrayList(comptime S: type) type {
         /// after it to preserve order.
         pub fn orderedRemove(self: *Self, index: usize) void {
             const slices = self.slice();
-            inline for (fields) |field_info, field_index| {
+            inline for (fields) |_, field_index| {
                 const field_slice = slices.items(@intToEnum(Field, field_index));
                 var i = index;
                 while (i < self.len - 1) : (i += 1) {

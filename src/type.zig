@@ -600,9 +600,11 @@ pub const Type = extern union {
 
     pub const HashContext = struct {
         pub fn hash(self: @This(), t: Type) u64 {
+            _ = self;
             return t.hash();
         }
         pub fn eql(self: @This(), a: Type, b: Type) bool {
+            _ = self;
             return a.eql(b);
         }
     };
@@ -777,6 +779,7 @@ pub const Type = extern union {
         options: std.fmt.FormatOptions,
         writer: anytype,
     ) @TypeOf(writer).Error!void {
+        _ = options;
         comptime assert(fmt.len == 0);
         var ty = start_type;
         while (true) {

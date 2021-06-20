@@ -843,6 +843,7 @@ pub const refAllDecls = @compileError("refAllDecls has been moved from std.meta 
 pub fn declList(comptime Namespace: type, comptime Decl: type) []const *const Decl {
     const S = struct {
         fn declNameLessThan(context: void, lhs: *const Decl, rhs: *const Decl) bool {
+            _ = context;
             return mem.lessThan(u8, lhs.name, rhs.name);
         }
     };

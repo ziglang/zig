@@ -28,7 +28,9 @@ pub const ___tracy_c_zone_context = extern struct {
 };
 
 pub const Ctx = if (enable) ___tracy_c_zone_context else struct {
-    pub fn end(self: Ctx) void {}
+    pub fn end(self: Ctx) void {
+        _ = self;
+    }
 };
 
 pub inline fn trace(comptime src: std.builtin.SourceLocation) Ctx {

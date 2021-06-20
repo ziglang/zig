@@ -40,9 +40,11 @@ pub fn StringArrayHashMapUnmanaged(comptime V: type) type {
 
 pub const StringContext = struct {
     pub fn hash(self: @This(), s: []const u8) u32 {
+        _ = self;
         return hashString(s);
     }
     pub fn eql(self: @This(), a: []const u8, b: []const u8) bool {
+        _ = self;
         return eqlString(a, b);
     }
 };
@@ -1335,6 +1337,7 @@ pub fn ArrayHashMapUnmanaged(
         }
 
         fn removeSlot(self: *Self, removed_slot: usize, header: *IndexHeader, comptime I: type, indexes: []Index(I)) void {
+            _ = self;
             const start_index = removed_slot +% 1;
             const end_index = start_index +% indexes.len;
 
@@ -1626,6 +1629,7 @@ pub fn ArrayHashMapUnmanaged(
             }
         }
         fn dumpIndex(self: Self, header: *IndexHeader, comptime I: type) void {
+            _ = self;
             const p = std.debug.print;
             p("  index len=0x{x} type={}\n", .{ header.length(), header.capacityIndexType() });
             const indexes = header.indexes(I);
@@ -1918,7 +1922,7 @@ test "iterator hash map" {
     try testing.expect(count == 3);
     try testing.expect(it.next() == null);
 
-    for (buffer) |v, i| {
+    for (buffer) |_, i| {
         try testing.expect(buffer[@intCast(usize, keys[i])] == values[i]);
     }
 
@@ -1930,7 +1934,7 @@ test "iterator hash map" {
         if (count >= 2) break;
     }
 
-    for (buffer[0..2]) |v, i| {
+    for (buffer[0..2]) |_, i| {
         try testing.expect(buffer[@intCast(usize, keys[i])] == values[i]);
     }
 
@@ -2154,6 +2158,7 @@ test "compile everything" {
 pub fn getHashPtrAddrFn(comptime K: type, comptime Context: type) (fn (Context, K) u32) {
     return struct {
         fn hash(ctx: Context, key: K) u32 {
+            _ = ctx;
             return getAutoHashFn(usize, void)({}, @ptrToInt(key));
         }
     }.hash;
@@ -2162,6 +2167,7 @@ pub fn getHashPtrAddrFn(comptime K: type, comptime Context: type) (fn (Context, 
 pub fn getTrivialEqlFn(comptime K: type, comptime Context: type) (fn (Context, K, K) bool) {
     return struct {
         fn eql(ctx: Context, a: K, b: K) bool {
+            _ = ctx;
             return a == b;
         }
     }.eql;
@@ -2177,6 +2183,7 @@ pub fn AutoContext(comptime K: type) type {
 pub fn getAutoHashFn(comptime K: type, comptime Context: type) (fn (Context, K) u32) {
     return struct {
         fn hash(ctx: Context, key: K) u32 {
+            _ = ctx;
             if (comptime trait.hasUniqueRepresentation(K)) {
                 return @truncate(u32, Wyhash.hash(0, std.mem.asBytes(&key)));
             } else {
@@ -2191,6 +2198,7 @@ pub fn getAutoHashFn(comptime K: type, comptime Context: type) (fn (Context, K) 
 pub fn getAutoEqlFn(comptime K: type, comptime Context: type) (fn (Context, K, K) bool) {
     return struct {
         fn eql(ctx: Context, a: K, b: K) bool {
+            _ = ctx;
             return meta.eql(a, b);
         }
     }.eql;
@@ -2217,6 +2225,7 @@ pub fn autoEqlIsCheap(comptime K: type) bool {
 pub fn getAutoHashStratFn(comptime K: type, comptime Context: type, comptime strategy: std.hash.Strategy) (fn (Context, K) u32) {
     return struct {
         fn hash(ctx: Context, key: K) u32 {
+            _ = ctx;
             var hasher = Wyhash.init(0);
             std.hash.autoHashStrat(&hasher, key, strategy);
             return @truncate(u32, hasher.final());

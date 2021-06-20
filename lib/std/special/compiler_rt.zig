@@ -602,6 +602,7 @@ pub usingnamespace @import("compiler_rt/atomics.zig");
 // Avoid dragging in the runtime safety mechanisms into this .o file,
 // unless we're trying to test this file.
 pub fn panic(msg: []const u8, error_return_trace: ?*builtin.StackTrace) noreturn {
+    _ = error_return_trace;
     @setCold(true);
     if (is_test) {
         std.debug.panic("{s}", .{msg});

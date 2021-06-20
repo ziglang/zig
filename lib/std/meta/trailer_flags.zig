@@ -108,6 +108,7 @@ pub fn TrailerFlags(comptime Fields: type) type {
         }
 
         pub fn offset(self: Self, p: [*]align(@alignOf(Fields)) const u8, comptime field: FieldEnum) usize {
+            _ = p;
             var off: usize = 0;
             inline for (@typeInfo(Fields).Struct.fields) |field_info, i| {
                 const active = (self.bits & (1 << i)) != 0;

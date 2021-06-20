@@ -292,6 +292,7 @@ pub fn Mixin(comptime Socket: type) type {
         /// with a set of flags specified. It returns the number of bytes that were
         /// read into the buffer provided.
         pub fn readMessage(self: Socket, msg: *Socket.Message, flags: u32) !usize {
+            _ = flags;
             const call = try windows.loadWinsockExtensionFunction(ws2_32.LPFN_WSARECVMSG, self.fd, ws2_32.WSAID_WSARECVMSG);
 
             var num_bytes: u32 = undefined;
@@ -367,16 +368,19 @@ pub fn Mixin(comptime Socket: type) type {
 
         /// Query and return the latest cached error on the socket.
         pub fn getError(self: Socket) !void {
+            _ = self;
             return {};
         }
 
         /// Query the read buffer size of the socket.
         pub fn getReadBufferSize(self: Socket) !u32 {
+            _ = self;
             return 0;
         }
 
         /// Query the write buffer size of the socket.
         pub fn getWriteBufferSize(self: Socket) !u32 {
+            _ = self;
             return 0;
         }
 
@@ -406,7 +410,7 @@ pub fn Mixin(comptime Socket: type) type {
 
         /// On connection-oriented sockets, have keep-alive messages be sent periodically. The timing in which keep-alive
         /// messages are sent are dependant on operating system settings. It returns `error.UnsupportedSocketOption` if
-        /// the host does not support periodically sending keep-alive messages on connection-oriented sockets. 
+        /// the host does not support periodically sending keep-alive messages on connection-oriented sockets.
         pub fn setKeepAlive(self: Socket, enabled: bool) !void {
             return self.setOption(ws2_32.SOL_SOCKET, ws2_32.SO_KEEPALIVE, mem.asBytes(&@as(u32, @boolToInt(enabled))));
         }
@@ -438,7 +442,7 @@ pub fn Mixin(comptime Socket: type) type {
 
         /// WARNING: Timeouts only affect blocking sockets. It is undefined behavior if a timeout is
         /// set on a non-blocking socket.
-        /// 
+        ///
         /// Set a timeout on the socket that is to occur if no messages are successfully written
         /// to its bound destination after a specified number of milliseconds. A subsequent write
         /// to the socket will thereafter return `error.WouldBlock` should the timeout be exceeded.
@@ -448,7 +452,7 @@ pub fn Mixin(comptime Socket: type) type {
 
         /// WARNING: Timeouts only affect blocking sockets. It is undefined behavior if a timeout is
         /// set on a non-blocking socket.
-        /// 
+        ///
         /// Set a timeout on the socket that is to occur if no messages are successfully read
         /// from its bound destination after a specified number of milliseconds. A subsequent
         /// read from the socket will thereafter return `error.WouldBlock` should the timeout be

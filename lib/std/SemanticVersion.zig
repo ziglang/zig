@@ -162,6 +162,7 @@ pub fn format(
     options: std.fmt.FormatOptions,
     out_stream: anytype,
 ) !void {
+    _ = options;
     if (fmt.len != 0) @compileError("Unknown format string: '" ++ fmt ++ "'");
     try std.fmt.format(out_stream, "{d}.{d}.{d}", .{ self.major, self.minor, self.patch });
     if (self.pre) |pre| try std.fmt.format(out_stream, "-{s}", .{pre});
@@ -259,7 +260,7 @@ test "SemanticVersion format" {
 
     // Invalid version string that may overflow.
     const big_invalid = "99999999999999999999999.999999999999999999.99999999999999999----RC-SNAPSHOT.12.09.1--------------------------------..12";
-    if (parse(big_invalid)) |ver| std.debug.panic("expected error, found {}", .{ver}) else |err| {}
+    if (parse(big_invalid)) |ver| std.debug.panic("expected error, found {}", .{ver}) else |_| {}
 }
 
 test "SemanticVersion precedence" {

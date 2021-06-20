@@ -774,7 +774,10 @@ pub const Fn = struct {
         ir.dumpFn(mod, func);
     }
 
-    pub fn deinit(func: *Fn, gpa: *Allocator) void {}
+    pub fn deinit(func: *Fn, gpa: *Allocator) void {
+        _ = func;
+        _ = gpa;
+    }
 };
 
 pub const Var = struct {
@@ -2209,6 +2212,7 @@ comptime {
 }
 
 pub fn astGenFile(mod: *Module, file: *Scope.File, prog_node: *std.Progress.Node) !void {
+    _ = prog_node;
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -3128,6 +3132,7 @@ pub const ImportFileResult = struct {
 };
 
 pub fn importPkg(mod: *Module, cur_pkg: *Package, pkg: *Package) !ImportFileResult {
+    _ = cur_pkg;
     const gpa = mod.gpa;
 
     // The resolved path is used as the key in the import table, to detect if
@@ -3384,7 +3389,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) InnerError!vo
     decl.has_align = has_align;
     decl.has_linksection = has_linksection;
     decl.zir_decl_index = @intCast(u32, decl_sub_index);
-    if (decl.getFunction()) |func| {
+    if (decl.getFunction()) |_| {
         switch (mod.comp.bin_file.tag) {
             .coff => {
                 // TODO Implement for COFF
@@ -3753,6 +3758,7 @@ pub fn analyzeExport(
     errdefer de_gop.value_ptr.* = mod.gpa.shrink(de_gop.value_ptr.*, de_gop.value_ptr.len - 1);
 }
 pub fn constInst(mod: *Module, arena: *Allocator, src: LazySrcLoc, typed_value: TypedValue) !*ir.Inst {
+    _ = mod;
     const const_inst = try arena.create(ir.Inst.Constant);
     const_inst.* = .{
         .base = .{
@@ -4121,6 +4127,7 @@ pub fn floatAdd(
     lhs: Value,
     rhs: Value,
 ) !Value {
+    _ = src;
     switch (float_type.tag()) {
         .f16 => {
             @panic("TODO add __trunctfhf2 to compiler-rt");
@@ -4154,6 +4161,7 @@ pub fn floatSub(
     lhs: Value,
     rhs: Value,
 ) !Value {
+    _ = src;
     switch (float_type.tag()) {
         .f16 => {
             @panic("TODO add __trunctfhf2 to compiler-rt");
@@ -4187,6 +4195,7 @@ pub fn floatDiv(
     lhs: Value,
     rhs: Value,
 ) !Value {
+    _ = src;
     switch (float_type.tag()) {
         .f16 => {
             @panic("TODO add __trunctfhf2 to compiler-rt");
@@ -4220,6 +4229,7 @@ pub fn floatMul(
     lhs: Value,
     rhs: Value,
 ) !Value {
+    _ = src;
     switch (float_type.tag()) {
         .f16 => {
             @panic("TODO add __trunctfhf2 to compiler-rt");
@@ -4253,6 +4263,7 @@ pub fn simplePtrType(
     mutable: bool,
     size: std.builtin.TypeInfo.Pointer.Size,
 ) Allocator.Error!Type {
+    _ = mod;
     if (!mutable and size == .Slice and elem_ty.eql(Type.initTag(.u8))) {
         return Type.initTag(.const_slice_u8);
     }
@@ -4287,6 +4298,7 @@ pub fn ptrType(
     @"volatile": bool,
     size: std.builtin.TypeInfo.Pointer.Size,
 ) Allocator.Error!Type {
+    _ = mod;
     assert(host_size == 0 or bit_offset < host_size * 8);
 
     // TODO check if type can be represented by simplePtrType
@@ -4304,6 +4316,7 @@ pub fn ptrType(
 }
 
 pub fn optionalType(mod: *Module, arena: *Allocator, child_type: Type) Allocator.Error!Type {
+    _ = mod;
     switch (child_type.tag()) {
         .single_const_pointer => return Type.Tag.optional_single_const_pointer.create(
             arena,
@@ -4324,6 +4337,7 @@ pub fn arrayType(
     sentinel: ?Value,
     elem_type: Type,
 ) Allocator.Error!Type {
+    _ = mod;
     if (elem_type.eql(Type.initTag(.u8))) {
         if (sentinel) |some| {
             if (some.eql(Value.initTag(.zero))) {
@@ -4354,6 +4368,7 @@ pub fn errorUnionType(
     error_set: Type,
     payload: Type,
 ) Allocator.Error!Type {
+    _ = mod;
     assert(error_set.zigTypeTag() == .ErrorSet);
     if (error_set.eql(Type.initTag(.anyerror)) and payload.eql(Type.initTag(.void))) {
         return Type.initTag(.anyerror_void_error_union);

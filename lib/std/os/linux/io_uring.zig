@@ -284,6 +284,7 @@ pub const IO_Uring = struct {
     }
 
     fn copy_cqes_ready(self: *IO_Uring, cqes: []io_uring_cqe, wait_nr: u32) u32 {
+        _ = wait_nr;
         const ready = self.cq_ready();
         const count = std.math.min(cqes.len, ready);
         var head = self.cq.head.*;
@@ -320,6 +321,7 @@ pub const IO_Uring = struct {
     /// Not idempotent, calling more than once will result in other CQEs being lost.
     /// Matches the implementation of cqe_seen() in liburing.
     pub fn cqe_seen(self: *IO_Uring, cqe: *io_uring_cqe) void {
+        _ = cqe;
         self.cq_advance(1);
     }
 
@@ -728,6 +730,7 @@ pub const CompletionQueue = struct {
     }
 
     pub fn deinit(self: *CompletionQueue) void {
+        _ = self;
         // A no-op since we now share the mmap with the submission queue.
         // Here for symmetry with the submission queue, and for any future feature support.
     }
