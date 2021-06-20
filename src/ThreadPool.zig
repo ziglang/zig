@@ -60,7 +60,7 @@ pub fn init(self: *ThreadPool, allocator: *std.mem.Allocator) !void {
     if (std.builtin.single_threaded)
         return;
 
-    const worker_count = std.math.max(1, std.Thread.cpuCount() catch 1);
+    const worker_count = std.math.max(1, std.Thread.getCpuCount() catch 1);
     self.workers = try allocator.alloc(Worker, worker_count);
     errdefer allocator.free(self.workers);
 

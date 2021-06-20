@@ -137,7 +137,7 @@ pub const Loop = struct {
     }
 
     /// After initialization, call run().
-    /// This is the same as `initThreadPool` using `Thread.cpuCount` to determine the thread
+    /// This is the same as `initThreadPool` using `Thread.getCpuCount` to determine the thread
     /// pool size.
     /// TODO copy elision / named return values so that the threads referencing *Loop
     /// have the correct pointer value.
@@ -145,7 +145,7 @@ pub const Loop = struct {
     pub fn initMultiThreaded(self: *Loop) !void {
         if (builtin.single_threaded)
             @compileError("initMultiThreaded unavailable when building in single-threaded mode");
-        const core_count = try Thread.cpuCount();
+        const core_count = try Thread.getCpuCount();
         return self.initThreadPool(core_count);
     }
 

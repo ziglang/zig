@@ -364,7 +364,7 @@ fn start2(ctx: *i32) u8 {
 test "cpu count" {
     if (native_os == .wasi) return error.SkipZigTest;
 
-    const cpu_count = try Thread.cpuCount();
+    const cpu_count = try Thread.getCpuCount();
     try expect(cpu_count >= 1);
 }
 
