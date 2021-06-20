@@ -25,6 +25,7 @@ pub const spinLoopHint = @compileError("deprecated: use std.atomic.spinLoopHint"
 
 pub const use_pthreads = target.os.tag != .windows and std.builtin.link_libc;
 
+const Thread = @This();
 const Impl = if (target.os.tag == .windows)
     WindowsThreadImpl
 else if (use_pthreads)
@@ -35,7 +36,6 @@ else
     @compileLog("Unsupported operating system", target.os.tag);
 
 impl: Impl,
-
 
 /// Represents a kernel thread handle.
 /// May be an integer or a pointer depending on the platform.
@@ -120,6 +120,29 @@ pub fn spawn(
     return .{ .impl = impl };
 }
 
+/// Retrns the handle of this thread
+/// On Linux and POSIX, this is the same as Id.
+pub fn getHandle(self: Thread) Handle {
+    return self.impl.getHandle();
+}
+
+/// Release the obligation of the caller to call `join()` and have the thread clean up its own resources on completion.
+pub fn detach(self: Thread) void {
+    return self.impl.detach();
+}
+
+/// Waits for the thread to complete, then deallocates any resources created on `spawn()`.
+pub fn join(self: Thread) void {
+    return self.impl.join();
+}
+
+/// State to synchronize detachment of spawner thread to spawned thread
+const Completion = Atomic(enum {
+    running,
+    detached,
+    completed,
+});
+
 /// Used by the Thread implementations to call the spawned function with the arguments.
 fn callFn(comptime f: anytype, args: anytype) switch (Impl) {
     WindowsThreadImpl => windows.DWORD,
@@ -171,29 +194,6 @@ fn callFn(comptime f: anytype, args: anytype) switch (Impl) {
         },
     }
 }
-
-/// Retrns the handle of this thread
-/// On Linux and POSIX, this is the same as Id.
-pub fn getHandle(self: Thread) Handle {
-    return self.impl.getHandle();
-}
-
-/// Release the obligation of the caller to call `join()` and have the thread clean up its own resources on completion.
-pub fn detach(self: Thread) void {
-    return self.impl.detach();
-}
-
-/// Waits for the thread to complete, then deallocates any resources created on `spawn()`.
-pub fn join(self: Thread) void {
-    return self.impl.join();
-}
-
-/// State to synchronize detachment of spawner thread to spawned thread
-const Completion = Atomic(enum {
-    running,
-    detached,
-    completed,
-});
 
 const WindowsThreadImpl = struct {
     const windows = os.windows;
