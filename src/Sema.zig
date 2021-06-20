@@ -5769,29 +5769,50 @@ fn zirIntToPtr(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerErro
     const type_res = try sema.resolveType(block, src, extra.lhs);
     if (type_res.zigTypeTag() != .Pointer)
         return sema.mod.fail(&block.base, type_src, "expected pointer, found '{}'", .{type_res});
+    const ptr_align = type_res.ptrAlignment(sema.mod.getTarget());
 
     const uncasted_operand = try sema.resolveInst(extra.rhs);
     if (try sema.resolveDefinedValue(block, operand_src, operand_coerced)) |val| {
-        if (!type_res.isAllowzeroPtr() and val.isZero())
+        const addr = val.toUnsignedInt();
+        if (!type_res.isAllowzeroPtr() and addr == 0)
             return sema.mod.fail(&block.base, operand_src, "pointer type '{}' does not allow address zero", .{type_res});
+        if (addr != 0 and addr % ptr_align != 0)
+            return sema.mod.fail(&block.base, operand_src, "pointer type '{}' requires aligned address", .{type_res});
+
         const val_payload = try sema.arena.create(Value.Payload.U64);
         val_payload.* = .{
-            .base = Value.Payload{ .tag = .int_u64 },
-            .data = val.toUnsignedInt(),
+            .base = .{ .tag = .int_u64 },
+            .data = addr,
         };
         return sema.mod.constInst(sema.arena, src, .{
             .ty = type_res,
             .val = Value.initPayload(&val_payload.base),
         });
     }
+
     try sema.requireRuntimeBlock(block, src);
-    if (block.wantSafety()) {
+    if (block.wantSafety() and !type_res.isAllowzeroPtr()) {
         const zero = try sema.mod.constInst(sema.arena, src, .{
             .ty = Type.initTag(.u64),
             .val = Value.initTag(.zero),
         });
         const is_non_zero = try block.addBinOp(src, Type.initTag(.bool), .cmp_neq, operand_coerced, zero);
         try sema.addSafetyCheck(block, is_non_zero, .cast_to_null);
+
+        if (ptr_align > 1) {
+            const val_payload = try sema.arena.create(Value.Payload.U64);
+            val_payload.* = .{
+                .base = .{ .tag = .int_u64 },
+                .data = ptr_align - 1,
+            };
+            const align_minus_1 = try sema.mod.constInst(sema.arena, src, .{
+                .ty = Type.initTag(.u64),
+                .val = Value.initPayload(&val_payload.base),
+            });
+            const remainder = try block.addBinOp(src, Type.initTag(.u64), .bit_and, operand_coerced, align_minus_1);
+            const is_aligned = try block.addBinOp(src, Type.initTag(.bool), .cmp_eq, remainder, zero);
+            try sema.addSafetyCheck(block, is_aligned, .incorrect_alignment);
+        }
     }
     return block.addUnOp(src, type_res, .bitcast, operand_coerced);
 }
@@ -6219,6 +6240,7 @@ pub const PanicId = enum {
     unwrap_null,
     unwrap_errunion,
     cast_to_null,
+    incorrect_alignment,
     invalid_error_code,
 };
 
