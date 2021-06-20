@@ -23,6 +23,19 @@ pub const Condition = @import("Thread/Condition.zig");
 
 pub const spinLoopHint = @compileError("deprecated: use std.atomic.spinLoopHint");
 
+test "std.Thread" {
+    if (!builtin.single_threaded) {
+        // Doesn't use testing.refAllDecls() since that would pull in the compileError spinLoopHint.
+        _ = AutoResetEvent;
+        _ = Futex;
+        _ = ResetEvent;
+        _ = StaticResetEvent;
+        _ = Mutex;
+        _ = Semaphore;
+        _ = Condition;
+    }
+}
+
 pub const use_pthreads = target.os.tag != .windows and std.builtin.link_libc;
 
 const Thread = @This();
@@ -37,15 +50,9 @@ else
 
 impl: Impl,
 
-/// Represents a kernel thread handle.
-/// May be an integer or a pointer depending on the platform.
-/// On Linux and POSIX, this is the same as Id.
-pub const Handle = Impl.ThreadHandle;
-
 /// Represents a unique ID per thread.
 /// May be an integer or pointer depending on the platform.
-/// On Linux and POSIX, this is the same as Handle.
-pub const Id = Impl.ThreadId;
+pub const Id = u64;
 
 /// Returns the platform ID of the callers thread.
 /// Attempts to use thread locals and avoid syscalls when possible.
@@ -120,8 +127,11 @@ pub fn spawn(
     return .{ .impl = impl };
 }
 
+/// Represents a kernel thread handle.
+/// May be an integer or a pointer depending on the platform.
+pub const Handle = Impl.ThreadHandle;
+
 /// Retrns the handle of this thread
-/// On Linux and POSIX, this is the same as Id.
 pub fn getHandle(self: Thread) Handle {
     return self.impl.getHandle();
 }
@@ -137,7 +147,7 @@ pub fn join(self: Thread) void {
 }
 
 /// State to synchronize detachment of spawner thread to spawned thread
-const Completion = Atomic(enum {
+const Completion = Atomic(enum(u8) {
     running,
     detached,
     completed,
@@ -199,9 +209,8 @@ const WindowsThreadImpl = struct {
     const windows = os.windows;
 
     pub const ThreadHandle = windows.HANDLE;
-    pub const ThreadId = windows.DWORD;
 
-    fn getCurrentId() ThreadId {
+    fn getCurrentId() u64 {
         return windows.kernel.GetCurrentThreadId();
     }
 
@@ -291,10 +300,37 @@ const PosixThreadImpl = struct {
     const c = std.c;
 
     pub const ThreadHandle = c.pthread_t;
-    pub const ThreadId = ThreadHandle;
 
-    fn getCurrentId() ThreadId {
-        return c.pthread_self();
+    fn getCurrentId() Id {
+        switch (target.os.tag) {
+            .linux => {
+                return LinuxThreadImpl.getCurrentId();
+            },
+            .macos, .ios, .watchos, .tvos => {
+                var thread_id: u64 = undefined;
+                // Pass thread=null to get the current thread ID.
+                assert(c.pthread_threadid_np(null, &thread_id) == 0);
+                return thread_id;
+            },
+            .dragonfly => {
+                return @bitCast(u32, c.lwp_gettid());
+            },
+            .netbsd => {
+                return @bitCast(u32, c._lwp_self());
+            },
+            .freebsd => {
+                return @bitCast(u32, c.pthread_getthreadid_np());
+            },
+            .openbsd => {
+                return @bitCast(u32, c.getthrid());
+            },
+            .haiku => {
+                return @bitCast(u32, c.find_thread(null));
+            },
+            else => {
+                return @ptrToInt(c.pthread_self());
+            },
+        }
     }
 
     fn getCpuCount() !usize {
@@ -397,11 +433,10 @@ const LinuxThreadImpl = struct {
     const linux = os.linux;
     
     pub const ThreadHandle = i32;
-    pub const ThreadId = ThreadHandle;
 
-    threadlocal var tls_thread_id: ?ThreadId = null;
+    threadlocal var tls_thread_id: ?Id = null;
 
-    fn getCurrentId() ThreadId {
+    fn getCurrentId() Id {
         return tls_thread_id orelse {
             const tid = linux.gettid();
             tls_thread_id = tid;
