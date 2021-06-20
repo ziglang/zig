@@ -281,8 +281,8 @@ test "basic usage" {
     var context: Context = undefined;
     try context.init();
     defer context.deinit();
-    const receiver = try std.Thread.spawn(Context.receiver, &context);
-    defer receiver.wait();
+    const receiver = try std.Thread.spawn(.{}, Context.receiver, .{&context});
+    defer receiver.join();
     try context.sender();
 
     if (false) {
@@ -290,8 +290,8 @@ test "basic usage" {
         // https://github.com/ziglang/zig/issues/7009
         var timed = Context.init();
         defer timed.deinit();
-        const sleeper = try std.Thread.spawn(Context.sleeper, &timed);
-        defer sleeper.wait();
+        const sleeper = try std.Thread.spawn(.{}, Context.sleeper, .{&timed});
+        defer sleeper.join();
         try timed.timedWaiter();
     }
 }

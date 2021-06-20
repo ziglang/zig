@@ -21,12 +21,12 @@ pub const Loop = struct {
     os_data: OsData,
     final_resume_node: ResumeNode,
     pending_event_count: usize,
-    extra_threads: []*Thread,
+    extra_threads: []Thread,
     /// TODO change this to a pool of configurable number of threads
     /// and rename it to be not file-system-specific. it will become
     /// a thread pool for turning non-CPU-bound blocking things into
     /// async things. A fallback for any missing OS-specific API.
-    fs_thread: *Thread,
+    fs_thread: Thread,
     fs_queue: std.atomic.Queue(Request),
     fs_end_request: Request.Node,
     fs_thread_wakeup: std.Thread.ResetEvent,
@@ -189,11 +189,11 @@ pub const Loop = struct {
         errdefer self.deinitOsData();
 
         if (!builtin.single_threaded) {
-            self.fs_thread = try Thread.spawn(posixFsRun, self);
+            self.fs_thread = try Thread.spawn(.{}, posixFsRun, .{self});
         }
         errdefer if (!builtin.single_threaded) {
             self.posixFsRequest(&self.fs_end_request);
-            self.fs_thread.wait();
+            self.fs_thread.join();
         };
 
         if (!std.builtin.single_threaded)
@@ -264,11 +264,11 @@ pub const Loop = struct {
                     assert(amt == wakeup_bytes.len);
                     while (extra_thread_index != 0) {
                         extra_thread_index -= 1;
-                        self.extra_threads[extra_thread_index].wait();
+                        self.extra_threads[extra_thread_index].join();
                     }
                 }
                 while (extra_thread_index < extra_thread_count) : (extra_thread_index += 1) {
-                    self.extra_threads[extra_thread_index] = try Thread.spawn(workerRun, self);
+                    self.extra_threads[extra_thread_index] = try Thread.spawn(.{}, workerRun, .{self});
                 }
             },
             .macos, .freebsd, .netbsd, .dragonfly, .openbsd => {
@@ -329,11 +329,11 @@ pub const Loop = struct {
                     _ = os.kevent(self.os_data.kqfd, final_kev_arr, empty_kevs, null) catch unreachable;
                     while (extra_thread_index != 0) {
                         extra_thread_index -= 1;
-                        self.extra_threads[extra_thread_index].wait();
+                        self.extra_threads[extra_thread_index].join();
                     }
                 }
                 while (extra_thread_index < extra_thread_count) : (extra_thread_index += 1) {
-                    self.extra_threads[extra_thread_index] = try Thread.spawn(workerRun, self);
+                    self.extra_threads[extra_thread_index] = try Thread.spawn(.{}, workerRun, .{self});
                 }
             },
             .windows => {
@@ -378,11 +378,11 @@ pub const Loop = struct {
                     }
                     while (extra_thread_index != 0) {
                         extra_thread_index -= 1;
-                        self.extra_threads[extra_thread_index].wait();
+                        self.extra_threads[extra_thread_index].join();
                     }
                 }
                 while (extra_thread_index < extra_thread_count) : (extra_thread_index += 1) {
-                    self.extra_threads[extra_thread_index] = try Thread.spawn(workerRun, self);
+                    self.extra_threads[extra_thread_index] = try Thread.spawn(.{}, workerRun, .{self});
                 }
             },
             else => {},
@@ -651,18 +651,18 @@ pub const Loop = struct {
                 .netbsd,
                 .dragonfly,
                 .openbsd,
-                => self.fs_thread.wait(),
+                => self.fs_thread.join(),
                 else => {},
             }
         }
 
         for (self.extra_threads) |extra_thread| {
-            extra_thread.wait();
+            extra_thread.join();
         }
 
         @atomicStore(bool, &self.delay_queue.is_running, false, .SeqCst);
         self.delay_queue.event.set();
-        self.delay_queue.thread.wait();
+        self.delay_queue.thread.join();
     }
 
     /// Runs the provided function asynchronously. The function's frame is allocated
@@ -787,7 +787,7 @@ pub const Loop = struct {
     const DelayQueue = struct {
         timer: std.time.Timer,
         waiters: Waiters,
-        thread: *std.Thread,
+        thread: std.Thread,
         event: std.Thread.AutoResetEvent,
         is_running: bool,
 
@@ -802,7 +802,7 @@ pub const Loop = struct {
                 .event = std.Thread.AutoResetEvent{},
                 .is_running = true,
                 // Must be last so that it can read the other state, such as `is_running`.
-                .thread = try std.Thread.spawn(DelayQueue.run, self),
+                .thread = try std.Thread.spawn(.{}, DelayQueue.run, .{self}),
             };
         }
 

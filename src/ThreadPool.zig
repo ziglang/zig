@@ -74,13 +74,13 @@ pub fn init(self: *ThreadPool, allocator: *std.mem.Allocator) !void {
         try worker.idle_node.data.init();
         errdefer worker.idle_node.data.deinit();
 
-        worker.thread = try std.Thread.spawn(Worker.run, worker);
+        worker.thread = try std.Thread.spawn(.{}, Worker.run, .{worker});
     }
 }
 
 fn destroyWorkers(self: *ThreadPool, spawned: usize) void {
     for (self.workers[0..spawned]) |*worker| {
-        worker.thread.wait();
+        worker.thread.join();
         worker.idle_node.data.deinit();
     }
 }

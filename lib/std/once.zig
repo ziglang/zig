@@ -55,16 +55,16 @@ test "Once executes its function just once" {
         global_once.call();
         global_once.call();
     } else {
-        var threads: [10]*std.Thread = undefined;
-        defer for (threads) |handle| handle.wait();
+        var threads: [10]std.Thread = undefined;
+        defer for (threads) |handle| handle.join();
 
         for (threads) |*handle| {
-            handle.* = try std.Thread.spawn(struct {
+            handle.* = try std.Thread.spawn(.{}, struct {
                 fn thread_fn(x: u8) void {
                     _ = x;
                     global_once.call();
                 }
-            }.thread_fn, 0);
+            }.thread_fn, .{0});
         }
     }
 

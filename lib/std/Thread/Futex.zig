@@ -413,32 +413,27 @@ test "Futex - Signal" {
             }
         }
 
-        const Thread = struct {
-            tx: *Self,
-            rx: *Self,
+        const start_value = 1;
 
-            const start_value = 1;
-
-            fn run(self: Thread) void {
-                var iterations: u32 = start_value;
-                while (iterations < 10) : (iterations += 1) {
-                    self.rx.recv(iterations);
-                    self.tx.send(iterations);
-                }
+        fn runThread(rx: *Self, tx: *Self) void {
+            var iterations: u32 = start_value;
+            while (iterations < 10) : (iterations += 1) {
+                self.rx.recv(iterations);
+                self.tx.send(iterations);
             }
-        };
+        }
 
         fn run() !void {
             var ping = Self{};
             var pong = Self{};
 
-            const t1 = try std.Thread.spawn(Thread.run, .{ .rx = &ping, .tx = &pong });
-            defer t1.wait();
+            const t1 = try std.Thread.spawn(.{}, runThread, .{ &ping, &pong });
+            defer t1.join();
 
-            const t2 = try std.Thread.spawn(Thread.run, .{ .rx = &pong, .tx = &ping });
-            defer t2.wait();
+            const t2 = try std.Thread.spawn(.{}, runThread, .{ &pong, &ping });
+            defer t2.join();
 
-            ping.send(Thread.start_value);
+            ping.send(start_value);
         }
     }).run();
 }
@@ -507,7 +502,7 @@ test "Futex - Chain" {
     try (struct {
         completed: Signal = .{},
         threads: [10]struct {
-            thread: *std.Thread,
+            thread: std.Thread,
             signal: Signal,
         } = undefined,
 
@@ -531,39 +526,32 @@ test "Futex - Chain" {
         };
 
         const Self = @This();
-        const Chain = struct {
-            self: *Self,
-            index: usize,
 
-            fn run(chain: Chain) void {
-                const this_signal = &chain.self.threads[chain.index].signal;
+        fn runThread(self: *Self, index: usize) void {
+            const this_signal = &chain.self.threads[chain.index].signal;
 
-                var next_signal = &chain.self.completed;
-                if (chain.index + 1 < chain.self.threads.len) {
-                    next_signal = &chain.self.threads[chain.index + 1].signal;
-                }
-
-                this_signal.wait();
-                next_signal.notify();
+            var next_signal = &chain.self.completed;
+            if (chain.index + 1 < chain.self.threads.len) {
+                next_signal = &chain.self.threads[chain.index + 1].signal;
             }
-        };
+
+            this_signal.wait();
+            next_signal.notify();
+        }
 
         fn run() !void {
             var self = Self{};
 
             for (self.threads) |*entry, index| {
                 entry.signal = .{};
-                entry.thread = try std.Thread.spawn(Chain.run, .{
-                    .self = &self,
-                    .index = index,
-                });
+                entry.thread = try std.Thread.spawn(.{}, runThread .{&self, index});
             }
 
             self.threads[0].signal.notify();
             self.completed.wait();
 
             for (self.threads) |entry| {
-                entry.thread.wait();
+                entry.thread.join();
             }
         }
     }).run();

@@ -297,12 +297,12 @@ test "basic usage" {
         try testing.expect(context.data == TestContext.incr_count);
     } else {
         const thread_count = 10;
-        var threads: [thread_count]*std.Thread = undefined;
+        var threads: [thread_count]std.Thread = undefined;
         for (threads) |*t| {
-            t.* = try std.Thread.spawn(worker, &context);
+            t.* = try std.Thread.spawn(.{}, worker, .{&context});
         }
         for (threads) |t|
-            t.wait();
+            t.join();
 
         try testing.expect(context.data == thread_count * TestContext.incr_count);
     }
