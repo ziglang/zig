@@ -16,8 +16,8 @@ const Allocator = mem.Allocator;
 const Archive = @import("Archive.zig");
 const CodeSignature = @import("CodeSignature.zig");
 const Dylib = @import("Dylib.zig");
-const LibStub = @import("../tapi.zig").LibStub;
 const Object = @import("Object.zig");
+const Stub = @import("Stub.zig");
 const Symbol = @import("Symbol.zig");
 const Trie = @import("Trie.zig");
 
@@ -38,6 +38,10 @@ stack_size: u64 = 0,
 objects: std.ArrayListUnmanaged(*Object) = .{},
 archives: std.ArrayListUnmanaged(*Archive) = .{},
 dylibs: std.ArrayListUnmanaged(*Dylib) = .{},
+lib_stubs: std.ArrayListUnmanaged(*Stub) = .{},
+
+libsystem_stub_index: ?u16 = null,
+next_dylib_ordinal: u16 = 1,
 
 load_commands: std.ArrayListUnmanaged(LoadCommand) = .{},
 
@@ -153,9 +157,20 @@ pub fn deinit(self: *Zld) void {
     }
     self.dylibs.deinit(self.allocator);
 
+    for (self.lib_stubs.items) |stub| {
+        stub.deinit();
+        self.allocator.destroy(stub);
+    }
+    self.lib_stubs.deinit(self.allocator);
+
+    for (self.imports.values()) |proxy| {
+        proxy.deinit(self.allocator);
+        self.allocator.destroy(proxy);
+    }
+    self.imports.deinit(self.allocator);
+
     self.tentatives.deinit(self.allocator);
     self.globals.deinit(self.allocator);
-    self.imports.deinit(self.allocator);
     self.unresolved.deinit(self.allocator);
     self.strtab.deinit(self.allocator);
 
@@ -245,9 +260,11 @@ fn parseInputFiles(self: *Zld, files: []const []const u8) !void {
             dylib,
             stub,
         },
-        file: fs.File,
+        origin: union {
+            file: fs.File,
+            stub: Stub.LibStub,
+        },
         name: []const u8,
-        stub: ?LibStub = null,
     };
     var classified = std.ArrayList(Input).init(self.allocator);
     defer classified.deinit();
@@ -262,45 +279,45 @@ fn parseInputFiles(self: *Zld, files: []const []const u8) !void {
         };
 
         try_object: {
-            if (!Object.isObject(file)) break :try_object;
+            if (!(try Object.isObject(file))) break :try_object;
             try classified.append(.{
                 .kind = .object,
-                .file = file,
+                .origin = .{ .file = file },
                 .name = full_path,
             });
             continue;
         }
 
         try_archive: {
-            if (!Archive.isArchive(file)) break :try_archive;
+            if (!(try Archive.isArchive(file))) break :try_archive;
             try classified.append(.{
                 .kind = .archive,
-                .file = file,
+                .origin = .{ .file = file },
                 .name = full_path,
             });
             continue;
         }
 
         try_dylib: {
-            if (!Dylib.isDylib(file)) break :try_dylib;
+            if (!(try Dylib.isDylib(file))) break :try_dylib;
             try classified.append(.{
                 .kind = .dylib,
-                .file = file,
+                .origin = .{ .file = file },
                 .name = full_path,
             });
             continue;
         }
 
         try_stub: {
-            var lib_stub = LibStub.loadFromFile(self.allocator, file) catch {
+            var lib_stub = Stub.LibStub.loadFromFile(self.allocator, file) catch {
                 break :try_stub;
             };
             try classified.append(.{
                 .kind = .stub,
-                .file = file,
+                .origin = .{ .stub = lib_stub },
                 .name = full_path,
-                .stub = lib_stub,
             });
+            file.close();
             continue;
         }
 
@@ -318,7 +335,8 @@ fn parseInputFiles(self: *Zld, files: []const []const u8) !void {
                 object.* = Object.init(self.allocator);
                 object.arch = self.arch.?;
                 object.name = input.name;
-                object.file = input.file;
+                object.file = input.origin.file;
+
                 try object.parse();
                 try self.objects.append(self.allocator, object);
             },
@@ -329,40 +347,34 @@ fn parseInputFiles(self: *Zld, files: []const []const u8) !void {
                 archive.* = Archive.init(self.allocator);
                 archive.arch = self.arch.?;
                 archive.name = input.name;
-                archive.file = input.file;
+                archive.file = input.origin.file;
+
                 try archive.parse();
                 try self.archives.append(self.allocator, archive);
             },
-            .dylib, .stub => {
+            .dylib => {
                 const dylib = try self.allocator.create(Dylib);
                 errdefer self.allocator.destroy(dylib);
 
                 dylib.* = Dylib.init(self.allocator);
                 dylib.arch = self.arch.?;
                 dylib.name = input.name;
-                dylib.file = input.file;
-                dylib.ordinal = @intCast(u16, self.dylibs.items.len) + 1;
+                dylib.file = input.origin.file;
 
-                // TODO Defer parsing of the dylibs until they are actually needed
-                if (input.stub) |stub| {
-                    try dylib.parseFromStub(stub);
-                } else {
-                    try dylib.parse();
-                }
+                try dylib.parse();
                 try self.dylibs.append(self.allocator, dylib);
+            },
+            .stub => {
+                const stub = try self.allocator.create(Stub);
+                errdefer self.allocator.destroy(stub);
 
-                // Add LC_LOAD_DYLIB command
-                const dylib_id = dylib.id orelse unreachable;
-                var dylib_cmd = try createLoadDylibCommand(
-                    self.allocator,
-                    dylib_id.name,
-                    dylib_id.timestamp,
-                    dylib_id.current_version,
-                    dylib_id.compatibility_version,
-                );
-                errdefer dylib_cmd.deinit(self.allocator);
+                stub.* = Stub.init(self.allocator);
+                stub.arch = self.arch.?;
+                stub.name = input.name;
+                stub.lib_stub = input.origin.stub;
 
-                try self.load_commands.append(self.allocator, .{ .Dylib = dylib_cmd });
+                try stub.parse();
+                try self.lib_stubs.append(self.allocator, stub);
             },
         }
     }
@@ -372,7 +384,7 @@ fn parseLibs(self: *Zld, libs: []const []const u8) !void {
     for (libs) |lib| {
         const file = try fs.cwd().openFile(lib, .{});
 
-        if (Dylib.isDylib(file)) {
+        if (try Dylib.isDylib(file)) {
             const dylib = try self.allocator.create(Dylib);
             errdefer self.allocator.destroy(dylib);
 
@@ -380,57 +392,27 @@ fn parseLibs(self: *Zld, libs: []const []const u8) !void {
             dylib.arch = self.arch.?;
             dylib.name = try self.allocator.dupe(u8, lib);
             dylib.file = file;
-            dylib.ordinal = @intCast(u16, self.dylibs.items.len) + 1;
 
-            // TODO Defer parsing of the dylibs until they are actually needed
             try dylib.parse();
             try self.dylibs.append(self.allocator, dylib);
-
-            // Add LC_LOAD_DYLIB command
-            const dylib_id = dylib.id orelse unreachable;
-            var dylib_cmd = try createLoadDylibCommand(
-                self.allocator,
-                dylib_id.name,
-                dylib_id.timestamp,
-                dylib_id.current_version,
-                dylib_id.compatibility_version,
-            );
-            errdefer dylib_cmd.deinit(self.allocator);
-
-            try self.load_commands.append(self.allocator, .{ .Dylib = dylib_cmd });
         } else {
             // Try tbd stub file next.
-            if (LibStub.loadFromFile(self.allocator, file)) |*lib_stub| {
-                defer lib_stub.deinit();
+            if (Stub.LibStub.loadFromFile(self.allocator, file)) |lib_stub| {
+                const stub = try self.allocator.create(Stub);
+                errdefer self.allocator.destroy(stub);
 
-                const dylib = try self.allocator.create(Dylib);
-                errdefer self.allocator.destroy(dylib);
+                stub.* = Stub.init(self.allocator);
+                stub.arch = self.arch.?;
+                stub.name = try self.allocator.dupe(u8, lib);
+                stub.lib_stub = lib_stub;
 
-                dylib.* = Dylib.init(self.allocator);
-                dylib.arch = self.arch.?;
-                dylib.name = try self.allocator.dupe(u8, lib);
-                dylib.file = file;
-                dylib.ordinal = @intCast(u16, self.dylibs.items.len) + 1;
-
-                try dylib.parseFromStub(lib_stub.*);
-                try self.dylibs.append(self.allocator, dylib);
-
-                // Add LC_LOAD_DYLIB command
-                const dylib_id = dylib.id orelse unreachable;
-                var dylib_cmd = try createLoadDylibCommand(
-                    self.allocator,
-                    dylib_id.name,
-                    dylib_id.timestamp,
-                    dylib_id.current_version,
-                    dylib_id.compatibility_version,
-                );
-                errdefer dylib_cmd.deinit(self.allocator);
-
-                try self.load_commands.append(self.allocator, .{ .Dylib = dylib_cmd });
+                try stub.parse();
+                try self.lib_stubs.append(self.allocator, stub);
             } else |_| {
                 // TODO this entire logic has to be cleaned up.
                 try file.seekTo(0);
-                if (Archive.isArchive(file)) {
+
+                if (try Archive.isArchive(file)) {
                     const archive = try self.allocator.create(Archive);
                     errdefer self.allocator.destroy(archive);
 
@@ -438,6 +420,7 @@ fn parseLibs(self: *Zld, libs: []const []const u8) !void {
                     archive.arch = self.arch.?;
                     archive.name = try self.allocator.dupe(u8, lib);
                     archive.file = file;
+
                     try archive.parse();
                     try self.archives.append(self.allocator, archive);
                 } else {
@@ -449,26 +432,28 @@ fn parseLibs(self: *Zld, libs: []const []const u8) !void {
     }
 }
 
-fn parseLibSystem(self: *Zld, lib_system_path: []const u8) !void {
-    const file = try fs.cwd().openFile(lib_system_path, .{});
+fn parseLibSystem(self: *Zld, libc_stub_path: []const u8) !void {
+    const file = try fs.cwd().openFile(libc_stub_path, .{});
+    defer file.close();
 
-    var lib_stub = try LibStub.loadFromFile(self.allocator, file);
-    defer lib_stub.deinit();
+    var lib_stub = try Stub.LibStub.loadFromFile(self.allocator, file);
 
-    const dylib = try self.allocator.create(Dylib);
-    errdefer self.allocator.destroy(dylib);
+    const stub = try self.allocator.create(Stub);
+    errdefer self.allocator.destroy(stub);
 
-    dylib.* = Dylib.init(self.allocator);
-    dylib.arch = self.arch.?;
-    dylib.name = try self.allocator.dupe(u8, lib_system_path);
-    dylib.file = file;
-    dylib.ordinal = @intCast(u16, self.dylibs.items.len) + 1;
+    stub.* = Stub.init(self.allocator);
+    stub.arch = self.arch.?;
+    stub.name = try self.allocator.dupe(u8, libc_stub_path);
+    stub.lib_stub = lib_stub;
 
-    try dylib.parseFromStub(lib_stub);
-    try self.dylibs.append(self.allocator, dylib);
+    try stub.parse();
 
-    // Add LC_LOAD_DYLIB command
-    const dylib_id = dylib.id orelse unreachable;
+    self.libsystem_stub_index = @intCast(u16, self.lib_stubs.items.len);
+    try self.lib_stubs.append(self.allocator, stub);
+
+    // Add LC_LOAD_DYLIB load command.
+    stub.ordinal = self.next_dylib_ordinal;
+    const dylib_id = stub.id orelse unreachable;
     var dylib_cmd = try createLoadDylibCommand(
         self.allocator,
         dylib_id.name,
@@ -477,8 +462,8 @@ fn parseLibSystem(self: *Zld, lib_system_path: []const u8) !void {
         dylib_id.compatibility_version,
     );
     errdefer dylib_cmd.deinit(self.allocator);
-
     try self.load_commands.append(self.allocator, .{ .Dylib = dylib_cmd });
+    self.next_dylib_ordinal += 1;
 }
 
 fn mapAndUpdateSections(
@@ -1906,21 +1891,34 @@ fn resolveSymbols(self: *Zld) !void {
     for (self.unresolved.values()) |value| {
         unresolved.appendAssumeCapacity(value);
     }
-    self.unresolved.clearAndFree(self.allocator);
+    self.unresolved.clearRetainingCapacity();
 
-    var has_undefined = false;
-    while (unresolved.popOrNull()) |undef| {
-        var found = false;
-        for (self.dylibs.items) |dylib| {
-            const proxy = dylib.symbols.get(undef.name) orelse continue;
-            try self.imports.putNoClobber(self.allocator, proxy.name, proxy);
-            undef.alias = proxy;
-            found = true;
-        }
+    var referenced = std.AutoHashMap(union(enum) {
+        dylib: *Dylib,
+        stub: *Stub,
+    }, void).init(self.allocator);
+    defer referenced.deinit();
 
-        if (!found) {
-            if (mem.eql(u8, undef.name, "___dso_handle")) {
-                const proxy = self.imports.get(undef.name) orelse blk: {
+    loop: while (unresolved.popOrNull()) |undef| {
+        const proxy = self.imports.get(undef.name) orelse outer: {
+            const proxy = inner: {
+                for (self.dylibs.items) |dylib| {
+                    const proxy = (try dylib.createProxy(undef.name)) orelse continue;
+                    try referenced.put(.{ .dylib = dylib }, {});
+                    break :inner proxy;
+                }
+                for (self.lib_stubs.items) |stub, i| {
+                    const proxy = (try stub.createProxy(undef.name)) orelse continue;
+                    if (self.libsystem_stub_index.? != @intCast(u16, i)) {
+                        // LibSystem gets its load command separately.
+                        try referenced.put(.{ .stub = stub }, {});
+                    }
+                    break :inner proxy;
+                }
+                if (mem.eql(u8, undef.name, "___dso_handle")) {
+                    // TODO this is just a temp patch until I work out what to actually
+                    // do with ___dso_handle and __mh_execute_header symbols which are
+                    // synthetically created by the linker on macOS.
                     const name = try self.allocator.dupe(u8, undef.name);
                     const proxy = try self.allocator.create(Symbol.Proxy);
                     errdefer self.allocator.destroy(proxy);
@@ -1929,26 +1927,69 @@ fn resolveSymbols(self: *Zld) !void {
                             .@"type" = .proxy,
                             .name = name,
                         },
+                        .file = null,
                     };
-                    try self.imports.putNoClobber(self.allocator, name, &proxy.base);
-                    break :blk &proxy.base;
-                };
-                undef.alias = proxy;
-                continue;
-            }
+                    break :inner &proxy.base;
+                }
 
+                self.unresolved.putAssumeCapacityNoClobber(undef.name, undef);
+                continue :loop;
+            };
+
+            try self.imports.putNoClobber(self.allocator, proxy.name, proxy);
+            break :outer proxy;
+        };
+        undef.alias = proxy;
+    }
+
+    // Add LC_LOAD_DYLIB load command for each referenced dylib/stub.
+    var it = referenced.iterator();
+    while (it.next()) |key| {
+        var dylib_cmd = blk: {
+            switch (key.key_ptr.*) {
+                .dylib => |dylib| {
+                    dylib.ordinal = self.next_dylib_ordinal;
+                    const dylib_id = dylib.id orelse unreachable;
+                    break :blk try createLoadDylibCommand(
+                        self.allocator,
+                        dylib_id.name,
+                        dylib_id.timestamp,
+                        dylib_id.current_version,
+                        dylib_id.compatibility_version,
+                    );
+                },
+                .stub => |stub| {
+                    stub.ordinal = self.next_dylib_ordinal;
+                    const dylib_id = stub.id orelse unreachable;
+                    break :blk try createLoadDylibCommand(
+                        self.allocator,
+                        dylib_id.name,
+                        dylib_id.timestamp,
+                        dylib_id.current_version,
+                        dylib_id.compatibility_version,
+                    );
+                },
+            }
+        };
+        errdefer dylib_cmd.deinit(self.allocator);
+        try self.load_commands.append(self.allocator, .{ .Dylib = dylib_cmd });
+        self.next_dylib_ordinal += 1;
+    }
+
+    if (self.unresolved.count() > 0) {
+        for (self.unresolved.values()) |undef| {
             log.err("undefined reference to symbol '{s}'", .{undef.name});
             log.err("    | referenced in {s}", .{
                 undef.cast(Symbol.Unresolved).?.file.name.?,
             });
-            has_undefined = true;
         }
+
+        return error.UndefinedSymbolReference;
     }
 
-    if (has_undefined) return error.UndefinedSymbolReference;
-
     // Finally put dyld_stub_binder as an Import
-    const proxy = self.dylibs.items[self.dylibs.items.len - 1].symbols.get("dyld_stub_binder") orelse {
+    const libsystem_stub = self.lib_stubs.items[self.libsystem_stub_index.?];
+    const proxy = (try libsystem_stub.createProxy("dyld_stub_binder")) orelse {
         log.err("undefined reference to symbol 'dyld_stub_binder'", .{});
         return error.UndefinedSymbolReference;
     };
@@ -2814,7 +2855,7 @@ fn writeBindInfoTable(self: *Zld) !void {
                 try pointers.append(.{
                     .offset = base_offset + proxy.base.got_index.? * @sizeOf(u64),
                     .segment_id = segment_id,
-                    .dylib_ordinal = if (proxy.dylib) |dylib| dylib.ordinal.? else 0,
+                    .dylib_ordinal = proxy.dylibOrdinal(),
                     .name = proxy.base.name,
                 });
             }
@@ -2833,7 +2874,7 @@ fn writeBindInfoTable(self: *Zld) !void {
         try pointers.append(.{
             .offset = base_offset,
             .segment_id = segment_id,
-            .dylib_ordinal = if (proxy.dylib) |dylib| dylib.ordinal.? else 0,
+            .dylib_ordinal = proxy.dylibOrdinal(),
             .name = proxy.base.name,
         });
     }
@@ -2873,7 +2914,7 @@ fn writeLazyBindInfoTable(self: *Zld) !void {
             pointers.appendAssumeCapacity(.{
                 .offset = base_offset + sym.stubs_index.? * @sizeOf(u64),
                 .segment_id = segment_id,
-                .dylib_ordinal = if (proxy.dylib) |dylib| dylib.ordinal.? else 0,
+                .dylib_ordinal = proxy.dylibOrdinal(),
                 .name = sym.name,
             });
         }
@@ -3181,12 +3222,11 @@ fn writeSymbolTable(self: *Zld) !void {
 
     for (self.imports.values()) |sym| {
         const proxy = sym.cast(Symbol.Proxy) orelse unreachable;
-        const dylib_ordinal = if (proxy.dylib) |dylib| dylib.ordinal.? else 0;
         try undefs.append(.{
             .n_strx = try self.makeString(sym.name),
             .n_type = macho.N_UNDF | macho.N_EXT,
             .n_sect = 0,
-            .n_desc = (dylib_ordinal * macho.N_SYMBOL_RESOLVER) | macho.REFERENCE_FLAG_UNDEFINED_NON_LAZY,
+            .n_desc = (proxy.dylibOrdinal() * macho.N_SYMBOL_RESOLVER) | macho.REFERENCE_FLAG_UNDEFINED_NON_LAZY,
             .n_value = 0,
         });
     }

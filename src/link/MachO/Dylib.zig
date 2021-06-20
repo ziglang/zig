@@ -9,7 +9,6 @@ const mem = std.mem;
 
 const Allocator = mem.Allocator;
 const Symbol = @import("Symbol.zig");
-const LibStub = @import("../tapi.zig").LibStub;
 
 usingnamespace @import("commands.zig");
 
@@ -29,7 +28,10 @@ id_cmd_index: ?u16 = null,
 
 id: ?Id = null,
 
-symbols: std.StringArrayHashMapUnmanaged(*Symbol) = .{},
+/// Parsed symbol table represented as hash map of symbols'
+/// names. We can and should defer creating *Symbols until
+/// a symbol is referenced by an object file.
+symbols: std.StringArrayHashMapUnmanaged(void) = .{},
 
 pub const Id = struct {
     name: []const u8,
@@ -52,9 +54,8 @@ pub fn deinit(self: *Dylib) void {
     }
     self.load_commands.deinit(self.allocator);
 
-    for (self.symbols.values()) |value| {
-        value.deinit(self.allocator);
-        self.allocator.destroy(value);
+    for (self.symbols.keys()) |key| {
+        self.allocator.free(key);
     }
     self.symbols.deinit(self.allocator);
 
@@ -171,103 +172,33 @@ pub fn parseSymbols(self: *Dylib) !void {
         if (!(Symbol.isSect(sym) and Symbol.isExt(sym))) continue;
 
         const name = try self.allocator.dupe(u8, sym_name);
-        const proxy = try self.allocator.create(Symbol.Proxy);
-        errdefer self.allocator.destroy(proxy);
-
-        proxy.* = .{
-            .base = .{
-                .@"type" = .proxy,
-                .name = name,
-            },
-            .dylib = self,
-        };
-
-        try self.symbols.putNoClobber(self.allocator, name, &proxy.base);
+        try self.symbols.putNoClobber(self.allocator, name, {});
     }
 }
 
-pub fn isDylib(file: fs.File) bool {
-    const header = file.reader().readStruct(macho.mach_header_64) catch return false;
-    file.seekTo(0) catch return false;
+pub fn isDylib(file: fs.File) !bool {
+    const header = file.reader().readStruct(macho.mach_header_64) catch |err| switch (err) {
+        error.EndOfStream => return false,
+        else => |e| return e,
+    };
+    try file.seekTo(0);
     return header.filetype == macho.MH_DYLIB;
 }
 
-pub fn parseFromStub(self: *Dylib, lib_stub: LibStub) !void {
-    assert(lib_stub.inner.len > 0);
+pub fn createProxy(self: *Dylib, sym_name: []const u8) !?*Symbol {
+    if (!self.symbols.contains(sym_name)) return null;
 
-    log.debug("parsing shared library from stub '{s}'", .{self.name.?});
+    const name = try self.allocator.dupe(u8, sym_name);
+    const proxy = try self.allocator.create(Symbol.Proxy);
+    errdefer self.allocator.destroy(proxy);
 
-    const umbrella_lib = lib_stub.inner[0];
-    self.id = .{
-        .name = try self.allocator.dupe(u8, umbrella_lib.install_name),
-        // TODO parse from the stub
-        .timestamp = 2,
-        .current_version = 0,
-        .compatibility_version = 0,
+    proxy.* = .{
+        .base = .{
+            .@"type" = .proxy,
+            .name = name,
+        },
+        .file = .{ .dylib = self },
     };
 
-    const target_string: []const u8 = switch (self.arch.?) {
-        .aarch64 => "arm64-macos",
-        .x86_64 => "x86_64-macos",
-        else => unreachable,
-    };
-
-    for (lib_stub.inner) |stub| {
-        if (!hasTarget(stub.targets, target_string)) continue;
-
-        if (stub.exports) |exports| {
-            for (exports) |exp| {
-                if (!hasTarget(exp.targets, target_string)) continue;
-
-                for (exp.symbols) |sym_name| {
-                    if (self.symbols.contains(sym_name)) continue;
-
-                    const name = try self.allocator.dupe(u8, sym_name);
-                    const proxy = try self.allocator.create(Symbol.Proxy);
-                    errdefer self.allocator.destroy(proxy);
-
-                    proxy.* = .{
-                        .base = .{
-                            .@"type" = .proxy,
-                            .name = name,
-                        },
-                        .dylib = self,
-                    };
-
-                    try self.symbols.putNoClobber(self.allocator, name, &proxy.base);
-                }
-            }
-        }
-
-        if (stub.reexports) |reexports| {
-            for (reexports) |reexp| {
-                if (!hasTarget(reexp.targets, target_string)) continue;
-
-                for (reexp.symbols) |sym_name| {
-                    if (self.symbols.contains(sym_name)) continue;
-
-                    const name = try self.allocator.dupe(u8, sym_name);
-                    const proxy = try self.allocator.create(Symbol.Proxy);
-                    errdefer self.allocator.destroy(proxy);
-
-                    proxy.* = .{
-                        .base = .{
-                            .@"type" = .proxy,
-                            .name = name,
-                        },
-                        .dylib = self,
-                    };
-
-                    try self.symbols.putNoClobber(self.allocator, name, &proxy.base);
-                }
-            }
-        }
-    }
-}
-
-fn hasTarget(targets: []const []const u8, target: []const u8) bool {
-    for (targets) |t| {
-        if (mem.eql(u8, t, target)) return true;
-    }
-    return false;
+    return &proxy.base;
 }

@@ -7,6 +7,7 @@ const mem = std.mem;
 const Allocator = mem.Allocator;
 const Dylib = @import("Dylib.zig");
 const Object = @import("Object.zig");
+const Stub = @import("Stub.zig");
 
 pub const Type = enum {
     regular,
@@ -84,11 +85,22 @@ pub const Regular = struct {
 pub const Proxy = struct {
     base: Symbol,
 
-    /// Dylib where to locate this symbol.
+    /// Dylib or stub where to locate this symbol.
     /// null means self-reference.
-    dylib: ?*Dylib = null,
+    file: ?union(enum) {
+        dylib: *Dylib,
+        stub: *Stub,
+    } = null,
 
     pub const base_type: Symbol.Type = .proxy;
+
+    pub fn dylibOrdinal(proxy: *Proxy) u16 {
+        const file = proxy.file orelse return 0;
+        return switch (file) {
+            .dylib => |dylib| dylib.ordinal.?,
+            .stub => |stub| stub.ordinal.?,
+        };
+    }
 };
 
 pub const Unresolved = struct {
