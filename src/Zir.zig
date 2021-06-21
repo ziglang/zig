@@ -3561,6 +3561,8 @@ const Writer = struct {
             assert(body.len == 0);
             try stream.writeAll("{}, {})");
         } else {
+            const prev_parent_decl_node = self.parent_decl_node;
+            if (src_node) |off| self.parent_decl_node = self.relativeToNodeIndex(off);
             self.indent += 2;
             if (body.len == 0) {
                 try stream.writeAll("{}, {\n");
@@ -3623,6 +3625,7 @@ const Writer = struct {
                 try stream.writeAll(",\n");
             }
 
+            self.parent_decl_node = prev_parent_decl_node;
             self.indent -= 2;
             try stream.writeByteNTimes(' ', self.indent);
             try stream.writeAll("})");
@@ -3691,6 +3694,8 @@ const Writer = struct {
         const body = self.code.extra[extra_index..][0..body_len];
         extra_index += body.len;
 
+        const prev_parent_decl_node = self.parent_decl_node;
+        if (src_node) |off| self.parent_decl_node = self.relativeToNodeIndex(off);
         self.indent += 2;
         if (body.len == 0) {
             try stream.writeAll("{}, {\n");
@@ -3756,6 +3761,7 @@ const Writer = struct {
             try stream.writeAll(",\n");
         }
 
+        self.parent_decl_node = prev_parent_decl_node;
         self.indent -= 2;
         try stream.writeByteNTimes(' ', self.indent);
         try stream.writeAll("})");
@@ -3911,6 +3917,8 @@ const Writer = struct {
             assert(body.len == 0);
             try stream.writeAll("{}, {})");
         } else {
+            const prev_parent_decl_node = self.parent_decl_node;
+            if (src_node) |off| self.parent_decl_node = self.relativeToNodeIndex(off);
             self.indent += 2;
             if (body.len == 0) {
                 try stream.writeAll("{}, {\n");
@@ -3951,6 +3959,7 @@ const Writer = struct {
                 }
                 try stream.writeAll(",\n");
             }
+            self.parent_decl_node = prev_parent_decl_node;
             self.indent -= 2;
             try stream.writeByteNTimes(' ', self.indent);
             try stream.writeAll("})");
