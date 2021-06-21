@@ -63,7 +63,7 @@ pub fn SinglyLinkedList(comptime T: type) type {
             pub fn countChildren(node: *const Node) usize {
                 var count: usize = 0;
                 var it: ?*const Node = node.next;
-                while (it) |_| : (it = n.next) {
+                while (it) |n| : (it = n.next) {
                     count += 1;
                 }
                 return count;
