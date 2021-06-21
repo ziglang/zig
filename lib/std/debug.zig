@@ -90,11 +90,11 @@ pub fn getSelfDebugInfo() !*DebugInfo {
 }
 
 pub fn detectTTYConfig() TTY.Config {
-    var bytes: [128]u8 = undefined;
-    const allocator = &std.heap.FixedBufferAllocator.init(bytes[0..]).allocator;
-    if (process.getEnvVarOwned(allocator, "ZIG_DEBUG_COLOR")) |_| {
+    if (process.hasEnvVarConstant("ZIG_DEBUG_COLOR")) {
         return .escape_codes;
-    } else |_| {
+    } else if (process.hasEnvVarConstant("NO_COLOR")) {
+        return .no_color;
+    } else {
         const stderr_file = io.getStdErr();
         if (stderr_file.supportsAnsiEscapeCodes()) {
             return .escape_codes;

@@ -99,7 +99,7 @@ Error ATTRIBUTE_MUST_USE os_fetch_file_path(Buf *full_path, Buf *out_contents);
 
 Error ATTRIBUTE_MUST_USE os_get_cwd(Buf *out_cwd);
 
-bool os_stderr_tty(void);
+bool os_stderr_supports_color(void);
 void os_stderr_set_color(TermColor color);
 
 Error os_rename(Buf *src_path, Buf *dest_path);

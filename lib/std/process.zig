@@ -179,6 +179,26 @@ pub fn getEnvVarOwned(allocator: *mem.Allocator, key: []const u8) GetEnvVarOwned
     }
 }
 
+pub fn hasEnvVarConstant(comptime key: []const u8) bool {
+    if (builtin.os.tag == .windows) {
+        const key_w = comptime std.unicode.utf8ToUtf16LeStringLiteral(key);
+        return std.os.getenvW(key_w) != null;
+    } else {
+        return os.getenv(key) != null;
+    }
+}
+
+pub fn hasEnvVar(allocator: *Allocator, key: []const u8) error{OutOfMemory}!bool {
+    if (builtin.os.tag == .windows) {
+        var stack_alloc = std.heap.stackFallback(256 * @sizeOf(u16), allocator);
+        const key_w = try std.unicode.utf8ToUtf16LeWithNull(&stack_alloc.allocator, key);
+        defer stack_alloc.allocator.free(key_w);
+        return std.os.getenvW(key_w) != null;
+    } else {
+        return os.getenv(key) != null;
+    }
+}
+
 test "os.getEnvVarOwned" {
     var ga = std.testing.allocator;
     try testing.expectError(error.EnvironmentVariableNotFound, getEnvVarOwned(ga, "BADENV"));
