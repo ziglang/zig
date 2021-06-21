@@ -70,7 +70,7 @@ fn splitValueLE64(val: i64) [2]u32 {
     };
 }
 fn splitValueBE64(val: i64) [2]u32 {
-    _ = val;
+    const u = @bitCast(u64, val);
     return [2]u32{
         @truncate(u32, u >> 32),
         @truncate(u32, u),
