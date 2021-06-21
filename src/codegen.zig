@@ -3330,10 +3330,44 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         try self.genSetReg(inst.base.src, arg.ty, reg, arg_mcv);
                     }
 
-                    if (mem.eql(u8, inst.asm_source, "syscall")) {
-                        try self.code.appendSlice(&[_]u8{ 0x0f, 0x05 });
-                    } else if (inst.asm_source.len != 0) {
-                        return self.fail(inst.base.src, "TODO implement support for more x86 assembly instructions", .{});
+                    {
+                        var iter = std.mem.tokenize(inst.asm_source, "\n\r");
+                        while (iter.next()) |ins| {
+                            if (mem.eql(u8, ins, "syscall")) {
+                                try self.code.appendSlice(&[_]u8{ 0x0f, 0x05 });
+                            } else if (mem.indexOf(u8, ins, "push")) |_| {
+                                const arg = ins[4..];
+                                if (mem.indexOf(u8, arg, "$")) |l| {
+                                    const n = std.fmt.parseInt(u8, ins[4 + l + 1 ..], 10) catch return self.fail(inst.base.src, "TODO implement more inline asm int parsing", .{});
+                                    try self.code.appendSlice(&.{ 0x6a, n });
+                                } else if (mem.indexOf(u8, arg, "%%")) |l| {
+                                    const reg_name = ins[4 + l + 2 ..];
+                                    const reg = parseRegName(reg_name) orelse
+                                        return self.fail(inst.base.src, "unrecognized register: '{s}'", .{reg_name});
+                                    const low_id: u8 = reg.low_id();
+                                    if (reg.isExtended()) {
+                                        try self.code.appendSlice(&.{ 0x41, 0b1010000 | low_id });
+                                    } else {
+                                        try self.code.append(0b1010000 | low_id);
+                                    }
+                                } else return self.fail(inst.base.src, "TODO more push operands", .{});
+                            } else if (mem.indexOf(u8, ins, "pop")) |_| {
+                                const arg = ins[3..];
+                                if (mem.indexOf(u8, arg, "%%")) |l| {
+                                    const reg_name = ins[3 + l + 2 ..];
+                                    const reg = parseRegName(reg_name) orelse
+                                        return self.fail(inst.base.src, "unrecognized register: '{s}'", .{reg_name});
+                                    const low_id: u8 = reg.low_id();
+                                    if (reg.isExtended()) {
+                                        try self.code.appendSlice(&.{ 0x41, 0b1011000 | low_id });
+                                    } else {
+                                        try self.code.append(0b1011000 | low_id);
+                                    }
+                                } else return self.fail(inst.base.src, "TODO more pop operands", .{});
+                            } else {
+                                return self.fail(inst.base.src, "TODO implement support for more x86 assembly instructions", .{});
+                            }
+                        }
                     }
 
                     if (inst.output_constraint) |output| {

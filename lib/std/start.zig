@@ -123,11 +123,15 @@ fn exit2(code: usize) noreturn {
             },
             else => @compileError("TODO"),
         },
+        // exits(0)
         .plan9 => switch (builtin.stage2_arch) {
             .x86_64 => {
-                asm volatile ("syscall"
+                asm volatile (
+                    \\push $0
+                    \\push $0
+                    \\syscall
                     :
-                    : [number] "{rbp}" (8)
+                    : [syscall_number] "{rbp}" (8)
                     : "rcx", "r11", "memory"
                 );
             },
