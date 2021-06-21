@@ -233,12 +233,11 @@ pub const SegmentCommand = struct {
         self: *SegmentCommand,
         alloc: *Allocator,
         comptime sectname: []const u8,
-        comptime segname: []const u8,
         opts: SectionOptions,
     ) !void {
-        try self.sections.append(alloc, .{
+        var section = macho.section_64{
             .sectname = makeStaticString(sectname),
-            .segname = makeStaticString(segname),
+            .segname = undefined,
             .addr = opts.addr,
             .size = opts.size,
             .offset = opts.offset,
@@ -249,7 +248,9 @@ pub const SegmentCommand = struct {
             .reserved1 = opts.reserved1,
             .reserved2 = opts.reserved2,
             .reserved3 = opts.reserved3,
-        });
+        };
+        mem.copy(u8, &section.segname, &self.inner.segname);
+        try self.sections.append(alloc, section);
         self.inner.cmdsize += @sizeOf(macho.section_64);
         self.inner.nsects += 1;
     }

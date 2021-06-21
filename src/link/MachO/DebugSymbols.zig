@@ -226,7 +226,7 @@ pub fn populateMissingMetadata(self: *DebugSymbols, allocator: *Allocator) !void
         self.debug_str_section_index = @intCast(u16, dwarf_segment.sections.items.len);
         assert(self.debug_string_table.items.len == 0);
 
-        try dwarf_segment.addSection(allocator, "__debug_str", "__DWARF", .{
+        try dwarf_segment.addSection(allocator, "__debug_str", .{
             .addr = dwarf_segment.inner.vmaddr,
             .size = @intCast(u32, self.debug_string_table.items.len),
             .offset = @intCast(u32, dwarf_segment.inner.fileoff),
@@ -246,7 +246,7 @@ pub fn populateMissingMetadata(self: *DebugSymbols, allocator: *Allocator) !void
 
         log.debug("found dSym __debug_info free space 0x{x} to 0x{x}", .{ off, off + file_size_hint });
 
-        try dwarf_segment.addSection(allocator, "__debug_info", "__DWARF", .{
+        try dwarf_segment.addSection(allocator, "__debug_info", .{
             .addr = dwarf_segment.inner.vmaddr + off - dwarf_segment.inner.fileoff,
             .size = file_size_hint,
             .offset = @intCast(u32, off),
@@ -266,7 +266,7 @@ pub fn populateMissingMetadata(self: *DebugSymbols, allocator: *Allocator) !void
 
         log.debug("found dSym __debug_abbrev free space 0x{x} to 0x{x}", .{ off, off + file_size_hint });
 
-        try dwarf_segment.addSection(allocator, "__debug_abbrev", "__DWARF", .{
+        try dwarf_segment.addSection(allocator, "__debug_abbrev", .{
             .addr = dwarf_segment.inner.vmaddr + off - dwarf_segment.inner.fileoff,
             .size = file_size_hint,
             .offset = @intCast(u32, off),
@@ -286,7 +286,7 @@ pub fn populateMissingMetadata(self: *DebugSymbols, allocator: *Allocator) !void
 
         log.debug("found dSym __debug_aranges free space 0x{x} to 0x{x}", .{ off, off + file_size_hint });
 
-        try dwarf_segment.addSection(allocator, "__debug_aranges", "__DWARF", .{
+        try dwarf_segment.addSection(allocator, "__debug_aranges", .{
             .addr = dwarf_segment.inner.vmaddr + off - dwarf_segment.inner.fileoff,
             .size = file_size_hint,
             .offset = @intCast(u32, off),
@@ -306,7 +306,7 @@ pub fn populateMissingMetadata(self: *DebugSymbols, allocator: *Allocator) !void
 
         log.debug("found dSym __debug_line free space 0x{x} to 0x{x}", .{ off, off + file_size_hint });
 
-        try dwarf_segment.addSection(allocator, "__debug_line", "__DWARF", .{
+        try dwarf_segment.addSection(allocator, "__debug_line", .{
             .addr = dwarf_segment.inner.vmaddr + off - dwarf_segment.inner.fileoff,
             .size = file_size_hint,
             .offset = @intCast(u32, off),
