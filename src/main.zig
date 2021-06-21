@@ -1778,7 +1778,7 @@ fn buildOutputType(
                 const handle = fs.cwd().openDir(dirname, .{}) catch |err| {
                     switch (err) {
                         error.FileNotFound => {
-                            fatal("unable to open directory: '{s}': {s}", .{ dirname, @errorName(err) });
+                            fatal("unable to open output directory '{s}': {s}", .{ dirname, @errorName(err) });
                         },
                         else => return err,
                     }
