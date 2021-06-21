@@ -844,7 +844,7 @@ fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) InnerEr
         .@"switch", .switch_comma => return switchExpr(gz, scope, rl, node),
 
         .@"nosuspend" => return nosuspendExpr(gz, scope, rl, node),
-        .@"suspend" => return suspendExpr(gz, scope, rl, node),
+        .@"suspend" => return suspendExpr(gz, scope, node),
         .@"await" => return awaitExpr(gz, scope, rl, node),
         .@"resume" => return resumeExpr(gz, scope, rl, node),
 
@@ -922,10 +922,8 @@ fn nosuspendExpr(
 fn suspendExpr(
     gz: *GenZir,
     scope: *Scope,
-    rl: ResultLoc,
     node: ast.Node.Index,
 ) InnerError!Zir.Inst.Ref {
-    _ = rl;
     const astgen = gz.astgen;
     const gpa = astgen.gpa;
     const tree = astgen.tree;
@@ -1171,32 +1169,32 @@ fn arrayInitExpr(
         },
         .ref => {
             if (types.array != .none) {
-                return arrayInitExprRlTy(gz, scope, rl, node, array_init.ast.elements, types.array, types.elem, .array_init_ref);
+                return arrayInitExprRlTy(gz, scope, node, array_init.ast.elements, types.elem, .array_init_ref);
             } else {
-                return arrayInitExprRlNone(gz, scope, rl, node, array_init.ast.elements, .array_init_anon_ref);
+                return arrayInitExprRlNone(gz, scope, node, array_init.ast.elements, .array_init_anon_ref);
             }
         },
         .none, .none_or_ref => {
             if (types.array != .none) {
-                return arrayInitExprRlTy(gz, scope, rl, node, array_init.ast.elements, types.array, types.elem, .array_init);
+                return arrayInitExprRlTy(gz, scope, node, array_init.ast.elements, types.elem, .array_init);
             } else {
-                return arrayInitExprRlNone(gz, scope, rl, node, array_init.ast.elements, .array_init_anon);
+                return arrayInitExprRlNone(gz, scope, node, array_init.ast.elements, .array_init_anon);
             }
         },
         .ty => |ty_inst| {
             if (types.array != .none) {
-                const result = try arrayInitExprRlTy(gz, scope, rl, node, array_init.ast.elements, types.array, types.elem, .array_init);
+                const result = try arrayInitExprRlTy(gz, scope, node, array_init.ast.elements, types.elem, .array_init);
                 return rvalue(gz, scope, rl, result, node);
             } else {
                 const elem_type = try gz.addUnNode(.elem_type, ty_inst, node);
-                return arrayInitExprRlTy(gz, scope, rl, node, array_init.ast.elements, ty_inst, elem_type, .array_init);
+                return arrayInitExprRlTy(gz, scope, node, array_init.ast.elements, elem_type, .array_init);
             }
         },
         .ptr, .inferred_ptr => |ptr_inst| {
-            return arrayInitExprRlPtr(gz, scope, rl, node, array_init.ast.elements, ptr_inst);
+            return arrayInitExprRlPtr(gz, scope, node, array_init.ast.elements, ptr_inst);
         },
         .block_ptr => |block_gz| {
-            return arrayInitExprRlPtr(gz, scope, rl, node, array_init.ast.elements, block_gz.rl_ptr);
+            return arrayInitExprRlPtr(gz, scope, node, array_init.ast.elements, block_gz.rl_ptr);
         },
     }
 }
@@ -1204,12 +1202,10 @@ fn arrayInitExpr(
 fn arrayInitExprRlNone(
     gz: *GenZir,
     scope: *Scope,
-    rl: ResultLoc,
     node: ast.Node.Index,
     elements: []const ast.Node.Index,
     tag: Zir.Inst.Tag,
 ) InnerError!Zir.Inst.Ref {
-    _ = rl;
     const astgen = gz.astgen;
     const gpa = astgen.gpa;
     const elem_list = try gpa.alloc(Zir.Inst.Ref, elements.len);
@@ -1228,16 +1224,11 @@ fn arrayInitExprRlNone(
 fn arrayInitExprRlTy(
     gz: *GenZir,
     scope: *Scope,
-    rl: ResultLoc,
     node: ast.Node.Index,
     elements: []const ast.Node.Index,
-    array_ty_inst: Zir.Inst.Ref,
     elem_ty_inst: Zir.Inst.Ref,
     tag: Zir.Inst.Tag,
 ) InnerError!Zir.Inst.Ref {
-    _ = rl;
-    _ = array_ty_inst;
-    _ = elem_ty_inst;
     const astgen = gz.astgen;
     const gpa = astgen.gpa;
 
@@ -1259,12 +1250,10 @@ fn arrayInitExprRlTy(
 fn arrayInitExprRlPtr(
     gz: *GenZir,
     scope: *Scope,
-    rl: ResultLoc,
     node: ast.Node.Index,
     elements: []const ast.Node.Index,
     result_ptr: Zir.Inst.Ref,
 ) InnerError!Zir.Inst.Ref {
-    _ = rl;
     const astgen = gz.astgen;
     const gpa = astgen.gpa;
 
@@ -1340,41 +1329,39 @@ fn structInitExpr(
         .ref => {
             if (struct_init.ast.type_expr != 0) {
                 const ty_inst = try typeExpr(gz, scope, struct_init.ast.type_expr);
-                return structInitExprRlTy(gz, scope, rl, node, struct_init, ty_inst, .struct_init_ref);
+                return structInitExprRlTy(gz, scope, node, struct_init, ty_inst, .struct_init_ref);
             } else {
-                return structInitExprRlNone(gz, scope, rl, node, struct_init, .struct_init_anon_ref);
+                return structInitExprRlNone(gz, scope, node, struct_init, .struct_init_anon_ref);
             }
         },
         .none, .none_or_ref => {
             if (struct_init.ast.type_expr != 0) {
                 const ty_inst = try typeExpr(gz, scope, struct_init.ast.type_expr);
-                return structInitExprRlTy(gz, scope, rl, node, struct_init, ty_inst, .struct_init);
+                return structInitExprRlTy(gz, scope, node, struct_init, ty_inst, .struct_init);
             } else {
-                return structInitExprRlNone(gz, scope, rl, node, struct_init, .struct_init_anon);
+                return structInitExprRlNone(gz, scope, node, struct_init, .struct_init_anon);
             }
         },
         .ty => |ty_inst| {
             if (struct_init.ast.type_expr == 0) {
-                return structInitExprRlTy(gz, scope, rl, node, struct_init, ty_inst, .struct_init);
+                return structInitExprRlTy(gz, scope, node, struct_init, ty_inst, .struct_init);
             }
             const inner_ty_inst = try typeExpr(gz, scope, struct_init.ast.type_expr);
-            const result = try structInitExprRlTy(gz, scope, rl, node, struct_init, inner_ty_inst, .struct_init);
+            const result = try structInitExprRlTy(gz, scope, node, struct_init, inner_ty_inst, .struct_init);
             return rvalue(gz, scope, rl, result, node);
         },
-        .ptr, .inferred_ptr => |ptr_inst| return structInitExprRlPtr(gz, scope, rl, node, struct_init, ptr_inst),
-        .block_ptr => |block_gz| return structInitExprRlPtr(gz, scope, rl, node, struct_init, block_gz.rl_ptr),
+        .ptr, .inferred_ptr => |ptr_inst| return structInitExprRlPtr(gz, scope, node, struct_init, ptr_inst),
+        .block_ptr => |block_gz| return structInitExprRlPtr(gz, scope, node, struct_init, block_gz.rl_ptr),
     }
 }
 
 fn structInitExprRlNone(
     gz: *GenZir,
     scope: *Scope,
-    rl: ResultLoc,
     node: ast.Node.Index,
     struct_init: ast.full.StructInit,
     tag: Zir.Inst.Tag,
 ) InnerError!Zir.Inst.Ref {
-    _ = rl;
     const astgen = gz.astgen;
     const gpa = astgen.gpa;
     const tree = astgen.tree;
@@ -1405,12 +1392,10 @@ fn structInitExprRlNone(
 fn structInitExprRlPtr(
     gz: *GenZir,
     scope: *Scope,
-    rl: ResultLoc,
     node: ast.Node.Index,
     struct_init: ast.full.StructInit,
     result_ptr: Zir.Inst.Ref,
 ) InnerError!Zir.Inst.Ref {
-    _ = rl;
     const astgen = gz.astgen;
     const gpa = astgen.gpa;
     const tree = astgen.tree;
@@ -1441,13 +1426,11 @@ fn structInitExprRlPtr(
 fn structInitExprRlTy(
     gz: *GenZir,
     scope: *Scope,
-    rl: ResultLoc,
     node: ast.Node.Index,
     struct_init: ast.full.StructInit,
     ty_inst: Zir.Inst.Ref,
     tag: Zir.Inst.Tag,
 ) InnerError!Zir.Inst.Ref {
-    _ = rl;
     const astgen = gz.astgen;
     const gpa = astgen.gpa;
     const tree = astgen.tree;
@@ -1667,7 +1650,7 @@ fn blockExpr(
         return labeledBlockExpr(gz, scope, rl, block_node, statements, .block);
     }
 
-    try blockExprStmts(gz, scope, block_node, statements);
+    try blockExprStmts(gz, scope, statements);
     return rvalue(gz, scope, rl, .void_value, block_node);
 }
 
@@ -1742,7 +1725,7 @@ fn labeledBlockExpr(
     defer block_scope.labeled_breaks.deinit(astgen.gpa);
     defer block_scope.labeled_store_to_block_ptr_list.deinit(astgen.gpa);
 
-    try blockExprStmts(&block_scope, &block_scope.base, block_node, statements);
+    try blockExprStmts(&block_scope, &block_scope.base, statements);
 
     if (!block_scope.label.?.used) {
         return astgen.failTok(label_token, "unused block label", .{});
@@ -1784,13 +1767,7 @@ fn labeledBlockExpr(
     }
 }
 
-fn blockExprStmts(
-    gz: *GenZir,
-    parent_scope: *Scope,
-    node: ast.Node.Index,
-    statements: []const ast.Node.Index,
-) !void {
-    _ = node;
+fn blockExprStmts(gz: *GenZir, parent_scope: *Scope, statements: []const ast.Node.Index) !void {
     const astgen = gz.astgen;
     const tree = astgen.tree;
     const node_tags = tree.nodes.items(.tag);
@@ -1807,8 +1784,8 @@ fn blockExprStmts(
             .simple_var_decl  => scope = try varDecl(gz, scope, statement, &block_arena.allocator, tree.simpleVarDecl(statement)),
             .aligned_var_decl => scope = try varDecl(gz, scope, statement, &block_arena.allocator, tree.alignedVarDecl(statement)),
 
-            .@"defer"    => scope = try deferStmt(gz, scope, statement, &block_arena.allocator, .defer_normal),
-            .@"errdefer" => scope = try deferStmt(gz, scope, statement, &block_arena.allocator, .defer_error),
+            .@"defer"    => scope = try makeDeferScope(scope, statement, &block_arena.allocator, .defer_normal),
+            .@"errdefer" => scope = try makeDeferScope(scope, statement, &block_arena.allocator, .defer_error),
 
             .assign => try assign(gz, scope, statement),
 
@@ -2205,14 +2182,12 @@ fn checkUsed(
     }
 }
 
-fn deferStmt(
-    gz: *GenZir,
+fn makeDeferScope(
     scope: *Scope,
     node: ast.Node.Index,
     block_arena: *Allocator,
     scope_tag: Scope.Tag,
 ) InnerError!*Scope {
-    _ = gz;
     const defer_scope = try block_arena.create(Scope.Defer);
     defer_scope.* = .{
         .base = .{ .tag = scope_tag },
