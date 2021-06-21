@@ -1326,18 +1326,17 @@ pub fn ArrayHashMapUnmanaged(
         }
         fn removeFromIndexByIndexGeneric(self: *Self, entry_index: usize, ctx: ByIndexContext, header: *IndexHeader, comptime I: type, indexes: []Index(I)) void {
             const slot = self.getSlotByIndex(entry_index, ctx, header, I, indexes);
-            self.removeSlot(slot, header, I, indexes);
+            removeSlot(slot, header, I, indexes);
         }
 
         fn removeFromIndexByKey(self: *Self, key: anytype, ctx: anytype, header: *IndexHeader, comptime I: type, indexes: []Index(I)) ?usize {
             const slot = self.getSlotByKey(key, ctx, header, I, indexes) orelse return null;
             const removed_entry_index = indexes[slot].entry_index;
-            self.removeSlot(slot, header, I, indexes);
+            removeSlot(slot, header, I, indexes);
             return removed_entry_index;
         }
 
-        fn removeSlot(self: *Self, removed_slot: usize, header: *IndexHeader, comptime I: type, indexes: []Index(I)) void {
-            _ = self;
+        fn removeSlot(removed_slot: usize, header: *IndexHeader, comptime I: type, indexes: []Index(I)) void {
             const start_index = removed_slot +% 1;
             const end_index = start_index +% indexes.len;
 
@@ -1622,14 +1621,13 @@ pub fn ArrayHashMapUnmanaged(
             if (self.index_header) |header| {
                 p("\n", .{});
                 switch (header.capacityIndexType()) {
-                    .u8 => self.dumpIndex(header, u8),
-                    .u16 => self.dumpIndex(header, u16),
-                    .u32 => self.dumpIndex(header, u32),
+                    .u8 => dumpIndex(header, u8),
+                    .u16 => dumpIndex(header, u16),
+                    .u32 => dumpIndex(header, u32),
                 }
             }
         }
-        fn dumpIndex(self: Self, header: *IndexHeader, comptime I: type) void {
-            _ = self;
+        fn dumpIndex(header: *IndexHeader, comptime I: type) void {
             const p = std.debug.print;
             p("  index len=0x{x} type={}\n", .{ header.length(), header.capacityIndexType() });
             const indexes = header.indexes(I);
