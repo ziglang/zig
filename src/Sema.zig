@@ -5791,13 +5791,15 @@ fn zirIntToPtr(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerErro
     }
 
     try sema.requireRuntimeBlock(block, src);
-    if (block.wantSafety() and !type_res.isAllowzeroPtr()) {
+    if (block.wantSafety()) {
         const zero = try sema.mod.constInst(sema.arena, src, .{
             .ty = Type.initTag(.u64),
             .val = Value.initTag(.zero),
         });
-        const is_non_zero = try block.addBinOp(src, Type.initTag(.bool), .cmp_neq, operand_coerced, zero);
-        try sema.addSafetyCheck(block, is_non_zero, .cast_to_null);
+        if (!type_res.isAllowzeroPtr()) {
+            const is_non_zero = try block.addBinOp(src, Type.initTag(.bool), .cmp_neq, operand_coerced, zero);
+            try sema.addSafetyCheck(block, is_non_zero, .cast_to_null);
+        }
 
         if (ptr_align > 1) {
             const val_payload = try sema.arena.create(Value.Payload.U64);
