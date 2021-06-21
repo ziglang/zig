@@ -5192,26 +5192,6 @@ fn whileExpr(
     try loop_scope.instructions.append(astgen.gpa, cond_block);
     try continue_scope.setBlockBody(cond_block);
 
-    // This code could be improved to avoid emitting the continue expr when there
-    // are no jumps to it. This happens when the last statement of a while body is noreturn
-    // and there are no `continue` statements.
-    // Tracking issue: https://github.com/ziglang/zig/issues/9185
-    if (while_full.ast.cont_expr != 0) {
-        _ = try expr(&loop_scope, &loop_scope.base, .{ .ty = .void_type }, while_full.ast.cont_expr);
-    }
-    const repeat_tag: Zir.Inst.Tag = if (is_inline) .repeat_inline else .repeat;
-    _ = try loop_scope.addNode(repeat_tag, node);
-
-    try loop_scope.setBlockBody(loop_block);
-    loop_scope.break_block = loop_block;
-    loop_scope.continue_block = cond_block;
-    if (while_full.label_token) |label_token| {
-        loop_scope.label = @as(?GenZir.Label, GenZir.Label{
-            .token = label_token,
-            .block_inst = loop_block,
-        });
-    }
-
     var then_scope = parent_gz.makeSubBlock(&continue_scope.base);
     defer then_scope.instructions.deinit(astgen.gpa);
 
@@ -5264,6 +5244,26 @@ fn whileExpr(
             break :s &then_scope.base;
         }
     };
+
+    // This code could be improved to avoid emitting the continue expr when there
+    // are no jumps to it. This happens when the last statement of a while body is noreturn
+    // and there are no `continue` statements.
+    // Tracking issue: https://github.com/ziglang/zig/issues/9185
+    if (while_full.ast.cont_expr != 0) {
+        _ = try expr(&loop_scope, then_sub_scope, .{ .ty = .void_type }, while_full.ast.cont_expr);
+    }
+    const repeat_tag: Zir.Inst.Tag = if (is_inline) .repeat_inline else .repeat;
+    _ = try loop_scope.addNode(repeat_tag, node);
+
+    try loop_scope.setBlockBody(loop_block);
+    loop_scope.break_block = loop_block;
+    loop_scope.continue_block = cond_block;
+    if (while_full.label_token) |label_token| {
+        loop_scope.label = @as(?GenZir.Label, GenZir.Label{
+            .token = label_token,
+            .block_inst = loop_block,
+        });
+    }
 
     loop_scope.break_count += 1;
     const then_result = try expr(&then_scope, then_sub_scope, loop_scope.break_result_loc, while_full.ast.then_expr);
