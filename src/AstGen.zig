@@ -4567,8 +4567,6 @@ fn tryExpr(
         &else_scope,
         condbr,
         cond,
-        node,
-        node,
         then_result,
         else_result,
         block,
@@ -4662,8 +4660,6 @@ fn orelseCatchExpr(
         &else_scope,
         condbr,
         cond,
-        node,
-        node,
         then_result,
         else_result,
         block,
@@ -4682,16 +4678,12 @@ fn finishThenElseBlock(
     else_scope: *GenZir,
     condbr: Zir.Inst.Index,
     cond: Zir.Inst.Ref,
-    then_src: ast.Node.Index,
-    else_src: ast.Node.Index,
     then_result: Zir.Inst.Ref,
     else_result: Zir.Inst.Ref,
     main_block: Zir.Inst.Index,
     then_break_block: Zir.Inst.Index,
     break_tag: Zir.Inst.Tag,
 ) InnerError!Zir.Inst.Ref {
-    _ = then_src;
-    _ = else_src;
     // We now have enough information to decide whether the result instruction should
     // be communicated via result location pointer or break instructions.
     const strat = rl.strategy(block_scope);
@@ -5021,8 +5013,6 @@ fn ifExpr(
         &else_scope,
         condbr,
         cond.bool_bit,
-        if_full.ast.then_expr,
-        else_info.src,
         then_result,
         else_info.result,
         block,
@@ -5303,8 +5293,6 @@ fn whileExpr(
         &else_scope,
         condbr,
         cond.bool_bit,
-        while_full.ast.then_expr,
-        else_info.src,
         then_result,
         else_info.result,
         loop_block,
@@ -5479,8 +5467,6 @@ fn forExpr(
         &else_scope,
         condbr,
         cond,
-        for_full.ast.then_expr,
-        else_info.src,
         then_result,
         else_info.result,
         loop_block,
