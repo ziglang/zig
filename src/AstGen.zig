@@ -5192,9 +5192,10 @@ fn whileExpr(
     try loop_scope.instructions.append(astgen.gpa, cond_block);
     try continue_scope.setBlockBody(cond_block);
 
-    // TODO avoid emitting the continue expr when there
+    // This code could be improved to avoid emitting the continue expr when there
     // are no jumps to it. This happens when the last statement of a while body is noreturn
     // and there are no `continue` statements.
+    // Tracking issue: https://github.com/ziglang/zig/issues/9185
     if (while_full.ast.cont_expr != 0) {
         _ = try expr(&loop_scope, &loop_scope.base, .{ .ty = .void_type }, while_full.ast.cont_expr);
     }
