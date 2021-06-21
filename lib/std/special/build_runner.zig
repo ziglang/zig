@@ -216,15 +216,15 @@ fn usage(builder: *Builder, already_ran_build: bool, out_stream: anytype) !void 
             try fmt.allocPrint(allocator, "{s} (default)", .{top_level_step.step.name})
         else
             top_level_step.step.name;
-        try out_stream.print("  {s:<27}   {s}\n", .{ name, top_level_step.description });
+        try out_stream.print("  {s:<29} {s}\n", .{ name, top_level_step.description });
     }
 
     try out_stream.writeAll(
         \\
         \\General Options:
-        \\  -p, --prefix         [path]   Override default install prefix
-        \\  --prefix-lib-dir     [path]   Override default library directory path
-        \\  --prefix-exe-dir     [path]   Override default executable directory path
+        \\  -p, --prefix [path]           Override default install prefix
+        \\  --prefix-lib-dir [path]       Override default library directory path
+        \\  --prefix-exe-dir [path]       Override default executable directory path
         \\  --prefix-include-dir [path]   Override default include directory path
         \\
         \\  --sysroot [path]              Set the system root directory (usually /)
@@ -248,7 +248,7 @@ fn usage(builder: *Builder, already_ran_build: bool, out_stream: anytype) !void 
                 @tagName(option.type_id),
             });
             defer allocator.free(name);
-            try out_stream.print("{s:<29}   {s}\n", .{ name, option.description });
+            try out_stream.print("{s:<31} {s}\n", .{ name, option.description });
         }
     }
 
