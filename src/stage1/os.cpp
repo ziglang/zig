@@ -834,13 +834,14 @@ static bool is_stderr_cyg_pty(void) {
 }
 #endif
 
-bool os_stderr_tty(void) {
+bool os_stderr_supports_color(void) {
+    if (getenv("NO_COLOR") != NULL) return false;
 #if defined(ZIG_OS_WINDOWS)
     return _isatty(_fileno(stderr)) != 0 || is_stderr_cyg_pty();
 #elif defined(ZIG_OS_POSIX)
     return isatty(STDERR_FILENO) != 0;
 #else
-#error "missing os_stderr_tty implementation"
+#error "missing os_stderr_supports_color implementation"
 #endif
 }
 

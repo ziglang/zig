@@ -503,15 +503,6 @@ const Emit = union(enum) {
     }
 };
 
-fn optionalBoolEnvVar(arena: *Allocator, name: []const u8) !bool {
-    if (std.process.getEnvVarOwned(arena, name)) |_| {
-        return true;
-    } else |err| switch (err) {
-        error.EnvironmentVariableNotFound => return false,
-        else => |e| return e,
-    }
-}
-
 fn optionalStringEnvVar(arena: *Allocator, name: []const u8) !?[]const u8 {
     if (std.process.getEnvVarOwned(arena, name)) |value| {
         return value;
@@ -548,8 +539,8 @@ fn buildOutputType(
     var single_threaded = false;
     var function_sections = false;
     var watch = false;
-    var verbose_link = try optionalBoolEnvVar(arena, "ZIG_VERBOSE_LINK");
-    var verbose_cc = try optionalBoolEnvVar(arena, "ZIG_VERBOSE_CC");
+    var verbose_link = std.process.hasEnvVarConstant("ZIG_VERBOSE_LINK");
+    var verbose_cc = std.process.hasEnvVarConstant("ZIG_VERBOSE_CC");
     var verbose_air = false;
     var verbose_llvm_ir = false;
     var verbose_cimport = false;
@@ -669,6 +660,11 @@ fn buildOutputType(
     };
     defer freePkgTree(gpa, &pkg_tree_root, false);
     var cur_pkg: *Package = &pkg_tree_root;
+
+    // before arg parsing, check for the NO_COLOR environment variable
+    // if it exists, default the color setting to .off
+    // explicit --color arguments will still override this setting.
+    color = if (std.process.hasEnvVarConstant("NO_COLOR")) .off else .auto;
 
     switch (arg_mode) {
         .build, .translate_c, .zig_test, .run => {

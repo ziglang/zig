@@ -16,8 +16,8 @@ enum ErrType {
 };
 
 static void print_err_msg_type(ErrorMsg *err, ErrColor color, ErrType err_type) {
-    bool is_tty = os_stderr_tty();
-    bool use_colors = color == ErrColorOn || (color == ErrColorAuto && is_tty);
+    bool supports_color = os_stderr_supports_color();
+    bool use_colors = color == ErrColorOn || (color == ErrColorAuto && supports_color);
 
     // Show the error location, if available
     if (err->path != nullptr) {

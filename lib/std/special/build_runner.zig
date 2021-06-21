@@ -63,6 +63,11 @@ pub fn main() !void {
     var install_prefix: ?[]const u8 = null;
     var dir_list = Builder.DirList{};
 
+    // before arg parsing, check for the NO_COLOR environment variable
+    // if it exists, default the color setting to .off
+    // explicit --color arguments will still override this setting.
+    builder.color = if (std.process.hasEnvVarConstant("NO_COLOR")) .off else .auto;
+
     while (nextArg(args, &arg_idx)) |arg| {
         if (mem.startsWith(u8, arg, "-D")) {
             const option_contents = arg[2..];
