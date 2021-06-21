@@ -1779,18 +1779,8 @@ pub fn populateMissingMetadata(self: *MachO) !void {
     if (self.pagezero_segment_cmd_index == null) {
         self.pagezero_segment_cmd_index = @intCast(u16, self.load_commands.items.len);
         try self.load_commands.append(self.base.allocator, .{
-            .Segment = SegmentCommand.empty(.{
-                .cmd = macho.LC_SEGMENT_64,
-                .cmdsize = @sizeOf(macho.segment_command_64),
-                .segname = makeStaticString("__PAGEZERO"),
-                .vmaddr = 0,
+            .Segment = SegmentCommand.empty("__PAGEZERO", .{
                 .vmsize = 0x100000000, // size always set to 4GB
-                .fileoff = 0,
-                .filesize = 0,
-                .maxprot = 0,
-                .initprot = 0,
-                .nsects = 0,
-                .flags = 0,
             }),
         });
         self.header_dirty = true;
@@ -1809,18 +1799,12 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         log.debug("found __TEXT segment free space 0x{x} to 0x{x}", .{ 0, needed_size });
 
         try self.load_commands.append(self.base.allocator, .{
-            .Segment = SegmentCommand.empty(.{
-                .cmd = macho.LC_SEGMENT_64,
-                .cmdsize = @sizeOf(macho.segment_command_64),
-                .segname = makeStaticString("__TEXT"),
+            .Segment = SegmentCommand.empty("__TEXT", .{
                 .vmaddr = 0x100000000, // always starts at 4GB
                 .vmsize = needed_size,
-                .fileoff = 0,
                 .filesize = needed_size,
                 .maxprot = maxprot,
                 .initprot = initprot,
-                .nsects = 0,
-                .flags = 0,
             }),
         });
         self.header_dirty = true;
@@ -1841,19 +1825,12 @@ pub fn populateMissingMetadata(self: *MachO) !void {
 
         log.debug("found __text section free space 0x{x} to 0x{x}", .{ off, off + needed_size });
 
-        try text_segment.addSection(self.base.allocator, .{
-            .sectname = makeStaticString("__text"),
-            .segname = makeStaticString("__TEXT"),
+        try text_segment.addSection(self.base.allocator, "__text", "__TEXT", .{
             .addr = text_segment.inner.vmaddr + off,
             .size = @intCast(u32, needed_size),
             .offset = @intCast(u32, off),
             .@"align" = alignment,
-            .reloff = 0,
-            .nreloc = 0,
             .flags = flags,
-            .reserved1 = 0,
-            .reserved2 = 0,
-            .reserved3 = 0,
         });
         self.header_dirty = true;
         self.load_commands_dirty = true;
@@ -1879,19 +1856,13 @@ pub fn populateMissingMetadata(self: *MachO) !void {
 
         log.debug("found __stubs section free space 0x{x} to 0x{x}", .{ off, off + needed_size });
 
-        try text_segment.addSection(self.base.allocator, .{
-            .sectname = makeStaticString("__stubs"),
-            .segname = makeStaticString("__TEXT"),
+        try text_segment.addSection(self.base.allocator, "__stubs", "__TEXT", .{
             .addr = text_segment.inner.vmaddr + off,
             .size = needed_size,
             .offset = @intCast(u32, off),
             .@"align" = alignment,
-            .reloff = 0,
-            .nreloc = 0,
             .flags = flags,
-            .reserved1 = 0,
             .reserved2 = stub_size,
-            .reserved3 = 0,
         });
         self.header_dirty = true;
         self.load_commands_dirty = true;
@@ -1912,19 +1883,12 @@ pub fn populateMissingMetadata(self: *MachO) !void {
 
         log.debug("found __stub_helper section free space 0x{x} to 0x{x}", .{ off, off + needed_size });
 
-        try text_segment.addSection(self.base.allocator, .{
-            .sectname = makeStaticString("__stub_helper"),
-            .segname = makeStaticString("__TEXT"),
+        try text_segment.addSection(self.base.allocator, "__stub_helper", "__TEXT", .{
             .addr = text_segment.inner.vmaddr + off,
             .size = needed_size,
             .offset = @intCast(u32, off),
             .@"align" = alignment,
-            .reloff = 0,
-            .nreloc = 0,
             .flags = flags,
-            .reserved1 = 0,
-            .reserved2 = 0,
-            .reserved3 = 0,
         });
         self.header_dirty = true;
         self.load_commands_dirty = true;
@@ -1941,18 +1905,13 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         log.debug("found __DATA_CONST segment free space 0x{x} to 0x{x}", .{ address_and_offset.offset, address_and_offset.offset + needed_size });
 
         try self.load_commands.append(self.base.allocator, .{
-            .Segment = SegmentCommand.empty(.{
-                .cmd = macho.LC_SEGMENT_64,
-                .cmdsize = @sizeOf(macho.segment_command_64),
-                .segname = makeStaticString("__DATA_CONST"),
+            .Segment = SegmentCommand.empty("__DATA_CONST", .{
                 .vmaddr = address_and_offset.address,
                 .vmsize = needed_size,
                 .fileoff = address_and_offset.offset,
                 .filesize = needed_size,
                 .maxprot = maxprot,
                 .initprot = initprot,
-                .nsects = 0,
-                .flags = 0,
             }),
         });
         self.header_dirty = true;
@@ -1969,19 +1928,12 @@ pub fn populateMissingMetadata(self: *MachO) !void {
 
         log.debug("found __got section free space 0x{x} to 0x{x}", .{ off, off + needed_size });
 
-        try dc_segment.addSection(self.base.allocator, .{
-            .sectname = makeStaticString("__got"),
-            .segname = makeStaticString("__DATA_CONST"),
+        try dc_segment.addSection(self.base.allocator, "__got", "__DATA_CONST", .{
             .addr = dc_segment.inner.vmaddr + off - dc_segment.inner.fileoff,
             .size = needed_size,
             .offset = @intCast(u32, off),
             .@"align" = 3, // 2^3 = @sizeOf(u64)
-            .reloff = 0,
-            .nreloc = 0,
             .flags = flags,
-            .reserved1 = 0,
-            .reserved2 = 0,
-            .reserved3 = 0,
         });
         self.header_dirty = true;
         self.load_commands_dirty = true;
@@ -1998,18 +1950,13 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         log.debug("found __DATA segment free space 0x{x} to 0x{x}", .{ address_and_offset.offset, address_and_offset.offset + needed_size });
 
         try self.load_commands.append(self.base.allocator, .{
-            .Segment = SegmentCommand.empty(.{
-                .cmd = macho.LC_SEGMENT_64,
-                .cmdsize = @sizeOf(macho.segment_command_64),
-                .segname = makeStaticString("__DATA"),
+            .Segment = SegmentCommand.empty("__DATA", .{
                 .vmaddr = address_and_offset.address,
                 .vmsize = needed_size,
                 .fileoff = address_and_offset.offset,
                 .filesize = needed_size,
                 .maxprot = maxprot,
                 .initprot = initprot,
-                .nsects = 0,
-                .flags = 0,
             }),
         });
         self.header_dirty = true;
@@ -2026,19 +1973,12 @@ pub fn populateMissingMetadata(self: *MachO) !void {
 
         log.debug("found __la_symbol_ptr section free space 0x{x} to 0x{x}", .{ off, off + needed_size });
 
-        try data_segment.addSection(self.base.allocator, .{
-            .sectname = makeStaticString("__la_symbol_ptr"),
-            .segname = makeStaticString("__DATA"),
+        try data_segment.addSection(self.base.allocator, "__la_symbol_ptr", "__DATA", .{
             .addr = data_segment.inner.vmaddr + off - data_segment.inner.fileoff,
             .size = needed_size,
             .offset = @intCast(u32, off),
             .@"align" = 3, // 2^3 = @sizeOf(u64)
-            .reloff = 0,
-            .nreloc = 0,
             .flags = flags,
-            .reserved1 = 0,
-            .reserved2 = 0,
-            .reserved3 = 0,
         });
         self.header_dirty = true;
         self.load_commands_dirty = true;
@@ -2047,26 +1987,17 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         const data_segment = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
         self.data_section_index = @intCast(u16, data_segment.sections.items.len);
 
-        const flags = macho.S_REGULAR;
         const needed_size = @sizeOf(u64) * self.base.options.symbol_count_hint;
         const off = data_segment.findFreeSpace(needed_size, @alignOf(u64), null);
         assert(off + needed_size <= data_segment.inner.fileoff + data_segment.inner.filesize); // TODO Must expand __DATA segment.
 
         log.debug("found __data section free space 0x{x} to 0x{x}", .{ off, off + needed_size });
 
-        try data_segment.addSection(self.base.allocator, .{
-            .sectname = makeStaticString("__data"),
-            .segname = makeStaticString("__DATA"),
+        try data_segment.addSection(self.base.allocator, "__data", "__DATA", .{
             .addr = data_segment.inner.vmaddr + off - data_segment.inner.fileoff,
             .size = needed_size,
             .offset = @intCast(u32, off),
             .@"align" = 3, // 2^3 = @sizeOf(u64)
-            .reloff = 0,
-            .nreloc = 0,
-            .flags = flags,
-            .reserved1 = 0,
-            .reserved2 = 0,
-            .reserved3 = 0,
         });
         self.header_dirty = true;
         self.load_commands_dirty = true;
@@ -2081,18 +2012,11 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         log.debug("found __LINKEDIT segment free space at 0x{x}", .{address_and_offset.offset});
 
         try self.load_commands.append(self.base.allocator, .{
-            .Segment = SegmentCommand.empty(.{
-                .cmd = macho.LC_SEGMENT_64,
-                .cmdsize = @sizeOf(macho.segment_command_64),
-                .segname = makeStaticString("__LINKEDIT"),
+            .Segment = SegmentCommand.empty("__LINKEDIT", .{
                 .vmaddr = address_and_offset.address,
-                .vmsize = 0,
                 .fileoff = address_and_offset.offset,
-                .filesize = 0,
                 .maxprot = maxprot,
                 .initprot = initprot,
-                .nsects = 0,
-                .flags = 0,
             }),
         });
         self.header_dirty = true;
@@ -2448,13 +2372,6 @@ fn allocateTextBlock(self: *MachO, text_block: *TextBlock, new_block_size: u64, 
     }
 
     return vaddr;
-}
-
-pub fn makeStaticString(comptime bytes: []const u8) [16]u8 {
-    var buf = [_]u8{0} ** 16;
-    if (bytes.len > buf.len) @compileError("string too long; max 16 bytes");
-    mem.copy(u8, &buf, bytes);
-    return buf;
 }
 
 fn makeString(self: *MachO, bytes: []const u8) !u32 {
