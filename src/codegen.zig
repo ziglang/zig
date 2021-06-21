@@ -4169,6 +4169,9 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             return self.fail(src, "TODO codegen non-ELF const Decl pointer", .{});
                         }
                     }
+                    if (typed_value.val.tag() == .int_u64) {
+                        return MCValue{ .immediate = typed_value.val.toUnsignedInt() };
+                    }
                     return self.fail(src, "TODO codegen more kinds of const pointers", .{});
                 },
                 .Int => {

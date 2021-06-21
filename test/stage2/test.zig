@@ -1001,6 +1001,24 @@ pub fn addCases(ctx: *TestContext) !void {
     , &[_][]const u8{":2:3: error: this is an error"});
 
     {
+        var case = ctx.exe("intToPtr", linux_x64);
+        case.addError(
+            \\pub fn main() void {
+            \\    _ = @intToPtr(*u8, 0);
+            \\}
+        , &[_][]const u8{
+            ":2:24: error: pointer type '*u8' does not allow address zero",
+        });
+        case.addError(
+            \\pub fn main() void {
+            \\    _ = @intToPtr(*u32, 2);
+            \\}
+        , &[_][]const u8{
+            ":2:25: error: pointer type '*u32' requires aligned address",
+        });
+    }
+
+    {
         var case = ctx.obj("variable shadowing", linux_x64);
         case.addError(
             \\pub fn main() void {

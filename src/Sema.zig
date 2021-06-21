@@ -5758,7 +5758,65 @@ fn zirIntToFloat(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerEr
 fn zirIntToPtr(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
-    return sema.mod.fail(&block.base, src, "TODO: Sema.zirIntToPtr", .{});
+
+    const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
+
+    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
+    const operand_res = try sema.resolveInst(extra.rhs);
+    const operand_coerced = try sema.coerce(block, Type.initTag(.usize), operand_res, operand_src);
+
+    const type_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
+    const type_res = try sema.resolveType(block, src, extra.lhs);
+    if (type_res.zigTypeTag() != .Pointer)
+        return sema.mod.fail(&block.base, type_src, "expected pointer, found '{}'", .{type_res});
+    const ptr_align = type_res.ptrAlignment(sema.mod.getTarget());
+
+    const uncasted_operand = try sema.resolveInst(extra.rhs);
+    if (try sema.resolveDefinedValue(block, operand_src, operand_coerced)) |val| {
+        const addr = val.toUnsignedInt();
+        if (!type_res.isAllowzeroPtr() and addr == 0)
+            return sema.mod.fail(&block.base, operand_src, "pointer type '{}' does not allow address zero", .{type_res});
+        if (addr != 0 and addr % ptr_align != 0)
+            return sema.mod.fail(&block.base, operand_src, "pointer type '{}' requires aligned address", .{type_res});
+
+        const val_payload = try sema.arena.create(Value.Payload.U64);
+        val_payload.* = .{
+            .base = .{ .tag = .int_u64 },
+            .data = addr,
+        };
+        return sema.mod.constInst(sema.arena, src, .{
+            .ty = type_res,
+            .val = Value.initPayload(&val_payload.base),
+        });
+    }
+
+    try sema.requireRuntimeBlock(block, src);
+    if (block.wantSafety()) {
+        const zero = try sema.mod.constInst(sema.arena, src, .{
+            .ty = Type.initTag(.u64),
+            .val = Value.initTag(.zero),
+        });
+        if (!type_res.isAllowzeroPtr()) {
+            const is_non_zero = try block.addBinOp(src, Type.initTag(.bool), .cmp_neq, operand_coerced, zero);
+            try sema.addSafetyCheck(block, is_non_zero, .cast_to_null);
+        }
+
+        if (ptr_align > 1) {
+            const val_payload = try sema.arena.create(Value.Payload.U64);
+            val_payload.* = .{
+                .base = .{ .tag = .int_u64 },
+                .data = ptr_align - 1,
+            };
+            const align_minus_1 = try sema.mod.constInst(sema.arena, src, .{
+                .ty = Type.initTag(.u64),
+                .val = Value.initPayload(&val_payload.base),
+            });
+            const remainder = try block.addBinOp(src, Type.initTag(.u64), .bit_and, operand_coerced, align_minus_1);
+            const is_aligned = try block.addBinOp(src, Type.initTag(.bool), .cmp_eq, remainder, zero);
+            try sema.addSafetyCheck(block, is_aligned, .incorrect_alignment);
+        }
+    }
+    return block.addUnOp(src, type_res, .bitcast, operand_coerced);
 }
 
 fn zirErrSetCast(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
@@ -6183,6 +6241,8 @@ pub const PanicId = enum {
     unreach,
     unwrap_null,
     unwrap_errunion,
+    cast_to_null,
+    incorrect_alignment,
     invalid_error_code,
 };
 
@@ -6805,9 +6865,12 @@ fn storePtr(
     if ((try sema.typeHasOnePossibleValue(block, src, elem_ty)) != null)
         return;
 
-    if (try sema.resolvePossiblyUndefinedValue(block, src, ptr)) |ptr_val| {
+    if (try sema.resolvePossiblyUndefinedValue(block, src, ptr)) |ptr_val| blk: {
         const const_val = (try sema.resolvePossiblyUndefinedValue(block, src, value)) orelse
             return sema.mod.fail(&block.base, src, "cannot store runtime value in compile time variable", .{});
+
+        if (ptr_val.tag() == .int_u64)
+            break :blk; // propogate it down to runtime
 
         const comptime_alloc = ptr_val.castTag(.comptime_alloc).?;
         if (comptime_alloc.data.runtime_index < block.runtime_index) {
@@ -6947,7 +7010,10 @@ fn analyzeLoad(
         .Pointer => ptr.ty.elemType(),
         else => return sema.mod.fail(&block.base, ptr_src, "expected pointer, found '{}'", .{ptr.ty}),
     };
-    if (try sema.resolveDefinedValue(block, ptr_src, ptr)) |ptr_val| {
+    if (try sema.resolveDefinedValue(block, ptr_src, ptr)) |ptr_val| blk: {
+        if (ptr_val.tag() == .int_u64)
+            break :blk; // do it at runtime
+
         return sema.mod.constInst(sema.arena, src, .{
             .ty = elem_ty,
             .val = try ptr_val.pointerDeref(sema.arena),

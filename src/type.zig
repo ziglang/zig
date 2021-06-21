@@ -1538,7 +1538,7 @@ pub const Type = extern union {
             .optional_single_const_pointer,
             .optional_single_mut_pointer,
             => {
-                if (self.elemType().hasCodeGenBits()) return 1;
+                if (!self.elemType().hasCodeGenBits()) return 1;
                 return @divExact(target.cpu.arch.ptrBitWidth(), 8);
             },
 
@@ -1550,7 +1550,7 @@ pub const Type = extern union {
             .c_mut_pointer,
             .pointer,
             => {
-                if (self.elemType().hasCodeGenBits()) return 0;
+                if (!self.elemType().hasCodeGenBits()) return 0;
                 return @divExact(target.cpu.arch.ptrBitWidth(), 8);
             },
 
