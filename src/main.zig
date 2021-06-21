@@ -2560,11 +2560,12 @@ pub const usage_init =
 ;
 
 pub fn cmdInit(
-    _: *Allocator,
+    gpa: *Allocator,
     arena: *Allocator,
     args: []const []const u8,
     output_mode: std.builtin.OutputMode,
 ) !void {
+    _ = gpa;
     {
         var i: usize = 0;
         while (i < args.len) : (i += 1) {

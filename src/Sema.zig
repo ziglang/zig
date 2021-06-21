@@ -3506,8 +3506,6 @@ fn zirSwitchCapture(
     is_multi: bool,
     is_ref: bool,
 ) InnerError!*Inst {
-    _ = is_ref;
-    _ = is_multi;
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -3516,6 +3514,8 @@ fn zirSwitchCapture(
     const switch_info = zir_datas[capture_info.switch_inst].pl_node;
     const src = switch_info.src();
 
+    _ = is_ref;
+    _ = is_multi;
     return sema.mod.fail(&block.base, src, "TODO implement Sema for zirSwitchCapture", .{});
 }
 
@@ -3525,7 +3525,6 @@ fn zirSwitchCaptureElse(
     inst: Zir.Inst.Index,
     is_ref: bool,
 ) InnerError!*Inst {
-    _ = is_ref;
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -3534,6 +3533,7 @@ fn zirSwitchCaptureElse(
     const switch_info = zir_datas[capture_info.switch_inst].pl_node;
     const src = switch_info.src();
 
+    _ = is_ref;
     return sema.mod.fail(&block.base, src, "TODO implement Sema for zirSwitchCaptureElse", .{});
 }
 
@@ -4528,17 +4528,19 @@ fn zirImport(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!
 }
 
 fn zirShl(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
-    _ = block;
-    _ = inst;
     const tracy = trace(@src());
     defer tracy.end();
+
+    _ = block;
+    _ = inst;
     return sema.mod.fail(&block.base, sema.src, "TODO implement zirShl", .{});
 }
 
 fn zirShr(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
-    _ = inst;
     const tracy = trace(@src());
     defer tracy.end();
+
+    _ = inst;
     return sema.mod.fail(&block.base, sema.src, "TODO implement zirShr", .{});
 }
 
@@ -4606,23 +4608,26 @@ fn zirBitwise(
 }
 
 fn zirBitNot(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
-    _ = inst;
     const tracy = trace(@src());
     defer tracy.end();
+
+    _ = inst;
     return sema.mod.fail(&block.base, sema.src, "TODO implement zirBitNot", .{});
 }
 
 fn zirArrayCat(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
-    _ = inst;
     const tracy = trace(@src());
     defer tracy.end();
+
+    _ = inst;
     return sema.mod.fail(&block.base, sema.src, "TODO implement zirArrayCat", .{});
 }
 
 fn zirArrayMul(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
-    _ = inst;
     const tracy = trace(@src());
     defer tracy.end();
+
+    _ = inst;
     return sema.mod.fail(&block.base, sema.src, "TODO implement zirArrayMul", .{});
 }
 
@@ -5529,7 +5534,6 @@ fn zirUnionInitPtr(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) Inner
 }
 
 fn zirStructInit(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index, is_ref: bool) InnerError!*Inst {
-    _ = is_ref;
     const mod = sema.mod;
     const gpa = sema.gpa;
     const zir_datas = sema.code.instructions.items(.data);
@@ -5618,6 +5622,10 @@ fn zirStructInit(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index, is_ref:
         return mod.failWithOwnedErrorMsg(&block.base, msg);
     }
 
+    if (is_ref) {
+        return mod.fail(&block.base, src, "TODO: Sema.zirStructInit is_ref=true", .{});
+    }
+
     const is_comptime = for (field_inits) |field_init| {
         if (field_init.value() == null) {
             break false;
@@ -5639,23 +5647,26 @@ fn zirStructInit(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index, is_ref:
 }
 
 fn zirStructInitAnon(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index, is_ref: bool) InnerError!*Inst {
-    _ = is_ref;
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
+
+    _ = is_ref;
     return sema.mod.fail(&block.base, src, "TODO: Sema.zirStructInitAnon", .{});
 }
 
 fn zirArrayInit(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index, is_ref: bool) InnerError!*Inst {
-    _ = is_ref;
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
+
+    _ = is_ref;
     return sema.mod.fail(&block.base, src, "TODO: Sema.zirArrayInit", .{});
 }
 
 fn zirArrayInitAnon(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index, is_ref: bool) InnerError!*Inst {
-    _ = is_ref;
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
+
+    _ = is_ref;
     return sema.mod.fail(&block.base, src, "TODO: Sema.zirArrayInitAnon", .{});
 }
 
@@ -6050,9 +6061,10 @@ fn zirAwait(
     inst: Zir.Inst.Index,
     is_nosuspend: bool,
 ) InnerError!*Inst {
-    _ = is_nosuspend;
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
+
+    _ = is_nosuspend;
     return sema.mod.fail(&block.base, src, "TODO: Sema.zirAwait", .{});
 }
 
@@ -6632,8 +6644,6 @@ fn elemPtrArray(
     elem_index: *Inst,
     elem_index_src: LazySrcLoc,
 ) InnerError!*Inst {
-    _ = elem_index;
-    _ = elem_index_src;
     if (array_ptr.value()) |array_ptr_val| {
         if (elem_index.value()) |index_val| {
             // Both array pointer and index are compile-time known.
@@ -6649,6 +6659,8 @@ fn elemPtrArray(
             });
         }
     }
+    _ = elem_index;
+    _ = elem_index_src;
     return sema.mod.fail(&block.base, src, "TODO implement more analyze elemptr for arrays", .{});
 }
 
@@ -7508,14 +7520,14 @@ fn resolveTypeFields(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, ty: Type
             struct_obj.status = .have_field_types;
             return ty;
         },
-        .extern_options => return sema.resolveBuiltinTypeFields(block, src, ty, "ExternOptions"),
-        .export_options => return sema.resolveBuiltinTypeFields(block, src, ty, "ExportOptions"),
-        .atomic_ordering => return sema.resolveBuiltinTypeFields(block, src, ty, "AtomicOrdering"),
-        .atomic_rmw_op => return sema.resolveBuiltinTypeFields(block, src, ty, "AtomicRmwOp"),
-        .calling_convention => return sema.resolveBuiltinTypeFields(block, src, ty, "CallingConvention"),
-        .float_mode => return sema.resolveBuiltinTypeFields(block, src, ty, "FloatMode"),
-        .reduce_op => return sema.resolveBuiltinTypeFields(block, src, ty, "ReduceOp"),
-        .call_options => return sema.resolveBuiltinTypeFields(block, src, ty, "CallOptions"),
+        .extern_options => return sema.resolveBuiltinTypeFields(block, src, "ExternOptions"),
+        .export_options => return sema.resolveBuiltinTypeFields(block, src, "ExportOptions"),
+        .atomic_ordering => return sema.resolveBuiltinTypeFields(block, src, "AtomicOrdering"),
+        .atomic_rmw_op => return sema.resolveBuiltinTypeFields(block, src, "AtomicRmwOp"),
+        .calling_convention => return sema.resolveBuiltinTypeFields(block, src, "CallingConvention"),
+        .float_mode => return sema.resolveBuiltinTypeFields(block, src, "FloatMode"),
+        .reduce_op => return sema.resolveBuiltinTypeFields(block, src, "ReduceOp"),
+        .call_options => return sema.resolveBuiltinTypeFields(block, src, "CallOptions"),
 
         .@"union", .union_tagged => {
             const union_obj = ty.cast(Type.Payload.Union).?.data;
@@ -7541,11 +7553,8 @@ fn resolveBuiltinTypeFields(
     sema: *Sema,
     block: *Scope.Block,
     src: LazySrcLoc,
-    ty: Type,
     name: []const u8,
 ) InnerError!Type {
-    _ = ty;
-    _ = name;
     const resolved_ty = try sema.getBuiltinType(block, src, name);
     return sema.resolveTypeFields(block, src, resolved_ty);
 }

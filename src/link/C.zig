@@ -77,10 +77,8 @@ pub fn deinit(self: *C) void {
 }
 
 pub fn allocateDeclIndexes(self: *C, decl: *Module.Decl) !void {
-    if (false) {
-        self;
-        decl;
-    }
+    _ = self;
+    _ = decl;
 }
 
 pub fn freeDecl(self: *C, decl: *Module.Decl) void {
@@ -313,10 +311,8 @@ pub fn updateDeclExports(
     decl: *Module.Decl,
     exports: []const *Module.Export,
 ) !void {
-    if (false) {
-        exports;
-        decl;
-        module;
-        self;
-    }
+    _ = exports;
+    _ = decl;
+    _ = module;
+    _ = self;
 }

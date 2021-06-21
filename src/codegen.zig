@@ -3321,7 +3321,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         const reg = try self.copyToTmpRegister(src, ty, mcv);
                         return self.genSetStack(src, ty, stack_offset, MCValue{ .register = reg });
                     },
-                    .embedded_in_code => {
+                    .embedded_in_code => |code_offset| {
+                        _ = code_offset;
                         return self.fail(src, "TODO implement set stack variable from embedded_in_code", .{});
                     },
                     .register => |reg| {
@@ -3357,7 +3358,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             else => return self.fail(src, "TODO implement storing other types abi_size={}", .{abi_size}),
                         }
                     },
-                    .memory => {
+                    .memory => |vaddr| {
+                        _ = vaddr;
                         return self.fail(src, "TODO implement set stack variable from memory vaddr", .{});
                     },
                     .stack_offset => |off| {
@@ -3385,10 +3387,12 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             else => return self.fail(src, "TODO implement memset", .{}),
                         }
                     },
-                    .compare_flags_unsigned => {
+                    .compare_flags_unsigned => |op| {
+                        _ = op;
                         return self.fail(src, "TODO implement set stack variable with compare flags value (unsigned)", .{});
                     },
-                    .compare_flags_signed => {
+                    .compare_flags_signed => |op| {
+                        _ = op;
                         return self.fail(src, "TODO implement set stack variable with compare flags value (signed)", .{});
                     },
                     .immediate => |x_big| {
@@ -3440,13 +3444,15 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             },
                         }
                     },
-                    .embedded_in_code => {
+                    .embedded_in_code => |code_offset| {
+                        _ = code_offset;
                         return self.fail(src, "TODO implement set stack variable from embedded_in_code", .{});
                     },
                     .register => |reg| {
                         try self.genX8664ModRMRegToStack(src, ty, stack_offset, reg, 0x89);
                     },
-                    .memory => {
+                    .memory => |vaddr| {
+                        _ = vaddr;
                         return self.fail(src, "TODO implement set stack variable from memory vaddr", .{});
                     },
                     .stack_offset => |off| {
@@ -3474,17 +3480,20 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             else => return self.fail(src, "TODO implement memset", .{}),
                         }
                     },
-                    .compare_flags_unsigned => {
+                    .compare_flags_unsigned => |op| {
+                        _ = op;
                         return self.fail(src, "TODO implement set stack variable with compare flags value (unsigned)", .{});
                     },
-                    .compare_flags_signed => {
+                    .compare_flags_signed => |op| {
+                        _ = op;
                         return self.fail(src, "TODO implement set stack variable with compare flags value (signed)", .{});
                     },
                     .immediate => {
                         const reg = try self.copyToTmpRegister(src, ty, mcv);
                         return self.genSetStack(src, ty, stack_offset, MCValue{ .register = reg });
                     },
-                    .embedded_in_code => {
+                    .embedded_in_code => |code_offset| {
+                        _ = code_offset;
                         return self.fail(src, "TODO implement set stack variable from embedded_in_code", .{});
                     },
                     .register => |reg| {
@@ -3516,7 +3525,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             else => return self.fail(src, "TODO implement storing other types abi_size={}", .{abi_size}),
                         }
                     },
-                    .memory => {
+                    .memory => |vaddr| {
+                        _ = vaddr;
                         return self.fail(src, "TODO implement set stack variable from memory vaddr", .{});
                     },
                     .stack_offset => |off| {

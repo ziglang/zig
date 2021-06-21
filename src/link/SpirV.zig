@@ -113,12 +113,10 @@ pub fn updateDeclExports(
     decl: *const Module.Decl,
     exports: []const *Module.Export,
 ) !void {
-    if (false) {
-        self;
-        module;
-        decl;
-        exports;
-    }
+    _ = self;
+    _ = module;
+    _ = decl;
+    _ = exports;
 }
 
 pub fn freeDecl(self: *SpirV, decl: *Module.Decl) void {

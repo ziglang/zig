@@ -1938,11 +1938,9 @@ fn freeTextBlock(self: *Elf, text_block: *TextBlock) void {
 }
 
 fn shrinkTextBlock(self: *Elf, text_block: *TextBlock, new_block_size: u64) void {
-    if (false) {
-        self;
-        text_block;
-        new_block_size;
-    }
+    _ = self;
+    _ = text_block;
+    _ = new_block_size;
     // TODO check the new capacity, and if it crosses the size threshold into a big enough
     // capacity, insert a free list node for it.
 }

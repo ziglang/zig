@@ -910,10 +910,10 @@ pub const Context = struct {
                 },
                 else => unreachable,
             },
-            .local => {
+            .local => |local| {
                 try self.emitWValue(rhs);
                 try writer.writeByte(wasm.opcode(.local_set));
-                try leb.writeULEB128(writer, lhs.local);
+                try leb.writeULEB128(writer, local);
             },
             else => unreachable,
         }

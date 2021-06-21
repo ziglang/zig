@@ -431,10 +431,8 @@ test "Type.Fn" {
 
     const foo = struct {
         fn func(a: usize, b: bool) align(4) callconv(.C) usize {
-            if (false) {
-                a;
-                b;
-            }
+            _ = a;
+            _ = b;
             return 0;
         }
     }.func;
