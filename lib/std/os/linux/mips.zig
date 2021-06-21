@@ -18,7 +18,6 @@ pub fn syscall0(number: SYS) usize {
 }
 
 pub fn syscall_pipe(fd: *[2]i32) usize {
-    _ = fd;
     return asm volatile (
         \\ .set noat
         \\ .set noreorder
@@ -32,7 +31,8 @@ pub fn syscall_pipe(fd: *[2]i32) usize {
         \\ sw $3, 4($4)
         \\ 2:
         : [ret] "={$2}" (-> usize)
-        : [number] "{$2}" (@enumToInt(SYS.pipe))
+        : [number] "{$2}" (@enumToInt(SYS.pipe)),
+          [fd] "{$4}" (fd)
         : "memory", "cc", "$7"
     );
 }
