@@ -2211,8 +2211,7 @@ comptime {
     }
 }
 
-pub fn astGenFile(mod: *Module, file: *Scope.File, prog_node: *std.Progress.Node) !void {
-    _ = prog_node;
+pub fn astGenFile(mod: *Module, file: *Scope.File) !void {
     const tracy = trace(@src());
     defer tracy.end();
 

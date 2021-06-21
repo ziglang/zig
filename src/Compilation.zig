@@ -2283,8 +2283,12 @@ fn workerAstGenFile(
 ) void {
     defer wg.finish();
 
+    var child_prog_node = prog_node.start(file.sub_file_path, 0);
+    child_prog_node.activate();
+    defer child_prog_node.end();
+
     const mod = comp.bin_file.options.module.?;
-    mod.astGenFile(file, prog_node) catch |err| switch (err) {
+    mod.astGenFile(file) catch |err| switch (err) {
         error.AnalysisFail => return,
         else => {
             file.status = .retryable_failure;
