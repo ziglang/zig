@@ -476,7 +476,14 @@ const Emit = union(enum) {
             .yes => |full_path| {
                 const basename = fs.path.basename(full_path);
                 if (fs.path.dirname(full_path)) |dirname| {
-                    const handle = try fs.cwd().openDir(dirname, .{});
+                    const handle = fs.cwd().openDir(dirname, .{}) catch |err| {
+                        switch (err) {
+                            error.FileNotFound => {
+                                fatal("unable to open directory: '{s}': {s}", .{ dirname, @errorName(err) });
+                            },
+                            else => return err,
+                        }
+                    };
                     resolved = .{
                         .dir = handle,
                         .data = Compilation.EmitLoc{
@@ -1776,7 +1783,12 @@ fn buildOutputType(
             }
             if (fs.path.dirname(full_path)) |dirname| {
                 const handle = fs.cwd().openDir(dirname, .{}) catch |err| {
-                    fatal("unable to open output directory '{s}': {s}", .{ dirname, @errorName(err) });
+                    switch (err) {
+                        error.FileNotFound => {
+                            fatal("unable to open directory: '{s}': {s}", .{ dirname, @errorName(err) });
+                        },
+                        else => return err,
+                    }
                 };
                 cleanup_emit_bin_dir = handle;
                 break :b Compilation.EmitLoc{
@@ -1838,7 +1850,14 @@ fn buildOutputType(
     const self_exe_path = try fs.selfExePathAlloc(arena);
     var zig_lib_directory: Compilation.Directory = if (override_lib_dir) |lib_dir| .{
         .path = lib_dir,
-        .handle = try fs.cwd().openDir(lib_dir, .{}),
+        .handle = fs.cwd().openDir(lib_dir, .{}) catch |err| {
+            switch (err) {
+                error.FileNotFound => {
+                    fatal("unable to open directory: '{s}': {s}", .{ lib_dir, @errorName(err) });
+                },
+                else => return err,
+            }
+        },
     } else introspect.findZigLibDirFromSelfExe(arena, self_exe_path) catch |err| {
         fatal("unable to find zig installation directory: {s}", .{@errorName(err)});
     };
@@ -2593,7 +2612,14 @@ pub fn cmdInit(
         .Lib => "std" ++ s ++ "special" ++ s ++ "init-lib",
         .Exe => "std" ++ s ++ "special" ++ s ++ "init-exe",
     };
-    var template_dir = try zig_lib_directory.handle.openDir(template_sub_path, .{});
+    var template_dir = zig_lib_directory.handle.openDir(template_sub_path, .{}) catch |err| {
+        switch (err) {
+            error.FileNotFound => {
+                fatal("unable to open directory: '{s}': {s}", .{ template_sub_path, @errorName(err) });
+            },
+            else => return err,
+        }
+    };
     defer template_dir.close();
 
     const cwd_path = try process.getCwdAlloc(arena);
@@ -2708,7 +2734,14 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
 
         var zig_lib_directory: Compilation.Directory = if (override_lib_dir) |lib_dir| .{
             .path = lib_dir,
-            .handle = try fs.cwd().openDir(lib_dir, .{}),
+            .handle = fs.cwd().openDir(lib_dir, .{}) catch |err| {
+                switch (err) {
+                    error.FileNotFound => {
+                        fatal("unable to open directory: '{s}': {s}", .{ lib_dir, @errorName(err) });
+                    },
+                    else => return err,
+                }
+            },
         } else introspect.findZigLibDirFromSelfExe(arena, self_exe_path) catch |err| {
             fatal("unable to find zig installation directory: {s}", .{@errorName(err)});
         };
@@ -2720,7 +2753,14 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
         var root_pkg: Package = .{
             .root_src_directory = .{
                 .path = special_dir_path,
-                .handle = try zig_lib_directory.handle.openDir(std_special, .{}),
+                .handle = zig_lib_directory.handle.openDir(std_special, .{}) catch |err| {
+                    switch (err) {
+                        error.FileNotFound => {
+                            fatal("unable to open directory: '{s}{s}{s}': {s}", .{ override_lib_dir, fs.path.sep_str, std_special, @errorName(err) });
+                        },
+                        else => return err,
+                    }
+                },
             },
             .root_src_path = "build_runner.zig",
         };
@@ -2734,7 +2774,14 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
         const build_directory: Compilation.Directory = blk: {
             if (build_file) |bf| {
                 if (fs.path.dirname(bf)) |dirname| {
-                    const dir = try fs.cwd().openDir(dirname, .{});
+                    const dir = fs.cwd().openDir(dirname, .{}) catch |err| {
+                        switch (err) {
+                            error.FileNotFound => {
+                                fatal("unable to open directory: '{s}': {s}", .{ dirname, @errorName(err) });
+                            },
+                            else => return err,
+                        }
+                    };
                     cleanup_build_dir = dir;
                     break :blk .{ .path = dirname, .handle = dir };
                 }
@@ -2746,7 +2793,14 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
             while (true) {
                 const joined_path = try fs.path.join(arena, &[_][]const u8{ dirname, build_zig_basename });
                 if (fs.cwd().access(joined_path, .{})) |_| {
-                    const dir = try fs.cwd().openDir(dirname, .{});
+                    const dir = fs.cwd().openDir(dirname, .{}) catch |err| {
+                        switch (err) {
+                            error.FileNotFound => {
+                                fatal("unable to open directory: '{s}': {s}", .{ dirname, @errorName(err) });
+                            },
+                            else => return err,
+                        }
+                    };
                     break :blk .{ .path = dirname, .handle = dir };
                 } else |err| switch (err) {
                     error.FileNotFound => {
@@ -3143,7 +3197,14 @@ fn fmtPathDir(
     parent_dir: fs.Dir,
     parent_sub_path: []const u8,
 ) FmtError!void {
-    var dir = try parent_dir.openDir(parent_sub_path, .{ .iterate = true });
+    var dir = parent_dir.openDir(parent_sub_path, .{ .iterate = true }) catch |err| {
+        switch (err) {
+            error.FileNotFound => {
+                fatal("unable to open directory: '{s}': {s}", .{ parent_sub_path, @errorName(err) });
+            },
+            else => return err,
+        }
+    };
     defer dir.close();
 
     const stat = try dir.stat();
