@@ -476,14 +476,7 @@ const Emit = union(enum) {
             .yes => |full_path| {
                 const basename = fs.path.basename(full_path);
                 if (fs.path.dirname(full_path)) |dirname| {
-                    const handle = fs.cwd().openDir(dirname, .{}) catch |err| {
-                        switch (err) {
-                            error.FileNotFound => {
-                                fatal("unable to open directory: '{s}': {s}", .{ dirname, @errorName(err) });
-                            },
-                            else => return err,
-                        }
-                    };
+                    const handle = try fs.cwd().openDir(dirname, .{});
                     resolved = .{
                         .dir = handle,
                         .data = Compilation.EmitLoc{
@@ -1812,22 +1805,57 @@ fn buildOutputType(
     };
 
     const default_h_basename = try std.fmt.allocPrint(arena, "{s}.h", .{root_name});
-    var emit_h_resolved = try emit_h.resolve(default_h_basename);
+    var emit_h_resolved = emit_h.resolve(default_h_basename) catch |err| {
+        switch (err) {
+            error.FileNotFound => {
+                fatal("unable to open: '{s}': {s}", .{ default_h_basename, @errorName(err) });
+            },
+            else => return err,
+        }
+    };
     defer emit_h_resolved.deinit();
 
     const default_asm_basename = try std.fmt.allocPrint(arena, "{s}.s", .{root_name});
-    var emit_asm_resolved = try emit_asm.resolve(default_asm_basename);
+    var emit_asm_resolved = emit_asm.resolve(default_asm_basename) catch |err| {
+        switch (err) {
+            error.FileNotFound => {
+                fatal("unable to open: '{s}': {s}", .{ default_asm_basename, @errorName(err) });
+            },
+            else => return err,
+        }
+    };
     defer emit_asm_resolved.deinit();
 
     const default_llvm_ir_basename = try std.fmt.allocPrint(arena, "{s}.ll", .{root_name});
-    var emit_llvm_ir_resolved = try emit_llvm_ir.resolve(default_llvm_ir_basename);
+    var emit_llvm_ir_resolved = emit_llvm_ir.resolve(default_llvm_ir_basename) catch |err| {
+        switch (err) {
+            error.FileNotFound => {
+                fatal("unable to open: '{s}': {s}", .{ default_llvm_ir_basename, @errorName(err) });
+            },
+            else => return err,
+        }
+    };
     defer emit_llvm_ir_resolved.deinit();
 
     const default_analysis_basename = try std.fmt.allocPrint(arena, "{s}-analysis.json", .{root_name});
-    var emit_analysis_resolved = try emit_analysis.resolve(default_analysis_basename);
+    var emit_analysis_resolved = emit_analysis.resolve(default_analysis_basename) catch |err| {
+        switch (err) {
+            error.FileNotFound => {
+                fatal("unable to open: '{s}': {s}", .{ default_analysis_basename, @errorName(err) });
+            },
+            else => return err,
+        }
+    };
     defer emit_analysis_resolved.deinit();
 
-    var emit_docs_resolved = try emit_docs.resolve("docs");
+    var emit_docs_resolved = emit_docs.resolve("docs") catch |err| {
+        switch (err) {
+            error.FileNotFound => {
+                fatal("unable to open: '{s}': {s}", .{ default_analysis_basename, @errorName(err) });
+            },
+            else => return err,
+        }
+    };
     defer emit_docs_resolved.deinit();
 
     const root_pkg: ?*Package = if (root_src_file) |src_path| blk: {
@@ -3146,7 +3174,14 @@ pub fn cmdFmt(gpa: *Allocator, args: []const []const u8) !void {
     defer fmt.out_buffer.deinit();
 
     for (input_files.items) |file_path| {
-        try fmtPath(&fmt, file_path, check_flag, fs.cwd(), file_path);
+        fmtPath(&fmt, file_path, check_flag, fs.cwd(), file_path) catch |err| {
+            switch (err) {
+                error.FileNotFound => {
+                    fatal("unable to open: '{s}': {s}", .{ file_path, @errorName(err) });
+                },
+                else => return err,
+            }
+        };
     }
     if (fmt.any_error) {
         process.exit(1);
@@ -3197,14 +3232,7 @@ fn fmtPathDir(
     parent_dir: fs.Dir,
     parent_sub_path: []const u8,
 ) FmtError!void {
-    var dir = parent_dir.openDir(parent_sub_path, .{ .iterate = true }) catch |err| {
-        switch (err) {
-            error.FileNotFound => {
-                fatal("unable to open directory: '{s}': {s}", .{ parent_sub_path, @errorName(err) });
-            },
-            else => return err,
-        }
-    };
+    var dir = try parent_dir.openDir(parent_sub_path, .{ .iterate = true });
     defer dir.close();
 
     const stat = try dir.stat();
