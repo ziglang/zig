@@ -590,7 +590,7 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
         man.hash.add(allow_shlib_undefined);
         man.hash.add(self.base.options.bind_global_refs_locally);
         man.hash.add(self.base.options.system_linker_hack);
-        man.hash.addOptionalBytes(self.base.options.syslibroot);
+        man.hash.addOptionalBytes(self.base.options.sysroot);
 
         // We don't actually care whether it's a cache hit or miss; we just need the digest and the lock.
         _ = try man.hit();
@@ -720,7 +720,7 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
             for (self.base.options.lib_dirs) |path| {
                 if (fs.path.isAbsolute(path)) {
                     var candidates = std.ArrayList([]const u8).init(arena);
-                    if (self.base.options.syslibroot) |syslibroot| {
+                    if (self.base.options.sysroot) |syslibroot| {
                         const full_path = try fs.path.join(arena, &[_][]const u8{ syslibroot, path });
                         try candidates.append(full_path);
                     }
@@ -813,7 +813,7 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                 try argv.append("zig");
                 try argv.append("ld");
 
-                if (self.base.options.syslibroot) |syslibroot| {
+                if (self.base.options.sysroot) |syslibroot| {
                     try argv.append("-syslibroot");
                     try argv.append(syslibroot);
                 }
@@ -959,7 +959,7 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
             }
         }
 
-        if (self.base.options.syslibroot) |dir| {
+        if (self.base.options.sysroot) |dir| {
             try argv.append("-syslibroot");
             try argv.append(dir);
         }

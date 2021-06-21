@@ -612,6 +612,7 @@ pub const InitOptions = struct {
     output_mode: std.builtin.OutputMode,
     thread_pool: *ThreadPool,
     dynamic_linker: ?[]const u8 = null,
+    sysroot: ?[]const u8 = null,
     /// `null` means to not emit a binary file.
     emit_bin: ?EmitLoc,
     /// `null` means to not emit a C header file.
@@ -868,25 +869,32 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             break :blk false;
         };
 
-        const DarwinOptions = struct {
-            syslibroot: ?[]const u8 = null,
-            system_linker_hack: bool = false,
+        const darwin_can_use_system_linker_and_sdk =
+            // comptime conditions
+            ((build_options.have_llvm and comptime std.Target.current.isDarwin()) and
+            // runtime conditions
+            (use_lld and std.builtin.os.tag == .macos and options.target.isDarwin()));
+
+        const darwin_system_linker_hack = blk: {
+            if (darwin_can_use_system_linker_and_sdk) {
+                break :blk std.os.getenv("ZIG_SYSTEM_LINKER_HACK") != null;
+            } else {
+                break :blk false;
+            }
         };
 
-        const darwin_options: DarwinOptions = if (build_options.have_llvm and comptime std.Target.current.isDarwin()) outer: {
-            const opts: DarwinOptions = if (use_lld and std.builtin.os.tag == .macos and options.target.isDarwin()) inner: {
+        const sysroot = blk: {
+            if (options.sysroot) |sysroot| {
+                break :blk sysroot;
+            } else if (darwin_can_use_system_linker_and_sdk) {
                 // TODO Revisit this targeting versions lower than macOS 11 when LLVM 12 is out.
                 // See https://github.com/ziglang/zig/issues/6996
                 const at_least_big_sur = options.target.os.getVersionRange().semver.min.major >= 11;
-                const syslibroot = if (at_least_big_sur) try std.zig.system.getSDKPath(arena) else null;
-                const system_linker_hack = std.os.getenv("ZIG_SYSTEM_LINKER_HACK") != null;
-                break :inner .{
-                    .syslibroot = syslibroot,
-                    .system_linker_hack = system_linker_hack,
-                };
-            } else .{};
-            break :outer opts;
-        } else .{};
+                break :blk if (at_least_big_sur) try std.zig.system.getSDKPath(arena) else null;
+            } else {
+                break :blk null;
+            }
+        };
 
         const lto = blk: {
             if (options.want_lto) |explicit| {
@@ -897,7 +905,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
                 break :blk false;
             } else if (options.c_source_files.len == 0) {
                 break :blk false;
-            } else if (darwin_options.system_linker_hack) {
+            } else if (darwin_system_linker_hack) {
                 break :blk false;
             } else switch (options.output_mode) {
                 .Lib, .Obj => break :blk false,
@@ -1273,13 +1281,14 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .module = module,
             .target = options.target,
             .dynamic_linker = options.dynamic_linker,
+            .sysroot = sysroot,
             .output_mode = options.output_mode,
             .link_mode = link_mode,
             .object_format = ofmt,
             .optimize_mode = options.optimize_mode,
             .use_lld = use_lld,
             .use_llvm = use_llvm,
-            .system_linker_hack = darwin_options.system_linker_hack,
+            .system_linker_hack = darwin_system_linker_hack,
             .link_libc = link_libc,
             .link_libcpp = link_libcpp,
             .link_libunwind = link_libunwind,
@@ -1287,7 +1296,6 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .frameworks = options.frameworks,
             .framework_dirs = options.framework_dirs,
             .system_libs = system_libs,
-            .syslibroot = darwin_options.syslibroot,
             .lib_dirs = options.lib_dirs,
             .rpath_list = options.rpath_list,
             .strip = strip,
