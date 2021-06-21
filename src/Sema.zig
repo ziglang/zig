@@ -7556,7 +7556,7 @@ fn getBuiltinType(
 ) InnerError!Type {
     const mod = sema.mod;
     const std_pkg = mod.root_pkg.table.get("std").?;
-    const std_file = (mod.importPkg(mod.root_pkg, std_pkg) catch unreachable).file;
+    const std_file = (mod.importPkg(std_pkg) catch unreachable).file;
     const opt_builtin_inst = try sema.analyzeNamespaceLookup(
         block,
         src,

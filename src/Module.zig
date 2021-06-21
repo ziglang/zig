@@ -2831,7 +2831,7 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl: *Decl) InnerError!void {
 }
 
 pub fn semaPkg(mod: *Module, pkg: *Package) !void {
-    const file = (try mod.importPkg(mod.root_pkg, pkg)).file;
+    const file = (try mod.importPkg(pkg)).file;
     return mod.semaFile(file);
 }
 
@@ -3130,8 +3130,7 @@ pub const ImportFileResult = struct {
     is_new: bool,
 };
 
-pub fn importPkg(mod: *Module, cur_pkg: *Package, pkg: *Package) !ImportFileResult {
-    _ = cur_pkg;
+pub fn importPkg(mod: *Module, pkg: *Package) !ImportFileResult {
     const gpa = mod.gpa;
 
     // The resolved path is used as the key in the import table, to detect if
@@ -3184,7 +3183,7 @@ pub fn importFile(
     import_string: []const u8,
 ) !ImportFileResult {
     if (cur_file.pkg.table.get(import_string)) |pkg| {
-        return mod.importPkg(cur_file.pkg, pkg);
+        return mod.importPkg(pkg);
     }
     const gpa = mod.gpa;
 

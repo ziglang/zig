@@ -1639,7 +1639,7 @@ pub fn update(self: *Compilation) !void {
             // Make sure std.zig is inside the import_table. We unconditionally need
             // it for start.zig.
             const std_pkg = module.root_pkg.table.get("std").?;
-            _ = try module.importPkg(module.root_pkg, std_pkg);
+            _ = try module.importPkg(std_pkg);
 
             // Put a work item in for every known source file to detect if
             // it changed, and, if so, re-compute ZIR and then queue the job
