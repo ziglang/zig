@@ -63,7 +63,7 @@ pub fn add(a: CompressedScalar, b: CompressedScalar, endian: builtin.Endian) Non
 
 /// Return -s (mod L)
 pub fn neg(s: CompressedScalar, endian: builtin.Endian) NonCanonicalError!CompressedScalar {
-    return (try Scalar.fromBytes(a, endian)).neg().toBytes(endian);
+    return (try Scalar.fromBytes(s, endian)).neg().toBytes(endian);
 }
 
 /// Return (a-b) (mod L)
