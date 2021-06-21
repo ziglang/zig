@@ -10,6 +10,7 @@ const std = @import("std.zig");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
 const uefi = std.os.uefi;
+const elf = std.elf;
 const tlcsprng = @import("crypto/tlcsprng.zig");
 const native_arch = builtin.cpu.arch;
 const native_os = builtin.os.tag;
@@ -281,49 +282,60 @@ fn posixCallMainAndExit() noreturn {
 
     if (native_os == .linux) {
         // Find the beginning of the auxiliary vector
-        const auxv = @ptrCast([*]std.elf.Auxv, @alignCast(@alignOf(usize), envp.ptr + envp_count + 1));
+        const auxv = @ptrCast([*]elf.Auxv, @alignCast(@alignOf(usize), envp.ptr + envp_count + 1));
         std.os.linux.elf_aux_maybe = auxv;
 
-        // Do this as early as possible, the aux vector is needed
+        var at_hwcap: usize = 0;
+        const phdrs = init: {
+            var i: usize = 0;
+            var at_phdr: usize = 0;
+            var at_phnum: usize = 0;
+            while (auxv[i].a_type != elf.AT_NULL) : (i += 1) {
+                switch (auxv[i].a_type) {
+                    elf.AT_PHNUM => at_phnum = auxv[i].a_un.a_val,
+                    elf.AT_PHDR => at_phdr = auxv[i].a_un.a_val,
+                    elf.AT_HWCAP => at_hwcap = auxv[i].a_un.a_val,
+                    else => continue,
+                }
+            }
+            break :init @intToPtr([*]elf.Phdr, at_phdr)[0..at_phnum];
+        };
+
+        // Apply the initial relocations as early as possible in the startup
+        // process.
         if (builtin.position_independent_executable) {
-            @import("os/linux/start_pie.zig").apply_relocations();
+            std.os.linux.pie.relocate(phdrs);
         }
 
-        // Initialize the TLS area. We do a runtime check here to make sure
-        // this code is truly being statically executed and not inside a dynamic
-        // loader, otherwise this would clobber the thread ID register.
-        const is_dynamic = @import("dynamic_library.zig").get_DYNAMIC() != null;
-        if (!is_dynamic) {
-            std.os.linux.tls.initStaticTLS();
+        // ARMv6 targets (and earlier) have no support for TLS in hardware.
+        // FIXME: Elide the check for targets >= ARMv7 when the target feature API
+        // becomes less verbose (and more usable).
+        if (comptime native_arch.isARM()) {
+            if (at_hwcap & std.os.linux.HWCAP_TLS == 0) {
+                // FIXME: Make __aeabi_read_tp call the kernel helper kuser_get_tls
+                // For the time being use a simple abort instead of a @panic call to
+                // keep the binary bloat under control.
+                std.os.abort();
+            }
         }
+
+        // Initialize the TLS area.
+        std.os.linux.tls.initStaticTLS(phdrs);
 
         // The way Linux executables represent stack size is via the PT_GNU_STACK
         // program header. However the kernel does not recognize it; it always gives 8 MiB.
         // Here we look for the stack size in our program headers and use setrlimit
         // to ask for more stack space.
-        {
-            var i: usize = 0;
-            var at_phdr: usize = undefined;
-            var at_phnum: usize = undefined;
-            while (auxv[i].a_type != std.elf.AT_NULL) : (i += 1) {
-                switch (auxv[i].a_type) {
-                    std.elf.AT_PHNUM => at_phnum = auxv[i].a_un.a_val,
-                    std.elf.AT_PHDR => at_phdr = auxv[i].a_un.a_val,
-                    else => continue,
-                }
-            }
-            expandStackSize(at_phdr, at_phnum);
-        }
+        expandStackSize(phdrs);
     }
 
     std.os.exit(@call(.{ .modifier = .always_inline }, callMainWithArgs, .{ argc, argv, envp }));
 }
 
-fn expandStackSize(at_phdr: usize, at_phnum: usize) void {
-    const phdrs = (@intToPtr([*]std.elf.Phdr, at_phdr))[0..at_phnum];
+fn expandStackSize(phdrs: []elf.Phdr) void {
     for (phdrs) |*phdr| {
         switch (phdr.p_type) {
-            std.elf.PT_GNU_STACK => {
+            elf.PT_GNU_STACK => {
                 const wanted_stack_size = phdr.p_memsz;
                 assert(wanted_stack_size % std.mem.page_size == 0);
 
@@ -362,9 +374,10 @@ fn main(c_argc: i32, c_argv: [*][*:0]u8, c_envp: [*:null]?[*:0]u8) callconv(.C) 
     const envp = @ptrCast([*][*:0]u8, c_envp)[0..env_count];
 
     if (builtin.os.tag == .linux) {
-        const at_phdr = std.c.getauxval(std.elf.AT_PHDR);
-        const at_phnum = std.c.getauxval(std.elf.AT_PHNUM);
-        expandStackSize(at_phdr, at_phnum);
+        const at_phdr = std.c.getauxval(elf.AT_PHDR);
+        const at_phnum = std.c.getauxval(elf.AT_PHNUM);
+        const phdrs = (@intToPtr([*]elf.Phdr, at_phdr))[0..at_phnum];
+        expandStackSize(phdrs);
     }
 
     return @call(.{ .modifier = .always_inline }, callMainWithArgs, .{ @intCast(usize, c_argc), c_argv, envp });
