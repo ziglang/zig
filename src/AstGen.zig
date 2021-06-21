@@ -597,10 +597,10 @@ fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) InnerEr
         .asm_simple => return asmExpr(gz, scope, rl, node, tree.asmSimple(node)),
         .@"asm"     => return asmExpr(gz, scope, rl, node, tree.asmFull(node)),
 
-        .string_literal           => return stringLiteral(gz, scope, rl, node),
-        .multiline_string_literal => return multilineStringLiteral(gz, scope, rl, node),
+        .string_literal           => return stringLiteral(gz, rl, node),
+        .multiline_string_literal => return multilineStringLiteral(gz, rl, node),
 
-        .integer_literal => return integerLiteral(gz, scope, rl, node),
+        .integer_literal => return integerLiteral(gz, rl, node),
         // zig fmt: on
 
         .builtin_call_two, .builtin_call_two_comma => {
@@ -640,7 +640,7 @@ fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) InnerEr
         },
         .@"return" => return ret(gz, scope, node),
         .field_access => return fieldAccess(gz, scope, rl, node),
-        .float_literal => return floatLiteral(gz, scope, rl, node),
+        .float_literal => return floatLiteral(gz, rl, node),
 
         .if_simple => return ifExpr(gz, scope, rl, node, tree.ifSimple(node)),
         .@"if" => return ifExpr(gz, scope, rl, node, tree.ifFull(node)),
@@ -737,8 +737,8 @@ fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) InnerEr
             const statements = tree.extra_data[node_datas[node].lhs..node_datas[node].rhs];
             return blockExpr(gz, scope, rl, node, statements);
         },
-        .enum_literal => return simpleStrTok(gz, scope, rl, main_tokens[node], node, .enum_literal),
-        .error_value => return simpleStrTok(gz, scope, rl, node_datas[node].rhs, node, .error_value),
+        .enum_literal => return simpleStrTok(gz, rl, main_tokens[node], node, .enum_literal),
+        .error_value => return simpleStrTok(gz, rl, node_datas[node].rhs, node, .error_value),
         .anyframe_literal => return rvalue(gz, rl, .anyframe_type, node),
         .anyframe_type => {
             const return_type = try typeExpr(gz, scope, node_datas[node].rhs);
@@ -837,8 +837,8 @@ fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) InnerEr
         .grouped_expression => return expr(gz, scope, rl, node_datas[node].lhs),
         .array_type => return arrayType(gz, scope, rl, node),
         .array_type_sentinel => return arrayTypeSentinel(gz, scope, rl, node),
-        .char_literal => return charLiteral(gz, scope, rl, node),
-        .error_set_decl => return errorSetDecl(gz, scope, rl, node),
+        .char_literal => return charLiteral(gz, rl, node),
+        .error_set_decl => return errorSetDecl(gz, rl, node),
         .array_access => return arrayAccess(gz, scope, rl, node),
         .@"comptime" => return comptimeExprAst(gz, scope, rl, node),
         .@"switch", .switch_comma => return switchExpr(gz, scope, rl, node),
@@ -4458,12 +4458,7 @@ fn containerDecl(
     }
 }
 
-fn errorSetDecl(
-    gz: *GenZir,
-    scope: *Scope,
-    rl: ResultLoc,
-    node: ast.Node.Index,
-) InnerError!Zir.Inst.Ref {
+fn errorSetDecl(gz: *GenZir, rl: ResultLoc, node: ast.Node.Index) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
     const gpa = astgen.gpa;
     const tree = astgen.tree;
@@ -4559,7 +4554,6 @@ fn tryExpr(
 
     return finishThenElseBlock(
         parent_gz,
-        scope,
         rl,
         node,
         &block_scope,
@@ -4652,7 +4646,6 @@ fn orelseCatchExpr(
 
     return finishThenElseBlock(
         parent_gz,
-        scope,
         rl,
         node,
         &block_scope,
@@ -4670,7 +4663,6 @@ fn orelseCatchExpr(
 
 fn finishThenElseBlock(
     parent_gz: *GenZir,
-    parent_scope: *Scope,
     rl: ResultLoc,
     node: ast.Node.Index,
     block_scope: *GenZir,
@@ -4805,7 +4797,6 @@ fn simpleBinOp(
 
 fn simpleStrTok(
     gz: *GenZir,
-    scope: *Scope,
     rl: ResultLoc,
     ident_token: ast.TokenIndex,
     node: ast.Node.Index,
@@ -5005,7 +4996,6 @@ fn ifExpr(
 
     return finishThenElseBlock(
         parent_gz,
-        scope,
         rl,
         node,
         &block_scope,
@@ -5285,7 +5275,6 @@ fn whileExpr(
     const break_tag: Zir.Inst.Tag = if (is_inline) .break_inline else .@"break";
     return finishThenElseBlock(
         parent_gz,
-        scope,
         rl,
         node,
         &loop_scope,
@@ -5459,7 +5448,6 @@ fn forExpr(
     const break_tag: Zir.Inst.Tag = if (is_inline) .break_inline else .@"break";
     return finishThenElseBlock(
         parent_gz,
-        scope,
         rl,
         node,
         &loop_scope,
@@ -6261,7 +6249,6 @@ fn identifier(
 
 fn stringLiteral(
     gz: *GenZir,
-    scope: *Scope,
     rl: ResultLoc,
     node: ast.Node.Index,
 ) InnerError!Zir.Inst.Ref {
@@ -6282,7 +6269,6 @@ fn stringLiteral(
 
 fn multilineStringLiteral(
     gz: *GenZir,
-    scope: *Scope,
     rl: ResultLoc,
     node: ast.Node.Index,
 ) InnerError!Zir.Inst.Ref {
@@ -6323,7 +6309,7 @@ fn multilineStringLiteral(
     return rvalue(gz, rl, result, node);
 }
 
-fn charLiteral(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) !Zir.Inst.Ref {
+fn charLiteral(gz: *GenZir, rl: ResultLoc, node: ast.Node.Index) !Zir.Inst.Ref {
     const astgen = gz.astgen;
     const tree = astgen.tree;
     const main_tokens = tree.nodes.items(.main_token);
@@ -6346,12 +6332,7 @@ fn charLiteral(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) 
     return rvalue(gz, rl, result, node);
 }
 
-fn integerLiteral(
-    gz: *GenZir,
-    scope: *Scope,
-    rl: ResultLoc,
-    node: ast.Node.Index,
-) InnerError!Zir.Inst.Ref {
+fn integerLiteral(gz: *GenZir, rl: ResultLoc, node: ast.Node.Index) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
     const tree = astgen.tree;
     const main_tokens = tree.nodes.items(.main_token);
@@ -6397,12 +6378,7 @@ fn integerLiteral(
     return rvalue(gz, rl, result, node);
 }
 
-fn floatLiteral(
-    gz: *GenZir,
-    scope: *Scope,
-    rl: ResultLoc,
-    node: ast.Node.Index,
-) InnerError!Zir.Inst.Ref {
+fn floatLiteral(gz: *GenZir, rl: ResultLoc, node: ast.Node.Index) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
     const tree = astgen.tree;
     const main_tokens = tree.nodes.items(.main_token);
@@ -6904,8 +6880,8 @@ fn builtinCall(
             return rvalue(gz, rl, result, node);
         },
 
-        .breakpoint => return simpleNoOpVoid(gz, scope, rl, node, .breakpoint),
-        .fence      => return simpleNoOpVoid(gz, scope, rl, node, .fence),
+        .breakpoint => return simpleNoOpVoid(gz, rl, node, .breakpoint),
+        .fence      => return simpleNoOpVoid(gz, rl, node, .fence),
 
         .This               => return rvalue(gz, rl, try gz.addNodeExtended(.this,               node), node),
         .return_address     => return rvalue(gz, rl, try gz.addNodeExtended(.ret_addr,           node), node),
@@ -7218,7 +7194,6 @@ fn builtinCall(
 
 fn simpleNoOpVoid(
     gz: *GenZir,
-    scope: *Scope,
     rl: ResultLoc,
     node: ast.Node.Index,
     tag: Zir.Inst.Tag,
