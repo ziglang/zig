@@ -73,6 +73,11 @@ gcc_except_tab_section_index: ?u16 = null,
 unwind_info_section_index: ?u16 = null,
 eh_frame_section_index: ?u16 = null,
 
+objc_methlist_section_index: ?u16 = null,
+objc_methname_section_index: ?u16 = null,
+objc_methtype_section_index: ?u16 = null,
+objc_classname_section_index: ?u16 = null,
+
 // __DATA_CONST segment sections
 got_section_index: ?u16 = null,
 mod_init_func_section_index: ?u16 = null,
@@ -80,6 +85,8 @@ mod_term_func_section_index: ?u16 = null,
 data_const_section_index: ?u16 = null,
 
 objc_cfstring_section_index: ?u16 = null,
+objc_classlist_section_index: ?u16 = null,
+objc_imageinfo_section_index: ?u16 = null,
 
 // __DATA segment sections
 tlv_section_index: ?u16 = null,
@@ -89,6 +96,11 @@ la_symbol_ptr_section_index: ?u16 = null,
 data_section_index: ?u16 = null,
 bss_section_index: ?u16 = null,
 common_section_index: ?u16 = null,
+
+objc_const_section_index: ?u16 = null,
+objc_selrefs_section_index: ?u16 = null,
+objc_classrefs_section_index: ?u16 = null,
+objc_data_section_index: ?u16 = null,
 
 globals: std.StringArrayHashMapUnmanaged(*Symbol) = .{},
 imports: std.StringArrayHashMapUnmanaged(*Symbol) = .{},
@@ -612,7 +624,7 @@ fn getMatchingSection(self: *Zld, sect: Object.Section) !?MatchingSection {
 
     const res: ?MatchingSection = blk: {
         switch (sect.sectionType()) {
-            macho.S_4BYTE_LITERALS, macho.S_8BYTE_LITERALS, macho.S_16BYTE_LITERALS, macho.S_LITERAL_POINTERS => {
+            macho.S_4BYTE_LITERALS, macho.S_8BYTE_LITERALS, macho.S_16BYTE_LITERALS => {
                 if (self.text_const_section_index == null) {
                     self.text_const_section_index = @intCast(u16, text_seg.sections.items.len);
                     try text_seg.addSection(self.allocator, "__const", "__TEXT", .{});
@@ -624,6 +636,44 @@ fn getMatchingSection(self: *Zld, sect: Object.Section) !?MatchingSection {
                 };
             },
             macho.S_CSTRING_LITERALS => {
+                if (mem.eql(u8, sectname, "__objc_methname")) {
+                    // TODO it seems the common values within the sections in objects are deduplicated/merged
+                    // on merging the sections' contents.
+                    if (self.objc_methname_section_index == null) {
+                        self.objc_methname_section_index = @intCast(u16, text_seg.sections.items.len);
+                        try text_seg.addSection(self.allocator, "__objc_methname", "__TEXT", .{
+                            .flags = macho.S_CSTRING_LITERALS,
+                        });
+                    }
+
+                    break :blk .{
+                        .seg = self.text_segment_cmd_index.?,
+                        .sect = self.objc_methname_section_index.?,
+                    };
+                } else if (mem.eql(u8, sectname, "__objc_methtype")) {
+                    if (self.objc_methtype_section_index == null) {
+                        self.objc_methtype_section_index = @intCast(u16, text_seg.sections.items.len);
+                        try text_seg.addSection(self.allocator, "__objc_methtype", "__TEXT", .{
+                            .flags = macho.S_CSTRING_LITERALS,
+                        });
+                    }
+
+                    break :blk .{
+                        .seg = self.text_segment_cmd_index.?,
+                        .sect = self.objc_methtype_section_index.?,
+                    };
+                } else if (mem.eql(u8, sectname, "__objc_classname")) {
+                    if (self.objc_classname_section_index == null) {
+                        self.objc_classname_section_index = @intCast(u16, text_seg.sections.items.len);
+                        try text_seg.addSection(self.allocator, "__objc_classname", "__TEXT", .{});
+                    }
+
+                    break :blk .{
+                        .seg = self.text_segment_cmd_index.?,
+                        .sect = self.objc_classname_section_index.?,
+                    };
+                }
+
                 if (self.cstring_section_index == null) {
                     self.cstring_section_index = @intCast(u16, text_seg.sections.items.len);
                     try text_seg.addSection(self.allocator, "__cstring", "__TEXT", .{
@@ -635,6 +685,24 @@ fn getMatchingSection(self: *Zld, sect: Object.Section) !?MatchingSection {
                     .seg = self.text_segment_cmd_index.?,
                     .sect = self.cstring_section_index.?,
                 };
+            },
+            macho.S_LITERAL_POINTERS => {
+                if (mem.eql(u8, segname, "__DATA") and mem.eql(u8, sectname, "__objc_selrefs")) {
+                    if (self.objc_selrefs_section_index == null) {
+                        self.objc_selrefs_section_index = @intCast(u16, data_seg.sections.items.len);
+                        try data_seg.addSection(self.allocator, "__objc_selrefs", "__DATA", .{
+                            .flags = macho.S_LITERAL_POINTERS,
+                        });
+                    }
+
+                    break :blk .{
+                        .seg = self.data_segment_cmd_index.?,
+                        .sect = self.objc_selrefs_section_index.?,
+                    };
+                }
+
+                // TODO investigate
+                break :blk null;
             },
             macho.S_MOD_INIT_FUNC_POINTERS => {
                 if (self.mod_init_func_section_index == null) {
@@ -799,6 +867,16 @@ fn getMatchingSection(self: *Zld, sect: Object.Section) !?MatchingSection {
                             .seg = self.text_segment_cmd_index.?,
                             .sect = self.gcc_except_tab_section_index.?,
                         };
+                    } else if (mem.eql(u8, sectname, "__objc_methlist")) {
+                        if (self.objc_methlist_section_index == null) {
+                            self.objc_methlist_section_index = @intCast(u16, text_seg.sections.items.len);
+                            try text_seg.addSection(self.allocator, "__objc_methlist", "__TEXT", .{});
+                        }
+
+                        break :blk .{
+                            .seg = self.text_segment_cmd_index.?,
+                            .sect = self.objc_methlist_section_index.?,
+                        };
                     } else {
                         if (self.text_const_section_index == null) {
                             self.text_const_section_index = @intCast(u16, text_seg.sections.items.len);
@@ -844,6 +922,56 @@ fn getMatchingSection(self: *Zld, sect: Object.Section) !?MatchingSection {
                         break :blk .{
                             .seg = self.data_const_segment_cmd_index.?,
                             .sect = self.objc_cfstring_section_index.?,
+                        };
+                    } else if (mem.eql(u8, sectname, "__objc_classlist")) {
+                        if (self.objc_classlist_section_index == null) {
+                            self.objc_classlist_section_index = @intCast(u16, data_const_seg.sections.items.len);
+                            try data_const_seg.addSection(self.allocator, "__objc_classlist", "__DATA_CONST", .{});
+                        }
+
+                        break :blk .{
+                            .seg = self.data_const_segment_cmd_index.?,
+                            .sect = self.objc_classlist_section_index.?,
+                        };
+                    } else if (mem.eql(u8, sectname, "__objc_imageinfo")) {
+                        if (self.objc_imageinfo_section_index == null) {
+                            self.objc_imageinfo_section_index = @intCast(u16, data_const_seg.sections.items.len);
+                            try data_const_seg.addSection(self.allocator, "__objc_imageinfo", "__DATA_CONST", .{});
+                        }
+
+                        break :blk .{
+                            .seg = self.data_const_segment_cmd_index.?,
+                            .sect = self.objc_imageinfo_section_index.?,
+                        };
+                    } else if (mem.eql(u8, sectname, "__objc_const")) {
+                        if (self.objc_const_section_index == null) {
+                            self.objc_const_section_index = @intCast(u16, data_seg.sections.items.len);
+                            try data_seg.addSection(self.allocator, "__objc_const", "__DATA", .{});
+                        }
+
+                        break :blk .{
+                            .seg = self.data_segment_cmd_index.?,
+                            .sect = self.objc_const_section_index.?,
+                        };
+                    } else if (mem.eql(u8, sectname, "__objc_classrefs")) {
+                        if (self.objc_classrefs_section_index == null) {
+                            self.objc_classrefs_section_index = @intCast(u16, data_seg.sections.items.len);
+                            try data_seg.addSection(self.allocator, "__objc_classrefs", "__DATA", .{});
+                        }
+
+                        break :blk .{
+                            .seg = self.data_segment_cmd_index.?,
+                            .sect = self.objc_classrefs_section_index.?,
+                        };
+                    } else if (mem.eql(u8, sectname, "__objc_data")) {
+                        if (self.objc_data_section_index == null) {
+                            self.objc_data_section_index = @intCast(u16, data_seg.sections.items.len);
+                            try data_seg.addSection(self.allocator, "__objc_data", "__DATA", .{});
+                        }
+
+                        break :blk .{
+                            .seg = self.data_segment_cmd_index.?,
+                            .sect = self.objc_data_section_index.?,
                         };
                     } else {
                         if (self.data_section_index == null) {
@@ -896,6 +1024,9 @@ fn sortSections(self: *Zld) !void {
             &self.cstring_section_index,
             &self.ustring_section_index,
             &self.text_const_section_index,
+            &self.objc_methname_section_index,
+            &self.objc_methtype_section_index,
+            &self.objc_classname_section_index,
             &self.eh_frame_section_index,
         };
         for (indices) |maybe_index| {
@@ -922,6 +1053,8 @@ fn sortSections(self: *Zld) !void {
             &self.mod_term_func_section_index,
             &self.data_const_section_index,
             &self.objc_cfstring_section_index,
+            &self.objc_classlist_section_index,
+            &self.objc_imageinfo_section_index,
         };
         for (indices) |maybe_index| {
             const new_index: u16 = if (maybe_index.*) |index| blk: {
@@ -944,6 +1077,10 @@ fn sortSections(self: *Zld) !void {
         // __DATA segment
         const indices = &[_]*?u16{
             &self.la_symbol_ptr_section_index,
+            &self.objc_const_section_index,
+            &self.objc_selrefs_section_index,
+            &self.objc_classrefs_section_index,
+            &self.objc_data_section_index,
             &self.data_section_index,
             &self.tlv_section_index,
             &self.tlv_data_section_index,
