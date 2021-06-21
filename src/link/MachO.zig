@@ -704,7 +704,7 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
         man.hash.add(allow_shlib_undefined);
         man.hash.add(self.base.options.bind_global_refs_locally);
         man.hash.add(self.base.options.system_linker_hack);
-        man.hash.addOptionalBytes(self.base.options.syslibroot);
+        man.hash.addOptionalBytes(self.base.options.sysroot);
 
         // We don't actually care whether it's a cache hit or miss; we just need the digest and the lock.
         _ = try man.hit();
@@ -789,7 +789,7 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                 zld.deinit();
             }
             zld.arch = target.cpu.arch;
-            zld.syslibroot = self.base.options.syslibroot;
+            zld.syslibroot = self.base.options.sysroot;
             zld.stack_size = stack_size;
 
             // Positional arguments to the linker such as object files and static archives.
@@ -833,7 +833,7 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
             try resolvePaths(
                 arena,
                 &libs,
-                self.base.options.syslibroot,
+                self.base.options.sysroot,
                 self.base.options.lib_dirs,
                 search_lib_names.items,
                 .lib,
@@ -856,7 +856,7 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
             try resolvePaths(
                 arena,
                 &libs,
-                self.base.options.syslibroot,
+                self.base.options.sysroot,
                 self.base.options.framework_dirs,
                 self.base.options.frameworks,
                 .framework,
@@ -868,7 +868,7 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                 try argv.append("zig");
                 try argv.append("ld");
 
-                if (self.base.options.syslibroot) |syslibroot| {
+                if (self.base.options.sysroot) |syslibroot| {
                     try argv.append("-syslibroot");
                     try argv.append(syslibroot);
                 }
@@ -1017,7 +1017,7 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
             }
         }
 
-        if (self.base.options.syslibroot) |dir| {
+        if (self.base.options.sysroot) |dir| {
             try argv.append("-syslibroot");
             try argv.append(dir);
         }

@@ -379,6 +379,7 @@ const usage_build_generic =
     \\  -T[script], --script [script]  Use a custom linker script
     \\  --version-script [path]        Provide a version .map file
     \\  --dynamic-linker [path]        Set the dynamic interpreter path (usually ld.so)
+    \\  --sysroot [path]               Set the system root directory (usually /)
     \\  --version [ver]                Dynamic library semver
     \\  -fsoname[=name]                (Linux) Override the default SONAME value
     \\  -fno-soname                    (Linux) Disable emitting a SONAME
@@ -604,6 +605,7 @@ fn buildOutputType(
     var link_eh_frame_hdr = false;
     var link_emit_relocs = false;
     var each_lib_rpath: ?bool = null;
+    var sysroot: ?[]const u8 = null;
     var libc_paths_file: ?[]const u8 = try optionalStringEnvVar(arena, "ZIG_LIBC");
     var machine_code_model: std.builtin.CodeModel = .default;
     var runtime_args_start: ?usize = null;
@@ -865,6 +867,10 @@ fn buildOutputType(
                         if (i + 1 >= args.len) fatal("expected parameter after {s}", .{arg});
                         i += 1;
                         target_dynamic_linker = args[i];
+                    } else if (mem.eql(u8, arg, "--sysroot")) {
+                        if (i + 1 >= args.len) fatal("expected parameter after {s}", .{arg});
+                        i += 1;
+                        sysroot = args[i];
                     } else if (mem.eql(u8, arg, "--libc")) {
                         if (i + 1 >= args.len) fatal("expected parameter after {s}", .{arg});
                         i += 1;
@@ -1641,7 +1647,9 @@ fn buildOutputType(
             want_native_include_dirs = true;
     }
 
-    if (cross_target.isNativeOs() and (system_libs.items.len != 0 or want_native_include_dirs)) {
+    if (sysroot == null and cross_target.isNativeOs() and
+        (system_libs.items.len != 0 or want_native_include_dirs))
+    {
         const paths = std.zig.system.NativePaths.detect(arena, target_info) catch |err| {
             fatal("unable to detect native system paths: {s}", .{@errorName(err)});
         };
@@ -1918,6 +1926,7 @@ fn buildOutputType(
         .is_native_os = cross_target.isNativeOs(),
         .is_native_abi = cross_target.isNativeAbi(),
         .dynamic_linker = target_info.dynamic_linker.get(),
+        .sysroot = sysroot,
         .output_mode = output_mode,
         .root_pkg = root_pkg,
         .emit_bin = emit_bin_loc,
