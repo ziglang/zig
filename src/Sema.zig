@@ -1069,19 +1069,17 @@ fn zirOpaqueDecl(
     inst: Zir.Inst.Index,
     name_strategy: Zir.Inst.NameStrategy,
 ) InnerError!*Inst {
-    _ = name_strategy;
     const tracy = trace(@src());
     defer tracy.end();
 
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
     const extra = sema.code.extraData(Zir.Inst.Block, inst_data.payload_index);
-    if (false) {
-        inst_data;
-        src;
-        extra;
-    }
 
+    _ = name_strategy;
+    _ = inst_data;
+    _ = src;
+    _ = extra;
     return sema.mod.fail(&block.base, sema.src, "TODO implement zirOpaqueDecl", .{});
 }
 
@@ -1244,8 +1242,7 @@ fn zirArg(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*In
 
     // TODO check if arg_name shadows a Decl
 
-    if (block.inlining) |inlining| {
-        _ = inlining;
+    if (block.inlining) |_| {
         return sema.param_inst_list[arg_index];
     }
 
@@ -3067,7 +3064,6 @@ fn funcCommon(
     src_locs: Zir.Inst.Func.SrcLocs,
     opt_lib_name: ?[]const u8,
 ) InnerError!*Inst {
-    _ = inferred_error_set;
     const src: LazySrcLoc = .{ .node_offset = src_node_offset };
     const ret_ty_src: LazySrcLoc = .{ .node_offset_fn_type_ret_ty = src_node_offset };
     const return_type = try sema.resolveType(block, ret_ty_src, zir_return_type);
@@ -3076,7 +3072,9 @@ fn funcCommon(
 
     const fn_ty: Type = fn_ty: {
         // Hot path for some common function types.
-        if (zir_param_types.len == 0 and !var_args and align_val.tag() == .null_value) {
+        if (zir_param_types.len == 0 and !var_args and align_val.tag() == .null_value and
+            !inferred_error_set)
+        {
             if (return_type.zigTypeTag() == .NoReturn and cc == .Unspecified) {
                 break :fn_ty Type.initTag(.fn_noreturn_no_args);
             }
@@ -3105,6 +3103,10 @@ fn funcCommon(
 
         if (align_val.tag() != .null_value) {
             return mod.fail(&block.base, src, "TODO implement support for function prototypes to have alignment specified", .{});
+        }
+
+        if (inferred_error_set) {
+            return mod.fail(&block.base, src, "TODO implement functions with inferred error sets", .{});
         }
 
         break :fn_ty try Type.Tag.function.create(sema.arena, .{
