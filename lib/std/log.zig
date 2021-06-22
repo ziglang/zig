@@ -142,6 +142,8 @@ fn log(
 
     if (@enumToInt(message_level) <= @enumToInt(effective_log_level)) {
         if (@hasDecl(root, "log")) {
+            if (@typeInfo(@TypeOf(root.log)) != .Fn)
+                @compileError("Expected root.log to be a function");
             root.log(message_level, scope, format, args);
         } else if (std.Target.current.os.tag == .freestanding) {
             // On freestanding one must provide a log function; we do not have
