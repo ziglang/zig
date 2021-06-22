@@ -258,7 +258,7 @@ pub fn main() !void {
       <p>
         The code sample begins by adding Zig's Standard Library to the build using the {#link|@import#} builtin function.
         The {#syntax#}@import("std"){#endsyntax#} function call creates a structure to represent the Standard Library.
-        The code then makes a {#link|top-level declaration|Static Global Variables#} of a
+        The code then {#link|declares|Container level Variables#} a
         {#link|constant identifier|Assignment#}, named <code>std</code>, for easy access to
         <a href="https://github.com/ziglang/zig/wiki/FAQ#where-is-the-documentation-for-the-zig-standard-library">Zig's standard library</a>.
       </p>
@@ -872,18 +872,18 @@ test "init with undefined" {
       {#syntax#}var{#endsyntax#} when declaring a variable. This causes less work for both
       humans and computers to do when reading code, and creates more optimization opportunities.
       </p>
-      {#header_open|Static Global Variables#}
+      {#header_open|Container Level Variables#}
       <p>
-      Static global variables are considered to be a top level declaration, which means that they are
-      order-independent and lazily analyzed. The initialization value of static global variables is implicitly
-      {#link|comptime#}. If a static global variable is {#syntax#}const{#endsyntax#} then its value is
+      Container level variables have static lifetime and are order-independent and lazily analyzed.
+      The initialization value of container level variables is implicitly
+      {#link|comptime#}. If a container level variable is {#syntax#}const{#endsyntax#} then its value is
       {#syntax#}comptime{#endsyntax#}-known, otherwise it is runtime-known.
       </p>
-      {#code_begin|test|static_global_variables#}
+      {#code_begin|test|container_level_variables#}
 var y: i32 = add(10, x);
 const x: i32 = add(12, 34);
 
-test "static global variables" {
+test "container level variables" {
     try expect(x == 46);
     try expect(y == 56);
 }
@@ -896,13 +896,13 @@ const std = @import("std");
 const expect = std.testing.expect;
       {#code_end#}
       <p>
-      Static global variables may be declared inside a {#link|struct#}, {#link|union#}, or {#link|enum#}:
+      Container level variables may be declared inside a {#link|struct#}, {#link|union#}, or {#link|enum#}:
       </p>
-      {#code_begin|test|namespaced_static_global#}
+      {#code_begin|test|namespaced_container_level_variable#}
 const std = @import("std");
 const expect = std.testing.expect;
 
-test "namespaced static global variable" {
+test "namespaced container level variable" {
     try expect(foo() == 1235);
     try expect(foo() == 1236);
 }
@@ -920,13 +920,13 @@ fn foo() i32 {
 
       {#header_open|Static Local Variables#}
       <p>
-        Static local variables may also be declared inside a {#link|struct#}, {#link|union#}, or {#link|enum#}:
+        It is also possible to have local variables with static lifetime by using containers inside functions.
       </p>
-      {#code_begin|test|namespaced_static_local#}
+      {#code_begin|test|static_local_variable#}
   const std = @import("std");
   const expect = std.testing.expect;
   
-  test "namespaced static local variable" {
+  test "static local variable" {
       expect(foo() == 1235);
       expect(foo() == 1236);
   }
@@ -940,7 +940,7 @@ fn foo() i32 {
   }
       {#code_end#}
       <p>
-      The {#syntax#}extern{#endsyntax#} keyword can be used to link against a variable that is exported
+      The {#syntax#}extern{#endsyntax#} keyword or {#link|@extern#} builtin function can be used to link against a variable that is exported
       from another object. The {#syntax#}export{#endsyntax#} keyword or {#link|@export#} builtin function
       can be used to make a variable available to other objects at link time. In both cases,
       the type of the variable must be C ABI compatible.
@@ -972,7 +972,7 @@ fn testTls(context: void) void {
 }
       {#code_end#}
       <p>
-      For {#link|Single Threaded Builds#}, all thread local variables are treated as {#link|Static Global Variables#}.
+      For {#link|Single Threaded Builds#}, all thread local variables are treated as regular {#link|Container Level Variables#}.
       </p>
       <p>
       Thread local variables may not be {#syntax#}const{#endsyntax#}.
@@ -2491,7 +2491,7 @@ test "dot product" {
     try expect(Vec3.dot(v1, v2) == 0.0);
 }
 
-// Structs can have global declarations.
+// Structs can have declarations.
 // Structs can have 0 fields.
 const Empty = struct {
     pub const PI = 3.14;
@@ -5719,7 +5719,7 @@ test "using std namespace" {
 }
       {#code_end#}
       <p>
-      You can also use it inside struct:
+      {#syntax#}usingnamespace{#endsyntax#} can also be used in containers:
       </p>
       {#code_begin|test|usingnamespace_inside_struct#}
 test "using namespace inside struct" {
@@ -6081,7 +6081,7 @@ test "fibonacci" {
       </p>
 
       <p>
-      In the file scope (outside of any function), all expressions are implicitly
+      At container level (outside of any function), all expressions are implicitly
       {#syntax#}comptime{#endsyntax#} expressions. This means that we can use functions to
       initialize complex static data. For example:
       </p>
@@ -8781,7 +8781,7 @@ pub fn build(b: *Builder) void {
       {#header_open|Single Threaded Builds#}
       <p>Zig has a compile option <code>--single-threaded</code> which has the following effects:</p>
       <ul>
-        <li>All {#link|Thread Local Variables#} are treated as {#link|Static Global Variables#}.</li>
+        <li>All {#link|Thread Local Variables#} are treated as regular {#link|Container Level Variables#}.</li>
         <li>The overhead of {#link|Async Functions#} becomes equivalent to function call overhead.</li>
         <li>The {#syntax#}@import("builtin").single_threaded{#endsyntax#} becomes {#syntax#}true{#endsyntax#}
           and therefore various userland APIs which read this variable become more efficient.
