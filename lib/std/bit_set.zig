@@ -84,6 +84,7 @@ pub fn IntegerBitSet(comptime size: u16) type {
 
         /// Returns the number of bits in this bit set
         pub inline fn capacity(self: Self) usize {
+            _ = self;
             return bit_length;
         }
 
@@ -311,6 +312,7 @@ pub fn ArrayBitSet(comptime MaskIntType: type, comptime size: usize) type {
 
         /// Returns the number of bits in this bit set
         pub inline fn capacity(self: Self) usize {
+            _ = self;
             return bit_length;
         }
 
@@ -373,7 +375,7 @@ pub fn ArrayBitSet(comptime MaskIntType: type, comptime size: usize) type {
 
         /// Flips every bit in the bit set.
         pub fn toggleAll(self: *Self) void {
-            for (self.masks) |*mask, i| {
+            for (self.masks) |*mask| {
                 mask.* = ~mask.*;
             }
 
@@ -642,7 +644,7 @@ pub const DynamicBitSetUnmanaged = struct {
         if (bit_length == 0) return;
 
         const num_masks = numMasks(self.bit_length);
-        for (self.masks[0..num_masks]) |*mask, i| {
+        for (self.masks[0..num_masks]) |*mask| {
             mask.* = ~mask.*;
         }
 

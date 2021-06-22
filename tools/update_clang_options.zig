@@ -585,6 +585,8 @@ const Syntax = union(enum) {
         options: std.fmt.FormatOptions,
         out_stream: anytype,
     ) !void {
+        _ = fmt;
+        _ = options;
         switch (self) {
             .multi_arg => |n| return out_stream.print(".{{.{s}={}}}", .{ @tagName(self), n }),
             else => return out_stream.print(".{s}", .{@tagName(self)}),
@@ -663,6 +665,7 @@ fn syntaxMatchesWithEql(syntax: Syntax) bool {
 }
 
 fn objectLessThan(context: void, a: *json.ObjectMap, b: *json.ObjectMap) bool {
+    _ = context;
     // Priority is determined by exact matches first, followed by prefix matches in descending
     // length, with key as a final tiebreaker.
     const a_syntax = objSyntax(a);

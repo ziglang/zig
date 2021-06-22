@@ -18,7 +18,7 @@ const EnumField = std.builtin.TypeInfo.EnumField;
 pub fn EnumFieldStruct(comptime E: type, comptime Data: type, comptime field_default: ?Data) type {
     const StructField = std.builtin.TypeInfo.StructField;
     var fields: []const StructField = &[_]StructField{};
-    for (std.meta.fields(E)) |field, i| {
+    for (std.meta.fields(E)) |field| {
         fields = fields ++ &[_]StructField{.{
             .name = field.name,
             .field_type = Data,
@@ -144,7 +144,7 @@ pub fn directEnumArrayDefault(
 ) [directEnumArrayLen(E, max_unused_slots)]Data {
     const len = comptime directEnumArrayLen(E, max_unused_slots);
     var result: [len]Data = if (default) |d| [_]Data{d} ** len else undefined;
-    inline for (@typeInfo(@TypeOf(init_values)).Struct.fields) |f, i| {
+    inline for (@typeInfo(@TypeOf(init_values)).Struct.fields) |f| {
         const enum_value = @field(E, f.name);
         const index = @intCast(usize, @enumToInt(enum_value));
         result[index] = @field(init_values, f.name);
@@ -334,6 +334,7 @@ pub fn EnumArray(comptime E: type, comptime V: type) type {
 /// TODO: Once #8169 is fixed, consider switching this param
 /// back to an optional.
 pub fn NoExtension(comptime Self: type) type {
+    _ = Self;
     return NoExt;
 }
 const NoExt = struct {};
@@ -729,6 +730,7 @@ test "std.enums.ensureIndexer" {
 }
 
 fn ascByValue(ctx: void, comptime a: EnumField, comptime b: EnumField) bool {
+    _ = ctx;
     return a.value < b.value;
 }
 pub fn EnumIndexer(comptime E: type) type {
@@ -743,9 +745,11 @@ pub fn EnumIndexer(comptime E: type) type {
             pub const Key = E;
             pub const count: usize = 0;
             pub fn indexOf(e: E) usize {
+                _ = e;
                 unreachable;
             }
             pub fn keyForIndex(i: usize) E {
+                _ = i;
                 unreachable;
             }
         };
@@ -753,10 +757,11 @@ pub fn EnumIndexer(comptime E: type) type {
     std.sort.sort(EnumField, &fields, {}, ascByValue);
     const min = fields[0].value;
     const max = fields[fields.len - 1].value;
+    const fields_len = fields.len;
     if (max - min == fields.len - 1) {
         return struct {
             pub const Key = E;
-            pub const count = fields.len;
+            pub const count = fields_len;
             pub fn indexOf(e: E) usize {
                 return @intCast(usize, @enumToInt(e) - min);
             }
@@ -774,7 +779,7 @@ pub fn EnumIndexer(comptime E: type) type {
 
     return struct {
         pub const Key = E;
-        pub const count = fields.len;
+        pub const count = fields_len;
         pub fn indexOf(e: E) usize {
             for (keys) |k, i| {
                 if (k == e) return i;

@@ -39,6 +39,7 @@ test "test maybe object and get a pointer to the inner value" {
 test "rhs maybe unwrap return" {
     const x: ?bool = true;
     const y = x orelse return;
+    _ = y;
 }
 
 test "maybe return" {
@@ -129,6 +130,7 @@ var struct_with_optional: StructWithOptional = undefined;
 test "unwrap optional which is field of global var" {
     struct_with_optional.field = null;
     if (struct_with_optional.field) |payload| {
+        _ = payload;
         unreachable;
     }
     struct_with_optional.field = 1234;

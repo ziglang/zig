@@ -586,7 +586,7 @@ const Parser = struct {
         const thread_local_token = p.eatToken(.keyword_threadlocal);
         const var_decl = try p.parseVarDecl();
         if (var_decl != 0) {
-            const semicolon_token = try p.expectToken(.semicolon);
+            _ = try p.expectToken(.semicolon);
             return var_decl;
         }
         if (thread_local_token != null) {
@@ -614,7 +614,7 @@ const Parser = struct {
     fn expectUsingNamespace(p: *Parser) !Node.Index {
         const usingnamespace_token = p.assertToken(.keyword_usingnamespace);
         const expr = try p.expectExpr();
-        const semicolon_token = try p.expectToken(.semicolon);
+        _ = try p.expectToken(.semicolon);
         return p.addNode(.{
             .tag = .@"usingnamespace",
             .main_token = usingnamespace_token,
@@ -647,7 +647,7 @@ const Parser = struct {
         const align_expr = try p.parseByteAlign();
         const section_expr = try p.parseLinkSection();
         const callconv_expr = try p.parseCallconv();
-        const bang_token = p.eatToken(.bang);
+        _ = p.eatToken(.bang);
 
         const return_type_expr = try p.parseTypeExpr();
         if (return_type_expr == 0) {
@@ -775,7 +775,7 @@ const Parser = struct {
 
     /// ContainerField <- KEYWORD_comptime? IDENTIFIER (COLON (KEYWORD_anytype / TypeExpr) ByteAlign?)? (EQUAL Expr)?
     fn expectContainerField(p: *Parser) !Node.Index {
-        const comptime_token = p.eatToken(.keyword_comptime);
+        _ = p.eatToken(.keyword_comptime);
         const name_token = p.assertToken(.identifier);
 
         var align_expr: Node.Index = 0;
@@ -967,7 +967,7 @@ const Parser = struct {
         _ = try p.expectToken(.l_paren);
         const condition = try p.expectExpr();
         _ = try p.expectToken(.r_paren);
-        const then_payload = try p.parsePtrPayload();
+        _ = try p.parsePtrPayload();
 
         // TODO propose to change the syntax so that semicolons are always required
         // inside if statements, even if there is an `else`.
@@ -992,7 +992,7 @@ const Parser = struct {
             else_required = true;
             break :blk assign_expr;
         };
-        const else_token = p.eatToken(.keyword_else) orelse {
+        _ = p.eatToken(.keyword_else) orelse {
             if (else_required) {
                 try p.warn(.expected_semi_or_else);
             }
@@ -1005,7 +1005,7 @@ const Parser = struct {
                 },
             });
         };
-        const else_payload = try p.parsePayload();
+        _ = try p.parsePayload();
         const else_expr = try p.expectStatement();
         return p.addNode(.{
             .tag = .@"if",
@@ -1087,7 +1087,7 @@ const Parser = struct {
             else_required = true;
             break :blk assign_expr;
         };
-        const else_token = p.eatToken(.keyword_else) orelse {
+        _ = p.eatToken(.keyword_else) orelse {
             if (else_required) {
                 try p.warn(.expected_semi_or_else);
             }
@@ -1122,7 +1122,7 @@ const Parser = struct {
         _ = try p.expectToken(.l_paren);
         const condition = try p.expectExpr();
         _ = try p.expectToken(.r_paren);
-        const then_payload = try p.parsePtrPayload();
+        _ = try p.parsePtrPayload();
         const cont_expr = try p.parseWhileContinueExpr();
 
         // TODO propose to change the syntax so that semicolons are always required
@@ -1162,7 +1162,7 @@ const Parser = struct {
             else_required = true;
             break :blk assign_expr;
         };
-        const else_token = p.eatToken(.keyword_else) orelse {
+        _ = p.eatToken(.keyword_else) orelse {
             if (else_required) {
                 try p.warn(.expected_semi_or_else);
             }
@@ -1189,7 +1189,7 @@ const Parser = struct {
                 });
             }
         };
-        const else_payload = try p.parsePayload();
+        _ = try p.parsePayload();
         const else_expr = try p.expectStatement();
         return p.addNode(.{
             .tag = .@"while",
@@ -1550,7 +1550,7 @@ const Parser = struct {
             },
             .l_bracket => switch (p.token_tags[p.tok_i + 1]) {
                 .asterisk => {
-                    const lbracket = p.nextToken();
+                    _ = p.nextToken();
                     const asterisk = p.nextToken();
                     var sentinel: Node.Index = 0;
                     prefix: {
@@ -1907,7 +1907,7 @@ const Parser = struct {
         if (found_payload == 0) try p.warn(.expected_loop_payload);
 
         const then_expr = try p.expectExpr();
-        const else_token = p.eatToken(.keyword_else) orelse {
+        _ = p.eatToken(.keyword_else) orelse {
             return p.addNode(.{
                 .tag = .for_simple,
                 .main_token = for_token,
@@ -1938,11 +1938,11 @@ const Parser = struct {
         _ = try p.expectToken(.l_paren);
         const condition = try p.expectExpr();
         _ = try p.expectToken(.r_paren);
-        const then_payload = try p.parsePtrPayload();
+        _ = try p.parsePtrPayload();
         const cont_expr = try p.parseWhileContinueExpr();
 
         const then_expr = try p.expectExpr();
-        const else_token = p.eatToken(.keyword_else) orelse {
+        _ = p.eatToken(.keyword_else) orelse {
             if (cont_expr == 0) {
                 return p.addNode(.{
                     .tag = .while_simple,
@@ -1966,7 +1966,7 @@ const Parser = struct {
                 });
             }
         };
-        const else_payload = try p.parsePayload();
+        _ = try p.parsePayload();
         const else_expr = try p.expectExpr();
         return p.addNode(.{
             .tag = .@"while",
@@ -2104,7 +2104,7 @@ const Parser = struct {
     /// FnCallArguments <- LPAREN ExprList RPAREN
     /// ExprList <- (Expr COMMA)* Expr?
     fn parseSuffixExpr(p: *Parser) !Node.Index {
-        if (p.eatToken(.keyword_async)) |async_token| {
+        if (p.eatToken(.keyword_async)) |_| {
             var res = try p.expectPrimaryTypeExpr();
             while (true) {
                 const node = try p.parseSuffixOp(res);
@@ -2565,8 +2565,8 @@ const Parser = struct {
                     p.tok_i += 2;
                     while (true) {
                         if (p.eatToken(.r_brace)) |_| break;
-                        const doc_comment = try p.eatDocComments();
-                        const identifier = try p.expectToken(.identifier);
+                        _ = try p.eatDocComments();
+                        _ = try p.expectToken(.identifier);
                         switch (p.token_tags[p.tok_i]) {
                             .comma => p.tok_i += 1,
                             .r_brace => {
@@ -2634,7 +2634,7 @@ const Parser = struct {
         if (found_payload == 0) try p.warn(.expected_loop_payload);
 
         const then_expr = try p.expectTypeExpr();
-        const else_token = p.eatToken(.keyword_else) orelse {
+        _ = p.eatToken(.keyword_else) orelse {
             return p.addNode(.{
                 .tag = .for_simple,
                 .main_token = for_token,
@@ -2665,11 +2665,11 @@ const Parser = struct {
         _ = try p.expectToken(.l_paren);
         const condition = try p.expectExpr();
         _ = try p.expectToken(.r_paren);
-        const then_payload = try p.parsePtrPayload();
+        _ = try p.parsePtrPayload();
         const cont_expr = try p.parseWhileContinueExpr();
 
         const then_expr = try p.expectTypeExpr();
-        const else_token = p.eatToken(.keyword_else) orelse {
+        _ = p.eatToken(.keyword_else) orelse {
             if (cont_expr == 0) {
                 return p.addNode(.{
                     .tag = .while_simple,
@@ -2693,7 +2693,7 @@ const Parser = struct {
                 });
             }
         };
-        const else_payload = try p.parsePayload();
+        _ = try p.parsePayload();
         const else_expr = try p.expectTypeExpr();
         return p.addNode(.{
             .tag = .@"while",
@@ -3570,12 +3570,12 @@ const Parser = struct {
         _ = try p.expectToken(.l_paren);
         const condition = try p.expectExpr();
         _ = try p.expectToken(.r_paren);
-        const then_payload = try p.parsePtrPayload();
+        _ = try p.parsePtrPayload();
 
         const then_expr = try bodyParseFn(p);
         if (then_expr == 0) return p.fail(.invalid_token);
 
-        const else_token = p.eatToken(.keyword_else) orelse return p.addNode(.{
+        _ = p.eatToken(.keyword_else) orelse return p.addNode(.{
             .tag = .if_simple,
             .main_token = if_token,
             .data = .{
@@ -3583,7 +3583,7 @@ const Parser = struct {
                 .rhs = then_expr,
             },
         });
-        const else_payload = try p.parsePayload();
+        _ = try p.parsePayload();
         const else_expr = try bodyParseFn(p);
         if (else_expr == 0) return p.fail(.invalid_token);
 

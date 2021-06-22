@@ -103,6 +103,7 @@ fn switchProngWithVarFn(a: SwitchProngWithVarEnum) !void {
         },
         SwitchProngWithVarEnum.Meh => |x| {
             const v: void = x;
+            _ = v;
         },
     }
 }
@@ -385,6 +386,7 @@ test "switch with null and T peer types and inferred result location type" {
                 0 => true,
                 else => null,
             }) |v| {
+                _ = v;
                 @panic("fail");
             }
         }
@@ -410,12 +412,18 @@ test "switch prongs with cases with identical payload types" {
                     try expect(@TypeOf(e) == usize);
                     try expect(e == 8);
                 },
-                .B => |e| @panic("fail"),
+                .B => |e| {
+                    _ = e;
+                    @panic("fail");
+                },
             }
         }
         fn doTheSwitch2(u: Union) !void {
             switch (u) {
-                .A, .C => |e| @panic("fail"),
+                .A, .C => |e| {
+                    _ = e;
+                    @panic("fail");
+                },
                 .B => |e| {
                     try expect(@TypeOf(e) == isize);
                     try expect(e == -8);
@@ -454,6 +462,7 @@ test "switch variable for range and multiple prongs" {
             }
         }
     };
+    _ = S;
 }
 
 var state: u32 = 0;
@@ -506,7 +515,10 @@ test "switch on error set with single else" {
         fn doTheTest() !void {
             var some: error{Foo} = error.Foo;
             try expect(switch (some) {
-                else => |a| true,
+                else => |a| blk: {
+                    a catch {};
+                    break :blk true;
+                },
             });
         }
     };

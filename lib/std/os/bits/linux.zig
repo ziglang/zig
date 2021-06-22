@@ -1286,7 +1286,7 @@ pub const CAP_BLOCK_SUSPEND = 36;
 pub const CAP_AUDIT_READ = 37;
 pub const CAP_LAST_CAP = CAP_AUDIT_READ;
 
-pub fn cap_valid(u8: x) bool {
+pub fn cap_valid(x: u8) bool {
     return x >= 0 and x <= CAP_LAST_CAP;
 }
 

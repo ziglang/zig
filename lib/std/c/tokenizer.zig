@@ -351,7 +351,6 @@ pub const Tokenizer = struct {
     pp_directive: bool = false,
 
     pub fn next(self: *Tokenizer) Token {
-        const start_index = self.index;
         var result = Token{
             .id = .Eof,
             .start = self.index,
@@ -1380,12 +1379,12 @@ test "operators" {
 
 test "keywords" {
     try expectTokens(
-        \\auto break case char const continue default do 
-        \\double else enum extern float for goto if int 
-        \\long register return short signed sizeof static 
-        \\struct switch typedef union unsigned void volatile 
-        \\while _Bool _Complex _Imaginary inline restrict _Alignas 
-        \\_Alignof _Atomic _Generic _Noreturn _Static_assert _Thread_local 
+        \\auto break case char const continue default do
+        \\double else enum extern float for goto if int
+        \\long register return short signed sizeof static
+        \\struct switch typedef union unsigned void volatile
+        \\while _Bool _Complex _Imaginary inline restrict _Alignas
+        \\_Alignof _Atomic _Generic _Noreturn _Static_assert _Thread_local
         \\
     , &[_]Token.Id{
         .Keyword_auto,

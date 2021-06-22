@@ -417,6 +417,8 @@ pub fn addStandaloneTests(b: *build.Builder, test_filter: ?[]const u8, modes: []
 }
 
 pub fn addCliTests(b: *build.Builder, test_filter: ?[]const u8, modes: []const Mode) *build.Step {
+    _ = test_filter;
+    _ = modes;
     const step = b.step("test-cli", "Test the command line interface");
 
     const exe = b.addExecutable("test-cli", "test/cli.zig");
@@ -525,7 +527,6 @@ pub fn addPkgTests(
         if (skip_single_threaded and test_target.single_threaded)
             continue;
 
-        const ArchTag = std.meta.Tag(std.Target.Cpu.Arch);
         if (test_target.disable_native and
             test_target.target.getOsTag() == std.Target.current.os.tag and
             test_target.target.getCpuArch() == std.Target.current.cpu.arch)

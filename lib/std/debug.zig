@@ -325,6 +325,7 @@ pub fn writeStackTrace(
     debug_info: *DebugInfo,
     tty_config: TTY.Config,
 ) !void {
+    _ = allocator;
     if (builtin.strip_debug_info) return error.MissingDebugInfo;
     var frame_index: usize = 0;
     var frames_left: usize = std.math.min(stack_trace.index, stack_trace.instruction_addresses.len);
@@ -680,6 +681,7 @@ fn readCoffDebugInfo(allocator: *mem.Allocator, coff_file: File) !ModuleDebugInf
         try di.coff.loadSections();
         if (di.coff.getSection(".debug_info")) |sec| {
             // This coff file has embedded DWARF debug info
+            _ = sec;
             // TODO: free the section data slices
             const debug_info_data = di.coff.getSectionData(".debug_info", allocator) catch null;
             const debug_abbrev_data = di.coff.getSectionData(".debug_abbrev", allocator) catch null;
@@ -896,7 +898,6 @@ fn printLineFromFileAnyOs(out_stream: anytype, line_info: LineInfo) !void {
     var buf: [mem.page_size]u8 = undefined;
     var line: usize = 1;
     var column: usize = 1;
-    var abs_index: usize = 0;
     while (true) {
         const amt_read = try f.read(buf[0..]);
         const slice = buf[0..amt_read];
@@ -931,6 +932,7 @@ const MachoSymbol = struct {
     }
 
     fn addressLessThan(context: void, lhs: MachoSymbol, rhs: MachoSymbol) bool {
+        _ = context;
         return lhs.address() < rhs.address();
     }
 };
@@ -1135,6 +1137,7 @@ pub const DebugInfo = struct {
 
         if (os.dl_iterate_phdr(&ctx, anyerror, struct {
             fn callback(info: *os.dl_phdr_info, size: usize, context: *CtxTy) !void {
+                _ = size;
                 // The base address is too high
                 if (context.address < info.dlpi_addr)
                     return;
@@ -1190,6 +1193,8 @@ pub const DebugInfo = struct {
     }
 
     fn lookupModuleHaiku(self: *DebugInfo, address: usize) !*ModuleDebugInfo {
+        _ = self;
+        _ = address;
         @panic("TODO implement lookup module for Haiku");
     }
 };

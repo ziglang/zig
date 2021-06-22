@@ -66,6 +66,7 @@ pub fn get_DYNAMIC() ?[*]elf.Dyn {
 }
 
 pub fn linkmap_iterator(phdrs: []elf.Phdr) !LinkMap.Iterator {
+    _ = phdrs;
     const _DYNAMIC = get_DYNAMIC() orelse {
         // No PT_DYNAMIC means this is either a statically-linked program or a
         // badly corrupted dynamically-linked one.
@@ -407,7 +408,7 @@ test "dynamic_library" {
         else => return error.SkipZigTest,
     };
 
-    const dynlib = DynLib.open(libname) catch |err| {
+    _ = DynLib.open(libname) catch |err| {
         try testing.expect(err == error.FileNotFound);
         return;
     };

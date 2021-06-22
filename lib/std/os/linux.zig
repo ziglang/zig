@@ -70,6 +70,7 @@ fn splitValueLE64(val: i64) [2]u32 {
     };
 }
 fn splitValueBE64(val: i64) [2]u32 {
+    const u = @bitCast(u64, val);
     return [2]u32{
         @truncate(u32, u >> 32),
         @truncate(u32, u),
@@ -1022,7 +1023,7 @@ pub fn sendmmsg(fd: i32, msgvec: [*]mmsghdr_const, vlen: u32, flags: u32) usize 
         for (msgvec[0..kvlen]) |*msg, i| {
             var size: i32 = 0;
             const msg_iovlen = @intCast(usize, msg.msg_hdr.msg_iovlen); // kernel side this is treated as unsigned
-            for (msg.msg_hdr.msg_iov[0..msg_iovlen]) |iov, j| {
+            for (msg.msg_hdr.msg_iov[0..msg_iovlen]) |iov| {
                 if (iov.iov_len > std.math.maxInt(i32) or @addWithOverflow(i32, size, @intCast(i32, iov.iov_len), &size)) {
                     // batch-send all messages up to the current message
                     if (next_unsent < i) {

@@ -113,6 +113,7 @@ test "array to vector" {
     var foo: f32 = 3.14;
     var arr = [4]f32{ foo, 1.5, 0.0, 0.0 };
     var vec: Vector(4, f32) = arr;
+    _ = vec;
 }
 
 test "vector casts of sizes not divisable by 8" {
@@ -264,6 +265,7 @@ test "initialize vector which is a struct field" {
             var foo = Vec4Obj{
                 .data = [_]f32{ 1, 2, 3, 4 },
             };
+            _ = foo;
         }
     };
     try S.doTheTest();

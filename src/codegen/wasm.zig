@@ -702,7 +702,7 @@ pub const Context = struct {
                 try writer.writeByte(wasm.valtype(.i32)); // error code is always an i32 integer.
                 try writer.writeByte(val_type);
             },
-            else => |ret_type| {
+            else => {
                 try leb.writeULEB128(writer, @as(u32, 1));
                 // Can we maybe get the source index of the return type?
                 const val_type = try self.genValtype(.{ .node_offset = 0 }, return_type);
@@ -721,7 +721,7 @@ pub const Context = struct {
                 // TODO: check for and handle death of instructions
                 const mod_fn = blk: {
                     if (typed_value.val.castTag(.function)) |func| break :blk func.data;
-                    if (typed_value.val.castTag(.extern_fn)) |ext_fn| return Result.appended; // don't need code body for extern functions
+                    if (typed_value.val.castTag(.extern_fn)) |_| return Result.appended; // don't need code body for extern functions
                     unreachable;
                 };
 
@@ -849,7 +849,6 @@ pub const Context = struct {
     }
 
     fn genCall(self: *Context, inst: *Inst.Call) InnerError!WValue {
-        const func_inst = inst.func.castTag(.constant).?;
         const func_val = inst.func.value().?;
 
         const target: *Decl = blk: {
@@ -914,7 +913,7 @@ pub const Context = struct {
             .local => |local| {
                 try self.emitWValue(rhs);
                 try writer.writeByte(wasm.opcode(.local_set));
-                try leb.writeULEB128(writer, lhs.local);
+                try leb.writeULEB128(writer, local);
             },
             else => unreachable,
         }
@@ -926,6 +925,7 @@ pub const Context = struct {
     }
 
     fn genArg(self: *Context, inst: *Inst.Arg) InnerError!WValue {
+        _ = inst;
         // arguments share the index with locals
         defer self.local_index += 1;
         return WValue{ .local = self.local_index };
@@ -1146,8 +1146,6 @@ pub const Context = struct {
     }
 
     fn genCmp(self: *Context, inst: *Inst.BinOp, op: std.math.CompareOperator) InnerError!WValue {
-        const ty = inst.lhs.ty.tag();
-
         // save offset, so potential conditions can insert blocks in front of
         // the comparison that we can later jump back to
         const offset = self.code.items.len;
@@ -1216,12 +1214,15 @@ pub const Context = struct {
     }
 
     fn genBreakpoint(self: *Context, breakpoint: *Inst.NoOp) InnerError!WValue {
+        _ = self;
+        _ = breakpoint;
         // unsupported by wasm itself. Can be implemented once we support DWARF
         // for wasm
         return .none;
     }
 
     fn genUnreachable(self: *Context, unreach: *Inst.NoOp) InnerError!WValue {
+        _ = unreach;
         try self.code.append(wasm.opcode(.@"unreachable"));
         return .none;
     }

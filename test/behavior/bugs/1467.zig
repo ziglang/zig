@@ -4,4 +4,5 @@ pub const S = extern struct {
 };
 test "bug 1467" {
     const s: S = undefined;
+    _ = s;
 }

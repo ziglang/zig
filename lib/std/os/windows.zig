@@ -1156,7 +1156,6 @@ pub fn GetFinalPathNameByHandle(
                 &mount_points_struct.MountPoints[0],
             )[0..mount_points_struct.NumberOfMountPoints];
 
-            var found: bool = false;
             for (mount_points) |mount_point| {
                 const symlink = @ptrCast(
                     [*]const u16,

@@ -102,6 +102,7 @@ fn castToOptionalTypeError(z: i32) !void {
 
     const f = z;
     const g: anyerror!?i32 = f;
+    _ = g catch {};
 
     const a = A{ .a = z };
     const b: anyerror!?A = a;
@@ -114,7 +115,9 @@ test "implicitly cast from int to anyerror!?T" {
 }
 fn implicitIntLitToOptional() void {
     const f: ?i32 = 1;
+    _ = f;
     const g: anyerror!?i32 = 1;
+    _ = g catch {};
 }
 
 test "return null from fn() anyerror!?&T" {
@@ -821,9 +824,13 @@ test "variable initialization uses result locations properly with regards to the
 test "cast between [*c]T and ?[*:0]T on fn parameter" {
     const S = struct {
         const Handler = ?fn ([*c]const u8) callconv(.C) void;
-        fn addCallback(handler: Handler) void {}
+        fn addCallback(handler: Handler) void {
+            _ = handler;
+        }
 
-        fn myCallback(cstr: ?[*:0]const u8) callconv(.C) void {}
+        fn myCallback(cstr: ?[*:0]const u8) callconv(.C) void {
+            _ = cstr;
+        }
 
         fn doTheTest() void {
             addCallback(myCallback);

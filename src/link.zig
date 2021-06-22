@@ -517,7 +517,7 @@ pub const File = struct {
                     .target = base.options.target,
                     .output_mode = .Obj,
                 });
-                const o_directory = base.options.module.?.zig_cache_artifact_directory;
+                const o_directory = module.zig_cache_artifact_directory;
                 const full_obj_path = try o_directory.join(arena, &[_][]const u8{obj_basename});
                 break :blk full_obj_path;
             }

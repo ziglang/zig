@@ -477,7 +477,7 @@ pub const Dir = struct {
                     }
 
                     var stat_info: os.libc_stat = undefined;
-                    const rc2 = os.system._kern_read_stat(
+                    _ = os.system._kern_read_stat(
                         self.dir.fd,
                         &haiku_entry.d_name,
                         false,
@@ -1541,7 +1541,7 @@ pub const Dir = struct {
         self: Dir,
         target_path: []const u8,
         sym_link_path: []const u8,
-        flags: SymLinkFlags,
+        _: SymLinkFlags,
     ) !void {
         return os.symlinkatWasi(target_path, self.fd, sym_link_path);
     }
@@ -1879,6 +1879,7 @@ pub const Dir = struct {
     /// * NtDll prefixed
     /// TODO currently this ignores `flags`.
     pub fn accessW(self: Dir, sub_path_w: [*:0]const u16, flags: File.OpenFlags) AccessError!void {
+        _ = flags;
         return os.faccessatW(self.fd, sub_path_w, 0, 0);
     }
 
@@ -2438,7 +2439,7 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
                     }) catch continue;
 
                     var real_path_buf: [MAX_PATH_BYTES]u8 = undefined;
-                    if (os.realpathZ(&resolved_path_buf, &real_path_buf)) |real_path| {
+                    if (os.realpathZ(resolved_path, &real_path_buf)) |real_path| {
                         // found a file, and hope it is the right file
                         if (real_path.len > out_buffer.len)
                             return error.NameTooLong;

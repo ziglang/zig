@@ -64,7 +64,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    foo(10, 20);
             \\    return 5;
             \\}
-            \\fn foo(x: u32, y: u32) void {}
+            \\fn foo(x: u32, y: u32) void { _ = x; _ = y; }
         , "5\n");
     }
 
@@ -76,6 +76,10 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    var i: u32 = 5;
             \\    var y: f32 = 42.0;
             \\    var x: u32 = 10;
+            \\    if (false) {
+            \\      y;
+            \\      x;
+            \\    }
             \\    return i;
             \\}
         , "5\n");
@@ -84,12 +88,14 @@ pub fn addCases(ctx: *TestContext) !void {
             \\pub export fn _start() u32 {
             \\    var i: u32 = 5;
             \\    var y: f32 = 42.0;
+            \\    _ = y;
             \\    var x: u32 = 10;
             \\    foo(i, x);
             \\    i = x;
             \\    return i;
             \\}
             \\fn foo(x: u32, y: u32) void {
+            \\    _  = y;
             \\    var i: u32 = 10;
             \\    i = x;
             \\}
@@ -388,6 +394,10 @@ pub fn addCases(ctx: *TestContext) !void {
             \\pub export fn _start() i32 {
             \\    var number1 = Number.One;
             \\    var number2: Number = .Two;
+            \\    if (false) {
+            \\        number1;
+            \\        number2;
+            \\    }
             \\    const number3 = @intToEnum(Number, 2);
             \\
             \\    return @enumToInt(number3);

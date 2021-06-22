@@ -249,7 +249,7 @@ pub fn PriorityQueue(comptime T: type) type {
                 warn("{}, ", .{e});
             }
             warn("array: ", .{});
-            for (self.items) |e, i| {
+            for (self.items) |e| {
                 warn("{}, ", .{e});
             }
             warn("len: {} ", .{self.len});

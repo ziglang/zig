@@ -198,7 +198,7 @@ fn test_read_ileb128_seq(comptime T: type, comptime N: usize, encoded: []const u
     var reader = std.io.fixedBufferStream(encoded);
     var i: usize = 0;
     while (i < N) : (i += 1) {
-        const v1 = try readILEB128(T, reader.reader());
+        _ = try readILEB128(T, reader.reader());
     }
 }
 
@@ -206,7 +206,7 @@ fn test_read_uleb128_seq(comptime T: type, comptime N: usize, encoded: []const u
     var reader = std.io.fixedBufferStream(encoded);
     var i: usize = 0;
     while (i < N) : (i += 1) {
-        const v1 = try readULEB128(T, reader.reader());
+        _ = try readULEB128(T, reader.reader());
     }
 }
 
@@ -309,7 +309,6 @@ fn test_write_leb128(value: anytype) !void {
     const B = std.meta.Int(signedness, larger_type_bits);
 
     const bytes_needed = bn: {
-        const S = std.meta.Int(signedness, @sizeOf(T) * 8);
         if (@typeInfo(T).Int.bits <= 7) break :bn @as(u16, 1);
 
         const unused_bits = if (value < 0) @clz(T, ~value) else @clz(T, value);

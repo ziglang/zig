@@ -702,6 +702,7 @@ fn zirBitcastResultPtr(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) I
 }
 
 fn zirCoerceResultPtr(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
+    _ = inst;
     const tracy = trace(@src());
     defer tracy.end();
     return sema.mod.fail(&block.base, sema.src, "TODO implement zirCoerceResultPtr", .{});
@@ -776,6 +777,7 @@ fn zirStructDecl(
 }
 
 fn createTypeName(sema: *Sema, block: *Scope.Block, name_strategy: Zir.Inst.NameStrategy) ![:0]u8 {
+    _ = block;
     switch (name_strategy) {
         .anon => {
             // It would be neat to have "struct:line:column" but this name has
@@ -1074,6 +1076,10 @@ fn zirOpaqueDecl(
     const src = inst_data.src();
     const extra = sema.code.extraData(Zir.Inst.Block, inst_data.payload_index);
 
+    _ = name_strategy;
+    _ = inst_data;
+    _ = src;
+    _ = extra;
     return sema.mod.fail(&block.base, sema.src, "TODO implement zirOpaqueDecl", .{});
 }
 
@@ -1230,14 +1236,13 @@ fn zirIndexablePtrLen(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) In
 
 fn zirArg(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
     const inst_data = sema.code.instructions.items(.data)[inst].str_tok;
-    const src = inst_data.src();
     const arg_name = inst_data.get(sema.code);
     const arg_index = sema.next_arg_index;
     sema.next_arg_index += 1;
 
     // TODO check if arg_name shadows a Decl
 
-    if (block.inlining) |inlining| {
+    if (block.inlining) |_| {
         return sema.param_inst_list[arg_index];
     }
 
@@ -1636,6 +1641,7 @@ fn zirStr(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*In
 }
 
 fn zirInt(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
+    _ = block;
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -1644,6 +1650,7 @@ fn zirInt(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*In
 }
 
 fn zirIntBig(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
+    _ = block;
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -1661,6 +1668,7 @@ fn zirIntBig(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!
 }
 
 fn zirFloat(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
+    _ = block;
     const arena = sema.arena;
     const inst_data = sema.code.instructions.items(.data)[inst].float;
     const src = inst_data.src();
@@ -1673,6 +1681,7 @@ fn zirFloat(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*
 }
 
 fn zirFloat128(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
+    _ = block;
     const arena = sema.arena;
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const extra = sema.code.extraData(Zir.Inst.Float128, inst_data.payload_index).data;
@@ -2354,6 +2363,7 @@ fn analyzeCall(
 }
 
 fn zirIntType(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
+    _ = block;
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -2462,6 +2472,7 @@ fn zirErrorUnionType(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) Inn
 }
 
 fn zirErrorValue(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
+    _ = block;
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -2622,6 +2633,7 @@ fn zirMergeErrorSets(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) Inn
 }
 
 fn zirEnumLiteral(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
+    _ = block;
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -3005,7 +3017,6 @@ fn zirFunc(
     defer tracy.end();
 
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    const src = inst_data.src();
     const extra = sema.code.extraData(Zir.Inst.Func, inst_data.payload_index);
     const param_types = sema.code.refSlice(extra.end, extra.data.param_types_len);
 
@@ -3061,7 +3072,9 @@ fn funcCommon(
 
     const fn_ty: Type = fn_ty: {
         // Hot path for some common function types.
-        if (zir_param_types.len == 0 and !var_args and align_val.tag() == .null_value) {
+        if (zir_param_types.len == 0 and !var_args and align_val.tag() == .null_value and
+            !inferred_error_set)
+        {
             if (return_type.zigTypeTag() == .NoReturn and cc == .Unspecified) {
                 break :fn_ty Type.initTag(.fn_noreturn_no_args);
             }
@@ -3090,6 +3103,10 @@ fn funcCommon(
 
         if (align_val.tag() != .null_value) {
             return mod.fail(&block.base, src, "TODO implement support for function prototypes to have alignment specified", .{});
+        }
+
+        if (inferred_error_set) {
+            return mod.fail(&block.base, src, "TODO implement functions with inferred error sets", .{});
         }
 
         break :fn_ty try Type.Tag.function.create(sema.arena, .{
@@ -3332,9 +3349,7 @@ fn zirBitcast(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError
     defer tracy.end();
 
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    const src = inst_data.src();
     const dest_ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
-    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
     const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
 
     const dest_type = try sema.resolveType(block, dest_ty_src, extra.lhs);
@@ -3499,6 +3514,8 @@ fn zirSwitchCapture(
     const switch_info = zir_datas[capture_info.switch_inst].pl_node;
     const src = switch_info.src();
 
+    _ = is_ref;
+    _ = is_multi;
     return sema.mod.fail(&block.base, src, "TODO implement Sema for zirSwitchCapture", .{});
 }
 
@@ -3516,6 +3533,7 @@ fn zirSwitchCaptureElse(
     const switch_info = zir_datas[capture_info.switch_inst].pl_node;
     const src = switch_info.src();
 
+    _ = is_ref;
     return sema.mod.fail(&block.base, src, "TODO implement Sema for zirSwitchCaptureElse", .{});
 }
 
@@ -3653,7 +3671,6 @@ fn analyzeSwitch(
                     extra_index += 1;
                     const body_len = sema.code.extra[extra_index];
                     extra_index += 1;
-                    const body = sema.code.extra[extra_index..][0..body_len];
                     extra_index += body_len;
 
                     try sema.validateSwitchItemEnum(
@@ -3763,7 +3780,6 @@ fn analyzeSwitch(
                     extra_index += 1;
                     const body_len = sema.code.extra[extra_index];
                     extra_index += 1;
-                    const body = sema.code.extra[extra_index..][0..body_len];
                     extra_index += body_len;
 
                     try sema.validateSwitchItem(
@@ -3859,7 +3875,6 @@ fn analyzeSwitch(
                     extra_index += 1;
                     const body_len = sema.code.extra[extra_index];
                     extra_index += 1;
-                    const body = sema.code.extra[extra_index..][0..body_len];
                     extra_index += body_len;
 
                     try sema.validateSwitchItemBool(
@@ -3942,7 +3957,6 @@ fn analyzeSwitch(
                     extra_index += 1;
                     const body_len = sema.code.extra[extra_index];
                     extra_index += 1;
-                    const body = sema.code.extra[extra_index..][0..body_len];
                     extra_index += body_len;
 
                     try sema.validateSwitchItemSparse(
@@ -4457,6 +4471,7 @@ fn validateSwitchNoRange(
 fn zirHasField(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
+    _ = extra;
     const src = inst_data.src();
 
     return sema.mod.fail(&block.base, src, "TODO implement zirHasField", .{});
@@ -4515,12 +4530,17 @@ fn zirImport(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!
 fn zirShl(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
+
+    _ = block;
+    _ = inst;
     return sema.mod.fail(&block.base, sema.src, "TODO implement zirShl", .{});
 }
 
 fn zirShr(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
+
+    _ = inst;
     return sema.mod.fail(&block.base, sema.src, "TODO implement zirShr", .{});
 }
 
@@ -4590,18 +4610,24 @@ fn zirBitwise(
 fn zirBitNot(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
+
+    _ = inst;
     return sema.mod.fail(&block.base, sema.src, "TODO implement zirBitNot", .{});
 }
 
 fn zirArrayCat(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
+
+    _ = inst;
     return sema.mod.fail(&block.base, sema.src, "TODO implement zirArrayCat", .{});
 }
 
 fn zirArrayMul(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
+
+    _ = inst;
     return sema.mod.fail(&block.base, sema.src, "TODO implement zirArrayMul", .{});
 }
 
@@ -5061,6 +5087,7 @@ fn zirTypeInfo(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerErro
 }
 
 fn zirTypeof(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
+    _ = block;
     const zir_datas = sema.code.instructions.items(.data);
     const inst_data = zir_datas[inst].un_node;
     const src = inst_data.src();
@@ -5069,6 +5096,7 @@ fn zirTypeof(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!
 }
 
 fn zirTypeofElem(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
+    _ = block;
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
     const operand_ptr = try sema.resolveInst(inst_data.operand);
@@ -5594,6 +5622,10 @@ fn zirStructInit(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index, is_ref:
         return mod.failWithOwnedErrorMsg(&block.base, msg);
     }
 
+    if (is_ref) {
+        return mod.fail(&block.base, src, "TODO: Sema.zirStructInit is_ref=true", .{});
+    }
+
     const is_comptime = for (field_inits) |field_init| {
         if (field_init.value() == null) {
             break false;
@@ -5617,18 +5649,24 @@ fn zirStructInit(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index, is_ref:
 fn zirStructInitAnon(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index, is_ref: bool) InnerError!*Inst {
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
+
+    _ = is_ref;
     return sema.mod.fail(&block.base, src, "TODO: Sema.zirStructInitAnon", .{});
 }
 
 fn zirArrayInit(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index, is_ref: bool) InnerError!*Inst {
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
+
+    _ = is_ref;
     return sema.mod.fail(&block.base, src, "TODO: Sema.zirArrayInit", .{});
 }
 
 fn zirArrayInitAnon(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index, is_ref: bool) InnerError!*Inst {
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
+
+    _ = is_ref;
     return sema.mod.fail(&block.base, src, "TODO: Sema.zirArrayInitAnon", .{});
 }
 
@@ -5771,7 +5809,6 @@ fn zirIntToPtr(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerErro
         return sema.mod.fail(&block.base, type_src, "expected pointer, found '{}'", .{type_res});
     const ptr_align = type_res.ptrAlignment(sema.mod.getTarget());
 
-    const uncasted_operand = try sema.resolveInst(extra.rhs);
     if (try sema.resolveDefinedValue(block, operand_src, operand_coerced)) |val| {
         const addr = val.toUnsignedInt();
         if (!type_res.isAllowzeroPtr() and addr == 0)
@@ -6025,6 +6062,8 @@ fn zirAwait(
 ) InnerError!*Inst {
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
+
+    _ = is_nosuspend;
     return sema.mod.fail(&block.base, src, "TODO: Sema.zirAwait", .{});
 }
 
@@ -6035,7 +6074,6 @@ fn zirVarExtended(
 ) InnerError!*Inst {
     const extra = sema.code.extraData(Zir.Inst.ExtendedVar, extended.operand);
     const src = sema.src;
-    const align_src: LazySrcLoc = src; // TODO add a LazySrcLoc that points at align
     const ty_src: LazySrcLoc = src; // TODO add a LazySrcLoc that points at type
     const mut_src: LazySrcLoc = src; // TODO add a LazySrcLoc that points at mut token
     const init_src: LazySrcLoc = src; // TODO add a LazySrcLoc that points at init expr
@@ -6305,6 +6343,8 @@ fn addSafetyCheck(sema: *Sema, parent_block: *Scope.Block, ok: *Inst, panic_id: 
 }
 
 fn safetyPanic(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, panic_id: PanicId) !Zir.Inst.Index {
+    _ = sema;
+    _ = panic_id;
     // TODO Once we have a panic function to call, call it here instead of breakpoint.
     _ = try block.addNoOp(src, Type.initTag(.void), .breakpoint);
     _ = try block.addNoOp(src, Type.initTag(.noreturn), .unreach);
@@ -6618,6 +6658,8 @@ fn elemPtrArray(
             });
         }
     }
+    _ = elem_index;
+    _ = elem_index_src;
     return sema.mod.fail(&block.base, src, "TODO implement more analyze elemptr for arrays", .{});
 }
 
@@ -7131,6 +7173,7 @@ fn analyzeSlice(
         ptr_child.isVolatilePtr(),
         return_ptr_size,
     );
+    _ = return_type;
 
     return sema.mod.fail(&block.base, src, "TODO implement analysis of slice", .{});
 }
@@ -7476,14 +7519,14 @@ fn resolveTypeFields(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, ty: Type
             struct_obj.status = .have_field_types;
             return ty;
         },
-        .extern_options => return sema.resolveBuiltinTypeFields(block, src, ty, "ExternOptions"),
-        .export_options => return sema.resolveBuiltinTypeFields(block, src, ty, "ExportOptions"),
-        .atomic_ordering => return sema.resolveBuiltinTypeFields(block, src, ty, "AtomicOrdering"),
-        .atomic_rmw_op => return sema.resolveBuiltinTypeFields(block, src, ty, "AtomicRmwOp"),
-        .calling_convention => return sema.resolveBuiltinTypeFields(block, src, ty, "CallingConvention"),
-        .float_mode => return sema.resolveBuiltinTypeFields(block, src, ty, "FloatMode"),
-        .reduce_op => return sema.resolveBuiltinTypeFields(block, src, ty, "ReduceOp"),
-        .call_options => return sema.resolveBuiltinTypeFields(block, src, ty, "CallOptions"),
+        .extern_options => return sema.resolveBuiltinTypeFields(block, src, "ExternOptions"),
+        .export_options => return sema.resolveBuiltinTypeFields(block, src, "ExportOptions"),
+        .atomic_ordering => return sema.resolveBuiltinTypeFields(block, src, "AtomicOrdering"),
+        .atomic_rmw_op => return sema.resolveBuiltinTypeFields(block, src, "AtomicRmwOp"),
+        .calling_convention => return sema.resolveBuiltinTypeFields(block, src, "CallingConvention"),
+        .float_mode => return sema.resolveBuiltinTypeFields(block, src, "FloatMode"),
+        .reduce_op => return sema.resolveBuiltinTypeFields(block, src, "ReduceOp"),
+        .call_options => return sema.resolveBuiltinTypeFields(block, src, "CallOptions"),
 
         .@"union", .union_tagged => {
             const union_obj = ty.cast(Type.Payload.Union).?.data;
@@ -7509,7 +7552,6 @@ fn resolveBuiltinTypeFields(
     sema: *Sema,
     block: *Scope.Block,
     src: LazySrcLoc,
-    ty: Type,
     name: []const u8,
 ) InnerError!Type {
     const resolved_ty = try sema.getBuiltinType(block, src, name);
@@ -7524,7 +7566,7 @@ fn getBuiltinType(
 ) InnerError!Type {
     const mod = sema.mod;
     const std_pkg = mod.root_pkg.table.get("std").?;
-    const std_file = (mod.importPkg(mod.root_pkg, std_pkg) catch unreachable).file;
+    const std_file = (mod.importPkg(std_pkg) catch unreachable).file;
     const opt_builtin_inst = try sema.analyzeNamespaceLookup(
         block,
         src,

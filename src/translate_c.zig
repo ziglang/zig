@@ -206,6 +206,7 @@ const Scope = struct {
     }
 
     fn findBlockReturnType(inner: *Scope, c: *Context) clang.QualType {
+        _ = c;
         var scope = inner;
         while (true) {
             switch (scope.id) {
@@ -601,7 +602,7 @@ fn visitFnDecl(c: *Context, fn_decl: *const clang.FunctionDecl) Error!void {
     var scope = &block_scope.base;
 
     var param_id: c_uint = 0;
-    for (proto_node.data.params) |*param, i| {
+    for (proto_node.data.params) |*param| {
         const param_name = param.name orelse {
             proto_node.data.is_extern = true;
             proto_node.data.is_export = false;
@@ -785,7 +786,7 @@ const builtin_typedef_map = std.ComptimeStringMap([]const u8, .{
 });
 
 fn transTypeDef(c: *Context, scope: *Scope, typedef_decl: *const clang.TypedefNameDecl) Error!void {
-    if (c.decl_table.get(@ptrToInt(typedef_decl.getCanonicalDecl()))) |name|
+    if (c.decl_table.get(@ptrToInt(typedef_decl.getCanonicalDecl()))) |_|
         return; // Avoid processing this decl twice
     const toplevel = scope.id == .root;
     const bs: *Scope.Block = if (!toplevel) try scope.findBlockScope(c) else undefined;
@@ -935,7 +936,7 @@ fn hasFlexibleArrayField(c: *Context, record_def: *const clang.RecordDecl) bool 
 }
 
 fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordDecl) Error!void {
-    if (c.decl_table.get(@ptrToInt(record_decl.getCanonicalDecl()))) |name|
+    if (c.decl_table.get(@ptrToInt(record_decl.getCanonicalDecl()))) |_|
         return; // Avoid processing this decl twice
     const record_loc = record_decl.getLocation();
     const toplevel = scope.id == .root;
@@ -1080,7 +1081,7 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
 }
 
 fn transEnumDecl(c: *Context, scope: *Scope, enum_decl: *const clang.EnumDecl) Error!void {
-    if (c.decl_table.get(@ptrToInt(enum_decl.getCanonicalDecl()))) |name|
+    if (c.decl_table.get(@ptrToInt(enum_decl.getCanonicalDecl()))) |_|
         return; // Avoid processing this decl twice
     const enum_loc = enum_decl.getLocation();
     const toplevel = scope.id == .root;
@@ -1312,6 +1313,7 @@ fn transConvertVectorExpr(
     source_loc: clang.SourceLocation,
     expr: *const clang.ConvertVectorExpr,
 ) TransError!Node {
+    _ = source_loc;
     const base_stmt = @ptrCast(*const clang.Stmt, expr);
 
     var block_scope = try Scope.Block.init(c, scope, true);
@@ -1321,7 +1323,6 @@ fn transConvertVectorExpr(
     const src_type = qualTypeCanon(src_expr.getType());
     const src_vector_ty = @ptrCast(*const clang.VectorType, src_type);
     const src_element_qt = src_vector_ty.getElementType();
-    const src_element_type_node = try transQualType(c, &block_scope.base, src_element_qt, base_stmt.getBeginLoc());
 
     const src_expr_node = try transExpr(c, &block_scope.base, src_expr, .used);
 
@@ -1434,6 +1435,7 @@ fn transSimpleOffsetOfExpr(
     scope: *Scope,
     expr: *const clang.OffsetOfExpr,
 ) TransError!Node {
+    _ = scope;
     assert(expr.getNumComponents() == 1);
     const component = expr.getComponent(0);
     if (component.getKind() == .Field) {
@@ -2270,6 +2272,7 @@ fn transStringLiteralInitializer(
 /// both operands resolve to addresses. The C standard requires that both operands
 /// point to elements of the same array object, but we do not verify that here.
 fn cIsPointerDiffExpr(c: *Context, stmt: *const clang.BinaryOperator) bool {
+    _ = c;
     const lhs = @ptrCast(*const clang.Stmt, stmt.getLHS());
     const rhs = @ptrCast(*const clang.Stmt, stmt.getRHS());
     return stmt.getOpcode() == .Sub and
@@ -2573,6 +2576,7 @@ fn transInitListExprVector(
     expr: *const clang.InitListExpr,
     ty: *const clang.Type,
 ) TransError!Node {
+    _ = ty;
     const qt = getExprQualType(c, @ptrCast(*const clang.Expr, expr));
     const vector_type = try transQualType(c, scope, qt, loc);
     const init_count = expr.getNumInits();
@@ -2722,6 +2726,7 @@ fn transImplicitValueInitExpr(
     expr: *const clang.Expr,
     used: ResultUsed,
 ) TransError!Node {
+    _ = used;
     const source_loc = expr.getBeginLoc();
     const qt = getExprQualType(c, expr);
     const ty = qt.getTypePtr();
@@ -3408,6 +3413,7 @@ fn transUnaryExprOrTypeTraitExpr(
     stmt: *const clang.UnaryExprOrTypeTraitExpr,
     result_used: ResultUsed,
 ) TransError!Node {
+    _ = result_used;
     const loc = stmt.getBeginLoc();
     const type_node = try transQualType(c, scope, stmt.getTypeOfArgument(), loc);
 
@@ -3802,7 +3808,6 @@ fn transBinaryConditionalOperator(c: *Context, scope: *Scope, stmt: *const clang
     const res_is_bool = qualTypeIsBoolean(qt);
     const casted_stmt = @ptrCast(*const clang.AbstractConditionalOperator, stmt);
     const cond_expr = casted_stmt.getCond();
-    const true_expr = casted_stmt.getTrueExpr();
     const false_expr = casted_stmt.getFalseExpr();
 
     // c:   (cond_expr)?:(false_expr)
@@ -3895,6 +3900,7 @@ fn maybeSuppressResult(
     used: ResultUsed,
     result: Node,
 ) TransError!Node {
+    _ = scope;
     if (used == .used) return result;
     return Tag.discard.create(c.arena, result);
 }
@@ -4336,12 +4342,10 @@ fn transCreateNodeNumber(c: *Context, num: anytype, num_kind: enum { int, float 
 }
 
 fn transCreateNodeMacroFn(c: *Context, name: []const u8, ref: Node, proto_alias: *ast.Payload.Func) !Node {
-    const scope = &c.global_scope.base;
-
     var fn_params = std.ArrayList(ast.Payload.Param).init(c.gpa);
     defer fn_params.deinit();
 
-    for (proto_alias.data.params) |param, i| {
+    for (proto_alias.data.params) |param| {
         const param_name = param.name orelse
             try std.fmt.allocPrint(c.arena, "arg_{d}", .{c.getMangle()});
 
@@ -5657,6 +5661,7 @@ fn parseCSpecifierQualifierList(c: *Context, m: *MacroCtx, scope: *Scope, allow_
 }
 
 fn parseCNumericType(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
+    _ = scope;
     const KwCounter = struct {
         double: u8 = 0,
         long: u8 = 0,
@@ -5758,6 +5763,7 @@ fn parseCNumericType(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
 }
 
 fn parseCAbstractDeclarator(c: *Context, m: *MacroCtx, scope: *Scope, node: Node) ParseError!Node {
+    _ = scope;
     switch (m.next().?) {
         .Asterisk => {
             // last token of `node`

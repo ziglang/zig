@@ -117,7 +117,7 @@ pub const Socket = struct {
             };
         }
 
-        /// Returns the number of bytes that make up the `sockaddr` equivalent to the address. 
+        /// Returns the number of bytes that make up the `sockaddr` equivalent to the address.
         pub fn getNativeSize(self: Socket.Address) u32 {
             return switch (self) {
                 .ipv4 => @sizeOf(os.sockaddr_in),
@@ -132,6 +132,8 @@ pub const Socket = struct {
             opts: fmt.FormatOptions,
             writer: anytype,
         ) !void {
+            _ = opts;
+            _ = layout;
             switch (self) {
                 .ipv4 => |address| try fmt.format(writer, "{}:{}", .{ address.host, address.port }),
                 .ipv6 => |address| try fmt.format(writer, "{}:{}", .{ address.host, address.port }),
@@ -280,7 +282,7 @@ pub const Socket = struct {
     ///
     /// Microsoft's documentation and glibc denote the fields to be unsigned
     /// short's on Windows, whereas glibc and musl denote the fields to be
-    /// int's on every other platform. 
+    /// int's on every other platform.
     pub const Linger = extern struct {
         pub const Field = switch (native_os.tag) {
             .windows => c_ushort,

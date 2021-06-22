@@ -1866,7 +1866,7 @@ pub const Tree = struct {
     }
 
     fn fullStructInit(tree: Tree, info: full.StructInit.Ast) full.StructInit {
-        const token_tags = tree.tokens.items(.tag);
+        _ = tree;
         var result: full.StructInit = .{
             .ast = info,
         };

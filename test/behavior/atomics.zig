@@ -97,7 +97,6 @@ test "cmpxchg with ptr" {
 
 test "cmpxchg with ignored result" {
     var x: i32 = 1234;
-    var ptr = &x;
 
     _ = @cmpxchgStrong(i32, &x, 1234, 5678, .Monotonic, .Monotonic);
 
@@ -195,7 +194,6 @@ fn testAtomicRmwInt() !void {
 test "atomics with different types" {
     try testAtomicsWithType(bool, true, false);
     inline for (.{ u1, i4, u5, i15, u24 }) |T| {
-        var x: T = 0;
         try testAtomicsWithType(T, 0, 1);
     }
     try testAtomicsWithType(u0, 0, 0);

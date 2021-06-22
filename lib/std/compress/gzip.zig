@@ -62,6 +62,8 @@ pub fn GzipStream(comptime ReaderType: type) type {
             const XFL = header[8];
             // Operating system where the compression took place
             const OS = header[9];
+            _ = XFL;
+            _ = OS;
 
             if (FLG & FEXTRA != 0) {
                 // Skip the extra data, we could read and expose it to the user

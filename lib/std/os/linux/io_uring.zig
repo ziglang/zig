@@ -284,6 +284,7 @@ pub const IO_Uring = struct {
     }
 
     fn copy_cqes_ready(self: *IO_Uring, cqes: []io_uring_cqe, wait_nr: u32) u32 {
+        _ = wait_nr;
         const ready = self.cq_ready();
         const count = std.math.min(cqes.len, ready);
         var head = self.cq.head.*;
@@ -320,6 +321,7 @@ pub const IO_Uring = struct {
     /// Not idempotent, calling more than once will result in other CQEs being lost.
     /// Matches the implementation of cqe_seen() in liburing.
     pub fn cqe_seen(self: *IO_Uring, cqe: *io_uring_cqe) void {
+        _ = cqe;
         self.cq_advance(1);
     }
 
@@ -728,6 +730,7 @@ pub const CompletionQueue = struct {
     }
 
     pub fn deinit(self: *CompletionQueue) void {
+        _ = self;
         // A no-op since we now share the mmap with the submission queue.
         // Here for symmetry with the submission queue, and for any future feature support.
     }
@@ -1272,12 +1275,12 @@ test "accept/connect/send/recv" {
 
     var accept_addr: os.sockaddr = undefined;
     var accept_addr_len: os.socklen_t = @sizeOf(@TypeOf(accept_addr));
-    const accept = try ring.accept(0xaaaaaaaa, server, &accept_addr, &accept_addr_len, 0);
+    _ = try ring.accept(0xaaaaaaaa, server, &accept_addr, &accept_addr_len, 0);
     try testing.expectEqual(@as(u32, 1), try ring.submit());
 
     const client = try os.socket(address.any.family, os.SOCK_STREAM | os.SOCK_CLOEXEC, 0);
     defer os.close(client);
-    const connect = try ring.connect(0xcccccccc, client, &address.any, address.getOsSockLen());
+    _ = try ring.connect(0xcccccccc, client, &address.any, address.getOsSockLen());
     try testing.expectEqual(@as(u32, 1), try ring.submit());
 
     var cqe_accept = try ring.copy_cqe();
@@ -1305,7 +1308,7 @@ test "accept/connect/send/recv" {
 
     const send = try ring.send(0xeeeeeeee, client, buffer_send[0..], 0);
     send.flags |= linux.IOSQE_IO_LINK;
-    const recv = try ring.recv(0xffffffff, cqe_accept.res, buffer_recv[0..], 0);
+    _ = try ring.recv(0xffffffff, cqe_accept.res, buffer_recv[0..], 0);
     try testing.expectEqual(@as(u32, 2), try ring.submit());
 
     const cqe_send = try ring.copy_cqe();

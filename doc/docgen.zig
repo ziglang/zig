@@ -1017,7 +1017,6 @@ fn tokenizeAndPrint(docgen_tokenizer: *Tokenizer, out: anytype, source_token: To
 }
 
 fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: anytype, zig_exe: []const u8, do_code_tests: bool) !void {
-    var code_progress_index: usize = 0;
     var progress = Progress{};
     const root_node = try progress.start("Generating docgen examples", toc.nodes.len);
     defer root_node.end();
@@ -1090,7 +1089,6 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: any
 
                 switch (code.id) {
                     Code.Id.Exe => |expected_outcome| code_block: {
-                        const name_plus_bin_ext = try std.fmt.allocPrint(allocator, "{s}{s}", .{ code.name, exe_ext });
                         var build_args = std.ArrayList([]const u8).init(allocator);
                         defer build_args.deinit();
                         try build_args.appendSlice(&[_][]const u8{
@@ -1361,18 +1359,8 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: any
                     },
                     Code.Id.Obj => |maybe_error_match| {
                         const name_plus_obj_ext = try std.fmt.allocPrint(allocator, "{s}{s}", .{ code.name, obj_ext });
-                        const tmp_obj_file_name = try fs.path.join(
-                            allocator,
-                            &[_][]const u8{ tmp_dir_name, name_plus_obj_ext },
-                        );
                         var build_args = std.ArrayList([]const u8).init(allocator);
                         defer build_args.deinit();
-
-                        const name_plus_h_ext = try std.fmt.allocPrint(allocator, "{s}.h", .{code.name});
-                        const output_h_file_name = try fs.path.join(
-                            allocator,
-                            &[_][]const u8{ tmp_dir_name, name_plus_h_ext },
-                        );
 
                         try build_args.appendSlice(&[_][]const u8{
                             zig_exe,

@@ -100,7 +100,7 @@ const test_vectors = init: {
 };
 
 test "compare f32" {
-    for (test_vectors) |vector, i| {
+    for (test_vectors) |vector| {
         try std.testing.expect(test__cmpsf2(vector));
     }
 }

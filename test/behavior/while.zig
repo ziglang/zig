@@ -151,14 +151,14 @@ test "while on optional with else result follow break prong" {
 test "while on error union with else result follow else prong" {
     const result = while (returnError()) |value| {
         break value;
-    } else |err| @as(i32, 2);
+    } else |_| @as(i32, 2);
     try expect(result == 2);
 }
 
 test "while on error union with else result follow break prong" {
     const result = while (returnSuccess(10)) |value| {
         break value;
-    } else |err| @as(i32, 2);
+    } else |_| @as(i32, 2);
     try expect(result == 10);
 }
 

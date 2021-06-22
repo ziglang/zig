@@ -103,6 +103,7 @@ fn testErrorSetType() !void {
 
     const a: MyErrSet!i32 = 5678;
     const b: MyErrSet!i32 = MyErrSet.OutOfMemory;
+    try expect(b catch error.OutOfMemory == error.OutOfMemory);
 
     if (a) |value| try expect(value == 5678) else |err| switch (err) {
         error.OutOfMemory => unreachable,
@@ -138,7 +139,10 @@ test "comptime test error for empty error set" {
 const EmptyErrorSet = error{};
 
 fn testComptimeTestErrorEmptySet(x: EmptyErrorSet!i32) !void {
-    if (x) |v| try expect(v == 1234) else |err| @compileError("bad");
+    if (x) |v| try expect(v == 1234) else |err| {
+        _ = err;
+        @compileError("bad");
+    }
 }
 
 test "syntax: optional operator in front of error union operator" {
@@ -162,6 +166,7 @@ fn testErrToIntWithOnePossibleValue(
 
 test "empty error union" {
     const x = error{} || error{};
+    _ = x;
 }
 
 test "error union peer type resolution" {
@@ -204,6 +209,7 @@ fn entry() void {
 
 fn foo2(f: fn () anyerror!void) void {
     const x = f();
+    x catch {};
 }
 
 fn bar2() (error{}!void) {}
@@ -338,6 +344,7 @@ test "optional error set is the same size as error set" {
 test "debug info for optional error set" {
     const SomeError = error{Hello};
     var a_local_variable: ?SomeError = null;
+    _ = a_local_variable;
 }
 
 test "nested catch" {
@@ -349,7 +356,7 @@ test "nested catch" {
             return error.Wrong;
         }
         fn func() anyerror!Foo {
-            const x = fail() catch
+            _ = fail() catch
                 fail() catch
                 return error.Bad;
             unreachable;
@@ -390,6 +397,7 @@ test "function pointer with return type that is error union with payload which i
         const Err = error{UnspecifiedErr};
 
         fn bar(a: i32) anyerror!*Foo {
+            _ = a;
             return Err.UnspecifiedErr;
         }
 
@@ -444,7 +452,9 @@ test "error payload type is correctly resolved" {
 
 test "error union comptime caching" {
     const S = struct {
-        fn foo(comptime arg: anytype) void {}
+        fn foo(comptime arg: anytype) void {
+            arg catch {};
+        }
     };
 
     S.foo(@as(anyerror!void, {}));

@@ -654,7 +654,6 @@ pub fn TagPayload(comptime U: type, tag: Tag(U)) type {
     try testing.expect(trait.is(.Union)(U));
 
     const info = @typeInfo(U).Union;
-    const tag_info = @typeInfo(Tag(U)).Enum;
 
     inline for (info.fields) |field_info| {
         if (comptime mem.eql(u8, field_info.name, @tagName(tag)))
@@ -757,12 +756,6 @@ test "std.meta.eql" {
         .c = "12345".*,
     };
 
-    const s_2 = S{
-        .a = 1,
-        .b = 123.3,
-        .c = "54321".*,
-    };
-
     var s_3 = S{
         .a = 134,
         .b = 123.3,
@@ -850,6 +843,7 @@ pub const refAllDecls = @compileError("refAllDecls has been moved from std.meta 
 pub fn declList(comptime Namespace: type, comptime Decl: type) []const *const Decl {
     const S = struct {
         fn declNameLessThan(context: void, lhs: *const Decl, rhs: *const Decl) bool {
+            _ = context;
             return mem.lessThan(u8, lhs.name, rhs.name);
         }
     };

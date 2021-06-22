@@ -9,7 +9,9 @@ const Foobar = struct {
     }
 };
 
-fn foo(arg: anytype) void {}
+fn foo(arg: anytype) void {
+    _ = arg;
+}
 
 test "" {
     comptime var foobar = Foobar.foo();

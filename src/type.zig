@@ -600,9 +600,11 @@ pub const Type = extern union {
 
     pub const HashContext = struct {
         pub fn hash(self: @This(), t: Type) u64 {
+            _ = self;
             return t.hash();
         }
         pub fn eql(self: @This(), a: Type, b: Type) bool {
+            _ = self;
             return a.eql(b);
         }
     };
@@ -777,6 +779,7 @@ pub const Type = extern union {
         options: std.fmt.FormatOptions,
         writer: anytype,
     ) @TypeOf(writer).Error!void {
+        _ = options;
         comptime assert(fmt.len == 0);
         var ty = start_type;
         while (true) {
@@ -3013,7 +3016,7 @@ pub const Type = extern union {
                 .base = .{ .tag = t },
                 .data = data,
             };
-            return Type{ .ptr_otherwise = &ptr.base };
+            return file_struct.Type{ .ptr_otherwise = &ptr.base };
         }
 
         pub fn Data(comptime t: Tag) type {
@@ -3163,7 +3166,6 @@ pub const CType = enum {
     longdouble,
 
     pub fn sizeInBits(self: CType, target: Target) u16 {
-        const arch = target.cpu.arch;
         switch (target.os.tag) {
             .freestanding, .other => switch (target.cpu.arch) {
                 .msp430 => switch (self) {

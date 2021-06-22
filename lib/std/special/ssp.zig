@@ -27,6 +27,8 @@ extern fn memmove(dest: ?[*]u8, src: ?[*]const u8, n: usize) callconv(.C) ?[*]u8
 
 // Avoid dragging in the runtime safety mechanisms into this .o file.
 pub fn panic(msg: []const u8, error_return_trace: ?*builtin.StackTrace) noreturn {
+    _ = msg;
+    _ = error_return_trace;
     @setCold(true);
     if (@hasDecl(std.os, "abort"))
         std.os.abort();

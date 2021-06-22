@@ -277,7 +277,9 @@ const TestStruct = packed struct {
     fieldC: *Self,
     fieldD: u32 = 4,
 
-    pub fn foo(self: *const Self) void {}
+    pub fn foo(self: *const Self) void {
+        _ = self;
+    }
     const Self = @This();
 };
 
@@ -326,9 +328,12 @@ extern fn fooAligned(a: usize, b: bool, ...) align(4) callconv(.C) usize;
 
 test "typeInfo with comptime parameter in struct fn def" {
     const S = struct {
-        pub fn func(comptime x: f32) void {}
+        pub fn func(comptime x: f32) void {
+            _ = x;
+        }
     };
     comptime var info = @typeInfo(S);
+    _ = info;
 }
 
 test "type info: vectors" {
@@ -368,6 +373,7 @@ test "type info: pass to function" {
 }
 
 fn passTypeInfo(comptime info: TypeInfo) type {
+    _ = info;
     return void;
 }
 

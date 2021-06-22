@@ -283,6 +283,7 @@ fn parseFormValueBlock(allocator: *mem.Allocator, in_stream: anytype, endian: bu
 }
 
 fn parseFormValueConstant(allocator: *mem.Allocator, in_stream: anytype, signed: bool, endian: builtin.Endian, comptime size: i32) !FormValue {
+    _ = allocator;
     // TODO: Please forgive me, I've worked around zig not properly spilling some intermediate values here.
     // `nosuspend` should be removed from all the function calls once it is fixed.
     return FormValue{
@@ -310,6 +311,7 @@ fn parseFormValueConstant(allocator: *mem.Allocator, in_stream: anytype, signed:
 
 // TODO the nosuspends here are workarounds
 fn parseFormValueRef(allocator: *mem.Allocator, in_stream: anytype, endian: builtin.Endian, size: i32) !FormValue {
+    _ = allocator;
     return FormValue{
         .Ref = switch (size) {
             1 => try nosuspend in_stream.readInt(u8, endian),
@@ -453,13 +455,13 @@ pub const DwarfInfo = struct {
                                 if (this_die_obj.getAttr(AT_name)) |_| {
                                     const name = try this_die_obj.getAttrString(di, AT_name);
                                     break :x name;
-                                } else if (this_die_obj.getAttr(AT_abstract_origin)) |ref| {
+                                } else if (this_die_obj.getAttr(AT_abstract_origin)) |_| {
                                     // Follow the DIE it points to and repeat
                                     const ref_offset = try this_die_obj.getAttrRef(AT_abstract_origin);
                                     if (ref_offset > next_offset) return error.InvalidDebugInfo;
                                     try seekable.seekTo(this_unit_offset + ref_offset);
                                     this_die_obj = (try di.parseDie(in, abbrev_table, is_64)) orelse return error.InvalidDebugInfo;
-                                } else if (this_die_obj.getAttr(AT_specification)) |ref| {
+                                } else if (this_die_obj.getAttr(AT_specification)) |_| {
                                     // Follow the DIE it points to and repeat
                                     const ref_offset = try this_die_obj.getAttrRef(AT_specification);
                                     if (ref_offset > next_offset) return error.InvalidDebugInfo;

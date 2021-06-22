@@ -270,6 +270,8 @@ pub const Ip4Address = extern struct {
         options: std.fmt.FormatOptions,
         out_stream: anytype,
     ) !void {
+        _ = fmt;
+        _ = options;
         const bytes = @ptrCast(*const [4]u8, &self.sa.addr);
         try std.fmt.format(out_stream, "{}.{}.{}.{}:{}", .{
             bytes[0],
@@ -281,6 +283,7 @@ pub const Ip4Address = extern struct {
     }
 
     pub fn getOsSockLen(self: Ip4Address) os.socklen_t {
+        _ = self;
         return @sizeOf(os.sockaddr_in);
     }
 };
@@ -556,6 +559,8 @@ pub const Ip6Address = extern struct {
         options: std.fmt.FormatOptions,
         out_stream: anytype,
     ) !void {
+        _ = fmt;
+        _ = options;
         const port = mem.bigToNative(u16, self.sa.port);
         if (mem.eql(u8, self.sa.addr[0..12], &[_]u8{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff })) {
             try std.fmt.format(out_stream, "[::ffff:{}.{}.{}.{}]:{}", .{
@@ -598,6 +603,7 @@ pub const Ip6Address = extern struct {
     }
 
     pub fn getOsSockLen(self: Ip6Address) os.socklen_t {
+        _ = self;
         return @sizeOf(os.sockaddr_in6);
     }
 };
@@ -1062,6 +1068,7 @@ fn IN6_IS_ADDR_SITELOCAL(a: [16]u8) bool {
 
 // Parameters `b` and `a` swapped to make this descending.
 fn addrCmpLessThan(context: void, b: LookupAddr, a: LookupAddr) bool {
+    _ = context;
     return a.sortkey < b.sortkey;
 }
 

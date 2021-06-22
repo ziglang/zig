@@ -774,7 +774,10 @@ pub const Fn = struct {
         ir.dumpFn(mod, func);
     }
 
-    pub fn deinit(func: *Fn, gpa: *Allocator) void {}
+    pub fn deinit(func: *Fn, gpa: *Allocator) void {
+        _ = func;
+        _ = gpa;
+    }
 };
 
 pub const Var = struct {
@@ -1561,7 +1564,6 @@ pub const SrcLoc = struct {
             .node_offset_array_access_index => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node_datas = tree.nodes.items(.data);
-                const node_tags = tree.nodes.items(.tag);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
                 const main_tokens = tree.nodes.items(.main_token);
                 const tok_index = main_tokens[node_datas[node].rhs];
@@ -1570,7 +1572,6 @@ pub const SrcLoc = struct {
             },
             .node_offset_slice_sentinel => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
                 const full = switch (node_tags[node]) {
@@ -1586,7 +1587,6 @@ pub const SrcLoc = struct {
             },
             .node_offset_call_func => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
                 var params: [1]ast.Node.Index = undefined;
@@ -1625,7 +1625,6 @@ pub const SrcLoc = struct {
             .node_offset_deref_ptr => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node_datas = tree.nodes.items(.data);
-                const node_tags = tree.nodes.items(.tag);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
                 const tok_index = node_datas[node].lhs;
                 const token_starts = tree.tokens.items(.start);
@@ -1633,7 +1632,6 @@ pub const SrcLoc = struct {
             },
             .node_offset_asm_source => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
                 const full = switch (node_tags[node]) {
@@ -1648,7 +1646,6 @@ pub const SrcLoc = struct {
             },
             .node_offset_asm_ret_ty => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
                 const full = switch (node_tags[node]) {
@@ -1771,7 +1768,6 @@ pub const SrcLoc = struct {
 
             .node_offset_fn_type_cc => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
                 var params: [1]ast.Node.Index = undefined;
@@ -1790,7 +1786,6 @@ pub const SrcLoc = struct {
 
             .node_offset_fn_type_ret_ty => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
                 var params: [1]ast.Node.Index = undefined;
@@ -1810,7 +1805,6 @@ pub const SrcLoc = struct {
             .node_offset_anyframe_type => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node_datas = tree.nodes.items(.data);
-                const node_tags = tree.nodes.items(.tag);
                 const parent_node = src_loc.declRelativeToNodeIndex(node_off);
                 const node = node_datas[parent_node].rhs;
                 const main_tokens = tree.nodes.items(.main_token);
@@ -2217,7 +2211,7 @@ comptime {
     }
 }
 
-pub fn astGenFile(mod: *Module, file: *Scope.File, prog_node: *std.Progress.Node) !void {
+pub fn astGenFile(mod: *Module, file: *Scope.File) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -2502,7 +2496,6 @@ pub fn astGenFile(mod: *Module, file: *Scope.File, prog_node: *std.Progress.Node
         @ptrCast([*]const u8, file.zir.instructions.items(.data).ptr);
     if (data_has_safety_tag) {
         // The `Data` union has a safety tag but in the file format we store it without.
-        const tags = file.zir.instructions.items(.tag);
         for (file.zir.instructions.items(.data)) |*data, i| {
             const as_struct = @ptrCast(*const Stage1DataLayout, data);
             safety_buffer[i] = as_struct.data;
@@ -2838,7 +2831,7 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl: *Decl) InnerError!void {
 }
 
 pub fn semaPkg(mod: *Module, pkg: *Package) !void {
-    const file = (try mod.importPkg(mod.root_pkg, pkg)).file;
+    const file = (try mod.importPkg(pkg)).file;
     return mod.semaFile(file);
 }
 
@@ -3137,7 +3130,7 @@ pub const ImportFileResult = struct {
     is_new: bool,
 };
 
-pub fn importPkg(mod: *Module, cur_pkg: *Package, pkg: *Package) !ImportFileResult {
+pub fn importPkg(mod: *Module, pkg: *Package) !ImportFileResult {
     const gpa = mod.gpa;
 
     // The resolved path is used as the key in the import table, to detect if
@@ -3190,7 +3183,7 @@ pub fn importFile(
     import_string: []const u8,
 ) !ImportFileResult {
     if (cur_file.pkg.table.get(import_string)) |pkg| {
-        return mod.importPkg(cur_file.pkg, pkg);
+        return mod.importPkg(pkg);
     }
     const gpa = mod.gpa;
 
@@ -3386,7 +3379,6 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) InnerError!vo
     log.debug("scan existing {*} ({s}) of {*}", .{ decl, decl.name, namespace });
     // Update the AST node of the decl; even if its contents are unchanged, it may
     // have been re-ordered.
-    const prev_src_node = decl.src_node;
     decl.src_node = decl_node;
     decl.src_line = line;
 
@@ -3395,7 +3387,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) InnerError!vo
     decl.has_align = has_align;
     decl.has_linksection = has_linksection;
     decl.zir_decl_index = @intCast(u32, decl_sub_index);
-    if (decl.getFunction()) |func| {
+    if (decl.getFunction()) |_| {
         switch (mod.comp.bin_file.tag) {
             .coff => {
                 // TODO Implement for COFF
@@ -3764,6 +3756,7 @@ pub fn analyzeExport(
     errdefer de_gop.value_ptr.* = mod.gpa.shrink(de_gop.value_ptr.*, de_gop.value_ptr.len - 1);
 }
 pub fn constInst(mod: *Module, arena: *Allocator, src: LazySrcLoc, typed_value: TypedValue) !*ir.Inst {
+    _ = mod;
     const const_inst = try arena.create(ir.Inst.Constant);
     const_inst.* = .{
         .base = .{
@@ -4132,6 +4125,7 @@ pub fn floatAdd(
     lhs: Value,
     rhs: Value,
 ) !Value {
+    _ = src;
     switch (float_type.tag()) {
         .f16 => {
             @panic("TODO add __trunctfhf2 to compiler-rt");
@@ -4165,6 +4159,7 @@ pub fn floatSub(
     lhs: Value,
     rhs: Value,
 ) !Value {
+    _ = src;
     switch (float_type.tag()) {
         .f16 => {
             @panic("TODO add __trunctfhf2 to compiler-rt");
@@ -4198,6 +4193,7 @@ pub fn floatDiv(
     lhs: Value,
     rhs: Value,
 ) !Value {
+    _ = src;
     switch (float_type.tag()) {
         .f16 => {
             @panic("TODO add __trunctfhf2 to compiler-rt");
@@ -4231,6 +4227,7 @@ pub fn floatMul(
     lhs: Value,
     rhs: Value,
 ) !Value {
+    _ = src;
     switch (float_type.tag()) {
         .f16 => {
             @panic("TODO add __trunctfhf2 to compiler-rt");
@@ -4264,6 +4261,7 @@ pub fn simplePtrType(
     mutable: bool,
     size: std.builtin.TypeInfo.Pointer.Size,
 ) Allocator.Error!Type {
+    _ = mod;
     if (!mutable and size == .Slice and elem_ty.eql(Type.initTag(.u8))) {
         return Type.initTag(.const_slice_u8);
     }
@@ -4298,6 +4296,7 @@ pub fn ptrType(
     @"volatile": bool,
     size: std.builtin.TypeInfo.Pointer.Size,
 ) Allocator.Error!Type {
+    _ = mod;
     assert(host_size == 0 or bit_offset < host_size * 8);
 
     // TODO check if type can be represented by simplePtrType
@@ -4315,6 +4314,7 @@ pub fn ptrType(
 }
 
 pub fn optionalType(mod: *Module, arena: *Allocator, child_type: Type) Allocator.Error!Type {
+    _ = mod;
     switch (child_type.tag()) {
         .single_const_pointer => return Type.Tag.optional_single_const_pointer.create(
             arena,
@@ -4335,6 +4335,7 @@ pub fn arrayType(
     sentinel: ?Value,
     elem_type: Type,
 ) Allocator.Error!Type {
+    _ = mod;
     if (elem_type.eql(Type.initTag(.u8))) {
         if (sentinel) |some| {
             if (some.eql(Value.initTag(.zero))) {
@@ -4365,6 +4366,7 @@ pub fn errorUnionType(
     error_set: Type,
     payload: Type,
 ) Allocator.Error!Type {
+    _ = mod;
     assert(error_set.zigTypeTag() == .ErrorSet);
     if (error_set.eql(Type.initTag(.anyerror)) and payload.eql(Type.initTag(.void))) {
         return Type.initTag(.anyerror_void_error_union);
@@ -4692,11 +4694,9 @@ pub fn analyzeUnionFields(mod: *Module, union_obj: *Union) InnerError!void {
     const src: LazySrcLoc = .{ .node_offset = union_obj.node_offset };
     extra_index += @boolToInt(small.has_src_node);
 
-    const tag_type_ref = if (small.has_tag_type) blk: {
-        const tag_type_ref = @intToEnum(Zir.Inst.Ref, zir.extra[extra_index]);
+    if (small.has_tag_type) {
         extra_index += 1;
-        break :blk tag_type_ref;
-    } else .none;
+    }
 
     const body_len = if (small.has_body_len) blk: {
         const body_len = zir.extra[extra_index];
@@ -4784,6 +4784,7 @@ pub fn analyzeUnionFields(mod: *Module, union_obj: *Union) InnerError!void {
         cur_bit_bag >>= 1;
         const unused = @truncate(u1, cur_bit_bag) != 0;
         cur_bit_bag >>= 1;
+        _ = unused;
 
         const field_name_zir = zir.nullTerminatedString(zir.extra[extra_index]);
         extra_index += 1;
@@ -4800,11 +4801,9 @@ pub fn analyzeUnionFields(mod: *Module, union_obj: *Union) InnerError!void {
             break :blk align_ref;
         } else .none;
 
-        const tag_ref: Zir.Inst.Ref = if (has_tag) blk: {
-            const tag_ref = @intToEnum(Zir.Inst.Ref, zir.extra[extra_index]);
+        if (has_tag) {
             extra_index += 1;
-            break :blk tag_ref;
-        } else .none;
+        }
 
         // This string needs to outlive the ZIR code.
         const field_name = try decl_arena.allocator.dupe(u8, field_name_zir);

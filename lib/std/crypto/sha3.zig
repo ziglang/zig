@@ -28,6 +28,7 @@ fn Keccak(comptime bits: usize, comptime delim: u8) type {
         rate: usize,
 
         pub fn init(options: Options) Self {
+            _ = options;
             return Self{ .s = [_]u8{0} ** 200, .offset = 0, .rate = 200 - (bits / 4) };
         }
 

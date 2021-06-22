@@ -518,8 +518,8 @@ pub fn cpuCount() CpuCountError!usize {
         },
         .haiku => {
             var count: u32 = undefined;
-            var system_info: os.system_info = undefined;
-            const rc = os.system.get_system_info(&system_info);
+            // var system_info: os.system_info = undefined;
+            // const rc = os.system.get_system_info(&system_info);
             count = system_info.cpu_count;
             return @intCast(usize, count);
         },

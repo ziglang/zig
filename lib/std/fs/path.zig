@@ -579,7 +579,7 @@ pub fn resolveWindows(allocator: *Allocator, paths: []const []const u8) ![]u8 {
     // Now we know the disk designator to use, if any, and what kind it is. And our result
     // is big enough to append all the paths to.
     var correct_disk_designator = true;
-    for (paths[first_index..]) |p, i| {
+    for (paths[first_index..]) |p| {
         const parsed = windowsParsePath(p);
 
         if (parsed.kind != WindowsPath.Kind.None) {
@@ -660,7 +660,7 @@ pub fn resolvePosix(allocator: *Allocator, paths: []const []const u8) ![]u8 {
     }
     errdefer allocator.free(result);
 
-    for (paths[first_index..]) |p, i| {
+    for (paths[first_index..]) |p| {
         var it = mem.tokenize(p, "/");
         while (it.next()) |component| {
             if (mem.eql(u8, component, ".")) {

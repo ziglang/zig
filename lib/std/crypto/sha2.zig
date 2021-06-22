@@ -95,6 +95,7 @@ fn Sha2x32(comptime params: Sha2Params32) type {
         total_len: u64 = 0,
 
         pub fn init(options: Options) Self {
+            _ = options;
             return Self{
                 .s = [_]u32{
                     params.iv0,
@@ -462,6 +463,7 @@ fn Sha2x64(comptime params: Sha2Params64) type {
         total_len: u128 = 0,
 
         pub fn init(options: Options) Self {
+            _ = options;
             return Self{
                 .s = [_]u64{
                     params.iv0,

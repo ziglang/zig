@@ -93,16 +93,16 @@ pub fn addCases(ctx: *TestContext) !void {
         , "");
         case.addError(
             \\pub export fn main() c_int {
-            \\    const c = @intToError(0);
+            \\    _ = @intToError(0);
             \\    return 0;
             \\}
-        , &.{":2:27: error: integer value 0 represents no error"});
+        , &.{":2:21: error: integer value 0 represents no error"});
         case.addError(
             \\pub export fn main() c_int {
-            \\    const c = @intToError(3);
+            \\    _ = @intToError(3);
             \\    return 0;
             \\}
-        , &.{":2:27: error: integer value 3 represents no error"});
+        , &.{":2:21: error: integer value 3 represents no error"});
     }
 
     {
@@ -383,6 +383,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\        true => 2,
             \\        false => 3,
             \\    };
+            \\    _  = b;
             \\}
         , &.{
             ":6:9: error: duplicate switch value",
@@ -398,6 +399,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\        f64, i32 => 3,
             \\        else => 4,
             \\    };
+            \\    _ = b;
             \\}
         , &.{
             ":6:14: error: duplicate switch value",
@@ -414,6 +416,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\        f16...f64 => 3,
             \\        else => 4,
             \\    };
+            \\    _ = b;
             \\}
         , &.{
             ":3:30: error: ranges not allowed when switching on type 'type'",
@@ -431,6 +434,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\        3 => 40,
             \\        else => 50,
             \\    };
+            \\    _ = b;
             \\}
         , &.{
             ":8:14: error: unreachable else prong; all cases already handled",
@@ -556,10 +560,10 @@ pub fn addCases(ctx: *TestContext) !void {
             \\const E1 = packed enum { a, b, c };
             \\const E2 = extern enum { a, b, c };
             \\export fn foo() void {
-            \\    const x = E1.a;
+            \\    _ = E1.a;
             \\}
             \\export fn bar() void {
-            \\    const x = E2.a;
+            \\    _ = E2.a;
             \\}
         , &.{
             ":1:12: error: enums do not support 'packed' or 'extern'; instead provide an explicit integer tag type",
@@ -579,10 +583,10 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    c,
             \\};
             \\export fn foo() void {
-            \\    const x = E1.a;
+            \\    _ = E1.a;
             \\}
             \\export fn bar() void {
-            \\    const x = E2.a;
+            \\    _ = E2.a;
             \\}
         , &.{
             ":3:5: error: enum fields cannot be marked comptime",
@@ -621,7 +625,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    c,
             \\};
             \\export fn foo() void {
-            \\    const x = E1.a;
+            \\    _ = E1.a;
             \\}
         , &.{
             ":3:7: error: expected ',', found 'align'",
@@ -638,7 +642,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    _,
             \\};
             \\export fn foo() void {
-            \\    const x = E1.a;
+            \\    _ = E1.a;
             \\}
         , &.{
             ":6:5: error: redundant non-exhaustive enum mark",
@@ -653,7 +657,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    _ = 10,
             \\};
             \\export fn foo() void {
-            \\    const x = E1.a;
+            \\    _ = E1.a;
             \\}
         , &.{
             ":5:9: error: '_' is used to mark an enum as non-exhaustive and cannot be assigned a value",
@@ -662,7 +666,7 @@ pub fn addCases(ctx: *TestContext) !void {
         case.addError(
             \\const E1 = enum {};
             \\export fn foo() void {
-            \\    const x = E1.a;
+            \\    _ = E1.a;
             \\}
         , &.{
             ":1:12: error: enum declarations must have at least one tag",
@@ -671,7 +675,7 @@ pub fn addCases(ctx: *TestContext) !void {
         case.addError(
             \\const E1 = enum { a, b, _ };
             \\export fn foo() void {
-            \\    const x = E1.a;
+            \\    _ = E1.a;
             \\}
         , &.{
             ":1:12: error: non-exhaustive enum missing integer tag type",
@@ -681,7 +685,7 @@ pub fn addCases(ctx: *TestContext) !void {
         case.addError(
             \\const E1 = enum { a, b, c, b, d };
             \\pub export fn main() c_int {
-            \\    const x = E1.a;
+            \\    _ = E1.a;
             \\}
         , &.{
             ":1:28: error: duplicate enum tag",
@@ -691,28 +695,28 @@ pub fn addCases(ctx: *TestContext) !void {
         case.addError(
             \\pub export fn main() c_int {
             \\    const a = true;
-            \\    const b = @enumToInt(a);
+            \\    _ = @enumToInt(a);
             \\}
         , &.{
-            ":3:26: error: expected enum or tagged union, found bool",
+            ":3:20: error: expected enum or tagged union, found bool",
         });
 
         case.addError(
             \\pub export fn main() c_int {
             \\    const a = 1;
-            \\    const b = @intToEnum(bool, a);
+            \\    _ = @intToEnum(bool, a);
             \\}
         , &.{
-            ":3:26: error: expected enum, found bool",
+            ":3:20: error: expected enum, found bool",
         });
 
         case.addError(
             \\const E = enum { a, b, c };
             \\pub export fn main() c_int {
-            \\    const b = @intToEnum(E, 3);
+            \\    _ = @intToEnum(E, 3);
             \\}
         , &.{
-            ":3:15: error: enum 'test_case.E' has no tag with value 3",
+            ":3:9: error: enum 'test_case.E' has no tag with value 3",
             ":1:11: note: enum declared here",
         });
 
@@ -780,10 +784,10 @@ pub fn addCases(ctx: *TestContext) !void {
         case.addError(
             \\const E = enum { a, b, c };
             \\pub export fn main() c_int {
-            \\    var x = E.d;
+            \\    _ = E.d;
             \\}
         , &.{
-            ":3:14: error: enum 'test_case.E' has no member named 'd'",
+            ":3:10: error: enum 'test_case.E' has no member named 'd'",
             ":1:11: note: enum declared here",
         });
 
@@ -791,6 +795,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\const E = enum { a, b, c };
             \\pub export fn main() c_int {
             \\    var x: E = .d;
+            \\    _ = x;
             \\}
         , &.{
             ":3:17: error: enum 'test_case.E' has no field named 'd'",
@@ -818,31 +823,35 @@ pub fn addCases(ctx: *TestContext) !void {
         \\
     );
     ctx.h("header with single param function", linux_x64,
-        \\export fn start(a: u8) void{}
+        \\export fn start(a: u8) void{
+        \\    _ = a;
+        \\}
     ,
         \\ZIG_EXTERN_C void start(uint8_t a0);
         \\
     );
     ctx.h("header with multiple param function", linux_x64,
-        \\export fn start(a: u8, b: u8, c: u8) void{}
+        \\export fn start(a: u8, b: u8, c: u8) void{
+        \\  _ = a; _ = b; _ = c;
+        \\}
     ,
         \\ZIG_EXTERN_C void start(uint8_t a0, uint8_t a1, uint8_t a2);
         \\
     );
     ctx.h("header with u32 param function", linux_x64,
-        \\export fn start(a: u32) void{}
+        \\export fn start(a: u32) void{ _ = a; }
     ,
         \\ZIG_EXTERN_C void start(uint32_t a0);
         \\
     );
     ctx.h("header with usize param function", linux_x64,
-        \\export fn start(a: usize) void{}
+        \\export fn start(a: usize) void{ _ = a; }
     ,
         \\ZIG_EXTERN_C void start(uintptr_t a0);
         \\
     );
     ctx.h("header with bool param function", linux_x64,
-        \\export fn start(a: bool) void{}
+        \\export fn start(a: bool) void{_ = a;}
     ,
         \\ZIG_EXTERN_C void start(bool a0);
         \\
@@ -866,7 +875,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\
     );
     ctx.h("header with multiple includes", linux_x64,
-        \\export fn start(a: u32, b: usize) void{}
+        \\export fn start(a: u32, b: usize) void{ _ = a; _ = b; }
     ,
         \\ZIG_EXTERN_C void start(uint32_t a0, uintptr_t a1);
         \\

@@ -100,5 +100,5 @@ test "comptime shr of BigInt" {
 }
 
 test "comptime shift safety check" {
-    const x = @as(usize, 42) << @sizeOf(usize);
+    _ = @as(usize, 42) << @sizeOf(usize);
 }

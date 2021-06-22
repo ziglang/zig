@@ -325,7 +325,6 @@ pub const AllErrors = struct {
         },
 
         pub fn renderToStdErr(msg: Message, ttyconf: std.debug.TTY.Config) void {
-            const stderr_mutex = std.debug.getStderrMutex();
             const held = std.debug.getStderrMutex().acquire();
             defer held.release();
             const stderr = std.io.getStdErr();
@@ -524,6 +523,7 @@ pub const AllErrors = struct {
         errors: *std.ArrayList(Message),
         msg: []const u8,
     ) !void {
+        _ = arena;
         try errors.append(.{ .plain = .{ .msg = msg } });
     }
 
@@ -1639,7 +1639,7 @@ pub fn update(self: *Compilation) !void {
             // Make sure std.zig is inside the import_table. We unconditionally need
             // it for start.zig.
             const std_pkg = module.root_pkg.table.get("std").?;
-            _ = try module.importPkg(module.root_pkg, std_pkg);
+            _ = try module.importPkg(std_pkg);
 
             // Put a work item in for every known source file to detect if
             // it changed, and, if so, re-compute ZIR and then queue the job
@@ -2283,8 +2283,12 @@ fn workerAstGenFile(
 ) void {
     defer wg.finish();
 
+    var child_prog_node = prog_node.start(file.sub_file_path, 0);
+    child_prog_node.activate();
+    defer child_prog_node.end();
+
     const mod = comp.bin_file.options.module.?;
-    mod.astGenFile(file, prog_node) catch |err| switch (err) {
+    mod.astGenFile(file) catch |err| switch (err) {
         error.AnalysisFail => return,
         else => {
             file.status = .retryable_failure;
@@ -2373,7 +2377,7 @@ pub fn cImport(comp: *Compilation, c_src: []const u8) !CImportResult {
     // We need to "unhit" in this case, to keep the digests matching.
     const prev_hash_state = man.hash.peekBin();
     const actual_hit = hit: {
-        const is_hit = try man.hit();
+        _ = try man.hit();
         if (man.files.items.len == 0) {
             man.unhit(prev_hash_state, 0);
             break :hit false;

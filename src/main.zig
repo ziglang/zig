@@ -500,7 +500,7 @@ const Emit = union(enum) {
 };
 
 fn optionalBoolEnvVar(arena: *Allocator, name: []const u8) !bool {
-    if (std.process.getEnvVarOwned(arena, name)) |value| {
+    if (std.process.getEnvVarOwned(arena, name)) |_| {
         return true;
     } else |err| switch (err) {
         error.EnvironmentVariableNotFound => return false,
@@ -2565,6 +2565,7 @@ pub fn cmdInit(
     args: []const []const u8,
     output_mode: std.builtin.OutputMode,
 ) !void {
+    _ = gpa;
     {
         var i: usize = 0;
         while (i < args.len) : (i += 1) {
@@ -3749,7 +3750,6 @@ pub fn cmdAstCheck(
 
     var color: Color = .auto;
     var want_output_text = false;
-    var have_zig_source_file = false;
     var zig_source_file: ?[]const u8 = null;
 
     var i: usize = 0;

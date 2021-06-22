@@ -96,18 +96,18 @@ pub fn TrailerFlags(comptime Fields: type) type {
         pub fn ptr(self: Self, p: [*]align(@alignOf(Fields)) u8, comptime field: FieldEnum) *Field(field) {
             if (@sizeOf(Field(field)) == 0)
                 return undefined;
-            const off = self.offset(p, field);
+            const off = self.offset(field);
             return @ptrCast(*Field(field), @alignCast(@alignOf(Field(field)), p + off));
         }
 
         pub fn ptrConst(self: Self, p: [*]align(@alignOf(Fields)) const u8, comptime field: FieldEnum) *const Field(field) {
             if (@sizeOf(Field(field)) == 0)
                 return undefined;
-            const off = self.offset(p, field);
+            const off = self.offset(field);
             return @ptrCast(*const Field(field), @alignCast(@alignOf(Field(field)), p + off));
         }
 
-        pub fn offset(self: Self, p: [*]align(@alignOf(Fields)) const u8, comptime field: FieldEnum) usize {
+        pub fn offset(self: Self, comptime field: FieldEnum) usize {
             var off: usize = 0;
             inline for (@typeInfo(Fields).Struct.fields) |field_info, i| {
                 const active = (self.bits & (1 << i)) != 0;

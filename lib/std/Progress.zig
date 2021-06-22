@@ -295,7 +295,7 @@ fn refreshWithHeldLock(self: *Progress) void {
         end += 1;
     }
 
-    _ = file.write(self.output_buffer[0..end]) catch |e| {
+    _ = file.write(self.output_buffer[0..end]) catch {
         // Stop trying to write to this file once it errors.
         self.terminal = null;
     };

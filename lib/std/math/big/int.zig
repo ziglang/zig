@@ -458,6 +458,7 @@ pub const Mutable = struct {
     /// If `allocator` is provided, it will be used for temporary storage to improve
     /// multiplication performance. `error.OutOfMemory` is handled with a fallback algorithm.
     pub fn sqrNoAlias(rma: *Mutable, a: Const, opt_allocator: ?*Allocator) void {
+        _ = opt_allocator;
         assert(rma.limbs.ptr != a.limbs.ptr); // illegal aliasing
 
         mem.set(Limb, rma.limbs, 0);
@@ -676,6 +677,7 @@ pub const Mutable = struct {
     ///
     /// `limbs_buffer` is used for temporary storage during the operation.
     pub fn gcdNoAlias(rma: *Mutable, x: Const, y: Const, limbs_buffer: *std.ArrayList(Limb)) !void {
+        _ = limbs_buffer;
         assert(rma.limbs.ptr != x.limbs.ptr); // illegal aliasing
         assert(rma.limbs.ptr != y.limbs.ptr); // illegal aliasing
         return gcdLehmer(rma, x, y, allocator);
@@ -1141,6 +1143,7 @@ pub const Const = struct {
         options: std.fmt.FormatOptions,
         out_stream: anytype,
     ) !void {
+        _ = options;
         comptime var radix = 10;
         comptime var case: std.fmt.Case = .lower;
 
@@ -1618,6 +1621,7 @@ pub const Managed = struct {
     /// Converts self to a string in the requested base. Memory is allocated from the provided
     /// allocator and not the one present in self.
     pub fn toString(self: Managed, allocator: *Allocator, base: u8, case: std.fmt.Case) ![]u8 {
+        _ = allocator;
         if (base < 2 or base > 16) return error.InvalidBase;
         return self.toConst().toStringAlloc(self.allocator, base, case);
     }
@@ -2000,8 +2004,6 @@ fn llmulacc_karatsuba(allocator: *Allocator, r: []Limb, x: []const Limb, y: []co
     } else {
         llsub(j1, y0[0..y0_len], y1[0..y1_len]);
     }
-    const j0_len = llnormalize(j0);
-    const j1_len = llnormalize(j1);
     if (x_cmp == y_cmp) {
         mem.set(Limb, tmp[0..length], 0);
         llmulacc(allocator, tmp, j0, j1);

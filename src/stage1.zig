@@ -407,6 +407,8 @@ export fn stage2_add_link_lib(
     symbol_name_ptr: [*c]const u8,
     symbol_name_len: usize,
 ) ?[*:0]const u8 {
+    _ = symbol_name_len;
+    _ = symbol_name_ptr;
     const comp = @intToPtr(*Compilation, stage1.userdata);
     const lib_name = std.ascii.allocLowerString(comp.gpa, lib_name_ptr[0..lib_name_len]) catch return "out of memory";
     const target = comp.getTarget();

@@ -541,6 +541,7 @@ test "makePath, put some files in it, deleteTree" {
     try tmp.dir.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "file2.txt", "blah");
     try tmp.dir.deleteTree("os_test_tmp");
     if (tmp.dir.openDir("os_test_tmp", .{})) |dir| {
+        _ = dir;
         @panic("expected error");
     } else |err| {
         try testing.expect(err == error.FileNotFound);
@@ -638,6 +639,7 @@ test "access file" {
 
     try tmp.dir.makePath("os_test_tmp");
     if (tmp.dir.access("os_test_tmp" ++ fs.path.sep_str ++ "file.txt", .{})) |ok| {
+        _ = ok;
         @panic("expected error");
     } else |err| {
         try testing.expect(err == error.FileNotFound);

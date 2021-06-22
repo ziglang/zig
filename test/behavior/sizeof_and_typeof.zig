@@ -195,11 +195,11 @@ test "branching logic inside @TypeOf" {
 
 fn fn1(alpha: bool) void {
     const n: usize = 7;
-    const v = if (alpha) n else @sizeOf(usize);
+    _ = if (alpha) n else @sizeOf(usize);
 }
 
 test "lazy @sizeOf result is checked for definedness" {
-    const f = fn1;
+    _ = fn1;
 }
 
 test "@bitSizeOf" {

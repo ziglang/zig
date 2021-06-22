@@ -40,9 +40,11 @@ pub fn StringArrayHashMapUnmanaged(comptime V: type) type {
 
 pub const StringContext = struct {
     pub fn hash(self: @This(), s: []const u8) u32 {
+        _ = self;
         return hashString(s);
     }
     pub fn eql(self: @This(), a: []const u8, b: []const u8) bool {
+        _ = self;
         return eqlString(a, b);
     }
 };
@@ -1324,17 +1326,17 @@ pub fn ArrayHashMapUnmanaged(
         }
         fn removeFromIndexByIndexGeneric(self: *Self, entry_index: usize, ctx: ByIndexContext, header: *IndexHeader, comptime I: type, indexes: []Index(I)) void {
             const slot = self.getSlotByIndex(entry_index, ctx, header, I, indexes);
-            self.removeSlot(slot, header, I, indexes);
+            removeSlot(slot, header, I, indexes);
         }
 
         fn removeFromIndexByKey(self: *Self, key: anytype, ctx: anytype, header: *IndexHeader, comptime I: type, indexes: []Index(I)) ?usize {
             const slot = self.getSlotByKey(key, ctx, header, I, indexes) orelse return null;
             const removed_entry_index = indexes[slot].entry_index;
-            self.removeSlot(slot, header, I, indexes);
+            removeSlot(slot, header, I, indexes);
             return removed_entry_index;
         }
 
-        fn removeSlot(self: *Self, removed_slot: usize, header: *IndexHeader, comptime I: type, indexes: []Index(I)) void {
+        fn removeSlot(removed_slot: usize, header: *IndexHeader, comptime I: type, indexes: []Index(I)) void {
             const start_index = removed_slot +% 1;
             const end_index = start_index +% indexes.len;
 
@@ -1619,13 +1621,13 @@ pub fn ArrayHashMapUnmanaged(
             if (self.index_header) |header| {
                 p("\n", .{});
                 switch (header.capacityIndexType()) {
-                    .u8 => self.dumpIndex(header, u8),
-                    .u16 => self.dumpIndex(header, u16),
-                    .u32 => self.dumpIndex(header, u32),
+                    .u8 => dumpIndex(header, u8),
+                    .u16 => dumpIndex(header, u16),
+                    .u32 => dumpIndex(header, u32),
                 }
             }
         }
-        fn dumpIndex(self: Self, header: *IndexHeader, comptime I: type) void {
+        fn dumpIndex(header: *IndexHeader, comptime I: type) void {
             const p = std.debug.print;
             p("  index len=0x{x} type={}\n", .{ header.length(), header.capacityIndexType() });
             const indexes = header.indexes(I);
@@ -1918,7 +1920,7 @@ test "iterator hash map" {
     try testing.expect(count == 3);
     try testing.expect(it.next() == null);
 
-    for (buffer) |v, i| {
+    for (buffer) |_, i| {
         try testing.expect(buffer[@intCast(usize, keys[i])] == values[i]);
     }
 
@@ -1930,7 +1932,7 @@ test "iterator hash map" {
         if (count >= 2) break;
     }
 
-    for (buffer[0..2]) |v, i| {
+    for (buffer[0..2]) |_, i| {
         try testing.expect(buffer[@intCast(usize, keys[i])] == values[i]);
     }
 
@@ -2154,6 +2156,7 @@ test "compile everything" {
 pub fn getHashPtrAddrFn(comptime K: type, comptime Context: type) (fn (Context, K) u32) {
     return struct {
         fn hash(ctx: Context, key: K) u32 {
+            _ = ctx;
             return getAutoHashFn(usize, void)({}, @ptrToInt(key));
         }
     }.hash;
@@ -2162,6 +2165,7 @@ pub fn getHashPtrAddrFn(comptime K: type, comptime Context: type) (fn (Context, 
 pub fn getTrivialEqlFn(comptime K: type, comptime Context: type) (fn (Context, K, K) bool) {
     return struct {
         fn eql(ctx: Context, a: K, b: K) bool {
+            _ = ctx;
             return a == b;
         }
     }.eql;
@@ -2177,6 +2181,7 @@ pub fn AutoContext(comptime K: type) type {
 pub fn getAutoHashFn(comptime K: type, comptime Context: type) (fn (Context, K) u32) {
     return struct {
         fn hash(ctx: Context, key: K) u32 {
+            _ = ctx;
             if (comptime trait.hasUniqueRepresentation(K)) {
                 return @truncate(u32, Wyhash.hash(0, std.mem.asBytes(&key)));
             } else {
@@ -2191,6 +2196,7 @@ pub fn getAutoHashFn(comptime K: type, comptime Context: type) (fn (Context, K) 
 pub fn getAutoEqlFn(comptime K: type, comptime Context: type) (fn (Context, K, K) bool) {
     return struct {
         fn eql(ctx: Context, a: K, b: K) bool {
+            _ = ctx;
             return meta.eql(a, b);
         }
     }.eql;
@@ -2217,6 +2223,7 @@ pub fn autoEqlIsCheap(comptime K: type) bool {
 pub fn getAutoHashStratFn(comptime K: type, comptime Context: type, comptime strategy: std.hash.Strategy) (fn (Context, K) u32) {
     return struct {
         fn hash(ctx: Context, key: K) u32 {
+            _ = ctx;
             var hasher = Wyhash.init(0);
             std.hash.autoHashStrat(&hasher, key, strategy);
             return @truncate(u32, hasher.final());

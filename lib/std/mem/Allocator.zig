@@ -55,6 +55,10 @@ pub fn noResize(
     len_align: u29,
     ret_addr: usize,
 ) Error!usize {
+    _ = self;
+    _ = buf_align;
+    _ = len_align;
+    _ = ret_addr;
     if (new_len > buf.len)
         return error.OutOfMemory;
     return new_len;

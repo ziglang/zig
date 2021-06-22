@@ -8,6 +8,7 @@ pub fn formatId(
     options: std.fmt.FormatOptions,
     writer: anytype,
 ) !void {
+    _ = fmt;
     if (isValidId(bytes)) {
         return writer.writeAll(bytes);
     }
@@ -41,6 +42,7 @@ pub fn formatEscapes(
     options: std.fmt.FormatOptions,
     writer: anytype,
 ) !void {
+    _ = options;
     for (bytes) |byte| switch (byte) {
         '\n' => try writer.writeAll("\\n"),
         '\r' => try writer.writeAll("\\r"),

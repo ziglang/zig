@@ -45,7 +45,7 @@ var global_with_err: anyerror!u32 = error.SomeError;
 test "unwrap mutable global var" {
     if (global_with_val) |v| {
         try expect(v == 0);
-    } else |e| {
+    } else |_| {
         unreachable;
     }
     if (global_with_err) |_| {

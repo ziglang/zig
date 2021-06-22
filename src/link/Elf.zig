@@ -1262,7 +1262,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
                 .target = self.base.options.target,
                 .output_mode = .Obj,
             });
-            const o_directory = self.base.options.module.?.zig_cache_artifact_directory;
+            const o_directory = module.zig_cache_artifact_directory;
             const full_obj_path = try o_directory.join(arena, &[_][]const u8{obj_basename});
             break :blk full_obj_path;
         }
@@ -1938,6 +1938,9 @@ fn freeTextBlock(self: *Elf, text_block: *TextBlock) void {
 }
 
 fn shrinkTextBlock(self: *Elf, text_block: *TextBlock, new_block_size: u64) void {
+    _ = self;
+    _ = text_block;
+    _ = new_block_size;
     // TODO check the new capacity, and if it crosses the size threshold into a big enough
     // capacity, insert a free list node for it.
 }
@@ -2706,6 +2709,7 @@ pub fn updateDeclExports(
 
 /// Must be called only after a successful call to `updateDecl`.
 pub fn updateDeclLineNumber(self: *Elf, module: *Module, decl: *const Module.Decl) !void {
+    _ = module;
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -2979,6 +2983,7 @@ fn dbgLineNeededHeaderBytes(self: Elf) u32 {
 }
 
 fn dbgInfoNeededHeaderBytes(self: Elf) u32 {
+    _ = self;
     return 120;
 }
 
@@ -3372,7 +3377,7 @@ const CsuObjects = struct {
                     if (result.crtend) |*obj| obj.* = try fs.path.join(arena, &[_][]const u8{ gcc_dir_path, obj.* });
                 },
                 else => {
-                    inline for (std.meta.fields(@TypeOf(result))) |f, i| {
+                    inline for (std.meta.fields(@TypeOf(result))) |f| {
                         if (@field(result, f.name)) |*obj| {
                             obj.* = try fs.path.join(arena, &[_][]const u8{ crt_dir_path, obj.* });
                         }
@@ -3380,7 +3385,7 @@ const CsuObjects = struct {
                 },
             }
         } else {
-            inline for (std.meta.fields(@TypeOf(result))) |f, i| {
+            inline for (std.meta.fields(@TypeOf(result))) |f| {
                 if (@field(result, f.name)) |*obj| {
                     if (comp.crt_files.get(obj.*)) |crtf| {
                         obj.* = crtf.full_object_path;

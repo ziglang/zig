@@ -1513,7 +1513,7 @@ pub fn map_create(map_type: MapType, key_size: u32, value_size: u32, max_entries
         EINVAL => error.MapTypeOrAttrInvalid,
         ENOMEM => error.SystemResources,
         EPERM => error.AccessDenied,
-        else => |err| unexpectedErrno(rc),
+        else => |err| unexpectedErrno(err),
     };
 }
 
@@ -1539,7 +1539,7 @@ pub fn map_lookup_elem(fd: fd_t, key: []const u8, value: []u8) !void {
         EINVAL => return error.FieldInAttrNeedsZeroing,
         ENOENT => return error.NotFound,
         EPERM => return error.AccessDenied,
-        else => |err| return unexpectedErrno(rc),
+        else => |err| return unexpectedErrno(err),
     }
 }
 

@@ -166,8 +166,6 @@ pub const Wyhash = struct {
     }
 
     pub fn final(self: *Wyhash) u64 {
-        const seed = self.state.seed;
-        const rem_len = @intCast(u5, self.buf_len);
         const rem_key = self.buf[0..self.buf_len];
 
         return self.state.final(rem_key);

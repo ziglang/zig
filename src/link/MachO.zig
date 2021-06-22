@@ -441,6 +441,7 @@ pub fn flush(self: *MachO, comp: *Compilation) !void {
 }
 
 pub fn flushModule(self: *MachO, comp: *Compilation) !void {
+    _ = comp;
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -533,7 +534,7 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                 .target = self.base.options.target,
                 .output_mode = .Obj,
             });
-            const o_directory = self.base.options.module.?.zig_cache_artifact_directory;
+            const o_directory = module.zig_cache_artifact_directory;
             const full_obj_path = try o_directory.join(arena, &[_][]const u8{obj_basename});
             break :blk full_obj_path;
         }
@@ -1254,6 +1255,9 @@ fn freeTextBlock(self: *MachO, text_block: *TextBlock) void {
 }
 
 fn shrinkTextBlock(self: *MachO, text_block: *TextBlock, new_block_size: u64) void {
+    _ = self;
+    _ = text_block;
+    _ = new_block_size;
     // TODO check the new capacity, and if it crosses the size threshold into a big enough
     // capacity, insert a free list node for it.
 }
@@ -2918,7 +2922,6 @@ fn relocateSymbolTable(self: *MachO) !void {
     const nsyms = nlocals + nglobals + nundefs;
 
     if (symtab.nsyms < nsyms) {
-        const linkedit_segment = self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
         const needed_size = nsyms * @sizeOf(macho.nlist_64);
         if (needed_size > self.allocatedSizeLinkedit(symtab.symoff)) {
             // Move the entire symbol table to a new location
@@ -3150,7 +3153,6 @@ fn writeExportTrie(self: *MachO) !void {
     const nwritten = try trie.write(stream.writer());
     assert(nwritten == trie.size);
 
-    const linkedit_segment = self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
     const dyld_info = &self.load_commands.items[self.dyld_info_cmd_index.?].DyldInfoOnly;
     const allocated_size = self.allocatedSizeLinkedit(dyld_info.export_off);
     const needed_size = mem.alignForwardGeneric(u64, buffer.len, @alignOf(u64));
@@ -3357,7 +3359,6 @@ fn populateLazyBindOffsetsInStubHelper(self: *MachO, buffer: []const u8) !void {
             error.EndOfStream => break,
             else => return err,
         };
-        const imm: u8 = inst & macho.BIND_IMMEDIATE_MASK;
         const opcode: u8 = inst & macho.BIND_OPCODE_MASK;
 
         switch (opcode) {

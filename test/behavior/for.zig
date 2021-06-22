@@ -29,10 +29,14 @@ test "for loop with pointer elem var" {
     mangleString(target[0..]);
     try expect(mem.eql(u8, &target, "bcdefgh"));
 
-    for (source) |*c, i|
+    for (source) |*c, i| {
+        _ = i;
         try expect(@TypeOf(c) == *const u8);
-    for (target) |*c, i|
+    }
+    for (target) |*c, i| {
+        _ = i;
         try expect(@TypeOf(c) == *u8);
+    }
 }
 
 fn mangleString(s: []u8) void {
@@ -53,6 +57,7 @@ test "basic for loop" {
         buf_index += 1;
     }
     for (array) |item, index| {
+        _ = item;
         buffer[buf_index] = @intCast(u8, index);
         buf_index += 1;
     }
@@ -62,6 +67,7 @@ test "basic for loop" {
         buf_index += 1;
     }
     for (array_ptr) |item, index| {
+        _ = item;
         buffer[buf_index] = @intCast(u8, index);
         buf_index += 1;
     }
@@ -70,7 +76,7 @@ test "basic for loop" {
         buffer[buf_index] = item;
         buf_index += 1;
     }
-    for (unknown_size) |item, index| {
+    for (unknown_size) |_, index| {
         buffer[buf_index] = @intCast(u8, index);
         buf_index += 1;
     }
@@ -118,6 +124,7 @@ test "2 break statements and an else" {
             var buf: [10]u8 = undefined;
             var ok = false;
             ok = for (buf) |item| {
+                _ = item;
                 if (f) break false;
                 if (t) break true;
             } else false;
@@ -136,6 +143,7 @@ test "for with null and T peer types and inferred result location type" {
                     break item;
                 }
             } else null) |v| {
+                _ = v;
                 @panic("fail");
             }
         }

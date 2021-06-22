@@ -105,6 +105,7 @@ pub const DebugEvent = struct {
     }
 
     pub fn timedWait(ev: *DebugEvent, timeout: u64) TimedWaitResult {
+        _ = timeout;
         switch (ev.state) {
             .unset => return .timed_out,
             .set => return .event_set,
@@ -174,7 +175,10 @@ pub const AtomicEvent = struct {
     };
 
     pub const SpinFutex = struct {
-        fn wake(waiters: *u32, wake_count: u32) void {}
+        fn wake(waiters: *u32, wake_count: u32) void {
+            _ = waiters;
+            _ = wake_count;
+        }
 
         fn wait(waiters: *u32, timeout: ?u64) !void {
             var timer: time.Timer = undefined;
@@ -193,6 +197,7 @@ pub const AtomicEvent = struct {
 
     pub const LinuxFutex = struct {
         fn wake(waiters: *u32, wake_count: u32) void {
+            _ = wake_count;
             const waiting = std.math.maxInt(i32); // wake_count
             const ptr = @ptrCast(*const i32, waiters);
             const rc = linux.futex_wake(ptr, linux.FUTEX_WAKE | linux.FUTEX_PRIVATE_FLAG, waiting);

@@ -3176,6 +3176,7 @@ const Writer = struct {
         inst: Inst.Index,
     ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
         const inst_data = self.code.instructions.items(.data)[inst].array_type_sentinel;
+        _ = inst_data;
         try stream.writeAll("TODO)");
     }
 
@@ -3213,6 +3214,7 @@ const Writer = struct {
         inst: Inst.Index,
     ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
         const inst_data = self.code.instructions.items(.data)[inst].ptr_type;
+        _ = inst_data;
         try stream.writeAll("TODO)");
     }
 
@@ -3559,6 +3561,8 @@ const Writer = struct {
             assert(body.len == 0);
             try stream.writeAll("{}, {})");
         } else {
+            const prev_parent_decl_node = self.parent_decl_node;
+            if (src_node) |off| self.parent_decl_node = self.relativeToNodeIndex(off);
             self.indent += 2;
             if (body.len == 0) {
                 try stream.writeAll("{}, {\n");
@@ -3621,6 +3625,7 @@ const Writer = struct {
                 try stream.writeAll(",\n");
             }
 
+            self.parent_decl_node = prev_parent_decl_node;
             self.indent -= 2;
             try stream.writeByteNTimes(' ', self.indent);
             try stream.writeAll("})");
@@ -3689,6 +3694,8 @@ const Writer = struct {
         const body = self.code.extra[extra_index..][0..body_len];
         extra_index += body.len;
 
+        const prev_parent_decl_node = self.parent_decl_node;
+        if (src_node) |off| self.parent_decl_node = self.relativeToNodeIndex(off);
         self.indent += 2;
         if (body.len == 0) {
             try stream.writeAll("{}, {\n");
@@ -3754,6 +3761,7 @@ const Writer = struct {
             try stream.writeAll(",\n");
         }
 
+        self.parent_decl_node = prev_parent_decl_node;
         self.indent -= 2;
         try stream.writeByteNTimes(' ', self.indent);
         try stream.writeAll("})");
@@ -3909,6 +3917,8 @@ const Writer = struct {
             assert(body.len == 0);
             try stream.writeAll("{}, {})");
         } else {
+            const prev_parent_decl_node = self.parent_decl_node;
+            if (src_node) |off| self.parent_decl_node = self.relativeToNodeIndex(off);
             self.indent += 2;
             if (body.len == 0) {
                 try stream.writeAll("{}, {\n");
@@ -3949,6 +3959,7 @@ const Writer = struct {
                 }
                 try stream.writeAll(",\n");
             }
+            self.parent_decl_node = prev_parent_decl_node;
             self.indent -= 2;
             try stream.writeByteNTimes(' ', self.indent);
             try stream.writeAll("})");
@@ -4431,6 +4442,7 @@ const Writer = struct {
     }
 
     fn writeInstIndex(self: *Writer, stream: anytype, inst: Inst.Index) !void {
+        _ = self;
         return stream.print("%{d}", .{inst});
     }
 
@@ -4451,6 +4463,7 @@ const Writer = struct {
         name: []const u8,
         flag: bool,
     ) !void {
+        _ = self;
         if (!flag) return;
         try stream.writeAll(name);
     }
@@ -4739,7 +4752,6 @@ fn findDeclsSwitch(
     var extra_index: usize = special.end;
     var scalar_i: usize = 0;
     while (scalar_i < extra.data.cases_len) : (scalar_i += 1) {
-        const item_ref = @intToEnum(Inst.Ref, zir.extra[extra_index]);
         extra_index += 1;
         const body_len = zir.extra[extra_index];
         extra_index += 1;
@@ -4779,7 +4791,6 @@ fn findDeclsSwitchMulti(
     {
         var scalar_i: usize = 0;
         while (scalar_i < extra.data.scalar_cases_len) : (scalar_i += 1) {
-            const item_ref = @intToEnum(Inst.Ref, zir.extra[extra_index]);
             extra_index += 1;
             const body_len = zir.extra[extra_index];
             extra_index += 1;
@@ -4800,12 +4811,11 @@ fn findDeclsSwitchMulti(
             extra_index += 1;
             const items = zir.refSlice(extra_index, items_len);
             extra_index += items_len;
+            _ = items;
 
             var range_i: usize = 0;
             while (range_i < ranges_len) : (range_i += 1) {
-                const item_first = @intToEnum(Inst.Ref, zir.extra[extra_index]);
                 extra_index += 1;
-                const item_last = @intToEnum(Inst.Ref, zir.extra[extra_index]);
                 extra_index += 1;
             }
 

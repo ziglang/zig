@@ -191,7 +191,6 @@ test "expectEqual.union(enum)" {
     };
 
     const a10 = T{ .a = 10 };
-    const a20 = T{ .a = 20 };
 
     try expectEqual(a10, a10);
 }

@@ -1164,6 +1164,7 @@ fn openOptionsFromFlags(flags: u32) windows.OpenFileOptions {
 /// TODO currently, this function does not handle all flag combinations
 /// or makes use of perm argument.
 pub fn openW(file_path_w: []const u16, flags: u32, perm: mode_t) OpenError!fd_t {
+    _ = perm;
     var options = openOptionsFromFlags(flags);
     options.dir = std.fs.cwd().fd;
     return windows.OpenFile(file_path_w, options) catch |err| switch (err) {
@@ -1273,6 +1274,7 @@ pub fn openatZ(dir_fd: fd_t, file_path: [*:0]const u8, flags: u32, mode: mode_t)
 /// TODO currently, this function does not handle all flag combinations
 /// or makes use of perm argument.
 pub fn openatW(dir_fd: fd_t, file_path_w: []const u16, flags: u32, mode: mode_t) OpenError!fd_t {
+    _ = mode;
     var options = openOptionsFromFlags(flags);
     options.dir = dir_fd;
     return windows.OpenFile(file_path_w, options) catch |err| switch (err) {
@@ -2169,6 +2171,7 @@ pub fn mkdirat(dir_fd: fd_t, sub_dir_path: []const u8, mode: u32) MakeDirError!v
 pub const mkdiratC = @compileError("deprecated: renamed to mkdiratZ");
 
 pub fn mkdiratWasi(dir_fd: fd_t, sub_dir_path: []const u8, mode: u32) MakeDirError!void {
+    _ = mode;
     switch (wasi.path_create_directory(dir_fd, sub_dir_path.ptr, sub_dir_path.len)) {
         wasi.ESUCCESS => return,
         wasi.EACCES => return error.AccessDenied,
@@ -2216,6 +2219,7 @@ pub fn mkdiratZ(dir_fd: fd_t, sub_dir_path: [*:0]const u8, mode: u32) MakeDirErr
 }
 
 pub fn mkdiratW(dir_fd: fd_t, sub_path_w: []const u16, mode: u32) MakeDirError!void {
+    _ = mode;
     const sub_dir_handle = windows.OpenFile(sub_path_w, .{
         .dir = dir_fd,
         .access_mask = windows.GENERIC_READ | windows.SYNCHRONIZE,
@@ -2291,6 +2295,7 @@ pub fn mkdirZ(dir_path: [*:0]const u8, mode: u32) MakeDirError!void {
 
 /// Windows-only. Same as `mkdir` but the parameters is  WTF16 encoded.
 pub fn mkdirW(dir_path_w: []const u16, mode: u32) MakeDirError!void {
+    _ = mode;
     const sub_dir_handle = windows.OpenFile(dir_path_w, .{
         .dir = std.fs.cwd().fd,
         .access_mask = windows.GENERIC_READ | windows.SYNCHRONIZE,
@@ -3868,6 +3873,7 @@ pub fn accessZ(path: [*:0]const u8, mode: u32) AccessError!void {
 /// Otherwise use `access` or `accessC`.
 /// TODO currently this ignores `mode`.
 pub fn accessW(path: [*:0]const u16, mode: u32) windows.GetFileAttributesError!void {
+    _ = mode;
     const ret = try windows.GetFileAttributesW(path);
     if (ret != windows.INVALID_FILE_ATTRIBUTES) {
         return;
@@ -3918,6 +3924,8 @@ pub fn faccessatZ(dirfd: fd_t, path: [*:0]const u8, mode: u32, flags: u32) Acces
 /// is NtDll-prefixed, null-terminated, WTF-16 encoded.
 /// TODO currently this ignores `mode` and `flags`
 pub fn faccessatW(dirfd: fd_t, sub_path_w: [*:0]const u16, mode: u32, flags: u32) AccessError!void {
+    _ = mode;
+    _ = flags;
     if (sub_path_w[0] == '.' and sub_path_w[1] == 0) {
         return;
     }
@@ -4895,6 +4903,8 @@ pub fn res_mkquery(
     newrr: ?[*]const u8,
     buf: []u8,
 ) usize {
+    _ = data;
+    _ = newrr;
     // This implementation is ported from musl libc.
     // A more idiomatic "ziggy" implementation would be welcome.
     var name = dname;
@@ -5341,7 +5351,7 @@ pub fn sendfile(
                     ENXIO => return error.Unseekable,
                     ESPIPE => return error.Unseekable,
                     else => |err| {
-                        const discard = unexpectedErrno(err);
+                        unexpectedErrno(err) catch {};
                         break :sf;
                     },
                 }
@@ -5422,7 +5432,7 @@ pub fn sendfile(
                     EPIPE => return error.BrokenPipe,
 
                     else => {
-                        const discard = unexpectedErrno(err);
+                        unexpectedErrno(err) catch {};
                         if (amt != 0) {
                             return amt;
                         } else {
@@ -5484,7 +5494,7 @@ pub fn sendfile(
                     EPIPE => return error.BrokenPipe,
 
                     else => {
-                        const discard = unexpectedErrno(err);
+                        unexpectedErrno(err) catch {};
                         if (amt != 0) {
                             return amt;
                         } else {

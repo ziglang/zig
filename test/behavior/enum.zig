@@ -111,6 +111,8 @@ test "enum type" {
             .y = 5678,
         },
     };
+    try expect(foo1.One == 13);
+    try expect(foo2.Two.x == 1234 and foo2.Two.y == 5678);
     const bar = Bar.B;
 
     try expect(bar == Bar.B);

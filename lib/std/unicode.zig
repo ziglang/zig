@@ -210,7 +210,7 @@ pub fn utf8ValidateSlice(s: []const u8) bool {
                 return false;
             }
             i += cp_len;
-        } else |err| {
+        } else |_| {
             return false;
         }
     }

@@ -184,6 +184,7 @@ fn testTryToTrickEvalWithRuntimeIf(b: bool) usize {
     comptime var i: usize = 0;
     inline while (i < 10) : (i += 1) {
         const result = if (b) false else true;
+        _ = result;
     }
     comptime {
         return i;
@@ -195,6 +196,7 @@ test "inlined loop has array literal with elided runtime scope on first iteratio
     comptime var i: usize = 0;
     inline while (i < 2) : (i += 1) {
         const result = if (i == 0) [1]i32{2} else runtime;
+        _ = result;
     }
     comptime {
         try expect(i == 2);
@@ -420,6 +422,7 @@ test {
 }
 
 pub fn TypeWithCompTimeSlice(comptime field_name: []const u8) type {
+    _ = field_name;
     return struct {
         pub const Node = struct {};
     };
@@ -696,7 +699,9 @@ test "refer to the type of a generic function" {
     f(i32);
 }
 
-fn doNothingWithType(comptime T: type) void {}
+fn doNothingWithType(comptime T: type) void {
+    _ = T;
+}
 
 test "zero extend from u0 to u1" {
     var zero_u0: u0 = 0;
@@ -817,7 +822,9 @@ test "two comptime calls with array default initialized to undefined" {
                 result.getCpuArch();
             }
 
-            pub fn getCpuArch(self: CrossTarget) void {}
+            pub fn getCpuArch(self: CrossTarget) void {
+                _ = self;
+            }
         };
 
         const DynamicLinker = struct {

@@ -68,10 +68,10 @@ pub fn detect(target_os: *Target.Os) !void {
                     return;
                 }
                 continue;
-            } else |err| {
+            } else |_| {
                 return error.OSVersionDetectionFail;
             }
-        } else |err| {
+        } else |_| {
             return error.OSVersionDetectionFail;
         }
     }

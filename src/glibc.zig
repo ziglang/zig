@@ -497,7 +497,6 @@ fn add_include_dirs(comp: *Compilation, arena: *Allocator, args: *std.ArrayList(
     const target = comp.getTarget();
     const arch = target.cpu.arch;
     const opt_nptl: ?[]const u8 = if (target.os.tag == .linux) "nptl" else "htl";
-    const glibc = try lib_path(comp, arena, lib_libc ++ "glibc");
 
     const s = path.sep_str;
 

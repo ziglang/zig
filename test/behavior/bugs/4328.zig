@@ -53,10 +53,12 @@ test "Peer resolution of extern function calls in @TypeOf" {
 test "Extern function calls, dereferences and field access in @TypeOf" {
     const Test = struct {
         fn test_fn_1(a: c_long) @TypeOf(fopen("test", "r").*) {
+            _ = a;
             return .{ .dummy_field = 0 };
         }
 
         fn test_fn_2(a: anytype) @TypeOf(fopen("test", "r").*.dummy_field) {
+            _ = a;
             return 255;
         }
 

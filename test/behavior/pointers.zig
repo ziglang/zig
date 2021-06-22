@@ -65,6 +65,10 @@ test "assigning integer to C pointer" {
     var x: i32 = 0;
     var ptr: [*c]u8 = 0;
     var ptr2: [*c]u8 = x;
+    if (false) {
+        ptr;
+        ptr2;
+    }
 }
 
 test "implicit cast single item pointer to C pointer and back" {
@@ -78,7 +82,6 @@ test "implicit cast single item pointer to C pointer and back" {
 test "C pointer comparison and arithmetic" {
     const S = struct {
         fn doTheTest() !void {
-            var one: usize = 1;
             var ptr1: [*c]u32 = 0;
             var ptr2 = ptr1 + 10;
             try expect(ptr1 == 0);
@@ -176,6 +179,7 @@ test "assign null directly to C pointer and test null equality" {
     try expect(!(x != null));
     try expect(!(null != x));
     if (x) |same_x| {
+        _ = same_x;
         @panic("fail");
     }
     var otherx: i32 = undefined;
@@ -186,7 +190,10 @@ test "assign null directly to C pointer and test null equality" {
     comptime try expect(null == y);
     comptime try expect(!(y != null));
     comptime try expect(!(null != y));
-    if (y) |same_y| @panic("fail");
+    if (y) |same_y| {
+        _ = same_y;
+        @panic("fail");
+    }
     const othery: i32 = undefined;
     comptime try expect((y orelse &othery) == &othery);
 
@@ -325,6 +332,7 @@ test "@ptrToInt on null optional at comptime" {
     {
         const pointer = @intToPtr(?*u8, 0x000);
         const x = @ptrToInt(pointer);
+        _ = x;
         comptime try expect(0 == @ptrToInt(pointer));
     }
     {

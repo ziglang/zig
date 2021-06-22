@@ -18,7 +18,7 @@ test "add arbitrary args" {
 }
 
 fn readFirstVarArg(args: anytype) void {
-    const value = args[0];
+    _ = args[0];
 }
 
 test "send void arg to var args" {
@@ -48,6 +48,7 @@ test "runtime parameter before var args" {
 }
 
 fn extraFn(extra: u32, args: anytype) !usize {
+    _ = extra;
     if (args.len >= 1) {
         try expect(args[0] == false);
     }
@@ -63,9 +64,11 @@ const foos = [_]fn (anytype) bool{
 };
 
 fn foo1(args: anytype) bool {
+    _ = args;
     return true;
 }
 fn foo2(args: anytype) bool {
+    _ = args;
     return false;
 }
 
@@ -79,5 +82,5 @@ test "pass zero length array to var args param" {
 }
 
 fn doNothingWithFirstArg(args: anytype) void {
-    const a = args[0];
+    _ = args[0];
 }

@@ -674,7 +674,7 @@ pub const Instruction = union(enum) {
         };
         const imm4h: u4 = switch (offset) {
             .immediate => |imm| @truncate(u4, imm >> 4),
-            .register => |reg| 0b0000,
+            .register => 0b0000,
         };
 
         return Instruction{

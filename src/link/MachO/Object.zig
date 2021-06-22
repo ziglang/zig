@@ -478,7 +478,6 @@ pub fn parseDebugInfo(self: *Object) !void {
 
     self.tu_path = try std.fs.path.join(self.allocator, &[_][]const u8{ comp_dir, name });
     self.tu_mtime = mtime: {
-        var buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
         const stat = try self.file.?.stat();
         break :mtime @intCast(u64, @divFloor(stat.mtime, 1_000_000_000));
     };

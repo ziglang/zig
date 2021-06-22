@@ -5,7 +5,7 @@ test "casting random address to function pointer" {
 
 fn randomAddressToFunction() void {
     var addr: usize = 0xdeadbeef;
-    var ptr = @intToPtr(fn () void, addr);
+    _ = @intToPtr(fn () void, addr);
 }
 
 test "mutate through ptr initialized with constant intToPtr value" {

@@ -831,7 +831,7 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
                 .target = self.base.options.target,
                 .output_mode = .Obj,
             });
-            const o_directory = self.base.options.module.?.zig_cache_artifact_directory;
+            const o_directory = module.zig_cache_artifact_directory;
             const full_obj_path = try o_directory.join(arena, &[_][]const u8{obj_basename});
             break :blk full_obj_path;
         }
@@ -1340,6 +1340,9 @@ pub fn getDeclVAddr(self: *Coff, decl: *const Module.Decl) u64 {
 }
 
 pub fn updateDeclLineNumber(self: *Coff, module: *Module, decl: *Module.Decl) !void {
+    _ = self;
+    _ = module;
+    _ = decl;
     // TODO Implement this
 }
 

@@ -29,6 +29,7 @@ pub fn getAutoHashFn(comptime K: type, comptime Context: type) (fn (Context, K) 
 
     return struct {
         fn hash(ctx: Context, key: K) u64 {
+            _ = ctx;
             if (comptime trait.hasUniqueRepresentation(K)) {
                 return Wyhash.hash(0, std.mem.asBytes(&key));
             } else {
@@ -43,6 +44,7 @@ pub fn getAutoHashFn(comptime K: type, comptime Context: type) (fn (Context, K) 
 pub fn getAutoEqlFn(comptime K: type, comptime Context: type) (fn (Context, K, K) bool) {
     return struct {
         fn eql(ctx: Context, a: K, b: K) bool {
+            _ = ctx;
             return meta.eql(a, b);
         }
     }.eql;
@@ -78,9 +80,11 @@ pub fn StringHashMapUnmanaged(comptime V: type) type {
 
 pub const StringContext = struct {
     pub fn hash(self: @This(), s: []const u8) u64 {
+        _ = self;
         return hashString(s);
     }
     pub fn eql(self: @This(), a: []const u8, b: []const u8) bool {
+        _ = self;
         return eqlString(a, b);
     }
 };
@@ -1809,7 +1813,7 @@ test "std.hash_map getOrPut" {
 
     i = 0;
     while (i < 20) : (i += 1) {
-        var n = try map.getOrPutValue(i, 1);
+        _ = try map.getOrPutValue(i, 1);
     }
 
     i = 0;
@@ -1887,9 +1891,11 @@ test "std.hash_map clone" {
 test "std.hash_map getOrPutAdapted" {
     const AdaptedContext = struct {
         fn eql(self: @This(), adapted_key: []const u8, test_key: u64) bool {
+            _ = self;
             return std.fmt.parseInt(u64, adapted_key, 10) catch unreachable == test_key;
         }
         fn hash(self: @This(), adapted_key: []const u8) u64 {
+            _ = self;
             const key = std.fmt.parseInt(u64, adapted_key, 10) catch unreachable;
             return (AutoContext(u64){}).hash(key);
         }

@@ -108,6 +108,7 @@ const TlvOffset = struct {
     offset: u64,
 
     fn cmp(context: void, a: TlvOffset, b: TlvOffset) bool {
+        _ = context;
         return a.source_addr < b.source_addr;
     }
 };
@@ -432,13 +433,12 @@ fn mapAndUpdateSections(
 
 fn updateMetadata(self: *Zld) !void {
     for (self.objects.items) |object| {
-        const object_seg = object.load_commands.items[object.segment_cmd_index.?].Segment;
         const text_seg = &self.load_commands.items[self.text_segment_cmd_index.?].Segment;
         const data_const_seg = &self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
         const data_seg = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
 
         // Create missing metadata
-        for (object.sections.items) |sect, sect_id| {
+        for (object.sections.items) |sect| {
             const segname = sect.segname();
             const sectname = sect.sectname();
 
@@ -1294,7 +1294,6 @@ fn allocateLinkeditSegment(self: *Zld) void {
 }
 
 fn allocateSegment(self: *Zld, index: u16, offset: u64) !void {
-    const base_vmaddr = self.load_commands.items[self.pagezero_segment_cmd_index.?].Segment.inner.vmsize;
     const seg = &self.load_commands.items[index].Segment;
 
     // Allocate the sections according to their alignment at the beginning of the segment.
@@ -1375,7 +1374,7 @@ fn allocateTentativeSymbols(self: *Zld) !void {
     }
 
     // Convert tentative definitions into regular symbols.
-    for (self.tentatives.values()) |sym, i| {
+    for (self.tentatives.values()) |sym| {
         const tent = sym.cast(Symbol.Tentative) orelse unreachable;
         const reg = try self.allocator.create(Symbol.Regular);
         errdefer self.allocator.destroy(reg);
@@ -1427,7 +1426,6 @@ fn writeStubHelperCommon(self: *Zld) !void {
     const got = &data_const_segment.sections.items[self.got_section_index.?];
     const data_segment = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
     const data = &data_segment.sections.items[self.data_section_index.?];
-    const la_symbol_ptr = data_segment.sections.items[self.la_symbol_ptr_section_index.?];
 
     self.stub_helper_stubs_start_off = blk: {
         switch (self.arch.?) {
@@ -1761,7 +1759,7 @@ fn resolveSymbolsInObject(self: *Zld, object: *Object) !void {
 
             t_sym.alias = sym;
             sym_ptr.* = sym;
-        } else if (sym.cast(Symbol.Unresolved)) |und| {
+        } else if (sym.cast(Symbol.Unresolved)) |_| {
             if (self.globals.get(sym.name)) |g_sym| {
                 sym.alias = g_sym;
                 continue;
@@ -2654,7 +2652,6 @@ fn setEntryPoint(self: *Zld) !void {
     // TODO we should respect the -entry flag passed in by the user to set a custom
     // entrypoint. For now, assume default of `_main`.
     const seg = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
-    const text = seg.sections.items[self.text_section_index.?];
     const sym = self.globals.get("_main") orelse return error.MissingMainEntrypoint;
     const entry_sym = sym.cast(Symbol.Regular) orelse unreachable;
     const ec = &self.load_commands.items[self.main_cmd_index.?].Main;
@@ -2862,7 +2859,6 @@ fn populateLazyBindOffsetsInStubHelper(self: *Zld, buffer: []const u8) !void {
             error.EndOfStream => break,
             else => return err,
         };
-        const imm: u8 = inst & macho.BIND_IMMEDIATE_MASK;
         const opcode: u8 = inst & macho.BIND_OPCODE_MASK;
 
         switch (opcode) {
@@ -2959,6 +2955,7 @@ fn writeDebugInfo(self: *Zld) !void {
     for (self.objects.items) |object| {
         const tu_path = object.tu_path orelse continue;
         const tu_mtime = object.tu_mtime orelse continue;
+        _ = tu_mtime;
         const dirname = std.fs.path.dirname(tu_path) orelse "./";
         // Current dir
         try stabs.append(.{

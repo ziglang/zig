@@ -1086,8 +1086,6 @@ fn renderWhile(gpa: *Allocator, ais: *Ais, tree: ast.Tree, while_node: ast.full.
     }
 
     if (while_node.ast.else_expr != 0) {
-        const first_else_expr_tok = tree.firstToken(while_node.ast.else_expr);
-
         if (indent_then_expr) {
             ais.pushIndent();
             try renderExpression(gpa, ais, tree, while_node.ast.then_expr, .newline);
@@ -1133,7 +1131,6 @@ fn renderContainerField(
     field: ast.full.ContainerField,
     space: Space,
 ) Error!void {
-    const main_tokens = tree.nodes.items(.main_token);
     if (field.comptime_token) |t| {
         try renderToken(ais, tree, t, .space); // comptime
     }
@@ -1519,7 +1516,6 @@ fn renderBlock(
 ) Error!void {
     const token_tags = tree.tokens.items(.tag);
     const node_tags = tree.nodes.items(.tag);
-    const nodes_data = tree.nodes.items(.data);
     const lbrace = tree.nodes.items(.main_token)[block_node];
 
     if (token_tags[lbrace - 1] == .colon and
@@ -1617,7 +1613,6 @@ fn renderArrayInit(
     space: Space,
 ) Error!void {
     const token_tags = tree.tokens.items(.tag);
-    const token_starts = tree.tokens.items(.start);
 
     if (array_init.ast.type_expr == 0) {
         try renderToken(ais, tree, array_init.ast.lbrace - 1, .none); // .
@@ -2046,7 +2041,6 @@ fn renderCall(
     space: Space,
 ) Error!void {
     const token_tags = tree.tokens.items(.tag);
-    const main_tokens = tree.nodes.items(.main_token);
 
     if (call.async_token) |async_token| {
         try renderToken(ais, tree, async_token, .space);

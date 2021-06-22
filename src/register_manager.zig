@@ -265,6 +265,8 @@ fn MockFunction(comptime Register: type) type {
         }
 
         pub fn spillInstruction(self: *Self, src: LazySrcLoc, reg: Register, inst: *ir.Inst) !void {
+            _ = src;
+            _ = inst;
             try self.spilled.append(self.allocator, reg);
         }
     };
@@ -280,12 +282,6 @@ test "default state" {
         .allocator = allocator,
     };
     defer function.deinit();
-
-    var mock_instruction = ir.Inst{
-        .tag = .breakpoint,
-        .ty = Type.initTag(.void),
-        .src = .unneeded,
-    };
 
     try expect(!function.register_manager.isRegAllocated(.r2));
     try expect(!function.register_manager.isRegAllocated(.r3));
@@ -364,12 +360,6 @@ test "tryAllocRegs" {
         .allocator = allocator,
     };
     defer function.deinit();
-
-    var mock_instruction = ir.Inst{
-        .tag = .breakpoint,
-        .ty = Type.initTag(.void),
-        .src = .unneeded,
-    };
 
     try expectEqual([_]MockRegister2{ .r0, .r1, .r2 }, function.register_manager.tryAllocRegs(3, .{ null, null, null }, &.{}).?);
 

@@ -232,6 +232,7 @@ test "Atomic.loadUnchecked" {
 
 test "Atomic.storeUnchecked" {
     inline for (atomicIntTypes()) |Int| {
+        _ = Int;
         var x = Atomic(usize).init(5);
         x.storeUnchecked(10);
         try testing.expectEqual(x.loadUnchecked(), 10);
@@ -250,6 +251,7 @@ test "Atomic.load" {
 test "Atomic.store" {
     inline for (atomicIntTypes()) |Int| {
         inline for (.{ .Unordered, .Monotonic, .Release, .SeqCst }) |ordering| {
+            _ = Int;
             var x = Atomic(usize).init(5);
             x.store(10, ordering);
             try testing.expectEqual(x.load(.SeqCst), 10);

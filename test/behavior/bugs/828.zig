@@ -4,6 +4,7 @@ const CountBy = struct {
     const One = CountBy{ .a = 1 };
 
     pub fn counter(self: *const CountBy) Counter {
+        _ = self;
         return Counter{ .i = 0 };
     }
 };
@@ -18,6 +19,7 @@ const Counter = struct {
 };
 
 fn constCount(comptime cb: *const CountBy, comptime unused: u32) void {
+    _ = unused;
     comptime {
         var cnt = cb.counter();
         if (cnt.i != 0) @compileError("Counter instance reused!");
@@ -30,4 +32,8 @@ test "comptime struct return should not return the same instance" {
     //a second parameter is required to trigger the bug
     const ValA = constCount(&CountBy.One, 12);
     const ValB = constCount(&CountBy.One, 15);
+    if (false) {
+        ValA;
+        ValB;
+    }
 }

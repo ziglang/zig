@@ -118,7 +118,6 @@ pub fn generateSymbol(
                 if (typed_value.ty.sentinel()) |sentinel| {
                     try code.ensureCapacity(code.items.len + payload.data.len + 1);
                     code.appendSliceAssumeCapacity(payload.data);
-                    const prev_len = code.items.len;
                     switch (try generateSymbol(bin_file, src_loc, .{
                         .ty = typed_value.ty.elemType(),
                         .val = sentinel,
@@ -565,7 +564,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             .r11 = true, // fp
                             .r14 = true, // lr
                         };
-                        inline for (callee_preserved_regs) |reg, i| {
+                        inline for (callee_preserved_regs) |reg| {
                             if (self.register_manager.isRegAllocated(reg)) {
                                 @field(saved_regs, @tagName(reg)) = true;
                             }
@@ -603,7 +602,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             } else {
                                 if (math.cast(i26, amt)) |offset| {
                                     writeInt(u32, self.code.items[jmp_reloc..][0..4], Instruction.b(.al, offset).toU32());
-                                } else |err| {
+                                } else |_| {
                                     return self.failSymbol("exitlude jump is too large", .{});
                                 }
                             }
@@ -676,7 +675,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             } else {
                                 if (math.cast(i28, amt)) |offset| {
                                     writeInt(u32, self.code.items[jmp_reloc..][0..4], Instruction.b(offset).toU32());
-                                } else |err| {
+                                } else |_| {
                                     return self.failSymbol("exitlude jump is too large", .{});
                                 }
                             }
@@ -1498,6 +1497,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             swap_lhs_and_rhs: bool,
             op: ir.Inst.Tag,
         ) !void {
+            _ = src;
             assert(lhs_mcv == .register or rhs_mcv == .register);
 
             const op1 = if (swap_lhs_and_rhs) rhs_mcv.register else lhs_mcv.register;
@@ -1906,6 +1906,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             try self.genX8664ModRMRegToStack(src, dst_ty, off, src_reg, mr + 0x1);
                         },
                         .immediate => |imm| {
+                            _ = imm;
                             return self.fail(src, "TODO implement x86 ADD/SUB/CMP source immediate", .{});
                         },
                         .embedded_in_code, .memory, .stack_offset => {
@@ -2055,6 +2056,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             return self.genSetStack(src, dst_ty, off, MCValue{ .register = dst_reg });
                         },
                         .immediate => |imm| {
+                            _ = imm;
                             return self.fail(src, "TODO implement x86 multiply source immediate", .{});
                         },
                         .embedded_in_code, .memory, .stack_offset => {
@@ -2983,14 +2985,14 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .arm, .armeb => {
                     if (math.cast(i26, @intCast(i32, index) - @intCast(i32, self.code.items.len + 8))) |delta| {
                         writeInt(u32, try self.code.addManyAsArray(4), Instruction.b(.al, delta).toU32());
-                    } else |err| {
+                    } else |_| {
                         return self.fail(src, "TODO: enable larger branch offset", .{});
                     }
                 },
                 .aarch64, .aarch64_be, .aarch64_32 => {
                     if (math.cast(i28, @intCast(i32, index) - @intCast(i32, self.code.items.len + 8))) |delta| {
                         writeInt(u32, try self.code.addManyAsArray(4), Instruction.b(delta).toU32());
-                    } else |err| {
+                    } else |_| {
                         return self.fail(src, "TODO: enable larger branch offset", .{});
                     }
                 },
@@ -3308,9 +3310,11 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         }
                     },
                     .compare_flags_unsigned => |op| {
+                        _ = op;
                         return self.fail(src, "TODO implement set stack variable with compare flags value (unsigned)", .{});
                     },
                     .compare_flags_signed => |op| {
+                        _ = op;
                         return self.fail(src, "TODO implement set stack variable with compare flags value (signed)", .{});
                     },
                     .immediate => {
@@ -3318,6 +3322,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         return self.genSetStack(src, ty, stack_offset, MCValue{ .register = reg });
                     },
                     .embedded_in_code => |code_offset| {
+                        _ = code_offset;
                         return self.fail(src, "TODO implement set stack variable from embedded_in_code", .{});
                     },
                     .register => |reg| {
@@ -3354,6 +3359,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         }
                     },
                     .memory => |vaddr| {
+                        _ = vaddr;
                         return self.fail(src, "TODO implement set stack variable from memory vaddr", .{});
                     },
                     .stack_offset => |off| {
@@ -3382,9 +3388,11 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         }
                     },
                     .compare_flags_unsigned => |op| {
+                        _ = op;
                         return self.fail(src, "TODO implement set stack variable with compare flags value (unsigned)", .{});
                     },
                     .compare_flags_signed => |op| {
+                        _ = op;
                         return self.fail(src, "TODO implement set stack variable with compare flags value (signed)", .{});
                     },
                     .immediate => |x_big| {
@@ -3437,12 +3445,14 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         }
                     },
                     .embedded_in_code => |code_offset| {
+                        _ = code_offset;
                         return self.fail(src, "TODO implement set stack variable from embedded_in_code", .{});
                     },
                     .register => |reg| {
                         try self.genX8664ModRMRegToStack(src, ty, stack_offset, reg, 0x89);
                     },
                     .memory => |vaddr| {
+                        _ = vaddr;
                         return self.fail(src, "TODO implement set stack variable from memory vaddr", .{});
                     },
                     .stack_offset => |off| {
@@ -3471,9 +3481,11 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         }
                     },
                     .compare_flags_unsigned => |op| {
+                        _ = op;
                         return self.fail(src, "TODO implement set stack variable with compare flags value (unsigned)", .{});
                     },
                     .compare_flags_signed => |op| {
+                        _ = op;
                         return self.fail(src, "TODO implement set stack variable with compare flags value (signed)", .{});
                     },
                     .immediate => {
@@ -3481,6 +3493,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         return self.genSetStack(src, ty, stack_offset, MCValue{ .register = reg });
                     },
                     .embedded_in_code => |code_offset| {
+                        _ = code_offset;
                         return self.fail(src, "TODO implement set stack variable from embedded_in_code", .{});
                     },
                     .register => |reg| {
@@ -3513,6 +3526,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         }
                     },
                     .memory => |vaddr| {
+                        _ = vaddr;
                         return self.fail(src, "TODO implement set stack variable from memory vaddr", .{});
                     },
                     .stack_offset => |off| {
@@ -3843,6 +3857,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         );
                     },
                     .compare_flags_signed => |op| {
+                        _ = op;
                         return self.fail(src, "TODO set register with compare flags value (signed)", .{});
                     },
                     .immediate => |x| {
@@ -4461,6 +4476,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     dummy,
 
                     pub fn allocIndex(self: Register) ?u4 {
+                        _ = self;
                         return null;
                     }
                 };

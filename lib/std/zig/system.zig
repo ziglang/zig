@@ -200,6 +200,7 @@ pub const NativePaths = struct {
     }
 
     fn appendArray(self: *NativePaths, array: *ArrayList([:0]u8), s: []const u8) !void {
+        _ = self;
         const item = try array.allocator.dupeZ(u8, s);
         errdefer array.allocator.free(item);
         try array.append(item);
@@ -332,7 +333,7 @@ pub const NativeTargetInfo = struct {
                     if (std.builtin.Version.parse(buf[0 .. len - 1])) |ver| {
                         os.version_range.semver.min = ver;
                         os.version_range.semver.max = ver;
-                    } else |err| {
+                    } else |_| {
                         return error.OSVersionDetectionFail;
                     }
                 },
@@ -477,13 +478,6 @@ pub const NativeTargetInfo = struct {
             ld_info_list_len += 1;
         }
         const ld_info_list = ld_info_list_buffer[0..ld_info_list_len];
-
-        if (cross_target.dynamic_linker.get()) |explicit_ld| {
-            const explicit_ld_basename = fs.path.basename(explicit_ld);
-            for (ld_info_list) |ld_info| {
-                const standard_ld_basename = fs.path.basename(ld_info.ld.get().?);
-            }
-        }
 
         // Best case scenario: the executable is dynamically linked, and we can iterate
         // over our own shared objects and find a dynamic linker.
@@ -838,7 +832,7 @@ pub const NativeTargetInfo = struct {
 
                 if (dynstr) |ds| {
                     const strtab_len = std.math.min(ds.size, strtab_buf.len);
-                    const strtab_read_len = try preadMin(file, &strtab_buf, ds.offset, shstrtab_len);
+                    const strtab_read_len = try preadMin(file, &strtab_buf, ds.offset, strtab_len);
                     const strtab = strtab_buf[0..strtab_read_len];
                     // TODO this pointer cast should not be necessary
                     const rpoff_usize = std.math.cast(usize, rpoff) catch |err| switch (err) {

@@ -182,6 +182,7 @@ test "empty struct method call" {
 }
 const EmptyStruct = struct {
     fn method(es: *const EmptyStruct) i32 {
+        _ = es;
         return 1234;
     }
 };
@@ -452,9 +453,11 @@ fn alloc(comptime T: type) []T {
 test "call method with mutable reference to struct with no fields" {
     const S = struct {
         fn doC(s: *const @This()) bool {
+            _ = s;
             return true;
         }
         fn do(s: *@This()) bool {
+            _ = s;
             return true;
         }
     };
@@ -584,13 +587,14 @@ test "default struct initialization fields" {
     const x = S{
         .b = 5,
     };
-    if (x.a + x.b != 1239) {
-        @compileError("it should be comptime known");
-    }
     var five: i32 = 5;
     const y = S{
         .b = five,
     };
+    if (x.a + x.b != 1239) {
+        @compileError("it should be comptime known");
+    }
+    try expectEqual(y, x);
     try expectEqual(1239, x.a + x.b);
 }
 
@@ -624,11 +628,13 @@ test "for loop over pointers to struct, getting field from struct pointer" {
         var ok = true;
 
         fn eql(a: []const u8) bool {
+            _ = a;
             return true;
         }
 
         const ArrayList = struct {
             fn toSlice(self: *ArrayList) []*Foo {
+                _ = self;
                 return @as([*]*Foo, undefined)[0..0];
             }
         };
@@ -654,6 +660,7 @@ test "zero-bit field in packed struct" {
         y: void,
     };
     var x: S = undefined;
+    _ = x;
 }
 
 test "struct field init with catch" {

@@ -394,6 +394,7 @@ pub const Blake3 = struct {
     /// Construct a new `Blake3` for the key derivation function. The context
     /// string should be hardcoded, globally unique, and application-specific.
     pub fn initKdf(context: []const u8, options: KdfOptions) Blake3 {
+        _ = options;
         var context_hasher = Blake3.init_internal(IV, DERIVE_KEY_CONTEXT);
         context_hasher.update(context);
         var context_key: [KEY_LEN]u8 = undefined;

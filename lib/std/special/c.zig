@@ -160,6 +160,7 @@ fn strncmp(_l: [*:0]const u8, _r: [*:0]const u8, _n: usize) callconv(.C) c_int {
 }
 
 fn strerror(errnum: c_int) callconv(.C) [*:0]const u8 {
+    _ = errnum;
     return "TODO strerror implementation";
 }
 
@@ -173,6 +174,7 @@ test "strncmp" {
 // Avoid dragging in the runtime safety mechanisms into this .o file,
 // unless we're trying to test this file.
 pub fn panic(msg: []const u8, error_return_trace: ?*builtin.StackTrace) noreturn {
+    _ = error_return_trace;
     if (builtin.is_test) {
         @setCold(true);
         std.debug.panic("{s}", .{msg});

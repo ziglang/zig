@@ -8,4 +8,5 @@ test "fixed" {
     var ctr = Container{
         .params = NoteParams{},
     };
+    _ = ctr;
 }

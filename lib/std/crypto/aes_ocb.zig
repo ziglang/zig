@@ -271,7 +271,6 @@ test "AesOcb test vector 1" {
     var c: [0]u8 = undefined;
     Aes128Ocb.encrypt(&c, &tag, "", "", nonce, k);
 
-    var expected_c: [c.len]u8 = undefined;
     var expected_tag: [tag.len]u8 = undefined;
     _ = try hexToBytes(&expected_tag, "785407BFFFC8AD9EDCC5520AC9111EE6");
 

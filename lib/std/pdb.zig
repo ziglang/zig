@@ -594,6 +594,7 @@ pub const Pdb = struct {
                 error.InvalidValue => return error.InvalidDebugInfo,
                 else => |e| return e,
             };
+            _ = version;
             sect_cont_offset += @sizeOf(u32);
         }
         while (sect_cont_offset != section_contrib_size) {
@@ -617,6 +618,7 @@ pub const Pdb = struct {
         // Parse the InfoStreamHeader.
         const version = try reader.readIntLittle(u32);
         const signature = try reader.readIntLittle(u32);
+        _ = signature;
         const age = try reader.readIntLittle(u32);
         const guid = try reader.readBytesNoEof(16);
 
@@ -673,6 +675,7 @@ pub const Pdb = struct {
     }
 
     pub fn getSymbolName(self: *Pdb, module: *Module, address: u64) ?[]const u8 {
+        _ = self;
         std.debug.assert(module.populated);
 
         var symbol_i: usize = 0;
@@ -904,7 +907,7 @@ const Msf = struct {
         // These streams are not used, but still participate in the file
         // and must be taken into account when resolving stream indices.
         const Nil = 0xFFFFFFFF;
-        for (stream_sizes) |*s, i| {
+        for (stream_sizes) |*s| {
             const size = try directory.reader().readIntLittle(u32);
             s.* = if (size == Nil) 0 else blockCountFromSize(size, superblock.BlockSize);
         }

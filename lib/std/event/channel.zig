@@ -308,7 +308,6 @@ test "std.event.Channel wraparound" {
 
     // add items to channel and pull them out until
     // the buffer wraps around, make sure it doesn't crash.
-    var result: i32 = undefined;
     channel.put(5);
     try testing.expectEqual(@as(i32, 5), channel.get());
     channel.put(6);

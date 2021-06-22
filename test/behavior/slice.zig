@@ -104,6 +104,7 @@ test "obtaining a null terminated slice" {
 
     // now we obtain a null terminated slice:
     const ptr = buf[0..3 :0];
+    _ = ptr;
 
     var runtime_len: usize = 3;
     const ptr2 = buf[0..runtime_len :0];

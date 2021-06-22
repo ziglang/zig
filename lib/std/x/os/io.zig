@@ -122,7 +122,6 @@ test "reactor/linux: drive async tcp client/listener pair" {
 
     const IPv4 = std.x.os.IPv4;
     const IPv6 = std.x.os.IPv6;
-    const Socket = std.x.os.Socket;
 
     const reactor = try Reactor.init(.{ .close_on_exec = true });
     defer reactor.deinit();

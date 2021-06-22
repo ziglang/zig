@@ -200,7 +200,6 @@ const ParseResult = enum {
 
 fn parseRepr(s: []const u8, n: *FloatRepr) !ParseResult {
     var digit_index: usize = 0;
-    var negative = false;
     var negative_exp = false;
     var exponent: i32 = 0;
 

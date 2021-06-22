@@ -47,6 +47,8 @@ fn formatTypeAsCIdentifier(
     options: std.fmt.FormatOptions,
     writer: anytype,
 ) !void {
+    _ = fmt;
+    _ = options;
     var buffer = [1]u8{0} ** 128;
     // We don't care if it gets cut off, it's still more unique than a number
     var buf = std.fmt.bufPrint(&buffer, "{}", .{data}) catch &buffer;
@@ -63,6 +65,8 @@ fn formatIdent(
     options: std.fmt.FormatOptions,
     writer: anytype,
 ) !void {
+    _ = fmt;
+    _ = options;
     for (ident) |c, i| {
         switch (c) {
             'a'...'z', 'A'...'Z', '_' => try writer.writeByte(c),
@@ -747,6 +751,7 @@ pub fn genBody(o: *Object, body: ir.Body) error{ AnalysisFail, OutOfMemory }!voi
 }
 
 fn genVarPtr(o: *Object, inst: *Inst.VarPtr) !CValue {
+    _ = o;
     return CValue{ .decl_ref = inst.variable.owner_decl };
 }
 
@@ -937,6 +942,8 @@ fn genCall(o: *Object, inst: *Inst.Call) !CValue {
 }
 
 fn genDbgStmt(o: *Object, inst: *Inst.DbgStmt) !CValue {
+    _ = o;
+    _ = inst;
     // TODO emit #line directive here with line number and filename
     return CValue.none;
 }
@@ -1016,11 +1023,13 @@ fn genBitcast(o: *Object, inst: *Inst.UnOp) !CValue {
 }
 
 fn genBreakpoint(o: *Object, inst: *Inst.NoOp) !CValue {
+    _ = inst;
     try o.writer().writeAll("zig_breakpoint();\n");
     return CValue.none;
 }
 
 fn genUnreach(o: *Object, inst: *Inst.NoOp) !CValue {
+    _ = inst;
     try o.writer().writeAll("zig_unreachable();\n");
     return CValue.none;
 }
@@ -1107,7 +1116,6 @@ fn genAsm(o: *Object, as: *Inst.Assembly) !CValue {
         for (as.inputs) |i, index| {
             if (i[0] == '{' and i[i.len - 1] == '}') {
                 const reg = i[1 .. i.len - 1];
-                const arg = as.args[index];
                 if (index > 0) {
                     try writer.writeAll(", ");
                 }

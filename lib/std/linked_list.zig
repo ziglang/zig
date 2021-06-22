@@ -359,8 +359,8 @@ test "basic TailQueue test" {
         }
     }
 
-    var first = list.popFirst(); // {2, 3, 4, 5}
-    var last = list.pop(); // {2, 3, 4}
+    _ = list.popFirst(); // {2, 3, 4, 5}
+    _ = list.pop(); // {2, 3, 4}
     list.remove(&three); // {2, 4}
 
     try testing.expect(list.first.?.data == 2);

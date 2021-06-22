@@ -390,6 +390,7 @@ pub const Builder = struct {
     }
 
     pub fn version(self: *const Builder, major: u32, minor: u32, patch: u32) LibExeObjStep.SharedLibKind {
+        _ = self;
         return .{
             .versioned = .{
                 .major = major,
@@ -543,7 +544,7 @@ pub const Builder = struct {
                     return null;
                 },
                 .scalar => |s| {
-                    const n = std.fmt.parseFloat(T, s) catch |err| {
+                    const n = std.fmt.parseFloat(T, s) catch {
                         warn("Expected -D{s} to be a float of type {s}.\n\n", .{ name, @typeName(T) });
                         self.markInvalidUserInput();
                         return null;
@@ -3129,7 +3130,9 @@ pub const Step = struct {
         self.dependencies.append(other) catch unreachable;
     }
 
-    fn makeNoOp(self: *Step) anyerror!void {}
+    fn makeNoOp(self: *Step) anyerror!void {
+        _ = self;
+    }
 
     pub fn cast(step: *Step, comptime T: type) ?*T {
         if (step.id == T.base_id) {

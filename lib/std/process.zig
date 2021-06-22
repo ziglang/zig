@@ -419,6 +419,7 @@ pub const ArgIteratorWindows = struct {
         };
     }
     fn emitBackslashes(self: *ArgIteratorWindows, buf: *std.ArrayList(u16), emit_count: usize) !void {
+        _ = self;
         var i: usize = 0;
         while (i < emit_count) : (i += 1) {
             try buf.append(std.mem.nativeToLittle(u16, '\\'));
@@ -748,6 +749,7 @@ pub fn getSelfExeSharedLibPaths(allocator: *Allocator) error{OutOfMemory}![][:0]
             }
             try os.dl_iterate_phdr(&paths, error{OutOfMemory}, struct {
                 fn callback(info: *os.dl_phdr_info, size: usize, list: *List) !void {
+                    _ = size;
                     const name = info.dlpi_name orelse return;
                     if (name[0] == '/') {
                         const item = try list.allocator.dupeZ(u8, mem.spanZ(name));

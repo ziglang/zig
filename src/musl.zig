@@ -143,7 +143,6 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                 const dirname = path.dirname(src_file).?;
                 const basename = path.basename(src_file);
                 const noextbasename = basename[0 .. basename.len - std.fs.path.extension(basename).len];
-                const before_arch_dir = path.dirname(dirname).?;
                 const dirbasename = path.basename(dirname);
 
                 var is_arch_specific = false;
