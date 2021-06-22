@@ -60,8 +60,7 @@ fn asm_lists() void {
             :[a] "x" (x),);
         asm ("not real assembly"
             :[a] "x" (->i32),:[a] "x" (1),);
-        asm ("still not real assembly"
+        asm volatile ("still not real assembly"
             :::"a","b",);
     }
 }
-
