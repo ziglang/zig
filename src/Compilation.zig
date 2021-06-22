@@ -1916,7 +1916,7 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
     // (at least for now) single-threaded main work queue. However, C object compilation
     // only needs to be finished by the end of this function.
 
-    var zir_prog_node = main_progress_node.start("AstGen", self.astgen_work_queue.count);
+    var zir_prog_node = main_progress_node.start("AST Lowering", self.astgen_work_queue.count);
     defer zir_prog_node.end();
 
     var c_obj_prog_node = main_progress_node.start("Compile C Objects", self.c_source_files.len);
