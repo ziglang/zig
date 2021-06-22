@@ -10,6 +10,8 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    @cInclude("stdio.h");
         \\});
         \\pub export fn main(argc: c_int, argv: [*][*]u8) c_int {
+        \\    _ = argc;
+        \\    _ = argv;
         \\    _ = c.puts("Hello, world!");
         \\    return 0;
         \\}
@@ -143,6 +145,8 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\});
         \\
         \\pub export fn main(argc: c_int, argv: [*][*]u8) c_int {
+        \\    _ = argc;
+        \\    _ = argv;
         \\    if (is_windows) {
         \\        // we want actual \n, not \r\n
         \\        _ = c._setmode(1, c._O_BINARY);
@@ -265,8 +269,10 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\const y : u16 = 5678;
         \\pub fn main() void {
         \\    var x_local : i32 = print_ok(x);
+        \\    _ = x_local;
         \\}
         \\fn print_ok(val: @TypeOf(x)) @TypeOf(foo) {
+        \\    _ = val;
         \\    const stdout = io.getStdOut().writer();
         \\    stdout.print("OK\n", .{}) catch unreachable;
         \\    return 0;
@@ -318,6 +324,8 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\});
         \\
         \\pub export fn main(argc: c_int, argv: [*][*]u8) c_int {
+        \\    _ = argc;
+        \\    _ = argv;
         \\    if (is_windows) {
         \\        // we want actual \n, not \r\n
         \\        _ = c._setmode(1, c._O_BINARY);
@@ -337,13 +345,19 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\const Foo = struct {
         \\    field1: Bar,
         \\
-        \\    fn method(a: *const Foo) bool { return true; }
+        \\    fn method(a: *const Foo) bool {
+        \\        _ = a;
+        \\        return true;
+        \\    }
         \\};
         \\
         \\const Bar = struct {
         \\    field2: i32,
         \\
-        \\    fn method(b: *const Bar) bool { return true; }
+        \\    fn method(b: *const Bar) bool {
+        \\        _ = b;
+        \\        return true;
+        \\    }
         \\};
         \\
         \\pub fn main() void {
