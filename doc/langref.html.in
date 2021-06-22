@@ -6462,7 +6462,7 @@ volatile (
 
       {#header_open|Global Assembly#}
       <p>
-      When an assembly expression occurs in a top level {#link|comptime#} block, this is
+      When an assembly expression occurs in a container level {#link|comptime#} block, this is
       <strong>global assembly</strong>.
       </p>
       <p>
