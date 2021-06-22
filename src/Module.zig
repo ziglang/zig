@@ -3185,6 +3185,9 @@ pub fn importFile(
     if (cur_file.pkg.table.get(import_string)) |pkg| {
         return mod.importPkg(pkg);
     }
+    if (!mem.endsWith(u8, import_string, ".zig")) {
+        return error.PackageNotFound;
+    }
     const gpa = mod.gpa;
 
     // The resolved path is used as the key in the import table, to detect if

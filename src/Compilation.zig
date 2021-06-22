@@ -2319,6 +2319,9 @@ fn workerAstGenFile(
                 break :blk mod.importFile(file, import_path) catch continue;
             };
             if (import_result.is_new) {
+                log.debug("AstGen of {s} has import '{s}'; queuing AstGen of {s}", .{
+                    file.sub_file_path, import_path, import_result.file.sub_file_path,
+                });
                 wg.start();
                 comp.thread_pool.spawn(workerAstGenFile, .{
                     comp, import_result.file, prog_node, wg,
@@ -2540,13 +2543,23 @@ fn reportRetryableAstGenError(
 
     file.status = .retryable_failure;
 
-    const err_msg = try Module.ErrorMsg.create(gpa, .{
+    const src_loc: Module.SrcLoc = .{
         .file_scope = file,
         .parent_decl_node = 0,
         .lazy = .entire_file,
-    }, "unable to load {s}: {s}", .{
-        file.sub_file_path, @errorName(err),
-    });
+    };
+
+    const err_msg = if (file.pkg.root_src_directory.path) |dir_path|
+        try Module.ErrorMsg.create(
+            gpa,
+            src_loc,
+            "unable to load {s}" ++ std.fs.path.sep_str ++ "{s}: {s}",
+            .{ dir_path, file.sub_file_path, @errorName(err) },
+        )
+    else
+        try Module.ErrorMsg.create(gpa, src_loc, "unable to load {s}: {s}", .{
+            file.sub_file_path, @errorName(err),
+        });
     errdefer err_msg.destroy(gpa);
 
     {
