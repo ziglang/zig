@@ -6622,7 +6622,17 @@ fn asmExpr(
     // See https://github.com/ziglang/zig/issues/215 and related issues discussing
     // possible inline assembly improvements. Until then here is status quo AstGen
     // for assembly syntax. It's used by std lib crypto aesni.zig.
-
+    const is_container_asm = astgen.fn_block == null;
+    if (is_container_asm) {
+        if (full.volatile_token) |t|
+            return astgen.failTok(t, "volatile is meaningless on global assembly", .{});
+        if (full.outputs.len != 0 or full.inputs.len != 0 or full.first_clobber != null)
+            return astgen.failNode(node, "global assembly cannot have inputs, outputs, or clobbers", .{});
+    } else {
+        if (full.outputs.len == 0 and full.volatile_token == null) {
+            return astgen.failNode(node, "assembly expression with no output must be marked volatile", .{});
+        }
+    }
     if (full.outputs.len > 32) {
         return astgen.failNode(full.outputs[32], "too many asm outputs", .{});
     }
