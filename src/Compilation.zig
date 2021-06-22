@@ -1639,6 +1639,14 @@ pub fn update(self: *Compilation) !void {
         const std_pkg = module.root_pkg.table.get("std").?;
         _ = try module.importPkg(std_pkg);
 
+        // Normally we rely on importing std to in turn import the root source file
+        // in the start code, but when using the stage1 backend that won't happen,
+        // so in order to run AstGen on the root source file we put it into the
+        // import_table here.
+        if (use_stage1) {
+            _ = try module.importPkg(module.root_pkg);
+        }
+
         // Put a work item in for every known source file to detect if
         // it changed, and, if so, re-compute ZIR and then queue the job
         // to update it.
