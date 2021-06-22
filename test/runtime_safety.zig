@@ -4,6 +4,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     {
         const check_panic_msg =
             \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+            \\    _ = stack_trace;
             \\    if (std.mem.eql(u8, message, "reached unreachable code")) {
             \\        std.process.exit(126); // good
             \\    }
@@ -45,6 +46,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     {
         const check_panic_msg =
             \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+            \\    _ = stack_trace;
             \\    if (std.mem.eql(u8, message, "invalid enum value")) {
             \\        std.process.exit(126); // good
             \\    }
@@ -62,6 +64,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
             \\    var e: E = undefined;
             \\    @memset(@ptrCast([*]u8, &e), 0x55, @sizeOf(E));
             \\    var n = @tagName(e);
+            \\    _ = n;
             \\}
         );
 
@@ -76,6 +79,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
             \\    @memset(@ptrCast([*]u8, &u), 0x55, @sizeOf(U));
             \\    var t: @typeInfo(U).Union.tag_type.? = u;
             \\    var n = @tagName(t);
+            \\    _ = n;
             \\}
         );
     }
@@ -83,6 +87,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     {
         const check_panic_msg =
             \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+            \\    _ = stack_trace;
             \\    if (std.mem.eql(u8, message, "index out of bounds")) {
             \\        std.process.exit(126); // good
             \\    }
@@ -96,6 +101,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
             \\pub fn main() void {
             \\    var buf = [4]u8{'a','b','c',0};
             \\    const slice = buf[0..4 :0];
+            \\    _ = slice;
             \\}
         );
         cases.addRuntimeSafety("slicing operator with sentinel",
@@ -104,6 +110,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
             \\pub fn main() void {
             \\    var buf = [4]u8{'a','b','c',0};
             \\    const slice = buf[0..:0];
+            \\    _ = slice;
             \\}
         );
         cases.addRuntimeSafety("slicing operator with sentinel",
@@ -112,6 +119,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
             \\pub fn main() void {
             \\    var buf_zero = [0]u8{};
             \\    const slice = buf_zero[0..0 :0];
+            \\    _ = slice;
             \\}
         );
         cases.addRuntimeSafety("slicing operator with sentinel",
@@ -120,6 +128,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
             \\pub fn main() void {
             \\    var buf_zero = [0]u8{};
             \\    const slice = buf_zero[0..:0];
+            \\    _ = slice;
             \\}
         );
         cases.addRuntimeSafety("slicing operator with sentinel",
@@ -129,6 +138,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
             \\    var buf_sentinel = [2:0]u8{'a','b'};
             \\    @ptrCast(*[3]u8, &buf_sentinel)[2] = 0;
             \\    const slice = buf_sentinel[0..3 :0];
+            \\    _ = slice;
             \\}
         );
         cases.addRuntimeSafety("slicing operator with sentinel",
@@ -137,6 +147,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
             \\pub fn main() void {
             \\    var buf_slice: []const u8 = &[3]u8{ 'a', 'b', 0 };
             \\    const slice = buf_slice[0..3 :0];
+            \\    _ = slice;
             \\}
         );
         cases.addRuntimeSafety("slicing operator with sentinel",
@@ -145,6 +156,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
             \\pub fn main() void {
             \\    var buf_slice: []const u8 = &[3]u8{ 'a', 'b', 0 };
             \\    const slice = buf_slice[0.. :0];
+            \\    _ = slice;
             \\}
         );
     }
@@ -153,6 +165,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\const std = @import("std");
         \\const V = @import("std").meta.Vector;
         \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+        \\    _ = stack_trace;
         \\    if (std.mem.eql(u8, message, "integer cast truncated bits")) {
         \\        std.process.exit(126); // good
         \\    }
@@ -161,6 +174,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\pub fn main() void {
         \\    var x = @splat(4, @as(u32, 0xdeadbeef));
         \\    var y = @intCast(V(4, u16), x);
+        \\    _ = y;
         \\}
     );
 
@@ -168,6 +182,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\const std = @import("std");
         \\const V = @import("std").meta.Vector;
         \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+        \\    _ = stack_trace;
         \\    if (std.mem.eql(u8, message, "integer cast truncated bits")) {
         \\        std.process.exit(126); // good
         \\    }
@@ -176,6 +191,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\pub fn main() void {
         \\    var x = @splat(4, @as(u32, 0x80000000));
         \\    var y = @intCast(V(4, i32), x);
+        \\    _ = y;
         \\}
     );
 
@@ -183,6 +199,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\const std = @import("std");
         \\const V = @import("std").meta.Vector;
         \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+        \\    _ = stack_trace;
         \\    if (std.mem.eql(u8, message, "attempt to cast negative value to unsigned integer")) {
         \\        std.process.exit(126); // good
         \\    }
@@ -191,12 +208,14 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\pub fn main() void {
         \\    var x = @splat(4, @as(i32, -2147483647));
         \\    var y = @intCast(V(4, u32), x);
+        \\    _ = y;
         \\}
     );
 
     cases.addRuntimeSafety("shift left by huge amount",
         \\const std = @import("std");
         \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+        \\    _ = stack_trace;
         \\    if (std.mem.eql(u8, message, "shift amount is greater than the type size")) {
         \\        std.process.exit(126); // good
         \\    }
@@ -206,12 +225,14 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    var x: u24 = 42;
         \\    var y: u5 = 24;
         \\    var z = x >> y;
+        \\    _ = z;
         \\}
     );
 
     cases.addRuntimeSafety("shift right by huge amount",
         \\const std = @import("std");
         \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+        \\    _ = stack_trace;
         \\    if (std.mem.eql(u8, message, "shift amount is greater than the type size")) {
         \\        std.process.exit(126); // good
         \\    }
@@ -221,12 +242,14 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    var x: u24 = 42;
         \\    var y: u5 = 24;
         \\    var z = x << y;
+        \\    _ = z;
         \\}
     );
 
     cases.addRuntimeSafety("slice sentinel mismatch - optional pointers",
         \\const std = @import("std");
         \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+        \\    _ = stack_trace;
         \\    if (std.mem.eql(u8, message, "sentinel mismatch")) {
         \\        std.process.exit(126); // good
         \\    }
@@ -235,12 +258,14 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\pub fn main() void {
         \\    var buf: [4]?*i32 = undefined;
         \\    const slice = buf[0..3 :null];
+        \\    _ = slice;
         \\}
     );
 
     cases.addRuntimeSafety("slice sentinel mismatch - floats",
         \\const std = @import("std");
         \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+        \\    _ = stack_trace;
         \\    if (std.mem.eql(u8, message, "sentinel mismatch")) {
         \\        std.process.exit(126); // good
         \\    }
@@ -249,12 +274,14 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\pub fn main() void {
         \\    var buf: [4]f32 = undefined;
         \\    const slice = buf[0..3 :1.2];
+        \\    _ = slice;
         \\}
     );
 
     cases.addRuntimeSafety("pointer slice sentinel mismatch",
         \\const std = @import("std");
         \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+        \\    _ = stack_trace;
         \\    if (std.mem.eql(u8, message, "sentinel mismatch")) {
         \\        std.process.exit(126); // good
         \\    }
@@ -264,12 +291,14 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    var buf: [4]u8 = undefined;
         \\    const ptr: [*]u8 = &buf;
         \\    const slice = ptr[0..3 :0];
+        \\    _ = slice;
         \\}
     );
 
     cases.addRuntimeSafety("slice slice sentinel mismatch",
         \\const std = @import("std");
         \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+        \\    _ = stack_trace;
         \\    if (std.mem.eql(u8, message, "sentinel mismatch")) {
         \\        std.process.exit(126); // good
         \\    }
@@ -279,12 +308,14 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    var buf: [4]u8 = undefined;
         \\    const slice = buf[0..];
         \\    const slice2 = slice[0..3 :0];
+        \\    _ = slice2;
         \\}
     );
 
     cases.addRuntimeSafety("array slice sentinel mismatch",
         \\const std = @import("std");
         \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+        \\    _ = stack_trace;
         \\    if (std.mem.eql(u8, message, "sentinel mismatch")) {
         \\        std.process.exit(126); // good
         \\    }
@@ -293,12 +324,14 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\pub fn main() void {
         \\    var buf: [4]u8 = undefined;
         \\    const slice = buf[0..3 :0];
+        \\    _ = slice;
         \\}
     );
 
     cases.addRuntimeSafety("intToPtr with misaligned address",
         \\const std = @import("std");
         \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+        \\    _ = stack_trace;
         \\    if (std.mem.eql(u8, message, "incorrect alignment")) {
         \\        std.os.exit(126); // good
         \\    }
@@ -307,16 +340,20 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\pub fn main() void {
         \\    var x: usize = 5;
         \\    var y = @intToPtr([*]align(4) u8, x);
+        \\    _ = y;
         \\}
     );
 
     cases.addRuntimeSafety("resuming a non-suspended function which never been suspended",
         \\const std = @import("std");
         \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+        \\    _ = message;
+        \\    _ = stack_trace;
         \\    std.os.exit(126);
         \\}
         \\fn foo() void {
         \\    var f = async bar(@frame());
+        \\    _ = f;
         \\    std.os.exit(0);
         \\}
         \\
@@ -335,6 +372,8 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     cases.addRuntimeSafety("resuming a non-suspended function which has been suspended and resumed",
         \\const std = @import("std");
         \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+        \\    _ = message;
+        \\    _ = stack_trace;
         \\    std.os.exit(126);
         \\}
         \\fn foo() void {
@@ -342,6 +381,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\        global_frame = @frame();
         \\    }
         \\    var f = async bar(@frame());
+        \\    _ = f;
         \\    std.os.exit(0);
         \\}
         \\
@@ -363,6 +403,8 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     cases.addRuntimeSafety("nosuspend function call, callee suspends",
         \\const std = @import("std");
         \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+        \\    _ = message;
+        \\    _ = stack_trace;
         \\    std.os.exit(126);
         \\}
         \\pub fn main() void {
@@ -379,6 +421,8 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     cases.addRuntimeSafety("awaiting twice",
         \\const std = @import("std");
         \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+        \\    _ = message;
+        \\    _ = stack_trace;
         \\    std.os.exit(126);
         \\}
         \\var frame: anyframe = undefined;
@@ -404,12 +448,15 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     cases.addRuntimeSafety("@asyncCall with too small a frame",
         \\const std = @import("std");
         \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+        \\    _ = message;
+        \\    _ = stack_trace;
         \\    std.os.exit(126);
         \\}
         \\pub fn main() void {
         \\    var bytes: [1]u8 align(16) = undefined;
         \\    var ptr = other;
         \\    var frame = @asyncCall(&bytes, {}, ptr, .{});
+        \\    _ = frame;
         \\}
         \\fn other() callconv(.Async) void {
         \\    suspend {}
@@ -419,6 +466,8 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     cases.addRuntimeSafety("resuming a function which is awaiting a frame",
         \\const std = @import("std");
         \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+        \\    _ = message;
+        \\    _ = stack_trace;
         \\    std.os.exit(126);
         \\}
         \\pub fn main() void {
@@ -437,6 +486,8 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     cases.addRuntimeSafety("resuming a function which is awaiting a call",
         \\const std = @import("std");
         \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+        \\    _ = message;
+        \\    _ = stack_trace;
         \\    std.os.exit(126);
         \\}
         \\pub fn main() void {
@@ -454,6 +505,8 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     cases.addRuntimeSafety("invalid resume of async function",
         \\const std = @import("std");
         \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+        \\    _ = message;
+        \\    _ = stack_trace;
         \\    std.os.exit(126);
         \\}
         \\pub fn main() void {
@@ -469,61 +522,78 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     cases.addRuntimeSafety(".? operator on null pointer",
         \\const std = @import("std");
         \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+        \\    _ = message;
+        \\    _ = stack_trace;
         \\    std.os.exit(126);
         \\}
         \\pub fn main() void {
         \\    var ptr: ?*i32 = null;
         \\    var b = ptr.?;
+        \\    _ = b;
         \\}
     );
 
     cases.addRuntimeSafety(".? operator on C pointer",
         \\const std = @import("std");
         \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+        \\    _ = message;
+        \\    _ = stack_trace;
         \\    std.os.exit(126);
         \\}
         \\pub fn main() void {
         \\    var ptr: [*c]i32 = null;
         \\    var b = ptr.?;
+        \\    _ = b;
         \\}
     );
 
     cases.addRuntimeSafety("@intToPtr address zero to non-optional pointer",
         \\const std = @import("std");
         \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+        \\    _ = message;
+        \\    _ = stack_trace;
         \\    std.os.exit(126);
         \\}
         \\pub fn main() void {
         \\    var zero: usize = 0;
         \\    var b = @intToPtr(*i32, zero);
+        \\    _ = b;
         \\}
     );
 
     cases.addRuntimeSafety("@intToPtr address zero to non-optional byte-aligned pointer",
         \\const std = @import("std");
         \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+        \\    _ = message;
+        \\    _ = stack_trace;
         \\    std.os.exit(126);
         \\}
         \\pub fn main() void {
         \\    var zero: usize = 0;
         \\    var b = @intToPtr(*u8, zero);
+        \\    _ = b;
         \\}
     );
 
     cases.addRuntimeSafety("pointer casting null to non-optional pointer",
         \\const std = @import("std");
         \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+        \\    _ = message;
+        \\    _ = stack_trace;
         \\    std.os.exit(126);
         \\}
         \\pub fn main() void {
         \\    var c_ptr: [*c]u8 = 0;
         \\    var zig_ptr: *u8 = c_ptr;
+        \\    _ = zig_ptr;
         \\}
     );
 
     cases.addRuntimeSafety("@intToEnum - no matching tag value",
         \\const std = @import("std");
         \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+        \\    _ = message;
+        \\    _ = stack_trace;
         \\    std.os.exit(126);
         \\}
         \\const Foo = enum {
@@ -537,12 +607,14 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\fn bar(a: u2) Foo {
         \\    return @intToEnum(Foo, a);
         \\}
-        \\fn baz(a: Foo) void {}
+        \\fn baz(_: Foo) void {}
     );
 
     cases.addRuntimeSafety("@floatToInt cannot fit - negative to unsigned",
         \\const std = @import("std");
         \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+        \\    _ = message;
+        \\    _ = stack_trace;
         \\    std.os.exit(126);
         \\}
         \\pub fn main() void {
@@ -551,12 +623,14 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\fn bar(a: f32) u8 {
         \\    return @floatToInt(u8, a);
         \\}
-        \\fn baz(a: u8) void { }
+        \\fn baz(_: u8) void { }
     );
 
     cases.addRuntimeSafety("@floatToInt cannot fit - negative out of range",
         \\const std = @import("std");
         \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+        \\    _ = message;
+        \\    _ = stack_trace;
         \\    std.os.exit(126);
         \\}
         \\pub fn main() void {
@@ -565,12 +639,14 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\fn bar(a: f32) i8 {
         \\    return @floatToInt(i8, a);
         \\}
-        \\fn baz(a: i8) void { }
+        \\fn baz(_: i8) void { }
     );
 
     cases.addRuntimeSafety("@floatToInt cannot fit - positive out of range",
         \\const std = @import("std");
         \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+        \\    _ = message;
+        \\    _ = stack_trace;
         \\    std.os.exit(126);
         \\}
         \\pub fn main() void {
@@ -579,12 +655,14 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\fn bar(a: f32) u8 {
         \\    return @floatToInt(u8, a);
         \\}
-        \\fn baz(a: u8) void { }
+        \\fn baz(_: u8) void { }
     );
 
     cases.addRuntimeSafety("calling panic",
         \\const std = @import("std");
         \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+        \\    _ = message;
+        \\    _ = stack_trace;
         \\    std.os.exit(126);
         \\}
         \\pub fn main() void {
@@ -595,6 +673,8 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     cases.addRuntimeSafety("out of bounds slice access",
         \\const std = @import("std");
         \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+        \\    _ = message;
+        \\    _ = stack_trace;
         \\    std.os.exit(126);
         \\}
         \\pub fn main() void {
@@ -604,12 +684,14 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\fn bar(a: []const i32) i32 {
         \\    return a[4];
         \\}
-        \\fn baz(a: i32) void { }
+        \\fn baz(_: i32) void { }
     );
 
     cases.addRuntimeSafety("integer addition overflow",
         \\const std = @import("std");
         \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+        \\    _ = message;
+        \\    _ = stack_trace;
         \\    std.os.exit(126);
         \\}
         \\pub fn main() !void {
@@ -624,12 +706,15 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     cases.addRuntimeSafety("vector integer addition overflow",
         \\const std = @import("std");
         \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+        \\    _ = message;
+        \\    _ = stack_trace;
         \\    std.os.exit(126);
         \\}
         \\pub fn main() void {
         \\    var a: std.meta.Vector(4, i32) = [_]i32{ 1, 2, 2147483643, 4 };
         \\    var b: std.meta.Vector(4, i32) = [_]i32{ 5, 6, 7, 8 };
         \\    const x = add(a, b);
+        \\    _ = x;
         \\}
         \\fn add(a: std.meta.Vector(4, i32), b: std.meta.Vector(4, i32)) std.meta.Vector(4, i32) {
         \\    return a + b;
@@ -639,12 +724,15 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     cases.addRuntimeSafety("vector integer subtraction overflow",
         \\const std = @import("std");
         \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+        \\    _ = message;
+        \\    _ = stack_trace;
         \\    std.os.exit(126);
         \\}
         \\pub fn main() void {
         \\    var a: std.meta.Vector(4, u32) = [_]u32{ 1, 2, 8, 4 };
         \\    var b: std.meta.Vector(4, u32) = [_]u32{ 5, 6, 7, 8 };
         \\    const x = sub(b, a);
+        \\    _ = x;
         \\}
         \\fn sub(a: std.meta.Vector(4, u32), b: std.meta.Vector(4, u32)) std.meta.Vector(4, u32) {
         \\    return a - b;
@@ -654,12 +742,15 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     cases.addRuntimeSafety("vector integer multiplication overflow",
         \\const std = @import("std");
         \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+        \\    _ = message;
+        \\    _ = stack_trace;
         \\    std.os.exit(126);
         \\}
         \\pub fn main() void {
         \\    var a: std.meta.Vector(4, u8) = [_]u8{ 1, 2, 200, 4 };
         \\    var b: std.meta.Vector(4, u8) = [_]u8{ 5, 6, 2, 8 };
         \\    const x = mul(b, a);
+        \\    _ = x;
         \\}
         \\fn mul(a: std.meta.Vector(4, u8), b: std.meta.Vector(4, u8)) std.meta.Vector(4, u8) {
         \\    return a * b;
@@ -669,11 +760,14 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     cases.addRuntimeSafety("vector integer negation overflow",
         \\const std = @import("std");
         \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+        \\    _ = message;
+        \\    _ = stack_trace;
         \\    std.os.exit(126);
         \\}
         \\pub fn main() void {
         \\    var a: std.meta.Vector(4, i16) = [_]i16{ 1, -32768, 200, 4 };
         \\    const x = neg(a);
+        \\    _ = x;
         \\}
         \\fn neg(a: std.meta.Vector(4, i16)) std.meta.Vector(4, i16) {
         \\    return -a;
@@ -683,6 +777,8 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     cases.addRuntimeSafety("integer subtraction overflow",
         \\const std = @import("std");
         \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+        \\    _ = message;
+        \\    _ = stack_trace;
         \\    std.os.exit(126);
         \\}
         \\pub fn main() !void {
@@ -697,6 +793,8 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     cases.addRuntimeSafety("integer multiplication overflow",
         \\const std = @import("std");
         \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+        \\    _ = message;
+        \\    _ = stack_trace;
         \\    std.os.exit(126);
         \\}
         \\pub fn main() !void {
@@ -711,6 +809,8 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     cases.addRuntimeSafety("integer negation overflow",
         \\const std = @import("std");
         \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+        \\    _ = message;
+        \\    _ = stack_trace;
         \\    std.os.exit(126);
         \\}
         \\pub fn main() !void {
@@ -725,6 +825,8 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     cases.addRuntimeSafety("signed integer division overflow",
         \\const std = @import("std");
         \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+        \\    _ = message;
+        \\    _ = stack_trace;
         \\    std.os.exit(126);
         \\}
         \\pub fn main() !void {
@@ -739,6 +841,8 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     cases.addRuntimeSafety("signed integer division overflow - vectors",
         \\const std = @import("std");
         \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+        \\    _ = message;
+        \\    _ = stack_trace;
         \\    std.os.exit(126);
         \\}
         \\pub fn main() !void {
@@ -755,6 +859,8 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     cases.addRuntimeSafety("signed shift left overflow",
         \\const std = @import("std");
         \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+        \\    _ = message;
+        \\    _ = stack_trace;
         \\    std.os.exit(126);
         \\}
         \\pub fn main() !void {
@@ -769,6 +875,8 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     cases.addRuntimeSafety("unsigned shift left overflow",
         \\const std = @import("std");
         \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+        \\    _ = message;
+        \\    _ = stack_trace;
         \\    std.os.exit(126);
         \\}
         \\pub fn main() !void {
@@ -783,6 +891,8 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     cases.addRuntimeSafety("signed shift right overflow",
         \\const std = @import("std");
         \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+        \\    _ = message;
+        \\    _ = stack_trace;
         \\    std.os.exit(126);
         \\}
         \\pub fn main() !void {
@@ -797,6 +907,8 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     cases.addRuntimeSafety("unsigned shift right overflow",
         \\const std = @import("std");
         \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+        \\    _ = message;
+        \\    _ = stack_trace;
         \\    std.os.exit(126);
         \\}
         \\pub fn main() !void {
@@ -811,10 +923,13 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     cases.addRuntimeSafety("integer division by zero",
         \\const std = @import("std");
         \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+        \\    _ = message;
+        \\    _ = stack_trace;
         \\    std.os.exit(126);
         \\}
         \\pub fn main() void {
         \\    const x = div0(999, 0);
+        \\    _ = x;
         \\}
         \\fn div0(a: i32, b: i32) i32 {
         \\    return @divTrunc(a, b);
@@ -824,12 +939,15 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     cases.addRuntimeSafety("integer division by zero - vectors",
         \\const std = @import("std");
         \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+        \\    _ = message;
+        \\    _ = stack_trace;
         \\    std.os.exit(126);
         \\}
         \\pub fn main() void {
         \\    var a: std.meta.Vector(4, i32) = [4]i32{111, 222, 333, 444};
         \\    var b: std.meta.Vector(4, i32) = [4]i32{111, 0, 333, 444};
         \\    const x = div0(a, b);
+        \\    _ = x;
         \\}
         \\fn div0(a: std.meta.Vector(4, i32), b: std.meta.Vector(4, i32)) std.meta.Vector(4, i32) {
         \\    return @divTrunc(a, b);
@@ -839,6 +957,8 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     cases.addRuntimeSafety("exact division failure",
         \\const std = @import("std");
         \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+        \\    _ = message;
+        \\    _ = stack_trace;
         \\    std.os.exit(126);
         \\}
         \\pub fn main() !void {
@@ -853,12 +973,15 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     cases.addRuntimeSafety("exact division failure - vectors",
         \\const std = @import("std");
         \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+        \\    _ = message;
+        \\    _ = stack_trace;
         \\    std.os.exit(126);
         \\}
         \\pub fn main() !void {
         \\    var a: std.meta.Vector(4, i32) = [4]i32{111, 222, 333, 444};
         \\    var b: std.meta.Vector(4, i32) = [4]i32{111, 222, 333, 441};
         \\    const x = divExact(a, b);
+        \\    _ = x;
         \\}
         \\fn divExact(a: std.meta.Vector(4, i32), b: std.meta.Vector(4, i32)) std.meta.Vector(4, i32) {
         \\    return @divExact(a, b);
@@ -868,6 +991,8 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     cases.addRuntimeSafety("cast []u8 to bigger slice of wrong size",
         \\const std = @import("std");
         \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+        \\    _ = message;
+        \\    _ = stack_trace;
         \\    std.os.exit(126);
         \\}
         \\pub fn main() !void {
@@ -882,6 +1007,8 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     cases.addRuntimeSafety("value does not fit in shortening cast",
         \\const std = @import("std");
         \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+        \\    _ = message;
+        \\    _ = stack_trace;
         \\    std.os.exit(126);
         \\}
         \\pub fn main() !void {
@@ -896,6 +1023,8 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     cases.addRuntimeSafety("value does not fit in shortening cast - u0",
         \\const std = @import("std");
         \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+        \\    _ = message;
+        \\    _ = stack_trace;
         \\    std.os.exit(126);
         \\}
         \\pub fn main() !void {
@@ -910,6 +1039,8 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     cases.addRuntimeSafety("signed integer not fitting in cast to unsigned integer",
         \\const std = @import("std");
         \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+        \\    _ = message;
+        \\    _ = stack_trace;
         \\    std.os.exit(126);
         \\}
         \\pub fn main() !void {
@@ -924,28 +1055,35 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     cases.addRuntimeSafety("signed integer not fitting in cast to unsigned integer - widening",
         \\const std = @import("std");
         \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+        \\    _ = message;
+        \\    _ = stack_trace;
         \\    std.os.exit(126);
         \\}
         \\pub fn main() void {
         \\    var value: c_short = -1;
         \\    var casted = @intCast(u32, value);
+        \\    _ = casted;
         \\}
     );
 
     cases.addRuntimeSafety("unsigned integer not fitting in cast to signed integer - same bit count",
         \\const std = @import("std");
         \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+        \\    _ = message;
+        \\    _ = stack_trace;
         \\    std.os.exit(126);
         \\}
         \\pub fn main() void {
         \\    var value: u8 = 245;
         \\    var casted = @intCast(i8, value);
+        \\    _ = casted;
         \\}
     );
 
     cases.addRuntimeSafety("unwrap error",
         \\const std = @import("std");
         \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+        \\    _ = stack_trace;
         \\    if (std.mem.eql(u8, message, "attempt to unwrap error: Whatever")) {
         \\        std.os.exit(126); // good
         \\    }
@@ -962,6 +1100,8 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     cases.addRuntimeSafety("cast integer to global error and no code matches",
         \\const std = @import("std");
         \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+        \\    _ = message;
+        \\    _ = stack_trace;
         \\    std.os.exit(126);
         \\}
         \\pub fn main() void {
@@ -975,6 +1115,8 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     cases.addRuntimeSafety("@errSetCast error not present in destination",
         \\const std = @import("std");
         \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+        \\    _ = message;
+        \\    _ = stack_trace;
         \\    std.os.exit(126);
         \\}
         \\const Set1 = error{A, B};
@@ -990,6 +1132,8 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     cases.addRuntimeSafety("@alignCast misaligned",
         \\const std = @import("std");
         \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+        \\    _ = message;
+        \\    _ = stack_trace;
         \\    std.os.exit(126);
         \\}
         \\pub fn main() !void {
@@ -1007,6 +1151,8 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     cases.addRuntimeSafety("bad union field access",
         \\const std = @import("std");
         \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+        \\    _ = message;
+        \\    _ = stack_trace;
         \\    std.os.exit(126);
         \\}
         \\
@@ -1031,6 +1177,8 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     cases.addRuntimeSafety("@intCast to u0",
         \\const std = @import("std");
         \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+        \\    _ = message;
+        \\    _ = stack_trace;
         \\    std.os.exit(126);
         \\}
         \\
@@ -1040,6 +1188,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\
         \\fn bar(one: u1, not_zero: i32) void {
         \\    var x = one << @intCast(u0, not_zero);
+        \\    _ = x;
         \\}
     );
 
@@ -1049,6 +1198,8 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\const std = @import("std");
         \\
         \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+        \\    _ = message;
+        \\    _ = stack_trace;
         \\    std.os.exit(126);
         \\}
         \\
@@ -1058,6 +1209,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    const p = nonFailing();
         \\    resume p;
         \\    const p2 = async printTrace(p);
+        \\    _ = p2;
         \\}
         \\
         \\fn nonFailing() anyframe->anyerror!void {
@@ -1084,12 +1236,15 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     cases.addRuntimeSafety("slicing null C pointer",
         \\const std = @import("std");
         \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+        \\    _ = message;
+        \\    _ = stack_trace;
         \\    std.os.exit(126);
         \\}
         \\
         \\pub fn main() void {
         \\    var ptr: [*c]const u32 = null;
         \\    var slice = ptr[0..3];
+        \\    _ = slice;
         \\}
     );
 }
