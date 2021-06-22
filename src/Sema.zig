@@ -5809,7 +5809,6 @@ fn zirIntToPtr(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerErro
         return sema.mod.fail(&block.base, type_src, "expected pointer, found '{}'", .{type_res});
     const ptr_align = type_res.ptrAlignment(sema.mod.getTarget());
 
-    const uncasted_operand = try sema.resolveInst(extra.rhs);
     if (try sema.resolveDefinedValue(block, operand_src, operand_coerced)) |val| {
         const addr = val.toUnsignedInt();
         if (!type_res.isAllowzeroPtr() and addr == 0)

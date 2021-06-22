@@ -681,6 +681,7 @@ fn readCoffDebugInfo(allocator: *mem.Allocator, coff_file: File) !ModuleDebugInf
         try di.coff.loadSections();
         if (di.coff.getSection(".debug_info")) |sec| {
             // This coff file has embedded DWARF debug info
+            _ = sec;
             // TODO: free the section data slices
             const debug_info_data = di.coff.getSectionData(".debug_info", allocator) catch null;
             const debug_abbrev_data = di.coff.getSectionData(".debug_abbrev", allocator) catch null;
