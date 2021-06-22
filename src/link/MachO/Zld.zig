@@ -263,6 +263,7 @@ pub fn link(self: *Zld, files: []const []const u8, out_path: []const u8, args: L
     self.allocateLinkeditSegment();
     try self.allocateSymbols();
     try self.allocateTentativeSymbols();
+    try self.allocateProxiesBindAddresses();
     try self.flush();
 }
 
@@ -1346,6 +1347,30 @@ fn allocateTentativeSymbols(self: *Zld) !void {
     }
 }
 
+fn allocateProxiesBindAddresses(self: *Zld) !void {
+    for (self.objects.items) |object| {
+        for (object.sections.items) |sect| {
+            const relocs = sect.relocs orelse continue;
+
+            for (relocs) |rel| {
+                if (rel.@"type" != .unsigned) continue; // GOT is currently special-cased
+                if (rel.target != .symbol) continue;
+
+                const sym = rel.target.symbol.getTopmostAlias();
+                if (sym.cast(Symbol.Proxy)) |proxy| {
+                    const target_map = sect.target_map orelse continue;
+                    const target_seg = self.load_commands.items[target_map.segment_id].Segment;
+                    const target_sect = target_seg.sections.items[target_map.section_id];
+                    try proxy.bind_info.append(self.allocator, .{
+                        .segment_id = target_map.segment_id,
+                        .address = target_sect.addr + target_map.offset + rel.offset,
+                    });
+                }
+            }
+        }
+    }
+}
+
 fn writeStubHelperCommon(self: *Zld) !void {
     const text_segment = &self.load_commands.items[self.text_segment_cmd_index.?].Segment;
     const stub_helper = &text_segment.sections.items[self.stub_helper_section_index.?];
@@ -1863,6 +1888,7 @@ fn resolveStubsAndGotEntries(self: *Zld) !void {
             const relocs = sect.relocs orelse continue;
             for (relocs) |rel| {
                 switch (rel.@"type") {
+                    .unsigned => continue,
                     .got_page, .got_page_off, .got_load, .got, .pointer_to_got => {
                         const sym = rel.target.symbol.getTopmostAlias();
                         if (sym.got_index != null) continue;
@@ -2090,7 +2116,10 @@ fn relocTargetAddr(self: *Zld, object: *const Object, target: reloc.Relocation.T
                     const segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
                     const stubs = segment.sections.items[self.stubs_section_index.?];
                     const stubs_index = proxy.base.stubs_index orelse {
-                        log.err("expected stubs index when relocating symbol '{s}'", .{final.name});
+                        if (proxy.bind_info.items.len > 0) {
+                            break :blk 0; // Dynamically bound by dyld.
+                        }
+                        log.err("expected stubs index or dynamic bind address when relocating symbol '{s}'", .{final.name});
                         log.err("this is an internal linker error", .{});
                         return error.FailedToResolveRelocationTarget;
                     };
@@ -2633,6 +2662,20 @@ fn writeBindInfoTable(self: *Zld) !void {
                 try pointers.append(.{
                     .offset = base_offset + proxy.base.got_index.? * @sizeOf(u64),
                     .segment_id = segment_id,
+                    .dylib_ordinal = proxy.dylibOrdinal(),
+                    .name = proxy.base.name,
+                });
+            }
+        }
+    }
+
+    for (self.imports.values()) |sym| {
+        if (sym.cast(Symbol.Proxy)) |proxy| {
+            for (proxy.bind_info.items) |info| {
+                const seg = self.load_commands.items[info.segment_id].Segment;
+                try pointers.append(.{
+                    .offset = info.address - seg.inner.vmaddr,
+                    .segment_id = info.segment_id,
                     .dylib_ordinal = proxy.dylibOrdinal(),
                     .name = proxy.base.name,
                 });

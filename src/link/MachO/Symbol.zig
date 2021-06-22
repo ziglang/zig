@@ -85,6 +85,11 @@ pub const Regular = struct {
 pub const Proxy = struct {
     base: Symbol,
 
+    bind_info: std.ArrayListUnmanaged(struct {
+        segment_id: u16,
+        address: u64,
+    }) = .{},
+
     /// Dylib or stub where to locate this symbol.
     /// null means self-reference.
     file: ?union(enum) {
