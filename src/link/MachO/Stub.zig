@@ -41,6 +41,9 @@ pub fn init(allocator: *Allocator) Stub {
 }
 
 pub fn deinit(self: *Stub) void {
+    for (self.symbols.keys()) |key| {
+        self.allocator.free(key);
+    }
     self.symbols.deinit(self.allocator);
 
     if (self.lib_stub) |*lib_stub| {
@@ -53,6 +56,18 @@ pub fn deinit(self: *Stub) void {
 
     if (self.id) |*id| {
         id.deinit(self.allocator);
+    }
+}
+
+fn addObjCClassSymbols(self: *Stub, sym_name: []const u8) !void {
+    const expanded = &[_][]const u8{
+        try std.fmt.allocPrint(self.allocator, "_OBJC_CLASS_$_{s}", .{sym_name}),
+        try std.fmt.allocPrint(self.allocator, "_OBJC_METACLASS_$_{s}", .{sym_name}),
+    };
+
+    for (expanded) |sym| {
+        if (self.symbols.contains(sym)) continue;
+        try self.symbols.putNoClobber(self.allocator, sym, .{});
     }
 }
 
@@ -87,32 +102,13 @@ pub fn parse(self: *Stub) !void {
                 if (exp.symbols) |symbols| {
                     for (symbols) |sym_name| {
                         if (self.symbols.contains(sym_name)) continue;
-                        try self.symbols.putNoClobber(self.allocator, sym_name, {});
+                        try self.symbols.putNoClobber(self.allocator, try self.allocator.dupe(u8, sym_name), {});
                     }
                 }
 
                 if (exp.objc_classes) |classes| {
                     for (classes) |sym_name| {
-                        log.debug("    | {s}", .{sym_name});
-                        {
-                            const actual_sym_name = try std.fmt.allocPrint(
-                                self.allocator,
-                                "_OBJC_CLASS_$_{s}",
-                                .{sym_name},
-                            );
-                            if (self.symbols.contains(actual_sym_name)) continue;
-                            try self.symbols.putNoClobber(self.allocator, actual_sym_name, {});
-                        }
-
-                        {
-                            const actual_sym_name = try std.fmt.allocPrint(
-                                self.allocator,
-                                "_OBJC_METACLASS_$_{s}",
-                                .{sym_name},
-                            );
-                            if (self.symbols.contains(actual_sym_name)) continue;
-                            try self.symbols.putNoClobber(self.allocator, actual_sym_name, {});
-                        }
+                        try self.addObjCClassSymbols(sym_name);
                     }
                 }
             }
@@ -124,34 +120,14 @@ pub fn parse(self: *Stub) !void {
 
                 for (reexp.symbols) |sym_name| {
                     if (self.symbols.contains(sym_name)) continue;
-                    try self.symbols.putNoClobber(self.allocator, sym_name, {});
+                    try self.symbols.putNoClobber(self.allocator, try self.allocator.dupe(u8, sym_name), {});
                 }
             }
         }
 
         if (stub.objc_classes) |classes| {
-            log.debug("  | objc_classes", .{});
             for (classes) |sym_name| {
-                log.debug("    | {s}", .{sym_name});
-                {
-                    const actual_sym_name = try std.fmt.allocPrint(
-                        self.allocator,
-                        "_OBJC_CLASS_$_{s}",
-                        .{sym_name},
-                    );
-                    if (self.symbols.contains(actual_sym_name)) continue;
-                    try self.symbols.putNoClobber(self.allocator, actual_sym_name, {});
-                }
-
-                {
-                    const actual_sym_name = try std.fmt.allocPrint(
-                        self.allocator,
-                        "_OBJC_METACLASS_$_{s}",
-                        .{sym_name},
-                    );
-                    if (self.symbols.contains(actual_sym_name)) continue;
-                    try self.symbols.putNoClobber(self.allocator, actual_sym_name, {});
-                }
+                try self.addObjCClassSymbols(sym_name);
             }
         }
     }

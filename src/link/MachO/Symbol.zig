@@ -74,6 +74,8 @@ pub const Regular = struct {
         global,
     };
 
+    pub fn deinit(regular: *Regular, allocator: *Allocator) void {}
+
     pub fn isTemp(regular: *Regular) bool {
         if (regular.linkage == .translation_unit) {
             return mem.startsWith(u8, regular.base.name, "l") or mem.startsWith(u8, regular.base.name, "L");
@@ -85,6 +87,8 @@ pub const Regular = struct {
 pub const Proxy = struct {
     base: Symbol,
 
+    /// Dynamic binding info - spots within the final
+    /// executable where this proxy is referenced from.
     bind_info: std.ArrayListUnmanaged(struct {
         segment_id: u16,
         address: u64,
@@ -98,6 +102,10 @@ pub const Proxy = struct {
     } = null,
 
     pub const base_type: Symbol.Type = .proxy;
+
+    pub fn deinit(proxy: *Proxy, allocator: *Allocator) void {
+        proxy.bind_info.deinit(allocator);
+    }
 
     pub fn dylibOrdinal(proxy: *Proxy) u16 {
         const file = proxy.file orelse return 0;
@@ -115,6 +123,8 @@ pub const Unresolved = struct {
     file: *Object,
 
     pub const base_type: Symbol.Type = .unresolved;
+
+    pub fn deinit(unresolved: *Unresolved, allocator: *Allocator) void {}
 };
 
 pub const Tentative = struct {
@@ -130,10 +140,18 @@ pub const Tentative = struct {
     file: *Object,
 
     pub const base_type: Symbol.Type = .tentative;
+
+    pub fn deinit(tentative: *Tentative, allocator: *Allocator) void {}
 };
 
 pub fn deinit(base: *Symbol, allocator: *Allocator) void {
     allocator.free(base.name);
+    switch (base.@"type") {
+        .regular => @fieldParentPtr(Regular, "base", base).deinit(allocator),
+        .proxy => @fieldParentPtr(Proxy, "base", base).deinit(allocator),
+        .unresolved => @fieldParentPtr(Unresolved, "base", base).deinit(allocator),
+        .tentative => @fieldParentPtr(Tentative, "base", base).deinit(allocator),
+    }
 }
 
 pub fn cast(base: *Symbol, comptime T: type) ?*T {

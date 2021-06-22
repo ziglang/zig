@@ -263,7 +263,7 @@ pub fn link(self: *Zld, files: []const []const u8, out_path: []const u8, args: L
     self.allocateLinkeditSegment();
     try self.allocateSymbols();
     try self.allocateTentativeSymbols();
-    try self.allocateProxiesBindAddresses();
+    try self.allocateProxyBindAddresses();
     try self.flush();
 }
 
@@ -1347,7 +1347,7 @@ fn allocateTentativeSymbols(self: *Zld) !void {
     }
 }
 
-fn allocateProxiesBindAddresses(self: *Zld) !void {
+fn allocateProxyBindAddresses(self: *Zld) !void {
     for (self.objects.items) |object| {
         for (object.sections.items) |sect| {
             const relocs = sect.relocs orelse continue;
@@ -1361,6 +1361,7 @@ fn allocateProxiesBindAddresses(self: *Zld) !void {
                     const target_map = sect.target_map orelse continue;
                     const target_seg = self.load_commands.items[target_map.segment_id].Segment;
                     const target_sect = target_seg.sections.items[target_map.section_id];
+
                     try proxy.bind_info.append(self.allocator, .{
                         .segment_id = target_map.segment_id,
                         .address = target_sect.addr + target_map.offset + rel.offset,
@@ -2119,7 +2120,10 @@ fn relocTargetAddr(self: *Zld, object: *const Object, target: reloc.Relocation.T
                         if (proxy.bind_info.items.len > 0) {
                             break :blk 0; // Dynamically bound by dyld.
                         }
-                        log.err("expected stubs index or dynamic bind address when relocating symbol '{s}'", .{final.name});
+                        log.err(
+                            "expected stubs index or dynamic bind address when relocating symbol '{s}'",
+                            .{final.name},
+                        );
                         log.err("this is an internal linker error", .{});
                         return error.FailedToResolveRelocationTarget;
                     };
