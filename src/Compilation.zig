@@ -317,6 +317,7 @@ pub const AllErrors = struct {
             byte_offset: u32,
             /// Does not include the trailing newline.
             source_line: ?[]const u8,
+            lexeme_length: u32,
             notes: []Message = &.{},
         },
         plain: struct {
@@ -364,7 +365,12 @@ pub const AllErrors = struct {
                             try stderr.writeByte('\n');
                             try stderr.writeByteNTimes(' ', src.column);
                             ttyconf.setColor(stderr, .Green);
-                            try stderr.writeAll("^\n");
+                            if (src.lexeme_length > 1) {
+                                try stderr.writeByteNTimes('~', src.lexeme_length);
+                                try stderr.writeByte('\n');
+                            } else {
+                                try stderr.writeAll("^\n");
+                            }
                             ttyconf.setColor(stderr, .Reset);
                         }
                     }
@@ -404,6 +410,15 @@ pub const AllErrors = struct {
             const byte_offset = try module_note.src_loc.byteOffset(module.gpa);
             const loc = std.zig.findLineColumn(source, byte_offset);
             const sub_file_path = module_note.src_loc.file_scope.sub_file_path;
+            const lexeme_length = blk: {
+                var tokenizer = std.zig.Tokenizer{
+                    .buffer = loc.source_line,
+                    .index = loc.column,
+                    .pending_invalid_token = null,
+                };
+                const token = tokenizer.next();
+                break :blk @intCast(u32, token.loc.end - token.loc.start);
+            };
             note.* = .{
                 .src = .{
                     .src_path = try arena.allocator.dupe(u8, sub_file_path),
@@ -412,6 +427,7 @@ pub const AllErrors = struct {
                     .line = @intCast(u32, loc.line),
                     .column = @intCast(u32, loc.column),
                     .source_line = try arena.allocator.dupe(u8, loc.source_line),
+                    .lexeme_length = lexeme_length,
                 },
             };
         }
@@ -427,6 +443,15 @@ pub const AllErrors = struct {
         const byte_offset = try module_err_msg.src_loc.byteOffset(module.gpa);
         const loc = std.zig.findLineColumn(source, byte_offset);
         const sub_file_path = module_err_msg.src_loc.file_scope.sub_file_path;
+        const lexeme_length = blk: {
+            var tokenizer = std.zig.Tokenizer{
+                .buffer = loc.source_line,
+                .index = loc.column,
+                .pending_invalid_token = null,
+            };
+            const token = tokenizer.next();
+            break :blk @intCast(u32, token.loc.end - token.loc.start);
+        };
         try errors.append(.{
             .src = .{
                 .src_path = try arena.allocator.dupe(u8, sub_file_path),
@@ -436,6 +461,7 @@ pub const AllErrors = struct {
                 .column = @intCast(u32, loc.column),
                 .notes = notes,
                 .source_line = try arena.allocator.dupe(u8, loc.source_line),
+                .lexeme_length = lexeme_length,
             },
         });
     }
@@ -476,6 +502,18 @@ pub const AllErrors = struct {
                         }
                         break :blk token_starts[note_item.data.token] + note_item.data.byte_offset;
                     };
+                    const lexeme_length = blk: {
+                        const token = tok: {
+                            if (note_item.data.node != 0) {
+                                const main_tokens = file.tree.nodes.items(.main_token);
+                                const main_token = main_tokens[item.data.node];
+                                break :tok main_token;
+                            } else {
+                                break :tok note_item.data.token;
+                            }
+                        };
+                        break :blk @intCast(u32, file.tree.tokenSlice(token).len);
+                    };
                     const loc = std.zig.findLineColumn(file.source, byte_offset);
 
                     note.* = .{
@@ -487,6 +525,7 @@ pub const AllErrors = struct {
                             .column = @intCast(u32, loc.column),
                             .notes = &.{}, // TODO rework this function to be recursive
                             .source_line = try arena.dupe(u8, loc.source_line),
+                            .lexeme_length = lexeme_length,
                         },
                     };
                 }
@@ -502,6 +541,18 @@ pub const AllErrors = struct {
                 }
                 break :blk token_starts[item.data.token] + item.data.byte_offset;
             };
+            const lexeme_length = blk: {
+                const token = tok: {
+                    if (item.data.node != 0) {
+                        const main_tokens = file.tree.nodes.items(.main_token);
+                        const main_token = main_tokens[item.data.node];
+                        break :tok main_token;
+                    } else {
+                        break :tok item.data.token;
+                    }
+                };
+                break :blk @intCast(u32, file.tree.tokenSlice(token).len);
+            };
             const loc = std.zig.findLineColumn(file.source, byte_offset);
 
             try errors.append(.{
@@ -513,6 +564,7 @@ pub const AllErrors = struct {
                     .column = @intCast(u32, loc.column),
                     .notes = notes,
                     .source_line = try arena.dupe(u8, loc.source_line),
+                    .lexeme_length = lexeme_length,
                 },
             });
         }
@@ -555,6 +607,7 @@ pub const AllErrors = struct {
                     .column = src.column,
                     .byte_offset = src.byte_offset,
                     .source_line = if (src.source_line) |s| try arena.dupe(u8, s) else null,
+                    .lexeme_length = src.lexeme_length,
                     .notes = try dupeList(src.notes, arena),
                 } },
                 .plain => |plain| .{ .plain = .{
@@ -1801,6 +1854,7 @@ pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
                     .line = err_msg.line,
                     .column = err_msg.column,
                     .source_line = null, // TODO
+                    .lexeme_length = 1, // TODO: extract from `source_line` using `std.zig.Tokenizer`
                 },
             });
         }

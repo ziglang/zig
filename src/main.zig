@@ -3292,6 +3292,7 @@ fn printErrMsgToStdErr(
     const lok_token = parse_error.token;
     const start_loc = tree.tokenLocation(0, lok_token);
     const source_line = tree.source[start_loc.line_start..start_loc.line_end];
+    const lexeme_length = @intCast(u32, tree.tokenSlice(lok_token).len);
 
     var text_buf = std.ArrayList(u8).init(gpa);
     defer text_buf.deinit();
@@ -3307,6 +3308,7 @@ fn printErrMsgToStdErr(
             .line = @intCast(u32, start_loc.line),
             .column = @intCast(u32, start_loc.column),
             .source_line = source_line,
+            .lexeme_length = lexeme_length,
         },
     };
 
