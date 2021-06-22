@@ -4,7 +4,6 @@ const mem = std.mem;
 const assert = std.debug.assert;
 const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
-const Type = @import("../Type.zig");
 const DW = std.dwarf;
 
 // zig fmt: off
