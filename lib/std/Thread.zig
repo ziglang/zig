@@ -150,7 +150,7 @@ const Completion = Atomic(enum(u8) {
 
 /// Used by the Thread implementations to call the spawned function with the arguments.
 fn callFn(comptime f: anytype, args: anytype) switch (Impl) {
-    WindowsThreadImpl => windows.DWORD,
+    WindowsThreadImpl => std.os.windows.DWORD,
     LinuxThreadImpl => u8,
     PosixThreadImpl => ?*c_void,
     else => unreachable,
@@ -223,7 +223,7 @@ const WindowsThreadImpl = struct {
 
         fn free(self: ThreadCompletion) void {
             const status = windows.kernel32.HeapFree(self.heap_handle, 0, self.heap_ptr);
-            assert(status == 0);
+            assert(status != 0);
         }
     };
 
@@ -233,9 +233,9 @@ const WindowsThreadImpl = struct {
             fn_args: Args,
             thread: ThreadCompletion,
 
-            fn entryFn(raw_ptr: *windows.PVOID) callconv(.C) windows.DWORD {
+            fn entryFn(raw_ptr: windows.PVOID) callconv(.C) windows.DWORD {
                 const self = @ptrCast(*@This(), @alignCast(@alignOf(@This()), raw_ptr));
-                defer switch (self.thread.completion.swap(.completed, .Acquire)) {
+                defer switch (self.thread.completion.swap(.completed, .SeqCst)) {
                     .running => {},
                     .completed => unreachable,
                     .detached => self.thread.free(),
@@ -269,7 +269,7 @@ const WindowsThreadImpl = struct {
         instance.thread.thread_handle = windows.kernel32.CreateThread(
             null, 
             stack_size, 
-            Instance.entry, 
+            Instance.entryFn, 
             @ptrCast(*c_void, instance), 
             0, 
             null,
@@ -277,7 +277,7 @@ const WindowsThreadImpl = struct {
             return windows.unexpectedError(windows.kernel32.GetLastError());
         };
 
-        return .{ .thread = &instance.thread };
+        return Impl{ .thread = &instance.thread };
     }
 
     fn getHandle(self: Impl) ThreadHandle {
@@ -286,7 +286,7 @@ const WindowsThreadImpl = struct {
 
     fn detach(self: Impl) void {
         windows.CloseHandle(self.thread.thread_handle);
-        switch (self.thread.completion.swap(.detached, .AcqRel)) {
+        switch (self.thread.completion.swap(.detached, .SeqCst)) {
             .running => {},
             .completed => self.thread.free(),
             .detached => unreachable,
@@ -296,6 +296,7 @@ const WindowsThreadImpl = struct {
     fn join(self: Impl) void {
         windows.WaitForSingleObjectEx(self.thread.thread_handle, windows.INFINITE, false) catch unreachable;
         windows.CloseHandle(self.thread.thread_handle);
+        assert(self.thread.completion.load(.SeqCst) == .completed);
         self.thread.free();
     }  
 };
@@ -625,67 +626,100 @@ const LinuxThreadImpl = struct {
     }
 
     // Calls `munmap(ptr, len)` then `exit(1)` without touching the stack (which lives in `ptr`).
-    // Ported over from musl libc's pthread detached implementation.
+    // Ported over from musl libc's pthread detached implementation (`__unmapself`).
     extern fn __unmap_and_exit(ptr: usize, len: usize) callconv(.C) noreturn;
     comptime {
-        asm(switch (target.cpu.arch) {
-            .i386 => (
-                \\.text
-                \\.global __unmap_and_exit
-                \\.type __unmap_and_exit, @function
-                \\__unmap_and_exit:
-                \\  movl $91, %eax
-                \\  movl 4(%esp), %ebx
-                \\  movl 8(%esp), %ecx
-                \\  int $128
-                \\  xorl %ebx, %ebx
-                \\  movl $1, %eax
-                \\  int $128
-            ),
-            .x86_64 => (
-                \\.text
-                \\.global __unmap_and_exit
-                \\.type __unmap_and_exit, @function
-                \\__unmap_and_exit:
-                \\  movl $11, %eax
-                \\  syscall
-                \\  xor %rdi, %rdi
-                \\  movl $60, %eax
-                \\  syscall
-            ),
-            .arm, .armeb, .aarch64, .aarch64_be, .aarch64_32 => (
-                \\.text
-                \\.global __unmap_and_exit
-                \\.type __unmap_and_exit, @function
-                \\__unmap_and_exit:
-                \\  mov r7, #91
-                \\  svc 0
-                \\  mov r7, #1
-                \\  svc 0
-            ),
-            .mips, .mipsel, .mips64, .mips64el => (
-                \\.set noreorder
-                \\.global __unmap_and_exit
-                \\.type __unmap_and_exit, @function
-                \\__unmap_and_exit:
-                \\  li $2, 4091
-                \\  syscall
-                \\  li $4, 0
-                \\  li $2, 4001
-                \\  syscall
-            ),
-            .powerpc, .powerpc64, .powerpc64le => (
-                \\.text
-                \\.global __unmap_and_exit
-                \\.type __unmap_and_exit, @function
-                \\__unmap_and_exit:
-                \\  li 0, 91
-                \\  sc
-                \\  li 0, 1
-                \\  sc
-                \\  blr
-            ),
-            else => @compileError("Platform not supported"),
-        });
+        if (target.os.tag == .linux) {
+            asm(switch (target.cpu.arch) {
+                .i386 => (
+                    \\.text
+                    \\.global __unmap_and_exit
+                    \\.type __unmap_and_exit, @function
+                    \\__unmap_and_exit:
+                    \\  movl $91, %eax
+                    \\  movl 4(%esp), %ebx
+                    \\  movl 8(%esp), %ecx
+                    \\  int $128
+                    \\  xorl %ebx, %ebx
+                    \\  movl $1, %eax
+                    \\  int $128
+                ),
+                .x86_64 => (
+                    \\.text
+                    \\.global __unmap_and_exit
+                    \\.type __unmap_and_exit, @function
+                    \\__unmap_and_exit:
+                    \\  movl $11, %eax
+                    \\  syscall
+                    \\  xor %rdi, %rdi
+                    \\  movl $60, %eax
+                    \\  syscall
+                ),
+                .arm, .armeb, .thumb, .thumb_eb => (
+                    \\.syntax unified
+                    \\.text
+                    \\.global __unmap_and_exit
+                    \\.type   __unmap_and_exit, %function
+                    \\__unmap_and_exit:
+                    \\  mov r7, #91
+                    \\  svc 0
+                    \\  mov r7, #1
+                    \\  svc 0
+                ),
+                .aarch64, .aarch64_be, .aarch64_32 => (
+                    \\.global __unmap_and_exit
+                    \\.type __unmap_and_exit, %function
+                    \\__unmap_and_exit:
+                    \\  mov x8, #215
+                    \\  svc 0
+                    \\  mov x8, #93
+                    \\  svc 0
+                ),
+                .mips, .mipsel, => (
+                    \\.set noreorder
+                    \\.global __unmap_and_exit
+                    \\.type   __unmap_and_exit,@function
+                    \\__unmap_and_exit:
+                    \\    move $sp, $25
+                    \\    li $2, 4091
+                    \\    syscall
+                    \\    li $4, 0
+                    \\    li $2, 4001
+                    \\    syscall
+                ),
+                .mips64, .mips64el => (
+                    \\.set noreorder
+                    \\.global __unmap_and_exit
+                    \\.type   __unmap_and_exit, @function
+                    \\__unmap_and_exit:
+                    \\  li $2, 4091
+                    \\  syscall
+                    \\  li $4, 0
+                    \\  li $2, 4001
+                    \\  syscall
+                ),
+                .powerpc, .powerpc64, .powerpc64le => (
+                    \\.text
+                    \\.global __unmap_and_exit
+                    \\.type __unmap_and_exit, %function
+                    \\__unmap_and_exit:
+                    \\  li 0, 91
+                    \\  sc
+                    \\  li 0, 1
+                    \\  sc
+                    \\  blr
+                ),
+                .riscv64 => (
+                    \\.global __unmap_and_exit
+                    \\.type __unmap_and_exit, %function
+                    \\__unmap_and_exit:
+                    \\    li a7, 215
+                    \\    ecall
+                    \\    li a7, 93
+                    \\    ecall
+                ),
+                else => @compileError("Platform not supported"),
+            });
+        }
     }
 };
