@@ -39,8 +39,7 @@ unwind_phase1(unw_context_t *uc, unw_cursor_t *cursor, _Unwind_Exception *except
   __unw_init_local(cursor, uc);
 
   // Walk each frame looking for a place to stop.
-  bool handlerNotFound = true;
-  while (handlerNotFound) {
+  while (true) {
     // Ask libunwind to get next frame (skip over first which is
     // _Unwind_RaiseException).
     int stepResult = __unw_step(cursor);
@@ -102,7 +101,6 @@ unwind_phase1(unw_context_t *uc, unw_cursor_t *cursor, _Unwind_Exception *except
       case _URC_HANDLER_FOUND:
         // found a catch clause or locals that need destructing in this frame
         // stop search and remember stack pointer at the frame
-        handlerNotFound = false;
         __unw_get_reg(cursor, UNW_REG_SP, &sp);
         exception_object->private_2 = (uintptr_t)sp;
         _LIBUNWIND_TRACE_UNWINDING(

@@ -5,7 +5,7 @@
 // and substantial portions of the software.
 const std = @import("../../../std.zig");
 
-const in_bpf_program = switch (std.builtin.arch) {
+const in_bpf_program = switch (std.builtin.cpu.arch) {
     .bpfel, .bpfeb => true,
     else => false,
 };

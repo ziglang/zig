@@ -21,21 +21,13 @@ const root = @import("root");
 const maxInt = std.math.maxInt;
 const File = std.fs.File;
 const windows = std.os.windows;
+const native_arch = std.Target.current.cpu.arch;
+const native_os = std.Target.current.os.tag;
+const native_endian = native_arch.endian();
 
 pub const runtime_safety = switch (builtin.mode) {
     .Debug, .ReleaseSafe => true,
     .ReleaseFast, .ReleaseSmall => false,
-};
-
-const Module = struct {
-    mod_info: pdb.ModInfo,
-    module_name: []u8,
-    obj_file_name: []u8,
-
-    populated: bool,
-    symbols: []u8,
-    subsect_info: []u8,
-    checksum_offset: ?usize,
 };
 
 pub const LineInfo = struct {
@@ -48,6 +40,22 @@ pub const LineInfo = struct {
         const allocator = self.allocator orelse return;
         allocator.free(self.file_name);
     }
+};
+
+pub const SymbolInfo = struct {
+    symbol_name: []const u8 = "???",
+    compile_unit_name: []const u8 = "???",
+    line_info: ?LineInfo = null,
+
+    fn deinit(self: @This()) void {
+        if (self.line_info) |li| {
+            li.deinit();
+        }
+    }
+};
+const PdbOrDwarf = union(enum) {
+    pdb: pdb.Pdb,
+    dwarf: DW.DwarfInfo,
 };
 
 var stderr_mutex = std.Thread.Mutex{};
@@ -90,7 +98,7 @@ pub fn detectTTYConfig() TTY.Config {
         const stderr_file = io.getStdErr();
         if (stderr_file.supportsAnsiEscapeCodes()) {
             return .escape_codes;
-        } else if (builtin.os.tag == .windows and stderr_file.isTty()) {
+        } else if (native_os == .windows and stderr_file.isTty()) {
             return .windows_api;
         } else {
             return .no_color;
@@ -148,7 +156,7 @@ pub fn dumpStackTraceFromBase(bp: usize, ip: usize) void {
 /// chopping off the irrelevant frames and shifting so that the returned addresses pointer
 /// equals the passed in addresses pointer.
 pub fn captureStackTrace(first_address: ?usize, stack_trace: *builtin.StackTrace) void {
-    if (builtin.os.tag == .windows) {
+    if (native_os == .windows) {
         const addrs = stack_trace.instruction_addresses;
         const u32_addrs_len = @intCast(u32, addrs.len);
         const first_addr = first_address orelse {
@@ -226,7 +234,7 @@ pub fn assert(ok: bool) void {
 pub fn panic(comptime format: []const u8, args: anytype) noreturn {
     @setCold(true);
     // TODO: remove conditional once wasi / LLVM defines __builtin_return_address
-    const first_trace_addr = if (builtin.os.tag == .wasi) null else @returnAddress();
+    const first_trace_addr = if (native_os == .wasi) null else @returnAddress();
     panicExtra(null, first_trace_addr, format, args);
 }
 
@@ -306,6 +314,7 @@ const RED = "\x1b[31;1m";
 const GREEN = "\x1b[32;1m";
 const CYAN = "\x1b[36;1m";
 const WHITE = "\x1b[37;1m";
+const BOLD = "\x1b[1m";
 const DIM = "\x1b[2m";
 const RESET = "\x1b[0m";
 
@@ -316,6 +325,7 @@ pub fn writeStackTrace(
     debug_info: *DebugInfo,
     tty_config: TTY.Config,
 ) !void {
+    _ = allocator;
     if (builtin.strip_debug_info) return error.MissingDebugInfo;
     var frame_index: usize = 0;
     var frames_left: usize = std.math.min(stack_trace.index, stack_trace.instruction_addresses.len);
@@ -336,6 +346,13 @@ pub const StackIterator = struct {
     fp: usize,
 
     pub fn init(first_address: ?usize, fp: ?usize) StackIterator {
+        if (native_arch == .sparcv9) {
+            // Flush all the register windows on stack.
+            asm volatile (
+                \\ flushw
+                ::: "memory");
+        }
+
         return StackIterator{
             .first_address = first_address,
             .fp = fp orelse @frameAddress(),
@@ -343,25 +360,25 @@ pub const StackIterator = struct {
     }
 
     // Offset of the saved BP wrt the frame pointer.
-    const fp_offset = if (builtin.arch.isRISCV())
+    const fp_offset = if (native_arch.isRISCV())
         // On RISC-V the frame pointer points to the top of the saved register
         // area, on pretty much every other architecture it points to the stack
         // slot where the previous frame pointer is saved.
         2 * @sizeOf(usize)
-    else if (builtin.arch.isSPARC())
+    else if (native_arch.isSPARC())
         // On SPARC the previous frame pointer is stored at 14 slots past %fp+BIAS.
         14 * @sizeOf(usize)
     else
         0;
 
-    const fp_bias = if (builtin.arch.isSPARC())
+    const fp_bias = if (native_arch.isSPARC())
         // On SPARC frame pointers are biased by a constant.
         2047
     else
         0;
 
     // Positive offset of the saved PC wrt the frame pointer.
-    const pc_offset = if (builtin.arch == .powerpc64le)
+    const pc_offset = if (native_arch == .powerpc64le)
         2 * @sizeOf(usize)
     else
         @sizeOf(usize);
@@ -380,7 +397,7 @@ pub const StackIterator = struct {
     }
 
     fn next_internal(self: *StackIterator) ?usize {
-        const fp = if (builtin.arch.isSPARC())
+        const fp = if (comptime native_arch.isSPARC())
             // On SPARC the offset is positive. (!)
             math.add(usize, self.fp, fp_offset) catch return null
         else
@@ -416,7 +433,7 @@ pub fn writeCurrentStackTrace(
     tty_config: TTY.Config,
     start_addr: ?usize,
 ) !void {
-    if (builtin.os.tag == .windows) {
+    if (native_os == .windows) {
         return writeCurrentStackTraceWindows(out_stream, debug_info, tty_config, start_addr);
     }
     var it = StackIterator.init(start_addr, null);
@@ -462,18 +479,19 @@ pub const TTY = struct {
         // TODO give this a payload of file handle
         windows_api,
 
-        fn setColor(conf: Config, out_stream: anytype, color: Color) void {
+        pub fn setColor(conf: Config, out_stream: anytype, color: Color) void {
             nosuspend switch (conf) {
                 .no_color => return,
                 .escape_codes => switch (color) {
                     .Red => out_stream.writeAll(RED) catch return,
                     .Green => out_stream.writeAll(GREEN) catch return,
                     .Cyan => out_stream.writeAll(CYAN) catch return,
-                    .White, .Bold => out_stream.writeAll(WHITE) catch return,
+                    .White => out_stream.writeAll(WHITE) catch return,
                     .Dim => out_stream.writeAll(DIM) catch return,
+                    .Bold => out_stream.writeAll(BOLD) catch return,
                     .Reset => out_stream.writeAll(RESET) catch return,
                 },
-                .windows_api => if (builtin.os.tag == .windows) {
+                .windows_api => if (native_os == .windows) {
                     const stderr_file = io.getStdErr();
                     const S = struct {
                         var attrs: windows.WORD = undefined;
@@ -515,53 +533,6 @@ pub const TTY = struct {
         }
     };
 };
-
-/// TODO resources https://github.com/ziglang/zig/issues/4353
-fn populateModule(di: *ModuleDebugInfo, mod: *Module) !void {
-    if (mod.populated)
-        return;
-    const allocator = getDebugInfoAllocator();
-
-    // At most one can be non-zero.
-    if (mod.mod_info.C11ByteSize != 0 and mod.mod_info.C13ByteSize != 0)
-        return error.InvalidDebugInfo;
-
-    if (mod.mod_info.C13ByteSize == 0)
-        return;
-
-    const modi = di.pdb.getStreamById(mod.mod_info.ModuleSymStream) orelse return error.MissingDebugInfo;
-
-    const signature = try modi.reader().readIntLittle(u32);
-    if (signature != 4)
-        return error.InvalidDebugInfo;
-
-    mod.symbols = try allocator.alloc(u8, mod.mod_info.SymByteSize - 4);
-    try modi.reader().readNoEof(mod.symbols);
-
-    mod.subsect_info = try allocator.alloc(u8, mod.mod_info.C13ByteSize);
-    try modi.reader().readNoEof(mod.subsect_info);
-
-    var sect_offset: usize = 0;
-    var skip_len: usize = undefined;
-    while (sect_offset != mod.subsect_info.len) : (sect_offset += skip_len) {
-        const subsect_hdr = @ptrCast(*pdb.DebugSubsectionHeader, &mod.subsect_info[sect_offset]);
-        skip_len = subsect_hdr.Length;
-        sect_offset += @sizeOf(pdb.DebugSubsectionHeader);
-
-        switch (subsect_hdr.Kind) {
-            .FileChecksums => {
-                mod.checksum_offset = sect_offset;
-                break;
-            },
-            else => {},
-        }
-
-        if (sect_offset > mod.subsect_info.len)
-            return error.InvalidDebugInfo;
-    }
-
-    mod.populated = true;
-}
 
 fn machoSearchSymbols(symbols: []const MachoSymbol, address: usize) ?*const MachoSymbol {
     var min: usize = 0;
@@ -622,7 +593,7 @@ fn printLineInfo(
     comptime printLineFromFile: anytype,
 ) !void {
     nosuspend {
-        tty_config.setColor(out_stream, .White);
+        tty_config.setColor(out_stream, .Bold);
 
         if (line_info) |*li| {
             try out_stream.print("{s}:{d}:{d}", .{ li.file_name, li.line, li.column });
@@ -675,7 +646,7 @@ pub fn openSelfDebugInfo(allocator: *mem.Allocator) anyerror!DebugInfo {
         if (@hasDecl(root, "os") and @hasDecl(root.os, "debug") and @hasDecl(root.os.debug, "openSelfDebugInfo")) {
             return root.os.debug.openSelfDebugInfo(allocator);
         }
-        switch (builtin.os.tag) {
+        switch (native_os) {
             .linux,
             .freebsd,
             .netbsd,
@@ -703,167 +674,51 @@ fn readCoffDebugInfo(allocator: *mem.Allocator, coff_file: File) !ModuleDebugInf
         var di = ModuleDebugInfo{
             .base_address = undefined,
             .coff = coff_obj,
-            .pdb = undefined,
-            .sect_contribs = undefined,
-            .modules = undefined,
+            .debug_data = undefined,
         };
 
         try di.coff.loadHeader();
+        try di.coff.loadSections();
+        if (di.coff.getSection(".debug_info")) |sec| {
+            // This coff file has embedded DWARF debug info
+            _ = sec;
+            // TODO: free the section data slices
+            const debug_info_data = di.coff.getSectionData(".debug_info", allocator) catch null;
+            const debug_abbrev_data = di.coff.getSectionData(".debug_abbrev", allocator) catch null;
+            const debug_str_data = di.coff.getSectionData(".debug_str", allocator) catch null;
+            const debug_line_data = di.coff.getSectionData(".debug_line", allocator) catch null;
+            const debug_ranges_data = di.coff.getSectionData(".debug_ranges", allocator) catch null;
+
+            var dwarf = DW.DwarfInfo{
+                .endian = native_endian,
+                .debug_info = debug_info_data orelse return error.MissingDebugInfo,
+                .debug_abbrev = debug_abbrev_data orelse return error.MissingDebugInfo,
+                .debug_str = debug_str_data orelse return error.MissingDebugInfo,
+                .debug_line = debug_line_data orelse return error.MissingDebugInfo,
+                .debug_ranges = debug_ranges_data,
+            };
+            try DW.openDwarfDebugInfo(&dwarf, allocator);
+            di.debug_data = PdbOrDwarf{ .dwarf = dwarf };
+            return di;
+        }
 
         var path_buf: [windows.MAX_PATH]u8 = undefined;
         const len = try di.coff.getPdbPath(path_buf[0..]);
         const raw_path = path_buf[0..len];
 
         const path = try fs.path.resolve(allocator, &[_][]const u8{raw_path});
+        defer allocator.free(path);
 
-        try di.pdb.openFile(di.coff, path);
+        di.debug_data = PdbOrDwarf{ .pdb = undefined };
+        di.debug_data.pdb = try pdb.Pdb.init(allocator, path);
+        try di.debug_data.pdb.parseInfoStream();
+        try di.debug_data.pdb.parseDbiStream();
 
-        var pdb_stream = di.pdb.getStream(pdb.StreamType.Pdb) orelse return error.InvalidDebugInfo;
-        const version = try pdb_stream.reader().readIntLittle(u32);
-        const signature = try pdb_stream.reader().readIntLittle(u32);
-        const age = try pdb_stream.reader().readIntLittle(u32);
-        var guid: [16]u8 = undefined;
-        try pdb_stream.reader().readNoEof(&guid);
-        if (version != 20000404) // VC70, only value observed by LLVM team
-            return error.UnknownPDBVersion;
-        if (!mem.eql(u8, &di.coff.guid, &guid) or di.coff.age != age)
-            return error.PDBMismatch;
-        // We validated the executable and pdb match.
-
-        const string_table_index = str_tab_index: {
-            const name_bytes_len = try pdb_stream.reader().readIntLittle(u32);
-            const name_bytes = try allocator.alloc(u8, name_bytes_len);
-            try pdb_stream.reader().readNoEof(name_bytes);
-
-            const HashTableHeader = packed struct {
-                Size: u32,
-                Capacity: u32,
-
-                fn maxLoad(cap: u32) u32 {
-                    return cap * 2 / 3 + 1;
-                }
-            };
-            const hash_tbl_hdr = try pdb_stream.reader().readStruct(HashTableHeader);
-            if (hash_tbl_hdr.Capacity == 0)
-                return error.InvalidDebugInfo;
-
-            if (hash_tbl_hdr.Size > HashTableHeader.maxLoad(hash_tbl_hdr.Capacity))
-                return error.InvalidDebugInfo;
-
-            const present = try readSparseBitVector(&pdb_stream.reader(), allocator);
-            if (present.len != hash_tbl_hdr.Size)
-                return error.InvalidDebugInfo;
-            const deleted = try readSparseBitVector(&pdb_stream.reader(), allocator);
-
-            const Bucket = struct {
-                first: u32,
-                second: u32,
-            };
-            const bucket_list = try allocator.alloc(Bucket, present.len);
-            for (present) |_| {
-                const name_offset = try pdb_stream.reader().readIntLittle(u32);
-                const name_index = try pdb_stream.reader().readIntLittle(u32);
-                const name = mem.spanZ(std.meta.assumeSentinel(name_bytes.ptr + name_offset, 0));
-                if (mem.eql(u8, name, "/names")) {
-                    break :str_tab_index name_index;
-                }
-            }
-            return error.MissingDebugInfo;
-        };
-
-        di.pdb.string_table = di.pdb.getStreamById(string_table_index) orelse return error.MissingDebugInfo;
-        di.pdb.dbi = di.pdb.getStream(pdb.StreamType.Dbi) orelse return error.MissingDebugInfo;
-
-        const dbi = di.pdb.dbi;
-
-        // Dbi Header
-        const dbi_stream_header = try dbi.reader().readStruct(pdb.DbiStreamHeader);
-        if (dbi_stream_header.VersionHeader != 19990903) // V70, only value observed by LLVM team
-            return error.UnknownPDBVersion;
-        if (dbi_stream_header.Age != age)
-            return error.UnmatchingPDB;
-
-        const mod_info_size = dbi_stream_header.ModInfoSize;
-        const section_contrib_size = dbi_stream_header.SectionContributionSize;
-
-        var modules = ArrayList(Module).init(allocator);
-
-        // Module Info Substream
-        var mod_info_offset: usize = 0;
-        while (mod_info_offset != mod_info_size) {
-            const mod_info = try dbi.reader().readStruct(pdb.ModInfo);
-            var this_record_len: usize = @sizeOf(pdb.ModInfo);
-
-            const module_name = try dbi.readNullTermString(allocator);
-            this_record_len += module_name.len + 1;
-
-            const obj_file_name = try dbi.readNullTermString(allocator);
-            this_record_len += obj_file_name.len + 1;
-
-            if (this_record_len % 4 != 0) {
-                const round_to_next_4 = (this_record_len | 0x3) + 1;
-                const march_forward_bytes = round_to_next_4 - this_record_len;
-                try dbi.seekBy(@intCast(isize, march_forward_bytes));
-                this_record_len += march_forward_bytes;
-            }
-
-            try modules.append(Module{
-                .mod_info = mod_info,
-                .module_name = module_name,
-                .obj_file_name = obj_file_name,
-
-                .populated = false,
-                .symbols = undefined,
-                .subsect_info = undefined,
-                .checksum_offset = null,
-            });
-
-            mod_info_offset += this_record_len;
-            if (mod_info_offset > mod_info_size)
-                return error.InvalidDebugInfo;
-        }
-
-        di.modules = modules.toOwnedSlice();
-
-        // Section Contribution Substream
-        var sect_contribs = ArrayList(pdb.SectionContribEntry).init(allocator);
-        var sect_cont_offset: usize = 0;
-        if (section_contrib_size != 0) {
-            const ver = @intToEnum(pdb.SectionContrSubstreamVersion, try dbi.reader().readIntLittle(u32));
-            if (ver != pdb.SectionContrSubstreamVersion.Ver60)
-                return error.InvalidDebugInfo;
-            sect_cont_offset += @sizeOf(u32);
-        }
-        while (sect_cont_offset != section_contrib_size) {
-            const entry = try sect_contribs.addOne();
-            entry.* = try dbi.reader().readStruct(pdb.SectionContribEntry);
-            sect_cont_offset += @sizeOf(pdb.SectionContribEntry);
-
-            if (sect_cont_offset > section_contrib_size)
-                return error.InvalidDebugInfo;
-        }
-
-        di.sect_contribs = sect_contribs.toOwnedSlice();
+        if (!mem.eql(u8, &di.coff.guid, &di.debug_data.pdb.guid) or di.coff.age != di.debug_data.pdb.age)
+            return error.InvalidDebugInfo;
 
         return di;
     }
-}
-
-fn readSparseBitVector(stream: anytype, allocator: *mem.Allocator) ![]usize {
-    const num_words = try stream.readIntLittle(u32);
-    var word_i: usize = 0;
-    var list = ArrayList(usize).init(allocator);
-    while (word_i != num_words) : (word_i += 1) {
-        const word = try stream.readIntLittle(u32);
-        var bit_i: u5 = 0;
-        while (true) : (bit_i += 1) {
-            if (word & (@as(u32, 1) << bit_i) != 0) {
-                try list.append(word_i * 32 + bit_i);
-            }
-            if (bit_i == maxInt(u5)) break;
-        }
-    }
-    return list.toOwnedSlice();
 }
 
 fn chopSlice(ptr: []const u8, offset: u64, size: u64) ![]const u8 {
@@ -888,7 +743,7 @@ pub fn readElfDebugInfo(allocator: *mem.Allocator, elf_file: File) !ModuleDebugI
             elf.ELFDATA2MSB => .Big,
             else => return error.InvalidElfEndian,
         };
-        assert(endian == std.builtin.endian); // this is our own debug info
+        assert(endian == native_endian); // this is our own debug info
 
         const shoff = hdr.e_shoff;
         const str_section_off = shoff + @as(u64, hdr.e_shentsize) * @as(u64, hdr.e_shstrndx);
@@ -945,7 +800,7 @@ pub fn readElfDebugInfo(allocator: *mem.Allocator, elf_file: File) !ModuleDebugI
 }
 
 /// TODO resources https://github.com/ziglang/zig/issues/4353
-/// This takes ownership of coff_file: users of this function should not close
+/// This takes ownership of macho_file: users of this function should not close
 /// it themselves, even on error.
 /// TODO it's weird to take ownership even on error, rework this code.
 fn readMachODebugInfo(allocator: *mem.Allocator, macho_file: File) !ModuleDebugInfo {
@@ -1043,7 +898,6 @@ fn printLineFromFileAnyOs(out_stream: anytype, line_info: LineInfo) !void {
     var buf: [mem.page_size]u8 = undefined;
     var line: usize = 1;
     var column: usize = 1;
-    var abs_index: usize = 0;
     while (true) {
         const amt_read = try f.read(buf[0..]);
         const slice = buf[0..amt_read];
@@ -1078,6 +932,7 @@ const MachoSymbol = struct {
     }
 
     fn addressLessThan(context: void, lhs: MachoSymbol, rhs: MachoSymbol) bool {
+        _ = context;
         return lhs.address() < rhs.address();
     }
 };
@@ -1123,9 +978,9 @@ pub const DebugInfo = struct {
     pub fn getModuleForAddress(self: *DebugInfo, address: usize) !*ModuleDebugInfo {
         if (comptime std.Target.current.isDarwin()) {
             return self.lookupModuleDyld(address);
-        } else if (builtin.os.tag == .windows) {
+        } else if (native_os == .windows) {
             return self.lookupModuleWin32(address);
-        } else if (builtin.os.tag == .haiku) {
+        } else if (native_os == .haiku) {
             return self.lookupModuleHaiku(address);
         } else {
             return self.lookupModuleDl(address);
@@ -1282,6 +1137,7 @@ pub const DebugInfo = struct {
 
         if (os.dl_iterate_phdr(&ctx, anyerror, struct {
             fn callback(info: *os.dl_phdr_info, size: usize, context: *CtxTy) !void {
+                _ = size;
                 // The base address is too high
                 if (context.address < info.dlpi_addr)
                     return;
@@ -1337,23 +1193,13 @@ pub const DebugInfo = struct {
     }
 
     fn lookupModuleHaiku(self: *DebugInfo, address: usize) !*ModuleDebugInfo {
+        _ = self;
+        _ = address;
         @panic("TODO implement lookup module for Haiku");
     }
 };
 
-const SymbolInfo = struct {
-    symbol_name: []const u8 = "???",
-    compile_unit_name: []const u8 = "???",
-    line_info: ?LineInfo = null,
-
-    fn deinit(self: @This()) void {
-        if (self.line_info) |li| {
-            li.deinit();
-        }
-    }
-};
-
-pub const ModuleDebugInfo = switch (builtin.os.tag) {
+pub const ModuleDebugInfo = switch (native_os) {
     .macos, .ios, .watchos, .tvos => struct {
         base_address: usize,
         mapped_memory: []const u8,
@@ -1517,10 +1363,8 @@ pub const ModuleDebugInfo = switch (builtin.os.tag) {
     },
     .uefi, .windows => struct {
         base_address: usize,
-        pdb: pdb.Pdb,
+        debug_data: PdbOrDwarf,
         coff: *coff.Coff,
-        sect_contribs: []pdb.SectionContribEntry,
-        modules: []Module,
 
         pub fn allocator(self: @This()) *mem.Allocator {
             return self.coff.allocator;
@@ -1530,8 +1374,18 @@ pub const ModuleDebugInfo = switch (builtin.os.tag) {
             // Translate the VA into an address into this object
             const relocated_address = address - self.base_address;
 
+            switch (self.debug_data) {
+                .dwarf => |*dwarf| {
+                    const dwarf_address = relocated_address + self.coff.pe_header.image_base;
+                    return getSymbolFromDwarf(dwarf_address, dwarf);
+                },
+                .pdb => {
+                    // fallthrough to pdb handling
+                },
+            }
+
             var coff_section: *coff.Section = undefined;
-            const mod_index = for (self.sect_contribs) |sect_contrib| {
+            const mod_index = for (self.debug_data.pdb.sect_contribs) |sect_contrib| {
                 if (sect_contrib.Section > self.coff.sections.items.len) continue;
                 // Remember that SectionContribEntry.Section is 1-based.
                 coff_section = &self.coff.sections.items[sect_contrib.Section - 1];
@@ -1546,126 +1400,18 @@ pub const ModuleDebugInfo = switch (builtin.os.tag) {
                 return SymbolInfo{};
             };
 
-            const mod = &self.modules[mod_index];
-            try populateModule(self, mod);
-            const obj_basename = fs.path.basename(mod.obj_file_name);
+            const module = (try self.debug_data.pdb.getModule(mod_index)) orelse
+                return error.InvalidDebugInfo;
+            const obj_basename = fs.path.basename(module.obj_file_name);
 
-            var symbol_i: usize = 0;
-            const symbol_name = if (!mod.populated) "???" else while (symbol_i != mod.symbols.len) {
-                const prefix = @ptrCast(*pdb.RecordPrefix, &mod.symbols[symbol_i]);
-                if (prefix.RecordLen < 2)
-                    return error.InvalidDebugInfo;
-                switch (prefix.RecordKind) {
-                    .S_LPROC32, .S_GPROC32 => {
-                        const proc_sym = @ptrCast(*pdb.ProcSym, &mod.symbols[symbol_i + @sizeOf(pdb.RecordPrefix)]);
-                        const vaddr_start = coff_section.header.virtual_address + proc_sym.CodeOffset;
-                        const vaddr_end = vaddr_start + proc_sym.CodeSize;
-                        if (relocated_address >= vaddr_start and relocated_address < vaddr_end) {
-                            break mem.spanZ(@ptrCast([*:0]u8, proc_sym) + @sizeOf(pdb.ProcSym));
-                        }
-                    },
-                    else => {},
-                }
-                symbol_i += prefix.RecordLen + @sizeOf(u16);
-                if (symbol_i > mod.symbols.len)
-                    return error.InvalidDebugInfo;
-            } else "???";
-
-            const subsect_info = mod.subsect_info;
-
-            var sect_offset: usize = 0;
-            var skip_len: usize = undefined;
-            const opt_line_info = subsections: {
-                const checksum_offset = mod.checksum_offset orelse break :subsections null;
-                while (sect_offset != subsect_info.len) : (sect_offset += skip_len) {
-                    const subsect_hdr = @ptrCast(*pdb.DebugSubsectionHeader, &subsect_info[sect_offset]);
-                    skip_len = subsect_hdr.Length;
-                    sect_offset += @sizeOf(pdb.DebugSubsectionHeader);
-
-                    switch (subsect_hdr.Kind) {
-                        .Lines => {
-                            var line_index = sect_offset;
-
-                            const line_hdr = @ptrCast(*pdb.LineFragmentHeader, &subsect_info[line_index]);
-                            if (line_hdr.RelocSegment == 0)
-                                return error.MissingDebugInfo;
-                            line_index += @sizeOf(pdb.LineFragmentHeader);
-                            const frag_vaddr_start = coff_section.header.virtual_address + line_hdr.RelocOffset;
-                            const frag_vaddr_end = frag_vaddr_start + line_hdr.CodeSize;
-
-                            if (relocated_address >= frag_vaddr_start and relocated_address < frag_vaddr_end) {
-                                // There is an unknown number of LineBlockFragmentHeaders (and their accompanying line and column records)
-                                // from now on. We will iterate through them, and eventually find a LineInfo that we're interested in,
-                                // breaking out to :subsections. If not, we will make sure to not read anything outside of this subsection.
-                                const subsection_end_index = sect_offset + subsect_hdr.Length;
-
-                                while (line_index < subsection_end_index) {
-                                    const block_hdr = @ptrCast(*pdb.LineBlockFragmentHeader, &subsect_info[line_index]);
-                                    line_index += @sizeOf(pdb.LineBlockFragmentHeader);
-                                    const start_line_index = line_index;
-
-                                    const has_column = line_hdr.Flags.LF_HaveColumns;
-
-                                    // All line entries are stored inside their line block by ascending start address.
-                                    // Heuristic: we want to find the last line entry
-                                    // that has a vaddr_start <= relocated_address.
-                                    // This is done with a simple linear search.
-                                    var line_i: u32 = 0;
-                                    while (line_i < block_hdr.NumLines) : (line_i += 1) {
-                                        const line_num_entry = @ptrCast(*pdb.LineNumberEntry, &subsect_info[line_index]);
-                                        line_index += @sizeOf(pdb.LineNumberEntry);
-
-                                        const vaddr_start = frag_vaddr_start + line_num_entry.Offset;
-                                        if (relocated_address < vaddr_start) {
-                                            break;
-                                        }
-                                    }
-
-                                    // line_i == 0 would mean that no matching LineNumberEntry was found.
-                                    if (line_i > 0) {
-                                        const subsect_index = checksum_offset + block_hdr.NameIndex;
-                                        const chksum_hdr = @ptrCast(*pdb.FileChecksumEntryHeader, &mod.subsect_info[subsect_index]);
-                                        const strtab_offset = @sizeOf(pdb.PDBStringTableHeader) + chksum_hdr.FileNameOffset;
-                                        try self.pdb.string_table.seekTo(strtab_offset);
-                                        const source_file_name = try self.pdb.string_table.readNullTermString(self.allocator());
-
-                                        const line_entry_idx = line_i - 1;
-
-                                        const column = if (has_column) blk: {
-                                            const start_col_index = start_line_index + @sizeOf(pdb.LineNumberEntry) * block_hdr.NumLines;
-                                            const col_index = start_col_index + @sizeOf(pdb.ColumnNumberEntry) * line_entry_idx;
-                                            const col_num_entry = @ptrCast(*pdb.ColumnNumberEntry, &subsect_info[col_index]);
-                                            break :blk col_num_entry.StartColumn;
-                                        } else 0;
-
-                                        const found_line_index = start_line_index + line_entry_idx * @sizeOf(pdb.LineNumberEntry);
-                                        const line_num_entry = @ptrCast(*pdb.LineNumberEntry, &subsect_info[found_line_index]);
-                                        const flags = @ptrCast(*pdb.LineNumberEntry.Flags, &line_num_entry.Flags);
-
-                                        break :subsections LineInfo{
-                                            .allocator = self.allocator(),
-                                            .file_name = source_file_name,
-                                            .line = flags.Start,
-                                            .column = column,
-                                        };
-                                    }
-                                }
-
-                                // Checking that we are not reading garbage after the (possibly) multiple block fragments.
-                                if (line_index != subsection_end_index) {
-                                    return error.InvalidDebugInfo;
-                                }
-                            }
-                        },
-                        else => {},
-                    }
-
-                    if (sect_offset > subsect_info.len)
-                        return error.InvalidDebugInfo;
-                } else {
-                    break :subsections null;
-                }
-            };
+            const symbol_name = self.debug_data.pdb.getSymbolName(
+                module,
+                relocated_address - coff_section.header.virtual_address,
+            ) orelse "???";
+            const opt_line_info = try self.debug_data.pdb.getLineNumberInfo(
+                module,
+                relocated_address - coff_section.header.virtual_address,
+            );
 
             return SymbolInfo{
                 .symbol_name = symbol_name,
@@ -1674,7 +1420,7 @@ pub const ModuleDebugInfo = switch (builtin.os.tag) {
             };
         }
     },
-    .linux, .netbsd, .freebsd, .dragonfly, .openbsd => struct {
+    .linux, .netbsd, .freebsd, .dragonfly, .openbsd, .haiku => struct {
         base_address: usize,
         dwarf: DW.DwarfInfo,
         mapped_memory: []const u8,
@@ -1682,31 +1428,32 @@ pub const ModuleDebugInfo = switch (builtin.os.tag) {
         pub fn getSymbolAtAddress(self: *@This(), address: usize) !SymbolInfo {
             // Translate the VA into an address into this object
             const relocated_address = address - self.base_address;
-
-            if (nosuspend self.dwarf.findCompileUnit(relocated_address)) |compile_unit| {
-                return SymbolInfo{
-                    .symbol_name = nosuspend self.dwarf.getSymbolName(relocated_address) orelse "???",
-                    .compile_unit_name = compile_unit.die.getAttrString(&self.dwarf, DW.AT_name) catch |err| switch (err) {
-                        error.MissingDebugInfo, error.InvalidDebugInfo => "???",
-                        else => return err,
-                    },
-                    .line_info = nosuspend self.dwarf.getLineNumberInfo(compile_unit.*, relocated_address) catch |err| switch (err) {
-                        error.MissingDebugInfo, error.InvalidDebugInfo => null,
-                        else => return err,
-                    },
-                };
-            } else |err| switch (err) {
-                error.MissingDebugInfo, error.InvalidDebugInfo => {
-                    return SymbolInfo{};
-                },
-                else => return err,
-            }
-
-            unreachable;
+            return getSymbolFromDwarf(relocated_address, &self.dwarf);
         }
     },
     else => DW.DwarfInfo,
 };
+
+fn getSymbolFromDwarf(address: u64, di: *DW.DwarfInfo) !SymbolInfo {
+    if (nosuspend di.findCompileUnit(address)) |compile_unit| {
+        return SymbolInfo{
+            .symbol_name = nosuspend di.getSymbolName(address) orelse "???",
+            .compile_unit_name = compile_unit.die.getAttrString(di, DW.AT_name) catch |err| switch (err) {
+                error.MissingDebugInfo, error.InvalidDebugInfo => "???",
+                else => return err,
+            },
+            .line_info = nosuspend di.getLineNumberInfo(compile_unit.*, address) catch |err| switch (err) {
+                error.MissingDebugInfo, error.InvalidDebugInfo => null,
+                else => return err,
+            },
+        };
+    } else |err| switch (err) {
+        error.MissingDebugInfo, error.InvalidDebugInfo => {
+            return SymbolInfo{};
+        },
+        else => return err,
+    }
+}
 
 /// TODO multithreaded awareness
 var debug_info_allocator: ?*mem.Allocator = null;
@@ -1720,7 +1467,7 @@ fn getDebugInfoAllocator() *mem.Allocator {
 }
 
 /// Whether or not the current target can print useful debug information when a segfault occurs.
-pub const have_segfault_handling_support = switch (builtin.os.tag) {
+pub const have_segfault_handling_support = switch (native_os) {
     .linux, .netbsd => true,
     .windows => true,
     .freebsd, .openbsd => @hasDecl(os, "ucontext_t"),
@@ -1744,7 +1491,7 @@ pub fn attachSegfaultHandler() void {
     if (!have_segfault_handling_support) {
         @compileError("segfault handler not supported for this target");
     }
-    if (builtin.os.tag == .windows) {
+    if (native_os == .windows) {
         windows_segfault_handle = windows.kernel32.AddVectoredExceptionHandler(0, handleSegfaultWindows);
         return;
     }
@@ -1760,7 +1507,7 @@ pub fn attachSegfaultHandler() void {
 }
 
 fn resetSegfaultHandler() void {
-    if (builtin.os.tag == .windows) {
+    if (native_os == .windows) {
         if (windows_segfault_handle) |handle| {
             assert(windows.kernel32.RemoveVectoredExceptionHandler(handle) != 0);
             windows_segfault_handle = null;
@@ -1783,7 +1530,7 @@ fn handleSegfaultLinux(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const c_v
     // and the resulting segfault will crash the process rather than continually dump stack traces.
     resetSegfaultHandler();
 
-    const addr = switch (builtin.os.tag) {
+    const addr = switch (native_os) {
         .linux => @ptrToInt(info.fields.sigfault.addr),
         .freebsd => @ptrToInt(info.addr),
         .netbsd => @ptrToInt(info.info.reason.fault.addr),
@@ -1802,7 +1549,7 @@ fn handleSegfaultLinux(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const c_v
         } catch os.abort();
     }
 
-    switch (builtin.arch) {
+    switch (native_arch) {
         .i386 => {
             const ctx = @ptrCast(*const os.ucontext_t, @alignCast(@alignOf(os.ucontext_t), ctx_ptr));
             const ip = @intCast(usize, ctx.mcontext.gregs[os.REG_EIP]);
@@ -1811,13 +1558,13 @@ fn handleSegfaultLinux(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const c_v
         },
         .x86_64 => {
             const ctx = @ptrCast(*const os.ucontext_t, @alignCast(@alignOf(os.ucontext_t), ctx_ptr));
-            const ip = switch (builtin.os.tag) {
+            const ip = switch (native_os) {
                 .linux, .netbsd => @intCast(usize, ctx.mcontext.gregs[os.REG_RIP]),
                 .freebsd => @intCast(usize, ctx.mcontext.rip),
                 .openbsd => @intCast(usize, ctx.sc_rip),
                 else => unreachable,
             };
-            const bp = switch (builtin.os.tag) {
+            const bp = switch (native_os) {
                 .linux, .netbsd => @intCast(usize, ctx.mcontext.gregs[os.REG_RBP]),
                 .openbsd => @intCast(usize, ctx.sc_rbp),
                 .freebsd => @intCast(usize, ctx.mcontext.rbp),

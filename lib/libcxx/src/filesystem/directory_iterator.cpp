@@ -10,6 +10,7 @@
 #include "__config"
 #if defined(_LIBCPP_WIN32API)
 #define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
 #include <windows.h>
 #else
 #include <dirent.h>
@@ -72,16 +73,20 @@ static pair<string_view, file_type> posix_readdir(DIR* dir_stream,
   }
 }
 #else
+// defined(_LIBCPP_WIN32API)
 
-static file_type get_file_type(const WIN32_FIND_DATA& data) {
-  //auto attrs = data.dwFileAttributes;
-  // FIXME(EricWF)
-  return file_type::unknown;
+static file_type get_file_type(const WIN32_FIND_DATAW& data) {
+  if (data.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT &&
+      data.dwReserved0 == IO_REPARSE_TAG_SYMLINK)
+    return file_type::symlink;
+  if (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+    return file_type::directory;
+  return file_type::regular;
 }
-static uintmax_t get_file_size(const WIN32_FIND_DATA& data) {
-  return (data.nFileSizeHigh * (MAXDWORD + 1)) + data.nFileSizeLow;
+static uintmax_t get_file_size(const WIN32_FIND_DATAW& data) {
+  return (static_cast<uint64_t>(data.nFileSizeHigh) << 32) + data.nFileSizeLow;
 }
-static file_time_type get_write_time(const WIN32_FIND_DATA& data) {
+static file_time_type get_write_time(const WIN32_FIND_DATAW& data) {
   ULARGE_INTEGER tmp;
   const FILETIME& time = data.ftLastWriteTime;
   tmp.u.LowPart = time.dwLowDateTime;
@@ -110,15 +115,21 @@ public:
 
   __dir_stream(const path& root, directory_options opts, error_code& ec)
       : __stream_(INVALID_HANDLE_VALUE), __root_(root) {
-    __stream_ = ::FindFirstFile(root.c_str(), &__data_);
+    if (root.native().empty()) {
+      ec = make_error_code(errc::no_such_file_or_directory);
+      return;
+    }
+    __stream_ = ::FindFirstFileW((root / "*").c_str(), &__data_);
     if (__stream_ == INVALID_HANDLE_VALUE) {
-      ec = error_code(::GetLastError(), generic_category());
+      ec = detail::make_windows_error(GetLastError());
       const bool ignore_permission_denied =
           bool(opts & directory_options::skip_permission_denied);
       if (ignore_permission_denied && ec.value() == ERROR_ACCESS_DENIED)
         ec.clear();
       return;
     }
+    if (!assign())
+      advance(ec);
   }
 
   ~__dir_stream() noexcept {
@@ -130,35 +141,39 @@ public:
   bool good() const noexcept { return __stream_ != INVALID_HANDLE_VALUE; }
 
   bool advance(error_code& ec) {
-    while (::FindNextFile(__stream_, &__data_)) {
-      if (!strcmp(__data_.cFileName, ".") || strcmp(__data_.cFileName, ".."))
-        continue;
-      // FIXME: Cache more of this
-      //directory_entry::__cached_data cdata;
-      //cdata.__type_ = get_file_type(__data_);
-      //cdata.__size_ = get_file_size(__data_);
-      //cdata.__write_time_ = get_write_time(__data_);
-      __entry_.__assign_iter_entry(
-          __root_ / __data_.cFileName,
-          directory_entry::__create_iter_result(detail::get_file_type(__data)));
-      return true;
+    while (::FindNextFileW(__stream_, &__data_)) {
+      if (assign())
+        return true;
     }
-    ec = error_code(::GetLastError(), generic_category());
     close();
     return false;
+  }
+
+  bool assign() {
+    if (!wcscmp(__data_.cFileName, L".") || !wcscmp(__data_.cFileName, L".."))
+      return false;
+    // FIXME: Cache more of this
+    //directory_entry::__cached_data cdata;
+    //cdata.__type_ = get_file_type(__data_);
+    //cdata.__size_ = get_file_size(__data_);
+    //cdata.__write_time_ = get_write_time(__data_);
+    __entry_.__assign_iter_entry(
+        __root_ / __data_.cFileName,
+        directory_entry::__create_iter_result(detail::get_file_type(__data_)));
+    return true;
   }
 
 private:
   error_code close() noexcept {
     error_code ec;
     if (!::FindClose(__stream_))
-      ec = error_code(::GetLastError(), generic_category());
+      ec = detail::make_windows_error(GetLastError());
     __stream_ = INVALID_HANDLE_VALUE;
     return ec;
   }
 
   HANDLE __stream_{INVALID_HANDLE_VALUE};
-  WIN32_FIND_DATA __data_;
+  WIN32_FIND_DATAW __data_;
 
 public:
   path __root_;

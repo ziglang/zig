@@ -1393,7 +1393,7 @@ struct _LIBCPP_TEMPLATE_VIS uses_allocator<tuple<_Tp...>, _Alloc>
 
 template <class _T1, class _T2>
 template <class... _Args1, class... _Args2, size_t ..._I1, size_t ..._I2>
-inline _LIBCPP_INLINE_VISIBILITY
+inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
 pair<_T1, _T2>::pair(piecewise_construct_t,
                      tuple<_Args1...>& __first_args, tuple<_Args2...>& __second_args,
                      __tuple_indices<_I1...>, __tuple_indices<_I2...>)

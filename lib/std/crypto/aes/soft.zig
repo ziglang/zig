@@ -18,7 +18,7 @@ pub const Block = struct {
     repr: BlockVec align(16),
 
     /// Convert a byte sequence into an internal representation.
-    pub fn fromBytes(bytes: *const [16]u8) callconv(.Inline) Block {
+    pub inline fn fromBytes(bytes: *const [16]u8) Block {
         const s0 = mem.readIntBig(u32, bytes[0..4]);
         const s1 = mem.readIntBig(u32, bytes[4..8]);
         const s2 = mem.readIntBig(u32, bytes[8..12]);
@@ -27,7 +27,7 @@ pub const Block = struct {
     }
 
     /// Convert the internal representation of a block into a byte sequence.
-    pub fn toBytes(block: Block) callconv(.Inline) [16]u8 {
+    pub inline fn toBytes(block: Block) [16]u8 {
         var bytes: [16]u8 = undefined;
         mem.writeIntBig(u32, bytes[0..4], block.repr[0]);
         mem.writeIntBig(u32, bytes[4..8], block.repr[1]);
@@ -37,7 +37,7 @@ pub const Block = struct {
     }
 
     /// XOR the block with a byte sequence.
-    pub fn xorBytes(block: Block, bytes: *const [16]u8) callconv(.Inline) [16]u8 {
+    pub inline fn xorBytes(block: Block, bytes: *const [16]u8) [16]u8 {
         const block_bytes = block.toBytes();
         var x: [16]u8 = undefined;
         comptime var i: usize = 0;
@@ -48,9 +48,7 @@ pub const Block = struct {
     }
 
     /// Encrypt a block with a round key.
-    pub fn encrypt(block: Block, round_key: Block) callconv(.Inline) Block {
-        const src = &block.repr;
-
+    pub inline fn encrypt(block: Block, round_key: Block) Block {
         const s0 = block.repr[0];
         const s1 = block.repr[1];
         const s2 = block.repr[2];
@@ -65,9 +63,7 @@ pub const Block = struct {
     }
 
     /// Encrypt a block with the last round key.
-    pub fn encryptLast(block: Block, round_key: Block) callconv(.Inline) Block {
-        const src = &block.repr;
-
+    pub inline fn encryptLast(block: Block, round_key: Block) Block {
         const t0 = block.repr[0];
         const t1 = block.repr[1];
         const t2 = block.repr[2];
@@ -87,9 +83,7 @@ pub const Block = struct {
     }
 
     /// Decrypt a block with a round key.
-    pub fn decrypt(block: Block, round_key: Block) callconv(.Inline) Block {
-        const src = &block.repr;
-
+    pub inline fn decrypt(block: Block, round_key: Block) Block {
         const s0 = block.repr[0];
         const s1 = block.repr[1];
         const s2 = block.repr[2];
@@ -104,9 +98,7 @@ pub const Block = struct {
     }
 
     /// Decrypt a block with the last round key.
-    pub fn decryptLast(block: Block, round_key: Block) callconv(.Inline) Block {
-        const src = &block.repr;
-
+    pub inline fn decryptLast(block: Block, round_key: Block) Block {
         const t0 = block.repr[0];
         const t1 = block.repr[1];
         const t2 = block.repr[2];
@@ -126,7 +118,7 @@ pub const Block = struct {
     }
 
     /// Apply the bitwise XOR operation to the content of two blocks.
-    pub fn xorBlocks(block1: Block, block2: Block) callconv(.Inline) Block {
+    pub inline fn xorBlocks(block1: Block, block2: Block) Block {
         var x: BlockVec = undefined;
         comptime var i = 0;
         inline while (i < 4) : (i += 1) {
@@ -136,7 +128,7 @@ pub const Block = struct {
     }
 
     /// Apply the bitwise AND operation to the content of two blocks.
-    pub fn andBlocks(block1: Block, block2: Block) callconv(.Inline) Block {
+    pub inline fn andBlocks(block1: Block, block2: Block) Block {
         var x: BlockVec = undefined;
         comptime var i = 0;
         inline while (i < 4) : (i += 1) {
@@ -146,7 +138,7 @@ pub const Block = struct {
     }
 
     /// Apply the bitwise OR operation to the content of two blocks.
-    pub fn orBlocks(block1: Block, block2: Block) callconv(.Inline) Block {
+    pub inline fn orBlocks(block1: Block, block2: Block) Block {
         var x: BlockVec = undefined;
         comptime var i = 0;
         inline while (i < 4) : (i += 1) {

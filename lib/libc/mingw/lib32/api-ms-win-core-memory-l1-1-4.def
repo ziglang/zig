@@ -18,7 +18,7 @@ OpenFileMappingW@12
 ReadProcessMemory@20
 ReclaimVirtualMemory@8
 ResetWriteWatch@8
-SetProcessValidCallTargets
+SetProcessValidCallTargets@20
 SetProcessWorkingSetSizeEx@16
 UnmapViewOfFile@4
 UnmapViewOfFileEx@8

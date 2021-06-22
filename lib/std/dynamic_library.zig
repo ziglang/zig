@@ -3,7 +3,7 @@
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
-const builtin = @import("builtin");
+const builtin = std.builtin;
 
 const std = @import("std.zig");
 const mem = std.mem;
@@ -19,7 +19,7 @@ const max = std.math.max;
 pub const DynLib = switch (builtin.os.tag) {
     .linux => if (builtin.link_libc) DlDynlib else ElfDynLib,
     .windows => WindowsDynLib,
-    .macos, .tvos, .watchos, .ios, .freebsd, .openbsd => DlDynlib,
+    .macos, .tvos, .watchos, .ios, .freebsd, .netbsd, .openbsd, .dragonfly => DlDynlib,
     else => void,
 };
 
@@ -66,6 +66,7 @@ pub fn get_DYNAMIC() ?[*]elf.Dyn {
 }
 
 pub fn linkmap_iterator(phdrs: []elf.Phdr) !LinkMap.Iterator {
+    _ = phdrs;
     const _DYNAMIC = get_DYNAMIC() orelse {
         // No PT_DYNAMIC means this is either a statically-linked program or a
         // badly corrupted dynamically-linked one.
@@ -407,8 +408,8 @@ test "dynamic_library" {
         else => return error.SkipZigTest,
     };
 
-    const dynlib = DynLib.open(libname) catch |err| {
-        testing.expect(err == error.FileNotFound);
+    _ = DynLib.open(libname) catch |err| {
+        try testing.expect(err == error.FileNotFound);
         return;
     };
 }

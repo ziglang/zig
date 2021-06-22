@@ -56,7 +56,7 @@ enum TargetSubsystem {
 
 
 // ABI warning
-// Synchronize with target.cpp::os_list
+// Synchronize with std.Target.Os.Tag and target.cpp::os_list
 enum Os {
     OsFreestanding,
     OsAnanas,
@@ -73,11 +73,11 @@ enum Os {
     OsOpenBSD,
     OsSolaris,
     OsWindows,
+    OsZOS,
     OsHaiku,
     OsMinix,
     OsRTEMS,
     OsNaCl,       // Native Client
-    OsCNK,        // BG/P Compute-Node Kernel
     OsAIX,
     OsCUDA,       // NVIDIA CUDA
     OsNVCL,       // NVIDIA OpenCL
@@ -94,6 +94,9 @@ enum Os {
     OsWASI,
     OsEmscripten,
     OsUefi,
+    OsOpenCL,
+    OsGLSL450,
+    OsVulkan,
     OsOther,
 };
 
@@ -179,6 +182,7 @@ struct ZigStage1 {
     bool pic;
     bool pie;
     bool lto;
+    bool unwind_tables;
     bool link_libc;
     bool link_libcpp;
     bool strip;
@@ -193,8 +197,6 @@ struct ZigStage1 {
     bool enable_time_report;
     bool enable_stack_report;
     bool test_is_evented;
-    bool verbose_tokenize;
-    bool verbose_ast;
     bool verbose_ir;
     bool verbose_llvm_ir;
     bool verbose_cimport;

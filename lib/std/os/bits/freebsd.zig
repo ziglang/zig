@@ -4,7 +4,7 @@
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
 const std = @import("../../std.zig");
-const builtin = std.builtin;
+const builtin = @import("builtin");
 const maxInt = std.math.maxInt;
 
 pub const blksize_t = i32;
@@ -205,6 +205,8 @@ pub const sockaddr = extern struct {
     /// actually longer; address value
     data: [14]u8,
 };
+
+pub const sockaddr_storage = std.x.os.Socket.Address.Native.Storage;
 
 pub const sockaddr_in = extern struct {
     len: u8 = @sizeOf(sockaddr_in),
@@ -727,8 +729,8 @@ pub const TIOCGSID = 0x40047463;
 pub const TIOCGPTN = 0x4004740f;
 pub const TIOCSIG = 0x2004745f;
 
-pub fn WEXITSTATUS(s: u32) u32 {
-    return (s & 0xff00) >> 8;
+pub fn WEXITSTATUS(s: u32) u8 {
+    return @intCast(u8, (s & 0xff00) >> 8);
 }
 pub fn WTERMSIG(s: u32) u32 {
     return s & 0x7f;
@@ -755,9 +757,9 @@ pub const winsize = extern struct {
 
 const NSIG = 32;
 
-pub const SIG_ERR = @intToPtr(?Sigaction.sigaction_fn, maxInt(usize));
 pub const SIG_DFL = @intToPtr(?Sigaction.sigaction_fn, 0);
 pub const SIG_IGN = @intToPtr(?Sigaction.sigaction_fn, 1);
+pub const SIG_ERR = @intToPtr(?Sigaction.sigaction_fn, maxInt(usize));
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
 pub const Sigaction = extern struct {
@@ -815,16 +817,16 @@ pub const sigval = extern union {
 pub const _SIG_WORDS = 4;
 pub const _SIG_MAXSIG = 128;
 
-pub fn _SIG_IDX(sig: usize) callconv(.Inline) usize {
+pub inline fn _SIG_IDX(sig: usize) usize {
     return sig - 1;
 }
-pub fn _SIG_WORD(sig: usize) callconv(.Inline) usize {
+pub inline fn _SIG_WORD(sig: usize) usize {
     return_SIG_IDX(sig) >> 5;
 }
-pub fn _SIG_BIT(sig: usize) callconv(.Inline) usize {
+pub inline fn _SIG_BIT(sig: usize) usize {
     return 1 << (_SIG_IDX(sig) & 31);
 }
-pub fn _SIG_VALID(sig: usize) callconv(.Inline) usize {
+pub inline fn _SIG_VALID(sig: usize) usize {
     return sig <= _SIG_MAXSIG and sig > 0;
 }
 
@@ -834,7 +836,7 @@ pub const sigset_t = extern struct {
 
 pub const empty_sigset = sigset_t{ .__bits = [_]u32{0} ** _SIG_WORDS };
 
-pub usingnamespace switch (builtin.arch) {
+pub usingnamespace switch (builtin.target.cpu.arch) {
     .x86_64 => struct {
         pub const ucontext_t = extern struct {
             sigmask: sigset_t,
@@ -1003,7 +1005,7 @@ pub const EOWNERDEAD = 96; // Previous owner died
 
 pub const ELAST = 96; // Must be equal largest errno
 
-pub const MINSIGSTKSZ = switch (builtin.arch) {
+pub const MINSIGSTKSZ = switch (builtin.target.cpu.arch) {
     .i386, .x86_64 => 2048,
     .arm, .aarch64 => 4096,
     else => @compileError("MINSIGSTKSZ not defined for this architecture"),
@@ -1459,7 +1461,7 @@ pub const IPPROTO_RESERVED_253 = 253;
 /// Reserved
 pub const IPPROTO_RESERVED_254 = 254;
 
-pub const rlimit_resource = extern enum(c_int) {
+pub const rlimit_resource = enum(c_int) {
     CPU = 0,
     FSIZE = 1,
     DATA = 2,
@@ -1471,13 +1473,13 @@ pub const rlimit_resource = extern enum(c_int) {
     NOFILE = 8,
     SBSIZE = 9,
     VMEM = 10,
-    AS = 10,
     NPTS = 11,
     SWAP = 12,
     KQUEUES = 13,
     UMTXP = 14,
-
     _,
+
+    pub const AS: rlimit_resource = .VMEM;
 };
 
 pub const rlim_t = i64;

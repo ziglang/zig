@@ -4025,7 +4025,7 @@ _mm_storeu_si128(__m128i_u *__p, __m128i __b)
 ///
 /// \param __p
 ///    A pointer to a 64-bit memory location. The address of the memory
-///    location does not have to be algned.
+///    location does not have to be aligned.
 /// \param __b
 ///    A 128-bit integer vector containing the value to be stored.
 static __inline__ void __DEFAULT_FN_ATTRS

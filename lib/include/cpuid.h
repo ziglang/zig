@@ -7,6 +7,9 @@
  *===-----------------------------------------------------------------------===
  */
 
+#ifndef __CPUID_H
+#define __CPUID_H
+
 #if !(__x86_64__ || __i386__)
 #error this header is for x86 only
 #endif
@@ -186,6 +189,7 @@
 /* Features in %edx for leaf 7 sub-leaf 0 */
 #define bit_AVX5124VNNIW  0x00000004
 #define bit_AVX5124FMAPS  0x00000008
+#define bit_UINTR         0x00000020
 #define bit_SERIALIZE     0x00004000
 #define bit_TSXLDTRK      0x00010000
 #define bit_PCONFIG       0x00040000
@@ -195,7 +199,9 @@
 #define bit_AMXINT8       0x02000000
 
 /* Features in %eax for leaf 7 sub-leaf 1 */
+#define bit_AVXVNNI       0x00000008
 #define bit_AVX512BF16    0x00000020
+#define bit_HRESET        0x00400000
 
 /* Features in %eax for leaf 13 sub-leaf 1 */
 #define bit_XSAVEOPT    0x00000001
@@ -309,3 +315,5 @@ static __inline int __get_cpuid_count (unsigned int __leaf,
     __cpuid_count(__leaf, __subleaf, *__eax, *__ebx, *__ecx, *__edx);
     return 1;
 }
+
+#endif /* __CPUID_H */

@@ -522,6 +522,7 @@ module std [system] {
   }
 
   // FIXME: These should be private.
+  module __bits { header "__bits" export * }
   module __bit_reference { header "__bit_reference" export * }
   module __debug { header "__debug" export * }
   module __errc { header "__errc" export * }

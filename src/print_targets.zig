@@ -17,6 +17,7 @@ pub fn cmdTargets(
     stdout: anytype,
     native_target: Target,
 ) !void {
+    _ = args;
     var zig_lib_directory = introspect.findZigLibDir(allocator) catch |err| {
         fatal("unable to find zig installation directory: {s}\n", .{@errorName(err)});
     };

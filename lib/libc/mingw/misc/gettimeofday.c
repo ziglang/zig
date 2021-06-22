@@ -41,8 +41,23 @@ int getntptimeofday (struct timespec *tp, struct timezone *z)
     }
 
   if (tp != NULL) {
-    GetSystemTimeAsFileTime (&_now.ft);	 /* 100-nanoseconds since 1-1-1601 */
-    /* The actual accuracy on XP seems to be 125,000 nanoseconds = 125 microseconds = 0.125 milliseconds */
+    typedef void (WINAPI * GetSystemTimeAsFileTime_t)(LPFILETIME);
+    static GetSystemTimeAsFileTime_t GetSystemTimeAsFileTime_p /* = 0 */;
+
+    /* Set function pointer during first call */
+    GetSystemTimeAsFileTime_t get_time =
+      __atomic_load_n (&GetSystemTimeAsFileTime_p, __ATOMIC_RELAXED);
+    if (get_time == NULL) {
+      /* Use GetSystemTimePreciseAsFileTime() if available (Windows 8 or later) */
+      get_time = (GetSystemTimeAsFileTime_t)(intptr_t) GetProcAddress (
+        GetModuleHandle ("kernel32.dll"),
+        "GetSystemTimePreciseAsFileTime"); /* <1us precision on Windows 10 */
+      if (get_time == NULL)
+        get_time = GetSystemTimeAsFileTime; /* >15ms precision on Windows 10 */
+      __atomic_store_n (&GetSystemTimeAsFileTime_p, get_time, __ATOMIC_RELAXED);
+    }
+
+    get_time (&_now.ft);	/* 100 nano-seconds since 1-1-1601 */
     _now.ns100 -= FILETIME_1970;	/* 100 nano-seconds since 1-1-1970 */
     tp->tv_sec = _now.ns100 / HECTONANOSEC_PER_SEC;	/* seconds since 1-1-1970 */
     tp->tv_nsec = (long) (_now.ns100 % HECTONANOSEC_PER_SEC) * 100; /* nanoseconds */

@@ -101,7 +101,7 @@ pub fn deinit(self: *ThreadPool) void {
 
 pub fn spawn(self: *ThreadPool, comptime func: anytype, args: anytype) !void {
     if (std.builtin.single_threaded) {
-        const result = @call(.{}, func, args);
+        @call(.{}, func, args);
         return;
     }
 
@@ -114,7 +114,7 @@ pub fn spawn(self: *ThreadPool, comptime func: anytype, args: anytype) !void {
         fn runFn(runnable: *Runnable) void {
             const run_node = @fieldParentPtr(RunQueue.Node, "data", runnable);
             const closure = @fieldParentPtr(@This(), "run_node", run_node);
-            const result = @call(.{}, func, closure.arguments);
+            @call(.{}, func, closure.arguments);
 
             const held = closure.pool.lock.acquire();
             defer held.release();

@@ -40,10 +40,11 @@ pub const ABI = struct {
     }
 };
 
+// The order of the elements in this array defines the linking order.
 pub const libs = [_]Lib{
-    .{ .name = "c", .sover = 6 },
     .{ .name = "m", .sover = 6 },
     .{ .name = "pthread", .sover = 0 },
+    .{ .name = "c", .sover = 6 },
     .{ .name = "dl", .sover = 2 },
     .{ .name = "rt", .sover = 1 },
     .{ .name = "ld", .sover = 2 },
@@ -445,10 +446,14 @@ fn start_asm_path(comp: *Compilation, arena: *Allocator, basename: []const u8) !
     try result.appendSlice(comp.zig_lib_directory.path.?);
     try result.appendSlice(s ++ "libc" ++ s ++ "glibc" ++ s ++ "sysdeps" ++ s);
     if (is_sparc) {
-        if (is_64) {
-            try result.appendSlice("sparc" ++ s ++ "sparc64");
+        if (mem.eql(u8, basename, "crti.S") or mem.eql(u8, basename, "crtn.S")) {
+            try result.appendSlice("sparc");
         } else {
-            try result.appendSlice("sparc" ++ s ++ "sparc32");
+            if (is_64) {
+                try result.appendSlice("sparc" ++ s ++ "sparc64");
+            } else {
+                try result.appendSlice("sparc" ++ s ++ "sparc32");
+            }
         }
     } else if (arch.isARM()) {
         try result.appendSlice("arm");
@@ -492,7 +497,6 @@ fn add_include_dirs(comp: *Compilation, arena: *Allocator, args: *std.ArrayList(
     const target = comp.getTarget();
     const arch = target.cpu.arch;
     const opt_nptl: ?[]const u8 = if (target.os.tag == .linux) "nptl" else "htl";
-    const glibc = try lib_path(comp, arena, lib_libc ++ "glibc");
 
     const s = path.sep_str;
 
@@ -763,16 +767,17 @@ pub fn buildSharedObjects(comp: *Compilation) !void {
                 .lt => continue,
                 .gt => {
                     // TODO Expose via compile error mechanism instead of log.
-                    std.log.warn("invalid target glibc version: {}", .{target_version});
+                    std.log.err("invalid target glibc version: {}", .{target_version});
                     return error.InvalidTargetGLibCVersion;
                 },
             }
-        } else blk: {
+        } else {
             const latest_index = metadata.all_versions.len - 1;
-            std.log.warn("zig cannot build new glibc version {}; providing instead {}", .{
+            // TODO Expose via compile error mechanism instead of log.
+            std.log.err("zig does not yet provide glibc version {}, the max provided version is {}", .{
                 target_version, metadata.all_versions[latest_index],
             });
-            break :blk latest_index;
+            return error.InvalidTargetGLibCVersion;
         };
         {
             var map_contents = std.ArrayList(u8).init(arena);
@@ -820,26 +825,26 @@ pub fn buildSharedObjects(comp: *Compilation) !void {
                         // .globl _Exit_2_2_5
                         // .type _Exit_2_2_5, %function;
                         // .symver _Exit_2_2_5, _Exit@@GLIBC_2.2.5
-                        // .hidden _Exit_2_2_5
                         // _Exit_2_2_5:
                         const ver_index = ver_list.versions[ver_i];
                         const ver = metadata.all_versions[ver_index];
                         const sym_name = libc_fn.name;
                         // Default symbol version definition vs normal symbol version definition
-                        const want_two_ats = chosen_def_ver_index != 255 and ver_index == chosen_def_ver_index;
-                        const at_sign_str = "@@"[0 .. @boolToInt(want_two_ats) + @as(usize, 1)];
-
+                        const want_default = chosen_def_ver_index != 255 and ver_index == chosen_def_ver_index;
+                        const at_sign_str: []const u8 = if (want_default) "@@" else "@";
                         if (ver.patch == 0) {
-                            const sym_plus_ver = try std.fmt.allocPrint(
-                                arena,
-                                "{s}_{d}_{d}",
-                                .{ sym_name, ver.major, ver.minor },
-                            );
+                            const sym_plus_ver = if (want_default)
+                                sym_name
+                            else
+                                try std.fmt.allocPrint(
+                                    arena,
+                                    "{s}_GLIBC_{d}_{d}",
+                                    .{ sym_name, ver.major, ver.minor },
+                                );
                             try zig_body.writer().print(
                                 \\.globl {s}
                                 \\.type {s}, %function;
                                 \\.symver {s}, {s}{s}GLIBC_{d}.{d}
-                                \\.hidden {s}
                                 \\{s}:
                                 \\
                             , .{
@@ -851,19 +856,20 @@ pub fn buildSharedObjects(comp: *Compilation) !void {
                                 ver.major,
                                 ver.minor,
                                 sym_plus_ver,
-                                sym_plus_ver,
                             });
                         } else {
-                            const sym_plus_ver = try std.fmt.allocPrint(
-                                arena,
-                                "{s}_{d}_{d}_{d}",
-                                .{ sym_name, ver.major, ver.minor, ver.patch },
-                            );
+                            const sym_plus_ver = if (want_default)
+                                sym_name
+                            else
+                                try std.fmt.allocPrint(
+                                    arena,
+                                    "{s}_GLIBC_{d}_{d}_{d}",
+                                    .{ sym_name, ver.major, ver.minor, ver.patch },
+                                );
                             try zig_body.writer().print(
                                 \\.globl {s}
                                 \\.type {s}, %function;
                                 \\.symver {s}, {s}{s}GLIBC_{d}.{d}.{d}
-                                \\.hidden {s}
                                 \\{s}:
                                 \\
                             , .{
@@ -875,7 +881,6 @@ pub fn buildSharedObjects(comp: *Compilation) !void {
                                 ver.major,
                                 ver.minor,
                                 ver.patch,
-                                sym_plus_ver,
                                 sym_plus_ver,
                             });
                         }
@@ -957,9 +962,7 @@ fn buildSharedLib(
         .self_exe_path = comp.self_exe_path,
         .verbose_cc = comp.verbose_cc,
         .verbose_link = comp.bin_file.options.verbose_link,
-        .verbose_tokenize = comp.verbose_tokenize,
-        .verbose_ast = comp.verbose_ast,
-        .verbose_ir = comp.verbose_ir,
+        .verbose_air = comp.verbose_air,
         .verbose_llvm_ir = comp.verbose_llvm_ir,
         .verbose_cimport = comp.verbose_cimport,
         .verbose_llvm_cpu_features = comp.verbose_llvm_cpu_features,

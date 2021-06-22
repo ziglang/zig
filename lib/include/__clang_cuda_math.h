@@ -195,8 +195,8 @@ __DEVICE__ int max(int __a, int __b) { return __nv_max(__a, __b); }
 __DEVICE__ int min(int __a, int __b) { return __nv_min(__a, __b); }
 __DEVICE__ double modf(double __a, double *__b) { return __nv_modf(__a, __b); }
 __DEVICE__ float modff(float __a, float *__b) { return __nv_modff(__a, __b); }
-__DEVICE__ double nearbyint(double __a) { return __nv_nearbyint(__a); }
-__DEVICE__ float nearbyintf(float __a) { return __nv_nearbyintf(__a); }
+__DEVICE__ double nearbyint(double __a) { return __builtin_nearbyint(__a); }
+__DEVICE__ float nearbyintf(float __a) { return __builtin_nearbyintf(__a); }
 __DEVICE__ double nextafter(double __a, double __b) {
   return __nv_nextafter(__a, __b);
 }
@@ -249,8 +249,9 @@ __DEVICE__ double rhypot(double __a, double __b) {
 __DEVICE__ float rhypotf(float __a, float __b) {
   return __nv_rhypotf(__a, __b);
 }
-__DEVICE__ double rint(double __a) { return __nv_rint(__a); }
-__DEVICE__ float rintf(float __a) { return __nv_rintf(__a); }
+// __nv_rint* in libdevice is buggy and produces incorrect results.
+__DEVICE__ double rint(double __a) { return __builtin_rint(__a); }
+__DEVICE__ float rintf(float __a) { return __builtin_rintf(__a); }
 __DEVICE__ double rnorm(int __a, const double *__b) {
   return __nv_rnorm(__a, __b);
 }

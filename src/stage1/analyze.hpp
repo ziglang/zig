@@ -12,7 +12,9 @@
 
 void semantic_analyze(CodeGen *g);
 ErrorMsg *add_node_error(CodeGen *g, AstNode *node, Buf *msg);
-ErrorMsg *add_token_error(CodeGen *g, ZigType *owner, Token *token, Buf *msg);
+ErrorMsg *add_token_error(CodeGen *g, ZigType *owner, TokenIndex token, Buf *msg);
+ErrorMsg *add_token_error_offset(CodeGen *g, ZigType *owner, TokenIndex token, Buf *msg,
+        uint32_t bad_index);
 ErrorMsg *add_error_note(CodeGen *g, ErrorMsg *parent_msg, const AstNode *node, Buf *msg);
 ZigType *new_type_table_entry(ZigTypeId id);
 ZigType *get_fn_frame_type(CodeGen *g, ZigFn *fn);
@@ -47,6 +49,7 @@ ZigType *get_test_fn_type(CodeGen *g);
 ZigType *get_any_frame_type(CodeGen *g, ZigType *result_type);
 bool handle_is_ptr(CodeGen *g, ZigType *type_entry);
 Error emit_error_unless_callconv_allowed_for_target(CodeGen *g, AstNode *source_node, CallingConvention cc);
+uint32_t get_async_frame_align_bytes(CodeGen *g);
 
 bool type_has_bits(CodeGen *g, ZigType *type_entry);
 Error type_has_bits2(CodeGen *g, ZigType *type_entry, bool *result);
@@ -139,8 +142,9 @@ Scope *create_runtime_scope(CodeGen *g, AstNode *node, Scope *parent, IrInstSrc 
 Scope *create_typeof_scope(CodeGen *g, AstNode *node, Scope *parent);
 ScopeExpr *create_expr_scope(CodeGen *g, AstNode *node, Scope *parent);
 
-void init_const_str_lit(CodeGen *g, ZigValue *const_val, Buf *str);
+void init_const_str_lit(CodeGen *g, ZigValue *const_val, Buf *str, bool move_str);
 ZigValue *create_const_str_lit(CodeGen *g, Buf *str);
+ZigValue *create_sentineled_str_lit(CodeGen *g, Buf *str, ZigValue *sentinel);
 
 void init_const_bigint(ZigValue *const_val, ZigType *type, const BigInt *bigint);
 ZigValue *create_const_bigint(CodeGen *g, ZigType *type, const BigInt *bigint);
@@ -183,8 +187,8 @@ ZigValue *create_const_ptr_array(CodeGen *g, ZigValue *array_val, size_t elem_in
         bool is_const, PtrLen ptr_len);
 
 void init_const_slice(CodeGen *g, ZigValue *const_val, ZigValue *array_val,
-        size_t start, size_t len, bool is_const);
-ZigValue *create_const_slice(CodeGen *g, ZigValue *array_val, size_t start, size_t len, bool is_const);
+        size_t start, size_t len, bool is_const, ZigValue *sentinel);
+ZigValue *create_const_slice(CodeGen *g, ZigValue *array_val, size_t start, size_t len, bool is_const, ZigValue *sentinel);
 
 void init_const_null(ZigValue *const_val, ZigType *type);
 ZigValue *create_const_null(CodeGen *g, ZigType *type);

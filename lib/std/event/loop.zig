@@ -4,7 +4,7 @@
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
 const std = @import("../std.zig");
-const builtin = @import("builtin");
+const builtin = std.builtin;
 const root = @import("root");
 const assert = std.debug.assert;
 const testing = std.testing;
@@ -54,8 +54,12 @@ pub const Loop = struct {
             .windows => windows.OVERLAPPED{
                 .Internal = 0,
                 .InternalHigh = 0,
-                .Offset = 0,
-                .OffsetHigh = 0,
+                .DUMMYUNIONNAME = .{
+                    .DUMMYSTRUCTNAME = .{
+                        .Offset = 0,
+                        .OffsetHigh = 0,
+                    },
+                },
                 .hEvent = null,
             },
             else => {},
@@ -341,7 +345,7 @@ pub const Loop = struct {
                 );
                 errdefer windows.CloseHandle(self.os_data.io_port);
 
-                for (self.eventfd_resume_nodes) |*eventfd_node, i| {
+                for (self.eventfd_resume_nodes) |*eventfd_node| {
                     eventfd_node.* = std.atomic.Stack(ResumeNode.EventFd).Node{
                         .data = ResumeNode.EventFd{
                             .base = ResumeNode{
@@ -676,7 +680,7 @@ pub const Loop = struct {
             fn run(func_args: Args, loop: *Loop, allocator: *mem.Allocator) void {
                 loop.beginOneEvent();
                 loop.yield();
-                const result = @call(.{}, func, func_args);
+                @call(.{}, func, func_args); // compile error when called with non-void ret type
                 suspend {
                     loop.finishOneEvent();
                     allocator.destroy(@frame());
@@ -1655,7 +1659,7 @@ fn testEventLoop() i32 {
 
 fn testEventLoop2(h: anyframe->i32, did_it: *bool) void {
     const value = await h;
-    testing.expect(value == 1234);
+    try testing.expect(value == 1234);
     did_it.* = true;
 }
 
@@ -1682,7 +1686,7 @@ test "std.event.Loop - runDetached" {
     // with the previous runDetached.
     loop.run();
 
-    testing.expect(testRunDetachedData == 1);
+    try testing.expect(testRunDetachedData == 1);
 }
 
 fn testRunDetached() void {
@@ -1705,7 +1709,7 @@ test "std.event.Loop - sleep" {
     for (frames) |*frame|
         await frame;
 
-    testing.expect(sleep_count == frames.len);
+    try testing.expect(sleep_count == frames.len);
 }
 
 fn testSleep(wait_ns: u64, sleep_count: *usize) void {

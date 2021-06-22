@@ -32,11 +32,23 @@ struct _Unwind_FunctionContext {
   // next function in stack of handlers
   struct _Unwind_FunctionContext *prev;
 
+#if defined(__ve__)
+  // VE requires to store 64 bit pointers in the buffer for SjLj execption.
+  // We expand the size of values defined here.  This size must be matched
+  // to the size returned by TargetMachine::getSjLjDataSize().
+
+  // set by calling function before registering to be the landing pad
+  uint64_t                        resumeLocation;
+
+  // set by personality handler to be parameters passed to landing pad function
+  uint64_t                        resumeParameters[4];
+#else
   // set by calling function before registering to be the landing pad
   uint32_t                        resumeLocation;
 
   // set by personality handler to be parameters passed to landing pad function
   uint32_t                        resumeParameters[4];
+#endif
 
   // set by calling function before registering
   _Unwind_Personality_Fn personality;          // arm offset=24

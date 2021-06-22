@@ -23,6 +23,10 @@ pub fn __extendhfsf2(a: u16) callconv(.C) f32 {
     return @call(.{ .modifier = .always_inline }, extendXfYf2, .{ f32, f16, a });
 }
 
+pub fn __extendhftf2(a: u16) callconv(.C) f128 {
+    return @call(.{ .modifier = .always_inline }, extendXfYf2, .{ f128, f16, a });
+}
+
 pub fn __aeabi_h2f(arg: u16) callconv(.AAPCS) f32 {
     @setRuntimeSafety(false);
     return @call(.{ .modifier = .always_inline }, __extendhfsf2, .{arg});
@@ -42,7 +46,6 @@ fn extendXfYf2(comptime dst_t: type, comptime src_t: type, a: std.meta.Int(.unsi
     const dst_rep_t = std.meta.Int(.unsigned, @typeInfo(dst_t).Float.bits);
     const srcSigBits = std.math.floatMantissaBits(src_t);
     const dstSigBits = std.math.floatMantissaBits(dst_t);
-    const SrcShift = std.math.Log2Int(src_rep_t);
     const DstShift = std.math.Log2Int(dst_rep_t);
 
     // Various constants whose values follow from the type parameters.

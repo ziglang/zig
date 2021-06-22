@@ -20,6 +20,7 @@
 #pragma GCC diagnostic ignored "-Winit-list-lifetime"
 #endif
 
+#include <llvm/Analysis/AliasAnalysis.h>
 #include <llvm/Analysis/TargetLibraryInfo.h>
 #include <llvm/Analysis/TargetTransformInfo.h>
 #include <llvm/Bitcode/BitcodeWriter.h>
@@ -30,9 +31,12 @@
 #include <llvm/IR/Instructions.h>
 #include <llvm/IR/LegacyPassManager.h>
 #include <llvm/IR/Module.h>
+#include <llvm/IR/PassManager.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/InitializePasses.h>
 #include <llvm/MC/SubtargetFeature.h>
+#include <llvm/Passes/PassBuilder.h>
+#include <llvm/Passes/StandardInstrumentations.h>
 #include <llvm/Object/Archive.h>
 #include <llvm/Object/ArchiveWriter.h>
 #include <llvm/Object/COFF.h>
@@ -42,7 +46,9 @@
 #include <llvm/Support/CommandLine.h>
 #include <llvm/Support/Host.h>
 #include <llvm/Support/FileSystem.h>
+#include <llvm/Support/Process.h>
 #include <llvm/Support/TargetParser.h>
+#include <llvm/Support/TimeProfiler.h>
 #include <llvm/Support/Timer.h>
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/Support/TargetRegistry.h>
@@ -54,6 +60,9 @@
 #include <llvm/Transforms/Instrumentation/ThreadSanitizer.h>
 #include <llvm/Transforms/Scalar.h>
 #include <llvm/Transforms/Utils.h>
+#include <llvm/Transforms/Utils/AddDiscriminators.h>
+#include <llvm/Transforms/Utils/CanonicalizeAliases.h>
+#include <llvm/Transforms/Utils/NameAnonGlobals.h>
 
 #include <lld/Common/Driver.h>
 
@@ -89,14 +98,6 @@ char *ZigLLVMGetNativeFeatures(void) {
     }
 
     return strdup((const char *)StringRef(features.getString()).bytes_begin());
-}
-
-static void addDiscriminatorsPass(const PassManagerBuilder &Builder, legacy::PassManagerBase &PM) {
-    PM.add(createAddDiscriminatorsPass());
-}
-
-static void addThreadSanitizerPass(const PassManagerBuilder &Builder, legacy::PassManagerBase &PM) {
-    PM.add(createThreadSanitizerLegacyPassPass());
 }
 
 #ifndef NDEBUG
@@ -153,6 +154,11 @@ LLVMTargetMachineRef ZigLLVMCreateTargetMachine(LLVMTargetRef T, const char *Tri
     }
 
     TargetOptions opt;
+
+    // Work around the missing initialization of this field in the default
+    // constructor. Use -1 so that the default value is used.
+    opt.StackProtectorGuardOffset = (unsigned)-1;
+
     opt.FunctionSections = function_sections;
     switch (float_abi) {
         case ZigLLVMABITypeDefault:
@@ -183,6 +189,43 @@ unsigned ZigLLVMDataLayoutGetProgramAddressSpace(LLVMTargetDataRef TD) {
     return unwrap(TD)->getProgramAddressSpace();
 }
 
+namespace {
+// LLVM's time profiler can provide a hierarchy view of the time spent
+// in each component. It generates JSON report in Chrome's "Trace Event"
+// format. So the report can be easily visualized by the Chrome browser.
+struct TimeTracerRAII {
+  // Granularity in ms
+  unsigned TimeTraceGranularity;
+  StringRef TimeTraceFile, OutputFilename;
+  bool EnableTimeTrace;
+
+  TimeTracerRAII(StringRef ProgramName, StringRef OF)
+    : TimeTraceGranularity(500U),
+      TimeTraceFile(std::getenv("ZIG_LLVM_TIME_TRACE_FILE")),
+      OutputFilename(OF),
+      EnableTimeTrace(!TimeTraceFile.empty()) {
+    if (EnableTimeTrace) {
+      if (const char *G = std::getenv("ZIG_LLVM_TIME_TRACE_GRANULARITY"))
+        TimeTraceGranularity = (unsigned)std::atoi(G);
+
+      llvm::timeTraceProfilerInitialize(TimeTraceGranularity, ProgramName);
+    }
+  }
+
+  ~TimeTracerRAII() {
+    if (EnableTimeTrace) {
+      if (auto E = llvm::timeTraceProfilerWrite(TimeTraceFile, OutputFilename)) {
+        handleAllErrors(std::move(E), [&](const StringError &SE) {
+          errs() << SE.getMessage() << "\n";
+        });
+        return;
+      }
+      timeTraceProfilerCleanup();
+    }
+  }
+};
+} // end anonymous namespace
+
 bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMModuleRef module_ref,
         char **error_message, bool is_debug,
         bool is_small, bool time_report, bool tsan, bool lto,
@@ -190,12 +233,12 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
 {
     TimePassesIsEnabled = time_report;
 
-    raw_fd_ostream *dest_asm = nullptr;
-    raw_fd_ostream *dest_bin = nullptr;
+    raw_fd_ostream *dest_asm_ptr = nullptr;
+    raw_fd_ostream *dest_bin_ptr = nullptr;
 
     if (asm_filename) {
         std::error_code EC;
-        dest_asm = new(std::nothrow) raw_fd_ostream(asm_filename, EC, sys::fs::F_None);
+        dest_asm_ptr = new(std::nothrow) raw_fd_ostream(asm_filename, EC, sys::fs::F_None);
         if (EC) {
             *error_message = strdup((const char *)StringRef(EC.message()).bytes_begin());
             return true;
@@ -203,116 +246,153 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
     }
     if (bin_filename) {
         std::error_code EC;
-        dest_bin = new(std::nothrow) raw_fd_ostream(bin_filename, EC, sys::fs::F_None);
+        dest_bin_ptr = new(std::nothrow) raw_fd_ostream(bin_filename, EC, sys::fs::F_None);
         if (EC) {
             *error_message = strdup((const char *)StringRef(EC.message()).bytes_begin());
             return true;
         }
     }
 
-    TargetMachine* target_machine = reinterpret_cast<TargetMachine*>(targ_machine_ref);
-    target_machine->setO0WantsFastISel(true);
+    std::unique_ptr<raw_fd_ostream> dest_asm(dest_asm_ptr),
+                                    dest_bin(dest_bin_ptr);
 
-    Module* module = unwrap(module_ref);
+    auto PID = sys::Process::getProcessId();
+    std::string ProcName = "zig-";
+    ProcName += std::to_string(PID);
+    TimeTracerRAII TimeTracer(ProcName,
+                              bin_filename? bin_filename : asm_filename);
 
-    PassManagerBuilder *PMBuilder = new(std::nothrow) PassManagerBuilder();
-    if (PMBuilder == nullptr) {
-        *error_message = strdup("memory allocation failure");
-        return true;
-    }
-    PMBuilder->OptLevel = target_machine->getOptLevel();
-    PMBuilder->SizeLevel = is_small ? 2 : 0;
+    TargetMachine &target_machine = *reinterpret_cast<TargetMachine*>(targ_machine_ref);
+    target_machine.setO0WantsFastISel(true);
 
-    PMBuilder->DisableTailCalls = is_debug;
-    PMBuilder->DisableUnrollLoops = is_debug;
-    PMBuilder->SLPVectorize = !is_debug;
-    PMBuilder->LoopVectorize = !is_debug;
-    PMBuilder->LoopsInterleaved = !PMBuilder->DisableUnrollLoops;
-    PMBuilder->RerollLoops = !is_debug;
-    // Leaving NewGVN as default (off) because when on it caused issue #673
-    //PMBuilder->NewGVN = !is_debug;
-    PMBuilder->DisableGVNLoadPRE = is_debug;
-    PMBuilder->VerifyInput = assertions_on;
-    PMBuilder->VerifyOutput = assertions_on;
-    PMBuilder->MergeFunctions = !is_debug;
-    PMBuilder->PrepareForLTO = lto;
-    PMBuilder->PrepareForThinLTO = false;
-    PMBuilder->PerformThinLTO = false;
+    Module &module = *unwrap(module_ref);
 
-    TargetLibraryInfoImpl tlii(Triple(module->getTargetTriple()));
-    PMBuilder->LibraryInfo = &tlii;
+    // Pipeline configurations
+    PipelineTuningOptions pipeline_opts;
+    pipeline_opts.LoopUnrolling = !is_debug;
+    pipeline_opts.SLPVectorization = !is_debug;
+    pipeline_opts.LoopVectorization = !is_debug;
+    pipeline_opts.LoopInterleaving = !is_debug;
+    pipeline_opts.MergeFunctions = !is_debug;
 
-    if (is_debug) {
-        PMBuilder->Inliner = createAlwaysInlinerLegacyPass(false);
-    } else {
-        target_machine->adjustPassManager(*PMBuilder);
+    // Instrumentations
+    PassInstrumentationCallbacks instr_callbacks;
+    StandardInstrumentations std_instrumentations(false);
+    std_instrumentations.registerCallbacks(instr_callbacks);
 
-        PMBuilder->addExtension(PassManagerBuilder::EP_EarlyAsPossible, addDiscriminatorsPass);
-        PMBuilder->Inliner = createFunctionInliningPass(PMBuilder->OptLevel, PMBuilder->SizeLevel, false);
-    }
+    PassBuilder pass_builder(false, &target_machine, pipeline_opts,
+                             None, &instr_callbacks);
+    using OptimizationLevel = typename PassBuilder::OptimizationLevel;
 
-    if (tsan) {
-        PMBuilder->addExtension(PassManagerBuilder::EP_OptimizerLast, addThreadSanitizerPass);
-        PMBuilder->addExtension(PassManagerBuilder::EP_EnabledOnOptLevel0, addThreadSanitizerPass);
-    }
+    LoopAnalysisManager loop_am;
+    FunctionAnalysisManager function_am;
+    CGSCCAnalysisManager cgscc_am;
+    ModuleAnalysisManager module_am;
 
-    // Set up the per-function pass manager.
-    legacy::FunctionPassManager FPM = legacy::FunctionPassManager(module);
-    auto tliwp = new(std::nothrow) TargetLibraryInfoWrapperPass(tlii);
-    FPM.add(tliwp);
-    FPM.add(createTargetTransformInfoWrapperPass(target_machine->getTargetIRAnalysis()));
+    // Register the AA manager first so that our version is the one used
+    function_am.registerPass([&] {
+      return pass_builder.buildDefaultAAPipeline();
+    });
+
+    Triple target_triple(module.getTargetTriple());
+    auto tlii = std::make_unique<TargetLibraryInfoImpl>(target_triple);
+    function_am.registerPass([&] { return TargetLibraryAnalysis(*tlii); });
+
+    // Initialize the AnalysisManagers
+    pass_builder.registerModuleAnalyses(module_am);
+    pass_builder.registerCGSCCAnalyses(cgscc_am);
+    pass_builder.registerFunctionAnalyses(function_am);
+    pass_builder.registerLoopAnalyses(loop_am);
+    pass_builder.crossRegisterProxies(loop_am, function_am,
+                                      cgscc_am, module_am);
+
+    // IR verification
     if (assertions_on) {
-        FPM.add(createVerifierPass());
-    }
-    PMBuilder->populateFunctionPassManager(FPM);
-
-    {
-        // Set up the per-module pass manager.
-        legacy::PassManager MPM;
-        MPM.add(createTargetTransformInfoWrapperPass(target_machine->getTargetIRAnalysis()));
-        PMBuilder->populateModulePassManager(MPM);
-
-        // Set output passes.
-        if (dest_bin && !lto) {
-            if (target_machine->addPassesToEmitFile(MPM, *dest_bin, nullptr, CGFT_ObjectFile)) {
-                *error_message = strdup("TargetMachine can't emit an object file");
-                return true;
-            }
-        }
-        if (dest_asm) {
-            if (target_machine->addPassesToEmitFile(MPM, *dest_asm, nullptr, CGFT_AssemblyFile)) {
-                *error_message = strdup("TargetMachine can't emit an assembly file");
-                return true;
-            }
-        }
-
-        // run per function optimization passes
-        FPM.doInitialization();
-        for (Function &F : *module)
-        if (!F.isDeclaration())
-            FPM.run(F);
-        FPM.doFinalization();
-
-        MPM.run(*module);
-
-        if (llvm_ir_filename) {
-            if (LLVMPrintModuleToFile(module_ref, llvm_ir_filename, error_message)) {
-                return true;
-            }
-        }
-        if (dest_bin && lto) {
-            WriteBitcodeToFile(*module, *dest_bin);
-        }
-
-        if (time_report) {
-            TimerGroup::printAll(errs());
-        }
-
-        // MPM goes out of scope and writes to the out streams
+      // Verify the input
+      pass_builder.registerPipelineStartEPCallback(
+        [](ModulePassManager &module_pm, OptimizationLevel OL) {
+          module_pm.addPass(VerifierPass());
+        });
+      // Verify the output
+      pass_builder.registerOptimizerLastEPCallback(
+        [](ModulePassManager &module_pm, OptimizationLevel OL) {
+          module_pm.addPass(VerifierPass());
+        });
     }
 
-    delete dest_asm;
-    delete dest_bin;
+    // Passes specific for release build
+    if (!is_debug) {
+      pass_builder.registerPipelineStartEPCallback(
+        [](ModulePassManager &module_pm, OptimizationLevel OL) {
+          module_pm.addPass(
+            createModuleToFunctionPassAdaptor(AddDiscriminatorsPass()));
+        });
+    }
+
+    // Thread sanitizer
+    if (tsan) {
+      pass_builder.registerOptimizerLastEPCallback(
+        [](ModulePassManager &module_pm, OptimizationLevel level) {
+          module_pm.addPass(ThreadSanitizerPass());
+        });
+    }
+
+    ModulePassManager module_pm;
+    OptimizationLevel opt_level;
+    // Setting up the optimization level
+    if (is_debug)
+      opt_level = OptimizationLevel::O0;
+    else if (is_small)
+      opt_level = OptimizationLevel::Oz;
+    else
+      opt_level = OptimizationLevel::O3;
+
+    // Initialize the PassManager
+    if (opt_level == OptimizationLevel::O0) {
+      module_pm = pass_builder.buildO0DefaultPipeline(opt_level, lto);
+    } else if (lto) {
+      module_pm = pass_builder.buildLTOPreLinkDefaultPipeline(opt_level);
+    } else {
+      module_pm = pass_builder.buildPerModuleDefaultPipeline(opt_level);
+    }
+
+    // Unfortunately we don't have new PM for code generation
+    legacy::PassManager codegen_pm;
+    codegen_pm.add(
+      createTargetTransformInfoWrapperPass(target_machine.getTargetIRAnalysis()));
+
+    if (dest_bin && !lto) {
+        if (target_machine.addPassesToEmitFile(codegen_pm, *dest_bin, nullptr, CGFT_ObjectFile)) {
+            *error_message = strdup("TargetMachine can't emit an object file");
+            return true;
+        }
+    }
+    if (dest_asm) {
+        if (target_machine.addPassesToEmitFile(codegen_pm, *dest_asm, nullptr, CGFT_AssemblyFile)) {
+            *error_message = strdup("TargetMachine can't emit an assembly file");
+            return true;
+        }
+    }
+
+    // Optimization phase
+    module_pm.run(module, module_am);
+
+    // Code generation phase
+    codegen_pm.run(module);
+
+    if (llvm_ir_filename) {
+        if (LLVMPrintModuleToFile(module_ref, llvm_ir_filename, error_message)) {
+            return true;
+        }
+    }
+
+    if (dest_bin && lto) {
+        WriteBitcodeToFile(module, *dest_bin);
+    }
+
+    if (time_report) {
+        TimerGroup::printAll(errs());
+    }
 
     return false;
 }
@@ -614,8 +694,9 @@ void ZigLLVMDisposeDIBuilder(ZigLLVMDIBuilder *dbuilder) {
 }
 
 void ZigLLVMSetCurrentDebugLocation(LLVMBuilderRef builder, int line, int column, ZigLLVMDIScope *scope) {
-    unwrap(builder)->SetCurrentDebugLocation(DebugLoc::get(
-                line, column, reinterpret_cast<DIScope*>(scope)));
+    DIScope* di_scope = reinterpret_cast<DIScope*>(scope);
+    DebugLoc debug_loc = DILocation::get(di_scope->getContext(), line, column, di_scope, nullptr, false);
+    unwrap(builder)->SetCurrentDebugLocation(debug_loc);
 }
 
 void ZigLLVMClearCurrentDebugLocation(LLVMBuilderRef builder) {
@@ -776,7 +857,8 @@ LLVMValueRef ZigLLVMInsertDeclare(ZigLLVMDIBuilder *dibuilder, LLVMValueRef stor
 }
 
 ZigLLVMDILocation *ZigLLVMGetDebugLoc(unsigned line, unsigned col, ZigLLVMDIScope *scope) {
-    DebugLoc debug_loc = DebugLoc::get(line, col, reinterpret_cast<DIScope*>(scope), nullptr);
+    DIScope* di_scope = reinterpret_cast<DIScope*>(scope);
+    DebugLoc debug_loc = DILocation::get(di_scope->getContext(), line, col, di_scope, nullptr, false);
     return reinterpret_cast<ZigLLVMDILocation*>(debug_loc.get());
 }
 
@@ -796,7 +878,17 @@ void ZigLLVMAddByValAttr(LLVMValueRef fn_ref, unsigned ArgNo, LLVMTypeRef type_v
     AttrBuilder attr_builder;
     Type *llvm_type = unwrap<Type>(type_val);
     attr_builder.addByValAttr(llvm_type);
-    const AttributeList new_attr_set = attr_set.addAttributes(func->getContext(), ArgNo, attr_builder);
+    const AttributeList new_attr_set = attr_set.addAttributes(func->getContext(), ArgNo + 1, attr_builder);
+    func->setAttributes(new_attr_set);
+}
+
+void ZigLLVMAddSretAttr(LLVMValueRef fn_ref, unsigned ArgNo, LLVMTypeRef type_val) {
+    Function *func = unwrap<Function>(fn_ref);
+    const AttributeList attr_set = func->getAttributes();
+    AttrBuilder attr_builder;
+    Type *llvm_type = unwrap<Type>(type_val);
+    attr_builder.addStructRetAttr(llvm_type);
+    const AttributeList new_attr_set = attr_set.addAttributes(func->getContext(), ArgNo + 1, attr_builder);
     func->setAttributes(new_attr_set);
 }
 
@@ -877,6 +969,12 @@ void ZigLLVMSetModulePIELevel(LLVMModuleRef module) {
     unwrap(module)->setPIELevel(PIELevel::Level::Large);
 }
 
+void ZigLLVMSetModuleCodeModel(LLVMModuleRef module, LLVMCodeModel code_model) {
+    bool JIT;
+    unwrap(module)->setCodeModel(*unwrap(code_model, JIT));
+    assert(!JIT);
+}
+
 static AtomicOrdering mapFromLLVMOrdering(LLVMAtomicOrdering Ordering) {
     switch (Ordering) {
         case LLVMAtomicOrderingNotAtomic: return AtomicOrdering::NotAtomic;
@@ -927,6 +1025,15 @@ LLVMValueRef ZigLLVMBuildAShrExact(LLVMBuilderRef builder, LLVMValueRef LHS, LLV
 void ZigLLVMSetTailCall(LLVMValueRef Call) {
     unwrap<CallInst>(Call)->setTailCallKind(CallInst::TCK_MustTail);
 } 
+
+void ZigLLVMSetCallSret(LLVMValueRef Call, LLVMTypeRef return_type) {
+    const AttributeList attr_set = unwrap<CallInst>(Call)->getAttributes();
+    AttrBuilder attr_builder;
+    Type *llvm_type = unwrap<Type>(return_type);
+    attr_builder.addStructRetAttr(llvm_type);
+    const AttributeList new_attr_set = attr_set.addAttributes(unwrap<CallInst>(Call)->getContext(), 1, attr_builder);
+    unwrap<CallInst>(Call)->setAttributes(new_attr_set);
+}
 
 void ZigLLVMFunctionSetPrefixData(LLVMValueRef function, LLVMValueRef data) {
     unwrap<Function>(function)->setPrefixData(unwrap<Constant>(data));
@@ -1194,6 +1301,7 @@ static_assert((Triple::ArchType)ZigLLVM_arc == Triple::arc, "");
 static_assert((Triple::ArchType)ZigLLVM_avr == Triple::avr, "");
 static_assert((Triple::ArchType)ZigLLVM_bpfel == Triple::bpfel, "");
 static_assert((Triple::ArchType)ZigLLVM_bpfeb == Triple::bpfeb, "");
+static_assert((Triple::ArchType)ZigLLVM_csky == Triple::csky, "");
 static_assert((Triple::ArchType)ZigLLVM_hexagon == Triple::hexagon, "");
 static_assert((Triple::ArchType)ZigLLVM_mips == Triple::mips, "");
 static_assert((Triple::ArchType)ZigLLVM_mipsel == Triple::mipsel, "");
@@ -1201,6 +1309,7 @@ static_assert((Triple::ArchType)ZigLLVM_mips64 == Triple::mips64, "");
 static_assert((Triple::ArchType)ZigLLVM_mips64el == Triple::mips64el, "");
 static_assert((Triple::ArchType)ZigLLVM_msp430 == Triple::msp430, "");
 static_assert((Triple::ArchType)ZigLLVM_ppc == Triple::ppc, "");
+static_assert((Triple::ArchType)ZigLLVM_ppcle == Triple::ppcle, "");
 static_assert((Triple::ArchType)ZigLLVM_ppc64 == Triple::ppc64, "");
 static_assert((Triple::ArchType)ZigLLVM_ppc64le == Triple::ppc64le, "");
 static_assert((Triple::ArchType)ZigLLVM_r600 == Triple::r600, "");
@@ -1242,8 +1351,6 @@ static_assert((Triple::VendorType)ZigLLVM_UnknownVendor == Triple::UnknownVendor
 static_assert((Triple::VendorType)ZigLLVM_Apple == Triple::Apple, "");
 static_assert((Triple::VendorType)ZigLLVM_PC == Triple::PC, "");
 static_assert((Triple::VendorType)ZigLLVM_SCEI == Triple::SCEI, "");
-static_assert((Triple::VendorType)ZigLLVM_BGP == Triple::BGP, "");
-static_assert((Triple::VendorType)ZigLLVM_BGQ == Triple::BGQ, "");
 static_assert((Triple::VendorType)ZigLLVM_Freescale == Triple::Freescale, "");
 static_assert((Triple::VendorType)ZigLLVM_IBM == Triple::IBM, "");
 static_assert((Triple::VendorType)ZigLLVM_ImaginationTechnologies == Triple::ImaginationTechnologies, "");
@@ -1275,11 +1382,11 @@ static_assert((Triple::OSType)ZigLLVM_NetBSD == Triple::NetBSD, "");
 static_assert((Triple::OSType)ZigLLVM_OpenBSD == Triple::OpenBSD, "");
 static_assert((Triple::OSType)ZigLLVM_Solaris == Triple::Solaris, "");
 static_assert((Triple::OSType)ZigLLVM_Win32 == Triple::Win32, "");
+static_assert((Triple::OSType)ZigLLVM_ZOS == Triple::ZOS, "");
 static_assert((Triple::OSType)ZigLLVM_Haiku == Triple::Haiku, "");
 static_assert((Triple::OSType)ZigLLVM_Minix == Triple::Minix, "");
 static_assert((Triple::OSType)ZigLLVM_RTEMS == Triple::RTEMS, "");
 static_assert((Triple::OSType)ZigLLVM_NaCl == Triple::NaCl, "");
-static_assert((Triple::OSType)ZigLLVM_CNK == Triple::CNK, "");
 static_assert((Triple::OSType)ZigLLVM_AIX == Triple::AIX, "");
 static_assert((Triple::OSType)ZigLLVM_CUDA == Triple::CUDA, "");
 static_assert((Triple::OSType)ZigLLVM_NVCL == Triple::NVCL, "");
@@ -1304,6 +1411,7 @@ static_assert((Triple::EnvironmentType)ZigLLVM_GNUABI64 == Triple::GNUABI64, "")
 static_assert((Triple::EnvironmentType)ZigLLVM_GNUEABI == Triple::GNUEABI, "");
 static_assert((Triple::EnvironmentType)ZigLLVM_GNUEABIHF == Triple::GNUEABIHF, "");
 static_assert((Triple::EnvironmentType)ZigLLVM_GNUX32 == Triple::GNUX32, "");
+static_assert((Triple::EnvironmentType)ZigLLVM_GNUILP32 == Triple::GNUILP32, "");
 static_assert((Triple::EnvironmentType)ZigLLVM_CODE16 == Triple::CODE16, "");
 static_assert((Triple::EnvironmentType)ZigLLVM_EABI == Triple::EABI, "");
 static_assert((Triple::EnvironmentType)ZigLLVM_EABIHF == Triple::EABIHF, "");
@@ -1322,6 +1430,7 @@ static_assert((Triple::EnvironmentType)ZigLLVM_LastEnvironmentType == Triple::La
 static_assert((Triple::ObjectFormatType)ZigLLVM_UnknownObjectFormat == Triple::UnknownObjectFormat, "");
 static_assert((Triple::ObjectFormatType)ZigLLVM_COFF == Triple::COFF, "");
 static_assert((Triple::ObjectFormatType)ZigLLVM_ELF == Triple::ELF, "");
+static_assert((Triple::ObjectFormatType)ZigLLVM_GOFF == Triple::GOFF, "");
 static_assert((Triple::ObjectFormatType)ZigLLVM_MachO == Triple::MachO, "");
 static_assert((Triple::ObjectFormatType)ZigLLVM_Wasm == Triple::Wasm, "");
 static_assert((Triple::ObjectFormatType)ZigLLVM_XCOFF == Triple::XCOFF, "");

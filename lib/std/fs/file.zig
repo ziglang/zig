@@ -4,7 +4,7 @@
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
 const std = @import("../std.zig");
-const builtin = @import("builtin");
+const builtin = std.builtin;
 const os = std.os;
 const io = std.io;
 const mem = std.mem;
@@ -223,15 +223,15 @@ pub const File = struct {
         return os.lseek_SET(self.handle, offset);
     }
 
-    pub const GetPosError = os.SeekError || os.FStatError;
+    pub const GetSeekPosError = os.SeekError || os.FStatError;
 
     /// TODO: integrate with async I/O
-    pub fn getPos(self: File) GetPosError!u64 {
+    pub fn getPos(self: File) GetSeekPosError!u64 {
         return os.lseek_CUR_get(self.handle);
     }
 
     /// TODO: integrate with async I/O
-    pub fn getEndPos(self: File) GetPosError!u64 {
+    pub fn getEndPos(self: File) GetSeekPosError!u64 {
         if (builtin.os.tag == .windows) {
             return windows.GetFileSizeEx(self.handle);
         }
@@ -482,7 +482,7 @@ pub const File = struct {
     /// order to handle partial reads from the underlying OS layer.
     /// See https://github.com/ziglang/zig/issues/7699
     pub fn readvAll(self: File, iovecs: []os.iovec) ReadError!usize {
-        if (iovecs.len == 0) return;
+        if (iovecs.len == 0) return 0;
 
         var i: usize = 0;
         var off: usize = 0;
@@ -524,8 +524,8 @@ pub const File = struct {
     /// The `iovecs` parameter is mutable because this function needs to mutate the fields in
     /// order to handle partial reads from the underlying OS layer.
     /// See https://github.com/ziglang/zig/issues/7699
-    pub fn preadvAll(self: File, iovecs: []const os.iovec, offset: u64) PReadError!void {
-        if (iovecs.len == 0) return;
+    pub fn preadvAll(self: File, iovecs: []os.iovec, offset: u64) PReadError!usize {
+        if (iovecs.len == 0) return 0;
 
         var i: usize = 0;
         var off: usize = 0;
@@ -819,7 +819,7 @@ pub const File = struct {
     pub const SeekableStream = io.SeekableStream(
         File,
         SeekError,
-        GetPosError,
+        GetSeekPosError,
         seekTo,
         seekBy,
         getPos,

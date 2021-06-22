@@ -4,8 +4,8 @@
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
 const std = @import("std");
-const builtin = std.builtin;
 const Log2Int = std.math.Log2Int;
+const native_endian = std.Target.current.cpu.arch.endian();
 
 fn Dwords(comptime T: type, comptime signed_half: bool) type {
     return extern union {
@@ -15,7 +15,7 @@ fn Dwords(comptime T: type, comptime signed_half: bool) type {
         pub const HalfT = if (signed_half) HalfTS else HalfTU;
 
         all: T,
-        s: if (builtin.endian == .Little)
+        s: if (native_endian == .Little)
             struct { low: HalfT, high: HalfT }
         else
             struct { high: HalfT, low: HalfT },

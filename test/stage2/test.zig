@@ -11,34 +11,31 @@ const linux_x64 = std.zig.CrossTarget{
     .os_tag = .linux,
 };
 
-const linux_riscv64 = std.zig.CrossTarget{
-    .cpu_arch = .riscv64,
-    .os_tag = .linux,
-};
-
 pub fn addCases(ctx: *TestContext) !void {
     try @import("cbe.zig").addCases(ctx);
-    try @import("spu-ii.zig").addCases(ctx);
     try @import("arm.zig").addCases(ctx);
     try @import("aarch64.zig").addCases(ctx);
     try @import("llvm.zig").addCases(ctx);
     try @import("wasm.zig").addCases(ctx);
     try @import("darwin.zig").addCases(ctx);
+    try @import("riscv64.zig").addCases(ctx);
 
     {
         var case = ctx.exe("hello world with updates", linux_x64);
 
-        case.addError("", &[_][]const u8{"error: no entry point found"});
+        case.addError("", &[_][]const u8{
+            ":85:9: error: struct 'test_case.test_case' has no member named 'main'",
+        });
 
         // Incorrect return type
         case.addError(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\}
         , &[_][]const u8{":2:1: error: expected noreturn, found void"});
 
         // Regular old hello world
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    print();
             \\
             \\    exit();
@@ -68,12 +65,32 @@ pub fn addCases(ctx: *TestContext) !void {
         ,
             "Hello, World!\n",
         );
+
+        // Convert to pub fn main
+        case.addCompareOutput(
+            \\pub fn main() void {
+            \\    print();
+            \\}
+            \\
+            \\fn print() void {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (1),
+            \\          [arg1] "{rdi}" (1),
+            \\          [arg2] "{rsi}" (@ptrToInt("Hello, World!\n")),
+            \\          [arg3] "{rdx}" (14)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    return;
+            \\}
+        ,
+            "Hello, World!\n",
+        );
+
         // Now change the message only
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub fn main() void {
             \\    print();
-            \\
-            \\    exit();
             \\}
             \\
             \\fn print() void {
@@ -86,27 +103,15 @@ pub fn addCases(ctx: *TestContext) !void {
             \\        : "rcx", "r11", "memory"
             \\    );
             \\    return;
-            \\}
-            \\
-            \\fn exit() noreturn {
-            \\    asm volatile ("syscall"
-            \\        :
-            \\        : [number] "{rax}" (231),
-            \\          [arg1] "{rdi}" (0)
-            \\        : "rcx", "r11", "memory"
-            \\    );
-            \\    unreachable;
             \\}
         ,
             "What is up? This is a longer message that will force the data to be relocated in virtual address space.\n",
         );
         // Now we print it twice.
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub fn main() void {
             \\    print();
             \\    print();
-            \\
-            \\    exit();
             \\}
             \\
             \\fn print() void {
@@ -120,63 +125,17 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    );
             \\    return;
             \\}
-            \\
-            \\fn exit() noreturn {
-            \\    asm volatile ("syscall"
-            \\        :
-            \\        : [number] "{rax}" (231),
-            \\          [arg1] "{rdi}" (0)
-            \\        : "rcx", "r11", "memory"
-            \\    );
-            \\    unreachable;
-            \\}
         ,
             \\What is up? This is a longer message that will force the data to be relocated in virtual address space.
             \\What is up? This is a longer message that will force the data to be relocated in virtual address space.
             \\
-        );
-    }
-
-    {
-        var case = ctx.exe("riscv64 hello world", linux_riscv64);
-        // Regular old hello world
-        case.addCompareOutput(
-            \\export fn _start() noreturn {
-            \\    print();
-            \\
-            \\    exit();
-            \\}
-            \\
-            \\fn print() void {
-            \\    asm volatile ("ecall"
-            \\        :
-            \\        : [number] "{a7}" (64),
-            \\          [arg1] "{a0}" (1),
-            \\          [arg2] "{a1}" (@ptrToInt("Hello, World!\n")),
-            \\          [arg3] "{a2}" ("Hello, World!\n".len)
-            \\        : "rcx", "r11", "memory"
-            \\    );
-            \\    return;
-            \\}
-            \\
-            \\fn exit() noreturn {
-            \\    asm volatile ("ecall"
-            \\        :
-            \\        : [number] "{a7}" (94),
-            \\          [arg1] "{a0}" (0)
-            \\        : "rcx", "r11", "memory"
-            \\    );
-            \\    unreachable;
-            \\}
-        ,
-            "Hello, World!\n",
         );
     }
 
     {
         var case = ctx.exe("adding numbers at comptime", linux_x64);
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    asm volatile ("syscall"
             \\        :
             \\        : [number] "{rax}" (1),
@@ -201,7 +160,7 @@ pub fn addCases(ctx: *TestContext) !void {
     {
         var case = ctx.exe("adding numbers at runtime and comptime", linux_x64);
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    add(3, 4);
             \\
             \\    exit();
@@ -225,7 +184,7 @@ pub fn addCases(ctx: *TestContext) !void {
         );
         // comptime function call
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    exit();
             \\}
             \\
@@ -249,7 +208,7 @@ pub fn addCases(ctx: *TestContext) !void {
         );
         // Inline function call
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    var x: usize = 3;
             \\    const y = add(1, 2, x);
             \\    exit(y - 6);
@@ -276,95 +235,140 @@ pub fn addCases(ctx: *TestContext) !void {
     {
         var case = ctx.exe("subtracting numbers at runtime", linux_x64);
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub fn main() void {
             \\    sub(7, 4);
-            \\
-            \\    exit();
             \\}
             \\
             \\fn sub(a: u32, b: u32) void {
             \\    if (a - b != 3) unreachable;
             \\}
-            \\
-            \\fn exit() noreturn {
-            \\    asm volatile ("syscall"
-            \\        :
-            \\        : [number] "{rax}" (231),
-            \\          [arg1] "{rdi}" (0)
-            \\        : "rcx", "r11", "memory"
-            \\    );
-            \\    unreachable;
-            \\}
         ,
             "",
         );
     }
     {
+        var case = ctx.exe("unused vars", linux_x64);
+        case.addError(
+            \\pub fn main() void {
+            \\    const x = 1;
+            \\}
+        , &.{":2:11: error: unused local constant"});
+    }
+    {
         var case = ctx.exe("@TypeOf", linux_x64);
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub fn main() void {
             \\    var x: usize = 0;
+            \\    _ = x;
             \\    const z = @TypeOf(x, @as(u128, 5));
             \\    assert(z == u128);
-            \\
-            \\    exit();
             \\}
             \\
             \\pub fn assert(ok: bool) void {
             \\    if (!ok) unreachable; // assertion failure
-            \\}
-            \\
-            \\fn exit() noreturn {
-            \\    asm volatile ("syscall"
-            \\        :
-            \\        : [number] "{rax}" (231),
-            \\          [arg1] "{rdi}" (0)
-            \\        : "rcx", "r11", "memory"
-            \\    );
-            \\    unreachable;
             \\}
         ,
             "",
         );
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub fn main() void {
             \\    const z = @TypeOf(true);
             \\    assert(z == bool);
-            \\
-            \\    exit();
             \\}
             \\
             \\pub fn assert(ok: bool) void {
             \\    if (!ok) unreachable; // assertion failure
-            \\}
-            \\
-            \\fn exit() noreturn {
-            \\    asm volatile ("syscall"
-            \\        :
-            \\        : [number] "{rax}" (231),
-            \\          [arg1] "{rdi}" (0)
-            \\        : "rcx", "r11", "memory"
-            \\    );
-            \\    unreachable;
             \\}
         ,
             "",
         );
         case.addError(
-            \\export fn _start() noreturn {
-            \\    const z = @TypeOf(true, 1);
+            \\pub fn main() void {
+            \\    _ = @TypeOf(true, 1);
+            \\}
+        , &[_][]const u8{":2:9: error: incompatible types: 'bool' and 'comptime_int'"});
+    }
+
+    {
+        var case = ctx.exe("multiplying numbers at runtime and comptime", linux_x64);
+        case.addCompareOutput(
+            \\pub export fn _start() noreturn {
+            \\    mul(3, 4);
+            \\
+            \\    exit();
+            \\}
+            \\
+            \\fn mul(a: u32, b: u32) void {
+            \\    if (a * b != 12) unreachable;
+            \\}
+            \\
+            \\fn exit() noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (0)
+            \\        : "rcx", "r11", "memory"
+            \\    );
             \\    unreachable;
             \\}
-        , &[_][]const u8{":2:29: error: incompatible types: 'bool' and 'comptime_int'"});
+        ,
+            "",
+        );
+        // comptime function call
+        case.addCompareOutput(
+            \\pub fn _start() noreturn {
+            \\    exit();
+            \\}
+            \\
+            \\fn mul(a: u32, b: u32) u32 {
+            \\    return a * b;
+            \\}
+            \\
+            \\const x = mul(3, 4);
+            \\
+            \\fn exit() noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (x - 12)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            "",
+        );
+        // Inline function call
+        case.addCompareOutput(
+            \\pub export fn _start() noreturn {
+            \\    var x: usize = 5;
+            \\    const y = mul(2, 3, x);
+            \\    exit(y - 30);
+            \\}
+            \\
+            \\fn mul(a: usize, b: usize, c: usize) callconv(.Inline) usize {
+            \\    return a * b * c;
+            \\}
+            \\
+            \\fn exit(code: usize) noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (code)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            "",
+        );
     }
 
     {
         var case = ctx.exe("assert function", linux_x64);
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub fn main() void {
             \\    add(3, 4);
-            \\
-            \\    exit();
             \\}
             \\
             \\fn add(a: u32, b: u32) void {
@@ -391,10 +395,8 @@ pub fn addCases(ctx: *TestContext) !void {
         // Tests copying a register. For the `c = a + b`, it has to
         // preserve both a and b, because they are both used later.
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub fn main() void {
             \\    add(3, 4);
-            \\
-            \\    exit();
             \\}
             \\
             \\fn add(a: u32, b: u32) void {
@@ -407,26 +409,14 @@ pub fn addCases(ctx: *TestContext) !void {
             \\pub fn assert(ok: bool) void {
             \\    if (!ok) unreachable; // assertion failure
             \\}
-            \\
-            \\fn exit() noreturn {
-            \\    asm volatile ("syscall"
-            \\        :
-            \\        : [number] "{rax}" (231),
-            \\          [arg1] "{rdi}" (0)
-            \\        : "rcx", "r11", "memory"
-            \\    );
-            \\    unreachable;
-            \\}
         ,
             "",
         );
 
         // More stress on the liveness detection.
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub fn main() void {
             \\    add(3, 4);
-            \\
-            \\    exit();
             \\}
             \\
             \\fn add(a: u32, b: u32) void {
@@ -443,26 +433,14 @@ pub fn addCases(ctx: *TestContext) !void {
             \\pub fn assert(ok: bool) void {
             \\    if (!ok) unreachable; // assertion failure
             \\}
-            \\
-            \\fn exit() noreturn {
-            \\    asm volatile ("syscall"
-            \\        :
-            \\        : [number] "{rax}" (231),
-            \\          [arg1] "{rdi}" (0)
-            \\        : "rcx", "r11", "memory"
-            \\    );
-            \\    unreachable;
-            \\}
         ,
             "",
         );
 
         // Requires a second move. The register allocator should figure out to re-use rax.
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub fn main() void {
             \\    add(3, 4);
-            \\
-            \\    exit();
             \\}
             \\
             \\fn add(a: u32, b: u32) void {
@@ -480,27 +458,15 @@ pub fn addCases(ctx: *TestContext) !void {
             \\pub fn assert(ok: bool) void {
             \\    if (!ok) unreachable; // assertion failure
             \\}
-            \\
-            \\fn exit() noreturn {
-            \\    asm volatile ("syscall"
-            \\        :
-            \\        : [number] "{rax}" (231),
-            \\          [arg1] "{rdi}" (0)
-            \\        : "rcx", "r11", "memory"
-            \\    );
-            \\    unreachable;
-            \\}
         ,
             "",
         );
 
         // Now we test integer return values.
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub fn main() void {
             \\    assert(add(3, 4) == 7);
             \\    assert(add(20, 10) == 30);
-            \\
-            \\    exit();
             \\}
             \\
             \\fn add(a: u32, b: u32) u32 {
@@ -510,27 +476,15 @@ pub fn addCases(ctx: *TestContext) !void {
             \\pub fn assert(ok: bool) void {
             \\    if (!ok) unreachable; // assertion failure
             \\}
-            \\
-            \\fn exit() noreturn {
-            \\    asm volatile ("syscall"
-            \\        :
-            \\        : [number] "{rax}" (231),
-            \\          [arg1] "{rdi}" (0)
-            \\        : "rcx", "r11", "memory"
-            \\    );
-            \\    unreachable;
-            \\}
         ,
             "",
         );
 
         // Local mutable variables.
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub fn main() void {
             \\    assert(add(3, 4) == 7);
             \\    assert(add(20, 10) == 30);
-            \\
-            \\    exit();
             \\}
             \\
             \\fn add(a: u32, b: u32) u32 {
@@ -544,39 +498,17 @@ pub fn addCases(ctx: *TestContext) !void {
             \\pub fn assert(ok: bool) void {
             \\    if (!ok) unreachable; // assertion failure
             \\}
-            \\
-            \\fn exit() noreturn {
-            \\    asm volatile ("syscall"
-            \\        :
-            \\        : [number] "{rax}" (231),
-            \\          [arg1] "{rdi}" (0)
-            \\        : "rcx", "r11", "memory"
-            \\    );
-            \\    unreachable;
-            \\}
         ,
             "",
         );
 
         // Optionals
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub fn main() void {
             \\    const a: u32 = 2;
             \\    const b: ?u32 = a;
             \\    const c = b.?;
             \\    if (c != 2) unreachable;
-            \\
-            \\    exit();
-            \\}
-            \\
-            \\fn exit() noreturn {
-            \\    asm volatile ("syscall"
-            \\        :
-            \\        : [number] "{rax}" (231),
-            \\          [arg1] "{rdi}" (0)
-            \\        : "rcx", "r11", "memory"
-            \\    );
-            \\    unreachable;
             \\}
         ,
             "",
@@ -584,12 +516,10 @@ pub fn addCases(ctx: *TestContext) !void {
 
         // While loops
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub fn main() void {
             \\    var i: u32 = 0;
             \\    while (i < 4) : (i += 1) print();
             \\    assert(i == 4);
-            \\
-            \\    exit();
             \\}
             \\
             \\fn print() void {
@@ -607,26 +537,39 @@ pub fn addCases(ctx: *TestContext) !void {
             \\pub fn assert(ok: bool) void {
             \\    if (!ok) unreachable; // assertion failure
             \\}
-            \\
-            \\fn exit() noreturn {
-            \\    asm volatile ("syscall"
-            \\        :
-            \\        : [number] "{rax}" (231),
-            \\          [arg1] "{rdi}" (0)
-            \\        : "rcx", "r11", "memory"
-            \\    );
-            \\    unreachable;
-            \\}
         ,
             "hello\nhello\nhello\nhello\n",
         );
 
+        // inline while requires the condition to be comptime known.
+        case.addError(
+            \\pub fn main() void {
+            \\    var i: u32 = 0;
+            \\    inline while (i < 4) : (i += 1) print();
+            \\    assert(i == 4);
+            \\}
+            \\
+            \\fn print() void {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (1),
+            \\          [arg1] "{rdi}" (1),
+            \\          [arg2] "{rsi}" (@ptrToInt("hello\n")),
+            \\          [arg3] "{rdx}" (6)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    return;
+            \\}
+            \\
+            \\pub fn assert(ok: bool) void {
+            \\    if (!ok) unreachable; // assertion failure
+            \\}
+        , &[_][]const u8{":3:21: error: unable to resolve comptime value"});
+
         // Labeled blocks (no conditional branch)
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub fn main() void {
             \\    assert(add(3, 4) == 20);
-            \\
-            \\    exit();
             \\}
             \\
             \\fn add(a: u32, b: u32) u32 {
@@ -644,26 +587,14 @@ pub fn addCases(ctx: *TestContext) !void {
             \\pub fn assert(ok: bool) void {
             \\    if (!ok) unreachable; // assertion failure
             \\}
-            \\
-            \\fn exit() noreturn {
-            \\    asm volatile ("syscall"
-            \\        :
-            \\        : [number] "{rax}" (231),
-            \\          [arg1] "{rdi}" (0)
-            \\        : "rcx", "r11", "memory"
-            \\    );
-            \\    unreachable;
-            \\}
         ,
             "",
         );
 
         // This catches a possible bug in the logic for re-using dying operands.
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub fn main() void {
             \\    assert(add(3, 4) == 116);
-            \\
-            \\    exit();
             \\}
             \\
             \\fn add(a: u32, b: u32) u32 {
@@ -686,26 +617,15 @@ pub fn addCases(ctx: *TestContext) !void {
             \\pub fn assert(ok: bool) void {
             \\    if (!ok) unreachable; // assertion failure
             \\}
-            \\
-            \\fn exit() noreturn {
-            \\    asm volatile ("syscall"
-            \\        :
-            \\        : [number] "{rax}" (231),
-            \\          [arg1] "{rdi}" (0)
-            \\        : "rcx", "r11", "memory"
-            \\    );
-            \\    unreachable;
-            \\}
         ,
             "",
         );
 
         // Spilling registers to the stack.
         case.addCompareOutput(
-            \\export fn _start() noreturn {
-            \\    assert(add(3, 4) == 791);
-            \\
-            \\    exit();
+            \\pub fn main() void {
+            \\    assert(add(3, 4) == 1221);
+            \\    assert(mul(3, 4) == 21609);
             \\}
             \\
             \\fn add(a: u32, b: u32) u32 {
@@ -719,34 +639,52 @@ pub fn addCases(ctx: *TestContext) !void {
             \\        const i = g + h; // 100
             \\        const j = i + d; // 110
             \\        const k = i + j; // 210
-            \\        const l = k + c; // 217
-            \\        const m = l + d; // 227
-            \\        const n = m + e; // 241
-            \\        const o = n + f; // 265
-            \\        const p = o + g; // 303
-            \\        const q = p + h; // 365
-            \\        const r = q + i; // 465
-            \\        const s = r + j; // 575
-            \\        const t = s + k; // 785
-            \\        break :blk t;
+            \\        const l = j + k; // 320
+            \\        const m = l + c; // 327
+            \\        const n = m + d; // 337
+            \\        const o = n + e; // 351
+            \\        const p = o + f; // 375
+            \\        const q = p + g; // 413
+            \\        const r = q + h; // 475
+            \\        const s = r + i; // 575
+            \\        const t = s + j; // 685
+            \\        const u = t + k; // 895
+            \\        const v = u + l; // 1215
+            \\        break :blk v;
             \\    };
-            \\    const y = x + a; // 788
-            \\    const z = y + a; // 791
+            \\    const y = x + a; // 1218
+            \\    const z = y + a; // 1221
+            \\    return z;
+            \\}
+            \\
+            \\fn mul(a: u32, b: u32) u32 {
+            \\    const x: u32 = blk: {
+            \\        const c = a * a * a * a; // 81
+            \\        const d = a * a * a * b; // 108
+            \\        const e = a * a * b * a; // 108
+            \\        const f = a * a * b * b; // 144
+            \\        const g = a * b * a * a; // 108
+            \\        const h = a * b * a * b; // 144
+            \\        const i = a * b * b * a; // 144
+            \\        const j = a * b * b * b; // 192
+            \\        const k = b * a * a * a; // 108
+            \\        const l = b * a * a * b; // 144
+            \\        const m = b * a * b * a; // 144
+            \\        const n = b * a * b * b; // 192
+            \\        const o = b * b * a * a; // 144
+            \\        const p = b * b * a * b; // 192
+            \\        const q = b * b * b * a; // 192
+            \\        const r = b * b * b * b; // 256
+            \\        const s = c + d + e + f + g + h + i + j + k + l + m + n + o + p + q + r; // 2401
+            \\        break :blk s;
+            \\    };
+            \\    const y = x * a; // 7203
+            \\    const z = y * a; // 21609
             \\    return z;
             \\}
             \\
             \\pub fn assert(ok: bool) void {
             \\    if (!ok) unreachable; // assertion failure
-            \\}
-            \\
-            \\fn exit() noreturn {
-            \\    asm volatile ("syscall"
-            \\        :
-            \\        : [number] "{rax}" (231),
-            \\          [arg1] "{rdi}" (0)
-            \\        : "rcx", "r11", "memory"
-            \\    );
-            \\    unreachable;
             \\}
         ,
             "",
@@ -754,11 +692,9 @@ pub fn addCases(ctx: *TestContext) !void {
 
         // Reusing the registers of dead operands playing nicely with conditional branching.
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub fn main() void {
             \\    assert(add(3, 4) == 791);
             \\    assert(add(4, 3) == 79);
-            \\
-            \\    exit();
             \\}
             \\
             \\fn add(a: u32, b: u32) u32 {
@@ -800,30 +736,19 @@ pub fn addCases(ctx: *TestContext) !void {
             \\pub fn assert(ok: bool) void {
             \\    if (!ok) unreachable; // assertion failure
             \\}
-            \\
-            \\fn exit() noreturn {
-            \\    asm volatile ("syscall"
-            \\        :
-            \\        : [number] "{rax}" (231),
-            \\          [arg1] "{rdi}" (0)
-            \\        : "rcx", "r11", "memory"
-            \\    );
-            \\    unreachable;
-            \\}
         ,
             "",
         );
 
         // Character literals and multiline strings.
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub fn main() void {
             \\    const ignore =
             \\        \\ cool thx
             \\        \\
             \\    ;
+            \\    _ = ignore;
             \\    add('ぁ', '\x03');
-            \\
-            \\    exit();
             \\}
             \\
             \\fn add(a: u32, b: u32) void {
@@ -833,26 +758,14 @@ pub fn addCases(ctx: *TestContext) !void {
             \\pub fn assert(ok: bool) void {
             \\    if (!ok) unreachable; // assertion failure
             \\}
-            \\
-            \\fn exit() noreturn {
-            \\    asm volatile ("syscall"
-            \\        :
-            \\        : [number] "{rax}" (231),
-            \\          [arg1] "{rdi}" (0)
-            \\        : "rcx", "r11", "memory"
-            \\    );
-            \\    unreachable;
-            \\}
         ,
             "",
         );
 
         // Global const.
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub fn main() void {
             \\    add(aa, bb);
-            \\
-            \\    exit();
             \\}
             \\
             \\const aa = 'ぁ';
@@ -865,40 +778,32 @@ pub fn addCases(ctx: *TestContext) !void {
             \\pub fn assert(ok: bool) void {
             \\    if (!ok) unreachable; // assertion failure
             \\}
-            \\
-            \\fn exit() noreturn {
-            \\    asm volatile ("syscall"
-            \\        :
-            \\        : [number] "{rax}" (231),
-            \\          [arg1] "{rdi}" (0)
-            \\        : "rcx", "r11", "memory"
-            \\    );
-            \\    unreachable;
-            \\}
         ,
             "",
         );
 
         // Array access.
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub fn main() void {
             \\    assert("hello"[0] == 'h');
-            \\
-            \\    exit();
             \\}
             \\
             \\pub fn assert(ok: bool) void {
             \\    if (!ok) unreachable; // assertion failure
             \\}
+        ,
+            "",
+        );
+
+        // Array access to a global array.
+        case.addCompareOutput(
+            \\const hello = "hello".*;
+            \\pub fn main() void {
+            \\    assert(hello[1] == 'e');
+            \\}
             \\
-            \\fn exit() noreturn {
-            \\    asm volatile ("syscall"
-            \\        :
-            \\        : [number] "{rax}" (231),
-            \\          [arg1] "{rdi}" (0)
-            \\        : "rcx", "r11", "memory"
-            \\    );
-            \\    unreachable;
+            \\pub fn assert(ok: bool) void {
+            \\    if (!ok) unreachable; // assertion failure
             \\}
         ,
             "",
@@ -906,25 +811,13 @@ pub fn addCases(ctx: *TestContext) !void {
 
         // 64bit set stack
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub fn main() void {
             \\    var i: u64 = 0xFFEEDDCCBBAA9988;
             \\    assert(i == 0xFFEEDDCCBBAA9988);
-            \\
-            \\    exit();
             \\}
             \\
             \\pub fn assert(ok: bool) void {
             \\    if (!ok) unreachable; // assertion failure
-            \\}
-            \\
-            \\fn exit() noreturn {
-            \\    asm volatile ("syscall"
-            \\        :
-            \\        : [number] "{rax}" (231),
-            \\          [arg1] "{rdi}" (0)
-            \\        : "rcx", "r11", "memory"
-            \\    );
-            \\    unreachable;
             \\}
         ,
             "",
@@ -932,10 +825,8 @@ pub fn addCases(ctx: *TestContext) !void {
 
         // Basic for loop
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub fn main() void {
             \\    for ("hello") |_| print();
-            \\
-            \\    exit();
             \\}
             \\
             \\fn print() void {
@@ -949,16 +840,6 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    );
             \\    return;
             \\}
-            \\
-            \\fn exit() noreturn {
-            \\    asm volatile ("syscall"
-            \\        :
-            \\        : [number] "{rax}" (231),
-            \\          [arg1] "{rdi}" (0)
-            \\        : "rcx", "r11", "memory"
-            \\    );
-            \\    unreachable;
-            \\}
         ,
             "hello\nhello\nhello\nhello\nhello\n",
         );
@@ -967,19 +848,8 @@ pub fn addCases(ctx: *TestContext) !void {
     {
         var case = ctx.exe("basic import", linux_x64);
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub fn main() void {
             \\    @import("print.zig").print();
-            \\    exit();
-            \\}
-            \\
-            \\fn exit() noreturn {
-            \\    asm volatile ("syscall"
-            \\        :
-            \\        : [number] "{rax}" (231),
-            \\          [arg1] "{rdi}" (@as(usize, 0))
-            \\        : "rcx", "r11", "memory"
-            \\    );
-            \\    unreachable;
             \\}
         ,
             "Hello, World!\n",
@@ -1001,38 +871,198 @@ pub fn addCases(ctx: *TestContext) !void {
             .path = "print.zig",
         });
     }
+    {
+        var case = ctx.exe("redundant comptime", linux_x64);
+        case.addError(
+            \\pub fn main() void {
+            \\    var a: comptime u32 = 0;
+            \\}
+        ,
+            &.{":2:12: error: redundant comptime keyword in already comptime scope"},
+        );
+        case.addError(
+            \\pub fn main() void {
+            \\    comptime {
+            \\        var a: u32 = comptime 0;
+            \\    }
+            \\}
+        ,
+            &.{":3:22: error: redundant comptime keyword in already comptime scope"},
+        );
+    }
+    {
+        var case = ctx.exe("try in comptime in struct in test", linux_x64);
+        case.addError(
+            \\test "@unionInit on union w/ tag but no fields" {
+            \\    const S = struct {
+            \\        comptime {
+            \\            try expect(false);
+            \\        }
+            \\    };
+            \\    _ = S;
+            \\}
+        ,
+            &.{":4:13: error: invalid 'try' outside function scope"},
+        );
+    }
+    {
+        var case = ctx.exe("import private", linux_x64);
+        case.addError(
+            \\pub fn main() void {
+            \\    @import("print.zig").print();
+            \\}
+        ,
+            &.{
+                ":2:25: error: 'print' is not marked 'pub'",
+                "print.zig:2:1: note: declared here",
+            },
+        );
+        try case.files.append(.{
+            .src = 
+            \\// dummy comment to make print be on line 2
+            \\fn print() void {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (@as(usize, 1)),
+            \\          [arg1] "{rdi}" (@as(usize, 1)),
+            \\          [arg2] "{rsi}" (@ptrToInt("Hello, World!\n")),
+            \\          [arg3] "{rdx}" (@as(usize, 14))
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    return;
+            \\}
+            ,
+            .path = "print.zig",
+        });
+    }
 
-    ctx.compileError("function redefinition", linux_x64,
+    ctx.compileError("function redeclaration", linux_x64,
+        \\// dummy comment
         \\fn entry() void {}
         \\fn entry() void {}
-    , &[_][]const u8{":2:4: error: redefinition of 'entry'"});
+        \\
+        \\fn foo() void {
+        \\    var foo = 1234;
+        \\}
+    , &[_][]const u8{
+        ":3:1: error: redeclaration of 'entry'",
+        ":2:1: note: other declaration here",
+        ":6:9: error: local shadows declaration of 'foo'",
+        ":5:1: note: declared here",
+    });
+
+    ctx.compileError("returns in try", linux_x64,
+        \\pub fn main() !void {
+        \\	try a();
+        \\	try b();
+        \\}
+        \\
+        \\pub fn a() !void {
+        \\	defer try b();
+        \\}
+        \\pub fn b() !void {
+        \\	defer return a();
+        \\}
+    , &[_][]const u8{
+        ":7:8: error: try is not allowed inside defer expression",
+        ":10:8: error: cannot return from defer expression",
+    });
+
+    ctx.compileError("ambiguous references", linux_x64,
+        \\const T = struct {
+        \\    const T = struct {
+        \\        fn f() void {
+        \\            _ = T;
+        \\        }
+        \\    };
+        \\};
+    , &.{
+        ":4:17: error: ambiguous reference",
+        ":1:1: note: declared here",
+        ":2:5: note: also declared here",
+    });
+
+    ctx.compileError("inner func accessing outer var", linux_x64,
+        \\pub fn f() void {
+        \\    var bar: bool = true;
+        \\    const S = struct {
+        \\        fn baz() bool {
+        \\            return bar;
+        \\        }
+        \\    };
+        \\    _ = S;
+        \\}
+    , &.{
+        ":5:20: error: 'bar' not accessible from inner function",
+        ":2:9: note: declared here",
+    });
+
+    ctx.compileError("global variable redeclaration", linux_x64,
+        \\// dummy comment
+        \\var foo = false;
+        \\var foo = true;
+    , &[_][]const u8{
+        ":3:1: error: redeclaration of 'foo'",
+        ":2:1: note: other declaration here",
+    });
 
     ctx.compileError("compileError", linux_x64,
-        \\export fn _start() noreturn {
+        \\export fn foo() void {
         \\  @compileError("this is an error");
-        \\  unreachable;
         \\}
     , &[_][]const u8{":2:3: error: this is an error"});
 
     {
-        var case = ctx.obj("variable shadowing", linux_x64);
+        var case = ctx.exe("intToPtr", linux_x64);
         case.addError(
-            \\export fn _start() noreturn {
-            \\    var i: u32 = 10;
-            \\    var i: u32 = 10;
-            \\    unreachable;
+            \\pub fn main() void {
+            \\    _ = @intToPtr(*u8, 0);
             \\}
         , &[_][]const u8{
-            ":3:9: error: redefinition of 'i'",
-            ":2:9: note: previous definition is here",
+            ":2:24: error: pointer type '*u8' does not allow address zero",
+        });
+        case.addError(
+            \\pub fn main() void {
+            \\    _ = @intToPtr(*u32, 2);
+            \\}
+        , &[_][]const u8{
+            ":2:25: error: pointer type '*u32' requires aligned address",
+        });
+    }
+
+    {
+        var case = ctx.obj("variable shadowing", linux_x64);
+        case.addError(
+            \\pub fn main() void {
+            \\    var i: u32 = 10;
+            \\    var i: u32 = 10;
+            \\}
+        , &[_][]const u8{
+            ":3:9: error: redeclaration of 'i'",
+            ":2:9: note: previously declared here",
         });
         case.addError(
             \\var testing: i64 = 10;
-            \\export fn _start() noreturn {
+            \\pub fn main() void {
             \\    var testing: i64 = 20;
-            \\    unreachable;
             \\}
-        , &[_][]const u8{":3:9: error: redefinition of 'testing'"});
+        , &[_][]const u8{
+            ":3:9: error: local shadows declaration of 'testing'",
+            ":1:1: note: declared here",
+        });
+        case.addError(
+            \\fn a() type {
+            \\    return struct {
+            \\        pub fn b() void {
+            \\            const c = 6;
+            \\            const c = 69;
+            \\        }
+            \\    };
+            \\}
+        , &[_][]const u8{
+            ":5:19: error: redeclaration of 'c'",
+            ":4:19: note: previously declared here",
+        });
     }
 
     {
@@ -1046,6 +1076,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    @compileLog(b, 20, f, x);
             \\    @compileLog(1000);
             \\    var bruh: usize = true;
+            \\    _ = bruh;
             \\    unreachable;
             \\}
             \\export fn other() void {
@@ -1070,7 +1101,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
             \\fn x() void {}
         , &[_][]const u8{
-            ":11:8: error: found compile log statement",
+            ":9:5: error: found compile log statement",
             ":4:5: note: also here",
         });
     }
@@ -1096,43 +1127,19 @@ pub fn addCases(ctx: *TestContext) !void {
 
         // Break out of loop
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub fn main() void {
             \\    while (true) {
             \\        break;
             \\    }
-            \\
-            \\    exit();
-            \\}
-            \\
-            \\fn exit() noreturn {
-            \\    asm volatile ("syscall"
-            \\        :
-            \\        : [number] "{rax}" (231),
-            \\          [arg1] "{rdi}" (0)
-            \\        : "rcx", "r11", "memory"
-            \\    );
-            \\    unreachable;
             \\}
         ,
             "",
         );
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub fn main() void {
             \\    foo: while (true) {
             \\        break :foo;
             \\    }
-            \\
-            \\    exit();
-            \\}
-            \\
-            \\fn exit() noreturn {
-            \\    asm volatile ("syscall"
-            \\        :
-            \\        : [number] "{rax}" (231),
-            \\          [arg1] "{rdi}" (0)
-            \\        : "rcx", "r11", "memory"
-            \\    );
-            \\    unreachable;
             \\}
         ,
             "",
@@ -1140,7 +1147,7 @@ pub fn addCases(ctx: *TestContext) !void {
 
         // Continue in loop
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    var i: u64 = 0;
             \\    while (true) : (i+=1) {
             \\        if (i == 4) exit();
@@ -1161,7 +1168,7 @@ pub fn addCases(ctx: *TestContext) !void {
             "",
         );
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    var i: u64 = 0;
             \\    foo: while (true) : (i+=1) {
             \\        if (i == 4) exit();
@@ -1213,16 +1220,19 @@ pub fn addCases(ctx: *TestContext) !void {
     {
         var case = ctx.exe("bad inferred variable type", linux_x64);
         case.addError(
-            \\export fn foo() void {
+            \\pub fn main() void {
             \\    var x = null;
+            \\    _ = x;
             \\}
-        , &[_][]const u8{":2:9: error: variable of type '@Type(.Null)' must be const or comptime"});
+        , &[_][]const u8{
+            ":2:9: error: variable of type '@Type(.Null)' must be const or comptime",
+        });
     }
 
     {
         var case = ctx.exe("compile error in inline fn call fixed", linux_x64);
         case.addError(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    var x: usize = 3;
             \\    const y = add(10, 2, x);
             \\    exit(y - 6);
@@ -1245,7 +1255,7 @@ pub fn addCases(ctx: *TestContext) !void {
         , &[_][]const u8{":8:18: error: bad"});
 
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    var x: usize = 3;
             \\    const y = add(1, 2, x);
             \\    exit(y - 6);
@@ -1272,7 +1282,7 @@ pub fn addCases(ctx: *TestContext) !void {
     {
         var case = ctx.exe("recursive inline function", linux_x64);
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    const y = fibonacci(7);
             \\    exit(y - 21);
             \\}
@@ -1294,12 +1304,11 @@ pub fn addCases(ctx: *TestContext) !void {
         ,
             "",
         );
-        // TODO this should be :8:21 not :8:19. we need to improve source locations
-        // to be relative to the containing Decl so that they can survive when the byte
-        // offset of a previous Decl changes. Here the change from 7 to 999 introduces
-        // +2 to the byte offset and makes the error location wrong by 2 bytes.
+        // This additionally tests that the compile error reports the correct source location.
+        // Without storing source locations relative to the owner decl, the compile error
+        // here would be off by 2 bytes (from the "7" -> "999").
         case.addError(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    const y = fibonacci(999);
             \\    exit(y - 21);
             \\}
@@ -1318,50 +1327,30 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    );
             \\    unreachable;
             \\}
-        , &[_][]const u8{":8:19: error: evaluation exceeded 1000 backwards branches"});
+        , &[_][]const u8{":8:21: error: evaluation exceeded 1000 backwards branches"});
     }
     {
         var case = ctx.exe("orelse at comptime", linux_x64);
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub fn main() void {
             \\    const i: ?u64 = 0;
-            \\    const orelsed = i orelse 5;
-            \\    assert(orelsed == 0);
-            \\    exit();
+            \\    const result = i orelse 5;
+            \\    assert(result == 0);
             \\}
             \\fn assert(b: bool) void {
             \\    if (!b) unreachable;
-            \\}
-            \\fn exit() noreturn {
-            \\    asm volatile ("syscall"
-            \\        :
-            \\        : [number] "{rax}" (231),
-            \\          [arg1] "{rdi}" (0)
-            \\        : "rcx", "r11", "memory"
-            \\    );
-            \\    unreachable;
             \\}
         ,
             "",
         );
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub fn main() void {
             \\    const i: ?u64 = null;
-            \\    const orelsed = i orelse 5;
-            \\    assert(orelsed == 5);
-            \\    exit();
+            \\    const result = i orelse 5;
+            \\    assert(result == 5);
             \\}
             \\fn assert(b: bool) void {
             \\    if (!b) unreachable;
-            \\}
-            \\fn exit() noreturn {
-            \\    asm volatile ("syscall"
-            \\        :
-            \\        : [number] "{rax}" (231),
-            \\          [arg1] "{rdi}" (0)
-            \\        : "rcx", "r11", "memory"
-            \\    );
-            \\    unreachable;
             \\}
         ,
             "",
@@ -1371,7 +1360,7 @@ pub fn addCases(ctx: *TestContext) !void {
     {
         var case = ctx.exe("only 1 function and it gets updated", linux_x64);
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    asm volatile ("syscall"
             \\        :
             \\        : [number] "{rax}" (60), // exit
@@ -1384,7 +1373,7 @@ pub fn addCases(ctx: *TestContext) !void {
             "",
         );
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    asm volatile ("syscall"
             \\        :
             \\        : [number] "{rax}" (231), // exit_group
@@ -1400,19 +1389,11 @@ pub fn addCases(ctx: *TestContext) !void {
     {
         var case = ctx.exe("passing u0 to function", linux_x64);
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub fn main() void {
             \\    doNothing(0);
-            \\    exit();
             \\}
-            \\fn doNothing(arg: u0) void {}
-            \\fn exit() noreturn {
-            \\    asm volatile ("syscall"
-            \\        :
-            \\        : [number] "{rax}" (231),
-            \\          [arg1] "{rdi}" (0)
-            \\        : "rcx", "r11", "memory"
-            \\    );
-            \\    unreachable;
+            \\fn doNothing(arg: u0) void {
+            \\    _ = arg;
             \\}
         ,
             "",
@@ -1421,107 +1402,59 @@ pub fn addCases(ctx: *TestContext) !void {
     {
         var case = ctx.exe("catch at comptime", linux_x64);
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub fn main() void {
             \\    const i: anyerror!u64 = 0;
             \\    const caught = i catch 5;
             \\    assert(caught == 0);
-            \\    exit();
             \\}
             \\fn assert(b: bool) void {
             \\    if (!b) unreachable;
             \\}
-            \\fn exit() noreturn {
-            \\    asm volatile ("syscall"
-            \\        :
-            \\        : [number] "{rax}" (231),
-            \\          [arg1] "{rdi}" (0)
-            \\        : "rcx", "r11", "memory"
-            \\    );
-            \\    unreachable;
-            \\}
         ,
             "",
         );
+
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub fn main() void {
             \\    const i: anyerror!u64 = error.B;
             \\    const caught = i catch 5;
             \\    assert(caught == 5);
-            \\    exit();
             \\}
             \\fn assert(b: bool) void {
             \\    if (!b) unreachable;
             \\}
-            \\fn exit() noreturn {
-            \\    asm volatile ("syscall"
-            \\        :
-            \\        : [number] "{rax}" (231),
-            \\          [arg1] "{rdi}" (0)
-            \\        : "rcx", "r11", "memory"
-            \\    );
-            \\    unreachable;
-            \\}
         ,
             "",
         );
+
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub fn main() void {
             \\    const a: anyerror!comptime_int = 42;
             \\    const b: *const comptime_int = &(a catch unreachable);
             \\    assert(b.* == 42);
-            \\
-            \\    exit();
             \\}
             \\fn assert(b: bool) void {
             \\    if (!b) unreachable; // assertion failure
             \\}
-            \\fn exit() noreturn {
-            \\    asm volatile ("syscall"
-            \\        :
-            \\        : [number] "{rax}" (231),
-            \\          [arg1] "{rdi}" (0)
-            \\        : "rcx", "r11", "memory"
-            \\    );
-            \\    unreachable;
-            \\}
         , "");
+
         case.addCompareOutput(
-            \\export fn _start() noreturn {
-            \\const a: anyerror!u32 = error.B;
-            \\_ = &(a catch |err| assert(err == error.B));
-            \\exit();
+            \\pub fn main() void {
+            \\    const a: anyerror!u32 = error.B;
+            \\    _ = &(a catch |err| assert(err == error.B));
             \\}
             \\fn assert(b: bool) void {
             \\    if (!b) unreachable;
             \\}
-            \\fn exit() noreturn {
-            \\    asm volatile ("syscall"
-            \\        :
-            \\        : [number] "{rax}" (231),
-            \\          [arg1] "{rdi}" (0)
-            \\        : "rcx", "r11", "memory"
-            \\    );
-            \\    unreachable;
-            \\}
         , "");
+
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub fn main() void {
             \\    const a: anyerror!u32 = error.Bar;
             \\    a catch |err| assert(err == error.Bar);
-            \\
-            \\    exit();
             \\}
             \\fn assert(b: bool) void {
             \\    if (!b) unreachable;
-            \\}
-            \\fn exit() noreturn {
-            \\    asm volatile ("syscall"
-            \\        :
-            \\        : [number] "{rax}" (231),
-            \\          [arg1] "{rdi}" (0)
-            \\        : "rcx", "r11", "memory"
-            \\    );
-            \\    unreachable;
             \\}
         , "");
     }
@@ -1529,33 +1462,165 @@ pub fn addCases(ctx: *TestContext) !void {
         var case = ctx.exe("merge error sets", linux_x64);
 
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub fn main() void {
             \\    const E = error{ A, B, D } || error { A, B, C };
-            \\    const a = E.A;
-            \\    const b = E.B;
-            \\    const c = E.C;
-            \\    const d = E.D;
+            \\    E.A catch {};
+            \\    E.B catch {};
+            \\    E.C catch {};
+            \\    E.D catch {};
             \\    const E2 = error { X, Y } || @TypeOf(error.Z);
-            \\    const x = E2.X;
-            \\    const y = E2.Y;
-            \\    const z = E2.Z;
+            \\    E2.X catch {};
+            \\    E2.Y catch {};
+            \\    E2.Z catch {};
             \\    assert(anyerror || error { Z } == anyerror);
-            \\    exit();
             \\}
             \\fn assert(b: bool) void {
             \\    if (!b) unreachable;
             \\}
-            \\fn exit() noreturn {
-            \\    asm volatile ("syscall"
-            \\        :
-            \\        : [number] "{rax}" (231),
-            \\          [arg1] "{rdi}" (0)
-            \\        : "rcx", "r11", "memory"
-            \\    );
-            \\    unreachable;
-            \\}
         ,
             "",
         );
+    }
+    {
+        var case = ctx.exe("inline assembly", linux_x64);
+
+        case.addError(
+            \\pub fn main() void {
+            \\    const number = 1234;
+            \\    const x = asm volatile ("syscall"
+            \\        : [o] "{rax}" (-> number)
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (code)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    _ = x;
+            \\}
+        , &[_][]const u8{":4:27: error: expected type, found comptime_int"});
+    }
+    {
+        var case = ctx.exe("comptime var", linux_x64);
+
+        case.addError(
+            \\pub fn main() void {
+            \\    var a: u32 = 0;
+            \\    comptime var b: u32 = 0;
+            \\    if (a == 0) b = 3;
+            \\}
+        , &.{
+            ":4:21: error: store to comptime variable depends on runtime condition",
+            ":4:11: note: runtime condition here",
+        });
+
+        case.addError(
+            \\pub fn main() void {
+            \\    var a: u32 = 0;
+            \\    comptime var b: u32 = 0;
+            \\    switch (a) {
+            \\        0 => {},
+            \\        else => b = 3,
+            \\    }
+            \\}
+        , &.{
+            ":6:21: error: store to comptime variable depends on runtime condition",
+            ":4:13: note: runtime condition here",
+        });
+
+        case.addCompareOutput(
+            \\pub fn main() void {
+            \\    comptime var len: u32 = 5;
+            \\    print(len);
+            \\    len += 9;
+            \\    print(len);
+            \\}
+            \\
+            \\fn print(len: usize) void {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (1),
+            \\          [arg1] "{rdi}" (1),
+            \\          [arg2] "{rsi}" (@ptrToInt("Hello, World!\n")),
+            \\          [arg3] "{rdx}" (len)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    return;
+            \\}
+        , "HelloHello, World!\n");
+
+        case.addError(
+            \\comptime {
+            \\    var x: i32 = 1;
+            \\    x += 1;
+            \\    if (x != 1) unreachable;
+            \\}
+            \\pub fn main() void {}
+        , &.{":4:17: error: unable to resolve comptime value"});
+
+        case.addError(
+            \\pub fn main() void {
+            \\    comptime var i: u64 = 0;
+            \\    while (i < 5) : (i += 1) {}
+            \\}
+        , &.{
+            ":3:24: error: cannot store to comptime variable in non-inline loop",
+            ":3:5: note: non-inline loop here",
+        });
+
+        case.addCompareOutput(
+            \\pub fn main() void {
+            \\    var a: u32 = 0;
+            \\    if (a == 0) {
+            \\        comptime var b: u32 = 0;
+            \\        b = 1;
+            \\    }
+            \\}
+            \\comptime {
+            \\    var x: i32 = 1;
+            \\    x += 1;
+            \\    if (x != 2) unreachable;
+            \\}
+        , "");
+
+        case.addCompareOutput(
+            \\pub fn main() void {
+            \\    comptime var i: u64 = 2;
+            \\    inline while (i < 6) : (i+=1) {
+            \\        print(i);
+            \\    }
+            \\}
+            \\fn print(len: usize) void {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (1),
+            \\          [arg1] "{rdi}" (1),
+            \\          [arg2] "{rsi}" (@ptrToInt("Hello")),
+            \\          [arg3] "{rdx}" (len)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    return;
+            \\}
+        , "HeHelHellHello");
+    }
+
+    {
+        var case = ctx.exe("double ampersand", linux_x64);
+
+        case.addError(
+            \\pub const a = if (true && false) 1 else 2;
+        , &[_][]const u8{":1:24: error: `&&` is invalid; note that `and` is boolean AND"});
+
+        case.addError(
+            \\pub fn main() void {
+            \\    const a = true;
+            \\    const b = false;
+            \\    _ = a & &b;
+            \\}
+        , &[_][]const u8{":4:11: error: incompatible types: 'bool' and '*const bool'"});
+
+        case.addCompareOutput(
+            \\pub fn main() void {
+            \\    const b: u8 = 1;
+            \\    _ = &&b;
+            \\}
+        , "");
     }
 }

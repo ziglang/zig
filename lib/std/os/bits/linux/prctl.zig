@@ -4,7 +4,7 @@
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
 
-pub const PR = extern enum(i32) {
+pub const PR = enum(i32) {
     SET_PDEATHSIG = 1,
     GET_PDEATHSIG = 2,
 

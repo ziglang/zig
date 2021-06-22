@@ -46,9 +46,9 @@ using binary_semaphore = counting_semaphore<1>;
 */
 
 #include <__config>
+#include <__availability>
 #include <__threading_support>
 #include <atomic>
-#include <cassert>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #pragma GCC system_header
@@ -57,6 +57,9 @@ using binary_semaphore = counting_semaphore<1>;
 #ifdef _LIBCPP_HAS_NO_THREADS
 # error <semaphore> is not supported on this single threaded system
 #endif
+
+_LIBCPP_PUSH_MACROS
+#include <__undef_macros>
 
 #if _LIBCPP_STD_VER >= 14
 
@@ -68,7 +71,7 @@ __atomic_semaphore_base is the general-case implementation, to be used for
 user-requested least-max values that exceed the OS implementation support
 (incl. when the OS has no support of its own) and for binary semaphores.
 
-It is a typical Dijsktra semaphore algorithm over atomics, wait and notify
+It is a typical Dijkstra semaphore algorithm over atomics, wait and notify
 functions. It avoids contention against users' own use of those facilities.
 
 */
@@ -231,5 +234,7 @@ using binary_semaphore = counting_semaphore<1>;
 _LIBCPP_END_NAMESPACE_STD
 
 #endif // _LIBCPP_STD_VER >= 14
+
+_LIBCPP_POP_MACROS
 
 #endif //_LIBCPP_SEMAPHORE

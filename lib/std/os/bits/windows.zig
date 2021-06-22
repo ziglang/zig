@@ -22,6 +22,11 @@ pub const timespec = extern struct {
     tv_nsec: c_long,
 };
 
+pub const timeval = extern struct {
+    tv_sec: c_long,
+    tv_usec: c_long,
+};
+
 pub const sig_atomic_t = c_int;
 
 /// maximum signal number + 1
@@ -316,3 +321,5 @@ pub const O_NOATIME = 0o1000000;
 pub const O_PATH = 0o10000000;
 pub const O_TMPFILE = 0o20200000;
 pub const O_NDELAY = O_NONBLOCK;
+
+pub const IFNAMESIZE = 30;

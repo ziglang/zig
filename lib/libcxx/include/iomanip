@@ -514,7 +514,7 @@ put_time(const tm* __tm, const _CharT* __fmt)
 }
 
 template <class _CharT, class _Traits, class _ForwardIterator>
-std::basic_ostream<_CharT, _Traits> &
+basic_ostream<_CharT, _Traits> &
 __quoted_output ( basic_ostream<_CharT, _Traits> &__os,
         _ForwardIterator __first, _ForwardIterator __last, _CharT __delim, _CharT __escape )
 {
@@ -527,7 +527,7 @@ __quoted_output ( basic_ostream<_CharT, _Traits> &__os,
         __str.push_back(*__first);
     }
     __str.push_back(__delim);
-    return __put_character_sequence(__os, __str.data(), __str.size());
+    return _VSTD::__put_character_sequence(__os, __str.data(), __str.size());
 }
 
 template <class _CharT, class _Traits, class _String>

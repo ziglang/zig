@@ -3,6 +3,9 @@
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
+
+// These are MIPS ABI compatible.
+
 pub const EPERM = 1;
 pub const ENOENT = 2;
 pub const ESRCH = 3;
@@ -37,6 +40,7 @@ pub const EMLINK = 31;
 pub const EPIPE = 32;
 pub const EDOM = 33;
 pub const ERANGE = 34;
+
 pub const ENOMSG = 35;
 pub const EIDRM = 36;
 pub const ECHRNG = 37;

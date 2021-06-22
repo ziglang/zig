@@ -15,7 +15,7 @@ const windows = os.windows;
 const mem = std.mem;
 const debug = std.debug;
 const BufMap = std.BufMap;
-const builtin = @import("builtin");
+const builtin = std.builtin;
 const Os = builtin.Os;
 const TailQueue = std.TailQueue;
 const maxInt = std.math.maxInt;
@@ -78,7 +78,7 @@ pub const ChildProcess = struct {
     } || os.ExecveError || os.SetIdError || os.ChangeCurDirError || windows.CreateProcessError || windows.WaitForSingleObjectError;
 
     pub const Term = union(enum) {
-        Exited: u32,
+        Exited: u8,
         Signal: u32,
         Stopped: u32,
         Unknown: u32,
@@ -203,35 +203,54 @@ pub const ChildProcess = struct {
         // of space an ArrayList will allocate grows exponentially.
         const bump_amt = 512;
 
+        const err_mask = os.POLLERR | os.POLLNVAL | os.POLLHUP;
+
         while (dead_fds < poll_fds.len) {
             const events = try os.poll(&poll_fds, std.math.maxInt(i32));
             if (events == 0) continue;
 
+            var remove_stdout = false;
+            var remove_stderr = false;
             // Try reading whatever is available before checking the error
             // conditions.
+            // It's still possible to read after a POLLHUP is received, always
+            // check if there's some data waiting to be read first.
             if (poll_fds[0].revents & os.POLLIN != 0) {
                 // stdout is ready.
                 const new_capacity = std.math.min(stdout.items.len + bump_amt, max_output_bytes);
                 try stdout.ensureCapacity(new_capacity);
                 const buf = stdout.unusedCapacitySlice();
                 if (buf.len == 0) return error.StdoutStreamTooLong;
-                stdout.items.len += try os.read(poll_fds[0].fd, buf);
+                const nread = try os.read(poll_fds[0].fd, buf);
+                stdout.items.len += nread;
+
+                // Remove the fd when the EOF condition is met.
+                remove_stdout = nread == 0;
+            } else {
+                remove_stdout = poll_fds[0].revents & err_mask != 0;
             }
+
             if (poll_fds[1].revents & os.POLLIN != 0) {
                 // stderr is ready.
                 const new_capacity = std.math.min(stderr.items.len + bump_amt, max_output_bytes);
                 try stderr.ensureCapacity(new_capacity);
                 const buf = stderr.unusedCapacitySlice();
                 if (buf.len == 0) return error.StderrStreamTooLong;
-                stderr.items.len += try os.read(poll_fds[1].fd, buf);
+                const nread = try os.read(poll_fds[1].fd, buf);
+                stderr.items.len += nread;
+
+                // Remove the fd when the EOF condition is met.
+                remove_stderr = nread == 0;
+            } else {
+                remove_stderr = poll_fds[1].revents & err_mask != 0;
             }
 
             // Exclude the fds that signaled an error.
-            if (poll_fds[0].revents & (os.POLLERR | os.POLLNVAL | os.POLLHUP) != 0) {
+            if (remove_stdout) {
                 poll_fds[0].fd = -1;
                 dead_fds += 1;
             }
-            if (poll_fds[1].revents & (os.POLLERR | os.POLLNVAL | os.POLLHUP) != 0) {
+            if (remove_stderr) {
                 poll_fds[1].fd = -1;
                 dead_fds += 1;
             }
@@ -264,7 +283,7 @@ pub const ChildProcess = struct {
 
         // TODO collect output in a deadlock-avoiding way on Windows.
         // https://github.com/ziglang/zig/issues/6343
-        if (builtin.os.tag == .windows) {
+        if (builtin.os.tag == .windows or builtin.os.tag == .haiku) {
             const stdout_in = child.stdout.?.reader();
             const stderr_in = child.stderr.?.reader();
 
@@ -282,6 +301,10 @@ pub const ChildProcess = struct {
 
         var stdout = std.ArrayList(u8).init(args.allocator);
         var stderr = std.ArrayList(u8).init(args.allocator);
+        errdefer {
+            stdout.deinit();
+            stderr.deinit();
+        }
 
         try collectOutputPosix(child, &stdout, &stderr, args.max_output_bytes);
 
@@ -324,7 +347,7 @@ pub const ChildProcess = struct {
             if (windows.kernel32.GetExitCodeProcess(self.handle, &exit_code) == 0) {
                 break :x Term{ .Unknown = 0 };
             } else {
-                break :x Term{ .Exited = exit_code };
+                break :x Term{ .Exited = @truncate(u8, exit_code) };
             }
         });
 
@@ -943,7 +966,7 @@ pub fn createWindowsEnvBlock(allocator: *mem.Allocator, env_map: *const BufMap) 
         while (it.next()) |pair| {
             // +1 for '='
             // +1 for null byte
-            max_chars_needed += pair.key.len + pair.value.len + 2;
+            max_chars_needed += pair.key_ptr.len + pair.value_ptr.len + 2;
         }
         break :x max_chars_needed;
     };
@@ -953,10 +976,10 @@ pub fn createWindowsEnvBlock(allocator: *mem.Allocator, env_map: *const BufMap) 
     var it = env_map.iterator();
     var i: usize = 0;
     while (it.next()) |pair| {
-        i += try unicode.utf8ToUtf16Le(result[i..], pair.key);
+        i += try unicode.utf8ToUtf16Le(result[i..], pair.key_ptr.*);
         result[i] = '=';
         i += 1;
-        i += try unicode.utf8ToUtf16Le(result[i..], pair.value);
+        i += try unicode.utf8ToUtf16Le(result[i..], pair.value_ptr.*);
         result[i] = 0;
         i += 1;
     }
@@ -978,10 +1001,10 @@ pub fn createNullDelimitedEnvMap(arena: *mem.Allocator, env_map: *const std.BufM
         var it = env_map.iterator();
         var i: usize = 0;
         while (it.next()) |pair| : (i += 1) {
-            const env_buf = try arena.allocSentinel(u8, pair.key.len + pair.value.len + 1, 0);
-            mem.copy(u8, env_buf, pair.key);
-            env_buf[pair.key.len] = '=';
-            mem.copy(u8, env_buf[pair.key.len + 1 ..], pair.value);
+            const env_buf = try arena.allocSentinel(u8, pair.key_ptr.len + pair.value_ptr.len + 1, 0);
+            mem.copy(u8, env_buf, pair.key_ptr.*);
+            env_buf[pair.key_ptr.len] = '=';
+            mem.copy(u8, env_buf[pair.key_ptr.len + 1 ..], pair.value_ptr.*);
             envp_buf[i] = env_buf.ptr;
         }
         assert(i == envp_count);
@@ -995,17 +1018,17 @@ test "createNullDelimitedEnvMap" {
     var envmap = BufMap.init(allocator);
     defer envmap.deinit();
 
-    try envmap.set("HOME", "/home/ifreund");
-    try envmap.set("WAYLAND_DISPLAY", "wayland-1");
-    try envmap.set("DISPLAY", ":1");
-    try envmap.set("DEBUGINFOD_URLS", " ");
-    try envmap.set("XCURSOR_SIZE", "24");
+    try envmap.put("HOME", "/home/ifreund");
+    try envmap.put("WAYLAND_DISPLAY", "wayland-1");
+    try envmap.put("DISPLAY", ":1");
+    try envmap.put("DEBUGINFOD_URLS", " ");
+    try envmap.put("XCURSOR_SIZE", "24");
 
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
     const environ = try createNullDelimitedEnvMap(&arena.allocator, &envmap);
 
-    testing.expectEqual(@as(usize, 5), environ.len);
+    try testing.expectEqual(@as(usize, 5), environ.len);
 
     inline for (.{
         "HOME=/home/ifreund",
@@ -1017,7 +1040,7 @@ test "createNullDelimitedEnvMap" {
         for (environ) |variable| {
             if (mem.eql(u8, mem.span(variable orelse continue), target)) break;
         } else {
-            testing.expect(false); // Environment variable not found
+            try testing.expect(false); // Environment variable not found
         }
     }
 }

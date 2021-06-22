@@ -41,8 +41,8 @@ test "io.CountingReader" {
 
     //read and discard all bytes
     while (stream.readByte()) |_| {} else |err| {
-        testing.expect(err == error.EndOfStream);
+        try testing.expect(err == error.EndOfStream);
     }
 
-    testing.expect(counting_stream.bytes_read == bytes.len);
+    try testing.expect(counting_stream.bytes_read == bytes.len);
 }

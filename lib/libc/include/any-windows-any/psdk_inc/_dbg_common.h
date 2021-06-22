@@ -818,7 +818,7 @@ typedef struct _SYMSRV_INDEX_INFOW {
   WINBOOL IMAGEAPI SymGetSearchPathW(HANDLE hProcess,PWSTR SearchPath,DWORD SearchPathLength);
   WINBOOL IMAGEAPI SymSetSearchPath(HANDLE hProcess,PCSTR SearchPath);
   WINBOOL IMAGEAPI SymSetSearchPathW(HANDLE hProcess,PCWSTR SearchPath);
-  DWORD64 IMAGEAPI SymLoadModule64(HANDLE hProcess,HANDLE hFile,PSTR ImageName,PSTR ModuleName,DWORD64 BaseOfDll,DWORD SizeOfDll);
+  DWORD64 IMAGEAPI SymLoadModule64(HANDLE hProcess,HANDLE hFile,PCSTR ImageName,PCSTR ModuleName,DWORD64 BaseOfDll,DWORD SizeOfDll);
 
 #define SLMFLAG_VIRTUAL 0x1
 

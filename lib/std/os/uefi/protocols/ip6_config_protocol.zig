@@ -40,7 +40,7 @@ pub const Ip6ConfigProtocol = extern struct {
     };
 };
 
-pub const Ip6ConfigDataType = extern enum(u32) {
+pub const Ip6ConfigDataType = enum(u32) {
     InterfaceInfo,
     AltInterfaceId,
     Policy,

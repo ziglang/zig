@@ -10,6 +10,7 @@ pub const Pointer = struct {
 };
 
 pub fn pointerCmp(context: void, a: Pointer, b: Pointer) bool {
+    _ = context;
     if (a.segment_id < b.segment_id) return true;
     if (a.segment_id == b.segment_id) {
         return a.offset < b.offset;

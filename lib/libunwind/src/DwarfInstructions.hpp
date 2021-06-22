@@ -93,7 +93,8 @@ typename A::pint_t DwarfInstructions<A, R>::getSavedRegister(
 
   case CFI_Parser<A>::kRegisterInRegister:
     return registers.getRegister((int)savedReg.value);
-
+  case CFI_Parser<A>::kRegisterUndefined:
+    return 0;
   case CFI_Parser<A>::kRegisterUnused:
   case CFI_Parser<A>::kRegisterOffsetFromCFA:
     // FIX ME
@@ -117,6 +118,7 @@ double DwarfInstructions<A, R>::getSavedFloatRegister(
 
   case CFI_Parser<A>::kRegisterIsExpression:
   case CFI_Parser<A>::kRegisterUnused:
+  case CFI_Parser<A>::kRegisterUndefined:
   case CFI_Parser<A>::kRegisterOffsetFromCFA:
   case CFI_Parser<A>::kRegisterInRegister:
     // FIX ME
@@ -140,6 +142,7 @@ v128 DwarfInstructions<A, R>::getSavedVectorRegister(
 
   case CFI_Parser<A>::kRegisterIsExpression:
   case CFI_Parser<A>::kRegisterUnused:
+  case CFI_Parser<A>::kRegisterUndefined:
   case CFI_Parser<A>::kRegisterOffsetFromCFA:
   case CFI_Parser<A>::kRegisterInRegister:
     // FIX ME
@@ -190,6 +193,10 @@ int DwarfInstructions<A, R>::stepWithDwarf(A &addressSpace, pint_t pc,
                                     prolog.savedRegisters[i]));
           else
             return UNW_EBADREG;
+        } else if (i == (int)cieInfo.returnAddressRegister) {
+            // Leaf function keeps the return address in register and there is no
+            // explicit intructions how to restore it.
+            returnAddress = registers.getRegister(cieInfo.returnAddressRegister);
         }
       }
 

@@ -34,6 +34,17 @@ pub const Kevent = extern struct {
     udata: usize,
 };
 
+pub const RTLD_LAZY = 1;
+pub const RTLD_NOW = 2;
+pub const RTLD_GLOBAL = 0x100;
+pub const RTLD_LOCAL = 0x200;
+pub const RTLD_NODELETE = 0x01000;
+pub const RTLD_NOLOAD = 0x02000;
+
+pub const RTLD_NEXT = @intToPtr(*c_void, @bitCast(usize, @as(isize, -1)));
+pub const RTLD_DEFAULT = @intToPtr(*c_void, @bitCast(usize, @as(isize, -2)));
+pub const RTLD_SELF = @intToPtr(*c_void, @bitCast(usize, @as(isize, -3)));
+
 pub const dl_phdr_info = extern struct {
     dlpi_addr: usize,
     dlpi_name: ?[*:0]const u8,
@@ -60,7 +71,7 @@ pub const addrinfo = extern struct {
     next: ?*addrinfo,
 };
 
-pub const EAI = extern enum(c_int) {
+pub const EAI = enum(c_int) {
     /// address family for hostname not supported
     ADDRFAMILY = 1,
 
@@ -212,6 +223,121 @@ pub const dirent = extern struct {
     }
 };
 
+pub const SOCK_STREAM = 1;
+pub const SOCK_DGRAM = 2;
+pub const SOCK_RAW = 3;
+pub const SOCK_RDM = 4;
+pub const SOCK_SEQPACKET = 5;
+pub const SOCK_CONN_DGRAM = 6;
+pub const SOCK_DCCP = SOCK_CONN_DGRAM;
+
+pub const SOCK_CLOEXEC = 0x10000000;
+pub const SOCK_NONBLOCK = 0x20000000;
+pub const SOCK_NOSIGPIPE = 0x40000000;
+pub const SOCK_FLAGS_MASK = 0xf0000000;
+
+pub const SO_DEBUG = 0x0001;
+pub const SO_ACCEPTCONN = 0x0002;
+pub const SO_REUSEADDR = 0x0004;
+pub const SO_KEEPALIVE = 0x0008;
+pub const SO_DONTROUTE = 0x0010;
+pub const SO_BROADCAST = 0x0020;
+pub const SO_USELOOPBACK = 0x0040;
+pub const SO_LINGER = 0x0080;
+pub const SO_OOBINLINE = 0x0100;
+pub const SO_REUSEPORT = 0x0200;
+pub const SO_NOSIGPIPE = 0x0800;
+pub const SO_ACCEPTFILTER = 0x1000;
+pub const SO_TIMESTAMP = 0x2000;
+pub const SO_RERROR = 0x4000;
+
+pub const SO_SNDBUF = 0x1001;
+pub const SO_RCVBUF = 0x1002;
+pub const SO_SNDLOWAT = 0x1003;
+pub const SO_RCVLOWAT = 0x1004;
+pub const SO_ERROR = 0x1007;
+pub const SO_TYPE = 0x1008;
+pub const SO_OVERFLOWED = 0x1009;
+
+pub const SO_NOHEADER = 0x100a;
+pub const SO_SNDTIMEO = 0x100b;
+pub const SO_RCVTIMEO = 0x100c;
+
+pub const SOL_SOCKET = 0xffff;
+
+pub const PF_UNSPEC = AF_UNSPEC;
+pub const PF_LOCAL = AF_LOCAL;
+pub const PF_UNIX = PF_LOCAL;
+pub const PF_INET = AF_INET;
+pub const PF_IMPLINK = AF_IMPLINK;
+pub const PF_PUP = AF_PUP;
+pub const PF_CHAOS = AF_CHAOS;
+pub const PF_NS = AF_NS;
+pub const PF_ISO = AF_ISO;
+pub const PF_OSI = AF_ISO;
+pub const PF_ECMA = AF_ECMA;
+pub const PF_DATAKIT = AF_DATAKIT;
+pub const PF_CCITT = AF_CCITT;
+pub const PF_SNA = AF_SNA;
+pub const PF_DECnet = AF_DECnet;
+pub const PF_DLI = AF_DLI;
+pub const PF_LAT = AF_LAT;
+pub const PF_HYLINK = AF_HYLINK;
+pub const PF_APPLETALK = AF_APPLETALK;
+pub const PF_OROUTE = AF_OROUTE;
+pub const PF_LINK = AF_LINK;
+pub const PF_COIP = AF_COIP;
+pub const PF_CNT = AF_CNT;
+pub const PF_INET6 = AF_INET6;
+pub const PF_IPX = AF_IPX;
+pub const PF_ISDN = AF_ISDN;
+pub const PF_E164 = AF_E164;
+pub const PF_NATM = AF_NATM;
+pub const PF_ARP = AF_ARP;
+pub const PF_BLUETOOTH = AF_BLUETOOTH;
+pub const PF_MPLS = AF_MPLS;
+pub const PF_ROUTE = AF_ROUTE;
+pub const PF_CAN = AF_CAN;
+pub const PF_ETHER = AF_ETHER;
+pub const PF_MAX = AF_MAX;
+
+pub const AF_UNSPEC = 0;
+pub const AF_LOCAL = 1;
+pub const AF_UNIX = AF_LOCAL;
+pub const AF_INET = 2;
+pub const AF_IMPLINK = 3;
+pub const AF_PUP = 4;
+pub const AF_CHAOS = 5;
+pub const AF_NS = 6;
+pub const AF_ISO = 7;
+pub const AF_OSI = AF_ISO;
+pub const AF_ECMA = 8;
+pub const AF_DATAKIT = 9;
+pub const AF_CCITT = 10;
+pub const AF_SNA = 11;
+pub const AF_DECnet = 12;
+pub const AF_DLI = 13;
+pub const AF_LAT = 14;
+pub const AF_HYLINK = 15;
+pub const AF_APPLETALK = 16;
+pub const AF_OROUTE = 17;
+pub const AF_LINK = 18;
+pub const AF_COIP = 20;
+pub const AF_CNT = 21;
+pub const AF_IPX = 23;
+pub const AF_INET6 = 24;
+pub const AF_ISDN = 26;
+pub const AF_E164 = AF_ISDN;
+pub const AF_NATM = 27;
+pub const AF_ARP = 28;
+pub const AF_BLUETOOTH = 31;
+pub const AF_IEEE80211 = 32;
+pub const AF_MPLS = 33;
+pub const AF_ROUTE = 34;
+pub const AF_CAN = 35;
+pub const AF_ETHER = 36;
+pub const AF_MAX = 37;
+
 pub const in_port_t = u16;
 pub const sa_family_t = u8;
 
@@ -225,6 +351,8 @@ pub const sockaddr = extern struct {
     /// actually longer; address value
     data: [14]u8,
 };
+
+pub const sockaddr_storage = std.x.os.Socket.Address.Native.Storage;
 
 pub const sockaddr_in = extern struct {
     len: u8 = @sizeOf(sockaddr_in),
@@ -469,48 +597,6 @@ pub const SIG_BLOCK = 1;
 pub const SIG_UNBLOCK = 2;
 pub const SIG_SETMASK = 3;
 
-pub const SOCK_STREAM = 1;
-pub const SOCK_DGRAM = 2;
-pub const SOCK_RAW = 3;
-pub const SOCK_RDM = 4;
-pub const SOCK_SEQPACKET = 5;
-
-pub const SOCK_CLOEXEC = 0x10000000;
-pub const SOCK_NONBLOCK = 0x20000000;
-
-pub const PF_UNSPEC = 0;
-pub const PF_LOCAL = 1;
-pub const PF_UNIX = PF_LOCAL;
-pub const PF_FILE = PF_LOCAL;
-pub const PF_INET = 2;
-pub const PF_APPLETALK = 16;
-pub const PF_INET6 = 24;
-pub const PF_DECnet = 12;
-pub const PF_KEY = 29;
-pub const PF_ROUTE = 34;
-pub const PF_SNA = 11;
-pub const PF_MPLS = 33;
-pub const PF_CAN = 35;
-pub const PF_BLUETOOTH = 31;
-pub const PF_ISDN = 26;
-pub const PF_MAX = 37;
-
-pub const AF_UNSPEC = PF_UNSPEC;
-pub const AF_LOCAL = PF_LOCAL;
-pub const AF_UNIX = AF_LOCAL;
-pub const AF_FILE = AF_LOCAL;
-pub const AF_INET = PF_INET;
-pub const AF_APPLETALK = PF_APPLETALK;
-pub const AF_INET6 = PF_INET6;
-pub const AF_KEY = PF_KEY;
-pub const AF_ROUTE = PF_ROUTE;
-pub const AF_SNA = PF_SNA;
-pub const AF_MPLS = PF_MPLS;
-pub const AF_CAN = PF_CAN;
-pub const AF_BLUETOOTH = PF_BLUETOOTH;
-pub const AF_ISDN = PF_ISDN;
-pub const AF_MAX = PF_MAX;
-
 pub const DT_UNKNOWN = 0;
 pub const DT_FIFO = 1;
 pub const DT_CHR = 2;
@@ -684,8 +770,8 @@ pub const TIOCSWINSZ = 0x80087467;
 pub const TIOCUCNTL = 0x80047466;
 pub const TIOCXMTFRAME = 0x80087444;
 
-pub fn WEXITSTATUS(s: u32) u32 {
-    return (s >> 8) & 0xff;
+pub fn WEXITSTATUS(s: u32) u8 {
+    return @intCast(u8, (s >> 8) & 0xff);
 }
 pub fn WTERMSIG(s: u32) u32 {
     return s & 0x7f;
@@ -718,9 +804,9 @@ pub const winsize = extern struct {
 
 const NSIG = 32;
 
-pub const SIG_ERR = @intToPtr(?Sigaction.sigaction_fn, maxInt(usize));
 pub const SIG_DFL = @intToPtr(?Sigaction.sigaction_fn, 0);
 pub const SIG_IGN = @intToPtr(?Sigaction.sigaction_fn, 1);
+pub const SIG_ERR = @intToPtr(?Sigaction.sigaction_fn, maxInt(usize));
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
 pub const Sigaction = extern struct {
@@ -796,26 +882,22 @@ pub const _ksiginfo = extern struct {
 pub const _SIG_WORDS = 4;
 pub const _SIG_MAXSIG = 128;
 
-pub fn _SIG_IDX(sig: usize) callconv(.Inline) usize {
+pub inline fn _SIG_IDX(sig: usize) usize {
     return sig - 1;
 }
-pub fn _SIG_WORD(sig: usize) callconv(.Inline) usize {
+pub inline fn _SIG_WORD(sig: usize) usize {
     return_SIG_IDX(sig) >> 5;
 }
-pub fn _SIG_BIT(sig: usize) callconv(.Inline) usize {
+pub inline fn _SIG_BIT(sig: usize) usize {
     return 1 << (_SIG_IDX(sig) & 31);
 }
-pub fn _SIG_VALID(sig: usize) callconv(.Inline) usize {
+pub inline fn _SIG_VALID(sig: usize) usize {
     return sig <= _SIG_MAXSIG and sig > 0;
 }
 
 pub const sigset_t = extern struct {
     __bits: [_SIG_WORDS]u32,
 };
-
-pub const SIG_ERR = @intToPtr(?Sigaction.sigaction_fn, maxInt(usize));
-pub const SIG_DFL = @intToPtr(?Sigaction.sigaction_fn, 0);
-pub const SIG_IGN = @intToPtr(?Sigaction.sigaction_fn, 1);
 
 pub const empty_sigset = sigset_t{ .__bits = [_]u32{0} ** _SIG_WORDS };
 
@@ -837,7 +919,7 @@ pub const ucontext_t = extern struct {
     stack: stack_t,
     mcontext: mcontext_t,
     __pad: [
-        switch (builtin.arch) {
+        switch (builtin.cpu.arch) {
             .i386 => 4,
             .mips, .mipsel, .mips64, .mips64el => 14,
             .arm, .armeb, .thumb, .thumbeb => 1,
@@ -1183,7 +1265,7 @@ pub const IPPROTO_PFSYNC = 240;
 /// raw IP packet
 pub const IPPROTO_RAW = 255;
 
-pub const rlimit_resource = extern enum(c_int) {
+pub const rlimit_resource = enum(c_int) {
     CPU = 0,
     FSIZE = 1,
     DATA = 2,
@@ -1194,11 +1276,11 @@ pub const rlimit_resource = extern enum(c_int) {
     NPROC = 7,
     NOFILE = 8,
     SBSIZE = 9,
-    AS = 10,
     VMEM = 10,
     NTHR = 11,
-
     _,
+
+    pub const AS: rlimit_resource = .VMEM;
 };
 
 pub const rlim_t = u64;
@@ -1219,3 +1301,25 @@ pub const rlimit = extern struct {
 pub const SHUT_RD = 0;
 pub const SHUT_WR = 1;
 pub const SHUT_RDWR = 2;
+
+pub const nfds_t = u32;
+
+pub const pollfd = extern struct {
+    fd: fd_t,
+    events: i16,
+    revents: i16,
+};
+
+/// Testable events (may be specified in events field).
+pub const POLLIN = 0x0001;
+pub const POLLPRI = 0x0002;
+pub const POLLOUT = 0x0004;
+pub const POLLRDNORM = 0x0040;
+pub const POLLWRNORM = POLLOUT;
+pub const POLLRDBAND = 0x0080;
+pub const POLLWRBAND = 0x0100;
+
+/// Non-testable events (may not be specified in events field).
+pub const POLLERR = 0x0008;
+pub const POLLHUP = 0x0010;
+pub const POLLNVAL = 0x0020;

@@ -126,7 +126,7 @@ pub const NLM_F_CAPPED = 0x100;
 /// extended ACK TVLs were included
 pub const NLM_F_ACK_TLVS = 0x200;
 
-pub const NetlinkMessageType = extern enum(u16) {
+pub const NetlinkMessageType = enum(u16) {
     /// < 0x10: reserved control messages
     pub const MIN_TYPE = 0x10;
 
@@ -273,8 +273,7 @@ pub const ifinfomsg = extern struct {
     flags: c_uint,
 
     /// IFF_* change mask
-    /// is reserved for future use and should be always set to 0xFFFFFFFF.
-    change: c_uint = 0xFFFFFFFF,
+    change: c_uint,
 };
 
 pub const rtattr = extern struct {
@@ -287,7 +286,7 @@ pub const rtattr = extern struct {
     pub const ALIGNTO = 4;
 };
 
-pub const IFLA = extern enum(c_ushort) {
+pub const IFLA = enum(c_ushort) {
     UNSPEC,
     ADDRESS,
     BROADCAST,
@@ -351,8 +350,7 @@ pub const IFLA = extern enum(c_ushort) {
     EVENT,
 
     NEW_NETNSID,
-    IF_NETNSID = 46,
-    TARGET_NETNSID = 46, // new alias
+    IF_NETNSID,
 
     CARRIER_UP_COUNT,
     CARRIER_DOWN_COUNT,
@@ -361,6 +359,8 @@ pub const IFLA = extern enum(c_ushort) {
     MAX_MTU,
 
     _,
+
+    pub const TARGET_NETNSID: IFLA = .IF_NETNSID;
 };
 
 pub const rtnl_link_ifmap = extern struct {

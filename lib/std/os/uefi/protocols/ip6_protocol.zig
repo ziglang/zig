@@ -123,7 +123,7 @@ pub const Ip6RouteTable = extern struct {
     prefix_length: u8,
 };
 
-pub const Ip6NeighborState = extern enum(u32) {
+pub const Ip6NeighborState = enum(u32) {
     Incomplete,
     Reachable,
     Stale,

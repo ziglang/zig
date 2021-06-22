@@ -27,26 +27,21 @@
 #   include <cstddef>
 #endif
 
-#if _LIBCPP_DEBUG_LEVEL >= 1 && !defined(_LIBCPP_ASSERT)
-# define _LIBCPP_ASSERT(x, m) ((x) ? (void)0 : \
-  _VSTD::__libcpp_debug_function(_VSTD::__libcpp_debug_info(__FILE__, __LINE__, #x, m)))
-#endif
-
-#if _LIBCPP_DEBUG_LEVEL >= 2
-#ifndef _LIBCPP_DEBUG_ASSERT
-#define _LIBCPP_DEBUG_ASSERT(x, m) _LIBCPP_ASSERT(x, m)
-#endif
-#define _LIBCPP_DEBUG_MODE(...) __VA_ARGS__
-#endif
-
-#ifndef _LIBCPP_ASSERT
-#   define _LIBCPP_ASSERT(x, m) ((void)0)
-#endif
-#ifndef _LIBCPP_DEBUG_ASSERT
+#if _LIBCPP_DEBUG_LEVEL == 0
 #   define _LIBCPP_DEBUG_ASSERT(x, m) ((void)0)
+#   define _LIBCPP_ASSERT_IMPL(x, m) ((void)0)
+#elif _LIBCPP_DEBUG_LEVEL == 1
+#   define _LIBCPP_DEBUG_ASSERT(x, m) ((void)0)
+#   define _LIBCPP_ASSERT_IMPL(x, m) ((x) ? (void)0 : _VSTD::__libcpp_debug_function(_VSTD::__libcpp_debug_info(__FILE__, __LINE__, #x, m)))
+#elif _LIBCPP_DEBUG_LEVEL == 2
+#   define _LIBCPP_DEBUG_ASSERT(x, m) _LIBCPP_ASSERT(x, m)
+#   define _LIBCPP_ASSERT_IMPL(x, m) ((x) ? (void)0 : _VSTD::__libcpp_debug_function(_VSTD::__libcpp_debug_info(__FILE__, __LINE__, #x, m)))
+#else
+#   error _LIBCPP_DEBUG_LEVEL must be one of 0, 1, 2
 #endif
-#ifndef _LIBCPP_DEBUG_MODE
-#define _LIBCPP_DEBUG_MODE(...) ((void)0)
+
+#if !defined(_LIBCPP_ASSERT)
+#   define _LIBCPP_ASSERT(x, m) _LIBCPP_ASSERT_IMPL(x, m)
 #endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD
@@ -59,7 +54,7 @@ struct _LIBCPP_TEMPLATE_VIS __libcpp_debug_info {
   __libcpp_debug_info(const char* __f, int __l, const char* __p, const char* __m)
     : __file_(__f), __line_(__l), __pred_(__p), __msg_(__m) {}
 
-  _LIBCPP_FUNC_VIS std::string what() const;
+  _LIBCPP_FUNC_VIS string what() const;
 
   const char* __file_;
   int __line_;
@@ -83,7 +78,7 @@ void __libcpp_abort_debug_function(__libcpp_debug_info const&);
 _LIBCPP_FUNC_VIS
 bool __libcpp_set_debug_function(__libcpp_debug_function_type __func);
 
-#if _LIBCPP_DEBUG_LEVEL >= 2 || defined(_LIBCPP_BUILDING_LIBRARY)
+#if _LIBCPP_DEBUG_LEVEL == 2 || defined(_LIBCPP_BUILDING_LIBRARY)
 
 struct _LIBCPP_TYPE_VIS __c_node;
 
@@ -226,7 +221,7 @@ public:
 
     template <class _Cont>
     _LIBCPP_INLINE_VISIBILITY static __c_node* __create_C_node(void *__mem, void *__c, __c_node *__next) {
-        return ::new(__mem) _C_node<_Cont>(__c, __next);
+        return ::new (__mem) _C_node<_Cont>(__c, __next);
     }
 
     template <class _Cont>
@@ -271,7 +266,7 @@ _LIBCPP_FUNC_VIS __libcpp_db* __get_db();
 _LIBCPP_FUNC_VIS const __libcpp_db* __get_const_db();
 
 
-#endif // _LIBCPP_DEBUG_LEVEL >= 2 || defined(_LIBCPP_BUILDING_LIBRARY)
+#endif // _LIBCPP_DEBUG_LEVEL == 2 || defined(_LIBCPP_BUILDING_LIBRARY)
 
 _LIBCPP_END_NAMESPACE_STD
 

@@ -12,7 +12,7 @@ pub fn doClientRequest(default: usize, request: usize, a1: usize, a2: usize, a3:
         return default;
     }
 
-    switch (builtin.arch) {
+    switch (builtin.target.cpu.arch) {
         .i386 => {
             return asm volatile (
                 \\ roll $3,  %%edi ; roll $13, %%edi
@@ -48,7 +48,7 @@ pub fn doClientRequest(default: usize, request: usize, a1: usize, a2: usize, a3:
     }
 }
 
-pub const ClientRequest = extern enum {
+pub const ClientRequest = enum(u32) {
     RunningOnValgrind = 4097,
     DiscardTranslations = 4098,
     ClientCall0 = 4353,
@@ -156,9 +156,9 @@ pub fn freeLikeBlock(addr: [*]u8, rzB: usize) void {
 }
 
 /// Create a memory pool.
-pub const MempoolFlags = extern enum {
-    AutoFree = 1,
-    MetaPool = 2,
+pub const MempoolFlags = struct {
+    pub const AutoFree = 1;
+    pub const MetaPool = 2;
 };
 pub fn createMempool(pool: [*]u8, rzB: usize, is_zeroed: bool, flags: usize) void {
     doClientRequestStmt(.CreateMempool, @ptrToInt(pool), rzB, @boolToInt(is_zeroed), flags, 0);

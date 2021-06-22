@@ -49,11 +49,11 @@ pub const FileProtocol = extern struct {
         return self._set_position(self, position);
     }
 
-    pub fn getInfo(self: *const FileProtocol, information_type: *align(8) Guid, buffer_size: *usize, buffer: [*]u8) Status {
+    pub fn getInfo(self: *const FileProtocol, information_type: *align(8) const Guid, buffer_size: *usize, buffer: [*]u8) Status {
         return self._get_info(self, information_type, buffer_size, buffer);
     }
 
-    pub fn setInfo(self: *const FileProtocol, information_type: *align(8) Guid, buffer_size: usize, buffer: [*]const u8) Status {
+    pub fn setInfo(self: *const FileProtocol, information_type: *align(8) const Guid, buffer_size: usize, buffer: [*]const u8) Status {
         return self._set_info(self, information_type, buffer_size, buffer);
     }
 

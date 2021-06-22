@@ -1084,19 +1084,43 @@ static void anal_dump_type(AnalDumpCtx *ctx, ZigType *ty) {
     jw_end_object(jw);
 }
 
+static Buf *collect_doc_comments(RootStruct *root_struct, TokenIndex first_token) {
+    if (first_token == 0)
+        return nullptr;
+
+    TokenId *token_ids = root_struct->token_ids;
+    TokenLoc *token_locs = root_struct->token_locs;
+    Buf *str = buf_alloc();
+    const char *source = buf_ptr(root_struct->source_code);
+    TokenIndex doc_token = first_token;
+    for (;token_ids[doc_token] == TokenIdDocComment; doc_token += 1) {
+        // chops off '///' but leaves '\n'
+        uint32_t start_pos = token_locs[doc_token].offset;
+        uint32_t token_len = 0;
+        while (source[start_pos + token_len] != '\n' &&
+               source[start_pos + token_len] != 0)
+        {
+            token_len += 1;
+        }
+        buf_append_mem(str, source + start_pos + 3, token_len - 3);
+    }
+    return str;
+}
+
 static void anal_dump_node(AnalDumpCtx *ctx, const AstNode *node) {
     JsonWriter *jw = &ctx->jw;
 
     jw_begin_object(jw);
 
     jw_object_field(jw, "file");
-    anal_dump_file_ref(ctx, node->owner->data.structure.root_struct->path);
+    RootStruct *root_struct = node->owner->data.structure.root_struct;
+    anal_dump_file_ref(ctx, root_struct->path);
 
     jw_object_field(jw, "line");
-    jw_int(jw, node->line);
+    jw_int(jw, root_struct->token_locs[node->main_token].line);
 
     jw_object_field(jw, "col");
-    jw_int(jw, node->column);
+    jw_int(jw, root_struct->token_locs[node->main_token].column);
 
     const Buf *doc_comments_buf = nullptr;
     const Buf *name_buf = nullptr;
@@ -1107,30 +1131,30 @@ static void anal_dump_node(AnalDumpCtx *ctx, const AstNode *node) {
 
     switch (node->type) {
         case NodeTypeParamDecl:
-            doc_comments_buf = &node->data.param_decl.doc_comments;
+            doc_comments_buf = collect_doc_comments(root_struct, node->data.param_decl.doc_comments);
             name_buf = node->data.param_decl.name;
             is_var_args = node->data.param_decl.is_var_args;
             is_noalias = node->data.param_decl.is_noalias;
             is_comptime = node->data.param_decl.is_comptime;
             break;
         case NodeTypeFnProto:
-            doc_comments_buf = &node->data.fn_proto.doc_comments;
+            doc_comments_buf = collect_doc_comments(root_struct, node->data.fn_proto.doc_comments);
             field_nodes = &node->data.fn_proto.params;
             is_var_args = node->data.fn_proto.is_var_args;
             break;
         case NodeTypeVariableDeclaration:
-            doc_comments_buf = &node->data.variable_declaration.doc_comments;
+            doc_comments_buf = collect_doc_comments(root_struct, node->data.variable_declaration.doc_comments);
             break;
         case NodeTypeErrorSetField:
-            doc_comments_buf = &node->data.err_set_field.doc_comments;
+            doc_comments_buf = collect_doc_comments(root_struct, node->data.err_set_field.doc_comments);
             break;
         case NodeTypeStructField:
-            doc_comments_buf = &node->data.struct_field.doc_comments;
+            doc_comments_buf = collect_doc_comments(root_struct, node->data.struct_field.doc_comments);
             name_buf = node->data.struct_field.name;
             break;
         case NodeTypeContainerDecl:
             field_nodes = &node->data.container_decl.fields;
-            doc_comments_buf = &node->data.container_decl.doc_comments;
+            doc_comments_buf = collect_doc_comments(root_struct, node->data.container_decl.doc_comments);
             break;
         default:
             break;

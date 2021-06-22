@@ -824,6 +824,7 @@ constexpr chrono::year                                  operator ""y(unsigned lo
 */
 
 #include <__config>
+#include <__availability>
 #include <ctime>
 #include <type_traits>
 #include <ratio>
@@ -1076,7 +1077,7 @@ public:
                is_convertible<_Rep2, rep>::value &&
                (treat_as_floating_point<rep>::value ||
                !treat_as_floating_point<_Rep2>::value)
-            >::type* = 0)
+            >::type* = nullptr)
                 : __rep_(__r) {}
 
     // conversions
@@ -1089,7 +1090,7 @@ public:
                 treat_as_floating_point<rep>::value ||
                 (__no_overflow<_Period2, period>::type::den == 1 &&
                  !treat_as_floating_point<_Rep2>::value))
-            >::type* = 0)
+            >::type* = nullptr)
                 : __rep_(_VSTD::chrono::duration_cast<duration>(__d).count()) {}
 
     // observer
@@ -1375,7 +1376,7 @@ public:
         typename enable_if
         <
             is_convertible<_Duration2, duration>::value
-        >::type* = 0)
+        >::type* = nullptr)
             : __d_(t.time_since_epoch()) {}
 
     // observer

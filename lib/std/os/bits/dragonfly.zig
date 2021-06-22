@@ -20,6 +20,7 @@ pub const off_t = c_long;
 pub const mode_t = c_uint;
 pub const uid_t = u32;
 pub const gid_t = u32;
+pub const time_t = isize;
 pub const suseconds_t = c_long;
 
 pub const ENOTSUP = EOPNOTSUPP;
@@ -148,6 +149,21 @@ pub const MAP_VPAGETABLE = 8192;
 pub const MAP_TRYFIXED = 65536;
 pub const MAP_NOCORE = 131072;
 pub const MAP_SIZEALIGN = 262144;
+
+pub const WNOHANG = 0x0001;
+pub const WUNTRACED = 0x0002;
+pub const WCONTINUED = 0x0004;
+pub const WSTOPPED = WUNTRACED;
+pub const WNOWAIT = 0x0008;
+pub const WEXITED = 0x0010;
+pub const WTRAPPED = 0x0020;
+
+pub const SA_ONSTACK = 0x0001;
+pub const SA_RESTART = 0x0002;
+pub const SA_RESETHAND = 0x0004;
+pub const SA_NODEFER = 0x0010;
+pub const SA_NOCLDWAIT = 0x0020;
+pub const SA_SIGINFO = 0x0040;
 
 pub const PATH_MAX = 1024;
 
@@ -316,8 +332,8 @@ pub const AT_REMOVEDIR = 2;
 pub const AT_EACCESS = 4;
 pub const AT_SYMLINK_FOLLOW = 8;
 
-pub fn WEXITSTATUS(s: u32) u32 {
-    return (s & 0xff00) >> 8;
+pub fn WEXITSTATUS(s: u32) u8 {
+    return @intCast(u8, (s & 0xff00) >> 8);
 }
 pub fn WTERMSIG(s: u32) u32 {
     return s & 0x7f;
@@ -344,7 +360,7 @@ pub const dirent = extern struct {
     d_name: [256]u8,
 
     pub fn reclen(self: dirent) u16 {
-        return (@byteOffsetOf(dirent, "d_name") + self.d_namlen + 1 + 7) & ~@as(u16, 7);
+        return (@offsetOf(dirent, "d_name") + self.d_namlen + 1 + 7) & ~@as(u16, 7);
     }
 };
 
@@ -375,10 +391,12 @@ pub const CLOCK_THREAD_CPUTIME_ID = 14;
 pub const CLOCK_PROCESS_CPUTIME_ID = 15;
 
 pub const sockaddr = extern struct {
-    sa_len: u8,
-    sa_family: u8,
-    sa_data: [14]u8,
+    len: u8,
+    family: u8,
+    data: [14]u8,
 };
+
+pub const sockaddr_storage = std.x.os.Socket.Address.Native.Storage;
 
 pub const Kevent = extern struct {
     ident: usize,
@@ -478,10 +496,11 @@ pub const S_IFSOCK = 49152;
 pub const S_IFWHT = 57344;
 pub const S_IFMT = 61440;
 
-pub const SIG_ERR = @intToPtr(fn (i32) callconv(.C) void, maxInt(usize));
-pub const SIG_DFL = @intToPtr(fn (i32) callconv(.C) void, 0);
-pub const SIG_IGN = @intToPtr(fn (i32) callconv(.C) void, 1);
+pub const SIG_DFL = @intToPtr(?Sigaction.sigaction_fn, 0);
+pub const SIG_IGN = @intToPtr(?Sigaction.sigaction_fn, 1);
+pub const SIG_ERR = @intToPtr(?Sigaction.sigaction_fn, maxInt(usize));
 pub const BADSIG = SIG_ERR;
+
 pub const SIG_BLOCK = 1;
 pub const SIG_UNBLOCK = 2;
 pub const SIG_SETMASK = 3;
@@ -521,22 +540,35 @@ pub const SIGUSR2 = 31;
 pub const SIGTHR = 32;
 pub const SIGCKPT = 33;
 pub const SIGCKPTEXIT = 34;
+
 pub const siginfo_t = extern struct {
-    si_signo: c_int,
-    si_errno: c_int,
-    si_code: c_int,
-    si_pid: c_int,
-    si_uid: uid_t,
-    si_status: c_int,
-    si_addr: ?*c_void,
-    si_value: union_sigval,
-    si_band: c_long,
+    signo: c_int,
+    errno: c_int,
+    code: c_int,
+    pid: c_int,
+    uid: uid_t,
+    status: c_int,
+    addr: ?*c_void,
+    value: sigval,
+    band: c_long,
     __spare__: [7]c_int,
 };
-pub const sigset_t = extern struct {
-    __bits: [4]c_uint,
+
+pub const sigval = extern union {
+    sival_int: c_int,
+    sival_ptr: ?*c_void,
 };
+
+pub const _SIG_WORDS = 4;
+
+pub const sigset_t = extern struct {
+    __bits: [_SIG_WORDS]c_uint,
+};
+
+pub const empty_sigset = sigset_t{ .__bits = [_]c_uint{0} ** _SIG_WORDS };
+
 pub const sig_atomic_t = c_int;
+
 pub const Sigaction = extern struct {
     pub const handler_fn = fn (c_int) callconv(.C) void;
     pub const sigaction_fn = fn (c_int, *const siginfo_t, ?*const c_void) callconv(.C) void;
@@ -549,13 +581,8 @@ pub const Sigaction = extern struct {
     flags: c_uint,
     mask: sigset_t,
 };
-pub const sig_t = [*c]fn (c_int) callconv(.C) void;
 
-pub const sigvec = extern struct {
-    sv_handler: [*c]__sighandler_t,
-    sv_mask: c_int,
-    sv_flags: c_int,
-};
+pub const sig_t = [*c]fn (c_int) callconv(.C) void;
 
 pub const SOCK_STREAM = 1;
 pub const SOCK_DGRAM = 2;
@@ -563,8 +590,37 @@ pub const SOCK_RAW = 3;
 pub const SOCK_RDM = 4;
 pub const SOCK_SEQPACKET = 5;
 pub const SOCK_MAXADDRLEN = 255;
-pub const SOCK_CLOEXEC = 268435456;
-pub const SOCK_NONBLOCK = 536870912;
+pub const SOCK_CLOEXEC = 0x10000000;
+pub const SOCK_NONBLOCK = 0x20000000;
+
+pub const SO_DEBUG = 0x0001;
+pub const SO_ACCEPTCONN = 0x0002;
+pub const SO_REUSEADDR = 0x0004;
+pub const SO_KEEPALIVE = 0x0008;
+pub const SO_DONTROUTE = 0x0010;
+pub const SO_BROADCAST = 0x0020;
+pub const SO_USELOOPBACK = 0x0040;
+pub const SO_LINGER = 0x0080;
+pub const SO_OOBINLINE = 0x0100;
+pub const SO_REUSEPORT = 0x0200;
+pub const SO_TIMESTAMP = 0x0400;
+pub const SO_NOSIGPIPE = 0x0800;
+pub const SO_ACCEPTFILTER = 0x1000;
+pub const SO_RERROR = 0x2000;
+pub const SO_PASSCRED = 0x4000;
+
+pub const SO_SNDBUF = 0x1001;
+pub const SO_RCVBUF = 0x1002;
+pub const SO_SNDLOWAT = 0x1003;
+pub const SO_RCVLOWAT = 0x1004;
+pub const SO_SNDTIMEO = 0x1005;
+pub const SO_RCVTIMEO = 0x1006;
+pub const SO_ERROR = 0x1007;
+pub const SO_TYPE = 0x1008;
+pub const SO_SNDSPACE = 0x100a;
+pub const SO_CPUHINT = 0x1030;
+
+pub const SOL_SOCKET = 0xffff;
 
 pub const PF_INET6 = AF_INET6;
 pub const PF_IMPLINK = AF_IMPLINK;
@@ -628,6 +684,7 @@ pub const AF_CNT = 21;
 pub const AF_IPX = 23;
 pub const AF_SIP = 24;
 pub const AF_ISDN = 26;
+pub const AF_INET6 = 28;
 pub const AF_NATM = 29;
 pub const AF_ATM = 30;
 pub const AF_NETGRAPH = 32;
@@ -635,20 +692,80 @@ pub const AF_BLUETOOTH = 33;
 pub const AF_MPLS = 34;
 pub const AF_MAX = 36;
 
+pub const in_port_t = u16;
 pub const sa_family_t = u8;
-pub const socklen_t = c_uint;
-pub const sockaddr_storage = extern struct {
-    ss_len: u8,
-    ss_family: sa_family_t,
-    __ss_pad1: [6]u8,
-    __ss_align: i64,
-    __ss_pad2: [112]u8,
+pub const socklen_t = u32;
+
+pub const sockaddr_in = extern struct {
+    len: u8 = @sizeOf(sockaddr_in),
+    family: sa_family_t = AF_INET,
+    port: in_port_t,
+    addr: u32,
+    zero: [8]u8 = [8]u8{ 0, 0, 0, 0, 0, 0, 0, 0 },
 };
+
+pub const sockaddr_in6 = extern struct {
+    len: u8 = @sizeOf(sockaddr_in6),
+    family: sa_family_t = AF_INET6,
+    port: in_port_t,
+    flowinfo: u32,
+    addr: [16]u8,
+    scope_id: u32,
+};
+
+pub const EAI = enum(c_int) {
+    ADDRFAMILY = 1,
+    AGAIN = 2,
+    BADFLAGS = 3,
+    FAIL = 4,
+    FAMILY = 5,
+    MEMORY = 6,
+    NODATA = 7,
+    NONAME = 8,
+    SERVICE = 9,
+    SOCKTYPE = 10,
+    SYSTEM = 11,
+    BADHINTS = 12,
+    PROTOCOL = 13,
+    OVERFLOW = 14,
+    _,
+};
+
+pub const AI_PASSIVE = 0x00000001;
+pub const AI_CANONNAME = 0x00000002;
+pub const AI_NUMERICHOST = 0x00000004;
+pub const AI_NUMERICSERV = 0x00000008;
+pub const AI_MASK = AI_PASSIVE | AI_CANONNAME | AI_NUMERICHOST | AI_NUMERICSERV | AI_ADDRCONFIG;
+pub const AI_ALL = 0x00000100;
+pub const AI_V4MAPPED_CFG = 0x00000200;
+pub const AI_ADDRCONFIG = 0x00000400;
+pub const AI_V4MAPPED = 0x00000800;
+pub const AI_DEFAULT = AI_V4MAPPED_CFG | AI_ADDRCONFIG;
+
+pub const RTLD_LAZY = 1;
+pub const RTLD_NOW = 2;
+pub const RTLD_MODEMASK = 0x3;
+pub const RTLD_GLOBAL = 0x100;
+pub const RTLD_LOCAL = 0;
+pub const RTLD_TRACE = 0x200;
+pub const RTLD_NODELETE = 0x01000;
+pub const RTLD_NOLOAD = 0x02000;
+
+pub const RTLD_NEXT = @intToPtr(*c_void, @bitCast(usize, @as(isize, -1)));
+pub const RTLD_DEFAULT = @intToPtr(*c_void, @bitCast(usize, @as(isize, -2)));
+pub const RTLD_SELF = @intToPtr(*c_void, @bitCast(usize, @as(isize, -3)));
+pub const RTLD_ALL = @intToPtr(*c_void, @bitCast(usize, @as(isize, -4)));
+
 pub const dl_phdr_info = extern struct {
     dlpi_addr: usize,
     dlpi_name: ?[*:0]const u8,
     dlpi_phdr: [*]std.elf.Phdr,
     dlpi_phnum: u16,
+};
+pub const cmsghdr = extern struct {
+    cmsg_len: socklen_t,
+    cmsg_level: c_int,
+    cmsg_type: c_int,
 };
 pub const msghdr = extern struct {
     msg_name: ?*c_void,
@@ -658,11 +775,6 @@ pub const msghdr = extern struct {
     msg_control: ?*c_void,
     msg_controllen: socklen_t,
     msg_flags: c_int,
-};
-pub const cmsghdr = extern struct {
-    cmsg_len: socklen_t,
-    cmsg_level: c_int,
-    cmsg_type: c_int,
 };
 pub const cmsgcred = extern struct {
     cmcred_pid: pid_t,
@@ -734,7 +846,131 @@ pub const Flock = extern struct {
     l_whence: c_short,
 };
 
-pub const rlimit_resource = extern enum(c_int) {
+pub const addrinfo = extern struct {
+    flags: i32,
+    family: i32,
+    socktype: i32,
+    protocol: i32,
+    addrlen: socklen_t,
+    canonname: ?[*:0]u8,
+    addr: ?*sockaddr,
+    next: ?*addrinfo,
+};
+
+pub const IPPROTO_IP = 0;
+pub const IPPROTO_ICMP = 1;
+pub const IPPROTO_TCP = 6;
+pub const IPPROTO_UDP = 17;
+pub const IPPROTO_IPV6 = 41;
+pub const IPPROTO_RAW = 255;
+pub const IPPROTO_HOPOPTS = 0;
+pub const IPPROTO_IGMP = 2;
+pub const IPPROTO_GGP = 3;
+pub const IPPROTO_IPV4 = 4;
+pub const IPPROTO_IPIP = IPPROTO_IPV4;
+pub const IPPROTO_ST = 7;
+pub const IPPROTO_EGP = 8;
+pub const IPPROTO_PIGP = 9;
+pub const IPPROTO_RCCMON = 10;
+pub const IPPROTO_NVPII = 11;
+pub const IPPROTO_PUP = 12;
+pub const IPPROTO_ARGUS = 13;
+pub const IPPROTO_EMCON = 14;
+pub const IPPROTO_XNET = 15;
+pub const IPPROTO_CHAOS = 16;
+pub const IPPROTO_MUX = 18;
+pub const IPPROTO_MEAS = 19;
+pub const IPPROTO_HMP = 20;
+pub const IPPROTO_PRM = 21;
+pub const IPPROTO_IDP = 22;
+pub const IPPROTO_TRUNK1 = 23;
+pub const IPPROTO_TRUNK2 = 24;
+pub const IPPROTO_LEAF1 = 25;
+pub const IPPROTO_LEAF2 = 26;
+pub const IPPROTO_RDP = 27;
+pub const IPPROTO_IRTP = 28;
+pub const IPPROTO_TP = 29;
+pub const IPPROTO_BLT = 30;
+pub const IPPROTO_NSP = 31;
+pub const IPPROTO_INP = 32;
+pub const IPPROTO_SEP = 33;
+pub const IPPROTO_3PC = 34;
+pub const IPPROTO_IDPR = 35;
+pub const IPPROTO_XTP = 36;
+pub const IPPROTO_DDP = 37;
+pub const IPPROTO_CMTP = 38;
+pub const IPPROTO_TPXX = 39;
+pub const IPPROTO_IL = 40;
+pub const IPPROTO_SDRP = 42;
+pub const IPPROTO_ROUTING = 43;
+pub const IPPROTO_FRAGMENT = 44;
+pub const IPPROTO_IDRP = 45;
+pub const IPPROTO_RSVP = 46;
+pub const IPPROTO_GRE = 47;
+pub const IPPROTO_MHRP = 48;
+pub const IPPROTO_BHA = 49;
+pub const IPPROTO_ESP = 50;
+pub const IPPROTO_AH = 51;
+pub const IPPROTO_INLSP = 52;
+pub const IPPROTO_SWIPE = 53;
+pub const IPPROTO_NHRP = 54;
+pub const IPPROTO_MOBILE = 55;
+pub const IPPROTO_TLSP = 56;
+pub const IPPROTO_SKIP = 57;
+pub const IPPROTO_ICMPV6 = 58;
+pub const IPPROTO_NONE = 59;
+pub const IPPROTO_DSTOPTS = 60;
+pub const IPPROTO_AHIP = 61;
+pub const IPPROTO_CFTP = 62;
+pub const IPPROTO_HELLO = 63;
+pub const IPPROTO_SATEXPAK = 64;
+pub const IPPROTO_KRYPTOLAN = 65;
+pub const IPPROTO_RVD = 66;
+pub const IPPROTO_IPPC = 67;
+pub const IPPROTO_ADFS = 68;
+pub const IPPROTO_SATMON = 69;
+pub const IPPROTO_VISA = 70;
+pub const IPPROTO_IPCV = 71;
+pub const IPPROTO_CPNX = 72;
+pub const IPPROTO_CPHB = 73;
+pub const IPPROTO_WSN = 74;
+pub const IPPROTO_PVP = 75;
+pub const IPPROTO_BRSATMON = 76;
+pub const IPPROTO_ND = 77;
+pub const IPPROTO_WBMON = 78;
+pub const IPPROTO_WBEXPAK = 79;
+pub const IPPROTO_EON = 80;
+pub const IPPROTO_VMTP = 81;
+pub const IPPROTO_SVMTP = 82;
+pub const IPPROTO_VINES = 83;
+pub const IPPROTO_TTP = 84;
+pub const IPPROTO_IGP = 85;
+pub const IPPROTO_DGP = 86;
+pub const IPPROTO_TCF = 87;
+pub const IPPROTO_IGRP = 88;
+pub const IPPROTO_OSPFIGP = 89;
+pub const IPPROTO_SRPC = 90;
+pub const IPPROTO_LARP = 91;
+pub const IPPROTO_MTP = 92;
+pub const IPPROTO_AX25 = 93;
+pub const IPPROTO_IPEIP = 94;
+pub const IPPROTO_MICP = 95;
+pub const IPPROTO_SCCSP = 96;
+pub const IPPROTO_ETHERIP = 97;
+pub const IPPROTO_ENCAP = 98;
+pub const IPPROTO_APES = 99;
+pub const IPPROTO_GMTP = 100;
+pub const IPPROTO_IPCOMP = 108;
+pub const IPPROTO_PIM = 103;
+pub const IPPROTO_CARP = 112;
+pub const IPPROTO_PGM = 113;
+pub const IPPROTO_PFSYNC = 240;
+pub const IPPROTO_DIVERT = 254;
+pub const IPPROTO_MAX = 256;
+pub const IPPROTO_DONE = 257;
+pub const IPPROTO_UNKNOWN = 258;
+
+pub const rlimit_resource = enum(c_int) {
     CPU = 0,
     FSIZE = 1,
     DATA = 2,
@@ -745,11 +981,11 @@ pub const rlimit_resource = extern enum(c_int) {
     NPROC = 7,
     NOFILE = 8,
     SBSIZE = 9,
-    AS = 10,
     VMEM = 10,
     POSIXLOCKS = 11,
-
     _,
+
+    pub const AS: rlimit_resource = .VMEM;
 };
 
 pub const rlim_t = i64;
@@ -766,3 +1002,29 @@ pub const rlimit = extern struct {
     /// Hard limit
     max: rlim_t,
 };
+
+pub const SHUT_RD = 0;
+pub const SHUT_WR = 1;
+pub const SHUT_RDWR = 2;
+
+pub const nfds_t = u32;
+
+pub const pollfd = extern struct {
+    fd: fd_t,
+    events: i16,
+    revents: i16,
+};
+
+/// Requestable events.
+pub const POLLIN = 0x0001;
+pub const POLLPRI = 0x0002;
+pub const POLLOUT = 0x0004;
+pub const POLLRDNORM = 0x0040;
+pub const POLLWRNORM = POLLOUT;
+pub const POLLRDBAND = 0x0080;
+pub const POLLWRBAND = 0x0100;
+
+/// These events are set if they occur regardless of whether they were requested.
+pub const POLLERR = 0x0008;
+pub const POLLHUP = 0x0010;
+pub const POLLNVAL = 0x0020;

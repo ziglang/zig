@@ -1,5 +1,5 @@
 /* Checking macros for stdio functions.
-   Copyright (C) 2004-2020 Free Software Foundation, Inc.
+   Copyright (C) 2004-2021 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -36,12 +36,13 @@ __fortify_function int
 __NTH (sprintf (char *__restrict __s, const char *__restrict __fmt, ...))
 {
   return __builtin___sprintf_chk (__s, __USE_FORTIFY_LEVEL - 1,
-				  __bos (__s), __fmt, __va_arg_pack ());
+				  __glibc_objsize (__s), __fmt,
+				  __va_arg_pack ());
 }
 #elif !defined __cplusplus
 # define sprintf(str, ...) \
-  __builtin___sprintf_chk (str, __USE_FORTIFY_LEVEL - 1, __bos (str), \
-			   __VA_ARGS__)
+  __builtin___sprintf_chk (str, __USE_FORTIFY_LEVEL - 1,		      \
+			   __glibc_objsize (str), __VA_ARGS__)
 #endif
 
 __fortify_function int
@@ -49,7 +50,7 @@ __NTH (vsprintf (char *__restrict __s, const char *__restrict __fmt,
 		 __gnuc_va_list __ap))
 {
   return __builtin___vsprintf_chk (__s, __USE_FORTIFY_LEVEL - 1,
-				   __bos (__s), __fmt, __ap);
+				   __glibc_objsize (__s), __fmt, __ap);
 }
 
 #if defined __USE_ISOC99 || defined __USE_UNIX98
@@ -68,12 +69,13 @@ __NTH (snprintf (char *__restrict __s, size_t __n,
 		 const char *__restrict __fmt, ...))
 {
   return __builtin___snprintf_chk (__s, __n, __USE_FORTIFY_LEVEL - 1,
-				   __bos (__s), __fmt, __va_arg_pack ());
+				   __glibc_objsize (__s), __fmt,
+				   __va_arg_pack ());
 }
 # elif !defined __cplusplus
 #  define snprintf(str, len, ...) \
-  __builtin___snprintf_chk (str, len, __USE_FORTIFY_LEVEL - 1, __bos (str), \
-			    __VA_ARGS__)
+  __builtin___snprintf_chk (str, len, __USE_FORTIFY_LEVEL - 1,		      \
+			    __glibc_objsize (str), __VA_ARGS__)
 # endif
 
 __fortify_function int
@@ -81,7 +83,7 @@ __NTH (vsnprintf (char *__restrict __s, size_t __n,
 		  const char *__restrict __fmt, __gnuc_va_list __ap))
 {
   return __builtin___vsnprintf_chk (__s, __n, __USE_FORTIFY_LEVEL - 1,
-				    __bos (__s), __fmt, __ap);
+				    __glibc_objsize (__s), __fmt, __ap);
 }
 
 #endif
@@ -237,8 +239,8 @@ extern char *__REDIRECT (__gets_warn, (char *__str), gets)
 __fortify_function __wur char *
 gets (char *__str)
 {
-  if (__bos (__str) != (size_t) -1)
-    return __gets_chk (__str, __bos (__str));
+  if (__glibc_objsize (__str) != (size_t) -1)
+    return __gets_chk (__str, __glibc_objsize (__str));
   return __gets_warn (__str);
 }
 #endif
@@ -259,13 +261,13 @@ extern char *__REDIRECT (__fgets_chk_warn,
 __fortify_function __wur __attr_access ((__write_only__, 1, 2)) char *
 fgets (char *__restrict __s, int __n, FILE *__restrict __stream)
 {
-  if (__bos (__s) != (size_t) -1)
+  if (__glibc_objsize (__s) != (size_t) -1)
     {
       if (!__builtin_constant_p (__n) || __n <= 0)
-	return __fgets_chk (__s, __bos (__s), __n, __stream);
+	return __fgets_chk (__s, __glibc_objsize (__s), __n, __stream);
 
-      if ((size_t) __n > __bos (__s))
-	return __fgets_chk_warn (__s, __bos (__s), __n, __stream);
+      if ((size_t) __n > __glibc_objsize (__s))
+	return __fgets_chk_warn (__s, __glibc_objsize (__s), __n, __stream);
     }
   return __fgets_alias (__s, __n, __stream);
 }
@@ -289,15 +291,17 @@ __fortify_function __wur size_t
 fread (void *__restrict __ptr, size_t __size, size_t __n,
        FILE *__restrict __stream)
 {
-  if (__bos0 (__ptr) != (size_t) -1)
+  if (__glibc_objsize0 (__ptr) != (size_t) -1)
     {
       if (!__builtin_constant_p (__size)
 	  || !__builtin_constant_p (__n)
 	  || (__size | __n) >= (((size_t) 1) << (8 * sizeof (size_t) / 2)))
-	return __fread_chk (__ptr, __bos0 (__ptr), __size, __n, __stream);
+	return __fread_chk (__ptr, __glibc_objsize0 (__ptr), __size, __n,
+			    __stream);
 
-      if (__size * __n > __bos0 (__ptr))
-	return __fread_chk_warn (__ptr, __bos0 (__ptr), __size, __n, __stream);
+      if (__size * __n > __glibc_objsize0 (__ptr))
+	return __fread_chk_warn (__ptr, __glibc_objsize0 (__ptr), __size, __n,
+				 __stream);
     }
   return __fread_alias (__ptr, __size, __n, __stream);
 }
@@ -319,13 +323,15 @@ extern char *__REDIRECT (__fgets_unlocked_chk_warn,
 __fortify_function __wur __attr_access ((__write_only__, 1, 2)) char *
 fgets_unlocked (char *__restrict __s, int __n, FILE *__restrict __stream)
 {
-  if (__bos (__s) != (size_t) -1)
+  if (__glibc_objsize (__s) != (size_t) -1)
     {
       if (!__builtin_constant_p (__n) || __n <= 0)
-	return __fgets_unlocked_chk (__s, __bos (__s), __n, __stream);
+	return __fgets_unlocked_chk (__s, __glibc_objsize (__s), __n,
+				     __stream);
 
-      if ((size_t) __n > __bos (__s))
-	return __fgets_unlocked_chk_warn (__s, __bos (__s), __n, __stream);
+      if ((size_t) __n > __glibc_objsize (__s))
+	return __fgets_unlocked_chk_warn (__s, __glibc_objsize (__s), __n,
+					  __stream);
     }
   return __fgets_unlocked_alias (__s, __n, __stream);
 }
@@ -352,17 +358,17 @@ __fortify_function __wur size_t
 fread_unlocked (void *__restrict __ptr, size_t __size, size_t __n,
 		FILE *__restrict __stream)
 {
-  if (__bos0 (__ptr) != (size_t) -1)
+  if (__glibc_objsize0 (__ptr) != (size_t) -1)
     {
       if (!__builtin_constant_p (__size)
 	  || !__builtin_constant_p (__n)
 	  || (__size | __n) >= (((size_t) 1) << (8 * sizeof (size_t) / 2)))
-	return __fread_unlocked_chk (__ptr, __bos0 (__ptr), __size, __n,
-				     __stream);
+	return __fread_unlocked_chk (__ptr, __glibc_objsize0 (__ptr), __size,
+				     __n, __stream);
 
-      if (__size * __n > __bos0 (__ptr))
-	return __fread_unlocked_chk_warn (__ptr, __bos0 (__ptr), __size, __n,
-					  __stream);
+      if (__size * __n > __glibc_objsize0 (__ptr))
+	return __fread_unlocked_chk_warn (__ptr, __glibc_objsize0 (__ptr),
+					  __size, __n, __stream);
     }
 
 # ifdef __USE_EXTERN_INLINES

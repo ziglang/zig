@@ -13,14 +13,17 @@
 #include "filesystem"
 #include "array"
 #include "chrono"
-#include "cstdlib"
 #include "climits"
+#include "cstdlib"
+#include "ctime"
 
-#include <unistd.h>
-#include <sys/stat.h>
-#include <sys/statvfs.h>
-#include <sys/time.h> // for ::utimes as used in __last_write_time
-#include <fcntl.h>    /* values for fchmodat */
+#if !defined(_LIBCPP_WIN32API)
+# include <unistd.h>
+# include <sys/stat.h>
+# include <sys/statvfs.h>
+# include <sys/time.h> // for ::utimes as used in __last_write_time
+# include <fcntl.h>    /* values for fchmodat */
+#endif
 
 #include "../include/apple_availability.h"
 
@@ -37,9 +40,21 @@
 #pragma GCC diagnostic ignored "-Wunused-function"
 #endif
 
+#if defined(_LIBCPP_WIN32API)
+#define PS(x) (L##x)
+#else
+#define PS(x) (x)
+#endif
+
 _LIBCPP_BEGIN_NAMESPACE_FILESYSTEM
 
 namespace detail {
+
+#if defined(_LIBCPP_WIN32API)
+// Non anonymous, to allow access from two translation units.
+errc __win_err_to_errc(int err);
+#endif
+
 namespace {
 
 static string format_string_imp(const char* msg, ...) {
@@ -47,7 +62,7 @@ static string format_string_imp(const char* msg, ...) {
   struct GuardVAList {
     va_list& target;
     bool active = true;
-    GuardVAList(va_list& target) : target(target), active(true) {}
+    GuardVAList(va_list& tgt) : target(tgt), active(true) {}
     void clear() {
       if (active)
         va_end(target);
@@ -93,8 +108,8 @@ static string format_string_imp(const char* msg, ...) {
   return result;
 }
 
-const char* unwrap(string const& s) { return s.c_str(); }
-const char* unwrap(path const& p) { return p.native().c_str(); }
+const path::value_type* unwrap(path::string_type const& s) { return s.c_str(); }
+const path::value_type* unwrap(path const& p) { return p.native().c_str(); }
 template <class Arg>
 Arg const& unwrap(Arg const& a) {
   static_assert(!is_class<Arg>::value, "cannot pass class here");
@@ -111,6 +126,12 @@ error_code capture_errno() {
   return error_code(errno, generic_category());
 }
 
+#if defined(_LIBCPP_WIN32API)
+error_code make_windows_error(int err) {
+  return make_error_code(__win_err_to_errc(err));
+}
+#endif
+
 template <class T>
 T error_value();
 template <>
@@ -119,6 +140,12 @@ template <>
 bool error_value<bool>() {
   return false;
 }
+#if __SIZEOF_SIZE_T__ != __SIZEOF_LONG_LONG__
+template <>
+size_t error_value<size_t>() {
+  return size_t(-1);
+}
+#endif
 template <>
 uintmax_t error_value<uintmax_t>() {
   return uintmax_t(-1);
@@ -134,50 +161,50 @@ path error_value<path>() {
 
 template <class T>
 struct ErrorHandler {
-  const char* func_name;
-  error_code* ec = nullptr;
-  const path* p1 = nullptr;
-  const path* p2 = nullptr;
+  const char* func_name_;
+  error_code* ec_ = nullptr;
+  const path* p1_ = nullptr;
+  const path* p2_ = nullptr;
 
   ErrorHandler(const char* fname, error_code* ec, const path* p1 = nullptr,
                const path* p2 = nullptr)
-      : func_name(fname), ec(ec), p1(p1), p2(p2) {
-    if (ec)
-      ec->clear();
+      : func_name_(fname), ec_(ec), p1_(p1), p2_(p2) {
+    if (ec_)
+      ec_->clear();
   }
 
-  T report(const error_code& m_ec) const {
-    if (ec) {
-      *ec = m_ec;
+  T report(const error_code& ec) const {
+    if (ec_) {
+      *ec_ = ec;
       return error_value<T>();
     }
-    string what = string("in ") + func_name;
-    switch (bool(p1) + bool(p2)) {
+    string what = string("in ") + func_name_;
+    switch (bool(p1_) + bool(p2_)) {
     case 0:
-      __throw_filesystem_error(what, m_ec);
+      __throw_filesystem_error(what, ec);
     case 1:
-      __throw_filesystem_error(what, *p1, m_ec);
+      __throw_filesystem_error(what, *p1_, ec);
     case 2:
-      __throw_filesystem_error(what, *p1, *p2, m_ec);
+      __throw_filesystem_error(what, *p1_, *p2_, ec);
     }
     _LIBCPP_UNREACHABLE();
   }
 
   template <class... Args>
-  T report(const error_code& m_ec, const char* msg, Args const&... args) const {
-    if (ec) {
-      *ec = m_ec;
+  T report(const error_code& ec, const char* msg, Args const&... args) const {
+    if (ec_) {
+      *ec_ = ec;
       return error_value<T>();
     }
     string what =
-        string("in ") + func_name + ": " + format_string(msg, args...);
-    switch (bool(p1) + bool(p2)) {
+        string("in ") + func_name_ + ": " + format_string(msg, args...);
+    switch (bool(p1_) + bool(p2_)) {
     case 0:
-      __throw_filesystem_error(what, m_ec);
+      __throw_filesystem_error(what, ec);
     case 1:
-      __throw_filesystem_error(what, *p1, m_ec);
+      __throw_filesystem_error(what, *p1_, ec);
     case 2:
-      __throw_filesystem_error(what, *p1, *p2, m_ec);
+      __throw_filesystem_error(what, *p1_, *p2_, ec);
     }
     _LIBCPP_UNREACHABLE();
   }
@@ -197,8 +224,9 @@ private:
 using chrono::duration;
 using chrono::duration_cast;
 
-using TimeSpec = struct ::timespec;
-using StatT = struct ::stat;
+using TimeSpec = struct timespec;
+using TimeVal = struct timeval;
+using StatT = struct stat;
 
 template <class FileTimeT, class TimeT,
           bool IsFloat = is_floating_point<typename FileTimeT::rep>::value>
@@ -380,26 +408,38 @@ public:
 using fs_time = time_util<file_time_type, time_t, TimeSpec>;
 
 #if defined(__APPLE__)
-TimeSpec extract_mtime(StatT const& st) { return st.st_mtimespec; }
-TimeSpec extract_atime(StatT const& st) { return st.st_atimespec; }
+inline TimeSpec extract_mtime(StatT const& st) { return st.st_mtimespec; }
+inline TimeSpec extract_atime(StatT const& st) { return st.st_atimespec; }
+#elif defined(__MVS__)
+inline TimeSpec extract_mtime(StatT const& st) {
+  TimeSpec TS = {st.st_mtime, 0};
+  return TS;
+}
+inline TimeSpec extract_atime(StatT const& st) {
+  TimeSpec TS = {st.st_atime, 0};
+  return TS;
+}
 #else
-TimeSpec extract_mtime(StatT const& st) { return st.st_mtim; }
-TimeSpec extract_atime(StatT const& st) { return st.st_atim; }
+inline TimeSpec extract_mtime(StatT const& st) { return st.st_mtim; }
+inline TimeSpec extract_atime(StatT const& st) { return st.st_atim; }
 #endif
 
-// allow the utimes implementation to compile even it we're not going
-// to use it.
-
-bool posix_utimes(const path& p, std::array<TimeSpec, 2> const& TS,
-                  error_code& ec) {
+inline TimeVal make_timeval(TimeSpec const& ts) {
   using namespace chrono;
   auto Convert = [](long nsec) {
-    using int_type = decltype(std::declval< ::timeval>().tv_usec);
+    using int_type = decltype(std::declval<TimeVal>().tv_usec);
     auto dur = duration_cast<microseconds>(nanoseconds(nsec)).count();
     return static_cast<int_type>(dur);
   };
-  struct ::timeval ConvertedTS[2] = {{TS[0].tv_sec, Convert(TS[0].tv_nsec)},
-                                     {TS[1].tv_sec, Convert(TS[1].tv_nsec)}};
+  TimeVal TV = {};
+  TV.tv_sec = ts.tv_sec;
+  TV.tv_usec = Convert(ts.tv_nsec);
+  return TV;
+}
+
+inline bool posix_utimes(const path& p, std::array<TimeSpec, 2> const& TS,
+                  error_code& ec) {
+  TimeVal ConvertedTS[2] = {make_timeval(TS[0]), make_timeval(TS[1])};
   if (::utimes(p.c_str(), ConvertedTS) == -1) {
     ec = capture_errno();
     return true;

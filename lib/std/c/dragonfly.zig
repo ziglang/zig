@@ -18,6 +18,8 @@ pub extern "c" fn pipe2(fds: *[2]fd_t, flags: u32) c_int;
 pub const dl_iterate_phdr_callback = fn (info: *dl_phdr_info, size: usize, data: ?*c_void) callconv(.C) c_int;
 pub extern "c" fn dl_iterate_phdr(callback: dl_iterate_phdr_callback, data: ?*c_void) c_int;
 
+pub extern "c" fn lwp_gettid() c_int;
+
 pub extern "c" fn posix_memalign(memptr: *?*c_void, alignment: usize, size: usize) c_int;
 
 pub const pthread_mutex_t = extern struct {
@@ -31,3 +33,5 @@ pub const pthread_attr_t = extern struct { // copied from freebsd
     __size: [56]u8,
     __align: c_long,
 };
+
+pub const sem_t = ?*opaque {};

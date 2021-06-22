@@ -639,6 +639,32 @@ __jcvt(double __a) {
 }
 #endif
 
+/* Armv8.7-A load/store 64-byte intrinsics */
+#if __ARM_64BIT_STATE && defined(__ARM_FEATURE_LS64)
+typedef struct {
+    uint64_t val[8];
+} data512_t;
+
+static __inline__ data512_t __attribute__((__always_inline__, __nodebug__))
+__arm_ld64b(const void *__addr) {
+    data512_t __value;
+    __builtin_arm_ld64b(__addr, __value.val);
+    return __value;
+}
+static __inline__ void __attribute__((__always_inline__, __nodebug__))
+__arm_st64b(void *__addr, data512_t __value) {
+    __builtin_arm_st64b(__addr, __value.val);
+}
+static __inline__ uint64_t __attribute__((__always_inline__, __nodebug__))
+__arm_st64bv(void *__addr, data512_t __value) {
+    return __builtin_arm_st64bv(__addr, __value.val);
+}
+static __inline__ uint64_t __attribute__((__always_inline__, __nodebug__))
+__arm_st64bv0(void *__addr, data512_t __value) {
+    return __builtin_arm_st64bv0(__addr, __value.val);
+}
+#endif
+
 /* 10.1 Special register intrinsics */
 #define __arm_rsr(sysreg) __builtin_arm_rsr(sysreg)
 #define __arm_rsr64(sysreg) __builtin_arm_rsr64(sysreg)

@@ -3,7 +3,8 @@
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
-const builtin = @import("builtin");
+const root = @import("root");
+const builtin = std.builtin;
 const std = @import("std.zig");
 const os = std.os;
 const mem = std.mem;
@@ -47,16 +48,19 @@ pub const MAX_PATH_BYTES = switch (builtin.os.tag) {
     .windows => os.windows.PATH_MAX_WIDE * 3 + 1,
     // TODO work out what a reasonable value we should use here
     .wasi => 4096,
-    else => @compileError("Unsupported OS"),
+    else => if (@hasDecl(root, "os") and @hasDecl(root.os, "PATH_MAX"))
+        root.os.PATH_MAX
+    else
+        @compileError("PATH_MAX not implemented for " ++ @tagName(builtin.os.tag)),
 };
 
-pub const base64_alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+pub const base64_alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_".*;
 
 /// Base64 encoder, replacing the standard `+/` with `-_` so that it can be used in a file name on any filesystem.
-pub const base64_encoder = base64.Base64Encoder.init(base64_alphabet, base64.standard_pad_char);
+pub const base64_encoder = base64.Base64Encoder.init(base64_alphabet, null);
 
 /// Base64 decoder, replacing the standard `+/` with `-_` so that it can be used in a file name on any filesystem.
-pub const base64_decoder = base64.Base64Decoder.init(base64_alphabet, base64.standard_pad_char);
+pub const base64_decoder = base64.Base64Decoder.init(base64_alphabet, null);
 
 /// Whether or not async file system syscalls need a dedicated thread because the operating
 /// system does not support non-blocking I/O on the file system.
@@ -77,7 +81,7 @@ pub fn atomicSymLink(allocator: *Allocator, existing_path: []const u8, new_path:
     const dirname = path.dirname(new_path) orelse ".";
 
     var rand_buf: [AtomicFile.RANDOM_BYTES]u8 = undefined;
-    const tmp_path = try allocator.alloc(u8, dirname.len + 1 + base64.Base64Encoder.calcSize(rand_buf.len));
+    const tmp_path = try allocator.alloc(u8, dirname.len + 1 + base64_encoder.calcSize(rand_buf.len));
     defer allocator.free(tmp_path);
     mem.copy(u8, tmp_path[0..], dirname);
     tmp_path[dirname.len] = path.sep;
@@ -142,7 +146,7 @@ pub const AtomicFile = struct {
     const InitError = File.OpenError;
 
     const RANDOM_BYTES = 12;
-    const TMP_PATH_LEN = base64.Base64Encoder.calcSize(RANDOM_BYTES);
+    const TMP_PATH_LEN = base64_encoder.calcSize(RANDOM_BYTES);
 
     /// Note that the `Dir.atomicFile` API may be more handy than this lower-level function.
     pub fn init(
@@ -473,7 +477,7 @@ pub const Dir = struct {
                     }
 
                     var stat_info: os.libc_stat = undefined;
-                    const rc2 = os.system._kern_read_stat(
+                    _ = os.system._kern_read_stat(
                         self.dir.fd,
                         &haiku_entry.d_name,
                         false,
@@ -501,7 +505,9 @@ pub const Dir = struct {
         },
         .linux => struct {
             dir: Dir,
-            buf: [8192]u8, // TODO align(@alignOf(os.dirent64)),
+            // The if guard is solely there to prevent compile errors from missing `os.linux.dirent64`
+            // definition when compiling for other OSes. It doesn't do anything when compiling for Linux.
+            buf: [8192]u8 align(if (builtin.os.tag != .linux) 1 else @alignOf(os.linux.dirent64)),
             index: usize,
             end_index: usize,
 
@@ -570,7 +576,7 @@ pub const Dir = struct {
             /// Memory such as file names referenced in this returned entry becomes invalid
             /// with subsequent calls to `next`, as well as when this `Dir` is deinitialized.
             pub fn next(self: *Self) Error!?Entry {
-                start_over: while (true) {
+                while (true) {
                     const w = os.windows;
                     if (self.index >= self.end_index) {
                         var io: w.IO_STATUS_BLOCK = undefined;
@@ -1262,11 +1268,9 @@ pub const Dir = struct {
     pub fn openDirWasi(self: Dir, sub_path: []const u8, args: OpenDirOptions) OpenError!Dir {
         const w = os.wasi;
         var base: w.rights_t = w.RIGHT_FD_FILESTAT_GET | w.RIGHT_FD_FDSTAT_SET_FLAGS | w.RIGHT_FD_FILESTAT_SET_TIMES;
-        if (args.iterate) {
-            base |= w.RIGHT_FD_READDIR;
-        }
         if (args.access_sub_paths) {
-            base |= w.RIGHT_PATH_CREATE_DIRECTORY |
+            base |= w.RIGHT_FD_READDIR |
+                w.RIGHT_PATH_CREATE_DIRECTORY |
                 w.RIGHT_PATH_CREATE_FILE |
                 w.RIGHT_PATH_LINK_SOURCE |
                 w.RIGHT_PATH_LINK_TARGET |
@@ -1363,15 +1367,6 @@ pub const Dir = struct {
             .SecurityDescriptor = null,
             .SecurityQualityOfService = null,
         };
-        if (sub_path_w[0] == '.' and sub_path_w[1] == 0) {
-            // Windows does not recognize this, but it does work with empty string.
-            nt_name.Length = 0;
-        }
-        if (sub_path_w[0] == '.' and sub_path_w[1] == '.' and sub_path_w[2] == 0) {
-            // If you're looking to contribute to zig and fix this, see here for an example of how to
-            // implement this: https://git.midipix.org/ntapi/tree/src/fs/ntapi_tt_open_physical_parent_directory.c
-            @panic("TODO opening '..' with a relative directory handle is not yet implemented on Windows");
-        }
         const open_reparse_point: w.DWORD = if (no_follow) w.FILE_OPEN_REPARSE_POINT else 0x0;
         var io: w.IO_STATUS_BLOCK = undefined;
         const rc = w.ntdll.NtCreateFile(
@@ -1546,7 +1541,7 @@ pub const Dir = struct {
         self: Dir,
         target_path: []const u8,
         sym_link_path: []const u8,
-        flags: SymLinkFlags,
+        _: SymLinkFlags,
     ) !void {
         return os.symlinkatWasi(target_path, self.fd, sym_link_path);
     }
@@ -1884,6 +1879,7 @@ pub const Dir = struct {
     /// * NtDll prefixed
     /// TODO currently this ignores `flags`.
     pub fn accessW(self: Dir, sub_path_w: [*:0]const u16, flags: File.OpenFlags) AccessError!void {
+        _ = flags;
         return os.faccessatW(self.fd, sub_path_w, 0, 0);
     }
 
@@ -2443,7 +2439,7 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
                     }) catch continue;
 
                     var real_path_buf: [MAX_PATH_BYTES]u8 = undefined;
-                    if (os.realpathZ(&resolved_path_buf, &real_path_buf)) |real_path| {
+                    if (os.realpathZ(resolved_path, &real_path_buf)) |real_path| {
                         // found a file, and hope it is the right file
                         if (real_path.len > out_buffer.len)
                             return error.NameTooLong;

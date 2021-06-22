@@ -5,7 +5,8 @@
 // and substantial portions of the software.
 const std = @import("std");
 const mem = std.mem;
-const Error = std.crypto.Error;
+
+const NonCanonicalError = std.crypto.errors.NonCanonicalError;
 
 /// 2^252 + 27742317777372353535851937790883648493
 pub const field_size = [32]u8{
@@ -19,7 +20,7 @@ pub const CompressedScalar = [32]u8;
 pub const zero = [_]u8{0} ** 32;
 
 /// Reject a scalar whose encoding is not canonical.
-pub fn rejectNonCanonical(s: [32]u8) Error!void {
+pub fn rejectNonCanonical(s: [32]u8) NonCanonicalError!void {
     var c: u8 = 0;
     var n: u8 = 1;
     var i: usize = 31;
@@ -47,7 +48,7 @@ pub fn reduce64(s: [64]u8) [32]u8 {
 
 /// Perform the X25519 "clamping" operation.
 /// The scalar is then guaranteed to be a multiple of the cofactor.
-pub fn clamp(s: *[32]u8) callconv(.Inline) void {
+pub inline fn clamp(s: *[32]u8) void {
     s[0] &= 248;
     s[31] = (s[31] & 127) | 64;
 }
@@ -97,7 +98,7 @@ pub fn sub(a: [32]u8, b: [32]u8) [32]u8 {
     return add(a, neg(b));
 }
 
-/// A scalar in unpacked reprentation
+/// A scalar in unpacked representation
 pub const Scalar = struct {
     const Limbs = [5]u64;
     limbs: Limbs = undefined,
@@ -329,13 +330,10 @@ pub const Scalar = struct {
         const carry9 = z02 >> 56;
         const c01 = carry9;
         const carry10 = (z12 + c01) >> 56;
-        const t21 = @truncate(u64, z12 + c01) & 0xffffffffffffff;
         const c11 = carry10;
         const carry11 = (z22 + c11) >> 56;
-        const t22 = @truncate(u64, z22 + c11) & 0xffffffffffffff;
         const c21 = carry11;
         const carry12 = (z32 + c21) >> 56;
-        const t23 = @truncate(u64, z32 + c21) & 0xffffffffffffff;
         const c31 = carry12;
         const carry13 = (z42 + c31) >> 56;
         const t24 = @truncate(u64, z42 + c31) & 0xffffffffffffff;
@@ -604,13 +602,10 @@ const ScalarDouble = struct {
         const carry0 = z01 >> 56;
         const c00 = carry0;
         const carry1 = (z11 + c00) >> 56;
-        const t100 = @as(u64, @truncate(u64, z11 + c00)) & 0xffffffffffffff;
         const c10 = carry1;
         const carry2 = (z21 + c10) >> 56;
-        const t101 = @as(u64, @truncate(u64, z21 + c10)) & 0xffffffffffffff;
         const c20 = carry2;
         const carry3 = (z31 + c20) >> 56;
-        const t102 = @as(u64, @truncate(u64, z31 + c20)) & 0xffffffffffffff;
         const c30 = carry3;
         const carry4 = (z41 + c30) >> 56;
         const t103 = @as(u64, @truncate(u64, z41 + c30)) & 0xffffffffffffff;
@@ -772,15 +767,15 @@ test "scalar25519" {
     var y = x.toBytes();
     try rejectNonCanonical(y);
     var buf: [128]u8 = undefined;
-    std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{s}", .{std.fmt.fmtSliceHexUpper(&y)}), "1E979B917937F3DE71D18077F961F6CEFF01030405060708010203040506070F");
+    try std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{s}", .{std.fmt.fmtSliceHexUpper(&y)}), "1E979B917937F3DE71D18077F961F6CEFF01030405060708010203040506070F");
 
     const reduced = reduce(field_size);
-    std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{s}", .{std.fmt.fmtSliceHexUpper(&reduced)}), "0000000000000000000000000000000000000000000000000000000000000000");
+    try std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{s}", .{std.fmt.fmtSliceHexUpper(&reduced)}), "0000000000000000000000000000000000000000000000000000000000000000");
 }
 
 test "non-canonical scalar25519" {
     const too_targe: [32]u8 = .{ 0xed, 0xd3, 0xf5, 0x5c, 0x1a, 0x63, 0x12, 0x58, 0xd6, 0x9c, 0xf7, 0xa2, 0xde, 0xf9, 0xde, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10 };
-    std.testing.expectError(error.NonCanonical, rejectNonCanonical(too_targe));
+    try std.testing.expectError(error.NonCanonical, rejectNonCanonical(too_targe));
 }
 
 test "mulAdd overflow check" {
@@ -789,5 +784,5 @@ test "mulAdd overflow check" {
     const c: [32]u8 = [_]u8{0xff} ** 32;
     const x = mulAdd(a, b, c);
     var buf: [128]u8 = undefined;
-    std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{s}", .{std.fmt.fmtSliceHexUpper(&x)}), "D14DF91389432C25AD60FF9791B9FD1D67BEF517D273ECCE3D9A307C1B419903");
+    try std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{s}", .{std.fmt.fmtSliceHexUpper(&x)}), "D14DF91389432C25AD60FF9791B9FD1D67BEF517D273ECCE3D9A307C1B419903");
 }

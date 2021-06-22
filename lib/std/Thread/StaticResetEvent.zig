@@ -105,6 +105,7 @@ pub const DebugEvent = struct {
     }
 
     pub fn timedWait(ev: *DebugEvent, timeout: u64) TimedWaitResult {
+        _ = timeout;
         switch (ev.state) {
             .unset => return .timed_out,
             .set => return .event_set,
@@ -174,7 +175,10 @@ pub const AtomicEvent = struct {
     };
 
     pub const SpinFutex = struct {
-        fn wake(waiters: *u32, wake_count: u32) void {}
+        fn wake(waiters: *u32, wake_count: u32) void {
+            _ = waiters;
+            _ = wake_count;
+        }
 
         fn wait(waiters: *u32, timeout: ?u64) !void {
             var timer: time.Timer = undefined;
@@ -182,7 +186,7 @@ pub const AtomicEvent = struct {
                 timer = time.Timer.start() catch return error.TimedOut;
 
             while (@atomicLoad(u32, waiters, .Acquire) != WAKE) {
-                std.os.sched_yield() catch std.Thread.spinLoopHint();
+                std.os.sched_yield() catch std.atomic.spinLoopHint();
                 if (timeout) |timeout_ns| {
                     if (timer.read() >= timeout_ns)
                         return error.TimedOut;
@@ -193,6 +197,7 @@ pub const AtomicEvent = struct {
 
     pub const LinuxFutex = struct {
         fn wake(waiters: *u32, wake_count: u32) void {
+            _ = wake_count;
             const waiting = std.math.maxInt(i32); // wake_count
             const ptr = @ptrCast(*const i32, waiters);
             const rc = linux.futex_wake(ptr, linux.FUTEX_WAKE | linux.FUTEX_PRIVATE_FLAG, waiting);
@@ -262,7 +267,7 @@ pub const AtomicEvent = struct {
                     while (true) {
                         if (waiting == WAKE) {
                             rc = windows.ntdll.NtWaitForKeyedEvent(handle, key, windows.FALSE, null);
-                            assert(rc == .WAIT_0);
+                            assert(rc == windows.NTSTATUS.WAIT_0);
                             break;
                         } else {
                             waiting = @cmpxchgWeak(u32, waiters, waiting, waiting - WAIT, .Acquire, .Monotonic) orelse break;
@@ -271,7 +276,7 @@ pub const AtomicEvent = struct {
                     }
                     return error.TimedOut;
                 },
-                .WAIT_0 => {},
+                windows.NTSTATUS.WAIT_0 => {},
                 else => unreachable,
             }
         }
@@ -293,7 +298,7 @@ pub const AtomicEvent = struct {
                         return @intToPtr(?windows.HANDLE, handle);
                     },
                     LOADING => {
-                        std.os.sched_yield() catch std.Thread.spinLoopHint();
+                        std.os.sched_yield() catch std.atomic.spinLoopHint();
                         handle = @atomicLoad(usize, &event_handle, .Monotonic);
                     },
                     else => {
@@ -320,7 +325,7 @@ test "basic usage" {
     event.reset();
 
     event.set();
-    testing.expectEqual(TimedWaitResult.event_set, event.timedWait(1));
+    try testing.expectEqual(TimedWaitResult.event_set, event.timedWait(1));
 
     // test cross-thread signaling
     if (std.builtin.single_threaded)
@@ -333,25 +338,25 @@ test "basic usage" {
         in: StaticResetEvent = .{},
         out: StaticResetEvent = .{},
 
-        fn sender(self: *Self) void {
+        fn sender(self: *Self) !void {
             // update value and signal input
-            testing.expect(self.value == 0);
+            try testing.expect(self.value == 0);
             self.value = 1;
             self.in.set();
 
             // wait for receiver to update value and signal output
             self.out.wait();
-            testing.expect(self.value == 2);
+            try testing.expect(self.value == 2);
 
             // update value and signal final input
             self.value = 3;
             self.in.set();
         }
 
-        fn receiver(self: *Self) void {
+        fn receiver(self: *Self) !void {
             // wait for sender to update value and signal input
             self.in.wait();
-            assert(self.value == 1);
+            try testing.expect(self.value == 1);
 
             // update value and signal output
             self.in.reset();
@@ -360,7 +365,7 @@ test "basic usage" {
 
             // wait for sender to update value and signal final input
             self.in.wait();
-            assert(self.value == 3);
+            try testing.expect(self.value == 3);
         }
 
         fn sleeper(self: *Self) void {
@@ -372,16 +377,16 @@ test "basic usage" {
 
         fn timedWaiter(self: *Self) !void {
             self.in.wait();
-            testing.expectEqual(TimedWaitResult.timed_out, self.out.timedWait(time.ns_per_us));
+            try testing.expectEqual(TimedWaitResult.timed_out, self.out.timedWait(time.ns_per_us));
             try self.out.timedWait(time.ns_per_ms * 100);
-            testing.expect(self.value == 5);
+            try testing.expect(self.value == 5);
         }
     };
 
     var context = Context{};
     const receiver = try std.Thread.spawn(Context.receiver, &context);
     defer receiver.wait();
-    context.sender();
+    try context.sender();
 
     if (false) {
         // I have now observed this fail on macOS, Windows, and Linux.

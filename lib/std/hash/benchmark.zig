@@ -3,9 +3,9 @@
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
-// zig run benchmark.zig --release-fast --override-lib-dir ..
+// zig run benchmark.zig --release-fast --zig-lib-dir ..
 
-const builtin = @import("builtin");
+const builtin = std.builtin;
 const std = @import("std");
 const time = std.time;
 const Timer = time.Timer;

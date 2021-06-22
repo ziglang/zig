@@ -91,6 +91,7 @@ void zig_stage1_build_object(struct ZigStage1 *stage1) {
     g->have_pic = stage1->pic;
     g->have_pie = stage1->pie;
     g->have_lto = stage1->lto;
+    g->unwind_tables = stage1->unwind_tables;
     g->have_stack_probing = stage1->enable_stack_probing;
     g->red_zone = stage1->red_zone;
     g->is_single_threaded = stage1->is_single_threaded;
@@ -106,8 +107,6 @@ void zig_stage1_build_object(struct ZigStage1 *stage1) {
     g->enable_stack_report = stage1->enable_stack_report;
     g->test_is_evented = stage1->test_is_evented;
 
-    g->verbose_tokenize = stage1->verbose_tokenize;
-    g->verbose_ast = stage1->verbose_ast;
     g->verbose_ir = stage1->verbose_ir;
     g->verbose_llvm_ir = stage1->verbose_llvm_ir;
     g->verbose_cimport = stage1->verbose_cimport;

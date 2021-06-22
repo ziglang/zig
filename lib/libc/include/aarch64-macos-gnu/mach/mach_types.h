@@ -146,6 +146,7 @@ typedef mach_port_t             arcade_register_t;
 typedef mach_port_t             ipc_eventlink_t;
 typedef mach_port_t             eventlink_port_pair_t[2];
 typedef mach_port_t             suid_cred_t;
+typedef mach_port_t             task_id_token_t;
 
 
 /*
@@ -167,6 +168,8 @@ typedef mach_port_t             vm_task_entry_t;
 typedef mach_port_t             io_master_t;
 typedef mach_port_t             UNDServerRef;
 typedef mach_port_t             mach_eventlink_t;
+
+typedef ipc_info_port_t         exception_handler_info_t;
 
 /*
  * Mig doesn't translate the components of an array.
@@ -246,25 +249,26 @@ typedef uint32_t suid_cred_uid_t;
 #define MACH_EVENTLINK_NULL     ((mach_eventlink_t) 0)
 #define IPC_EVENTLINK_NULL      ((ipc_eventlink_t) 0)
 #define SUID_CRED_NULL          ((suid_cred_t) 0)
+#define TASK_ID_TOKEN_NULL      ((task_id_token_t) 0)
 
 /* capability strictly _DECREASING_.
  * not ordered the other way around because we want TASK_FLAVOR_CONTROL
  * to be closest to the itk_lock. see task.h.
  */
 typedef unsigned int            mach_task_flavor_t;
-#define TASK_FLAVOR_CONTROL        0    /* a task_t */
+#define TASK_FLAVOR_CONTROL     0    /* a task_t */
 #define TASK_FLAVOR_READ        1    /* a task_read_t */
 #define TASK_FLAVOR_INSPECT     2    /* a task_inspect_t */
 #define TASK_FLAVOR_NAME        3    /* a task_name_t */
 
 /* capability strictly _DECREASING_ */
 typedef unsigned int            mach_thread_flavor_t;
-#define THREAD_FLAVOR_CONTROL    0    /* a thread_t */
+#define THREAD_FLAVOR_CONTROL   0    /* a thread_t */
 #define THREAD_FLAVOR_READ      1    /* a thread_read_t */
 #define THREAD_FLAVOR_INSPECT   2    /* a thread_inspect_t */
 
 /* DEPRECATED */
-typedef natural_t       ledger_item_t;
+typedef natural_t               ledger_item_t;
 #define LEDGER_ITEM_INFINITY    ((ledger_item_t) (~0))
 
 typedef int64_t                 ledger_amount_t;

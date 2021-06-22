@@ -51,6 +51,7 @@ namespace std
     template <class T> struct is_arithmetic;
     template <class T> struct is_fundamental;
     template <class T> struct is_member_pointer;
+    template <class T> struct is_scoped_enum; // C++2b
     template <class T> struct is_scalar;
     template <class T> struct is_object;
     template <class T> struct is_compound;
@@ -284,6 +285,8 @@ namespace std
         = is_compound<T>::value;                                         // C++17
       template <class T> inline constexpr bool is_member_pointer_v
         = is_member_pointer<T>::value;                                   // C++17
+      template <class T> inline constexpr bool is_scoped_enum_v
+        = is_scoped_enum<T>::value;                                      // C++2b
 
       // See C++14 20.10.4.3, type properties
       template <class T> inline constexpr bool is_const_v
@@ -514,7 +517,7 @@ template <template <class...> class, class ...>
 false_type __sfinae_test_impl(...);
 
 template <template <class ...> class _Templ, class ..._Args>
-using _IsValidExpansion _LIBCPP_NODEBUG_TYPE = decltype(std::__sfinae_test_impl<_Templ, _Args...>(0));
+using _IsValidExpansion _LIBCPP_NODEBUG_TYPE = decltype(__sfinae_test_impl<_Templ, _Args...>(0));
 
 template <class>
 struct __void_t { typedef void type; };
@@ -594,75 +597,6 @@ template <class _Tp>
 using __is_primary_template = _IsValidExpansion<
     __test_for_primary_template, _Tp
   >;
-
-// addressof
-#ifndef _LIBCPP_HAS_NO_BUILTIN_ADDRESSOF
-
-template <class _Tp>
-inline _LIBCPP_CONSTEXPR_AFTER_CXX14
-_LIBCPP_NO_CFI _LIBCPP_INLINE_VISIBILITY
-_Tp*
-addressof(_Tp& __x) _NOEXCEPT
-{
-    return __builtin_addressof(__x);
-}
-
-#else
-
-template <class _Tp>
-inline _LIBCPP_NO_CFI _LIBCPP_INLINE_VISIBILITY
-_Tp*
-addressof(_Tp& __x) _NOEXCEPT
-{
-  return reinterpret_cast<_Tp *>(
-      const_cast<char *>(&reinterpret_cast<const volatile char &>(__x)));
-}
-
-#endif // _LIBCPP_HAS_NO_BUILTIN_ADDRESSOF
-
-#if defined(_LIBCPP_HAS_OBJC_ARC) && !defined(_LIBCPP_PREDEFINED_OBJC_ARC_ADDRESSOF)
-// Objective-C++ Automatic Reference Counting uses qualified pointers
-// that require special addressof() signatures. When
-// _LIBCPP_PREDEFINED_OBJC_ARC_ADDRESSOF is defined, the compiler
-// itself is providing these definitions. Otherwise, we provide them.
-template <class _Tp>
-inline _LIBCPP_INLINE_VISIBILITY
-__strong _Tp*
-addressof(__strong _Tp& __x) _NOEXCEPT
-{
-  return &__x;
-}
-
-#ifdef _LIBCPP_HAS_OBJC_ARC_WEAK
-template <class _Tp>
-inline _LIBCPP_INLINE_VISIBILITY
-__weak _Tp*
-addressof(__weak _Tp& __x) _NOEXCEPT
-{
-  return &__x;
-}
-#endif
-
-template <class _Tp>
-inline _LIBCPP_INLINE_VISIBILITY
-__autoreleasing _Tp*
-addressof(__autoreleasing _Tp& __x) _NOEXCEPT
-{
-  return &__x;
-}
-
-template <class _Tp>
-inline _LIBCPP_INLINE_VISIBILITY
-__unsafe_unretained _Tp*
-addressof(__unsafe_unretained _Tp& __x) _NOEXCEPT
-{
-  return &__x;
-}
-#endif
-
-#if !defined(_LIBCPP_CXX03_LANG)
-template <class _Tp> _Tp* addressof(const _Tp&&) noexcept = delete;
-#endif
 
 struct __two {char __lx[2];};
 
@@ -1731,6 +1665,21 @@ _LIBCPP_INLINE_VAR _LIBCPP_CONSTEXPR bool is_base_of_v
     = is_base_of<_Bp, _Dp>::value;
 #endif
 
+// __is_core_convertible
+
+// [conv.general]/3 says "E is convertible to T" whenever "T t=E;" is well-formed.
+// We can't test for that, but we can test implicit convertibility by passing it
+// to a function. Notice that __is_core_convertible<void,void> is false,
+// and __is_core_convertible<immovable-type,immovable-type> is true in C++17 and later.
+
+template <class _Tp, class _Up, class = void>
+struct __is_core_convertible : public false_type {};
+
+template <class _Tp, class _Up>
+struct __is_core_convertible<_Tp, _Up, decltype(
+    static_cast<void(*)(_Up)>(0) ( static_cast<_Tp(*)()>(0)() )
+)> : public true_type {};
+
 // is_convertible
 
 #if __has_feature(is_convertible_to) && !defined(_LIBCPP_USE_IS_CONVERTIBLE_FALLBACK)
@@ -1821,7 +1770,7 @@ template <typename _Tp>
 static void __test_noexcept(_Tp) noexcept;
 
 template<typename _Fm, typename _To>
-static bool_constant<noexcept(__test_noexcept<_To>(declval<_Fm>()))>
+static bool_constant<noexcept(_VSTD::__test_noexcept<_To>(declval<_Fm>()))>
 __is_nothrow_convertible_test();
 
 template <typename _Fm, typename _To>
@@ -2550,7 +2499,7 @@ _LIBCPP_INLINE_VAR _LIBCPP_CONSTEXPR bool is_destructible_v = __is_destructible(
 //  if it's a function, return false
 //  if it's   void,     return false
 //  if it's an array of unknown bound, return false
-//  Otherwise, return "std::declval<_Up&>().~_Up()" is well-formed
+//  Otherwise, return "declval<_Up&>().~_Up()" is well-formed
 //    where _Up is remove_all_extents<_Tp>::type
 
 template <class>
@@ -2876,167 +2825,13 @@ struct __member_pointer_class_type<_Ret _ClassType::*> {
   typedef _ClassType type;
 };
 
-// result_of
-
-template <class _Callable> class result_of;
-
-#ifdef _LIBCPP_HAS_NO_VARIADICS
-
-template <class _Fn, bool, bool>
-class __result_of
-{
-};
-
-template <class _Fn>
-class __result_of<_Fn(), true, false>
-{
-public:
-    typedef decltype(declval<_Fn>()()) type;
-};
-
-template <class _Fn, class _A0>
-class __result_of<_Fn(_A0), true, false>
-{
-public:
-    typedef decltype(declval<_Fn>()(declval<_A0>())) type;
-};
-
-template <class _Fn, class _A0, class _A1>
-class __result_of<_Fn(_A0, _A1), true, false>
-{
-public:
-    typedef decltype(declval<_Fn>()(declval<_A0>(), declval<_A1>())) type;
-};
-
-template <class _Fn, class _A0, class _A1, class _A2>
-class __result_of<_Fn(_A0, _A1, _A2), true, false>
-{
-public:
-    typedef decltype(declval<_Fn>()(declval<_A0>(), declval<_A1>(), declval<_A2>())) type;
-};
-
-template <class _MP, class _Tp, bool _IsMemberFunctionPtr>
-struct __result_of_mp;
-
-// member function pointer
-
-template <class _MP, class _Tp>
-struct __result_of_mp<_MP, _Tp, true>
-    : public __identity<typename __member_pointer_traits<_MP>::_ReturnType>
-{
-};
-
-// member data pointer
-
-template <class _MP, class _Tp, bool>
-struct __result_of_mdp;
-
-template <class _Rp, class _Class, class _Tp>
-struct __result_of_mdp<_Rp _Class::*, _Tp, false>
-{
-    typedef typename __apply_cv<decltype(*_VSTD::declval<_Tp>()), _Rp>::type& type;
-};
-
-template <class _Rp, class _Class, class _Tp>
-struct __result_of_mdp<_Rp _Class::*, _Tp, true>
-{
-    typedef typename __apply_cv<_Tp, _Rp>::type& type;
-};
-
-template <class _Rp, class _Class, class _Tp>
-struct __result_of_mp<_Rp _Class::*, _Tp, false>
-    : public __result_of_mdp<_Rp _Class::*, _Tp,
-            is_base_of<_Class, typename remove_reference<_Tp>::type>::value>
-{
-};
-
-
-
-template <class _Fn, class _Tp>
-class __result_of<_Fn(_Tp), false, true>  // _Fn must be member pointer
-    : public __result_of_mp<typename remove_reference<_Fn>::type,
-                            _Tp,
-                            is_member_function_pointer<typename remove_reference<_Fn>::type>::value>
-{
-};
-
-template <class _Fn, class _Tp, class _A0>
-class __result_of<_Fn(_Tp, _A0), false, true>  // _Fn must be member pointer
-    : public __result_of_mp<typename remove_reference<_Fn>::type,
-                            _Tp,
-                            is_member_function_pointer<typename remove_reference<_Fn>::type>::value>
-{
-};
-
-template <class _Fn, class _Tp, class _A0, class _A1>
-class __result_of<_Fn(_Tp, _A0, _A1), false, true>  // _Fn must be member pointer
-    : public __result_of_mp<typename remove_reference<_Fn>::type,
-                            _Tp,
-                            is_member_function_pointer<typename remove_reference<_Fn>::type>::value>
-{
-};
-
-template <class _Fn, class _Tp, class _A0, class _A1, class _A2>
-class __result_of<_Fn(_Tp, _A0, _A1, _A2), false, true>  // _Fn must be member pointer
-    : public __result_of_mp<typename remove_reference<_Fn>::type,
-                            _Tp,
-                            is_member_function_pointer<typename remove_reference<_Fn>::type>::value>
-{
-};
-
-// result_of
-
-template <class _Fn>
-class _LIBCPP_TEMPLATE_VIS result_of<_Fn()>
-    : public __result_of<_Fn(),
-                         is_class<typename remove_reference<_Fn>::type>::value ||
-                         is_function<typename remove_pointer<typename remove_reference<_Fn>::type>::type>::value,
-                         is_member_pointer<typename remove_reference<_Fn>::type>::value
-                        >
-{
-};
-
-template <class _Fn, class _A0>
-class _LIBCPP_TEMPLATE_VIS result_of<_Fn(_A0)>
-    : public __result_of<_Fn(_A0),
-                         is_class<typename remove_reference<_Fn>::type>::value ||
-                         is_function<typename remove_pointer<typename remove_reference<_Fn>::type>::type>::value,
-                         is_member_pointer<typename remove_reference<_Fn>::type>::value
-                        >
-{
-};
-
-template <class _Fn, class _A0, class _A1>
-class _LIBCPP_TEMPLATE_VIS result_of<_Fn(_A0, _A1)>
-    : public __result_of<_Fn(_A0, _A1),
-                         is_class<typename remove_reference<_Fn>::type>::value ||
-                         is_function<typename remove_pointer<typename remove_reference<_Fn>::type>::type>::value,
-                         is_member_pointer<typename remove_reference<_Fn>::type>::value
-                        >
-{
-};
-
-template <class _Fn, class _A0, class _A1, class _A2>
-class _LIBCPP_TEMPLATE_VIS result_of<_Fn(_A0, _A1, _A2)>
-    : public __result_of<_Fn(_A0, _A1, _A2),
-                         is_class<typename remove_reference<_Fn>::type>::value ||
-                         is_function<typename remove_pointer<typename remove_reference<_Fn>::type>::type>::value,
-                         is_member_pointer<typename remove_reference<_Fn>::type>::value
-                        >
-{
-};
-
-#endif  // _LIBCPP_HAS_NO_VARIADICS
-
 // template <class T, class... Args> struct is_constructible;
 
-namespace __is_construct
-{
-struct __nat {};
-}
+#if defined(_LIBCPP_COMPILER_GCC) && _GNUC_VER_NEW >= 10000
+# define _LIBCPP_GCC_SUPPORTS_IS_CONSTRUCTIBLE
+#endif
 
-#if !defined(_LIBCPP_CXX03_LANG) && (!__has_feature(is_constructible) || \
-    defined(_LIBCPP_TESTING_FALLBACK_IS_CONSTRUCTIBLE))
+#if !defined(_LIBCPP_CXX03_LANG) && !__has_feature(is_constructible) && !defined(_LIBCPP_GCC_SUPPORTS_IS_CONSTRUCTIBLE)
 
 template <class _Tp, class... _Args>
 struct __libcpp_is_constructible;
@@ -3151,7 +2946,7 @@ struct __libcpp_is_constructible<_Tp&&, _A0>
 
 #endif
 
-#if __has_feature(is_constructible)
+#if __has_feature(is_constructible) || defined(_LIBCPP_GCC_SUPPORTS_IS_CONSTRUCTIBLE)
 template <class _Tp, class ..._Args>
 struct _LIBCPP_TEMPLATE_VIS is_constructible
     : public integral_constant<bool, __is_constructible(_Tp, _Args...)>
@@ -3442,7 +3237,7 @@ void __implicit_conversion_to(_Tp) noexcept { }
 
 template <class _Tp, class _Arg>
 struct __libcpp_is_nothrow_constructible</*is constructible*/true, /*is reference*/true, _Tp, _Arg>
-    : public integral_constant<bool, noexcept(__implicit_conversion_to<_Tp>(declval<_Arg>()))>
+    : public integral_constant<bool, noexcept(_VSTD::__implicit_conversion_to<_Tp>(declval<_Arg>()))>
 {
 };
 
@@ -3807,7 +3602,7 @@ auto __invoke_constexpr(__any, _Args&& ...__args) -> __nat;
 template <class _Fp, class _A0, class ..._Args,
           class = __enable_if_bullet1<_Fp, _A0>>
 inline _LIBCPP_INLINE_VISIBILITY
-auto
+_LIBCPP_CONSTEXPR_AFTER_CXX17 auto
 __invoke(_Fp&& __f, _A0&& __a0, _Args&& ...__args)
 _LIBCPP_INVOKE_RETURN((_VSTD::forward<_A0>(__a0).*__f)(_VSTD::forward<_Args>(__args)...))
 
@@ -3821,7 +3616,7 @@ _LIBCPP_INVOKE_RETURN((_VSTD::forward<_A0>(__a0).*__f)(_VSTD::forward<_Args>(__a
 template <class _Fp, class _A0, class ..._Args,
           class = __enable_if_bullet2<_Fp, _A0>>
 inline _LIBCPP_INLINE_VISIBILITY
-auto
+_LIBCPP_CONSTEXPR_AFTER_CXX17 auto
 __invoke(_Fp&& __f, _A0&& __a0, _Args&& ...__args)
 _LIBCPP_INVOKE_RETURN((__a0.get().*__f)(_VSTD::forward<_Args>(__args)...))
 
@@ -3835,7 +3630,7 @@ _LIBCPP_INVOKE_RETURN((__a0.get().*__f)(_VSTD::forward<_Args>(__args)...))
 template <class _Fp, class _A0, class ..._Args,
           class = __enable_if_bullet3<_Fp, _A0>>
 inline _LIBCPP_INLINE_VISIBILITY
-auto
+_LIBCPP_CONSTEXPR_AFTER_CXX17 auto
 __invoke(_Fp&& __f, _A0&& __a0, _Args&& ...__args)
 _LIBCPP_INVOKE_RETURN(((*_VSTD::forward<_A0>(__a0)).*__f)(_VSTD::forward<_Args>(__args)...))
 
@@ -3851,7 +3646,7 @@ _LIBCPP_INVOKE_RETURN(((*_VSTD::forward<_A0>(__a0)).*__f)(_VSTD::forward<_Args>(
 template <class _Fp, class _A0,
           class = __enable_if_bullet4<_Fp, _A0>>
 inline _LIBCPP_INLINE_VISIBILITY
-auto
+_LIBCPP_CONSTEXPR_AFTER_CXX17 auto
 __invoke(_Fp&& __f, _A0&& __a0)
 _LIBCPP_INVOKE_RETURN(_VSTD::forward<_A0>(__a0).*__f)
 
@@ -3865,7 +3660,7 @@ _LIBCPP_INVOKE_RETURN(_VSTD::forward<_A0>(__a0).*__f)
 template <class _Fp, class _A0,
           class = __enable_if_bullet5<_Fp, _A0>>
 inline _LIBCPP_INLINE_VISIBILITY
-auto
+_LIBCPP_CONSTEXPR_AFTER_CXX17 auto
 __invoke(_Fp&& __f, _A0&& __a0)
 _LIBCPP_INVOKE_RETURN(__a0.get().*__f)
 
@@ -3879,7 +3674,7 @@ _LIBCPP_INVOKE_RETURN(__a0.get().*__f)
 template <class _Fp, class _A0,
           class = __enable_if_bullet6<_Fp, _A0>>
 inline _LIBCPP_INLINE_VISIBILITY
-auto
+_LIBCPP_CONSTEXPR_AFTER_CXX17 auto
 __invoke(_Fp&& __f, _A0&& __a0)
 _LIBCPP_INVOKE_RETURN((*_VSTD::forward<_A0>(__a0)).*__f)
 
@@ -3894,7 +3689,7 @@ _LIBCPP_INVOKE_RETURN((*_VSTD::forward<_A0>(__a0)).*__f)
 
 template <class _Fp, class ..._Args>
 inline _LIBCPP_INLINE_VISIBILITY
-auto
+_LIBCPP_CONSTEXPR_AFTER_CXX17 auto
 __invoke(_Fp&& __f, _Args&& ...__args)
 _LIBCPP_INVOKE_RETURN(_VSTD::forward<_Fp>(__f)(_VSTD::forward<_Args>(__args)...))
 
@@ -3982,13 +3777,96 @@ struct __invoke_of
 {
 };
 
+#endif // _LIBCPP_CXX03_LANG
+
 // result_of
+
+template <class _Callable> class result_of;
+
+#ifndef _LIBCPP_CXX03_LANG
 
 template <class _Fp, class ..._Args>
 class _LIBCPP_TEMPLATE_VIS result_of<_Fp(_Args...)>
     : public __invoke_of<_Fp, _Args...>
 {
 };
+
+#else // C++03
+
+template <class _Fn, bool, bool>
+class __result_of
+{
+};
+
+template <class _Fn, class ..._Args>
+class __result_of<_Fn(_Args...), true, false>
+{
+public:
+    typedef decltype(declval<_Fn>()(declval<_Args>()...)) type;
+};
+
+template <class _MP, class _Tp, bool _IsMemberFunctionPtr>
+struct __result_of_mp;
+
+// member function pointer
+
+template <class _MP, class _Tp>
+struct __result_of_mp<_MP, _Tp, true>
+    : public __identity<typename __member_pointer_traits<_MP>::_ReturnType>
+{
+};
+
+// member data pointer
+
+template <class _MP, class _Tp, bool>
+struct __result_of_mdp;
+
+template <class _Rp, class _Class, class _Tp>
+struct __result_of_mdp<_Rp _Class::*, _Tp, false>
+{
+    typedef typename __apply_cv<decltype(*_VSTD::declval<_Tp>()), _Rp>::type& type;
+};
+
+template <class _Rp, class _Class, class _Tp>
+struct __result_of_mdp<_Rp _Class::*, _Tp, true>
+{
+    typedef typename __apply_cv<_Tp, _Rp>::type& type;
+};
+
+template <class _Rp, class _Class, class _Tp>
+struct __result_of_mp<_Rp _Class::*, _Tp, false>
+    : public __result_of_mdp<_Rp _Class::*, _Tp,
+            is_base_of<_Class, typename remove_reference<_Tp>::type>::value>
+{
+};
+
+template <class _Fn, class _Tp>
+class __result_of<_Fn(_Tp), false, true>  // _Fn must be member pointer
+    : public __result_of_mp<typename remove_reference<_Fn>::type,
+                            _Tp,
+                            is_member_function_pointer<typename remove_reference<_Fn>::type>::value>
+{
+};
+
+template <class _Fn, class _Tp, class ..._Args>
+class __result_of<_Fn(_Tp, _Args...), false, true>  // _Fn must be member pointer
+    : public __result_of_mp<typename remove_reference<_Fn>::type,
+                            _Tp,
+                            is_member_function_pointer<typename remove_reference<_Fn>::type>::value>
+{
+};
+
+template <class _Fn, class ..._Args>
+class _LIBCPP_TEMPLATE_VIS result_of<_Fn(_Args...)>
+    : public __result_of<_Fn(_Args...),
+                         is_class<typename remove_reference<_Fn>::type>::value ||
+                         is_function<typename remove_pointer<typename remove_reference<_Fn>::type>::type>::value,
+                         is_member_pointer<typename remove_reference<_Fn>::type>::value
+                        >
+{
+};
+
+#endif  // C++03
 
 #if _LIBCPP_STD_VER > 11
 template <class _Tp> using result_of_t = typename result_of<_Tp>::type;
@@ -4044,8 +3922,6 @@ _LIBCPP_INLINE_VAR constexpr bool is_nothrow_invocable_r_v
     = is_nothrow_invocable_r<_Ret, _Fn, _Args...>::value;
 
 #endif // _LIBCPP_STD_VER > 14
-
-#endif  // !defined(_LIBCPP_CXX03_LANG)
 
 template <class _Tp> struct __is_swappable;
 template <class _Tp> struct __is_nothrow_swappable;
@@ -4319,6 +4195,25 @@ struct __has_operator_addressof
 
 #endif  // _LIBCPP_CXX03_LANG
 
+// is_scoped_enum [meta.unary.prop]
+
+#if _LIBCPP_STD_VER > 20
+template <class _Tp, bool = is_enum_v<_Tp> >
+struct __is_scoped_enum_helper : false_type {};
+
+template <class _Tp>
+struct __is_scoped_enum_helper<_Tp, true>
+    : public bool_constant<!is_convertible_v<_Tp, underlying_type_t<_Tp> > > {};
+
+template <class _Tp>
+struct _LIBCPP_TEMPLATE_VIS is_scoped_enum
+    : public __is_scoped_enum_helper<_Tp> {};
+
+template <class _Tp>
+_LIBCPP_INLINE_VAR _LIBCPP_CONSTEXPR bool is_scoped_enum_v =
+    is_scoped_enum<_Tp>::value;
+#endif
+
 #if _LIBCPP_STD_VER > 14
 
 template <class... _Args>
@@ -4341,7 +4236,6 @@ _LIBCPP_INLINE_VAR constexpr bool negation_v
 #endif  // _LIBCPP_STD_VER > 14
 
 // These traits are used in __tree and __hash_table
-#ifndef _LIBCPP_CXX03_LANG
 struct __extract_key_fail_tag {};
 struct __extract_key_self_tag {};
 struct __extract_key_first_tag {};
@@ -4353,7 +4247,7 @@ struct __can_extract_key
                   __extract_key_fail_tag>::type {};
 
 template <class _Pair, class _Key, class _First, class _Second>
-struct __can_extract_key<_Pair, _Key, pair<_First, _Second>>
+struct __can_extract_key<_Pair, _Key, pair<_First, _Second> >
     : conditional<_IsSame<typename remove_const<_First>::type, _Key>::value,
                   __extract_key_first_tag, __extract_key_fail_tag>::type {};
 
@@ -4370,8 +4264,6 @@ struct __can_extract_map_key
 template <class _ValTy, class _Key, class _RawValTy>
 struct __can_extract_map_key<_ValTy, _Key, _Key, _RawValTy>
     : false_type {};
-
-#endif
 
 #ifndef _LIBCPP_HAS_NO_BUILTIN_IS_CONSTANT_EVALUATED
 #if _LIBCPP_STD_VER > 17

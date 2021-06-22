@@ -7,6 +7,7 @@ const std = @import("../std.zig");
 const assert = std.debug.assert;
 const builtin = @import("builtin");
 const macho = std.macho;
+const native_arch = builtin.target.cpu.arch;
 
 usingnamespace @import("../os/bits.zig");
 
@@ -34,13 +35,13 @@ extern "c" fn fstat(fd: fd_t, buf: *libc_stat) c_int;
 /// On x86_64 Darwin, fstat has to be manully linked with $INODE64 suffix to force 64bit version.
 /// Note that this is fixed on aarch64 and no longer necessary.
 extern "c" fn @"fstat$INODE64"(fd: fd_t, buf: *libc_stat) c_int;
-pub const _fstat = if (builtin.arch == .aarch64) fstat else @"fstat$INODE64";
+pub const _fstat = if (native_arch == .aarch64) fstat else @"fstat$INODE64";
 
 extern "c" fn fstatat(dirfd: fd_t, path: [*:0]const u8, stat_buf: *libc_stat, flags: u32) c_int;
 /// On x86_64 Darwin, fstatat has to be manully linked with $INODE64 suffix to force 64bit version.
 /// Note that this is fixed on aarch64 and no longer necessary.
 extern "c" fn @"fstatat$INODE64"(dirfd: fd_t, path_name: [*:0]const u8, buf: *libc_stat, flags: u32) c_int;
-pub const _fstatat = if (builtin.arch == .aarch64) fstatat else @"fstatat$INODE64";
+pub const _fstatat = if (native_arch == .aarch64) fstatat else @"fstatat$INODE64";
 
 pub extern "c" fn mach_absolute_time() u64;
 pub extern "c" fn mach_timebase_info(tinfo: ?*mach_timebase_info_data) void;
@@ -121,7 +122,7 @@ pub const AI_NUMERICHOST = 0x00000004;
 /// prevent service name resolution
 pub const AI_NUMERICSERV = 0x00001000;
 
-pub const EAI = extern enum(c_int) {
+pub const EAI = enum(c_int) {
     /// address family for hostname not supported
     ADDRFAMILY = 1,
 
@@ -196,13 +197,65 @@ pub extern "c" fn pthread_threadid_np(thread: ?pthread_t, thread_id: *u64) c_int
 pub extern "c" fn arc4random_buf(buf: [*]u8, len: usize) void;
 
 // Grand Central Dispatch is exposed by libSystem.
+pub extern "c" fn dispatch_release(object: *c_void) void;
+
 pub const dispatch_semaphore_t = *opaque {};
-pub const dispatch_time_t = u64;
-pub const DISPATCH_TIME_NOW = @as(dispatch_time_t, 0);
-pub const DISPATCH_TIME_FOREVER = ~@as(dispatch_time_t, 0);
 pub extern "c" fn dispatch_semaphore_create(value: isize) ?dispatch_semaphore_t;
 pub extern "c" fn dispatch_semaphore_wait(dsema: dispatch_semaphore_t, timeout: dispatch_time_t) isize;
 pub extern "c" fn dispatch_semaphore_signal(dsema: dispatch_semaphore_t) isize;
 
-pub extern "c" fn dispatch_release(object: *c_void) void;
+pub const dispatch_time_t = u64;
+pub const DISPATCH_TIME_NOW = @as(dispatch_time_t, 0);
+pub const DISPATCH_TIME_FOREVER = ~@as(dispatch_time_t, 0);
 pub extern "c" fn dispatch_time(when: dispatch_time_t, delta: i64) dispatch_time_t;
+
+const dispatch_once_t = usize;
+const dispatch_function_t = fn (?*c_void) callconv(.C) void;
+pub extern fn dispatch_once_f(
+    predicate: *dispatch_once_t,
+    context: ?*c_void,
+    function: dispatch_function_t,
+) void;
+
+// Undocumented futex-like API available on darwin 16+
+// (macOS 10.12+, iOS 10.0+, tvOS 10.0+, watchOS 3.0+, catalyst 13.0+).
+//
+// [ulock.h]: https://github.com/apple/darwin-xnu/blob/master/bsd/sys/ulock.h
+// [sys_ulock.c]: https://github.com/apple/darwin-xnu/blob/master/bsd/kern/sys_ulock.c
+
+pub const UL_COMPARE_AND_WAIT = 1;
+pub const UL_UNFAIR_LOCK = 2;
+
+// Obsolete/deprecated
+pub const UL_OSSPINLOCK = UL_COMPARE_AND_WAIT;
+pub const UL_HANDOFFLOCK = UL_UNFAIR_LOCK;
+
+pub const ULF_WAKE_ALL = 0x100;
+pub const ULF_WAKE_THREAD = 0x200;
+pub const ULF_WAIT_WORKQ_DATA_CONTENTION = 0x10000;
+pub const ULF_WAIT_CANCEL_POINT = 0x20000;
+pub const ULF_NO_ERRNO = 0x1000000;
+
+// The following are only supported on darwin 19+
+// (macOS 10.15+, iOS 13.0+)
+pub const UL_COMPARE_AND_WAIT_SHARED = 3;
+pub const UL_UNFAIR_LOCK64_SHARED = 4;
+pub const UL_COMPARE_AND_WAIT64 = 5;
+pub const UL_COMPARE_AND_WAIT64_SHARED = 6;
+pub const ULF_WAIT_ADAPTIVE_SPIN = 0x40000;
+
+pub extern "c" fn __ulock_wait2(op: u32, addr: ?*const c_void, val: u64, timeout_us: u32, val2: u64) c_int;
+pub extern "c" fn __ulock_wait(op: u32, addr: ?*const c_void, val: u64, timeout_us: u32) c_int;
+pub extern "c" fn __ulock_wake(op: u32, addr: ?*const c_void, val: u64) c_int;
+
+pub const OS_UNFAIR_LOCK_INIT = os_unfair_lock{};
+pub const os_unfair_lock_t = *os_unfair_lock;
+pub const os_unfair_lock = extern struct {
+    _os_unfair_lock_opaque: u32 = 0,
+};
+
+pub extern "c" fn os_unfair_lock_lock(o: os_unfair_lock_t) void;
+pub extern "c" fn os_unfair_lock_unlock(o: os_unfair_lock_t) void;
+pub extern "c" fn os_unfair_lock_trylock(o: os_unfair_lock_t) bool;
+pub extern "c" fn os_unfair_lock_assert_owner(o: os_unfair_lock_t) void;
+pub extern "c" fn os_unfair_lock_assert_not_owner(o: os_unfair_lock_t) void;

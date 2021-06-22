@@ -182,7 +182,7 @@ test "CodeSignature header" {
     try code_sig.writeHeader(stream.writer());
 
     const expected = &[_]u8{ 0xfa, 0xde, 0x0c, 0xc0, 0x0, 0x0, 0x0, 0xc, 0x0, 0x0, 0x0, 0x0 };
-    testing.expect(mem.eql(u8, expected, &buffer));
+    try testing.expect(mem.eql(u8, expected, &buffer));
 }
 
 pub fn calcCodeSignaturePaddingSize(id: []const u8, file_size: u64, page_size: u16) u32 {

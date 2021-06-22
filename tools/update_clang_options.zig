@@ -51,7 +51,15 @@ const known_options = [_]KnownOpt{
         .ident = "pic",
     },
     .{
+        .name = "fpic",
+        .ident = "pic",
+    },
+    .{
         .name = "fno-PIC",
+        .ident = "no_pic",
+    },
+    .{
+        .name = "fno-pic",
         .ident = "no_pic",
     },
     .{
@@ -59,7 +67,27 @@ const known_options = [_]KnownOpt{
         .ident = "pie",
     },
     .{
+        .name = "fpie",
+        .ident = "pie",
+    },
+    .{
+        .name = "pie",
+        .ident = "pie",
+    },
+    .{
         .name = "fno-PIE",
+        .ident = "no_pie",
+    },
+    .{
+        .name = "fno-pie",
+        .ident = "no_pie",
+    },
+    .{
+        .name = "no-pie",
+        .ident = "no_pie",
+    },
+    .{
+        .name = "nopie",
         .ident = "no_pie",
     },
     .{
@@ -69,6 +97,14 @@ const known_options = [_]KnownOpt{
     .{
         .name = "fno-lto",
         .ident = "no_lto",
+    },
+    .{
+        .name = "funwind-tables",
+        .ident = "unwind_tables",
+    },
+    .{
+        .name = "fno-unwind-tables",
+        .ident = "no_unwind_tables",
     },
     .{
         .name = "nolibc",
@@ -336,6 +372,10 @@ const known_options = [_]KnownOpt{
         .name = "dynamiclib",
         .ident = "shared",
     },
+    .{
+        .name = "mexec-model",
+        .ident = "exec_model",
+    },
 };
 
 const blacklisted_options = [_][]const u8{};
@@ -412,16 +452,16 @@ pub fn main() anyerror!void {
     {
         var it = root_map.iterator();
         it_map: while (it.next()) |kv| {
-            if (kv.key.len == 0) continue;
-            if (kv.key[0] == '!') continue;
-            if (kv.value != .Object) continue;
-            if (!kv.value.Object.contains("NumArgs")) continue;
-            if (!kv.value.Object.contains("Name")) continue;
+            if (kv.key_ptr.len == 0) continue;
+            if (kv.key_ptr.*[0] == '!') continue;
+            if (kv.value_ptr.* != .Object) continue;
+            if (!kv.value_ptr.Object.contains("NumArgs")) continue;
+            if (!kv.value_ptr.Object.contains("Name")) continue;
             for (blacklisted_options) |blacklisted_key| {
-                if (std.mem.eql(u8, blacklisted_key, kv.key)) continue :it_map;
+                if (std.mem.eql(u8, blacklisted_key, kv.key_ptr.*)) continue :it_map;
             }
-            if (kv.value.Object.get("Name").?.String.len == 0) continue;
-            try all_objects.append(&kv.value.Object);
+            if (kv.value_ptr.Object.get("Name").?.String.len == 0) continue;
+            try all_objects.append(&kv.value_ptr.Object);
         }
     }
     // Some options have multiple matches. As an example, "-Wl,foo" matches both
@@ -545,6 +585,8 @@ const Syntax = union(enum) {
         options: std.fmt.FormatOptions,
         out_stream: anytype,
     ) !void {
+        _ = fmt;
+        _ = options;
         switch (self) {
             .multi_arg => |n| return out_stream.print(".{{.{s}={}}}", .{ @tagName(self), n }),
             else => return out_stream.print(".{s}", .{@tagName(self)}),
@@ -623,6 +665,7 @@ fn syntaxMatchesWithEql(syntax: Syntax) bool {
 }
 
 fn objectLessThan(context: void, a: *json.ObjectMap, b: *json.ObjectMap) bool {
+    _ = context;
     // Priority is determined by exact matches first, followed by prefix matches in descending
     // length, with key as a final tiebreaker.
     const a_syntax = objSyntax(a);

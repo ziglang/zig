@@ -351,7 +351,6 @@ pub const Tokenizer = struct {
     pp_directive: bool = false,
 
     pub fn next(self: *Tokenizer) Token {
-        const start_index = self.index;
         var result = Token{
             .id = .Eof,
             .start = self.index,
@@ -1310,7 +1309,7 @@ pub const Tokenizer = struct {
 };
 
 test "operators" {
-    expectTokens(
+    try expectTokens(
         \\ ! != | || |= = ==
         \\ ( ) { } [ ] . .. ...
         \\ ^ ^= + ++ += - -- -=
@@ -1379,13 +1378,13 @@ test "operators" {
 }
 
 test "keywords" {
-    expectTokens(
-        \\auto break case char const continue default do 
-        \\double else enum extern float for goto if int 
-        \\long register return short signed sizeof static 
-        \\struct switch typedef union unsigned void volatile 
-        \\while _Bool _Complex _Imaginary inline restrict _Alignas 
-        \\_Alignof _Atomic _Generic _Noreturn _Static_assert _Thread_local 
+    try expectTokens(
+        \\auto break case char const continue default do
+        \\double else enum extern float for goto if int
+        \\long register return short signed sizeof static
+        \\struct switch typedef union unsigned void volatile
+        \\while _Bool _Complex _Imaginary inline restrict _Alignas
+        \\_Alignof _Atomic _Generic _Noreturn _Static_assert _Thread_local
         \\
     , &[_]Token.Id{
         .Keyword_auto,
@@ -1442,7 +1441,7 @@ test "keywords" {
 }
 
 test "preprocessor keywords" {
-    expectTokens(
+    try expectTokens(
         \\#include <test>
         \\#define #include <1
         \\#ifdef
@@ -1478,7 +1477,7 @@ test "preprocessor keywords" {
 }
 
 test "line continuation" {
-    expectTokens(
+    try expectTokens(
         \\#define foo \
         \\  bar
         \\"foo\
@@ -1509,7 +1508,7 @@ test "line continuation" {
 }
 
 test "string prefix" {
-    expectTokens(
+    try expectTokens(
         \\"foo"
         \\u"foo"
         \\u8"foo"
@@ -1543,7 +1542,7 @@ test "string prefix" {
 }
 
 test "num suffixes" {
-    expectTokens(
+    try expectTokens(
         \\ 1.0f 1.0L 1.0 .0 1.
         \\ 0l 0lu 0ll 0llu 0
         \\ 1u 1ul 1ull 1
@@ -1573,7 +1572,7 @@ test "num suffixes" {
     });
 }
 
-fn expectTokens(source: []const u8, expected_tokens: []const Token.Id) void {
+fn expectTokens(source: []const u8, expected_tokens: []const Token.Id) !void {
     var tokenizer = Tokenizer{
         .buffer = source,
     };
@@ -1584,5 +1583,5 @@ fn expectTokens(source: []const u8, expected_tokens: []const Token.Id) void {
         }
     }
     const last_token = tokenizer.next();
-    std.testing.expect(last_token.id == .Eof);
+    try std.testing.expect(last_token.id == .Eof);
 }

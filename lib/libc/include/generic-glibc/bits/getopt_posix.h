@@ -1,5 +1,5 @@
 /* Declarations for getopt (POSIX compatibility shim).
-   Copyright (C) 1989-2020 Free Software Foundation, Inc.
+   Copyright (C) 1989-2021 Free Software Foundation, Inc.
    Unlike the bulk of the getopt implementation, this file is NOT part
    of gnulib.
 

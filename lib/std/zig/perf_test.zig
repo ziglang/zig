@@ -9,6 +9,7 @@ const warn = std.debug.warn;
 const Tokenizer = std.zig.Tokenizer;
 const Parser = std.zig.Parser;
 const io = std.io;
+const fmtIntSizeBin = std.fmt.fmtIntSizeBin;
 
 const source = @embedFile("../os.zig");
 var fixed_buffer_mem: [10 * 1024 * 1024]u8 = undefined;
@@ -25,12 +26,15 @@ pub fn main() !void {
     const end = timer.read();
     memory_used /= iterations;
     const elapsed_s = @intToFloat(f64, end - start) / std.time.ns_per_s;
-    const bytes_per_sec = @intToFloat(f64, source.len * iterations) / elapsed_s;
-    const mb_per_sec = bytes_per_sec / (1024 * 1024);
+    const bytes_per_sec_float = @intToFloat(f64, source.len * iterations) / elapsed_s;
+    const bytes_per_sec = @floatToInt(u64, @floor(bytes_per_sec_float));
 
     var stdout_file = std.io.getStdOut();
     const stdout = stdout_file.writer();
-    try stdout.print("{:.3} MiB/s, {} KiB used \n", .{ mb_per_sec, memory_used / 1024 });
+    try stdout.print("parsing speed: {:.2}/s, {:.2} used \n", .{
+        fmtIntSizeBin(bytes_per_sec),
+        fmtIntSizeBin(memory_used),
+    });
 }
 
 fn testOnce() usize {

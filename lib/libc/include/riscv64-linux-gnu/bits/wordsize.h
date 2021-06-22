@@ -1,5 +1,5 @@
 /* Determine the wordsize from the preprocessor defines.  RISC-V version.
-   Copyright (C) 2002-2020 Free Software Foundation, Inc.
+   Copyright (C) 2002-2021 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -22,8 +22,9 @@
 # error unsupported ABI
 #endif
 
-#if __riscv_xlen == 64
-# define __WORDSIZE_TIME64_COMPAT32 1
-#else
-# error "rv32i-based targets are not supported"
+#define __WORDSIZE_TIME64_COMPAT32  1
+
+#if __WORDSIZE == 32
+# define __WORDSIZE32_SIZE_ULONG    0
+# define __WORDSIZE32_PTRDIFF_LONG  0
 #endif

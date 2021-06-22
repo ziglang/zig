@@ -131,7 +131,7 @@ extern fn LLVMLookupIntrinsicID(Name: [*]const u8, NameLen: usize) c_uint;
 pub const disposeMessage = LLVMDisposeMessage;
 extern fn LLVMDisposeMessage(Message: [*:0]const u8) void;
 
-pub const VerifierFailureAction = extern enum {
+pub const VerifierFailureAction = enum(c_int) {
     AbortProcess,
     PrintMessage,
     ReturnStatus,
@@ -228,7 +228,7 @@ pub const Builder = opaque {
     extern fn LLVMBuildExtractValue(*const Builder, AggVal: *const Value, Index: c_uint, Name: [*:0]const u8) *const Value;
 };
 
-pub const IntPredicate = extern enum {
+pub const IntPredicate = enum(c_int) {
     EQ = 32,
     NE = 33,
     UGT = 34,
@@ -274,7 +274,7 @@ pub const TargetMachine = opaque {
     ) Bool;
 };
 
-pub const CodeMode = extern enum {
+pub const CodeMode = enum(c_int) {
     Default,
     JITDefault,
     Tiny,
@@ -284,14 +284,14 @@ pub const CodeMode = extern enum {
     Large,
 };
 
-pub const CodeGenOptLevel = extern enum {
+pub const CodeGenOptLevel = enum(c_int) {
     None,
     Less,
     Default,
     Aggressive,
 };
 
-pub const RelocMode = extern enum {
+pub const RelocMode = enum(c_int) {
     Default,
     Static,
     PIC,
@@ -301,7 +301,7 @@ pub const RelocMode = extern enum {
     ROPI_RWPI,
 };
 
-pub const CodeGenFileType = extern enum {
+pub const CodeGenFileType = enum(c_int) {
     AssemblyFile,
     ObjectFile,
 };
@@ -504,10 +504,11 @@ pub const LinkELF = ZigLLDLinkELF;
 pub const LinkMachO = ZigLLDLinkMachO;
 pub const LinkWasm = ZigLLDLinkWasm;
 
-pub const ObjectFormatType = extern enum(c_int) {
+pub const ObjectFormatType = enum(c_int) {
     Unknown,
     COFF,
     ELF,
+    GOFF,
     MachO,
     Wasm,
     XCOFF,
@@ -527,98 +528,100 @@ extern fn ZigLLVMWriteArchive(
     os_type: OSType,
 ) bool;
 
-pub const OSType = extern enum(c_int) {
-    UnknownOS = 0,
-    Ananas = 1,
-    CloudABI = 2,
-    Darwin = 3,
-    DragonFly = 4,
-    FreeBSD = 5,
-    Fuchsia = 6,
-    IOS = 7,
-    KFreeBSD = 8,
-    Linux = 9,
-    Lv2 = 10,
-    MacOSX = 11,
-    NetBSD = 12,
-    OpenBSD = 13,
-    Solaris = 14,
-    Win32 = 15,
-    Haiku = 16,
-    Minix = 17,
-    RTEMS = 18,
-    NaCl = 19,
-    CNK = 20,
-    AIX = 21,
-    CUDA = 22,
-    NVCL = 23,
-    AMDHSA = 24,
-    PS4 = 25,
-    ELFIAMCU = 26,
-    TvOS = 27,
-    WatchOS = 28,
-    Mesa3D = 29,
-    Contiki = 30,
-    AMDPAL = 31,
-    HermitCore = 32,
-    Hurd = 33,
-    WASI = 34,
-    Emscripten = 35,
+pub const OSType = enum(c_int) {
+    UnknownOS,
+    Ananas,
+    CloudABI,
+    Darwin,
+    DragonFly,
+    FreeBSD,
+    Fuchsia,
+    IOS,
+    KFreeBSD,
+    Linux,
+    Lv2,
+    MacOSX,
+    NetBSD,
+    OpenBSD,
+    Solaris,
+    Win32,
+    ZOS,
+    Haiku,
+    Minix,
+    RTEMS,
+    NaCl,
+    AIX,
+    CUDA,
+    NVCL,
+    AMDHSA,
+    PS4,
+    ELFIAMCU,
+    TvOS,
+    WatchOS,
+    Mesa3D,
+    Contiki,
+    AMDPAL,
+    HermitCore,
+    Hurd,
+    WASI,
+    Emscripten,
 };
 
-pub const ArchType = extern enum(c_int) {
-    UnknownArch = 0,
-    arm = 1,
-    armeb = 2,
-    aarch64 = 3,
-    aarch64_be = 4,
-    aarch64_32 = 5,
-    arc = 6,
-    avr = 7,
-    bpfel = 8,
-    bpfeb = 9,
-    hexagon = 10,
-    mips = 11,
-    mipsel = 12,
-    mips64 = 13,
-    mips64el = 14,
-    msp430 = 15,
-    ppc = 16,
-    ppc64 = 17,
-    ppc64le = 18,
-    r600 = 19,
-    amdgcn = 20,
-    riscv32 = 21,
-    riscv64 = 22,
-    sparc = 23,
-    sparcv9 = 24,
-    sparcel = 25,
-    systemz = 26,
-    tce = 27,
-    tcele = 28,
-    thumb = 29,
-    thumbeb = 30,
-    x86 = 31,
-    x86_64 = 32,
-    xcore = 33,
-    nvptx = 34,
-    nvptx64 = 35,
-    le32 = 36,
-    le64 = 37,
-    amdil = 38,
-    amdil64 = 39,
-    hsail = 40,
-    hsail64 = 41,
-    spir = 42,
-    spir64 = 43,
-    kalimba = 44,
-    shave = 45,
-    lanai = 46,
-    wasm32 = 47,
-    wasm64 = 48,
-    renderscript32 = 49,
-    renderscript64 = 50,
-    ve = 51,
+pub const ArchType = enum(c_int) {
+    UnknownArch,
+    arm,
+    armeb,
+    aarch64,
+    aarch64_be,
+    aarch64_32,
+    arc,
+    avr,
+    bpfel,
+    bpfeb,
+    csky,
+    hexagon,
+    mips,
+    mipsel,
+    mips64,
+    mips64el,
+    msp430,
+    ppc,
+    ppcle,
+    ppc64,
+    ppc64le,
+    r600,
+    amdgcn,
+    riscv32,
+    riscv64,
+    sparc,
+    sparcv9,
+    sparcel,
+    systemz,
+    tce,
+    tcele,
+    thumb,
+    thumbeb,
+    x86,
+    x86_64,
+    xcore,
+    nvptx,
+    nvptx64,
+    le32,
+    le64,
+    amdil,
+    amdil64,
+    hsail,
+    hsail64,
+    spir,
+    spir64,
+    kalimba,
+    shave,
+    lanai,
+    wasm32,
+    wasm64,
+    renderscript32,
+    renderscript64,
+    ve,
 };
 
 pub const ParseCommandLineOptions = ZigLLVMParseCommandLineOptions;

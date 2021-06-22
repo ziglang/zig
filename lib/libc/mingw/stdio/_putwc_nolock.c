@@ -1,3 +1,5 @@
+#undef __MSVCRT_VERSION__
+#define __MSVCRT_VERSION__ 0x800
 #include <stdio.h>
 
 #undef _putwc_nolock

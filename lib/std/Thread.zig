@@ -11,6 +11,7 @@
 data: Data,
 
 pub const AutoResetEvent = @import("Thread/AutoResetEvent.zig");
+pub const Futex = @import("Thread/Futex.zig");
 pub const ResetEvent = @import("Thread/ResetEvent.zig");
 pub const StaticResetEvent = @import("Thread/StaticResetEvent.zig");
 pub const Mutex = @import("Thread/Mutex.zig");
@@ -67,14 +68,7 @@ else switch (std.Target.current.os.tag) {
     else => struct {},
 };
 
-/// Signals the processor that it is inside a busy-wait spin-loop ("spin lock").
-pub fn spinLoopHint() void {
-    switch (std.Target.current.cpu.arch) {
-        .i386, .x86_64 => asm volatile ("pause" ::: "memory"),
-        .arm, .aarch64 => asm volatile ("yield" ::: "memory"),
-        else => {},
-    }
-}
+pub const spinLoopHint = @compileError("deprecated: use std.atomic.spinLoopHint");
 
 /// Returns the ID of the calling thread.
 /// Makes a syscall every time the function is called.
@@ -199,7 +193,8 @@ pub fn spawn(comptime startFn: anytype, context: SpawnContextType(@TypeOf(startF
                 inner: Context,
             };
             fn threadMain(raw_arg: windows.LPVOID) callconv(.C) windows.DWORD {
-                const arg = if (@sizeOf(Context) == 0) {} else @ptrCast(*Context, @alignCast(@alignOf(Context), raw_arg)).*;
+                const arg = if (@sizeOf(Context) == 0) undefined //
+                else @ptrCast(*Context, @alignCast(@alignOf(Context), raw_arg)).*;
 
                 switch (@typeInfo(@typeInfo(@TypeOf(startFn)).Fn.return_type.?)) {
                     .NoReturn => {
@@ -260,7 +255,8 @@ pub fn spawn(comptime startFn: anytype, context: SpawnContextType(@TypeOf(startF
 
     const MainFuncs = struct {
         fn linuxThreadMain(ctx_addr: usize) callconv(.C) u8 {
-            const arg = if (@sizeOf(Context) == 0) {} else @intToPtr(*const Context, ctx_addr).*;
+            const arg = if (@sizeOf(Context) == 0) undefined //
+            else @intToPtr(*Context, ctx_addr).*;
 
             switch (@typeInfo(@typeInfo(@TypeOf(startFn)).Fn.return_type.?)) {
                 .NoReturn => {
@@ -292,7 +288,8 @@ pub fn spawn(comptime startFn: anytype, context: SpawnContextType(@TypeOf(startF
             }
         }
         fn posixThreadMain(ctx: ?*c_void) callconv(.C) ?*c_void {
-            const arg = if (@sizeOf(Context) == 0) {} else @ptrCast(*Context, @alignCast(@alignOf(Context), ctx)).*;
+            const arg = if (@sizeOf(Context) == 0) undefined //
+            else @ptrCast(*Context, @alignCast(@alignOf(Context), ctx)).*;
 
             switch (@typeInfo(@typeInfo(@TypeOf(startFn)).Fn.return_type.?)) {
                 .NoReturn => {
@@ -521,8 +518,8 @@ pub fn cpuCount() CpuCountError!usize {
         },
         .haiku => {
             var count: u32 = undefined;
-            var system_info: os.system_info = undefined;
-            const rc = os.system.get_system_info(&system_info);
+            // var system_info: os.system_info = undefined;
+            // const rc = os.system.get_system_info(&system_info);
             count = system_info.cpu_count;
             return @intCast(usize, count);
         },
@@ -554,6 +551,9 @@ pub fn getCurrentThreadId() u64 {
             assert(c.pthread_threadid_np(null, &thread_id) == 0);
             return thread_id;
         },
+        .dragonfly => {
+            return @bitCast(u32, c.lwp_gettid());
+        },
         .netbsd => {
             return @bitCast(u32, c._lwp_self());
         },
@@ -572,8 +572,14 @@ pub fn getCurrentThreadId() u64 {
     }
 }
 
-test {
+test "std.Thread" {
     if (!builtin.single_threaded) {
-        std.testing.refAllDecls(@This());
+        _ = AutoResetEvent;
+        _ = Futex;
+        _ = ResetEvent;
+        _ = StaticResetEvent;
+        _ = Mutex;
+        _ = Semaphore;
+        _ = Condition;
     }
 }

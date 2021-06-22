@@ -142,12 +142,16 @@ namespace std {
       constexpr size_type find_last_not_of(const charT* s, size_type pos, size_type n) const;
       constexpr size_type find_last_not_of(const charT* s, size_type pos = npos) const;
 
-      constexpr bool starts_with(basic_string_view s) const noexcept; // C++2a
-      constexpr bool starts_with(charT c) const noexcept;             // C++2a
-      constexpr bool starts_with(const charT* s) const;               // C++2a
-      constexpr bool ends_with(basic_string_view s) const noexcept;   // C++2a
-      constexpr bool ends_with(charT c) const noexcept;               // C++2a
-      constexpr bool ends_with(const charT* s) const;                 // C++2a
+      constexpr bool starts_with(basic_string_view s) const noexcept; // C++20
+      constexpr bool starts_with(charT c) const noexcept;             // C++20
+      constexpr bool starts_with(const charT* s) const;               // C++20
+      constexpr bool ends_with(basic_string_view s) const noexcept;   // C++20
+      constexpr bool ends_with(charT c) const noexcept;               // C++20
+      constexpr bool ends_with(const charT* s) const;                 // C++20
+
+      constexpr bool contains(basic_string_view s) const noexcept; // C++2b
+      constexpr bool contains(charT c) const noexcept;             // C++2b
+      constexpr bool contains(const charT* s) const;               // C++2b
 
      private:
       const_pointer data_;  // exposition only
@@ -192,7 +196,26 @@ _LIBCPP_PUSH_MACROS
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template<class _CharT, class _Traits = char_traits<_CharT> >
-class _LIBCPP_TEMPLATE_VIS basic_string_view {
+    class _LIBCPP_TEMPLATE_VIS basic_string_view;
+
+typedef basic_string_view<char>     string_view;
+#ifndef _LIBCPP_NO_HAS_CHAR8_T
+typedef basic_string_view<char8_t>  u8string_view;
+#endif
+typedef basic_string_view<char16_t> u16string_view;
+typedef basic_string_view<char32_t> u32string_view;
+typedef basic_string_view<wchar_t>  wstring_view;
+
+template<class _CharT, class _Traits>
+class
+    _LIBCPP_PREFERRED_NAME(string_view)
+#ifndef _LIBCPP_NO_HAS_CHAR8_T
+    _LIBCPP_PREFERRED_NAME(u8string_view)
+#endif
+    _LIBCPP_PREFERRED_NAME(u16string_view)
+    _LIBCPP_PREFERRED_NAME(u32string_view)
+    _LIBCPP_PREFERRED_NAME(wstring_view)
+    basic_string_view {
 public:
     // types
     typedef _Traits                                    traits_type;
@@ -236,7 +259,7 @@ public:
 
     _LIBCPP_CONSTEXPR _LIBCPP_INLINE_VISIBILITY
     basic_string_view(const _CharT* __s)
-        : __data(__s), __size(std::__char_traits_length_checked<_Traits>(__s)) {}
+        : __data(__s), __size(_VSTD::__char_traits_length_checked<_Traits>(__s)) {}
 
     // [string.view.iterators], iterators
     _LIBCPP_CONSTEXPR _LIBCPP_INLINE_VISIBILITY
@@ -278,7 +301,9 @@ public:
 
     // [string.view.access], element access
     _LIBCPP_CONSTEXPR _LIBCPP_INLINE_VISIBILITY
-    const_reference operator[](size_type __pos) const _NOEXCEPT { return __data[__pos]; }
+    const_reference operator[](size_type __pos) const _NOEXCEPT {
+      return _LIBCPP_ASSERT(__pos < size(), "string_view[] index out of bounds"), __data[__pos];
+    }
 
     _LIBCPP_CONSTEXPR _LIBCPP_INLINE_VISIBILITY
     const_reference at(size_type __pos) const
@@ -601,6 +626,20 @@ public:
     { return ends_with(basic_string_view(__s)); }
 #endif
 
+#if _LIBCPP_STD_VER > 20
+    constexpr _LIBCPP_INLINE_VISIBILITY
+    bool contains(basic_string_view __sv) const noexcept
+    { return find(__sv) != npos; }
+
+    constexpr _LIBCPP_INLINE_VISIBILITY
+    bool contains(value_type __c) const noexcept
+    { return find(__c) != npos; }
+
+    constexpr _LIBCPP_INLINE_VISIBILITY
+    bool contains(const value_type* __s) const
+    { return find(__s) != npos; }
+#endif
+
 private:
     const   value_type* __data;
     size_type           __size;
@@ -773,14 +812,6 @@ template<class _CharT, class _Traits>
 basic_ostream<_CharT, _Traits>&
 operator<<(basic_ostream<_CharT, _Traits>& __os,
            basic_string_view<_CharT, _Traits> __str);
-
-typedef basic_string_view<char>     string_view;
-#ifndef _LIBCPP_NO_HAS_CHAR8_T
-typedef basic_string_view<char8_t>  u8string_view;
-#endif
-typedef basic_string_view<char16_t> u16string_view;
-typedef basic_string_view<char32_t> u32string_view;
-typedef basic_string_view<wchar_t>  wstring_view;
 
 // [string.view.hash]
 template<class _CharT>

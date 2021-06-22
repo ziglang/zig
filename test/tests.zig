@@ -98,15 +98,14 @@ const test_targets = blk: {
             },
             .link_libc = true,
         },
-        // https://github.com/ziglang/zig/issues/4926
-        //TestTarget{
-        //    .target = .{
-        //        .cpu_arch = .i386,
-        //        .os_tag = .linux,
-        //        .abi = .gnu,
-        //    },
-        //    .link_libc = true,
-        //},
+        TestTarget{
+            .target = .{
+                .cpu_arch = .i386,
+                .os_tag = .linux,
+                .abi = .gnu,
+            },
+            .link_libc = true,
+        },
 
         TestTarget{
             .target = .{
@@ -154,21 +153,25 @@ const test_targets = blk: {
         //    .link_libc = true,
         //},
 
-        TestTarget{
-            .target = .{
-                .cpu_arch = .mips,
-                .os_tag = .linux,
-                .abi = .none,
-            },
-        },
-        TestTarget{
-            .target = .{
-                .cpu_arch = .mips,
-                .os_tag = .linux,
-                .abi = .musl,
-            },
-            .link_libc = true,
-        },
+        // https://github.com/ziglang/zig/issues/8155
+        //TestTarget{
+        //    .target = .{
+        //        .cpu_arch = .mips,
+        //        .os_tag = .linux,
+        //        .abi = .none,
+        //    },
+        //},
+
+        // https://github.com/ziglang/zig/issues/8155
+        //TestTarget{
+        //    .target = .{
+        //        .cpu_arch = .mips,
+        //        .os_tag = .linux,
+        //        .abi = .musl,
+        //    },
+        //    .link_libc = true,
+        //},
+
         // https://github.com/ziglang/zig/issues/4927
         //TestTarget{
         //    .target = .{
@@ -179,21 +182,25 @@ const test_targets = blk: {
         //    .link_libc = true,
         //},
 
-        TestTarget{
-            .target = .{
-                .cpu_arch = .mipsel,
-                .os_tag = .linux,
-                .abi = .none,
-            },
-        },
-        TestTarget{
-            .target = .{
-                .cpu_arch = .mipsel,
-                .os_tag = .linux,
-                .abi = .musl,
-            },
-            .link_libc = true,
-        },
+        // https://github.com/ziglang/zig/issues/8155
+        //TestTarget{
+        //    .target = .{
+        //        .cpu_arch = .mipsel,
+        //        .os_tag = .linux,
+        //        .abi = .none,
+        //    },
+        //},
+
+        // https://github.com/ziglang/zig/issues/8155
+        //TestTarget{
+        //    .target = .{
+        //        .cpu_arch = .mipsel,
+        //        .os_tag = .linux,
+        //        .abi = .musl,
+        //    },
+        //    .link_libc = true,
+        //},
+
         // https://github.com/ziglang/zig/issues/4927
         //TestTarget{
         //    .target = .{
@@ -203,6 +210,22 @@ const test_targets = blk: {
         //    },
         //    .link_libc = true,
         //},
+
+        TestTarget{
+            .target = .{
+                .cpu_arch = .powerpc,
+                .os_tag = .linux,
+                .abi = .none,
+            },
+        },
+        TestTarget{
+            .target = .{
+                .cpu_arch = .powerpc,
+                .os_tag = .linux,
+                .abi = .musl,
+            },
+            .link_libc = true,
+        },
 
         TestTarget{
             .target = .{
@@ -376,7 +399,7 @@ pub fn addCompileErrorTests(b: *build.Builder, test_filter: ?[]const u8, modes: 
     return cases.step;
 }
 
-pub fn addStandaloneTests(b: *build.Builder, test_filter: ?[]const u8, modes: []const Mode) *build.Step {
+pub fn addStandaloneTests(b: *build.Builder, test_filter: ?[]const u8, modes: []const Mode, skip_non_native: bool, target: std.zig.CrossTarget) *build.Step {
     const cases = b.allocator.create(StandaloneContext) catch unreachable;
     cases.* = StandaloneContext{
         .b = b,
@@ -384,6 +407,8 @@ pub fn addStandaloneTests(b: *build.Builder, test_filter: ?[]const u8, modes: []
         .test_index = 0,
         .test_filter = test_filter,
         .modes = modes,
+        .skip_non_native = skip_non_native,
+        .target = target,
     };
 
     standalone.addCases(cases);
@@ -392,6 +417,8 @@ pub fn addStandaloneTests(b: *build.Builder, test_filter: ?[]const u8, modes: []
 }
 
 pub fn addCliTests(b: *build.Builder, test_filter: ?[]const u8, modes: []const Mode) *build.Step {
+    _ = test_filter;
+    _ = modes;
     const step = b.step("test-cli", "Test the command line interface");
 
     const exe = b.addExecutable("test-cli", "test/cli.zig");
@@ -480,6 +507,7 @@ pub fn addPkgTests(
     is_wine_enabled: bool,
     is_qemu_enabled: bool,
     is_wasmtime_enabled: bool,
+    is_darling_enabled: bool,
     glibc_dir: ?[]const u8,
 ) *build.Step {
     const step = b.step(b.fmt("test-{s}", .{name}), desc);
@@ -499,7 +527,6 @@ pub fn addPkgTests(
         if (skip_single_threaded and test_target.single_threaded)
             continue;
 
-        const ArchTag = std.meta.Tag(builtin.Arch);
         if (test_target.disable_native and
             test_target.target.getOsTag() == std.Target.current.os.tag and
             test_target.target.getCpuArch() == std.Target.current.cpu.arch)
@@ -541,6 +568,7 @@ pub fn addPkgTests(
         these_tests.enable_wine = is_wine_enabled;
         these_tests.enable_qemu = is_qemu_enabled;
         these_tests.enable_wasmtime = is_wasmtime_enabled;
+        these_tests.enable_darling = is_darling_enabled;
         these_tests.glibc_multi_install_dir = glibc_dir;
         these_tests.addIncludeDir("test");
 
@@ -558,45 +586,92 @@ pub const StackTracesContext = struct {
 
     const Expect = [@typeInfo(Mode).Enum.fields.len][]const u8;
 
-    pub fn addCase(
-        self: *StackTracesContext,
-        name: []const u8,
-        source: []const u8,
-        expect: Expect,
-    ) void {
-        const b = self.b;
-
+    pub fn addCase(self: *StackTracesContext, config: anytype) void {
+        if (@hasField(@TypeOf(config), "exclude")) {
+            if (config.exclude.exclude()) return;
+        }
+        if (@hasField(@TypeOf(config), "exclude_arch")) {
+            const exclude_arch: []const std.Target.Cpu.Arch = &config.exclude_arch;
+            for (exclude_arch) |arch| if (arch == builtin.cpu.arch) return;
+        }
+        if (@hasField(@TypeOf(config), "exclude_os")) {
+            const exclude_os: []const std.Target.Os.Tag = &config.exclude_os;
+            for (exclude_os) |os| if (os == builtin.os.tag) return;
+        }
         for (self.modes) |mode| {
-            const expect_for_mode = expect[@enumToInt(mode)];
-            if (expect_for_mode.len == 0) continue;
-
-            const annotated_case_name = fmt.allocPrint(self.b.allocator, "{s} {s} ({s})", .{
-                "stack-trace",
-                name,
-                @tagName(mode),
-            }) catch unreachable;
-            if (self.test_filter) |filter| {
-                if (mem.indexOf(u8, annotated_case_name, filter) == null) continue;
+            switch (mode) {
+                .Debug => {
+                    if (@hasField(@TypeOf(config), "Debug")) {
+                        self.addExpect(config.name, config.source, mode, config.Debug);
+                    }
+                },
+                .ReleaseSafe => {
+                    if (@hasField(@TypeOf(config), "ReleaseSafe")) {
+                        self.addExpect(config.name, config.source, mode, config.ReleaseSafe);
+                    }
+                },
+                .ReleaseFast => {
+                    if (@hasField(@TypeOf(config), "ReleaseFast")) {
+                        self.addExpect(config.name, config.source, mode, config.ReleaseFast);
+                    }
+                },
+                .ReleaseSmall => {
+                    if (@hasField(@TypeOf(config), "ReleaseSmall")) {
+                        self.addExpect(config.name, config.source, mode, config.ReleaseSmall);
+                    }
+                },
             }
-
-            const src_basename = "source.zig";
-            const write_src = b.addWriteFile(src_basename, source);
-            const exe = b.addExecutableFromWriteFileStep("test", write_src, src_basename);
-            exe.setBuildMode(mode);
-
-            const run_and_compare = RunAndCompareStep.create(
-                self,
-                exe,
-                annotated_case_name,
-                mode,
-                expect_for_mode,
-            );
-
-            self.step.dependOn(&run_and_compare.step);
         }
     }
 
+    fn addExpect(
+        self: *StackTracesContext,
+        name: []const u8,
+        source: []const u8,
+        mode: Mode,
+        mode_config: anytype,
+    ) void {
+        if (@hasField(@TypeOf(mode_config), "exclude")) {
+            if (mode_config.exclude.exclude()) return;
+        }
+        if (@hasField(@TypeOf(mode_config), "exclude_arch")) {
+            const exclude_arch: []const std.Target.Cpu.Arch = &mode_config.exclude_arch;
+            for (exclude_arch) |arch| if (arch == builtin.cpu.arch) return;
+        }
+        if (@hasField(@TypeOf(mode_config), "exclude_os")) {
+            const exclude_os: []const std.Target.Os.Tag = &mode_config.exclude_os;
+            for (exclude_os) |os| if (os == builtin.os.tag) return;
+        }
+
+        const annotated_case_name = fmt.allocPrint(self.b.allocator, "{s} {s} ({s})", .{
+            "stack-trace",
+            name,
+            @tagName(mode),
+        }) catch unreachable;
+        if (self.test_filter) |filter| {
+            if (mem.indexOf(u8, annotated_case_name, filter) == null) return;
+        }
+
+        const b = self.b;
+        const src_basename = "source.zig";
+        const write_src = b.addWriteFile(src_basename, source);
+        const exe = b.addExecutableSource("test", write_src.getFileSource(src_basename).?);
+        exe.setBuildMode(mode);
+
+        const run_and_compare = RunAndCompareStep.create(
+            self,
+            exe,
+            annotated_case_name,
+            mode,
+            mode_config.expect,
+        );
+
+        self.step.dependOn(&run_and_compare.step);
+    }
+
     const RunAndCompareStep = struct {
+        pub const base_id = .custom;
+
         step: build.Step,
         context: *StackTracesContext,
         exe: *LibExeObjStep,
@@ -615,7 +690,7 @@ pub const StackTracesContext = struct {
             const allocator = context.b.allocator;
             const ptr = allocator.create(RunAndCompareStep) catch unreachable;
             ptr.* = RunAndCompareStep{
-                .step = build.Step.init(.Custom, "StackTraceCompareOutputStep", allocator, make),
+                .step = build.Step.init(.custom, "StackTraceCompareOutputStep", allocator, make),
                 .context = context,
                 .exe = exe,
                 .name = name,
@@ -632,7 +707,7 @@ pub const StackTracesContext = struct {
             const self = @fieldParentPtr(RunAndCompareStep, "step", step);
             const b = self.context.b;
 
-            const full_exe_path = self.exe.getOutputPath();
+            const full_exe_path = self.exe.getOutputSource().getPath(b);
             var args = ArrayList([]const u8).init(b.allocator);
             defer args.deinit();
             args.append(full_exe_path) catch unreachable;
@@ -695,6 +770,7 @@ pub const StackTracesContext = struct {
             // process result
             // - keep only basename of source file path
             // - replace address with symbolic string
+            // - replace function name with symbolic string when mode != .Debug
             // - skip empty lines
             const got: []const u8 = got_result: {
                 var buf = ArrayList(u8).init(b.allocator);
@@ -703,26 +779,46 @@ pub const StackTracesContext = struct {
                 var it = mem.split(stderr, "\n");
                 process_lines: while (it.next()) |line| {
                     if (line.len == 0) continue;
-                    const delims = [_][]const u8{ ":", ":", ":", " in " };
-                    var marks = [_]usize{0} ** 4;
+
                     // offset search past `[drive]:` on windows
                     var pos: usize = if (std.Target.current.os.tag == .windows) 2 else 0;
+                    // locate delims/anchor
+                    const delims = [_][]const u8{ ":", ":", ":", " in ", "(", ")" };
+                    var marks = [_]usize{0} ** delims.len;
                     for (delims) |delim, i| {
                         marks[i] = mem.indexOfPos(u8, line, pos, delim) orelse {
+                            // unexpected pattern: emit raw line and cont
                             try buf.appendSlice(line);
                             try buf.appendSlice("\n");
                             continue :process_lines;
                         };
                         pos = marks[i] + delim.len;
                     }
+                    // locate source basename
                     pos = mem.lastIndexOfScalar(u8, line[0..marks[0]], fs.path.sep) orelse {
+                        // unexpected pattern: emit raw line and cont
                         try buf.appendSlice(line);
                         try buf.appendSlice("\n");
                         continue :process_lines;
                     };
+                    // end processing if source basename changes
+                    if (!mem.eql(u8, "source.zig", line[pos + 1 .. marks[0]])) break;
+                    // emit substituted line
                     try buf.appendSlice(line[pos + 1 .. marks[2] + delims[2].len]);
                     try buf.appendSlice(" [address]");
-                    try buf.appendSlice(line[marks[3]..]);
+                    if (self.mode == .Debug) {
+                        if (mem.lastIndexOfScalar(u8, line[marks[4]..marks[5]], '.')) |idot| {
+                            // On certain platforms (windows) or possibly depending on how we choose to link main
+                            // the object file extension may be present so we simply strip any extension.
+                            try buf.appendSlice(line[marks[3] .. marks[4] + idot]);
+                            try buf.appendSlice(line[marks[5]..]);
+                        } else {
+                            try buf.appendSlice(line[marks[3]..]);
+                        }
+                    } else {
+                        try buf.appendSlice(line[marks[3] .. marks[3] + delims[3].len]);
+                        try buf.appendSlice("[function]");
+                    }
                     try buf.appendSlice("\n");
                 }
                 break :got_result buf.toOwnedSlice();
@@ -779,6 +875,8 @@ pub const CompileErrorContext = struct {
     };
 
     const CompileCmpOutputStep = struct {
+        pub const base_id = .custom;
+
         step: build.Step,
         context: *CompileErrorContext,
         name: []const u8,
@@ -815,7 +913,7 @@ pub const CompileErrorContext = struct {
             const allocator = context.b.allocator;
             const ptr = allocator.create(CompileCmpOutputStep) catch unreachable;
             ptr.* = CompileCmpOutputStep{
-                .step = build.Step.init(.Custom, "CompileCmpOutput", allocator, make),
+                .step = build.Step.init(.custom, "CompileCmpOutput", allocator, make),
                 .context = context,
                 .name = name,
                 .test_index = context.test_index,
@@ -843,7 +941,7 @@ pub const CompileErrorContext = struct {
                 try zig_args.append("build-obj");
             }
             const root_src_basename = self.case.sources.items[0].filename;
-            try zig_args.append(self.write_src.getOutputPath(root_src_basename));
+            try zig_args.append(self.write_src.getFileSource(root_src_basename).?.getPath(b));
 
             zig_args.append("--name") catch unreachable;
             zig_args.append("test") catch unreachable;
@@ -1046,6 +1144,8 @@ pub const StandaloneContext = struct {
     test_index: usize,
     test_filter: ?[]const u8,
     modes: []const Mode,
+    skip_non_native: bool,
+    target: std.zig.CrossTarget,
 
     pub fn addC(self: *StandaloneContext, root_src: []const u8) void {
         self.addAllArgs(root_src, true);
@@ -1055,10 +1155,10 @@ pub const StandaloneContext = struct {
         self.addAllArgs(root_src, false);
     }
 
-    pub fn addBuildFile(self: *StandaloneContext, build_file: []const u8) void {
+    pub fn addBuildFile(self: *StandaloneContext, build_file: []const u8, features: struct { build_modes: bool = false, cross_targets: bool = false }) void {
         const b = self.b;
 
-        const annotated_case_name = b.fmt("build {s} (Debug)", .{build_file});
+        const annotated_case_name = b.fmt("build {s}", .{build_file});
         if (self.test_filter) |filter| {
             if (mem.indexOf(u8, annotated_case_name, filter) == null) return;
         }
@@ -1077,12 +1177,30 @@ pub const StandaloneContext = struct {
             zig_args.append("--verbose") catch unreachable;
         }
 
-        const run_cmd = b.addSystemCommand(zig_args.items);
+        if (features.cross_targets and !self.target.isNative()) {
+            const target_arg = fmt.allocPrint(b.allocator, "-Dtarget={s}", .{self.target.zigTriple(b.allocator) catch unreachable}) catch unreachable;
+            zig_args.append(target_arg) catch unreachable;
+        }
 
-        const log_step = b.addLog("PASS {s}\n", .{annotated_case_name});
-        log_step.step.dependOn(&run_cmd.step);
+        const modes = if (features.build_modes) self.modes else &[1]Mode{.Debug};
+        for (modes) |mode| {
+            const arg = switch (mode) {
+                .Debug => "",
+                .ReleaseFast => "-Drelease-fast",
+                .ReleaseSafe => "-Drelease-safe",
+                .ReleaseSmall => "-Drelease-small",
+            };
+            const zig_args_base_len = zig_args.items.len;
+            if (arg.len > 0)
+                zig_args.append(arg) catch unreachable;
+            defer zig_args.resize(zig_args_base_len) catch unreachable;
 
-        self.step.dependOn(&log_step.step);
+            const run_cmd = b.addSystemCommand(zig_args.items);
+            const log_step = b.addLog("PASS {s} ({s})\n", .{ annotated_case_name, @tagName(mode) });
+            log_step.step.dependOn(&run_cmd.step);
+
+            self.step.dependOn(&log_step.step);
+        }
     }
 
     pub fn addAllArgs(self: *StandaloneContext, root_src: []const u8, link_libc: bool) void {

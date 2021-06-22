@@ -77,7 +77,7 @@ __asm__("?wclog@" _LIBCPP_ABI_NAMESPACE_STR "@std@@3V?$basic_ostream@_WU?$char_t
 #endif
 ;
 
-_LIBCPP_HIDDEN ios_base::Init __start_std_streams;
+_LIBCPP_HIDDEN ios_base::Init __start_std_streams _LIBCPP_INIT_PRIORITY_MAX;
 
 // On Windows the TLS storage for locales needs to be initialized before we create
 // the standard streams, otherwise it may not be alive during program termination

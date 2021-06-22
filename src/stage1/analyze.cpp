@@ -6,9 +6,9 @@
  */
 
 #include "analyze.hpp"
-#include "ast_render.hpp"
 #include "codegen.hpp"
 #include "error.hpp"
+#include "astgen.hpp"
 #include "ir.hpp"
 #include "ir_print.hpp"
 #include "os.hpp"
@@ -41,41 +41,44 @@ static bool is_top_level_struct(ZigType *import) {
     return import->id == ZigTypeIdStruct && import->data.structure.root_struct != nullptr;
 }
 
-static ErrorMsg *add_error_note_token(CodeGen *g, ErrorMsg *parent_msg, ZigType *owner, Token *token, Buf *msg) {
+static ErrorMsg *add_error_note_token(CodeGen *g, ErrorMsg *parent_msg, ZigType *owner,
+    TokenIndex token, Buf *msg)
+{
     assert(is_top_level_struct(owner));
     RootStruct *root_struct = owner->data.structure.root_struct;
-
-    ErrorMsg *err = err_msg_create_with_line(root_struct->path, token->start_line, token->start_column,
-            root_struct->source_code, root_struct->line_offsets, msg);
+    uint32_t byte_offset = root_struct->token_locs[token].offset;
+    ErrorMsg *err = err_msg_create_with_offset(root_struct->path, byte_offset,
+        buf_ptr(root_struct->source_code), msg);
 
     err_msg_add_note(parent_msg, err);
     return err;
 }
 
-ErrorMsg *add_token_error(CodeGen *g, ZigType *owner, Token *token, Buf *msg) {
+ErrorMsg *add_token_error_offset(CodeGen *g, ZigType *owner, TokenIndex token, Buf *msg,
+        uint32_t bad_index)
+{
     assert(is_top_level_struct(owner));
     RootStruct *root_struct = owner->data.structure.root_struct;
-    ErrorMsg *err = err_msg_create_with_line(root_struct->path, token->start_line, token->start_column,
-            root_struct->source_code, root_struct->line_offsets, msg);
+    uint32_t byte_offset = root_struct->token_locs[token].offset + bad_index;
+    ErrorMsg *err = err_msg_create_with_offset(root_struct->path, byte_offset,
+        buf_ptr(root_struct->source_code), msg);
 
     g->errors.append(err);
     g->trace_err = err;
     return err;
 }
 
+ErrorMsg *add_token_error(CodeGen *g, ZigType *owner, TokenIndex token, Buf *msg) {
+    return add_token_error_offset(g, owner, token, msg, 0);
+}
+
 ErrorMsg *add_node_error(CodeGen *g, AstNode *node, Buf *msg) {
-    Token fake_token;
-    fake_token.start_line = node->line;
-    fake_token.start_column = node->column;
     node->already_traced_this_node = true;
-    return add_token_error(g, node->owner, &fake_token, msg);
+    return add_token_error(g, node->owner, node->main_token, msg);
 }
 
 ErrorMsg *add_error_note(CodeGen *g, ErrorMsg *parent_msg, const AstNode *node, Buf *msg) {
-    Token fake_token;
-    fake_token.start_line = node->line;
-    fake_token.start_column = node->column;
-    return add_error_note_token(g, parent_msg, node->owner, &fake_token, msg);
+    return add_error_note_token(g, parent_msg, node->owner, node->main_token, msg);
 }
 
 ZigType *new_type_table_entry(ZigTypeId id) {
@@ -913,13 +916,27 @@ ZigType *get_slice_type(CodeGen *g, ZigType *ptr_type) {
     return entry;
 }
 
-ZigType *get_opaque_type(CodeGen *g, Scope *scope, AstNode *source_node, const char *full_name, Buf *bare_name) {
+static uint32_t node_line_onebased(AstNode *node) {
+    RootStruct *root_struct = node->owner->data.structure.root_struct;
+    assert(node->main_token < root_struct->token_count);
+    return root_struct->token_locs[node->main_token].line + 1;
+}
+
+static uint32_t node_column_onebased(AstNode *node) {
+    RootStruct *root_struct = node->owner->data.structure.root_struct;
+    assert(node->main_token < root_struct->token_count);
+    return root_struct->token_locs[node->main_token].column + 1;
+}
+
+ZigType *get_opaque_type(CodeGen *g, Scope *scope, AstNode *source_node, const char *full_name,
+    Buf *bare_name)
+{
     ZigType *entry = new_type_table_entry(ZigTypeIdOpaque);
 
     buf_init_from_str(&entry->name, full_name);
 
     ZigType *import = scope ? get_scope_import(scope) : nullptr;
-    unsigned line = source_node ? (unsigned)(source_node->line + 1) : 0;
+    unsigned line = source_node ? node_line_onebased(source_node) : 0;
 
     // Note: duplicated in get_partial_container_type
     entry->llvm_type = LLVMInt8Type();
@@ -974,6 +991,7 @@ const char *calling_convention_name(CallingConvention cc) {
         case CallingConventionAAPCS: return "AAPCS";
         case CallingConventionAAPCSVFP: return "AAPCSVFP";
         case CallingConventionInline: return "Inline";
+        case CallingConventionSysV: return "SysV";
     }
     zig_unreachable();
 }
@@ -995,6 +1013,7 @@ bool calling_convention_allows_zig_types(CallingConvention cc) {
         case CallingConventionAPCS:
         case CallingConventionAAPCS:
         case CallingConventionAAPCSVFP:
+        case CallingConventionSysV:
             return false;
     }
     zig_unreachable();
@@ -1140,7 +1159,7 @@ ZigType *get_partial_container_type(CodeGen *g, Scope *scope, ContainerKind kind
             break;
         case ContainerKindOpaque: {
             ZigType *import = scope ? get_scope_import(scope) : nullptr;
-            unsigned line = decl_node ? (unsigned)(decl_node->line + 1) : 0;
+            unsigned line = decl_node ? node_line_onebased(decl_node) : 0;
             // Note: duplicated in get_opaque_type
             entry->llvm_type = LLVMInt8Type();
             entry->llvm_di_type = ZigLLVMCreateDebugForwardDeclType(g->dbuilder,
@@ -1582,8 +1601,9 @@ static OnePossibleValue type_val_resolve_has_one_possible_value(CodeGen *g, ZigV
 ZigType *analyze_type_expr(CodeGen *g, Scope *scope, AstNode *node) {
     Error err;
     // Hot path for simple identifiers, to avoid unnecessary memory allocations.
-    if (node->type == NodeTypeSymbol) {
-        Buf *variable_name = node->data.symbol_expr.symbol;
+    if (node->type == NodeTypeIdentifier) {
+        RootStruct *root_struct = node->owner->data.structure.root_struct;
+        Buf *variable_name = token_identifier_buf(root_struct, node->main_token);
         if (buf_eql_str(variable_name, "_"))
             goto abort_hot_path;
         ZigType *primitive_type;
@@ -1635,6 +1655,9 @@ CallingConvention cc_from_fn_proto(AstNodeFnProto *fn_proto) {
     // Compatible with the C ABI
     if (fn_proto->is_extern || fn_proto->is_export)
         return CallingConventionC;
+
+    if (fn_proto->fn_inline == FnInlineAlways)
+        return CallingConventionInline;
 
     return CallingConventionUnspecified;
 }
@@ -1969,6 +1992,10 @@ Error emit_error_unless_callconv_allowed_for_target(CodeGen *g, AstNode *source_
         case CallingConventionAAPCSVFP:
             if (!target_is_arm(g->zig_target))
                 allowed_platforms = "ARM";
+            break;
+        case CallingConventionSysV:
+            if (g->zig_target->arch != ZigLLVM_x86_64)
+                allowed_platforms = "x86_64";
     }
     if (allowed_platforms != nullptr) {
         add_node_error(g, source_node, buf_sprintf(
@@ -2025,7 +2052,7 @@ static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_sc
                         buf_sprintf("var args only allowed in functions with C calling convention"));
                 return g->builtin_types.entry_invalid;
             }
-        } else if (param_node->data.param_decl.anytype_token != nullptr) {
+        } else if (param_node->data.param_decl.anytype_token != 0) {
             if (!calling_convention_allows_zig_types(fn_type_id.cc)) {
                 add_node_error(g, param_node,
                         buf_sprintf("parameter of type 'anytype' not allowed in function with calling convention '%s'",
@@ -2117,18 +2144,6 @@ static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_sc
     if (proto_node->data.fn_proto.callconv_expr != nullptr) {
         if ((err = emit_error_unless_callconv_allowed_for_target(g, proto_node->data.fn_proto.callconv_expr, cc)))
             return g->builtin_types.entry_invalid;
-    }
-
-    if (fn_proto->return_anytype_token != nullptr) {
-        if (!calling_convention_allows_zig_types(fn_type_id.cc)) {
-            add_node_error(g, fn_proto->return_type,
-                buf_sprintf("return type 'anytype' not allowed in function with calling convention '%s'",
-                calling_convention_name(fn_type_id.cc)));
-            return g->builtin_types.entry_invalid;
-        }
-        add_node_error(g, proto_node,
-            buf_sprintf("TODO implement inferred return types https://github.com/ziglang/zig/issues/447"));
-        return g->builtin_types.entry_invalid;
     }
 
     ZigType *specified_return_type = analyze_type_expr(g, child_scope, fn_proto->return_type);
@@ -3024,7 +3039,7 @@ static Error resolve_struct_zero_bits(CodeGen *g, ZigType *struct_type) {
             field_node = decl_node->data.container_decl.fields.at(i);
             type_struct_field->name = field_node->data.struct_field.name;
             type_struct_field->decl_node = field_node;
-            if (field_node->data.struct_field.comptime_token != nullptr) {
+            if (field_node->data.struct_field.comptime_token != 0) {
                 if (field_node->data.struct_field.value == nullptr) {
                     add_token_error(g, field_node->owner,
                         field_node->data.struct_field.comptime_token,
@@ -3638,14 +3653,7 @@ static void get_fully_qualified_decl_name(CodeGen *g, Buf *buf, Tld *tld, bool i
 
 static ZigFn *create_fn_raw(CodeGen *g, bool is_noinline) {
     ZigFn *fn_entry = heap::c_allocator.create<ZigFn>();
-    fn_entry->ir_executable = heap::c_allocator.create<IrExecutableSrc>();
-
-    fn_entry->prealloc_backward_branch_quota = default_backward_branch_quota;
-
-    fn_entry->analyzed_executable.backward_branch_count = &fn_entry->prealloc_bbc;
-    fn_entry->analyzed_executable.backward_branch_quota = &fn_entry->prealloc_backward_branch_quota;
-    fn_entry->analyzed_executable.fn_entry = fn_entry;
-    fn_entry->ir_executable->fn_entry = fn_entry;
+    fn_entry->stage1_zir = heap::c_allocator.create<Stage1Zir>();
     fn_entry->is_noinline = is_noinline;
 
     return fn_entry;
@@ -3655,7 +3663,7 @@ ZigFn *create_fn(CodeGen *g, AstNode *proto_node) {
     assert(proto_node->type == NodeTypeFnProto);
     AstNodeFnProto *fn_proto = &proto_node->data.fn_proto;
 
-    ZigFn *fn_entry = create_fn_raw(g, fn_proto->is_noinline);
+    ZigFn *fn_entry = create_fn_raw(g, fn_proto->fn_inline == FnInlineNever);
 
     fn_entry->proto_node = proto_node;
     fn_entry->body_node = (proto_node->data.fn_proto.fn_def_node == nullptr) ? nullptr :
@@ -3748,6 +3756,9 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
 
         CallingConvention cc;
         if (fn_proto->callconv_expr != nullptr) {
+            if (fn_proto->fn_inline == FnInlineAlways) {
+                add_node_error(g, fn_proto->callconv_expr, buf_sprintf("explicit callconv incompatible with inline keyword"));
+            }
             ZigType *cc_enum_value = get_builtin_type(g, "CallingConvention");
 
             ZigValue *result_val = analyze_const_value(g, child_scope, fn_proto->callconv_expr,
@@ -3805,6 +3816,7 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
                 case CallingConventionAPCS:
                 case CallingConventionAAPCS:
                 case CallingConventionAAPCSVFP:
+                case CallingConventionSysV:
                     add_fn_export(g, fn_table_entry, buf_ptr(&fn_table_entry->symbol_name),
                                   GlobalLinkageIdStrong, fn_cc);
                     break;
@@ -4041,7 +4053,7 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
         case NodeTypeBoolLiteral:
         case NodeTypeNullLiteral:
         case NodeTypeUndefinedLiteral:
-        case NodeTypeSymbol:
+        case NodeTypeIdentifier:
         case NodeTypePrefixOpExpr:
         case NodeTypePointerType:
         case NodeTypeIfBoolExpr:
@@ -4237,7 +4249,7 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var, bool allow_lazy) {
     bool is_const = var_decl->is_const;
     bool is_extern = var_decl->is_extern;
     bool is_export = var_decl->is_export;
-    bool is_thread_local = var_decl->threadlocal_tok != nullptr;
+    bool is_thread_local = var_decl->threadlocal_tok != 0;
 
     ZigType *explicit_type = nullptr;
     if (var_decl->type) {
@@ -4769,11 +4781,11 @@ Error type_is_nonnull_ptr2(CodeGen *g, ZigType *type, bool *result) {
     return ErrorNone;
 }
 
-static uint32_t get_async_frame_align_bytes(CodeGen *g) {
-    uint32_t a = g->pointer_size_bytes * 2;
-    // promises have at least alignment 8 so that we can have 3 extra bits when doing atomicrmw
-    if (a < 8) a = 8;
-    return a;
+uint32_t get_async_frame_align_bytes(CodeGen *g) {
+    // Due to how the frame structure is built the minimum alignment is the one
+    // of a usize (or pointer).
+    // label (grep this): [fn_frame_struct_layout]
+    return max(g->builtin_types.entry_usize->abi_align, target_fn_align(g->zig_target));
 }
 
 uint32_t get_ptr_align(CodeGen *g, ZigType *type) {
@@ -4789,11 +4801,8 @@ uint32_t get_ptr_align(CodeGen *g, ZigType *type) {
         return (ptr_type->data.pointer.explicit_alignment == 0) ?
             get_abi_alignment(g, ptr_type->data.pointer.child_type) : ptr_type->data.pointer.explicit_alignment;
     } else if (ptr_type->id == ZigTypeIdFn) {
-        // I tried making this use LLVMABIAlignmentOfType but it trips this assertion in LLVM:
-        // "Cannot getTypeInfo() on a type that is unsized!"
-        // when getting the alignment of `?fn() callconv(.C) void`.
-        // See http://lists.llvm.org/pipermail/llvm-dev/2018-September/126142.html
-        return (ptr_type->data.fn.fn_type_id.alignment == 0) ? 1 : ptr_type->data.fn.fn_type_id.alignment;
+        return (ptr_type->data.fn.fn_type_id.alignment == 0) ?
+                target_fn_ptr_align(g->zig_target) : ptr_type->data.fn.fn_type_id.alignment;
     } else if (ptr_type->id == ZigTypeIdAnyFrame) {
         return get_async_frame_align_bytes(g);
     } else {
@@ -5118,8 +5127,11 @@ static void analyze_fn_ir(CodeGen *g, ZigFn *fn, AstNode *return_type_node) {
     if (fn->analyzed_executable.source_node == nullptr) {
         fn->analyzed_executable.source_node = fn->body_node;
     }
-    ZigType *block_return_type = ir_analyze(g, fn->ir_executable,
-            &fn->analyzed_executable, fn_type_id->return_type, return_type_node, nullptr);
+    size_t backward_branch_count = 0;
+    size_t backward_branch_quota = max(fn->branch_quota, default_backward_branch_quota);
+    ZigType *block_return_type = ir_analyze(g, fn->stage1_zir, &fn->analyzed_executable,
+            &backward_branch_count, &backward_branch_quota,
+            fn_type_id->return_type, return_type_node, nullptr, fn);
     fn->src_implicit_return_type = block_return_type;
 
     if (type_is_invalid(block_return_type) || fn->analyzed_executable.first_err_trace_msg != nullptr) {
@@ -5216,21 +5228,19 @@ static void analyze_fn_body(CodeGen *g, ZigFn *fn_table_entry) {
     ZigType *fn_type = fn_table_entry->type_entry;
     assert(!fn_type->data.fn.is_generic);
 
-    if (!ir_gen_fn(g, fn_table_entry)) {
+    if (!stage1_astgen_fn(g, fn_table_entry)) {
         fn_table_entry->anal_state = FnAnalStateInvalid;
         return;
     }
 
-    if (fn_table_entry->ir_executable->first_err_trace_msg != nullptr) {
+    if (fn_table_entry->stage1_zir->first_err_trace_msg != nullptr) {
         fn_table_entry->anal_state = FnAnalStateInvalid;
         return;
     }
 
     if (g->verbose_ir) {
-        fprintf(stderr, "\n");
-        ast_render(stderr, fn_table_entry->body_node, 4);
         fprintf(stderr, "\nfn %s() { // (IR)\n", buf_ptr(&fn_table_entry->symbol_name));
-        ir_print_src(g, stderr, fn_table_entry->ir_executable, 4);
+        ir_print_src(g, stderr, fn_table_entry->stage1_zir, 4);
         fprintf(stderr, "}\n");
     }
 
@@ -5240,31 +5250,15 @@ static void analyze_fn_body(CodeGen *g, ZigFn *fn_table_entry) {
 ZigType *add_source_file(CodeGen *g, ZigPackage *package, Buf *resolved_path, Buf *source_code,
         SourceKind source_kind)
 {
-    if (g->verbose_tokenize) {
-        fprintf(stderr, "\nOriginal Source (%s):\n", buf_ptr(resolved_path));
-        fprintf(stderr, "----------------\n");
-        fprintf(stderr, "%s\n", buf_ptr(source_code));
-
-        fprintf(stderr, "\nTokens:\n");
-        fprintf(stderr, "---------\n");
-    }
-
     Tokenization tokenization = {0};
-    tokenize(source_code, &tokenization);
+    tokenize(buf_ptr(source_code), &tokenization);
 
     if (tokenization.err) {
-        ErrorMsg *err = err_msg_create_with_line(resolved_path, tokenization.err_line, tokenization.err_column,
-                source_code, tokenization.line_offsets, tokenization.err);
+        ErrorMsg *err = err_msg_create_with_offset(resolved_path, tokenization.err_byte_offset,
+                buf_ptr(source_code), tokenization.err);
 
         print_err_msg(err, g->err_color);
         exit(1);
-    }
-
-    if (g->verbose_tokenize) {
-        print_tokens(source_code, tokenization.tokens);
-
-        fprintf(stderr, "\nAST:\n");
-        fprintf(stderr, "------\n");
     }
 
     Buf *src_dirname = buf_alloc();
@@ -5299,9 +5293,20 @@ ZigType *add_source_file(CodeGen *g, ZigPackage *package, Buf *resolved_path, Bu
     RootStruct *root_struct = heap::c_allocator.create<RootStruct>();
     root_struct->package = package;
     root_struct->source_code = source_code;
-    root_struct->line_offsets = tokenization.line_offsets;
     root_struct->path = resolved_path;
     root_struct->di_file = ZigLLVMCreateFile(g->dbuilder, buf_ptr(src_basename), buf_ptr(src_dirname));
+
+    assert(tokenization.ids.length == tokenization.locs.length);
+    size_t token_count = tokenization.ids.length;
+    root_struct->token_count = token_count;
+    root_struct->token_ids = g->pass1_arena->allocate<TokenId>(token_count);
+    memcpy(root_struct->token_ids, tokenization.ids.items, token_count * sizeof(TokenId));
+    root_struct->token_locs = g->pass1_arena->allocate<TokenLoc>(token_count);
+    memcpy(root_struct->token_locs, tokenization.locs.items, token_count * sizeof(TokenLoc));
+
+    tokenization.ids.deinit();
+    tokenization.locs.deinit();
+
     ZigType *import_entry = get_root_container_type(g, buf_ptr(namespace_name), bare_name, root_struct);
     if (source_kind == SourceKindRoot) {
         assert(g->root_import == nullptr);
@@ -5309,14 +5314,11 @@ ZigType *add_source_file(CodeGen *g, ZigPackage *package, Buf *resolved_path, Bu
     }
     g->import_table.put(resolved_path, import_entry);
 
-    AstNode *root_node = ast_parse(source_code, tokenization.tokens, import_entry, g->err_color);
+    AstNode *root_node = ast_parse(source_code, import_entry, g->err_color);
     assert(root_node != nullptr);
     assert(root_node->type == NodeTypeContainerDecl);
     import_entry->data.structure.decl_node = root_node;
     import_entry->data.structure.decls_scope->base.source_node = root_node;
-    if (g->verbose_ast) {
-        ast_print(stderr, root_node, 0);
-    }
 
     for (size_t decl_i = 0; decl_i < root_node->data.container_decl.decls.length; decl_i += 1) {
         AstNode *top_level_decl = root_node->data.container_decl.decls.at(decl_i);
@@ -6256,9 +6258,12 @@ ReqCompTime type_requires_comptime(CodeGen *g, ZigType *ty) {
     zig_unreachable();
 }
 
-void init_const_str_lit(CodeGen *g, ZigValue *const_val, Buf *str) {
+void init_const_str_lit(CodeGen *g, ZigValue *const_val, Buf *str, bool move_str) {
     auto entry = g->string_literals_table.maybe_get(str);
     if (entry != nullptr) {
+        if (move_str) {
+            buf_destroy(str);
+        }
         memcpy(const_val, entry->value, sizeof(ZigValue));
         return;
     }
@@ -6282,8 +6287,13 @@ void init_const_str_lit(CodeGen *g, ZigValue *const_val, Buf *str) {
 
 ZigValue *create_const_str_lit(CodeGen *g, Buf *str) {
     ZigValue *const_val = g->pass1_arena->create<ZigValue>();
-    init_const_str_lit(g, const_val, str);
+    init_const_str_lit(g, const_val, str, false);
     return const_val;
+}
+
+ZigValue *create_sentineled_str_lit(CodeGen *g, Buf *str, ZigValue *sentinel) {
+    ZigValue *array_val = create_const_str_lit(g, str)->data.x_ptr.data.ref.pointee;
+    return create_const_slice(g, array_val, 0, buf_len(str), true, sentinel);
 }
 
 void init_const_bigint(ZigValue *const_val, ZigType *type, const BigInt *bigint) {
@@ -6439,12 +6449,12 @@ ZigValue *create_const_type(CodeGen *g, ZigType *type_value) {
 }
 
 void init_const_slice(CodeGen *g, ZigValue *const_val, ZigValue *array_val,
-        size_t start, size_t len, bool is_const)
+        size_t start, size_t len, bool is_const, ZigValue *sentinel)
 {
     assert(array_val->type->id == ZigTypeIdArray);
 
-    ZigType *ptr_type = get_pointer_to_type_extra(g, array_val->type->data.array.child_type,
-            is_const, false, PtrLenUnknown, 0, 0, 0, false);
+    ZigType *ptr_type = get_pointer_to_type_extra2(g, array_val->type->data.array.child_type,
+            is_const, false, PtrLenUnknown, 0, 0, 0, false, VECTOR_INDEX_NONE, nullptr, sentinel);
 
     const_val->special = ConstValSpecialStatic;
     const_val->type = get_slice_type(g, ptr_type);
@@ -6455,9 +6465,9 @@ void init_const_slice(CodeGen *g, ZigValue *const_val, ZigValue *array_val,
     init_const_usize(g, const_val->data.x_struct.fields[slice_len_index], len);
 }
 
-ZigValue *create_const_slice(CodeGen *g, ZigValue *array_val, size_t start, size_t len, bool is_const) {
+ZigValue *create_const_slice(CodeGen *g, ZigValue *array_val, size_t start, size_t len, bool is_const, ZigValue *sentinel) {
     ZigValue *const_val = g->pass1_arena->create<ZigValue>();
-    init_const_slice(g, const_val, array_val, start, len, is_const);
+    init_const_slice(g, const_val, array_val, start, len, is_const, sentinel);
     return const_val;
 }
 
@@ -7583,8 +7593,16 @@ void render_const_value(CodeGen *g, Buf *buf, ZigValue *const_val) {
             }
         case ZigTypeIdOptional:
             {
-                if (get_src_ptr_type(const_val->type) != nullptr)
+                ZigType *src_ptr_type = get_src_ptr_type(const_val->type);
+                if (src_ptr_type != nullptr) {
+                    if (src_ptr_type->id == ZigTypeIdPointer && !optional_value_is_null(const_val)) {
+                        ZigValue tmp = {};
+                        copy_const_val(g, &tmp, const_val);
+                        tmp.type = type_entry->data.maybe.child_type;
+                        return render_const_val_ptr(g, buf, &tmp, tmp.type);
+                    }
                     return render_const_val_ptr(g, buf, const_val, type_entry->data.maybe.child_type);
+                }
                 if (type_entry->data.maybe.child_type->id == ZigTypeIdErrorSet)
                     return render_const_val_err_set(g, buf, const_val, type_entry->data.maybe.child_type);
                 if (const_val->data.x_optional) {
@@ -8185,14 +8203,18 @@ bool err_ptr_eql(const ErrorTableEntry *a, const ErrorTableEntry *b) {
 }
 
 ZigValue *get_builtin_value(CodeGen *codegen, const char *name) {
-    ScopeDecls *builtin_scope = get_container_scope(codegen->compile_var_import);
-    Tld *tld = find_container_decl(codegen, builtin_scope, buf_create_from_str(name));
+    Buf *buf_name = buf_create_from_str(name);
+
+    ScopeDecls *builtin_scope = get_container_scope(codegen->std_builtin_import);
+    Tld *tld = find_container_decl(codegen, builtin_scope, buf_name);
     assert(tld != nullptr);
     resolve_top_level_decl(codegen, tld, nullptr, false);
     assert(tld->id == TldIdVar && tld->resolution == TldResolutionOk);
     TldVar *tld_var = (TldVar *)tld;
     ZigValue *var_value = tld_var->var->const_value;
     assert(var_value != nullptr);
+
+    buf_destroy(buf_name);
     return var_value;
 }
 
@@ -8624,7 +8646,7 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveS
         ZigType *import = get_scope_import(scope);
         di_file = import->data.structure.root_struct->di_file;
         di_scope = ZigLLVMFileToScope(di_file);
-        line = decl_node->line + 1;
+        line = node_line_onebased(decl_node);
     } else {
         di_file = nullptr;
         di_scope = ZigLLVMCompileUnitToScope(g->compile_unit);
@@ -8723,7 +8745,9 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveS
                 assert(async_frame_type->id == ZigTypeIdFnFrame);
                 assert(field_type->id == ZigTypeIdFn);
                 resolve_llvm_types_fn(g, async_frame_type->data.frame.fn);
-                llvm_type = LLVMPointerType(async_frame_type->data.frame.fn->raw_type_ref, 0);
+
+                const unsigned addrspace = ZigLLVMDataLayoutGetProgramAddressSpace(g->target_data_ref);
+                llvm_type = LLVMPointerType(async_frame_type->data.frame.fn->raw_type_ref, addrspace);
             } else {
                 llvm_type = get_llvm_type(g, field_type);
             }
@@ -8826,7 +8850,7 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveS
         unsigned line;
         if (decl_node != nullptr) {
             AstNode *field_node = field->decl_node;
-            line = field_node->line + 1;
+            line = node_line_onebased(field_node);
         } else {
             line = 0;
         }
@@ -8877,7 +8901,7 @@ static ZigLLVMDIType *make_empty_namespace_llvm_di_type(CodeGen *g, ZigType *imp
     return ZigLLVMCreateDebugStructType(g->dbuilder,
         ZigLLVMFileToScope(import->data.structure.root_struct->di_file),
         name,
-        import->data.structure.root_struct->di_file, (unsigned)(decl_node->line + 1),
+        import->data.structure.root_struct->di_file, node_line_onebased(decl_node),
         debug_size_in_bits,
         debug_align_in_bits,
         ZigLLVM_DIFlags_Zero,
@@ -8922,7 +8946,7 @@ static void resolve_llvm_types_enum(CodeGen *g, ZigType *enum_type, ResolveStatu
     uint64_t tag_debug_align_in_bits = 8*tag_int_type->abi_align;
     ZigLLVMDIType *tag_di_type = ZigLLVMCreateDebugEnumerationType(g->dbuilder,
             ZigLLVMFileToScope(import->data.structure.root_struct->di_file), buf_ptr(&enum_type->name),
-            import->data.structure.root_struct->di_file, (unsigned)(decl_node->line + 1),
+            import->data.structure.root_struct->di_file, node_line_onebased(decl_node),
             tag_debug_size_in_bits,
             tag_debug_align_in_bits,
             di_enumerators, field_count,
@@ -8962,12 +8986,12 @@ static void resolve_llvm_types_union(CodeGen *g, ZigType *union_type, ResolveSta
 
     if (union_type->data.unionation.resolve_status < ResolveStatusLLVMFwdDecl) {
         union_type->llvm_type = LLVMStructCreateNamed(LLVMGetGlobalContext(), buf_ptr(&union_type->name));
-        size_t line = decl_node ? decl_node->line : 0;
+        unsigned line = decl_node ? node_line_onebased(decl_node) : 0;
         unsigned dwarf_kind = ZigLLVMTag_DW_structure_type();
         union_type->llvm_di_type = ZigLLVMCreateReplaceableCompositeType(g->dbuilder,
             dwarf_kind, buf_ptr(&union_type->name),
             ZigLLVMFileToScope(import->data.structure.root_struct->di_file),
-            import->data.structure.root_struct->di_file, (unsigned)(line + 1));
+            import->data.structure.root_struct->di_file, line);
 
         union_type->data.unionation.resolve_status = ResolveStatusLLVMFwdDecl;
         if (ResolveStatusLLVMFwdDecl >= wanted_resolve_status) return;
@@ -8988,7 +9012,7 @@ static void resolve_llvm_types_union(CodeGen *g, ZigType *union_type, ResolveSta
         AstNode *field_node = union_field->decl_node;
         union_inner_di_types[union_field->gen_index] = ZigLLVMCreateDebugMemberType(g->dbuilder,
                 ZigLLVMTypeToScope(union_type->llvm_di_type), buf_ptr(union_field->enum_field->name),
-                import->data.structure.root_struct->di_file, (unsigned)(field_node->line + 1),
+                import->data.structure.root_struct->di_file, node_line_onebased(field_node),
                 store_size_in_bits,
                 abi_align_in_bits,
                 0,
@@ -9018,7 +9042,7 @@ static void resolve_llvm_types_union(CodeGen *g, ZigType *union_type, ResolveSta
         // create debug type for union
         ZigLLVMDIType *replacement_di_type = ZigLLVMCreateDebugUnionType(g->dbuilder,
             ZigLLVMFileToScope(import->data.structure.root_struct->di_file), buf_ptr(&union_type->name),
-            import->data.structure.root_struct->di_file, (unsigned)(decl_node->line + 1),
+            import->data.structure.root_struct->di_file, node_line_onebased(decl_node),
             union_type->data.unionation.union_abi_size * 8,
             most_aligned_union_member->align * 8,
             ZigLLVM_DIFlags_Zero, union_inner_di_types,
@@ -9053,7 +9077,7 @@ static void resolve_llvm_types_union(CodeGen *g, ZigType *union_type, ResolveSta
     // create debug type for union
     ZigLLVMDIType *union_di_type = ZigLLVMCreateDebugUnionType(g->dbuilder,
             ZigLLVMTypeToScope(union_type->llvm_di_type), "AnonUnion",
-            import->data.structure.root_struct->di_file, (unsigned)(decl_node->line + 1),
+            import->data.structure.root_struct->di_file, node_line_onebased(decl_node),
             most_aligned_union_member->type_entry->size_in_bits, 8*most_aligned_union_member->align,
             ZigLLVM_DIFlags_Zero, union_inner_di_types, gen_field_count, 0, "");
 
@@ -9064,7 +9088,7 @@ static void resolve_llvm_types_union(CodeGen *g, ZigType *union_type, ResolveSta
 
     ZigLLVMDIType *union_member_di_type = ZigLLVMCreateDebugMemberType(g->dbuilder,
             ZigLLVMTypeToScope(union_type->llvm_di_type), "payload",
-            import->data.structure.root_struct->di_file, (unsigned)(decl_node->line + 1),
+            import->data.structure.root_struct->di_file, node_line_onebased(decl_node),
             most_aligned_union_member->type_entry->size_in_bits,
             8*most_aligned_union_member->align,
             union_offset_in_bits,
@@ -9075,7 +9099,7 @@ static void resolve_llvm_types_union(CodeGen *g, ZigType *union_type, ResolveSta
 
     ZigLLVMDIType *tag_member_di_type = ZigLLVMCreateDebugMemberType(g->dbuilder,
             ZigLLVMTypeToScope(union_type->llvm_di_type), "tag",
-            import->data.structure.root_struct->di_file, (unsigned)(decl_node->line + 1),
+            import->data.structure.root_struct->di_file, node_line_onebased(decl_node),
             tag_debug_size_in_bits,
             tag_debug_align_in_bits,
             tag_offset_in_bits,
@@ -9090,7 +9114,7 @@ static void resolve_llvm_types_union(CodeGen *g, ZigType *union_type, ResolveSta
     ZigLLVMDIType *replacement_di_type = ZigLLVMCreateDebugStructType(g->dbuilder,
             ZigLLVMFileToScope(import->data.structure.root_struct->di_file),
             buf_ptr(&union_type->name),
-            import->data.structure.root_struct->di_file, (unsigned)(decl_node->line + 1),
+            import->data.structure.root_struct->di_file, node_line_onebased(decl_node),
             debug_size_in_bits,
             debug_align_in_bits,
             ZigLLVM_DIFlags_Zero, nullptr, di_root_members, 2, 0, nullptr, "");
@@ -9770,9 +9794,9 @@ void src_assert_impl(bool ok, AstNode *source_node, char const *file, unsigned i
     if (source_node == nullptr) {
         fprintf(stderr, "when analyzing (unknown source location) ");
     } else {
-        fprintf(stderr, "when analyzing %s:%u:%u ",
-            buf_ptr(source_node->owner->data.structure.root_struct->path),
-            (unsigned)source_node->line + 1, (unsigned)source_node->column + 1);
+        RootStruct *root_struct = source_node->owner->data.structure.root_struct;
+        fprintf(stderr, "when analyzing %s:%u:%u ", buf_ptr(root_struct->path),
+                node_line_onebased(source_node), node_column_onebased(source_node));
     }
     fprintf(stderr, "in compiler source at %s:%u: ", file, line);
     const char *msg = "assertion failed. This is a bug in the Zig compiler.";
@@ -9838,18 +9862,17 @@ Error analyze_import(CodeGen *g, ZigType *source_import, Buf *import_target_str,
     return ErrorNone;
 }
 
-
-void IrExecutableSrc::src() {
-    if (this->source_node != nullptr) {
-        this->source_node->src();
-    }
-    if (this->parent_exec != nullptr) {
-        this->parent_exec->src();
-    }
+void AstNode::src() {
+    RootStruct *root_struct = this->owner->data.structure.root_struct;
+    uint32_t line = root_struct->token_locs[this->main_token].line + 1;
+    uint32_t column = root_struct->token_locs[this->main_token].column + 1;
+    fprintf(stderr, "%s:%" PRIu32 ":%" PRIu32 "\n",
+            buf_ptr(root_struct->path),
+            line, column);
 }
 
-void IrExecutableGen::src() {
-    IrExecutableGen *it;
+void Stage1Air::src() {
+    Stage1Air *it;
     for (it = this; it != nullptr && it->source_node != nullptr; it = it->parent_exec) {
         it->source_node->src();
     }
@@ -10210,4 +10233,3 @@ const char *float_op_to_name(BuiltinFnId op) {
         zig_unreachable();
     }
 }
-

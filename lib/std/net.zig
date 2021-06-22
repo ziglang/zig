@@ -11,11 +11,12 @@ const mem = std.mem;
 const os = std.os;
 const fs = std.fs;
 const io = std.io;
+const native_endian = builtin.target.cpu.arch.endian();
 
 // Windows 10 added support for unix sockets in build 17063, redstone 4 is the
 // first release to support them.
 pub const has_unix_sockets = @hasDecl(os, "sockaddr_un") and
-    (builtin.os.tag != .windows or
+    (builtin.target.os.tag != .windows or
     std.Target.current.os.version_range.windows.isAtLeast(.win10_rs4) orelse false);
 
 pub const Address = extern union {
@@ -269,6 +270,8 @@ pub const Ip4Address = extern struct {
         options: std.fmt.FormatOptions,
         out_stream: anytype,
     ) !void {
+        _ = fmt;
+        _ = options;
         const bytes = @ptrCast(*const [4]u8, &self.sa.addr);
         try std.fmt.format(out_stream, "{}.{}.{}.{}:{}", .{
             bytes[0],
@@ -280,6 +283,7 @@ pub const Ip4Address = extern struct {
     }
 
     pub fn getOsSockLen(self: Ip4Address) os.socklen_t {
+        _ = self;
         return @sizeOf(os.sockaddr_in);
     }
 };
@@ -555,6 +559,8 @@ pub const Ip6Address = extern struct {
         options: std.fmt.FormatOptions,
         out_stream: anytype,
     ) !void {
+        _ = fmt;
+        _ = options;
         const port = mem.bigToNative(u16, self.sa.port);
         if (mem.eql(u8, self.sa.addr[0..12], &[_]u8{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff })) {
             try std.fmt.format(out_stream, "[::ffff:{}.{}.{}.{}]:{}", .{
@@ -567,7 +573,7 @@ pub const Ip6Address = extern struct {
             return;
         }
         const big_endian_parts = @ptrCast(*align(1) const [8]u16, &self.sa.addr);
-        const native_endian_parts = switch (builtin.endian) {
+        const native_endian_parts = switch (native_endian) {
             .Big => big_endian_parts.*,
             .Little => blk: {
                 var buf: [8]u16 = undefined;
@@ -597,6 +603,7 @@ pub const Ip6Address = extern struct {
     }
 
     pub fn getOsSockLen(self: Ip6Address) os.socklen_t {
+        _ = self;
         return @sizeOf(os.sockaddr_in6);
     }
 };
@@ -673,7 +680,7 @@ pub fn tcpConnectToHost(allocator: *mem.Allocator, name: []const u8, port: u16) 
 pub fn tcpConnectToAddress(address: Address) !Stream {
     const nonblock = if (std.io.is_async) os.SOCK_NONBLOCK else 0;
     const sock_flags = os.SOCK_STREAM | nonblock |
-        (if (builtin.os.tag == .windows) 0 else os.SOCK_CLOEXEC);
+        (if (builtin.target.os.tag == .windows) 0 else os.SOCK_CLOEXEC);
     const sockfd = try os.socket(address.any.family, sock_flags, os.IPPROTO_TCP);
     errdefer os.closeSocket(sockfd);
 
@@ -704,14 +711,14 @@ pub fn getAddressList(allocator: *mem.Allocator, name: []const u8, port: u16) !*
     const arena = &result.arena.allocator;
     errdefer result.arena.deinit();
 
-    if (builtin.os.tag == .windows or builtin.link_libc) {
+    if (builtin.target.os.tag == .windows or builtin.link_libc) {
         const name_c = try std.cstr.addNullByte(allocator, name);
         defer allocator.free(name_c);
 
         const port_c = try std.fmt.allocPrint(allocator, "{}\x00", .{port});
         defer allocator.free(port_c);
 
-        const sys = if (builtin.os.tag == .windows) os.windows.ws2_32 else os.system;
+        const sys = if (builtin.target.os.tag == .windows) os.windows.ws2_32 else os.system;
         const hints = os.addrinfo{
             .flags = sys.AI_NUMERICSERV,
             .family = os.AF_UNSPEC,
@@ -724,7 +731,7 @@ pub fn getAddressList(allocator: *mem.Allocator, name: []const u8, port: u16) !*
         };
         var res: *os.addrinfo = undefined;
         const rc = sys.getaddrinfo(name_c.ptr, std.meta.assumeSentinel(port_c.ptr, 0), &hints, &res);
-        if (builtin.os.tag == .windows) switch (@intToEnum(os.windows.ws2_32.WinsockError, @intCast(u16, rc))) {
+        if (builtin.target.os.tag == .windows) switch (@intToEnum(os.windows.ws2_32.WinsockError, @intCast(u16, rc))) {
             @intToEnum(os.windows.ws2_32.WinsockError, 0) => {},
             .WSATRY_AGAIN => return error.TemporaryNameServerFailure,
             .WSANO_RECOVERY => return error.NameServerFailure,
@@ -782,7 +789,7 @@ pub fn getAddressList(allocator: *mem.Allocator, name: []const u8, port: u16) !*
 
         return result;
     }
-    if (builtin.os.tag == .linux) {
+    if (builtin.target.os.tag == .linux) {
         const flags = std.c.AI_NUMERICSERV;
         const family = os.AF_UNSPEC;
         var lookup_addrs = std.ArrayList(LookupAddr).init(allocator);
@@ -1061,6 +1068,7 @@ fn IN6_IS_ADDR_SITELOCAL(a: [16]u8) bool {
 
 // Parameters `b` and `a` swapped to make this descending.
 fn addrCmpLessThan(context: void, b: LookupAddr, a: LookupAddr) bool {
+    _ = context;
     return a.sortkey < b.sortkey;
 }
 

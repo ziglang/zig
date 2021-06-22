@@ -25,3 +25,28 @@
 
 // Grab the host header too.
 #include_next <complex>
+
+
+#ifdef __cplusplus
+
+// If we are compiling against libc++, the macro _LIBCPP_STD_VER should be set
+// after including <cmath> above. Since the complex header we use is a
+// simplified version of the libc++, we don't need it in this case. If we
+// compile against libstdc++, or any other standard library, we will overload
+// the (hopefully template) functions in the <complex> header with the ones we
+// got from libc++ which decomposes math functions, like `std::sin`, into
+// arithmetic and calls to non-complex functions, all of which we can then
+// handle.
+#ifndef _LIBCPP_STD_VER
+
+#pragma omp begin declare variant match(                                       \
+    device = {arch(nvptx, nvptx64)},                                           \
+    implementation = {extension(match_any, allow_templates)})
+
+#include <complex_cmath.h>
+
+#pragma omp end declare variant
+
+#endif
+
+#endif

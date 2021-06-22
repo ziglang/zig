@@ -21,12 +21,12 @@ pub fn isSignalNan(x: anytype) bool {
 }
 
 test "math.isNan" {
-    expect(isNan(math.nan(f16)));
-    expect(isNan(math.nan(f32)));
-    expect(isNan(math.nan(f64)));
-    expect(isNan(math.nan(f128)));
-    expect(!isNan(@as(f16, 1.0)));
-    expect(!isNan(@as(f32, 1.0)));
-    expect(!isNan(@as(f64, 1.0)));
-    expect(!isNan(@as(f128, 1.0)));
+    try expect(isNan(math.nan(f16)));
+    try expect(isNan(math.nan(f32)));
+    try expect(isNan(math.nan(f64)));
+    try expect(isNan(math.nan(f128)));
+    try expect(!isNan(@as(f16, 1.0)));
+    try expect(!isNan(@as(f32, 1.0)));
+    try expect(!isNan(@as(f64, 1.0)));
+    try expect(!isNan(@as(f128, 1.0)));
 }

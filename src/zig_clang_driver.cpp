@@ -448,7 +448,9 @@ int ZigClang_main(int argc_, const char **argv_) {
     ApplyQAOverride(argv, OverrideStr, SavedStrings);
   }
 
-  std::string Path = GetExecutablePath(argv[0], CanonicalPrefixes);
+  // Pass local param `argv_[0]` as fallback.
+  // See https://github.com/ziglang/zig/pull/3292 .
+  std::string Path = GetExecutablePath(argv_[0], CanonicalPrefixes);
 
   // Whether the cc1 tool should be called inside the current process, or if we
   // should spawn a new clang subprocess (old behavior).
@@ -528,6 +530,13 @@ int ZigClang_main(int argc_, const char **argv_) {
       IsCrash = CommandRes < 0 || CommandRes == 70;
 #ifdef _WIN32
       IsCrash |= CommandRes == 3;
+#endif
+#if LLVM_ON_UNIX
+      // When running in integrated-cc1 mode, the CrashRecoveryContext returns
+      // the same codes as if the program crashed. See section "Exit Status for
+      // Commands":
+      // https://pubs.opengroup.org/onlinepubs/9699919799/xrat/V4_xcu_chap02.html
+      IsCrash |= CommandRes > 128;
 #endif
       if (IsCrash) {
         TheDriver.generateCompilationDiagnostics(*C, *FailingCommand);

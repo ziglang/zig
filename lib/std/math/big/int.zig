@@ -316,7 +316,9 @@ pub const Mutable = struct {
         }
 
         if (a.limbs.len == 1 and b.limbs.len == 1 and a.positive == b.positive) {
-            if (!@addWithOverflow(Limb, a.limbs[0], b.limbs[0], &r.limbs[0])) {
+            var o: Limb = undefined;
+            if (!@addWithOverflow(Limb, a.limbs[0], b.limbs[0], &o)) {
+                r.limbs[0] = o;
                 r.len = 1;
                 r.positive = a.positive;
                 return;
@@ -333,10 +335,10 @@ pub const Mutable = struct {
             }
         } else {
             if (a.limbs.len >= b.limbs.len) {
-                lladd(r.limbs[0..], a.limbs[0..a.limbs.len], b.limbs[0..b.limbs.len]);
+                lladd(r.limbs[0..], a.limbs, b.limbs);
                 r.normalize(a.limbs.len + 1);
             } else {
-                lladd(r.limbs[0..], b.limbs[0..b.limbs.len], a.limbs[0..a.limbs.len]);
+                lladd(r.limbs[0..], b.limbs, a.limbs);
                 r.normalize(b.limbs.len + 1);
             }
 
@@ -456,6 +458,7 @@ pub const Mutable = struct {
     /// If `allocator` is provided, it will be used for temporary storage to improve
     /// multiplication performance. `error.OutOfMemory` is handled with a fallback algorithm.
     pub fn sqrNoAlias(rma: *Mutable, a: Const, opt_allocator: ?*Allocator) void {
+        _ = opt_allocator;
         assert(rma.limbs.ptr != a.limbs.ptr); // illegal aliasing
 
         mem.set(Limb, rma.limbs, 0);
@@ -674,6 +677,7 @@ pub const Mutable = struct {
     ///
     /// `limbs_buffer` is used for temporary storage during the operation.
     pub fn gcdNoAlias(rma: *Mutable, x: Const, y: Const, limbs_buffer: *std.ArrayList(Limb)) !void {
+        _ = limbs_buffer;
         assert(rma.limbs.ptr != x.limbs.ptr); // illegal aliasing
         assert(rma.limbs.ptr != y.limbs.ptr); // illegal aliasing
         return gcdLehmer(rma, x, y, allocator);
@@ -1139,21 +1143,22 @@ pub const Const = struct {
         options: std.fmt.FormatOptions,
         out_stream: anytype,
     ) !void {
+        _ = options;
         comptime var radix = 10;
-        comptime var uppercase = false;
+        comptime var case: std.fmt.Case = .lower;
 
         if (fmt.len == 0 or comptime mem.eql(u8, fmt, "d")) {
             radix = 10;
-            uppercase = false;
+            case = .lower;
         } else if (comptime mem.eql(u8, fmt, "b")) {
             radix = 2;
-            uppercase = false;
+            case = .lower;
         } else if (comptime mem.eql(u8, fmt, "x")) {
             radix = 16;
-            uppercase = false;
+            case = .lower;
         } else if (comptime mem.eql(u8, fmt, "X")) {
             radix = 16;
-            uppercase = true;
+            case = .upper;
         } else {
             @compileError("Unknown format string: '" ++ fmt ++ "'");
         }
@@ -1171,7 +1176,7 @@ pub const Const = struct {
             .positive = false,
         };
         var buf: [biggest.sizeInBaseUpperBound(radix)]u8 = undefined;
-        const len = self.toString(&buf, radix, uppercase, &limbs);
+        const len = self.toString(&buf, radix, case, &limbs);
         return out_stream.writeAll(buf[0..len]);
     }
 
@@ -1179,7 +1184,7 @@ pub const Const = struct {
     /// Caller owns returned memory.
     /// Asserts that `base` is in the range [2, 16].
     /// See also `toString`, a lower level function than this.
-    pub fn toStringAlloc(self: Const, allocator: *Allocator, base: u8, uppercase: bool) Allocator.Error![]u8 {
+    pub fn toStringAlloc(self: Const, allocator: *Allocator, base: u8, case: std.fmt.Case) Allocator.Error![]u8 {
         assert(base >= 2);
         assert(base <= 16);
 
@@ -1192,7 +1197,7 @@ pub const Const = struct {
         const limbs = try allocator.alloc(Limb, calcToStringLimbsBufferLen(self.limbs.len, base));
         defer allocator.free(limbs);
 
-        return allocator.shrink(string, self.toString(string, base, uppercase, limbs));
+        return allocator.shrink(string, self.toString(string, base, case, limbs));
     }
 
     /// Converts self to a string in the requested base.
@@ -1204,7 +1209,7 @@ pub const Const = struct {
     /// length of at least `calcToStringLimbsBufferLen`.
     /// In the case of power-of-two base, `limbs_buffer` is ignored.
     /// See also `toStringAlloc`, a higher level function than this.
-    pub fn toString(self: Const, string: []u8, base: u8, uppercase: bool, limbs_buffer: []Limb) usize {
+    pub fn toString(self: Const, string: []u8, base: u8, case: std.fmt.Case, limbs_buffer: []Limb) usize {
         assert(base >= 2);
         assert(base <= 16);
 
@@ -1223,7 +1228,7 @@ pub const Const = struct {
                 var shift: usize = 0;
                 while (shift < limb_bits) : (shift += base_shift) {
                     const r = @intCast(u8, (limb >> @intCast(Log2Limb, shift)) & @as(Limb, base - 1));
-                    const ch = std.fmt.digitToChar(r, uppercase);
+                    const ch = std.fmt.digitToChar(r, case);
                     string[digits_len] = ch;
                     digits_len += 1;
                     // If we hit the end, it must be all zeroes from here.
@@ -1269,7 +1274,7 @@ pub const Const = struct {
                 var r_word = r.limbs[0];
                 var i: usize = 0;
                 while (i < digits_per_limb) : (i += 1) {
-                    const ch = std.fmt.digitToChar(@intCast(u8, r_word % base), uppercase);
+                    const ch = std.fmt.digitToChar(@intCast(u8, r_word % base), case);
                     r_word /= base;
                     string[digits_len] = ch;
                     digits_len += 1;
@@ -1281,7 +1286,7 @@ pub const Const = struct {
 
                 var r_word = q.limbs[0];
                 while (r_word != 0) {
-                    const ch = std.fmt.digitToChar(@intCast(u8, r_word % base), uppercase);
+                    const ch = std.fmt.digitToChar(@intCast(u8, r_word % base), case);
                     r_word /= base;
                     string[digits_len] = ch;
                     digits_len += 1;
@@ -1615,9 +1620,10 @@ pub const Managed = struct {
 
     /// Converts self to a string in the requested base. Memory is allocated from the provided
     /// allocator and not the one present in self.
-    pub fn toString(self: Managed, allocator: *Allocator, base: u8, uppercase: bool) ![]u8 {
+    pub fn toString(self: Managed, allocator: *Allocator, base: u8, case: std.fmt.Case) ![]u8 {
+        _ = allocator;
         if (base < 2 or base > 16) return error.InvalidBase;
-        return self.toConst().toStringAlloc(self.allocator, base, uppercase);
+        return self.toConst().toStringAlloc(self.allocator, base, case);
     }
 
     /// To allow `std.fmt.format` to work with `Managed`.
@@ -1683,12 +1689,14 @@ pub const Managed = struct {
 
     /// r = a + scalar
     ///
-    /// r and a may be aliases.
+    /// r and a may be aliases. If r aliases a, then caller must call
+    /// `r.ensureAddScalarCapacity` prior to calling `add`.
     /// scalar is a primitive integer type.
     ///
     /// Returns an error if memory could not be allocated.
     pub fn addScalar(r: *Managed, a: Const, scalar: anytype) Allocator.Error!void {
-        try r.ensureCapacity(math.max(a.limbs.len, calcLimbLen(scalar)) + 1);
+        assert((r.limbs.ptr != a.limbs.ptr) or r.limbs.len >= math.max(a.limbs.len, calcLimbLen(scalar)) + 1);
+        try r.ensureAddScalarCapacity(a, scalar);
         var m = r.toMutable();
         m.addScalar(a, scalar);
         r.setMetadata(m.positive, m.len);
@@ -1696,11 +1704,13 @@ pub const Managed = struct {
 
     /// r = a + b
     ///
-    /// r, a and b may be aliases.
+    /// r, a and b may be aliases. If r aliases a or b, then caller must call
+    /// `r.ensureAddCapacity` prior to calling `add`.
     ///
     /// Returns an error if memory could not be allocated.
     pub fn add(r: *Managed, a: Const, b: Const) Allocator.Error!void {
-        try r.ensureCapacity(math.max(a.limbs.len, b.limbs.len) + 1);
+        assert((r.limbs.ptr != a.limbs.ptr and r.limbs.ptr != b.limbs.ptr) or r.limbs.len >= math.max(a.limbs.len, b.limbs.len) + 1);
+        try r.ensureAddCapacity(a, b);
         var m = r.toMutable();
         m.add(a, b);
         r.setMetadata(m.positive, m.len);
@@ -1744,6 +1754,14 @@ pub const Managed = struct {
             m.mul(a, b, limbs_buffer, rma.allocator);
         }
         rma.setMetadata(m.positive, m.len);
+    }
+
+    pub fn ensureAddScalarCapacity(r: *Managed, a: Const, scalar: anytype) !void {
+        try r.ensureCapacity(math.max(a.limbs.len, calcLimbLen(scalar)) + 1);
+    }
+
+    pub fn ensureAddCapacity(r: *Managed, a: Const, b: Const) !void {
+        try r.ensureCapacity(math.max(a.limbs.len, b.limbs.len) + 1);
     }
 
     pub fn ensureMulCapacity(rma: *Managed, a: Const, b: Const) !void {
@@ -1986,8 +2004,6 @@ fn llmulacc_karatsuba(allocator: *Allocator, r: []Limb, x: []const Limb, y: []co
     } else {
         llsub(j1, y0[0..y0_len], y1[0..y1_len]);
     }
-    const j0_len = llnormalize(j0);
-    const j1_len = llnormalize(j1);
     if (x_cmp == y_cmp) {
         mem.set(Limb, tmp[0..length], 0);
         llmulacc(allocator, tmp, j0, j1);

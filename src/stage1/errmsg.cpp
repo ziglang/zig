@@ -96,14 +96,14 @@ void err_msg_add_note(ErrorMsg *parent, ErrorMsg *note) {
     parent->notes.append(note);
 }
 
-ErrorMsg *err_msg_create_with_offset(Buf *path, size_t line, size_t column, size_t offset,
-        const char *source, Buf *msg)
+ErrorMsg *err_msg_create_with_offset(Buf *path, uint32_t byte_offset, const char *source,
+    Buf *msg)
 {
     ErrorMsg *err_msg = heap::c_allocator.create<ErrorMsg>();
     err_msg->path = path;
-    err_msg->line_start = line;
-    err_msg->column_start = column;
     err_msg->msg = msg;
+    err_msg->line_start = 0;
+    err_msg->column_start = 0;
 
     if (source == nullptr) {
         // Must initialize the buffer anyway
@@ -111,46 +111,25 @@ ErrorMsg *err_msg_create_with_offset(Buf *path, size_t line, size_t column, size
         return err_msg;
     }
 
-    size_t line_start_offset = offset;
-    for (;;) {
-        if (line_start_offset == 0) {
-            break;
-        }
-
-        line_start_offset -= 1;
-
-        if (source[line_start_offset] == '\n') {
-            line_start_offset += 1;
-            break;
+    size_t line_start = 0;
+    size_t i = 0;
+    for (;i < byte_offset; i += 1) {
+        switch (source[i]) {
+            case '\n':
+                err_msg->line_start += 1;
+                err_msg->column_start = 0;
+                line_start = i + 1;
+                continue;
+            default:
+                err_msg->column_start += 1;
+                continue;
         }
     }
-
-    size_t line_end_offset = offset;
-    while (source[line_end_offset] && source[line_end_offset] != '\n') {
-        line_end_offset += 1;
+    while (source[i] != '\n' && source[i] != 0) {
+        i += 1;
     }
 
-    buf_init_from_mem(&err_msg->line_buf, source + line_start_offset, line_end_offset - line_start_offset);
-
-    return err_msg;
-}
-
-ErrorMsg *err_msg_create_with_line(Buf *path, size_t line, size_t column,
-        Buf *source, ZigList<size_t> *line_offsets, Buf *msg)
-{
-    ErrorMsg *err_msg = heap::c_allocator.create<ErrorMsg>();
-    err_msg->path = path;
-    err_msg->line_start = line;
-    err_msg->column_start = column;
-    err_msg->msg = msg;
-
-    size_t line_start_offset = line_offsets->at(line);
-    size_t end_line = line + 1;
-    size_t line_end_offset = (end_line >= line_offsets->length) ? buf_len(source) : line_offsets->at(line + 1);
-    size_t len = (line_end_offset + 1 > line_start_offset) ? (line_end_offset - line_start_offset - 1) : 0;
-    if (len == SIZE_MAX) len = 0;
-
-    buf_init_from_mem(&err_msg->line_buf, buf_ptr(source) + line_start_offset, len);
+    buf_init_from_mem(&err_msg->line_buf, source + line_start, i - line_start);
 
     return err_msg;
 }

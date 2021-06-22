@@ -8,6 +8,7 @@ pub fn formatId(
     options: std.fmt.FormatOptions,
     writer: anytype,
 ) !void {
+    _ = fmt;
     if (isValidId(bytes)) {
         return writer.writeAll(bytes);
     }
@@ -41,6 +42,7 @@ pub fn formatEscapes(
     options: std.fmt.FormatOptions,
     writer: anytype,
 ) !void {
+    _ = options;
     for (bytes) |byte| switch (byte) {
         '\n' => try writer.writeAll("\\n"),
         '\r' => try writer.writeAll("\\r"),
@@ -68,7 +70,7 @@ pub fn formatEscapes(
         // Use hex escapes for rest any unprintable characters.
         else => {
             try writer.writeAll("\\x");
-            try std.fmt.formatInt(byte, 16, false, .{ .width = 2, .fill = '0' }, writer);
+            try std.fmt.formatInt(byte, 16, .lower, .{ .width = 2, .fill = '0' }, writer);
         },
     };
 }

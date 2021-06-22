@@ -9,7 +9,6 @@
 // https://git.musl-libc.org/cgit/musl/tree/src/complex/ctanhf.c
 // https://git.musl-libc.org/cgit/musl/tree/src/complex/ctanh.c
 
-const builtin = @import("builtin");
 const std = @import("../../std.zig");
 const testing = std.testing;
 const math = std.math;
@@ -36,22 +35,22 @@ fn tanh32(z: Complex(f32)) Complex(f32) {
     if (ix >= 0x7f800000) {
         if (ix & 0x7fffff != 0) {
             const r = if (y == 0) y else x * y;
-            return Complex(f32).new(x, r);
+            return Complex(f32).init(x, r);
         }
         const xx = @bitCast(f32, hx - 0x40000000);
         const r = if (math.isInf(y)) y else math.sin(y) * math.cos(y);
-        return Complex(f32).new(xx, math.copysign(f32, 0, r));
+        return Complex(f32).init(xx, math.copysign(f32, 0, r));
     }
 
     if (!math.isFinite(y)) {
         const r = if (ix != 0) y - y else x;
-        return Complex(f32).new(r, y - y);
+        return Complex(f32).init(r, y - y);
     }
 
     // x >= 11
     if (ix >= 0x41300000) {
         const exp_mx = math.exp(-math.fabs(x));
-        return Complex(f32).new(math.copysign(f32, 1, x), 4 * math.sin(y) * math.cos(y) * exp_mx * exp_mx);
+        return Complex(f32).init(math.copysign(f32, 1, x), 4 * math.sin(y) * math.cos(y) * exp_mx * exp_mx);
     }
 
     // Kahan's algorithm
@@ -61,7 +60,7 @@ fn tanh32(z: Complex(f32)) Complex(f32) {
     const rho = math.sqrt(1 + s * s);
     const den = 1 + beta * s * s;
 
-    return Complex(f32).new((beta * rho * s) / den, t / den);
+    return Complex(f32).init((beta * rho * s) / den, t / den);
 }
 
 fn tanh64(z: Complex(f64)) Complex(f64) {
@@ -78,23 +77,23 @@ fn tanh64(z: Complex(f64)) Complex(f64) {
     if (ix >= 0x7ff00000) {
         if ((ix & 0x7fffff) | lx != 0) {
             const r = if (y == 0) y else x * y;
-            return Complex(f64).new(x, r);
+            return Complex(f64).init(x, r);
         }
 
         const xx = @bitCast(f64, (@as(u64, hx - 0x40000000) << 32) | lx);
         const r = if (math.isInf(y)) y else math.sin(y) * math.cos(y);
-        return Complex(f64).new(xx, math.copysign(f64, 0, r));
+        return Complex(f64).init(xx, math.copysign(f64, 0, r));
     }
 
     if (!math.isFinite(y)) {
         const r = if (ix != 0) y - y else x;
-        return Complex(f64).new(r, y - y);
+        return Complex(f64).init(r, y - y);
     }
 
     // x >= 22
     if (ix >= 0x40360000) {
         const exp_mx = math.exp(-math.fabs(x));
-        return Complex(f64).new(math.copysign(f64, 1, x), 4 * math.sin(y) * math.cos(y) * exp_mx * exp_mx);
+        return Complex(f64).init(math.copysign(f64, 1, x), 4 * math.sin(y) * math.cos(y) * exp_mx * exp_mx);
     }
 
     // Kahan's algorithm
@@ -104,23 +103,23 @@ fn tanh64(z: Complex(f64)) Complex(f64) {
     const rho = math.sqrt(1 + s * s);
     const den = 1 + beta * s * s;
 
-    return Complex(f64).new((beta * rho * s) / den, t / den);
+    return Complex(f64).init((beta * rho * s) / den, t / den);
 }
 
 const epsilon = 0.0001;
 
 test "complex.ctanh32" {
-    const a = Complex(f32).new(5, 3);
+    const a = Complex(f32).init(5, 3);
     const c = tanh(a);
 
-    testing.expect(math.approxEqAbs(f32, c.re, 0.999913, epsilon));
-    testing.expect(math.approxEqAbs(f32, c.im, -0.000025, epsilon));
+    try testing.expect(math.approxEqAbs(f32, c.re, 0.999913, epsilon));
+    try testing.expect(math.approxEqAbs(f32, c.im, -0.000025, epsilon));
 }
 
 test "complex.ctanh64" {
-    const a = Complex(f64).new(5, 3);
+    const a = Complex(f64).init(5, 3);
     const c = tanh(a);
 
-    testing.expect(math.approxEqAbs(f64, c.re, 0.999913, epsilon));
-    testing.expect(math.approxEqAbs(f64, c.im, -0.000025, epsilon));
+    try testing.expect(math.approxEqAbs(f64, c.re, 0.999913, epsilon));
+    try testing.expect(math.approxEqAbs(f64, c.im, -0.000025, epsilon));
 }

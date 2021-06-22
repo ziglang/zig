@@ -3,6 +3,16 @@ const tests = @import("tests.zig");
 const nl = std.cstr.line_sep;
 
 pub fn addCases(cases: *tests.RunTranslatedCContext) void {
+    cases.add("dereference address of",
+        \\#include <stdlib.h>
+        \\int main(void) {
+        \\    int i = 0;
+        \\    *&i = 42;
+        \\    if (i != 42) abort();
+        \\	  return 0;
+        \\}
+    , "");
+
     cases.add("division of floating literals",
         \\#define _NO_CRT_STDIO_INLINE 1
         \\#include <stdio.h>
@@ -1255,6 +1265,336 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
         \\    for (; i < 10;) for (; i < 10;) i++;
         \\    while (i == 100) while (i == 100) foo();
         \\    if (0) do do "string"; while(1); while(1);
+        \\    return 0;
+        \\}
+    , "");
+
+    cases.add("cast RHS of compound assignment if necessary, unused result",
+        \\#include <stdlib.h>
+        \\int main(void) {
+        \\   signed short val = -1;
+        \\   val += 1; if (val != 0) abort();
+        \\   val -= 1; if (val != -1) abort();
+        \\   val *= 2; if (val != -2) abort();
+        \\   val /= 2; if (val != -1) abort();
+        \\   val %= 2; if (val != -1) abort();
+        \\   val <<= 1; if (val != -2) abort();
+        \\   val >>= 1; if (val != -1) abort();
+        \\   val += 100000000;       // compile error if @truncate() not inserted
+        \\   unsigned short uval = 1;
+        \\   uval += 1; if (uval != 2) abort();
+        \\   uval -= 1; if (uval != 1) abort();
+        \\   uval *= 2; if (uval != 2) abort();
+        \\   uval /= 2; if (uval != 1) abort();
+        \\   uval %= 2; if (uval != 1) abort();
+        \\   uval <<= 1; if (uval != 2) abort();
+        \\   uval >>= 1; if (uval != 1) abort();
+        \\   uval += 100000000;      // compile error if @truncate() not inserted
+        \\}
+    , "");
+
+    cases.add("cast RHS of compound assignment if necessary, used result",
+        \\#include <stdlib.h>
+        \\int main(void) {
+        \\   signed short foo;
+        \\   signed short val = -1;
+        \\   foo = (val += 1); if (foo != 0) abort();
+        \\   foo = (val -= 1); if (foo != -1) abort();
+        \\   foo = (val *= 2); if (foo != -2) abort();
+        \\   foo = (val /= 2); if (foo != -1) abort();
+        \\   foo = (val %= 2); if (foo != -1) abort();
+        \\   foo = (val <<= 1); if (foo != -2) abort();
+        \\   foo = (val >>= 1); if (foo != -1) abort();
+        \\   foo = (val += 100000000);    // compile error if @truncate() not inserted
+        \\   unsigned short ufoo;
+        \\   unsigned short uval = 1;
+        \\   ufoo = (uval += 1); if (ufoo != 2) abort();
+        \\   ufoo = (uval -= 1); if (ufoo != 1) abort();
+        \\   ufoo = (uval *= 2); if (ufoo != 2) abort();
+        \\   ufoo = (uval /= 2); if (ufoo != 1) abort();
+        \\   ufoo = (uval %= 2); if (ufoo != 1) abort();
+        \\   ufoo = (uval <<= 1); if (ufoo != 2) abort();
+        \\   ufoo = (uval >>= 1); if (ufoo != 1) abort();
+        \\   ufoo = (uval += 100000000);  // compile error if @truncate() not inserted
+        \\}
+    , "");
+
+    cases.add("basic vector expressions",
+        \\#include <stdlib.h>
+        \\#include <stdint.h>
+        \\typedef int16_t  __v8hi __attribute__((__vector_size__(16)));
+        \\int main(int argc, char**argv) {
+        \\    __v8hi uninitialized;
+        \\    __v8hi empty_init = {};
+        \\    __v8hi partial_init = {0, 1, 2, 3};
+        \\
+        \\    __v8hi a = {0, 1, 2, 3, 4, 5, 6, 7};
+        \\    __v8hi b = (__v8hi) {100, 200, 300, 400, 500, 600, 700, 800};
+        \\
+        \\    __v8hi sum = a + b;
+        \\    for (int i = 0; i < 8; i++) {
+        \\        if (sum[i] != a[i] + b[i]) abort();
+        \\    }
+        \\    return 0;
+        \\}
+    , "");
+
+    cases.add("__builtin_shufflevector",
+        \\#include <stdlib.h>
+        \\#include <stdint.h>
+        \\typedef int16_t  __v4hi __attribute__((__vector_size__(8)));
+        \\typedef int16_t  __v8hi __attribute__((__vector_size__(16)));
+        \\int main(int argc, char**argv) {
+        \\    __v8hi v8_a = {0, 1, 2, 3, 4, 5, 6, 7};
+        \\    __v8hi v8_b = {100, 200, 300, 400, 500, 600, 700, 800};
+        \\    __v8hi shuffled = __builtin_shufflevector(v8_a, v8_b, 0, 1, 2, 3, 8, 9, 10, 11);
+        \\    for (int i = 0; i < 8; i++) {
+        \\        if (i < 4) {
+        \\            if (shuffled[i] != v8_a[i]) abort();
+        \\        } else {
+        \\            if (shuffled[i] != v8_b[i - 4]) abort();
+        \\        }
+        \\    }
+        \\    shuffled = __builtin_shufflevector(
+        \\        (__v8hi) {-1, -1, -1, -1, -1, -1, -1, -1},
+        \\        (__v8hi) {42, 42, 42, 42, 42, 42, 42, 42},
+        \\        0, 1, 2, 3, 8, 9, 10, 11
+        \\    );
+        \\    for (int i = 0; i < 8; i++) {
+        \\        if (i < 4) {
+        \\            if (shuffled[i] != -1) abort();
+        \\        } else {
+        \\            if (shuffled[i] != 42) abort();
+        \\        }
+        \\    }
+        \\    __v4hi shuffled_to_fewer_elements = __builtin_shufflevector(v8_a, v8_b, 0, 1, 8, 9);
+        \\    for (int i = 0; i < 4; i++) {
+        \\        if (i < 2) {
+        \\            if (shuffled_to_fewer_elements[i] != v8_a[i]) abort();
+        \\        } else {
+        \\            if (shuffled_to_fewer_elements[i] != v8_b[i - 2]) abort();
+        \\        }
+        \\    }
+        \\    __v4hi v4_a = {0, 1, 2, 3};
+        \\    __v4hi v4_b = {100, 200, 300, 400};
+        \\    __v8hi shuffled_to_more_elements = __builtin_shufflevector(v4_a, v4_b, 0, 1, 2, 3, 4, 5, 6, 7);
+        \\    for (int i = 0; i < 4; i++) {
+        \\        if (shuffled_to_more_elements[i] != v4_a[i]) abort();
+        \\        if (shuffled_to_more_elements[i + 4] != v4_b[i]) abort();
+        \\    }
+        \\    return 0;
+        \\}
+    , "");
+
+    cases.add("__builtin_convertvector",
+        \\#include <stdlib.h>
+        \\#include <stdint.h>
+        \\typedef int16_t  __v8hi __attribute__((__vector_size__(16)));
+        \\typedef uint16_t __v8hu __attribute__((__vector_size__(16)));
+        \\int main(int argc, char**argv) {
+        \\    __v8hi signed_vector = { 1, 2, 3, 4, -1, -2, -3,-4};
+        \\    __v8hu unsigned_vector = __builtin_convertvector(signed_vector, __v8hu);
+        \\
+        \\    for (int i = 0; i < 8; i++) {
+        \\        if (unsigned_vector[i] != (uint16_t)signed_vector[i]) abort();
+        \\    }
+        \\    return 0;
+        \\}
+    , "");
+
+    cases.add("vector casting",
+        \\#include <stdlib.h>
+        \\#include <stdint.h>
+        \\typedef int8_t __v8qi __attribute__((__vector_size__(8)));
+        \\typedef uint8_t __v8qu __attribute__((__vector_size__(8)));
+        \\int main(int argc, char**argv) {
+        \\    __v8qi signed_vector = { 1, 2, 3, 4, -1, -2, -3,-4};
+        \\
+        \\    uint64_t big_int = (uint64_t) signed_vector;
+        \\    if (big_int != 0x01020304FFFEFDFCULL && big_int != 0xFCFDFEFF04030201ULL) abort();
+        \\    __v8qu unsigned_vector = (__v8qu) big_int;
+        \\    for (int i = 0; i < 8; i++) {
+        \\        if (unsigned_vector[i] != (uint8_t)signed_vector[i] && unsigned_vector[i] != (uint8_t)signed_vector[7 - i]) abort();
+        \\    }
+        \\    return 0;
+        \\}
+    , "");
+
+    cases.add("break from switch statement. Issue #8387",
+        \\#include <stdlib.h>
+        \\int switcher(int x) {
+        \\    switch (x) {
+        \\        case 0:      // no braces
+        \\            x += 1;
+        \\            break;
+        \\        case 1:      // conditional break
+        \\            if (x == 1) {
+        \\                x += 1;
+        \\                break;
+        \\            }
+        \\            x += 100;
+        \\        case 2: {    // braces with fallthrough
+        \\            x += 1;
+        \\        }
+        \\        case 3:      // fallthrough to return statement
+        \\            x += 1;
+        \\        case 42: {   // random out of order case
+        \\            x += 1;
+        \\            return x;
+        \\        }
+        \\        case 4: {    // break within braces
+        \\            x += 1;
+        \\            break;
+        \\        }
+        \\        case 5:
+        \\            x += 1;  // fallthrough to default
+        \\        default:
+        \\            x += 1;
+        \\    }
+        \\    return x;
+        \\}
+        \\int main(void) {
+        \\    int expected[] = {1, 2, 5, 5, 5, 7, 7};
+        \\    for (int i = 0; i < sizeof(expected) / sizeof(int); i++) {
+        \\        int res = switcher(i);
+        \\        if (res != expected[i]) abort();
+        \\    }
+        \\    if (switcher(42) != 43) abort();
+        \\    return 0;
+        \\}
+    , "");
+
+    cases.add("Cast to enum from larger integral type. Issue #6011",
+        \\#include <stdint.h>
+        \\#include <stdlib.h>
+        \\enum Foo { A, B, C };
+        \\static inline enum Foo do_stuff(void) {
+        \\    int64_t i = 1;
+        \\    return (enum Foo)i;
+        \\}
+        \\int main(void) {
+        \\    if (do_stuff() != B) abort();
+        \\    return 0;
+        \\}
+    , "");
+
+    cases.add("Render array LHS as grouped node if necessary",
+        \\#include <stdlib.h>
+        \\int main(void) {
+        \\    int arr[] = {40, 41, 42, 43};
+        \\    if ((arr + 1)[1] != 42) abort();
+        \\    return 0;
+        \\}
+    , "");
+
+    cases.add("typedef with multiple names",
+        \\#include <stdlib.h>
+        \\typedef struct {
+        \\    char field;
+        \\} a_t, b_t;
+        \\
+        \\int main(void) {
+        \\    a_t a = { .field = 42 };
+        \\    b_t b = a;
+        \\    if (b.field != 42) abort();
+        \\    return 0;
+        \\}
+    , "");
+
+    cases.add("__cleanup__ attribute",
+        \\#include <stdlib.h>
+        \\static int cleanup_count = 0;
+        \\void clean_up(int *final_value) {
+        \\    if (*final_value != cleanup_count++) abort();
+        \\}
+        \\void doit(void) {
+        \\    int a __attribute__ ((__cleanup__(clean_up))) __attribute__ ((unused)) = 2;
+        \\    int b __attribute__ ((__cleanup__(clean_up))) __attribute__ ((unused)) = 1;
+        \\    int c __attribute__ ((__cleanup__(clean_up))) __attribute__ ((unused)) = 0;
+        \\}
+        \\int main(void) {
+        \\    doit();
+        \\    if (cleanup_count != 3) abort();
+        \\    return 0;
+        \\}
+    , "");
+
+    cases.add("enum used as boolean expression",
+        \\#include <stdlib.h>
+        \\enum FOO {BAR, BAZ};
+        \\int main(void) {
+        \\    enum FOO x = BAR;
+        \\    if (x) abort();
+        \\    if (!BAZ) abort();
+        \\    return 0;
+        \\}
+    , "");
+
+    cases.add("Flexible arrays",
+        \\#include <stdlib.h>
+        \\#include <stdint.h>
+        \\typedef struct { char foo; int bar; } ITEM;
+        \\typedef struct { size_t count; ITEM items[]; } ITEM_LIST;
+        \\typedef struct { unsigned char count; int items[]; } INT_LIST;
+        \\#define SIZE 10
+        \\int main(void) {
+        \\    ITEM_LIST *list = malloc(sizeof(ITEM_LIST) + SIZE * sizeof(ITEM));
+        \\    for (int i = 0; i < SIZE; i++) list->items[i] = (ITEM) {.foo = i, .bar = i + 1};
+        \\    const ITEM_LIST *const c_list = list;
+        \\    for (int i = 0; i < SIZE; i++) if (c_list->items[i].foo != i || c_list->items[i].bar != i + 1) abort();
+        \\    INT_LIST *int_list = malloc(sizeof(INT_LIST) + SIZE * sizeof(int));
+        \\    for (int i = 0; i < SIZE; i++) int_list->items[i] = i;
+        \\    const INT_LIST *const c_int_list = int_list;
+        \\    const int *const ints = int_list->items;
+        \\    for (int i = 0; i < SIZE; i++) if (ints[i] != i) abort();
+        \\    return 0;
+        \\}
+    , "");
+
+    cases.add("enum with value that fits in c_uint but not c_int, issue #8003",
+        \\#include <stdlib.h>
+        \\enum my_enum {
+        \\    FORCE_UINT = 0xffffffff
+        \\};
+        \\int main(void) {
+        \\    if(FORCE_UINT != 0xffffffff) abort();
+        \\}
+    , "");
+
+    cases.add("block-scope static variable shadows function parameter. Issue #8208",
+        \\#include <stdlib.h>
+        \\int func1(int foo) { return foo + 1; }
+        \\int func2(void) {
+        \\    static int foo = 5;
+        \\    return foo++;
+        \\}
+        \\int main(void) {
+        \\    if (func1(42) != 43) abort();
+        \\    if (func2() != 5) abort();
+        \\    if (func2() != 6) abort();
+        \\    return 0;
+        \\}
+    , "");
+
+    cases.add("nested same-name static locals",
+        \\#include <stdlib.h>
+        \\int func(int val) {
+        \\    static int foo;
+        \\    if (foo != val) abort();
+        \\    {
+        \\        foo += 1;
+        \\        static int foo = 2;
+        \\        if (foo != val + 2) abort();
+        \\        foo += 1;
+        \\    }
+        \\    return foo;
+        \\}
+        \\int main(void) {
+        \\    int foo = 1;
+        \\    if (func(0) != 1) abort();
+        \\    if (func(1) != 2) abort();
+        \\    if (func(2) != 3) abort();
+        \\    if (foo != 1) abort();
         \\    return 0;
         \\}
     , "");

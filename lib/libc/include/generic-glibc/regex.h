@@ -1,6 +1,6 @@
 /* Definitions for data structures and routines for the regular
    expression library.
-   Copyright (C) 1985, 1989-2020 Free Software Foundation, Inc.
+   Copyright (C) 1985, 1989-2021 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -600,11 +600,9 @@ extern void re_set_registers (struct re_pattern_buffer *__buffer,
 #endif	/* Use GNU */
 
 #if defined _REGEX_RE_COMP || (defined _LIBC && defined __USE_MISC)
-# ifndef _CRAY
 /* 4.2 bsd compatibility.  */
 extern char *re_comp (const char *);
 extern int re_exec (const char *);
-# endif
 #endif
 
 /* For plain 'restrict', use glibc's __restrict if defined.
@@ -614,7 +612,9 @@ extern int re_exec (const char *);
    'configure' might #define 'restrict' to those words, so pick a
    different name.  */
 #ifndef _Restrict_
-# if defined __restrict || 2 < __GNUC__ + (95 <= __GNUC_MINOR__)
+# if defined __restrict \
+     || 2 < __GNUC__ + (95 <= __GNUC_MINOR__) \
+     || __clang_major__ >= 3
 #  define _Restrict_ __restrict
 # elif 199901L <= __STDC_VERSION__ || defined restrict
 #  define _Restrict_ restrict
@@ -622,13 +622,18 @@ extern int re_exec (const char *);
 #  define _Restrict_
 # endif
 #endif
-/* For [restrict], use glibc's __restrict_arr if available.
-   Otherwise, GCC 3.1 (not in C++ mode) and C99 support [restrict].  */
+/* For the ISO C99 syntax
+     array_name[restrict]
+   use glibc's __restrict_arr if available.
+   Otherwise, GCC 3.1 and clang support this syntax (but not in C++ mode).
+   Other ISO C99 compilers support it as well.  */
 #ifndef _Restrict_arr_
 # ifdef __restrict_arr
 #  define _Restrict_arr_ __restrict_arr
-# elif ((199901L <= __STDC_VERSION__ || 3 < __GNUC__ + (1 <= __GNUC_MINOR__)) \
-        && !defined __GNUG__)
+# elif ((199901L <= __STDC_VERSION__ \
+         || 3 < __GNUC__ + (1 <= __GNUC_MINOR__) \
+         || __clang_major__ >= 3) \
+        && !defined __cplusplus)
 #  define _Restrict_arr_ _Restrict_
 # else
 #  define _Restrict_arr_

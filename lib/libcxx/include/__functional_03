@@ -126,7 +126,7 @@ __func<_Fp, _Alloc, _Rp()>::__clone() const
     _Ap __a(__f_.second());
     typedef __allocator_destructor<_Ap> _Dp;
     unique_ptr<__func, _Dp> __hold(__a.allocate(1), _Dp(__a, 1));
-    ::new (__hold.get()) __func(__f_.first(), _Alloc(__a));
+    ::new ((void*)__hold.get()) __func(__f_.first(), _Alloc(__a));
     return __hold.release();
 }
 
@@ -134,7 +134,7 @@ template<class _Fp, class _Alloc, class _Rp>
 void
 __func<_Fp, _Alloc, _Rp()>::__clone(__base<_Rp()>* __p) const
 {
-    ::new (__p) __func(__f_.first(), __f_.second());
+    ::new ((void*)__p) __func(__f_.first(), __f_.second());
 }
 
 template<class _Fp, class _Alloc, class _Rp>
@@ -212,7 +212,7 @@ __func<_Fp, _Alloc, _Rp(_A0)>::__clone() const
     _Ap __a(__f_.second());
     typedef __allocator_destructor<_Ap> _Dp;
     unique_ptr<__func, _Dp> __hold(__a.allocate(1), _Dp(__a, 1));
-    ::new (__hold.get()) __func(__f_.first(), _Alloc(__a));
+    ::new ((void*)__hold.get()) __func(__f_.first(), _Alloc(__a));
     return __hold.release();
 }
 
@@ -220,7 +220,7 @@ template<class _Fp, class _Alloc, class _Rp, class _A0>
 void
 __func<_Fp, _Alloc, _Rp(_A0)>::__clone(__base<_Rp(_A0)>* __p) const
 {
-    ::new (__p) __func(__f_.first(), __f_.second());
+    ::new ((void*)__p) __func(__f_.first(), __f_.second());
 }
 
 template<class _Fp, class _Alloc, class _Rp, class _A0>
@@ -298,7 +298,7 @@ __func<_Fp, _Alloc, _Rp(_A0, _A1)>::__clone() const
     _Ap __a(__f_.second());
     typedef __allocator_destructor<_Ap> _Dp;
     unique_ptr<__func, _Dp> __hold(__a.allocate(1), _Dp(__a, 1));
-    ::new (__hold.get()) __func(__f_.first(), _Alloc(__a));
+    ::new ((void*)__hold.get()) __func(__f_.first(), _Alloc(__a));
     return __hold.release();
 }
 
@@ -306,7 +306,7 @@ template<class _Fp, class _Alloc, class _Rp, class _A0, class _A1>
 void
 __func<_Fp, _Alloc, _Rp(_A0, _A1)>::__clone(__base<_Rp(_A0, _A1)>* __p) const
 {
-    ::new (__p) __func(__f_.first(), __f_.second());
+    ::new ((void*)__p) __func(__f_.first(), __f_.second());
 }
 
 template<class _Fp, class _Alloc, class _Rp, class _A0, class _A1>
@@ -384,7 +384,7 @@ __func<_Fp, _Alloc, _Rp(_A0, _A1, _A2)>::__clone() const
     _Ap __a(__f_.second());
     typedef __allocator_destructor<_Ap> _Dp;
     unique_ptr<__func, _Dp> __hold(__a.allocate(1), _Dp(__a, 1));
-    ::new (__hold.get()) __func(__f_.first(), _Alloc(__a));
+    ::new ((void*)__hold.get()) __func(__f_.first(), _Alloc(__a));
     return __hold.release();
 }
 
@@ -392,7 +392,7 @@ template<class _Fp, class _Alloc, class _Rp, class _A0, class _A1, class _A2>
 void
 __func<_Fp, _Alloc, _Rp(_A0, _A1, _A2)>::__clone(__base<_Rp(_A0, _A1, _A2)>* __p) const
 {
-    ::new (__p) __func(__f_.first(), __f_.second());
+    ::new ((void*)__p) __func(__f_.first(), __f_.second());
 }
 
 template<class _Fp, class _Alloc, class _Rp, class _A0, class _A1, class _A2>
@@ -554,7 +554,7 @@ function<_Rp()>::function(_Fp __f,
         if (sizeof(_FF) <= sizeof(__buf_))
         {
             __f_ = (__base*)&__buf_;
-            ::new (__f_) _FF(__f);
+            ::new ((void*)__f_) _FF(__f);
         }
         else
         {
@@ -562,7 +562,7 @@ function<_Rp()>::function(_Fp __f,
             _Ap __a;
             typedef __allocator_destructor<_Ap> _Dp;
             unique_ptr<__base, _Dp> __hold(__a.allocate(1), _Dp(__a, 1));
-            ::new (__hold.get()) _FF(__f, allocator<_Fp>(__a));
+            ::new ((void*)__hold.get()) _FF(__f, allocator<_Fp>(__a));
             __f_ = __hold.release();
         }
     }
@@ -581,7 +581,7 @@ function<_Rp()>::function(allocator_arg_t, const _Alloc& __a0, _Fp __f,
         if (sizeof(_FF) <= sizeof(__buf_))
         {
             __f_ = (__base*)&__buf_;
-            ::new (__f_) _FF(__f, __a0);
+            ::new ((void*)__f_) _FF(__f, __a0);
         }
         else
         {
@@ -589,7 +589,7 @@ function<_Rp()>::function(allocator_arg_t, const _Alloc& __a0, _Fp __f,
             _Ap __a(__a0);
             typedef __allocator_destructor<_Ap> _Dp;
             unique_ptr<__base, _Dp> __hold(__a.allocate(1), _Dp(__a, 1));
-            ::new (__hold.get()) _FF(__f, _Alloc(__a));
+            ::new ((void*)__hold.get()) _FF(__f, _Alloc(__a));
             __f_ = __hold.release();
         }
     }
@@ -834,7 +834,7 @@ function<_Rp(_A0)>::function(_Fp __f,
         if (sizeof(_FF) <= sizeof(__buf_))
         {
             __f_ = (__base*)&__buf_;
-            ::new (__f_) _FF(__f);
+            ::new ((void*)__f_) _FF(__f);
         }
         else
         {
@@ -842,7 +842,7 @@ function<_Rp(_A0)>::function(_Fp __f,
             _Ap __a;
             typedef __allocator_destructor<_Ap> _Dp;
             unique_ptr<__base, _Dp> __hold(__a.allocate(1), _Dp(__a, 1));
-            ::new (__hold.get()) _FF(__f, allocator<_Fp>(__a));
+            ::new ((void*)__hold.get()) _FF(__f, allocator<_Fp>(__a));
             __f_ = __hold.release();
         }
     }
@@ -861,7 +861,7 @@ function<_Rp(_A0)>::function(allocator_arg_t, const _Alloc& __a0, _Fp __f,
         if (sizeof(_FF) <= sizeof(__buf_))
         {
             __f_ = (__base*)&__buf_;
-            ::new (__f_) _FF(__f, __a0);
+            ::new ((void*)__f_) _FF(__f, __a0);
         }
         else
         {
@@ -869,7 +869,7 @@ function<_Rp(_A0)>::function(allocator_arg_t, const _Alloc& __a0, _Fp __f,
             _Ap __a(__a0);
             typedef __allocator_destructor<_Ap> _Dp;
             unique_ptr<__base, _Dp> __hold(__a.allocate(1), _Dp(__a, 1));
-            ::new (__hold.get()) _FF(__f, _Alloc(__a));
+            ::new ((void*)__hold.get()) _FF(__f, _Alloc(__a));
             __f_ = __hold.release();
         }
     }
@@ -1114,7 +1114,7 @@ function<_Rp(_A0, _A1)>::function(_Fp __f,
         if (sizeof(_FF) <= sizeof(__buf_))
         {
             __f_ = (__base*)&__buf_;
-            ::new (__f_) _FF(__f);
+            ::new ((void*)__f_) _FF(__f);
         }
         else
         {
@@ -1122,7 +1122,7 @@ function<_Rp(_A0, _A1)>::function(_Fp __f,
             _Ap __a;
             typedef __allocator_destructor<_Ap> _Dp;
             unique_ptr<__base, _Dp> __hold(__a.allocate(1), _Dp(__a, 1));
-            ::new (__hold.get()) _FF(__f, allocator<_Fp>(__a));
+            ::new ((void*)__hold.get()) _FF(__f, allocator<_Fp>(__a));
             __f_ = __hold.release();
         }
     }
@@ -1141,7 +1141,7 @@ function<_Rp(_A0, _A1)>::function(allocator_arg_t, const _Alloc& __a0, _Fp __f,
         if (sizeof(_FF) <= sizeof(__buf_))
         {
             __f_ = (__base*)&__buf_;
-            ::new (__f_) _FF(__f, __a0);
+            ::new ((void*)__f_) _FF(__f, __a0);
         }
         else
         {
@@ -1149,7 +1149,7 @@ function<_Rp(_A0, _A1)>::function(allocator_arg_t, const _Alloc& __a0, _Fp __f,
             _Ap __a(__a0);
             typedef __allocator_destructor<_Ap> _Dp;
             unique_ptr<__base, _Dp> __hold(__a.allocate(1), _Dp(__a, 1));
-            ::new (__hold.get()) _FF(__f, _Alloc(__a));
+            ::new ((void*)__hold.get()) _FF(__f, _Alloc(__a));
             __f_ = __hold.release();
         }
     }
@@ -1394,7 +1394,7 @@ function<_Rp(_A0, _A1, _A2)>::function(_Fp __f,
         if (sizeof(_FF) <= sizeof(__buf_))
         {
             __f_ = (__base*)&__buf_;
-            ::new (__f_) _FF(__f);
+            ::new ((void*)__f_) _FF(__f);
         }
         else
         {
@@ -1402,7 +1402,7 @@ function<_Rp(_A0, _A1, _A2)>::function(_Fp __f,
             _Ap __a;
             typedef __allocator_destructor<_Ap> _Dp;
             unique_ptr<__base, _Dp> __hold(__a.allocate(1), _Dp(__a, 1));
-            ::new (__hold.get()) _FF(__f, allocator<_Fp>(__a));
+            ::new ((void*)__hold.get()) _FF(__f, allocator<_Fp>(__a));
             __f_ = __hold.release();
         }
     }
@@ -1421,7 +1421,7 @@ function<_Rp(_A0, _A1, _A2)>::function(allocator_arg_t, const _Alloc& __a0, _Fp 
         if (sizeof(_FF) <= sizeof(__buf_))
         {
             __f_ = (__base*)&__buf_;
-            ::new (__f_) _FF(__f, __a0);
+            ::new ((void*)__f_) _FF(__f, __a0);
         }
         else
         {
@@ -1429,7 +1429,7 @@ function<_Rp(_A0, _A1, _A2)>::function(allocator_arg_t, const _Alloc& __a0, _Fp 
             _Ap __a(__a0);
             typedef __allocator_destructor<_Ap> _Dp;
             unique_ptr<__base, _Dp> __hold(__a.allocate(1), _Dp(__a, 1));
-            ::new (__hold.get()) _FF(__f, _Alloc(__a));
+            ::new ((void*)__hold.get()) _FF(__f, _Alloc(__a));
             __f_ = __hold.release();
         }
     }

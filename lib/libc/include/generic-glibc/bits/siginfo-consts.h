@@ -1,5 +1,5 @@
 /* siginfo constants.  Linux version.
-   Copyright (C) 1997-2020 Free Software Foundation, Inc.
+   Copyright (C) 1997-2021 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -130,8 +130,12 @@ enum
 #  define SEGV_ACCADI	SEGV_ACCADI
   SEGV_ADIDERR,			/* Disrupting MCD error.  */
 #  define SEGV_ADIDERR	SEGV_ADIDERR
-  SEGV_ADIPERR			/* Precise MCD exception.  */
+  SEGV_ADIPERR,			/* Precise MCD exception.  */
 #  define SEGV_ADIPERR	SEGV_ADIPERR
+  SEGV_MTEAERR,			/* Asynchronous ARM MTE error.  */
+#  define SEGV_MTEAERR	SEGV_MTEAERR
+  SEGV_MTESERR			/* Synchronous ARM MTE exception.  */
+#  define SEGV_MTESERR	SEGV_MTESERR
 };
 
 /* `si_code' values for SIGBUS signal.  */

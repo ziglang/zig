@@ -31,6 +31,7 @@ pub const PackedIntArrayEndian = @import("packed_int_array.zig").PackedIntArrayE
 pub const PackedIntSlice = @import("packed_int_array.zig").PackedIntSlice;
 pub const PackedIntSliceEndian = @import("packed_int_array.zig").PackedIntSliceEndian;
 pub const PriorityQueue = @import("priority_queue.zig").PriorityQueue;
+pub const PriorityDequeue = @import("priority_dequeue.zig").PriorityDequeue;
 pub const Progress = @import("Progress.zig");
 pub const SemanticVersion = @import("SemanticVersion.zig");
 pub const SinglyLinkedList = @import("linked_list.zig").SinglyLinkedList;
@@ -87,11 +88,12 @@ pub const time = @import("time.zig");
 pub const unicode = @import("unicode.zig");
 pub const valgrind = @import("valgrind.zig");
 pub const wasm = @import("wasm.zig");
+pub const x = @import("x.zig");
 pub const zig = @import("zig.zig");
 pub const start = @import("start.zig");
 
 // This forces the start.zig file to be imported, and the comptime logic inside that
-// file decides whether to export any appropriate start symbols.
+// file decides whether to export any appropriate start symbols, and call main.
 comptime {
     _ = start;
 }

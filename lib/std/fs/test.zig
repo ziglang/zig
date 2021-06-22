@@ -46,7 +46,7 @@ test "Dir.readLink" {
 fn testReadLink(dir: Dir, target_path: []const u8, symlink_path: []const u8) !void {
     var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
     const given = try dir.readLink(symlink_path, buffer[0..]);
-    testing.expect(mem.eql(u8, target_path, given));
+    try testing.expect(mem.eql(u8, target_path, given));
 }
 
 test "accessAbsolute" {
@@ -79,7 +79,23 @@ test "openDirAbsolute" {
         break :blk try fs.realpathAlloc(&arena.allocator, relative_path);
     };
 
-    var dir = try fs.openDirAbsolute(base_path, .{});
+    {
+        var dir = try fs.openDirAbsolute(base_path, .{});
+        defer dir.close();
+    }
+
+    for ([_][]const u8{ ".", ".." }) |sub_path| {
+        const dir_path = try fs.path.join(&arena.allocator, &[_][]const u8{ base_path, sub_path });
+        defer arena.allocator.free(dir_path);
+        var dir = try fs.openDirAbsolute(dir_path, .{});
+        defer dir.close();
+    }
+}
+
+test "openDir cwd parent .." {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
+    var dir = try fs.cwd().openDir("..", .{});
     defer dir.close();
 }
 
@@ -132,7 +148,7 @@ test "readLinkAbsolute" {
 fn testReadLinkAbsolute(target_path: []const u8, symlink_path: []const u8) !void {
     var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
     const given = try fs.readLinkAbsolute(symlink_path, buffer[0..]);
-    testing.expect(mem.eql(u8, target_path, given));
+    try testing.expect(mem.eql(u8, target_path, given));
 }
 
 test "Dir.Iterator" {
@@ -159,9 +175,9 @@ test "Dir.Iterator" {
         try entries.append(Dir.Entry{ .name = name, .kind = entry.kind });
     }
 
-    testing.expect(entries.items.len == 2); // note that the Iterator skips '.' and '..'
-    testing.expect(contains(&entries, Dir.Entry{ .name = "some_file", .kind = Dir.Entry.Kind.File }));
-    testing.expect(contains(&entries, Dir.Entry{ .name = "some_dir", .kind = Dir.Entry.Kind.Directory }));
+    try testing.expect(entries.items.len == 2); // note that the Iterator skips '.' and '..'
+    try testing.expect(contains(&entries, Dir.Entry{ .name = "some_file", .kind = Dir.Entry.Kind.File }));
+    try testing.expect(contains(&entries, Dir.Entry{ .name = "some_dir", .kind = Dir.Entry.Kind.Directory }));
 }
 
 fn entryEql(lhs: Dir.Entry, rhs: Dir.Entry) bool {
@@ -203,7 +219,7 @@ test "Dir.realpath smoke test" {
         const file_path = try tmp_dir.dir.realpath("test_file", buf1[0..]);
         const expected_path = try fs.path.join(&arena.allocator, &[_][]const u8{ base_path, "test_file" });
 
-        testing.expect(mem.eql(u8, file_path, expected_path));
+        try testing.expect(mem.eql(u8, file_path, expected_path));
     }
 
     // Next, test alloc version
@@ -211,7 +227,7 @@ test "Dir.realpath smoke test" {
         const file_path = try tmp_dir.dir.realpathAlloc(&arena.allocator, "test_file");
         const expected_path = try fs.path.join(&arena.allocator, &[_][]const u8{ base_path, "test_file" });
 
-        testing.expect(mem.eql(u8, file_path, expected_path));
+        try testing.expect(mem.eql(u8, file_path, expected_path));
     }
 }
 
@@ -224,7 +240,7 @@ test "readAllAlloc" {
 
     const buf1 = try file.readToEndAlloc(testing.allocator, 1024);
     defer testing.allocator.free(buf1);
-    testing.expect(buf1.len == 0);
+    try testing.expect(buf1.len == 0);
 
     const write_buf: []const u8 = "this is a test.\nthis is a test.\nthis is a test.\nthis is a test.\n";
     try file.writeAll(write_buf);
@@ -233,19 +249,19 @@ test "readAllAlloc" {
     // max_bytes > file_size
     const buf2 = try file.readToEndAlloc(testing.allocator, 1024);
     defer testing.allocator.free(buf2);
-    testing.expectEqual(write_buf.len, buf2.len);
-    testing.expect(std.mem.eql(u8, write_buf, buf2));
+    try testing.expectEqual(write_buf.len, buf2.len);
+    try testing.expect(std.mem.eql(u8, write_buf, buf2));
     try file.seekTo(0);
 
     // max_bytes == file_size
     const buf3 = try file.readToEndAlloc(testing.allocator, write_buf.len);
     defer testing.allocator.free(buf3);
-    testing.expectEqual(write_buf.len, buf3.len);
-    testing.expect(std.mem.eql(u8, write_buf, buf3));
+    try testing.expectEqual(write_buf.len, buf3.len);
+    try testing.expect(std.mem.eql(u8, write_buf, buf3));
     try file.seekTo(0);
 
     // max_bytes < file_size
-    testing.expectError(error.FileTooBig, file.readToEndAlloc(testing.allocator, write_buf.len - 1));
+    try testing.expectError(error.FileTooBig, file.readToEndAlloc(testing.allocator, write_buf.len - 1));
 }
 
 test "directory operations on files" {
@@ -257,22 +273,25 @@ test "directory operations on files" {
     var file = try tmp_dir.dir.createFile(test_file_name, .{ .read = true });
     file.close();
 
-    testing.expectError(error.PathAlreadyExists, tmp_dir.dir.makeDir(test_file_name));
-    testing.expectError(error.NotDir, tmp_dir.dir.openDir(test_file_name, .{}));
-    testing.expectError(error.NotDir, tmp_dir.dir.deleteDir(test_file_name));
+    try testing.expectError(error.PathAlreadyExists, tmp_dir.dir.makeDir(test_file_name));
+    try testing.expectError(error.NotDir, tmp_dir.dir.openDir(test_file_name, .{}));
+    try testing.expectError(error.NotDir, tmp_dir.dir.deleteDir(test_file_name));
 
-    if (builtin.os.tag != .wasi and builtin.os.tag != .freebsd and builtin.os.tag != .openbsd) {
-        const absolute_path = try tmp_dir.dir.realpathAlloc(testing.allocator, test_file_name);
-        defer testing.allocator.free(absolute_path);
+    switch (builtin.os.tag) {
+        .wasi, .freebsd, .netbsd, .openbsd, .dragonfly => {},
+        else => {
+            const absolute_path = try tmp_dir.dir.realpathAlloc(testing.allocator, test_file_name);
+            defer testing.allocator.free(absolute_path);
 
-        testing.expectError(error.PathAlreadyExists, fs.makeDirAbsolute(absolute_path));
-        testing.expectError(error.NotDir, fs.deleteDirAbsolute(absolute_path));
+            try testing.expectError(error.PathAlreadyExists, fs.makeDirAbsolute(absolute_path));
+            try testing.expectError(error.NotDir, fs.deleteDirAbsolute(absolute_path));
+        },
     }
 
     // ensure the file still exists and is a file as a sanity check
     file = try tmp_dir.dir.openFile(test_file_name, .{});
     const stat = try file.stat();
-    testing.expect(stat.kind == .File);
+    try testing.expect(stat.kind == .File);
     file.close();
 }
 
@@ -287,23 +306,31 @@ test "file operations on directories" {
 
     try tmp_dir.dir.makeDir(test_dir_name);
 
-    testing.expectError(error.IsDir, tmp_dir.dir.createFile(test_dir_name, .{}));
-    testing.expectError(error.IsDir, tmp_dir.dir.deleteFile(test_dir_name));
-    // Currently, WASI will return error.Unexpected (via ENOTCAPABLE) when attempting fd_read on a directory handle.
-    // TODO: Re-enable on WASI once https://github.com/bytecodealliance/wasmtime/issues/1935 is resolved.
-    if (builtin.os.tag != .wasi) {
-        testing.expectError(error.IsDir, tmp_dir.dir.readFileAlloc(testing.allocator, test_dir_name, std.math.maxInt(usize)));
+    try testing.expectError(error.IsDir, tmp_dir.dir.createFile(test_dir_name, .{}));
+    try testing.expectError(error.IsDir, tmp_dir.dir.deleteFile(test_dir_name));
+    switch (builtin.os.tag) {
+        // NetBSD does not error when reading a directory.
+        .netbsd => {},
+        // Currently, WASI will return error.Unexpected (via ENOTCAPABLE) when attempting fd_read on a directory handle.
+        // TODO: Re-enable on WASI once https://github.com/bytecodealliance/wasmtime/issues/1935 is resolved.
+        .wasi => {},
+        else => {
+            try testing.expectError(error.IsDir, tmp_dir.dir.readFileAlloc(testing.allocator, test_dir_name, std.math.maxInt(usize)));
+        },
     }
     // Note: The `.write = true` is necessary to ensure the error occurs on all platforms.
     // TODO: Add a read-only test as well, see https://github.com/ziglang/zig/issues/5732
-    testing.expectError(error.IsDir, tmp_dir.dir.openFile(test_dir_name, .{ .write = true }));
+    try testing.expectError(error.IsDir, tmp_dir.dir.openFile(test_dir_name, .{ .write = true }));
 
-    if (builtin.os.tag != .wasi and builtin.os.tag != .freebsd and builtin.os.tag != .openbsd) {
-        const absolute_path = try tmp_dir.dir.realpathAlloc(testing.allocator, test_dir_name);
-        defer testing.allocator.free(absolute_path);
+    switch (builtin.os.tag) {
+        .wasi, .freebsd, .netbsd, .openbsd, .dragonfly => {},
+        else => {
+            const absolute_path = try tmp_dir.dir.realpathAlloc(testing.allocator, test_dir_name);
+            defer testing.allocator.free(absolute_path);
 
-        testing.expectError(error.IsDir, fs.createFileAbsolute(absolute_path, .{}));
-        testing.expectError(error.IsDir, fs.deleteFileAbsolute(absolute_path));
+            try testing.expectError(error.IsDir, fs.createFileAbsolute(absolute_path, .{}));
+            try testing.expectError(error.IsDir, fs.deleteFileAbsolute(absolute_path));
+        },
     }
 
     // ensure the directory still exists as a sanity check
@@ -316,7 +343,7 @@ test "deleteDir" {
     defer tmp_dir.cleanup();
 
     // deleting a non-existent directory
-    testing.expectError(error.FileNotFound, tmp_dir.dir.deleteDir("test_dir"));
+    try testing.expectError(error.FileNotFound, tmp_dir.dir.deleteDir("test_dir"));
 
     var dir = try tmp_dir.dir.makeOpenPath("test_dir", .{});
     var file = try dir.createFile("test_file", .{});
@@ -326,7 +353,7 @@ test "deleteDir" {
     // deleting a non-empty directory
     // TODO: Re-enable this check on Windows, see https://github.com/ziglang/zig/issues/5537
     if (builtin.os.tag != .windows) {
-        testing.expectError(error.DirNotEmpty, tmp_dir.dir.deleteDir("test_dir"));
+        try testing.expectError(error.DirNotEmpty, tmp_dir.dir.deleteDir("test_dir"));
     }
 
     dir = try tmp_dir.dir.openDir("test_dir", .{});
@@ -341,7 +368,7 @@ test "Dir.rename files" {
     var tmp_dir = tmpDir(.{});
     defer tmp_dir.cleanup();
 
-    testing.expectError(error.FileNotFound, tmp_dir.dir.rename("missing_file_name", "something_else"));
+    try testing.expectError(error.FileNotFound, tmp_dir.dir.rename("missing_file_name", "something_else"));
 
     // Renaming files
     const test_file_name = "test_file";
@@ -351,7 +378,7 @@ test "Dir.rename files" {
     try tmp_dir.dir.rename(test_file_name, renamed_test_file_name);
 
     // Ensure the file was renamed
-    testing.expectError(error.FileNotFound, tmp_dir.dir.openFile(test_file_name, .{}));
+    try testing.expectError(error.FileNotFound, tmp_dir.dir.openFile(test_file_name, .{}));
     file = try tmp_dir.dir.openFile(renamed_test_file_name, .{});
     file.close();
 
@@ -363,7 +390,7 @@ test "Dir.rename files" {
     existing_file.close();
     try tmp_dir.dir.rename(renamed_test_file_name, "existing_file");
 
-    testing.expectError(error.FileNotFound, tmp_dir.dir.openFile(renamed_test_file_name, .{}));
+    try testing.expectError(error.FileNotFound, tmp_dir.dir.openFile(renamed_test_file_name, .{}));
     file = try tmp_dir.dir.openFile("existing_file", .{});
     file.close();
 }
@@ -380,7 +407,7 @@ test "Dir.rename directories" {
     try tmp_dir.dir.rename("test_dir", "test_dir_renamed");
 
     // Ensure the directory was renamed
-    testing.expectError(error.FileNotFound, tmp_dir.dir.openDir("test_dir", .{}));
+    try testing.expectError(error.FileNotFound, tmp_dir.dir.openDir("test_dir", .{}));
     var dir = try tmp_dir.dir.openDir("test_dir_renamed", .{});
 
     // Put a file in the directory
@@ -391,7 +418,7 @@ test "Dir.rename directories" {
     try tmp_dir.dir.rename("test_dir_renamed", "test_dir_renamed_again");
 
     // Ensure the directory was renamed and the file still exists in it
-    testing.expectError(error.FileNotFound, tmp_dir.dir.openDir("test_dir_renamed", .{}));
+    try testing.expectError(error.FileNotFound, tmp_dir.dir.openDir("test_dir_renamed", .{}));
     dir = try tmp_dir.dir.openDir("test_dir_renamed_again", .{});
     file = try dir.openFile("test_file", .{});
     file.close();
@@ -402,7 +429,7 @@ test "Dir.rename directories" {
     file = try target_dir.createFile("filler", .{ .read = true });
     file.close();
 
-    testing.expectError(error.PathAlreadyExists, tmp_dir.dir.rename("test_dir_renamed_again", "non_empty_target_dir"));
+    try testing.expectError(error.PathAlreadyExists, tmp_dir.dir.rename("test_dir_renamed_again", "non_empty_target_dir"));
 
     // Ensure the directory was not renamed
     dir = try tmp_dir.dir.openDir("test_dir_renamed_again", .{});
@@ -421,8 +448,8 @@ test "Dir.rename file <-> dir" {
     var file = try tmp_dir.dir.createFile("test_file", .{ .read = true });
     file.close();
     try tmp_dir.dir.makeDir("test_dir");
-    testing.expectError(error.IsDir, tmp_dir.dir.rename("test_file", "test_dir"));
-    testing.expectError(error.NotDir, tmp_dir.dir.rename("test_dir", "test_file"));
+    try testing.expectError(error.IsDir, tmp_dir.dir.rename("test_file", "test_dir"));
+    try testing.expectError(error.NotDir, tmp_dir.dir.rename("test_dir", "test_file"));
 }
 
 test "rename" {
@@ -440,7 +467,7 @@ test "rename" {
     try fs.rename(tmp_dir1.dir, test_file_name, tmp_dir2.dir, renamed_test_file_name);
 
     // ensure the file was renamed
-    testing.expectError(error.FileNotFound, tmp_dir1.dir.openFile(test_file_name, .{}));
+    try testing.expectError(error.FileNotFound, tmp_dir1.dir.openFile(test_file_name, .{}));
     file = try tmp_dir2.dir.openFile(renamed_test_file_name, .{});
     file.close();
 }
@@ -461,7 +488,7 @@ test "renameAbsolute" {
         break :blk try fs.realpathAlloc(&arena.allocator, relative_path);
     };
 
-    testing.expectError(error.FileNotFound, fs.renameAbsolute(
+    try testing.expectError(error.FileNotFound, fs.renameAbsolute(
         try fs.path.join(allocator, &[_][]const u8{ base_path, "missing_file_name" }),
         try fs.path.join(allocator, &[_][]const u8{ base_path, "something_else" }),
     ));
@@ -477,10 +504,10 @@ test "renameAbsolute" {
     );
 
     // ensure the file was renamed
-    testing.expectError(error.FileNotFound, tmp_dir.dir.openFile(test_file_name, .{}));
+    try testing.expectError(error.FileNotFound, tmp_dir.dir.openFile(test_file_name, .{}));
     file = try tmp_dir.dir.openFile(renamed_test_file_name, .{});
     const stat = try file.stat();
-    testing.expect(stat.kind == .File);
+    try testing.expect(stat.kind == .File);
     file.close();
 
     // Renaming directories
@@ -493,7 +520,7 @@ test "renameAbsolute" {
     );
 
     // ensure the directory was renamed
-    testing.expectError(error.FileNotFound, tmp_dir.dir.openDir(test_dir_name, .{}));
+    try testing.expectError(error.FileNotFound, tmp_dir.dir.openDir(test_dir_name, .{}));
     var dir = try tmp_dir.dir.openDir(renamed_test_dir_name, .{});
     dir.close();
 }
@@ -514,10 +541,94 @@ test "makePath, put some files in it, deleteTree" {
     try tmp.dir.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "file2.txt", "blah");
     try tmp.dir.deleteTree("os_test_tmp");
     if (tmp.dir.openDir("os_test_tmp", .{})) |dir| {
+        _ = dir;
         @panic("expected error");
     } else |err| {
-        testing.expect(err == error.FileNotFound);
+        try testing.expect(err == error.FileNotFound);
     }
+}
+
+test "writev, readv" {
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    const line1 = "line1\n";
+    const line2 = "line2\n";
+
+    var buf1: [line1.len]u8 = undefined;
+    var buf2: [line2.len]u8 = undefined;
+    var write_vecs = [_]std.os.iovec_const{
+        .{
+            .iov_base = line1,
+            .iov_len = line1.len,
+        },
+        .{
+            .iov_base = line2,
+            .iov_len = line2.len,
+        },
+    };
+    var read_vecs = [_]std.os.iovec{
+        .{
+            .iov_base = &buf2,
+            .iov_len = buf2.len,
+        },
+        .{
+            .iov_base = &buf1,
+            .iov_len = buf1.len,
+        },
+    };
+
+    var src_file = try tmp.dir.createFile("test.txt", .{ .read = true });
+    defer src_file.close();
+
+    try src_file.writevAll(&write_vecs);
+    try testing.expectEqual(@as(u64, line1.len + line2.len), try src_file.getEndPos());
+    try src_file.seekTo(0);
+    const read = try src_file.readvAll(&read_vecs);
+    try testing.expectEqual(@as(usize, line1.len + line2.len), read);
+    try testing.expectEqualStrings(&buf1, "line2\n");
+    try testing.expectEqualStrings(&buf2, "line1\n");
+}
+
+test "pwritev, preadv" {
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    const line1 = "line1\n";
+    const line2 = "line2\n";
+
+    var buf1: [line1.len]u8 = undefined;
+    var buf2: [line2.len]u8 = undefined;
+    var write_vecs = [_]std.os.iovec_const{
+        .{
+            .iov_base = line1,
+            .iov_len = line1.len,
+        },
+        .{
+            .iov_base = line2,
+            .iov_len = line2.len,
+        },
+    };
+    var read_vecs = [_]std.os.iovec{
+        .{
+            .iov_base = &buf2,
+            .iov_len = buf2.len,
+        },
+        .{
+            .iov_base = &buf1,
+            .iov_len = buf1.len,
+        },
+    };
+
+    var src_file = try tmp.dir.createFile("test.txt", .{ .read = true });
+    defer src_file.close();
+
+    try src_file.pwritevAll(&write_vecs, 16);
+    try testing.expectEqual(@as(u64, 16 + line1.len + line2.len), try src_file.getEndPos());
+    const read = try src_file.preadvAll(&read_vecs, 16);
+    try testing.expectEqual(@as(usize, line1.len + line2.len), read);
+    try testing.expectEqualStrings(&buf1, "line2\n");
+    try testing.expectEqualStrings(&buf2, "line1\n");
 }
 
 test "access file" {
@@ -528,9 +639,10 @@ test "access file" {
 
     try tmp.dir.makePath("os_test_tmp");
     if (tmp.dir.access("os_test_tmp" ++ fs.path.sep_str ++ "file.txt", .{})) |ok| {
+        _ = ok;
         @panic("expected error");
     } else |err| {
-        testing.expect(err == error.FileNotFound);
+        try testing.expect(err == error.FileNotFound);
     }
 
     try tmp.dir.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "file.txt", "");
@@ -600,7 +712,7 @@ test "sendfile" {
         .header_count = 2,
     });
     const amt = try dest_file.preadAll(&written_buf, 0);
-    testing.expect(mem.eql(u8, written_buf[0..amt], "header1\nsecond header\nine1\nsecontrailer1\nsecond trailer\n"));
+    try testing.expect(mem.eql(u8, written_buf[0..amt], "header1\nsecond header\nine1\nsecontrailer1\nsecond trailer\n"));
 }
 
 test "copyRangeAll" {
@@ -626,7 +738,7 @@ test "copyRangeAll" {
     _ = try src_file.copyRangeAll(0, dest_file, 0, data.len);
 
     const amt = try dest_file.preadAll(&written_buf, 0);
-    testing.expect(mem.eql(u8, written_buf[0..amt], data));
+    try testing.expect(mem.eql(u8, written_buf[0..amt], data));
 }
 
 test "fs.copyFile" {
@@ -655,7 +767,7 @@ fn expectFileContents(dir: Dir, file_path: []const u8, data: []const u8) !void {
     const contents = try dir.readFileAlloc(testing.allocator, file_path, 1000);
     defer testing.allocator.free(contents);
 
-    testing.expectEqualSlices(u8, data, contents);
+    try testing.expectEqualSlices(u8, data, contents);
 }
 
 test "AtomicFile" {
@@ -676,7 +788,7 @@ test "AtomicFile" {
     }
     const content = try tmp.dir.readFileAlloc(testing.allocator, test_out_file, 9999);
     defer testing.allocator.free(content);
-    testing.expect(mem.eql(u8, content, test_content));
+    try testing.expect(mem.eql(u8, content, test_content));
 
     try tmp.dir.deleteFile(test_out_file);
 }
@@ -685,7 +797,7 @@ test "realpath" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
     var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-    testing.expectError(error.FileNotFound, fs.realpath("definitely_bogus_does_not_exist1234", &buf));
+    try testing.expectError(error.FileNotFound, fs.realpath("definitely_bogus_does_not_exist1234", &buf));
 }
 
 test "open file with exclusive nonblocking lock twice" {
@@ -700,7 +812,7 @@ test "open file with exclusive nonblocking lock twice" {
     defer file1.close();
 
     const file2 = tmp.dir.createFile(filename, .{ .lock = .Exclusive, .lock_nonblocking = true });
-    testing.expectError(error.WouldBlock, file2);
+    try testing.expectError(error.WouldBlock, file2);
 }
 
 test "open file with shared and exclusive nonblocking lock" {
@@ -715,7 +827,7 @@ test "open file with shared and exclusive nonblocking lock" {
     defer file1.close();
 
     const file2 = tmp.dir.createFile(filename, .{ .lock = .Exclusive, .lock_nonblocking = true });
-    testing.expectError(error.WouldBlock, file2);
+    try testing.expectError(error.WouldBlock, file2);
 }
 
 test "open file with exclusive and shared nonblocking lock" {
@@ -730,7 +842,7 @@ test "open file with exclusive and shared nonblocking lock" {
     defer file1.close();
 
     const file2 = tmp.dir.createFile(filename, .{ .lock = .Shared, .lock_nonblocking = true });
-    testing.expectError(error.WouldBlock, file2);
+    try testing.expectError(error.WouldBlock, file2);
 }
 
 test "open file with exclusive lock twice, make sure it waits" {
@@ -790,7 +902,7 @@ test "open file with exclusive nonblocking lock twice (absolute paths)" {
 
     const file2 = fs.createFileAbsolute(filename, .{ .lock = .Exclusive, .lock_nonblocking = true });
     file1.close();
-    testing.expectError(error.WouldBlock, file2);
+    try testing.expectError(error.WouldBlock, file2);
 
     try fs.deleteFileAbsolute(filename);
 }
@@ -830,6 +942,78 @@ test "walker" {
             try fs.path.join(allocator, &[_][]const u8{ expected_dir_name, name });
 
         var entry = (try walker.next()).?;
-        testing.expectEqualStrings(expected_dir_name, try fs.path.relative(allocator, tmp_path, entry.path));
+        try testing.expectEqualStrings(expected_dir_name, try fs.path.relative(allocator, tmp_path, entry.path));
     }
+}
+
+test ". and .. in fs.Dir functions" {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    try tmp.dir.makeDir("./subdir");
+    try tmp.dir.access("./subdir", .{});
+    var created_subdir = try tmp.dir.openDir("./subdir", .{});
+    created_subdir.close();
+
+    const created_file = try tmp.dir.createFile("./subdir/../file", .{});
+    created_file.close();
+    try tmp.dir.access("./subdir/../file", .{});
+
+    try tmp.dir.copyFile("./subdir/../file", tmp.dir, "./subdir/../copy", .{});
+    try tmp.dir.rename("./subdir/../copy", "./subdir/../rename");
+    const renamed_file = try tmp.dir.openFile("./subdir/../rename", .{});
+    renamed_file.close();
+    try tmp.dir.deleteFile("./subdir/../rename");
+
+    try tmp.dir.writeFile("./subdir/../update", "something");
+    const prev_status = try tmp.dir.updateFile("./subdir/../file", tmp.dir, "./subdir/../update", .{});
+    try testing.expectEqual(fs.PrevStatus.stale, prev_status);
+
+    try tmp.dir.deleteDir("./subdir");
+}
+
+test ". and .. in absolute functions" {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = &arena.allocator;
+
+    const base_path = blk: {
+        const relative_path = try fs.path.join(&arena.allocator, &[_][]const u8{ "zig-cache", "tmp", tmp.sub_path[0..] });
+        break :blk try fs.realpathAlloc(&arena.allocator, relative_path);
+    };
+
+    const subdir_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "./subdir" });
+    try fs.makeDirAbsolute(subdir_path);
+    try fs.accessAbsolute(subdir_path, .{});
+    var created_subdir = try fs.openDirAbsolute(subdir_path, .{});
+    created_subdir.close();
+
+    const created_file_path = try fs.path.join(allocator, &[_][]const u8{ subdir_path, "../file" });
+    const created_file = try fs.createFileAbsolute(created_file_path, .{});
+    created_file.close();
+    try fs.accessAbsolute(created_file_path, .{});
+
+    const copied_file_path = try fs.path.join(allocator, &[_][]const u8{ subdir_path, "../copy" });
+    try fs.copyFileAbsolute(created_file_path, copied_file_path, .{});
+    const renamed_file_path = try fs.path.join(allocator, &[_][]const u8{ subdir_path, "../rename" });
+    try fs.renameAbsolute(copied_file_path, renamed_file_path);
+    const renamed_file = try fs.openFileAbsolute(renamed_file_path, .{});
+    renamed_file.close();
+    try fs.deleteFileAbsolute(renamed_file_path);
+
+    const update_file_path = try fs.path.join(allocator, &[_][]const u8{ subdir_path, "../update" });
+    const update_file = try fs.createFileAbsolute(update_file_path, .{});
+    try update_file.writeAll("something");
+    update_file.close();
+    const prev_status = try fs.updateFileAbsolute(created_file_path, update_file_path, .{});
+    try testing.expectEqual(fs.PrevStatus.stale, prev_status);
+
+    try fs.deleteDirAbsolute(subdir_path);
 }

@@ -81,7 +81,7 @@ pub fn FixedBufferStream(comptime Buffer: type) type {
         }
 
         pub fn seekTo(self: *Self, pos: u64) SeekError!void {
-            self.pos = if (std.math.cast(usize, pos)) |x| x else |_| self.buffer.len;
+            self.pos = if (std.math.cast(usize, pos)) |x| std.math.min(self.buffer.len, x) else |_| self.buffer.len;
         }
 
         pub fn seekBy(self: *Self, amt: i64) SeekError!void {
@@ -134,7 +134,7 @@ test "FixedBufferStream output" {
     const stream = fbs.writer();
 
     try stream.print("{s}{s}!", .{ "Hello", "World" });
-    testing.expectEqualSlices(u8, "HelloWorld!", fbs.getWritten());
+    try testing.expectEqualSlices(u8, "HelloWorld!", fbs.getWritten());
 }
 
 test "FixedBufferStream output 2" {
@@ -142,19 +142,22 @@ test "FixedBufferStream output 2" {
     var fbs = fixedBufferStream(&buffer);
 
     try fbs.writer().writeAll("Hello");
-    testing.expect(mem.eql(u8, fbs.getWritten(), "Hello"));
+    try testing.expect(mem.eql(u8, fbs.getWritten(), "Hello"));
 
     try fbs.writer().writeAll("world");
-    testing.expect(mem.eql(u8, fbs.getWritten(), "Helloworld"));
+    try testing.expect(mem.eql(u8, fbs.getWritten(), "Helloworld"));
 
-    testing.expectError(error.NoSpaceLeft, fbs.writer().writeAll("!"));
-    testing.expect(mem.eql(u8, fbs.getWritten(), "Helloworld"));
+    try testing.expectError(error.NoSpaceLeft, fbs.writer().writeAll("!"));
+    try testing.expect(mem.eql(u8, fbs.getWritten(), "Helloworld"));
 
     fbs.reset();
-    testing.expect(fbs.getWritten().len == 0);
+    try testing.expect(fbs.getWritten().len == 0);
 
-    testing.expectError(error.NoSpaceLeft, fbs.writer().writeAll("Hello world!"));
-    testing.expect(mem.eql(u8, fbs.getWritten(), "Hello worl"));
+    try testing.expectError(error.NoSpaceLeft, fbs.writer().writeAll("Hello world!"));
+    try testing.expect(mem.eql(u8, fbs.getWritten(), "Hello worl"));
+
+    try fbs.seekTo((try fbs.getEndPos()) + 1);
+    try testing.expectError(error.NoSpaceLeft, fbs.writer().writeAll("H"));
 }
 
 test "FixedBufferStream input" {
@@ -163,14 +166,18 @@ test "FixedBufferStream input" {
 
     var dest: [4]u8 = undefined;
 
-    var read = try fbs.reader().read(dest[0..4]);
-    testing.expect(read == 4);
-    testing.expect(mem.eql(u8, dest[0..4], bytes[0..4]));
+    var read = try fbs.reader().read(&dest);
+    try testing.expect(read == 4);
+    try testing.expect(mem.eql(u8, dest[0..4], bytes[0..4]));
 
-    read = try fbs.reader().read(dest[0..4]);
-    testing.expect(read == 3);
-    testing.expect(mem.eql(u8, dest[0..3], bytes[4..7]));
+    read = try fbs.reader().read(&dest);
+    try testing.expect(read == 3);
+    try testing.expect(mem.eql(u8, dest[0..3], bytes[4..7]));
 
-    read = try fbs.reader().read(dest[0..4]);
-    testing.expect(read == 0);
+    read = try fbs.reader().read(&dest);
+    try testing.expect(read == 0);
+
+    try fbs.seekTo((try fbs.getEndPos()) + 1);
+    read = try fbs.reader().read(&dest);
+    try testing.expect(read == 0);
 }

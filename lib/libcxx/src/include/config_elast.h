@@ -17,10 +17,14 @@
 #include <errno.h>
 #endif
 
+// Note: _LIBCPP_ELAST needs to be defined only on platforms
+// where strerror/strerror_r can't handle out-of-range errno values.
 #if defined(ELAST)
 #define _LIBCPP_ELAST ELAST
 #elif defined(_NEWLIB_VERSION)
 #define _LIBCPP_ELAST __ELASTERROR
+#elif defined(__NuttX__)
+// No _LIBCPP_ELAST needed on NuttX
 #elif defined(__Fuchsia__)
 // No _LIBCPP_ELAST needed on Fuchsia
 #elif defined(__wasi__)

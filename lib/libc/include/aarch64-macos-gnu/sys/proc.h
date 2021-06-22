@@ -80,6 +80,8 @@
 #include <mach/boolean.h>
 
 
+#include <Availability.h>
+
 
 struct session;
 struct pgrp;

@@ -83,7 +83,6 @@ fn addXf3(comptime T: type, a: T, b: T) T {
 
     const signBit = (@as(Z, 1) << (significandBits + exponentBits));
     const maxExponent = ((1 << exponentBits) - 1);
-    const exponentBias = (maxExponent >> 1);
 
     const implicitBit = (@as(Z, 1) << significandBits);
     const quietBit = implicitBit >> 1;
@@ -97,10 +96,6 @@ fn addXf3(comptime T: type, a: T, b: T) T {
     var bRep = @bitCast(Z, b);
     const aAbs = aRep & absMask;
     const bAbs = bRep & absMask;
-
-    const negative = (aRep & signBit) != 0;
-    const exponent = @intCast(i32, aAbs >> significandBits) - exponentBias;
-    const significand = (aAbs & significandMask) | implicitBit;
 
     const infRep = @bitCast(Z, std.math.inf(T));
 

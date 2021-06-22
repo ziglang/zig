@@ -8,35 +8,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "config.h"
-#include "AddressSpace.hpp"
-#include "DwarfParser.hpp"
-
-
-// private keymgr stuff
-#define KEYMGR_GCC3_DW2_OBJ_LIST 302
-extern "C" {
- extern void _keymgr_set_and_unlock_processwide_ptr(int key, void *ptr);
- extern void *_keymgr_get_and_lock_processwide_ptr(int key);
-}
-
-// undocumented libgcc "struct object"
-struct libgcc_object {
-  void          *start;
-  void          *unused1;
-  void          *unused2;
-  void          *fde;
-  unsigned long  encoding;
-  void          *fde_end;
-  libgcc_object *next;
-};
-
-// undocumented libgcc "struct km_object_info" referenced by
-// KEYMGR_GCC3_DW2_OBJ_LIST
-struct libgcc_object_info {
-  libgcc_object   *seen_objects;
-  libgcc_object   *unseen_objects;
-  unsigned         spare[2];
-};
 
 
 // static linker symbols to prevent wrong two level namespace for _Unwind symbols
@@ -140,44 +111,3 @@ NOT_HERE_BEFORE_5_0(_Unwind_SjLj_Resume_or_Rethrow)
 NOT_HERE_BEFORE_5_0(_Unwind_SjLj_Unregister)
 
 #endif // defined(_LIBUNWIND_BUILD_SJLJ_APIS)
-
-
-namespace libunwind {
-
-_LIBUNWIND_HIDDEN
-bool checkKeyMgrRegisteredFDEs(uintptr_t pc, void *&fde) {
-#if __MAC_OS_X_VERSION_MIN_REQUIRED
-  // lastly check for old style keymgr registration of dynamically generated
-  // FDEs acquire exclusive access to libgcc_object_info
-  libgcc_object_info *head = (libgcc_object_info *)
-                _keymgr_get_and_lock_processwide_ptr(KEYMGR_GCC3_DW2_OBJ_LIST);
-  if (head != NULL) {
-    // look at each FDE in keymgr
-    for (libgcc_object *ob = head->unseen_objects; ob != NULL; ob = ob->next) {
-      CFI_Parser<LocalAddressSpace>::FDE_Info fdeInfo;
-      CFI_Parser<LocalAddressSpace>::CIE_Info cieInfo;
-      const char *msg = CFI_Parser<LocalAddressSpace>::decodeFDE(
-                                      LocalAddressSpace::sThisAddressSpace,
-                                      (uintptr_t)ob->fde, &fdeInfo, &cieInfo);
-      if (msg == NULL) {
-        // Check if this FDE is for a function that includes the pc
-        if ((fdeInfo.pcStart <= pc) && (pc < fdeInfo.pcEnd)) {
-          fde = (void*)fdeInfo.pcStart;
-          _keymgr_set_and_unlock_processwide_ptr(KEYMGR_GCC3_DW2_OBJ_LIST,
-                                                 head);
-          return true;
-        }
-      }
-    }
-  }
-  // release libgcc_object_info
-  _keymgr_set_and_unlock_processwide_ptr(KEYMGR_GCC3_DW2_OBJ_LIST, head);
-#else
-  (void)pc;
-  (void)fde;
-#endif
-  return false;
-}
-
-}
-

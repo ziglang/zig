@@ -6,6 +6,8 @@
 const std = @import("std.zig");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
+const warn = std.debug.warn;
+const Order = std.math.Order;
 const testing = std.testing;
 const expect = testing.expect;
 const expectEqual = testing.expectEqual;
@@ -19,15 +21,17 @@ pub fn PriorityQueue(comptime T: type) type {
         items: []T,
         len: usize,
         allocator: *Allocator,
-        compareFn: fn (a: T, b: T) bool,
+        compareFn: fn (a: T, b: T) Order,
 
-        /// Initialize and return a priority queue. Provide
-        /// `compareFn` that returns `true` when its first argument
-        /// should get popped before its second argument. For example,
-        /// to make `pop` return the minimum value, provide
+        /// Initialize and return a priority queue. Provide `compareFn`
+        /// that returns `Order.lt` when its first argument should
+        /// get popped before its second argument, `Order.eq` if the
+        /// arguments are of equal priority, or `Order.gt` if the second
+        /// argument should be popped first. For example, to make `pop`
+        /// return the smallest number, provide
         ///
-        /// `fn lessThan(a: T, b: T) bool { return a < b; }`
-        pub fn init(allocator: *Allocator, compareFn: fn (a: T, b: T) bool) Self {
+        /// `fn lessThan(a: T, b: T) Order { return std.math.order(a, b); }`
+        pub fn init(allocator: *Allocator, compareFn: fn (a: T, b: T) Order) Self {
             return Self{
                 .items = &[_]T{},
                 .len = 0,
@@ -60,7 +64,7 @@ pub fn PriorityQueue(comptime T: type) type {
                 const child = self.items[child_index];
                 const parent = self.items[parent_index];
 
-                if (!self.compareFn(child, parent)) break;
+                if (self.compareFn(child, parent) != .lt) break;
 
                 self.items[parent_index] = child;
                 self.items[child_index] = parent;
@@ -132,14 +136,14 @@ pub fn PriorityQueue(comptime T: type) type {
                 var smallest = self.items[index];
 
                 if (left) |e| {
-                    if (self.compareFn(e, smallest)) {
+                    if (self.compareFn(e, smallest) == .lt) {
                         smallest_index = left_index;
                         smallest = e;
                     }
                 }
 
                 if (right) |e| {
-                    if (self.compareFn(e, smallest)) {
+                    if (self.compareFn(e, smallest) == .lt) {
                         smallest_index = right_index;
                         smallest = e;
                     }
@@ -158,13 +162,16 @@ pub fn PriorityQueue(comptime T: type) type {
         /// PriorityQueue takes ownership of the passed in slice. The slice must have been
         /// allocated with `allocator`.
         /// Deinitialize with `deinit`.
-        pub fn fromOwnedSlice(allocator: *Allocator, compareFn: fn (a: T, b: T) bool, items: []T) Self {
+        pub fn fromOwnedSlice(allocator: *Allocator, compareFn: fn (a: T, b: T) Order, items: []T) Self {
             var queue = Self{
                 .items = items,
                 .len = items.len,
                 .allocator = allocator,
                 .compareFn = compareFn,
             };
+
+            if (queue.len <= 1) return queue;
+
             const half = (queue.len >> 1) - 1;
             var i: usize = 0;
             while (i <= half) : (i += 1) {
@@ -183,25 +190,29 @@ pub fn PriorityQueue(comptime T: type) type {
             self.items = try self.allocator.realloc(self.items, better_capacity);
         }
 
-        pub fn resize(self: *Self, new_len: usize) !void {
-            try self.ensureCapacity(new_len);
-            self.len = new_len;
-        }
+        /// Reduce allocated capacity to `new_len`.
+        pub fn shrinkAndFree(self: *Self, new_len: usize) void {
+            assert(new_len <= self.items.len);
 
-        pub fn shrink(self: *Self, new_len: usize) void {
-            // TODO take advantage of the new realloc semantics
-            assert(new_len <= self.len);
-            self.len = new_len;
+            // Cannot shrink to smaller than the current queue size without invalidating the heap property
+            assert(new_len >= self.len);
+
+            self.items = self.allocator.realloc(self.items[0..], new_len) catch |e| switch (e) {
+                error.OutOfMemory => { // no problem, capacity is still correct then.
+                    self.items.len = new_len;
+                    return;
+                },
+            };
         }
 
         pub fn update(self: *Self, elem: T, new_elem: T) !void {
-            var update_index: usize = std.mem.indexOfScalar(T, self.items, elem) orelse return error.ElementNotFound;
+            var update_index: usize = std.mem.indexOfScalar(T, self.items[0..self.len], elem) orelse return error.ElementNotFound;
             const old_elem: T = self.items[update_index];
             self.items[update_index] = new_elem;
-            if (self.compareFn(new_elem, old_elem)) {
-                siftUp(self, update_index);
-            } else {
-                siftDown(self, update_index);
+            switch (self.compareFn(new_elem, old_elem)) {
+                .lt => siftUp(self, update_index),
+                .gt => siftDown(self, update_index),
+                .eq => {}, // Nothing to do as the items have equal priority
             }
         }
 
@@ -238,7 +249,7 @@ pub fn PriorityQueue(comptime T: type) type {
                 warn("{}, ", .{e});
             }
             warn("array: ", .{});
-            for (self.items) |e, i| {
+            for (self.items) |e| {
                 warn("{}, ", .{e});
             }
             warn("len: {} ", .{self.len});
@@ -248,12 +259,12 @@ pub fn PriorityQueue(comptime T: type) type {
     };
 }
 
-fn lessThan(a: u32, b: u32) bool {
-    return a < b;
+fn lessThan(a: u32, b: u32) Order {
+    return std.math.order(a, b);
 }
 
-fn greaterThan(a: u32, b: u32) bool {
-    return a > b;
+fn greaterThan(a: u32, b: u32) Order {
+    return lessThan(a, b).invert();
 }
 
 const PQ = PriorityQueue(u32);
@@ -268,12 +279,12 @@ test "std.PriorityQueue: add and remove min heap" {
     try queue.add(23);
     try queue.add(25);
     try queue.add(13);
-    expectEqual(@as(u32, 7), queue.remove());
-    expectEqual(@as(u32, 12), queue.remove());
-    expectEqual(@as(u32, 13), queue.remove());
-    expectEqual(@as(u32, 23), queue.remove());
-    expectEqual(@as(u32, 25), queue.remove());
-    expectEqual(@as(u32, 54), queue.remove());
+    try expectEqual(@as(u32, 7), queue.remove());
+    try expectEqual(@as(u32, 12), queue.remove());
+    try expectEqual(@as(u32, 13), queue.remove());
+    try expectEqual(@as(u32, 23), queue.remove());
+    try expectEqual(@as(u32, 25), queue.remove());
+    try expectEqual(@as(u32, 54), queue.remove());
 }
 
 test "std.PriorityQueue: add and remove same min heap" {
@@ -286,19 +297,19 @@ test "std.PriorityQueue: add and remove same min heap" {
     try queue.add(2);
     try queue.add(1);
     try queue.add(1);
-    expectEqual(@as(u32, 1), queue.remove());
-    expectEqual(@as(u32, 1), queue.remove());
-    expectEqual(@as(u32, 1), queue.remove());
-    expectEqual(@as(u32, 1), queue.remove());
-    expectEqual(@as(u32, 2), queue.remove());
-    expectEqual(@as(u32, 2), queue.remove());
+    try expectEqual(@as(u32, 1), queue.remove());
+    try expectEqual(@as(u32, 1), queue.remove());
+    try expectEqual(@as(u32, 1), queue.remove());
+    try expectEqual(@as(u32, 1), queue.remove());
+    try expectEqual(@as(u32, 2), queue.remove());
+    try expectEqual(@as(u32, 2), queue.remove());
 }
 
 test "std.PriorityQueue: removeOrNull on empty" {
     var queue = PQ.init(testing.allocator, lessThan);
     defer queue.deinit();
 
-    expect(queue.removeOrNull() == null);
+    try expect(queue.removeOrNull() == null);
 }
 
 test "std.PriorityQueue: edge case 3 elements" {
@@ -308,21 +319,21 @@ test "std.PriorityQueue: edge case 3 elements" {
     try queue.add(9);
     try queue.add(3);
     try queue.add(2);
-    expectEqual(@as(u32, 2), queue.remove());
-    expectEqual(@as(u32, 3), queue.remove());
-    expectEqual(@as(u32, 9), queue.remove());
+    try expectEqual(@as(u32, 2), queue.remove());
+    try expectEqual(@as(u32, 3), queue.remove());
+    try expectEqual(@as(u32, 9), queue.remove());
 }
 
 test "std.PriorityQueue: peek" {
     var queue = PQ.init(testing.allocator, lessThan);
     defer queue.deinit();
 
-    expect(queue.peek() == null);
+    try expect(queue.peek() == null);
     try queue.add(9);
     try queue.add(3);
     try queue.add(2);
-    expectEqual(@as(u32, 2), queue.peek().?);
-    expectEqual(@as(u32, 2), queue.peek().?);
+    try expectEqual(@as(u32, 2), queue.peek().?);
+    try expectEqual(@as(u32, 2), queue.peek().?);
 }
 
 test "std.PriorityQueue: sift up with odd indices" {
@@ -335,7 +346,7 @@ test "std.PriorityQueue: sift up with odd indices" {
 
     const sorted_items = [_]u32{ 1, 2, 5, 6, 7, 7, 11, 12, 13, 14, 15, 15, 16, 21, 22, 24, 24, 25 };
     for (sorted_items) |e| {
-        expectEqual(e, queue.remove());
+        try expectEqual(e, queue.remove());
     }
 }
 
@@ -347,8 +358,28 @@ test "std.PriorityQueue: addSlice" {
 
     const sorted_items = [_]u32{ 1, 2, 5, 6, 7, 7, 11, 12, 13, 14, 15, 15, 16, 21, 22, 24, 24, 25 };
     for (sorted_items) |e| {
-        expectEqual(e, queue.remove());
+        try expectEqual(e, queue.remove());
     }
+}
+
+test "std.PriorityQueue: fromOwnedSlice trivial case 0" {
+    const items = [0]u32{};
+    const queue_items = try testing.allocator.dupe(u32, &items);
+    var queue = PQ.fromOwnedSlice(testing.allocator, lessThan, queue_items[0..]);
+    defer queue.deinit();
+    try expectEqual(@as(usize, 0), queue.len);
+    try expect(queue.removeOrNull() == null);
+}
+
+test "std.PriorityQueue: fromOwnedSlice trivial case 1" {
+    const items = [1]u32{1};
+    const queue_items = try testing.allocator.dupe(u32, &items);
+    var queue = PQ.fromOwnedSlice(testing.allocator, lessThan, queue_items[0..]);
+    defer queue.deinit();
+
+    try expectEqual(@as(usize, 1), queue.len);
+    try expectEqual(items[0], queue.remove());
+    try expect(queue.removeOrNull() == null);
 }
 
 test "std.PriorityQueue: fromOwnedSlice" {
@@ -359,7 +390,7 @@ test "std.PriorityQueue: fromOwnedSlice" {
 
     const sorted_items = [_]u32{ 1, 2, 5, 6, 7, 7, 11, 12, 13, 14, 15, 15, 16, 21, 22, 24, 24, 25 };
     for (sorted_items) |e| {
-        expectEqual(e, queue.remove());
+        try expectEqual(e, queue.remove());
     }
 }
 
@@ -373,12 +404,12 @@ test "std.PriorityQueue: add and remove max heap" {
     try queue.add(23);
     try queue.add(25);
     try queue.add(13);
-    expectEqual(@as(u32, 54), queue.remove());
-    expectEqual(@as(u32, 25), queue.remove());
-    expectEqual(@as(u32, 23), queue.remove());
-    expectEqual(@as(u32, 13), queue.remove());
-    expectEqual(@as(u32, 12), queue.remove());
-    expectEqual(@as(u32, 7), queue.remove());
+    try expectEqual(@as(u32, 54), queue.remove());
+    try expectEqual(@as(u32, 25), queue.remove());
+    try expectEqual(@as(u32, 23), queue.remove());
+    try expectEqual(@as(u32, 13), queue.remove());
+    try expectEqual(@as(u32, 12), queue.remove());
+    try expectEqual(@as(u32, 7), queue.remove());
 }
 
 test "std.PriorityQueue: add and remove same max heap" {
@@ -391,12 +422,12 @@ test "std.PriorityQueue: add and remove same max heap" {
     try queue.add(2);
     try queue.add(1);
     try queue.add(1);
-    expectEqual(@as(u32, 2), queue.remove());
-    expectEqual(@as(u32, 2), queue.remove());
-    expectEqual(@as(u32, 1), queue.remove());
-    expectEqual(@as(u32, 1), queue.remove());
-    expectEqual(@as(u32, 1), queue.remove());
-    expectEqual(@as(u32, 1), queue.remove());
+    try expectEqual(@as(u32, 2), queue.remove());
+    try expectEqual(@as(u32, 2), queue.remove());
+    try expectEqual(@as(u32, 1), queue.remove());
+    try expectEqual(@as(u32, 1), queue.remove());
+    try expectEqual(@as(u32, 1), queue.remove());
+    try expectEqual(@as(u32, 1), queue.remove());
 }
 
 test "std.PriorityQueue: iterator" {
@@ -418,7 +449,7 @@ test "std.PriorityQueue: iterator" {
         _ = map.remove(e);
     }
 
-    expectEqual(@as(usize, 0), map.count());
+    try expectEqual(@as(usize, 0), map.count());
 }
 
 test "std.PriorityQueue: remove at index" {
@@ -438,10 +469,10 @@ test "std.PriorityQueue: remove at index" {
         idx += 1;
     } else unreachable;
 
-    expectEqual(queue.removeIndex(two_idx), 2);
-    expectEqual(queue.remove(), 1);
-    expectEqual(queue.remove(), 3);
-    expectEqual(queue.removeOrNull(), null);
+    try expectEqual(queue.removeIndex(two_idx), 2);
+    try expectEqual(queue.remove(), 1);
+    try expectEqual(queue.remove(), 3);
+    try expectEqual(queue.removeOrNull(), null);
 }
 
 test "std.PriorityQueue: iterator while empty" {
@@ -450,7 +481,30 @@ test "std.PriorityQueue: iterator while empty" {
 
     var it = queue.iterator();
 
-    expectEqual(it.next(), null);
+    try expectEqual(it.next(), null);
+}
+
+test "std.PriorityQueue: shrinkAndFree" {
+    var queue = PQ.init(testing.allocator, lessThan);
+    defer queue.deinit();
+
+    try queue.ensureCapacity(4);
+    try expect(queue.capacity() >= 4);
+
+    try queue.add(1);
+    try queue.add(2);
+    try queue.add(3);
+    try expect(queue.capacity() >= 4);
+    try expectEqual(@as(usize, 3), queue.len);
+
+    queue.shrinkAndFree(3);
+    try expectEqual(@as(usize, 3), queue.capacity());
+    try expectEqual(@as(usize, 3), queue.len);
+
+    try expectEqual(@as(u32, 1), queue.remove());
+    try expectEqual(@as(u32, 2), queue.remove());
+    try expectEqual(@as(u32, 3), queue.remove());
+    try expect(queue.removeOrNull() == null);
 }
 
 test "std.PriorityQueue: update min heap" {
@@ -463,9 +517,9 @@ test "std.PriorityQueue: update min heap" {
     try queue.update(55, 5);
     try queue.update(44, 4);
     try queue.update(11, 1);
-    expectEqual(@as(u32, 1), queue.remove());
-    expectEqual(@as(u32, 4), queue.remove());
-    expectEqual(@as(u32, 5), queue.remove());
+    try expectEqual(@as(u32, 1), queue.remove());
+    try expectEqual(@as(u32, 4), queue.remove());
+    try expectEqual(@as(u32, 5), queue.remove());
 }
 
 test "std.PriorityQueue: update same min heap" {
@@ -478,10 +532,10 @@ test "std.PriorityQueue: update same min heap" {
     try queue.add(2);
     try queue.update(1, 5);
     try queue.update(2, 4);
-    expectEqual(@as(u32, 1), queue.remove());
-    expectEqual(@as(u32, 2), queue.remove());
-    expectEqual(@as(u32, 4), queue.remove());
-    expectEqual(@as(u32, 5), queue.remove());
+    try expectEqual(@as(u32, 1), queue.remove());
+    try expectEqual(@as(u32, 2), queue.remove());
+    try expectEqual(@as(u32, 4), queue.remove());
+    try expectEqual(@as(u32, 5), queue.remove());
 }
 
 test "std.PriorityQueue: update max heap" {
@@ -494,9 +548,9 @@ test "std.PriorityQueue: update max heap" {
     try queue.update(55, 5);
     try queue.update(44, 1);
     try queue.update(11, 4);
-    expectEqual(@as(u32, 5), queue.remove());
-    expectEqual(@as(u32, 4), queue.remove());
-    expectEqual(@as(u32, 1), queue.remove());
+    try expectEqual(@as(u32, 5), queue.remove());
+    try expectEqual(@as(u32, 4), queue.remove());
+    try expectEqual(@as(u32, 1), queue.remove());
 }
 
 test "std.PriorityQueue: update same max heap" {
@@ -509,8 +563,8 @@ test "std.PriorityQueue: update same max heap" {
     try queue.add(2);
     try queue.update(1, 5);
     try queue.update(2, 4);
-    expectEqual(@as(u32, 5), queue.remove());
-    expectEqual(@as(u32, 4), queue.remove());
-    expectEqual(@as(u32, 2), queue.remove());
-    expectEqual(@as(u32, 1), queue.remove());
+    try expectEqual(@as(u32, 5), queue.remove());
+    try expectEqual(@as(u32, 4), queue.remove());
+    try expectEqual(@as(u32, 2), queue.remove());
+    try expectEqual(@as(u32, 1), queue.remove());
 }

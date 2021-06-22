@@ -28,16 +28,16 @@ pub fn __aeabi_ui2d(arg: u32) callconv(.AAPCS) f64 {
     return @call(.{ .modifier = .always_inline }, __floatunsidf, .{arg});
 }
 
-fn test_one_floatunsidf(a: u32, expected: u64) void {
+fn test_one_floatunsidf(a: u32, expected: u64) !void {
     const r = __floatunsidf(a);
-    std.testing.expect(@bitCast(u64, r) == expected);
+    try std.testing.expect(@bitCast(u64, r) == expected);
 }
 
 test "floatsidf" {
     // Test the produced bit pattern
-    test_one_floatunsidf(0, 0x0000000000000000);
-    test_one_floatunsidf(1, 0x3ff0000000000000);
-    test_one_floatunsidf(0x7FFFFFFF, 0x41dfffffffc00000);
-    test_one_floatunsidf(@intCast(u32, 0x80000000), 0x41e0000000000000);
-    test_one_floatunsidf(@intCast(u32, 0xFFFFFFFF), 0x41efffffffe00000);
+    try test_one_floatunsidf(0, 0x0000000000000000);
+    try test_one_floatunsidf(1, 0x3ff0000000000000);
+    try test_one_floatunsidf(0x7FFFFFFF, 0x41dfffffffc00000);
+    try test_one_floatunsidf(@intCast(u32, 0x80000000), 0x41e0000000000000);
+    try test_one_floatunsidf(@intCast(u32, 0xFFFFFFFF), 0x41efffffffe00000);
 }

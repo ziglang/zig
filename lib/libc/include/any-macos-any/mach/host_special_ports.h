@@ -108,9 +108,10 @@
 #define HOST_SYSPOLICYD_PORT            (22 + HOST_MAX_SPECIAL_KERNEL_PORT)
 #define HOST_FILECOORDINATIOND_PORT     (23 + HOST_MAX_SPECIAL_KERNEL_PORT)
 #define HOST_FAIRPLAYD_PORT             (24 + HOST_MAX_SPECIAL_KERNEL_PORT)
+#define HOST_IOCOMPRESSIONSTATS_PORT    (25 + HOST_MAX_SPECIAL_KERNEL_PORT)
 
-#define HOST_MAX_SPECIAL_PORT           HOST_FAIRPLAYD_PORT
-/* MAX = last since rdar://35861175 */
+#define HOST_MAX_SPECIAL_PORT           HOST_IOCOMPRESSIONSTATS_PORT
+/* MAX = last since rdar://59872249 */
 
 /* obsolete name */
 #define HOST_CHUD_PORT HOST_LAUNCHCTL_PORT
@@ -273,6 +274,13 @@
 	HOST_LOCAL_NODE, HOST_FAIRPLAYD_PORT, (port)))
 #define host_set_fairplayd_port(host, port)     \
 	(host_set_special_port((host), HOST_FAIRPLAYD_PORT, (port)))
+
+#define host_get_iocompressionstats_port(host, port)     \
+	(host_get_special_port((host),                  \
+	HOST_LOCAL_NODE, HOST_IOCOMPRESSIONSTATS_PORT, (port)))
+#define host_set_iocompressionstats_port(host, port)     \
+	(host_set_special_port((host), HOST_IOCOMPRESSIONSTATS_PORT, (port)))
+
 
 /* HOST_RESOURCE_NOTIFY_PORT doesn't #defines these conveniences.
  *  All lookups go through send_resource_violation()

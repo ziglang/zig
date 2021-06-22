@@ -25,6 +25,7 @@ pub const shell32 = @import("windows/shell32.zig");
 pub const user32 = @import("windows/user32.zig");
 pub const ws2_32 = @import("windows/ws2_32.zig");
 pub const gdi32 = @import("windows/gdi32.zig");
+pub const winmm = @import("windows/winmm.zig");
 
 pub usingnamespace @import("windows/bits.zig");
 
@@ -389,6 +390,43 @@ pub fn GetQueuedCompletionStatus(
     return GetQueuedCompletionStatusResult.Normal;
 }
 
+pub const GetQueuedCompletionStatusError = error{
+    Aborted,
+    Cancelled,
+    EOF,
+    Timeout,
+} || std.os.UnexpectedError;
+
+pub fn GetQueuedCompletionStatusEx(
+    completion_port: HANDLE,
+    completion_port_entries: []OVERLAPPED_ENTRY,
+    timeout_ms: ?DWORD,
+    alertable: bool,
+) GetQueuedCompletionStatusError!u32 {
+    var num_entries_removed: u32 = 0;
+
+    const success = kernel32.GetQueuedCompletionStatusEx(
+        completion_port,
+        completion_port_entries.ptr,
+        @intCast(ULONG, completion_port_entries.len),
+        &num_entries_removed,
+        timeout_ms orelse INFINITE,
+        @boolToInt(alertable),
+    );
+
+    if (success == FALSE) {
+        return switch (kernel32.GetLastError()) {
+            .ABANDONED_WAIT_0 => error.Aborted,
+            .OPERATION_ABORTED => error.Cancelled,
+            .HANDLE_EOF => error.EOF,
+            .IMEOUT => error.Timeout,
+            else => |err| unexpectedError(err),
+        };
+    }
+
+    return num_entries_removed;
+}
+
 pub fn CloseHandle(hObject: HANDLE) void {
     assert(ntdll.NtClose(hObject) == .SUCCESS);
 }
@@ -417,8 +455,12 @@ pub fn ReadFile(in_hFile: HANDLE, buffer: []u8, offset: ?u64, io_mode: std.io.Mo
                 .overlapped = OVERLAPPED{
                     .Internal = 0,
                     .InternalHigh = 0,
-                    .Offset = @truncate(u32, off),
-                    .OffsetHigh = @truncate(u32, off >> 32),
+                    .DUMMYUNIONNAME = .{
+                        .DUMMYSTRUCTNAME = .{
+                            .Offset = @truncate(u32, off),
+                            .OffsetHigh = @truncate(u32, off >> 32),
+                        },
+                    },
                     .hEvent = null,
                 },
             },
@@ -453,8 +495,12 @@ pub fn ReadFile(in_hFile: HANDLE, buffer: []u8, offset: ?u64, io_mode: std.io.Mo
                 overlapped_data = .{
                     .Internal = 0,
                     .InternalHigh = 0,
-                    .Offset = @truncate(u32, off),
-                    .OffsetHigh = @truncate(u32, off >> 32),
+                    .DUMMYUNIONNAME = .{
+                        .DUMMYSTRUCTNAME = .{
+                            .Offset = @truncate(u32, off),
+                            .OffsetHigh = @truncate(u32, off >> 32),
+                        },
+                    },
                     .hEvent = null,
                 };
                 break :blk &overlapped_data;
@@ -497,8 +543,12 @@ pub fn WriteFile(
                 .overlapped = OVERLAPPED{
                     .Internal = 0,
                     .InternalHigh = 0,
-                    .Offset = @truncate(u32, off),
-                    .OffsetHigh = @truncate(u32, off >> 32),
+                    .DUMMYUNIONNAME = .{
+                        .DUMMYSTRUCTNAME = .{
+                            .Offset = @truncate(u32, off),
+                            .OffsetHigh = @truncate(u32, off >> 32),
+                        },
+                    },
                     .hEvent = null,
                 },
             },
@@ -533,8 +583,12 @@ pub fn WriteFile(
             overlapped_data = .{
                 .Internal = 0,
                 .InternalHigh = 0,
-                .Offset = @truncate(u32, off),
-                .OffsetHigh = @truncate(u32, off >> 32),
+                .DUMMYUNIONNAME = .{
+                    .DUMMYSTRUCTNAME = .{
+                        .Offset = @truncate(u32, off),
+                        .OffsetHigh = @truncate(u32, off >> 32),
+                    },
+                },
                 .hEvent = null,
             };
             break :blk &overlapped_data;
@@ -985,7 +1039,7 @@ pub fn QueryObjectName(
     }
 }
 test "QueryObjectName" {
-    if (comptime builtin.os.tag != .windows)
+    if (comptime builtin.target.os.tag != .windows)
         return;
 
     //any file will do; canonicalization works on NTFS junctions and symlinks, hardlinks remain separate paths.
@@ -997,7 +1051,7 @@ test "QueryObjectName" {
     var result_path = try QueryObjectName(handle, &out_buffer);
     const required_len_in_u16 = result_path.len + @divExact(@ptrToInt(result_path.ptr) - @ptrToInt(&out_buffer), 2) + 1;
     //insufficient size
-    std.testing.expectError(error.NameTooLong, QueryObjectName(handle, out_buffer[0 .. required_len_in_u16 - 1]));
+    try std.testing.expectError(error.NameTooLong, QueryObjectName(handle, out_buffer[0 .. required_len_in_u16 - 1]));
     //exactly-sufficient size
     _ = try QueryObjectName(handle, out_buffer[0..required_len_in_u16]);
 }
@@ -1102,7 +1156,6 @@ pub fn GetFinalPathNameByHandle(
                 &mount_points_struct.MountPoints[0],
             )[0..mount_points_struct.NumberOfMountPoints];
 
-            var found: bool = false;
             for (mount_points) |mount_point| {
                 const symlink = @ptrCast(
                     [*]const u16,
@@ -1140,7 +1193,7 @@ pub fn GetFinalPathNameByHandle(
 }
 
 test "GetFinalPathNameByHandle" {
-    if (comptime builtin.os.tag != .windows)
+    if (comptime builtin.target.os.tag != .windows)
         return;
 
     //any file will do
@@ -1155,8 +1208,8 @@ test "GetFinalPathNameByHandle" {
 
     const required_len_in_u16 = nt_path.len + @divExact(@ptrToInt(nt_path.ptr) - @ptrToInt(&buffer), 2) + 1;
     //check with insufficient size
-    std.testing.expectError(error.NameTooLong, GetFinalPathNameByHandle(handle, .{ .volume_name = .Nt }, buffer[0 .. required_len_in_u16 - 1]));
-    std.testing.expectError(error.NameTooLong, GetFinalPathNameByHandle(handle, .{ .volume_name = .Dos }, buffer[0 .. required_len_in_u16 - 1]));
+    try std.testing.expectError(error.NameTooLong, GetFinalPathNameByHandle(handle, .{ .volume_name = .Nt }, buffer[0 .. required_len_in_u16 - 1]));
+    try std.testing.expectError(error.NameTooLong, GetFinalPathNameByHandle(handle, .{ .volume_name = .Dos }, buffer[0 .. required_len_in_u16 - 1]));
 
     //check with exactly-sufficient size
     _ = try GetFinalPathNameByHandle(handle, .{ .volume_name = .Nt }, buffer[0..required_len_in_u16]);
@@ -1224,7 +1277,7 @@ pub fn WSAStartup(majorVersion: u8, minorVersion: u8) !ws2_32.WSADATA {
             .WSASYSNOTREADY => return error.SystemNotAvailable,
             .WSAVERNOTSUPPORTED => return error.VersionNotSupported,
             .WSAEINPROGRESS => return error.BlockingOperationInProgress,
-            .WSAEPROCLIM => return error.SystemResources,
+            .WSAEPROCLIM => return error.ProcessFdQuotaExceeded,
             else => |err| return unexpectedWSAError(err),
         },
     };
@@ -1243,6 +1296,30 @@ pub fn WSACleanup() !void {
     };
 }
 
+var wsa_startup_mutex: std.Thread.Mutex = .{};
+
+/// Microsoft requires WSAStartup to be called to initialize, or else
+/// WSASocketW will return WSANOTINITIALISED.
+/// Since this is a standard library, we do not have the luxury of
+/// putting initialization code anywhere, because we would not want
+/// to pay the cost of calling WSAStartup if there ended up being no
+/// networking. Also, if Zig code is used as a library, Zig is not in
+/// charge of the start code, and we couldn't put in any initialization
+/// code even if we wanted to.
+/// The documentation for WSAStartup mentions that there must be a
+/// matching WSACleanup call. It is not possible for the Zig Standard
+/// Library to honor this for the same reason - there is nowhere to put
+/// deinitialization code.
+/// So, API users of the zig std lib have two options:
+///  * (recommended) The simple, cross-platform way: just call `WSASocketW`
+///    and don't worry about it. Zig will call WSAStartup() in a thread-safe
+///    manner and never deinitialize networking. This is ideal for an
+///    application which has the capability to do networking.
+///  * The getting-your-hands-dirty way: call `WSAStartup()` before doing
+///    networking, so that the error handling code for WSANOTINITIALISED never
+///    gets run, which then allows the application or library to call `WSACleanup()`.
+///    This could make sense for a library, which has init and deinit
+///    functions for the whole library's lifetime.
 pub fn WSASocketW(
     af: i32,
     socket_type: i32,
@@ -1251,17 +1328,40 @@ pub fn WSASocketW(
     g: ws2_32.GROUP,
     dwFlags: DWORD,
 ) !ws2_32.SOCKET {
-    const rc = ws2_32.WSASocketW(af, socket_type, protocol, protocolInfo, g, dwFlags);
-    if (rc == ws2_32.INVALID_SOCKET) {
-        switch (ws2_32.WSAGetLastError()) {
-            .WSAEAFNOSUPPORT => return error.AddressFamilyNotSupported,
-            .WSAEMFILE => return error.ProcessFdQuotaExceeded,
-            .WSAENOBUFS => return error.SystemResources,
-            .WSAEPROTONOSUPPORT => return error.ProtocolNotSupported,
-            else => |err| return unexpectedWSAError(err),
+    var first = true;
+    while (true) {
+        const rc = ws2_32.WSASocketW(af, socket_type, protocol, protocolInfo, g, dwFlags);
+        if (rc == ws2_32.INVALID_SOCKET) {
+            switch (ws2_32.WSAGetLastError()) {
+                .WSAEAFNOSUPPORT => return error.AddressFamilyNotSupported,
+                .WSAEMFILE => return error.ProcessFdQuotaExceeded,
+                .WSAENOBUFS => return error.SystemResources,
+                .WSAEPROTONOSUPPORT => return error.ProtocolNotSupported,
+                .WSANOTINITIALISED => {
+                    if (!first) return error.Unexpected;
+                    first = false;
+
+                    var held = wsa_startup_mutex.acquire();
+                    defer held.release();
+
+                    // Here we could use a flag to prevent multiple threads to prevent
+                    // multiple calls to WSAStartup, but it doesn't matter. We're globally
+                    // leaking the resource intentionally, and the mutex already prevents
+                    // data races within the WSAStartup function.
+                    _ = WSAStartup(2, 2) catch |err| switch (err) {
+                        error.SystemNotAvailable => return error.SystemResources,
+                        error.VersionNotSupported => return error.Unexpected,
+                        error.BlockingOperationInProgress => return error.Unexpected,
+                        error.ProcessFdQuotaExceeded => return error.ProcessFdQuotaExceeded,
+                        error.Unexpected => return error.Unexpected,
+                    };
+                    continue;
+                },
+                else => |err| return unexpectedWSAError(err),
+            }
         }
+        return rc;
     }
-    return rc;
 }
 
 pub fn bind(s: ws2_32.SOCKET, name: *const ws2_32.sockaddr, namelen: ws2_32.socklen_t) i32 {
@@ -1291,6 +1391,10 @@ pub fn getsockname(s: ws2_32.SOCKET, name: *ws2_32.sockaddr, namelen: *ws2_32.so
     return ws2_32.getsockname(s, name, @ptrCast(*i32, namelen));
 }
 
+pub fn getpeername(s: ws2_32.SOCKET, name: *ws2_32.sockaddr, namelen: *ws2_32.socklen_t) i32 {
+    return ws2_32.getpeername(s, name, @ptrCast(*i32, namelen));
+}
+
 pub fn sendmsg(
     s: ws2_32.SOCKET,
     msg: *const ws2_32.WSAMSG,
@@ -1318,7 +1422,7 @@ pub fn recvfrom(s: ws2_32.SOCKET, buf: [*]u8, len: usize, flags: u32, from: ?*ws
     var buffer = ws2_32.WSABUF{ .len = @truncate(u31, len), .buf = buf };
     var bytes_received: DWORD = undefined;
     var flags_inout = flags;
-    if (ws2_32.WSARecvFrom(s, @ptrCast([*]ws2_32.WSABUF, &buffer), 1, &bytes_received, &flags_inout, from, from_len, null, null) == ws2_32.SOCKET_ERROR) {
+    if (ws2_32.WSARecvFrom(s, @ptrCast([*]ws2_32.WSABUF, &buffer), 1, &bytes_received, &flags_inout, from, @ptrCast(?*i32, from_len), null, null) == ws2_32.SOCKET_ERROR) {
         return ws2_32.SOCKET_ERROR;
     } else {
         return @as(i32, @intCast(u31, bytes_received));
@@ -1401,6 +1505,28 @@ pub fn SetConsoleTextAttribute(hConsoleOutput: HANDLE, wAttributes: WORD) SetCon
         switch (kernel32.GetLastError()) {
             else => |err| return unexpectedError(err),
         }
+    }
+}
+
+pub fn SetConsoleCtrlHandler(handler_routine: ?HANDLER_ROUTINE, add: bool) !void {
+    const success = kernel32.SetConsoleCtrlHandler(
+        handler_routine,
+        if (add) TRUE else FALSE,
+    );
+
+    if (success == FALSE) {
+        return switch (kernel32.GetLastError()) {
+            else => |err| unexpectedError(err),
+        };
+    }
+}
+
+pub fn SetFileCompletionNotificationModes(handle: HANDLE, flags: UCHAR) !void {
+    const success = kernel32.SetFileCompletionNotificationModes(handle, flags);
+    if (success == FALSE) {
+        return switch (kernel32.GetLastError()) {
+            else => |err| unexpectedError(err),
+        };
     }
 }
 
@@ -1554,7 +1680,7 @@ pub fn SetFileTime(
 }
 
 pub fn teb() *TEB {
-    return switch (builtin.arch) {
+    return switch (builtin.target.cpu.arch) {
         .i386 => asm volatile (
             \\ movl %%fs:0x18, %[ptr]
             : [ptr] "=r" (-> *TEB)
@@ -1613,6 +1739,81 @@ pub const PathSpace = struct {
     }
 };
 
+/// The error type for `removeDotDirsSanitized`
+pub const RemoveDotDirsError = error{TooManyParentDirs};
+
+/// Removes '.' and '..' path components from a "sanitized relative path".
+/// A "sanitized path" is one where:
+///    1) all forward slashes have been replaced with back slashes
+///    2) all repeating back slashes have been collapsed
+///    3) the path is a relative one (does not start with a back slash)
+pub fn removeDotDirsSanitized(comptime T: type, path: []T) RemoveDotDirsError!usize {
+    std.debug.assert(path.len == 0 or path[0] != '\\');
+
+    var write_idx: usize = 0;
+    var read_idx: usize = 0;
+    while (read_idx < path.len) {
+        if (path[read_idx] == '.') {
+            if (read_idx + 1 == path.len)
+                return write_idx;
+
+            const after_dot = path[read_idx + 1];
+            if (after_dot == '\\') {
+                read_idx += 2;
+                continue;
+            }
+            if (after_dot == '.' and (read_idx + 2 == path.len or path[read_idx + 2] == '\\')) {
+                if (write_idx == 0) return error.TooManyParentDirs;
+                std.debug.assert(write_idx >= 2);
+                write_idx -= 1;
+                while (true) {
+                    write_idx -= 1;
+                    if (write_idx == 0) break;
+                    if (path[write_idx] == '\\') {
+                        write_idx += 1;
+                        break;
+                    }
+                }
+                if (read_idx + 2 == path.len)
+                    return write_idx;
+                read_idx += 3;
+                continue;
+            }
+        }
+
+        // skip to the next path separator
+        while (true) : (read_idx += 1) {
+            if (read_idx == path.len)
+                return write_idx;
+            path[write_idx] = path[read_idx];
+            write_idx += 1;
+            if (path[read_idx] == '\\')
+                break;
+        }
+        read_idx += 1;
+    }
+    return write_idx;
+}
+
+/// Normalizes a Windows path with the following steps:
+///     1) convert all forward slashes to back slashes
+///     2) collapse duplicate back slashes
+///     3) remove '.' and '..' directory parts
+/// Returns the length of the new path.
+pub fn normalizePath(comptime T: type, path: []T) RemoveDotDirsError!usize {
+    mem.replaceScalar(T, path, '/', '\\');
+    const new_len = mem.collapseRepeatsLen(T, path, '\\');
+
+    const prefix_len: usize = init: {
+        if (new_len >= 1 and path[0] == '\\') break :init 1;
+        if (new_len >= 2 and path[1] == ':')
+            break :init if (new_len >= 3 and path[2] == '\\') @as(usize, 3) else @as(usize, 2);
+        break :init 0;
+    };
+
+    return prefix_len + try removeDotDirsSanitized(T, path[prefix_len..new_len]);
+}
+
 /// Same as `sliceToPrefixedFileW` but accepts a pointer
 /// to a null-terminated path.
 pub fn cStrToPrefixedFileW(s: [*:0]const u8) !PathSpace {
@@ -1632,26 +1833,40 @@ pub fn sliceToPrefixedFileW(s: []const u8) !PathSpace {
             else => {},
         }
     }
+    const prefix_u16 = [_]u16{ '\\', '?', '?', '\\' };
     const start_index = if (prefix_index > 0 or !std.fs.path.isAbsolute(s)) 0 else blk: {
-        const prefix_u16 = [_]u16{ '\\', '?', '?', '\\' };
         mem.copy(u16, path_space.data[0..], prefix_u16[0..]);
         break :blk prefix_u16.len;
     };
     path_space.len = start_index + try std.unicode.utf8ToUtf16Le(path_space.data[start_index..], s);
     if (path_space.len > path_space.data.len) return error.NameTooLong;
-    // > File I/O functions in the Windows API convert "/" to "\" as part of
-    // > converting the name to an NT-style name, except when using the "\\?\"
-    // > prefix as detailed in the following sections.
-    // from https://docs.microsoft.com/en-us/windows/desktop/FileIO/naming-a-file#maximum-path-length-limitation
-    // Because we want the larger maximum path length for absolute paths, we
-    // convert forward slashes to backward slashes here.
-    for (path_space.data[0..path_space.len]) |*elem| {
-        if (elem.* == '/') {
-            elem.* = '\\';
-        }
-    }
+    path_space.len = start_index + (normalizePath(u16, path_space.data[start_index..path_space.len]) catch |err| switch (err) {
+        error.TooManyParentDirs => {
+            if (!std.fs.path.isAbsolute(s)) {
+                var temp_path: PathSpace = undefined;
+                temp_path.len = try std.unicode.utf8ToUtf16Le(&temp_path.data, s);
+                std.debug.assert(temp_path.len == path_space.len);
+                temp_path.data[path_space.len] = 0;
+                path_space.len = prefix_u16.len + try getFullPathNameW(&temp_path.data, path_space.data[prefix_u16.len..]);
+                mem.copy(u16, &path_space.data, &prefix_u16);
+                std.debug.assert(path_space.data[path_space.len] == 0);
+                return path_space;
+            }
+            return error.BadPathName;
+        },
+    });
     path_space.data[path_space.len] = 0;
     return path_space;
+}
+
+fn getFullPathNameW(path: [*:0]const u16, out: []u16) !usize {
+    const result = kernel32.GetFullPathNameW(path, @intCast(u32, out.len), std.meta.assumeSentinel(out.ptr, 0), null);
+    if (result == 0) {
+        switch (kernel32.GetLastError()) {
+            else => |err| return unexpectedError(err),
+        }
+    }
+    return result;
 }
 
 /// Assumes an absolute path.
@@ -1682,8 +1897,40 @@ pub fn wToPrefixedFileW(s: []const u16) !PathSpace {
     return path_space;
 }
 
-fn MAKELANGID(p: c_ushort, s: c_ushort) callconv(.Inline) LANGID {
+inline fn MAKELANGID(p: c_ushort, s: c_ushort) LANGID {
     return (s << 10) | p;
+}
+
+/// Loads a Winsock extension function in runtime specified by a GUID.
+pub fn loadWinsockExtensionFunction(comptime T: type, sock: ws2_32.SOCKET, guid: GUID) !T {
+    var function: T = undefined;
+    var num_bytes: DWORD = undefined;
+
+    const rc = ws2_32.WSAIoctl(
+        sock,
+        ws2_32.SIO_GET_EXTENSION_FUNCTION_POINTER,
+        @ptrCast(*const c_void, &guid),
+        @sizeOf(GUID),
+        &function,
+        @sizeOf(T),
+        &num_bytes,
+        null,
+        null,
+    );
+
+    if (rc == ws2_32.SOCKET_ERROR) {
+        return switch (ws2_32.WSAGetLastError()) {
+            .WSAEOPNOTSUPP => error.OperationNotSupported,
+            .WSAENOTSOCK => error.FileDescriptorNotASocket,
+            else => |err| unexpectedWSAError(err),
+        };
+    }
+
+    if (num_bytes != @sizeOf(T)) {
+        return error.ShortRead;
+    }
+
+    return function;
 }
 
 /// Call this when you made a windows DLL call or something that does SetLastError
@@ -1691,19 +1938,19 @@ fn MAKELANGID(p: c_ushort, s: c_ushort) callconv(.Inline) LANGID {
 pub fn unexpectedError(err: Win32Error) std.os.UnexpectedError {
     if (std.os.unexpected_error_tracing) {
         // 614 is the length of the longest windows error desciption
-        var buf_u16: [614]u16 = undefined;
-        var buf_u8: [614]u8 = undefined;
+        var buf_wstr: [614]WCHAR = undefined;
+        var buf_utf8: [614]u8 = undefined;
         const len = kernel32.FormatMessageW(
             FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
             null,
             err,
             MAKELANGID(LANG.NEUTRAL, SUBLANG.DEFAULT),
-            &buf_u16,
-            buf_u16.len / @sizeOf(TCHAR),
+            &buf_wstr,
+            buf_wstr.len,
             null,
         );
-        _ = std.unicode.utf16leToUtf8(&buf_u8, buf_u16[0..len]) catch unreachable;
-        std.debug.warn("error.Unexpected: GetLastError({}): {s}\n", .{ @enumToInt(err), buf_u8[0..len] });
+        _ = std.unicode.utf16leToUtf8(&buf_utf8, buf_wstr[0..len]) catch unreachable;
+        std.debug.warn("error.Unexpected: GetLastError({}): {s}\n", .{ @enumToInt(err), buf_utf8[0..len] });
         std.debug.dumpCurrentStackTrace(null);
     }
     return error.Unexpected;
@@ -1721,4 +1968,10 @@ pub fn unexpectedStatus(status: NTSTATUS) std.os.UnexpectedError {
         std.debug.dumpCurrentStackTrace(null);
     }
     return error.Unexpected;
+}
+
+test "" {
+    if (builtin.os.tag == .windows) {
+        _ = @import("windows/test.zig");
+    }
 }

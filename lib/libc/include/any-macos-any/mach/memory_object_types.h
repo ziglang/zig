@@ -79,6 +79,7 @@
 
 #include <sys/cdefs.h>
 
+
 #define VM_64_BIT_DATA_OBJECTS
 
 typedef unsigned long long      memory_object_offset_t;
@@ -95,6 +96,11 @@ typedef unsigned long long      vm_object_id_t;
 
 
 typedef mach_port_t     memory_object_t;
+/*
+ * vestigial, maintained for source compatibility,
+ * no MIG interface will accept or return non NULL
+ * objects for those.
+ */
 typedef mach_port_t     memory_object_control_t;
 
 

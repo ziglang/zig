@@ -40,7 +40,7 @@ struct __enable_invoke_imp<_Ret, _T1, false, true>  {
 template <class _Ret, class _T1>
 struct __enable_invoke_imp<_Ret, _T1, false, false>  {
     typedef typename add_lvalue_reference<
-                typename __apply_cv<decltype(*_VSTD::declval<_T1>()), _Ret>::type
+                typename __apply_cv<decltype(*declval<_T1>()), _Ret>::type
             >::type _Bullet4;
     typedef _Bullet4 type;
 };
@@ -142,7 +142,7 @@ __invoke(_Fn __f, _T1& __t1) {
 
 template <class _Fp>
 inline _LIBCPP_INLINE_VISIBILITY
-decltype(_VSTD::declval<_Fp&>()())
+decltype(declval<_Fp&>()())
 __invoke(_Fp& __f)
 {
     return __f();
@@ -150,7 +150,7 @@ __invoke(_Fp& __f)
 
 template <class _Fp, class _A0>
 inline _LIBCPP_INLINE_VISIBILITY
-decltype(_VSTD::declval<_Fp&>()(_VSTD::declval<_A0&>()))
+decltype(declval<_Fp&>()(declval<_A0&>()))
 __invoke(_Fp& __f, _A0& __a0)
 {
     return __f(__a0);
@@ -158,7 +158,7 @@ __invoke(_Fp& __f, _A0& __a0)
 
 template <class _Fp, class _A0, class _A1>
 inline _LIBCPP_INLINE_VISIBILITY
-decltype(_VSTD::declval<_Fp&>()(_VSTD::declval<_A0&>(), _VSTD::declval<_A1&>()))
+decltype(declval<_Fp&>()(declval<_A0&>(), declval<_A1&>()))
 __invoke(_Fp& __f, _A0& __a0, _A1& __a1)
 {
     return __f(__a0, __a1);
@@ -166,7 +166,7 @@ __invoke(_Fp& __f, _A0& __a0, _A1& __a1)
 
 template <class _Fp, class _A0, class _A1, class _A2>
 inline _LIBCPP_INLINE_VISIBILITY
-decltype(_VSTD::declval<_Fp&>()(_VSTD::declval<_A0&>(), _VSTD::declval<_A1&>(), _VSTD::declval<_A2&>()))
+decltype(declval<_Fp&>()(declval<_A0&>(), declval<_A1&>(), declval<_A2&>()))
 __invoke(_Fp& __f, _A0& __a0, _A1& __a1, _A2& __a2)
 {
     return __f(__a0, __a1, __a2);
@@ -181,13 +181,13 @@ struct __invoke_return
 template <class _Fp>
 struct __invoke_return<_Fp, false>
 {
-    typedef decltype(__invoke(_VSTD::declval<_Fp&>())) type;
+    typedef decltype(_VSTD::__invoke(declval<_Fp&>())) type;
 };
 
 template <class _Tp, class _A0>
 struct __invoke_return0
 {
-    typedef decltype(__invoke(_VSTD::declval<_Tp&>(), _VSTD::declval<_A0&>())) type;
+    typedef decltype(_VSTD::__invoke(declval<_Tp&>(), declval<_A0&>())) type;
 };
 
 template <class _Rp, class _Tp, class _A0>
@@ -199,8 +199,8 @@ struct __invoke_return0<_Rp _Tp::*, _A0>
 template <class _Tp, class _A0, class _A1>
 struct __invoke_return1
 {
-    typedef decltype(__invoke(_VSTD::declval<_Tp&>(), _VSTD::declval<_A0&>(),
-                                                      _VSTD::declval<_A1&>())) type;
+    typedef decltype(_VSTD::__invoke(declval<_Tp&>(), declval<_A0&>(),
+                                                      declval<_A1&>())) type;
 };
 
 template <class _Rp, class _Class, class _A0, class _A1>
@@ -211,9 +211,9 @@ struct __invoke_return1<_Rp _Class::*, _A0, _A1> {
 template <class _Tp, class _A0, class _A1, class _A2>
 struct __invoke_return2
 {
-    typedef decltype(__invoke(_VSTD::declval<_Tp&>(), _VSTD::declval<_A0&>(),
-                                                      _VSTD::declval<_A1&>(),
-                                                      _VSTD::declval<_A2&>())) type;
+    typedef decltype(_VSTD::__invoke(declval<_Tp&>(), declval<_A0&>(),
+                                                      declval<_A1&>(),
+                                                      declval<_A2&>())) type;
 };
 
 template <class _Ret, class _Class, class _A0, class _A1, class _A2>

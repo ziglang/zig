@@ -284,6 +284,7 @@ const Code = struct {
     link_objects: []const []const u8,
     target_str: ?[]const u8,
     link_libc: bool,
+    link_mode: ?std.builtin.LinkMode,
     disable_cache: bool,
 
     const Id = union(enum) {
@@ -403,9 +404,9 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
                             .n = header_stack_size,
                         },
                     });
-                    if (try urls.fetchPut(urlized, tag_token)) |entry| {
+                    if (try urls.fetchPut(urlized, tag_token)) |kv| {
                         parseError(tokenizer, tag_token, "duplicate header url: #{s}", .{urlized}) catch {};
-                        parseError(tokenizer, entry.value, "other tag here", .{}) catch {};
+                        parseError(tokenizer, kv.value, "other tag here", .{}) catch {};
                         return error.ParseError;
                     }
                     if (last_action == Action.Open) {
@@ -533,6 +534,7 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
                     defer link_objects.deinit();
                     var target_str: ?[]const u8 = null;
                     var link_libc = false;
+                    var link_mode: ?std.builtin.LinkMode = null;
                     var disable_cache = false;
 
                     const source_token = while (true) {
@@ -562,6 +564,8 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
                             target_str = "wasm32-wasi";
                         } else if (mem.eql(u8, end_tag_name, "link_libc")) {
                             link_libc = true;
+                        } else if (mem.eql(u8, end_tag_name, "link_mode_dynamic")) {
+                            link_mode = .Dynamic;
                         } else if (mem.eql(u8, end_tag_name, "code_end")) {
                             _ = try eatToken(tokenizer, Token.Id.BracketClose);
                             break content_tok;
@@ -585,6 +589,7 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
                             .link_objects = link_objects.toOwnedSlice(),
                             .target_str = target_str,
                             .link_libc = link_libc,
+                            .link_mode = link_mode,
                             .disable_cache = disable_cache,
                         },
                     });
@@ -994,7 +999,7 @@ fn tokenizeAndPrintRaw(docgen_tokenizer: *Tokenizer, out: anytype, source_token:
             .tilde,
             => try writeEscaped(out, src[token.loc.start..token.loc.end]),
 
-            .invalid, .invalid_ampersands, .invalid_periodasterisks => return parseError(
+            .invalid, .invalid_periodasterisks => return parseError(
                 docgen_tokenizer,
                 source_token,
                 "syntax error",
@@ -1012,17 +1017,17 @@ fn tokenizeAndPrint(docgen_tokenizer: *Tokenizer, out: anytype, source_token: To
 }
 
 fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: anytype, zig_exe: []const u8, do_code_tests: bool) !void {
-    var code_progress_index: usize = 0;
     var progress = Progress{};
     const root_node = try progress.start("Generating docgen examples", toc.nodes.len);
     defer root_node.end();
 
     var env_map = try process.getEnvMap(allocator);
-    try env_map.set("ZIG_DEBUG_COLOR", "1");
+    try env_map.put("ZIG_DEBUG_COLOR", "1");
 
     const builtin_code = try getBuiltinCode(allocator, &env_map, zig_exe);
 
     for (toc.nodes) |node| {
+        defer root_node.completeOne();
         switch (node) {
             .Content => |data| {
                 try out.writeAll(data);
@@ -1062,8 +1067,6 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: any
                 try tokenizeAndPrint(tokenizer, out, content_tok);
             },
             .Code => |code| {
-                root_node.completeOne();
-
                 const raw_source = tokenizer.buffer[code.source_token.start..code.source_token.end];
                 const trimmed_raw_source = mem.trim(u8, raw_source, " \n");
                 if (!code.is_inline) {
@@ -1086,7 +1089,6 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: any
 
                 switch (code.id) {
                     Code.Id.Exe => |expected_outcome| code_block: {
-                        const name_plus_bin_ext = try std.fmt.allocPrint(allocator, "{s}{s}", .{ code.name, exe_ext });
                         var build_args = std.ArrayList([]const u8).init(allocator);
                         defer build_args.deinit();
                         try build_args.appendSlice(&[_][]const u8{
@@ -1349,7 +1351,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: any
                         }
                         const escaped_stderr = try escapeHtml(allocator, result.stderr);
                         const colored_stderr = try termColor(allocator, escaped_stderr);
-                        try out.print("<pre><code class=\"shell\">$ zig test {s}.zig{s}\n{s}</code></pre>\n", .{
+                        try out.print("<pre><code class=\"shell\">$ zig test {s}.zig {s}\n{s}</code></pre>\n", .{
                             code.name,
                             mode_arg,
                             colored_stderr,
@@ -1357,18 +1359,8 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: any
                     },
                     Code.Id.Obj => |maybe_error_match| {
                         const name_plus_obj_ext = try std.fmt.allocPrint(allocator, "{s}{s}", .{ code.name, obj_ext });
-                        const tmp_obj_file_name = try fs.path.join(
-                            allocator,
-                            &[_][]const u8{ tmp_dir_name, name_plus_obj_ext },
-                        );
                         var build_args = std.ArrayList([]const u8).init(allocator);
                         defer build_args.deinit();
-
-                        const name_plus_h_ext = try std.fmt.allocPrint(allocator, "{s}.h", .{code.name});
-                        const output_h_file_name = try fs.path.join(
-                            allocator,
-                            &[_][]const u8{ tmp_dir_name, name_plus_h_ext },
-                        );
 
                         try build_args.appendSlice(&[_][]const u8{
                             zig_exe,
@@ -1468,6 +1460,18 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: any
                         if (code.target_str) |triple| {
                             try test_args.appendSlice(&[_][]const u8{ "-target", triple });
                             try out.print(" -target {s}", .{triple});
+                        }
+                        if (code.link_mode) |link_mode| {
+                            switch (link_mode) {
+                                .Static => {
+                                    try test_args.append("-static");
+                                    try out.print(" -static", .{});
+                                },
+                                .Dynamic => {
+                                    try test_args.append("-dynamic");
+                                    try out.print(" -dynamic", .{});
+                                },
+                            }
                         }
                         const result = exec(allocator, &env_map, test_args.items) catch return parseError(tokenizer, code.source_token, "test failed", .{});
                         const escaped_stderr = try escapeHtml(allocator, result.stderr);

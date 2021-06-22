@@ -23,6 +23,7 @@ static const ZigLLVM_ArchType arch_list[] = {
     ZigLLVM_avr,            // AVR: Atmel AVR microcontroller
     ZigLLVM_bpfel,          // eBPF or extended BPF or 64-bit BPF (little endian)
     ZigLLVM_bpfeb,          // eBPF or extended BPF or 64-bit BPF (big endian)
+    ZigLLVM_csky,           // CSKY: csky
     ZigLLVM_hexagon,        // Hexagon: hexagon
     ZigLLVM_mips,           // MIPS: mips, mipsallegrex, mipsr6
     ZigLLVM_mipsel,         // MIPSEL: mipsel, mipsallegrexe, mipsr6el
@@ -30,6 +31,7 @@ static const ZigLLVM_ArchType arch_list[] = {
     ZigLLVM_mips64el,       // MIPS64EL: mips64el, mips64r6el, mipsn32el, mipsn32r6el
     ZigLLVM_msp430,         // MSP430: msp430
     ZigLLVM_ppc,            // PPC: powerpc
+    ZigLLVM_ppcle,          // PPCLE: powerpc (little endian)
     ZigLLVM_ppc64,          // PPC64: powerpc64, ppu
     ZigLLVM_ppc64le,        // PPC64LE: powerpc64le
     ZigLLVM_r600,           // R600: AMD GPUs HD2XXX - HD6XXX
@@ -71,8 +73,6 @@ static const ZigLLVM_VendorType vendor_list[] = {
     ZigLLVM_Apple,
     ZigLLVM_PC,
     ZigLLVM_SCEI,
-    ZigLLVM_BGP,
-    ZigLLVM_BGQ,
     ZigLLVM_Freescale,
     ZigLLVM_IBM,
     ZigLLVM_ImaginationTechnologies,
@@ -101,11 +101,11 @@ static const Os os_list[] = {
     OsOpenBSD,
     OsSolaris,
     OsWindows,
+    OsZOS,
     OsHaiku,
     OsMinix,
     OsRTEMS,
     OsNaCl,       // Native Client
-    OsCNK,        // BG/P Compute-Node Kernel
     OsAIX,
     OsCUDA,       // NVIDIA CUDA
     OsNVCL,       // NVIDIA OpenCL
@@ -122,6 +122,9 @@ static const Os os_list[] = {
     OsWASI,
     OsEmscripten,
     OsUefi,
+    OsOpenCL,
+    OsGLSL450,
+    OsVulkan,
     OsOther,
 };
 
@@ -135,6 +138,7 @@ static const ZigLLVM_EnvironmentType abi_list[] = {
     ZigLLVM_GNUEABI,
     ZigLLVM_GNUEABIHF,
     ZigLLVM_GNUX32,
+    ZigLLVM_GNUILP32,
     ZigLLVM_CODE16,
     ZigLLVM_EABI,
     ZigLLVM_EABIHF,
@@ -155,8 +159,10 @@ static const ZigLLVM_ObjectFormatType oformat_list[] = {
     ZigLLVM_UnknownObjectFormat,
     ZigLLVM_COFF,
     ZigLLVM_ELF,
+    ZigLLVM_GOFF,
     ZigLLVM_MachO,
     ZigLLVM_Wasm,
+    ZigLLVM_XCOFF,
 };
 
 size_t target_oformat_count(void) {
@@ -173,6 +179,7 @@ const char *target_oformat_name(ZigLLVM_ObjectFormatType oformat) {
         case ZigLLVM_UnknownObjectFormat: return "unknown";
         case ZigLLVM_COFF: return "coff";
         case ZigLLVM_ELF: return "elf";
+        case ZigLLVM_GOFF: return "goff";
         case ZigLLVM_MachO: return "macho";
         case ZigLLVM_Wasm: return "wasm";
         case ZigLLVM_XCOFF: return "xcoff";
@@ -209,6 +216,9 @@ Os target_os_enum(size_t index) {
 ZigLLVM_OSType get_llvm_os_type(Os os_type) {
     switch (os_type) {
         case OsFreestanding:
+        case OsOpenCL:
+        case OsGLSL450:
+        case OsVulkan:
         case OsOther:
             return ZigLLVM_UnknownOS;
         case OsAnanas:
@@ -240,6 +250,8 @@ ZigLLVM_OSType get_llvm_os_type(Os os_type) {
         case OsWindows:
         case OsUefi:
             return ZigLLVM_Win32;
+        case OsZOS:
+            return ZigLLVM_ZOS;
         case OsHaiku:
             return ZigLLVM_Haiku;
         case OsMinix:
@@ -248,8 +260,6 @@ ZigLLVM_OSType get_llvm_os_type(Os os_type) {
             return ZigLLVM_RTEMS;
         case OsNaCl:
             return ZigLLVM_NaCl;
-        case OsCNK:
-            return ZigLLVM_CNK;
         case OsAIX:
             return ZigLLVM_AIX;
         case OsCUDA:
@@ -306,11 +316,11 @@ const char *target_os_name(Os os_type) {
         case OsOpenBSD:
         case OsSolaris:
         case OsWindows:
+        case OsZOS:
         case OsHaiku:
         case OsMinix:
         case OsRTEMS:
         case OsNaCl:       // Native Client
-        case OsCNK:        // BG/P Compute-Node Kernel
         case OsAIX:
         case OsCUDA:       // NVIDIA CUDA
         case OsNVCL:       // NVIDIA OpenCL
@@ -326,6 +336,9 @@ const char *target_os_name(Os os_type) {
         case OsHurd:
         case OsWASI:
         case OsEmscripten:
+        case OsOpenCL:
+        case OsGLSL450:
+        case OsVulkan:
             return ZigLLVMGetOSTypeName(get_llvm_os_type(os_type));
     }
     zig_unreachable();
@@ -485,6 +498,7 @@ uint32_t target_arch_pointer_bit_width(ZigLLVM_ArchType arch) {
         case ZigLLVM_mipsel:
         case ZigLLVM_nvptx:
         case ZigLLVM_ppc:
+        case ZigLLVM_ppcle:
         case ZigLLVM_r600:
         case ZigLLVM_riscv32:
         case ZigLLVM_sparc:
@@ -504,6 +518,7 @@ uint32_t target_arch_pointer_bit_width(ZigLLVM_ArchType arch) {
         case ZigLLVM_wasm32:
         case ZigLLVM_renderscript32:
         case ZigLLVM_aarch64_32:
+        case ZigLLVM_csky:
             return 32;
 
         case ZigLLVM_aarch64:
@@ -550,6 +565,7 @@ uint32_t target_arch_largest_atomic_bits(ZigLLVM_ArchType arch) {
         case ZigLLVM_mipsel:
         case ZigLLVM_nvptx:
         case ZigLLVM_ppc:
+        case ZigLLVM_ppcle:
         case ZigLLVM_r600:
         case ZigLLVM_riscv32:
         case ZigLLVM_sparc:
@@ -568,6 +584,7 @@ uint32_t target_arch_largest_atomic_bits(ZigLLVM_ArchType arch) {
         case ZigLLVM_shave:
         case ZigLLVM_wasm32:
         case ZigLLVM_renderscript32:
+        case ZigLLVM_csky:
             return 32;
 
         case ZigLLVM_aarch64:
@@ -707,10 +724,10 @@ uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
         case OsKFreeBSD:
         case OsLv2:
         case OsSolaris:
+        case OsZOS:
         case OsMinix:
         case OsRTEMS:
         case OsNaCl:
-        case OsCNK:
         case OsAIX:
         case OsCUDA:
         case OsNVCL:
@@ -725,6 +742,9 @@ uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
         case OsAMDPAL:
         case OsHermitCore:
         case OsHurd:
+        case OsOpenCL:
+        case OsGLSL450:
+        case OsVulkan:
             zig_panic("TODO c type size in bits for this target");
     }
     zig_unreachable();
@@ -736,8 +756,7 @@ bool target_allows_addr_zero(const ZigTarget *target) {
 
 const char *target_o_file_ext(const ZigTarget *target) {
     if (target->abi == ZigLLVM_MSVC ||
-        (target->os == OsWindows && !target_abi_is_gnu(target->abi)) ||
-        target->os == OsUefi)
+        target->os == OsWindows || target->os == OsUefi)
     {
         return ".obj";
     } else {
@@ -755,29 +774,6 @@ const char *target_llvm_ir_file_ext(const ZigTarget *target) {
 
 bool target_is_android(const ZigTarget *target) {
     return target->abi == ZigLLVM_Android;
-}
-
-bool target_can_exec(const ZigTarget *host_target, const ZigTarget *guest_target) {
-    assert(host_target != nullptr);
-
-    if (guest_target == nullptr) {
-        // null guest target means that the guest target is native
-        return true;
-    }
-
-    if (guest_target->os == host_target->os && guest_target->arch == host_target->arch) {
-        // OS and arch match
-        return true;
-    }
-
-    if (guest_target->os == OsWindows && host_target->os == OsWindows &&
-        host_target->arch == ZigLLVM_x86_64 && guest_target->arch == ZigLLVM_x86)
-    {
-        // 64-bit windows can run 32-bit programs
-        return true;
-    }
-
-    return false;
 }
 
 const char *arch_stack_pointer_register_name(ZigLLVM_ArchType arch) {
@@ -799,6 +795,7 @@ const char *arch_stack_pointer_register_name(ZigLLVM_ArchType arch) {
         case ZigLLVM_riscv64:
         case ZigLLVM_mipsel:
         case ZigLLVM_ppc:
+        case ZigLLVM_ppcle:
         case ZigLLVM_ppc64:
         case ZigLLVM_ppc64le:
             return "sp";
@@ -814,6 +811,7 @@ const char *arch_stack_pointer_register_name(ZigLLVM_ArchType arch) {
         case ZigLLVM_avr:
         case ZigLLVM_bpfeb:
         case ZigLLVM_bpfel:
+        case ZigLLVM_csky:
         case ZigLLVM_hexagon:
         case ZigLLVM_lanai:
         case ZigLLVM_hsail:
@@ -868,6 +866,7 @@ bool target_is_arm(const ZigTarget *target) {
         case ZigLLVM_avr:
         case ZigLLVM_bpfeb:
         case ZigLLVM_bpfel:
+        case ZigLLVM_csky:
         case ZigLLVM_hexagon:
         case ZigLLVM_lanai:
         case ZigLLVM_hsail:
@@ -901,6 +900,7 @@ bool target_is_arm(const ZigTarget *target) {
         case ZigLLVM_wasm64:
         case ZigLLVM_xcore:
         case ZigLLVM_ppc:
+        case ZigLLVM_ppcle:
         case ZigLLVM_ppc64:
         case ZigLLVM_ve:
             return false;
@@ -922,21 +922,6 @@ bool target_has_valgrind_support(const ZigTarget *target) {
     zig_unreachable();
 }
 
-bool target_os_requires_libc(Os os) {
-    // On Darwin, we always link libSystem which contains libc.
-    // Similarly on FreeBSD and NetBSD we always link system libc
-    // since this is the stable syscall interface.
-    return (target_os_is_darwin(os) || os == OsFreeBSD || os == OsNetBSD || os == OsDragonFly);
-}
-
-bool target_is_glibc(const ZigTarget *target) {
-    return target->os == OsLinux && target_abi_is_gnu(target->abi);
-}
-
-bool target_is_musl(const ZigTarget *target) {
-    return target->os == OsLinux && target_abi_is_musl(target->abi);
-}
-
 bool target_is_wasm(const ZigTarget *target) {
     return target->arch == ZigLLVM_wasm32 || target->arch == ZigLLVM_wasm64;
 }
@@ -951,11 +936,10 @@ ZigLLVM_EnvironmentType target_default_abi(ZigLLVM_ArchType arch, Os os) {
         case OsCloudABI:
         case OsLv2:
         case OsSolaris:
-        case OsHaiku:
+        case OsZOS:
         case OsMinix:
         case OsRTEMS:
         case OsNaCl:
-        case OsCNK:
         case OsAIX:
         case OsCUDA:
         case OsNVCL:
@@ -979,6 +963,7 @@ ZigLLVM_EnvironmentType target_default_abi(ZigLLVM_ArchType arch, Os os) {
         case OsNetBSD:
         case OsDragonFly:
         case OsHurd:
+        case OsHaiku:
             return ZigLLVM_GNU;
         case OsUefi:
         case OsWindows:
@@ -987,237 +972,16 @@ ZigLLVM_EnvironmentType target_default_abi(ZigLLVM_ArchType arch, Os os) {
         case OsWASI:
         case OsEmscripten:
             return ZigLLVM_Musl;
+        case OsOpenCL:
+        case OsGLSL450:
+        case OsVulkan:
+            return ZigLLVM_UnknownEnvironment;
     }
     zig_unreachable();
-}
-
-bool target_abi_is_gnu(ZigLLVM_EnvironmentType abi) {
-    switch (abi) {
-        case ZigLLVM_GNU:
-        case ZigLLVM_GNUABIN32:
-        case ZigLLVM_GNUABI64:
-        case ZigLLVM_GNUEABI:
-        case ZigLLVM_GNUEABIHF:
-        case ZigLLVM_GNUX32:
-            return true;
-        default:
-            return false;
-    }
-}
-
-bool target_abi_is_musl(ZigLLVM_EnvironmentType abi) {
-    switch (abi) {
-        case ZigLLVM_Musl:
-        case ZigLLVM_MuslEABI:
-        case ZigLLVM_MuslEABIHF:
-            return true;
-        default:
-            return false;
-    }
-}
-
-struct AvailableLibC {
-    ZigLLVM_ArchType arch;
-    Os os;
-    ZigLLVM_EnvironmentType abi;
-};
-
-static const AvailableLibC libcs_available[] = {
-    {ZigLLVM_aarch64_be, OsLinux, ZigLLVM_GNU},
-    {ZigLLVM_aarch64_be, OsLinux, ZigLLVM_Musl},
-    {ZigLLVM_aarch64_be, OsWindows, ZigLLVM_GNU},
-    {ZigLLVM_aarch64, OsLinux, ZigLLVM_GNU},
-    {ZigLLVM_aarch64, OsLinux, ZigLLVM_Musl},
-    {ZigLLVM_aarch64, OsWindows, ZigLLVM_GNU},
-    {ZigLLVM_armeb, OsLinux, ZigLLVM_GNUEABI},
-    {ZigLLVM_armeb, OsLinux, ZigLLVM_GNUEABIHF},
-    {ZigLLVM_armeb, OsLinux, ZigLLVM_MuslEABI},
-    {ZigLLVM_armeb, OsLinux, ZigLLVM_MuslEABIHF},
-    {ZigLLVM_armeb, OsWindows, ZigLLVM_GNU},
-    {ZigLLVM_arm, OsLinux, ZigLLVM_GNUEABI},
-    {ZigLLVM_arm, OsLinux, ZigLLVM_GNUEABIHF},
-    {ZigLLVM_arm, OsLinux, ZigLLVM_MuslEABI},
-    {ZigLLVM_arm, OsLinux, ZigLLVM_MuslEABIHF},
-    {ZigLLVM_arm, OsWindows, ZigLLVM_GNU},
-    {ZigLLVM_x86, OsLinux, ZigLLVM_GNU},
-    {ZigLLVM_x86, OsLinux, ZigLLVM_Musl},
-    {ZigLLVM_x86, OsWindows, ZigLLVM_GNU},
-    {ZigLLVM_mips64el, OsLinux, ZigLLVM_GNUABI64},
-    {ZigLLVM_mips64el, OsLinux, ZigLLVM_GNUABIN32},
-    {ZigLLVM_mips64el, OsLinux, ZigLLVM_Musl},
-    {ZigLLVM_mips64, OsLinux, ZigLLVM_GNUABI64},
-    {ZigLLVM_mips64, OsLinux, ZigLLVM_GNUABIN32},
-    {ZigLLVM_mips64, OsLinux, ZigLLVM_Musl},
-    {ZigLLVM_mipsel, OsLinux, ZigLLVM_GNU},
-    {ZigLLVM_mipsel, OsLinux, ZigLLVM_Musl},
-    {ZigLLVM_mips, OsLinux, ZigLLVM_GNU},
-    {ZigLLVM_mips, OsLinux, ZigLLVM_Musl},
-    {ZigLLVM_ppc64le, OsLinux, ZigLLVM_GNU},
-    {ZigLLVM_ppc64le, OsLinux, ZigLLVM_Musl},
-    {ZigLLVM_ppc64, OsLinux, ZigLLVM_GNU},
-    {ZigLLVM_ppc64, OsLinux, ZigLLVM_Musl},
-    {ZigLLVM_ppc, OsLinux, ZigLLVM_GNU},
-    {ZigLLVM_ppc, OsLinux, ZigLLVM_Musl},
-    {ZigLLVM_riscv64, OsLinux, ZigLLVM_GNU},
-    {ZigLLVM_riscv64, OsLinux, ZigLLVM_Musl},
-    {ZigLLVM_systemz, OsLinux, ZigLLVM_GNU},
-    {ZigLLVM_systemz, OsLinux, ZigLLVM_Musl},
-    {ZigLLVM_sparc, OsLinux, ZigLLVM_GNU},
-    {ZigLLVM_sparcv9, OsLinux, ZigLLVM_GNU},
-    {ZigLLVM_wasm32, OsFreestanding, ZigLLVM_Musl},
-    {ZigLLVM_x86_64, OsLinux, ZigLLVM_GNU},
-    {ZigLLVM_x86_64, OsLinux, ZigLLVM_GNUX32},
-    {ZigLLVM_x86_64, OsLinux, ZigLLVM_Musl},
-    {ZigLLVM_x86_64, OsWindows, ZigLLVM_GNU},
-};
-
-bool target_can_build_libc(const ZigTarget *target) {
-    for (size_t i = 0; i < array_length(libcs_available); i += 1) {
-        if (target->arch == libcs_available[i].arch &&
-            target->os == libcs_available[i].os &&
-            target->abi == libcs_available[i].abi)
-        {
-            return true;
-        }
-    }
-    return false;
-}
-
-const char *target_libc_generic_name(const ZigTarget *target) {
-    if (target->os == OsWindows) {
-        return "mingw";
-    }
-    switch (target->abi) {
-        case ZigLLVM_GNU:
-        case ZigLLVM_GNUABIN32:
-        case ZigLLVM_GNUABI64:
-        case ZigLLVM_GNUEABI:
-        case ZigLLVM_GNUEABIHF:
-        case ZigLLVM_GNUX32:
-            return "glibc";
-        case ZigLLVM_Musl:
-        case ZigLLVM_MuslEABI:
-        case ZigLLVM_MuslEABIHF:
-        case ZigLLVM_UnknownEnvironment:
-            return "musl";
-        case ZigLLVM_CODE16:
-        case ZigLLVM_EABI:
-        case ZigLLVM_EABIHF:
-        case ZigLLVM_Android:
-        case ZigLLVM_MSVC:
-        case ZigLLVM_Itanium:
-        case ZigLLVM_Cygnus:
-        case ZigLLVM_CoreCLR:
-        case ZigLLVM_Simulator:
-        case ZigLLVM_MacABI:
-            zig_unreachable();
-    }
-    zig_unreachable();
-}
-
-bool target_is_libc_lib_name(const ZigTarget *target, const char *name) {
-    auto equal = str_eql_str;
-    if (target->os == OsMacOSX)
-        equal = str_eql_str_ignore_case;
-
-    if (equal(name, "c"))
-        return true;
-
-    if (target_abi_is_gnu(target->abi) && target->os == OsWindows) {
-        // mingw-w64
-
-        if (equal(name, "m"))
-            return true;
-
-        return false;
-    }
-
-    if (target_abi_is_gnu(target->abi) || target_abi_is_musl(target->abi) || target_os_is_darwin(target->os)) {
-        if (equal(name, "m"))
-            return true;
-        if (equal(name, "rt"))
-            return true;
-        if (equal(name, "pthread"))
-            return true;
-        if (equal(name, "crypt"))
-            return true;
-        if (equal(name, "util"))
-            return true;
-        if (equal(name, "xnet"))
-            return true;
-        if (equal(name, "resolv"))
-            return true;
-        if (equal(name, "dl"))
-            return true;
-    }
-
-    if (target_os_is_darwin(target->os) && equal(name, "System"))
-        return true;
-
-    return false;
-}
-
-bool target_is_libcpp_lib_name(const ZigTarget *target, const char *name) {
-    if (strcmp(name, "c++") == 0 || strcmp(name, "c++abi") == 0)
-        return true;
-
-    return false;
-}
-
-size_t target_libc_count(void) {
-    return array_length(libcs_available);
-}
-
-void target_libc_enum(size_t index, ZigTarget *out_target) {
-    assert(index < array_length(libcs_available));
-    out_target->arch = libcs_available[index].arch;
-    out_target->os = libcs_available[index].os;
-    out_target->abi = libcs_available[index].abi;
-    out_target->is_native_os = false;
-    out_target->is_native_cpu = false;
 }
 
 bool target_has_debug_info(const ZigTarget *target) {
     return !target_is_wasm(target);
-}
-
-const char *target_arch_musl_name(ZigLLVM_ArchType arch) {
-    switch (arch) {
-        case ZigLLVM_aarch64:
-        case ZigLLVM_aarch64_be:
-            return "aarch64";
-        case ZigLLVM_arm:
-        case ZigLLVM_armeb:
-            return "arm";
-        case ZigLLVM_mips:
-        case ZigLLVM_mipsel:
-            return "mips";
-        case ZigLLVM_mips64el:
-        case ZigLLVM_mips64:
-            return "mips64";
-        case ZigLLVM_ppc:
-            return "powerpc";
-        case ZigLLVM_ppc64:
-        case ZigLLVM_ppc64le:
-            return "powerpc64";
-        case ZigLLVM_systemz:
-            return "s390x";
-        case ZigLLVM_x86:
-            return "i386";
-        case ZigLLVM_x86_64:
-            return "x86_64";
-        case ZigLLVM_riscv64:
-            return "riscv64";
-        default:
-            zig_unreachable();
-    }
-}
-
-bool target_libc_needs_crti_crtn(const ZigTarget *target) {
-    if (target->arch == ZigLLVM_riscv32 || target->arch == ZigLLVM_riscv64 || target_is_android(target)) {
-        return false;
-    }
-    return true;
 }
 
 bool target_is_riscv(const ZigTarget *target) {
@@ -1238,6 +1002,37 @@ bool target_is_ppc(const ZigTarget *target) {
         target->arch == ZigLLVM_ppc64le;
 }
 
+// Returns the minimum alignment for every function pointer on the given
+// architecture.
+unsigned target_fn_ptr_align(const ZigTarget *target) {
+    // TODO This is a pessimization but is always correct.
+    return 1;
+}
+
+// Returns the minimum alignment for every function on the given architecture.
 unsigned target_fn_align(const ZigTarget *target) {
-    return 16;
+    switch (target->arch) {
+        case ZigLLVM_riscv32:
+        case ZigLLVM_riscv64:
+            // TODO If the C extension is not present the value is 4.
+            return 2;
+        case ZigLLVM_ppc:
+        case ZigLLVM_ppcle:
+        case ZigLLVM_ppc64:
+        case ZigLLVM_ppc64le:
+        case ZigLLVM_aarch64:
+        case ZigLLVM_aarch64_be:
+        case ZigLLVM_aarch64_32:
+        case ZigLLVM_sparc:
+        case ZigLLVM_sparcel:
+        case ZigLLVM_sparcv9:
+        case ZigLLVM_mips:
+        case ZigLLVM_mipsel:
+        case ZigLLVM_mips64:
+        case ZigLLVM_mips64el:
+            return 4;
+
+        default:
+            return 1;
+    }
 }

@@ -1,4 +1,4 @@
-/* Copyright (C) 1996-2020 Free Software Foundation, Inc.
+/* Copyright (C) 1996-2021 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -33,7 +33,7 @@ __BEGIN_DECLS
 /* Asynchronous I/O control block.  */
 struct aiocb
 {
-  int aio_fildes;		/* File desriptor.  */
+  int aio_fildes;		/* File descriptor.  */
   int aio_lio_opcode;		/* Operation to be performed.  */
   int aio_reqprio;		/* Request priority offset.  */
   volatile void *aio_buf;	/* Location of buffer.  */
@@ -61,7 +61,7 @@ struct aiocb
 #ifdef __USE_LARGEFILE64
 struct aiocb64
 {
-  int aio_fildes;		/* File desriptor.  */
+  int aio_fildes;		/* File descriptor.  */
   int aio_lio_opcode;		/* Operation to be performed.  */
   int aio_reqprio;		/* Request priority offset.  */
   volatile void *aio_buf;	/* Location of buffer.  */
@@ -82,12 +82,11 @@ struct aiocb64
 
 
 #ifdef __USE_GNU
-/* To customize the implementation one can use the following struct.
-   This implementation follows the one in Irix.  */
+/* To optimize the implementation one can use the following struct.  */
 struct aioinit
   {
-    int aio_threads;		/* Maximal number of threads.  */
-    int aio_num;		/* Number of expected simultanious requests. */
+    int aio_threads;		/* Maximum number of threads.  */
+    int aio_num;		/* Number of expected simultaneous requests.  */
     int aio_locks;		/* Not used.  */
     int aio_usedba;		/* Not used.  */
     int aio_debug;		/* Not used.  */
@@ -99,7 +98,7 @@ struct aioinit
 #endif
 
 
-/* Return values of cancelation function.  */
+/* Return values of the aio_cancel function.  */
 enum
 {
   AIO_CANCELED,

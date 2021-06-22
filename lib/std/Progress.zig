@@ -22,6 +22,10 @@ const Progress = @This();
 /// not print on update()
 terminal: ?std.fs.File = undefined,
 
+/// Is this a windows API terminal (note: this is not the same as being run on windows
+/// because other terminals exist like MSYS/git-bash)
+is_windows_terminal: bool = false,
+
 /// Whether the terminal supports ANSI escape codes.
 supports_ansi_escape_codes: bool = false,
 
@@ -143,6 +147,7 @@ pub fn start(self: *Progress, name: []const u8, estimated_total_items: usize) !*
         self.terminal = stderr;
         self.supports_ansi_escape_codes = true;
     } else if (std.builtin.os.tag == .windows and stderr.isTty()) {
+        self.is_windows_terminal = true;
         self.terminal = stderr;
     } else if (std.builtin.os.tag != .windows) {
         // we are in a "dumb" terminal like in acme or writing to a file
@@ -192,8 +197,9 @@ const DECRC = "\x1b8";
 // supported by some terminals (eg. Terminal.app).
 
 fn refreshWithHeldLock(self: *Progress) void {
-    const is_dumb = !self.supports_ansi_escape_codes and !(std.builtin.os.tag == .windows);
+    const is_dumb = !self.supports_ansi_escape_codes and !self.is_windows_terminal;
     if (is_dumb and self.dont_print_on_dumb) return;
+
     const file = self.terminal orelse return;
 
     var end: usize = 0;
@@ -206,6 +212,8 @@ fn refreshWithHeldLock(self: *Progress) void {
         std.mem.copy(u8, self.output_buffer[end..], seq_before);
         end += seq_before.len;
     } else if (std.builtin.os.tag == .windows) winapi: {
+        std.debug.assert(self.is_windows_terminal);
+
         var info: windows.CONSOLE_SCREEN_BUFFER_INFO = undefined;
         if (windows.kernel32.GetConsoleScreenBufferInfo(file.handle, &info) != windows.TRUE)
             unreachable;
@@ -234,7 +242,7 @@ fn refreshWithHeldLock(self: *Progress) void {
             self.terminal = null;
             break :winapi;
         }
-        if (windows.kernel32.FillConsoleOutputCharacterA(
+        if (windows.kernel32.FillConsoleOutputCharacterW(
             file.handle,
             ' ',
             fill_chars,
@@ -282,19 +290,21 @@ fn refreshWithHeldLock(self: *Progress) void {
         const seq_after = DECRC;
         std.mem.copy(u8, self.output_buffer[end..], seq_after);
         end += seq_after.len;
-    } else if (std.builtin.os.tag != .windows) {
+    } else if (!self.is_windows_terminal) {
         self.output_buffer[end] = '\n';
         end += 1;
     }
 
-    _ = file.write(self.output_buffer[0..end]) catch |e| {
+    _ = file.write(self.output_buffer[0..end]) catch {
         // Stop trying to write to this file once it errors.
         self.terminal = null;
     };
 
     if (std.builtin.os.tag == .windows) {
-        if (windows.kernel32.SetConsoleCursorPosition(file.handle, saved_cursor_pos) != windows.TRUE)
-            unreachable;
+        if (self.is_windows_terminal) {
+            const res = windows.kernel32.SetConsoleCursorPosition(file.handle, saved_cursor_pos);
+            std.debug.assert(res == windows.TRUE);
+        }
     }
 
     self.prev_refresh_timestamp = self.timer.read();
@@ -318,7 +328,7 @@ fn bufWrite(self: *Progress, end: *usize, comptime format: []const u8, args: any
             end.* = self.output_buffer.len;
         },
     }
-    const bytes_needed_for_esc_codes_at_end = if (std.builtin.os.tag == .windows) 0 else 11;
+    const bytes_needed_for_esc_codes_at_end: u8 = if (self.is_windows_terminal) 0 else 11;
     const max_end = self.output_buffer.len - bytes_needed_for_esc_codes_at_end;
     if (end.* > max_end) {
         const suffix = "... ";

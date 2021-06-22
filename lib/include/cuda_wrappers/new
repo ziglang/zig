@@ -1,4 +1,4 @@
-/*===---- complex - CUDA wrapper for <new> ------------------------------===
+/*===---- new - CUDA wrapper for <new> -------------------------------------===
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -25,6 +25,13 @@
 #define __CLANG_CUDA_WRAPPERS_NEW
 
 #include_next <new>
+
+#if !defined(__device__)
+// The header has been included too early from the standard C++ library
+// and CUDA-specific macros are not available yet.
+// Undo the include guard and try again later.
+#undef __CLANG_CUDA_WRAPPERS_NEW
+#else
 
 #pragma push_macro("CUDA_NOEXCEPT")
 #if __cplusplus >= 201103L
@@ -95,4 +102,5 @@ __device__ inline void operator delete[](void *, void *) CUDA_NOEXCEPT {}
 
 #pragma pop_macro("CUDA_NOEXCEPT")
 
+#endif // __device__
 #endif // include guard

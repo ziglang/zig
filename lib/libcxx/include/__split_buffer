@@ -68,7 +68,6 @@ public:
     __split_buffer(size_type __cap, size_type __start, __alloc_rr& __a);
     ~__split_buffer();
 
-#ifndef _LIBCPP_CXX03_LANG
     __split_buffer(__split_buffer&& __c)
         _NOEXCEPT_(is_nothrow_move_constructible<allocator_type>::value);
     __split_buffer(__split_buffer&& __c, const __alloc_rr& __a);
@@ -76,7 +75,6 @@ public:
         _NOEXCEPT_((__alloc_traits::propagate_on_container_move_assignment::value &&
                 is_nothrow_move_assignable<allocator_type>::value) ||
                !__alloc_traits::propagate_on_container_move_assignment::value);
-#endif  // _LIBCPP_CXX03_LANG
 
     _LIBCPP_INLINE_VISIBILITY       iterator begin() _NOEXCEPT       {return __begin_;}
     _LIBCPP_INLINE_VISIBILITY const_iterator begin() const _NOEXCEPT {return __begin_;}
@@ -101,12 +99,10 @@ public:
     void shrink_to_fit() _NOEXCEPT;
     void push_front(const_reference __x);
     _LIBCPP_INLINE_VISIBILITY void push_back(const_reference __x);
-#ifndef _LIBCPP_CXX03_LANG
     void push_front(value_type&& __x);
     void push_back(value_type&& __x);
     template <class... _Args>
         void emplace_back(_Args&&... __args);
-#endif  // !defined(_LIBCPP_CXX03_LANG)
 
     _LIBCPP_INLINE_VISIBILITY void pop_front() {__destruct_at_begin(__begin_+1);}
     _LIBCPP_INLINE_VISIBILITY void pop_back() {__destruct_at_end(__end_-1);}
@@ -270,7 +266,7 @@ typename enable_if
 >::type
 __split_buffer<_Tp, _Allocator>::__construct_at_end(_ForwardIterator __first, _ForwardIterator __last)
 {
-    _ConstructTransaction __tx(&this->__end_, std::distance(__first, __last));
+    _ConstructTransaction __tx(&this->__end_, _VSTD::distance(__first, __last));
     for (; __tx.__pos_ != __tx.__end_; ++__tx.__pos_, ++__first) {
         __alloc_traits::construct(this->__alloc(),
             _VSTD::__to_address(__tx.__pos_), *__first);
@@ -283,7 +279,7 @@ void
 __split_buffer<_Tp, _Allocator>::__destruct_at_begin(pointer __new_begin, false_type)
 {
     while (__begin_ != __new_begin)
-        __alloc_traits::destroy(__alloc(), __to_address(__begin_++));
+        __alloc_traits::destroy(__alloc(), _VSTD::__to_address(__begin_++));
 }
 
 template <class _Tp, class _Allocator>
@@ -300,7 +296,7 @@ void
 __split_buffer<_Tp, _Allocator>::__destruct_at_end(pointer __new_last, false_type) _NOEXCEPT
 {
     while (__new_last != __end_)
-        __alloc_traits::destroy(__alloc(), __to_address(--__end_));
+        __alloc_traits::destroy(__alloc(), _VSTD::__to_address(--__end_));
 }
 
 template <class _Tp, class _Allocator>
@@ -349,8 +345,6 @@ __split_buffer<_Tp, _Allocator>::~__split_buffer()
     if (__first_)
         __alloc_traits::deallocate(__alloc(), __first_, capacity());
 }
-
-#ifndef _LIBCPP_CXX03_LANG
 
 template <class _Tp, class _Allocator>
 __split_buffer<_Tp, _Allocator>::__split_buffer(__split_buffer&& __c)
@@ -412,8 +406,6 @@ __split_buffer<_Tp, _Allocator>::operator=(__split_buffer&& __c)
     return *this;
 }
 
-#endif  // _LIBCPP_CXX03_LANG
-
 template <class _Tp, class _Allocator>
 void
 __split_buffer<_Tp, _Allocator>::swap(__split_buffer& __x)
@@ -424,7 +416,7 @@ __split_buffer<_Tp, _Allocator>::swap(__split_buffer& __x)
     _VSTD::swap(__begin_, __x.__begin_);
     _VSTD::swap(__end_, __x.__end_);
     _VSTD::swap(__end_cap(), __x.__end_cap());
-    __swap_allocator(__alloc(), __x.__alloc());
+    _VSTD::__swap_allocator(__alloc(), __x.__alloc());
 }
 
 template <class _Tp, class _Allocator>
@@ -499,8 +491,6 @@ __split_buffer<_Tp, _Allocator>::push_front(const_reference __x)
     --__begin_;
 }
 
-#ifndef _LIBCPP_CXX03_LANG
-
 template <class _Tp, class _Allocator>
 void
 __split_buffer<_Tp, _Allocator>::push_front(value_type&& __x)
@@ -531,8 +521,6 @@ __split_buffer<_Tp, _Allocator>::push_front(value_type&& __x)
     --__begin_;
 }
 
-#endif  // _LIBCPP_CXX03_LANG
-
 template <class _Tp, class _Allocator>
 inline _LIBCPP_INLINE_VISIBILITY
 void
@@ -562,8 +550,6 @@ __split_buffer<_Tp, _Allocator>::push_back(const_reference __x)
     __alloc_traits::construct(__alloc(), _VSTD::__to_address(__end_), __x);
     ++__end_;
 }
-
-#ifndef _LIBCPP_CXX03_LANG
 
 template <class _Tp, class _Allocator>
 void
@@ -625,8 +611,6 @@ __split_buffer<_Tp, _Allocator>::emplace_back(_Args&&... __args)
                               _VSTD::forward<_Args>(__args)...);
     ++__end_;
 }
-
-#endif  // _LIBCPP_CXX03_LANG
 
 template <class _Tp, class _Allocator>
 inline _LIBCPP_INLINE_VISIBILITY

@@ -26,21 +26,15 @@ public:
         } __tickets[64];
     };
 
-    ptrdiff_t&         __expected;
-    unique_ptr<char[]> __state_allocation;
-    __state_t*         __state;
+    ptrdiff_t&              __expected;
+    unique_ptr<__state_t[]> __state;
 
     _LIBCPP_HIDDEN
     __barrier_algorithm_base(ptrdiff_t& __expected)
         : __expected(__expected)
     {
         size_t const __count = (__expected + 1) >> 1;
-        size_t const __size = sizeof(__state_t) * __count;
-        size_t __allocation_size = __size + alignof(__state_t);
-        __state_allocation = unique_ptr<char[]>(new char[__allocation_size]);
-        void* __allocation = __state_allocation.get();
-        void* const __state_ = align(alignof(__state_t), __size, __allocation, __allocation_size);
-        __state = new (__state_) __barrier_algorithm_base::__state_t[__count];
+        __state = unique_ptr<__state_t[]>(new __state_t[__count]);
     }
     _LIBCPP_HIDDEN
     bool __arrive(__barrier_phase_t __old_phase)

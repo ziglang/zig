@@ -58,7 +58,7 @@ pub const OS = c_int;
 /// Matches std.builtin.BuildMode
 pub const BuildMode = c_int;
 
-pub const TargetSubsystem = extern enum(c_int) {
+pub const TargetSubsystem = enum(c_int) {
     Console,
     Windows,
     Posix,
@@ -110,6 +110,7 @@ pub const Module = extern struct {
     pic: bool,
     pie: bool,
     lto: bool,
+    unwind_tables: bool,
     link_libc: bool,
     link_libcpp: bool,
     strip: bool,
@@ -124,8 +125,6 @@ pub const Module = extern struct {
     enable_time_report: bool,
     enable_stack_report: bool,
     test_is_evented: bool,
-    verbose_tokenize: bool,
-    verbose_ast: bool,
     verbose_ir: bool,
     verbose_llvm_ir: bool,
     verbose_cimport: bool,
@@ -172,7 +171,7 @@ export fn stage2_panic(ptr: [*]const u8, len: usize) void {
 }
 
 // ABI warning
-const Error = extern enum {
+const Error = enum(c_int) {
     None,
     OutOfMemory,
     InvalidFormat,
@@ -252,6 +251,8 @@ const Error = extern enum {
     ZigIsTheCCompiler,
     FileBusy,
     Locked,
+    InvalidCharacter,
+    UnicodePointTooLarge,
 };
 
 // ABI warning
@@ -406,6 +407,8 @@ export fn stage2_add_link_lib(
     symbol_name_ptr: [*c]const u8,
     symbol_name_len: usize,
 ) ?[*:0]const u8 {
+    _ = symbol_name_len;
+    _ = symbol_name_ptr;
     const comp = @intToPtr(*Compilation, stage1.userdata);
     const lib_name = std.ascii.allocLowerString(comp.gpa, lib_name_ptr[0..lib_name_len]) catch return "out of memory";
     const target = comp.getTarget();

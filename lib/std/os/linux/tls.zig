@@ -4,12 +4,12 @@
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
 const std = @import("std");
-const builtin = std.builtin;
 const os = std.os;
 const mem = std.mem;
 const elf = std.elf;
 const math = std.math;
 const assert = std.debug.assert;
+const native_arch = std.Target.current.cpu.arch;
 
 // This file implements the two TLS variants [1] used by ELF-based systems.
 //
@@ -52,36 +52,36 @@ const TLSVariant = enum {
     VariantII,
 };
 
-const tls_variant = switch (builtin.arch) {
-    .arm, .armeb, .aarch64, .aarch64_be, .riscv32, .riscv64, .mips, .mipsel, .powerpc, .powerpc64, .powerpc64le => TLSVariant.VariantI,
+const tls_variant = switch (native_arch) {
+    .arm, .armeb, .thumb, .aarch64, .aarch64_be, .riscv32, .riscv64, .mips, .mipsel, .powerpc, .powerpc64, .powerpc64le => TLSVariant.VariantI,
     .x86_64, .i386, .sparcv9 => TLSVariant.VariantII,
     else => @compileError("undefined tls_variant for this architecture"),
 };
 
 // Controls how many bytes are reserved for the Thread Control Block
-const tls_tcb_size = switch (builtin.arch) {
+const tls_tcb_size = switch (native_arch) {
     // ARM EABI mandates enough space for two pointers: the first one points to
     // the DTV while the second one is unspecified but reserved
-    .arm, .armeb, .aarch64, .aarch64_be => 2 * @sizeOf(usize),
+    .arm, .armeb, .thumb, .aarch64, .aarch64_be => 2 * @sizeOf(usize),
     // One pointer-sized word that points either to the DTV or the TCB itself
     else => @sizeOf(usize),
 };
 
 // Controls if the TP points to the end of the TCB instead of its beginning
-const tls_tp_points_past_tcb = switch (builtin.arch) {
-    .riscv32, .riscv64, .mips, .mipsel, .powerpc64, .powerpc64le => true,
+const tls_tp_points_past_tcb = switch (native_arch) {
+    .riscv32, .riscv64, .mips, .mipsel, .powerpc, .powerpc64, .powerpc64le => true,
     else => false,
 };
 
 // Some architectures add some offset to the tp and dtv addresses in order to
 // make the generated code more efficient
 
-const tls_tp_offset = switch (builtin.arch) {
+const tls_tp_offset = switch (native_arch) {
     .mips, .mipsel, .powerpc, .powerpc64, .powerpc64le => 0x7000,
     else => 0,
 };
 
-const tls_dtv_offset = switch (builtin.arch) {
+const tls_dtv_offset = switch (native_arch) {
     .mips, .mipsel, .powerpc, .powerpc64, .powerpc64le => 0x8000,
     .riscv32, .riscv64 => 0x800,
     else => 0,
@@ -114,7 +114,7 @@ const TLSImage = struct {
 pub var tls_image: TLSImage = undefined;
 
 pub fn setThreadPointer(addr: usize) void {
-    switch (builtin.arch) {
+    switch (native_arch) {
         .i386 => {
             var user_desc = std.os.linux.user_desc{
                 .entry_number = tls_image.gdt_entry_number,
@@ -150,7 +150,7 @@ pub fn setThreadPointer(addr: usize) void {
                 : [addr] "r" (addr)
             );
         },
-        .arm => {
+        .arm, .thumb => {
             const rc = std.os.linux.syscall1(.set_tls, addr);
             assert(rc == 0);
         },
@@ -165,7 +165,14 @@ pub fn setThreadPointer(addr: usize) void {
             const rc = std.os.linux.syscall1(.set_thread_area, addr);
             assert(rc == 0);
         },
-        .powerpc, .powerpc64, .powerpc64le => {
+        .powerpc => {
+            asm volatile (
+                \\ mr 2, %[addr]
+                :
+                : [addr] "r" (addr)
+            );
+        },
+        .powerpc64, .powerpc64le => {
             asm volatile (
                 \\ mr 13, %[addr]
                 :
@@ -183,50 +190,15 @@ pub fn setThreadPointer(addr: usize) void {
     }
 }
 
-fn initTLS() void {
+fn initTLS(phdrs: []elf.Phdr) void {
     var tls_phdr: ?*elf.Phdr = null;
     var img_base: usize = 0;
 
-    const auxv = std.os.linux.elf_aux_maybe.?;
-    var at_phent: usize = undefined;
-    var at_phnum: usize = undefined;
-    var at_phdr: usize = undefined;
-    var at_hwcap: usize = undefined;
-
-    var i: usize = 0;
-    while (auxv[i].a_type != std.elf.AT_NULL) : (i += 1) {
-        switch (auxv[i].a_type) {
-            elf.AT_PHENT => at_phent = auxv[i].a_un.a_val,
-            elf.AT_PHNUM => at_phnum = auxv[i].a_un.a_val,
-            elf.AT_PHDR => at_phdr = auxv[i].a_un.a_val,
-            elf.AT_HWCAP => at_hwcap = auxv[i].a_un.a_val,
-            else => continue,
-        }
-    }
-
-    // Sanity check
-    assert(at_phent == @sizeOf(elf.Phdr));
-
-    // Find the TLS section
-    const phdrs = (@intToPtr([*]elf.Phdr, at_phdr))[0..at_phnum];
-
     for (phdrs) |*phdr| {
         switch (phdr.p_type) {
-            elf.PT_PHDR => img_base = at_phdr - phdr.p_vaddr,
+            elf.PT_PHDR => img_base = @ptrToInt(phdrs.ptr) - phdr.p_vaddr,
             elf.PT_TLS => tls_phdr = phdr,
             else => {},
-        }
-    }
-
-    // ARMv6 targets (and earlier) have no support for TLS in hardware
-    // FIXME: Elide the check for targets >= ARMv7 when the target feature API
-    // becomes less verbose (and more usable).
-    if (comptime builtin.arch.isARM()) {
-        if (at_hwcap & std.os.linux.HWCAP_TLS == 0) {
-            // FIXME: Make __aeabi_read_tp call the kernel helper kuser_get_tls
-            // For the time being use a simple abort instead of a @panic call to
-            // keep the binary bloat under control.
-            std.os.abort();
         }
     }
 
@@ -241,7 +213,7 @@ fn initTLS() void {
         tls_data = @intToPtr([*]u8, img_base + phdr.p_vaddr)[0..phdr.p_filesz];
         tls_data_alloc_size = phdr.p_memsz;
     } else {
-        tls_align_factor = @alignOf(*usize);
+        tls_align_factor = @alignOf(usize);
         tls_data = &[_]u8{};
         tls_data_alloc_size = 0;
     }
@@ -300,8 +272,8 @@ fn initTLS() void {
     };
 }
 
-fn alignPtrCast(comptime T: type, ptr: [*]u8) callconv(.Inline) *T {
-    return @ptrCast(*T, @alignCast(@alignOf(*T), ptr));
+inline fn alignPtrCast(comptime T: type, ptr: [*]u8) *T {
+    return @ptrCast(*T, @alignCast(@alignOf(T), ptr));
 }
 
 /// Initializes all the fields of the static TLS area and returns the computed
@@ -337,8 +309,8 @@ pub fn prepareTLS(area: []u8) usize {
 // overhead.
 var main_thread_tls_buffer: [0x2100]u8 align(mem.page_size) = undefined;
 
-pub fn initStaticTLS() void {
-    initTLS();
+pub fn initStaticTLS(phdrs: []elf.Phdr) void {
+    initTLS(phdrs);
 
     const tls_area = blk: {
         // Fast path for the common case where the TLS data is really small,

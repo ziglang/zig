@@ -308,12 +308,12 @@ basic_streambuf<_CharT, _Traits>::~basic_streambuf()
 
 template <class _CharT, class _Traits>
 basic_streambuf<_CharT, _Traits>::basic_streambuf()
-    : __binp_(0),
-      __ninp_(0),
-      __einp_(0),
-      __bout_(0),
-      __nout_(0),
-      __eout_(0)
+    : __binp_(nullptr),
+      __ninp_(nullptr),
+      __einp_(nullptr),
+      __bout_(nullptr),
+      __nout_(nullptr),
+      __eout_(nullptr)
 {
 }
 
@@ -485,13 +485,11 @@ basic_streambuf<_CharT, _Traits>::overflow(int_type)
     return traits_type::eof();
 }
 
-#ifndef _LIBCPP_DO_NOT_ASSUME_STREAMS_EXPLICIT_INSTANTIATION_IN_DYLIB
 _LIBCPP_EXTERN_TEMPLATE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_streambuf<char>)
 _LIBCPP_EXTERN_TEMPLATE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_streambuf<wchar_t>)
 
 _LIBCPP_EXTERN_TEMPLATE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_ios<char>)
 _LIBCPP_EXTERN_TEMPLATE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_ios<wchar_t>)
-#endif
 
 _LIBCPP_END_NAMESPACE_STD
 

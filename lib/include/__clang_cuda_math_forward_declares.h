@@ -160,6 +160,9 @@ __DEVICE__ double scalbln(double, long);
 __DEVICE__ float scalbln(float, long);
 __DEVICE__ double scalbn(double, int);
 __DEVICE__ float scalbn(float, int);
+#ifdef _MSC_VER
+__DEVICE__ bool signbit(long double);
+#endif
 __DEVICE__ bool signbit(double);
 __DEVICE__ bool signbit(float);
 __DEVICE__ double sin(double);

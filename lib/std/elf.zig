@@ -4,13 +4,13 @@
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
 const std = @import("std.zig");
-const builtin = std.builtin;
 const io = std.io;
 const os = std.os;
 const math = std.math;
 const mem = std.mem;
 const debug = std.debug;
 const File = std.fs.File;
+const native_endian = @import("builtin").target.cpu.arch.endian();
 
 pub const AT_NULL = 0;
 pub const AT_IGNORE = 1;
@@ -311,7 +311,7 @@ pub const VER_FLG_BASE = 0x1;
 pub const VER_FLG_WEAK = 0x2;
 
 /// File types
-pub const ET = extern enum(u16) {
+pub const ET = enum(u16) {
     /// No file type
     NONE = 0,
 
@@ -336,7 +336,7 @@ pub const ET = extern enum(u16) {
 
 /// All integers are native endian.
 pub const Header = struct {
-    endian: builtin.Endian,
+    endian: std.builtin.Endian,
     machine: EM,
     is_64: bool,
     entry: u64,
@@ -380,7 +380,7 @@ pub const Header = struct {
             ELFDATA2MSB => .Big,
             else => return error.InvalidElfEndian,
         };
-        const need_bswap = endian != std.builtin.endian;
+        const need_bswap = endian != native_endian;
 
         const is_64 = switch (hdr32.e_ident[EI_CLASS]) {
             ELFCLASS32 => false,
@@ -426,7 +426,7 @@ pub fn ProgramHeaderIterator(ParseSource: anytype) type {
                 try self.parse_source.reader().readNoEof(mem.asBytes(&phdr));
 
                 // ELF endianness matches native endianness.
-                if (self.elf_header.endian == std.builtin.endian) return phdr;
+                if (self.elf_header.endian == native_endian) return phdr;
 
                 // Convert fields to native endianness.
                 bswapAllFields(Elf64_Phdr, &phdr);
@@ -439,7 +439,7 @@ pub fn ProgramHeaderIterator(ParseSource: anytype) type {
             try self.parse_source.reader().readNoEof(mem.asBytes(&phdr));
 
             // ELF endianness does NOT match native endianness.
-            if (self.elf_header.endian != std.builtin.endian) {
+            if (self.elf_header.endian != native_endian) {
                 // Convert fields to native endianness.
                 bswapAllFields(Elf32_Phdr, &phdr);
             }
@@ -476,21 +476,11 @@ pub fn SectionHeaderIterator(ParseSource: anytype) type {
                 try self.parse_source.reader().readNoEof(mem.asBytes(&shdr));
 
                 // ELF endianness matches native endianness.
-                if (self.elf_header.endian == std.builtin.endian) return shdr;
+                if (self.elf_header.endian == native_endian) return shdr;
 
                 // Convert fields to native endianness.
-                return Elf64_Shdr{
-                    .sh_name = @byteSwap(@TypeOf(shdr.sh_name), shdr.sh_name),
-                    .sh_type = @byteSwap(@TypeOf(shdr.sh_type), shdr.sh_type),
-                    .sh_flags = @byteSwap(@TypeOf(shdr.sh_flags), shdr.sh_flags),
-                    .sh_addr = @byteSwap(@TypeOf(shdr.sh_addr), shdr.sh_addr),
-                    .sh_offset = @byteSwap(@TypeOf(shdr.sh_offset), shdr.sh_offset),
-                    .sh_size = @byteSwap(@TypeOf(shdr.sh_size), shdr.sh_size),
-                    .sh_link = @byteSwap(@TypeOf(shdr.sh_link), shdr.sh_link),
-                    .sh_info = @byteSwap(@TypeOf(shdr.sh_info), shdr.sh_info),
-                    .sh_addralign = @byteSwap(@TypeOf(shdr.sh_addralign), shdr.sh_addralign),
-                    .sh_entsize = @byteSwap(@TypeOf(shdr.sh_entsize), shdr.sh_entsize),
-                };
+                bswapAllFields(Elf64_Shdr, &shdr);
+                return shdr;
             }
 
             var shdr: Elf32_Shdr = undefined;
@@ -499,20 +489,9 @@ pub fn SectionHeaderIterator(ParseSource: anytype) type {
             try self.parse_source.reader().readNoEof(mem.asBytes(&shdr));
 
             // ELF endianness does NOT match native endianness.
-            if (self.elf_header.endian != std.builtin.endian) {
+            if (self.elf_header.endian != native_endian) {
                 // Convert fields to native endianness.
-                shdr = .{
-                    .sh_name = @byteSwap(@TypeOf(shdr.sh_name), shdr.sh_name),
-                    .sh_type = @byteSwap(@TypeOf(shdr.sh_type), shdr.sh_type),
-                    .sh_flags = @byteSwap(@TypeOf(shdr.sh_flags), shdr.sh_flags),
-                    .sh_addr = @byteSwap(@TypeOf(shdr.sh_addr), shdr.sh_addr),
-                    .sh_offset = @byteSwap(@TypeOf(shdr.sh_offset), shdr.sh_offset),
-                    .sh_size = @byteSwap(@TypeOf(shdr.sh_size), shdr.sh_size),
-                    .sh_link = @byteSwap(@TypeOf(shdr.sh_link), shdr.sh_link),
-                    .sh_info = @byteSwap(@TypeOf(shdr.sh_info), shdr.sh_info),
-                    .sh_addralign = @byteSwap(@TypeOf(shdr.sh_addralign), shdr.sh_addralign),
-                    .sh_entsize = @byteSwap(@TypeOf(shdr.sh_entsize), shdr.sh_entsize),
-                };
+                bswapAllFields(Elf32_Shdr, &shdr);
             }
 
             // Convert 32-bit header to 64-bit.
@@ -565,7 +544,7 @@ test "bswapAllFields" {
         .ch_addralign = 0x12124242,
     };
     bswapAllFields(Elf32_Chdr, &s);
-    std.testing.expectEqual(Elf32_Chdr{
+    try std.testing.expectEqual(Elf32_Chdr{
         .ch_type = 0x34123412,
         .ch_size = 0x78567856,
         .ch_addralign = 0x42421212,
@@ -721,10 +700,10 @@ pub const Elf32_Rel = extern struct {
     r_offset: Elf32_Addr,
     r_info: Elf32_Word,
 
-    pub fn r_sym(self: @This()) callconv(.Inline) u24 {
+    pub inline fn r_sym(self: @This()) u24 {
         return @truncate(u24, self.r_info >> 8);
     }
-    pub fn r_type(self: @This()) callconv(.Inline) u8 {
+    pub inline fn r_type(self: @This()) u8 {
         return @truncate(u8, self.r_info & 0xff);
     }
 };
@@ -732,10 +711,10 @@ pub const Elf64_Rel = extern struct {
     r_offset: Elf64_Addr,
     r_info: Elf64_Xword,
 
-    pub fn r_sym(self: @This()) callconv(.Inline) u32 {
+    pub inline fn r_sym(self: @This()) u32 {
         return @truncate(u32, self.r_info >> 32);
     }
-    pub fn r_type(self: @This()) callconv(.Inline) u32 {
+    pub inline fn r_type(self: @This()) u32 {
         return @truncate(u32, self.r_info & 0xffffffff);
     }
 };
@@ -744,10 +723,10 @@ pub const Elf32_Rela = extern struct {
     r_info: Elf32_Word,
     r_addend: Elf32_Sword,
 
-    pub fn r_sym(self: @This()) callconv(.Inline) u24 {
+    pub inline fn r_sym(self: @This()) u24 {
         return @truncate(u24, self.r_info >> 8);
     }
-    pub fn r_type(self: @This()) callconv(.Inline) u8 {
+    pub inline fn r_type(self: @This()) u8 {
         return @truncate(u8, self.r_info & 0xff);
     }
 };
@@ -756,10 +735,10 @@ pub const Elf64_Rela = extern struct {
     r_info: Elf64_Xword,
     r_addend: Elf64_Sxword,
 
-    pub fn r_sym(self: @This()) callconv(.Inline) u32 {
+    pub inline fn r_sym(self: @This()) u32 {
         return @truncate(u32, self.r_info >> 32);
     }
-    pub fn r_type(self: @This()) callconv(.Inline) u32 {
+    pub inline fn r_type(self: @This()) u32 {
         return @truncate(u32, self.r_info & 0xffffffff);
     }
 };
@@ -991,7 +970,7 @@ pub const Half = switch (@sizeOf(usize)) {
 /// See current registered ELF machine architectures at:
 ///    http://www.uxsglobal.com/developers/gabi/latest/ch4.eheader.html
 /// The underscore prefix is because many of these start with numbers.
-pub const EM = extern enum(u16) {
+pub const EM = enum(u16) {
     /// No machine
     _NONE = 0,
 

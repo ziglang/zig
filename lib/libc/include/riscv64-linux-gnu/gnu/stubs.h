@@ -4,9 +4,15 @@
 
 #include <bits/wordsize.h>
 
-#if defined __LP64__ && defined __riscv_float_abi_soft
+#if __WORDSIZE == 32 && defined __riscv_float_abi_soft
+# include <gnu/stubs-ilp32.h>
+#endif
+#if __WORDSIZE == 32 && defined __riscv_float_abi_double
+# include <gnu/stubs-ilp32d.h>
+#endif
+#if __WORDSIZE == 64 && defined __riscv_float_abi_soft
 # include <gnu/stubs-lp64.h>
 #endif
-#if defined __LP64__ && defined __riscv_float_abi_double
+#if __WORDSIZE == 64 && defined __riscv_float_abi_double
 # include <gnu/stubs-lp64d.h>
 #endif

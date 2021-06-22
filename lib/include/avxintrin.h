@@ -2245,7 +2245,7 @@ _mm256_cvttps_epi32(__m256 __a)
 
 /// Returns the first element of the input vector of [4 x double].
 ///
-/// \headerfile <avxintrin.h>
+/// \headerfile <x86intrin.h>
 ///
 /// This intrinsic is a utility function and does not correspond to a specific
 ///    instruction.
@@ -2261,7 +2261,7 @@ _mm256_cvtsd_f64(__m256d __a)
 
 /// Returns the first element of the input vector of [8 x i32].
 ///
-/// \headerfile <avxintrin.h>
+/// \headerfile <x86intrin.h>
 ///
 /// This intrinsic is a utility function and does not correspond to a specific
 ///    instruction.
@@ -2278,7 +2278,7 @@ _mm256_cvtsi256_si32(__m256i __a)
 
 /// Returns the first element of the input vector of [8 x float].
 ///
-/// \headerfile <avxintrin.h>
+/// \headerfile <x86intrin.h>
 ///
 /// This intrinsic is a utility function and does not correspond to a specific
 ///    instruction.

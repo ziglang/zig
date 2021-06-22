@@ -66,6 +66,8 @@ pub const ArenaAllocator = struct {
     }
 
     fn alloc(allocator: *Allocator, n: usize, ptr_align: u29, len_align: u29, ra: usize) ![]u8 {
+        _ = len_align;
+        _ = ra;
         const self = @fieldParentPtr(ArenaAllocator, "allocator", allocator);
 
         var cur_node = if (self.state.buffer_list.first) |first_node| first_node else try self.createNode(0, n + ptr_align);
@@ -95,6 +97,9 @@ pub const ArenaAllocator = struct {
     }
 
     fn resize(allocator: *Allocator, buf: []u8, buf_align: u29, new_len: usize, len_align: u29, ret_addr: usize) Allocator.Error!usize {
+        _ = buf_align;
+        _ = len_align;
+        _ = ret_addr;
         const self = @fieldParentPtr(ArenaAllocator, "allocator", allocator);
 
         const cur_node = self.state.buffer_list.first orelse return error.OutOfMemory;

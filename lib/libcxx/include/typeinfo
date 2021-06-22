@@ -57,6 +57,7 @@ public:
 */
 
 #include <__config>
+#include <__availability>
 #include <exception>
 #include <cstddef>
 #include <cstdint>
@@ -141,7 +142,7 @@ public:
 // comparison is equal.
 // -------------------------------------------------------------------------- //
 //                          NonUniqueARMRTTIBit
-// (selected on ARM64 regardless of _LIBCPP_TYPEINFO_COMPARISON_IMPLEMENTATION)
+//               (_LIBCPP_TYPEINFO_COMPARISON_IMPLEMENTATION = 3)
 // -------------------------------------------------------------------------- //
 // This implementation of type_info does not assume always a unique copy of
 // the RTTI for a given type inside a program. It packs the pointer to the
@@ -159,6 +160,24 @@ public:
 // Note that the compiler is the one setting (or unsetting) the high bit of
 // the pointer when it constructs the type_info, depending on whether it can
 // guarantee uniqueness for that specific type_info.
+
+// This value can be overriden in the __config_site. When it's not overriden,
+// we pick a default implementation based on the platform here.
+#ifndef _LIBCPP_TYPEINFO_COMPARISON_IMPLEMENTATION
+
+  // Windows binaries can't merge typeinfos, so use the NonUnique implementation.
+# ifdef _LIBCPP_OBJECT_FORMAT_COFF
+#   define _LIBCPP_TYPEINFO_COMPARISON_IMPLEMENTATION 2
+
+  // On arm64 on Apple platforms, use the special NonUniqueARMRTTIBit implementation.
+# elif defined(__APPLE__) && defined(__LP64__) && !defined(__x86_64__)
+#   define _LIBCPP_TYPEINFO_COMPARISON_IMPLEMENTATION 3
+
+  // On all other platforms, assume the Itanium C++ ABI and use the Unique implementation.
+# else
+#   define _LIBCPP_TYPEINFO_COMPARISON_IMPLEMENTATION 1
+# endif
+#endif
 
 struct __type_info_implementations {
   struct __string_impl_base {
@@ -243,7 +262,7 @@ struct __type_info_implementations {
    private:
     // The unique bit is the top bit. It is expected that __type_name_t is 64 bits when
     // this implementation is actually used.
-    typedef std::integral_constant<__type_name_t,
+    typedef integral_constant<__type_name_t,
       (1ULL << ((__CHAR_BIT__ * sizeof(__type_name_t)) - 1))> __non_unique_rtti_bit;
 
     _LIBCPP_INLINE_VISIBILITY
@@ -257,12 +276,12 @@ struct __type_info_implementations {
   };
 
   typedef
-#if defined(__APPLE__) && defined(__LP64__) && !defined(__x86_64__)
-    __non_unique_arm_rtti_bit_impl
-#elif _LIBCPP_TYPEINFO_COMPARISON_IMPLEMENTATION == 1
+#if _LIBCPP_TYPEINFO_COMPARISON_IMPLEMENTATION == 1
     __unique_impl
 #elif _LIBCPP_TYPEINFO_COMPARISON_IMPLEMENTATION == 2
     __non_unique_impl
+#elif _LIBCPP_TYPEINFO_COMPARISON_IMPLEMENTATION == 3
+    __non_unique_arm_rtti_bit_impl
 #else
 #   error invalid configuration for _LIBCPP_TYPEINFO_COMPARISON_IMPLEMENTATION
 #endif

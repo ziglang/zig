@@ -166,8 +166,6 @@ pub const Wyhash = struct {
     }
 
     pub fn final(self: *Wyhash) u64 {
-        const seed = self.state.seed;
-        const rem_len = @intCast(u5, self.buf_len);
         const rem_key = self.buf[0..self.buf_len];
 
         return self.state.final(rem_key);
@@ -183,13 +181,13 @@ const expectEqual = std.testing.expectEqual;
 test "test vectors" {
     const hash = Wyhash.hash;
 
-    expectEqual(hash(0, ""), 0x0);
-    expectEqual(hash(1, "a"), 0xbed235177f41d328);
-    expectEqual(hash(2, "abc"), 0xbe348debe59b27c3);
-    expectEqual(hash(3, "message digest"), 0x37320f657213a290);
-    expectEqual(hash(4, "abcdefghijklmnopqrstuvwxyz"), 0xd0b270e1d8a7019c);
-    expectEqual(hash(5, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"), 0x602a1894d3bbfe7f);
-    expectEqual(hash(6, "12345678901234567890123456789012345678901234567890123456789012345678901234567890"), 0x829e9c148b75970e);
+    try expectEqual(hash(0, ""), 0x0);
+    try expectEqual(hash(1, "a"), 0xbed235177f41d328);
+    try expectEqual(hash(2, "abc"), 0xbe348debe59b27c3);
+    try expectEqual(hash(3, "message digest"), 0x37320f657213a290);
+    try expectEqual(hash(4, "abcdefghijklmnopqrstuvwxyz"), 0xd0b270e1d8a7019c);
+    try expectEqual(hash(5, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"), 0x602a1894d3bbfe7f);
+    try expectEqual(hash(6, "12345678901234567890123456789012345678901234567890123456789012345678901234567890"), 0x829e9c148b75970e);
 }
 
 test "test vectors streaming" {
@@ -197,19 +195,19 @@ test "test vectors streaming" {
     for ("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789") |e| {
         wh.update(mem.asBytes(&e));
     }
-    expectEqual(wh.final(), 0x602a1894d3bbfe7f);
+    try expectEqual(wh.final(), 0x602a1894d3bbfe7f);
 
     const pattern = "1234567890";
     const count = 8;
     const result = 0x829e9c148b75970e;
-    expectEqual(Wyhash.hash(6, pattern ** 8), result);
+    try expectEqual(Wyhash.hash(6, pattern ** 8), result);
 
     wh = Wyhash.init(6);
     var i: u32 = 0;
     while (i < count) : (i += 1) {
         wh.update(pattern);
     }
-    expectEqual(wh.final(), result);
+    try expectEqual(wh.final(), result);
 }
 
 test "iterative non-divisible update" {
@@ -231,6 +229,6 @@ test "iterative non-divisible update" {
         }
         const iterative_hash = wy.final();
 
-        std.testing.expectEqual(iterative_hash, non_iterative_hash);
+        try std.testing.expectEqual(iterative_hash, non_iterative_hash);
     }
 }

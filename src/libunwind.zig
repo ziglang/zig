@@ -69,6 +69,8 @@ pub fn buildStaticLib(comp: *Compilation) !void {
         }
         try cflags.append("-D_LIBUNWIND_DISABLE_VISIBILITY_ANNOTATIONS");
         try cflags.append("-Wa,--noexecstack");
+        try cflags.append("-fvisibility=hidden");
+        try cflags.append("-fvisibility-inlines-hidden");
 
         // This is intentionally always defined because the macro definition means, should it only
         // build for the target specified by compiler defines. Since we pass -target the compiler
@@ -113,6 +115,8 @@ pub fn buildStaticLib(comp: *Compilation) !void {
         .want_tsan = false,
         .want_pic = comp.bin_file.options.pic,
         .want_pie = comp.bin_file.options.pie,
+        .want_lto = comp.bin_file.options.lto,
+        .function_sections = comp.bin_file.options.function_sections,
         .emit_h = null,
         .strip = comp.compilerRtStrip(),
         .is_native_os = comp.bin_file.options.is_native_os,
@@ -121,9 +125,7 @@ pub fn buildStaticLib(comp: *Compilation) !void {
         .c_source_files = &c_source_files,
         .verbose_cc = comp.verbose_cc,
         .verbose_link = comp.bin_file.options.verbose_link,
-        .verbose_tokenize = comp.verbose_tokenize,
-        .verbose_ast = comp.verbose_ast,
-        .verbose_ir = comp.verbose_ir,
+        .verbose_air = comp.verbose_air,
         .verbose_llvm_ir = comp.verbose_llvm_ir,
         .verbose_cimport = comp.verbose_cimport,
         .verbose_llvm_cpu_features = comp.verbose_llvm_cpu_features,

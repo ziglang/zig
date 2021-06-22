@@ -21,27 +21,6 @@
 extern "C" {
 #endif
 
-#ifndef _CRT_TERMINATE_DEFINED
-#define _CRT_TERMINATE_DEFINED
-  void __cdecl __MINGW_NOTHROW exit(int _Code) __MINGW_ATTRIB_NORETURN;
-  void __cdecl __MINGW_NOTHROW _exit(int _Code) __MINGW_ATTRIB_NORETURN;
-
-#if !defined __NO_ISOCEXT /* extern stub in static libmingwex.a */
-  /* C99 function name */
-  void __cdecl _Exit(int) __MINGW_ATTRIB_NORETURN;
-#ifndef __CRT__NO_INLINE
-  __CRT_INLINE __MINGW_ATTRIB_NORETURN void  __cdecl _Exit(int status)
-  {  _exit(status); }
-#endif /* !__CRT__NO_INLINE */
-#endif /* Not  __NO_ISOCEXT */
-
-#pragma push_macro("abort")
-#undef abort
-  void __cdecl __MINGW_ATTRIB_NORETURN abort(void);
-#pragma pop_macro("abort")
-
-#endif /* _CRT_TERMINATE_DEFINED */
-
 _CRTIMP void __cdecl _wassert(const wchar_t *_Message,const wchar_t *_File,unsigned _Line);
 _CRTIMP void __cdecl _assert (const char *_Message, const char *_File, unsigned _Line);
 

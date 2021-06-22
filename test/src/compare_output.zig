@@ -105,7 +105,7 @@ pub const CompareOutputContext = struct {
                 }
 
                 const exe = b.addExecutable("test", null);
-                exe.addAssemblyFileFromWriteFileStep(write_src, case.sources.items[0].filename);
+                exe.addAssemblyFileSource(write_src.getFileSource(case.sources.items[0].filename).?);
 
                 const run = exe.run();
                 run.addArgs(case.cli_args);
@@ -126,7 +126,7 @@ pub const CompareOutputContext = struct {
                     }
 
                     const basename = case.sources.items[0].filename;
-                    const exe = b.addExecutableFromWriteFileStep("test", write_src, basename);
+                    const exe = b.addExecutableSource("test", write_src.getFileSource(basename).?);
                     exe.setBuildMode(mode);
                     if (case.link_libc) {
                         exe.linkSystemLibrary("c");
@@ -147,7 +147,7 @@ pub const CompareOutputContext = struct {
                 }
 
                 const basename = case.sources.items[0].filename;
-                const exe = b.addExecutableFromWriteFileStep("test", write_src, basename);
+                const exe = b.addExecutableSource("test", write_src.getFileSource(basename).?);
                 if (case.link_libc) {
                     exe.linkSystemLibrary("c");
                 }

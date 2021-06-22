@@ -1,5 +1,6 @@
 LIBRARY "dxgi.dll"
 EXPORTS
+ApplyCompatResolutionQuirking
 CompatString
 CompatValue
 D3DKMTCloseAdapter
@@ -13,10 +14,14 @@ D3DKMTSignalSynchronizationObject
 D3DKMTUnlock
 D3DKMTWaitForSynchronizationObject
 DXGIDumpJournal
+PIXBeginCapture
+PIXEndCapture
+PIXGetCaptureState
 DXGIRevertToSxS
 OpenAdapter10
 OpenAdapter10_2
 SetAppCompatStringPointer
+UpdateHMDEmulationStatus
 CreateDXGIFactory
 CreateDXGIFactory1
 CreateDXGIFactory2
@@ -50,5 +55,6 @@ DXGID3D10CreateLayeredDevice
 DXGID3D10ETWRundown
 DXGID3D10GetLayeredDeviceSize
 DXGID3D10RegisterLayers
+DXGIDeclareAdapterRemovalSupport
 DXGIGetDebugInterface1
 DXGIReportAdapterConfiguration

@@ -55,7 +55,9 @@ struct __cuda_builtin_threadIdx_t {
   __CUDA_DEVICE_BUILTIN(z,__nvvm_read_ptx_sreg_tid_z());
   // threadIdx should be convertible to uint3 (in fact in nvcc, it *is* a
   // uint3).  This function is defined after we pull in vector_types.h.
+  __attribute__((device)) operator dim3() const;
   __attribute__((device)) operator uint3() const;
+
 private:
   __CUDA_DISALLOW_BUILTINVAR_ACCESS(__cuda_builtin_threadIdx_t);
 };
@@ -66,7 +68,9 @@ struct __cuda_builtin_blockIdx_t {
   __CUDA_DEVICE_BUILTIN(z,__nvvm_read_ptx_sreg_ctaid_z());
   // blockIdx should be convertible to uint3 (in fact in nvcc, it *is* a
   // uint3).  This function is defined after we pull in vector_types.h.
+  __attribute__((device)) operator dim3() const;
   __attribute__((device)) operator uint3() const;
+
 private:
   __CUDA_DISALLOW_BUILTINVAR_ACCESS(__cuda_builtin_blockIdx_t);
 };
@@ -78,6 +82,8 @@ struct __cuda_builtin_blockDim_t {
   // blockDim should be convertible to dim3 (in fact in nvcc, it *is* a
   // dim3).  This function is defined after we pull in vector_types.h.
   __attribute__((device)) operator dim3() const;
+  __attribute__((device)) operator uint3() const;
+
 private:
   __CUDA_DISALLOW_BUILTINVAR_ACCESS(__cuda_builtin_blockDim_t);
 };
@@ -89,6 +95,8 @@ struct __cuda_builtin_gridDim_t {
   // gridDim should be convertible to dim3 (in fact in nvcc, it *is* a
   // dim3).  This function is defined after we pull in vector_types.h.
   __attribute__((device)) operator dim3() const;
+  __attribute__((device)) operator uint3() const;
+
 private:
   __CUDA_DISALLOW_BUILTINVAR_ACCESS(__cuda_builtin_gridDim_t);
 };
@@ -108,5 +116,6 @@ __attribute__((device)) const int warpSize = 32;
 #undef __CUDA_DEVICE_BUILTIN
 #undef __CUDA_BUILTIN_VAR
 #undef __CUDA_DISALLOW_BUILTINVAR_ACCESS
+#undef __DELETE
 
 #endif /* __CUDA_BUILTIN_VARS_H */

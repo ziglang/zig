@@ -5,6 +5,8 @@
 // and substantial portions of the software.
 const testing = @import("std.zig").testing;
 
+// TODO: Add support for multi-byte ops (e.g. table operations)
+
 /// Wasm instruction opcodes
 ///
 /// All instructions are defined as per spec:
@@ -175,7 +177,7 @@ pub const Opcode = enum(u8) {
     i32_reinterpret_f32 = 0xBC,
     i64_reinterpret_f64 = 0xBD,
     f32_reinterpret_i32 = 0xBE,
-    i64_reinterpret_i64 = 0xBF,
+    f64_reinterpret_i64 = 0xBF,
     i32_extend8_s = 0xC0,
     i32_extend16_s = 0xC1,
     i64_extend8_s = 0xC2,
@@ -198,11 +200,11 @@ test "Wasm - opcodes" {
     const local_get = opcode(.local_get);
     const i64_extend32_s = opcode(.i64_extend32_s);
 
-    testing.expectEqual(@as(u16, 0x41), i32_const);
-    testing.expectEqual(@as(u16, 0x0B), end);
-    testing.expectEqual(@as(u16, 0x1A), drop);
-    testing.expectEqual(@as(u16, 0x20), local_get);
-    testing.expectEqual(@as(u16, 0xC4), i64_extend32_s);
+    try testing.expectEqual(@as(u16, 0x41), i32_const);
+    try testing.expectEqual(@as(u16, 0x0B), end);
+    try testing.expectEqual(@as(u16, 0x1A), drop);
+    try testing.expectEqual(@as(u16, 0x20), local_get);
+    try testing.expectEqual(@as(u16, 0xC4), i64_extend32_s);
 }
 
 /// Enum representing all Wasm value types as per spec:
@@ -225,10 +227,10 @@ test "Wasm - valtypes" {
     const _f32 = valtype(.f32);
     const _f64 = valtype(.f64);
 
-    testing.expectEqual(@as(u8, 0x7F), _i32);
-    testing.expectEqual(@as(u8, 0x7E), _i64);
-    testing.expectEqual(@as(u8, 0x7D), _f32);
-    testing.expectEqual(@as(u8, 0x7C), _f64);
+    try testing.expectEqual(@as(u8, 0x7F), _i32);
+    try testing.expectEqual(@as(u8, 0x7E), _i64);
+    try testing.expectEqual(@as(u8, 0x7D), _f32);
+    try testing.expectEqual(@as(u8, 0x7C), _f64);
 }
 
 /// Wasm module sections as per spec:
@@ -278,3 +280,6 @@ pub const block_empty: u8 = 0x40;
 // binary constants
 pub const magic = [_]u8{ 0x00, 0x61, 0x73, 0x6D }; // \0asm
 pub const version = [_]u8{ 0x01, 0x00, 0x00, 0x00 }; // version 1
+
+// Each wasm page size is 64kB
+pub const page_size = 64 * 1024;

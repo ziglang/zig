@@ -37,6 +37,7 @@ pub const Guid = extern struct {
         options: std.fmt.FormatOptions,
         writer: anytype,
     ) !void {
+        _ = options;
         if (f.len == 0) {
             return std.fmt.format(writer, "{x:0>8}-{x:0>4}-{x:0>4}-{x:0>2}{x:0>2}-{x:0>12}", .{
                 self.time_low,

@@ -52,6 +52,20 @@ int timespec_get( struct timespec *ts, int base); // C++17
 #pragma GCC system_header
 #endif
 
+// FIXME:
+// Apple SDKs don't define ::timespec_get unconditionally in C++ mode. This
+// should be fixed in future SDKs, but for the time being we need to avoid
+// trying to use that declaration when the SDK doesn't provide it. Note that
+// we're detecting this here instead of in <__config> because we can't include
+// system headers from <__config>, since it leads to circular module dependencies.
+// This is also meant to be a very temporary workaround until the SDKs are fixed.
+#if defined(__APPLE__)
+#   include <sys/cdefs.h>
+#   if defined(_LIBCPP_HAS_TIMESPEC_GET) && (__DARWIN_C_LEVEL < __DARWIN_C_FULL)
+#       define _LIBCPP_HAS_TIMESPEC_GET_NOT_ACTUALLY_PROVIDED
+#   endif
+#endif
+
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 using ::clock_t;
@@ -72,7 +86,7 @@ using ::gmtime;
 using ::localtime;
 #endif
 using ::strftime;
-#if _LIBCPP_STD_VER > 14 && defined(_LIBCPP_HAS_TIMESPEC_GET)
+#if _LIBCPP_STD_VER > 14 && defined(_LIBCPP_HAS_TIMESPEC_GET) && !defined(_LIBCPP_HAS_TIMESPEC_GET_NOT_ACTUALLY_PROVIDED)
 using ::timespec_get;
 #endif
 

@@ -4,9 +4,9 @@
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
 const std = @import("std");
-const builtin = @import("builtin");
+const builtin = std.builtin;
 
-fn offsetPtr(ptr: [*]const u8, offset: usize) callconv(.Inline) [*]const u8 {
+inline fn offsetPtr(ptr: [*]const u8, offset: usize) [*]const u8 {
     // ptr + offset doesn't work at comptime so we need this instead.
     return @ptrCast([*]const u8, &ptr[offset]);
 }
@@ -353,7 +353,6 @@ fn SMHasherTest(comptime hash_fn: anytype) u32 {
 
     var key: [256]u8 = undefined;
     var hashes_bytes: [256 * @sizeOf(HashResult)]u8 = undefined;
-    var final: HashResult = 0;
 
     std.mem.set(u8, &key, 0);
     std.mem.set(u8, &hashes_bytes, 0);
@@ -376,19 +375,20 @@ fn SMHasherTest(comptime hash_fn: anytype) u32 {
 }
 
 fn CityHash32hashIgnoreSeed(str: []const u8, seed: u32) u32 {
+    _ = seed;
     return CityHash32.hash(str);
 }
 
 test "cityhash32" {
     const Test = struct {
-        fn doTest() void {
+        fn doTest() !void {
             // Note: SMHasher doesn't provide a 32bit version of the algorithm.
             // Note: The implementation was verified against the Google Abseil version.
-            std.testing.expectEqual(SMHasherTest(CityHash32hashIgnoreSeed), 0x68254F81);
-            std.testing.expectEqual(SMHasherTest(CityHash32hashIgnoreSeed), 0x68254F81);
+            try std.testing.expectEqual(SMHasherTest(CityHash32hashIgnoreSeed), 0x68254F81);
+            try std.testing.expectEqual(SMHasherTest(CityHash32hashIgnoreSeed), 0x68254F81);
         }
     };
-    Test.doTest();
+    try Test.doTest();
     // TODO This is uncommented to prevent OOM on the CI server. Re-enable this test
     // case once we ship stage2.
     //@setEvalBranchQuota(50000);
@@ -397,13 +397,13 @@ test "cityhash32" {
 
 test "cityhash64" {
     const Test = struct {
-        fn doTest() void {
+        fn doTest() !void {
             // Note: This is not compliant with the SMHasher implementation of CityHash64!
             // Note: The implementation was verified against the Google Abseil version.
-            std.testing.expectEqual(SMHasherTest(CityHash64.hashWithSeed), 0x5FABC5C5);
+            try std.testing.expectEqual(SMHasherTest(CityHash64.hashWithSeed), 0x5FABC5C5);
         }
     };
-    Test.doTest();
+    try Test.doTest();
     // TODO This is uncommented to prevent OOM on the CI server. Re-enable this test
     // case once we ship stage2.
     //@setEvalBranchQuota(50000);

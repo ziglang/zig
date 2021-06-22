@@ -500,7 +500,6 @@ pub fn flushModule(self: *DebugSymbols, allocator: *Allocator, options: link.Opt
     if (self.debug_aranges_section_dirty) {
         const dwarf_segment = &self.load_commands.items[self.dwarf_segment_cmd_index.?].Segment;
         const debug_aranges_sect = &dwarf_segment.sections.items[self.debug_aranges_section_index.?];
-        const debug_info_sect = dwarf_segment.sections.items[self.debug_info_section_index.?];
 
         var di_buf = std.ArrayList(u8).init(allocator);
         defer di_buf.deinit();
@@ -534,8 +533,8 @@ pub fn flushModule(self: *DebugSymbols, allocator: *Allocator, options: link.Opt
         mem.writeIntLittle(u64, di_buf.addManyAsArrayAssumeCapacity(8), text_section.size);
 
         // Sentinel.
-        mem.writeIntLittle(u32, di_buf.addManyAsArrayAssumeCapacity(4), 0);
-        mem.writeIntLittle(u32, di_buf.addManyAsArrayAssumeCapacity(4), 0);
+        mem.writeIntLittle(u64, di_buf.addManyAsArrayAssumeCapacity(8), 0);
+        mem.writeIntLittle(u64, di_buf.addManyAsArrayAssumeCapacity(8), 0);
 
         // Go back and populate the initial length.
         const init_len = di_buf.items.len - after_init_len;
@@ -844,7 +843,6 @@ fn relocateSymbolTable(self: *DebugSymbols) !void {
     const nsyms = nlocals + nglobals;
 
     if (symtab.nsyms < nsyms) {
-        const linkedit_segment = self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
         const needed_size = nsyms * @sizeOf(macho.nlist_64);
         if (needed_size > self.allocatedSizeLinkedit(symtab.symoff)) {
             // Move the entire symbol table to a new location
@@ -901,29 +899,18 @@ fn writeStringTable(self: *DebugSymbols) !void {
 }
 
 pub fn updateDeclLineNumber(self: *DebugSymbols, module: *Module, decl: *const Module.Decl) !void {
+    _ = module;
     const tracy = trace(@src());
     defer tracy.end();
 
-    const tree = decl.container.file_scope.tree;
-    const node_tags = tree.nodes.items(.tag);
-    const node_datas = tree.nodes.items(.data);
-    const token_starts = tree.tokens.items(.start);
-
-    const file_ast_decls = tree.rootDecls();
-    // TODO Look into improving the performance here by adding a token-index-to-line
-    // lookup table. Currently this involves scanning over the source code for newlines.
-    const fn_decl = file_ast_decls[decl.src_index];
-    assert(node_tags[fn_decl] == .fn_decl);
-    const block = node_datas[fn_decl].rhs;
-    const lbrace = tree.firstToken(block);
-    const line_delta = std.zig.lineDelta(tree.source, 0, token_starts[lbrace]);
-    const casted_line_off = @intCast(u28, line_delta);
+    const func = decl.val.castTag(.function).?.data;
+    const line_off = @intCast(u28, decl.src_line + func.lbrace_line);
 
     const dwarf_segment = &self.load_commands.items[self.dwarf_segment_cmd_index.?].Segment;
     const shdr = &dwarf_segment.sections.items[self.debug_line_section_index.?];
     const file_pos = shdr.offset + decl.fn_link.macho.off + getRelocDbgLineOff();
     var data: [4]u8 = undefined;
-    leb.writeUnsignedFixed(4, &data, casted_line_off);
+    leb.writeUnsignedFixed(4, &data, line_off);
     try self.file.pwriteAll(&data, file_pos);
 }
 
@@ -940,6 +927,8 @@ pub fn initDeclDebugBuffers(
     module: *Module,
     decl: *Module.Decl,
 ) !DeclDebugBuffers {
+    _ = self;
+    _ = module;
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -947,28 +936,14 @@ pub fn initDeclDebugBuffers(
     var dbg_info_buffer = std.ArrayList(u8).init(allocator);
     var dbg_info_type_relocs: link.File.DbgInfoTypeRelocsTable = .{};
 
-    const typed_value = decl.typed_value.most_recent.typed_value;
-    switch (typed_value.ty.zigTypeTag()) {
+    assert(decl.has_tv);
+    switch (decl.ty.zigTypeTag()) {
         .Fn => {
             // For functions we need to add a prologue to the debug line program.
             try dbg_line_buffer.ensureCapacity(26);
 
-            const line_off: u28 = blk: {
-                const tree = decl.container.file_scope.tree;
-                const node_tags = tree.nodes.items(.tag);
-                const node_datas = tree.nodes.items(.data);
-                const token_starts = tree.tokens.items(.start);
-
-                const file_ast_decls = tree.rootDecls();
-                // TODO Look into improving the performance here by adding a token-index-to-line
-                // lookup table. Currently this involves scanning over the source code for newlines.
-                const fn_decl = file_ast_decls[decl.src_index];
-                assert(node_tags[fn_decl] == .fn_decl);
-                const block = node_datas[fn_decl].rhs;
-                const lbrace = tree.firstToken(block);
-                const line_delta = std.zig.lineDelta(tree.source, 0, token_starts[lbrace]);
-                break :blk @intCast(u28, line_delta);
-            };
+            const func = decl.val.castTag(.function).?.data;
+            const line_off = @intCast(u28, decl.src_line + func.lbrace_line);
 
             dbg_line_buffer.appendSliceAssumeCapacity(&[_]u8{
                 DW.LNS_extended_op,
@@ -1001,7 +976,7 @@ pub fn initDeclDebugBuffers(
             const decl_name_with_null = decl.name[0 .. mem.lenZ(decl.name) + 1];
             try dbg_info_buffer.ensureCapacity(dbg_info_buffer.items.len + 27 + decl_name_with_null.len);
 
-            const fn_ret_type = typed_value.ty.fnReturnType();
+            const fn_ret_type = decl.ty.fnReturnType();
             const fn_ret_has_bits = fn_ret_type.hasCodeGenBits();
             if (fn_ret_has_bits) {
                 dbg_info_buffer.appendAssumeCapacity(abbrev_subprogram);
@@ -1018,12 +993,12 @@ pub fn initDeclDebugBuffers(
             if (fn_ret_has_bits) {
                 const gop = try dbg_info_type_relocs.getOrPut(allocator, fn_ret_type);
                 if (!gop.found_existing) {
-                    gop.entry.value = .{
+                    gop.value_ptr.* = .{
                         .off = undefined,
                         .relocs = .{},
                     };
                 }
-                try gop.entry.value.relocs.append(allocator, @intCast(u32, dbg_info_buffer.items.len));
+                try gop.value_ptr.relocs.append(allocator, @intCast(u32, dbg_info_buffer.items.len));
                 dbg_info_buffer.items.len += 4; // DW.AT_type,  DW.FORM_ref4
             }
             dbg_info_buffer.appendSliceAssumeCapacity(decl_name_with_null); // DW.AT_name, DW.FORM_string
@@ -1060,8 +1035,8 @@ pub fn commitDeclDebugInfo(
     const symbol = self.base.locals.items[decl.link.macho.local_sym_index];
     const text_block = &decl.link.macho;
     // If the Decl is a function, we need to update the __debug_line program.
-    const typed_value = decl.typed_value.most_recent.typed_value;
-    switch (typed_value.ty.zigTypeTag()) {
+    assert(decl.has_tv);
+    switch (decl.ty.zigTypeTag()) {
         .Fn => {
             // Perform the relocations based on vaddr.
             {
@@ -1075,6 +1050,18 @@ pub fn commitDeclDebugInfo(
             {
                 const ptr = dbg_info_buffer.items[getRelocDbgInfoSubprogramHighPC()..][0..4];
                 mem.writeIntLittle(u32, ptr, @intCast(u32, text_block.size));
+            }
+
+            {
+                // Advance line and PC.
+                // TODO encapsulate logic in a helper function.
+                try dbg_line_buffer.append(DW.LNS_advance_pc);
+                try leb.writeULEB128(dbg_line_buffer.writer(), text_block.size);
+
+                try dbg_line_buffer.append(DW.LNS_advance_line);
+                const func = decl.val.castTag(.function).?.data;
+                const line_off = @intCast(u28, func.rbrace_line - func.lbrace_line);
+                try leb.writeULEB128(dbg_line_buffer.writer(), line_off);
             }
 
             try dbg_line_buffer.appendSlice(&[_]u8{ DW.LNS_extended_op, 1, DW.LNE_end_sequence });
@@ -1164,26 +1151,33 @@ pub fn commitDeclDebugInfo(
         else => {},
     }
 
-    // Now we emit the .debug_info types of the Decl. These will count towards the size of
-    // the buffer, so we have to do it before computing the offset, and we can't perform the actual
-    // relocations yet.
-    var it = dbg_info_type_relocs.iterator();
-    while (it.next()) |entry| {
-        entry.value.off = @intCast(u32, dbg_info_buffer.items.len);
-        try self.addDbgInfoType(entry.key, dbg_info_buffer, target);
+    if (dbg_info_buffer.items.len == 0)
+        return;
+
+    {
+        // Now we emit the .debug_info types of the Decl. These will count towards the size of
+        // the buffer, so we have to do it before computing the offset, and we can't perform the actual
+        // relocations yet.
+        var it = dbg_info_type_relocs.iterator();
+        while (it.next()) |entry| {
+            entry.value_ptr.off = @intCast(u32, dbg_info_buffer.items.len);
+            try self.addDbgInfoType(entry.key_ptr.*, dbg_info_buffer, target);
+        }
     }
 
     try self.updateDeclDebugInfoAllocation(allocator, text_block, @intCast(u32, dbg_info_buffer.items.len));
 
-    // Now that we have the offset assigned we can finally perform type relocations.
-    it = dbg_info_type_relocs.iterator();
-    while (it.next()) |entry| {
-        for (entry.value.relocs.items) |off| {
-            mem.writeIntLittle(
-                u32,
-                dbg_info_buffer.items[off..][0..4],
-                text_block.dbg_info_off + entry.value.off,
-            );
+    {
+        // Now that we have the offset assigned we can finally perform type relocations.
+        var it = dbg_info_type_relocs.valueIterator();
+        while (it.next()) |value| {
+            for (value.relocs.items) |off| {
+                mem.writeIntLittle(
+                    u32,
+                    dbg_info_buffer.items[off..][0..4],
+                    text_block.dbg_info_off + value.off,
+                );
+            }
         }
     }
 
@@ -1197,6 +1191,7 @@ fn addDbgInfoType(
     dbg_info_buffer: *std.ArrayList(u8),
     target: std.Target,
 ) !void {
+    _ = self;
     switch (ty.zigTypeTag()) {
         .Void => unreachable,
         .NoReturn => unreachable,
@@ -1373,6 +1368,7 @@ fn getRelocDbgInfoSubprogramHighPC() u32 {
 }
 
 fn dbgLineNeededHeaderBytes(self: DebugSymbols, module: *Module) u32 {
+    _ = self;
     const directory_entry_format_count = 1;
     const file_name_entry_format_count = 1;
     const directory_count = 1;
@@ -1387,6 +1383,7 @@ fn dbgLineNeededHeaderBytes(self: DebugSymbols, module: *Module) u32 {
 }
 
 fn dbgInfoNeededHeaderBytes(self: DebugSymbols) u32 {
+    _ = self;
     return 120;
 }
 

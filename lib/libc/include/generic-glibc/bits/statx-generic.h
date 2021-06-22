@@ -1,5 +1,5 @@
 /* Generic statx-related definitions and declarations.
-   Copyright (C) 2018-2020 Free Software Foundation, Inc.
+   Copyright (C) 2018-2021 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -40,6 +40,7 @@
 # define STATX_BASIC_STATS 0x07ffU
 # define STATX_ALL 0x0fffU
 # define STATX_BTIME 0x0800U
+# define STATX_MNT_ID 0x1000U
 # define STATX__RESERVED 0x80000000U
 
 # define STATX_ATTR_COMPRESSED 0x0004
@@ -48,7 +49,9 @@
 # define STATX_ATTR_NODUMP 0x0040
 # define STATX_ATTR_ENCRYPTED 0x0800
 # define STATX_ATTR_AUTOMOUNT 0x1000
+# define STATX_ATTR_MOUNT_ROOT 0x2000
 # define STATX_ATTR_VERITY 0x100000
+# define STATX_ATTR_DAX 0x200000
 #endif /* !STATX_TYPE */
 
 __BEGIN_DECLS

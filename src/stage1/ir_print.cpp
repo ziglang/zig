@@ -8,6 +8,7 @@
 #include "all_types.hpp"
 #include "analyze.hpp"
 #include "ir.hpp"
+#include "astgen.hpp"
 #include "ir_print.hpp"
 #include "os.hpp"
 
@@ -286,8 +287,8 @@ const char* ir_inst_src_type_str(IrInstSrcId id) {
             return "SrcTagName";
         case IrInstSrcIdFieldParentPtr:
             return "SrcFieldParentPtr";
-        case IrInstSrcIdByteOffsetOf:
-            return "SrcByteOffsetOf";
+        case IrInstSrcIdOffsetOf:
+            return "SrcOffsetOf";
         case IrInstSrcIdBitOffsetOf:
             return "SrcBitOffsetOf";
         case IrInstSrcIdTypeInfo:
@@ -632,7 +633,7 @@ static void ir_print_other_inst_gen(IrPrintGen *irp, IrInstGen *inst) {
     }
 }
 
-static void ir_print_other_block(IrPrintSrc *irp, IrBasicBlockSrc *bb) {
+static void ir_print_other_block(IrPrintSrc *irp, Stage1ZirBasicBlock *bb) {
     if (bb == nullptr) {
         fprintf(irp->f, "(null block)");
     } else {
@@ -1005,7 +1006,7 @@ static void ir_print_phi(IrPrintSrc *irp, IrInstSrcPhi *phi_instruction) {
     assert(phi_instruction->incoming_count != 0);
     assert(phi_instruction->incoming_count != SIZE_MAX);
     for (size_t i = 0; i < phi_instruction->incoming_count; i += 1) {
-        IrBasicBlockSrc *incoming_block = phi_instruction->incoming_blocks[i];
+        Stage1ZirBasicBlock *incoming_block = phi_instruction->incoming_blocks[i];
         IrInstSrc *incoming_value = phi_instruction->incoming_values[i];
         if (i != 0)
             fprintf(irp->f, " ");
@@ -2291,8 +2292,8 @@ static void ir_print_field_parent_ptr(IrPrintGen *irp, IrInstGenFieldParentPtr *
     fprintf(irp->f, ")");
 }
 
-static void ir_print_byte_offset_of(IrPrintSrc *irp, IrInstSrcByteOffsetOf *instruction) {
-    fprintf(irp->f, "@byte_offset_of(");
+static void ir_print_offset_of(IrPrintSrc *irp, IrInstSrcOffsetOf *instruction) {
+    fprintf(irp->f, "@offset_of(");
     ir_print_other_inst_src(irp, instruction->type_value);
     fprintf(irp->f, ",");
     ir_print_other_inst_src(irp, instruction->field_name);
@@ -2945,8 +2946,8 @@ static void ir_print_inst_src(IrPrintSrc *irp, IrInstSrc *instruction, bool trai
         case IrInstSrcIdFieldParentPtr:
             ir_print_field_parent_ptr(irp, (IrInstSrcFieldParentPtr *)instruction);
             break;
-        case IrInstSrcIdByteOffsetOf:
-            ir_print_byte_offset_of(irp, (IrInstSrcByteOffsetOf *)instruction);
+        case IrInstSrcIdOffsetOf:
+            ir_print_offset_of(irp, (IrInstSrcOffsetOf *)instruction);
             break;
         case IrInstSrcIdBitOffsetOf:
             ir_print_bit_offset_of(irp, (IrInstSrcBitOffsetOf *)instruction);
@@ -3349,7 +3350,7 @@ static void ir_print_inst_gen(IrPrintGen *irp, IrInstGen *instruction, bool trai
     fprintf(irp->f, "\n");
 }
 
-static void irp_print_basic_block_src(IrPrintSrc *irp, IrBasicBlockSrc *current_block) {
+static void irp_print_basic_block_src(IrPrintSrc *irp, Stage1ZirBasicBlock *current_block) {
     fprintf(irp->f, "%s_%" PRIu32 ":\n", current_block->name_hint, current_block->debug_id);
     for (size_t instr_i = 0; instr_i < current_block->instruction_list.length; instr_i += 1) {
         IrInstSrc *instruction = current_block->instruction_list.at(instr_i);
@@ -3369,7 +3370,7 @@ static void irp_print_basic_block_gen(IrPrintGen *irp, IrBasicBlockGen *current_
     }
 }
 
-void ir_print_basic_block_src(CodeGen *codegen, FILE *f, IrBasicBlockSrc *bb, int indent_size) {
+void ir_print_basic_block_src(CodeGen *codegen, FILE *f, Stage1ZirBasicBlock *bb, int indent_size) {
     IrPrintSrc ir_print = {};
     ir_print.codegen = codegen;
     ir_print.f = f;
@@ -3395,7 +3396,7 @@ void ir_print_basic_block_gen(CodeGen *codegen, FILE *f, IrBasicBlockGen *bb, in
     ir_print.printed.deinit();
 }
 
-void ir_print_src(CodeGen *codegen, FILE *f, IrExecutableSrc *executable, int indent_size) {
+void ir_print_src(CodeGen *codegen, FILE *f, Stage1Zir *executable, int indent_size) {
     IrPrintSrc ir_print = {};
     IrPrintSrc *irp = &ir_print;
     irp->codegen = codegen;
@@ -3408,7 +3409,7 @@ void ir_print_src(CodeGen *codegen, FILE *f, IrExecutableSrc *executable, int in
     }
 }
 
-void ir_print_gen(CodeGen *codegen, FILE *f, IrExecutableGen *executable, int indent_size) {
+void ir_print_gen(CodeGen *codegen, FILE *f, Stage1Air *executable, int indent_size) {
     IrPrintGen ir_print = {};
     IrPrintGen *irp = &ir_print;
     irp->codegen = codegen;

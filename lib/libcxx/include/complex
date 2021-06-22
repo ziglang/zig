@@ -227,14 +227,6 @@ template<class T> complex<T> sqrt (const complex<T>&);
 template<class T> complex<T> tan (const complex<T>&);
 template<class T> complex<T> tanh (const complex<T>&);
 
-template<class T, class charT, class traits>
-  basic_istream<charT, traits>&
-  operator>>(basic_istream<charT, traits>& is, complex<T>& x);
-
-template<class T, class charT, class traits>
-  basic_ostream<charT, traits>&
-  operator<<(basic_ostream<charT, traits>& o, const complex<T>& x);
-
 }  // std
 
 */
@@ -244,8 +236,11 @@ template<class T, class charT, class traits>
 #include <stdexcept>
 #include <cmath>
 #include <iosfwd>
-#include <sstream>
 #include <version>
+
+#if !defined(_LIBCPP_HAS_NO_LOCALIZATION)
+#   include <sstream> // for std::basic_ostringstream
+#endif
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #pragma GCC system_header
@@ -955,7 +950,7 @@ inline _LIBCPP_INLINE_VISIBILITY
 complex<_Tp>
 proj(const complex<_Tp>& __c)
 {
-    std::complex<_Tp> __r = __c;
+    complex<_Tp> __r = __c;
     if (__libcpp_isinf_or_builtin(__c.real()) || __libcpp_isinf_or_builtin(__c.imag()))
         __r = complex<_Tp>(INFINITY, copysign(_Tp(0), __c.imag()));
     return __r;
@@ -1438,6 +1433,7 @@ operator>>(basic_istream<_CharT, _Traits>& __is, complex<_Tp>& __x)
     return __is;
 }
 
+#if !defined(_LIBCPP_HAS_NO_LOCALIZATION)
 template<class _Tp, class _CharT, class _Traits>
 basic_ostream<_CharT, _Traits>&
 operator<<(basic_ostream<_CharT, _Traits>& __os, const complex<_Tp>& __x)
@@ -1449,6 +1445,7 @@ operator<<(basic_ostream<_CharT, _Traits>& __os, const complex<_Tp>& __x)
     __s << '(' << __x.real() << ',' << __x.imag() << ')';
     return __os << __s.str();
 }
+#endif // !_LIBCPP_HAS_NO_LOCALIZATION
 
 #if _LIBCPP_STD_VER > 11
 // Literal suffix for complex number literals [complex.literals]

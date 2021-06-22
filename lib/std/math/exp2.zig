@@ -426,35 +426,35 @@ fn exp2_64(x: f64) f64 {
 }
 
 test "math.exp2" {
-    expect(exp2(@as(f32, 0.8923)) == exp2_32(0.8923));
-    expect(exp2(@as(f64, 0.8923)) == exp2_64(0.8923));
+    try expect(exp2(@as(f32, 0.8923)) == exp2_32(0.8923));
+    try expect(exp2(@as(f64, 0.8923)) == exp2_64(0.8923));
 }
 
 test "math.exp2_32" {
     const epsilon = 0.000001;
 
-    expect(exp2_32(0.0) == 1.0);
-    expect(math.approxEqAbs(f32, exp2_32(0.2), 1.148698, epsilon));
-    expect(math.approxEqAbs(f32, exp2_32(0.8923), 1.856133, epsilon));
-    expect(math.approxEqAbs(f32, exp2_32(1.5), 2.828427, epsilon));
-    expect(math.approxEqAbs(f32, exp2_32(37.45), 187747237888, epsilon));
+    try expect(exp2_32(0.0) == 1.0);
+    try expect(math.approxEqAbs(f32, exp2_32(0.2), 1.148698, epsilon));
+    try expect(math.approxEqAbs(f32, exp2_32(0.8923), 1.856133, epsilon));
+    try expect(math.approxEqAbs(f32, exp2_32(1.5), 2.828427, epsilon));
+    try expect(math.approxEqAbs(f32, exp2_32(37.45), 187747237888, epsilon));
 }
 
 test "math.exp2_64" {
     const epsilon = 0.000001;
 
-    expect(exp2_64(0.0) == 1.0);
-    expect(math.approxEqAbs(f64, exp2_64(0.2), 1.148698, epsilon));
-    expect(math.approxEqAbs(f64, exp2_64(0.8923), 1.856133, epsilon));
-    expect(math.approxEqAbs(f64, exp2_64(1.5), 2.828427, epsilon));
+    try expect(exp2_64(0.0) == 1.0);
+    try expect(math.approxEqAbs(f64, exp2_64(0.2), 1.148698, epsilon));
+    try expect(math.approxEqAbs(f64, exp2_64(0.8923), 1.856133, epsilon));
+    try expect(math.approxEqAbs(f64, exp2_64(1.5), 2.828427, epsilon));
 }
 
 test "math.exp2_32.special" {
-    expect(math.isPositiveInf(exp2_32(math.inf(f32))));
-    expect(math.isNan(exp2_32(math.nan(f32))));
+    try expect(math.isPositiveInf(exp2_32(math.inf(f32))));
+    try expect(math.isNan(exp2_32(math.nan(f32))));
 }
 
 test "math.exp2_64.special" {
-    expect(math.isPositiveInf(exp2_64(math.inf(f64))));
-    expect(math.isNan(exp2_64(math.nan(f64))));
+    try expect(math.isPositiveInf(exp2_64(math.inf(f64))));
+    try expect(math.isNan(exp2_64(math.nan(f64))));
 }

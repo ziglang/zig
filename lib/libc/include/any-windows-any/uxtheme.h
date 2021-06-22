@@ -353,7 +353,7 @@ THEMEAPI_(COLORREF) GetThemeSysColor(HTHEME hTheme,int iColorId);
 THEMEAPI_(HBRUSH) GetThemeSysColorBrush(HTHEME hTheme,int iColorId);
 THEMEAPI_(WINBOOL) GetThemeSysBool(HTHEME hTheme,int iBoolId);
 THEMEAPI_(int) GetThemeSysSize(HTHEME hTheme,int iSizeId);
-THEMEAPI GetThemeSysFont(HTHEME hTheme,int iFontId,LOGFONT *plf);
+THEMEAPI GetThemeSysFont(HTHEME hTheme,int iFontId,LOGFONTW *plf);
 THEMEAPI GetThemeSysString(HTHEME hTheme,int iStringId,LPWSTR pszStringBuff,int cchMaxStringChars);
 THEMEAPI GetThemeSysInt(HTHEME hTheme,int iIntId,int *piValue);
 THEMEAPI_(WINBOOL) IsThemeActive();

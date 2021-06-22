@@ -175,5 +175,5 @@ test "exp dist sanity" {
 test "table gen" {
     if (please_windows_dont_oom) return error.SkipZigTest;
 
-    const table = NormDist;
+    _ = NormDist;
 }

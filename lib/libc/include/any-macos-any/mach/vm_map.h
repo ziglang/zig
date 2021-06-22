@@ -49,7 +49,7 @@ typedef function_table_entry   *function_table_t;
 #endif /* AUTOTEST */
 
 #ifndef	vm_map_MSG_COUNT
-#define	vm_map_MSG_COUNT	32
+#define	vm_map_MSG_COUNT	33
 #endif	/* vm_map_MSG_COUNT */
 
 #include <mach/std_types.h>
@@ -493,6 +493,27 @@ kern_return_t vm_map_exec_lockdown
 	vm_map_t target_task
 );
 
+/* Routine vm_remap_new */
+#ifdef	mig_external
+mig_external
+#else
+extern
+#endif	/* mig_external */
+kern_return_t vm_remap_new
+(
+	vm_map_t target_task,
+	vm_address_t *target_address,
+	vm_size_t size,
+	vm_address_t mask,
+	int flags,
+	vm_map_read_t src_task,
+	vm_address_t src_address,
+	boolean_t copy,
+	vm_prot_t *cur_protection,
+	vm_prot_t *max_protection,
+	vm_inherit_t inheritance
+);
+
 __END_DECLS
 
 /********************** Caution **************************/
@@ -924,6 +945,30 @@ __END_DECLS
 #ifdef  __MigPackStructs
 #pragma pack(pop)
 #endif
+
+#ifdef  __MigPackStructs
+#pragma pack(push, 4)
+#endif
+	typedef struct {
+		mach_msg_header_t Head;
+		/* start of the kernel processed data */
+		mach_msg_body_t msgh_body;
+		mach_msg_port_descriptor_t src_task;
+		/* end of the kernel processed data */
+		NDR_record_t NDR;
+		vm_address_t target_address;
+		vm_size_t size;
+		vm_address_t mask;
+		int flags;
+		vm_address_t src_address;
+		boolean_t copy;
+		vm_prot_t cur_protection;
+		vm_prot_t max_protection;
+		vm_inherit_t inheritance;
+	} __Request__vm_remap_new_t __attribute__((unused));
+#ifdef  __MigPackStructs
+#pragma pack(pop)
+#endif
 #endif /* !__Request__vm_map_subsystem__defined */
 
 /* union of all requests */
@@ -959,6 +1004,7 @@ union __RequestUnion__vm_map_subsystem {
 	__Request__vm_map_64_t Request_vm_map_64;
 	__Request__vm_purgable_control_t Request_vm_purgable_control;
 	__Request__vm_map_exec_lockdown_t Request_vm_map_exec_lockdown;
+	__Request__vm_remap_new_t Request_vm_remap_new;
 };
 #endif /* !__RequestUnion__vm_map_subsystem__defined */
 /* typedefs for all replies */
@@ -1363,6 +1409,21 @@ union __RequestUnion__vm_map_subsystem {
 #ifdef  __MigPackStructs
 #pragma pack(pop)
 #endif
+
+#ifdef  __MigPackStructs
+#pragma pack(push, 4)
+#endif
+	typedef struct {
+		mach_msg_header_t Head;
+		NDR_record_t NDR;
+		kern_return_t RetCode;
+		vm_address_t target_address;
+		vm_prot_t cur_protection;
+		vm_prot_t max_protection;
+	} __Reply__vm_remap_new_t __attribute__((unused));
+#ifdef  __MigPackStructs
+#pragma pack(pop)
+#endif
 #endif /* !__Reply__vm_map_subsystem__defined */
 
 /* union of all replies */
@@ -1398,6 +1459,7 @@ union __ReplyUnion__vm_map_subsystem {
 	__Reply__vm_map_64_t Reply_vm_map_64;
 	__Reply__vm_purgable_control_t Reply_vm_purgable_control;
 	__Reply__vm_map_exec_lockdown_t Reply_vm_map_exec_lockdown;
+	__Reply__vm_remap_new_t Reply_vm_remap_new;
 };
 #endif /* !__RequestUnion__vm_map_subsystem__defined */
 
@@ -1430,7 +1492,8 @@ union __ReplyUnion__vm_map_subsystem {
     { "mach_make_memory_entry_64", 3825 },\
     { "vm_map_64", 3826 },\
     { "vm_purgable_control", 3830 },\
-    { "vm_map_exec_lockdown", 3831 }
+    { "vm_map_exec_lockdown", 3831 },\
+    { "vm_remap_new", 3832 }
 #endif
 
 #ifdef __AfterMigUserHeader

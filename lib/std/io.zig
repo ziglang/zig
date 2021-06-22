@@ -4,7 +4,7 @@
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
 const std = @import("std.zig");
-const builtin = @import("builtin");
+const builtin = std.builtin;
 const root = @import("root");
 const c = std.c;
 
@@ -161,6 +161,7 @@ pub const null_writer = @as(NullWriter, .{ .context = {} });
 
 const NullWriter = Writer(void, error{}, dummyWrite);
 fn dummyWrite(context: void, data: []const u8) error{}!usize {
+    _ = context;
     return data.len;
 }
 
