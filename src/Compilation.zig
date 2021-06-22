@@ -342,6 +342,7 @@ pub const AllErrors = struct {
             const stderr = stderr_file.writer();
             switch (msg) {
                 .src => |src| {
+                    try stderr.writeByteNTimes(' ', indent);
                     ttyconf.setColor(stderr, .Bold);
                     try stderr.print("{s}:{d}:{d}: ", .{
                         src.src_path,
@@ -349,7 +350,6 @@ pub const AllErrors = struct {
                         src.column + 1,
                     });
                     ttyconf.setColor(stderr, color);
-                    try stderr.writeByteNTimes(' ', indent);
                     try stderr.writeAll(kind);
                     ttyconf.setColor(stderr, .Reset);
                     ttyconf.setColor(stderr, .Bold);
@@ -731,6 +731,7 @@ fn addPackageTableToCacheHash(
     hash: *Cache.HashHelper,
     arena: *std.heap.ArenaAllocator,
     pkg_table: Package.Table,
+    seen_table: *std.AutoHashMap(*Package, void),
     hash_type: union(enum) { path_bytes, files: *Cache.Manifest },
 ) (error{OutOfMemory} || std.os.GetCwdError)!void {
     const allocator = &arena.allocator;
@@ -755,6 +756,8 @@ fn addPackageTableToCacheHash(
     }.lessThan);
 
     for (packages) |pkg| {
+        if ((try seen_table.getOrPut(pkg.value)).found_existing) continue;
+
         // Finally insert the package name and path to the cache hash.
         hash.addBytes(pkg.key);
         switch (hash_type) {
@@ -770,7 +773,7 @@ fn addPackageTableToCacheHash(
             },
         }
         // Recurse to handle the package's dependencies
-        try addPackageTableToCacheHash(hash, arena, pkg.value.table, hash_type);
+        try addPackageTableToCacheHash(hash, arena, pkg.value.table, seen_table, hash_type);
     }
 }
 
@@ -1116,7 +1119,8 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             {
                 var local_arena = std.heap.ArenaAllocator.init(gpa);
                 defer local_arena.deinit();
-                try addPackageTableToCacheHash(&hash, &local_arena, root_pkg.table, .path_bytes);
+                var seen_table = std.AutoHashMap(*Package, void).init(&local_arena.allocator);
+                try addPackageTableToCacheHash(&hash, &local_arena, root_pkg.table, &seen_table, .path_bytes);
             }
             hash.add(valgrind);
             hash.add(single_threaded);
@@ -1137,36 +1141,32 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
                     artifact_sub_dir,
             };
 
-            // If we rely on stage1, we must not redundantly add these packages.
-            const use_stage1 = build_options.is_stage1 and use_llvm;
-            if (!use_stage1) {
-                const builtin_pkg = try Package.createWithDir(
-                    gpa,
-                    zig_cache_artifact_directory,
-                    null,
-                    "builtin.zig",
-                );
-                errdefer builtin_pkg.destroy(gpa);
+            const builtin_pkg = try Package.createWithDir(
+                gpa,
+                zig_cache_artifact_directory,
+                null,
+                "builtin.zig",
+            );
+            errdefer builtin_pkg.destroy(gpa);
 
-                const std_pkg = try Package.createWithDir(
-                    gpa,
-                    options.zig_lib_directory,
-                    "std",
-                    "std.zig",
-                );
-                errdefer std_pkg.destroy(gpa);
+            const std_pkg = try Package.createWithDir(
+                gpa,
+                options.zig_lib_directory,
+                "std",
+                "std.zig",
+            );
+            errdefer std_pkg.destroy(gpa);
 
-                try root_pkg.addAndAdopt(gpa, "builtin", builtin_pkg);
-                try root_pkg.add(gpa, "root", root_pkg);
-                try root_pkg.addAndAdopt(gpa, "std", std_pkg);
+            try root_pkg.addAndAdopt(gpa, "builtin", builtin_pkg);
+            try root_pkg.add(gpa, "root", root_pkg);
+            try root_pkg.addAndAdopt(gpa, "std", std_pkg);
 
-                try std_pkg.add(gpa, "builtin", builtin_pkg);
-                try std_pkg.add(gpa, "root", root_pkg);
-                try std_pkg.add(gpa, "std", std_pkg);
+            try std_pkg.add(gpa, "builtin", builtin_pkg);
+            try std_pkg.add(gpa, "root", root_pkg);
+            try std_pkg.add(gpa, "std", std_pkg);
 
-                try builtin_pkg.add(gpa, "std", std_pkg);
-                try builtin_pkg.add(gpa, "builtin", builtin_pkg);
-            }
+            try builtin_pkg.add(gpa, "std", std_pkg);
+            try builtin_pkg.add(gpa, "builtin", builtin_pkg);
 
             // Pre-open the directory handles for cached ZIR code so that it does not need
             // to redundantly happen for each AstGen operation.
@@ -1625,30 +1625,31 @@ pub fn update(self: *Compilation) !void {
     // Add a Job for each C object.
     try self.c_object_work_queue.ensureUnusedCapacity(self.c_object_table.count());
     for (self.c_object_table.keys()) |key| {
-        assert(@ptrToInt(key) != 0xaaaa_aaaa_aaaa_aaaa);
         self.c_object_work_queue.writeItemAssumeCapacity(key);
     }
 
     const use_stage1 = build_options.omit_stage2 or
         (build_options.is_stage1 and self.bin_file.options.use_llvm);
-    if (!use_stage1) {
-        if (self.bin_file.options.module) |module| {
-            module.compile_log_text.shrinkAndFree(module.gpa, 0);
-            module.generation += 1;
+    if (self.bin_file.options.module) |module| {
+        module.compile_log_text.shrinkAndFree(module.gpa, 0);
+        module.generation += 1;
 
-            // Make sure std.zig is inside the import_table. We unconditionally need
-            // it for start.zig.
-            const std_pkg = module.root_pkg.table.get("std").?;
-            _ = try module.importPkg(std_pkg);
+        // Make sure std.zig is inside the import_table. We unconditionally need
+        // it for start.zig.
+        const std_pkg = module.root_pkg.table.get("std").?;
+        _ = try module.importPkg(std_pkg);
 
-            // Put a work item in for every known source file to detect if
-            // it changed, and, if so, re-compute ZIR and then queue the job
-            // to update it.
-            try self.astgen_work_queue.ensureUnusedCapacity(module.import_table.count());
-            for (module.import_table.values()) |value| {
-                self.astgen_work_queue.writeItemAssumeCapacity(value);
-            }
+        // Put a work item in for every known source file to detect if
+        // it changed, and, if so, re-compute ZIR and then queue the job
+        // to update it.
+        // We still want AstGen work items for stage1 so that we expose compile errors
+        // that are implemented in stage2 but not stage1.
+        try self.astgen_work_queue.ensureUnusedCapacity(module.import_table.count());
+        for (module.import_table.values()) |value| {
+            self.astgen_work_queue.writeItemAssumeCapacity(value);
+        }
 
+        if (!use_stage1) {
             try self.work_queue.writeItem(.{ .analyze_pkg = std_pkg });
         }
     }
@@ -1936,7 +1937,6 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
         }
 
         while (self.c_object_work_queue.readItem()) |c_object| {
-            assert(@ptrToInt(c_object) != 0xaaaa_aaaa_aaaa_aaaa);
             self.work_queue_wait_group.start();
             try self.thread_pool.spawn(workerUpdateCObject, .{
                 self, c_object, &c_obj_prog_node, &self.work_queue_wait_group,
@@ -3830,9 +3830,8 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
 
     _ = try man.addFile(main_zig_file, null);
     {
-        var local_arena = std.heap.ArenaAllocator.init(comp.gpa);
-        defer local_arena.deinit();
-        try addPackageTableToCacheHash(&man.hash, &local_arena, mod.root_pkg.table, .{ .files = &man });
+        var seen_table = std.AutoHashMap(*Package, void).init(&arena_allocator.allocator);
+        try addPackageTableToCacheHash(&man.hash, &arena_allocator, mod.root_pkg.table, &seen_table, .{ .files = &man });
     }
     man.hash.add(comp.bin_file.options.valgrind);
     man.hash.add(comp.bin_file.options.single_threaded);
@@ -4103,6 +4102,12 @@ fn createStage1Pkg(
         var children = std.ArrayList(*stage1.Pkg).init(arena);
         var it = pkg.table.iterator();
         while (it.next()) |entry| {
+            if (mem.eql(u8, entry.key_ptr.*, "std") or
+                mem.eql(u8, entry.key_ptr.*, "builtin") or
+                mem.eql(u8, entry.key_ptr.*, "root"))
+            {
+                continue;
+            }
             try children.append(try createStage1Pkg(arena, entry.key_ptr.*, entry.value_ptr.*, child_pkg));
         }
         break :blk children.items;
