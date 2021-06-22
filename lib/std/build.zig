@@ -45,7 +45,8 @@ pub const Builder = struct {
     verbose_llvm_ir: bool,
     verbose_cimport: bool,
     verbose_llvm_cpu_features: bool,
-    hide_build_command_on_error: bool,
+    /// The purpose of executing the command is for a human to read compile errors from the terminal
+    prominent_compile_errors: bool,
     color: enum { auto, on, off } = .auto,
     invalid_user_input: bool,
     zig_exe: []const u8,
@@ -158,7 +159,7 @@ pub const Builder = struct {
             .verbose_llvm_ir = false,
             .verbose_cimport = false,
             .verbose_llvm_cpu_features = false,
-            .hide_build_command_on_error = false,
+            .prominent_compile_errors = false,
             .invalid_user_input = false,
             .allocator = allocator,
             .user_input_options = UserInputOptionsMap.init(allocator),
@@ -1164,7 +1165,7 @@ pub const Builder = struct {
             },
             error.ExitCodeFailure => {
                 if (src_step) |s| warn("{s}...", .{s.name});
-                if (self.hide_build_command_on_error) {
+                if (self.prominent_compile_errors) {
                     warn("The step exited with error code {d}\n", .{code});
                 } else {
                     warn("The following command exited with error code {d}:\n", .{code});
