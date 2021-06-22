@@ -2857,7 +2857,7 @@ pub fn addCCArgs(
     try argv.appendSlice(&[_][]const u8{ "-target", llvm_triple });
 
     switch (ext) {
-        .c, .cpp, .h => {
+        .c, .cpp, .m, .h => {
             try argv.appendSlice(&[_][]const u8{
                 "-nostdinc",
                 "-fno-spell-checking",
@@ -3148,6 +3148,7 @@ pub const FileExt = enum {
     c,
     cpp,
     h,
+    m,
     ll,
     bc,
     assembly,
@@ -3159,7 +3160,7 @@ pub const FileExt = enum {
 
     pub fn clangSupportsDepFile(ext: FileExt) bool {
         return switch (ext) {
-            .c, .cpp, .h => true,
+            .c, .cpp, .h, .m => true,
 
             .ll,
             .bc,
@@ -3191,6 +3192,10 @@ pub fn hasCppExt(filename: []const u8) bool {
         mem.endsWith(u8, filename, ".cc") or
         mem.endsWith(u8, filename, ".cpp") or
         mem.endsWith(u8, filename, ".cxx");
+}
+
+pub fn hasObjCExt(filename: []const u8) bool {
+    return mem.endsWith(u8, filename, ".m");
 }
 
 pub fn hasAsmExt(filename: []const u8) bool {
@@ -3229,6 +3234,8 @@ pub fn classifyFileExt(filename: []const u8) FileExt {
         return .c;
     } else if (hasCppExt(filename)) {
         return .cpp;
+    } else if (hasObjCExt(filename)) {
+        return .m;
     } else if (mem.endsWith(u8, filename, ".ll")) {
         return .ll;
     } else if (mem.endsWith(u8, filename, ".bc")) {
@@ -3252,6 +3259,7 @@ pub fn classifyFileExt(filename: []const u8) FileExt {
 
 test "classifyFileExt" {
     try std.testing.expectEqual(FileExt.cpp, classifyFileExt("foo.cc"));
+    try std.testing.expectEqual(FileExt.m, classifyFileExt("foo.m"));
     try std.testing.expectEqual(FileExt.unknown, classifyFileExt("foo.nim"));
     try std.testing.expectEqual(FileExt.shared_library, classifyFileExt("foo.so"));
     try std.testing.expectEqual(FileExt.shared_library, classifyFileExt("foo.so.1"));
