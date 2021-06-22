@@ -1948,29 +1948,52 @@ fn resolveRelocsAndWriteSections(self: *Zld) !void {
                                 args.source_target_sect_addr = source_sect.inner.addr;
                             }
 
-                            rebases: {
-                                var hit: bool = false;
-                                if (target_map.segment_id == self.data_segment_cmd_index.?) {
-                                    if (self.data_section_index) |index| {
-                                        if (index == target_map.section_id) hit = true;
+                            const flags = @truncate(u8, target_sect.flags & 0xff);
+                            const should_rebase = rebase: {
+                                if (!unsigned.is_64bit) break :rebase false;
+
+                                // TODO actually, a check similar to what dyld is doing, that is, verifying
+                                // that the segment is writable should be enough here.
+                                const is_right_segment = blk: {
+                                    if (self.data_segment_cmd_index) |idx| {
+                                        if (target_map.segment_id == idx) {
+                                            break :blk true;
+                                        }
                                     }
+                                    if (self.data_const_segment_cmd_index) |idx| {
+                                        if (target_map.segment_id == idx) {
+                                            break :blk true;
+                                        }
+                                    }
+                                    break :blk false;
+                                };
+
+                                if (!is_right_segment) break :rebase false;
+                                if (flags != macho.S_LITERAL_POINTERS and
+                                    flags != macho.S_REGULAR)
+                                {
+                                    break :rebase false;
                                 }
-                                if (target_map.segment_id == self.data_const_segment_cmd_index.?) {
-                                    if (self.data_const_section_index) |index| {
-                                        if (index == target_map.section_id) hit = true;
+                                if (rel.target == .symbol) {
+                                    const final = rel.target.symbol.getTopmostAlias();
+                                    if (final.cast(Symbol.Proxy)) |_| {
+                                        break :rebase false;
                                     }
                                 }
 
-                                if (!hit) break :rebases;
+                                break :rebase true;
+                            };
 
+                            if (should_rebase) {
                                 try self.local_rebases.append(self.allocator, .{
                                     .offset = source_addr - target_seg.inner.vmaddr,
                                     .segment_id = target_map.segment_id,
                                 });
                             }
+
                             // TLV is handled via a separate offset mechanism.
                             // Calculate the offset to the initializer.
-                            if (target_sect.flags == macho.S_THREAD_LOCAL_VARIABLES) tlv: {
+                            if (flags == macho.S_THREAD_LOCAL_VARIABLES) tlv: {
                                 // TODO we don't want to save offset to tlv_bootstrap
                                 if (mem.eql(u8, rel.target.symbol.name, "__tlv_bootstrap")) break :tlv;
 
