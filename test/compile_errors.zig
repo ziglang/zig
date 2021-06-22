@@ -8439,4 +8439,18 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     , &[_][]const u8{
         "tmp.zig:2:30: error: `.*` cannot be followed by `*`. Are you missing a space?",
     });
+
+    cases.add("Issue #9165: windows tcp server compilation error",
+        \\const std = @import("std");
+        \\pub const io_mode = .evented;
+        \\pub fn main() !void {
+        \\    if (std.builtin.os.tag == .windows) {
+        \\        _ = try (std.net.StreamServer.init(.{})).accept();
+        \\    } else {
+        \\        @compileError("Unsupported OS");
+        \\    }
+        \\}
+    , &[_][]const u8{
+        "error: Unsupported OS",
+    });
 }

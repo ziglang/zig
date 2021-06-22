@@ -894,7 +894,7 @@ pub const Loop = struct {
         self: *Loop,
         /// This argument is a socket that has been created with `socket`, bound to a local address
         /// with `bind`, and is listening for connections after a `listen`.
-        sockfd: os.fd_t,
+        sockfd: os.socket_t,
         /// This argument is a pointer to a sockaddr structure.  This structure is filled in with  the
         /// address  of  the  peer  socket, as known to the communications layer.  The exact format of the
         /// address returned addr is determined by the socket's address  family  (see  `socket`  and  the
@@ -911,7 +911,7 @@ pub const Loop = struct {
         /// * `SOCK_CLOEXEC`  - Set the close-on-exec (`FD_CLOEXEC`) flag on the new file descriptor.   See  the
         ///   description  of the `O_CLOEXEC` flag in `open` for reasons why this may be useful.
         flags: u32,
-    ) os.AcceptError!os.fd_t {
+    ) os.AcceptError!os.socket_t {
         while (true) {
             return os.accept(sockfd, addr, addr_size, flags | os.SOCK_NONBLOCK) catch |err| switch (err) {
                 error.WouldBlock => {
