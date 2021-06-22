@@ -2496,7 +2496,9 @@ fn cmdTranslateC(comp: *Compilation, arena: *Allocator, enable_cache: bool) !voi
         return cleanExit();
     } else {
         const out_zig_path = try fs.path.join(arena, &[_][]const u8{ "o", &digest, translated_zig_basename });
-        const zig_file = try comp.local_cache_directory.handle.openFile(out_zig_path, .{});
+        const zig_file = comp.local_cache_directory.handle.openFile(out_zig_path, .{}) catch |err| {
+            fatal("unable to open file '{s}': {s}\n", .{ out_zig_path, @errorName(err) });
+        };
         defer zig_file.close();
         try io.getStdOut().writeFileAll(zig_file, .{});
         return cleanExit();
@@ -3818,7 +3820,9 @@ pub fn cmdAstCheck(
         .root_decl = null,
     };
     if (zig_source_file) |file_name| {
-        var f = try fs.cwd().openFile(file_name, .{});
+        var f = fs.cwd().openFile(file_name, .{}) catch |err| {
+            fatal("unable to open file '{s}': {s}\n", .{ file_name, @errorName(err) });
+        };
         defer f.close();
 
         const stat = try f.stat();
@@ -3938,7 +3942,9 @@ pub fn cmdChangelist(
     const old_source_file = args[0];
     const new_source_file = args[1];
 
-    var f = try fs.cwd().openFile(old_source_file, .{});
+    var f = fs.cwd().openFile(old_source_file, .{}) catch |err| {
+        fatal("unable to open file '{s}': {s}\n", .{ old_source_file, @errorName(err) });
+    };
     defer f.close();
 
     const stat = try f.stat();
@@ -3994,7 +4000,9 @@ pub fn cmdChangelist(
         process.exit(1);
     }
 
-    var new_f = try fs.cwd().openFile(new_source_file, .{});
+    var new_f = fs.cwd().openFile(new_source_file, .{}) catch |err| {
+        fatal("unable to open file '{s}': {s}\n", .{ new_source_file, @errorName(err) });
+    };
     defer new_f.close();
 
     const new_stat = try new_f.stat();
