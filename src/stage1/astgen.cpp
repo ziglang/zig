@@ -4599,8 +4599,11 @@ static IrInstSrc *astgen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
             }
         case BuiltinFnIdShuffle:
             {
+                // Used for the type expr and the mask expr
+                Scope *comptime_scope = create_comptime_scope(ag->codegen, node, scope);
+
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
+                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, comptime_scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
@@ -4615,7 +4618,7 @@ static IrInstSrc *astgen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
                     return arg2_value;
 
                 AstNode *arg3_node = node->data.fn_call_expr.params.at(3);
-                IrInstSrc *arg3_value = astgen_node(ag, arg3_node, scope);
+                IrInstSrc *arg3_value = astgen_node(ag, arg3_node, comptime_scope);
                 if (arg3_value == ag->codegen->invalid_inst_src)
                     return arg3_value;
 
