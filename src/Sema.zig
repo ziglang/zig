@@ -2040,8 +2040,12 @@ fn zirSetFloatMode(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) Inner
 
 fn zirSetRuntimeSafety(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!void {
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
-    const src: LazySrcLoc = inst_data.src();
-    return sema.mod.fail(&block.base, src, "TODO: implement Sema.zirSetRuntimeSafety", .{});
+    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
+
+    const op = try sema.resolveInst(inst_data.operand);
+    const op_coerced = try sema.coerce(block, Type.initTag(.bool), op, operand_src);
+    const b = (try sema.resolveConstValue(block, operand_src, op_coerced)).toBool();
+    block.want_safety = b;
 }
 
 fn zirBreakpoint(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!void {
