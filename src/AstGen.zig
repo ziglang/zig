@@ -3558,6 +3558,10 @@ fn structDeclInner(
         const field_name = try astgen.identAsString(member.ast.name_token);
         fields_data.appendAssumeCapacity(field_name);
 
+        if (member.ast.type_expr == 0) {
+            return astgen.failTok(member.ast.name_token, "struct field missing type", .{});
+        }
+
         const field_type: Zir.Inst.Ref = if (node_tags[member.ast.type_expr] == .@"anytype")
             .none
         else
