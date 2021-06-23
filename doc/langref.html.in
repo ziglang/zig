@@ -8123,7 +8123,7 @@ pub const FloatMode = enum {
       {#header_close#}
 
       {#header_open|@setRuntimeSafety#}
-      <pre>{#syntax#}@setRuntimeSafety(safety_on: bool){#endsyntax#}</pre>
+      <pre>{#syntax#}@setRuntimeSafety(safety_on: bool) void{#endsyntax#}</pre>
       <p>
       Sets whether runtime safety checks are enabled for the scope that contains the function call.
       </p>
