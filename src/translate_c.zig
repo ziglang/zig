@@ -1137,8 +1137,10 @@ fn transEnumDecl(c: *Context, scope: *Scope, enum_decl: *const clang.EnumDecl) E
             });
             if (toplevel)
                 try addTopLevelDecl(c, enum_val_name, enum_const_def)
-            else
+            else {
                 try scope.appendNode(enum_const_def);
+                try bs.discardVariable(c, enum_val_name);
+            }
         }
 
         const int_type = enum_decl.getIntegerType();
@@ -1177,6 +1179,7 @@ fn transEnumDecl(c: *Context, scope: *Scope, enum_decl: *const clang.EnumDecl) E
             try c.alias_list.append(.{ .alias = bare_name, .name = name });
     } else {
         try scope.appendNode(Node.initPayload(&payload.base));
+        try bs.discardVariable(c, name);
     }
 }
 
