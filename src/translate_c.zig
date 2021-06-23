@@ -151,6 +151,12 @@ const Scope = struct {
                 return true;
             return scope.base.parent.?.contains(name);
         }
+
+        fn discardVariable(scope: *Block, c: *Context, name: []const u8) Error!void {
+            const name_node = try Tag.identifier.create(c.arena, name);
+            const discard = try Tag.discard.create(c.arena, name_node);
+            try scope.statements.append(discard);
+        }
     };
 
     const Root = struct {
@@ -625,6 +631,7 @@ fn visitFnDecl(c: *Context, fn_decl: *const clang.FunctionDecl) Error!void {
             const redecl_node = try Tag.arg_redecl.create(c.arena, .{ .actual = mangled_param_name, .mangled = arg_name });
             try block_scope.statements.append(redecl_node);
         }
+        try block_scope.discardVariable(c, mangled_param_name);
 
         param_id += 1;
     }
@@ -827,6 +834,7 @@ fn transTypeDef(c: *Context, scope: *Scope, typedef_decl: *const clang.TypedefNa
         try addTopLevelDecl(c, name, node);
     } else {
         try scope.appendNode(node);
+        try bs.discardVariable(c, name);
     }
 }
 
@@ -1077,6 +1085,7 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
             try c.alias_list.append(.{ .alias = bare_name, .name = name });
     } else {
         try scope.appendNode(Node.initPayload(&payload.base));
+        try bs.discardVariable(c, name);
     }
 }
 
@@ -1766,6 +1775,7 @@ fn transDeclStmtOne(
                 node = try Tag.static_local_var.create(c.arena, .{ .name = mangled_name, .init = node });
             }
             try block_scope.statements.append(node);
+            try block_scope.discardVariable(c, mangled_name);
 
             const cleanup_attr = var_decl.getCleanupAttribute();
             if (cleanup_attr) |fn_decl| {
@@ -4903,6 +4913,10 @@ fn transMacroDefine(c: *Context, m: *MacroCtx) ParseError!void {
     const scope = &c.global_scope.base;
 
     const init_node = try parseCExpr(c, m, scope);
+    if (init_node.castTag(.identifier)) |ident_node| {
+        if (mem.eql(u8, "_", ident_node.data))
+            return m.fail(c, "unable to translate C expr: illegal identifier _", .{});
+    }
     const last = m.next().?;
     if (last != .Eof and last != .Nl)
         return m.fail(c, "unable to translate C expr: unexpected token .{s}", .{@tagName(last)});
@@ -4933,7 +4947,7 @@ fn transMacroFnDefine(c: *Context, m: *MacroCtx) ParseError!void {
             .name = mangled_name,
             .type = Tag.@"anytype".init(),
         });
-
+        try block_scope.discardVariable(c, mangled_name);
         if (m.peek().? != .Comma) break;
         _ = m.next();
     }
