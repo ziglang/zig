@@ -1151,6 +1151,9 @@ pub const Scope = struct {
 
         is_comptime: bool,
 
+        /// when null, it is determined by build mode, changed by @setRuntimeSafety
+        want_safety: ?bool = null,
+
         /// This `Block` maps a block ZIR instruction to the corresponding
         /// AIR instruction for break instruction analysis.
         pub const Label = struct {
@@ -1195,12 +1198,12 @@ pub const Scope = struct {
                 .runtime_cond = parent.runtime_cond,
                 .runtime_loop = parent.runtime_loop,
                 .runtime_index = parent.runtime_index,
+                .want_safety = parent.want_safety,
             };
         }
 
         pub fn wantSafety(block: *const Block) bool {
-            // TODO take into account scope's safety overrides
-            return switch (block.sema.mod.optimizeMode()) {
+            return block.want_safety orelse switch (block.sema.mod.optimizeMode()) {
                 .Debug => true,
                 .ReleaseSafe => true,
                 .ReleaseFast => false,
