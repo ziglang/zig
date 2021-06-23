@@ -258,7 +258,7 @@ pub fn main() !void {
       <p>
         The code sample begins by adding Zig's Standard Library to the build using the {#link|@import#} builtin function.
         The {#syntax#}@import("std"){#endsyntax#} function call creates a structure to represent the Standard Library.
-        The code then {#link|declares|Container level Variables#} a
+        The code then {#link|declares|Container Level Variables#} a
         {#link|constant identifier|Assignment#}, named <code>std</code>, for easy access to
         <a href="https://github.com/ziglang/zig/wiki/FAQ#where-is-the-documentation-for-the-zig-standard-library">Zig's standard library</a>.
       </p>
@@ -927,8 +927,8 @@ fn foo() i32 {
   const expect = std.testing.expect;
   
   test "static local variable" {
-      expect(foo() == 1235);
-      expect(foo() == 1236);
+      try expect(foo() == 1235);
+      try expect(foo() == 1236);
   }
   
   fn foo() i32 {
@@ -7570,10 +7570,10 @@ test "main" {
       <code>declaration</code> must be one of two things:
       </p>
       <ul>
-        <li>An identifier ({#syntax#}x{#endsyntax#}) identifying a {#link|function|Functions#} or
-          {#link|global variable|Global Variables#}.</li>
-        <li>Field access ({#syntax#}x.y{#endsyntax#}) looking up a {#link|function|Functions#} or
-          {#link|global variable|Global Variables#}.</li>
+        <li>An identifier ({#syntax#}x{#endsyntax#}) identifying a {#link|function|Functions#} or a
+          {#link|variable|Container Level Variables#}.</li>
+        <li>Field access ({#syntax#}x.y{#endsyntax#}) looking up a {#link|function|Functions#} or a
+          {#link|variable|Container Level Variables#}.</li>
       </ul>
       <p>
       This builtin can be called from a {#link|comptime#} block to conditionally export symbols.
