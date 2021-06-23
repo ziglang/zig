@@ -148,7 +148,7 @@ fn testMissingOutputPath(zig_exe: []const u8, dir_path: []const u8) !void {
     const source_path = try fs.path.join(a, &[_][]const u8{ "src", "main.zig" });
     const result = try exec(dir_path, false, &[_][]const u8{ zig_exe, "build-exe", source_path, output_arg });
     const s = std.fs.path.sep_str;
-    const expected: []const u8 = "error: unable to open output directory 'does" ++ s ++ "not" ++ s ++ "exist': FileNotFound\n";
+    const expected: []const u8 = "error: Unable to open output directory 'does" ++ s ++ "not" ++ s ++ "exist': FileNotFound\n";
     try testing.expectEqualStrings(expected, result.stderr);
 }
 
