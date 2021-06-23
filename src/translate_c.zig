@@ -1361,11 +1361,10 @@ fn makeShuffleMask(c: *Context, scope: *Scope, expr: *const clang.ShuffleVectorE
         init.* = converted_index;
     }
 
-    const mask_init = try Tag.array_init.create(c.arena, .{
+    return Tag.array_init.create(c.arena, .{
         .cond = mask_type,
         .cases = init_list,
     });
-    return Tag.@"comptime".create(c.arena, mask_init);
 }
 
 /// @typeInfo(@TypeOf(vec_node)).Vector.<field>
