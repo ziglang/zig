@@ -965,7 +965,7 @@ test "thread local storage" {
     thread2.wait();
 }
 
-fn testTls(context: void) void {
+fn testTls(_: void) void {
     assert(x == 1234);
     x += 1;
     assert(x == 1235);
@@ -2502,6 +2502,8 @@ test "struct namespaced variable" {
 
     // you can still instantiate an empty struct
     const does_nothing = Empty {};
+
+    _ = does_nothing;
 }
 
 // struct field order is determined by the compiler for optimal performance.
@@ -3026,11 +3028,12 @@ const Foo = enum { a, b, c };
 export fn entry(foo: Foo) void { }
       {#code_end#}
       <p>
-      For a C-ABI-compatible enum, use {#syntax#}extern enum{#endsyntax#}:
+      For a C-ABI-compatible enum, provide an explicit tag type to
+      the enum:
       </p>
       {#code_begin|obj#}
-const Foo = extern enum { a, b, c };
-export fn entry(foo: Foo) void { }
+const Foo = enum(c_int) { a, b, c };
+export fn entry(foo: Foo) void { _ = foo; }
       {#code_end#}
       {#header_close#}
 
@@ -3392,9 +3395,11 @@ test "inside test block" {
 test "separate scopes" {
     {
         const pi = 3.14;
+        _ = pi;
     }
     {
         var pi: bool = true;
+        _ = pi;
     }
 }
       {#code_end#}
@@ -3432,7 +3437,7 @@ test "switch simple" {
         // Switching on arbitrary expressions is allowed as long as the
         // expression is known at compile-time.
         zz => zz,
-        comptime blk: {
+        blk: {
             const d: u32 = 5;
             const e: u32 = 100;
             break :blk d + e;
@@ -3831,7 +3836,7 @@ test "for basics" {
     // To access the index of iteration, specify a second capture value.
     // This is zero-indexed.
     var sum2: i32 = 0;
-    for (items) |value, i| {
+    for (items) |_, i| {
         try expect(@TypeOf(i) == usize);
         sum2 += @intCast(i32, i);
     }
@@ -3984,7 +3989,7 @@ test "if optional" {
     }
 
     const b: ?u32 = null;
-    if (b) |value| {
+    if (b) |_| {
         unreachable;
     } else {
         try expect(true);
@@ -4021,11 +4026,13 @@ test "if error union" {
     if (a) |value| {
         try expect(value == 0);
     } else |err| {
+        _ = err;
         unreachable;
     }
 
     const b: anyerror!u32 = error.BadValue;
     if (b) |value| {
+        _ = value;
         unreachable;
     } else |err| {
         try expect(err == error.BadValue);
@@ -4045,13 +4052,13 @@ test "if error union" {
     var c: anyerror!u32 = 3;
     if (c) |*value| {
         value.* = 9;
-    } else |err| {
+    } else |_| {
         unreachable;
     }
 
     if (c) |value| {
         try expect(value == 9);
-    } else |err| {
+    } else |_| {
         unreachable;
     }
 }
@@ -4064,18 +4071,20 @@ test "if error union with optional" {
     if (a) |optional_value| {
         try expect(optional_value.? == 0);
     } else |err| {
+        _ = err;
         unreachable;
     }
 
     const b: anyerror!?u32 = null;
     if (b) |optional_value| {
         try expect(optional_value == null);
-    } else |err| {
+    } else |_| {
         unreachable;
     }
 
     const c: anyerror!?u32 = error.BadValue;
     if (c) |optional_value| {
+        _ = optional_value;
         unreachable;
     } else |err| {
         try expect(err == error.BadValue);
@@ -4087,13 +4096,13 @@ test "if error union with optional" {
         if (optional_value.*) |*value| {
             value.* = 9;
         }
-    } else |err| {
+    } else |_| {
         unreachable;
     }
 
     if (d) |optional_value| {
         try expect(optional_value.? == 9);
-    } else |err| {
+    } else |_| {
         unreachable;
     }
 }
@@ -4246,6 +4255,7 @@ test "type of unreachable" {
       {#code_begin|test#}
 fn foo(condition: bool, b: u32) void {
     const a = if (condition) b else return;
+    _ = a;
     @panic("do something with a");
 }
 test "noreturn" {
@@ -4574,7 +4584,7 @@ test "parse u64" {
       {#code_begin|syntax#}
 fn doAThing(str: []u8) void {
     const number = parseU64(str, 10) catch 13;
-    // ...
+    _ = number; // ...
 }
       {#code_end#}
       <p>
@@ -4589,7 +4599,7 @@ fn doAThing(str: []u8) void {
       {#code_begin|syntax#}
 fn doAThing(str: []u8) !void {
     const number = parseU64(str, 10) catch |err| return err;
-    // ...
+    _ = number; // ...
 }
       {#code_end#}
       <p>
@@ -4598,7 +4608,7 @@ fn doAThing(str: []u8) !void {
       {#code_begin|syntax#}
 fn doAThing(str: []u8) !void {
     const number = try parseU64(str, 10);
-    // ...
+    _ = number; // ...
 }
       {#code_end#}
       <p>
@@ -5022,7 +5032,7 @@ extern fn malloc(size: size_t) ?*u8;
 
 fn doAThing() ?*Foo {
     const ptr = malloc(1234) orelse return null;
-    // ...
+    _ = ptr; // ...
 }
       {#code_end#}
       <p>
@@ -5135,6 +5145,7 @@ test "optional pointers" {
 test "type coercion - variable declaration" {
     var a: u8 = 1;
     var b: u16 = a;
+    _ = b;
 }
 
 test "type coercion - function call" {
@@ -5142,11 +5153,14 @@ test "type coercion - function call" {
     foo(a);
 }
 
-fn foo(b: u16) void {}
+fn foo(b: u16) void {
+    _ = b;
+}
 
 test "type coercion - @as builtin" {
     var a: u8 = 1;
     var b = @as(u16, a);
+    _ = b;
 }
       {#code_end#}
       <p>
@@ -5174,7 +5188,7 @@ test "type coercion - const qualification" {
     foo(b);
 }
 
-fn foo(a: *const i32) void {}
+fn foo(_: *const i32) void {}
       {#code_end#}
       <p>
       In addition, pointers coerce to const optional pointers:
@@ -5424,7 +5438,7 @@ test "coercion between unions and enums" {
 test "coercion of zero bit types" {
     var x: void = {};
     var y: *void = x;
-    //var z: void = y; // TODO
+    _ = y;
 }
       {#code_end#}
       {#header_close#}
@@ -6569,6 +6583,7 @@ var x: i32 = 1;
 test "suspend with no resume" {
     var frame = async func();
     try expect(x == 2);
+    _ = frame;
 }
 
 fn func() void {
@@ -6800,6 +6815,7 @@ fn amain() !void {
 
 var global_download_frame: anyframe = undefined;
 fn fetchUrl(allocator: *Allocator, url: []const u8) ![]u8 {
+    _ = url; // this is just an example, we don't actually do it!
     const result = try std.mem.dupe(allocator, u8, "this is the downloaded url contents");
     errdefer allocator.free(result);
     suspend {
@@ -6811,6 +6827,7 @@ fn fetchUrl(allocator: *Allocator, url: []const u8) ![]u8 {
 
 var global_file_frame: anyframe = undefined;
 fn readFile(allocator: *Allocator, filename: []const u8) ![]u8 {
+    _ = filename; // this is just an example, we don't actually do it!
     const result = try std.mem.dupe(allocator, u8, "this is the file contents");
     errdefer allocator.free(result);
     suspend {
@@ -6869,6 +6886,7 @@ fn amain() !void {
 }
 
 fn fetchUrl(allocator: *Allocator, url: []const u8) ![]u8 {
+    _ = url; // this is just an example, we don't actually do it!
     const result = try std.mem.dupe(allocator, u8, "this is the downloaded url contents");
     errdefer allocator.free(result);
     std.debug.print("fetchUrl returning\n", .{});
@@ -6876,6 +6894,7 @@ fn fetchUrl(allocator: *Allocator, url: []const u8) ![]u8 {
 }
 
 fn readFile(allocator: *Allocator, filename: []const u8) ![]u8 {
+    _ = filename; // this is just an example, we don't actually do it!
     const result = try std.mem.dupe(allocator, u8, "this is the file contents");
     errdefer allocator.free(result);
     std.debug.print("readFile returning\n", .{});
@@ -8584,6 +8603,7 @@ fn List(comptime T: type) type {
 test "integer cast panic" {
     var a: u16 = 0xabcd;
     var b: u8 = @intCast(u8, a);
+    _ = b;
 }
       {#code_end#}
       <p>
@@ -8839,6 +8859,7 @@ comptime {
       {#code_begin|exe_err#}
 pub fn main() void {
     var x = foo("hello");
+    _ = x;
 }
 
 fn foo(x: []const u8) u8 {
@@ -9107,6 +9128,7 @@ pub fn main() void {
 comptime {
     const optional_number: ?i32 = null;
     const number = optional_number.?;
+    _ = number;
 }
       {#code_end#}
       <p>At runtime:</p>
@@ -9140,6 +9162,7 @@ pub fn main() void {
       {#code_begin|test_err|caught unexpected error 'UnableToReturnNumber'#}
 comptime {
     const number = getNumberOrFail() catch unreachable;
+    _ = number;
 }
 
 fn getNumberOrFail() !i32 {
@@ -9187,6 +9210,7 @@ comptime {
     const err = error.AnError;
     const number = @errorToInt(err) + 10;
     const invalid_err = @intToError(number);
+    _ = invalid_err;
 }
       {#code_end#}
       <p>At runtime:</p>
@@ -9197,7 +9221,7 @@ pub fn main() void {
     var err = error.AnError;
     var number = @errorToInt(err) + 500;
     var invalid_err = @intToError(number);
-    std.debug.print("value: {}\n", .{number});
+    std.debug.print("value: {}\n", .{invalid_err});
 }
       {#code_end#}
       {#header_close#}
@@ -9212,6 +9236,7 @@ const Foo = enum {
 comptime {
     const a: u2 = 3;
     const b = @intToEnum(Foo, a);
+    _ = b;
 }
       {#code_end#}
       <p>At runtime:</p>
@@ -9396,6 +9421,7 @@ comptime {
 pub fn main() void {
     var opt_ptr: ?*i32 = null;
     var ptr = @ptrCast(*i32, opt_ptr);
+    _ = ptr;
 }
       {#code_end#}
       {#header_close#}
@@ -9523,7 +9549,9 @@ pub fn main() !void {
       This is why it is an error to pass a string literal to a mutable slice, like this:
       </p>
       {#code_begin|test_err|expected type '[]u8'#}
-fn foo(s: []u8) void {}
+fn foo(s: []u8) void {
+    _ = s;
+}
 
 test "string literal to mutable slice" {
     foo("hello");
@@ -9531,7 +9559,9 @@ test "string literal to mutable slice" {
       {#code_end#}
       <p>However if you make the slice constant, then it works:</p>
       {#code_begin|test|strlit#}
-fn foo(s: []const u8) void {}
+fn foo(s: []const u8) void {
+    _ = s;
+}
 
 test "string literal to constant slice" {
     foo("hello");
@@ -10476,7 +10506,7 @@ coding style.
       </p>
       {#header_close#}
       {#header_open|Examples#}
-      {#code_begin|syntax#}
+      <pre>{#syntax#}
 const namespace_name = @import("dir_name/file_name.zig");
 const TypeName = @import("dir_name/TypeName.zig");
 var global_var: i32 = undefined;
@@ -10520,7 +10550,7 @@ const XmlParser = struct {
 
 // The initials BE (Big Endian) are just another word in Zig identifier names.
 fn readU32Be() u32 {}
-      {#code_end#}
+      {#endsyntax#}</pre>
       <p>
       See the Zig Standard Library for more examples.
       </p>
