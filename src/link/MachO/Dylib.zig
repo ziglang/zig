@@ -9,10 +9,12 @@ const mem = std.mem;
 
 const Allocator = mem.Allocator;
 const Symbol = @import("Symbol.zig");
+const LibStub = @import("../tapi.zig").LibStub;
 
 usingnamespace @import("commands.zig");
 
 allocator: *Allocator,
+
 arch: ?std.Target.Cpu.Arch = null,
 header: ?macho.mach_header_64 = null,
 file: ?fs.File = null,
@@ -103,7 +105,7 @@ pub fn parse(self: *Dylib) !void {
     try self.parseSymbols();
 }
 
-pub fn readLoadCommands(self: *Dylib, reader: anytype) !void {
+fn readLoadCommands(self: *Dylib, reader: anytype) !void {
     try self.load_commands.ensureCapacity(self.allocator, self.header.?.ncmds);
 
     var i: u16 = 0;
@@ -127,7 +129,7 @@ pub fn readLoadCommands(self: *Dylib, reader: anytype) !void {
     }
 }
 
-pub fn parseId(self: *Dylib) !void {
+fn parseId(self: *Dylib) !void {
     const index = self.id_cmd_index orelse {
         log.debug("no LC_ID_DYLIB load command found; using hard-coded defaults...", .{});
         self.id = .{
@@ -153,7 +155,7 @@ pub fn parseId(self: *Dylib) !void {
     };
 }
 
-pub fn parseSymbols(self: *Dylib) !void {
+fn parseSymbols(self: *Dylib) !void {
     const index = self.symtab_cmd_index orelse return;
     const symtab_cmd = self.load_commands.items[index].Symtab;
 
@@ -174,6 +176,86 @@ pub fn parseSymbols(self: *Dylib) !void {
         const name = try self.allocator.dupe(u8, sym_name);
         try self.symbols.putNoClobber(self.allocator, name, {});
     }
+}
+
+fn addObjCClassSymbols(self: *Dylib, sym_name: []const u8) !void {
+    const expanded = &[_][]const u8{
+        try std.fmt.allocPrint(self.allocator, "_OBJC_CLASS_$_{s}", .{sym_name}),
+        try std.fmt.allocPrint(self.allocator, "_OBJC_METACLASS_$_{s}", .{sym_name}),
+    };
+
+    for (expanded) |sym| {
+        if (self.symbols.contains(sym)) continue;
+        try self.symbols.putNoClobber(self.allocator, sym, .{});
+    }
+}
+
+pub fn parseFromStub(self: *Dylib, lib_stub: LibStub) !void {
+    if (lib_stub.inner.len == 0) return error.EmptyStubFile;
+
+    log.debug("parsing shared library from stub '{s}'", .{self.name.?});
+
+    const umbrella_lib = lib_stub.inner[0];
+    self.id = .{
+        .name = try self.allocator.dupe(u8, umbrella_lib.install_name),
+        // TODO parse from the stub
+        .timestamp = 2,
+        .current_version = 0,
+        .compatibility_version = 0,
+    };
+
+    const target_string: []const u8 = switch (self.arch.?) {
+        .aarch64 => "arm64-macos",
+        .x86_64 => "x86_64-macos",
+        else => unreachable,
+    };
+
+    for (lib_stub.inner) |stub| {
+        if (!hasTarget(stub.targets, target_string)) continue;
+
+        if (stub.exports) |exports| {
+            for (exports) |exp| {
+                if (!hasTarget(exp.targets, target_string)) continue;
+
+                if (exp.symbols) |symbols| {
+                    for (symbols) |sym_name| {
+                        if (self.symbols.contains(sym_name)) continue;
+                        try self.symbols.putNoClobber(self.allocator, try self.allocator.dupe(u8, sym_name), {});
+                    }
+                }
+
+                if (exp.objc_classes) |classes| {
+                    for (classes) |sym_name| {
+                        try self.addObjCClassSymbols(sym_name);
+                    }
+                }
+            }
+        }
+
+        if (stub.reexports) |reexports| {
+            for (reexports) |reexp| {
+                if (!hasTarget(reexp.targets, target_string)) continue;
+
+                for (reexp.symbols) |sym_name| {
+                    if (self.symbols.contains(sym_name)) continue;
+                    try self.symbols.putNoClobber(self.allocator, try self.allocator.dupe(u8, sym_name), {});
+                }
+            }
+        }
+
+        if (stub.objc_classes) |classes| {
+            for (classes) |sym_name| {
+                try self.addObjCClassSymbols(sym_name);
+            }
+        }
+    }
+}
+
+fn hasTarget(targets: []const []const u8, target: []const u8) bool {
+    for (targets) |t| {
+        if (mem.eql(u8, t, target)) return true;
+    }
+    return false;
 }
 
 pub fn isDylib(file: fs.File) !bool {
@@ -197,7 +279,7 @@ pub fn createProxy(self: *Dylib, sym_name: []const u8) !?*Symbol {
             .@"type" = .proxy,
             .name = name,
         },
-        .file = .{ .dylib = self },
+        .file = self,
     };
 
     return &proxy.base;

@@ -16,8 +16,8 @@ const Allocator = mem.Allocator;
 const Archive = @import("Archive.zig");
 const CodeSignature = @import("CodeSignature.zig");
 const Dylib = @import("Dylib.zig");
+const LibStub = @import("../tapi.zig").LibStub;
 const Object = @import("Object.zig");
-const Stub = @import("Stub.zig");
 const Symbol = @import("Symbol.zig");
 const Trie = @import("Trie.zig");
 
@@ -38,9 +38,8 @@ stack_size: u64 = 0,
 objects: std.ArrayListUnmanaged(*Object) = .{},
 archives: std.ArrayListUnmanaged(*Archive) = .{},
 dylibs: std.ArrayListUnmanaged(*Dylib) = .{},
-lib_stubs: std.ArrayListUnmanaged(*Stub) = .{},
 
-libsystem_stub_index: ?u16 = null,
+libsystem_dylib_index: ?u16 = null,
 next_dylib_ordinal: u16 = 1,
 
 load_commands: std.ArrayListUnmanaged(LoadCommand) = .{},
@@ -134,10 +133,6 @@ const TlvOffset = struct {
 /// Default path to dyld
 const DEFAULT_DYLD_PATH: [*:0]const u8 = "/usr/lib/dyld";
 
-const LIB_SYSTEM_NAME: [*:0]const u8 = "System";
-/// TODO this should be inferred from included libSystem.tbd or similar.
-const LIB_SYSTEM_PATH: [*:0]const u8 = "/usr/lib/libSystem.B.dylib";
-
 pub fn init(allocator: *Allocator) Zld {
     return .{ .allocator = allocator };
 }
@@ -170,12 +165,6 @@ pub fn deinit(self: *Zld) void {
         self.allocator.destroy(dylib);
     }
     self.dylibs.deinit(self.allocator);
-
-    for (self.lib_stubs.items) |stub| {
-        stub.deinit();
-        self.allocator.destroy(stub);
-    }
-    self.lib_stubs.deinit(self.allocator);
 
     for (self.imports.values()) |proxy| {
         proxy.deinit(self.allocator);
@@ -269,20 +258,30 @@ pub fn link(self: *Zld, files: []const []const u8, out_path: []const u8, args: L
 
 fn parseInputFiles(self: *Zld, files: []const []const u8) !void {
     const Input = struct {
-        kind: enum {
-            object,
-            archive,
-            dylib,
-            stub,
-        },
-        origin: union {
-            file: fs.File,
-            stub: Stub.LibStub,
+        kind: union(enum) {
+            object: fs.File,
+            archive: fs.File,
+            dylib: fs.File,
+            stub: LibStub,
         },
         name: []const u8,
+
+        fn deinit(input: *@This()) void {
+            switch (input.kind) {
+                .stub => |*stub| {
+                    stub.deinit();
+                },
+                else => {},
+            }
+        }
     };
     var classified = std.ArrayList(Input).init(self.allocator);
-    defer classified.deinit();
+    defer {
+        for (classified.items) |*input| {
+            input.deinit();
+        }
+        classified.deinit();
+    }
 
     // First, classify input files: object, archive, dylib or stub (tbd).
     for (files) |file_name| {
@@ -296,8 +295,7 @@ fn parseInputFiles(self: *Zld, files: []const []const u8) !void {
         try_object: {
             if (!(try Object.isObject(file))) break :try_object;
             try classified.append(.{
-                .kind = .object,
-                .origin = .{ .file = file },
+                .kind = .{ .object = file },
                 .name = full_path,
             });
             continue;
@@ -306,8 +304,7 @@ fn parseInputFiles(self: *Zld, files: []const []const u8) !void {
         try_archive: {
             if (!(try Archive.isArchive(file))) break :try_archive;
             try classified.append(.{
-                .kind = .archive,
-                .origin = .{ .file = file },
+                .kind = .{ .archive = file },
                 .name = full_path,
             });
             continue;
@@ -316,20 +313,18 @@ fn parseInputFiles(self: *Zld, files: []const []const u8) !void {
         try_dylib: {
             if (!(try Dylib.isDylib(file))) break :try_dylib;
             try classified.append(.{
-                .kind = .dylib,
-                .origin = .{ .file = file },
+                .kind = .{ .dylib = file },
                 .name = full_path,
             });
             continue;
         }
 
         try_stub: {
-            var lib_stub = Stub.LibStub.loadFromFile(self.allocator, file) catch {
+            var lib_stub = LibStub.loadFromFile(self.allocator, file) catch {
                 break :try_stub;
             };
             try classified.append(.{
-                .kind = .stub,
-                .origin = .{ .stub = lib_stub },
+                .kind = .{ .stub = lib_stub },
                 .name = full_path,
             });
             file.close();
@@ -343,53 +338,46 @@ fn parseInputFiles(self: *Zld, files: []const []const u8) !void {
     // Based on our classification, proceed with parsing.
     for (classified.items) |input| {
         switch (input.kind) {
-            .object => {
+            .object => |file| {
                 const object = try self.allocator.create(Object);
                 errdefer self.allocator.destroy(object);
 
                 object.* = Object.init(self.allocator);
                 object.arch = self.arch.?;
                 object.name = input.name;
-                object.file = input.origin.file;
+                object.file = file;
 
                 try object.parse();
                 try self.objects.append(self.allocator, object);
             },
-            .archive => {
+            .archive => |file| {
                 const archive = try self.allocator.create(Archive);
                 errdefer self.allocator.destroy(archive);
 
                 archive.* = Archive.init(self.allocator);
                 archive.arch = self.arch.?;
                 archive.name = input.name;
-                archive.file = input.origin.file;
+                archive.file = file;
 
                 try archive.parse();
                 try self.archives.append(self.allocator, archive);
             },
-            .dylib => {
+            .dylib, .stub => {
                 const dylib = try self.allocator.create(Dylib);
                 errdefer self.allocator.destroy(dylib);
 
                 dylib.* = Dylib.init(self.allocator);
                 dylib.arch = self.arch.?;
                 dylib.name = input.name;
-                dylib.file = input.origin.file;
 
-                try dylib.parse();
+                if (input.kind == .dylib) {
+                    dylib.file = input.kind.dylib;
+                    try dylib.parse();
+                } else {
+                    try dylib.parseFromStub(input.kind.stub);
+                }
+
                 try self.dylibs.append(self.allocator, dylib);
-            },
-            .stub => {
-                const stub = try self.allocator.create(Stub);
-                errdefer self.allocator.destroy(stub);
-
-                stub.* = Stub.init(self.allocator);
-                stub.arch = self.arch.?;
-                stub.name = input.name;
-                stub.lib_stub = input.origin.stub;
-
-                try stub.parse();
-                try self.lib_stubs.append(self.allocator, stub);
             },
         }
     }
@@ -399,50 +387,64 @@ fn parseLibs(self: *Zld, libs: []const []const u8) !void {
     for (libs) |lib| {
         const file = try fs.cwd().openFile(lib, .{});
 
-        if (try Dylib.isDylib(file)) {
-            const dylib = try self.allocator.create(Dylib);
-            errdefer self.allocator.destroy(dylib);
-
-            dylib.* = Dylib.init(self.allocator);
-            dylib.arch = self.arch.?;
-            dylib.name = try self.allocator.dupe(u8, lib);
-            dylib.file = file;
-
-            try dylib.parse();
-            try self.dylibs.append(self.allocator, dylib);
-        } else {
-            // Try tbd stub file next.
-            if (Stub.LibStub.loadFromFile(self.allocator, file)) |lib_stub| {
-                const stub = try self.allocator.create(Stub);
-                errdefer self.allocator.destroy(stub);
-
-                stub.* = Stub.init(self.allocator);
-                stub.arch = self.arch.?;
-                stub.name = try self.allocator.dupe(u8, lib);
-                stub.lib_stub = lib_stub;
-
-                try stub.parse();
-                try self.lib_stubs.append(self.allocator, stub);
-            } else |_| {
-                // TODO this entire logic has to be cleaned up.
-                try file.seekTo(0);
-
-                if (try Archive.isArchive(file)) {
-                    const archive = try self.allocator.create(Archive);
-                    errdefer self.allocator.destroy(archive);
-
-                    archive.* = Archive.init(self.allocator);
-                    archive.arch = self.arch.?;
-                    archive.name = try self.allocator.dupe(u8, lib);
-                    archive.file = file;
-
-                    try archive.parse();
-                    try self.archives.append(self.allocator, archive);
-                } else {
-                    file.close();
-                    log.warn("unknown filetype for a library: '{s}'", .{lib});
+        var kind: ?union(enum) {
+            archive,
+            dylib,
+            stub: LibStub,
+        } = kind: {
+            if (try Archive.isArchive(file)) break :kind .archive;
+            if (try Dylib.isDylib(file)) break :kind .dylib;
+            var lib_stub = LibStub.loadFromFile(self.allocator, file) catch {
+                break :kind null;
+            };
+            break :kind .{ .stub = lib_stub };
+        };
+        defer {
+            if (kind) |*kk| {
+                switch (kk.*) {
+                    .stub => |*stub| {
+                        stub.deinit();
+                    },
+                    else => {},
                 }
             }
+        }
+
+        const unwrapped = kind orelse {
+            file.close();
+            log.warn("unknown filetype for a library: '{s}'", .{lib});
+            continue;
+        };
+        switch (unwrapped) {
+            .archive => {
+                const archive = try self.allocator.create(Archive);
+                errdefer self.allocator.destroy(archive);
+
+                archive.* = Archive.init(self.allocator);
+                archive.arch = self.arch.?;
+                archive.name = try self.allocator.dupe(u8, lib);
+                archive.file = file;
+
+                try archive.parse();
+                try self.archives.append(self.allocator, archive);
+            },
+            .dylib, .stub => {
+                const dylib = try self.allocator.create(Dylib);
+                errdefer self.allocator.destroy(dylib);
+
+                dylib.* = Dylib.init(self.allocator);
+                dylib.arch = self.arch.?;
+                dylib.name = try self.allocator.dupe(u8, lib);
+
+                if (unwrapped == .dylib) {
+                    dylib.file = file;
+                    try dylib.parse();
+                } else {
+                    try dylib.parseFromStub(unwrapped.stub);
+                }
+
+                try self.dylibs.append(self.allocator, dylib);
+            },
         }
     }
 }
@@ -451,24 +453,24 @@ fn parseLibSystem(self: *Zld, libc_stub_path: []const u8) !void {
     const file = try fs.cwd().openFile(libc_stub_path, .{});
     defer file.close();
 
-    var lib_stub = try Stub.LibStub.loadFromFile(self.allocator, file);
+    var lib_stub = try LibStub.loadFromFile(self.allocator, file);
+    defer lib_stub.deinit();
 
-    const stub = try self.allocator.create(Stub);
-    errdefer self.allocator.destroy(stub);
+    const dylib = try self.allocator.create(Dylib);
+    errdefer self.allocator.destroy(dylib);
 
-    stub.* = Stub.init(self.allocator);
-    stub.arch = self.arch.?;
-    stub.name = try self.allocator.dupe(u8, libc_stub_path);
-    stub.lib_stub = lib_stub;
+    dylib.* = Dylib.init(self.allocator);
+    dylib.arch = self.arch.?;
+    dylib.name = try self.allocator.dupe(u8, libc_stub_path);
 
-    try stub.parse();
+    try dylib.parseFromStub(lib_stub);
 
-    self.libsystem_stub_index = @intCast(u16, self.lib_stubs.items.len);
-    try self.lib_stubs.append(self.allocator, stub);
+    self.libsystem_dylib_index = @intCast(u16, self.dylibs.items.len);
+    try self.dylibs.append(self.allocator, dylib);
 
     // Add LC_LOAD_DYLIB load command.
-    stub.ordinal = self.next_dylib_ordinal;
-    const dylib_id = stub.id orelse unreachable;
+    dylib.ordinal = self.next_dylib_ordinal;
+    const dylib_id = dylib.id orelse unreachable;
     var dylib_cmd = try createLoadDylibCommand(
         self.allocator,
         dylib_id.name,
@@ -1778,25 +1780,16 @@ fn resolveSymbols(self: *Zld) !void {
     }
     self.unresolved.clearRetainingCapacity();
 
-    var referenced = std.AutoHashMap(union(enum) {
-        dylib: *Dylib,
-        stub: *Stub,
-    }, void).init(self.allocator);
+    var referenced = std.AutoHashMap(*Dylib, void).init(self.allocator);
     defer referenced.deinit();
 
     loop: while (unresolved.popOrNull()) |undef| {
         const proxy = self.imports.get(undef.name) orelse outer: {
             const proxy = inner: {
-                for (self.dylibs.items) |dylib| {
+                for (self.dylibs.items) |dylib, i| {
                     const proxy = (try dylib.createProxy(undef.name)) orelse continue;
-                    try referenced.put(.{ .dylib = dylib }, {});
-                    break :inner proxy;
-                }
-                for (self.lib_stubs.items) |stub, i| {
-                    const proxy = (try stub.createProxy(undef.name)) orelse continue;
-                    if (self.libsystem_stub_index.? != @intCast(u16, i)) {
-                        // LibSystem gets its load command separately.
-                        try referenced.put(.{ .stub = stub }, {});
+                    if (self.libsystem_dylib_index.? != @intCast(u16, i)) { // LibSystem gets load command seperately.
+                        try referenced.put(dylib, {});
                     }
                     break :inner proxy;
                 }
@@ -1829,33 +1822,17 @@ fn resolveSymbols(self: *Zld) !void {
 
     // Add LC_LOAD_DYLIB load command for each referenced dylib/stub.
     var it = referenced.iterator();
-    while (it.next()) |key| {
-        var dylib_cmd = blk: {
-            switch (key.key_ptr.*) {
-                .dylib => |dylib| {
-                    dylib.ordinal = self.next_dylib_ordinal;
-                    const dylib_id = dylib.id orelse unreachable;
-                    break :blk try createLoadDylibCommand(
-                        self.allocator,
-                        dylib_id.name,
-                        dylib_id.timestamp,
-                        dylib_id.current_version,
-                        dylib_id.compatibility_version,
-                    );
-                },
-                .stub => |stub| {
-                    stub.ordinal = self.next_dylib_ordinal;
-                    const dylib_id = stub.id orelse unreachable;
-                    break :blk try createLoadDylibCommand(
-                        self.allocator,
-                        dylib_id.name,
-                        dylib_id.timestamp,
-                        dylib_id.current_version,
-                        dylib_id.compatibility_version,
-                    );
-                },
-            }
-        };
+    while (it.next()) |entry| {
+        const dylib = entry.key_ptr.*;
+        dylib.ordinal = self.next_dylib_ordinal;
+        const dylib_id = dylib.id orelse unreachable;
+        var dylib_cmd = try createLoadDylibCommand(
+            self.allocator,
+            dylib_id.name,
+            dylib_id.timestamp,
+            dylib_id.current_version,
+            dylib_id.compatibility_version,
+        );
         errdefer dylib_cmd.deinit(self.allocator);
         try self.load_commands.append(self.allocator, .{ .Dylib = dylib_cmd });
         self.next_dylib_ordinal += 1;
@@ -1873,8 +1850,8 @@ fn resolveSymbols(self: *Zld) !void {
     }
 
     // Finally put dyld_stub_binder as an Import
-    const libsystem_stub = self.lib_stubs.items[self.libsystem_stub_index.?];
-    const proxy = (try libsystem_stub.createProxy("dyld_stub_binder")) orelse {
+    const libsystem_dylib = self.dylibs.items[self.libsystem_dylib_index.?];
+    const proxy = (try libsystem_dylib.createProxy("dyld_stub_binder")) orelse {
         log.err("undefined reference to symbol 'dyld_stub_binder'", .{});
         return error.UndefinedSymbolReference;
     };
