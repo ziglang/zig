@@ -1952,9 +1952,13 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
         }
     }
 
-    // Iterate over all the files and look for outdated and deleted declarations.
-    if (self.bin_file.options.module) |mod| {
-        try mod.processOutdatedAndDeletedDecls();
+    const use_stage1 = build_options.omit_stage2 or
+        (build_options.is_stage1 and self.bin_file.options.use_llvm);
+    if (!use_stage1) {
+        // Iterate over all the files and look for outdated and deleted declarations.
+        if (self.bin_file.options.module) |mod| {
+            try mod.processOutdatedAndDeletedDecls();
+        }
     }
 
     while (self.work_queue.readItem()) |work_item| switch (work_item) {
