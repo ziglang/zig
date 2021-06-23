@@ -8,6 +8,7 @@ const macho = std.macho;
 const mem = std.mem;
 
 const Allocator = mem.Allocator;
+const Arch = std.Target.Cpu.Arch;
 const Symbol = @import("Symbol.zig");
 const LibStub = @import("../tapi.zig").LibStub;
 
@@ -15,10 +16,11 @@ usingnamespace @import("commands.zig");
 
 allocator: *Allocator,
 
-arch: ?std.Target.Cpu.Arch = null,
+arch: ?Arch = null,
 header: ?macho.mach_header_64 = null,
 file: ?fs.File = null,
 name: ?[]const u8 = null,
+syslibroot: ?[]const u8 = null,
 
 ordinal: ?u16 = null,
 
@@ -35,6 +37,11 @@ id: ?Id = null,
 /// a symbol is referenced by an object file.
 symbols: std.StringArrayHashMapUnmanaged(void) = .{},
 
+// TODO we should keep track of already parsed dylibs so that
+// we don't unnecessarily reparse them again.
+// TODO add dylib dep analysis and extraction for .dylib files.
+dylibs: std.ArrayListUnmanaged(*Dylib) = .{},
+
 pub const Id = struct {
     name: []const u8,
     timestamp: u32,
@@ -46,8 +53,57 @@ pub const Id = struct {
     }
 };
 
-pub fn init(allocator: *Allocator) Dylib {
-    return .{ .allocator = allocator };
+pub const Error = error{
+    OutOfMemory,
+    EmptyStubFile,
+    MismatchedCpuArchitecture,
+    UnsupportedCpuArchitecture,
+} || fs.File.OpenError || std.os.PReadError;
+
+pub fn createAndParseFromPath(
+    allocator: *Allocator,
+    arch: Arch,
+    path: []const u8,
+    syslibroot: ?[]const u8,
+    recurse_libs: bool,
+) Error!?*Dylib {
+    const file = fs.cwd().openFile(path, .{}) catch |err| switch (err) {
+        error.FileNotFound => return null,
+        else => |e| return e,
+    };
+    errdefer file.close();
+
+    const dylib = try allocator.create(Dylib);
+    errdefer allocator.destroy(dylib);
+
+    const name = try allocator.dupe(u8, path);
+    errdefer allocator.free(name);
+
+    dylib.* = .{
+        .allocator = allocator,
+        .arch = arch,
+        .name = name,
+        .file = file,
+        .syslibroot = syslibroot,
+    };
+
+    dylib.parse(recurse_libs) catch |err| switch (err) {
+        error.EndOfStream, error.NotDylib => {
+            try file.seekTo(0);
+
+            var lib_stub = LibStub.loadFromFile(allocator, file) catch {
+                dylib.deinit();
+                allocator.destroy(dylib);
+                return null;
+            };
+            defer lib_stub.deinit();
+
+            try dylib.parseFromStub(lib_stub, recurse_libs);
+        },
+        else => |e| return e,
+    };
+
+    return dylib;
 }
 
 pub fn deinit(self: *Dylib) void {
@@ -60,6 +116,7 @@ pub fn deinit(self: *Dylib) void {
         self.allocator.free(key);
     }
     self.symbols.deinit(self.allocator);
+    self.dylibs.deinit(self.allocator);
 
     if (self.name) |name| {
         self.allocator.free(name);
@@ -76,15 +133,15 @@ pub fn closeFile(self: Dylib) void {
     }
 }
 
-pub fn parse(self: *Dylib) !void {
+pub fn parse(self: *Dylib, recurse_libs: bool) !void {
     log.debug("parsing shared library '{s}'", .{self.name.?});
 
     var reader = self.file.?.reader();
     self.header = try reader.readStruct(macho.mach_header_64);
 
     if (self.header.?.filetype != macho.MH_DYLIB) {
-        log.err("invalid filetype: expected 0x{x}, found 0x{x}", .{ macho.MH_DYLIB, self.header.?.filetype });
-        return error.MalformedDylib;
+        log.debug("invalid filetype: expected 0x{x}, found 0x{x}", .{ macho.MH_DYLIB, self.header.?.filetype });
+        return error.NotDylib;
     }
 
     const this_arch: std.Target.Cpu.Arch = switch (self.header.?.cputype) {
@@ -190,7 +247,7 @@ fn addObjCClassSymbols(self: *Dylib, sym_name: []const u8) !void {
     }
 }
 
-pub fn parseFromStub(self: *Dylib, lib_stub: LibStub) !void {
+pub fn parseFromStub(self: *Dylib, lib_stub: LibStub, recurse_libs: bool) !void {
     if (lib_stub.inner.len == 0) return error.EmptyStubFile;
 
     log.debug("parsing shared library from stub '{s}'", .{self.name.?});
@@ -236,9 +293,17 @@ pub fn parseFromStub(self: *Dylib, lib_stub: LibStub) !void {
             for (reexports) |reexp| {
                 if (!hasTarget(reexp.targets, target_string)) continue;
 
-                for (reexp.symbols) |sym_name| {
-                    if (self.symbols.contains(sym_name)) continue;
-                    try self.symbols.putNoClobber(self.allocator, try self.allocator.dupe(u8, sym_name), {});
+                if (reexp.symbols) |symbols| {
+                    for (symbols) |sym_name| {
+                        if (self.symbols.contains(sym_name)) continue;
+                        try self.symbols.putNoClobber(self.allocator, try self.allocator.dupe(u8, sym_name), {});
+                    }
+                }
+
+                if (reexp.objc_classes) |classes| {
+                    for (classes) |sym_name| {
+                        try self.addObjCClassSymbols(sym_name);
+                    }
                 }
             }
         }
@@ -249,6 +314,60 @@ pub fn parseFromStub(self: *Dylib, lib_stub: LibStub) !void {
             }
         }
     }
+
+    for (lib_stub.inner) |stub| {
+        if (!hasTarget(stub.targets, target_string)) continue;
+
+        if (stub.reexported_libraries) |reexports| reexports: {
+            if (!recurse_libs) break :reexports;
+
+            for (reexports) |reexp| {
+                if (!hasTarget(reexp.targets, target_string)) continue;
+
+                outer: for (reexp.libraries) |lib| {
+                    const dirname = fs.path.dirname(lib) orelse {
+                        log.warn("unable to resolve dependency {s}", .{lib});
+                        continue;
+                    };
+                    const filename = fs.path.basename(lib);
+                    const without_ext = if (mem.lastIndexOfScalar(u8, filename, '.')) |index|
+                        filename[0..index]
+                    else
+                        filename;
+
+                    for (&[_][]const u8{ "dylib", "tbd" }) |ext| {
+                        const with_ext = try std.fmt.allocPrint(self.allocator, "{s}.{s}", .{
+                            without_ext,
+                            ext,
+                        });
+                        defer self.allocator.free(with_ext);
+
+                        const lib_path = if (self.syslibroot) |syslibroot|
+                            try fs.path.join(self.allocator, &.{ syslibroot, dirname, with_ext })
+                        else
+                            try fs.path.join(self.allocator, &.{ dirname, with_ext });
+
+                        log.debug("trying dependency at fully resolved path {s}", .{lib_path});
+
+                        const dylib = (try createAndParseFromPath(
+                            self.allocator,
+                            self.arch.?,
+                            lib_path,
+                            self.syslibroot,
+                            true,
+                        )) orelse {
+                            continue;
+                        };
+
+                        try self.dylibs.append(self.allocator, dylib);
+                        continue :outer;
+                    } else {
+                        log.warn("unable to resolve dependency {s}", .{lib});
+                    }
+                }
+            }
+        }
+    }
 }
 
 fn hasTarget(targets: []const []const u8, target: []const u8) bool {
@@ -256,15 +375,6 @@ fn hasTarget(targets: []const []const u8, target: []const u8) bool {
         if (mem.eql(u8, t, target)) return true;
     }
     return false;
-}
-
-pub fn isDylib(file: fs.File) !bool {
-    const header = file.reader().readStruct(macho.mach_header_64) catch |err| switch (err) {
-        error.EndOfStream => return false,
-        else => |e| return e,
-    };
-    try file.seekTo(0);
-    return header.filetype == macho.MH_DYLIB;
 }
 
 pub fn createProxy(self: *Dylib, sym_name: []const u8) !?*Symbol {

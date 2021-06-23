@@ -789,6 +789,7 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                 zld.deinit();
             }
             zld.arch = target.cpu.arch;
+            zld.syslibroot = self.base.options.syslibroot;
             zld.stack_size = stack_size;
 
             // Positional arguments to the linker such as object files and static archives.

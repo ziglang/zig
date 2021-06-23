@@ -8,12 +8,13 @@ const macho = std.macho;
 const mem = std.mem;
 
 const Allocator = mem.Allocator;
+const Arch = std.Target.Cpu.Arch;
 const Object = @import("Object.zig");
 
 usingnamespace @import("commands.zig");
 
 allocator: *Allocator,
-arch: ?std.Target.Cpu.Arch = null,
+arch: ?Arch = null,
 file: ?fs.File = null,
 header: ?ar_hdr = null,
 name: ?[]const u8 = null,
@@ -85,10 +86,36 @@ const ar_hdr = extern struct {
     }
 };
 
-pub fn init(allocator: *Allocator) Archive {
-    return .{
-        .allocator = allocator,
+pub fn createAndParseFromPath(allocator: *Allocator, arch: Arch, path: []const u8) !?*Archive {
+    const file = fs.cwd().openFile(path, .{}) catch |err| switch (err) {
+        error.FileNotFound => return null,
+        else => |e| return e,
     };
+    errdefer file.close();
+
+    const archive = try allocator.create(Archive);
+    errdefer allocator.destroy(archive);
+
+    const name = try allocator.dupe(u8, path);
+    errdefer allocator.free(name);
+
+    archive.* = .{
+        .allocator = allocator,
+        .arch = arch,
+        .name = name,
+        .file = file,
+    };
+
+    archive.parse() catch |err| switch (err) {
+        error.EndOfStream, error.NotArchive => {
+            archive.deinit();
+            allocator.destroy(archive);
+            return null;
+        },
+        else => |e| return e,
+    };
+
+    return archive;
 }
 
 pub fn deinit(self: *Archive) void {
@@ -116,15 +143,15 @@ pub fn parse(self: *Archive) !void {
     const magic = try reader.readBytesNoEof(SARMAG);
 
     if (!mem.eql(u8, &magic, ARMAG)) {
-        log.err("invalid magic: expected '{s}', found '{s}'", .{ ARMAG, magic });
-        return error.MalformedArchive;
+        log.debug("invalid magic: expected '{s}', found '{s}'", .{ ARMAG, magic });
+        return error.NotArchive;
     }
 
     self.header = try reader.readStruct(ar_hdr);
 
     if (!mem.eql(u8, &self.header.?.ar_fmag, ARFMAG)) {
-        log.err("invalid header delimiter: expected '{s}', found '{s}'", .{ ARFMAG, self.header.?.ar_fmag });
-        return error.MalformedArchive;
+        log.debug("invalid header delimiter: expected '{s}', found '{s}'", .{ ARFMAG, self.header.?.ar_fmag });
+        return error.NotArchive;
     }
 
     var embedded_name = try parseName(self.allocator, self.header.?, reader);
@@ -222,23 +249,15 @@ pub fn parseObject(self: Archive, offset: u32) !*Object {
     var object = try self.allocator.create(Object);
     errdefer self.allocator.destroy(object);
 
-    object.* = Object.init(self.allocator);
-    object.arch = self.arch.?;
-    object.file = try fs.cwd().openFile(self.name.?, .{});
-    object.name = name;
-    object.file_offset = @intCast(u32, try reader.context.getPos());
+    object.* = .{
+        .allocator = self.allocator,
+        .arch = self.arch.?,
+        .file = try fs.cwd().openFile(self.name.?, .{}),
+        .name = name,
+        .file_offset = @intCast(u32, try reader.context.getPos()),
+    };
     try object.parse();
-
     try reader.context.seekTo(0);
 
     return object;
-}
-
-pub fn isArchive(file: fs.File) !bool {
-    const magic = file.reader().readBytesNoEof(Archive.SARMAG) catch |err| switch (err) {
-        error.EndOfStream => return false,
-        else => |e| return e,
-    };
-    try file.seekTo(0);
-    return mem.eql(u8, &magic, Archive.ARMAG);
 }

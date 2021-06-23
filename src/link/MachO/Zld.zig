@@ -16,7 +16,6 @@ const Allocator = mem.Allocator;
 const Archive = @import("Archive.zig");
 const CodeSignature = @import("CodeSignature.zig");
 const Dylib = @import("Dylib.zig");
-const LibStub = @import("../tapi.zig").LibStub;
 const Object = @import("Object.zig");
 const Symbol = @import("Symbol.zig");
 const Trie = @import("Trie.zig");
@@ -33,6 +32,7 @@ out_path: ?[]const u8 = null,
 
 // TODO these args will become obselete once Zld is coalesced with incremental
 // linker.
+syslibroot: ?[]const u8 = null,
 stack_size: u64 = 0,
 
 objects: std.ArrayListUnmanaged(*Object) = .{},
@@ -257,214 +257,90 @@ pub fn link(self: *Zld, files: []const []const u8, out_path: []const u8, args: L
 }
 
 fn parseInputFiles(self: *Zld, files: []const []const u8) !void {
-    const Input = struct {
-        kind: union(enum) {
-            object: fs.File,
-            archive: fs.File,
-            dylib: fs.File,
-            stub: LibStub,
-        },
-        name: []const u8,
-
-        fn deinit(input: *@This()) void {
-            switch (input.kind) {
-                .stub => |*stub| {
-                    stub.deinit();
-                },
-                else => {},
-            }
-        }
-    };
-    var classified = std.ArrayList(Input).init(self.allocator);
-    defer {
-        for (classified.items) |*input| {
-            input.deinit();
-        }
-        classified.deinit();
-    }
-
-    // First, classify input files: object, archive, dylib or stub (tbd).
     for (files) |file_name| {
-        const file = try fs.cwd().openFile(file_name, .{});
         const full_path = full_path: {
             var buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
             const path = try std.fs.realpath(file_name, &buffer);
             break :full_path try self.allocator.dupe(u8, path);
         };
 
-        try_object: {
-            if (!(try Object.isObject(file))) break :try_object;
-            try classified.append(.{
-                .kind = .{ .object = file },
-                .name = full_path,
-            });
+        if (try Object.createAndParseFromPath(self.allocator, self.arch.?, full_path)) |object| {
+            try self.objects.append(self.allocator, object);
             continue;
         }
 
-        try_archive: {
-            if (!(try Archive.isArchive(file))) break :try_archive;
-            try classified.append(.{
-                .kind = .{ .archive = file },
-                .name = full_path,
-            });
+        if (try Archive.createAndParseFromPath(self.allocator, self.arch.?, full_path)) |archive| {
+            try self.archives.append(self.allocator, archive);
             continue;
         }
 
-        try_dylib: {
-            if (!(try Dylib.isDylib(file))) break :try_dylib;
-            try classified.append(.{
-                .kind = .{ .dylib = file },
-                .name = full_path,
-            });
+        if (try Dylib.createAndParseFromPath(
+            self.allocator,
+            self.arch.?,
+            full_path,
+            self.syslibroot,
+            true,
+        )) |dylib| {
+            try self.dylibs.append(self.allocator, dylib);
             continue;
         }
 
-        try_stub: {
-            var lib_stub = LibStub.loadFromFile(self.allocator, file) catch {
-                break :try_stub;
-            };
-            try classified.append(.{
-                .kind = .{ .stub = lib_stub },
-                .name = full_path,
-            });
-            file.close();
-            continue;
-        }
-
-        file.close();
         log.warn("unknown filetype for positional input file: '{s}'", .{file_name});
-    }
-
-    // Based on our classification, proceed with parsing.
-    for (classified.items) |input| {
-        switch (input.kind) {
-            .object => |file| {
-                const object = try self.allocator.create(Object);
-                errdefer self.allocator.destroy(object);
-
-                object.* = Object.init(self.allocator);
-                object.arch = self.arch.?;
-                object.name = input.name;
-                object.file = file;
-
-                try object.parse();
-                try self.objects.append(self.allocator, object);
-            },
-            .archive => |file| {
-                const archive = try self.allocator.create(Archive);
-                errdefer self.allocator.destroy(archive);
-
-                archive.* = Archive.init(self.allocator);
-                archive.arch = self.arch.?;
-                archive.name = input.name;
-                archive.file = file;
-
-                try archive.parse();
-                try self.archives.append(self.allocator, archive);
-            },
-            .dylib, .stub => {
-                const dylib = try self.allocator.create(Dylib);
-                errdefer self.allocator.destroy(dylib);
-
-                dylib.* = Dylib.init(self.allocator);
-                dylib.arch = self.arch.?;
-                dylib.name = input.name;
-
-                if (input.kind == .dylib) {
-                    dylib.file = input.kind.dylib;
-                    try dylib.parse();
-                } else {
-                    try dylib.parseFromStub(input.kind.stub);
-                }
-
-                try self.dylibs.append(self.allocator, dylib);
-            },
-        }
     }
 }
 
 fn parseLibs(self: *Zld, libs: []const []const u8) !void {
-    for (libs) |lib| {
-        const file = try fs.cwd().openFile(lib, .{});
-
-        var kind: ?union(enum) {
-            archive,
-            dylib,
-            stub: LibStub,
-        } = kind: {
-            if (try Archive.isArchive(file)) break :kind .archive;
-            if (try Dylib.isDylib(file)) break :kind .dylib;
-            var lib_stub = LibStub.loadFromFile(self.allocator, file) catch {
-                break :kind null;
-            };
-            break :kind .{ .stub = lib_stub };
-        };
-        defer {
-            if (kind) |*kk| {
-                switch (kk.*) {
-                    .stub => |*stub| {
-                        stub.deinit();
-                    },
-                    else => {},
-                }
+    const DylibDeps = struct {
+        fn bubbleUp(out: *std.ArrayList(*Dylib), next: *Dylib) error{OutOfMemory}!void {
+            try out.ensureUnusedCapacity(next.dylibs.items.len);
+            for (next.dylibs.items) |dylib| {
+                out.appendAssumeCapacity(dylib);
+            }
+            for (next.dylibs.items) |dylib| {
+                try bubbleUp(out, dylib);
             }
         }
+    };
 
-        const unwrapped = kind orelse {
-            file.close();
-            log.warn("unknown filetype for a library: '{s}'", .{lib});
+    for (libs) |lib| {
+        if (try Dylib.createAndParseFromPath(
+            self.allocator,
+            self.arch.?,
+            lib,
+            self.syslibroot,
+            true,
+        )) |dylib| {
+            try self.dylibs.append(self.allocator, dylib);
             continue;
-        };
-        switch (unwrapped) {
-            .archive => {
-                const archive = try self.allocator.create(Archive);
-                errdefer self.allocator.destroy(archive);
-
-                archive.* = Archive.init(self.allocator);
-                archive.arch = self.arch.?;
-                archive.name = try self.allocator.dupe(u8, lib);
-                archive.file = file;
-
-                try archive.parse();
-                try self.archives.append(self.allocator, archive);
-            },
-            .dylib, .stub => {
-                const dylib = try self.allocator.create(Dylib);
-                errdefer self.allocator.destroy(dylib);
-
-                dylib.* = Dylib.init(self.allocator);
-                dylib.arch = self.arch.?;
-                dylib.name = try self.allocator.dupe(u8, lib);
-
-                if (unwrapped == .dylib) {
-                    dylib.file = file;
-                    try dylib.parse();
-                } else {
-                    try dylib.parseFromStub(unwrapped.stub);
-                }
-
-                try self.dylibs.append(self.allocator, dylib);
-            },
         }
+
+        if (try Archive.createAndParseFromPath(self.allocator, self.arch.?, lib)) |archive| {
+            try self.archives.append(self.allocator, archive);
+            continue;
+        }
+
+        log.warn("unknown filetype for a library: '{s}'", .{lib});
     }
+
+    // Flatten out any parsed dependencies.
+    var deps = std.ArrayList(*Dylib).init(self.allocator);
+    defer deps.deinit();
+
+    for (self.dylibs.items) |dylib| {
+        try DylibDeps.bubbleUp(&deps, dylib);
+    }
+
+    try self.dylibs.appendSlice(self.allocator, deps.toOwnedSlice());
 }
 
 fn parseLibSystem(self: *Zld, libc_stub_path: []const u8) !void {
-    const file = try fs.cwd().openFile(libc_stub_path, .{});
-    defer file.close();
-
-    var lib_stub = try LibStub.loadFromFile(self.allocator, file);
-    defer lib_stub.deinit();
-
-    const dylib = try self.allocator.create(Dylib);
-    errdefer self.allocator.destroy(dylib);
-
-    dylib.* = Dylib.init(self.allocator);
-    dylib.arch = self.arch.?;
-    dylib.name = try self.allocator.dupe(u8, libc_stub_path);
-
-    try dylib.parseFromStub(lib_stub);
-
+    const dylib = (try Dylib.createAndParseFromPath(
+        self.allocator,
+        self.arch.?,
+        libc_stub_path,
+        self.syslibroot,
+        false,
+    )) orelse return error.FailedToParseLibSystem;
     self.libsystem_dylib_index = @intCast(u16, self.dylibs.items.len);
     try self.dylibs.append(self.allocator, dylib);
 

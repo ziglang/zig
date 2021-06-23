@@ -41,7 +41,8 @@ pub const LibStub = struct {
         },
         reexports: ?[]const struct {
             targets: []const []const u8,
-            symbols: []const []const u8,
+            symbols: ?[]const []const u8,
+            objc_classes: ?[]const []const u8,
         },
         allowable_clients: ?[]const struct {
             targets: []const []const u8,
