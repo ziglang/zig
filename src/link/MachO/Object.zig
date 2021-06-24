@@ -247,18 +247,14 @@ pub fn parse(self: *Object) !void {
         try reader.context.seekTo(offset);
     }
 
-    self.header = try reader.readStruct(macho.mach_header_64);
+    const header = try reader.readStruct(macho.mach_header_64);
 
-    if (self.header.?.filetype != macho.MH_OBJECT) {
-        log.debug("invalid filetype: expected 0x{x}, found 0x{x}", .{
-            macho.MH_OBJECT,
-            self.header.?.filetype,
-        });
-
+    if (header.filetype != macho.MH_OBJECT) {
+        log.debug("invalid filetype: expected 0x{x}, found 0x{x}", .{ macho.MH_OBJECT, header.filetype });
         return error.NotObject;
     }
 
-    const this_arch: Arch = switch (self.header.?.cputype) {
+    const this_arch: Arch = switch (header.cputype) {
         macho.CPU_TYPE_ARM64 => .aarch64,
         macho.CPU_TYPE_X86_64 => .x86_64,
         else => |value| {
@@ -270,6 +266,8 @@ pub fn parse(self: *Object) !void {
         log.err("mismatched cpu architecture: expected {s}, found {s}", .{ self.arch.?, this_arch });
         return error.MismatchedCpuArchitecture;
     }
+
+    self.header = header;
 
     try self.readLoadCommands(reader);
     try self.parseSymbols();

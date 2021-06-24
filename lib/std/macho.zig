@@ -24,6 +24,19 @@ pub const mach_header_64 = extern struct {
     reserved: u32,
 };
 
+pub const fat_header = extern struct {
+    magic: u32,
+    nfat_arch: u32,
+};
+
+pub const fat_arch = extern struct {
+    cputype: cpu_type_t,
+    cpusubtype: cpu_subtype_t,
+    offset: u32,
+    size: u32,
+    @"align": u32,
+};
+
 pub const load_command = extern struct {
     cmd: u32,
     cmdsize: u32,
@@ -1039,6 +1052,20 @@ pub const MH_APP_EXTENSION_SAFE = 0x02000000;
 
 /// The external symbols listed in the nlist symbol table do not include all the symbols listed in the dyld info.
 pub const MH_NLIST_OUTOFSYNC_WITH_DYLDINFO = 0x04000000;
+
+// Constants for the flags field of the fat_header
+
+/// the fat magic number
+pub const FAT_MAGIC = 0xcafebabe;
+
+/// NXSwapLong(FAT_MAGIC)
+pub const FAT_CIGAM = 0xbebafeca;
+
+/// the 64-bit fat magic number
+pub const FAT_MAGIC_64 = 0xcafebabf;
+
+/// NXSwapLong(FAT_MAGIC_64)
+pub const FAT_CIGAM_64 = 0xbfbafeca;
 
 /// The flags field of a section structure is separated into two parts a section
 /// type and section attributes.  The section types are mutually exclusive (it

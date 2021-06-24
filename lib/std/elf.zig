@@ -429,7 +429,7 @@ pub fn ProgramHeaderIterator(ParseSource: anytype) type {
                 if (self.elf_header.endian == native_endian) return phdr;
 
                 // Convert fields to native endianness.
-                bswapAllFields(Elf64_Phdr, &phdr);
+                mem.bswapAllFields(Elf64_Phdr, &phdr);
                 return phdr;
             }
 
@@ -441,7 +441,7 @@ pub fn ProgramHeaderIterator(ParseSource: anytype) type {
             // ELF endianness does NOT match native endianness.
             if (self.elf_header.endian != native_endian) {
                 // Convert fields to native endianness.
-                bswapAllFields(Elf32_Phdr, &phdr);
+                mem.bswapAllFields(Elf32_Phdr, &phdr);
             }
 
             // Convert 32-bit header to 64-bit.
@@ -479,7 +479,7 @@ pub fn SectionHeaderIterator(ParseSource: anytype) type {
                 if (self.elf_header.endian == native_endian) return shdr;
 
                 // Convert fields to native endianness.
-                bswapAllFields(Elf64_Shdr, &shdr);
+                mem.bswapAllFields(Elf64_Shdr, &shdr);
                 return shdr;
             }
 
@@ -491,7 +491,7 @@ pub fn SectionHeaderIterator(ParseSource: anytype) type {
             // ELF endianness does NOT match native endianness.
             if (self.elf_header.endian != native_endian) {
                 // Convert fields to native endianness.
-                bswapAllFields(Elf32_Shdr, &shdr);
+                mem.bswapAllFields(Elf32_Shdr, &shdr);
             }
 
             // Convert 32-bit header to 64-bit.
@@ -529,26 +529,6 @@ pub fn int32(need_bswap: bool, int_32: anytype, comptime Int64: anytype) Int64 {
     } else {
         return int_32;
     }
-}
-
-pub fn bswapAllFields(comptime S: type, ptr: *S) void {
-    if (@typeInfo(S) != .Struct) @compileError("bswapAllFields expects a struct as the first argument");
-    inline for (std.meta.fields(S)) |f| {
-        @field(ptr, f.name) = @byteSwap(f.field_type, @field(ptr, f.name));
-    }
-}
-test "bswapAllFields" {
-    var s: Elf32_Chdr = .{
-        .ch_type = 0x12341234,
-        .ch_size = 0x56785678,
-        .ch_addralign = 0x12124242,
-    };
-    bswapAllFields(Elf32_Chdr, &s);
-    try std.testing.expectEqual(Elf32_Chdr{
-        .ch_type = 0x34123412,
-        .ch_size = 0x78567856,
-        .ch_addralign = 0x42421212,
-    }, s);
 }
 
 pub const EI_NIDENT = 16;
