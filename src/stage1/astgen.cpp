@@ -55,7 +55,17 @@ static ErrorMsg *exec_add_error_node(CodeGen *codegen, Stage1Zir *exec, AstNode 
 
 
 static bool instr_is_unreachable(IrInstSrc *instruction) {
-    return instruction->is_noreturn;
+    switch (instruction->id) {
+        case IrInstSrcIdCondBr:
+        case IrInstSrcIdReturn:
+        case IrInstSrcIdBr:
+        case IrInstSrcIdUnreachable:
+        case IrInstSrcIdSwitchBr:
+        case IrInstSrcIdPanic:
+            return true;
+        default:
+            return false;
+    }
 }
 
 void destroy_instruction_src(IrInstSrc *inst) {
@@ -947,7 +957,6 @@ static IrInstSrc *ir_build_cond_br(Stage1AstGen *ag, Scope *scope, AstNode *sour
         Stage1ZirBasicBlock *then_block, Stage1ZirBasicBlock *else_block, IrInstSrc *is_comptime)
 {
     IrInstSrcCondBr *inst = ir_build_instruction<IrInstSrcCondBr>(ag, scope, source_node);
-    inst->base.is_noreturn = true;
     inst->condition = condition;
     inst->then_block = then_block;
     inst->else_block = else_block;
@@ -963,7 +972,6 @@ static IrInstSrc *ir_build_cond_br(Stage1AstGen *ag, Scope *scope, AstNode *sour
 
 static IrInstSrc *ir_build_return_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node, IrInstSrc *operand) {
     IrInstSrcReturn *inst = ir_build_instruction<IrInstSrcReturn>(ag, scope, source_node);
-    inst->base.is_noreturn = true;
     inst->operand = operand;
 
     if (operand != nullptr) ir_ref_instruction(operand, ag->current_basic_block);
@@ -1303,7 +1311,6 @@ static IrInstSrc *ir_build_br(Stage1AstGen *ag, Scope *scope, AstNode *source_no
         Stage1ZirBasicBlock *dest_block, IrInstSrc *is_comptime)
 {
     IrInstSrcBr *inst = ir_build_instruction<IrInstSrcBr>(ag, scope, source_node);
-    inst->base.is_noreturn = true;
     inst->dest_block = dest_block;
     inst->is_comptime = is_comptime;
 
@@ -1418,7 +1425,6 @@ static IrInstSrc *ir_build_container_init_fields(Stage1AstGen *ag, Scope *scope,
 
 static IrInstSrc *ir_build_unreachable(Stage1AstGen *ag, Scope *scope, AstNode *source_node) {
     IrInstSrcUnreachable *inst = ir_build_instruction<IrInstSrcUnreachable>(ag, scope, source_node);
-    inst->base.is_noreturn = true;
     return &inst->base;
 }
 
@@ -1718,7 +1724,6 @@ static IrInstSrcSwitchBr *ir_build_switch_br_src(Stage1AstGen *ag, Scope *scope,
         IrInstSrc *is_comptime, IrInstSrc *switch_prongs_void)
 {
     IrInstSrcSwitchBr *instruction = ir_build_instruction<IrInstSrcSwitchBr>(ag, scope, source_node);
-    instruction->base.is_noreturn = true;
     instruction->target_value = target_value;
     instruction->else_block = else_block;
     instruction->case_count = case_count;
@@ -2439,7 +2444,6 @@ static IrInstSrc *ir_build_decl_ref(Stage1AstGen *ag, Scope *scope, AstNode *sou
 
 static IrInstSrc *ir_build_panic_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node, IrInstSrc *msg) {
     IrInstSrcPanic *instruction = ir_build_instruction<IrInstSrcPanic>(ag, scope, source_node);
-    instruction->base.is_noreturn = true;
     instruction->msg = msg;
 
     ir_ref_instruction(msg, ag->current_basic_block);
@@ -2937,7 +2941,7 @@ static bool astgen_defers_for_block(Stage1AstGen *ag, Scope *inner_scope, Scope 
                 if (defer_expr_value == ag->codegen->invalid_inst_src)
                     return ag->codegen->invalid_inst_src;
 
-                if (defer_expr_value->is_noreturn) {
+                if (instr_is_unreachable(defer_expr_value)) {
                     if (is_noreturn != nullptr) *is_noreturn = true;
                 } else {
                     ir_build_check_statement_is_void(ag, defer_expr_scope, defer_expr_node,

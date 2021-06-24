@@ -2733,7 +2733,6 @@ struct IrInstSrc {
     IrInst base;
 
     IrInstSrcId id;
-    bool is_noreturn;
 
     // When analyzing IR, instructions that point to this instruction in the "old ir"
     // can find the instruction that corresponds to this value in the "new ir"

@@ -577,8 +577,6 @@ static void ir_print_prefix_src(IrPrintSrc *irp, IrInstSrc *instruction, bool tr
     const char *type_name;
     if (instruction->id == IrInstSrcIdConst) {
         type_name = buf_ptr(&reinterpret_cast<IrInstSrcConst *>(instruction)->value->type->name);
-    } else if (instruction->is_noreturn) {
-        type_name = "noreturn";
     } else {
         type_name = "(unknown)";
     }
