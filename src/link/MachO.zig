@@ -848,7 +848,9 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
             try zld.link(positionals.items, full_out_path, .{
                 .libs = libs.items,
                 .rpaths = rpaths.items,
-                .libc_stub_path = self.base.options.libc_stub_path.?,
+                .libc_stub_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+                    "libc", "darwin", "libSystem.B.tbd",
+                }),
             });
 
             break :outer;

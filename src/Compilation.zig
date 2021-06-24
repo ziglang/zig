@@ -919,20 +919,6 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             }
         };
 
-        const libc_stub_path: ?[]const u8 = if (options.target.isDarwin()) libc_stub: {
-            // TODO consider other platforms than Darwin which require linking against libc here.
-            const needs_libc_stub: bool = switch (options.output_mode) {
-                .Obj => false,
-                .Lib => if (options.link_mode) |mode| mode == .Dynamic else false,
-                .Exe => true,
-            };
-            if (needs_libc_stub) {
-                break :libc_stub try options.zig_lib_directory.join(arena, &[_][]const u8{
-                    "libc", "darwin", "libSystem.B.tbd",
-                });
-            } else break :libc_stub null;
-        } else null;
-
         const must_dynamic_link = dl: {
             if (target_util.cannotDynamicLink(options.target))
                 break :dl false;
@@ -1302,7 +1288,6 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .use_lld = use_lld,
             .use_llvm = use_llvm,
             .system_linker_hack = darwin_options.system_linker_hack,
-            .libc_stub_path = libc_stub_path,
             .link_libc = link_libc,
             .link_libcpp = link_libcpp,
             .link_libunwind = link_libunwind,
