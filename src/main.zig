@@ -414,6 +414,7 @@ const usage_build_generic =
     \\  --test-cmd [arg]               Specify test execution command one arg at a time
     \\  --test-cmd-bin                 Appends test binary path to test cmd args
     \\  --test-evented-io              Runs the test in evented I/O mode
+    \\  --test-no-exec                 Compiles test binary without running it
     \\
     \\Debug Options (Zig Compiler Development):
     \\  -ftime-report                Print timing diagnostics
@@ -597,6 +598,7 @@ fn buildOutputType(
     var linker_nxcompat = false;
     var linker_dynamicbase = false;
     var test_evented_io = false;
+    var test_no_exec = false;
     var stack_size_override: ?u64 = null;
     var image_base_override: ?u64 = null;
     var use_llvm: ?bool = null;
@@ -932,6 +934,8 @@ fn buildOutputType(
                         try test_exec_args.append(null);
                     } else if (mem.eql(u8, arg, "--test-evented-io")) {
                         test_evented_io = true;
+                    } else if (mem.eql(u8, arg, "--test-no-exec")) {
+                        test_no_exec = true;
                     } else if (mem.eql(u8, arg, "--watch")) {
                         watch = true;
                     } else if (mem.eql(u8, arg, "-ftime-report")) {
@@ -2161,7 +2165,8 @@ fn buildOutputType(
     }
 
     const run_or_test = switch (arg_mode) {
-        .run, .zig_test => true,
+        .run => true,
+        .zig_test => !test_no_exec,
         else => false,
     };
     if (run_or_test) {
