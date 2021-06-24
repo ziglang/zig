@@ -26,6 +26,11 @@ pub const LibStub = struct {
             float: f64,
             int: u64,
         },
+        compatibility_version: ?union(enum) {
+            string: []const u8,
+            float: f64,
+            int: u64,
+        },
         reexported_libraries: ?[]const struct {
             targets: []const []const u8,
             libraries: []const []const u8,

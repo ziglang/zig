@@ -3,8 +3,10 @@ const Dylib = @This();
 const std = @import("std");
 const assert = std.debug.assert;
 const fs = std.fs;
+const fmt = std.fmt;
 const log = std.log.scoped(.dylib);
 const macho = std.macho;
+const math = std.math;
 const mem = std.mem;
 
 const Allocator = mem.Allocator;
@@ -37,6 +39,7 @@ id: ?Id = null,
 /// a symbol is referenced by an object file.
 symbols: std.StringArrayHashMapUnmanaged(void) = .{},
 
+// TODO add parsing re-exported libs from binary dylibs
 dependent_libs: std.StringArrayHashMapUnmanaged(void) = .{},
 
 pub const Id = struct {
@@ -45,8 +48,71 @@ pub const Id = struct {
     current_version: u32,
     compatibility_version: u32,
 
+    pub fn default(name: []const u8) Id {
+        return .{
+            .name = name,
+            .timestamp = 2,
+            .current_version = 0x10000,
+            .compatibility_version = 0x10000,
+        };
+    }
+
     pub fn deinit(id: *Id, allocator: *Allocator) void {
         allocator.free(id.name);
+    }
+
+    const ParseError = fmt.ParseIntError || fmt.BufPrintError;
+
+    pub fn parseCurrentVersion(id: *Id, version: anytype) ParseError!void {
+        id.current_version = try parseVersion(version);
+    }
+
+    pub fn parseCompatibilityVersion(id: *Id, version: anytype) ParseError!void {
+        id.compatibility_version = try parseVersion(version);
+    }
+
+    fn parseVersion(version: anytype) ParseError!u32 {
+        const string = blk: {
+            switch (version) {
+                .int => |int| {
+                    var out: u32 = 0;
+                    const major = try math.cast(u16, int);
+                    out += @intCast(u32, major) << 16;
+                    return out;
+                },
+                .float => |float| {
+                    var buf: [256]u8 = undefined;
+                    break :blk try fmt.bufPrint(&buf, "{d:.2}", .{float});
+                },
+                .string => |string| {
+                    break :blk string;
+                },
+            }
+        };
+
+        var out: u32 = 0;
+        var values: [3][]const u8 = undefined;
+
+        var split = mem.split(string, ".");
+        var i: u4 = 0;
+        while (split.next()) |value| {
+            if (i > 2) {
+                log.warn("malformed version field: {s}", .{string});
+                return 0x10000;
+            }
+            values[i] = value;
+            i += 1;
+        }
+
+        if (values.len > 2) {
+            out += try fmt.parseInt(u8, values[2], 10);
+        }
+        if (values.len > 1) {
+            out += @intCast(u32, try fmt.parseInt(u8, values[1], 10)) << 8;
+        }
+        out += @intCast(u32, try fmt.parseInt(u16, values[0], 10)) << 16;
+
+        return out;
     }
 };
 
@@ -55,7 +121,7 @@ pub const Error = error{
     EmptyStubFile,
     MismatchedCpuArchitecture,
     UnsupportedCpuArchitecture,
-} || fs.File.OpenError || std.os.PReadError;
+} || fs.File.OpenError || std.os.PReadError || Id.ParseError;
 
 pub fn createAndParseFromPath(
     allocator: *Allocator,
@@ -195,12 +261,7 @@ fn readLoadCommands(self: *Dylib, reader: anytype) !void {
 fn parseId(self: *Dylib) !void {
     const index = self.id_cmd_index orelse {
         log.debug("no LC_ID_DYLIB load command found; using hard-coded defaults...", .{});
-        self.id = .{
-            .name = try self.allocator.dupe(u8, self.name.?),
-            .timestamp = 2,
-            .current_version = 0,
-            .compatibility_version = 0,
-        };
+        self.id = Id.default(try self.allocator.dupe(u8, self.name.?));
         return;
     };
     const id_cmd = self.load_commands.items[index].Dylib;
@@ -266,13 +327,15 @@ pub fn parseFromStub(self: *Dylib, lib_stub: LibStub) !void {
     log.debug("parsing shared library from stub '{s}'", .{self.name.?});
 
     const umbrella_lib = lib_stub.inner[0];
-    self.id = .{
-        .name = try self.allocator.dupe(u8, umbrella_lib.install_name),
-        // TODO parse from the stub
-        .timestamp = 2,
-        .current_version = 0,
-        .compatibility_version = 0,
-    };
+
+    var id = Id.default(try self.allocator.dupe(u8, umbrella_lib.install_name));
+    if (umbrella_lib.current_version) |version| {
+        try id.parseCurrentVersion(version);
+    }
+    if (umbrella_lib.compatibility_version) |version| {
+        try id.parseCompatibilityVersion(version);
+    }
+    self.id = id;
 
     const target_string: []const u8 = switch (self.arch.?) {
         .aarch64 => "arm64-macos",
