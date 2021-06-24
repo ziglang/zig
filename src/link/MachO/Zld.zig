@@ -279,7 +279,6 @@ fn parseInputFiles(self: *Zld, files: []const []const u8) !void {
             self.arch.?,
             full_path,
             self.syslibroot,
-            true,
         )) |dylibs| {
             defer self.allocator.free(dylibs);
             try self.dylibs.appendSlice(self.allocator, dylibs);
@@ -297,7 +296,6 @@ fn parseLibs(self: *Zld, libs: []const []const u8) !void {
             self.arch.?,
             lib,
             self.syslibroot,
-            true,
         )) |dylibs| {
             defer self.allocator.free(dylibs);
             try self.dylibs.appendSlice(self.allocator, dylibs);
@@ -319,7 +317,6 @@ fn parseLibSystem(self: *Zld, libc_stub_path: []const u8) !void {
         self.arch.?,
         libc_stub_path,
         self.syslibroot,
-        false,
     )) orelse return error.FailedToParseLibSystem;
     defer self.allocator.free(dylibs);
 

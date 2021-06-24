@@ -62,7 +62,6 @@ pub fn createAndParseFromPath(
     arch: Arch,
     path: []const u8,
     syslibroot: ?[]const u8,
-    recurse_libs: bool,
 ) Error!?[]*Dylib {
     const file = fs.cwd().openFile(path, .{}) catch |err| switch (err) {
         error.FileNotFound => return null,
@@ -102,11 +101,9 @@ pub fn createAndParseFromPath(
 
     var dylibs = std.ArrayList(*Dylib).init(allocator);
     defer dylibs.deinit();
-    try dylibs.append(dylib);
 
-    if (recurse_libs) {
-        try dylib.parseDependentLibs(&dylibs);
-    }
+    try dylibs.append(dylib);
+    try dylib.parseDependentLibs(&dylibs);
 
     return dylibs.toOwnedSlice();
 }
@@ -283,18 +280,17 @@ pub fn parseFromStub(self: *Dylib, lib_stub: LibStub) !void {
         else => unreachable,
     };
 
-    for (lib_stub.inner) |stub| {
+    var umbrella_libs = std.StringHashMap(void).init(self.allocator);
+    defer umbrella_libs.deinit();
+
+    for (lib_stub.inner) |stub, stub_index| {
         if (!hasTarget(stub.targets, target_string)) continue;
 
-        if (stub.reexported_libraries) |reexports| {
-            for (reexports) |reexp| {
-                if (!hasTarget(reexp.targets, target_string)) continue;
-
-                try self.dependent_libs.ensureUnusedCapacity(self.allocator, reexp.libraries.len);
-                for (reexp.libraries) |lib| {
-                    self.dependent_libs.putAssumeCapacity(try self.allocator.dupe(u8, lib), {});
-                }
-            }
+        if (stub_index > 0) {
+            // TODO I thought that we could switch on presence of `parent-umbrella` map;
+            // however, turns out `libsystem_notify.dylib` is fully reexported by `libSystem.dylib`
+            // BUT does not feature a `parent-umbrella` map as the only sublib. Apple's bug perhaps?
+            try umbrella_libs.put(stub.install_name, .{});
         }
 
         if (stub.exports) |exports| {
@@ -341,6 +337,29 @@ pub fn parseFromStub(self: *Dylib, lib_stub: LibStub) !void {
             }
         }
     }
+
+    log.debug("{s}", .{umbrella_lib.install_name});
+
+    // TODO track which libs were already parsed in different steps
+    for (lib_stub.inner) |stub| {
+        if (!hasTarget(stub.targets, target_string)) continue;
+
+        if (stub.reexported_libraries) |reexports| {
+            for (reexports) |reexp| {
+                if (!hasTarget(reexp.targets, target_string)) continue;
+
+                for (reexp.libraries) |lib| {
+                    if (umbrella_libs.contains(lib)) {
+                        log.debug("  | {s} <= {s}", .{ lib, umbrella_lib.install_name });
+                        continue;
+                    }
+
+                    log.debug("  | {s}", .{lib});
+                    try self.dependent_libs.put(self.allocator, try self.allocator.dupe(u8, lib), {});
+                }
+            }
+        }
+    }
 }
 
 pub fn parseDependentLibs(self: *Dylib, out: *std.ArrayList(*Dylib)) !void {
@@ -374,7 +393,6 @@ pub fn parseDependentLibs(self: *Dylib, out: *std.ArrayList(*Dylib)) !void {
                 self.arch.?,
                 lib_path,
                 self.syslibroot,
-                true,
             )) orelse {
                 continue;
             };
