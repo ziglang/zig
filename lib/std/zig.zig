@@ -5,11 +5,13 @@
 // and substantial portions of the software.
 const std = @import("std.zig");
 const tokenizer = @import("zig/tokenizer.zig");
+const fmt = @import("zig/fmt.zig");
 
 pub const Token = tokenizer.Token;
 pub const Tokenizer = tokenizer.Tokenizer;
-pub const fmtId = @import("zig/fmt.zig").fmtId;
-pub const fmtEscapes = @import("zig/fmt.zig").fmtEscapes;
+pub const fmtId = fmt.fmtId;
+pub const fmtEscapes = fmt.fmtEscapes;
+pub const isValidId = fmt.isValidId;
 pub const parse = @import("zig/parse.zig").parse;
 pub const string_literal = @import("zig/string_literal.zig");
 pub const ast = @import("zig/ast.zig");

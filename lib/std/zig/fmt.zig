@@ -2,7 +2,7 @@ const std = @import("std");
 const mem = std.mem;
 
 /// Print the string as a Zig identifier escaping it with @"" syntax if needed.
-pub fn formatId(
+fn formatId(
     bytes: []const u8,
     comptime fmt: []const u8,
     options: std.fmt.FormatOptions,
@@ -36,7 +36,7 @@ pub fn isValidId(bytes: []const u8) bool {
 /// Print the string as escaped contents of a double quoted or single-quoted string.
 /// Format `{}` treats contents as a double-quoted string.
 /// Format `{'}` treats contents as a single-quoted string.
-pub fn formatEscapes(
+fn formatEscapes(
     bytes: []const u8,
     comptime fmt: []const u8,
     options: std.fmt.FormatOptions,
