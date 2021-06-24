@@ -94,20 +94,20 @@ pub const Id = struct {
         var values: [3][]const u8 = undefined;
 
         var split = mem.split(string, ".");
-        var i: u4 = 0;
+        var count: u4 = 0;
         while (split.next()) |value| {
-            if (i > 2) {
+            if (count > 2) {
                 log.warn("malformed version field: {s}", .{string});
                 return 0x10000;
             }
-            values[i] = value;
-            i += 1;
+            values[count] = value;
+            count += 1;
         }
 
-        if (values.len > 2) {
+        if (count > 2) {
             out += try fmt.parseInt(u8, values[2], 10);
         }
-        if (values.len > 1) {
+        if (count > 1) {
             out += @intCast(u32, try fmt.parseInt(u8, values[1], 10)) << 8;
         }
         out += @intCast(u32, try fmt.parseInt(u16, values[0], 10)) << 16;
