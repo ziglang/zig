@@ -535,7 +535,10 @@ pub fn parseDataInCode(self: *Object) !void {
 }
 
 pub fn isObject(file: fs.File) !bool {
-    const header = try file.reader().readStruct(macho.mach_header_64);
+    const header = file.reader().readStruct(macho.mach_header_64) catch |err| switch (err) {
+        error.EndOfStream => return false,
+        else => |e| return e,
+    };
     try file.seekTo(0);
     return header.filetype == macho.MH_OBJECT;
 }
