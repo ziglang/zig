@@ -1539,6 +1539,34 @@ test "writeIntBig and writeIntLittle" {
     try testing.expect(eql(u8, buf2[0..], &[_]u8{ 0xfc, 0xff }));
 }
 
+/// Swap the byte order of all the members of the fields of a struct
+/// (Changing their endianess)
+pub fn bswapAllFields(comptime S: type, ptr: *S) void {
+    if (@typeInfo(S) != .Struct) @compileError("bswapAllFields expects a struct as the first argument");
+    inline for (std.meta.fields(S)) |f| {
+        @field(ptr, f.name) = @byteSwap(f.field_type, @field(ptr, f.name));
+    }
+}
+
+test "bswapAllFields" {
+    const T = extern struct {
+        f0: u8,
+        f1: u16,
+        f2: u32,
+    };
+    var s = T{
+        .f0 = 0x12,
+        .f1 = 0x1234,
+        .f2 = 0x12345678,
+    };
+    bswapAllFields(T, &s);
+    try std.testing.expectEqual(T{
+        .f0 = 0x12,
+        .f1 = 0x3412,
+        .f2 = 0x78563412,
+    }, s);
+}
+
 /// Returns an iterator that iterates over the slices of `buffer` that are not
 /// any of the bytes in `delimiter_bytes`.
 /// tokenize("   abc def    ghi  ", " ")
