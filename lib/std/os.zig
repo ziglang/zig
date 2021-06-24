@@ -3667,6 +3667,7 @@ pub const INotifyAddWatchError = error{
     FileNotFound,
     SystemResources,
     UserResourceLimitReached,
+    NotDir,
 } || UnexpectedError;
 
 /// add a watch to an initialized inotify instance
@@ -3690,6 +3691,7 @@ pub fn inotify_add_watchZ(inotify_fd: i32, pathname: [*:0]const u8, mask: u32) I
         ENOENT => return error.FileNotFound,
         ENOMEM => return error.SystemResources,
         ENOSPC => return error.UserResourceLimitReached,
+        ENOTDIR => return error.NotDir,
         else => |err| return unexpectedErrno(err),
     }
 }
