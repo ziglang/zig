@@ -175,7 +175,6 @@ pub const Value = union(ValueType) {
 
             if (list.values.items.len > 0) {
                 const hint = if (list.values.items[0].cast(Node.Value)) |value| hint: {
-                    const elem = list.values.items[0];
                     const start = tree.tokens[value.start.?];
                     const end = tree.tokens[value.end.?];
                     const raw = tree.source[start.start..end.end];
