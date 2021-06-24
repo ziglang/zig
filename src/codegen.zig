@@ -2556,7 +2556,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 } else {
                     return self.fail(inst.base.src, "TODO implement calling runtime known function pointer", .{});
                 }
-            } else if (self.bin_file.cast(link.File.Plan9)) |p9| {
+            } else if (self.bin_file.cast(link.File.Plan9)) |_| {
                 switch (arch) {
                     .x86_64 => {
                         for (info.args) |mc_arg, arg_i| {

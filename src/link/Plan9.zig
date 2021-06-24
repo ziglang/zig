@@ -115,6 +115,7 @@ pub fn createEmpty(gpa: *Allocator, options: link.Options) !*Plan9 {
 }
 
 pub fn updateDecl(self: *Plan9, module: *Module, decl: *Module.Decl) !void {
+    _ = module;
     _ = try self.decl_table.getOrPut(self.base.allocator, decl);
 }
 
@@ -131,6 +132,7 @@ pub fn flush(self: *Plan9, comp: *Compilation) !void {
 }
 
 pub fn flushModule(self: *Plan9, comp: *Compilation) !void {
+    _ = comp;
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -301,6 +303,10 @@ pub fn updateDeclExports(
     exports: []const *Module.Export,
 ) !void {
     // we do all the things in flush
+    _ = self;
+    _ = module;
+    _ = decl;
+    _ = exports;
 }
 pub fn deinit(self: *Plan9) void {
     self.decl_table.deinit(self.base.allocator);
