@@ -73,8 +73,6 @@ pub const Regular = struct {
         global,
     };
 
-    pub fn deinit(regular: *Regular, allocator: *Allocator) void {}
-
     pub fn isTemp(regular: *Regular) bool {
         if (regular.linkage == .translation_unit) {
             return mem.startsWith(u8, regular.base.name, "l") or mem.startsWith(u8, regular.base.name, "L");
@@ -116,8 +114,6 @@ pub const Unresolved = struct {
     file: *Object,
 
     pub const base_type: Symbol.Type = .unresolved;
-
-    pub fn deinit(unresolved: *Unresolved, allocator: *Allocator) void {}
 };
 
 pub const Tentative = struct {
@@ -133,17 +129,13 @@ pub const Tentative = struct {
     file: *Object,
 
     pub const base_type: Symbol.Type = .tentative;
-
-    pub fn deinit(tentative: *Tentative, allocator: *Allocator) void {}
 };
 
 pub fn deinit(base: *Symbol, allocator: *Allocator) void {
     allocator.free(base.name);
     switch (base.@"type") {
-        .regular => @fieldParentPtr(Regular, "base", base).deinit(allocator),
         .proxy => @fieldParentPtr(Proxy, "base", base).deinit(allocator),
-        .unresolved => @fieldParentPtr(Unresolved, "base", base).deinit(allocator),
-        .tentative => @fieldParentPtr(Tentative, "base", base).deinit(allocator),
+        else => {},
     }
 }
 

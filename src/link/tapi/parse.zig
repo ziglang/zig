@@ -42,7 +42,7 @@ pub const Node = struct {
             .doc => @fieldParentPtr(Node.Doc, "base", self).deinit(allocator),
             .map => @fieldParentPtr(Node.Map, "base", self).deinit(allocator),
             .list => @fieldParentPtr(Node.List, "base", self).deinit(allocator),
-            .value => @fieldParentPtr(Node.Value, "base", self).deinit(allocator),
+            .value => {},
         }
     }
 
@@ -179,11 +179,6 @@ pub const Node = struct {
         end: ?TokenIndex = null,
 
         pub const base_tag: Node.Tag = .value;
-
-        pub fn deinit(self: *Value, allocator: *Allocator) void {
-            _ = self;
-            _ = allocator;
-        }
 
         pub fn format(
             self: *const Value,
