@@ -100,6 +100,23 @@ pub const Level = enum {
     info,
     /// Debug: messages only useful for debugging.
     debug,
+
+    /// Returns a string literal of the given level in full text form.
+    pub fn asText(comptime self: Level) switch (self) {
+        .emerg => @TypeOf("emergency"),
+        .crit => @TypeOf("critical"),
+        .err => @TypeOf("error"),
+        .warn => @TypeOf("warning"),
+        else => @TypeOf(@tagName(self)),
+    } {
+        return switch (self) {
+            .emerg => "emergency",
+            .crit => "critical",
+            .err => "error",
+            .warn => "warning",
+            else => @tagName(self),
+        };
+    }
 };
 
 /// The default log level is based on build mode.
@@ -165,16 +182,7 @@ pub fn defaultLog(
         return;
     }
 
-    const level_txt = switch (message_level) {
-        .emerg => "emergency",
-        .alert => "alert",
-        .crit => "critical",
-        .err => "error",
-        .warn => "warning",
-        .notice => "notice",
-        .info => "info",
-        .debug => "debug",
-    };
+    const level_txt = comptime message_level.asText();
     const prefix2 = if (scope == .default) ": " else "(" ++ @tagName(scope) ++ "): ";
     const stderr = std.io.getStdErr().writer();
     const held = std.debug.getStderrMutex().acquire();
