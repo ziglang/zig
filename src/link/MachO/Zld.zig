@@ -238,7 +238,6 @@ pub fn link(self: *Zld, files: []const []const u8, out_path: []const u8, args: L
     });
 
     try self.populateMetadata();
-    try self.addRpaths(args.rpaths);
     try self.parseInputFiles(files);
     try self.parseLibs(args.libs);
     try self.parseLibSystem(args.libc_stub_path);
@@ -246,6 +245,9 @@ pub fn link(self: *Zld, files: []const []const u8, out_path: []const u8, args: L
     try self.resolveStubsAndGotEntries();
     try self.updateMetadata();
     try self.sortSections();
+    try self.addRpaths(args.rpaths);
+    try self.addDataInCodeLC();
+    try self.addCodeSignatureLC();
     try self.allocateTextSegment();
     try self.allocateDataConstSegment();
     try self.allocateDataSegment();
@@ -2231,24 +2233,28 @@ fn populateMetadata(self: *Zld) !void {
         std.crypto.random.bytes(&uuid_cmd.uuid);
         try self.load_commands.append(self.allocator, .{ .Uuid = uuid_cmd });
     }
+}
 
-    if (self.code_signature_cmd_index == null and self.arch.? == .aarch64) {
-        self.code_signature_cmd_index = @intCast(u16, self.load_commands.items.len);
+fn addDataInCodeLC(self: *Zld) !void {
+    if (self.data_in_code_cmd_index == null) {
+        self.data_in_code_cmd_index = @intCast(u16, self.load_commands.items.len);
         try self.load_commands.append(self.allocator, .{
             .LinkeditData = .{
-                .cmd = macho.LC_CODE_SIGNATURE,
+                .cmd = macho.LC_DATA_IN_CODE,
                 .cmdsize = @sizeOf(macho.linkedit_data_command),
                 .dataoff = 0,
                 .datasize = 0,
             },
         });
     }
+}
 
-    if (self.data_in_code_cmd_index == null and self.arch.? == .x86_64) {
-        self.data_in_code_cmd_index = @intCast(u16, self.load_commands.items.len);
+fn addCodeSignatureLC(self: *Zld) !void {
+    if (self.code_signature_cmd_index == null and self.arch.? == .aarch64) {
+        self.code_signature_cmd_index = @intCast(u16, self.load_commands.items.len);
         try self.load_commands.append(self.allocator, .{
             .LinkeditData = .{
-                .cmd = macho.LC_DATA_IN_CODE,
+                .cmd = macho.LC_CODE_SIGNATURE,
                 .cmdsize = @sizeOf(macho.linkedit_data_command),
                 .dataoff = 0,
                 .datasize = 0,
@@ -2344,9 +2350,7 @@ fn flush(self: *Zld) !void {
     try self.writeBindInfoTable();
     try self.writeLazyBindInfoTable();
     try self.writeExportInfo();
-    if (self.arch.? == .x86_64) {
-        try self.writeDataInCode();
-    }
+    try self.writeDataInCode();
 
     {
         const seg = &self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
