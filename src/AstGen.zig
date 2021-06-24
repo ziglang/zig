@@ -1570,7 +1570,7 @@ fn breakExpr(parent_gz: *GenZir, parent_scope: *Scope, node: ast.Node.Index) Inn
                 const defer_scope = scope.cast(Scope.Defer).?;
                 scope = defer_scope.parent;
                 const expr_node = node_datas[defer_scope.defer_node].rhs;
-                try unusedResultExpr(parent_gz, defer_scope.parent, expr_node);
+                _ = try unusedResultExpr(parent_gz, defer_scope.parent, expr_node);
             },
             .defer_error => scope = scope.cast(Scope.Defer).?.parent,
             .top => unreachable,
@@ -1623,7 +1623,7 @@ fn continueExpr(parent_gz: *GenZir, parent_scope: *Scope, node: ast.Node.Index) 
                 const defer_scope = scope.cast(Scope.Defer).?;
                 scope = defer_scope.parent;
                 const expr_node = node_datas[defer_scope.defer_node].rhs;
-                try unusedResultExpr(parent_gz, defer_scope.parent, expr_node);
+                _ = try unusedResultExpr(parent_gz, defer_scope.parent, expr_node);
             },
             .defer_error => scope = scope.cast(Scope.Defer).?.parent,
             .namespace => break,
@@ -1785,8 +1785,23 @@ fn blockExprStmts(gz: *GenZir, parent_scope: *Scope, statements: []const ast.Nod
     var block_arena = std.heap.ArenaAllocator.init(gz.astgen.gpa);
     defer block_arena.deinit();
 
+    var noreturn_src_node: ast.Node.Index = 0;
     var scope = parent_scope;
     for (statements) |statement| {
+        if (noreturn_src_node != 0) {
+            return astgen.failNodeNotes(
+                statement,
+                "unreachable code",
+                .{},
+                &[_]u32{
+                    try astgen.errNoteNode(
+                        noreturn_src_node,
+                        "control flow is diverted here",
+                        .{},
+                    ),
+                },
+            );
+        }
         switch (node_tags[statement]) {
             // zig fmt: off
             .global_var_decl  => scope = try varDecl(gz, scope, statement, &block_arena.allocator, tree.globalVarDecl(statement)),
@@ -1814,7 +1829,7 @@ fn blockExprStmts(gz: *GenZir, parent_scope: *Scope, statements: []const ast.Nod
             .assign_mul      => try assignOp(gz, scope, statement, .mul),
             .assign_mul_wrap => try assignOp(gz, scope, statement, .mulwrap),
 
-            else => try unusedResultExpr(gz, scope, statement),
+            else => noreturn_src_node = try unusedResultExpr(gz, scope, statement),
             // zig fmt: on
         }
     }
@@ -1823,11 +1838,14 @@ fn blockExprStmts(gz: *GenZir, parent_scope: *Scope, statements: []const ast.Nod
     try checkUsed(gz, parent_scope, scope);
 }
 
-fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: ast.Node.Index) InnerError!void {
+/// Returns AST source node of the thing that is noreturn if the statement is definitely `noreturn`.
+/// Otherwise returns 0.
+fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: ast.Node.Index) InnerError!ast.Node.Index {
     try emitDbgNode(gz, statement);
     // We need to emit an error if the result is not `noreturn` or `void`, but
     // we want to avoid adding the ZIR instruction if possible for performance.
     const maybe_unused_result = try expr(gz, scope, .none, statement);
+    var noreturn_src_node: ast.Node.Index = 0;
     const elide_check = if (gz.refToIndex(maybe_unused_result)) |inst| b: {
         // Note that this array becomes invalid after appending more items to it
         // in the above while loop.
@@ -2061,15 +2079,7 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: ast.Node.Index) Inner
             .extended,
             => break :b false,
 
-            // ZIR instructions that are always either `noreturn` or `void`.
-            .breakpoint,
-            .fence,
-            .dbg_stmt,
-            .ensure_result_used,
-            .ensure_result_non_error,
-            .@"export",
-            .set_eval_branch_quota,
-            .ensure_err_payload_void,
+            // ZIR instructions that are always `noreturn`.
             .@"break",
             .break_inline,
             .condbr,
@@ -2078,16 +2088,30 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: ast.Node.Index) Inner
             .ret_node,
             .ret_coerce,
             .@"unreachable",
+            .repeat,
+            .repeat_inline,
+            .panic,
+            => {
+                noreturn_src_node = statement;
+                break :b true;
+            },
+
+            // ZIR instructions that are always `void`.
+            .breakpoint,
+            .fence,
+            .dbg_stmt,
+            .ensure_result_used,
+            .ensure_result_non_error,
+            .@"export",
+            .set_eval_branch_quota,
+            .ensure_err_payload_void,
             .store,
             .store_node,
             .store_to_block_ptr,
             .store_to_inferred_ptr,
             .resolve_inferred_alloc,
-            .repeat,
-            .repeat_inline,
             .validate_struct_init_ptr,
             .validate_array_init_ptr,
-            .panic,
             .set_align_stack,
             .set_cold,
             .set_float_mode,
@@ -2097,15 +2121,19 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: ast.Node.Index) Inner
     } else switch (maybe_unused_result) {
         .none => unreachable,
 
-        .void_value,
-        .unreachable_value,
-        => true,
+        .unreachable_value => b: {
+            noreturn_src_node = statement;
+            break :b true;
+        },
+
+        .void_value => true,
 
         else => false,
     };
     if (!elide_check) {
         _ = try gz.addUnNode(.ensure_result_used, maybe_unused_result, statement);
     }
+    return noreturn_src_node;
 }
 
 fn genDefers(
@@ -2132,7 +2160,7 @@ fn genDefers(
                 const prev_in_defer = gz.in_defer;
                 gz.in_defer = true;
                 defer gz.in_defer = prev_in_defer;
-                try unusedResultExpr(gz, defer_scope.parent, expr_node);
+                _ = try unusedResultExpr(gz, defer_scope.parent, expr_node);
             },
             .defer_error => {
                 const defer_scope = scope.cast(Scope.Defer).?;
@@ -2142,7 +2170,7 @@ fn genDefers(
                 const prev_in_defer = gz.in_defer;
                 gz.in_defer = true;
                 defer gz.in_defer = prev_in_defer;
-                try unusedResultExpr(gz, defer_scope.parent, expr_node);
+                _ = try unusedResultExpr(gz, defer_scope.parent, expr_node);
             },
             .namespace => unreachable,
             .top => unreachable,

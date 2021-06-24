@@ -5407,16 +5407,6 @@ static void ir_finish_bb(IrAnalyze *ira) {
                     ira->new_irb.current_basic_block->debug_id);
         }
     }
-    ira->instruction_index += 1;
-    while (ira->instruction_index < ira->zir_current_basic_block->instruction_list.length) {
-        IrInstSrc *next_instruction = ira->zir_current_basic_block->instruction_list.at(ira->instruction_index);
-        if (!next_instruction->is_gen) {
-            ir_add_error(ira, &next_instruction->base, buf_sprintf("unreachable code"));
-            break;
-        }
-        ira->instruction_index += 1;
-    }
-
     ir_start_next_bb(ira);
 }
 
@@ -15934,7 +15924,7 @@ static IrInstGen *ir_analyze_instruction_pop_count(IrAnalyze *ira, IrInstSrcPopC
     return ir_build_pop_count_gen(ira, &instruction->base.base, return_type, op);
 }
 
-static IrInstGen *ir_analyze_union_tag(IrAnalyze *ira, IrInst* source_instr, IrInstGen *value, bool is_gen) {
+static IrInstGen *ir_analyze_union_tag(IrAnalyze *ira, IrInst* source_instr, IrInstGen *value) {
     if (type_is_invalid(value->value->type))
         return ira->codegen->invalid_inst_gen;
 
@@ -15943,7 +15933,7 @@ static IrInstGen *ir_analyze_union_tag(IrAnalyze *ira, IrInst* source_instr, IrI
             buf_sprintf("expected enum or union type, found '%s'", buf_ptr(&value->value->type->name)));
         return ira->codegen->invalid_inst_gen;
     }
-    if (!value->value->type->data.unionation.have_explicit_tag_type && !is_gen) {
+    if (!value->value->type->data.unionation.have_explicit_tag_type) {
         ErrorMsg *msg = ir_add_error(ira, source_instr, buf_sprintf("union has no associated enum"));
         if (value->value->type->data.unionation.decl_node != nullptr) {
             add_error_note(ira->codegen, msg, value->value->type->data.unionation.decl_node,
@@ -16906,7 +16896,7 @@ static IrInstGen *ir_analyze_instruction_enum_tag_name(IrAnalyze *ira, IrInstSrc
     }
 
     if (target_type->id == ZigTypeIdUnion) {
-        target = ir_analyze_union_tag(ira, &instruction->base.base, target, instruction->base.is_gen);
+        target = ir_analyze_union_tag(ira, &instruction->base.base, target);
         if (type_is_invalid(target->value->type))
             return ira->codegen->invalid_inst_gen;
         target_type = target->value->type;

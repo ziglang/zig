@@ -4762,7 +4762,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\fn b() void {}
     , &[_][]const u8{
-        "tmp.zig:3:5: error: unreachable code",
+        "tmp.zig:3:6: error: unreachable code",
+        "tmp.zig:2:5: note: control flow is diverted here",
     });
 
     cases.add("bad import",
