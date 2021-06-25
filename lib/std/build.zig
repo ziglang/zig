@@ -57,6 +57,7 @@ pub const Builder = struct {
     exe_dir: []const u8,
     h_dir: []const u8,
     install_path: []const u8,
+    sysroot: ?[]const u8 = null,
     search_prefixes: ArrayList([]const u8),
     libc_file: ?[]const u8 = null,
     installed_files: ArrayList(InstalledFile),
@@ -2699,6 +2700,10 @@ pub const LibExeObjStep = struct {
                 zig_args.append("-framework") catch unreachable;
                 zig_args.append(framework.*) catch unreachable;
             }
+        }
+
+        if (builder.sysroot) |sysroot| {
+            try zig_args.appendSlice(&[_][]const u8{ "--sysroot", sysroot });
         }
 
         for (builder.search_prefixes.items) |search_prefix| {

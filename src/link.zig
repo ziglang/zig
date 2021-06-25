@@ -38,6 +38,8 @@ pub const Options = struct {
     /// Not every Compilation compiles .zig code! For example you could do `zig build-exe foo.o`.
     module: ?*Module,
     dynamic_linker: ?[]const u8,
+    /// The root path for the dynamic linker and system libraries (as well as frameworks on Darwin)
+    sysroot: ?[]const u8,
     /// Used for calculating how much space to reserve for symbols in case the binary file
     /// does not already have a symbol table.
     symbol_count_hint: u64 = 32,
@@ -104,8 +106,6 @@ pub const Options = struct {
     llvm_cpu_features: ?[*:0]const u8,
     /// Extra args passed directly to LLD. Ignored when not linking with LLD.
     extra_lld_args: []const []const u8,
-    /// Darwin-only. Set the root path to the system libraries and frameworks.
-    syslibroot: ?[]const u8,
 
     objects: []const []const u8,
     framework_dirs: []const []const u8,
