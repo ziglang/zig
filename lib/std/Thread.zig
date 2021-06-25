@@ -408,7 +408,7 @@ const PosixThreadImpl = struct {
             os.EPERM => unreachable,
             os.EINVAL => unreachable,
             else => |err| return os.unexpectedErrno(err),
-        };
+        }
     }
 
     fn getHandle(self: Impl) ThreadHandle {
@@ -580,7 +580,7 @@ const LinuxThreadImpl = struct {
             os.EPERM => unreachable,
             os.EUSERS => unreachable,
             else => |err| return os.unexpectedErrno(err),
-        };
+        }
     }
 
     fn getHandle(self: Impl) ThreadHandle {
