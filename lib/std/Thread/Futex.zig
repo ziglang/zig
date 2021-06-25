@@ -418,8 +418,8 @@ test "Futex - Signal" {
         fn runThread(rx: *Self, tx: *Self) void {
             var iterations: u32 = start_value;
             while (iterations < 10) : (iterations += 1) {
-                self.rx.recv(iterations);
-                self.tx.send(iterations);
+                rx.recv(iterations);
+                tx.send(iterations);
             }
         }
 
@@ -528,11 +528,11 @@ test "Futex - Chain" {
         const Self = @This();
 
         fn runThread(self: *Self, index: usize) void {
-            const this_signal = &chain.self.threads[chain.index].signal;
+            const this_signal = &self.threads[index].signal;
 
-            var next_signal = &chain.self.completed;
-            if (chain.index + 1 < chain.self.threads.len) {
-                next_signal = &chain.self.threads[chain.index + 1].signal;
+            var next_signal = &self.completed;
+            if (index + 1 < self.threads.len) {
+                next_signal = &self.threads[index + 1].signal;
             }
 
             this_signal.wait();
