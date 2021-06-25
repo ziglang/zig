@@ -9,3 +9,4 @@ lib/libc/** linguist-vendored
 lib/libcxx/** linguist-vendored
 lib/libcxxabi/** linguist-vendored
 lib/libunwind/** linguist-vendored
+lib/tsan/** linguist-vendored
