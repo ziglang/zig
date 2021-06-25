@@ -3822,7 +3822,7 @@ fn unionDeclInner(
         if (member.comptime_token) |comptime_token| {
             return astgen.failTok(comptime_token, "union fields cannot be marked comptime", .{});
         }
-        try fields_data.ensureUnusedCapacity(gpa, 4);
+        try fields_data.ensureUnusedCapacity(gpa, if (node_tags[member.ast.type_expr] != .@"anytype") 4 else 3);
 
         const field_name = try astgen.identAsString(member.ast.name_token);
         fields_data.appendAssumeCapacity(field_name);
@@ -3837,7 +3837,7 @@ fn unionDeclInner(
             (@as(u32, @boolToInt(have_value)) << 30) |
             (@as(u32, @boolToInt(unused)) << 31);
 
-        if (have_type) {
+        if (have_type and node_tags[member.ast.type_expr] != .@"anytype") {
             const field_type = try typeExpr(&block_scope, &block_scope.base, member.ast.type_expr);
             fields_data.appendAssumeCapacity(@enumToInt(field_type));
         }
