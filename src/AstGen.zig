@@ -17,6 +17,16 @@ tree: *const ast.Tree,
 instructions: std.MultiArrayList(Zir.Inst) = .{},
 extra: ArrayListUnmanaged(u32) = .{},
 string_bytes: ArrayListUnmanaged(u8) = .{},
+/// Tracks the current byte offset within the source file.
+/// Used to populate line deltas in the ZIR. AstGen maintains
+/// this "cursor" throughout the entire AST lowering process in order
+/// to avoid starting over the line/column scan for every declaration, which
+/// would be O(N^2).
+source_offset: u32 = 0,
+/// Tracks the current line of `source_offset`.
+source_line: u32 = 0,
+/// Tracks the current column of `source_offset`.
+source_column: u32 = 0,
 /// Used for temporary allocations; freed after AstGen is complete.
 /// The resulting ZIR code has no references to anything in this arena.
 arena: *Allocator,
@@ -2472,15 +2482,18 @@ fn emitDbgNode(gz: *GenZir, node: ast.Node.Index) !void {
 
     const astgen = gz.astgen;
     const tree = astgen.tree;
+    const source = tree.source;
     const token_starts = tree.tokens.items(.start);
-    const decl_start = token_starts[tree.firstToken(gz.decl_node_index)];
     const node_start = token_starts[tree.firstToken(node)];
-    const source = tree.source[decl_start..node_start];
-    const loc = std.zig.findLineColumn(source, source.len);
+
+    astgen.advanceSourceCursor(source, node_start);
+    const line = @intCast(u32, astgen.source_line);
+    const column = @intCast(u32, astgen.source_column);
+
     _ = try gz.add(.{ .tag = .dbg_stmt, .data = .{
         .dbg_stmt = .{
-            .line = @intCast(u32, loc.line),
-            .column = @intCast(u32, loc.column),
+            .line = line,
+            .column = column,
         },
     } });
 }
@@ -8564,12 +8577,13 @@ const GenZir = struct {
     fn calcLine(gz: GenZir, node: ast.Node.Index) u32 {
         const astgen = gz.astgen;
         const tree = astgen.tree;
+        const source = tree.source;
         const token_starts = tree.tokens.items(.start);
-        const decl_start = token_starts[tree.firstToken(gz.decl_node_index)];
         const node_start = token_starts[tree.firstToken(node)];
-        const source = tree.source[decl_start..node_start];
-        const loc = std.zig.findLineColumn(source, source.len);
-        return @intCast(u32, gz.decl_line + loc.line);
+
+        astgen.advanceSourceCursor(source, node_start);
+
+        return @intCast(u32, gz.decl_line + astgen.source_line);
     }
 
     fn tokSrcLoc(gz: GenZir, token_index: ast.TokenIndex) LazySrcLoc {
@@ -8713,20 +8727,21 @@ const GenZir = struct {
             const node_tags = tree.nodes.items(.tag);
             const node_datas = tree.nodes.items(.data);
             const token_starts = tree.tokens.items(.start);
-            const decl_start = token_starts[tree.firstToken(gz.decl_node_index)];
             const fn_decl = args.src_node;
             assert(node_tags[fn_decl] == .fn_decl or node_tags[fn_decl] == .test_decl);
             const block = node_datas[fn_decl].rhs;
             const lbrace_start = token_starts[tree.firstToken(block)];
             const rbrace_start = token_starts[tree.lastToken(block)];
-            const lbrace_source = tree.source[decl_start..lbrace_start];
-            const lbrace_loc = std.zig.findLineColumn(lbrace_source, lbrace_source.len);
-            const rbrace_source = tree.source[lbrace_start..rbrace_start];
-            const rbrace_loc = std.zig.findLineColumn(rbrace_source, rbrace_source.len);
-            const lbrace_line = @intCast(u32, lbrace_loc.line);
-            const rbrace_line = lbrace_line + @intCast(u32, rbrace_loc.line);
-            const columns = @intCast(u32, lbrace_loc.column) |
-                (@intCast(u32, rbrace_loc.column) << 16);
+
+            astgen.advanceSourceCursor(tree.source, lbrace_start);
+            const lbrace_line = @intCast(u32, astgen.source_line);
+            const lbrace_column = @intCast(u32, astgen.source_column);
+
+            astgen.advanceSourceCursor(tree.source, rbrace_start);
+            const rbrace_line = @intCast(u32, astgen.source_line);
+            const rbrace_column = @intCast(u32, astgen.source_column);
+
+            const columns = lbrace_column | (rbrace_column << 16);
             src_locs_buffer[0] = lbrace_line;
             src_locs_buffer[1] = rbrace_line;
             src_locs_buffer[2] = columns;
@@ -9541,4 +9556,21 @@ fn declareNewName(
             .top => break,
         }
     }
+}
+
+fn advanceSourceCursor(astgen: *AstGen, source: []const u8, end: usize) void {
+    var i = astgen.source_offset;
+    var line = astgen.source_line;
+    var column = astgen.source_column;
+    while (i < end) : (i += 1) {
+        if (source[i] == '\n') {
+            line += 1;
+            column = 0;
+        } else {
+            column += 1;
+        }
+    }
+    astgen.source_offset = i;
+    astgen.source_line = line;
+    astgen.source_column = column;
 }
