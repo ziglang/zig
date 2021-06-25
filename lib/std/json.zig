@@ -1551,8 +1551,11 @@ fn parseInternal(comptime T: type, token: Token, tokens: *TokenStream, options: 
                 .Number => |n| n,
                 else => return error.UnexpectedToken,
             };
-            if (!numberToken.is_integer) return error.UnexpectedToken;
-            return try std.fmt.parseInt(T, numberToken.slice(tokens.slice, tokens.i - 1), 10);
+            if (numberToken.is_integer)
+                return try std.fmt.parseInt(T, numberToken.slice(tokens.slice, tokens.i - 1), 10);
+            const float = try std.fmt.parseFloat(f128, numberToken.slice(tokens.slice, tokens.i - 1));
+            if (std.math.round(float) != float) return error.InvalidNumber;
+            return @floatToInt(T, float);
         },
         .Optional => |optionalInfo| {
             if (token == .Null) {
@@ -2122,8 +2125,8 @@ test "parse into struct with duplicate field" {
 
     const T1 = struct { a: *u64 };
     // both .UseFirst and .UseLast should fail because second "a" value isn't a u64
-    try testing.expectError(error.UnexpectedToken, parse(T1, &TokenStream.init(str), options_first));
-    try testing.expectError(error.UnexpectedToken, parse(T1, &TokenStream.init(str), options_last));
+    try testing.expectError(error.InvalidNumber, parse(T1, &TokenStream.init(str), options_first));
+    try testing.expectError(error.InvalidNumber, parse(T1, &TokenStream.init(str), options_last));
 
     const T2 = struct { a: f64 };
     try testing.expectEqual(T2{ .a = 1.0 }, try parse(T2, &TokenStream.init(str), options_first));
@@ -2607,6 +2610,13 @@ test "integer after float has proper type" {
         \\}
     );
     try std.testing.expect(json.Object.get("ints").?.Array.items[0] == .Integer);
+}
+
+test "parse exponential into int" {
+    const T = struct { int: i64 };
+    const r = try parse(T, &TokenStream.init("{ \"int\": 4.2e2 }"), ParseOptions{});
+    try testing.expectEqual(@as(i64, 420), r.int);
+    try testing.expectError(error.InvalidNumber, parse(T, &TokenStream.init("{ \"int\": 0.042e2 }"), ParseOptions{}));
 }
 
 test "escaped characters" {
