@@ -367,6 +367,7 @@ fn mapAndUpdateSections(
         offset,
         offset + size,
     });
+    log.debug("  | flags 0x{x}", .{source_sect.inner.flags});
 
     source_sect.target_map = .{
         .segment_id = target_seg_id,
@@ -739,6 +740,21 @@ fn getMatchingSection(self: *Zld, sect: Object.Section) !?MatchingSection {
                         break :blk .{
                             .seg = self.text_segment_cmd_index.?,
                             .sect = self.objc_methlist_section_index.?,
+                        };
+                    } else if (mem.eql(u8, sectname, "__rodata") or
+                        mem.eql(u8, sectname, "__typelink") or
+                        mem.eql(u8, sectname, "__itablink") or
+                        mem.eql(u8, sectname, "__gosymtab") or
+                        mem.eql(u8, sectname, "__gopclntab"))
+                    {
+                        if (self.data_const_section_index == null) {
+                            self.data_const_section_index = @intCast(u16, data_const_seg.sections.items.len);
+                            try data_const_seg.addSection(self.allocator, "__const", .{});
+                        }
+
+                        break :blk .{
+                            .seg = self.data_const_segment_cmd_index.?,
+                            .sect = self.data_const_section_index.?,
                         };
                     } else {
                         if (self.text_const_section_index == null) {

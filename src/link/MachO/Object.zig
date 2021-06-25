@@ -94,7 +94,7 @@ pub const Section = struct {
 
     pub fn isCode(self: Section) bool {
         const attr = self.sectionAttrs();
-        return attr & macho.S_ATTR_PURE_INSTRUCTIONS != 0 and attr & macho.S_ATTR_SOME_INSTRUCTIONS != 0;
+        return attr & macho.S_ATTR_PURE_INSTRUCTIONS != 0 or attr & macho.S_ATTR_SOME_INSTRUCTIONS != 0;
     }
 
     pub fn isDebug(self: Section) bool {
