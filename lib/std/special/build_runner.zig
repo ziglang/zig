@@ -104,6 +104,12 @@ pub fn main() !void {
                     warn("Expected argument after {s}\n\n", .{arg});
                     return usageAndErr(builder, false, stderr_stream);
                 };
+            } else if (mem.eql(u8, arg, "--sysroot")) {
+                const sysroot = nextArg(args, &arg_idx) orelse {
+                    warn("Expected argument after --sysroot\n\n", .{});
+                    return usageAndErr(builder, false, stderr_stream);
+                };
+                builder.sysroot = sysroot;
             } else if (mem.eql(u8, arg, "--search-prefix")) {
                 const search_prefix = nextArg(args, &arg_idx) orelse {
                     warn("Expected argument after --search-prefix\n\n", .{});
@@ -214,6 +220,7 @@ fn usage(builder: *Builder, already_ran_build: bool, out_stream: anytype) !void 
         \\  --prefix-exe-dir     [path] Override default executable directory path
         \\  --prefix-include-dir [path] Override default include directory path
         \\
+        \\  --sysroot [path]            Set the system root directory (usually /)
         \\  --search-prefix [path]      Add a path to look for binaries, libraries, headers
         \\  --libc [file]               Provide a file which specifies libc paths
         \\
