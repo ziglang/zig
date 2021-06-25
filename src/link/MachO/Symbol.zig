@@ -7,7 +7,6 @@ const mem = std.mem;
 const Allocator = mem.Allocator;
 const Dylib = @import("Dylib.zig");
 const Object = @import("Object.zig");
-const Stub = @import("Stub.zig");
 
 pub const Type = enum {
     regular,
@@ -85,21 +84,26 @@ pub const Regular = struct {
 pub const Proxy = struct {
     base: Symbol,
 
-    /// Dylib or stub where to locate this symbol.
+    /// Dynamic binding info - spots within the final
+    /// executable where this proxy is referenced from.
+    bind_info: std.ArrayListUnmanaged(struct {
+        segment_id: u16,
+        address: u64,
+    }) = .{},
+
+    /// Dylib where to locate this symbol.
     /// null means self-reference.
-    file: ?union(enum) {
-        dylib: *Dylib,
-        stub: *Stub,
-    } = null,
+    file: ?*Dylib = null,
 
     pub const base_type: Symbol.Type = .proxy;
 
+    pub fn deinit(proxy: *Proxy, allocator: *Allocator) void {
+        proxy.bind_info.deinit(allocator);
+    }
+
     pub fn dylibOrdinal(proxy: *Proxy) u16 {
-        const file = proxy.file orelse return 0;
-        return switch (file) {
-            .dylib => |dylib| dylib.ordinal.?,
-            .stub => |stub| stub.ordinal.?,
-        };
+        const dylib = proxy.file orelse return 0;
+        return dylib.ordinal.?;
     }
 };
 
@@ -129,6 +133,10 @@ pub const Tentative = struct {
 
 pub fn deinit(base: *Symbol, allocator: *Allocator) void {
     allocator.free(base.name);
+    switch (base.@"type") {
+        .proxy => @fieldParentPtr(Proxy, "base", base).deinit(allocator),
+        else => {},
+    }
 }
 
 pub fn cast(base: *Symbol, comptime T: type) ?*T {

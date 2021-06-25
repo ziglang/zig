@@ -26,6 +26,11 @@ pub const LibStub = struct {
             float: f64,
             int: u64,
         },
+        compatibility_version: ?union(enum) {
+            string: []const u8,
+            float: f64,
+            int: u64,
+        },
         reexported_libraries: ?[]const struct {
             targets: []const []const u8,
             libraries: []const []const u8,
@@ -36,11 +41,13 @@ pub const LibStub = struct {
         },
         exports: ?[]const struct {
             targets: []const []const u8,
-            symbols: []const []const u8,
+            symbols: ?[]const []const u8,
+            objc_classes: ?[]const []const u8,
         },
         reexports: ?[]const struct {
             targets: []const []const u8,
-            symbols: []const []const u8,
+            symbols: ?[]const []const u8,
+            objc_classes: ?[]const []const u8,
         },
         allowable_clients: ?[]const struct {
             targets: []const []const u8,

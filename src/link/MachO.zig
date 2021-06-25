@@ -514,6 +514,119 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
     }
 }
 
+fn resolvePaths(
+    arena: *Allocator,
+    resolved_paths: *std.ArrayList([]const u8),
+    syslibroot: ?[]const u8,
+    search_dirs: []const []const u8,
+    lib_names: []const []const u8,
+    kind: enum { lib, framework },
+) !void {
+    var resolved_dirs = std.ArrayList([]const u8).init(arena);
+    for (search_dirs) |dir| {
+        if (fs.path.isAbsolute(dir)) {
+            var candidates = std.ArrayList([]const u8).init(arena);
+            if (syslibroot) |root| {
+                const full_path = try fs.path.join(arena, &[_][]const u8{ root, dir });
+                try candidates.append(full_path);
+            }
+            try candidates.append(dir);
+
+            var found = false;
+            for (candidates.items) |candidate| {
+                // Verify that search path actually exists
+                var tmp = fs.cwd().openDir(candidate, .{}) catch |err| switch (err) {
+                    error.FileNotFound => continue,
+                    else => |e| return e,
+                };
+                defer tmp.close();
+
+                try resolved_dirs.append(candidate);
+                found = true;
+                break;
+            }
+
+            if (!found) {
+                switch (kind) {
+                    .lib => log.warn("directory not found for '-L{s}'", .{dir}),
+                    .framework => log.warn("directory not found for '-F{s}'", .{dir}),
+                }
+            }
+        } else {
+            // Verify that search path actually exists
+            var tmp = fs.cwd().openDir(dir, .{}) catch |err| switch (err) {
+                error.FileNotFound => {
+                    switch (kind) {
+                        .lib => log.warn("directory not found for '-L{s}'", .{dir}),
+                        .framework => log.warn("directory not found for '-F{s}'", .{dir}),
+                    }
+                    continue;
+                },
+                else => |e| return e,
+            };
+            defer tmp.close();
+
+            try resolved_dirs.append(dir);
+        }
+    }
+
+    // Assume ld64 default: -search_paths_first
+    // Look in each directory for a dylib (next, tbd), and then for archive
+    // TODO implement alternative: -search_dylibs_first
+    const exts = switch (kind) {
+        .lib => &[_][]const u8{ "dylib", "tbd", "a" },
+        .framework => &[_][]const u8{ "dylib", "tbd" },
+    };
+
+    for (lib_names) |lib_name| {
+        var found = false;
+
+        ext: for (exts) |ext| {
+            const lib_name_ext = blk: {
+                switch (kind) {
+                    .lib => break :blk try std.fmt.allocPrint(arena, "lib{s}.{s}", .{ lib_name, ext }),
+                    .framework => {
+                        const prefix = try std.fmt.allocPrint(arena, "{s}.framework", .{lib_name});
+                        const nn = try std.fmt.allocPrint(arena, "{s}.{s}", .{ lib_name, ext });
+                        break :blk try fs.path.join(arena, &[_][]const u8{ prefix, nn });
+                    },
+                }
+            };
+
+            for (resolved_dirs.items) |dir| {
+                const full_path = try fs.path.join(arena, &[_][]const u8{ dir, lib_name_ext });
+
+                // Check if the lib file exists.
+                const tmp = fs.cwd().openFile(full_path, .{}) catch |err| switch (err) {
+                    error.FileNotFound => continue,
+                    else => |e| return e,
+                };
+                defer tmp.close();
+
+                try resolved_paths.append(full_path);
+                found = true;
+                break :ext;
+            }
+        }
+
+        if (!found) {
+            switch (kind) {
+                .lib => {
+                    log.warn("library not found for '-l{s}'", .{lib_name});
+                    log.warn("Library search paths:", .{});
+                },
+                .framework => {
+                    log.warn("framework not found for '-f{s}'", .{lib_name});
+                    log.warn("Framework search paths:", .{});
+                },
+            }
+            for (resolved_dirs.items) |dir| {
+                log.warn("  {s}", .{dir});
+            }
+        }
+    }
+}
+
 fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
     const tracy = trace(@src());
     defer tracy.end();
@@ -676,6 +789,7 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                 zld.deinit();
             }
             zld.arch = target.cpu.arch;
+            zld.syslibroot = self.base.options.syslibroot;
             zld.stack_size = stack_size;
 
             // Positional arguments to the linker such as object files and static archives.
@@ -700,7 +814,6 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
             }
 
             // Shared and static libraries passed via `-l` flag.
-            var libs = std.ArrayList([]const u8).init(arena);
             var search_lib_names = std.ArrayList([]const u8).init(arena);
 
             const system_libs = self.base.options.system_libs.keys();
@@ -716,84 +829,15 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                 try search_lib_names.append(link_lib);
             }
 
-            var search_lib_dirs = std.ArrayList([]const u8).init(arena);
-
-            for (self.base.options.lib_dirs) |path| {
-                if (fs.path.isAbsolute(path)) {
-                    var candidates = std.ArrayList([]const u8).init(arena);
-                    if (self.base.options.syslibroot) |syslibroot| {
-                        const full_path = try fs.path.join(arena, &[_][]const u8{ syslibroot, path });
-                        try candidates.append(full_path);
-                    }
-                    try candidates.append(path);
-
-                    var found = false;
-                    for (candidates.items) |candidate| {
-                        // Verify that search path actually exists
-                        var tmp = fs.cwd().openDir(candidate, .{}) catch |err| switch (err) {
-                            error.FileNotFound => continue,
-                            else => |e| return e,
-                        };
-                        defer tmp.close();
-
-                        try search_lib_dirs.append(candidate);
-                        found = true;
-                        break;
-                    }
-
-                    if (!found) {
-                        log.warn("directory not found for '-L{s}'", .{path});
-                    }
-                } else {
-                    // Verify that search path actually exists
-                    var tmp = fs.cwd().openDir(path, .{}) catch |err| switch (err) {
-                        error.FileNotFound => {
-                            log.warn("directory not found for '-L{s}'", .{path});
-                            continue;
-                        },
-                        else => |e| return e,
-                    };
-                    defer tmp.close();
-
-                    try search_lib_dirs.append(path);
-                }
-            }
-
-            // Assume ld64 default: -search_paths_first
-            // Look in each directory for a dylib (next, tbd), and then for archive
-            // TODO implement alternative: -search_dylibs_first
-            const exts = &[_][]const u8{ "dylib", "tbd", "a" };
-
-            for (search_lib_names.items) |l_name| {
-                var found = false;
-
-                ext: for (exts) |ext| {
-                    const l_name_ext = try std.fmt.allocPrint(arena, "lib{s}.{s}", .{ l_name, ext });
-
-                    for (search_lib_dirs.items) |lib_dir| {
-                        const full_path = try fs.path.join(arena, &[_][]const u8{ lib_dir, l_name_ext });
-
-                        // Check if the lib file exists.
-                        const tmp = fs.cwd().openFile(full_path, .{}) catch |err| switch (err) {
-                            error.FileNotFound => continue,
-                            else => |e| return e,
-                        };
-                        defer tmp.close();
-
-                        try libs.append(full_path);
-                        found = true;
-                        break :ext;
-                    }
-                }
-
-                if (!found) {
-                    log.warn("library not found for '-l{s}'", .{l_name});
-                    log.warn("Library search paths:", .{});
-                    for (search_lib_dirs.items) |lib_dir| {
-                        log.warn("  {s}", .{lib_dir});
-                    }
-                }
-            }
+            var libs = std.ArrayList([]const u8).init(arena);
+            try resolvePaths(
+                arena,
+                &libs,
+                self.base.options.syslibroot,
+                self.base.options.lib_dirs,
+                search_lib_names.items,
+                .lib,
+            );
 
             // rpaths
             var rpath_table = std.StringArrayHashMap(void).init(arena);
@@ -809,9 +853,14 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
             }
 
             // frameworks
-            for (self.base.options.frameworks) |framework| {
-                log.warn("frameworks not yet supported for '-framework {s}'", .{framework});
-            }
+            try resolvePaths(
+                arena,
+                &libs,
+                self.base.options.syslibroot,
+                self.base.options.framework_dirs,
+                self.base.options.frameworks,
+                .framework,
+            );
 
             if (self.base.options.verbose_link) {
                 var argv = std.ArrayList([]const u8).init(arena);
@@ -1731,18 +1780,8 @@ pub fn populateMissingMetadata(self: *MachO) !void {
     if (self.pagezero_segment_cmd_index == null) {
         self.pagezero_segment_cmd_index = @intCast(u16, self.load_commands.items.len);
         try self.load_commands.append(self.base.allocator, .{
-            .Segment = SegmentCommand.empty(.{
-                .cmd = macho.LC_SEGMENT_64,
-                .cmdsize = @sizeOf(macho.segment_command_64),
-                .segname = makeStaticString("__PAGEZERO"),
-                .vmaddr = 0,
+            .Segment = SegmentCommand.empty("__PAGEZERO", .{
                 .vmsize = 0x100000000, // size always set to 4GB
-                .fileoff = 0,
-                .filesize = 0,
-                .maxprot = 0,
-                .initprot = 0,
-                .nsects = 0,
-                .flags = 0,
             }),
         });
         self.header_dirty = true;
@@ -1761,18 +1800,12 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         log.debug("found __TEXT segment free space 0x{x} to 0x{x}", .{ 0, needed_size });
 
         try self.load_commands.append(self.base.allocator, .{
-            .Segment = SegmentCommand.empty(.{
-                .cmd = macho.LC_SEGMENT_64,
-                .cmdsize = @sizeOf(macho.segment_command_64),
-                .segname = makeStaticString("__TEXT"),
+            .Segment = SegmentCommand.empty("__TEXT", .{
                 .vmaddr = 0x100000000, // always starts at 4GB
                 .vmsize = needed_size,
-                .fileoff = 0,
                 .filesize = needed_size,
                 .maxprot = maxprot,
                 .initprot = initprot,
-                .nsects = 0,
-                .flags = 0,
             }),
         });
         self.header_dirty = true;
@@ -1793,19 +1826,12 @@ pub fn populateMissingMetadata(self: *MachO) !void {
 
         log.debug("found __text section free space 0x{x} to 0x{x}", .{ off, off + needed_size });
 
-        try text_segment.addSection(self.base.allocator, .{
-            .sectname = makeStaticString("__text"),
-            .segname = makeStaticString("__TEXT"),
+        try text_segment.addSection(self.base.allocator, "__text", .{
             .addr = text_segment.inner.vmaddr + off,
             .size = @intCast(u32, needed_size),
             .offset = @intCast(u32, off),
             .@"align" = alignment,
-            .reloff = 0,
-            .nreloc = 0,
             .flags = flags,
-            .reserved1 = 0,
-            .reserved2 = 0,
-            .reserved3 = 0,
         });
         self.header_dirty = true;
         self.load_commands_dirty = true;
@@ -1831,19 +1857,13 @@ pub fn populateMissingMetadata(self: *MachO) !void {
 
         log.debug("found __stubs section free space 0x{x} to 0x{x}", .{ off, off + needed_size });
 
-        try text_segment.addSection(self.base.allocator, .{
-            .sectname = makeStaticString("__stubs"),
-            .segname = makeStaticString("__TEXT"),
+        try text_segment.addSection(self.base.allocator, "__stubs", .{
             .addr = text_segment.inner.vmaddr + off,
             .size = needed_size,
             .offset = @intCast(u32, off),
             .@"align" = alignment,
-            .reloff = 0,
-            .nreloc = 0,
             .flags = flags,
-            .reserved1 = 0,
             .reserved2 = stub_size,
-            .reserved3 = 0,
         });
         self.header_dirty = true;
         self.load_commands_dirty = true;
@@ -1864,19 +1884,12 @@ pub fn populateMissingMetadata(self: *MachO) !void {
 
         log.debug("found __stub_helper section free space 0x{x} to 0x{x}", .{ off, off + needed_size });
 
-        try text_segment.addSection(self.base.allocator, .{
-            .sectname = makeStaticString("__stub_helper"),
-            .segname = makeStaticString("__TEXT"),
+        try text_segment.addSection(self.base.allocator, "__stub_helper", .{
             .addr = text_segment.inner.vmaddr + off,
             .size = needed_size,
             .offset = @intCast(u32, off),
             .@"align" = alignment,
-            .reloff = 0,
-            .nreloc = 0,
             .flags = flags,
-            .reserved1 = 0,
-            .reserved2 = 0,
-            .reserved3 = 0,
         });
         self.header_dirty = true;
         self.load_commands_dirty = true;
@@ -1893,18 +1906,13 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         log.debug("found __DATA_CONST segment free space 0x{x} to 0x{x}", .{ address_and_offset.offset, address_and_offset.offset + needed_size });
 
         try self.load_commands.append(self.base.allocator, .{
-            .Segment = SegmentCommand.empty(.{
-                .cmd = macho.LC_SEGMENT_64,
-                .cmdsize = @sizeOf(macho.segment_command_64),
-                .segname = makeStaticString("__DATA_CONST"),
+            .Segment = SegmentCommand.empty("__DATA_CONST", .{
                 .vmaddr = address_and_offset.address,
                 .vmsize = needed_size,
                 .fileoff = address_and_offset.offset,
                 .filesize = needed_size,
                 .maxprot = maxprot,
                 .initprot = initprot,
-                .nsects = 0,
-                .flags = 0,
             }),
         });
         self.header_dirty = true;
@@ -1921,19 +1929,12 @@ pub fn populateMissingMetadata(self: *MachO) !void {
 
         log.debug("found __got section free space 0x{x} to 0x{x}", .{ off, off + needed_size });
 
-        try dc_segment.addSection(self.base.allocator, .{
-            .sectname = makeStaticString("__got"),
-            .segname = makeStaticString("__DATA_CONST"),
+        try dc_segment.addSection(self.base.allocator, "__got", .{
             .addr = dc_segment.inner.vmaddr + off - dc_segment.inner.fileoff,
             .size = needed_size,
             .offset = @intCast(u32, off),
             .@"align" = 3, // 2^3 = @sizeOf(u64)
-            .reloff = 0,
-            .nreloc = 0,
             .flags = flags,
-            .reserved1 = 0,
-            .reserved2 = 0,
-            .reserved3 = 0,
         });
         self.header_dirty = true;
         self.load_commands_dirty = true;
@@ -1950,18 +1951,13 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         log.debug("found __DATA segment free space 0x{x} to 0x{x}", .{ address_and_offset.offset, address_and_offset.offset + needed_size });
 
         try self.load_commands.append(self.base.allocator, .{
-            .Segment = SegmentCommand.empty(.{
-                .cmd = macho.LC_SEGMENT_64,
-                .cmdsize = @sizeOf(macho.segment_command_64),
-                .segname = makeStaticString("__DATA"),
+            .Segment = SegmentCommand.empty("__DATA", .{
                 .vmaddr = address_and_offset.address,
                 .vmsize = needed_size,
                 .fileoff = address_and_offset.offset,
                 .filesize = needed_size,
                 .maxprot = maxprot,
                 .initprot = initprot,
-                .nsects = 0,
-                .flags = 0,
             }),
         });
         self.header_dirty = true;
@@ -1978,19 +1974,12 @@ pub fn populateMissingMetadata(self: *MachO) !void {
 
         log.debug("found __la_symbol_ptr section free space 0x{x} to 0x{x}", .{ off, off + needed_size });
 
-        try data_segment.addSection(self.base.allocator, .{
-            .sectname = makeStaticString("__la_symbol_ptr"),
-            .segname = makeStaticString("__DATA"),
+        try data_segment.addSection(self.base.allocator, "__la_symbol_ptr", .{
             .addr = data_segment.inner.vmaddr + off - data_segment.inner.fileoff,
             .size = needed_size,
             .offset = @intCast(u32, off),
             .@"align" = 3, // 2^3 = @sizeOf(u64)
-            .reloff = 0,
-            .nreloc = 0,
             .flags = flags,
-            .reserved1 = 0,
-            .reserved2 = 0,
-            .reserved3 = 0,
         });
         self.header_dirty = true;
         self.load_commands_dirty = true;
@@ -1999,26 +1988,17 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         const data_segment = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
         self.data_section_index = @intCast(u16, data_segment.sections.items.len);
 
-        const flags = macho.S_REGULAR;
         const needed_size = @sizeOf(u64) * self.base.options.symbol_count_hint;
         const off = data_segment.findFreeSpace(needed_size, @alignOf(u64), null);
         assert(off + needed_size <= data_segment.inner.fileoff + data_segment.inner.filesize); // TODO Must expand __DATA segment.
 
         log.debug("found __data section free space 0x{x} to 0x{x}", .{ off, off + needed_size });
 
-        try data_segment.addSection(self.base.allocator, .{
-            .sectname = makeStaticString("__data"),
-            .segname = makeStaticString("__DATA"),
+        try data_segment.addSection(self.base.allocator, "__data", .{
             .addr = data_segment.inner.vmaddr + off - data_segment.inner.fileoff,
             .size = needed_size,
             .offset = @intCast(u32, off),
             .@"align" = 3, // 2^3 = @sizeOf(u64)
-            .reloff = 0,
-            .nreloc = 0,
-            .flags = flags,
-            .reserved1 = 0,
-            .reserved2 = 0,
-            .reserved3 = 0,
         });
         self.header_dirty = true;
         self.load_commands_dirty = true;
@@ -2033,18 +2013,11 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         log.debug("found __LINKEDIT segment free space at 0x{x}", .{address_and_offset.offset});
 
         try self.load_commands.append(self.base.allocator, .{
-            .Segment = SegmentCommand.empty(.{
-                .cmd = macho.LC_SEGMENT_64,
-                .cmdsize = @sizeOf(macho.segment_command_64),
-                .segname = makeStaticString("__LINKEDIT"),
+            .Segment = SegmentCommand.empty("__LINKEDIT", .{
                 .vmaddr = address_and_offset.address,
-                .vmsize = 0,
                 .fileoff = address_and_offset.offset,
-                .filesize = 0,
                 .maxprot = maxprot,
                 .initprot = initprot,
-                .nsects = 0,
-                .flags = 0,
             }),
         });
         self.header_dirty = true;
@@ -2400,13 +2373,6 @@ fn allocateTextBlock(self: *MachO, text_block: *TextBlock, new_block_size: u64, 
     }
 
     return vaddr;
-}
-
-pub fn makeStaticString(comptime bytes: []const u8) [16]u8 {
-    var buf = [_]u8{0} ** 16;
-    if (bytes.len > buf.len) @compileError("string too long; max 16 bytes");
-    mem.copy(u8, &buf, bytes);
-    return buf;
 }
 
 fn makeString(self: *MachO, bytes: []const u8) !u32 {

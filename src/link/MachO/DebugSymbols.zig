@@ -19,7 +19,6 @@ const MachO = @import("../MachO.zig");
 const SrcFn = MachO.SrcFn;
 const TextBlock = MachO.TextBlock;
 const padToIdeal = MachO.padToIdeal;
-const makeStaticString = MachO.makeStaticString;
 
 usingnamespace @import("commands.zig");
 
@@ -212,18 +211,11 @@ pub fn populateMissingMetadata(self: *DebugSymbols, allocator: *Allocator) !void
         log.debug("found dSym __DWARF segment free space 0x{x} to 0x{x}", .{ off, off + needed_size });
 
         try self.load_commands.append(allocator, .{
-            .Segment = SegmentCommand.empty(.{
-                .cmd = macho.LC_SEGMENT_64,
-                .cmdsize = @sizeOf(macho.segment_command_64),
-                .segname = makeStaticString("__DWARF"),
+            .Segment = SegmentCommand.empty("__DWARF", .{
                 .vmaddr = vmaddr,
                 .vmsize = needed_size,
                 .fileoff = off,
                 .filesize = needed_size,
-                .maxprot = 0,
-                .initprot = 0,
-                .nsects = 0,
-                .flags = 0,
             }),
         });
         self.header_dirty = true;
@@ -234,19 +226,11 @@ pub fn populateMissingMetadata(self: *DebugSymbols, allocator: *Allocator) !void
         self.debug_str_section_index = @intCast(u16, dwarf_segment.sections.items.len);
         assert(self.debug_string_table.items.len == 0);
 
-        try dwarf_segment.addSection(allocator, .{
-            .sectname = makeStaticString("__debug_str"),
-            .segname = makeStaticString("__DWARF"),
+        try dwarf_segment.addSection(allocator, "__debug_str", .{
             .addr = dwarf_segment.inner.vmaddr,
             .size = @intCast(u32, self.debug_string_table.items.len),
             .offset = @intCast(u32, dwarf_segment.inner.fileoff),
             .@"align" = 1,
-            .reloff = 0,
-            .nreloc = 0,
-            .flags = macho.S_REGULAR,
-            .reserved1 = 0,
-            .reserved2 = 0,
-            .reserved3 = 0,
         });
         self.header_dirty = true;
         self.load_commands_dirty = true;
@@ -262,19 +246,11 @@ pub fn populateMissingMetadata(self: *DebugSymbols, allocator: *Allocator) !void
 
         log.debug("found dSym __debug_info free space 0x{x} to 0x{x}", .{ off, off + file_size_hint });
 
-        try dwarf_segment.addSection(allocator, .{
-            .sectname = makeStaticString("__debug_info"),
-            .segname = makeStaticString("__DWARF"),
+        try dwarf_segment.addSection(allocator, "__debug_info", .{
             .addr = dwarf_segment.inner.vmaddr + off - dwarf_segment.inner.fileoff,
             .size = file_size_hint,
             .offset = @intCast(u32, off),
             .@"align" = p_align,
-            .reloff = 0,
-            .nreloc = 0,
-            .flags = macho.S_REGULAR,
-            .reserved1 = 0,
-            .reserved2 = 0,
-            .reserved3 = 0,
         });
         self.header_dirty = true;
         self.load_commands_dirty = true;
@@ -290,19 +266,11 @@ pub fn populateMissingMetadata(self: *DebugSymbols, allocator: *Allocator) !void
 
         log.debug("found dSym __debug_abbrev free space 0x{x} to 0x{x}", .{ off, off + file_size_hint });
 
-        try dwarf_segment.addSection(allocator, .{
-            .sectname = makeStaticString("__debug_abbrev"),
-            .segname = makeStaticString("__DWARF"),
+        try dwarf_segment.addSection(allocator, "__debug_abbrev", .{
             .addr = dwarf_segment.inner.vmaddr + off - dwarf_segment.inner.fileoff,
             .size = file_size_hint,
             .offset = @intCast(u32, off),
             .@"align" = p_align,
-            .reloff = 0,
-            .nreloc = 0,
-            .flags = macho.S_REGULAR,
-            .reserved1 = 0,
-            .reserved2 = 0,
-            .reserved3 = 0,
         });
         self.header_dirty = true;
         self.load_commands_dirty = true;
@@ -318,19 +286,11 @@ pub fn populateMissingMetadata(self: *DebugSymbols, allocator: *Allocator) !void
 
         log.debug("found dSym __debug_aranges free space 0x{x} to 0x{x}", .{ off, off + file_size_hint });
 
-        try dwarf_segment.addSection(allocator, .{
-            .sectname = makeStaticString("__debug_aranges"),
-            .segname = makeStaticString("__DWARF"),
+        try dwarf_segment.addSection(allocator, "__debug_aranges", .{
             .addr = dwarf_segment.inner.vmaddr + off - dwarf_segment.inner.fileoff,
             .size = file_size_hint,
             .offset = @intCast(u32, off),
             .@"align" = p_align,
-            .reloff = 0,
-            .nreloc = 0,
-            .flags = macho.S_REGULAR,
-            .reserved1 = 0,
-            .reserved2 = 0,
-            .reserved3 = 0,
         });
         self.header_dirty = true;
         self.load_commands_dirty = true;
@@ -346,19 +306,11 @@ pub fn populateMissingMetadata(self: *DebugSymbols, allocator: *Allocator) !void
 
         log.debug("found dSym __debug_line free space 0x{x} to 0x{x}", .{ off, off + file_size_hint });
 
-        try dwarf_segment.addSection(allocator, .{
-            .sectname = makeStaticString("__debug_line"),
-            .segname = makeStaticString("__DWARF"),
+        try dwarf_segment.addSection(allocator, "__debug_line", .{
             .addr = dwarf_segment.inner.vmaddr + off - dwarf_segment.inner.fileoff,
             .size = file_size_hint,
             .offset = @intCast(u32, off),
             .@"align" = p_align,
-            .reloff = 0,
-            .nreloc = 0,
-            .flags = macho.S_REGULAR,
-            .reserved1 = 0,
-            .reserved2 = 0,
-            .reserved3 = 0,
         });
         self.header_dirty = true;
         self.load_commands_dirty = true;
@@ -692,14 +644,10 @@ pub fn deinit(self: *DebugSymbols, allocator: *Allocator) void {
 }
 
 fn copySegmentCommand(self: *DebugSymbols, allocator: *Allocator, base_cmd: SegmentCommand) !SegmentCommand {
-    var cmd = SegmentCommand.empty(.{
-        .cmd = macho.LC_SEGMENT_64,
+    var cmd = SegmentCommand.empty("", .{
         .cmdsize = base_cmd.inner.cmdsize,
-        .segname = undefined,
         .vmaddr = base_cmd.inner.vmaddr,
         .vmsize = base_cmd.inner.vmsize,
-        .fileoff = 0,
-        .filesize = 0,
         .maxprot = base_cmd.inner.maxprot,
         .initprot = base_cmd.inner.initprot,
         .nsects = base_cmd.inner.nsects,
