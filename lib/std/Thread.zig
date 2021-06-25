@@ -397,17 +397,17 @@ const PosixThreadImpl = struct {
         assert(c.pthread_attr_setguardsize(&attr, std.mem.page_size) == 0);
 
         var handle: c.pthread_t = undefined;
-        return switch (c.pthread_create(
+        switch (c.pthread_create(
             &handle,
             &attr,
             Instance.entryFn,
             @ptrCast(*c_void, args_ptr),
         )) {
-            0 => .{ .handle = handle },
-            os.EAGAIN => error.SystemResources,
+            0 => return Impl{ .handle = handle },
+            os.EAGAIN => return error.SystemResources,
             os.EPERM => unreachable,
             os.EINVAL => unreachable,
-            else => |err| os.unexpectedErrno(err),
+            else => |err| return os.unexpectedErrno(err),
         };
     }
 
@@ -563,7 +563,7 @@ const LinuxThreadImpl = struct {
             os.CLONE_PARENT_SETTID | os.CLONE_CHILD_CLEARTID |
             os.CLONE_DETACHED | os.CLONE_SETTLS;
 
-        return switch (linux.getErrno(linux.clone(
+        switch (linux.getErrno(linux.clone(
             Instance.entryFn,
             @ptrToInt(&mapped[stack_offset]),
             flags,
@@ -572,14 +572,14 @@ const LinuxThreadImpl = struct {
             tls_ptr,
             &instance.thread.child_tid.value,
         ))) {
-            0 => .{ .thread = &instance.thread },
-            os.EAGAIN => error.ThreadQuotaExceeded,
+            0 => return Impl{ .thread = &instance.thread },
+            os.EAGAIN => return error.ThreadQuotaExceeded,
             os.EINVAL => unreachable,
-            os.ENOMEM => error.SystemResources,
+            os.ENOMEM => return error.SystemResources,
             os.ENOSPC => unreachable,
             os.EPERM => unreachable,
             os.EUSERS => unreachable,
-            else => |err| os.unexpectedErrno(err),
+            else => |err| return os.unexpectedErrno(err),
         };
     }
 
@@ -655,7 +655,7 @@ const LinuxThreadImpl = struct {
                     \\  movl $60, %eax
                     \\  syscall
                 ),
-                .arm, .armeb, .thumb, .thumb_eb => (
+                .arm, .armeb, .thumb, .thumbeb => (
                     \\.syntax unified
                     \\.text
                     \\.global __unmap_and_exit
