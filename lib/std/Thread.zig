@@ -376,11 +376,16 @@ const PosixThreadImpl = struct {
     fn spawn(config: SpawnConfig, comptime f: anytype, args: anytype) !Impl {
         const Args = @TypeOf(args);
         const allocator = std.heap.c_allocator;
+
         const Instance = struct {
             fn entryFn(raw_arg: ?*c_void) callconv(.C) ?*c_void {
-               const args_ptr = @ptrCast(*Args, @alignCast(@alignOf(Args), raw_arg orelse unreachable));
-               defer allocator.destroy(args_ptr);
-               return callFn(f, args_ptr.*);
+                if (@sizeOf(Args) < 1) {
+                    return callFn(f, @as(Args, undefined));
+                }
+
+                const args_ptr = @ptrCast(*Args, @alignCast(@alignOf(Args), raw_arg));
+                defer allocator.destroy(args_ptr);
+                return callFn(f, args_ptr.*);
             }
         };
 
@@ -402,7 +407,7 @@ const PosixThreadImpl = struct {
             &handle,
             &attr,
             Instance.entryFn,
-            @ptrCast(*c_void, args_ptr),
+            if (@sizeOf(Args) > 1) @ptrCast(*c_void, args_ptr) else undefined,
         )) {
             0 => return Impl{ .handle = handle },
             os.EAGAIN => return error.SystemResources,
