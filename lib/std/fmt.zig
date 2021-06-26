@@ -1461,6 +1461,87 @@ test "fmtDuration" {
     }
 }
 
+fn formatDurationSigned(ns: i64, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+    if (ns < 0) {
+        try writer.writeByte('-');
+        try formatDuration(@intCast(u64, -ns), fmt, options, writer);
+    } else {
+        try formatDuration(@intCast(u64, ns), fmt, options, writer);
+    }
+}
+
+/// Return a Formatter for number of nanoseconds according to its signed magnitude:
+/// [#y][#w][#d][#h][#m]#[.###][n|u|m]s
+pub fn fmtDurationSigned(ns: i64) Formatter(formatDurationSigned) {
+    return .{ .data = ns };
+}
+
+test "fmtDurationSigned" {
+    var buf: [24]u8 = undefined;
+    inline for (.{
+        .{ .s = "0ns", .d = 0 },
+        .{ .s = "1ns", .d = 1 },
+        .{ .s = "-1ns", .d = -(1) },
+        .{ .s = "999ns", .d = std.time.ns_per_us - 1 },
+        .{ .s = "-999ns", .d = -(std.time.ns_per_us - 1) },
+        .{ .s = "1us", .d = std.time.ns_per_us },
+        .{ .s = "-1us", .d = -(std.time.ns_per_us) },
+        .{ .s = "1.45us", .d = 1450 },
+        .{ .s = "-1.45us", .d = -(1450) },
+        .{ .s = "1.5us", .d = 3 * std.time.ns_per_us / 2 },
+        .{ .s = "-1.5us", .d = -(3 * std.time.ns_per_us / 2) },
+        .{ .s = "14.5us", .d = 14500 },
+        .{ .s = "-14.5us", .d = -(14500) },
+        .{ .s = "145us", .d = 145000 },
+        .{ .s = "-145us", .d = -(145000) },
+        .{ .s = "999.999us", .d = std.time.ns_per_ms - 1 },
+        .{ .s = "-999.999us", .d = -(std.time.ns_per_ms - 1) },
+        .{ .s = "1ms", .d = std.time.ns_per_ms + 1 },
+        .{ .s = "-1ms", .d = -(std.time.ns_per_ms + 1) },
+        .{ .s = "1.5ms", .d = 3 * std.time.ns_per_ms / 2 },
+        .{ .s = "-1.5ms", .d = -(3 * std.time.ns_per_ms / 2) },
+        .{ .s = "1.11ms", .d = 1110000 },
+        .{ .s = "-1.11ms", .d = -(1110000) },
+        .{ .s = "1.111ms", .d = 1111000 },
+        .{ .s = "-1.111ms", .d = -(1111000) },
+        .{ .s = "1.111ms", .d = 1111100 },
+        .{ .s = "-1.111ms", .d = -(1111100) },
+        .{ .s = "999.999ms", .d = std.time.ns_per_s - 1 },
+        .{ .s = "-999.999ms", .d = -(std.time.ns_per_s - 1) },
+        .{ .s = "1s", .d = std.time.ns_per_s },
+        .{ .s = "-1s", .d = -(std.time.ns_per_s) },
+        .{ .s = "59.999s", .d = std.time.ns_per_min - 1 },
+        .{ .s = "-59.999s", .d = -(std.time.ns_per_min - 1) },
+        .{ .s = "1m", .d = std.time.ns_per_min },
+        .{ .s = "-1m", .d = -(std.time.ns_per_min) },
+        .{ .s = "1h", .d = std.time.ns_per_hour },
+        .{ .s = "-1h", .d = -(std.time.ns_per_hour) },
+        .{ .s = "1d", .d = std.time.ns_per_day },
+        .{ .s = "-1d", .d = -(std.time.ns_per_day) },
+        .{ .s = "1w", .d = std.time.ns_per_week },
+        .{ .s = "-1w", .d = -(std.time.ns_per_week) },
+        .{ .s = "1y", .d = 365 * std.time.ns_per_day },
+        .{ .s = "-1y", .d = -(365 * std.time.ns_per_day) },
+        .{ .s = "1y52w23h59m59.999s", .d = 730 * std.time.ns_per_day - 1 }, // 365d = 52w1d
+        .{ .s = "-1y52w23h59m59.999s", .d = -(730 * std.time.ns_per_day - 1) }, // 365d = 52w1d
+        .{ .s = "1y1h1.001s", .d = 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_s + std.time.ns_per_ms },
+        .{ .s = "-1y1h1.001s", .d = -(365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_s + std.time.ns_per_ms) },
+        .{ .s = "1y1h1s", .d = 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_s + 999 * std.time.ns_per_us },
+        .{ .s = "-1y1h1s", .d = -(365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_s + 999 * std.time.ns_per_us) },
+        .{ .s = "1y1h999.999us", .d = 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms - 1 },
+        .{ .s = "-1y1h999.999us", .d = -(365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms - 1) },
+        .{ .s = "1y1h1ms", .d = 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms },
+        .{ .s = "-1y1h1ms", .d = -(365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms) },
+        .{ .s = "1y1h1ms", .d = 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms + 1 },
+        .{ .s = "-1y1h1ms", .d = -(365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms + 1) },
+        .{ .s = "1y1m999ns", .d = 365 * std.time.ns_per_day + std.time.ns_per_min + 999 },
+        .{ .s = "-1y1m999ns", .d = -(365 * std.time.ns_per_day + std.time.ns_per_min + 999) },
+    }) |tc| {
+        const slice = try bufPrint(&buf, "{}", .{fmtDurationSigned(tc.d)});
+        try std.testing.expectEqualStrings(tc.s, slice);
+    }
+}
+
 pub const ParseIntError = error{
     /// The result cannot fit in the type specified
     Overflow,
