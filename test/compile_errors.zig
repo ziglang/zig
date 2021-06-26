@@ -4831,7 +4831,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const a = return;
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:5: error: unreachable code",
+        "tmp.zig:2:5: error: useless local constant",
+        "tmp.zig:2:15: note: control flow is diverted here",
     });
 
     cases.add("unreachable variable",

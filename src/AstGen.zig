@@ -2332,6 +2332,8 @@ fn varDecl(
                     .ty = try typeExpr(gz, scope, var_decl.ast.type_node),
                 } else .none;
                 const init_inst = try expr(gz, scope, result_loc, var_decl.ast.init_node);
+                try astgen.checkVarInitExpr(gz.*, node, var_decl.ast.init_node, init_inst, "local constant");
+
                 const sub_scope = try block_arena.create(Scope.LocalVal);
                 sub_scope.* = .{
                     .parent = scope,
@@ -2382,6 +2384,8 @@ fn varDecl(
             }
             const init_result_loc: ResultLoc = .{ .block_ptr = &init_scope };
             const init_inst = try expr(&init_scope, &init_scope.base, init_result_loc, var_decl.ast.init_node);
+            try astgen.checkVarInitExpr(init_scope, node, var_decl.ast.init_node, init_inst, "local constant");
+
             const zir_tags = astgen.instructions.items(.tag);
             const zir_datas = astgen.instructions.items(.data);
 
@@ -2482,7 +2486,8 @@ fn varDecl(
                 resolve_inferred_alloc = alloc;
                 break :a .{ .alloc = alloc, .result_loc = .{ .inferred_ptr = alloc } };
             };
-            _ = try expr(gz, scope, var_data.result_loc, var_decl.ast.init_node);
+            const init_inst = try expr(gz, scope, var_data.result_loc, var_decl.ast.init_node);
+            try astgen.checkVarInitExpr(gz.*, node, var_decl.ast.init_node, init_inst, "local variable");
             if (resolve_inferred_alloc != .none) {
                 _ = try gz.addUnNode(.resolve_inferred_alloc, resolve_inferred_alloc, node);
             }
@@ -9601,4 +9606,28 @@ fn advanceSourceCursor(astgen: *AstGen, source: []const u8, end: usize) void {
     astgen.source_offset = i;
     astgen.source_line = line;
     astgen.source_column = column;
+}
+
+fn checkVarInitExpr(
+    astgen: *AstGen,
+    gz: GenZir,
+    var_node: ast.Node.Index,
+    init_node: ast.Node.Index,
+    init_inst: Zir.Inst.Ref,
+    var_name_text: []const u8,
+) !void {
+    if (gz.refIsNoReturn(init_inst)) {
+        return astgen.failNodeNotes(
+            var_node,
+            "useless {s}",
+            .{var_name_text},
+            &[_]u32{
+                try astgen.errNoteNode(
+                    init_node,
+                    "control flow is diverted here",
+                    .{},
+                ),
+            },
+        );
+    }
 }
