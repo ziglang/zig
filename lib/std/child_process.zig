@@ -13,6 +13,7 @@ const process = std.process;
 const File = std.fs.File;
 const windows = os.windows;
 const mem = std.mem;
+const math = std.math;
 const debug = std.debug;
 const BufMap = std.BufMap;
 const builtin = std.builtin;
@@ -257,6 +258,79 @@ pub const ChildProcess = struct {
         }
     }
 
+    fn collectOutputWindows(child: *const ChildProcess, outs: [2]*std.ArrayList(u8), max_output_bytes: usize) !void {
+        const bump_amt = 512;
+        const handles = [_]windows.HANDLE{
+            child.stdout.?.handle,
+            child.stderr.?.handle,
+        };
+
+        var overlapped = [_]windows.OVERLAPPED{
+            mem.zeroes(windows.OVERLAPPED),
+            mem.zeroes(windows.OVERLAPPED),
+        };
+
+        var wait_objects: [2]windows.HANDLE = undefined;
+        var wait_object_count: u2 = 0;
+
+        // we need to cancel all pending IO before returning so our OVERLAPPED values don't go out of scope
+        defer for (wait_objects[0..wait_object_count]) |o| {
+            _ = windows.kernel32.CancelIo(o);
+        };
+
+        // Windows Async IO requires an initial call to ReadFile before waiting on the handle
+        for ([_]u1{ 0, 1 }) |i| {
+            try outs[i].ensureCapacity(bump_amt);
+            const buf = outs[i].unusedCapacitySlice();
+            _ = windows.kernel32.ReadFile(handles[i], buf.ptr, math.cast(u32, buf.len) catch maxInt(u32), null, &overlapped[i]);
+            wait_objects[wait_object_count] = handles[i];
+            wait_object_count += 1;
+        }
+
+        while (true) {
+            const status = windows.kernel32.WaitForMultipleObjects(wait_object_count, &wait_objects, 0, windows.INFINITE);
+            if (status == windows.WAIT_FAILED) {
+                switch (windows.kernel32.GetLastError()) {
+                    else => |err| return windows.unexpectedError(err),
+                }
+            }
+            if (status < windows.WAIT_OBJECT_0 or status > windows.WAIT_OBJECT_0 + wait_object_count - 1)
+                unreachable;
+
+            const wait_idx = status - windows.WAIT_OBJECT_0;
+
+            // this extra `i` index is needed to map the wait handle back to the stdout or stderr
+            // values since the wait_idx can change which handle it corresponds with
+            const i: u1 = if (wait_objects[wait_idx] == handles[0]) 0 else 1;
+
+            // remove completed event from the wait list
+            wait_object_count -= 1;
+            if (wait_idx == 0)
+                wait_objects[0] = wait_objects[1];
+
+            var read_bytes: u32 = undefined;
+            if (windows.kernel32.GetOverlappedResult(handles[i], &overlapped[i], &read_bytes, 0) == 0) {
+                switch (windows.kernel32.GetLastError()) {
+                    .BROKEN_PIPE => {
+                        if (wait_object_count == 0)
+                            break;
+                        continue;
+                    },
+                    else => |err| return windows.unexpectedError(err),
+                }
+            }
+
+            outs[i].items.len += read_bytes;
+            const new_capacity = std.math.min(outs[i].items.len + bump_amt, max_output_bytes);
+            try outs[i].ensureCapacity(new_capacity);
+            const buf = outs[i].unusedCapacitySlice();
+            if (buf.len == 0) return if (i == 0) error.StdoutStreamTooLong else error.StderrStreamTooLong;
+            _ = windows.kernel32.ReadFile(handles[i], buf.ptr, math.cast(u32, buf.len) catch maxInt(u32), null, &overlapped[i]);
+            wait_objects[wait_object_count] = handles[i];
+            wait_object_count += 1;
+        }
+    }
+
     /// Spawns a child process, waits for it, collecting stdout and stderr, and then returns.
     /// If it succeeds, the caller owns result.stdout and result.stderr memory.
     pub fn exec(args: struct {
@@ -306,7 +380,11 @@ pub const ChildProcess = struct {
             stderr.deinit();
         }
 
-        try collectOutputPosix(child, &stdout, &stderr, args.max_output_bytes);
+        if (builtin.os.tag == .windows) {
+            try collectOutputWindows(child, [_]*std.ArrayList(u8){ &stdout, &stderr }, args.max_output_bytes);
+        } else {
+            try collectOutputPosix(child, &stdout, &stderr, args.max_output_bytes);
+        }
 
         return ExecResult{
             .term = try child.wait(),
@@ -644,7 +722,7 @@ pub const ChildProcess = struct {
         var g_hChildStd_OUT_Wr: ?windows.HANDLE = null;
         switch (self.stdout_behavior) {
             StdIo.Pipe => {
-                try windowsMakePipeOut(&g_hChildStd_OUT_Rd, &g_hChildStd_OUT_Wr, &saAttr);
+                try windowsMakeAsyncPipe(&g_hChildStd_OUT_Rd, &g_hChildStd_OUT_Wr, &saAttr);
             },
             StdIo.Ignore => {
                 g_hChildStd_OUT_Wr = nul_handle;
@@ -664,7 +742,7 @@ pub const ChildProcess = struct {
         var g_hChildStd_ERR_Wr: ?windows.HANDLE = null;
         switch (self.stderr_behavior) {
             StdIo.Pipe => {
-                try windowsMakePipeOut(&g_hChildStd_ERR_Rd, &g_hChildStd_ERR_Wr, &saAttr);
+                try windowsMakeAsyncPipe(&g_hChildStd_ERR_Rd, &g_hChildStd_ERR_Wr, &saAttr);
             },
             StdIo.Ignore => {
                 g_hChildStd_ERR_Wr = nul_handle;
@@ -907,14 +985,64 @@ fn windowsMakePipeIn(rd: *?windows.HANDLE, wr: *?windows.HANDLE, sattr: *const w
     wr.* = wr_h;
 }
 
-fn windowsMakePipeOut(rd: *?windows.HANDLE, wr: *?windows.HANDLE, sattr: *const windows.SECURITY_ATTRIBUTES) !void {
-    var rd_h: windows.HANDLE = undefined;
-    var wr_h: windows.HANDLE = undefined;
-    try windows.CreatePipe(&rd_h, &wr_h, sattr);
-    errdefer windowsDestroyPipe(rd_h, wr_h);
-    try windows.SetHandleInformation(rd_h, windows.HANDLE_FLAG_INHERIT, 0);
-    rd.* = rd_h;
-    wr.* = wr_h;
+var pipe_name_counter = std.atomic.Atomic(u32).init(1);
+
+fn windowsMakeAsyncPipe(rd: *?windows.HANDLE, wr: *?windows.HANDLE, sattr: *const windows.SECURITY_ATTRIBUTES) !void {
+    var tmp_bufw: [128]u16 = undefined;
+
+    // We must make a named pipe on windows because anonymous pipes do not support async IO
+    const pipe_path = blk: {
+        var tmp_buf: [128]u8 = undefined;
+        // Forge a random path for the pipe.
+        const pipe_path = std.fmt.bufPrintZ(
+            &tmp_buf,
+            "\\\\.\\pipe\\zig-childprocess-{d}-{d}",
+            .{ windows.kernel32.GetCurrentProcessId(), pipe_name_counter.fetchAdd(1, .Monotonic) },
+        ) catch unreachable;
+        const len = std.unicode.utf8ToUtf16Le(&tmp_bufw, pipe_path) catch unreachable;
+        tmp_bufw[len] = 0;
+        break :blk tmp_bufw[0..len :0];
+    };
+
+    // Create the read handle that can be used with overlapped IO ops.
+    const read_handle = windows.kernel32.CreateNamedPipeW(
+        pipe_path.ptr,
+        windows.PIPE_ACCESS_INBOUND | windows.FILE_FLAG_OVERLAPPED,
+        windows.PIPE_TYPE_BYTE,
+        1,
+        4096,
+        4096,
+        0,
+        sattr,
+    );
+    if (read_handle == windows.INVALID_HANDLE_VALUE) {
+        switch (windows.kernel32.GetLastError()) {
+            else => |err| return windows.unexpectedError(err),
+        }
+    }
+    errdefer os.close(read_handle);
+
+    var sattr_copy = sattr.*;
+    const write_handle = windows.kernel32.CreateFileW(
+        pipe_path.ptr,
+        windows.GENERIC_WRITE,
+        0,
+        &sattr_copy,
+        windows.OPEN_EXISTING,
+        windows.FILE_ATTRIBUTE_NORMAL,
+        null,
+    );
+    if (write_handle == windows.INVALID_HANDLE_VALUE) {
+        switch (windows.kernel32.GetLastError()) {
+            else => |err| return windows.unexpectedError(err),
+        }
+    }
+    errdefer os.close(write_handle);
+
+    try windows.SetHandleInformation(read_handle, windows.HANDLE_FLAG_INHERIT, 0);
+
+    rd.* = read_handle;
+    wr.* = write_handle;
 }
 
 fn destroyPipe(pipe: [2]os.fd_t) void {
