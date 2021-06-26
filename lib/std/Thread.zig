@@ -385,6 +385,7 @@ const PosixThreadImpl = struct {
         };
 
         const args_ptr = try allocator.create(Args);
+        args_ptr.* = args;
         errdefer allocator.destroy(args_ptr);
 
         var attr: c.pthread_attr_t = undefined;
@@ -523,6 +524,7 @@ const LinuxThreadImpl = struct {
             error.PermissionDenied => unreachable,
             else => |e| return e,
         };
+        assert(mapped.len >= map_bytes);
         errdefer os.munmap(mapped);
 
         // map everything but the guard page as read/write
