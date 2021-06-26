@@ -32,7 +32,6 @@ out_path: ?[]const u8 = null,
 
 // TODO these args will become obselete once Zld is coalesced with incremental
 // linker.
-syslibroot: ?[]const u8 = null,
 stack_size: u64 = 0,
 
 objects: std.ArrayListUnmanaged(*Object) = .{},
@@ -197,6 +196,7 @@ pub fn closeFiles(self: Zld) void {
 }
 
 const LinkArgs = struct {
+    syslibroot: ?[]const u8,
     libs: []const []const u8,
     rpaths: []const []const u8,
     libc_stub_path: []const u8,
@@ -238,9 +238,9 @@ pub fn link(self: *Zld, files: []const []const u8, out_path: []const u8, args: L
     });
 
     try self.populateMetadata();
-    try self.parseInputFiles(files);
-    try self.parseLibs(args.libs);
-    try self.parseLibSystem(args.libc_stub_path);
+    try self.parseInputFiles(files, args.syslibroot);
+    try self.parseLibs(args.libs, args.syslibroot);
+    try self.parseLibSystem(args.libc_stub_path, args.syslibroot);
     try self.resolveSymbols();
     try self.resolveStubsAndGotEntries();
     try self.updateMetadata();
@@ -258,7 +258,7 @@ pub fn link(self: *Zld, files: []const []const u8, out_path: []const u8, args: L
     try self.flush();
 }
 
-fn parseInputFiles(self: *Zld, files: []const []const u8) !void {
+fn parseInputFiles(self: *Zld, files: []const []const u8, syslibroot: ?[]const u8) !void {
     for (files) |file_name| {
         const full_path = full_path: {
             var buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
@@ -280,7 +280,7 @@ fn parseInputFiles(self: *Zld, files: []const []const u8) !void {
             self.allocator,
             self.arch.?,
             full_path,
-            self.syslibroot,
+            syslibroot,
         )) |dylibs| {
             defer self.allocator.free(dylibs);
             try self.dylibs.appendSlice(self.allocator, dylibs);
@@ -291,13 +291,13 @@ fn parseInputFiles(self: *Zld, files: []const []const u8) !void {
     }
 }
 
-fn parseLibs(self: *Zld, libs: []const []const u8) !void {
+fn parseLibs(self: *Zld, libs: []const []const u8, syslibroot: ?[]const u8) !void {
     for (libs) |lib| {
         if (try Dylib.createAndParseFromPath(
             self.allocator,
             self.arch.?,
             lib,
-            self.syslibroot,
+            syslibroot,
         )) |dylibs| {
             defer self.allocator.free(dylibs);
             try self.dylibs.appendSlice(self.allocator, dylibs);
@@ -313,12 +313,12 @@ fn parseLibs(self: *Zld, libs: []const []const u8) !void {
     }
 }
 
-fn parseLibSystem(self: *Zld, libc_stub_path: []const u8) !void {
+fn parseLibSystem(self: *Zld, libc_stub_path: []const u8, syslibroot: ?[]const u8) !void {
     const dylibs = (try Dylib.createAndParseFromPath(
         self.allocator,
         self.arch.?,
         libc_stub_path,
-        self.syslibroot,
+        syslibroot,
     )) orelse return error.FailedToParseLibSystem;
     defer self.allocator.free(dylibs);
 

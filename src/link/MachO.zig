@@ -514,15 +514,18 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
     }
 }
 
-fn resolvePaths(
+const LibKind = enum {
+    lib,
+    framework,
+};
+
+fn resolveDirs(
     arena: *Allocator,
-    resolved_paths: *std.ArrayList([]const u8),
+    resolved_dirs: *std.ArrayList([]const u8),
     syslibroot: ?[]const u8,
     search_dirs: []const []const u8,
-    lib_names: []const []const u8,
-    kind: enum { lib, framework },
+    lib_kind: LibKind,
 ) !void {
-    var resolved_dirs = std.ArrayList([]const u8).init(arena);
     for (search_dirs) |dir| {
         if (fs.path.isAbsolute(dir)) {
             var candidates = std.ArrayList([]const u8).init(arena);
@@ -547,7 +550,7 @@ fn resolvePaths(
             }
 
             if (!found) {
-                switch (kind) {
+                switch (lib_kind) {
                     .lib => log.warn("directory not found for '-L{s}'", .{dir}),
                     .framework => log.warn("directory not found for '-F{s}'", .{dir}),
                 }
@@ -556,7 +559,7 @@ fn resolvePaths(
             // Verify that search path actually exists
             var tmp = fs.cwd().openDir(dir, .{}) catch |err| switch (err) {
                 error.FileNotFound => {
-                    switch (kind) {
+                    switch (lib_kind) {
                         .lib => log.warn("directory not found for '-L{s}'", .{dir}),
                         .framework => log.warn("directory not found for '-F{s}'", .{dir}),
                     }
@@ -569,48 +572,63 @@ fn resolvePaths(
             try resolved_dirs.append(dir);
         }
     }
+}
 
+fn resolveLib(
+    arena: *Allocator,
+    lib_dirs: []const []const u8,
+    lib_name: []const u8,
+    lib_kind: LibKind,
+) !?[]const u8 {
     // Assume ld64 default: -search_paths_first
     // Look in each directory for a dylib (next, tbd), and then for archive
     // TODO implement alternative: -search_dylibs_first
-    const exts = switch (kind) {
+    const exts = switch (lib_kind) {
         .lib => &[_][]const u8{ "dylib", "tbd", "a" },
         .framework => &[_][]const u8{ "dylib", "tbd" },
     };
 
-    for (lib_names) |lib_name| {
-        var found = false;
-
-        ext: for (exts) |ext| {
-            const lib_name_ext = blk: {
-                switch (kind) {
-                    .lib => break :blk try std.fmt.allocPrint(arena, "lib{s}.{s}", .{ lib_name, ext }),
-                    .framework => {
-                        const prefix = try std.fmt.allocPrint(arena, "{s}.framework", .{lib_name});
-                        const nn = try std.fmt.allocPrint(arena, "{s}.{s}", .{ lib_name, ext });
-                        break :blk try fs.path.join(arena, &[_][]const u8{ prefix, nn });
-                    },
-                }
-            };
-
-            for (resolved_dirs.items) |dir| {
-                const full_path = try fs.path.join(arena, &[_][]const u8{ dir, lib_name_ext });
-
-                // Check if the lib file exists.
-                const tmp = fs.cwd().openFile(full_path, .{}) catch |err| switch (err) {
-                    error.FileNotFound => continue,
-                    else => |e| return e,
-                };
-                defer tmp.close();
-
-                try resolved_paths.append(full_path);
-                found = true;
-                break :ext;
+    for (exts) |ext| {
+        const lib_name_ext = blk: {
+            switch (lib_kind) {
+                .lib => break :blk try std.fmt.allocPrint(arena, "lib{s}.{s}", .{ lib_name, ext }),
+                .framework => {
+                    const prefix = try std.fmt.allocPrint(arena, "{s}.framework", .{lib_name});
+                    const nn = try std.fmt.allocPrint(arena, "{s}.{s}", .{ lib_name, ext });
+                    break :blk try fs.path.join(arena, &[_][]const u8{ prefix, nn });
+                },
             }
-        }
+        };
 
-        if (!found) {
-            switch (kind) {
+        for (lib_dirs) |dir| {
+            const full_path = try fs.path.join(arena, &[_][]const u8{ dir, lib_name_ext });
+
+            // Check if the lib file exists.
+            const tmp = fs.cwd().openFile(full_path, .{}) catch |err| switch (err) {
+                error.FileNotFound => continue,
+                else => |e| return e,
+            };
+            defer tmp.close();
+
+            return full_path;
+        }
+    }
+
+    return null;
+}
+
+fn resolveLibs(
+    arena: *Allocator,
+    resolved_libs: *std.ArrayList([]const u8),
+    lib_dirs: []const []const u8,
+    lib_names: []const []const u8,
+    lib_kind: LibKind,
+) !void {
+    for (lib_names) |lib_name| {
+        if (try resolveLib(arena, lib_dirs, lib_name, lib_kind)) |full_path| {
+            try resolved_libs.append(full_path);
+        } else {
+            switch (lib_kind) {
                 .lib => {
                     log.warn("library not found for '-l{s}'", .{lib_name});
                     log.warn("Library search paths:", .{});
@@ -620,7 +638,7 @@ fn resolvePaths(
                     log.warn("Framework search paths:", .{});
                 },
             }
-            for (resolved_dirs.items) |dir| {
+            for (lib_dirs) |dir| {
                 log.warn("  {s}", .{dir});
             }
         }
@@ -789,7 +807,6 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                 zld.deinit();
             }
             zld.arch = target.cpu.arch;
-            zld.syslibroot = self.base.options.sysroot;
             zld.stack_size = stack_size;
 
             // Positional arguments to the linker such as object files and static archives.
@@ -829,14 +846,54 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                 try search_lib_names.append(link_lib);
             }
 
-            var libs = std.ArrayList([]const u8).init(arena);
-            try resolvePaths(
+            var lib_dirs = std.ArrayList([]const u8).init(arena);
+            try resolveDirs(
                 arena,
-                &libs,
+                &lib_dirs,
                 self.base.options.sysroot,
                 self.base.options.lib_dirs,
+                .lib,
+            );
+
+            var libs = std.ArrayList([]const u8).init(arena);
+            try resolveLibs(
+                arena,
+                &libs,
+                lib_dirs.items,
                 search_lib_names.items,
                 .lib,
+            );
+
+            // If we're compiling native and we can find libSystem.B.{dylib, tbd},
+            // we link against that instead of embedded libSystem.B.tbd file.
+            const libc_stub_path = blk: {
+                if (self.base.options.is_native_os) {
+                    if (try resolveLib(arena, lib_dirs.items, "System", .lib)) |full_path| {
+                        break :blk full_path;
+                    }
+                }
+
+                break :blk try comp.zig_lib_directory.join(arena, &[_][]const u8{
+                    "libc", "darwin", "libSystem.B.tbd",
+                });
+            };
+
+            // frameworks
+            var framework_dirs = std.ArrayList([]const u8).init(arena);
+            try resolveDirs(
+                arena,
+                &framework_dirs,
+                self.base.options.sysroot,
+                self.base.options.framework_dirs,
+                .framework,
+            );
+
+            try resolveLibs(
+                arena,
+                &libs,
+                framework_dirs.items,
+                self.base.options.frameworks,
+                .framework,
             );
 
             // rpaths
@@ -851,16 +908,6 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
             for (rpath_table.keys()) |*key| {
                 rpaths.appendAssumeCapacity(key.*);
             }
-
-            // frameworks
-            try resolvePaths(
-                arena,
-                &libs,
-                self.base.options.sysroot,
-                self.base.options.framework_dirs,
-                self.base.options.frameworks,
-                .framework,
-            );
 
             if (self.base.options.verbose_link) {
                 var argv = std.ArrayList([]const u8).init(arena);
@@ -895,11 +942,10 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
             }
 
             try zld.link(positionals.items, full_out_path, .{
+                .syslibroot = self.base.options.sysroot,
                 .libs = libs.items,
                 .rpaths = rpaths.items,
-                .libc_stub_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
-                    "libc", "darwin", "libSystem.B.tbd",
-                }),
+                .libc_stub_path = libc_stub_path,
             });
 
             break :outer;
