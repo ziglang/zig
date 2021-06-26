@@ -671,7 +671,12 @@ pub const PanicFn = fn ([]const u8, ?*StackTrace) noreturn;
 
 /// This function is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
-pub const panic: PanicFn = if (@hasDecl(root, "panic")) root.panic else default_panic;
+pub const panic: PanicFn = if (@hasDecl(root, "panic"))
+    root.panic
+else if (@hasDecl(root, "os") and @hasDecl(root.os, "panic"))
+    root.os.panic
+else
+    default_panic;
 
 /// This function is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
@@ -683,10 +688,6 @@ pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace) noreturn
         while (true) {
             @breakpoint();
         }
-    }
-    if (@hasDecl(root, "os") and @hasDecl(root.os, "panic")) {
-        root.os.panic(msg, error_return_trace);
-        unreachable;
     }
     switch (os.tag) {
         .freestanding => {
