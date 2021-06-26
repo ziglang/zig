@@ -1341,6 +1341,12 @@ fn buildOutputType(
                         fatal("expected linker arg after '{s}'", .{arg});
                     }
                     version_script = linker_args.items[i];
+                } else if (mem.eql(u8, arg, "-implib")) {
+                    i += 1;
+                    if (i >= linker_args.items.len) {
+                        fatal("expected linker arg after '{s}'", .{arg});
+                    }
+                    try lld_argv.append(try std.fmt.allocPrint(arena, "/implib:{s}", .{linker_args.items[i]}));
                 } else if (mem.startsWith(u8, arg, "-O")) {
                     try lld_argv.append(arg);
                 } else if (mem.eql(u8, arg, "--gc-sections")) {
