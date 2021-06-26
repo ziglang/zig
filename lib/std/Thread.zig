@@ -45,7 +45,7 @@ else if (use_pthreads)
 else if (target.os.tag == .linux)
     LinuxThreadImpl
 else
-    @compileLog("Unsupported operating system", target.os.tag);
+    UnsupportedImpl;
 
 impl: Impl,
 
@@ -199,6 +199,40 @@ fn callFn(comptime f: anytype, args: anytype) switch (Impl) {
         },
     }
 }
+
+const UnsupportedImpl = struct {
+    pub const ThreadHandle = void;
+
+    fn getCurrentId() u64 {
+        return unsupported({});
+    }
+
+    fn getCpuCount() !usize {
+        return unsupported({});
+    }
+
+    fn spawn(config: SpawnConfig, comptime f: anytype, args: anytype) !Impl {
+        return unsupported(.{config, f, args});
+    }
+
+    fn getHandle(self: Impl) ThreadHandle {
+        return unsupported(self);
+    }
+
+    fn detach(self: Impl) void {
+        return unsupported(self);
+    }
+
+    fn join(self: Impl) void {
+        return unsupported(self);
+    }  
+
+    fn unsupported(unusued: anytype) noreturn {
+        @compileLog("Unsupported operating system", target.os.tag);
+        _ = unusued;
+        unreachable;
+    }
+};
 
 const WindowsThreadImpl = struct {
     const windows = os.windows;
@@ -725,7 +759,9 @@ const LinuxThreadImpl = struct {
                     \\    li a7, 93
                     \\    ecall
                 ),
-                else => @compileError("Platform not supported"),
+                else => |cpu_arch| {
+                    @compileLog("linux arch", cpu_arch, "is not supported");
+                },
             });
         }
     }

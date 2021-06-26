@@ -64,10 +64,9 @@ pub fn wait(ptr: *const Atomic(u32), expect: u32, timeout: ?u64) error{TimedOut}
 /// Unblocks at most `num_waiters` callers blocked in a `wait()` call on `ptr`.
 /// `num_waiters` of 1 unblocks at most one `wait(ptr, ...)` and `maxInt(u32)` unblocks effectively all `wait(ptr, ...)`.
 pub fn wake(ptr: *const Atomic(u32), num_waiters: u32) void {
-    if (num_waiters == 0 or single_threaded) {
-        return;
-    }
-
+    if (single_threaded) return;
+    if (num_waiters == 0) return;
+    
     return OsFutex.wake(ptr, num_waiters);
 }
 
@@ -80,7 +79,23 @@ else if (target.isDarwin())
 else if (std.builtin.link_libc)
     PosixFutex
 else
-    @compileError("Operating System unsupported");
+    UnsupportedFutex;
+
+const UnsupportedFutex = struct {
+    fn wait(ptr: *const Atomic(u32), expect: u32, timeout: ?u64) error{TimedOut}!void {
+        return unsupported(.{ptr, expect, timeout});
+    }
+
+    fn wake(ptr: *const Atomic(u32), num_waiters: u32) void {
+        return unsupported(.{ptr, num_waiters});
+    }
+
+    fn unsupported(unused: anytype) noreturn {
+        @compileLog("Unsupported operating system", target.os.tag);
+        _ = unused;
+        unreachable;
+    }
+};
 
 const WindowsFutex = struct {
     const windows = std.os.windows;
