@@ -10011,15 +10011,16 @@ pub extern fn do_something(foo: enum_FOO) c_int;</code></pre>
       <p>{#syntax#}@cImport{#endsyntax#} and <code class="shell">zig translate-c</code> use the same underlying
       C translation functionality, so on a technical level they are equivalent. In practice,
       {#syntax#}@cImport{#endsyntax#} is useful as a way to quickly and easily access numeric constants, typedefs,
-      and record types without needing any extra setup. For more complex translation tasks such as
-      function-like macros and C functions, or if you need to pass {#link|cflags|Using -target and -cflags#} to clang,
-      it is recommended to use <code class="shell">zig translate-c</code> and save the results to a file.
-      Doing so makes it easy to view and edit the translated code, for example to change {#syntax#}[*c]T{#endsyntax#}
-      pointers to {#syntax#}[*]T{#endsyntax#} or {#syntax#}*T{#endsyntax#} pointers for improved type safety
-      when dealing with C types in Zig code.
+      and record types without needing any extra setup. If you need to pass {#link|cflags|Using -target and -cflags#}
+      to clang, or if you would like to edit the translated code, it is recommended to use
+      <code class="shell">zig translate-c</code> and save the results to a file. Common reasons for editing
+      the generated code include: changing {#syntax#}anytype{#endsyntax#} parameters in function-like macros to more
+      specific types; changing {#syntax#}[*c]T{#endsyntax#} pointers to {#syntax#}[*]T{#endsyntax#} or
+      {#syntax#}*T{#endsyntax#} pointers for improved type safety; and
+      {#link|enabling or disabling runtime safety|@setRuntimeSafety#} within specific functions.
       </p>
       {#header_close#}
-      {#see_also|Targets|C Type Primitives|Pointers|C Pointers|Import from C Header File|@cInclude|@cImport#}
+      {#see_also|Targets|C Type Primitives|Pointers|C Pointers|Import from C Header File|@cInclude|@cImport|@setRuntimeSafety#}
       {#header_close#}
       {#header_open|C Translation Caching#}
       <p>
