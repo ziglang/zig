@@ -10061,7 +10061,7 @@ pub fn main() void {
         Demotion comes in three varieties - {#link|opaque#}, <em>extern</em>, and
         {#syntax#}@compileError{#endsyntax#}.
 
-        C types that cannot be translated correctly will be translated as {#syntax#}opaque{}{#endsyntax#}.
+        C structs and unions that cannot be translated correctly will be translated as {#syntax#}opaque{}{#endsyntax#}.
         Functions that contain opaque types or code constructs that cannot be translated will be demoted
         to {#syntax#}extern{#endsyntax#} declarations.
 
