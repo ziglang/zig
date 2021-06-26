@@ -362,6 +362,7 @@ fn expandStackSize(phdrs: []elf.Phdr) void {
 fn callMainWithArgs(argc: usize, argv: [*][*:0]u8, envp: [][*:0]u8) u8 {
     std.os.argv = argv[0..argc];
     std.os.environ = envp;
+    std.os.argc = argc;
 
     std.debug.maybeEnableSegfaultHandler();
 

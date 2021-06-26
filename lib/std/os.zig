@@ -92,6 +92,10 @@ pub var environ: [][*:0]u8 = undefined;
 /// for obtaining the process arguments.
 pub var argv: [][*:0]u8 = undefined;
 
+/// Populated by startup code before main().
+/// for obtaining the process argument count.
+pub var argc: usize = undefined;
+
 /// To obtain errno, call this function with the return value of the
 /// system function call. For some systems this will obtain the value directly
 /// from the return code; for others it will use a thread-local errno variable.
