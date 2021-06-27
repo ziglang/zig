@@ -286,6 +286,7 @@ const Code = struct {
     link_libc: bool,
     link_mode: ?std.builtin.LinkMode,
     disable_cache: bool,
+    verbose_cimport: bool,
 
     const Id = union(enum) {
         Test,
@@ -536,6 +537,7 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
                     var link_libc = false;
                     var link_mode: ?std.builtin.LinkMode = null;
                     var disable_cache = false;
+                    var verbose_cimport = false;
 
                     const source_token = while (true) {
                         const content_tok = try eatToken(tokenizer, Token.Id.Content);
@@ -548,6 +550,8 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
                             mode = .ReleaseSafe;
                         } else if (mem.eql(u8, end_tag_name, "code_disable_cache")) {
                             disable_cache = true;
+                        } else if (mem.eql(u8, end_tag_name, "code_verbose_cimport")) {
+                            verbose_cimport = true;
                         } else if (mem.eql(u8, end_tag_name, "code_link_object")) {
                             _ = try eatToken(tokenizer, Token.Id.Separator);
                             const obj_tok = try eatToken(tokenizer, Token.Id.TagContent);
@@ -591,6 +595,7 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
                             .link_libc = link_libc,
                             .link_mode = link_mode,
                             .disable_cache = disable_cache,
+                            .verbose_cimport = verbose_cimport,
                         },
                     });
                     tokenizer.code_node_count += 1;
@@ -1127,6 +1132,10 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: any
                                 try out.print(" -target {s}", .{triple});
                             }
                         }
+                        if (code.verbose_cimport) {
+                            try build_args.append("--verbose-cimport");
+                            try out.print(" --verbose-cimport", .{});
+                        }
                         if (expected_outcome == .BuildFail) {
                             const result = try ChildProcess.exec(.{
                                 .allocator = allocator,
@@ -1213,6 +1222,10 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: any
                         const colored_stderr = try termColor(allocator, escaped_stderr);
                         const colored_stdout = try termColor(allocator, escaped_stdout);
 
+                        if (code.verbose_cimport) {
+                            const escaped_build_stderr = try escapeHtml(allocator, exec_result.stderr);
+                            try out.print("\n{s}", .{escaped_build_stderr});
+                        }
                         try out.print("\n$ ./{s}\n{s}{s}", .{ code.name, colored_stdout, colored_stderr });
                         if (exited_with_signal) {
                             try out.print("(process terminated by signal)", .{});

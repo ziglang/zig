@@ -9914,7 +9914,6 @@ lib.addCSourceFile("src/lib.c", &[_][]const u8{
       </ul>
       {#see_also|Primitive Types#}
       {#header_close#}
-
       {#header_open|Import from C Header File#}
       <p>
       The {#syntax#}@cImport{#endsyntax#} builtin function can be used
@@ -9952,6 +9951,165 @@ const c = @cImport({
 });
       {#code_end#}
       {#see_also|@cImport|@cInclude|@cDefine|@cUndef|@import#}
+      {#header_close#}
+
+      {#header_open|C Translation CLI#}
+      Zig's C translation capability is available as a CLI tool via <code class="shell">zig translate-c</code>.
+      It requires a single filename as an argument. It may also take a set of optional flags that are
+      forwarded to clang. It writes the translated file to stdout.
+      {#header_open|Command line flags#}
+      <ul>
+        <li>
+          <code class="shell">-I</code>:
+          Specify a search directory for include files. May be used multiple times. Equivalent to
+          <a href="https://releases.llvm.org/12.0.0/tools/clang/docs/ClangCommandLineReference.html#cmdoption-clang-i-dir">
+          clang's <code>-I</code> flag</a>. The current directory is <em>not</em> included by default;
+          use <code>-I.</code> to include it.
+        </li>
+        <li>
+          <code class="shell">-D</code>: Define a preprocessor macro. Equivalent to
+          <a href="https://releases.llvm.org/12.0.0/tools/clang/docs/ClangCommandLineReference.html#cmdoption-clang-d-macro">
+          clang's <code>-D</code> flag</a>.
+        </li>
+        <li>
+          <code class="shell">-cflags [flags] --</code>: Pass arbitrary additional
+          <a href="https://releases.llvm.org/12.0.0/tools/clang/docs/ClangCommandLineReference.html">command line
+          flags</a> to clang. Note: the list of flags must end with <code>--</code>
+        </li>
+        <li>
+          <code class="shell">-target</code>: The {#link|target triple|Targets#} for the translated Zig code.
+          If no target is specified, the current host target will be used.
+        </li>
+      </ul>
+      {#header_close#}
+      {#header_open|Using -target and -cflags#}
+      <p>
+        <strong>Important!</strong> When translating C code with <code class="shell">zig translate-c</code>,
+        you <strong>must</strong> use the same <code>-target</code> triple that you will use when compiling
+        the translated code. In addition, you <strong>must</strong> ensure that the <code>-cflags</code> used,
+        if any, match the cflags used by code on the target system. Using the incorrect <code>-target</code>
+        or <code>-cflags</code> could result in clang or Zig parse failures, or subtle ABI incompatibilities
+        when linking with C code.
+      </p>
+      <p class="file">varytarget.h</p>
+      <pre><code class="c">long FOO = __LONG_MAX__;</code></pre>
+      <pre><code class="shell">$ zig translate-c -target <strong>thumb-freestanding-gnueabihf</strong> varytarget.h|grep FOO
+pub export var FOO: c_long = <strong>2147483647</strong>;</code></pre>
+      <pre><code class="shell">$ zig translate-c -target <strong>x86_64-macos-gnu</strong> varytarget.h|grep FOO
+pub export var FOO: c_long = <strong>9223372036854775807</strong>;</code></pre>
+      <p class="file">varycflags.h</p>
+      <pre><code class="c">enum FOO { BAR };
+int do_something(enum FOO foo);</code></pre>
+      <pre><code class="shell">$ zig translate-c varycflags.h|grep -B1 do_something
+pub const enum_FOO = <strong>c_uint</strong>;
+pub extern fn do_something(foo: enum_FOO) c_int;</code></pre>
+      <pre><code class="shell">$ zig translate-c <strong>-cflags -fshort-enums --</strong> varycflags.h|grep -B1 do_something
+pub const enum_FOO = <strong>u8</strong>;
+pub extern fn do_something(foo: enum_FOO) c_int;</code></pre>
+      {#header_close#}
+      {#header_open|@cImport vs translate-c#}
+      <p>{#syntax#}@cImport{#endsyntax#} and <code class="shell">zig translate-c</code> use the same underlying
+      C translation functionality, so on a technical level they are equivalent. In practice,
+      {#syntax#}@cImport{#endsyntax#} is useful as a way to quickly and easily access numeric constants, typedefs,
+      and record types without needing any extra setup. If you need to pass {#link|cflags|Using -target and -cflags#}
+      to clang, or if you would like to edit the translated code, it is recommended to use
+      <code class="shell">zig translate-c</code> and save the results to a file. Common reasons for editing
+      the generated code include: changing {#syntax#}anytype{#endsyntax#} parameters in function-like macros to more
+      specific types; changing {#syntax#}[*c]T{#endsyntax#} pointers to {#syntax#}[*]T{#endsyntax#} or
+      {#syntax#}*T{#endsyntax#} pointers for improved type safety; and
+      {#link|enabling or disabling runtime safety|@setRuntimeSafety#} within specific functions.
+      </p>
+      {#header_close#}
+      {#see_also|Targets|C Type Primitives|Pointers|C Pointers|Import from C Header File|@cInclude|@cImport|@setRuntimeSafety#}
+      {#header_close#}
+      {#header_open|C Translation Caching#}
+      <p>
+        The C translation feature (whether used via <code class="shell">zig translate-c</code> or
+        {#syntax#}@cImport{#endsyntax#}) integrates with the Zig caching system. Subsequent runs with
+        the same source file, target, and cflags will use the cache instead of repeatedly translating
+        the same code.
+      </p>
+      <p>
+        To see where the cached files are stored when compiling code that uses {#syntax#}@cImport{#endsyntax#},
+        use the <code class="shell">--verbose-cimport</code> flag:
+      </p>
+      {#code_begin|exe|verbose#}
+      {#link_libc#}
+      {#code_verbose_cimport#}
+const c = @cImport({
+    @cDefine("_NO_CRT_STDIO_INLINE", "1");
+    @cInclude("stdio.h");
+});
+pub fn main() void {
+    _ = c;
+}
+      {#code_end#}
+      <p>
+        <code class="shell">cimport.h</code> contains the file to translate (constructed from calls to
+        {#syntax#}@cInclude{#endsyntax#}, {#syntax#}@cDefine{#endsyntax#}, and {#syntax#}@cUndef{#endsyntax#}),
+        <code class="shell">cimport.h.d</code> is the list of file dependencies, and
+        <code class="shell">cimport.zig</code> contains the translated output.
+      </p>
+      {#see_also|Import from C Header File|C Translation CLI|@cInclude|@cImport#}
+      {#header_close#}
+      {#header_open|Translation failures#}
+      <p>
+        Some C constructs cannot be translated to Zig - for example, <em>goto</em>,
+        structs with bitfields, and token-pasting macros. Zig employs <em>demotion</em> to allow translation
+        to continue in the face of non-translateable entities.
+      </p>
+      <p>
+        Demotion comes in three varieties - {#link|opaque#}, <em>extern</em>, and
+        {#syntax#}@compileError{#endsyntax#}.
+
+        C structs and unions that cannot be translated correctly will be translated as {#syntax#}opaque{}{#endsyntax#}.
+        Functions that contain opaque types or code constructs that cannot be translated will be demoted
+        to {#syntax#}extern{#endsyntax#} declarations.
+
+        Thus, non-translateable types can still be used as pointers, and non-translateable functions
+        can be called so long as the linker is aware of the compiled function.
+      </p>
+      <p>
+        {#syntax#}@compileError{#endsyntax#} is used when top-level definitions (global variables,
+        function prototypes, macros) cannot be translated or demoted. Since Zig uses lazy analysis for
+        top-level declarations, untranslateable entities will not cause a compile error in your code unless
+        you actually use them.
+      </p>
+      {#see_also|opaque|extern|@compileError#}
+      {#header_close#}
+      {#header_open|C Macros#}
+      <p>
+        C Translation makes a best-effort attempt to translate function-like macros into equivalent
+        Zig functions. Since C macros operate at the level of lexical tokens, not all C macros
+        can be translated to Zig. Macros that cannot be translated will be be demoted to
+        {#syntax#}@compileError{#endsyntax#}. Note that C code which <em>uses</em> macros will be
+        translated without any additional issues (since Zig operates on the pre-processed source
+        with macros expanded). It is merely the macros themselves which may not be translateable to
+        Zig.
+      </p>
+      <p>Consider the following example:</p>
+      <p class="file">macro.c</p>
+      <pre><code class="c">#define MAKELOCAL(NAME, INIT) int NAME = INIT
+int foo(void) {
+   MAKELOCAL(a, 1);
+   MAKELOCAL(b, 2);
+   return a + b;
+}</code></pre>
+<pre><code class="shell">$ zig translate-c macro.c > macro.zig
+</code></pre>
+      <p class="file">macro.zig</p>
+      <pre>{#syntax#}pub export fn foo() c_int {
+    var a: c_int = 1;
+    var b: c_int = 2;
+    return a + b;
+}
+pub const MAKELOCAL = @compileError("unable to translate C expr: unexpected token .Equal"); // macro.c:1:9{#endsyntax#}</pre>
+      <p>Note that {#syntax#}foo{#endsyntax#} was translated correctly despite using a non-translateable
+        macro. {#syntax#}MAKELOCAL{#endsyntax#} was demoted to {#syntax#}@compileError{#endsyntax#} since
+        it cannot be expressed as a Zig function; this simply means that you cannot directly use
+        {#syntax#}MAKELOCAL{#endsyntax#} from Zig.
+      </p>
+      {#see_also|@compileError#}
       {#header_close#}
 
       {#header_open|C Pointers#}
