@@ -192,7 +192,8 @@ pub const MemoryDescriptor = extern struct {
         wt: bool,
         wb: bool,
         uce: bool,
-        _pad1: u7,
+        _pad1: u3,
+        _pad2: u4,
         wp: bool,
         rp: bool,
         xp: bool,
@@ -201,7 +202,9 @@ pub const MemoryDescriptor = extern struct {
         ro: bool,
         sp: bool,
         cpu_crypto: bool,
-        _pad2: u43,
+        _pad3: u4,
+        _pad4: u32,
+        _pad5: u7,
         memory_runtime: bool,
     },
 };
@@ -219,7 +222,9 @@ pub const OpenProtocolAttributes = packed struct {
     by_child_controller: bool = false,
     by_driver: bool = false,
     exclusive: bool = false,
-    _pad: u26 = undefined,
+    _pad1: u2 = undefined,
+    _pad2: u8 = undefined,
+    _pad3: u16 = undefined,
 };
 
 pub const ProtocolInformationEntry = extern struct {
