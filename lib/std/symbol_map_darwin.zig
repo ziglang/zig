@@ -2,7 +2,7 @@ const std = @import("std.zig");
 const SymbolInfo = std.debug.SymbolMap.SymbolInfo;
 const assert = std.debug.assert;
 const debug_info_utils = @import("debug_info_utils.zig");
-const chopSlice = debug_info_utils;
+const chopSlice = debug_info_utils.chopSlice;
 const mem = std.mem;
 const macho = std.macho;
 const fs = std.fs;
@@ -20,6 +20,7 @@ const Module = struct {
     symbols: []const MachoSymbol,
     strings: [:0]const u8,
     ofiles: OFileTable,
+    allocator: *mem.Allocator,
 
     const MachoSymbol = struct {
         nlist: *const macho.nlist_64,
@@ -101,7 +102,7 @@ const Module = struct {
     /// it themselves, even on error.
     /// TODO it's weird to take ownership even on error, rework this code.
     fn readMachODebugInfo(allocator: *mem.Allocator, macho_file: File) !Self {
-        const mapped_mem = try debug_line.mapWholeFile(macho_file);
+        const mapped_mem = try debug_info_utils.mapWholeFile(macho_file);
 
         const hdr = @ptrCast(
             *const macho.mach_header_64,
@@ -182,6 +183,7 @@ const Module = struct {
             .ofiles = Self.OFileTable.init(allocator),
             .symbols = symbols,
             .strings = strings,
+            .allocator = allocator,
         };
     }
 
@@ -263,7 +265,7 @@ const Module = struct {
 
     fn loadOFile(self: *Self, o_file_path: []const u8) !DW.DwarfInfo {
         const o_file = try fs.cwd().openFile(o_file_path, .{ .intended_io_mode = .blocking });
-        const mapped_mem = try debug_line.mapWholeFile(o_file);
+        const mapped_mem = try debug_info_utils.mapWholeFile(o_file);
 
         const hdr = @ptrCast(
             *const macho.mach_header_64,
@@ -343,7 +345,7 @@ const Module = struct {
                 null,
         };
 
-        try DW.openDwarfDebugInfo(&di, self.allocator());
+        try DW.openDwarfDebugInfo(&di, self.allocator);
 
         // Add the debug info to the cache
         try self.ofiles.putNoClobber(o_file_path, di);
