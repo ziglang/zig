@@ -39,7 +39,6 @@ gpa: *Allocator,
 arena_state: std.heap.ArenaAllocator.State,
 bin_file: *link.File,
 c_object_table: std.AutoArrayHashMapUnmanaged(*CObject, void) = .{},
-c_object_cache_digest_set: std.AutoHashMapUnmanaged(Cache.BinDigest, void) = .{},
 stage1_lock: ?Cache.Lock = null,
 stage1_cache_manifest: *Cache.Manifest = undefined,
 
@@ -1590,7 +1589,6 @@ pub fn destroy(self: *Compilation) void {
         key.destroy(gpa);
     }
     self.c_object_table.deinit(gpa);
-    self.c_object_cache_digest_set.deinit(gpa);
 
     for (self.failed_c_objects.values()) |value| {
         value.destroy(gpa);
@@ -1627,7 +1625,6 @@ pub fn update(self: *Compilation) !void {
     defer tracy.end();
 
     self.clearMiscFailures();
-    self.c_object_cache_digest_set.clearRetainingCapacity();
 
     // For compiling C objects, we rely on the cache hash system to avoid duplicating work.
     // Add a Job for each C object.
@@ -2614,25 +2611,6 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
     man.hash.add(comp.clang_preprocessor_mode);
 
     try man.hashCSource(c_object.src);
-
-    {
-        const is_collision = blk: {
-            const bin_digest = man.hash.peekBin();
-
-            const lock = comp.mutex.acquire();
-            defer lock.release();
-
-            const gop = try comp.c_object_cache_digest_set.getOrPut(comp.gpa, bin_digest);
-            break :blk gop.found_existing;
-        };
-        if (is_collision) {
-            return comp.failCObj(
-                c_object,
-                "the same source file was already added to the same compilation with the same flags",
-                .{},
-            );
-        }
-    }
 
     var arena_allocator = std.heap.ArenaAllocator.init(comp.gpa);
     defer arena_allocator.deinit();
