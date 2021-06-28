@@ -45,8 +45,8 @@ id: ?Id = null,
 /// a symbol is referenced by an object file.
 symbols: std.StringArrayHashMapUnmanaged(void) = .{},
 
-// TODO add parsing re-exported libs from binary dylibs
-dependent_libs: std.StringArrayHashMapUnmanaged(void) = .{},
+/// Array list of all dependent libs of this dylib.
+dependent_libs: std.ArrayListUnmanaged(Id) = .{},
 
 pub const Id = struct {
     name: []const u8,
@@ -54,12 +54,25 @@ pub const Id = struct {
     current_version: u32,
     compatibility_version: u32,
 
-    pub fn default(name: []const u8) Id {
-        return .{
-            .name = name,
+    pub fn default(allocator: *Allocator, name: []const u8) !Id {
+        return Id{
+            .name = try allocator.dupe(u8, name),
             .timestamp = 2,
             .current_version = 0x10000,
             .compatibility_version = 0x10000,
+        };
+    }
+
+    pub fn fromLoadCommand(allocator: *Allocator, lc: GenericCommandWithData(macho.dylib_command)) !Id {
+        const dylib = lc.inner.dylib;
+        const dylib_name = @ptrCast([*:0]const u8, lc.data[dylib.name - @sizeOf(macho.dylib_command) ..]);
+        const name = try allocator.dupe(u8, mem.spanZ(dylib_name));
+
+        return Id{
+            .name = name,
+            .timestamp = dylib.timestamp,
+            .current_version = dylib.current_version,
+            .compatibility_version = dylib.compatibility_version,
         };
     }
 
@@ -129,12 +142,12 @@ pub const Error = error{
     UnsupportedCpuArchitecture,
 } || fs.File.OpenError || std.os.PReadError || Id.ParseError;
 
-pub fn createAndParseFromPath(
-    allocator: *Allocator,
-    arch: Arch,
-    path: []const u8,
-    syslibroot: ?[]const u8,
-) Error!?[]*Dylib {
+pub const CreateOpts = struct {
+    syslibroot: ?[]const u8 = null,
+    id: ?Id = null,
+};
+
+pub fn createAndParseFromPath(allocator: *Allocator, arch: Arch, path: []const u8, opts: CreateOpts) Error!?[]*Dylib {
     const file = fs.cwd().openFile(path, .{}) catch |err| switch (err) {
         error.FileNotFound => return null,
         else => |e| return e,
@@ -152,7 +165,7 @@ pub fn createAndParseFromPath(
         .arch = arch,
         .name = name,
         .file = file,
-        .syslibroot = syslibroot,
+        .syslibroot = opts.syslibroot,
     };
 
     dylib.parse() catch |err| switch (err) {
@@ -170,6 +183,20 @@ pub fn createAndParseFromPath(
         },
         else => |e| return e,
     };
+
+    if (opts.id) |id| {
+        if (dylib.id.?.current_version < id.compatibility_version) {
+            log.warn("found dylib is incompatible with the required minimum version", .{});
+            log.warn("  | dylib: {s}", .{id.name});
+            log.warn("  | required minimum version: {}", .{id.compatibility_version});
+            log.warn("  | dylib version: {}", .{dylib.id.?.current_version});
+
+            // TODO maybe this should be an error and facilitate auto-cleanup?
+            dylib.deinit();
+            allocator.destroy(dylib);
+            return null;
+        }
+    }
 
     var dylibs = std.ArrayList(*Dylib).init(allocator);
     defer dylibs.deinit();
@@ -191,8 +218,8 @@ pub fn deinit(self: *Dylib) void {
     }
     self.symbols.deinit(self.allocator);
 
-    for (self.dependent_libs.keys()) |key| {
-        self.allocator.free(key);
+    for (self.dependent_libs.items) |*id| {
+        id.deinit(self.allocator);
     }
     self.dependent_libs.deinit(self.allocator);
 
@@ -287,6 +314,8 @@ fn readFatStruct(reader: anytype, comptime T: type) !T {
 }
 
 fn readLoadCommands(self: *Dylib, reader: anytype) !void {
+    const should_lookup_reexports = self.header.?.flags & macho.MH_NO_REEXPORTED_DYLIBS == 0;
+
     try self.load_commands.ensureCapacity(self.allocator, self.header.?.ncmds);
 
     var i: u16 = 0;
@@ -302,6 +331,13 @@ fn readLoadCommands(self: *Dylib, reader: anytype) !void {
             macho.LC_ID_DYLIB => {
                 self.id_cmd_index = i;
             },
+            macho.LC_REEXPORT_DYLIB => {
+                if (should_lookup_reexports) {
+                    // Parse install_name to dependent dylib.
+                    const id = try Id.fromLoadCommand(self.allocator, cmd.Dylib);
+                    try self.dependent_libs.append(self.allocator, id);
+                }
+            },
             else => {
                 log.debug("Unknown load command detected: 0x{x}.", .{cmd.cmd()});
             },
@@ -313,22 +349,10 @@ fn readLoadCommands(self: *Dylib, reader: anytype) !void {
 fn parseId(self: *Dylib) !void {
     const index = self.id_cmd_index orelse {
         log.debug("no LC_ID_DYLIB load command found; using hard-coded defaults...", .{});
-        self.id = Id.default(try self.allocator.dupe(u8, self.name.?));
+        self.id = try Id.default(self.allocator, self.name.?);
         return;
     };
-    const id_cmd = self.load_commands.items[index].Dylib;
-    const dylib = id_cmd.inner.dylib;
-
-    // TODO should we compare the name from the dylib's id with the user-specified one?
-    const dylib_name = @ptrCast([*:0]const u8, id_cmd.data[dylib.name - @sizeOf(macho.dylib_command) ..]);
-    const name = try self.allocator.dupe(u8, mem.spanZ(dylib_name));
-
-    self.id = .{
-        .name = name,
-        .timestamp = dylib.timestamp,
-        .current_version = dylib.current_version,
-        .compatibility_version = dylib.compatibility_version,
-    };
+    self.id = try Id.fromLoadCommand(self.allocator, self.load_commands.items[index].Dylib);
 }
 
 fn parseSymbols(self: *Dylib) !void {
@@ -345,10 +369,11 @@ fn parseSymbols(self: *Dylib) !void {
     _ = try self.file.?.preadAll(strtab, symtab_cmd.stroff + self.library_offset);
 
     for (slice) |sym| {
+        const add_to_symtab = Symbol.isExt(sym) and (Symbol.isSect(sym) or Symbol.isIndr(sym));
+
+        if (!add_to_symtab) continue;
+
         const sym_name = mem.spanZ(@ptrCast([*:0]const u8, strtab.ptr + sym.n_strx));
-
-        if (!(Symbol.isSect(sym) and Symbol.isExt(sym))) continue;
-
         const name = try self.allocator.dupe(u8, sym_name);
         try self.symbols.putNoClobber(self.allocator, name, {});
     }
@@ -380,7 +405,7 @@ pub fn parseFromStub(self: *Dylib, lib_stub: LibStub) !void {
 
     const umbrella_lib = lib_stub.inner[0];
 
-    var id = Id.default(try self.allocator.dupe(u8, umbrella_lib.install_name));
+    var id = try Id.default(self.allocator, umbrella_lib.install_name);
     if (umbrella_lib.current_version) |version| {
         try id.parseCurrentVersion(version);
     }
@@ -470,7 +495,9 @@ pub fn parseFromStub(self: *Dylib, lib_stub: LibStub) !void {
                     }
 
                     log.debug("  | {s}", .{lib});
-                    try self.dependent_libs.put(self.allocator, try self.allocator.dupe(u8, lib), {});
+
+                    const dep_id = try Id.default(self.allocator, lib);
+                    try self.dependent_libs.append(self.allocator, dep_id);
                 }
             }
         }
@@ -478,36 +505,40 @@ pub fn parseFromStub(self: *Dylib, lib_stub: LibStub) !void {
 }
 
 pub fn parseDependentLibs(self: *Dylib, out: *std.ArrayList(*Dylib)) !void {
-    outer: for (self.dependent_libs.keys()) |lib| {
-        const dirname = fs.path.dirname(lib) orelse {
-            log.warn("unable to resolve dependency {s}", .{lib});
-            continue;
+    outer: for (self.dependent_libs.items) |id| {
+        const has_ext = blk: {
+            const basename = fs.path.basename(id.name);
+            break :blk mem.lastIndexOfScalar(u8, basename, '.') != null;
         };
-        const filename = fs.path.basename(lib);
-        const without_ext = if (mem.lastIndexOfScalar(u8, filename, '.')) |index|
-            filename[0..index]
-        else
-            filename;
+        const extension = if (has_ext) fs.path.extension(id.name) else "";
+        const without_ext = if (has_ext) blk: {
+            const index = mem.lastIndexOfScalar(u8, id.name, '.') orelse unreachable;
+            break :blk id.name[0..index];
+        } else id.name;
 
-        for (&[_][]const u8{ "dylib", "tbd" }) |ext| {
-            const with_ext = try std.fmt.allocPrint(self.allocator, "{s}.{s}", .{
+        for (&[_][]const u8{ extension, ".tbd" }) |ext| {
+            const with_ext = try std.fmt.allocPrint(self.allocator, "{s}{s}", .{
                 without_ext,
                 ext,
             });
             defer self.allocator.free(with_ext);
 
-            const lib_path = if (self.syslibroot) |syslibroot|
-                try fs.path.join(self.allocator, &.{ syslibroot, dirname, with_ext })
+            const full_path = if (self.syslibroot) |syslibroot|
+                try fs.path.join(self.allocator, &.{ syslibroot, with_ext })
             else
-                try fs.path.join(self.allocator, &.{ dirname, with_ext });
+                with_ext;
+            defer if (self.syslibroot) |_| self.allocator.free(full_path);
 
-            log.debug("trying dependency at fully resolved path {s}", .{lib_path});
+            log.debug("trying dependency at fully resolved path {s}", .{full_path});
 
             const dylibs = (try createAndParseFromPath(
                 self.allocator,
                 self.arch.?,
-                lib_path,
-                self.syslibroot,
+                full_path,
+                .{
+                    .id = id,
+                    .syslibroot = self.syslibroot,
+                },
             )) orelse {
                 continue;
             };
@@ -516,7 +547,7 @@ pub fn parseDependentLibs(self: *Dylib, out: *std.ArrayList(*Dylib)) !void {
 
             continue :outer;
         } else {
-            log.warn("unable to resolve dependency {s}", .{lib});
+            log.warn("unable to resolve dependency {s}", .{id.name});
         }
     }
 }
