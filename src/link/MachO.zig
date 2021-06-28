@@ -871,17 +871,19 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
 
             // If we're compiling native and we can find libSystem.B.{dylib, tbd},
             // we link against that instead of embedded libSystem.B.tbd file.
-            const libc_stub_path = blk: {
-                if (self.base.options.is_native_os) {
-                    if (try resolveLib(arena, lib_dirs.items, "System", .lib)) |full_path| {
-                        break :blk full_path;
-                    }
+            var link_native_libsystem = false;
+            if (self.base.options.is_native_os) {
+                if (try resolveLib(arena, lib_dirs.items, "System", .lib)) |full_path| {
+                    try libs.append(full_path);
+                    link_native_libsystem = true;
                 }
-
-                break :blk try comp.zig_lib_directory.join(arena, &[_][]const u8{
+            }
+            if (!link_native_libsystem) {
+                const full_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
                     "libc", "darwin", "libSystem.B.tbd",
                 });
-            };
+                try positionals.append(full_path);
+            }
 
             // frameworks
             var framework_dirs = std.ArrayList([]const u8).init(arena);
@@ -935,6 +937,10 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                 try argv.append("-o");
                 try argv.append(full_out_path);
 
+                if (link_native_libsystem) {
+                    try argv.append("-lSystem");
+                }
+
                 for (search_lib_names.items) |l_name| {
                     try argv.append(try std.fmt.allocPrint(arena, "-l{s}", .{l_name}));
                 }
@@ -950,7 +956,6 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                 .syslibroot = self.base.options.sysroot,
                 .libs = libs.items,
                 .rpaths = rpaths.items,
-                .libc_stub_path = libc_stub_path,
             });
 
             break :outer;

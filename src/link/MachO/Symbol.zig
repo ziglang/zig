@@ -111,7 +111,8 @@ pub const Unresolved = struct {
     base: Symbol,
 
     /// File where this symbol was referenced.
-    file: *Object,
+    /// null means synthetic, e.g., dyld_stub_binder.
+    file: ?*Object = null,
 
     pub const base_type: Symbol.Type = .unresolved;
 };
