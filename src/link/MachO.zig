@@ -584,24 +584,29 @@ fn resolveLib(
     // Look in each directory for a dylib (next, tbd), and then for archive
     // TODO implement alternative: -search_dylibs_first
     const exts = switch (lib_kind) {
-        .lib => &[_][]const u8{ "dylib", "tbd", "a" },
-        .framework => &[_][]const u8{ "dylib", "tbd" },
+        .lib => &[_]?[]const u8{ "dylib", "tbd", "a" },
+        .framework => &[_]?[]const u8{ null, "dylib", "tbd" },
     };
 
     for (exts) |ext| {
-        const lib_name_ext = blk: {
+        const lib_name_ext = if (ext) |some|
+            try std.fmt.allocPrint(arena, "{s}.{s}", .{ lib_name, some })
+        else
+            lib_name;
+        const with_prefix = blk: {
             switch (lib_kind) {
-                .lib => break :blk try std.fmt.allocPrint(arena, "lib{s}.{s}", .{ lib_name, ext }),
+                .lib => {
+                    break :blk try std.fmt.allocPrint(arena, "lib{s}", .{lib_name_ext});
+                },
                 .framework => {
                     const prefix = try std.fmt.allocPrint(arena, "{s}.framework", .{lib_name});
-                    const nn = try std.fmt.allocPrint(arena, "{s}.{s}", .{ lib_name, ext });
-                    break :blk try fs.path.join(arena, &[_][]const u8{ prefix, nn });
+                    break :blk try fs.path.join(arena, &[_][]const u8{ prefix, lib_name_ext });
                 },
             }
         };
 
         for (lib_dirs) |dir| {
-            const full_path = try fs.path.join(arena, &[_][]const u8{ dir, lib_name_ext });
+            const full_path = try fs.path.join(arena, &[_][]const u8{ dir, with_prefix });
 
             // Check if the lib file exists.
             const tmp = fs.cwd().openFile(full_path, .{}) catch |err| switch (err) {
