@@ -369,10 +369,11 @@ fn parseSymbols(self: *Dylib) !void {
     _ = try self.file.?.preadAll(strtab, symtab_cmd.stroff + self.library_offset);
 
     for (slice) |sym| {
+        const add_to_symtab = Symbol.isExt(sym) and (Symbol.isSect(sym) or Symbol.isIndr(sym));
+
+        if (!add_to_symtab) continue;
+
         const sym_name = mem.spanZ(@ptrCast([*:0]const u8, strtab.ptr + sym.n_strx));
-
-        if (!(Symbol.isSect(sym) and Symbol.isExt(sym))) continue;
-
         const name = try self.allocator.dupe(u8, sym_name);
         try self.symbols.putNoClobber(self.allocator, name, {});
     }

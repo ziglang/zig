@@ -1644,7 +1644,7 @@ fn resolveSymbols(self: *Zld) !void {
     loop: while (unresolved.popOrNull()) |undef| {
         const proxy = self.imports.get(undef.name) orelse outer: {
             const proxy = inner: {
-                for (self.dylibs.items) |dylib, i| {
+                for (self.dylibs.items) |dylib| {
                     const proxy = (try dylib.createProxy(undef.name)) orelse continue;
                     try referenced.put(dylib, {});
                     break :inner proxy;
