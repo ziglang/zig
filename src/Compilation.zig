@@ -402,10 +402,10 @@ pub const AllErrors = struct {
             const source = try module_note.src_loc.file_scope.getSource(module.gpa);
             const byte_offset = try module_note.src_loc.byteOffset(module.gpa);
             const loc = std.zig.findLineColumn(source, byte_offset);
-            const sub_file_path = module_note.src_loc.file_scope.sub_file_path;
+            const file_path = try module_note.src_loc.file_scope.fullPath(&arena.allocator);
             note.* = .{
                 .src = .{
-                    .src_path = try arena.allocator.dupe(u8, sub_file_path),
+                    .src_path = file_path,
                     .msg = try arena.allocator.dupe(u8, module_note.msg),
                     .byte_offset = byte_offset,
                     .line = @intCast(u32, loc.line),
@@ -425,10 +425,10 @@ pub const AllErrors = struct {
         const source = try module_err_msg.src_loc.file_scope.getSource(module.gpa);
         const byte_offset = try module_err_msg.src_loc.byteOffset(module.gpa);
         const loc = std.zig.findLineColumn(source, byte_offset);
-        const sub_file_path = module_err_msg.src_loc.file_scope.sub_file_path;
+        const file_path = try module_err_msg.src_loc.file_scope.fullPath(&arena.allocator);
         try errors.append(.{
             .src = .{
-                .src_path = try arena.allocator.dupe(u8, sub_file_path),
+                .src_path = file_path,
                 .msg = try arena.allocator.dupe(u8, module_err_msg.msg),
                 .byte_offset = byte_offset,
                 .line = @intCast(u32, loc.line),
@@ -479,7 +479,7 @@ pub const AllErrors = struct {
 
                     note.* = .{
                         .src = .{
-                            .src_path = try arena.dupe(u8, file.sub_file_path),
+                            .src_path = try file.fullPath(arena),
                             .msg = try arena.dupe(u8, msg),
                             .byte_offset = byte_offset,
                             .line = @intCast(u32, loc.line),
@@ -505,7 +505,7 @@ pub const AllErrors = struct {
 
             try errors.append(.{
                 .src = .{
-                    .src_path = try arena.dupe(u8, file.sub_file_path),
+                    .src_path = try file.fullPath(arena),
                     .msg = try arena.dupe(u8, msg),
                     .byte_offset = byte_offset,
                     .line = @intCast(u32, loc.line),

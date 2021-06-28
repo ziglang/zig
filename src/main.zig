@@ -3117,6 +3117,9 @@ pub fn cmdFmt(gpa: *Allocator, args: []const []const u8) !void {
                 .root_decl = null,
             };
 
+            file.pkg = try Package.create(gpa, null, file.sub_file_path);
+            defer file.pkg.destroy(gpa);
+
             file.zir = try AstGen.generate(gpa, file.tree);
             file.zir_loaded = true;
             defer file.zir.deinit(gpa);
@@ -3308,6 +3311,9 @@ fn fmtPathFile(
             .pkg = undefined,
             .root_decl = null,
         };
+
+        file.pkg = try Package.create(fmt.gpa, null, file.sub_file_path);
+        defer file.pkg.destroy(fmt.gpa);
 
         if (stat.size > max_src_size)
             return error.FileTooBig;
@@ -3901,6 +3907,9 @@ pub fn cmdAstCheck(
         file.stat_size = source.len;
     }
 
+    file.pkg = try Package.create(gpa, null, file.sub_file_path);
+    defer file.pkg.destroy(gpa);
+
     file.tree = try std.zig.parse(gpa, file.source);
     file.tree_loaded = true;
     defer file.tree.deinit(gpa);
@@ -4016,6 +4025,9 @@ pub fn cmdChangelist(
         .pkg = undefined,
         .root_decl = null,
     };
+
+    file.pkg = try Package.create(gpa, null, file.sub_file_path);
+    defer file.pkg.destroy(gpa);
 
     const source = try arena.allocSentinel(u8, @intCast(usize, stat.size), 0);
     const amt = try f.readAll(source);
