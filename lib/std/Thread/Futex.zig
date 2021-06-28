@@ -407,7 +407,7 @@ test "Futex - wait/wake" {
 
 test "Futex - Signal" {
     if (single_threaded) {
-        return;
+        return error.SkipZigTest;
     }
 
     const Paddle = struct {
@@ -449,7 +449,7 @@ test "Futex - Signal" {
 
 test "Futex - Broadcast" {
     if (single_threaded) {
-        return;
+        return error.SkipZigTest;
     }
 
     const Context = struct {
@@ -506,7 +506,7 @@ test "Futex - Broadcast" {
 
 test "Futex - Chain" {
     if (single_threaded) {
-        return;
+        return error.SkipZigTest;
     }
 
     const Signal = struct {

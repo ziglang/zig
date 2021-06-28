@@ -277,6 +277,7 @@ pub extern "c" fn pthread_attr_setguardsize(attr: *pthread_attr_t, guardsize: us
 pub extern "c" fn pthread_attr_destroy(attr: *pthread_attr_t) c_int;
 pub extern "c" fn pthread_self() pthread_t;
 pub extern "c" fn pthread_join(thread: pthread_t, arg_return: ?*?*c_void) c_int;
+pub extern "c" fn pthread_detach(thread: pthread_t) c_int;
 pub extern "c" fn pthread_atfork(
     prepare: ?fn () callconv(.C) void,
     parent: ?fn () callconv(.C) void,

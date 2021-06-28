@@ -321,17 +321,8 @@ test "std.Thread.getCurrentId" {
 
     var thread_current_id: Thread.Id = undefined;
     const thread = try Thread.spawn(.{}, testThreadIdFn, .{&thread_current_id});
-    const thread_id = thread.getHandle();
     thread.join();
-    if (Thread.use_pthreads) {
-        try expect(thread_current_id == thread_id);
-    } else if (native_os == .windows) {
-        try expect(Thread.getCurrentId() != thread_current_id);
-    } else {
-        // If the thread completes very quickly, then thread_id can be 0. See the
-        // documentation comments for `std.Thread.handle`.
-        try expect(thread_id == 0 or thread_current_id == thread_id);
-    }
+    try expect(Thread.getCurrentId() != thread_current_id);
 }
 
 test "spawn threads" {
