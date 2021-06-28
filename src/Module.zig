@@ -1111,10 +1111,6 @@ pub const Scope = struct {
             return buf.toOwnedSliceSentinel(0);
         }
 
-        pub fn fullPath(file: File, ally: *Allocator) ![]u8 {
-            return file.pkg.root_src_directory.join(ally, &[_][]const u8{file.sub_file_path});
-        }
-
         pub fn dumpSrc(file: *File, src: LazySrcLoc) void {
             const loc = std.zig.findLineColumn(file.source.bytes, src);
             std.debug.print("{s}:{d}:{d}\n", .{ file.sub_file_path, loc.line + 1, loc.column + 1 });
