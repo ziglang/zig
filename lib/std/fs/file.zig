@@ -830,29 +830,25 @@ pub const File = struct {
         return .{ .context = file };
     }
 
-    pub const SetLockError = os.FlockError;
+    const range_off: windows.LARGE_INTEGER = 0;
+    const range_len: windows.LARGE_INTEGER = 1;
+
+    pub const LockError = error{
+        SystemResources,
+    } || os.UnexpectedError;
 
     /// Blocks when an incompatible lock is held by another process.
-    /// `non_blocking` may be used to make a non-blocking request,
-    /// causing this function to possibly return `error.WouldBlock`.
     /// A process may hold only one type of lock (shared or exclusive) on
     /// a file. When a process terminates in any way, the lock is released.
+    ///
+    /// Assumes the file is unlocked.
+    ///
     /// TODO: integrate with async I/O
-    pub fn setLock(file: File, lock: Lock, non_blocking: bool) SetLockError!void {
+    pub fn lock(file: File, l: Lock) LockError!void {
         if (is_windows) {
-            const range_off: windows.LARGE_INTEGER = 0;
-            const range_len: windows.LARGE_INTEGER = 1;
-            const exclusive = switch (lock) {
-                .None => return windows.UnlockFile(
-                    file.handle,
-                    null,
-                    &range_off,
-                    &range_len,
-                    null,
-                ) catch |err| switch (err) {
-                    error.RangeNotLocked => return,
-                    else => |e| return e,
-                },
+            var io_status_block: windows.IO_STATUS_BLOCK = undefined;
+            const exclusive = switch (l) {
+                .None => return,
                 .Shared => false,
                 .Exclusive => true,
             };
@@ -861,19 +857,137 @@ pub const File = struct {
                 null,
                 null,
                 null,
-                null,
+                &io_status_block,
                 &range_off,
                 &range_len,
                 null,
-                @boolToInt(non_blocking),
+                windows.FALSE, // non-blocking=false
                 @boolToInt(exclusive),
-            );
+            ) catch |err| switch (err) {
+                error.WouldBlock => unreachable, // non-blocking=false
+                else => |e| return e,
+            };
+        } else {
+            return os.flock(file.handle, switch (l) {
+                .None => os.LOCK_UN,
+                .Shared => os.LOCK_SH,
+                .Exclusive => os.LOCK_EX,
+            }) catch |err| switch (err) {
+                error.WouldBlock => unreachable, // non-blocking=false
+                else => |e| return e,
+            };
         }
-        const non_blocking_flag = if (non_blocking) os.LOCK_NB else @as(i32, 0);
-        return os.flock(file.handle, switch (lock) {
-            .None => os.LOCK_UN,
-            .Shared => os.LOCK_SH | non_blocking_flag,
-            .Exclusive => os.LOCK_EX | non_blocking_flag,
-        });
+    }
+
+    /// Assumes the file is locked.
+    pub fn unlock(file: File) void {
+        if (is_windows) {
+            var io_status_block: windows.IO_STATUS_BLOCK = undefined;
+            return windows.UnlockFile(
+                file.handle,
+                &io_status_block,
+                &range_off,
+                &range_len,
+                null,
+            ) catch |err| switch (err) {
+                error.RangeNotLocked => unreachable, // Function assumes unlocked.
+                error.Unexpected => unreachable, // Resource deallocation must succeed.
+            };
+        } else {
+            return os.flock(file.handle, os.LOCK_UN) catch |err| switch (err) {
+                error.WouldBlock => unreachable, // unlocking can't block
+                error.SystemResources => unreachable, // We are deallocating resources.
+                error.Unexpected => unreachable, // Resource deallocation must succeed.
+            };
+        }
+    }
+
+    /// Attempts to obtain a lock, returning `true` if the lock is
+    /// obtained, and `false` if there was an existing incompatible lock held.
+    /// A process may hold only one type of lock (shared or exclusive) on
+    /// a file. When a process terminates in any way, the lock is released.
+    ///
+    /// Assumes the file is unlocked.
+    ///
+    /// TODO: integrate with async I/O
+    pub fn tryLock(file: File, l: Lock) LockError!bool {
+        if (is_windows) {
+            var io_status_block: windows.IO_STATUS_BLOCK = undefined;
+            const exclusive = switch (l) {
+                .None => return,
+                .Shared => false,
+                .Exclusive => true,
+            };
+            windows.LockFile(
+                file.handle,
+                null,
+                null,
+                null,
+                &io_status_block,
+                &range_off,
+                &range_len,
+                null,
+                windows.TRUE, // non-blocking=true
+                @boolToInt(exclusive),
+            ) catch |err| switch (err) {
+                error.WouldBlock => return false,
+                else => |e| return e,
+            };
+        } else {
+            os.flock(file.handle, switch (l) {
+                .None => os.LOCK_UN,
+                .Shared => os.LOCK_SH | os.LOCK_NB,
+                .Exclusive => os.LOCK_EX | os.LOCK_NB,
+            }) catch |err| switch (err) {
+                error.WouldBlock => return false,
+                else => |e| return e,
+            };
+        }
+        return true;
+    }
+
+    /// Assumes the file is already locked in exclusive mode.
+    /// Atomically modifies the lock to be in shared mode, without releasing it.
+    ///
+    /// TODO: integrate with async I/O
+    pub fn downgradeLock(file: File) LockError!void {
+        if (is_windows) {
+            // On Windows it works like a semaphore + exclusivity flag. To implement this
+            // function, we first obtain another lock in shared mode. This changes the
+            // exclusivity flag, but increments the semaphore to 2. So we follow up with
+            // an NtUnlockFile which decrements the semaphore but does not modify the
+            // exclusivity flag.
+            var io_status_block: windows.IO_STATUS_BLOCK = undefined;
+            windows.LockFile(
+                file.handle,
+                null,
+                null,
+                null,
+                &io_status_block,
+                &range_off,
+                &range_len,
+                null,
+                windows.TRUE, // non-blocking=true
+                windows.FALSE, // exclusive=false
+            ) catch |err| switch (err) {
+                error.WouldBlock => unreachable, // File was not locked in exclusive mode.
+                else => |e| return e,
+            };
+            return windows.UnlockFile(
+                file.handle,
+                &io_status_block,
+                &range_off,
+                &range_len,
+                null,
+            ) catch |err| switch (err) {
+                error.RangeNotLocked => unreachable, // File was not locked.
+                error.Unexpected => unreachable, // Resource deallocation must succeed.
+            };
+        } else {
+            return os.flock(file.handle, os.LOCK_SH | os.LOCK_NB) catch |err| switch (err) {
+                error.WouldBlock => unreachable, // File was not locked in exclusive mode.
+                else => |e| return e,
+            };
+        }
     }
 };

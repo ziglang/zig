@@ -145,7 +145,7 @@ pub extern "NtDll" fn NtLockFile(
     Event: ?HANDLE,
     ApcRoutine: ?*IO_APC_ROUTINE,
     ApcContext: ?*c_void,
-    IoStatusBlock: ?*IO_STATUS_BLOCK,
+    IoStatusBlock: *IO_STATUS_BLOCK,
     ByteOffset: *const LARGE_INTEGER,
     Length: *const LARGE_INTEGER,
     Key: ?*ULONG,
@@ -155,7 +155,7 @@ pub extern "NtDll" fn NtLockFile(
 
 pub extern "NtDll" fn NtUnlockFile(
     FileHandle: HANDLE,
-    IoStatusBlock: ?*IO_STATUS_BLOCK,
+    IoStatusBlock: *IO_STATUS_BLOCK,
     ByteOffset: *const LARGE_INTEGER,
     Length: *const LARGE_INTEGER,
     Key: ?*ULONG,
