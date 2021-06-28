@@ -829,4 +829,24 @@ pub const File = struct {
     pub fn seekableStream(file: File) SeekableStream {
         return .{ .context = file };
     }
+
+    pub const SetLockError = os.FlockError;
+
+    /// Blocks when an incompatible lock is held by another process.
+    /// `non_blocking` may be used to make a non-blocking request,
+    /// causing this function to possibly return `error.WouldBlock`.
+    /// A process may hold only one type of lock (shared or exclusive) on
+    /// a file. When a process terminates in any way, the lock is released.
+    /// TODO: integrate with async I/O
+    pub fn setLock(file: File, lock: Lock, non_blocking: bool) SetLockError!void {
+        if (is_windows) {
+            @compileError("TODO implement fs.File.setLock for Windows");
+        }
+        const non_blocking_flag = if (non_blocking) os.LOCK_NB else @as(i32, 0);
+        try os.flock(file.handle, switch (lock) {
+            .None => os.LOCK_UN,
+            .Shared => os.LOCK_SH | non_blocking_flag,
+            .Exclusive => os.LOCK_EX | non_blocking_flag,
+        });
+    }
 };
