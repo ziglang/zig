@@ -1776,7 +1776,7 @@ fn buildOutputType(
             }
             if (fs.path.dirname(full_path)) |dirname| {
                 const handle = fs.cwd().openDir(dirname, .{}) catch |err| {
-                    fatal("Unable to open output directory '{s}': {s}", .{ dirname, @errorName(err) });
+                    fatal("unable to open output directory '{s}': {s}", .{ dirname, @errorName(err) });
                 };
                 cleanup_emit_bin_dir = handle;
                 break :b Compilation.EmitLoc{
@@ -1803,10 +1803,10 @@ fn buildOutputType(
     var emit_h_resolved = emit_h.resolve(default_h_basename) catch |err| {
         switch (emit_h) {
             .yes => {
-                fatal("Unable to open directory from argument 'femit-h', '{s}': {s}", .{ emit_h.yes, @errorName(err) });
+                fatal("unable to open directory from argument 'femit-h', '{s}': {s}", .{ emit_h.yes, @errorName(err) });
             },
             .yes_default_path => {
-                fatal("Unable to open directory from arguments 'name' or 'soname', '{s}': {s}", .{ default_h_basename, @errorName(err) });
+                fatal("unable to open directory from arguments 'name' or 'soname', '{s}': {s}", .{ default_h_basename, @errorName(err) });
             },
             .no => unreachable,
         }
@@ -1817,10 +1817,10 @@ fn buildOutputType(
     var emit_asm_resolved = emit_asm.resolve(default_asm_basename) catch |err| {
         switch (emit_asm) {
             .yes => {
-                fatal("Unable to open directory from argument 'femit-asm', '{s}': {s}", .{ emit_asm.yes, @errorName(err) });
+                fatal("unable to open directory from argument 'femit-asm', '{s}': {s}", .{ emit_asm.yes, @errorName(err) });
             },
             .yes_default_path => {
-                fatal("Unable to open directory from arguments 'name' or 'soname', '{s}': {s}", .{ default_asm_basename, @errorName(err) });
+                fatal("unable to open directory from arguments 'name' or 'soname', '{s}': {s}", .{ default_asm_basename, @errorName(err) });
             },
             .no => unreachable,
         }
@@ -1831,10 +1831,10 @@ fn buildOutputType(
     var emit_llvm_ir_resolved = emit_llvm_ir.resolve(default_llvm_ir_basename) catch |err| {
         switch (emit_llvm_ir) {
             .yes => {
-                fatal("Unable to open directory from argument 'femit-llvm-ir', '{s}': {s}", .{ emit_llvm_ir.yes, @errorName(err) });
+                fatal("unable to open directory from argument 'femit-llvm-ir', '{s}': {s}", .{ emit_llvm_ir.yes, @errorName(err) });
             },
             .yes_default_path => {
-                fatal("Unable to open directory from arguments 'name' or 'soname', '{s}': {s}", .{ default_llvm_ir_basename, @errorName(err) });
+                fatal("unable to open directory from arguments 'name' or 'soname', '{s}': {s}", .{ default_llvm_ir_basename, @errorName(err) });
             },
             .no => unreachable,
         }
@@ -1845,10 +1845,10 @@ fn buildOutputType(
     var emit_analysis_resolved = emit_analysis.resolve(default_analysis_basename) catch |err| {
         switch (emit_analysis) {
             .yes => {
-                fatal("Unable to open directory from argument 'femit-analysis',  '{s}': {s}", .{ emit_analysis.yes, @errorName(err) });
+                fatal("unable to open directory from argument 'femit-analysis',  '{s}': {s}", .{ emit_analysis.yes, @errorName(err) });
             },
             .yes_default_path => {
-                fatal("Unable to open directory from arguments 'name' or 'soname', '{s}': {s}", .{ default_analysis_basename, @errorName(err) });
+                fatal("unable to open directory from arguments 'name' or 'soname', '{s}': {s}", .{ default_analysis_basename, @errorName(err) });
             },
             .no => unreachable,
         }
@@ -1858,10 +1858,10 @@ fn buildOutputType(
     var emit_docs_resolved = emit_docs.resolve("docs") catch |err| {
         switch (emit_docs) {
             .yes => {
-                fatal("Unable to open directory from argument 'femit-docs', '{s}': {s}", .{ emit_h.yes, @errorName(err) });
+                fatal("unable to open directory from argument 'femit-docs', '{s}': {s}", .{ emit_h.yes, @errorName(err) });
             },
             .yes_default_path => {
-                fatal("Unable to open directory 'docs': {s}", .{@errorName(err)});
+                fatal("unable to open directory 'docs': {s}", .{@errorName(err)});
             },
             .no => unreachable,
         }
@@ -1889,10 +1889,10 @@ fn buildOutputType(
     var zig_lib_directory: Compilation.Directory = if (override_lib_dir) |lib_dir| .{
         .path = lib_dir,
         .handle = fs.cwd().openDir(lib_dir, .{}) catch |err| {
-            fatal("Unable to open zig lib directory from 'zig-lib-dir' argument or env, '{s}': {s}", .{ lib_dir, @errorName(err) });
+            fatal("unable to open zig lib directory from 'zig-lib-dir' argument or env, '{s}': {s}", .{ lib_dir, @errorName(err) });
         },
     } else introspect.findZigLibDirFromSelfExe(arena, self_exe_path) catch |err| {
-        fatal("Unable to find zig installation directory: {s}\n", .{@errorName(err)});
+        fatal("unable to find zig installation directory: {s}\n", .{@errorName(err)});
     };
     defer zig_lib_directory.handle.close();
 
@@ -2537,7 +2537,7 @@ fn cmdTranslateC(comp: *Compilation, arena: *Allocator, enable_cache: bool) !voi
     } else {
         const out_zig_path = try fs.path.join(arena, &[_][]const u8{ "o", &digest, translated_zig_basename });
         const zig_file = comp.local_cache_directory.handle.openFile(out_zig_path, .{}) catch |err| {
-            fatal("Unable to open cached translated zig file '{s}{s}{s}': {s}", .{ comp.local_cache_directory.path, fs.path.sep_str, out_zig_path, @errorName(err) });
+            fatal("unable to open cached translated zig file '{s}{s}{s}': {s}", .{ comp.local_cache_directory.path, fs.path.sep_str, out_zig_path, @errorName(err) });
         };
         defer zig_file.close();
         try io.getStdOut().writeFileAll(zig_file, .{});
@@ -2648,7 +2648,7 @@ pub fn cmdInit(
         .Exe => "std" ++ s ++ "special" ++ s ++ "init-exe",
     };
     var template_dir = zig_lib_directory.handle.openDir(template_sub_path, .{}) catch |err| {
-        fatal("Unable to open zig project template directory '{s}{s}{s}': {s}", .{ zig_lib_directory.path, s, template_sub_path, @errorName(err) });
+        fatal("unable to open zig project template directory '{s}{s}{s}': {s}", .{ zig_lib_directory.path, s, template_sub_path, @errorName(err) });
     };
     defer template_dir.close();
 
@@ -2765,7 +2765,7 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
         var zig_lib_directory: Compilation.Directory = if (override_lib_dir) |lib_dir| .{
             .path = lib_dir,
             .handle = fs.cwd().openDir(lib_dir, .{}) catch |err| {
-                fatal("Unable to open zig lib directory from 'zig-lib-dir' argument: '{s}': {s}", .{ lib_dir, @errorName(err) });
+                fatal("unable to open zig lib directory from 'zig-lib-dir' argument: '{s}': {s}", .{ lib_dir, @errorName(err) });
             },
         } else introspect.findZigLibDirFromSelfExe(arena, self_exe_path) catch |err| {
             fatal("unable to find zig installation directory '{s}': {s}", .{ self_exe_path, @errorName(err) });
@@ -2779,7 +2779,7 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
             .root_src_directory = .{
                 .path = special_dir_path,
                 .handle = zig_lib_directory.handle.openDir(std_special, .{}) catch |err| {
-                    fatal("Unable to open directory '{s}{s}{s}': {s}", .{ override_lib_dir, fs.path.sep_str, std_special, @errorName(err) });
+                    fatal("unable to open directory '{s}{s}{s}': {s}", .{ override_lib_dir, fs.path.sep_str, std_special, @errorName(err) });
                 },
             },
             .root_src_path = "build_runner.zig",
@@ -2795,7 +2795,7 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
             if (build_file) |bf| {
                 if (fs.path.dirname(bf)) |dirname| {
                     const dir = fs.cwd().openDir(dirname, .{}) catch |err| {
-                        fatal("Unable to open directory to build file from argument 'build-file', '{s}': {s}", .{ dirname, @errorName(err) });
+                        fatal("unable to open directory to build file from argument 'build-file', '{s}': {s}", .{ dirname, @errorName(err) });
                     };
                     cleanup_build_dir = dir;
                     break :blk .{ .path = dirname, .handle = dir };
@@ -2809,7 +2809,7 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
                 const joined_path = try fs.path.join(arena, &[_][]const u8{ dirname, build_zig_basename });
                 if (fs.cwd().access(joined_path, .{})) |_| {
                     const dir = fs.cwd().openDir(dirname, .{}) catch |err| {
-                        fatal("Unable to open directory while searching for build.zig file, '{s}': {s}", .{ dirname, @errorName(err) });
+                        fatal("unable to open directory while searching for build.zig file, '{s}': {s}", .{ dirname, @errorName(err) });
                     };
                     break :blk .{ .path = dirname, .handle = dir };
                 } else |err| switch (err) {
@@ -3861,7 +3861,7 @@ pub fn cmdAstCheck(
     };
     if (zig_source_file) |file_name| {
         var f = fs.cwd().openFile(file_name, .{}) catch |err| {
-            fatal("Unable to open file for ast-check '{s}': {s}", .{ file_name, @errorName(err) });
+            fatal("unable to open file for ast-check '{s}': {s}", .{ file_name, @errorName(err) });
         };
         defer f.close();
 
@@ -3983,7 +3983,7 @@ pub fn cmdChangelist(
     const new_source_file = args[1];
 
     var f = fs.cwd().openFile(old_source_file, .{}) catch |err| {
-        fatal("Unable to open old source file for comparison '{s}': {s}", .{ old_source_file, @errorName(err) });
+        fatal("unable to open old source file for comparison '{s}': {s}", .{ old_source_file, @errorName(err) });
     };
     defer f.close();
 
@@ -4041,7 +4041,7 @@ pub fn cmdChangelist(
     }
 
     var new_f = fs.cwd().openFile(new_source_file, .{}) catch |err| {
-        fatal("Unable to open new source file for comparison '{s}': {s}", .{ new_source_file, @errorName(err) });
+        fatal("unable to open new source file for comparison '{s}': {s}", .{ new_source_file, @errorName(err) });
     };
     defer new_f.close();
 
