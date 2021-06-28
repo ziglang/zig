@@ -261,6 +261,23 @@ fn typeExpr(gz: *GenZir, scope: *Scope, type_node: ast.Node.Index) InnerError!Zi
     return expr(gz, scope, .{ .ty = .type_type }, type_node);
 }
 
+/// Same as `expr` but fails with a compile error if the result type is `noreturn`.
+fn reachableExpr(
+    gz: *GenZir,
+    scope: *Scope,
+    rl: ResultLoc,
+    node: ast.Node.Index,
+    src_node: ast.Node.Index,
+) InnerError!Zir.Inst.Ref {
+    const result_inst = try expr(gz, scope, rl, node);
+    if (gz.refIsNoReturn(result_inst)) {
+        return gz.astgen.failNodeNotes(src_node, "unreachable code", .{}, &[_]u32{
+            try gz.astgen.errNoteNode(node, "control flow is diverted here", .{}),
+        });
+    }
+    return result_inst;
+}
+
 fn lvalExpr(gz: *GenZir, scope: *Scope, node: ast.Node.Index) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
     const tree = astgen.tree;
@@ -2331,8 +2348,7 @@ fn varDecl(
                 const result_loc: ResultLoc = if (var_decl.ast.type_node != 0) .{
                     .ty = try typeExpr(gz, scope, var_decl.ast.type_node),
                 } else .none;
-                const init_inst = try expr(gz, scope, result_loc, var_decl.ast.init_node);
-                try astgen.checkVarInitExpr(gz.*, node, var_decl.ast.init_node, init_inst, "local constant");
+                const init_inst = try reachableExpr(gz, scope, result_loc, var_decl.ast.init_node, node);
 
                 const sub_scope = try block_arena.create(Scope.LocalVal);
                 sub_scope.* = .{
@@ -2383,8 +2399,7 @@ fn varDecl(
                 init_scope.rl_ptr = alloc;
             }
             const init_result_loc: ResultLoc = .{ .block_ptr = &init_scope };
-            const init_inst = try expr(&init_scope, &init_scope.base, init_result_loc, var_decl.ast.init_node);
-            try astgen.checkVarInitExpr(init_scope, node, var_decl.ast.init_node, init_inst, "local constant");
+            const init_inst = try reachableExpr(&init_scope, &init_scope.base, init_result_loc, var_decl.ast.init_node, node);
 
             const zir_tags = astgen.instructions.items(.tag);
             const zir_datas = astgen.instructions.items(.data);
@@ -2486,8 +2501,7 @@ fn varDecl(
                 resolve_inferred_alloc = alloc;
                 break :a .{ .alloc = alloc, .result_loc = .{ .inferred_ptr = alloc } };
             };
-            const init_inst = try expr(gz, scope, var_data.result_loc, var_decl.ast.init_node);
-            try astgen.checkVarInitExpr(gz.*, node, var_decl.ast.init_node, init_inst, "local variable");
+            _ = try reachableExpr(gz, scope, var_data.result_loc, var_decl.ast.init_node, node);
             if (resolve_inferred_alloc != .none) {
                 _ = try gz.addUnNode(.resolve_inferred_alloc, resolve_inferred_alloc, node);
             }
@@ -6618,14 +6632,14 @@ fn as(
     const dest_type = try typeExpr(gz, scope, lhs);
     switch (rl) {
         .none, .none_or_ref, .discard, .ref, .ty => {
-            const result = try expr(gz, scope, .{ .ty = dest_type }, rhs);
+            const result = try reachableExpr(gz, scope, .{ .ty = dest_type }, rhs, node);
             return rvalue(gz, rl, result, node);
         },
         .ptr, .inferred_ptr => |result_ptr| {
-            return asRlPtr(gz, scope, rl, result_ptr, rhs, dest_type);
+            return asRlPtr(gz, scope, rl, node, result_ptr, rhs, dest_type);
         },
         .block_ptr => |block_scope| {
-            return asRlPtr(gz, scope, rl, block_scope.rl_ptr, rhs, dest_type);
+            return asRlPtr(gz, scope, rl, node, block_scope.rl_ptr, rhs, dest_type);
         },
     }
 }
@@ -6679,6 +6693,7 @@ fn asRlPtr(
     parent_gz: *GenZir,
     scope: *Scope,
     rl: ResultLoc,
+    src_node: ast.Node.Index,
     result_ptr: Zir.Inst.Ref,
     operand_node: ast.Node.Index,
     dest_type: Zir.Inst.Ref,
@@ -6692,7 +6707,7 @@ fn asRlPtr(
     defer as_scope.instructions.deinit(astgen.gpa);
 
     as_scope.rl_ptr = try as_scope.addBin(.coerce_result_ptr, dest_type, result_ptr);
-    const result = try expr(&as_scope, &as_scope.base, .{ .block_ptr = &as_scope }, operand_node);
+    const result = try reachableExpr(&as_scope, &as_scope.base, .{ .block_ptr = &as_scope }, operand_node, src_node);
     const parent_zir = &parent_gz.instructions;
     if (as_scope.rvalue_rl_count == 1) {
         // Busted! This expression didn't actually need a pointer.
@@ -9606,28 +9621,4 @@ fn advanceSourceCursor(astgen: *AstGen, source: []const u8, end: usize) void {
     astgen.source_offset = i;
     astgen.source_line = line;
     astgen.source_column = column;
-}
-
-fn checkVarInitExpr(
-    astgen: *AstGen,
-    gz: GenZir,
-    var_node: ast.Node.Index,
-    init_node: ast.Node.Index,
-    init_inst: Zir.Inst.Ref,
-    var_name_text: []const u8,
-) !void {
-    if (gz.refIsNoReturn(init_inst)) {
-        return astgen.failNodeNotes(
-            var_node,
-            "useless {s}",
-            .{var_name_text},
-            &[_]u32{
-                try astgen.errNoteNode(
-                    init_node,
-                    "control flow is diverted here",
-                    .{},
-                ),
-            },
-        );
-    }
 }

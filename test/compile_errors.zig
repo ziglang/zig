@@ -4831,7 +4831,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const a = return;
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:5: error: useless local constant",
+        "tmp.zig:2:5: error: unreachable code",
         "tmp.zig:2:15: note: control flow is diverted here",
     });
 
@@ -5058,6 +5058,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\export fn entry() void { _ = f(); }
     , &[_][]const u8{
         "tmp.zig:2:12: error: unreachable code",
+        "tmp.zig:2:21: note: control flow is diverted here",
     });
 
     cases.add("invalid builtin fn",
@@ -7143,9 +7144,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\export fn entry8() void {
         \\   var h = (Foo {}).bar;
         \\}
-        \\export fn entry9() void {
-        \\   var z: noreturn = return;
-        \\}
         \\const Opaque = opaque {};
         \\const Foo = struct {
         \\    fn bar(self: *const Foo) void {}
@@ -7161,7 +7159,15 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:17:4: error: variable of type 'Opaque' not allowed",
         "tmp.zig:20:4: error: variable of type 'type' must be const or comptime",
         "tmp.zig:23:4: error: variable of type '(bound fn(*const Foo) void)' must be const or comptime",
-        "tmp.zig:26:22: error: unreachable code",
+    });
+
+    cases.add("variable with type 'noreturn'",
+        \\export fn entry9() void {
+        \\    var z: noreturn = return;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:2:5: error: unreachable code",
+        "tmp.zig:2:23: note: control flow is diverted here",
     });
 
     cases.add("wrong types given to atomic order args in cmpxchg",
