@@ -840,10 +840,37 @@ pub const File = struct {
     /// TODO: integrate with async I/O
     pub fn setLock(file: File, lock: Lock, non_blocking: bool) SetLockError!void {
         if (is_windows) {
-            @compileError("TODO implement fs.File.setLock for Windows");
+            const range_off: windows.LARGE_INTEGER = 0;
+            const range_len: windows.LARGE_INTEGER = 1;
+            const exclusive = switch (lock) {
+                .None => return windows.UnlockFile(
+                    file.handle,
+                    null,
+                    &range_off,
+                    &range_len,
+                    null,
+                ) catch |err| switch (err) {
+                    error.RangeNotLocked => return,
+                    else => |e| return e,
+                },
+                .Shared => false,
+                .Exclusive => true,
+            };
+            return windows.LockFile(
+                file.handle,
+                null,
+                null,
+                null,
+                null,
+                &range_off,
+                &range_len,
+                null,
+                @boolToInt(non_blocking),
+                @boolToInt(exclusive),
+            );
         }
         const non_blocking_flag = if (non_blocking) os.LOCK_NB else @as(i32, 0);
-        try os.flock(file.handle, switch (lock) {
+        return os.flock(file.handle, switch (lock) {
             .None => os.LOCK_UN,
             .Shared => os.LOCK_SH | non_blocking_flag,
             .Exclusive => os.LOCK_EX | non_blocking_flag,

@@ -1679,6 +1679,62 @@ pub fn SetFileTime(
     }
 }
 
+pub const LockFileError = error{
+    SystemResources,
+    WouldBlock,
+} || std.os.UnexpectedError;
+
+pub fn LockFile(
+    FileHandle: HANDLE,
+    Event: ?HANDLE,
+    ApcRoutine: ?*IO_APC_ROUTINE,
+    ApcContext: ?*c_void,
+    IoStatusBlock: ?*IO_STATUS_BLOCK,
+    ByteOffset: *const LARGE_INTEGER,
+    Length: *const LARGE_INTEGER,
+    Key: ?*ULONG,
+    FailImmediately: BOOLEAN,
+    ExclusiveLock: BOOLEAN,
+) !void {
+    const rc = ntdll.NtLockFile(
+        FileHandle,
+        Event,
+        ApcRoutine,
+        ApcContext,
+        IoStatusBlock,
+        ByteOffset,
+        Length,
+        Key,
+        FailImmediately,
+        ExclusiveLock,
+    );
+    switch (rc) {
+        .SUCCESS => return,
+        .INSUFFICIENT_RESOURCES => return error.SystemResources,
+        .LOCK_NOT_GRANTED => return error.WouldBlock,
+        else => return unexpectedStatus(rc),
+    }
+}
+
+pub const UnlockFileError = error{
+    RangeNotLocked,
+} || std.os.UnexpectedError;
+
+pub fn UnlockFile(
+    FileHandle: HANDLE,
+    IoStatusBlock: ?*IO_STATUS_BLOCK,
+    ByteOffset: *const LARGE_INTEGER,
+    Length: *const LARGE_INTEGER,
+    Key: ?*ULONG,
+) !void {
+    const rc = ntdll.NtUnlockFile(FileHandle, IoStatusBlock, ByteOffset, Length, Key);
+    switch (rc) {
+        .SUCCESS => return,
+        .RANGE_NOT_LOCKED => return error.RangeNotLocked,
+        else => return unexpectedStatus(rc),
+    }
+}
+
 pub fn teb() *TEB {
     return switch (builtin.target.cpu.arch) {
         .i386 => asm volatile (
