@@ -226,7 +226,6 @@ pub fn mainArgs(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
     {
         return punt_to_clang(arena, args);
     } else if (mem.eql(u8, cmd, "ld.lld") or
-        mem.eql(u8, cmd, "ld64.lld") or
         mem.eql(u8, cmd, "lld-link") or
         mem.eql(u8, cmd, "wasm-ld"))
     {
@@ -3384,7 +3383,6 @@ fn punt_to_llvm_ar(arena: *Allocator, args: []const []const u8) error{OutOfMemor
 
 /// The first argument determines which backend is invoked. The options are:
 /// * `ld.lld` - ELF
-/// * `ld64.lld` - Mach-O
 /// * `lld-link` - COFF
 /// * `wasm-ld` - WebAssembly
 /// TODO https://github.com/ziglang/zig/issues/3257
@@ -3402,8 +3400,6 @@ pub fn punt_to_lld(arena: *Allocator, args: []const []const u8) error{OutOfMemor
         const argc = @intCast(c_int, argv.len);
         if (mem.eql(u8, args[1], "ld.lld")) {
             break :rc llvm.LinkELF(argc, argv.ptr, true);
-        } else if (mem.eql(u8, args[1], "ld64.lld")) {
-            break :rc llvm.LinkMachO(argc, argv.ptr, true);
         } else if (mem.eql(u8, args[1], "lld-link")) {
             break :rc llvm.LinkCOFF(argc, argv.ptr, true);
         } else if (mem.eql(u8, args[1], "wasm-ld")) {

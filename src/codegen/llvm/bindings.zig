@@ -496,12 +496,10 @@ fn LLVMInitializeAllAsmParsers() callconv(.C) void {
 
 extern fn ZigLLDLinkCOFF(argc: c_int, argv: [*:null]const ?[*:0]const u8, can_exit_early: bool) c_int;
 extern fn ZigLLDLinkELF(argc: c_int, argv: [*:null]const ?[*:0]const u8, can_exit_early: bool) c_int;
-extern fn ZigLLDLinkMachO(argc: c_int, argv: [*:null]const ?[*:0]const u8, can_exit_early: bool) c_int;
 extern fn ZigLLDLinkWasm(argc: c_int, argv: [*:null]const ?[*:0]const u8, can_exit_early: bool) c_int;
 
 pub const LinkCOFF = ZigLLDLinkCOFF;
 pub const LinkELF = ZigLLDLinkELF;
-pub const LinkMachO = ZigLLDLinkMachO;
 pub const LinkWasm = ZigLLDLinkWasm;
 
 pub const ObjectFormatType = enum(c_int) {
