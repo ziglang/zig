@@ -61,9 +61,6 @@ pub const Options = struct {
     /// other objects.
     /// Otherwise (depending on `use_lld`) this link code directly outputs and updates the final binary.
     use_llvm: bool,
-    /// Darwin-only. If this is true, `use_llvm` is true, and `is_native_os` is true, this link code will
-    /// use system linker `ld` instead of the LLD.
-    system_linker_hack: bool,
     link_libc: bool,
     link_libcpp: bool,
     link_libunwind: bool,

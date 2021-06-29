@@ -430,7 +430,7 @@ pub fn createEmpty(gpa: *Allocator, options: link.Options) !*MachO {
 
 pub fn flush(self: *MachO, comp: *Compilation) !void {
     if (build_options.have_llvm and self.base.options.use_lld) {
-        return self.linkWithLLD(comp);
+        return self.linkWithZld(comp);
     } else {
         switch (self.base.options.effectiveOutputMode()) {
             .Exe, .Obj => {},
@@ -593,7 +593,7 @@ fn resolveFramework(
     return null;
 }
 
-fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
+fn linkWithZld(self: *MachO, comp: *Compilation) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -626,7 +626,7 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
 
     const is_lib = self.base.options.output_mode == .Lib;
     const is_dyn_lib = self.base.options.link_mode == .Dynamic and is_lib;
-    const is_exe_or_dyn_lib = is_dyn_lib or self.base.options.output_mode == .Exe;
+    // const is_exe_or_dyn_lib = is_dyn_lib or self.base.options.output_mode == .Exe;
     const target = self.base.options.target;
     const stack_size = self.base.options.stack_size_override orelse 0;
     const allow_shlib_undefined = self.base.options.allow_shlib_undefined orelse !self.base.options.is_native_os;
@@ -669,7 +669,6 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
         man.hash.addStringSet(self.base.options.system_libs);
         man.hash.add(allow_shlib_undefined);
         man.hash.add(self.base.options.bind_global_refs_locally);
-        man.hash.add(self.base.options.system_linker_hack);
         man.hash.addOptionalBytes(self.base.options.sysroot);
 
         // We don't actually care whether it's a cache hit or miss; we just need the digest and the lock.
@@ -682,17 +681,17 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
             id_symlink_basename,
             &prev_digest_buf,
         ) catch |err| blk: {
-            log.debug("MachO LLD new_digest={s} error: {s}", .{ std.fmt.fmtSliceHexLower(&digest), @errorName(err) });
+            log.debug("MachO Zld new_digest={s} error: {s}", .{ std.fmt.fmtSliceHexLower(&digest), @errorName(err) });
             // Handle this as a cache miss.
             break :blk prev_digest_buf[0..0];
         };
         if (mem.eql(u8, prev_digest, &digest)) {
-            log.debug("MachO LLD digest={s} match - skipping invocation", .{std.fmt.fmtSliceHexLower(&digest)});
+            log.debug("MachO Zld digest={s} match - skipping invocation", .{std.fmt.fmtSliceHexLower(&digest)});
             // Hot diggity dog! The output binary is already there.
             self.base.lock = man.toOwnedLock();
             return;
         }
-        log.debug("MachO LLD prev_digest={s} new_digest={s}", .{ std.fmt.fmtSliceHexLower(prev_digest), std.fmt.fmtSliceHexLower(&digest) });
+        log.debug("MachO Zld prev_digest={s} new_digest={s}", .{ std.fmt.fmtSliceHexLower(prev_digest), std.fmt.fmtSliceHexLower(&digest) });
 
         // We are about to change the output file to be different, so we invalidate the build hash now.
         directory.handle.deleteFile(id_symlink_basename) catch |err| switch (err) {
@@ -726,495 +725,199 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
         if (!mem.eql(u8, the_object_path, full_out_path)) {
             try fs.cwd().copyFile(the_object_path, fs.cwd(), full_out_path, .{});
         }
-    } else outer: {
-        const use_zld = blk: {
-            if (self.base.options.is_native_os and self.base.options.system_linker_hack) {
-                // If the user forces the use of ld64, make sure we are running native!
-                break :blk false;
-            }
-
-            if (self.base.options.target.cpu.arch == .aarch64) {
-                // On aarch64, always use zld.
-                break :blk true;
-            }
-
-            if (self.base.options.output_mode == .Lib or
-                self.base.options.linker_script != null)
-            {
-                // Fallback to LLD in this handful of cases on x86_64 only.
-                break :blk false;
-            }
-
-            break :blk true;
-        };
-
-        if (use_zld) {
-            var zld = Zld.init(self.base.allocator);
-            defer {
-                zld.closeFiles();
-                zld.deinit();
-            }
-            zld.arch = target.cpu.arch;
-            zld.stack_size = stack_size;
-
-            // Positional arguments to the linker such as object files and static archives.
-            var positionals = std.ArrayList([]const u8).init(arena);
-
-            try positionals.appendSlice(self.base.options.objects);
-
-            for (comp.c_object_table.keys()) |key| {
-                try positionals.append(key.status.success.object_path);
-            }
-
-            if (module_obj_path) |p| {
-                try positionals.append(p);
-            }
-
-            try positionals.append(comp.compiler_rt_static_lib.?.full_object_path);
-
-            // libc++ dep
-            if (self.base.options.link_libcpp) {
-                try positionals.append(comp.libcxxabi_static_lib.?.full_object_path);
-                try positionals.append(comp.libcxx_static_lib.?.full_object_path);
-            }
-
-            // Shared and static libraries passed via `-l` flag.
-            var search_lib_names = std.ArrayList([]const u8).init(arena);
-
-            const system_libs = self.base.options.system_libs.keys();
-            for (system_libs) |link_lib| {
-                // By this time, we depend on these libs being dynamically linked libraries and not static libraries
-                // (the check for that needs to be earlier), but they could be full paths to .dylib files, in which
-                // case we want to avoid prepending "-l".
-                if (Compilation.classifyFileExt(link_lib) == .shared_library) {
-                    try positionals.append(link_lib);
-                    continue;
-                }
-
-                try search_lib_names.append(link_lib);
-            }
-
-            var lib_dirs = std.ArrayList([]const u8).init(arena);
-            for (self.base.options.lib_dirs) |dir| {
-                if (try resolveSearchDir(arena, dir, self.base.options.sysroot)) |search_dir| {
-                    try lib_dirs.append(search_dir);
-                } else {
-                    log.warn("directory not found for '-L{s}'", .{dir});
-                }
-            }
-
-            var libs = std.ArrayList([]const u8).init(arena);
-            var lib_not_found = false;
-            for (search_lib_names.items) |lib_name| {
-                // Assume ld64 default: -search_paths_first
-                // Look in each directory for a dylib (stub first), and then for archive
-                // TODO implement alternative: -search_dylibs_first
-                for (&[_][]const u8{ ".tbd", ".dylib", ".a" }) |ext| {
-                    if (try resolveLib(arena, lib_dirs.items, lib_name, ext)) |full_path| {
-                        try libs.append(full_path);
-                        break;
-                    }
-                } else {
-                    log.warn("library not found for '-l{s}'", .{lib_name});
-                    lib_not_found = true;
-                }
-            }
-
-            if (lib_not_found) {
-                log.warn("Library search paths:", .{});
-                for (lib_dirs.items) |dir| {
-                    log.warn("  {s}", .{dir});
-                }
-            }
-
-            // If we're compiling native and we can find libSystem.B.{dylib, tbd},
-            // we link against that instead of embedded libSystem.B.tbd file.
-            var native_libsystem_available = false;
-            if (self.base.options.is_native_os) blk: {
-                // Try stub file first. If we hit it, then we're done as the stub file
-                // re-exports every single symbol definition.
-                if (try resolveLib(arena, lib_dirs.items, "System", ".tbd")) |full_path| {
-                    try libs.append(full_path);
-                    native_libsystem_available = true;
-                    break :blk;
-                }
-                // If we didn't hit the stub file, try .dylib next. However, libSystem.dylib
-                // doesn't export libc.dylib which we'll need to resolve subsequently also.
-                if (try resolveLib(arena, lib_dirs.items, "System", ".dylib")) |libsystem_path| {
-                    if (try resolveLib(arena, lib_dirs.items, "c", ".dylib")) |libc_path| {
-                        try libs.append(libsystem_path);
-                        try libs.append(libc_path);
-                        native_libsystem_available = true;
-                        break :blk;
-                    }
-                }
-            }
-            if (!native_libsystem_available) {
-                const full_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
-                    "libc", "darwin", "libSystem.B.tbd",
-                });
-                try libs.append(full_path);
-            }
-
-            // frameworks
-            var framework_dirs = std.ArrayList([]const u8).init(arena);
-            for (self.base.options.framework_dirs) |dir| {
-                if (try resolveSearchDir(arena, dir, self.base.options.sysroot)) |search_dir| {
-                    try framework_dirs.append(search_dir);
-                } else {
-                    log.warn("directory not found for '-F{s}'", .{dir});
-                }
-            }
-
-            var framework_not_found = false;
-            for (self.base.options.frameworks) |framework| {
-                for (&[_][]const u8{ ".tbd", ".dylib", "" }) |ext| {
-                    if (try resolveFramework(arena, framework_dirs.items, framework, ext)) |full_path| {
-                        try libs.append(full_path);
-                        break;
-                    }
-                } else {
-                    log.warn("framework not found for '-f{s}'", .{framework});
-                    framework_not_found = true;
-                }
-            }
-
-            if (framework_not_found) {
-                log.warn("Framework search paths:", .{});
-                for (framework_dirs.items) |dir| {
-                    log.warn("  {s}", .{dir});
-                }
-            }
-
-            // rpaths
-            var rpath_table = std.StringArrayHashMap(void).init(arena);
-            for (self.base.options.rpath_list) |rpath| {
-                if (rpath_table.contains(rpath)) continue;
-                try rpath_table.putNoClobber(rpath, {});
-            }
-
-            var rpaths = std.ArrayList([]const u8).init(arena);
-            try rpaths.ensureCapacity(rpath_table.count());
-            for (rpath_table.keys()) |*key| {
-                rpaths.appendAssumeCapacity(key.*);
-            }
-
-            if (self.base.options.verbose_link) {
-                var argv = std.ArrayList([]const u8).init(arena);
-
-                try argv.append("zig");
-                try argv.append("ld");
-
-                if (self.base.options.sysroot) |syslibroot| {
-                    try argv.append("-syslibroot");
-                    try argv.append(syslibroot);
-                }
-
-                for (rpaths.items) |rpath| {
-                    try argv.append("-rpath");
-                    try argv.append(rpath);
-                }
-
-                try argv.appendSlice(positionals.items);
-
-                try argv.append("-o");
-                try argv.append(full_out_path);
-
-                if (native_libsystem_available) {
-                    try argv.append("-lSystem");
-                    try argv.append("-lc");
-                }
-
-                for (search_lib_names.items) |l_name| {
-                    try argv.append(try std.fmt.allocPrint(arena, "-l{s}", .{l_name}));
-                }
-
-                for (self.base.options.lib_dirs) |lib_dir| {
-                    try argv.append(try std.fmt.allocPrint(arena, "-L{s}", .{lib_dir}));
-                }
-
-                Compilation.dump_argv(argv.items);
-            }
-
-            try zld.link(positionals.items, full_out_path, .{
-                .syslibroot = self.base.options.sysroot,
-                .libs = libs.items,
-                .rpaths = rpaths.items,
-            });
-
-            break :outer;
+    } else {
+        var zld = Zld.init(self.base.allocator);
+        defer {
+            zld.closeFiles();
+            zld.deinit();
         }
+        zld.arch = target.cpu.arch;
+        zld.stack_size = stack_size;
 
-        // Create an LLD command line and invoke it.
-        var argv = std.ArrayList([]const u8).init(self.base.allocator);
-        defer argv.deinit();
+        // Positional arguments to the linker such as object files and static archives.
+        var positionals = std.ArrayList([]const u8).init(arena);
 
-        // TODO https://github.com/ziglang/zig/issues/6971
-        // Note that there is no need to check if running natively since we do that already
-        // when setting `system_linker_hack` in Compilation struct.
-        if (self.base.options.system_linker_hack) {
-            try argv.append("ld");
-        } else {
-            // We will invoke ourselves as a child process to gain access to LLD.
-            // This is necessary because LLD does not behave properly as a library -
-            // it calls exit() and does not reset all global data between invocations.
-            try argv.appendSlice(&[_][]const u8{ comp.self_exe_path.?, "ld64.lld" });
-
-            try argv.append("-error-limit");
-            try argv.append("0");
-        }
-
-        if (self.base.options.lto) {
-            switch (self.base.options.optimize_mode) {
-                .Debug => {},
-                .ReleaseSmall => try argv.append("-O2"),
-                .ReleaseFast, .ReleaseSafe => try argv.append("-O3"),
-            }
-        }
-        try argv.append("-demangle");
-
-        if (self.base.options.rdynamic and !self.base.options.system_linker_hack) {
-            try argv.append("--export-dynamic");
-        }
-
-        try argv.appendSlice(self.base.options.extra_lld_args);
-
-        if (self.base.options.z_nodelete) {
-            try argv.append("-z");
-            try argv.append("nodelete");
-        }
-        if (self.base.options.z_defs) {
-            try argv.append("-z");
-            try argv.append("defs");
-        }
-
-        if (is_exe_or_dyn_lib) {
-            try argv.append("-dynamic");
-        }
-
-        if (is_dyn_lib) {
-            try argv.append("-dylib");
-
-            if (self.base.options.version) |ver| {
-                const compat_vers = try std.fmt.allocPrint(arena, "{d}.0.0", .{ver.major});
-                try argv.append("-compatibility_version");
-                try argv.append(compat_vers);
-
-                const cur_vers = try std.fmt.allocPrint(arena, "{d}.{d}.{d}", .{ ver.major, ver.minor, ver.patch });
-                try argv.append("-current_version");
-                try argv.append(cur_vers);
-            }
-
-            const dylib_install_name = try std.fmt.allocPrint(arena, "@rpath/{s}", .{self.base.options.emit.?.sub_path});
-            try argv.append("-install_name");
-            try argv.append(dylib_install_name);
-        }
-
-        try argv.append("-arch");
-        try argv.append(darwinArchString(target.cpu.arch));
-
-        switch (target.os.tag) {
-            .macos => {
-                try argv.append("-macosx_version_min");
-            },
-            .ios, .tvos, .watchos => switch (target.cpu.arch) {
-                .i386, .x86_64 => {
-                    try argv.append("-ios_simulator_version_min");
-                },
-                else => {
-                    try argv.append("-iphoneos_version_min");
-                },
-            },
-            else => unreachable,
-        }
-        const ver = target.os.version_range.semver.min;
-        const version_string = try std.fmt.allocPrint(arena, "{d}.{d}.{d}", .{ ver.major, ver.minor, ver.patch });
-        try argv.append(version_string);
-
-        try argv.append("-sdk_version");
-        try argv.append(version_string);
-
-        if (target_util.requiresPIE(target) and self.base.options.output_mode == .Exe) {
-            try argv.append("-pie");
-        }
-
-        try argv.append("-o");
-        try argv.append(full_out_path);
-
-        // rpaths
-        var rpath_table = std.StringHashMap(void).init(self.base.allocator);
-        defer rpath_table.deinit();
-        for (self.base.options.rpath_list) |rpath| {
-            if ((try rpath_table.fetchPut(rpath, {})) == null) {
-                try argv.append("-rpath");
-                try argv.append(rpath);
-            }
-        }
-        if (is_dyn_lib) {
-            if ((try rpath_table.fetchPut(full_out_path, {})) == null) {
-                try argv.append("-rpath");
-                try argv.append(full_out_path);
-            }
-        }
-
-        if (self.base.options.sysroot) |dir| {
-            try argv.append("-syslibroot");
-            try argv.append(dir);
-        }
-
-        for (self.base.options.lib_dirs) |lib_dir| {
-            try argv.append("-L");
-            try argv.append(lib_dir);
-        }
-
-        // Positional arguments to the linker such as object files.
-        try argv.appendSlice(self.base.options.objects);
+        try positionals.appendSlice(self.base.options.objects);
 
         for (comp.c_object_table.keys()) |key| {
-            try argv.append(key.status.success.object_path);
+            try positionals.append(key.status.success.object_path);
         }
+
         if (module_obj_path) |p| {
-            try argv.append(p);
+            try positionals.append(p);
         }
 
-        // compiler_rt on darwin is missing some stuff, so we still build it and rely on LinkOnce
-        if (is_exe_or_dyn_lib and !self.base.options.skip_linker_dependencies) {
-            try argv.append(comp.compiler_rt_static_lib.?.full_object_path);
+        try positionals.append(comp.compiler_rt_static_lib.?.full_object_path);
+
+        // libc++ dep
+        if (self.base.options.link_libcpp) {
+            try positionals.append(comp.libcxxabi_static_lib.?.full_object_path);
+            try positionals.append(comp.libcxx_static_lib.?.full_object_path);
         }
 
-        // Shared libraries.
+        // Shared and static libraries passed via `-l` flag.
+        var search_lib_names = std.ArrayList([]const u8).init(arena);
+
         const system_libs = self.base.options.system_libs.keys();
-        try argv.ensureCapacity(argv.items.len + system_libs.len);
         for (system_libs) |link_lib| {
             // By this time, we depend on these libs being dynamically linked libraries and not static libraries
             // (the check for that needs to be earlier), but they could be full paths to .dylib files, in which
             // case we want to avoid prepending "-l".
-            const ext = Compilation.classifyFileExt(link_lib);
-            const arg = if (ext == .shared_library) link_lib else try std.fmt.allocPrint(arena, "-l{s}", .{link_lib});
-            argv.appendAssumeCapacity(arg);
+            if (Compilation.classifyFileExt(link_lib) == .shared_library) {
+                try positionals.append(link_lib);
+                continue;
+            }
+
+            try search_lib_names.append(link_lib);
         }
 
-        // libc++ dep
-        if (self.base.options.link_libcpp) {
-            try argv.append(comp.libcxxabi_static_lib.?.full_object_path);
-            try argv.append(comp.libcxx_static_lib.?.full_object_path);
+        var lib_dirs = std.ArrayList([]const u8).init(arena);
+        for (self.base.options.lib_dirs) |dir| {
+            if (try resolveSearchDir(arena, dir, self.base.options.sysroot)) |search_dir| {
+                try lib_dirs.append(search_dir);
+            } else {
+                log.warn("directory not found for '-L{s}'", .{dir});
+            }
         }
 
-        // On Darwin, libSystem has libc in it, but also you have to use it
-        // to make syscalls because the syscall numbers are not documented
-        // and change between versions. So we always link against libSystem.
-        // LLD craps out if you do -lSystem cross compiling, so until that
-        // codebase gets some love from the new maintainers we're left with
-        // this dirty hack.
-        if (self.base.options.is_native_os) {
-            try argv.append("-lSystem");
+        var libs = std.ArrayList([]const u8).init(arena);
+        var lib_not_found = false;
+        for (search_lib_names.items) |lib_name| {
+            // Assume ld64 default: -search_paths_first
+            // Look in each directory for a dylib (stub first), and then for archive
+            // TODO implement alternative: -search_dylibs_first
+            for (&[_][]const u8{ ".tbd", ".dylib", ".a" }) |ext| {
+                if (try resolveLib(arena, lib_dirs.items, lib_name, ext)) |full_path| {
+                    try libs.append(full_path);
+                    break;
+                }
+            } else {
+                log.warn("library not found for '-l{s}'", .{lib_name});
+                lib_not_found = true;
+            }
         }
 
-        for (self.base.options.framework_dirs) |framework_dir| {
-            try argv.append("-F");
-            try argv.append(framework_dir);
+        if (lib_not_found) {
+            log.warn("Library search paths:", .{});
+            for (lib_dirs.items) |dir| {
+                log.warn("  {s}", .{dir});
+            }
         }
+
+        // If we're compiling native and we can find libSystem.B.{dylib, tbd},
+        // we link against that instead of embedded libSystem.B.tbd file.
+        var native_libsystem_available = false;
+        if (self.base.options.is_native_os) blk: {
+            // Try stub file first. If we hit it, then we're done as the stub file
+            // re-exports every single symbol definition.
+            if (try resolveLib(arena, lib_dirs.items, "System", ".tbd")) |full_path| {
+                try libs.append(full_path);
+                native_libsystem_available = true;
+                break :blk;
+            }
+            // If we didn't hit the stub file, try .dylib next. However, libSystem.dylib
+            // doesn't export libc.dylib which we'll need to resolve subsequently also.
+            if (try resolveLib(arena, lib_dirs.items, "System", ".dylib")) |libsystem_path| {
+                if (try resolveLib(arena, lib_dirs.items, "c", ".dylib")) |libc_path| {
+                    try libs.append(libsystem_path);
+                    try libs.append(libc_path);
+                    native_libsystem_available = true;
+                    break :blk;
+                }
+            }
+        }
+        if (!native_libsystem_available) {
+            const full_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+                "libc", "darwin", "libSystem.B.tbd",
+            });
+            try libs.append(full_path);
+        }
+
+        // frameworks
+        var framework_dirs = std.ArrayList([]const u8).init(arena);
+        for (self.base.options.framework_dirs) |dir| {
+            if (try resolveSearchDir(arena, dir, self.base.options.sysroot)) |search_dir| {
+                try framework_dirs.append(search_dir);
+            } else {
+                log.warn("directory not found for '-F{s}'", .{dir});
+            }
+        }
+
+        var framework_not_found = false;
         for (self.base.options.frameworks) |framework| {
-            try argv.append("-framework");
-            try argv.append(framework);
+            for (&[_][]const u8{ ".tbd", ".dylib", "" }) |ext| {
+                if (try resolveFramework(arena, framework_dirs.items, framework, ext)) |full_path| {
+                    try libs.append(full_path);
+                    break;
+                }
+            } else {
+                log.warn("framework not found for '-f{s}'", .{framework});
+                framework_not_found = true;
+            }
         }
 
-        if (allow_shlib_undefined) {
-            try argv.append("-undefined");
-            try argv.append("dynamic_lookup");
+        if (framework_not_found) {
+            log.warn("Framework search paths:", .{});
+            for (framework_dirs.items) |dir| {
+                log.warn("  {s}", .{dir});
+            }
         }
-        if (self.base.options.bind_global_refs_locally) {
-            try argv.append("-Bsymbolic");
+
+        // rpaths
+        var rpath_table = std.StringArrayHashMap(void).init(arena);
+        for (self.base.options.rpath_list) |rpath| {
+            if (rpath_table.contains(rpath)) continue;
+            try rpath_table.putNoClobber(rpath, {});
+        }
+
+        var rpaths = std.ArrayList([]const u8).init(arena);
+        try rpaths.ensureCapacity(rpath_table.count());
+        for (rpath_table.keys()) |*key| {
+            rpaths.appendAssumeCapacity(key.*);
         }
 
         if (self.base.options.verbose_link) {
-            // Potentially skip over our own name so that the LLD linker name is the first argv item.
-            const adjusted_argv = if (self.base.options.system_linker_hack) argv.items else argv.items[1..];
-            Compilation.dump_argv(adjusted_argv);
+            var argv = std.ArrayList([]const u8).init(arena);
+
+            try argv.append("zig");
+            try argv.append("ld");
+
+            if (self.base.options.sysroot) |syslibroot| {
+                try argv.append("-syslibroot");
+                try argv.append(syslibroot);
+            }
+
+            for (rpaths.items) |rpath| {
+                try argv.append("-rpath");
+                try argv.append(rpath);
+            }
+
+            try argv.appendSlice(positionals.items);
+
+            try argv.append("-o");
+            try argv.append(full_out_path);
+
+            if (native_libsystem_available) {
+                try argv.append("-lSystem");
+                try argv.append("-lc");
+            }
+
+            for (search_lib_names.items) |l_name| {
+                try argv.append(try std.fmt.allocPrint(arena, "-l{s}", .{l_name}));
+            }
+
+            for (self.base.options.lib_dirs) |lib_dir| {
+                try argv.append(try std.fmt.allocPrint(arena, "-L{s}", .{lib_dir}));
+            }
+
+            Compilation.dump_argv(argv.items);
         }
 
-        // TODO https://github.com/ziglang/zig/issues/6971
-        // Note that there is no need to check if running natively since we do that already
-        // when setting `system_linker_hack` in Compilation struct.
-        if (self.base.options.system_linker_hack) {
-            const result = try std.ChildProcess.exec(.{ .allocator = self.base.allocator, .argv = argv.items });
-            defer {
-                self.base.allocator.free(result.stdout);
-                self.base.allocator.free(result.stderr);
-            }
-            if (result.stdout.len != 0) {
-                log.warn("unexpected LD stdout: {s}", .{result.stdout});
-            }
-            if (result.stderr.len != 0) {
-                log.warn("unexpected LD stderr: {s}", .{result.stderr});
-            }
-            if (result.term != .Exited or result.term.Exited != 0) {
-                // TODO parse this output and surface with the Compilation API rather than
-                // directly outputting to stderr here.
-                log.err("{s}", .{result.stderr});
-                return error.LDReportedFailure;
-            }
-        } else {
-            // Sadly, we must run LLD as a child process because it does not behave
-            // properly as a library.
-            const child = try std.ChildProcess.init(argv.items, arena);
-            defer child.deinit();
-
-            if (comp.clang_passthrough_mode) {
-                child.stdin_behavior = .Inherit;
-                child.stdout_behavior = .Inherit;
-                child.stderr_behavior = .Inherit;
-
-                const term = child.spawnAndWait() catch |err| {
-                    log.err("unable to spawn {s}: {s}", .{ argv.items[0], @errorName(err) });
-                    return error.UnableToSpawnSelf;
-                };
-                switch (term) {
-                    .Exited => |code| {
-                        if (code != 0) {
-                            // TODO https://github.com/ziglang/zig/issues/6342
-                            std.process.exit(1);
-                        }
-                    },
-                    else => {
-                        log.err("{s} terminated", .{argv.items[0]});
-                        return error.LLDCrashed;
-                    },
-                }
-            } else {
-                child.stdin_behavior = .Ignore;
-                child.stdout_behavior = .Ignore;
-                child.stderr_behavior = .Pipe;
-
-                try child.spawn();
-
-                const stderr = try child.stderr.?.reader().readAllAlloc(arena, 10 * 1024 * 1024);
-
-                const term = child.wait() catch |err| {
-                    log.err("unable to spawn {s}: {s}", .{ argv.items[0], @errorName(err) });
-                    return error.UnableToSpawnSelf;
-                };
-
-                switch (term) {
-                    .Exited => |code| {
-                        if (code != 0) {
-                            // TODO parse this output and surface with the Compilation API rather than
-                            // directly outputting to stderr here.
-                            std.debug.print("{s}", .{stderr});
-                            return error.LLDReportedFailure;
-                        }
-                    },
-                    else => {
-                        log.err("{s} terminated with stderr:\n{s}", .{ argv.items[0], stderr });
-                        return error.LLDCrashed;
-                    },
-                }
-
-                if (stderr.len != 0) {
-                    log.warn("unexpected LLD stderr:\n{s}", .{stderr});
-                }
-            }
-        }
+        try zld.link(positionals.items, full_out_path, .{
+            .syslibroot = self.base.options.sysroot,
+            .libs = libs.items,
+            .rpaths = rpaths.items,
+        });
     }
 
     if (!self.base.options.disable_lld_caching) {
