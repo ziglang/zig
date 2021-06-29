@@ -74,17 +74,28 @@ pub const File = struct {
         read: bool = true,
         write: bool = false,
 
-        /// Open the file with a lock to prevent other processes from accessing it at the
-        /// same time. An exclusive lock will prevent other processes from acquiring a lock.
-        /// A shared lock will prevent other processes from acquiring a exclusive lock, but
-        /// doesn't prevent other process from getting their own shared locks.
+        /// Open the file with an advisory lock to coordinate with other processes
+        /// accessing it at the same time. An exclusive lock will prevent other
+        /// processes from acquiring a lock. A shared lock will prevent other
+        /// processes from acquiring a exclusive lock, but does not prevent
+        /// other process from getting their own shared locks.
         ///
-        /// Note that the lock is only advisory on Linux, except in very specific cirsumstances[1].
+        /// The lock is advisory, except on Linux in very specific cirsumstances[1].
         /// This means that a process that does not respect the locking API can still get access
         /// to the file, despite the lock.
         ///
-        /// Windows' file locks are mandatory, and any process attempting to access the file will
-        /// receive an error.
+        /// On these operating systems, the lock is acquired atomically with
+        /// opening the file:
+        /// * Darwin
+        /// * DragonFlyBSD
+        /// * FreeBSD
+        /// * Haiku
+        /// * NetBSD
+        /// * OpenBSD
+        /// On these operating systems, the lock is acquired via a separate syscall
+        /// after opening the file:
+        /// * Linux
+        /// * Windows
         ///
         /// [1]: https://www.kernel.org/doc/Documentation/filesystems/mandatory-locking.txt
         lock: Lock = .None,
@@ -120,17 +131,28 @@ pub const File = struct {
         /// `error.PathAlreadyExists` to be returned.
         exclusive: bool = false,
 
-        /// Open the file with a lock to prevent other processes from accessing it at the
-        /// same time. An exclusive lock will prevent other processes from acquiring a lock.
-        /// A shared lock will prevent other processes from acquiring a exclusive lock, but
-        /// doesn't prevent other process from getting their own shared locks.
+        /// Open the file with an advisory lock to coordinate with other processes
+        /// accessing it at the same time. An exclusive lock will prevent other
+        /// processes from acquiring a lock. A shared lock will prevent other
+        /// processes from acquiring a exclusive lock, but does not prevent
+        /// other process from getting their own shared locks.
         ///
-        /// Note that the lock is only advisory on Linux, except in very specific cirsumstances[1].
+        /// The lock is advisory, except on Linux in very specific cirsumstances[1].
         /// This means that a process that does not respect the locking API can still get access
         /// to the file, despite the lock.
         ///
-        /// Windows's file locks are mandatory, and any process attempting to access the file will
-        /// receive an error.
+        /// On these operating systems, the lock is acquired atomically with
+        /// opening the file:
+        /// * Darwin
+        /// * DragonFlyBSD
+        /// * FreeBSD
+        /// * Haiku
+        /// * NetBSD
+        /// * OpenBSD
+        /// On these operating systems, the lock is acquired via a separate syscall
+        /// after opening the file:
+        /// * Linux
+        /// * Windows
         ///
         /// [1]: https://www.kernel.org/doc/Documentation/filesystems/mandatory-locking.txt
         lock: Lock = .None,
