@@ -181,6 +181,12 @@ pub const Manifest = struct {
     hash: HashHelper,
     manifest_file: ?fs.File,
     manifest_dirty: bool,
+    /// Set this flag to true before calling hit() in order to indicate that
+    /// upon a cache hit, the code using the cache will not modify the files
+    /// within the cache directory. This allows multiple processes to utilize
+    /// the same cache directory at the same time.
+    want_shared_lock: bool = true,
+    have_exclusive_lock: bool = false,
     files: std.ArrayListUnmanaged(File) = .{},
     hex_digest: [hex_digest_len]u8,
     /// Populated when hit() returns an error because of one
@@ -257,7 +263,9 @@ pub const Manifest = struct {
     ///
     /// This function will also acquire an exclusive lock to the manifest file. This means
     /// that a process holding a Manifest will block any other process attempting to
-    /// acquire the lock.
+    /// acquire the lock. If `want_shared_lock` is `true`, a cache hit guarantees the
+    /// manifest file to be locked in shared mode, and a cache miss guarantees the manifest
+    /// file to be locked in exclusive mode.
     ///
     /// The lock on the manifest file is released when `deinit` is called. As another
     /// option, one may call `toOwnedLock` to obtain a smaller object which can represent
@@ -285,31 +293,62 @@ pub const Manifest = struct {
         mem.copy(u8, &manifest_file_path, &self.hex_digest);
         manifest_file_path[self.hex_digest.len..][0..ext.len].* = ext.*;
 
-        if (self.files.items.len != 0) {
-            self.manifest_file = try self.cache.manifest_dir.createFile(&manifest_file_path, .{
+        if (self.files.items.len == 0) {
+            // If there are no file inputs, we check if the manifest file exists instead of
+            // comparing the hashes on the files used for the cached item
+            while (true) {
+                if (self.cache.manifest_dir.openFile(&manifest_file_path, .{
+                    .read = true,
+                    .write = true,
+                    .lock = .Exclusive,
+                    .lock_nonblocking = self.want_shared_lock,
+                })) |manifest_file| {
+                    self.manifest_file = manifest_file;
+                    self.have_exclusive_lock = true;
+                    break;
+                } else |open_err| switch (open_err) {
+                    error.WouldBlock => {
+                        self.manifest_file = try self.cache.manifest_dir.openFile(&manifest_file_path, .{
+                            .lock = .Shared,
+                        });
+                        break;
+                    },
+                    error.FileNotFound => {
+                        if (self.cache.manifest_dir.createFile(&manifest_file_path, .{
+                            .read = true,
+                            .truncate = false,
+                            .lock = .Exclusive,
+                            .lock_nonblocking = self.want_shared_lock,
+                        })) |manifest_file| {
+                            self.manifest_file = manifest_file;
+                            self.manifest_dirty = true;
+                            self.have_exclusive_lock = true;
+                            return false; // cache miss; exclusive lock already held
+                        } else |err| switch (err) {
+                            error.WouldBlock => continue,
+                            else => |e| return e,
+                        }
+                    },
+                    else => |e| return e,
+                }
+            }
+        } else {
+            if (self.cache.manifest_dir.createFile(&manifest_file_path, .{
                 .read = true,
                 .truncate = false,
                 .lock = .Exclusive,
-            });
-        } else {
-            // If there are no file inputs, we check if the manifest file exists instead of
-            // comparing the hashes on the files used for the cached item
-            self.manifest_file = self.cache.manifest_dir.openFile(&manifest_file_path, .{
-                .read = true,
-                .write = true,
-                .lock = .Exclusive,
-            }) catch |err| switch (err) {
-                error.FileNotFound => {
-                    self.manifest_dirty = true;
-                    self.manifest_file = try self.cache.manifest_dir.createFile(&manifest_file_path, .{
-                        .read = true,
-                        .truncate = false,
-                        .lock = .Exclusive,
+                .lock_nonblocking = self.want_shared_lock,
+            })) |manifest_file| {
+                self.manifest_file = manifest_file;
+                self.have_exclusive_lock = true;
+            } else |err| switch (err) {
+                error.WouldBlock => {
+                    self.manifest_file = try self.cache.manifest_dir.openFile(&manifest_file_path, .{
+                        .lock = .Shared,
                     });
-                    return false;
                 },
                 else => |e| return e,
-            };
+            }
         }
 
         const file_contents = try self.manifest_file.?.reader().readAllAlloc(self.cache.gpa, manifest_file_size_max);
@@ -360,7 +399,10 @@ pub const Manifest = struct {
             }
 
             const this_file = fs.cwd().openFile(cache_hash_file.path.?, .{ .read = true }) catch |err| switch (err) {
-                error.FileNotFound => return false,
+                error.FileNotFound => {
+                    try self.upgradeToExclusiveLock();
+                    return false;
+                },
                 else => return error.CacheUnavailable,
             };
             defer this_file.close();
@@ -405,6 +447,7 @@ pub const Manifest = struct {
             // cache miss
             // keep the manifest file open
             self.unhit(bin_digest, input_file_count);
+            try self.upgradeToExclusiveLock();
             return false;
         }
 
@@ -417,9 +460,11 @@ pub const Manifest = struct {
                     return err;
                 };
             }
+            try self.upgradeToExclusiveLock();
             return false;
         }
 
+        try self.downgradeToSharedLock();
         return true;
     }
 
@@ -585,34 +630,58 @@ pub const Manifest = struct {
         return out_digest;
     }
 
+    /// If `want_shared_lock` is true, this function automatically downgrades the
+    /// lock from exclusive to shared.
     pub fn writeManifest(self: *Manifest) !void {
         const manifest_file = self.manifest_file.?;
-        if (!self.manifest_dirty) return;
+        if (self.manifest_dirty) {
+            self.manifest_dirty = false;
 
-        var contents = std.ArrayList(u8).init(self.cache.gpa);
-        defer contents.deinit();
+            var contents = std.ArrayList(u8).init(self.cache.gpa);
+            defer contents.deinit();
 
-        const writer = contents.writer();
-        var encoded_digest: [hex_digest_len]u8 = undefined;
+            const writer = contents.writer();
+            var encoded_digest: [hex_digest_len]u8 = undefined;
 
-        for (self.files.items) |file| {
-            _ = std.fmt.bufPrint(
-                &encoded_digest,
-                "{s}",
-                .{std.fmt.fmtSliceHexLower(&file.bin_digest)},
-            ) catch unreachable;
-            try writer.print("{d} {d} {d} {s} {s}\n", .{
-                file.stat.size,
-                file.stat.inode,
-                file.stat.mtime,
-                &encoded_digest,
-                file.path,
-            });
+            for (self.files.items) |file| {
+                _ = std.fmt.bufPrint(
+                    &encoded_digest,
+                    "{s}",
+                    .{std.fmt.fmtSliceHexLower(&file.bin_digest)},
+                ) catch unreachable;
+                try writer.print("{d} {d} {d} {s} {s}\n", .{
+                    file.stat.size,
+                    file.stat.inode,
+                    file.stat.mtime,
+                    &encoded_digest,
+                    file.path,
+                });
+            }
+
+            try manifest_file.setEndPos(contents.items.len);
+            try manifest_file.pwriteAll(contents.items, 0);
         }
 
-        try manifest_file.setEndPos(contents.items.len);
-        try manifest_file.pwriteAll(contents.items, 0);
-        self.manifest_dirty = false;
+        if (self.want_shared_lock) {
+            try self.downgradeToSharedLock();
+        }
+    }
+
+    fn downgradeToSharedLock(self: *Manifest) !void {
+        if (!self.have_exclusive_lock) return;
+        const manifest_file = self.manifest_file.?;
+        try manifest_file.downgradeLock();
+        self.have_exclusive_lock = false;
+    }
+
+    fn upgradeToExclusiveLock(self: *Manifest) !void {
+        if (self.have_exclusive_lock) return;
+        const manifest_file = self.manifest_file.?;
+        // Here we intentionally have a period where the lock is released, in case there are
+        // other processes holding a shared lock.
+        manifest_file.unlock();
+        try manifest_file.lock(.Exclusive);
+        self.have_exclusive_lock = true;
     }
 
     /// Obtain only the data needed to maintain a lock on the manifest file.
@@ -881,27 +950,27 @@ test "no file inputs" {
     defer cache.manifest_dir.close();
 
     {
-        var ch = cache.obtain();
-        defer ch.deinit();
+        var man = cache.obtain();
+        defer man.deinit();
 
-        ch.hash.addBytes("1234");
+        man.hash.addBytes("1234");
 
         // There should be nothing in the cache
-        try testing.expectEqual(false, try ch.hit());
+        try testing.expectEqual(false, try man.hit());
 
-        digest1 = ch.final();
+        digest1 = man.final();
 
-        try ch.writeManifest();
+        try man.writeManifest();
     }
     {
-        var ch = cache.obtain();
-        defer ch.deinit();
+        var man = cache.obtain();
+        defer man.deinit();
 
-        ch.hash.addBytes("1234");
+        man.hash.addBytes("1234");
 
-        try testing.expect(try ch.hit());
-        digest2 = ch.final();
-        try ch.writeManifest();
+        try testing.expect(try man.hit());
+        digest2 = man.final();
+        try man.writeManifest();
     }
 
     try testing.expectEqual(digest1, digest2);

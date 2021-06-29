@@ -74,17 +74,28 @@ pub const File = struct {
         read: bool = true,
         write: bool = false,
 
-        /// Open the file with a lock to prevent other processes from accessing it at the
-        /// same time. An exclusive lock will prevent other processes from acquiring a lock.
-        /// A shared lock will prevent other processes from acquiring a exclusive lock, but
-        /// doesn't prevent other process from getting their own shared locks.
+        /// Open the file with an advisory lock to coordinate with other processes
+        /// accessing it at the same time. An exclusive lock will prevent other
+        /// processes from acquiring a lock. A shared lock will prevent other
+        /// processes from acquiring a exclusive lock, but does not prevent
+        /// other process from getting their own shared locks.
         ///
-        /// Note that the lock is only advisory on Linux, except in very specific cirsumstances[1].
+        /// The lock is advisory, except on Linux in very specific cirsumstances[1].
         /// This means that a process that does not respect the locking API can still get access
         /// to the file, despite the lock.
         ///
-        /// Windows' file locks are mandatory, and any process attempting to access the file will
-        /// receive an error.
+        /// On these operating systems, the lock is acquired atomically with
+        /// opening the file:
+        /// * Darwin
+        /// * DragonFlyBSD
+        /// * FreeBSD
+        /// * Haiku
+        /// * NetBSD
+        /// * OpenBSD
+        /// On these operating systems, the lock is acquired via a separate syscall
+        /// after opening the file:
+        /// * Linux
+        /// * Windows
         ///
         /// [1]: https://www.kernel.org/doc/Documentation/filesystems/mandatory-locking.txt
         lock: Lock = .None,
@@ -120,17 +131,28 @@ pub const File = struct {
         /// `error.PathAlreadyExists` to be returned.
         exclusive: bool = false,
 
-        /// Open the file with a lock to prevent other processes from accessing it at the
-        /// same time. An exclusive lock will prevent other processes from acquiring a lock.
-        /// A shared lock will prevent other processes from acquiring a exclusive lock, but
-        /// doesn't prevent other process from getting their own shared locks.
+        /// Open the file with an advisory lock to coordinate with other processes
+        /// accessing it at the same time. An exclusive lock will prevent other
+        /// processes from acquiring a lock. A shared lock will prevent other
+        /// processes from acquiring a exclusive lock, but does not prevent
+        /// other process from getting their own shared locks.
         ///
-        /// Note that the lock is only advisory on Linux, except in very specific cirsumstances[1].
+        /// The lock is advisory, except on Linux in very specific cirsumstances[1].
         /// This means that a process that does not respect the locking API can still get access
         /// to the file, despite the lock.
         ///
-        /// Windows's file locks are mandatory, and any process attempting to access the file will
-        /// receive an error.
+        /// On these operating systems, the lock is acquired atomically with
+        /// opening the file:
+        /// * Darwin
+        /// * DragonFlyBSD
+        /// * FreeBSD
+        /// * Haiku
+        /// * NetBSD
+        /// * OpenBSD
+        /// On these operating systems, the lock is acquired via a separate syscall
+        /// after opening the file:
+        /// * Linux
+        /// * Windows
         ///
         /// [1]: https://www.kernel.org/doc/Documentation/filesystems/mandatory-locking.txt
         lock: Lock = .None,
@@ -828,5 +850,166 @@ pub const File = struct {
 
     pub fn seekableStream(file: File) SeekableStream {
         return .{ .context = file };
+    }
+
+    const range_off: windows.LARGE_INTEGER = 0;
+    const range_len: windows.LARGE_INTEGER = 1;
+
+    pub const LockError = error{
+        SystemResources,
+    } || os.UnexpectedError;
+
+    /// Blocks when an incompatible lock is held by another process.
+    /// A process may hold only one type of lock (shared or exclusive) on
+    /// a file. When a process terminates in any way, the lock is released.
+    ///
+    /// Assumes the file is unlocked.
+    ///
+    /// TODO: integrate with async I/O
+    pub fn lock(file: File, l: Lock) LockError!void {
+        if (is_windows) {
+            var io_status_block: windows.IO_STATUS_BLOCK = undefined;
+            const exclusive = switch (l) {
+                .None => return,
+                .Shared => false,
+                .Exclusive => true,
+            };
+            return windows.LockFile(
+                file.handle,
+                null,
+                null,
+                null,
+                &io_status_block,
+                &range_off,
+                &range_len,
+                null,
+                windows.FALSE, // non-blocking=false
+                @boolToInt(exclusive),
+            ) catch |err| switch (err) {
+                error.WouldBlock => unreachable, // non-blocking=false
+                else => |e| return e,
+            };
+        } else {
+            return os.flock(file.handle, switch (l) {
+                .None => os.LOCK_UN,
+                .Shared => os.LOCK_SH,
+                .Exclusive => os.LOCK_EX,
+            }) catch |err| switch (err) {
+                error.WouldBlock => unreachable, // non-blocking=false
+                else => |e| return e,
+            };
+        }
+    }
+
+    /// Assumes the file is locked.
+    pub fn unlock(file: File) void {
+        if (is_windows) {
+            var io_status_block: windows.IO_STATUS_BLOCK = undefined;
+            return windows.UnlockFile(
+                file.handle,
+                &io_status_block,
+                &range_off,
+                &range_len,
+                null,
+            ) catch |err| switch (err) {
+                error.RangeNotLocked => unreachable, // Function assumes unlocked.
+                error.Unexpected => unreachable, // Resource deallocation must succeed.
+            };
+        } else {
+            return os.flock(file.handle, os.LOCK_UN) catch |err| switch (err) {
+                error.WouldBlock => unreachable, // unlocking can't block
+                error.SystemResources => unreachable, // We are deallocating resources.
+                error.Unexpected => unreachable, // Resource deallocation must succeed.
+            };
+        }
+    }
+
+    /// Attempts to obtain a lock, returning `true` if the lock is
+    /// obtained, and `false` if there was an existing incompatible lock held.
+    /// A process may hold only one type of lock (shared or exclusive) on
+    /// a file. When a process terminates in any way, the lock is released.
+    ///
+    /// Assumes the file is unlocked.
+    ///
+    /// TODO: integrate with async I/O
+    pub fn tryLock(file: File, l: Lock) LockError!bool {
+        if (is_windows) {
+            var io_status_block: windows.IO_STATUS_BLOCK = undefined;
+            const exclusive = switch (l) {
+                .None => return,
+                .Shared => false,
+                .Exclusive => true,
+            };
+            windows.LockFile(
+                file.handle,
+                null,
+                null,
+                null,
+                &io_status_block,
+                &range_off,
+                &range_len,
+                null,
+                windows.TRUE, // non-blocking=true
+                @boolToInt(exclusive),
+            ) catch |err| switch (err) {
+                error.WouldBlock => return false,
+                else => |e| return e,
+            };
+        } else {
+            os.flock(file.handle, switch (l) {
+                .None => os.LOCK_UN,
+                .Shared => os.LOCK_SH | os.LOCK_NB,
+                .Exclusive => os.LOCK_EX | os.LOCK_NB,
+            }) catch |err| switch (err) {
+                error.WouldBlock => return false,
+                else => |e| return e,
+            };
+        }
+        return true;
+    }
+
+    /// Assumes the file is already locked in exclusive mode.
+    /// Atomically modifies the lock to be in shared mode, without releasing it.
+    ///
+    /// TODO: integrate with async I/O
+    pub fn downgradeLock(file: File) LockError!void {
+        if (is_windows) {
+            // On Windows it works like a semaphore + exclusivity flag. To implement this
+            // function, we first obtain another lock in shared mode. This changes the
+            // exclusivity flag, but increments the semaphore to 2. So we follow up with
+            // an NtUnlockFile which decrements the semaphore but does not modify the
+            // exclusivity flag.
+            var io_status_block: windows.IO_STATUS_BLOCK = undefined;
+            windows.LockFile(
+                file.handle,
+                null,
+                null,
+                null,
+                &io_status_block,
+                &range_off,
+                &range_len,
+                null,
+                windows.TRUE, // non-blocking=true
+                windows.FALSE, // exclusive=false
+            ) catch |err| switch (err) {
+                error.WouldBlock => unreachable, // File was not locked in exclusive mode.
+                else => |e| return e,
+            };
+            return windows.UnlockFile(
+                file.handle,
+                &io_status_block,
+                &range_off,
+                &range_len,
+                null,
+            ) catch |err| switch (err) {
+                error.RangeNotLocked => unreachable, // File was not locked.
+                error.Unexpected => unreachable, // Resource deallocation must succeed.
+            };
+        } else {
+            return os.flock(file.handle, os.LOCK_SH | os.LOCK_NB) catch |err| switch (err) {
+                error.WouldBlock => unreachable, // File was not locked in exclusive mode.
+                else => |e| return e,
+            };
+        }
     }
 };
