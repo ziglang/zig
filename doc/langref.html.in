@@ -10713,6 +10713,14 @@ fn readU32Be() u32 {}
       See the Zig Standard Library for more examples.
       </p>
       {#header_close#}
+      {#header_open|Doc Comment Guidance#}
+      <ul>
+        <li>Omit any information that is redundant based on the name of the thing being documented.</li>
+        <li>Duplicating information onto multiple similar functions is encouraged because it helps IDEs and other tools provide better help text.</li>
+        <li>Use the word <strong>assume</strong> to indicate invariants that cause {#link|Undefined Behavior#} when violated.</li>
+        <li>Use the word <strong>assert</strong> to indicate invariants that cause <em>safety-checked</em> {#link|Undefined Behavior#} when violated.</li>
+      </ul>
+      {#header_close#}
       {#header_close#}
       {#header_open|Source Encoding#}
       <p>Zig source code is encoded in UTF-8. An invalid UTF-8 byte sequence results in a compile error.</p>

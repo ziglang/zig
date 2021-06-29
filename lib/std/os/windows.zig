@@ -49,7 +49,6 @@ pub const OpenFileOptions = struct {
     dir: ?HANDLE = null,
     sa: ?*SECURITY_ATTRIBUTES = null,
     share_access: ULONG = FILE_SHARE_WRITE | FILE_SHARE_READ | FILE_SHARE_DELETE,
-    share_access_nonblocking: bool = false,
     creation: ULONG,
     io_mode: std.io.ModeOverride,
     /// If true, tries to open path as a directory.
@@ -60,8 +59,6 @@ pub const OpenFileOptions = struct {
     follow_symlinks: bool = true,
 };
 
-/// TODO when share_access_nonblocking is false, this implementation uses
-/// untinterruptible sleep() to block. This is not the final iteration of the API.
 pub fn OpenFile(sub_path_w: []const u16, options: OpenFileOptions) OpenError!HANDLE {
     if (mem.eql(u16, sub_path_w, &[_]u16{'.'}) and !options.open_dir) {
         return error.IsDir;
@@ -94,53 +91,39 @@ pub fn OpenFile(sub_path_w: []const u16, options: OpenFileOptions) OpenError!HAN
     // If we're not following symlinks, we need to ensure we don't pass in any synchronization flags such as FILE_SYNCHRONOUS_IO_NONALERT.
     const flags: ULONG = if (options.follow_symlinks) file_or_dir_flag | blocking_flag else file_or_dir_flag | FILE_OPEN_REPARSE_POINT;
 
-    var delay: usize = 1;
-    while (true) {
-        const rc = ntdll.NtCreateFile(
-            &result,
-            options.access_mask,
-            &attr,
-            &io,
-            null,
-            FILE_ATTRIBUTE_NORMAL,
-            options.share_access,
-            options.creation,
-            flags,
-            null,
-            0,
-        );
-        switch (rc) {
-            .SUCCESS => {
-                if (std.io.is_async and options.io_mode == .evented) {
-                    _ = CreateIoCompletionPort(result, std.event.Loop.instance.?.os_data.io_port, undefined, undefined) catch undefined;
-                }
-                return result;
-            },
-            .OBJECT_NAME_INVALID => unreachable,
-            .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
-            .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
-            .NO_MEDIA_IN_DEVICE => return error.NoDevice,
-            .INVALID_PARAMETER => unreachable,
-            .SHARING_VIOLATION => {
-                if (options.share_access_nonblocking) {
-                    return error.WouldBlock;
-                }
-                // TODO sleep in a way that is interruptable
-                // TODO integrate with async I/O
-                std.time.sleep(delay);
-                if (delay < 1 * std.time.ns_per_s) {
-                    delay *= 2;
-                }
-                continue;
-            },
-            .ACCESS_DENIED => return error.AccessDenied,
-            .PIPE_BUSY => return error.PipeBusy,
-            .OBJECT_PATH_SYNTAX_BAD => unreachable,
-            .OBJECT_NAME_COLLISION => return error.PathAlreadyExists,
-            .FILE_IS_A_DIRECTORY => return error.IsDir,
-            .NOT_A_DIRECTORY => return error.NotDir,
-            else => return unexpectedStatus(rc),
-        }
+    const rc = ntdll.NtCreateFile(
+        &result,
+        options.access_mask,
+        &attr,
+        &io,
+        null,
+        FILE_ATTRIBUTE_NORMAL,
+        options.share_access,
+        options.creation,
+        flags,
+        null,
+        0,
+    );
+    switch (rc) {
+        .SUCCESS => {
+            if (std.io.is_async and options.io_mode == .evented) {
+                _ = CreateIoCompletionPort(result, std.event.Loop.instance.?.os_data.io_port, undefined, undefined) catch undefined;
+            }
+            return result;
+        },
+        .OBJECT_NAME_INVALID => unreachable,
+        .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
+        .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
+        .NO_MEDIA_IN_DEVICE => return error.NoDevice,
+        .INVALID_PARAMETER => unreachable,
+        .SHARING_VIOLATION => return error.AccessDenied,
+        .ACCESS_DENIED => return error.AccessDenied,
+        .PIPE_BUSY => return error.PipeBusy,
+        .OBJECT_PATH_SYNTAX_BAD => unreachable,
+        .OBJECT_NAME_COLLISION => return error.PathAlreadyExists,
+        .FILE_IS_A_DIRECTORY => return error.IsDir,
+        .NOT_A_DIRECTORY => return error.NotDir,
+        else => return unexpectedStatus(rc),
     }
 }
 
@@ -1676,6 +1659,64 @@ pub fn SetFileTime(
         switch (kernel32.GetLastError()) {
             else => |err| return unexpectedError(err),
         }
+    }
+}
+
+pub const LockFileError = error{
+    SystemResources,
+    WouldBlock,
+} || std.os.UnexpectedError;
+
+pub fn LockFile(
+    FileHandle: HANDLE,
+    Event: ?HANDLE,
+    ApcRoutine: ?*IO_APC_ROUTINE,
+    ApcContext: ?*c_void,
+    IoStatusBlock: *IO_STATUS_BLOCK,
+    ByteOffset: *const LARGE_INTEGER,
+    Length: *const LARGE_INTEGER,
+    Key: ?*ULONG,
+    FailImmediately: BOOLEAN,
+    ExclusiveLock: BOOLEAN,
+) !void {
+    const rc = ntdll.NtLockFile(
+        FileHandle,
+        Event,
+        ApcRoutine,
+        ApcContext,
+        IoStatusBlock,
+        ByteOffset,
+        Length,
+        Key,
+        FailImmediately,
+        ExclusiveLock,
+    );
+    switch (rc) {
+        .SUCCESS => return,
+        .INSUFFICIENT_RESOURCES => return error.SystemResources,
+        .LOCK_NOT_GRANTED => return error.WouldBlock,
+        .ACCESS_VIOLATION => unreachable, // bad io_status_block pointer
+        else => return unexpectedStatus(rc),
+    }
+}
+
+pub const UnlockFileError = error{
+    RangeNotLocked,
+} || std.os.UnexpectedError;
+
+pub fn UnlockFile(
+    FileHandle: HANDLE,
+    IoStatusBlock: *IO_STATUS_BLOCK,
+    ByteOffset: *const LARGE_INTEGER,
+    Length: *const LARGE_INTEGER,
+    Key: ?*ULONG,
+) !void {
+    const rc = ntdll.NtUnlockFile(FileHandle, IoStatusBlock, ByteOffset, Length, Key);
+    switch (rc) {
+        .SUCCESS => return,
+        .RANGE_NOT_LOCKED => return error.RangeNotLocked,
+        .ACCESS_VIOLATION => unreachable, // bad io_status_block pointer
+        else => return unexpectedStatus(rc),
     }
 }
 

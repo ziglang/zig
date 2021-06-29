@@ -139,3 +139,24 @@ pub extern "NtDll" fn RtlWaitOnAddress(
     AddressSize: SIZE_T,
     Timeout: ?*const LARGE_INTEGER,
 ) callconv(WINAPI) NTSTATUS;
+
+pub extern "NtDll" fn NtLockFile(
+    FileHandle: HANDLE,
+    Event: ?HANDLE,
+    ApcRoutine: ?*IO_APC_ROUTINE,
+    ApcContext: ?*c_void,
+    IoStatusBlock: *IO_STATUS_BLOCK,
+    ByteOffset: *const LARGE_INTEGER,
+    Length: *const LARGE_INTEGER,
+    Key: ?*ULONG,
+    FailImmediately: BOOLEAN,
+    ExclusiveLock: BOOLEAN,
+) callconv(WINAPI) NTSTATUS;
+
+pub extern "NtDll" fn NtUnlockFile(
+    FileHandle: HANDLE,
+    IoStatusBlock: *IO_STATUS_BLOCK,
+    ByteOffset: *const LARGE_INTEGER,
+    Length: *const LARGE_INTEGER,
+    Key: ?*ULONG,
+) callconv(WINAPI) NTSTATUS;
