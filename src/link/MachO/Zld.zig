@@ -2660,17 +2660,40 @@ fn writeExportInfo(self: *Zld) !void {
     defer trie.deinit();
 
     const text_segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
+    const base_address = text_segment.inner.vmaddr;
 
-    // TODO export items for dylibs
-    const sym = self.globals.get("_main") orelse return error.MissingMainEntrypoint;
-    const reg = sym.cast(Symbol.Regular) orelse unreachable;
-    assert(reg.address >= text_segment.inner.vmaddr);
+    // TODO handle macho.EXPORT_SYMBOL_FLAGS_REEXPORT and macho.EXPORT_SYMBOL_FLAGS_STUB_AND_RESOLVER.
+    log.debug("writing export trie", .{});
 
-    try trie.put(.{
-        .name = sym.name,
-        .vmaddr_offset = reg.address - text_segment.inner.vmaddr,
-        .export_flags = macho.EXPORT_SYMBOL_FLAGS_KIND_REGULAR,
-    });
+    const Sorter = struct {
+        fn lessThan(_: void, a: []const u8, b: []const u8) bool {
+            return mem.lessThan(u8, a, b);
+        }
+    };
+
+    var sorted_globals = std.ArrayList([]const u8).init(self.allocator);
+    defer sorted_globals.deinit();
+
+    for (self.globals.values()) |sym| {
+        const reg = sym.cast(Symbol.Regular) orelse continue;
+        if (reg.linkage != .global) continue;
+        try sorted_globals.append(sym.name);
+    }
+
+    std.sort.sort([]const u8, sorted_globals.items, {}, Sorter.lessThan);
+
+    for (sorted_globals.items) |sym_name| {
+        const sym = self.globals.get(sym_name) orelse unreachable;
+        const reg = sym.cast(Symbol.Regular) orelse unreachable;
+
+        log.debug("  | putting '{s}' defined at 0x{x}", .{ reg.base.name, reg.address });
+
+        try trie.put(.{
+            .name = sym.name,
+            .vmaddr_offset = reg.address - base_address,
+            .export_flags = macho.EXPORT_SYMBOL_FLAGS_KIND_REGULAR,
+        });
+    }
 
     try trie.finalize();
 
