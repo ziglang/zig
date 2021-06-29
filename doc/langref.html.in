@@ -4228,8 +4228,8 @@ test "type of unreachable" {
     comptime {
         // The type of unreachable is noreturn.
 
-        // However this assertion will still fail because
-        // evaluating unreachable at compile-time is a compile error.
+        // However this assertion will still fail to compile because
+        // unreachable expressions are compile errors.
 
         assert(@TypeOf(unreachable) == noreturn);
     }

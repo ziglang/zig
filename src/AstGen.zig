@@ -6786,13 +6786,14 @@ fn typeOf(
         return gz.astgen.failNode(node, "expected at least 1 argument, found 0", .{});
     }
     if (params.len == 1) {
-        const result = try gz.addUnNode(.typeof, try expr(gz, scope, .none, params[0]), node);
+        const expr_result = try reachableExpr(gz, scope, .none, params[0], node);
+        const result = try gz.addUnNode(.typeof, expr_result, node);
         return rvalue(gz, rl, result, node);
     }
     const arena = gz.astgen.arena;
     var items = try arena.alloc(Zir.Inst.Ref, params.len);
     for (params) |param, param_i| {
-        items[param_i] = try expr(gz, scope, .none, param);
+        items[param_i] = try reachableExpr(gz, scope, .none, param, node);
     }
 
     const result = try gz.addExtendedMultiOp(.typeof_peer, node, items);
