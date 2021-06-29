@@ -879,24 +879,16 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             break :blk false;
         };
 
-        const darwin_can_use_system_linker_and_sdk =
+        const darwin_can_use_system_sdk =
             // comptime conditions
             ((build_options.have_llvm and comptime std.Target.current.isDarwin()) and
             // runtime conditions
             (use_lld and std.builtin.os.tag == .macos and options.target.isDarwin()));
 
-        const darwin_system_linker_hack = blk: {
-            if (darwin_can_use_system_linker_and_sdk) {
-                break :blk std.os.getenv("ZIG_SYSTEM_LINKER_HACK") != null;
-            } else {
-                break :blk false;
-            }
-        };
-
         const sysroot = blk: {
             if (options.sysroot) |sysroot| {
                 break :blk sysroot;
-            } else if (darwin_can_use_system_linker_and_sdk) {
+            } else if (darwin_can_use_system_sdk) {
                 // TODO Revisit this targeting versions lower than macOS 11 when LLVM 12 is out.
                 // See https://github.com/ziglang/zig/issues/6996
                 const at_least_big_sur = options.target.os.getVersionRange().semver.min.major >= 11;
@@ -914,8 +906,6 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             } else if (!use_lld) {
                 break :blk false;
             } else if (options.c_source_files.len == 0) {
-                break :blk false;
-            } else if (darwin_system_linker_hack) {
                 break :blk false;
             } else switch (options.output_mode) {
                 .Lib, .Obj => break :blk false,
@@ -1295,7 +1285,6 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .optimize_mode = options.optimize_mode,
             .use_lld = use_lld,
             .use_llvm = use_llvm,
-            .system_linker_hack = darwin_system_linker_hack,
             .link_libc = link_libc,
             .link_libcpp = link_libcpp,
             .link_libunwind = link_libunwind,

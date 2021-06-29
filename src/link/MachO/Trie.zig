@@ -334,8 +334,9 @@ pub fn finalize(self: *Trie) !void {
     self.ordered_nodes.shrinkRetainingCapacity(0);
     try self.ordered_nodes.ensureCapacity(self.allocator, self.node_count);
 
-    const Fifo = std.fifo.LinearFifo(*Node, .{ .Static = std.math.maxInt(u8) });
-    var fifo = Fifo.init();
+    var fifo = std.fifo.LinearFifo(*Node, .Dynamic).init(self.allocator);
+    defer fifo.deinit();
+
     try fifo.writeItem(self.root.?);
 
     while (fifo.readItem()) |next| {

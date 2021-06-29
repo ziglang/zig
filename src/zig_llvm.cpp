@@ -1187,11 +1187,6 @@ int ZigLLDLinkELF(int argc, const char **argv, bool can_exit_early) {
     return lld::elf::link(args, can_exit_early, llvm::outs(), llvm::errs());
 }
 
-int ZigLLDLinkMachO(int argc, const char **argv, bool can_exit_early) {
-    std::vector<const char *> args(argv, argv + argc);
-    return lld::mach_o::link(args, can_exit_early, llvm::outs(), llvm::errs());
-}
-
 int ZigLLDLinkWasm(int argc, const char **argv, bool can_exit_early) {
     std::vector<const char *> args(argv, argv + argc);
     return lld::wasm::link(args, can_exit_early, llvm::outs(), llvm::errs());
