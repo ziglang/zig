@@ -179,6 +179,7 @@ pub const MemoryType = enum(u32) {
     PalCode,
     PersistentMemory,
     MaxMemoryType,
+    _,
 };
 
 pub const MemoryDescriptor = extern struct {
