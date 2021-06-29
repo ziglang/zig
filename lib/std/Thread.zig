@@ -598,10 +598,10 @@ const LinuxThreadImpl = struct {
             .thread = .{ .mapped = mapped },
         };
 
-        const flags: u32 = os.CLONE_VM | os.CLONE_FS | os.CLONE_FILES |
-            os.CLONE_SIGHAND | os.CLONE_THREAD | os.CLONE_SYSVSEM |
-            os.CLONE_PARENT_SETTID | os.CLONE_CHILD_CLEARTID |
-            os.CLONE_DETACHED | os.CLONE_SETTLS;
+        const flags: u32 = os.CLONE_THREAD | os.CLONE_DETACHED |
+            os.CLONE_VM | os.CLONE_FS | os.CLONE_FILES |
+            os.CLONE_SIGHAND | os.CLONE_SYSVSEM | os.CLONE_SETTLS |
+            os.CLONE_PARENT_SETTID | os.CLONE_CHILD_SETTID | os.CLONE_CHILD_CLEARTID;
 
         switch (linux.getErrno(linux.clone(
             Instance.entryFn,
