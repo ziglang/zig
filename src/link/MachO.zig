@@ -626,12 +626,12 @@ fn linkWithZld(self: *MachO, comp: *Compilation) !void {
 
     const is_lib = self.base.options.output_mode == .Lib;
     const is_dyn_lib = self.base.options.link_mode == .Dynamic and is_lib;
-    // const is_exe_or_dyn_lib = is_dyn_lib or self.base.options.output_mode == .Exe;
+    const is_exe_or_dyn_lib = is_dyn_lib or self.base.options.output_mode == .Exe;
     const target = self.base.options.target;
     const stack_size = self.base.options.stack_size_override orelse 0;
     const allow_shlib_undefined = self.base.options.allow_shlib_undefined orelse !self.base.options.is_native_os;
 
-    const id_symlink_basename = "lld.id";
+    const id_symlink_basename = "zld.id";
 
     var man: Cache.Manifest = undefined;
     defer if (!self.base.options.disable_lld_caching) man.deinit();
@@ -731,7 +731,7 @@ fn linkWithZld(self: *MachO, comp: *Compilation) !void {
             zld.closeFiles();
             zld.deinit();
         }
-        zld.arch = target.cpu.arch;
+        zld.target = target;
         zld.stack_size = stack_size;
 
         // Positional arguments to the linker such as object files and static archives.
@@ -876,11 +876,39 @@ fn linkWithZld(self: *MachO, comp: *Compilation) !void {
             rpaths.appendAssumeCapacity(key.*);
         }
 
+        const output: Zld.Output = output: {
+            if (is_dyn_lib) {
+                const install_name = try std.fmt.allocPrint(arena, "@rpath/{s}", .{
+                    self.base.options.emit.?.sub_path,
+                });
+                break :output .{
+                    .tag = .dylib,
+                    .path = full_out_path,
+                    .install_name = install_name,
+                };
+            }
+            break :output .{
+                .tag = .exe,
+                .path = full_out_path,
+            };
+        };
+
         if (self.base.options.verbose_link) {
             var argv = std.ArrayList([]const u8).init(arena);
 
             try argv.append("zig");
             try argv.append("ld");
+
+            if (is_exe_or_dyn_lib) {
+                try argv.append("-dynamic");
+            }
+
+            if (is_dyn_lib) {
+                try argv.append("-dylib");
+
+                try argv.append("-install_name");
+                try argv.append(output.install_name.?);
+            }
 
             if (self.base.options.sysroot) |syslibroot| {
                 try argv.append("-syslibroot");
@@ -895,7 +923,7 @@ fn linkWithZld(self: *MachO, comp: *Compilation) !void {
             try argv.appendSlice(positionals.items);
 
             try argv.append("-o");
-            try argv.append(full_out_path);
+            try argv.append(output.path);
 
             if (native_libsystem_available) {
                 try argv.append("-lSystem");
@@ -913,7 +941,7 @@ fn linkWithZld(self: *MachO, comp: *Compilation) !void {
             Compilation.dump_argv(argv.items);
         }
 
-        try zld.link(positionals.items, full_out_path, .{
+        try zld.link(positionals.items, output, .{
             .syslibroot = self.base.options.sysroot,
             .libs = libs.items,
             .rpaths = rpaths.items,
