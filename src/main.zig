@@ -1067,12 +1067,9 @@ fn buildOutputType(
                     {
                         try clang_argv.append(arg);
                     } else if (mem.startsWith(u8, arg, "-mexec-model=")) {
-                        const value = arg["-mexec-model=".len..];
-                        if (std.mem.eql(u8, value, "reactor")) {
-                            wasi_exec_model = .reactor;
-                        } else if (std.mem.eql(u8, value, "command")) {
-                            wasi_exec_model = .command;
-                        }
+                        wasi_exec_model = std.meta.stringToEnum(std.builtin.WasiExecModel, arg["-mexec-model=".len..]) orelse {
+                            fatal("expected [command|reactor] for -mexec-mode=[value], found '{s}'", .{arg["-mexec-model=".len..]});
+                        };
                     } else {
                         fatal("unrecognized parameter: '{s}'", .{arg});
                     }
@@ -1279,11 +1276,9 @@ fn buildOutputType(
                     .nostdlibinc => want_native_include_dirs = false,
                     .strip => strip = true,
                     .exec_model => {
-                        if (std.mem.eql(u8, it.only_arg, "reactor")) {
-                            wasi_exec_model = .reactor;
-                        } else if (std.mem.eql(u8, it.only_arg, "command")) {
-                            wasi_exec_model = .command;
-                        }
+                        wasi_exec_model = std.meta.stringToEnum(std.builtin.WasiExecModel, it.only_arg) orelse {
+                            fatal("expected [command|reactor] for -mexec-mode=[value], found '{s}'", .{it.only_arg});
+                        };
                     },
                 }
             }

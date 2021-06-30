@@ -787,6 +787,9 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
 
     const needs_c_symbols = !options.skip_linker_dependencies and is_exe_or_dyn_lib;
 
+    // WASI-only. Resolve the optinal exec-model option, defaults to command.
+    const wasi_exec_model = if (options.target.os.tag != .wasi) undefined else options.wasi_exec_model orelse .command;
+
     const comp: *Compilation = comp: {
         // For allocations that have the same lifetime as Compilation. This arena is used only during this
         // initialization and then is freed in deinit().
@@ -1344,7 +1347,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .disable_lld_caching = options.disable_lld_caching,
             .subsystem = options.subsystem,
             .is_test = options.is_test,
-            .wasi_exec_model = options.wasi_exec_model,
+            .wasi_exec_model = wasi_exec_model,
         });
         errdefer bin_file.destroy();
         comp.* = .{
@@ -1446,7 +1449,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
                 });
             }
             comp.work_queue.writeAssumeCapacity(&[_]Job{
-                .{ .wasi_libc_crt_file = wasi_libc.getExecModelCRTFIle(options.wasi_exec_model) },
+                .{ .wasi_libc_crt_file = wasi_libc.getExecModelCrtFIle(wasi_exec_model) },
                 .{ .wasi_libc_crt_file = .libc_a },
             });
         }
@@ -3638,14 +3641,13 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator) Alloc
         std.zig.fmtId(@tagName(comp.bin_file.options.machine_code_model)),
     });
 
-    const wasi_exec_model_fmt = if (comp.bin_file.options.wasi_exec_model) |model|
-        std.zig.fmtId(@tagName(model))
-    else
-        std.zig.fmtId(@tagName(std.builtin.WasiExecModel.command));
-    try buffer.writer().print(
-        \\pub const wasi_exec_model = std.builtin.WasiExecModel.{};
-        \\
-    , .{wasi_exec_model_fmt});
+    if (comp.getTarget().os.tag == .wasi) {
+        const wasi_exec_model_fmt = std.zig.fmtId(@tagName(comp.bin_file.options.wasi_exec_model));
+        try buffer.writer().print(
+            \\pub const wasi_exec_model = std.builtin.WasiExecModel.{};
+            \\
+        , .{wasi_exec_model_fmt});
+    }
 
     if (comp.bin_file.options.is_test) {
         try buffer.appendSlice(

@@ -16,7 +16,7 @@ const native_os = builtin.os.tag;
 
 var argc_argv_ptr: [*]usize = undefined;
 
-const start_sym_name = if (native_arch.isMIPS()) "__start" else if (builtin.wasi_exec_model == .reactor) "_initialize" else "_start";
+const start_sym_name = if (native_arch.isMIPS()) "__start" else "_start";
 
 comptime {
     // No matter what, we import the root file, so that any export, test, comptime
@@ -65,7 +65,8 @@ comptime {
             } else if (native_os == .uefi) {
                 if (!@hasDecl(root, "EfiMain")) @export(EfiMain, .{ .name = "EfiMain" });
             } else if (native_arch.isWasm()) {
-                if (!@hasDecl(root, start_sym_name)) @export(wasm_start, .{ .name = start_sym_name });
+                const wasm_start_sym = if (builtin.wasi_exec_model == .reactor) "_initialize" else "_start";
+                if (!@hasDecl(root, start_sym_name)) @export(wasm_start, .{ .name = wasm_start_sym });
             } else if (native_os != .other and native_os != .freestanding) {
                 if (!@hasDecl(root, start_sym_name)) @export(_start, .{ .name = start_sym_name });
             }
