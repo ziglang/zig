@@ -1555,6 +1555,7 @@ fn parseInternal(comptime T: type, token: Token, tokens: *TokenStream, options: 
                 return try std.fmt.parseInt(T, numberToken.slice(tokens.slice, tokens.i - 1), 10);
             const float = try std.fmt.parseFloat(f128, numberToken.slice(tokens.slice, tokens.i - 1));
             if (std.math.round(float) != float) return error.InvalidNumber;
+            if (float > std.math.maxInt(T) or float < std.math.minInt(T)) return error.Overflow;
             return @floatToInt(T, float);
         },
         .Optional => |optionalInfo| {
@@ -2617,6 +2618,7 @@ test "parse exponential into int" {
     const r = try parse(T, &TokenStream.init("{ \"int\": 4.2e2 }"), ParseOptions{});
     try testing.expectEqual(@as(i64, 420), r.int);
     try testing.expectError(error.InvalidNumber, parse(T, &TokenStream.init("{ \"int\": 0.042e2 }"), ParseOptions{}));
+    try testing.expectError(error.Overflow, parse(T, &TokenStream.init("{ \"int\": 18446744073709551616.0 }"), ParseOptions{}));
 }
 
 test "escaped characters" {
