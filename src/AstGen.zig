@@ -4570,7 +4570,7 @@ fn tryExpr(
         return astgen.failNode(node, "invalid 'try' outside function scope", .{});
     };
 
-    if (parent_gz.in_defer) return astgen.failNode(node, "try is not allowed inside defer expression", .{});
+    if (parent_gz.in_defer) return astgen.failNode(node, "'try' is not allowed inside defer expression", .{});
 
     var block_scope = parent_gz.makeSubBlock(scope);
     block_scope.setBreakResultLoc(rl);
@@ -6199,7 +6199,7 @@ fn identifier(
     const ident_token = main_tokens[ident];
     const ident_name = try astgen.identifierTokenString(ident_token);
     if (mem.eql(u8, ident_name, "_")) {
-        return astgen.failNode(ident, "'_' may not be used as an identifier", .{});
+        return astgen.failNode(ident, "'_' used as an identifier without @\"_\" syntax", .{});
     }
 
     if (simple_types.get(ident_name)) |zir_const_ref| {
@@ -6827,7 +6827,7 @@ fn builtinCall(
     if (info.param_count) |expected| {
         if (expected != params.len) {
             const s = if (expected == 1) "" else "s";
-            return astgen.failNode(node, "expected {d} parameter{s}, found {d}", .{
+            return astgen.failNode(node, "expected {d} argument{s}, found {d}", .{
                 expected, s, params.len,
             });
         }

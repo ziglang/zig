@@ -170,6 +170,73 @@ pub fn hasValgrindSupport(target: std.Target) bool {
     }
 }
 
+/// The set of targets that LLVM has non-experimental support for.
+/// Used to select between LLVM backend and self-hosted backend when compiling in
+/// release modes.
+pub fn hasLlvmSupport(target: std.Target) bool {
+    return switch (target.cpu.arch) {
+        .arm,
+        .armeb,
+        .aarch64,
+        .aarch64_be,
+        .aarch64_32,
+        .arc,
+        .avr,
+        .bpfel,
+        .bpfeb,
+        .csky,
+        .hexagon,
+        .mips,
+        .mipsel,
+        .mips64,
+        .mips64el,
+        .msp430,
+        .powerpc,
+        .powerpcle,
+        .powerpc64,
+        .powerpc64le,
+        .r600,
+        .amdgcn,
+        .riscv32,
+        .riscv64,
+        .sparc,
+        .sparcv9,
+        .sparcel,
+        .s390x,
+        .tce,
+        .tcele,
+        .thumb,
+        .thumbeb,
+        .i386,
+        .x86_64,
+        .xcore,
+        .nvptx,
+        .nvptx64,
+        .le32,
+        .le64,
+        .amdil,
+        .amdil64,
+        .hsail,
+        .hsail64,
+        .spir,
+        .spir64,
+        .kalimba,
+        .shave,
+        .lanai,
+        .wasm32,
+        .wasm64,
+        .renderscript32,
+        .renderscript64,
+        .ve,
+        => true,
+
+        .spu_2,
+        .spirv32,
+        .spirv64,
+        => false,
+    };
+}
+
 pub fn supportsStackProbing(target: std.Target) bool {
     return target.os.tag != .windows and target.os.tag != .uefi and
         (target.cpu.arch == .i386 or target.cpu.arch == .x86_64);

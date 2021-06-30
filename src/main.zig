@@ -350,9 +350,11 @@ const usage_build_generic =
     \\  -funwind-tables           Always produce unwind table entries for all functions
     \\  -fno-unwind-tables        Never produce unwind table entries
     \\  -fLLVM                    Force using LLVM as the codegen backend
-    \\  -fno-LLVM                 Prevent using LLVM as a codegen backend
+    \\  -fno-LLVM                 Prevent using LLVM as the codegen backend
     \\  -fClang                   Force using Clang as the C/C++ compilation backend
     \\  -fno-Clang                Prevent using Clang as the C/C++ compilation backend
+    \\  -fstage1                  Force using bootstrap compiler as the codegen backend
+    \\  -fno-stage1               Prevent using bootstrap compiler as the codegen backend
     \\  --strip                   Omit debug symbols
     \\  --single-threaded         Code assumes it is only used single-threaded
     \\  -ofmt=[mode]              Override target object format
@@ -602,6 +604,7 @@ fn buildOutputType(
     var use_llvm: ?bool = null;
     var use_lld: ?bool = null;
     var use_clang: ?bool = null;
+    var use_stage1: ?bool = null;
     var link_eh_frame_hdr = false;
     var link_emit_relocs = false;
     var each_lib_rpath: ?bool = null;
@@ -975,6 +978,10 @@ fn buildOutputType(
                         use_clang = true;
                     } else if (mem.eql(u8, arg, "-fno-Clang")) {
                         use_clang = false;
+                    } else if (mem.eql(u8, arg, "-fstage1")) {
+                        use_stage1 = true;
+                    } else if (mem.eql(u8, arg, "-fno-stage1")) {
+                        use_stage1 = false;
                     } else if (mem.eql(u8, arg, "-rdynamic")) {
                         rdynamic = true;
                     } else if (mem.eql(u8, arg, "-fsoname")) {
@@ -2020,6 +2027,7 @@ fn buildOutputType(
         .use_llvm = use_llvm,
         .use_lld = use_lld,
         .use_clang = use_clang,
+        .use_stage1 = use_stage1,
         .rdynamic = rdynamic,
         .linker_script = linker_script,
         .version_script = version_script,

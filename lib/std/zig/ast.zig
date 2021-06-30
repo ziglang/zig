@@ -284,7 +284,7 @@ pub const Tree = struct {
                 return stream.writeAll("bit range not allowed on slices and arrays");
             },
             .invalid_token => {
-                return stream.print("invalid token '{s}'", .{
+                return stream.print("invalid token: '{s}'", .{
                     token_tags[parse_error.token].symbol(),
                 });
             },

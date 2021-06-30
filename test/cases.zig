@@ -1,5 +1,5 @@
 const std = @import("std");
-const TestContext = @import("../../src/test.zig").TestContext;
+const TestContext = @import("../src/test.zig").TestContext;
 
 // Self-hosted has differing levels of support for various architectures. For now we pass explicit
 // target parameters to each test case. At some point we will take this to the next level and have
@@ -12,13 +12,14 @@ const linux_x64 = std.zig.CrossTarget{
 };
 
 pub fn addCases(ctx: *TestContext) !void {
-    try @import("cbe.zig").addCases(ctx);
-    try @import("arm.zig").addCases(ctx);
-    try @import("aarch64.zig").addCases(ctx);
-    try @import("llvm.zig").addCases(ctx);
-    try @import("wasm.zig").addCases(ctx);
-    try @import("darwin.zig").addCases(ctx);
-    try @import("riscv64.zig").addCases(ctx);
+    try @import("compile_errors.zig").addCases(ctx);
+    try @import("stage2/cbe.zig").addCases(ctx);
+    try @import("stage2/arm.zig").addCases(ctx);
+    try @import("stage2/aarch64.zig").addCases(ctx);
+    try @import("stage2/llvm.zig").addCases(ctx);
+    try @import("stage2/wasm.zig").addCases(ctx);
+    try @import("stage2/darwin.zig").addCases(ctx);
+    try @import("stage2/riscv64.zig").addCases(ctx);
 
     {
         var case = ctx.exe("hello world with updates", linux_x64);
