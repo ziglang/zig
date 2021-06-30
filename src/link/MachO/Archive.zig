@@ -6,6 +6,7 @@ const fs = std.fs;
 const log = std.log.scoped(.archive);
 const macho = std.macho;
 const mem = std.mem;
+const fat = @import("fat.zig");
 
 const Allocator = mem.Allocator;
 const Arch = std.Target.Cpu.Arch;
@@ -18,6 +19,10 @@ arch: ?Arch = null,
 file: ?fs.File = null,
 header: ?ar_hdr = null,
 name: ?[]const u8 = null,
+
+// The actual contents we care about linking with will be embedded at
+// an offset within a file if we are linking against a fat lib
+library_offset: u64 = 0,
 
 /// Parsed table of contents.
 /// Each symbol name points to a list of all definition
@@ -139,6 +144,10 @@ pub fn closeFile(self: Archive) void {
 }
 
 pub fn parse(self: *Archive) !void {
+    self.library_offset = try fat.getLibraryOffset(self.file.?.reader(), self.arch.?);
+
+    try self.file.?.seekTo(self.library_offset);
+
     var reader = self.file.?.reader();
     const magic = try reader.readBytesNoEof(SARMAG);
 
@@ -226,7 +235,7 @@ fn parseTableOfContents(self: *Archive, reader: anytype) !void {
 /// Caller owns the Object instance.
 pub fn parseObject(self: Archive, offset: u32) !*Object {
     var reader = self.file.?.reader();
-    try reader.context.seekTo(offset);
+    try reader.context.seekTo(offset + self.library_offset);
 
     const object_header = try reader.readStruct(ar_hdr);
 

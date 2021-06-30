@@ -1,7 +1,6 @@
 const Dylib = @This();
 
 const std = @import("std");
-const builtin = std.builtin;
 const assert = std.debug.assert;
 const fs = std.fs;
 const fmt = std.fmt;
@@ -9,7 +8,7 @@ const log = std.log.scoped(.dylib);
 const macho = std.macho;
 const math = std.math;
 const mem = std.mem;
-const native_endian = builtin.target.cpu.arch.endian();
+const fat = @import("fat.zig");
 
 const Allocator = mem.Allocator;
 const Arch = std.Target.Cpu.Arch;
@@ -238,42 +237,10 @@ pub fn closeFile(self: Dylib) void {
     }
 }
 
-fn decodeArch(cputype: macho.cpu_type_t) !std.Target.Cpu.Arch {
-    const arch: Arch = switch (cputype) {
-        macho.CPU_TYPE_ARM64 => .aarch64,
-        macho.CPU_TYPE_X86_64 => .x86_64,
-        else => {
-            return error.UnsupportedCpuArchitecture;
-        },
-    };
-    return arch;
-}
-
 pub fn parse(self: *Dylib) !void {
     log.debug("parsing shared library '{s}'", .{self.name.?});
 
-    self.library_offset = offset: {
-        const fat_header = try readFatStruct(self.file.?.reader(), macho.fat_header);
-        if (fat_header.magic != macho.FAT_MAGIC) break :offset 0;
-
-        var fat_arch_index: u32 = 0;
-        while (fat_arch_index < fat_header.nfat_arch) : (fat_arch_index += 1) {
-            const fat_arch = try readFatStruct(self.file.?.reader(), macho.fat_arch);
-            // If we come across an architecture that we do not know how to handle, that's
-            // fine because we can keep looking for one that might match.
-            const lib_arch = decodeArch(fat_arch.cputype) catch |err| switch (err) {
-                error.UnsupportedCpuArchitecture => continue,
-                else => |e| return e,
-            };
-            if (lib_arch == self.arch.?) {
-                // We have found a matching architecture!
-                break :offset fat_arch.offset;
-            }
-        } else {
-            log.err("Could not find matching cpu architecture in fat library: expected {s}", .{self.arch.?});
-            return error.MismatchedCpuArchitecture;
-        }
-    };
+    self.library_offset = try fat.getLibraryOffset(self.file.?.reader(), self.arch.?);
 
     try self.file.?.seekTo(self.library_offset);
 
@@ -285,13 +252,7 @@ pub fn parse(self: *Dylib) !void {
         return error.NotDylib;
     }
 
-    const this_arch: Arch = decodeArch(self.header.?.cputype) catch |err| switch (err) {
-        error.UnsupportedCpuArchitecture => |e| {
-            log.err("unsupported cpu architecture 0x{x}", .{self.header.?.cputype});
-            return e;
-        },
-        else => |e| return e,
-    };
+    const this_arch: Arch = try fat.decodeArch(self.header.?.cputype, true);
 
     if (this_arch != self.arch.?) {
         log.err("mismatched cpu architecture: expected {s}, found {s}", .{ self.arch.?, this_arch });
@@ -301,16 +262,6 @@ pub fn parse(self: *Dylib) !void {
     try self.readLoadCommands(reader);
     try self.parseId();
     try self.parseSymbols();
-}
-
-fn readFatStruct(reader: anytype, comptime T: type) !T {
-    // Fat structures (fat_header & fat_arch) are always written and read to/from
-    // disk in big endian order.
-    var res: T = try reader.readStruct(T);
-    if (native_endian != builtin.Endian.Big) {
-        mem.bswapAllFields(T, &res);
-    }
-    return res;
 }
 
 fn readLoadCommands(self: *Dylib, reader: anytype) !void {
