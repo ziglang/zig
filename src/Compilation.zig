@@ -1449,7 +1449,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
                 });
             }
             comp.work_queue.writeAssumeCapacity(&[_]Job{
-                .{ .wasi_libc_crt_file = wasi_libc.getExecModelCrtFIle(wasi_exec_model) },
+                .{ .wasi_libc_crt_file = wasi_libc.execModelCrtFile(wasi_exec_model) },
                 .{ .wasi_libc_crt_file = .libc_a },
             });
         }
@@ -3641,7 +3641,7 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator) Alloc
         std.zig.fmtId(@tagName(comp.bin_file.options.machine_code_model)),
     });
 
-    if (comp.getTarget().os.tag == .wasi) {
+    if (target.os.tag == .wasi) {
         const wasi_exec_model_fmt = std.zig.fmtId(@tagName(comp.bin_file.options.wasi_exec_model));
         try buffer.writer().print(
             \\pub const wasi_exec_model = std.builtin.WasiExecModel.{};

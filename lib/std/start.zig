@@ -66,7 +66,7 @@ comptime {
                 if (!@hasDecl(root, "EfiMain")) @export(EfiMain, .{ .name = "EfiMain" });
             } else if (native_arch.isWasm()) {
                 const wasm_start_sym = if (builtin.wasi_exec_model == .reactor) "_initialize" else "_start";
-                if (!@hasDecl(root, start_sym_name)) @export(wasm_start, .{ .name = wasm_start_sym });
+                if (!@hasDecl(root, wasm_start_sym)) @export(wasm_start, .{ .name = wasm_start_sym });
             } else if (native_os != .other and native_os != .freestanding) {
                 if (!@hasDecl(root, start_sym_name)) @export(_start, .{ .name = start_sym_name });
             }
