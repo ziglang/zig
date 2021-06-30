@@ -497,7 +497,7 @@ const LinuxThreadImpl = struct {
 
     const ThreadCompletion = struct {
         completion: Completion = Completion.init(.running),
-        child_tid: Atomic(i32) = Atomic(i32).init(0),
+        child_tid: Atomic(i32) = Atomic(i32).init(1),
         parent_tid: i32 = undefined,
         mapped: []align(std.mem.page_size) u8,
     };
@@ -510,7 +510,7 @@ const LinuxThreadImpl = struct {
 
             fn entryFn(raw_arg: usize) callconv(.C) u8 {
                 const self = @intToPtr(*@This(), raw_arg);
-                defer switch (self.thread.completion.swap(.completed, .Acquire)) {
+                defer switch (self.thread.completion.swap(.completed, .SeqCst)) {
                     .running => {},
                     .completed => unreachable,
                     .detached => {
@@ -600,8 +600,8 @@ const LinuxThreadImpl = struct {
 
         const flags: u32 = os.CLONE_THREAD | os.CLONE_DETACHED |
             os.CLONE_VM | os.CLONE_FS | os.CLONE_FILES |
-            os.CLONE_SIGHAND | os.CLONE_SYSVSEM | os.CLONE_SETTLS |
-            os.CLONE_PARENT_SETTID | os.CLONE_CHILD_SETTID | os.CLONE_CHILD_CLEARTID;
+            os.CLONE_PARENT_SETTID | os.CLONE_CHILD_CLEARTID |
+            os.CLONE_SIGHAND | os.CLONE_SYSVSEM | os.CLONE_SETTLS;
 
         switch (linux.getErrno(linux.clone(
             Instance.entryFn,
@@ -628,7 +628,7 @@ const LinuxThreadImpl = struct {
     }
 
     fn detach(self: Impl) void {
-        switch (self.thread.completion.swap(.detached, .AcqRel)) {
+        switch (self.thread.completion.swap(.detached, .SeqCst)) {
             .running => {},
             .completed => self.join(),
             .detached => unreachable,
@@ -640,7 +640,7 @@ const LinuxThreadImpl = struct {
 
         var spin: u8 = 10;
         while (true) {
-            const tid = self.thread.child_tid.load(.Acquire);
+            const tid = self.thread.child_tid.load(.SeqCst);
             if (tid == 0) {
                 break;
             }
