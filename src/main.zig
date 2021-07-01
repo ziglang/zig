@@ -1811,22 +1811,72 @@ fn buildOutputType(
     };
 
     const default_h_basename = try std.fmt.allocPrint(arena, "{s}.h", .{root_name});
-    var emit_h_resolved = try emit_h.resolve(default_h_basename);
+    var emit_h_resolved = emit_h.resolve(default_h_basename) catch |err| {
+        switch (emit_h) {
+            .yes => {
+                fatal("unable to open directory from argument 'femit-h', '{s}': {s}", .{ emit_h.yes, @errorName(err) });
+            },
+            .yes_default_path => {
+                fatal("unable to open directory from arguments 'name' or 'soname', '{s}': {s}", .{ default_h_basename, @errorName(err) });
+            },
+            .no => unreachable,
+        }
+    };
     defer emit_h_resolved.deinit();
 
     const default_asm_basename = try std.fmt.allocPrint(arena, "{s}.s", .{root_name});
-    var emit_asm_resolved = try emit_asm.resolve(default_asm_basename);
+    var emit_asm_resolved = emit_asm.resolve(default_asm_basename) catch |err| {
+        switch (emit_asm) {
+            .yes => {
+                fatal("unable to open directory from argument 'femit-asm', '{s}': {s}", .{ emit_asm.yes, @errorName(err) });
+            },
+            .yes_default_path => {
+                fatal("unable to open directory from arguments 'name' or 'soname', '{s}': {s}", .{ default_asm_basename, @errorName(err) });
+            },
+            .no => unreachable,
+        }
+    };
     defer emit_asm_resolved.deinit();
 
     const default_llvm_ir_basename = try std.fmt.allocPrint(arena, "{s}.ll", .{root_name});
-    var emit_llvm_ir_resolved = try emit_llvm_ir.resolve(default_llvm_ir_basename);
+    var emit_llvm_ir_resolved = emit_llvm_ir.resolve(default_llvm_ir_basename) catch |err| {
+        switch (emit_llvm_ir) {
+            .yes => {
+                fatal("unable to open directory from argument 'femit-llvm-ir', '{s}': {s}", .{ emit_llvm_ir.yes, @errorName(err) });
+            },
+            .yes_default_path => {
+                fatal("unable to open directory from arguments 'name' or 'soname', '{s}': {s}", .{ default_llvm_ir_basename, @errorName(err) });
+            },
+            .no => unreachable,
+        }
+    };
     defer emit_llvm_ir_resolved.deinit();
 
     const default_analysis_basename = try std.fmt.allocPrint(arena, "{s}-analysis.json", .{root_name});
-    var emit_analysis_resolved = try emit_analysis.resolve(default_analysis_basename);
+    var emit_analysis_resolved = emit_analysis.resolve(default_analysis_basename) catch |err| {
+        switch (emit_analysis) {
+            .yes => {
+                fatal("unable to open directory from argument 'femit-analysis',  '{s}': {s}", .{ emit_analysis.yes, @errorName(err) });
+            },
+            .yes_default_path => {
+                fatal("unable to open directory from arguments 'name' or 'soname', '{s}': {s}", .{ default_analysis_basename, @errorName(err) });
+            },
+            .no => unreachable,
+        }
+    };
     defer emit_analysis_resolved.deinit();
 
-    var emit_docs_resolved = try emit_docs.resolve("docs");
+    var emit_docs_resolved = emit_docs.resolve("docs") catch |err| {
+        switch (emit_docs) {
+            .yes => {
+                fatal("unable to open directory from argument 'femit-docs', '{s}': {s}", .{ emit_h.yes, @errorName(err) });
+            },
+            .yes_default_path => {
+                fatal("unable to open directory 'docs': {s}", .{@errorName(err)});
+            },
+            .no => unreachable,
+        }
+    };
     defer emit_docs_resolved.deinit();
 
     const root_pkg: ?*Package = if (root_src_file) |src_path| blk: {
@@ -1849,9 +1899,11 @@ fn buildOutputType(
     const self_exe_path = try fs.selfExePathAlloc(arena);
     var zig_lib_directory: Compilation.Directory = if (override_lib_dir) |lib_dir| .{
         .path = lib_dir,
-        .handle = try fs.cwd().openDir(lib_dir, .{}),
+        .handle = fs.cwd().openDir(lib_dir, .{}) catch |err| {
+            fatal("unable to open zig lib directory from 'zig-lib-dir' argument or env, '{s}': {s}", .{ lib_dir, @errorName(err) });
+        },
     } else introspect.findZigLibDirFromSelfExe(arena, self_exe_path) catch |err| {
-        fatal("unable to find zig installation directory: {s}", .{@errorName(err)});
+        fatal("unable to find zig installation directory: {s}\n", .{@errorName(err)});
     };
     defer zig_lib_directory.handle.close();
 
@@ -2496,7 +2548,9 @@ fn cmdTranslateC(comp: *Compilation, arena: *Allocator, enable_cache: bool) !voi
         return cleanExit();
     } else {
         const out_zig_path = try fs.path.join(arena, &[_][]const u8{ "o", &digest, translated_zig_basename });
-        const zig_file = try comp.local_cache_directory.handle.openFile(out_zig_path, .{});
+        const zig_file = comp.local_cache_directory.handle.openFile(out_zig_path, .{}) catch |err| {
+            fatal("unable to open cached translated zig file '{s}{s}{s}': {s}", .{ comp.local_cache_directory.path, fs.path.sep_str, out_zig_path, @errorName(err) });
+        };
         defer zig_file.close();
         try io.getStdOut().writeFileAll(zig_file, .{});
         return cleanExit();
@@ -2606,7 +2660,9 @@ pub fn cmdInit(
         .Lib => "std" ++ s ++ "special" ++ s ++ "init-lib",
         .Exe => "std" ++ s ++ "special" ++ s ++ "init-exe",
     };
-    var template_dir = try zig_lib_directory.handle.openDir(template_sub_path, .{});
+    var template_dir = zig_lib_directory.handle.openDir(template_sub_path, .{}) catch |err| {
+        fatal("unable to open zig project template directory '{s}{s}{s}': {s}", .{ zig_lib_directory.path, s, template_sub_path, @errorName(err) });
+    };
     defer template_dir.close();
 
     const cwd_path = try process.getCwdAlloc(arena);
@@ -2721,9 +2777,11 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
 
         var zig_lib_directory: Compilation.Directory = if (override_lib_dir) |lib_dir| .{
             .path = lib_dir,
-            .handle = try fs.cwd().openDir(lib_dir, .{}),
+            .handle = fs.cwd().openDir(lib_dir, .{}) catch |err| {
+                fatal("unable to open zig lib directory from 'zig-lib-dir' argument: '{s}': {s}", .{ lib_dir, @errorName(err) });
+            },
         } else introspect.findZigLibDirFromSelfExe(arena, self_exe_path) catch |err| {
-            fatal("unable to find zig installation directory: {s}", .{@errorName(err)});
+            fatal("unable to find zig installation directory '{s}': {s}", .{ self_exe_path, @errorName(err) });
         };
         defer zig_lib_directory.handle.close();
 
@@ -2733,7 +2791,9 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
         var root_pkg: Package = .{
             .root_src_directory = .{
                 .path = special_dir_path,
-                .handle = try zig_lib_directory.handle.openDir(std_special, .{}),
+                .handle = zig_lib_directory.handle.openDir(std_special, .{}) catch |err| {
+                    fatal("unable to open directory '{s}{s}{s}': {s}", .{ override_lib_dir, fs.path.sep_str, std_special, @errorName(err) });
+                },
             },
             .root_src_path = "build_runner.zig",
         };
@@ -2747,7 +2807,9 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
         const build_directory: Compilation.Directory = blk: {
             if (build_file) |bf| {
                 if (fs.path.dirname(bf)) |dirname| {
-                    const dir = try fs.cwd().openDir(dirname, .{});
+                    const dir = fs.cwd().openDir(dirname, .{}) catch |err| {
+                        fatal("unable to open directory to build file from argument 'build-file', '{s}': {s}", .{ dirname, @errorName(err) });
+                    };
                     cleanup_build_dir = dir;
                     break :blk .{ .path = dirname, .handle = dir };
                 }
@@ -2759,7 +2821,9 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
             while (true) {
                 const joined_path = try fs.path.join(arena, &[_][]const u8{ dirname, build_zig_basename });
                 if (fs.cwd().access(joined_path, .{})) |_| {
-                    const dir = try fs.cwd().openDir(dirname, .{});
+                    const dir = fs.cwd().openDir(dirname, .{}) catch |err| {
+                        fatal("unable to open directory while searching for build.zig file, '{s}': {s}", .{ dirname, @errorName(err) });
+                    };
                     break :blk .{ .path = dirname, .handle = dir };
                 } else |err| switch (err) {
                     error.FileNotFound => {
@@ -3805,7 +3869,9 @@ pub fn cmdAstCheck(
         .root_decl = null,
     };
     if (zig_source_file) |file_name| {
-        var f = try fs.cwd().openFile(file_name, .{});
+        var f = fs.cwd().openFile(file_name, .{}) catch |err| {
+            fatal("unable to open file for ast-check '{s}': {s}", .{ file_name, @errorName(err) });
+        };
         defer f.close();
 
         const stat = try f.stat();
@@ -3925,7 +3991,9 @@ pub fn cmdChangelist(
     const old_source_file = args[0];
     const new_source_file = args[1];
 
-    var f = try fs.cwd().openFile(old_source_file, .{});
+    var f = fs.cwd().openFile(old_source_file, .{}) catch |err| {
+        fatal("unable to open old source file for comparison '{s}': {s}", .{ old_source_file, @errorName(err) });
+    };
     defer f.close();
 
     const stat = try f.stat();
@@ -3981,7 +4049,9 @@ pub fn cmdChangelist(
         process.exit(1);
     }
 
-    var new_f = try fs.cwd().openFile(new_source_file, .{});
+    var new_f = fs.cwd().openFile(new_source_file, .{}) catch |err| {
+        fatal("unable to open new source file for comparison '{s}': {s}", .{ new_source_file, @errorName(err) });
+    };
     defer new_f.close();
 
     const new_stat = try new_f.stat();
