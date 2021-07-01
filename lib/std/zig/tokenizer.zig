@@ -845,7 +845,7 @@ pub const Tokenizer = struct {
                         self.index += 1;
                         break;
                     },
-                    '\t' => {},
+                    '\t', '\r' => {},
                     else => self.checkLiteralCharacter(),
                 },
 
@@ -1934,6 +1934,10 @@ test "tokenizer - multi line string literal with only 1 backslash" {
 test "tokenizer - invalid builtin identifiers" {
     try testTokenize("@()", &.{ .invalid, .l_paren, .r_paren });
     try testTokenize("@0()", &.{ .invalid, .integer_literal, .l_paren, .r_paren });
+}
+
+test "tokenizer - multiline string literal with a DOS-encoded CRLF line endings (issue #9257)" {
+    try testTokenize("\\\\foobar\r\n", &.{.multiline_string_literal_line});
 }
 
 fn testTokenize(source: [:0]const u8, expected_tokens: []const Token.Tag) !void {
