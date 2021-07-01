@@ -3380,6 +3380,7 @@ fn printErrMsgToStdErr(
     color: Color,
 ) !void {
     const lok_token = parse_error.token;
+    const token_tags = tree.tokens.items(.tag);
     const start_loc = tree.tokenLocation(0, lok_token);
     const source_line = tree.source[start_loc.line_start..start_loc.line_end];
 
@@ -3389,6 +3390,24 @@ fn printErrMsgToStdErr(
     try tree.renderError(parse_error, writer);
     const text = text_buf.items;
 
+    var notes_buffer: [1]Compilation.AllErrors.Message = undefined;
+    var notes_len: usize = 0;
+
+    if (token_tags[parse_error.token] == .invalid) {
+        const bad_off = @intCast(u32, tree.tokenSlice(parse_error.token).len);
+        notes_buffer[notes_len] = .{
+            .src = .{
+                .src_path = path,
+                .msg = "invalid byte here",
+                .byte_offset = @intCast(u32, start_loc.line_start) + bad_off,
+                .line = @intCast(u32, start_loc.line),
+                .column = @intCast(u32, start_loc.column) + bad_off,
+                .source_line = source_line,
+            },
+        };
+        notes_len += 1;
+    }
+
     const message: Compilation.AllErrors.Message = .{
         .src = .{
             .src_path = path,
@@ -3397,6 +3416,7 @@ fn printErrMsgToStdErr(
             .line = @intCast(u32, start_loc.line),
             .column = @intCast(u32, start_loc.column),
             .source_line = source_line,
+            .notes = notes_buffer[0..notes_len],
         },
     };
 

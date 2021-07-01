@@ -701,12 +701,19 @@ pub const Tokenizer = struct {
                         self.index += 1;
                         break;
                     },
-                    0, '\n', '\r' => break, // Look for this error later.
+                    0 => {
+                        if (self.index == self.buffer.len) {
+                            break;
+                        } else {
+                            self.checkLiteralCharacter();
+                        }
+                    },
+                    '\n', '\r' => break, // Look for this error later.
                     else => self.checkLiteralCharacter(),
                 },
 
                 .string_literal_backslash => switch (c) {
-                    0, '\n', '\r' => break, // Look for this error later.
+                    '\n', '\r' => break, // Look for this error later.
                     else => {
                         state = .string_literal;
                     },
@@ -774,7 +781,6 @@ pub const Tokenizer = struct {
                 .char_literal_unicode_escape_saw_u => switch (c) {
                     '{' => {
                         state = .char_literal_unicode_escape;
-                        seen_escape_digits = 0;
                     },
                     else => {
                         result.tag = .invalid;
@@ -783,16 +789,9 @@ pub const Tokenizer = struct {
                 },
 
                 .char_literal_unicode_escape => switch (c) {
-                    '0'...'9', 'a'...'f', 'A'...'F' => {
-                        seen_escape_digits += 1;
-                    },
+                    '0'...'9', 'a'...'f', 'A'...'F' => {},
                     '}' => {
-                        if (seen_escape_digits == 0) {
-                            result.tag = .invalid;
-                            state = .char_literal_unicode_invalid;
-                        } else {
-                            state = .char_literal_end;
-                        }
+                        state = .char_literal_end; // too many/few digits handled later
                     },
                     else => {
                         result.tag = .invalid;
@@ -1026,7 +1025,13 @@ pub const Tokenizer = struct {
                     },
                 },
                 .line_comment_start => switch (c) {
-                    0 => break,
+                    0 => {
+                        if (self.index != self.buffer.len) {
+                            result.tag = .invalid;
+                            self.index += 1;
+                        }
+                        break;
+                    },
                     '/' => {
                         state = .doc_comment_start;
                     },
@@ -1441,7 +1446,7 @@ test "tokenizer - code point literal with unicode escapes" {
     , &.{ .invalid, .invalid });
     try testTokenize(
         \\'\u{}'
-    , &.{ .invalid, .invalid });
+    , &.{.char_literal});
     try testTokenize(
         \\'\u{s}'
     , &.{ .invalid, .invalid });
@@ -1924,15 +1929,17 @@ test "tokenizer - invalid builtin identifiers" {
     try testTokenize("@0()", &.{ .invalid, .integer_literal, .l_paren, .r_paren });
 }
 
-fn testTokenize(source: []const u8, expected_tokens: []const Token.Tag) !void {
+fn testTokenize(source: [:0]const u8, expected_tokens: []const Token.Tag) !void {
     var tokenizer = Tokenizer.init(source);
     for (expected_tokens) |expected_token_id| {
         const token = tokenizer.next();
         if (token.tag != expected_token_id) {
-            std.debug.panic("expected {s}, found {s}\n", .{ @tagName(expected_token_id), @tagName(token.tag) });
+            std.debug.panic("expected {s}, found {s}\n", .{
+                @tagName(expected_token_id), @tagName(token.tag),
+            });
         }
     }
     const last_token = tokenizer.next();
-    try std.testing.expect(last_token.tag == .eof);
-    try std.testing.expect(last_token.loc.start == source.len);
+    try std.testing.expectEqual(Token.Tag.eof, last_token.tag);
+    try std.testing.expectEqual(source.len, last_token.loc.start);
 }

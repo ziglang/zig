@@ -2466,6 +2466,7 @@ pub fn astGenFile(mod: *Module, file: *Scope.File) !void {
         defer msg.deinit();
 
         const token_starts = file.tree.tokens.items(.start);
+        const token_tags = file.tree.tokens.items(.tag);
 
         try file.tree.renderError(parse_err, msg.writer());
         const err_msg = try gpa.create(ErrorMsg);
@@ -2477,6 +2478,14 @@ pub fn astGenFile(mod: *Module, file: *Scope.File) !void {
             },
             .msg = msg.toOwnedSlice(),
         };
+        if (token_tags[parse_err.token] == .invalid) {
+            const bad_off = @intCast(u32, file.tree.tokenSlice(parse_err.token).len);
+            try mod.errNoteNonLazy(.{
+                .file_scope = file,
+                .parent_decl_node = 0,
+                .lazy = .{ .byte_abs = token_starts[parse_err.token] + bad_off },
+            }, err_msg, "invalid byte here", .{});
+        }
 
         {
             const lock = comp.mutex.acquire();

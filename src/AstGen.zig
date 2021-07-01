@@ -6380,20 +6380,76 @@ fn charLiteral(gz: *GenZir, rl: ResultLoc, node: ast.Node.Index) !Zir.Inst.Ref {
     const main_token = main_tokens[node];
     const slice = tree.tokenSlice(main_token);
 
-    var bad_index: usize = undefined;
-    const value = std.zig.parseCharLiteral(slice, &bad_index) catch |err| switch (err) {
-        error.InvalidCharacter => {
-            const bad_byte = slice[bad_index];
+    switch (std.zig.parseCharLiteral(slice)) {
+        .success => |codepoint| {
+            const result = try gz.addInt(codepoint);
+            return rvalue(gz, rl, result, node);
+        },
+        .invalid_escape_character => |bad_index| {
             return astgen.failOff(
                 main_token,
                 @intCast(u32, bad_index),
-                "invalid character: '{c}'\n",
-                .{bad_byte},
+                "invalid escape character: '{c}'",
+                .{slice[bad_index]},
             );
         },
-    };
-    const result = try gz.addInt(value);
-    return rvalue(gz, rl, result, node);
+        .expected_hex_digit => |bad_index| {
+            return astgen.failOff(
+                main_token,
+                @intCast(u32, bad_index),
+                "expected hex digit, found '{c}'",
+                .{slice[bad_index]},
+            );
+        },
+        .empty_unicode_escape_sequence => |bad_index| {
+            return astgen.failOff(
+                main_token,
+                @intCast(u32, bad_index),
+                "empty unicode escape sequence",
+                .{},
+            );
+        },
+        .expected_hex_digit_or_rbrace => |bad_index| {
+            return astgen.failOff(
+                main_token,
+                @intCast(u32, bad_index),
+                "expected hex digit or '}}', found '{c}'",
+                .{slice[bad_index]},
+            );
+        },
+        .unicode_escape_overflow => |bad_index| {
+            return astgen.failOff(
+                main_token,
+                @intCast(u32, bad_index),
+                "unicode escape too large to be a valid codepoint",
+                .{},
+            );
+        },
+        .expected_lbrace => |bad_index| {
+            return astgen.failOff(
+                main_token,
+                @intCast(u32, bad_index),
+                "expected '{{', found '{c}",
+                .{slice[bad_index]},
+            );
+        },
+        .expected_end => |bad_index| {
+            return astgen.failOff(
+                main_token,
+                @intCast(u32, bad_index),
+                "expected ending single quote ('), found '{c}",
+                .{slice[bad_index]},
+            );
+        },
+        .invalid_character => |bad_index| {
+            return astgen.failOff(
+                main_token,
+                @intCast(u32, bad_index),
+                "invalid byte in character literal: '{c}'",
+                .{slice[bad_index]},
+            );
+        },
+    }
 }
 
 fn integerLiteral(gz: *GenZir, rl: ResultLoc, node: ast.Node.Index) InnerError!Zir.Inst.Ref {
