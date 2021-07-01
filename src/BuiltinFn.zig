@@ -153,7 +153,7 @@ pub const list = list: {
             "@asyncCall",
             .{
                 .tag = .async_call,
-                .param_count = null,
+                .param_count = 4,
             },
         },
         .{
