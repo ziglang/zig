@@ -792,7 +792,7 @@ test "Thread.join" {
     try event.init();
     defer event.deinit();
 
-    const thread = try Thread.spawn(.{}, testIncrementNotify, .{&value, &event});
+    const thread = try Thread.spawn(.{}, testIncrementNotify, .{ &value, &event });
     thread.join();
 
     try std.testing.expectEqual(value, 1);
@@ -806,7 +806,7 @@ test "Thread.detach" {
     try event.init();
     defer event.deinit();
 
-    const thread = try Thread.spawn(.{}, testIncrementNotify, .{&value, &event});
+    const thread = try Thread.spawn(.{}, testIncrementNotify, .{ &value, &event });
     thread.detach();
 
     event.wait();

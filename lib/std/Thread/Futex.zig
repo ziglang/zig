@@ -66,7 +66,7 @@ pub fn wait(ptr: *const Atomic(u32), expect: u32, timeout: ?u64) error{TimedOut}
 pub fn wake(ptr: *const Atomic(u32), num_waiters: u32) void {
     if (single_threaded) return;
     if (num_waiters == 0) return;
-    
+
     return OsFutex.wake(ptr, num_waiters);
 }
 
@@ -83,11 +83,11 @@ else
 
 const UnsupportedFutex = struct {
     fn wait(ptr: *const Atomic(u32), expect: u32, timeout: ?u64) error{TimedOut}!void {
-        return unsupported(.{ptr, expect, timeout});
+        return unsupported(.{ ptr, expect, timeout });
     }
 
     fn wake(ptr: *const Atomic(u32), num_waiters: u32) void {
-        return unsupported(.{ptr, num_waiters});
+        return unsupported(.{ ptr, num_waiters });
     }
 
     fn unsupported(unused: anytype) noreturn {
@@ -417,7 +417,6 @@ test "Futex - Signal" {
         fn run(self: *@This(), hit_to: *@This()) !void {
             var iterations: usize = 4;
             while (iterations > 0) : (iterations -= 1) {
-
                 var value: u32 = undefined;
                 while (true) {
                     value = self.value.load(.Acquire);
@@ -427,7 +426,7 @@ test "Futex - Signal" {
 
                 try testing.expectEqual(value, self.current + 1);
                 self.current = value;
-                
+
                 _ = hit_to.value.fetchAdd(1, .Release);
                 Futex.wake(&hit_to.value, 1);
             }
@@ -437,10 +436,10 @@ test "Futex - Signal" {
     var ping = Paddle{};
     var pong = Paddle{};
 
-    const t1 = try std.Thread.spawn(.{}, Paddle.run, .{&ping, &pong});
+    const t1 = try std.Thread.spawn(.{}, Paddle.run, .{ &ping, &pong });
     defer t1.join();
 
-    const t2 = try std.Thread.spawn(.{}, Paddle.run, .{&pong, &ping});
+    const t2 = try std.Thread.spawn(.{}, Paddle.run, .{ &pong, &ping });
     defer t2.join();
 
     _ = ping.value.fetchAdd(1, .Release);
@@ -497,7 +496,7 @@ test "Futex - Broadcast" {
 
     // Try to wait for the threads to start before running runSender().
     // NOTE: not actually needed for correctness.
-    std.time.sleep(16 * std.time.ns_per_ms); 
+    std.time.sleep(16 * std.time.ns_per_ms);
     try ctx.runSender();
 
     const notified = ctx.notified.load(.Monotonic);
@@ -551,7 +550,7 @@ test "Futex - Chain" {
     var ctx = Context{};
     for (ctx.threads) |*entry, index| {
         entry.signal = .{};
-        entry.thread = try std.Thread.spawn(.{}, Context.run, .{&ctx, index});
+        entry.thread = try std.Thread.spawn(.{}, Context.run, .{ &ctx, index });
     }
 
     ctx.threads[0].signal.notify();
