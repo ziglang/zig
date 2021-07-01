@@ -17,7 +17,7 @@ pub const Error = error{ParseError} || Allocator.Error;
 
 /// Result should be freed with tree.deinit() when there are
 /// no more references to any of the tokens or nodes.
-pub fn parse(gpa: *Allocator, source: []const u8) Allocator.Error!Tree {
+pub fn parse(gpa: *Allocator, source: [:0]const u8) Allocator.Error!Tree {
     var tokens = ast.TokenList{};
     defer tokens.deinit(gpa);
 

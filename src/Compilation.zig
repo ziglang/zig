@@ -1541,7 +1541,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
         }
     }
 
-    if (comp.bin_file.options.use_stage1) {
+    if (comp.bin_file.options.use_stage1 and comp.bin_file.options.module != null) {
         try comp.work_queue.writeItem(.{ .stage1_module = {} });
     }
 

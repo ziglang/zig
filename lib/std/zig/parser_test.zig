@@ -5194,7 +5194,7 @@ const maxInt = std.math.maxInt;
 
 var fixed_buffer_mem: [100 * 1024]u8 = undefined;
 
-fn testParse(source: []const u8, allocator: *mem.Allocator, anything_changed: *bool) ![]u8 {
+fn testParse(source: [:0]const u8, allocator: *mem.Allocator, anything_changed: *bool) ![]u8 {
     const stderr = io.getStdErr().writer();
 
     var tree = try std.zig.parse(allocator, source);
@@ -5222,7 +5222,7 @@ fn testParse(source: []const u8, allocator: *mem.Allocator, anything_changed: *b
     anything_changed.* = !mem.eql(u8, formatted, source);
     return formatted;
 }
-fn testTransform(source: []const u8, expected_source: []const u8) !void {
+fn testTransform(source: [:0]const u8, expected_source: []const u8) !void {
     const needed_alloc_count = x: {
         // Try it once with unlimited memory, make sure it works
         var fixed_allocator = std.heap.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
@@ -5268,13 +5268,13 @@ fn testTransform(source: []const u8, expected_source: []const u8) !void {
         }
     }
 }
-fn testCanonical(source: []const u8) !void {
+fn testCanonical(source: [:0]const u8) !void {
     return testTransform(source, source);
 }
 
 const Error = std.zig.ast.Error.Tag;
 
-fn testError(source: []const u8, expected_errors: []const Error) !void {
+fn testError(source: [:0]const u8, expected_errors: []const Error) !void {
     var tree = try std.zig.parse(std.testing.allocator, source);
     defer tree.deinit(std.testing.allocator);
 

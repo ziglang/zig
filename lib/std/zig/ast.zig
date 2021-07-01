@@ -20,7 +20,7 @@ pub const NodeList = std.MultiArrayList(Node);
 
 pub const Tree = struct {
     /// Reference to externally-owned data.
-    source: []const u8,
+    source: [:0]const u8,
 
     tokens: TokenList.Slice,
     /// The root AST node is assumed to be index 0. Since there can be no
