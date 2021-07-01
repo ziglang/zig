@@ -116,7 +116,7 @@ pub const Options = struct {
     libc_installation: ?*const LibCInstallation,
 
     /// WASI-only. Type of WASI execution model ("command" or "reactor").
-    wasi_exec_model: ?wasi_libc.CRTFile = null,
+    wasi_exec_model: std.builtin.WasiExecModel = undefined,
 
     pub fn effectiveOutputMode(options: Options) std.builtin.OutputMode {
         return if (options.use_lld) .Obj else options.output_mode;

@@ -321,6 +321,7 @@ const usage_build_generic =
     \\            medium|large]
     \\  -mred-zone                Force-enable the "red-zone"
     \\  -mno-red-zone             Force-disable the "red-zone"
+    \\  -mexec-model=[value]      Execution model (WASI only)
     \\  --name [name]             Override root name (not a file path)
     \\  -O [mode]                 Choose what to optimize for
     \\    Debug                   (default) Optimizations off, safety on
@@ -618,7 +619,7 @@ fn buildOutputType(
     var subsystem: ?std.Target.SubSystem = null;
     var major_subsystem_version: ?u32 = null;
     var minor_subsystem_version: ?u32 = null;
-    var wasi_exec_model: ?wasi_libc.CRTFile = null;
+    var wasi_exec_model: ?std.builtin.WasiExecModel = null;
 
     var system_libs = std.ArrayList([]const u8).init(gpa);
     defer system_libs.deinit();
@@ -1071,6 +1072,10 @@ fn buildOutputType(
                         mem.startsWith(u8, arg, "-I"))
                     {
                         try clang_argv.append(arg);
+                    } else if (mem.startsWith(u8, arg, "-mexec-model=")) {
+                        wasi_exec_model = std.meta.stringToEnum(std.builtin.WasiExecModel, arg["-mexec-model=".len..]) orelse {
+                            fatal("expected [command|reactor] for -mexec-mode=[value], found '{s}'", .{arg["-mexec-model=".len..]});
+                        };
                     } else {
                         fatal("unrecognized parameter: '{s}'", .{arg});
                     }
@@ -1277,11 +1282,9 @@ fn buildOutputType(
                     .nostdlibinc => want_native_include_dirs = false,
                     .strip => strip = true,
                     .exec_model => {
-                        if (std.mem.eql(u8, it.only_arg, "reactor")) {
-                            wasi_exec_model = .crt1_reactor_o;
-                        } else if (std.mem.eql(u8, it.only_arg, "command")) {
-                            wasi_exec_model = .crt1_command_o;
-                        }
+                        wasi_exec_model = std.meta.stringToEnum(std.builtin.WasiExecModel, it.only_arg) orelse {
+                            fatal("expected [command|reactor] for -mexec-mode=[value], found '{s}'", .{it.only_arg});
+                        };
                     },
                 }
             }

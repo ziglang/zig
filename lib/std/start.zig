@@ -65,8 +65,9 @@ comptime {
                 }
             } else if (native_os == .uefi) {
                 if (!@hasDecl(root, "EfiMain")) @export(EfiMain, .{ .name = "EfiMain" });
-            } else if (native_arch.isWasm() and native_os == .freestanding) {
-                if (!@hasDecl(root, start_sym_name)) @export(wasm_freestanding_start, .{ .name = start_sym_name });
+            } else if (native_arch.isWasm()) {
+                const wasm_start_sym = if (builtin.wasi_exec_model == .reactor) "_initialize" else "_start";
+                if (!@hasDecl(root, wasm_start_sym)) @export(wasm_start, .{ .name = wasm_start_sym });
             } else if (native_os != .other and native_os != .freestanding) {
                 if (!@hasDecl(root, start_sym_name)) @export(_start, .{ .name = start_sym_name });
             }
@@ -135,10 +136,21 @@ fn _DllMainCRTStartup(
     return std.os.windows.TRUE;
 }
 
-fn wasm_freestanding_start() callconv(.C) void {
-    // This is marked inline because for some reason LLVM in release mode fails to inline it,
+fn wasm_start() callconv(.C) void {
+    // The entrypoint is marked inline because for some reason LLVM in release mode fails to inline it,
     // and we want fewer call frames in stack traces.
-    _ = @call(.{ .modifier = .always_inline }, callMain, .{});
+    switch (native_os) {
+        .freestanding => {
+            _ = @call(.{ .modifier = .always_inline }, callMain, .{});
+        },
+        .wasi => {
+            switch (builtin.wasi_exec_model) {
+                .reactor => _ = @call(.{ .modifier = .always_inline }, callMain, .{}),
+                .command => std.os.wasi.proc_exit(@call(.{ .modifier = .always_inline }, callMain, .{})),
+            }
+        },
+        else => @compileError("unsupported OS"),
+    }
 }
 
 fn EfiMain(handle: uefi.Handle, system_table: *uefi.tables.SystemTable) callconv(.C) usize {
@@ -164,12 +176,6 @@ fn EfiMain(handle: uefi.Handle, system_table: *uefi.tables.SystemTable) callconv
 }
 
 fn _start() callconv(.Naked) noreturn {
-    if (native_os == .wasi) {
-        // This is marked inline because for some reason LLVM in release mode fails to inline it,
-        // and we want fewer call frames in stack traces.
-        std.os.wasi.proc_exit(@call(.{ .modifier = .always_inline }, callMain, .{}));
-    }
-
     switch (native_arch) {
         .x86_64 => {
             argc_argv_ptr = asm volatile (
