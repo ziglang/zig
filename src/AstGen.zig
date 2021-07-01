@@ -2216,25 +2216,15 @@ fn checkUsed(
             .gen_zir => scope = scope.cast(GenZir).?.parent,
             .local_val => {
                 const s = scope.cast(Scope.LocalVal).?;
-                switch (s.used) {
-                    .used => {},
-                    .fn_param => return astgen.failTok(s.token_src, "unused function parameter", .{}),
-                    .constant => return astgen.failTok(s.token_src, "unused local constant", .{}),
-                    .variable => unreachable,
-                    .loop_index => unreachable,
-                    .capture => return astgen.failTok(s.token_src, "unused capture", .{}),
+                if (!s.used) {
+                    return astgen.failTok(s.token_src, "unused {s}", .{@tagName(s.id_cat)});
                 }
                 scope = s.parent;
             },
             .local_ptr => {
                 const s = scope.cast(Scope.LocalPtr).?;
-                switch (s.used) {
-                    .used => {},
-                    .fn_param => unreachable,
-                    .constant => return astgen.failTok(s.token_src, "unused local constant", .{}),
-                    .variable => return astgen.failTok(s.token_src, "unused local variable", .{}),
-                    .loop_index => return astgen.failTok(s.token_src, "unused loop index capture", .{}),
-                    .capture => unreachable,
+                if (!s.used) {
+                    return astgen.failTok(s.token_src, "unused {s}", .{@tagName(s.id_cat)});
                 }
                 scope = s.parent;
             },
@@ -2280,63 +2270,7 @@ fn varDecl(
     }
     const ident_name = try astgen.identAsString(name_token);
 
-    // Local variables shadowing detection, including function parameters.
-    {
-        var s = scope;
-        while (true) switch (s.tag) {
-            .local_val => {
-                const local_val = s.cast(Scope.LocalVal).?;
-                if (local_val.name == ident_name) {
-                    const name = try gpa.dupe(u8, mem.spanZ(astgen.nullTerminatedString(ident_name)));
-                    defer gpa.free(name);
-                    return astgen.failTokNotes(name_token, "redeclaration of '{s}'", .{
-                        name,
-                    }, &[_]u32{
-                        try astgen.errNoteTok(
-                            local_val.token_src,
-                            "previously declared here",
-                            .{},
-                        ),
-                    });
-                }
-                s = local_val.parent;
-            },
-            .local_ptr => {
-                const local_ptr = s.cast(Scope.LocalPtr).?;
-                if (local_ptr.name == ident_name) {
-                    const name = try gpa.dupe(u8, mem.spanZ(astgen.nullTerminatedString(ident_name)));
-                    defer gpa.free(name);
-                    return astgen.failTokNotes(name_token, "redeclaration of '{s}'", .{
-                        name,
-                    }, &[_]u32{
-                        try astgen.errNoteTok(
-                            local_ptr.token_src,
-                            "previously declared here",
-                            .{},
-                        ),
-                    });
-                }
-                s = local_ptr.parent;
-            },
-            .namespace => {
-                const ns = s.cast(Scope.Namespace).?;
-                const decl_node = ns.decls.get(ident_name) orelse {
-                    s = ns.parent;
-                    continue;
-                };
-                const name = try gpa.dupe(u8, mem.spanZ(astgen.nullTerminatedString(ident_name)));
-                defer gpa.free(name);
-                return astgen.failTokNotes(name_token, "local shadows declaration of '{s}'", .{
-                    name,
-                }, &[_]u32{
-                    try astgen.errNoteNode(decl_node, "declared here", .{}),
-                });
-            },
-            .gen_zir => s = s.cast(GenZir).?.parent,
-            .defer_normal, .defer_error => s = s.cast(Scope.Defer).?.parent,
-            .top => break,
-        };
-    }
+    try astgen.detectLocalShadowing(scope, ident_name, name_token);
 
     if (var_decl.ast.init_node == 0) {
         return astgen.failNode(node, "variables must be initialized", .{});
@@ -2369,7 +2303,7 @@ fn varDecl(
                     .name = ident_name,
                     .inst = init_inst,
                     .token_src = name_token,
-                    .used = .constant,
+                    .id_cat = .@"local constant",
                 };
                 return &sub_scope.base;
             }
@@ -2438,7 +2372,7 @@ fn varDecl(
                     .name = ident_name,
                     .inst = init_inst,
                     .token_src = name_token,
-                    .used = .constant,
+                    .id_cat = .@"local constant",
                 };
                 return &sub_scope.base;
             }
@@ -2468,7 +2402,7 @@ fn varDecl(
                 .ptr = init_scope.rl_ptr,
                 .token_src = name_token,
                 .maybe_comptime = true,
-                .used = .constant,
+                .id_cat = .@"local constant",
             };
             return &sub_scope.base;
         },
@@ -2525,7 +2459,7 @@ fn varDecl(
                 .ptr = var_data.alloc,
                 .token_src = name_token,
                 .maybe_comptime = is_comptime,
-                .used = .variable,
+                .id_cat = .@"local variable",
             };
             return &sub_scope.base;
         },
@@ -3028,7 +2962,7 @@ fn fnDecl(
                 const param_name = try astgen.identAsString(name_token);
                 // Create an arg instruction. This is needed to emit a semantic analysis
                 // error for shadowing decls.
-                // TODO emit a compile error here for shadowing locals.
+                try astgen.detectLocalShadowing(params_scope, param_name, name_token);
                 const arg_inst = try fn_gz.addStrTok(.arg, param_name, name_token);
                 const sub_scope = try astgen.arena.create(Scope.LocalVal);
                 sub_scope.* = .{
@@ -3037,7 +2971,7 @@ fn fnDecl(
                     .name = param_name,
                     .inst = arg_inst,
                     .token_src = name_token,
-                    .used = .fn_param,
+                    .id_cat = .@"function parameter",
                 };
                 params_scope = &sub_scope.base;
 
@@ -4701,7 +4635,7 @@ fn orelseCatchExpr(
             .name = err_name,
             .inst = try then_scope.addUnNode(unwrap_code_op, operand, node),
             .token_src = payload,
-            .used = .capture,
+            .id_cat = .@"capture",
         };
         break :blk &err_val_scope.base;
     };
@@ -4993,7 +4927,7 @@ fn ifExpr(
                     .name = ident_name,
                     .inst = payload_inst,
                     .token_src = payload_token,
-                    .used = .capture,
+                    .id_cat = .@"capture",
                 };
                 break :s &payload_val_scope.base;
             } else {
@@ -5015,7 +4949,7 @@ fn ifExpr(
                 .name = ident_name,
                 .inst = payload_inst,
                 .token_src = ident_token,
-                .used = .capture,
+                .id_cat = .@"capture",
             };
             break :s &payload_val_scope.base;
         } else {
@@ -5056,7 +4990,7 @@ fn ifExpr(
                     .name = ident_name,
                     .inst = payload_inst,
                     .token_src = error_token,
-                    .used = .capture,
+                    .id_cat = .@"capture",
                 };
                 break :s &payload_val_scope.base;
             } else {
@@ -5250,7 +5184,7 @@ fn whileExpr(
                     .name = ident_name,
                     .inst = payload_inst,
                     .token_src = payload_token,
-                    .used = .capture,
+                    .id_cat = .@"capture",
                 };
                 break :s &payload_val_scope.base;
             } else {
@@ -5272,7 +5206,7 @@ fn whileExpr(
                 .name = ident_name,
                 .inst = payload_inst,
                 .token_src = ident_token,
-                .used = .capture,
+                .id_cat = .@"capture",
             };
             break :s &payload_val_scope.base;
         } else {
@@ -5329,7 +5263,7 @@ fn whileExpr(
                     .name = ident_name,
                     .inst = payload_inst,
                     .token_src = error_token,
-                    .used = .capture,
+                    .id_cat = .@"capture",
                 };
                 break :s &payload_val_scope.base;
             } else {
@@ -5468,7 +5402,7 @@ fn forExpr(
                 .name = name_str_index,
                 .inst = payload_inst,
                 .token_src = ident,
-                .used = .capture,
+                .id_cat = .@"capture",
             };
             payload_sub_scope = &payload_val_scope.base;
         } else if (is_ptr) {
@@ -5492,7 +5426,7 @@ fn forExpr(
             .ptr = index_ptr,
             .token_src = index_token,
             .maybe_comptime = is_inline,
-            .used = .loop_index,
+            .id_cat = .@"loop index capture",
         };
         break :blk &index_scope.base;
     };
@@ -5737,7 +5671,7 @@ fn switchExpr(
                 .name = capture_name,
                 .inst = capture,
                 .token_src = payload_token,
-                .used = .capture,
+                .id_cat = .@"capture",
             };
             break :blk &capture_val_scope.base;
         };
@@ -5831,7 +5765,7 @@ fn switchExpr(
                 .name = capture_name,
                 .inst = capture,
                 .token_src = payload_token,
-                .used = .capture,
+                .id_cat = .@"capture",
             };
             break :blk &capture_val_scope.base;
         };
@@ -6261,7 +6195,7 @@ fn identifier(
                 const local_val = s.cast(Scope.LocalVal).?;
 
                 if (local_val.name == name_str_index) {
-                    local_val.used = .used;
+                    local_val.used = true;
                     // Captures of non-locals need to be emitted as decl_val or decl_ref.
                     // This *might* be capturable depending on if it is comptime known.
                     if (!hit_namespace) {
@@ -6273,7 +6207,7 @@ fn identifier(
             .local_ptr => {
                 const local_ptr = s.cast(Scope.LocalPtr).?;
                 if (local_ptr.name == name_str_index) {
-                    local_ptr.used = .used;
+                    local_ptr.used = true;
                     if (hit_namespace) {
                         if (local_ptr.maybe_comptime)
                             break
@@ -6609,7 +6543,7 @@ fn asmExpr(
                     .local_val => {
                         const local_val = s.cast(Scope.LocalVal).?;
                         if (local_val.name == str_index) {
-                            local_val.used = .used;
+                            local_val.used = true;
                             break;
                         }
                         s = local_val.parent;
@@ -6617,7 +6551,7 @@ fn asmExpr(
                     .local_ptr => {
                         const local_ptr = s.cast(Scope.LocalPtr).?;
                         if (local_ptr.name == str_index) {
-                            local_ptr.used = .used;
+                            local_ptr.used = true;
                             break;
                         }
                         s = local_ptr.parent;
@@ -6968,7 +6902,7 @@ fn builtinCall(
                             .local_val => {
                                 const local_val = s.cast(Scope.LocalVal).?;
                                 if (local_val.name == decl_name) {
-                                    local_val.used = .used;
+                                    local_val.used = true;
                                     break;
                                 }
                                 s = local_val.parent;
@@ -6978,7 +6912,7 @@ fn builtinCall(
                                 if (local_ptr.name == decl_name) {
                                     if (!local_ptr.maybe_comptime)
                                         return astgen.failNode(params[0], "unable to export runtime-known value", .{});
-                                    local_ptr.used = .used;
+                                    local_ptr.used = true;
                                     break;
                                 }
                                 s = local_ptr.parent;
@@ -8545,15 +8479,15 @@ const Scope = struct {
         top,
     };
 
-    // either .used or the type of the var/constant
-    const Used = enum {
-        fn_param,
-        constant,
-        variable,
-        loop_index,
-        capture,
-        used,
+    /// The category of identifier. These tag names are user-visible in compile errors.
+    const IdCat = enum {
+        @"function parameter",
+        @"local constant",
+        @"local variable",
+        @"loop index capture",
+        @"capture",
     };
+
     /// This is always a `const` local and importantly the `inst` is a value type, not a pointer.
     /// This structure lives as long as the AST generation of the Block
     /// node that contains the variable.
@@ -8568,8 +8502,9 @@ const Scope = struct {
         token_src: ast.TokenIndex,
         /// String table index.
         name: u32,
-        /// has this variable been referenced?
-        used: Used,
+        id_cat: IdCat,
+        /// Track whether the name has been referenced.
+        used: bool = false,
     };
 
     /// This could be a `const` or `var` local. It has a pointer instead of a value.
@@ -8586,10 +8521,12 @@ const Scope = struct {
         token_src: ast.TokenIndex,
         /// String table index.
         name: u32,
-        /// true means we find out during Sema whether the value is comptime. false means it is already known at AstGen the value is runtime-known.
+        id_cat: IdCat,
+        /// true means we find out during Sema whether the value is comptime.
+        /// false means it is already known at AstGen the value is runtime-known.
         maybe_comptime: bool,
-        /// has this variable been referenced?
-        used: Used,
+        /// Track whether the name has been referenced.
+        used: bool = false,
     };
 
     const Defer = struct {
@@ -9678,6 +9615,71 @@ fn declareNewName(
             .top => break,
         }
     }
+}
+
+/// Local variables shadowing detection, including function parameters.
+fn detectLocalShadowing(
+    astgen: *AstGen,
+    scope: *Scope,
+    ident_name: u32,
+    name_token: ast.TokenIndex,
+) !void {
+    const gpa = astgen.gpa;
+
+    var s = scope;
+    while (true) switch (s.tag) {
+        .local_val => {
+            const local_val = s.cast(Scope.LocalVal).?;
+            if (local_val.name == ident_name) {
+                const name = try gpa.dupe(u8, mem.spanZ(astgen.nullTerminatedString(ident_name)));
+                defer gpa.free(name);
+                return astgen.failTokNotes(name_token, "redeclaration of {s} '{s}'", .{
+                    @tagName(local_val.id_cat), name,
+                }, &[_]u32{
+                    try astgen.errNoteTok(
+                        local_val.token_src,
+                        "previously declared here",
+                        .{},
+                    ),
+                });
+            }
+            s = local_val.parent;
+        },
+        .local_ptr => {
+            const local_ptr = s.cast(Scope.LocalPtr).?;
+            if (local_ptr.name == ident_name) {
+                const name = try gpa.dupe(u8, mem.spanZ(astgen.nullTerminatedString(ident_name)));
+                defer gpa.free(name);
+                return astgen.failTokNotes(name_token, "redeclaration of {s} '{s}'", .{
+                    @tagName(local_ptr.id_cat), name,
+                }, &[_]u32{
+                    try astgen.errNoteTok(
+                        local_ptr.token_src,
+                        "previously declared here",
+                        .{},
+                    ),
+                });
+            }
+            s = local_ptr.parent;
+        },
+        .namespace => {
+            const ns = s.cast(Scope.Namespace).?;
+            const decl_node = ns.decls.get(ident_name) orelse {
+                s = ns.parent;
+                continue;
+            };
+            const name = try gpa.dupe(u8, mem.spanZ(astgen.nullTerminatedString(ident_name)));
+            defer gpa.free(name);
+            return astgen.failTokNotes(name_token, "local shadows declaration of '{s}'", .{
+                name,
+            }, &[_]u32{
+                try astgen.errNoteNode(decl_node, "declared here", .{}),
+            });
+        },
+        .gen_zir => s = s.cast(GenZir).?.parent,
+        .defer_normal, .defer_error => s = s.cast(Scope.Defer).?.parent,
+        .top => break,
+    };
 }
 
 fn advanceSourceCursor(astgen: *AstGen, source: []const u8, end: usize) void {
