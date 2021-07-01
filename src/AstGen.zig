@@ -1313,22 +1313,23 @@ fn structInitExpr(
     const astgen = gz.astgen;
     const tree = astgen.tree;
 
-    if (struct_init.ast.fields.len == 0) {
-        if (struct_init.ast.type_expr == 0) {
+    if (struct_init.ast.type_expr == 0) {
+        if (struct_init.ast.fields.len == 0) {
             return rvalue(gz, rl, .empty_struct, node);
         }
-        array: {
-            const node_tags = tree.nodes.items(.tag);
-            const main_tokens = tree.nodes.items(.main_token);
-            const array_type: ast.full.ArrayType = switch (node_tags[struct_init.ast.type_expr]) {
-                .array_type => tree.arrayType(struct_init.ast.type_expr),
-                .array_type_sentinel => tree.arrayTypeSentinel(struct_init.ast.type_expr),
-                else => break :array,
-            };
+    } else array: {
+        const node_tags = tree.nodes.items(.tag);
+        const main_tokens = tree.nodes.items(.main_token);
+        const array_type: ast.full.ArrayType = switch (node_tags[struct_init.ast.type_expr]) {
+            .array_type => tree.arrayType(struct_init.ast.type_expr),
+            .array_type_sentinel => tree.arrayTypeSentinel(struct_init.ast.type_expr),
+            else => break :array,
+        };
+        const is_inferred_array_len = node_tags[array_type.ast.elem_count] == .identifier and
             // This intentionally does not support `@"_"` syntax.
-            if (node_tags[array_type.ast.elem_count] == .identifier and
-                mem.eql(u8, tree.tokenSlice(main_tokens[array_type.ast.elem_count]), "_"))
-            {
+            mem.eql(u8, tree.tokenSlice(main_tokens[array_type.ast.elem_count]), "_");
+        if (struct_init.ast.fields.len == 0) {
+            if (is_inferred_array_len) {
                 const elem_type = try typeExpr(gz, scope, array_type.ast.elem_type);
                 const array_type_inst = if (array_type.ast.sentinel == 0) blk: {
                     break :blk try gz.addBin(.array_type, .zero_usize, elem_type);
@@ -1339,11 +1340,18 @@ fn structInitExpr(
                 const result = try gz.addUnNode(.struct_init_empty, array_type_inst, node);
                 return rvalue(gz, rl, result, node);
             }
+            const ty_inst = try typeExpr(gz, scope, struct_init.ast.type_expr);
+            const result = try gz.addUnNode(.struct_init_empty, ty_inst, node);
+            return rvalue(gz, rl, result, node);
+        } else {
+            return astgen.failNode(
+                struct_init.ast.type_expr,
+                "initializing array with struct syntax",
+                .{},
+            );
         }
-        const ty_inst = try typeExpr(gz, scope, struct_init.ast.type_expr);
-        const result = try gz.addUnNode(.struct_init_empty, ty_inst, node);
-        return rvalue(gz, rl, result, node);
     }
+
     switch (rl) {
         .discard => {
             if (struct_init.ast.type_expr != 0)
@@ -2266,6 +2274,10 @@ fn varDecl(
     const token_tags = tree.tokens.items(.tag);
 
     const name_token = var_decl.ast.mut_token + 1;
+    const ident_name_raw = tree.tokenSlice(name_token);
+    if (mem.eql(u8, ident_name_raw, "_")) {
+        return astgen.failTok(name_token, "'_' used as an identifier without @\"_\" syntax", .{});
+    }
     const ident_name = try astgen.identAsString(name_token);
 
     // Local variables shadowing detection, including function parameters.
@@ -3003,7 +3015,11 @@ fn fnDecl(
             var it = fn_proto.iterate(tree.*);
             while (it.next()) |param| : (i += 1) {
                 const name_token = param.name_token orelse {
-                    return astgen.failNode(param.type_expr, "missing parameter name", .{});
+                    if (param.anytype_ellipsis3) |tok| {
+                        return astgen.failTok(tok, "missing parameter name", .{});
+                    } else {
+                        return astgen.failNode(param.type_expr, "missing parameter name", .{});
+                    }
                 };
                 if (param.type_expr != 0)
                     _ = try typeExpr(&fn_gz, params_scope, param.type_expr);
@@ -6197,10 +6213,11 @@ fn identifier(
     const main_tokens = tree.nodes.items(.main_token);
 
     const ident_token = main_tokens[ident];
-    const ident_name = try astgen.identifierTokenString(ident_token);
-    if (mem.eql(u8, ident_name, "_")) {
+    const ident_name_raw = tree.tokenSlice(ident_token);
+    if (mem.eql(u8, ident_name_raw, "_")) {
         return astgen.failNode(ident, "'_' used as an identifier without @\"_\" syntax", .{});
     }
+    const ident_name = try astgen.identifierTokenString(ident_token);
 
     if (simple_types.get(ident_name)) |zir_const_ref| {
         return rvalue(gz, rl, zir_const_ref, ident);

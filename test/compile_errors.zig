@@ -2130,8 +2130,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = x;
         \\}
     , &[_][]const u8{
-        "tmp.zig:3:13: error: structs and unions, not enums, support field alignment",
-        "tmp.zig:1:16: note: consider 'union(enum)' here",
+        "tmp.zig:3:7: error: expected ',', found 'align'",
     });
 
     ctx.objErrStage1("bad alignment type",
@@ -3765,8 +3764,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    return _;
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:5: error: '_' used as an identifier without @\"_\" syntax",
-        "tmp.zig:3:12: error: '_' used as an identifier without @\"_\" syntax",
+        "tmp.zig:2:9: error: '_' used as an identifier without @\"_\" syntax",
     });
 
     ctx.objErrStage1("`_` should not be usable inside for",
@@ -4908,7 +4906,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\export fn entry() void { a(); }
     , &[_][]const u8{
         "tmp.zig:2:1: error: redeclaration of 'a'",
-        "tmp.zig:1:1: error: other declaration here",
+        "tmp.zig:1:1: note: other declaration here",
     });
 
     ctx.objErrStage1("unreachable with return",
@@ -5218,6 +5216,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\        .z = 4,
         \\        .y = 2,
         \\    };
+        \\    _ = a;
         \\}
     , &[_][]const u8{
         "tmp.zig:9:17: error: missing field: 'x'",
@@ -7549,13 +7548,15 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    };
         \\
         \\    for ([_]Mode { Mode.Debug, Mode.ReleaseSafe, Mode.ReleaseFast }) |mode| {
+        \\        _ = mode;
         \\        inline for (tests) |test_case| {
         \\            const foo = test_case.filename ++ ".zig";
+        \\            _ = foo;
         \\        }
         \\    }
         \\}
     , &[_][]const u8{
-        "tmp.zig:37:29: error: cannot store runtime value in compile time variable",
+        "tmp.zig:38:29: error: cannot store runtime value in compile time variable",
     });
 
     ctx.objErrStage1("invalid legacy unicode escape",
@@ -7980,6 +7981,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\};
         \\export fn foo() void {
         \\    const fieldOffset = @offsetOf(Empty, "val",);
+        \\    _ = fieldOffset;
         \\}
     , &[_][]const u8{
         "tmp.zig:5:42: error: zero-bit field 'val' in struct 'Empty' has no offset",
@@ -7991,6 +7993,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\};
         \\export fn foo() void {
         \\    const fieldOffset = @bitOffsetOf(Empty, "val",);
+        \\    _ = fieldOffset;
         \\}
     , &[_][]const u8{
         "tmp.zig:5:45: error: zero-bit field 'val' in struct 'Empty' has no offset",
@@ -8004,6 +8007,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\comptime {
         \\    var foo = Foo {.Baz = {}};
         \\    const bar_val = foo.Bar;
+        \\    _ = bar_val;
         \\}
     , &[_][]const u8{
         "tmp.zig:7:24: error: accessing union field 'Bar' while field 'Baz' is set",
@@ -8119,6 +8123,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    var x: *const i32 = &w;
         \\    var y: *[1]i32 = x;
         \\    y[0] += 1;
+        \\    _ = byte;
         \\}
     , &[_][]const u8{
         "tmp.zig:4:22: error: expected type '*[1]i32', found '*const i32'",
@@ -8145,6 +8150,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\export fn f2() void {
         \\    var x: anyerror!i32 = error.Bad;
         \\    for ("hello") |_| returns() else unreachable;
+        \\    _ = x;
         \\}
     , &[_][]const u8{
         "tmp.zig:5:30: error: expression value is ignored",
@@ -8154,6 +8160,7 @@ pub fn addCases(ctx: *TestContext) !void {
     ctx.objErrStage1("aligned variable of zero-bit type",
         \\export fn f() void {
         \\    var s: struct {} align(4) = undefined;
+        \\    _ = s;
         \\}
     , &[_][]const u8{
         "tmp.zig:2:5: error: variable 's' of zero-bit type 'struct:2:12' has no in-memory representation, it cannot be aligned",
@@ -8637,7 +8644,7 @@ pub fn addCases(ctx: *TestContext) !void {
     });
 
     ctx.objErrStage1("issue #5221: invalid struct init type referenced by @typeInfo and passed into function",
-        \\fn ignore(comptime param: anytype) void {}
+        \\fn ignore(comptime param: anytype) void {_ = param;}
         \\
         \\export fn foo() void {
         \\    const MyStruct = struct {
