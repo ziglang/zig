@@ -500,6 +500,101 @@ const LinuxThreadImpl = struct {
         child_tid: Atomic(i32) = Atomic(i32).init(1),
         parent_tid: i32 = undefined,
         mapped: []align(std.mem.page_size) u8,
+
+        /// Calls `munmap(mapped.ptr, mapped.len)` then `exit(1)` without touching the stack (which lives in `mapped.ptr`).
+        /// Ported over from musl libc's pthread detached implementation:
+        /// https://github.com/ifduyue/musl/search?q=__unmapself
+        fn freeAndExit(self: *ThreadCompletion) noreturn {
+            const unmap_and_exit: []const u8 = switch (target.cpu.arch) {
+                .i386 => (
+                    \\  movl $91, %%eax
+                    \\  movl %[ptr], %%ebx
+                    \\  movl %[len], %%ecx
+                    \\  int $128
+                    \\  movl $1, %%eax
+                    \\  movl $0, %%ebx
+                    \\  int $128
+                ),
+                .x86_64 => (
+                    \\  movq $11, %%rax
+                    \\  movq %[ptr], %%rbx
+                    \\  movq %[len], %%rcx
+                    \\  syscall
+                    \\  movq $60, %%rax
+                    \\  movq $1, %%rdi
+                    \\  syscall
+                ),
+                .arm, .armeb, .thumb, .thumbeb => (
+                    \\  mov r7, #91
+                    \\  mov r0, %[ptr]
+                    \\  mov r1, %[len]
+                    \\  svc 0
+                    \\  mov r7, #1
+                    \\  mov r0, #0
+                    \\  svc 0
+                ),
+                .aarch64, .aarch64_be, .aarch64_32 => (
+                    \\  mov x8, #215
+                    \\  mov x0, %[ptr]
+                    \\  mov x1, %[len]
+                    \\  svc 0
+                    \\  mov x8, #93
+                    \\  mov x0, #0
+                    \\  svc 0
+                ),
+                .mips, .mipsel => (
+                    \\  move $sp, $25
+                    \\  li $2, 4091
+                    \\  move $4, %[ptr]
+                    \\  move $5, %[len]
+                    \\  syscall
+                    \\  li $2, 4001
+                    \\  li $4, 0
+                    \\  syscall
+                ),
+                .mips64, .mips64el => (
+                    \\  li $2, 4091
+                    \\  move $4, %[ptr]
+                    \\  move $5, %[len]
+                    \\  syscall
+                    \\  li $2, 4001
+                    \\  li $4, 0
+                    \\  syscall
+                ),
+                .powerpc, .powerpcle, .powerpc64, .powerpc64le => (
+                    \\  li 0, 91
+                    \\  mr %[ptr], 3
+                    \\  mr %[len], 4
+                    \\  sc
+                    \\  li 0, 1
+                    \\  li 3, 0
+                    \\  sc
+                    \\  blr
+                ),
+                .riscv64 => (
+                    \\  li a7, 215
+                    \\  mv a0, %[ptr]
+                    \\  mv a1, %[len]
+                    \\  ecall
+                    \\  li a7, 93
+                    \\  mv a0, zero
+                    \\  ecall
+                ),
+                else => |cpu_arch| {
+                    @compileLog("Unsupported linux arch ", cpu_arch);
+                },
+            };
+
+            asm volatile (
+                unmap_and_exit
+                :
+                : [ptr] "r" (@ptrToInt(self.mapped.ptr)),
+                  [len] "r" (self.mapped.len)
+                : "memory"
+            );
+
+            unreachable;
+        }
     };
 
     fn spawn(config: SpawnConfig, comptime f: anytype, args: anytype) !Impl {
@@ -513,10 +608,7 @@ const LinuxThreadImpl = struct {
                 defer switch (self.thread.completion.swap(.completed, .SeqCst)) {
                     .running => {},
                     .completed => unreachable,
-                    .detached => {
-                        const memory = self.thread.mapped;
-                        __unmap_and_exit(@ptrToInt(memory.ptr), memory.len);
-                    },
+                    .detached => self.thread.freeAndExit(),
                 };
                 return callFn(f, self.fn_args);
             }
@@ -662,108 +754,6 @@ const LinuxThreadImpl = struct {
                 os.EAGAIN => continue,
                 else => unreachable,
             }
-        }
-    }
-
-    // Calls `munmap(ptr, len)` then `exit(1)` without touching the stack (which lives in `ptr`).
-    // Ported over from musl libc's pthread detached implementation (`__unmapself`).
-    extern fn __unmap_and_exit(ptr: usize, len: usize) callconv(.C) noreturn;
-    comptime {
-        if (target.os.tag == .linux) {
-            asm (switch (target.cpu.arch) {
-                    .i386 => (
-                        \\.text
-                        \\.global __unmap_and_exit
-                        \\.type __unmap_and_exit, @function
-                        \\__unmap_and_exit:
-                        \\  movl $91, %eax
-                        \\  movl 4(%esp), %ebx
-                        \\  movl 8(%esp), %ecx
-                        \\  int $128
-                        \\  xorl %ebx, %ebx
-                        \\  movl $1, %eax
-                        \\  int $128
-                    ),
-                    .x86_64 => (
-                        \\.text
-                        \\.global __unmap_and_exit
-                        \\.type __unmap_and_exit, @function
-                        \\__unmap_and_exit:
-                        \\  movl $11, %eax
-                        \\  syscall
-                        \\  xor %rdi, %rdi
-                        \\  movl $60, %eax
-                        \\  syscall
-                    ),
-                    .arm, .armeb, .thumb, .thumbeb => (
-                        \\.syntax unified
-                        \\.text
-                        \\.global __unmap_and_exit
-                        \\.type   __unmap_and_exit, %function
-                        \\__unmap_and_exit:
-                        \\  mov r7, #91
-                        \\  svc 0
-                        \\  mov r7, #1
-                        \\  svc 0
-                    ),
-                    .aarch64, .aarch64_be, .aarch64_32 => (
-                        \\.global __unmap_and_exit
-                        \\.type __unmap_and_exit, %function
-                        \\__unmap_and_exit:
-                        \\  mov x8, #215
-                        \\  svc 0
-                        \\  mov x8, #93
-                        \\  svc 0
-                    ),
-                    .mips,
-                    .mipsel,
-                    => (
-                        \\.set noreorder
-                        \\.global __unmap_and_exit
-                        \\.type   __unmap_and_exit,@function
-                        \\__unmap_and_exit:
-                        \\    move $sp, $25
-                        \\    li $2, 4091
-                        \\    syscall
-                        \\    li $4, 0
-                        \\    li $2, 4001
-                        \\    syscall
-                    ),
-                    .mips64, .mips64el => (
-                        \\.set noreorder
-                        \\.global __unmap_and_exit
-                        \\.type   __unmap_and_exit, @function
-                        \\__unmap_and_exit:
-                        \\  li $2, 4091
-                        \\  syscall
-                        \\  li $4, 0
-                        \\  li $2, 4001
-                        \\  syscall
-                    ),
-                    .powerpc, .powerpc64, .powerpc64le => (
-                        \\.text
-                        \\.global __unmap_and_exit
-                        \\.type __unmap_and_exit, %function
-                        \\__unmap_and_exit:
-                        \\  li 0, 91
-                        \\  sc
-                        \\  li 0, 1
-                        \\  sc
-                        \\  blr
-                    ),
-                    .riscv64 => (
-                        \\.global __unmap_and_exit
-                        \\.type __unmap_and_exit, %function
-                        \\__unmap_and_exit:
-                        \\    li a7, 215
-                        \\    ecall
-                        \\    li a7, 93
-                        \\    ecall
-                    ),
-                    else => |cpu_arch| {
-                        @compileLog("linux arch", cpu_arch, "is not supported");
-                    },
-                });
         }
     }
 };
