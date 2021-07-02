@@ -551,8 +551,9 @@ pub const Tokenizer = struct {
                     },
                     else => {
                         result.tag = .invalid;
+                        result.loc.end = self.index;
                         self.index += 1;
-                        break;
+                        return result;
                     },
                 },
 

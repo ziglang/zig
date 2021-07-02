@@ -2480,11 +2480,12 @@ pub fn astGenFile(mod: *Module, file: *Scope.File) !void {
         };
         if (token_tags[parse_err.token] == .invalid) {
             const bad_off = @intCast(u32, file.tree.tokenSlice(parse_err.token).len);
+            const byte_abs = token_starts[parse_err.token] + bad_off;
             try mod.errNoteNonLazy(.{
                 .file_scope = file,
                 .parent_decl_node = 0,
-                .lazy = .{ .byte_abs = token_starts[parse_err.token] + bad_off },
-            }, err_msg, "invalid byte here", .{});
+                .lazy = .{ .byte_abs = byte_abs },
+            }, err_msg, "invalid byte: '{'}'", .{ std.zig.fmtEscapes(source[byte_abs..][0..1]) });
         }
 
         {

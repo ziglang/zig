@@ -233,7 +233,7 @@ pub fn mainArgs(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
     } else if (mem.eql(u8, cmd, "build")) {
         return cmdBuild(gpa, arena, cmd_args);
     } else if (mem.eql(u8, cmd, "fmt")) {
-        return cmdFmt(gpa, cmd_args);
+        return cmdFmt(gpa, arena, cmd_args);
     } else if (mem.eql(u8, cmd, "libc")) {
         return cmdLibC(gpa, cmd_args);
     } else if (mem.eql(u8, cmd, "init-exe")) {
@@ -3039,12 +3039,13 @@ const Fmt = struct {
     check_ast: bool,
     color: Color,
     gpa: *Allocator,
+    arena: *Allocator,
     out_buffer: std.ArrayList(u8),
 
     const SeenMap = std.AutoHashMap(fs.File.INode, void);
 };
 
-pub fn cmdFmt(gpa: *Allocator, args: []const []const u8) !void {
+pub fn cmdFmt(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !void {
     var color: Color = .auto;
     var stdin_flag: bool = false;
     var check_flag: bool = false;
@@ -3102,7 +3103,7 @@ pub fn cmdFmt(gpa: *Allocator, args: []const []const u8) !void {
         defer tree.deinit(gpa);
 
         for (tree.errors) |parse_error| {
-            try printErrMsgToStdErr(gpa, parse_error, tree, "<stdin>", color);
+            try printErrMsgToStdErr(gpa, arena, parse_error, tree, "<stdin>", color);
         }
         var has_ast_error = false;
         if (check_ast_flag) {
@@ -3170,6 +3171,7 @@ pub fn cmdFmt(gpa: *Allocator, args: []const []const u8) !void {
 
     var fmt = Fmt{
         .gpa = gpa,
+        .arena = arena,
         .seen = Fmt.SeenMap.init(gpa),
         .any_error = false,
         .check_ast = check_ast_flag,
@@ -3293,7 +3295,7 @@ fn fmtPathFile(
     defer tree.deinit(fmt.gpa);
 
     for (tree.errors) |parse_error| {
-        try printErrMsgToStdErr(fmt.gpa, parse_error, tree, file_path, fmt.color);
+        try printErrMsgToStdErr(fmt.gpa, fmt.arena, parse_error, tree, file_path, fmt.color);
     }
     if (tree.errors.len != 0) {
         fmt.any_error = true;
@@ -3374,6 +3376,7 @@ fn fmtPathFile(
 
 fn printErrMsgToStdErr(
     gpa: *mem.Allocator,
+    arena: *mem.Allocator,
     parse_error: ast.Error,
     tree: ast.Tree,
     path: []const u8,
@@ -3395,11 +3398,14 @@ fn printErrMsgToStdErr(
 
     if (token_tags[parse_error.token] == .invalid) {
         const bad_off = @intCast(u32, tree.tokenSlice(parse_error.token).len);
+        const byte_offset = @intCast(u32, start_loc.line_start) + bad_off;
         notes_buffer[notes_len] = .{
             .src = .{
                 .src_path = path,
-                .msg = "invalid byte here",
-                .byte_offset = @intCast(u32, start_loc.line_start) + bad_off,
+                .msg = try std.fmt.allocPrint(arena, "invalid byte: '{'}'", .{
+                    std.zig.fmtEscapes(tree.source[byte_offset..][0..1]),
+                }),
+                .byte_offset = byte_offset,
                 .line = @intCast(u32, start_loc.line),
                 .column = @intCast(u32, start_loc.column) + bad_off,
                 .source_line = source_line,
@@ -3943,7 +3949,7 @@ pub fn cmdAstCheck(
     defer file.tree.deinit(gpa);
 
     for (file.tree.errors) |parse_error| {
-        try printErrMsgToStdErr(gpa, parse_error, file.tree, file.sub_file_path, color);
+        try printErrMsgToStdErr(gpa, arena, parse_error, file.tree, file.sub_file_path, color);
     }
     if (file.tree.errors.len != 0) {
         process.exit(1);
@@ -4069,7 +4075,7 @@ pub fn cmdChangelist(
     defer file.tree.deinit(gpa);
 
     for (file.tree.errors) |parse_error| {
-        try printErrMsgToStdErr(gpa, parse_error, file.tree, old_source_file, .auto);
+        try printErrMsgToStdErr(gpa, arena, parse_error, file.tree, old_source_file, .auto);
     }
     if (file.tree.errors.len != 0) {
         process.exit(1);
@@ -4108,7 +4114,7 @@ pub fn cmdChangelist(
     defer new_tree.deinit(gpa);
 
     for (new_tree.errors) |parse_error| {
-        try printErrMsgToStdErr(gpa, parse_error, new_tree, new_source_file, .auto);
+        try printErrMsgToStdErr(gpa, arena, parse_error, new_tree, new_source_file, .auto);
     }
     if (new_tree.errors.len != 0) {
         process.exit(1);

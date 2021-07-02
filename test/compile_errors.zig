@@ -1507,7 +1507,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
     , &[_][]const u8{
         "tmp.zig:2:21: error: expected expression, found 'invalid'",
-        "tmp.zig:2:28: note: invalid byte here",
+        "tmp.zig:2:28: note: invalid byte: 'a'",
     });
 
     ctx.objErrStage1("invalid exponent in float literal - 2",
@@ -1517,7 +1517,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
     , &[_][]const u8{
         "tmp.zig:2:21: error: expected expression, found 'invalid'",
-        "tmp.zig:2:29: note: invalid byte here",
+        "tmp.zig:2:29: note: invalid byte: 'F'",
     });
 
     ctx.objErrStage1("invalid underscore placement in float literal - 1",
@@ -1527,7 +1527,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
     , &[_][]const u8{
         "tmp.zig:2:21: error: expected expression, found 'invalid'",
-        "tmp.zig:2:23: note: invalid byte here",
+        "tmp.zig:2:23: note: invalid byte: '_'",
     });
 
     ctx.objErrStage1("invalid underscore placement in float literal - 2",
@@ -1537,7 +1537,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
     , &[_][]const u8{
         "tmp.zig:2:21: error: expected expression, found 'invalid'",
-        "tmp.zig:2:23: note: invalid byte here",
+        "tmp.zig:2:23: note: invalid byte: '.'",
     });
 
     ctx.objErrStage1("invalid underscore placement in float literal - 3",
@@ -1547,7 +1547,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
     , &[_][]const u8{
         "tmp.zig:2:21: error: expected expression, found 'invalid'",
-        "tmp.zig:2:25: note: invalid byte here",
+        "tmp.zig:2:25: note: invalid byte: ';'",
     });
 
     ctx.objErrStage1("invalid underscore placement in float literal - 4",
@@ -1557,7 +1557,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
     , &[_][]const u8{
         "tmp.zig:2:21: error: expected expression, found 'invalid'",
-        "tmp.zig:2:25: note: invalid byte here",
+        "tmp.zig:2:25: note: invalid byte: '_'",
     });
 
     ctx.objErrStage1("invalid underscore placement in float literal - 5",
@@ -1567,7 +1567,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
     , &[_][]const u8{
         "tmp.zig:2:21: error: expected expression, found 'invalid'",
-        "tmp.zig:2:26: note: invalid byte here",
+        "tmp.zig:2:26: note: invalid byte: '_'",
     });
 
     ctx.objErrStage1("invalid underscore placement in float literal - 6",
@@ -1577,7 +1577,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
     , &[_][]const u8{
         "tmp.zig:2:21: error: expected expression, found 'invalid'",
-        "tmp.zig:2:26: note: invalid byte here",
+        "tmp.zig:2:26: note: invalid byte: '_'",
     });
 
     ctx.objErrStage1("invalid underscore placement in float literal - 7",
@@ -1587,7 +1587,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
     , &[_][]const u8{
         "tmp.zig:2:21: error: expected expression, found 'invalid'",
-        "tmp.zig:2:28: note: invalid byte here",
+        "tmp.zig:2:28: note: invalid byte: ';'",
     });
 
     ctx.objErrStage1("invalid underscore placement in float literal - 9",
@@ -1597,7 +1597,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
     , &[_][]const u8{
         "tmp.zig:2:21: error: expected expression, found 'invalid'",
-        "tmp.zig:2:23: note: invalid byte here",
+        "tmp.zig:2:23: note: invalid byte: '_'",
     });
 
     ctx.objErrStage1("invalid underscore placement in float literal - 10",
@@ -1607,7 +1607,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
     , &[_][]const u8{
         "tmp.zig:2:21: error: expected expression, found 'invalid'",
-        "tmp.zig:2:25: note: invalid byte here",
+        "tmp.zig:2:25: note: invalid byte: '_'",
     });
 
     ctx.objErrStage1("invalid underscore placement in float literal - 11",
@@ -1617,7 +1617,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
     , &[_][]const u8{
         "tmp.zig:2:21: error: expected expression, found 'invalid'",
-        "tmp.zig:2:28: note: invalid byte here",
+        "tmp.zig:2:28: note: invalid byte: '_'",
     });
 
     ctx.objErrStage1("invalid underscore placement in float literal - 12",
@@ -1627,7 +1627,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
     , &[_][]const u8{
         "tmp.zig:2:21: error: expected expression, found 'invalid'",
-        "tmp.zig:2:23: note: invalid byte here",
+        "tmp.zig:2:23: note: invalid byte: 'x'",
     });
 
     ctx.objErrStage1("invalid underscore placement in float literal - 13",
@@ -1637,7 +1637,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
     , &[_][]const u8{
         "tmp.zig:2:21: error: expected expression, found 'invalid'",
-        "tmp.zig:2:23: note: invalid byte here",
+        "tmp.zig:2:23: note: invalid byte: '_'",
     });
 
     ctx.objErrStage1("invalid underscore placement in float literal - 14",
@@ -1647,7 +1647,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
     , &[_][]const u8{
         "tmp.zig:2:21: error: expected expression, found 'invalid'",
-        "tmp.zig:2:27: note: invalid byte here",
+        "tmp.zig:2:27: note: invalid byte: 'p'",
     });
 
     ctx.objErrStage1("invalid underscore placement in int literal - 1",
@@ -1657,7 +1657,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
     , &[_][]const u8{
         "tmp.zig:2:21: error: expected expression, found 'invalid'",
-        "tmp.zig:2:26: note: invalid byte here",
+        "tmp.zig:2:26: note: invalid byte: ';'",
     });
 
     ctx.objErrStage1("invalid underscore placement in int literal - 2",
@@ -1667,7 +1667,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
     , &[_][]const u8{
         "tmp.zig:2:21: error: expected expression, found 'invalid'",
-        "tmp.zig:2:28: note: invalid byte here",
+        "tmp.zig:2:28: note: invalid byte: ';'",
     });
 
     ctx.objErrStage1("invalid underscore placement in int literal - 3",
@@ -1677,7 +1677,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
     , &[_][]const u8{
         "tmp.zig:2:21: error: expected expression, found 'invalid'",
-        "tmp.zig:2:28: note: invalid byte here",
+        "tmp.zig:2:28: note: invalid byte: ';'",
     });
 
     ctx.objErrStage1("invalid underscore placement in int literal - 4",
@@ -1687,7 +1687,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
     , &[_][]const u8{
         "tmp.zig:2:21: error: expected expression, found 'invalid'",
-        "tmp.zig:2:28: note: invalid byte here",
+        "tmp.zig:2:28: note: invalid byte: ';'",
     });
 
     ctx.objErrStage1("comptime struct field, no init value",
@@ -4932,10 +4932,10 @@ pub fn addCases(ctx: *TestContext) !void {
     });
 
     ctx.objErrStage1("wrong number of arguments",
-        \\export fn d() void {
-        \\    e(1);
+        \\export fn a() void {
+        \\    c(1);
         \\}
-        \\fn b(a: i32, b: i32, c: i32) void { _ = a; _ = b; _ = c; }
+        \\fn c(d: i32, e: i32, f: i32) void { _ = d; _ = e; _ = f; }
     , &[_][]const u8{
         "tmp.zig:2:6: error: expected 3 argument(s), found 1",
     });
@@ -5669,7 +5669,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\b";
     , &[_][]const u8{
         "tmp.zig:1:13: error: expected expression, found 'invalid'",
-        "tmp.zig:1:15: note: invalid byte here",
+        "tmp.zig:1:15: note: invalid byte: '\\n'",
     });
 
     ctx.objErrStage1("invalid comparison for function pointers",
@@ -7569,7 +7569,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
     , &[_][]const u8{
         "tmp.zig:2:15: error: expected expression, found 'invalid'",
-        "tmp.zig:2:18: note: invalid byte here",
+        "tmp.zig:2:18: note: invalid byte: '1'",
     });
 
     ctx.objErrStage1("invalid empty unicode escape",
@@ -7584,7 +7584,8 @@ pub fn addCases(ctx: *TestContext) !void {
         "fn foo() bool {\r\n" ++
         "    return true;\r\n" ++
         "}\r\n", &[_][]const u8{
-        "tmp.zig:1:1: error: invalid character: '\\xff'",
+        "tmp.zig:1:1: error: expected test, comptime, var decl, or container field, found 'invalid'",
+        "tmp.zig:1:1: note: invalid byte: '\\xff'",
     });
 
     ctx.objErrStage1("non-printable invalid character with escape alternative", "fn foo() bool {\n" ++
@@ -8769,7 +8770,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
     , &[_][]const u8{
         // Ideally this would be column 30 but it's not very important.
-        "tmp.zig:2:28: error: `.*` cannot be followed by `*`. Are you missing a space?",
+        "tmp.zig:2:28: error: '.*' cannot be followed by '*'. Are you missing a space?",
     });
 
     ctx.objErrStage1("Issue #9165: windows tcp server compilation error",

@@ -591,6 +591,7 @@ pub fn addCases(ctx: *TestContext) !void {
         , &.{
             ":3:5: error: enum fields cannot be marked comptime",
             ":8:8: error: enum fields do not have types",
+            ":6:12: note: consider 'union(enum)' here to make it a tagged union",
         });
 
         // @enumToInt, @intToEnum, enum literal coercion, field access syntax, comparison, switch

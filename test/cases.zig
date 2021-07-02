@@ -1039,8 +1039,8 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    var i: u32 = 10;
             \\}
         , &[_][]const u8{
-            ":3:9: error: redeclaration of 'i'",
-            ":2:9: note: previously declared here",
+            ":3:9: error: redeclaration of local variable 'i'",
+            ":2:9: note: previous declaration here",
         });
         case.addError(
             \\var testing: i64 = 10;
@@ -1061,8 +1061,8 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    };
             \\}
         , &[_][]const u8{
-            ":5:19: error: redeclaration of 'c'",
-            ":4:19: note: previously declared here",
+            ":5:19: error: redeclaration of local constant 'c'",
+            ":4:19: note: previous declaration here",
         });
     }
 
@@ -1214,7 +1214,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
         , &[_][]const u8{
             ":2:11: error: redefinition of label 'blk'",
-            ":2:5: note: previous definition is here",
+            ":2:5: note: previous definition here",
         });
     }
 
