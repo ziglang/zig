@@ -614,11 +614,11 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
     , &[_][]const u8{
         "tmp.zig:2:12: error: redefinition of label 'blk'",
-        "tmp.zig:2:5: note: previous definition is here",
+        "tmp.zig:2:5: note: previous definition here",
         "tmp.zig:5:26: error: redefinition of label 'blk'",
-        "tmp.zig:5:5: note: previous definition is here",
+        "tmp.zig:5:5: note: previous definition here",
         "tmp.zig:8:46: error: redefinition of label 'blk'",
-        "tmp.zig:8:5: note: previous definition is here",
+        "tmp.zig:8:5: note: previous definition here",
         "tmp.zig:11:5: error: unused block label",
         "tmp.zig:14:5: error: unused while loop label",
         "tmp.zig:17:5: error: unused for loop label",
@@ -4261,7 +4261,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
     , &[_][]const u8{
         "tmp.zig:5:14: error: duplicate switch value: '@typeInfo(@typeInfo(@TypeOf(foo)).Fn.return_type.?).ErrorUnion.error_set.Foo'",
-        "tmp.zig:3:14: note: other value is here",
+        "tmp.zig:3:14: note: other value here",
     });
 
     ctx.objErrStage1("invalid cast from integral type to enum",
@@ -4932,8 +4932,8 @@ pub fn addCases(ctx: *TestContext) !void {
     });
 
     ctx.objErrStage1("wrong number of arguments",
-        \\export fn a() void {
-        \\    b(1);
+        \\export fn d() void {
+        \\    e(1);
         \\}
         \\fn b(a: i32, b: i32, c: i32) void { _ = a; _ = b; _ = c; }
     , &[_][]const u8{
@@ -4988,7 +4988,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
         \\export fn entry() void { f(1, 2); }
     , &[_][]const u8{
-        "tmp.zig:1:15: error: redeclaration of parameter 'a'",
+        "tmp.zig:1:15: error: redeclaration of function parameter 'a'",
         "tmp.zig:1:6: note: previous declaration here",
     });
 
@@ -4998,7 +4998,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    var a = 0;
         \\}
     , &[_][]const u8{
-        "tmp.zig:3:9: error: redeclaration of local const 'a'",
+        "tmp.zig:3:9: error: redeclaration of local constant 'a'",
         "tmp.zig:2:11: note: previous declaration here",
     });
 
@@ -5008,7 +5008,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
         \\export fn entry() void { f(1); }
     , &[_][]const u8{
-        "tmp.zig:2:11: error: redeclaration of parameter 'a'",
+        "tmp.zig:2:11: error: redeclaration of function parameter 'a'",
         "tmp.zig:1:6: note: previous declaration here",
     });
 
@@ -5295,7 +5295,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = foo;
         \\}
     , &[_][]const u8{
-        "tmp.zig:1:21: error: type '[3]u16' does not support struct initialization syntax",
+        "tmp.zig:1:13: error: initializing array with struct syntax",
     });
 
     ctx.objErrStage1("type variables must be constant",
@@ -5307,23 +5307,28 @@ pub fn addCases(ctx: *TestContext) !void {
         "tmp.zig:1:1: error: variable of type 'type' must be constant",
     });
 
-    ctx.objErrStage1("variables shadowing types",
+    ctx.objErrStage1("parameter shadowing global",
         \\const Foo = struct {};
-        \\const Bar = struct {};
-        \\
-        \\fn f(Foo: i32) void {
-        \\    var Bar : i32 = undefined;
-        \\    _ = Bar;
-        \\}
-        \\
+        \\fn f(Foo: i32) void {}
         \\export fn entry() void {
         \\    f(1234);
         \\}
     , &[_][]const u8{
-        "tmp.zig:4:6: error: redefinition of 'Foo'",
-        "tmp.zig:1:1: note: previous definition is here",
-        "tmp.zig:5:5: error: redefinition of 'Bar'",
-        "tmp.zig:2:1: note: previous definition is here",
+        "tmp.zig:2:6: error: local shadows declaration of 'Foo'",
+        "tmp.zig:1:1: note: declared here",
+    });
+
+    ctx.objErrStage1("local variable shadowing global",
+        \\const Foo = struct {};
+        \\const Bar = struct {};
+        \\
+        \\export fn entry() void {
+        \\    var Bar : i32 = undefined;
+        \\    _ = Bar;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:5:9: error: local shadows declaration of 'Bar'",
+        "tmp.zig:2:1: note: declared here",
     });
 
     ctx.objErrStage1("switch expression - missing enumeration prong",
@@ -5366,7 +5371,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\export fn entry() usize { return @sizeOf(@TypeOf(f)); }
     , &[_][]const u8{
         "tmp.zig:13:15: error: duplicate switch value",
-        "tmp.zig:10:15: note: other value is here",
+        "tmp.zig:10:15: note: other value here",
     });
 
     ctx.objErrStage1("switch expression - duplicate enumeration prong when else present",
@@ -5390,7 +5395,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\export fn entry() usize { return @sizeOf(@TypeOf(f)); }
     , &[_][]const u8{
         "tmp.zig:13:15: error: duplicate switch value",
-        "tmp.zig:10:15: note: other value is here",
+        "tmp.zig:10:15: note: other value here",
     });
 
     ctx.objErrStage1("switch expression - multiple else prongs",
@@ -5431,7 +5436,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\export fn entry() usize { return @sizeOf(@TypeOf(foo)); }
     , &[_][]const u8{
         "tmp.zig:6:9: error: duplicate switch value",
-        "tmp.zig:5:14: note: previous value is here",
+        "tmp.zig:5:14: note: previous value here",
     });
 
     ctx.objErrStage1("switch expression - duplicate type",
@@ -5447,7 +5452,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\export fn entry() usize { return @sizeOf(@TypeOf(foo(u32, 0))); }
     , &[_][]const u8{
         "tmp.zig:6:9: error: duplicate switch value",
-        "tmp.zig:4:9: note: previous value is here",
+        "tmp.zig:4:9: note: previous value here",
     });
 
     ctx.objErrStage1("switch expression - duplicate type (struct alias)",
@@ -5467,7 +5472,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\export fn entry() usize { return @sizeOf(@TypeOf(foo(u32, 0))); }
     , &[_][]const u8{
         "tmp.zig:10:9: error: duplicate switch value",
-        "tmp.zig:8:9: note: previous value is here",
+        "tmp.zig:8:9: note: previous value here",
     });
 
     ctx.objErrStage1("switch expression - switch on pointer type with no else",
@@ -5662,10 +5667,9 @@ pub fn addCases(ctx: *TestContext) !void {
     ctx.objErrStage1("normal string with newline",
         \\const foo = "a
         \\b";
-        \\
-        \\export fn entry() usize { return @sizeOf(@TypeOf(foo)); }
     , &[_][]const u8{
-        "tmp.zig:1:15: error: newline not allowed in string literal",
+        "tmp.zig:1:13: error: expected expression, found 'invalid'",
+        "tmp.zig:1:15: note: invalid byte here",
     });
 
     ctx.objErrStage1("invalid comparison for function pointers",
@@ -6595,7 +6599,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\
         \\export fn entry() usize { return @sizeOf(@TypeOf(testTrickyDefer)); }
     , &[_][]const u8{
-        "tmp.zig:4:11: error: 'try' is not allowed inside defer expression",
+        "tmp.zig:4:11: error: 'try' not allowed inside defer expression",
     });
 
     ctx.objErrStage1("assign too big number to u16",
@@ -6976,7 +6980,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
     , &[_][]const u8{
         "tmp.zig:9:17: error: redefinition of 'Self'",
-        "tmp.zig:5:9: note: previous definition is here",
+        "tmp.zig:5:9: note: previous definition here",
     });
 
     ctx.objErrStage1("while expected bool, got optional",
@@ -7692,24 +7696,18 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = x;
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:14: error: untagged union field assignment",
-        "tmp.zig:1:24: note: consider 'union(enum)' here",
+        "tmp.zig:1:24: error: explicitly valued tagged union missing integer tag type",
+        "tmp.zig:2:14: note: tag value specified here",
     });
 
     ctx.objErrStage1("enum with 0 fields",
         \\const Foo = enum {};
-        \\export fn entry() usize {
-        \\    return @sizeOf(Foo);
-        \\}
     , &[_][]const u8{
-        "tmp.zig:1:13: error: enums must have 1 or more fields",
+        "tmp.zig:1:13: error: enum declarations must have at least one tag",
     });
 
     ctx.objErrStage1("union with 0 fields",
         \\const Foo = union {};
-        \\export fn entry() usize {
-        \\    return @sizeOf(Foo);
-        \\}
     , &[_][]const u8{
         "tmp.zig:1:13: error: union declarations must have at least one tag",
     });
@@ -7817,13 +7815,9 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    B,
         \\    C,
         \\};
-        \\export fn entry() void {
-        \\    var b = Letter.B;
-        \\    _ = b;
-        \\}
     , &[_][]const u8{
-        "tmp.zig:2:8: error: structs and unions, not enums, support field types",
-        "tmp.zig:1:16: note: consider 'union(enum)' here",
+        "tmp.zig:2:8: error: enum fields do not have types",
+        "tmp.zig:1:16: note: consider 'union(enum)' here to make it a tagged union",
     });
 
     ctx.objErrStage1("struct field missing type",
@@ -8231,9 +8225,9 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
     , &[_][]const u8{
         "tmp.zig:3:28: error: parameter of opaque type 'FooType' not allowed",
-        "tmp.zig:7:28: error: parameter of type '(null)' not allowed",
-        "tmp.zig:10:11: error: parameter of opaque type 'FooType' not allowed",
-        "tmp.zig:15:11: error: parameter of type '(null)' not allowed",
+        "tmp.zig:8:28: error: parameter of type '(null)' not allowed",
+        "tmp.zig:12:11: error: parameter of opaque type 'FooType' not allowed",
+        "tmp.zig:17:11: error: parameter of type '(null)' not allowed",
     });
 
     ctx.objErrStage1( // fixed bug #2032
@@ -8268,8 +8262,8 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
     , &[_][]const u8{
         "tmp.zig:3:19: error: use of undefined value here causes undefined behavior",
-        "tmp.zig:8:23: error: use of undefined value here causes undefined behavior",
-        "tmp.zig:14:23: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:9:23: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:16:23: error: use of undefined value here causes undefined behavior",
     });
 
     ctx.objErrStage1("issue #3818: bitcast from parray/slice to u16",
@@ -8285,8 +8279,8 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
     , &[_][]const u8{
         "tmp.zig:3:42: error: unable to @bitCast from pointer type '*[2]u8'",
-        "tmp.zig:7:32: error: destination type 'u16' has size 2 but source type '[]const u8' has size 16",
-        "tmp.zig:7:37: note: referenced here",
+        "tmp.zig:8:32: error: destination type 'u16' has size 2 but source type '[]const u8' has size 16",
+        "tmp.zig:8:37: note: referenced here",
     });
 
     // issue #7810
@@ -8361,12 +8355,12 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
     , &[_][]const u8{
         ":4:29: error: slice-sentinel is out of bounds",
-        ":11:29: error: slice-sentinel is out of bounds",
-        ":18:29: error: slice-sentinel is out of bounds",
-        ":25:29: error: slice-sentinel is out of bounds",
-        ":32:29: error: slice-sentinel is out of bounds",
-        ":39:29: error: slice-sentinel is out of bounds",
-        ":46:29: error: slice-sentinel is out of bounds",
+        ":12:29: error: slice-sentinel is out of bounds",
+        ":20:29: error: slice-sentinel is out of bounds",
+        ":28:29: error: slice-sentinel is out of bounds",
+        ":36:29: error: slice-sentinel is out of bounds",
+        ":44:29: error: slice-sentinel is out of bounds",
+        ":52:29: error: slice-sentinel is out of bounds",
     });
 
     ctx.objErrStage1("comptime slice-sentinel is out of bounds (terminated)",
@@ -8427,12 +8421,12 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
     , &[_][]const u8{
         ":4:29: error: out of bounds slice",
-        ":11:29: error: out of bounds slice",
-        ":18:29: error: out of bounds slice",
-        ":25:29: error: out of bounds slice",
-        ":32:29: error: out of bounds slice",
-        ":39:29: error: out of bounds slice",
-        ":46:29: error: out of bounds slice",
+        ":12:29: error: out of bounds slice",
+        ":20:29: error: out of bounds slice",
+        ":28:29: error: out of bounds slice",
+        ":36:29: error: out of bounds slice",
+        ":44:29: error: out of bounds slice",
+        ":52:29: error: out of bounds slice",
     });
 
     ctx.objErrStage1("comptime slice-sentinel does not match memory at target index (unterminated)",
@@ -8493,12 +8487,12 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
     , &[_][]const u8{
         ":4:29: error: slice-sentinel does not match memory at target index",
-        ":11:29: error: slice-sentinel does not match memory at target index",
-        ":18:29: error: slice-sentinel does not match memory at target index",
-        ":25:29: error: slice-sentinel does not match memory at target index",
-        ":32:29: error: slice-sentinel does not match memory at target index",
-        ":39:29: error: slice-sentinel does not match memory at target index",
-        ":46:29: error: slice-sentinel does not match memory at target index",
+        ":12:29: error: slice-sentinel does not match memory at target index",
+        ":20:29: error: slice-sentinel does not match memory at target index",
+        ":28:29: error: slice-sentinel does not match memory at target index",
+        ":36:29: error: slice-sentinel does not match memory at target index",
+        ":44:29: error: slice-sentinel does not match memory at target index",
+        ":52:29: error: slice-sentinel does not match memory at target index",
     });
 
     ctx.objErrStage1("comptime slice-sentinel does not match memory at target index (terminated)",
@@ -8559,12 +8553,12 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
     , &[_][]const u8{
         ":4:29: error: slice-sentinel does not match memory at target index",
-        ":11:29: error: slice-sentinel does not match memory at target index",
-        ":18:29: error: slice-sentinel does not match memory at target index",
-        ":25:29: error: slice-sentinel does not match memory at target index",
-        ":32:29: error: slice-sentinel does not match memory at target index",
-        ":39:29: error: slice-sentinel does not match memory at target index",
-        ":46:29: error: slice-sentinel does not match memory at target index",
+        ":12:29: error: slice-sentinel does not match memory at target index",
+        ":20:29: error: slice-sentinel does not match memory at target index",
+        ":28:29: error: slice-sentinel does not match memory at target index",
+        ":36:29: error: slice-sentinel does not match memory at target index",
+        ":44:29: error: slice-sentinel does not match memory at target index",
+        ":52:29: error: slice-sentinel does not match memory at target index",
     });
 
     ctx.objErrStage1("comptime slice-sentinel does not match target-sentinel",
@@ -8625,12 +8619,12 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
     , &[_][]const u8{
         ":4:29: error: slice-sentinel does not match target-sentinel",
-        ":11:29: error: slice-sentinel does not match target-sentinel",
-        ":18:29: error: slice-sentinel does not match target-sentinel",
-        ":25:29: error: slice-sentinel does not match target-sentinel",
-        ":32:29: error: slice-sentinel does not match target-sentinel",
-        ":39:29: error: slice-sentinel does not match target-sentinel",
-        ":46:29: error: slice-sentinel does not match target-sentinel",
+        ":12:29: error: slice-sentinel does not match target-sentinel",
+        ":20:29: error: slice-sentinel does not match target-sentinel",
+        ":28:29: error: slice-sentinel does not match target-sentinel",
+        ":36:29: error: slice-sentinel does not match target-sentinel",
+        ":44:29: error: slice-sentinel does not match target-sentinel",
+        ":52:29: error: slice-sentinel does not match target-sentinel",
     });
 
     ctx.objErrStage1("issue #4207: coerce from non-terminated-slice to terminated-pointer",
@@ -8774,7 +8768,8 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = sequence;
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:30: error: `.*` cannot be followed by `*`. Are you missing a space?",
+        // Ideally this would be column 30 but it's not very important.
+        "tmp.zig:2:28: error: `.*` cannot be followed by `*`. Are you missing a space?",
     });
 
     ctx.objErrStage1("Issue #9165: windows tcp server compilation error",

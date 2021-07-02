@@ -525,7 +525,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
         , &.{
             ":3:21: error: missing struct field: x",
-            ":1:15: note: struct 'test_case.Point' declared here",
+            ":1:15: note: struct 'tmp.Point' declared here",
         });
         case.addError(
             \\const Point = struct { x: i32, y: i32 };
@@ -538,7 +538,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    return p.y - p.x - p.x;
             \\}
         , &.{
-            ":6:10: error: no field named 'z' in struct 'test_case.Point'",
+            ":6:10: error: no field named 'z' in struct 'tmp.Point'",
             ":1:15: note: struct declared here",
         });
         case.addCompareOutput(
@@ -716,7 +716,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    _ = @intToEnum(E, 3);
             \\}
         , &.{
-            ":3:9: error: enum 'test_case.E' has no tag with value 3",
+            ":3:9: error: enum 'tmp.E' has no tag with value 3",
             ":1:11: note: enum declared here",
         });
 
@@ -732,7 +732,7 @@ pub fn addCases(ctx: *TestContext) !void {
         , &.{
             ":4:5: error: switch must handle all possibilities",
             ":4:5: note: unhandled enumeration value: 'b'",
-            ":1:11: note: enum 'test_case.E' declared here",
+            ":1:11: note: enum 'tmp.E' declared here",
         });
 
         case.addError(
@@ -787,7 +787,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    _ = E.d;
             \\}
         , &.{
-            ":3:10: error: enum 'test_case.E' has no member named 'd'",
+            ":3:10: error: enum 'tmp.E' has no member named 'd'",
             ":1:11: note: enum declared here",
         });
 
@@ -798,7 +798,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    _ = x;
             \\}
         , &.{
-            ":3:17: error: enum 'test_case.E' has no field named 'd'",
+            ":3:17: error: enum 'tmp.E' has no field named 'd'",
             ":1:11: note: enum declared here",
         });
     }

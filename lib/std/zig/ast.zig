@@ -135,6 +135,8 @@ pub const Tree = struct {
         const token_tags = tree.tokens.items(.tag);
         switch (parse_error.tag) {
             .asterisk_after_ptr_deref => {
+                // Note that the token will point at the `.*` but ideally the source
+                // location would point to the `*` after the `.*`.
                 return stream.writeAll("'.*' cannot be followed by '*'. Are you missing a space?");
             },
             .decl_between_fields => {

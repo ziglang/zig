@@ -3169,7 +3169,7 @@ ZigVar *create_local_var(CodeGen *codegen, AstNode *node, Scope *parent_scope,
                 if (existing_var->var_type == nullptr || !type_is_invalid(existing_var->var_type)) {
                     ErrorMsg *msg = add_node_error(codegen, node,
                             buf_sprintf("redeclaration of variable '%s'", buf_ptr(name)));
-                    add_error_note(codegen, msg, existing_var->decl_node, buf_sprintf("previous declaration is here"));
+                    add_error_note(codegen, msg, existing_var->decl_node, buf_sprintf("previous declaration here"));
                 }
                 variable_entry->var_type = codegen->builtin_types.entry_invalid;
             } else {
@@ -3191,7 +3191,7 @@ ZigVar *create_local_var(CodeGen *codegen, AstNode *node, Scope *parent_scope,
                         if (want_err_msg) {
                             ErrorMsg *msg = add_node_error(codegen, node,
                                     buf_sprintf("redefinition of '%s'", buf_ptr(name)));
-                            add_error_note(codegen, msg, tld->source_node, buf_sprintf("previous definition is here"));
+                            add_error_note(codegen, msg, tld->source_node, buf_sprintf("previous definition here"));
                         }
                         variable_entry->var_type = codegen->builtin_types.entry_invalid;
                     }
@@ -3247,7 +3247,7 @@ static bool is_duplicate_label(CodeGen *g, Scope *scope, AstNode *node, Buf *nam
             Buf *this_block_name = scope->id == ScopeIdBlock ? ((ScopeBlock *)scope)->name : ((ScopeLoop *)scope)->name;
             if (this_block_name != nullptr && buf_eql_buf(name, this_block_name)) {
                 ErrorMsg *msg = add_node_error(g, node, buf_sprintf("redeclaration of label '%s'", buf_ptr(name)));
-                add_error_note(g, msg, scope->source_node, buf_sprintf("previous declaration is here"));
+                add_error_note(g, msg, scope->source_node, buf_sprintf("previous declaration here"));
                 return true;
             }
         }
@@ -7026,7 +7026,7 @@ static IrInstSrc *astgen_switch_expr(Stage1AstGen *ag, Scope *scope, AstNode *no
                     ErrorMsg *msg = add_node_error(ag->codegen, prong_node,
                             buf_sprintf("multiple else prongs in switch expression"));
                     add_error_note(ag->codegen, msg, else_prong,
-                            buf_sprintf("previous else prong is here"));
+                            buf_sprintf("previous else prong here"));
                     return ag->codegen->invalid_inst_src;
                 }
                 else_prong = prong_node;
@@ -7037,7 +7037,7 @@ static IrInstSrc *astgen_switch_expr(Stage1AstGen *ag, Scope *scope, AstNode *no
                     ErrorMsg *msg = add_node_error(ag->codegen, prong_node,
                             buf_sprintf("multiple '_' prongs in switch expression"));
                     add_error_note(ag->codegen, msg, underscore_prong,
-                            buf_sprintf("previous '_' prong is here"));
+                            buf_sprintf("previous '_' prong here"));
                     return ag->codegen->invalid_inst_src;
                 }
                 underscore_prong = prong_node;
@@ -7049,10 +7049,10 @@ static IrInstSrc *astgen_switch_expr(Stage1AstGen *ag, Scope *scope, AstNode *no
                         buf_sprintf("else and '_' prong in switch expression"));
                 if (underscore_prong == prong_node)
                     add_error_note(ag->codegen, msg, else_prong,
-                            buf_sprintf("else prong is here"));
+                            buf_sprintf("else prong here"));
                 else
                     add_error_note(ag->codegen, msg, underscore_prong,
-                            buf_sprintf("'_' prong is here"));
+                            buf_sprintf("'_' prong here"));
                 return ag->codegen->invalid_inst_src;
             }
             ResultLocPeer *this_peer_result_loc = create_peer_result(peer_parent);

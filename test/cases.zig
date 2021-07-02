@@ -25,7 +25,7 @@ pub fn addCases(ctx: *TestContext) !void {
         var case = ctx.exe("hello world with updates", linux_x64);
 
         case.addError("", &[_][]const u8{
-            ":93:9: error: struct 'test_case.test_case' has no member named 'main'",
+            ":93:9: error: struct 'tmp.tmp' has no member named 'main'",
         });
 
         // Incorrect return type
@@ -965,7 +965,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\	defer return a();
         \\}
     , &[_][]const u8{
-        ":7:8: error: try is not allowed inside defer expression",
+        ":7:8: error: 'try' not allowed inside defer expression",
         ":10:8: error: cannot return from defer expression",
     });
 

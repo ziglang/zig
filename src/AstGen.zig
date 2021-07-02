@@ -1704,7 +1704,7 @@ fn checkLabelRedefinition(astgen: *AstGen, parent_scope: *Scope, label: ast.Toke
                         }, &[_]u32{
                             try astgen.errNoteTok(
                                 prev_label.token,
-                                "previous definition is here",
+                                "previous definition here",
                                 .{},
                             ),
                         });
@@ -4002,7 +4002,18 @@ fn containerDecl(
                         return astgen.failTok(comptime_token, "enum fields cannot be marked comptime", .{});
                     }
                     if (member.ast.type_expr != 0) {
-                        return astgen.failNode(member.ast.type_expr, "enum fields do not have types", .{});
+                        return astgen.failNodeNotes(
+                            member.ast.type_expr,
+                            "enum fields do not have types",
+                            .{},
+                            &[_]u32{
+                                try astgen.errNoteNode(
+                                    node,
+                                    "consider 'union(enum)' here to make it a tagged union",
+                                    .{},
+                                ),
+                            },
+                        );
                     }
                     // Alignment expressions in enums are caught by the parser.
                     assert(member.ast.align_expr == 0);
@@ -4520,7 +4531,7 @@ fn tryExpr(
         return astgen.failNode(node, "invalid 'try' outside function scope", .{});
     };
 
-    if (parent_gz.in_defer) return astgen.failNode(node, "'try' is not allowed inside defer expression", .{});
+    if (parent_gz.in_defer) return astgen.failNode(node, "'try' not allowed inside defer expression", .{});
 
     var block_scope = parent_gz.makeSubBlock(scope);
     block_scope.setBreakResultLoc(rl);
@@ -5526,7 +5537,7 @@ fn switchExpr(
                     &[_]u32{
                         try astgen.errNoteTok(
                             src,
-                            "previous else prong is here",
+                            "previous else prong here",
                             .{},
                         ),
                     },
@@ -5539,12 +5550,12 @@ fn switchExpr(
                     &[_]u32{
                         try astgen.errNoteTok(
                             case_src,
-                            "else prong is here",
+                            "else prong here",
                             .{},
                         ),
                         try astgen.errNoteTok(
                             some_underscore,
-                            "'_' prong is here",
+                            "'_' prong here",
                             .{},
                         ),
                     },
@@ -5567,7 +5578,7 @@ fn switchExpr(
                     &[_]u32{
                         try astgen.errNoteTok(
                             src,
-                            "previous '_' prong is here",
+                            "previous '_' prong here",
                             .{},
                         ),
                     },
@@ -5580,12 +5591,12 @@ fn switchExpr(
                     &[_]u32{
                         try astgen.errNoteTok(
                             some_else,
-                            "else prong is here",
+                            "else prong here",
                             .{},
                         ),
                         try astgen.errNoteTok(
                             case_src,
-                            "'_' prong is here",
+                            "'_' prong here",
                             .{},
                         ),
                     },
@@ -9638,7 +9649,7 @@ fn detectLocalShadowing(
                 }, &[_]u32{
                     try astgen.errNoteTok(
                         local_val.token_src,
-                        "previously declared here",
+                        "previous declaration here",
                         .{},
                     ),
                 });
@@ -9655,7 +9666,7 @@ fn detectLocalShadowing(
                 }, &[_]u32{
                     try astgen.errNoteTok(
                         local_ptr.token_src,
-                        "previously declared here",
+                        "previous declaration here",
                         .{},
                     ),
                 });

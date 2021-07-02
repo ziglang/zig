@@ -708,12 +708,18 @@ pub const Tokenizer = struct {
                             self.checkLiteralCharacter();
                         }
                     },
-                    '\n', '\r' => break, // Look for this error later.
+                    '\n' => {
+                        result.tag = .invalid;
+                        break;
+                    },
                     else => self.checkLiteralCharacter(),
                 },
 
                 .string_literal_backslash => switch (c) {
-                    '\n', '\r' => break, // Look for this error later.
+                    '\n' => {
+                        result.tag = .invalid;
+                        break;
+                    },
                     else => {
                         state = .string_literal;
                     },
