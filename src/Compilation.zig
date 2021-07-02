@@ -1958,7 +1958,7 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
         while (self.astgen_work_queue.readItem()) |file| {
             self.astgen_wait_group.start();
             try self.thread_pool.spawn(workerAstGenFile, .{
-                self, file, &zir_prog_node, &self.astgen_wait_group,
+                self, file, &zir_prog_node, &self.astgen_wait_group, .root,
             });
         }
 
@@ -2310,11 +2310,20 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
     };
 }
 
+const AstGenSrc = union(enum) {
+    root,
+    import: struct {
+        importing_file: *Module.Scope.File,
+        import_inst: Zir.Inst.Index,
+    },
+};
+
 fn workerAstGenFile(
     comp: *Compilation,
     file: *Module.Scope.File,
     prog_node: *std.Progress.Node,
     wg: *WaitGroup,
+    src: AstGenSrc,
 ) void {
     defer wg.finish();
 
@@ -2327,7 +2336,7 @@ fn workerAstGenFile(
         error.AnalysisFail => return,
         else => {
             file.status = .retryable_failure;
-            comp.reportRetryableAstGenError(file, err) catch |oom| switch (oom) {
+            comp.reportRetryableAstGenError(src, file, err) catch |oom| switch (oom) {
                 // Swallowing this error is OK because it's implied to be OOM when
                 // there is a missing `failed_files` error message.
                 error.OutOfMemory => {},
@@ -2344,8 +2353,9 @@ fn workerAstGenFile(
     if (imports_index != 0) {
         const imports_len = file.zir.extra[imports_index];
 
-        for (file.zir.extra[imports_index + 1 ..][0..imports_len]) |str_index| {
-            const import_path = file.zir.nullTerminatedString(str_index);
+        for (file.zir.extra[imports_index + 1 ..][0..imports_len]) |import_inst| {
+            const inst_data = file.zir.instructions.items(.data)[import_inst].str_tok;
+            const import_path = inst_data.get(file.zir);
 
             const import_result = blk: {
                 const lock = comp.mutex.acquire();
@@ -2357,9 +2367,13 @@ fn workerAstGenFile(
                 log.debug("AstGen of {s} has import '{s}'; queuing AstGen of {s}", .{
                     file.sub_file_path, import_path, import_result.file.sub_file_path,
                 });
+                const sub_src: AstGenSrc = .{ .import = .{
+                    .importing_file = file,
+                    .import_inst = import_inst,
+                } };
                 wg.start();
                 comp.thread_pool.spawn(workerAstGenFile, .{
-                    comp, import_result.file, prog_node, wg,
+                    comp, import_result.file, prog_node, wg, sub_src,
                 }) catch {
                     wg.finish();
                     continue;
@@ -2570,6 +2584,7 @@ fn reportRetryableCObjectError(
 
 fn reportRetryableAstGenError(
     comp: *Compilation,
+    src: AstGenSrc,
     file: *Module.Scope.File,
     err: anyerror,
 ) error{OutOfMemory}!void {
@@ -2578,22 +2593,38 @@ fn reportRetryableAstGenError(
 
     file.status = .retryable_failure;
 
-    const src_loc: Module.SrcLoc = .{
-        .file_scope = file,
-        .parent_decl_node = 0,
-        .lazy = .entire_file,
+    const src_loc: Module.SrcLoc = switch (src) {
+        .root => .{
+            .file_scope = file,
+            .parent_decl_node = 0,
+            .lazy = .entire_file,
+        },
+        .import => |info| blk: {
+            const importing_file = info.importing_file;
+            const import_inst = info.import_inst;
+            const inst_data = importing_file.zir.instructions.items(.data)[import_inst].str_tok;
+            break :blk .{
+                .file_scope = importing_file,
+                .parent_decl_node = 0,
+                .lazy = .{ .token_offset = inst_data.src_tok },
+            };
+        },
     };
 
     const err_msg = if (file.pkg.root_src_directory.path) |dir_path|
         try Module.ErrorMsg.create(
             gpa,
             src_loc,
-            "unable to load {s}" ++ std.fs.path.sep_str ++ "{s}: {s}",
-            .{ dir_path, file.sub_file_path, @errorName(err) },
+            "unable to load '{'}" ++ std.fs.path.sep_str ++ "{'}': {s}",
+            .{
+                std.zig.fmtEscapes(dir_path),
+                std.zig.fmtEscapes(file.sub_file_path),
+                @errorName(err),
+            },
         )
     else
-        try Module.ErrorMsg.create(gpa, src_loc, "unable to load {s}: {s}", .{
-            file.sub_file_path, @errorName(err),
+        try Module.ErrorMsg.create(gpa, src_loc, "unable to load '{'}': {s}", .{
+            std.zig.fmtEscapes(file.sub_file_path), @errorName(err),
         });
     errdefer err_msg.destroy(gpa);
 

@@ -2485,7 +2485,7 @@ pub fn astGenFile(mod: *Module, file: *Scope.File) !void {
                 .file_scope = file,
                 .parent_decl_node = 0,
                 .lazy = .{ .byte_abs = byte_abs },
-            }, err_msg, "invalid byte: '{'}'", .{ std.zig.fmtEscapes(source[byte_abs..][0..1]) });
+            }, err_msg, "invalid byte: '{'}'", .{std.zig.fmtEscapes(source[byte_abs..][0..1])});
         }
 
         {

@@ -34,8 +34,9 @@ string_table: std.StringHashMapUnmanaged(u32) = .{},
 compile_errors: ArrayListUnmanaged(Zir.Inst.CompileErrors.Item) = .{},
 /// The topmost block of the current function.
 fn_block: ?*GenZir = null,
-/// String table indexes, keeps track of all `@import` operands.
-imports: std.AutoArrayHashMapUnmanaged(u32, void) = .{},
+/// Maps string table indexes to the first `@import` ZIR instruction
+/// that uses this string as the operand.
+imports: std.AutoArrayHashMapUnmanaged(u32, Zir.Inst.Index) = .{},
 
 const InnerError = error{ OutOfMemory, AnalysisFail };
 
@@ -154,7 +155,7 @@ pub fn generate(gpa: *Allocator, tree: ast.Tree) Allocator.Error!Zir {
         astgen.extra.items[imports_index] = astgen.addExtraAssumeCapacity(Zir.Inst.Imports{
             .imports_len = @intCast(u32, astgen.imports.count()),
         });
-        astgen.extra.appendSliceAssumeCapacity(astgen.imports.keys());
+        astgen.extra.appendSliceAssumeCapacity(astgen.imports.values());
     }
 
     return Zir{
@@ -6863,8 +6864,13 @@ fn builtinCall(
             }
             const str_lit_token = main_tokens[operand_node];
             const str = try astgen.strLitAsString(str_lit_token);
-            try astgen.imports.put(astgen.gpa, str.index, {});
             const result = try gz.addStrTok(.import, str.index, str_lit_token);
+            if (gz.refToIndex(result)) |import_inst_index| {
+                const gop = try astgen.imports.getOrPut(astgen.gpa, str.index);
+                if (!gop.found_existing) {
+                    gop.value_ptr.* = import_inst_index;
+                }
+            }
             return rvalue(gz, rl, result, node);
         },
         .compile_log => {

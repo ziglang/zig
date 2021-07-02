@@ -4976,9 +4976,8 @@ pub fn addCases(ctx: *TestContext) !void {
 
     ctx.objErrStage1("bad import",
         \\const bogus = @import("bogus-does-not-exist.zig",);
-        \\export fn entry() void { bogus.bogo(); }
     , &[_][]const u8{
-        "tmp.zig:1:15: error: unable to find 'bogus-does-not-exist.zig'",
+        "tmp.zig:1:23: error: unable to load '${DIR}bogus-does-not-exist.zig': FileNotFound",
     });
 
     ctx.objErrStage1("undeclared identifier",

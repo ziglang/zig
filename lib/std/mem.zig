@@ -2297,14 +2297,14 @@ pub fn replaceOwned(comptime T: type, allocator: *Allocator, input: []const T, n
 }
 
 test "replaceOwned" {
-    const allocator = std.heap.page_allocator;
+    const gpa = std.testing.allocator;
 
-    const base_replace = replaceOwned(u8, allocator, "All your base are belong to us", "base", "Zig") catch unreachable;
-    defer allocator.free(base_replace);
+    const base_replace = replaceOwned(u8, gpa, "All your base are belong to us", "base", "Zig") catch @panic("out of memory");
+    defer gpa.free(base_replace);
     try testing.expect(eql(u8, base_replace, "All your Zig are belong to us"));
 
-    const zen_replace = replaceOwned(u8, allocator, "Favor reading code over writing code.", " code", "") catch unreachable;
-    defer allocator.free(zen_replace);
+    const zen_replace = replaceOwned(u8, gpa, "Favor reading code over writing code.", " code", "") catch @panic("out of memory");
+    defer gpa.free(zen_replace);
     try testing.expect(eql(u8, zen_replace, "Favor reading over writing."));
 }
 

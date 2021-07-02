@@ -699,6 +699,11 @@ pub const TestContext = struct {
             arena,
             &[_][]const u8{ ".", "zig-cache", "tmp", &tmp.sub_path },
         );
+        const tmp_dir_path_plus_slash = try std.fmt.allocPrint(
+            arena,
+            "{s}" ++ std.fs.path.sep_str,
+            .{tmp_dir_path},
+        );
         const local_cache_path = try std.fs.path.join(
             arena,
             &[_][]const u8{ tmp_dir_path, "zig-cache" },
@@ -773,7 +778,14 @@ pub const TestContext = struct {
                         var i: usize = 0;
                         ok = while (err_iter.next()) |line| : (i += 1) {
                             if (i >= case_error_list.len) break false;
-                            const expected = try std.fmt.allocPrint(arena, "{s}", .{case_error_list[i]});
+                            const expected = try std.mem.replaceOwned(
+                                u8,
+                                arena,
+                                try std.fmt.allocPrint(arena, "{s}", .{case_error_list[i]}),
+                                "${DIR}",
+                                tmp_dir_path_plus_slash,
+                            );
+
                             if (std.mem.indexOf(u8, line, expected) == null) break false;
                             continue;
                         } else true;
@@ -789,7 +801,13 @@ pub const TestContext = struct {
                         }
                     } else {
                         for (case_error_list) |msg| {
-                            const expected = try std.fmt.allocPrint(arena, "{s}", .{msg});
+                            const expected = try std.mem.replaceOwned(
+                                u8,
+                                arena,
+                                try std.fmt.allocPrint(arena, "{s}", .{msg}),
+                                "${DIR}",
+                                tmp_dir_path_plus_slash,
+                            );
                             if (std.mem.indexOf(u8, result.stderr, expected) == null) {
                                 print(
                                     \\
@@ -971,12 +989,20 @@ pub const TestContext = struct {
                                     const src_path_ok = case_msg.src.src_path.len == 0 or
                                         std.mem.eql(u8, case_msg.src.src_path, actual_msg.src_path);
 
+                                    const expected_msg = try std.mem.replaceOwned(
+                                        u8,
+                                        arena,
+                                        case_msg.src.msg,
+                                        "${DIR}",
+                                        tmp_dir_path_plus_slash,
+                                    );
+
                                     if (src_path_ok and
                                         (case_msg.src.line == std.math.maxInt(u32) or
                                         actual_msg.line == case_msg.src.line) and
                                         (case_msg.src.column == std.math.maxInt(u32) or
                                         actual_msg.column == case_msg.src.column) and
-                                        std.mem.eql(u8, case_msg.src.msg, actual_msg.msg) and
+                                        std.mem.eql(u8, expected_msg, actual_msg.msg) and
                                         case_msg.src.kind == .@"error")
                                     {
                                         handled_errors[i] = true;
@@ -1012,11 +1038,19 @@ pub const TestContext = struct {
                                     }
                                     if (ex_tag != .src) continue;
 
+                                    const expected_msg = try std.mem.replaceOwned(
+                                        u8,
+                                        arena,
+                                        case_msg.src.msg,
+                                        "${DIR}",
+                                        tmp_dir_path_plus_slash,
+                                    );
+
                                     if ((case_msg.src.line == std.math.maxInt(u32) or
                                         actual_msg.line == case_msg.src.line) and
                                         (case_msg.src.column == std.math.maxInt(u32) or
                                         actual_msg.column == case_msg.src.column) and
-                                        std.mem.eql(u8, case_msg.src.msg, actual_msg.msg) and
+                                        std.mem.eql(u8, expected_msg, actual_msg.msg) and
                                         case_msg.src.kind == .note)
                                     {
                                         handled_errors[i] = true;

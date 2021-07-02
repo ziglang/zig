@@ -139,9 +139,15 @@ pub fn renderAsTextToFile(
     if (imports_index != 0) {
         try fs_file.writeAll("Imports:\n");
         const imports_len = scope_file.zir.extra[imports_index];
-        for (scope_file.zir.extra[imports_index + 1 ..][0..imports_len]) |str_index| {
-            const import_path = scope_file.zir.nullTerminatedString(str_index);
-            try fs_file.writer().print("  {s}\n", .{import_path});
+        for (scope_file.zir.extra[imports_index + 1 ..][0..imports_len]) |import_inst| {
+            const inst_data = writer.code.instructions.items(.data)[import_inst].str_tok;
+            const src = inst_data.src();
+            const import_path = inst_data.get(writer.code);
+            try fs_file.writer().print("  @import(\"{}\") ", .{
+                std.zig.fmtEscapes(import_path),
+            });
+            try writer.writeSrc(fs_file.writer(), src);
+            try fs_file.writer().writeAll("\n");
         }
     }
 }
@@ -2767,9 +2773,10 @@ pub const Inst = struct {
         };
     };
 
-    /// Trailing: for each `imports_len` there is a string table index.
+    /// Trailing: for each `imports_len` there is an instruction index
+    /// to an import instruction.
     pub const Imports = struct {
-        imports_len: u32,
+        imports_len: Zir.Inst.Index,
     };
 };
 
