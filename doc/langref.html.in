@@ -3025,7 +3025,7 @@ test "@tagName" {
       </p>
       {#code_begin|obj_err|parameter of type 'Foo' not allowed in function with calling convention 'C'#}
 const Foo = enum { a, b, c };
-export fn entry(foo: Foo) void { }
+export fn entry(foo: Foo) void { _ = foo; }
       {#code_end#}
       <p>
       For a C-ABI-compatible enum, provide an explicit tag type to
@@ -3346,7 +3346,7 @@ test "call foo" {
       <p>
       Blocks are used to limit the scope of variable declarations:
       </p>
-      {#code_begin|test_err|undeclared identifier#}
+      {#code_begin|test_err|unused local variable#}
 test "access variable after block scope" {
     {
         var x: i32 = 1;
@@ -3377,7 +3377,7 @@ test "labeled break from labeled block expression" {
 
       {#header_open|Shadowing#}
       <p>It is never allowed for an identifier to "hide" another one by using the same name:</p>
-      {#code_begin|test_err|redefinition#}
+      {#code_begin|test_err|local shadows declaration#}
 const pi = 3.14;
 
 test "inside test block" {
@@ -5257,6 +5257,7 @@ test "float widening" {
 // Compile time coercion of float to int
 test "implicit cast to comptime_int" {
     var f: f32 = 54.0 / 5;
+    _ = f;
 }
       {#code_end#}
       {#header_close#}
@@ -5817,6 +5818,7 @@ fn foo(condition: bool) void {
         if (condition) f32 else u64,
         1234,
         5678);
+    _ = result;
 }
       {#code_end#}
       <p>
@@ -6313,7 +6315,7 @@ pub fn printValue(self: *Writer, value: anytype) !void {
       <p>
       And now, what happens if we give too many arguments to {#syntax#}printf{#endsyntax#}?
       </p>
-      {#code_begin|test_err|Unused argument in "here is a string: '{s}' here is a number: {}#}
+      {#code_begin|test_err|Unused argument in 'here is a string: '{s}' here is a number: {}#}
 const print = @import("std").debug.print;
 
 const a_number: i32 = 1234;
@@ -8853,6 +8855,7 @@ pub fn main() void {
 comptime {
     const array: [5]u8 = "hello".*;
     const garbage = array[5];
+    _ = garbage;
 }
       {#code_end#}
       <p>At runtime:</p>
@@ -8873,6 +8876,7 @@ fn foo(x: []const u8) u8 {
 comptime {
     const value: i32 = -1;
     const unsigned = @intCast(u32, value);
+    _ = unsigned;
 }
       {#code_end#}
       <p>At runtime:</p>
@@ -8895,6 +8899,7 @@ pub fn main() void {
 comptime {
     const spartan_count: u16 = 300;
     const byte = @intCast(u8, spartan_count);
+    _ = byte;
 }
       {#code_end#}
       <p>At runtime:</p>
@@ -9028,6 +9033,7 @@ test "wraparound addition and subtraction" {
       {#code_begin|test_err|operation caused overflow#}
 comptime {
     const x = @shlExact(@as(u8, 0b01010101), 2);
+    _ = x;
 }
       {#code_end#}
       <p>At runtime:</p>
@@ -9046,6 +9052,7 @@ pub fn main() void {
       {#code_begin|test_err|exact shift shifted out 1 bits#}
 comptime {
     const x = @shrExact(@as(u8, 0b10101010), 2);
+    _ = x;
 }
       {#code_end#}
       <p>At runtime:</p>
@@ -9066,6 +9073,7 @@ comptime {
     const a: i32 = 1;
     const b: i32 = 0;
     const c = a / b;
+    _ = c;
 }
       {#code_end#}
       <p>At runtime:</p>
@@ -9087,6 +9095,7 @@ comptime {
     const a: i32 = 10;
     const b: i32 = 0;
     const c = a % b;
+    _ = c;
 }
       {#code_end#}
       <p>At runtime:</p>
@@ -9108,6 +9117,7 @@ comptime {
     const a: u32 = 10;
     const b: u32 = 3;
     const c = @divExact(a, b);
+    _ = c;
 }
       {#code_end#}
       <p>At runtime:</p>
@@ -9300,6 +9310,7 @@ fn foo(set1: Set1) void {
 comptime {
     const ptr = @intToPtr(*align(1) i32, 0x1);
     const aligned = @alignCast(4, ptr);
+    _ = aligned;
 }
       {#code_end#}
       <p>At runtime:</p>
@@ -9414,6 +9425,7 @@ fn bar(f: *Foo) void {
 comptime {
     const opt_ptr: ?*i32 = null;
     const ptr = @ptrCast(*i32, opt_ptr);
+    _ = ptr;
 }
       {#code_end#}
       <p>At runtime:</p>
