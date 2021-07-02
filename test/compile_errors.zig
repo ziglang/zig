@@ -2,6 +2,14 @@ const std = @import("std");
 const TestContext = @import("../src/test.zig").TestContext;
 
 pub fn addCases(ctx: *TestContext) !void {
+    ctx.exeErrStage1("std.fmt error for unused arguments",
+        \\pub fn main() !void {
+        \\    @import("std").debug.print("{d} {d} {d} {d} {d}", .{1,2,3,4,5,6,7,8,9,10,11,12,13,14,15});
+        \\}
+    , &.{
+        "?:?:?: error: 10 unused arguments in '{d} {d} {d} {d} {d}'",
+    });
+
     ctx.objErrStage1("lazy pointer with undefined element type",
         \\export fn foo() void {
         \\    comptime var T: type = undefined;
@@ -6120,7 +6128,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\
         \\export fn entry() usize { return @sizeOf(@TypeOf(resource)); }
     , &[_][]const u8{
-        "tmp.zig:1:29: error: unable to find 'bogus.txt'",
+        "tmp.zig:1:29: error: unable to find '",
     });
 
     ctx.objErrStage1("non-const expression in struct literal outside function",

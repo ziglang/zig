@@ -37,7 +37,11 @@ const ErrorMsg = union(enum) {
     src: struct {
         src_path: []const u8,
         msg: []const u8,
+        // maxint means match anything
+        // this is a workaround for stage1 compiler bug I ran into when making it ?u32
         line: u32,
+        // maxint means match anything
+        // this is a workaround for stage1 compiler bug I ran into when making it ?u32
         column: u32,
         kind: Kind,
     },
@@ -81,13 +85,23 @@ const ErrorMsg = union(enum) {
         _ = options;
         switch (self) {
             .src => |src| {
-                return writer.print("{s}:{d}:{d}: {s}: {s}", .{
-                    src.src_path,
-                    src.line + 1,
-                    src.column + 1,
-                    @tagName(src.kind),
-                    src.msg,
-                });
+                if (!std.mem.eql(u8, src.src_path, "?") or
+                    src.line != std.math.maxInt(u32) or
+                    src.column != std.math.maxInt(u32))
+                {
+                    try writer.print("{s}:", .{src.src_path});
+                    if (src.line != std.math.maxInt(u32)) {
+                        try writer.print("{d}:", .{src.line + 1});
+                    } else {
+                        try writer.writeAll("?:");
+                    }
+                    if (src.column != std.math.maxInt(u32)) {
+                        try writer.print("{d}: ", .{src.column + 1});
+                    } else {
+                        try writer.writeAll("?: ");
+                    }
+                }
+                return writer.print("{s}: {s}", .{ @tagName(src.kind), src.msg });
             },
             .plain => |plain| {
                 return writer.print("{s}: {s}", .{ @tagName(plain.kind), plain.msg });
@@ -220,8 +234,14 @@ pub const TestContext = struct {
                 const kind_text = it.next() orelse @panic("missing 'error'/'note'");
                 const msg = it.rest()[1..]; // skip over the space at end of "error: "
 
-                const line = std.fmt.parseInt(u32, line_text, 10) catch @panic("bad line number");
-                const column = std.fmt.parseInt(u32, col_text, 10) catch @panic("bad column number");
+                const line: ?u32 = if (std.mem.eql(u8, line_text, "?"))
+                    null
+                else
+                    std.fmt.parseInt(u32, line_text, 10) catch @panic("bad line number");
+                const column: ?u32 = if (std.mem.eql(u8, line_text, "?"))
+                    null
+                else
+                    std.fmt.parseInt(u32, col_text, 10) catch @panic("bad column number");
                 const kind: ErrorMsg.Kind = if (std.mem.eql(u8, kind_text, " error"))
                     .@"error"
                 else if (std.mem.eql(u8, kind_text, " note"))
@@ -229,16 +249,28 @@ pub const TestContext = struct {
                 else
                     @panic("expected 'error'/'note'");
 
-                if (line == 0 or column == 0) {
-                    @panic("line and column must be specified starting at one");
-                }
+                const line_0based: u32 = if (line) |n| blk: {
+                    if (n == 0) {
+                        print("{s}: line must be specified starting at one\n", .{self.name});
+                        return;
+                    }
+                    break :blk n - 1;
+                } else std.math.maxInt(u32);
+
+                const column_0based: u32 = if (column) |n| blk: {
+                    if (n == 0) {
+                        print("{s}: line must be specified starting at one\n", .{self.name});
+                        return;
+                    }
+                    break :blk n - 1;
+                } else std.math.maxInt(u32);
 
                 array[i] = .{
                     .src = .{
                         .src_path = src_path,
                         .msg = msg,
-                        .line = line - 1,
-                        .column = column - 1,
+                        .line = line_0based,
+                        .column = column_0based,
                         .kind = kind,
                     },
                 };
@@ -737,7 +769,7 @@ pub const TestContext = struct {
                     }
                     var ok = true;
                     if (case.expect_exact) {
-                        var err_iter = ErrLineIter.init(result.stderr);
+                        var err_iter = std.mem.split(result.stderr, "\n");
                         var i: usize = 0;
                         ok = while (err_iter.next()) |line| : (i += 1) {
                             if (i >= case_error_list.len) break false;
@@ -940,8 +972,10 @@ pub const TestContext = struct {
                                         std.mem.eql(u8, case_msg.src.src_path, actual_msg.src_path);
 
                                     if (src_path_ok and
-                                        actual_msg.line == case_msg.src.line and
-                                        actual_msg.column == case_msg.src.column and
+                                        (case_msg.src.line == std.math.maxInt(u32) or
+                                        actual_msg.line == case_msg.src.line) and
+                                        (case_msg.src.column == std.math.maxInt(u32) or
+                                        actual_msg.column == case_msg.src.column) and
                                         std.mem.eql(u8, case_msg.src.msg, actual_msg.msg) and
                                         case_msg.src.kind == .@"error")
                                     {
@@ -978,8 +1012,10 @@ pub const TestContext = struct {
                                     }
                                     if (ex_tag != .src) continue;
 
-                                    if (actual_msg.line == case_msg.src.line and
-                                        actual_msg.column == case_msg.src.column and
+                                    if ((case_msg.src.line == std.math.maxInt(u32) or
+                                        actual_msg.line == case_msg.src.line) and
+                                        (case_msg.src.column == std.math.maxInt(u32) or
+                                        actual_msg.column == case_msg.src.column) and
                                         std.mem.eql(u8, case_msg.src.msg, actual_msg.msg) and
                                         case_msg.src.kind == .note)
                                     {
@@ -1162,19 +1198,3 @@ fn dumpArgs(argv: []const []const u8) void {
 }
 
 const tmp_src_path = "tmp.zig";
-
-const ErrLineIter = struct {
-    lines: std.mem.SplitIterator,
-
-    fn init(input: []const u8) ErrLineIter {
-        return ErrLineIter{ .lines = std.mem.split(input, "\n") };
-    }
-
-    fn next(self: *ErrLineIter) ?[]const u8 {
-        while (self.lines.next()) |line| {
-            if (std.mem.indexOf(u8, line, tmp_src_path) != null)
-                return line;
-        }
-        return null;
-    }
-};
