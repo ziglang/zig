@@ -5076,7 +5076,7 @@ static void analyze_fn_async(CodeGen *g, ZigFn *fn, bool resolve_frame) {
             // TODO function pointer call here, could be anything
             continue;
         }
-        switch (analyze_callee_async(g, fn, call->fn_entry, call->base.base.source_node, must_not_be_async,
+        switch (analyze_callee_async(g, fn, call->fn_entry, call->base.source_node, must_not_be_async,
                     call->modifier))
         {
             case ErrorSemanticAnalyzeFail:
@@ -5096,7 +5096,7 @@ static void analyze_fn_async(CodeGen *g, ZigFn *fn, bool resolve_frame) {
     for (size_t i = 0; i < fn->await_list.length; i += 1) {
         IrInstGenAwait *await = fn->await_list.at(i);
         if (await->is_nosuspend) continue;
-        switch (analyze_callee_async(g, fn, await->target_fn, await->base.base.source_node, must_not_be_async,
+        switch (analyze_callee_async(g, fn, await->target_fn, await->base.source_node, must_not_be_async,
                     CallModifierNone))
         {
             case ErrorSemanticAnalyzeFail:
@@ -6736,11 +6736,11 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
     if (fn->analyzed_executable.need_err_code_spill) {
         IrInstGenAlloca *alloca_gen = heap::c_allocator.create<IrInstGenAlloca>();
         alloca_gen->base.id = IrInstGenIdAlloca;
-        alloca_gen->base.base.source_node = fn->proto_node;
-        alloca_gen->base.base.scope = fn->child_scope;
+        alloca_gen->base.source_node = fn->proto_node;
+        alloca_gen->base.scope = fn->child_scope;
         alloca_gen->base.value = g->pass1_arena->create<ZigValue>();
         alloca_gen->base.value->type = get_pointer_to_type(g, g->builtin_types.entry_global_error_set, false);
-        alloca_gen->base.base.ref_count = 1;
+        alloca_gen->base.ref_count = 1;
         alloca_gen->name_hint = "";
         fn->alloca_gen_list.append(alloca_gen);
         fn->err_code_spill = &alloca_gen->base;
@@ -6762,7 +6762,7 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
             if (call->fn_ref->value->type->data.fn.fn_type_id.cc != CallingConventionAsync) {
                 continue;
             }
-            add_node_error(g, call->base.base.source_node,
+            add_node_error(g, call->base.source_node,
                 buf_sprintf("function is not comptime-known; @asyncCall required"));
             return ErrorSemanticAnalyzeFail;
         }
@@ -6772,14 +6772,14 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
         if (callee->anal_state == FnAnalStateProbing) {
             ErrorMsg *msg = add_node_error(g, fn->proto_node,
                 buf_sprintf("unable to determine async function frame of '%s'", buf_ptr(&fn->symbol_name)));
-            g->trace_err = add_error_note(g, msg, call->base.base.source_node,
+            g->trace_err = add_error_note(g, msg, call->base.source_node,
                 buf_sprintf("analysis of function '%s' depends on the frame", buf_ptr(&callee->symbol_name)));
             return ErrorSemanticAnalyzeFail;
         }
 
         ZigType *callee_frame_type = get_fn_frame_type(g, callee);
         frame_type->data.frame.resolve_loop_type = callee_frame_type;
-        frame_type->data.frame.resolve_loop_src_node = call->base.base.source_node;
+        frame_type->data.frame.resolve_loop_src_node = call->base.source_node;
 
         analyze_fn_body(g, callee);
         if (callee->anal_state == FnAnalStateInvalid) {
@@ -6795,7 +6795,7 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
         if (!fn_is_async(callee))
             continue;
 
-        mark_suspension_point(call->base.base.scope);
+        mark_suspension_point(call->base.scope);
 
         if ((err = type_resolve(g, callee_frame_type, ResolveStatusSizeKnown))) {
             return err;
@@ -6840,17 +6840,17 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
         }
         // This await is a suspend point, but it might not need a spill.
         // We do need to mark the ExprScope as having a suspend point in it.
-        mark_suspension_point(await->base.base.scope);
+        mark_suspension_point(await->base.scope);
 
         if (await->result_loc != nullptr) {
             // If there's a result location, that is the spill
             continue;
         }
-        if (await->base.base.ref_count == 0)
+        if (await->base.ref_count == 0)
             continue;
         if (!type_has_bits(g, await->base.value->type))
             continue;
-        await->result_loc = ir_create_alloca(g, await->base.base.scope, await->base.base.source_node, fn,
+        await->result_loc = ir_create_alloca(g, await->base.scope, await->base.source_node, fn,
                 await->base.value->type, "");
     }
     for (size_t block_i = 0; block_i < fn->analyzed_executable.basic_block_list.length; block_i += 1) {
@@ -6858,7 +6858,7 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
         for (size_t instr_i = 0; instr_i < block->instruction_list.length; instr_i += 1) {
             IrInstGen *instruction = block->instruction_list.at(instr_i);
             if (instruction->id == IrInstGenIdSuspendFinish) {
-                mark_suspension_point(instruction->base.scope);
+                mark_suspension_point(instruction->scope);
             }
         }
     }
@@ -6885,14 +6885,14 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
             }
             if (instruction->value->special != ConstValSpecialRuntime)
                 continue;
-            if (instruction->base.ref_count == 0)
+            if (instruction->ref_count == 0)
                 continue;
             if ((err = type_resolve(g, instruction->value->type, ResolveStatusZeroBitsKnown)))
                 return ErrorSemanticAnalyzeFail;
             if (!type_has_bits(g, instruction->value->type))
                 continue;
-            if (scope_needs_spill(instruction->base.scope)) {
-                instruction->spill = ir_create_alloca(g, instruction->base.scope, instruction->base.source_node,
+            if (scope_needs_spill(instruction->scope)) {
+                instruction->spill = ir_create_alloca(g, instruction->scope, instruction->source_node,
                         fn, instruction->value->type, "");
             }
         }
@@ -6950,7 +6950,7 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
         ZigType *child_type = resolve_type_isf(ptr_type->data.pointer.child_type);
         if (!type_has_bits(g, child_type))
             continue;
-        if (instruction->base.base.ref_count == 0)
+        if (instruction->base.ref_count == 0)
             continue;
         if (instruction->base.value->special != ConstValSpecialRuntime) {
             if (const_ptr_pointee(nullptr, g, instruction->base.value, nullptr)->special !=
@@ -6961,7 +6961,7 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
         }
 
         frame_type->data.frame.resolve_loop_type = child_type;
-        frame_type->data.frame.resolve_loop_src_node = instruction->base.base.source_node;
+        frame_type->data.frame.resolve_loop_src_node = instruction->base.source_node;
         if ((err = type_resolve(g, child_type, ResolveStatusSizeKnown))) {
             return err;
         }
