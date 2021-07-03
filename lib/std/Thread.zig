@@ -585,8 +585,7 @@ const LinuxThreadImpl = struct {
                 },
             };
 
-            asm volatile (
-                unmap_and_exit
+            asm volatile (unmap_and_exit
                 :
                 : [ptr] "r" (@ptrToInt(self.mapped.ptr)),
                   [len] "r" (self.mapped.len)
