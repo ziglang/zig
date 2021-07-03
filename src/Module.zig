@@ -27,6 +27,7 @@ const trace = @import("tracy.zig").trace;
 const AstGen = @import("AstGen.zig");
 const Sema = @import("Sema.zig");
 const target_util = @import("target.zig");
+const build_options = @import("build_options");
 
 /// General-purpose allocator. Used for both temporary and long-term storage.
 gpa: *Allocator,
@@ -2223,6 +2224,7 @@ pub fn astGenFile(mod: *Module, file: *Scope.File, prog_node: *std.Progress.Node
     const want_local_cache = file.pkg == mod.root_pkg;
     const digest = hash: {
         var path_hash: Cache.HashHelper = .{};
+        path_hash.addBytes(build_options.version);
         if (!want_local_cache) {
             path_hash.addOptionalBytes(file.pkg.root_src_directory.path);
         }
