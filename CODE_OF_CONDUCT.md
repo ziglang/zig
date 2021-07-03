@@ -9,7 +9,7 @@ a link. There is no concept of "official" or "unofficial", however, each
 gathering place has its own moderators and rules.
 
 This is Andrew Kelley speaking. At least for now, I'm the moderator of the
-ziglang organization GitHub repositories and the #zig IRC channel on Freenode.
+ziglang organization GitHub repositories and the #zig IRC channel on Libera.chat.
 **This document contains the rules that govern these two spaces only**.
 
 The rules here are strict. This space is for focused, on topic, technical work
