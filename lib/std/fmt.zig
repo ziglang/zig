@@ -93,6 +93,9 @@ pub fn format(
         @compileError("32 arguments max are supported per format call");
     }
 
+    if (comptime fields_info.len > 0 and !std.mem.eql(u8, fields_info[0].name, "0"))
+        @compileError("Expected tuple, found " ++ @typeName(ArgsType));
+
     comptime var arg_state: struct {
         next_arg: usize = 0,
         used_args: usize = 0,

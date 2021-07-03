@@ -8793,4 +8793,14 @@ pub fn addCases(ctx: *TestContext) !void {
     , &[_][]const u8{
         "error: Unsupported OS",
     });
+
+    ctx.objErrStage1("Require tuples for fmt args",
+        \\const std = @import("std");
+        \\pub const io_mode = .evented;
+        \\pub fn main() !void {
+        \\    std.debug.print("{s}\n", .{.foo="bar"});
+        \\}
+    , &[_][]const u8{
+        "error: Expected tuple, found struct",
+    });
 }
