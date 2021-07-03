@@ -581,8 +581,8 @@ static void ir_print_prefix_src(IrPrintSrc *irp, IrInstSrc *instruction, bool tr
         type_name = "(unknown)";
     }
     const char *ref_count = ir_inst_src_has_side_effects(instruction) ?
-        "-" : buf_ptr(buf_sprintf("%" PRIu32 "", instruction->base.ref_count));
-    fprintf(irp->f, "%c%-3" PRIu32 "| %-22s| %-12s| %-2s| ", mark, instruction->base.debug_id,
+        "-" : buf_ptr(buf_sprintf("%" PRIu32 "", instruction->ref_count));
+    fprintf(irp->f, "%c%-3" PRIu32 "| %-22s| %-12s| %-2s| ", mark, instruction->debug_id,
         ir_inst_src_type_str(instruction->id), type_name, ref_count);
 }
 
@@ -591,17 +591,17 @@ static void ir_print_prefix_gen(IrPrintGen *irp, IrInstGen *instruction, bool tr
     const char mark = trailing ? ':' : '#';
     const char *type_name = instruction->value->type ? buf_ptr(&instruction->value->type->name) : "(unknown)";
     const char *ref_count = ir_inst_gen_has_side_effects(instruction) ?
-        "-" : buf_ptr(buf_sprintf("%" PRIu32 "", instruction->base.ref_count));
-    fprintf(irp->f, "%c%-3" PRIu32 "| %-22s| %-12s| %-2s| ", mark, instruction->base.debug_id,
+        "-" : buf_ptr(buf_sprintf("%" PRIu32 "", instruction->ref_count));
+    fprintf(irp->f, "%c%-3" PRIu32 "| %-22s| %-12s| %-2s| ", mark, instruction->debug_id,
         ir_inst_gen_type_str(instruction->id), type_name, ref_count);
 }
 
 static void ir_print_var_src(IrPrintSrc *irp, IrInstSrc *inst) {
-    fprintf(irp->f, "#%" PRIu32 "", inst->base.debug_id);
+    fprintf(irp->f, "#%" PRIu32 "", inst->debug_id);
 }
 
 static void ir_print_var_gen(IrPrintGen *irp, IrInstGen *inst) {
-    fprintf(irp->f, "#%" PRIu32 "", inst->base.debug_id);
+    fprintf(irp->f, "#%" PRIu32 "", inst->debug_id);
     if (irp->printed.maybe_get(inst) == nullptr) {
         irp->printed.put(inst, 0);
         irp->pending.append(inst);
@@ -1231,8 +1231,8 @@ static void ir_print_any_frame_type(IrPrintSrc *irp, IrInstSrcAnyFrameType *inst
 }
 
 static void ir_print_asm_src(IrPrintSrc *irp, IrInstSrcAsm *instruction) {
-    assert(instruction->base.base.source_node->type == NodeTypeAsmExpr);
-    AstNodeAsmExpr *asm_expr = &instruction->base.base.source_node->data.asm_expr;
+    assert(instruction->base.source_node->type == NodeTypeAsmExpr);
+    AstNodeAsmExpr *asm_expr = &instruction->base.source_node->data.asm_expr;
     const char *volatile_kw = instruction->has_side_effects ? " volatile" : "";
     fprintf(irp->f, "asm%s (", volatile_kw);
     ir_print_other_inst_src(irp, instruction->asm_template);
@@ -1274,8 +1274,8 @@ static void ir_print_asm_src(IrPrintSrc *irp, IrInstSrcAsm *instruction) {
 }
 
 static void ir_print_asm_gen(IrPrintGen *irp, IrInstGenAsm *instruction) {
-    assert(instruction->base.base.source_node->type == NodeTypeAsmExpr);
-    AstNodeAsmExpr *asm_expr = &instruction->base.base.source_node->data.asm_expr;
+    assert(instruction->base.source_node->type == NodeTypeAsmExpr);
+    AstNodeAsmExpr *asm_expr = &instruction->base.source_node->data.asm_expr;
     const char *volatile_kw = instruction->has_side_effects ? " volatile" : "";
     fprintf(irp->f, "asm%s (\"%s\") : ", volatile_kw, buf_ptr(instruction->asm_template));
 
@@ -2003,10 +2003,10 @@ static void ir_print_err_wrap_payload(IrPrintGen *irp, IrInstGenErrWrapPayload *
 
 static void ir_print_fn_proto(IrPrintSrc *irp, IrInstSrcFnProto *instruction) {
     fprintf(irp->f, "fn(");
-    for (size_t i = 0; i < instruction->base.base.source_node->data.fn_proto.params.length; i += 1) {
+    for (size_t i = 0; i < instruction->base.source_node->data.fn_proto.params.length; i += 1) {
         if (i != 0)
             fprintf(irp->f, ",");
-        if (instruction->is_var_args && i == instruction->base.base.source_node->data.fn_proto.params.length - 1) {
+        if (instruction->is_var_args && i == instruction->base.source_node->data.fn_proto.params.length - 1) {
             fprintf(irp->f, "...");
         } else {
             ir_print_other_inst_src(irp, instruction->param_types[i]);
@@ -3449,4 +3449,16 @@ void ir_print_inst_gen(CodeGen *codegen, FILE *f, IrInstGen *instruction, int in
     irp->pending = {};
 
     ir_print_inst_gen(irp, instruction, false);
+}
+
+void IrInstSrc::dump() {
+    IrInstSrc *inst = this;
+    inst->src();
+    if (inst->scope == nullptr) {
+        fprintf(stderr, "(null scope)\n");
+    } else {
+        ir_print_inst_src(inst->scope->codegen, stderr, inst, 0);
+        fprintf(stderr, "-> ");
+        ir_print_inst_gen(inst->scope->codegen, stderr, inst->child, 0);
+    }
 }

@@ -31,7 +31,6 @@ struct BuiltinFnEntry;
 struct TypeStructField;
 struct CodeGen;
 struct ZigValue;
-struct IrInst;
 struct IrInstSrc;
 struct IrInstGen;
 struct IrInstGenCast;
@@ -313,7 +312,7 @@ struct ConstErrValue {
 struct ConstBoundFnValue {
     ZigFn *fn;
     IrInstGen *first_arg;
-    IrInst *first_arg_src;
+    AstNode *first_arg_src;
 };
 
 struct ConstArgTuple {
@@ -394,7 +393,7 @@ struct LazyValueTypeInfoDecls {
     IrAnalyze *ira;
 
     ScopeDecls *decls_scope;
-    IrInst *source_instr;
+    AstNode *source_node;
 };
 
 struct LazyValueAlignOf {
@@ -2444,7 +2443,7 @@ struct Stage1ZirBasicBlock {
     IrBasicBlockGen *child;
     Scope *scope;
     const char *name_hint;
-    IrInst *suspend_instruction_ref;
+    IrInstSrc *suspend_instruction_ref;
 
     uint32_t ref_count;
     uint32_t index; // index into the basic block list
@@ -2463,11 +2462,11 @@ struct IrBasicBlockGen {
     // The instruction that referenced this basic block and caused us to
     // analyze the basic block. If the same instruction wants us to emit
     // the same basic block, then we re-generate it instead of saving it.
-    IrInst *ref_instruction;
+    IrInstSrc *ref_instruction;
     // When this is non-null, a branch to this basic block is only allowed
     // if the branch is comptime. The instruction points to the reason
     // the basic block must be comptime.
-    IrInst *must_be_comptime_source_instr;
+    AstNode *must_be_comptime_source_node;
 
     uint32_t debug_id;
     bool already_appended;
@@ -2714,23 +2713,12 @@ enum IrInstGenId {
     IrInstGenIdExtern,
 };
 
-// Common fields between IrInstSrc and IrInstGen.
-struct IrInst {
-    // if ref_count is zero and the instruction has no side effects,
-    // the instruction can be omitted in codegen
+struct IrInstSrc {
     uint32_t ref_count;
     uint32_t debug_id;
 
     Scope *scope;
     AstNode *source_node;
-
-    // for debugging purposes, these are useful to call to inspect the instruction
-    void dump();
-    void src();
-};
-
-struct IrInstSrc {
-    IrInst base;
 
     IrInstSrcId id;
 
@@ -2746,9 +2734,14 @@ struct IrInstSrc {
 };
 
 struct IrInstGen {
-    IrInst base;
-
     IrInstGenId id;
+    // if ref_count is zero and the instruction has no side effects,
+    // the instruction can be omitted in codegen
+    uint32_t ref_count;
+    uint32_t debug_id;
+
+    Scope *scope;
+    AstNode *source_node;
 
     LLVMValueRef llvm_value;
     ZigValue *value;

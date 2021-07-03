@@ -39,7 +39,7 @@ static ZigVar *ir_create_var(Stage1AstGen *ag, AstNode *node, Scope *scope, Buf 
 static void build_decl_var_and_init(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
         ZigVar *var, IrInstSrc *init, const char *name_hint, IrInstSrc *is_comptime);
 
-static void ir_assert_impl(bool ok, IrInst *source_instruction, char const *file, unsigned int line) {
+static void ir_assert_impl(bool ok, IrInstSrc *source_instruction, char const *file, unsigned int line) {
     if (ok) return;
     src_assert_impl(ok, source_instruction->source_node, file, line);
 }
@@ -386,7 +386,7 @@ static void ir_ref_bb(Stage1ZirBasicBlock *bb) {
 
 static void ir_ref_instruction(IrInstSrc *instruction, Stage1ZirBasicBlock *cur_bb) {
     assert(instruction->id != IrInstSrcIdInvalid);
-    instruction->base.ref_count += 1;
+    instruction->ref_count += 1;
     if (instruction->owner_bb != cur_bb && !instr_is_unreachable(instruction)
         && instruction->id != IrInstSrcIdConst)
     {
@@ -939,9 +939,9 @@ template<typename T>
 static T *ir_create_instruction(Stage1AstGen *ag, Scope *scope, AstNode *source_node) {
     T *special_instruction = heap::c_allocator.create<T>();
     special_instruction->base.id = ir_inst_id(special_instruction);
-    special_instruction->base.base.scope = scope;
-    special_instruction->base.base.source_node = source_node;
-    special_instruction->base.base.debug_id = irb_next_debug_id(ag);
+    special_instruction->base.scope = scope;
+    special_instruction->base.source_node = source_node;
+    special_instruction->base.debug_id = irb_next_debug_id(ag);
     special_instruction->base.owner_bb = ag->current_basic_block;
     return special_instruction;
 }
@@ -1325,9 +1325,9 @@ static IrInstSrc *ir_build_ptr_type_simple(Stage1AstGen *ag, Scope *scope, AstNo
 {
     IrInstSrcPtrTypeSimple *inst = heap::c_allocator.create<IrInstSrcPtrTypeSimple>();
     inst->base.id = is_const ? IrInstSrcIdPtrTypeSimpleConst : IrInstSrcIdPtrTypeSimple;
-    inst->base.base.scope = scope;
-    inst->base.base.source_node = source_node;
-    inst->base.base.debug_id = irb_next_debug_id(ag);
+    inst->base.scope = scope;
+    inst->base.source_node = source_node;
+    inst->base.debug_id = irb_next_debug_id(ag);
     inst->base.owner_bb = ag->current_basic_block;
     ir_instruction_append(ag->current_basic_block, &inst->base);
 
@@ -2391,9 +2391,9 @@ static IrInstSrc *ir_build_check_switch_prongs(Stage1AstGen *ag, Scope *scope, A
     IrInstSrcCheckSwitchProngs *instruction = heap::c_allocator.create<IrInstSrcCheckSwitchProngs>();
     instruction->base.id = have_underscore_prong ?
         IrInstSrcIdCheckSwitchProngsUnderYes : IrInstSrcIdCheckSwitchProngsUnderNo;
-    instruction->base.base.scope = scope;
-    instruction->base.base.source_node = source_node;
-    instruction->base.base.debug_id = irb_next_debug_id(ag);
+    instruction->base.scope = scope;
+    instruction->base.source_node = source_node;
+    instruction->base.debug_id = irb_next_debug_id(ag);
     instruction->base.owner_bb = ag->current_basic_block;
     ir_instruction_append(ag->current_basic_block, &instruction->base);
 
@@ -2582,9 +2582,9 @@ static IrInstSrc *ir_build_arg_type(Stage1AstGen *ag, Scope *scope, AstNode *sou
     IrInstSrcArgType *instruction = heap::c_allocator.create<IrInstSrcArgType>();
     instruction->base.id = allow_var ?
         IrInstSrcIdArgTypeAllowVarTrue : IrInstSrcIdArgTypeAllowVarFalse;
-    instruction->base.base.scope = scope;
-    instruction->base.base.source_node = source_node;
-    instruction->base.base.debug_id = irb_next_debug_id(ag);
+    instruction->base.scope = scope;
+    instruction->base.source_node = source_node;
+    instruction->base.debug_id = irb_next_debug_id(ag);
     instruction->base.owner_bb = ag->current_basic_block;
     ir_instruction_append(ag->current_basic_block, &instruction->base);
 
@@ -3157,7 +3157,7 @@ ZigVar *create_local_var(CodeGen *codegen, AstNode *node, Scope *parent_scope,
     variable_entry->const_value = codegen->pass1_arena->create<ZigValue>();
 
     if (is_comptime != nullptr) {
-        is_comptime->base.ref_count += 1;
+        is_comptime->ref_count += 1;
     }
 
     if (name) {
@@ -3405,7 +3405,7 @@ static IrInstSrc *astgen_block(Stage1AstGen *ag, Scope *parent_scope, AstNode *b
     ir_build_end_expr(ag, parent_scope, block_node, result, &result_loc_ret->base);
     if (!astgen_defers_for_block(ag, child_scope, outer_block_scope, nullptr, nullptr))
         return ag->codegen->invalid_inst_src;
-    return ir_build_return_src(ag, child_scope, result->base.source_node, result);
+    return ir_build_return_src(ag, child_scope, result->source_node, result);
 }
 
 static IrInstSrc *astgen_bin_op_id(Stage1AstGen *ag, Scope *scope, AstNode *node, IrBinOp op_id) {
@@ -3565,9 +3565,9 @@ static ResultLocPeerParent *ir_build_result_peers(Stage1AstGen *ag, IrInstSrc *c
     peer_parent->parent = parent;
 
     IrInstSrc *popped_inst = ag->current_basic_block->instruction_list.pop();
-    ir_assert(popped_inst == cond_br_inst, &cond_br_inst->base);
+    ir_assert(popped_inst == cond_br_inst, cond_br_inst);
 
-    ir_build_reset_result(ag, cond_br_inst->base.scope, cond_br_inst->base.source_node, &peer_parent->base);
+    ir_build_reset_result(ag, cond_br_inst->scope, cond_br_inst->source_node, &peer_parent->base);
     ag->current_basic_block->instruction_list.append(popped_inst);
 
     return peer_parent;
@@ -5436,7 +5436,7 @@ static IrInstSrc *astgen_prefix_op_id(Stage1AstGen *ag, Scope *scope, AstNode *n
 
 static IrInstSrc *ir_expr_wrap(Stage1AstGen *ag, Scope *scope, IrInstSrc *inst, ResultLoc *result_loc) {
     if (inst == ag->codegen->invalid_inst_src) return inst;
-    ir_build_end_expr(ag, scope, inst->base.source_node, inst, result_loc);
+    ir_build_end_expr(ag, scope, inst->source_node, inst, result_loc);
     return inst;
 }
 
@@ -5447,7 +5447,7 @@ static IrInstSrc *ir_lval_wrap(Stage1AstGen *ag, Scope *scope, IrInstSrc *value,
     // [STMT_EXPR_TEST_THING] <--- (search this token)
     if (value == ag->codegen->invalid_inst_src ||
         instr_is_unreachable(value) ||
-        value->base.source_node->type == NodeTypeDefer ||
+        value->source_node->type == NodeTypeDefer ||
         value->id == IrInstSrcIdDeclVar)
     {
         return value;
@@ -5457,7 +5457,7 @@ static IrInstSrc *ir_lval_wrap(Stage1AstGen *ag, Scope *scope, IrInstSrc *value,
     if (lval == LValPtr) {
         // We needed a pointer to a value, but we got a value. So we create
         // an instruction which just makes a pointer of it.
-        return ir_build_ref_src(ag, scope, value->base.source_node, value);
+        return ir_build_ref_src(ag, scope, value->source_node, value);
     } else if (result_loc != nullptr) {
         return ir_expr_wrap(ag, scope, value, result_loc);
     } else {
@@ -5690,11 +5690,11 @@ static IrInstSrc *astgen_container_init_expr(Stage1AstGen *ag, Scope *scope, Ast
 
         result_loc_cast = ir_build_cast_result_loc(ag, container_type, parent_result_loc);
         child_result_loc = &result_loc_cast->base;
-        init_array_type_source_node = container_type->base.source_node;
+        init_array_type_source_node = container_type->source_node;
     } else {
         child_result_loc = parent_result_loc;
         if (parent_result_loc->source_instruction != nullptr) {
-            init_array_type_source_node = parent_result_loc->source_instruction->base.source_node;
+            init_array_type_source_node = parent_result_loc->source_instruction->source_node;
         } else {
             init_array_type_source_node = node;
         }
@@ -5784,7 +5784,7 @@ static ResultLocVar *ir_build_var_result_loc(Stage1AstGen *ag, IrInstSrc *alloca
     result_loc_var->base.allow_write_through_const = true;
     result_loc_var->var = var;
 
-    ir_build_reset_result(ag, alloca->base.scope, alloca->base.source_node, &result_loc_var->base);
+    ir_build_reset_result(ag, alloca->scope, alloca->source_node, &result_loc_var->base);
 
     return result_loc_var;
 }
@@ -5799,7 +5799,7 @@ static ResultLocCast *ir_build_cast_result_loc(Stage1AstGen *ag, IrInstSrc *dest
     ir_ref_instruction(dest_type, ag->current_basic_block);
     result_loc_cast->parent = parent_result_loc;
 
-    ir_build_reset_result(ag, dest_type->base.scope, dest_type->base.source_node, &result_loc_cast->base);
+    ir_build_reset_result(ag, dest_type->scope, dest_type->source_node, &result_loc_cast->base);
 
     return result_loc_cast;
 }
@@ -5897,7 +5897,7 @@ static IrInstSrc *astgen_var_decl(Stage1AstGen *ag, Scope *scope, AstNode *node)
         return ag->codegen->invalid_inst_src;
 
     if (result_loc_cast != nullptr) {
-        IrInstSrc *implicit_cast = ir_build_implicit_cast(ag, scope, init_value->base.source_node,
+        IrInstSrc *implicit_cast = ir_build_implicit_cast(ag, scope, init_value->source_node,
                 init_value, result_loc_cast);
         ir_build_end_expr(ag, scope, node, implicit_cast, &result_loc_var->base);
     }
@@ -8066,13 +8066,13 @@ bool stage1_astgen(CodeGen *codegen, AstNode *node, Scope *scope, Stage1Zir *sta
     }
 
     if (!instr_is_unreachable(result)) {
-        ir_build_add_implicit_return_type(ag, scope, result->base.source_node, result, nullptr);
+        ir_build_add_implicit_return_type(ag, scope, result->source_node, result, nullptr);
         // no need for save_err_ret_addr because this cannot return error
         ResultLocReturn *result_loc_ret = heap::c_allocator.create<ResultLocReturn>();
         result_loc_ret->base.id = ResultLocIdReturn;
         ir_build_reset_result(ag, scope, node, &result_loc_ret->base);
         ir_build_end_expr(ag, scope, node, result, &result_loc_ret->base);
-        ir_build_return_src(ag, scope, result->base.source_node, result);
+        ir_build_return_src(ag, scope, result->source_node, result);
     }
 
     return true;
@@ -8111,5 +8111,14 @@ void ir_add_call_stack_errors_gen(CodeGen *codegen, Stage1Air *exec, ErrorMsg *e
     add_error_note(codegen, err_msg, exec->source_node, buf_sprintf("called from here"));
 
     ir_add_call_stack_errors_gen(codegen, exec->parent_exec, err_msg, limit - 1);
+}
+
+void IrInstSrc::src() {
+    IrInstSrc *inst = this;
+    if (inst->source_node != nullptr) {
+        inst->source_node->src();
+    } else {
+        fprintf(stderr, "(null source node)\n");
+    }
 }
 
