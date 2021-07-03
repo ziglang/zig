@@ -166,6 +166,8 @@ pub const TextBlock = struct {
     dbg_info_off: u32,
     /// Size of the .debug_info tag for this Decl, not including padding.
     dbg_info_len: u32,
+    /// Read-only data is in .rodata section, otherwise it is located in .text section.
+    read_only: bool,
 
     pub const empty = TextBlock{
         .local_sym_index = 0,
@@ -176,6 +178,7 @@ pub const TextBlock = struct {
         .dbg_info_next = null,
         .dbg_info_off = undefined,
         .dbg_info_len = undefined,
+        .read_only = false,
     };
 
     /// Returns how much room there is to grow in virtual address space.
@@ -1985,8 +1988,10 @@ fn growTextBlock(self: *Elf, text_block: *TextBlock, new_block_size: u64, alignm
 }
 
 fn allocateTextBlock(self: *Elf, text_block: *TextBlock, new_block_size: u64, alignment: u64) !u64 {
-    const phdr = &self.program_headers.items[self.phdr_load_re_index.?];
-    const shdr = &self.sections.items[self.text_section_index.?];
+    const phdr_index = if (text_block.read_only) self.phdr_load_ro_index.? else self.phdr_load_re_index.?;
+    const shdr_index = if (text_block.read_only) self.rodata_section_index.? else self.text_section_index.?;
+    const phdr = &self.program_headers.items[phdr_index];
+    const shdr = &self.sections.items[shdr_index];
     const new_block_ideal_capacity = padToIdeal(new_block_size);
 
     // We use these to indicate our intention to update metadata, placing the new block,
@@ -2132,7 +2137,8 @@ pub fn allocateDeclIndexes(self: *Elf, decl: *Module.Decl) !void {
         self.offset_table_count_dirty = true;
     }
 
-    const phdr = &self.program_headers.items[self.phdr_load_re_index.?];
+    const phdr_index = if (decl.isConstVariable()) self.phdr_load_ro_index.? else self.phdr_load_re_index.?;
+    const phdr = &self.program_headers.items[phdr_index];
 
     self.local_symbols.items[decl.link.elf.local_sym_index] = .{
         .st_name = 0,
@@ -2315,6 +2321,7 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
 
     assert(decl.link.elf.local_sym_index != 0); // Caller forgot to allocateDeclIndexes()
     const local_sym = &self.local_symbols.items[decl.link.elf.local_sym_index];
+    const shndx = if (decl.isConstVariable()) self.rodata_section_index.? else self.text_section_index.?;
     if (local_sym.st_size != 0) {
         const capacity = decl.link.elf.capacity(self.*);
         const need_realloc = code.len > capacity or
@@ -2336,7 +2343,7 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
         local_sym.st_name = try self.updateString(local_sym.st_name, mem.spanZ(decl.name));
         local_sym.st_info = (elf.STB_LOCAL << 4) | stt_bits;
         local_sym.st_other = 0;
-        local_sym.st_shndx = self.text_section_index.?;
+        local_sym.st_shndx = shndx;
         // TODO this write could be avoided if no fields of the symbol were changed.
         try self.writeSymbol(decl.link.elf.local_sym_index);
     } else {
@@ -2350,7 +2357,7 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
             .st_name = name_str_index,
             .st_info = (elf.STB_LOCAL << 4) | stt_bits,
             .st_other = 0,
-            .st_shndx = self.text_section_index.?,
+            .st_shndx = shndx,
             .st_value = vaddr,
             .st_size = code.len,
         };
@@ -2360,8 +2367,10 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
         try self.writeOffsetTableEntry(decl.link.elf.offset_table_index);
     }
 
-    const section_offset = local_sym.st_value - self.program_headers.items[self.phdr_load_re_index.?].p_vaddr;
-    const file_offset = self.sections.items[self.text_section_index.?].sh_offset + section_offset;
+    const phdr_index = if (decl.isConstVariable()) self.phdr_load_ro_index.? else self.phdr_load_re_index.?;
+    const shdr_index = if (decl.isConstVariable()) self.rodata_section_index.? else self.text_section_index.?;
+    const section_offset = local_sym.st_value - self.program_headers.items[phdr_index].p_vaddr;
+    const file_offset = self.sections.items[shdr_index].sh_offset + section_offset;
     try self.base.file.?.pwriteAll(code, file_offset);
 
     const target_endian = self.base.options.target.cpu.arch.endian();
@@ -2708,13 +2717,14 @@ pub fn updateDeclExports(
             },
         };
         const stt_bits: u8 = @truncate(u4, decl_sym.st_info);
+        const shndx = if (decl.isConstVariable()) self.rodata_section_index.? else self.text_section_index.?;
         if (exp.link.elf.sym_index) |i| {
             const sym = &self.global_symbols.items[i];
             sym.* = .{
                 .st_name = try self.updateString(sym.st_name, exp.options.name),
                 .st_info = (stb_bits << 4) | stt_bits,
                 .st_other = 0,
-                .st_shndx = self.text_section_index.?,
+                .st_shndx = shndx,
                 .st_value = decl_sym.st_value,
                 .st_size = decl_sym.st_size,
             };
@@ -2728,7 +2738,7 @@ pub fn updateDeclExports(
                 .st_name = name,
                 .st_info = (stb_bits << 4) | stt_bits,
                 .st_other = 0,
-                .st_shndx = self.text_section_index.?,
+                .st_shndx = shndx,
                 .st_value = decl_sym.st_value,
                 .st_size = decl_sym.st_size,
             };
