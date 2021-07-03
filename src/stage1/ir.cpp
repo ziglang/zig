@@ -5407,16 +5407,6 @@ static void ir_finish_bb(IrAnalyze *ira) {
                     ira->new_irb.current_basic_block->debug_id);
         }
     }
-    ira->instruction_index += 1;
-    while (ira->instruction_index < ira->zir_current_basic_block->instruction_list.length) {
-        IrInstSrc *next_instruction = ira->zir_current_basic_block->instruction_list.at(ira->instruction_index);
-        if (!next_instruction->is_gen) {
-            ir_add_error(ira, &next_instruction->base, buf_sprintf("unreachable code"));
-            break;
-        }
-        ira->instruction_index += 1;
-    }
-
     ir_start_next_bb(ira);
 }
 
@@ -11107,7 +11097,7 @@ static IrInstGen *ir_analyze_instruction_export(IrAnalyze *ira, IrInstSrcExport 
         AstNode *other_export_node = entry->value->source_node;
         ErrorMsg *msg = ir_add_error(ira, &instruction->base.base,
                 buf_sprintf("exported symbol collision: '%s'", buf_ptr(symbol_name)));
-        add_error_note(ira->codegen, msg, other_export_node, buf_sprintf("other symbol is here"));
+        add_error_note(ira->codegen, msg, other_export_node, buf_sprintf("other symbol here"));
         return ira->codegen->invalid_inst_gen;
     }
 
@@ -11413,7 +11403,7 @@ static IrInstGen *ir_analyze_instruction_extern(IrAnalyze *ira, IrInstSrcExtern 
         AstNode *other_extern_node = entry->value->source_node;
         ErrorMsg *msg = ir_add_error(ira, &instruction->base.base,
                 buf_sprintf("extern symbol collision: '%s'", buf_ptr(symbol_name)));
-        add_error_note(ira->codegen, msg, other_extern_node, buf_sprintf("other symbol is here"));
+        add_error_note(ira->codegen, msg, other_extern_node, buf_sprintf("other symbol here"));
         return ira->codegen->invalid_inst_gen;
     }
 
@@ -15934,7 +15924,7 @@ static IrInstGen *ir_analyze_instruction_pop_count(IrAnalyze *ira, IrInstSrcPopC
     return ir_build_pop_count_gen(ira, &instruction->base.base, return_type, op);
 }
 
-static IrInstGen *ir_analyze_union_tag(IrAnalyze *ira, IrInst* source_instr, IrInstGen *value, bool is_gen) {
+static IrInstGen *ir_analyze_union_tag(IrAnalyze *ira, IrInst* source_instr, IrInstGen *value) {
     if (type_is_invalid(value->value->type))
         return ira->codegen->invalid_inst_gen;
 
@@ -15943,7 +15933,7 @@ static IrInstGen *ir_analyze_union_tag(IrAnalyze *ira, IrInst* source_instr, IrI
             buf_sprintf("expected enum or union type, found '%s'", buf_ptr(&value->value->type->name)));
         return ira->codegen->invalid_inst_gen;
     }
-    if (!value->value->type->data.unionation.have_explicit_tag_type && !is_gen) {
+    if (!value->value->type->data.unionation.have_explicit_tag_type) {
         ErrorMsg *msg = ir_add_error(ira, source_instr, buf_sprintf("union has no associated enum"));
         if (value->value->type->data.unionation.decl_node != nullptr) {
             add_error_note(ira->codegen, msg, value->value->type->data.unionation.decl_node,
@@ -16906,7 +16896,7 @@ static IrInstGen *ir_analyze_instruction_enum_tag_name(IrAnalyze *ira, IrInstSrc
     }
 
     if (target_type->id == ZigTypeIdUnion) {
-        target = ir_analyze_union_tag(ira, &instruction->base.base, target, instruction->base.is_gen);
+        target = ir_analyze_union_tag(ira, &instruction->base.base, target);
         if (type_is_invalid(target->value->type))
             return ira->codegen->invalid_inst_gen;
         target_type = target->value->type;
@@ -21742,7 +21732,7 @@ static IrInstGen *ir_analyze_instruction_check_switch_prongs(IrAnalyze *ira,
                     ErrorMsg *msg = ir_add_error(ira, &start_value->base,
                         buf_sprintf("duplicate switch value: '%s.%s'", buf_ptr(&switch_type->name),
                             buf_ptr(enum_field->name)));
-                    add_error_note(ira->codegen, msg, prev_node, buf_sprintf("other value is here"));
+                    add_error_note(ira->codegen, msg, prev_node, buf_sprintf("other value here"));
                 }
                 bigint_incr(&field_index);
             }
@@ -21828,7 +21818,7 @@ static IrInstGen *ir_analyze_instruction_check_switch_prongs(IrAnalyze *ira,
                 Buf *err_name = &ira->codegen->errors_by_index.at(start_index)->name;
                 ErrorMsg *msg = ir_add_error(ira, &start_value->base,
                     buf_sprintf("duplicate switch value: '%s.%s'", buf_ptr(&switch_type->name), buf_ptr(err_name)));
-                add_error_note(ira->codegen, msg, prev_node, buf_sprintf("other value is here"));
+                add_error_note(ira->codegen, msg, prev_node, buf_sprintf("other value here"));
             }
             field_prev_uses[start_index] = start_value->base.source_node;
         }
@@ -21890,7 +21880,7 @@ static IrInstGen *ir_analyze_instruction_check_switch_prongs(IrAnalyze *ira,
                     start_value->base.source_node);
             if (prev_node != nullptr) {
                 ErrorMsg *msg = ir_add_error(ira, &start_value->base, buf_sprintf("duplicate switch value"));
-                add_error_note(ira->codegen, msg, prev_node, buf_sprintf("previous value is here"));
+                add_error_note(ira->codegen, msg, prev_node, buf_sprintf("previous value here"));
                 return ira->codegen->invalid_inst_gen;
             }
         }
@@ -21975,7 +21965,7 @@ static IrInstGen *ir_analyze_instruction_check_switch_prongs(IrAnalyze *ira,
             auto entry = prevs.put_unique(const_expr_val->data.x_type, value);
             if(entry != nullptr) {
                 ErrorMsg *msg = ir_add_error(ira, &value->base, buf_sprintf("duplicate switch value"));
-                add_error_note(ira->codegen, msg, entry->value->base.source_node, buf_sprintf("previous value is here"));
+                add_error_note(ira->codegen, msg, entry->value->base.source_node, buf_sprintf("previous value here"));
                 prevs.deinit();
                 return ira->codegen->invalid_inst_gen;
             }

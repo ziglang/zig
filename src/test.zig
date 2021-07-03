@@ -10,18 +10,25 @@ const enable_wine: bool = build_options.enable_wine;
 const enable_wasmtime: bool = build_options.enable_wasmtime;
 const enable_darling: bool = build_options.enable_darling;
 const glibc_multi_install_dir: ?[]const u8 = build_options.glibc_multi_install_dir;
+const skip_compile_errors = build_options.skip_compile_errors;
 const ThreadPool = @import("ThreadPool.zig");
 const CrossTarget = std.zig.CrossTarget;
+const print = std.debug.print;
+const assert = std.debug.assert;
 
 const zig_h = link.File.C.zig_h;
 
 const hr = "=" ** 80;
 
-test "self-hosted" {
+test {
+    if (build_options.is_stage1) {
+        @import("stage1.zig").os_init();
+    }
+
     var ctx = TestContext.init();
     defer ctx.deinit();
 
-    try @import("stage2_tests").addCases(&ctx);
+    try @import("test_cases").addCases(&ctx);
 
     try ctx.run();
 }
@@ -30,7 +37,11 @@ const ErrorMsg = union(enum) {
     src: struct {
         src_path: []const u8,
         msg: []const u8,
+        // maxint means match anything
+        // this is a workaround for stage1 compiler bug I ran into when making it ?u32
         line: u32,
+        // maxint means match anything
+        // this is a workaround for stage1 compiler bug I ran into when making it ?u32
         column: u32,
         kind: Kind,
     },
@@ -74,23 +85,32 @@ const ErrorMsg = union(enum) {
         _ = options;
         switch (self) {
             .src => |src| {
-                return writer.print("{s}:{d}:{d}: {s}: {s}", .{
-                    src.src_path,
-                    src.line + 1,
-                    src.column + 1,
-                    @tagName(src.kind),
-                    src.msg,
-                });
+                if (!std.mem.eql(u8, src.src_path, "?") or
+                    src.line != std.math.maxInt(u32) or
+                    src.column != std.math.maxInt(u32))
+                {
+                    try writer.print("{s}:", .{src.src_path});
+                    if (src.line != std.math.maxInt(u32)) {
+                        try writer.print("{d}:", .{src.line + 1});
+                    } else {
+                        try writer.writeAll("?:");
+                    }
+                    if (src.column != std.math.maxInt(u32)) {
+                        try writer.print("{d}: ", .{src.column + 1});
+                    } else {
+                        try writer.writeAll("?: ");
+                    }
+                }
+                return writer.print("{s}: {s}", .{ @tagName(src.kind), src.msg });
             },
             .plain => |plain| {
-                return writer.print("{s}: {s}", .{ plain.msg, @tagName(plain.kind) });
+                return writer.print("{s}: {s}", .{ @tagName(plain.kind), plain.msg });
             },
         }
     }
 };
 
 pub const TestContext = struct {
-    /// TODO: find a way to treat cases as individual tests (shouldn't show "1 test passed" if there are 200 cases)
     cases: std.ArrayList(Case),
 
     pub const Update = struct {
@@ -127,6 +147,12 @@ pub const TestContext = struct {
         path: []const u8,
     };
 
+    pub const Backend = enum {
+        stage1,
+        stage2,
+        llvm,
+    };
+
     /// A `Case` consists of a list of `Update`. The same `Compilation` is used for each
     /// update, so each update's source is treated as a single file being
     /// updated by the test harness and incrementally compiled.
@@ -140,12 +166,19 @@ pub const TestContext = struct {
         /// In order to be able to run e.g. Execution updates, this must be set
         /// to Executable.
         output_mode: std.builtin.OutputMode,
+        optimize_mode: std.builtin.Mode = .Debug,
         updates: std.ArrayList(Update),
         object_format: ?std.Target.ObjectFormat = null,
         emit_h: bool = false,
-        llvm_backend: bool = false,
+        is_test: bool = false,
+        expect_exact: bool = false,
+        backend: Backend = .stage2,
 
         files: std.ArrayList(File),
+
+        pub fn addSourceFile(case: *Case, name: []const u8, src: [:0]const u8) void {
+            case.files.append(.{ .path = name, .src = src }) catch @panic("out of memory");
+        }
 
         /// Adds a subcase in which the module is updated with `src`, and a C
         /// header is generated.
@@ -201,8 +234,14 @@ pub const TestContext = struct {
                 const kind_text = it.next() orelse @panic("missing 'error'/'note'");
                 const msg = it.rest()[1..]; // skip over the space at end of "error: "
 
-                const line = std.fmt.parseInt(u32, line_text, 10) catch @panic("bad line number");
-                const column = std.fmt.parseInt(u32, col_text, 10) catch @panic("bad column number");
+                const line: ?u32 = if (std.mem.eql(u8, line_text, "?"))
+                    null
+                else
+                    std.fmt.parseInt(u32, line_text, 10) catch @panic("bad line number");
+                const column: ?u32 = if (std.mem.eql(u8, line_text, "?"))
+                    null
+                else
+                    std.fmt.parseInt(u32, col_text, 10) catch @panic("bad column number");
                 const kind: ErrorMsg.Kind = if (std.mem.eql(u8, kind_text, " error"))
                     .@"error"
                 else if (std.mem.eql(u8, kind_text, " note"))
@@ -210,16 +249,28 @@ pub const TestContext = struct {
                 else
                     @panic("expected 'error'/'note'");
 
-                if (line == 0 or column == 0) {
-                    @panic("line and column must be specified starting at one");
-                }
+                const line_0based: u32 = if (line) |n| blk: {
+                    if (n == 0) {
+                        print("{s}: line must be specified starting at one\n", .{self.name});
+                        return;
+                    }
+                    break :blk n - 1;
+                } else std.math.maxInt(u32);
+
+                const column_0based: u32 = if (column) |n| blk: {
+                    if (n == 0) {
+                        print("{s}: line must be specified starting at one\n", .{self.name});
+                        return;
+                    }
+                    break :blk n - 1;
+                } else std.math.maxInt(u32);
 
                 array[i] = .{
                     .src = .{
                         .src_path = src_path,
                         .msg = msg,
-                        .line = line - 1,
-                        .column = column - 1,
+                        .line = line_0based,
+                        .column = column_0based,
                         .kind = kind,
                     },
                 };
@@ -254,11 +305,6 @@ pub const TestContext = struct {
         return ctx.addExe(name, target);
     }
 
-    /// Adds a test case for ZIR input, producing an executable
-    pub fn exeZIR(ctx: *TestContext, name: []const u8, target: CrossTarget) *Case {
-        return ctx.addExe(name, target, .ZIR);
-    }
-
     pub fn exeFromCompiledC(ctx: *TestContext, name: []const u8, target: CrossTarget) *Case {
         const prefixed_name = std.fmt.allocPrint(ctx.cases.allocator, "CBE: {s}", .{name}) catch
             @panic("out of memory");
@@ -282,7 +328,7 @@ pub const TestContext = struct {
             .updates = std.ArrayList(Update).init(ctx.cases.allocator),
             .output_mode = .Exe,
             .files = std.ArrayList(File).init(ctx.cases.allocator),
-            .llvm_backend = true,
+            .backend = .llvm,
         }) catch @panic("out of memory");
         return &ctx.cases.items[ctx.cases.items.len - 1];
     }
@@ -297,6 +343,22 @@ pub const TestContext = struct {
             .target = target,
             .updates = std.ArrayList(Update).init(ctx.cases.allocator),
             .output_mode = .Obj,
+            .files = std.ArrayList(File).init(ctx.cases.allocator),
+        }) catch @panic("out of memory");
+        return &ctx.cases.items[ctx.cases.items.len - 1];
+    }
+
+    pub fn addTest(
+        ctx: *TestContext,
+        name: []const u8,
+        target: CrossTarget,
+    ) *Case {
+        ctx.cases.append(Case{
+            .name = name,
+            .target = target,
+            .updates = std.ArrayList(Update).init(ctx.cases.allocator),
+            .output_mode = .Exe,
+            .is_test = true,
             .files = std.ArrayList(File).init(ctx.cases.allocator),
         }) catch @panic("out of memory");
         return &ctx.cases.items[ctx.cases.items.len - 1];
@@ -331,6 +393,45 @@ pub const TestContext = struct {
 
     pub fn h(ctx: *TestContext, name: []const u8, target: CrossTarget, src: [:0]const u8, comptime out: [:0]const u8) void {
         ctx.addC(name, target).addHeader(src, zig_h ++ out);
+    }
+
+    pub fn objErrStage1(
+        ctx: *TestContext,
+        name: []const u8,
+        src: [:0]const u8,
+        expected_errors: []const []const u8,
+    ) void {
+        if (skip_compile_errors) return;
+
+        const case = ctx.addObj(name, .{});
+        case.backend = .stage1;
+        case.addError(src, expected_errors);
+    }
+
+    pub fn testErrStage1(
+        ctx: *TestContext,
+        name: []const u8,
+        src: [:0]const u8,
+        expected_errors: []const []const u8,
+    ) void {
+        if (skip_compile_errors) return;
+
+        const case = ctx.addTest(name, .{});
+        case.backend = .stage1;
+        case.addError(src, expected_errors);
+    }
+
+    pub fn exeErrStage1(
+        ctx: *TestContext,
+        name: []const u8,
+        src: [:0]const u8,
+        expected_errors: []const []const u8,
+    ) void {
+        if (skip_compile_errors) return;
+
+        const case = ctx.addExe(name, .{});
+        case.backend = .stage1;
+        case.addError(src, expected_errors);
     }
 
     pub fn addCompareOutput(
@@ -384,18 +485,6 @@ pub const TestContext = struct {
         result: [:0]const u8,
     ) void {
         ctx.addTransform(name, target, src, result);
-    }
-
-    /// Adds a test case that cleans up the ZIR source given in `src`, and
-    /// tests the resulting ZIR against `result`
-    pub fn transformZIR(
-        ctx: *TestContext,
-        name: []const u8,
-        target: CrossTarget,
-        src: [:0]const u8,
-        result: [:0]const u8,
-    ) void {
-        ctx.addTransform(name, target, .ZIR, src, result);
     }
 
     pub fn addError(
@@ -555,7 +644,7 @@ pub const TestContext = struct {
                 continue;
 
             // Skip tests that require LLVM backend when it is not available
-            if (!build_options.have_llvm and case.llvm_backend)
+            if (!build_options.have_llvm and case.backend == .llvm)
                 continue;
 
             var prg_node = root_node.start(case.name, case.updates.items.len);
@@ -567,7 +656,7 @@ pub const TestContext = struct {
             progress.initial_delay_ns = 0;
             progress.refresh_rate_ns = 0;
 
-            self.runOneCase(
+            runOneCase(
                 std.testing.allocator,
                 &prg_node,
                 case,
@@ -576,17 +665,16 @@ pub const TestContext = struct {
                 global_cache_directory,
             ) catch |err| {
                 fail_count += 1;
-                std.debug.print("test '{s}' failed: {s}\n\n", .{ case.name, @errorName(err) });
+                print("test '{s}' failed: {s}\n\n", .{ case.name, @errorName(err) });
             };
         }
         if (fail_count != 0) {
-            std.debug.print("{d} tests failed\n", .{fail_count});
+            print("{d} tests failed\n", .{fail_count});
             return error.TestFailed;
         }
     }
 
     fn runOneCase(
-        self: *TestContext,
         allocator: *Allocator,
         root_node: *std.Progress.Node,
         case: Case,
@@ -594,7 +682,6 @@ pub const TestContext = struct {
         thread_pool: *ThreadPool,
         global_cache_directory: Compilation.Directory,
     ) !void {
-        _ = self;
         const target_info = try std.zig.system.NativeTargetInfo.detect(allocator, case.target);
         const target = target_info.target;
 
@@ -607,13 +694,154 @@ pub const TestContext = struct {
 
         var cache_dir = try tmp.dir.makeOpenPath("zig-cache", .{});
         defer cache_dir.close();
-        const tmp_dir_path = try std.fs.path.join(arena, &[_][]const u8{ ".", "zig-cache", "tmp", &tmp.sub_path });
+
+        const tmp_dir_path = try std.fs.path.join(
+            arena,
+            &[_][]const u8{ ".", "zig-cache", "tmp", &tmp.sub_path },
+        );
+        const tmp_dir_path_plus_slash = try std.fmt.allocPrint(
+            arena,
+            "{s}" ++ std.fs.path.sep_str,
+            .{tmp_dir_path},
+        );
+        const local_cache_path = try std.fs.path.join(
+            arena,
+            &[_][]const u8{ tmp_dir_path, "zig-cache" },
+        );
+
+        for (case.files.items) |file| {
+            try tmp.dir.writeFile(file.path, file.src);
+        }
+
+        if (case.backend == .stage1) {
+            // stage1 backend has limitations:
+            // * leaks memory
+            // * calls exit() when a compile error happens
+            // * cannot handle updates
+            // because of this we must spawn a child process rather than
+            // using Compilation directly.
+            assert(case.updates.items.len == 1);
+            const update = case.updates.items[0];
+            try tmp.dir.writeFile(tmp_src_path, update.src);
+
+            var zig_args = std.ArrayList([]const u8).init(arena);
+            try zig_args.append(std.testing.zig_exe_path);
+
+            if (case.is_test) {
+                try zig_args.append("test");
+            } else switch (case.output_mode) {
+                .Obj => try zig_args.append("build-obj"),
+                .Exe => try zig_args.append("build-exe"),
+                .Lib => try zig_args.append("build-lib"),
+            }
+
+            try zig_args.append(try std.fs.path.join(arena, &.{ tmp_dir_path, tmp_src_path }));
+
+            try zig_args.append("--name");
+            try zig_args.append("test");
+
+            try zig_args.append("--cache-dir");
+            try zig_args.append(local_cache_path);
+
+            try zig_args.append("--global-cache-dir");
+            try zig_args.append(global_cache_directory.path orelse ".");
+
+            if (!case.target.isNative()) {
+                try zig_args.append("-target");
+                try zig_args.append(try target.zigTriple(arena));
+            }
+
+            try zig_args.append("-O");
+            try zig_args.append(@tagName(case.optimize_mode));
+
+            const result = try std.ChildProcess.exec(.{
+                .allocator = arena,
+                .argv = zig_args.items,
+            });
+            switch (update.case) {
+                .Error => |case_error_list| {
+                    switch (result.term) {
+                        .Exited => |code| {
+                            if (code == 0) {
+                                dumpArgs(zig_args.items);
+                                return error.CompilationIncorrectlySucceeded;
+                            }
+                        },
+                        else => {
+                            dumpArgs(zig_args.items);
+                            return error.CompilationCrashed;
+                        },
+                    }
+                    var ok = true;
+                    if (case.expect_exact) {
+                        var err_iter = std.mem.split(result.stderr, "\n");
+                        var i: usize = 0;
+                        ok = while (err_iter.next()) |line| : (i += 1) {
+                            if (i >= case_error_list.len) break false;
+                            const expected = try std.mem.replaceOwned(
+                                u8,
+                                arena,
+                                try std.fmt.allocPrint(arena, "{s}", .{case_error_list[i]}),
+                                "${DIR}",
+                                tmp_dir_path_plus_slash,
+                            );
+
+                            if (std.mem.indexOf(u8, line, expected) == null) break false;
+                            continue;
+                        } else true;
+
+                        ok = ok and i == case_error_list.len;
+
+                        if (!ok) {
+                            print("\n======== Expected these compile errors: ========\n", .{});
+                            for (case_error_list) |msg| {
+                                const expected = try std.fmt.allocPrint(arena, "{s}", .{msg});
+                                print("{s}\n", .{expected});
+                            }
+                        }
+                    } else {
+                        for (case_error_list) |msg| {
+                            const expected = try std.mem.replaceOwned(
+                                u8,
+                                arena,
+                                try std.fmt.allocPrint(arena, "{s}", .{msg}),
+                                "${DIR}",
+                                tmp_dir_path_plus_slash,
+                            );
+                            if (std.mem.indexOf(u8, result.stderr, expected) == null) {
+                                print(
+                                    \\
+                                    \\=========== Expected compile error: ============
+                                    \\{s}
+                                    \\
+                                , .{expected});
+                                ok = false;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (!ok) {
+                        print(
+                            \\================= Full output: =================
+                            \\{s}
+                            \\================================================
+                            \\
+                        , .{result.stderr});
+                        return error.TestFailed;
+                    }
+                },
+                .CompareObjectFile => @panic("TODO implement in the test harness"),
+                .Execution => @panic("TODO implement in the test harness"),
+                .Header => @panic("TODO implement in the test harness"),
+            }
+            return;
+        }
+
         const zig_cache_directory: Compilation.Directory = .{
             .handle = cache_dir,
-            .path = try std.fs.path.join(arena, &[_][]const u8{ tmp_dir_path, "zig-cache" }),
+            .path = local_cache_path,
         };
-
-        const tmp_src_path = "test_case.zig";
 
         var root_pkg: Package = .{
             .root_src_directory = .{ .path = tmp_dir_path, .handle = tmp.dir },
@@ -640,6 +868,14 @@ pub const TestContext = struct {
             .directory = emit_directory,
             .basename = "test_case.h",
         } else null;
+        const use_llvm: ?bool = switch (case.backend) {
+            .llvm => true,
+            else => null,
+        };
+        const use_stage1: ?bool = switch (case.backend) {
+            .stage1 => true,
+            else => null,
+        };
         const comp = try Compilation.create(allocator, .{
             .local_cache_directory = zig_cache_directory,
             .global_cache_directory = global_cache_directory,
@@ -651,8 +887,8 @@ pub const TestContext = struct {
             // and linking. This will require a rework to support multi-file
             // tests.
             .output_mode = case.output_mode,
-            // TODO: support testing optimizations
-            .optimize_mode = .Debug,
+            .is_test = case.is_test,
+            .optimize_mode = case.optimize_mode,
             .emit_bin = emit_bin,
             .emit_h = emit_h,
             .root_pkg = &root_pkg,
@@ -661,16 +897,12 @@ pub const TestContext = struct {
             .is_native_os = case.target.isNativeOs(),
             .is_native_abi = case.target.isNativeAbi(),
             .dynamic_linker = target_info.dynamic_linker.get(),
-            .link_libc = case.llvm_backend,
-            .use_llvm = case.llvm_backend,
-            .use_lld = case.llvm_backend,
+            .link_libc = case.backend == .llvm,
+            .use_llvm = use_llvm,
+            .use_stage1 = use_stage1,
             .self_exe_path = std.testing.zig_exe_path,
         });
         defer comp.destroy();
-
-        for (case.files.items) |file| {
-            try tmp.dir.writeFile(file.path, file.src);
-        }
 
         for (case.updates.items) |update, update_index| {
             var update_node = root_node.start("update", 3);
@@ -692,19 +924,19 @@ pub const TestContext = struct {
                 var all_errors = try comp.getAllErrorsAlloc();
                 defer all_errors.deinit(allocator);
                 if (all_errors.list.len != 0) {
-                    std.debug.print(
+                    print(
                         "\nCase '{s}': unexpected errors at update_index={d}:\n{s}\n",
                         .{ case.name, update_index, hr },
                     );
                     for (all_errors.list) |err_msg| {
                         switch (err_msg) {
                             .src => |src| {
-                                std.debug.print("{s}:{d}:{d}: error: {s}\n{s}\n", .{
+                                print("{s}:{d}:{d}: error: {s}\n{s}\n", .{
                                     src.src_path, src.line + 1, src.column + 1, src.msg, hr,
                                 });
                             },
                             .plain => |plain| {
-                                std.debug.print("error: {s}\n{s}\n", .{ plain.msg, hr });
+                                print("error: {s}\n{s}\n", .{ plain.msg, hr });
                             },
                         }
                     }
@@ -757,10 +989,20 @@ pub const TestContext = struct {
                                     const src_path_ok = case_msg.src.src_path.len == 0 or
                                         std.mem.eql(u8, case_msg.src.src_path, actual_msg.src_path);
 
+                                    const expected_msg = try std.mem.replaceOwned(
+                                        u8,
+                                        arena,
+                                        case_msg.src.msg,
+                                        "${DIR}",
+                                        tmp_dir_path_plus_slash,
+                                    );
+
                                     if (src_path_ok and
-                                        actual_msg.line == case_msg.src.line and
-                                        actual_msg.column == case_msg.src.column and
-                                        std.mem.eql(u8, case_msg.src.msg, actual_msg.msg) and
+                                        (case_msg.src.line == std.math.maxInt(u32) or
+                                        actual_msg.line == case_msg.src.line) and
+                                        (case_msg.src.column == std.math.maxInt(u32) or
+                                        actual_msg.column == case_msg.src.column) and
+                                        std.mem.eql(u8, expected_msg, actual_msg.msg) and
                                         case_msg.src.kind == .@"error")
                                     {
                                         handled_errors[i] = true;
@@ -779,7 +1021,7 @@ pub const TestContext = struct {
                                 },
                             }
                         } else {
-                            std.debug.print(
+                            print(
                                 "\nUnexpected error:\n{s}\n{}\n{s}",
                                 .{ hr, ErrorMsg.init(actual_error, .@"error"), hr },
                             );
@@ -796,9 +1038,19 @@ pub const TestContext = struct {
                                     }
                                     if (ex_tag != .src) continue;
 
-                                    if (actual_msg.line == case_msg.src.line and
-                                        actual_msg.column == case_msg.src.column and
-                                        std.mem.eql(u8, case_msg.src.msg, actual_msg.msg) and
+                                    const expected_msg = try std.mem.replaceOwned(
+                                        u8,
+                                        arena,
+                                        case_msg.src.msg,
+                                        "${DIR}",
+                                        tmp_dir_path_plus_slash,
+                                    );
+
+                                    if ((case_msg.src.line == std.math.maxInt(u32) or
+                                        actual_msg.line == case_msg.src.line) and
+                                        (case_msg.src.column == std.math.maxInt(u32) or
+                                        actual_msg.column == case_msg.src.column) and
+                                        std.mem.eql(u8, expected_msg, actual_msg.msg) and
                                         case_msg.src.kind == .note)
                                     {
                                         handled_errors[i] = true;
@@ -817,7 +1069,7 @@ pub const TestContext = struct {
                                 },
                             }
                         } else {
-                            std.debug.print(
+                            print(
                                 "\nUnexpected note:\n{s}\n{}\n{s}",
                                 .{ hr, ErrorMsg.init(note.*, .note), hr },
                             );
@@ -827,7 +1079,7 @@ pub const TestContext = struct {
 
                     for (handled_errors) |handled, i| {
                         if (!handled) {
-                            std.debug.print(
+                            print(
                                 "\nExpected error not found:\n{s}\n{}\n{s}",
                                 .{ hr, case_error_list[i], hr },
                             );
@@ -836,7 +1088,7 @@ pub const TestContext = struct {
                     }
 
                     if (any_failed) {
-                        std.debug.print("\nupdate_index={d} ", .{update_index});
+                        print("\nupdate_index={d} ", .{update_index});
                         return error.WrongCompileErrors;
                     }
                 },
@@ -932,7 +1184,7 @@ pub const TestContext = struct {
                             .cwd_dir = tmp.dir,
                             .cwd = tmp_dir_path,
                         }) catch |err| {
-                            std.debug.print("\nupdate_index={d} The following command failed with {s}:\n", .{
+                            print("\nupdate_index={d} The following command failed with {s}:\n", .{
                                 update_index, @errorName(err),
                             });
                             dumpArgs(argv.items);
@@ -947,7 +1199,7 @@ pub const TestContext = struct {
                     switch (exec_result.term) {
                         .Exited => |code| {
                             if (code != 0) {
-                                std.debug.print("\n{s}\n{s}: execution exited with code {d}:\n", .{
+                                print("\n{s}\n{s}: execution exited with code {d}:\n", .{
                                     exec_result.stderr, case.name, code,
                                 });
                                 dumpArgs(argv.items);
@@ -955,7 +1207,7 @@ pub const TestContext = struct {
                             }
                         },
                         else => {
-                            std.debug.print("\n{s}\n{s}: execution crashed:\n", .{
+                            print("\n{s}\n{s}: execution crashed:\n", .{
                                 exec_result.stderr, case.name,
                             });
                             dumpArgs(argv.items);
@@ -974,7 +1226,9 @@ pub const TestContext = struct {
 
 fn dumpArgs(argv: []const []const u8) void {
     for (argv) |arg| {
-        std.debug.print("{s} ", .{arg});
+        print("{s} ", .{arg});
     }
-    std.debug.print("\n", .{});
+    print("\n", .{});
 }
+
+const tmp_src_path = "tmp.zig";

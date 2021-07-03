@@ -670,6 +670,7 @@ pub const InitOptions = struct {
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     use_clang: ?bool = null,
+    use_stage1: ?bool = null,
     rdynamic: bool = false,
     strip: bool = false,
     single_threaded: bool = false,
@@ -807,8 +808,22 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
 
         const ofmt = options.object_format orelse options.target.getObjectFormat();
 
+        const use_stage1 = options.use_stage1 orelse blk: {
+            if (build_options.omit_stage2)
+                break :blk true;
+            if (options.use_llvm) |use_llvm| {
+                if (!use_llvm) {
+                    break :blk false;
+                }
+            }
+            break :blk build_options.is_stage1;
+        };
+
         // Make a decision on whether to use LLVM or our own backend.
-        const use_llvm = if (options.use_llvm) |explicit| explicit else blk: {
+        const use_llvm = build_options.have_llvm and blk: {
+            if (options.use_llvm) |explicit|
+                break :blk explicit;
+
             // If we have no zig code to compile, no need for LLVM.
             if (options.root_pkg == null)
                 break :blk false;
@@ -817,18 +832,24 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             if (ofmt == .c)
                 break :blk false;
 
-            // If we are the stage1 compiler, we depend on the stage1 c++ llvm backend
+            // The stage1 compiler depends on the stage1 C++ LLVM backend
             // to compile zig code.
-            if (build_options.is_stage1)
+            if (use_stage1)
                 break :blk true;
 
-            // We would want to prefer LLVM for release builds when it is available, however
-            // we don't have an LLVM backend yet :)
-            // We would also want to prefer LLVM for architectures that we don't have self-hosted support for too.
+            // Prefer LLVM for release builds as long as it supports the target architecture.
+            if (options.optimize_mode != .Debug and target_util.hasLlvmSupport(options.target))
+                break :blk true;
+
             break :blk false;
         };
-        if (!use_llvm and options.machine_code_model != .default) {
-            return error.MachineCodeModelNotSupported;
+        if (!use_llvm) {
+            if (options.use_llvm == true) {
+                return error.ZigCompilerNotBuiltWithLLVMExtensions;
+            }
+            if (options.machine_code_model != .default) {
+                return error.MachineCodeModelNotSupportedWithoutLlvm;
+            }
         }
 
         const tsan = options.want_tsan orelse false;
@@ -1344,6 +1365,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .subsystem = options.subsystem,
             .is_test = options.is_test,
             .wasi_exec_model = wasi_exec_model,
+            .use_stage1 = use_stage1,
         });
         errdefer bin_file.destroy();
         comp.* = .{
@@ -1486,9 +1508,9 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             try comp.work_queue.writeItem(.libtsan);
         }
 
-        // The `is_stage1` condition is here only because stage2 cannot yet build compiler-rt.
+        // The `use_stage1` condition is here only because stage2 cannot yet build compiler-rt.
         // Once it is capable this condition should be removed.
-        if (build_options.is_stage1) {
+        if (comp.bin_file.options.use_stage1) {
             if (comp.bin_file.options.include_compiler_rt) {
                 if (is_exe_or_dyn_lib) {
                     try comp.work_queue.writeItem(.{ .compiler_rt_lib = {} });
@@ -1519,7 +1541,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
         }
     }
 
-    if (build_options.is_stage1 and comp.bin_file.options.use_llvm) {
+    if (comp.bin_file.options.use_stage1 and comp.bin_file.options.module != null) {
         try comp.work_queue.writeItem(.{ .stage1_module = {} });
     }
 
@@ -1625,8 +1647,7 @@ pub fn update(self: *Compilation) !void {
         self.c_object_work_queue.writeItemAssumeCapacity(key);
     }
 
-    const use_stage1 = build_options.omit_stage2 or
-        (build_options.is_stage1 and self.bin_file.options.use_llvm);
+    const use_stage1 = build_options.is_stage1 and self.bin_file.options.use_stage1;
     if (self.bin_file.options.module) |module| {
         module.compile_log_text.shrinkAndFree(module.gpa, 0);
         module.generation += 1;
@@ -1921,7 +1942,7 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
     // (at least for now) single-threaded main work queue. However, C object compilation
     // only needs to be finished by the end of this function.
 
-    var zir_prog_node = main_progress_node.start("AST Lowering", self.astgen_work_queue.count);
+    var zir_prog_node = main_progress_node.start("AST Lowering", 0);
     defer zir_prog_node.end();
 
     var c_obj_prog_node = main_progress_node.start("Compile C Objects", self.c_source_files.len);
@@ -1937,7 +1958,7 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
         while (self.astgen_work_queue.readItem()) |file| {
             self.astgen_wait_group.start();
             try self.thread_pool.spawn(workerAstGenFile, .{
-                self, file, &zir_prog_node, &self.astgen_wait_group,
+                self, file, &zir_prog_node, &self.astgen_wait_group, .root,
             });
         }
 
@@ -1949,12 +1970,17 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
         }
     }
 
-    const use_stage1 = build_options.omit_stage2 or
-        (build_options.is_stage1 and self.bin_file.options.use_llvm);
+    const use_stage1 = build_options.is_stage1 and self.bin_file.options.use_stage1;
     if (!use_stage1) {
         // Iterate over all the files and look for outdated and deleted declarations.
         if (self.bin_file.options.module) |mod| {
             try mod.processOutdatedAndDeletedDecls();
+        }
+    } else if (self.bin_file.options.module) |mod| {
+        // If there are any AstGen compile errors, report them now to avoid
+        // hitting stage1 bugs.
+        if (mod.failed_files.count() != 0) {
+            return;
         }
     }
 
@@ -2284,11 +2310,20 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
     };
 }
 
+const AstGenSrc = union(enum) {
+    root,
+    import: struct {
+        importing_file: *Module.Scope.File,
+        import_inst: Zir.Inst.Index,
+    },
+};
+
 fn workerAstGenFile(
     comp: *Compilation,
     file: *Module.Scope.File,
     prog_node: *std.Progress.Node,
     wg: *WaitGroup,
+    src: AstGenSrc,
 ) void {
     defer wg.finish();
 
@@ -2301,7 +2336,7 @@ fn workerAstGenFile(
         error.AnalysisFail => return,
         else => {
             file.status = .retryable_failure;
-            comp.reportRetryableAstGenError(file, err) catch |oom| switch (oom) {
+            comp.reportRetryableAstGenError(src, file, err) catch |oom| switch (oom) {
                 // Swallowing this error is OK because it's implied to be OOM when
                 // there is a missing `failed_files` error message.
                 error.OutOfMemory => {},
@@ -2318,8 +2353,9 @@ fn workerAstGenFile(
     if (imports_index != 0) {
         const imports_len = file.zir.extra[imports_index];
 
-        for (file.zir.extra[imports_index + 1 ..][0..imports_len]) |str_index| {
-            const import_path = file.zir.nullTerminatedString(str_index);
+        for (file.zir.extra[imports_index + 1 ..][0..imports_len]) |import_inst| {
+            const inst_data = file.zir.instructions.items(.data)[import_inst].str_tok;
+            const import_path = inst_data.get(file.zir);
 
             const import_result = blk: {
                 const lock = comp.mutex.acquire();
@@ -2331,9 +2367,13 @@ fn workerAstGenFile(
                 log.debug("AstGen of {s} has import '{s}'; queuing AstGen of {s}", .{
                     file.sub_file_path, import_path, import_result.file.sub_file_path,
                 });
+                const sub_src: AstGenSrc = .{ .import = .{
+                    .importing_file = file,
+                    .import_inst = import_inst,
+                } };
                 wg.start();
                 comp.thread_pool.spawn(workerAstGenFile, .{
-                    comp, import_result.file, prog_node, wg,
+                    comp, import_result.file, prog_node, wg, sub_src,
                 }) catch {
                     wg.finish();
                     continue;
@@ -2544,6 +2584,7 @@ fn reportRetryableCObjectError(
 
 fn reportRetryableAstGenError(
     comp: *Compilation,
+    src: AstGenSrc,
     file: *Module.Scope.File,
     err: anyerror,
 ) error{OutOfMemory}!void {
@@ -2552,22 +2593,38 @@ fn reportRetryableAstGenError(
 
     file.status = .retryable_failure;
 
-    const src_loc: Module.SrcLoc = .{
-        .file_scope = file,
-        .parent_decl_node = 0,
-        .lazy = .entire_file,
+    const src_loc: Module.SrcLoc = switch (src) {
+        .root => .{
+            .file_scope = file,
+            .parent_decl_node = 0,
+            .lazy = .entire_file,
+        },
+        .import => |info| blk: {
+            const importing_file = info.importing_file;
+            const import_inst = info.import_inst;
+            const inst_data = importing_file.zir.instructions.items(.data)[import_inst].str_tok;
+            break :blk .{
+                .file_scope = importing_file,
+                .parent_decl_node = 0,
+                .lazy = .{ .token_offset = inst_data.src_tok },
+            };
+        },
     };
 
     const err_msg = if (file.pkg.root_src_directory.path) |dir_path|
         try Module.ErrorMsg.create(
             gpa,
             src_loc,
-            "unable to load {s}" ++ std.fs.path.sep_str ++ "{s}: {s}",
-            .{ dir_path, file.sub_file_path, @errorName(err) },
+            "unable to load '{'}" ++ std.fs.path.sep_str ++ "{'}': {s}",
+            .{
+                std.zig.fmtEscapes(dir_path),
+                std.zig.fmtEscapes(file.sub_file_path),
+                @errorName(err),
+            },
         )
     else
-        try Module.ErrorMsg.create(gpa, src_loc, "unable to load {s}: {s}", .{
-            file.sub_file_path, @errorName(err),
+        try Module.ErrorMsg.create(gpa, src_loc, "unable to load '{'}': {s}", .{
+            std.zig.fmtEscapes(file.sub_file_path), @errorName(err),
         });
     errdefer err_msg.destroy(gpa);
 
@@ -3486,8 +3543,7 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator) Alloc
 
     const target = comp.getTarget();
     const generic_arch_name = target.cpu.arch.genericName();
-    const use_stage1 = build_options.omit_stage2 or
-        (build_options.is_stage1 and comp.bin_file.options.use_llvm);
+    const use_stage1 = build_options.is_stage1 and comp.bin_file.options.use_stage1;
 
     @setEvalBranchQuota(4000);
     try buffer.writer().print(

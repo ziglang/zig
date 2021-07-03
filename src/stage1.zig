@@ -7,6 +7,7 @@ const assert = std.debug.assert;
 const mem = std.mem;
 const CrossTarget = std.zig.CrossTarget;
 const Target = std.Target;
+const builtin = @import("builtin");
 
 const build_options = @import("build_options");
 const stage2 = @import("main.zig");
@@ -16,16 +17,19 @@ const translate_c = @import("translate_c.zig");
 const target_util = @import("target.zig");
 
 comptime {
-    assert(std.builtin.link_libc);
+    assert(builtin.link_libc);
     assert(build_options.is_stage1);
     assert(build_options.have_llvm);
-    _ = @import("compiler_rt");
+    if (!builtin.is_test) {
+        _ = @import("compiler_rt");
+        @export(main, .{ .name = "main" });
+    }
 }
 
 pub const log = stage2.log;
 pub const log_level = stage2.log_level;
 
-pub export fn main(argc: c_int, argv: [*][*:0]u8) c_int {
+pub fn main(argc: c_int, argv: [*][*:0]u8) callconv(.C) c_int {
     std.os.argv = argv[0..@intCast(usize, argc)];
 
     std.debug.maybeEnableSegfaultHandler();
@@ -41,7 +45,7 @@ pub export fn main(argc: c_int, argv: [*][*:0]u8) c_int {
     for (args) |*arg, i| {
         arg.* = mem.spanZ(argv[i]);
     }
-    if (std.builtin.mode == .Debug) {
+    if (builtin.mode == .Debug) {
         stage2.mainArgs(gpa, arena, args) catch unreachable;
     } else {
         stage2.mainArgs(gpa, arena, args) catch |err| fatal("{s}", .{@errorName(err)});
@@ -147,6 +151,7 @@ pub const Module = extern struct {
     }
 };
 
+pub const os_init = zig_stage1_os_init;
 extern fn zig_stage1_os_init() void;
 
 pub const create = zig_stage1_create;

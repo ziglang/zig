@@ -8,6 +8,7 @@ const Progress = std.Progress;
 const print = std.debug.print;
 const mem = std.mem;
 const testing = std.testing;
+const Allocator = std.mem.Allocator;
 
 const max_doc_file_size = 10 * 1024 * 1024;
 
@@ -326,7 +327,7 @@ const Action = enum {
     Close,
 };
 
-fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
+fn genToc(allocator: *Allocator, tokenizer: *Tokenizer) !Toc {
     var urls = std.StringHashMap(Token).init(allocator);
     errdefer urls.deinit();
 
@@ -630,7 +631,7 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
     };
 }
 
-fn urlize(allocator: *mem.Allocator, input: []const u8) ![]u8 {
+fn urlize(allocator: *Allocator, input: []const u8) ![]u8 {
     var buf = std.ArrayList(u8).init(allocator);
     defer buf.deinit();
 
@@ -649,7 +650,7 @@ fn urlize(allocator: *mem.Allocator, input: []const u8) ![]u8 {
     return buf.toOwnedSlice();
 }
 
-fn escapeHtml(allocator: *mem.Allocator, input: []const u8) ![]u8 {
+fn escapeHtml(allocator: *Allocator, input: []const u8) ![]u8 {
     var buf = std.ArrayList(u8).init(allocator);
     defer buf.deinit();
 
@@ -695,7 +696,7 @@ test "term color" {
     testing.expectEqualSlices(u8, "A<span class=\"t32\">green</span>B", result);
 }
 
-fn termColor(allocator: *mem.Allocator, input: []const u8) ![]u8 {
+fn termColor(allocator: *Allocator, input: []const u8) ![]u8 {
     var buf = std.ArrayList(u8).init(allocator);
     defer buf.deinit();
 
@@ -789,8 +790,15 @@ fn isType(name: []const u8) bool {
     return false;
 }
 
-fn tokenizeAndPrintRaw(docgen_tokenizer: *Tokenizer, out: anytype, source_token: Token, raw_src: []const u8) !void {
-    const src = mem.trim(u8, raw_src, " \n");
+fn tokenizeAndPrintRaw(
+    allocator: *Allocator,
+    docgen_tokenizer: *Tokenizer,
+    out: anytype,
+    source_token: Token,
+    raw_src: []const u8,
+) !void {
+    const src_non_terminated = mem.trim(u8, raw_src, " \n");
+    const src = try allocator.dupeZ(u8, src_non_terminated);
     try out.writeAll("<code class=\"zig\">");
     var tokenizer = std.zig.Tokenizer.init(src);
     var index: usize = 0;
@@ -1016,12 +1024,24 @@ fn tokenizeAndPrintRaw(docgen_tokenizer: *Tokenizer, out: anytype, source_token:
     try out.writeAll("</code>");
 }
 
-fn tokenizeAndPrint(docgen_tokenizer: *Tokenizer, out: anytype, source_token: Token) !void {
+fn tokenizeAndPrint(
+    allocator: *Allocator,
+    docgen_tokenizer: *Tokenizer,
+    out: anytype,
+    source_token: Token,
+) !void {
     const raw_src = docgen_tokenizer.buffer[source_token.start..source_token.end];
-    return tokenizeAndPrintRaw(docgen_tokenizer, out, source_token, raw_src);
+    return tokenizeAndPrintRaw(allocator, docgen_tokenizer, out, source_token, raw_src);
 }
 
-fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: anytype, zig_exe: []const u8, do_code_tests: bool) !void {
+fn genHtml(
+    allocator: *Allocator,
+    tokenizer: *Tokenizer,
+    toc: *Toc,
+    out: anytype,
+    zig_exe: []const u8,
+    do_code_tests: bool,
+) !void {
     var progress = Progress{};
     const root_node = try progress.start("Generating docgen examples", toc.nodes.len);
     defer root_node.end();
@@ -1048,7 +1068,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: any
             },
             .Builtin => |tok| {
                 try out.writeAll("<pre>");
-                try tokenizeAndPrintRaw(tokenizer, out, tok, builtin_code);
+                try tokenizeAndPrintRaw(allocator, tokenizer, out, tok, builtin_code);
                 try out.writeAll("</pre>");
             },
             .HeaderOpen => |info| {
@@ -1069,7 +1089,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: any
                 try out.writeAll("</ul>\n");
             },
             .Syntax => |content_tok| {
-                try tokenizeAndPrint(tokenizer, out, content_tok);
+                try tokenizeAndPrint(allocator, tokenizer, out, content_tok);
             },
             .Code => |code| {
                 const raw_source = tokenizer.buffer[code.source_token.start..code.source_token.end];
@@ -1078,7 +1098,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: any
                     try out.print("<p class=\"file\">{s}.zig</p>", .{code.name});
                 }
                 try out.writeAll("<pre>");
-                try tokenizeAndPrint(tokenizer, out, code.source_token);
+                try tokenizeAndPrint(allocator, tokenizer, out, code.source_token);
                 try out.writeAll("</pre>");
 
                 if (!do_code_tests) {
@@ -1497,7 +1517,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: any
     }
 }
 
-fn exec(allocator: *mem.Allocator, env_map: *std.BufMap, args: []const []const u8) !ChildProcess.ExecResult {
+fn exec(allocator: *Allocator, env_map: *std.BufMap, args: []const []const u8) !ChildProcess.ExecResult {
     const result = try ChildProcess.exec(.{
         .allocator = allocator,
         .argv = args,
@@ -1521,7 +1541,7 @@ fn exec(allocator: *mem.Allocator, env_map: *std.BufMap, args: []const []const u
     return result;
 }
 
-fn getBuiltinCode(allocator: *mem.Allocator, env_map: *std.BufMap, zig_exe: []const u8) ![]const u8 {
+fn getBuiltinCode(allocator: *Allocator, env_map: *std.BufMap, zig_exe: []const u8) ![]const u8 {
     const result = try exec(allocator, env_map, &[_][]const u8{ zig_exe, "build-obj", "--show-builtin" });
     return result.stdout;
 }

@@ -3915,7 +3915,7 @@ static void add_top_level_decl(CodeGen *g, ScopeDecls *decls_scope, Tld *tld) {
                 }
             }
             ErrorMsg *msg = add_node_error(g, tld->source_node, buf_sprintf("redefinition of '%s'", buf_ptr(tld->name)));
-            add_error_note(g, msg, other_tld->source_node, buf_sprintf("previous definition is here"));
+            add_error_note(g, msg, other_tld->source_node, buf_sprintf("previous definition here"));
             return;
         }
 
@@ -4176,7 +4176,7 @@ ZigVar *add_variable(CodeGen *g, AstNode *source_node, Scope *parent_scope, Buf 
             if (existing_var->var_type == nullptr || !type_is_invalid(existing_var->var_type)) {
                 ErrorMsg *msg = add_node_error(g, source_node,
                         buf_sprintf("redeclaration of variable '%s'", buf_ptr(name)));
-                add_error_note(g, msg, existing_var->decl_node, buf_sprintf("previous declaration is here"));
+                add_error_note(g, msg, existing_var->decl_node, buf_sprintf("previous declaration here"));
             }
             variable_entry->var_type = g->builtin_types.entry_invalid;
         } else {
@@ -4205,7 +4205,7 @@ ZigVar *add_variable(CodeGen *g, AstNode *source_node, Scope *parent_scope, Buf 
                         if (want_err_msg) {
                             ErrorMsg *msg = add_node_error(g, source_node,
                                     buf_sprintf("redefinition of '%s'", buf_ptr(name)));
-                            add_error_note(g, msg, tld->source_node, buf_sprintf("previous definition is here"));
+                            add_error_note(g, msg, tld->source_node, buf_sprintf("previous definition here"));
                         }
                         variable_entry->var_type = g->builtin_types.entry_invalid;
                     }

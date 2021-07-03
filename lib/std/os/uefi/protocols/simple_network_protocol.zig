@@ -57,13 +57,13 @@ pub const SimpleNetworkProtocol = extern struct {
     }
 
     /// Modifies or resets the current station address, if supported.
-    pub fn stationAddress(self: *const SimpleNetworkProtocol, reset: bool, new: ?*const MacAddress) Status {
-        return self._station_address(self, reset, new);
+    pub fn stationAddress(self: *const SimpleNetworkProtocol, reset_flag: bool, new: ?*const MacAddress) Status {
+        return self._station_address(self, reset_flag, new);
     }
 
     /// Resets or collects the statistics on a network interface.
-    pub fn statistics(self: *const SimpleNetworkProtocol, reset_: bool, statistics_size: ?*usize, statistics_table: ?*NetworkStatistics) Status {
-        return self._statistics(self, reset_, statistics_size, statistics_table);
+    pub fn statistics(self: *const SimpleNetworkProtocol, reset_flag: bool, statistics_size: ?*usize, statistics_table: ?*NetworkStatistics) Status {
+        return self._statistics(self, reset_flag, statistics_size, statistics_table);
     }
 
     /// Converts a multicast IP address to a multicast HW MAC address.

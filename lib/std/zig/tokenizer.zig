@@ -326,7 +326,7 @@ pub const Token = struct {
 };
 
 pub const Tokenizer = struct {
-    buffer: []const u8,
+    buffer: [:0]const u8,
     index: usize,
     pending_invalid_token: ?Token,
 
@@ -335,7 +335,7 @@ pub const Tokenizer = struct {
         std.debug.warn("{s} \"{s}\"\n", .{ @tagName(token.tag), self.buffer[token.start..token.end] });
     }
 
-    pub fn init(buffer: []const u8) Tokenizer {
+    pub fn init(buffer: [:0]const u8) Tokenizer {
         // Skip the UTF-8 BOM if present
         const src_start = if (mem.startsWith(u8, buffer, "\xEF\xBB\xBF")) 3 else @as(usize, 0);
         return Tokenizer{
@@ -373,7 +373,6 @@ pub const Tokenizer = struct {
         line_comment,
         doc_comment_start,
         doc_comment,
-        container_doc_comment,
         zero,
         int_literal_dec,
         int_literal_dec_no_underscore,
@@ -407,10 +406,6 @@ pub const Tokenizer = struct {
         saw_at_sign,
     };
 
-    fn isIdentifierChar(char: u8) bool {
-        return std.ascii.isAlNum(char) or char == '_';
-    }
-
     pub fn next(self: *Tokenizer) Token {
         if (self.pending_invalid_token) |token| {
             self.pending_invalid_token = null;
@@ -426,10 +421,11 @@ pub const Tokenizer = struct {
         };
         var seen_escape_digits: usize = undefined;
         var remaining_code_units: usize = undefined;
-        while (self.index < self.buffer.len) : (self.index += 1) {
+        while (true) : (self.index += 1) {
             const c = self.buffer[self.index];
             switch (state) {
                 .start => switch (c) {
+                    0 => break,
                     ' ', '\n', '\t', '\r' => {
                         result.loc.start = self.index + 1;
                     },
@@ -555,8 +551,9 @@ pub const Tokenizer = struct {
                     },
                     else => {
                         result.tag = .invalid;
+                        result.loc.end = self.index;
                         self.index += 1;
-                        break;
+                        return result;
                     },
                 },
 
@@ -705,18 +702,35 @@ pub const Tokenizer = struct {
                         self.index += 1;
                         break;
                     },
-                    '\n', '\r' => break, // Look for this error later.
+                    0 => {
+                        if (self.index == self.buffer.len) {
+                            break;
+                        } else {
+                            self.checkLiteralCharacter();
+                        }
+                    },
+                    '\n' => {
+                        result.tag = .invalid;
+                        break;
+                    },
                     else => self.checkLiteralCharacter(),
                 },
 
                 .string_literal_backslash => switch (c) {
-                    '\n', '\r' => break, // Look for this error later.
+                    '\n' => {
+                        result.tag = .invalid;
+                        break;
+                    },
                     else => {
                         state = .string_literal;
                     },
                 },
 
                 .char_literal => switch (c) {
+                    0 => {
+                        result.tag = .invalid;
+                        break;
+                    },
                     '\\' => {
                         state = .char_literal_backslash;
                     },
@@ -742,7 +756,7 @@ pub const Tokenizer = struct {
                 },
 
                 .char_literal_backslash => switch (c) {
-                    '\n' => {
+                    0, '\n' => {
                         result.tag = .invalid;
                         break;
                     },
@@ -774,7 +788,6 @@ pub const Tokenizer = struct {
                 .char_literal_unicode_escape_saw_u => switch (c) {
                     '{' => {
                         state = .char_literal_unicode_escape;
-                        seen_escape_digits = 0;
                     },
                     else => {
                         result.tag = .invalid;
@@ -783,16 +796,9 @@ pub const Tokenizer = struct {
                 },
 
                 .char_literal_unicode_escape => switch (c) {
-                    '0'...'9', 'a'...'f', 'A'...'F' => {
-                        seen_escape_digits += 1;
-                    },
+                    '0'...'9', 'a'...'f', 'A'...'F' => {},
                     '}' => {
-                        if (seen_escape_digits == 0) {
-                            result.tag = .invalid;
-                            state = .char_literal_unicode_invalid;
-                        } else {
-                            state = .char_literal_end;
-                        }
+                        state = .char_literal_end; // too many/few digits handled later
                     },
                     else => {
                         result.tag = .invalid;
@@ -834,6 +840,7 @@ pub const Tokenizer = struct {
                 },
 
                 .multiline_string_literal_line => switch (c) {
+                    0 => break,
                     '\n' => {
                         self.index += 1;
                         break;
@@ -1025,12 +1032,19 @@ pub const Tokenizer = struct {
                     },
                 },
                 .line_comment_start => switch (c) {
+                    0 => {
+                        if (self.index != self.buffer.len) {
+                            result.tag = .invalid;
+                            self.index += 1;
+                        }
+                        break;
+                    },
                     '/' => {
                         state = .doc_comment_start;
                     },
                     '!' => {
                         result.tag = .container_doc_comment;
-                        state = .container_doc_comment;
+                        state = .doc_comment;
                     },
                     '\n' => {
                         state = .start;
@@ -1046,7 +1060,7 @@ pub const Tokenizer = struct {
                     '/' => {
                         state = .line_comment;
                     },
-                    '\n' => {
+                    0, '\n' => {
                         result.tag = .doc_comment;
                         break;
                     },
@@ -1061,6 +1075,7 @@ pub const Tokenizer = struct {
                     },
                 },
                 .line_comment => switch (c) {
+                    0 => break,
                     '\n' => {
                         state = .start;
                         result.loc.start = self.index + 1;
@@ -1068,8 +1083,8 @@ pub const Tokenizer = struct {
                     '\t', '\r' => {},
                     else => self.checkLiteralCharacter(),
                 },
-                .doc_comment, .container_doc_comment => switch (c) {
-                    '\n' => break,
+                .doc_comment => switch (c) {
+                    0, '\n' => break,
                     '\t', '\r' => {},
                     else => self.checkLiteralCharacter(),
                 },
@@ -1088,12 +1103,11 @@ pub const Tokenizer = struct {
                         self.index -= 1;
                         state = .int_literal_dec;
                     },
-                    else => {
-                        if (isIdentifierChar(c)) {
-                            result.tag = .invalid;
-                        }
+                    'a', 'c', 'd', 'f'...'n', 'p'...'w', 'y', 'z', 'A'...'D', 'F'...'Z' => {
+                        result.tag = .invalid;
                         break;
                     },
+                    else => break,
                 },
                 .int_literal_bin_no_underscore => switch (c) {
                     '0'...'1' => {
@@ -1109,12 +1123,11 @@ pub const Tokenizer = struct {
                         state = .int_literal_bin_no_underscore;
                     },
                     '0'...'1' => {},
-                    else => {
-                        if (isIdentifierChar(c)) {
-                            result.tag = .invalid;
-                        }
+                    '2'...'9', 'a'...'z', 'A'...'Z' => {
+                        result.tag = .invalid;
                         break;
                     },
+                    else => break,
                 },
                 .int_literal_oct_no_underscore => switch (c) {
                     '0'...'7' => {
@@ -1130,12 +1143,11 @@ pub const Tokenizer = struct {
                         state = .int_literal_oct_no_underscore;
                     },
                     '0'...'7' => {},
-                    else => {
-                        if (isIdentifierChar(c)) {
-                            result.tag = .invalid;
-                        }
+                    '8', '9', 'a'...'z', 'A'...'Z' => {
+                        result.tag = .invalid;
                         break;
                     },
+                    else => break,
                 },
                 .int_literal_dec_no_underscore => switch (c) {
                     '0'...'9' => {
@@ -1159,12 +1171,11 @@ pub const Tokenizer = struct {
                         result.tag = .float_literal;
                     },
                     '0'...'9' => {},
-                    else => {
-                        if (isIdentifierChar(c)) {
-                            result.tag = .invalid;
-                        }
+                    'a'...'d', 'f'...'z', 'A'...'D', 'F'...'Z' => {
+                        result.tag = .invalid;
                         break;
                     },
+                    else => break,
                 },
                 .int_literal_hex_no_underscore => switch (c) {
                     '0'...'9', 'a'...'f', 'A'...'F' => {
@@ -1188,12 +1199,11 @@ pub const Tokenizer = struct {
                         result.tag = .float_literal;
                     },
                     '0'...'9', 'a'...'f', 'A'...'F' => {},
-                    else => {
-                        if (isIdentifierChar(c)) {
-                            result.tag = .invalid;
-                        }
+                    'g'...'o', 'q'...'z', 'G'...'O', 'Q'...'Z' => {
+                        result.tag = .invalid;
                         break;
                     },
+                    else => break,
                 },
                 .num_dot_dec => switch (c) {
                     '.' => {
@@ -1206,12 +1216,11 @@ pub const Tokenizer = struct {
                         result.tag = .float_literal;
                         state = .float_fraction_dec;
                     },
-                    else => {
-                        if (isIdentifierChar(c)) {
-                            result.tag = .invalid;
-                        }
+                    '_', 'a'...'z', 'A'...'Z' => {
+                        result.tag = .invalid;
                         break;
                     },
+                    else => break,
                 },
                 .num_dot_hex => switch (c) {
                     '.' => {
@@ -1224,12 +1233,11 @@ pub const Tokenizer = struct {
                         result.tag = .float_literal;
                         state = .float_fraction_hex;
                     },
-                    else => {
-                        if (isIdentifierChar(c)) {
-                            result.tag = .invalid;
-                        }
+                    '_', 'g'...'z', 'G'...'Z' => {
+                        result.tag = .invalid;
                         break;
                     },
+                    else => break,
                 },
                 .float_fraction_dec_no_underscore => switch (c) {
                     '0'...'9' => {
@@ -1248,12 +1256,11 @@ pub const Tokenizer = struct {
                         state = .float_exponent_unsigned;
                     },
                     '0'...'9' => {},
-                    else => {
-                        if (isIdentifierChar(c)) {
-                            result.tag = .invalid;
-                        }
+                    'a'...'d', 'f'...'z', 'A'...'D', 'F'...'Z' => {
+                        result.tag = .invalid;
                         break;
                     },
+                    else => break,
                 },
                 .float_fraction_hex_no_underscore => switch (c) {
                     '0'...'9', 'a'...'f', 'A'...'F' => {
@@ -1272,12 +1279,11 @@ pub const Tokenizer = struct {
                         state = .float_exponent_unsigned;
                     },
                     '0'...'9', 'a'...'f', 'A'...'F' => {},
-                    else => {
-                        if (isIdentifierChar(c)) {
-                            result.tag = .invalid;
-                        }
+                    'g'...'o', 'q'...'z', 'G'...'O', 'Q'...'Z' => {
+                        result.tag = .invalid;
                         break;
                     },
+                    else => break,
                 },
                 .float_exponent_unsigned => switch (c) {
                     '+', '-' => {
@@ -1303,130 +1309,11 @@ pub const Tokenizer = struct {
                         state = .float_exponent_num_no_underscore;
                     },
                     '0'...'9' => {},
-                    else => {
-                        if (isIdentifierChar(c)) {
-                            result.tag = .invalid;
-                        }
+                    'a'...'z', 'A'...'Z' => {
+                        result.tag = .invalid;
                         break;
                     },
-                },
-            }
-        } else if (self.index == self.buffer.len) {
-            switch (state) {
-                .start,
-                .int_literal_dec,
-                .int_literal_bin,
-                .int_literal_oct,
-                .int_literal_hex,
-                .num_dot_dec,
-                .num_dot_hex,
-                .float_fraction_dec,
-                .float_fraction_hex,
-                .float_exponent_num,
-                .string_literal, // find this error later
-                .multiline_string_literal_line,
-                .builtin,
-                .line_comment,
-                .line_comment_start,
-                => {},
-
-                .identifier => {
-                    if (Token.getKeyword(self.buffer[result.loc.start..self.index])) |tag| {
-                        result.tag = tag;
-                    }
-                },
-                .doc_comment, .doc_comment_start => {
-                    result.tag = .doc_comment;
-                },
-                .container_doc_comment => {
-                    result.tag = .container_doc_comment;
-                },
-
-                .int_literal_dec_no_underscore,
-                .int_literal_bin_no_underscore,
-                .int_literal_oct_no_underscore,
-                .int_literal_hex_no_underscore,
-                .float_fraction_dec_no_underscore,
-                .float_fraction_hex_no_underscore,
-                .float_exponent_num_no_underscore,
-                .float_exponent_unsigned,
-                .saw_at_sign,
-                .backslash,
-                .char_literal,
-                .char_literal_backslash,
-                .char_literal_hex_escape,
-                .char_literal_unicode_escape_saw_u,
-                .char_literal_unicode_escape,
-                .char_literal_unicode_invalid,
-                .char_literal_end,
-                .char_literal_unicode,
-                .string_literal_backslash,
-                => {
-                    result.tag = .invalid;
-                },
-
-                .equal => {
-                    result.tag = .equal;
-                },
-                .bang => {
-                    result.tag = .bang;
-                },
-                .minus => {
-                    result.tag = .minus;
-                },
-                .slash => {
-                    result.tag = .slash;
-                },
-                .zero => {
-                    result.tag = .integer_literal;
-                },
-                .ampersand => {
-                    result.tag = .ampersand;
-                },
-                .period => {
-                    result.tag = .period;
-                },
-                .period_2 => {
-                    result.tag = .ellipsis2;
-                },
-                .period_asterisk => {
-                    result.tag = .period_asterisk;
-                },
-                .pipe => {
-                    result.tag = .pipe;
-                },
-                .angle_bracket_angle_bracket_right => {
-                    result.tag = .angle_bracket_angle_bracket_right;
-                },
-                .angle_bracket_right => {
-                    result.tag = .angle_bracket_right;
-                },
-                .angle_bracket_angle_bracket_left => {
-                    result.tag = .angle_bracket_angle_bracket_left;
-                },
-                .angle_bracket_left => {
-                    result.tag = .angle_bracket_left;
-                },
-                .plus_percent => {
-                    result.tag = .plus_percent;
-                },
-                .plus => {
-                    result.tag = .plus;
-                },
-                .percent => {
-                    result.tag = .percent;
-                },
-                .caret => {
-                    result.tag = .caret;
-                },
-                .asterisk_percent => {
-                    result.tag = .asterisk_percent;
-                },
-                .asterisk => {
-                    result.tag = .asterisk;
-                },
-                .minus_percent => {
-                    result.tag = .minus_percent;
+                    else => break,
                 },
             }
         }
@@ -1566,7 +1453,7 @@ test "tokenizer - code point literal with unicode escapes" {
     , &.{ .invalid, .invalid });
     try testTokenize(
         \\'\u{}'
-    , &.{ .invalid, .invalid });
+    , &.{.char_literal});
     try testTokenize(
         \\'\u{s}'
     , &.{ .invalid, .invalid });
@@ -2049,15 +1936,17 @@ test "tokenizer - invalid builtin identifiers" {
     try testTokenize("@0()", &.{ .invalid, .integer_literal, .l_paren, .r_paren });
 }
 
-fn testTokenize(source: []const u8, expected_tokens: []const Token.Tag) !void {
+fn testTokenize(source: [:0]const u8, expected_tokens: []const Token.Tag) !void {
     var tokenizer = Tokenizer.init(source);
     for (expected_tokens) |expected_token_id| {
         const token = tokenizer.next();
         if (token.tag != expected_token_id) {
-            std.debug.panic("expected {s}, found {s}\n", .{ @tagName(expected_token_id), @tagName(token.tag) });
+            std.debug.panic("expected {s}, found {s}\n", .{
+                @tagName(expected_token_id), @tagName(token.tag),
+            });
         }
     }
     const last_token = tokenizer.next();
-    try std.testing.expect(last_token.tag == .eof);
-    try std.testing.expect(last_token.loc.start == source.len);
+    try std.testing.expectEqual(Token.Tag.eof, last_token.tag);
+    try std.testing.expectEqual(source.len, last_token.loc.start);
 }

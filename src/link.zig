@@ -92,6 +92,7 @@ pub const Options = struct {
     each_lib_rpath: bool,
     disable_lld_caching: bool,
     is_test: bool,
+    use_stage1: bool,
     major_subsystem_version: ?u32,
     minor_subsystem_version: ?u32,
     gc_sections: ?bool = null,
@@ -181,7 +182,7 @@ pub const File = struct {
     /// rewriting it. A malicious file is detected as incremental link failure
     /// and does not cause Illegal Behavior. This operation is not atomic.
     pub fn openPath(allocator: *Allocator, options: Options) !*File {
-        const use_stage1 = build_options.is_stage1 and options.use_llvm;
+        const use_stage1 = build_options.is_stage1 and options.use_stage1;
         if (use_stage1 or options.emit == null) {
             return switch (options.object_format) {
                 .coff, .pe => &(try Coff.createEmpty(allocator, options)).base,
@@ -507,7 +508,7 @@ pub const File = struct {
         // If there is no Zig code to compile, then we should skip flushing the output file because it
         // will not be part of the linker line anyway.
         const module_obj_path: ?[]const u8 = if (base.options.module) |module| blk: {
-            const use_stage1 = build_options.is_stage1 and base.options.use_llvm;
+            const use_stage1 = build_options.is_stage1 and base.options.use_stage1;
             if (use_stage1) {
                 const obj_basename = try std.zig.binNameAlloc(arena, .{
                     .root_name = base.options.root_name,

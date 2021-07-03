@@ -754,7 +754,7 @@ pub fn render(gpa: *Allocator, nodes: []const Node) !std.zig.ast.Tree {
     });
 
     return std.zig.ast.Tree{
-        .source = ctx.buf.toOwnedSlice(),
+        .source = try ctx.buf.toOwnedSliceSentinel(0),
         .tokens = ctx.tokens.toOwnedSlice(),
         .nodes = ctx.nodes.toOwnedSlice(),
         .extra_data = ctx.extra_data.toOwnedSlice(gpa),

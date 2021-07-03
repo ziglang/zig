@@ -20,7 +20,7 @@ pub const NodeList = std.MultiArrayList(Node);
 
 pub const Tree = struct {
     /// Reference to externally-owned data.
-    source: []const u8,
+    source: [:0]const u8,
 
     tokens: TokenList.Slice,
     /// The root AST node is assumed to be index 0. Since there can be no
@@ -135,6 +135,8 @@ pub const Tree = struct {
         const token_tags = tree.tokens.items(.tag);
         switch (parse_error.tag) {
             .asterisk_after_ptr_deref => {
+                // Note that the token will point at the `.*` but ideally the source
+                // location would point to the `*` after the `.*`.
                 return stream.writeAll("'.*' cannot be followed by '*'. Are you missing a space?");
             },
             .decl_between_fields => {
@@ -284,7 +286,7 @@ pub const Tree = struct {
                 return stream.writeAll("bit range not allowed on slices and arrays");
             },
             .invalid_token => {
-                return stream.print("invalid token '{s}'", .{
+                return stream.print("invalid token: '{s}'", .{
                     token_tags[parse_error.token].symbol(),
                 });
             },

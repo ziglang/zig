@@ -247,7 +247,6 @@ pub const Utf8View = struct {
         } else |err| switch (err) {
             error.InvalidUtf8 => {
                 @compileError("invalid utf8");
-                unreachable;
             },
         }
     }

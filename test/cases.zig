@@ -1,5 +1,5 @@
 const std = @import("std");
-const TestContext = @import("../../src/test.zig").TestContext;
+const TestContext = @import("../src/test.zig").TestContext;
 
 // Self-hosted has differing levels of support for various architectures. For now we pass explicit
 // target parameters to each test case. At some point we will take this to the next level and have
@@ -12,19 +12,20 @@ const linux_x64 = std.zig.CrossTarget{
 };
 
 pub fn addCases(ctx: *TestContext) !void {
-    try @import("cbe.zig").addCases(ctx);
-    try @import("arm.zig").addCases(ctx);
-    try @import("aarch64.zig").addCases(ctx);
-    try @import("llvm.zig").addCases(ctx);
-    try @import("wasm.zig").addCases(ctx);
-    try @import("darwin.zig").addCases(ctx);
-    try @import("riscv64.zig").addCases(ctx);
+    try @import("compile_errors.zig").addCases(ctx);
+    try @import("stage2/cbe.zig").addCases(ctx);
+    try @import("stage2/arm.zig").addCases(ctx);
+    try @import("stage2/aarch64.zig").addCases(ctx);
+    try @import("stage2/llvm.zig").addCases(ctx);
+    try @import("stage2/wasm.zig").addCases(ctx);
+    try @import("stage2/darwin.zig").addCases(ctx);
+    try @import("stage2/riscv64.zig").addCases(ctx);
 
     {
         var case = ctx.exe("hello world with updates", linux_x64);
 
         case.addError("", &[_][]const u8{
-            ":93:9: error: struct 'test_case.test_case' has no member named 'main'",
+            ":93:9: error: struct 'tmp.tmp' has no member named 'main'",
         });
 
         // Incorrect return type
@@ -964,7 +965,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\	defer return a();
         \\}
     , &[_][]const u8{
-        ":7:8: error: try is not allowed inside defer expression",
+        ":7:8: error: 'try' not allowed inside defer expression",
         ":10:8: error: cannot return from defer expression",
     });
 
@@ -1038,8 +1039,8 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    var i: u32 = 10;
             \\}
         , &[_][]const u8{
-            ":3:9: error: redeclaration of 'i'",
-            ":2:9: note: previously declared here",
+            ":3:9: error: redeclaration of local variable 'i'",
+            ":2:9: note: previous declaration here",
         });
         case.addError(
             \\var testing: i64 = 10;
@@ -1060,8 +1061,8 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    };
             \\}
         , &[_][]const u8{
-            ":5:19: error: redeclaration of 'c'",
-            ":4:19: note: previously declared here",
+            ":5:19: error: redeclaration of local constant 'c'",
+            ":4:19: note: previous declaration here",
         });
     }
 
@@ -1213,7 +1214,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
         , &[_][]const u8{
             ":2:11: error: redefinition of label 'blk'",
-            ":2:5: note: previous definition is here",
+            ":2:5: note: previous definition here",
         });
     }
 
