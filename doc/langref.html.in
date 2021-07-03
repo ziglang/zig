@@ -9607,10 +9607,7 @@ test "string literal to constant slice" {
       </p>
       <p>
       There are many example allocators to look at for inspiration. Look at std/heap.zig and
-      at this
-      <a href="https://github.com/andrewrk/zig-general-purpose-allocator/">work-in-progress general purpose allocator</a>.
-      TODO: once <a href="https://github.com/ziglang/zig/issues/21">#21</a> is done, link to the docs
-      here.
+      {#syntax#}std.heap.GeneralPurposeAllocator{#endsyntax#}.
       </p>
       {#header_close#}
 
