@@ -32,6 +32,7 @@ pub const Isaac64 = @import("rand/Isaac64.zig");
 pub const Gimli = @import("rand/Gimli.zig");
 pub const Pcg = @import("rand/Pcg.zig");
 pub const Xoroshiro128 = @import("rand/Xoroshiro128.zig");
+pub const Xoshiro256 = @import("rand/Xoshiro256.zig");
 pub const Sfc64 = @import("rand/Sfc64.zig");
 
 pub const Random = struct {
