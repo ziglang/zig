@@ -67,6 +67,12 @@ const Scope = struct {
         mangle_count: u32 = 0,
         label: ?[]const u8 = null,
 
+        /// By default all variables are discarded, since we do not know in advance if they
+        /// will be used. This maps the variable's name to the Discard payload, so that if
+        /// the variable is subsequently referenced we can indicate that the discard should
+        /// be skipped during the intermediate AST -> Zig AST render step.
+        variable_discards: std.StringArrayHashMap(*ast.Payload.Discard),
+
         /// When the block corresponds to a function, keep track of the return type
         /// so that the return expression can be cast, if necessary
         return_type: ?clang.QualType = null,
@@ -84,6 +90,7 @@ const Scope = struct {
                 },
                 .statements = std.ArrayList(Node).init(c.gpa),
                 .variables = AliasList.init(c.gpa),
+                .variable_discards = std.StringArrayHashMap(*ast.Payload.Discard).init(c.gpa),
             };
             if (labeled) {
                 blk.label = try blk.makeMangledName(c, "blk");
@@ -94,6 +101,7 @@ const Scope = struct {
         fn deinit(self: *Block) void {
             self.statements.deinit();
             self.variables.deinit();
+            self.variable_discards.deinit();
             self.* = undefined;
         }
 
@@ -154,8 +162,9 @@ const Scope = struct {
 
         fn discardVariable(scope: *Block, c: *Context, name: []const u8) Error!void {
             const name_node = try Tag.identifier.create(c.arena, name);
-            const discard = try Tag.discard.create(c.arena, name_node);
+            const discard = try Tag.discard.create(c.arena, .{ .should_skip = false, .value = name_node });
             try scope.statements.append(discard);
+            try scope.variable_discards.putNoClobber(name, discard.castTag(.discard).?);
         }
     };
 
@@ -269,6 +278,24 @@ const Scope = struct {
                 },
                 else => scope = scope.parent.?,
             }
+        }
+    }
+
+    fn skipVariableDiscard(inner: *Scope, name: []const u8) void {
+        var scope = inner;
+        while (true) {
+            switch (scope.id) {
+                .root => return,
+                .block => {
+                    const block = @fieldParentPtr(Block, "base", scope);
+                    if (block.variable_discards.get(name)) |discard| {
+                        discard.data.should_skip = true;
+                        return;
+                    }
+                },
+                else => {},
+            }
+            scope = scope.parent.?;
         }
     }
 };
@@ -834,7 +861,9 @@ fn transTypeDef(c: *Context, scope: *Scope, typedef_decl: *const clang.TypedefNa
         try addTopLevelDecl(c, name, node);
     } else {
         try scope.appendNode(node);
-        try bs.discardVariable(c, name);
+        if (node.tag() != .pub_var_simple) {
+            try bs.discardVariable(c, name);
+        }
     }
 }
 
@@ -1078,14 +1107,16 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
             .init = init_node,
         },
     };
-
+    const node = Node.initPayload(&payload.base);
     if (toplevel) {
-        try addTopLevelDecl(c, name, Node.initPayload(&payload.base));
+        try addTopLevelDecl(c, name, node);
         if (!is_unnamed)
             try c.alias_list.append(.{ .alias = bare_name, .name = name });
     } else {
-        try scope.appendNode(Node.initPayload(&payload.base));
-        try bs.discardVariable(c, name);
+        try scope.appendNode(node);
+        if (node.tag() != .pub_var_simple) {
+            try bs.discardVariable(c, name);
+        }
     }
 }
 
@@ -1172,14 +1203,16 @@ fn transEnumDecl(c: *Context, scope: *Scope, enum_decl: *const clang.EnumDecl) E
             .name = name,
         },
     };
-
+    const node = Node.initPayload(&payload.base);
     if (toplevel) {
-        try addTopLevelDecl(c, name, Node.initPayload(&payload.base));
+        try addTopLevelDecl(c, name, node);
         if (!is_unnamed)
             try c.alias_list.append(.{ .alias = bare_name, .name = name });
     } else {
-        try scope.appendNode(Node.initPayload(&payload.base));
-        try bs.discardVariable(c, name);
+        try scope.appendNode(node);
+        if (node.tag() != .pub_var_simple) {
+            try bs.discardVariable(c, name);
+        }
     }
 }
 
@@ -1789,7 +1822,7 @@ fn transDeclStmtOne(
                 args[0] = try Tag.address_of.create(c.arena, varname);
 
                 const cleanup_call = try Tag.call.create(c.arena, .{ .lhs = fn_id, .args = args });
-                const discard = try Tag.discard.create(c.arena, cleanup_call);
+                const discard = try Tag.discard.create(c.arena, .{ .should_skip = false, .value = cleanup_call });
                 const deferred_cleanup = try Tag.@"defer".create(c.arena, discard);
 
                 try block_scope.statements.append(deferred_cleanup);
@@ -1844,6 +1877,7 @@ fn transDeclRefExpr(
             });
         }
     }
+    scope.skipVariableDiscard(mangled_name);
     return ref_expr;
 }
 
@@ -2478,7 +2512,9 @@ fn transInitListExprRecord(
             .value = try transExpr(c, scope, elem_expr, .used),
         });
     }
-
+    if (ty_node.castTag(.identifier)) |ident_node| {
+        scope.skipVariableDiscard(ident_node.data);
+    }
     return Tag.container_init.create(c.arena, .{
         .lhs = ty_node,
         .inits = try c.arena.dupe(ast.Payload.ContainerInit.Initializer, field_inits.items),
@@ -3870,7 +3906,7 @@ fn maybeSuppressResult(
 ) TransError!Node {
     _ = scope;
     if (used == .used) return result;
-    return Tag.discard.create(c.arena, result);
+    return Tag.discard.create(c.arena, .{ .should_skip = false, .value = result });
 }
 
 fn addTopLevelDecl(c: *Context, name: []const u8, decl_node: Node) !void {
@@ -5004,7 +5040,7 @@ fn parseCExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     var last = node;
     while (true) {
         // suppress result
-        const ignore = try Tag.discard.create(c.arena, last);
+        const ignore = try Tag.discard.create(c.arena, .{ .should_skip = false, .value = last });
         try block_scope.statements.append(ignore);
 
         last = try parseCCondExpr(c, m, scope);
@@ -5303,7 +5339,9 @@ fn parseCPrimaryExprInner(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!N
                 try m.fail(c, "TODO implement function '{s}' in std.c.builtins", .{mangled_name});
                 return error.ParseError;
             }
-            return Tag.identifier.create(c.arena, builtin_typedef_map.get(mangled_name) orelse mangled_name);
+            const identifier = try Tag.identifier.create(c.arena, builtin_typedef_map.get(mangled_name) orelse mangled_name);
+            scope.skipVariableDiscard(identifier.castTag(.identifier).?.data);
+            return identifier;
         },
         .LParen => {
             const inner_node = try parseCExpr(c, m, scope);
