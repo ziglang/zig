@@ -48,9 +48,9 @@ fn next(self: *Xoshiro256) u64 {
 fn jump(self: *Xoshiro256) void {
     var s: u256 = 0;
 
-    comptime var table = 0x39abdc4529b1661ca9582618e03fc9aad5a61266f0c9392c180ec6d33cfd0aba;
+    var table: u256 = 0x39abdc4529b1661ca9582618e03fc9aad5a61266f0c9392c180ec6d33cfd0aba;
 
-    inline while (table != 0) : (table >>= 1) {
+    while (table != 0) : (table >>= 1) {
         if (@truncate(u1, table) != 0) {
             s ^= @bitCast(u256, self.s);
         }
@@ -115,12 +115,12 @@ test "xoroshiro sequence" {
     r.jump();
 
     const seq2 = [_]u64{
-        0x0e2829e197117e54,
-        0xcf3e6ab41c73c978,
-        0x9e99dab5b21ece4e,
-        0x3b0920d08714c3b9,
-        0x8d8a1c6384997fca,
-        0xb7fdfea905649cdd,
+        0xae1db5c5e27807be,
+        0xb584c6a7fd8709fe,
+        0xc46a0ee9330fb6e,
+        0xdc0c9606f49ed76e,
+        0x1f5bb6540f6651fb,
+        0x72fa2ca734601488,
     };
 
     for (seq2) |s| {
