@@ -23,7 +23,7 @@ const ziggurat = @import("rand/ziggurat.zig");
 const maxInt = std.math.maxInt;
 
 /// Fast unbiased random numbers.
-pub const DefaultPrng = Xoroshiro128;
+pub const DefaultPrng = Xoshiro256;
 
 /// Cryptographically secure random numbers.
 pub const DefaultCsprng = Gimli;
