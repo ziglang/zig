@@ -272,6 +272,10 @@ static bool value_cmp_numeric_val_all(ZigValue *left, Cmp predicate, ZigValue *r
 static void memoize_field_init_val(CodeGen *codegen, ZigType *container_type, TypeStructField *field);
 static void value_to_bigfloat(BigFloat *out, ZigValue *val);
 
+static Error ir_resolve_lazy_recurse(AstNode *source_node, ZigValue *val);
+static Error ir_resolve_lazy_recurse_array(AstNode *source_node, ZigValue *val, size_t len);
+
+
 static void ir_assert_impl(bool ok, IrInstGen *source_instruction, char const *file, unsigned int line) {
     if (ok) return;
     src_assert_impl(ok, source_instruction->source_node, file, line);
@@ -12935,6 +12939,18 @@ static IrInstGen *ir_analyze_fn_call(IrAnalyze *ira, Scope *scope, AstNode *sour
             break;
         }
 
+        // We are about to put ZigValues into a hash map. The hash of a lazy value and a
+        // fully resolved value must equal, and so we must resolve the lazy values here.
+        // The hash function asserts that none of the values are lazy.
+        for (size_t i = 0; i < generic_id->param_count; i += 1) {
+            ZigValue *generic_param = &generic_id->params[i];
+            if (generic_param->special != ConstValSpecialRuntime) {
+                if ((err = ir_resolve_lazy_recurse(source_node, generic_param))) {
+                    return ira->codegen->invalid_inst_gen;
+                }
+            }
+        }
+
         auto existing_entry = ira->codegen->generic_table.put_unique(generic_id, impl_fn);
         if (existing_entry) {
             // throw away all our work and use the existing function
@@ -25510,6 +25526,88 @@ static Error ir_resolve_lazy_raw(AstNode *source_node, ZigValue *val) {
 
             // We can't free the lazy value here, because multiple other ZigValues might be pointing to it.
             return ErrorNone;
+        }
+    }
+    zig_unreachable();
+}
+
+static Error ir_resolve_lazy_recurse_array(AstNode *source_node, ZigValue *val, size_t len) {
+    Error err;
+    switch (val->data.x_array.special) {
+        case ConstArraySpecialUndef:
+        case ConstArraySpecialBuf:
+            return ErrorNone;
+        case ConstArraySpecialNone:
+            break;
+    }
+    ZigValue *elems = val->data.x_array.data.s_none.elements;
+
+    for (size_t i = 0; i < len; i += 1) {
+        if ((err = ir_resolve_lazy_recurse(source_node, &elems[i])))
+            return err;
+    }
+
+    return ErrorNone;
+}
+
+static Error ir_resolve_lazy_recurse(AstNode *source_node, ZigValue *val) {
+    Error err;
+    if ((err = ir_resolve_lazy_raw(source_node, val))) 
+        return err;
+    if (val->special != ConstValSpecialStatic)
+        return ErrorNone;
+    switch (val->type->id) {
+        case ZigTypeIdOpaque:
+        case ZigTypeIdEnum:
+        case ZigTypeIdMetaType:
+        case ZigTypeIdBool:
+        case ZigTypeIdVoid:
+        case ZigTypeIdComptimeFloat:
+        case ZigTypeIdInt:
+        case ZigTypeIdComptimeInt:
+        case ZigTypeIdEnumLiteral:
+        case ZigTypeIdErrorSet:
+        case ZigTypeIdUndefined:
+        case ZigTypeIdNull:
+        case ZigTypeIdPointer:
+        case ZigTypeIdFn:
+        case ZigTypeIdAnyFrame:
+        case ZigTypeIdBoundFn:
+        case ZigTypeIdInvalid:
+        case ZigTypeIdUnreachable:
+        case ZigTypeIdFloat:
+            return ErrorNone;
+        case ZigTypeIdFnFrame:
+            zig_panic("TODO: ir_resolve_lazy_recurse ZigTypeIdFnFrame");
+        case ZigTypeIdUnion: {
+            ConstUnionValue *union_val = &val->data.x_union;
+            return ir_resolve_lazy_recurse(source_node, union_val->payload);
+        }
+        case ZigTypeIdVector:
+            return ir_resolve_lazy_recurse_array(source_node, val, val->type->data.vector.len);
+        case ZigTypeIdArray:
+            return ir_resolve_lazy_recurse_array(source_node, val, val->type->data.array.len);
+        case ZigTypeIdStruct:
+            for (size_t i = 0; i < val->type->data.structure.src_field_count; i += 1) {
+                ZigValue *field = val->data.x_struct.fields[i];
+                if ((err = ir_resolve_lazy_recurse(source_node, field)))
+                    return err;
+            }
+            return ErrorNone;
+        case ZigTypeIdOptional:
+            if (get_src_ptr_type(val->type) != nullptr)
+                return ErrorNone;
+            if (val->data.x_optional == nullptr)
+                return ErrorNone;
+
+            return ir_resolve_lazy_recurse(source_node, val->data.x_optional);
+        case ZigTypeIdErrorUnion: {
+            bool is_err = val->data.x_err_union.error_set->data.x_err_set != nullptr;
+            if (is_err) {
+                return ir_resolve_lazy_recurse(source_node, val->data.x_err_union.error_set);
+            } else {
+                return ir_resolve_lazy_recurse(source_node, val->data.x_err_union.payload);
+            }
         }
     }
     zig_unreachable();
