@@ -5674,7 +5674,7 @@ static uint32_t hash_combine_const_val(uint32_t hash_val, ZigValue *const_val) {
     //     return hash_combine(hash_val, &const_val);
     // }
     if (const_val->special != ConstValSpecialStatic) {
-        printf("\nInvalid special: %d\n", const_val->special);
+        fprintf(stderr, "\nInvalid special: %d\n", const_val->special);
     }
     assert(const_val->special == ConstValSpecialStatic);
     hash_val = hash_combine(hash_val, &const_val->type->id);
@@ -5775,9 +5775,6 @@ static uint32_t hash_combine_const_val(uint32_t hash_val, ZigValue *const_val) {
             zig_unreachable();
     }
     zig_unreachable();
-}
-static uint32_t hash_const_val(ZigValue *const_val) {
-    return hash_combine_const_val(HASH_INIT, const_val);
 }
 
 uint32_t generic_fn_type_id_hash(GenericFnTypeId *id) {

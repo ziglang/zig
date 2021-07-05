@@ -12754,6 +12754,29 @@ static IrInstGen *ir_analyze_fn_call(IrAnalyze *ira, Scope *scope, AstNode *sour
         bool cacheable = fn_eval_cacheable(exec_scope, return_type);
         ZigValue *result = nullptr;
         if (cacheable) {
+            // We are about to put ZigValues into a hash map. The hash of a lazy value and a
+            // fully resolved value must equal, and so we must resolve the lazy values here.
+            // The hash function asserts that none of the values are lazy.
+            {
+                Scope *scope = exec_scope;
+                while (scope) {
+                    if (scope->id == ScopeIdVarDecl) {
+                        ScopeVarDecl *var_scope = (ScopeVarDecl *)scope;
+                        if ((err = ir_resolve_lazy_recurse(ira,
+                            var_scope->var->decl_node,
+                            var_scope->var->const_value)))
+                        {
+                            return ira->codegen->invalid_inst_gen;
+                        }
+                    } else if (scope->id == ScopeIdFnDef) {
+                        break;
+                    } else {
+                        zig_unreachable();
+                    }
+                    scope = scope->parent;
+                }
+            }
+
             auto entry = ira->codegen->memoized_fn_eval_table.maybe_get(exec_scope);
             if (entry)
                 result = entry->value;
@@ -25558,7 +25581,7 @@ static Error ir_resolve_lazy_recurse(IrAnalyze *ira, AstNode *source_node, ZigVa
         // This shouldn't be possible, it indicates an ICE.
         // NO_COMMIT
         ir_add_error_node(ira, source_node,
-            buf_sprintf("This is a bug in the Zig compiler. Runtime value found in comptime known parameter."));
+            buf_sprintf("This is a bug in the Zig compiler. Runtime value found in comptime known value."));
         return ErrorSemanticAnalyzeFail;
     }
     if (val->special != ConstValSpecialStatic)
