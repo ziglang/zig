@@ -25620,6 +25620,11 @@ static Error ir_resolve_lazy_recurse(IrAnalyze *ira, AstNode *source_node, ZigVa
         case ZigTypeIdStruct:
             for (size_t i = 0; i < val->type->data.structure.src_field_count; i += 1) {
                 ZigValue *field = val->data.x_struct.fields[i];
+                if (val->type->data.structure.fields[i]->is_comptime) {
+                    // comptime struct fields do not need to be resolved because
+                    // they are not part of the value.
+                    continue;
+                }
                 if ((err = ir_resolve_lazy_recurse(ira, source_node, field)))
                     return err;
             }

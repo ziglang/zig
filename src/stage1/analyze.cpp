@@ -5719,6 +5719,12 @@ static uint32_t hash_combine_const_val(uint32_t hash_val, ZigValue *const_val) {
             size_t field_count = const_val->type->data.structure.src_field_count;
             for (size_t i = 0; i < field_count; i += 1) {
                 ZigValue *field = const_val->data.x_struct.fields[i];
+                if (const_val->type->data.structure.fields[i]->is_comptime) {
+                    // The values of comptime struct fields are part of the
+                    // type, not the value, so they do not participate in equality
+                    // or hash of comptime values.
+                    continue;
+                }
                 hash_val = hash_combine_const_val(hash_val, field);
             }
             return hash_val;
@@ -7321,6 +7327,12 @@ bool const_values_equal(CodeGen *g, ZigValue *a, ZigValue *b) {
             return const_values_equal_array(g, a, b, a->type->data.array.len);
         case ZigTypeIdStruct:
             for (size_t i = 0; i < a->type->data.structure.src_field_count; i += 1) {
+                if (a->type->data.structure.fields[i]->is_comptime) {
+                    // The values of comptime struct fields are part of the
+                    // type, not the value, so they do not participate in equality
+                    // or hash of comptime values.
+                    continue;
+                }
                 ZigValue *field_a = a->data.x_struct.fields[i];
                 ZigValue *field_b = b->data.x_struct.fields[i];
                 if (!const_values_equal(g, field_a, field_b))
@@ -9945,10 +9957,13 @@ void copy_const_val(CodeGen *g, ZigValue *dest, ZigValue *src) {
         dest->data.x_struct.fields = alloc_const_vals_ptrs(g, dest->type->data.structure.src_field_count);
         for (size_t i = 0; i < dest->type->data.structure.src_field_count; i += 1) {
             TypeStructField *type_struct_field = dest->type->data.structure.fields[i];
-            // comptime-known values are stored in the field init_val inside
-            // the struct type.
-            if (type_struct_field->is_comptime)
+            if (type_struct_field->is_comptime) {
+                // comptime-known values are stored in the field init_val inside
+                // the struct type. The data stored here is not supposed to be read
+                // at all; the code should look at the type system and notice the field
+                // is comptime and look at the type to learn the value.
                 continue;
+            }
             copy_const_val(g, dest->data.x_struct.fields[i], src->data.x_struct.fields[i]);
             dest->data.x_struct.fields[i]->parent.id = ConstParentIdStruct;
             dest->data.x_struct.fields[i]->parent.data.p_struct.struct_val = dest;
