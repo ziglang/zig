@@ -5507,34 +5507,48 @@ bool handle_is_ptr(CodeGen *g, ZigType *type_entry) {
     zig_unreachable();
 }
 
-static uint32_t hash_ptr(void *ptr) {
-    return (uint32_t)(((uintptr_t)ptr) % UINT32_MAX);
+static const uint32_t HASH_INIT = 0x811c9dc5U;
+
+template<typename T>
+static uint32_t hash_combine(uint32_t hash, const T *value, size_t count = 1) {
+    // Simple FNV32 hash
+    size_t len = sizeof(T) * count;
+    const unsigned char *char_bytes = (const unsigned char*)value;
+    for (size_t c = 0; c < len; ++c) {
+        hash ^= char_bytes[c];
+        hash *= 0x01000193U;
+    }
+    return hash;
 }
 
-static uint32_t hash_size(size_t x) {
-    return (uint32_t)(x % UINT32_MAX);
+static uint32_t hash_combine_bigint(uint32_t hash, const BigInt *value) {
+    return hash_combine(hash, bigint_ptr(value), value->digit_count);
+}
+
+static uint32_t hash_combine_buf(uint32_t hash, const Buf *buf) {
+    return hash_combine(hash, buf_ptr(buf), buf_len(buf));
 }
 
 uint32_t fn_table_entry_hash(ZigFn* value) {
-    return ptr_hash(value);
+    return hash_combine(HASH_INIT, &value);
 }
 
 bool fn_table_entry_eql(ZigFn *a, ZigFn *b) {
-    return ptr_eq(a, b);
+    return a == b;
 }
 
 uint32_t fn_type_id_hash(FnTypeId *id) {
-    uint32_t result = 0;
-    result += ((uint32_t)(id->cc)) * (uint32_t)3349388391;
-    result += id->is_var_args ? (uint32_t)1931444534 : 0;
-    result += hash_ptr(id->return_type);
-    result += id->alignment * 0xd3b3f3e2;
+    uint32_t hash = HASH_INIT;
+    hash = hash_combine(hash, &id->cc);
+    hash = hash_combine(hash, &id->is_var_args);
+    hash = hash_combine(hash, &id->return_type);
+    hash = hash_combine(hash, &id->alignment);
     for (size_t i = 0; i < id->param_count; i += 1) {
         FnTypeParamInfo *info = &id->param_info[i];
-        result += info->is_noalias ? (uint32_t)892356923 : 0;
-        result += hash_ptr(info->type);
+        hash = hash_combine(hash, &info->is_noalias);
+        hash = hash_combine(hash, &info->type);
     }
-    return result;
+    return hash;
 }
 
 bool fn_type_id_eql(FnTypeId *a, FnTypeId *b) {
@@ -5559,194 +5573,202 @@ bool fn_type_id_eql(FnTypeId *a, FnTypeId *b) {
     return true;
 }
 
-static uint32_t hash_const_val_error_set(ZigValue *const_val) {
+static uint32_t hash_combine_const_val_error_set(uint32_t hash_val, ZigValue *const_val) {
     assert(const_val->data.x_err_set != nullptr);
-    return const_val->data.x_err_set->value ^ 2630160122;
+    return hash_combine(hash_val, &const_val->data.x_err_set->value);
 }
 
-static uint32_t hash_const_val_ptr(ZigValue *const_val) {
-    uint32_t hash_val = 0;
-    switch (const_val->data.x_ptr.mut) {
-        case ConstPtrMutRuntimeVar:
-            hash_val += (uint32_t)3500721036;
-            break;
-        case ConstPtrMutComptimeConst:
-            hash_val += (uint32_t)4214318515;
-            break;
-        case ConstPtrMutInfer:
-        case ConstPtrMutComptimeVar:
-            hash_val += (uint32_t)1103195694;
-            break;
-    }
+static uint32_t hash_combine_const_val_ptr(uint32_t hash_val, ZigValue *const_val) {
+    hash_val = hash_combine(hash_val, &const_val->data.x_ptr.special);
     switch (const_val->data.x_ptr.special) {
         case ConstPtrSpecialInvalid:
             zig_unreachable();
         case ConstPtrSpecialRef:
-            hash_val += (uint32_t)2478261866;
-            hash_val += hash_ptr(const_val->data.x_ptr.data.ref.pointee);
+            hash_val = hash_combine(hash_val, &const_val->data.x_ptr.data.ref.pointee);
             return hash_val;
         case ConstPtrSpecialBaseArray:
-            hash_val += (uint32_t)1764906839;
-            hash_val += hash_ptr(const_val->data.x_ptr.data.base_array.array_val);
-            hash_val += hash_size(const_val->data.x_ptr.data.base_array.elem_index);
+            hash_val = hash_combine(hash_val, &const_val->data.x_ptr.data.base_array.array_val);
+            hash_val = hash_combine(hash_val, &const_val->data.x_ptr.data.base_array.elem_index);
             return hash_val;
         case ConstPtrSpecialSubArray:
-            hash_val += (uint32_t)2643358777;
-            hash_val += hash_ptr(const_val->data.x_ptr.data.base_array.array_val);
-            hash_val += hash_size(const_val->data.x_ptr.data.base_array.elem_index);
+            hash_val = hash_combine(hash_val, &const_val->data.x_ptr.data.base_array.array_val);
+            hash_val = hash_combine(hash_val, &const_val->data.x_ptr.data.base_array.elem_index);
             return hash_val;
         case ConstPtrSpecialBaseStruct:
-            hash_val += (uint32_t)3518317043;
-            hash_val += hash_ptr(const_val->data.x_ptr.data.base_struct.struct_val);
-            hash_val += hash_size(const_val->data.x_ptr.data.base_struct.field_index);
+            hash_val = hash_combine(hash_val, &const_val->data.x_ptr.data.base_struct.struct_val);
+            hash_val = hash_combine(hash_val, &const_val->data.x_ptr.data.base_struct.field_index);
             return hash_val;
         case ConstPtrSpecialBaseErrorUnionCode:
-            hash_val += (uint32_t)2994743799;
-            hash_val += hash_ptr(const_val->data.x_ptr.data.base_err_union_code.err_union_val);
+            hash_val = hash_combine(hash_val, &const_val->data.x_ptr.data.base_err_union_code.err_union_val);
             return hash_val;
         case ConstPtrSpecialBaseErrorUnionPayload:
-            hash_val += (uint32_t)3456080131;
-            hash_val += hash_ptr(const_val->data.x_ptr.data.base_err_union_payload.err_union_val);
+            hash_val = hash_combine(hash_val, &const_val->data.x_ptr.data.base_err_union_payload.err_union_val);
             return hash_val;
         case ConstPtrSpecialBaseOptionalPayload:
-            hash_val += (uint32_t)3163140517;
-            hash_val += hash_ptr(const_val->data.x_ptr.data.base_optional_payload.optional_val);
+            hash_val = hash_combine(hash_val, &const_val->data.x_ptr.data.base_optional_payload.optional_val);
             return hash_val;
         case ConstPtrSpecialHardCodedAddr:
-            hash_val += (uint32_t)4048518294;
-            hash_val += hash_size(const_val->data.x_ptr.data.hard_coded_addr.addr);
-            return hash_val;
-        case ConstPtrSpecialDiscard:
-            hash_val += 2010123162;
+            hash_val = hash_combine(hash_val, &const_val->data.x_ptr.data.hard_coded_addr.addr);
             return hash_val;
         case ConstPtrSpecialFunction:
-            hash_val += (uint32_t)2590901619;
-            hash_val += hash_ptr(const_val->data.x_ptr.data.fn.fn_entry);
+            hash_val = hash_combine(hash_val, &const_val->data.x_ptr.data.fn.fn_entry);
             return hash_val;
+        case ConstPtrSpecialDiscard:
         case ConstPtrSpecialNull:
-            hash_val += (uint32_t)1486246455;
+            // No fields to hash
             return hash_val;
     }
     zig_unreachable();
 }
 
-static uint32_t hash_const_val(ZigValue *const_val) {
+static uint32_t hash_combine_const_val(uint32_t hash_val, ZigValue *const_val);
+static uint32_t hash_combine_const_val_array(uint32_t hash_val, ZigValue *array, size_t len) {
+    if (array->data.x_array.special == ConstArraySpecialUndef) {
+        char undef_tag = 56;
+        return hash_combine(hash_val, &undef_tag);
+    } else if (array->data.x_array.special == ConstArraySpecialBuf) {
+        // Hash in a way that is compatible with standard byte arrays
+        // If any of these asserts fails, the if after this needs to be modified
+        // to handle the new type in SpecialBuf.
+        assert(array->type->data.array.child_type->id == ZigTypeIdInt);
+        assert(array->type->data.array.child_type->data.integral.bit_count == 8);
+        assert(array->type->data.array.child_type->data.integral.is_signed == false);
+        const char *buf_pos = buf_ptr(array->data.x_array.data.s_buf);
+        const char *buf_end = buf_pos + buf_len(array->data.x_array.data.s_buf);
+        while (buf_pos < buf_end) {
+            hash_val = hash_combine(hash_val, buf_pos);
+            buf_pos++;
+        }
+        return hash_val;
+    } else if (array->type->data.array.child_type->id == ZigTypeIdInt &&
+               array->type->data.array.child_type->data.integral.bit_count == 8 &&
+               array->type->data.array.child_type->data.integral.is_signed == false) {
+        // If the type is u8, we hash it as if it's a ConstArraySpecialBuf,
+        // to maintain compatibility.
+        ZigValue *elems = array->data.x_array.data.s_none.elements;
+        for (size_t i = 0; i < len; i += 1) {
+            ZigValue *value = &elems[i];
+            assert(value->type == array->type->data.array.child_type);
+            // N.B. Using char here instead of uint8_t to match the const char*
+            // returned by buf_ptr.
+            const char byte_value = (char) bigint_as_u8(&value->data.x_bigint);
+            hash_val = hash_combine(hash_val, &byte_value);
+        }
+        return hash_val;
+    } else {
+        ZigValue *elems = array->data.x_array.data.s_none.elements;
+        for (size_t i = 0; i < len; i += 1) {
+            hash_val = hash_combine_const_val(hash_val, &elems[i]);
+        }
+        return hash_val;
+    }
+}
+static uint32_t hash_combine_const_val(uint32_t hash_val, ZigValue *const_val) {
+    hash_val = hash_combine(hash_val, &const_val->special);
+    if (const_val->special == ConstValSpecialUndef) {
+        return hash_val;
+    }
+    // if (const_val->special == ConstValSpecialLazy ||
+    //     const_val->special == ConstValSpecialRuntime) {
+    //     // NO_COMMIT verify this is correct
+    //     return hash_combine(hash_val, &const_val);
+    // }
+    if (const_val->special != ConstValSpecialStatic) {
+        printf("\nInvalid special: %d\n", const_val->special);
+    }
     assert(const_val->special == ConstValSpecialStatic);
+    hash_val = hash_combine(hash_val, &const_val->type->id);
     switch (const_val->type->id) {
         case ZigTypeIdOpaque:
             zig_unreachable();
         case ZigTypeIdBool:
-            return const_val->data.x_bool ? (uint32_t)127863866 : (uint32_t)215080464;
+            return hash_combine(hash_val, &const_val->data.x_bool);
         case ZigTypeIdMetaType:
-            return hash_ptr(const_val->data.x_type);
-        case ZigTypeIdVoid:
-            return (uint32_t)4149439618;
+            return hash_combine(hash_val, &const_val->data.x_type);
         case ZigTypeIdInt:
         case ZigTypeIdComptimeInt:
-            {
-                uint32_t result = 1331471175;
-                for (size_t i = 0; i < const_val->data.x_bigint.digit_count; i += 1) {
-                    uint64_t digit = bigint_ptr(&const_val->data.x_bigint)[i];
-                    result ^= ((uint32_t)(digit >> 32)) ^ (uint32_t)(result);
-                }
-                return result;
-            }
+            return hash_combine_bigint(hash_val, &const_val->data.x_bigint);
         case ZigTypeIdEnumLiteral:
-            return buf_hash(const_val->data.x_enum_literal) * (uint32_t)2691276464;
+            return hash_combine_buf(hash_val, const_val->data.x_enum_literal);
         case ZigTypeIdEnum:
-            {
-                uint32_t result = 31643936;
-                for (size_t i = 0; i < const_val->data.x_enum_tag.digit_count; i += 1) {
-                    uint64_t digit = bigint_ptr(&const_val->data.x_enum_tag)[i];
-                    result ^= ((uint32_t)(digit >> 32)) ^ (uint32_t)(result);
-                }
-                return result;
-            }
+            return hash_combine_bigint(hash_val, &const_val->data.x_enum_tag);
         case ZigTypeIdFloat:
+            hash_val = hash_combine(hash_val, &const_val->type->data.floating.bit_count);
             switch (const_val->type->data.floating.bit_count) {
-                case 16:
-                    {
-                        uint16_t result;
-                        static_assert(sizeof(result) == sizeof(const_val->data.x_f16), "");
-                        memcpy(&result, &const_val->data.x_f16, sizeof(result));
-                        return result * 65537u;
-                    }
-                case 32:
-                    {
-                        uint32_t result;
-                        memcpy(&result, &const_val->data.x_f32, 4);
-                        return result ^ 4084870010;
-                    }
-                case 64:
-                    {
-                        uint32_t ints[2];
-                        memcpy(&ints[0], &const_val->data.x_f64, 8);
-                        return ints[0] ^ ints[1] ^ 0x22ed43c6;
-                    }
-                case 128:
-                    {
-                        uint32_t ints[4];
-                        memcpy(&ints[0], &const_val->data.x_f128, 16);
-                        return ints[0] ^ ints[1] ^ ints[2] ^ ints[3] ^ 0xb5ffef27;
-                    }
-                default:
-                    zig_unreachable();
+                case 16:  return hash_combine(hash_val, &const_val->data.x_f16);
+                case 32:  return hash_combine(hash_val, &const_val->data.x_f32);
+                case 64:  return hash_combine(hash_val, &const_val->data.x_f64);
+                case 128: return hash_combine(hash_val, &const_val->data.x_f128);
+                default:  zig_unreachable();
             }
         case ZigTypeIdComptimeFloat:
-            {
-                float128_t f128 = bigfloat_to_f128(&const_val->data.x_bigfloat);
-                uint32_t ints[4];
-                memcpy(&ints[0], &f128, 16);
-                return ints[0] ^ ints[1] ^ ints[2] ^ ints[3] ^ 0xed8b3dfb;
-            }
+            return hash_combine(hash_val, &const_val->data.x_bigfloat.value);
         case ZigTypeIdFn:
             assert(const_val->data.x_ptr.mut == ConstPtrMutComptimeConst);
             assert(const_val->data.x_ptr.special == ConstPtrSpecialFunction);
-            return 3677364617 ^ hash_ptr(const_val->data.x_ptr.data.fn.fn_entry);
+            return hash_combine(hash_val, &const_val->data.x_ptr.data.fn.fn_entry);
         case ZigTypeIdPointer:
-            return hash_const_val_ptr(const_val);
+            return hash_combine_const_val_ptr(hash_val, const_val);
+        case ZigTypeIdVoid:
         case ZigTypeIdUndefined:
-            return 162837799;
         case ZigTypeIdNull:
-            return 844854567;
+            return hash_val;
         case ZigTypeIdArray:
-            // TODO better hashing algorithm
-            return 1166190605;
-        case ZigTypeIdStruct:
-            // TODO better hashing algorithm
-            return 1532530855;
-        case ZigTypeIdUnion:
-            // TODO better hashing algorithm
-            return 2709806591;
+            return hash_combine_const_val_array(hash_val, const_val, const_val->type->data.array.len);
+        case ZigTypeIdStruct: {
+            size_t field_count = const_val->type->data.structure.src_field_count;
+            for (size_t i = 0; i < field_count; i += 1) {
+                ZigValue *field = const_val->data.x_struct.fields[i];
+                hash_val = hash_combine_const_val(hash_val, field);
+            }
+            return hash_val;
+        }
+        case ZigTypeIdUnion: {
+            ConstUnionValue *union_value = &const_val->data.x_union;
+            hash_val = hash_combine_bigint(hash_val, &union_value->tag);
+            return hash_combine_const_val(hash_val, union_value->payload);
+        }
         case ZigTypeIdOptional:
             if (get_src_ptr_type(const_val->type) != nullptr) {
-                return hash_const_val_ptr(const_val) * (uint32_t)1992916303;
+                char tag = 1;
+                hash_val = hash_combine(hash_val, &tag);
+                return hash_combine_const_val_ptr(hash_val, const_val);
             } else if (const_val->type->data.maybe.child_type->id == ZigTypeIdErrorSet) {
-                return hash_const_val_error_set(const_val) * (uint32_t)3147031929;
+                char tag = 2;
+                hash_val = hash_combine(hash_val, &tag);
+                return hash_combine_const_val_error_set(hash_val, const_val);
+            } else if (const_val->data.x_optional) {
+                char tag = 3;
+                hash_val = hash_combine(hash_val, &tag);
+                return hash_combine_const_val(hash_val, const_val->data.x_optional);
             } else {
-                if (const_val->data.x_optional) {
-                    return hash_const_val(const_val->data.x_optional) * (uint32_t)1992916303;
-                } else {
-                    return 4016830364;
-                }
+                char tag = 4;
+                hash_val = hash_combine(hash_val, &tag);
+                return hash_val;
             }
-        case ZigTypeIdErrorUnion:
-            // TODO better hashing algorithm
-            return 3415065496;
+        case ZigTypeIdErrorUnion: {
+            bool is_err = const_val->data.x_err_union.error_set->data.x_err_set != nullptr;
+            hash_val = hash_combine(hash_val, &is_err);
+            if (is_err) {
+                hash_val = hash_combine_const_val(hash_val, const_val->data.x_err_union.error_set);
+            } else {
+                hash_val = hash_combine_const_val(hash_val, const_val->data.x_err_union.payload);
+            }
+            return hash_val;
+        }
         case ZigTypeIdErrorSet:
-            return hash_const_val_error_set(const_val);
+            return hash_combine_const_val_error_set(hash_val, const_val);
         case ZigTypeIdVector:
-            // TODO better hashing algorithm
-            return 3647867726;
+            return hash_combine_const_val_array(hash_val, const_val, const_val->type->data.vector.len);
         case ZigTypeIdFnFrame:
             // TODO better hashing algorithm
-            return 675741936;
+            return hash_val;
         case ZigTypeIdAnyFrame:
             // TODO better hashing algorithm
-            return 3747294894;
+            return hash_val;
         case ZigTypeIdBoundFn: {
             assert(const_val->data.x_bound_fn.fn != nullptr);
-            return 3677364617 ^ hash_ptr(const_val->data.x_bound_fn.fn);
+            return hash_combine(hash_val, &const_val->data.x_bound_fn.fn);
         }
         case ZigTypeIdInvalid:
         case ZigTypeIdUnreachable:
@@ -5754,15 +5776,18 @@ static uint32_t hash_const_val(ZigValue *const_val) {
     }
     zig_unreachable();
 }
+static uint32_t hash_const_val(ZigValue *const_val) {
+    return hash_combine_const_val(HASH_INIT, const_val);
+}
 
 uint32_t generic_fn_type_id_hash(GenericFnTypeId *id) {
-    uint32_t result = 0;
-    result += hash_ptr(id->fn_entry);
+    uint32_t result = HASH_INIT;
+    result = hash_combine(result, &id->fn_entry);
     for (size_t i = 0; i < id->param_count; i += 1) {
         ZigValue *generic_param = &id->params[i];
         if (generic_param->special != ConstValSpecialRuntime) {
-            result += hash_const_val(generic_param);
-            result += hash_ptr(generic_param->type);
+            result = hash_combine_const_val(result, generic_param);
+            result = hash_combine(result, &generic_param->type);
         }
     }
     return result;
@@ -5957,15 +5982,15 @@ bool fn_eval_cacheable(Scope *scope, ZigType *return_type) {
 }
 
 uint32_t fn_eval_hash(Scope* scope) {
-    uint32_t result = 0;
+    uint32_t hash = HASH_INIT;
     while (scope) {
         if (scope->id == ScopeIdVarDecl) {
             ScopeVarDecl *var_scope = (ScopeVarDecl *)scope;
-            result += hash_const_val(var_scope->var->const_value);
+            hash = hash_combine_const_val(hash, var_scope->var->const_value);
         } else if (scope->id == ScopeIdFnDef) {
             ScopeFnDef *fn_scope = (ScopeFnDef *)scope;
-            result += hash_ptr(fn_scope->fn_entry);
-            return result;
+            hash = hash_combine(hash, &fn_scope->fn_entry);
+            return hash;
         } else {
             zig_unreachable();
         }
@@ -7260,6 +7285,8 @@ bool const_values_equal(CodeGen *g, ZigValue *a, ZigValue *b) {
         case ZigTypeIdMetaType:
             return a->data.x_type == b->data.x_type;
         case ZigTypeIdVoid:
+        case ZigTypeIdUndefined:
+        case ZigTypeIdNull:
             return true;
         case ZigTypeIdErrorSet:
             return a->data.x_err_set->value == b->data.x_err_set->value;
@@ -7292,10 +7319,9 @@ bool const_values_equal(CodeGen *g, ZigValue *a, ZigValue *b) {
         case ZigTypeIdVector:
             assert(a->type->data.vector.len == b->type->data.vector.len);
             return const_values_equal_array(g, a, b, a->type->data.vector.len);
-        case ZigTypeIdArray: {
+        case ZigTypeIdArray:
             assert(a->type->data.array.len == b->type->data.array.len);
             return const_values_equal_array(g, a, b, a->type->data.array.len);
-        }
         case ZigTypeIdStruct:
             for (size_t i = 0; i < a->type->data.structure.src_field_count; i += 1) {
                 ZigValue *field_a = a->data.x_struct.fields[i];
@@ -7308,10 +7334,6 @@ bool const_values_equal(CodeGen *g, ZigValue *a, ZigValue *b) {
             zig_panic("TODO: const_values_equal ZigTypeIdFnFrame");
         case ZigTypeIdAnyFrame:
             zig_panic("TODO: const_values_equal ZigTypeIdAnyFrame");
-        case ZigTypeIdUndefined:
-            zig_panic("TODO: const_values_equal ZigTypeIdUndefined");
-        case ZigTypeIdNull:
-            zig_panic("TODO: const_values_equal ZigTypeIdNull");
         case ZigTypeIdOptional:
             if (get_src_ptr_type(a->type) != nullptr)
                 return const_values_equal_ptr(a, b);
@@ -7719,6 +7741,7 @@ ZigType *make_int_type(CodeGen *g, bool is_signed, uint32_t size_in_bits) {
 }
 
 uint32_t type_id_hash(TypeId x) {
+    uint32_t hash = hash_combine(HASH_INIT, &x.id);
     switch (x.id) {
         case ZigTypeIdInvalid:
         case ZigTypeIdOpaque:
@@ -7743,27 +7766,38 @@ uint32_t type_id_hash(TypeId x) {
         case ZigTypeIdAnyFrame:
             zig_unreachable();
         case ZigTypeIdErrorUnion:
-            return hash_ptr(x.data.error_union.err_set_type) ^ hash_ptr(x.data.error_union.payload_type);
+            hash = hash_combine(hash, &x.data.error_union.err_set_type);
+            hash = hash_combine(hash, &x.data.error_union.payload_type);
+            return hash;
         case ZigTypeIdPointer:
-            return hash_ptr(x.data.pointer.child_type) +
-                (uint32_t)x.data.pointer.ptr_len * 1120226602u +
-                (x.data.pointer.is_const ? (uint32_t)2749109194 : (uint32_t)4047371087) +
-                (x.data.pointer.is_volatile ? (uint32_t)536730450 : (uint32_t)1685612214) +
-                (x.data.pointer.allow_zero ? (uint32_t)3324284834 : (uint32_t)3584904923) +
-                (((uint32_t)x.data.pointer.alignment) ^ (uint32_t)0x777fbe0e) +
-                (((uint32_t)x.data.pointer.bit_offset_in_host) ^ (uint32_t)2639019452) +
-                (((uint32_t)x.data.pointer.vector_index) ^ (uint32_t)0x19199716) +
-                (((uint32_t)x.data.pointer.host_int_bytes) ^ (uint32_t)529908881) *
-                (x.data.pointer.sentinel ? hash_const_val(x.data.pointer.sentinel) : (uint32_t)2955491856);
+            hash = hash_combine(hash, &x.data.pointer.child_type);
+            hash = hash_combine(hash, &x.data.pointer.ptr_len);
+            hash = hash_combine(hash, &x.data.pointer.is_const);
+            hash = hash_combine(hash, &x.data.pointer.is_volatile);
+            hash = hash_combine(hash, &x.data.pointer.allow_zero);
+            hash = hash_combine(hash, &x.data.pointer.alignment);
+            hash = hash_combine(hash, &x.data.pointer.bit_offset_in_host);
+            hash = hash_combine(hash, &x.data.pointer.vector_index);
+            hash = hash_combine(hash, &x.data.pointer.host_int_bytes);
+            if (x.data.pointer.sentinel != nullptr) {
+                hash = hash_combine_const_val(hash, x.data.pointer.sentinel);
+            }
+            return hash;
         case ZigTypeIdArray:
-            return hash_ptr(x.data.array.child_type) *
-                ((uint32_t)x.data.array.size ^ (uint32_t)2122979968) *
-                (x.data.array.sentinel ? hash_const_val(x.data.array.sentinel) : (uint32_t)1927201585);
+            hash = hash_combine(hash, &x.data.array.child_type);
+            hash = hash_combine(hash, &x.data.array.size);
+            if (x.data.array.sentinel != nullptr) {
+                hash = hash_combine_const_val(hash, x.data.array.sentinel);
+            }
+            return hash;
         case ZigTypeIdInt:
-            return (x.data.integer.is_signed ? (uint32_t)2652528194 : (uint32_t)163929201) +
-                    (((uint32_t)x.data.integer.bit_count) ^ (uint32_t)2998081557);
+            hash = hash_combine(hash, &x.data.integer.is_signed);
+            hash = hash_combine(hash, &x.data.integer.bit_count);
+            return hash;
         case ZigTypeIdVector:
-            return hash_ptr(x.data.vector.elem_type) * (x.data.vector.len * 526582681);
+            hash = hash_combine(hash, &x.data.vector.elem_type);
+            hash = hash_combine(hash, &x.data.vector.len);
+            return hash;
     }
     zig_unreachable();
 }
@@ -8155,7 +8189,7 @@ ZigType *get_align_amt_type(CodeGen *g) {
 }
 
 uint32_t type_ptr_hash(const ZigType *ptr) {
-    return hash_ptr((void*)ptr);
+    return hash_combine(HASH_INIT, &ptr);
 }
 
 bool type_ptr_eql(const ZigType *a, const ZigType *b) {
@@ -8163,7 +8197,7 @@ bool type_ptr_eql(const ZigType *a, const ZigType *b) {
 }
 
 uint32_t pkg_ptr_hash(const ZigPackage *ptr) {
-    return hash_ptr((void*)ptr);
+    return hash_combine(HASH_INIT, &ptr);
 }
 
 bool pkg_ptr_eql(const ZigPackage *a, const ZigPackage *b) {
@@ -8171,7 +8205,7 @@ bool pkg_ptr_eql(const ZigPackage *a, const ZigPackage *b) {
 }
 
 uint32_t tld_ptr_hash(const Tld *ptr) {
-    return hash_ptr((void*)ptr);
+    return hash_combine(HASH_INIT, &ptr);
 }
 
 bool tld_ptr_eql(const Tld *a, const Tld *b) {
@@ -8179,7 +8213,7 @@ bool tld_ptr_eql(const Tld *a, const Tld *b) {
 }
 
 uint32_t node_ptr_hash(const AstNode *ptr) {
-    return hash_ptr((void*)ptr);
+    return hash_combine(HASH_INIT, &ptr);
 }
 
 bool node_ptr_eql(const AstNode *a, const AstNode *b) {
@@ -8187,7 +8221,7 @@ bool node_ptr_eql(const AstNode *a, const AstNode *b) {
 }
 
 uint32_t fn_ptr_hash(const ZigFn *ptr) {
-    return hash_ptr((void*)ptr);
+    return hash_combine(HASH_INIT, &ptr);
 }
 
 bool fn_ptr_eql(const ZigFn *a, const ZigFn *b) {
@@ -8195,7 +8229,7 @@ bool fn_ptr_eql(const ZigFn *a, const ZigFn *b) {
 }
 
 uint32_t err_ptr_hash(const ErrorTableEntry *ptr) {
-    return hash_ptr((void*)ptr);
+    return hash_combine(HASH_INIT, &ptr);
 }
 
 bool err_ptr_eql(const ErrorTableEntry *a, const ErrorTableEntry *b) {

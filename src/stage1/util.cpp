@@ -21,29 +21,6 @@ void zig_panic(const char *format, ...) {
     abort();
 }
 
-uint32_t int_hash(int i) {
-    return (uint32_t)(i % UINT32_MAX);
-}
-bool int_eq(int a, int b) {
-    return a == b;
-}
-
-uint32_t uint64_hash(uint64_t i) {
-    return (uint32_t)(i % UINT32_MAX);
-}
-
-bool uint64_eq(uint64_t a, uint64_t b) {
-    return a == b;
-}
-
-uint32_t ptr_hash(const void *ptr) {
-    return (uint32_t)(((uintptr_t)ptr) % UINT32_MAX);
-}
-
-bool ptr_eq(const void *a, const void *b) {
-    return a == b;
-}
-
 // Ported from std/mem.zig.
 bool SplitIterator_isSplitByte(SplitIterator *self, uint8_t byte) {
     for (size_t i = 0; i < self->split_bytes.len; i += 1) {

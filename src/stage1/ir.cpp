@@ -272,8 +272,8 @@ static bool value_cmp_numeric_val_all(ZigValue *left, Cmp predicate, ZigValue *r
 static void memoize_field_init_val(CodeGen *codegen, ZigType *container_type, TypeStructField *field);
 static void value_to_bigfloat(BigFloat *out, ZigValue *val);
 
-static Error ir_resolve_lazy_recurse(AstNode *source_node, ZigValue *val);
-static Error ir_resolve_lazy_recurse_array(AstNode *source_node, ZigValue *val, size_t len);
+static Error ir_resolve_lazy_recurse(IrAnalyze *ira, AstNode *source_node, ZigValue *val);
+static Error ir_resolve_lazy_recurse_array(IrAnalyze *ira, AstNode *source_node, ZigValue *val, size_t len);
 
 
 static void ir_assert_impl(bool ok, IrInstGen *source_instruction, char const *file, unsigned int line) {
@@ -12945,7 +12945,7 @@ static IrInstGen *ir_analyze_fn_call(IrAnalyze *ira, Scope *scope, AstNode *sour
         for (size_t i = 0; i < generic_id->param_count; i += 1) {
             ZigValue *generic_param = &generic_id->params[i];
             if (generic_param->special != ConstValSpecialRuntime) {
-                if ((err = ir_resolve_lazy_recurse(source_node, generic_param))) {
+                if ((err = ir_resolve_lazy_recurse(ira, source_node, generic_param))) {
                     return ira->codegen->invalid_inst_gen;
                 }
             }
@@ -25531,7 +25531,7 @@ static Error ir_resolve_lazy_raw(AstNode *source_node, ZigValue *val) {
     zig_unreachable();
 }
 
-static Error ir_resolve_lazy_recurse_array(AstNode *source_node, ZigValue *val, size_t len) {
+static Error ir_resolve_lazy_recurse_array(IrAnalyze *ira, AstNode *source_node, ZigValue *val, size_t len) {
     Error err;
     switch (val->data.x_array.special) {
         case ConstArraySpecialUndef:
@@ -25543,17 +25543,24 @@ static Error ir_resolve_lazy_recurse_array(AstNode *source_node, ZigValue *val, 
     ZigValue *elems = val->data.x_array.data.s_none.elements;
 
     for (size_t i = 0; i < len; i += 1) {
-        if ((err = ir_resolve_lazy_recurse(source_node, &elems[i])))
+        if ((err = ir_resolve_lazy_recurse(ira, source_node, &elems[i])))
             return err;
     }
 
     return ErrorNone;
 }
 
-static Error ir_resolve_lazy_recurse(AstNode *source_node, ZigValue *val) {
+static Error ir_resolve_lazy_recurse(IrAnalyze *ira, AstNode *source_node, ZigValue *val) {
     Error err;
     if ((err = ir_resolve_lazy_raw(source_node, val))) 
         return err;
+    if (val->special == ConstValSpecialRuntime) {
+        // This shouldn't be possible, it indicates an ICE.
+        // NO_COMMIT
+        ir_add_error_node(ira, source_node,
+            buf_sprintf("This is a bug in the Zig compiler. Runtime value found in comptime known parameter."));
+        return ErrorSemanticAnalyzeFail;
+    }
     if (val->special != ConstValSpecialStatic)
         return ErrorNone;
     switch (val->type->id) {
@@ -25581,16 +25588,16 @@ static Error ir_resolve_lazy_recurse(AstNode *source_node, ZigValue *val) {
             zig_panic("TODO: ir_resolve_lazy_recurse ZigTypeIdFnFrame");
         case ZigTypeIdUnion: {
             ConstUnionValue *union_val = &val->data.x_union;
-            return ir_resolve_lazy_recurse(source_node, union_val->payload);
+            return ir_resolve_lazy_recurse(ira, source_node, union_val->payload);
         }
         case ZigTypeIdVector:
-            return ir_resolve_lazy_recurse_array(source_node, val, val->type->data.vector.len);
+            return ir_resolve_lazy_recurse_array(ira, source_node, val, val->type->data.vector.len);
         case ZigTypeIdArray:
-            return ir_resolve_lazy_recurse_array(source_node, val, val->type->data.array.len);
+            return ir_resolve_lazy_recurse_array(ira, source_node, val, val->type->data.array.len);
         case ZigTypeIdStruct:
             for (size_t i = 0; i < val->type->data.structure.src_field_count; i += 1) {
                 ZigValue *field = val->data.x_struct.fields[i];
-                if ((err = ir_resolve_lazy_recurse(source_node, field)))
+                if ((err = ir_resolve_lazy_recurse(ira, source_node, field)))
                     return err;
             }
             return ErrorNone;
@@ -25600,13 +25607,13 @@ static Error ir_resolve_lazy_recurse(AstNode *source_node, ZigValue *val) {
             if (val->data.x_optional == nullptr)
                 return ErrorNone;
 
-            return ir_resolve_lazy_recurse(source_node, val->data.x_optional);
+            return ir_resolve_lazy_recurse(ira, source_node, val->data.x_optional);
         case ZigTypeIdErrorUnion: {
             bool is_err = val->data.x_err_union.error_set->data.x_err_set != nullptr;
             if (is_err) {
-                return ir_resolve_lazy_recurse(source_node, val->data.x_err_union.error_set);
+                return ir_resolve_lazy_recurse(ira, source_node, val->data.x_err_union.error_set);
             } else {
-                return ir_resolve_lazy_recurse(source_node, val->data.x_err_union.payload);
+                return ir_resolve_lazy_recurse(ira, source_node, val->data.x_err_union.payload);
             }
         }
     }

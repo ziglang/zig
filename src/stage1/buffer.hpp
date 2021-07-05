@@ -26,7 +26,7 @@ Buf *buf_sprintf(const char *format, ...)
     ATTRIBUTE_PRINTF(1, 2);
 Buf *buf_vprintf(const char *format, va_list ap);
 
-static inline size_t buf_len(Buf *buf) {
+static inline size_t buf_len(const Buf *buf) {
     assert(buf);
     assert(buf->list.length);
     return buf->list.length - 1;

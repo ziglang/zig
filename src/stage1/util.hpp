@@ -129,13 +129,6 @@ static inline uint64_t round_to_next_power_of_2(uint64_t x) {
     return x + 1;
 }
 
-uint32_t int_hash(int i);
-bool int_eq(int a, int b);
-uint32_t uint64_hash(uint64_t i);
-bool uint64_eq(uint64_t a, uint64_t b);
-uint32_t ptr_hash(const void *ptr);
-bool ptr_eq(const void *a, const void *b);
-
 static inline uint8_t log2_u64(uint64_t x) {
     return (63 - clzll(x));
 }
