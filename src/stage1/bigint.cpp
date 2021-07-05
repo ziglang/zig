@@ -93,7 +93,6 @@ static void to_twos_complement(BigInt *dest, const BigInt *op, size_t bit_count)
         if (leftover_bits != 0) {
             dest->data.digit &= (1ULL << leftover_bits) - 1;
         }
-        dest->data.digit = op_digits[0] & ((1ULL << leftover_bits) - 1);
         if (dest->data.digit == 0) dest->digit_count = 0;
         return;
     }
