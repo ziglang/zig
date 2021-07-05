@@ -273,8 +273,8 @@ pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, c
                 if (builtin.single_threaded) {
                     stderr.print("panic: ", .{}) catch os.abort();
                 } else {
-                    const current_thread_id = std.Thread.getCurrentThreadId();
-                    stderr.print("thread {d} panic: ", .{current_thread_id}) catch os.abort();
+                    const current_thread_id = std.Thread.getCurrentId();
+                    stderr.print("thread {} panic: ", .{current_thread_id}) catch os.abort();
                 }
                 stderr.print(format ++ "\n", args) catch os.abort();
                 if (trace) |t| {

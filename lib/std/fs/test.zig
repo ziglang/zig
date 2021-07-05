@@ -862,11 +862,10 @@ test "open file with exclusive lock twice, make sure it waits" {
     errdefer file.close();
 
     const S = struct {
-        const C = struct { dir: *fs.Dir, evt: *std.Thread.ResetEvent };
-        fn checkFn(ctx: C) !void {
-            const file1 = try ctx.dir.createFile(filename, .{ .lock = .Exclusive });
+        fn checkFn(dir: *fs.Dir, evt: *std.Thread.ResetEvent) !void {
+            const file1 = try dir.createFile(filename, .{ .lock = .Exclusive });
             defer file1.close();
-            ctx.evt.set();
+            evt.set();
         }
     };
 
@@ -874,8 +873,8 @@ test "open file with exclusive lock twice, make sure it waits" {
     try evt.init();
     defer evt.deinit();
 
-    const t = try std.Thread.spawn(S.checkFn, S.C{ .dir = &tmp.dir, .evt = &evt });
-    defer t.wait();
+    const t = try std.Thread.spawn(.{}, S.checkFn, .{ &tmp.dir, &evt });
+    defer t.join();
 
     const SLEEP_TIMEOUT_NS = 10 * std.time.ns_per_ms;
     // Make sure we've slept enough.

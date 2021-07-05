@@ -320,18 +320,9 @@ test "std.Thread.getCurrentId" {
     if (builtin.single_threaded) return error.SkipZigTest;
 
     var thread_current_id: Thread.Id = undefined;
-    const thread = try Thread.spawn(testThreadIdFn, &thread_current_id);
-    const thread_id = thread.handle();
-    thread.wait();
-    if (Thread.use_pthreads) {
-        try expect(thread_current_id == thread_id);
-    } else if (native_os == .windows) {
-        try expect(Thread.getCurrentId() != thread_current_id);
-    } else {
-        // If the thread completes very quickly, then thread_id can be 0. See the
-        // documentation comments for `std.Thread.handle`.
-        try expect(thread_id == 0 or thread_current_id == thread_id);
-    }
+    const thread = try Thread.spawn(.{}, testThreadIdFn, .{&thread_current_id});
+    thread.join();
+    try expect(Thread.getCurrentId() != thread_current_id);
 }
 
 test "spawn threads" {
@@ -339,21 +330,20 @@ test "spawn threads" {
 
     var shared_ctx: i32 = 1;
 
-    const thread1 = try Thread.spawn(start1, {});
-    const thread2 = try Thread.spawn(start2, &shared_ctx);
-    const thread3 = try Thread.spawn(start2, &shared_ctx);
-    const thread4 = try Thread.spawn(start2, &shared_ctx);
+    const thread1 = try Thread.spawn(.{}, start1, .{});
+    const thread2 = try Thread.spawn(.{}, start2, .{&shared_ctx});
+    const thread3 = try Thread.spawn(.{}, start2, .{&shared_ctx});
+    const thread4 = try Thread.spawn(.{}, start2, .{&shared_ctx});
 
-    thread1.wait();
-    thread2.wait();
-    thread3.wait();
-    thread4.wait();
+    thread1.join();
+    thread2.join();
+    thread3.join();
+    thread4.join();
 
     try expect(shared_ctx == 4);
 }
 
-fn start1(ctx: void) u8 {
-    _ = ctx;
+fn start1() u8 {
     return 0;
 }
 
@@ -365,22 +355,21 @@ fn start2(ctx: *i32) u8 {
 test "cpu count" {
     if (native_os == .wasi) return error.SkipZigTest;
 
-    const cpu_count = try Thread.cpuCount();
+    const cpu_count = try Thread.getCpuCount();
     try expect(cpu_count >= 1);
 }
 
 test "thread local storage" {
     if (builtin.single_threaded) return error.SkipZigTest;
-    const thread1 = try Thread.spawn(testTls, {});
-    const thread2 = try Thread.spawn(testTls, {});
-    try testTls({});
-    thread1.wait();
-    thread2.wait();
+    const thread1 = try Thread.spawn(.{}, testTls, .{});
+    const thread2 = try Thread.spawn(.{}, testTls, .{});
+    try testTls();
+    thread1.join();
+    thread2.join();
 }
 
 threadlocal var x: i32 = 1234;
-fn testTls(context: void) !void {
-    _ = context;
+fn testTls() !void {
     if (x != 1234) return error.TlsBadStartValue;
     x += 1;
     if (x != 1235) return error.TlsBadEndValue;

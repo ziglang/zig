@@ -214,20 +214,20 @@ test "std.atomic.Queue" {
     } else {
         try expect(context.queue.isEmpty());
 
-        var putters: [put_thread_count]*std.Thread = undefined;
+        var putters: [put_thread_count]std.Thread = undefined;
         for (putters) |*t| {
-            t.* = try std.Thread.spawn(startPuts, &context);
+            t.* = try std.Thread.spawn(.{}, startPuts, .{&context});
         }
-        var getters: [put_thread_count]*std.Thread = undefined;
+        var getters: [put_thread_count]std.Thread = undefined;
         for (getters) |*t| {
-            t.* = try std.Thread.spawn(startGets, &context);
+            t.* = try std.Thread.spawn(.{}, startGets, .{&context});
         }
 
         for (putters) |t|
-            t.wait();
+            t.join();
         @atomicStore(bool, &context.puts_done, true, .SeqCst);
         for (getters) |t|
-            t.wait();
+            t.join();
 
         try expect(context.queue.isEmpty());
     }

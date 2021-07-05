@@ -161,8 +161,8 @@ test "listen on a port, send bytes, receive bytes" {
         }
     };
 
-    const t = try std.Thread.spawn(S.clientFn, server.listen_address);
-    defer t.wait();
+    const t = try std.Thread.spawn(.{}, S.clientFn, .{server.listen_address});
+    defer t.join();
 
     var client = try server.accept();
     defer client.stream.close();
@@ -277,7 +277,7 @@ test "listen on a unix socket, send bytes, receive bytes" {
     try server.listen(socket_addr);
 
     const S = struct {
-        fn clientFn(_: void) !void {
+        fn clientFn() !void {
             const socket = try net.connectUnixSocket(socket_path);
             defer socket.close();
 
@@ -285,8 +285,8 @@ test "listen on a unix socket, send bytes, receive bytes" {
         }
     };
 
-    const t = try std.Thread.spawn(S.clientFn, {});
-    defer t.wait();
+    const t = try std.Thread.spawn(.{}, S.clientFn, .{});
+    defer t.join();
 
     var client = try server.accept();
     defer client.stream.close();

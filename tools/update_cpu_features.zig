@@ -816,18 +816,20 @@ pub fn main() anyerror!void {
             });
         }
     } else {
-        var threads = try arena.alloc(*std.Thread, llvm_targets.len);
+        var threads = try arena.alloc(std.Thread, llvm_targets.len);
         for (llvm_targets) |llvm_target, i| {
-            threads[i] = try std.Thread.spawn(processOneTarget, .{
-                .llvm_tblgen_exe = llvm_tblgen_exe,
-                .llvm_src_root = llvm_src_root,
-                .zig_src_dir = zig_src_dir,
-                .root_progress = root_progress,
-                .llvm_target = llvm_target,
+            threads[i] = try std.Thread.spawn(.{}, processOneTarget, .{
+                Job{
+                    .llvm_tblgen_exe = llvm_tblgen_exe,
+                    .llvm_src_root = llvm_src_root,
+                    .zig_src_dir = zig_src_dir,
+                    .root_progress = root_progress,
+                    .llvm_target = llvm_target,
+                },
             });
         }
         for (threads) |thread| {
-            thread.wait();
+            thread.join();
         }
     }
 }
