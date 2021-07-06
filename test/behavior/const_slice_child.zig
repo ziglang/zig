@@ -2,6 +2,7 @@ const std = @import("std");
 const debug = std.debug;
 const testing = std.testing;
 const expect = testing.expect;
+const expectEqual = testing.expectEqual;
 
 var argv: [*]const [*]const u8 = undefined;
 
