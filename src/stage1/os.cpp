@@ -924,12 +924,6 @@ Error os_make_path(Buf *path) {
 Error os_make_dir(Buf *path) {
 #if defined(ZIG_OS_WINDOWS)
     PathSpace path_space = slice_to_prefixed_file_w(buf_to_slice(path));
-    if (memEql(buf_to_slice(path), str("C:\\dev\\tést"))) {
-        for (size_t i = 0; i < path_space.len; i++) {
-            fprintf(stderr, "%d ", path_space.data.items[i]);
-        }
-        fprintf(stderr, "\n");
-    }
     
     if (!CreateDirectoryW(&path_space.data.items[0], NULL)) {
         if (GetLastError() == ERROR_ALREADY_EXISTS)
