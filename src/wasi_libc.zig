@@ -9,7 +9,6 @@ const target_util = @import("target.zig");
 const musl = @import("musl.zig");
 
 pub const CRTFile = enum {
-    crt1_o,
     crt1_reactor_o,
     crt1_command_o,
     libc_a,
@@ -71,19 +70,6 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
     const arena = &arena_allocator.allocator;
 
     switch (crt_file) {
-        .crt1_o => {
-            var args = std.ArrayList([]const u8).init(arena);
-            try addCCArgs(comp, arena, &args, false);
-            try addLibcBottomHalfIncludes(comp, arena, &args);
-            return comp.build_crt_file("crt1", .Obj, &[1]Compilation.CSourceFile{
-                .{
-                    .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
-                        "libc", try sanitize(arena, crt1_src_file),
-                    }),
-                    .extra_flags = args.items,
-                },
-            });
-        },
         .crt1_reactor_o => {
             var args = std.ArrayList([]const u8).init(arena);
             try addCCArgs(comp, arena, &args, false);
@@ -1151,7 +1137,6 @@ const libc_top_half_src_files = [_][]const u8{
     "wasi/libc-top-half/sources/arc4random.c",
 };
 
-const crt1_src_file = "wasi/libc-bottom-half/crt/crt1.c";
 const crt1_command_src_file = "wasi/libc-bottom-half/crt/crt1-command.c";
 const crt1_reactor_src_file = "wasi/libc-bottom-half/crt/crt1-reactor.c";
 
