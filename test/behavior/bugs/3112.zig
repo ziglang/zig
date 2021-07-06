@@ -7,7 +7,7 @@ const State = struct {
 };
 
 fn prev(p: ?State) void {
-    expect(p == null) catch @panic("test failure");
+    expectEqual(p, null) catch @panic("test failure");
 }
 
 test "zig test crash" {

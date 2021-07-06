@@ -15,5 +15,5 @@ test "fixed" {
     some_struct = SomeStruct{
         .field = couldFail() catch @as(i32, 0),
     };
-    try expect(some_struct.field == 1);
+    try expectEqual(some_struct.field, 1);
 }

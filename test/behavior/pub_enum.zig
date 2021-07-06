@@ -5,9 +5,9 @@ test "pub enum" {
     try pubEnumTest(other.APubEnum.Two);
 }
 fn pubEnumTest(foo: other.APubEnum) !void {
-    try expect(foo == other.APubEnum.Two);
+    try expectEqual(foo, other.APubEnum.Two);
 }
 
 test "cast with imported symbol" {
-    try expect(@as(other.size_t, 42) == 42);
+    try expectEqual(@as(other.size_t, 42), 42);
 }

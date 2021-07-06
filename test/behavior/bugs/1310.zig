@@ -22,5 +22,5 @@ fn agent_callback(_vm: [*]VM, options: [*]u8) callconv(.C) i32 {
 }
 
 test "fixed" {
-    try expect(agent_callback(undefined, undefined) == 11);
+    try expectEqual(agent_callback(undefined, undefined), 11);
 }

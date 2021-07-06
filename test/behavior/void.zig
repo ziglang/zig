@@ -13,14 +13,14 @@ test "compare void with void compile time known" {
             .b = 1,
             .c = {},
         };
-        try expect(foo.a == {});
+        try expectEqual(foo.a, {});
     }
 }
 
 test "iterate over a void slice" {
     var j: usize = 0;
     for (times(10)) |_, i| {
-        try expect(i == j);
+        try expectEqual(i, j);
         j += 1;
     }
 }

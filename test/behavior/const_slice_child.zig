@@ -16,7 +16,7 @@ test "const slice child" {
 }
 
 fn foo(args: [][]const u8) !void {
-    try expect(args.len == 3);
+    try expectEqual(args.len, 3);
     try expect(streql(args[0], "one"));
     try expect(streql(args[1], "two"));
     try expect(streql(args[2], "three"));

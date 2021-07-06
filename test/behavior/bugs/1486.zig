@@ -5,6 +5,6 @@ var global: u64 = 123;
 
 test "constant pointer to global variable causes runtime load" {
     global = 1234;
-    try expect(&global == ptr);
-    try expect(ptr.* == 1234);
+    try expectEqual(&global, ptr);
+    try expectEqual(ptr.*, 1234);
 }

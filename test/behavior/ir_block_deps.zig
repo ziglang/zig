@@ -17,6 +17,6 @@ fn getErrInt() anyerror!i32 {
 }
 
 test "ir block deps" {
-    try expect((foo(1) catch unreachable) == 0);
-    try expect((foo(2) catch unreachable) == 0);
+    try expectEqual((foo(1) catch unreachable), 0);
+    try expectEqual((foo(2) catch unreachable), 0);
 }

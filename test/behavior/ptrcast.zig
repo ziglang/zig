@@ -14,7 +14,7 @@ fn testReinterpretBytesAsInteger() !void {
         .Little => 0xab785634,
         .Big => 0x345678ab,
     };
-    try expect(@ptrCast(*align(1) const u32, bytes[1..5]).* == expected);
+    try expectEqual(@ptrCast(*align(1) const u32, bytes[1..5]).*, expected);
 }
 
 test "reinterpret bytes of an array into an extern struct" {
@@ -33,7 +33,7 @@ fn testReinterpretBytesAsExternStruct() !void {
 
     var ptr = @ptrCast(*const S, &bytes);
     var val = ptr.c;
-    try expect(val == 5);
+    try expectEqual(val, 5);
 }
 
 test "reinterpret struct field at comptime" {
@@ -60,7 +60,7 @@ test "comptime ptrcast keeps larger alignment" {
     comptime {
         const a: u32 = 1234;
         const p = @ptrCast([*]const u8, &a);
-        try expect(@TypeOf(p) == [*]align(@alignOf(u32)) const u8);
+        try expectEqual(@TypeOf(p), [*]align(@alignOf(u32)) const u8);
     }
 }
 

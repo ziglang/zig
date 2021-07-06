@@ -13,7 +13,7 @@ const Foo = struct {
 test "@alignOf(T) before referencing T" {
     comptime try expect(@alignOf(Foo) != maxInt(usize));
     if (native_arch == .x86_64) {
-        comptime try expect(@alignOf(Foo) == 4);
+        comptime try expectEqual(@alignOf(Foo), 4);
     }
 }
 
@@ -29,7 +29,7 @@ test "comparison of @alignOf(T) against zero" {
     }
     {
         const T = struct {};
-        try expect(@alignOf(T) == 0);
+        try expectEqual(@alignOf(T), 0);
         try expect(!(@alignOf(T) != 0));
         try expect(!(@alignOf(T) < 0));
         try expect(@alignOf(T) <= 0);

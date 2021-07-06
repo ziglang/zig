@@ -22,7 +22,7 @@ fn foo(a: bool, b: bool) !void {
             PrefixOp.AddrOf => |addr_of_info| {
                 if (b) {}
                 if (addr_of_info.align_expr) |align_expr| {
-                    try expect(align_expr == 1234);
+                    try expectEqual(align_expr, 1234);
                 }
             },
             PrefixOp.Return => {},

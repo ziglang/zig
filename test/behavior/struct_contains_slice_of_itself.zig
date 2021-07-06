@@ -39,12 +39,12 @@ test "struct contains slice of itself" {
         .payload = 1234,
         .children = nodes[0..],
     };
-    try expect(root.payload == 1234);
-    try expect(root.children[0].payload == 1);
-    try expect(root.children[1].payload == 2);
-    try expect(root.children[2].payload == 3);
-    try expect(root.children[2].children[0].payload == 31);
-    try expect(root.children[2].children[1].payload == 32);
+    try expectEqual(root.payload, 1234);
+    try expectEqual(root.children[0].payload, 1);
+    try expectEqual(root.children[1].payload, 2);
+    try expectEqual(root.children[2].payload, 3);
+    try expectEqual(root.children[2].children[0].payload, 31);
+    try expectEqual(root.children[2].children[1].payload, 32);
 }
 
 test "struct contains aligned slice of itself" {
@@ -76,10 +76,10 @@ test "struct contains aligned slice of itself" {
         .payload = 1234,
         .children = nodes[0..],
     };
-    try expect(root.payload == 1234);
-    try expect(root.children[0].payload == 1);
-    try expect(root.children[1].payload == 2);
-    try expect(root.children[2].payload == 3);
-    try expect(root.children[2].children[0].payload == 31);
-    try expect(root.children[2].children[1].payload == 32);
+    try expectEqual(root.payload, 1234);
+    try expectEqual(root.children[0].payload, 1);
+    try expectEqual(root.children[1].payload, 2);
+    try expectEqual(root.children[2].payload, 3);
+    try expectEqual(root.children[2].children[0].payload, 31);
+    try expectEqual(root.children[2].children[1].payload, 32);
 }

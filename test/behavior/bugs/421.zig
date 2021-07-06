@@ -6,7 +6,7 @@ test "bitCast to array" {
 }
 
 fn testBitCastArray() !void {
-    try expect(extractOne64(0x0123456789abcdef0123456789abcdef) == 0x0123456789abcdef);
+    try expectEqual(extractOne64(0x0123456789abcdef0123456789abcdef), 0x0123456789abcdef);
 }
 
 fn extractOne64(a: u128) u64 {

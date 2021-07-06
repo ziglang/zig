@@ -11,7 +11,7 @@ fn tryOnErrorUnionImpl() !void {
         error.CrappedOut => @as(i32, 2),
         else => unreachable,
     };
-    try expect(x == 11);
+    try expectEqual(x, 11);
 }
 
 fn returnsTen() anyerror!i32 {
@@ -20,10 +20,10 @@ fn returnsTen() anyerror!i32 {
 
 test "try without vars" {
     const result1 = if (failIfTrue(true)) 1 else |_| @as(i32, 2);
-    try expect(result1 == 2);
+    try expectEqual(result1, 2);
 
     const result2 = if (failIfTrue(false)) 1 else |_| @as(i32, 2);
-    try expect(result2 == 1);
+    try expectEqual(result2, 1);
 }
 
 fn failIfTrue(ok: bool) anyerror!void {
@@ -38,6 +38,6 @@ test "try then not executed with assignment" {
     if (failIfTrue(true)) {
         unreachable;
     } else |err| {
-        try expect(err == error.ItBroke);
+        try expectEqual(err, error.ItBroke);
     }
 }
