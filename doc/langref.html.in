@@ -344,6 +344,82 @@ pub fn main() void {
       </p>
       {#see_also|Values|@import|Errors|Root Source File|Source Encoding#}
       {#header_close#}
+      {#header_open|Zig Test#}
+      <p>
+      <code>zig test</code> is a tool that can be used to quickly build and run Zig code
+      to make sure behavior meets expectations. {#syntax#}@import("builtin").is_test{#endsyntax#}
+      is available for code to detect whether the current build is a test build.
+      </p>
+      {#code_begin|test|detect_test#}
+const std = @import("std");
+const builtin = @import("builtin");
+const expect = std.testing.expect;
+
+test "builtin.is_test" {
+    try expect(builtin.is_test);
+}
+      {#code_end#}
+      <p>
+      Zig has lazy top level declaration analysis, which means that if a function is not called,
+      or otherwise used, it is not analyzed. This means that there may be an undiscovered
+      compile error in a function because it is never called.
+      </p>
+      {#code_begin|test|unused_fn#}
+fn unused() i32 {
+    return "wrong return type";
+}
+test "unused function" { }
+      {#code_end#}
+      <p>
+      Note that, while in {#link|Debug#} and {#link|ReleaseSafe#} modes, {#link|unreachable#} emits a
+      call to {#link|@panic#}, in {#link|ReleaseFast#} and {#link|ReleaseSmall#} modes, it is really
+      undefined behavior. The implementation of {#syntax#}std.debug.assert{#endsyntax#} is as
+      simple as:
+      </p>
+      {#code_begin|syntax#}
+pub fn assert(ok: bool) void {
+    if (!ok) unreachable;
+}
+      {#code_end#}
+      <p>
+      This means that when testing in ReleaseFast or ReleaseSmall mode, {#syntax#}assert{#endsyntax#}
+      is not sufficient to check the result of a computation:
+      </p>
+      {#code_begin|syntax#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+test "assert in release fast mode" {
+    assert(false);
+}
+      {#code_end#}
+      <p>
+      When compiling this test in {#link|ReleaseFast#} mode, it invokes unchecked
+      {#link|Undefined Behavior#}. Since that could do anything, this documentation
+      cannot show you the output.
+      </p>
+      <p>
+      Better practice for checking the output when testing is to use {#syntax#}std.testing.expect{#endsyntax#}:
+      </p>
+      {#code_begin|test_err|test "expect in release fast mode"... FAIL (TestUnexpectedResult)#}
+      {#code_release_fast#}
+const std = @import("std");
+const expect = std.testing.expect;
+
+test "expect in release fast mode" {
+    try expect(false);
+}
+      {#code_end#}
+      <p>See the rest of the {#syntax#}std.testing{#endsyntax#} namespace for more available functions.</p>
+      <p>
+      <code>zig test</code> has a few command line parameters which affect the compilation. See
+      <code>zig --help</code> for a full list. The most interesting one is <code>--test-filter [text]</code>.
+      This makes the test build only include tests whose name contains the supplied filter text.
+      Again, thanks to lazy analysis, this can allow you to narrow a build to only a few functions in
+      isolation.
+      </p>
+      {#header_close#}
+
       {#header_open|Comments#}
       {#code_begin|test|comments#}
 const expect = @import("std").testing.expect;
@@ -9725,82 +9801,6 @@ const separator = if (builtin.os.tag == builtin.Os.windows) '\\' else '/';
       <p>TODO: lazy analysis</p>
       <p>TODO: using comptime { _ = @import() }</p>
       {#header_close#}
-      {#header_open|Zig Test#}
-      <p>
-      <code>zig test</code> is a tool that can be used to quickly build and run Zig code
-      to make sure behavior meets expectations. {#syntax#}@import("builtin").is_test{#endsyntax#}
-      is available for code to detect whether the current build is a test build.
-      </p>
-      {#code_begin|test|detect_test#}
-const std = @import("std");
-const builtin = @import("builtin");
-const expect = std.testing.expect;
-
-test "builtin.is_test" {
-    try expect(builtin.is_test);
-}
-      {#code_end#}
-      <p>
-      Zig has lazy top level declaration analysis, which means that if a function is not called,
-      or otherwise used, it is not analyzed. This means that there may be an undiscovered
-      compile error in a function because it is never called.
-      </p>
-      {#code_begin|test|unused_fn#}
-fn unused() i32 {
-    return "wrong return type";
-}
-test "unused function" { }
-      {#code_end#}
-      <p>
-      Note that, while in {#link|Debug#} and {#link|ReleaseSafe#} modes, {#link|unreachable#} emits a
-      call to {#link|@panic#}, in {#link|ReleaseFast#} and {#link|ReleaseSmall#} modes, it is really
-      undefined behavior. The implementation of {#syntax#}std.debug.assert{#endsyntax#} is as
-      simple as:
-      </p>
-      {#code_begin|syntax#}
-pub fn assert(ok: bool) void {
-    if (!ok) unreachable;
-}
-      {#code_end#}
-      <p>
-      This means that when testing in ReleaseFast or ReleaseSmall mode, {#syntax#}assert{#endsyntax#}
-      is not sufficient to check the result of a computation:
-      </p>
-      {#code_begin|syntax#}
-const std = @import("std");
-const assert = std.debug.assert;
-
-test "assert in release fast mode" {
-    assert(false);
-}
-      {#code_end#}
-      <p>
-      When compiling this test in {#link|ReleaseFast#} mode, it invokes unchecked
-      {#link|Undefined Behavior#}. Since that could do anything, this documentation
-      cannot show you the output.
-      </p>
-      <p>
-      Better practice for checking the output when testing is to use {#syntax#}std.testing.expect{#endsyntax#}:
-      </p>
-      {#code_begin|test_err|test "expect in release fast mode"... FAIL (TestUnexpectedResult)#}
-      {#code_release_fast#}
-const std = @import("std");
-const expect = std.testing.expect;
-
-test "expect in release fast mode" {
-    try expect(false);
-}
-      {#code_end#}
-      <p>See the rest of the {#syntax#}std.testing{#endsyntax#} namespace for more available functions.</p>
-      <p>
-      <code>zig test</code> has a few command line parameters which affect the compilation. See
-      <code>zig --help</code> for a full list. The most interesting one is <code>--test-filter [text]</code>.
-      This makes the test build only include tests whose name contains the supplied filter text.
-      Again, thanks to lazy analysis, this can allow you to narrow a build to only a few functions in
-      isolation.
-      </p>
-      {#header_close#}
-
       {#header_open|Zig Build System#}
       <p>
       The Zig Build System provides a cross-platform, dependency-free way to declare
