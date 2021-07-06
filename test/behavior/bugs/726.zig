@@ -1,4 +1,5 @@
 const expect = @import("std").testing.expect;
+const expectEqual = @import("std").testing.expectEqual;
 
 test "@ptrCast from const to nullable" {
     const c: u8 = 4;

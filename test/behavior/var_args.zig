@@ -1,4 +1,5 @@
 const expect = @import("std").testing.expect;
+const expectEqual = @import("std").testing.expectEqual;
 
 fn add(args: anytype) i32 {
     var sum = @as(i32, 0);
