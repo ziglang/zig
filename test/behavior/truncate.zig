@@ -1,5 +1,6 @@
 const std = @import("std");
 const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
 
 test "truncate u0 to larger integer allowed and has comptime known result" {
     var x: u0 = 0;

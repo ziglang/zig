@@ -1,5 +1,6 @@
 const std = @import("std");
 const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
 
 test "allocation and looping over 3-byte integer" {
     try expectEqual(@sizeOf(u24), 4);

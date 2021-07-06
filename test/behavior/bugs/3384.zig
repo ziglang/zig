@@ -1,5 +1,6 @@
 const std = @import("std");
 const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
 
 test "resolve array slice using builtin" {
     try expectEqual(@hasDecl(@This(), "std"), true);
