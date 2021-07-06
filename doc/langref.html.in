@@ -10,6 +10,9 @@
         font-family: system-ui, -apple-system, Roboto, "Segoe UI", sans-serif;
         margin: 0;
       }
+      p {
+        line-height: 1.7;
+      }
       a:not(:hover) {
         text-decoration: none;
       }
