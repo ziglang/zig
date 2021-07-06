@@ -3778,6 +3778,12 @@ static bool value_is_all_undef(CodeGen *g, ZigValue *const_val) {
         case ConstValSpecialStatic:
             if (const_val->type->id == ZigTypeIdStruct) {
                 for (size_t i = 0; i < const_val->type->data.structure.src_field_count; i += 1) {
+                    TypeStructField *field = const_val->type->data.structure.fields[i];
+                    if (field->is_comptime) {
+                        // Comptime fields are part of the type, may be uninitialized,
+                        // and should not be inspected.
+                        continue;
+                    }
                     if (!value_is_all_undef(g, const_val->data.x_struct.fields[i]))
                         return false;
                 }
@@ -7285,7 +7291,7 @@ static LLVMValueRef pack_const_int(CodeGen *g, LLVMTypeRef big_int_type_ref, Zig
                 size_t used_bits = 0;
                 for (size_t i = 0; i < type_entry->data.structure.src_field_count; i += 1) {
                     TypeStructField *field = type_entry->data.structure.fields[i];
-                    if (field->gen_index == SIZE_MAX) {
+                    if (field->gen_index == SIZE_MAX || field->is_comptime) {
                         continue;
                     }
                     LLVMValueRef child_val = pack_const_int(g, big_int_type_ref, const_val->data.x_struct.fields[i]);
@@ -7573,7 +7579,7 @@ static LLVMValueRef gen_const_val(CodeGen *g, ZigValue *const_val, const char *n
                     size_t src_field_index = 0;
                     while (src_field_index < src_field_count) {
                         TypeStructField *type_struct_field = type_entry->data.structure.fields[src_field_index];
-                        if (type_struct_field->gen_index == SIZE_MAX) {
+                        if (type_struct_field->gen_index == SIZE_MAX || type_struct_field->is_comptime) {
                             src_field_index += 1;
                             continue;
                         }
@@ -7642,7 +7648,7 @@ static LLVMValueRef gen_const_val(CodeGen *g, ZigValue *const_val, const char *n
                 } else {
                     for (uint32_t i = 0; i < src_field_count; i += 1) {
                         TypeStructField *type_struct_field = type_entry->data.structure.fields[i];
-                        if (type_struct_field->gen_index == SIZE_MAX) {
+                        if (type_struct_field->gen_index == SIZE_MAX || type_struct_field->is_comptime) {
                             continue;
                         }
                         ZigValue *field_val = const_val->data.x_struct.fields[i];

@@ -272,8 +272,8 @@ static bool value_cmp_numeric_val_all(ZigValue *left, Cmp predicate, ZigValue *r
 static void memoize_field_init_val(CodeGen *codegen, ZigType *container_type, TypeStructField *field);
 static void value_to_bigfloat(BigFloat *out, ZigValue *val);
 
-static Error ir_resolve_lazy_recurse(IrAnalyze *ira, AstNode *source_node, ZigValue *val);
-static Error ir_resolve_lazy_recurse_array(IrAnalyze *ira, AstNode *source_node, ZigValue *val, size_t len);
+static Error ir_resolve_lazy_recurse(AstNode *source_node, ZigValue *val);
+static Error ir_resolve_lazy_recurse_array(AstNode *source_node, ZigValue *val, size_t len);
 
 
 static void ir_assert_impl(bool ok, IrInstGen *source_instruction, char const *file, unsigned int line) {
@@ -558,7 +558,10 @@ static ZigValue *const_ptr_pointee_unchecked_no_isf(CodeGen *g, ZigValue *const_
         case ConstPtrSpecialBaseStruct: {
             ZigValue *struct_val = const_val->data.x_ptr.data.base_struct.struct_val;
             expand_undef_struct(g, struct_val);
-            result = struct_val->data.x_struct.fields[const_val->data.x_ptr.data.base_struct.field_index];
+            size_t field_index = const_val->data.x_ptr.data.base_struct.field_index;
+            assert(struct_val->type->id == ZigTypeIdStruct);
+            assert(!struct_val->type->data.structure.fields[field_index]->is_comptime);
+            result = struct_val->data.x_struct.fields[field_index];
             break;
         }
         case ConstPtrSpecialBaseErrorUnionCode:
@@ -7022,6 +7025,17 @@ static IrInstGen *ir_analyze_struct_literal_to_struct(IrAnalyze *ira, Scope *sco
                 buf_sprintf("field '%s' declared here", buf_ptr(src_field->name)));
             return ira->codegen->invalid_inst_gen;
         }
+        if (dst_field->is_comptime) {
+            ErrorMsg *msg = ir_add_error_node(ira, source_node, buf_sprintf("field '%s' in struct '%s' is comptime, it cannot be assigned",
+                    buf_ptr(src_field->name), buf_ptr(&wanted_type->name)));
+            if (wanted_type->data.structure.decl_node) {
+                add_error_note(ira->codegen, msg, wanted_type->data.structure.decl_node,
+                    buf_sprintf("struct '%s' declared here", buf_ptr(&wanted_type->name)));
+            }
+            add_error_note(ira->codegen, msg, src_field->decl_node,
+                buf_sprintf("field '%s' declared here", buf_ptr(src_field->name)));
+            return ira->codegen->invalid_inst_gen;
+        }
 
         src_assert(src_field->decl_node != nullptr, source_node);
         AstNode *existing_assign_node = field_assign_nodes[dst_field->src_index];
@@ -7066,6 +7080,7 @@ static IrInstGen *ir_analyze_struct_literal_to_struct(IrAnalyze *ira, Scope *sco
 
         // look for a default field value
         TypeStructField *field = wanted_type->data.structure.fields[i];
+        assert(!field->is_comptime); // field_assign_nodes[i] should be null for comptime fields
         memoize_field_init_val(ira->codegen, wanted_type, field);
         if (field->init_val == nullptr) {
             ir_add_error_node(ira, source_node,
@@ -7101,6 +7116,9 @@ static IrInstGen *ir_analyze_struct_literal_to_struct(IrAnalyze *ira, Scope *sco
 
     for (size_t i = 0; i < actual_field_count; i += 1) {
         TypeStructField *field = wanted_type->data.structure.fields[i];
+        if (field->is_comptime)
+            continue;
+
         IrInstGen *field_ptr = ir_analyze_struct_field_ptr(ira, scope, source_node, field, result_loc_inst, wanted_type, true);
         if (type_is_invalid(field_ptr->value->type))
             return ira->codegen->invalid_inst_gen;
@@ -12762,7 +12780,7 @@ static IrInstGen *ir_analyze_fn_call(IrAnalyze *ira, Scope *scope, AstNode *sour
                 while (scope) {
                     if (scope->id == ScopeIdVarDecl) {
                         ScopeVarDecl *var_scope = (ScopeVarDecl *)scope;
-                        if ((err = ir_resolve_lazy_recurse(ira,
+                        if ((err = ir_resolve_lazy_recurse(
                             var_scope->var->decl_node,
                             var_scope->var->const_value)))
                         {
@@ -12968,7 +12986,7 @@ static IrInstGen *ir_analyze_fn_call(IrAnalyze *ira, Scope *scope, AstNode *sour
         for (size_t i = 0; i < generic_id->param_count; i += 1) {
             ZigValue *generic_param = &generic_id->params[i];
             if (generic_param->special != ConstValSpecialRuntime) {
-                if ((err = ir_resolve_lazy_recurse(ira, source_node, generic_param))) {
+                if ((err = ir_resolve_lazy_recurse(source_node, generic_param))) {
                     return ira->codegen->invalid_inst_gen;
                 }
             }
@@ -14912,6 +14930,8 @@ static IrInstGen *ir_analyze_struct_field_ptr(IrAnalyze *ira, Scope *scope, AstN
                 struct_val->data.x_struct.fields = alloc_const_vals_ptrs(ira->codegen, struct_type->data.structure.src_field_count);
                 struct_val->special = ConstValSpecialStatic;
                 for (size_t i = 0; i < struct_type->data.structure.src_field_count; i += 1) {
+                    if (struct_type->data.structure.fields[i]->is_comptime)
+                        continue;
                     ZigValue *field_val = struct_val->data.x_struct.fields[i];
                     field_val->special = ConstValSpecialUndef;
                     field_val->type = resolve_struct_field_type(ira->codegen,
@@ -18286,7 +18306,9 @@ static ZigValue *get_const_field(IrAnalyze *ira, AstNode *source_node, ZigValue 
 {
     Error err;
     ensure_field_index(struct_value->type, name, field_index);
-    ZigValue *val = struct_value->data.x_struct.fields[field_index];
+    TypeStructField *field = struct_value->type->data.structure.fields[field_index];
+    ZigValue *val = field->is_comptime ? field->init_val :
+        struct_value->data.x_struct.fields[field_index];
     if ((err = ir_resolve_const_val(ira->codegen, ira->new_irb.exec, source_node, val, UndefBad)))
         return nullptr;
     return val;
@@ -22461,7 +22483,7 @@ static void buf_write_value_bytes(CodeGen *codegen, uint8_t *buf, ZigValue *val)
                     size_t src_field_count = val->type->data.structure.src_field_count;
                     for (size_t field_i = 0; field_i < src_field_count; field_i += 1) {
                         TypeStructField *struct_field = val->type->data.structure.fields[field_i];
-                        if (struct_field->gen_index == SIZE_MAX)
+                        if (struct_field->gen_index == SIZE_MAX || struct_field->is_comptime)
                             continue;
                         ZigValue *field_val = val->data.x_struct.fields[field_i];
                         size_t offset = struct_field->offset;
@@ -22490,6 +22512,10 @@ static void buf_write_value_bytes(CodeGen *codegen, uint8_t *buf, ZigValue *val)
                         size_t used_bits = 0;
                         while (src_i < src_field_count) {
                             TypeStructField *field = val->type->data.structure.fields[src_i];
+                            if (field->is_comptime) {
+                                src_i += 1;
+                                continue;
+                            }
                             assert(field->gen_index != SIZE_MAX);
                             if (field->gen_index != gen_i)
                                 break;
@@ -22638,9 +22664,11 @@ static Error buf_read_value_bytes(IrAnalyze *ira, CodeGen *codegen, AstNode *sou
                     size_t src_field_count = val->type->data.structure.src_field_count;
                     val->data.x_struct.fields = alloc_const_vals_ptrs(codegen, src_field_count);
                     for (size_t field_i = 0; field_i < src_field_count; field_i += 1) {
+                        TypeStructField *struct_field = val->type->data.structure.fields[field_i];
+                        if (struct_field->is_comptime)
+                            continue;
                         ZigValue *field_val = val->data.x_struct.fields[field_i];
                         field_val->special = ConstValSpecialStatic;
-                        TypeStructField *struct_field = val->type->data.structure.fields[field_i];
                         field_val->type = struct_field->type_entry;
                         if (struct_field->gen_index == SIZE_MAX)
                             continue;
@@ -22673,6 +22701,10 @@ static Error buf_read_value_bytes(IrAnalyze *ira, CodeGen *codegen, AstNode *sou
                         uint64_t bit_offset = 0;
                         while (src_i < src_field_count) {
                             TypeStructField *field = val->type->data.structure.fields[src_i];
+                            if (field->is_comptime) {
+                                src_i += 1;
+                                continue;
+                            }
                             src_assert(field->gen_index != SIZE_MAX, source_node);
                             if (field->gen_index != gen_i)
                                 break;
@@ -25554,7 +25586,7 @@ static Error ir_resolve_lazy_raw(AstNode *source_node, ZigValue *val) {
     zig_unreachable();
 }
 
-static Error ir_resolve_lazy_recurse_array(IrAnalyze *ira, AstNode *source_node, ZigValue *val, size_t len) {
+static Error ir_resolve_lazy_recurse_array(AstNode *source_node, ZigValue *val, size_t len) {
     Error err;
     switch (val->data.x_array.special) {
         case ConstArraySpecialUndef:
@@ -25566,24 +25598,19 @@ static Error ir_resolve_lazy_recurse_array(IrAnalyze *ira, AstNode *source_node,
     ZigValue *elems = val->data.x_array.data.s_none.elements;
 
     for (size_t i = 0; i < len; i += 1) {
-        if ((err = ir_resolve_lazy_recurse(ira, source_node, &elems[i])))
+        if ((err = ir_resolve_lazy_recurse(source_node, &elems[i])))
             return err;
     }
 
     return ErrorNone;
 }
 
-static Error ir_resolve_lazy_recurse(IrAnalyze *ira, AstNode *source_node, ZigValue *val) {
+static Error ir_resolve_lazy_recurse(AstNode *source_node, ZigValue *val) {
     Error err;
     if ((err = ir_resolve_lazy_raw(source_node, val))) 
         return err;
-    if (val->special == ConstValSpecialRuntime) {
-        // This shouldn't be possible, it indicates an ICE.
-        // NO_COMMIT
-        ir_add_error_node(ira, source_node,
-            buf_sprintf("This is a bug in the Zig compiler. Runtime value found in comptime known value."));
-        return ErrorSemanticAnalyzeFail;
-    }
+    assert(val->special != ConstValSpecialRuntime);
+    assert(val->special != ConstValSpecialLazy);
     if (val->special != ConstValSpecialStatic)
         return ErrorNone;
     switch (val->type->id) {
@@ -25611,12 +25638,12 @@ static Error ir_resolve_lazy_recurse(IrAnalyze *ira, AstNode *source_node, ZigVa
             zig_panic("TODO: ir_resolve_lazy_recurse ZigTypeIdFnFrame");
         case ZigTypeIdUnion: {
             ConstUnionValue *union_val = &val->data.x_union;
-            return ir_resolve_lazy_recurse(ira, source_node, union_val->payload);
+            return ir_resolve_lazy_recurse(source_node, union_val->payload);
         }
         case ZigTypeIdVector:
-            return ir_resolve_lazy_recurse_array(ira, source_node, val, val->type->data.vector.len);
+            return ir_resolve_lazy_recurse_array(source_node, val, val->type->data.vector.len);
         case ZigTypeIdArray:
-            return ir_resolve_lazy_recurse_array(ira, source_node, val, val->type->data.array.len);
+            return ir_resolve_lazy_recurse_array(source_node, val, val->type->data.array.len);
         case ZigTypeIdStruct:
             for (size_t i = 0; i < val->type->data.structure.src_field_count; i += 1) {
                 ZigValue *field = val->data.x_struct.fields[i];
@@ -25625,7 +25652,7 @@ static Error ir_resolve_lazy_recurse(IrAnalyze *ira, AstNode *source_node, ZigVa
                     // they are not part of the value.
                     continue;
                 }
-                if ((err = ir_resolve_lazy_recurse(ira, source_node, field)))
+                if ((err = ir_resolve_lazy_recurse(source_node, field)))
                     return err;
             }
             return ErrorNone;
@@ -25635,13 +25662,13 @@ static Error ir_resolve_lazy_recurse(IrAnalyze *ira, AstNode *source_node, ZigVa
             if (val->data.x_optional == nullptr)
                 return ErrorNone;
 
-            return ir_resolve_lazy_recurse(ira, source_node, val->data.x_optional);
+            return ir_resolve_lazy_recurse(source_node, val->data.x_optional);
         case ZigTypeIdErrorUnion: {
             bool is_err = val->data.x_err_union.error_set->data.x_err_set != nullptr;
             if (is_err) {
-                return ir_resolve_lazy_recurse(ira, source_node, val->data.x_err_union.error_set);
+                return ir_resolve_lazy_recurse(source_node, val->data.x_err_union.error_set);
             } else {
-                return ir_resolve_lazy_recurse(ira, source_node, val->data.x_err_union.payload);
+                return ir_resolve_lazy_recurse(source_node, val->data.x_err_union.payload);
             }
         }
     }

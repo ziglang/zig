@@ -5668,14 +5668,6 @@ static uint32_t hash_combine_const_val(uint32_t hash_val, ZigValue *const_val) {
     if (const_val->special == ConstValSpecialUndef) {
         return hash_val;
     }
-    // if (const_val->special == ConstValSpecialLazy ||
-    //     const_val->special == ConstValSpecialRuntime) {
-    //     // NO_COMMIT verify this is correct
-    //     return hash_combine(hash_val, &const_val);
-    // }
-    if (const_val->special != ConstValSpecialStatic) {
-        fprintf(stderr, "\nInvalid special: %d\n", const_val->special);
-    }
     assert(const_val->special == ConstValSpecialStatic);
     hash_val = hash_combine(hash_val, &const_val->type->id);
     switch (const_val->type->id) {
@@ -5718,13 +5710,13 @@ static uint32_t hash_combine_const_val(uint32_t hash_val, ZigValue *const_val) {
         case ZigTypeIdStruct: {
             size_t field_count = const_val->type->data.structure.src_field_count;
             for (size_t i = 0; i < field_count; i += 1) {
-                ZigValue *field = const_val->data.x_struct.fields[i];
                 if (const_val->type->data.structure.fields[i]->is_comptime) {
                     // The values of comptime struct fields are part of the
                     // type, not the value, so they do not participate in equality
                     // or hash of comptime values.
                     continue;
                 }
+                ZigValue *field = const_val->data.x_struct.fields[i];
                 hash_val = hash_combine_const_val(hash_val, field);
             }
             return hash_val;
@@ -6179,7 +6171,8 @@ ZigValue *get_the_one_possible_value(CodeGen *g, ZigType *type_entry) {
         for (size_t i = 0; i < field_count; i += 1) {
             TypeStructField *field = struct_type->data.structure.fields[i];
             if (field->is_comptime) {
-                copy_const_val(g, result->data.x_struct.fields[i], field->init_val);
+                // Comptime fields are part of the type, and do not need to
+                // be initialized.
                 continue;
             }
             ZigType *field_type = resolve_struct_field_type(g, field);
@@ -7958,6 +7951,13 @@ static void init_const_undefined(CodeGen *g, ZigValue *const_val) {
         size_t field_count = wanted_type->data.structure.src_field_count;
         const_val->data.x_struct.fields = alloc_const_vals_ptrs(g, field_count);
         for (size_t i = 0; i < field_count; i += 1) {
+            TypeStructField *field = wanted_type->data.structure.fields[i];
+            if (field->is_comptime) {
+                // Comptime fields are part of the type, and do not need to
+                // be initialized.
+                continue;
+            }
+
             ZigValue *field_val = const_val->data.x_struct.fields[i];
             field_val->type = resolve_struct_field_type(g, wanted_type->data.structure.fields[i]);
             assert(field_val->type);
@@ -10174,8 +10174,11 @@ static void dump_value_indent(ZigValue *val, int indent) {
                 for (int j = 0; j < indent; j += 1) {
                     fprintf(stderr, " ");
                 }
-                fprintf(stderr, "%s: ", buf_ptr(val->type->data.structure.fields[i]->name));
-                if (val->data.x_struct.fields == nullptr) {
+                TypeStructField *field = val->type->data.structure.fields[i];
+                fprintf(stderr, "%s: ", buf_ptr(field->name));
+                if (field->is_comptime) {
+                    fprintf(stderr, "<comptime field>");
+                } else if (val->data.x_struct.fields == nullptr) {
                     fprintf(stderr, "<null>\n");
                 } else {
                     dump_value_indent(val->data.x_struct.fields[i], 1);
