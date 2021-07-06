@@ -100,7 +100,7 @@ void bigint_decr(BigInt *value);
 
 bool mul_u64_overflow(uint64_t op1, uint64_t op2, uint64_t *result);
 
-uint32_t bigint_hash(BigInt x);
-bool bigint_eql(BigInt a, BigInt b);
+uint32_t bigint_hash(BigInt const *x);
+bool bigint_eql(BigInt const *a, BigInt const *b);
 
 #endif

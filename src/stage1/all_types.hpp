@@ -1879,8 +1879,8 @@ struct TypeId {
     } data;
 };
 
-uint32_t type_id_hash(TypeId);
-bool type_id_eql(TypeId a, TypeId b);
+uint32_t type_id_hash(TypeId const *);
+bool type_id_eql(TypeId const *a, TypeId const *b);
 
 enum ZigLLVMFnId {
     ZigLLVMFnIdCtz,
@@ -1935,8 +1935,8 @@ struct ZigLLVMFnKey {
     } data;
 };
 
-uint32_t zig_llvm_fn_key_hash(ZigLLVMFnKey);
-bool zig_llvm_fn_key_eql(ZigLLVMFnKey a, ZigLLVMFnKey b);
+uint32_t zig_llvm_fn_key_hash(ZigLLVMFnKey const *);
+bool zig_llvm_fn_key_eql(ZigLLVMFnKey const *a, ZigLLVMFnKey const *b);
 
 struct TimeEvent {
     double time;

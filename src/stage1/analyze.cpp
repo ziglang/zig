@@ -7742,9 +7742,9 @@ ZigType *make_int_type(CodeGen *g, bool is_signed, uint32_t size_in_bits) {
     return entry;
 }
 
-uint32_t type_id_hash(TypeId x) {
-    uint32_t hash = hash_combine(HASH_INIT, &x.id);
-    switch (x.id) {
+uint32_t type_id_hash(TypeId const *x) {
+    uint32_t hash = hash_combine(HASH_INIT, &x->id);
+    switch (x->id) {
         case ZigTypeIdInvalid:
         case ZigTypeIdOpaque:
         case ZigTypeIdMetaType:
@@ -7768,46 +7768,50 @@ uint32_t type_id_hash(TypeId x) {
         case ZigTypeIdAnyFrame:
             zig_unreachable();
         case ZigTypeIdErrorUnion:
-            hash = hash_combine(hash, &x.data.error_union.err_set_type);
-            hash = hash_combine(hash, &x.data.error_union.payload_type);
+            hash = hash_combine(hash, &x->data.error_union.err_set_type);
+            hash = hash_combine(hash, &x->data.error_union.payload_type);
             return hash;
         case ZigTypeIdPointer:
-            hash = hash_combine(hash, &x.data.pointer.child_type);
-            hash = hash_combine(hash, &x.data.pointer.ptr_len);
-            hash = hash_combine(hash, &x.data.pointer.is_const);
-            hash = hash_combine(hash, &x.data.pointer.is_volatile);
-            hash = hash_combine(hash, &x.data.pointer.allow_zero);
-            hash = hash_combine(hash, &x.data.pointer.alignment);
-            hash = hash_combine(hash, &x.data.pointer.bit_offset_in_host);
-            hash = hash_combine(hash, &x.data.pointer.vector_index);
-            hash = hash_combine(hash, &x.data.pointer.host_int_bytes);
-            if (x.data.pointer.sentinel != nullptr) {
-                hash = hash_combine_const_val(hash, x.data.pointer.sentinel);
+            hash = hash_combine(hash, &x->data.pointer.child_type);
+            hash = hash_combine(hash, &x->data.pointer.ptr_len);
+            hash = hash_combine(hash, &x->data.pointer.is_const);
+            hash = hash_combine(hash, &x->data.pointer.is_volatile);
+            hash = hash_combine(hash, &x->data.pointer.allow_zero);
+            hash = hash_combine(hash, &x->data.pointer.alignment);
+            hash = hash_combine(hash, &x->data.pointer.bit_offset_in_host);
+            hash = hash_combine(hash, &x->data.pointer.vector_index);
+            hash = hash_combine(hash, &x->data.pointer.host_int_bytes);
+            if (x->data.pointer.sentinel != nullptr) {
+                hash = hash_combine_const_val(hash, x->data.pointer.sentinel);
+            }
+            if (x->data.pointer.inferred_struct_field) {
+                hash = hash_combine(hash, &x->data.pointer.inferred_struct_field->inferred_struct_type);
+                hash = hash_combine_buf(hash, x->data.pointer.inferred_struct_field->field_name);
             }
             return hash;
         case ZigTypeIdArray:
-            hash = hash_combine(hash, &x.data.array.child_type);
-            hash = hash_combine(hash, &x.data.array.size);
-            if (x.data.array.sentinel != nullptr) {
-                hash = hash_combine_const_val(hash, x.data.array.sentinel);
+            hash = hash_combine(hash, &x->data.array.child_type);
+            hash = hash_combine(hash, &x->data.array.size);
+            if (x->data.array.sentinel != nullptr) {
+                hash = hash_combine_const_val(hash, x->data.array.sentinel);
             }
             return hash;
         case ZigTypeIdInt:
-            hash = hash_combine(hash, &x.data.integer.is_signed);
-            hash = hash_combine(hash, &x.data.integer.bit_count);
+            hash = hash_combine(hash, &x->data.integer.is_signed);
+            hash = hash_combine(hash, &x->data.integer.bit_count);
             return hash;
         case ZigTypeIdVector:
-            hash = hash_combine(hash, &x.data.vector.elem_type);
-            hash = hash_combine(hash, &x.data.vector.len);
+            hash = hash_combine(hash, &x->data.vector.elem_type);
+            hash = hash_combine(hash, &x->data.vector.len);
             return hash;
     }
     zig_unreachable();
 }
 
-bool type_id_eql(TypeId a, TypeId b) {
-    if (a.id != b.id)
+bool type_id_eql(TypeId const *a, TypeId const *b) {
+    if (a->id != b->id)
         return false;
-    switch (a.id) {
+    switch (a->id) {
         case ZigTypeIdInvalid:
         case ZigTypeIdMetaType:
         case ZigTypeIdVoid:
@@ -7831,107 +7835,107 @@ bool type_id_eql(TypeId a, TypeId b) {
         case ZigTypeIdAnyFrame:
             zig_unreachable();
         case ZigTypeIdErrorUnion:
-            return a.data.error_union.err_set_type == b.data.error_union.err_set_type &&
-                a.data.error_union.payload_type == b.data.error_union.payload_type;
+            return a->data.error_union.err_set_type == b->data.error_union.err_set_type &&
+                a->data.error_union.payload_type == b->data.error_union.payload_type;
 
         case ZigTypeIdPointer:
-            return a.data.pointer.child_type == b.data.pointer.child_type &&
-                a.data.pointer.ptr_len == b.data.pointer.ptr_len &&
-                a.data.pointer.is_const == b.data.pointer.is_const &&
-                a.data.pointer.is_volatile == b.data.pointer.is_volatile &&
-                a.data.pointer.allow_zero == b.data.pointer.allow_zero &&
-                a.data.pointer.alignment == b.data.pointer.alignment &&
-                a.data.pointer.bit_offset_in_host == b.data.pointer.bit_offset_in_host &&
-                a.data.pointer.vector_index == b.data.pointer.vector_index &&
-                a.data.pointer.host_int_bytes == b.data.pointer.host_int_bytes &&
+            return a->data.pointer.child_type == b->data.pointer.child_type &&
+                a->data.pointer.ptr_len == b->data.pointer.ptr_len &&
+                a->data.pointer.is_const == b->data.pointer.is_const &&
+                a->data.pointer.is_volatile == b->data.pointer.is_volatile &&
+                a->data.pointer.allow_zero == b->data.pointer.allow_zero &&
+                a->data.pointer.alignment == b->data.pointer.alignment &&
+                a->data.pointer.bit_offset_in_host == b->data.pointer.bit_offset_in_host &&
+                a->data.pointer.vector_index == b->data.pointer.vector_index &&
+                a->data.pointer.host_int_bytes == b->data.pointer.host_int_bytes &&
                 (
-                    a.data.pointer.sentinel == b.data.pointer.sentinel ||
-                    (a.data.pointer.sentinel != nullptr && b.data.pointer.sentinel != nullptr &&
-                     const_values_equal(a.data.pointer.codegen, a.data.pointer.sentinel, b.data.pointer.sentinel))
+                    a->data.pointer.sentinel == b->data.pointer.sentinel ||
+                    (a->data.pointer.sentinel != nullptr && b->data.pointer.sentinel != nullptr &&
+                     const_values_equal(a->data.pointer.codegen, a->data.pointer.sentinel, b->data.pointer.sentinel))
                 ) &&
                 (
-                    a.data.pointer.inferred_struct_field == b.data.pointer.inferred_struct_field ||
-                    (a.data.pointer.inferred_struct_field != nullptr &&
-                        b.data.pointer.inferred_struct_field != nullptr &&
-                     a.data.pointer.inferred_struct_field->inferred_struct_type ==
-                        b.data.pointer.inferred_struct_field->inferred_struct_type &&
-                     buf_eql_buf(a.data.pointer.inferred_struct_field->field_name,
-                        b.data.pointer.inferred_struct_field->field_name))
+                    a->data.pointer.inferred_struct_field == b->data.pointer.inferred_struct_field ||
+                    (a->data.pointer.inferred_struct_field != nullptr &&
+                        b->data.pointer.inferred_struct_field != nullptr &&
+                     a->data.pointer.inferred_struct_field->inferred_struct_type ==
+                        b->data.pointer.inferred_struct_field->inferred_struct_type &&
+                     buf_eql_buf(a->data.pointer.inferred_struct_field->field_name,
+                        b->data.pointer.inferred_struct_field->field_name))
                 );
         case ZigTypeIdArray:
-            return a.data.array.child_type == b.data.array.child_type &&
-                a.data.array.size == b.data.array.size &&
+            return a->data.array.child_type == b->data.array.child_type &&
+                a->data.array.size == b->data.array.size &&
                 (
-                    a.data.array.sentinel == b.data.array.sentinel ||
-                    (a.data.array.sentinel != nullptr && b.data.array.sentinel != nullptr &&
-                     const_values_equal(a.data.array.codegen, a.data.array.sentinel, b.data.array.sentinel))
+                    a->data.array.sentinel == b->data.array.sentinel ||
+                    (a->data.array.sentinel != nullptr && b->data.array.sentinel != nullptr &&
+                     const_values_equal(a->data.array.codegen, a->data.array.sentinel, b->data.array.sentinel))
                 );
         case ZigTypeIdInt:
-            return a.data.integer.is_signed == b.data.integer.is_signed &&
-                a.data.integer.bit_count == b.data.integer.bit_count;
+            return a->data.integer.is_signed == b->data.integer.is_signed &&
+                a->data.integer.bit_count == b->data.integer.bit_count;
         case ZigTypeIdVector:
-            return a.data.vector.elem_type == b.data.vector.elem_type &&
-                a.data.vector.len == b.data.vector.len;
+            return a->data.vector.elem_type == b->data.vector.elem_type &&
+                a->data.vector.len == b->data.vector.len;
     }
     zig_unreachable();
 }
 
-uint32_t zig_llvm_fn_key_hash(ZigLLVMFnKey x) {
-    switch (x.id) {
+uint32_t zig_llvm_fn_key_hash(ZigLLVMFnKey const *x) {
+    switch (x->id) {
         case ZigLLVMFnIdCtz:
-            return (uint32_t)(x.data.ctz.bit_count) * (uint32_t)810453934;
+            return (uint32_t)(x->data.ctz.bit_count) * (uint32_t)810453934;
         case ZigLLVMFnIdClz:
-            return (uint32_t)(x.data.clz.bit_count) * (uint32_t)2428952817;
+            return (uint32_t)(x->data.clz.bit_count) * (uint32_t)2428952817;
         case ZigLLVMFnIdPopCount:
-            return (uint32_t)(x.data.clz.bit_count) * (uint32_t)101195049;
+            return (uint32_t)(x->data.clz.bit_count) * (uint32_t)101195049;
         case ZigLLVMFnIdFloatOp:
-            return (uint32_t)(x.data.floating.bit_count) * ((uint32_t)x.id + 1025) +
-                   (uint32_t)(x.data.floating.vector_len) * (((uint32_t)x.id << 5) + 1025) +
-                   (uint32_t)(x.data.floating.op) * (uint32_t)43789879;
+            return (uint32_t)(x->data.floating.bit_count) * ((uint32_t)x->id + 1025) +
+                   (uint32_t)(x->data.floating.vector_len) * (((uint32_t)x->id << 5) + 1025) +
+                   (uint32_t)(x->data.floating.op) * (uint32_t)43789879;
         case ZigLLVMFnIdFMA:
-            return (uint32_t)(x.data.floating.bit_count) * ((uint32_t)x.id + 1025) +
-                   (uint32_t)(x.data.floating.vector_len) * (((uint32_t)x.id << 5) + 1025);
+            return (uint32_t)(x->data.floating.bit_count) * ((uint32_t)x->id + 1025) +
+                   (uint32_t)(x->data.floating.vector_len) * (((uint32_t)x->id << 5) + 1025);
         case ZigLLVMFnIdBswap:
-            return (uint32_t)(x.data.bswap.bit_count) * ((uint32_t)3661994335) +
-                   (uint32_t)(x.data.bswap.vector_len) * (((uint32_t)x.id << 5) + 1025);
+            return (uint32_t)(x->data.bswap.bit_count) * ((uint32_t)3661994335) +
+                   (uint32_t)(x->data.bswap.vector_len) * (((uint32_t)x->id << 5) + 1025);
         case ZigLLVMFnIdBitReverse:
-            return (uint32_t)(x.data.bit_reverse.bit_count) * (uint32_t)2621398431;
+            return (uint32_t)(x->data.bit_reverse.bit_count) * (uint32_t)2621398431;
         case ZigLLVMFnIdOverflowArithmetic:
-            return ((uint32_t)(x.data.overflow_arithmetic.bit_count) * 87135777) +
-                ((uint32_t)(x.data.overflow_arithmetic.add_sub_mul) * 31640542) +
-                ((uint32_t)(x.data.overflow_arithmetic.is_signed) ? 1062315172 : 314955820) +
-                x.data.overflow_arithmetic.vector_len * 1435156945;
+            return ((uint32_t)(x->data.overflow_arithmetic.bit_count) * 87135777) +
+                ((uint32_t)(x->data.overflow_arithmetic.add_sub_mul) * 31640542) +
+                ((uint32_t)(x->data.overflow_arithmetic.is_signed) ? 1062315172 : 314955820) +
+                x->data.overflow_arithmetic.vector_len * 1435156945;
     }
     zig_unreachable();
 }
 
-bool zig_llvm_fn_key_eql(ZigLLVMFnKey a, ZigLLVMFnKey b) {
-    if (a.id != b.id)
+bool zig_llvm_fn_key_eql(ZigLLVMFnKey const *a, ZigLLVMFnKey const *b) {
+    if (a->id != b->id)
         return false;
-    switch (a.id) {
+    switch (a->id) {
         case ZigLLVMFnIdCtz:
-            return a.data.ctz.bit_count == b.data.ctz.bit_count;
+            return a->data.ctz.bit_count == b->data.ctz.bit_count;
         case ZigLLVMFnIdClz:
-            return a.data.clz.bit_count == b.data.clz.bit_count;
+            return a->data.clz.bit_count == b->data.clz.bit_count;
         case ZigLLVMFnIdPopCount:
-            return a.data.pop_count.bit_count == b.data.pop_count.bit_count;
+            return a->data.pop_count.bit_count == b->data.pop_count.bit_count;
         case ZigLLVMFnIdBswap:
-            return a.data.bswap.bit_count == b.data.bswap.bit_count &&
-                   a.data.bswap.vector_len == b.data.bswap.vector_len;
+            return a->data.bswap.bit_count == b->data.bswap.bit_count &&
+                   a->data.bswap.vector_len == b->data.bswap.vector_len;
         case ZigLLVMFnIdBitReverse:
-            return a.data.bit_reverse.bit_count == b.data.bit_reverse.bit_count;
+            return a->data.bit_reverse.bit_count == b->data.bit_reverse.bit_count;
         case ZigLLVMFnIdFloatOp:
-            return a.data.floating.bit_count == b.data.floating.bit_count &&
-                   a.data.floating.vector_len == b.data.floating.vector_len &&
-                   a.data.floating.op == b.data.floating.op;
+            return a->data.floating.bit_count == b->data.floating.bit_count &&
+                   a->data.floating.vector_len == b->data.floating.vector_len &&
+                   a->data.floating.op == b->data.floating.op;
         case ZigLLVMFnIdFMA:
-            return a.data.floating.bit_count == b.data.floating.bit_count &&
-                   a.data.floating.vector_len == b.data.floating.vector_len;
+            return a->data.floating.bit_count == b->data.floating.bit_count &&
+                   a->data.floating.vector_len == b->data.floating.vector_len;
         case ZigLLVMFnIdOverflowArithmetic:
-            return (a.data.overflow_arithmetic.bit_count == b.data.overflow_arithmetic.bit_count) &&
-                (a.data.overflow_arithmetic.add_sub_mul == b.data.overflow_arithmetic.add_sub_mul) &&
-                (a.data.overflow_arithmetic.is_signed == b.data.overflow_arithmetic.is_signed) &&
-                (a.data.overflow_arithmetic.vector_len == b.data.overflow_arithmetic.vector_len);
+            return (a->data.overflow_arithmetic.bit_count == b->data.overflow_arithmetic.bit_count) &&
+                (a->data.overflow_arithmetic.add_sub_mul == b->data.overflow_arithmetic.add_sub_mul) &&
+                (a->data.overflow_arithmetic.is_signed == b->data.overflow_arithmetic.is_signed) &&
+                (a->data.overflow_arithmetic.vector_len == b->data.overflow_arithmetic.vector_len);
     }
     zig_unreachable();
 }

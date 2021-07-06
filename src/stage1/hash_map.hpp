@@ -12,7 +12,33 @@
 
 #include <stdint.h>
 
-template<typename K, typename V, uint32_t (*HashFunction)(K key), bool (*EqualFn)(K a, K b)>
+template<typename K>
+struct MakePointer {
+    typedef K const *Type;
+    static Type convert(K const &val) {
+        return &val;
+    }
+};
+
+template<typename K>
+struct MakePointer<K*> {
+    typedef K *Type;
+    static Type convert(K * const &val) {
+        return val;
+    }
+};
+
+template<typename K>
+struct MakePointer<K const *> {
+    typedef K const *Type;
+    static Type convert(K const * const &val) {
+        return val;
+    }
+};
+
+template<typename K, typename V,
+    uint32_t (*HashFunction)(typename MakePointer<K>::Type key),
+    bool (*EqualFn)(typename MakePointer<K>::Type a, typename MakePointer<K>::Type b)>
 class HashMap {
 public:
     void init(int capacity) {
@@ -51,7 +77,7 @@ public:
 
         if (_index_bytes == nullptr) {
             if (_entries.length < 16) {
-                _entries.append({HashFunction(key), 0, key, value});
+                _entries.append({HashFunction(MakePointer<K>::convert(key)), 0, key, value});
                 return;
             } else {
                 _indexes_len = 32;
@@ -131,9 +157,9 @@ public:
     bool maybe_remove(const K &key) {
         _modification_count += 1;
         if (_index_bytes == nullptr) {
-            uint32_t hash = HashFunction(key);
+            uint32_t hash = HashFunction(MakePointer<K>::convert(key));
             for (size_t i = 0; i < _entries.length; i += 1) {
-                if (_entries.items[i].hash == hash && EqualFn(_entries.items[i].key, key)) {
+                if (_entries.items[i].hash == hash && EqualFn(MakePointer<K>::convert(_entries.items[i].key), MakePointer<K>::convert(key))) {
                     _entries.swap_remove(i);
                     return true;
                 }
@@ -223,7 +249,7 @@ private:
 
     template <typename I>
     void internal_put(const K &key, const V &value, I *indexes) {
-        uint32_t hash = HashFunction(key);
+        uint32_t hash = HashFunction(MakePointer<K>::convert(key));
         uint32_t distance_from_start_index = 0;
         size_t start_index = hash_to_index(hash);
         for (size_t roll_over = 0; roll_over < _indexes_len;
@@ -241,7 +267,7 @@ private:
             // This pointer survives the following append because we call
             // _entries.ensure_capacity before internal_put.
             Entry *entry = &_entries.items[index_data - 1];
-            if (entry->hash == hash && EqualFn(entry->key, key)) {
+            if (entry->hash == hash && EqualFn(MakePointer<K>::convert(entry->key), MakePointer<K>::convert(key))) {
                 *entry = {hash, distance_from_start_index, key, value};
                 if (distance_from_start_index > _max_distance_from_start_index)
                     _max_distance_from_start_index = distance_from_start_index;
@@ -322,9 +348,9 @@ private:
 
     Entry *internal_get(const K &key) const {
         if (_index_bytes == nullptr) {
-            uint32_t hash = HashFunction(key);
+            uint32_t hash = HashFunction(MakePointer<K>::convert(key));
             for (size_t i = 0; i < _entries.length; i += 1) {
-                if (_entries.items[i].hash == hash && EqualFn(_entries.items[i].key, key)) {
+                if (_entries.items[i].hash == hash && EqualFn(MakePointer<K>::convert(_entries.items[i].key), MakePointer<K>::convert(key))) {
                     return &_entries.items[i];
                 }
             }
@@ -340,7 +366,7 @@ private:
 
     template <typename I>
     Entry *internal_get2(const K &key, I *indexes) const {
-        uint32_t hash = HashFunction(key);
+        uint32_t hash = HashFunction(MakePointer<K>::convert(key));
         size_t start_index = hash_to_index(hash);
         for (size_t roll_over = 0; roll_over <= _max_distance_from_start_index; roll_over += 1) {
             size_t index_index = (start_index + roll_over) % _indexes_len;
@@ -349,7 +375,7 @@ private:
                 return nullptr;
 
             Entry *entry = &_entries.items[index_data - 1];
-            if (entry->hash == hash && EqualFn(entry->key, key))
+            if (entry->hash == hash && EqualFn(MakePointer<K>::convert(entry->key), MakePointer<K>::convert(key)))
                 return entry;
         }
         return nullptr;
@@ -361,7 +387,7 @@ private:
 
     template <typename I>
     bool internal_remove(const K &key, I *indexes) {
-        uint32_t hash = HashFunction(key);
+        uint32_t hash = HashFunction(MakePointer<K>::convert(key));
         size_t start_index = hash_to_index(hash);
         for (size_t roll_over = 0; roll_over <= _max_distance_from_start_index; roll_over += 1) {
             size_t index_index = (start_index + roll_over) % _indexes_len;
@@ -371,7 +397,7 @@ private:
 
             size_t index = index_data - 1;
             Entry *entry = &_entries.items[index];
-            if (entry->hash != hash || !EqualFn(entry->key, key))
+            if (entry->hash != hash || !EqualFn(MakePointer<K>::convert(entry->key), MakePointer<K>::convert(key)))
                 continue;
 
             size_t prev_index = index_index;

@@ -1730,16 +1730,16 @@ Cmp bigint_cmp_zero(const BigInt *op) {
     return op->is_negative ? CmpLT : CmpGT;
 }
 
-uint32_t bigint_hash(BigInt x) {
-    if (x.digit_count == 0) {
+uint32_t bigint_hash(BigInt const *x) {
+    if (x->digit_count == 0) {
         return 0;
     } else {
-        return bigint_ptr(&x)[0];
+        return bigint_ptr(x)[0];
     }
 }
 
-bool bigint_eql(BigInt a, BigInt b) {
-    return bigint_cmp(&a, &b) == CmpEQ;
+bool bigint_eql(BigInt const *a, BigInt const *b) {
+    return bigint_cmp(a, b) == CmpEQ;
 }
 
 void bigint_incr(BigInt *x) {
