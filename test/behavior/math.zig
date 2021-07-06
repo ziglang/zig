@@ -848,7 +848,7 @@ test "vector comparison" {
             var b: std.meta.Vector(6, i32) = [_]i32{ -1, 3, 0, 6, 10, -10 };
             try expect(mem.eql(bool, &@as([6]bool, a < b), &[_]bool{ false, false, true, true, true, false }));
             try expect(mem.eql(bool, &@as([6]bool, a <= b), &[_]bool{ false, true, true, true, true, false }));
-            try expectEqual(mem.eql(bool, &@as([6]bool, a, b), &[_]bool{ false, true, false, false, false, false }));
+            try expect(mem.eql(bool, &@as([6]bool, a == b), &[_]bool{ false, true, false, false, false, false }));
             try expect(mem.eql(bool, &@as([6]bool, a != b), &[_]bool{ true, false, true, true, true, true }));
             try expect(mem.eql(bool, &@as([6]bool, a > b), &[_]bool{ true, false, false, false, false, true }));
             try expect(mem.eql(bool, &@as([6]bool, a >= b), &[_]bool{ true, true, false, false, false, true }));

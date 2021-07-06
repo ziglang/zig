@@ -40,7 +40,7 @@ test "vector bin compares with mem.eql" {
         fn doTheTest() !void {
             var v: Vector(4, i32) = [4]i32{ 2147483647, -2, 30, 40 };
             var x: Vector(4, i32) = [4]i32{ 1, 2147483647, 30, 4 };
-            try expectEqual(mem.eql(bool, &@as([4]bool, v, x), &[4]bool{ false, false, true, false }));
+            try expect(mem.eql(bool, &@as([4]bool, v == x), &[4]bool{ false, false, true, false }));
             try expect(mem.eql(bool, &@as([4]bool, v != x), &[4]bool{ true, true, false, true }));
             try expect(mem.eql(bool, &@as([4]bool, v < x), &[4]bool{ false, true, false, false }));
             try expect(mem.eql(bool, &@as([4]bool, v > x), &[4]bool{ true, false, false, true }));
