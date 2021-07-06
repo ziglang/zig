@@ -502,9 +502,9 @@ test "switch on pointer type" {
         }
     };
 
-    try expectEqual(1, S.doTheTest(S.P1));
-    try expectEqual(2, S.doTheTest(S.P2));
-    try expectEqual(3, S.doTheTest(S.P3));
+    try expectEqual(S.doTheTest(S.P1), 1);
+    try expectEqual(S.doTheTest(S.P2), 2);
+    try expectEqual(S.doTheTest(S.P3), 3);
     comptime try expectEqual(1, S.doTheTest(S.P1));
     comptime try expectEqual(2, S.doTheTest(S.P2));
     comptime try expectEqual(3, S.doTheTest(S.P3));

@@ -171,8 +171,8 @@ test "for on slice with allowzero ptr" {
     const S = struct {
         fn doTheTest(slice: []const u8) !void {
             var ptr = @ptrCast([*]allowzero const u8, slice.ptr)[0..slice.len];
-            for (ptr) |x, i| try expectEqual(x, i + 1);
-            for (ptr) |*x, i| try expectEqual(x.*, i + 1);
+            for (ptr) |x, i| try expectEqual(i + 1, x);
+            for (ptr) |*x, i| try expectEqual(i + 1, x.*);
         }
     };
     try S.doTheTest(&[_]u8{ 1, 2, 3, 4 });

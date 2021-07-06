@@ -201,7 +201,7 @@ fn testSuspendBlock() callconv(.Async) void {
 
     // Test to make sure that @frame() works as advertised (issue #1296)
     // var our_handle: anyframe = @frame();
-    expectEqual(a_promise, @as(anyframe, @frame())) catch @panic("test failed");
+    expect(a_promise == @as(anyframe, @frame())) catch @panic("test failed");
 
     global_result = true;
 }
@@ -488,15 +488,15 @@ test "suspension points inside branching control flow" {
         var result: i32 = 10;
 
         fn doTheTest() !void {
-            try expectEqual(10, result);
+            try expectEqual(result, 10);
             var frame = async func(true);
-            try expectEqual(10, result);
+            try expectEqual(result, 10);
             resume frame;
-            try expectEqual(11, result);
+            try expectEqual(result, 11);
             resume frame;
-            try expectEqual(12, result);
+            try expectEqual(result, 12);
             resume frame;
-            try expectEqual(13, result);
+            try expectEqual(result, 13);
         }
 
         fn func(b: bool) void {

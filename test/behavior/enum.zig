@@ -901,7 +901,7 @@ test "enum with specified tag values" {
 
 fn testEnumWithSpecifiedTagValues(x: MultipleChoice) !void {
     try expectEqual(@enumToInt(x), 60);
-    try expectEqual(1234, switch (x) {
+    try expect(1234 == switch (x) {
         MultipleChoice.A => 1,
         MultipleChoice.B => 2,
         MultipleChoice.C => @as(u32, 1234),
@@ -928,7 +928,7 @@ test "enum with specified and unspecified tag values" {
 
 fn testEnumWithSpecifiedAndUnspecifiedTagValues(x: MultipleChoice2) !void {
     try expectEqual(@enumToInt(x), 1000);
-    try expectEqual(1234, switch (x) {
+    try expect(1234 == switch (x) {
         MultipleChoice2.A => 1,
         MultipleChoice2.B => 2,
         MultipleChoice2.C => 3,
@@ -1028,7 +1028,7 @@ test "peer type resolution with enum literal" {
     };
 
     try expectEqual(Items.two, .two);
-    try expectEqual(.two, Items.two);
+    try expect(.two == Items.two);
 }
 
 test "enum literal in array literal" {

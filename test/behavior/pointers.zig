@@ -155,8 +155,8 @@ test "initialize const optional C pointer to null" {
 test "compare equality of optional and non-optional pointer" {
     const a = @intToPtr(*const usize, 0x12345678);
     const b = @intToPtr(?*usize, 0x12345678);
-    try expectEqual(a, b);
-    try expectEqual(b, a);
+    try expect(a == b);
+    try expect(b == a);
 }
 
 test "allowzero pointer and slice" {
@@ -175,8 +175,8 @@ test "allowzero pointer and slice" {
 
 test "assign null directly to C pointer and test null equality" {
     var x: [*c]i32 = null;
-    try expectEqual(x, null);
-    try expectEqual(null, x);
+    try expect(x == null);
+    try expect(null == x);
     try expect(!(x != null));
     try expect(!(null != x));
     if (x) |same_x| {
@@ -187,8 +187,8 @@ test "assign null directly to C pointer and test null equality" {
     try expectEqual((x orelse &otherx), &otherx);
 
     const y: [*c]i32 = null;
-    comptime try expectEqual(y, null);
-    comptime try expectEqual(null, y);
+    comptime try expect(y == null);
+    comptime try expect(null == y);
     comptime try expect(!(y != null));
     comptime try expect(!(null != y));
     if (y) |same_y| {

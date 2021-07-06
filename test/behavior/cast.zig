@@ -51,10 +51,10 @@ test "implicitly cast indirect pointer to maybe-indirect pointer" {
     const p = &s;
     const q = &p;
     const r = &q;
-    try expectEqual(42, S.constConst(q));
-    try expectEqual(42, S.maybeConstConst(q));
-    try expectEqual(42, S.constConstConst(r));
-    try expectEqual(42, S.maybeConstConstConst(r));
+    try expectEqual(S.constConst(q), 42);
+    try expectEqual(S.maybeConstConst(q), 42);
+    try expectEqual(S.constConstConst(r), 42);
+    try expectEqual(S.maybeConstConstConst(r), 42);
 }
 
 test "explicit cast from integer to error type" {
@@ -64,7 +64,7 @@ test "explicit cast from integer to error type" {
 fn testCastIntToErr(err: anyerror) !void {
     const x = @errorToInt(err);
     const y = @intToError(x);
-    try expectEqual(error.ItBroke, y);
+    try expect(error.ItBroke == y);
 }
 
 test "peer resolve arrays of different size to const slice" {
@@ -124,7 +124,7 @@ fn implicitIntLitToOptional() void {
 test "return null from fn() anyerror!?&T" {
     const a = returnNullFromOptionalTypeErrorRef();
     const b = returnNullLitFromOptionalTypeErrorRef();
-    try expectEqual((try a) == null and (try b), null);
+    try expect((try a) == null and (try b) == null);
 }
 fn returnNullFromOptionalTypeErrorRef() anyerror!?*A {
     const a: ?*A = null;

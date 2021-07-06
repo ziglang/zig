@@ -242,7 +242,7 @@ test "alignment of function with c calling convention" {
 fn nothing() callconv(.C) void {}
 
 test "return error union with 128-bit integer" {
-    try expectEqual(3, try give());
+    try expectEqual(try give(), 3);
 }
 fn give() anyerror!u128 {
     return 3;
@@ -290,7 +290,7 @@ test "read 128-bit field from default aligned struct in stack memory" {
         .badguy = 12,
     };
     try expectEqual((@ptrToInt(&default_aligned.badguy) % 16), 0);
-    try expectEqual(12, default_aligned.badguy);
+    try expectEqual(default_aligned.badguy, 12);
 }
 
 var default_aligned_global = DefaultAligned{
@@ -300,7 +300,7 @@ var default_aligned_global = DefaultAligned{
 
 test "read 128-bit field from default aligned struct in global memory" {
     try expectEqual((@ptrToInt(&default_aligned_global.badguy) % 16), 0);
-    try expectEqual(12, default_aligned_global.badguy);
+    try expectEqual(default_aligned_global.badguy, 12);
 }
 
 test "struct field explicit alignment" {

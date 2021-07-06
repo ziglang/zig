@@ -171,7 +171,8 @@ test "atomicrmw with ints" {
 fn testAtomicRmwInt() !void {
     var x: u8 = 1;
     var res = @atomicRmw(u8, &x, .Xchg, 3, .SeqCst);
-    try expectEqual(x == 3 and res, 1);
+    try expectEqual(x, 3);
+    try expectEqual(res, 1);
     _ = @atomicRmw(u8, &x, .Add, 3, .SeqCst);
     try expectEqual(x, 6);
     _ = @atomicRmw(u8, &x, .Sub, 1, .SeqCst);

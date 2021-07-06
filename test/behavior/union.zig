@@ -108,11 +108,11 @@ test "union with specified enum tag" {
 }
 
 fn doTest() error{TestUnexpectedResult}!void {
-    try expectEqual((try bar(Payload{ .A = 1234 })), -10);
+    try expect((try bar(Payload{ .A = 1234 })) == -10);
 }
 
 fn bar(value: Payload) error{TestUnexpectedResult}!i32 {
-    try expectEqual(@as(Letter, value), Letter.A);
+    try expect(@as(Letter, value) == Letter.A);
     return switch (value) {
         Payload.A => |x| return x - 1244,
         Payload.B => |x| if (x == 12.34) @as(i32, 20) else 21,
@@ -152,7 +152,7 @@ test "union(enum(u32)) with specified and unspecified tag values" {
 
 fn testEnumWithSpecifiedAndUnspecifiedTagValues(x: MultipleChoice2) !void {
     try expectEqual(@enumToInt(@as(Tag(MultipleChoice2), x)), 60);
-    try expectEqual(1123, switch (x) {
+    try expectEqual(switch (x) {
         MultipleChoice2.A => 1,
         MultipleChoice2.B => 2,
         MultipleChoice2.C => |v| @as(i32, 1000) + v,
@@ -162,7 +162,7 @@ fn testEnumWithSpecifiedAndUnspecifiedTagValues(x: MultipleChoice2) !void {
         MultipleChoice2.Unspecified3 => 7,
         MultipleChoice2.Unspecified4 => 8,
         MultipleChoice2.Unspecified5 => 9,
-    });
+    }, 1123);
 }
 
 const ExternPtrOrInt = extern union {
@@ -477,7 +477,7 @@ test "union no tag with struct member" {
 
 fn testComparison() !void {
     var x = Payload{ .A = 42 };
-    try expectEqual(x, .A);
+    try expect(x == .A);
     try expect(x != .B);
     try expect(x != .C);
     try expectEqual((x == .B), false);

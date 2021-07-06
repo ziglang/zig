@@ -203,11 +203,11 @@ fn testLog() !void {
     }
     {
         var a: f32 = e;
-        try expectEqual(@log(a) == 1 or @log(a), @bitCast(f32, @as(u32, 0x3f7fffff)));
+        try expect(@log(a) == 1 or @log(a) == @bitCast(f32, @as(u32, 0x3f7fffff)));
     }
     {
         var a: f64 = e;
-        try expectEqual(@log(a) == 1 or @log(a), @bitCast(f64, @as(u64, 0x3ff0000000000000)));
+        try expect(@log(a) == 1 or @log(a) == @bitCast(f64, @as(u64, 0x3ff0000000000000)));
     }
     {
         var v: Vector(4, f32) = [_]f32{ 1.1, 2.2, 0.3, 0.4 };

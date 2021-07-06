@@ -29,7 +29,7 @@ fn testNullPtrsEql() !void {
     x = &number;
     try expectEqual(x, y);
     try expectEqual(x, &number);
-    try expectEqual(&number, x);
+    try expect(&number == x);
 }
 
 test "address of unwrap optional" {

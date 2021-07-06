@@ -206,7 +206,7 @@ test "store vector elements via comptime index" {
             try expectEqual(v[1], 5);
             v[3] = -364;
             try expectEqual(v[2], 42);
-            try expectEqual(-364, v[3]);
+            try expect(-364 == v[3]);
 
             storev(&v[0], 100);
             try expectEqual(v[0], 100);
@@ -247,7 +247,7 @@ test "store vector elements via runtime index" {
             try expectEqual(v[2], 1);
             i += 1;
             v[i] = -364;
-            try expectEqual(-364, v[3]);
+            try expect(-364 == v[3]);
         }
     };
 

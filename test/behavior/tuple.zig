@@ -43,7 +43,7 @@ test "tuple multiplication" {
 
     const T = struct {
         fn consume_tuple(tuple: anytype, len: usize) !void {
-            try expectEqual(tuple.len, len);
+            try expectEqual(len, tuple.len);
         }
 
         fn doTheTest() !void {
