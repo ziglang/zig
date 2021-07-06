@@ -626,7 +626,7 @@ static AstNodeContainerDecl ast_parse_container_members(ParseContext *pc) {
     return res;
 }
 
-// TestDecl <- KEYWORD_test STRINGLITERALSINGLE Block
+// TestDecl <- KEYWORD_test STRINGLITERALSINGLE? Block
 static AstNode *ast_parse_test_decl(ParseContext *pc) {
     TokenIndex test = eat_token_if(pc, TokenIdKeywordTest);
     if (test == 0)
