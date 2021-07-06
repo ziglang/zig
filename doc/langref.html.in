@@ -10,6 +10,15 @@
         font-family: system-ui, -apple-system, Roboto, "Segoe UI", sans-serif;
         margin: 0;
       }
+      p {
+        line-height: 1.7;
+      }
+      p code {
+        background-color: lightgray;
+        border: darkblue dotted 1px;
+        padding-left: 0.3em;
+        padding-right: 0.3em;
+      }
       a:not(:hover) {
         text-decoration: none;
       }
@@ -38,7 +47,7 @@
       .file {
         text-decoration: underline;
       }
-      pre,code {
+      pre > code {
         font-size: 12pt;
       }
       pre > code {
@@ -131,6 +140,10 @@
         body{
             background-color:#111;
             color: #bbb;
+        }
+        p code {
+          background-color: #333;
+          border-color: darkgray;
         }
         a {
             color: #f7a31d;
