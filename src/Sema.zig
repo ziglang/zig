@@ -2566,8 +2566,19 @@ fn zirMergeErrorSets(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) Inn
     const src: LazySrcLoc = .{ .node_offset_bin_op = inst_data.src_node };
     const lhs_src: LazySrcLoc = .{ .node_offset_bin_lhs = inst_data.src_node };
     const rhs_src: LazySrcLoc = .{ .node_offset_bin_rhs = inst_data.src_node };
-    const lhs_ty = try sema.resolveType(block, lhs_src, extra.lhs);
-    const rhs_ty = try sema.resolveType(block, rhs_src, extra.rhs);
+    const lhs = try sema.resolveInst(extra.lhs);
+    const rhs = try sema.resolveInst(extra.rhs);
+    if (rhs.ty.zigTypeTag() == .Bool and lhs.ty.zigTypeTag() == .Bool) {
+        const msg = msg: {
+            const msg = try sema.mod.errMsg(&block.base, lhs_src, "expected error set type, found 'bool'", .{});
+            errdefer msg.destroy(sema.gpa);
+            try sema.mod.errNote(&block.base, src, msg, "'||' merges error sets; 'or' performs boolean OR", .{});
+            break :msg msg;
+        };
+        return sema.mod.failWithOwnedErrorMsg(&block.base, msg);
+    }
+    const rhs_ty = try sema.resolveAirAsType(block, rhs_src, rhs);
+    const lhs_ty = try sema.resolveAirAsType(block, lhs_src, lhs);
     if (rhs_ty.zigTypeTag() != .ErrorSet)
         return sema.mod.fail(&block.base, rhs_src, "expected error set type, found {}", .{rhs_ty});
     if (lhs_ty.zigTypeTag() != .ErrorSet)
