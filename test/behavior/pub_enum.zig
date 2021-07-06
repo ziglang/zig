@@ -1,5 +1,6 @@
 const other = @import("pub_enum/other.zig");
 const expect = @import("std").testing.expect;
+const expectEqual = @import("std").testing.expectEqual;
 
 test "pub enum" {
     try pubEnumTest(other.APubEnum.Two);

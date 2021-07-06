@@ -7,7 +7,7 @@ const S = struct {
     y: E,
 };
 
-const expect = @import("std").testing.expect;
+const expectEqual = @import("std").testing.expectEqual;
 
 test "bug 394 fixed" {
     const x = S{

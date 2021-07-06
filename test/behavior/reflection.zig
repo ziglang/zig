@@ -1,4 +1,5 @@
 const expect = @import("std").testing.expect;
+const expectEqual = @import("std").testing.expectEqual;
 const mem = @import("std").mem;
 const reflection = @This();
 
