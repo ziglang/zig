@@ -54,4 +54,6 @@ test "truncate on comptime integer" {
     try expect(y == 0xabcd);
     var z = @truncate(i16, -65537);
     try expect(z == -1);
+    var w = @truncate(u1, 1 << 100);
+    try expect(w == 0);
 }
