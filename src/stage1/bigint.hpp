@@ -39,6 +39,7 @@ void bigint_deinit(BigInt *bi);
 // panics if number won't fit
 uint64_t bigint_as_u64(const BigInt *bigint);
 uint32_t bigint_as_u32(const BigInt *bigint);
+uint8_t bigint_as_u8(const BigInt *bigint);
 size_t bigint_as_usize(const BigInt *bigint);
 
 int64_t bigint_as_signed(const BigInt *bigint);
@@ -99,7 +100,7 @@ void bigint_decr(BigInt *value);
 
 bool mul_u64_overflow(uint64_t op1, uint64_t op2, uint64_t *result);
 
-uint32_t bigint_hash(BigInt x);
-bool bigint_eql(BigInt a, BigInt b);
+uint32_t bigint_hash(BigInt const *x);
+bool bigint_eql(BigInt const *a, BigInt const *b);
 
 #endif

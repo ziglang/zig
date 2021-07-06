@@ -265,6 +265,7 @@ int main(int argc, char **argv) {
     const char *override_lib_dir = nullptr;
     const char *mcpu = nullptr;
     bool single_threaded = false;
+    bool is_test_build = false;
 
     for (int i = 1; i < argc; i += 1) {
         char *arg = argv[i];
@@ -272,6 +273,8 @@ int main(int argc, char **argv) {
         if (arg[0] == '-') {
             if (strcmp(arg, "--") == 0) {
                 fprintf(stderr, "Unexpected end-of-parameter mark: %s\n", arg);
+            } else if (strcmp(arg, "--test") == 0) {
+                is_test_build = true;
             } else if (strcmp(arg, "-ODebug") == 0) {
                 optimize_mode = BuildModeDebug;
             } else if (strcmp(arg, "-OReleaseFast") == 0) {
@@ -446,7 +449,7 @@ int main(int argc, char **argv) {
         nullptr, 0,
         in_file, strlen(in_file),
         override_lib_dir, strlen(override_lib_dir),
-        &target, false);
+        &target, is_test_build);
 
     stage1->main_progress_node = root_progress_node;
     stage1->root_name_ptr = out_name;
