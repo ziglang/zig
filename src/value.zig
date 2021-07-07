@@ -483,13 +483,13 @@ pub const Value = extern union {
     /// TODO this should become a debug dump() function. In order to print values in a meaningful way
     /// we also need access to the type.
     pub fn format(
-        self: Value,
+        start_val: Value,
         comptime fmt: []const u8,
         options: std.fmt.FormatOptions,
         out_stream: anytype,
     ) !void {
         comptime assert(fmt.len == 0);
-        var val = self;
+        var val = start_val;
         while (true) switch (val.tag()) {
             .u8_type => return out_stream.writeAll("u8"),
             .i8_type => return out_stream.writeAll("i8"),
@@ -598,9 +598,9 @@ pub const Value = extern union {
                 val = field_ptr.container_ptr;
             },
             .empty_array => return out_stream.writeAll(".{}"),
-            .enum_literal => return out_stream.print(".{}", .{std.zig.fmtId(self.castTag(.enum_literal).?.data)}),
-            .enum_field_index => return out_stream.print("(enum field {d})", .{self.castTag(.enum_field_index).?.data}),
-            .bytes => return out_stream.print("\"{}\"", .{std.zig.fmtEscapes(self.castTag(.bytes).?.data)}),
+            .enum_literal => return out_stream.print(".{}", .{std.zig.fmtId(val.castTag(.enum_literal).?.data)}),
+            .enum_field_index => return out_stream.print("(enum field {d})", .{val.castTag(.enum_field_index).?.data}),
+            .bytes => return out_stream.print("\"{}\"", .{std.zig.fmtEscapes(val.castTag(.bytes).?.data)}),
             .repeated => {
                 try out_stream.writeAll("(repeated) ");
                 val = val.castTag(.repeated).?.data;
@@ -1332,6 +1332,23 @@ pub const Value = extern union {
                 return container_val.fieldValue(allocator, field_ptr.field_index);
             },
 
+            else => unreachable,
+        };
+    }
+
+    pub fn sliceLen(val: Value) u64 {
+        return switch (val.tag()) {
+            .empty_array => 0,
+            .bytes => val.castTag(.bytes).?.data.len,
+            .ref_val => sliceLen(val.castTag(.ref_val).?.data),
+            .decl_ref => {
+                const decl = val.castTag(.decl_ref).?.data;
+                if (decl.ty.zigTypeTag() == .Array) {
+                    return decl.ty.arrayLen();
+                } else {
+                    return 1;
+                }
+            },
             else => unreachable,
         };
     }

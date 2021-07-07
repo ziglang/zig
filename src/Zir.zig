@@ -1,7 +1,7 @@
 //! Zig Intermediate Representation. Astgen.zig converts AST nodes to these
-//! untyped IR instructions. Next, Sema.zig processes these into TZIR.
+//! untyped IR instructions. Next, Sema.zig processes these into AIR.
 //! The minimum amount of information needed to represent a list of ZIR instructions.
-//! Once this structure is completed, it can be used to generate TZIR, followed by
+//! Once this structure is completed, it can be used to generate AIR, followed by
 //! machine code, without any memory access into the AST tree token list, node list,
 //! or source bytes. Exceptions include:
 //!  * Compile errors, which may need to reach into these data structures to
@@ -416,8 +416,8 @@ pub const Inst = struct {
         /// A labeled block of code that loops forever. At the end of the body will have either
         /// a `repeat` instruction or a `repeat_inline` instruction.
         /// Uses the `pl_node` field. The AST node is either a for loop or while loop.
-        /// This ZIR instruction is needed because TZIR does not (yet?) match ZIR, and Sema
-        /// needs to emit more than 1 TZIR block for this instruction.
+        /// This ZIR instruction is needed because AIR does not (yet?) match ZIR, and Sema
+        /// needs to emit more than 1 AIR block for this instruction.
         /// The payload is `Block`.
         loop,
         /// Sends runtime control flow back to the beginning of the current block.
@@ -466,6 +466,19 @@ pub const Inst = struct {
         /// Uses the `un_tok` union field.
         /// The operand needs to get coerced to the function's return type.
         ret_coerce,
+        /// Sends control flow back to the function's callee.
+        /// The return operand is `error.foo` where `foo` is given by the string.
+        /// If the current function has an inferred error set, the error given by the
+        /// name is added to it.
+        /// Uses the `str_tok` union field.
+        ret_err_value,
+        /// A string name is provided which is an anonymous error set value.
+        /// If the current function has an inferred error set, the error given by the
+        /// name is added to it.
+        /// Results in the error code. Note that control flow is not diverted with
+        /// this instruction; a following 'ret' instruction will do the diversion.
+        /// Uses the `str_tok` union field.
+        ret_err_value_code,
         /// Create a pointer type that does not have a sentinel, alignment, or bit range specified.
         /// Uses the `ptr_type_simple` union field.
         ptr_type_simple,
@@ -1193,6 +1206,7 @@ pub const Inst = struct {
                 .@"resume",
                 .@"await",
                 .await_nosuspend,
+                .ret_err_value_code,
                 .extended,
                 => false,
 
@@ -1203,6 +1217,7 @@ pub const Inst = struct {
                 .compile_error,
                 .ret_node,
                 .ret_coerce,
+                .ret_err_value,
                 .@"unreachable",
                 .repeat,
                 .repeat_inline,
@@ -1307,6 +1322,8 @@ pub const Inst = struct {
                 .ref = .un_tok,
                 .ret_node = .un_node,
                 .ret_coerce = .un_tok,
+                .ret_err_value = .str_tok,
+                .ret_err_value_code = .str_tok,
                 .ptr_type_simple = .ptr_type_simple,
                 .ptr_type = .ptr_type,
                 .slice_start = .pl_node,
@@ -3077,6 +3094,8 @@ const Writer = struct {
             .decl_val,
             .import,
             .arg,
+            .ret_err_value,
+            .ret_err_value_code,
             => try self.writeStrTok(stream, inst),
 
             .func => try self.writeFunc(stream, inst, false),

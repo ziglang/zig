@@ -244,6 +244,7 @@ pub fn analyzeBody(
             .ptr_type                     => try sema.zirPtrType(block, inst),
             .ptr_type_simple              => try sema.zirPtrTypeSimple(block, inst),
             .ref                          => try sema.zirRef(block, inst),
+            .ret_err_value_code           => try sema.zirRetErrValueCode(block, inst),
             .shl                          => try sema.zirShl(block, inst),
             .shr                          => try sema.zirShr(block, inst),
             .slice_end                    => try sema.zirSliceEnd(block, inst),
@@ -380,8 +381,9 @@ pub fn analyzeBody(
             .condbr         => return sema.zirCondbr(block, inst),
             .@"break"       => return sema.zirBreak(block, inst),
             .compile_error  => return sema.zirCompileError(block, inst),
-            .ret_coerce     => return sema.zirRetTok(block, inst, true),
+            .ret_coerce     => return sema.zirRetCoerce(block, inst, true),
             .ret_node       => return sema.zirRetNode(block, inst),
+            .ret_err_value  => return sema.zirRetErrValue(block, inst),
             .@"unreachable" => return sema.zirUnreachable(block, inst),
             .repeat         => return sema.zirRepeat(block, inst),
             .panic          => return sema.zirPanic(block, inst),
@@ -585,6 +587,19 @@ pub fn resolveInst(sema: *Sema, zir_ref: Zir.Inst.Ref) error{OutOfMemory}!*ir.In
 
     // Finally, the last section of indexes refers to the map of ZIR=>AIR.
     return sema.inst_map.get(@intCast(u32, i)).?;
+}
+
+fn resolveConstBool(
+    sema: *Sema,
+    block: *Scope.Block,
+    src: LazySrcLoc,
+    zir_ref: Zir.Inst.Ref,
+) !bool {
+    const air_inst = try sema.resolveInst(zir_ref);
+    const wanted_type = Type.initTag(.bool);
+    const coerced_inst = try sema.coerce(block, wanted_type, air_inst, src);
+    const val = try sema.resolveConstValue(block, src, coerced_inst);
+    return val.toBool();
 }
 
 fn resolveConstString(
@@ -1754,8 +1769,9 @@ fn zirRepeat(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!
 fn zirPanic(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!Zir.Inst.Index {
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src: LazySrcLoc = inst_data.src();
-    return sema.mod.fail(&block.base, src, "TODO: implement Sema.zirPanic", .{});
-    //return always_noreturn;
+    const msg_inst = try sema.resolveInst(inst_data.operand);
+
+    return sema.panicWithMsg(block, src, msg_inst);
 }
 
 fn zirLoop(sema: *Sema, parent_block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
@@ -2028,8 +2044,10 @@ fn zirSetAlignStack(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) Inne
 
 fn zirSetCold(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!void {
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
-    const src: LazySrcLoc = inst_data.src();
-    return sema.mod.fail(&block.base, src, "TODO: implement Sema.zirSetCold", .{});
+    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
+    const is_cold = try sema.resolveConstBool(block, operand_src, inst_data.operand);
+    const func = sema.func orelse return; // does nothing outside a function
+    func.is_cold = is_cold;
 }
 
 fn zirSetFloatMode(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!void {
@@ -2041,11 +2059,7 @@ fn zirSetFloatMode(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) Inner
 fn zirSetRuntimeSafety(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!void {
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
-
-    const op = try sema.resolveInst(inst_data.operand);
-    const op_coerced = try sema.coerce(block, Type.initTag(.bool), op, operand_src);
-    const b = (try sema.resolveConstValue(block, operand_src, op_coerced)).toBool();
-    block.want_safety = b;
+    block.want_safety = try sema.resolveConstBool(block, operand_src, inst_data.operand);
 }
 
 fn zirBreakpoint(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!void {
@@ -2190,21 +2204,27 @@ fn zirCall(
     const extra = sema.code.extraData(Zir.Inst.Call, inst_data.payload_index);
     const args = sema.code.refSlice(extra.end, extra.data.args_len);
 
-    return sema.analyzeCall(block, extra.data.callee, func_src, call_src, modifier, ensure_result_used, args);
+    const func = try sema.resolveInst(extra.data.callee);
+    // TODO handle function calls of generic functions
+    const resolved_args = try sema.arena.alloc(*Inst, args.len);
+    for (args) |zir_arg, i| {
+        // the args are already casted to the result of a param type instruction.
+        resolved_args[i] = try sema.resolveInst(zir_arg);
+    }
+
+    return sema.analyzeCall(block, func, func_src, call_src, modifier, ensure_result_used, resolved_args);
 }
 
 fn analyzeCall(
     sema: *Sema,
     block: *Scope.Block,
-    zir_func: Zir.Inst.Ref,
+    func: *ir.Inst,
     func_src: LazySrcLoc,
     call_src: LazySrcLoc,
     modifier: std.builtin.CallOptions.Modifier,
     ensure_result_used: bool,
-    zir_args: []const Zir.Inst.Ref,
+    args: []const *ir.Inst,
 ) InnerError!*ir.Inst {
-    const func = try sema.resolveInst(zir_func);
-
     if (func.ty.zigTypeTag() != .Fn)
         return sema.mod.fail(&block.base, func_src, "type '{}' not a function", .{func.ty});
 
@@ -2221,22 +2241,22 @@ fn analyzeCall(
     const fn_params_len = func.ty.fnParamLen();
     if (func.ty.fnIsVarArgs()) {
         assert(cc == .C);
-        if (zir_args.len < fn_params_len) {
+        if (args.len < fn_params_len) {
             // TODO add error note: declared here
             return sema.mod.fail(
                 &block.base,
                 func_src,
                 "expected at least {d} argument(s), found {d}",
-                .{ fn_params_len, zir_args.len },
+                .{ fn_params_len, args.len },
             );
         }
-    } else if (fn_params_len != zir_args.len) {
+    } else if (fn_params_len != args.len) {
         // TODO add error note: declared here
         return sema.mod.fail(
             &block.base,
             func_src,
             "expected {d} argument(s), found {d}",
-            .{ fn_params_len, zir_args.len },
+            .{ fn_params_len, args.len },
         );
     }
 
@@ -2254,13 +2274,6 @@ fn analyzeCall(
         => return sema.mod.fail(&block.base, call_src, "TODO implement call with modifier {}", .{
             modifier,
         }),
-    }
-
-    // TODO handle function calls of generic functions
-    const casted_args = try sema.arena.alloc(*Inst, zir_args.len);
-    for (zir_args) |zir_arg, i| {
-        // the args are already casted to the result of a param type instruction.
-        casted_args[i] = try sema.resolveInst(zir_arg);
     }
 
     const ret_type = func.ty.fnReturnType();
@@ -2323,7 +2336,7 @@ fn analyzeCall(
         defer sema.func = parent_func;
 
         const parent_param_inst_list = sema.param_inst_list;
-        sema.param_inst_list = casted_args;
+        sema.param_inst_list = args;
         defer sema.param_inst_list = parent_param_inst_list;
 
         const parent_next_arg_index = sema.next_arg_index;
@@ -2357,7 +2370,7 @@ fn analyzeCall(
         break :res result;
     } else res: {
         try sema.requireRuntimeBlock(block, call_src);
-        break :res try block.addCall(call_src, ret_type, func, casted_args);
+        break :res try block.addCall(call_src, ret_type, func, args);
     };
 
     if (ensure_result_used) {
@@ -3081,28 +3094,31 @@ fn funcCommon(
 ) InnerError!*Inst {
     const src: LazySrcLoc = .{ .node_offset = src_node_offset };
     const ret_ty_src: LazySrcLoc = .{ .node_offset_fn_type_ret_ty = src_node_offset };
-    const return_type = try sema.resolveType(block, ret_ty_src, zir_return_type);
+    const bare_return_type = try sema.resolveType(block, ret_ty_src, zir_return_type);
 
     const mod = sema.mod;
+
+    const new_func = if (body_inst == 0) undefined else try sema.gpa.create(Module.Fn);
+    errdefer if (body_inst != 0) sema.gpa.destroy(new_func);
 
     const fn_ty: Type = fn_ty: {
         // Hot path for some common function types.
         if (zir_param_types.len == 0 and !var_args and align_val.tag() == .null_value and
             !inferred_error_set)
         {
-            if (return_type.zigTypeTag() == .NoReturn and cc == .Unspecified) {
+            if (bare_return_type.zigTypeTag() == .NoReturn and cc == .Unspecified) {
                 break :fn_ty Type.initTag(.fn_noreturn_no_args);
             }
 
-            if (return_type.zigTypeTag() == .Void and cc == .Unspecified) {
+            if (bare_return_type.zigTypeTag() == .Void and cc == .Unspecified) {
                 break :fn_ty Type.initTag(.fn_void_no_args);
             }
 
-            if (return_type.zigTypeTag() == .NoReturn and cc == .Naked) {
+            if (bare_return_type.zigTypeTag() == .NoReturn and cc == .Naked) {
                 break :fn_ty Type.initTag(.fn_naked_noreturn_no_args);
             }
 
-            if (return_type.zigTypeTag() == .Void and cc == .C) {
+            if (bare_return_type.zigTypeTag() == .Void and cc == .C) {
                 break :fn_ty Type.initTag(.fn_ccc_void_no_args);
             }
         }
@@ -3120,9 +3136,13 @@ fn funcCommon(
             return mod.fail(&block.base, src, "TODO implement support for function prototypes to have alignment specified", .{});
         }
 
-        if (inferred_error_set) {
-            return mod.fail(&block.base, src, "TODO implement functions with inferred error sets", .{});
-        }
+        const return_type = if (!inferred_error_set) bare_return_type else blk: {
+            const error_set_ty = try Type.Tag.error_set_inferred.create(sema.arena, new_func);
+            break :blk try Type.Tag.error_union.create(sema.arena, .{
+                .error_set = error_set_ty,
+                .payload = bare_return_type,
+            });
+        };
 
         break :fn_ty try Type.Tag.function.create(sema.arena, .{
             .param_types = param_types,
@@ -3188,7 +3208,6 @@ fn funcCommon(
     const anal_state: Module.Fn.Analysis = if (is_inline) .inline_only else .queued;
 
     const fn_payload = try sema.arena.create(Value.Payload.Function);
-    const new_func = try sema.gpa.create(Module.Fn);
     new_func.* = .{
         .state = anal_state,
         .zir_body_inst = body_inst,
@@ -4542,6 +4561,12 @@ fn zirImport(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!
     return mod.constType(sema.arena, src, file_root_decl.ty);
 }
 
+fn zirRetErrValueCode(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
+    _ = block;
+    _ = inst;
+    return sema.mod.fail(&block.base, sema.src, "TODO implement zirRetErrValueCode", .{});
+}
+
 fn zirShl(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
@@ -5388,7 +5413,24 @@ fn zirUnreachable(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerE
     }
 }
 
-fn zirRetTok(
+fn zirRetErrValue(
+    sema: *Sema,
+    block: *Scope.Block,
+    inst: Zir.Inst.Index,
+) InnerError!Zir.Inst.Index {
+    const inst_data = sema.code.instructions.items(.data)[inst].str_tok;
+    const err_name = inst_data.get(sema.code);
+    const src = inst_data.src();
+
+    // Add the error tag to the inferred error set of the in-scope function.
+    // Return the error code from the function.
+
+    _ = inst_data;
+    _ = err_name;
+    return sema.mod.fail(&block.base, src, "TODO: Sema.zirRetErrValueCode", .{});
+}
+
+fn zirRetCoerce(
     sema: *Sema,
     block: *Scope.Block,
     inst: Zir.Inst.Index,
@@ -6195,6 +6237,10 @@ fn zirFuncExtended(
         src_locs = sema.code.extraData(Zir.Inst.Func.SrcLocs, extra_index).data;
     }
 
+    const is_var_args = small.is_var_args;
+    const is_inferred_error = small.is_inferred_error;
+    const is_extern = small.is_extern;
+
     return sema.funcCommon(
         block,
         extra.data.src_node,
@@ -6203,9 +6249,9 @@ fn zirFuncExtended(
         extra.data.return_type,
         cc,
         align_val,
-        small.is_var_args,
-        small.is_inferred_error,
-        small.is_extern,
+        is_var_args,
+        is_inferred_error,
+        is_extern,
         src_locs,
         lib_name,
     );
@@ -6357,13 +6403,49 @@ fn addSafetyCheck(sema: *Sema, parent_block: *Scope.Block, ok: *Inst, panic_id: 
     try parent_block.instructions.append(sema.gpa, &block_inst.base);
 }
 
-fn safetyPanic(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, panic_id: PanicId) !Zir.Inst.Index {
-    _ = sema;
-    _ = panic_id;
-    // TODO Once we have a panic function to call, call it here instead of breakpoint.
-    _ = try block.addNoOp(src, Type.initTag(.void), .breakpoint);
-    _ = try block.addNoOp(src, Type.initTag(.noreturn), .unreach);
+fn panicWithMsg(
+    sema: *Sema,
+    block: *Scope.Block,
+    src: LazySrcLoc,
+    msg_inst: *ir.Inst,
+) !Zir.Inst.Index {
+    const mod = sema.mod;
+    const arena = sema.arena;
+    const panic_fn = try sema.getBuiltin(block, src, "panic");
+    const unresolved_stack_trace_ty = try sema.getBuiltinType(block, src, "StackTrace");
+    const stack_trace_ty = try sema.resolveTypeFields(block, src, unresolved_stack_trace_ty);
+    const ptr_stack_trace_ty = try mod.simplePtrType(arena, stack_trace_ty, true, .One);
+    const null_stack_trace = try mod.constInst(arena, src, .{
+        .ty = try mod.optionalType(arena, ptr_stack_trace_ty),
+        .val = Value.initTag(.null_value),
+    });
+    const args = try arena.create([2]*ir.Inst);
+    args.* = .{ msg_inst, null_stack_trace };
+    _ = try sema.analyzeCall(block, panic_fn, src, src, .auto, false, args);
     return always_noreturn;
+}
+
+fn safetyPanic(
+    sema: *Sema,
+    block: *Scope.Block,
+    src: LazySrcLoc,
+    panic_id: PanicId,
+) !Zir.Inst.Index {
+    const mod = sema.mod;
+    const arena = sema.arena;
+    const msg = switch (panic_id) {
+        .unreach => "reached unreachable code",
+        .unwrap_null => "attempt to use null value",
+        .unwrap_errunion => "unreachable error occurred",
+        .cast_to_null => "cast causes pointer to be null",
+        .incorrect_alignment => "incorrect alignment",
+        .invalid_error_code => "invalid error code",
+    };
+    const msg_inst = try mod.constInst(arena, src, .{
+        .ty = Type.initTag(.const_slice_u8),
+        .val = try Value.Tag.ref_val.create(arena, try Value.Tag.bytes.create(arena, msg)),
+    });
+    return sema.panicWithMsg(block, src, msg_inst);
 }
 
 fn emitBackwardBranch(sema: *Sema, block: *Scope.Block, src: LazySrcLoc) !void {
@@ -7377,15 +7459,13 @@ fn wrapOptional(sema: *Sema, block: *Scope.Block, dest_type: Type, inst: *Inst) 
 }
 
 fn wrapErrorUnion(sema: *Sema, block: *Scope.Block, dest_type: Type, inst: *Inst) !*Inst {
-    // TODO deal with inferred error sets
     const err_union = dest_type.castTag(.error_union).?;
     if (inst.value()) |val| {
-        const to_wrap = if (inst.ty.zigTypeTag() != .ErrorSet) blk: {
+        if (inst.ty.zigTypeTag() != .ErrorSet) {
             _ = try sema.coerce(block, err_union.data.payload, inst, inst.src);
-            break :blk val;
         } else switch (err_union.data.error_set.tag()) {
-            .anyerror => val,
-            .error_set_single => blk: {
+            .anyerror => {},
+            .error_set_single => {
                 const expected_name = val.castTag(.@"error").?.data.name;
                 const n = err_union.data.error_set.castTag(.error_set_single).?.data;
                 if (!mem.eql(u8, expected_name, n)) {
@@ -7396,9 +7476,8 @@ fn wrapErrorUnion(sema: *Sema, block: *Scope.Block, dest_type: Type, inst: *Inst
                         .{ err_union.data.error_set, inst.ty },
                     );
                 }
-                break :blk val;
             },
-            .error_set => blk: {
+            .error_set => {
                 const expected_name = val.castTag(.@"error").?.data.name;
                 const error_set = err_union.data.error_set.castTag(.error_set).?.data;
                 const names = error_set.names_ptr[0..error_set.names_len];
@@ -7415,18 +7494,14 @@ fn wrapErrorUnion(sema: *Sema, block: *Scope.Block, dest_type: Type, inst: *Inst
                         .{ err_union.data.error_set, inst.ty },
                     );
                 }
-                break :blk val;
             },
             else => unreachable,
-        };
+        }
 
         return sema.mod.constInst(sema.arena, inst.src, .{
             .ty = dest_type,
             // creating a SubValue for the error_union payload
-            .val = try Value.Tag.error_union.create(
-                sema.arena,
-                to_wrap,
-            ),
+            .val = try Value.Tag.error_union.create(sema.arena, val),
         });
     }
 
@@ -7573,12 +7648,12 @@ fn resolveBuiltinTypeFields(
     return sema.resolveTypeFields(block, src, resolved_ty);
 }
 
-fn getBuiltinType(
+fn getBuiltin(
     sema: *Sema,
     block: *Scope.Block,
     src: LazySrcLoc,
     name: []const u8,
-) InnerError!Type {
+) InnerError!*ir.Inst {
     const mod = sema.mod;
     const std_pkg = mod.root_pkg.table.get("std").?;
     const std_file = (mod.importPkg(std_pkg) catch unreachable).file;
@@ -7596,7 +7671,16 @@ fn getBuiltinType(
         builtin_ty.getNamespace().?,
         name,
     );
-    const ty_inst = try sema.analyzeLoad(block, src, opt_ty_inst.?, src);
+    return sema.analyzeLoad(block, src, opt_ty_inst.?, src);
+}
+
+fn getBuiltinType(
+    sema: *Sema,
+    block: *Scope.Block,
+    src: LazySrcLoc,
+    name: []const u8,
+) InnerError!Type {
+    const ty_inst = try sema.getBuiltin(block, src, name);
     return sema.resolveAirAsType(block, src, ty_inst);
 }
 
@@ -7662,6 +7746,7 @@ fn typeHasOnePossibleValue(
         .error_union,
         .error_set,
         .error_set_single,
+        .error_set_inferred,
         .@"opaque",
         .var_args_param,
         .manyptr_u8,

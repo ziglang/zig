@@ -804,19 +804,6 @@ pub fn addCases(ctx: *TestContext) !void {
         });
     }
 
-    ctx.c("empty start function", linux_x64,
-        \\export fn _start() noreturn {
-        \\    unreachable;
-        \\}
-    ,
-        \\ZIG_EXTERN_C zig_noreturn void _start(void);
-        \\
-        \\zig_noreturn void _start(void) {
-        \\ zig_breakpoint();
-        \\ zig_unreachable();
-        \\}
-        \\
-    );
     ctx.h("simple header", linux_x64,
         \\export fn start() void{}
     ,

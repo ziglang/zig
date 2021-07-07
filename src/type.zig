@@ -58,7 +58,7 @@ pub const Type = extern union {
             .bool => return .Bool,
             .void => return .Void,
             .type => return .Type,
-            .error_set, .error_set_single, .anyerror => return .ErrorSet,
+            .error_set, .error_set_single, .anyerror, .error_set_inferred => return .ErrorSet,
             .comptime_int => return .ComptimeInt,
             .comptime_float => return .ComptimeFloat,
             .noreturn => return .NoReturn,
@@ -689,7 +689,15 @@ pub const Type = extern union {
             .optional_single_mut_pointer,
             .optional_single_const_pointer,
             .anyframe_T,
-            => return self.copyPayloadShallow(allocator, Payload.ElemType),
+            => {
+                const payload = self.cast(Payload.ElemType).?;
+                const new_payload = try allocator.create(Payload.ElemType);
+                new_payload.* = .{
+                    .base = .{ .tag = payload.base.tag },
+                    .data = try payload.data.copy(allocator),
+                };
+                return Type{ .ptr_otherwise = &new_payload.base };
+            },
 
             .int_signed,
             .int_unsigned,
@@ -756,6 +764,7 @@ pub const Type = extern union {
                 });
             },
             .error_set => return self.copyPayloadShallow(allocator, Payload.ErrorSet),
+            .error_set_inferred => return self.copyPayloadShallow(allocator, Payload.ErrorSetInferred),
             .error_set_single => return self.copyPayloadShallow(allocator, Payload.Name),
             .empty_struct => return self.copyPayloadShallow(allocator, Payload.ContainerScope),
             .@"struct" => return self.copyPayloadShallow(allocator, Payload.Struct),
@@ -1031,6 +1040,10 @@ pub const Type = extern union {
                     const error_set = ty.castTag(.error_set).?.data;
                     return writer.writeAll(std.mem.spanZ(error_set.owner_decl.name));
                 },
+                .error_set_inferred => {
+                    const func = ty.castTag(.error_set_inferred).?.data;
+                    return writer.print("(inferred error set of {s})", .{func.owner_decl.name});
+                },
                 .error_set_single => {
                     const name = ty.castTag(.error_set_single).?.data;
                     return writer.print("error{{{s}}}", .{name});
@@ -1144,6 +1157,7 @@ pub const Type = extern union {
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .error_set_inferred,
             .manyptr_u8,
             .manyptr_const_u8,
             .atomic_ordering,
@@ -1161,6 +1175,9 @@ pub const Type = extern union {
             .@"struct" => {
                 // TODO introduce lazy value mechanism
                 const struct_obj = self.castTag(.@"struct").?.data;
+                assert(struct_obj.status == .have_field_types or
+                    struct_obj.status == .layout_wip or
+                    struct_obj.status == .have_layout);
                 for (struct_obj.fields.values()) |value| {
                     if (value.ty.hasCodeGenBits())
                         return true;
@@ -1348,6 +1365,7 @@ pub const Type = extern union {
             .error_set_single,
             .anyerror_void_error_union,
             .anyerror,
+            .error_set_inferred,
             => return 2, // TODO revisit this when we have the concept of the error tag type
 
             .array, .array_sentinel => return self.elemType().abiAlignment(target),
@@ -1580,6 +1598,7 @@ pub const Type = extern union {
             .error_set_single,
             .anyerror_void_error_union,
             .anyerror,
+            .error_set_inferred,
             => return 2, // TODO revisit this when we have the concept of the error tag type
 
             .int_signed, .int_unsigned => {
@@ -1744,6 +1763,7 @@ pub const Type = extern union {
             .error_set_single,
             .anyerror_void_error_union,
             .anyerror,
+            .error_set_inferred,
             => return 16, // TODO revisit this when we have the concept of the error tag type
 
             .int_signed, .int_unsigned => self.cast(Payload.Bits).?.data,
@@ -1863,6 +1883,48 @@ pub const Type = extern union {
         };
     }
 
+    pub fn slicePtrFieldType(self: Type, buffer: *Payload.ElemType) Type {
+        switch (self.tag()) {
+            .const_slice_u8 => return Type.initTag(.manyptr_const_u8),
+
+            .const_slice => {
+                const elem_type = self.castTag(.const_slice).?.data;
+                buffer.* = .{
+                    .base = .{ .tag = .many_const_pointer },
+                    .data = elem_type,
+                };
+                return Type.initPayload(&buffer.base);
+            },
+            .mut_slice => {
+                const elem_type = self.castTag(.mut_slice).?.data;
+                buffer.* = .{
+                    .base = .{ .tag = .many_mut_pointer },
+                    .data = elem_type,
+                };
+                return Type.initPayload(&buffer.base);
+            },
+
+            .pointer => {
+                const payload = self.castTag(.pointer).?.data;
+                assert(payload.size == .Slice);
+                if (payload.mutable) {
+                    buffer.* = .{
+                        .base = .{ .tag = .many_mut_pointer },
+                        .data = payload.pointee_type,
+                    };
+                } else {
+                    buffer.* = .{
+                        .base = .{ .tag = .many_const_pointer },
+                        .data = payload.pointee_type,
+                    };
+                }
+                return Type.initPayload(&buffer.base);
+            },
+
+            else => unreachable,
+        }
+    }
+
     pub fn isConstPtr(self: Type) bool {
         return switch (self.tag()) {
             .single_const_pointer,
@@ -1915,7 +1977,10 @@ pub const Type = extern union {
     /// Asserts that the type is an optional
     pub fn isPtrLikeOptional(self: Type) bool {
         switch (self.tag()) {
-            .optional_single_const_pointer, .optional_single_mut_pointer => return true,
+            .optional_single_const_pointer,
+            .optional_single_mut_pointer,
+            => return true,
+
             .optional => {
                 var buf: Payload.ElemType = undefined;
                 const child_type = self.optionalChild(&buf);
@@ -2400,6 +2465,7 @@ pub const Type = extern union {
             .error_union,
             .error_set,
             .error_set_single,
+            .error_set_inferred,
             .@"opaque",
             .var_args_param,
             .manyptr_u8,
@@ -2892,6 +2958,8 @@ pub const Type = extern union {
         anyframe_T,
         error_set,
         error_set_single,
+        /// The type is the inferred error set of a specific function.
+        error_set_inferred,
         empty_struct,
         @"opaque",
         @"struct",
@@ -2989,6 +3057,7 @@ pub const Type = extern union {
                 => Payload.Bits,
 
                 .error_set => Payload.ErrorSet,
+                .error_set_inferred => Payload.ErrorSetInferred,
 
                 .array, .vector => Payload.Array,
                 .array_sentinel => Payload.ArraySentinel,
@@ -3079,6 +3148,13 @@ pub const Type = extern union {
 
             base: Payload = Payload{ .tag = base_tag },
             data: *Module.ErrorSet,
+        };
+
+        pub const ErrorSetInferred = struct {
+            pub const base_tag = Tag.error_set_inferred;
+
+            base: Payload = Payload{ .tag = base_tag },
+            data: *Module.Fn,
         };
 
         pub const Pointer = struct {

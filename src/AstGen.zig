@@ -1860,7 +1860,7 @@ fn blockExprStmts(gz: *GenZir, parent_scope: *Scope, statements: []const ast.Nod
         }
     }
 
-    try genDefers(gz, parent_scope, scope, .none);
+    try genDefers(gz, parent_scope, scope, .normal_only);
     try checkUsed(gz, parent_scope, scope);
 }
 
@@ -2102,6 +2102,7 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: ast.Node.Index) Inner
             .@"resume",
             .@"await",
             .await_nosuspend,
+            .ret_err_value_code,
             .extended,
             => break :b false,
 
@@ -2113,6 +2114,7 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: ast.Node.Index) Inner
             .compile_error,
             .ret_node,
             .ret_coerce,
+            .ret_err_value,
             .@"unreachable",
             .repeat,
             .repeat_inline,
@@ -2162,13 +2164,63 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: ast.Node.Index) Inner
     return noreturn_src_node;
 }
 
+fn countDefers(astgen: *AstGen, outer_scope: *Scope, inner_scope: *Scope) struct {
+    have_any: bool,
+    have_normal: bool,
+    have_err: bool,
+    need_err_code: bool,
+} {
+    const tree = astgen.tree;
+    const node_datas = tree.nodes.items(.data);
+
+    var have_normal = false;
+    var have_err = false;
+    var need_err_code = false;
+    var scope = inner_scope;
+    while (scope != outer_scope) {
+        switch (scope.tag) {
+            .gen_zir => scope = scope.cast(GenZir).?.parent,
+            .local_val => scope = scope.cast(Scope.LocalVal).?.parent,
+            .local_ptr => scope = scope.cast(Scope.LocalPtr).?.parent,
+            .defer_normal => {
+                const defer_scope = scope.cast(Scope.Defer).?;
+                scope = defer_scope.parent;
+
+                have_normal = true;
+            },
+            .defer_error => {
+                const defer_scope = scope.cast(Scope.Defer).?;
+                scope = defer_scope.parent;
+
+                have_err = true;
+
+                const have_err_payload = node_datas[defer_scope.defer_node].lhs != 0;
+                need_err_code = need_err_code or have_err_payload;
+            },
+            .namespace => unreachable,
+            .top => unreachable,
+        }
+    }
+    return .{
+        .have_any = have_normal or have_err,
+        .have_normal = have_normal,
+        .have_err = have_err,
+        .need_err_code = need_err_code,
+    };
+}
+
+const DefersToEmit = union(enum) {
+    both: Zir.Inst.Ref, // err code
+    both_sans_err,
+    normal_only,
+};
+
 fn genDefers(
     gz: *GenZir,
     outer_scope: *Scope,
     inner_scope: *Scope,
-    err_code: Zir.Inst.Ref,
+    which_ones: DefersToEmit,
 ) InnerError!void {
-    _ = err_code;
     const astgen = gz.astgen;
     const tree = astgen.tree;
     const node_datas = tree.nodes.items(.data);
@@ -2191,12 +2243,37 @@ fn genDefers(
             .defer_error => {
                 const defer_scope = scope.cast(Scope.Defer).?;
                 scope = defer_scope.parent;
-                if (err_code == .none) continue;
-                const expr_node = node_datas[defer_scope.defer_node].rhs;
-                const prev_in_defer = gz.in_defer;
-                gz.in_defer = true;
-                defer gz.in_defer = prev_in_defer;
-                _ = try unusedResultExpr(gz, defer_scope.parent, expr_node);
+                switch (which_ones) {
+                    .both_sans_err => {
+                        const expr_node = node_datas[defer_scope.defer_node].rhs;
+                        const prev_in_defer = gz.in_defer;
+                        gz.in_defer = true;
+                        defer gz.in_defer = prev_in_defer;
+                        _ = try unusedResultExpr(gz, defer_scope.parent, expr_node);
+                    },
+                    .both => |err_code| {
+                        const expr_node = node_datas[defer_scope.defer_node].rhs;
+                        const payload_token = node_datas[defer_scope.defer_node].lhs;
+                        const prev_in_defer = gz.in_defer;
+                        gz.in_defer = true;
+                        defer gz.in_defer = prev_in_defer;
+                        var local_val_scope: Scope.LocalVal = undefined;
+                        const sub_scope = if (payload_token == 0) defer_scope.parent else blk: {
+                            const ident_name = try astgen.identAsString(payload_token);
+                            local_val_scope = .{
+                                .parent = defer_scope.parent,
+                                .gen_zir = gz,
+                                .name = ident_name,
+                                .inst = err_code,
+                                .token_src = payload_token,
+                                .id_cat = .@"capture",
+                            };
+                            break :blk &local_val_scope.base;
+                        };
+                        _ = try unusedResultExpr(gz, sub_scope, expr_node);
+                    },
+                    .normal_only => continue,
+                }
             },
             .namespace => unreachable,
             .top => unreachable,
@@ -4564,7 +4641,7 @@ fn tryExpr(
     defer then_scope.instructions.deinit(astgen.gpa);
 
     const err_code = try then_scope.addUnNode(err_ops[1], operand, node);
-    try genDefers(&then_scope, &fn_block.base, scope, err_code);
+    try genDefers(&then_scope, &fn_block.base, scope, .{ .both = err_code });
     const then_result = try then_scope.addUnNode(.ret_node, err_code, node);
 
     var else_scope = parent_gz.makeSubBlock(scope);
@@ -6090,14 +6167,34 @@ fn ret(gz: *GenZir, scope: *Scope, node: ast.Node.Index) InnerError!Zir.Inst.Ref
     const astgen = gz.astgen;
     const tree = astgen.tree;
     const node_datas = tree.nodes.items(.data);
+    const node_tags = tree.nodes.items(.tag);
 
     if (gz.in_defer) return astgen.failNode(node, "cannot return from defer expression", .{});
+
+    const defer_outer = &astgen.fn_block.?.base;
 
     const operand_node = node_datas[node].lhs;
     if (operand_node == 0) {
         // Returning a void value; skip error defers.
-        try genDefers(gz, &astgen.fn_block.?.base, scope, .none);
+        try genDefers(gz, defer_outer, scope, .normal_only);
         _ = try gz.addUnNode(.ret_node, .void_value, node);
+        return Zir.Inst.Ref.unreachable_value;
+    }
+
+    if (node_tags[operand_node] == .error_value) {
+        // Hot path for `return error.Foo`. This bypasses result location logic as well as logic
+        // for detecting whether to add something to the function's inferred error set.
+        const ident_token = node_datas[operand_node].rhs;
+        const err_name_str_index = try astgen.identAsString(ident_token);
+        const defer_counts = countDefers(astgen, defer_outer, scope);
+        if (!defer_counts.need_err_code) {
+            try genDefers(gz, defer_outer, scope, .both_sans_err);
+            _ = try gz.addStrTok(.ret_err_value, err_name_str_index, ident_token);
+            return Zir.Inst.Ref.unreachable_value;
+        }
+        const err_code = try gz.addStrTok(.ret_err_value_code, err_name_str_index, ident_token);
+        try genDefers(gz, defer_outer, scope, .{ .both = err_code });
+        _ = try gz.addUnNode(.ret_node, err_code, node);
         return Zir.Inst.Ref.unreachable_value;
     }
 
@@ -6111,31 +6208,41 @@ fn ret(gz: *GenZir, scope: *Scope, node: ast.Node.Index) InnerError!Zir.Inst.Ref
     switch (nodeMayEvalToError(tree, operand_node)) {
         .never => {
             // Returning a value that cannot be an error; skip error defers.
-            try genDefers(gz, &astgen.fn_block.?.base, scope, .none);
+            try genDefers(gz, defer_outer, scope, .normal_only);
             _ = try gz.addUnNode(.ret_node, operand, node);
             return Zir.Inst.Ref.unreachable_value;
         },
         .always => {
             // Value is always an error. Emit both error defers and regular defers.
             const err_code = try gz.addUnNode(.err_union_code, operand, node);
-            try genDefers(gz, &astgen.fn_block.?.base, scope, err_code);
+            try genDefers(gz, defer_outer, scope, .{ .both = err_code });
             _ = try gz.addUnNode(.ret_node, operand, node);
             return Zir.Inst.Ref.unreachable_value;
         },
         .maybe => {
+            const defer_counts = countDefers(astgen, defer_outer, scope);
+            if (!defer_counts.have_err) {
+                // Only regular defers; no branch needed.
+                try genDefers(gz, defer_outer, scope, .normal_only);
+                _ = try gz.addUnNode(.ret_node, operand, node);
+                return Zir.Inst.Ref.unreachable_value;
+            }
+
             // Emit conditional branch for generating errdefers.
             const is_err = try gz.addUnNode(.is_err, operand, node);
             const condbr = try gz.addCondBr(.condbr, node);
 
             var then_scope = gz.makeSubBlock(scope);
             defer then_scope.instructions.deinit(astgen.gpa);
-            const err_code = try then_scope.addUnNode(.err_union_code, operand, node);
-            try genDefers(&then_scope, &astgen.fn_block.?.base, scope, err_code);
+            const which_ones: DefersToEmit = if (!defer_counts.need_err_code) .both_sans_err else .{
+                .both = try then_scope.addUnNode(.err_union_code, operand, node),
+            };
+            try genDefers(&then_scope, defer_outer, scope, which_ones);
             _ = try then_scope.addUnNode(.ret_node, operand, node);
 
             var else_scope = gz.makeSubBlock(scope);
             defer else_scope.instructions.deinit(astgen.gpa);
-            try genDefers(&else_scope, &astgen.fn_block.?.base, scope, .none);
+            try genDefers(&else_scope, defer_outer, scope, .normal_only);
             _ = try else_scope.addUnNode(.ret_node, operand, node);
 
             try setCondBrPayload(condbr, is_err, &then_scope, &else_scope);
@@ -6885,7 +6992,7 @@ fn builtinCall(
         .field => {
             const field_name = try comptimeExpr(gz, scope, .{ .ty = .const_slice_u8_type }, params[1]);
             if (rl == .ref) {
-                return try gz.addPlNode(.field_ptr_named, node, Zir.Inst.FieldNamed{
+                return gz.addPlNode(.field_ptr_named, node, Zir.Inst.FieldNamed{
                     .lhs = try expr(gz, scope, .ref, params[0]),
                     .field_name = field_name,
                 });

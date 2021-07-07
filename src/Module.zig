@@ -755,6 +755,7 @@ pub const Fn = struct {
     rbrace_column: u16,
 
     state: Analysis,
+    is_cold: bool = false,
 
     pub const Analysis = enum {
         queued,
@@ -3453,6 +3454,9 @@ pub fn clearDecl(
     for (decl.dependencies.keys()) |dep| {
         dep.removeDependant(decl);
         if (dep.dependants.count() == 0 and !dep.deletion_flag) {
+            log.debug("insert {*} ({s}) dependant {*} ({s}) into deletion set", .{
+                decl, decl.name, dep, dep.name,
+            });
             // We don't recursively perform a deletion here, because during the update,
             // another reference to it may turn up.
             dep.deletion_flag = true;
