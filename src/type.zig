@@ -520,9 +520,13 @@ pub const Type = extern union {
                 }
                 return a.tag() == b.tag();
             },
+            .ErrorUnion => {
+                const a_data = a.castTag(.error_union).?.data;
+                const b_data = b.castTag(.error_union).?.data;
+                return a_data.error_set.eql(b_data.error_set) and a_data.payload.eql(b_data.payload);
+            },
             .Opaque,
             .Float,
-            .ErrorUnion,
             .ErrorSet,
             .BoundFn,
             .Frame,
