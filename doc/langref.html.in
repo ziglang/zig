@@ -47,7 +47,7 @@
         border: 1px dotted silver;
         line-height: normal;
       }
-      p code, ul code, ol code, table code {
+      code {
         background-color: #f8f8f8;
         border: 1px dotted silver;
         padding-left: 0.3em;
@@ -161,7 +161,7 @@
             background: #222;
             border-color: #444;
         }
-        p code, ul code, ol code, table code {
+        code {
           background-color: #222;
           border-color: #444;
         }
