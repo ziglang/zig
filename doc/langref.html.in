@@ -10,9 +10,6 @@
         font-family: system-ui, -apple-system, Roboto, "Segoe UI", sans-serif;
         margin: 0;
       }
-      p, ul, ol, :not(#toc) {
-        line-height: 1.5;
-      }
       a:not(:hover) {
         text-decoration: none;
       }
@@ -48,6 +45,7 @@
         color: #333;
         background: #f8f8f8;
         border: 1px dotted silver;
+        line-height: normal;
       }
       p code, ul code, ol code, table code {
         background-color: #f8f8f8;
@@ -102,6 +100,7 @@
       #contents {
         max-width: 60em;
         margin: auto;
+        line-height: 1.5;
       }
 
       #toc {
@@ -160,6 +159,7 @@
         pre > code {
             color: #ccc;
             background: #222;
+            border-color: #444;
         }
         p code, ul code, ol code, table code {
           background-color: #222;
