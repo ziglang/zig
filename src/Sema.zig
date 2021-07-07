@@ -5423,11 +5423,22 @@ fn zirRetErrValue(
     const src = inst_data.src();
 
     // Add the error tag to the inferred error set of the in-scope function.
+    if (sema.func) |func| {
+        const fn_ty = func.owner_decl.ty;
+        const fn_ret_ty = fn_ty.fnReturnType();
+        if (fn_ret_ty.zigTypeTag() == .ErrorUnion and
+            fn_ret_ty.errorUnionSet().tag() == .error_set_inferred)
+        {
+            return sema.mod.fail(&block.base, src, "TODO: Sema.zirRetErrValue", .{});
+        }
+    }
     // Return the error code from the function.
-
-    _ = inst_data;
-    _ = err_name;
-    return sema.mod.fail(&block.base, src, "TODO: Sema.zirRetErrValueCode", .{});
+    const kv = try sema.mod.getErrorValue(err_name);
+    const result_inst = try sema.mod.constInst(sema.arena, src, .{
+        .ty = try Type.Tag.error_set_single.create(sema.arena, kv.key),
+        .val = try Value.Tag.@"error".create(sema.arena, .{ .name = kv.key }),
+    });
+    return sema.analyzeRet(block, result_inst, src, true);
 }
 
 fn zirRetCoerce(
@@ -6411,6 +6422,15 @@ fn panicWithMsg(
 ) !Zir.Inst.Index {
     const mod = sema.mod;
     const arena = sema.arena;
+
+    const this_feature_is_implemented_in_the_backend =
+        mod.comp.bin_file.options.object_format == .c;
+    if (!this_feature_is_implemented_in_the_backend) {
+        // TODO implement this feature in all the backends and then delete this branch
+        _ = try block.addNoOp(src, Type.initTag(.void), .breakpoint);
+        _ = try block.addNoOp(src, Type.initTag(.noreturn), .unreach);
+        return always_noreturn;
+    }
     const panic_fn = try sema.getBuiltin(block, src, "panic");
     const unresolved_stack_trace_ty = try sema.getBuiltinType(block, src, "StackTrace");
     const stack_trace_ty = try sema.resolveTypeFields(block, src, unresolved_stack_trace_ty);
@@ -6431,8 +6451,6 @@ fn safetyPanic(
     src: LazySrcLoc,
     panic_id: PanicId,
 ) !Zir.Inst.Index {
-    const mod = sema.mod;
-    const arena = sema.arena;
     const msg = switch (panic_id) {
         .unreach => "reached unreachable code",
         .unwrap_null => "attempt to use null value",
@@ -6441,11 +6459,28 @@ fn safetyPanic(
         .incorrect_alignment => "incorrect alignment",
         .invalid_error_code => "invalid error code",
     };
-    const msg_inst = try mod.constInst(arena, src, .{
-        .ty = Type.initTag(.const_slice_u8),
-        .val = try Value.Tag.ref_val.create(arena, try Value.Tag.bytes.create(arena, msg)),
-    });
-    return sema.panicWithMsg(block, src, msg_inst);
+
+    const msg_inst = msg_inst: {
+        // TODO instead of making a new decl for every panic in the entire compilation,
+        // introduce the concept of a reference-counted decl for these
+        var new_decl_arena = std.heap.ArenaAllocator.init(sema.gpa);
+        errdefer new_decl_arena.deinit();
+
+        const decl_ty = try Type.Tag.array_u8.create(&new_decl_arena.allocator, msg.len);
+        const decl_val = try Value.Tag.bytes.create(&new_decl_arena.allocator, msg);
+
+        const new_decl = try sema.mod.createAnonymousDecl(&block.base, .{
+            .ty = decl_ty,
+            .val = decl_val,
+        });
+        errdefer sema.mod.deleteAnonDecl(&block.base, new_decl);
+        try new_decl.finalizeNewArena(&new_decl_arena);
+        break :msg_inst try sema.analyzeDeclRef(block, .unneeded, new_decl);
+    };
+
+    const casted_msg_inst = try sema.coerce(block, Type.initTag(.const_slice_u8), msg_inst, src);
+
+    return sema.panicWithMsg(block, src, casted_msg_inst);
 }
 
 fn emitBackwardBranch(sema: *Sema, block: *Scope.Block, src: LazySrcLoc) !void {
