@@ -483,10 +483,20 @@ pub fn HashMap(
             return self.unmanaged.getOrPutValueContext(self.allocator, key, value, self.ctx);
         }
 
+        /// Deprecated: call `ensureUnusedCapacity` or `ensureTotalCapacity`.
+        pub const ensureCapacity = ensureTotalCapacity;
+
         /// Increases capacity, guaranteeing that insertions up until the
         /// `expected_count` will not cause an allocation, and therefore cannot fail.
-        pub fn ensureCapacity(self: *Self, expected_count: Size) !void {
-            return self.unmanaged.ensureCapacityContext(self.allocator, expected_count, self.ctx);
+        pub fn ensureTotalCapacity(self: *Self, expected_count: Size) !void {
+            return self.unmanaged.ensureTotalCapacityContext(self.allocator, expected_count, self.ctx);
+        }
+
+        /// Increases capacity, guaranteeing that insertions up until
+        /// `additional_count` **more** items will not cause an allocation, and
+        /// therefore cannot fail.
+        pub fn ensureUnusedCapacity(self: *Self, additional_count: Size) !void {
+            return self.unmanaged.ensureUnusedCapacityContext(self.allocator, additional_count, self.ctx);
         }
 
         /// Returns the number of total elements which may be present before it is
@@ -821,14 +831,24 @@ pub fn HashMapUnmanaged(
             return new_cap;
         }
 
-        pub fn ensureCapacity(self: *Self, allocator: *Allocator, new_size: Size) !void {
+        /// Deprecated: call `ensureUnusedCapacity` or `ensureTotalCapacity`.
+        pub const ensureCapacity = ensureTotalCapacity;
+
+        pub fn ensureTotalCapacity(self: *Self, allocator: *Allocator, new_size: Size) !void {
             if (@sizeOf(Context) != 0)
-                @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call ensureCapacityContext instead.");
-            return ensureCapacityContext(self, allocator, new_size, undefined);
+                @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call ensureTotalCapacityContext instead.");
+            return ensureTotalCapacityContext(self, allocator, new_size, undefined);
         }
-        pub fn ensureCapacityContext(self: *Self, allocator: *Allocator, new_size: Size, ctx: Context) !void {
+        pub fn ensureTotalCapacityContext(self: *Self, allocator: *Allocator, new_size: Size, ctx: Context) !void {
             if (new_size > self.size)
                 try self.growIfNeeded(allocator, new_size - self.size, ctx);
+        }
+
+        pub fn ensureUnusedCapacity(self: *Self, allocator: *Allocator, additional_size: Size) !void {
+            return ensureUnusedCapacityContext(self, allocator, additional_size, undefined);
+        }
+        pub fn ensureUnusedCapacityContext(self: *Self, allocator: *Allocator, additional_size: Size, ctx: Context) !void {
+            return ensureTotalCapacityContext(self, allocator, self.capacity() + additional_size, ctx);
         }
 
         pub fn clearRetainingCapacity(self: *Self) void {
