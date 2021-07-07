@@ -7178,7 +7178,8 @@ fn func(y: *i32) void {
       {#header_open|@bitSizeOf#}
       <pre>{#syntax#}@bitSizeOf(comptime T: type) comptime_int{#endsyntax#}</pre>
       <p>
-      This function returns the number of bits it takes to store {#syntax#}T{#endsyntax#} in memory.
+      This function returns the number of bits it takes to store {#syntax#}T{#endsyntax#} in memory if the type
+      were a field in a packed struct/union.
       The result is a target-specific compile time constant.
       </p>
       <p>
