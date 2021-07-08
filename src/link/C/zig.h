@@ -60,51 +60,6 @@
 #define zig_breakpoint() raise(SIGTRAP)
 #endif
 
-
-#define ZIG_UADDW(Type, lhs, rhs, max)                      \
-    Type thresh = max - rhs;                                \
-    if (lhs > thresh) {                                     \
-        return lhs - thresh - 1;                            \
-    } else {                                                \
-        return lhs + rhs;                                   \
-    }
-
-#define ZIG_SADDW(Type, lhs, rhs, min, max)                 \
-    if ((lhs > 0) && (rhs > 0)) {                           \
-        Type thresh = max - rhs;                            \
-        if (lhs > thresh) {                                 \
-            return min + lhs - thresh - 1;                  \
-        }                                                   \
-    } else if ((lhs < 0) && (rhs < 0)) {                    \
-        Type thresh = min - rhs;                            \
-        if (lhs < thresh) {                                 \
-            return max + lhs - thresh + 1;                  \
-        }                                                   \
-    }                                                       \
-                                                            \
-    return lhs + rhs;
-
-#define ZIG_USUBW(lhs, rhs, max)                            \
-    if (lhs < rhs) {                                        \
-        return max - rhs - lhs + 1;                         \
-    } else {                                                \
-        return lhs - rhs;                                   \
-    }
-
-#define ZIG_SSUBW(Type, lhs, rhs, min, max)                 \
-    if ((lhs > 0) && (rhs < 0)) {                           \
-        Type thresh = lhs - max;                            \
-        if (rhs < thresh) {                                 \
-            return min + (thresh - rhs - 1);                \
-        }                                                   \
-    } else if ((lhs < 0) && (rhs > 0)) {                    \
-        Type thresh = lhs - min;                            \
-        if (rhs > thresh) {                                 \
-            return max - (rhs - thresh - 1);                \
-        }                                                   \
-    }                                                       \
-    return lhs - rhs;
-
 #include <stdint.h>
 #include <stddef.h>
 #include <limits.h>
@@ -112,37 +67,100 @@
 #define uint128_t unsigned __int128
 ZIG_EXTERN_C void *memcpy (void *ZIG_RESTRICT, const void *ZIG_RESTRICT, size_t);
 
-/* Wrapping addition operators */
 static inline uint8_t zig_addw_u8(uint8_t lhs, uint8_t rhs, uint8_t max) {
-    ZIG_UADDW(uint8_t, lhs, rhs, max);
+    uint8_t thresh = max - rhs;
+    if (lhs > thresh) {
+        return lhs - thresh - 1;
+    } else {
+        return lhs + rhs;
+    }
 }
 
 static inline int8_t zig_addw_i8(int8_t lhs, int8_t rhs, int8_t min, int8_t max) {
-    ZIG_SADDW(int8_t, lhs, rhs, min, max);
+    if ((lhs > 0) && (rhs > 0)) {
+        int8_t thresh = max - rhs;
+        if (lhs > thresh) {
+            return min + lhs - thresh - 1;
+        }
+    } else if ((lhs < 0) && (rhs < 0)) {
+        int8_t thresh = min - rhs;
+        if (lhs < thresh) {
+            return max + lhs - thresh + 1;
+        }
+    }
+    return lhs + rhs;
 }
 
 static inline uint16_t zig_addw_u16(uint16_t lhs, uint16_t rhs, uint16_t max) {
-    ZIG_UADDW(uint16_t, lhs, rhs, max);
+    uint16_t thresh = max - rhs;
+    if (lhs > thresh) {
+        return lhs - thresh - 1;
+    } else {
+        return lhs + rhs;
+    }
 }
 
 static inline int16_t zig_addw_i16(int16_t lhs, int16_t rhs, int16_t min, int16_t max) {
-    ZIG_SADDW(int16_t, lhs, rhs, min, max);
+    if ((lhs > 0) && (rhs > 0)) {
+        int16_t thresh = max - rhs;
+        if (lhs > thresh) {
+            return min + lhs - thresh - 1;
+        }
+    } else if ((lhs < 0) && (rhs < 0)) {
+        int16_t thresh = min - rhs;
+        if (lhs < thresh) {
+            return max + lhs - thresh + 1;
+        }
+    }
+    return lhs + rhs;
 }
 
 static inline uint32_t zig_addw_u32(uint32_t lhs, uint32_t rhs, uint32_t max) {
-    ZIG_UADDW(uint32_t, lhs, rhs, max);
+    uint32_t thresh = max - rhs;
+    if (lhs > thresh) {
+        return lhs - thresh - 1;
+    } else {
+        return lhs + rhs;
+    }
 }
 
 static inline int32_t zig_addw_i32(int32_t lhs, int32_t rhs, int32_t min, int32_t max) {
-    ZIG_SADDW(int32_t, lhs, rhs, min, max);
+    if ((lhs > 0) && (rhs > 0)) {
+        int32_t thresh = max - rhs;
+        if (lhs > thresh) {
+            return min + lhs - thresh - 1;
+        }
+    } else if ((lhs < 0) && (rhs < 0)) {
+        int32_t thresh = min - rhs;
+        if (lhs < thresh) {
+            return max + lhs - thresh + 1;
+        }
+    }
+    return lhs + rhs;
 }
 
 static inline uint64_t zig_addw_u64(uint64_t lhs, uint64_t rhs, uint64_t max) {
-    ZIG_UADDW(uint64_t, lhs, rhs, max);
+    uint64_t thresh = max - rhs;
+    if (lhs > thresh) {
+        return lhs - thresh - 1;
+    } else {
+        return lhs + rhs;
+    }
 }
 
 static inline int64_t zig_addw_i64(int64_t lhs, int64_t rhs, int64_t min, int64_t max) {
-    ZIG_SADDW(int64_t, lhs, rhs, min, max);
+    if ((lhs > 0) && (rhs > 0)) {
+        int64_t thresh = max - rhs;
+        if (lhs > thresh) {
+            return min + lhs - thresh - 1;
+        }
+    } else if ((lhs < 0) && (rhs < 0)) {
+        int64_t thresh = min - rhs;
+        if (lhs < thresh) {
+            return max + lhs - thresh + 1;
+        }
+    }
+    return lhs + rhs;
 }
 
 static inline intptr_t zig_addw_isize(intptr_t lhs, intptr_t rhs, intptr_t min, intptr_t max) {
@@ -165,37 +183,96 @@ static inline long long zig_addw_longlong(long long lhs, long long rhs, long lon
     return (long long)(((unsigned long long)lhs) + ((unsigned long long)rhs));
 }
 
-/* Wrapping subtraction operators */
 static inline uint8_t zig_subw_u8(uint8_t lhs, uint8_t rhs, uint8_t max) {
-    ZIG_USUBW(lhs, rhs, max);
+    if (lhs < rhs) {
+        return max - rhs - lhs + 1;
+    } else {
+        return lhs - rhs;
+    }
 }
 
 static inline int8_t zig_subw_i8(int8_t lhs, int8_t rhs, int8_t min, int8_t max) {
-    ZIG_SSUBW(int8_t, lhs, rhs, min, max);
+    if ((lhs > 0) && (rhs < 0)) {
+        int8_t thresh = lhs - max;
+        if (rhs < thresh) {
+            return min + (thresh - rhs - 1);
+        }
+    } else if ((lhs < 0) && (rhs > 0)) {
+        int8_t thresh = lhs - min;
+        if (rhs > thresh) {
+            return max - (rhs - thresh - 1);
+        }
+    }
+    return lhs - rhs;
 }
 
 static inline uint16_t zig_subw_u16(uint16_t lhs, uint16_t rhs, uint16_t max) {
-    ZIG_USUBW(lhs, rhs, max);
+    if (lhs < rhs) {
+        return max - rhs - lhs + 1;
+    } else {
+        return lhs - rhs;
+    }
 }
 
 static inline int16_t zig_subw_i16(int16_t lhs, int16_t rhs, int16_t min, int16_t max) {
-    ZIG_SSUBW(int16_t, lhs, rhs, min, max);
+    if ((lhs > 0) && (rhs < 0)) {
+        int16_t thresh = lhs - max;
+        if (rhs < thresh) {
+            return min + (thresh - rhs - 1);
+        }
+    } else if ((lhs < 0) && (rhs > 0)) {
+        int16_t thresh = lhs - min;
+        if (rhs > thresh) {
+            return max - (rhs - thresh - 1);
+        }
+    }
+    return lhs - rhs;
 }
 
 static inline uint32_t zig_subw_u32(uint32_t lhs, uint32_t rhs, uint32_t max) {
-    ZIG_USUBW(lhs, rhs, max);
+    if (lhs < rhs) {
+        return max - rhs - lhs + 1;
+    } else {
+        return lhs - rhs;
+    }
 }
 
 static inline int32_t zig_subw_i32(int32_t lhs, int32_t rhs, int32_t min, int32_t max) {
-    ZIG_SSUBW(int32_t, lhs, rhs, min, max);
+    if ((lhs > 0) && (rhs < 0)) {
+        int32_t thresh = lhs - max;
+        if (rhs < thresh) {
+            return min + (thresh - rhs - 1);
+        }
+    } else if ((lhs < 0) && (rhs > 0)) {
+        int32_t thresh = lhs - min;
+        if (rhs > thresh) {
+            return max - (rhs - thresh - 1);
+        }
+    }
+    return lhs - rhs;
 }
 
 static inline uint64_t zig_subw_u64(uint64_t lhs, uint64_t rhs, uint64_t max) {
-    ZIG_USUBW(lhs, rhs, max);
+    if (lhs < rhs) {
+        return max - rhs - lhs + 1;
+    } else {
+        return lhs - rhs;
+    }
 }
 
 static inline int64_t zig_subw_i64(int64_t lhs, int64_t rhs, int64_t min, int64_t max) {
-    ZIG_SSUBW(int64_t, lhs, rhs, min, max);
+    if ((lhs > 0) && (rhs < 0)) {
+        int64_t thresh = lhs - max;
+        if (rhs < thresh) {
+            return min + (thresh - rhs - 1);
+        }
+    } else if ((lhs < 0) && (rhs > 0)) {
+        int64_t thresh = lhs - min;
+        if (rhs > thresh) {
+            return max - (rhs - thresh - 1);
+        }
+    }
+    return lhs - rhs;
 }
 
 static inline intptr_t zig_subw_isize(intptr_t lhs, intptr_t rhs, intptr_t min, intptr_t max) {
