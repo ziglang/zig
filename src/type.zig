@@ -1041,7 +1041,7 @@ pub const Type = extern union {
                     return writer.writeAll(std.mem.spanZ(error_set.owner_decl.name));
                 },
                 .error_set_inferred => {
-                    const func = ty.castTag(.error_set_inferred).?.data;
+                    const func = ty.castTag(.error_set_inferred).?.data.func;
                     return writer.print("(inferred error set of {s})", .{func.owner_decl.name});
                 },
                 .error_set_single => {
@@ -3154,7 +3154,10 @@ pub const Type = extern union {
             pub const base_tag = Tag.error_set_inferred;
 
             base: Payload = Payload{ .tag = base_tag },
-            data: *Module.Fn,
+            data: struct {
+                func: *Module.Fn,
+                map: std.StringHashMapUnmanaged(void),
+            },
         };
 
         pub const Pointer = struct {

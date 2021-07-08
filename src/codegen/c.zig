@@ -360,6 +360,12 @@ pub const DeclGen = struct {
                 const error_type = t.errorUnionSet();
                 const payload_type = t.errorUnionChild();
                 const data = val.castTag(.error_union).?.data;
+
+                if (!payload_type.hasCodeGenBits()) {
+                    // We use the error type directly as the type.
+                    return dg.renderValue(writer, error_type, data);
+                }
+
                 try writer.writeByte('(');
                 try dg.renderType(writer, t);
                 try writer.writeAll("){");
@@ -604,6 +610,10 @@ pub const DeclGen = struct {
                 const child_type = t.errorUnionChild();
                 const err_set_type = t.errorUnionSet();
 
+                if (!child_type.hasCodeGenBits()) {
+                    return dg.renderType(w, err_set_type);
+                }
+
                 var buffer = std.ArrayList(u8).init(dg.typedefs.allocator);
                 defer buffer.deinit();
                 const bw = buffer.writer();
@@ -613,7 +623,7 @@ pub const DeclGen = struct {
                 try bw.writeAll(" payload; uint16_t error; } ");
                 const name_index = buffer.items.len;
                 if (err_set_type.castTag(.error_set_inferred)) |inf_err_set_payload| {
-                    const func = inf_err_set_payload.data;
+                    const func = inf_err_set_payload.data.func;
                     try bw.print("zig_E_{s};\n", .{func.owner_decl.name});
                 } else {
                     try bw.print("zig_E_{s}_{s};\n", .{
@@ -895,10 +905,10 @@ pub fn genBody(o: *Object, body: ir.Body) error{ AnalysisFail, OutOfMemory }!voi
             .ref => try genRef(o, inst.castTag(.ref).?),
             .struct_field_ptr => try genStructFieldPtr(o, inst.castTag(.struct_field_ptr).?),
 
-            .is_err => try genIsErr(o, inst.castTag(.is_err).?, "", "!="),
-            .is_non_err => try genIsErr(o, inst.castTag(.is_non_err).?, "", "=="),
-            .is_err_ptr => try genIsErr(o, inst.castTag(.is_err_ptr).?, "[0]", "!="),
-            .is_non_err_ptr => try genIsErr(o, inst.castTag(.is_non_err_ptr).?, "[0]", "=="),
+            .is_err => try genIsErr(o, inst.castTag(.is_err).?, "", ".", "!="),
+            .is_non_err => try genIsErr(o, inst.castTag(.is_non_err).?, "", ".", "=="),
+            .is_err_ptr => try genIsErr(o, inst.castTag(.is_err_ptr).?, "*", "->", "!="),
+            .is_non_err_ptr => try genIsErr(o, inst.castTag(.is_non_err_ptr).?, "*", "->", "=="),
 
             .unwrap_errunion_payload => try genUnwrapErrUnionPay(o, inst.castTag(.unwrap_errunion_payload).?),
             .unwrap_errunion_err => try genUnwrapErrUnionErr(o, inst.castTag(.unwrap_errunion_err).?),
@@ -1384,8 +1394,24 @@ fn genStructFieldPtr(o: *Object, inst: *Inst.StructFieldPtr) !CValue {
 
 // *(E!T) -> E NOT *E
 fn genUnwrapErrUnionErr(o: *Object, inst: *Inst.UnOp) !CValue {
+    if (inst.base.isUnused())
+        return CValue.none;
+
     const writer = o.writer();
     const operand = try o.resolveInst(inst.operand);
+
+    const payload_ty = inst.operand.ty.errorUnionChild();
+    if (!payload_ty.hasCodeGenBits()) {
+        if (inst.operand.ty.zigTypeTag() == .Pointer) {
+            const local = try o.allocLocal(inst.base.ty, .Const);
+            try writer.writeAll(" = *");
+            try o.writeCValue(writer, operand);
+            try writer.writeAll(";\n");
+            return local;
+        } else {
+            return operand;
+        }
+    }
 
     const maybe_deref = if (inst.operand.ty.zigTypeTag() == .Pointer) "->" else ".";
 
@@ -1396,9 +1422,18 @@ fn genUnwrapErrUnionErr(o: *Object, inst: *Inst.UnOp) !CValue {
     try writer.print("){s}error;\n", .{maybe_deref});
     return local;
 }
+
 fn genUnwrapErrUnionPay(o: *Object, inst: *Inst.UnOp) !CValue {
+    if (inst.base.isUnused())
+        return CValue.none;
+
     const writer = o.writer();
     const operand = try o.resolveInst(inst.operand);
+
+    const payload_ty = inst.operand.ty.errorUnionChild();
+    if (!payload_ty.hasCodeGenBits()) {
+        return CValue.none;
+    }
 
     const maybe_deref = if (inst.operand.ty.zigTypeTag() == .Pointer) "->" else ".";
     const maybe_addrof = if (inst.base.ty.zigTypeTag() == .Pointer) "&" else "";
@@ -1448,14 +1483,26 @@ fn genWrapErrUnionPay(o: *Object, inst: *Inst.UnOp) !CValue {
     return local;
 }
 
-fn genIsErr(o: *Object, inst: *Inst.UnOp, deref_suffix: []const u8, op_str: []const u8) !CValue {
+fn genIsErr(
+    o: *Object,
+    inst: *Inst.UnOp,
+    deref_prefix: [*:0]const u8,
+    deref_suffix: [*:0]const u8,
+    op_str: [*:0]const u8,
+) !CValue {
     const writer = o.writer();
     const operand = try o.resolveInst(inst.operand);
-
     const local = try o.allocLocal(Type.initTag(.bool), .Const);
-    try writer.writeAll(" = (");
-    try o.writeCValue(writer, operand);
-    try writer.print("){s}.error {s} 0;\n", .{ deref_suffix, op_str });
+    const payload_ty = inst.operand.ty.errorUnionChild();
+    if (!payload_ty.hasCodeGenBits()) {
+        try writer.print(" = {s}", .{deref_prefix});
+        try o.writeCValue(writer, operand);
+        try writer.print(" {s} 0;\n", .{op_str});
+    } else {
+        try writer.writeAll(" = ");
+        try o.writeCValue(writer, operand);
+        try writer.print("{s}error {s} 0;\n", .{ deref_suffix, op_str });
+    }
     return local;
 }
 

@@ -3139,7 +3139,10 @@ fn funcCommon(
         }
 
         const return_type = if (!inferred_error_set) bare_return_type else blk: {
-            const error_set_ty = try Type.Tag.error_set_inferred.create(sema.arena, new_func);
+            const error_set_ty = try Type.Tag.error_set_inferred.create(sema.arena, .{
+                .func = new_func,
+                .map = .{},
+            });
             break :blk try Type.Tag.error_union.create(sema.arena, .{
                 .error_set = error_set_ty,
                 .payload = bare_return_type,
@@ -5424,12 +5427,8 @@ fn zirRetErrValue(
 
     // Add the error tag to the inferred error set of the in-scope function.
     if (sema.func) |func| {
-        const fn_ty = func.owner_decl.ty;
-        const fn_ret_ty = fn_ty.fnReturnType();
-        if (fn_ret_ty.zigTypeTag() == .ErrorUnion and
-            fn_ret_ty.errorUnionSet().tag() == .error_set_inferred)
-        {
-            return sema.mod.fail(&block.base, src, "TODO: Sema.zirRetErrValue", .{});
+        if (func.getInferredErrorSet()) |map| {
+            _ = try map.getOrPut(sema.gpa, err_name);
         }
     }
     // Return the error code from the function.
@@ -7527,6 +7526,18 @@ fn wrapErrorUnion(sema: *Sema, block: *Scope.Block, dest_type: Type, inst: *Inst
                     if (mem.eql(u8, expected_name, name)) break true;
                 } else false;
                 if (!found) {
+                    return sema.mod.fail(
+                        &block.base,
+                        inst.src,
+                        "expected type '{}', found type '{}'",
+                        .{ err_union.data.error_set, inst.ty },
+                    );
+                }
+            },
+            .error_set_inferred => {
+                const expected_name = val.castTag(.@"error").?.data.name;
+                const map = &err_union.data.error_set.castTag(.error_set_inferred).?.data.map;
+                if (!map.contains(expected_name)) {
                     return sema.mod.fail(
                         &block.base,
                         inst.src,

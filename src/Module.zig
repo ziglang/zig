@@ -777,8 +777,19 @@ pub const Fn = struct {
     }
 
     pub fn deinit(func: *Fn, gpa: *Allocator) void {
-        _ = func;
-        _ = gpa;
+        if (func.getInferredErrorSet()) |map| {
+            map.deinit(gpa);
+        }
+    }
+
+    pub fn getInferredErrorSet(func: *Fn) ?*std.StringHashMapUnmanaged(void) {
+        const ret_ty = func.owner_decl.ty.fnReturnType();
+        if (ret_ty.zigTypeTag() == .ErrorUnion) {
+            if (ret_ty.errorUnionSet().castTag(.error_set_inferred)) |payload| {
+                return &payload.data.map;
+            }
+        }
+        return null;
     }
 };
 
