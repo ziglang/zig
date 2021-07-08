@@ -457,6 +457,22 @@ pub const IO_Uring = struct {
         return sqe;
     }
 
+    /// Queues (but does not submit) an SQE to perform a `epoll_ctl(2)`.
+    /// Returns a pointer to the SQE.
+    pub fn epoll_ctl(
+        self: *IO_Uring,
+        user_data: u64,
+        epfd: os.fd_t,
+        fd: os.fd_t,
+        op: u32,
+        ev: ?*linux.epoll_event,
+    ) !*io_uring_sqe {
+        const sqe = try self.get_sqe();
+        io_uring_prep_epoll_ctl(sqe, epfd, fd, op, ev);
+        sqe.user_data = user_data;
+        return sqe;
+    }
+
     /// Queues (but does not submit) an SQE to perform a `recv(2)`.
     /// Returns a pointer to the SQE.
     pub fn recv(
@@ -554,6 +570,33 @@ pub const IO_Uring = struct {
     ) !*io_uring_sqe {
         const sqe = try self.get_sqe();
         io_uring_prep_timeout_remove(sqe, timeout_user_data, flags);
+        sqe.user_data = user_data;
+        return sqe;
+    }
+
+    /// Queues (but does not submit) an SQE to perform a `poll(2)`.
+    /// Returns a pointer to the SQE.
+    pub fn poll_add(
+        self: *IO_Uring,
+        user_data: u64,
+        fd: os.fd_t,
+        poll_mask: u32,
+    ) !*io_uring_sqe {
+        const sqe = try self.get_sqe();
+        io_uring_prep_poll_add(sqe, fd, poll_mask);
+        sqe.user_data = user_data;
+        return sqe;
+    }
+
+    /// Queues (but does not submit) an SQE to remove an existing poll operation.
+    /// Returns a pointer to the SQE.
+    pub fn poll_remove(
+        self: *IO_Uring,
+        user_data: u64,
+        target_user_data: u64,
+    ) !*io_uring_sqe {
+        const sqe = try self.get_sqe();
+        io_uring_prep_poll_remove(sqe, target_user_data);
         sqe.user_data = user_data;
         return sqe;
     }
@@ -776,7 +819,7 @@ pub fn io_uring_prep_rw(
     op: linux.IORING_OP,
     sqe: *io_uring_sqe,
     fd: os.fd_t,
-    addr: anytype,
+    addr: u64,
     len: usize,
     offset: u64,
 ) void {
@@ -786,7 +829,7 @@ pub fn io_uring_prep_rw(
         .ioprio = 0,
         .fd = fd,
         .off = offset,
-        .addr = @ptrToInt(addr),
+        .addr = addr,
         .len = @intCast(u32, len),
         .rw_flags = 0,
         .user_data = 0,
@@ -798,11 +841,11 @@ pub fn io_uring_prep_rw(
 }
 
 pub fn io_uring_prep_read(sqe: *io_uring_sqe, fd: os.fd_t, buffer: []u8, offset: u64) void {
-    io_uring_prep_rw(.READ, sqe, fd, buffer.ptr, buffer.len, offset);
+    io_uring_prep_rw(.READ, sqe, fd, @ptrToInt(buffer.ptr), buffer.len, offset);
 }
 
 pub fn io_uring_prep_write(sqe: *io_uring_sqe, fd: os.fd_t, buffer: []const u8, offset: u64) void {
-    io_uring_prep_rw(.WRITE, sqe, fd, buffer.ptr, buffer.len, offset);
+    io_uring_prep_rw(.WRITE, sqe, fd, @ptrToInt(buffer.ptr), buffer.len, offset);
 }
 
 pub fn io_uring_prep_readv(
@@ -811,7 +854,7 @@ pub fn io_uring_prep_readv(
     iovecs: []const os.iovec,
     offset: u64,
 ) void {
-    io_uring_prep_rw(.READV, sqe, fd, iovecs.ptr, iovecs.len, offset);
+    io_uring_prep_rw(.READV, sqe, fd, @ptrToInt(iovecs.ptr), iovecs.len, offset);
 }
 
 pub fn io_uring_prep_writev(
@@ -820,7 +863,7 @@ pub fn io_uring_prep_writev(
     iovecs: []const os.iovec_const,
     offset: u64,
 ) void {
-    io_uring_prep_rw(.WRITEV, sqe, fd, iovecs.ptr, iovecs.len, offset);
+    io_uring_prep_rw(.WRITEV, sqe, fd, @ptrToInt(iovecs.ptr), iovecs.len, offset);
 }
 
 pub fn io_uring_prep_accept(
@@ -832,7 +875,7 @@ pub fn io_uring_prep_accept(
 ) void {
     // `addr` holds a pointer to `sockaddr`, and `addr2` holds a pointer to socklen_t`.
     // `addr2` maps to `sqe.off` (u64) instead of `sqe.len` (which is only a u32).
-    io_uring_prep_rw(.ACCEPT, sqe, fd, addr, 0, @ptrToInt(addrlen));
+    io_uring_prep_rw(.ACCEPT, sqe, fd, @ptrToInt(addr), 0, @ptrToInt(addrlen));
     sqe.rw_flags = flags;
 }
 
@@ -843,16 +886,26 @@ pub fn io_uring_prep_connect(
     addrlen: os.socklen_t,
 ) void {
     // `addrlen` maps to `sqe.off` (u64) instead of `sqe.len` (which is only a u32).
-    io_uring_prep_rw(.CONNECT, sqe, fd, addr, 0, addrlen);
+    io_uring_prep_rw(.CONNECT, sqe, fd, @ptrToInt(addr), 0, addrlen);
+}
+
+pub fn io_uring_prep_epoll_ctl(
+    sqe: *io_uring_sqe,
+    epfd: os.fd_t,
+    fd: os.fd_t,
+    op: u32,
+    ev: ?*linux.epoll_event,
+) void {
+    io_uring_prep_rw(.EPOLL_CTL, sqe, epfd, @ptrToInt(ev), op, @intCast(u64, fd));
 }
 
 pub fn io_uring_prep_recv(sqe: *io_uring_sqe, fd: os.fd_t, buffer: []u8, flags: u32) void {
-    io_uring_prep_rw(.RECV, sqe, fd, buffer.ptr, buffer.len, 0);
+    io_uring_prep_rw(.RECV, sqe, fd, @ptrToInt(buffer.ptr), buffer.len, 0);
     sqe.rw_flags = flags;
 }
 
 pub fn io_uring_prep_send(sqe: *io_uring_sqe, fd: os.fd_t, buffer: []const u8, flags: u32) void {
-    io_uring_prep_rw(.SEND, sqe, fd, buffer.ptr, buffer.len, 0);
+    io_uring_prep_rw(.SEND, sqe, fd, @ptrToInt(buffer.ptr), buffer.len, 0);
     sqe.rw_flags = flags;
 }
 
@@ -863,7 +916,7 @@ pub fn io_uring_prep_openat(
     flags: u32,
     mode: os.mode_t,
 ) void {
-    io_uring_prep_rw(.OPENAT, sqe, fd, path, mode, 0);
+    io_uring_prep_rw(.OPENAT, sqe, fd, @ptrToInt(path), mode, 0);
     sqe.rw_flags = flags;
 }
 
@@ -891,7 +944,7 @@ pub fn io_uring_prep_timeout(
     count: u32,
     flags: u32,
 ) void {
-    io_uring_prep_rw(.TIMEOUT, sqe, -1, ts, 1, count);
+    io_uring_prep_rw(.TIMEOUT, sqe, -1, @ptrToInt(ts), 1, count);
     sqe.rw_flags = flags;
 }
 
@@ -911,6 +964,22 @@ pub fn io_uring_prep_timeout_remove(sqe: *io_uring_sqe, timeout_user_data: u64, 
         .splice_fd_in = 0,
         .__pad2 = [2]u64{ 0, 0 },
     };
+}
+
+pub fn io_uring_prep_poll_add(
+    sqe: *io_uring_sqe,
+    fd: os.fd_t,
+    poll_mask: u32,
+) void {
+    io_uring_prep_rw(.POLL_ADD, sqe, fd, @ptrToInt(@as(?*c_void, null)), 0, 0);
+    sqe.rw_flags = std.mem.nativeToLittle(u32, poll_mask);
+}
+
+pub fn io_uring_prep_poll_remove(
+    sqe: *io_uring_sqe,
+    target_user_data: u64,
+) void {
+    io_uring_prep_rw(.POLL_REMOVE, sqe, -1, target_user_data, 0, 0);
 }
 
 pub fn io_uring_prep_fallocate(
