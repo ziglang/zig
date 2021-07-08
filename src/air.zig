@@ -90,8 +90,12 @@ pub const Inst = struct {
         is_non_null_ptr,
         /// E!T => bool
         is_err,
+        /// E!T => bool (inverted logic)
+        is_non_err,
         /// *E!T => bool
         is_err_ptr,
+        /// *E!T => bool (inverted logic)
+        is_non_err_ptr,
         bool_and,
         bool_or,
         /// Read a value from a pointer.
@@ -154,7 +158,9 @@ pub const Inst = struct {
                 .is_null,
                 .is_null_ptr,
                 .is_err,
+                .is_non_err,
                 .is_err_ptr,
+                .is_non_err_ptr,
                 .ptrtoint,
                 .floatcast,
                 .intcast,
@@ -672,15 +678,15 @@ pub const Body = struct {
 /// For debugging purposes, prints a function representation to stderr.
 pub fn dumpFn(old_module: Module, module_fn: *Module.Fn) void {
     const allocator = old_module.gpa;
-    var ctx: DumpTzir = .{
+    var ctx: DumpAir = .{
         .allocator = allocator,
         .arena = std.heap.ArenaAllocator.init(allocator),
         .old_module = &old_module,
         .module_fn = module_fn,
         .indent = 2,
-        .inst_table = DumpTzir.InstTable.init(allocator),
-        .partial_inst_table = DumpTzir.InstTable.init(allocator),
-        .const_table = DumpTzir.InstTable.init(allocator),
+        .inst_table = DumpAir.InstTable.init(allocator),
+        .partial_inst_table = DumpAir.InstTable.init(allocator),
+        .const_table = DumpAir.InstTable.init(allocator),
     };
     defer ctx.inst_table.deinit();
     defer ctx.partial_inst_table.deinit();
@@ -695,12 +701,12 @@ pub fn dumpFn(old_module: Module, module_fn: *Module.Fn) void {
         .dependency_failure => std.debug.print("(dependency_failure)", .{}),
         .success => {
             const writer = std.io.getStdErr().writer();
-            ctx.dump(module_fn.body, writer) catch @panic("failed to dump TZIR");
+            ctx.dump(module_fn.body, writer) catch @panic("failed to dump AIR");
         },
     }
 }
 
-const DumpTzir = struct {
+const DumpAir = struct {
     allocator: *std.mem.Allocator,
     arena: std.heap.ArenaAllocator,
     old_module: *const Module,
@@ -718,7 +724,7 @@ const DumpTzir = struct {
     /// TODO: Improve this code to include a stack of Body and store the instructions
     /// in there. Now we are putting all the instructions in a function local table,
     /// however instructions that are in a Body can be thown away when the Body ends.
-    fn dump(dtz: *DumpTzir, body: Body, writer: std.fs.File.Writer) !void {
+    fn dump(dtz: *DumpAir, body: Body, writer: std.fs.File.Writer) !void {
         // First pass to pre-populate the table so that we can show even invalid references.
         // Must iterate the same order we iterate the second time.
         // We also look for constants and put them in the const_table.
@@ -737,7 +743,7 @@ const DumpTzir = struct {
         return dtz.dumpBody(body, writer);
     }
 
-    fn fetchInstsAndResolveConsts(dtz: *DumpTzir, body: Body) error{OutOfMemory}!void {
+    fn fetchInstsAndResolveConsts(dtz: *DumpAir, body: Body) error{OutOfMemory}!void {
         for (body.instructions) |inst| {
             try dtz.inst_table.put(inst, dtz.next_index);
             dtz.next_index += 1;
@@ -759,7 +765,9 @@ const DumpTzir = struct {
                 .is_null,
                 .is_null_ptr,
                 .is_err,
+                .is_non_err,
                 .is_err_ptr,
+                .is_non_err_ptr,
                 .ptrtoint,
                 .floatcast,
                 .intcast,
@@ -865,7 +873,7 @@ const DumpTzir = struct {
         }
     }
 
-    fn dumpBody(dtz: *DumpTzir, body: Body, writer: std.fs.File.Writer) (std.fs.File.WriteError || error{OutOfMemory})!void {
+    fn dumpBody(dtz: *DumpAir, body: Body, writer: std.fs.File.Writer) (std.fs.File.WriteError || error{OutOfMemory})!void {
         for (body.instructions) |inst| {
             const my_index = dtz.next_partial_index;
             try dtz.partial_inst_table.put(inst, my_index);
@@ -888,11 +896,13 @@ const DumpTzir = struct {
                 .bitcast,
                 .not,
                 .is_non_null,
-                .is_null,
                 .is_non_null_ptr,
+                .is_null,
                 .is_null_ptr,
                 .is_err,
                 .is_err_ptr,
+                .is_non_err,
+                .is_non_err_ptr,
                 .ptrtoint,
                 .floatcast,
                 .intcast,
@@ -1150,7 +1160,7 @@ const DumpTzir = struct {
         }
     }
 
-    fn writeInst(dtz: *DumpTzir, writer: std.fs.File.Writer, inst: *Inst) !?usize {
+    fn writeInst(dtz: *DumpAir, writer: std.fs.File.Writer, inst: *Inst) !?usize {
         if (dtz.partial_inst_table.get(inst)) |operand_index| {
             try writer.print("%{d}", .{operand_index});
             return null;
@@ -1166,7 +1176,7 @@ const DumpTzir = struct {
         }
     }
 
-    fn findConst(dtz: *DumpTzir, operand: *Inst) !void {
+    fn findConst(dtz: *DumpAir, operand: *Inst) !void {
         if (operand.tag == .constant) {
             try dtz.const_table.put(operand, dtz.next_const_index);
             dtz.next_const_index += 1;

@@ -755,6 +755,7 @@ pub const Fn = struct {
     rbrace_column: u16,
 
     state: Analysis,
+    is_cold: bool = false,
 
     pub const Analysis = enum {
         queued,
@@ -776,8 +777,19 @@ pub const Fn = struct {
     }
 
     pub fn deinit(func: *Fn, gpa: *Allocator) void {
-        _ = func;
-        _ = gpa;
+        if (func.getInferredErrorSet()) |map| {
+            map.deinit(gpa);
+        }
+    }
+
+    pub fn getInferredErrorSet(func: *Fn) ?*std.StringHashMapUnmanaged(void) {
+        const ret_ty = func.owner_decl.ty.fnReturnType();
+        if (ret_ty.zigTypeTag() == .ErrorUnion) {
+            if (ret_ty.errorUnionSet().castTag(.error_set_inferred)) |payload| {
+                return &payload.data.map;
+            }
+        }
+        return null;
     }
 };
 
@@ -3453,6 +3465,9 @@ pub fn clearDecl(
     for (decl.dependencies.keys()) |dep| {
         dep.removeDependant(decl);
         if (dep.dependants.count() == 0 and !dep.deletion_flag) {
+            log.debug("insert {*} ({s}) dependant {*} ({s}) into deletion set", .{
+                decl, decl.name, dep, dep.name,
+            });
             // We don't recursively perform a deletion here, because during the update,
             // another reference to it may turn up.
             dep.deletion_flag = true;

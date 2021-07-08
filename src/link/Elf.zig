@@ -2505,11 +2505,7 @@ fn addDbgInfoType(self: *Elf, ty: Type, dbg_info_buffer: *std.ArrayList(u8)) !vo
                 abbrev_base_type,
                 DW.ATE_boolean, // DW.AT_encoding ,  DW.FORM_data1
                 1, // DW.AT_byte_size,  DW.FORM_data1
-                'b',
-                'o',
-                'o',
-                'l',
-                0, // DW.AT_name,  DW.FORM_string
+                'b', 'o', 'o', 'l', 0, // DW.AT_name,  DW.FORM_string
             });
         },
         .Int => {
@@ -2526,8 +2522,23 @@ fn addDbgInfoType(self: *Elf, ty: Type, dbg_info_buffer: *std.ArrayList(u8)) !vo
             // DW.AT_name,  DW.FORM_string
             try dbg_info_buffer.writer().print("{}\x00", .{ty});
         },
+        .Optional => {
+            if (ty.isPtrLikeOptional()) {
+                try dbg_info_buffer.ensureCapacity(dbg_info_buffer.items.len + 12);
+                dbg_info_buffer.appendAssumeCapacity(abbrev_base_type);
+                // DW.AT_encoding, DW.FORM_data1
+                dbg_info_buffer.appendAssumeCapacity(DW.ATE_address);
+                // DW.AT_byte_size,  DW.FORM_data1
+                dbg_info_buffer.appendAssumeCapacity(@intCast(u8, ty.abiSize(self.base.options.target)));
+                // DW.AT_name,  DW.FORM_string
+                try dbg_info_buffer.writer().print("{}\x00", .{ty});
+            } else {
+                log.err("TODO implement .debug_info for type '{}'", .{ty});
+                try dbg_info_buffer.append(abbrev_pad1);
+            }
+        },
         else => {
-            std.log.scoped(.compiler).err("TODO implement .debug_info for type '{}'", .{ty});
+            log.err("TODO implement .debug_info for type '{}'", .{ty});
             try dbg_info_buffer.append(abbrev_pad1);
         },
     }

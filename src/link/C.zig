@@ -207,7 +207,7 @@ pub fn flushModule(self: *C, comp: *Compilation) !void {
     }
 
     var fn_count: usize = 0;
-    var typedefs = std.HashMap(Type, []const u8, Type.HashContext, std.hash_map.default_max_load_percentage).init(comp.gpa);
+    var typedefs = std.HashMap(Type, void, Type.HashContext, std.hash_map.default_max_load_percentage).init(comp.gpa);
     defer typedefs.deinit();
 
     // Typedefs, forward decls and non-functions first.
@@ -217,14 +217,12 @@ pub fn flushModule(self: *C, comp: *Compilation) !void {
         if (!decl.has_tv) continue;
         const buf = buf: {
             if (decl.val.castTag(.function)) |_| {
+                try typedefs.ensureUnusedCapacity(decl.fn_link.c.typedefs.count());
                 var it = decl.fn_link.c.typedefs.iterator();
                 while (it.next()) |new| {
-                    if (typedefs.get(new.key_ptr.*)) |previous| {
-                        try err_typedef_writer.print("typedef {s} {s};\n", .{ previous, new.value_ptr.name });
-                    } else {
-                        try typedefs.ensureCapacity(typedefs.capacity() + 1);
+                    const gop = typedefs.getOrPutAssumeCapacity(new.key_ptr.*);
+                    if (!gop.found_existing) {
                         try err_typedef_writer.writeAll(new.value_ptr.rendered);
-                        typedefs.putAssumeCapacityNoClobber(new.key_ptr.*, new.value_ptr.name);
                     }
                 }
                 fn_count += 1;

@@ -814,7 +814,8 @@ pub const Context = struct {
             .constant => unreachable,
             .dbg_stmt => WValue.none,
             .div => self.genBinOp(inst.castTag(.div).?, .div),
-            .is_err => self.genIsErr(inst.castTag(.is_err).?),
+            .is_err => self.genIsErr(inst.castTag(.is_err).?, .i32_ne),
+            .is_non_err => self.genIsErr(inst.castTag(.is_non_err).?, .i32_eq),
             .load => self.genLoad(inst.castTag(.load).?),
             .loop => self.genLoop(inst.castTag(.loop).?),
             .mul => self.genBinOp(inst.castTag(.mul).?, .mul),
@@ -1278,7 +1279,7 @@ pub const Context = struct {
         return .none;
     }
 
-    fn genIsErr(self: *Context, inst: *Inst.UnOp) InnerError!WValue {
+    fn genIsErr(self: *Context, inst: *Inst.UnOp, opcode: wasm.Opcode) InnerError!WValue {
         const operand = self.resolveInst(inst.operand);
         const offset = self.code.items.len;
         const writer = self.code.writer();
@@ -1289,9 +1290,7 @@ pub const Context = struct {
         try writer.writeByte(wasm.opcode(.i32_const));
         try leb.writeILEB128(writer, @as(i32, 0));
 
-        // we want to break out of the condition if they're *not* equal,
-        // because that means there's an error.
-        try writer.writeByte(wasm.opcode(.i32_ne));
+        try writer.writeByte(@enumToInt(opcode));
 
         return WValue{ .code_offset = offset };
     }

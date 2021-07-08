@@ -804,19 +804,26 @@ pub fn addCases(ctx: *TestContext) !void {
         });
     }
 
-    ctx.c("empty start function", linux_x64,
-        \\export fn _start() noreturn {
-        \\    unreachable;
-        \\}
-    ,
-        \\ZIG_EXTERN_C zig_noreturn void _start(void);
-        \\
-        \\zig_noreturn void _start(void) {
-        \\ zig_breakpoint();
-        \\ zig_unreachable();
-        \\}
-        \\
-    );
+    {
+        var case = ctx.exeFromCompiledC("inferred error sets", .{});
+
+        case.addCompareOutput(
+            \\pub export fn main() c_int {
+            \\    if (foo()) |_| {
+            \\        @panic("test fail");
+            \\    } else |err| {
+            \\        if (err != error.ItBroke) {
+            \\            @panic("test fail");
+            \\        }
+            \\    }
+            \\    return 0;
+            \\}
+            \\fn foo() !void {
+            \\    return error.ItBroke;
+            \\}
+        , "");
+    }
+
     ctx.h("simple header", linux_x64,
         \\export fn start() void{}
     ,

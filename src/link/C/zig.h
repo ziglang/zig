@@ -12,6 +12,12 @@
 #define zig_threadlocal zig_threadlocal_unavailable
 #endif
 
+#if __GNUC__
+#define ZIG_COLD __attribute__ ((cold))
+#else
+#define ZIG_COLD
+#endif
+
 #if __STDC_VERSION__ >= 199901L
 #define ZIG_RESTRICT restrict
 #elif defined(__GNUC__)

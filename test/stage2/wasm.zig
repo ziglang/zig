@@ -587,8 +587,6 @@ pub fn addCases(ctx: *TestContext) !void {
     }
 
     {
-        // TODO implement Type equality comparison of error unions in SEMA
-        // before we can incrementally compile functions with an error union as return type
         var case = ctx.exe("wasm error union part 2", wasi);
 
         case.addCompareOutput(
