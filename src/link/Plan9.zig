@@ -1,10 +1,13 @@
+//! This implementation does all the linking work in flush(). A future improvement
+//! would be to add incremental linking in a similar way as ELF does.
+
 const Plan9 = @This();
 
 const std = @import("std");
 const link = @import("../link.zig");
 const Module = @import("../Module.zig");
 const Compilation = @import("../Compilation.zig");
-const aout = @import("plan9/a.out.zig");
+const aout = @import("Plan9/aout.zig");
 const codegen = @import("../codegen.zig");
 const trace = @import("../tracy.zig").trace;
 const mem = std.mem;
@@ -13,8 +16,6 @@ const Allocator = std.mem.Allocator;
 
 const log = std.log.scoped(.link);
 const assert = std.debug.assert;
-
-// TODO use incremental compilation
 
 base: link.File,
 sixtyfour_bit: bool,
@@ -38,7 +39,7 @@ const Bases = struct {
     data: u64,
 };
 
-fn getAddr(self: Plan9, addr: u64, t: aout.SymType) u64 {
+fn getAddr(self: Plan9, addr: u64, t: aout.Sym.Type) u64 {
     return addr + switch (t) {
         .T, .t, .l, .L => self.bases.text,
         .D, .d, .B, .b => self.bases.data,
@@ -46,7 +47,7 @@ fn getAddr(self: Plan9, addr: u64, t: aout.SymType) u64 {
     };
 }
 /// opposite of getAddr
-fn takeAddr(self: Plan9, addr: u64, t: aout.SymType) u64 {
+fn takeAddr(self: Plan9, addr: u64, t: aout.Sym.Type) u64 {
     return addr - switch (t) {
         .T, .t, .l, .L => self.bases.text,
         .D, .d, .B, .b => self.bases.data,
@@ -59,7 +60,7 @@ fn getSymAddr(self: Plan9, s: aout.Sym) u64 {
 }
 
 pub const DeclBlock = struct {
-    type: aout.SymType,
+    type: aout.Sym.Type,
     /// offset in the text or data sects
     offset: ?u64,
     /// offset into syms
