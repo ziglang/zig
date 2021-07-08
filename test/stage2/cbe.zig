@@ -824,6 +824,56 @@ pub fn addCases(ctx: *TestContext) !void {
         , "");
     }
 
+    {
+        // TODO: add u64 tests, ran into issues with the literal generated for std.math.maxInt(u64)
+        var case = ctx.exeFromCompiledC("add/sub wrapping operations", .{});
+        case.addCompareOutput(
+            \\pub export fn main() c_int {
+            \\    // Addition
+            \\    if (!add_u3(1, 1, 2)) return 1;
+            \\    if (!add_u3(7, 1, 0)) return 1;
+            \\    if (!add_i3(1, 1, 2)) return 1;
+            \\    if (!add_i3(3, 2, -3)) return 1;
+            \\    if (!add_i3(-3, -2, 3)) return 1;
+            \\    if (!add_c_int(1, 1, 2)) return 1;
+            \\    // TODO enable these when stage2 supports std.math.maxInt
+            \\    //if (!add_c_int(maxInt(c_int), 2, minInt(c_int) + 1)) return 1;
+            \\    //if (!add_c_int(maxInt(c_int) + 1, -2, maxInt(c_int))) return 1;
+            \\
+            \\    // Subtraction
+            \\    if (!sub_u3(2, 1, 1)) return 1;
+            \\    if (!sub_u3(0, 1, 7)) return 1;
+            \\    if (!sub_i3(2, 1, 1)) return 1;
+            \\    if (!sub_i3(3, -2, -3)) return 1;
+            \\    if (!sub_i3(-3, 2, 3)) return 1;
+            \\    if (!sub_c_int(2, 1, 1)) return 1;
+            \\    // TODO enable these when stage2 supports std.math.maxInt
+            \\    //if (!sub_c_int(maxInt(c_int), -2, minInt(c_int) + 1)) return 1;
+            \\    //if (!sub_c_int(minInt(c_int) + 1, 2, maxInt(c_int))) return 1;
+            \\
+            \\    return 0;
+            \\}
+            \\fn add_u3(lhs: u3, rhs: u3, expected: u3) bool {
+            \\    return expected == lhs +% rhs;
+            \\}
+            \\fn add_i3(lhs: i3, rhs: i3, expected: i3) bool {
+            \\    return expected == lhs +% rhs;
+            \\}
+            \\fn add_c_int(lhs: c_int, rhs: c_int, expected: c_int) bool {
+            \\    return expected == lhs +% rhs;
+            \\}
+            \\fn sub_u3(lhs: u3, rhs: u3, expected: u3) bool {
+            \\    return expected == lhs -% rhs;
+            \\}
+            \\fn sub_i3(lhs: i3, rhs: i3, expected: i3) bool {
+            \\    return expected == lhs -% rhs;
+            \\}
+            \\fn sub_c_int(lhs: c_int, rhs: c_int, expected: c_int) bool {
+            \\    return expected == lhs -% rhs;
+            \\}
+        , "");
+    }
+
     ctx.h("simple header", linux_x64,
         \\export fn start() void{}
     ,

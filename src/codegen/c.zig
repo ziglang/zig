@@ -846,18 +846,15 @@ pub fn genBody(o: *Object, body: ir.Body) error{ AnalysisFail, OutOfMemory }!voi
             // TODO use a different strategy for add that communicates to the optimizer
             // that wrapping is UB.
             .add => try genBinOp(o, inst.castTag(.add).?, " + "),
-            // TODO make this do wrapping arithmetic for signed ints
-            .addwrap => try genBinOp(o, inst.castTag(.add).?, " + "),
+            .addwrap => try genWrapOp(o, inst.castTag(.addwrap).?, " + ", "addw_"),
             // TODO use a different strategy for sub that communicates to the optimizer
             // that wrapping is UB.
             .sub => try genBinOp(o, inst.castTag(.sub).?, " - "),
-            // TODO make this do wrapping arithmetic for signed ints
-            .subwrap => try genBinOp(o, inst.castTag(.sub).?, " - "),
+            .subwrap => try genWrapOp(o, inst.castTag(.subwrap).?, " - ", "subw_"),
             // TODO use a different strategy for mul that communicates to the optimizer
             // that wrapping is UB.
             .mul => try genBinOp(o, inst.castTag(.sub).?, " * "),
-            // TODO make this do wrapping multiplication for signed ints
-            .mulwrap => try genBinOp(o, inst.castTag(.sub).?, " * "),
+            .mulwrap => try genWrapOp(o, inst.castTag(.mulwrap).?, " * ", "mulw_"),
             // TODO use a different strategy for div that communicates to the optimizer
             // that wrapping is UB.
             .div => try genBinOp(o, inst.castTag(.div).?, " / "),
@@ -1042,7 +1039,117 @@ fn genStore(o: *Object, inst: *Inst.BinOp) !CValue {
     return CValue.none;
 }
 
-fn genBinOp(o: *Object, inst: *Inst.BinOp, operator: []const u8) !CValue {
+fn genWrapOp(o: *Object, inst: *Inst.BinOp, str_op: [*:0]const u8, fn_op: [*:0]const u8) !CValue {
+    if (inst.base.isUnused())
+        return CValue.none;
+
+    const int_info = inst.base.ty.intInfo(o.dg.module.getTarget());
+    const bits = int_info.bits;
+
+    // if it's an unsigned int with non-arbitrary bit size then we can just add
+    if (int_info.signedness == .unsigned) {
+        const ok_bits = switch (bits) {
+            8, 16, 32, 64, 128 => true,
+            else => false,
+        };
+        if (ok_bits or inst.base.ty.tag() != .int_unsigned) {
+            return try genBinOp(o, inst, str_op);
+        }
+    }
+
+    if (bits > 64) {
+        return o.dg.fail(.{ .node_offset = 0 }, "TODO: C backend: genWrapOp for large integers", .{});
+    }
+
+    var min_buf: [80]u8 = undefined;
+    const min = switch (int_info.signedness) {
+        .unsigned => "0",
+        else => switch (inst.base.ty.tag()) {
+            .c_short => "SHRT_MIN",
+            .c_int => "INT_MIN",
+            .c_long => "LONG_MIN",
+            .c_longlong => "LLONG_MIN",
+            .isize => "INTPTR_MIN",
+            else => blk: {
+                const val = -1 * std.math.pow(i64, 2, @intCast(i64, bits - 1));
+                break :blk std.fmt.bufPrint(&min_buf, "{d}", .{val}) catch |err| switch (err) {
+                    error.NoSpaceLeft => unreachable,
+                    else => |e| return e,
+                };
+            },
+        },
+    };
+
+    var max_buf: [80]u8 = undefined;
+    const max = switch (inst.base.ty.tag()) {
+        .c_short => "SHRT_MAX",
+        .c_ushort => "USHRT_MAX",
+        .c_int => "INT_MAX",
+        .c_uint => "UINT_MAX",
+        .c_long => "LONG_MAX",
+        .c_ulong => "ULONG_MAX",
+        .c_longlong => "LLONG_MAX",
+        .c_ulonglong => "ULLONG_MAX",
+        .isize => "INTPTR_MAX",
+        .usize => "UINTPTR_MAX",
+        else => blk: {
+            const pow_bits = switch (int_info.signedness) {
+                .signed => bits - 1,
+                .unsigned => bits,
+            };
+            const val = std.math.pow(u64, 2, pow_bits) - 1;
+            break :blk std.fmt.bufPrint(&max_buf, "{}", .{val}) catch |err| switch (err) {
+                error.NoSpaceLeft => unreachable,
+                else => |e| return e,
+            };
+        },
+    };
+
+    const lhs = try o.resolveInst(inst.lhs);
+    const rhs = try o.resolveInst(inst.rhs);
+    const w = o.writer();
+
+    const ret = try o.allocLocal(inst.base.ty, .Mut);
+    try w.print(" = zig_{s}", .{fn_op});
+
+    switch (inst.base.ty.tag()) {
+        .isize => try w.writeAll("isize"),
+        .c_short => try w.writeAll("short"),
+        .c_int => try w.writeAll("int"),
+        .c_long => try w.writeAll("long"),
+        .c_longlong => try w.writeAll("longlong"),
+        else => {
+            const prefix_byte: u8 = switch (int_info.signedness) {
+                .signed => 'i',
+                .unsigned => 'u',
+            };
+            for ([_]u8{ 8, 16, 32, 64 }) |nbits| {
+                if (bits <= nbits) {
+                    try w.print("{c}{d}", .{ prefix_byte, nbits });
+                    break;
+                }
+            } else {
+                unreachable;
+            }
+        },
+    }
+
+    try w.writeByte('(');
+    try o.writeCValue(w, lhs);
+    try w.writeAll(", ");
+    try o.writeCValue(w, rhs);
+
+    if (int_info.signedness == .signed) {
+        try w.print(", {s}", .{min});
+    }
+
+    try w.print(", {s});", .{max});
+    try o.indent_writer.insertNewline();
+
+    return ret;
+}
+
+fn genBinOp(o: *Object, inst: *Inst.BinOp, operator: [*:0]const u8) !CValue {
     if (inst.base.isUnused())
         return CValue.none;
 
@@ -1054,7 +1161,7 @@ fn genBinOp(o: *Object, inst: *Inst.BinOp, operator: []const u8) !CValue {
 
     try writer.writeAll(" = ");
     try o.writeCValue(writer, lhs);
-    try writer.writeAll(operator);
+    try writer.print("{s}", .{operator});
     try o.writeCValue(writer, rhs);
     try writer.writeAll(";\n");
 
