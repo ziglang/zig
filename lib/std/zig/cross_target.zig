@@ -133,6 +133,7 @@ pub const CrossTarget = struct {
             .opencl,
             .glsl450,
             .vulkan,
+            .plan9,
             .other,
             => {
                 self.os_version_min = .{ .none = {} };
@@ -746,6 +747,7 @@ pub const CrossTarget = struct {
             .opencl,
             .glsl450,
             .vulkan,
+            .plan9,
             .other,
             => return error.InvalidOperatingSystemVersion,
 

@@ -2556,9 +2556,60 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 } else {
                     return self.fail(inst.base.src, "TODO implement calling runtime known function pointer", .{});
                 }
-            } else {
-                unreachable;
-            }
+            } else if (self.bin_file.cast(link.File.Plan9)) |p9| {
+                switch (arch) {
+                    .x86_64 => {
+                        for (info.args) |mc_arg, arg_i| {
+                            const arg = inst.args[arg_i];
+                            const arg_mcv = try self.resolveInst(inst.args[arg_i]);
+                            // Here we do not use setRegOrMem even though the logic is similar, because
+                            // the function call will move the stack pointer, so the offsets are different.
+                            switch (mc_arg) {
+                                .none => continue,
+                                .register => |reg| {
+                                    try self.register_manager.getReg(reg, null);
+                                    try self.genSetReg(arg.src, arg.ty, reg, arg_mcv);
+                                },
+                                .stack_offset => {
+                                    // Here we need to emit instructions like this:
+                                    // mov     qword ptr [rsp + stack_offset], x
+                                    return self.fail(inst.base.src, "TODO implement calling with parameters in memory", .{});
+                                },
+                                .ptr_stack_offset => {
+                                    return self.fail(inst.base.src, "TODO implement calling with MCValue.ptr_stack_offset arg", .{});
+                                },
+                                .ptr_embedded_in_code => {
+                                    return self.fail(inst.base.src, "TODO implement calling with MCValue.ptr_embedded_in_code arg", .{});
+                                },
+                                .undef => unreachable,
+                                .immediate => unreachable,
+                                .unreach => unreachable,
+                                .dead => unreachable,
+                                .embedded_in_code => unreachable,
+                                .memory => unreachable,
+                                .compare_flags_signed => unreachable,
+                                .compare_flags_unsigned => unreachable,
+                            }
+                        }
+                        if (inst.func.value()) |func_value| {
+                            if (func_value.castTag(.function)) |func_payload| {
+                                const ptr_bits = self.target.cpu.arch.ptrBitWidth();
+                                const ptr_bytes: u64 = @divExact(ptr_bits, 8);
+                                const got_addr = p9.bases.data;
+                                const got_index = func_payload.data.owner_decl.link.plan9.got_index.?;
+                                // ff 14 25 xx xx xx xx    call [addr]
+                                try self.code.ensureCapacity(self.code.items.len + 7);
+                                self.code.appendSliceAssumeCapacity(&[3]u8{ 0xff, 0x14, 0x25 });
+                                const fn_got_addr = got_addr + got_index * ptr_bytes;
+                                mem.writeIntLittle(u32, self.code.addManyAsArrayAssumeCapacity(4), @intCast(u32, fn_got_addr));
+                            } else return self.fail(inst.base.src, "TODO implement calling extern fn on plan9", .{});
+                        } else {
+                            return self.fail(inst.base.src, "TODO implement calling runtime known function pointer", .{});
+                        }
+                    },
+                    else => return self.fail(inst.base.src, "TODO implement call on plan9 for {}", .{self.target.cpu.arch}),
+                }
+            } else unreachable;
 
             switch (info.return_value) {
                 .register => |reg| {
@@ -3279,10 +3330,44 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         try self.genSetReg(inst.base.src, arg.ty, reg, arg_mcv);
                     }
 
-                    if (mem.eql(u8, inst.asm_source, "syscall")) {
-                        try self.code.appendSlice(&[_]u8{ 0x0f, 0x05 });
-                    } else if (inst.asm_source.len != 0) {
-                        return self.fail(inst.base.src, "TODO implement support for more x86 assembly instructions", .{});
+                    {
+                        var iter = std.mem.tokenize(inst.asm_source, "\n\r");
+                        while (iter.next()) |ins| {
+                            if (mem.eql(u8, ins, "syscall")) {
+                                try self.code.appendSlice(&[_]u8{ 0x0f, 0x05 });
+                            } else if (mem.indexOf(u8, ins, "push")) |_| {
+                                const arg = ins[4..];
+                                if (mem.indexOf(u8, arg, "$")) |l| {
+                                    const n = std.fmt.parseInt(u8, ins[4 + l + 1 ..], 10) catch return self.fail(inst.base.src, "TODO implement more inline asm int parsing", .{});
+                                    try self.code.appendSlice(&.{ 0x6a, n });
+                                } else if (mem.indexOf(u8, arg, "%%")) |l| {
+                                    const reg_name = ins[4 + l + 2 ..];
+                                    const reg = parseRegName(reg_name) orelse
+                                        return self.fail(inst.base.src, "unrecognized register: '{s}'", .{reg_name});
+                                    const low_id: u8 = reg.low_id();
+                                    if (reg.isExtended()) {
+                                        try self.code.appendSlice(&.{ 0x41, 0b1010000 | low_id });
+                                    } else {
+                                        try self.code.append(0b1010000 | low_id);
+                                    }
+                                } else return self.fail(inst.base.src, "TODO more push operands", .{});
+                            } else if (mem.indexOf(u8, ins, "pop")) |_| {
+                                const arg = ins[3..];
+                                if (mem.indexOf(u8, arg, "%%")) |l| {
+                                    const reg_name = ins[3 + l + 2 ..];
+                                    const reg = parseRegName(reg_name) orelse
+                                        return self.fail(inst.base.src, "unrecognized register: '{s}'", .{reg_name});
+                                    const low_id: u8 = reg.low_id();
+                                    if (reg.isExtended()) {
+                                        try self.code.appendSlice(&.{ 0x41, 0b1011000 | low_id });
+                                    } else {
+                                        try self.code.append(0b1011000 | low_id);
+                                    }
+                                } else return self.fail(inst.base.src, "TODO more pop operands", .{});
+                            } else {
+                                return self.fail(inst.base.src, "TODO implement support for more x86 assembly instructions", .{});
+                            }
+                        }
                     }
 
                     if (inst.output_constraint) |output| {
@@ -4222,6 +4307,10 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
                                 const decl = payload.data;
                                 const got_addr = coff_file.offset_table_virtual_address + decl.link.coff.offset_table_index * ptr_bytes;
+                                return MCValue{ .memory = got_addr };
+                            } else if (self.bin_file.cast(link.File.Plan9)) |p9| {
+                                const decl = payload.data;
+                                const got_addr = p9.bases.data + decl.link.plan9.got_index.? * ptr_bytes;
                                 return MCValue{ .memory = got_addr };
                             } else {
                                 return self.fail(src, "TODO codegen non-ELF const Decl pointer", .{});

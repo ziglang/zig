@@ -141,6 +141,7 @@ pub const File = struct {
         elf: Elf.TextBlock,
         coff: Coff.TextBlock,
         macho: MachO.TextBlock,
+        plan9: Plan9.DeclBlock,
         c: C.DeclBlock,
         wasm: Wasm.DeclBlock,
         spirv: void,
@@ -150,6 +151,7 @@ pub const File = struct {
         elf: Elf.SrcFn,
         coff: Coff.SrcFn,
         macho: MachO.SrcFn,
+        plan9: void,
         c: C.FnBlock,
         wasm: Wasm.FnData,
         spirv: SpirV.FnData,
@@ -159,6 +161,7 @@ pub const File = struct {
         elf: Elf.Export,
         coff: void,
         macho: MachO.Export,
+        plan9: Plan9.Export,
         c: void,
         wasm: void,
         spirv: void,
@@ -189,6 +192,7 @@ pub const File = struct {
                 .elf => &(try Elf.createEmpty(allocator, options)).base,
                 .macho => &(try MachO.createEmpty(allocator, options)).base,
                 .wasm => &(try Wasm.createEmpty(allocator, options)).base,
+                .plan9 => return &(try Plan9.createEmpty(allocator, options)).base,
                 .c => unreachable, // Reported error earlier.
                 .spirv => &(try SpirV.createEmpty(allocator, options)).base,
                 .hex => return error.HexObjectFormatUnimplemented,
@@ -204,6 +208,7 @@ pub const File = struct {
                     .coff, .pe => &(try Coff.createEmpty(allocator, options)).base,
                     .elf => &(try Elf.createEmpty(allocator, options)).base,
                     .macho => &(try MachO.createEmpty(allocator, options)).base,
+                    .plan9 => &(try Plan9.createEmpty(allocator, options)).base,
                     .wasm => &(try Wasm.createEmpty(allocator, options)).base,
                     .c => unreachable, // Reported error earlier.
                     .spirv => &(try SpirV.createEmpty(allocator, options)).base,
@@ -220,6 +225,7 @@ pub const File = struct {
             .coff, .pe => &(try Coff.openPath(allocator, sub_path, options)).base,
             .elf => &(try Elf.openPath(allocator, sub_path, options)).base,
             .macho => &(try MachO.openPath(allocator, sub_path, options)).base,
+            .plan9 => &(try Plan9.openPath(allocator, sub_path, options)).base,
             .wasm => &(try Wasm.openPath(allocator, sub_path, options)).base,
             .c => &(try C.openPath(allocator, sub_path, options)).base,
             .spirv => &(try SpirV.openPath(allocator, sub_path, options)).base,
@@ -243,7 +249,7 @@ pub const File = struct {
 
     pub fn makeWritable(base: *File) !void {
         switch (base.tag) {
-            .coff, .elf, .macho => {
+            .coff, .elf, .macho, .plan9 => {
                 if (base.file != null) return;
                 const emit = base.options.emit orelse return;
                 base.file = try emit.directory.handle.createFile(emit.sub_path, .{
@@ -288,7 +294,7 @@ pub const File = struct {
                 f.close();
                 base.file = null;
             },
-            .coff, .elf => if (base.file) |f| {
+            .coff, .elf, .plan9 => if (base.file) |f| {
                 if (base.intermediary_basename != null) {
                     // The file we have open is not the final file that we want to
                     // make executable, so we don't have to close it.
@@ -313,6 +319,7 @@ pub const File = struct {
             .c => return @fieldParentPtr(C, "base", base).updateDecl(module, decl),
             .wasm => return @fieldParentPtr(Wasm, "base", base).updateDecl(module, decl),
             .spirv => return @fieldParentPtr(SpirV, "base", base).updateDecl(module, decl),
+            .plan9 => return @fieldParentPtr(Plan9, "base", base).updateDecl(module, decl),
         }
     }
 
@@ -326,6 +333,7 @@ pub const File = struct {
             .elf => return @fieldParentPtr(Elf, "base", base).updateDeclLineNumber(module, decl),
             .macho => return @fieldParentPtr(MachO, "base", base).updateDeclLineNumber(module, decl),
             .c => return @fieldParentPtr(C, "base", base).updateDeclLineNumber(module, decl),
+            .plan9 => @panic("TODO: implement updateDeclLineNumber for plan9"),
             .wasm, .spirv => {},
         }
     }
@@ -340,6 +348,7 @@ pub const File = struct {
             .macho => return @fieldParentPtr(MachO, "base", base).allocateDeclIndexes(decl),
             .c => return @fieldParentPtr(C, "base", base).allocateDeclIndexes(decl),
             .wasm => return @fieldParentPtr(Wasm, "base", base).allocateDeclIndexes(decl),
+            .plan9 => return @fieldParentPtr(Plan9, "base", base).allocateDeclIndexes(decl),
             .spirv => {},
         }
     }
@@ -393,6 +402,11 @@ pub const File = struct {
                 parent.deinit();
                 base.allocator.destroy(parent);
             },
+            .plan9 => {
+                const parent = @fieldParentPtr(Plan9, "base", base);
+                parent.deinit();
+                base.allocator.destroy(parent);
+            },
         }
     }
 
@@ -425,6 +439,7 @@ pub const File = struct {
             .c => return @fieldParentPtr(C, "base", base).flush(comp),
             .wasm => return @fieldParentPtr(Wasm, "base", base).flush(comp),
             .spirv => return @fieldParentPtr(SpirV, "base", base).flush(comp),
+            .plan9 => return @fieldParentPtr(Plan9, "base", base).flush(comp),
         }
     }
 
@@ -438,6 +453,7 @@ pub const File = struct {
             .c => return @fieldParentPtr(C, "base", base).flushModule(comp),
             .wasm => return @fieldParentPtr(Wasm, "base", base).flushModule(comp),
             .spirv => return @fieldParentPtr(SpirV, "base", base).flushModule(comp),
+            .plan9 => return @fieldParentPtr(Plan9, "base", base).flushModule(comp),
         }
     }
 
@@ -451,6 +467,7 @@ pub const File = struct {
             .c => @fieldParentPtr(C, "base", base).freeDecl(decl),
             .wasm => @fieldParentPtr(Wasm, "base", base).freeDecl(decl),
             .spirv => @fieldParentPtr(SpirV, "base", base).freeDecl(decl),
+            .plan9 => @fieldParentPtr(Plan9, "base", base).freeDecl(decl),
         }
     }
 
@@ -459,6 +476,7 @@ pub const File = struct {
             .coff => return @fieldParentPtr(Coff, "base", base).error_flags,
             .elf => return @fieldParentPtr(Elf, "base", base).error_flags,
             .macho => return @fieldParentPtr(MachO, "base", base).error_flags,
+            .plan9 => return @fieldParentPtr(Plan9, "base", base).error_flags,
             .c => return .{ .no_entry_point_found = false },
             .wasm, .spirv => return ErrorFlags{},
         }
@@ -481,6 +499,7 @@ pub const File = struct {
             .c => return @fieldParentPtr(C, "base", base).updateDeclExports(module, decl, exports),
             .wasm => return @fieldParentPtr(Wasm, "base", base).updateDeclExports(module, decl, exports),
             .spirv => return @fieldParentPtr(SpirV, "base", base).updateDeclExports(module, decl, exports),
+            .plan9 => return @fieldParentPtr(Plan9, "base", base).updateDeclExports(module, decl, exports),
         }
     }
 
@@ -489,6 +508,7 @@ pub const File = struct {
             .coff => return @fieldParentPtr(Coff, "base", base).getDeclVAddr(decl),
             .elf => return @fieldParentPtr(Elf, "base", base).getDeclVAddr(decl),
             .macho => return @fieldParentPtr(MachO, "base", base).getDeclVAddr(decl),
+            .plan9 => @panic("GET VADDR"),
             .c => unreachable,
             .wasm => unreachable,
             .spirv => unreachable,
@@ -633,6 +653,7 @@ pub const File = struct {
         c,
         wasm,
         spirv,
+        plan9,
     };
 
     pub const ErrorFlags = struct {
@@ -641,6 +662,7 @@ pub const File = struct {
 
     pub const C = @import("link/C.zig");
     pub const Coff = @import("link/Coff.zig");
+    pub const Plan9 = @import("link/Plan9.zig");
     pub const Elf = @import("link/Elf.zig");
     pub const MachO = @import("link/MachO.zig");
     pub const SpirV = @import("link/SpirV.zig");

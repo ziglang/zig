@@ -95,30 +95,47 @@ fn _start2() callconv(.Naked) noreturn {
 }
 
 fn exit2(code: usize) noreturn {
-    switch (builtin.stage2_arch) {
-        .x86_64 => {
-            asm volatile ("syscall"
-                :
-                : [number] "{rax}" (231),
-                  [arg1] "{rdi}" (code)
-                : "rcx", "r11", "memory"
-            );
+    switch (builtin.stage2_os) {
+        .linux => switch (builtin.stage2_arch) {
+            .x86_64 => {
+                asm volatile ("syscall"
+                    :
+                    : [number] "{rax}" (231),
+                      [arg1] "{rdi}" (code)
+                    : "rcx", "r11", "memory"
+                );
+            },
+            .arm => {
+                asm volatile ("svc #0"
+                    :
+                    : [number] "{r7}" (1),
+                      [arg1] "{r0}" (code)
+                    : "memory"
+                );
+            },
+            .aarch64 => {
+                asm volatile ("svc #0"
+                    :
+                    : [number] "{x8}" (93),
+                      [arg1] "{x0}" (code)
+                    : "memory", "cc"
+                );
+            },
+            else => @compileError("TODO"),
         },
-        .arm => {
-            asm volatile ("svc #0"
-                :
-                : [number] "{r7}" (1),
-                  [arg1] "{r0}" (code)
-                : "memory"
-            );
-        },
-        .aarch64 => {
-            asm volatile ("svc #0"
-                :
-                : [number] "{x8}" (93),
-                  [arg1] "{x0}" (code)
-                : "memory", "cc"
-            );
+        // exits(0)
+        .plan9 => switch (builtin.stage2_arch) {
+            .x86_64 => {
+                asm volatile (
+                    \\push $0
+                    \\push $0
+                    \\syscall
+                    :
+                    : [syscall_number] "{rbp}" (8)
+                    : "rcx", "r11", "memory"
+                );
+            },
+            else => @compileError("TODO"),
         },
         else => @compileError("TODO"),
     }

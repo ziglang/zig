@@ -3290,6 +3290,7 @@ pub const CType = enum {
             .openbsd,
             .wasi,
             .emscripten,
+            .plan9,
             => switch (self) {
                 .short,
                 .ushort,
