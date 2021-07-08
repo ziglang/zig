@@ -923,21 +923,21 @@ fn foo() i32 {
         It is also possible to have local variables with static lifetime by using containers inside functions.
       </p>
       {#code_begin|test|static_local_variable#}
-  const std = @import("std");
-  const expect = std.testing.expect;
-  
-  test "static local variable" {
-      try expect(foo() == 1235);
-      try expect(foo() == 1236);
-  }
-  
-  fn foo() i32 {
-      const S = struct {
-          var x: i32 = 1234;
-      };
-      S.x += 1;
-      return S.x;
-  }
+const std = @import("std");
+const expect = std.testing.expect;
+
+test "static local variable" {
+    try expect(foo() == 1235);
+    try expect(foo() == 1236);
+}
+
+fn foo() i32 {
+    const S = struct {
+        var x: i32 = 1234;
+    };
+    S.x += 1;
+    return S.x;
+}
       {#code_end#}
       <p>
       The {#syntax#}extern{#endsyntax#} keyword or {#link|@extern#} builtin function can be used to link against a variable that is exported
