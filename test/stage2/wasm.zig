@@ -600,5 +600,16 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    return error.Bruh;
             \\}
         , "69\n");
+        case.addCompareOutput(
+            \\pub export fn _start() u32 {
+            \\    var e = foo();
+            \\    const i = e catch 42;
+            \\    return i;
+            \\}
+            \\
+            \\fn foo() anyerror!u32 {
+            \\    return error.Dab;
+            \\}
+        , "42\n");
     }
 }
