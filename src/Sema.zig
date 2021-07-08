@@ -225,12 +225,10 @@ pub fn analyzeBody(
             .float                        => try sema.zirFloat(block, inst),
             .float128                     => try sema.zirFloat128(block, inst),
             .int_type                     => try sema.zirIntType(block, inst),
-            .is_err                       => try sema.zirIsErr(block, inst),
-            .is_err_ptr                   => try sema.zirIsErrPtr(block, inst),
-            .is_non_null                  => try sema.zirIsNull(block, inst, true),
-            .is_non_null_ptr              => try sema.zirIsNullPtr(block, inst, true),
-            .is_null                      => try sema.zirIsNull(block, inst, false),
-            .is_null_ptr                  => try sema.zirIsNullPtr(block, inst, false),
+            .is_non_err                   => try sema.zirIsNonErr(block, inst),
+            .is_non_err_ptr               => try sema.zirIsNonErrPtr(block, inst),
+            .is_non_null                  => try sema.zirIsNonNull(block, inst),
+            .is_non_null_ptr              => try sema.zirIsNonNullPtr(block, inst),
             .loop                         => try sema.zirLoop(block, inst),
             .merge_error_sets             => try sema.zirMergeErrorSets(block, inst),
             .negate                       => try sema.zirNegate(block, inst, .sub),
@@ -2981,17 +2979,19 @@ fn zirErrUnionCode(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) Inner
     if (operand.ty.zigTypeTag() != .ErrorUnion)
         return sema.mod.fail(&block.base, src, "expected error union type, found '{}'", .{operand.ty});
 
+    const result_ty = operand.ty.castTag(.error_union).?.data.error_set;
+
     if (operand.value()) |val| {
         assert(val.getError() != null);
         const data = val.castTag(.error_union).?.data;
         return sema.mod.constInst(sema.arena, src, .{
-            .ty = operand.ty.castTag(.error_union).?.data.error_set,
+            .ty = result_ty,
             .val = data,
         });
     }
 
     try sema.requireRuntimeBlock(block, src);
-    return block.addUnOp(src, operand.ty.castTag(.error_union).?.data.payload, .unwrap_errunion_err, operand);
+    return block.addUnOp(src, result_ty, .unwrap_errunion_err, operand);
 }
 
 /// Pointer in, value out
@@ -3007,18 +3007,20 @@ fn zirErrUnionCodePtr(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) In
     if (operand.ty.elemType().zigTypeTag() != .ErrorUnion)
         return sema.mod.fail(&block.base, src, "expected error union type, found {}", .{operand.ty.elemType()});
 
+    const result_ty = operand.ty.elemType().castTag(.error_union).?.data.error_set;
+
     if (operand.value()) |pointer_val| {
         const val = try pointer_val.pointerDeref(sema.arena);
         assert(val.getError() != null);
         const data = val.castTag(.error_union).?.data;
         return sema.mod.constInst(sema.arena, src, .{
-            .ty = operand.ty.elemType().castTag(.error_union).?.data.error_set,
+            .ty = result_ty,
             .val = data,
         });
     }
 
     try sema.requireRuntimeBlock(block, src);
-    return block.addUnOp(src, operand.ty.castTag(.error_union).?.data.payload, .unwrap_errunion_err_ptr, operand);
+    return block.addUnOp(src, result_ty, .unwrap_errunion_err_ptr, operand);
 }
 
 fn zirEnsureErrPayloadVoid(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!void {
@@ -5298,11 +5300,10 @@ fn zirBoolBr(
     return &block_inst.base;
 }
 
-fn zirIsNull(
+fn zirIsNonNull(
     sema: *Sema,
     block: *Scope.Block,
     inst: Zir.Inst.Index,
-    invert_logic: bool,
 ) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
@@ -5310,14 +5311,13 @@ fn zirIsNull(
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
     const operand = try sema.resolveInst(inst_data.operand);
-    return sema.analyzeIsNull(block, src, operand, invert_logic);
+    return sema.analyzeIsNull(block, src, operand, true);
 }
 
-fn zirIsNullPtr(
+fn zirIsNonNullPtr(
     sema: *Sema,
     block: *Scope.Block,
     inst: Zir.Inst.Index,
-    invert_logic: bool,
 ) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
@@ -5326,19 +5326,19 @@ fn zirIsNullPtr(
     const src = inst_data.src();
     const ptr = try sema.resolveInst(inst_data.operand);
     const loaded = try sema.analyzeLoad(block, src, ptr, src);
-    return sema.analyzeIsNull(block, src, loaded, invert_logic);
+    return sema.analyzeIsNull(block, src, loaded, true);
 }
 
-fn zirIsErr(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
+fn zirIsNonErr(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
 
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const operand = try sema.resolveInst(inst_data.operand);
-    return sema.analyzeIsErr(block, inst_data.src(), operand);
+    return sema.analyzeIsNonErr(block, inst_data.src(), operand);
 }
 
-fn zirIsErrPtr(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
+fn zirIsNonErrPtr(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -5346,7 +5346,7 @@ fn zirIsErrPtr(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerErro
     const src = inst_data.src();
     const ptr = try sema.resolveInst(inst_data.operand);
     const loaded = try sema.analyzeLoad(block, src, ptr, src);
-    return sema.analyzeIsErr(block, src, loaded);
+    return sema.analyzeIsNonErr(block, src, loaded);
 }
 
 fn zirCondbr(
@@ -7219,20 +7219,25 @@ fn analyzeIsNull(
     return block.addUnOp(src, result_ty, inst_tag, operand);
 }
 
-fn analyzeIsErr(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, operand: *Inst) InnerError!*Inst {
+fn analyzeIsNonErr(
+    sema: *Sema,
+    block: *Scope.Block,
+    src: LazySrcLoc,
+    operand: *Inst,
+) InnerError!*Inst {
     const ot = operand.ty.zigTypeTag();
-    if (ot != .ErrorSet and ot != .ErrorUnion) return sema.mod.constBool(sema.arena, src, false);
-    if (ot == .ErrorSet) return sema.mod.constBool(sema.arena, src, true);
+    if (ot != .ErrorSet and ot != .ErrorUnion) return sema.mod.constBool(sema.arena, src, true);
+    if (ot == .ErrorSet) return sema.mod.constBool(sema.arena, src, false);
     assert(ot == .ErrorUnion);
     const result_ty = Type.initTag(.bool);
     if (try sema.resolvePossiblyUndefinedValue(block, src, operand)) |err_union| {
         if (err_union.isUndef()) {
             return sema.mod.constUndef(sema.arena, src, result_ty);
         }
-        return sema.mod.constBool(sema.arena, src, err_union.getError() != null);
+        return sema.mod.constBool(sema.arena, src, err_union.getError() == null);
     }
     try sema.requireRuntimeBlock(block, src);
-    return block.addUnOp(src, result_ty, .is_err, operand);
+    return block.addUnOp(src, result_ty, .is_non_err, operand);
 }
 
 fn analyzeSlice(

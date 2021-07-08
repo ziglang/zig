@@ -90,8 +90,12 @@ pub const Inst = struct {
         is_non_null_ptr,
         /// E!T => bool
         is_err,
+        /// E!T => bool (inverted logic)
+        is_non_err,
         /// *E!T => bool
         is_err_ptr,
+        /// *E!T => bool (inverted logic)
+        is_non_err_ptr,
         bool_and,
         bool_or,
         /// Read a value from a pointer.
@@ -154,7 +158,9 @@ pub const Inst = struct {
                 .is_null,
                 .is_null_ptr,
                 .is_err,
+                .is_non_err,
                 .is_err_ptr,
+                .is_non_err_ptr,
                 .ptrtoint,
                 .floatcast,
                 .intcast,
@@ -759,7 +765,9 @@ const DumpAir = struct {
                 .is_null,
                 .is_null_ptr,
                 .is_err,
+                .is_non_err,
                 .is_err_ptr,
+                .is_non_err_ptr,
                 .ptrtoint,
                 .floatcast,
                 .intcast,
@@ -888,11 +896,13 @@ const DumpAir = struct {
                 .bitcast,
                 .not,
                 .is_non_null,
-                .is_null,
                 .is_non_null_ptr,
+                .is_null,
                 .is_null_ptr,
                 .is_err,
                 .is_err_ptr,
+                .is_non_err,
+                .is_non_err_ptr,
                 .ptrtoint,
                 .floatcast,
                 .intcast,

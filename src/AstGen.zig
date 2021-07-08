@@ -786,7 +786,7 @@ fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) InnerEr
                     rl,
                     node,
                     node_datas[node].lhs,
-                    .is_err_ptr,
+                    .is_non_err_ptr,
                     .err_union_payload_unsafe_ptr,
                     .err_union_code_ptr,
                     node_datas[node].rhs,
@@ -798,7 +798,7 @@ fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) InnerEr
                     rl,
                     node,
                     node_datas[node].lhs,
-                    .is_err,
+                    .is_non_err,
                     .err_union_payload_unsafe,
                     .err_union_code,
                     node_datas[node].rhs,
@@ -813,7 +813,7 @@ fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) InnerEr
                 rl,
                 node,
                 node_datas[node].lhs,
-                .is_null_ptr,
+                .is_non_null_ptr,
                 .optional_payload_unsafe_ptr,
                 undefined,
                 node_datas[node].rhs,
@@ -825,7 +825,7 @@ fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) InnerEr
                 rl,
                 node,
                 node_datas[node].lhs,
-                .is_null,
+                .is_non_null,
                 .optional_payload_unsafe,
                 undefined,
                 node_datas[node].rhs,
@@ -1948,11 +1948,9 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: ast.Node.Index) Inner
             .float128,
             .int_type,
             .is_non_null,
-            .is_null,
             .is_non_null_ptr,
-            .is_null_ptr,
-            .is_err,
-            .is_err_ptr,
+            .is_non_err,
+            .is_non_err_ptr,
             .mod_rem,
             .mul,
             .mulwrap,
@@ -4621,8 +4619,8 @@ fn tryExpr(
     };
     const err_ops = switch (rl) {
         // zig fmt: off
-        .ref => [3]Zir.Inst.Tag{ .is_err_ptr, .err_union_code_ptr, .err_union_payload_unsafe_ptr },
-        else => [3]Zir.Inst.Tag{ .is_err,     .err_union_code,     .err_union_payload_unsafe },
+        .ref => [3]Zir.Inst.Tag{ .is_non_err_ptr, .err_union_code_ptr, .err_union_payload_unsafe_ptr },
+        else => [3]Zir.Inst.Tag{ .is_non_err,     .err_union_code,     .err_union_payload_unsafe },
         // zig fmt: on
     };
     // This could be a pointer or value depending on the `operand_rl` parameter.
@@ -4640,20 +4638,20 @@ fn tryExpr(
     var then_scope = parent_gz.makeSubBlock(scope);
     defer then_scope.instructions.deinit(astgen.gpa);
 
-    const err_code = try then_scope.addUnNode(err_ops[1], operand, node);
-    try genDefers(&then_scope, &fn_block.base, scope, .{ .both = err_code });
-    const then_result = try then_scope.addUnNode(.ret_node, err_code, node);
+    block_scope.break_count += 1;
+    // This could be a pointer or value depending on `err_ops[2]`.
+    const unwrapped_payload = try then_scope.addUnNode(err_ops[2], operand, node);
+    const then_result = switch (rl) {
+        .ref => unwrapped_payload,
+        else => try rvalue(&then_scope, block_scope.break_result_loc, unwrapped_payload, node),
+    };
 
     var else_scope = parent_gz.makeSubBlock(scope);
     defer else_scope.instructions.deinit(astgen.gpa);
 
-    block_scope.break_count += 1;
-    // This could be a pointer or value depending on `err_ops[2]`.
-    const unwrapped_payload = try else_scope.addUnNode(err_ops[2], operand, node);
-    const else_result = switch (rl) {
-        .ref => unwrapped_payload,
-        else => try rvalue(&else_scope, block_scope.break_result_loc, unwrapped_payload, node),
-    };
+    const err_code = try else_scope.addUnNode(err_ops[1], operand, node);
+    try genDefers(&else_scope, &fn_block.base, scope, .{ .both = err_code });
+    const else_result = try else_scope.addUnNode(.ret_node, err_code, node);
 
     return finishThenElseBlock(
         parent_gz,
@@ -4711,18 +4709,28 @@ fn orelseCatchExpr(
     var then_scope = parent_gz.makeSubBlock(scope);
     defer then_scope.instructions.deinit(astgen.gpa);
 
+    // This could be a pointer or value depending on `unwrap_op`.
+    const unwrapped_payload = try then_scope.addUnNode(unwrap_op, operand, node);
+    const then_result = switch (rl) {
+        .ref => unwrapped_payload,
+        else => try rvalue(&then_scope, block_scope.break_result_loc, unwrapped_payload, node),
+    };
+
+    var else_scope = parent_gz.makeSubBlock(scope);
+    defer else_scope.instructions.deinit(astgen.gpa);
+
     var err_val_scope: Scope.LocalVal = undefined;
-    const then_sub_scope = blk: {
-        const payload = payload_token orelse break :blk &then_scope.base;
+    const else_sub_scope = blk: {
+        const payload = payload_token orelse break :blk &else_scope.base;
         if (mem.eql(u8, tree.tokenSlice(payload), "_")) {
             return astgen.failTok(payload, "discard of error capture; omit it instead", .{});
         }
         const err_name = try astgen.identAsString(payload);
         err_val_scope = .{
-            .parent = &then_scope.base,
-            .gen_zir = &then_scope,
+            .parent = &else_scope.base,
+            .gen_zir = &else_scope,
             .name = err_name,
-            .inst = try then_scope.addUnNode(unwrap_code_op, operand, node),
+            .inst = try else_scope.addUnNode(unwrap_code_op, operand, node),
             .token_src = payload,
             .id_cat = .@"capture",
         };
@@ -4730,22 +4738,12 @@ fn orelseCatchExpr(
     };
 
     block_scope.break_count += 1;
-    const then_result = try expr(&then_scope, then_sub_scope, block_scope.break_result_loc, rhs);
-    try checkUsed(parent_gz, &then_scope.base, then_sub_scope);
+    const else_result = try expr(&else_scope, else_sub_scope, block_scope.break_result_loc, rhs);
+    try checkUsed(parent_gz, &else_scope.base, else_sub_scope);
 
     // We hold off on the break instructions as well as copying the then/else
     // instructions into place until we know whether to keep store_to_block_ptr
     // instructions or not.
-
-    var else_scope = parent_gz.makeSubBlock(scope);
-    defer else_scope.instructions.deinit(astgen.gpa);
-
-    // This could be a pointer or value depending on `unwrap_op`.
-    const unwrapped_payload = try else_scope.addUnNode(unwrap_op, operand, node);
-    const else_result = switch (rl) {
-        .ref => unwrapped_payload,
-        else => try rvalue(&else_scope, block_scope.break_result_loc, unwrapped_payload, node),
-    };
 
     return finishThenElseBlock(
         parent_gz,
@@ -4964,7 +4962,7 @@ fn ifExpr(
         if (if_full.error_token) |_| {
             const cond_rl: ResultLoc = if (payload_is_ref) .ref else .none;
             const err_union = try expr(&block_scope, &block_scope.base, cond_rl, if_full.ast.cond_expr);
-            const tag: Zir.Inst.Tag = if (payload_is_ref) .is_err_ptr else .is_err;
+            const tag: Zir.Inst.Tag = if (payload_is_ref) .is_non_err_ptr else .is_non_err;
             break :c .{
                 .inst = err_union,
                 .bool_bit = try block_scope.addUnNode(tag, err_union, node),
@@ -5221,7 +5219,7 @@ fn whileExpr(
         if (while_full.error_token) |_| {
             const cond_rl: ResultLoc = if (payload_is_ref) .ref else .none;
             const err_union = try expr(&continue_scope, &continue_scope.base, cond_rl, while_full.ast.cond_expr);
-            const tag: Zir.Inst.Tag = if (payload_is_ref) .is_err_ptr else .is_err;
+            const tag: Zir.Inst.Tag = if (payload_is_ref) .is_non_err_ptr else .is_non_err;
             break :c .{
                 .inst = err_union,
                 .bool_bit = try continue_scope.addUnNode(tag, err_union, node),
@@ -6229,23 +6227,25 @@ fn ret(gz: *GenZir, scope: *Scope, node: ast.Node.Index) InnerError!Zir.Inst.Ref
             }
 
             // Emit conditional branch for generating errdefers.
-            const is_err = try gz.addUnNode(.is_err, operand, node);
+            const is_non_err = try gz.addUnNode(.is_non_err, operand, node);
             const condbr = try gz.addCondBr(.condbr, node);
 
             var then_scope = gz.makeSubBlock(scope);
             defer then_scope.instructions.deinit(astgen.gpa);
-            const which_ones: DefersToEmit = if (!defer_counts.need_err_code) .both_sans_err else .{
-                .both = try then_scope.addUnNode(.err_union_code, operand, node),
-            };
-            try genDefers(&then_scope, defer_outer, scope, which_ones);
+
+            try genDefers(&then_scope, defer_outer, scope, .normal_only);
             _ = try then_scope.addUnNode(.ret_node, operand, node);
 
             var else_scope = gz.makeSubBlock(scope);
             defer else_scope.instructions.deinit(astgen.gpa);
-            try genDefers(&else_scope, defer_outer, scope, .normal_only);
+
+            const which_ones: DefersToEmit = if (!defer_counts.need_err_code) .both_sans_err else .{
+                .both = try else_scope.addUnNode(.err_union_code, operand, node),
+            };
+            try genDefers(&else_scope, defer_outer, scope, which_ones);
             _ = try else_scope.addUnNode(.ret_node, operand, node);
 
-            try setCondBrPayload(condbr, is_err, &then_scope, &else_scope);
+            try setCondBrPayload(condbr, is_non_err, &then_scope, &else_scope);
 
             return Zir.Inst.Ref.unreachable_value;
         },

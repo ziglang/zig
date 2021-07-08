@@ -398,21 +398,15 @@ pub const Inst = struct {
         /// Return a boolean false if an optional is null. `x != null`
         /// Uses the `un_node` field.
         is_non_null,
-        /// Return a boolean true if an optional is null. `x == null`
-        /// Uses the `un_node` field.
-        is_null,
         /// Return a boolean false if an optional is null. `x.* != null`
         /// Uses the `un_node` field.
         is_non_null_ptr,
-        /// Return a boolean true if an optional is null. `x.* == null`
+        /// Return a boolean false if value is an error
         /// Uses the `un_node` field.
-        is_null_ptr,
-        /// Return a boolean true if value is an error
+        is_non_err,
+        /// Return a boolean false if dereferenced pointer is an error
         /// Uses the `un_node` field.
-        is_err,
-        /// Return a boolean true if dereferenced pointer is an error
-        /// Uses the `un_node` field.
-        is_err_ptr,
+        is_non_err_ptr,
         /// A labeled block of code that loops forever. At the end of the body will have either
         /// a `repeat` instruction or a `repeat_inline` instruction.
         /// Uses the `pl_node` field. The AST node is either a for loop or while loop.
@@ -1046,11 +1040,9 @@ pub const Inst = struct {
                 .float128,
                 .int_type,
                 .is_non_null,
-                .is_null,
                 .is_non_null_ptr,
-                .is_null_ptr,
-                .is_err,
-                .is_err_ptr,
+                .is_non_err,
+                .is_non_err_ptr,
                 .mod_rem,
                 .mul,
                 .mulwrap,
@@ -1306,11 +1298,9 @@ pub const Inst = struct {
                 .float128 = .pl_node,
                 .int_type = .int_type,
                 .is_non_null = .un_node,
-                .is_null = .un_node,
                 .is_non_null_ptr = .un_node,
-                .is_null_ptr = .un_node,
-                .is_err = .un_node,
-                .is_err_ptr = .un_node,
+                .is_non_err = .un_node,
+                .is_non_err_ptr = .un_node,
                 .loop = .pl_node,
                 .repeat = .node,
                 .repeat_inline = .node,
@@ -2857,11 +2847,9 @@ const Writer = struct {
             .err_union_code,
             .err_union_code_ptr,
             .is_non_null,
-            .is_null,
             .is_non_null_ptr,
-            .is_null_ptr,
-            .is_err,
-            .is_err_ptr,
+            .is_non_err,
+            .is_non_err_ptr,
             .typeof,
             .typeof_elem,
             .struct_init_empty,

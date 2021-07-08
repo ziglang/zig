@@ -895,8 +895,10 @@ pub fn genBody(o: *Object, body: ir.Body) error{ AnalysisFail, OutOfMemory }!voi
             .ref => try genRef(o, inst.castTag(.ref).?),
             .struct_field_ptr => try genStructFieldPtr(o, inst.castTag(.struct_field_ptr).?),
 
-            .is_err => try genIsErr(o, inst.castTag(.is_err).?),
-            .is_err_ptr => try genIsErr(o, inst.castTag(.is_err_ptr).?),
+            .is_err => try genIsErr(o, inst.castTag(.is_err).?, "", "!="),
+            .is_non_err => try genIsErr(o, inst.castTag(.is_non_err).?, "", "=="),
+            .is_err_ptr => try genIsErr(o, inst.castTag(.is_err_ptr).?, "[0]", "!="),
+            .is_non_err_ptr => try genIsErr(o, inst.castTag(.is_non_err_ptr).?, "[0]", "=="),
 
             .unwrap_errunion_payload => try genUnwrapErrUnionPay(o, inst.castTag(.unwrap_errunion_payload).?),
             .unwrap_errunion_err => try genUnwrapErrUnionErr(o, inst.castTag(.unwrap_errunion_err).?),
@@ -1446,15 +1448,14 @@ fn genWrapErrUnionPay(o: *Object, inst: *Inst.UnOp) !CValue {
     return local;
 }
 
-fn genIsErr(o: *Object, inst: *Inst.UnOp) !CValue {
+fn genIsErr(o: *Object, inst: *Inst.UnOp, deref_suffix: []const u8, op_str: []const u8) !CValue {
     const writer = o.writer();
-    const maybe_deref = if (inst.base.tag == .is_err_ptr) "[0]" else "";
     const operand = try o.resolveInst(inst.operand);
 
     const local = try o.allocLocal(Type.initTag(.bool), .Const);
     try writer.writeAll(" = (");
     try o.writeCValue(writer, operand);
-    try writer.print("){s}.error != 0;\n", .{maybe_deref});
+    try writer.print("){s}.error {s} 0;\n", .{ deref_suffix, op_str });
     return local;
 }
 
