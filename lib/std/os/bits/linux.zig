@@ -205,10 +205,13 @@ pub const WCONTINUED = 8;
 pub const WNOWAIT = 0x1000000;
 
 // waitid id types
-pub const P_ALL = 0;
-pub const P_PID = 1;
-pub const P_PGID = 2;
-pub const P_PIDFD = 3;
+pub const P = enum(c_uint) {
+    ALL = 0,
+    PID = 1,
+    PGID = 2,
+    PIDFD = 3,
+    _,
+};
 
 pub usingnamespace if (is_mips)
     struct {
