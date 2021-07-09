@@ -564,7 +564,7 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/src/codegen/x86_64.zig"
     "${CMAKE_SOURCE_DIR}/src/glibc.zig"
     "${CMAKE_SOURCE_DIR}/src/introspect.zig"
-    "${CMAKE_SOURCE_DIR}/src/air.zig"
+    "${CMAKE_SOURCE_DIR}/src/Air.zig"
     "${CMAKE_SOURCE_DIR}/src/libc_installation.zig"
     "${CMAKE_SOURCE_DIR}/src/libcxx.zig"
     "${CMAKE_SOURCE_DIR}/src/libtsan.zig"
