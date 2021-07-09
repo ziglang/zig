@@ -469,11 +469,10 @@ test "watch logs by scope" {
     const scope_a = std.log.scoped(.a);
     const scope_b = std.log.scoped(.b);
 
-    scope_a.debug("Count me!", .{});
-    scope_b.debug("Don't count me!", .{});
-    scope_a.debug("Count me!", .{});
-    scope_a.warn("Don't count me!", .{});
-
+    scope_a.debug("Count scope and level", .{});
+    scope_b.debug("Count level", .{});
+    scope_a.debug("Count scope and level", .{});
+    scope_a.warn("Count scope", .{});
 
     try std.testing.expectLogCounts(.{
         .scope = 3,
@@ -512,10 +511,10 @@ test "0 logs recorded by default" {
     const scope_a = std.log.scoped(.a);
     const scope_b = std.log.scoped(.b);
 
-    scope_a.debug("Count me!", .{});
-    scope_b.debug("Don't count me!", .{});
-    scope_a.debug("Count me!", .{});
-    scope_a.warn("Don't count me!", .{});
+    scope_a.debug("Count scope and level", .{});
+    scope_b.debug("Count level", .{});
+    scope_a.debug("Count scope and level", .{});
+    scope_a.warn("Count scope", .{});
 
     scope_a.debug("Looking for this text\n", .{});
     scope_a.warn("Looking for {s} text\n", .{"this"});
