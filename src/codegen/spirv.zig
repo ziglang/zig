@@ -12,8 +12,7 @@ const Decl = Module.Decl;
 const Type = @import("../type.zig").Type;
 const Value = @import("../value.zig").Value;
 const LazySrcLoc = Module.LazySrcLoc;
-const ir = @import("../air.zig");
-const Inst = ir.Inst;
+const Air = @import("../Air.zig");
 
 pub const Word = u32;
 pub const ResultId = u32;
