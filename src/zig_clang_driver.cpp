@@ -338,7 +338,15 @@ static int ExecuteCC1Tool(SmallVectorImpl<const char *> &ArgV) {
 extern "C" int ZigClang_main(int argc_, const char **argv_);
 int ZigClang_main(int argc_, const char **argv_) {
   noteBottomOfStack();
-  llvm::InitLLVM X(argc_, argv_);
+
+  // ZIG MOD: On windows, InitLLVM calls GetCommandLineW(),
+  // and overwrites the args.  We don't want it to do that,
+  // and we also don't need the signal handlers it installs
+  // (we have our own already), so we just use llvm_shutdown_obj
+  // instead.
+  // llvm::InitLLVM X(argc_, argv_);
+  llvm::llvm_shutdown_obj X;
+
   llvm::setBugReportMsg("PLEASE submit a bug report to " BUG_REPORT_URL
                         " and include the crash backtrace, preprocessed "
                         "source, and associated run script.\n");

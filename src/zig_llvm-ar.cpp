@@ -1522,7 +1522,14 @@ static int ranlib_main(int argc, char **argv) {
 
 extern "C" int ZigLlvmAr_main(int argc, char **argv);
 int ZigLlvmAr_main(int argc, char **argv) {
-  InitLLVM X(argc, argv);
+  // ZIG MOD: On windows, InitLLVM calls GetCommandLineW(),
+  // and overwrites the args.  We don't want it to do that,
+  // and we also don't need the signal handlers it installs
+  // (we have our own already), so we just use llvm_shutdown_obj
+  // instead.
+  // InitLLVM X(argc, argv);
+  llvm::llvm_shutdown_obj X;
+
   ToolName = argv[0];
 
   llvm::InitializeAllTargetInfos();
