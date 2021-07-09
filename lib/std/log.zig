@@ -256,7 +256,7 @@ pub fn scoped(comptime scope: @Type(.EnumLiteral)) type {
 /// The default scoped logging namespace.
 pub const default = scoped(.default);
 
-/// This scope is ignored by `std.testing`'s log testing features.
+/// This scope is ignored by `std.testing`'s log testing features. If used inside of a test, it is always printed.
 pub const testing = scoped(.testing);
 
 /// Log an emergency message using the default scope. This log level is
