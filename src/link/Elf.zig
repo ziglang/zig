@@ -10,7 +10,7 @@ const log = std.log.scoped(.link);
 const DW = std.dwarf;
 const leb128 = std.leb;
 
-const ir = @import("../air.zig");
+const Air = @import("../Air.zig");
 const Module = @import("../Module.zig");
 const Compilation = @import("../Compilation.zig");
 const codegen = @import("../codegen.zig");
