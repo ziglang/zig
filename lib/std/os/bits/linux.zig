@@ -204,6 +204,15 @@ pub const WEXITED = 4;
 pub const WCONTINUED = 8;
 pub const WNOWAIT = 0x1000000;
 
+// waitid id types
+pub const P = enum(c_uint) {
+    ALL = 0,
+    PID = 1,
+    PGID = 2,
+    PIDFD = 3,
+    _,
+};
+
 pub usingnamespace if (is_mips)
     struct {
         pub const SA_NOCLDSTOP = 1;
