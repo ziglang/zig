@@ -3402,7 +3402,14 @@ fn detectLibCIncludeDirs(
 
     // If zig can't build the libc for the target and we are targeting the
     // native abi, fall back to using the system libc installation.
-    if (is_native_abi) {
+    // On windows, instead of the native (mingw) abi, we want to check
+    // for the MSVC abi as a fallback.
+    const use_system_abi = if (std.Target.current.os.tag == .windows)
+        target.abi == .msvc
+    else
+        is_native_abi;
+
+    if (use_system_abi) {
         const libc = try arena.create(LibCInstallation);
         libc.* = try LibCInstallation.findNative(.{ .allocator = arena, .verbose = true });
         return detectLibCFromLibCInstallation(arena, target, libc);
