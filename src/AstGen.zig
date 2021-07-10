@@ -6167,6 +6167,10 @@ fn ret(gz: *GenZir, scope: *Scope, node: ast.Node.Index) InnerError!Zir.Inst.Ref
     const node_datas = tree.nodes.items(.data);
     const node_tags = tree.nodes.items(.tag);
 
+    if (astgen.fn_block == null) {
+        return astgen.failNode(node, "'return' outside function scope", .{});
+    }
+
     if (gz.in_defer) return astgen.failNode(node, "cannot return from defer expression", .{});
 
     const defer_outer = &astgen.fn_block.?.base;

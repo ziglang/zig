@@ -2,6 +2,10 @@ const std = @import("std");
 const TestContext = @import("../src/test.zig").TestContext;
 
 pub fn addCases(ctx: *TestContext) !void {
+    ctx.objErrStage1("issue #9346: return outside of function scope",
+        \\pub const empty = return 1;
+    , &.{"tmp.zig:1:19: error: 'return' outside function scope"});
+
     ctx.exeErrStage1("std.fmt error for unused arguments",
         \\pub fn main() !void {
         \\    @import("std").debug.print("{d} {d} {d} {d} {d}", .{1,2,3,4,5,6,7,8,9,10,11,12,13,14,15});
