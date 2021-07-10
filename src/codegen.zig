@@ -297,7 +297,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         /// across each runtime branch upon joining.
         branch_stack: *std.ArrayList(Branch),
 
-        blocks: std.AutoHashMapUnmanaged(*ir.Inst.Block, BlockData) = .{},
+        // Key is the block instruction
+        blocks: std.AutoHashMapUnmanaged(Air.Inst.Index, BlockData) = .{},
 
         register_manager: RegisterManager(Self, Register, &callee_preserved_regs) = .{},
         /// Maps offset to what is stored there.
@@ -383,7 +384,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         };
 
         const Branch = struct {
-            inst_table: std.AutoArrayHashMapUnmanaged(*ir.Inst, MCValue) = .{},
+            inst_table: std.AutoArrayHashMapUnmanaged(Air.Inst.Index, MCValue) = .{},
 
             fn deinit(self: *Branch, gpa: *Allocator) void {
                 self.inst_table.deinit(gpa);
@@ -392,7 +393,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         };
 
         const StackAllocation = struct {
-            inst: *ir.Inst,
+            inst: Air.Inst.Index,
             /// TODO do we need size? should be determined by inst.ty.abiSize()
             size: u32,
         };
@@ -720,7 +721,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             try self.dbgAdvancePCAndLine(self.end_di_line, self.end_di_column);
         }
 
-        fn genBody(self: *Self, body: ir.Body) InnerError!void {
+        fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             for (body.instructions) |inst| {
                 try self.ensureProcessDeathCapacity(@popCount(@TypeOf(inst.deaths), inst.deaths));
 
@@ -2824,10 +2825,6 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         }
 
         fn genDbgStmt(self: *Self, inst: *ir.Inst.DbgStmt) !MCValue {
-            // TODO when reworking AIR memory layout, rework source locations here as
-            // well to be more efficient, as well as support inlined function calls correctly.
-            // For now we convert LazySrcLoc to absolute byte offset, to match what the
-            // existing codegen code expects.
             try self.dbgAdvancePCAndLine(inst.line, inst.column);
             assert(inst.base.isUnused());
             return MCValue.dead;
