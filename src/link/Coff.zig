@@ -948,6 +948,7 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
         man.hash.add(self.base.options.dynamicbase);
         man.hash.addOptional(self.base.options.major_subsystem_version);
         man.hash.addOptional(self.base.options.minor_subsystem_version);
+        man.hash.addOptionalBytes(self.base.options.out_implib);
 
         // We don't actually care whether it's a cache hit or miss; we just need the digest and the lock.
         _ = try man.hit();
@@ -1092,6 +1093,10 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
 
         if (module_obj_path) |p| {
             try argv.append(p);
+        }
+
+        if (self.base.options.out_implib != null) {
+            try argv.append(try allocPrint(arena, "-IMPLIB:{s}.lib", .{full_out_path}));
         }
 
         const resolved_subsystem: ?std.Target.SubSystem = blk: {

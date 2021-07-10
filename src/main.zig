@@ -654,6 +654,7 @@ fn buildOutputType(
     var main_pkg_path: ?[]const u8 = null;
     var clang_preprocessor_mode: Compilation.ClangPreprocessorMode = .no;
     var subsystem: ?std.Target.SubSystem = null;
+    var out_implib: ?[]const u8 = null;
     var major_subsystem_version: ?u32 = null;
     var minor_subsystem_version: ?u32 = null;
     var wasi_exec_model: ?std.builtin.WasiExecModel = null;
@@ -1637,6 +1638,14 @@ fn buildOutputType(
                         fatal("unable to parse -current_version '{s}': {s}", .{ linker_args.items[i], @errorName(err) });
                     };
                     have_version = true;
+                } else if (mem.eql(u8, arg, "--out-implib") or
+                    mem.eql(u8, arg, "-implib"))
+                {
+                    i += 1;
+                    if (i >= linker_args.items.len) {
+                        fatal("expected linker arg after '{s}'", .{arg});
+                    }
+                    out_implib = linker_args.items[i];
                 } else {
                     warn("unsupported linker arg: {s}", .{arg});
                 }
@@ -2154,6 +2163,16 @@ fn buildOutputType(
         else => false,
     };
 
+    // Always output import libraries (.lib) when building for msvc to replicate
+    // `link` behavior. lld does not always output import libraries so on the
+    // gnu abi users must set out_implib.
+    if (output_mode == .Lib and emit_bin == .yes and target_info.target.abi == .msvc and out_implib == null) {
+        const emit_bin_ext = fs.path.extension(emit_bin.yes);
+        out_implib = try std.fmt.allocPrint(gpa, "{s}.lib", .{
+            emit_bin.yes[0 .. emit_bin.yes.len - emit_bin_ext.len],
+        });
+    }
+
     gimmeMoreOfThoseSweetSweetFileDescriptors();
 
     const comp = Compilation.create(gpa, .{
@@ -2263,6 +2282,7 @@ fn buildOutputType(
         .test_name_prefix = test_name_prefix,
         .disable_lld_caching = !have_enable_cache,
         .subsystem = subsystem,
+        .out_implib = out_implib,
         .wasi_exec_model = wasi_exec_model,
         .debug_compile_errors = debug_compile_errors,
         .enable_link_snapshots = enable_link_snapshots,
@@ -2660,6 +2680,15 @@ fn updateModule(gpa: *Allocator, comp: *Compilation, hook: AfterUpdateHook) !voi
                 defer gpa.free(dst_pdb_path);
 
                 _ = try cache_dir.updateFile(src_pdb_path, cwd, dst_pdb_path, .{});
+            }
+
+            if (comp.bin_file.options.out_implib) |out_implib| {
+                const src_implib_path = try std.fmt.allocPrint(gpa, "{s}.lib", .{bin_sub_path});
+                defer gpa.free(src_implib_path);
+                if (std.fs.path.dirname(out_implib)) |implib_dir| {
+                    try cwd.makePath(implib_dir);
+                }
+                _ = try cache_dir.updateFile(src_implib_path, cwd, out_implib, .{});
             }
         },
     }

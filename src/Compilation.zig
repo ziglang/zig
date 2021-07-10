@@ -767,6 +767,8 @@ pub const InitOptions = struct {
     test_filter: ?[]const u8 = null,
     test_name_prefix: ?[]const u8 = null,
     subsystem: ?std.Target.SubSystem = null,
+    /// Windows/PE only. Where to output the import library, can contain directories.
+    out_implib: ?[]const u8 = null,
     /// WASI-only. Type of WASI execution model ("command" or "reactor").
     wasi_exec_model: ?std.builtin.WasiExecModel = null,
     /// (Zig compiler development) Enable dumping linker's state as JSON.
@@ -946,7 +948,8 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
                 options.output_mode == .Lib or
                 options.lld_argv.len != 0 or
                 options.image_base_override != null or
-                options.linker_script != null or options.version_script != null)
+                options.linker_script != null or options.version_script != null or
+                options.out_implib != null)
             {
                 break :blk true;
             }
@@ -1461,6 +1464,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .each_lib_rpath = options.each_lib_rpath orelse options.is_native_os,
             .disable_lld_caching = options.disable_lld_caching,
             .subsystem = options.subsystem,
+            .out_implib = options.out_implib,
             .is_test = options.is_test,
             .wasi_exec_model = wasi_exec_model,
             .use_stage1 = use_stage1,
