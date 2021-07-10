@@ -10,9 +10,17 @@ const Air = @This();
 
 instructions: std.MultiArrayList(Inst).Slice,
 /// The meaning of this data is determined by `Inst.Tag` value.
+/// The first few indexes are reserved. See `ExtraIndex` for the values.
 extra: []u32,
 values: []Value,
 variables: []*Module.Var,
+
+pub const ExtraIndex = enum(u32) {
+    /// Payload index of the main `Block` in the `extra` array.
+    main_block,
+
+    _,
+};
 
 pub const Inst = struct {
     tag: Tag,
@@ -231,10 +239,24 @@ pub const Inst = struct {
                 .neq => .cmp_neq,
             };
         }
+
+        pub fn toCmpOp(tag: Tag) ?std.math.CompareOperator {
+            return switch (tag) {
+                .cmp_lt => .lt,
+                .cmp_lte => .lte,
+                .cmp_eq => .eq,
+                .cmp_gte => .gte,
+                .cmp_gt => .gt,
+                .cmp_neq => .neq,
+                else => null,
+            };
+        }
     };
 
     /// The position of an AIR instruction within the `Air` instructions array.
     pub const Index = u32;
+
+    pub const Ref = @import("Zir.zig").Inst.Ref;
 
     /// All instructions have an 8-byte payload, which is contained within
     /// this union. `Tag` determines which union field is active, as well as
@@ -281,55 +303,69 @@ pub const Inst = struct {
             }
         }
     };
+};
 
-    pub fn cmpOperator(base: *Inst) ?std.math.CompareOperator {
-        return switch (base.tag) {
-            .cmp_lt => .lt,
-            .cmp_lte => .lte,
-            .cmp_eq => .eq,
-            .cmp_gte => .gte,
-            .cmp_gt => .gt,
-            .cmp_neq => .neq,
-            else => null,
-        };
-    }
+/// Trailing is a list of instruction indexes for every `body_len`.
+pub const Block = struct {
+    body_len: u32,
+};
 
-    /// Trailing is a list of instruction indexes for every `body_len`.
-    pub const Block = struct {
-        body_len: u32,
-    };
+/// Trailing is a list of `Ref` for every `args_len`.
+pub const Call = struct {
+    args_len: u32,
+};
 
-    /// Trailing is a list of `Ref` for every `args_len`.
-    pub const Call = struct {
-        args_len: u32,
-    };
+/// This data is stored inside extra, with two sets of trailing `Ref`:
+/// * 0. the then body, according to `then_body_len`.
+/// * 1. the else body, according to `else_body_len`.
+pub const CondBr = struct {
+    then_body_len: u32,
+    else_body_len: u32,
+};
 
-    /// This data is stored inside extra, with two sets of trailing `Ref`:
-    /// * 0. the then body, according to `then_body_len`.
-    /// * 1. the else body, according to `else_body_len`.
-    pub const CondBr = struct {
-        condition: Ref,
-        then_body_len: u32,
-        else_body_len: u32,
-    };
+/// Trailing:
+/// * 0. `Case` for each `cases_len`
+/// * 1. the else body, according to `else_body_len`.
+pub const SwitchBr = struct {
+    cases_len: u32,
+    else_body_len: u32,
 
     /// Trailing:
-    /// * 0. `Case` for each `cases_len`
-    /// * 1. the else body, according to `else_body_len`.
-    pub const SwitchBr = struct {
-        cases_len: u32,
-        else_body_len: u32,
-
-        /// Trailing:
-        /// * instruction index for each `body_len`.
-        pub const Case = struct {
-            item: Ref,
-            body_len: u32,
-        };
-    };
-
-    pub const StructField = struct {
-        struct_ptr: Ref,
-        field_index: u32,
+    /// * instruction index for each `body_len`.
+    pub const Case = struct {
+        item: Ref,
+        body_len: u32,
     };
 };
+
+pub const StructField = struct {
+    struct_ptr: Ref,
+    field_index: u32,
+};
+
+pub fn getMainBody(air: Air) []const Air.Inst.Index {
+    const body_index = air.extra[@enumToInt(ExtraIndex.main_block)];
+    const body_len = air.extra[body_index];
+    return air.extra[body_index..][0..body_len];
+}
+
+/// Returns the requested data, as well as the new index which is at the start of the
+/// trailers for the object.
+pub fn extraData(air: Air, comptime T: type, index: usize) struct { data: T, end: usize } {
+    const fields = std.meta.fields(T);
+    var i: usize = index;
+    var result: T = undefined;
+    inline for (fields) |field| {
+        @field(result, field.name) = switch (field.field_type) {
+            u32 => air.extra[i],
+            Inst.Ref => @intToEnum(Inst.Ref, air.extra[i]),
+            i32 => @bitCast(i32, air.extra[i]),
+            else => @compileError("bad field type"),
+        };
+        i += 1;
+    }
+    return .{
+        .data = result,
+        .end = i,
+    };
+}
