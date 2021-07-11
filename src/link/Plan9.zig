@@ -78,14 +78,19 @@ pub const DeclBlock = struct {
 pub fn defaultBaseAddrs(arch: std.Target.Cpu.Arch) Bases {
     return switch (arch) {
         .x86_64 => .{
-            // 0x28 => 40 == header size
+            // header size => 40 => 0x28
             .text = 0x200028,
             .data = 0x400000,
         },
         .i386 => .{
-            // 0x20 => 32 == header size
+            // header size => 32 => 0x20
             .text = 0x200020,
             .data = 0x400000,
+        },
+        .aarch64 => .{
+            // header size => 40 => 0x28
+            .text = 0x10028,
+            .data = 0x20000,
         },
         else => std.debug.panic("find default base address for {}", .{arch}),
     };

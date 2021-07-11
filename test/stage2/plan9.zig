@@ -2,16 +2,24 @@ const std = @import("std");
 const TestContext = @import("../../src/test.zig").TestContext;
 
 pub fn addCases(ctx: *TestContext) !void {
-    const target: std.zig.CrossTarget = .{
+    const x64: std.zig.CrossTarget = .{
         .cpu_arch = .x86_64,
         .os_tag = .plan9,
     };
+    const aarch64: std.zig.CrossTarget = .{
+        .cpu_arch = .aarch64,
+        .os_tag = .plan9,
+    };
     {
-        var case = ctx.exe("plan9: exiting correctly", target);
+        var case = ctx.exe("plan9: exiting correctly x64", x64);
         case.addCompareOutput("pub fn main() void {}", "");
     }
     {
-        var case = ctx.exe("plan9: hello world", target);
+        var case = ctx.exe("plan9: exiting correctly arm", aarch64);
+        case.addCompareOutput("pub fn main() void {}", "");
+    }
+    {
+        var case = ctx.exe("plan9: hello world", x64);
         case.addCompareOutput(
             \\pub fn main() void {
             \\    const str = "Hello World!\n";
