@@ -739,8 +739,6 @@ pub const Union = struct {
 pub const Fn = struct {
     /// The Decl that corresponds to the function itself.
     owner_decl: *Decl,
-    /// undefined unless analysis state is `success`.
-    body: ir.Body,
     /// The ZIR instruction that is a function instruction. Use this to find
     /// the body. We store this rather than the body directly so that when ZIR
     /// is regenerated on update(), we can map this to the new corresponding
@@ -3585,17 +3583,19 @@ fn deleteDeclExports(mod: *Module, decl: *Decl) void {
     mod.gpa.free(kv.value);
 }
 
-pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn) !void {
+pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn) !Air {
     const tracy = trace(@src());
     defer tracy.end();
 
+    const gpa = mod.gpa;
+
     // Use the Decl's arena for function memory.
-    var arena = decl.value_arena.?.promote(mod.gpa);
+    var arena = decl.value_arena.?.promote(gpa);
     defer decl.value_arena.?.* = arena.state;
 
     const fn_ty = decl.ty;
-    const param_inst_list = try mod.gpa.alloc(*ir.Inst, fn_ty.fnParamLen());
-    defer mod.gpa.free(param_inst_list);
+    const param_inst_list = try gpa.alloc(*ir.Inst, fn_ty.fnParamLen());
+    defer gpa.free(param_inst_list);
 
     for (param_inst_list) |*param_inst, param_index| {
         const param_type = fn_ty.fnParamType(param_index);
@@ -3615,7 +3615,7 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn) !void {
 
     var sema: Sema = .{
         .mod = mod,
-        .gpa = mod.gpa,
+        .gpa = gpa,
         .arena = &arena.allocator,
         .code = zir,
         .owner_decl = decl,
@@ -3626,6 +3626,11 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn) !void {
     };
     defer sema.deinit();
 
+    // First few indexes of extra are reserved and set at the end.
+    const reserved_count = @typeInfo(Air.ExtraIndex).Enum.fields.len;
+    try sema.air_extra.ensureTotalCapacity(gpa, reserved_count);
+    sema.air_extra.items.len += reserved_count;
+
     var inner_block: Scope.Block = .{
         .parent = null,
         .sema = &sema,
@@ -3634,20 +3639,29 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn) !void {
         .inlining = null,
         .is_comptime = false,
     };
-    defer inner_block.instructions.deinit(mod.gpa);
+    defer inner_block.instructions.deinit(gpa);
 
     // AIR currently requires the arg parameters to be the first N instructions
-    try inner_block.instructions.appendSlice(mod.gpa, param_inst_list);
+    try inner_block.instructions.appendSlice(gpa, param_inst_list);
 
     func.state = .in_progress;
     log.debug("set {s} to in_progress", .{decl.name});
 
     try sema.analyzeFnBody(&inner_block, func.zir_body_inst);
 
-    const instructions = try arena.allocator.dupe(*ir.Inst, inner_block.instructions.items);
+    // Copy the block into place and mark that as the main block.
+    sema.air_extra.items[@enumToInt(Air.ExtraIndex.main_block)] = sema.air_extra.items.len;
+    try sema.air_extra.appendSlice(inner_block.instructions.items);
+
     func.state = .success;
-    func.body = .{ .instructions = instructions };
     log.debug("set {s} to success", .{decl.name});
+
+    return Air{
+        .instructions = sema.air_instructions.toOwnedSlice(),
+        .extra = sema.air_extra.toOwnedSlice(),
+        .values = sema.air_values.toOwnedSlice(),
+        .variables = sema.air_variables.toOwnedSlice(),
+    };
 }
 
 fn markOutdatedDecl(mod: *Module, decl: *Decl) !void {

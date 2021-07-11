@@ -1,24 +1,6 @@
  * be sure to test debug info of parameters
 
 
-    /// Each bit represents the index of an `Inst` parameter in the `args` field.
-    /// If a bit is set, it marks the end of the lifetime of the corresponding
-    /// instruction parameter. For example, 0b101 means that the first and
-    /// third `Inst` parameters' lifetimes end after this instruction, and will
-    /// not have any more following references.
-    /// The most significant bit being set means that the instruction itself is
-    /// never referenced, in other words its lifetime ends as soon as it finishes.
-    /// If bit 15 (0b1xxx_xxxx_xxxx_xxxx) is set, it means this instruction itself is unreferenced.
-    /// If bit 14 (0bx1xx_xxxx_xxxx_xxxx) is set, it means this is a special case and the
-    /// lifetimes of operands are encoded elsewhere.
-    deaths: DeathsInt = undefined,
-
-
-    pub const DeathsInt = u16;
-    pub const DeathsBitIndex = std.math.Log2Int(DeathsInt);
-    pub const unreferenced_bit_index = @typeInfo(DeathsInt).Int.bits - 1;
-    pub const deaths_bits = unreferenced_bit_index - 1;
-
     pub fn isUnused(self: Inst) bool {
         return (self.deaths & (1 << unreferenced_bit_index)) != 0;
     }
@@ -114,32 +96,6 @@
         br_block_flat,
 
 
-
-    pub const Assembly = struct {
-        pub const base_tag = Tag.assembly;
-
-        base: Inst,
-        asm_source: []const u8,
-        is_volatile: bool,
-        output_constraint: ?[]const u8,
-        inputs: []const []const u8,
-        clobbers: []const []const u8,
-        args: []const *Inst,
-
-        pub fn operandCount(self: *const Assembly) usize {
-            return self.args.len;
-        }
-        pub fn getOperand(self: *const Assembly, index: usize) ?*Inst {
-            if (index < self.args.len)
-                return self.args[index];
-            return null;
-        }
-    };
-
-    pub const StructFieldPtr = struct {
-        struct_ptr: *Inst,
-        field_index: usize,
-    };
 
 
 /// For debugging purposes, prints a function representation to stderr.
