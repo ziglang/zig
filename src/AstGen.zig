@@ -4604,7 +4604,7 @@ fn tryExpr(
     const astgen = parent_gz.astgen;
 
     const fn_block = astgen.fn_block orelse {
-        return astgen.failNode(node, "invalid 'try' outside function scope", .{});
+        return astgen.failNode(node, "'try' outside function scope", .{});
     };
 
     if (parent_gz.in_defer) return astgen.failNode(node, "'try' not allowed inside defer expression", .{});
