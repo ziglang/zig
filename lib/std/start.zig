@@ -135,6 +135,15 @@ fn exit2(code: usize) noreturn {
                     : "rcx", "r11", "memory"
                 );
             },
+            // TODO once we get stack setting with assembly on
+            // arm, exit with 0 instead of stack garbage
+            .aarch64 => {
+                asm volatile ("svc #0"
+                    :
+                    : [exit] "{x0}" (0x08)
+                    : "memory", "cc"
+                );
+            },
             else => @compileError("TODO"),
         },
         else => @compileError("TODO"),

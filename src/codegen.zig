@@ -2607,6 +2607,56 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             return self.fail(inst.base.src, "TODO implement calling runtime known function pointer", .{});
                         }
                     },
+                    .aarch64 => {
+                        for (info.args) |mc_arg, arg_i| {
+                            const arg = inst.args[arg_i];
+                            const arg_mcv = try self.resolveInst(inst.args[arg_i]);
+
+                            switch (mc_arg) {
+                                .none => continue,
+                                .undef => unreachable,
+                                .immediate => unreachable,
+                                .unreach => unreachable,
+                                .dead => unreachable,
+                                .embedded_in_code => unreachable,
+                                .memory => unreachable,
+                                .compare_flags_signed => unreachable,
+                                .compare_flags_unsigned => unreachable,
+                                .register => |reg| {
+                                    try self.register_manager.getReg(reg, null);
+                                    try self.genSetReg(arg.src, arg.ty, reg, arg_mcv);
+                                },
+                                .stack_offset => {
+                                    return self.fail(inst.base.src, "TODO implement calling with parameters in memory", .{});
+                                },
+                                .ptr_stack_offset => {
+                                    return self.fail(inst.base.src, "TODO implement calling with MCValue.ptr_stack_offset arg", .{});
+                                },
+                                .ptr_embedded_in_code => {
+                                    return self.fail(inst.base.src, "TODO implement calling with MCValue.ptr_embedded_in_code arg", .{});
+                                },
+                            }
+                        }
+                        if (inst.func.value()) |func_value| {
+                            if (func_value.castTag(.function)) |func_payload| {
+                                const ptr_bits = self.target.cpu.arch.ptrBitWidth();
+                                const ptr_bytes: u64 = @divExact(ptr_bits, 8);
+                                const got_addr = p9.bases.data;
+                                const got_index = func_payload.data.owner_decl.link.plan9.got_index.?;
+                                const fn_got_addr = got_addr + got_index * ptr_bytes;
+
+                                try self.genSetReg(inst.base.src, Type.initTag(.usize), .x30, .{ .memory = fn_got_addr });
+
+                                writeInt(u32, try self.code.addManyAsArray(4), Instruction.blr(.x30).toU32());
+                            } else if (func_value.castTag(.extern_fn)) |_| {
+                                return self.fail(inst.base.src, "TODO implement calling extern functions", .{});
+                            } else {
+                                return self.fail(inst.base.src, "TODO implement calling bitcasted functions", .{});
+                            }
+                        } else {
+                            return self.fail(inst.base.src, "TODO implement calling runtime known function pointer", .{});
+                        }
+                    },
                     else => return self.fail(inst.base.src, "TODO implement call on plan9 for {}", .{self.target.cpu.arch}),
                 }
             } else unreachable;
