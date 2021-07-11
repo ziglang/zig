@@ -21,25 +21,25 @@ struct Stage1AstGen {
     bool in_c_import_scope;
 };
 
-static IrInstSrc *astgen_node(Stage1AstGen *ag, AstNode *node, Scope *scope);
-static IrInstSrc *astgen_node_extra(Stage1AstGen *ag, AstNode *node, Scope *scope, LVal lval,
+static Stage1ZirInst *astgen_node(Stage1AstGen *ag, AstNode *node, Scope *scope);
+static Stage1ZirInst *astgen_node_extra(Stage1AstGen *ag, AstNode *node, Scope *scope, LVal lval,
         ResultLoc *result_loc);
 
-static IrInstSrc *ir_lval_wrap(Stage1AstGen *ag, Scope *scope, IrInstSrc *value, LVal lval,
+static Stage1ZirInst *ir_lval_wrap(Stage1AstGen *ag, Scope *scope, Stage1ZirInst *value, LVal lval,
         ResultLoc *result_loc);
-static IrInstSrc *ir_expr_wrap(Stage1AstGen *ag, Scope *scope, IrInstSrc *inst,
+static Stage1ZirInst *ir_expr_wrap(Stage1AstGen *ag, Scope *scope, Stage1ZirInst *inst,
         ResultLoc *result_loc);
-static IrInstSrc *astgen_union_init_expr(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-    IrInstSrc *union_type, IrInstSrc *field_name, AstNode *expr_node,
+static Stage1ZirInst *astgen_union_init_expr(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+    Stage1ZirInst *union_type, Stage1ZirInst *field_name, AstNode *expr_node,
     LVal lval, ResultLoc *parent_result_loc);
-static ResultLocCast *ir_build_cast_result_loc(Stage1AstGen *ag, IrInstSrc *dest_type,
+static ResultLocCast *ir_build_cast_result_loc(Stage1AstGen *ag, Stage1ZirInst *dest_type,
         ResultLoc *parent_result_loc);
 static ZigVar *ir_create_var(Stage1AstGen *ag, AstNode *node, Scope *scope, Buf *name,
-        bool src_is_const, bool gen_is_const, bool is_shadowable, IrInstSrc *is_comptime);
+        bool src_is_const, bool gen_is_const, bool is_shadowable, Stage1ZirInst *is_comptime);
 static void build_decl_var_and_init(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        ZigVar *var, IrInstSrc *init, const char *name_hint, IrInstSrc *is_comptime);
+        ZigVar *var, Stage1ZirInst *init, const char *name_hint, Stage1ZirInst *is_comptime);
 
-static void ir_assert_impl(bool ok, IrInstSrc *source_instruction, char const *file, unsigned int line) {
+static void ir_assert_impl(bool ok, Stage1ZirInst *source_instruction, char const *file, unsigned int line) {
     if (ok) return;
     src_assert_impl(ok, source_instruction->source_node, file, line);
 }
@@ -54,299 +54,299 @@ static ErrorMsg *exec_add_error_node(CodeGen *codegen, Stage1Zir *exec, AstNode 
 #define ir_assert(OK, SOURCE_INSTRUCTION) ir_assert_impl((OK), (SOURCE_INSTRUCTION), __FILE__, __LINE__)
 
 
-static bool instr_is_unreachable(IrInstSrc *instruction) {
+static bool instr_is_unreachable(Stage1ZirInst *instruction) {
     switch (instruction->id) {
-        case IrInstSrcIdCondBr:
-        case IrInstSrcIdReturn:
-        case IrInstSrcIdBr:
-        case IrInstSrcIdUnreachable:
-        case IrInstSrcIdSwitchBr:
-        case IrInstSrcIdPanic:
+        case Stage1ZirInstIdCondBr:
+        case Stage1ZirInstIdReturn:
+        case Stage1ZirInstIdBr:
+        case Stage1ZirInstIdUnreachable:
+        case Stage1ZirInstIdSwitchBr:
+        case Stage1ZirInstIdPanic:
             return true;
         default:
             return false;
     }
 }
 
-void destroy_instruction_src(IrInstSrc *inst) {
+void destroy_instruction_src(Stage1ZirInst *inst) {
     switch (inst->id) {
-        case IrInstSrcIdInvalid:
+        case Stage1ZirInstIdInvalid:
             zig_unreachable();
-        case IrInstSrcIdReturn:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcReturn *>(inst));
-        case IrInstSrcIdConst:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcConst *>(inst));
-        case IrInstSrcIdBinOp:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcBinOp *>(inst));
-        case IrInstSrcIdMergeErrSets:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcMergeErrSets *>(inst));
-        case IrInstSrcIdDeclVar:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcDeclVar *>(inst));
-        case IrInstSrcIdCall:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcCall *>(inst));
-        case IrInstSrcIdCallExtra:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcCallExtra *>(inst));
-        case IrInstSrcIdAsyncCallExtra:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcAsyncCallExtra *>(inst));
-        case IrInstSrcIdUnOp:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcUnOp *>(inst));
-        case IrInstSrcIdCondBr:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcCondBr *>(inst));
-        case IrInstSrcIdBr:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcBr *>(inst));
-        case IrInstSrcIdPhi:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcPhi *>(inst));
-        case IrInstSrcIdContainerInitList:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcContainerInitList *>(inst));
-        case IrInstSrcIdContainerInitFields:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcContainerInitFields *>(inst));
-        case IrInstSrcIdUnreachable:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcUnreachable *>(inst));
-        case IrInstSrcIdElemPtr:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcElemPtr *>(inst));
-        case IrInstSrcIdVarPtr:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcVarPtr *>(inst));
-        case IrInstSrcIdLoadPtr:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcLoadPtr *>(inst));
-        case IrInstSrcIdStorePtr:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcStorePtr *>(inst));
-        case IrInstSrcIdTypeOf:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcTypeOf *>(inst));
-        case IrInstSrcIdFieldPtr:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcFieldPtr *>(inst));
-        case IrInstSrcIdSetCold:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcSetCold *>(inst));
-        case IrInstSrcIdSetRuntimeSafety:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcSetRuntimeSafety *>(inst));
-        case IrInstSrcIdSetFloatMode:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcSetFloatMode *>(inst));
-        case IrInstSrcIdArrayType:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcArrayType *>(inst));
-        case IrInstSrcIdSliceType:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcSliceType *>(inst));
-        case IrInstSrcIdAnyFrameType:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcAnyFrameType *>(inst));
-        case IrInstSrcIdAsm:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcAsm *>(inst));
-        case IrInstSrcIdSizeOf:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcSizeOf *>(inst));
-        case IrInstSrcIdTestNonNull:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcTestNonNull *>(inst));
-        case IrInstSrcIdOptionalUnwrapPtr:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcOptionalUnwrapPtr *>(inst));
-        case IrInstSrcIdPopCount:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcPopCount *>(inst));
-        case IrInstSrcIdClz:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcClz *>(inst));
-        case IrInstSrcIdCtz:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcCtz *>(inst));
-        case IrInstSrcIdBswap:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcBswap *>(inst));
-        case IrInstSrcIdBitReverse:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcBitReverse *>(inst));
-        case IrInstSrcIdSwitchBr:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcSwitchBr *>(inst));
-        case IrInstSrcIdSwitchVar:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcSwitchVar *>(inst));
-        case IrInstSrcIdSwitchElseVar:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcSwitchElseVar *>(inst));
-        case IrInstSrcIdSwitchTarget:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcSwitchTarget *>(inst));
-        case IrInstSrcIdImport:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcImport *>(inst));
-        case IrInstSrcIdRef:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcRef *>(inst));
-        case IrInstSrcIdCompileErr:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcCompileErr *>(inst));
-        case IrInstSrcIdCompileLog:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcCompileLog *>(inst));
-        case IrInstSrcIdErrName:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcErrName *>(inst));
-        case IrInstSrcIdCImport:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcCImport *>(inst));
-        case IrInstSrcIdCInclude:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcCInclude *>(inst));
-        case IrInstSrcIdCDefine:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcCDefine *>(inst));
-        case IrInstSrcIdCUndef:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcCUndef *>(inst));
-        case IrInstSrcIdEmbedFile:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcEmbedFile *>(inst));
-        case IrInstSrcIdCmpxchg:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcCmpxchg *>(inst));
-        case IrInstSrcIdFence:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcFence *>(inst));
-        case IrInstSrcIdReduce:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcReduce *>(inst));
-        case IrInstSrcIdTruncate:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcTruncate *>(inst));
-        case IrInstSrcIdIntCast:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcIntCast *>(inst));
-        case IrInstSrcIdFloatCast:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcFloatCast *>(inst));
-        case IrInstSrcIdErrSetCast:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcErrSetCast *>(inst));
-        case IrInstSrcIdIntToFloat:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcIntToFloat *>(inst));
-        case IrInstSrcIdFloatToInt:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcFloatToInt *>(inst));
-        case IrInstSrcIdBoolToInt:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcBoolToInt *>(inst));
-        case IrInstSrcIdVectorType:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcVectorType *>(inst));
-        case IrInstSrcIdShuffleVector:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcShuffleVector *>(inst));
-        case IrInstSrcIdSplat:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcSplat *>(inst));
-        case IrInstSrcIdBoolNot:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcBoolNot *>(inst));
-        case IrInstSrcIdMemset:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcMemset *>(inst));
-        case IrInstSrcIdMemcpy:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcMemcpy *>(inst));
-        case IrInstSrcIdSlice:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcSlice *>(inst));
-        case IrInstSrcIdBreakpoint:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcBreakpoint *>(inst));
-        case IrInstSrcIdReturnAddress:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcReturnAddress *>(inst));
-        case IrInstSrcIdFrameAddress:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcFrameAddress *>(inst));
-        case IrInstSrcIdFrameHandle:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcFrameHandle *>(inst));
-        case IrInstSrcIdFrameType:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcFrameType *>(inst));
-        case IrInstSrcIdFrameSize:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcFrameSize *>(inst));
-        case IrInstSrcIdAlignOf:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcAlignOf *>(inst));
-        case IrInstSrcIdOverflowOp:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcOverflowOp *>(inst));
-        case IrInstSrcIdTestErr:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcTestErr *>(inst));
-        case IrInstSrcIdUnwrapErrCode:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcUnwrapErrCode *>(inst));
-        case IrInstSrcIdUnwrapErrPayload:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcUnwrapErrPayload *>(inst));
-        case IrInstSrcIdFnProto:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcFnProto *>(inst));
-        case IrInstSrcIdTestComptime:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcTestComptime *>(inst));
-        case IrInstSrcIdPtrCast:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcPtrCast *>(inst));
-        case IrInstSrcIdBitCast:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcBitCast *>(inst));
-        case IrInstSrcIdPtrToInt:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcPtrToInt *>(inst));
-        case IrInstSrcIdIntToPtr:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcIntToPtr *>(inst));
-        case IrInstSrcIdIntToEnum:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcIntToEnum *>(inst));
-        case IrInstSrcIdIntToErr:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcIntToErr *>(inst));
-        case IrInstSrcIdErrToInt:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcErrToInt *>(inst));
-        case IrInstSrcIdCheckSwitchProngsUnderNo:
-        case IrInstSrcIdCheckSwitchProngsUnderYes:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcCheckSwitchProngs *>(inst));
-        case IrInstSrcIdCheckStatementIsVoid:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcCheckStatementIsVoid *>(inst));
-        case IrInstSrcIdTypeName:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcTypeName *>(inst));
-        case IrInstSrcIdTagName:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcTagName *>(inst));
-        case IrInstSrcIdPtrType:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcPtrType *>(inst));
-        case IrInstSrcIdPtrTypeSimple:
-        case IrInstSrcIdPtrTypeSimpleConst:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcPtrTypeSimple *>(inst));
-        case IrInstSrcIdDeclRef:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcDeclRef *>(inst));
-        case IrInstSrcIdPanic:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcPanic *>(inst));
-        case IrInstSrcIdFieldParentPtr:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcFieldParentPtr *>(inst));
-        case IrInstSrcIdOffsetOf:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcOffsetOf *>(inst));
-        case IrInstSrcIdBitOffsetOf:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcBitOffsetOf *>(inst));
-        case IrInstSrcIdTypeInfo:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcTypeInfo *>(inst));
-        case IrInstSrcIdType:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcType *>(inst));
-        case IrInstSrcIdHasField:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcHasField *>(inst));
-        case IrInstSrcIdSetEvalBranchQuota:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcSetEvalBranchQuota *>(inst));
-        case IrInstSrcIdAlignCast:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcAlignCast *>(inst));
-        case IrInstSrcIdImplicitCast:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcImplicitCast *>(inst));
-        case IrInstSrcIdResolveResult:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcResolveResult *>(inst));
-        case IrInstSrcIdResetResult:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcResetResult *>(inst));
-        case IrInstSrcIdSetAlignStack:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcSetAlignStack *>(inst));
-        case IrInstSrcIdArgTypeAllowVarFalse:
-        case IrInstSrcIdArgTypeAllowVarTrue:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcArgType *>(inst));
-        case IrInstSrcIdExport:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcExport *>(inst));
-        case IrInstSrcIdExtern:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcExtern *>(inst));
-        case IrInstSrcIdErrorReturnTrace:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcErrorReturnTrace *>(inst));
-        case IrInstSrcIdErrorUnion:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcErrorUnion *>(inst));
-        case IrInstSrcIdAtomicRmw:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcAtomicRmw *>(inst));
-        case IrInstSrcIdSaveErrRetAddr:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcSaveErrRetAddr *>(inst));
-        case IrInstSrcIdAddImplicitReturnType:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcAddImplicitReturnType *>(inst));
-        case IrInstSrcIdFloatOp:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcFloatOp *>(inst));
-        case IrInstSrcIdMulAdd:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcMulAdd *>(inst));
-        case IrInstSrcIdAtomicLoad:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcAtomicLoad *>(inst));
-        case IrInstSrcIdAtomicStore:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcAtomicStore *>(inst));
-        case IrInstSrcIdEnumToInt:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcEnumToInt *>(inst));
-        case IrInstSrcIdCheckRuntimeScope:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcCheckRuntimeScope *>(inst));
-        case IrInstSrcIdHasDecl:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcHasDecl *>(inst));
-        case IrInstSrcIdUndeclaredIdent:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcUndeclaredIdent *>(inst));
-        case IrInstSrcIdAlloca:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcAlloca *>(inst));
-        case IrInstSrcIdEndExpr:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcEndExpr *>(inst));
-        case IrInstSrcIdUnionInitNamedField:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcUnionInitNamedField *>(inst));
-        case IrInstSrcIdSuspendBegin:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcSuspendBegin *>(inst));
-        case IrInstSrcIdSuspendFinish:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcSuspendFinish *>(inst));
-        case IrInstSrcIdResume:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcResume *>(inst));
-        case IrInstSrcIdAwait:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcAwait *>(inst));
-        case IrInstSrcIdSpillBegin:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcSpillBegin *>(inst));
-        case IrInstSrcIdSpillEnd:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcSpillEnd *>(inst));
-        case IrInstSrcIdCallArgs:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcCallArgs *>(inst));
-        case IrInstSrcIdWasmMemorySize:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcWasmMemorySize *>(inst));
-        case IrInstSrcIdWasmMemoryGrow:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcWasmMemoryGrow *>(inst));
-        case IrInstSrcIdSrc:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcSrc *>(inst));
+        case Stage1ZirInstIdReturn:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstReturn *>(inst));
+        case Stage1ZirInstIdConst:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstConst *>(inst));
+        case Stage1ZirInstIdBinOp:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstBinOp *>(inst));
+        case Stage1ZirInstIdMergeErrSets:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstMergeErrSets *>(inst));
+        case Stage1ZirInstIdDeclVar:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstDeclVar *>(inst));
+        case Stage1ZirInstIdCall:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstCall *>(inst));
+        case Stage1ZirInstIdCallExtra:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstCallExtra *>(inst));
+        case Stage1ZirInstIdAsyncCallExtra:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstAsyncCallExtra *>(inst));
+        case Stage1ZirInstIdUnOp:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstUnOp *>(inst));
+        case Stage1ZirInstIdCondBr:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstCondBr *>(inst));
+        case Stage1ZirInstIdBr:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstBr *>(inst));
+        case Stage1ZirInstIdPhi:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstPhi *>(inst));
+        case Stage1ZirInstIdContainerInitList:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstContainerInitList *>(inst));
+        case Stage1ZirInstIdContainerInitFields:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstContainerInitFields *>(inst));
+        case Stage1ZirInstIdUnreachable:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstUnreachable *>(inst));
+        case Stage1ZirInstIdElemPtr:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstElemPtr *>(inst));
+        case Stage1ZirInstIdVarPtr:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstVarPtr *>(inst));
+        case Stage1ZirInstIdLoadPtr:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstLoadPtr *>(inst));
+        case Stage1ZirInstIdStorePtr:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstStorePtr *>(inst));
+        case Stage1ZirInstIdTypeOf:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstTypeOf *>(inst));
+        case Stage1ZirInstIdFieldPtr:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstFieldPtr *>(inst));
+        case Stage1ZirInstIdSetCold:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstSetCold *>(inst));
+        case Stage1ZirInstIdSetRuntimeSafety:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstSetRuntimeSafety *>(inst));
+        case Stage1ZirInstIdSetFloatMode:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstSetFloatMode *>(inst));
+        case Stage1ZirInstIdArrayType:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstArrayType *>(inst));
+        case Stage1ZirInstIdSliceType:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstSliceType *>(inst));
+        case Stage1ZirInstIdAnyFrameType:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstAnyFrameType *>(inst));
+        case Stage1ZirInstIdAsm:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstAsm *>(inst));
+        case Stage1ZirInstIdSizeOf:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstSizeOf *>(inst));
+        case Stage1ZirInstIdTestNonNull:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstTestNonNull *>(inst));
+        case Stage1ZirInstIdOptionalUnwrapPtr:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstOptionalUnwrapPtr *>(inst));
+        case Stage1ZirInstIdPopCount:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstPopCount *>(inst));
+        case Stage1ZirInstIdClz:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstClz *>(inst));
+        case Stage1ZirInstIdCtz:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstCtz *>(inst));
+        case Stage1ZirInstIdBswap:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstBswap *>(inst));
+        case Stage1ZirInstIdBitReverse:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstBitReverse *>(inst));
+        case Stage1ZirInstIdSwitchBr:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstSwitchBr *>(inst));
+        case Stage1ZirInstIdSwitchVar:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstSwitchVar *>(inst));
+        case Stage1ZirInstIdSwitchElseVar:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstSwitchElseVar *>(inst));
+        case Stage1ZirInstIdSwitchTarget:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstSwitchTarget *>(inst));
+        case Stage1ZirInstIdImport:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstImport *>(inst));
+        case Stage1ZirInstIdRef:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstRef *>(inst));
+        case Stage1ZirInstIdCompileErr:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstCompileErr *>(inst));
+        case Stage1ZirInstIdCompileLog:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstCompileLog *>(inst));
+        case Stage1ZirInstIdErrName:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstErrName *>(inst));
+        case Stage1ZirInstIdCImport:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstCImport *>(inst));
+        case Stage1ZirInstIdCInclude:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstCInclude *>(inst));
+        case Stage1ZirInstIdCDefine:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstCDefine *>(inst));
+        case Stage1ZirInstIdCUndef:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstCUndef *>(inst));
+        case Stage1ZirInstIdEmbedFile:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstEmbedFile *>(inst));
+        case Stage1ZirInstIdCmpxchg:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstCmpxchg *>(inst));
+        case Stage1ZirInstIdFence:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstFence *>(inst));
+        case Stage1ZirInstIdReduce:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstReduce *>(inst));
+        case Stage1ZirInstIdTruncate:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstTruncate *>(inst));
+        case Stage1ZirInstIdIntCast:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstIntCast *>(inst));
+        case Stage1ZirInstIdFloatCast:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstFloatCast *>(inst));
+        case Stage1ZirInstIdErrSetCast:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstErrSetCast *>(inst));
+        case Stage1ZirInstIdIntToFloat:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstIntToFloat *>(inst));
+        case Stage1ZirInstIdFloatToInt:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstFloatToInt *>(inst));
+        case Stage1ZirInstIdBoolToInt:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstBoolToInt *>(inst));
+        case Stage1ZirInstIdVectorType:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstVectorType *>(inst));
+        case Stage1ZirInstIdShuffleVector:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstShuffleVector *>(inst));
+        case Stage1ZirInstIdSplat:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstSplat *>(inst));
+        case Stage1ZirInstIdBoolNot:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstBoolNot *>(inst));
+        case Stage1ZirInstIdMemset:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstMemset *>(inst));
+        case Stage1ZirInstIdMemcpy:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstMemcpy *>(inst));
+        case Stage1ZirInstIdSlice:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstSlice *>(inst));
+        case Stage1ZirInstIdBreakpoint:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstBreakpoint *>(inst));
+        case Stage1ZirInstIdReturnAddress:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstReturnAddress *>(inst));
+        case Stage1ZirInstIdFrameAddress:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstFrameAddress *>(inst));
+        case Stage1ZirInstIdFrameHandle:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstFrameHandle *>(inst));
+        case Stage1ZirInstIdFrameType:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstFrameType *>(inst));
+        case Stage1ZirInstIdFrameSize:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstFrameSize *>(inst));
+        case Stage1ZirInstIdAlignOf:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstAlignOf *>(inst));
+        case Stage1ZirInstIdOverflowOp:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstOverflowOp *>(inst));
+        case Stage1ZirInstIdTestErr:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstTestErr *>(inst));
+        case Stage1ZirInstIdUnwrapErrCode:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstUnwrapErrCode *>(inst));
+        case Stage1ZirInstIdUnwrapErrPayload:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstUnwrapErrPayload *>(inst));
+        case Stage1ZirInstIdFnProto:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstFnProto *>(inst));
+        case Stage1ZirInstIdTestComptime:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstTestComptime *>(inst));
+        case Stage1ZirInstIdPtrCast:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstPtrCast *>(inst));
+        case Stage1ZirInstIdBitCast:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstBitCast *>(inst));
+        case Stage1ZirInstIdPtrToInt:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstPtrToInt *>(inst));
+        case Stage1ZirInstIdIntToPtr:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstIntToPtr *>(inst));
+        case Stage1ZirInstIdIntToEnum:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstIntToEnum *>(inst));
+        case Stage1ZirInstIdIntToErr:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstIntToErr *>(inst));
+        case Stage1ZirInstIdErrToInt:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstErrToInt *>(inst));
+        case Stage1ZirInstIdCheckSwitchProngsUnderNo:
+        case Stage1ZirInstIdCheckSwitchProngsUnderYes:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstCheckSwitchProngs *>(inst));
+        case Stage1ZirInstIdCheckStatementIsVoid:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstCheckStatementIsVoid *>(inst));
+        case Stage1ZirInstIdTypeName:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstTypeName *>(inst));
+        case Stage1ZirInstIdTagName:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstTagName *>(inst));
+        case Stage1ZirInstIdPtrType:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstPtrType *>(inst));
+        case Stage1ZirInstIdPtrTypeSimple:
+        case Stage1ZirInstIdPtrTypeSimpleConst:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstPtrTypeSimple *>(inst));
+        case Stage1ZirInstIdDeclRef:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstDeclRef *>(inst));
+        case Stage1ZirInstIdPanic:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstPanic *>(inst));
+        case Stage1ZirInstIdFieldParentPtr:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstFieldParentPtr *>(inst));
+        case Stage1ZirInstIdOffsetOf:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstOffsetOf *>(inst));
+        case Stage1ZirInstIdBitOffsetOf:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstBitOffsetOf *>(inst));
+        case Stage1ZirInstIdTypeInfo:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstTypeInfo *>(inst));
+        case Stage1ZirInstIdType:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstType *>(inst));
+        case Stage1ZirInstIdHasField:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstHasField *>(inst));
+        case Stage1ZirInstIdSetEvalBranchQuota:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstSetEvalBranchQuota *>(inst));
+        case Stage1ZirInstIdAlignCast:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstAlignCast *>(inst));
+        case Stage1ZirInstIdImplicitCast:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstImplicitCast *>(inst));
+        case Stage1ZirInstIdResolveResult:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstResolveResult *>(inst));
+        case Stage1ZirInstIdResetResult:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstResetResult *>(inst));
+        case Stage1ZirInstIdSetAlignStack:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstSetAlignStack *>(inst));
+        case Stage1ZirInstIdArgTypeAllowVarFalse:
+        case Stage1ZirInstIdArgTypeAllowVarTrue:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstArgType *>(inst));
+        case Stage1ZirInstIdExport:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstExport *>(inst));
+        case Stage1ZirInstIdExtern:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstExtern *>(inst));
+        case Stage1ZirInstIdErrorReturnTrace:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstErrorReturnTrace *>(inst));
+        case Stage1ZirInstIdErrorUnion:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstErrorUnion *>(inst));
+        case Stage1ZirInstIdAtomicRmw:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstAtomicRmw *>(inst));
+        case Stage1ZirInstIdSaveErrRetAddr:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstSaveErrRetAddr *>(inst));
+        case Stage1ZirInstIdAddImplicitReturnType:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstAddImplicitReturnType *>(inst));
+        case Stage1ZirInstIdFloatOp:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstFloatOp *>(inst));
+        case Stage1ZirInstIdMulAdd:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstMulAdd *>(inst));
+        case Stage1ZirInstIdAtomicLoad:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstAtomicLoad *>(inst));
+        case Stage1ZirInstIdAtomicStore:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstAtomicStore *>(inst));
+        case Stage1ZirInstIdEnumToInt:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstEnumToInt *>(inst));
+        case Stage1ZirInstIdCheckRuntimeScope:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstCheckRuntimeScope *>(inst));
+        case Stage1ZirInstIdHasDecl:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstHasDecl *>(inst));
+        case Stage1ZirInstIdUndeclaredIdent:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstUndeclaredIdent *>(inst));
+        case Stage1ZirInstIdAlloca:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstAlloca *>(inst));
+        case Stage1ZirInstIdEndExpr:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstEndExpr *>(inst));
+        case Stage1ZirInstIdUnionInitNamedField:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstUnionInitNamedField *>(inst));
+        case Stage1ZirInstIdSuspendBegin:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstSuspendBegin *>(inst));
+        case Stage1ZirInstIdSuspendFinish:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstSuspendFinish *>(inst));
+        case Stage1ZirInstIdResume:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstResume *>(inst));
+        case Stage1ZirInstIdAwait:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstAwait *>(inst));
+        case Stage1ZirInstIdSpillBegin:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstSpillBegin *>(inst));
+        case Stage1ZirInstIdSpillEnd:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstSpillEnd *>(inst));
+        case Stage1ZirInstIdCallArgs:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstCallArgs *>(inst));
+        case Stage1ZirInstIdWasmMemorySize:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstWasmMemorySize *>(inst));
+        case Stage1ZirInstIdWasmMemoryGrow:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstWasmMemoryGrow *>(inst));
+        case Stage1ZirInstIdSrc:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstSrc *>(inst));
     }
     zig_unreachable();
 }
@@ -368,7 +368,7 @@ bool ir_should_inline(Stage1Zir *exec, Scope *scope) {
     return false;
 }
 
-static void ir_instruction_append(Stage1ZirBasicBlock *basic_block, IrInstSrc *instruction) {
+static void ir_instruction_append(Stage1ZirBasicBlock *basic_block, Stage1ZirInst *instruction) {
     assert(basic_block);
     assert(instruction);
     basic_block->instruction_list.append(instruction);
@@ -384,11 +384,11 @@ static void ir_ref_bb(Stage1ZirBasicBlock *bb) {
     bb->ref_count += 1;
 }
 
-static void ir_ref_instruction(IrInstSrc *instruction, Stage1ZirBasicBlock *cur_bb) {
-    assert(instruction->id != IrInstSrcIdInvalid);
+static void ir_ref_instruction(Stage1ZirInst *instruction, Stage1ZirBasicBlock *cur_bb) {
+    assert(instruction->id != Stage1ZirInstIdInvalid);
     instruction->ref_count += 1;
     if (instruction->owner_bb != cur_bb && !instr_is_unreachable(instruction)
-        && instruction->id != IrInstSrcIdConst)
+        && instruction->id != Stage1ZirInstIdConst)
     {
         ir_ref_bb(instruction->owner_bb);
     }
@@ -403,536 +403,536 @@ static Stage1ZirBasicBlock *ir_create_basic_block(Stage1AstGen *ag, Scope *scope
     return result;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcDeclVar *) {
-    return IrInstSrcIdDeclVar;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstDeclVar *) {
+    return Stage1ZirInstIdDeclVar;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcBr *) {
-    return IrInstSrcIdBr;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstBr *) {
+    return Stage1ZirInstIdBr;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcCondBr *) {
-    return IrInstSrcIdCondBr;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstCondBr *) {
+    return Stage1ZirInstIdCondBr;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcSwitchBr *) {
-    return IrInstSrcIdSwitchBr;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstSwitchBr *) {
+    return Stage1ZirInstIdSwitchBr;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcSwitchVar *) {
-    return IrInstSrcIdSwitchVar;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstSwitchVar *) {
+    return Stage1ZirInstIdSwitchVar;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcSwitchElseVar *) {
-    return IrInstSrcIdSwitchElseVar;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstSwitchElseVar *) {
+    return Stage1ZirInstIdSwitchElseVar;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcSwitchTarget *) {
-    return IrInstSrcIdSwitchTarget;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstSwitchTarget *) {
+    return Stage1ZirInstIdSwitchTarget;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcPhi *) {
-    return IrInstSrcIdPhi;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstPhi *) {
+    return Stage1ZirInstIdPhi;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcUnOp *) {
-    return IrInstSrcIdUnOp;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstUnOp *) {
+    return Stage1ZirInstIdUnOp;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcBinOp *) {
-    return IrInstSrcIdBinOp;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstBinOp *) {
+    return Stage1ZirInstIdBinOp;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcMergeErrSets *) {
-    return IrInstSrcIdMergeErrSets;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstMergeErrSets *) {
+    return Stage1ZirInstIdMergeErrSets;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcLoadPtr *) {
-    return IrInstSrcIdLoadPtr;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstLoadPtr *) {
+    return Stage1ZirInstIdLoadPtr;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcStorePtr *) {
-    return IrInstSrcIdStorePtr;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstStorePtr *) {
+    return Stage1ZirInstIdStorePtr;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcFieldPtr *) {
-    return IrInstSrcIdFieldPtr;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstFieldPtr *) {
+    return Stage1ZirInstIdFieldPtr;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcElemPtr *) {
-    return IrInstSrcIdElemPtr;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstElemPtr *) {
+    return Stage1ZirInstIdElemPtr;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcVarPtr *) {
-    return IrInstSrcIdVarPtr;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstVarPtr *) {
+    return Stage1ZirInstIdVarPtr;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcCall *) {
-    return IrInstSrcIdCall;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstCall *) {
+    return Stage1ZirInstIdCall;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcCallArgs *) {
-    return IrInstSrcIdCallArgs;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstCallArgs *) {
+    return Stage1ZirInstIdCallArgs;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcCallExtra *) {
-    return IrInstSrcIdCallExtra;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstCallExtra *) {
+    return Stage1ZirInstIdCallExtra;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcAsyncCallExtra *) {
-    return IrInstSrcIdAsyncCallExtra;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstAsyncCallExtra *) {
+    return Stage1ZirInstIdAsyncCallExtra;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcConst *) {
-    return IrInstSrcIdConst;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstConst *) {
+    return Stage1ZirInstIdConst;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcReturn *) {
-    return IrInstSrcIdReturn;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstReturn *) {
+    return Stage1ZirInstIdReturn;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcContainerInitList *) {
-    return IrInstSrcIdContainerInitList;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstContainerInitList *) {
+    return Stage1ZirInstIdContainerInitList;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcContainerInitFields *) {
-    return IrInstSrcIdContainerInitFields;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstContainerInitFields *) {
+    return Stage1ZirInstIdContainerInitFields;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcUnreachable *) {
-    return IrInstSrcIdUnreachable;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstUnreachable *) {
+    return Stage1ZirInstIdUnreachable;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcTypeOf *) {
-    return IrInstSrcIdTypeOf;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstTypeOf *) {
+    return Stage1ZirInstIdTypeOf;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcSetCold *) {
-    return IrInstSrcIdSetCold;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstSetCold *) {
+    return Stage1ZirInstIdSetCold;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcSetRuntimeSafety *) {
-    return IrInstSrcIdSetRuntimeSafety;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstSetRuntimeSafety *) {
+    return Stage1ZirInstIdSetRuntimeSafety;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcSetFloatMode *) {
-    return IrInstSrcIdSetFloatMode;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstSetFloatMode *) {
+    return Stage1ZirInstIdSetFloatMode;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcArrayType *) {
-    return IrInstSrcIdArrayType;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstArrayType *) {
+    return Stage1ZirInstIdArrayType;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcAnyFrameType *) {
-    return IrInstSrcIdAnyFrameType;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstAnyFrameType *) {
+    return Stage1ZirInstIdAnyFrameType;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcSliceType *) {
-    return IrInstSrcIdSliceType;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstSliceType *) {
+    return Stage1ZirInstIdSliceType;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcAsm *) {
-    return IrInstSrcIdAsm;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstAsm *) {
+    return Stage1ZirInstIdAsm;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcSizeOf *) {
-    return IrInstSrcIdSizeOf;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstSizeOf *) {
+    return Stage1ZirInstIdSizeOf;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcTestNonNull *) {
-    return IrInstSrcIdTestNonNull;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstTestNonNull *) {
+    return Stage1ZirInstIdTestNonNull;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcOptionalUnwrapPtr *) {
-    return IrInstSrcIdOptionalUnwrapPtr;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstOptionalUnwrapPtr *) {
+    return Stage1ZirInstIdOptionalUnwrapPtr;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcClz *) {
-    return IrInstSrcIdClz;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstClz *) {
+    return Stage1ZirInstIdClz;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcCtz *) {
-    return IrInstSrcIdCtz;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstCtz *) {
+    return Stage1ZirInstIdCtz;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcPopCount *) {
-    return IrInstSrcIdPopCount;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstPopCount *) {
+    return Stage1ZirInstIdPopCount;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcBswap *) {
-    return IrInstSrcIdBswap;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstBswap *) {
+    return Stage1ZirInstIdBswap;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcBitReverse *) {
-    return IrInstSrcIdBitReverse;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstBitReverse *) {
+    return Stage1ZirInstIdBitReverse;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcImport *) {
-    return IrInstSrcIdImport;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstImport *) {
+    return Stage1ZirInstIdImport;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcCImport *) {
-    return IrInstSrcIdCImport;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstCImport *) {
+    return Stage1ZirInstIdCImport;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcCInclude *) {
-    return IrInstSrcIdCInclude;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstCInclude *) {
+    return Stage1ZirInstIdCInclude;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcCDefine *) {
-    return IrInstSrcIdCDefine;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstCDefine *) {
+    return Stage1ZirInstIdCDefine;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcCUndef *) {
-    return IrInstSrcIdCUndef;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstCUndef *) {
+    return Stage1ZirInstIdCUndef;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcRef *) {
-    return IrInstSrcIdRef;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstRef *) {
+    return Stage1ZirInstIdRef;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcCompileErr *) {
-    return IrInstSrcIdCompileErr;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstCompileErr *) {
+    return Stage1ZirInstIdCompileErr;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcCompileLog *) {
-    return IrInstSrcIdCompileLog;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstCompileLog *) {
+    return Stage1ZirInstIdCompileLog;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcErrName *) {
-    return IrInstSrcIdErrName;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstErrName *) {
+    return Stage1ZirInstIdErrName;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcEmbedFile *) {
-    return IrInstSrcIdEmbedFile;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstEmbedFile *) {
+    return Stage1ZirInstIdEmbedFile;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcCmpxchg *) {
-    return IrInstSrcIdCmpxchg;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstCmpxchg *) {
+    return Stage1ZirInstIdCmpxchg;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcFence *) {
-    return IrInstSrcIdFence;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstFence *) {
+    return Stage1ZirInstIdFence;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcReduce *) {
-    return IrInstSrcIdReduce;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstReduce *) {
+    return Stage1ZirInstIdReduce;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcTruncate *) {
-    return IrInstSrcIdTruncate;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstTruncate *) {
+    return Stage1ZirInstIdTruncate;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcIntCast *) {
-    return IrInstSrcIdIntCast;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstIntCast *) {
+    return Stage1ZirInstIdIntCast;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcFloatCast *) {
-    return IrInstSrcIdFloatCast;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstFloatCast *) {
+    return Stage1ZirInstIdFloatCast;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcIntToFloat *) {
-    return IrInstSrcIdIntToFloat;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstIntToFloat *) {
+    return Stage1ZirInstIdIntToFloat;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcFloatToInt *) {
-    return IrInstSrcIdFloatToInt;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstFloatToInt *) {
+    return Stage1ZirInstIdFloatToInt;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcBoolToInt *) {
-    return IrInstSrcIdBoolToInt;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstBoolToInt *) {
+    return Stage1ZirInstIdBoolToInt;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcVectorType *) {
-    return IrInstSrcIdVectorType;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstVectorType *) {
+    return Stage1ZirInstIdVectorType;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcShuffleVector *) {
-    return IrInstSrcIdShuffleVector;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstShuffleVector *) {
+    return Stage1ZirInstIdShuffleVector;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcSplat *) {
-    return IrInstSrcIdSplat;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstSplat *) {
+    return Stage1ZirInstIdSplat;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcBoolNot *) {
-    return IrInstSrcIdBoolNot;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstBoolNot *) {
+    return Stage1ZirInstIdBoolNot;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcMemset *) {
-    return IrInstSrcIdMemset;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstMemset *) {
+    return Stage1ZirInstIdMemset;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcMemcpy *) {
-    return IrInstSrcIdMemcpy;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstMemcpy *) {
+    return Stage1ZirInstIdMemcpy;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcSlice *) {
-    return IrInstSrcIdSlice;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstSlice *) {
+    return Stage1ZirInstIdSlice;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcBreakpoint *) {
-    return IrInstSrcIdBreakpoint;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstBreakpoint *) {
+    return Stage1ZirInstIdBreakpoint;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcReturnAddress *) {
-    return IrInstSrcIdReturnAddress;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstReturnAddress *) {
+    return Stage1ZirInstIdReturnAddress;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcFrameAddress *) {
-    return IrInstSrcIdFrameAddress;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstFrameAddress *) {
+    return Stage1ZirInstIdFrameAddress;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcFrameHandle *) {
-    return IrInstSrcIdFrameHandle;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstFrameHandle *) {
+    return Stage1ZirInstIdFrameHandle;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcFrameType *) {
-    return IrInstSrcIdFrameType;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstFrameType *) {
+    return Stage1ZirInstIdFrameType;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcFrameSize *) {
-    return IrInstSrcIdFrameSize;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstFrameSize *) {
+    return Stage1ZirInstIdFrameSize;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcAlignOf *) {
-    return IrInstSrcIdAlignOf;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstAlignOf *) {
+    return Stage1ZirInstIdAlignOf;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcOverflowOp *) {
-    return IrInstSrcIdOverflowOp;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstOverflowOp *) {
+    return Stage1ZirInstIdOverflowOp;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcTestErr *) {
-    return IrInstSrcIdTestErr;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstTestErr *) {
+    return Stage1ZirInstIdTestErr;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcMulAdd *) {
-    return IrInstSrcIdMulAdd;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstMulAdd *) {
+    return Stage1ZirInstIdMulAdd;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcFloatOp *) {
-    return IrInstSrcIdFloatOp;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstFloatOp *) {
+    return Stage1ZirInstIdFloatOp;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcUnwrapErrCode *) {
-    return IrInstSrcIdUnwrapErrCode;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstUnwrapErrCode *) {
+    return Stage1ZirInstIdUnwrapErrCode;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcUnwrapErrPayload *) {
-    return IrInstSrcIdUnwrapErrPayload;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstUnwrapErrPayload *) {
+    return Stage1ZirInstIdUnwrapErrPayload;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcFnProto *) {
-    return IrInstSrcIdFnProto;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstFnProto *) {
+    return Stage1ZirInstIdFnProto;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcTestComptime *) {
-    return IrInstSrcIdTestComptime;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstTestComptime *) {
+    return Stage1ZirInstIdTestComptime;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcPtrCast *) {
-    return IrInstSrcIdPtrCast;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstPtrCast *) {
+    return Stage1ZirInstIdPtrCast;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcBitCast *) {
-    return IrInstSrcIdBitCast;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstBitCast *) {
+    return Stage1ZirInstIdBitCast;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcIntToPtr *) {
-    return IrInstSrcIdIntToPtr;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstIntToPtr *) {
+    return Stage1ZirInstIdIntToPtr;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcPtrToInt *) {
-    return IrInstSrcIdPtrToInt;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstPtrToInt *) {
+    return Stage1ZirInstIdPtrToInt;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcIntToEnum *) {
-    return IrInstSrcIdIntToEnum;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstIntToEnum *) {
+    return Stage1ZirInstIdIntToEnum;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcEnumToInt *) {
-    return IrInstSrcIdEnumToInt;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstEnumToInt *) {
+    return Stage1ZirInstIdEnumToInt;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcIntToErr *) {
-    return IrInstSrcIdIntToErr;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstIntToErr *) {
+    return Stage1ZirInstIdIntToErr;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcErrToInt *) {
-    return IrInstSrcIdErrToInt;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstErrToInt *) {
+    return Stage1ZirInstIdErrToInt;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcCheckStatementIsVoid *) {
-    return IrInstSrcIdCheckStatementIsVoid;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstCheckStatementIsVoid *) {
+    return Stage1ZirInstIdCheckStatementIsVoid;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcTypeName *) {
-    return IrInstSrcIdTypeName;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstTypeName *) {
+    return Stage1ZirInstIdTypeName;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcDeclRef *) {
-    return IrInstSrcIdDeclRef;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstDeclRef *) {
+    return Stage1ZirInstIdDeclRef;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcPanic *) {
-    return IrInstSrcIdPanic;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstPanic *) {
+    return Stage1ZirInstIdPanic;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcTagName *) {
-    return IrInstSrcIdTagName;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstTagName *) {
+    return Stage1ZirInstIdTagName;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcFieldParentPtr *) {
-    return IrInstSrcIdFieldParentPtr;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstFieldParentPtr *) {
+    return Stage1ZirInstIdFieldParentPtr;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcOffsetOf *) {
-    return IrInstSrcIdOffsetOf;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstOffsetOf *) {
+    return Stage1ZirInstIdOffsetOf;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcBitOffsetOf *) {
-    return IrInstSrcIdBitOffsetOf;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstBitOffsetOf *) {
+    return Stage1ZirInstIdBitOffsetOf;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcTypeInfo *) {
-    return IrInstSrcIdTypeInfo;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstTypeInfo *) {
+    return Stage1ZirInstIdTypeInfo;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcType *) {
-    return IrInstSrcIdType;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstType *) {
+    return Stage1ZirInstIdType;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcHasField *) {
-    return IrInstSrcIdHasField;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstHasField *) {
+    return Stage1ZirInstIdHasField;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcSetEvalBranchQuota *) {
-    return IrInstSrcIdSetEvalBranchQuota;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstSetEvalBranchQuota *) {
+    return Stage1ZirInstIdSetEvalBranchQuota;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcPtrType *) {
-    return IrInstSrcIdPtrType;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstPtrType *) {
+    return Stage1ZirInstIdPtrType;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcAlignCast *) {
-    return IrInstSrcIdAlignCast;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstAlignCast *) {
+    return Stage1ZirInstIdAlignCast;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcImplicitCast *) {
-    return IrInstSrcIdImplicitCast;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstImplicitCast *) {
+    return Stage1ZirInstIdImplicitCast;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcResolveResult *) {
-    return IrInstSrcIdResolveResult;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstResolveResult *) {
+    return Stage1ZirInstIdResolveResult;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcResetResult *) {
-    return IrInstSrcIdResetResult;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstResetResult *) {
+    return Stage1ZirInstIdResetResult;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcSetAlignStack *) {
-    return IrInstSrcIdSetAlignStack;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstSetAlignStack *) {
+    return Stage1ZirInstIdSetAlignStack;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcExport *) {
-    return IrInstSrcIdExport;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstExport *) {
+    return Stage1ZirInstIdExport;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcExtern *) {
-    return IrInstSrcIdExtern;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstExtern *) {
+    return Stage1ZirInstIdExtern;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcErrorReturnTrace *) {
-    return IrInstSrcIdErrorReturnTrace;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstErrorReturnTrace *) {
+    return Stage1ZirInstIdErrorReturnTrace;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcErrorUnion *) {
-    return IrInstSrcIdErrorUnion;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstErrorUnion *) {
+    return Stage1ZirInstIdErrorUnion;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcAtomicRmw *) {
-    return IrInstSrcIdAtomicRmw;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstAtomicRmw *) {
+    return Stage1ZirInstIdAtomicRmw;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcAtomicLoad *) {
-    return IrInstSrcIdAtomicLoad;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstAtomicLoad *) {
+    return Stage1ZirInstIdAtomicLoad;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcAtomicStore *) {
-    return IrInstSrcIdAtomicStore;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstAtomicStore *) {
+    return Stage1ZirInstIdAtomicStore;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcSaveErrRetAddr *) {
-    return IrInstSrcIdSaveErrRetAddr;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstSaveErrRetAddr *) {
+    return Stage1ZirInstIdSaveErrRetAddr;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcAddImplicitReturnType *) {
-    return IrInstSrcIdAddImplicitReturnType;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstAddImplicitReturnType *) {
+    return Stage1ZirInstIdAddImplicitReturnType;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcErrSetCast *) {
-    return IrInstSrcIdErrSetCast;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstErrSetCast *) {
+    return Stage1ZirInstIdErrSetCast;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcCheckRuntimeScope *) {
-    return IrInstSrcIdCheckRuntimeScope;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstCheckRuntimeScope *) {
+    return Stage1ZirInstIdCheckRuntimeScope;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcHasDecl *) {
-    return IrInstSrcIdHasDecl;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstHasDecl *) {
+    return Stage1ZirInstIdHasDecl;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcUndeclaredIdent *) {
-    return IrInstSrcIdUndeclaredIdent;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstUndeclaredIdent *) {
+    return Stage1ZirInstIdUndeclaredIdent;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcAlloca *) {
-    return IrInstSrcIdAlloca;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstAlloca *) {
+    return Stage1ZirInstIdAlloca;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcEndExpr *) {
-    return IrInstSrcIdEndExpr;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstEndExpr *) {
+    return Stage1ZirInstIdEndExpr;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcUnionInitNamedField *) {
-    return IrInstSrcIdUnionInitNamedField;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstUnionInitNamedField *) {
+    return Stage1ZirInstIdUnionInitNamedField;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcSuspendBegin *) {
-    return IrInstSrcIdSuspendBegin;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstSuspendBegin *) {
+    return Stage1ZirInstIdSuspendBegin;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcSuspendFinish *) {
-    return IrInstSrcIdSuspendFinish;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstSuspendFinish *) {
+    return Stage1ZirInstIdSuspendFinish;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcAwait *) {
-    return IrInstSrcIdAwait;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstAwait *) {
+    return Stage1ZirInstIdAwait;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcResume *) {
-    return IrInstSrcIdResume;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstResume *) {
+    return Stage1ZirInstIdResume;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcSpillBegin *) {
-    return IrInstSrcIdSpillBegin;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstSpillBegin *) {
+    return Stage1ZirInstIdSpillBegin;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcSpillEnd *) {
-    return IrInstSrcIdSpillEnd;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstSpillEnd *) {
+    return Stage1ZirInstIdSpillEnd;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcWasmMemorySize *) {
-    return IrInstSrcIdWasmMemorySize;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstWasmMemorySize *) {
+    return Stage1ZirInstIdWasmMemorySize;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcWasmMemoryGrow *) {
-    return IrInstSrcIdWasmMemoryGrow;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstWasmMemoryGrow *) {
+    return Stage1ZirInstIdWasmMemoryGrow;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcSrc *) {
-    return IrInstSrcIdSrc;
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstSrc *) {
+    return Stage1ZirInstIdSrc;
 }
 
 template<typename T>
@@ -953,10 +953,10 @@ static T *ir_build_instruction(Stage1AstGen *ag, Scope *scope, AstNode *source_n
     return special_instruction;
 }
 
-static IrInstSrc *ir_build_cond_br(Stage1AstGen *ag, Scope *scope, AstNode *source_node, IrInstSrc *condition,
-        Stage1ZirBasicBlock *then_block, Stage1ZirBasicBlock *else_block, IrInstSrc *is_comptime)
+static Stage1ZirInst *ir_build_cond_br(Stage1AstGen *ag, Scope *scope, AstNode *source_node, Stage1ZirInst *condition,
+        Stage1ZirBasicBlock *then_block, Stage1ZirBasicBlock *else_block, Stage1ZirInst *is_comptime)
 {
-    IrInstSrcCondBr *inst = ir_build_instruction<IrInstSrcCondBr>(ag, scope, source_node);
+    Stage1ZirInstCondBr *inst = ir_build_instruction<Stage1ZirInstCondBr>(ag, scope, source_node);
     inst->condition = condition;
     inst->then_block = then_block;
     inst->else_block = else_block;
@@ -970,8 +970,8 @@ static IrInstSrc *ir_build_cond_br(Stage1AstGen *ag, Scope *scope, AstNode *sour
     return &inst->base;
 }
 
-static IrInstSrc *ir_build_return_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node, IrInstSrc *operand) {
-    IrInstSrcReturn *inst = ir_build_instruction<IrInstSrcReturn>(ag, scope, source_node);
+static Stage1ZirInst *ir_build_return_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node, Stage1ZirInst *operand) {
+    Stage1ZirInstReturn *inst = ir_build_instruction<Stage1ZirInstReturn>(ag, scope, source_node);
     inst->operand = operand;
 
     if (operand != nullptr) ir_ref_instruction(operand, ag->current_basic_block);
@@ -979,23 +979,23 @@ static IrInstSrc *ir_build_return_src(Stage1AstGen *ag, Scope *scope, AstNode *s
     return &inst->base;
 }
 
-static IrInstSrc *ir_build_const_void(Stage1AstGen *ag, Scope *scope, AstNode *source_node) {
-    IrInstSrcConst *const_instruction = ir_create_instruction<IrInstSrcConst>(ag, scope, source_node);
+static Stage1ZirInst *ir_build_const_void(Stage1AstGen *ag, Scope *scope, AstNode *source_node) {
+    Stage1ZirInstConst *const_instruction = ir_create_instruction<Stage1ZirInstConst>(ag, scope, source_node);
     ir_instruction_append(ag->current_basic_block, &const_instruction->base);
     const_instruction->value = ag->codegen->intern.for_void();
     return &const_instruction->base;
 }
 
-static IrInstSrc *ir_build_const_undefined(Stage1AstGen *ag, Scope *scope, AstNode *source_node) {
-    IrInstSrcConst *const_instruction = ir_create_instruction<IrInstSrcConst>(ag, scope, source_node);
+static Stage1ZirInst *ir_build_const_undefined(Stage1AstGen *ag, Scope *scope, AstNode *source_node) {
+    Stage1ZirInstConst *const_instruction = ir_create_instruction<Stage1ZirInstConst>(ag, scope, source_node);
     ir_instruction_append(ag->current_basic_block, &const_instruction->base);
     const_instruction->value = ag->codegen->intern.for_undefined();
     const_instruction->value->special = ConstValSpecialUndef;
     return &const_instruction->base;
 }
 
-static IrInstSrc *ir_build_const_uint(Stage1AstGen *ag, Scope *scope, AstNode *source_node, uint64_t value) {
-    IrInstSrcConst *const_instruction = ir_build_instruction<IrInstSrcConst>(ag, scope, source_node);
+static Stage1ZirInst *ir_build_const_uint(Stage1AstGen *ag, Scope *scope, AstNode *source_node, uint64_t value) {
+    Stage1ZirInstConst *const_instruction = ir_build_instruction<Stage1ZirInstConst>(ag, scope, source_node);
     const_instruction->value = ag->codegen->pass1_arena->create<ZigValue>();
     const_instruction->value->type = ag->codegen->builtin_types.entry_num_lit_int;
     const_instruction->value->special = ConstValSpecialStatic;
@@ -1003,10 +1003,10 @@ static IrInstSrc *ir_build_const_uint(Stage1AstGen *ag, Scope *scope, AstNode *s
     return &const_instruction->base;
 }
 
-static IrInstSrc *ir_build_const_bigint(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+static Stage1ZirInst *ir_build_const_bigint(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
         BigInt bigint)
 {
-    IrInstSrcConst *const_instruction = ir_build_instruction<IrInstSrcConst>(ag, scope, source_node);
+    Stage1ZirInstConst *const_instruction = ir_build_instruction<Stage1ZirInstConst>(ag, scope, source_node);
     const_instruction->value = ag->codegen->pass1_arena->create<ZigValue>();
     const_instruction->value->type = ag->codegen->builtin_types.entry_num_lit_int;
     const_instruction->value->special = ConstValSpecialStatic;
@@ -1014,10 +1014,10 @@ static IrInstSrc *ir_build_const_bigint(Stage1AstGen *ag, Scope *scope, AstNode 
     return &const_instruction->base;
 }
 
-static IrInstSrc *ir_build_const_bigfloat(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+static Stage1ZirInst *ir_build_const_bigfloat(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
         BigFloat bigfloat)
 {
-    IrInstSrcConst *const_instruction = ir_build_instruction<IrInstSrcConst>(ag, scope, source_node);
+    Stage1ZirInstConst *const_instruction = ir_build_instruction<Stage1ZirInstConst>(ag, scope, source_node);
     const_instruction->value = ag->codegen->pass1_arena->create<ZigValue>();
     const_instruction->value->type = ag->codegen->builtin_types.entry_num_lit_float;
     const_instruction->value->special = ConstValSpecialStatic;
@@ -1025,15 +1025,15 @@ static IrInstSrc *ir_build_const_bigfloat(Stage1AstGen *ag, Scope *scope, AstNod
     return &const_instruction->base;
 }
 
-static IrInstSrc *ir_build_const_null(Stage1AstGen *ag, Scope *scope, AstNode *source_node) {
-    IrInstSrcConst *const_instruction = ir_create_instruction<IrInstSrcConst>(ag, scope, source_node);
+static Stage1ZirInst *ir_build_const_null(Stage1AstGen *ag, Scope *scope, AstNode *source_node) {
+    Stage1ZirInstConst *const_instruction = ir_create_instruction<Stage1ZirInstConst>(ag, scope, source_node);
     ir_instruction_append(ag->current_basic_block, &const_instruction->base);
     const_instruction->value = ag->codegen->intern.for_null();
     return &const_instruction->base;
 }
 
-static IrInstSrc *ir_build_const_usize(Stage1AstGen *ag, Scope *scope, AstNode *source_node, uint64_t value) {
-    IrInstSrcConst *const_instruction = ir_build_instruction<IrInstSrcConst>(ag, scope, source_node);
+static Stage1ZirInst *ir_build_const_usize(Stage1AstGen *ag, Scope *scope, AstNode *source_node, uint64_t value) {
+    Stage1ZirInstConst *const_instruction = ir_build_instruction<Stage1ZirInstConst>(ag, scope, source_node);
     const_instruction->value = ag->codegen->pass1_arena->create<ZigValue>();
     const_instruction->value->type = ag->codegen->builtin_types.entry_usize;
     const_instruction->value->special = ConstValSpecialStatic;
@@ -1041,10 +1041,10 @@ static IrInstSrc *ir_build_const_usize(Stage1AstGen *ag, Scope *scope, AstNode *
     return &const_instruction->base;
 }
 
-static IrInstSrc *ir_create_const_type(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+static Stage1ZirInst *ir_create_const_type(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
         ZigType *type_entry)
 {
-    IrInstSrcConst *const_instruction = ir_create_instruction<IrInstSrcConst>(ag, scope, source_node);
+    Stage1ZirInstConst *const_instruction = ir_create_instruction<Stage1ZirInstConst>(ag, scope, source_node);
     const_instruction->value = ag->codegen->pass1_arena->create<ZigValue>();
     const_instruction->value->type = ag->codegen->builtin_types.entry_type;
     const_instruction->value->special = ConstValSpecialStatic;
@@ -1052,16 +1052,16 @@ static IrInstSrc *ir_create_const_type(Stage1AstGen *ag, Scope *scope, AstNode *
     return &const_instruction->base;
 }
 
-static IrInstSrc *ir_build_const_type(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+static Stage1ZirInst *ir_build_const_type(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
         ZigType *type_entry)
 {
-    IrInstSrc *instruction = ir_create_const_type(ag, scope, source_node, type_entry);
+    Stage1ZirInst *instruction = ir_create_const_type(ag, scope, source_node, type_entry);
     ir_instruction_append(ag->current_basic_block, instruction);
     return instruction;
 }
 
-static IrInstSrc *ir_build_const_import(Stage1AstGen *ag, Scope *scope, AstNode *source_node, ZigType *import) {
-    IrInstSrcConst *const_instruction = ir_build_instruction<IrInstSrcConst>(ag, scope, source_node);
+static Stage1ZirInst *ir_build_const_import(Stage1AstGen *ag, Scope *scope, AstNode *source_node, ZigType *import) {
+    Stage1ZirInstConst *const_instruction = ir_build_instruction<Stage1ZirInstConst>(ag, scope, source_node);
     const_instruction->value = ag->codegen->pass1_arena->create<ZigValue>();
     const_instruction->value->type = ag->codegen->builtin_types.entry_type;
     const_instruction->value->special = ConstValSpecialStatic;
@@ -1069,8 +1069,8 @@ static IrInstSrc *ir_build_const_import(Stage1AstGen *ag, Scope *scope, AstNode 
     return &const_instruction->base;
 }
 
-static IrInstSrc *ir_build_const_bool(Stage1AstGen *ag, Scope *scope, AstNode *source_node, bool value) {
-    IrInstSrcConst *const_instruction = ir_build_instruction<IrInstSrcConst>(ag, scope, source_node);
+static Stage1ZirInst *ir_build_const_bool(Stage1AstGen *ag, Scope *scope, AstNode *source_node, bool value) {
+    Stage1ZirInstConst *const_instruction = ir_build_instruction<Stage1ZirInstConst>(ag, scope, source_node);
     const_instruction->value = ag->codegen->pass1_arena->create<ZigValue>();
     const_instruction->value->type = ag->codegen->builtin_types.entry_bool;
     const_instruction->value->special = ConstValSpecialStatic;
@@ -1078,8 +1078,8 @@ static IrInstSrc *ir_build_const_bool(Stage1AstGen *ag, Scope *scope, AstNode *s
     return &const_instruction->base;
 }
 
-static IrInstSrc *ir_build_const_enum_literal(Stage1AstGen *ag, Scope *scope, AstNode *source_node, Buf *name) {
-    IrInstSrcConst *const_instruction = ir_build_instruction<IrInstSrcConst>(ag, scope, source_node);
+static Stage1ZirInst *ir_build_const_enum_literal(Stage1AstGen *ag, Scope *scope, AstNode *source_node, Buf *name) {
+    Stage1ZirInstConst *const_instruction = ir_build_instruction<Stage1ZirInstConst>(ag, scope, source_node);
     const_instruction->value = ag->codegen->pass1_arena->create<ZigValue>();
     const_instruction->value->type = ag->codegen->builtin_types.entry_enum_literal;
     const_instruction->value->special = ConstValSpecialStatic;
@@ -1088,8 +1088,8 @@ static IrInstSrc *ir_build_const_enum_literal(Stage1AstGen *ag, Scope *scope, As
 }
 
 // Consumes `str`.
-static IrInstSrc *ir_create_const_str_lit(Stage1AstGen *ag, Scope *scope, AstNode *source_node, Buf *str) {
-    IrInstSrcConst *const_instruction = ir_create_instruction<IrInstSrcConst>(ag, scope, source_node);
+static Stage1ZirInst *ir_create_const_str_lit(Stage1AstGen *ag, Scope *scope, AstNode *source_node, Buf *str) {
+    Stage1ZirInstConst *const_instruction = ir_create_instruction<Stage1ZirInstConst>(ag, scope, source_node);
     const_instruction->value = ag->codegen->pass1_arena->create<ZigValue>();
     init_const_str_lit(ag->codegen, const_instruction->value, str, true);
 
@@ -1097,16 +1097,16 @@ static IrInstSrc *ir_create_const_str_lit(Stage1AstGen *ag, Scope *scope, AstNod
 }
 
 // Consumes `str`.
-static IrInstSrc *ir_build_const_str_lit(Stage1AstGen *ag, Scope *scope, AstNode *source_node, Buf *str) {
-    IrInstSrc *instruction = ir_create_const_str_lit(ag, scope, source_node, str);
+static Stage1ZirInst *ir_build_const_str_lit(Stage1AstGen *ag, Scope *scope, AstNode *source_node, Buf *str) {
+    Stage1ZirInst *instruction = ir_create_const_str_lit(ag, scope, source_node, str);
     ir_instruction_append(ag->current_basic_block, instruction);
     return instruction;
 }
 
-static IrInstSrc *ir_build_bin_op(Stage1AstGen *ag, Scope *scope, AstNode *source_node, IrBinOp op_id,
-        IrInstSrc *op1, IrInstSrc *op2, bool safety_check_on)
+static Stage1ZirInst *ir_build_bin_op(Stage1AstGen *ag, Scope *scope, AstNode *source_node, IrBinOp op_id,
+        Stage1ZirInst *op1, Stage1ZirInst *op2, bool safety_check_on)
 {
-    IrInstSrcBinOp *inst = ir_build_instruction<IrInstSrcBinOp>(ag, scope, source_node);
+    Stage1ZirInstBinOp *inst = ir_build_instruction<Stage1ZirInstBinOp>(ag, scope, source_node);
     inst->op_id = op_id;
     inst->op1 = op1;
     inst->op2 = op2;
@@ -1118,10 +1118,10 @@ static IrInstSrc *ir_build_bin_op(Stage1AstGen *ag, Scope *scope, AstNode *sourc
     return &inst->base;
 }
 
-static IrInstSrc *ir_build_merge_err_sets(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        IrInstSrc *op1, IrInstSrc *op2, Buf *type_name)
+static Stage1ZirInst *ir_build_merge_err_sets(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        Stage1ZirInst *op1, Stage1ZirInst *op2, Buf *type_name)
 {
-    IrInstSrcMergeErrSets *inst = ir_build_instruction<IrInstSrcMergeErrSets>(ag, scope, source_node);
+    Stage1ZirInstMergeErrSets *inst = ir_build_instruction<Stage1ZirInstMergeErrSets>(ag, scope, source_node);
     inst->op1 = op1;
     inst->op2 = op2;
     inst->type_name = type_name;
@@ -1132,10 +1132,10 @@ static IrInstSrc *ir_build_merge_err_sets(Stage1AstGen *ag, Scope *scope, AstNod
     return &inst->base;
 }
 
-static IrInstSrc *ir_build_var_ptr_x(Stage1AstGen *ag, Scope *scope, AstNode *source_node, ZigVar *var,
+static Stage1ZirInst *ir_build_var_ptr_x(Stage1AstGen *ag, Scope *scope, AstNode *source_node, ZigVar *var,
         ScopeFnDef *crossed_fndef_scope)
 {
-    IrInstSrcVarPtr *instruction = ir_build_instruction<IrInstSrcVarPtr>(ag, scope, source_node);
+    Stage1ZirInstVarPtr *instruction = ir_build_instruction<Stage1ZirInstVarPtr>(ag, scope, source_node);
     instruction->var = var;
     instruction->crossed_fndef_scope = crossed_fndef_scope;
 
@@ -1144,15 +1144,15 @@ static IrInstSrc *ir_build_var_ptr_x(Stage1AstGen *ag, Scope *scope, AstNode *so
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_var_ptr(Stage1AstGen *ag, Scope *scope, AstNode *source_node, ZigVar *var) {
+static Stage1ZirInst *ir_build_var_ptr(Stage1AstGen *ag, Scope *scope, AstNode *source_node, ZigVar *var) {
     return ir_build_var_ptr_x(ag, scope, source_node, var, nullptr);
 }
 
-static IrInstSrc *ir_build_elem_ptr(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        IrInstSrc *array_ptr, IrInstSrc *elem_index, bool safety_check_on, PtrLen ptr_len,
+static Stage1ZirInst *ir_build_elem_ptr(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        Stage1ZirInst *array_ptr, Stage1ZirInst *elem_index, bool safety_check_on, PtrLen ptr_len,
         AstNode *init_array_type_source_node)
 {
-    IrInstSrcElemPtr *instruction = ir_build_instruction<IrInstSrcElemPtr>(ag, scope, source_node);
+    Stage1ZirInstElemPtr *instruction = ir_build_instruction<Stage1ZirInstElemPtr>(ag, scope, source_node);
     instruction->array_ptr = array_ptr;
     instruction->elem_index = elem_index;
     instruction->safety_check_on = safety_check_on;
@@ -1165,10 +1165,10 @@ static IrInstSrc *ir_build_elem_ptr(Stage1AstGen *ag, Scope *scope, AstNode *sou
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_field_ptr_instruction(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-    IrInstSrc *container_ptr, IrInstSrc *field_name_expr, bool initializing)
+static Stage1ZirInst *ir_build_field_ptr_instruction(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+    Stage1ZirInst *container_ptr, Stage1ZirInst *field_name_expr, bool initializing)
 {
-    IrInstSrcFieldPtr *instruction = ir_build_instruction<IrInstSrcFieldPtr>(ag, scope, source_node);
+    Stage1ZirInstFieldPtr *instruction = ir_build_instruction<Stage1ZirInstFieldPtr>(ag, scope, source_node);
     instruction->container_ptr = container_ptr;
     instruction->field_name_buffer = nullptr;
     instruction->field_name_expr = field_name_expr;
@@ -1180,10 +1180,10 @@ static IrInstSrc *ir_build_field_ptr_instruction(Stage1AstGen *ag, Scope *scope,
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_field_ptr(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-    IrInstSrc *container_ptr, Buf *field_name, bool initializing)
+static Stage1ZirInst *ir_build_field_ptr(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+    Stage1ZirInst *container_ptr, Buf *field_name, bool initializing)
 {
-    IrInstSrcFieldPtr *instruction = ir_build_instruction<IrInstSrcFieldPtr>(ag, scope, source_node);
+    Stage1ZirInstFieldPtr *instruction = ir_build_instruction<Stage1ZirInstFieldPtr>(ag, scope, source_node);
     instruction->container_ptr = container_ptr;
     instruction->field_name_buffer = field_name;
     instruction->field_name_expr = nullptr;
@@ -1194,10 +1194,10 @@ static IrInstSrc *ir_build_field_ptr(Stage1AstGen *ag, Scope *scope, AstNode *so
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_has_field(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-    IrInstSrc *container_type, IrInstSrc *field_name)
+static Stage1ZirInst *ir_build_has_field(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+    Stage1ZirInst *container_type, Stage1ZirInst *field_name)
 {
-    IrInstSrcHasField *instruction = ir_build_instruction<IrInstSrcHasField>(ag, scope, source_node);
+    Stage1ZirInstHasField *instruction = ir_build_instruction<Stage1ZirInstHasField>(ag, scope, source_node);
     instruction->container_type = container_type;
     instruction->field_name = field_name;
 
@@ -1207,10 +1207,10 @@ static IrInstSrc *ir_build_has_field(Stage1AstGen *ag, Scope *scope, AstNode *so
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_call_extra(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        IrInstSrc *options, IrInstSrc *fn_ref, IrInstSrc *args, ResultLoc *result_loc)
+static Stage1ZirInst *ir_build_call_extra(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        Stage1ZirInst *options, Stage1ZirInst *fn_ref, Stage1ZirInst *args, ResultLoc *result_loc)
 {
-    IrInstSrcCallExtra *call_instruction = ir_build_instruction<IrInstSrcCallExtra>(ag, scope, source_node);
+    Stage1ZirInstCallExtra *call_instruction = ir_build_instruction<Stage1ZirInstCallExtra>(ag, scope, source_node);
     call_instruction->options = options;
     call_instruction->fn_ref = fn_ref;
     call_instruction->args = args;
@@ -1223,10 +1223,10 @@ static IrInstSrc *ir_build_call_extra(Stage1AstGen *ag, Scope *scope, AstNode *s
     return &call_instruction->base;
 }
 
-static IrInstSrc *ir_build_async_call_extra(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        CallModifier modifier, IrInstSrc *fn_ref, IrInstSrc *ret_ptr, IrInstSrc *new_stack, IrInstSrc *args, ResultLoc *result_loc)
+static Stage1ZirInst *ir_build_async_call_extra(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        CallModifier modifier, Stage1ZirInst *fn_ref, Stage1ZirInst *ret_ptr, Stage1ZirInst *new_stack, Stage1ZirInst *args, ResultLoc *result_loc)
 {
-    IrInstSrcAsyncCallExtra *call_instruction = ir_build_instruction<IrInstSrcAsyncCallExtra>(ag, scope, source_node);
+    Stage1ZirInstAsyncCallExtra *call_instruction = ir_build_instruction<Stage1ZirInstAsyncCallExtra>(ag, scope, source_node);
     call_instruction->modifier = modifier;
     call_instruction->fn_ref = fn_ref;
     call_instruction->ret_ptr = ret_ptr;
@@ -1242,11 +1242,11 @@ static IrInstSrc *ir_build_async_call_extra(Stage1AstGen *ag, Scope *scope, AstN
     return &call_instruction->base;
 }
 
-static IrInstSrc *ir_build_call_args(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        IrInstSrc *options, IrInstSrc *fn_ref, IrInstSrc **args_ptr, size_t args_len,
+static Stage1ZirInst *ir_build_call_args(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        Stage1ZirInst *options, Stage1ZirInst *fn_ref, Stage1ZirInst **args_ptr, size_t args_len,
         ResultLoc *result_loc)
 {
-    IrInstSrcCallArgs *call_instruction = ir_build_instruction<IrInstSrcCallArgs>(ag, scope, source_node);
+    Stage1ZirInstCallArgs *call_instruction = ir_build_instruction<Stage1ZirInstCallArgs>(ag, scope, source_node);
     call_instruction->options = options;
     call_instruction->fn_ref = fn_ref;
     call_instruction->args_ptr = args_ptr;
@@ -1261,12 +1261,12 @@ static IrInstSrc *ir_build_call_args(Stage1AstGen *ag, Scope *scope, AstNode *so
     return &call_instruction->base;
 }
 
-static IrInstSrc *ir_build_call_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        ZigFn *fn_entry, IrInstSrc *fn_ref, size_t arg_count, IrInstSrc **args,
-        IrInstSrc *ret_ptr, CallModifier modifier, bool is_async_call_builtin,
-        IrInstSrc *new_stack, ResultLoc *result_loc)
+static Stage1ZirInst *ir_build_call_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        ZigFn *fn_entry, Stage1ZirInst *fn_ref, size_t arg_count, Stage1ZirInst **args,
+        Stage1ZirInst *ret_ptr, CallModifier modifier, bool is_async_call_builtin,
+        Stage1ZirInst *new_stack, ResultLoc *result_loc)
 {
-    IrInstSrcCall *call_instruction = ir_build_instruction<IrInstSrcCall>(ag, scope, source_node);
+    Stage1ZirInstCall *call_instruction = ir_build_instruction<Stage1ZirInstCall>(ag, scope, source_node);
     call_instruction->fn_entry = fn_entry;
     call_instruction->fn_ref = fn_ref;
     call_instruction->args = args;
@@ -1286,14 +1286,14 @@ static IrInstSrc *ir_build_call_src(Stage1AstGen *ag, Scope *scope, AstNode *sou
     return &call_instruction->base;
 }
 
-static IrInstSrc *ir_build_phi(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        size_t incoming_count, Stage1ZirBasicBlock **incoming_blocks, IrInstSrc **incoming_values,
+static Stage1ZirInst *ir_build_phi(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        size_t incoming_count, Stage1ZirBasicBlock **incoming_blocks, Stage1ZirInst **incoming_values,
         ResultLocPeerParent *peer_parent)
 {
     assert(incoming_count != 0);
     assert(incoming_count != SIZE_MAX);
 
-    IrInstSrcPhi *phi_instruction = ir_build_instruction<IrInstSrcPhi>(ag, scope, source_node);
+    Stage1ZirInstPhi *phi_instruction = ir_build_instruction<Stage1ZirInstPhi>(ag, scope, source_node);
     phi_instruction->incoming_count = incoming_count;
     phi_instruction->incoming_blocks = incoming_blocks;
     phi_instruction->incoming_values = incoming_values;
@@ -1307,10 +1307,10 @@ static IrInstSrc *ir_build_phi(Stage1AstGen *ag, Scope *scope, AstNode *source_n
     return &phi_instruction->base;
 }
 
-static IrInstSrc *ir_build_br(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        Stage1ZirBasicBlock *dest_block, IrInstSrc *is_comptime)
+static Stage1ZirInst *ir_build_br(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        Stage1ZirBasicBlock *dest_block, Stage1ZirInst *is_comptime)
 {
-    IrInstSrcBr *inst = ir_build_instruction<IrInstSrcBr>(ag, scope, source_node);
+    Stage1ZirInstBr *inst = ir_build_instruction<Stage1ZirInstBr>(ag, scope, source_node);
     inst->dest_block = dest_block;
     inst->is_comptime = is_comptime;
 
@@ -1320,11 +1320,11 @@ static IrInstSrc *ir_build_br(Stage1AstGen *ag, Scope *scope, AstNode *source_no
     return &inst->base;
 }
 
-static IrInstSrc *ir_build_ptr_type_simple(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        IrInstSrc *child_type, bool is_const)
+static Stage1ZirInst *ir_build_ptr_type_simple(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        Stage1ZirInst *child_type, bool is_const)
 {
-    IrInstSrcPtrTypeSimple *inst = heap::c_allocator.create<IrInstSrcPtrTypeSimple>();
-    inst->base.id = is_const ? IrInstSrcIdPtrTypeSimpleConst : IrInstSrcIdPtrTypeSimple;
+    Stage1ZirInstPtrTypeSimple *inst = heap::c_allocator.create<Stage1ZirInstPtrTypeSimple>();
+    inst->base.id = is_const ? Stage1ZirInstIdPtrTypeSimpleConst : Stage1ZirInstIdPtrTypeSimple;
     inst->base.scope = scope;
     inst->base.source_node = source_node;
     inst->base.debug_id = irb_next_debug_id(ag);
@@ -1338,9 +1338,9 @@ static IrInstSrc *ir_build_ptr_type_simple(Stage1AstGen *ag, Scope *scope, AstNo
     return &inst->base;
 }
 
-static IrInstSrc *ir_build_ptr_type(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        IrInstSrc *child_type, bool is_const, bool is_volatile, PtrLen ptr_len,
-        IrInstSrc *sentinel, IrInstSrc *align_value,
+static Stage1ZirInst *ir_build_ptr_type(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        Stage1ZirInst *child_type, bool is_const, bool is_volatile, PtrLen ptr_len,
+        Stage1ZirInst *sentinel, Stage1ZirInst *align_value,
         uint32_t bit_offset_start, uint32_t host_int_bytes, bool is_allow_zero)
 {
     if (!is_volatile && ptr_len == PtrLenSingle && sentinel == nullptr && align_value == nullptr &&
@@ -1349,7 +1349,7 @@ static IrInstSrc *ir_build_ptr_type(Stage1AstGen *ag, Scope *scope, AstNode *sou
         return ir_build_ptr_type_simple(ag, scope, source_node, child_type, is_const);
     }
 
-    IrInstSrcPtrType *inst = ir_build_instruction<IrInstSrcPtrType>(ag, scope, source_node);
+    Stage1ZirInstPtrType *inst = ir_build_instruction<Stage1ZirInstPtrType>(ag, scope, source_node);
     inst->sentinel = sentinel;
     inst->align_value = align_value;
     inst->child_type = child_type;
@@ -1367,10 +1367,10 @@ static IrInstSrc *ir_build_ptr_type(Stage1AstGen *ag, Scope *scope, AstNode *sou
     return &inst->base;
 }
 
-static IrInstSrc *ir_build_un_op_lval(Stage1AstGen *ag, Scope *scope, AstNode *source_node, IrUnOp op_id,
-        IrInstSrc *value, LVal lval, ResultLoc *result_loc)
+static Stage1ZirInst *ir_build_un_op_lval(Stage1AstGen *ag, Scope *scope, AstNode *source_node, IrUnOp op_id,
+        Stage1ZirInst *value, LVal lval, ResultLoc *result_loc)
 {
-    IrInstSrcUnOp *instruction = ir_build_instruction<IrInstSrcUnOp>(ag, scope, source_node);
+    Stage1ZirInstUnOp *instruction = ir_build_instruction<Stage1ZirInstUnOp>(ag, scope, source_node);
     instruction->op_id = op_id;
     instruction->value = value;
     instruction->lval = lval;
@@ -1381,18 +1381,18 @@ static IrInstSrc *ir_build_un_op_lval(Stage1AstGen *ag, Scope *scope, AstNode *s
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_un_op(Stage1AstGen *ag, Scope *scope, AstNode *source_node, IrUnOp op_id,
-        IrInstSrc *value)
+static Stage1ZirInst *ir_build_un_op(Stage1AstGen *ag, Scope *scope, AstNode *source_node, IrUnOp op_id,
+        Stage1ZirInst *value)
 {
     return ir_build_un_op_lval(ag, scope, source_node, op_id, value, LValNone, nullptr);
 }
 
-static IrInstSrc *ir_build_container_init_list(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        size_t item_count, IrInstSrc **elem_result_loc_list, IrInstSrc *result_loc,
+static Stage1ZirInst *ir_build_container_init_list(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        size_t item_count, Stage1ZirInst **elem_result_loc_list, Stage1ZirInst *result_loc,
         AstNode *init_array_type_source_node)
 {
-    IrInstSrcContainerInitList *container_init_list_instruction =
-        ir_build_instruction<IrInstSrcContainerInitList>(ag, scope, source_node);
+    Stage1ZirInstContainerInitList *container_init_list_instruction =
+        ir_build_instruction<Stage1ZirInstContainerInitList>(ag, scope, source_node);
     container_init_list_instruction->item_count = item_count;
     container_init_list_instruction->elem_result_loc_list = elem_result_loc_list;
     container_init_list_instruction->result_loc = result_loc;
@@ -1406,11 +1406,11 @@ static IrInstSrc *ir_build_container_init_list(Stage1AstGen *ag, Scope *scope, A
     return &container_init_list_instruction->base;
 }
 
-static IrInstSrc *ir_build_container_init_fields(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        size_t field_count, IrInstSrcContainerInitFieldsField *fields, IrInstSrc *result_loc)
+static Stage1ZirInst *ir_build_container_init_fields(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        size_t field_count, Stage1ZirInstContainerInitFieldsField *fields, Stage1ZirInst *result_loc)
 {
-    IrInstSrcContainerInitFields *container_init_fields_instruction =
-        ir_build_instruction<IrInstSrcContainerInitFields>(ag, scope, source_node);
+    Stage1ZirInstContainerInitFields *container_init_fields_instruction =
+        ir_build_instruction<Stage1ZirInstContainerInitFields>(ag, scope, source_node);
     container_init_fields_instruction->field_count = field_count;
     container_init_fields_instruction->fields = fields;
     container_init_fields_instruction->result_loc = result_loc;
@@ -1423,15 +1423,15 @@ static IrInstSrc *ir_build_container_init_fields(Stage1AstGen *ag, Scope *scope,
     return &container_init_fields_instruction->base;
 }
 
-static IrInstSrc *ir_build_unreachable(Stage1AstGen *ag, Scope *scope, AstNode *source_node) {
-    IrInstSrcUnreachable *inst = ir_build_instruction<IrInstSrcUnreachable>(ag, scope, source_node);
+static Stage1ZirInst *ir_build_unreachable(Stage1AstGen *ag, Scope *scope, AstNode *source_node) {
+    Stage1ZirInstUnreachable *inst = ir_build_instruction<Stage1ZirInstUnreachable>(ag, scope, source_node);
     return &inst->base;
 }
 
-static IrInstSrcStorePtr *ir_build_store_ptr(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        IrInstSrc *ptr, IrInstSrc *value)
+static Stage1ZirInstStorePtr *ir_build_store_ptr(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        Stage1ZirInst *ptr, Stage1ZirInst *value)
 {
-    IrInstSrcStorePtr *instruction = ir_build_instruction<IrInstSrcStorePtr>(ag, scope, source_node);
+    Stage1ZirInstStorePtr *instruction = ir_build_instruction<Stage1ZirInstStorePtr>(ag, scope, source_node);
     instruction->ptr = ptr;
     instruction->value = value;
 
@@ -1441,10 +1441,10 @@ static IrInstSrcStorePtr *ir_build_store_ptr(Stage1AstGen *ag, Scope *scope, Ast
     return instruction;
 }
 
-static IrInstSrc *ir_build_var_decl_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        ZigVar *var, IrInstSrc *align_value, IrInstSrc *ptr)
+static Stage1ZirInst *ir_build_var_decl_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        ZigVar *var, Stage1ZirInst *align_value, Stage1ZirInst *ptr)
 {
-    IrInstSrcDeclVar *inst = ir_build_instruction<IrInstSrcDeclVar>(ag, scope, source_node);
+    Stage1ZirInstDeclVar *inst = ir_build_instruction<Stage1ZirInstDeclVar>(ag, scope, source_node);
     inst->var = var;
     inst->align_value = align_value;
     inst->ptr = ptr;
@@ -1455,10 +1455,10 @@ static IrInstSrc *ir_build_var_decl_src(Stage1AstGen *ag, Scope *scope, AstNode 
     return &inst->base;
 }
 
-static IrInstSrc *ir_build_export(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        IrInstSrc *target, IrInstSrc *options)
+static Stage1ZirInst *ir_build_export(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        Stage1ZirInst *target, Stage1ZirInst *options)
 {
-    IrInstSrcExport *export_instruction = ir_build_instruction<IrInstSrcExport>(
+    Stage1ZirInstExport *export_instruction = ir_build_instruction<Stage1ZirInstExport>(
             ag, scope, source_node);
     export_instruction->target = target;
     export_instruction->options = options;
@@ -1469,10 +1469,10 @@ static IrInstSrc *ir_build_export(Stage1AstGen *ag, Scope *scope, AstNode *sourc
     return &export_instruction->base;
 }
 
-static IrInstSrc *ir_build_extern(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        IrInstSrc *type, IrInstSrc *options)
+static Stage1ZirInst *ir_build_extern(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        Stage1ZirInst *type, Stage1ZirInst *options)
 {
-    IrInstSrcExtern *extern_instruction = ir_build_instruction<IrInstSrcExtern>(
+    Stage1ZirInstExtern *extern_instruction = ir_build_instruction<Stage1ZirInstExtern>(
             ag, scope, source_node);
     extern_instruction->type = type;
     extern_instruction->options = options;
@@ -1483,8 +1483,8 @@ static IrInstSrc *ir_build_extern(Stage1AstGen *ag, Scope *scope, AstNode *sourc
     return &extern_instruction->base;
 }
 
-static IrInstSrc *ir_build_load_ptr(Stage1AstGen *ag, Scope *scope, AstNode *source_node, IrInstSrc *ptr) {
-    IrInstSrcLoadPtr *instruction = ir_build_instruction<IrInstSrcLoadPtr>(ag, scope, source_node);
+static Stage1ZirInst *ir_build_load_ptr(Stage1AstGen *ag, Scope *scope, AstNode *source_node, Stage1ZirInst *ptr) {
+    Stage1ZirInstLoadPtr *instruction = ir_build_instruction<Stage1ZirInstLoadPtr>(ag, scope, source_node);
     instruction->ptr = ptr;
 
     ir_ref_instruction(ptr, ag->current_basic_block);
@@ -1492,12 +1492,12 @@ static IrInstSrc *ir_build_load_ptr(Stage1AstGen *ag, Scope *scope, AstNode *sou
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_typeof_n(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        IrInstSrc **values, size_t value_count)
+static Stage1ZirInst *ir_build_typeof_n(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        Stage1ZirInst **values, size_t value_count)
 {
     assert(value_count >= 2);
 
-    IrInstSrcTypeOf *instruction = ir_build_instruction<IrInstSrcTypeOf>(ag, scope, source_node);
+    Stage1ZirInstTypeOf *instruction = ir_build_instruction<Stage1ZirInstTypeOf>(ag, scope, source_node);
     instruction->value.list = values;
     instruction->value_count = value_count;
 
@@ -1507,8 +1507,8 @@ static IrInstSrc *ir_build_typeof_n(Stage1AstGen *ag, Scope *scope, AstNode *sou
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_typeof_1(Stage1AstGen *ag, Scope *scope, AstNode *source_node, IrInstSrc *value) {
-    IrInstSrcTypeOf *instruction = ir_build_instruction<IrInstSrcTypeOf>(ag, scope, source_node);
+static Stage1ZirInst *ir_build_typeof_1(Stage1AstGen *ag, Scope *scope, AstNode *source_node, Stage1ZirInst *value) {
+    Stage1ZirInstTypeOf *instruction = ir_build_instruction<Stage1ZirInstTypeOf>(ag, scope, source_node);
     instruction->value.scalar = value;
 
     ir_ref_instruction(value, ag->current_basic_block);
@@ -1516,8 +1516,8 @@ static IrInstSrc *ir_build_typeof_1(Stage1AstGen *ag, Scope *scope, AstNode *sou
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_set_cold(Stage1AstGen *ag, Scope *scope, AstNode *source_node, IrInstSrc *is_cold) {
-    IrInstSrcSetCold *instruction = ir_build_instruction<IrInstSrcSetCold>(ag, scope, source_node);
+static Stage1ZirInst *ir_build_set_cold(Stage1AstGen *ag, Scope *scope, AstNode *source_node, Stage1ZirInst *is_cold) {
+    Stage1ZirInstSetCold *instruction = ir_build_instruction<Stage1ZirInstSetCold>(ag, scope, source_node);
     instruction->is_cold = is_cold;
 
     ir_ref_instruction(is_cold, ag->current_basic_block);
@@ -1525,10 +1525,10 @@ static IrInstSrc *ir_build_set_cold(Stage1AstGen *ag, Scope *scope, AstNode *sou
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_set_runtime_safety(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        IrInstSrc *safety_on)
+static Stage1ZirInst *ir_build_set_runtime_safety(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        Stage1ZirInst *safety_on)
 {
-    IrInstSrcSetRuntimeSafety *inst = ir_build_instruction<IrInstSrcSetRuntimeSafety>(ag, scope, source_node);
+    Stage1ZirInstSetRuntimeSafety *inst = ir_build_instruction<Stage1ZirInstSetRuntimeSafety>(ag, scope, source_node);
     inst->safety_on = safety_on;
 
     ir_ref_instruction(safety_on, ag->current_basic_block);
@@ -1536,10 +1536,10 @@ static IrInstSrc *ir_build_set_runtime_safety(Stage1AstGen *ag, Scope *scope, As
     return &inst->base;
 }
 
-static IrInstSrc *ir_build_set_float_mode(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        IrInstSrc *mode_value)
+static Stage1ZirInst *ir_build_set_float_mode(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        Stage1ZirInst *mode_value)
 {
-    IrInstSrcSetFloatMode *instruction = ir_build_instruction<IrInstSrcSetFloatMode>(ag, scope, source_node);
+    Stage1ZirInstSetFloatMode *instruction = ir_build_instruction<Stage1ZirInstSetFloatMode>(ag, scope, source_node);
     instruction->mode_value = mode_value;
 
     ir_ref_instruction(mode_value, ag->current_basic_block);
@@ -1547,10 +1547,10 @@ static IrInstSrc *ir_build_set_float_mode(Stage1AstGen *ag, Scope *scope, AstNod
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_array_type(Stage1AstGen *ag, Scope *scope, AstNode *source_node, IrInstSrc *size,
-        IrInstSrc *sentinel, IrInstSrc *child_type)
+static Stage1ZirInst *ir_build_array_type(Stage1AstGen *ag, Scope *scope, AstNode *source_node, Stage1ZirInst *size,
+        Stage1ZirInst *sentinel, Stage1ZirInst *child_type)
 {
-    IrInstSrcArrayType *instruction = ir_build_instruction<IrInstSrcArrayType>(ag, scope, source_node);
+    Stage1ZirInstArrayType *instruction = ir_build_instruction<Stage1ZirInstArrayType>(ag, scope, source_node);
     instruction->size = size;
     instruction->sentinel = sentinel;
     instruction->child_type = child_type;
@@ -1562,10 +1562,10 @@ static IrInstSrc *ir_build_array_type(Stage1AstGen *ag, Scope *scope, AstNode *s
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_anyframe_type(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        IrInstSrc *payload_type)
+static Stage1ZirInst *ir_build_anyframe_type(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        Stage1ZirInst *payload_type)
 {
-    IrInstSrcAnyFrameType *instruction = ir_build_instruction<IrInstSrcAnyFrameType>(ag, scope, source_node);
+    Stage1ZirInstAnyFrameType *instruction = ir_build_instruction<Stage1ZirInstAnyFrameType>(ag, scope, source_node);
     instruction->payload_type = payload_type;
 
     if (payload_type != nullptr) ir_ref_instruction(payload_type, ag->current_basic_block);
@@ -1573,11 +1573,11 @@ static IrInstSrc *ir_build_anyframe_type(Stage1AstGen *ag, Scope *scope, AstNode
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_slice_type(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        IrInstSrc *child_type, bool is_const, bool is_volatile,
-        IrInstSrc *sentinel, IrInstSrc *align_value, bool is_allow_zero)
+static Stage1ZirInst *ir_build_slice_type(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        Stage1ZirInst *child_type, bool is_const, bool is_volatile,
+        Stage1ZirInst *sentinel, Stage1ZirInst *align_value, bool is_allow_zero)
 {
-    IrInstSrcSliceType *instruction = ir_build_instruction<IrInstSrcSliceType>(ag, scope, source_node);
+    Stage1ZirInstSliceType *instruction = ir_build_instruction<Stage1ZirInstSliceType>(ag, scope, source_node);
     instruction->is_const = is_const;
     instruction->is_volatile = is_volatile;
     instruction->child_type = child_type;
@@ -1592,11 +1592,11 @@ static IrInstSrc *ir_build_slice_type(Stage1AstGen *ag, Scope *scope, AstNode *s
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_asm_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        IrInstSrc *asm_template, IrInstSrc **input_list, IrInstSrc **output_types,
+static Stage1ZirInst *ir_build_asm_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        Stage1ZirInst *asm_template, Stage1ZirInst **input_list, Stage1ZirInst **output_types,
         ZigVar **output_vars, size_t return_count, bool has_side_effects, bool is_global)
 {
-    IrInstSrcAsm *instruction = ir_build_instruction<IrInstSrcAsm>(ag, scope, source_node);
+    Stage1ZirInstAsm *instruction = ir_build_instruction<Stage1ZirInstAsm>(ag, scope, source_node);
     instruction->asm_template = asm_template;
     instruction->input_list = input_list;
     instruction->output_types = output_types;
@@ -1607,22 +1607,22 @@ static IrInstSrc *ir_build_asm_src(Stage1AstGen *ag, Scope *scope, AstNode *sour
 
     assert(source_node->type == NodeTypeAsmExpr);
     for (size_t i = 0; i < source_node->data.asm_expr.output_list.length; i += 1) {
-        IrInstSrc *output_type = output_types[i];
+        Stage1ZirInst *output_type = output_types[i];
         if (output_type) ir_ref_instruction(output_type, ag->current_basic_block);
     }
 
     for (size_t i = 0; i < source_node->data.asm_expr.input_list.length; i += 1) {
-        IrInstSrc *input_value = input_list[i];
+        Stage1ZirInst *input_value = input_list[i];
         ir_ref_instruction(input_value, ag->current_basic_block);
     }
 
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_size_of(Stage1AstGen *ag, Scope *scope, AstNode *source_node, IrInstSrc *type_value,
+static Stage1ZirInst *ir_build_size_of(Stage1AstGen *ag, Scope *scope, AstNode *source_node, Stage1ZirInst *type_value,
         bool bit_size)
 {
-    IrInstSrcSizeOf *instruction = ir_build_instruction<IrInstSrcSizeOf>(ag, scope, source_node);
+    Stage1ZirInstSizeOf *instruction = ir_build_instruction<Stage1ZirInstSizeOf>(ag, scope, source_node);
     instruction->type_value = type_value;
     instruction->bit_size = bit_size;
 
@@ -1631,10 +1631,10 @@ static IrInstSrc *ir_build_size_of(Stage1AstGen *ag, Scope *scope, AstNode *sour
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_test_non_null_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        IrInstSrc *value)
+static Stage1ZirInst *ir_build_test_non_null_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        Stage1ZirInst *value)
 {
-    IrInstSrcTestNonNull *instruction = ir_build_instruction<IrInstSrcTestNonNull>(ag, scope, source_node);
+    Stage1ZirInstTestNonNull *instruction = ir_build_instruction<Stage1ZirInstTestNonNull>(ag, scope, source_node);
     instruction->value = value;
 
     ir_ref_instruction(value, ag->current_basic_block);
@@ -1642,10 +1642,10 @@ static IrInstSrc *ir_build_test_non_null_src(Stage1AstGen *ag, Scope *scope, Ast
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_optional_unwrap_ptr(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        IrInstSrc *base_ptr, bool safety_check_on)
+static Stage1ZirInst *ir_build_optional_unwrap_ptr(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        Stage1ZirInst *base_ptr, bool safety_check_on)
 {
-    IrInstSrcOptionalUnwrapPtr *instruction = ir_build_instruction<IrInstSrcOptionalUnwrapPtr>(ag, scope, source_node);
+    Stage1ZirInstOptionalUnwrapPtr *instruction = ir_build_instruction<Stage1ZirInstOptionalUnwrapPtr>(ag, scope, source_node);
     instruction->base_ptr = base_ptr;
     instruction->safety_check_on = safety_check_on;
 
@@ -1654,10 +1654,10 @@ static IrInstSrc *ir_build_optional_unwrap_ptr(Stage1AstGen *ag, Scope *scope, A
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_clz(Stage1AstGen *ag, Scope *scope, AstNode *source_node, IrInstSrc *type,
-        IrInstSrc *op)
+static Stage1ZirInst *ir_build_clz(Stage1AstGen *ag, Scope *scope, AstNode *source_node, Stage1ZirInst *type,
+        Stage1ZirInst *op)
 {
-    IrInstSrcClz *instruction = ir_build_instruction<IrInstSrcClz>(ag, scope, source_node);
+    Stage1ZirInstClz *instruction = ir_build_instruction<Stage1ZirInstClz>(ag, scope, source_node);
     instruction->type = type;
     instruction->op = op;
 
@@ -1667,10 +1667,10 @@ static IrInstSrc *ir_build_clz(Stage1AstGen *ag, Scope *scope, AstNode *source_n
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_ctz(Stage1AstGen *ag, Scope *scope, AstNode *source_node, IrInstSrc *type,
-        IrInstSrc *op)
+static Stage1ZirInst *ir_build_ctz(Stage1AstGen *ag, Scope *scope, AstNode *source_node, Stage1ZirInst *type,
+        Stage1ZirInst *op)
 {
-    IrInstSrcCtz *instruction = ir_build_instruction<IrInstSrcCtz>(ag, scope, source_node);
+    Stage1ZirInstCtz *instruction = ir_build_instruction<Stage1ZirInstCtz>(ag, scope, source_node);
     instruction->type = type;
     instruction->op = op;
 
@@ -1680,10 +1680,10 @@ static IrInstSrc *ir_build_ctz(Stage1AstGen *ag, Scope *scope, AstNode *source_n
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_pop_count(Stage1AstGen *ag, Scope *scope, AstNode *source_node, IrInstSrc *type,
-        IrInstSrc *op)
+static Stage1ZirInst *ir_build_pop_count(Stage1AstGen *ag, Scope *scope, AstNode *source_node, Stage1ZirInst *type,
+        Stage1ZirInst *op)
 {
-    IrInstSrcPopCount *instruction = ir_build_instruction<IrInstSrcPopCount>(ag, scope, source_node);
+    Stage1ZirInstPopCount *instruction = ir_build_instruction<Stage1ZirInstPopCount>(ag, scope, source_node);
     instruction->type = type;
     instruction->op = op;
 
@@ -1693,10 +1693,10 @@ static IrInstSrc *ir_build_pop_count(Stage1AstGen *ag, Scope *scope, AstNode *so
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_bswap(Stage1AstGen *ag, Scope *scope, AstNode *source_node, IrInstSrc *type,
-        IrInstSrc *op)
+static Stage1ZirInst *ir_build_bswap(Stage1AstGen *ag, Scope *scope, AstNode *source_node, Stage1ZirInst *type,
+        Stage1ZirInst *op)
 {
-    IrInstSrcBswap *instruction = ir_build_instruction<IrInstSrcBswap>(ag, scope, source_node);
+    Stage1ZirInstBswap *instruction = ir_build_instruction<Stage1ZirInstBswap>(ag, scope, source_node);
     instruction->type = type;
     instruction->op = op;
 
@@ -1706,10 +1706,10 @@ static IrInstSrc *ir_build_bswap(Stage1AstGen *ag, Scope *scope, AstNode *source
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_bit_reverse(Stage1AstGen *ag, Scope *scope, AstNode *source_node, IrInstSrc *type,
-        IrInstSrc *op)
+static Stage1ZirInst *ir_build_bit_reverse(Stage1AstGen *ag, Scope *scope, AstNode *source_node, Stage1ZirInst *type,
+        Stage1ZirInst *op)
 {
-    IrInstSrcBitReverse *instruction = ir_build_instruction<IrInstSrcBitReverse>(ag, scope, source_node);
+    Stage1ZirInstBitReverse *instruction = ir_build_instruction<Stage1ZirInstBitReverse>(ag, scope, source_node);
     instruction->type = type;
     instruction->op = op;
 
@@ -1719,11 +1719,11 @@ static IrInstSrc *ir_build_bit_reverse(Stage1AstGen *ag, Scope *scope, AstNode *
     return &instruction->base;
 }
 
-static IrInstSrcSwitchBr *ir_build_switch_br_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        IrInstSrc *target_value, Stage1ZirBasicBlock *else_block, size_t case_count, IrInstSrcSwitchBrCase *cases,
-        IrInstSrc *is_comptime, IrInstSrc *switch_prongs_void)
+static Stage1ZirInstSwitchBr *ir_build_switch_br_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        Stage1ZirInst *target_value, Stage1ZirBasicBlock *else_block, size_t case_count, Stage1ZirInstSwitchBrCase *cases,
+        Stage1ZirInst *is_comptime, Stage1ZirInst *switch_prongs_void)
 {
-    IrInstSrcSwitchBr *instruction = ir_build_instruction<IrInstSrcSwitchBr>(ag, scope, source_node);
+    Stage1ZirInstSwitchBr *instruction = ir_build_instruction<Stage1ZirInstSwitchBr>(ag, scope, source_node);
     instruction->target_value = target_value;
     instruction->else_block = else_block;
     instruction->case_count = case_count;
@@ -1744,10 +1744,10 @@ static IrInstSrcSwitchBr *ir_build_switch_br_src(Stage1AstGen *ag, Scope *scope,
     return instruction;
 }
 
-static IrInstSrc *ir_build_switch_target(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        IrInstSrc *target_value_ptr)
+static Stage1ZirInst *ir_build_switch_target(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        Stage1ZirInst *target_value_ptr)
 {
-    IrInstSrcSwitchTarget *instruction = ir_build_instruction<IrInstSrcSwitchTarget>(ag, scope, source_node);
+    Stage1ZirInstSwitchTarget *instruction = ir_build_instruction<Stage1ZirInstSwitchTarget>(ag, scope, source_node);
     instruction->target_value_ptr = target_value_ptr;
 
     ir_ref_instruction(target_value_ptr, ag->current_basic_block);
@@ -1755,10 +1755,10 @@ static IrInstSrc *ir_build_switch_target(Stage1AstGen *ag, Scope *scope, AstNode
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_switch_var(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        IrInstSrc *target_value_ptr, IrInstSrc **prongs_ptr, size_t prongs_len)
+static Stage1ZirInst *ir_build_switch_var(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        Stage1ZirInst *target_value_ptr, Stage1ZirInst **prongs_ptr, size_t prongs_len)
 {
-    IrInstSrcSwitchVar *instruction = ir_build_instruction<IrInstSrcSwitchVar>(ag, scope, source_node);
+    Stage1ZirInstSwitchVar *instruction = ir_build_instruction<Stage1ZirInstSwitchVar>(ag, scope, source_node);
     instruction->target_value_ptr = target_value_ptr;
     instruction->prongs_ptr = prongs_ptr;
     instruction->prongs_len = prongs_len;
@@ -1772,10 +1772,10 @@ static IrInstSrc *ir_build_switch_var(Stage1AstGen *ag, Scope *scope, AstNode *s
 }
 
 // For this instruction the switch_br must be set later.
-static IrInstSrcSwitchElseVar *ir_build_switch_else_var(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        IrInstSrc *target_value_ptr)
+static Stage1ZirInstSwitchElseVar *ir_build_switch_else_var(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        Stage1ZirInst *target_value_ptr)
 {
-    IrInstSrcSwitchElseVar *instruction = ir_build_instruction<IrInstSrcSwitchElseVar>(ag, scope, source_node);
+    Stage1ZirInstSwitchElseVar *instruction = ir_build_instruction<Stage1ZirInstSwitchElseVar>(ag, scope, source_node);
     instruction->target_value_ptr = target_value_ptr;
 
     ir_ref_instruction(target_value_ptr, ag->current_basic_block);
@@ -1783,8 +1783,8 @@ static IrInstSrcSwitchElseVar *ir_build_switch_else_var(Stage1AstGen *ag, Scope 
     return instruction;
 }
 
-static IrInstSrc *ir_build_import(Stage1AstGen *ag, Scope *scope, AstNode *source_node, IrInstSrc *name) {
-    IrInstSrcImport *instruction = ir_build_instruction<IrInstSrcImport>(ag, scope, source_node);
+static Stage1ZirInst *ir_build_import(Stage1AstGen *ag, Scope *scope, AstNode *source_node, Stage1ZirInst *name) {
+    Stage1ZirInstImport *instruction = ir_build_instruction<Stage1ZirInstImport>(ag, scope, source_node);
     instruction->name = name;
 
     ir_ref_instruction(name, ag->current_basic_block);
@@ -1792,8 +1792,8 @@ static IrInstSrc *ir_build_import(Stage1AstGen *ag, Scope *scope, AstNode *sourc
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_ref_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node, IrInstSrc *value) {
-    IrInstSrcRef *instruction = ir_build_instruction<IrInstSrcRef>(ag, scope, source_node);
+static Stage1ZirInst *ir_build_ref_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node, Stage1ZirInst *value) {
+    Stage1ZirInstRef *instruction = ir_build_instruction<Stage1ZirInstRef>(ag, scope, source_node);
     instruction->value = value;
 
     ir_ref_instruction(value, ag->current_basic_block);
@@ -1801,8 +1801,8 @@ static IrInstSrc *ir_build_ref_src(Stage1AstGen *ag, Scope *scope, AstNode *sour
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_compile_err(Stage1AstGen *ag, Scope *scope, AstNode *source_node, IrInstSrc *msg) {
-    IrInstSrcCompileErr *instruction = ir_build_instruction<IrInstSrcCompileErr>(ag, scope, source_node);
+static Stage1ZirInst *ir_build_compile_err(Stage1AstGen *ag, Scope *scope, AstNode *source_node, Stage1ZirInst *msg) {
+    Stage1ZirInstCompileErr *instruction = ir_build_instruction<Stage1ZirInstCompileErr>(ag, scope, source_node);
     instruction->msg = msg;
 
     ir_ref_instruction(msg, ag->current_basic_block);
@@ -1810,10 +1810,10 @@ static IrInstSrc *ir_build_compile_err(Stage1AstGen *ag, Scope *scope, AstNode *
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_compile_log(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        size_t msg_count, IrInstSrc **msg_list)
+static Stage1ZirInst *ir_build_compile_log(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        size_t msg_count, Stage1ZirInst **msg_list)
 {
-    IrInstSrcCompileLog *instruction = ir_build_instruction<IrInstSrcCompileLog>(ag, scope, source_node);
+    Stage1ZirInstCompileLog *instruction = ir_build_instruction<Stage1ZirInstCompileLog>(ag, scope, source_node);
     instruction->msg_count = msg_count;
     instruction->msg_list = msg_list;
 
@@ -1824,8 +1824,8 @@ static IrInstSrc *ir_build_compile_log(Stage1AstGen *ag, Scope *scope, AstNode *
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_err_name(Stage1AstGen *ag, Scope *scope, AstNode *source_node, IrInstSrc *value) {
-    IrInstSrcErrName *instruction = ir_build_instruction<IrInstSrcErrName>(ag, scope, source_node);
+static Stage1ZirInst *ir_build_err_name(Stage1AstGen *ag, Scope *scope, AstNode *source_node, Stage1ZirInst *value) {
+    Stage1ZirInstErrName *instruction = ir_build_instruction<Stage1ZirInstErrName>(ag, scope, source_node);
     instruction->value = value;
 
     ir_ref_instruction(value, ag->current_basic_block);
@@ -1833,13 +1833,13 @@ static IrInstSrc *ir_build_err_name(Stage1AstGen *ag, Scope *scope, AstNode *sou
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_c_import(Stage1AstGen *ag, Scope *scope, AstNode *source_node) {
-    IrInstSrcCImport *instruction = ir_build_instruction<IrInstSrcCImport>(ag, scope, source_node);
+static Stage1ZirInst *ir_build_c_import(Stage1AstGen *ag, Scope *scope, AstNode *source_node) {
+    Stage1ZirInstCImport *instruction = ir_build_instruction<Stage1ZirInstCImport>(ag, scope, source_node);
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_c_include(Stage1AstGen *ag, Scope *scope, AstNode *source_node, IrInstSrc *name) {
-    IrInstSrcCInclude *instruction = ir_build_instruction<IrInstSrcCInclude>(ag, scope, source_node);
+static Stage1ZirInst *ir_build_c_include(Stage1AstGen *ag, Scope *scope, AstNode *source_node, Stage1ZirInst *name) {
+    Stage1ZirInstCInclude *instruction = ir_build_instruction<Stage1ZirInstCInclude>(ag, scope, source_node);
     instruction->name = name;
 
     ir_ref_instruction(name, ag->current_basic_block);
@@ -1847,8 +1847,8 @@ static IrInstSrc *ir_build_c_include(Stage1AstGen *ag, Scope *scope, AstNode *so
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_c_define(Stage1AstGen *ag, Scope *scope, AstNode *source_node, IrInstSrc *name, IrInstSrc *value) {
-    IrInstSrcCDefine *instruction = ir_build_instruction<IrInstSrcCDefine>(ag, scope, source_node);
+static Stage1ZirInst *ir_build_c_define(Stage1AstGen *ag, Scope *scope, AstNode *source_node, Stage1ZirInst *name, Stage1ZirInst *value) {
+    Stage1ZirInstCDefine *instruction = ir_build_instruction<Stage1ZirInstCDefine>(ag, scope, source_node);
     instruction->name = name;
     instruction->value = value;
 
@@ -1858,8 +1858,8 @@ static IrInstSrc *ir_build_c_define(Stage1AstGen *ag, Scope *scope, AstNode *sou
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_c_undef(Stage1AstGen *ag, Scope *scope, AstNode *source_node, IrInstSrc *name) {
-    IrInstSrcCUndef *instruction = ir_build_instruction<IrInstSrcCUndef>(ag, scope, source_node);
+static Stage1ZirInst *ir_build_c_undef(Stage1AstGen *ag, Scope *scope, AstNode *source_node, Stage1ZirInst *name) {
+    Stage1ZirInstCUndef *instruction = ir_build_instruction<Stage1ZirInstCUndef>(ag, scope, source_node);
     instruction->name = name;
 
     ir_ref_instruction(name, ag->current_basic_block);
@@ -1867,8 +1867,8 @@ static IrInstSrc *ir_build_c_undef(Stage1AstGen *ag, Scope *scope, AstNode *sour
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_embed_file(Stage1AstGen *ag, Scope *scope, AstNode *source_node, IrInstSrc *name) {
-    IrInstSrcEmbedFile *instruction = ir_build_instruction<IrInstSrcEmbedFile>(ag, scope, source_node);
+static Stage1ZirInst *ir_build_embed_file(Stage1AstGen *ag, Scope *scope, AstNode *source_node, Stage1ZirInst *name) {
+    Stage1ZirInstEmbedFile *instruction = ir_build_instruction<Stage1ZirInstEmbedFile>(ag, scope, source_node);
     instruction->name = name;
 
     ir_ref_instruction(name, ag->current_basic_block);
@@ -1876,11 +1876,11 @@ static IrInstSrc *ir_build_embed_file(Stage1AstGen *ag, Scope *scope, AstNode *s
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_cmpxchg_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-    IrInstSrc *type_value, IrInstSrc *ptr, IrInstSrc *cmp_value, IrInstSrc *new_value,
-    IrInstSrc *success_order_value, IrInstSrc *failure_order_value, bool is_weak, ResultLoc *result_loc)
+static Stage1ZirInst *ir_build_cmpxchg_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+    Stage1ZirInst *type_value, Stage1ZirInst *ptr, Stage1ZirInst *cmp_value, Stage1ZirInst *new_value,
+    Stage1ZirInst *success_order_value, Stage1ZirInst *failure_order_value, bool is_weak, ResultLoc *result_loc)
 {
-    IrInstSrcCmpxchg *instruction = ir_build_instruction<IrInstSrcCmpxchg>(ag, scope, source_node);
+    Stage1ZirInstCmpxchg *instruction = ir_build_instruction<Stage1ZirInstCmpxchg>(ag, scope, source_node);
     instruction->type_value = type_value;
     instruction->ptr = ptr;
     instruction->cmp_value = cmp_value;
@@ -1900,8 +1900,8 @@ static IrInstSrc *ir_build_cmpxchg_src(Stage1AstGen *ag, Scope *scope, AstNode *
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_fence(Stage1AstGen *ag, Scope *scope, AstNode *source_node, IrInstSrc *order) {
-    IrInstSrcFence *instruction = ir_build_instruction<IrInstSrcFence>(ag, scope, source_node);
+static Stage1ZirInst *ir_build_fence(Stage1AstGen *ag, Scope *scope, AstNode *source_node, Stage1ZirInst *order) {
+    Stage1ZirInstFence *instruction = ir_build_instruction<Stage1ZirInstFence>(ag, scope, source_node);
     instruction->order = order;
 
     ir_ref_instruction(order, ag->current_basic_block);
@@ -1909,8 +1909,8 @@ static IrInstSrc *ir_build_fence(Stage1AstGen *ag, Scope *scope, AstNode *source
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_reduce(Stage1AstGen *ag, Scope *scope, AstNode *source_node, IrInstSrc *op, IrInstSrc *value) {
-    IrInstSrcReduce *instruction = ir_build_instruction<IrInstSrcReduce>(ag, scope, source_node);
+static Stage1ZirInst *ir_build_reduce(Stage1AstGen *ag, Scope *scope, AstNode *source_node, Stage1ZirInst *op, Stage1ZirInst *value) {
+    Stage1ZirInstReduce *instruction = ir_build_instruction<Stage1ZirInstReduce>(ag, scope, source_node);
     instruction->op = op;
     instruction->value = value;
 
@@ -1920,10 +1920,10 @@ static IrInstSrc *ir_build_reduce(Stage1AstGen *ag, Scope *scope, AstNode *sourc
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_truncate(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        IrInstSrc *dest_type, IrInstSrc *target)
+static Stage1ZirInst *ir_build_truncate(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        Stage1ZirInst *dest_type, Stage1ZirInst *target)
 {
-    IrInstSrcTruncate *instruction = ir_build_instruction<IrInstSrcTruncate>(ag, scope, source_node);
+    Stage1ZirInstTruncate *instruction = ir_build_instruction<Stage1ZirInstTruncate>(ag, scope, source_node);
     instruction->dest_type = dest_type;
     instruction->target = target;
 
@@ -1933,10 +1933,10 @@ static IrInstSrc *ir_build_truncate(Stage1AstGen *ag, Scope *scope, AstNode *sou
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_int_cast(Stage1AstGen *ag, Scope *scope, AstNode *source_node, IrInstSrc *dest_type,
-        IrInstSrc *target)
+static Stage1ZirInst *ir_build_int_cast(Stage1AstGen *ag, Scope *scope, AstNode *source_node, Stage1ZirInst *dest_type,
+        Stage1ZirInst *target)
 {
-    IrInstSrcIntCast *instruction = ir_build_instruction<IrInstSrcIntCast>(ag, scope, source_node);
+    Stage1ZirInstIntCast *instruction = ir_build_instruction<Stage1ZirInstIntCast>(ag, scope, source_node);
     instruction->dest_type = dest_type;
     instruction->target = target;
 
@@ -1946,10 +1946,10 @@ static IrInstSrc *ir_build_int_cast(Stage1AstGen *ag, Scope *scope, AstNode *sou
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_float_cast(Stage1AstGen *ag, Scope *scope, AstNode *source_node, IrInstSrc *dest_type,
-        IrInstSrc *target)
+static Stage1ZirInst *ir_build_float_cast(Stage1AstGen *ag, Scope *scope, AstNode *source_node, Stage1ZirInst *dest_type,
+        Stage1ZirInst *target)
 {
-    IrInstSrcFloatCast *instruction = ir_build_instruction<IrInstSrcFloatCast>(ag, scope, source_node);
+    Stage1ZirInstFloatCast *instruction = ir_build_instruction<Stage1ZirInstFloatCast>(ag, scope, source_node);
     instruction->dest_type = dest_type;
     instruction->target = target;
 
@@ -1959,10 +1959,10 @@ static IrInstSrc *ir_build_float_cast(Stage1AstGen *ag, Scope *scope, AstNode *s
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_err_set_cast(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        IrInstSrc *dest_type, IrInstSrc *target)
+static Stage1ZirInst *ir_build_err_set_cast(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        Stage1ZirInst *dest_type, Stage1ZirInst *target)
 {
-    IrInstSrcErrSetCast *instruction = ir_build_instruction<IrInstSrcErrSetCast>(ag, scope, source_node);
+    Stage1ZirInstErrSetCast *instruction = ir_build_instruction<Stage1ZirInstErrSetCast>(ag, scope, source_node);
     instruction->dest_type = dest_type;
     instruction->target = target;
 
@@ -1972,10 +1972,10 @@ static IrInstSrc *ir_build_err_set_cast(Stage1AstGen *ag, Scope *scope, AstNode 
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_int_to_float(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        IrInstSrc *dest_type, IrInstSrc *target)
+static Stage1ZirInst *ir_build_int_to_float(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        Stage1ZirInst *dest_type, Stage1ZirInst *target)
 {
-    IrInstSrcIntToFloat *instruction = ir_build_instruction<IrInstSrcIntToFloat>(ag, scope, source_node);
+    Stage1ZirInstIntToFloat *instruction = ir_build_instruction<Stage1ZirInstIntToFloat>(ag, scope, source_node);
     instruction->dest_type = dest_type;
     instruction->target = target;
 
@@ -1985,10 +1985,10 @@ static IrInstSrc *ir_build_int_to_float(Stage1AstGen *ag, Scope *scope, AstNode 
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_float_to_int(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        IrInstSrc *dest_type, IrInstSrc *target)
+static Stage1ZirInst *ir_build_float_to_int(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        Stage1ZirInst *dest_type, Stage1ZirInst *target)
 {
-    IrInstSrcFloatToInt *instruction = ir_build_instruction<IrInstSrcFloatToInt>(ag, scope, source_node);
+    Stage1ZirInstFloatToInt *instruction = ir_build_instruction<Stage1ZirInstFloatToInt>(ag, scope, source_node);
     instruction->dest_type = dest_type;
     instruction->target = target;
 
@@ -1998,8 +1998,8 @@ static IrInstSrc *ir_build_float_to_int(Stage1AstGen *ag, Scope *scope, AstNode 
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_bool_to_int(Stage1AstGen *ag, Scope *scope, AstNode *source_node, IrInstSrc *target) {
-    IrInstSrcBoolToInt *instruction = ir_build_instruction<IrInstSrcBoolToInt>(ag, scope, source_node);
+static Stage1ZirInst *ir_build_bool_to_int(Stage1AstGen *ag, Scope *scope, AstNode *source_node, Stage1ZirInst *target) {
+    Stage1ZirInstBoolToInt *instruction = ir_build_instruction<Stage1ZirInstBoolToInt>(ag, scope, source_node);
     instruction->target = target;
 
     ir_ref_instruction(target, ag->current_basic_block);
@@ -2007,10 +2007,10 @@ static IrInstSrc *ir_build_bool_to_int(Stage1AstGen *ag, Scope *scope, AstNode *
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_vector_type(Stage1AstGen *ag, Scope *scope, AstNode *source_node, IrInstSrc *len,
-        IrInstSrc *elem_type)
+static Stage1ZirInst *ir_build_vector_type(Stage1AstGen *ag, Scope *scope, AstNode *source_node, Stage1ZirInst *len,
+        Stage1ZirInst *elem_type)
 {
-    IrInstSrcVectorType *instruction = ir_build_instruction<IrInstSrcVectorType>(ag, scope, source_node);
+    Stage1ZirInstVectorType *instruction = ir_build_instruction<Stage1ZirInstVectorType>(ag, scope, source_node);
     instruction->len = len;
     instruction->elem_type = elem_type;
 
@@ -2020,10 +2020,10 @@ static IrInstSrc *ir_build_vector_type(Stage1AstGen *ag, Scope *scope, AstNode *
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_shuffle_vector(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-    IrInstSrc *scalar_type, IrInstSrc *a, IrInstSrc *b, IrInstSrc *mask)
+static Stage1ZirInst *ir_build_shuffle_vector(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+    Stage1ZirInst *scalar_type, Stage1ZirInst *a, Stage1ZirInst *b, Stage1ZirInst *mask)
 {
-    IrInstSrcShuffleVector *instruction = ir_build_instruction<IrInstSrcShuffleVector>(ag, scope, source_node);
+    Stage1ZirInstShuffleVector *instruction = ir_build_instruction<Stage1ZirInstShuffleVector>(ag, scope, source_node);
     instruction->scalar_type = scalar_type;
     instruction->a = a;
     instruction->b = b;
@@ -2037,10 +2037,10 @@ static IrInstSrc *ir_build_shuffle_vector(Stage1AstGen *ag, Scope *scope, AstNod
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_splat_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-    IrInstSrc *len, IrInstSrc *scalar)
+static Stage1ZirInst *ir_build_splat_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+    Stage1ZirInst *len, Stage1ZirInst *scalar)
 {
-    IrInstSrcSplat *instruction = ir_build_instruction<IrInstSrcSplat>(ag, scope, source_node);
+    Stage1ZirInstSplat *instruction = ir_build_instruction<Stage1ZirInstSplat>(ag, scope, source_node);
     instruction->len = len;
     instruction->scalar = scalar;
 
@@ -2050,8 +2050,8 @@ static IrInstSrc *ir_build_splat_src(Stage1AstGen *ag, Scope *scope, AstNode *so
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_bool_not(Stage1AstGen *ag, Scope *scope, AstNode *source_node, IrInstSrc *value) {
-    IrInstSrcBoolNot *instruction = ir_build_instruction<IrInstSrcBoolNot>(ag, scope, source_node);
+static Stage1ZirInst *ir_build_bool_not(Stage1AstGen *ag, Scope *scope, AstNode *source_node, Stage1ZirInst *value) {
+    Stage1ZirInstBoolNot *instruction = ir_build_instruction<Stage1ZirInstBoolNot>(ag, scope, source_node);
     instruction->value = value;
 
     ir_ref_instruction(value, ag->current_basic_block);
@@ -2059,10 +2059,10 @@ static IrInstSrc *ir_build_bool_not(Stage1AstGen *ag, Scope *scope, AstNode *sou
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_memset_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-    IrInstSrc *dest_ptr, IrInstSrc *byte, IrInstSrc *count)
+static Stage1ZirInst *ir_build_memset_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+    Stage1ZirInst *dest_ptr, Stage1ZirInst *byte, Stage1ZirInst *count)
 {
-    IrInstSrcMemset *instruction = ir_build_instruction<IrInstSrcMemset>(ag, scope, source_node);
+    Stage1ZirInstMemset *instruction = ir_build_instruction<Stage1ZirInstMemset>(ag, scope, source_node);
     instruction->dest_ptr = dest_ptr;
     instruction->byte = byte;
     instruction->count = count;
@@ -2074,10 +2074,10 @@ static IrInstSrc *ir_build_memset_src(Stage1AstGen *ag, Scope *scope, AstNode *s
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_memcpy_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-    IrInstSrc *dest_ptr, IrInstSrc *src_ptr, IrInstSrc *count)
+static Stage1ZirInst *ir_build_memcpy_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+    Stage1ZirInst *dest_ptr, Stage1ZirInst *src_ptr, Stage1ZirInst *count)
 {
-    IrInstSrcMemcpy *instruction = ir_build_instruction<IrInstSrcMemcpy>(ag, scope, source_node);
+    Stage1ZirInstMemcpy *instruction = ir_build_instruction<Stage1ZirInstMemcpy>(ag, scope, source_node);
     instruction->dest_ptr = dest_ptr;
     instruction->src_ptr = src_ptr;
     instruction->count = count;
@@ -2089,11 +2089,11 @@ static IrInstSrc *ir_build_memcpy_src(Stage1AstGen *ag, Scope *scope, AstNode *s
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_slice_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-    IrInstSrc *ptr, IrInstSrc *start, IrInstSrc *end, IrInstSrc *sentinel,
+static Stage1ZirInst *ir_build_slice_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+    Stage1ZirInst *ptr, Stage1ZirInst *start, Stage1ZirInst *end, Stage1ZirInst *sentinel,
     bool safety_check_on, ResultLoc *result_loc)
 {
-    IrInstSrcSlice *instruction = ir_build_instruction<IrInstSrcSlice>(ag, scope, source_node);
+    Stage1ZirInstSlice *instruction = ir_build_instruction<Stage1ZirInstSlice>(ag, scope, source_node);
     instruction->ptr = ptr;
     instruction->start = start;
     instruction->end = end;
@@ -2109,28 +2109,28 @@ static IrInstSrc *ir_build_slice_src(Stage1AstGen *ag, Scope *scope, AstNode *so
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_breakpoint(Stage1AstGen *ag, Scope *scope, AstNode *source_node) {
-    IrInstSrcBreakpoint *instruction = ir_build_instruction<IrInstSrcBreakpoint>(ag, scope, source_node);
+static Stage1ZirInst *ir_build_breakpoint(Stage1AstGen *ag, Scope *scope, AstNode *source_node) {
+    Stage1ZirInstBreakpoint *instruction = ir_build_instruction<Stage1ZirInstBreakpoint>(ag, scope, source_node);
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_return_address_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node) {
-    IrInstSrcReturnAddress *instruction = ir_build_instruction<IrInstSrcReturnAddress>(ag, scope, source_node);
+static Stage1ZirInst *ir_build_return_address_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node) {
+    Stage1ZirInstReturnAddress *instruction = ir_build_instruction<Stage1ZirInstReturnAddress>(ag, scope, source_node);
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_frame_address_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node) {
-    IrInstSrcFrameAddress *inst = ir_build_instruction<IrInstSrcFrameAddress>(ag, scope, source_node);
+static Stage1ZirInst *ir_build_frame_address_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node) {
+    Stage1ZirInstFrameAddress *inst = ir_build_instruction<Stage1ZirInstFrameAddress>(ag, scope, source_node);
     return &inst->base;
 }
 
-static IrInstSrc *ir_build_handle_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node) {
-    IrInstSrcFrameHandle *inst = ir_build_instruction<IrInstSrcFrameHandle>(ag, scope, source_node);
+static Stage1ZirInst *ir_build_handle_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node) {
+    Stage1ZirInstFrameHandle *inst = ir_build_instruction<Stage1ZirInstFrameHandle>(ag, scope, source_node);
     return &inst->base;
 }
 
-static IrInstSrc *ir_build_frame_type(Stage1AstGen *ag, Scope *scope, AstNode *source_node, IrInstSrc *fn) {
-    IrInstSrcFrameType *inst = ir_build_instruction<IrInstSrcFrameType>(ag, scope, source_node);
+static Stage1ZirInst *ir_build_frame_type(Stage1AstGen *ag, Scope *scope, AstNode *source_node, Stage1ZirInst *fn) {
+    Stage1ZirInstFrameType *inst = ir_build_instruction<Stage1ZirInstFrameType>(ag, scope, source_node);
     inst->fn = fn;
 
     ir_ref_instruction(fn, ag->current_basic_block);
@@ -2138,8 +2138,8 @@ static IrInstSrc *ir_build_frame_type(Stage1AstGen *ag, Scope *scope, AstNode *s
     return &inst->base;
 }
 
-static IrInstSrc *ir_build_frame_size_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node, IrInstSrc *fn) {
-    IrInstSrcFrameSize *inst = ir_build_instruction<IrInstSrcFrameSize>(ag, scope, source_node);
+static Stage1ZirInst *ir_build_frame_size_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node, Stage1ZirInst *fn) {
+    Stage1ZirInstFrameSize *inst = ir_build_instruction<Stage1ZirInstFrameSize>(ag, scope, source_node);
     inst->fn = fn;
 
     ir_ref_instruction(fn, ag->current_basic_block);
@@ -2147,10 +2147,10 @@ static IrInstSrc *ir_build_frame_size_src(Stage1AstGen *ag, Scope *scope, AstNod
     return &inst->base;
 }
 
-static IrInstSrc *ir_build_overflow_op_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        IrOverflowOp op, IrInstSrc *type_value, IrInstSrc *op1, IrInstSrc *op2, IrInstSrc *result_ptr)
+static Stage1ZirInst *ir_build_overflow_op_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        IrOverflowOp op, Stage1ZirInst *type_value, Stage1ZirInst *op1, Stage1ZirInst *op2, Stage1ZirInst *result_ptr)
 {
-    IrInstSrcOverflowOp *instruction = ir_build_instruction<IrInstSrcOverflowOp>(ag, scope, source_node);
+    Stage1ZirInstOverflowOp *instruction = ir_build_instruction<Stage1ZirInstOverflowOp>(ag, scope, source_node);
     instruction->op = op;
     instruction->type_value = type_value;
     instruction->op1 = op1;
@@ -2165,10 +2165,10 @@ static IrInstSrc *ir_build_overflow_op_src(Stage1AstGen *ag, Scope *scope, AstNo
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_float_op_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node, IrInstSrc *operand,
+static Stage1ZirInst *ir_build_float_op_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node, Stage1ZirInst *operand,
         BuiltinFnId fn_id)
 {
-    IrInstSrcFloatOp *instruction = ir_build_instruction<IrInstSrcFloatOp>(ag, scope, source_node);
+    Stage1ZirInstFloatOp *instruction = ir_build_instruction<Stage1ZirInstFloatOp>(ag, scope, source_node);
     instruction->operand = operand;
     instruction->fn_id = fn_id;
 
@@ -2177,10 +2177,10 @@ static IrInstSrc *ir_build_float_op_src(Stage1AstGen *ag, Scope *scope, AstNode 
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_mul_add_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        IrInstSrc *type_value, IrInstSrc *op1, IrInstSrc *op2, IrInstSrc *op3)
+static Stage1ZirInst *ir_build_mul_add_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        Stage1ZirInst *type_value, Stage1ZirInst *op1, Stage1ZirInst *op2, Stage1ZirInst *op3)
 {
-    IrInstSrcMulAdd *instruction = ir_build_instruction<IrInstSrcMulAdd>(ag, scope, source_node);
+    Stage1ZirInstMulAdd *instruction = ir_build_instruction<Stage1ZirInstMulAdd>(ag, scope, source_node);
     instruction->type_value = type_value;
     instruction->op1 = op1;
     instruction->op2 = op2;
@@ -2194,8 +2194,8 @@ static IrInstSrc *ir_build_mul_add_src(Stage1AstGen *ag, Scope *scope, AstNode *
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_align_of(Stage1AstGen *ag, Scope *scope, AstNode *source_node, IrInstSrc *type_value) {
-    IrInstSrcAlignOf *instruction = ir_build_instruction<IrInstSrcAlignOf>(ag, scope, source_node);
+static Stage1ZirInst *ir_build_align_of(Stage1AstGen *ag, Scope *scope, AstNode *source_node, Stage1ZirInst *type_value) {
+    Stage1ZirInstAlignOf *instruction = ir_build_instruction<Stage1ZirInstAlignOf>(ag, scope, source_node);
     instruction->type_value = type_value;
 
     ir_ref_instruction(type_value, ag->current_basic_block);
@@ -2203,10 +2203,10 @@ static IrInstSrc *ir_build_align_of(Stage1AstGen *ag, Scope *scope, AstNode *sou
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_test_err_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-    IrInstSrc *base_ptr, bool resolve_err_set, bool base_ptr_is_payload)
+static Stage1ZirInst *ir_build_test_err_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+    Stage1ZirInst *base_ptr, bool resolve_err_set, bool base_ptr_is_payload)
 {
-    IrInstSrcTestErr *instruction = ir_build_instruction<IrInstSrcTestErr>(ag, scope, source_node);
+    Stage1ZirInstTestErr *instruction = ir_build_instruction<Stage1ZirInstTestErr>(ag, scope, source_node);
     instruction->base_ptr = base_ptr;
     instruction->resolve_err_set = resolve_err_set;
     instruction->base_ptr_is_payload = base_ptr_is_payload;
@@ -2216,10 +2216,10 @@ static IrInstSrc *ir_build_test_err_src(Stage1AstGen *ag, Scope *scope, AstNode 
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_unwrap_err_code_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-    IrInstSrc *err_union_ptr)
+static Stage1ZirInst *ir_build_unwrap_err_code_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+    Stage1ZirInst *err_union_ptr)
 {
-    IrInstSrcUnwrapErrCode *inst = ir_build_instruction<IrInstSrcUnwrapErrCode>(ag, scope, source_node);
+    Stage1ZirInstUnwrapErrCode *inst = ir_build_instruction<Stage1ZirInstUnwrapErrCode>(ag, scope, source_node);
     inst->err_union_ptr = err_union_ptr;
 
     ir_ref_instruction(err_union_ptr, ag->current_basic_block);
@@ -2227,10 +2227,10 @@ static IrInstSrc *ir_build_unwrap_err_code_src(Stage1AstGen *ag, Scope *scope, A
     return &inst->base;
 }
 
-static IrInstSrc *ir_build_unwrap_err_payload_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-    IrInstSrc *value, bool safety_check_on, bool initializing)
+static Stage1ZirInst *ir_build_unwrap_err_payload_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+    Stage1ZirInst *value, bool safety_check_on, bool initializing)
 {
-    IrInstSrcUnwrapErrPayload *inst = ir_build_instruction<IrInstSrcUnwrapErrPayload>(ag, scope, source_node);
+    Stage1ZirInstUnwrapErrPayload *inst = ir_build_instruction<Stage1ZirInstUnwrapErrPayload>(ag, scope, source_node);
     inst->value = value;
     inst->safety_check_on = safety_check_on;
     inst->initializing = initializing;
@@ -2240,11 +2240,11 @@ static IrInstSrc *ir_build_unwrap_err_payload_src(Stage1AstGen *ag, Scope *scope
     return &inst->base;
 }
 
-static IrInstSrc *ir_build_fn_proto(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-    IrInstSrc **param_types, IrInstSrc *align_value, IrInstSrc *callconv_value,
-    IrInstSrc *return_type, bool is_var_args)
+static Stage1ZirInst *ir_build_fn_proto(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+    Stage1ZirInst **param_types, Stage1ZirInst *align_value, Stage1ZirInst *callconv_value,
+    Stage1ZirInst *return_type, bool is_var_args)
 {
-    IrInstSrcFnProto *instruction = ir_build_instruction<IrInstSrcFnProto>(ag, scope, source_node);
+    Stage1ZirInstFnProto *instruction = ir_build_instruction<Stage1ZirInstFnProto>(ag, scope, source_node);
     instruction->param_types = param_types;
     instruction->align_value = align_value;
     instruction->callconv_value = callconv_value;
@@ -2264,8 +2264,8 @@ static IrInstSrc *ir_build_fn_proto(Stage1AstGen *ag, Scope *scope, AstNode *sou
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_test_comptime(Stage1AstGen *ag, Scope *scope, AstNode *source_node, IrInstSrc *value) {
-    IrInstSrcTestComptime *instruction = ir_build_instruction<IrInstSrcTestComptime>(ag, scope, source_node);
+static Stage1ZirInst *ir_build_test_comptime(Stage1AstGen *ag, Scope *scope, AstNode *source_node, Stage1ZirInst *value) {
+    Stage1ZirInstTestComptime *instruction = ir_build_instruction<Stage1ZirInstTestComptime>(ag, scope, source_node);
     instruction->value = value;
 
     ir_ref_instruction(value, ag->current_basic_block);
@@ -2273,10 +2273,10 @@ static IrInstSrc *ir_build_test_comptime(Stage1AstGen *ag, Scope *scope, AstNode
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_ptr_cast_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        IrInstSrc *dest_type, IrInstSrc *ptr, bool safety_check_on)
+static Stage1ZirInst *ir_build_ptr_cast_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        Stage1ZirInst *dest_type, Stage1ZirInst *ptr, bool safety_check_on)
 {
-    IrInstSrcPtrCast *instruction = ir_build_instruction<IrInstSrcPtrCast>(
+    Stage1ZirInstPtrCast *instruction = ir_build_instruction<Stage1ZirInstPtrCast>(
             ag, scope, source_node);
     instruction->dest_type = dest_type;
     instruction->ptr = ptr;
@@ -2288,10 +2288,10 @@ static IrInstSrc *ir_build_ptr_cast_src(Stage1AstGen *ag, Scope *scope, AstNode 
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_implicit_cast(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        IrInstSrc *operand, ResultLocCast *result_loc_cast)
+static Stage1ZirInst *ir_build_implicit_cast(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        Stage1ZirInst *operand, ResultLocCast *result_loc_cast)
 {
-    IrInstSrcImplicitCast *instruction = ir_build_instruction<IrInstSrcImplicitCast>(ag, scope, source_node);
+    Stage1ZirInstImplicitCast *instruction = ir_build_instruction<Stage1ZirInstImplicitCast>(ag, scope, source_node);
     instruction->operand = operand;
     instruction->result_loc_cast = result_loc_cast;
 
@@ -2300,10 +2300,10 @@ static IrInstSrc *ir_build_implicit_cast(Stage1AstGen *ag, Scope *scope, AstNode
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_bit_cast_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        IrInstSrc *operand, ResultLocBitCast *result_loc_bit_cast)
+static Stage1ZirInst *ir_build_bit_cast_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        Stage1ZirInst *operand, ResultLocBitCast *result_loc_bit_cast)
 {
-    IrInstSrcBitCast *instruction = ir_build_instruction<IrInstSrcBitCast>(ag, scope, source_node);
+    Stage1ZirInstBitCast *instruction = ir_build_instruction<Stage1ZirInstBitCast>(ag, scope, source_node);
     instruction->operand = operand;
     instruction->result_loc_bit_cast = result_loc_bit_cast;
 
@@ -2312,10 +2312,10 @@ static IrInstSrc *ir_build_bit_cast_src(Stage1AstGen *ag, Scope *scope, AstNode 
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_int_to_ptr_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        IrInstSrc *dest_type, IrInstSrc *target)
+static Stage1ZirInst *ir_build_int_to_ptr_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        Stage1ZirInst *dest_type, Stage1ZirInst *target)
 {
-    IrInstSrcIntToPtr *instruction = ir_build_instruction<IrInstSrcIntToPtr>(ag, scope, source_node);
+    Stage1ZirInstIntToPtr *instruction = ir_build_instruction<Stage1ZirInstIntToPtr>(ag, scope, source_node);
     instruction->dest_type = dest_type;
     instruction->target = target;
 
@@ -2325,10 +2325,10 @@ static IrInstSrc *ir_build_int_to_ptr_src(Stage1AstGen *ag, Scope *scope, AstNod
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_ptr_to_int_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        IrInstSrc *target)
+static Stage1ZirInst *ir_build_ptr_to_int_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        Stage1ZirInst *target)
 {
-    IrInstSrcPtrToInt *inst = ir_build_instruction<IrInstSrcPtrToInt>(ag, scope, source_node);
+    Stage1ZirInstPtrToInt *inst = ir_build_instruction<Stage1ZirInstPtrToInt>(ag, scope, source_node);
     inst->target = target;
 
     ir_ref_instruction(target, ag->current_basic_block);
@@ -2336,10 +2336,10 @@ static IrInstSrc *ir_build_ptr_to_int_src(Stage1AstGen *ag, Scope *scope, AstNod
     return &inst->base;
 }
 
-static IrInstSrc *ir_build_int_to_enum_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        IrInstSrc *dest_type, IrInstSrc *target)
+static Stage1ZirInst *ir_build_int_to_enum_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        Stage1ZirInst *dest_type, Stage1ZirInst *target)
 {
-    IrInstSrcIntToEnum *instruction = ir_build_instruction<IrInstSrcIntToEnum>(ag, scope, source_node);
+    Stage1ZirInstIntToEnum *instruction = ir_build_instruction<Stage1ZirInstIntToEnum>(ag, scope, source_node);
     instruction->dest_type = dest_type;
     instruction->target = target;
 
@@ -2349,10 +2349,10 @@ static IrInstSrc *ir_build_int_to_enum_src(Stage1AstGen *ag, Scope *scope, AstNo
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_enum_to_int(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        IrInstSrc *target)
+static Stage1ZirInst *ir_build_enum_to_int(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        Stage1ZirInst *target)
 {
-    IrInstSrcEnumToInt *instruction = ir_build_instruction<IrInstSrcEnumToInt>(
+    Stage1ZirInstEnumToInt *instruction = ir_build_instruction<Stage1ZirInstEnumToInt>(
             ag, scope, source_node);
     instruction->target = target;
 
@@ -2361,10 +2361,10 @@ static IrInstSrc *ir_build_enum_to_int(Stage1AstGen *ag, Scope *scope, AstNode *
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_int_to_err_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        IrInstSrc *target)
+static Stage1ZirInst *ir_build_int_to_err_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        Stage1ZirInst *target)
 {
-    IrInstSrcIntToErr *instruction = ir_build_instruction<IrInstSrcIntToErr>(ag, scope, source_node);
+    Stage1ZirInstIntToErr *instruction = ir_build_instruction<Stage1ZirInstIntToErr>(ag, scope, source_node);
     instruction->target = target;
 
     ir_ref_instruction(target, ag->current_basic_block);
@@ -2372,10 +2372,10 @@ static IrInstSrc *ir_build_int_to_err_src(Stage1AstGen *ag, Scope *scope, AstNod
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_err_to_int_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        IrInstSrc *target)
+static Stage1ZirInst *ir_build_err_to_int_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        Stage1ZirInst *target)
 {
-    IrInstSrcErrToInt *instruction = ir_build_instruction<IrInstSrcErrToInt>(
+    Stage1ZirInstErrToInt *instruction = ir_build_instruction<Stage1ZirInstErrToInt>(
             ag, scope, source_node);
     instruction->target = target;
 
@@ -2384,13 +2384,13 @@ static IrInstSrc *ir_build_err_to_int_src(Stage1AstGen *ag, Scope *scope, AstNod
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_check_switch_prongs(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        IrInstSrc *target_value, IrInstSrcCheckSwitchProngsRange *ranges, size_t range_count,
+static Stage1ZirInst *ir_build_check_switch_prongs(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        Stage1ZirInst *target_value, Stage1ZirInstCheckSwitchProngsRange *ranges, size_t range_count,
         AstNode* else_prong, bool have_underscore_prong)
 {
-    IrInstSrcCheckSwitchProngs *instruction = heap::c_allocator.create<IrInstSrcCheckSwitchProngs>();
+    Stage1ZirInstCheckSwitchProngs *instruction = heap::c_allocator.create<Stage1ZirInstCheckSwitchProngs>();
     instruction->base.id = have_underscore_prong ?
-        IrInstSrcIdCheckSwitchProngsUnderYes : IrInstSrcIdCheckSwitchProngsUnderNo;
+        Stage1ZirInstIdCheckSwitchProngsUnderYes : Stage1ZirInstIdCheckSwitchProngsUnderNo;
     instruction->base.scope = scope;
     instruction->base.source_node = source_node;
     instruction->base.debug_id = irb_next_debug_id(ag);
@@ -2411,10 +2411,10 @@ static IrInstSrc *ir_build_check_switch_prongs(Stage1AstGen *ag, Scope *scope, A
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_check_statement_is_void(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-    IrInstSrc* statement_value)
+static Stage1ZirInst *ir_build_check_statement_is_void(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+    Stage1ZirInst* statement_value)
 {
-    IrInstSrcCheckStatementIsVoid *instruction = ir_build_instruction<IrInstSrcCheckStatementIsVoid>(
+    Stage1ZirInstCheckStatementIsVoid *instruction = ir_build_instruction<Stage1ZirInstCheckStatementIsVoid>(
             ag, scope, source_node);
     instruction->statement_value = statement_value;
 
@@ -2423,10 +2423,10 @@ static IrInstSrc *ir_build_check_statement_is_void(Stage1AstGen *ag, Scope *scop
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_type_name(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        IrInstSrc *type_value)
+static Stage1ZirInst *ir_build_type_name(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        Stage1ZirInst *type_value)
 {
-    IrInstSrcTypeName *instruction = ir_build_instruction<IrInstSrcTypeName>(ag, scope, source_node);
+    Stage1ZirInstTypeName *instruction = ir_build_instruction<Stage1ZirInstTypeName>(ag, scope, source_node);
     instruction->type_value = type_value;
 
     ir_ref_instruction(type_value, ag->current_basic_block);
@@ -2434,16 +2434,16 @@ static IrInstSrc *ir_build_type_name(Stage1AstGen *ag, Scope *scope, AstNode *so
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_decl_ref(Stage1AstGen *ag, Scope *scope, AstNode *source_node, Tld *tld, LVal lval) {
-    IrInstSrcDeclRef *instruction = ir_build_instruction<IrInstSrcDeclRef>(ag, scope, source_node);
+static Stage1ZirInst *ir_build_decl_ref(Stage1AstGen *ag, Scope *scope, AstNode *source_node, Tld *tld, LVal lval) {
+    Stage1ZirInstDeclRef *instruction = ir_build_instruction<Stage1ZirInstDeclRef>(ag, scope, source_node);
     instruction->tld = tld;
     instruction->lval = lval;
 
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_panic_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node, IrInstSrc *msg) {
-    IrInstSrcPanic *instruction = ir_build_instruction<IrInstSrcPanic>(ag, scope, source_node);
+static Stage1ZirInst *ir_build_panic_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node, Stage1ZirInst *msg) {
+    Stage1ZirInstPanic *instruction = ir_build_instruction<Stage1ZirInstPanic>(ag, scope, source_node);
     instruction->msg = msg;
 
     ir_ref_instruction(msg, ag->current_basic_block);
@@ -2451,8 +2451,8 @@ static IrInstSrc *ir_build_panic_src(Stage1AstGen *ag, Scope *scope, AstNode *so
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_tag_name_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node, IrInstSrc *target) {
-    IrInstSrcTagName *instruction = ir_build_instruction<IrInstSrcTagName>(ag, scope, source_node);
+static Stage1ZirInst *ir_build_tag_name_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node, Stage1ZirInst *target) {
+    Stage1ZirInstTagName *instruction = ir_build_instruction<Stage1ZirInstTagName>(ag, scope, source_node);
     instruction->target = target;
 
     ir_ref_instruction(target, ag->current_basic_block);
@@ -2460,10 +2460,10 @@ static IrInstSrc *ir_build_tag_name_src(Stage1AstGen *ag, Scope *scope, AstNode 
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_field_parent_ptr_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        IrInstSrc *type_value, IrInstSrc *field_name, IrInstSrc *field_ptr)
+static Stage1ZirInst *ir_build_field_parent_ptr_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        Stage1ZirInst *type_value, Stage1ZirInst *field_name, Stage1ZirInst *field_ptr)
 {
-    IrInstSrcFieldParentPtr *inst = ir_build_instruction<IrInstSrcFieldParentPtr>(
+    Stage1ZirInstFieldParentPtr *inst = ir_build_instruction<Stage1ZirInstFieldParentPtr>(
             ag, scope, source_node);
     inst->type_value = type_value;
     inst->field_name = field_name;
@@ -2476,10 +2476,10 @@ static IrInstSrc *ir_build_field_parent_ptr_src(Stage1AstGen *ag, Scope *scope, 
     return &inst->base;
 }
 
-static IrInstSrc *ir_build_offset_of(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        IrInstSrc *type_value, IrInstSrc *field_name)
+static Stage1ZirInst *ir_build_offset_of(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        Stage1ZirInst *type_value, Stage1ZirInst *field_name)
 {
-    IrInstSrcOffsetOf *instruction = ir_build_instruction<IrInstSrcOffsetOf>(ag, scope, source_node);
+    Stage1ZirInstOffsetOf *instruction = ir_build_instruction<Stage1ZirInstOffsetOf>(ag, scope, source_node);
     instruction->type_value = type_value;
     instruction->field_name = field_name;
 
@@ -2489,10 +2489,10 @@ static IrInstSrc *ir_build_offset_of(Stage1AstGen *ag, Scope *scope, AstNode *so
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_bit_offset_of(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        IrInstSrc *type_value, IrInstSrc *field_name)
+static Stage1ZirInst *ir_build_bit_offset_of(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        Stage1ZirInst *type_value, Stage1ZirInst *field_name)
 {
-    IrInstSrcBitOffsetOf *instruction = ir_build_instruction<IrInstSrcBitOffsetOf>(ag, scope, source_node);
+    Stage1ZirInstBitOffsetOf *instruction = ir_build_instruction<Stage1ZirInstBitOffsetOf>(ag, scope, source_node);
     instruction->type_value = type_value;
     instruction->field_name = field_name;
 
@@ -2502,8 +2502,8 @@ static IrInstSrc *ir_build_bit_offset_of(Stage1AstGen *ag, Scope *scope, AstNode
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_type_info(Stage1AstGen *ag, Scope *scope, AstNode *source_node, IrInstSrc *type_value) {
-    IrInstSrcTypeInfo *instruction = ir_build_instruction<IrInstSrcTypeInfo>(ag, scope, source_node);
+static Stage1ZirInst *ir_build_type_info(Stage1AstGen *ag, Scope *scope, AstNode *source_node, Stage1ZirInst *type_value) {
+    Stage1ZirInstTypeInfo *instruction = ir_build_instruction<Stage1ZirInstTypeInfo>(ag, scope, source_node);
     instruction->type_value = type_value;
 
     ir_ref_instruction(type_value, ag->current_basic_block);
@@ -2511,8 +2511,8 @@ static IrInstSrc *ir_build_type_info(Stage1AstGen *ag, Scope *scope, AstNode *so
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_type(Stage1AstGen *ag, Scope *scope, AstNode *source_node, IrInstSrc *type_info) {
-    IrInstSrcType *instruction = ir_build_instruction<IrInstSrcType>(ag, scope, source_node);
+static Stage1ZirInst *ir_build_type(Stage1AstGen *ag, Scope *scope, AstNode *source_node, Stage1ZirInst *type_info) {
+    Stage1ZirInstType *instruction = ir_build_instruction<Stage1ZirInstType>(ag, scope, source_node);
     instruction->type_info = type_info;
 
     ir_ref_instruction(type_info, ag->current_basic_block);
@@ -2520,10 +2520,10 @@ static IrInstSrc *ir_build_type(Stage1AstGen *ag, Scope *scope, AstNode *source_
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_set_eval_branch_quota(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        IrInstSrc *new_quota)
+static Stage1ZirInst *ir_build_set_eval_branch_quota(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        Stage1ZirInst *new_quota)
 {
-    IrInstSrcSetEvalBranchQuota *instruction = ir_build_instruction<IrInstSrcSetEvalBranchQuota>(ag, scope, source_node);
+    Stage1ZirInstSetEvalBranchQuota *instruction = ir_build_instruction<Stage1ZirInstSetEvalBranchQuota>(ag, scope, source_node);
     instruction->new_quota = new_quota;
 
     ir_ref_instruction(new_quota, ag->current_basic_block);
@@ -2531,10 +2531,10 @@ static IrInstSrc *ir_build_set_eval_branch_quota(Stage1AstGen *ag, Scope *scope,
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_align_cast_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        IrInstSrc *align_bytes, IrInstSrc *target)
+static Stage1ZirInst *ir_build_align_cast_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        Stage1ZirInst *align_bytes, Stage1ZirInst *target)
 {
-    IrInstSrcAlignCast *instruction = ir_build_instruction<IrInstSrcAlignCast>(ag, scope, source_node);
+    Stage1ZirInstAlignCast *instruction = ir_build_instruction<Stage1ZirInstAlignCast>(ag, scope, source_node);
     instruction->align_bytes = align_bytes;
     instruction->target = target;
 
@@ -2544,10 +2544,10 @@ static IrInstSrc *ir_build_align_cast_src(Stage1AstGen *ag, Scope *scope, AstNod
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_resolve_result(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        ResultLoc *result_loc, IrInstSrc *ty)
+static Stage1ZirInst *ir_build_resolve_result(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        ResultLoc *result_loc, Stage1ZirInst *ty)
 {
-    IrInstSrcResolveResult *instruction = ir_build_instruction<IrInstSrcResolveResult>(ag, scope, source_node);
+    Stage1ZirInstResolveResult *instruction = ir_build_instruction<Stage1ZirInstResolveResult>(ag, scope, source_node);
     instruction->result_loc = result_loc;
     instruction->ty = ty;
 
@@ -2556,19 +2556,19 @@ static IrInstSrc *ir_build_resolve_result(Stage1AstGen *ag, Scope *scope, AstNod
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_reset_result(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+static Stage1ZirInst *ir_build_reset_result(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
         ResultLoc *result_loc)
 {
-    IrInstSrcResetResult *instruction = ir_build_instruction<IrInstSrcResetResult>(ag, scope, source_node);
+    Stage1ZirInstResetResult *instruction = ir_build_instruction<Stage1ZirInstResetResult>(ag, scope, source_node);
     instruction->result_loc = result_loc;
 
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_set_align_stack(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        IrInstSrc *align_bytes)
+static Stage1ZirInst *ir_build_set_align_stack(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        Stage1ZirInst *align_bytes)
 {
-    IrInstSrcSetAlignStack *instruction = ir_build_instruction<IrInstSrcSetAlignStack>(ag, scope, source_node);
+    Stage1ZirInstSetAlignStack *instruction = ir_build_instruction<Stage1ZirInstSetAlignStack>(ag, scope, source_node);
     instruction->align_bytes = align_bytes;
 
     ir_ref_instruction(align_bytes, ag->current_basic_block);
@@ -2576,12 +2576,12 @@ static IrInstSrc *ir_build_set_align_stack(Stage1AstGen *ag, Scope *scope, AstNo
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_arg_type(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        IrInstSrc *fn_type, IrInstSrc *arg_index, bool allow_var)
+static Stage1ZirInst *ir_build_arg_type(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        Stage1ZirInst *fn_type, Stage1ZirInst *arg_index, bool allow_var)
 {
-    IrInstSrcArgType *instruction = heap::c_allocator.create<IrInstSrcArgType>();
+    Stage1ZirInstArgType *instruction = heap::c_allocator.create<Stage1ZirInstArgType>();
     instruction->base.id = allow_var ?
-        IrInstSrcIdArgTypeAllowVarTrue : IrInstSrcIdArgTypeAllowVarFalse;
+        Stage1ZirInstIdArgTypeAllowVarTrue : Stage1ZirInstIdArgTypeAllowVarFalse;
     instruction->base.scope = scope;
     instruction->base.source_node = source_node;
     instruction->base.debug_id = irb_next_debug_id(ag);
@@ -2597,19 +2597,19 @@ static IrInstSrc *ir_build_arg_type(Stage1AstGen *ag, Scope *scope, AstNode *sou
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_error_return_trace_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+static Stage1ZirInst *ir_build_error_return_trace_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
         IrInstErrorReturnTraceOptional optional)
 {
-    IrInstSrcErrorReturnTrace *inst = ir_build_instruction<IrInstSrcErrorReturnTrace>(ag, scope, source_node);
+    Stage1ZirInstErrorReturnTrace *inst = ir_build_instruction<Stage1ZirInstErrorReturnTrace>(ag, scope, source_node);
     inst->optional = optional;
 
     return &inst->base;
 }
 
-static IrInstSrc *ir_build_error_union(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        IrInstSrc *err_set, IrInstSrc *payload)
+static Stage1ZirInst *ir_build_error_union(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        Stage1ZirInst *err_set, Stage1ZirInst *payload)
 {
-    IrInstSrcErrorUnion *instruction = ir_build_instruction<IrInstSrcErrorUnion>(ag, scope, source_node);
+    Stage1ZirInstErrorUnion *instruction = ir_build_instruction<Stage1ZirInstErrorUnion>(ag, scope, source_node);
     instruction->err_set = err_set;
     instruction->payload = payload;
 
@@ -2619,11 +2619,11 @@ static IrInstSrc *ir_build_error_union(Stage1AstGen *ag, Scope *scope, AstNode *
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_atomic_rmw_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        IrInstSrc *operand_type, IrInstSrc *ptr, IrInstSrc *op, IrInstSrc *operand,
-        IrInstSrc *ordering)
+static Stage1ZirInst *ir_build_atomic_rmw_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        Stage1ZirInst *operand_type, Stage1ZirInst *ptr, Stage1ZirInst *op, Stage1ZirInst *operand,
+        Stage1ZirInst *ordering)
 {
-    IrInstSrcAtomicRmw *instruction = ir_build_instruction<IrInstSrcAtomicRmw>(ag, scope, source_node);
+    Stage1ZirInstAtomicRmw *instruction = ir_build_instruction<Stage1ZirInstAtomicRmw>(ag, scope, source_node);
     instruction->operand_type = operand_type;
     instruction->ptr = ptr;
     instruction->op = op;
@@ -2639,10 +2639,10 @@ static IrInstSrc *ir_build_atomic_rmw_src(Stage1AstGen *ag, Scope *scope, AstNod
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_atomic_load_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        IrInstSrc *operand_type, IrInstSrc *ptr, IrInstSrc *ordering)
+static Stage1ZirInst *ir_build_atomic_load_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        Stage1ZirInst *operand_type, Stage1ZirInst *ptr, Stage1ZirInst *ordering)
 {
-    IrInstSrcAtomicLoad *instruction = ir_build_instruction<IrInstSrcAtomicLoad>(ag, scope, source_node);
+    Stage1ZirInstAtomicLoad *instruction = ir_build_instruction<Stage1ZirInstAtomicLoad>(ag, scope, source_node);
     instruction->operand_type = operand_type;
     instruction->ptr = ptr;
     instruction->ordering = ordering;
@@ -2654,10 +2654,10 @@ static IrInstSrc *ir_build_atomic_load_src(Stage1AstGen *ag, Scope *scope, AstNo
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_atomic_store_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        IrInstSrc *operand_type, IrInstSrc *ptr, IrInstSrc *value, IrInstSrc *ordering)
+static Stage1ZirInst *ir_build_atomic_store_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        Stage1ZirInst *operand_type, Stage1ZirInst *ptr, Stage1ZirInst *value, Stage1ZirInst *ordering)
 {
-    IrInstSrcAtomicStore *instruction = ir_build_instruction<IrInstSrcAtomicStore>(ag, scope, source_node);
+    Stage1ZirInstAtomicStore *instruction = ir_build_instruction<Stage1ZirInstAtomicStore>(ag, scope, source_node);
     instruction->operand_type = operand_type;
     instruction->ptr = ptr;
     instruction->value = value;
@@ -2671,15 +2671,15 @@ static IrInstSrc *ir_build_atomic_store_src(Stage1AstGen *ag, Scope *scope, AstN
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_save_err_ret_addr_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node) {
-    IrInstSrcSaveErrRetAddr *inst = ir_build_instruction<IrInstSrcSaveErrRetAddr>(ag, scope, source_node);
+static Stage1ZirInst *ir_build_save_err_ret_addr_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node) {
+    Stage1ZirInstSaveErrRetAddr *inst = ir_build_instruction<Stage1ZirInstSaveErrRetAddr>(ag, scope, source_node);
     return &inst->base;
 }
 
-static IrInstSrc *ir_build_add_implicit_return_type(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        IrInstSrc *value, ResultLocReturn *result_loc_ret)
+static Stage1ZirInst *ir_build_add_implicit_return_type(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        Stage1ZirInst *value, ResultLocReturn *result_loc_ret)
 {
-    IrInstSrcAddImplicitReturnType *inst = ir_build_instruction<IrInstSrcAddImplicitReturnType>(ag, scope, source_node);
+    Stage1ZirInstAddImplicitReturnType *inst = ir_build_instruction<Stage1ZirInstAddImplicitReturnType>(ag, scope, source_node);
     inst->value = value;
     inst->result_loc_ret = result_loc_ret;
 
@@ -2688,10 +2688,10 @@ static IrInstSrc *ir_build_add_implicit_return_type(Stage1AstGen *ag, Scope *sco
     return &inst->base;
 }
 
-static IrInstSrc *ir_build_has_decl(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        IrInstSrc *container, IrInstSrc *name)
+static Stage1ZirInst *ir_build_has_decl(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        Stage1ZirInst *container, Stage1ZirInst *name)
 {
-    IrInstSrcHasDecl *instruction = ir_build_instruction<IrInstSrcHasDecl>(ag, scope, source_node);
+    Stage1ZirInstHasDecl *instruction = ir_build_instruction<Stage1ZirInstHasDecl>(ag, scope, source_node);
     instruction->container = container;
     instruction->name = name;
 
@@ -2701,15 +2701,15 @@ static IrInstSrc *ir_build_has_decl(Stage1AstGen *ag, Scope *scope, AstNode *sou
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_undeclared_identifier(Stage1AstGen *ag, Scope *scope, AstNode *source_node, Buf *name) {
-    IrInstSrcUndeclaredIdent *instruction = ir_build_instruction<IrInstSrcUndeclaredIdent>(ag, scope, source_node);
+static Stage1ZirInst *ir_build_undeclared_identifier(Stage1AstGen *ag, Scope *scope, AstNode *source_node, Buf *name) {
+    Stage1ZirInstUndeclaredIdent *instruction = ir_build_instruction<Stage1ZirInstUndeclaredIdent>(ag, scope, source_node);
     instruction->name = name;
 
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_check_runtime_scope(Stage1AstGen *ag, Scope *scope, AstNode *source_node, IrInstSrc *scope_is_comptime, IrInstSrc *is_comptime) {
-    IrInstSrcCheckRuntimeScope *instruction = ir_build_instruction<IrInstSrcCheckRuntimeScope>(ag, scope, source_node);
+static Stage1ZirInst *ir_build_check_runtime_scope(Stage1AstGen *ag, Scope *scope, AstNode *source_node, Stage1ZirInst *scope_is_comptime, Stage1ZirInst *is_comptime) {
+    Stage1ZirInstCheckRuntimeScope *instruction = ir_build_instruction<Stage1ZirInstCheckRuntimeScope>(ag, scope, source_node);
     instruction->scope_is_comptime = scope_is_comptime;
     instruction->is_comptime = is_comptime;
 
@@ -2719,10 +2719,10 @@ static IrInstSrc *ir_build_check_runtime_scope(Stage1AstGen *ag, Scope *scope, A
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_union_init_named_field(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-    IrInstSrc *union_type, IrInstSrc *field_name, IrInstSrc *field_result_loc, IrInstSrc *result_loc)
+static Stage1ZirInst *ir_build_union_init_named_field(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+    Stage1ZirInst *union_type, Stage1ZirInst *field_name, Stage1ZirInst *field_result_loc, Stage1ZirInst *result_loc)
 {
-    IrInstSrcUnionInitNamedField *instruction = ir_build_instruction<IrInstSrcUnionInitNamedField>(ag, scope, source_node);
+    Stage1ZirInstUnionInitNamedField *instruction = ir_build_instruction<Stage1ZirInstUnionInitNamedField>(ag, scope, source_node);
     instruction->union_type = union_type;
     instruction->field_name = field_name;
     instruction->field_result_loc = field_result_loc;
@@ -2736,10 +2736,10 @@ static IrInstSrc *ir_build_union_init_named_field(Stage1AstGen *ag, Scope *scope
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_alloca_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        IrInstSrc *align, const char *name_hint, IrInstSrc *is_comptime)
+static Stage1ZirInst *ir_build_alloca_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        Stage1ZirInst *align, const char *name_hint, Stage1ZirInst *is_comptime)
 {
-    IrInstSrcAlloca *instruction = ir_build_instruction<IrInstSrcAlloca>(ag, scope, source_node);
+    Stage1ZirInstAlloca *instruction = ir_build_instruction<Stage1ZirInstAlloca>(ag, scope, source_node);
     instruction->align = align;
     instruction->name_hint = name_hint;
     instruction->is_comptime = is_comptime;
@@ -2750,10 +2750,10 @@ static IrInstSrc *ir_build_alloca_src(Stage1AstGen *ag, Scope *scope, AstNode *s
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_end_expr(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        IrInstSrc *value, ResultLoc *result_loc)
+static Stage1ZirInst *ir_build_end_expr(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        Stage1ZirInst *value, ResultLoc *result_loc)
 {
-    IrInstSrcEndExpr *instruction = ir_build_instruction<IrInstSrcEndExpr>(ag, scope, source_node);
+    Stage1ZirInstEndExpr *instruction = ir_build_instruction<Stage1ZirInstEndExpr>(ag, scope, source_node);
     instruction->value = value;
     instruction->result_loc = result_loc;
 
@@ -2762,14 +2762,14 @@ static IrInstSrc *ir_build_end_expr(Stage1AstGen *ag, Scope *scope, AstNode *sou
     return &instruction->base;
 }
 
-static IrInstSrcSuspendBegin *ir_build_suspend_begin_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node) {
-    return ir_build_instruction<IrInstSrcSuspendBegin>(ag, scope, source_node);
+static Stage1ZirInstSuspendBegin *ir_build_suspend_begin_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node) {
+    return ir_build_instruction<Stage1ZirInstSuspendBegin>(ag, scope, source_node);
 }
 
-static IrInstSrc *ir_build_suspend_finish_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        IrInstSrcSuspendBegin *begin)
+static Stage1ZirInst *ir_build_suspend_finish_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        Stage1ZirInstSuspendBegin *begin)
 {
-    IrInstSrcSuspendFinish *inst = ir_build_instruction<IrInstSrcSuspendFinish>(ag, scope, source_node);
+    Stage1ZirInstSuspendFinish *inst = ir_build_instruction<Stage1ZirInstSuspendFinish>(ag, scope, source_node);
     inst->begin = begin;
 
     ir_ref_instruction(&begin->base, ag->current_basic_block);
@@ -2777,10 +2777,10 @@ static IrInstSrc *ir_build_suspend_finish_src(Stage1AstGen *ag, Scope *scope, As
     return &inst->base;
 }
 
-static IrInstSrc *ir_build_await_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        IrInstSrc *frame, ResultLoc *result_loc, bool is_nosuspend)
+static Stage1ZirInst *ir_build_await_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        Stage1ZirInst *frame, ResultLoc *result_loc, bool is_nosuspend)
 {
-    IrInstSrcAwait *instruction = ir_build_instruction<IrInstSrcAwait>(ag, scope, source_node);
+    Stage1ZirInstAwait *instruction = ir_build_instruction<Stage1ZirInstAwait>(ag, scope, source_node);
     instruction->frame = frame;
     instruction->result_loc = result_loc;
     instruction->is_nosuspend = is_nosuspend;
@@ -2790,8 +2790,8 @@ static IrInstSrc *ir_build_await_src(Stage1AstGen *ag, Scope *scope, AstNode *so
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_resume_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node, IrInstSrc *frame) {
-    IrInstSrcResume *instruction = ir_build_instruction<IrInstSrcResume>(ag, scope, source_node);
+static Stage1ZirInst *ir_build_resume_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node, Stage1ZirInst *frame) {
+    Stage1ZirInstResume *instruction = ir_build_instruction<Stage1ZirInstResume>(ag, scope, source_node);
     instruction->frame = frame;
 
     ir_ref_instruction(frame, ag->current_basic_block);
@@ -2799,10 +2799,10 @@ static IrInstSrc *ir_build_resume_src(Stage1AstGen *ag, Scope *scope, AstNode *s
     return &instruction->base;
 }
 
-static IrInstSrcSpillBegin *ir_build_spill_begin_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        IrInstSrc *operand, SpillId spill_id)
+static Stage1ZirInstSpillBegin *ir_build_spill_begin_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        Stage1ZirInst *operand, SpillId spill_id)
 {
-    IrInstSrcSpillBegin *instruction = ir_build_instruction<IrInstSrcSpillBegin>(ag, scope, source_node);
+    Stage1ZirInstSpillBegin *instruction = ir_build_instruction<Stage1ZirInstSpillBegin>(ag, scope, source_node);
     instruction->operand = operand;
     instruction->spill_id = spill_id;
 
@@ -2811,10 +2811,10 @@ static IrInstSrcSpillBegin *ir_build_spill_begin_src(Stage1AstGen *ag, Scope *sc
     return instruction;
 }
 
-static IrInstSrc *ir_build_spill_end_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        IrInstSrcSpillBegin *begin)
+static Stage1ZirInst *ir_build_spill_end_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        Stage1ZirInstSpillBegin *begin)
 {
-    IrInstSrcSpillEnd *instruction = ir_build_instruction<IrInstSrcSpillEnd>(ag, scope, source_node);
+    Stage1ZirInstSpillEnd *instruction = ir_build_instruction<Stage1ZirInstSpillEnd>(ag, scope, source_node);
     instruction->begin = begin;
 
     ir_ref_instruction(&begin->base, ag->current_basic_block);
@@ -2822,8 +2822,8 @@ static IrInstSrc *ir_build_spill_end_src(Stage1AstGen *ag, Scope *scope, AstNode
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_wasm_memory_size_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node, IrInstSrc *index) {
-    IrInstSrcWasmMemorySize *instruction = ir_build_instruction<IrInstSrcWasmMemorySize>(ag, scope, source_node);
+static Stage1ZirInst *ir_build_wasm_memory_size_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node, Stage1ZirInst *index) {
+    Stage1ZirInstWasmMemorySize *instruction = ir_build_instruction<Stage1ZirInstWasmMemorySize>(ag, scope, source_node);
     instruction->index = index;
 
     ir_ref_instruction(index, ag->current_basic_block);
@@ -2831,8 +2831,8 @@ static IrInstSrc *ir_build_wasm_memory_size_src(Stage1AstGen *ag, Scope *scope, 
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_wasm_memory_grow_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node, IrInstSrc *index, IrInstSrc *delta) {
-    IrInstSrcWasmMemoryGrow *instruction = ir_build_instruction<IrInstSrcWasmMemoryGrow>(ag, scope, source_node);
+static Stage1ZirInst *ir_build_wasm_memory_grow_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node, Stage1ZirInst *index, Stage1ZirInst *delta) {
+    Stage1ZirInstWasmMemoryGrow *instruction = ir_build_instruction<Stage1ZirInstWasmMemoryGrow>(ag, scope, source_node);
     instruction->index = index;
     instruction->delta = delta;
 
@@ -2842,8 +2842,8 @@ static IrInstSrc *ir_build_wasm_memory_grow_src(Stage1AstGen *ag, Scope *scope, 
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node) {
-    IrInstSrcSrc *instruction = ir_build_instruction<IrInstSrcSrc>(ag, scope, source_node);
+static Stage1ZirInst *ir_build_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node) {
+    Stage1ZirInstSrc *instruction = ir_build_instruction<Stage1ZirInstSrc>(ag, scope, source_node);
 
     return &instruction->base;
 }
@@ -2886,7 +2886,7 @@ static void ir_count_defers(Stage1AstGen *ag, Scope *inner_scope, Scope *outer_s
     }
 }
 
-static bool astgen_defers_for_block(Stage1AstGen *ag, Scope *inner_scope, Scope *outer_scope, bool *is_noreturn, IrInstSrc *err_value) {
+static bool astgen_defers_for_block(Stage1AstGen *ag, Scope *inner_scope, Scope *outer_scope, bool *is_noreturn, Stage1ZirInst *err_value) {
     Scope *scope = inner_scope;
     if (is_noreturn != nullptr) *is_noreturn = false;
     while (scope != outer_scope) {
@@ -2920,7 +2920,7 @@ static bool astgen_defers_for_block(Stage1AstGen *ag, Scope *inner_scope, Scope 
                         return false;
                     }
 
-                    IrInstSrc *is_comptime;
+                    Stage1ZirInst *is_comptime;
                     if (ir_should_inline(ag->exec, defer_expr_scope)) {
                         is_comptime = ir_build_const_bool(ag, defer_expr_scope,
                             defer_expr_node, true);
@@ -2937,7 +2937,7 @@ static bool astgen_defers_for_block(Stage1AstGen *ag, Scope *inner_scope, Scope 
                     defer_expr_scope = err_var->child_scope;
                 }
 
-                IrInstSrc *defer_expr_value = astgen_node(ag, defer_expr_node, defer_expr_scope);
+                Stage1ZirInst *defer_expr_value = astgen_node(ag, defer_expr_node, defer_expr_scope);
                 if (defer_expr_value == ag->codegen->invalid_inst_src)
                     return ag->codegen->invalid_inst_src;
 
@@ -3007,7 +3007,7 @@ static ScopeDeferExpr *get_scope_defer_expr(Scope *scope) {
     return nullptr;
 }
 
-static IrInstSrc *astgen_return(Stage1AstGen *ag, Scope *scope, AstNode *node, LVal lval, ResultLoc *result_loc) {
+static Stage1ZirInst *astgen_return(Stage1AstGen *ag, Scope *scope, AstNode *node, LVal lval, ResultLoc *result_loc) {
     assert(node->type == NodeTypeReturnExpr);
 
     ScopeDeferExpr *scope_defer_expr = get_scope_defer_expr(scope);
@@ -3029,7 +3029,7 @@ static IrInstSrc *astgen_return(Stage1AstGen *ag, Scope *scope, AstNode *node, L
                 result_loc_ret->base.id = ResultLocIdReturn;
                 ir_build_reset_result(ag, scope, node, &result_loc_ret->base);
 
-                IrInstSrc *return_value;
+                Stage1ZirInst *return_value;
                 if (expr_node) {
                     // Temporarily set this so that if we return a type it gets the name of the function
                     ZigFn *prev_name_fn = ag->exec->name_fn;
@@ -3052,7 +3052,7 @@ static IrInstSrc *astgen_return(Stage1AstGen *ag, Scope *scope, AstNode *node, L
                     // only generate unconditional defers
                     if (!astgen_defers_for_block(ag, scope, outer_scope, nullptr, nullptr))
                         return ag->codegen->invalid_inst_src;
-                    IrInstSrc *result = ir_build_return_src(ag, scope, node, nullptr);
+                    Stage1ZirInst *result = ir_build_return_src(ag, scope, node, nullptr);
                     result_loc_ret->base.source_instruction = result;
                     return result;
                 }
@@ -3061,9 +3061,9 @@ static IrInstSrc *astgen_return(Stage1AstGen *ag, Scope *scope, AstNode *node, L
                 Stage1ZirBasicBlock *err_block = ir_create_basic_block(ag, scope, "ErrRetErr");
                 Stage1ZirBasicBlock *ok_block = ir_create_basic_block(ag, scope, "ErrRetOk");
 
-                IrInstSrc *is_err = ir_build_test_err_src(ag, scope, node, return_value, false, true);
+                Stage1ZirInst *is_err = ir_build_test_err_src(ag, scope, node, return_value, false, true);
 
-                IrInstSrc *is_comptime;
+                Stage1ZirInst *is_comptime;
                 if (should_inline) {
                     is_comptime = ir_build_const_bool(ag, scope, node, should_inline);
                 } else {
@@ -3087,21 +3087,21 @@ static IrInstSrc *astgen_return(Stage1AstGen *ag, Scope *scope, AstNode *node, L
                 ir_build_br(ag, scope, node, ret_stmt_block, is_comptime);
 
                 ir_set_cursor_at_end_and_append_block(ag, ret_stmt_block);
-                IrInstSrc *result = ir_build_return_src(ag, scope, node, nullptr);
+                Stage1ZirInst *result = ir_build_return_src(ag, scope, node, nullptr);
                 result_loc_ret->base.source_instruction = result;
                 return result;
             }
         case ReturnKindError:
             {
                 assert(expr_node);
-                IrInstSrc *err_union_ptr = astgen_node_extra(ag, expr_node, scope, LValPtr, nullptr);
+                Stage1ZirInst *err_union_ptr = astgen_node_extra(ag, expr_node, scope, LValPtr, nullptr);
                 if (err_union_ptr == ag->codegen->invalid_inst_src)
                     return ag->codegen->invalid_inst_src;
-                IrInstSrc *is_err_val = ir_build_test_err_src(ag, scope, node, err_union_ptr, true, false);
+                Stage1ZirInst *is_err_val = ir_build_test_err_src(ag, scope, node, err_union_ptr, true, false);
 
                 Stage1ZirBasicBlock *return_block = ir_create_basic_block(ag, scope, "ErrRetReturn");
                 Stage1ZirBasicBlock *continue_block = ir_create_basic_block(ag, scope, "ErrRetContinue");
-                IrInstSrc *is_comptime;
+                Stage1ZirInst *is_comptime;
                 bool should_inline = ir_should_inline(ag->exec, scope);
                 if (should_inline) {
                     is_comptime = ir_build_const_bool(ag, scope, node, true);
@@ -3111,10 +3111,10 @@ static IrInstSrc *astgen_return(Stage1AstGen *ag, Scope *scope, AstNode *node, L
                 ir_build_cond_br(ag, scope, node, is_err_val, return_block, continue_block, is_comptime);
 
                 ir_set_cursor_at_end_and_append_block(ag, return_block);
-                IrInstSrc *err_val_ptr = ir_build_unwrap_err_code_src(ag, scope, node, err_union_ptr);
-                IrInstSrc *err_val = ir_build_load_ptr(ag, scope, node, err_val_ptr);
+                Stage1ZirInst *err_val_ptr = ir_build_unwrap_err_code_src(ag, scope, node, err_union_ptr);
+                Stage1ZirInst *err_val = ir_build_load_ptr(ag, scope, node, err_val_ptr);
                 ir_build_add_implicit_return_type(ag, scope, node, err_val, nullptr);
-                IrInstSrcSpillBegin *spill_begin = ir_build_spill_begin_src(ag, scope, node, err_val,
+                Stage1ZirInstSpillBegin *spill_begin = ir_build_spill_begin_src(ag, scope, node, err_val,
                         SpillIdRetErrCode);
                 ResultLocReturn *result_loc_ret = heap::c_allocator.create<ResultLocReturn>();
                 result_loc_ret->base.id = ResultLocIdReturn;
@@ -3130,12 +3130,12 @@ static IrInstSrc *astgen_return(Stage1AstGen *ag, Scope *scope, AstNode *node, L
                         ir_build_save_err_ret_addr_src(ag, scope, node);
                     }
                     err_val = ir_build_spill_end_src(ag, scope, node, spill_begin);
-                    IrInstSrc *ret_inst = ir_build_return_src(ag, scope, node, err_val);
+                    Stage1ZirInst *ret_inst = ir_build_return_src(ag, scope, node, err_val);
                     result_loc_ret->base.source_instruction = ret_inst;
                 }
 
                 ir_set_cursor_at_end_and_append_block(ag, continue_block);
-                IrInstSrc *unwrapped_ptr = ir_build_unwrap_err_payload_src(ag, scope, node, err_union_ptr, false, false);
+                Stage1ZirInst *unwrapped_ptr = ir_build_unwrap_err_payload_src(ag, scope, node, err_union_ptr, false, false);
                 if (lval == LValPtr)
                     return unwrapped_ptr;
                 else
@@ -3146,7 +3146,7 @@ static IrInstSrc *astgen_return(Stage1AstGen *ag, Scope *scope, AstNode *node, L
 }
 
 ZigVar *create_local_var(CodeGen *codegen, AstNode *node, Scope *parent_scope,
-        Buf *name, bool src_is_const, bool gen_is_const, bool is_shadowable, IrInstSrc *is_comptime,
+        Buf *name, bool src_is_const, bool gen_is_const, bool is_shadowable, Stage1ZirInst *is_comptime,
         bool skip_name_check)
 {
     ZigVar *variable_entry = heap::c_allocator.create<ZigVar>();
@@ -3218,7 +3218,7 @@ ZigVar *create_local_var(CodeGen *codegen, AstNode *node, Scope *parent_scope,
 // Set name to nullptr to make the variable anonymous (not visible to programmer).
 // After you call this function var->child_scope has the variable in scope
 static ZigVar *ir_create_var(Stage1AstGen *ag, AstNode *node, Scope *scope, Buf *name,
-        bool src_is_const, bool gen_is_const, bool is_shadowable, IrInstSrc *is_comptime)
+        bool src_is_const, bool gen_is_const, bool is_shadowable, Stage1ZirInst *is_comptime)
 {
     bool is_underscored = name ? buf_eql_str(name, "_") : false;
     ZigVar *var = create_local_var(ag->codegen, node, scope,
@@ -3256,12 +3256,12 @@ static bool is_duplicate_label(CodeGen *g, Scope *scope, AstNode *node, Buf *nam
     return false;
 }
 
-static IrInstSrc *astgen_block(Stage1AstGen *ag, Scope *parent_scope, AstNode *block_node, LVal lval,
+static Stage1ZirInst *astgen_block(Stage1AstGen *ag, Scope *parent_scope, AstNode *block_node, LVal lval,
         ResultLoc *result_loc)
 {
     assert(block_node->type == NodeTypeBlock);
 
-    ZigList<IrInstSrc *> incoming_values = {0};
+    ZigList<Stage1ZirInst *> incoming_values = {0};
     ZigList<Stage1ZirBasicBlock *> incoming_blocks = {0};
 
     if (is_duplicate_label(ag->codegen, parent_scope, block_node, block_node->data.block.name))
@@ -3305,11 +3305,11 @@ static IrInstSrc *astgen_block(Stage1AstGen *ag, Scope *parent_scope, AstNode *b
 
     bool is_continuation_unreachable = false;
     bool found_invalid_inst = false;
-    IrInstSrc *noreturn_return_value = nullptr;
+    Stage1ZirInst *noreturn_return_value = nullptr;
     for (size_t i = 0; i < block_node->data.block.statements.length; i += 1) {
         AstNode *statement_node = block_node->data.block.statements.at(i);
 
-        IrInstSrc *statement_value = astgen_node(ag, statement_node, child_scope);
+        Stage1ZirInst *statement_value = astgen_node(ag, statement_node, child_scope);
         if (statement_value == ag->codegen->invalid_inst_src) {
             // keep generating all the elements of the block in case of error,
             // we want to collect other compile errors
@@ -3328,9 +3328,9 @@ static IrInstSrc *astgen_block(Stage1AstGen *ag, Scope *parent_scope, AstNode *b
             // defer starts a new scope
             child_scope = statement_node->data.defer.child_scope;
             assert(child_scope);
-        } else if (statement_value->id == IrInstSrcIdDeclVar) {
+        } else if (statement_value->id == Stage1ZirInstIdDeclVar) {
             // variable declarations start a new scope
-            IrInstSrcDeclVar *decl_var_instruction = (IrInstSrcDeclVar *)statement_value;
+            Stage1ZirInstDeclVar *decl_var_instruction = (Stage1ZirInstDeclVar *)statement_value;
             child_scope = decl_var_instruction->var->child_scope;
         } else if (!is_continuation_unreachable) {
             // this statement's value must be void
@@ -3355,12 +3355,12 @@ static IrInstSrc *astgen_block(Stage1AstGen *ag, Scope *parent_scope, AstNode *b
             scope_block->peer_parent->peers.last()->next_bb = scope_block->end_block;
         }
         ir_set_cursor_at_end_and_append_block(ag, scope_block->end_block);
-        IrInstSrc *phi = ir_build_phi(ag, parent_scope, block_node, incoming_blocks.length,
+        Stage1ZirInst *phi = ir_build_phi(ag, parent_scope, block_node, incoming_blocks.length,
                 incoming_blocks.items, incoming_values.items, scope_block->peer_parent);
         return ir_expr_wrap(ag, parent_scope, phi, result_loc);
     } else {
         incoming_blocks.append(ag->current_basic_block);
-        IrInstSrc *else_expr_result = ir_build_const_void(ag, parent_scope, block_node);
+        Stage1ZirInst *else_expr_result = ir_build_const_void(ag, parent_scope, block_node);
 
         if (scope_block->peer_parent != nullptr) {
             ResultLocPeer *peer_result = create_peer_result(scope_block->peer_parent);
@@ -3381,15 +3381,15 @@ static IrInstSrc *astgen_block(Stage1AstGen *ag, Scope *parent_scope, AstNode *b
             return ag->codegen->invalid_inst_src;
     }
 
-    IrInstSrc *result;
+    Stage1ZirInst *result;
     if (block_node->data.block.name != nullptr) {
         ir_build_br(ag, parent_scope, block_node, scope_block->end_block, scope_block->is_comptime);
         ir_set_cursor_at_end_and_append_block(ag, scope_block->end_block);
-        IrInstSrc *phi = ir_build_phi(ag, parent_scope, block_node, incoming_blocks.length,
+        Stage1ZirInst *phi = ir_build_phi(ag, parent_scope, block_node, incoming_blocks.length,
                 incoming_blocks.items, incoming_values.items, scope_block->peer_parent);
         result = ir_expr_wrap(ag, parent_scope, phi, result_loc);
     } else {
-        IrInstSrc *void_inst = ir_build_const_void(ag, child_scope, block_node);
+        Stage1ZirInst *void_inst = ir_build_const_void(ag, child_scope, block_node);
         result = ir_lval_wrap(ag, parent_scope, void_inst, lval, result_loc);
     }
     if (!is_return_from_fn)
@@ -3408,14 +3408,14 @@ static IrInstSrc *astgen_block(Stage1AstGen *ag, Scope *parent_scope, AstNode *b
     return ir_build_return_src(ag, child_scope, result->source_node, result);
 }
 
-static IrInstSrc *astgen_bin_op_id(Stage1AstGen *ag, Scope *scope, AstNode *node, IrBinOp op_id) {
+static Stage1ZirInst *astgen_bin_op_id(Stage1AstGen *ag, Scope *scope, AstNode *node, IrBinOp op_id) {
     Scope *inner_scope = scope;
     if (op_id == IrBinOpArrayCat || op_id == IrBinOpArrayMult) {
         inner_scope = create_comptime_scope(ag->codegen, node, scope);
     }
 
-    IrInstSrc *op1 = astgen_node(ag, node->data.bin_op_expr.op1, inner_scope);
-    IrInstSrc *op2 = astgen_node(ag, node->data.bin_op_expr.op2, inner_scope);
+    Stage1ZirInst *op1 = astgen_node(ag, node->data.bin_op_expr.op1, inner_scope);
+    Stage1ZirInst *op2 = astgen_node(ag, node->data.bin_op_expr.op2, inner_scope);
 
     if (op1 == ag->codegen->invalid_inst_src || op2 == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
@@ -3423,9 +3423,9 @@ static IrInstSrc *astgen_bin_op_id(Stage1AstGen *ag, Scope *scope, AstNode *node
     return ir_build_bin_op(ag, scope, node, op_id, op1, op2, true);
 }
 
-static IrInstSrc *astgen_merge_err_sets(Stage1AstGen *ag, Scope *scope, AstNode *node) {
-    IrInstSrc *op1 = astgen_node(ag, node->data.bin_op_expr.op1, scope);
-    IrInstSrc *op2 = astgen_node(ag, node->data.bin_op_expr.op2, scope);
+static Stage1ZirInst *astgen_merge_err_sets(Stage1AstGen *ag, Scope *scope, AstNode *node) {
+    Stage1ZirInst *op1 = astgen_node(ag, node->data.bin_op_expr.op1, scope);
+    Stage1ZirInst *op2 = astgen_node(ag, node->data.bin_op_expr.op2, scope);
 
     if (op1 == ag->codegen->invalid_inst_src || op2 == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
@@ -3437,8 +3437,8 @@ static IrInstSrc *astgen_merge_err_sets(Stage1AstGen *ag, Scope *scope, AstNode 
     return ir_build_merge_err_sets(ag, scope, node, op1, op2, type_name);
 }
 
-static IrInstSrc *astgen_assign(Stage1AstGen *ag, Scope *scope, AstNode *node) {
-    IrInstSrc *lvalue = astgen_node_extra(ag, node->data.bin_op_expr.op1, scope, LValAssign, nullptr);
+static Stage1ZirInst *astgen_assign(Stage1AstGen *ag, Scope *scope, AstNode *node) {
+    Stage1ZirInst *lvalue = astgen_node_extra(ag, node->data.bin_op_expr.op1, scope, LValAssign, nullptr);
     if (lvalue == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
 
@@ -3448,7 +3448,7 @@ static IrInstSrc *astgen_assign(Stage1AstGen *ag, Scope *scope, AstNode *node) {
     ir_ref_instruction(lvalue, ag->current_basic_block);
     ir_build_reset_result(ag, scope, node, &result_loc_inst->base);
 
-    IrInstSrc *rvalue = astgen_node_extra(ag, node->data.bin_op_expr.op2, scope, LValNone,
+    Stage1ZirInst *rvalue = astgen_node_extra(ag, node->data.bin_op_expr.op2, scope, LValNone,
             &result_loc_inst->base);
     if (rvalue == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
@@ -3456,28 +3456,28 @@ static IrInstSrc *astgen_assign(Stage1AstGen *ag, Scope *scope, AstNode *node) {
     return ir_build_const_void(ag, scope, node);
 }
 
-static IrInstSrc *astgen_assign_op(Stage1AstGen *ag, Scope *scope, AstNode *node, IrBinOp op_id) {
-    IrInstSrc *lvalue = astgen_node_extra(ag, node->data.bin_op_expr.op1, scope, LValAssign, nullptr);
+static Stage1ZirInst *astgen_assign_op(Stage1AstGen *ag, Scope *scope, AstNode *node, IrBinOp op_id) {
+    Stage1ZirInst *lvalue = astgen_node_extra(ag, node->data.bin_op_expr.op1, scope, LValAssign, nullptr);
     if (lvalue == ag->codegen->invalid_inst_src)
         return lvalue;
-    IrInstSrc *op1 = ir_build_load_ptr(ag, scope, node->data.bin_op_expr.op1, lvalue);
-    IrInstSrc *op2 = astgen_node(ag, node->data.bin_op_expr.op2, scope);
+    Stage1ZirInst *op1 = ir_build_load_ptr(ag, scope, node->data.bin_op_expr.op1, lvalue);
+    Stage1ZirInst *op2 = astgen_node(ag, node->data.bin_op_expr.op2, scope);
     if (op2 == ag->codegen->invalid_inst_src)
         return op2;
-    IrInstSrc *result = ir_build_bin_op(ag, scope, node, op_id, op1, op2, true);
+    Stage1ZirInst *result = ir_build_bin_op(ag, scope, node, op_id, op1, op2, true);
     ir_build_store_ptr(ag, scope, node, lvalue, result);
     return ir_build_const_void(ag, scope, node);
 }
 
-static IrInstSrc *astgen_bool_or(Stage1AstGen *ag, Scope *scope, AstNode *node) {
+static Stage1ZirInst *astgen_bool_or(Stage1AstGen *ag, Scope *scope, AstNode *node) {
     assert(node->type == NodeTypeBinOpExpr);
 
-    IrInstSrc *val1 = astgen_node(ag, node->data.bin_op_expr.op1, scope);
+    Stage1ZirInst *val1 = astgen_node(ag, node->data.bin_op_expr.op1, scope);
     if (val1 == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
     Stage1ZirBasicBlock *post_val1_block = ag->current_basic_block;
 
-    IrInstSrc *is_comptime;
+    Stage1ZirInst *is_comptime;
     if (ir_should_inline(ag->exec, scope)) {
         is_comptime = ir_build_const_bool(ag, scope, node, true);
     } else {
@@ -3492,7 +3492,7 @@ static IrInstSrc *astgen_bool_or(Stage1AstGen *ag, Scope *scope, AstNode *node) 
     ir_build_cond_br(ag, scope, node, val1, true_block, false_block, is_comptime);
 
     ir_set_cursor_at_end_and_append_block(ag, false_block);
-    IrInstSrc *val2 = astgen_node(ag, node->data.bin_op_expr.op2, scope);
+    Stage1ZirInst *val2 = astgen_node(ag, node->data.bin_op_expr.op2, scope);
     if (val2 == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
     Stage1ZirBasicBlock *post_val2_block = ag->current_basic_block;
@@ -3501,7 +3501,7 @@ static IrInstSrc *astgen_bool_or(Stage1AstGen *ag, Scope *scope, AstNode *node) 
 
     ir_set_cursor_at_end_and_append_block(ag, true_block);
 
-    IrInstSrc **incoming_values = heap::c_allocator.allocate<IrInstSrc *>(2);
+    Stage1ZirInst **incoming_values = heap::c_allocator.allocate<Stage1ZirInst *>(2);
     incoming_values[0] = val1;
     incoming_values[1] = val2;
     Stage1ZirBasicBlock **incoming_blocks = heap::c_allocator.allocate<Stage1ZirBasicBlock *>(2);
@@ -3511,15 +3511,15 @@ static IrInstSrc *astgen_bool_or(Stage1AstGen *ag, Scope *scope, AstNode *node) 
     return ir_build_phi(ag, scope, node, 2, incoming_blocks, incoming_values, nullptr);
 }
 
-static IrInstSrc *astgen_bool_and(Stage1AstGen *ag, Scope *scope, AstNode *node) {
+static Stage1ZirInst *astgen_bool_and(Stage1AstGen *ag, Scope *scope, AstNode *node) {
     assert(node->type == NodeTypeBinOpExpr);
 
-    IrInstSrc *val1 = astgen_node(ag, node->data.bin_op_expr.op1, scope);
+    Stage1ZirInst *val1 = astgen_node(ag, node->data.bin_op_expr.op1, scope);
     if (val1 == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
     Stage1ZirBasicBlock *post_val1_block = ag->current_basic_block;
 
-    IrInstSrc *is_comptime;
+    Stage1ZirInst *is_comptime;
     if (ir_should_inline(ag->exec, scope)) {
         is_comptime = ir_build_const_bool(ag, scope, node, true);
     } else {
@@ -3534,7 +3534,7 @@ static IrInstSrc *astgen_bool_and(Stage1AstGen *ag, Scope *scope, AstNode *node)
     ir_build_cond_br(ag, scope, node, val1, true_block, false_block, is_comptime);
 
     ir_set_cursor_at_end_and_append_block(ag, true_block);
-    IrInstSrc *val2 = astgen_node(ag, node->data.bin_op_expr.op2, scope);
+    Stage1ZirInst *val2 = astgen_node(ag, node->data.bin_op_expr.op2, scope);
     if (val2 == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
     Stage1ZirBasicBlock *post_val2_block = ag->current_basic_block;
@@ -3543,7 +3543,7 @@ static IrInstSrc *astgen_bool_and(Stage1AstGen *ag, Scope *scope, AstNode *node)
 
     ir_set_cursor_at_end_and_append_block(ag, false_block);
 
-    IrInstSrc **incoming_values = heap::c_allocator.allocate<IrInstSrc *>(2);
+    Stage1ZirInst **incoming_values = heap::c_allocator.allocate<Stage1ZirInst *>(2);
     incoming_values[0] = val1;
     incoming_values[1] = val2;
     Stage1ZirBasicBlock **incoming_blocks = heap::c_allocator.allocate<Stage1ZirBasicBlock *>(2);
@@ -3553,8 +3553,8 @@ static IrInstSrc *astgen_bool_and(Stage1AstGen *ag, Scope *scope, AstNode *node)
     return ir_build_phi(ag, scope, node, 2, incoming_blocks, incoming_values, nullptr);
 }
 
-static ResultLocPeerParent *ir_build_result_peers(Stage1AstGen *ag, IrInstSrc *cond_br_inst,
-        Stage1ZirBasicBlock *end_block, ResultLoc *parent, IrInstSrc *is_comptime)
+static ResultLocPeerParent *ir_build_result_peers(Stage1AstGen *ag, Stage1ZirInst *cond_br_inst,
+        Stage1ZirBasicBlock *end_block, ResultLoc *parent, Stage1ZirInst *is_comptime)
 {
     ResultLocPeerParent *peer_parent = heap::c_allocator.create<ResultLocPeerParent>();
     peer_parent->base.id = ResultLocIdPeerParent;
@@ -3564,7 +3564,7 @@ static ResultLocPeerParent *ir_build_result_peers(Stage1AstGen *ag, IrInstSrc *c
     peer_parent->is_comptime = is_comptime;
     peer_parent->parent = parent;
 
-    IrInstSrc *popped_inst = ag->current_basic_block->instruction_list.pop();
+    Stage1ZirInst *popped_inst = ag->current_basic_block->instruction_list.pop();
     ir_assert(popped_inst == cond_br_inst, cond_br_inst);
 
     ir_build_reset_result(ag, cond_br_inst->scope, cond_br_inst->source_node, &peer_parent->base);
@@ -3573,8 +3573,8 @@ static ResultLocPeerParent *ir_build_result_peers(Stage1AstGen *ag, IrInstSrc *c
     return peer_parent;
 }
 
-static ResultLocPeerParent *ir_build_binary_result_peers(Stage1AstGen *ag, IrInstSrc *cond_br_inst,
-        Stage1ZirBasicBlock *else_block, Stage1ZirBasicBlock *end_block, ResultLoc *parent, IrInstSrc *is_comptime)
+static ResultLocPeerParent *ir_build_binary_result_peers(Stage1AstGen *ag, Stage1ZirInst *cond_br_inst,
+        Stage1ZirBasicBlock *else_block, Stage1ZirBasicBlock *end_block, ResultLoc *parent, Stage1ZirInst *is_comptime)
 {
     ResultLocPeerParent *peer_parent = ir_build_result_peers(ag, cond_br_inst, end_block, parent, is_comptime);
 
@@ -3587,7 +3587,7 @@ static ResultLocPeerParent *ir_build_binary_result_peers(Stage1AstGen *ag, IrIns
     return peer_parent;
 }
 
-static IrInstSrc *astgen_orelse(Stage1AstGen *ag, Scope *parent_scope, AstNode *node, LVal lval,
+static Stage1ZirInst *astgen_orelse(Stage1AstGen *ag, Scope *parent_scope, AstNode *node, LVal lval,
         ResultLoc *result_loc)
 {
     assert(node->type == NodeTypeBinOpExpr);
@@ -3595,14 +3595,14 @@ static IrInstSrc *astgen_orelse(Stage1AstGen *ag, Scope *parent_scope, AstNode *
     AstNode *op1_node = node->data.bin_op_expr.op1;
     AstNode *op2_node = node->data.bin_op_expr.op2;
 
-    IrInstSrc *maybe_ptr = astgen_node_extra(ag, op1_node, parent_scope, LValPtr, nullptr);
+    Stage1ZirInst *maybe_ptr = astgen_node_extra(ag, op1_node, parent_scope, LValPtr, nullptr);
     if (maybe_ptr == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
 
-    IrInstSrc *maybe_val = ir_build_load_ptr(ag, parent_scope, node, maybe_ptr);
-    IrInstSrc *is_non_null = ir_build_test_non_null_src(ag, parent_scope, node, maybe_val);
+    Stage1ZirInst *maybe_val = ir_build_load_ptr(ag, parent_scope, node, maybe_ptr);
+    Stage1ZirInst *is_non_null = ir_build_test_non_null_src(ag, parent_scope, node, maybe_val);
 
-    IrInstSrc *is_comptime;
+    Stage1ZirInst *is_comptime;
     if (ir_should_inline(ag->exec, parent_scope)) {
         is_comptime = ir_build_const_bool(ag, parent_scope, node, true);
     } else {
@@ -3612,13 +3612,13 @@ static IrInstSrc *astgen_orelse(Stage1AstGen *ag, Scope *parent_scope, AstNode *
     Stage1ZirBasicBlock *ok_block = ir_create_basic_block(ag, parent_scope, "OptionalNonNull");
     Stage1ZirBasicBlock *null_block = ir_create_basic_block(ag, parent_scope, "OptionalNull");
     Stage1ZirBasicBlock *end_block = ir_create_basic_block(ag, parent_scope, "OptionalEnd");
-    IrInstSrc *cond_br_inst = ir_build_cond_br(ag, parent_scope, node, is_non_null, ok_block, null_block, is_comptime);
+    Stage1ZirInst *cond_br_inst = ir_build_cond_br(ag, parent_scope, node, is_non_null, ok_block, null_block, is_comptime);
 
     ResultLocPeerParent *peer_parent = ir_build_binary_result_peers(ag, cond_br_inst, ok_block, end_block,
             result_loc, is_comptime);
 
     ir_set_cursor_at_end_and_append_block(ag, null_block);
-    IrInstSrc *null_result = astgen_node_extra(ag, op2_node, parent_scope, LValNone,
+    Stage1ZirInst *null_result = astgen_node_extra(ag, op2_node, parent_scope, LValNone,
             &peer_parent->peers.at(0)->base);
     if (null_result == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
@@ -3627,41 +3627,41 @@ static IrInstSrc *astgen_orelse(Stage1AstGen *ag, Scope *parent_scope, AstNode *
         ir_build_br(ag, parent_scope, node, end_block, is_comptime);
 
     ir_set_cursor_at_end_and_append_block(ag, ok_block);
-    IrInstSrc *unwrapped_ptr = ir_build_optional_unwrap_ptr(ag, parent_scope, node, maybe_ptr, false);
-    IrInstSrc *unwrapped_payload = ir_build_load_ptr(ag, parent_scope, node, unwrapped_ptr);
+    Stage1ZirInst *unwrapped_ptr = ir_build_optional_unwrap_ptr(ag, parent_scope, node, maybe_ptr, false);
+    Stage1ZirInst *unwrapped_payload = ir_build_load_ptr(ag, parent_scope, node, unwrapped_ptr);
     ir_build_end_expr(ag, parent_scope, node, unwrapped_payload, &peer_parent->peers.at(1)->base);
     Stage1ZirBasicBlock *after_ok_block = ag->current_basic_block;
     ir_build_br(ag, parent_scope, node, end_block, is_comptime);
 
     ir_set_cursor_at_end_and_append_block(ag, end_block);
-    IrInstSrc **incoming_values = heap::c_allocator.allocate<IrInstSrc *>(2);
+    Stage1ZirInst **incoming_values = heap::c_allocator.allocate<Stage1ZirInst *>(2);
     incoming_values[0] = null_result;
     incoming_values[1] = unwrapped_payload;
     Stage1ZirBasicBlock **incoming_blocks = heap::c_allocator.allocate<Stage1ZirBasicBlock *>(2);
     incoming_blocks[0] = after_null_block;
     incoming_blocks[1] = after_ok_block;
-    IrInstSrc *phi = ir_build_phi(ag, parent_scope, node, 2, incoming_blocks, incoming_values, peer_parent);
+    Stage1ZirInst *phi = ir_build_phi(ag, parent_scope, node, 2, incoming_blocks, incoming_values, peer_parent);
     return ir_lval_wrap(ag, parent_scope, phi, lval, result_loc);
 }
 
-static IrInstSrc *astgen_error_union(Stage1AstGen *ag, Scope *parent_scope, AstNode *node) {
+static Stage1ZirInst *astgen_error_union(Stage1AstGen *ag, Scope *parent_scope, AstNode *node) {
     assert(node->type == NodeTypeBinOpExpr);
 
     AstNode *op1_node = node->data.bin_op_expr.op1;
     AstNode *op2_node = node->data.bin_op_expr.op2;
 
-    IrInstSrc *err_set = astgen_node(ag, op1_node, parent_scope);
+    Stage1ZirInst *err_set = astgen_node(ag, op1_node, parent_scope);
     if (err_set == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
 
-    IrInstSrc *payload = astgen_node(ag, op2_node, parent_scope);
+    Stage1ZirInst *payload = astgen_node(ag, op2_node, parent_scope);
     if (payload == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
 
     return ir_build_error_union(ag, parent_scope, node, err_set, payload);
 }
 
-static IrInstSrc *astgen_bin_op(Stage1AstGen *ag, Scope *scope, AstNode *node, LVal lval, ResultLoc *result_loc) {
+static Stage1ZirInst *astgen_bin_op(Stage1AstGen *ag, Scope *scope, AstNode *node, LVal lval, ResultLoc *result_loc) {
     assert(node->type == NodeTypeBinOpExpr);
 
     BinOpType bin_op_type = node->data.bin_op_expr.bin_op;
@@ -3752,7 +3752,7 @@ static IrInstSrc *astgen_bin_op(Stage1AstGen *ag, Scope *scope, AstNode *node, L
     zig_unreachable();
 }
 
-static IrInstSrc *astgen_int_lit(Stage1AstGen *ag, Scope *scope, AstNode *node) {
+static Stage1ZirInst *astgen_int_lit(Stage1AstGen *ag, Scope *scope, AstNode *node) {
     assert(node->type == NodeTypeIntLiteral);
 
     RootStruct *root_struct = node->owner->data.structure.root_struct;
@@ -3761,7 +3761,7 @@ static IrInstSrc *astgen_int_lit(Stage1AstGen *ag, Scope *scope, AstNode *node) 
     return ir_build_const_bigint(ag, scope, node, bigint);
 }
 
-static IrInstSrc *astgen_float_lit(Stage1AstGen *ag, Scope *scope, AstNode *node) {
+static Stage1ZirInst *astgen_float_lit(Stage1AstGen *ag, Scope *scope, AstNode *node) {
     Error err;
     assert(node->type == NodeTypeFloatLiteral);
 
@@ -3778,7 +3778,7 @@ static IrInstSrc *astgen_float_lit(Stage1AstGen *ag, Scope *scope, AstNode *node
     return ir_build_const_bigfloat(ag, scope, node, bigfloat);
 }
 
-static IrInstSrc *astgen_char_lit(Stage1AstGen *ag, Scope *scope, AstNode *node) {
+static Stage1ZirInst *astgen_char_lit(Stage1AstGen *ag, Scope *scope, AstNode *node) {
     Error err;
     assert(node->type == NodeTypeCharLiteral);
 
@@ -3798,13 +3798,13 @@ static IrInstSrc *astgen_char_lit(Stage1AstGen *ag, Scope *scope, AstNode *node)
     return ir_build_const_uint(ag, scope, node, codepoint);
 }
 
-static IrInstSrc *astgen_null_literal(Stage1AstGen *ag, Scope *scope, AstNode *node) {
+static Stage1ZirInst *astgen_null_literal(Stage1AstGen *ag, Scope *scope, AstNode *node) {
     assert(node->type == NodeTypeNullLiteral);
 
     return ir_build_const_null(ag, scope, node);
 }
 
-static IrInstSrc *astgen_identifier(Stage1AstGen *ag, Scope *scope, AstNode *node, LVal lval,
+static Stage1ZirInst *astgen_identifier(Stage1AstGen *ag, Scope *scope, AstNode *node, LVal lval,
         ResultLoc *result_loc)
 {
     Error err;
@@ -3814,7 +3814,7 @@ static IrInstSrc *astgen_identifier(Stage1AstGen *ag, Scope *scope, AstNode *nod
 
     if (buf_eql_str(variable_name, "_")) {
         if (lval == LValAssign) {
-            IrInstSrcConst *const_instruction = ir_build_instruction<IrInstSrcConst>(ag, scope, node);
+            Stage1ZirInstConst *const_instruction = ir_build_instruction<Stage1ZirInstConst>(ag, scope, node);
             const_instruction->value = ag->codegen->pass1_arena->create<ZigValue>();
             const_instruction->value->type = get_pointer_to_type(ag->codegen,
                     ag->codegen->builtin_types.entry_void, false);
@@ -3837,7 +3837,7 @@ static IrInstSrc *astgen_identifier(Stage1AstGen *ag, Scope *scope, AstNode *nod
         }
         assert(err == ErrorPrimitiveTypeNotFound);
     } else {
-        IrInstSrc *value = ir_build_const_type(ag, scope, node, primitive_type);
+        Stage1ZirInst *value = ir_build_const_type(ag, scope, node, primitive_type);
         if (lval == LValPtr || lval == LValAssign) {
             return ir_build_ref_src(ag, scope, node, value);
         } else {
@@ -3848,7 +3848,7 @@ static IrInstSrc *astgen_identifier(Stage1AstGen *ag, Scope *scope, AstNode *nod
     ScopeFnDef *crossed_fndef_scope;
     ZigVar *var = find_variable(ag->codegen, scope, variable_name, &crossed_fndef_scope);
     if (var) {
-        IrInstSrc *var_ptr = ir_build_var_ptr_x(ag, scope, node, var, crossed_fndef_scope);
+        Stage1ZirInst *var_ptr = ir_build_var_ptr_x(ag, scope, node, var, crossed_fndef_scope);
         if (lval == LValPtr || lval == LValAssign) {
             return var_ptr;
         } else {
@@ -3858,7 +3858,7 @@ static IrInstSrc *astgen_identifier(Stage1AstGen *ag, Scope *scope, AstNode *nod
 
     Tld *tld = find_decl(ag->codegen, scope, variable_name);
     if (tld) {
-        IrInstSrc *decl_ref = ir_build_decl_ref(ag, scope, node, tld, lval);
+        Stage1ZirInst *decl_ref = ir_build_decl_ref(ag, scope, node, tld, lval);
         if (lval == LValPtr || lval == LValAssign) {
             return decl_ref;
         } else {
@@ -3875,52 +3875,52 @@ static IrInstSrc *astgen_identifier(Stage1AstGen *ag, Scope *scope, AstNode *nod
     return ir_build_undeclared_identifier(ag, scope, node, variable_name);
 }
 
-static IrInstSrc *astgen_array_access(Stage1AstGen *ag, Scope *scope, AstNode *node, LVal lval,
+static Stage1ZirInst *astgen_array_access(Stage1AstGen *ag, Scope *scope, AstNode *node, LVal lval,
         ResultLoc *result_loc)
 {
     assert(node->type == NodeTypeArrayAccessExpr);
 
     AstNode *array_ref_node = node->data.array_access_expr.array_ref_expr;
-    IrInstSrc *array_ref_instruction = astgen_node_extra(ag, array_ref_node, scope, LValPtr, nullptr);
+    Stage1ZirInst *array_ref_instruction = astgen_node_extra(ag, array_ref_node, scope, LValPtr, nullptr);
     if (array_ref_instruction == ag->codegen->invalid_inst_src)
         return array_ref_instruction;
 
     // Create an usize-typed result location to hold the subscript value, this
     // makes it possible for the compiler to infer the subscript expression type
     // if needed
-    IrInstSrc *usize_type_inst = ir_build_const_type(ag, scope, node, ag->codegen->builtin_types.entry_usize);
+    Stage1ZirInst *usize_type_inst = ir_build_const_type(ag, scope, node, ag->codegen->builtin_types.entry_usize);
     ResultLocCast *result_loc_cast = ir_build_cast_result_loc(ag, usize_type_inst, no_result_loc());
 
     AstNode *subscript_node = node->data.array_access_expr.subscript;
-    IrInstSrc *subscript_value = astgen_node_extra(ag, subscript_node, scope, LValNone, &result_loc_cast->base);
+    Stage1ZirInst *subscript_value = astgen_node_extra(ag, subscript_node, scope, LValNone, &result_loc_cast->base);
     if (subscript_value == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
 
-    IrInstSrc *subscript_instruction = ir_build_implicit_cast(ag, scope, subscript_node, subscript_value, result_loc_cast);
+    Stage1ZirInst *subscript_instruction = ir_build_implicit_cast(ag, scope, subscript_node, subscript_value, result_loc_cast);
 
-    IrInstSrc *ptr_instruction = ir_build_elem_ptr(ag, scope, node, array_ref_instruction,
+    Stage1ZirInst *ptr_instruction = ir_build_elem_ptr(ag, scope, node, array_ref_instruction,
             subscript_instruction, true, PtrLenSingle, nullptr);
     if (lval == LValPtr || lval == LValAssign)
         return ptr_instruction;
 
-    IrInstSrc *load_ptr = ir_build_load_ptr(ag, scope, node, ptr_instruction);
+    Stage1ZirInst *load_ptr = ir_build_load_ptr(ag, scope, node, ptr_instruction);
     return ir_expr_wrap(ag, scope, load_ptr, result_loc);
 }
 
-static IrInstSrc *astgen_field_access(Stage1AstGen *ag, Scope *scope, AstNode *node) {
+static Stage1ZirInst *astgen_field_access(Stage1AstGen *ag, Scope *scope, AstNode *node) {
     assert(node->type == NodeTypeFieldAccessExpr);
 
     AstNode *container_ref_node = node->data.field_access_expr.struct_expr;
     Buf *field_name = node->data.field_access_expr.field_name;
 
-    IrInstSrc *container_ref_instruction = astgen_node_extra(ag, container_ref_node, scope, LValPtr, nullptr);
+    Stage1ZirInst *container_ref_instruction = astgen_node_extra(ag, container_ref_node, scope, LValPtr, nullptr);
     if (container_ref_instruction == ag->codegen->invalid_inst_src)
         return container_ref_instruction;
 
     return ir_build_field_ptr(ag, scope, node, container_ref_instruction, field_name, false);
 }
 
-static IrInstSrc *astgen_overflow_op(Stage1AstGen *ag, Scope *scope, AstNode *node, IrOverflowOp op) {
+static Stage1ZirInst *astgen_overflow_op(Stage1AstGen *ag, Scope *scope, AstNode *node, IrOverflowOp op) {
     assert(node->type == NodeTypeFnCallExpr);
 
     AstNode *type_node = node->data.fn_call_expr.params.at(0);
@@ -3929,26 +3929,26 @@ static IrInstSrc *astgen_overflow_op(Stage1AstGen *ag, Scope *scope, AstNode *no
     AstNode *result_ptr_node = node->data.fn_call_expr.params.at(3);
 
 
-    IrInstSrc *type_value = astgen_node(ag, type_node, scope);
+    Stage1ZirInst *type_value = astgen_node(ag, type_node, scope);
     if (type_value == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
 
-    IrInstSrc *op1 = astgen_node(ag, op1_node, scope);
+    Stage1ZirInst *op1 = astgen_node(ag, op1_node, scope);
     if (op1 == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
 
-    IrInstSrc *op2 = astgen_node(ag, op2_node, scope);
+    Stage1ZirInst *op2 = astgen_node(ag, op2_node, scope);
     if (op2 == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
 
-    IrInstSrc *result_ptr = astgen_node(ag, result_ptr_node, scope);
+    Stage1ZirInst *result_ptr = astgen_node(ag, result_ptr_node, scope);
     if (result_ptr == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
 
     return ir_build_overflow_op_src(ag, scope, node, op, type_value, op1, op2, result_ptr);
 }
 
-static IrInstSrc *astgen_mul_add(Stage1AstGen *ag, Scope *scope, AstNode *node) {
+static Stage1ZirInst *astgen_mul_add(Stage1AstGen *ag, Scope *scope, AstNode *node) {
     assert(node->type == NodeTypeFnCallExpr);
 
     AstNode *type_node = node->data.fn_call_expr.params.at(0);
@@ -3956,26 +3956,26 @@ static IrInstSrc *astgen_mul_add(Stage1AstGen *ag, Scope *scope, AstNode *node) 
     AstNode *op2_node = node->data.fn_call_expr.params.at(2);
     AstNode *op3_node = node->data.fn_call_expr.params.at(3);
 
-    IrInstSrc *type_value = astgen_node(ag, type_node, scope);
+    Stage1ZirInst *type_value = astgen_node(ag, type_node, scope);
     if (type_value == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
 
-    IrInstSrc *op1 = astgen_node(ag, op1_node, scope);
+    Stage1ZirInst *op1 = astgen_node(ag, op1_node, scope);
     if (op1 == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
 
-    IrInstSrc *op2 = astgen_node(ag, op2_node, scope);
+    Stage1ZirInst *op2 = astgen_node(ag, op2_node, scope);
     if (op2 == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
 
-    IrInstSrc *op3 = astgen_node(ag, op3_node, scope);
+    Stage1ZirInst *op3 = astgen_node(ag, op3_node, scope);
     if (op3 == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
 
     return ir_build_mul_add_src(ag, scope, node, type_value, op1, op2, op3);
 }
 
-static IrInstSrc *astgen_this(Stage1AstGen *ag, Scope *orig_scope, AstNode *node) {
+static Stage1ZirInst *astgen_this(Stage1AstGen *ag, Scope *orig_scope, AstNode *node) {
     for (Scope *it_scope = orig_scope; it_scope != nullptr; it_scope = it_scope->parent) {
         if (it_scope->id == ScopeIdDecls) {
             ScopeDecls *decls_scope = (ScopeDecls *)it_scope;
@@ -3990,7 +3990,7 @@ static IrInstSrc *astgen_this(Stage1AstGen *ag, Scope *orig_scope, AstNode *node
     zig_unreachable();
 }
 
-static IrInstSrc *astgen_async_call(Stage1AstGen *ag, Scope *scope, AstNode *await_node, AstNode *call_node,
+static Stage1ZirInst *astgen_async_call(Stage1AstGen *ag, Scope *scope, AstNode *await_node, AstNode *call_node,
         LVal lval, ResultLoc *result_loc)
 {
     if (call_node->data.fn_call_expr.params.length != 4) {
@@ -4001,17 +4001,17 @@ static IrInstSrc *astgen_async_call(Stage1AstGen *ag, Scope *scope, AstNode *awa
     }
 
     AstNode *bytes_node = call_node->data.fn_call_expr.params.at(0);
-    IrInstSrc *bytes = astgen_node(ag, bytes_node, scope);
+    Stage1ZirInst *bytes = astgen_node(ag, bytes_node, scope);
     if (bytes == ag->codegen->invalid_inst_src)
         return bytes;
 
     AstNode *ret_ptr_node = call_node->data.fn_call_expr.params.at(1);
-    IrInstSrc *ret_ptr = astgen_node(ag, ret_ptr_node, scope);
+    Stage1ZirInst *ret_ptr = astgen_node(ag, ret_ptr_node, scope);
     if (ret_ptr == ag->codegen->invalid_inst_src)
         return ret_ptr;
 
     AstNode *fn_ref_node = call_node->data.fn_call_expr.params.at(2);
-    IrInstSrc *fn_ref = astgen_node(ag, fn_ref_node, scope);
+    Stage1ZirInst *fn_ref = astgen_node(ag, fn_ref_node, scope);
     if (fn_ref == ag->codegen->invalid_inst_src)
         return fn_ref;
 
@@ -4023,16 +4023,16 @@ static IrInstSrc *astgen_async_call(Stage1AstGen *ag, Scope *scope, AstNode *awa
             args_node->data.container_init_expr.entries.length == 0)
         {
             size_t arg_count = args_node->data.container_init_expr.entries.length;
-            IrInstSrc **args = heap::c_allocator.allocate<IrInstSrc*>(arg_count);
+            Stage1ZirInst **args = heap::c_allocator.allocate<Stage1ZirInst*>(arg_count);
             for (size_t i = 0; i < arg_count; i += 1) {
                 AstNode *arg_node = args_node->data.container_init_expr.entries.at(i);
-                IrInstSrc *arg = astgen_node(ag, arg_node, scope);
+                Stage1ZirInst *arg = astgen_node(ag, arg_node, scope);
                 if (arg == ag->codegen->invalid_inst_src)
                     return arg;
                 args[i] = arg;
             }
 
-            IrInstSrc *call = ir_build_call_src(ag, scope, call_node, nullptr, fn_ref, arg_count, args,
+            Stage1ZirInst *call = ir_build_call_src(ag, scope, call_node, nullptr, fn_ref, arg_count, args,
                 ret_ptr, modifier, is_async_call_builtin, bytes, result_loc);
             return ir_lval_wrap(ag, scope, call, lval, result_loc);
         } else {
@@ -4041,42 +4041,42 @@ static IrInstSrc *astgen_async_call(Stage1AstGen *ag, Scope *scope, AstNode *awa
             return ag->codegen->invalid_inst_src;
         }
     }
-    IrInstSrc *args = astgen_node(ag, args_node, scope);
+    Stage1ZirInst *args = astgen_node(ag, args_node, scope);
     if (args == ag->codegen->invalid_inst_src)
         return args;
 
-    IrInstSrc *call = ir_build_async_call_extra(ag, scope, call_node, modifier, fn_ref, ret_ptr, bytes, args, result_loc);
+    Stage1ZirInst *call = ir_build_async_call_extra(ag, scope, call_node, modifier, fn_ref, ret_ptr, bytes, args, result_loc);
     return ir_lval_wrap(ag, scope, call, lval, result_loc);
 }
 
-static IrInstSrc *astgen_fn_call_with_args(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        AstNode *fn_ref_node, CallModifier modifier, IrInstSrc *options,
+static Stage1ZirInst *astgen_fn_call_with_args(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        AstNode *fn_ref_node, CallModifier modifier, Stage1ZirInst *options,
         AstNode **args_ptr, size_t args_len, LVal lval, ResultLoc *result_loc)
 {
-    IrInstSrc *fn_ref = astgen_node(ag, fn_ref_node, scope);
+    Stage1ZirInst *fn_ref = astgen_node(ag, fn_ref_node, scope);
     if (fn_ref == ag->codegen->invalid_inst_src)
         return fn_ref;
 
-    IrInstSrc *fn_type = ir_build_typeof_1(ag, scope, source_node, fn_ref);
+    Stage1ZirInst *fn_type = ir_build_typeof_1(ag, scope, source_node, fn_ref);
 
-    IrInstSrc **args = heap::c_allocator.allocate<IrInstSrc*>(args_len);
+    Stage1ZirInst **args = heap::c_allocator.allocate<Stage1ZirInst*>(args_len);
     for (size_t i = 0; i < args_len; i += 1) {
         AstNode *arg_node = args_ptr[i];
 
-        IrInstSrc *arg_index = ir_build_const_usize(ag, scope, arg_node, i);
-        IrInstSrc *arg_type = ir_build_arg_type(ag, scope, source_node, fn_type, arg_index, true);
+        Stage1ZirInst *arg_index = ir_build_const_usize(ag, scope, arg_node, i);
+        Stage1ZirInst *arg_type = ir_build_arg_type(ag, scope, source_node, fn_type, arg_index, true);
         ResultLoc *no_result = no_result_loc();
         ir_build_reset_result(ag, scope, source_node, no_result);
         ResultLocCast *result_loc_cast = ir_build_cast_result_loc(ag, arg_type, no_result);
 
-        IrInstSrc *arg = astgen_node_extra(ag, arg_node, scope, LValNone, &result_loc_cast->base);
+        Stage1ZirInst *arg = astgen_node_extra(ag, arg_node, scope, LValNone, &result_loc_cast->base);
         if (arg == ag->codegen->invalid_inst_src)
             return arg;
 
         args[i] = ir_build_implicit_cast(ag, scope, arg_node, arg, result_loc_cast);
     }
 
-    IrInstSrc *fn_call;
+    Stage1ZirInst *fn_call;
     if (options != nullptr) {
         fn_call = ir_build_call_args(ag, scope, source_node, options, fn_ref, args, args_len, result_loc);
     } else {
@@ -4086,7 +4086,7 @@ static IrInstSrc *astgen_fn_call_with_args(Stage1AstGen *ag, Scope *scope, AstNo
     return ir_lval_wrap(ag, scope, fn_call, lval, result_loc);
 }
 
-static IrInstSrc *astgen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode *node, LVal lval,
+static Stage1ZirInst *astgen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode *node, LVal lval,
         ResultLoc *result_loc)
 {
     assert(node->type == NodeTypeFnCallExpr);
@@ -4120,7 +4120,7 @@ static IrInstSrc *astgen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
 
                 size_t arg_count = node->data.fn_call_expr.params.length;
 
-                IrInstSrc *type_of;
+                Stage1ZirInst *type_of;
 
                 if (arg_count == 0) {
                     add_node_error(ag->codegen, node,
@@ -4128,16 +4128,16 @@ static IrInstSrc *astgen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
                     return ag->codegen->invalid_inst_src;
                 } else if (arg_count == 1) {
                     AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                    IrInstSrc *arg0_value = astgen_node(ag, arg0_node, sub_scope);
+                    Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, sub_scope);
                     if (arg0_value == ag->codegen->invalid_inst_src)
                         return arg0_value;
 
                     type_of = ir_build_typeof_1(ag, scope, node, arg0_value);
                 } else {
-                    IrInstSrc **args = heap::c_allocator.allocate<IrInstSrc*>(arg_count);
+                    Stage1ZirInst **args = heap::c_allocator.allocate<Stage1ZirInst*>(arg_count);
                     for (size_t i = 0; i < arg_count; i += 1) {
                         AstNode *arg_node = node->data.fn_call_expr.params.at(i);
-                        IrInstSrc *arg = astgen_node(ag, arg_node, sub_scope);
+                        Stage1ZirInst *arg = astgen_node(ag, arg_node, sub_scope);
                         if (arg == ag->codegen->invalid_inst_src)
                             return ag->codegen->invalid_inst_src;
                         args[i] = arg;
@@ -4150,63 +4150,63 @@ static IrInstSrc *astgen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdSetCold:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
-                IrInstSrc *set_cold = ir_build_set_cold(ag, scope, node, arg0_value);
+                Stage1ZirInst *set_cold = ir_build_set_cold(ag, scope, node, arg0_value);
                 return ir_lval_wrap(ag, scope, set_cold, lval, result_loc);
             }
         case BuiltinFnIdSetRuntimeSafety:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
-                IrInstSrc *set_safety = ir_build_set_runtime_safety(ag, scope, node, arg0_value);
+                Stage1ZirInst *set_safety = ir_build_set_runtime_safety(ag, scope, node, arg0_value);
                 return ir_lval_wrap(ag, scope, set_safety, lval, result_loc);
             }
         case BuiltinFnIdSetFloatMode:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
-                IrInstSrc *set_float_mode = ir_build_set_float_mode(ag, scope, node, arg0_value);
+                Stage1ZirInst *set_float_mode = ir_build_set_float_mode(ag, scope, node, arg0_value);
                 return ir_lval_wrap(ag, scope, set_float_mode, lval, result_loc);
             }
         case BuiltinFnIdSizeof:
         case BuiltinFnIdBitSizeof:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
-                IrInstSrc *size_of = ir_build_size_of(ag, scope, node, arg0_value, builtin_fn->id == BuiltinFnIdBitSizeof);
+                Stage1ZirInst *size_of = ir_build_size_of(ag, scope, node, arg0_value, builtin_fn->id == BuiltinFnIdBitSizeof);
                 return ir_lval_wrap(ag, scope, size_of, lval, result_loc);
             }
         case BuiltinFnIdImport:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
-                IrInstSrc *import = ir_build_import(ag, scope, node, arg0_value);
+                Stage1ZirInst *import = ir_build_import(ag, scope, node, arg0_value);
                 return ir_lval_wrap(ag, scope, import, lval, result_loc);
             }
         case BuiltinFnIdCImport:
             {
-                IrInstSrc *c_import = ir_build_c_import(ag, scope, node);
+                Stage1ZirInst *c_import = ir_build_c_import(ag, scope, node);
                 return ir_lval_wrap(ag, scope, c_import, lval, result_loc);
             }
         case BuiltinFnIdCInclude:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
@@ -4215,18 +4215,18 @@ static IrInstSrc *astgen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
                     return ag->codegen->invalid_inst_src;
                 }
 
-                IrInstSrc *c_include = ir_build_c_include(ag, scope, node, arg0_value);
+                Stage1ZirInst *c_include = ir_build_c_include(ag, scope, node, arg0_value);
                 return ir_lval_wrap(ag, scope, c_include, lval, result_loc);
             }
         case BuiltinFnIdCDefine:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
+                Stage1ZirInst *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
@@ -4235,13 +4235,13 @@ static IrInstSrc *astgen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
                     return ag->codegen->invalid_inst_src;
                 }
 
-                IrInstSrc *c_define = ir_build_c_define(ag, scope, node, arg0_value, arg1_value);
+                Stage1ZirInst *c_define = ir_build_c_define(ag, scope, node, arg0_value, arg1_value);
                 return ir_lval_wrap(ag, scope, c_define, lval, result_loc);
             }
         case BuiltinFnIdCUndef:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
@@ -4250,22 +4250,22 @@ static IrInstSrc *astgen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
                     return ag->codegen->invalid_inst_src;
                 }
 
-                IrInstSrc *c_undef = ir_build_c_undef(ag, scope, node, arg0_value);
+                Stage1ZirInst *c_undef = ir_build_c_undef(ag, scope, node, arg0_value);
                 return ir_lval_wrap(ag, scope, c_undef, lval, result_loc);
             }
         case BuiltinFnIdCompileErr:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
-                IrInstSrc *compile_err = ir_build_compile_err(ag, scope, node, arg0_value);
+                Stage1ZirInst *compile_err = ir_build_compile_err(ag, scope, node, arg0_value);
                 return ir_lval_wrap(ag, scope, compile_err, lval, result_loc);
             }
         case BuiltinFnIdCompileLog:
             {
-                IrInstSrc **args = heap::c_allocator.allocate<IrInstSrc*>(actual_param_count);
+                Stage1ZirInst **args = heap::c_allocator.allocate<Stage1ZirInst*>(actual_param_count);
 
                 for (size_t i = 0; i < actual_param_count; i += 1) {
                     AstNode *arg_node = node->data.fn_call_expr.params.at(i);
@@ -4274,63 +4274,63 @@ static IrInstSrc *astgen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
                         return ag->codegen->invalid_inst_src;
                 }
 
-                IrInstSrc *compile_log = ir_build_compile_log(ag, scope, node, actual_param_count, args);
+                Stage1ZirInst *compile_log = ir_build_compile_log(ag, scope, node, actual_param_count, args);
                 return ir_lval_wrap(ag, scope, compile_log, lval, result_loc);
             }
         case BuiltinFnIdErrName:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
-                IrInstSrc *err_name = ir_build_err_name(ag, scope, node, arg0_value);
+                Stage1ZirInst *err_name = ir_build_err_name(ag, scope, node, arg0_value);
                 return ir_lval_wrap(ag, scope, err_name, lval, result_loc);
             }
         case BuiltinFnIdEmbedFile:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
-                IrInstSrc *embed_file = ir_build_embed_file(ag, scope, node, arg0_value);
+                Stage1ZirInst *embed_file = ir_build_embed_file(ag, scope, node, arg0_value);
                 return ir_lval_wrap(ag, scope, embed_file, lval, result_loc);
             }
         case BuiltinFnIdCmpxchgWeak:
         case BuiltinFnIdCmpxchgStrong:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
+                Stage1ZirInst *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
                 AstNode *arg2_node = node->data.fn_call_expr.params.at(2);
-                IrInstSrc *arg2_value = astgen_node(ag, arg2_node, scope);
+                Stage1ZirInst *arg2_value = astgen_node(ag, arg2_node, scope);
                 if (arg2_value == ag->codegen->invalid_inst_src)
                     return arg2_value;
 
                 AstNode *arg3_node = node->data.fn_call_expr.params.at(3);
-                IrInstSrc *arg3_value = astgen_node(ag, arg3_node, scope);
+                Stage1ZirInst *arg3_value = astgen_node(ag, arg3_node, scope);
                 if (arg3_value == ag->codegen->invalid_inst_src)
                     return arg3_value;
 
                 AstNode *arg4_node = node->data.fn_call_expr.params.at(4);
-                IrInstSrc *arg4_value = astgen_node(ag, arg4_node, scope);
+                Stage1ZirInst *arg4_value = astgen_node(ag, arg4_node, scope);
                 if (arg4_value == ag->codegen->invalid_inst_src)
                     return arg4_value;
 
                 AstNode *arg5_node = node->data.fn_call_expr.params.at(5);
-                IrInstSrc *arg5_value = astgen_node(ag, arg5_node, scope);
+                Stage1ZirInst *arg5_value = astgen_node(ag, arg5_node, scope);
                 if (arg5_value == ag->codegen->invalid_inst_src)
                     return arg5_value;
 
-                IrInstSrc *cmpxchg = ir_build_cmpxchg_src(ag, scope, node, arg0_value, arg1_value,
+                Stage1ZirInst *cmpxchg = ir_build_cmpxchg_src(ag, scope, node, arg0_value, arg1_value,
                     arg2_value, arg3_value, arg4_value, arg5_value, (builtin_fn->id == BuiltinFnIdCmpxchgWeak),
                     result_loc);
                 return ir_lval_wrap(ag, scope, cmpxchg, lval, result_loc);
@@ -4338,101 +4338,101 @@ static IrInstSrc *astgen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdFence:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
-                IrInstSrc *fence = ir_build_fence(ag, scope, node, arg0_value);
+                Stage1ZirInst *fence = ir_build_fence(ag, scope, node, arg0_value);
                 return ir_lval_wrap(ag, scope, fence, lval, result_loc);
             }
         case BuiltinFnIdReduce:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
+                Stage1ZirInst *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
-                IrInstSrc *reduce = ir_build_reduce(ag, scope, node, arg0_value, arg1_value);
+                Stage1ZirInst *reduce = ir_build_reduce(ag, scope, node, arg0_value, arg1_value);
                 return ir_lval_wrap(ag, scope, reduce, lval, result_loc);
             }
         case BuiltinFnIdDivExact:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
+                Stage1ZirInst *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
-                IrInstSrc *bin_op = ir_build_bin_op(ag, scope, node, IrBinOpDivExact, arg0_value, arg1_value, true);
+                Stage1ZirInst *bin_op = ir_build_bin_op(ag, scope, node, IrBinOpDivExact, arg0_value, arg1_value, true);
                 return ir_lval_wrap(ag, scope, bin_op, lval, result_loc);
             }
         case BuiltinFnIdDivTrunc:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
+                Stage1ZirInst *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
-                IrInstSrc *bin_op = ir_build_bin_op(ag, scope, node, IrBinOpDivTrunc, arg0_value, arg1_value, true);
+                Stage1ZirInst *bin_op = ir_build_bin_op(ag, scope, node, IrBinOpDivTrunc, arg0_value, arg1_value, true);
                 return ir_lval_wrap(ag, scope, bin_op, lval, result_loc);
             }
         case BuiltinFnIdDivFloor:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
+                Stage1ZirInst *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
-                IrInstSrc *bin_op = ir_build_bin_op(ag, scope, node, IrBinOpDivFloor, arg0_value, arg1_value, true);
+                Stage1ZirInst *bin_op = ir_build_bin_op(ag, scope, node, IrBinOpDivFloor, arg0_value, arg1_value, true);
                 return ir_lval_wrap(ag, scope, bin_op, lval, result_loc);
             }
         case BuiltinFnIdRem:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
+                Stage1ZirInst *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
-                IrInstSrc *bin_op = ir_build_bin_op(ag, scope, node, IrBinOpRemRem, arg0_value, arg1_value, true);
+                Stage1ZirInst *bin_op = ir_build_bin_op(ag, scope, node, IrBinOpRemRem, arg0_value, arg1_value, true);
                 return ir_lval_wrap(ag, scope, bin_op, lval, result_loc);
             }
         case BuiltinFnIdMod:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
+                Stage1ZirInst *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
-                IrInstSrc *bin_op = ir_build_bin_op(ag, scope, node, IrBinOpRemMod, arg0_value, arg1_value, true);
+                Stage1ZirInst *bin_op = ir_build_bin_op(ag, scope, node, IrBinOpRemMod, arg0_value, arg1_value, true);
                 return ir_lval_wrap(ag, scope, bin_op, lval, result_loc);
             }
         case BuiltinFnIdSqrt:
@@ -4451,146 +4451,146 @@ static IrInstSrc *astgen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdRound:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
-                IrInstSrc *inst = ir_build_float_op_src(ag, scope, node, arg0_value, builtin_fn->id);
+                Stage1ZirInst *inst = ir_build_float_op_src(ag, scope, node, arg0_value, builtin_fn->id);
                 return ir_lval_wrap(ag, scope, inst, lval, result_loc);
             }
         case BuiltinFnIdTruncate:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
+                Stage1ZirInst *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
-                IrInstSrc *truncate = ir_build_truncate(ag, scope, node, arg0_value, arg1_value);
+                Stage1ZirInst *truncate = ir_build_truncate(ag, scope, node, arg0_value, arg1_value);
                 return ir_lval_wrap(ag, scope, truncate, lval, result_loc);
             }
         case BuiltinFnIdIntCast:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
+                Stage1ZirInst *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
-                IrInstSrc *result = ir_build_int_cast(ag, scope, node, arg0_value, arg1_value);
+                Stage1ZirInst *result = ir_build_int_cast(ag, scope, node, arg0_value, arg1_value);
                 return ir_lval_wrap(ag, scope, result, lval, result_loc);
             }
         case BuiltinFnIdFloatCast:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
+                Stage1ZirInst *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
-                IrInstSrc *result = ir_build_float_cast(ag, scope, node, arg0_value, arg1_value);
+                Stage1ZirInst *result = ir_build_float_cast(ag, scope, node, arg0_value, arg1_value);
                 return ir_lval_wrap(ag, scope, result, lval, result_loc);
             }
         case BuiltinFnIdErrSetCast:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
+                Stage1ZirInst *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
-                IrInstSrc *result = ir_build_err_set_cast(ag, scope, node, arg0_value, arg1_value);
+                Stage1ZirInst *result = ir_build_err_set_cast(ag, scope, node, arg0_value, arg1_value);
                 return ir_lval_wrap(ag, scope, result, lval, result_loc);
             }
         case BuiltinFnIdIntToFloat:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
+                Stage1ZirInst *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
-                IrInstSrc *result = ir_build_int_to_float(ag, scope, node, arg0_value, arg1_value);
+                Stage1ZirInst *result = ir_build_int_to_float(ag, scope, node, arg0_value, arg1_value);
                 return ir_lval_wrap(ag, scope, result, lval, result_loc);
             }
         case BuiltinFnIdFloatToInt:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
+                Stage1ZirInst *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
-                IrInstSrc *result = ir_build_float_to_int(ag, scope, node, arg0_value, arg1_value);
+                Stage1ZirInst *result = ir_build_float_to_int(ag, scope, node, arg0_value, arg1_value);
                 return ir_lval_wrap(ag, scope, result, lval, result_loc);
             }
         case BuiltinFnIdErrToInt:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
-                IrInstSrc *result = ir_build_err_to_int_src(ag, scope, node, arg0_value);
+                Stage1ZirInst *result = ir_build_err_to_int_src(ag, scope, node, arg0_value);
                 return ir_lval_wrap(ag, scope, result, lval, result_loc);
             }
         case BuiltinFnIdIntToErr:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
-                IrInstSrc *result = ir_build_int_to_err_src(ag, scope, node, arg0_value);
+                Stage1ZirInst *result = ir_build_int_to_err_src(ag, scope, node, arg0_value);
                 return ir_lval_wrap(ag, scope, result, lval, result_loc);
             }
         case BuiltinFnIdBoolToInt:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
-                IrInstSrc *result = ir_build_bool_to_int(ag, scope, node, arg0_value);
+                Stage1ZirInst *result = ir_build_bool_to_int(ag, scope, node, arg0_value);
                 return ir_lval_wrap(ag, scope, result, lval, result_loc);
             }
         case BuiltinFnIdVectorType:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
+                Stage1ZirInst *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
-                IrInstSrc *vector_type = ir_build_vector_type(ag, scope, node, arg0_value, arg1_value);
+                Stage1ZirInst *vector_type = ir_build_vector_type(ag, scope, node, arg0_value, arg1_value);
                 return ir_lval_wrap(ag, scope, vector_type, lval, result_loc);
             }
         case BuiltinFnIdShuffle:
@@ -4599,164 +4599,164 @@ static IrInstSrc *astgen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
                 Scope *comptime_scope = create_comptime_scope(ag->codegen, node, scope);
 
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, comptime_scope);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, comptime_scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
+                Stage1ZirInst *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
                 AstNode *arg2_node = node->data.fn_call_expr.params.at(2);
-                IrInstSrc *arg2_value = astgen_node(ag, arg2_node, scope);
+                Stage1ZirInst *arg2_value = astgen_node(ag, arg2_node, scope);
                 if (arg2_value == ag->codegen->invalid_inst_src)
                     return arg2_value;
 
                 AstNode *arg3_node = node->data.fn_call_expr.params.at(3);
-                IrInstSrc *arg3_value = astgen_node(ag, arg3_node, comptime_scope);
+                Stage1ZirInst *arg3_value = astgen_node(ag, arg3_node, comptime_scope);
                 if (arg3_value == ag->codegen->invalid_inst_src)
                     return arg3_value;
 
-                IrInstSrc *shuffle_vector = ir_build_shuffle_vector(ag, scope, node,
+                Stage1ZirInst *shuffle_vector = ir_build_shuffle_vector(ag, scope, node,
                     arg0_value, arg1_value, arg2_value, arg3_value);
                 return ir_lval_wrap(ag, scope, shuffle_vector, lval, result_loc);
             }
         case BuiltinFnIdSplat:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
+                Stage1ZirInst *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
-                IrInstSrc *splat = ir_build_splat_src(ag, scope, node,
+                Stage1ZirInst *splat = ir_build_splat_src(ag, scope, node,
                     arg0_value, arg1_value);
                 return ir_lval_wrap(ag, scope, splat, lval, result_loc);
             }
         case BuiltinFnIdMemcpy:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
+                Stage1ZirInst *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
                 AstNode *arg2_node = node->data.fn_call_expr.params.at(2);
-                IrInstSrc *arg2_value = astgen_node(ag, arg2_node, scope);
+                Stage1ZirInst *arg2_value = astgen_node(ag, arg2_node, scope);
                 if (arg2_value == ag->codegen->invalid_inst_src)
                     return arg2_value;
 
-                IrInstSrc *ir_memcpy = ir_build_memcpy_src(ag, scope, node, arg0_value, arg1_value, arg2_value);
+                Stage1ZirInst *ir_memcpy = ir_build_memcpy_src(ag, scope, node, arg0_value, arg1_value, arg2_value);
                 return ir_lval_wrap(ag, scope, ir_memcpy, lval, result_loc);
             }
         case BuiltinFnIdMemset:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
+                Stage1ZirInst *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
                 AstNode *arg2_node = node->data.fn_call_expr.params.at(2);
-                IrInstSrc *arg2_value = astgen_node(ag, arg2_node, scope);
+                Stage1ZirInst *arg2_value = astgen_node(ag, arg2_node, scope);
                 if (arg2_value == ag->codegen->invalid_inst_src)
                     return arg2_value;
 
-                IrInstSrc *ir_memset = ir_build_memset_src(ag, scope, node, arg0_value, arg1_value, arg2_value);
+                Stage1ZirInst *ir_memset = ir_build_memset_src(ag, scope, node, arg0_value, arg1_value, arg2_value);
                 return ir_lval_wrap(ag, scope, ir_memset, lval, result_loc);
             }
         case BuiltinFnIdWasmMemorySize:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
-                IrInstSrc *ir_wasm_memory_size = ir_build_wasm_memory_size_src(ag, scope, node, arg0_value);
+                Stage1ZirInst *ir_wasm_memory_size = ir_build_wasm_memory_size_src(ag, scope, node, arg0_value);
                 return ir_lval_wrap(ag, scope, ir_wasm_memory_size, lval, result_loc);
             }
         case BuiltinFnIdWasmMemoryGrow:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
+                Stage1ZirInst *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
-                IrInstSrc *ir_wasm_memory_grow = ir_build_wasm_memory_grow_src(ag, scope, node, arg0_value, arg1_value);
+                Stage1ZirInst *ir_wasm_memory_grow = ir_build_wasm_memory_grow_src(ag, scope, node, arg0_value, arg1_value);
                 return ir_lval_wrap(ag, scope, ir_wasm_memory_grow, lval, result_loc);
             }
         case BuiltinFnIdField:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = astgen_node_extra(ag, arg0_node, scope, LValPtr, nullptr);
+                Stage1ZirInst *arg0_value = astgen_node_extra(ag, arg0_node, scope, LValPtr, nullptr);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
+                Stage1ZirInst *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
-                IrInstSrc *ptr_instruction = ir_build_field_ptr_instruction(ag, scope, node,
+                Stage1ZirInst *ptr_instruction = ir_build_field_ptr_instruction(ag, scope, node,
                         arg0_value, arg1_value, false);
 
                 if (lval == LValPtr || lval == LValAssign)
                     return ptr_instruction;
 
-                IrInstSrc *load_ptr = ir_build_load_ptr(ag, scope, node, ptr_instruction);
+                Stage1ZirInst *load_ptr = ir_build_load_ptr(ag, scope, node, ptr_instruction);
                 return ir_expr_wrap(ag, scope, load_ptr, result_loc);
             }
         case BuiltinFnIdHasField:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
+                Stage1ZirInst *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
-                IrInstSrc *type_info = ir_build_has_field(ag, scope, node, arg0_value, arg1_value);
+                Stage1ZirInst *type_info = ir_build_has_field(ag, scope, node, arg0_value, arg1_value);
                 return ir_lval_wrap(ag, scope, type_info, lval, result_loc);
             }
         case BuiltinFnIdTypeInfo:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
-                IrInstSrc *type_info = ir_build_type_info(ag, scope, node, arg0_value);
+                Stage1ZirInst *type_info = ir_build_type_info(ag, scope, node, arg0_value);
                 return ir_lval_wrap(ag, scope, type_info, lval, result_loc);
             }
         case BuiltinFnIdType:
             {
                 AstNode *arg_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg = astgen_node(ag, arg_node, scope);
+                Stage1ZirInst *arg = astgen_node(ag, arg_node, scope);
                 if (arg == ag->codegen->invalid_inst_src)
                     return arg;
 
-                IrInstSrc *type = ir_build_type(ag, scope, node, arg);
+                Stage1ZirInst *type = ir_build_type(ag, scope, node, arg);
                 return ir_lval_wrap(ag, scope, type, lval, result_loc);
             }
         case BuiltinFnIdBreakpoint:
@@ -4774,30 +4774,30 @@ static IrInstSrc *astgen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
             return ir_lval_wrap(ag, scope, ir_build_handle_src(ag, scope, node), lval, result_loc);
         case BuiltinFnIdFrameType: {
             AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-            IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
+            Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
             if (arg0_value == ag->codegen->invalid_inst_src)
                 return arg0_value;
 
-            IrInstSrc *frame_type = ir_build_frame_type(ag, scope, node, arg0_value);
+            Stage1ZirInst *frame_type = ir_build_frame_type(ag, scope, node, arg0_value);
             return ir_lval_wrap(ag, scope, frame_type, lval, result_loc);
         }
         case BuiltinFnIdFrameSize: {
             AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-            IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
+            Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
             if (arg0_value == ag->codegen->invalid_inst_src)
                 return arg0_value;
 
-            IrInstSrc *frame_size = ir_build_frame_size_src(ag, scope, node, arg0_value);
+            Stage1ZirInst *frame_size = ir_build_frame_size_src(ag, scope, node, arg0_value);
             return ir_lval_wrap(ag, scope, frame_size, lval, result_loc);
         }
         case BuiltinFnIdAlignOf:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
-                IrInstSrc *align_of = ir_build_align_of(ag, scope, node, arg0_value);
+                Stage1ZirInst *align_of = ir_build_align_of(ag, scope, node, arg0_value);
                 return ir_lval_wrap(ag, scope, align_of, lval, result_loc);
             }
         case BuiltinFnIdAddWithOverflow:
@@ -4813,42 +4813,42 @@ static IrInstSrc *astgen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdTypeName:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
-                IrInstSrc *type_name = ir_build_type_name(ag, scope, node, arg0_value);
+                Stage1ZirInst *type_name = ir_build_type_name(ag, scope, node, arg0_value);
                 return ir_lval_wrap(ag, scope, type_name, lval, result_loc);
             }
         case BuiltinFnIdPanic:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
-                IrInstSrc *panic = ir_build_panic_src(ag, scope, node, arg0_value);
+                Stage1ZirInst *panic = ir_build_panic_src(ag, scope, node, arg0_value);
                 return ir_lval_wrap(ag, scope, panic, lval, result_loc);
             }
         case BuiltinFnIdPtrCast:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
+                Stage1ZirInst *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
-                IrInstSrc *ptr_cast = ir_build_ptr_cast_src(ag, scope, node, arg0_value, arg1_value, true);
+                Stage1ZirInst *ptr_cast = ir_build_ptr_cast_src(ag, scope, node, arg0_value, arg1_value, true);
                 return ir_lval_wrap(ag, scope, ptr_cast, lval, result_loc);
             }
         case BuiltinFnIdBitCast:
             {
                 AstNode *dest_type_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *dest_type = astgen_node(ag, dest_type_node, scope);
+                Stage1ZirInst *dest_type = astgen_node(ag, dest_type_node, scope);
                 if (dest_type == ag->codegen->invalid_inst_src)
                     return dest_type;
 
@@ -4862,130 +4862,130 @@ static IrInstSrc *astgen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
                 ir_build_reset_result(ag, scope, node, &result_loc_bit_cast->base);
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = astgen_node_extra(ag, arg1_node, scope, LValNone,
+                Stage1ZirInst *arg1_value = astgen_node_extra(ag, arg1_node, scope, LValNone,
                         &result_loc_bit_cast->base);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
-                IrInstSrc *bitcast = ir_build_bit_cast_src(ag, scope, arg1_node, arg1_value, result_loc_bit_cast);
+                Stage1ZirInst *bitcast = ir_build_bit_cast_src(ag, scope, arg1_node, arg1_value, result_loc_bit_cast);
                 return ir_lval_wrap(ag, scope, bitcast, lval, result_loc);
             }
         case BuiltinFnIdAs:
             {
                 AstNode *dest_type_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *dest_type = astgen_node(ag, dest_type_node, scope);
+                Stage1ZirInst *dest_type = astgen_node(ag, dest_type_node, scope);
                 if (dest_type == ag->codegen->invalid_inst_src)
                     return dest_type;
 
                 ResultLocCast *result_loc_cast = ir_build_cast_result_loc(ag, dest_type, result_loc);
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = astgen_node_extra(ag, arg1_node, scope, LValNone,
+                Stage1ZirInst *arg1_value = astgen_node_extra(ag, arg1_node, scope, LValNone,
                         &result_loc_cast->base);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
-                IrInstSrc *result = ir_build_implicit_cast(ag, scope, node, arg1_value, result_loc_cast);
+                Stage1ZirInst *result = ir_build_implicit_cast(ag, scope, node, arg1_value, result_loc_cast);
                 return ir_lval_wrap(ag, scope, result, lval, result_loc);
             }
         case BuiltinFnIdIntToPtr:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
+                Stage1ZirInst *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
-                IrInstSrc *int_to_ptr = ir_build_int_to_ptr_src(ag, scope, node, arg0_value, arg1_value);
+                Stage1ZirInst *int_to_ptr = ir_build_int_to_ptr_src(ag, scope, node, arg0_value, arg1_value);
                 return ir_lval_wrap(ag, scope, int_to_ptr, lval, result_loc);
             }
         case BuiltinFnIdPtrToInt:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
-                IrInstSrc *ptr_to_int = ir_build_ptr_to_int_src(ag, scope, node, arg0_value);
+                Stage1ZirInst *ptr_to_int = ir_build_ptr_to_int_src(ag, scope, node, arg0_value);
                 return ir_lval_wrap(ag, scope, ptr_to_int, lval, result_loc);
             }
         case BuiltinFnIdTagName:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
-                IrInstSrc *tag_name = ir_build_tag_name_src(ag, scope, node, arg0_value);
+                Stage1ZirInst *tag_name = ir_build_tag_name_src(ag, scope, node, arg0_value);
                 return ir_lval_wrap(ag, scope, tag_name, lval, result_loc);
             }
         case BuiltinFnIdFieldParentPtr:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
+                Stage1ZirInst *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
                 AstNode *arg2_node = node->data.fn_call_expr.params.at(2);
-                IrInstSrc *arg2_value = astgen_node(ag, arg2_node, scope);
+                Stage1ZirInst *arg2_value = astgen_node(ag, arg2_node, scope);
                 if (arg2_value == ag->codegen->invalid_inst_src)
                     return arg2_value;
 
-                IrInstSrc *field_parent_ptr = ir_build_field_parent_ptr_src(ag, scope, node,
+                Stage1ZirInst *field_parent_ptr = ir_build_field_parent_ptr_src(ag, scope, node,
                         arg0_value, arg1_value, arg2_value);
                 return ir_lval_wrap(ag, scope, field_parent_ptr, lval, result_loc);
             }
         case BuiltinFnIdOffsetOf:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
+                Stage1ZirInst *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
-                IrInstSrc *offset_of = ir_build_offset_of(ag, scope, node, arg0_value, arg1_value);
+                Stage1ZirInst *offset_of = ir_build_offset_of(ag, scope, node, arg0_value, arg1_value);
                 return ir_lval_wrap(ag, scope, offset_of, lval, result_loc);
             }
         case BuiltinFnIdBitOffsetOf:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
+                Stage1ZirInst *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
-                IrInstSrc *offset_of = ir_build_bit_offset_of(ag, scope, node, arg0_value, arg1_value);
+                Stage1ZirInst *offset_of = ir_build_bit_offset_of(ag, scope, node, arg0_value, arg1_value);
                 return ir_lval_wrap(ag, scope, offset_of, lval, result_loc);
             }
         case BuiltinFnIdCall: {
             // Cast the options parameter to the options type
             ZigType *options_type = get_builtin_type(ag->codegen, "CallOptions");
-            IrInstSrc *options_type_inst = ir_build_const_type(ag, scope, node, options_type);
+            Stage1ZirInst *options_type_inst = ir_build_const_type(ag, scope, node, options_type);
             ResultLocCast *result_loc_cast = ir_build_cast_result_loc(ag, options_type_inst, no_result_loc());
 
             AstNode *options_node = node->data.fn_call_expr.params.at(0);
-            IrInstSrc *options_inner = astgen_node_extra(ag, options_node, scope,
+            Stage1ZirInst *options_inner = astgen_node_extra(ag, options_node, scope,
                     LValNone, &result_loc_cast->base);
             if (options_inner == ag->codegen->invalid_inst_src)
                 return options_inner;
-            IrInstSrc *options = ir_build_implicit_cast(ag, scope, options_node, options_inner, result_loc_cast);
+            Stage1ZirInst *options = ir_build_implicit_cast(ag, scope, options_node, options_inner, result_loc_cast);
 
             AstNode *fn_ref_node = node->data.fn_call_expr.params.at(1);
             AstNode *args_node = node->data.fn_call_expr.params.at(2);
@@ -5004,15 +5004,15 @@ static IrInstSrc *astgen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
                     return ag->codegen->invalid_inst_src;
                 }
             } else {
-                IrInstSrc *fn_ref = astgen_node(ag, fn_ref_node, scope);
+                Stage1ZirInst *fn_ref = astgen_node(ag, fn_ref_node, scope);
                 if (fn_ref == ag->codegen->invalid_inst_src)
                     return fn_ref;
 
-                IrInstSrc *args = astgen_node(ag, args_node, scope);
+                Stage1ZirInst *args = astgen_node(ag, args_node, scope);
                 if (args == ag->codegen->invalid_inst_src)
                     return args;
 
-                IrInstSrc *call = ir_build_call_extra(ag, scope, node, options, fn_ref, args, result_loc);
+                Stage1ZirInst *call = ir_build_call_extra(ag, scope, node, options, fn_ref, args, result_loc);
                 return ir_lval_wrap(ag, scope, call, lval, result_loc);
             }
         }
@@ -5021,227 +5021,227 @@ static IrInstSrc *astgen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdShlExact:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
+                Stage1ZirInst *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
-                IrInstSrc *bin_op = ir_build_bin_op(ag, scope, node, IrBinOpBitShiftLeftExact, arg0_value, arg1_value, true);
+                Stage1ZirInst *bin_op = ir_build_bin_op(ag, scope, node, IrBinOpBitShiftLeftExact, arg0_value, arg1_value, true);
                 return ir_lval_wrap(ag, scope, bin_op, lval, result_loc);
             }
         case BuiltinFnIdShrExact:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
+                Stage1ZirInst *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
-                IrInstSrc *bin_op = ir_build_bin_op(ag, scope, node, IrBinOpBitShiftRightExact, arg0_value, arg1_value, true);
+                Stage1ZirInst *bin_op = ir_build_bin_op(ag, scope, node, IrBinOpBitShiftRightExact, arg0_value, arg1_value, true);
                 return ir_lval_wrap(ag, scope, bin_op, lval, result_loc);
             }
         case BuiltinFnIdSetEvalBranchQuota:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
-                IrInstSrc *set_eval_branch_quota = ir_build_set_eval_branch_quota(ag, scope, node, arg0_value);
+                Stage1ZirInst *set_eval_branch_quota = ir_build_set_eval_branch_quota(ag, scope, node, arg0_value);
                 return ir_lval_wrap(ag, scope, set_eval_branch_quota, lval, result_loc);
             }
         case BuiltinFnIdAlignCast:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
+                Stage1ZirInst *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
-                IrInstSrc *align_cast = ir_build_align_cast_src(ag, scope, node, arg0_value, arg1_value);
+                Stage1ZirInst *align_cast = ir_build_align_cast_src(ag, scope, node, arg0_value, arg1_value);
                 return ir_lval_wrap(ag, scope, align_cast, lval, result_loc);
             }
         case BuiltinFnIdThis:
             {
-                IrInstSrc *this_inst = astgen_this(ag, scope, node);
+                Stage1ZirInst *this_inst = astgen_this(ag, scope, node);
                 return ir_lval_wrap(ag, scope, this_inst, lval, result_loc);
             }
         case BuiltinFnIdSetAlignStack:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
-                IrInstSrc *set_align_stack = ir_build_set_align_stack(ag, scope, node, arg0_value);
+                Stage1ZirInst *set_align_stack = ir_build_set_align_stack(ag, scope, node, arg0_value);
                 return ir_lval_wrap(ag, scope, set_align_stack, lval, result_loc);
             }
         case BuiltinFnIdExport:
             {
                 // Cast the options parameter to the options type
                 ZigType *options_type = get_builtin_type(ag->codegen, "ExportOptions");
-                IrInstSrc *options_type_inst = ir_build_const_type(ag, scope, node, options_type);
+                Stage1ZirInst *options_type_inst = ir_build_const_type(ag, scope, node, options_type);
                 ResultLocCast *result_loc_cast = ir_build_cast_result_loc(ag, options_type_inst, no_result_loc());
 
                 AstNode *target_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *target_value = astgen_node(ag, target_node, scope);
+                Stage1ZirInst *target_value = astgen_node(ag, target_node, scope);
                 if (target_value == ag->codegen->invalid_inst_src)
                     return target_value;
 
                 AstNode *options_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *options_value = astgen_node_extra(ag, options_node,
+                Stage1ZirInst *options_value = astgen_node_extra(ag, options_node,
                     scope, LValNone, &result_loc_cast->base);
                 if (options_value == ag->codegen->invalid_inst_src)
                     return options_value;
 
-                IrInstSrc *casted_options_value = ir_build_implicit_cast(
+                Stage1ZirInst *casted_options_value = ir_build_implicit_cast(
                     ag, scope, options_node, options_value, result_loc_cast);
 
-                IrInstSrc *ir_export = ir_build_export(ag, scope, node, target_value, casted_options_value);
+                Stage1ZirInst *ir_export = ir_build_export(ag, scope, node, target_value, casted_options_value);
                 return ir_lval_wrap(ag, scope, ir_export, lval, result_loc);
             }
         case BuiltinFnIdExtern:
             {
                 // Cast the options parameter to the options type
                 ZigType *options_type = get_builtin_type(ag->codegen, "ExternOptions");
-                IrInstSrc *options_type_inst = ir_build_const_type(ag, scope, node, options_type);
+                Stage1ZirInst *options_type_inst = ir_build_const_type(ag, scope, node, options_type);
                 ResultLocCast *result_loc_cast = ir_build_cast_result_loc(ag, options_type_inst, no_result_loc());
 
                 AstNode *type_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *type_value = astgen_node(ag, type_node, scope);
+                Stage1ZirInst *type_value = astgen_node(ag, type_node, scope);
                 if (type_value == ag->codegen->invalid_inst_src)
                     return type_value;
 
                 AstNode *options_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *options_value = astgen_node_extra(ag, options_node,
+                Stage1ZirInst *options_value = astgen_node_extra(ag, options_node,
                     scope, LValNone, &result_loc_cast->base);
                 if (options_value == ag->codegen->invalid_inst_src)
                     return options_value;
 
-                IrInstSrc *casted_options_value = ir_build_implicit_cast(
+                Stage1ZirInst *casted_options_value = ir_build_implicit_cast(
                     ag, scope, options_node, options_value, result_loc_cast);
 
-                IrInstSrc *ir_extern = ir_build_extern(ag, scope, node, type_value, casted_options_value);
+                Stage1ZirInst *ir_extern = ir_build_extern(ag, scope, node, type_value, casted_options_value);
                 return ir_lval_wrap(ag, scope, ir_extern, lval, result_loc);
             }
         case BuiltinFnIdErrorReturnTrace:
             {
-                IrInstSrc *error_return_trace = ir_build_error_return_trace_src(ag, scope, node,
+                Stage1ZirInst *error_return_trace = ir_build_error_return_trace_src(ag, scope, node,
                         IrInstErrorReturnTraceNull);
                 return ir_lval_wrap(ag, scope, error_return_trace, lval, result_loc);
             }
         case BuiltinFnIdAtomicRmw:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
+                Stage1ZirInst *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
                 AstNode *arg2_node = node->data.fn_call_expr.params.at(2);
-                IrInstSrc *arg2_value = astgen_node(ag, arg2_node, scope);
+                Stage1ZirInst *arg2_value = astgen_node(ag, arg2_node, scope);
                 if (arg2_value == ag->codegen->invalid_inst_src)
                     return arg2_value;
 
                 AstNode *arg3_node = node->data.fn_call_expr.params.at(3);
-                IrInstSrc *arg3_value = astgen_node(ag, arg3_node, scope);
+                Stage1ZirInst *arg3_value = astgen_node(ag, arg3_node, scope);
                 if (arg3_value == ag->codegen->invalid_inst_src)
                     return arg3_value;
 
                 AstNode *arg4_node = node->data.fn_call_expr.params.at(4);
-                IrInstSrc *arg4_value = astgen_node(ag, arg4_node, scope);
+                Stage1ZirInst *arg4_value = astgen_node(ag, arg4_node, scope);
                 if (arg4_value == ag->codegen->invalid_inst_src)
                     return arg4_value;
 
-                IrInstSrc *inst = ir_build_atomic_rmw_src(ag, scope, node,
+                Stage1ZirInst *inst = ir_build_atomic_rmw_src(ag, scope, node,
                         arg0_value, arg1_value, arg2_value, arg3_value, arg4_value);
                 return ir_lval_wrap(ag, scope, inst, lval, result_loc);
             }
         case BuiltinFnIdAtomicLoad:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
+                Stage1ZirInst *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
                 AstNode *arg2_node = node->data.fn_call_expr.params.at(2);
-                IrInstSrc *arg2_value = astgen_node(ag, arg2_node, scope);
+                Stage1ZirInst *arg2_value = astgen_node(ag, arg2_node, scope);
                 if (arg2_value == ag->codegen->invalid_inst_src)
                     return arg2_value;
 
-                IrInstSrc *inst = ir_build_atomic_load_src(ag, scope, node, arg0_value, arg1_value, arg2_value);
+                Stage1ZirInst *inst = ir_build_atomic_load_src(ag, scope, node, arg0_value, arg1_value, arg2_value);
                 return ir_lval_wrap(ag, scope, inst, lval, result_loc);
             }
         case BuiltinFnIdAtomicStore:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
+                Stage1ZirInst *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
                 AstNode *arg2_node = node->data.fn_call_expr.params.at(2);
-                IrInstSrc *arg2_value = astgen_node(ag, arg2_node, scope);
+                Stage1ZirInst *arg2_value = astgen_node(ag, arg2_node, scope);
                 if (arg2_value == ag->codegen->invalid_inst_src)
                     return arg2_value;
 
                 AstNode *arg3_node = node->data.fn_call_expr.params.at(3);
-                IrInstSrc *arg3_value = astgen_node(ag, arg3_node, scope);
+                Stage1ZirInst *arg3_value = astgen_node(ag, arg3_node, scope);
                 if (arg3_value == ag->codegen->invalid_inst_src)
                     return arg3_value;
 
-                IrInstSrc *inst = ir_build_atomic_store_src(ag, scope, node, arg0_value, arg1_value,
+                Stage1ZirInst *inst = ir_build_atomic_store_src(ag, scope, node, arg0_value, arg1_value,
                         arg2_value, arg3_value);
                 return ir_lval_wrap(ag, scope, inst, lval, result_loc);
             }
         case BuiltinFnIdIntToEnum:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
+                Stage1ZirInst *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
-                IrInstSrc *result = ir_build_int_to_enum_src(ag, scope, node, arg0_value, arg1_value);
+                Stage1ZirInst *result = ir_build_int_to_enum_src(ag, scope, node, arg0_value, arg1_value);
                 return ir_lval_wrap(ag, scope, result, lval, result_loc);
             }
         case BuiltinFnIdEnumToInt:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
-                IrInstSrc *result = ir_build_enum_to_int(ag, scope, node, arg0_value);
+                Stage1ZirInst *result = ir_build_enum_to_int(ag, scope, node, arg0_value);
                 return ir_lval_wrap(ag, scope, result, lval, result_loc);
             }
         case BuiltinFnIdCtz:
@@ -5251,16 +5251,16 @@ static IrInstSrc *astgen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdBitReverse:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
+                Stage1ZirInst *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
-                IrInstSrc *result;
+                Stage1ZirInst *result;
                 switch (builtin_fn->id) {
                 case BuiltinFnIdCtz:
                     result = ir_build_ctz(ag, scope, node, arg0_value, arg1_value);
@@ -5285,27 +5285,27 @@ static IrInstSrc *astgen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdHasDecl:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
+                Stage1ZirInst *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
-                IrInstSrc *has_decl = ir_build_has_decl(ag, scope, node, arg0_value, arg1_value);
+                Stage1ZirInst *has_decl = ir_build_has_decl(ag, scope, node, arg0_value, arg1_value);
                 return ir_lval_wrap(ag, scope, has_decl, lval, result_loc);
             }
         case BuiltinFnIdUnionInit:
             {
                 AstNode *union_type_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *union_type_inst = astgen_node(ag, union_type_node, scope);
+                Stage1ZirInst *union_type_inst = astgen_node(ag, union_type_node, scope);
                 if (union_type_inst == ag->codegen->invalid_inst_src)
                     return union_type_inst;
 
                 AstNode *name_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *name_inst = astgen_node(ag, name_node, scope);
+                Stage1ZirInst *name_inst = astgen_node(ag, name_node, scope);
                 if (name_inst == ag->codegen->invalid_inst_src)
                     return name_inst;
 
@@ -5316,7 +5316,7 @@ static IrInstSrc *astgen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
             }
         case BuiltinFnIdSrc:
             {
-                IrInstSrc *src_inst = ir_build_src(ag, scope, node);
+                Stage1ZirInst *src_inst = ir_build_src(ag, scope, node);
                 return ir_lval_wrap(ag, scope, src_inst, lval, result_loc);
             }
     }
@@ -5335,7 +5335,7 @@ static ScopeNoSuspend *get_scope_nosuspend(Scope *scope) {
     return nullptr;
 }
 
-static IrInstSrc *astgen_fn_call(Stage1AstGen *ag, Scope *scope, AstNode *node, LVal lval,
+static Stage1ZirInst *astgen_fn_call(Stage1AstGen *ag, Scope *scope, AstNode *node, LVal lval,
         ResultLoc *result_loc)
 {
     assert(node->type == NodeTypeFnCallExpr);
@@ -5354,16 +5354,16 @@ static IrInstSrc *astgen_fn_call(Stage1AstGen *ag, Scope *scope, AstNode *node, 
         nullptr, node->data.fn_call_expr.params.items, node->data.fn_call_expr.params.length, lval, result_loc);
 }
 
-static IrInstSrc *astgen_if_bool_expr(Stage1AstGen *ag, Scope *scope, AstNode *node, LVal lval,
+static Stage1ZirInst *astgen_if_bool_expr(Stage1AstGen *ag, Scope *scope, AstNode *node, LVal lval,
         ResultLoc *result_loc)
 {
     assert(node->type == NodeTypeIfBoolExpr);
 
-    IrInstSrc *condition = astgen_node(ag, node->data.if_bool_expr.condition, scope);
+    Stage1ZirInst *condition = astgen_node(ag, node->data.if_bool_expr.condition, scope);
     if (condition == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
 
-    IrInstSrc *is_comptime;
+    Stage1ZirInst *is_comptime;
     if (ir_should_inline(ag->exec, scope)) {
         is_comptime = ir_build_const_bool(ag, scope, node, true);
     } else {
@@ -5377,7 +5377,7 @@ static IrInstSrc *astgen_if_bool_expr(Stage1AstGen *ag, Scope *scope, AstNode *n
     Stage1ZirBasicBlock *else_block = ir_create_basic_block(ag, scope, "Else");
     Stage1ZirBasicBlock *endif_block = ir_create_basic_block(ag, scope, "EndIf");
 
-    IrInstSrc *cond_br_inst = ir_build_cond_br(ag, scope, node, condition,
+    Stage1ZirInst *cond_br_inst = ir_build_cond_br(ag, scope, node, condition,
             then_block, else_block, is_comptime);
     ResultLocPeerParent *peer_parent = ir_build_binary_result_peers(ag, cond_br_inst, else_block, endif_block,
             result_loc, is_comptime);
@@ -5385,7 +5385,7 @@ static IrInstSrc *astgen_if_bool_expr(Stage1AstGen *ag, Scope *scope, AstNode *n
     ir_set_cursor_at_end_and_append_block(ag, then_block);
 
     Scope *subexpr_scope = create_runtime_scope(ag->codegen, node, scope, is_comptime);
-    IrInstSrc *then_expr_result = astgen_node_extra(ag, then_node, subexpr_scope, lval,
+    Stage1ZirInst *then_expr_result = astgen_node_extra(ag, then_node, subexpr_scope, lval,
             &peer_parent->peers.at(0)->base);
     if (then_expr_result == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
@@ -5394,7 +5394,7 @@ static IrInstSrc *astgen_if_bool_expr(Stage1AstGen *ag, Scope *scope, AstNode *n
         ir_build_br(ag, scope, node, endif_block, is_comptime);
 
     ir_set_cursor_at_end_and_append_block(ag, else_block);
-    IrInstSrc *else_expr_result;
+    Stage1ZirInst *else_expr_result;
     if (else_node) {
         else_expr_result = astgen_node_extra(ag, else_node, subexpr_scope, lval, &peer_parent->peers.at(1)->base);
         if (else_expr_result == ag->codegen->invalid_inst_src)
@@ -5408,39 +5408,39 @@ static IrInstSrc *astgen_if_bool_expr(Stage1AstGen *ag, Scope *scope, AstNode *n
         ir_build_br(ag, scope, node, endif_block, is_comptime);
 
     ir_set_cursor_at_end_and_append_block(ag, endif_block);
-    IrInstSrc **incoming_values = heap::c_allocator.allocate<IrInstSrc *>(2);
+    Stage1ZirInst **incoming_values = heap::c_allocator.allocate<Stage1ZirInst *>(2);
     incoming_values[0] = then_expr_result;
     incoming_values[1] = else_expr_result;
     Stage1ZirBasicBlock **incoming_blocks = heap::c_allocator.allocate<Stage1ZirBasicBlock *>(2);
     incoming_blocks[0] = after_then_block;
     incoming_blocks[1] = after_else_block;
 
-    IrInstSrc *phi = ir_build_phi(ag, scope, node, 2, incoming_blocks, incoming_values, peer_parent);
+    Stage1ZirInst *phi = ir_build_phi(ag, scope, node, 2, incoming_blocks, incoming_values, peer_parent);
     return ir_expr_wrap(ag, scope, phi, result_loc);
 }
 
-static IrInstSrc *astgen_prefix_op_id_lval(Stage1AstGen *ag, Scope *scope, AstNode *node, IrUnOp op_id, LVal lval) {
+static Stage1ZirInst *astgen_prefix_op_id_lval(Stage1AstGen *ag, Scope *scope, AstNode *node, IrUnOp op_id, LVal lval) {
     assert(node->type == NodeTypePrefixOpExpr);
     AstNode *expr_node = node->data.prefix_op_expr.primary_expr;
 
-    IrInstSrc *value = astgen_node_extra(ag, expr_node, scope, lval, nullptr);
+    Stage1ZirInst *value = astgen_node_extra(ag, expr_node, scope, lval, nullptr);
     if (value == ag->codegen->invalid_inst_src)
         return value;
 
     return ir_build_un_op(ag, scope, node, op_id, value);
 }
 
-static IrInstSrc *astgen_prefix_op_id(Stage1AstGen *ag, Scope *scope, AstNode *node, IrUnOp op_id) {
+static Stage1ZirInst *astgen_prefix_op_id(Stage1AstGen *ag, Scope *scope, AstNode *node, IrUnOp op_id) {
     return astgen_prefix_op_id_lval(ag, scope, node, op_id, LValNone);
 }
 
-static IrInstSrc *ir_expr_wrap(Stage1AstGen *ag, Scope *scope, IrInstSrc *inst, ResultLoc *result_loc) {
+static Stage1ZirInst *ir_expr_wrap(Stage1AstGen *ag, Scope *scope, Stage1ZirInst *inst, ResultLoc *result_loc) {
     if (inst == ag->codegen->invalid_inst_src) return inst;
     ir_build_end_expr(ag, scope, inst->source_node, inst, result_loc);
     return inst;
 }
 
-static IrInstSrc *ir_lval_wrap(Stage1AstGen *ag, Scope *scope, IrInstSrc *value, LVal lval,
+static Stage1ZirInst *ir_lval_wrap(Stage1AstGen *ag, Scope *scope, Stage1ZirInst *value, LVal lval,
         ResultLoc *result_loc)
 {
     // This logic must be kept in sync with
@@ -5448,7 +5448,7 @@ static IrInstSrc *ir_lval_wrap(Stage1AstGen *ag, Scope *scope, IrInstSrc *value,
     if (value == ag->codegen->invalid_inst_src ||
         instr_is_unreachable(value) ||
         value->source_node->type == NodeTypeDefer ||
-        value->id == IrInstSrcIdDeclVar)
+        value->id == Stage1ZirInstIdDeclVar)
     {
         return value;
     }
@@ -5500,7 +5500,7 @@ static Error token_number_literal_u32(Stage1AstGen *ag, AstNode *source_node,
 
 }
 
-static IrInstSrc *astgen_pointer_type(Stage1AstGen *ag, Scope *scope, AstNode *node) {
+static Stage1ZirInst *astgen_pointer_type(Stage1AstGen *ag, Scope *scope, AstNode *node) {
     Error err;
     assert(node->type == NodeTypePointerType);
 
@@ -5515,7 +5515,7 @@ static IrInstSrc *astgen_pointer_type(Stage1AstGen *ag, Scope *scope, AstNode *n
     AstNode *expr_node = node->data.pointer_type.op_expr;
     AstNode *align_expr = node->data.pointer_type.align_expr;
 
-    IrInstSrc *sentinel;
+    Stage1ZirInst *sentinel;
     if (sentinel_expr != nullptr) {
         sentinel = astgen_node(ag, sentinel_expr, scope);
         if (sentinel == ag->codegen->invalid_inst_src)
@@ -5524,7 +5524,7 @@ static IrInstSrc *astgen_pointer_type(Stage1AstGen *ag, Scope *scope, AstNode *n
         sentinel = nullptr;
     }
 
-    IrInstSrc *align_value;
+    Stage1ZirInst *align_value;
     if (align_expr != nullptr) {
         align_value = astgen_node(ag, align_expr, scope);
         if (align_value == ag->codegen->invalid_inst_src)
@@ -5533,7 +5533,7 @@ static IrInstSrc *astgen_pointer_type(Stage1AstGen *ag, Scope *scope, AstNode *n
         align_value = nullptr;
     }
 
-    IrInstSrc *child_type = astgen_node(ag, expr_node, scope);
+    Stage1ZirInst *child_type = astgen_node(ag, expr_node, scope);
     if (child_type == ag->codegen->invalid_inst_src)
         return child_type;
 
@@ -5565,36 +5565,36 @@ static IrInstSrc *astgen_pointer_type(Stage1AstGen *ag, Scope *scope, AstNode *n
             ptr_len, sentinel, align_value, bit_offset_start, host_int_bytes, is_allow_zero);
 }
 
-static IrInstSrc *astgen_catch_unreachable(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+static Stage1ZirInst *astgen_catch_unreachable(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
         AstNode *expr_node, LVal lval, ResultLoc *result_loc)
 {
-    IrInstSrc *err_union_ptr = astgen_node_extra(ag, expr_node, scope, LValPtr, nullptr);
+    Stage1ZirInst *err_union_ptr = astgen_node_extra(ag, expr_node, scope, LValPtr, nullptr);
     if (err_union_ptr == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
 
-    IrInstSrc *payload_ptr = ir_build_unwrap_err_payload_src(ag, scope, source_node, err_union_ptr, true, false);
+    Stage1ZirInst *payload_ptr = ir_build_unwrap_err_payload_src(ag, scope, source_node, err_union_ptr, true, false);
     if (payload_ptr == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
 
     if (lval == LValPtr)
         return payload_ptr;
 
-    IrInstSrc *load_ptr = ir_build_load_ptr(ag, scope, source_node, payload_ptr);
+    Stage1ZirInst *load_ptr = ir_build_load_ptr(ag, scope, source_node, payload_ptr);
     return ir_expr_wrap(ag, scope, load_ptr, result_loc);
 }
 
-static IrInstSrc *astgen_bool_not(Stage1AstGen *ag, Scope *scope, AstNode *node) {
+static Stage1ZirInst *astgen_bool_not(Stage1AstGen *ag, Scope *scope, AstNode *node) {
     assert(node->type == NodeTypePrefixOpExpr);
     AstNode *expr_node = node->data.prefix_op_expr.primary_expr;
 
-    IrInstSrc *value = astgen_node(ag, expr_node, scope);
+    Stage1ZirInst *value = astgen_node(ag, expr_node, scope);
     if (value == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
 
     return ir_build_bool_not(ag, scope, node, value);
 }
 
-static IrInstSrc *astgen_prefix_op_expr(Stage1AstGen *ag, Scope *scope, AstNode *node, LVal lval,
+static Stage1ZirInst *astgen_prefix_op_expr(Stage1AstGen *ag, Scope *scope, AstNode *node, LVal lval,
         ResultLoc *result_loc)
 {
     assert(node->type == NodeTypePrefixOpExpr);
@@ -5622,12 +5622,12 @@ static IrInstSrc *astgen_prefix_op_expr(Stage1AstGen *ag, Scope *scope, AstNode 
     zig_unreachable();
 }
 
-static IrInstSrc *astgen_union_init_expr(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-    IrInstSrc *union_type, IrInstSrc *field_name, AstNode *expr_node,
+static Stage1ZirInst *astgen_union_init_expr(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+    Stage1ZirInst *union_type, Stage1ZirInst *field_name, AstNode *expr_node,
     LVal lval, ResultLoc *parent_result_loc)
 {
-    IrInstSrc *container_ptr = ir_build_resolve_result(ag, scope, source_node, parent_result_loc, union_type);
-    IrInstSrc *field_ptr = ir_build_field_ptr_instruction(ag, scope, source_node, container_ptr,
+    Stage1ZirInst *container_ptr = ir_build_resolve_result(ag, scope, source_node, parent_result_loc, union_type);
+    Stage1ZirInst *field_ptr = ir_build_field_ptr_instruction(ag, scope, source_node, container_ptr,
             field_name, true);
 
     ResultLocInstruction *result_loc_inst = heap::c_allocator.create<ResultLocInstruction>();
@@ -5636,18 +5636,18 @@ static IrInstSrc *astgen_union_init_expr(Stage1AstGen *ag, Scope *scope, AstNode
     ir_ref_instruction(field_ptr, ag->current_basic_block);
     ir_build_reset_result(ag, scope, expr_node, &result_loc_inst->base);
 
-    IrInstSrc *expr_value = astgen_node_extra(ag, expr_node, scope, LValNone,
+    Stage1ZirInst *expr_value = astgen_node_extra(ag, expr_node, scope, LValNone,
             &result_loc_inst->base);
     if (expr_value == ag->codegen->invalid_inst_src)
         return expr_value;
 
-    IrInstSrc *init_union = ir_build_union_init_named_field(ag, scope, source_node, union_type,
+    Stage1ZirInst *init_union = ir_build_union_init_named_field(ag, scope, source_node, union_type,
             field_name, field_ptr, container_ptr);
 
     return ir_lval_wrap(ag, scope, init_union, lval, parent_result_loc);
 }
 
-static IrInstSrc *astgen_container_init_expr(Stage1AstGen *ag, Scope *scope, AstNode *node, LVal lval,
+static Stage1ZirInst *astgen_container_init_expr(Stage1AstGen *ag, Scope *scope, AstNode *node, LVal lval,
         ResultLoc *parent_result_loc)
 {
     assert(node->type == NodeTypeContainerInitExpr);
@@ -5659,14 +5659,14 @@ static IrInstSrc *astgen_container_init_expr(Stage1AstGen *ag, Scope *scope, Ast
     ResultLoc *child_result_loc;
     AstNode *init_array_type_source_node;
     if (container_init_expr->type != nullptr) {
-        IrInstSrc *container_type;
+        Stage1ZirInst *container_type;
         if (container_init_expr->type->type == NodeTypeInferredArrayType) {
             if (kind == ContainerInitKindStruct) {
                 add_node_error(ag->codegen, container_init_expr->type,
                         buf_sprintf("initializing array with struct syntax"));
                 return ag->codegen->invalid_inst_src;
             }
-            IrInstSrc *sentinel;
+            Stage1ZirInst *sentinel;
             if (container_init_expr->type->data.inferred_array_type.sentinel != nullptr) {
                 sentinel = astgen_node(ag, container_init_expr->type->data.inferred_array_type.sentinel, scope);
                 if (sentinel == ag->codegen->invalid_inst_src)
@@ -5675,12 +5675,12 @@ static IrInstSrc *astgen_container_init_expr(Stage1AstGen *ag, Scope *scope, Ast
                 sentinel = nullptr;
             }
 
-            IrInstSrc *elem_type = astgen_node(ag,
+            Stage1ZirInst *elem_type = astgen_node(ag,
                     container_init_expr->type->data.inferred_array_type.child_type, scope);
             if (elem_type == ag->codegen->invalid_inst_src)
                 return elem_type;
             size_t item_count = container_init_expr->entries.length;
-            IrInstSrc *item_count_inst = ir_build_const_usize(ag, scope, node, item_count);
+            Stage1ZirInst *item_count_inst = ir_build_const_usize(ag, scope, node, item_count);
             container_type = ir_build_array_type(ag, scope, node, item_count_inst, sentinel, elem_type);
         } else {
             container_type = astgen_node(ag, container_init_expr->type, scope);
@@ -5702,11 +5702,11 @@ static IrInstSrc *astgen_container_init_expr(Stage1AstGen *ag, Scope *scope, Ast
 
     switch (kind) {
         case ContainerInitKindStruct: {
-            IrInstSrc *container_ptr = ir_build_resolve_result(ag, scope, node, child_result_loc,
+            Stage1ZirInst *container_ptr = ir_build_resolve_result(ag, scope, node, child_result_loc,
                     nullptr);
 
             size_t field_count = container_init_expr->entries.length;
-            IrInstSrcContainerInitFieldsField *fields = heap::c_allocator.allocate<IrInstSrcContainerInitFieldsField>(field_count);
+            Stage1ZirInstContainerInitFieldsField *fields = heap::c_allocator.allocate<Stage1ZirInstContainerInitFieldsField>(field_count);
             for (size_t i = 0; i < field_count; i += 1) {
                 AstNode *entry_node = container_init_expr->entries.at(i);
                 assert(entry_node->type == NodeTypeStructValueField);
@@ -5714,7 +5714,7 @@ static IrInstSrc *astgen_container_init_expr(Stage1AstGen *ag, Scope *scope, Ast
                 Buf *name = entry_node->data.struct_val_field.name;
                 AstNode *expr_node = entry_node->data.struct_val_field.expr;
 
-                IrInstSrc *field_ptr = ir_build_field_ptr(ag, scope, entry_node, container_ptr, name, true);
+                Stage1ZirInst *field_ptr = ir_build_field_ptr(ag, scope, entry_node, container_ptr, name, true);
                 ResultLocInstruction *result_loc_inst = heap::c_allocator.create<ResultLocInstruction>();
                 result_loc_inst->base.id = ResultLocIdInstruction;
                 result_loc_inst->base.source_instruction = field_ptr;
@@ -5722,7 +5722,7 @@ static IrInstSrc *astgen_container_init_expr(Stage1AstGen *ag, Scope *scope, Ast
                 ir_ref_instruction(field_ptr, ag->current_basic_block);
                 ir_build_reset_result(ag, scope, expr_node, &result_loc_inst->base);
 
-                IrInstSrc *expr_value = astgen_node_extra(ag, expr_node, scope, LValNone,
+                Stage1ZirInst *expr_value = astgen_node_extra(ag, expr_node, scope, LValNone,
                         &result_loc_inst->base);
                 if (expr_value == ag->codegen->invalid_inst_src)
                     return expr_value;
@@ -5731,7 +5731,7 @@ static IrInstSrc *astgen_container_init_expr(Stage1AstGen *ag, Scope *scope, Ast
                 fields[i].source_node = entry_node;
                 fields[i].result_loc = field_ptr;
             }
-            IrInstSrc *result = ir_build_container_init_fields(ag, scope, node, field_count,
+            Stage1ZirInst *result = ir_build_container_init_fields(ag, scope, node, field_count,
                     fields, container_ptr);
 
             if (result_loc_cast != nullptr) {
@@ -5742,15 +5742,15 @@ static IrInstSrc *astgen_container_init_expr(Stage1AstGen *ag, Scope *scope, Ast
         case ContainerInitKindArray: {
             size_t item_count = container_init_expr->entries.length;
 
-            IrInstSrc *container_ptr = ir_build_resolve_result(ag, scope, node, child_result_loc,
+            Stage1ZirInst *container_ptr = ir_build_resolve_result(ag, scope, node, child_result_loc,
                     nullptr);
 
-            IrInstSrc **result_locs = heap::c_allocator.allocate<IrInstSrc *>(item_count);
+            Stage1ZirInst **result_locs = heap::c_allocator.allocate<Stage1ZirInst *>(item_count);
             for (size_t i = 0; i < item_count; i += 1) {
                 AstNode *expr_node = container_init_expr->entries.at(i);
 
-                IrInstSrc *elem_index = ir_build_const_usize(ag, scope, expr_node, i);
-                IrInstSrc *elem_ptr = ir_build_elem_ptr(ag, scope, expr_node, container_ptr,
+                Stage1ZirInst *elem_index = ir_build_const_usize(ag, scope, expr_node, i);
+                Stage1ZirInst *elem_ptr = ir_build_elem_ptr(ag, scope, expr_node, container_ptr,
                         elem_index, false, PtrLenSingle, init_array_type_source_node);
                 ResultLocInstruction *result_loc_inst = heap::c_allocator.create<ResultLocInstruction>();
                 result_loc_inst->base.id = ResultLocIdInstruction;
@@ -5759,14 +5759,14 @@ static IrInstSrc *astgen_container_init_expr(Stage1AstGen *ag, Scope *scope, Ast
                 ir_ref_instruction(elem_ptr, ag->current_basic_block);
                 ir_build_reset_result(ag, scope, expr_node, &result_loc_inst->base);
 
-                IrInstSrc *expr_value = astgen_node_extra(ag, expr_node, scope, LValNone,
+                Stage1ZirInst *expr_value = astgen_node_extra(ag, expr_node, scope, LValNone,
                         &result_loc_inst->base);
                 if (expr_value == ag->codegen->invalid_inst_src)
                     return expr_value;
 
                 result_locs[i] = elem_ptr;
             }
-            IrInstSrc *result = ir_build_container_init_list(ag, scope, node, item_count,
+            Stage1ZirInst *result = ir_build_container_init_list(ag, scope, node, item_count,
                     result_locs, container_ptr, init_array_type_source_node);
             if (result_loc_cast != nullptr) {
                 result = ir_build_implicit_cast(ag, scope, node, result, result_loc_cast);
@@ -5777,7 +5777,7 @@ static IrInstSrc *astgen_container_init_expr(Stage1AstGen *ag, Scope *scope, Ast
     zig_unreachable();
 }
 
-static ResultLocVar *ir_build_var_result_loc(Stage1AstGen *ag, IrInstSrc *alloca, ZigVar *var) {
+static ResultLocVar *ir_build_var_result_loc(Stage1AstGen *ag, Stage1ZirInst *alloca, ZigVar *var) {
     ResultLocVar *result_loc_var = heap::c_allocator.create<ResultLocVar>();
     result_loc_var->base.id = ResultLocIdVar;
     result_loc_var->base.source_instruction = alloca;
@@ -5789,7 +5789,7 @@ static ResultLocVar *ir_build_var_result_loc(Stage1AstGen *ag, IrInstSrc *alloca
     return result_loc_var;
 }
 
-static ResultLocCast *ir_build_cast_result_loc(Stage1AstGen *ag, IrInstSrc *dest_type,
+static ResultLocCast *ir_build_cast_result_loc(Stage1AstGen *ag, Stage1ZirInst *dest_type,
         ResultLoc *parent_result_loc)
 {
     ResultLocCast *result_loc_cast = heap::c_allocator.create<ResultLocCast>();
@@ -5805,15 +5805,15 @@ static ResultLocCast *ir_build_cast_result_loc(Stage1AstGen *ag, IrInstSrc *dest
 }
 
 static void build_decl_var_and_init(Stage1AstGen *ag, Scope *scope, AstNode *source_node, ZigVar *var,
-        IrInstSrc *init, const char *name_hint, IrInstSrc *is_comptime)
+        Stage1ZirInst *init, const char *name_hint, Stage1ZirInst *is_comptime)
 {
-    IrInstSrc *alloca = ir_build_alloca_src(ag, scope, source_node, nullptr, name_hint, is_comptime);
+    Stage1ZirInst *alloca = ir_build_alloca_src(ag, scope, source_node, nullptr, name_hint, is_comptime);
     ResultLocVar *var_result_loc = ir_build_var_result_loc(ag, alloca, var);
     ir_build_end_expr(ag, scope, source_node, init, &var_result_loc->base);
     ir_build_var_decl_src(ag, scope, source_node, var, nullptr, alloca);
 }
 
-static IrInstSrc *astgen_var_decl(Stage1AstGen *ag, Scope *scope, AstNode *node) {
+static Stage1ZirInst *astgen_var_decl(Stage1AstGen *ag, Scope *scope, AstNode *node) {
     assert(node->type == NodeTypeVariableDeclaration);
 
     AstNodeVariableDeclaration *variable_declaration = &node->data.variable_declaration;
@@ -5826,7 +5826,7 @@ static IrInstSrc *astgen_var_decl(Stage1AstGen *ag, Scope *scope, AstNode *node)
     // Used for the type expr and the align expr
     Scope *comptime_scope = create_comptime_scope(ag->codegen, node, scope);
 
-    IrInstSrc *type_instruction;
+    Stage1ZirInst *type_instruction;
     if (variable_declaration->type != nullptr) {
         type_instruction = astgen_node(ag, variable_declaration->type, comptime_scope);
         if (type_instruction == ag->codegen->invalid_inst_src)
@@ -5840,10 +5840,10 @@ static IrInstSrc *astgen_var_decl(Stage1AstGen *ag, Scope *scope, AstNode *node)
     bool is_extern = variable_declaration->is_extern;
 
     bool is_comptime_scalar = ir_should_inline(ag->exec, scope) || variable_declaration->is_comptime;
-    IrInstSrc *is_comptime = ir_build_const_bool(ag, scope, node, is_comptime_scalar);
+    Stage1ZirInst *is_comptime = ir_build_const_bool(ag, scope, node, is_comptime_scalar);
     ZigVar *var = ir_create_var(ag, node, scope, variable_declaration->symbol,
         is_const, is_const, is_shadowable, is_comptime);
-    // we detect IrInstSrcDeclVar in gen_block to make sure the next node
+    // we detect Stage1ZirInstDeclVar in gen_block to make sure the next node
     // is inside var->child_scope
 
     if (!is_extern && !variable_declaration->expr) {
@@ -5852,7 +5852,7 @@ static IrInstSrc *astgen_var_decl(Stage1AstGen *ag, Scope *scope, AstNode *node)
         return ag->codegen->invalid_inst_src;
     }
 
-    IrInstSrc *align_value = nullptr;
+    Stage1ZirInst *align_value = nullptr;
     if (variable_declaration->align_expr != nullptr) {
         align_value = astgen_node(ag, variable_declaration->align_expr, comptime_scope);
         if (align_value == ag->codegen->invalid_inst_src)
@@ -5867,7 +5867,7 @@ static IrInstSrc *astgen_var_decl(Stage1AstGen *ag, Scope *scope, AstNode *node)
     // Parser should ensure that this never happens
     assert(variable_declaration->threadlocal_tok == 0);
 
-    IrInstSrc *alloca = ir_build_alloca_src(ag, scope, node, align_value,
+    Stage1ZirInst *alloca = ir_build_alloca_src(ag, scope, node, align_value,
             buf_ptr(variable_declaration->symbol), is_comptime);
 
     // Create a result location for the initialization expression.
@@ -5889,7 +5889,7 @@ static IrInstSrc *astgen_var_decl(Stage1AstGen *ag, Scope *scope, AstNode *node)
     // so that the struct or enum from the init expression inherits the name.
     Buf *old_exec_name = ag->exec->name;
     ag->exec->name = variable_declaration->symbol;
-    IrInstSrc *init_value = astgen_node_extra(ag, variable_declaration->expr, init_scope,
+    Stage1ZirInst *init_value = astgen_node_extra(ag, variable_declaration->expr, init_scope,
             LValNone, init_result_loc);
     ag->exec->name = old_exec_name;
 
@@ -5897,7 +5897,7 @@ static IrInstSrc *astgen_var_decl(Stage1AstGen *ag, Scope *scope, AstNode *node)
         return ag->codegen->invalid_inst_src;
 
     if (result_loc_cast != nullptr) {
-        IrInstSrc *implicit_cast = ir_build_implicit_cast(ag, scope, init_value->source_node,
+        Stage1ZirInst *implicit_cast = ir_build_implicit_cast(ag, scope, init_value->source_node,
                 init_value, result_loc_cast);
         ir_build_end_expr(ag, scope, node, implicit_cast, &result_loc_var->base);
     }
@@ -5905,7 +5905,7 @@ static IrInstSrc *astgen_var_decl(Stage1AstGen *ag, Scope *scope, AstNode *node)
     return ir_build_var_decl_src(ag, scope, node, var, align_value, alloca);
 }
 
-static IrInstSrc *astgen_while_expr(Stage1AstGen *ag, Scope *scope, AstNode *node, LVal lval,
+static Stage1ZirInst *astgen_while_expr(Stage1AstGen *ag, Scope *scope, AstNode *node, LVal lval,
         ResultLoc *result_loc)
 {
     assert(node->type == NodeTypeWhileExpr);
@@ -5921,7 +5921,7 @@ static IrInstSrc *astgen_while_expr(Stage1AstGen *ag, Scope *scope, AstNode *nod
     Stage1ZirBasicBlock *else_block = else_node ?
         ir_create_basic_block(ag, scope, "WhileElse") : end_block;
 
-    IrInstSrc *is_comptime = ir_build_const_bool(ag, scope, node,
+    Stage1ZirInst *is_comptime = ir_build_const_bool(ag, scope, node,
         ir_should_inline(ag->exec, scope) || node->data.while_expr.is_inline);
     ir_build_br(ag, scope, node, cond_block, is_comptime);
 
@@ -5943,15 +5943,15 @@ static IrInstSrc *astgen_while_expr(Stage1AstGen *ag, Scope *scope, AstNode *nod
             payload_scope = subexpr_scope;
         }
         ScopeExpr *spill_scope = create_expr_scope(ag->codegen, node, payload_scope);
-        IrInstSrc *err_val_ptr = astgen_node_extra(ag, node->data.while_expr.condition, subexpr_scope,
+        Stage1ZirInst *err_val_ptr = astgen_node_extra(ag, node->data.while_expr.condition, subexpr_scope,
                 LValPtr, nullptr);
         if (err_val_ptr == ag->codegen->invalid_inst_src)
             return err_val_ptr;
-        IrInstSrc *is_err = ir_build_test_err_src(ag, scope, node->data.while_expr.condition, err_val_ptr,
+        Stage1ZirInst *is_err = ir_build_test_err_src(ag, scope, node->data.while_expr.condition, err_val_ptr,
                 true, false);
         Stage1ZirBasicBlock *after_cond_block = ag->current_basic_block;
-        IrInstSrc *void_else_result = else_node ? nullptr : ir_build_const_void(ag, scope, node);
-        IrInstSrc *cond_br_inst;
+        Stage1ZirInst *void_else_result = else_node ? nullptr : ir_build_const_void(ag, scope, node);
+        Stage1ZirInst *cond_br_inst;
         if (!instr_is_unreachable(is_err)) {
             cond_br_inst = ir_build_cond_br(ag, scope, node->data.while_expr.condition, is_err,
                         else_block, body_block, is_comptime);
@@ -5965,14 +5965,14 @@ static IrInstSrc *astgen_while_expr(Stage1AstGen *ag, Scope *scope, AstNode *nod
 
         ir_set_cursor_at_end_and_append_block(ag, body_block);
         if (var_symbol) {
-            IrInstSrc *payload_ptr = ir_build_unwrap_err_payload_src(ag, &spill_scope->base, symbol_node,
+            Stage1ZirInst *payload_ptr = ir_build_unwrap_err_payload_src(ag, &spill_scope->base, symbol_node,
                     err_val_ptr, false, false);
-            IrInstSrc *var_value = node->data.while_expr.var_is_ptr ?
+            Stage1ZirInst *var_value = node->data.while_expr.var_is_ptr ?
                 payload_ptr : ir_build_load_ptr(ag, &spill_scope->base, symbol_node, payload_ptr);
             build_decl_var_and_init(ag, payload_scope, symbol_node, payload_var, var_value, buf_ptr(var_symbol), is_comptime);
         }
 
-        ZigList<IrInstSrc *> incoming_values = {0};
+        ZigList<Stage1ZirInst *> incoming_values = {0};
         ZigList<Stage1ZirBasicBlock *> incoming_blocks = {0};
 
         if (is_duplicate_label(ag->codegen, payload_scope, node, node->data.while_expr.name))
@@ -5991,7 +5991,7 @@ static IrInstSrc *astgen_while_expr(Stage1AstGen *ag, Scope *scope, AstNode *nod
         // Note the body block of the loop is not the place that lval and result_loc are used -
         // it's actually in break statements, handled similarly to return statements.
         // That is why we set those values in loop_scope above and not in this astgen_node call.
-        IrInstSrc *body_result = astgen_node(ag, node->data.while_expr.body, &loop_scope->base);
+        Stage1ZirInst *body_result = astgen_node(ag, node->data.while_expr.body, &loop_scope->base);
         if (body_result == ag->codegen->invalid_inst_src)
             return body_result;
 
@@ -6006,7 +6006,7 @@ static IrInstSrc *astgen_while_expr(Stage1AstGen *ag, Scope *scope, AstNode *nod
 
         if (continue_expr_node) {
             ir_set_cursor_at_end_and_append_block(ag, continue_block);
-            IrInstSrc *expr_result = astgen_node(ag, continue_expr_node, payload_scope);
+            Stage1ZirInst *expr_result = astgen_node(ag, continue_expr_node, payload_scope);
             if (expr_result == ag->codegen->invalid_inst_src)
                 return expr_result;
             if (!instr_is_unreachable(expr_result)) {
@@ -6023,8 +6023,8 @@ static IrInstSrc *astgen_while_expr(Stage1AstGen *ag, Scope *scope, AstNode *nod
         ZigVar *err_var = ir_create_var(ag, err_symbol_node, scope, err_symbol,
                 true, false, false, is_comptime);
         Scope *err_scope = err_var->child_scope;
-        IrInstSrc *err_ptr = ir_build_unwrap_err_code_src(ag, err_scope, err_symbol_node, err_val_ptr);
-        IrInstSrc *err_value = ir_build_load_ptr(ag, err_scope, err_symbol_node, err_ptr);
+        Stage1ZirInst *err_ptr = ir_build_unwrap_err_code_src(ag, err_scope, err_symbol_node, err_val_ptr);
+        Stage1ZirInst *err_value = ir_build_load_ptr(ag, err_scope, err_symbol_node, err_ptr);
         build_decl_var_and_init(ag, err_scope, err_symbol_node, err_var, err_value, buf_ptr(err_symbol), is_comptime);
 
         if (peer_parent->peers.length != 0) {
@@ -6032,7 +6032,7 @@ static IrInstSrc *astgen_while_expr(Stage1AstGen *ag, Scope *scope, AstNode *nod
         }
         ResultLocPeer *peer_result = create_peer_result(peer_parent);
         peer_parent->peers.append(peer_result);
-        IrInstSrc *else_result = astgen_node_extra(ag, else_node, err_scope, lval, &peer_result->base);
+        Stage1ZirInst *else_result = astgen_node_extra(ag, else_node, err_scope, lval, &peer_result->base);
         if (else_result == ag->codegen->invalid_inst_src)
             return else_result;
         if (!instr_is_unreachable(else_result))
@@ -6050,7 +6050,7 @@ static IrInstSrc *astgen_while_expr(Stage1AstGen *ag, Scope *scope, AstNode *nod
             peer_parent->peers.last()->next_bb = end_block;
         }
 
-        IrInstSrc *phi = ir_build_phi(ag, scope, node, incoming_blocks.length,
+        Stage1ZirInst *phi = ir_build_phi(ag, scope, node, incoming_blocks.length,
                 incoming_blocks.items, incoming_values.items, peer_parent);
         return ir_expr_wrap(ag, scope, phi, result_loc);
     } else if (var_symbol != nullptr) {
@@ -6063,15 +6063,15 @@ static IrInstSrc *astgen_while_expr(Stage1AstGen *ag, Scope *scope, AstNode *nod
                 true, false, false, is_comptime);
         Scope *child_scope = payload_var->child_scope;
         ScopeExpr *spill_scope = create_expr_scope(ag->codegen, node, child_scope);
-        IrInstSrc *maybe_val_ptr = astgen_node_extra(ag, node->data.while_expr.condition, subexpr_scope,
+        Stage1ZirInst *maybe_val_ptr = astgen_node_extra(ag, node->data.while_expr.condition, subexpr_scope,
                 LValPtr, nullptr);
         if (maybe_val_ptr == ag->codegen->invalid_inst_src)
             return maybe_val_ptr;
-        IrInstSrc *maybe_val = ir_build_load_ptr(ag, scope, node->data.while_expr.condition, maybe_val_ptr);
-        IrInstSrc *is_non_null = ir_build_test_non_null_src(ag, scope, node->data.while_expr.condition, maybe_val);
+        Stage1ZirInst *maybe_val = ir_build_load_ptr(ag, scope, node->data.while_expr.condition, maybe_val_ptr);
+        Stage1ZirInst *is_non_null = ir_build_test_non_null_src(ag, scope, node->data.while_expr.condition, maybe_val);
         Stage1ZirBasicBlock *after_cond_block = ag->current_basic_block;
-        IrInstSrc *void_else_result = else_node ? nullptr : ir_build_const_void(ag, scope, node);
-        IrInstSrc *cond_br_inst;
+        Stage1ZirInst *void_else_result = else_node ? nullptr : ir_build_const_void(ag, scope, node);
+        Stage1ZirInst *cond_br_inst;
         if (!instr_is_unreachable(is_non_null)) {
             cond_br_inst = ir_build_cond_br(ag, scope, node->data.while_expr.condition, is_non_null,
                         body_block, else_block, is_comptime);
@@ -6084,12 +6084,12 @@ static IrInstSrc *astgen_while_expr(Stage1AstGen *ag, Scope *scope, AstNode *nod
                 is_comptime);
 
         ir_set_cursor_at_end_and_append_block(ag, body_block);
-        IrInstSrc *payload_ptr = ir_build_optional_unwrap_ptr(ag, &spill_scope->base, symbol_node, maybe_val_ptr, false);
-        IrInstSrc *var_value = node->data.while_expr.var_is_ptr ?
+        Stage1ZirInst *payload_ptr = ir_build_optional_unwrap_ptr(ag, &spill_scope->base, symbol_node, maybe_val_ptr, false);
+        Stage1ZirInst *var_value = node->data.while_expr.var_is_ptr ?
             payload_ptr : ir_build_load_ptr(ag, &spill_scope->base, symbol_node, payload_ptr);
         build_decl_var_and_init(ag, child_scope, symbol_node, payload_var, var_value, buf_ptr(var_symbol), is_comptime);
 
-        ZigList<IrInstSrc *> incoming_values = {0};
+        ZigList<Stage1ZirInst *> incoming_values = {0};
         ZigList<Stage1ZirBasicBlock *> incoming_blocks = {0};
 
         if (is_duplicate_label(ag->codegen, child_scope, node, node->data.while_expr.name))
@@ -6108,7 +6108,7 @@ static IrInstSrc *astgen_while_expr(Stage1AstGen *ag, Scope *scope, AstNode *nod
         // Note the body block of the loop is not the place that lval and result_loc are used -
         // it's actually in break statements, handled similarly to return statements.
         // That is why we set those values in loop_scope above and not in this astgen_node call.
-        IrInstSrc *body_result = astgen_node(ag, node->data.while_expr.body, &loop_scope->base);
+        Stage1ZirInst *body_result = astgen_node(ag, node->data.while_expr.body, &loop_scope->base);
         if (body_result == ag->codegen->invalid_inst_src)
             return body_result;
 
@@ -6123,7 +6123,7 @@ static IrInstSrc *astgen_while_expr(Stage1AstGen *ag, Scope *scope, AstNode *nod
 
         if (continue_expr_node) {
             ir_set_cursor_at_end_and_append_block(ag, continue_block);
-            IrInstSrc *expr_result = astgen_node(ag, continue_expr_node, child_scope);
+            Stage1ZirInst *expr_result = astgen_node(ag, continue_expr_node, child_scope);
             if (expr_result == ag->codegen->invalid_inst_src)
                 return expr_result;
             if (!instr_is_unreachable(expr_result)) {
@@ -6132,7 +6132,7 @@ static IrInstSrc *astgen_while_expr(Stage1AstGen *ag, Scope *scope, AstNode *nod
             }
         }
 
-        IrInstSrc *else_result = nullptr;
+        Stage1ZirInst *else_result = nullptr;
         if (else_node) {
             ir_set_cursor_at_end_and_append_block(ag, else_block);
 
@@ -6160,17 +6160,17 @@ static IrInstSrc *astgen_while_expr(Stage1AstGen *ag, Scope *scope, AstNode *nod
             peer_parent->peers.last()->next_bb = end_block;
         }
 
-        IrInstSrc *phi = ir_build_phi(ag, scope, node, incoming_blocks.length,
+        Stage1ZirInst *phi = ir_build_phi(ag, scope, node, incoming_blocks.length,
                 incoming_blocks.items, incoming_values.items, peer_parent);
         return ir_expr_wrap(ag, scope, phi, result_loc);
     } else {
         ir_set_cursor_at_end_and_append_block(ag, cond_block);
-        IrInstSrc *cond_val = astgen_node(ag, node->data.while_expr.condition, scope);
+        Stage1ZirInst *cond_val = astgen_node(ag, node->data.while_expr.condition, scope);
         if (cond_val == ag->codegen->invalid_inst_src)
             return cond_val;
         Stage1ZirBasicBlock *after_cond_block = ag->current_basic_block;
-        IrInstSrc *void_else_result = else_node ? nullptr : ir_build_const_void(ag, scope, node);
-        IrInstSrc *cond_br_inst;
+        Stage1ZirInst *void_else_result = else_node ? nullptr : ir_build_const_void(ag, scope, node);
+        Stage1ZirInst *cond_br_inst;
         if (!instr_is_unreachable(cond_val)) {
             cond_br_inst = ir_build_cond_br(ag, scope, node->data.while_expr.condition, cond_val,
                         body_block, else_block, is_comptime);
@@ -6183,7 +6183,7 @@ static IrInstSrc *astgen_while_expr(Stage1AstGen *ag, Scope *scope, AstNode *nod
                 is_comptime);
         ir_set_cursor_at_end_and_append_block(ag, body_block);
 
-        ZigList<IrInstSrc *> incoming_values = {0};
+        ZigList<Stage1ZirInst *> incoming_values = {0};
         ZigList<Stage1ZirBasicBlock *> incoming_blocks = {0};
 
         Scope *subexpr_scope = create_runtime_scope(ag->codegen, node, scope, is_comptime);
@@ -6203,7 +6203,7 @@ static IrInstSrc *astgen_while_expr(Stage1AstGen *ag, Scope *scope, AstNode *nod
         // Note the body block of the loop is not the place that lval and result_loc are used -
         // it's actually in break statements, handled similarly to return statements.
         // That is why we set those values in loop_scope above and not in this astgen_node call.
-        IrInstSrc *body_result = astgen_node(ag, node->data.while_expr.body, &loop_scope->base);
+        Stage1ZirInst *body_result = astgen_node(ag, node->data.while_expr.body, &loop_scope->base);
         if (body_result == ag->codegen->invalid_inst_src)
             return body_result;
 
@@ -6218,7 +6218,7 @@ static IrInstSrc *astgen_while_expr(Stage1AstGen *ag, Scope *scope, AstNode *nod
 
         if (continue_expr_node) {
             ir_set_cursor_at_end_and_append_block(ag, continue_block);
-            IrInstSrc *expr_result = astgen_node(ag, continue_expr_node, subexpr_scope);
+            Stage1ZirInst *expr_result = astgen_node(ag, continue_expr_node, subexpr_scope);
             if (expr_result == ag->codegen->invalid_inst_src)
                 return expr_result;
             if (!instr_is_unreachable(expr_result)) {
@@ -6227,7 +6227,7 @@ static IrInstSrc *astgen_while_expr(Stage1AstGen *ag, Scope *scope, AstNode *nod
             }
         }
 
-        IrInstSrc *else_result = nullptr;
+        Stage1ZirInst *else_result = nullptr;
         if (else_node) {
             ir_set_cursor_at_end_and_append_block(ag, else_block);
 
@@ -6256,13 +6256,13 @@ static IrInstSrc *astgen_while_expr(Stage1AstGen *ag, Scope *scope, AstNode *nod
             peer_parent->peers.last()->next_bb = end_block;
         }
 
-        IrInstSrc *phi = ir_build_phi(ag, scope, node, incoming_blocks.length,
+        Stage1ZirInst *phi = ir_build_phi(ag, scope, node, incoming_blocks.length,
                 incoming_blocks.items, incoming_values.items, peer_parent);
         return ir_expr_wrap(ag, scope, phi, result_loc);
     }
 }
 
-static IrInstSrc *astgen_for_expr(Stage1AstGen *ag, Scope *parent_scope, AstNode *node, LVal lval,
+static Stage1ZirInst *astgen_for_expr(Stage1AstGen *ag, Scope *parent_scope, AstNode *node, LVal lval,
         ResultLoc *result_loc)
 {
     assert(node->type == NodeTypeForExpr);
@@ -6281,11 +6281,11 @@ static IrInstSrc *astgen_for_expr(Stage1AstGen *ag, Scope *parent_scope, AstNode
 
     ScopeExpr *spill_scope = create_expr_scope(ag->codegen, node, parent_scope);
 
-    IrInstSrc *array_val_ptr = astgen_node_extra(ag, array_node, &spill_scope->base, LValPtr, nullptr);
+    Stage1ZirInst *array_val_ptr = astgen_node_extra(ag, array_node, &spill_scope->base, LValPtr, nullptr);
     if (array_val_ptr == ag->codegen->invalid_inst_src)
         return array_val_ptr;
 
-    IrInstSrc *is_comptime = ir_build_const_bool(ag, parent_scope, node,
+    Stage1ZirInst *is_comptime = ir_build_const_bool(ag, parent_scope, node,
         ir_should_inline(ag->exec, parent_scope) || node->data.for_expr.is_inline);
 
     AstNode *index_var_source_node;
@@ -6302,12 +6302,12 @@ static IrInstSrc *astgen_for_expr(Stage1AstGen *ag, Scope *parent_scope, AstNode
         index_var_name = "i";
     }
 
-    IrInstSrc *zero = ir_build_const_usize(ag, parent_scope, node, 0);
+    Stage1ZirInst *zero = ir_build_const_usize(ag, parent_scope, node, 0);
     build_decl_var_and_init(ag, parent_scope, index_var_source_node, index_var, zero, index_var_name, is_comptime);
     parent_scope = index_var->child_scope;
 
-    IrInstSrc *one = ir_build_const_usize(ag, parent_scope, node, 1);
-    IrInstSrc *index_ptr = ir_build_var_ptr(ag, parent_scope, node, index_var);
+    Stage1ZirInst *one = ir_build_const_usize(ag, parent_scope, node, 1);
+    Stage1ZirInst *index_ptr = ir_build_var_ptr(ag, parent_scope, node, index_var);
 
 
     Stage1ZirBasicBlock *cond_block = ir_create_basic_block(ag, parent_scope, "ForCond");
@@ -6317,36 +6317,36 @@ static IrInstSrc *astgen_for_expr(Stage1AstGen *ag, Scope *parent_scope, AstNode
     Stage1ZirBasicBlock *continue_block = ir_create_basic_block(ag, parent_scope, "ForContinue");
 
     Buf *len_field_name = buf_create_from_str("len");
-    IrInstSrc *len_ref = ir_build_field_ptr(ag, parent_scope, node, array_val_ptr, len_field_name, false);
-    IrInstSrc *len_val = ir_build_load_ptr(ag, &spill_scope->base, node, len_ref);
+    Stage1ZirInst *len_ref = ir_build_field_ptr(ag, parent_scope, node, array_val_ptr, len_field_name, false);
+    Stage1ZirInst *len_val = ir_build_load_ptr(ag, &spill_scope->base, node, len_ref);
     ir_build_br(ag, parent_scope, node, cond_block, is_comptime);
 
     ir_set_cursor_at_end_and_append_block(ag, cond_block);
-    IrInstSrc *index_val = ir_build_load_ptr(ag, &spill_scope->base, node, index_ptr);
-    IrInstSrc *cond = ir_build_bin_op(ag, parent_scope, node, IrBinOpCmpLessThan, index_val, len_val, false);
+    Stage1ZirInst *index_val = ir_build_load_ptr(ag, &spill_scope->base, node, index_ptr);
+    Stage1ZirInst *cond = ir_build_bin_op(ag, parent_scope, node, IrBinOpCmpLessThan, index_val, len_val, false);
     Stage1ZirBasicBlock *after_cond_block = ag->current_basic_block;
-    IrInstSrc *void_else_value = else_node ? nullptr : ir_build_const_void(ag, parent_scope, node);
-    IrInstSrc *cond_br_inst = ir_build_cond_br(ag, parent_scope, node, cond,
+    Stage1ZirInst *void_else_value = else_node ? nullptr : ir_build_const_void(ag, parent_scope, node);
+    Stage1ZirInst *cond_br_inst = ir_build_cond_br(ag, parent_scope, node, cond,
                 body_block, else_block, is_comptime);
 
     ResultLocPeerParent *peer_parent = ir_build_result_peers(ag, cond_br_inst, end_block, result_loc, is_comptime);
 
     ir_set_cursor_at_end_and_append_block(ag, body_block);
-    IrInstSrc *elem_ptr = ir_build_elem_ptr(ag, &spill_scope->base, node, array_val_ptr, index_val,
+    Stage1ZirInst *elem_ptr = ir_build_elem_ptr(ag, &spill_scope->base, node, array_val_ptr, index_val,
             false, PtrLenSingle, nullptr);
     // TODO make it an error to write to element variable or i variable.
     Buf *elem_var_name = node_identifier_buf(elem_node);
     ZigVar *elem_var = ir_create_var(ag, elem_node, parent_scope, elem_var_name, true, false, false, is_comptime);
     Scope *child_scope = elem_var->child_scope;
 
-    IrInstSrc *elem_value = node->data.for_expr.elem_is_ptr ?
+    Stage1ZirInst *elem_value = node->data.for_expr.elem_is_ptr ?
         elem_ptr : ir_build_load_ptr(ag, &spill_scope->base, elem_node, elem_ptr);
     build_decl_var_and_init(ag, parent_scope, elem_node, elem_var, elem_value, buf_ptr(elem_var_name), is_comptime);
 
     if (is_duplicate_label(ag->codegen, child_scope, node, node->data.for_expr.name))
         return ag->codegen->invalid_inst_src;
 
-    ZigList<IrInstSrc *> incoming_values = {0};
+    ZigList<Stage1ZirInst *> incoming_values = {0};
     ZigList<Stage1ZirBasicBlock *> incoming_blocks = {0};
     ScopeLoop *loop_scope = create_loop_scope(ag->codegen, node, child_scope);
     loop_scope->break_block = end_block;
@@ -6361,7 +6361,7 @@ static IrInstSrc *astgen_for_expr(Stage1AstGen *ag, Scope *parent_scope, AstNode
     // Note the body block of the loop is not the place that lval and result_loc are used -
     // it's actually in break statements, handled similarly to return statements.
     // That is why we set those values in loop_scope above and not in this astgen_node call.
-    IrInstSrc *body_result = astgen_node(ag, body_node, &loop_scope->base);
+    Stage1ZirInst *body_result = astgen_node(ag, body_node, &loop_scope->base);
     if (body_result == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
 
@@ -6375,11 +6375,11 @@ static IrInstSrc *astgen_for_expr(Stage1AstGen *ag, Scope *parent_scope, AstNode
     }
 
     ir_set_cursor_at_end_and_append_block(ag, continue_block);
-    IrInstSrc *new_index_val = ir_build_bin_op(ag, child_scope, node, IrBinOpAdd, index_val, one, false);
+    Stage1ZirInst *new_index_val = ir_build_bin_op(ag, child_scope, node, IrBinOpAdd, index_val, one, false);
     ir_build_store_ptr(ag, child_scope, node, index_ptr, new_index_val)->allow_write_through_const = true;
     ir_build_br(ag, child_scope, node, cond_block, is_comptime);
 
-    IrInstSrc *else_result = nullptr;
+    Stage1ZirInst *else_result = nullptr;
     if (else_node) {
         ir_set_cursor_at_end_and_append_block(ag, else_block);
 
@@ -6408,17 +6408,17 @@ static IrInstSrc *astgen_for_expr(Stage1AstGen *ag, Scope *parent_scope, AstNode
         peer_parent->peers.last()->next_bb = end_block;
     }
 
-    IrInstSrc *phi = ir_build_phi(ag, parent_scope, node, incoming_blocks.length,
+    Stage1ZirInst *phi = ir_build_phi(ag, parent_scope, node, incoming_blocks.length,
             incoming_blocks.items, incoming_values.items, peer_parent);
     return ir_lval_wrap(ag, parent_scope, phi, lval, result_loc);
 }
 
-static IrInstSrc *astgen_bool_literal(Stage1AstGen *ag, Scope *scope, AstNode *node) {
+static Stage1ZirInst *astgen_bool_literal(Stage1AstGen *ag, Scope *scope, AstNode *node) {
     assert(node->type == NodeTypeBoolLiteral);
     return ir_build_const_bool(ag, scope, node, node->data.bool_literal.value);
 }
 
-static IrInstSrc *astgen_enum_literal(Stage1AstGen *ag, Scope *scope, AstNode *node) {
+static Stage1ZirInst *astgen_enum_literal(Stage1AstGen *ag, Scope *scope, AstNode *node) {
     assert(node->type == NodeTypeEnumLiteral);
     // Currently, stage1 runs astgen for every comptime function call,
     // resulting the allocation here wasting memory. As a workaround until
@@ -6431,7 +6431,7 @@ static IrInstSrc *astgen_enum_literal(Stage1AstGen *ag, Scope *scope, AstNode *n
     return ir_build_const_enum_literal(ag, scope, node, node->data.enum_literal.name);
 }
 
-static IrInstSrc *astgen_string_literal(Stage1AstGen *ag, Scope *scope, AstNode *node) {
+static Stage1ZirInst *astgen_string_literal(Stage1AstGen *ag, Scope *scope, AstNode *node) {
     Error err;
     assert(node->type == NodeTypeStringLiteral);
 
@@ -6473,7 +6473,7 @@ static IrInstSrc *astgen_string_literal(Stage1AstGen *ag, Scope *scope, AstNode 
     return ir_build_const_str_lit(ag, scope, node, str);
 }
 
-static IrInstSrc *astgen_array_type(Stage1AstGen *ag, Scope *scope, AstNode *node) {
+static Stage1ZirInst *astgen_array_type(Stage1AstGen *ag, Scope *scope, AstNode *node) {
     assert(node->type == NodeTypeArrayType);
 
     AstNode *size_node = node->data.array_type.size;
@@ -6486,7 +6486,7 @@ static IrInstSrc *astgen_array_type(Stage1AstGen *ag, Scope *scope, AstNode *nod
 
     Scope *comptime_scope = create_comptime_scope(ag->codegen, node, scope);
 
-    IrInstSrc *sentinel;
+    Stage1ZirInst *sentinel;
     if (sentinel_expr != nullptr) {
         sentinel = astgen_node(ag, sentinel_expr, comptime_scope);
         if (sentinel == ag->codegen->invalid_inst_src)
@@ -6513,17 +6513,17 @@ static IrInstSrc *astgen_array_type(Stage1AstGen *ag, Scope *scope, AstNode *nod
             return ag->codegen->invalid_inst_src;
         }
 
-        IrInstSrc *size_value = astgen_node(ag, size_node, comptime_scope);
+        Stage1ZirInst *size_value = astgen_node(ag, size_node, comptime_scope);
         if (size_value == ag->codegen->invalid_inst_src)
             return size_value;
 
-        IrInstSrc *child_type = astgen_node(ag, child_type_node, comptime_scope);
+        Stage1ZirInst *child_type = astgen_node(ag, child_type_node, comptime_scope);
         if (child_type == ag->codegen->invalid_inst_src)
             return child_type;
 
         return ir_build_array_type(ag, scope, node, size_value, sentinel, child_type);
     } else {
-        IrInstSrc *align_value;
+        Stage1ZirInst *align_value;
         if (align_expr != nullptr) {
             align_value = astgen_node(ag, align_expr, comptime_scope);
             if (align_value == ag->codegen->invalid_inst_src)
@@ -6532,7 +6532,7 @@ static IrInstSrc *astgen_array_type(Stage1AstGen *ag, Scope *scope, AstNode *nod
             align_value = nullptr;
         }
 
-        IrInstSrc *child_type = astgen_node(ag, child_type_node, comptime_scope);
+        Stage1ZirInst *child_type = astgen_node(ag, child_type_node, comptime_scope);
         if (child_type == ag->codegen->invalid_inst_src)
             return child_type;
 
@@ -6541,11 +6541,11 @@ static IrInstSrc *astgen_array_type(Stage1AstGen *ag, Scope *scope, AstNode *nod
     }
 }
 
-static IrInstSrc *astgen_anyframe_type(Stage1AstGen *ag, Scope *scope, AstNode *node) {
+static Stage1ZirInst *astgen_anyframe_type(Stage1AstGen *ag, Scope *scope, AstNode *node) {
     assert(node->type == NodeTypeAnyFrameType);
 
     AstNode *payload_type_node = node->data.anyframe_type.payload_type;
-    IrInstSrc *payload_type_value = nullptr;
+    Stage1ZirInst *payload_type_value = nullptr;
 
     if (payload_type_node != nullptr) {
         payload_type_value = astgen_node(ag, payload_type_node, scope);
@@ -6557,16 +6557,16 @@ static IrInstSrc *astgen_anyframe_type(Stage1AstGen *ag, Scope *scope, AstNode *
     return ir_build_anyframe_type(ag, scope, node, payload_type_value);
 }
 
-static IrInstSrc *astgen_undefined_literal(Stage1AstGen *ag, Scope *scope, AstNode *node) {
+static Stage1ZirInst *astgen_undefined_literal(Stage1AstGen *ag, Scope *scope, AstNode *node) {
     assert(node->type == NodeTypeUndefinedLiteral);
     return ir_build_const_undefined(ag, scope, node);
 }
 
-static IrInstSrc *astgen_asm_expr(Stage1AstGen *ag, Scope *scope, AstNode *node) {
+static Stage1ZirInst *astgen_asm_expr(Stage1AstGen *ag, Scope *scope, AstNode *node) {
     assert(node->type == NodeTypeAsmExpr);
     AstNodeAsmExpr *asm_expr = &node->data.asm_expr;
 
-    IrInstSrc *asm_template = astgen_node(ag, asm_expr->asm_template, scope);
+    Stage1ZirInst *asm_template = astgen_node(ag, asm_expr->asm_template, scope);
     if (asm_template == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
 
@@ -6592,8 +6592,8 @@ static IrInstSrc *astgen_asm_expr(Stage1AstGen *ag, Scope *scope, AstNode *node)
                                 nullptr, 0, is_volatile, true);
     }
 
-    IrInstSrc **input_list = heap::c_allocator.allocate<IrInstSrc *>(asm_expr->input_list.length);
-    IrInstSrc **output_types = heap::c_allocator.allocate<IrInstSrc *>(asm_expr->output_list.length);
+    Stage1ZirInst **input_list = heap::c_allocator.allocate<Stage1ZirInst *>(asm_expr->input_list.length);
+    Stage1ZirInst **output_types = heap::c_allocator.allocate<Stage1ZirInst *>(asm_expr->output_list.length);
     ZigVar **output_vars = heap::c_allocator.allocate<ZigVar *>(asm_expr->output_list.length);
     size_t return_count = 0;
     if (!is_volatile && asm_expr->output_list.length == 0) {
@@ -6606,7 +6606,7 @@ static IrInstSrc *astgen_asm_expr(Stage1AstGen *ag, Scope *scope, AstNode *node)
         if (asm_output->return_type) {
             return_count += 1;
 
-            IrInstSrc *return_type = astgen_node(ag, asm_output->return_type, scope);
+            Stage1ZirInst *return_type = astgen_node(ag, asm_output->return_type, scope);
             if (return_type == ag->codegen->invalid_inst_src)
                 return ag->codegen->invalid_inst_src;
             if (return_count > 1) {
@@ -6640,7 +6640,7 @@ static IrInstSrc *astgen_asm_expr(Stage1AstGen *ag, Scope *scope, AstNode *node)
     }
     for (size_t i = 0; i < asm_expr->input_list.length; i += 1) {
         AsmInput *asm_input = asm_expr->input_list.at(i);
-        IrInstSrc *input_value = astgen_node(ag, asm_input->expr, scope);
+        Stage1ZirInst *input_value = astgen_node(ag, asm_input->expr, scope);
         if (input_value == ag->codegen->invalid_inst_src)
             return ag->codegen->invalid_inst_src;
 
@@ -6651,7 +6651,7 @@ static IrInstSrc *astgen_asm_expr(Stage1AstGen *ag, Scope *scope, AstNode *node)
                             output_vars, return_count, is_volatile, false);
 }
 
-static IrInstSrc *astgen_if_optional_expr(Stage1AstGen *ag, Scope *scope, AstNode *node, LVal lval,
+static Stage1ZirInst *astgen_if_optional_expr(Stage1AstGen *ag, Scope *scope, AstNode *node, LVal lval,
         ResultLoc *result_loc)
 {
     assert(node->type == NodeTypeIfOptional);
@@ -6665,24 +6665,24 @@ static IrInstSrc *astgen_if_optional_expr(Stage1AstGen *ag, Scope *scope, AstNod
     ScopeExpr *spill_scope = create_expr_scope(ag->codegen, expr_node, scope);
     spill_scope->spill_harder = true;
 
-    IrInstSrc *maybe_val_ptr = astgen_node_extra(ag, expr_node, &spill_scope->base, LValPtr, nullptr);
+    Stage1ZirInst *maybe_val_ptr = astgen_node_extra(ag, expr_node, &spill_scope->base, LValPtr, nullptr);
     if (maybe_val_ptr == ag->codegen->invalid_inst_src)
         return maybe_val_ptr;
 
-    IrInstSrc *maybe_val = ir_build_load_ptr(ag, scope, node, maybe_val_ptr);
-    IrInstSrc *is_non_null = ir_build_test_non_null_src(ag, scope, node, maybe_val);
+    Stage1ZirInst *maybe_val = ir_build_load_ptr(ag, scope, node, maybe_val_ptr);
+    Stage1ZirInst *is_non_null = ir_build_test_non_null_src(ag, scope, node, maybe_val);
 
     Stage1ZirBasicBlock *then_block = ir_create_basic_block(ag, scope, "OptionalThen");
     Stage1ZirBasicBlock *else_block = ir_create_basic_block(ag, scope, "OptionalElse");
     Stage1ZirBasicBlock *endif_block = ir_create_basic_block(ag, scope, "OptionalEndIf");
 
-    IrInstSrc *is_comptime;
+    Stage1ZirInst *is_comptime;
     if (ir_should_inline(ag->exec, scope)) {
         is_comptime = ir_build_const_bool(ag, scope, node, true);
     } else {
         is_comptime = ir_build_test_comptime(ag, scope, node, is_non_null);
     }
-    IrInstSrc *cond_br_inst = ir_build_cond_br(ag, scope, node, is_non_null,
+    Stage1ZirInst *cond_br_inst = ir_build_cond_br(ag, scope, node, is_non_null,
             then_block, else_block, is_comptime);
 
     ResultLocPeerParent *peer_parent = ir_build_binary_result_peers(ag, cond_br_inst, else_block, endif_block,
@@ -6698,15 +6698,15 @@ static IrInstSrc *astgen_if_optional_expr(Stage1AstGen *ag, Scope *scope, AstNod
         ZigVar *var = ir_create_var(ag, node, subexpr_scope,
                 var_symbol, is_const, is_const, is_shadowable, is_comptime);
 
-        IrInstSrc *payload_ptr = ir_build_optional_unwrap_ptr(ag, subexpr_scope, node, maybe_val_ptr, false);
-        IrInstSrc *var_value = var_is_ptr ?
+        Stage1ZirInst *payload_ptr = ir_build_optional_unwrap_ptr(ag, subexpr_scope, node, maybe_val_ptr, false);
+        Stage1ZirInst *var_value = var_is_ptr ?
             payload_ptr : ir_build_load_ptr(ag, &spill_scope->base, node, payload_ptr);
         build_decl_var_and_init(ag, subexpr_scope, node, var, var_value, buf_ptr(var_symbol), is_comptime);
         var_scope = var->child_scope;
     } else {
         var_scope = subexpr_scope;
     }
-    IrInstSrc *then_expr_result = astgen_node_extra(ag, then_node, var_scope, lval,
+    Stage1ZirInst *then_expr_result = astgen_node_extra(ag, then_node, var_scope, lval,
             &peer_parent->peers.at(0)->base);
     if (then_expr_result == ag->codegen->invalid_inst_src)
         return then_expr_result;
@@ -6715,7 +6715,7 @@ static IrInstSrc *astgen_if_optional_expr(Stage1AstGen *ag, Scope *scope, AstNod
         ir_build_br(ag, scope, node, endif_block, is_comptime);
 
     ir_set_cursor_at_end_and_append_block(ag, else_block);
-    IrInstSrc *else_expr_result;
+    Stage1ZirInst *else_expr_result;
     if (else_node) {
         else_expr_result = astgen_node_extra(ag, else_node, subexpr_scope, lval, &peer_parent->peers.at(1)->base);
         if (else_expr_result == ag->codegen->invalid_inst_src)
@@ -6729,18 +6729,18 @@ static IrInstSrc *astgen_if_optional_expr(Stage1AstGen *ag, Scope *scope, AstNod
         ir_build_br(ag, scope, node, endif_block, is_comptime);
 
     ir_set_cursor_at_end_and_append_block(ag, endif_block);
-    IrInstSrc **incoming_values = heap::c_allocator.allocate<IrInstSrc *>(2);
+    Stage1ZirInst **incoming_values = heap::c_allocator.allocate<Stage1ZirInst *>(2);
     incoming_values[0] = then_expr_result;
     incoming_values[1] = else_expr_result;
     Stage1ZirBasicBlock **incoming_blocks = heap::c_allocator.allocate<Stage1ZirBasicBlock *>(2);
     incoming_blocks[0] = after_then_block;
     incoming_blocks[1] = after_else_block;
 
-    IrInstSrc *phi = ir_build_phi(ag, scope, node, 2, incoming_blocks, incoming_values, peer_parent);
+    Stage1ZirInst *phi = ir_build_phi(ag, scope, node, 2, incoming_blocks, incoming_values, peer_parent);
     return ir_expr_wrap(ag, scope, phi, result_loc);
 }
 
-static IrInstSrc *astgen_if_err_expr(Stage1AstGen *ag, Scope *scope, AstNode *node, LVal lval,
+static Stage1ZirInst *astgen_if_err_expr(Stage1AstGen *ag, Scope *scope, AstNode *node, LVal lval,
         ResultLoc *result_loc)
 {
     assert(node->type == NodeTypeIfErrorExpr);
@@ -6753,20 +6753,20 @@ static IrInstSrc *astgen_if_err_expr(Stage1AstGen *ag, Scope *scope, AstNode *no
     Buf *var_symbol = node->data.if_err_expr.var_symbol;
     Buf *err_symbol = node->data.if_err_expr.err_symbol;
 
-    IrInstSrc *err_val_ptr = astgen_node_extra(ag, target_node, scope, LValPtr, nullptr);
+    Stage1ZirInst *err_val_ptr = astgen_node_extra(ag, target_node, scope, LValPtr, nullptr);
     if (err_val_ptr == ag->codegen->invalid_inst_src)
         return err_val_ptr;
 
-    IrInstSrc *err_val = ir_build_load_ptr(ag, scope, node, err_val_ptr);
-    IrInstSrc *is_err = ir_build_test_err_src(ag, scope, node, err_val_ptr, true, false);
+    Stage1ZirInst *err_val = ir_build_load_ptr(ag, scope, node, err_val_ptr);
+    Stage1ZirInst *is_err = ir_build_test_err_src(ag, scope, node, err_val_ptr, true, false);
 
     Stage1ZirBasicBlock *ok_block = ir_create_basic_block(ag, scope, "TryOk");
     Stage1ZirBasicBlock *else_block = ir_create_basic_block(ag, scope, "TryElse");
     Stage1ZirBasicBlock *endif_block = ir_create_basic_block(ag, scope, "TryEnd");
 
     bool force_comptime = ir_should_inline(ag->exec, scope);
-    IrInstSrc *is_comptime = force_comptime ? ir_build_const_bool(ag, scope, node, true) : ir_build_test_comptime(ag, scope, node, is_err);
-    IrInstSrc *cond_br_inst = ir_build_cond_br(ag, scope, node, is_err, else_block, ok_block, is_comptime);
+    Stage1ZirInst *is_comptime = force_comptime ? ir_build_const_bool(ag, scope, node, true) : ir_build_test_comptime(ag, scope, node, is_err);
+    Stage1ZirInst *cond_br_inst = ir_build_cond_br(ag, scope, node, is_err, else_block, ok_block, is_comptime);
 
     ResultLocPeerParent *peer_parent = ir_build_binary_result_peers(ag, cond_br_inst, else_block, endif_block,
             result_loc, is_comptime);
@@ -6777,19 +6777,19 @@ static IrInstSrc *astgen_if_err_expr(Stage1AstGen *ag, Scope *scope, AstNode *no
     Scope *var_scope;
     if (var_symbol) {
         bool is_shadowable = false;
-        IrInstSrc *var_is_comptime = force_comptime ? ir_build_const_bool(ag, subexpr_scope, node, true) : ir_build_test_comptime(ag, subexpr_scope, node, err_val);
+        Stage1ZirInst *var_is_comptime = force_comptime ? ir_build_const_bool(ag, subexpr_scope, node, true) : ir_build_test_comptime(ag, subexpr_scope, node, err_val);
         ZigVar *var = ir_create_var(ag, node, subexpr_scope,
                 var_symbol, var_is_const, var_is_const, is_shadowable, var_is_comptime);
 
-        IrInstSrc *payload_ptr = ir_build_unwrap_err_payload_src(ag, subexpr_scope, node, err_val_ptr, false, false);
-        IrInstSrc *var_value = var_is_ptr ?
+        Stage1ZirInst *payload_ptr = ir_build_unwrap_err_payload_src(ag, subexpr_scope, node, err_val_ptr, false, false);
+        Stage1ZirInst *var_value = var_is_ptr ?
             payload_ptr : ir_build_load_ptr(ag, subexpr_scope, node, payload_ptr);
         build_decl_var_and_init(ag, subexpr_scope, node, var, var_value, buf_ptr(var_symbol), var_is_comptime);
         var_scope = var->child_scope;
     } else {
         var_scope = subexpr_scope;
     }
-    IrInstSrc *then_expr_result = astgen_node_extra(ag, then_node, var_scope, lval,
+    Stage1ZirInst *then_expr_result = astgen_node_extra(ag, then_node, var_scope, lval,
             &peer_parent->peers.at(0)->base);
     if (then_expr_result == ag->codegen->invalid_inst_src)
         return then_expr_result;
@@ -6799,7 +6799,7 @@ static IrInstSrc *astgen_if_err_expr(Stage1AstGen *ag, Scope *scope, AstNode *no
 
     ir_set_cursor_at_end_and_append_block(ag, else_block);
 
-    IrInstSrc *else_expr_result;
+    Stage1ZirInst *else_expr_result;
     if (else_node) {
         Scope *err_var_scope;
         if (err_symbol) {
@@ -6808,8 +6808,8 @@ static IrInstSrc *astgen_if_err_expr(Stage1AstGen *ag, Scope *scope, AstNode *no
             ZigVar *var = ir_create_var(ag, node, subexpr_scope,
                     err_symbol, is_const, is_const, is_shadowable, is_comptime);
 
-            IrInstSrc *err_ptr = ir_build_unwrap_err_code_src(ag, subexpr_scope, node, err_val_ptr);
-            IrInstSrc *err_value = ir_build_load_ptr(ag, subexpr_scope, node, err_ptr);
+            Stage1ZirInst *err_ptr = ir_build_unwrap_err_code_src(ag, subexpr_scope, node, err_val_ptr);
+            Stage1ZirInst *err_value = ir_build_load_ptr(ag, subexpr_scope, node, err_ptr);
             build_decl_var_and_init(ag, subexpr_scope, node, var, err_value, buf_ptr(err_symbol), is_comptime);
             err_var_scope = var->child_scope;
         } else {
@@ -6827,22 +6827,22 @@ static IrInstSrc *astgen_if_err_expr(Stage1AstGen *ag, Scope *scope, AstNode *no
         ir_build_br(ag, scope, node, endif_block, is_comptime);
 
     ir_set_cursor_at_end_and_append_block(ag, endif_block);
-    IrInstSrc **incoming_values = heap::c_allocator.allocate<IrInstSrc *>(2);
+    Stage1ZirInst **incoming_values = heap::c_allocator.allocate<Stage1ZirInst *>(2);
     incoming_values[0] = then_expr_result;
     incoming_values[1] = else_expr_result;
     Stage1ZirBasicBlock **incoming_blocks = heap::c_allocator.allocate<Stage1ZirBasicBlock *>(2);
     incoming_blocks[0] = after_then_block;
     incoming_blocks[1] = after_else_block;
 
-    IrInstSrc *phi = ir_build_phi(ag, scope, node, 2, incoming_blocks, incoming_values, peer_parent);
+    Stage1ZirInst *phi = ir_build_phi(ag, scope, node, 2, incoming_blocks, incoming_values, peer_parent);
     return ir_expr_wrap(ag, scope, phi, result_loc);
 }
 
 static bool astgen_switch_prong_expr(Stage1AstGen *ag, Scope *scope, AstNode *switch_node, AstNode *prong_node,
-        Stage1ZirBasicBlock *end_block, IrInstSrc *is_comptime, IrInstSrc *var_is_comptime,
-        IrInstSrc *target_value_ptr, IrInstSrc **prong_values, size_t prong_values_len,
-        ZigList<Stage1ZirBasicBlock *> *incoming_blocks, ZigList<IrInstSrc *> *incoming_values,
-        IrInstSrcSwitchElseVar **out_switch_else_var, LVal lval, ResultLoc *result_loc)
+        Stage1ZirBasicBlock *end_block, Stage1ZirInst *is_comptime, Stage1ZirInst *var_is_comptime,
+        Stage1ZirInst *target_value_ptr, Stage1ZirInst **prong_values, size_t prong_values_len,
+        ZigList<Stage1ZirBasicBlock *> *incoming_blocks, ZigList<Stage1ZirInst *> *incoming_values,
+        Stage1ZirInstSwitchElseVar **out_switch_else_var, LVal lval, ResultLoc *result_loc)
 {
     assert(switch_node->type == NodeTypeSwitchExpr);
     assert(prong_node->type == NodeTypeSwitchProng);
@@ -6860,16 +6860,16 @@ static bool astgen_switch_prong_expr(Stage1AstGen *ag, Scope *scope, AstNode *sw
         ZigVar *var = ir_create_var(ag, var_symbol_node, scope,
                 var_name, is_const, is_const, is_shadowable, var_is_comptime);
         child_scope = var->child_scope;
-        IrInstSrc *var_value;
+        Stage1ZirInst *var_value;
         if (out_switch_else_var != nullptr) {
-            IrInstSrcSwitchElseVar *switch_else_var = ir_build_switch_else_var(ag, scope, var_symbol_node,
+            Stage1ZirInstSwitchElseVar *switch_else_var = ir_build_switch_else_var(ag, scope, var_symbol_node,
                     target_value_ptr);
             *out_switch_else_var = switch_else_var;
-            IrInstSrc *payload_ptr = &switch_else_var->base;
+            Stage1ZirInst *payload_ptr = &switch_else_var->base;
             var_value = var_is_ptr ?
                 payload_ptr : ir_build_load_ptr(ag, scope, var_symbol_node, payload_ptr);
         } else if (prong_values != nullptr) {
-            IrInstSrc *payload_ptr = ir_build_switch_var(ag, scope, var_symbol_node, target_value_ptr,
+            Stage1ZirInst *payload_ptr = ir_build_switch_var(ag, scope, var_symbol_node, target_value_ptr,
                     prong_values, prong_values_len);
             var_value = var_is_ptr ?
                 payload_ptr : ir_build_load_ptr(ag, scope, var_symbol_node, payload_ptr);
@@ -6882,7 +6882,7 @@ static bool astgen_switch_prong_expr(Stage1AstGen *ag, Scope *scope, AstNode *sw
         child_scope = scope;
     }
 
-    IrInstSrc *expr_result = astgen_node_extra(ag, expr_node, child_scope, lval, result_loc);
+    Stage1ZirInst *expr_result = astgen_node_extra(ag, expr_node, child_scope, lval, result_loc);
     if (expr_result == ag->codegen->invalid_inst_src)
         return false;
     if (!instr_is_unreachable(expr_result))
@@ -6892,25 +6892,25 @@ static bool astgen_switch_prong_expr(Stage1AstGen *ag, Scope *scope, AstNode *sw
     return true;
 }
 
-static IrInstSrc *astgen_switch_expr(Stage1AstGen *ag, Scope *scope, AstNode *node, LVal lval,
+static Stage1ZirInst *astgen_switch_expr(Stage1AstGen *ag, Scope *scope, AstNode *node, LVal lval,
         ResultLoc *result_loc)
 {
     assert(node->type == NodeTypeSwitchExpr);
 
     AstNode *target_node = node->data.switch_expr.expr;
-    IrInstSrc *target_value_ptr = astgen_node_extra(ag, target_node, scope, LValPtr, nullptr);
+    Stage1ZirInst *target_value_ptr = astgen_node_extra(ag, target_node, scope, LValPtr, nullptr);
     if (target_value_ptr == ag->codegen->invalid_inst_src)
         return target_value_ptr;
-    IrInstSrc *target_value = ir_build_switch_target(ag, scope, node, target_value_ptr);
+    Stage1ZirInst *target_value = ir_build_switch_target(ag, scope, node, target_value_ptr);
 
     Stage1ZirBasicBlock *else_block = ir_create_basic_block(ag, scope, "SwitchElse");
     Stage1ZirBasicBlock *end_block = ir_create_basic_block(ag, scope, "SwitchEnd");
 
     size_t prong_count = node->data.switch_expr.prongs.length;
-    ZigList<IrInstSrcSwitchBrCase> cases = {0};
+    ZigList<Stage1ZirInstSwitchBrCase> cases = {0};
 
-    IrInstSrc *is_comptime;
-    IrInstSrc *var_is_comptime;
+    Stage1ZirInst *is_comptime;
+    Stage1ZirInst *var_is_comptime;
     if (ir_should_inline(ag->exec, scope)) {
         is_comptime = ir_build_const_bool(ag, scope, node, true);
         var_is_comptime = is_comptime;
@@ -6919,11 +6919,11 @@ static IrInstSrc *astgen_switch_expr(Stage1AstGen *ag, Scope *scope, AstNode *no
         var_is_comptime = ir_build_test_comptime(ag, scope, node, target_value_ptr);
     }
 
-    ZigList<IrInstSrc *> incoming_values = {0};
+    ZigList<Stage1ZirInst *> incoming_values = {0};
     ZigList<Stage1ZirBasicBlock *> incoming_blocks = {0};
-    ZigList<IrInstSrcCheckSwitchProngsRange> check_ranges = {0};
+    ZigList<Stage1ZirInstCheckSwitchProngsRange> check_ranges = {0};
 
-    IrInstSrcSwitchElseVar *switch_else_var = nullptr;
+    Stage1ZirInstSwitchElseVar *switch_else_var = nullptr;
 
     ResultLocPeerParent *peer_parent = heap::c_allocator.create<ResultLocPeerParent>();
     peer_parent->base.id = ResultLocIdPeerParent;
@@ -6945,7 +6945,7 @@ static IrInstSrc *astgen_switch_expr(Stage1AstGen *ag, Scope *scope, AstNode *no
         if (prong_node->data.switch_prong.any_items_are_range) {
             ResultLocPeer *this_peer_result_loc = create_peer_result(peer_parent);
 
-            IrInstSrc *ok_bit = nullptr;
+            Stage1ZirInst *ok_bit = nullptr;
             AstNode *last_item_node = nullptr;
             for (size_t item_i = 0; item_i < prong_item_count; item_i += 1) {
                 AstNode *item_node = prong_node->data.switch_prong.items.at(item_i);
@@ -6954,23 +6954,23 @@ static IrInstSrc *astgen_switch_expr(Stage1AstGen *ag, Scope *scope, AstNode *no
                     AstNode *start_node = item_node->data.switch_range.start;
                     AstNode *end_node = item_node->data.switch_range.end;
 
-                    IrInstSrc *start_value = astgen_node(ag, start_node, comptime_scope);
+                    Stage1ZirInst *start_value = astgen_node(ag, start_node, comptime_scope);
                     if (start_value == ag->codegen->invalid_inst_src)
                         return ag->codegen->invalid_inst_src;
 
-                    IrInstSrc *end_value = astgen_node(ag, end_node, comptime_scope);
+                    Stage1ZirInst *end_value = astgen_node(ag, end_node, comptime_scope);
                     if (end_value == ag->codegen->invalid_inst_src)
                         return ag->codegen->invalid_inst_src;
 
-                    IrInstSrcCheckSwitchProngsRange *check_range = check_ranges.add_one();
+                    Stage1ZirInstCheckSwitchProngsRange *check_range = check_ranges.add_one();
                     check_range->start = start_value;
                     check_range->end = end_value;
 
-                    IrInstSrc *lower_range_ok = ir_build_bin_op(ag, scope, item_node, IrBinOpCmpGreaterOrEq,
+                    Stage1ZirInst *lower_range_ok = ir_build_bin_op(ag, scope, item_node, IrBinOpCmpGreaterOrEq,
                             target_value, start_value, false);
-                    IrInstSrc *upper_range_ok = ir_build_bin_op(ag, scope, item_node, IrBinOpCmpLessOrEq,
+                    Stage1ZirInst *upper_range_ok = ir_build_bin_op(ag, scope, item_node, IrBinOpCmpLessOrEq,
                             target_value, end_value, false);
-                    IrInstSrc *both_ok = ir_build_bin_op(ag, scope, item_node, IrBinOpBoolAnd,
+                    Stage1ZirInst *both_ok = ir_build_bin_op(ag, scope, item_node, IrBinOpBoolAnd,
                             lower_range_ok, upper_range_ok, false);
                     if (ok_bit) {
                         ok_bit = ir_build_bin_op(ag, scope, item_node, IrBinOpBoolOr, both_ok, ok_bit, false);
@@ -6978,15 +6978,15 @@ static IrInstSrc *astgen_switch_expr(Stage1AstGen *ag, Scope *scope, AstNode *no
                         ok_bit = both_ok;
                     }
                 } else {
-                    IrInstSrc *item_value = astgen_node(ag, item_node, comptime_scope);
+                    Stage1ZirInst *item_value = astgen_node(ag, item_node, comptime_scope);
                     if (item_value == ag->codegen->invalid_inst_src)
                         return ag->codegen->invalid_inst_src;
 
-                    IrInstSrcCheckSwitchProngsRange *check_range = check_ranges.add_one();
+                    Stage1ZirInstCheckSwitchProngsRange *check_range = check_ranges.add_one();
                     check_range->start = item_value;
                     check_range->end = item_value;
 
-                    IrInstSrc *cmp_ok = ir_build_bin_op(ag, scope, item_node, IrBinOpCmpEq,
+                    Stage1ZirInst *cmp_ok = ir_build_bin_op(ag, scope, item_node, IrBinOpCmpEq,
                             item_value, target_value, false);
                     if (ok_bit) {
                         ok_bit = ir_build_bin_op(ag, scope, item_node, IrBinOpBoolOr, cmp_ok, ok_bit, false);
@@ -7001,7 +7001,7 @@ static IrInstSrc *astgen_switch_expr(Stage1AstGen *ag, Scope *scope, AstNode *no
 
             assert(ok_bit);
             assert(last_item_node);
-            IrInstSrc *br_inst = ir_build_cond_br(ag, scope, last_item_node, ok_bit,
+            Stage1ZirInst *br_inst = ir_build_cond_br(ag, scope, last_item_node, ok_bit,
                         range_block_yes, range_block_no, is_comptime);
             if (peer_parent->base.source_instruction == nullptr) {
                 peer_parent->base.source_instruction = br_inst;
@@ -7087,21 +7087,21 @@ static IrInstSrc *astgen_switch_expr(Stage1AstGen *ag, Scope *scope, AstNode *no
         ResultLocPeer *this_peer_result_loc = create_peer_result(peer_parent);
 
         Stage1ZirBasicBlock *prong_block = ir_create_basic_block(ag, scope, "SwitchProng");
-        IrInstSrc **items = heap::c_allocator.allocate<IrInstSrc *>(prong_item_count);
+        Stage1ZirInst **items = heap::c_allocator.allocate<Stage1ZirInst *>(prong_item_count);
 
         for (size_t item_i = 0; item_i < prong_item_count; item_i += 1) {
             AstNode *item_node = prong_node->data.switch_prong.items.at(item_i);
             assert(item_node->type != NodeTypeSwitchRange);
 
-            IrInstSrc *item_value = astgen_node(ag, item_node, comptime_scope);
+            Stage1ZirInst *item_value = astgen_node(ag, item_node, comptime_scope);
             if (item_value == ag->codegen->invalid_inst_src)
                 return ag->codegen->invalid_inst_src;
 
-            IrInstSrcCheckSwitchProngsRange *check_range = check_ranges.add_one();
+            Stage1ZirInstCheckSwitchProngsRange *check_range = check_ranges.add_one();
             check_range->start = item_value;
             check_range->end = item_value;
 
-            IrInstSrcSwitchBrCase *this_case = cases.add_one();
+            Stage1ZirInstSwitchBrCase *this_case = cases.add_one();
             this_case->value = item_value;
             this_case->block = prong_block;
 
@@ -7125,14 +7125,14 @@ static IrInstSrc *astgen_switch_expr(Stage1AstGen *ag, Scope *scope, AstNode *no
 
     }
 
-    IrInstSrc *switch_prongs_void = ir_build_check_switch_prongs(ag, scope, node, target_value,
+    Stage1ZirInst *switch_prongs_void = ir_build_check_switch_prongs(ag, scope, node, target_value,
             check_ranges.items, check_ranges.length, else_prong, underscore_prong != nullptr);
 
-    IrInstSrc *br_instruction;
+    Stage1ZirInst *br_instruction;
     if (cases.length == 0) {
         br_instruction = ir_build_br(ag, scope, node, else_block, is_comptime);
     } else {
-        IrInstSrcSwitchBr *switch_br = ir_build_switch_br_src(ag, scope, node, target_value, else_block,
+        Stage1ZirInstSwitchBr *switch_br = ir_build_switch_br_src(ag, scope, node, target_value, else_block,
                 cases.length, cases.items, is_comptime, switch_prongs_void);
         if (switch_else_var != nullptr) {
             switch_else_var->switch_br = switch_br;
@@ -7160,7 +7160,7 @@ static IrInstSrc *astgen_switch_expr(Stage1AstGen *ag, Scope *scope, AstNode *no
 
     ir_set_cursor_at_end_and_append_block(ag, end_block);
     assert(incoming_blocks.length == incoming_values.length);
-    IrInstSrc *result_instruction;
+    Stage1ZirInst *result_instruction;
     if (incoming_blocks.length == 0) {
         result_instruction = ir_build_const_void(ag, scope, node);
     } else {
@@ -7170,7 +7170,7 @@ static IrInstSrc *astgen_switch_expr(Stage1AstGen *ag, Scope *scope, AstNode *no
     return ir_lval_wrap(ag, scope, result_instruction, lval, result_loc);
 }
 
-static IrInstSrc *astgen_comptime(Stage1AstGen *ag, Scope *parent_scope, AstNode *node, LVal lval) {
+static Stage1ZirInst *astgen_comptime(Stage1AstGen *ag, Scope *parent_scope, AstNode *node, LVal lval) {
     assert(node->type == NodeTypeCompTime);
 
     Scope *child_scope = create_comptime_scope(ag->codegen, node, parent_scope);
@@ -7178,7 +7178,7 @@ static IrInstSrc *astgen_comptime(Stage1AstGen *ag, Scope *parent_scope, AstNode
     return astgen_node_extra(ag, node->data.comptime_expr.expr, child_scope, lval, nullptr);
 }
 
-static IrInstSrc *astgen_nosuspend(Stage1AstGen *ag, Scope *parent_scope, AstNode *node, LVal lval) {
+static Stage1ZirInst *astgen_nosuspend(Stage1AstGen *ag, Scope *parent_scope, AstNode *node, LVal lval) {
     assert(node->type == NodeTypeNoSuspend);
 
     Scope *child_scope = create_nosuspend_scope(ag->codegen, node, parent_scope);
@@ -7186,15 +7186,15 @@ static IrInstSrc *astgen_nosuspend(Stage1AstGen *ag, Scope *parent_scope, AstNod
     return astgen_node_extra(ag, node->data.nosuspend_expr.expr, child_scope, lval, nullptr);
 }
 
-static IrInstSrc *astgen_return_from_block(Stage1AstGen *ag, Scope *break_scope, AstNode *node, ScopeBlock *block_scope) {
-    IrInstSrc *is_comptime;
+static Stage1ZirInst *astgen_return_from_block(Stage1AstGen *ag, Scope *break_scope, AstNode *node, ScopeBlock *block_scope) {
+    Stage1ZirInst *is_comptime;
     if (ir_should_inline(ag->exec, break_scope)) {
         is_comptime = ir_build_const_bool(ag, break_scope, node, true);
     } else {
         is_comptime = block_scope->is_comptime;
     }
 
-    IrInstSrc *result_value;
+    Stage1ZirInst *result_value;
     if (node->data.break_expr.expr) {
         ResultLocPeer *peer_result = create_peer_result(block_scope->peer_parent);
         block_scope->peer_parent->peers.append(peer_result);
@@ -7216,7 +7216,7 @@ static IrInstSrc *astgen_return_from_block(Stage1AstGen *ag, Scope *break_scope,
     return ir_build_br(ag, break_scope, node, dest_block, is_comptime);
 }
 
-static IrInstSrc *astgen_break(Stage1AstGen *ag, Scope *break_scope, AstNode *node) {
+static Stage1ZirInst *astgen_break(Stage1AstGen *ag, Scope *break_scope, AstNode *node) {
     assert(node->type == NodeTypeBreak);
 
     // Search up the scope. We'll find one of these things first:
@@ -7264,14 +7264,14 @@ static IrInstSrc *astgen_break(Stage1AstGen *ag, Scope *break_scope, AstNode *no
         search_scope = search_scope->parent;
     }
 
-    IrInstSrc *is_comptime;
+    Stage1ZirInst *is_comptime;
     if (ir_should_inline(ag->exec, break_scope)) {
         is_comptime = ir_build_const_bool(ag, break_scope, node, true);
     } else {
         is_comptime = loop_scope->is_comptime;
     }
 
-    IrInstSrc *result_value;
+    Stage1ZirInst *result_value;
     if (node->data.break_expr.expr) {
         ResultLocPeer *peer_result = create_peer_result(loop_scope->peer_parent);
         loop_scope->peer_parent->peers.append(peer_result);
@@ -7293,7 +7293,7 @@ static IrInstSrc *astgen_break(Stage1AstGen *ag, Scope *break_scope, AstNode *no
     return ir_build_br(ag, break_scope, node, dest_block, is_comptime);
 }
 
-static IrInstSrc *astgen_continue(Stage1AstGen *ag, Scope *continue_scope, AstNode *node) {
+static Stage1ZirInst *astgen_continue(Stage1AstGen *ag, Scope *continue_scope, AstNode *node) {
     assert(node->type == NodeTypeContinue);
 
     // Search up the scope. We'll find one of these things first:
@@ -7333,7 +7333,7 @@ static IrInstSrc *astgen_continue(Stage1AstGen *ag, Scope *continue_scope, AstNo
         search_scope = search_scope->parent;
     }
 
-    IrInstSrc *is_comptime;
+    Stage1ZirInst *is_comptime;
     if (ir_should_inline(ag->exec, continue_scope)) {
         is_comptime = ir_build_const_bool(ag, continue_scope, node, true);
     } else {
@@ -7352,12 +7352,12 @@ static IrInstSrc *astgen_continue(Stage1AstGen *ag, Scope *continue_scope, AstNo
     return ir_build_br(ag, continue_scope, node, dest_block, is_comptime);
 }
 
-static IrInstSrc *astgen_error_type(Stage1AstGen *ag, Scope *scope, AstNode *node) {
+static Stage1ZirInst *astgen_error_type(Stage1AstGen *ag, Scope *scope, AstNode *node) {
     assert(node->type == NodeTypeErrorType);
     return ir_build_const_type(ag, scope, node, ag->codegen->builtin_types.entry_global_error_set);
 }
 
-static IrInstSrc *astgen_defer(Stage1AstGen *ag, Scope *parent_scope, AstNode *node) {
+static Stage1ZirInst *astgen_defer(Stage1AstGen *ag, Scope *parent_scope, AstNode *node) {
     assert(node->type == NodeTypeDefer);
 
     ScopeDefer *defer_child_scope = create_defer_scope(ag->codegen, node, parent_scope);
@@ -7369,7 +7369,7 @@ static IrInstSrc *astgen_defer(Stage1AstGen *ag, Scope *parent_scope, AstNode *n
     return ir_build_const_void(ag, parent_scope, node);
 }
 
-static IrInstSrc *astgen_slice(Stage1AstGen *ag, Scope *scope, AstNode *node, LVal lval, ResultLoc *result_loc) {
+static Stage1ZirInst *astgen_slice(Stage1AstGen *ag, Scope *scope, AstNode *node, LVal lval, ResultLoc *result_loc) {
     assert(node->type == NodeTypeSliceExpr);
 
     AstNodeSliceExpr *slice_expr = &node->data.slice_expr;
@@ -7378,15 +7378,15 @@ static IrInstSrc *astgen_slice(Stage1AstGen *ag, Scope *scope, AstNode *node, LV
     AstNode *end_node = slice_expr->end;
     AstNode *sentinel_node = slice_expr->sentinel;
 
-    IrInstSrc *ptr_value = astgen_node_extra(ag, array_node, scope, LValPtr, nullptr);
+    Stage1ZirInst *ptr_value = astgen_node_extra(ag, array_node, scope, LValPtr, nullptr);
     if (ptr_value == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
 
-    IrInstSrc *start_value = astgen_node(ag, start_node, scope);
+    Stage1ZirInst *start_value = astgen_node(ag, start_node, scope);
     if (start_value == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
 
-    IrInstSrc *end_value;
+    Stage1ZirInst *end_value;
     if (end_node) {
         end_value = astgen_node(ag, end_node, scope);
         if (end_value == ag->codegen->invalid_inst_src)
@@ -7395,7 +7395,7 @@ static IrInstSrc *astgen_slice(Stage1AstGen *ag, Scope *scope, AstNode *node, LV
         end_value = nullptr;
     }
 
-    IrInstSrc *sentinel_value;
+    Stage1ZirInst *sentinel_value;
     if (sentinel_node) {
         sentinel_value = astgen_node(ag, sentinel_node, scope);
         if (sentinel_value == ag->codegen->invalid_inst_src)
@@ -7404,12 +7404,12 @@ static IrInstSrc *astgen_slice(Stage1AstGen *ag, Scope *scope, AstNode *node, LV
         sentinel_value = nullptr;
     }
 
-    IrInstSrc *slice = ir_build_slice_src(ag, scope, node, ptr_value, start_value, end_value,
+    Stage1ZirInst *slice = ir_build_slice_src(ag, scope, node, ptr_value, start_value, end_value,
             sentinel_value, true, result_loc);
     return ir_lval_wrap(ag, scope, slice, lval, result_loc);
 }
 
-static IrInstSrc *astgen_catch(Stage1AstGen *ag, Scope *parent_scope, AstNode *node, LVal lval,
+static Stage1ZirInst *astgen_catch(Stage1AstGen *ag, Scope *parent_scope, AstNode *node, LVal lval,
         ResultLoc *result_loc)
 {
     assert(node->type == NodeTypeCatchExpr);
@@ -7432,13 +7432,13 @@ static IrInstSrc *astgen_catch(Stage1AstGen *ag, Scope *parent_scope, AstNode *n
     ScopeExpr *spill_scope = create_expr_scope(ag->codegen, op1_node, parent_scope);
     spill_scope->spill_harder = true;
 
-    IrInstSrc *err_union_ptr = astgen_node_extra(ag, op1_node, &spill_scope->base, LValPtr, nullptr);
+    Stage1ZirInst *err_union_ptr = astgen_node_extra(ag, op1_node, &spill_scope->base, LValPtr, nullptr);
     if (err_union_ptr == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
 
-    IrInstSrc *is_err = ir_build_test_err_src(ag, parent_scope, node, err_union_ptr, true, false);
+    Stage1ZirInst *is_err = ir_build_test_err_src(ag, parent_scope, node, err_union_ptr, true, false);
 
-    IrInstSrc *is_comptime;
+    Stage1ZirInst *is_comptime;
     if (ir_should_inline(ag->exec, parent_scope)) {
         is_comptime = ir_build_const_bool(ag, parent_scope, node, true);
     } else {
@@ -7448,7 +7448,7 @@ static IrInstSrc *astgen_catch(Stage1AstGen *ag, Scope *parent_scope, AstNode *n
     Stage1ZirBasicBlock *ok_block = ir_create_basic_block(ag, parent_scope, "UnwrapErrOk");
     Stage1ZirBasicBlock *err_block = ir_create_basic_block(ag, parent_scope, "UnwrapErrError");
     Stage1ZirBasicBlock *end_block = ir_create_basic_block(ag, parent_scope, "UnwrapErrEnd");
-    IrInstSrc *cond_br_inst = ir_build_cond_br(ag, parent_scope, node, is_err, err_block, ok_block, is_comptime);
+    Stage1ZirInst *cond_br_inst = ir_build_cond_br(ag, parent_scope, node, is_err, err_block, ok_block, is_comptime);
 
     ResultLocPeerParent *peer_parent = ir_build_binary_result_peers(ag, cond_br_inst, ok_block, end_block, result_loc,
             is_comptime);
@@ -7464,13 +7464,13 @@ static IrInstSrc *astgen_catch(Stage1AstGen *ag, Scope *parent_scope, AstNode *n
         ZigVar *var = ir_create_var(ag, node, subexpr_scope, var_name,
             is_const, is_const, is_shadowable, is_comptime);
         err_scope = var->child_scope;
-        IrInstSrc *err_ptr = ir_build_unwrap_err_code_src(ag, err_scope, node, err_union_ptr);
-        IrInstSrc *err_value = ir_build_load_ptr(ag, err_scope, var_node, err_ptr);
+        Stage1ZirInst *err_ptr = ir_build_unwrap_err_code_src(ag, err_scope, node, err_union_ptr);
+        Stage1ZirInst *err_value = ir_build_load_ptr(ag, err_scope, var_node, err_ptr);
         build_decl_var_and_init(ag, err_scope, var_node, var, err_value, buf_ptr(var_name), is_comptime);
     } else {
         err_scope = subexpr_scope;
     }
-    IrInstSrc *err_result = astgen_node_extra(ag, op2_node, err_scope, LValNone, &peer_parent->peers.at(0)->base);
+    Stage1ZirInst *err_result = astgen_node_extra(ag, op2_node, err_scope, LValNone, &peer_parent->peers.at(0)->base);
     if (err_result == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
     Stage1ZirBasicBlock *after_err_block = ag->current_basic_block;
@@ -7478,20 +7478,20 @@ static IrInstSrc *astgen_catch(Stage1AstGen *ag, Scope *parent_scope, AstNode *n
         ir_build_br(ag, parent_scope, node, end_block, is_comptime);
 
     ir_set_cursor_at_end_and_append_block(ag, ok_block);
-    IrInstSrc *unwrapped_ptr = ir_build_unwrap_err_payload_src(ag, parent_scope, node, err_union_ptr, false, false);
-    IrInstSrc *unwrapped_payload = ir_build_load_ptr(ag, parent_scope, node, unwrapped_ptr);
+    Stage1ZirInst *unwrapped_ptr = ir_build_unwrap_err_payload_src(ag, parent_scope, node, err_union_ptr, false, false);
+    Stage1ZirInst *unwrapped_payload = ir_build_load_ptr(ag, parent_scope, node, unwrapped_ptr);
     ir_build_end_expr(ag, parent_scope, node, unwrapped_payload, &peer_parent->peers.at(1)->base);
     Stage1ZirBasicBlock *after_ok_block = ag->current_basic_block;
     ir_build_br(ag, parent_scope, node, end_block, is_comptime);
 
     ir_set_cursor_at_end_and_append_block(ag, end_block);
-    IrInstSrc **incoming_values = heap::c_allocator.allocate<IrInstSrc *>(2);
+    Stage1ZirInst **incoming_values = heap::c_allocator.allocate<Stage1ZirInst *>(2);
     incoming_values[0] = err_result;
     incoming_values[1] = unwrapped_payload;
     Stage1ZirBasicBlock **incoming_blocks = heap::c_allocator.allocate<Stage1ZirBasicBlock *>(2);
     incoming_blocks[0] = after_err_block;
     incoming_blocks[1] = after_ok_block;
-    IrInstSrc *phi = ir_build_phi(ag, parent_scope, node, 2, incoming_blocks, incoming_values, peer_parent);
+    Stage1ZirInst *phi = ir_build_phi(ag, parent_scope, node, 2, incoming_blocks, incoming_values, peer_parent);
     return ir_lval_wrap(ag, parent_scope, phi, lval, result_loc);
 }
 
@@ -7540,7 +7540,7 @@ Buf *get_anon_type_name(CodeGen *codegen, Stage1Zir *exec, const char *kind_name
     }
 }
 
-static IrInstSrc *astgen_container_decl(Stage1AstGen *ag, Scope *parent_scope, AstNode *node) {
+static Stage1ZirInst *astgen_container_decl(Stage1AstGen *ag, Scope *parent_scope, AstNode *node) {
     assert(node->type == NodeTypeContainerDecl);
 
     ContainerKind kind = node->data.container_decl.kind;
@@ -7569,7 +7569,7 @@ static IrInstSrc *astgen_container_decl(Stage1AstGen *ag, Scope *parent_scope, A
     return ir_build_const_type(ag, parent_scope, node, container_type);
 }
 
-static IrInstSrc *astgen_err_set_decl(Stage1AstGen *ag, Scope *parent_scope, AstNode *node) {
+static Stage1ZirInst *astgen_err_set_decl(Stage1AstGen *ag, Scope *parent_scope, AstNode *node) {
     assert(node->type == NodeTypeErrorSetDecl);
 
     uint32_t err_count = node->data.err_set_decl.decls.length;
@@ -7620,11 +7620,11 @@ static IrInstSrc *astgen_err_set_decl(Stage1AstGen *ag, Scope *parent_scope, Ast
     return ir_build_const_type(ag, parent_scope, node, err_set_type);
 }
 
-static IrInstSrc *astgen_fn_proto(Stage1AstGen *ag, Scope *parent_scope, AstNode *node) {
+static Stage1ZirInst *astgen_fn_proto(Stage1AstGen *ag, Scope *parent_scope, AstNode *node) {
     assert(node->type == NodeTypeFnProto);
 
     size_t param_count = node->data.fn_proto.params.length;
-    IrInstSrc **param_types = heap::c_allocator.allocate<IrInstSrc*>(param_count);
+    Stage1ZirInst **param_types = heap::c_allocator.allocate<Stage1ZirInst*>(param_count);
 
     bool is_var_args = false;
     for (size_t i = 0; i < param_count; i += 1) {
@@ -7635,7 +7635,7 @@ static IrInstSrc *astgen_fn_proto(Stage1AstGen *ag, Scope *parent_scope, AstNode
         }
         if (param_node->data.param_decl.anytype_token == 0) {
             AstNode *type_node = param_node->data.param_decl.type;
-            IrInstSrc *type_value = astgen_node(ag, type_node, parent_scope);
+            Stage1ZirInst *type_value = astgen_node(ag, type_node, parent_scope);
             if (type_value == ag->codegen->invalid_inst_src)
                 return ag->codegen->invalid_inst_src;
             param_types[i] = type_value;
@@ -7644,21 +7644,21 @@ static IrInstSrc *astgen_fn_proto(Stage1AstGen *ag, Scope *parent_scope, AstNode
         }
     }
 
-    IrInstSrc *align_value = nullptr;
+    Stage1ZirInst *align_value = nullptr;
     if (node->data.fn_proto.align_expr != nullptr) {
         align_value = astgen_node(ag, node->data.fn_proto.align_expr, parent_scope);
         if (align_value == ag->codegen->invalid_inst_src)
             return ag->codegen->invalid_inst_src;
     }
 
-    IrInstSrc *callconv_value = nullptr;
+    Stage1ZirInst *callconv_value = nullptr;
     if (node->data.fn_proto.callconv_expr != nullptr) {
         callconv_value = astgen_node(ag, node->data.fn_proto.callconv_expr, parent_scope);
         if (callconv_value == ag->codegen->invalid_inst_src)
             return ag->codegen->invalid_inst_src;
     }
 
-    IrInstSrc *return_type;
+    Stage1ZirInst *return_type;
     if (node->data.fn_proto.return_type == nullptr) {
         return_type = ir_build_const_type(ag, parent_scope, node, ag->codegen->builtin_types.entry_void);
     } else {
@@ -7670,17 +7670,17 @@ static IrInstSrc *astgen_fn_proto(Stage1AstGen *ag, Scope *parent_scope, AstNode
     return ir_build_fn_proto(ag, parent_scope, node, param_types, align_value, callconv_value, return_type, is_var_args);
 }
 
-static IrInstSrc *astgen_resume(Stage1AstGen *ag, Scope *scope, AstNode *node) {
+static Stage1ZirInst *astgen_resume(Stage1AstGen *ag, Scope *scope, AstNode *node) {
     assert(node->type == NodeTypeResume);
 
-    IrInstSrc *target_inst = astgen_node_extra(ag, node->data.resume_expr.expr, scope, LValPtr, nullptr);
+    Stage1ZirInst *target_inst = astgen_node_extra(ag, node->data.resume_expr.expr, scope, LValPtr, nullptr);
     if (target_inst == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
 
     return ir_build_resume_src(ag, scope, node, target_inst);
 }
 
-static IrInstSrc *astgen_await_expr(Stage1AstGen *ag, Scope *scope, AstNode *node, LVal lval,
+static Stage1ZirInst *astgen_await_expr(Stage1AstGen *ag, Scope *scope, AstNode *node, LVal lval,
         ResultLoc *result_loc)
 {
     assert(node->type == NodeTypeAwaitExpr);
@@ -7714,15 +7714,15 @@ static IrInstSrc *astgen_await_expr(Stage1AstGen *ag, Scope *scope, AstNode *nod
         return ag->codegen->invalid_inst_src;
     }
 
-    IrInstSrc *target_inst = astgen_node_extra(ag, expr_node, scope, LValPtr, nullptr);
+    Stage1ZirInst *target_inst = astgen_node_extra(ag, expr_node, scope, LValPtr, nullptr);
     if (target_inst == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
 
-    IrInstSrc *await_inst = ir_build_await_src(ag, scope, node, target_inst, result_loc, is_nosuspend);
+    Stage1ZirInst *await_inst = ir_build_await_src(ag, scope, node, target_inst, result_loc, is_nosuspend);
     return ir_lval_wrap(ag, scope, await_inst, lval, result_loc);
 }
 
-static IrInstSrc *astgen_suspend(Stage1AstGen *ag, Scope *parent_scope, AstNode *node) {
+static Stage1ZirInst *astgen_suspend(Stage1AstGen *ag, Scope *parent_scope, AstNode *node) {
     assert(node->type == NodeTypeSuspend);
 
     if (!ag->fn) {
@@ -7744,10 +7744,10 @@ static IrInstSrc *astgen_suspend(Stage1AstGen *ag, Scope *parent_scope, AstNode 
         return ag->codegen->invalid_inst_src;
     }
 
-    IrInstSrcSuspendBegin *begin = ir_build_suspend_begin_src(ag, parent_scope, node);
+    Stage1ZirInstSuspendBegin *begin = ir_build_suspend_begin_src(ag, parent_scope, node);
     ScopeSuspend *suspend_scope = create_suspend_scope(ag->codegen, node, parent_scope);
     Scope *child_scope = &suspend_scope->base;
-    IrInstSrc *susp_res = astgen_node(ag, node->data.suspend.block, child_scope);
+    Stage1ZirInst *susp_res = astgen_node(ag, node->data.suspend.block, child_scope);
     if (susp_res == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
     ir_build_check_statement_is_void(ag, child_scope, node->data.suspend.block, susp_res);
@@ -7755,7 +7755,7 @@ static IrInstSrc *astgen_suspend(Stage1AstGen *ag, Scope *parent_scope, AstNode 
     return ir_build_suspend_finish_src(ag, parent_scope, node, begin);
 }
 
-static IrInstSrc *astgen_node_raw(Stage1AstGen *ag, AstNode *node, Scope *scope,
+static Stage1ZirInst *astgen_node_raw(Stage1AstGen *ag, AstNode *node, Scope *scope,
         LVal lval, ResultLoc *result_loc)
 {
     assert(scope);
@@ -7804,13 +7804,13 @@ static IrInstSrc *astgen_node_raw(Stage1AstGen *ag, AstNode *node, Scope *scope,
             return astgen_return(ag, scope, node, lval, result_loc);
         case NodeTypeFieldAccessExpr:
             {
-                IrInstSrc *ptr_instruction = astgen_field_access(ag, scope, node);
+                Stage1ZirInst *ptr_instruction = astgen_field_access(ag, scope, node);
                 if (ptr_instruction == ag->codegen->invalid_inst_src)
                     return ptr_instruction;
                 if (lval == LValPtr || lval == LValAssign)
                     return ptr_instruction;
 
-                IrInstSrc *load_ptr = ir_build_load_ptr(ag, scope, node, ptr_instruction);
+                Stage1ZirInst *load_ptr = ir_build_load_ptr(ag, scope, node, ptr_instruction);
                 return ir_expr_wrap(ag, scope, load_ptr, result_loc);
             }
         case NodeTypePtrDeref: {
@@ -7820,28 +7820,28 @@ static IrInstSrc *astgen_node_raw(Stage1AstGen *ag, AstNode *node, Scope *scope,
             if (child_lval == LValAssign)
                 child_lval = LValPtr;
 
-            IrInstSrc *value = astgen_node_extra(ag, expr_node, scope, child_lval, nullptr);
+            Stage1ZirInst *value = astgen_node_extra(ag, expr_node, scope, child_lval, nullptr);
             if (value == ag->codegen->invalid_inst_src)
                 return value;
 
             // We essentially just converted any lvalue from &(x.*) to (&x).*;
             // this inhibits checking that x is a pointer later, so we directly
             // record whether the pointer check is needed
-            IrInstSrc *un_op = ir_build_un_op_lval(ag, scope, node, IrUnOpDereference, value, lval, result_loc);
+            Stage1ZirInst *un_op = ir_build_un_op_lval(ag, scope, node, IrUnOpDereference, value, lval, result_loc);
             return ir_expr_wrap(ag, scope, un_op, result_loc);
         }
         case NodeTypeUnwrapOptional: {
             AstNode *expr_node = node->data.unwrap_optional.expr;
 
-            IrInstSrc *maybe_ptr = astgen_node_extra(ag, expr_node, scope, LValPtr, nullptr);
+            Stage1ZirInst *maybe_ptr = astgen_node_extra(ag, expr_node, scope, LValPtr, nullptr);
             if (maybe_ptr == ag->codegen->invalid_inst_src)
                 return ag->codegen->invalid_inst_src;
 
-            IrInstSrc *unwrapped_ptr = ir_build_optional_unwrap_ptr(ag, scope, node, maybe_ptr, true );
+            Stage1ZirInst *unwrapped_ptr = ir_build_optional_unwrap_ptr(ag, scope, node, maybe_ptr, true );
             if (lval == LValPtr || lval == LValAssign)
                 return unwrapped_ptr;
 
-            IrInstSrc *load_ptr = ir_build_load_ptr(ag, scope, node, unwrapped_ptr);
+            Stage1ZirInst *load_ptr = ir_build_load_ptr(ag, scope, node, unwrapped_ptr);
             return ir_expr_wrap(ag, scope, load_ptr, result_loc);
         }
         case NodeTypeBoolLiteral:
@@ -7915,7 +7915,7 @@ ResultLoc *no_result_loc(void) {
     return &result_loc_none->base;
 }
 
-static IrInstSrc *astgen_node_extra(Stage1AstGen *ag, AstNode *node, Scope *scope, LVal lval,
+static Stage1ZirInst *astgen_node_extra(Stage1AstGen *ag, AstNode *node, Scope *scope, LVal lval,
         ResultLoc *result_loc)
 {
     if (lval == LValAssign) {
@@ -8023,7 +8023,7 @@ static IrInstSrc *astgen_node_extra(Stage1AstGen *ag, AstNode *node, Scope *scop
     } else {
         child_scope = &create_expr_scope(ag->codegen, node, scope)->base;
     }
-    IrInstSrc *result = astgen_node_raw(ag, node, child_scope, lval, result_loc);
+    Stage1ZirInst *result = astgen_node_raw(ag, node, child_scope, lval, result_loc);
     if (result == ag->codegen->invalid_inst_src) {
         if (ag->exec->first_err_trace_msg == nullptr) {
             ag->exec->first_err_trace_msg = ag->codegen->trace_err;
@@ -8032,7 +8032,7 @@ static IrInstSrc *astgen_node_extra(Stage1AstGen *ag, AstNode *node, Scope *scop
     return result;
 }
 
-static IrInstSrc *astgen_node(Stage1AstGen *ag, AstNode *node, Scope *scope) {
+static Stage1ZirInst *astgen_node(Stage1AstGen *ag, AstNode *node, Scope *scope) {
     return astgen_node_extra(ag, node, scope, LValNone, nullptr);
 }
 
@@ -8055,7 +8055,7 @@ bool stage1_astgen(CodeGen *codegen, AstNode *node, Scope *scope, Stage1Zir *sta
     // Entry block gets a reference because we enter it to begin.
     ir_ref_bb(ag->current_basic_block);
 
-    IrInstSrc *result = astgen_node_extra(ag, node, scope, LValNone, nullptr);
+    Stage1ZirInst *result = astgen_node_extra(ag, node, scope, LValNone, nullptr);
 
     if (result == ag->codegen->invalid_inst_src)
         return false;
@@ -8113,8 +8113,8 @@ void ir_add_call_stack_errors_gen(CodeGen *codegen, Stage1Air *exec, ErrorMsg *e
     ir_add_call_stack_errors_gen(codegen, exec->parent_exec, err_msg, limit - 1);
 }
 
-void IrInstSrc::src() {
-    IrInstSrc *inst = this;
+void Stage1ZirInst::src() {
+    Stage1ZirInst *inst = this;
     if (inst->source_node != nullptr) {
         inst->source_node->src();
     } else {

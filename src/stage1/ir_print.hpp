@@ -14,12 +14,12 @@
 
 void ir_print_src(CodeGen *codegen, FILE *f, Stage1Zir *executable, int indent_size);
 void ir_print_gen(CodeGen *codegen, FILE *f, Stage1Air *executable, int indent_size);
-void ir_print_inst_src(CodeGen *codegen, FILE *f, IrInstSrc *inst, int indent_size);
-void ir_print_inst_gen(CodeGen *codegen, FILE *f, IrInstGen *inst, int indent_size);
+void ir_print_inst_src(CodeGen *codegen, FILE *f, Stage1ZirInst *inst, int indent_size);
+void ir_print_inst_gen(CodeGen *codegen, FILE *f, Stage1AirInst *inst, int indent_size);
 void ir_print_basic_block_src(CodeGen *codegen, FILE *f, Stage1ZirBasicBlock *bb, int indent_size);
-void ir_print_basic_block_gen(CodeGen *codegen, FILE *f, IrBasicBlockGen *bb, int indent_size);
+void ir_print_basic_block_gen(CodeGen *codegen, FILE *f, Stage1AirBasicBlock *bb, int indent_size);
 
-const char* ir_inst_src_type_str(IrInstSrcId id);
-const char* ir_inst_gen_type_str(IrInstGenId id);
+const char* ir_inst_src_type_str(Stage1ZirInstId id);
+const char* ir_inst_gen_type_str(Stage1AirInstId id);
 
 #endif

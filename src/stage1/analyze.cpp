@@ -206,7 +206,7 @@ ScopeLoop *create_loop_scope(CodeGen *g, AstNode *node, Scope *parent) {
     return scope;
 }
 
-Scope *create_runtime_scope(CodeGen *g, AstNode *node, Scope *parent, IrInstSrc *is_comptime) {
+Scope *create_runtime_scope(CodeGen *g, AstNode *node, Scope *parent, Stage1ZirInst *is_comptime) {
     ScopeRuntime *scope = heap::c_allocator.create<ScopeRuntime>();
     scope->is_comptime = is_comptime;
     init_scope(g, &scope->base, ScopeIdRuntime, node, parent);
@@ -5071,7 +5071,7 @@ static void analyze_fn_async(CodeGen *g, ZigFn *fn, bool resolve_frame) {
     }
 
     for (size_t i = 0; i < fn->call_list.length; i += 1) {
-        IrInstGenCall *call = fn->call_list.at(i);
+        Stage1AirInstCall *call = fn->call_list.at(i);
         if (call->fn_entry == nullptr) {
             // TODO function pointer call here, could be anything
             continue;
@@ -5094,7 +5094,7 @@ static void analyze_fn_async(CodeGen *g, ZigFn *fn, bool resolve_frame) {
         }
     }
     for (size_t i = 0; i < fn->await_list.length; i += 1) {
-        IrInstGenAwait *await = fn->await_list.at(i);
+        Stage1AirInstAwait *await = fn->await_list.at(i);
         if (await->is_nosuspend) continue;
         switch (analyze_callee_async(g, fn, await->target_fn, await->base.source_node, must_not_be_async,
                     CallModifierNone))
@@ -6755,8 +6755,8 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
     ZigType *fn_type = get_async_fn_type(g, fn->type_entry);
 
     if (fn->analyzed_executable.need_err_code_spill) {
-        IrInstGenAlloca *alloca_gen = heap::c_allocator.create<IrInstGenAlloca>();
-        alloca_gen->base.id = IrInstGenIdAlloca;
+        Stage1AirInstAlloca *alloca_gen = heap::c_allocator.create<Stage1AirInstAlloca>();
+        alloca_gen->base.id = Stage1AirInstIdAlloca;
         alloca_gen->base.source_node = fn->proto_node;
         alloca_gen->base.scope = fn->child_scope;
         alloca_gen->base.value = g->pass1_arena->create<ZigValue>();
@@ -6769,11 +6769,11 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
 
     ZigType *largest_call_frame_type = nullptr;
     // Later we'll change this to be largest_call_frame_type instead of void.
-    IrInstGen *all_calls_alloca = ir_create_alloca(g, &fn->fndef_scope->base, fn->body_node,
+    Stage1AirInst *all_calls_alloca = ir_create_alloca(g, &fn->fndef_scope->base, fn->body_node,
             fn, g->builtin_types.entry_void, "@async_call_frame");
 
     for (size_t i = 0; i < fn->call_list.length; i += 1) {
-        IrInstGenCall *call = fn->call_list.at(i);
+        Stage1AirInstCall *call = fn->call_list.at(i);
         if (call->new_stack != nullptr) {
             // don't need to allocate a frame for this
             continue;
@@ -6838,7 +6838,7 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
     // For example: foo() + await z
     // The funtion call result of foo() must be spilled.
     for (size_t i = 0; i < fn->await_list.length; i += 1) {
-        IrInstGenAwait *await = fn->await_list.at(i);
+        Stage1AirInstAwait *await = fn->await_list.at(i);
         if (await->is_nosuspend) {
             continue;
         }
@@ -6875,10 +6875,10 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
                 await->base.value->type, "");
     }
     for (size_t block_i = 0; block_i < fn->analyzed_executable.basic_block_list.length; block_i += 1) {
-        IrBasicBlockGen *block = fn->analyzed_executable.basic_block_list.at(block_i);
+        Stage1AirBasicBlock *block = fn->analyzed_executable.basic_block_list.at(block_i);
         for (size_t instr_i = 0; instr_i < block->instruction_list.length; instr_i += 1) {
-            IrInstGen *instruction = block->instruction_list.at(instr_i);
-            if (instruction->id == IrInstGenIdSuspendFinish) {
+            Stage1AirInst *instruction = block->instruction_list.at(instr_i);
+            if (instruction->id == Stage1AirInstIdSuspendFinish) {
                 mark_suspension_point(instruction->scope);
             }
         }
@@ -6886,20 +6886,20 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
     // Now that we've marked all the expr scopes that have to spill, we go over the instructions
     // and spill the relevant ones.
     for (size_t block_i = 0; block_i < fn->analyzed_executable.basic_block_list.length; block_i += 1) {
-        IrBasicBlockGen *block = fn->analyzed_executable.basic_block_list.at(block_i);
+        Stage1AirBasicBlock *block = fn->analyzed_executable.basic_block_list.at(block_i);
         for (size_t instr_i = 0; instr_i < block->instruction_list.length; instr_i += 1) {
-            IrInstGen *instruction = block->instruction_list.at(instr_i);
-            if (instruction->id == IrInstGenIdAwait ||
-                instruction->id == IrInstGenIdVarPtr ||
-                instruction->id == IrInstGenIdAlloca ||
-                instruction->id == IrInstGenIdSpillBegin ||
-                instruction->id == IrInstGenIdSpillEnd)
+            Stage1AirInst *instruction = block->instruction_list.at(instr_i);
+            if (instruction->id == Stage1AirInstIdAwait ||
+                instruction->id == Stage1AirInstIdVarPtr ||
+                instruction->id == Stage1AirInstIdAlloca ||
+                instruction->id == Stage1AirInstIdSpillBegin ||
+                instruction->id == Stage1AirInstIdSpillEnd)
             {
                 // This instruction does its own spilling specially, or otherwise doesn't need it.
                 continue;
             }
-            if (instruction->id == IrInstGenIdCast &&
-                reinterpret_cast<IrInstGenCast *>(instruction)->cast_op == CastOpNoop)
+            if (instruction->id == Stage1AirInstIdCast &&
+                reinterpret_cast<Stage1AirInstCast *>(instruction)->cast_op == CastOpNoop)
             {
                 // The IR instruction exists only to change the type according to Zig. No spill needed.
                 continue;
@@ -6964,7 +6964,7 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
     }
 
     for (size_t alloca_i = 0; alloca_i < fn->alloca_gen_list.length; alloca_i += 1) {
-        IrInstGenAlloca *instruction = fn->alloca_gen_list.at(alloca_i);
+        Stage1AirInstAlloca *instruction = fn->alloca_gen_list.at(alloca_i);
         instruction->field_index = SIZE_MAX;
         ZigType *ptr_type = instruction->base.value->type;
         assert(ptr_type->id == ZigTypeIdPointer);
@@ -7146,8 +7146,8 @@ bool ir_get_var_is_comptime(ZigVar *var) {
     // As an optimization, is_comptime values which are constant are allowed
     // to be omitted from analysis. In this case, there is no child instruction
     // and we simply look at the unanalyzed const parent instruction.
-    assert(var->is_comptime->id == IrInstSrcIdConst);
-    IrInstSrcConst *const_inst = reinterpret_cast<IrInstSrcConst *>(var->is_comptime);
+    assert(var->is_comptime->id == Stage1ZirInstIdConst);
+    Stage1ZirInstConst *const_inst = reinterpret_cast<Stage1ZirInstConst *>(var->is_comptime);
     assert(const_inst->value->type->id == ZigTypeIdBool);
     var->is_comptime_memoized_value = const_inst->value->data.x_bool;
     var->is_comptime = nullptr;
