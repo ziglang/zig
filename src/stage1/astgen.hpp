@@ -14,10 +14,10 @@ bool stage1_astgen(CodeGen *g, AstNode *node, Scope *scope, Stage1Zir *stage1_zi
         ZigFn *fn, bool in_c_import_scope);
 bool stage1_astgen_fn(CodeGen *g, ZigFn *fn_entry);
 
-bool ir_inst_src_has_side_effects(IrInstSrc *inst);
+bool ir_inst_src_has_side_effects(Stage1ZirInst *inst);
 
 ZigVar *create_local_var(CodeGen *codegen, AstNode *node, Scope *parent_scope,
-        Buf *name, bool src_is_const, bool gen_is_const, bool is_shadowable, IrInstSrc *is_comptime,
+        Buf *name, bool src_is_const, bool gen_is_const, bool is_shadowable, Stage1ZirInst *is_comptime,
         bool skip_name_check);
 
 ResultLoc *no_result_loc(void);
@@ -28,7 +28,7 @@ AstNode *ast_field_to_symbol_node(AstNode *err_set_field_node);
 void ir_add_call_stack_errors_gen(CodeGen *codegen, Stage1Air *exec, ErrorMsg *err_msg,
         int limit);
 
-void destroy_instruction_src(IrInstSrc *inst);
+void destroy_instruction_src(Stage1ZirInst *inst);
 
 bool ir_should_inline(Stage1Zir *exec, Scope *scope);
 Buf *get_anon_type_name(CodeGen *codegen, Stage1Zir *exec, const char *kind_name,
