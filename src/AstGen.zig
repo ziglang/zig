@@ -4604,7 +4604,7 @@ fn tryExpr(
     const astgen = parent_gz.astgen;
 
     const fn_block = astgen.fn_block orelse {
-        return astgen.failNode(node, "invalid 'try' outside function scope", .{});
+        return astgen.failNode(node, "'try' outside function scope", .{});
     };
 
     if (parent_gz.in_defer) return astgen.failNode(node, "'try' not allowed inside defer expression", .{});
@@ -6166,6 +6166,10 @@ fn ret(gz: *GenZir, scope: *Scope, node: ast.Node.Index) InnerError!Zir.Inst.Ref
     const tree = astgen.tree;
     const node_datas = tree.nodes.items(.data);
     const node_tags = tree.nodes.items(.tag);
+
+    if (astgen.fn_block == null) {
+        return astgen.failNode(node, "'return' outside function scope", .{});
+    }
 
     if (gz.in_defer) return astgen.failNode(node, "cannot return from defer expression", .{});
 

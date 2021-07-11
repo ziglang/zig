@@ -904,7 +904,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    _ = S;
             \\}
         ,
-            &.{":4:13: error: invalid 'try' outside function scope"},
+            &.{":4:13: error: 'try' outside function scope"},
         );
     }
     {
