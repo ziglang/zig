@@ -1,5 +1,7 @@
 //! Analyzed Intermediate Representation.
-//! Sema inputs ZIR and outputs AIR.
+//! This data is produced by Sema and consumed by codegen.
+//! Unlike ZIR where there is one instance for an entire source file, each function
+//! gets its own `Air` instance.
 
 const std = @import("std");
 const Value = @import("value.zig").Value;
@@ -27,38 +29,48 @@ pub const Inst = struct {
     data: Data,
 
     pub const Tag = enum(u8) {
+        /// The first N instructions in Air must be one arg instruction per function parameter.
+        /// Uses the `ty` field.
+        arg,
         /// Float or integer addition. For integers, wrapping is undefined behavior.
-        /// Result type is the same as both operands.
+        /// Both operands are guaranteed to be the same type, and the result type
+        /// is the same as both operands.
         /// Uses the `bin_op` field.
         add,
         /// Integer addition. Wrapping is defined to be twos complement wrapping.
-        /// Result type is the same as both operands.
+        /// Both operands are guaranteed to be the same type, and the result type
+        /// is the same as both operands.
         /// Uses the `bin_op` field.
         addwrap,
         /// Float or integer subtraction. For integers, wrapping is undefined behavior.
-        /// Result type is the same as both operands.
+        /// Both operands are guaranteed to be the same type, and the result type
+        /// is the same as both operands.
         /// Uses the `bin_op` field.
         sub,
         /// Integer subtraction. Wrapping is defined to be twos complement wrapping.
-        /// Result type is the same as both operands.
+        /// Both operands are guaranteed to be the same type, and the result type
+        /// is the same as both operands.
         /// Uses the `bin_op` field.
         subwrap,
         /// Float or integer multiplication. For integers, wrapping is undefined behavior.
-        /// Result type is the same as both operands.
+        /// Both operands are guaranteed to be the same type, and the result type
+        /// is the same as both operands.
         /// Uses the `bin_op` field.
         mul,
         /// Integer multiplication. Wrapping is defined to be twos complement wrapping.
-        /// Result type is the same as both operands.
+        /// Both operands are guaranteed to be the same type, and the result type
+        /// is the same as both operands.
         /// Uses the `bin_op` field.
         mulwrap,
         /// Integer or float division. For integers, wrapping is undefined behavior.
-        /// Result type is the same as both operands.
+        /// Both operands are guaranteed to be the same type, and the result type
+        /// is the same as both operands.
         /// Uses the `bin_op` field.
         div,
         /// Allocates stack local memory.
         /// Uses the `ty` field.
         alloc,
-        /// TODO
+        /// Inline assembly. Uses the `ty_pl` field. Payload is `Asm`.
         assembly,
         /// Bitwise AND. `&`.
         /// Result type is the same as both operands.
@@ -80,7 +92,7 @@ pub const Inst = struct {
         /// Uses the `ty_pl` field with payload `Block`.
         block,
         /// Return from a block with a result.
-        /// Result type is always noreturn.
+        /// Result type is always noreturn; no instructions in a block follow this one.
         /// Uses the `br` field.
         br,
         /// Lowers to a hardware trap instruction, or the next best thing.
@@ -109,11 +121,11 @@ pub const Inst = struct {
         /// Uses the `bin_op` field.
         cmp_neq,
         /// Conditional branch.
-        /// Result type is always noreturn.
+        /// Result type is always noreturn; no instructions in a block follow this one.
         /// Uses the `pl_op` field. Operand is the condition. Payload is `CondBr`.
         cond_br,
         /// Switch branch.
-        /// Result type is always noreturn.
+        /// Result type is always noreturn; no instructions in a block follow this one.
         /// Uses the `pl_op` field. Operand is the condition. Payload is `SwitchBr`.
         switch_br,
         /// A comptime-known value. Uses the `ty_pl` field, payload is index of
@@ -166,7 +178,7 @@ pub const Inst = struct {
         load,
         /// A labeled block of code that loops forever. At the end of the body it is implied
         /// to repeat; no explicit "repeat" instruction terminates loop bodies.
-        /// Result type is always noreturn.
+        /// Result type is always noreturn; no instructions in a block follow this one.
         /// Uses the `ty_pl` field. Payload is `Block`.
         loop,
         /// Converts a pointer to its address. Result type is always `usize`.
@@ -178,7 +190,7 @@ pub const Inst = struct {
         /// Uses the `ty_op` field.
         ref,
         /// Return a value from a function.
-        /// Result type is always noreturn.
+        /// Result type is always noreturn; no instructions in a block follow this one.
         /// Uses the `un_op` field.
         ret,
         /// Returns a pointer to a global variable.
@@ -189,7 +201,7 @@ pub const Inst = struct {
         /// Uses the `bin_op` field.
         store,
         /// Indicates the program counter will never get to this instruction.
-        /// Result type is always noreturn.
+        /// Result type is always noreturn; no instructions in a block follow this one.
         unreach,
         /// Convert from one float type to another.
         /// Uses the `ty_op` field.
@@ -343,6 +355,16 @@ pub const StructField = struct {
     field_index: u32,
 };
 
+/// Trailing:
+/// 0. `Ref` for every outputs_len
+/// 1. `Ref` for every inputs_len
+pub const Asm = struct {
+    /// Index to the corresponding ZIR instruction.
+    /// `asm_source`, `outputs_len`, `inputs_len`, `clobbers_len`, `is_volatile`, and
+    /// clobbers are found via here.
+    zir_index: u32,
+};
+
 pub fn getMainBody(air: Air) []const Air.Inst.Index {
     const body_index = air.extra[@enumToInt(ExtraIndex.main_block)];
     const body_len = air.extra[body_index];
@@ -368,4 +390,12 @@ pub fn extraData(air: Air, comptime T: type, index: usize) struct { data: T, end
         .data = result,
         .end = i,
     };
+}
+
+pub fn deinit(air: *Air, gpa: *std.mem.Allocator) void {
+    air.instructions.deinit(gpa);
+    gpa.free(air.extra);
+    gpa.free(air.values);
+    gpa.free(air.variables);
+    air.* = undefined;
 }

@@ -150,6 +150,7 @@ fn analyzeInst(
     const gpa = a.gpa;
     const table = &a.table;
     const inst_tags = a.air.instructions.items(.tag);
+    const inst_datas = a.air.instructions.items(.data);
 
     // No tombstone for this instruction means it is never referenced,
     // and its birth marks its own death. Very metal 🤘
