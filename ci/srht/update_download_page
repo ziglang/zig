@@ -94,13 +94,13 @@ export X86_64_NETBSD_SHASUM="$(echo "$X86_64_NETBSD_JSON" | jq .shasum -r)"
 export MASTER_DATE="$(date +%Y-%m-%d)"
 export MASTER_VERSION="$VERSION"
 
+# Create index.json and update the website repo.
 cd "$SRCTARBALLDIR/ci/srht"
 "$ZIG" run update-download-page.zig
 CIDIR="$(pwd)"
 
-# Create index.json and index.html and update the website repo.
 cd "$HOME"
-git clone git@github.com:ziglang/www.ziglang.org.git
+git clone --depth 1 git@github.com:ziglang/www.ziglang.org.git
 cd www.ziglang.org
 WWWDIR="$(pwd)"
 

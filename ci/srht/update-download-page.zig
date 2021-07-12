@@ -11,11 +11,6 @@ pub fn main() !void {
     const out_dir = "out";
     try std.fs.cwd().makePath(out_dir);
     {
-        const out_file = out_dir ++ path.sep_str ++ "index.html";
-        const in_file = "index.html";
-        try render(allocator, in_file, out_file, .html);
-    }
-    {
         const out_file = out_dir ++ path.sep_str ++ "index.json";
         const in_file = "index.json";
         try render(allocator, in_file, out_file, .plain);
