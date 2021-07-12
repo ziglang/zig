@@ -12,9 +12,9 @@ gpa: *Allocator,
 arena: *Allocator,
 code: Zir,
 air_instructions: std.MultiArrayList(Air.Inst) = .{},
-air_extra: ArrayListUnmanaged(u32) = .{},
-air_values: ArrayListUnmanaged(Value) = .{},
-air_variables: ArrayListUnmanaged(Module.Var) = .{},
+air_extra: std.ArrayListUnmanaged(u32) = .{},
+air_values: std.ArrayListUnmanaged(Value) = .{},
+air_variables: std.ArrayListUnmanaged(*Module.Var) = .{},
 /// Maps ZIR to AIR.
 inst_map: InstMap = .{},
 /// When analyzing an inline function call, owner_decl is the Decl of the caller
@@ -1263,15 +1263,16 @@ fn zirArg(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!Air
     sema.next_arg_index += 1;
 
     // TODO check if arg_name shadows a Decl
+    _ = arg_name;
 
     if (block.inlining) |_| {
         return sema.param_inst_list[arg_index];
     }
 
-    // Need to set the name of the Air.Arg instruction.
-    const air_arg = sema.param_inst_list[arg_index].castTag(.arg).?;
-    air_arg.name = arg_name;
-    return &air_arg.base;
+    // Set the name of the Air.Arg instruction for use by codegen debug info.
+    const air_arg = sema.param_inst_list[arg_index];
+    sema.air.instructions.items(.data)[air_arg].ty_str.str = inst_data.start;
+    return air_arg;
 }
 
 fn zirAllocExtended(
@@ -7939,4 +7940,103 @@ fn enumFieldSrcLoc(
             else => continue,
         }
     } else unreachable;
+}
+
+pub fn addType(sema: *Sema, ty: Type) !Air.Inst.Ref {
+    switch (ty.tag()) {
+        .u8 => return .u8_type,
+        .i8 => return .i8_type,
+        .u16 => return .u16_type,
+        .i16 => return .i16_type,
+        .u32 => return .u32_type,
+        .i32 => return .i32_type,
+        .u64 => return .u64_type,
+        .i64 => return .i64_type,
+        .u128 => return .u128_type,
+        .i128 => return .i128_type,
+        .usize => return .usize_type,
+        .isize => return .isize_type,
+        .c_short => return .c_short_type,
+        .c_ushort => return .c_ushort_type,
+        .c_int => return .c_int_type,
+        .c_uint => return .c_uint_type,
+        .c_long => return .c_long_type,
+        .c_ulong => return .c_ulong_type,
+        .c_longlong => return .c_longlong_type,
+        .c_ulonglong => return .c_ulonglong_type,
+        .c_longdouble => return .c_longdouble_type,
+        .f16 => return .f16_type,
+        .f32 => return .f32_type,
+        .f64 => return .f64_type,
+        .f128 => return .f128_type,
+        .c_void => return .c_void_type,
+        .bool => return .bool_type,
+        .void => return .void_type,
+        .type => return .type_type,
+        .anyerror => return .anyerror_type,
+        .comptime_int => return .comptime_int_type,
+        .comptime_float => return .comptime_float_type,
+        .noreturn => return .noreturn_type,
+        .@"anyframe" => return .anyframe_type,
+        .@"null" => return .null_type,
+        .@"undefined" => return .undefined_type,
+        .enum_literal => return .enum_literal_type,
+        .atomic_ordering => return .atomic_ordering_type,
+        .atomic_rmw_op => return .atomic_rmw_op_type,
+        .calling_convention => return .calling_convention_type,
+        .float_mode => return .float_mode_type,
+        .reduce_op => return .reduce_op_type,
+        .call_options => return .call_options_type,
+        .export_options => return .export_options_type,
+        .extern_options => return .extern_options_type,
+        .manyptr_u8 => return .manyptr_u8_type,
+        .manyptr_const_u8 => return .manyptr_const_u8_type,
+        .fn_noreturn_no_args => return .fn_noreturn_no_args_type,
+        .fn_void_no_args => return .fn_void_no_args_type,
+        .fn_naked_noreturn_no_args => return .fn_naked_noreturn_no_args_type,
+        .fn_ccc_void_no_args => return .fn_ccc_void_no_args_type,
+        .single_const_pointer_to_comptime_int => return .single_const_pointer_to_comptime_int_type,
+        .const_slice_u8 => return .const_slice_u8_type,
+        else => {},
+    }
+    try sema.air_instructions.append(sema.gpa, .{
+        .tag = .const_ty,
+        .data = .{ .ty = ty },
+    });
+    return indexToRef(@intCast(u32, sema.air_instructions.len - 1));
+}
+
+const ref_start_index: u32 = Air.Inst.Ref.typed_value_map.len;
+
+fn indexToRef(inst: Air.Inst.Index) Air.Inst.Ref {
+    return @intToEnum(Air.Inst.Ref, ref_start_index + inst);
+}
+
+fn refToIndex(inst: Air.Inst.Ref) ?Air.Inst.Index {
+    const ref_int = @enumToInt(inst);
+    if (ref_int >= ref_start_index) {
+        return ref_int - ref_start_index;
+    } else {
+        return null;
+    }
+}
+
+pub fn addExtra(sema: *Sema, extra: anytype) Allocator.Error!u32 {
+    const fields = std.meta.fields(@TypeOf(extra));
+    try sema.air_extra.ensureUnusedCapacity(sema.gpa, fields.len);
+    return addExtraAssumeCapacity(sema, extra);
+}
+
+pub fn addExtraAssumeCapacity(sema: *Sema, extra: anytype) u32 {
+    const fields = std.meta.fields(@TypeOf(extra));
+    const result = @intCast(u32, sema.air_extra.items.len);
+    inline for (fields) |field| {
+        sema.air_extra.appendAssumeCapacity(switch (field.field_type) {
+            u32 => @field(extra, field.name),
+            Air.Inst.Ref => @enumToInt(@field(extra, field.name)),
+            i32 => @bitCast(u32, @field(extra, field.name)),
+            else => @compileError("bad field type"),
+        });
+    }
+    return result;
 }

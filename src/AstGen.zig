@@ -9821,7 +9821,7 @@ fn advanceSourceCursor(astgen: *AstGen, source: []const u8, end: usize) void {
     astgen.source_column = column;
 }
 
-const ref_start_index = Zir.Inst.Ref.typed_value_map.len;
+const ref_start_index: u32 = Zir.Inst.Ref.typed_value_map.len;
 
 fn indexToRef(inst: Zir.Inst.Index) Zir.Inst.Ref {
     return @intToEnum(Zir.Inst.Ref, ref_start_index + inst);
