@@ -1116,7 +1116,6 @@ static T *ir_create_inst_gen(IrBuilderGen *irb, Scope *scope, AstNode *source_no
     special_instruction->base.scope = scope;
     special_instruction->base.source_node = source_node;
     special_instruction->base.debug_id = exec_next_debug_id_gen(irb->exec);
-    special_instruction->base.owner_bb = irb->current_basic_block;
     special_instruction->base.value = irb->codegen->pass1_arena->create<ZigValue>();
     return special_instruction;
 }
@@ -1128,7 +1127,6 @@ static T *ir_create_inst_noval(IrBuilderGen *irb, Scope *scope, AstNode *source_
     special_instruction->base.scope = scope;
     special_instruction->base.source_node = source_node;
     special_instruction->base.debug_id = exec_next_debug_id_gen(irb->exec);
-    special_instruction->base.owner_bb = irb->current_basic_block;
     return special_instruction;
 }
 
@@ -14024,7 +14022,7 @@ static Stage1AirInst *ir_analyze_instruction_phi(IrAnalyze *ira, Stage1ZirInstPh
                 instrs_to_move.append(ira->new_irb.current_basic_block->instruction_list.pop());
             }
             if (instrs_to_move.length != 0) {
-                Stage1AirBasicBlock *predecessor = peer_parent->base.source_instruction->child->owner_bb;
+                Stage1AirBasicBlock *predecessor = peer_parent->base.source_instruction->owner_bb->child;
                 Stage1AirInst *branch_instruction = predecessor->instruction_list.pop();
                 src_assert(branch_instruction->value->type->id == ZigTypeIdUnreachable,
                         phi_instruction->base.source_node);

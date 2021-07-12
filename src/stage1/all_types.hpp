@@ -2744,7 +2744,6 @@ struct Stage1AirInst {
 
     LLVMValueRef llvm_value;
     ZigValue *value;
-    Stage1AirBasicBlock *owner_bb;
     // Nearly any instruction can have to be stored as a local variable before suspending
     // and then loaded after resuming, in case there is an expression with a suspend point
     // in it, such as: x + await y
