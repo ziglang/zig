@@ -18,7 +18,7 @@ const Inst = ir.Inst;
 pub const Word = u32;
 pub const ResultId = u32;
 
-pub const TypeMap = std.HashMap(Type, u32, Type.HashContext, std.hash_map.default_max_load_percentage);
+pub const TypeMap = std.HashMap(Type, u32, Type.HashContext64, std.hash_map.default_max_load_percentage);
 pub const InstMap = std.AutoHashMap(*Inst, ResultId);
 
 const IncomingBlock = struct {

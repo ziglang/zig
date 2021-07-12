@@ -89,8 +89,7 @@ pub fn freeDecl(self: *C, decl: *Module.Decl) void {
 fn deinitDecl(gpa: *Allocator, decl: *Module.Decl) void {
     decl.link.c.code.deinit(gpa);
     decl.fn_link.c.fwd_decl.deinit(gpa);
-    var it = decl.fn_link.c.typedefs.valueIterator();
-    while (it.next()) |value| {
+    for (decl.fn_link.c.typedefs.values()) |value| {
         gpa.free(value.rendered);
     }
     decl.fn_link.c.typedefs.deinit(gpa);
@@ -108,8 +107,7 @@ pub fn updateDecl(self: *C, module: *Module, decl: *Module.Decl) !void {
     const code = &decl.link.c.code;
     fwd_decl.shrinkRetainingCapacity(0);
     {
-        var it = typedefs.valueIterator();
-        while (it.next()) |value| {
+        for (typedefs.values()) |value| {
             module.gpa.free(value.rendered);
         }
     }
@@ -135,8 +133,7 @@ pub fn updateDecl(self: *C, module: *Module, decl: *Module.Decl) !void {
         object.blocks.deinit(module.gpa);
         object.code.deinit();
         object.dg.fwd_decl.deinit();
-        var it = object.dg.typedefs.valueIterator();
-        while (it.next()) |value| {
+        for (object.dg.typedefs.values()) |value| {
             module.gpa.free(value.rendered);
         }
         object.dg.typedefs.deinit();
@@ -207,7 +204,7 @@ pub fn flushModule(self: *C, comp: *Compilation) !void {
     }
 
     var fn_count: usize = 0;
-    var typedefs = std.HashMap(Type, void, Type.HashContext, std.hash_map.default_max_load_percentage).init(comp.gpa);
+    var typedefs = std.HashMap(Type, void, Type.HashContext64, std.hash_map.default_max_load_percentage).init(comp.gpa);
     defer typedefs.deinit();
 
     // Typedefs, forward decls and non-functions first.
@@ -217,7 +214,7 @@ pub fn flushModule(self: *C, comp: *Compilation) !void {
         if (!decl.has_tv) continue;
         const buf = buf: {
             if (decl.val.castTag(.function)) |_| {
-                try typedefs.ensureUnusedCapacity(decl.fn_link.c.typedefs.count());
+                try typedefs.ensureUnusedCapacity(@intCast(u32, decl.fn_link.c.typedefs.count()));
                 var it = decl.fn_link.c.typedefs.iterator();
                 while (it.next()) |new| {
                     const gop = typedefs.getOrPutAssumeCapacity(new.key_ptr.*);

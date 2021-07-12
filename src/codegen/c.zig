@@ -39,11 +39,11 @@ const BlockData = struct {
 };
 
 pub const CValueMap = std.AutoHashMap(*Inst, CValue);
-pub const TypedefMap = std.HashMap(
+pub const TypedefMap = std.ArrayHashMap(
     Type,
     struct { name: []const u8, rendered: []u8 },
-    Type.HashContext,
-    std.hash_map.default_max_load_percentage,
+    Type.HashContext32,
+    true,
 );
 
 fn formatTypeAsCIdentifier(
