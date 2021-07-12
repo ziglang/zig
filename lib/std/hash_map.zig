@@ -848,7 +848,7 @@ pub fn HashMapUnmanaged(
             return ensureUnusedCapacityContext(self, allocator, additional_size, undefined);
         }
         pub fn ensureUnusedCapacityContext(self: *Self, allocator: *Allocator, additional_size: Size, ctx: Context) !void {
-            return ensureTotalCapacityContext(self, allocator, self.capacity() + additional_size, ctx);
+            return ensureTotalCapacityContext(self, allocator, self.count() + additional_size, ctx);
         }
 
         pub fn clearRetainingCapacity(self: *Self) void {
@@ -1954,6 +1954,19 @@ test "std.hash_map getOrPutAdapted" {
         try testing.expectEqual(real_keys[i], result.key_ptr.*);
         try testing.expectEqual(@as(u64, i) * 2, result.value_ptr.*);
     }
+}
+
+test "std.hash_map ensureUnusedCapacity" {
+    var map = AutoHashMap(u64, u64).init(testing.allocator);
+    defer map.deinit();
+
+    try map.ensureUnusedCapacity(32);
+    const capacity = map.capacity();
+    try map.ensureUnusedCapacity(32);
+
+    // Repeated ensureUnusedCapacity() calls with no insertions between
+    // should not change the capacity.
+    try testing.expectEqual(capacity, map.capacity());
 }
 
 test "compile everything" {
