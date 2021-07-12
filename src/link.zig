@@ -168,7 +168,7 @@ pub const File = struct {
     };
 
     /// For DWARF .debug_info.
-    pub const DbgInfoTypeRelocsTable = std.HashMapUnmanaged(Type, DbgInfoTypeReloc, Type.HashContext, std.hash_map.default_max_load_percentage);
+    pub const DbgInfoTypeRelocsTable = std.HashMapUnmanaged(Type, DbgInfoTypeReloc, Type.HashContext64, std.hash_map.default_max_load_percentage);
 
     /// For DWARF .debug_info.
     pub const DbgInfoTypeReloc = struct {

@@ -602,10 +602,21 @@ pub const Type = extern union {
         return hasher.final();
     }
 
-    pub const HashContext = struct {
+    pub const HashContext64 = struct {
         pub fn hash(self: @This(), t: Type) u64 {
             _ = self;
             return t.hash();
+        }
+        pub fn eql(self: @This(), a: Type, b: Type) bool {
+            _ = self;
+            return a.eql(b);
+        }
+    };
+
+    pub const HashContext32 = struct {
+        pub fn hash(self: @This(), t: Type) u32 {
+            _ = self;
+            return @truncate(u32, t.hash());
         }
         pub fn eql(self: @This(), a: Type, b: Type) bool {
             _ = self;
