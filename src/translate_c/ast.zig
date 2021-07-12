@@ -31,7 +31,7 @@ pub const Node = extern union {
         @"anytype",
         @"continue",
         @"break",
-        /// pub usingnamespace @import("std").c.builtins;
+        /// pub usingnamespace @import("std").zig.c_builtins
         usingnamespace_builtins,
         // After this, the tag requires a payload.
 
