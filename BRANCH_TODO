@@ -1,46 +1,8 @@
  * be sure to test debug info of parameters
 
 
-    pub fn isUnused(self: Inst) bool {
-        return (self.deaths & (1 << unreferenced_bit_index)) != 0;
-    }
-
-    pub fn operandDies(self: Inst, index: DeathsBitIndex) bool {
-        assert(index < deaths_bits);
-        return @truncate(u1, self.deaths >> index) != 0;
-    }
-
-    pub fn clearOperandDeath(self: *Inst, index: DeathsBitIndex) void {
-        assert(index < deaths_bits);
-        self.deaths &= ~(@as(DeathsInt, 1) << index);
-    }
-
     pub fn specialOperandDeaths(self: Inst) bool {
         return (self.deaths & (1 << deaths_bits)) != 0;
-    }
-
-    pub fn operandCount(base: *Inst) usize {
-        inline for (@typeInfo(Tag).Enum.fields) |field| {
-            const tag = @intToEnum(Tag, field.value);
-            if (tag == base.tag) {
-                return @fieldParentPtr(tag.Type(), "base", base).operandCount();
-            }
-        }
-        unreachable;
-    }
-
-    pub fn getOperand(base: *Inst, index: usize) ?*Inst {
-        inline for (@typeInfo(Tag).Enum.fields) |field| {
-            const tag = @intToEnum(Tag, field.value);
-            if (tag == base.tag) {
-                return @fieldParentPtr(tag.Type(), "base", base).getOperand(index);
-            }
-        }
-        unreachable;
-    }
-
-    pub fn Args(comptime T: type) type {
-        return std.meta.fieldInfo(T, .args).field_type;
     }
 
     /// Returns `null` if runtime-known.
