@@ -14,11 +14,6 @@
       "shasum": "{{X86_64_FREEBSD_SHASUM}}",
       "size": "{{X86_64_FREEBSD_BYTESIZE}}"
     },
-    "x86_64-netbsd": {
-      "tarball": "https://ziglang.org/builds/{{X86_64_NETBSD_TARBALL}}",
-      "shasum": "{{X86_64_NETBSD_SHASUM}}",
-      "size": "{{X86_64_NETBSD_BYTESIZE}}"
-    },
     "x86_64-macos": {
       "tarball": "https://ziglang.org/builds/{{X86_64_MACOS_TARBALL}}",
       "shasum": "{{X86_64_MACOS_SHASUM}}",
