@@ -135,6 +135,10 @@ pub fn flushModule(self: *SpirV, comp: *Compilation) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
+    if (build_options.skip_non_native) {
+        @panic("Attempted to compile for architecture that was disabled by build configuration");
+    }
+
     const module = self.base.options.module.?;
     const target = comp.getTarget();
 

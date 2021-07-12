@@ -3,6 +3,7 @@ const mem = std.mem;
 const math = std.math;
 const assert = std.debug.assert;
 const Air = @import("Air.zig");
+const Liveness = @import("Liveness.zig");
 const Type = @import("type.zig").Type;
 const Value = @import("value.zig").Value;
 const TypedValue = @import("TypedValue.zig");
@@ -45,6 +46,71 @@ pub const DebugInfoOutput = union(enum) {
     none,
 };
 
+pub fn generateFunction(
+    bin_file: *link.File,
+    src_loc: Module.SrcLoc,
+    func: *Module.Fn,
+    air: Air,
+    liveness: Liveness,
+    code: *std.ArrayList(u8),
+    debug_output: DebugInfoOutput,
+) GenerateSymbolError!Result {
+    switch (bin_file.options.target.cpu.arch) {
+        .wasm32 => unreachable, // has its own code path
+        .wasm64 => unreachable, // has its own code path
+        .arm => return Function(.arm).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
+        .armeb => return Function(.armeb).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
+        .aarch64 => return Function(.aarch64).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
+        .aarch64_be => return Function(.aarch64_be).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
+        .aarch64_32 => return Function(.aarch64_32).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
+        //.arc => return Function(.arc).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
+        //.avr => return Function(.avr).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
+        //.bpfel => return Function(.bpfel).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
+        //.bpfeb => return Function(.bpfeb).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
+        //.hexagon => return Function(.hexagon).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
+        //.mips => return Function(.mips).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
+        //.mipsel => return Function(.mipsel).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
+        //.mips64 => return Function(.mips64).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
+        //.mips64el => return Function(.mips64el).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
+        //.msp430 => return Function(.msp430).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
+        //.powerpc => return Function(.powerpc).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
+        //.powerpc64 => return Function(.powerpc64).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
+        //.powerpc64le => return Function(.powerpc64le).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
+        //.r600 => return Function(.r600).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
+        //.amdgcn => return Function(.amdgcn).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
+        //.riscv32 => return Function(.riscv32).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
+        .riscv64 => return Function(.riscv64).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
+        //.sparc => return Function(.sparc).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
+        //.sparcv9 => return Function(.sparcv9).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
+        //.sparcel => return Function(.sparcel).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
+        //.s390x => return Function(.s390x).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
+        //.tce => return Function(.tce).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
+        //.tcele => return Function(.tcele).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
+        //.thumb => return Function(.thumb).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
+        //.thumbeb => return Function(.thumbeb).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
+        //.i386 => return Function(.i386).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
+        .x86_64 => return Function(.x86_64).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
+        //.xcore => return Function(.xcore).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
+        //.nvptx => return Function(.nvptx).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
+        //.nvptx64 => return Function(.nvptx64).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
+        //.le32 => return Function(.le32).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
+        //.le64 => return Function(.le64).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
+        //.amdil => return Function(.amdil).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
+        //.amdil64 => return Function(.amdil64).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
+        //.hsail => return Function(.hsail).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
+        //.hsail64 => return Function(.hsail64).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
+        //.spir => return Function(.spir).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
+        //.spir64 => return Function(.spir64).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
+        //.kalimba => return Function(.kalimba).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
+        //.shave => return Function(.shave).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
+        //.lanai => return Function(.lanai).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
+        //.renderscript32 => return Function(.renderscript32).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
+        //.renderscript64 => return Function(.renderscript64).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
+        //.ve => return Function(.ve).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
+        else => @panic("Backend architectures that don't have good support yet are commented out, to improve compilation performance. If you are interested in one of these other backends feel free to uncomment them. Eventually these will be completed, but stage1 is slow and a memory hog."),
+    }
+}
+
 pub fn generateSymbol(
     bin_file: *link.File,
     src_loc: Module.SrcLoc,
@@ -57,60 +123,14 @@ pub fn generateSymbol(
 
     switch (typed_value.ty.zigTypeTag()) {
         .Fn => {
-            switch (bin_file.options.target.cpu.arch) {
-                .wasm32 => unreachable, // has its own code path
-                .wasm64 => unreachable, // has its own code path
-                .arm => return Function(.arm).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
-                .armeb => return Function(.armeb).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
-                .aarch64 => return Function(.aarch64).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
-                .aarch64_be => return Function(.aarch64_be).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
-                .aarch64_32 => return Function(.aarch64_32).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
-                //.arc => return Function(.arc).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
-                //.avr => return Function(.avr).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
-                //.bpfel => return Function(.bpfel).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
-                //.bpfeb => return Function(.bpfeb).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
-                //.hexagon => return Function(.hexagon).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
-                //.mips => return Function(.mips).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
-                //.mipsel => return Function(.mipsel).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
-                //.mips64 => return Function(.mips64).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
-                //.mips64el => return Function(.mips64el).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
-                //.msp430 => return Function(.msp430).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
-                //.powerpc => return Function(.powerpc).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
-                //.powerpc64 => return Function(.powerpc64).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
-                //.powerpc64le => return Function(.powerpc64le).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
-                //.r600 => return Function(.r600).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
-                //.amdgcn => return Function(.amdgcn).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
-                //.riscv32 => return Function(.riscv32).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
-                .riscv64 => return Function(.riscv64).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
-                //.sparc => return Function(.sparc).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
-                //.sparcv9 => return Function(.sparcv9).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
-                //.sparcel => return Function(.sparcel).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
-                //.s390x => return Function(.s390x).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
-                //.tce => return Function(.tce).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
-                //.tcele => return Function(.tcele).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
-                //.thumb => return Function(.thumb).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
-                //.thumbeb => return Function(.thumbeb).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
-                //.i386 => return Function(.i386).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
-                .x86_64 => return Function(.x86_64).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
-                //.xcore => return Function(.xcore).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
-                //.nvptx => return Function(.nvptx).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
-                //.nvptx64 => return Function(.nvptx64).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
-                //.le32 => return Function(.le32).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
-                //.le64 => return Function(.le64).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
-                //.amdil => return Function(.amdil).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
-                //.amdil64 => return Function(.amdil64).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
-                //.hsail => return Function(.hsail).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
-                //.hsail64 => return Function(.hsail64).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
-                //.spir => return Function(.spir).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
-                //.spir64 => return Function(.spir64).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
-                //.kalimba => return Function(.kalimba).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
-                //.shave => return Function(.shave).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
-                //.lanai => return Function(.lanai).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
-                //.renderscript32 => return Function(.renderscript32).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
-                //.renderscript64 => return Function(.renderscript64).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
-                //.ve => return Function(.ve).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
-                else => @panic("Backend architectures that don't have good support yet are commented out, to improve compilation performance. If you are interested in one of these other backends feel free to uncomment them. Eventually these will be completed, but stage1 is slow and a memory hog."),
-            }
+            return Result{
+                .fail = try ErrorMsg.create(
+                    bin_file.allocator,
+                    src_loc,
+                    "TODO implement generateSymbol function pointers",
+                    .{},
+                ),
+            };
         },
         .Array => {
             // TODO populate .debug_info for the array
@@ -262,6 +282,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
     return struct {
         gpa: *Allocator,
+        air: *const Air,
         bin_file: *link.File,
         target: *const std.Target,
         mod_fn: *const Module.Fn,
@@ -421,18 +442,18 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
         const Self = @This();
 
-        fn generateSymbol(
+        fn generate(
             bin_file: *link.File,
             src_loc: Module.SrcLoc,
-            typed_value: TypedValue,
+            module_fn: *Module.Fn,
+            air: Air,
+            liveness: Liveness,
             code: *std.ArrayList(u8),
             debug_output: DebugInfoOutput,
         ) GenerateSymbolError!Result {
             if (build_options.skip_non_native and std.Target.current.cpu.arch != arch) {
                 @panic("Attempted to compile for architecture that was disabled by build configuration");
             }
-
-            const module_fn = typed_value.val.castTag(.function).?.data;
 
             assert(module_fn.owner_decl.has_tv);
             const fn_type = module_fn.owner_decl.ty;
@@ -447,6 +468,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
             var function = Self{
                 .gpa = bin_file.allocator,
+                .air = &air,
+                .liveness = &liveness,
                 .target = &bin_file.options.target,
                 .bin_file = bin_file,
                 .mod_fn = module_fn,
@@ -2131,8 +2154,11 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         }
 
         fn genArgDbgInfo(self: *Self, inst: Air.Inst.Index, mcv: MCValue) !void {
-            const name_with_null = inst.name[0 .. mem.lenZ(inst.name) + 1];
-            const ty = self.air.getType(inst);
+            const ty_str = self.air.instruction.items(.data)[inst].ty_str;
+            const zir = &self.mod_fn.owner_decl.namespace.file_scope.zir;
+            const name = zir.nullTerminatedString(ty_str.str);
+            const name_with_null = name.ptr[0 .. name.len + 1];
+            const ty = self.air.getRefType(ty_str.ty);
 
             switch (mcv) {
                 .register => |reg| {
@@ -2249,8 +2275,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         }
 
         fn genCall(self: *Self, inst: Air.Inst.Index) !MCValue {
-            const inst_datas = self.air.instructions.items(.data);
-            const pl_op = inst_datas[inst].pl_op;
+            const pl_op = self.air.instruction.items(.data)[inst].pl_op;
             const fn_ty = self.air.getType(pl_op.operand);
             const callee = pl_op.operand;
             const extra = self.air.extraData(Air.Call, inst_data.payload);
@@ -2798,8 +2823,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         }
 
         fn genCondBr(self: *Self, inst: Air.Inst.Index) !MCValue {
-            const inst_datas = self.air.instructions.items(.data);
-            const pl_op = inst_datas[inst].pl_op;
+            const pl_op = self.air.instructions.items(.data)[inst].pl_op;
             const cond = try self.resolveInst(pl_op.operand);
             const extra = self.air.extraData(Air.CondBr, inst_data.payload);
             const then_body = self.air.extra[extra.end..][0..extra.data.then_body_len];
@@ -3051,16 +3075,16 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         fn genIsNull(self: *Self, inst: Air.Inst.Index) !MCValue {
             if (self.liveness.isUnused(inst))
                 return MCValue.dead;
-            const inst_datas = self.air.instructions.items(.data);
-            const operand = try self.resolveInst(inst_datas[inst].un_op);
+            const un_op = self.air.instructions.items(.data)[inst].un_op;
+            const operand = try self.resolveInst(un_op);
             return self.isNull(operand);
         }
 
         fn genIsNullPtr(self: *Self, inst: Air.Inst.Index) !MCValue {
             if (self.liveness.isUnused(inst))
                 return MCValue.dead;
-            const inst_datas = self.air.instructions.items(.data);
-            const operand_ptr = try self.resolveInst(inst_datas[inst].un_op);
+            const un_op = self.air.instructions.items(.data)[inst].un_op;
+            const operand_ptr = try self.resolveInst(un_op);
             const operand: MCValue = blk: {
                 if (self.reuseOperand(inst, 0, operand_ptr)) {
                     // The MCValue that holds the pointer can be re-used as the value.
@@ -3076,16 +3100,16 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         fn genIsNonNull(self: *Self, inst: Air.Inst.Index) !MCValue {
             if (self.liveness.isUnused(inst))
                 return MCValue.dead;
-            const inst_datas = self.air.instructions.items(.data);
-            const operand = try self.resolveInst(inst_datas[inst].un_op);
+            const un_op = self.air.instructions.items(.data)[inst].un_op;
+            const operand = try self.resolveInst(un_op);
             return self.isNonNull(operand);
         }
 
         fn genIsNonNullPtr(self: *Self, inst: Air.Inst.Index) !MCValue {
             if (self.liveness.isUnused(inst))
                 return MCValue.dead;
-            const inst_datas = self.air.instructions.items(.data);
-            const operand_ptr = try self.resolveInst(inst_datas[inst].un_op);
+            const un_op = self.air.instructions.items(.data)[inst].un_op;
+            const operand_ptr = try self.resolveInst(un_op);
             const operand: MCValue = blk: {
                 if (self.reuseOperand(inst, 0, operand_ptr)) {
                     // The MCValue that holds the pointer can be re-used as the value.
@@ -3101,16 +3125,16 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         fn genIsErr(self: *Self, inst: Air.Inst.Index) !MCValue {
             if (self.liveness.isUnused(inst))
                 return MCValue.dead;
-            const inst_datas = self.air.instructions.items(.data);
-            const operand = try self.resolveInst(inst_datas[inst].un_op);
+            const un_op = self.air.instructions.items(.data)[inst].un_op;
+            const operand = try self.resolveInst(un_op);
             return self.isErr(operand);
         }
 
         fn genIsErrPtr(self: *Self, inst: Air.Inst.Index) !MCValue {
             if (self.liveness.isUnused(inst))
                 return MCValue.dead;
-            const inst_datas = self.air.instructions.items(.data);
-            const operand_ptr = try self.resolveInst(inst_datas[inst].un_op);
+            const un_op = self.air.instructions.items(.data)[inst].un_op;
+            const operand_ptr = try self.resolveInst(un_op);
             const operand: MCValue = blk: {
                 if (self.reuseOperand(inst, 0, operand_ptr)) {
                     // The MCValue that holds the pointer can be re-used as the value.
@@ -3126,16 +3150,16 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         fn genIsNonErr(self: *Self, inst: Air.Inst.Index) !MCValue {
             if (self.liveness.isUnused(inst))
                 return MCValue.dead;
-            const inst_datas = self.air.instructions.items(.data);
-            const operand = try self.resolveInst(inst_datas[inst].un_op);
+            const un_op = self.air.instructions.items(.data)[inst].un_op;
+            const operand = try self.resolveInst(un_op);
             return self.isNonErr(operand);
         }
 
         fn genIsNonErrPtr(self: *Self, inst: Air.Inst.Index) !MCValue {
             if (self.liveness.isUnused(inst))
                 return MCValue.dead;
-            const inst_datas = self.air.instructions.items(.data);
-            const operand_ptr = try self.resolveInst(inst_datas[inst].un_op);
+            const un_op = self.air.instructions.items(.data)[inst].un_op;
+            const operand_ptr = try self.resolveInst(un_op);
             const operand: MCValue = blk: {
                 if (self.reuseOperand(inst, 0, operand_ptr)) {
                     // The MCValue that holds the pointer can be re-used as the value.
@@ -3150,8 +3174,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
         fn genLoop(self: *Self, inst: Air.Inst.Index) !MCValue {
             // A loop is a setup to be able to jump back to the beginning.
-            const inst_datas = self.air.instructions.items(.data);
-            const loop = self.air.extraData(Air.Block, inst_datas[inst].ty_pl.payload);
+            const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+            const loop = self.air.extraData(Air.Block, ty_pl.payload);
             const body = self.air.extra[loop.end..][0..loop.data.body_len];
             const start_index = self.code.items.len;
             try self.genBody(body);
@@ -4327,13 +4351,13 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         }
 
         fn genPtrToInt(self: *Self, inst: Air.Inst.Index) !MCValue {
-            const inst_datas = self.air.instructions.items(.data);
-            return self.resolveInst(inst_datas[inst].un_op);
+            const un_op = self.air.instructions.items(.data)[inst].un_op;
+            return self.resolveInst(un_op);
         }
 
         fn genBitCast(self: *Self, inst: Air.Inst.Index) !MCValue {
-            const inst_datas = self.air.instructions.items(.data);
-            return self.resolveInst(inst_datas[inst].ty_op.operand);
+            const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+            return self.resolveInst(ty_op.operand);
         }
 
         fn resolveInst(self: *Self, inst: Air.Inst.Index) !MCValue {
