@@ -74,6 +74,26 @@ pub fn analyze(gpa: *Allocator, air: Air) Allocator.Error!Liveness {
     };
 }
 
+pub fn isUnused(l: Liveness, inst: Air.Inst.Index) bool {
+    const usize_index = (inst * bpi) / @bitSizeOf(usize);
+    const mask = @as(usize, 1) << ((inst % (@bitSizeOf(usize) / bpi)) * bpi + (bpi - 1));
+    return (l.tomb_bits[usize_index] & mask) != 0;
+}
+
+pub fn operandDies(l: Liveness, inst: Air.Inst.Index, operand: OperandInt) bool {
+    assert(operand < bpi - 1);
+    const usize_index = (inst * bpi) / @bitSizeOf(usize);
+    const mask = @as(usize, 1) << ((inst % (@bitSizeOf(usize) / bpi)) * bpi + operand);
+    return (l.tomb_bits[usize_index] & mask) != 0;
+}
+
+pub fn clearOperandDeath(l: *Liveness, inst: Air.Inst.Index, operand: OperandInt) void {
+    assert(operand < bpi - 1);
+    const usize_index = (inst * bpi) / @bitSizeOf(usize);
+    const mask = @as(usize, 1) << ((inst % (@bitSizeOf(usize) / bpi)) * bpi + operand);
+    l.tomb_bits[usize_index] |= mask;
+}
+
 pub fn deinit(l: *Liveness, gpa: *Allocator) void {
     gpa.free(l.tomb_bits);
     gpa.free(l.extra);
@@ -83,6 +103,7 @@ pub fn deinit(l: *Liveness, gpa: *Allocator) void {
 /// How many tomb bits per AIR instruction.
 const bpi = 4;
 const Bpi = std.meta.Int(.unsigned, bpi);
+const OperandInt = std.math.Log2Int(Bpi);
 
 /// In-progress data; on successful analysis converted into `Liveness`.
 const Analysis = struct {

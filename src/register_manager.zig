@@ -147,14 +147,14 @@ pub fn RegisterManager(
                             self.markRegUsed(reg);
                         } else {
                             const spilled_inst = self.registers[index].?;
-                            try self.getFunction().spillInstruction(spilled_inst.src, reg, spilled_inst);
+                            try self.getFunction().spillInstruction(reg, spilled_inst);
                         }
                         self.registers[index] = inst;
                     } else {
                         // Don't track the register
                         if (!self.isRegFree(reg)) {
                             const spilled_inst = self.registers[index].?;
-                            try self.getFunction().spillInstruction(spilled_inst.src, reg, spilled_inst);
+                            try self.getFunction().spillInstruction(reg, spilled_inst);
                             self.freeReg(reg);
                         }
                     }
@@ -184,7 +184,7 @@ pub fn RegisterManager(
                     // stack allocation.
                     const spilled_inst = self.registers[index].?;
                     self.registers[index] = tracked_inst;
-                    try self.getFunction().spillInstruction(spilled_inst.src, reg, spilled_inst);
+                    try self.getFunction().spillInstruction(reg, spilled_inst);
                 } else {
                     self.getRegAssumeFree(reg, tracked_inst);
                 }
@@ -193,7 +193,7 @@ pub fn RegisterManager(
                     // Move the instruction that was previously there to a
                     // stack allocation.
                     const spilled_inst = self.registers[index].?;
-                    try self.getFunction().spillInstruction(spilled_inst.src, reg, spilled_inst);
+                    try self.getFunction().spillInstruction(reg, spilled_inst);
                     self.freeReg(reg);
                 }
             }
@@ -264,8 +264,7 @@ fn MockFunction(comptime Register: type) type {
             self.spilled.deinit(self.allocator);
         }
 
-        pub fn spillInstruction(self: *Self, src: LazySrcLoc, reg: Register, inst: *ir.Inst) !void {
-            _ = src;
+        pub fn spillInstruction(self: *Self, reg: Register, inst: *ir.Inst) !void {
             _ = inst;
             try self.spilled.append(self.allocator, reg);
         }
