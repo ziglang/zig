@@ -470,7 +470,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             defer function.blocks.deinit(bin_file.allocator);
             defer function.exitlude_jump_relocs.deinit(bin_file.allocator);
 
-            var call_info = function.resolveCallingConventionValues(src_loc.lazy, fn_type) catch |err| switch (err) {
+            var call_info = function.resolveCallingConventionValues(fn_type) catch |err| switch (err) {
                 error.CodegenFail => return Result{ .fail = function.err_msg.? },
                 else => |e| return e,
             };
@@ -4710,14 +4710,10 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             };
         }
 
-        fn fail(self: *Self, src: LazySrcLoc, comptime format: []const u8, args: anytype) InnerError {
+        fn fail(self: *Self, comptime format: []const u8, args: anytype) InnerError {
             @setCold(true);
             assert(self.err_msg == null);
-            const src_loc = if (src != .unneeded)
-                src.toSrcLocWithDecl(self.mod_fn.owner_decl)
-            else
-                self.src_loc;
-            self.err_msg = try ErrorMsg.create(self.bin_file.allocator, src_loc, format, args);
+            self.err_msg = try ErrorMsg.create(self.bin_file.allocator, self.src_loc, format, args);
             return error.CodegenFail;
         }
 

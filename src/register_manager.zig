@@ -20,7 +20,7 @@ pub fn RegisterManager(
 ) type {
     return struct {
         /// The key must be canonical register.
-        registers: [callee_preserved_regs.len]?*ir.Inst = [_]?*ir.Inst{null} ** callee_preserved_regs.len,
+        registers: [callee_preserved_regs.len]?*Air.Inst = [_]?*Air.Inst{null} ** callee_preserved_regs.len,
         free_registers: FreeRegInt = math.maxInt(FreeRegInt),
         /// Tracks all registers allocated in the course of this function
         allocated_registers: FreeRegInt = 0,
