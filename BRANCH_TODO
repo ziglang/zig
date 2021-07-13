@@ -690,3 +690,8 @@ pub fn dumpInst(mod: *Module, scope: *Scope, inst: *ir.Inst) void {
     }
 }
 
+    /// For debugging purposes.
+    pub fn dump(func: *Fn, mod: Module) void {
+        ir.dumpFn(mod, func);
+    }
+

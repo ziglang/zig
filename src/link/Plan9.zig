@@ -2,18 +2,21 @@
 //! would be to add incremental linking in a similar way as ELF does.
 
 const Plan9 = @This();
-
-const std = @import("std");
 const link = @import("../link.zig");
 const Module = @import("../Module.zig");
 const Compilation = @import("../Compilation.zig");
 const aout = @import("Plan9/aout.zig");
 const codegen = @import("../codegen.zig");
 const trace = @import("../tracy.zig").trace;
-const mem = std.mem;
 const File = link.File;
-const Allocator = std.mem.Allocator;
+const build_options = @import("build_options");
+const Air = @import("../Air.zig");
+const Liveness = @import("../Liveness.zig");
 
+const std = @import("std");
+const builtin = @import("builtin");
+const mem = std.mem;
+const Allocator = std.mem.Allocator;
 const log = std.log.scoped(.link);
 const assert = std.debug.assert;
 
@@ -120,6 +123,19 @@ pub fn createEmpty(gpa: *Allocator, options: link.Options) !*Plan9 {
     return self;
 }
 
+pub fn updateFunc(self: *Plan9, module: *Module, func: *Module.Fn, air: Air, liveness: Liveness) !void {
+    if (build_options.skip_non_native and builtin.object_format != .plan9) {
+        @panic("Attempted to compile for object format that was disabled by build configuration");
+    }
+    _ = module;
+    // Keep track of all decls so we can iterate over them on flush().
+    _ = try self.decl_table.getOrPut(self.base.allocator, func.owner_decl);
+
+    _ = air;
+    _ = liveness;
+    @panic("TODO Plan9 needs to keep track of Air and Liveness so it can use them later");
+}
+
 pub fn updateDecl(self: *Plan9, module: *Module, decl: *Module.Decl) !void {
     _ = module;
     _ = try self.decl_table.getOrPut(self.base.allocator, decl);
@@ -138,6 +154,9 @@ pub fn flush(self: *Plan9, comp: *Compilation) !void {
 }
 
 pub fn flushModule(self: *Plan9, comp: *Compilation) !void {
+    if (build_options.skip_non_native and builtin.object_format != .plan9) {
+        @panic("Attempted to compile for object format that was disabled by build configuration");
+    }
     _ = comp;
     const tracy = trace(@src());
     defer tracy.end();
@@ -199,7 +218,7 @@ pub fn flushModule(self: *Plan9, comp: *Compilation) !void {
                         }
                     }
                     if (std.mem.eql(u8, exp.options.name, "_start")) {
-                        std.debug.assert(decl.link.plan9.type == .t); // we tried to link a non-function as the entry
+                        assert(decl.link.plan9.type == .t); // we tried to link a non-function as the entry
                         self.entry_decl = decl;
                     }
                     if (exp.link.plan9) |i| {
