@@ -1352,7 +1352,7 @@ void bigint_shl(BigInt *dest, const BigInt *op1, const BigInt *op2) {
 
     if (op1->digit_count == 1 && shift_amt < 64) {
         dest->data.digit = op1_digits[0] << shift_amt;
-        if (dest->data.digit > op1_digits[0]) {
+        if (dest->data.digit >> shift_amt == op1_digits[0]) {
             dest->digit_count = 1;
             dest->is_negative = op1->is_negative;
             return;
