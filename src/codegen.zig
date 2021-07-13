@@ -282,7 +282,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
     return struct {
         gpa: *Allocator,
-        air: *const Air,
+        air: Air,
+        liveness: Liveness,
         bin_file: *link.File,
         target: *const std.Target,
         mod_fn: *const Module.Fn,
@@ -468,8 +469,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
             var function = Self{
                 .gpa = bin_file.allocator,
-                .air = &air,
-                .liveness = &liveness,
+                .air = air,
+                .liveness = liveness,
                 .target = &bin_file.options.target,
                 .bin_file = bin_file,
                 .mod_fn = module_fn,

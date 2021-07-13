@@ -159,7 +159,8 @@ pub const DeclGen = struct {
     /// The SPIR-V module  code should be put in.
     spv: *SPIRVModule,
 
-    air: *const Air,
+    air: Air,
+    liveness: Liveness,
 
     /// An array of function argument result-ids. Each index corresponds with the
     /// function argument of the same index.
