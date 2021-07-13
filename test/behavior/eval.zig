@@ -570,6 +570,13 @@ test "comptime shlWithOverflow" {
     try expect(ct_shifted == rt_shifted);
 }
 
+test "comptime shl" {
+    var a: u128 = 3;
+    var b: u7 = 63;
+    var c: u128 = 3 << 63;
+    try expectEqual(a << b, c);
+}
+
 test "runtime 128 bit integer division" {
     var a: u128 = 152313999999999991610955792383;
     var b: u128 = 10000000000000000000;
