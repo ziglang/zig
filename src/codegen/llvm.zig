@@ -277,6 +277,9 @@ pub const Object = struct {
     }
 
     pub fn updateDecl(self: *Object, module: *Module, decl: *Module.Decl) !void {
+        const tracy = trace(@src());
+        defer tracy.end();
+
         var dg: DeclGen = .{
             .object = self,
             .module = module,

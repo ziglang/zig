@@ -6,7 +6,6 @@ const log = std.log.scoped(.c);
 const link = @import("../link.zig");
 const Module = @import("../Module.zig");
 const Compilation = @import("../Compilation.zig");
-const Air = @import("../Air.zig");
 const Value = @import("../value.zig").Value;
 const Type = @import("../type.zig").Type;
 const TypedValue = @import("../TypedValue.zig");
@@ -14,6 +13,8 @@ const C = link.File.C;
 const Decl = Module.Decl;
 const trace = @import("../tracy.zig").trace;
 const LazySrcLoc = Module.LazySrcLoc;
+const Air = @import("../Air.zig");
+const Liveness = @import("../Liveness.zig");
 
 const Mutability = enum { Const, Mut };
 
@@ -37,7 +38,7 @@ const BlockData = struct {
     result: CValue,
 };
 
-pub const CValueMap = std.AutoHashMap(*Inst, CValue);
+pub const CValueMap = std.AutoHashMap(Air.Inst.Index, CValue);
 pub const TypedefMap = std.ArrayHashMap(
     Type,
     struct { name: []const u8, rendered: []u8 },
@@ -93,6 +94,8 @@ pub fn fmtIdent(ident: []const u8) std.fmt.Formatter(formatIdent) {
 /// It is not available when generating .h file.
 pub const Object = struct {
     dg: DeclGen,
+    air: Air,
+    liveness: Liveness,
     gpa: *mem.Allocator,
     code: std.ArrayList(u8),
     value_map: CValueMap,
@@ -102,7 +105,7 @@ pub const Object = struct {
     next_block_index: usize = 0,
     indent_writer: IndentWriter(std.ArrayList(u8).Writer),
 
-    fn resolveInst(o: *Object, inst: *Inst) !CValue {
+    fn resolveInst(o: *Object, inst: Air.Inst.Index) !CValue {
         if (inst.value()) |_| {
             return CValue{ .constant = inst };
         }

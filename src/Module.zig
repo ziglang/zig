@@ -769,11 +769,6 @@ pub const Fn = struct {
         success,
     };
 
-    /// For debugging purposes.
-    pub fn dump(func: *Fn, mod: Module) void {
-        ir.dumpFn(mod, func);
-    }
-
     pub fn deinit(func: *Fn, gpa: *Allocator) void {
         if (func.getInferredErrorSet()) |map| {
             map.deinit(gpa);
