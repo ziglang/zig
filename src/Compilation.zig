@@ -2023,7 +2023,7 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
                     defer air.deinit(gpa);
 
                     log.debug("analyze liveness of {s}", .{decl.name});
-                    var liveness = try Liveness.analyze(gpa, air);
+                    var liveness = try Liveness.analyze(gpa, air, decl.namespace.file_scope.zir);
                     defer liveness.deinit(gpa);
 
                     if (std.builtin.mode == .Debug and self.verbose_air) {

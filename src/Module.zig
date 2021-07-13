@@ -1225,6 +1225,30 @@ pub const Scope = struct {
         pub fn getFileScope(block: *Block) *Scope.File {
             return block.src_decl.namespace.file_scope;
         }
+
+        pub fn addTyOp(
+            block: *Block,
+            tag: Air.Inst.Tag,
+            ty: Type,
+            operand: Air.Inst.Ref,
+        ) error{OutOfMemory}!Air.Inst.Ref {
+            const sema = block.sema;
+            const gpa = sema.gpa;
+
+            try sema.air_instructions.ensureUnusedCapacity(gpa, 1);
+            try block.instructions.ensureUnusedCapacity(gpa, 1);
+
+            const inst = @intCast(Air.Inst.Index, sema.air_instructions.len);
+            sema.air_instructions.appendAssumeCapacity(.{
+                .tag = tag,
+                .data = .{ .ty_op = .{
+                    .ty = try sema.addType(ty),
+                    .operand = operand,
+                } },
+            });
+            block.instructions.appendAssumeCapacity(inst);
+            return Sema.indexToRef(inst);
+        }
     };
 };
 
@@ -3408,7 +3432,7 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn) !Air {
     defer decl.value_arena.?.* = arena.state;
 
     const fn_ty = decl.ty;
-    const param_inst_list = try gpa.alloc(Air.Inst.Index, fn_ty.fnParamLen());
+    const param_inst_list = try gpa.alloc(Air.Inst.Ref, fn_ty.fnParamLen());
     defer gpa.free(param_inst_list);
 
     var sema: Sema = .{
@@ -3440,10 +3464,13 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn) !Air {
     defer inner_block.instructions.deinit(gpa);
 
     // AIR requires the arg parameters to be the first N instructions.
+    try inner_block.instructions.ensureTotalCapacity(gpa, param_inst_list.len);
     for (param_inst_list) |*param_inst, param_index| {
         const param_type = fn_ty.fnParamType(param_index);
         const ty_ref = try sema.addType(param_type);
-        param_inst.* = @intCast(u32, sema.air_instructions.len);
+        const arg_index = @intCast(u32, sema.air_instructions.len);
+        inner_block.instructions.appendAssumeCapacity(arg_index);
+        param_inst.* = Sema.indexToRef(arg_index);
         try sema.air_instructions.append(gpa, .{
             .tag = .arg,
             .data = .{
@@ -3454,7 +3481,6 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn) !Air {
             },
         });
     }
-    try inner_block.instructions.appendSlice(gpa, param_inst_list);
 
     func.state = .in_progress;
     log.debug("set {s} to in_progress", .{decl.name});
@@ -4043,13 +4069,11 @@ pub fn floatMul(
 }
 
 pub fn simplePtrType(
-    mod: *Module,
     arena: *Allocator,
     elem_ty: Type,
     mutable: bool,
     size: std.builtin.TypeInfo.Pointer.Size,
 ) Allocator.Error!Type {
-    _ = mod;
     if (!mutable and size == .Slice and elem_ty.eql(Type.initTag(.u8))) {
         return Type.initTag(.const_slice_u8);
     }

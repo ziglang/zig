@@ -494,7 +494,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             defer function.blocks.deinit(bin_file.allocator);
             defer function.exitlude_jump_relocs.deinit(bin_file.allocator);
 
-            var call_info = function.resolveCallingConventionValues(src_loc.lazy, fn_type) catch |err| switch (err) {
+            var call_info = function.resolveCallingConventionValues(fn_type) catch |err| switch (err) {
                 error.CodegenFail => return Result{ .fail = function.err_msg.? },
                 else => |e| return e,
             };
@@ -537,7 +537,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         self.code.items.len += 4;
 
                         try self.dbgSetPrologueEnd();
-                        try self.genBody(self.mod_fn.body);
+                        try self.genBody(self.air.getMainBody());
 
                         const stack_end = self.max_end_stack;
                         if (stack_end > math.maxInt(i32))
@@ -578,7 +578,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         });
                     } else {
                         try self.dbgSetPrologueEnd();
-                        try self.genBody(self.mod_fn.body);
+                        try self.genBody(self.air.getMainBody());
                         try self.dbgSetEpilogueBegin();
                     }
                 },
@@ -758,11 +758,12 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 }
 
                 // TODO inline this logic into every instruction
-                var i: ir.Inst.DeathsBitIndex = 0;
-                while (inst.getOperand(i)) |operand| : (i += 1) {
-                    if (inst.operandDies(i))
-                        self.processDeath(operand);
-                }
+                @panic("TODO rework AIR memory layout codegen for processing deaths");
+                //var i: ir.Inst.DeathsBitIndex = 0;
+                //while (inst.getOperand(i)) |operand| : (i += 1) {
+                //    if (inst.operandDies(i))
+                //        self.processDeath(operand);
+                //}
             }
         }
 
@@ -858,74 +859,76 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             const air_tags = self.air.instructions.items(.tag);
             switch (air_tags[inst]) {
                 // zig fmt: off
-                .add     => return self.genAdd(inst.castTag(.add).?),
-                .addwrap => return self.genAddWrap(inst.castTag(.addwrap).?),
-                .sub     => return self.genSub(inst.castTag(.sub).?),
-                .subwrap => return self.genSubWrap(inst.castTag(.subwrap).?),
-                .mul     => return self.genMul(inst.castTag(.mul).?),
-                .mulwrap => return self.genMulWrap(inst.castTag(.mulwrap).?),
-                .div     => return self.genDiv(inst.castTag(.div).?),
+                //.add     => return self.genAdd(inst.castTag(.add).?),
+                //.addwrap => return self.genAddWrap(inst.castTag(.addwrap).?),
+                //.sub     => return self.genSub(inst.castTag(.sub).?),
+                //.subwrap => return self.genSubWrap(inst.castTag(.subwrap).?),
+                //.mul     => return self.genMul(inst.castTag(.mul).?),
+                //.mulwrap => return self.genMulWrap(inst.castTag(.mulwrap).?),
+                //.div     => return self.genDiv(inst.castTag(.div).?),
 
-                .cmp_lt  => return self.genCmp(inst.castTag(.cmp_lt).?,  .lt),
-                .cmp_lte => return self.genCmp(inst.castTag(.cmp_lte).?, .lte),
-                .cmp_eq  => return self.genCmp(inst.castTag(.cmp_eq).?,  .eq),
-                .cmp_gte => return self.genCmp(inst.castTag(.cmp_gte).?, .gte),
-                .cmp_gt  => return self.genCmp(inst.castTag(.cmp_gt).?,  .gt),
-                .cmp_neq => return self.genCmp(inst.castTag(.cmp_neq).?, .neq),
+                //.cmp_lt  => return self.genCmp(inst.castTag(.cmp_lt).?,  .lt),
+                //.cmp_lte => return self.genCmp(inst.castTag(.cmp_lte).?, .lte),
+                //.cmp_eq  => return self.genCmp(inst.castTag(.cmp_eq).?,  .eq),
+                //.cmp_gte => return self.genCmp(inst.castTag(.cmp_gte).?, .gte),
+                //.cmp_gt  => return self.genCmp(inst.castTag(.cmp_gt).?,  .gt),
+                //.cmp_neq => return self.genCmp(inst.castTag(.cmp_neq).?, .neq),
 
-                .bool_and => return self.genBoolOp(inst.castTag(.bool_and).?),
-                .bool_or  => return self.genBoolOp(inst.castTag(.bool_or).?),
-                .bit_and  => return self.genBitAnd(inst.castTag(.bit_and).?),
-                .bit_or   => return self.genBitOr(inst.castTag(.bit_or).?),
-                .xor      => return self.genXor(inst.castTag(.xor).?),
+                //.bool_and => return self.genBoolOp(inst.castTag(.bool_and).?),
+                //.bool_or  => return self.genBoolOp(inst.castTag(.bool_or).?),
+                //.bit_and  => return self.genBitAnd(inst.castTag(.bit_and).?),
+                //.bit_or   => return self.genBitOr(inst.castTag(.bit_or).?),
+                //.xor      => return self.genXor(inst.castTag(.xor).?),
 
-                .alloc           => return self.genAlloc(inst.castTag(.alloc).?),
-                .arg             => return self.genArg(inst.castTag(.arg).?),
-                .assembly        => return self.genAsm(inst.castTag(.assembly).?),
-                .bitcast         => return self.genBitCast(inst.castTag(.bitcast).?),
-                .block           => return self.genBlock(inst.castTag(.block).?),
-                .br              => return self.genBr(inst.castTag(.br).?),
-                .br_block_flat   => return self.genBrBlockFlat(inst.castTag(.br_block_flat).?),
-                .breakpoint      => return self.genBreakpoint(inst.src),
-                .call            => return self.genCall(inst.castTag(.call).?),
-                .cond_br         => return self.genCondBr(inst.castTag(.condbr).?),
-                .dbg_stmt        => return self.genDbgStmt(inst.castTag(.dbg_stmt).?),
-                .floatcast       => return self.genFloatCast(inst.castTag(.floatcast).?),
-                .intcast         => return self.genIntCast(inst.castTag(.intcast).?),
-                .is_non_null     => return self.genIsNonNull(inst.castTag(.is_non_null).?),
-                .is_non_null_ptr => return self.genIsNonNullPtr(inst.castTag(.is_non_null_ptr).?),
-                .is_null         => return self.genIsNull(inst.castTag(.is_null).?),
-                .is_null_ptr     => return self.genIsNullPtr(inst.castTag(.is_null_ptr).?),
-                .is_non_err      => return self.genIsNonErr(inst.castTag(.is_non_err).?),
-                .is_non_err_ptr  => return self.genIsNonErrPtr(inst.castTag(.is_non_err_ptr).?),
-                .is_err          => return self.genIsErr(inst.castTag(.is_err).?),
-                .is_err_ptr      => return self.genIsErrPtr(inst.castTag(.is_err_ptr).?),
-                .load            => return self.genLoad(inst.castTag(.load).?),
-                .loop            => return self.genLoop(inst.castTag(.loop).?),
-                .not             => return self.genNot(inst.castTag(.not).?),
-                .ptrtoint        => return self.genPtrToInt(inst.castTag(.ptrtoint).?),
-                .ref             => return self.genRef(inst.castTag(.ref).?),
-                .ret             => return self.genRet(inst.castTag(.ret).?),
-                .store           => return self.genStore(inst.castTag(.store).?),
-                .struct_field_ptr=> return self.genStructFieldPtr(inst.castTag(.struct_field_ptr).?),
-                .switchbr        => return self.genSwitch(inst.castTag(.switchbr).?),
-                .varptr          => return self.genVarPtr(inst.castTag(.varptr).?),
+                //.alloc           => return self.genAlloc(inst.castTag(.alloc).?),
+                //.arg             => return self.genArg(inst.castTag(.arg).?),
+                //.assembly        => return self.genAsm(inst.castTag(.assembly).?),
+                //.bitcast         => return self.genBitCast(inst.castTag(.bitcast).?),
+                //.block           => return self.genBlock(inst.castTag(.block).?),
+                //.br              => return self.genBr(inst.castTag(.br).?),
+                //.br_block_flat   => return self.genBrBlockFlat(inst.castTag(.br_block_flat).?),
+                //.breakpoint      => return self.genBreakpoint(inst.src),
+                //.call            => return self.genCall(inst.castTag(.call).?),
+                //.cond_br         => return self.genCondBr(inst.castTag(.condbr).?),
+                //.dbg_stmt        => return self.genDbgStmt(inst.castTag(.dbg_stmt).?),
+                //.floatcast       => return self.genFloatCast(inst.castTag(.floatcast).?),
+                //.intcast         => return self.genIntCast(inst.castTag(.intcast).?),
+                //.is_non_null     => return self.genIsNonNull(inst.castTag(.is_non_null).?),
+                //.is_non_null_ptr => return self.genIsNonNullPtr(inst.castTag(.is_non_null_ptr).?),
+                //.is_null         => return self.genIsNull(inst.castTag(.is_null).?),
+                //.is_null_ptr     => return self.genIsNullPtr(inst.castTag(.is_null_ptr).?),
+                //.is_non_err      => return self.genIsNonErr(inst.castTag(.is_non_err).?),
+                //.is_non_err_ptr  => return self.genIsNonErrPtr(inst.castTag(.is_non_err_ptr).?),
+                //.is_err          => return self.genIsErr(inst.castTag(.is_err).?),
+                //.is_err_ptr      => return self.genIsErrPtr(inst.castTag(.is_err_ptr).?),
+                //.load            => return self.genLoad(inst.castTag(.load).?),
+                //.loop            => return self.genLoop(inst.castTag(.loop).?),
+                //.not             => return self.genNot(inst.castTag(.not).?),
+                //.ptrtoint        => return self.genPtrToInt(inst.castTag(.ptrtoint).?),
+                //.ref             => return self.genRef(inst.castTag(.ref).?),
+                //.ret             => return self.genRet(inst.castTag(.ret).?),
+                //.store           => return self.genStore(inst.castTag(.store).?),
+                //.struct_field_ptr=> return self.genStructFieldPtr(inst.castTag(.struct_field_ptr).?),
+                //.switch_br       => return self.genSwitch(inst.castTag(.switchbr).?),
+                //.varptr          => return self.genVarPtr(inst.castTag(.varptr).?),
 
-                .constant => unreachable, // excluded from function bodies
-                .unreach  => return MCValue{ .unreach = {} },
+                //.constant => unreachable, // excluded from function bodies
+                //.unreach  => return MCValue{ .unreach = {} },
 
-                .optional_payload           => return self.genOptionalPayload(inst.castTag(.optional_payload).?),
-                .optional_payload_ptr       => return self.genOptionalPayloadPtr(inst.castTag(.optional_payload_ptr).?),
-                .unwrap_errunion_err        => return self.genUnwrapErrErr(inst.castTag(.unwrap_errunion_err).?),
-                .unwrap_errunion_payload    => return self.genUnwrapErrPayload(inst.castTag(.unwrap_errunion_payload).?),
-                .unwrap_errunion_err_ptr    => return self.genUnwrapErrErrPtr(inst.castTag(.unwrap_errunion_err_ptr).?),
-                .unwrap_errunion_payload_ptr=> return self.genUnwrapErrPayloadPtr(inst.castTag(.unwrap_errunion_payload_ptr).?),
+                //.optional_payload           => return self.genOptionalPayload(inst.castTag(.optional_payload).?),
+                //.optional_payload_ptr       => return self.genOptionalPayloadPtr(inst.castTag(.optional_payload_ptr).?),
+                //.unwrap_errunion_err        => return self.genUnwrapErrErr(inst.castTag(.unwrap_errunion_err).?),
+                //.unwrap_errunion_payload    => return self.genUnwrapErrPayload(inst.castTag(.unwrap_errunion_payload).?),
+                //.unwrap_errunion_err_ptr    => return self.genUnwrapErrErrPtr(inst.castTag(.unwrap_errunion_err_ptr).?),
+                //.unwrap_errunion_payload_ptr=> return self.genUnwrapErrPayloadPtr(inst.castTag(.unwrap_errunion_payload_ptr).?),
 
-                .wrap_optional         => return self.genWrapOptional(inst.castTag(.wrap_optional).?),
-                .wrap_errunion_payload => return self.genWrapErrUnionPayload(inst.castTag(.wrap_errunion_payload).?),
-                .wrap_errunion_err     => return self.genWrapErrUnionErr(inst.castTag(.wrap_errunion_err).?),
+                //.wrap_optional         => return self.genWrapOptional(inst.castTag(.wrap_optional).?),
+                //.wrap_errunion_payload => return self.genWrapErrUnionPayload(inst.castTag(.wrap_errunion_payload).?),
+                //.wrap_errunion_err     => return self.genWrapErrUnionErr(inst.castTag(.wrap_errunion_err).?),
 
                 // zig fmt: on
+
+                else => @panic("TODO finish air memory layout branch, more codegen.zig instructions"),
             }
         }
 
@@ -4785,14 +4788,10 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             };
         }
 
-        fn fail(self: *Self, src: LazySrcLoc, comptime format: []const u8, args: anytype) InnerError {
+        fn fail(self: *Self, comptime format: []const u8, args: anytype) InnerError {
             @setCold(true);
             assert(self.err_msg == null);
-            const src_loc = if (src != .unneeded)
-                src.toSrcLocWithDecl(self.mod_fn.owner_decl)
-            else
-                self.src_loc;
-            self.err_msg = try ErrorMsg.create(self.bin_file.allocator, src_loc, format, args);
+            self.err_msg = try ErrorMsg.create(self.bin_file.allocator, self.src_loc, format, args);
             return error.CodegenFail;
         }
 
