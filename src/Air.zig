@@ -332,12 +332,12 @@ pub const Block = struct {
     body_len: u32,
 };
 
-/// Trailing is a list of `Ref` for every `args_len`.
+/// Trailing is a list of `Inst.Ref` for every `args_len`.
 pub const Call = struct {
     args_len: u32,
 };
 
-/// This data is stored inside extra, with two sets of trailing `Ref`:
+/// This data is stored inside extra, with two sets of trailing `Inst.Ref`:
 /// * 0. the then body, according to `then_body_len`.
 /// * 1. the else body, according to `else_body_len`.
 pub const CondBr = struct {
@@ -355,19 +355,19 @@ pub const SwitchBr = struct {
     /// Trailing:
     /// * instruction index for each `body_len`.
     pub const Case = struct {
-        item: Ref,
+        item: Inst.Ref,
         body_len: u32,
     };
 };
 
 pub const StructField = struct {
-    struct_ptr: Ref,
+    struct_ptr: Inst.Ref,
     field_index: u32,
 };
 
 /// Trailing:
-/// 0. `Ref` for every outputs_len
-/// 1. `Ref` for every inputs_len
+/// 0. `Inst.Ref` for every outputs_len
+/// 1. `Inst.Ref` for every inputs_len
 pub const Asm = struct {
     /// Index to the corresponding ZIR instruction.
     /// `asm_source`, `outputs_len`, `inputs_len`, `clobbers_len`, `is_volatile`, and
@@ -379,6 +379,24 @@ pub fn getMainBody(air: Air) []const Air.Inst.Index {
     const body_index = air.extra[@enumToInt(ExtraIndex.main_block)];
     const body_len = air.extra[body_index];
     return air.extra[body_index..][0..body_len];
+}
+
+pub fn getType(air: Air, inst: Air.Inst.Index) Type {
+    _ = air;
+    _ = inst;
+    @panic("TODO Air getType");
+}
+
+pub fn getRefType(air: Air, ref: Air.Inst.Ref) Type {
+    var i: usize = @enumToInt(ref);
+    if (i < Air.Inst.Ref.typed_value_map.len) {
+        return Air.Inst.Ref.typed_value_map[i].val.toType(undefined) catch unreachable;
+    }
+    i -= Air.Inst.Ref.typed_value_map.len;
+    const air_tags = air.instructions.items(.tag);
+    const air_datas = air.instructions.items(.data);
+    assert(air_tags[i] == .const_ty);
+    return air_datas[i].ty;
 }
 
 /// Returns the requested data, as well as the new index which is at the start of the

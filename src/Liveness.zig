@@ -7,11 +7,13 @@
 //! * Switch Branches
 const Liveness = @This();
 const std = @import("std");
-const Air = @import("Air.zig");
 const trace = @import("tracy.zig").trace;
 const log = std.log.scoped(.liveness);
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
+const Air = @import("Air.zig");
+const Zir = @import("Zir.zig");
+const Log2Int = std.math.Log2Int;
 
 /// This array is split into sets of 4 bits per AIR instruction.
 /// The MSB (0bX000) is whether the instruction is unreferenced.
@@ -44,7 +46,7 @@ pub const SwitchBr = struct {
     else_death_count: u32,
 };
 
-pub fn analyze(gpa: *Allocator, air: Air) Allocator.Error!Liveness {
+pub fn analyze(gpa: *Allocator, air: Air, zir: Zir) Allocator.Error!Liveness {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -58,6 +60,7 @@ pub fn analyze(gpa: *Allocator, air: Air) Allocator.Error!Liveness {
         ),
         .extra = .{},
         .special = .{},
+        .zir = &zir,
     };
     errdefer gpa.free(a.tomb_bits);
     errdefer a.special.deinit(gpa);
@@ -74,23 +77,32 @@ pub fn analyze(gpa: *Allocator, air: Air) Allocator.Error!Liveness {
     };
 }
 
+pub fn getTombBits(l: Liveness, inst: Air.Inst.Index) Bpi {
+    const usize_index = (inst * bpi) / @bitSizeOf(usize);
+    return @truncate(Bpi, l.tomb_bits[usize_index] >>
+        @intCast(Log2Int(usize), (inst % (@bitSizeOf(usize) / bpi)) * bpi));
+}
+
 pub fn isUnused(l: Liveness, inst: Air.Inst.Index) bool {
     const usize_index = (inst * bpi) / @bitSizeOf(usize);
-    const mask = @as(usize, 1) << ((inst % (@bitSizeOf(usize) / bpi)) * bpi + (bpi - 1));
+    const mask = @as(usize, 1) <<
+        @intCast(Log2Int(usize), (inst % (@bitSizeOf(usize) / bpi)) * bpi + (bpi - 1));
     return (l.tomb_bits[usize_index] & mask) != 0;
 }
 
 pub fn operandDies(l: Liveness, inst: Air.Inst.Index, operand: OperandInt) bool {
     assert(operand < bpi - 1);
     const usize_index = (inst * bpi) / @bitSizeOf(usize);
-    const mask = @as(usize, 1) << ((inst % (@bitSizeOf(usize) / bpi)) * bpi + operand);
+    const mask = @as(usize, 1) <<
+        @intCast(Log2Int(usize), (inst % (@bitSizeOf(usize) / bpi)) * bpi + operand);
     return (l.tomb_bits[usize_index] & mask) != 0;
 }
 
 pub fn clearOperandDeath(l: *Liveness, inst: Air.Inst.Index, operand: OperandInt) void {
     assert(operand < bpi - 1);
     const usize_index = (inst * bpi) / @bitSizeOf(usize);
-    const mask = @as(usize, 1) << ((inst % (@bitSizeOf(usize) / bpi)) * bpi + operand);
+    const mask = @as(usize, 1) <<
+        @intCast(Log2Int(usize), (inst % (@bitSizeOf(usize) / bpi)) * bpi + operand);
     l.tomb_bits[usize_index] |= mask;
 }
 
@@ -113,10 +125,12 @@ const Analysis = struct {
     tomb_bits: []usize,
     special: std.AutoHashMapUnmanaged(Air.Inst.Index, u32),
     extra: std.ArrayListUnmanaged(u32),
+    zir: *const Zir,
 
     fn storeTombBits(a: *Analysis, inst: Air.Inst.Index, tomb_bits: Bpi) void {
         const usize_index = (inst * bpi) / @bitSizeOf(usize);
-        a.tomb_bits[usize_index] |= tomb_bits << (inst % (@bitSizeOf(usize) / bpi)) * bpi;
+        a.tomb_bits[usize_index] |= @as(usize, tomb_bits) <<
+            @intCast(Log2Int(usize), (inst % (@bitSizeOf(usize) / bpi)) * bpi);
     }
 
     fn addExtra(a: *Analysis, extra: anytype) Allocator.Error!u32 {
@@ -203,9 +217,11 @@ fn analyzeInst(
             return trackOperands(a, new_set, inst, main_tomb, .{ o.lhs, o.rhs, .none });
         },
 
+        .arg,
         .alloc,
         .br,
         .constant,
+        .const_ty,
         .breakpoint,
         .dbg_stmt,
         .varptr,
@@ -255,14 +271,29 @@ fn analyzeInst(
             if (args.len <= bpi - 2) {
                 var buf: [bpi - 1]Air.Inst.Ref = undefined;
                 buf[0] = callee;
-                std.mem.copy(&buf, buf[1..], args);
+                std.mem.copy(Air.Inst.Ref, buf[1..], @bitCast([]const Air.Inst.Ref, args));
                 return trackOperands(a, new_set, inst, main_tomb, buf);
             }
-            @panic("TODO: liveness analysis for function with many args");
+            @panic("TODO: liveness analysis for function with greater than 2 args");
         },
         .struct_field_ptr => {
             const extra = a.air.extraData(Air.StructField, inst_datas[inst].ty_pl.payload).data;
             return trackOperands(a, new_set, inst, main_tomb, .{ extra.struct_ptr, .none, .none });
+        },
+        .assembly => {
+            const extra = a.air.extraData(Air.Asm, inst_datas[inst].ty_pl.payload);
+            const extended = a.zir.instructions.items(.data)[extra.data.zir_index].extended;
+            const outputs_len = @truncate(u5, extended.small);
+            const inputs_len = @truncate(u5, extended.small >> 5);
+            const outputs = a.air.extra[extra.end..][0..outputs_len];
+            const inputs = a.air.extra[extra.end + outputs.len ..][0..inputs_len];
+            if (outputs.len + inputs.len <= bpi - 1) {
+                var buf: [bpi - 1]Air.Inst.Ref = undefined;
+                std.mem.copy(Air.Inst.Ref, &buf, @bitCast([]const Air.Inst.Ref, outputs));
+                std.mem.copy(Air.Inst.Ref, buf[outputs.len..], @bitCast([]const Air.Inst.Ref, inputs));
+                return trackOperands(a, new_set, inst, main_tomb, buf);
+            }
+            @panic("TODO: liveness analysis for asm with greater than 3 args");
         },
         .block => {
             const extra = a.air.extraData(Air.Block, inst_datas[inst].ty_pl.payload);
@@ -287,8 +318,8 @@ fn analyzeInst(
             const then_body = a.air.extra[extra.end..][0..extra.data.then_body_len];
             const else_body = a.air.extra[extra.end + then_body.len ..][0..extra.data.else_body_len];
 
-            var then_table = std.AutoHashMap(Air.Inst.Index, void).init(gpa);
-            defer then_table.deinit();
+            var then_table: std.AutoHashMapUnmanaged(Air.Inst.Index, void) = .{};
+            defer then_table.deinit(gpa);
             try analyzeWithContext(a, &then_table, then_body);
 
             // Reset the table back to its state from before the branch.
@@ -299,8 +330,8 @@ fn analyzeInst(
                 }
             }
 
-            var else_table = std.AutoHashMap(Air.Inst.Index, void).init(gpa);
-            defer else_table.deinit();
+            var else_table: std.AutoHashMapUnmanaged(Air.Inst.Index, void) = .{};
+            defer else_table.deinit(gpa);
             try analyzeWithContext(a, &else_table, else_body);
 
             var then_entry_deaths = std.ArrayList(Air.Inst.Index).init(gpa);
@@ -331,7 +362,7 @@ fn analyzeInst(
             }
             // Now we have to correctly populate new_set.
             if (new_set) |ns| {
-                try ns.ensureCapacity(@intCast(u32, ns.count() + then_table.count() + else_table.count()));
+                try ns.ensureCapacity(gpa, @intCast(u32, ns.count() + then_table.count() + else_table.count()));
                 var it = then_table.keyIterator();
                 while (it.next()) |key| {
                     _ = ns.putAssumeCapacity(key.*, {});
@@ -344,7 +375,7 @@ fn analyzeInst(
             const then_death_count = @intCast(u32, then_entry_deaths.items.len);
             const else_death_count = @intCast(u32, else_entry_deaths.items.len);
 
-            try a.extra.ensureUnusedCapacity(std.meta.fields(@TypeOf(CondBr)).len +
+            try a.extra.ensureUnusedCapacity(gpa, std.meta.fields(Air.CondBr).len +
                 then_death_count + else_death_count);
             const extra_index = a.addExtraAssumeCapacity(CondBr{
                 .then_death_count = then_death_count,
@@ -352,7 +383,7 @@ fn analyzeInst(
             });
             a.extra.appendSliceAssumeCapacity(then_entry_deaths.items);
             a.extra.appendSliceAssumeCapacity(else_entry_deaths.items);
-            try a.special.put(inst, extra_index);
+            try a.special.put(gpa, inst, extra_index);
 
             // Continue on with the instruction analysis. The following code will find the condition
             // instruction, and the deaths flag for the CondBr instruction will indicate whether the
@@ -438,12 +469,12 @@ fn analyzeInst(
             });
             for (case_deaths[0 .. case_deaths.len - 1]) |*cd| {
                 const case_death_count = @intCast(u32, cd.items.len);
-                try a.extra.ensureUnusedCapacity(1 + case_death_count + else_death_count);
+                try a.extra.ensureUnusedCapacity(gpa, 1 + case_death_count + else_death_count);
                 a.extra.appendAssumeCapacity(case_death_count);
                 a.extra.appendSliceAssumeCapacity(cd.items);
             }
             a.extra.appendSliceAssumeCapacity(case_deaths[case_deaths.len - 1].items);
-            try a.special.put(inst, extra_index);
+            try a.special.put(gpa, inst, extra_index);
 
             return trackOperands(a, new_set, inst, main_tomb, .{ condition, .none, .none });
         },
@@ -452,7 +483,7 @@ fn analyzeInst(
 
 fn trackOperands(
     a: *Analysis,
-    new_set: ?*std.AutoHashMap(Air.Inst.Index, void),
+    new_set: ?*std.AutoHashMapUnmanaged(Air.Inst.Index, void),
     inst: Air.Inst.Index,
     main_tomb: bool,
     operands: [bpi - 1]Air.Inst.Ref,
@@ -468,12 +499,12 @@ fn trackOperands(
         tomb_bits <<= 1;
         const op_int = @enumToInt(operands[i]);
         if (op_int < Air.Inst.Ref.typed_value_map.len) continue;
-        const operand: Air.Inst.Index = op_int - Air.Inst.Ref.typed_value_map.len;
+        const operand: Air.Inst.Index = op_int - @intCast(u32, Air.Inst.Ref.typed_value_map.len);
         const prev = try table.fetchPut(gpa, operand, {});
         if (prev == null) {
             // Death.
             tomb_bits |= 1;
-            if (new_set) |ns| try ns.putNoClobber(operand, {});
+            if (new_set) |ns| try ns.putNoClobber(gpa, operand, {});
         }
     }
     a.storeTombBits(inst, tomb_bits);
