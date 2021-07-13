@@ -1700,7 +1700,7 @@ pub const Value = extern union {
                 /// peer type resolution. This is stored in a separate list so that
                 /// the items are contiguous in memory and thus can be passed to
                 /// `Module.resolvePeerTypes`.
-                stored_inst_list: std.ArrayListUnmanaged(*ir.Inst) = .{},
+                stored_inst_list: std.ArrayListUnmanaged(Air.Inst.Index) = .{},
             },
         };
 

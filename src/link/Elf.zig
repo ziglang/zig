@@ -2519,6 +2519,9 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
 
+    var dbg_line_buffer = std.ArrayList(u8).init(self.base.allocator);
+    defer dbg_line_buffer.deinit();
+
     var dbg_info_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer dbg_info_buffer.deinit();
 
