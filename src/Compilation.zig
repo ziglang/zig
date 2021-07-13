@@ -2027,7 +2027,7 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
                     defer liveness.deinit(gpa);
 
                     if (std.builtin.mode == .Debug and self.verbose_air) {
-                        func.dump(module.*);
+                        @panic("TODO implement dumping AIR and liveness");
                     }
 
                     assert(decl.ty.hasCodeGenBits());

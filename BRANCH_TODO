@@ -568,3 +568,130 @@ const DumpAir = struct {
         }
     }
 };
+
+pub fn constInst(mod: *Module, arena: *Allocator, src: LazySrcLoc, typed_value: TypedValue) !*ir.Inst {
+    _ = mod;
+    const const_inst = try arena.create(ir.Inst.Constant);
+    const_inst.* = .{
+        .base = .{
+            .tag = ir.Inst.Constant.base_tag,
+            .ty = typed_value.ty,
+            .src = src,
+        },
+        .val = typed_value.val,
+    };
+    return &const_inst.base;
+}
+
+pub fn constType(mod: *Module, arena: *Allocator, src: LazySrcLoc, ty: Type) !*ir.Inst {
+    return mod.constInst(arena, src, .{
+        .ty = Type.initTag(.type),
+        .val = try ty.toValue(arena),
+    });
+}
+
+pub fn constVoid(mod: *Module, arena: *Allocator, src: LazySrcLoc) !*ir.Inst {
+    return mod.constInst(arena, src, .{
+        .ty = Type.initTag(.void),
+        .val = Value.initTag(.void_value),
+    });
+}
+
+pub fn constNoReturn(mod: *Module, arena: *Allocator, src: LazySrcLoc) !*ir.Inst {
+    return mod.constInst(arena, src, .{
+        .ty = Type.initTag(.noreturn),
+        .val = Value.initTag(.unreachable_value),
+    });
+}
+
+pub fn constUndef(mod: *Module, arena: *Allocator, src: LazySrcLoc, ty: Type) !*ir.Inst {
+    return mod.constInst(arena, src, .{
+        .ty = ty,
+        .val = Value.initTag(.undef),
+    });
+}
+
+pub fn constBool(mod: *Module, arena: *Allocator, src: LazySrcLoc, v: bool) !*ir.Inst {
+    return mod.constInst(arena, src, .{
+        .ty = Type.initTag(.bool),
+        .val = ([2]Value{ Value.initTag(.bool_false), Value.initTag(.bool_true) })[@boolToInt(v)],
+    });
+}
+
+pub fn constIntUnsigned(mod: *Module, arena: *Allocator, src: LazySrcLoc, ty: Type, int: u64) !*ir.Inst {
+    return mod.constInst(arena, src, .{
+        .ty = ty,
+        .val = try Value.Tag.int_u64.create(arena, int),
+    });
+}
+
+pub fn constIntSigned(mod: *Module, arena: *Allocator, src: LazySrcLoc, ty: Type, int: i64) !*ir.Inst {
+    return mod.constInst(arena, src, .{
+        .ty = ty,
+        .val = try Value.Tag.int_i64.create(arena, int),
+    });
+}
+
+pub fn constIntBig(mod: *Module, arena: *Allocator, src: LazySrcLoc, ty: Type, big_int: BigIntConst) !*ir.Inst {
+    if (big_int.positive) {
+        if (big_int.to(u64)) |x| {
+            return mod.constIntUnsigned(arena, src, ty, x);
+        } else |err| switch (err) {
+            error.NegativeIntoUnsigned => unreachable,
+            error.TargetTooSmall => {}, // handled below
+        }
+        return mod.constInst(arena, src, .{
+            .ty = ty,
+            .val = try Value.Tag.int_big_positive.create(arena, big_int.limbs),
+        });
+    } else {
+        if (big_int.to(i64)) |x| {
+            return mod.constIntSigned(arena, src, ty, x);
+        } else |err| switch (err) {
+            error.NegativeIntoUnsigned => unreachable,
+            error.TargetTooSmall => {}, // handled below
+        }
+        return mod.constInst(arena, src, .{
+            .ty = ty,
+            .val = try Value.Tag.int_big_negative.create(arena, big_int.limbs),
+        });
+    }
+}
+
+pub fn dumpInst(mod: *Module, scope: *Scope, inst: *ir.Inst) void {
+    const zir_module = scope.namespace();
+    const source = zir_module.getSource(mod) catch @panic("dumpInst failed to get source");
+    const loc = std.zig.findLineColumn(source, inst.src);
+    if (inst.tag == .constant) {
+        std.debug.print("constant ty={} val={} src={s}:{d}:{d}\n", .{
+            inst.ty,
+            inst.castTag(.constant).?.val,
+            zir_module.subFilePath(),
+            loc.line + 1,
+            loc.column + 1,
+        });
+    } else if (inst.deaths == 0) {
+        std.debug.print("{s} ty={} src={s}:{d}:{d}\n", .{
+            @tagName(inst.tag),
+            inst.ty,
+            zir_module.subFilePath(),
+            loc.line + 1,
+            loc.column + 1,
+        });
+    } else {
+        std.debug.print("{s} ty={} deaths={b} src={s}:{d}:{d}\n", .{
+            @tagName(inst.tag),
+            inst.ty,
+            inst.deaths,
+            zir_module.subFilePath(),
+            loc.line + 1,
+            loc.column + 1,
+        });
+    }
+}
+
+    /// For debugging purposes.
+    pub fn dump(func: *Fn, mod: Module) void {
+        ir.dumpFn(mod, func);
+    }
+

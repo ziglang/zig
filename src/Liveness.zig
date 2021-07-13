@@ -50,7 +50,7 @@ pub fn analyze(gpa: *Allocator, air: Air) Allocator.Error!Liveness {
 
     var a: Analysis = .{
         .gpa = gpa,
-        .air = &air,
+        .air = air,
         .table = .{},
         .tomb_bits = try gpa.alloc(
             usize,
@@ -65,7 +65,7 @@ pub fn analyze(gpa: *Allocator, air: Air) Allocator.Error!Liveness {
     defer a.table.deinit(gpa);
 
     const main_body = air.getMainBody();
-    try a.table.ensureTotalCapacity(main_body.len);
+    try a.table.ensureTotalCapacity(gpa, @intCast(u32, main_body.len));
     try analyzeWithContext(&a, null, main_body);
     return Liveness{
         .tomb_bits = a.tomb_bits,
@@ -108,9 +108,10 @@ const OperandInt = std.math.Log2Int(Bpi);
 /// In-progress data; on successful analysis converted into `Liveness`.
 const Analysis = struct {
     gpa: *Allocator,
-    air: *const Air,
+    air: Air,
     table: std.AutoHashMapUnmanaged(Air.Inst.Index, void),
     tomb_bits: []usize,
+    special: std.AutoHashMapUnmanaged(Air.Inst.Index, u32),
     extra: std.ArrayListUnmanaged(u32),
 
     fn storeTombBits(a: *Analysis, inst: Air.Inst.Index, tomb_bits: Bpi) void {
@@ -165,7 +166,7 @@ fn analyzeWithContext(
 
 fn analyzeInst(
     a: *Analysis,
-    new_set: ?*std.AutoHashMap(Air.Inst.Index, void),
+    new_set: ?*std.AutoHashMapUnmanaged(Air.Inst.Index, void),
     inst: Air.Inst.Index,
 ) Allocator.Error!void {
     const gpa = a.gpa;

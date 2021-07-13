@@ -159,7 +159,11 @@ pub const DeclGen = struct {
     /// The SPIR-V module  code should be put in.
     spv: *SPIRVModule,
 
-    /// An array of function argument result-ids. Each index corresponds with the function argument of the same index.
+    air: Air,
+    liveness: Liveness,
+
+    /// An array of function argument result-ids. Each index corresponds with the
+    /// function argument of the same index.
     args: std.ArrayList(ResultId),
 
     /// A counter to keep track of how many `arg` instructions we've seen yet.
@@ -168,33 +172,35 @@ pub const DeclGen = struct {
     /// A map keeping track of which instruction generated which result-id.
     inst_results: InstMap,
 
-    /// We need to keep track of result ids for block labels, as well as the 'incoming' blocks for a block.
+    /// We need to keep track of result ids for block labels, as well as the 'incoming'
+    /// blocks for a block.
     blocks: BlockMap,
 
     /// The label of the SPIR-V block we are currently generating.
     current_block_label_id: ResultId,
 
-    /// The actual instructions for this function. We need to declare all locals in the first block, and because we don't
-    /// know which locals there are going to be, we're just going to generate everything after the locals-section in this array.
-    /// Note: It will not contain OpFunction, OpFunctionParameter, OpVariable and the initial OpLabel. These will be generated
-    /// into spv.binary.fn_decls directly.
+    /// The actual instructions for this function. We need to declare all locals in
+    /// the first block, and because we don't know which locals there are going to be,
+    /// we're just going to generate everything after the locals-section in this array.
+    /// Note: It will not contain OpFunction, OpFunctionParameter, OpVariable and the
+    /// initial OpLabel. These will be generated into spv.binary.fn_decls directly.
     code: std.ArrayList(Word),
 
     /// The decl we are currently generating code for.
     decl: *Decl,
 
-    /// If `gen` returned `Error.AnalysisFail`, this contains an explanatory message. Memory is owned by
-    /// `module.gpa`.
+    /// If `gen` returned `Error.AnalysisFail`, this contains an explanatory message.
+    /// Memory is owned by `module.gpa`.
     error_msg: ?*Module.ErrorMsg,
 
     /// Possible errors the `gen` function may return.
     const Error = error{ AnalysisFail, OutOfMemory };
 
-    /// This structure is used to return information about a type typically used for arithmetic operations.
-    /// These types may either be integers, floats, or a vector of these. Most scalar operations also work on vectors,
-    /// so we can easily represent those as arithmetic types.
-    /// If the type is a scalar, 'inner type' refers to the scalar type. Otherwise, if its a vector, it refers
-    /// to the vector's element type.
+    /// This structure is used to return information about a type typically used for
+    /// arithmetic operations. These types may either be integers, floats, or a vector
+    /// of these. Most scalar operations also work on vectors, so we can easily represent
+    /// those as arithmetic types. If the type is a scalar, 'inner type' refers to the
+    /// scalar type. Otherwise, if its a vector, it refers to the vector's element type.
     const ArithmeticTypeInfo = struct {
         /// A classification of the inner type.
         const Class = enum {
@@ -206,13 +212,14 @@ pub const DeclGen = struct {
             /// the relevant capability is enabled).
             integer,
 
-            /// A regular float. These are all required to be natively supported. Floating points for
-            /// which the relevant capability is not enabled are not emulated.
+            /// A regular float. These are all required to be natively supported. Floating points
+            /// for which the relevant capability is not enabled are not emulated.
             float,
 
-            /// An integer of a 'strange' size (which' bit size is not the same as its backing type. **Note**: this
-            /// may **also** include power-of-2 integers for which the relevant capability is not enabled), but still
-            /// within the limits of the largest natively supported integer type.
+            /// An integer of a 'strange' size (which' bit size is not the same as its backing
+            /// type. **Note**: this may **also** include power-of-2 integers for which the
+            /// relevant capability is not enabled), but still within the limits of the largest
+            /// natively supported integer type.
             strange_integer,
 
             /// An integer with more bits than the largest natively supported integer type.
@@ -220,7 +227,7 @@ pub const DeclGen = struct {
         };
 
         /// The number of bits in the inner type.
-        /// Note: this is the actual number of bits of the type, not the size of the backing integer.
+        /// This is the actual number of bits of the type, not the size of the backing integer.
         bits: u16,
 
         /// Whether the type is a vector.
@@ -234,10 +241,12 @@ pub const DeclGen = struct {
         class: Class,
     };
 
-    /// Initialize the common resources of a DeclGen. Some fields are left uninitialized, only set when `gen` is called.
+    /// Initialize the common resources of a DeclGen. Some fields are left uninitialized,
+    /// only set when `gen` is called.
     pub fn init(spv: *SPIRVModule) DeclGen {
         return .{
             .spv = spv,
+            .air = undefined,
             .args = std.ArrayList(ResultId).init(spv.gpa),
             .next_arg_index = undefined,
             .inst_results = InstMap.init(spv.gpa),
@@ -252,8 +261,9 @@ pub const DeclGen = struct {
     /// Generate the code for `decl`. If a reportable error occured during code generation,
     /// a message is returned by this function. Callee owns the memory. If this function returns such
     /// a reportable error, it is valid to be called again for a different decl.
-    pub fn gen(self: *DeclGen, decl: *Decl) !?*Module.ErrorMsg {
+    pub fn gen(self: *DeclGen, decl: *Decl, air: Air) !?*Module.ErrorMsg {
         // Reset internal resources, we don't want to re-allocate these.
+        self.air = &air;
         self.args.items.len = 0;
         self.next_arg_index = 0;
         self.inst_results.clearRetainingCapacity();
@@ -680,7 +690,7 @@ pub const DeclGen = struct {
 
             .br         => return self.genBr(inst),
             .breakpoint => return,
-            .condbr     => return self.genCondBr(inst),
+            .cond_br    => return self.genCondBr(inst),
             .constant   => unreachable,
             .dbg_stmt   => return self.genDbgStmt(inst),
             .loop       => return self.genLoop(inst),
@@ -688,6 +698,10 @@ pub const DeclGen = struct {
             .store      => return self.genStore(inst),
             .unreach    => return self.genUnreach(),
             // zig fmt: on
+
+            else => |tag| return self.fail("TODO: SPIR-V backend: implement AIR tag {s}", .{
+                @tagName(tag),
+            }),
         };
 
         try self.inst_results.putNoClobber(inst, result_id);

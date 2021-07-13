@@ -29,8 +29,11 @@ pub const Inst = struct {
     data: Data,
 
     pub const Tag = enum(u8) {
-        /// The first N instructions in Air must be one arg instruction per function parameter.
-        /// Uses the `ty` field.
+        /// The first N instructions in the main block must be one arg instruction per
+        /// function parameter. This makes function parameters participate in
+        /// liveness analysis without any special handling.
+        /// Uses the `ty_str` field.
+        /// The string is the parameter name.
         arg,
         /// Float or integer addition. For integers, wrapping is undefined behavior.
         /// Both operands are guaranteed to be the same type, and the result type
@@ -131,6 +134,8 @@ pub const Inst = struct {
         /// A comptime-known value. Uses the `ty_pl` field, payload is index of
         /// `values` array.
         constant,
+        /// A comptime-known type. Uses the `ty` field.
+        const_ty,
         /// Notes the beginning of a source code statement and marks the line and column.
         /// Result type is always void.
         /// Uses the `dbg_stmt` field.
@@ -288,6 +293,11 @@ pub const Inst = struct {
             ty: Ref,
             // Index into a different array.
             payload: u32,
+        },
+        ty_str: struct {
+            ty: Ref,
+            // ZIR string table index.
+            str: u32,
         },
         br: struct {
             block_inst: Index,
