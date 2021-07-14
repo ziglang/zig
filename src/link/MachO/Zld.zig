@@ -18,7 +18,6 @@ const CodeSignature = @import("CodeSignature.zig");
 const Dylib = @import("Dylib.zig");
 const Object = @import("Object.zig");
 const Relocation = reloc.Relocation;
-const StringTable = @import("StringTable.zig");
 const Symbol = @import("Symbol.zig");
 const Trie = @import("Trie.zig");
 
@@ -26,7 +25,6 @@ usingnamespace @import("commands.zig");
 usingnamespace @import("bind.zig");
 
 allocator: *Allocator,
-strtab: StringTable,
 
 target: ?std.Target = null,
 page_size: ?u16 = null,
@@ -114,6 +112,9 @@ stub_helper_stubs_start_off: ?u64 = null,
 
 blocks: std.AutoHashMapUnmanaged(MatchingSection, *TextBlock) = .{},
 
+strtab: std.ArrayListUnmanaged(u8) = .{},
+strtab_cache: std.StringHashMapUnmanaged(u32) = .{},
+
 has_dices: bool = false,
 has_stabs: bool = false,
 
@@ -169,7 +170,7 @@ pub const TextBlock = struct {
                         .n_value = reg.address,
                     });
                     nlists.appendAssumeCapacity(.{
-                        .n_strx = try zld.strtab.getOrPut(sym.name),
+                        .n_strx = try zld.makeString(sym.name),
                         .n_type = macho.N_FUN,
                         .n_sect = section_id,
                         .n_desc = 0,
@@ -192,7 +193,7 @@ pub const TextBlock = struct {
                 },
                 .global => {
                     try nlists.append(.{
-                        .n_strx = try zld.strtab.getOrPut(sym.name),
+                        .n_strx = try zld.makeString(sym.name),
                         .n_type = macho.N_GSYM,
                         .n_sect = 0,
                         .n_desc = 0,
@@ -201,7 +202,7 @@ pub const TextBlock = struct {
                 },
                 .static => {
                     try nlists.append(.{
-                        .n_strx = try zld.strtab.getOrPut(sym.name),
+                        .n_strx = try zld.makeString(sym.name),
                         .n_type = macho.N_STSYM,
                         .n_sect = reg.sectionId(zld),
                         .n_desc = 0,
@@ -311,10 +312,7 @@ pub const TextBlock = struct {
 const DEFAULT_DYLD_PATH: [*:0]const u8 = "/usr/lib/dyld";
 
 pub fn init(allocator: *Allocator) !Zld {
-    return Zld{
-        .allocator = allocator,
-        .strtab = try StringTable.init(allocator),
-    };
+    return Zld{ .allocator = allocator };
 }
 
 pub fn deinit(self: *Zld) void {
@@ -357,7 +355,15 @@ pub fn deinit(self: *Zld) void {
     self.locals.deinit(self.allocator);
 
     self.globals.deinit(self.allocator);
-    self.strtab.deinit();
+
+    {
+        var it = self.strtab_cache.keyIterator();
+        while (it.next()) |key| {
+            self.allocator.free(key.*);
+        }
+    }
+    self.strtab_cache.deinit(self.allocator);
+    self.strtab.deinit(self.allocator);
 
     // TODO dealloc all blocks
     self.blocks.deinit(self.allocator);
@@ -2572,7 +2578,7 @@ fn writeSymbolTable(self: *Zld) !void {
         if (symbol.isTemp()) continue; // TODO when merging codepaths, this should go into freelist
 
         const reg = symbol.payload.regular;
-        const nlist = try symbol.asNlist(self, &self.strtab);
+        const nlist = try symbol.asNlist(self);
 
         if (reg.linkage == .translation_unit) {
             try locals.append(nlist);
@@ -2588,21 +2594,21 @@ fn writeSymbolTable(self: *Zld) !void {
             // Open scope
             try locals.ensureUnusedCapacity(4);
             locals.appendAssumeCapacity(.{
-                .n_strx = try self.strtab.getOrPut(object.tu_comp_dir.?),
+                .n_strx = try self.makeString(object.tu_comp_dir.?),
                 .n_type = macho.N_SO,
                 .n_sect = 0,
                 .n_desc = 0,
                 .n_value = 0,
             });
             locals.appendAssumeCapacity(.{
-                .n_strx = try self.strtab.getOrPut(object.tu_name.?),
+                .n_strx = try self.makeString(object.tu_name.?),
                 .n_type = macho.N_SO,
                 .n_sect = 0,
                 .n_desc = 0,
                 .n_value = 0,
             });
             locals.appendAssumeCapacity(.{
-                .n_strx = try self.strtab.getOrPut(object.name.?),
+                .n_strx = try self.makeString(object.name.?),
                 .n_type = macho.N_OSO,
                 .n_sect = 0,
                 .n_desc = 1,
@@ -2642,7 +2648,7 @@ fn writeSymbolTable(self: *Zld) !void {
     defer undef_dir.deinit();
 
     for (self.imports.items) |sym| {
-        const nlist = try sym.asNlist(self, &self.strtab);
+        const nlist = try sym.asNlist(self);
         const id = @intCast(u32, undefs.items.len);
         try undefs.append(nlist);
         try undef_dir.putNoClobber(sym.name, id);
@@ -2737,14 +2743,14 @@ fn writeStringTable(self: *Zld) !void {
     const seg = &self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
     const symtab = &self.load_commands.items[self.symtab_cmd_index.?].Symtab;
     symtab.stroff = @intCast(u32, seg.inner.fileoff + seg.inner.filesize);
-    symtab.strsize = @intCast(u32, mem.alignForwardGeneric(u64, self.strtab.size(), @alignOf(u64)));
+    symtab.strsize = @intCast(u32, mem.alignForwardGeneric(u64, self.strtab.items.len, @alignOf(u64)));
     seg.inner.filesize += symtab.strsize;
 
     log.debug("writing string table from 0x{x} to 0x{x}", .{ symtab.stroff, symtab.stroff + symtab.strsize });
 
-    try self.file.?.pwriteAll(self.strtab.asSlice(), symtab.stroff);
+    try self.file.?.pwriteAll(self.strtab.items, symtab.stroff);
 
-    if (symtab.strsize > self.strtab.size() and self.target.?.cpu.arch == .x86_64) {
+    if (symtab.strsize > self.strtab.items.len and self.target.?.cpu.arch == .x86_64) {
         // This is the last section, so we need to pad it out.
         try self.file.?.pwriteAll(&[_]u8{0}, seg.inner.fileoff + seg.inner.filesize - 1);
     }
@@ -2909,4 +2915,28 @@ fn writeHeader(self: *Zld) !void {
     log.debug("writing Mach-O header {}", .{header});
 
     try self.file.?.pwriteAll(mem.asBytes(&header), 0);
+}
+
+pub fn makeString(self: *Zld, string: []const u8) !u32 {
+    if (self.strtab_cache.get(string)) |off| {
+        log.debug("reusing string '{s}' at offset 0x{x}", .{ string, off });
+        return off;
+    }
+
+    try self.strtab.ensureUnusedCapacity(self.allocator, string.len + 1);
+    const new_off = @intCast(u32, self.strtab.items.len);
+
+    log.debug("writing new string '{s}' at offset 0x{x}", .{ string, new_off });
+
+    self.strtab.appendSliceAssumeCapacity(string);
+    self.strtab.appendAssumeCapacity(0);
+
+    try self.strtab_cache.putNoClobber(self.allocator, try self.allocator.dupe(u8, string), new_off);
+
+    return new_off;
+}
+
+pub fn getString(self: *Zld, off: u32) ?[]const u8 {
+    assert(off < self.strtab.items.len);
+    return mem.spanZ(@ptrCast([*:0]const u8, self.strtab.items.ptr + off));
 }

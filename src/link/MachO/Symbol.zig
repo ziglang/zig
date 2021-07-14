@@ -9,7 +9,6 @@ const mem = std.mem;
 const Allocator = mem.Allocator;
 const Dylib = @import("Dylib.zig");
 const Object = @import("Object.zig");
-const StringTable = @import("StringTable.zig");
 const Zld = @import("Zld.zig");
 
 /// Symbol name. Owned slice.
@@ -226,8 +225,8 @@ pub fn needsTlvOffset(self: Symbol, zld: *Zld) bool {
     return sect_type == macho.S_THREAD_LOCAL_VARIABLES;
 }
 
-pub fn asNlist(symbol: *Symbol, zld: *Zld, strtab: *StringTable) !macho.nlist_64 {
-    const n_strx = try strtab.getOrPut(symbol.name);
+pub fn asNlist(symbol: *Symbol, zld: *Zld) !macho.nlist_64 {
+    const n_strx = try zld.makeString(symbol.name);
     const nlist = nlist: {
         switch (symbol.payload) {
             .regular => |regular| {

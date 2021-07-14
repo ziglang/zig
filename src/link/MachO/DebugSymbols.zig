@@ -814,7 +814,7 @@ fn writeStringTable(self: *DebugSymbols) !void {
 
     const symtab = &self.load_commands.items[self.symtab_cmd_index.?].Symtab;
     const allocated_size = self.allocatedSizeLinkedit(symtab.stroff);
-    const needed_size = mem.alignForwardGeneric(u64, self.base.strtab.size(), @alignOf(u64));
+    const needed_size = mem.alignForwardGeneric(u64, self.base.strtab.items.len, @alignOf(u64));
 
     if (needed_size > allocated_size) {
         symtab.strsize = 0;
@@ -823,7 +823,7 @@ fn writeStringTable(self: *DebugSymbols) !void {
     symtab.strsize = @intCast(u32, needed_size);
     log.debug("writing string table from 0x{x} to 0x{x}", .{ symtab.stroff, symtab.stroff + symtab.strsize });
 
-    try self.file.pwriteAll(self.base.strtab.asSlice(), symtab.stroff);
+    try self.file.pwriteAll(self.base.strtab.items, symtab.stroff);
     self.load_commands_dirty = true;
     self.strtab_dirty = false;
 }

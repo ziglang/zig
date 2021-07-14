@@ -26,7 +26,6 @@ const target_util = @import("../target.zig");
 const DebugSymbols = @import("MachO/DebugSymbols.zig");
 const Trie = @import("MachO/Trie.zig");
 const CodeSignature = @import("MachO/CodeSignature.zig");
-const StringTable = @import("MachO/StringTable.zig");
 const Zld = @import("MachO/Zld.zig");
 
 usingnamespace @import("MachO/commands.zig");
@@ -117,7 +116,8 @@ offset_table_free_list: std.ArrayListUnmanaged(u32) = .{},
 
 stub_helper_stubs_start_off: ?u64 = null,
 
-strtab: StringTable = undefined,
+strtab: std.ArrayListUnmanaged(u8) = .{},
+strtab_cache: std.StringHashMapUnmanaged(u32) = .{},
 
 /// Table of GOT entries.
 offset_table: std.ArrayListUnmanaged(GOTEntry) = .{},
@@ -418,7 +418,6 @@ pub fn createEmpty(gpa: *Allocator, options: link.Options) !*MachO {
             .file = null,
         },
         .page_size = if (options.target.cpu.arch == .aarch64) 0x4000 else 0x1000,
-        .strtab = try StringTable.init(gpa),
     };
 
     return self;
@@ -985,7 +984,14 @@ pub fn deinit(self: *MachO) void {
     self.text_block_free_list.deinit(self.base.allocator);
     self.offset_table.deinit(self.base.allocator);
     self.offset_table_free_list.deinit(self.base.allocator);
-    self.strtab.deinit();
+    {
+        var it = self.strtab_cache.keyIterator();
+        while (it.next()) |key| {
+            self.base.allocator.free(key.*);
+        }
+    }
+    self.strtab_cache.deinit(self.base.allocator);
+    self.strtab.deinit(self.base.allocator);
     self.globals.deinit(self.base.allocator);
     self.globals_free_list.deinit(self.base.allocator);
     self.locals.deinit(self.base.allocator);
@@ -1203,7 +1209,7 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
         const new_name = try std.fmt.allocPrint(self.base.allocator, "_{s}", .{mem.spanZ(decl.name)});
         defer self.base.allocator.free(new_name);
 
-        symbol.n_strx = try self.strtab.getOrPut(new_name);
+        symbol.n_strx = try self.makeString(new_name);
         symbol.n_type = macho.N_SECT;
         symbol.n_sect = @intCast(u8, self.text_section_index.?) + 1;
         symbol.n_desc = 0;
@@ -1215,7 +1221,7 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
         const decl_name = try std.fmt.allocPrint(self.base.allocator, "_{s}", .{mem.spanZ(decl.name)});
         defer self.base.allocator.free(decl_name);
 
-        const name_str_index = try self.strtab.getOrPut(decl_name);
+        const name_str_index = try self.makeString(decl_name);
         const addr = try self.allocateTextBlock(&decl.link.macho, code.len, required_alignment);
 
         log.debug("allocated text block for {s} at 0x{x}", .{ decl_name, addr });
@@ -1405,14 +1411,14 @@ pub fn updateDeclExports(
         if (exp.link.macho.sym_index) |i| {
             const sym = &self.globals.items[i];
             sym.* = .{
-                .n_strx = try self.strtab.getOrPut(exp_name),
+                .n_strx = sym.n_strx,
                 .n_type = n_type,
                 .n_sect = @intCast(u8, self.text_section_index.?) + 1,
                 .n_desc = n_desc,
                 .n_value = decl_sym.n_value,
             };
         } else {
-            const name_str_index = try self.strtab.getOrPut(exp_name);
+            const name_str_index = try self.makeString(exp_name);
             const i = if (self.globals_free_list.popOrNull()) |i| i else blk: {
                 _ = self.globals.addOneAssumeCapacity();
                 self.export_info_dirty = true;
@@ -1788,7 +1794,8 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         symtab.symoff = @intCast(u32, symtab_off);
         symtab.nsyms = @intCast(u32, self.base.options.symbol_count_hint);
 
-        const strtab_size = self.strtab.size();
+        try self.strtab.append(self.base.allocator, 0);
+        const strtab_size = self.strtab.items.len;
         const strtab_off = self.findFreeSpaceLinkedit(strtab_size, 1, symtab_off);
         log.debug("found string table free space 0x{x} to 0x{x}", .{ strtab_off, strtab_off + strtab_size });
         symtab.stroff = @intCast(u32, strtab_off);
@@ -1930,7 +1937,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
     if (!self.nonlazy_imports.contains("dyld_stub_binder")) {
         const index = @intCast(u32, self.nonlazy_imports.count());
         const name = try self.base.allocator.dupe(u8, "dyld_stub_binder");
-        const offset = try self.strtab.getOrPut("dyld_stub_binder");
+        const offset = try self.makeString("dyld_stub_binder");
         try self.nonlazy_imports.putNoClobber(self.base.allocator, name, .{
             .symbol = .{
                 .n_strx = offset,
@@ -2063,7 +2070,7 @@ fn allocateTextBlock(self: *MachO, text_block: *TextBlock, new_block_size: u64, 
 
 pub fn addExternSymbol(self: *MachO, name: []const u8) !u32 {
     const index = @intCast(u32, self.lazy_imports.count());
-    const offset = try self.strtab.getOrPut(name);
+    const offset = try self.makeString(name);
     const sym_name = try self.base.allocator.dupe(u8, name);
     const dylib_ordinal = 1; // TODO this is now hardcoded, since we only support libSystem.
     try self.lazy_imports.putNoClobber(self.base.allocator, sym_name, .{
@@ -2253,7 +2260,7 @@ fn writeOffsetTableEntry(self: *MachO, index: usize) !void {
             },
         }
     };
-    const sym_name = self.strtab.get(sym.n_strx) orelse unreachable;
+    const sym_name = self.getString(sym.n_strx) orelse unreachable;
     log.debug("writing offset table entry [ 0x{x} => 0x{x} ({s}) ]", .{ off, sym.n_value, sym_name });
     try self.base.file.?.pwriteAll(mem.asBytes(&sym.n_value), off);
 }
@@ -2751,7 +2758,7 @@ fn writeExportTrie(self: *MachO) !void {
     const text_segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
     for (self.globals.items) |symbol| {
         // TODO figure out if we should put all global symbols into the export trie
-        const name = self.strtab.get(symbol.n_strx) orelse unreachable;
+        const name = self.getString(symbol.n_strx) orelse unreachable;
         assert(symbol.n_value >= text_segment.inner.vmaddr);
         try trie.put(.{
             .name = name,
@@ -3032,7 +3039,7 @@ fn writeStringTable(self: *MachO) !void {
 
     const symtab = &self.load_commands.items[self.symtab_cmd_index.?].Symtab;
     const allocated_size = self.allocatedSizeLinkedit(symtab.stroff);
-    const needed_size = mem.alignForwardGeneric(u64, self.strtab.size(), @alignOf(u64));
+    const needed_size = mem.alignForwardGeneric(u64, self.strtab.items.len, @alignOf(u64));
 
     if (needed_size > allocated_size or self.strtab_needs_relocation) {
         symtab.strsize = 0;
@@ -3042,7 +3049,7 @@ fn writeStringTable(self: *MachO) !void {
     symtab.strsize = @intCast(u32, needed_size);
     log.debug("writing string table from 0x{x} to 0x{x}", .{ symtab.stroff, symtab.stroff + symtab.strsize });
 
-    try self.base.file.?.pwriteAll(self.strtab.asSlice(), symtab.stroff);
+    try self.base.file.?.pwriteAll(self.strtab.items, symtab.stroff);
     self.load_commands_dirty = true;
     self.strtab_dirty = false;
 }
@@ -3172,4 +3179,28 @@ pub fn padToIdeal(actual_size: anytype) @TypeOf(actual_size) {
 
 fn hasTlvDescriptors(_: *MachO) bool {
     return false;
+}
+
+pub fn makeString(self: *MachO, string: []const u8) !u32 {
+    if (self.strtab_cache.get(string)) |off| {
+        log.debug("reusing string '{s}' at offset 0x{x}", .{ string, off });
+        return off;
+    }
+
+    try self.strtab.ensureUnusedCapacity(self.base.allocator, string.len + 1);
+    const new_off = @intCast(u32, self.strtab.items.len);
+
+    log.debug("writing new string '{s}' at offset 0x{x}", .{ string, new_off });
+
+    self.strtab.appendSliceAssumeCapacity(string);
+    self.strtab.appendAssumeCapacity(0);
+
+    try self.strtab_cache.putNoClobber(self.base.allocator, try self.base.allocator.dupe(u8, string), new_off);
+
+    return new_off;
+}
+
+pub fn getString(self: *MachO, off: u32) ?[]const u8 {
+    assert(off < self.strtab.items.len);
+    return mem.spanZ(@ptrCast([*:0]const u8, self.strtab.items.ptr + off));
 }
