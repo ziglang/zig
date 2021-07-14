@@ -5264,7 +5264,9 @@ fn whileExpr(
                 const ident_token = if (payload_is_ref) payload_token + 1 else payload_token;
                 if (mem.eql(u8, "_", tree.tokenSlice(ident_token)))
                     break :s &then_scope.base;
-                const ident_name = try astgen.identAsString(payload_token + @boolToInt(payload_is_ref));
+                const payload_name_loc = payload_token + @boolToInt(payload_is_ref);
+                const ident_name = try astgen.identAsString(payload_name_loc);
+                try astgen.detectLocalShadowing(&then_scope.base, ident_name, payload_name_loc);
                 payload_val_scope = .{
                     .parent = &then_scope.base,
                     .gen_zir = &then_scope,
@@ -5287,6 +5289,7 @@ fn whileExpr(
             const ident_name = try astgen.identAsString(ident_token);
             if (mem.eql(u8, "_", tree.tokenSlice(ident_token)))
                 break :s &then_scope.base;
+            try astgen.detectLocalShadowing(&then_scope.base, ident_name, ident_token);
             payload_val_scope = .{
                 .parent = &then_scope.base,
                 .gen_zir = &then_scope,
@@ -5344,6 +5347,7 @@ fn whileExpr(
                 const ident_name = try astgen.identAsString(error_token);
                 if (mem.eql(u8, tree.tokenSlice(error_token), "_"))
                     break :s &else_scope.base;
+                try astgen.detectLocalShadowing(&else_scope.base, ident_name, error_token);
                 payload_val_scope = .{
                     .parent = &else_scope.base,
                     .gen_zir = &else_scope,
@@ -5483,6 +5487,7 @@ fn forExpr(
             const name_str_index = try astgen.identAsString(ident);
             const tag: Zir.Inst.Tag = if (is_ptr) .elem_ptr else .elem_val;
             const payload_inst = try then_scope.addBin(tag, array_ptr, index);
+            try astgen.detectLocalShadowing(&then_scope.base, name_str_index, ident);
             payload_val_scope = .{
                 .parent = &then_scope.base,
                 .gen_zir = &then_scope,
@@ -5506,6 +5511,7 @@ fn forExpr(
             return astgen.failTok(index_token, "discard of index capture; omit it instead", .{});
         }
         const index_name = try astgen.identAsString(index_token);
+        try astgen.detectLocalShadowing(payload_sub_scope, index_name, index_token);
         index_scope = .{
             .parent = payload_sub_scope,
             .gen_zir = &then_scope,
