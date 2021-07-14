@@ -23,6 +23,11 @@ const RegisterManager = @import("register_manager.zig").RegisterManager;
 
 const X8664Encoder = @import("codegen/x86_64.zig").Encoder;
 
+pub const FnResult = union(enum) {
+    /// The `code` parameter passed to `generateSymbol` has the value appended.
+    appended: void,
+    fail: *ErrorMsg,
+};
 pub const Result = union(enum) {
     /// The `code` parameter passed to `generateSymbol` has the value appended.
     appended: void,
@@ -54,7 +59,7 @@ pub fn generateFunction(
     liveness: Liveness,
     code: *std.ArrayList(u8),
     debug_output: DebugInfoOutput,
-) GenerateSymbolError!Result {
+) GenerateSymbolError!FnResult {
     switch (bin_file.options.target.cpu.arch) {
         .wasm32 => unreachable, // has its own code path
         .wasm64 => unreachable, // has its own code path
@@ -451,7 +456,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             liveness: Liveness,
             code: *std.ArrayList(u8),
             debug_output: DebugInfoOutput,
-        ) GenerateSymbolError!Result {
+        ) GenerateSymbolError!FnResult {
             if (build_options.skip_non_native and std.Target.current.cpu.arch != arch) {
                 @panic("Attempted to compile for architecture that was disabled by build configuration");
             }
@@ -495,7 +500,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             defer function.exitlude_jump_relocs.deinit(bin_file.allocator);
 
             var call_info = function.resolveCallingConventionValues(fn_type) catch |err| switch (err) {
-                error.CodegenFail => return Result{ .fail = function.err_msg.? },
+                error.CodegenFail => return FnResult{ .fail = function.err_msg.? },
                 else => |e| return e,
             };
             defer call_info.deinit(&function);
@@ -506,14 +511,14 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             function.max_end_stack = call_info.stack_byte_count;
 
             function.gen() catch |err| switch (err) {
-                error.CodegenFail => return Result{ .fail = function.err_msg.? },
+                error.CodegenFail => return FnResult{ .fail = function.err_msg.? },
                 else => |e| return e,
             };
 
             if (function.err_msg) |em| {
-                return Result{ .fail = em };
+                return FnResult{ .fail = em };
             } else {
-                return Result{ .appended = {} };
+                return FnResult{ .appended = {} };
             }
         }
 
