@@ -148,7 +148,7 @@ emit_docs: ?EmitLoc,
 work_queue_wait_group: WaitGroup,
 astgen_wait_group: WaitGroup,
 
-pub const InnerError = Module.InnerError;
+pub const SemaError = Module.SemaError;
 
 pub const CRTFile = struct {
     lock: Cache.Lock,
@@ -3167,7 +3167,7 @@ pub fn addCCArgs(
     try argv.appendSlice(comp.clang_argv);
 }
 
-fn failCObj(comp: *Compilation, c_object: *CObject, comptime format: []const u8, args: anytype) InnerError {
+fn failCObj(comp: *Compilation, c_object: *CObject, comptime format: []const u8, args: anytype) SemaError {
     @setCold(true);
     const err_msg = blk: {
         const msg = try std.fmt.allocPrint(comp.gpa, format, args);
@@ -3188,7 +3188,7 @@ fn failCObjWithOwnedErrorMsg(
     comp: *Compilation,
     c_object: *CObject,
     err_msg: *CObject.ErrorMsg,
-) InnerError {
+) SemaError {
     @setCold(true);
     {
         const lock = comp.mutex.acquire();
