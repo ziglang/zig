@@ -1922,8 +1922,6 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: ast.Node.Index) Inner
             .bool_br_and,
             .bool_br_or,
             .bool_not,
-            .bool_and,
-            .bool_or,
             .call_compile_time,
             .call_nosuspend,
             .call_async,

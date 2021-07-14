@@ -185,8 +185,6 @@ pub fn analyzeBody(
             //.block                        => try sema.zirBlock(block, inst),
             //.suspend_block                => try sema.zirSuspendBlock(block, inst),
             //.bool_not                     => try sema.zirBoolNot(block, inst),
-            //.bool_and                     => try sema.zirBoolOp(block, inst, false),
-            //.bool_or                      => try sema.zirBoolOp(block, inst, true),
             //.bool_br_and                  => try sema.zirBoolBr(block, inst, false),
             //.bool_br_or                   => try sema.zirBoolBr(block, inst, true),
             //.c_import                     => try sema.zirCImport(block, inst),
@@ -195,12 +193,12 @@ pub fn analyzeBody(
             //.call_compile_time            => try sema.zirCall(block, inst, .compile_time, false),
             //.call_nosuspend               => try sema.zirCall(block, inst, .no_async, false),
             //.call_async                   => try sema.zirCall(block, inst, .async_kw, false),
-            //.cmp_eq                       => try sema.zirCmp(block, inst, .eq),
-            //.cmp_gt                       => try sema.zirCmp(block, inst, .gt),
-            //.cmp_gte                      => try sema.zirCmp(block, inst, .gte),
-            //.cmp_lt                       => try sema.zirCmp(block, inst, .lt),
-            //.cmp_lte                      => try sema.zirCmp(block, inst, .lte),
-            //.cmp_neq                      => try sema.zirCmp(block, inst, .neq),
+            .cmp_eq                       => try sema.zirCmp(block, inst, .eq),
+            .cmp_gt                       => try sema.zirCmp(block, inst, .gt),
+            .cmp_gte                      => try sema.zirCmp(block, inst, .gte),
+            .cmp_lt                       => try sema.zirCmp(block, inst, .lt),
+            .cmp_lte                      => try sema.zirCmp(block, inst, .lte),
+            .cmp_neq                      => try sema.zirCmp(block, inst, .neq),
             //.coerce_result_ptr            => try sema.zirCoerceResultPtr(block, inst),
             //.decl_ref                     => try sema.zirDeclRef(block, inst),
             //.decl_val                     => try sema.zirDeclVal(block, inst),
@@ -4669,8 +4667,8 @@ fn zirBitwise(
         return sema.mod.fail(&block.base, src, "invalid operands to binary bitwise expression: '{s}' and '{s}'", .{ @tagName(lhs_ty.zigTypeTag()), @tagName(rhs_ty.zigTypeTag()) });
     }
 
-    if (casted_lhs.value()) |lhs_val| {
-        if (casted_rhs.value()) |rhs_val| {
+    if (try sema.resolvePossiblyUndefinedValue(block, lhs_src, casted_lhs)) |lhs_val| {
+        if (try sema.resolvePossiblyUndefinedValue(block, rhs_src, casted_rhs)) |rhs_val| {
             if (lhs_val.isUndef() or rhs_val.isUndef()) {
                 return sema.addConstUndef(resolved_type);
             }
@@ -4799,8 +4797,8 @@ fn analyzeArithmetic(
         return sema.mod.fail(&block.base, src, "invalid operands to binary expression: '{s}' and '{s}'", .{ @tagName(lhs_ty.zigTypeTag()), @tagName(rhs_ty.zigTypeTag()) });
     }
 
-    if (casted_lhs.value()) |lhs_val| {
-        if (casted_rhs.value()) |rhs_val| {
+    if (try sema.resolvePossiblyUndefinedValue(block, lhs_src, casted_lhs)) |lhs_val| {
+        if (try sema.resolvePossiblyUndefinedValue(block, rhs_src, casted_rhs)) |rhs_val| {
             if (lhs_val.isUndef() or rhs_val.isUndef()) {
                 return sema.addConstUndef(resolved_type);
             }
@@ -5072,8 +5070,8 @@ fn zirCmp(
     const casted_lhs = try sema.coerce(block, resolved_type, lhs, lhs_src);
     const casted_rhs = try sema.coerce(block, resolved_type, rhs, rhs_src);
 
-    if (casted_lhs.value()) |lhs_val| {
-        if (casted_rhs.value()) |rhs_val| {
+    if (try sema.resolvePossiblyUndefinedValue(block, lhs_src, casted_lhs)) |lhs_val| {
+        if (try sema.resolvePossiblyUndefinedValue(block, rhs_src, casted_rhs)) |rhs_val| {
             if (lhs_val.isUndef() or rhs_val.isUndef()) {
                 return sema.addConstUndef(resolved_type);
             }
@@ -5256,45 +5254,6 @@ fn zirBoolNot(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileErr
     }
     try sema.requireRuntimeBlock(block, src);
     return block.addTyOp(.not, bool_type, operand);
-}
-
-fn zirBoolOp(
-    sema: *Sema,
-    block: *Scope.Block,
-    inst: Zir.Inst.Index,
-    is_bool_or: bool,
-) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const src: LazySrcLoc = .unneeded;
-    const bool_type = Type.initTag(.bool);
-    const bin_inst = sema.code.instructions.items(.data)[inst].bin;
-    const uncasted_lhs = sema.resolveInst(bin_inst.lhs);
-    const lhs = try sema.coerce(block, bool_type, uncasted_lhs, uncasted_lhs.src);
-    const uncasted_rhs = sema.resolveInst(bin_inst.rhs);
-    const rhs = try sema.coerce(block, bool_type, uncasted_rhs, uncasted_rhs.src);
-
-    if (lhs.value()) |lhs_val| {
-        if (rhs.value()) |rhs_val| {
-            if (is_bool_or) {
-                if (lhs_val.toBool() or rhs_val.toBool()) {
-                    return Air.Inst.Ref.bool_true;
-                } else {
-                    return Air.Inst.Ref.bool_false;
-                }
-            } else {
-                if (lhs_val.toBool() and rhs_val.toBool()) {
-                    return Air.Inst.Ref.bool_true;
-                } else {
-                    return Air.Inst.Ref.bool_false;
-                }
-            }
-        }
-    }
-    try sema.requireRuntimeBlock(block, src);
-    const tag: Air.Inst.Tag = if (is_bool_or) .bool_or else .bool_and;
-    return block.addBinOp(tag, lhs, rhs);
 }
 
 fn zirBoolBr(
@@ -6840,8 +6799,8 @@ fn elemPtrArray(
     elem_index: Air.Inst.Ref,
     elem_index_src: LazySrcLoc,
 ) CompileError!Air.Inst.Ref {
-    if (array_ptr.value()) |array_ptr_val| {
-        if (elem_index.value()) |index_val| {
+    if (try sema.resolveDefinedValue(block, src, array_ptr)) |array_ptr_val| {
+        if (try sema.resolveDefinedValue(block, src, elem_index)) |index_val| {
             // Both array pointer and index are compile-time known.
             const index_u64 = index_val.toUnsignedInt();
             // @intCast here because it would have been impossible to construct a value that
@@ -7367,8 +7326,8 @@ fn analyzeSlice(
     var return_ptr_size: std.builtin.TypeInfo.Pointer.Size = .Slice;
     var return_elem_type = elem_type;
     if (end_opt) |end| {
-        if (end.value()) |end_val| {
-            if (start.value()) |start_val| {
+        if (try sema.resolveDefinedValue(block, src, end)) |end_val| {
+            if (try sema.resolveDefinedValue(block, src, start)) |start_val| {
                 const start_u64 = start_val.toUnsignedInt();
                 const end_u64 = end_val.toUnsignedInt();
                 if (start_u64 > end_u64) {
@@ -7492,11 +7451,11 @@ fn cmpNumeric(
     // For mixed floats and integers, extract the integer part from the float, cast that to
     // a signed integer with mantissa bits + 1, and if there was any non-integral part of the float,
     // add/subtract 1.
-    const lhs_is_signed = if (lhs.value()) |lhs_val|
+    const lhs_is_signed = if (try sema.resolveDefinedValue(block, lhs_src, lhs)) |lhs_val|
         lhs_val.compareWithZero(.lt)
     else
         (lhs_ty.isFloat() or lhs_ty.isSignedInt());
-    const rhs_is_signed = if (rhs.value()) |rhs_val|
+    const rhs_is_signed = if (try sema.resolveDefinedValue(block, rhs_src, rhs)) |rhs_val|
         rhs_val.compareWithZero(.lt)
     else
         (rhs_ty.isFloat() or rhs_ty.isSignedInt());
@@ -7505,7 +7464,7 @@ fn cmpNumeric(
     var dest_float_type: ?Type = null;
 
     var lhs_bits: usize = undefined;
-    if (lhs.value()) |lhs_val| {
+    if (try sema.resolvePossiblyUndefinedValue(block, lhs_src, lhs)) |lhs_val| {
         if (lhs_val.isUndef())
             return sema.addConstUndef(Type.initTag(.bool));
         const is_unsigned = if (lhs_is_float) x: {
@@ -7540,7 +7499,7 @@ fn cmpNumeric(
     }
 
     var rhs_bits: usize = undefined;
-    if (rhs.value()) |rhs_val| {
+    if (try sema.resolvePossiblyUndefinedValue(block, rhs_src, rhs)) |rhs_val| {
         if (rhs_val.isUndef())
             return sema.addConstUndef(Type.initTag(.bool));
         const is_unsigned = if (rhs_is_float) x: {
@@ -7589,8 +7548,8 @@ fn cmpNumeric(
 }
 
 fn wrapOptional(sema: *Sema, block: *Scope.Block, dest_type: Type, inst: Air.Inst.Ref) !Air.Inst.Index {
-    if (inst.value()) |val| {
-        return sema.mod.constInst(sema.arena, inst.src, .{ .ty = dest_type, .val = val });
+    if (try sema.resolvePossiblyUndefinedValue(block, inst_src, inst)) |val| {
+        return sema.mod.constInst(sema.arena, inst_src, .{ .ty = dest_type, .val = val });
     }
 
     try sema.requireRuntimeBlock(block, inst.src);
@@ -7690,67 +7649,69 @@ fn resolvePeerTypes(
 
     var chosen = instructions[0];
     for (instructions[1..]) |candidate| {
-        if (candidate.ty.eql(chosen.ty))
+        const candidate_ty = sema.getTypeOf(candidate);
+        const chosen_ty = sema.getTypeOf(chosen);
+        if (candidate_ty.eql(chosen_ty))
             continue;
-        if (candidate.ty.zigTypeTag() == .NoReturn)
+        if (candidate_ty.zigTypeTag() == .NoReturn)
             continue;
-        if (chosen.ty.zigTypeTag() == .NoReturn) {
+        if (chosen_ty.zigTypeTag() == .NoReturn) {
             chosen = candidate;
             continue;
         }
-        if (candidate.ty.zigTypeTag() == .Undefined)
+        if (candidate_ty.zigTypeTag() == .Undefined)
             continue;
-        if (chosen.ty.zigTypeTag() == .Undefined) {
+        if (chosen_ty.zigTypeTag() == .Undefined) {
             chosen = candidate;
             continue;
         }
-        if (chosen.ty.isInt() and
-            candidate.ty.isInt() and
-            chosen.ty.isSignedInt() == candidate.ty.isSignedInt())
+        if (chosen_ty.isInt() and
+            candidate_ty.isInt() and
+            chosen_ty.isSignedInt() == candidate_ty.isSignedInt())
         {
-            if (chosen.ty.intInfo(target).bits < candidate.ty.intInfo(target).bits) {
+            if (chosen_ty.intInfo(target).bits < candidate_ty.intInfo(target).bits) {
                 chosen = candidate;
             }
             continue;
         }
-        if (chosen.ty.isFloat() and candidate.ty.isFloat()) {
-            if (chosen.ty.floatBits(target) < candidate.ty.floatBits(target)) {
+        if (chosen_ty.isFloat() and candidate_ty.isFloat()) {
+            if (chosen_ty.floatBits(target) < candidate_ty.floatBits(target)) {
                 chosen = candidate;
             }
             continue;
         }
 
-        if (chosen.ty.zigTypeTag() == .ComptimeInt and candidate.ty.isInt()) {
+        if (chosen_ty.zigTypeTag() == .ComptimeInt and candidate_ty.isInt()) {
             chosen = candidate;
             continue;
         }
 
-        if (chosen.ty.isInt() and candidate.ty.zigTypeTag() == .ComptimeInt) {
+        if (chosen_ty.isInt() and candidate_ty.zigTypeTag() == .ComptimeInt) {
             continue;
         }
 
-        if (chosen.ty.zigTypeTag() == .ComptimeFloat and candidate.ty.isFloat()) {
+        if (chosen_ty.zigTypeTag() == .ComptimeFloat and candidate_ty.isFloat()) {
             chosen = candidate;
             continue;
         }
 
-        if (chosen.ty.isFloat() and candidate.ty.zigTypeTag() == .ComptimeFloat) {
+        if (chosen_ty.isFloat() and candidate_ty.zigTypeTag() == .ComptimeFloat) {
             continue;
         }
 
-        if (chosen.ty.zigTypeTag() == .Enum and candidate.ty.zigTypeTag() == .EnumLiteral) {
+        if (chosen_ty.zigTypeTag() == .Enum and candidate_ty.zigTypeTag() == .EnumLiteral) {
             continue;
         }
-        if (chosen.ty.zigTypeTag() == .EnumLiteral and candidate.ty.zigTypeTag() == .Enum) {
+        if (chosen_ty.zigTypeTag() == .EnumLiteral and candidate_ty.zigTypeTag() == .Enum) {
             chosen = candidate;
             continue;
         }
 
         // TODO error notes pointing out each type
-        return sema.mod.fail(&block.base, src, "incompatible types: '{}' and '{}'", .{ chosen.ty, candidate.ty });
+        return sema.mod.fail(&block.base, src, "incompatible types: '{}' and '{}'", .{ chosen_ty, candidate_ty });
     }
 
-    return chosen.ty;
+    return sema.getTypeOf(chosen);
 }
 
 fn resolveTypeFields(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, ty: Type) CompileError!Type {

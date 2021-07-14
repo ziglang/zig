@@ -236,15 +236,9 @@ pub const Inst = struct {
         /// Implements `suspend {...}`.
         /// Uses the `pl_node` union field. Payload is `Block`.
         suspend_block,
-        /// Boolean AND. See also `bit_and`.
-        /// Uses the `pl_node` union field. Payload is `Bin`.
-        bool_and,
         /// Boolean NOT. See also `bit_not`.
         /// Uses the `un_node` field.
         bool_not,
-        /// Boolean OR. See also `bit_or`.
-        /// Uses the `pl_node` union field. Payload is `Bin`.
-        bool_or,
         /// Short-circuiting boolean `and`. `lhs` is a boolean `Ref` and the other operand
         /// is a block, which is evaluated if `lhs` is `true`.
         /// Uses the `bool_br` union field.
@@ -998,8 +992,6 @@ pub const Inst = struct {
                 .bool_br_and,
                 .bool_br_or,
                 .bool_not,
-                .bool_and,
-                .bool_or,
                 .breakpoint,
                 .fence,
                 .call,
@@ -1248,9 +1240,7 @@ pub const Inst = struct {
                 .block = .pl_node,
                 .block_inline = .pl_node,
                 .suspend_block = .pl_node,
-                .bool_and = .pl_node,
                 .bool_not = .un_node,
-                .bool_or = .pl_node,
                 .bool_br_and = .bool_br,
                 .bool_br_or = .bool_br,
                 .@"break" = .@"break",
@@ -2981,8 +2971,6 @@ const Writer = struct {
             .mulwrap,
             .sub,
             .subwrap,
-            .bool_and,
-            .bool_or,
             .cmp_lt,
             .cmp_lte,
             .cmp_eq,
