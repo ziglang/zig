@@ -1996,7 +1996,8 @@ pub const LazySrcLoc = union(enum) {
     }
 };
 
-pub const InnerError = error{ OutOfMemory, AnalysisFail };
+pub const SemaError = error{ OutOfMemory, AnalysisFail };
+pub const CompileError = error{ OutOfMemory, AnalysisFail, NeededSourceLocation };
 
 pub fn deinit(mod: *Module) void {
     const gpa = mod.gpa;
@@ -2635,7 +2636,7 @@ pub fn mapOldZirToNew(
     }
 }
 
-pub fn ensureDeclAnalyzed(mod: *Module, decl: *Decl) InnerError!void {
+pub fn ensureDeclAnalyzed(mod: *Module, decl: *Decl) SemaError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -2735,7 +2736,7 @@ pub fn semaPkg(mod: *Module, pkg: *Package) !void {
 
 /// Regardless of the file status, will create a `Decl` so that we
 /// can track dependencies and re-analyze when the file becomes outdated.
-pub fn semaFile(mod: *Module, file: *Scope.File) InnerError!void {
+pub fn semaFile(mod: *Module, file: *Scope.File) SemaError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -3150,7 +3151,7 @@ pub fn scanNamespace(
     extra_start: usize,
     decls_len: u32,
     parent_decl: *Decl,
-) InnerError!usize {
+) SemaError!usize {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -3197,7 +3198,7 @@ const ScanDeclIter = struct {
     unnamed_test_index: usize = 0,
 };
 
-fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) InnerError!void {
+fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) SemaError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -3451,7 +3452,7 @@ fn deleteDeclExports(mod: *Module, decl: *Decl) void {
     mod.gpa.free(kv.value);
 }
 
-pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn) !Air {
+pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn) SemaError!Air {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -3804,7 +3805,7 @@ pub fn fail(
     src: LazySrcLoc,
     comptime format: []const u8,
     args: anytype,
-) InnerError {
+) CompileError {
     const err_msg = try mod.errMsg(scope, src, format, args);
     return mod.failWithOwnedErrorMsg(scope, err_msg);
 }
@@ -3817,7 +3818,7 @@ pub fn failTok(
     token_index: ast.TokenIndex,
     comptime format: []const u8,
     args: anytype,
-) InnerError {
+) CompileError {
     const src = scope.srcDecl().?.tokSrcLoc(token_index);
     return mod.fail(scope, src, format, args);
 }
@@ -3830,18 +3831,21 @@ pub fn failNode(
     node_index: ast.Node.Index,
     comptime format: []const u8,
     args: anytype,
-) InnerError {
+) CompileError {
     const src = scope.srcDecl().?.nodeSrcLoc(node_index);
     return mod.fail(scope, src, format, args);
 }
 
-pub fn failWithOwnedErrorMsg(mod: *Module, scope: *Scope, err_msg: *ErrorMsg) InnerError {
+pub fn failWithOwnedErrorMsg(mod: *Module, scope: *Scope, err_msg: *ErrorMsg) CompileError {
     @setCold(true);
 
     {
         errdefer err_msg.destroy(mod.gpa);
-        try mod.failed_decls.ensureCapacity(mod.gpa, mod.failed_decls.count() + 1);
-        try mod.failed_files.ensureCapacity(mod.gpa, mod.failed_files.count() + 1);
+        if (err_msg.src_loc.lazy == .unneeded) {
+            return error.NeededSourceLocation;
+        }
+        try mod.failed_decls.ensureUnusedCapacity(mod.gpa, 1);
+        try mod.failed_files.ensureUnusedCapacity(mod.gpa, 1);
     }
     switch (scope.tag) {
         .block => {
@@ -4340,7 +4344,7 @@ pub const SwitchProngSrc = union(enum) {
     }
 };
 
-pub fn analyzeStructFields(mod: *Module, struct_obj: *Struct) InnerError!void {
+pub fn analyzeStructFields(mod: *Module, struct_obj: *Struct) CompileError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -4490,7 +4494,7 @@ pub fn analyzeStructFields(mod: *Module, struct_obj: *Struct) InnerError!void {
     }
 }
 
-pub fn analyzeUnionFields(mod: *Module, union_obj: *Union) InnerError!void {
+pub fn analyzeUnionFields(mod: *Module, union_obj: *Union) CompileError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
