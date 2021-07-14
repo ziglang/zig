@@ -1232,22 +1232,52 @@ pub const Scope = struct {
             ty: Type,
             operand: Air.Inst.Ref,
         ) error{OutOfMemory}!Air.Inst.Ref {
+            return block.addInst(.{
+                .tag = tag,
+                .data = .{ .ty_op = .{
+                    .ty = try block.sema.addType(ty),
+                    .operand = operand,
+                } },
+            });
+        }
+
+        pub fn addUnOp(
+            block: *Block,
+            tag: Air.Inst.Tag,
+            operand: Air.Inst.Ref,
+        ) error{OutOfMemory}!Air.Inst.Ref {
+            return block.addInst(.{
+                .tag = tag,
+                .data = .{ .un_op = operand },
+            });
+        }
+
+        pub fn addBinOp(
+            block: *Block,
+            tag: Air.Inst.Tag,
+            lhs: Air.Inst.Ref,
+            rhs: Air.Inst.Ref,
+        ) error{OutOfMemory}!Air.Inst.Ref {
+            return block.addInst(.{
+                .tag = tag,
+                .data = .{ .bin_op = .{
+                    .lhs = lhs,
+                    .rhs = rhs,
+                } },
+            });
+        }
+
+        pub fn addInst(block: *Block, inst: Air.Inst) error{OutOfMemory}!Air.Inst.Ref {
             const sema = block.sema;
             const gpa = sema.gpa;
 
             try sema.air_instructions.ensureUnusedCapacity(gpa, 1);
             try block.instructions.ensureUnusedCapacity(gpa, 1);
 
-            const inst = @intCast(Air.Inst.Index, sema.air_instructions.len);
-            sema.air_instructions.appendAssumeCapacity(.{
-                .tag = tag,
-                .data = .{ .ty_op = .{
-                    .ty = try sema.addType(ty),
-                    .operand = operand,
-                } },
-            });
-            block.instructions.appendAssumeCapacity(inst);
-            return Sema.indexToRef(inst);
+            const result_index = @intCast(Air.Inst.Index, sema.air_instructions.len);
+            sema.air_instructions.appendAssumeCapacity(inst);
+            block.instructions.appendAssumeCapacity(result_index);
+            return Sema.indexToRef(result_index);
         }
     };
 };
