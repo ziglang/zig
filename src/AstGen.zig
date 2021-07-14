@@ -2286,6 +2286,7 @@ fn checkUsed(
 ) InnerError!void {
     const astgen = gz.astgen;
 
+    var dirty: InnerError!void = {};
     var scope = inner_scope;
     while (scope != outer_scope) {
         switch (scope.tag) {
@@ -2293,14 +2294,14 @@ fn checkUsed(
             .local_val => {
                 const s = scope.cast(Scope.LocalVal).?;
                 if (!s.used) {
-                    return astgen.failTok(s.token_src, "unused {s}", .{@tagName(s.id_cat)});
+                    dirty = astgen.failTok(s.token_src, "unused {s}", .{@tagName(s.id_cat)});
                 }
                 scope = s.parent;
             },
             .local_ptr => {
                 const s = scope.cast(Scope.LocalPtr).?;
                 if (!s.used) {
-                    return astgen.failTok(s.token_src, "unused {s}", .{@tagName(s.id_cat)});
+                    dirty = astgen.failTok(s.token_src, "unused {s}", .{@tagName(s.id_cat)});
                 }
                 scope = s.parent;
             },
@@ -2309,6 +2310,7 @@ fn checkUsed(
             .top => unreachable,
         }
     }
+    return dirty;
 }
 
 fn makeDeferScope(

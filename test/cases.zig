@@ -255,6 +255,15 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    const x = 1;
             \\}
         , &.{":2:11: error: unused local constant"});
+        case.addError(
+            \\pub fn main() void {
+            \\    const x = 1;
+            \\    const y = 2;
+            \\}
+        , &.{
+            ":2:11: error: unused local constant",
+            ":3:11: error: unused local constant",
+        });
     }
     {
         var case = ctx.exe("@TypeOf", linux_x64);
