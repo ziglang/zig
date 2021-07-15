@@ -1255,7 +1255,7 @@ pub const Scope = struct {
         pub fn addNoOp(block: *Block, tag: Air.Inst.Tag) error{OutOfMemory}!Air.Inst.Ref {
             return block.addInst(.{
                 .tag = tag,
-                .data = .no_op,
+                .data = .{ .no_op = {} },
             });
         }
 

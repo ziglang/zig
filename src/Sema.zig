@@ -381,20 +381,20 @@ pub fn analyzeBody(
             .sub     => try sema.zirArithmetic(block, inst),
             .subwrap => try sema.zirArithmetic(block, inst),
 
-            //// Instructions that we know to *always* be noreturn based solely on their tag.
-            //// These functions match the return type of analyzeBody so that we can
-            //// tail call them here.
-            //.break_inline   => return inst,
-            //.condbr         => return sema.zirCondbr(block, inst),
-            //.@"break"       => return sema.zirBreak(block, inst),
-            //.compile_error  => return sema.zirCompileError(block, inst),
-            //.ret_coerce     => return sema.zirRetCoerce(block, inst, true),
-            //.ret_node       => return sema.zirRetNode(block, inst),
-            //.ret_err_value  => return sema.zirRetErrValue(block, inst),
-            //.@"unreachable" => return sema.zirUnreachable(block, inst),
-            //.repeat         => return sema.zirRepeat(block, inst),
-            //.panic          => return sema.zirPanic(block, inst),
-            //// zig fmt: on
+            // Instructions that we know to *always* be noreturn based solely on their tag.
+            // These functions match the return type of analyzeBody so that we can
+            // tail call them here.
+            .break_inline   => return inst,
+            .condbr         => return sema.zirCondbr(block, inst),
+            .@"break"       => return sema.zirBreak(block, inst),
+            .compile_error  => return sema.zirCompileError(block, inst),
+            .ret_coerce     => return sema.zirRetCoerce(block, inst, true),
+            .ret_node       => return sema.zirRetNode(block, inst),
+            .ret_err_value  => return sema.zirRetErrValue(block, inst),
+            .@"unreachable" => return sema.zirUnreachable(block, inst),
+            .repeat         => return sema.zirRepeat(block, inst),
+            .panic          => return sema.zirPanic(block, inst),
+            // zig fmt: on
 
             //// Instructions that we know can *never* be noreturn based solely on
             //// their tag. We avoid needlessly checking if they are noreturn and
@@ -534,7 +534,7 @@ pub fn analyzeBody(
                     return break_inst;
                 }
             },
-            else => @panic("TODO finish updating Sema for AIR memory layout changes and then remove this else prong"),
+            else => |t| @panic(@tagName(t)),
         };
         if (sema.getTypeOf(air_inst).isNoReturn())
             return always_noreturn;
@@ -2128,7 +2128,6 @@ fn zirBreak(sema: *Sema, start_block: *Scope.Block, inst: Zir.Inst.Index) Compil
     defer tracy.end();
 
     const inst_data = sema.code.instructions.items(.data)[inst].@"break";
-    const src = sema.src;
     const operand = sema.resolveInst(inst_data.operand);
     const zir_block = inst_data.block_inst;
 
@@ -2136,26 +2135,9 @@ fn zirBreak(sema: *Sema, start_block: *Scope.Block, inst: Zir.Inst.Index) Compil
     while (true) {
         if (block.label) |label| {
             if (label.zir_block == zir_block) {
-                // Here we add a br instruction, but we over-allocate a little bit
-                // (if necessary) to make it possible to convert the instruction into
-                // a br_block_flat instruction later.
-                const br = @ptrCast(*Inst.Br, try sema.arena.alignedAlloc(
-                    u8,
-                    Inst.convertable_br_align,
-                    Inst.convertable_br_size,
-                ));
-                br.* = .{
-                    .base = .{
-                        .tag = .br,
-                        .ty = Type.initTag(.noreturn),
-                        .src = src,
-                    },
-                    .operand = operand,
-                    .block = label.merges.block_inst,
-                };
-                try start_block.instructions.append(sema.gpa, &br.base);
+                const br_ref = try start_block.addBr(label.merges.block_inst, operand);
                 try label.merges.results.append(sema.gpa, operand);
-                try label.merges.br_list.append(sema.gpa, br);
+                try label.merges.br_list.append(sema.gpa, refToIndex(br_ref).?);
                 return inst;
             }
         }
@@ -5391,25 +5373,35 @@ fn zirCondbr(
         return always_noreturn;
     }
 
+    const gpa = sema.gpa;
+
+    // We'll re-use the sub block to save on memory bandwidth, and yank out the
+    // instructions array in between using it for the then block and else block.
     var sub_block = parent_block.makeSubBlock();
     sub_block.runtime_loop = null;
-    sub_block.runtime_cond = cond.src;
+    sub_block.runtime_cond = cond_src;
     sub_block.runtime_index += 1;
-    defer sub_block.instructions.deinit(sema.gpa);
+    defer sub_block.instructions.deinit(gpa);
 
     _ = try sema.analyzeBody(&sub_block, then_body);
-    const air_then_body: ir.Body = .{
-        .instructions = try sema.arena.dupe(Air.Inst.Index, sub_block.instructions.items),
-    };
-
-    sub_block.instructions.shrinkRetainingCapacity(0);
+    const true_instructions = sub_block.instructions.toOwnedSlice(gpa);
+    defer gpa.free(true_instructions);
 
     _ = try sema.analyzeBody(&sub_block, else_body);
-    const air_else_body: ir.Body = .{
-        .instructions = try sema.arena.dupe(Air.Inst.Index, sub_block.instructions.items),
-    };
-
-    _ = try parent_block.addCondBr(src, cond, air_then_body, air_else_body);
+    try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.CondBr).Struct.fields.len +
+        true_instructions.len + sub_block.instructions.items.len);
+    _ = try parent_block.addInst(.{
+        .tag = .cond_br,
+        .data = .{ .pl_op = .{
+            .operand = cond,
+            .payload = sema.addExtraAssumeCapacity(Air.CondBr{
+                .then_body_len = @intCast(u32, true_instructions.len),
+                .else_body_len = @intCast(u32, sub_block.instructions.items.len),
+            }),
+        } },
+    });
+    sema.air_extra.appendSliceAssumeCapacity(true_instructions);
+    sema.air_extra.appendSliceAssumeCapacity(sub_block.instructions.items);
     return always_noreturn;
 }
 
@@ -6443,7 +6435,7 @@ fn panicWithMsg(
         try mod.optionalType(arena, ptr_stack_trace_ty),
         Value.initTag(.null_value),
     );
-    const args = try arena.create([2]Air.Inst.Index);
+    const args = try arena.create([2]Air.Inst.Ref);
     args.* = .{ msg_inst, null_stack_trace };
     _ = try sema.analyzeCall(block, panic_fn, src, src, .auto, false, args);
     return always_noreturn;
