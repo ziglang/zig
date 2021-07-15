@@ -16,7 +16,7 @@ const Allocator = mem.Allocator;
 const Arch = std.Target.Cpu.Arch;
 const Relocation = reloc.Relocation;
 const Symbol = @import("Symbol.zig");
-const TextBlock = Zld.TextBlock;
+const TextBlock = @import("TextBlock.zig");
 const Zld = @import("Zld.zig");
 
 usingnamespace @import("commands.zig");
