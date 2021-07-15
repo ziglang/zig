@@ -56,9 +56,6 @@ tu_name: ?[]const u8 = null,
 tu_comp_dir: ?[]const u8 = null,
 mtime: ?u64 = null,
 
-symbols: std.ArrayListUnmanaged(*Symbol) = .{},
-sections_as_symbols: std.AutoHashMapUnmanaged(u8, *Symbol) = .{},
-
 text_blocks: std.ArrayListUnmanaged(*TextBlock) = .{},
 
 const DebugInfo = struct {
@@ -165,8 +162,6 @@ pub fn deinit(self: *Object) void {
     self.data_in_code_entries.deinit(self.allocator);
     self.symtab.deinit(self.allocator);
     self.strtab.deinit(self.allocator);
-    self.symbols.deinit(self.allocator);
-    self.sections_as_symbols.deinit(self.allocator);
     self.text_blocks.deinit(self.allocator);
 
     if (self.debug_info) |*db| {

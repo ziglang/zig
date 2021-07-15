@@ -16,7 +16,6 @@ const Archive = @import("Archive.zig");
 const CodeSignature = @import("CodeSignature.zig");
 const Dylib = @import("Dylib.zig");
 const Object = @import("Object.zig");
-const Symbol = @import("Symbol.zig");
 const TextBlock = @import("TextBlock.zig");
 const Trie = @import("Trie.zig");
 
@@ -100,21 +99,54 @@ objc_selrefs_section_index: ?u16 = null,
 objc_classrefs_section_index: ?u16 = null,
 objc_data_section_index: ?u16 = null,
 
-locals: std.ArrayListUnmanaged(*Symbol) = .{},
-imports: std.ArrayListUnmanaged(*Symbol) = .{},
-globals: std.StringArrayHashMapUnmanaged(*Symbol) = .{},
+locals: std.ArrayListUnmanaged(macho.nlist_64) = .{},
+globals: std.ArrayListUnmanaged(macho.nlist_64) = .{},
+imports: std.ArrayListUnmanaged(macho.nlist_64) = .{},
+undefs: std.ArrayListUnmanaged(macho.nlist_64) = .{},
+tentatives: std.ArrayListUnmanaged(macho.nlist_64) = .{},
+symbol_resolver: std.StringArrayHashMapUnmanaged(SymbolWithLoc) = .{},
+object_mapping: std.AutoHashMapUnmanaged(u16, []u32) = .{},
 
-stubs: std.ArrayListUnmanaged(*Symbol) = .{},
-got_entries: std.ArrayListUnmanaged(*Symbol) = .{},
+strtab: std.ArrayListUnmanaged(u8) = .{},
+
+// stubs: std.ArrayListUnmanaged(*Symbol) = .{},
+got_entries: std.ArrayListUnmanaged(GotEntry) = .{},
 
 stub_helper_stubs_start_off: ?u64 = null,
 
 blocks: std.AutoHashMapUnmanaged(MatchingSection, *TextBlock) = .{},
 
-strtab: std.ArrayListUnmanaged(u8) = .{},
-
 has_dices: bool = false,
 has_stabs: bool = false,
+
+const SymbolWithLoc = struct {
+    // Table where the symbol can be found.
+    where: enum {
+        global,
+        import,
+        undef,
+        tentative,
+    },
+    where_index: u32,
+    local_sym_index: u32 = 0,
+    file: u16 = 0,
+};
+
+pub const GotEntry = struct {
+    /// GOT entry can either be a local pointer or an extern (nonlazy) import.
+    kind: enum {
+        local,
+        import,
+    },
+
+    /// Id to the macho.nlist_64 from the respective table: either locals or nonlazy imports.
+    /// TODO I'm more and more inclined to just manage a single, max two symbol tables
+    ///  rather than 4 as we currently do, but I'll follow up in the future PR.
+    local_sym_index: u32,
+
+    /// Index of this entry in the GOT.
+    got_index: u32,
+};
 
 pub const Output = struct {
     tag: enum { exe, dylib },
@@ -130,7 +162,7 @@ pub fn init(allocator: *Allocator) !Zld {
 }
 
 pub fn deinit(self: *Zld) void {
-    self.stubs.deinit(self.allocator);
+    // self.stubs.deinit(self.allocator);
     self.got_entries.deinit(self.allocator);
 
     for (self.load_commands.items) |*lc| {
@@ -156,20 +188,24 @@ pub fn deinit(self: *Zld) void {
     }
     self.dylibs.deinit(self.allocator);
 
-    for (self.imports.items) |sym| {
-        self.allocator.destroy(sym);
-    }
-    self.imports.deinit(self.allocator);
-
-    for (self.locals.items) |sym| {
-        self.allocator.destroy(sym);
-    }
     self.locals.deinit(self.allocator);
+    self.globals.deinit(self.allocator);
+    self.imports.deinit(self.allocator);
+    self.undefs.deinit(self.allocator);
+    self.tentatives.deinit(self.allocator);
 
-    for (self.globals.keys()) |key| {
+    for (self.symbol_resolver.keys()) |key| {
         self.allocator.free(key);
     }
-    self.globals.deinit(self.allocator);
+    self.symbol_resolver.deinit(self.allocator);
+
+    {
+        var it = self.object_mapping.valueIterator();
+        while (it.next()) |value_ptr| {
+            self.allocator.free(value_ptr.*);
+        }
+    }
+    self.object_mapping.deinit(self.allocator);
 
     self.strtab.deinit(self.allocator);
 
@@ -213,28 +249,73 @@ pub fn link(self: *Zld, files: []const []const u8, output: Output, args: LinkArg
     try self.parseInputFiles(files, args.syslibroot);
     try self.parseLibs(args.libs, args.syslibroot);
     try self.resolveSymbols();
-    try self.parseTextBlocks();
-    try self.sortSections();
-    try self.addRpaths(args.rpaths);
-    try self.addDataInCodeLC();
-    try self.addCodeSignatureLC();
-    try self.allocateTextSegment();
-    try self.allocateDataConstSegment();
-    try self.allocateDataSegment();
-    self.allocateLinkeditSegment();
-    try self.allocateTextBlocks();
 
-    // var it = self.blocks.iterator();
-    // while (it.next()) |entry| {
-    //     const seg = self.load_commands.items[entry.key_ptr.seg].Segment;
-    //     const sect = seg.sections.items[entry.key_ptr.sect];
+    log.warn("locals", .{});
+    for (self.locals.items) |sym| {
+        log.warn("  | {s}: {}", .{ self.getString(sym.n_strx), sym });
+    }
 
-    //     log.warn("\n\n{s},{s} contents:", .{ segmentName(sect), sectionName(sect) });
-    //     log.warn("  {}", .{sect});
-    //     entry.value_ptr.*.print(self);
-    // }
+    log.warn("globals", .{});
+    for (self.globals.items) |sym| {
+        log.warn("  | {s}: {}", .{ self.getString(sym.n_strx), sym });
+    }
 
-    try self.flush();
+    log.warn("tentatives", .{});
+    for (self.tentatives.items) |sym| {
+        log.warn("  | {s}: {}", .{ self.getString(sym.n_strx), sym });
+    }
+
+    log.warn("undefines", .{});
+    for (self.undefs.items) |sym| {
+        log.warn("  | {s}: {}", .{ self.getString(sym.n_strx), sym });
+    }
+
+    log.warn("imports", .{});
+    for (self.imports.items) |sym| {
+        log.warn("  | {s}: {}", .{ self.getString(sym.n_strx), sym });
+    }
+
+    log.warn("symbol resolver", .{});
+    for (self.symbol_resolver.keys()) |key| {
+        log.warn("  | {s} => {}", .{ key, self.symbol_resolver.get(key).? });
+    }
+
+    log.warn("mappings", .{});
+    for (self.objects.items) |object, id| {
+        const object_id = @intCast(u16, id);
+        log.warn("  in object {s}", .{object.name.?});
+        for (object.symtab.items) |sym, sym_id| {
+            if (self.localSymIndex(object_id, @intCast(u32, sym_id))) |local_id| {
+                log.warn("    | {d} => {d}", .{ sym_id, local_id });
+            } else {
+                log.warn("    | {d} no local mapping for {s}", .{ sym_id, object.getString(sym.n_strx) });
+            }
+        }
+    }
+
+    return error.TODO;
+    // try self.parseTextBlocks();
+    // try self.sortSections();
+    // try self.addRpaths(args.rpaths);
+    // try self.addDataInCodeLC();
+    // try self.addCodeSignatureLC();
+    // try self.allocateTextSegment();
+    // try self.allocateDataConstSegment();
+    // try self.allocateDataSegment();
+    // self.allocateLinkeditSegment();
+    // try self.allocateTextBlocks();
+
+    // // var it = self.blocks.iterator();
+    // // while (it.next()) |entry| {
+    // //     const seg = self.load_commands.items[entry.key_ptr.seg].Segment;
+    // //     const sect = seg.sections.items[entry.key_ptr.sect];
+
+    // //     log.warn("\n\n{s},{s} contents:", .{ segmentName(sect), sectionName(sect) });
+    // //     log.warn("  {}", .{sect});
+    // //     entry.value_ptr.*.print(self);
+    // // }
+
+    // try self.flush();
 }
 
 fn parseInputFiles(self: *Zld, files: []const []const u8, syslibroot: ?[]const u8) !void {
@@ -1328,130 +1409,242 @@ fn writeStubInStubHelper(self: *Zld, index: u32) !void {
     try self.file.?.pwriteAll(code, stub_off);
 }
 
-fn resolveSymbolsInObject(self: *Zld, object: *Object) !void {
-    log.debug("resolving symbols in '{s}'", .{object.name});
+fn resolveSymbolsInObject(self: *Zld, object_id: u16) !void {
+    const object = self.objects.items[object_id];
 
-    for (object.symtab.items) |sym| {
+    log.warn("resolving symbols in '{s}'", .{object.name});
+
+    const mapping = try self.allocator.alloc(u32, object.symtab.items.len);
+    mem.set(u32, mapping, 0);
+    try self.object_mapping.putNoClobber(self.allocator, object_id, mapping);
+
+    for (object.symtab.items) |sym, id| {
+        const sym_id = @intCast(u32, id);
         const sym_name = object.getString(sym.n_strx);
 
-        if (Symbol.isStab(sym)) {
-            log.err("unhandled symbol type: stab {s}", .{sym_name});
-            log.err("  | first definition in {s}", .{object.name.?});
+        if (symbolIsStab(sym)) {
+            log.err("unhandled symbol type: stab", .{});
+            log.err("  symbol '{s}'", .{sym_name});
+            log.err("  first definition in '{s}'", .{object.name.?});
             return error.UnhandledSymbolType;
         }
 
-        if (Symbol.isIndr(sym)) {
-            log.err("unhandled symbol type: indirect {s}", .{sym_name});
-            log.err("  | first definition in {s}", .{object.name.?});
+        if (symbolIsIndr(sym)) {
+            log.err("unhandled symbol type: indirect", .{});
+            log.err("  symbol '{s}'", .{sym_name});
+            log.err("  first definition in '{s}'", .{object.name.?});
             return error.UnhandledSymbolType;
         }
 
-        if (Symbol.isAbs(sym)) {
-            log.err("unhandled symbol type: absolute {s}", .{sym_name});
-            log.err("  | first definition in {s}", .{object.name.?});
+        if (symbolIsAbs(sym)) {
+            log.err("unhandled symbol type: absolute", .{});
+            log.err("  symbol '{s}'", .{sym_name});
+            log.err("  first definition in '{s}'", .{object.name.?});
             return error.UnhandledSymbolType;
         }
 
-        if (Symbol.isSect(sym) and !Symbol.isExt(sym)) {
-            // Regular symbol local to translation unit
-            const symbol = try self.allocator.create(Symbol);
-            symbol.* = .{
-                .strx = try self.makeString(sym_name),
-                .payload = .{
-                    .regular = .{
-                        .linkage = .translation_unit,
-                        .address = sym.n_value,
-                        .weak_ref = Symbol.isWeakRef(sym),
-                        .file = object,
-                        .local_sym_index = @intCast(u32, self.locals.items.len),
-                    },
-                },
-            };
-            try self.locals.append(self.allocator, symbol);
-            try object.symbols.append(self.allocator, symbol);
-            continue;
-        }
-
-        const symbol = self.globals.get(sym_name) orelse symbol: {
-            // Insert new global symbol.
-            const symbol = try self.allocator.create(Symbol);
-            symbol.* = .{
-                .strx = try self.makeString(sym_name),
-                .payload = .{ .undef = .{ .file = object } },
-            };
-            const alloc_name = try self.allocator.dupe(u8, sym_name);
-            try self.globals.putNoClobber(self.allocator, alloc_name, symbol);
-            break :symbol symbol;
-        };
-
-        if (Symbol.isSect(sym)) {
-            // Global symbol
-            const linkage: Symbol.Regular.Linkage = if (Symbol.isWeakDef(sym) or Symbol.isPext(sym))
-                .linkage_unit
-            else
-                .global;
-
-            const should_update = if (symbol.payload == .regular) blk: {
-                if (symbol.payload.regular.linkage == .global and linkage == .global) {
-                    log.err("symbol '{s}' defined multiple times", .{sym_name});
-                    log.err("  | first definition in {s}", .{symbol.payload.regular.file.?.name.?});
-                    log.err("  | next definition in {s}", .{object.name.?});
-                    return error.MultipleSymbolDefinitions;
+        if (symbolIsSect(sym)) {
+            // Defined symbol regardless of scope lands in the locals symbol table.
+            const n_strx = blk: {
+                if (self.symbol_resolver.get(sym_name)) |resolv| {
+                    switch (resolv.where) {
+                        .global => break :blk self.globals.items[resolv.where_index].n_strx,
+                        .tentative => break :blk self.tentatives.items[resolv.where_index].n_strx,
+                        .undef => break :blk self.undefs.items[resolv.where_index].n_strx,
+                        .import => unreachable,
+                    }
                 }
-                break :blk symbol.payload.regular.linkage != .global;
-            } else true;
+                break :blk try self.makeString(sym_name);
+            };
+            const local_sym_index = @intCast(u32, self.locals.items.len);
+            try self.locals.append(self.allocator, .{
+                .n_strx = n_strx,
+                .n_type = macho.N_SECT,
+                .n_sect = 0,
+                .n_desc = 0,
+                .n_value = sym.n_value,
+            });
+            mapping[sym_id] = local_sym_index;
 
-            if (should_update) {
-                symbol.payload = .{
-                    .regular = .{
-                        .linkage = linkage,
-                        .address = sym.n_value,
-                        .weak_ref = Symbol.isWeakRef(sym),
-                        .file = object,
-                    },
-                };
-            }
-        } else if (sym.n_value != 0) {
-            // Tentative definition
-            const should_update = switch (symbol.payload) {
-                .tentative => |tent| tent.size < sym.n_value,
-                .undef => true,
-                else => false,
+            // If the symbol's scope is not local aka translation unit, then we need work out
+            // if we should save the symbol as a global, or potentially flag the error.
+            if (!symbolIsExt(sym)) continue;
+
+            const local = self.locals.items[local_sym_index];
+            const resolv = self.symbol_resolver.getPtr(sym_name) orelse {
+                const global_sym_index = @intCast(u32, self.globals.items.len);
+                try self.globals.append(self.allocator, .{
+                    .n_strx = n_strx,
+                    .n_type = sym.n_type,
+                    .n_sect = 0,
+                    .n_desc = sym.n_desc,
+                    .n_value = sym.n_value,
+                });
+                try self.symbol_resolver.putNoClobber(self.allocator, try self.allocator.dupe(u8, sym_name), .{
+                    .where = .global,
+                    .where_index = global_sym_index,
+                    .local_sym_index = local_sym_index,
+                    .file = object_id,
+                });
+                continue;
             };
 
-            if (should_update) {
-                symbol.payload = .{
-                    .tentative = .{
-                        .size = sym.n_value,
-                        .alignment = (sym.n_desc >> 8) & 0x0f,
-                        .file = object,
-                    },
-                };
-            }
-        }
+            switch (resolv.where) {
+                .import => unreachable,
+                .global => {
+                    const global = &self.globals.items[resolv.where_index];
 
-        try object.symbols.append(self.allocator, symbol);
+                    if (!(symbolIsWeakDef(sym) and symbolIsPext(sym)) and
+                        !(symbolIsWeakDef(global.*) and symbolIsPext(global.*)))
+                    {
+                        log.err("symbol '{s}' defined multiple times", .{sym_name});
+                        log.err("  first definition in '{s}'", .{self.objects.items[resolv.file].name.?});
+                        log.err("  next definition in '{s}'", .{object.name.?});
+                        return error.MultipleSymbolDefinitions;
+                    }
+
+                    if (symbolIsWeakDef(sym) or symbolIsPext(sym)) continue; // Current symbol is weak, so skip it.
+
+                    // Otherwise, update the resolver and the global symbol.
+                    global.n_type = sym.n_type;
+                    resolv.local_sym_index = local_sym_index;
+                    resolv.file = object_id;
+
+                    continue;
+                },
+                .undef => {
+                    const undef = &self.undefs.items[resolv.where_index];
+                    undef.* = .{
+                        .n_strx = 0,
+                        .n_type = macho.N_UNDF,
+                        .n_sect = 0,
+                        .n_desc = 0,
+                        .n_value = 0,
+                    };
+                },
+                .tentative => {
+                    const tentative = &self.tentatives.items[resolv.where_index];
+                    tentative.* = .{
+                        .n_strx = 0,
+                        .n_type = macho.N_UNDF,
+                        .n_sect = 0,
+                        .n_desc = 0,
+                        .n_value = 0,
+                    };
+                },
+            }
+
+            const global_sym_index = @intCast(u32, self.globals.items.len);
+            try self.globals.append(self.allocator, .{
+                .n_strx = local.n_strx,
+                .n_type = sym.n_type,
+                .n_sect = 0,
+                .n_desc = sym.n_desc,
+                .n_value = sym.n_value,
+            });
+            resolv.* = .{
+                .where = .global,
+                .where_index = global_sym_index,
+                .local_sym_index = local_sym_index,
+                .file = object_id,
+            };
+        } else if (symbolIsTentative(sym)) {
+            // Symbol is a tentative definition.
+            const resolv = self.symbol_resolver.getPtr(sym_name) orelse {
+                const tent_sym_index = @intCast(u32, self.tentatives.items.len);
+                try self.tentatives.append(self.allocator, .{
+                    .n_strx = try self.makeString(sym_name),
+                    .n_type = sym.n_type,
+                    .n_sect = 0,
+                    .n_desc = sym.n_desc,
+                    .n_value = sym.n_value,
+                });
+                try self.symbol_resolver.putNoClobber(self.allocator, try self.allocator.dupe(u8, sym_name), .{
+                    .where = .tentative,
+                    .where_index = tent_sym_index,
+                    .file = object_id,
+                });
+                continue;
+            };
+
+            switch (resolv.where) {
+                .import => unreachable,
+                .global => {},
+                .undef => {
+                    const undef = &self.undefs.items[resolv.where_index];
+                    const tent_sym_index = @intCast(u32, self.tentatives.items.len);
+                    try self.tentatives.append(self.allocator, .{
+                        .n_strx = undef.n_strx,
+                        .n_type = sym.n_type,
+                        .n_sect = 0,
+                        .n_desc = sym.n_desc,
+                        .n_value = sym.n_value,
+                    });
+                    resolv.* = .{
+                        .where = .tentative,
+                        .where_index = tent_sym_index,
+                        .file = object_id,
+                    };
+                    undef.* = .{
+                        .n_strx = 0,
+                        .n_type = macho.N_UNDF,
+                        .n_sect = 0,
+                        .n_desc = 0,
+                        .n_value = 0,
+                    };
+                },
+                .tentative => {
+                    const tentative = &self.tentatives.items[resolv.where_index];
+                    if (tentative.n_value >= sym.n_value) continue;
+
+                    tentative.n_desc = sym.n_desc;
+                    tentative.n_value = sym.n_value;
+                    resolv.file = object_id;
+                },
+            }
+        } else {
+            // Symbol is undefined.
+            if (self.symbol_resolver.contains(sym_name)) continue;
+
+            const undef_sym_index = @intCast(u32, self.undefs.items.len);
+            try self.undefs.append(self.allocator, .{
+                .n_strx = try self.makeString(sym_name),
+                .n_type = macho.N_UNDF,
+                .n_sect = 0,
+                .n_desc = 0,
+                .n_value = 0,
+            });
+            try self.symbol_resolver.putNoClobber(self.allocator, try self.allocator.dupe(u8, sym_name), .{
+                .where = .undef,
+                .where_index = undef_sym_index,
+                .file = object_id,
+            });
+        }
     }
 }
 
 fn resolveSymbols(self: *Zld) !void {
     // TODO mimicking insertion of null symbol from incremental linker.
     // This will need to moved.
-    const null_sym = try self.allocator.create(Symbol);
-    null_sym.* = .{ .strx = 0, .payload = .{ .undef = .{} } };
-    try self.locals.append(self.allocator, null_sym);
+    try self.locals.append(self.allocator, .{
+        .n_strx = 0,
+        .n_type = macho.N_UNDF,
+        .n_sect = 0,
+        .n_desc = 0,
+        .n_value = 0,
+    });
+    try self.strtab.append(self.allocator, 0);
 
     // First pass, resolve symbols in provided objects.
-    for (self.objects.items) |object| {
-        try self.resolveSymbolsInObject(object);
+    for (self.objects.items) |_, object_id| {
+        try self.resolveSymbolsInObject(@intCast(u16, object_id));
     }
 
     // Second pass, resolve symbols in static libraries.
-    var sym_it = self.globals.iterator();
-    while (sym_it.next()) |entry| {
-        const sym_name = entry.key_ptr.*;
-        const symbol = entry.value_ptr.*;
-        if (symbol.payload != .undef) continue;
+    loop: for (self.undefs.items) |sym| {
+        if (symbolIsNull(sym)) continue;
+
+        const sym_name = self.getString(sym.n_strx);
 
         for (self.archives.items) |archive| {
             // Check if the entry exists in a static archive.
@@ -1462,167 +1655,184 @@ fn resolveSymbols(self: *Zld) !void {
             assert(offsets.items.len > 0);
 
             const object = try archive.parseObject(offsets.items[0]);
+            const object_id = @intCast(u16, self.objects.items.len);
             try self.objects.append(self.allocator, object);
-            try self.resolveSymbolsInObject(object);
+            try self.resolveSymbolsInObject(object_id);
 
-            sym_it = self.globals.iterator();
-            break;
+            continue :loop;
         }
     }
 
-    // Put any globally defined regular symbol as local.
     // Convert any tentative definition into a regular symbol and allocate
     // text blocks for each tentative defintion.
-    for (self.globals.values()) |symbol| {
-        switch (symbol.payload) {
-            .regular => |*reg| {
-                reg.local_sym_index = @intCast(u32, self.locals.items.len);
-                try self.locals.append(self.allocator, symbol);
-            },
-            .tentative => |tent| {
-                const match: MatchingSection = blk: {
-                    if (self.common_section_index == null) {
-                        const data_seg = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
-                        self.common_section_index = @intCast(u16, data_seg.sections.items.len);
-                        try data_seg.addSection(self.allocator, "__common", .{
-                            .flags = macho.S_ZEROFILL,
-                        });
-                    }
-                    break :blk .{
-                        .seg = self.data_segment_cmd_index.?,
-                        .sect = self.common_section_index.?,
-                    };
-                };
+    for (self.tentatives.items) |sym| {
+        const sym_name = self.getString(sym.n_strx);
+        const match: MatchingSection = blk: {
+            if (self.common_section_index == null) {
+                const data_seg = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
+                self.common_section_index = @intCast(u16, data_seg.sections.items.len);
+                try data_seg.addSection(self.allocator, "__common", .{
+                    .flags = macho.S_ZEROFILL,
+                });
+            }
+            break :blk .{
+                .seg = self.data_segment_cmd_index.?,
+                .sect = self.common_section_index.?,
+            };
+        };
 
-                const size = tent.size;
-                const code = try self.allocator.alloc(u8, size);
-                mem.set(u8, code, 0);
-                const alignment = tent.alignment;
-                const local_sym_index = @intCast(u32, self.locals.items.len);
+        const size = sym.n_value;
+        const code = try self.allocator.alloc(u8, size);
+        mem.set(u8, code, 0);
+        const alignment = (sym.n_desc >> 8) & 0x0f;
 
-                symbol.payload = .{
-                    .regular = .{
-                        .linkage = .global,
-                        .segment_id = self.data_segment_cmd_index.?,
-                        .section_id = self.common_section_index.?,
-                        .local_sym_index = local_sym_index,
-                    },
-                };
-                try self.locals.append(self.allocator, symbol);
+        const resolv = self.symbol_resolver.getPtr(sym_name) orelse unreachable;
+        const local_sym_index = @intCast(u32, self.locals.items.len);
+        var nlist = macho.nlist_64{
+            .n_strx = sym.n_strx,
+            .n_type = macho.N_SECT,
+            .n_sect = self.sectionId(match),
+            .n_desc = 0,
+            .n_value = 0,
+        };
+        try self.locals.append(self.allocator, nlist);
+        const global_sym_index = @intCast(u32, self.globals.items.len);
+        nlist.n_type |= macho.N_EXT;
+        try self.globals.append(self.allocator, nlist);
+        resolv.* = .{
+            .where = .global,
+            .where_index = global_sym_index,
+            .local_sym_index = local_sym_index,
+        };
 
-                const block = try self.allocator.create(TextBlock);
-                errdefer self.allocator.destroy(block);
+        const block = try self.allocator.create(TextBlock);
+        errdefer self.allocator.destroy(block);
 
-                block.* = TextBlock.init(self.allocator);
-                block.local_sym_index = local_sym_index;
-                block.code = code;
-                block.size = size;
-                block.alignment = alignment;
+        block.* = TextBlock.init(self.allocator);
+        block.local_sym_index = local_sym_index;
+        block.code = code;
+        block.size = size;
+        block.alignment = alignment;
 
-                // Update target section's metadata
-                // TODO should we update segment's size here too?
-                // How does it tie with incremental space allocs?
-                const tseg = &self.load_commands.items[match.seg].Segment;
-                const tsect = &tseg.sections.items[match.sect];
-                const new_alignment = math.max(tsect.@"align", block.alignment);
-                const new_alignment_pow_2 = try math.powi(u32, 2, new_alignment);
-                const new_size = mem.alignForwardGeneric(u64, tsect.size, new_alignment_pow_2) + block.size;
-                tsect.size = new_size;
-                tsect.@"align" = new_alignment;
+        // Update target section's metadata
+        // TODO should we update segment's size here too?
+        // How does it tie with incremental space allocs?
+        const tseg = &self.load_commands.items[match.seg].Segment;
+        const tsect = &tseg.sections.items[match.sect];
+        const new_alignment = math.max(tsect.@"align", block.alignment);
+        const new_alignment_pow_2 = try math.powi(u32, 2, new_alignment);
+        const new_size = mem.alignForwardGeneric(u64, tsect.size, new_alignment_pow_2) + block.size;
+        tsect.size = new_size;
+        tsect.@"align" = new_alignment;
 
-                if (self.blocks.getPtr(match)) |last| {
-                    last.*.next = block;
-                    block.prev = last.*;
-                    last.* = block;
-                } else {
-                    try self.blocks.putNoClobber(self.allocator, match, block);
-                }
-            },
-            else => {},
+        if (self.blocks.getPtr(match)) |last| {
+            last.*.next = block;
+            block.prev = last.*;
+            last.* = block;
+        } else {
+            try self.blocks.putNoClobber(self.allocator, match, block);
         }
     }
 
     // Third pass, resolve symbols in dynamic libraries.
     {
         // Put dyld_stub_binder as an undefined special symbol.
-        const symbol = try self.allocator.create(Symbol);
-        symbol.* = .{
-            .strx = try self.makeString("dyld_stub_binder"),
-            .payload = .{ .undef = .{} },
-        };
-        const index = @intCast(u32, self.got_entries.items.len);
-        symbol.got_index = index;
-        try self.got_entries.append(self.allocator, symbol);
-        const alloc_name = try self.allocator.dupe(u8, "dyld_stub_binder");
-        try self.globals.putNoClobber(self.allocator, alloc_name, symbol);
+        const undef_sym_index = @intCast(u32, self.undefs.items.len);
+        try self.undefs.append(self.allocator, .{
+            .n_strx = try self.makeString("dyld_stub_binder"),
+            .n_type = macho.N_UNDF,
+            .n_sect = 0,
+            .n_desc = 0,
+            .n_value = 0,
+        });
+        try self.symbol_resolver.putNoClobber(self.allocator, try self.allocator.dupe(u8, "dyld_stub_binder"), .{
+            .where = .undef,
+            .where_index = undef_sym_index,
+        });
     }
 
     var referenced = std.AutoHashMap(*Dylib, void).init(self.allocator);
     defer referenced.deinit();
 
-    loop: for (self.globals.keys()) |sym_name| {
-        const symbol = self.globals.get(sym_name).?;
-        if (symbol.payload != .undef) continue;
+    loop: for (self.undefs.items) |sym| {
+        if (symbolIsNull(sym)) continue;
 
+        const sym_name = self.getString(sym.n_strx);
         for (self.dylibs.items) |dylib| {
             if (!dylib.symbols.contains(sym_name)) continue;
 
-            try referenced.put(dylib, {});
-            const index = @intCast(u32, self.imports.items.len);
-            symbol.payload = .{
-                .proxy = .{
-                    .file = dylib,
-                    .local_sym_index = index,
-                },
+            if (!referenced.contains(dylib)) {
+                // Add LC_LOAD_DYLIB load command for each referenced dylib/stub.
+                dylib.ordinal = self.next_dylib_ordinal;
+                const dylib_id = dylib.id orelse unreachable;
+                var dylib_cmd = try createLoadDylibCommand(
+                    self.allocator,
+                    dylib_id.name,
+                    dylib_id.timestamp,
+                    dylib_id.current_version,
+                    dylib_id.compatibility_version,
+                );
+                errdefer dylib_cmd.deinit(self.allocator);
+                try self.load_commands.append(self.allocator, .{ .Dylib = dylib_cmd });
+                self.next_dylib_ordinal += 1;
+                try referenced.putNoClobber(dylib, {});
+            }
+
+            const resolv = self.symbol_resolver.getPtr(sym_name) orelse unreachable;
+            const undef = &self.undefs.items[resolv.where_index];
+            const import_sym_index = @intCast(u32, self.imports.items.len);
+            try self.imports.append(self.allocator, .{
+                .n_strx = undef.n_strx,
+                .n_type = macho.N_UNDF | macho.N_EXT,
+                .n_sect = 0,
+                .n_desc = (dylib.ordinal.? * macho.N_SYMBOL_RESOLVER) | macho.REFERENCE_FLAG_UNDEFINED_NON_LAZY,
+                .n_value = 0,
+            });
+            resolv.* = .{
+                .where = .import,
+                .where_index = import_sym_index,
             };
-            try self.imports.append(self.allocator, symbol);
+            undef.* = .{
+                .n_strx = 0,
+                .n_type = macho.N_UNDF,
+                .n_sect = 0,
+                .n_desc = 0,
+                .n_value = 0,
+            };
+
             continue :loop;
         }
     }
 
-    // Add LC_LOAD_DYLIB load command for each referenced dylib/stub.
-    var it = referenced.iterator();
-    while (it.next()) |entry| {
-        const dylib = entry.key_ptr.*;
-        dylib.ordinal = self.next_dylib_ordinal;
-        const dylib_id = dylib.id orelse unreachable;
-        var dylib_cmd = try createLoadDylibCommand(
-            self.allocator,
-            dylib_id.name,
-            dylib_id.timestamp,
-            dylib_id.current_version,
-            dylib_id.compatibility_version,
-        );
-        errdefer dylib_cmd.deinit(self.allocator);
-        try self.load_commands.append(self.allocator, .{ .Dylib = dylib_cmd });
-        self.next_dylib_ordinal += 1;
-    }
-
     // Fourth pass, handle synthetic symbols and flag any undefined references.
-    if (self.globals.get("___dso_handle")) |symbol| {
-        if (symbol.payload == .undef) {
-            const seg = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
-            symbol.payload = .{
-                .regular = .{
-                    .linkage = .translation_unit,
-                    .address = seg.inner.vmaddr,
-                    .weak_ref = true,
-                    .local_sym_index = @intCast(u32, self.locals.items.len),
-                },
-            };
-            try self.locals.append(self.allocator, symbol);
-        }
+    if (self.symbol_resolver.getPtr("___dso_handle")) |resolv| blk: {
+        if (resolv.where != .undef) break :blk;
+
+        const seg = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
+        const undef = &self.undefs.items[resolv.where_index];
+        const global_sym_index = @intCast(u32, self.globals.items.len);
+        try self.globals.append(self.allocator, .{
+            .n_strx = undef.n_strx,
+            .n_type = macho.N_PEXT | macho.N_EXT | macho.N_SECT,
+            .n_sect = 0,
+            .n_desc = macho.N_WEAK_DEF,
+            .n_value = seg.inner.vmaddr,
+        });
+        resolv.* = .{
+            .where = .global,
+            .where_index = global_sym_index,
+        };
     }
 
     var has_undefined = false;
-    for (self.globals.keys()) |sym_name| {
-        const symbol = self.globals.get(sym_name).?;
-        if (symbol.payload != .undef) continue;
+    for (self.undefs.items) |sym| {
+        if (symbolIsNull(sym)) continue;
+
+        const sym_name = self.getString(sym.n_strx);
+        const resolv = self.symbol_resolver.get(sym_name) orelse unreachable;
 
         log.err("undefined reference to symbol '{s}'", .{sym_name});
-        if (symbol.payload.undef.file) |file| {
-            log.err("  | referenced in {s}", .{file.name.?});
-        }
+        log.err("  first referenced in '{s}'", .{self.objects.items[resolv.file].name.?});
         has_undefined = true;
     }
 
@@ -2775,4 +2985,83 @@ pub fn makeString(self: *Zld, string: []const u8) !u32 {
 pub fn getString(self: *Zld, off: u32) []const u8 {
     assert(off < self.strtab.items.len);
     return mem.spanZ(@ptrCast([*:0]const u8, self.strtab.items.ptr + off));
+}
+
+fn localSymIndex(self: Zld, object_id: u16, orig_id: u32) ?u32 {
+    const mapping = self.object_mapping.get(object_id) orelse return null;
+    const local_sym_index = mapping[orig_id];
+    if (local_sym_index == 0) {
+        return null;
+    }
+    return local_sym_index;
+}
+
+pub fn symbolIsStab(sym: macho.nlist_64) bool {
+    return (macho.N_STAB & sym.n_type) != 0;
+}
+
+pub fn symbolIsPext(sym: macho.nlist_64) bool {
+    return (macho.N_PEXT & sym.n_type) != 0;
+}
+
+pub fn symbolIsExt(sym: macho.nlist_64) bool {
+    return (macho.N_EXT & sym.n_type) != 0;
+}
+
+pub fn symbolIsSect(sym: macho.nlist_64) bool {
+    const type_ = macho.N_TYPE & sym.n_type;
+    return type_ == macho.N_SECT;
+}
+
+pub fn symbolIsUndf(sym: macho.nlist_64) bool {
+    const type_ = macho.N_TYPE & sym.n_type;
+    return type_ == macho.N_UNDF;
+}
+
+pub fn symbolIsIndr(sym: macho.nlist_64) bool {
+    const type_ = macho.N_TYPE & sym.n_type;
+    return type_ == macho.N_INDR;
+}
+
+pub fn symbolIsAbs(sym: macho.nlist_64) bool {
+    const type_ = macho.N_TYPE & sym.n_type;
+    return type_ == macho.N_ABS;
+}
+
+pub fn symbolIsWeakDef(sym: macho.nlist_64) bool {
+    return (sym.n_desc & macho.N_WEAK_DEF) != 0;
+}
+
+pub fn symbolIsWeakRef(sym: macho.nlist_64) bool {
+    return (sym.n_desc & macho.N_WEAK_REF) != 0;
+}
+
+pub fn symbolIsTentative(sym: macho.nlist_64) bool {
+    if (!symbolIsUndf(sym)) return false;
+    return sym.n_value != 0;
+}
+
+pub fn symbolIsNull(sym: macho.nlist_64) bool {
+    return sym.n_value == 0 and sym.n_desc == 0 and sym.n_type == 0 and sym.n_strx == 0 and sym.n_sect == 0;
+}
+
+pub fn symbolIsTemp(self: Zld, sym: macho.nlist_64) bool {
+    if (!symbolIsSect(sym)) return false;
+    if (symbolIsExt(sym)) return false;
+    const sym_name = self.getString(sym.n_strx);
+    return mem.startsWith(u8, sym_name, "l") or mem.startsWith(u8, sym_name, "L");
+}
+
+pub fn sectionId(self: Zld, match: MatchingSection) u8 {
+    // TODO there might be a more generic way of doing this.
+    var section: u8 = 0;
+    for (self.load_commands.items) |cmd, cmd_id| {
+        if (cmd != .Segment) break;
+        if (cmd_id == match.seg) {
+            section += @intCast(u8, match.sect) + 1;
+            break;
+        }
+        section += @intCast(u8, cmd.Segment.sections.items.len);
+    }
+    return section;
 }
