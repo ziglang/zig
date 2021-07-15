@@ -11,8 +11,8 @@ const Dylib = @import("Dylib.zig");
 const Object = @import("Object.zig");
 const Zld = @import("Zld.zig");
 
-/// Symbol name. Owned slice.
-name: []const u8,
+/// Offset into the string table.
+strx: u32,
 
 /// Index in GOT table for indirection.
 got_index: ?u32 = null,
@@ -160,26 +160,11 @@ pub const Undefined = struct {
     }
 };
 
-/// Create new undefined symbol.
-pub fn new(allocator: *Allocator, name: []const u8) !*Symbol {
-    const new_sym = try allocator.create(Symbol);
-    errdefer allocator.destroy(new_sym);
-
-    new_sym.* = .{
-        .name = try allocator.dupe(u8, name),
-        .payload = .{
-            .undef = .{},
-        },
-    };
-
-    return new_sym;
-}
-
 pub fn format(self: Symbol, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
     _ = fmt;
     _ = options;
     try std.fmt.format(writer, "Symbol {{", .{});
-    try std.fmt.format(writer, ".name = {s}, ", .{self.name});
+    try std.fmt.format(writer, ".strx = {d}, ", .{self.strx});
     if (self.got_index) |got_index| {
         try std.fmt.format(writer, ".got_index = {}, ", .{got_index});
     }
@@ -190,11 +175,12 @@ pub fn format(self: Symbol, comptime fmt: []const u8, options: std.fmt.FormatOpt
     try std.fmt.format(writer, "}}", .{});
 }
 
-pub fn isTemp(symbol: Symbol) bool {
+pub fn isTemp(symbol: Symbol, zld: *Zld) bool {
+    const sym_name = zld.getString(symbol.strx);
     switch (symbol.payload) {
         .regular => |regular| {
             if (regular.linkage == .translation_unit) {
-                return mem.startsWith(u8, symbol.name, "l") or mem.startsWith(u8, symbol.name, "L");
+                return mem.startsWith(u8, sym_name, "l") or mem.startsWith(u8, sym_name, "L");
             }
         },
         else => {},
@@ -202,24 +188,12 @@ pub fn isTemp(symbol: Symbol) bool {
     return false;
 }
 
-pub fn needsTlvOffset(self: Symbol, zld: *Zld) bool {
-    if (self.payload != .regular) return false;
-
-    const reg = self.payload.regular;
-    const seg = zld.load_command.items[reg.segment_id].Segment;
-    const sect = seg.sections.items[reg.section_id];
-    const sect_type = commands.sectionType(sect);
-
-    return sect_type == macho.S_THREAD_LOCAL_VARIABLES;
-}
-
 pub fn asNlist(symbol: *Symbol, zld: *Zld) !macho.nlist_64 {
-    const n_strx = try zld.makeString(symbol.name);
     const nlist = nlist: {
         switch (symbol.payload) {
             .regular => |regular| {
                 var nlist = macho.nlist_64{
-                    .n_strx = n_strx,
+                    .n_strx = symbol.strx,
                     .n_type = macho.N_SECT,
                     .n_sect = regular.sectionId(zld),
                     .n_desc = 0,
@@ -239,7 +213,7 @@ pub fn asNlist(symbol: *Symbol, zld: *Zld) !macho.nlist_64 {
             .tentative => {
                 // TODO
                 break :nlist macho.nlist_64{
-                    .n_strx = n_strx,
+                    .n_strx = symbol.strx,
                     .n_type = macho.N_UNDF,
                     .n_sect = 0,
                     .n_desc = 0,
@@ -248,7 +222,7 @@ pub fn asNlist(symbol: *Symbol, zld: *Zld) !macho.nlist_64 {
             },
             .proxy => |proxy| {
                 break :nlist macho.nlist_64{
-                    .n_strx = n_strx,
+                    .n_strx = symbol.strx,
                     .n_type = macho.N_UNDF | macho.N_EXT,
                     .n_sect = 0,
                     .n_desc = (proxy.dylibOrdinal() * macho.N_SYMBOL_RESOLVER) | macho.REFERENCE_FLAG_UNDEFINED_NON_LAZY,
@@ -258,7 +232,7 @@ pub fn asNlist(symbol: *Symbol, zld: *Zld) !macho.nlist_64 {
             .undef => {
                 // TODO
                 break :nlist macho.nlist_64{
-                    .n_strx = n_strx,
+                    .n_strx = symbol.strx,
                     .n_type = macho.N_UNDF,
                     .n_sect = 0,
                     .n_desc = 0,
@@ -268,10 +242,6 @@ pub fn asNlist(symbol: *Symbol, zld: *Zld) !macho.nlist_64 {
         }
     };
     return nlist;
-}
-
-pub fn deinit(symbol: *Symbol, allocator: *Allocator) void {
-    allocator.free(symbol.name);
 }
 
 pub fn isStab(sym: macho.nlist_64) bool {

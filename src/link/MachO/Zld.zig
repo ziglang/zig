@@ -113,7 +113,6 @@ stub_helper_stubs_start_off: ?u64 = null,
 blocks: std.AutoHashMapUnmanaged(MatchingSection, *TextBlock) = .{},
 
 strtab: std.ArrayListUnmanaged(u8) = .{},
-strtab_cache: std.StringHashMapUnmanaged(u32) = .{},
 
 has_dices: bool = false,
 has_stabs: bool = false,
@@ -171,7 +170,7 @@ pub const TextBlock = struct {
                         .n_value = reg.address,
                     });
                     nlists.appendAssumeCapacity(.{
-                        .n_strx = try zld.makeString(sym.name),
+                        .n_strx = sym.strx,
                         .n_type = macho.N_FUN,
                         .n_sect = section_id,
                         .n_desc = 0,
@@ -194,7 +193,7 @@ pub const TextBlock = struct {
                 },
                 .global => {
                     try nlists.append(.{
-                        .n_strx = try zld.makeString(sym.name),
+                        .n_strx = sym.strx,
                         .n_type = macho.N_GSYM,
                         .n_sect = 0,
                         .n_desc = 0,
@@ -203,7 +202,7 @@ pub const TextBlock = struct {
                 },
                 .static => {
                     try nlists.append(.{
-                        .n_strx = try zld.makeString(sym.name),
+                        .n_strx = sym.strx,
                         .n_type = macho.N_STSYM,
                         .n_sect = reg.sectionId(zld),
                         .n_desc = 0,
@@ -349,26 +348,20 @@ pub fn deinit(self: *Zld) void {
     self.dylibs.deinit(self.allocator);
 
     for (self.imports.items) |sym| {
-        sym.deinit(self.allocator);
         self.allocator.destroy(sym);
     }
     self.imports.deinit(self.allocator);
 
     for (self.locals.items) |sym| {
-        sym.deinit(self.allocator);
         self.allocator.destroy(sym);
     }
     self.locals.deinit(self.allocator);
 
+    for (self.globals.keys()) |key| {
+        self.allocator.free(key);
+    }
     self.globals.deinit(self.allocator);
 
-    {
-        var it = self.strtab_cache.keyIterator();
-        while (it.next()) |key| {
-            self.allocator.free(key.*);
-        }
-    }
-    self.strtab_cache.deinit(self.allocator);
     self.strtab.deinit(self.allocator);
 
     // TODO dealloc all blocks
@@ -1168,7 +1161,7 @@ fn allocateTextBlocks(self: *Zld) !void {
             sym.payload.regular.address = base_addr;
 
             log.debug("    {s}: start=0x{x}, end=0x{x}, size={}, align={}", .{
-                sym.name,
+                self.getString(sym.strx),
                 base_addr,
                 base_addr + block.size,
                 block.size,
@@ -1231,7 +1224,7 @@ fn writeTextBlocks(self: *Zld) !void {
 
                 const sym = self.locals.items[block.local_sym_index];
                 log.debug("    {s}: start=0x{x}, end=0x{x}, size={}, align={}", .{
-                    sym.name,
+                    self.getString(sym.strx),
                     aligned_base_off,
                     aligned_base_off + block.size,
                     block.size,
@@ -1552,14 +1545,17 @@ fn resolveSymbolsInObject(self: *Zld, object: *Object) !void {
 
         if (Symbol.isSect(sym) and !Symbol.isExt(sym)) {
             // Regular symbol local to translation unit
-            const symbol = try Symbol.new(self.allocator, sym_name);
-            symbol.payload = .{
-                .regular = .{
-                    .linkage = .translation_unit,
-                    .address = sym.n_value,
-                    .weak_ref = Symbol.isWeakRef(sym),
-                    .file = object,
-                    .local_sym_index = @intCast(u32, self.locals.items.len),
+            const symbol = try self.allocator.create(Symbol);
+            symbol.* = .{
+                .strx = try self.makeString(sym_name),
+                .payload = .{
+                    .regular = .{
+                        .linkage = .translation_unit,
+                        .address = sym.n_value,
+                        .weak_ref = Symbol.isWeakRef(sym),
+                        .file = object,
+                        .local_sym_index = @intCast(u32, self.locals.items.len),
+                    },
                 },
             };
             try self.locals.append(self.allocator, symbol);
@@ -1569,9 +1565,13 @@ fn resolveSymbolsInObject(self: *Zld, object: *Object) !void {
 
         const symbol = self.globals.get(sym_name) orelse symbol: {
             // Insert new global symbol.
-            const symbol = try Symbol.new(self.allocator, sym_name);
-            symbol.payload.undef.file = object;
-            try self.globals.putNoClobber(self.allocator, symbol.name, symbol);
+            const symbol = try self.allocator.create(Symbol);
+            symbol.* = .{
+                .strx = try self.makeString(sym_name),
+                .payload = .{ .undef = .{ .file = object } },
+            };
+            const alloc_name = try self.allocator.dupe(u8, sym_name);
+            try self.globals.putNoClobber(self.allocator, alloc_name, symbol);
             break :symbol symbol;
         };
 
@@ -1628,7 +1628,8 @@ fn resolveSymbolsInObject(self: *Zld, object: *Object) !void {
 fn resolveSymbols(self: *Zld) !void {
     // TODO mimicking insertion of null symbol from incremental linker.
     // This will need to moved.
-    const null_sym = try Symbol.new(self.allocator, "");
+    const null_sym = try self.allocator.create(Symbol);
+    null_sym.* = .{ .strx = 0, .payload = .{ .undef = .{} } };
     try self.locals.append(self.allocator, null_sym);
 
     // First pass, resolve symbols in provided objects.
@@ -1639,12 +1640,13 @@ fn resolveSymbols(self: *Zld) !void {
     // Second pass, resolve symbols in static libraries.
     var sym_it = self.globals.iterator();
     while (sym_it.next()) |entry| {
+        const sym_name = entry.key_ptr.*;
         const symbol = entry.value_ptr.*;
         if (symbol.payload != .undef) continue;
 
         for (self.archives.items) |archive| {
             // Check if the entry exists in a static archive.
-            const offsets = archive.toc.get(symbol.name) orelse {
+            const offsets = archive.toc.get(sym_name) orelse {
                 // No hit.
                 continue;
             };
@@ -1734,21 +1736,27 @@ fn resolveSymbols(self: *Zld) !void {
     // Third pass, resolve symbols in dynamic libraries.
     {
         // Put dyld_stub_binder as an undefined special symbol.
-        const symbol = try Symbol.new(self.allocator, "dyld_stub_binder");
+        const symbol = try self.allocator.create(Symbol);
+        symbol.* = .{
+            .strx = try self.makeString("dyld_stub_binder"),
+            .payload = .{ .undef = .{} },
+        };
         const index = @intCast(u32, self.got_entries.items.len);
         symbol.got_index = index;
         try self.got_entries.append(self.allocator, symbol);
-        try self.globals.putNoClobber(self.allocator, symbol.name, symbol);
+        const alloc_name = try self.allocator.dupe(u8, "dyld_stub_binder");
+        try self.globals.putNoClobber(self.allocator, alloc_name, symbol);
     }
 
     var referenced = std.AutoHashMap(*Dylib, void).init(self.allocator);
     defer referenced.deinit();
 
-    loop: for (self.globals.values()) |symbol| {
+    loop: for (self.globals.keys()) |sym_name| {
+        const symbol = self.globals.get(sym_name).?;
         if (symbol.payload != .undef) continue;
 
         for (self.dylibs.items) |dylib| {
-            if (!dylib.symbols.contains(symbol.name)) continue;
+            if (!dylib.symbols.contains(sym_name)) continue;
 
             try referenced.put(dylib, {});
             const index = @intCast(u32, self.imports.items.len);
@@ -1798,10 +1806,11 @@ fn resolveSymbols(self: *Zld) !void {
     }
 
     var has_undefined = false;
-    for (self.globals.values()) |symbol| {
+    for (self.globals.keys()) |sym_name| {
+        const symbol = self.globals.get(sym_name).?;
         if (symbol.payload != .undef) continue;
 
-        log.err("undefined reference to symbol '{s}'", .{symbol.name});
+        log.err("undefined reference to symbol '{s}'", .{sym_name});
         if (symbol.payload.undef.file) |file| {
             log.err("  | referenced in {s}", .{file.name.?});
         }
@@ -2344,7 +2353,7 @@ fn writeBindInfoTable(self: *Zld) !void {
                 .offset = base_offset + sym.got_index.? * @sizeOf(u64),
                 .segment_id = segment_id,
                 .dylib_ordinal = proxy.dylibOrdinal(),
-                .name = sym.name,
+                .name = self.getString(sym.strx),
             });
         }
     }
@@ -2372,7 +2381,7 @@ fn writeBindInfoTable(self: *Zld) !void {
                         .offset = binding.offset + base_offset,
                         .segment_id = match.seg,
                         .dylib_ordinal = proxy.dylibOrdinal(),
-                        .name = bind_sym.name,
+                        .name = self.getString(bind_sym.strx),
                     });
                 }
 
@@ -2395,7 +2404,7 @@ fn writeBindInfoTable(self: *Zld) !void {
             .offset = base_offset,
             .segment_id = segment_id,
             .dylib_ordinal = proxy.dylibOrdinal(),
-            .name = sym.name,
+            .name = self.getString(sym.strx),
         });
     }
 
@@ -2435,7 +2444,7 @@ fn writeLazyBindInfoTable(self: *Zld) !void {
                 .offset = base_offset + sym.stubs_index.? * @sizeOf(u64),
                 .segment_id = segment_id,
                 .dylib_ordinal = proxy.dylibOrdinal(),
-                .name = sym.name,
+                .name = self.getString(sym.strx),
             });
         }
     }
@@ -2547,7 +2556,7 @@ fn writeExportInfo(self: *Zld) !void {
         if (sym.payload != .regular) continue;
         const reg = sym.payload.regular;
         if (reg.linkage != .global) continue;
-        try sorted_globals.append(sym.name);
+        try sorted_globals.append(self.getString(sym.strx));
     }
 
     std.sort.sort([]const u8, sorted_globals.items, {}, Sorter.lessThan);
@@ -2556,10 +2565,10 @@ fn writeExportInfo(self: *Zld) !void {
         const sym = self.globals.get(sym_name) orelse unreachable;
         const reg = sym.payload.regular;
 
-        log.debug("  | putting '{s}' defined at 0x{x}", .{ sym.name, reg.address });
+        log.debug("  | putting '{s}' defined at 0x{x}", .{ sym_name, reg.address });
 
         try trie.put(.{
-            .name = sym.name,
+            .name = sym_name,
             .vmaddr_offset = reg.address - base_address,
             .export_flags = macho.EXPORT_SYMBOL_FLAGS_KIND_REGULAR,
         });
@@ -2597,7 +2606,7 @@ fn writeSymbolTable(self: *Zld) !void {
 
     for (self.locals.items) |symbol, i| {
         if (i == 0) continue; // skip null symbol
-        if (symbol.isTemp()) continue; // TODO when merging codepaths, this should go into freelist
+        if (symbol.isTemp(self)) continue; // TODO when merging codepaths, this should go into freelist
 
         const reg = symbol.payload.regular;
         const nlist = try symbol.asNlist(self);
@@ -2673,7 +2682,7 @@ fn writeSymbolTable(self: *Zld) !void {
         const nlist = try sym.asNlist(self);
         const id = @intCast(u32, undefs.items.len);
         try undefs.append(nlist);
-        try undef_dir.putNoClobber(sym.name, id);
+        try undef_dir.putNoClobber(self.getString(sym.strx), id);
     }
 
     const nlocals = locals.items.len;
@@ -2735,7 +2744,8 @@ fn writeSymbolTable(self: *Zld) !void {
 
     stubs.reserved1 = 0;
     for (self.stubs.items) |sym| {
-        const id = undef_dir.get(sym.name) orelse unreachable;
+        const sym_name = self.getString(sym.strx);
+        const id = undef_dir.get(sym_name) orelse unreachable;
         try writer.writeIntLittle(u32, dysymtab.iundefsym + id);
     }
 
@@ -2743,7 +2753,8 @@ fn writeSymbolTable(self: *Zld) !void {
     for (self.got_entries.items) |sym| {
         switch (sym.payload) {
             .proxy => {
-                const id = undef_dir.get(sym.name) orelse unreachable;
+                const sym_name = self.getString(sym.strx);
+                const id = undef_dir.get(sym_name) orelse unreachable;
                 try writer.writeIntLittle(u32, dysymtab.iundefsym + id);
             },
             else => {
@@ -2754,7 +2765,8 @@ fn writeSymbolTable(self: *Zld) !void {
 
     la_symbol_ptr.reserved1 = got.reserved1 + ngot_entries;
     for (self.stubs.items) |sym| {
-        const id = undef_dir.get(sym.name) orelse unreachable;
+        const sym_name = self.getString(sym.strx);
+        const id = undef_dir.get(sym_name) orelse unreachable;
         try writer.writeIntLittle(u32, dysymtab.iundefsym + id);
     }
 
@@ -2940,11 +2952,6 @@ fn writeHeader(self: *Zld) !void {
 }
 
 pub fn makeString(self: *Zld, string: []const u8) !u32 {
-    if (self.strtab_cache.get(string)) |off| {
-        log.debug("reusing string '{s}' at offset 0x{x}", .{ string, off });
-        return off;
-    }
-
     try self.strtab.ensureUnusedCapacity(self.allocator, string.len + 1);
     const new_off = @intCast(u32, self.strtab.items.len);
 
@@ -2953,12 +2960,10 @@ pub fn makeString(self: *Zld, string: []const u8) !u32 {
     self.strtab.appendSliceAssumeCapacity(string);
     self.strtab.appendAssumeCapacity(0);
 
-    try self.strtab_cache.putNoClobber(self.allocator, try self.allocator.dupe(u8, string), new_off);
-
     return new_off;
 }
 
-pub fn getString(self: *Zld, off: u32) ?[]const u8 {
+pub fn getString(self: *Zld, off: u32) []const u8 {
     assert(off < self.strtab.items.len);
     return mem.spanZ(@ptrCast([*:0]const u8, self.strtab.items.ptr + off));
 }

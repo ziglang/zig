@@ -389,7 +389,7 @@ const TextBlockParser = struct {
         return switch (rreg.linkage) {
             .global => true,
             .linkage_unit => lreg.linkage == .translation_unit,
-            else => lsym.isTemp(),
+            else => lsym.isTemp(context.zld),
         };
     }
 
@@ -417,7 +417,7 @@ const TextBlockParser = struct {
             const sym = self.object.symbols.items[nlist_with_index.index];
             if (sym.payload != .regular) {
                 log.err("expected a regular symbol, found {s}", .{sym.payload});
-                log.err("  when remapping {s}", .{sym.name});
+                log.err("  when remapping {s}", .{self.zld.getString(sym.strx)});
                 return error.SymbolIsNotRegular;
             }
             assert(sym.payload.regular.local_sym_index != 0); // This means the symbol has not been properly resolved.
@@ -463,7 +463,7 @@ const TextBlockParser = struct {
                     }
                 }
             }
-            if (self.zld.globals.contains(senior_sym.name)) break :blk .global;
+            if (self.zld.globals.contains(self.zld.getString(senior_sym.strx))) break :blk .global;
             break :blk .static;
         } else null;
 
@@ -598,7 +598,11 @@ pub fn parseTextBlocks(self: *Object, zld: *Zld) !void {
                             sectionName(sect),
                         });
                         defer self.allocator.free(name);
-                        const symbol = try Symbol.new(self.allocator, name);
+                        const symbol = try zld.allocator.create(Symbol);
+                        symbol.* = .{
+                            .strx = try zld.makeString(name),
+                            .payload = .{ .undef = .{} },
+                        };
                         try self.sections_as_symbols.putNoClobber(self.allocator, sect_id, symbol);
                         break :symbol symbol;
                     };
@@ -684,7 +688,7 @@ pub fn parseTextBlocks(self: *Object, zld: *Zld) !void {
                     const reg = &sym.payload.regular;
                     if (reg.file) |file| {
                         if (file != self) {
-                            log.debug("deduping definition of {s} in {s}", .{ sym.name, self.name.? });
+                            log.debug("deduping definition of {s} in {s}", .{ zld.getString(sym.strx), self.name.? });
                             block.deinit();
                             self.allocator.destroy(block);
                             continue;
@@ -739,7 +743,11 @@ pub fn parseTextBlocks(self: *Object, zld: *Zld) !void {
                     sectionName(sect),
                 });
                 defer self.allocator.free(name);
-                const symbol = try Symbol.new(self.allocator, name);
+                const symbol = try zld.allocator.create(Symbol);
+                symbol.* = .{
+                    .strx = try zld.makeString(name),
+                    .payload = .{ .undef = .{} },
+                };
                 try self.sections_as_symbols.putNoClobber(self.allocator, sect_id, symbol);
                 break :symbol symbol;
             };
@@ -812,7 +820,7 @@ pub fn parseTextBlocks(self: *Object, zld: *Zld) !void {
                                 }
                             }
                         }
-                        if (zld.globals.contains(sym.name)) break :blk .global;
+                        if (zld.globals.contains(zld.getString(sym.strx))) break :blk .global;
                         break :blk .static;
                     } else null;
 
@@ -870,7 +878,7 @@ fn parseRelocs(
     try parser.parse();
 }
 
-pub fn symbolFromReloc(self: *Object, rel: macho.relocation_info) !*Symbol {
+pub fn symbolFromReloc(self: *Object, zld: *Zld, rel: macho.relocation_info) !*Symbol {
     const symbol = blk: {
         if (rel.r_extern == 1) {
             break :blk self.symbols.items[rel.r_symbolnum];
@@ -888,12 +896,15 @@ pub fn symbolFromReloc(self: *Object, rel: macho.relocation_info) !*Symbol {
                     sectionName(sect),
                 });
                 defer self.allocator.free(name);
-                const symbol = try Symbol.new(self.allocator, name);
-                symbol.payload = .{
-                    .regular = .{
-                        .linkage = .translation_unit,
-                        .address = sect.addr,
-                        .file = self,
+                const symbol = try zld.allocator.create(Symbol);
+                symbol.* = .{
+                    .strx = try zld.makeString(name),
+                    .payload = .{
+                        .regular = .{
+                            .linkage = .translation_unit,
+                            .address = sect.addr,
+                            .file = self,
+                        },
                     },
                 };
                 try self.sections_as_symbols.putNoClobber(self.allocator, sect_id, symbol);

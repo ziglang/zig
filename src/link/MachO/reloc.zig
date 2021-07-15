@@ -407,7 +407,7 @@ pub const Relocation = struct {
                 const dc_seg = zld.load_commands.items[zld.data_const_segment_cmd_index.?].Segment;
                 const got = dc_seg.sections.items[zld.got_section_index.?];
                 const got_index = self.target.got_index orelse {
-                    log.err("expected GOT entry for symbol '{s}'", .{self.target.name});
+                    log.err("expected GOT entry for symbol '{s}'", .{zld.getString(self.target.strx)});
                     log.err("  this is an internal linker error", .{});
                     return error.FailedToResolveRelocationTarget;
                 };
@@ -446,8 +446,8 @@ pub const Relocation = struct {
 
                     break :blk reg.address;
                 },
-                .proxy => |proxy| {
-                    if (mem.eql(u8, self.target.name, "__tlv_bootstrap")) {
+                .proxy => {
+                    if (mem.eql(u8, zld.getString(self.target.strx), "__tlv_bootstrap")) {
                         break :blk 0; // Dynamically bound by dyld.
                     }
 
@@ -460,7 +460,9 @@ pub const Relocation = struct {
                     break :blk stubs.addr + stubs_index * stubs.reserved2;
                 },
                 else => {
-                    log.err("failed to resolve symbol '{s}' as a relocation target", .{self.target.name});
+                    log.err("failed to resolve symbol '{s}' as a relocation target", .{
+                        zld.getString(self.target.strx),
+                    });
                     log.err("  this is an internal linker error", .{});
                     return error.FailedToResolveRelocationTarget;
                 },
@@ -634,7 +636,10 @@ pub const Parser = struct {
                 out_rel.target.got_index = index;
                 try self.zld.got_entries.append(self.zld.allocator, out_rel.target);
 
-                log.debug("adding GOT entry for symbol {s} at index {}", .{ out_rel.target.name, index });
+                log.debug("adding GOT entry for symbol {s} at index {}", .{
+                    self.zld.getString(out_rel.target.strx),
+                    index,
+                });
             } else if (out_rel.payload == .unsigned) {
                 const sym = out_rel.target;
                 switch (sym.payload) {
@@ -697,14 +702,14 @@ pub const Parser = struct {
                 sym.stubs_index = index;
                 try self.zld.stubs.append(self.zld.allocator, sym);
 
-                log.debug("adding stub entry for symbol {s} at index {}", .{ sym.name, index });
+                log.debug("adding stub entry for symbol {s} at index {}", .{ self.zld.getString(sym.strx), index });
             }
         }
     }
 
     fn parseBaseRelInfo(self: *Parser, rel: macho.relocation_info) !Relocation {
         const offset = @intCast(u32, @intCast(u64, rel.r_address) - self.base_addr);
-        const target = try self.object.symbolFromReloc(rel);
+        const target = try self.object.symbolFromReloc(self.zld, rel);
         return Relocation{
             .offset = offset,
             .target = target,
@@ -888,7 +893,7 @@ pub const Parser = struct {
         assert(rel.r_pcrel == 0);
         assert(self.subtractor == null);
 
-        self.subtractor = try self.object.symbolFromReloc(rel);
+        self.subtractor = try self.object.symbolFromReloc(self.zld, rel);
     }
 
     fn parseLoad(self: *Parser, rel: macho.relocation_info) !Relocation {
