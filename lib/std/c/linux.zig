@@ -94,7 +94,8 @@ pub extern "c" fn epoll_pwait(
     sigmask: *const sigset_t,
 ) c_int;
 pub extern "c" fn inotify_init1(flags: c_uint) c_int;
-pub extern "c" fn inotify_add_watch(fd: fd_t, pathname: [*]const u8, mask: u32) c_int;
+pub extern "c" fn inotify_add_watch(fd: fd_t, pathname: [*:0]const u8, mask: u32) c_int;
+pub extern "c" fn inotify_rm_watch(fd: fd_t, wd: c_int) c_int;
 
 /// See std.elf for constants for this
 pub extern "c" fn getauxval(__type: c_ulong) c_ulong;
