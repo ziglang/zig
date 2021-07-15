@@ -2028,6 +2028,7 @@ fn analyzeBlockBody(
             refToIndex(coerced_operand).?);
 
         // Convert the br operand to a block.
+        const br_operand_ty_ref = try sema.addType(br_operand_ty);
         try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Block).Struct.fields.len +
             coerce_block.instructions.items.len);
         try sema.air_instructions.ensureUnusedCapacity(gpa, 2);
@@ -2037,7 +2038,7 @@ fn analyzeBlockBody(
         sema.air_instructions.appendAssumeCapacity(.{
             .tag = .block,
             .data = .{ .ty_pl = .{
-                .ty = try sema.addType(br_operand_ty),
+                .ty = br_operand_ty_ref,
                 .payload = sema.addExtraAssumeCapacity(Air.Block{
                     .body_len = @intCast(u32, coerce_block.instructions.items.len),
                 }),

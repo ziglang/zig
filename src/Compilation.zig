@@ -1,6 +1,7 @@
 const Compilation = @This();
 
 const std = @import("std");
+const builtin = @import("builtin");
 const mem = std.mem;
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
@@ -907,7 +908,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             // comptime conditions
             ((build_options.have_llvm and comptime std.Target.current.isDarwin()) and
             // runtime conditions
-            (use_lld and std.builtin.os.tag == .macos and options.target.isDarwin()));
+            (use_lld and builtin.os.tag == .macos and options.target.isDarwin()));
 
         const sysroot = blk: {
             if (options.sysroot) |sysroot| {
@@ -2026,8 +2027,10 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
                     var liveness = try Liveness.analyze(gpa, air, decl.namespace.file_scope.zir);
                     defer liveness.deinit(gpa);
 
-                    if (std.builtin.mode == .Debug and self.verbose_air) {
-                        @panic("TODO implement dumping AIR and liveness");
+                    if (builtin.mode == .Debug and self.verbose_air) {
+                        std.debug.print("# Begin Function AIR: {s}:\n", .{decl.name});
+                        @import("print_air.zig").dump(gpa, air, liveness);
+                        std.debug.print("# End Function AIR: {s}:\n", .{decl.name});
                     }
 
                     assert(decl.ty.hasCodeGenBits());

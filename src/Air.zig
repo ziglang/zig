@@ -374,8 +374,8 @@ pub const Asm = struct {
 
 pub fn getMainBody(air: Air) []const Air.Inst.Index {
     const body_index = air.extra[@enumToInt(ExtraIndex.main_block)];
-    const body_len = air.extra[body_index];
-    return air.extra[body_index..][0..body_len];
+    const extra = air.extraData(Block, body_index);
+    return air.extra[extra.end..][0..extra.data.body_len];
 }
 
 pub fn getType(air: Air, inst: Air.Inst.Index) Type {
