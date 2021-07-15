@@ -6589,12 +6589,12 @@ fn floatLiteral(gz: *GenZir, rl: ResultLoc, node: ast.Node.Index) InnerError!Zir
     } else std.fmt.parseFloat(f128, bytes) catch |err| switch (err) {
         error.InvalidCharacter => unreachable, // validated by tokenizer
     };
-    // If the value fits into a f32 without losing any precision, store it that way.
+    // If the value fits into a f64 without losing any precision, store it that way.
     @setFloatMode(.Strict);
-    const smaller_float = @floatCast(f32, float_number);
+    const smaller_float = @floatCast(f64, float_number);
     const bigger_again: f128 = smaller_float;
     if (bigger_again == float_number) {
-        const result = try gz.addFloat(smaller_float, node);
+        const result = try gz.addFloat(smaller_float);
         return rvalue(gz, rl, result, node);
     }
     // We need to use 128 bits. Break the float into 4 u32 values so we can
@@ -9145,13 +9145,10 @@ const GenZir = struct {
         return indexToRef(new_index);
     }
 
-    fn addFloat(gz: *GenZir, number: f32, src_node: ast.Node.Index) !Zir.Inst.Ref {
+    fn addFloat(gz: *GenZir, number: f64) !Zir.Inst.Ref {
         return gz.add(.{
             .tag = .float,
-            .data = .{ .float = .{
-                .src_node = gz.nodeIndexToRelative(src_node),
-                .number = number,
-            } },
+            .data = .{ .float = number },
         });
     }
 

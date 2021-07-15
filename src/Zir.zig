@@ -386,7 +386,7 @@ pub const Inst = struct {
         int,
         /// Arbitrary sized integer literal. Uses the `str` union field.
         int_big,
-        /// A float literal that fits in a f32. Uses the float union value.
+        /// A float literal that fits in a f64. Uses the float union value.
         float,
         /// A float literal that fits in a f128. Uses the `pl_node` union value.
         /// Payload is `Float128`.
@@ -2058,16 +2058,7 @@ pub const Inst = struct {
         /// Offset from Decl AST node index.
         node: i32,
         int: u64,
-        float: struct {
-            /// Offset from Decl AST node index.
-            /// `Tag` determines which kind of AST node this points to.
-            src_node: i32,
-            number: f32,
-
-            pub fn src(self: @This()) LazySrcLoc {
-                return .{ .node_offset = self.src_node };
-            }
-        },
+        float: f64,
         array_type_sentinel: struct {
             len: Ref,
             /// index into extra, points to an `ArrayTypeSentinel`
@@ -3256,10 +3247,8 @@ const Writer = struct {
     }
 
     fn writeFloat(self: *Writer, stream: anytype, inst: Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].float;
-        const src = inst_data.src();
-        try stream.print("{d}) ", .{inst_data.number});
-        try self.writeSrc(stream, src);
+        const number = self.code.instructions.items(.data)[inst].float;
+        try stream.print("{d})", .{number});
     }
 
     fn writeFloat128(self: *Writer, stream: anytype, inst: Inst.Index) !void {

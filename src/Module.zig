@@ -1226,6 +1226,17 @@ pub const Scope = struct {
             return block.src_decl.namespace.file_scope;
         }
 
+        pub fn addTy(
+            block: *Block,
+            tag: Air.Inst.Tag,
+            ty: Type,
+        ) error{OutOfMemory}!Air.Inst.Ref {
+            return block.addInst(.{
+                .tag = tag,
+                .data = .{ .ty = ty },
+            });
+        }
+
         pub fn addTyOp(
             block: *Block,
             tag: Air.Inst.Tag,
@@ -1241,6 +1252,13 @@ pub const Scope = struct {
             });
         }
 
+        pub fn addNoOp(block: *Block, tag: Air.Inst.Tag) error{OutOfMemory}!Air.Inst.Ref {
+            return block.addInst(.{
+                .tag = tag,
+                .data = .no_op,
+            });
+        }
+
         pub fn addUnOp(
             block: *Block,
             tag: Air.Inst.Tag,
@@ -1249,6 +1267,20 @@ pub const Scope = struct {
             return block.addInst(.{
                 .tag = tag,
                 .data = .{ .un_op = operand },
+            });
+        }
+
+        pub fn addBr(
+            block: *Block,
+            target_block: Air.Inst.Index,
+            operand: Air.Inst.Ref,
+        ) error{OutOfMemory}!Air.Inst.Ref {
+            return block.addInst(.{
+                .tag = .br,
+                .data = .{ .br = .{
+                    .block_inst = target_block,
+                    .operand = operand,
+                } },
             });
         }
 

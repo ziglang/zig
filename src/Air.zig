@@ -94,6 +94,11 @@ pub const Inst = struct {
         bitcast,
         /// Uses the `ty_pl` field with payload `Block`.
         block,
+        /// A labeled block of code that loops forever. At the end of the body it is implied
+        /// to repeat; no explicit "repeat" instruction terminates loop bodies.
+        /// Result type is always noreturn; no instructions in a block follow this one.
+        /// Uses the `ty_pl` field. Payload is `Block`.
+        loop,
         /// Return from a block with a result.
         /// Result type is always noreturn; no instructions in a block follow this one.
         /// Uses the `br` field.
@@ -181,11 +186,6 @@ pub const Inst = struct {
         /// Read a value from a pointer.
         /// Uses the `ty_op` field.
         load,
-        /// A labeled block of code that loops forever. At the end of the body it is implied
-        /// to repeat; no explicit "repeat" instruction terminates loop bodies.
-        /// Result type is always noreturn; no instructions in a block follow this one.
-        /// Uses the `ty_pl` field. Payload is `Block`.
-        loop,
         /// Converts a pointer to its address. Result type is always `usize`.
         /// Uses the `un_op` field.
         ptrtoint,
@@ -279,6 +279,7 @@ pub const Inst = struct {
     /// this union. `Tag` determines which union field is active, as well as
     /// how to interpret the data within.
     pub const Data = union {
+        no_op: void,
         un_op: Ref,
         bin_op: struct {
             lhs: Ref,
