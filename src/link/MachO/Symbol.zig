@@ -121,20 +121,11 @@ pub const Tentative = struct {
 };
 
 pub const Proxy = struct {
-    /// Dynamic binding info - spots within the final
-    /// executable where this proxy is referenced from.
-    bind_info: std.ArrayListUnmanaged(struct {
-        local_sym_index: u32,
-        offset: u32,
-    }) = .{},
-
     /// Dylib where to locate this symbol.
     /// null means self-reference.
     file: ?*Dylib = null,
 
-    pub fn deinit(proxy: *Proxy, allocator: *Allocator) void {
-        proxy.bind_info.deinit(allocator);
-    }
+    local_sym_index: u32 = 0,
 
     pub fn dylibOrdinal(proxy: Proxy) u16 {
         const dylib = proxy.file orelse return 0;
@@ -145,13 +136,10 @@ pub const Proxy = struct {
         _ = fmt;
         _ = options;
         try std.fmt.format(writer, "Proxy {{ ", .{});
-        if (self.bind_info.items.len > 0) {
-            // TODO
-            try std.fmt.format(writer, ".bind_info = {}, ", .{self.bind_info.items.len});
-        }
         if (self.file) |file| {
             try std.fmt.format(writer, ".file = {s}, ", .{file.name.?});
         }
+        try std.fmt.format(writer, ".local_sym_index = {d}, ", .{self.local_sym_index});
         try std.fmt.format(writer, "}}", .{});
     }
 };
@@ -284,11 +272,6 @@ pub fn asNlist(symbol: *Symbol, zld: *Zld) !macho.nlist_64 {
 
 pub fn deinit(symbol: *Symbol, allocator: *Allocator) void {
     allocator.free(symbol.name);
-
-    switch (symbol.payload) {
-        .proxy => |*proxy| proxy.deinit(allocator),
-        else => {},
-    }
 }
 
 pub fn isStab(sym: macho.nlist_64) bool {

@@ -136,6 +136,7 @@ pub const TextBlock = struct {
     size: u64,
     alignment: u32,
     rebases: std.ArrayList(u64),
+    bindings: std.ArrayList(SymbolAtOffset),
     dices: std.ArrayList(macho.data_in_code_entry),
     next: ?*TextBlock = null,
     prev: ?*TextBlock = null,
@@ -226,6 +227,7 @@ pub const TextBlock = struct {
             .size = undefined,
             .alignment = undefined,
             .rebases = std.ArrayList(u64).init(allocator),
+            .bindings = std.ArrayList(SymbolAtOffset).init(allocator),
             .dices = std.ArrayList(macho.data_in_code_entry).init(allocator),
         };
     }
@@ -239,6 +241,7 @@ pub const TextBlock = struct {
         self.allocator.free(self.code);
         self.relocs.deinit();
         self.rebases.deinit();
+        self.bindings.deinit();
         self.dices.deinit();
     }
 
@@ -292,6 +295,9 @@ pub const TextBlock = struct {
         }
         if (self.rebases.items.len > 0) {
             log.warn("  rebases: {any}", .{self.rebases.items});
+        }
+        if (self.bindings.items.len > 0) {
+            log.warn("  bindings: {any}", .{self.bindings.items});
         }
         if (self.dices.items.len > 0) {
             log.warn("  dices: {any}", .{self.dices.items});
@@ -1745,9 +1751,11 @@ fn resolveSymbols(self: *Zld) !void {
             if (!dylib.symbols.contains(symbol.name)) continue;
 
             try referenced.put(dylib, {});
+            const index = @intCast(u32, self.imports.items.len);
             symbol.payload = .{
                 .proxy = .{
                     .file = dylib,
+                    .local_sym_index = index,
                 },
             };
             try self.imports.append(self.allocator, symbol);
@@ -2341,23 +2349,37 @@ fn writeBindInfoTable(self: *Zld) !void {
         }
     }
 
-    for (self.globals.values()) |sym| {
-        if (sym.payload != .proxy) continue;
+    {
+        var it = self.blocks.iterator();
+        while (it.next()) |entry| {
+            const match = entry.key_ptr.*;
+            var block: *TextBlock = entry.value_ptr.*;
 
-        const proxy = sym.payload.proxy;
-        for (proxy.bind_info.items) |info| {
-            const bind_sym = self.locals.items[info.local_sym_index];
-            assert(bind_sym.payload == .regular);
-            const reg = bind_sym.payload.regular;
-            const base_address = self.load_commands.items[reg.segment_id].Segment.inner.vmaddr;
-            const offset = reg.address + info.offset - base_address;
+            if (match.seg == self.text_segment_cmd_index.?) continue; // __TEXT is non-writable
 
-            try pointers.append(.{
-                .offset = offset,
-                .segment_id = reg.segment_id,
-                .dylib_ordinal = proxy.dylibOrdinal(),
-                .name = sym.name,
-            });
+            const seg = self.load_commands.items[match.seg].Segment;
+
+            while (true) {
+                const sym = self.locals.items[block.local_sym_index];
+                assert(sym.payload == .regular);
+                const base_offset = sym.payload.regular.address - seg.inner.vmaddr;
+
+                for (block.bindings.items) |binding| {
+                    const bind_sym = self.imports.items[binding.local_sym_index];
+                    const proxy = bind_sym.payload.proxy;
+
+                    try pointers.append(.{
+                        .offset = binding.offset + base_offset,
+                        .segment_id = match.seg,
+                        .dylib_ordinal = proxy.dylibOrdinal(),
+                        .name = bind_sym.name,
+                    });
+                }
+
+                if (block.prev) |prev| {
+                    block = prev;
+                } else break;
+            }
         }
     }
 

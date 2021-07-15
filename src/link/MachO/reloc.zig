@@ -449,22 +449,13 @@ pub const Relocation = struct {
                 .proxy => |proxy| {
                     if (mem.eql(u8, self.target.name, "__tlv_bootstrap")) {
                         break :blk 0; // Dynamically bound by dyld.
-                        // const segment = zld.load_commands.items[zld.data_segment_cmd_index.?].Segment;
-                        // const tlv = segment.sections.items[zld.tlv_section_index.?];
-                        // break :blk tlv.addr;
                     }
 
                     const segment = zld.load_commands.items[zld.text_segment_cmd_index.?].Segment;
                     const stubs = segment.sections.items[zld.stubs_section_index.?];
                     const stubs_index = self.target.stubs_index orelse {
-                        if (proxy.bind_info.items.len > 0) {
-                            break :blk 0; // Dynamically bound by dyld.
-                        }
-                        log.err("expected stubs index or dynamic bind address for symbol '{s}'", .{
-                            self.target.name,
-                        });
-                        log.err("  this is an internal linker error", .{});
-                        return error.FailedToResolveRelocationTarget;
+                        // TODO verify in TextBlock that the symbol is indeed dynamically bound.
+                        break :blk 0; // Dynamically bound by dyld.
                     };
                     break :blk stubs.addr + stubs_index * stubs.reserved2;
                 },
@@ -647,9 +638,9 @@ pub const Parser = struct {
             } else if (out_rel.payload == .unsigned) {
                 const sym = out_rel.target;
                 switch (sym.payload) {
-                    .proxy => {
-                        try sym.payload.proxy.bind_info.append(self.zld.allocator, .{
-                            .local_sym_index = self.block.local_sym_index,
+                    .proxy => |proxy| {
+                        try self.block.bindings.append(.{
+                            .local_sym_index = proxy.local_sym_index,
                             .offset = out_rel.offset,
                         });
                     },
