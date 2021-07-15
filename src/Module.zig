@@ -1185,7 +1185,7 @@ pub const Scope = struct {
             block_inst: Air.Inst.Index,
             /// Separate array list from break_inst_list so that it can be passed directly
             /// to resolvePeerTypes.
-            results: ArrayListUnmanaged(Air.Inst.Index),
+            results: ArrayListUnmanaged(Air.Inst.Ref),
             /// Keeps track of the break instructions so that the operand can be replaced
             /// if we need to add type coercion at the end of block analysis.
             /// Same indexes, capacity, length as `results`.

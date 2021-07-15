@@ -163,36 +163,36 @@ pub fn analyzeBody(
         const air_inst: Air.Inst.Ref = switch (tags[inst]) {
             // zig fmt: off
             .arg                          => try sema.zirArg(block, inst),
-            //.alloc                        => try sema.zirAlloc(block, inst),
-            //.alloc_inferred               => try sema.zirAllocInferred(block, inst, Type.initTag(.inferred_alloc_const)),
-            //.alloc_inferred_mut           => try sema.zirAllocInferred(block, inst, Type.initTag(.inferred_alloc_mut)),
-            //.alloc_inferred_comptime      => try sema.zirAllocInferredComptime(block, inst),
-            //.alloc_mut                    => try sema.zirAllocMut(block, inst),
-            //.alloc_comptime               => try sema.zirAllocComptime(block, inst),
-            //.anyframe_type                => try sema.zirAnyframeType(block, inst),
-            //.array_cat                    => try sema.zirArrayCat(block, inst),
-            //.array_mul                    => try sema.zirArrayMul(block, inst),
-            //.array_type                   => try sema.zirArrayType(block, inst),
-            //.array_type_sentinel          => try sema.zirArrayTypeSentinel(block, inst),
-            //.vector_type                  => try sema.zirVectorType(block, inst),
-            //.as                           => try sema.zirAs(block, inst),
-            //.as_node                      => try sema.zirAsNode(block, inst),
-            //.bit_and                      => try sema.zirBitwise(block, inst, .bit_and),
-            //.bit_not                      => try sema.zirBitNot(block, inst),
-            //.bit_or                       => try sema.zirBitwise(block, inst, .bit_or),
-            //.bitcast                      => try sema.zirBitcast(block, inst),
-            //.bitcast_result_ptr           => try sema.zirBitcastResultPtr(block, inst),
-            //.block                        => try sema.zirBlock(block, inst),
-            //.suspend_block                => try sema.zirSuspendBlock(block, inst),
-            //.bool_not                     => try sema.zirBoolNot(block, inst),
-            //.bool_br_and                  => try sema.zirBoolBr(block, inst, false),
-            //.bool_br_or                   => try sema.zirBoolBr(block, inst, true),
-            //.c_import                     => try sema.zirCImport(block, inst),
-            //.call                         => try sema.zirCall(block, inst, .auto, false),
-            //.call_chkused                 => try sema.zirCall(block, inst, .auto, true),
-            //.call_compile_time            => try sema.zirCall(block, inst, .compile_time, false),
-            //.call_nosuspend               => try sema.zirCall(block, inst, .no_async, false),
-            //.call_async                   => try sema.zirCall(block, inst, .async_kw, false),
+            .alloc                        => try sema.zirAlloc(block, inst),
+            .alloc_inferred               => try sema.zirAllocInferred(block, inst, Type.initTag(.inferred_alloc_const)),
+            .alloc_inferred_mut           => try sema.zirAllocInferred(block, inst, Type.initTag(.inferred_alloc_mut)),
+            .alloc_inferred_comptime      => try sema.zirAllocInferredComptime(block, inst),
+            .alloc_mut                    => try sema.zirAllocMut(block, inst),
+            .alloc_comptime               => try sema.zirAllocComptime(block, inst),
+            .anyframe_type                => try sema.zirAnyframeType(block, inst),
+            .array_cat                    => try sema.zirArrayCat(block, inst),
+            .array_mul                    => try sema.zirArrayMul(block, inst),
+            .array_type                   => try sema.zirArrayType(block, inst),
+            .array_type_sentinel          => try sema.zirArrayTypeSentinel(block, inst),
+            .vector_type                  => try sema.zirVectorType(block, inst),
+            .as                           => try sema.zirAs(block, inst),
+            .as_node                      => try sema.zirAsNode(block, inst),
+            .bit_and                      => try sema.zirBitwise(block, inst, .bit_and),
+            .bit_not                      => try sema.zirBitNot(block, inst),
+            .bit_or                       => try sema.zirBitwise(block, inst, .bit_or),
+            .bitcast                      => try sema.zirBitcast(block, inst),
+            .bitcast_result_ptr           => try sema.zirBitcastResultPtr(block, inst),
+            .block                        => try sema.zirBlock(block, inst),
+            .suspend_block                => try sema.zirSuspendBlock(block, inst),
+            .bool_not                     => try sema.zirBoolNot(block, inst),
+            .bool_br_and                  => try sema.zirBoolBr(block, inst, false),
+            .bool_br_or                   => try sema.zirBoolBr(block, inst, true),
+            .c_import                     => try sema.zirCImport(block, inst),
+            .call                         => try sema.zirCall(block, inst, .auto, false),
+            .call_chkused                 => try sema.zirCall(block, inst, .auto, true),
+            .call_compile_time            => try sema.zirCall(block, inst, .compile_time, false),
+            .call_nosuspend               => try sema.zirCall(block, inst, .no_async, false),
+            .call_async                   => try sema.zirCall(block, inst, .async_kw, false),
             .cmp_eq                       => try sema.zirCmp(block, inst, .eq),
             .cmp_gt                       => try sema.zirCmp(block, inst, .gt),
             .cmp_gte                      => try sema.zirCmp(block, inst, .gte),
@@ -1957,24 +1957,23 @@ fn analyzeBlockBody(
 
     // Blocks must terminate with noreturn instruction.
     assert(child_block.instructions.items.len != 0);
-    assert(child_block.instructions.items[child_block.instructions.items.len - 1].ty.isNoReturn());
+    assert(sema.getTypeOf(indexToRef(child_block.instructions.items[child_block.instructions.items.len - 1])).isNoReturn());
 
     if (merges.results.items.len == 0) {
         // No need for a block instruction. We can put the new instructions
         // directly into the parent block.
-        const copied_instructions = try sema.arena.dupe(Air.Inst.Index, child_block.instructions.items);
-        try parent_block.instructions.appendSlice(gpa, copied_instructions);
-        return copied_instructions[copied_instructions.len - 1];
+        try parent_block.instructions.appendSlice(gpa, child_block.instructions.items);
+        return indexToRef(child_block.instructions.items[child_block.instructions.items.len - 1]);
     }
     if (merges.results.items.len == 1) {
         const last_inst_index = child_block.instructions.items.len - 1;
         const last_inst = child_block.instructions.items[last_inst_index];
-        if (last_inst.breakBlock()) |br_block| {
+        if (sema.getBreakBlock(last_inst)) |br_block| {
             if (br_block == merges.block_inst) {
                 // No need for a block instruction. We can put the new instructions directly
                 // into the parent block. Here we omit the break instruction.
-                const copied_instructions = try sema.arena.dupe(Air.Inst.Index, child_block.instructions.items[0..last_inst_index]);
-                try parent_block.instructions.appendSlice(gpa, copied_instructions);
+                const without_break = child_block.instructions.items[0..last_inst_index];
+                try parent_block.instructions.appendSlice(gpa, without_break);
                 return merges.results.items[0];
             }
         }
@@ -1998,36 +1997,50 @@ fn analyzeBlockBody(
     // Now that the block has its type resolved, we need to go back into all the break
     // instructions, and insert type coercion on the operands.
     for (merges.br_list.items) |br| {
-        if (sema.getTypeOf(br.operand).eql(resolved_ty)) {
+        const br_operand = sema.air_instructions.items(.data)[br].br.operand;
+        const br_operand_src = src;
+        const br_operand_ty = sema.getTypeOf(br_operand);
+        if (br_operand_ty.eql(resolved_ty)) {
             // No type coercion needed.
             continue;
         }
         var coerce_block = parent_block.makeSubBlock();
         defer coerce_block.instructions.deinit(gpa);
-        const coerced_operand = try sema.coerce(&coerce_block, resolved_ty, br.operand, br.operand.src);
+        const coerced_operand = try sema.coerce(&coerce_block, resolved_ty, br_operand, br_operand_src);
         // If no instructions were produced, such as in the case of a coercion of a
         // constant value to a new type, we can simply point the br operand to it.
         if (coerce_block.instructions.items.len == 0) {
-            br.operand = coerced_operand;
+            sema.air_instructions.items(.data)[br].br.operand = coerced_operand;
             continue;
         }
-        assert(coerce_block.instructions.items[coerce_block.instructions.items.len - 1] == coerced_operand);
-        // Here we depend on the br instruction having been over-allocated (if necessary)
-        // inside zirBreak so that it can be converted into a br_block_flat instruction.
-        const br_src = br.base.src;
-        const br_ty = br.base.ty;
-        const br_block_flat = @ptrCast(*Inst.BrBlockFlat, br);
-        br_block_flat.* = .{
-            .base = .{
-                .src = br_src,
-                .ty = br_ty,
-                .tag = .br_block_flat,
-            },
-            .block = merges.block_inst,
-            .body = .{
-                .instructions = try sema.arena.dupe(Air.Inst.Index, coerce_block.instructions.items),
-            },
-        };
+        assert(coerce_block.instructions.items[coerce_block.instructions.items.len - 1] ==
+            refToIndex(coerced_operand).?);
+
+        // Convert the br operand to a block.
+        try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Block).Struct.fields.len +
+            coerce_block.instructions.items.len);
+        try sema.air_instructions.ensureUnusedCapacity(gpa, 2);
+        const sub_block_inst = @intCast(Air.Inst.Index, sema.air_instructions.len);
+        const sub_br_inst = sub_block_inst + 1;
+        sema.air_instructions.items(.data)[br].br.operand = indexToRef(sub_block_inst);
+        sema.air_instructions.appendAssumeCapacity(.{
+            .tag = .block,
+            .data = .{ .ty_pl = .{
+                .ty = try sema.addType(br_operand_ty),
+                .payload = sema.addExtraAssumeCapacity(Air.Block{
+                    .body_len = @intCast(u32, coerce_block.instructions.items.len),
+                }),
+            } },
+        });
+        sema.air_extra.appendSliceAssumeCapacity(coerce_block.instructions.items);
+        sema.air_extra.appendAssumeCapacity(sub_br_inst);
+        sema.air_instructions.appendAssumeCapacity(.{
+            .tag = .br,
+            .data = .{ .br = .{
+                .block_inst = sub_block_inst,
+                .operand = coerced_operand,
+            } },
+        });
     }
     return indexToRef(merges.block_inst);
 }
@@ -2257,10 +2270,11 @@ fn analyzeCall(
     ensure_result_used: bool,
     args: []const Air.Inst.Ref,
 ) CompileError!Air.Inst.Ref {
-    if (func.ty.zigTypeTag() != .Fn)
-        return sema.mod.fail(&block.base, func_src, "type '{}' not a function", .{func.ty});
+    const func_ty = sema.getTypeOf(func);
+    if (func_ty.zigTypeTag() != .Fn)
+        return sema.mod.fail(&block.base, func_src, "type '{}' not a function", .{func_ty});
 
-    const cc = func.ty.fnCallingConvention();
+    const cc = func_ty.fnCallingConvention();
     if (cc == .Naked) {
         // TODO add error note: declared here
         return sema.mod.fail(
@@ -2270,8 +2284,8 @@ fn analyzeCall(
             .{},
         );
     }
-    const fn_params_len = func.ty.fnParamLen();
-    if (func.ty.fnIsVarArgs()) {
+    const fn_params_len = func_ty.fnParamLen();
+    if (func_ty.fnIsVarArgs()) {
         assert(cc == .C);
         if (args.len < fn_params_len) {
             // TODO add error note: declared here
@@ -2310,11 +2324,9 @@ fn analyzeCall(
 
     const gpa = sema.gpa;
 
-    const ret_type = func.ty.fnReturnType();
-
     const is_comptime_call = block.is_comptime or modifier == .compile_time;
     const is_inline_call = is_comptime_call or modifier == .always_inline or
-        func.ty.fnCallingConvention() == .Inline;
+        func_ty.fnCallingConvention() == .Inline;
     const result: Air.Inst.Ref = if (is_inline_call) res: {
         const func_val = try sema.resolveConstValue(block, func_src, func);
         const module_fn = switch (func_val.tag()) {
@@ -2400,7 +2412,19 @@ fn analyzeCall(
         break :res result;
     } else res: {
         try sema.requireRuntimeBlock(block, call_src);
-        break :res try block.addCall(call_src, ret_type, func, args);
+        try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Call).Struct.fields.len +
+            args.len);
+        const func_inst = try block.addInst(.{
+            .tag = .call,
+            .data = .{ .pl_op = .{
+                .operand = func,
+                .payload = sema.addExtraAssumeCapacity(Air.Call{
+                    .args_len = @intCast(u32, args.len),
+                }),
+            } },
+        });
+        sema.appendRefsAssumeCapacity(args);
+        break :res func_inst;
     };
 
     if (ensure_result_used) {
@@ -8139,4 +8163,18 @@ pub fn addExtraAssumeCapacity(sema: *Sema, extra: anytype) u32 {
         });
     }
     return result;
+}
+
+fn appendRefsAssumeCapacity(sema: *Sema, refs: []const Air.Inst.Ref) void {
+    const coerced = @bitCast([]const u32, refs);
+    sema.air_extra.appendSliceAssumeCapacity(coerced);
+}
+
+fn getBreakBlock(sema: *Sema, inst_index: Air.Inst.Index) ?Air.Inst.Index {
+    const air_datas = sema.air_instructions.items(.data);
+    const air_tags = sema.air_instructions.items(.tag);
+    switch (air_tags[inst_index]) {
+        .br => return air_datas[inst_index].br.block_inst,
+        else => return null,
+    }
 }

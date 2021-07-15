@@ -16,48 +16,6 @@
         return inst.val;
     }
 
-    pub fn breakBlock(base: *Inst) ?*Block {
-        return switch (base.tag) {
-            .br => base.castTag(.br).?.block,
-            .br_void => base.castTag(.br_void).?.block,
-            .br_block_flat => base.castTag(.br_block_flat).?.block,
-            else => null,
-        };
-    }
-
-    pub const convertable_br_size = std.math.max(@sizeOf(BrBlockFlat), @sizeOf(Br));
-    pub const convertable_br_align = std.math.max(@alignOf(BrBlockFlat), @alignOf(Br));
-    comptime {
-        assert(@offsetOf(BrBlockFlat, "base") == @offsetOf(Br, "base"));
-    }
-
-    pub const BrBlockFlat = struct {
-        pub const base_tag = Tag.br_block_flat;
-
-        base: Inst,
-        block: *Block,
-        body: Body,
-
-        pub fn operandCount(self: *const BrBlockFlat) usize {
-            _ = self;
-            return 0;
-        }
-        pub fn getOperand(self: *const BrBlockFlat, index: usize) ?*Inst {
-            _ = self;
-            _ = index;
-            return null;
-        }
-    };
-
-        /// Same as `br` except the operand is a list of instructions to be treated as
-        /// a flat block; that is there is only 1 break instruction from the block, and
-        /// it is implied to be after the last instruction, and the last instruction is
-        /// the break operand.
-        /// This instruction exists for late-stage semantic analysis patch ups, to
-        /// replace one br operand with multiple instructions, without moving anything else around.
-        br_block_flat,
-
-
 
 
 /// For debugging purposes, prints a function representation to stderr.

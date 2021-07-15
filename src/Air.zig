@@ -308,10 +308,6 @@ pub const Inst = struct {
             operand: Ref,
             payload: u32,
         },
-        constant: struct {
-            ty: Type,
-            val: Value,
-        },
         dbg_stmt: struct {
             line: u32,
             column: u32,
