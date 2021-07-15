@@ -246,7 +246,91 @@ pub const TextBlock = struct {
 
     pub fn resolveRelocs(self: *TextBlock, zld: *Zld) !void {
         for (self.relocs.items) |rel| {
-            try rel.resolve(zld);
+            log.debug("relocating {}", .{rel});
+
+            const source_addr = blk: {
+                const sym = zld.locals.items[self.local_sym_index];
+                break :blk sym.payload.regular.address + rel.offset;
+            };
+            const target_addr = blk: {
+                const is_via_got = switch (rel.payload) {
+                    .pointer_to_got => true,
+                    .page => |page| page.kind == .got,
+                    .page_off => |page_off| page_off.kind == .got,
+                    .load => |load| load.kind == .got,
+                    else => false,
+                };
+
+                if (is_via_got) {
+                    const dc_seg = zld.load_commands.items[zld.data_const_segment_cmd_index.?].Segment;
+                    const got = dc_seg.sections.items[zld.got_section_index.?];
+                    const got_index = rel.target.got_index orelse {
+                        log.err("expected GOT entry for symbol '{s}'", .{zld.getString(rel.target.strx)});
+                        log.err("  this is an internal linker error", .{});
+                        return error.FailedToResolveRelocationTarget;
+                    };
+                    break :blk got.addr + got_index * @sizeOf(u64);
+                }
+
+                switch (rel.target.payload) {
+                    .regular => |reg| {
+                        const is_tlv = is_tlv: {
+                            const sym = zld.locals.items[self.local_sym_index];
+                            const seg = zld.load_commands.items[sym.payload.regular.segment_id].Segment;
+                            const sect = seg.sections.items[sym.payload.regular.section_id];
+                            break :is_tlv sectionType(sect) == macho.S_THREAD_LOCAL_VARIABLES;
+                        };
+                        if (is_tlv) {
+                            // For TLV relocations, the value specified as a relocation is the displacement from the
+                            // TLV initializer (either value in __thread_data or zero-init in __thread_bss) to the first
+                            // defined TLV template init section in the following order:
+                            // * wrt to __thread_data if defined, then
+                            // * wrt to __thread_bss
+                            const seg = zld.load_commands.items[zld.data_segment_cmd_index.?].Segment;
+                            const base_address = inner: {
+                                if (zld.tlv_data_section_index) |i| {
+                                    break :inner seg.sections.items[i].addr;
+                                } else if (zld.tlv_bss_section_index) |i| {
+                                    break :inner seg.sections.items[i].addr;
+                                } else {
+                                    log.err("threadlocal variables present but no initializer sections found", .{});
+                                    log.err("  __thread_data not found", .{});
+                                    log.err("  __thread_bss not found", .{});
+                                    return error.FailedToResolveRelocationTarget;
+                                }
+                            };
+                            break :blk reg.address - base_address;
+                        }
+
+                        break :blk reg.address;
+                    },
+                    .proxy => {
+                        if (mem.eql(u8, zld.getString(rel.target.strx), "__tlv_bootstrap")) {
+                            break :blk 0; // Dynamically bound by dyld.
+                        }
+
+                        const segment = zld.load_commands.items[zld.text_segment_cmd_index.?].Segment;
+                        const stubs = segment.sections.items[zld.stubs_section_index.?];
+                        const stubs_index = rel.target.stubs_index orelse {
+                            // TODO verify in TextBlock that the symbol is indeed dynamically bound.
+                            break :blk 0; // Dynamically bound by dyld.
+                        };
+                        break :blk stubs.addr + stubs_index * stubs.reserved2;
+                    },
+                    else => {
+                        log.err("failed to resolve symbol '{s}' as a relocation target", .{
+                            zld.getString(rel.target.strx),
+                        });
+                        log.err("  this is an internal linker error", .{});
+                        return error.FailedToResolveRelocationTarget;
+                    },
+                }
+            };
+
+            log.debug("  | source_addr = 0x{x}", .{source_addr});
+            log.debug("  | target_addr = 0x{x}", .{target_addr});
+
+            try rel.resolve(self, source_addr, target_addr);
         }
     }
 

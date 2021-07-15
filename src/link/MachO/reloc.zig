@@ -20,9 +20,6 @@ pub const Relocation = struct {
     /// Note relocation size can be inferred by relocation's kind.
     offset: u32,
 
-    /// Parent block containing this relocation.
-    block: *TextBlock,
-
     /// Target symbol: either a regular or a proxy.
     target: *Symbol,
 
@@ -36,6 +33,13 @@ pub const Relocation = struct {
         load: Load,
     },
 
+    const ResolveArgs = struct {
+        block: *TextBlock,
+        offset: u32,
+        source_addr: u64,
+        target_addr: u64,
+    };
+
     pub const Unsigned = struct {
         subtractor: ?*Symbol = null,
 
@@ -48,16 +52,16 @@ pub const Relocation = struct {
         /// => * is unreachable
         is_64bit: bool,
 
-        pub fn resolve(self: Unsigned, base: Relocation, _: u64, target_addr: u64) !void {
+        pub fn resolve(self: Unsigned, args: ResolveArgs) !void {
             const result = if (self.subtractor) |subtractor|
-                @intCast(i64, target_addr) - @intCast(i64, subtractor.payload.regular.address) + self.addend
+                @intCast(i64, args.target_addr) - @intCast(i64, subtractor.payload.regular.address) + self.addend
             else
-                @intCast(i64, target_addr) + self.addend;
+                @intCast(i64, args.target_addr) + self.addend;
 
             if (self.is_64bit) {
-                mem.writeIntLittle(u64, base.block.code[base.offset..][0..8], @bitCast(u64, result));
+                mem.writeIntLittle(u64, args.block.code[args.offset..][0..8], @bitCast(u64, result));
             } else {
-                mem.writeIntLittle(u32, base.block.code[base.offset..][0..4], @truncate(u32, @bitCast(u64, result)));
+                mem.writeIntLittle(u32, args.block.code[args.offset..][0..4], @truncate(u32, @bitCast(u64, result)));
             }
         }
 
@@ -78,25 +82,29 @@ pub const Relocation = struct {
     pub const Branch = struct {
         arch: Arch,
 
-        pub fn resolve(self: Branch, base: Relocation, source_addr: u64, target_addr: u64) !void {
+        pub fn resolve(self: Branch, args: ResolveArgs) !void {
             switch (self.arch) {
                 .aarch64 => {
-                    const displacement = try math.cast(i28, @intCast(i64, target_addr) - @intCast(i64, source_addr));
+                    const displacement = try math.cast(
+                        i28,
+                        @intCast(i64, args.target_addr) - @intCast(i64, args.source_addr),
+                    );
+                    const code = args.block.code[args.offset..][0..4];
                     var inst = aarch64.Instruction{
-                        .unconditional_branch_immediate = mem.bytesToValue(
-                            meta.TagPayload(
-                                aarch64.Instruction,
-                                aarch64.Instruction.unconditional_branch_immediate,
-                            ),
-                            base.block.code[base.offset..][0..4],
-                        ),
+                        .unconditional_branch_immediate = mem.bytesToValue(meta.TagPayload(
+                            aarch64.Instruction,
+                            aarch64.Instruction.unconditional_branch_immediate,
+                        ), code),
                     };
                     inst.unconditional_branch_immediate.imm26 = @truncate(u26, @bitCast(u28, displacement >> 2));
-                    mem.writeIntLittle(u32, base.block.code[base.offset..][0..4], inst.toU32());
+                    mem.writeIntLittle(u32, code, inst.toU32());
                 },
                 .x86_64 => {
-                    const displacement = try math.cast(i32, @intCast(i64, target_addr) - @intCast(i64, source_addr) - 4);
-                    mem.writeIntLittle(u32, base.block.code[base.offset..][0..4], @bitCast(u32, displacement));
+                    const displacement = try math.cast(
+                        i32,
+                        @intCast(i64, args.target_addr) - @intCast(i64, args.source_addr) - 4,
+                    );
+                    mem.writeIntLittle(u32, args.block.code[args.offset..][0..4], @bitCast(u32, displacement));
                 },
                 else => return error.UnsupportedCpuArchitecture,
             }
@@ -118,25 +126,23 @@ pub const Relocation = struct {
         },
         addend: ?u32 = null,
 
-        pub fn resolve(self: Page, base: Relocation, source_addr: u64, target_addr: u64) !void {
-            const actual_target_addr = if (self.addend) |addend| target_addr + addend else target_addr;
-            const source_page = @intCast(i32, source_addr >> 12);
-            const target_page = @intCast(i32, actual_target_addr >> 12);
+        pub fn resolve(self: Page, args: ResolveArgs) !void {
+            const target_addr = if (self.addend) |addend| args.target_addr + addend else args.target_addr;
+            const source_page = @intCast(i32, args.source_addr >> 12);
+            const target_page = @intCast(i32, target_addr >> 12);
             const pages = @bitCast(u21, @intCast(i21, target_page - source_page));
 
+            const code = args.block.code[args.offset..][0..4];
             var inst = aarch64.Instruction{
-                .pc_relative_address = mem.bytesToValue(
-                    meta.TagPayload(
-                        aarch64.Instruction,
-                        aarch64.Instruction.pc_relative_address,
-                    ),
-                    base.block.code[base.offset..][0..4],
-                ),
+                .pc_relative_address = mem.bytesToValue(meta.TagPayload(
+                    aarch64.Instruction,
+                    aarch64.Instruction.pc_relative_address,
+                ), code),
             };
             inst.pc_relative_address.immhi = @truncate(u19, pages >> 2);
             inst.pc_relative_address.immlo = @truncate(u2, pages);
 
-            mem.writeIntLittle(u32, base.block.code[base.offset..][0..4], inst.toU32());
+            mem.writeIntLittle(u32, code, inst.toU32());
         }
 
         pub fn format(self: Page, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
@@ -173,35 +179,31 @@ pub const Relocation = struct {
             load,
         };
 
-        pub fn resolve(self: PageOff, base: Relocation, _: u64, target_addr: u64) !void {
+        pub fn resolve(self: PageOff, args: ResolveArgs) !void {
+            const code = args.block.code[args.offset..][0..4];
+
             switch (self.kind) {
                 .page => {
-                    const actual_target_addr = if (self.addend) |addend| target_addr + addend else target_addr;
-                    const narrowed = @truncate(u12, actual_target_addr);
+                    const target_addr = if (self.addend) |addend| args.target_addr + addend else args.target_addr;
+                    const narrowed = @truncate(u12, target_addr);
 
                     const op_kind = self.op_kind orelse unreachable;
                     var inst: aarch64.Instruction = blk: {
                         switch (op_kind) {
                             .arithmetic => {
                                 break :blk .{
-                                    .add_subtract_immediate = mem.bytesToValue(
-                                        meta.TagPayload(
-                                            aarch64.Instruction,
-                                            aarch64.Instruction.add_subtract_immediate,
-                                        ),
-                                        base.block.code[base.offset..][0..4],
-                                    ),
+                                    .add_subtract_immediate = mem.bytesToValue(meta.TagPayload(
+                                        aarch64.Instruction,
+                                        aarch64.Instruction.add_subtract_immediate,
+                                    ), code),
                                 };
                             },
                             .load => {
                                 break :blk .{
-                                    .load_store_register = mem.bytesToValue(
-                                        meta.TagPayload(
-                                            aarch64.Instruction,
-                                            aarch64.Instruction.load_store_register,
-                                        ),
-                                        base.block.code[base.offset..][0..4],
-                                    ),
+                                    .load_store_register = mem.bytesToValue(meta.TagPayload(
+                                        aarch64.Instruction,
+                                        aarch64.Instruction.load_store_register,
+                                    ), code),
                                 };
                             },
                         }
@@ -226,22 +228,19 @@ pub const Relocation = struct {
                         inst.load_store_register.offset = offset;
                     }
 
-                    mem.writeIntLittle(u32, base.block.code[base.offset..][0..4], inst.toU32());
+                    mem.writeIntLittle(u32, code, inst.toU32());
                 },
                 .got => {
-                    const narrowed = @truncate(u12, target_addr);
+                    const narrowed = @truncate(u12, args.target_addr);
                     var inst: aarch64.Instruction = .{
-                        .load_store_register = mem.bytesToValue(
-                            meta.TagPayload(
-                                aarch64.Instruction,
-                                aarch64.Instruction.load_store_register,
-                            ),
-                            base.block.code[base.offset..][0..4],
-                        ),
+                        .load_store_register = mem.bytesToValue(meta.TagPayload(
+                            aarch64.Instruction,
+                            aarch64.Instruction.load_store_register,
+                        ), code),
                     };
                     const offset = try math.divExact(u12, narrowed, 8);
                     inst.load_store_register.offset = offset;
-                    mem.writeIntLittle(u32, base.block.code[base.offset..][0..4], inst.toU32());
+                    mem.writeIntLittle(u32, code, inst.toU32());
                 },
                 .tlvp => {
                     const RegInfo = struct {
@@ -250,27 +249,21 @@ pub const Relocation = struct {
                         size: u1,
                     };
                     const reg_info: RegInfo = blk: {
-                        if (isArithmeticOp(base.block.code[base.offset..][0..4])) {
-                            const inst = mem.bytesToValue(
-                                meta.TagPayload(
-                                    aarch64.Instruction,
-                                    aarch64.Instruction.add_subtract_immediate,
-                                ),
-                                base.block.code[base.offset..][0..4],
-                            );
+                        if (isArithmeticOp(code)) {
+                            const inst = mem.bytesToValue(meta.TagPayload(
+                                aarch64.Instruction,
+                                aarch64.Instruction.add_subtract_immediate,
+                            ), code);
                             break :blk .{
                                 .rd = inst.rd,
                                 .rn = inst.rn,
                                 .size = inst.sf,
                             };
                         } else {
-                            const inst = mem.bytesToValue(
-                                meta.TagPayload(
-                                    aarch64.Instruction,
-                                    aarch64.Instruction.load_store_register,
-                                ),
-                                base.block.code[base.offset..][0..4],
-                            );
+                            const inst = mem.bytesToValue(meta.TagPayload(
+                                aarch64.Instruction,
+                                aarch64.Instruction.load_store_register,
+                            ), code);
                             break :blk .{
                                 .rd = inst.rt,
                                 .rn = inst.rn,
@@ -278,7 +271,7 @@ pub const Relocation = struct {
                             };
                         }
                     };
-                    const narrowed = @truncate(u12, target_addr);
+                    const narrowed = @truncate(u12, args.target_addr);
                     var inst = aarch64.Instruction{
                         .add_subtract_immediate = .{
                             .rd = reg_info.rd,
@@ -290,7 +283,7 @@ pub const Relocation = struct {
                             .sf = reg_info.size,
                         },
                     };
-                    mem.writeIntLittle(u32, base.block.code[base.offset..][0..4], inst.toU32());
+                    mem.writeIntLittle(u32, code, inst.toU32());
                 },
             }
         }
@@ -319,9 +312,9 @@ pub const Relocation = struct {
     };
 
     pub const PointerToGot = struct {
-        pub fn resolve(_: PointerToGot, base: Relocation, source_addr: u64, target_addr: u64) !void {
-            const result = try math.cast(i32, @intCast(i64, target_addr) - @intCast(i64, source_addr));
-            mem.writeIntLittle(u32, base.block.code[base.offset..][0..4], @bitCast(u32, result));
+        pub fn resolve(_: PointerToGot, args: ResolveArgs) !void {
+            const result = try math.cast(i32, @intCast(i64, args.target_addr) - @intCast(i64, args.source_addr));
+            mem.writeIntLittle(u32, args.block.code[args.offset..][0..4], @bitCast(u32, result));
         }
 
         pub fn format(self: PointerToGot, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
@@ -336,13 +329,13 @@ pub const Relocation = struct {
         addend: i64,
         correction: i4,
 
-        pub fn resolve(self: Signed, base: Relocation, source_addr: u64, target_addr: u64) !void {
-            const actual_target_addr = @intCast(i64, target_addr) + self.addend;
+        pub fn resolve(self: Signed, args: ResolveArgs) !void {
+            const target_addr = @intCast(i64, args.target_addr) + self.addend;
             const displacement = try math.cast(
                 i32,
-                actual_target_addr - @intCast(i64, source_addr) - self.correction - 4,
+                target_addr - @intCast(i64, args.source_addr) - self.correction - 4,
             );
-            mem.writeIntLittle(u32, base.block.code[base.offset..][0..4], @bitCast(u32, displacement));
+            mem.writeIntLittle(u32, args.block.code[args.offset..][0..4], @bitCast(u32, displacement));
         }
 
         pub fn format(self: Signed, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
@@ -362,17 +355,17 @@ pub const Relocation = struct {
         },
         addend: ?i32 = null,
 
-        pub fn resolve(self: Load, base: Relocation, source_addr: u64, target_addr: u64) !void {
+        pub fn resolve(self: Load, args: ResolveArgs) !void {
             if (self.kind == .tlvp) {
                 // We need to rewrite the opcode from movq to leaq.
-                base.block.code[base.offset - 2] = 0x8d;
+                args.block.code[args.offset - 2] = 0x8d;
             }
             const addend = if (self.addend) |addend| addend else 0;
             const displacement = try math.cast(
                 i32,
-                @intCast(i64, target_addr) - @intCast(i64, source_addr) - 4 + addend,
+                @intCast(i64, args.target_addr) - @intCast(i64, args.source_addr) - 4 + addend,
             );
-            mem.writeIntLittle(u32, base.block.code[base.offset..][0..4], @bitCast(u32, displacement));
+            mem.writeIntLittle(u32, args.block.code[args.offset..][0..4], @bitCast(u32, displacement));
         }
 
         pub fn format(self: Load, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
@@ -387,106 +380,27 @@ pub const Relocation = struct {
         }
     };
 
-    pub fn resolve(self: Relocation, zld: *Zld) !void {
-        log.debug("relocating {}", .{self});
-
-        const source_addr = blk: {
-            const sym = zld.locals.items[self.block.local_sym_index];
-            break :blk sym.payload.regular.address + self.offset;
+    pub fn resolve(self: Relocation, block: *TextBlock, source_addr: u64, target_addr: u64) !void {
+        const args = ResolveArgs{
+            .block = block,
+            .offset = self.offset,
+            .source_addr = source_addr,
+            .target_addr = target_addr,
         };
-        const target_addr = blk: {
-            const is_via_got = switch (self.payload) {
-                .pointer_to_got => true,
-                .page => |page| page.kind == .got,
-                .page_off => |page_off| page_off.kind == .got,
-                .load => |load| load.kind == .got,
-                else => false,
-            };
-
-            if (is_via_got) {
-                const dc_seg = zld.load_commands.items[zld.data_const_segment_cmd_index.?].Segment;
-                const got = dc_seg.sections.items[zld.got_section_index.?];
-                const got_index = self.target.got_index orelse {
-                    log.err("expected GOT entry for symbol '{s}'", .{zld.getString(self.target.strx)});
-                    log.err("  this is an internal linker error", .{});
-                    return error.FailedToResolveRelocationTarget;
-                };
-                break :blk got.addr + got_index * @sizeOf(u64);
-            }
-
-            switch (self.target.payload) {
-                .regular => |reg| {
-                    const is_tlv = is_tlv: {
-                        const sym = zld.locals.items[self.block.local_sym_index];
-                        const seg = zld.load_commands.items[sym.payload.regular.segment_id].Segment;
-                        const sect = seg.sections.items[sym.payload.regular.section_id];
-                        break :is_tlv commands.sectionType(sect) == macho.S_THREAD_LOCAL_VARIABLES;
-                    };
-                    if (is_tlv) {
-                        // For TLV relocations, the value specified as a relocation is the displacement from the
-                        // TLV initializer (either value in __thread_data or zero-init in __thread_bss) to the first
-                        // defined TLV template init section in the following order:
-                        // * wrt to __thread_data if defined, then
-                        // * wrt to __thread_bss
-                        const seg = zld.load_commands.items[zld.data_segment_cmd_index.?].Segment;
-                        const base_address = inner: {
-                            if (zld.tlv_data_section_index) |i| {
-                                break :inner seg.sections.items[i].addr;
-                            } else if (zld.tlv_bss_section_index) |i| {
-                                break :inner seg.sections.items[i].addr;
-                            } else {
-                                log.err("threadlocal variables present but no initializer sections found", .{});
-                                log.err("  __thread_data not found", .{});
-                                log.err("  __thread_bss not found", .{});
-                                return error.FailedToResolveRelocationTarget;
-                            }
-                        };
-                        break :blk reg.address - base_address;
-                    }
-
-                    break :blk reg.address;
-                },
-                .proxy => {
-                    if (mem.eql(u8, zld.getString(self.target.strx), "__tlv_bootstrap")) {
-                        break :blk 0; // Dynamically bound by dyld.
-                    }
-
-                    const segment = zld.load_commands.items[zld.text_segment_cmd_index.?].Segment;
-                    const stubs = segment.sections.items[zld.stubs_section_index.?];
-                    const stubs_index = self.target.stubs_index orelse {
-                        // TODO verify in TextBlock that the symbol is indeed dynamically bound.
-                        break :blk 0; // Dynamically bound by dyld.
-                    };
-                    break :blk stubs.addr + stubs_index * stubs.reserved2;
-                },
-                else => {
-                    log.err("failed to resolve symbol '{s}' as a relocation target", .{
-                        zld.getString(self.target.strx),
-                    });
-                    log.err("  this is an internal linker error", .{});
-                    return error.FailedToResolveRelocationTarget;
-                },
-            }
-        };
-
-        log.debug("  | source_addr = 0x{x}", .{source_addr});
-        log.debug("  | target_addr = 0x{x}", .{target_addr});
-
         switch (self.payload) {
-            .unsigned => |unsigned| try unsigned.resolve(self, source_addr, target_addr),
-            .branch => |branch| try branch.resolve(self, source_addr, target_addr),
-            .page => |page| try page.resolve(self, source_addr, target_addr),
-            .page_off => |page_off| try page_off.resolve(self, source_addr, target_addr),
-            .pointer_to_got => |pointer_to_got| try pointer_to_got.resolve(self, source_addr, target_addr),
-            .signed => |signed| try signed.resolve(self, source_addr, target_addr),
-            .load => |load| try load.resolve(self, source_addr, target_addr),
+            .unsigned => |unsigned| try unsigned.resolve(args),
+            .branch => |branch| try branch.resolve(args),
+            .page => |page| try page.resolve(args),
+            .page_off => |page_off| try page_off.resolve(args),
+            .pointer_to_got => |pointer_to_got| try pointer_to_got.resolve(args),
+            .signed => |signed| try signed.resolve(args),
+            .load => |load| try load.resolve(args),
         }
     }
 
     pub fn format(self: Relocation, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         try std.fmt.format(writer, "Relocation {{ ", .{});
         try std.fmt.format(writer, ".offset = {}, ", .{self.offset});
-        try std.fmt.format(writer, ".block = {}", .{self.block.local_sym_index});
         try std.fmt.format(writer, ".target = {}, ", .{self.target});
 
         switch (self.payload) {
@@ -713,7 +627,6 @@ pub const Parser = struct {
         return Relocation{
             .offset = offset,
             .target = target,
-            .block = self.block,
             .payload = undefined,
         };
     }
