@@ -299,8 +299,6 @@ fn analyzeInst(
             const extra = a.air.extraData(Air.Block, inst_datas[inst].ty_pl.payload);
             const body = a.air.extra[extra.end..][0..extra.data.body_len];
             try analyzeWithContext(a, new_set, body);
-            // We let this continue so that it can possibly mark the block as
-            // unreferenced below.
             return trackOperands(a, new_set, inst, main_tomb, .{ .none, .none, .none });
         },
         .loop => {
