@@ -5342,19 +5342,6 @@ test "implicit cast to comptime_int" {
 const std = @import("std");
 const expect = std.testing.expect;
 
-// This cast exists primarily so that string literals can be
-// passed to functions that accept const slices. However
-// it is probably going to be removed from the language when
-// https://github.com/ziglang/zig/issues/265 is implemented.
-test "[N]T to []const T" {
-    var x1: []const u8 = "hello";
-    var x2: []const u8 = &[5]u8{ 'h', 'e', 'l', 'l', 111 };
-    try expect(std.mem.eql(u8, x1, x2));
-
-    var y: []const f32 = &[2]f32{ 1.2, 3.4 };
-    try expect(y[0] == 1.2);
-}
-
 // Likewise, it works when the destination type is an error union.
 test "[N]T to E![]const T" {
     var x1: anyerror![]const u8 = "hello";
