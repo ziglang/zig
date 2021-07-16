@@ -5342,8 +5342,18 @@ test "implicit cast to comptime_int" {
 const std = @import("std");
 const expect = std.testing.expect;
 
+// You can assigne string literals to slices with constant element type. 
+test "*const [N]T to []const T" {
+    var x1: []const u8 = "hello";
+    var x2: []const u8 = &[5]u8{ 'h', 'e', 'l', 'l', 111 };
+    try expect(std.mem.eql(u8, x1, x2));
+
+    var y: []const f32 = &[2]f32{ 1.2, 3.4 };
+    try expect(y[0] == 1.2);
+}
+
 // Likewise, it works when the destination type is an error union.
-test "[N]T to E![]const T" {
+test "*const [N]T to E![]const T" {
     var x1: anyerror![]const u8 = "hello";
     var x2: anyerror![]const u8 = &[5]u8{ 'h', 'e', 'l', 'l', 111 };
     try expect(std.mem.eql(u8, try x1, try x2));
@@ -5353,7 +5363,7 @@ test "[N]T to E![]const T" {
 }
 
 // Likewise, it works when the destination type is an optional.
-test "[N]T to ?[]const T" {
+test "*const [N]T to ?[]const T" {
     var x1: ?[]const u8 = "hello";
     var x2: ?[]const u8 = &[5]u8{ 'h', 'e', 'l', 'l', 111 };
     try expect(std.mem.eql(u8, x1.?, x2.?));
