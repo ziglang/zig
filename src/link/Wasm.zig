@@ -220,7 +220,7 @@ pub fn updateFunc(self: *Wasm, module: *Module, func: *Module.Fn, air: Air, live
     defer context.deinit();
 
     // generate the 'code' section for the function declaration
-    const result = context.genFunc(func) catch |err| switch (err) {
+    const result = context.genFunc() catch |err| switch (err) {
         error.CodegenFail => {
             decl.analysis = .codegen_failure;
             try module.failed_decls.put(module.gpa, decl, context.err_msg);
