@@ -53,5 +53,8 @@ test "@src() returns a struct containing 0-terminated string slices" {
     try std.testing.expect(std.mem.endsWith(u8, src.fn_name, "testFnForSrc"));
 
     const ptr_src_file: [*:0]const u8 = src.file;
+    _ = ptr_src_file; // unused
+
     const ptr_src_fn_name: [*:0]const u8 = src.fn_name;
+    _ = ptr_src_fn_name; // unused
 }
