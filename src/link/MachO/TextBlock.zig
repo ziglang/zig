@@ -5,10 +5,9 @@ const commands = @import("commands.zig");
 const log = std.log.scoped(.text_block);
 const macho = std.macho;
 const mem = std.mem;
-const reloc = @import("reloc.zig");
 
 const Allocator = mem.Allocator;
-const Relocation = reloc.Relocation;
+const Arch = std.Target.Cpu.Arch;
 const Zld = @import("Zld.zig");
 
 allocator: *Allocator,
@@ -102,6 +101,15 @@ pub const Stab = union(enum) {
     }
 };
 
+pub const Relocation = struct {
+    inner: macho.relocation_info,
+    where: enum {
+        local,
+        import,
+    },
+    where_index: u32,
+};
+
 pub fn init(allocator: *Allocator) TextBlock {
     return .{
         .allocator = allocator,
@@ -137,18 +145,10 @@ pub fn resolveRelocs(self: *TextBlock, zld: *Zld) !void {
 
         const source_addr = blk: {
             const sym = zld.locals.items[self.local_sym_index];
-            break :blk sym.payload.regular.address + rel.offset;
+            break :blk sym.n_value + rel.offset;
         };
         const target_addr = blk: {
-            const is_via_got = switch (rel.payload) {
-                .pointer_to_got => true,
-                .page => |page| page.kind == .got,
-                .page_off => |page_off| page_off.kind == .got,
-                .load => |load| load.kind == .got,
-                else => false,
-            };
-
-            if (is_via_got) {
+            if (isGotIndirection(rel, zld.target.?.cpu.arch)) {
                 const dc_seg = zld.load_commands.items[zld.data_const_segment_cmd_index.?].Segment;
                 const got = dc_seg.sections.items[zld.got_section_index.?];
                 const got_index = rel.target.got_index orelse {
@@ -228,31 +228,18 @@ pub fn print_this(self: *const TextBlock, zld: *Zld) void {
         log.warn("  stab: {}", .{stab});
     }
     if (self.aliases.items.len > 0) {
-        log.warn("  aliases:", .{});
-        for (self.aliases.items) |index| {
-            log.warn("    {}: {}", .{ index, zld.locals.items[index] });
-        }
+        log.warn("  aliases: {any}", .{self.aliases.items});
     }
     if (self.references.count() > 0) {
-        log.warn("  references:", .{});
-        for (self.references.keys()) |index| {
-            log.warn("    {}: {}", .{ index, zld.locals.items[index] });
-        }
+        log.warn("  references: {any}", .{self.references.keys()});
     }
     if (self.contained) |contained| {
         log.warn("  contained symbols:", .{});
         for (contained) |sym_at_off| {
             if (sym_at_off.stab) |stab| {
-                log.warn("    {}: {}, stab: {}\n", .{
-                    sym_at_off.offset,
-                    zld.locals.items[sym_at_off.local_sym_index],
-                    stab,
-                });
+                log.warn("    {}: {}, stab: {}", .{ sym_at_off.offset, sym_at_off.local_sym_index, stab });
             } else {
-                log.warn("    {}: {}\n", .{
-                    sym_at_off.offset,
-                    zld.locals.items[sym_at_off.local_sym_index],
-                });
+                log.warn("    {}: {}", .{ sym_at_off.offset, sym_at_off.local_sym_index });
             }
         }
     }
@@ -281,4 +268,23 @@ pub fn print(self: *const TextBlock, zld: *Zld) void {
         prev.print(zld);
     }
     self.print_this(zld);
+}
+
+fn isGotIndirection(rel: macho.relocation_info, arch: Arch) bool {
+    return switch (arch) {
+        .aarch64 => switch (@intToEnum(macho.reloc_type_arm64, rel.r_type)) {
+            .ARM64_RELOC_POINTER_TO_GOT,
+            .ARM64_RELOC_GOT_LOAD_PAGE21,
+            .ARM64_RELOC_GOT_LOAD_PAGEOFF12,
+            => true,
+            else => false,
+        },
+        .x86_64 => switch (@intToEnum(macho.reloc_type_x86_64, rel.r_type)) {
+            .X86_64_RELOC_GOT,
+            .X86_64_RELOC_GOT_LOAD,
+            => true,
+            else => false,
+        },
+        else => unreachable,
+    };
 }

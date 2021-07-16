@@ -105,7 +105,6 @@ imports: std.ArrayListUnmanaged(macho.nlist_64) = .{},
 undefs: std.ArrayListUnmanaged(macho.nlist_64) = .{},
 tentatives: std.ArrayListUnmanaged(macho.nlist_64) = .{},
 symbol_resolver: std.StringArrayHashMapUnmanaged(SymbolWithLoc) = .{},
-object_mapping: std.AutoHashMapUnmanaged(u16, []u32) = .{},
 
 strtab: std.ArrayListUnmanaged(u8) = .{},
 
@@ -199,14 +198,6 @@ pub fn deinit(self: *Zld) void {
     }
     self.symbol_resolver.deinit(self.allocator);
 
-    {
-        var it = self.object_mapping.valueIterator();
-        while (it.next()) |value_ptr| {
-            self.allocator.free(value_ptr.*);
-        }
-    }
-    self.object_mapping.deinit(self.allocator);
-
     self.strtab.deinit(self.allocator);
 
     // TODO dealloc all blocks
@@ -251,33 +242,33 @@ pub fn link(self: *Zld, files: []const []const u8, output: Output, args: LinkArg
     try self.resolveSymbols();
 
     log.warn("locals", .{});
-    for (self.locals.items) |sym| {
-        log.warn("  | {s}: {}", .{ self.getString(sym.n_strx), sym });
+    for (self.locals.items) |sym, id| {
+        log.warn("  {d}: {s}, {}", .{ id, self.getString(sym.n_strx), sym });
     }
 
     log.warn("globals", .{});
-    for (self.globals.items) |sym| {
-        log.warn("  | {s}: {}", .{ self.getString(sym.n_strx), sym });
+    for (self.globals.items) |sym, id| {
+        log.warn("  {d}: {s}, {}", .{ id, self.getString(sym.n_strx), sym });
     }
 
     log.warn("tentatives", .{});
-    for (self.tentatives.items) |sym| {
-        log.warn("  | {s}: {}", .{ self.getString(sym.n_strx), sym });
+    for (self.tentatives.items) |sym, id| {
+        log.warn("  {d}: {s}, {}", .{ id, self.getString(sym.n_strx), sym });
     }
 
     log.warn("undefines", .{});
-    for (self.undefs.items) |sym| {
-        log.warn("  | {s}: {}", .{ self.getString(sym.n_strx), sym });
+    for (self.undefs.items) |sym, id| {
+        log.warn("  {d}: {s}, {}", .{ id, self.getString(sym.n_strx), sym });
     }
 
     log.warn("imports", .{});
-    for (self.imports.items) |sym| {
-        log.warn("  | {s}: {}", .{ self.getString(sym.n_strx), sym });
+    for (self.imports.items) |sym, id| {
+        log.warn("  {d}: {s}, {}", .{ id, self.getString(sym.n_strx), sym });
     }
 
     log.warn("symbol resolver", .{});
     for (self.symbol_resolver.keys()) |key| {
-        log.warn("  | {s} => {}", .{ key, self.symbol_resolver.get(key).? });
+        log.warn("  {s} => {}", .{ key, self.symbol_resolver.get(key).? });
     }
 
     log.warn("mappings", .{});
@@ -285,7 +276,7 @@ pub fn link(self: *Zld, files: []const []const u8, output: Output, args: LinkArg
         const object_id = @intCast(u16, id);
         log.warn("  in object {s}", .{object.name.?});
         for (object.symtab.items) |sym, sym_id| {
-            if (self.localSymIndex(object_id, @intCast(u32, sym_id))) |local_id| {
+            if (object.symbol_mapping.get(@intCast(u32, sym_id))) |local_id| {
                 log.warn("    | {d} => {d}", .{ sym_id, local_id });
             } else {
                 log.warn("    | {d} no local mapping for {s}", .{ sym_id, object.getString(sym.n_strx) });
@@ -293,8 +284,19 @@ pub fn link(self: *Zld, files: []const []const u8, output: Output, args: LinkArg
         }
     }
 
+    try self.parseTextBlocks();
+
+    var it = self.blocks.iterator();
+    while (it.next()) |entry| {
+        const seg = self.load_commands.items[entry.key_ptr.seg].Segment;
+        const sect = seg.sections.items[entry.key_ptr.sect];
+
+        log.warn("\n\n{s},{s} contents:", .{ segmentName(sect), sectionName(sect) });
+        log.warn("  {}", .{sect});
+        entry.value_ptr.*.print(self);
+    }
+
     return error.TODO;
-    // try self.parseTextBlocks();
     // try self.sortSections();
     // try self.addRpaths(args.rpaths);
     // try self.addDataInCodeLC();
@@ -304,16 +306,6 @@ pub fn link(self: *Zld, files: []const []const u8, output: Output, args: LinkArg
     // try self.allocateDataSegment();
     // self.allocateLinkeditSegment();
     // try self.allocateTextBlocks();
-
-    // // var it = self.blocks.iterator();
-    // // while (it.next()) |entry| {
-    // //     const seg = self.load_commands.items[entry.key_ptr.seg].Segment;
-    // //     const sect = seg.sections.items[entry.key_ptr.sect];
-
-    // //     log.warn("\n\n{s},{s} contents:", .{ segmentName(sect), sectionName(sect) });
-    // //     log.warn("  {}", .{sect});
-    // //     entry.value_ptr.*.print(self);
-    // // }
 
     // try self.flush();
 }
@@ -1414,10 +1406,6 @@ fn resolveSymbolsInObject(self: *Zld, object_id: u16) !void {
 
     log.warn("resolving symbols in '{s}'", .{object.name});
 
-    const mapping = try self.allocator.alloc(u32, object.symtab.items.len);
-    mem.set(u32, mapping, 0);
-    try self.object_mapping.putNoClobber(self.allocator, object_id, mapping);
-
     for (object.symtab.items) |sym, id| {
         const sym_id = @intCast(u32, id);
         const sym_name = object.getString(sym.n_strx);
@@ -1464,7 +1452,7 @@ fn resolveSymbolsInObject(self: *Zld, object_id: u16) !void {
                 .n_desc = 0,
                 .n_value = sym.n_value,
             });
-            mapping[sym_id] = local_sym_index;
+            try object.symbol_mapping.putNoClobber(self.allocator, sym_id, local_sym_index);
 
             // If the symbol's scope is not local aka translation unit, then we need work out
             // if we should save the symbol as a global, or potentially flag the error.
@@ -2987,15 +2975,6 @@ pub fn getString(self: *Zld, off: u32) []const u8 {
     return mem.spanZ(@ptrCast([*:0]const u8, self.strtab.items.ptr + off));
 }
 
-fn localSymIndex(self: Zld, object_id: u16, orig_id: u32) ?u32 {
-    const mapping = self.object_mapping.get(object_id) orelse return null;
-    const local_sym_index = mapping[orig_id];
-    if (local_sym_index == 0) {
-        return null;
-    }
-    return local_sym_index;
-}
-
 pub fn symbolIsStab(sym: macho.nlist_64) bool {
     return (macho.N_STAB & sym.n_type) != 0;
 }
@@ -3045,10 +3024,9 @@ pub fn symbolIsNull(sym: macho.nlist_64) bool {
     return sym.n_value == 0 and sym.n_desc == 0 and sym.n_type == 0 and sym.n_strx == 0 and sym.n_sect == 0;
 }
 
-pub fn symbolIsTemp(self: Zld, sym: macho.nlist_64) bool {
+pub fn symbolIsTemp(sym: macho.nlist_64, sym_name: []const u8) bool {
     if (!symbolIsSect(sym)) return false;
     if (symbolIsExt(sym)) return false;
-    const sym_name = self.getString(sym.n_strx);
     return mem.startsWith(u8, sym_name, "l") or mem.startsWith(u8, sym_name, "L");
 }
 
