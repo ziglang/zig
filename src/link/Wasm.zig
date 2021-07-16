@@ -228,7 +228,7 @@ pub fn updateFunc(self: *Wasm, module: *Module, func: *Module.Fn, air: Air, live
         },
         else => |e| return e,
     };
-    return self.finishUpdateDecl(decl, result);
+    return self.finishUpdateDecl(decl, result, &context);
 }
 
 // Generate code for the Decl, storing it in memory to be later written to
@@ -270,17 +270,20 @@ pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
         },
         else => |e| return e,
     };
-    return self.finishUpdateDecl(decl, result);
+
+    return self.finishUpdateDecl(decl, result, &context);
 }
 
-fn finishUpdateDecl(self: *Wasm, decl: *Module.Decl, result: codegen.Result) !void {
-    const code: []const u8 = switch (result) {
-        .appended => @as([]const u8, context.code.items),
-        .externally_managed => |payload| payload,
-    };
+fn finishUpdateDecl(self: *Wasm, decl: *Module.Decl, result: codegen.Result, context: *codegen.Context) !void {
+    const fn_data: *FnData = &decl.fn_link.wasm;
 
     fn_data.code = context.code.toUnmanaged();
     fn_data.functype = context.func_type_data.toUnmanaged();
+
+    const code: []const u8 = switch (result) {
+        .appended => @as([]const u8, fn_data.code.items),
+        .externally_managed => |payload| payload,
+    };
 
     const block = &decl.link.wasm;
     if (decl.ty.zigTypeTag() == .Fn) {
