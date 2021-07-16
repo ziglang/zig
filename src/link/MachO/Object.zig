@@ -290,19 +290,6 @@ pub fn readLoadCommands(self: *Object, reader: anytype) !void {
     }
 }
 
-fn findFirst(comptime T: type, haystack: []T, start: usize, predicate: anytype) usize {
-    if (!@hasDecl(@TypeOf(predicate), "predicate"))
-        @compileError("Predicate is required to define fn predicate(@This(), T) bool");
-
-    if (start == haystack.len) return start;
-
-    var i = start;
-    while (i < haystack.len) : (i += 1) {
-        if (predicate.predicate(haystack[i])) break;
-    }
-    return i;
-}
-
 const NlistWithIndex = struct {
     nlist: macho.nlist_64,
     index: u32,
@@ -315,44 +302,29 @@ const NlistWithIndex = struct {
         const Predicate = struct {
             addr: u64,
 
-            fn predicate(self: @This(), symbol: NlistWithIndex) bool {
+            pub fn predicate(self: @This(), symbol: NlistWithIndex) bool {
                 return symbol.nlist.n_value >= self.addr;
             }
         };
 
-        const start = findFirst(NlistWithIndex, symbols, 0, Predicate{ .addr = sect.addr });
-        const end = findFirst(NlistWithIndex, symbols, start, Predicate{ .addr = sect.addr + sect.size });
+        const start = Zld.findFirst(NlistWithIndex, symbols, 0, Predicate{ .addr = sect.addr });
+        const end = Zld.findFirst(NlistWithIndex, symbols, start, Predicate{ .addr = sect.addr + sect.size });
 
         return symbols[start..end];
     }
 };
 
-fn filterRelocs(relocs: []macho.relocation_info, start_addr: u64, end_addr: u64) []macho.relocation_info {
-    const Predicate = struct {
-        addr: u64,
-
-        fn predicate(self: @This(), rel: macho.relocation_info) bool {
-            return rel.r_address < self.addr;
-        }
-    };
-
-    const start = findFirst(macho.relocation_info, relocs, 0, Predicate{ .addr = end_addr });
-    const end = findFirst(macho.relocation_info, relocs, start, Predicate{ .addr = start_addr });
-
-    return relocs[start..end];
-}
-
 fn filterDice(dices: []macho.data_in_code_entry, start_addr: u64, end_addr: u64) []macho.data_in_code_entry {
     const Predicate = struct {
         addr: u64,
 
-        fn predicate(self: @This(), dice: macho.data_in_code_entry) bool {
+        pub fn predicate(self: @This(), dice: macho.data_in_code_entry) bool {
             return dice.offset >= self.addr;
         }
     };
 
-    const start = findFirst(macho.data_in_code_entry, dices, 0, Predicate{ .addr = start_addr });
-    const end = findFirst(macho.data_in_code_entry, dices, start, Predicate{ .addr = end_addr });
+    const start = Zld.findFirst(macho.data_in_code_entry, dices, 0, Predicate{ .addr = start_addr });
+    const end = Zld.findFirst(macho.data_in_code_entry, dices, start, Predicate{ .addr = end_addr });
 
     return dices[start..end];
 }
@@ -483,10 +455,10 @@ const TextBlockParser = struct {
             }
         }
 
-        const relocs = filterRelocs(self.relocs, start_addr, end_addr);
-        if (relocs.len > 0) {
-            try self.object.parseRelocs(self.zld, relocs, block, start_addr);
-        }
+        try block.parseRelocsFromObject(relocs, object, .{
+            .base_addr = start_addr,
+            .zld = self.zld,
+        });
 
         if (self.zld.has_dices) {
             const dices = filterDice(
@@ -745,8 +717,6 @@ pub fn parseTextBlocks(self: *Object, zld: *Zld) !void {
                 .n_desc = 0,
                 .n_value = sect.addr,
             });
-            const block_local = &zld.locals.items[block_local_sym_index];
-            block_local.n_sect = zld.sectionId(match);
 
             const block = try self.allocator.create(TextBlock);
             errdefer self.allocator.destroy(block);
@@ -757,69 +727,10 @@ pub fn parseTextBlocks(self: *Object, zld: *Zld) !void {
             block.size = sect.size;
             block.alignment = sect.@"align";
 
-            try block.relocs.ensureTotalCapacity(relocs.len);
-            for (relocs) |rel| {
-                const out_rel: TextBlock.Relocation = outer: {
-                    if (rel.r_extern == 0) {
-                        const rel_sect_id = @intCast(u16, rel.r_symbolnum - 1);
-                        const sect_sym_index = self.sections_as_symbols.get(rel_sect_id) orelse blk: {
-                            const sect_sym_index = @intCast(u32, zld.locals.items.len);
-                            const sect_sym_name = try std.fmt.allocPrint(self.allocator, "l_{s}_{s}_{s}", .{
-                                self.name.?,
-                                segmentName(sect),
-                                sectionName(sect),
-                            });
-                            defer self.allocator.free(sect_sym_name);
-                            try zld.locals.append(zld.allocator, .{
-                                .n_strx = try zld.makeString(sect_sym_name),
-                                .n_type = macho.N_SECT,
-                                .n_sect = 0,
-                                .n_desc = 0,
-                                .n_value = 0,
-                            });
-                            try self.sections_as_symbols.putNoClobber(self.allocator, rel_sect_id, sect_sym_index);
-                            break :blk sect_sym_index;
-                        };
-                        break :outer .{
-                            .inner = rel,
-                            .where = .local,
-                            .where_index = sect_sym_index,
-                        };
-                    }
-
-                    const rel_sym = self.symtab.items[rel.r_symbolnum];
-                    const rel_sym_name = self.getString(rel_sym.n_strx);
-
-                    if (Zld.symbolIsSect(rel_sym) and !Zld.symbolIsExt(rel_sym)) {
-                        const where_index = self.symbol_mapping.get(rel.r_symbolnum) orelse unreachable;
-                        break :outer .{
-                            .inner = rel,
-                            .where = .local,
-                            .where_index = where_index,
-                        };
-                    }
-
-                    const resolv = zld.symbol_resolver.get(rel_sym_name) orelse unreachable;
-                    switch (resolv.where) {
-                        .global => {
-                            break :outer .{
-                                .inner = rel,
-                                .where = .local,
-                                .where_index = resolv.local_sym_index,
-                            };
-                        },
-                        .import => {
-                            break :outer .{
-                                .inner = rel,
-                                .where = .import,
-                                .where_index = resolv.where_index,
-                            };
-                        },
-                        else => unreachable,
-                    }
-                };
-                block.relocs.appendAssumeCapacity(out_rel);
-            }
+            try block.parseRelocsFromObject(relocs, self, .{
+                .base_addr = 0,
+                .zld = zld,
+            });
 
             if (zld.has_dices) {
                 const dices = filterDice(self.data_in_code_entries.items, sect.addr, sect.addr + sect.size);

@@ -108,8 +108,8 @@ symbol_resolver: std.StringArrayHashMapUnmanaged(SymbolWithLoc) = .{},
 
 strtab: std.ArrayListUnmanaged(u8) = .{},
 
-// stubs: std.ArrayListUnmanaged(*Symbol) = .{},
-got_entries: std.ArrayListUnmanaged(GotEntry) = .{},
+stubs: std.AutoArrayHashMapUnmanaged(u32, void) = .{},
+got_entries: std.AutoArrayHashMapUnmanaged(GotIndirectionKey, void) = .{},
 
 stub_helper_stubs_start_off: ?u64 = null,
 
@@ -131,20 +131,12 @@ const SymbolWithLoc = struct {
     file: u16 = 0,
 };
 
-pub const GotEntry = struct {
-    /// GOT entry can either be a local pointer or an extern (nonlazy) import.
-    kind: enum {
+pub const GotIndirectionKey = struct {
+    where: enum {
         local,
         import,
     },
-
-    /// Id to the macho.nlist_64 from the respective table: either locals or nonlazy imports.
-    /// TODO I'm more and more inclined to just manage a single, max two symbol tables
-    ///  rather than 4 as we currently do, but I'll follow up in the future PR.
-    local_sym_index: u32,
-
-    /// Index of this entry in the GOT.
-    got_index: u32,
+    where_index: u32,
 };
 
 pub const Output = struct {
@@ -161,7 +153,7 @@ pub fn init(allocator: *Allocator) !Zld {
 }
 
 pub fn deinit(self: *Zld) void {
-    // self.stubs.deinit(self.allocator);
+    self.stubs.deinit(self.allocator);
     self.got_entries.deinit(self.allocator);
 
     for (self.load_commands.items) |*lc| {
@@ -3042,4 +3034,34 @@ pub fn sectionId(self: Zld, match: MatchingSection) u8 {
         section += @intCast(u8, cmd.Segment.sections.items.len);
     }
     return section;
+}
+
+pub fn unpackSectionId(self: Zld, section_id: u8) MatchingSection {
+    var match: MatchingSection = undefined;
+    var section: u8 = 0;
+    outer: for (self.load_commands.items) |cmd, cmd_id| {
+        assert(cmd == .Segment);
+        for (cmd.Segment.sections.items) |_, sect_id| {
+            section += 1;
+            if (section_id == section) {
+                match.seg = @intCast(u16, cmd_id);
+                match.sect = @intCast(u16, sect_id);
+                break :outer;
+            }
+        }
+    }
+    return match;
+}
+
+pub fn findFirst(comptime T: type, haystack: []T, start: usize, predicate: anytype) usize {
+    if (!@hasDecl(@TypeOf(predicate), "predicate"))
+        @compileError("Predicate is required to define fn predicate(@This(), T) bool");
+
+    if (start == haystack.len) return start;
+
+    var i = start;
+    while (i < haystack.len) : (i += 1) {
+        if (predicate.predicate(haystack[i])) break;
+    }
+    return i;
 }
