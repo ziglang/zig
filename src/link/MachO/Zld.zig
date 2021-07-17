@@ -233,6 +233,16 @@ pub fn link(self: *Zld, files: []const []const u8, output: Output, args: LinkArg
     try self.parseLibs(args.libs, args.syslibroot);
     try self.resolveSymbols();
     try self.parseTextBlocks();
+
+    {
+        // Add dyld_stub_binder as the final GOT entry.
+        const resolv = self.symbol_resolver.get("dyld_stub_binder") orelse unreachable;
+        try self.got_entries.putNoClobber(self.allocator, .{
+            .where = .import,
+            .where_index = resolv.where_index,
+        }, {});
+    }
+
     try self.sortSections();
     try self.addRpaths(args.rpaths);
     try self.addDataInCodeLC();
@@ -296,9 +306,7 @@ pub fn link(self: *Zld, files: []const []const u8, output: Output, args: LinkArg
         entry.value_ptr.*.print(self);
     }
 
-    return error.TODO;
-
-    // try self.flush();
+    try self.flush();
 }
 
 fn parseInputFiles(self: *Zld, files: []const []const u8, syslibroot: ?[]const u8) !void {
@@ -1097,7 +1105,7 @@ fn writeTextBlocks(self: *Zld) !void {
 
                 const sym = self.locals.items[block.local_sym_index];
                 log.debug("    {s}: start=0x{x}, end=0x{x}, size={}, align={}", .{
-                    self.getString(sym.strx),
+                    self.getString(sym.n_strx),
                     aligned_base_off,
                     aligned_base_off + block.size,
                     block.size,
@@ -1154,8 +1162,12 @@ fn writeStubHelperCommon(self: *Zld) !void {
                 code[9] = 0xff;
                 code[10] = 0x25;
                 {
-                    const dyld_stub_binder = self.globals.get("dyld_stub_binder").?;
-                    const addr = (got.addr + dyld_stub_binder.got_index.? * @sizeOf(u64));
+                    const resolv = self.symbol_resolver.get("dyld_stub_binder") orelse unreachable;
+                    const got_index = self.got_entries.getIndex(.{
+                        .where = .import,
+                        .where_index = resolv.where_index,
+                    }) orelse unreachable;
+                    const addr = got.addr + got_index * @sizeOf(u64);
                     const displacement = try math.cast(u32, addr - stub_helper.addr - code_size);
                     mem.writeIntLittle(u32, code[11..], displacement);
                 }
@@ -1198,9 +1210,13 @@ fn writeStubHelperCommon(self: *Zld) !void {
                 code[10] = 0xbf;
                 code[11] = 0xa9;
                 binder_blk_outer: {
-                    const dyld_stub_binder = self.globals.get("dyld_stub_binder").?;
+                    const resolv = self.symbol_resolver.get("dyld_stub_binder") orelse unreachable;
+                    const got_index = self.got_entries.getIndex(.{
+                        .where = .import,
+                        .where_index = resolv.where_index,
+                    }) orelse unreachable;
                     const this_addr = stub_helper.addr + 3 * @sizeOf(u32);
-                    const target_addr = (got.addr + dyld_stub_binder.got_index.? * @sizeOf(u64));
+                    const target_addr = got.addr + got_index * @sizeOf(u64);
                     binder_blk: {
                         const displacement = math.divExact(u64, target_addr - this_addr, 4) catch break :binder_blk;
                         const literal = math.cast(u18, displacement) catch break :binder_blk;
@@ -1251,12 +1267,11 @@ fn writeStubHelperCommon(self: *Zld) !void {
         }
     };
 
-    for (self.stubs.items) |sym| {
+    for (self.stubs.keys()) |key| {
         // TODO weak bound pointers
-        const index = sym.stubs_index orelse unreachable;
-        try self.writeLazySymbolPointer(index);
-        try self.writeStub(index);
-        try self.writeStubInStubHelper(index);
+        try self.writeLazySymbolPointer(key);
+        try self.writeStub(key);
+        try self.writeStubInStubHelper(key);
     }
 }
 
@@ -1764,7 +1779,7 @@ fn resolveSymbols(self: *Zld) !void {
                 .n_strx = undef.n_strx,
                 .n_type = macho.N_UNDF | macho.N_EXT,
                 .n_sect = 0,
-                .n_desc = (dylib.ordinal.? * macho.N_SYMBOL_RESOLVER) | macho.REFERENCE_FLAG_UNDEFINED_NON_LAZY,
+                .n_desc = packDylibOrdinal(dylib.ordinal.?),
                 .n_value = 0,
             });
             resolv.* = .{
@@ -2218,16 +2233,16 @@ fn writeGotEntries(self: *Zld) !void {
     const seg = self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
     const sect = seg.sections.items[self.got_section_index.?];
 
-    var buffer = try self.allocator.alloc(u8, self.got_entries.items.len * @sizeOf(u64));
+    var buffer = try self.allocator.alloc(u8, self.got_entries.count() * @sizeOf(u64));
     defer self.allocator.free(buffer);
 
     var stream = std.io.fixedBufferStream(buffer);
     var writer = stream.writer();
 
-    for (self.got_entries.items) |sym| {
-        const address: u64 = switch (sym.payload) {
-            .regular => |reg| reg.address,
-            else => 0,
+    for (self.got_entries.keys()) |key| {
+        const address: u64 = switch (key.where) {
+            .local => self.locals.items[key.where_index].n_value,
+            .import => 0,
         };
         try writer.writeIntLittle(u64, address);
     }
@@ -2243,9 +2258,14 @@ fn setEntryPoint(self: *Zld) !void {
     // TODO we should respect the -entry flag passed in by the user to set a custom
     // entrypoint. For now, assume default of `_main`.
     const seg = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
-    const sym = self.globals.get("_main") orelse return error.MissingMainEntrypoint;
+    const resolv = self.symbol_resolver.get("_main") orelse {
+        log.err("'_main' export not found", .{});
+        return error.MissingMainEntrypoint;
+    };
+    assert(resolv.where == .global);
+    const sym = self.globals.items[resolv.where_index];
     const ec = &self.load_commands.items[self.main_cmd_index.?].Main;
-    ec.entryoff = @intCast(u32, sym.payload.regular.address - seg.inner.vmaddr);
+    ec.entryoff = @intCast(u32, sym.n_value - seg.inner.vmaddr);
     ec.stacksize = self.stack_size;
 }
 
@@ -2265,8 +2285,7 @@ fn writeRebaseInfoTable(self: *Zld) !void {
 
             while (true) {
                 const sym = self.locals.items[block.local_sym_index];
-                assert(sym.payload == .regular);
-                const base_offset = sym.payload.regular.address - seg.inner.vmaddr;
+                const base_offset = sym.n_value - seg.inner.vmaddr;
 
                 for (block.rebases.items) |offset| {
                     try pointers.append(.{
@@ -2288,11 +2307,11 @@ fn writeRebaseInfoTable(self: *Zld) !void {
         const base_offset = sect.addr - seg.inner.vmaddr;
         const segment_id = @intCast(u16, self.data_const_segment_cmd_index.?);
 
-        for (self.got_entries.items) |sym| {
-            if (sym.payload == .proxy) continue;
+        for (self.got_entries.keys()) |key, i| {
+            if (key.where == .import) continue;
 
             try pointers.append(.{
-                .offset = base_offset + sym.got_index.? * @sizeOf(u64),
+                .offset = base_offset + i * @sizeOf(u64),
                 .segment_id = segment_id,
             });
         }
@@ -2304,10 +2323,10 @@ fn writeRebaseInfoTable(self: *Zld) !void {
         const base_offset = sect.addr - seg.inner.vmaddr;
         const segment_id = @intCast(u16, self.data_segment_cmd_index.?);
 
-        try pointers.ensureCapacity(pointers.items.len + self.stubs.items.len);
-        for (self.stubs.items) |sym| {
+        try pointers.ensureCapacity(pointers.items.len + self.stubs.count());
+        for (self.stubs.keys()) |_, i| {
             pointers.appendAssumeCapacity(.{
-                .offset = base_offset + sym.stubs_index.? * @sizeOf(u64),
+                .offset = base_offset + i * @sizeOf(u64),
                 .segment_id = segment_id,
             });
         }
@@ -2343,15 +2362,15 @@ fn writeBindInfoTable(self: *Zld) !void {
         const base_offset = sect.addr - seg.inner.vmaddr;
         const segment_id = @intCast(u16, self.data_const_segment_cmd_index.?);
 
-        for (self.got_entries.items) |sym| {
-            if (sym.payload != .proxy) continue;
+        for (self.got_entries.keys()) |key, i| {
+            if (key.where == .local) continue;
 
-            const proxy = sym.payload.proxy;
+            const sym = self.imports.items[key.where_index];
             try pointers.append(.{
-                .offset = base_offset + sym.got_index.? * @sizeOf(u64),
+                .offset = base_offset + i * @sizeOf(u64),
                 .segment_id = segment_id,
-                .dylib_ordinal = proxy.dylibOrdinal(),
-                .name = self.getString(sym.strx),
+                .dylib_ordinal = unpackDylibOrdinal(sym.n_desc),
+                .name = self.getString(sym.n_strx),
             });
         }
     }
@@ -2368,18 +2387,15 @@ fn writeBindInfoTable(self: *Zld) !void {
 
             while (true) {
                 const sym = self.locals.items[block.local_sym_index];
-                assert(sym.payload == .regular);
-                const base_offset = sym.payload.regular.address - seg.inner.vmaddr;
+                const base_offset = sym.n_value - seg.inner.vmaddr;
 
                 for (block.bindings.items) |binding| {
                     const bind_sym = self.imports.items[binding.local_sym_index];
-                    const proxy = bind_sym.payload.proxy;
-
                     try pointers.append(.{
                         .offset = binding.offset + base_offset,
                         .segment_id = match.seg,
-                        .dylib_ordinal = proxy.dylibOrdinal(),
-                        .name = self.getString(bind_sym.strx),
+                        .dylib_ordinal = unpackDylibOrdinal(bind_sym.n_desc),
+                        .name = self.getString(bind_sym.n_strx),
                     });
                 }
 
@@ -2390,21 +2406,21 @@ fn writeBindInfoTable(self: *Zld) !void {
         }
     }
 
-    if (self.tlv_section_index) |idx| {
-        const seg = self.load_commands.items[self.data_segment_cmd_index.?].Segment;
-        const sect = seg.sections.items[idx];
-        const base_offset = sect.addr - seg.inner.vmaddr;
-        const segment_id = @intCast(u16, self.data_segment_cmd_index.?);
+    // if (self.tlv_section_index) |idx| {
+    //     const seg = self.load_commands.items[self.data_segment_cmd_index.?].Segment;
+    //     const sect = seg.sections.items[idx];
+    //     const base_offset = sect.addr - seg.inner.vmaddr;
+    //     const segment_id = @intCast(u16, self.data_segment_cmd_index.?);
 
-        const sym = self.globals.get("__tlv_bootstrap") orelse unreachable;
-        const proxy = sym.payload.proxy;
-        try pointers.append(.{
-            .offset = base_offset,
-            .segment_id = segment_id,
-            .dylib_ordinal = proxy.dylibOrdinal(),
-            .name = self.getString(sym.strx),
-        });
-    }
+    //     const sym = self.globals.get("__tlv_bootstrap") orelse unreachable;
+    //     const proxy = sym.payload.proxy;
+    //     try pointers.append(.{
+    //         .offset = base_offset,
+    //         .segment_id = segment_id,
+    //         .dylib_ordinal = proxy.dylibOrdinal(),
+    //         .name = self.getString(sym.strx),
+    //     });
+    // }
 
     const size = try bindInfoSize(pointers.items);
     var buffer = try self.allocator.alloc(u8, @intCast(usize, size));
@@ -2434,15 +2450,15 @@ fn writeLazyBindInfoTable(self: *Zld) !void {
         const base_offset = sect.addr - seg.inner.vmaddr;
         const segment_id = @intCast(u16, self.data_segment_cmd_index.?);
 
-        try pointers.ensureCapacity(self.stubs.items.len);
+        try pointers.ensureCapacity(self.stubs.count());
 
-        for (self.stubs.items) |sym| {
-            const proxy = sym.payload.proxy;
+        for (self.stubs.keys()) |key, i| {
+            const sym = self.imports.items[key];
             pointers.appendAssumeCapacity(.{
-                .offset = base_offset + sym.stubs_index.? * @sizeOf(u64),
+                .offset = base_offset + i * @sizeOf(u64),
                 .segment_id = segment_id,
-                .dylib_ordinal = proxy.dylibOrdinal(),
-                .name = self.getString(sym.strx),
+                .dylib_ordinal = unpackDylibOrdinal(sym.n_desc),
+                .name = self.getString(sym.n_strx),
             });
         }
     }
@@ -2510,7 +2526,7 @@ fn populateLazyBindOffsetsInStubHelper(self: *Zld, buffer: []const u8) !void {
             else => {},
         }
     }
-    assert(self.stubs.items.len <= offsets.items.len);
+    assert(self.stubs.count() <= offsets.items.len);
 
     const stub_size: u4 = switch (self.target.?.cpu.arch) {
         .x86_64 => 10,
@@ -2523,8 +2539,7 @@ fn populateLazyBindOffsetsInStubHelper(self: *Zld, buffer: []const u8) !void {
         else => unreachable,
     };
     var buf: [@sizeOf(u32)]u8 = undefined;
-    for (self.stubs.items) |sym| {
-        const index = sym.stubs_index orelse unreachable;
+    for (self.stubs.keys()) |_, index| {
         const placeholder_off = self.stub_helper_stubs_start_off.? + index * stub_size + off;
         mem.writeIntLittle(u32, &buf, offsets.items[index]);
         try self.file.?.pwriteAll(&buf, placeholder_off);
@@ -2541,33 +2556,13 @@ fn writeExportInfo(self: *Zld) !void {
     // TODO handle macho.EXPORT_SYMBOL_FLAGS_REEXPORT and macho.EXPORT_SYMBOL_FLAGS_STUB_AND_RESOLVER.
     log.debug("writing export trie", .{});
 
-    const Sorter = struct {
-        fn lessThan(_: void, a: []const u8, b: []const u8) bool {
-            return mem.lessThan(u8, a, b);
-        }
-    };
-
-    var sorted_globals = std.ArrayList([]const u8).init(self.allocator);
-    defer sorted_globals.deinit();
-
-    for (self.globals.values()) |sym| {
-        if (sym.payload != .regular) continue;
-        const reg = sym.payload.regular;
-        if (reg.linkage != .global) continue;
-        try sorted_globals.append(self.getString(sym.strx));
-    }
-
-    std.sort.sort([]const u8, sorted_globals.items, {}, Sorter.lessThan);
-
-    for (sorted_globals.items) |sym_name| {
-        const sym = self.globals.get(sym_name) orelse unreachable;
-        const reg = sym.payload.regular;
-
-        log.debug("  | putting '{s}' defined at 0x{x}", .{ sym_name, reg.address });
+    for (self.globals.items) |sym| {
+        const sym_name = self.getString(sym.n_strx);
+        log.debug("  | putting '{s}' defined at 0x{x}", .{ sym_name, sym.n_value });
 
         try trie.put(.{
             .name = sym_name,
-            .vmaddr_offset = reg.address - base_address,
+            .vmaddr_offset = sym.n_value - base_address,
             .export_flags = macho.EXPORT_SYMBOL_FLAGS_KIND_REGULAR,
         });
     }
@@ -2598,23 +2593,7 @@ fn writeSymbolTable(self: *Zld) !void {
 
     var locals = std.ArrayList(macho.nlist_64).init(self.allocator);
     defer locals.deinit();
-
-    var exports = std.ArrayList(macho.nlist_64).init(self.allocator);
-    defer exports.deinit();
-
-    for (self.locals.items) |symbol, i| {
-        if (i == 0) continue; // skip null symbol
-        if (symbol.isTemp(self)) continue; // TODO when merging codepaths, this should go into freelist
-
-        const reg = symbol.payload.regular;
-        const nlist = try symbol.asNlist(self);
-
-        if (reg.linkage == .translation_unit) {
-            try locals.append(nlist);
-        } else {
-            try exports.append(nlist);
-        }
-    }
+    try locals.appendSlice(self.locals.items);
 
     if (self.has_stabs) {
         for (self.objects.items) |object| {
@@ -2671,21 +2650,9 @@ fn writeSymbolTable(self: *Zld) !void {
         }
     }
 
-    var undefs = std.ArrayList(macho.nlist_64).init(self.allocator);
-    defer undefs.deinit();
-    var undef_dir = std.StringHashMap(u32).init(self.allocator);
-    defer undef_dir.deinit();
-
-    for (self.imports.items) |sym| {
-        const nlist = try sym.asNlist(self);
-        const id = @intCast(u32, undefs.items.len);
-        try undefs.append(nlist);
-        try undef_dir.putNoClobber(self.getString(sym.strx), id);
-    }
-
     const nlocals = locals.items.len;
-    const nexports = exports.items.len;
-    const nundefs = undefs.items.len;
+    const nexports = self.globals.items.len;
+    const nundefs = self.imports.items.len;
 
     const locals_off = symtab.symoff + symtab.nsyms * @sizeOf(macho.nlist_64);
     const locals_size = nlocals * @sizeOf(macho.nlist_64);
@@ -2695,12 +2662,12 @@ fn writeSymbolTable(self: *Zld) !void {
     const exports_off = locals_off + locals_size;
     const exports_size = nexports * @sizeOf(macho.nlist_64);
     log.debug("writing exported symbols from 0x{x} to 0x{x}", .{ exports_off, exports_size + exports_off });
-    try self.file.?.pwriteAll(mem.sliceAsBytes(exports.items), exports_off);
+    try self.file.?.pwriteAll(mem.sliceAsBytes(self.globals.items), exports_off);
 
     const undefs_off = exports_off + exports_size;
     const undefs_size = nundefs * @sizeOf(macho.nlist_64);
     log.debug("writing undefined symbols from 0x{x} to 0x{x}", .{ undefs_off, undefs_size + undefs_off });
-    try self.file.?.pwriteAll(mem.sliceAsBytes(undefs.items), undefs_off);
+    try self.file.?.pwriteAll(mem.sliceAsBytes(self.imports.items), undefs_off);
 
     symtab.nsyms += @intCast(u32, nlocals + nexports + nundefs);
     seg.inner.filesize += locals_size + exports_size + undefs_size;
@@ -2720,8 +2687,8 @@ fn writeSymbolTable(self: *Zld) !void {
     const data_segment = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
     const la_symbol_ptr = &data_segment.sections.items[self.la_symbol_ptr_section_index.?];
 
-    const nstubs = @intCast(u32, self.stubs.items.len);
-    const ngot_entries = @intCast(u32, self.got_entries.items.len);
+    const nstubs = @intCast(u32, self.stubs.count());
+    const ngot_entries = @intCast(u32, self.got_entries.count());
 
     dysymtab.indirectsymoff = @intCast(u32, seg.inner.fileoff + seg.inner.filesize);
     dysymtab.nindirectsyms = nstubs * 2 + ngot_entries;
@@ -2741,31 +2708,25 @@ fn writeSymbolTable(self: *Zld) !void {
     var writer = stream.writer();
 
     stubs.reserved1 = 0;
-    for (self.stubs.items) |sym| {
-        const sym_name = self.getString(sym.strx);
-        const id = undef_dir.get(sym_name) orelse unreachable;
-        try writer.writeIntLittle(u32, dysymtab.iundefsym + id);
+    for (self.stubs.keys()) |key| {
+        try writer.writeIntLittle(u32, dysymtab.iundefsym + key);
     }
 
     got.reserved1 = nstubs;
-    for (self.got_entries.items) |sym| {
-        switch (sym.payload) {
-            .proxy => {
-                const sym_name = self.getString(sym.strx);
-                const id = undef_dir.get(sym_name) orelse unreachable;
-                try writer.writeIntLittle(u32, dysymtab.iundefsym + id);
+    for (self.got_entries.keys()) |key| {
+        switch (key.where) {
+            .import => {
+                try writer.writeIntLittle(u32, dysymtab.iundefsym + key.where_index);
             },
-            else => {
+            .local => {
                 try writer.writeIntLittle(u32, macho.INDIRECT_SYMBOL_LOCAL);
             },
         }
     }
 
     la_symbol_ptr.reserved1 = got.reserved1 + ngot_entries;
-    for (self.stubs.items) |sym| {
-        const sym_name = self.getString(sym.strx);
-        const id = undef_dir.get(sym_name) orelse unreachable;
-        try writer.writeIntLittle(u32, dysymtab.iundefsym + id);
+    for (self.stubs.keys()) |key| {
+        try writer.writeIntLittle(u32, dysymtab.iundefsym + key);
     }
 
     try self.file.?.pwriteAll(buf, dysymtab.indirectsymoff);
@@ -2813,8 +2774,7 @@ fn writeDices(self: *Zld) !void {
     while (true) {
         if (block.dices.items.len > 0) {
             const sym = self.locals.items[block.local_sym_index];
-            const reg = sym.payload.regular;
-            const base_off = try math.cast(u32, reg.address - text_sect.addr + text_sect.offset);
+            const base_off = try math.cast(u32, sym.n_value - text_sect.addr + text_sect.offset);
 
             try buf.ensureUnusedCapacity(block.dices.items.len * @sizeOf(macho.data_in_code_entry));
             for (block.dices.items) |dice| {
@@ -3050,6 +3010,14 @@ pub fn unpackSectionId(self: Zld, section_id: u8) MatchingSection {
         }
     }
     return match;
+}
+
+fn packDylibOrdinal(ordinal: u16) u16 {
+    return ordinal * macho.N_SYMBOL_RESOLVER;
+}
+
+fn unpackDylibOrdinal(pack: u16) u16 {
+    return @divExact(pack, macho.N_SYMBOL_RESOLVER);
 }
 
 pub fn findFirst(comptime T: type, haystack: []T, start: usize, predicate: anytype) usize {

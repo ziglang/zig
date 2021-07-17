@@ -1,11 +1,14 @@
 const TextBlock = @This();
 
 const std = @import("std");
+const aarch64 = @import("../../codegen/aarch64.zig");
 const assert = std.debug.assert;
 const commands = @import("commands.zig");
 const log = std.log.scoped(.text_block);
 const macho = std.macho;
+const math = std.math;
 const mem = std.mem;
+const meta = std.meta;
 
 const Allocator = mem.Allocator;
 const Arch = std.Target.Cpu.Arch;
@@ -44,25 +47,22 @@ pub const Stab = union(enum) {
         defer nlists.deinit();
 
         const sym = zld.locals.items[local_sym_index];
-        const reg = sym.payload.regular;
-
         switch (stab) {
             .function => |size| {
                 try nlists.ensureUnusedCapacity(4);
-                const section_id = reg.sectionId(zld);
                 nlists.appendAssumeCapacity(.{
                     .n_strx = 0,
                     .n_type = macho.N_BNSYM,
-                    .n_sect = section_id,
+                    .n_sect = sym.n_sect,
                     .n_desc = 0,
-                    .n_value = reg.address,
+                    .n_value = sym.n_value,
                 });
                 nlists.appendAssumeCapacity(.{
-                    .n_strx = sym.strx,
+                    .n_strx = sym.n_strx,
                     .n_type = macho.N_FUN,
-                    .n_sect = section_id,
+                    .n_sect = sym.n_sect,
                     .n_desc = 0,
-                    .n_value = reg.address,
+                    .n_value = sym.n_value,
                 });
                 nlists.appendAssumeCapacity(.{
                     .n_strx = 0,
@@ -74,14 +74,14 @@ pub const Stab = union(enum) {
                 nlists.appendAssumeCapacity(.{
                     .n_strx = 0,
                     .n_type = macho.N_ENSYM,
-                    .n_sect = section_id,
+                    .n_sect = sym.n_sect,
                     .n_desc = 0,
                     .n_value = size,
                 });
             },
             .global => {
                 try nlists.append(.{
-                    .n_strx = sym.strx,
+                    .n_strx = sym.n_strx,
                     .n_type = macho.N_GSYM,
                     .n_sect = 0,
                     .n_desc = 0,
@@ -90,11 +90,11 @@ pub const Stab = union(enum) {
             },
             .static => {
                 try nlists.append(.{
-                    .n_strx = sym.strx,
+                    .n_strx = sym.n_strx,
                     .n_type = macho.N_STSYM,
-                    .n_sect = reg.sectionId(zld),
+                    .n_sect = sym.n_sect,
                     .n_desc = 0,
-                    .n_value = reg.address,
+                    .n_value = sym.n_value,
                 });
             },
         }
@@ -1006,7 +1006,10 @@ pub fn resolveRelocs(self: *TextBlock, zld: *Zld) !void {
                 const dc_seg = zld.load_commands.items[zld.data_const_segment_cmd_index.?].Segment;
                 const got = dc_seg.sections.items[zld.got_section_index.?];
                 const got_index = zld.got_entries.getIndex(.{
-                    .where = rel.where,
+                    .where = switch (rel.where) {
+                        .local => .local,
+                        .import => .import,
+                    },
                     .where_index = rel.where_index,
                 }) orelse {
                     const sym = switch (rel.where) {
@@ -1024,8 +1027,8 @@ pub fn resolveRelocs(self: *TextBlock, zld: *Zld) !void {
                 .local => {
                     const sym = zld.locals.items[rel.where_index];
                     const is_tlv = is_tlv: {
-                        const sym = zld.locals.items[self.local_sym_index];
-                        const match = zld.unpackSectionId(sym.n_sect);
+                        const source_sym = zld.locals.items[self.local_sym_index];
+                        const match = zld.unpackSectionId(source_sym.n_sect);
                         const seg = zld.load_commands.items[match.seg].Segment;
                         const sect = seg.sections.items[match.sect];
                         break :is_tlv commands.sectionType(sect) == macho.S_THREAD_LOCAL_VARIABLES;
@@ -1073,7 +1076,13 @@ pub fn resolveRelocs(self: *TextBlock, zld: *Zld) !void {
         log.warn("  | source_addr = 0x{x}", .{source_addr});
         log.warn("  | target_addr = 0x{x}", .{target_addr});
 
-        try rel.resolve(self, source_addr, target_addr);
+        try rel.resolve(.{
+            .block = self,
+            .offset = rel.offset,
+            .source_addr = source_addr,
+            .target_addr = target_addr,
+            .zld = zld,
+        });
     }
 }
 
