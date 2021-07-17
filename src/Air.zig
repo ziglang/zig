@@ -200,6 +200,8 @@ pub const Inst = struct {
         ret,
         /// Returns a pointer to a global variable.
         /// Uses the `ty_pl` field. Index is into the `variables` array.
+        /// TODO this can be modeled simply as a constant with a decl ref and then
+        /// the variables array can be removed from Air.
         varptr,
         /// Write a value to a pointer. LHS is pointer, RHS is value.
         /// Result type is always void.
