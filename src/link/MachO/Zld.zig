@@ -1636,7 +1636,11 @@ fn resolveSymbols(self: *Zld) !void {
     }
 
     // Second pass, resolve symbols in static libraries.
-    loop: for (self.undefs.items) |sym| {
+    var next_sym: usize = 0;
+    loop: while (true) : (next_sym += 1) {
+        if (next_sym == self.undefs.items.len) break;
+
+        const sym = self.undefs.items[next_sym];
         if (symbolIsNull(sym)) continue;
 
         const sym_name = self.getString(sym.n_strx);
@@ -1661,6 +1665,8 @@ fn resolveSymbols(self: *Zld) !void {
     // Convert any tentative definition into a regular symbol and allocate
     // text blocks for each tentative defintion.
     for (self.tentatives.items) |sym| {
+        if (symbolIsNull(sym)) continue;
+
         const sym_name = self.getString(sym.n_strx);
         const match: MatchingSection = blk: {
             if (self.common_section_index == null) {
@@ -1813,6 +1819,13 @@ fn resolveSymbols(self: *Zld) !void {
             .n_desc = macho.N_WEAK_DEF,
             .n_value = seg.inner.vmaddr,
         });
+        undef.* = .{
+            .n_strx = 0,
+            .n_type = macho.N_UNDF,
+            .n_sect = 0,
+            .n_desc = 0,
+            .n_value = 0,
+        };
         resolv.* = .{
             .where = .global,
             .where_index = global_sym_index,
