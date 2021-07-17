@@ -1301,7 +1301,7 @@ fn zirArg(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!A
 
     // Set the name of the Air.Arg instruction for use by codegen debug info.
     const air_arg = sema.param_inst_list[arg_index];
-    sema.air_instructions.items(.data)[refToIndex(air_arg).?].ty_str.str = inst_data.start;
+    sema.air_instructions.items(.data)[Air.refToIndex(air_arg).?].ty_str.str = inst_data.start;
     return air_arg;
 }
 
@@ -1389,7 +1389,7 @@ fn zirAllocInferred(
     // to the block even though it is currently a `.constant`.
     const result = try sema.addConstant(inferred_alloc_ty, Value.initPayload(&val_payload.base));
     try sema.requireFunctionBlock(block, src);
-    try block.instructions.append(sema.gpa, refToIndex(result).?);
+    try block.instructions.append(sema.gpa, Air.refToIndex(result).?);
     return result;
 }
 
@@ -1400,7 +1400,7 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Inde
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const ty_src: LazySrcLoc = .{ .node_offset_var_decl_ty = inst_data.src_node };
     const ptr = sema.resolveInst(inst_data.operand);
-    const ptr_inst = refToIndex(ptr).?;
+    const ptr_inst = Air.refToIndex(ptr).?;
     assert(sema.air_instructions.items(.tag)[ptr_inst] == .constant);
     const air_datas = sema.air_instructions.items(.data);
     const ptr_val = sema.air_values.items[air_datas[ptr_inst].ty_pl.payload];
@@ -1586,7 +1586,7 @@ fn zirStoreToInferredPtr(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index)
     const bin_inst = sema.code.instructions.items(.data)[inst].bin;
     const ptr = sema.resolveInst(bin_inst.lhs);
     const value = sema.resolveInst(bin_inst.rhs);
-    const ptr_inst = refToIndex(ptr).?;
+    const ptr_inst = Air.refToIndex(ptr).?;
     assert(sema.air_instructions.items(.tag)[ptr_inst] == .constant);
     const air_datas = sema.air_instructions.items(.data);
     const ptr_val = sema.air_values.items[air_datas[ptr_inst].ty_pl.payload];
@@ -1968,13 +1968,13 @@ fn analyzeBlockBody(
 
     // Blocks must terminate with noreturn instruction.
     assert(child_block.instructions.items.len != 0);
-    assert(sema.typeOf(indexToRef(child_block.instructions.items[child_block.instructions.items.len - 1])).isNoReturn());
+    assert(sema.typeOf(Air.indexToRef(child_block.instructions.items[child_block.instructions.items.len - 1])).isNoReturn());
 
     if (merges.results.items.len == 0) {
         // No need for a block instruction. We can put the new instructions
         // directly into the parent block.
         try parent_block.instructions.appendSlice(gpa, child_block.instructions.items);
-        return indexToRef(child_block.instructions.items[child_block.instructions.items.len - 1]);
+        return Air.indexToRef(child_block.instructions.items[child_block.instructions.items.len - 1]);
     }
     if (merges.results.items.len == 1) {
         const last_inst_index = child_block.instructions.items.len - 1;
@@ -2025,7 +2025,7 @@ fn analyzeBlockBody(
             continue;
         }
         assert(coerce_block.instructions.items[coerce_block.instructions.items.len - 1] ==
-            refToIndex(coerced_operand).?);
+            Air.refToIndex(coerced_operand).?);
 
         // Convert the br operand to a block.
         const br_operand_ty_ref = try sema.addType(br_operand_ty);
@@ -2034,7 +2034,7 @@ fn analyzeBlockBody(
         try sema.air_instructions.ensureUnusedCapacity(gpa, 2);
         const sub_block_inst = @intCast(Air.Inst.Index, sema.air_instructions.len);
         const sub_br_inst = sub_block_inst + 1;
-        sema.air_instructions.items(.data)[br].br.operand = indexToRef(sub_block_inst);
+        sema.air_instructions.items(.data)[br].br.operand = Air.indexToRef(sub_block_inst);
         sema.air_instructions.appendAssumeCapacity(.{
             .tag = .block,
             .data = .{ .ty_pl = .{
@@ -2054,7 +2054,7 @@ fn analyzeBlockBody(
             } },
         });
     }
-    return indexToRef(merges.block_inst);
+    return Air.indexToRef(merges.block_inst);
 }
 
 fn zirExport(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!void {
@@ -2149,7 +2149,7 @@ fn zirBreak(sema: *Sema, start_block: *Scope.Block, inst: Zir.Inst.Index) Compil
             if (label.zir_block == zir_block) {
                 const br_ref = try start_block.addBr(label.merges.block_inst, operand);
                 try label.merges.results.append(sema.gpa, operand);
-                try label.merges.br_list.append(sema.gpa, refToIndex(br_ref).?);
+                try label.merges.br_list.append(sema.gpa, Air.refToIndex(br_ref).?);
                 return inst;
             }
         }
@@ -5310,7 +5310,7 @@ fn zirBoolBr(
     } } });
 
     try parent_block.instructions.append(gpa, block_inst);
-    return indexToRef(block_inst);
+    return Air.indexToRef(block_inst);
 }
 
 fn zirIsNonNull(
@@ -7204,7 +7204,7 @@ fn analyzeVarRef(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, tv: TypedVal
         } },
     });
     try block.instructions.append(gpa, result_inst);
-    return indexToRef(result_inst);
+    return Air.indexToRef(result_inst);
 }
 
 fn analyzeRef(
@@ -8021,107 +8021,18 @@ fn enumFieldSrcLoc(
     } else unreachable;
 }
 
-/// This is only meant to be called by `typeOf`.
-fn analyzeAsTypeInfallible(sema: *Sema, inst: Air.Inst.Ref) Type {
-    var i: usize = @enumToInt(inst);
-    if (i < Air.Inst.Ref.typed_value_map.len) {
-        return Air.Inst.Ref.typed_value_map[i].val.toType(undefined) catch unreachable;
-    }
-    i -= Air.Inst.Ref.typed_value_map.len;
-    assert(sema.air_instructions.items(.tag)[i] == .const_ty);
-    return sema.air_instructions.items(.data)[i].ty;
-}
-
 /// Returns the type of the AIR instruction.
 fn typeOf(sema: *Sema, inst: Air.Inst.Ref) Type {
-    var i: usize = @enumToInt(inst);
-    if (i < Air.Inst.Ref.typed_value_map.len) {
-        return Air.Inst.Ref.typed_value_map[i].ty;
-    }
-    i -= Air.Inst.Ref.typed_value_map.len;
+    return sema.getTmpAir().typeOf(inst);
+}
 
-    const air_datas = sema.air_instructions.items(.data);
-    switch (sema.air_instructions.items(.tag)[i]) {
-        .arg => return sema.analyzeAsTypeInfallible(air_datas[i].ty_str.ty),
-
-        .add,
-        .addwrap,
-        .sub,
-        .subwrap,
-        .mul,
-        .mulwrap,
-        .div,
-        .bit_and,
-        .bit_or,
-        .xor,
-        => return sema.typeOf(air_datas[i].bin_op.lhs),
-
-        .cmp_lt,
-        .cmp_lte,
-        .cmp_eq,
-        .cmp_gte,
-        .cmp_gt,
-        .cmp_neq,
-        .is_null,
-        .is_non_null,
-        .is_null_ptr,
-        .is_non_null_ptr,
-        .is_err,
-        .is_non_err,
-        .is_err_ptr,
-        .is_non_err_ptr,
-        .bool_and,
-        .bool_or,
-        => return Type.initTag(.bool),
-
-        .const_ty => return Type.initTag(.type),
-
-        .alloc => return air_datas[i].ty,
-
-        .assembly,
-        .block,
-        .constant,
-        .varptr,
-        .struct_field_ptr,
-        => return sema.analyzeAsTypeInfallible(air_datas[i].ty_pl.ty),
-
-        .not,
-        .bitcast,
-        .load,
-        .ref,
-        .floatcast,
-        .intcast,
-        .optional_payload,
-        .optional_payload_ptr,
-        .wrap_optional,
-        .unwrap_errunion_payload,
-        .unwrap_errunion_err,
-        .unwrap_errunion_payload_ptr,
-        .unwrap_errunion_err_ptr,
-        .wrap_errunion_payload,
-        .wrap_errunion_err,
-        => return sema.analyzeAsTypeInfallible(air_datas[i].ty_op.ty),
-
-        .loop,
-        .br,
-        .cond_br,
-        .switch_br,
-        .ret,
-        .unreach,
-        => return Type.initTag(.noreturn),
-
-        .breakpoint,
-        .dbg_stmt,
-        .store,
-        => return Type.initTag(.void),
-
-        .ptrtoint => return Type.initTag(.usize),
-
-        .call => {
-            const callee_ty = sema.typeOf(air_datas[i].pl_op.operand);
-            return callee_ty.fnReturnType();
-        },
-    }
+fn getTmpAir(sema: Sema) Air {
+    return .{
+        .instructions = sema.air_instructions.slice(),
+        .extra = sema.air_extra.items,
+        .values = sema.air_values.items,
+        .variables = sema.air_variables.items,
+    };
 }
 
 pub fn addType(sema: *Sema, ty: Type) !Air.Inst.Ref {
@@ -8185,7 +8096,7 @@ pub fn addType(sema: *Sema, ty: Type) !Air.Inst.Ref {
         .tag = .const_ty,
         .data = .{ .ty = ty },
     });
-    return indexToRef(@intCast(u32, sema.air_instructions.len - 1));
+    return Air.indexToRef(@intCast(u32, sema.air_instructions.len - 1));
 }
 
 fn addIntUnsigned(sema: *Sema, ty: Type, int: u64) CompileError!Air.Inst.Ref {
@@ -8207,22 +8118,7 @@ fn addConstant(sema: *Sema, ty: Type, val: Value) CompileError!Air.Inst.Ref {
             .payload = @intCast(u32, sema.air_values.items.len - 1),
         } },
     });
-    return indexToRef(@intCast(u32, sema.air_instructions.len - 1));
-}
-
-const ref_start_index: u32 = Air.Inst.Ref.typed_value_map.len;
-
-pub fn indexToRef(inst: Air.Inst.Index) Air.Inst.Ref {
-    return @intToEnum(Air.Inst.Ref, ref_start_index + inst);
-}
-
-pub fn refToIndex(inst: Air.Inst.Ref) ?Air.Inst.Index {
-    const ref_int = @enumToInt(inst);
-    if (ref_int >= ref_start_index) {
-        return ref_int - ref_start_index;
-    } else {
-        return null;
-    }
+    return Air.indexToRef(@intCast(u32, sema.air_instructions.len - 1));
 }
 
 pub fn addExtra(sema: *Sema, extra: anytype) Allocator.Error!u32 {

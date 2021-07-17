@@ -1309,7 +1309,7 @@ pub const Scope = struct {
             const result_index = @intCast(Air.Inst.Index, sema.air_instructions.len);
             sema.air_instructions.appendAssumeCapacity(inst);
             block.instructions.appendAssumeCapacity(result_index);
-            return Sema.indexToRef(result_index);
+            return Air.indexToRef(result_index);
         }
     };
 };
@@ -3533,7 +3533,7 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn) SemaError!Air {
         const ty_ref = try sema.addType(param_type);
         const arg_index = @intCast(u32, sema.air_instructions.len);
         inner_block.instructions.appendAssumeCapacity(arg_index);
-        param_inst.* = Sema.indexToRef(arg_index);
+        param_inst.* = Air.indexToRef(arg_index);
         try sema.air_instructions.append(gpa, .{
             .tag = .arg,
             .data = .{

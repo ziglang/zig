@@ -2170,7 +2170,8 @@ pub const Inst = struct {
     /// 2. clobber: u32 // index into string_bytes (null terminated) for every clobbers_len.
     pub const Asm = struct {
         src_node: i32,
-        asm_source: Ref,
+        // null-terminated string index
+        asm_source: u32,
         /// 1 bit for each outputs_len: whether it uses `-> T` or not.
         ///   0b0 - operand is a pointer to where to store the output.
         ///   0b1 - operand is a type; asm expression has the output as the result.
@@ -3371,9 +3372,10 @@ const Writer = struct {
         const inputs_len = @truncate(u5, extended.small >> 5);
         const clobbers_len = @truncate(u5, extended.small >> 10);
         const is_volatile = @truncate(u1, extended.small >> 15) != 0;
+        const asm_source = self.code.nullTerminatedString(extra.data.asm_source);
 
         try self.writeFlag(stream, "volatile, ", is_volatile);
-        try self.writeInstRef(stream, extra.data.asm_source);
+        try stream.print("\"{}\", ", .{std.zig.fmtEscapes(asm_source)});
         try stream.writeAll(", ");
 
         var extra_i: usize = extra.end;
