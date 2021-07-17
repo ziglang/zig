@@ -3080,7 +3080,7 @@ fn pwriteDbgLineNops(
 
     const page_of_nops = [1]u8{DW.LNS_negate_stmt} ** 4096;
     const three_byte_nop = [3]u8{ DW.LNS_advance_pc, 0b1000_0000, 0 };
-    var vecs: [256]std.os.iovec_const = undefined;
+    var vecs: [512]std.os.iovec_const = undefined;
     var vec_index: usize = 0;
     {
         var padding_left = prev_padding_size;
