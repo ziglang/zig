@@ -452,6 +452,43 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             },
         };
 
+        const BigTomb = struct {
+            function: *Self,
+            inst: Air.Inst.Index,
+            tomb_bits: Liveness.Bpi,
+            big_tomb_bits: u32,
+            bit_index: usize,
+
+            fn feed(bt: *BigTomb, op_ref: Air.Inst.Ref) void {
+                const this_bit_index = bt.bit_index;
+                bt.bit_index += 1;
+
+                const op_int = @enumToInt(op_ref);
+                if (op_int < Air.Inst.Ref.typed_value_map.len) return;
+                const op_index = @intCast(Air.Inst.Index, op_int - Air.Inst.Ref.typed_value_map.len);
+
+                if (this_bit_index < Liveness.bpi - 1) {
+                    const dies = @truncate(u1, bt.tomb_bits >> @intCast(Liveness.OperandInt, this_bit_index)) != 0;
+                    if (!dies) return;
+                } else {
+                    const big_bit_index = @intCast(u5, this_bit_index - (Liveness.bpi - 1));
+                    const dies = @truncate(u1, bt.big_tomb_bits >> big_bit_index) != 0;
+                    if (!dies) return;
+                }
+                bt.function.processDeath(op_index);
+            }
+
+            fn finishAir(bt: *BigTomb, result: MCValue) void {
+                const is_used = !bt.function.liveness.isUnused(bt.inst);
+                if (is_used) {
+                    log.debug("{} => {}", .{ bt.inst, result });
+                    const branch = &bt.function.branch_stack.items[bt.function.branch_stack.items.len - 1];
+                    branch.inst_table.putAssumeCapacityNoClobber(bt.inst, result);
+                }
+                bt.function.finishAirBookkeeping();
+            }
+        };
+
         const Self = @This();
 
         fn generate(
@@ -921,8 +958,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 if (!dies) continue;
                 const op_int = @enumToInt(op);
                 if (op_int < Air.Inst.Ref.typed_value_map.len) continue;
-                const operand: Air.Inst.Index = op_int - @intCast(u32, Air.Inst.Ref.typed_value_map.len);
-                self.processDeath(operand);
+                const op_index = @intCast(Air.Inst.Index, op_int - Air.Inst.Ref.typed_value_map.len);
+                self.processDeath(op_index);
             }
             const is_used = @truncate(u1, tomb_bits) == 0;
             if (is_used) {
@@ -2739,7 +2776,12 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 std.mem.copy(Air.Inst.Ref, buf[1..], args);
                 return self.finishAir(inst, result, buf);
             }
-            @panic("TODO: codegen for function call with greater than 2 args");
+            var bt = try self.iterateBigTomb(inst, 1 + args.len);
+            bt.feed(callee);
+            for (args) |arg| {
+                bt.feed(arg);
+            }
+            return bt.finishAir(result);
         }
 
         fn airRef(self: *Self, inst: Air.Inst.Index) !void {
@@ -3651,7 +3693,25 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 std.mem.copy(Air.Inst.Ref, buf[outputs.len..], args);
                 return self.finishAir(inst, result, buf);
             }
-            @panic("TODO: codegen for asm with greater than 3 args");
+            var bt = try self.iterateBigTomb(inst, outputs.len + args.len);
+            for (outputs) |output| {
+                bt.feed(output);
+            }
+            for (args) |arg| {
+                bt.feed(arg);
+            }
+            return bt.finishAir(result);
+        }
+
+        fn iterateBigTomb(self: *Self, inst: Air.Inst.Index, operand_count: usize) !BigTomb {
+            try self.ensureProcessDeathCapacity(operand_count + 1);
+            return BigTomb{
+                .function = self,
+                .inst = inst,
+                .tomb_bits = self.liveness.getTombBits(inst),
+                .big_tomb_bits = self.liveness.special.get(inst) orelse 0,
+                .bit_index = 0,
+            };
         }
 
         /// Sets the value without any modifications to register allocation metadata or stack allocation metadata.
@@ -4492,7 +4552,11 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             // First section of indexes correspond to a set number of constant values.
             const ref_int = @enumToInt(inst);
             if (ref_int < Air.Inst.Ref.typed_value_map.len) {
-                return self.genTypedValue(Air.Inst.Ref.typed_value_map[ref_int]);
+                const tv = Air.Inst.Ref.typed_value_map[ref_int];
+                if (!tv.ty.hasCodeGenBits()) {
+                    return MCValue{ .none = {} };
+                }
+                return self.genTypedValue(tv);
             }
 
             // If the type has no codegen bits, no need to store it.

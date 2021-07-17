@@ -258,24 +258,24 @@ pub fn analyzeBody(
             .slice_sentinel               => try sema.zirSliceSentinel(block, inst),
             .slice_start                  => try sema.zirSliceStart(block, inst),
             .str                          => try sema.zirStr(block, inst),
-            //.switch_block                 => try sema.zirSwitchBlock(block, inst, false, .none),
-            //.switch_block_multi           => try sema.zirSwitchBlockMulti(block, inst, false, .none),
-            //.switch_block_else            => try sema.zirSwitchBlock(block, inst, false, .@"else"),
-            //.switch_block_else_multi      => try sema.zirSwitchBlockMulti(block, inst, false, .@"else"),
-            //.switch_block_under           => try sema.zirSwitchBlock(block, inst, false, .under),
-            //.switch_block_under_multi     => try sema.zirSwitchBlockMulti(block, inst, false, .under),
-            //.switch_block_ref             => try sema.zirSwitchBlock(block, inst, true, .none),
-            //.switch_block_ref_multi       => try sema.zirSwitchBlockMulti(block, inst, true, .none),
-            //.switch_block_ref_else        => try sema.zirSwitchBlock(block, inst, true, .@"else"),
-            //.switch_block_ref_else_multi  => try sema.zirSwitchBlockMulti(block, inst, true, .@"else"),
-            //.switch_block_ref_under       => try sema.zirSwitchBlock(block, inst, true, .under),
-            //.switch_block_ref_under_multi => try sema.zirSwitchBlockMulti(block, inst, true, .under),
-            //.switch_capture               => try sema.zirSwitchCapture(block, inst, false, false),
-            //.switch_capture_ref           => try sema.zirSwitchCapture(block, inst, false, true),
-            //.switch_capture_multi         => try sema.zirSwitchCapture(block, inst, true, false),
-            //.switch_capture_multi_ref     => try sema.zirSwitchCapture(block, inst, true, true),
-            //.switch_capture_else          => try sema.zirSwitchCaptureElse(block, inst, false),
-            //.switch_capture_else_ref      => try sema.zirSwitchCaptureElse(block, inst, true),
+            .switch_block                 => try sema.zirSwitchBlock(block, inst, false, .none),
+            .switch_block_multi           => try sema.zirSwitchBlockMulti(block, inst, false, .none),
+            .switch_block_else            => try sema.zirSwitchBlock(block, inst, false, .@"else"),
+            .switch_block_else_multi      => try sema.zirSwitchBlockMulti(block, inst, false, .@"else"),
+            .switch_block_under           => try sema.zirSwitchBlock(block, inst, false, .under),
+            .switch_block_under_multi     => try sema.zirSwitchBlockMulti(block, inst, false, .under),
+            .switch_block_ref             => try sema.zirSwitchBlock(block, inst, true, .none),
+            .switch_block_ref_multi       => try sema.zirSwitchBlockMulti(block, inst, true, .none),
+            .switch_block_ref_else        => try sema.zirSwitchBlock(block, inst, true, .@"else"),
+            .switch_block_ref_else_multi  => try sema.zirSwitchBlockMulti(block, inst, true, .@"else"),
+            .switch_block_ref_under       => try sema.zirSwitchBlock(block, inst, true, .under),
+            .switch_block_ref_under_multi => try sema.zirSwitchBlockMulti(block, inst, true, .under),
+            .switch_capture               => try sema.zirSwitchCapture(block, inst, false, false),
+            .switch_capture_ref           => try sema.zirSwitchCapture(block, inst, false, true),
+            .switch_capture_multi         => try sema.zirSwitchCapture(block, inst, true, false),
+            .switch_capture_multi_ref     => try sema.zirSwitchCapture(block, inst, true, true),
+            .switch_capture_else          => try sema.zirSwitchCaptureElse(block, inst, false),
+            .switch_capture_else_ref      => try sema.zirSwitchCaptureElse(block, inst, true),
             .type_info                    => try sema.zirTypeInfo(block, inst),
             .size_of                      => try sema.zirSizeOf(block, inst),
             .bit_size_of                  => try sema.zirBitSizeOf(block, inst),
@@ -534,7 +534,6 @@ pub fn analyzeBody(
                     return break_inst;
                 }
             },
-            else => |t| @panic(@tagName(t)),
         };
         if (sema.typeOf(air_inst).isNoReturn())
             return always_noreturn;
@@ -4110,8 +4109,8 @@ fn analyzeSwitch(
                 const body = sema.code.extra[extra_index..][0..body_len];
                 extra_index += body_len;
 
+                const item = sema.resolveInst(item_ref);
                 // Validation above ensured these will succeed.
-                const item = sema.resolveInst(item_ref) catch unreachable;
                 const item_val = sema.resolveConstValue(&child_block, .unneeded, item) catch unreachable;
                 if (operand_val.eql(item_val)) {
                     return sema.resolveBlockBody(block, src, &child_block, body, merges);
@@ -4132,9 +4131,9 @@ fn analyzeSwitch(
                 const body = sema.code.extra[extra_index + 2 * ranges_len ..][0..body_len];
 
                 for (items) |item_ref| {
+                    const item = sema.resolveInst(item_ref);
                     // Validation above ensured these will succeed.
-                    const item = sema.resolveInst(item_ref) catch unreachable;
-                    const item_val = sema.resolveConstValue(&child_block, item.src, item) catch unreachable;
+                    const item_val = sema.resolveConstValue(&child_block, .unneeded, item) catch unreachable;
                     if (operand_val.eql(item_val)) {
                         return sema.resolveBlockBody(block, src, &child_block, body, merges);
                     }
@@ -4171,156 +4170,157 @@ fn analyzeSwitch(
 
     // TODO when reworking AIR memory layout make multi cases get generated as cases,
     // not as part of the "else" block.
-    const cases = try sema.arena.alloc(Inst.SwitchBr.Case, scalar_cases_len);
+    return mod.fail(&block.base, src, "TODO rework runtime switch Sema", .{});
+    //const cases = try sema.arena.alloc(Inst.SwitchBr.Case, scalar_cases_len);
 
-    var case_block = child_block.makeSubBlock();
-    case_block.runtime_loop = null;
-    case_block.runtime_cond = operand.src;
-    case_block.runtime_index += 1;
-    defer case_block.instructions.deinit(gpa);
+    //var case_block = child_block.makeSubBlock();
+    //case_block.runtime_loop = null;
+    //case_block.runtime_cond = operand.src;
+    //case_block.runtime_index += 1;
+    //defer case_block.instructions.deinit(gpa);
 
-    var extra_index: usize = special.end;
+    //var extra_index: usize = special.end;
 
-    var scalar_i: usize = 0;
-    while (scalar_i < scalar_cases_len) : (scalar_i += 1) {
-        const item_ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_index]);
-        extra_index += 1;
-        const body_len = sema.code.extra[extra_index];
-        extra_index += 1;
-        const body = sema.code.extra[extra_index..][0..body_len];
-        extra_index += body_len;
+    //var scalar_i: usize = 0;
+    //while (scalar_i < scalar_cases_len) : (scalar_i += 1) {
+    //    const item_ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_index]);
+    //    extra_index += 1;
+    //    const body_len = sema.code.extra[extra_index];
+    //    extra_index += 1;
+    //    const body = sema.code.extra[extra_index..][0..body_len];
+    //    extra_index += body_len;
 
-        case_block.instructions.shrinkRetainingCapacity(0);
-        // We validate these above; these two calls are guaranteed to succeed.
-        const item = sema.resolveInst(item_ref) catch unreachable;
-        const item_val = sema.resolveConstValue(&case_block, .unneeded, item) catch unreachable;
+    //    case_block.instructions.shrinkRetainingCapacity(0);
+    //    const item = sema.resolveInst(item_ref);
+    //    // We validate these above; these two calls are guaranteed to succeed.
+    //    const item_val = sema.resolveConstValue(&case_block, .unneeded, item) catch unreachable;
 
-        _ = try sema.analyzeBody(&case_block, body);
+    //    _ = try sema.analyzeBody(&case_block, body);
 
-        cases[scalar_i] = .{
-            .item = item_val,
-            .body = .{ .instructions = try sema.arena.dupe(Air.Inst.Index, case_block.instructions.items) },
-        };
-    }
+    //    cases[scalar_i] = .{
+    //        .item = item_val,
+    //        .body = .{ .instructions = try sema.arena.dupe(Air.Inst.Index, case_block.instructions.items) },
+    //    };
+    //}
 
-    var first_else_body: Body = undefined;
-    var prev_condbr: ?*Inst.CondBr = null;
+    //var first_else_body: Body = undefined;
+    //var prev_condbr: ?*Inst.CondBr = null;
 
-    var multi_i: usize = 0;
-    while (multi_i < multi_cases_len) : (multi_i += 1) {
-        const items_len = sema.code.extra[extra_index];
-        extra_index += 1;
-        const ranges_len = sema.code.extra[extra_index];
-        extra_index += 1;
-        const body_len = sema.code.extra[extra_index];
-        extra_index += 1;
-        const items = sema.code.refSlice(extra_index, items_len);
-        extra_index += items_len;
+    //var multi_i: usize = 0;
+    //while (multi_i < multi_cases_len) : (multi_i += 1) {
+    //    const items_len = sema.code.extra[extra_index];
+    //    extra_index += 1;
+    //    const ranges_len = sema.code.extra[extra_index];
+    //    extra_index += 1;
+    //    const body_len = sema.code.extra[extra_index];
+    //    extra_index += 1;
+    //    const items = sema.code.refSlice(extra_index, items_len);
+    //    extra_index += items_len;
 
-        case_block.instructions.shrinkRetainingCapacity(0);
+    //    case_block.instructions.shrinkRetainingCapacity(0);
 
-        var any_ok: ?Air.Inst.Index = null;
+    //    var any_ok: ?Air.Inst.Index = null;
 
-        for (items) |item_ref| {
-            const item = sema.resolveInst(item_ref);
-            _ = try sema.resolveConstValue(&child_block, item.src, item);
+    //    for (items) |item_ref| {
+    //        const item = sema.resolveInst(item_ref);
+    //        _ = try sema.resolveConstValue(&child_block, item.src, item);
 
-            const cmp_ok = try case_block.addBinOp(.cmp_eq, operand, item);
-            if (any_ok) |some| {
-                any_ok = try case_block.addBinOp(.bool_or, some, cmp_ok);
-            } else {
-                any_ok = cmp_ok;
-            }
-        }
+    //        const cmp_ok = try case_block.addBinOp(.cmp_eq, operand, item);
+    //        if (any_ok) |some| {
+    //            any_ok = try case_block.addBinOp(.bool_or, some, cmp_ok);
+    //        } else {
+    //            any_ok = cmp_ok;
+    //        }
+    //    }
 
-        var range_i: usize = 0;
-        while (range_i < ranges_len) : (range_i += 1) {
-            const first_ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_index]);
-            extra_index += 1;
-            const last_ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_index]);
-            extra_index += 1;
+    //    var range_i: usize = 0;
+    //    while (range_i < ranges_len) : (range_i += 1) {
+    //        const first_ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_index]);
+    //        extra_index += 1;
+    //        const last_ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_index]);
+    //        extra_index += 1;
 
-            const item_first = sema.resolveInst(first_ref);
-            const item_last = sema.resolveInst(last_ref);
+    //        const item_first = sema.resolveInst(first_ref);
+    //        const item_last = sema.resolveInst(last_ref);
 
-            _ = try sema.resolveConstValue(&child_block, item_first.src, item_first);
-            _ = try sema.resolveConstValue(&child_block, item_last.src, item_last);
+    //        _ = try sema.resolveConstValue(&child_block, item_first.src, item_first);
+    //        _ = try sema.resolveConstValue(&child_block, item_last.src, item_last);
 
-            // operand >= first and operand <= last
-            const range_first_ok = try case_block.addBinOp(
-                .cmp_gte,
-                operand,
-                item_first,
-            );
-            const range_last_ok = try case_block.addBinOp(
-                .cmp_lte,
-                operand,
-                item_last,
-            );
-            const range_ok = try case_block.addBinOp(
-                .bool_and,
-                range_first_ok,
-                range_last_ok,
-            );
-            if (any_ok) |some| {
-                any_ok = try case_block.addBinOp(.bool_or, some, range_ok);
-            } else {
-                any_ok = range_ok;
-            }
-        }
+    //        // operand >= first and operand <= last
+    //        const range_first_ok = try case_block.addBinOp(
+    //            .cmp_gte,
+    //            operand,
+    //            item_first,
+    //        );
+    //        const range_last_ok = try case_block.addBinOp(
+    //            .cmp_lte,
+    //            operand,
+    //            item_last,
+    //        );
+    //        const range_ok = try case_block.addBinOp(
+    //            .bool_and,
+    //            range_first_ok,
+    //            range_last_ok,
+    //        );
+    //        if (any_ok) |some| {
+    //            any_ok = try case_block.addBinOp(.bool_or, some, range_ok);
+    //        } else {
+    //            any_ok = range_ok;
+    //        }
+    //    }
 
-        const new_condbr = try sema.arena.create(Inst.CondBr);
-        new_condbr.* = .{
-            .base = .{
-                .tag = .condbr,
-                .ty = Type.initTag(.noreturn),
-                .src = src,
-            },
-            .condition = any_ok.?,
-            .then_body = undefined,
-            .else_body = undefined,
-        };
-        try case_block.instructions.append(gpa, &new_condbr.base);
+    //    const new_condbr = try sema.arena.create(Inst.CondBr);
+    //    new_condbr.* = .{
+    //        .base = .{
+    //            .tag = .condbr,
+    //            .ty = Type.initTag(.noreturn),
+    //            .src = src,
+    //        },
+    //        .condition = any_ok.?,
+    //        .then_body = undefined,
+    //        .else_body = undefined,
+    //    };
+    //    try case_block.instructions.append(gpa, &new_condbr.base);
 
-        const cond_body: Body = .{
-            .instructions = try sema.arena.dupe(Air.Inst.Index, case_block.instructions.items),
-        };
+    //    const cond_body: Body = .{
+    //        .instructions = try sema.arena.dupe(Air.Inst.Index, case_block.instructions.items),
+    //    };
 
-        case_block.instructions.shrinkRetainingCapacity(0);
-        const body = sema.code.extra[extra_index..][0..body_len];
-        extra_index += body_len;
-        _ = try sema.analyzeBody(&case_block, body);
-        new_condbr.then_body = .{
-            .instructions = try sema.arena.dupe(Air.Inst.Index, case_block.instructions.items),
-        };
-        if (prev_condbr) |condbr| {
-            condbr.else_body = cond_body;
-        } else {
-            first_else_body = cond_body;
-        }
-        prev_condbr = new_condbr;
-    }
+    //    case_block.instructions.shrinkRetainingCapacity(0);
+    //    const body = sema.code.extra[extra_index..][0..body_len];
+    //    extra_index += body_len;
+    //    _ = try sema.analyzeBody(&case_block, body);
+    //    new_condbr.then_body = .{
+    //        .instructions = try sema.arena.dupe(Air.Inst.Index, case_block.instructions.items),
+    //    };
+    //    if (prev_condbr) |condbr| {
+    //        condbr.else_body = cond_body;
+    //    } else {
+    //        first_else_body = cond_body;
+    //    }
+    //    prev_condbr = new_condbr;
+    //}
 
-    const final_else_body: Body = blk: {
-        if (special.body.len != 0) {
-            case_block.instructions.shrinkRetainingCapacity(0);
-            _ = try sema.analyzeBody(&case_block, special.body);
-            const else_body: Body = .{
-                .instructions = try sema.arena.dupe(Air.Inst.Index, case_block.instructions.items),
-            };
-            if (prev_condbr) |condbr| {
-                condbr.else_body = else_body;
-                break :blk first_else_body;
-            } else {
-                break :blk else_body;
-            }
-        } else {
-            break :blk .{ .instructions = &.{} };
-        }
-    };
+    //const final_else_body: Body = blk: {
+    //    if (special.body.len != 0) {
+    //        case_block.instructions.shrinkRetainingCapacity(0);
+    //        _ = try sema.analyzeBody(&case_block, special.body);
+    //        const else_body: Body = .{
+    //            .instructions = try sema.arena.dupe(Air.Inst.Index, case_block.instructions.items),
+    //        };
+    //        if (prev_condbr) |condbr| {
+    //            condbr.else_body = else_body;
+    //            break :blk first_else_body;
+    //        } else {
+    //            break :blk else_body;
+    //        }
+    //    } else {
+    //        break :blk .{ .instructions = &.{} };
+    //    }
+    //};
 
-    _ = try child_block.addSwitchBr(src, operand, cases, final_else_body);
-    return sema.analyzeBlockBody(block, src, &child_block, merges);
+    //_ = try child_block.addSwitchBr(src, operand, cases, final_else_body);
+    //return sema.analyzeBlockBody(block, src, &child_block, merges);
 }
 
 fn resolveSwitchItemVal(
@@ -4332,16 +4332,17 @@ fn resolveSwitchItemVal(
     range_expand: Module.SwitchProngSrc.RangeExpand,
 ) CompileError!TypedValue {
     const item = sema.resolveInst(item_ref);
+    const item_ty = sema.typeOf(item);
     // Constructing a LazySrcLoc is costly because we only have the switch AST node.
     // Only if we know for sure we need to report a compile error do we resolve the
     // full source locations.
     if (sema.resolveConstValue(block, .unneeded, item)) |val| {
-        return TypedValue{ .ty = item.ty, .val = val };
+        return TypedValue{ .ty = item_ty, .val = val };
     } else |err| switch (err) {
         error.NeededSourceLocation => {
             const src = switch_prong_src.resolve(sema.gpa, block.src_decl, switch_node_offset, range_expand);
             return TypedValue{
-                .ty = item.ty,
+                .ty = item_ty,
                 .val = try sema.resolveConstValue(block, src, item),
             };
         },

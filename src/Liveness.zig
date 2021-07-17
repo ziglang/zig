@@ -24,6 +24,11 @@ const Log2Int = std.math.Log2Int;
 tomb_bits: []usize,
 /// Sparse table of specially handled instructions. The value is an index into the `extra`
 /// array. The meaning of the data depends on the AIR tag.
+///  * `cond_br` - points to a `CondBr` in `extra` at this index.
+///  * `switch_br` - points to a `SwitchBr` in `extra` at this index.
+///  * `asm`, `call` - the value is a set of bits which are the extra tomb bits of operands.
+///    The main tomb bits are still used and the extra ones are starting with the lsb of the
+///    value here.
 special: std.AutoHashMapUnmanaged(Air.Inst.Index, u32),
 /// Auxilliary data. The way this data is interpreted is determined contextually.
 extra: []const u32,
@@ -67,6 +72,8 @@ pub fn analyze(gpa: *Allocator, air: Air, zir: Zir) Allocator.Error!Liveness {
     defer a.extra.deinit(gpa);
     defer a.table.deinit(gpa);
 
+    std.mem.set(usize, a.tomb_bits, 0);
+
     const main_body = air.getMainBody();
     try a.table.ensureTotalCapacity(gpa, @intCast(u32, main_body.len));
     try analyzeWithContext(&a, null, main_body);
@@ -103,7 +110,7 @@ pub fn clearOperandDeath(l: Liveness, inst: Air.Inst.Index, operand: OperandInt)
     const usize_index = (inst * bpi) / @bitSizeOf(usize);
     const mask = @as(usize, 1) <<
         @intCast(Log2Int(usize), (inst % (@bitSizeOf(usize) / bpi)) * bpi + operand);
-    l.tomb_bits[usize_index] |= mask;
+    l.tomb_bits[usize_index] &= ~mask;
 }
 
 /// Higher level API.
@@ -298,7 +305,17 @@ fn analyzeInst(
                 std.mem.copy(Air.Inst.Ref, buf[1..], args);
                 return trackOperands(a, new_set, inst, main_tomb, buf);
             }
-            @panic("TODO: liveness analysis for function call with greater than 2 args");
+            var extra_tombs: ExtraTombs = .{
+                .analysis = a,
+                .new_set = new_set,
+                .inst = inst,
+                .main_tomb = main_tomb,
+            };
+            try extra_tombs.feed(callee);
+            for (args) |arg| {
+                try extra_tombs.feed(arg);
+            }
+            return extra_tombs.finish();
         },
         .struct_field_ptr => {
             const extra = a.air.extraData(Air.StructField, inst_datas[inst].ty_pl.payload).data;
@@ -317,7 +334,19 @@ fn analyzeInst(
                 std.mem.copy(Air.Inst.Ref, buf[outputs.len..], args);
                 return trackOperands(a, new_set, inst, main_tomb, buf);
             }
-            @panic("TODO: liveness analysis for asm with greater than 3 args");
+            var extra_tombs: ExtraTombs = .{
+                .analysis = a,
+                .new_set = new_set,
+                .inst = inst,
+                .main_tomb = main_tomb,
+            };
+            for (outputs) |output| {
+                try extra_tombs.feed(output);
+            }
+            for (args) |arg| {
+                try extra_tombs.feed(arg);
+            }
+            return extra_tombs.finish();
         },
         .block => {
             const extra = a.air.extraData(Air.Block, inst_datas[inst].ty_pl.payload);
@@ -531,3 +560,40 @@ fn trackOperands(
     }
     a.storeTombBits(inst, tomb_bits);
 }
+
+const ExtraTombs = struct {
+    analysis: *Analysis,
+    new_set: ?*std.AutoHashMapUnmanaged(Air.Inst.Index, void),
+    inst: Air.Inst.Index,
+    main_tomb: bool,
+    bit_index: usize = 0,
+    tomb_bits: Bpi = 0,
+    big_tomb_bits: u32 = 0,
+
+    fn feed(et: *ExtraTombs, op_ref: Air.Inst.Ref) !void {
+        const this_bit_index = et.bit_index;
+        assert(this_bit_index < 32); // TODO mechanism for when there are greater than 32 operands
+        et.bit_index += 1;
+        const gpa = et.analysis.gpa;
+        const op_int = @enumToInt(op_ref);
+        if (op_int < Air.Inst.Ref.typed_value_map.len) return;
+        const op_index: Air.Inst.Index = op_int - @intCast(u32, Air.Inst.Ref.typed_value_map.len);
+        const prev = try et.analysis.table.fetchPut(gpa, op_index, {});
+        if (prev == null) {
+            // Death.
+            if (et.new_set) |ns| try ns.putNoClobber(gpa, op_index, {});
+            if (this_bit_index < bpi - 1) {
+                et.tomb_bits |= @as(Bpi, 1) << @intCast(OperandInt, this_bit_index);
+            } else {
+                const big_bit_index = this_bit_index - (bpi - 1);
+                et.big_tomb_bits |= @as(u32, 1) << @intCast(u5, big_bit_index);
+            }
+        }
+    }
+
+    fn finish(et: *ExtraTombs) !void {
+        et.tomb_bits |= @as(Bpi, @boolToInt(et.main_tomb)) << (bpi - 1);
+        et.analysis.storeTombBits(et.inst, et.tomb_bits);
+        try et.analysis.special.put(et.analysis.gpa, et.inst, et.big_tomb_bits);
+    }
+};
