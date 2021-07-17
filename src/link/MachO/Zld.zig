@@ -1489,8 +1489,8 @@ fn resolveSymbolsInObject(self: *Zld, object_id: u16) !void {
                 .global => {
                     const global = &self.globals.items[resolv.where_index];
 
-                    if (!(symbolIsWeakDef(sym) and symbolIsPext(sym)) and
-                        !(symbolIsWeakDef(global.*) and symbolIsPext(global.*)))
+                    if (!(symbolIsWeakDef(sym) or symbolIsPext(sym)) and
+                        !(symbolIsWeakDef(global.*) or symbolIsPext(global.*)))
                     {
                         log.err("symbol '{s}' defined multiple times", .{sym_name});
                         log.err("  first definition in '{s}'", .{self.objects.items[resolv.file].name.?});
