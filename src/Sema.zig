@@ -45,6 +45,7 @@ branch_count: u32 = 0,
 /// contain a mapped source location.
 src: LazySrcLoc = .{ .token_offset = 0 },
 next_arg_index: usize = 0,
+decl_val_table: std.AutoHashMapUnmanaged(*Decl, Air.Inst.Ref) = .{},
 
 const std = @import("std");
 const mem = std.mem;
@@ -77,6 +78,7 @@ pub fn deinit(sema: *Sema) void {
     sema.air_values.deinit(gpa);
     sema.air_variables.deinit(gpa);
     sema.inst_map.deinit(gpa);
+    sema.decl_val_table.deinit(gpa);
     sema.* = undefined;
 }
 
@@ -7159,9 +7161,23 @@ fn coerceArrayPtrToMany(
     return sema.mod.fail(&block.base, inst_src, "TODO implement coerceArrayPtrToMany runtime instruction", .{});
 }
 
-fn analyzeDeclVal(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, decl: *Decl) CompileError!Air.Inst.Ref {
+fn analyzeDeclVal(
+    sema: *Sema,
+    block: *Scope.Block,
+    src: LazySrcLoc,
+    decl: *Decl,
+) CompileError!Air.Inst.Ref {
+    if (sema.decl_val_table.get(decl)) |result| {
+        return result;
+    }
     const decl_ref = try sema.analyzeDeclRef(block, src, decl);
-    return sema.analyzeLoad(block, src, decl_ref, src);
+    const result = try sema.analyzeLoad(block, src, decl_ref, src);
+    if (Air.refToIndex(result)) |index| {
+        if (sema.air_instructions.items(.tag)[index] == .constant) {
+            sema.decl_val_table.put(sema.gpa, decl, result) catch {};
+        }
+    }
+    return result;
 }
 
 fn analyzeDeclRef(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, decl: *Decl) CompileError!Air.Inst.Ref {
