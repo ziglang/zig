@@ -34,7 +34,7 @@ data_decl_table: std.AutoArrayHashMapUnmanaged(*Module.Decl, []const u8) = .{},
 
 hdr: aout.ExecHdr = undefined,
 
-entry_decl: ?*Module.Decl = null,
+entry_val: ?u64 = null,
 
 got_len: u64 = 0,
 
@@ -213,6 +213,7 @@ pub fn flushModule(self: *Plan9, comp: *Compilation) !void {
     if (build_options.skip_non_native and builtin.object_format != .plan9) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
+
     _ = comp;
     const tracy = trace(@src());
     defer tracy.end();
@@ -221,7 +222,7 @@ pub fn flushModule(self: *Plan9, comp: *Compilation) !void {
 
     defer assert(self.hdr.entry != 0x0);
 
-    _ = self.base.options.module orelse return error.LinkingWithoutZigSourceUnimplemented;
+    const mod = self.base.options.module orelse return error.LinkingWithoutZigSourceUnimplemented;
 
     assert(self.got_len == self.fn_decl_table.count() + self.data_decl_table.count());
     const got_size = self.got_len * if (!self.sixtyfour_bit) @as(u32, 4) else 8;
@@ -230,6 +231,7 @@ pub fn flushModule(self: *Plan9, comp: *Compilation) !void {
 
     // + 2 for header, got, symbols
     var iovecs = try self.base.allocator.alloc(std.os.iovec_const, self.fn_decl_table.count() + self.data_decl_table.count() + 3);
+    defer self.base.allocator.free(iovecs);
 
     const file = self.base.file.?;
 
@@ -247,11 +249,12 @@ pub fn flushModule(self: *Plan9, comp: *Compilation) !void {
         while (it.next()) |entry| {
             const decl = entry.key_ptr.*;
             const code = entry.value_ptr.*;
+            log.debug("write text decl {*} ({s})", .{ decl, decl.name });
             foff += code.len;
-            text_i += code.len;
             iovecs[iovecs_i] = .{ .iov_base = code.ptr, .iov_len = code.len };
             iovecs_i += 1;
             const off = self.getAddr(text_i, .t);
+            text_i += code.len;
             decl.link.plan9.offset = off;
             if (!self.sixtyfour_bit) {
                 mem.writeIntNative(u32, got_table[decl.link.plan9.got_index.? * 4 ..][0..4], @intCast(u32, off));
@@ -260,10 +263,16 @@ pub fn flushModule(self: *Plan9, comp: *Compilation) !void {
                 mem.writeInt(u64, got_table[decl.link.plan9.got_index.? * 8 ..][0..8], off, self.base.options.target.cpu.arch.endian());
             }
             self.syms.items[decl.link.plan9.sym_index.?].value = off;
+            if (mod.decl_exports.get(decl)) |exports| {
+                try self.addDeclExports(mod, decl, exports);
+            }
         }
         // etext symbol
         self.syms.items[2].value = self.getAddr(text_i, .t);
     }
+    // global offset table is in data
+    iovecs[iovecs_i] = .{ .iov_base = got_table.ptr, .iov_len = got_table.len };
+    iovecs_i += 1;
     // data
     var data_i: u64 = got_size;
     {
@@ -271,11 +280,13 @@ pub fn flushModule(self: *Plan9, comp: *Compilation) !void {
         while (it.next()) |entry| {
             const decl = entry.key_ptr.*;
             const code = entry.value_ptr.*;
+            log.debug("write data decl {*} ({s})", .{ decl, decl.name });
+
             foff += code.len;
-            data_i += code.len;
             iovecs[iovecs_i] = .{ .iov_base = code.ptr, .iov_len = code.len };
             iovecs_i += 1;
             const off = self.getAddr(data_i, .d);
+            data_i += code.len;
             decl.link.plan9.offset = off;
             if (!self.sixtyfour_bit) {
                 mem.writeInt(u32, got_table[decl.link.plan9.got_index.? * 4 ..][0..4], @intCast(u32, off), self.base.options.target.cpu.arch.endian());
@@ -283,6 +294,9 @@ pub fn flushModule(self: *Plan9, comp: *Compilation) !void {
                 mem.writeInt(u64, got_table[decl.link.plan9.got_index.? * 8 ..][0..8], off, self.base.options.target.cpu.arch.endian());
             }
             self.syms.items[decl.link.plan9.sym_index.?].value = off;
+            if (mod.decl_exports.get(decl)) |exports| {
+                try self.addDeclExports(mod, decl, exports);
+            }
         }
         // edata symbol
         self.syms.items[0].value = self.getAddr(data_i, .b);
@@ -292,8 +306,6 @@ pub fn flushModule(self: *Plan9, comp: *Compilation) !void {
     var sym_buf = std.ArrayList(u8).init(self.base.allocator);
     defer sym_buf.deinit();
     try self.writeSyms(&sym_buf);
-    iovecs[iovecs_i] = .{ .iov_base = got_table.ptr, .iov_len = got_table.len };
-    iovecs_i += 1;
     assert(2 + self.fn_decl_table.count() + self.data_decl_table.count() == iovecs_i); // we didn't write all the decls
     iovecs[iovecs_i] = .{ .iov_base = sym_buf.items.ptr, .iov_len = sym_buf.items.len };
     iovecs_i += 1;
@@ -306,16 +318,45 @@ pub fn flushModule(self: *Plan9, comp: *Compilation) !void {
         .bss = 0,
         .pcsz = 0,
         .spsz = 0,
-        .entry = @intCast(u32, self.entry_decl.?.link.plan9.offset.?),
+        .entry = @intCast(u32, self.entry_val.?),
     };
     std.mem.copy(u8, hdr_slice, self.hdr.toU8s()[0..hdr_size]);
     // write the fat header for 64 bit entry points
     if (self.sixtyfour_bit) {
-        mem.writeIntSliceBig(u64, hdr_buf[32..40], self.entry_decl.?.link.plan9.offset.?);
+        mem.writeIntSliceBig(u64, hdr_buf[32..40], self.entry_val.?);
     }
     // write it all!
     try file.pwritevAll(iovecs, 0);
 }
+fn addDeclExports(
+    self: *Plan9,
+    module: *Module,
+    decl: *Module.Decl,
+    exports: []const *Module.Export,
+) !void {
+    for (exports) |exp| {
+        // plan9 does not support custom sections
+        if (exp.options.section) |section_name| {
+            if (!mem.eql(u8, section_name, ".text") or !mem.eql(u8, section_name, ".data")) {
+                try module.failed_exports.put(module.gpa, exp, try Module.ErrorMsg.create(self.base.allocator, decl.srcLoc(), "plan9 does not support extra sections", .{}));
+                break;
+            }
+        }
+        const sym = .{
+            .value = decl.link.plan9.offset.?,
+            .type = decl.link.plan9.type.toGlobal(),
+            .name = exp.options.name,
+        };
+
+        if (exp.link.plan9) |i| {
+            self.syms.items[i] = sym;
+        } else {
+            try self.syms.append(self.base.allocator, sym);
+            exp.link.plan9 = self.syms.items.len - 1;
+        }
+    }
+}
+
 pub fn freeDecl(self: *Plan9, decl: *Module.Decl) void {
     const is_fn = (decl.ty.zigTypeTag() == .Fn);
     if (is_fn)
@@ -394,19 +435,23 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
 pub fn writeSyms(self: *Plan9, buf: *std.ArrayList(u8)) !void {
     const writer = buf.writer();
     for (self.syms.items) |sym| {
+        log.debug("sym.name: {s}", .{sym.name});
+        log.debug("sym.value: {x}", .{sym.value});
+        if (mem.eql(u8, sym.name, "_start"))
+            self.entry_val = sym.value;
         if (!self.sixtyfour_bit) {
             try writer.writeIntBig(u32, @intCast(u32, sym.value));
         } else {
             try writer.writeIntBig(u64, sym.value);
         }
         try writer.writeByte(@enumToInt(sym.type));
-        try writer.writeAll(std.mem.span(sym.name));
+        try writer.writeAll(sym.name);
         try writer.writeByte(0);
     }
 }
 
 pub fn allocateDeclIndexes(self: *Plan9, decl: *Module.Decl) !void {
-    if (decl.link.plan9.got_index != null) {
+    if (decl.link.plan9.got_index == null) {
         self.got_len += 1;
         decl.link.plan9.got_index = self.got_len - 1;
     }
