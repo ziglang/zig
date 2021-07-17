@@ -13,9 +13,9 @@ const Air = @This();
 instructions: std.MultiArrayList(Inst).Slice,
 /// The meaning of this data is determined by `Inst.Tag` value.
 /// The first few indexes are reserved. See `ExtraIndex` for the values.
-extra: []u32,
-values: []Value,
-variables: []*Module.Var,
+extra: []const u32,
+values: []const Value,
+variables: []const *Module.Var,
 
 pub const ExtraIndex = enum(u32) {
     /// Payload index of the main `Block` in the `extra` array.
@@ -378,22 +378,109 @@ pub fn getMainBody(air: Air) []const Air.Inst.Index {
     return air.extra[extra.end..][0..extra.data.body_len];
 }
 
-pub fn getType(air: Air, inst: Air.Inst.Index) Type {
-    _ = air;
-    _ = inst;
-    @panic("TODO Air getType");
+pub fn typeOf(air: Air, inst: Air.Inst.Ref) Type {
+    const ref_int = @enumToInt(inst);
+    if (ref_int < Air.Inst.Ref.typed_value_map.len) {
+        return Air.Inst.Ref.typed_value_map[ref_int].ty;
+    }
+    return air.typeOfIndex(@intCast(Air.Inst.Index, ref_int - Air.Inst.Ref.typed_value_map.len));
+}
+
+pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
+    const datas = air.instructions.items(.data);
+    switch (air.instructions.items(.tag)[inst]) {
+        .arg => return air.getRefType(datas[inst].ty_str.ty),
+
+        .add,
+        .addwrap,
+        .sub,
+        .subwrap,
+        .mul,
+        .mulwrap,
+        .div,
+        .bit_and,
+        .bit_or,
+        .xor,
+        => return air.typeOf(datas[inst].bin_op.lhs),
+
+        .cmp_lt,
+        .cmp_lte,
+        .cmp_eq,
+        .cmp_gte,
+        .cmp_gt,
+        .cmp_neq,
+        .is_null,
+        .is_non_null,
+        .is_null_ptr,
+        .is_non_null_ptr,
+        .is_err,
+        .is_non_err,
+        .is_err_ptr,
+        .is_non_err_ptr,
+        .bool_and,
+        .bool_or,
+        => return Type.initTag(.bool),
+
+        .const_ty => return Type.initTag(.type),
+
+        .alloc => return datas[inst].ty,
+
+        .assembly,
+        .block,
+        .constant,
+        .varptr,
+        .struct_field_ptr,
+        => return air.getRefType(datas[inst].ty_pl.ty),
+
+        .not,
+        .bitcast,
+        .load,
+        .ref,
+        .floatcast,
+        .intcast,
+        .optional_payload,
+        .optional_payload_ptr,
+        .wrap_optional,
+        .unwrap_errunion_payload,
+        .unwrap_errunion_err,
+        .unwrap_errunion_payload_ptr,
+        .unwrap_errunion_err_ptr,
+        .wrap_errunion_payload,
+        .wrap_errunion_err,
+        => return air.getRefType(datas[inst].ty_op.ty),
+
+        .loop,
+        .br,
+        .cond_br,
+        .switch_br,
+        .ret,
+        .unreach,
+        => return Type.initTag(.noreturn),
+
+        .breakpoint,
+        .dbg_stmt,
+        .store,
+        => return Type.initTag(.void),
+
+        .ptrtoint => return Type.initTag(.usize),
+
+        .call => {
+            const callee_ty = air.typeOf(datas[inst].pl_op.operand);
+            return callee_ty.fnReturnType();
+        },
+    }
 }
 
 pub fn getRefType(air: Air, ref: Air.Inst.Ref) Type {
-    var i: usize = @enumToInt(ref);
-    if (i < Air.Inst.Ref.typed_value_map.len) {
-        return Air.Inst.Ref.typed_value_map[i].val.toType(undefined) catch unreachable;
+    const ref_int = @enumToInt(ref);
+    if (ref_int < Air.Inst.Ref.typed_value_map.len) {
+        return Air.Inst.Ref.typed_value_map[ref_int].val.toType(undefined) catch unreachable;
     }
-    i -= Air.Inst.Ref.typed_value_map.len;
+    const inst_index = ref_int - Air.Inst.Ref.typed_value_map.len;
     const air_tags = air.instructions.items(.tag);
     const air_datas = air.instructions.items(.data);
-    assert(air_tags[i] == .const_ty);
-    return air_datas[i].ty;
+    assert(air_tags[inst_index] == .const_ty);
+    return air_datas[inst_index].ty;
 }
 
 /// Returns the requested data, as well as the new index which is at the start of the
@@ -423,4 +510,34 @@ pub fn deinit(air: *Air, gpa: *std.mem.Allocator) void {
     gpa.free(air.values);
     gpa.free(air.variables);
     air.* = undefined;
+}
+
+const ref_start_index: u32 = Air.Inst.Ref.typed_value_map.len;
+
+pub fn indexToRef(inst: Air.Inst.Index) Air.Inst.Ref {
+    return @intToEnum(Air.Inst.Ref, ref_start_index + inst);
+}
+
+pub fn refToIndex(inst: Air.Inst.Ref) ?Air.Inst.Index {
+    const ref_int = @enumToInt(inst);
+    if (ref_int >= ref_start_index) {
+        return ref_int - ref_start_index;
+    } else {
+        return null;
+    }
+}
+
+/// Returns `null` if runtime-known.
+pub fn value(air: Air, inst: Air.Inst.Ref) ?Value {
+    const ref_int = @enumToInt(inst);
+    if (ref_int < Air.Inst.Ref.typed_value_map.len) {
+        return Air.Inst.Ref.typed_value_map[ref_int].val;
+    }
+    const inst_index = @intCast(Air.Inst.Index, ref_int - Air.Inst.Ref.typed_value_map.len);
+    const air_datas = air.instructions.items(.data);
+    switch (air.instructions.items(.tag)[inst_index]) {
+        .constant => return air.values[air_datas[inst_index].ty_pl.payload],
+        .const_ty => unreachable,
+        else => return air.typeOfIndex(inst_index).onePossibleValue(),
+    }
 }

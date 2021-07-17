@@ -21,7 +21,7 @@ const Log2Int = std.math.Log2Int;
 /// operand dies after this instruction.
 /// Instructions which need more data to track liveness have special handling via the
 /// `special` table.
-tomb_bits: []const usize,
+tomb_bits: []usize,
 /// Sparse table of specially handled instructions. The value is an index into the `extra`
 /// array. The meaning of the data depends on the AIR tag.
 special: std.AutoHashMapUnmanaged(Air.Inst.Index, u32),
@@ -98,7 +98,7 @@ pub fn operandDies(l: Liveness, inst: Air.Inst.Index, operand: OperandInt) bool 
     return (l.tomb_bits[usize_index] & mask) != 0;
 }
 
-pub fn clearOperandDeath(l: *Liveness, inst: Air.Inst.Index, operand: OperandInt) void {
+pub fn clearOperandDeath(l: Liveness, inst: Air.Inst.Index, operand: OperandInt) void {
     assert(operand < bpi - 1);
     const usize_index = (inst * bpi) / @bitSizeOf(usize);
     const mask = @as(usize, 1) <<
@@ -106,16 +106,40 @@ pub fn clearOperandDeath(l: *Liveness, inst: Air.Inst.Index, operand: OperandInt
     l.tomb_bits[usize_index] |= mask;
 }
 
+/// Higher level API.
+pub const CondBrSlices = struct {
+    then_deaths: []const Air.Inst.Index,
+    else_deaths: []const Air.Inst.Index,
+};
+
+pub fn getCondBr(l: Liveness, inst: Air.Inst.Index) CondBrSlices {
+    var index: usize = l.special.get(inst) orelse return .{
+        .then_deaths = &.{},
+        .else_deaths = &.{},
+    };
+    const then_death_count = l.extra[index];
+    index += 1;
+    const else_death_count = l.extra[index];
+    index += 1;
+    const then_deaths = l.extra[index..][0..then_death_count];
+    index += then_death_count;
+    return .{
+        .then_deaths = then_deaths,
+        .else_deaths = l.extra[index..][0..else_death_count],
+    };
+}
+
 pub fn deinit(l: *Liveness, gpa: *Allocator) void {
     gpa.free(l.tomb_bits);
     gpa.free(l.extra);
     l.special.deinit(gpa);
+    l.* = undefined;
 }
 
 /// How many tomb bits per AIR instruction.
-const bpi = 4;
-const Bpi = std.meta.Int(.unsigned, bpi);
-const OperandInt = std.math.Log2Int(Bpi);
+pub const bpi = 4;
+pub const Bpi = std.meta.Int(.unsigned, bpi);
+pub const OperandInt = std.math.Log2Int(Bpi);
 
 /// In-progress data; on successful analysis converted into `Liveness`.
 const Analysis = struct {
@@ -267,14 +291,14 @@ fn analyzeInst(
             const inst_data = inst_datas[inst].pl_op;
             const callee = inst_data.operand;
             const extra = a.air.extraData(Air.Call, inst_data.payload);
-            const args = a.air.extra[extra.end..][0..extra.data.args_len];
+            const args = @bitCast([]const Air.Inst.Ref, a.air.extra[extra.end..][0..extra.data.args_len]);
             if (args.len <= bpi - 2) {
-                var buf: [bpi - 1]Air.Inst.Ref = undefined;
+                var buf = [1]Air.Inst.Ref{.none} ** (bpi - 1);
                 buf[0] = callee;
-                std.mem.copy(Air.Inst.Ref, buf[1..], @bitCast([]const Air.Inst.Ref, args));
+                std.mem.copy(Air.Inst.Ref, buf[1..], args);
                 return trackOperands(a, new_set, inst, main_tomb, buf);
             }
-            @panic("TODO: liveness analysis for function with greater than 2 args");
+            @panic("TODO: liveness analysis for function call with greater than 2 args");
         },
         .struct_field_ptr => {
             const extra = a.air.extraData(Air.StructField, inst_datas[inst].ty_pl.payload).data;
@@ -285,12 +309,12 @@ fn analyzeInst(
             const extended = a.zir.instructions.items(.data)[extra.data.zir_index].extended;
             const outputs_len = @truncate(u5, extended.small);
             const inputs_len = @truncate(u5, extended.small >> 5);
-            const outputs = a.air.extra[extra.end..][0..outputs_len];
-            const inputs = a.air.extra[extra.end + outputs.len ..][0..inputs_len];
-            if (outputs.len + inputs.len <= bpi - 1) {
-                var buf: [bpi - 1]Air.Inst.Ref = undefined;
-                std.mem.copy(Air.Inst.Ref, &buf, @bitCast([]const Air.Inst.Ref, outputs));
-                std.mem.copy(Air.Inst.Ref, buf[outputs.len..], @bitCast([]const Air.Inst.Ref, inputs));
+            const outputs = @bitCast([]const Air.Inst.Ref, a.air.extra[extra.end..][0..outputs_len]);
+            const args = @bitCast([]const Air.Inst.Ref, a.air.extra[extra.end + outputs.len ..][0..inputs_len]);
+            if (outputs.len + args.len <= bpi - 1) {
+                var buf = [1]Air.Inst.Ref{.none} ** (bpi - 1);
+                std.mem.copy(Air.Inst.Ref, &buf, outputs);
+                std.mem.copy(Air.Inst.Ref, buf[outputs.len..], args);
                 return trackOperands(a, new_set, inst, main_tomb, buf);
             }
             @panic("TODO: liveness analysis for asm with greater than 3 args");

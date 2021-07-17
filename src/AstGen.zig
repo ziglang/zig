@@ -6412,37 +6412,12 @@ fn multilineStringLiteral(
     node: ast.Node.Index,
 ) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
-    const tree = astgen.tree;
-    const node_datas = tree.nodes.items(.data);
-
-    const start = node_datas[node].lhs;
-    const end = node_datas[node].rhs;
-
-    const gpa = gz.astgen.gpa;
-    const string_bytes = &gz.astgen.string_bytes;
-    const str_index = string_bytes.items.len;
-
-    // First line: do not append a newline.
-    var tok_i = start;
-    {
-        const slice = tree.tokenSlice(tok_i);
-        const line_bytes = slice[2 .. slice.len - 1];
-        try string_bytes.appendSlice(gpa, line_bytes);
-        tok_i += 1;
-    }
-    // Following lines: each line prepends a newline.
-    while (tok_i <= end) : (tok_i += 1) {
-        const slice = tree.tokenSlice(tok_i);
-        const line_bytes = slice[2 .. slice.len - 1];
-        try string_bytes.ensureCapacity(gpa, string_bytes.items.len + line_bytes.len + 1);
-        string_bytes.appendAssumeCapacity('\n');
-        string_bytes.appendSliceAssumeCapacity(line_bytes);
-    }
+    const str = try astgen.strLitNodeAsString(node);
     const result = try gz.add(.{
         .tag = .str,
         .data = .{ .str = .{
-            .start = @intCast(u32, str_index),
-            .len = @intCast(u32, string_bytes.items.len - str_index),
+            .start = str.index,
+            .len = str.len,
         } },
     });
     return rvalue(gz, rl, result, node);
@@ -6620,9 +6595,14 @@ fn asmExpr(
     const tree = astgen.tree;
     const main_tokens = tree.nodes.items(.main_token);
     const node_datas = tree.nodes.items(.data);
+    const node_tags = tree.nodes.items(.tag);
     const token_tags = tree.tokens.items(.tag);
 
-    const asm_source = try comptimeExpr(gz, scope, .{ .ty = .const_slice_u8_type }, full.ast.template);
+    const asm_source = switch (node_tags[full.ast.template]) {
+        .string_literal => try astgen.strLitAsString(main_tokens[full.ast.template]),
+        .multiline_string_literal => try astgen.strLitNodeAsString(full.ast.template),
+        else => return astgen.failNode(node, "assembly code must use string literal syntax", .{}),
+    };
 
     // See https://github.com/ziglang/zig/issues/215 and related issues discussing
     // possible inline assembly improvements. Until then here is status quo AstGen
@@ -6752,7 +6732,7 @@ fn asmExpr(
 
     const result = try gz.addAsm(.{
         .node = node,
-        .asm_source = asm_source,
+        .asm_source = asm_source.index,
         .is_volatile = full.volatile_token != null,
         .output_type_bits = output_type_bits,
         .outputs = outputs,
@@ -8579,6 +8559,41 @@ fn strLitAsString(astgen: *AstGen, str_lit_token: ast.TokenIndex) !IndexSlice {
     }
 }
 
+fn strLitNodeAsString(astgen: *AstGen, node: ast.Node.Index) !IndexSlice {
+    const tree = astgen.tree;
+    const node_datas = tree.nodes.items(.data);
+
+    const start = node_datas[node].lhs;
+    const end = node_datas[node].rhs;
+
+    const gpa = astgen.gpa;
+    const string_bytes = &astgen.string_bytes;
+    const str_index = string_bytes.items.len;
+
+    // First line: do not append a newline.
+    var tok_i = start;
+    {
+        const slice = tree.tokenSlice(tok_i);
+        const line_bytes = slice[2 .. slice.len - 1];
+        try string_bytes.appendSlice(gpa, line_bytes);
+        tok_i += 1;
+    }
+    // Following lines: each line prepends a newline.
+    while (tok_i <= end) : (tok_i += 1) {
+        const slice = tree.tokenSlice(tok_i);
+        const line_bytes = slice[2 .. slice.len - 1];
+        try string_bytes.ensureCapacity(gpa, string_bytes.items.len + line_bytes.len + 1);
+        string_bytes.appendAssumeCapacity('\n');
+        string_bytes.appendSliceAssumeCapacity(line_bytes);
+    }
+    const len = string_bytes.items.len - str_index;
+    try string_bytes.append(gpa, 0);
+    return IndexSlice{
+        .index = @intCast(u32, str_index),
+        .len = @intCast(u32, len),
+    };
+}
+
 fn testNameString(astgen: *AstGen, str_lit_token: ast.TokenIndex) !u32 {
     const gpa = astgen.gpa;
     const string_bytes = &astgen.string_bytes;
@@ -9440,7 +9455,7 @@ const GenZir = struct {
         args: struct {
             /// Absolute node index. This function does the conversion to offset from Decl.
             node: ast.Node.Index,
-            asm_source: Zir.Inst.Ref,
+            asm_source: u32,
             output_type_bits: u32,
             is_volatile: bool,
             outputs: []const Zir.Inst.Asm.Output,
