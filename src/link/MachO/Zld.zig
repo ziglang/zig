@@ -1267,11 +1267,12 @@ fn writeStubHelperCommon(self: *Zld) !void {
         }
     };
 
-    for (self.stubs.keys()) |key| {
+    for (self.stubs.keys()) |_, i| {
+        const index = @intCast(u32, i);
         // TODO weak bound pointers
-        try self.writeLazySymbolPointer(key);
-        try self.writeStub(key);
-        try self.writeStubInStubHelper(key);
+        try self.writeLazySymbolPointer(index);
+        try self.writeStub(index);
+        try self.writeStubInStubHelper(index);
     }
 }
 
