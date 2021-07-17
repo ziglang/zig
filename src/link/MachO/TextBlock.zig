@@ -146,10 +146,14 @@ pub const Relocation = struct {
         is_64bit: bool,
 
         pub fn resolve(self: Unsigned, args: ResolveArgs) !void {
-            const result = if (self.subtractor) |subtractor|
-                @intCast(i64, args.target_addr) - @intCast(i64, subtractor.payload.regular.address) + self.addend
-            else
-                @intCast(i64, args.target_addr) + self.addend;
+            const result = blk: {
+                if (self.subtractor) |subtractor| {
+                    const sym = args.zld.locals.items[subtractor];
+                    break :blk @intCast(i64, args.target_addr) - @intCast(i64, sym.n_value) + self.addend;
+                } else {
+                    break :blk @intCast(i64, args.target_addr) + self.addend;
+                }
+            };
 
             if (self.is_64bit) {
                 mem.writeIntLittle(u64, args.block.code[args.offset..][0..8], @bitCast(u64, result));
@@ -422,7 +426,7 @@ pub const Relocation = struct {
                 i32,
                 target_addr - @intCast(i64, args.source_addr) - self.correction - 4,
             );
-            mem.writeIntLittle(u32, block.code[offset..][0..4], @bitCast(u32, displacement));
+            mem.writeIntLittle(u32, args.block.code[args.offset..][0..4], @bitCast(u32, displacement));
         }
 
         pub fn format(self: Signed, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
@@ -442,16 +446,16 @@ pub const Relocation = struct {
         },
         addend: i32 = 0,
 
-        pub fn resolve(self: Load, block: *TextBlock, offset: u32, args: ResolveArgs) !void {
+        pub fn resolve(self: Load, args: ResolveArgs) !void {
             if (self.kind == .tlvp) {
                 // We need to rewrite the opcode from movq to leaq.
-                block.code[offset - 2] = 0x8d;
+                args.block.code[args.offset - 2] = 0x8d;
             }
             const displacement = try math.cast(
                 i32,
                 @intCast(i64, args.target_addr) - @intCast(i64, args.source_addr) - 4 + self.addend,
             );
-            mem.writeIntLittle(u32, block.code[offset..][0..4], @bitCast(u32, displacement));
+            mem.writeIntLittle(u32, args.block.code[args.offset..][0..4], @bitCast(u32, displacement));
         }
 
         pub fn format(self: Load, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
@@ -464,15 +468,15 @@ pub const Relocation = struct {
         }
     };
 
-    pub fn resolve(self: Relocation, block: *TextBlock, args: ResolveArgs) !void {
+    pub fn resolve(self: Relocation, args: ResolveArgs) !void {
         switch (self.payload) {
-            .unsigned => |unsigned| try unsigned.resolve(block, self.offset, args),
-            .branch => |branch| try branch.resolve(block, self.offset, args),
-            .page => |page| try page.resolve(block, self.offset, args),
-            .page_off => |page_off| try page_off.resolve(block, self.offset, args),
-            .pointer_to_got => |pointer_to_got| try pointer_to_got.resolve(block, self.offset, args),
-            .signed => |signed| try signed.resolve(block, self.offset, args),
-            .load => |load| try load.resolve(block, self.offset, args),
+            .unsigned => |unsigned| try unsigned.resolve(args),
+            .branch => |branch| try branch.resolve(args),
+            .page => |page| try page.resolve(args),
+            .page_off => |page_off| try page_off.resolve(args),
+            .pointer_to_got => |pointer_to_got| try pointer_to_got.resolve(args),
+            .signed => |signed| try signed.resolve(args),
+            .load => |load| try load.resolve(args),
         }
     }
 
@@ -983,7 +987,7 @@ fn parseLoad(self: TextBlock, rel: macho.relocation_info, out: *Relocation) void
 
 pub fn resolveRelocs(self: *TextBlock, zld: *Zld) !void {
     for (self.relocs.items) |rel| {
-        log.debug("relocating {}", .{rel});
+        log.warn("relocating {}", .{rel});
 
         const source_addr = blk: {
             const sym = zld.locals.items[self.local_sym_index];
@@ -1001,20 +1005,29 @@ pub fn resolveRelocs(self: *TextBlock, zld: *Zld) !void {
             if (is_via_got) {
                 const dc_seg = zld.load_commands.items[zld.data_const_segment_cmd_index.?].Segment;
                 const got = dc_seg.sections.items[zld.got_section_index.?];
-                const got_index = rel.target.got_index orelse {
-                    log.err("expected GOT entry for symbol '{s}'", .{zld.getString(rel.target.strx)});
+                const got_index = zld.got_entries.getIndex(.{
+                    .where = rel.where,
+                    .where_index = rel.where_index,
+                }) orelse {
+                    const sym = switch (rel.where) {
+                        .local => zld.locals.items[rel.where_index],
+                        .import => zld.imports.items[rel.where_index],
+                    };
+                    log.err("expected GOT entry for symbol '{s}'", .{zld.getString(sym.n_strx)});
                     log.err("  this is an internal linker error", .{});
                     return error.FailedToResolveRelocationTarget;
                 };
                 break :blk got.addr + got_index * @sizeOf(u64);
             }
 
-            switch (rel.target.payload) {
-                .regular => |reg| {
+            switch (rel.where) {
+                .local => {
+                    const sym = zld.locals.items[rel.where_index];
                     const is_tlv = is_tlv: {
                         const sym = zld.locals.items[self.local_sym_index];
-                        const seg = zld.load_commands.items[sym.payload.regular.segment_id].Segment;
-                        const sect = seg.sections.items[sym.payload.regular.section_id];
+                        const match = zld.unpackSectionId(sym.n_sect);
+                        const seg = zld.load_commands.items[match.seg].Segment;
+                        const sect = seg.sections.items[match.sect];
                         break :is_tlv commands.sectionType(sect) == macho.S_THREAD_LOCAL_VARIABLES;
                     };
                     if (is_tlv) {
@@ -1036,36 +1049,29 @@ pub fn resolveRelocs(self: *TextBlock, zld: *Zld) !void {
                                 return error.FailedToResolveRelocationTarget;
                             }
                         };
-                        break :blk reg.address - base_address;
+                        break :blk sym.n_value - base_address;
                     }
 
-                    break :blk reg.address;
+                    break :blk sym.n_value;
                 },
-                .proxy => {
-                    if (mem.eql(u8, zld.getString(rel.target.strx), "__tlv_bootstrap")) {
-                        break :blk 0; // Dynamically bound by dyld.
-                    }
-
-                    const segment = zld.load_commands.items[zld.text_segment_cmd_index.?].Segment;
-                    const stubs = segment.sections.items[zld.stubs_section_index.?];
-                    const stubs_index = rel.target.stubs_index orelse {
+                .import => {
+                    // TODO I think this will be autohandled by self.bindings.
+                    // if (mem.eql(u8, zld.getString(rel.target.strx), "__tlv_bootstrap")) {
+                    //     break :blk 0; // Dynamically bound by dyld.
+                    // }
+                    const stubs_index = zld.stubs.getIndex(rel.where_index) orelse {
                         // TODO verify in TextBlock that the symbol is indeed dynamically bound.
                         break :blk 0; // Dynamically bound by dyld.
                     };
+                    const segment = zld.load_commands.items[zld.text_segment_cmd_index.?].Segment;
+                    const stubs = segment.sections.items[zld.stubs_section_index.?];
                     break :blk stubs.addr + stubs_index * stubs.reserved2;
-                },
-                else => {
-                    log.err("failed to resolve symbol '{s}' as a relocation target", .{
-                        zld.getString(rel.target.strx),
-                    });
-                    log.err("  this is an internal linker error", .{});
-                    return error.FailedToResolveRelocationTarget;
                 },
             }
         };
 
-        log.debug("  | source_addr = 0x{x}", .{source_addr});
-        log.debug("  | target_addr = 0x{x}", .{target_addr});
+        log.warn("  | source_addr = 0x{x}", .{source_addr});
+        log.warn("  | target_addr = 0x{x}", .{target_addr});
 
         try rel.resolve(self, source_addr, target_addr);
     }
