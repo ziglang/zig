@@ -233,7 +233,15 @@ pub fn link(self: *Zld, files: []const []const u8, output: Output, args: LinkArg
     try self.parseLibs(args.libs, args.syslibroot);
     try self.resolveSymbols();
     try self.parseTextBlocks();
-    // try self.sortSections();
+    try self.sortSections();
+    try self.addRpaths(args.rpaths);
+    try self.addDataInCodeLC();
+    try self.addCodeSignatureLC();
+    try self.allocateTextSegment();
+    try self.allocateDataConstSegment();
+    try self.allocateDataSegment();
+    self.allocateLinkeditSegment();
+    try self.allocateTextBlocks();
 
     log.warn("locals", .{});
     for (self.locals.items) |sym, id| {
@@ -289,14 +297,6 @@ pub fn link(self: *Zld, files: []const []const u8, output: Output, args: LinkArg
     }
 
     return error.TODO;
-    // try self.addRpaths(args.rpaths);
-    // try self.addDataInCodeLC();
-    // try self.addCodeSignatureLC();
-    // try self.allocateTextSegment();
-    // try self.allocateDataConstSegment();
-    // try self.allocateDataSegment();
-    // self.allocateLinkeditSegment();
-    // try self.allocateTextBlocks();
 
     // try self.flush();
 }
@@ -883,23 +883,11 @@ fn sortSections(self: *Zld) !void {
         self.blocks.deinit(self.allocator);
         self.blocks = transient;
     }
-
-    for (self.locals.items) |sym, i| {
-        if (i == 0) continue; // skip the null symbol
-        assert(sym.payload == .regular);
-        const reg = &sym.payload.regular;
-        reg.section_id = if (reg.segment_id == self.text_segment_cmd_index.?)
-            text_index_mapping.get(reg.section_id).?
-        else if (reg.segment_id == self.data_const_segment_cmd_index.?)
-            data_const_index_mapping.get(reg.section_id).?
-        else
-            data_index_mapping.get(reg.section_id).?;
-    }
 }
 
 fn allocateTextSegment(self: *Zld) !void {
     const seg = &self.load_commands.items[self.text_segment_cmd_index.?].Segment;
-    const nstubs = @intCast(u32, self.stubs.items.len);
+    const nstubs = @intCast(u32, self.stubs.count());
 
     const base_vmaddr = self.load_commands.items[self.pagezero_segment_cmd_index.?].Segment.inner.vmsize;
     seg.inner.fileoff = 0;
@@ -950,7 +938,7 @@ fn allocateTextSegment(self: *Zld) !void {
 
 fn allocateDataConstSegment(self: *Zld) !void {
     const seg = &self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
-    const nentries = @intCast(u32, self.got_entries.items.len);
+    const nentries = @intCast(u32, self.got_entries.count());
 
     const text_seg = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
     seg.inner.fileoff = text_seg.inner.fileoff + text_seg.inner.filesize;
@@ -965,7 +953,7 @@ fn allocateDataConstSegment(self: *Zld) !void {
 
 fn allocateDataSegment(self: *Zld) !void {
     const seg = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
-    const nstubs = @intCast(u32, self.stubs.items.len);
+    const nstubs = @intCast(u32, self.stubs.count());
 
     const data_const_seg = self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
     seg.inner.fileoff = data_const_seg.inner.fileoff + data_const_seg.inner.filesize;
@@ -1021,6 +1009,7 @@ fn allocateTextBlocks(self: *Zld) !void {
         const sect = seg.sections.items[match.sect];
 
         var base_addr: u64 = sect.addr;
+        const n_sect = self.sectionId(match);
 
         log.debug("  within section {s},{s}", .{ segmentName(sect), sectionName(sect) });
         log.debug("    {}", .{sect});
@@ -1029,12 +1018,12 @@ fn allocateTextBlocks(self: *Zld) !void {
             const block_alignment = try math.powi(u32, 2, block.alignment);
             base_addr = mem.alignForwardGeneric(u64, base_addr, block_alignment);
 
-            const sym = self.locals.items[block.local_sym_index];
-            assert(sym.payload == .regular);
-            sym.payload.regular.address = base_addr;
+            const sym = &self.locals.items[block.local_sym_index];
+            sym.n_value = base_addr;
+            sym.n_sect = n_sect;
 
             log.debug("    {s}: start=0x{x}, end=0x{x}, size={}, align={}", .{
-                self.getString(sym.strx),
+                self.getString(sym.n_strx),
                 base_addr,
                 base_addr + block.size,
                 block.size,
@@ -1043,17 +1032,17 @@ fn allocateTextBlocks(self: *Zld) !void {
 
             // Update each alias (if any)
             for (block.aliases.items) |index| {
-                const alias_sym = self.locals.items[index];
-                assert(alias_sym.payload == .regular);
-                alias_sym.payload.regular.address = base_addr;
+                const alias_sym = &self.locals.items[index];
+                alias_sym.n_value = base_addr;
+                alias_sym.n_sect = n_sect;
             }
 
             // Update each symbol contained within the TextBlock
             if (block.contained) |contained| {
                 for (contained) |sym_at_off| {
-                    const contained_sym = self.locals.items[sym_at_off.local_sym_index];
-                    assert(contained_sym.payload == .regular);
-                    contained_sym.payload.regular.address = base_addr + sym_at_off.offset;
+                    const contained_sym = &self.locals.items[sym_at_off.local_sym_index];
+                    contained_sym.n_value = base_addr + sym_at_off.offset;
+                    contained_sym.n_sect = n_sect;
                 }
             }
 
@@ -1063,6 +1052,17 @@ fn allocateTextBlocks(self: *Zld) !void {
                 block = next;
             } else break;
         }
+    }
+
+    // Update globals
+    for (self.symbol_resolver.values()) |resolv| {
+        if (resolv.where != .global) continue;
+
+        assert(resolv.local_sym_index != 0);
+        const local_sym = self.locals.items[resolv.local_sym_index];
+        const sym = &self.globals.items[resolv.where_index];
+        sym.n_value = local_sym.n_value;
+        sym.n_sect = local_sym.n_sect;
     }
 }
 
