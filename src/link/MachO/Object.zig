@@ -703,20 +703,25 @@ pub fn parseTextBlocks(self: *Object, zld: *Zld) !void {
             // Since there is no symbol to refer to this block, we create
             // a temp one, unless we already did that when working out the relocations
             // of other text blocks.
-            const block_local_sym_index = @intCast(u32, zld.locals.items.len);
             const sym_name = try std.fmt.allocPrint(self.allocator, "l_{s}_{s}_{s}", .{
                 self.name.?,
                 segmentName(sect),
                 sectionName(sect),
             });
             defer self.allocator.free(sym_name);
-            try zld.locals.append(zld.allocator, .{
-                .n_strx = try zld.makeString(sym_name),
-                .n_type = macho.N_SECT,
-                .n_sect = zld.sectionId(match),
-                .n_desc = 0,
-                .n_value = sect.addr,
-            });
+
+            const block_local_sym_index = self.sections_as_symbols.get(sect_id) orelse blk: {
+                const block_local_sym_index = @intCast(u32, zld.locals.items.len);
+                try zld.locals.append(zld.allocator, .{
+                    .n_strx = try zld.makeString(sym_name),
+                    .n_type = macho.N_SECT,
+                    .n_sect = zld.sectionId(match),
+                    .n_desc = 0,
+                    .n_value = sect.addr,
+                });
+                try self.sections_as_symbols.putNoClobber(self.allocator, sect_id, block_local_sym_index);
+                break :blk block_local_sym_index;
+            };
 
             const block = try self.allocator.create(TextBlock);
             errdefer self.allocator.destroy(block);

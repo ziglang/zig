@@ -548,6 +548,7 @@ fn initRelocFromObject(rel: macho.relocation_info, object: *Object, ctx: RelocCo
         const local_sym_index = object.sections_as_symbols.get(sect_id) orelse blk: {
             const seg = object.load_commands.items[object.segment_cmd_index.?].Segment;
             const sect = seg.sections.items[sect_id];
+            const match = (try ctx.zld.getMatchingSection(sect)) orelse unreachable;
             const local_sym_index = @intCast(u32, ctx.zld.locals.items.len);
             const sym_name = try std.fmt.allocPrint(ctx.zld.allocator, "l_{s}_{s}_{s}", .{
                 object.name.?,
@@ -559,9 +560,9 @@ fn initRelocFromObject(rel: macho.relocation_info, object: *Object, ctx: RelocCo
             try ctx.zld.locals.append(ctx.zld.allocator, .{
                 .n_strx = try ctx.zld.makeString(sym_name),
                 .n_type = macho.N_SECT,
-                .n_sect = 0,
+                .n_sect = ctx.zld.sectionId(match),
                 .n_desc = 0,
-                .n_value = 0,
+                .n_value = sect.addr,
             });
             try object.sections_as_symbols.putNoClobber(object.allocator, sect_id, local_sym_index);
             break :blk local_sym_index;
@@ -759,7 +760,6 @@ pub fn parseRelocsFromObject(
         } else if (parsed_rel.payload == .unsigned) {
             switch (parsed_rel.where) {
                 .import => {
-                    log.warn("WAT {s}", .{ctx.zld.getString(ctx.zld.imports.items[parsed_rel.where_index].n_strx)});
                     try self.bindings.append(.{
                         .local_sym_index = parsed_rel.where_index,
                         .offset = parsed_rel.offset,

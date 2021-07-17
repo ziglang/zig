@@ -232,6 +232,8 @@ pub fn link(self: *Zld, files: []const []const u8, output: Output, args: LinkArg
     try self.parseInputFiles(files, args.syslibroot);
     try self.parseLibs(args.libs, args.syslibroot);
     try self.resolveSymbols();
+    try self.parseTextBlocks();
+    // try self.sortSections();
 
     log.warn("locals", .{});
     for (self.locals.items) |sym, id| {
@@ -276,8 +278,6 @@ pub fn link(self: *Zld, files: []const []const u8, output: Output, args: LinkArg
         }
     }
 
-    try self.parseTextBlocks();
-
     var it = self.blocks.iterator();
     while (it.next()) |entry| {
         const seg = self.load_commands.items[entry.key_ptr.seg].Segment;
@@ -289,7 +289,6 @@ pub fn link(self: *Zld, files: []const []const u8, output: Output, args: LinkArg
     }
 
     return error.TODO;
-    // try self.sortSections();
     // try self.addRpaths(args.rpaths);
     // try self.addDataInCodeLC();
     // try self.addCodeSignatureLC();
