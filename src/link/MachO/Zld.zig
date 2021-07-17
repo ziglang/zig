@@ -1809,16 +1809,25 @@ fn resolveSymbols(self: *Zld) !void {
     if (self.symbol_resolver.getPtr("___dso_handle")) |resolv| blk: {
         if (resolv.where != .undef) break :blk;
 
-        const seg = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
         const undef = &self.undefs.items[resolv.where_index];
-        const global_sym_index = @intCast(u32, self.globals.items.len);
-        try self.globals.append(self.allocator, .{
+        const match: MatchingSection = .{
+            .seg = self.text_segment_cmd_index.?,
+            .sect = self.text_section_index.?,
+        };
+        const local_sym_index = @intCast(u32, self.locals.items.len);
+        var nlist = macho.nlist_64{
             .n_strx = undef.n_strx,
-            .n_type = macho.N_PEXT | macho.N_EXT | macho.N_SECT,
-            .n_sect = 0,
-            .n_desc = macho.N_WEAK_DEF,
-            .n_value = seg.inner.vmaddr,
-        });
+            .n_type = macho.N_SECT,
+            .n_sect = self.sectionId(match),
+            .n_desc = 0,
+            .n_value = 0,
+        };
+        try self.locals.append(self.allocator, nlist);
+        const global_sym_index = @intCast(u32, self.globals.items.len);
+        nlist.n_type |= macho.N_EXT;
+        nlist.n_desc = macho.N_WEAK_DEF;
+        try self.globals.append(self.allocator, nlist);
+
         undef.* = .{
             .n_strx = 0,
             .n_type = macho.N_UNDF,
@@ -1829,7 +1838,28 @@ fn resolveSymbols(self: *Zld) !void {
         resolv.* = .{
             .where = .global,
             .where_index = global_sym_index,
+            .local_sym_index = local_sym_index,
         };
+
+        // We create an empty atom for this symbol.
+        // TODO perhaps we should special-case special symbols? Create a separate
+        // linked list of atoms?
+        const block = try self.allocator.create(TextBlock);
+        errdefer self.allocator.destroy(block);
+
+        block.* = TextBlock.init(self.allocator);
+        block.local_sym_index = local_sym_index;
+        block.code = try self.allocator.alloc(u8, 0);
+        block.size = 0;
+        block.alignment = 0;
+
+        if (self.blocks.getPtr(match)) |last| {
+            last.*.next = block;
+            block.prev = last.*;
+            last.* = block;
+        } else {
+            try self.blocks.putNoClobber(self.allocator, match, block);
+        }
     }
 
     var has_undefined = false;
