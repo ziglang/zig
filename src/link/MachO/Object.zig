@@ -486,7 +486,7 @@ const TextBlockParser = struct {
 pub fn parseTextBlocks(self: *Object, zld: *Zld) !void {
     const seg = self.load_commands.items[self.segment_cmd_index.?].Segment;
 
-    log.warn("analysing {s}", .{self.name.?});
+    log.debug("analysing {s}", .{self.name.?});
 
     const dysymtab = self.load_commands.items[self.dysymtab_cmd_index.?].Dysymtab;
     // We only care about defined symbols, so filter every other out.
@@ -507,14 +507,14 @@ pub fn parseTextBlocks(self: *Object, zld: *Zld) !void {
 
     for (seg.sections.items) |sect, id| {
         const sect_id = @intCast(u8, id);
-        log.warn("putting section '{s},{s}' as a TextBlock", .{
+        log.debug("putting section '{s},{s}' as a TextBlock", .{
             segmentName(sect),
             sectionName(sect),
         });
 
         // Get matching segment/section in the final artifact.
         const match = (try zld.getMatchingSection(sect)) orelse {
-            log.warn("unhandled section", .{});
+            log.debug("unhandled section", .{});
             continue;
         };
 
@@ -533,7 +533,7 @@ pub fn parseTextBlocks(self: *Object, zld: *Zld) !void {
         const filtered_nlists = NlistWithIndex.filterInSection(sorted_nlists.items, sect);
 
         // Is there any padding between symbols within the section?
-        const is_splittable = self.header.?.flags & macho.MH_SUBSECTIONS_VIA_SYMBOLS != 0;
+        // const is_splittable = self.header.?.flags & macho.MH_SUBSECTIONS_VIA_SYMBOLS != 0;
         // TODO is it perhaps worth skip parsing subsections in Debug mode and not worry about
         // duplicates at all? Need some benchmarks!
         // const is_splittable = false;

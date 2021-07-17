@@ -695,7 +695,7 @@ pub fn parseRelocsFromObject(
                     .ARM64_RELOC_GOT_LOAD_PAGEOFF12,
                     .ARM64_RELOC_TLVP_LOAD_PAGEOFF12,
                     => {
-                        self.parsePageOff(rel, &parsed_rel, addend, ctx);
+                        self.parsePageOff(rel, &parsed_rel, addend);
                         if (rel_type == .ARM64_RELOC_PAGEOFF12)
                             addend = 0;
                     },
@@ -866,6 +866,7 @@ fn parseUnsigned(
 }
 
 fn parseBranch(self: TextBlock, rel: macho.relocation_info, out: *Relocation, ctx: RelocContext) void {
+    _ = self;
     assert(rel.r_pcrel == 1);
     assert(rel.r_length == 2);
 
@@ -894,7 +895,7 @@ fn parsePage(self: TextBlock, rel: macho.relocation_info, out: *Relocation, adde
     };
 }
 
-fn parsePageOff(self: TextBlock, rel: macho.relocation_info, out: *Relocation, addend: u32, ctx: RelocContext) void {
+fn parsePageOff(self: TextBlock, rel: macho.relocation_info, out: *Relocation, addend: u32) void {
     assert(rel.r_pcrel == 0);
     assert(rel.r_length == 2);
 
@@ -987,7 +988,7 @@ fn parseLoad(self: TextBlock, rel: macho.relocation_info, out: *Relocation) void
 
 pub fn resolveRelocs(self: *TextBlock, zld: *Zld) !void {
     for (self.relocs.items) |rel| {
-        log.warn("relocating {}", .{rel});
+        log.debug("relocating {}", .{rel});
 
         const source_addr = blk: {
             const sym = zld.locals.items[self.local_sym_index];
@@ -1073,8 +1074,8 @@ pub fn resolveRelocs(self: *TextBlock, zld: *Zld) !void {
             }
         };
 
-        log.warn("  | source_addr = 0x{x}", .{source_addr});
-        log.warn("  | target_addr = 0x{x}", .{target_addr});
+        log.debug("  | source_addr = 0x{x}", .{source_addr});
+        log.debug("  | target_addr = 0x{x}", .{target_addr});
 
         try rel.resolve(.{
             .block = self,

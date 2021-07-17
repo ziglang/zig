@@ -253,58 +253,58 @@ pub fn link(self: *Zld, files: []const []const u8, output: Output, args: LinkArg
     self.allocateLinkeditSegment();
     try self.allocateTextBlocks();
 
-    log.warn("locals", .{});
-    for (self.locals.items) |sym, id| {
-        log.warn("  {d}: {s}, {}", .{ id, self.getString(sym.n_strx), sym });
-    }
+    // log.warn("locals", .{});
+    // for (self.locals.items) |sym, id| {
+    //     log.warn("  {d}: {s}, {}", .{ id, self.getString(sym.n_strx), sym });
+    // }
 
-    log.warn("globals", .{});
-    for (self.globals.items) |sym, id| {
-        log.warn("  {d}: {s}, {}", .{ id, self.getString(sym.n_strx), sym });
-    }
+    // log.warn("globals", .{});
+    // for (self.globals.items) |sym, id| {
+    //     log.warn("  {d}: {s}, {}", .{ id, self.getString(sym.n_strx), sym });
+    // }
 
-    log.warn("tentatives", .{});
-    for (self.tentatives.items) |sym, id| {
-        log.warn("  {d}: {s}, {}", .{ id, self.getString(sym.n_strx), sym });
-    }
+    // log.warn("tentatives", .{});
+    // for (self.tentatives.items) |sym, id| {
+    //     log.warn("  {d}: {s}, {}", .{ id, self.getString(sym.n_strx), sym });
+    // }
 
-    log.warn("undefines", .{});
-    for (self.undefs.items) |sym, id| {
-        log.warn("  {d}: {s}, {}", .{ id, self.getString(sym.n_strx), sym });
-    }
+    // log.warn("undefines", .{});
+    // for (self.undefs.items) |sym, id| {
+    //     log.warn("  {d}: {s}, {}", .{ id, self.getString(sym.n_strx), sym });
+    // }
 
-    log.warn("imports", .{});
-    for (self.imports.items) |sym, id| {
-        log.warn("  {d}: {s}, {}", .{ id, self.getString(sym.n_strx), sym });
-    }
+    // log.warn("imports", .{});
+    // for (self.imports.items) |sym, id| {
+    //     log.warn("  {d}: {s}, {}", .{ id, self.getString(sym.n_strx), sym });
+    // }
 
-    log.warn("symbol resolver", .{});
-    for (self.symbol_resolver.keys()) |key| {
-        log.warn("  {s} => {}", .{ key, self.symbol_resolver.get(key).? });
-    }
+    // log.warn("symbol resolver", .{});
+    // for (self.symbol_resolver.keys()) |key| {
+    //     log.warn("  {s} => {}", .{ key, self.symbol_resolver.get(key).? });
+    // }
 
-    log.warn("mappings", .{});
-    for (self.objects.items) |object, id| {
-        const object_id = @intCast(u16, id);
-        log.warn("  in object {s}", .{object.name.?});
-        for (object.symtab.items) |sym, sym_id| {
-            if (object.symbol_mapping.get(@intCast(u32, sym_id))) |local_id| {
-                log.warn("    | {d} => {d}", .{ sym_id, local_id });
-            } else {
-                log.warn("    | {d} no local mapping for {s}", .{ sym_id, object.getString(sym.n_strx) });
-            }
-        }
-    }
+    // log.warn("mappings", .{});
+    // for (self.objects.items) |object, id| {
+    //     const object_id = @intCast(u16, id);
+    //     log.warn("  in object {s}", .{object.name.?});
+    //     for (object.symtab.items) |sym, sym_id| {
+    //         if (object.symbol_mapping.get(@intCast(u32, sym_id))) |local_id| {
+    //             log.warn("    | {d} => {d}", .{ sym_id, local_id });
+    //         } else {
+    //             log.warn("    | {d} no local mapping for {s}", .{ sym_id, object.getString(sym.n_strx) });
+    //         }
+    //     }
+    // }
 
-    var it = self.blocks.iterator();
-    while (it.next()) |entry| {
-        const seg = self.load_commands.items[entry.key_ptr.seg].Segment;
-        const sect = seg.sections.items[entry.key_ptr.sect];
+    // var it = self.blocks.iterator();
+    // while (it.next()) |entry| {
+    //     const seg = self.load_commands.items[entry.key_ptr.seg].Segment;
+    //     const sect = seg.sections.items[entry.key_ptr.sect];
 
-        log.warn("\n\n{s},{s} contents:", .{ segmentName(sect), sectionName(sect) });
-        log.warn("  {}", .{sect});
-        entry.value_ptr.*.print(self);
-    }
+    //     log.warn("\n\n{s},{s} contents:", .{ segmentName(sect), sectionName(sect) });
+    //     log.warn("  {}", .{sect});
+    //     entry.value_ptr.*.print(self);
+    // }
 
     try self.flush();
 }
@@ -1411,7 +1411,7 @@ fn writeStubInStubHelper(self: *Zld, index: u32) !void {
 fn resolveSymbolsInObject(self: *Zld, object_id: u16) !void {
     const object = self.objects.items[object_id];
 
-    log.warn("resolving symbols in '{s}'", .{object.name});
+    log.debug("resolving symbols in '{s}'", .{object.name});
 
     for (object.symtab.items) |sym, id| {
         const sym_id = @intCast(u32, id);
