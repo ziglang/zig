@@ -6595,7 +6595,7 @@ fn asmExpr(
     const asm_source = switch (node_tags[full.ast.template]) {
         .string_literal => try astgen.strLitAsString(main_tokens[full.ast.template]),
         .multiline_string_literal => try astgen.strLitNodeAsString(full.ast.template),
-        else => return astgen.failNode(node, "assembly code must use string literal syntax", .{}),
+        else => return astgen.failNode(full.ast.template, "assembly code must use string literal syntax", .{}),
     };
 
     // See https://github.com/ziglang/zig/issues/215 and related issues discussing

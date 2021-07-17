@@ -89,7 +89,7 @@ const Writer = struct {
             if (w.liveness.isUnused(inst)) {
                 try s.writeAll(") unused\n");
             } else {
-                try s.writeAll("\n");
+                try s.writeAll(")\n");
             }
         }
     }
