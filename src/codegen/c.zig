@@ -892,7 +892,8 @@ fn genBody(o: *Object, body: []const Air.Inst.Index) error{ AnalysisFail, OutOfM
             .bit_and    => try airBinOp(o, inst, " & "),
             .bit_or     => try airBinOp(o, inst, " | "),
             .xor        => try airBinOp(o, inst, " ^ "),
-            .not        => try airUnOp( o, inst, "!"),
+
+            .not        => try airNot(  o, inst),
 
             .optional_payload     => try airOptionalPayload(o, inst),
             .optional_payload_ptr => try airOptionalPayload(o, inst),
@@ -1178,6 +1179,28 @@ fn airWrapOp(
     return ret;
 }
 
+fn airNot(o: *Object, inst: Air.Inst.Index) !CValue {
+    if (o.liveness.isUnused(inst))
+        return CValue.none;
+
+    const ty_op = o.air.instructions.items(.data)[inst].ty_op;
+    const op = try o.resolveInst(ty_op.operand);
+
+    const writer = o.writer();
+    const inst_ty = o.air.typeOfIndex(inst);
+    const local = try o.allocLocal(inst_ty, .Const);
+
+    try writer.writeAll(" = ");
+    if (inst_ty.zigTypeTag() == .Bool)
+        try writer.writeAll("!")
+    else
+        try writer.writeAll("~");
+    try o.writeCValue(writer, op);
+    try writer.writeAll(";\n");
+
+    return local;
+}
+
 fn airBinOp(o: *Object, inst: Air.Inst.Index, operator: [*:0]const u8) !CValue {
     if (o.liveness.isUnused(inst))
         return CValue.none;
@@ -1194,24 +1217,6 @@ fn airBinOp(o: *Object, inst: Air.Inst.Index, operator: [*:0]const u8) !CValue {
     try o.writeCValue(writer, lhs);
     try writer.print("{s}", .{operator});
     try o.writeCValue(writer, rhs);
-    try writer.writeAll(";\n");
-
-    return local;
-}
-
-fn airUnOp(o: *Object, inst: Air.Inst.Index, operator: []const u8) !CValue {
-    if (o.liveness.isUnused(inst))
-        return CValue.none;
-
-    const un_op = o.air.instructions.items(.data)[inst].un_op;
-    const operand = try o.resolveInst(un_op);
-
-    const writer = o.writer();
-    const inst_ty = o.air.typeOfIndex(inst);
-    const local = try o.allocLocal(inst_ty, .Const);
-
-    try writer.print(" = {s}", .{operator});
-    try o.writeCValue(writer, operand);
     try writer.writeAll(";\n");
 
     return local;
