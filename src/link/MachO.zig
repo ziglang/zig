@@ -1,34 +1,35 @@
 const MachO = @This();
 
 const std = @import("std");
-const Allocator = std.mem.Allocator;
+const build_options = @import("build_options");
 const assert = std.debug.assert;
 const fmt = std.fmt;
 const fs = std.fs;
 const log = std.log.scoped(.link);
 const macho = std.macho;
-const codegen = @import("../codegen.zig");
-const aarch64 = @import("../codegen/aarch64.zig");
 const math = std.math;
 const mem = std.mem;
 const meta = std.meta;
 
+const aarch64 = @import("../codegen/aarch64.zig");
 const bind = @import("MachO/bind.zig");
-const trace = @import("../tracy.zig").trace;
-const build_options = @import("build_options");
-const Module = @import("../Module.zig");
-const Compilation = @import("../Compilation.zig");
+const codegen = @import("../codegen.zig");
+const commands = @import("MachO/commands.zig");
 const link = @import("../link.zig");
-const File = link.File;
-const Cache = @import("../Cache.zig");
 const target_util = @import("../target.zig");
+const trace = @import("../tracy.zig").trace;
 
-const DebugSymbols = @import("MachO/DebugSymbols.zig");
-const Trie = @import("MachO/Trie.zig");
+const Allocator = mem.Allocator;
+const Cache = @import("../Cache.zig");
 const CodeSignature = @import("MachO/CodeSignature.zig");
+const Compilation = @import("../Compilation.zig");
+const DebugSymbols = @import("MachO/DebugSymbols.zig");
+const LoadCommand = commands.LoadCommand;
+const Module = @import("../Module.zig");
+const File = link.File;
+const Trie = @import("MachO/Trie.zig");
+const SegmentCommand = commands.SegmentCommand;
 const Zld = @import("MachO/Zld.zig");
-
-usingnamespace @import("MachO/commands.zig");
 
 pub const base_tag: File.Tag = File.Tag.macho;
 
@@ -1841,7 +1842,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
             @sizeOf(macho.dylinker_command) + mem.lenZ(DEFAULT_DYLD_PATH),
             @sizeOf(u64),
         ));
-        var dylinker_cmd = emptyGenericCommandWithData(macho.dylinker_command{
+        var dylinker_cmd = commands.emptyGenericCommandWithData(macho.dylinker_command{
             .cmd = macho.LC_LOAD_DYLINKER,
             .cmdsize = cmdsize,
             .name = @sizeOf(macho.dylinker_command),
@@ -1855,7 +1856,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
     if (self.libsystem_cmd_index == null) {
         self.libsystem_cmd_index = @intCast(u16, self.load_commands.items.len);
 
-        var dylib_cmd = try createLoadDylibCommand(self.base.allocator, mem.spanZ(LIB_SYSTEM_PATH), 2, 0, 0);
+        var dylib_cmd = try commands.createLoadDylibCommand(self.base.allocator, mem.spanZ(LIB_SYSTEM_PATH), 2, 0, 0);
         errdefer dylib_cmd.deinit(self.base.allocator);
 
         try self.load_commands.append(self.base.allocator, .{ .Dylib = dylib_cmd });
@@ -3105,7 +3106,7 @@ fn writeLoadCommands(self: *MachO) !void {
 
 /// Writes Mach-O file header.
 fn writeHeader(self: *MachO) !void {
-    var header = emptyHeader(.{
+    var header = commands.emptyHeader(.{
         .flags = macho.MH_NOUNDEFS | macho.MH_DYLDLINK | macho.MH_PIE | macho.MH_TWOLEVEL,
     });
 
