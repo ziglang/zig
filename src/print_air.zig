@@ -182,21 +182,22 @@ const Writer = struct {
     }
 
     fn writeBinOp(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
-        _ = w;
-        _ = inst;
-        try s.writeAll("TODO");
+        const bin_op = w.air.instructions.items(.data)[inst].bin_op;
+        try w.writeInstRef(s, bin_op.lhs);
+        try s.writeAll(", ");
+        try w.writeInstRef(s, bin_op.rhs);
     }
 
     fn writeUnOp(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
-        _ = w;
-        _ = inst;
-        try s.writeAll("TODO");
+        const un_op = w.air.instructions.items(.data)[inst].un_op;
+        try w.writeInstRef(s, un_op);
     }
 
     fn writeNoOp(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
         _ = w;
         _ = inst;
-        try s.writeAll("TODO");
+        _ = s;
+        // no-op, no argument to write
     }
 
     fn writeTy(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
@@ -205,21 +206,31 @@ const Writer = struct {
     }
 
     fn writeTyOp(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
-        _ = w;
-        _ = inst;
-        try s.writeAll("TODO");
+        const ty_op = w.air.instructions.items(.data)[inst].ty_op;
+        try s.print("{}, ", .{w.air.getRefType(ty_op.ty)});
+        try w.writeInstRef(s, ty_op.operand);
     }
 
     fn writeBlock(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
-        _ = w;
-        _ = inst;
-        try s.writeAll("TODO");
+        const ty_pl = w.air.instructions.items(.data)[inst].ty_pl;
+        const extra = w.air.extraData(Air.Block, ty_pl.payload);
+        const body = w.air.extra[extra.end..][0..extra.data.body_len];
+
+        try s.writeAll("{\n");
+        const old_indent = w.indent;
+        w.indent += 2;
+        try w.writeBody(s, body);
+        w.indent = old_indent;
+        try s.writeByteNTimes(' ', w.indent);
+        try s.writeAll("}");
     }
 
     fn writeStructFieldPtr(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
-        _ = w;
-        _ = inst;
-        try s.writeAll("TODO");
+        const ty_pl = w.air.instructions.items(.data)[inst].ty_pl;
+        const extra = w.air.extraData(Air.StructField, ty_pl.payload);
+
+        try w.writeInstRef(s, extra.data.struct_ptr);
+        try s.print(", {d}", .{extra.data.field_index});
     }
 
     fn writeVarPtr(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
@@ -231,7 +242,7 @@ const Writer = struct {
     fn writeConstant(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
         const ty_pl = w.air.instructions.items(.data)[inst].ty_pl;
         const val = w.air.values[ty_pl.payload];
-        try s.print("{}, {}", .{ ty_pl.ty, val });
+        try s.print("{}, {}", .{ w.air.getRefType(ty_pl.ty), val });
     }
 
     fn writeAssembly(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
@@ -259,15 +270,32 @@ const Writer = struct {
     }
 
     fn writeBr(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
-        _ = w;
-        _ = inst;
-        try s.writeAll("TODO");
+        const br = w.air.instructions.items(.data)[inst].br;
+        try w.writeInstIndex(s, br.block_inst);
+        try s.writeAll(", ");
+        try w.writeInstRef(s, br.operand);
     }
 
     fn writeCondBr(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
-        _ = w;
-        _ = inst;
-        try s.writeAll("TODO");
+        const pl_op = w.air.instructions.items(.data)[inst].pl_op;
+        const extra = w.air.extraData(Air.CondBr, pl_op.payload);
+        const then_body = w.air.extra[extra.end..][0..extra.data.then_body_len];
+        const else_body = w.air.extra[extra.end + then_body.len ..][0..extra.data.else_body_len];
+
+        try w.writeInstRef(s, pl_op.operand);
+        try s.writeAll(", {\n");
+        const old_indent = w.indent;
+        w.indent += 2;
+
+        try w.writeBody(s, then_body);
+        try s.writeByteNTimes(' ', old_indent);
+        try s.writeAll("}, {\n");
+
+        try w.writeBody(s, else_body);
+        w.indent = old_indent;
+
+        try s.writeByteNTimes(' ', old_indent);
+        try s.writeAll("}");
     }
 
     fn writeSwitchBr(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
