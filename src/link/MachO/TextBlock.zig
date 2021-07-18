@@ -1059,10 +1059,6 @@ pub fn resolveRelocs(self: *TextBlock, zld: *Zld) !void {
                     break :blk sym.n_value;
                 },
                 .import => {
-                    // TODO I think this will be autohandled by self.bindings.
-                    // if (mem.eql(u8, zld.getString(rel.target.strx), "__tlv_bootstrap")) {
-                    //     break :blk 0; // Dynamically bound by dyld.
-                    // }
                     const stubs_index = zld.stubs.getIndex(rel.where_index) orelse {
                         // TODO verify in TextBlock that the symbol is indeed dynamically bound.
                         break :blk 0; // Dynamically bound by dyld.

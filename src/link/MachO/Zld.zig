@@ -2367,7 +2367,7 @@ fn writeRebaseInfoTable(self: *Zld) !void {
         const base_offset = sect.addr - seg.inner.vmaddr;
         const segment_id = @intCast(u16, self.data_segment_cmd_index.?);
 
-        try pointers.ensureCapacity(pointers.items.len + self.stubs.count());
+        try pointers.ensureUnusedCapacity(self.stubs.count());
         for (self.stubs.keys()) |_, i| {
             pointers.appendAssumeCapacity(.{
                 .offset = base_offset + i * @sizeOf(u64),
@@ -2450,22 +2450,6 @@ fn writeBindInfoTable(self: *Zld) !void {
         }
     }
 
-    // if (self.tlv_section_index) |idx| {
-    //     const seg = self.load_commands.items[self.data_segment_cmd_index.?].Segment;
-    //     const sect = seg.sections.items[idx];
-    //     const base_offset = sect.addr - seg.inner.vmaddr;
-    //     const segment_id = @intCast(u16, self.data_segment_cmd_index.?);
-
-    //     const sym = self.globals.get("__tlv_bootstrap") orelse unreachable;
-    //     const proxy = sym.payload.proxy;
-    //     try pointers.append(.{
-    //         .offset = base_offset,
-    //         .segment_id = segment_id,
-    //         .dylib_ordinal = proxy.dylibOrdinal(),
-    //         .name = self.getString(sym.strx),
-    //     });
-    // }
-
     const size = try bindInfoSize(pointers.items);
     var buffer = try self.allocator.alloc(u8, @intCast(usize, size));
     defer self.allocator.free(buffer);
@@ -2494,7 +2478,7 @@ fn writeLazyBindInfoTable(self: *Zld) !void {
         const base_offset = sect.addr - seg.inner.vmaddr;
         const segment_id = @intCast(u16, self.data_segment_cmd_index.?);
 
-        try pointers.ensureCapacity(self.stubs.count());
+        try pointers.ensureUnusedCapacity(self.stubs.count());
 
         for (self.stubs.keys()) |key, i| {
             const sym = self.imports.items[key];

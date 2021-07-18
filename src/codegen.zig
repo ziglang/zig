@@ -2500,7 +2500,11 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         const got_addr = blk: {
                             const seg = macho_file.load_commands.items[macho_file.data_const_segment_cmd_index.?].Segment;
                             const got = seg.sections.items[macho_file.got_section_index.?];
-                            break :blk got.addr + func.owner_decl.link.macho.offset_table_index * @sizeOf(u64);
+                            const got_index = macho_file.got_entries_map.get(.{
+                                .where = .local,
+                                .where_index = func.owner_decl.link.macho.local_sym_index,
+                            }) orelse unreachable;
+                            break :blk got.addr + got_index * @sizeOf(u64);
                         };
                         log.debug("got_addr = 0x{x}", .{got_addr});
                         switch (arch) {
@@ -2521,11 +2525,10 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         const decl = func_payload.data;
                         const decl_name = try std.fmt.allocPrint(self.bin_file.allocator, "_{s}", .{decl.name});
                         defer self.bin_file.allocator.free(decl_name);
-                        const already_defined = macho_file.lazy_imports.contains(decl_name);
-                        const symbol: u32 = if (macho_file.lazy_imports.getIndex(decl_name)) |index|
-                            @intCast(u32, index)
-                        else
-                            try macho_file.addExternSymbol(decl_name);
+                        const already_defined = macho_file.symbol_resolver.contains(decl_name);
+                        const resolv = macho_file.symbol_resolver.get(decl_name) orelse blk: {
+                            break :blk try macho_file.addExternFn(decl_name);
+                        };
                         const start = self.code.items.len;
                         const len: usize = blk: {
                             switch (arch) {
@@ -2544,7 +2547,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             }
                         };
                         try macho_file.stub_fixups.append(self.bin_file.allocator, .{
-                            .symbol = symbol,
+                            .symbol = resolv.where_index,
                             .already_defined = already_defined,
                             .start = start,
                             .len = len,
@@ -4351,7 +4354,11 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 const got_addr = blk: {
                                     const seg = macho_file.load_commands.items[macho_file.data_const_segment_cmd_index.?].Segment;
                                     const got = seg.sections.items[macho_file.got_section_index.?];
-                                    break :blk got.addr + decl.link.macho.offset_table_index * ptr_bytes;
+                                    const got_index = macho_file.got_entries_map.get(.{
+                                        .where = .local,
+                                        .where_index = decl.link.macho.local_sym_index,
+                                    }) orelse unreachable;
+                                    break :blk got.addr + got_index * ptr_bytes;
                                 };
                                 return MCValue{ .memory = got_addr };
                             } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
