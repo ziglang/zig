@@ -583,7 +583,6 @@ fn linkWithZld(self: *MachO, comp: *Compilation) !void {
     const is_lib = self.base.options.output_mode == .Lib;
     const is_dyn_lib = self.base.options.link_mode == .Dynamic and is_lib;
     const is_exe_or_dyn_lib = is_dyn_lib or self.base.options.output_mode == .Exe;
-    const target = self.base.options.target;
     const stack_size = self.base.options.stack_size_override orelse 0;
     const allow_shlib_undefined = self.base.options.allow_shlib_undefined orelse !self.base.options.is_native_os;
 
@@ -2755,6 +2754,7 @@ fn addRpaths(self: *MachO, rpaths: []const []const u8) !void {
 }
 
 fn flushZld(self: *MachO) !void {
+    self.load_commands_dirty = true;
     try self.writeTextBlocks();
     try self.writeStubHelperCommon();
 
@@ -2778,10 +2778,10 @@ fn flushZld(self: *MachO) !void {
 
     try self.writeGotEntries();
     try self.setEntryPoint();
-    try self.writeRebaseInfoTable();
-    try self.writeBindInfoTable();
-    try self.writeLazyBindInfoTable();
-    try self.writeExportInfo();
+    try self.writeRebaseInfoTableZld();
+    try self.writeBindInfoTableZld();
+    try self.writeLazyBindInfoTableZld();
+    try self.writeExportInfoZld();
     try self.writeDices();
 
     {
@@ -2791,7 +2791,7 @@ fn flushZld(self: *MachO) !void {
     }
 
     try self.writeSymbolTable();
-    try self.writeStringTable();
+    try self.writeStringTableZld();
 
     {
         // Seal __LINKEDIT size
@@ -2854,6 +2854,244 @@ fn setEntryPoint(self: *MachO) !void {
     const ec = &self.load_commands.items[self.main_cmd_index.?].Main;
     ec.entryoff = @intCast(u32, sym.n_value - seg.inner.vmaddr);
     ec.stacksize = self.base.options.stack_size_override orelse 0;
+}
+
+fn writeRebaseInfoTableZld(self: *MachO) !void {
+    var pointers = std.ArrayList(bind.Pointer).init(self.base.allocator);
+    defer pointers.deinit();
+
+    {
+        var it = self.blocks.iterator();
+        while (it.next()) |entry| {
+            const match = entry.key_ptr.*;
+            var block: *TextBlock = entry.value_ptr.*;
+
+            if (match.seg == self.text_segment_cmd_index.?) continue; // __TEXT is non-writable
+
+            const seg = self.load_commands.items[match.seg].Segment;
+
+            while (true) {
+                const sym = self.locals.items[block.local_sym_index];
+                const base_offset = sym.n_value - seg.inner.vmaddr;
+
+                for (block.rebases.items) |offset| {
+                    try pointers.append(.{
+                        .offset = base_offset + offset,
+                        .segment_id = match.seg,
+                    });
+                }
+
+                if (block.prev) |prev| {
+                    block = prev;
+                } else break;
+            }
+        }
+    }
+
+    if (self.got_section_index) |idx| {
+        const seg = self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
+        const sect = seg.sections.items[idx];
+        const base_offset = sect.addr - seg.inner.vmaddr;
+        const segment_id = @intCast(u16, self.data_const_segment_cmd_index.?);
+
+        for (self.got_entries.items) |entry, i| {
+            if (entry.where == .import) continue;
+
+            try pointers.append(.{
+                .offset = base_offset + i * @sizeOf(u64),
+                .segment_id = segment_id,
+            });
+        }
+    }
+
+    if (self.la_symbol_ptr_section_index) |idx| {
+        const seg = self.load_commands.items[self.data_segment_cmd_index.?].Segment;
+        const sect = seg.sections.items[idx];
+        const base_offset = sect.addr - seg.inner.vmaddr;
+        const segment_id = @intCast(u16, self.data_segment_cmd_index.?);
+
+        try pointers.ensureUnusedCapacity(self.stubs.items.len);
+        for (self.stubs.items) |_, i| {
+            pointers.appendAssumeCapacity(.{
+                .offset = base_offset + i * @sizeOf(u64),
+                .segment_id = segment_id,
+            });
+        }
+    }
+
+    std.sort.sort(bind.Pointer, pointers.items, {}, bind.pointerCmp);
+
+    const size = try bind.rebaseInfoSize(pointers.items);
+    var buffer = try self.base.allocator.alloc(u8, @intCast(usize, size));
+    defer self.base.allocator.free(buffer);
+
+    var stream = std.io.fixedBufferStream(buffer);
+    try bind.writeRebaseInfo(pointers.items, stream.writer());
+
+    const seg = &self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
+    const dyld_info = &self.load_commands.items[self.dyld_info_cmd_index.?].DyldInfoOnly;
+    dyld_info.rebase_off = @intCast(u32, seg.inner.fileoff);
+    dyld_info.rebase_size = @intCast(u32, mem.alignForwardGeneric(u64, buffer.len, @sizeOf(u64)));
+    seg.inner.filesize += dyld_info.rebase_size;
+
+    log.debug("writing rebase info from 0x{x} to 0x{x}", .{ dyld_info.rebase_off, dyld_info.rebase_off + dyld_info.rebase_size });
+
+    try self.base.file.?.pwriteAll(buffer, dyld_info.rebase_off);
+}
+
+fn writeBindInfoTableZld(self: *MachO) !void {
+    var pointers = std.ArrayList(bind.Pointer).init(self.base.allocator);
+    defer pointers.deinit();
+
+    if (self.got_section_index) |idx| {
+        const seg = self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
+        const sect = seg.sections.items[idx];
+        const base_offset = sect.addr - seg.inner.vmaddr;
+        const segment_id = @intCast(u16, self.data_const_segment_cmd_index.?);
+
+        for (self.got_entries.items) |entry, i| {
+            if (entry.where == .local) continue;
+
+            const sym = self.imports.items[entry.where_index];
+            try pointers.append(.{
+                .offset = base_offset + i * @sizeOf(u64),
+                .segment_id = segment_id,
+                .dylib_ordinal = unpackDylibOrdinal(sym.n_desc),
+                .name = self.getString(sym.n_strx),
+            });
+        }
+    }
+
+    {
+        var it = self.blocks.iterator();
+        while (it.next()) |entry| {
+            const match = entry.key_ptr.*;
+            var block: *TextBlock = entry.value_ptr.*;
+
+            if (match.seg == self.text_segment_cmd_index.?) continue; // __TEXT is non-writable
+
+            const seg = self.load_commands.items[match.seg].Segment;
+
+            while (true) {
+                const sym = self.locals.items[block.local_sym_index];
+                const base_offset = sym.n_value - seg.inner.vmaddr;
+
+                for (block.bindings.items) |binding| {
+                    const bind_sym = self.imports.items[binding.local_sym_index];
+                    try pointers.append(.{
+                        .offset = binding.offset + base_offset,
+                        .segment_id = match.seg,
+                        .dylib_ordinal = unpackDylibOrdinal(bind_sym.n_desc),
+                        .name = self.getString(bind_sym.n_strx),
+                    });
+                }
+
+                if (block.prev) |prev| {
+                    block = prev;
+                } else break;
+            }
+        }
+    }
+
+    const size = try bind.bindInfoSize(pointers.items);
+    var buffer = try self.base.allocator.alloc(u8, @intCast(usize, size));
+    defer self.base.allocator.free(buffer);
+
+    var stream = std.io.fixedBufferStream(buffer);
+    try bind.writeBindInfo(pointers.items, stream.writer());
+
+    const seg = &self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
+    const dyld_info = &self.load_commands.items[self.dyld_info_cmd_index.?].DyldInfoOnly;
+    dyld_info.bind_off = @intCast(u32, seg.inner.fileoff + seg.inner.filesize);
+    dyld_info.bind_size = @intCast(u32, mem.alignForwardGeneric(u64, buffer.len, @alignOf(u64)));
+    seg.inner.filesize += dyld_info.bind_size;
+
+    log.debug("writing binding info from 0x{x} to 0x{x}", .{ dyld_info.bind_off, dyld_info.bind_off + dyld_info.bind_size });
+
+    try self.base.file.?.pwriteAll(buffer, dyld_info.bind_off);
+}
+
+fn writeLazyBindInfoTableZld(self: *MachO) !void {
+    var pointers = std.ArrayList(bind.Pointer).init(self.base.allocator);
+    defer pointers.deinit();
+
+    if (self.la_symbol_ptr_section_index) |idx| {
+        const seg = self.load_commands.items[self.data_segment_cmd_index.?].Segment;
+        const sect = seg.sections.items[idx];
+        const base_offset = sect.addr - seg.inner.vmaddr;
+        const segment_id = @intCast(u16, self.data_segment_cmd_index.?);
+
+        try pointers.ensureUnusedCapacity(self.stubs.items.len);
+
+        for (self.stubs.items) |import_id, i| {
+            const sym = self.imports.items[import_id];
+            pointers.appendAssumeCapacity(.{
+                .offset = base_offset + i * @sizeOf(u64),
+                .segment_id = segment_id,
+                .dylib_ordinal = unpackDylibOrdinal(sym.n_desc),
+                .name = self.getString(sym.n_strx),
+            });
+        }
+    }
+
+    const size = try bind.lazyBindInfoSize(pointers.items);
+    var buffer = try self.base.allocator.alloc(u8, @intCast(usize, size));
+    defer self.base.allocator.free(buffer);
+
+    var stream = std.io.fixedBufferStream(buffer);
+    try bind.writeLazyBindInfo(pointers.items, stream.writer());
+
+    const seg = &self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
+    const dyld_info = &self.load_commands.items[self.dyld_info_cmd_index.?].DyldInfoOnly;
+    dyld_info.lazy_bind_off = @intCast(u32, seg.inner.fileoff + seg.inner.filesize);
+    dyld_info.lazy_bind_size = @intCast(u32, mem.alignForwardGeneric(u64, buffer.len, @alignOf(u64)));
+    seg.inner.filesize += dyld_info.lazy_bind_size;
+
+    log.debug("writing lazy binding info from 0x{x} to 0x{x}", .{ dyld_info.lazy_bind_off, dyld_info.lazy_bind_off + dyld_info.lazy_bind_size });
+
+    try self.base.file.?.pwriteAll(buffer, dyld_info.lazy_bind_off);
+    try self.populateLazyBindOffsetsInStubHelper(buffer);
+}
+
+fn writeExportInfoZld(self: *MachO) !void {
+    var trie = Trie.init(self.base.allocator);
+    defer trie.deinit();
+
+    const text_segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
+    const base_address = text_segment.inner.vmaddr;
+
+    // TODO handle macho.EXPORT_SYMBOL_FLAGS_REEXPORT and macho.EXPORT_SYMBOL_FLAGS_STUB_AND_RESOLVER.
+    log.debug("writing export trie", .{});
+
+    for (self.globals.items) |sym| {
+        const sym_name = self.getString(sym.n_strx);
+        log.debug("  | putting '{s}' defined at 0x{x}", .{ sym_name, sym.n_value });
+
+        try trie.put(.{
+            .name = sym_name,
+            .vmaddr_offset = sym.n_value - base_address,
+            .export_flags = macho.EXPORT_SYMBOL_FLAGS_KIND_REGULAR,
+        });
+    }
+
+    try trie.finalize();
+
+    var buffer = try self.base.allocator.alloc(u8, @intCast(usize, trie.size));
+    defer self.base.allocator.free(buffer);
+
+    var stream = std.io.fixedBufferStream(buffer);
+    const nwritten = try trie.write(stream.writer());
+    assert(nwritten == trie.size);
+
+    const seg = &self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
+    const dyld_info = &self.load_commands.items[self.dyld_info_cmd_index.?].DyldInfoOnly;
+    dyld_info.export_off = @intCast(u32, seg.inner.fileoff + seg.inner.filesize);
+    dyld_info.export_size = @intCast(u32, mem.alignForwardGeneric(u64, buffer.len, @alignOf(u64)));
+    seg.inner.filesize += dyld_info.export_size;
+
+    log.debug("writing export info from 0x{x} to 0x{x}", .{ dyld_info.export_off, dyld_info.export_off + dyld_info.export_size });
+
+    try self.base.file.?.pwriteAll(buffer, dyld_info.export_off);
 }
 
 fn writeSymbolTable(self: *MachO) !void {
@@ -5220,6 +5458,23 @@ fn writeStringTable(self: *MachO) !void {
     try self.base.file.?.pwriteAll(self.strtab.items, symtab.stroff);
     self.load_commands_dirty = true;
     self.strtab_dirty = false;
+}
+
+fn writeStringTableZld(self: *MachO) !void {
+    const seg = &self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
+    const symtab = &self.load_commands.items[self.symtab_cmd_index.?].Symtab;
+    symtab.stroff = @intCast(u32, seg.inner.fileoff + seg.inner.filesize);
+    symtab.strsize = @intCast(u32, mem.alignForwardGeneric(u64, self.strtab.items.len, @alignOf(u64)));
+    seg.inner.filesize += symtab.strsize;
+
+    log.debug("writing string table from 0x{x} to 0x{x}", .{ symtab.stroff, symtab.stroff + symtab.strsize });
+
+    try self.base.file.?.pwriteAll(self.strtab.items, symtab.stroff);
+
+    if (symtab.strsize > self.strtab.items.len and self.base.options.target.cpu.arch == .x86_64) {
+        // This is the last section, so we need to pad it out.
+        try self.base.file.?.pwriteAll(&[_]u8{0}, seg.inner.fileoff + seg.inner.filesize - 1);
+    }
 }
 
 fn updateLinkeditSegmentSizes(self: *MachO) !void {
