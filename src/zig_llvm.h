@@ -293,6 +293,7 @@ enum ZigLLVM_ArchType {
     ZigLLVM_bpfeb,          // eBPF or extended BPF or 64-bit BPF (big endian)
     ZigLLVM_csky,           // CSKY: csky
     ZigLLVM_hexagon,        // Hexagon: hexagon
+    ZigLLVM_m68k,           // M68K: m680x0
     ZigLLVM_mips,           // MIPS: mips, mipsallegrex, mipsr6
     ZigLLVM_mipsel,         // MIPSEL: mipsel, mipsallegrexe, mipsr6el
     ZigLLVM_mips64,         // MIPS64: mips64, mips64r6, mipsn32, mipsn32r6
@@ -420,6 +421,7 @@ enum ZigLLVM_EnvironmentType {
     ZigLLVM_Musl,
     ZigLLVM_MuslEABI,
     ZigLLVM_MuslEABIHF,
+    ZigLLVM_MuslX32,
 
     ZigLLVM_MSVC,
     ZigLLVM_Itanium,

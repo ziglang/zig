@@ -3849,7 +3849,7 @@ static LLVMValueRef gen_valgrind_client_request(CodeGen *g, LLVMValueRef default
                     input_and_output_count, false);
             LLVMValueRef asm_fn = LLVMGetInlineAsm(function_type, buf_ptr(asm_template), buf_len(asm_template),
                     buf_ptr(asm_constraints), buf_len(asm_constraints), asm_has_side_effects, asm_is_alignstack,
-                    LLVMInlineAsmDialectATT);
+                    LLVMInlineAsmDialectATT, false);
             return LLVMBuildCall(g->builder, asm_fn, param_values, input_and_output_count, "");
         }
     }
@@ -4954,7 +4954,7 @@ static LLVMValueRef ir_render_asm_gen(CodeGen *g, Stage1Air *executable, Stage1A
 
     bool is_volatile = instruction->has_side_effects || (asm_expr->output_list.length == 0);
     LLVMValueRef asm_fn = LLVMGetInlineAsm(function_type, buf_ptr(&llvm_template), buf_len(&llvm_template),
-            buf_ptr(&constraint_buf), buf_len(&constraint_buf), is_volatile, false, LLVMInlineAsmDialectATT);
+            buf_ptr(&constraint_buf), buf_len(&constraint_buf), is_volatile, false, LLVMInlineAsmDialectATT, false);
 
     LLVMValueRef built_call = LLVMBuildCall(g->builder, asm_fn, param_values, (unsigned)input_and_output_count, "");
     heap::c_allocator.deallocate(param_values, input_and_output_count);
