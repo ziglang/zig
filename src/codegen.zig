@@ -1048,7 +1048,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
         pub fn spillInstruction(self: *Self, reg: Register, inst: Air.Inst.Index) !void {
             const stack_mcv = try self.allocRegOrMem(inst, false);
-            log.debug("spilling {*} to stack mcv {any}", .{ inst, stack_mcv });
+            log.debug("spilling {d} to stack mcv {any}", .{ inst, stack_mcv });
             const reg_mcv = self.getResolvedInstValue(inst);
             assert(reg == toCanonicalReg(reg_mcv.register));
             const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
@@ -3115,7 +3115,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         }
                     }
                 };
-                log.debug("consolidating else_entry {*} {}=>{}", .{ else_key, else_value, canon_mcv });
+                log.debug("consolidating else_entry {d} {}=>{}", .{ else_key, else_value, canon_mcv });
                 // TODO make sure the destination stack offset / register does not already have something
                 // going on there.
                 try self.setRegOrMem(self.air.typeOfIndex(else_key), canon_mcv, else_value);
@@ -3142,7 +3142,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         }
                     }
                 };
-                log.debug("consolidating then_entry {*} {}=>{}", .{ then_key, parent_mcv, then_value });
+                log.debug("consolidating then_entry {d} {}=>{}", .{ then_key, parent_mcv, then_value });
                 // TODO make sure the destination stack offset / register does not already have something
                 // going on there.
                 try self.setRegOrMem(self.air.typeOfIndex(then_key), parent_mcv, then_value);
