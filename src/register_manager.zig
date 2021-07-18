@@ -296,15 +296,11 @@ test "tryAllocReg: no spilling" {
     };
     defer function.deinit();
 
-    var mock_instruction = ir.Inst{
-        .tag = .breakpoint,
-        .ty = Type.initTag(.void),
-        .src = .unneeded,
-    };
+    const mock_instruction: Air.Inst.Index = 1;
 
-    try expectEqual(@as(?MockRegister1, .r2), function.register_manager.tryAllocReg(&mock_instruction, &.{}));
-    try expectEqual(@as(?MockRegister1, .r3), function.register_manager.tryAllocReg(&mock_instruction, &.{}));
-    try expectEqual(@as(?MockRegister1, null), function.register_manager.tryAllocReg(&mock_instruction, &.{}));
+    try expectEqual(@as(?MockRegister1, .r2), function.register_manager.tryAllocReg(mock_instruction, &.{}));
+    try expectEqual(@as(?MockRegister1, .r3), function.register_manager.tryAllocReg(mock_instruction, &.{}));
+    try expectEqual(@as(?MockRegister1, null), function.register_manager.tryAllocReg(mock_instruction, &.{}));
 
     try expect(function.register_manager.isRegAllocated(.r2));
     try expect(function.register_manager.isRegAllocated(.r3));
@@ -328,28 +324,24 @@ test "allocReg: spilling" {
     };
     defer function.deinit();
 
-    var mock_instruction = ir.Inst{
-        .tag = .breakpoint,
-        .ty = Type.initTag(.void),
-        .src = .unneeded,
-    };
+    const mock_instruction: Air.Inst.Index = 1;
 
-    try expectEqual(@as(?MockRegister1, .r2), try function.register_manager.allocReg(&mock_instruction, &.{}));
-    try expectEqual(@as(?MockRegister1, .r3), try function.register_manager.allocReg(&mock_instruction, &.{}));
+    try expectEqual(@as(?MockRegister1, .r2), try function.register_manager.allocReg(mock_instruction, &.{}));
+    try expectEqual(@as(?MockRegister1, .r3), try function.register_manager.allocReg(mock_instruction, &.{}));
 
     // Spill a register
-    try expectEqual(@as(?MockRegister1, .r2), try function.register_manager.allocReg(&mock_instruction, &.{}));
+    try expectEqual(@as(?MockRegister1, .r2), try function.register_manager.allocReg(mock_instruction, &.{}));
     try expectEqualSlices(MockRegister1, &[_]MockRegister1{.r2}, function.spilled.items);
 
     // No spilling necessary
     function.register_manager.freeReg(.r3);
-    try expectEqual(@as(?MockRegister1, .r3), try function.register_manager.allocReg(&mock_instruction, &.{}));
+    try expectEqual(@as(?MockRegister1, .r3), try function.register_manager.allocReg(mock_instruction, &.{}));
     try expectEqualSlices(MockRegister1, &[_]MockRegister1{.r2}, function.spilled.items);
 
     // Exceptions
     function.register_manager.freeReg(.r2);
     function.register_manager.freeReg(.r3);
-    try expectEqual(@as(?MockRegister1, .r3), try function.register_manager.allocReg(&mock_instruction, &.{.r2}));
+    try expectEqual(@as(?MockRegister1, .r3), try function.register_manager.allocReg(mock_instruction, &.{.r2}));
 }
 
 test "tryAllocRegs" {
@@ -377,16 +369,12 @@ test "allocRegs" {
     };
     defer function.deinit();
 
-    var mock_instruction = ir.Inst{
-        .tag = .breakpoint,
-        .ty = Type.initTag(.void),
-        .src = .unneeded,
-    };
+    const mock_instruction: Air.Inst.Index = 1;
 
     try expectEqual([_]MockRegister2{ .r0, .r1, .r2 }, try function.register_manager.allocRegs(3, .{
-        &mock_instruction,
-        &mock_instruction,
-        &mock_instruction,
+        mock_instruction,
+        mock_instruction,
+        mock_instruction,
     }, &.{}));
 
     // Exceptions
@@ -402,13 +390,9 @@ test "getReg" {
     };
     defer function.deinit();
 
-    var mock_instruction = ir.Inst{
-        .tag = .breakpoint,
-        .ty = Type.initTag(.void),
-        .src = .unneeded,
-    };
+    const mock_instruction: Air.Inst.Index = 1;
 
-    try function.register_manager.getReg(.r3, &mock_instruction);
+    try function.register_manager.getReg(.r3, mock_instruction);
 
     try expect(!function.register_manager.isRegAllocated(.r2));
     try expect(function.register_manager.isRegAllocated(.r3));
@@ -416,7 +400,7 @@ test "getReg" {
     try expect(!function.register_manager.isRegFree(.r3));
 
     // Spill r3
-    try function.register_manager.getReg(.r3, &mock_instruction);
+    try function.register_manager.getReg(.r3, mock_instruction);
 
     try expect(!function.register_manager.isRegAllocated(.r2));
     try expect(function.register_manager.isRegAllocated(.r3));
