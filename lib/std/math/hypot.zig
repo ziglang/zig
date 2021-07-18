@@ -14,7 +14,7 @@ const math = std.math;
 const expect = std.testing.expect;
 const maxInt = std.math.maxInt;
 
-/// Returns sqrt(x * x + y * y), avoiding unncessary overflow and underflow.
+/// Returns sqrt(x * x + y * y), avoiding unnecessary overflow and underflow.
 ///
 /// Special Cases:
 ///  - hypot(+-inf, y)  = +inf
