@@ -299,9 +299,36 @@ const Writer = struct {
     }
 
     fn writeSwitchBr(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
-        _ = w;
-        _ = inst;
-        try s.writeAll("TODO");
+        const pl_op = w.air.instructions.items(.data)[inst].pl_op;
+        const extra = w.air.extraData(Air.SwitchBr, pl_op.payload);
+        const cases = w.air.extra[extra.end..][0..extra.data.cases_len];
+        const else_body = w.air.extra[extra.end + cases.len ..][0..extra.data.else_body_len];
+
+        try w.writeInstRef(s, pl_op.operand);
+        try s.writeAll(", {\n");
+
+        const old_indent = w.indent;
+        if (else_body.len != 0) {
+            w.indent += 2;
+            try w.writeBody(s, else_body);
+            try s.writeByteNTimes(' ', old_indent);
+            try s.writeAll("}, {\n");
+            w.indent = old_indent;
+        }
+
+        for (cases) |case_index| {
+            const case = w.air.extraData(Air.SwitchBr.Case, case_index);
+            const case_body = w.air.extra[case.end..][0..case.data.body_len];
+
+            w.indent += 2;
+            try w.writeBody(s, case_body);
+            try s.writeByteNTimes(' ', old_indent);
+            try s.writeAll("}, {\n");
+            w.indent = old_indent;
+        }
+
+        try s.writeByteNTimes(' ', old_indent);
+        try s.writeAll("}");
     }
 
     fn writeInstRef(w: *Writer, s: anytype, inst: Air.Inst.Ref) @TypeOf(s).Error!void {
