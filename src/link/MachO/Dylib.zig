@@ -13,7 +13,7 @@ const fat = @import("fat.zig");
 const Allocator = mem.Allocator;
 const Arch = std.Target.Cpu.Arch;
 const LibStub = @import("../tapi.zig").LibStub;
-const Zld = @import("Zld.zig");
+const MachO = @import("../MachO.zig");
 
 usingnamespace @import("commands.zig");
 
@@ -324,7 +324,7 @@ fn parseSymbols(self: *Dylib) !void {
     _ = try self.file.?.preadAll(strtab, symtab_cmd.stroff + self.library_offset);
 
     for (slice) |sym| {
-        const add_to_symtab = Zld.symbolIsExt(sym) and (Zld.symbolIsSect(sym) or Zld.symbolIsIndr(sym));
+        const add_to_symtab = MachO.symbolIsExt(sym) and (MachO.symbolIsSect(sym) or MachO.symbolIsIndr(sym));
 
         if (!add_to_symtab) continue;
 

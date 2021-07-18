@@ -13,8 +13,8 @@ const sort = std.sort;
 
 const Allocator = mem.Allocator;
 const Arch = std.Target.Cpu.Arch;
+const MachO = @import("../MachO.zig");
 const TextBlock = @import("TextBlock.zig");
-const Zld = @import("Zld.zig");
 
 usingnamespace @import("commands.zig");
 
@@ -307,8 +307,8 @@ const NlistWithIndex = struct {
             }
         };
 
-        const start = Zld.findFirst(NlistWithIndex, symbols, 0, Predicate{ .addr = sect.addr });
-        const end = Zld.findFirst(NlistWithIndex, symbols, start, Predicate{ .addr = sect.addr + sect.size });
+        const start = MachO.findFirst(NlistWithIndex, symbols, 0, Predicate{ .addr = sect.addr });
+        const end = MachO.findFirst(NlistWithIndex, symbols, start, Predicate{ .addr = sect.addr + sect.size });
 
         return symbols[start..end];
     }
@@ -323,8 +323,8 @@ fn filterDice(dices: []macho.data_in_code_entry, start_addr: u64, end_addr: u64)
         }
     };
 
-    const start = Zld.findFirst(macho.data_in_code_entry, dices, 0, Predicate{ .addr = start_addr });
-    const end = Zld.findFirst(macho.data_in_code_entry, dices, start, Predicate{ .addr = end_addr });
+    const start = MachO.findFirst(macho.data_in_code_entry, dices, 0, Predicate{ .addr = start_addr });
+    const end = MachO.findFirst(macho.data_in_code_entry, dices, start, Predicate{ .addr = end_addr });
 
     return dices[start..end];
 }
@@ -335,10 +335,10 @@ const TextBlockParser = struct {
     code: []u8,
     relocs: []macho.relocation_info,
     object: *Object,
-    zld: *Zld,
+    macho_file: *MachO,
     nlists: []NlistWithIndex,
     index: u32 = 0,
-    match: Zld.MatchingSection,
+    match: MachO.MatchingSection,
 
     fn peek(self: *TextBlockParser) ?NlistWithIndex {
         return if (self.index + 1 < self.nlists.len) self.nlists[self.index + 1] else null;
@@ -349,10 +349,10 @@ const TextBlockParser = struct {
     };
 
     fn lessThanBySeniority(context: SeniorityContext, lhs: NlistWithIndex, rhs: NlistWithIndex) bool {
-        if (!Zld.symbolIsExt(rhs.nlist)) {
-            return Zld.symbolIsTemp(lhs.nlist, context.object.getString(lhs.nlist.n_strx));
-        } else if (Zld.symbolIsPext(rhs.nlist) or Zld.symbolIsWeakDef(rhs.nlist)) {
-            return !Zld.symbolIsExt(lhs.nlist);
+        if (!MachO.symbolIsExt(rhs.nlist)) {
+            return MachO.symbolIsTemp(lhs.nlist, context.object.getString(lhs.nlist.n_strx));
+        } else if (MachO.symbolIsPext(rhs.nlist) or MachO.symbolIsWeakDef(rhs.nlist)) {
+            return !MachO.symbolIsExt(lhs.nlist);
         } else {
             return true;
         }
@@ -383,7 +383,7 @@ const TextBlockParser = struct {
             const sym = self.object.symbols.items[nlist_with_index.index];
             if (sym.payload != .regular) {
                 log.err("expected a regular symbol, found {s}", .{sym.payload});
-                log.err("  when remapping {s}", .{self.zld.getString(sym.strx)});
+                log.err("  when remapping {s}", .{self.macho_file.getString(sym.strx)});
                 return error.SymbolIsNotRegular;
             }
             assert(sym.payload.regular.local_sym_index != 0); // This means the symbol has not been properly resolved.
@@ -401,7 +401,7 @@ const TextBlockParser = struct {
         }
 
         const senior_nlist = aliases.pop();
-        const senior_sym = self.zld.locals.items[senior_nlist.index];
+        const senior_sym = self.macho_file.locals.items[senior_nlist.index];
         assert(senior_sym.payload == .regular);
         senior_sym.payload.regular.segment_id = self.match.seg;
         senior_sym.payload.regular.section_id = self.match.sect;
@@ -429,7 +429,7 @@ const TextBlockParser = struct {
                     }
                 }
             }
-            if (self.zld.globals.contains(self.zld.getString(senior_sym.strx))) break :blk .global;
+            if (self.macho_file.globals.contains(self.macho_file.getString(senior_sym.strx))) break :blk .global;
             break :blk .static;
         } else null;
 
@@ -448,19 +448,19 @@ const TextBlockParser = struct {
             for (aliases.items) |alias| {
                 block.aliases.appendAssumeCapacity(alias.index);
 
-                const sym = self.zld.locals.items[alias.index];
+                const sym = self.macho_file.locals.items[alias.index];
                 const reg = &sym.payload.regular;
                 reg.segment_id = self.match.seg;
                 reg.section_id = self.match.sect;
             }
         }
 
-        try block.parseRelocsFromObject(relocs, object, .{
+        try block.parseRelocsFromObject(self.allocator, relocs, object, .{
             .base_addr = start_addr,
-            .zld = self.zld,
+            .macho_file = self.macho_file,
         });
 
-        if (self.zld.has_dices) {
+        if (self.macho_file.has_dices) {
             const dices = filterDice(
                 self.object.data_in_code_entries.items,
                 senior_nlist.nlist.n_value,
@@ -483,7 +483,7 @@ const TextBlockParser = struct {
     }
 };
 
-pub fn parseTextBlocks(self: *Object, zld: *Zld) !void {
+pub fn parseTextBlocks(self: *Object, macho_file: *MachO) !void {
     const seg = self.load_commands.items[self.segment_cmd_index.?].Segment;
 
     log.debug("analysing {s}", .{self.name.?});
@@ -513,7 +513,7 @@ pub fn parseTextBlocks(self: *Object, zld: *Zld) !void {
         });
 
         // Get matching segment/section in the final artifact.
-        const match = (try zld.getMatchingSection(sect)) orelse {
+        const match = (try macho_file.getMatchingSection(sect)) orelse {
             log.debug("unhandled section", .{});
             continue;
         };
@@ -538,7 +538,7 @@ pub fn parseTextBlocks(self: *Object, zld: *Zld) !void {
         // duplicates at all? Need some benchmarks!
         // const is_splittable = false;
 
-        zld.has_dices = blk: {
+        macho_file.has_dices = blk: {
             if (self.text_section_index) |index| {
                 if (index != id) break :blk false;
                 if (self.data_in_code_entries.items.len == 0) break :blk false;
@@ -546,7 +546,7 @@ pub fn parseTextBlocks(self: *Object, zld: *Zld) !void {
             }
             break :blk false;
         };
-        zld.has_stabs = zld.has_stabs or self.debug_info != null;
+        macho_file.has_stabs = macho_file.has_stabs or self.debug_info != null;
 
         {
             // next: {
@@ -711,11 +711,11 @@ pub fn parseTextBlocks(self: *Object, zld: *Zld) !void {
             defer self.allocator.free(sym_name);
 
             const block_local_sym_index = self.sections_as_symbols.get(sect_id) orelse blk: {
-                const block_local_sym_index = @intCast(u32, zld.locals.items.len);
-                try zld.locals.append(zld.allocator, .{
-                    .n_strx = try zld.makeString(sym_name),
+                const block_local_sym_index = @intCast(u32, macho_file.locals.items.len);
+                try macho_file.locals.append(macho_file.base.allocator, .{
+                    .n_strx = try macho_file.makeString(sym_name),
                     .n_type = macho.N_SECT,
-                    .n_sect = zld.sectionId(match),
+                    .n_sect = macho_file.sectionId(match),
                     .n_desc = 0,
                     .n_value = sect.addr,
                 });
@@ -726,20 +726,20 @@ pub fn parseTextBlocks(self: *Object, zld: *Zld) !void {
             const block = try self.allocator.create(TextBlock);
             errdefer self.allocator.destroy(block);
 
-            block.* = TextBlock.init(self.allocator);
+            block.* = TextBlock.empty;
             block.local_sym_index = block_local_sym_index;
             block.code = try self.allocator.dupe(u8, code);
             block.size = sect.size;
             block.alignment = sect.@"align";
 
-            try block.parseRelocsFromObject(relocs, self, .{
+            try block.parseRelocsFromObject(self.allocator, relocs, self, .{
                 .base_addr = 0,
-                .zld = zld,
+                .macho_file = macho_file,
             });
 
-            if (zld.has_dices) {
+            if (macho_file.has_dices) {
                 const dices = filterDice(self.data_in_code_entries.items, sect.addr, sect.addr + sect.size);
-                try block.dices.ensureTotalCapacity(dices.len);
+                try block.dices.ensureTotalCapacity(self.allocator, dices.len);
 
                 for (dices) |dice| {
                     block.dices.appendAssumeCapacity(.{
@@ -755,15 +755,13 @@ pub fn parseTextBlocks(self: *Object, zld: *Zld) !void {
             // the filtered symbols and note which symbol is contained within so that
             // we can properly allocate addresses down the line.
             // While we're at it, we need to update segment,section mapping of each symbol too.
-            var contained = std.ArrayList(TextBlock.SymbolAtOffset).init(self.allocator);
-            defer contained.deinit();
-            try contained.ensureTotalCapacity(filtered_nlists.len);
+            try block.contained.ensureTotalCapacity(self.allocator, filtered_nlists.len);
 
             for (filtered_nlists) |nlist_with_index| {
                 const nlist = nlist_with_index.nlist;
                 const local_sym_index = self.symbol_mapping.get(nlist_with_index.index) orelse unreachable;
-                const local = &zld.locals.items[local_sym_index];
-                local.n_sect = zld.sectionId(match);
+                const local = &macho_file.locals.items[local_sym_index];
+                local.n_sect = macho_file.sectionId(match);
 
                 const stab: ?TextBlock.Stab = if (self.debug_info) |di| blk: {
                     // TODO there has to be a better to handle this.
@@ -781,19 +779,17 @@ pub fn parseTextBlocks(self: *Object, zld: *Zld) !void {
                     break :blk .static;
                 } else null;
 
-                contained.appendAssumeCapacity(.{
+                block.contained.appendAssumeCapacity(.{
                     .local_sym_index = local_sym_index,
                     .offset = nlist.n_value - sect.addr,
                     .stab = stab,
                 });
             }
 
-            block.contained = contained.toOwnedSlice();
-
             // Update target section's metadata
             // TODO should we update segment's size here too?
             // How does it tie with incremental space allocs?
-            const tseg = &zld.load_commands.items[match.seg].Segment;
+            const tseg = &macho_file.load_commands.items[match.seg].Segment;
             const tsect = &tseg.sections.items[match.sect];
             const new_alignment = math.max(tsect.@"align", block.alignment);
             const new_alignment_pow_2 = try math.powi(u32, 2, new_alignment);
@@ -801,12 +797,12 @@ pub fn parseTextBlocks(self: *Object, zld: *Zld) !void {
             tsect.size = new_size;
             tsect.@"align" = new_alignment;
 
-            if (zld.blocks.getPtr(match)) |last| {
+            if (macho_file.blocks.getPtr(match)) |last| {
                 last.*.next = block;
                 block.prev = last.*;
                 last.* = block;
             } else {
-                try zld.blocks.putNoClobber(zld.allocator, match, block);
+                try macho_file.blocks.putNoClobber(self.allocator, match, block);
             }
 
             try self.text_blocks.append(self.allocator, block);
@@ -814,7 +810,7 @@ pub fn parseTextBlocks(self: *Object, zld: *Zld) !void {
     }
 }
 
-pub fn symbolFromReloc(self: *Object, zld: *Zld, rel: macho.relocation_info) !*Symbol {
+pub fn symbolFromReloc(self: *Object, macho_file: *MachO, rel: macho.relocation_info) !*Symbol {
     const symbol = blk: {
         if (rel.r_extern == 1) {
             break :blk self.symbols.items[rel.r_symbolnum];
@@ -832,9 +828,9 @@ pub fn symbolFromReloc(self: *Object, zld: *Zld, rel: macho.relocation_info) !*S
                     sectionName(sect),
                 });
                 defer self.allocator.free(name);
-                const symbol = try zld.allocator.create(Symbol);
+                const symbol = try macho_file.allocator.create(Symbol);
                 symbol.* = .{
-                    .strx = try zld.makeString(name),
+                    .strx = try macho_file.makeString(name),
                     .payload = .{
                         .regular = .{
                             .linkage = .translation_unit,

@@ -12,24 +12,64 @@ const meta = std.meta;
 
 const Allocator = mem.Allocator;
 const Arch = std.Target.Cpu.Arch;
+const MachO = @import("../MachO.zig");
 const Object = @import("Object.zig");
-const Zld = @import("Zld.zig");
 
-allocator: *Allocator,
+/// Each decl always gets a local symbol with the fully qualified name.
+/// The vaddr and size are found here directly.
+/// The file offset is found by computing the vaddr offset from the section vaddr
+/// the symbol references, and adding that to the file offset of the section.
+/// If this field is 0, it means the codegen size = 0 and there is no symbol or
+/// offset table entry.
 local_sym_index: u32,
-stab: ?Stab = null,
-aliases: std.ArrayList(u32),
-references: std.AutoArrayHashMap(u32, void),
-contained: ?[]SymbolAtOffset = null,
+
+/// List of symbol aliases pointing to the same block via different nlists
+aliases: std.ArrayListUnmanaged(u32) = .{},
+
+/// List of symbols contained within this block
+contained: std.ArrayListUnmanaged(SymbolAtOffset) = .{},
+
+/// Code (may be non-relocated) this block represents
 code: []u8,
-relocs: std.ArrayList(Relocation),
+
+/// Size and alignment of this text block
+/// Unlike in Elf, we need to store the size of this symbol as part of
+/// the TextBlock since macho.nlist_64 lacks this information.
 size: u64,
 alignment: u32,
-rebases: std.ArrayList(u64),
-bindings: std.ArrayList(SymbolAtOffset),
-dices: std.ArrayList(macho.data_in_code_entry),
-next: ?*TextBlock = null,
-prev: ?*TextBlock = null,
+
+relocs: std.ArrayListUnmanaged(Relocation) = .{},
+
+/// List of offsets contained within this block that need rebasing by the dynamic
+/// loader in presence of ASLR
+rebases: std.ArrayListUnmanaged(u64) = .{},
+
+/// List of offsets contained within this block that will be dynamically bound
+/// by the dynamic loader and contain pointers to resolved (at load time) extern
+/// symbols (aka proxies aka imports)
+bindings: std.ArrayListUnmanaged(SymbolAtOffset) = .{},
+
+/// List of data-in-code entries. This is currently specific to x86_64 only.
+dices: std.ArrayListUnmanaged(macho.data_in_code_entry) = .{},
+
+/// Stab entry for this block. This is currently specific to a binary created
+/// by linking object files in a traditional sense - in incremental sense, we
+/// bypass stabs altogether to produce dSYM bundle directly with fully relocated
+/// DWARF sections.
+stab: ?Stab = null,
+
+/// Points to the previous and next neighbours
+next: ?*TextBlock,
+prev: ?*TextBlock,
+
+/// Previous/next linked list pointers.
+/// This is the linked list node for this Decl's corresponding .debug_info tag.
+dbg_info_prev: ?*TextBlock,
+dbg_info_next: ?*TextBlock,
+/// Offset into .debug_info pointing to the tag for this Decl.
+dbg_info_off: u32,
+/// Size of the .debug_info tag for this Decl, not including padding.
+dbg_info_len: u32,
 
 pub const SymbolAtOffset = struct {
     local_sym_index: u32,
@@ -42,11 +82,11 @@ pub const Stab = union(enum) {
     static,
     global,
 
-    pub fn asNlists(stab: Stab, local_sym_index: u32, zld: *Zld) ![]macho.nlist_64 {
-        var nlists = std.ArrayList(macho.nlist_64).init(zld.allocator);
+    pub fn asNlists(stab: Stab, local_sym_index: u32, macho_file: anytype) ![]macho.nlist_64 {
+        var nlists = std.ArrayList(macho.nlist_64).init(macho_file.base.allocator);
         defer nlists.deinit();
 
-        const sym = zld.locals.items[local_sym_index];
+        const sym = macho_file.locals.items[local_sym_index];
         switch (stab) {
             .function => |size| {
                 try nlists.ensureUnusedCapacity(4);
@@ -130,7 +170,7 @@ pub const Relocation = struct {
         offset: u32,
         source_addr: u64,
         target_addr: u64,
-        zld: *Zld,
+        macho_file: *MachO,
     };
 
     pub const Unsigned = struct {
@@ -148,7 +188,7 @@ pub const Relocation = struct {
         pub fn resolve(self: Unsigned, args: ResolveArgs) !void {
             const result = blk: {
                 if (self.subtractor) |subtractor| {
-                    const sym = args.zld.locals.items[subtractor];
+                    const sym = args.macho_file.locals.items[subtractor];
                     break :blk @intCast(i64, args.target_addr) - @intCast(i64, sym.n_value) + self.addend;
                 } else {
                     break :blk @intCast(i64, args.target_addr) + self.addend;
@@ -500,38 +540,59 @@ pub const Relocation = struct {
     }
 };
 
-pub fn init(allocator: *Allocator) TextBlock {
-    return .{
-        .allocator = allocator,
-        .local_sym_index = undefined,
-        .aliases = std.ArrayList(u32).init(allocator),
-        .references = std.AutoArrayHashMap(u32, void).init(allocator),
-        .code = undefined,
-        .relocs = std.ArrayList(Relocation).init(allocator),
-        .size = undefined,
-        .alignment = undefined,
-        .rebases = std.ArrayList(u64).init(allocator),
-        .bindings = std.ArrayList(SymbolAtOffset).init(allocator),
-        .dices = std.ArrayList(macho.data_in_code_entry).init(allocator),
-    };
+pub const empty = TextBlock{
+    .local_sym_index = 0,
+    .code = undefined,
+    .size = 0,
+    .alignment = 0,
+    .prev = null,
+    .next = null,
+    .dbg_info_prev = null,
+    .dbg_info_next = null,
+    .dbg_info_off = undefined,
+    .dbg_info_len = undefined,
+};
+
+pub fn deinit(self: *TextBlock, allocator: *Allocator) void {
+    self.dices.deinit(allocator);
+    self.bindings.deinit(allocator);
+    self.rebases.deinit(allocator);
+    self.relocs.deinit(allocator);
+    self.allocator.free(self.code);
+    self.contained.deinit(allocator);
+    self.aliases.deinit(allocator);
 }
 
-pub fn deinit(self: *TextBlock) void {
-    self.aliases.deinit();
-    self.references.deinit();
-    if (self.contained) |contained| {
-        self.allocator.free(contained);
+/// Returns how much room there is to grow in virtual address space.
+/// File offset relocation happens transparently, so it is not included in
+/// this calculation.
+pub fn capacity(self: TextBlock, macho_file: MachO) u64 {
+    const self_sym = macho_file.locals.items[self.local_sym_index];
+    if (self.next) |next| {
+        const next_sym = macho_file.locals.items[next.local_sym_index];
+        return next_sym.n_value - self_sym.n_value;
+    } else {
+        // We are the last block.
+        // The capacity is limited only by virtual address space.
+        return std.math.maxInt(u64) - self_sym.n_value;
     }
-    self.allocator.free(self.code);
-    self.relocs.deinit();
-    self.rebases.deinit();
-    self.bindings.deinit();
-    self.dices.deinit();
+}
+
+pub fn freeListEligible(self: TextBlock, macho_file: MachO) bool {
+    // No need to keep a free list node for the last block.
+    const next = self.next orelse return false;
+    const self_sym = macho_file.locals.items[self.local_sym_index];
+    const next_sym = macho_file.locals.items[next.local_sym_index];
+    const cap = next_sym.n_value - self_sym.n_value;
+    const ideal_cap = MachO.padToIdeal(self.size);
+    if (cap <= ideal_cap) return false;
+    const surplus = cap - ideal_cap;
+    return surplus >= MachO.min_text_capacity;
 }
 
 const RelocContext = struct {
     base_addr: u64 = 0,
-    zld: *Zld,
+    macho_file: *MachO,
 };
 
 fn initRelocFromObject(rel: macho.relocation_info, object: *Object, ctx: RelocContext) !Relocation {
@@ -548,19 +609,19 @@ fn initRelocFromObject(rel: macho.relocation_info, object: *Object, ctx: RelocCo
         const local_sym_index = object.sections_as_symbols.get(sect_id) orelse blk: {
             const seg = object.load_commands.items[object.segment_cmd_index.?].Segment;
             const sect = seg.sections.items[sect_id];
-            const match = (try ctx.zld.getMatchingSection(sect)) orelse unreachable;
-            const local_sym_index = @intCast(u32, ctx.zld.locals.items.len);
-            const sym_name = try std.fmt.allocPrint(ctx.zld.allocator, "l_{s}_{s}_{s}", .{
+            const match = (try ctx.macho_file.getMatchingSection(sect)) orelse unreachable;
+            const local_sym_index = @intCast(u32, ctx.macho_file.locals.items.len);
+            const sym_name = try std.fmt.allocPrint(ctx.macho_file.base.allocator, "l_{s}_{s}_{s}", .{
                 object.name.?,
                 commands.segmentName(sect),
                 commands.sectionName(sect),
             });
-            defer ctx.zld.allocator.free(sym_name);
+            defer ctx.macho_file.base.allocator.free(sym_name);
 
-            try ctx.zld.locals.append(ctx.zld.allocator, .{
-                .n_strx = try ctx.zld.makeString(sym_name),
+            try ctx.macho_file.locals.append(ctx.macho_file.base.allocator, .{
+                .n_strx = try ctx.macho_file.makeString(sym_name),
                 .n_type = macho.N_SECT,
-                .n_sect = ctx.zld.sectionId(match),
+                .n_sect = ctx.macho_file.sectionId(match),
                 .n_desc = 0,
                 .n_value = sect.addr,
             });
@@ -574,12 +635,12 @@ fn initRelocFromObject(rel: macho.relocation_info, object: *Object, ctx: RelocCo
         const sym = object.symtab.items[rel.r_symbolnum];
         const sym_name = object.getString(sym.n_strx);
 
-        if (Zld.symbolIsSect(sym) and !Zld.symbolIsExt(sym)) {
+        if (MachO.symbolIsSect(sym) and !MachO.symbolIsExt(sym)) {
             const where_index = object.symbol_mapping.get(rel.r_symbolnum) orelse unreachable;
             parsed_rel.where = .local;
             parsed_rel.where_index = where_index;
         } else {
-            const resolv = ctx.zld.symbol_resolver.get(sym_name) orelse unreachable;
+            const resolv = ctx.macho_file.symbol_resolver.get(sym_name) orelse unreachable;
             switch (resolv.where) {
                 .global => {
                     parsed_rel.where = .local;
@@ -599,6 +660,7 @@ fn initRelocFromObject(rel: macho.relocation_info, object: *Object, ctx: RelocCo
 
 pub fn parseRelocsFromObject(
     self: *TextBlock,
+    allocator: *Allocator,
     relocs: []macho.relocation_info,
     object: *Object,
     ctx: RelocContext,
@@ -638,11 +700,11 @@ pub fn parseRelocsFromObject(
             const sym = object.symtab.items[rel.r_symbolnum];
             const sym_name = object.getString(sym.n_strx);
 
-            if (Zld.symbolIsSect(sym) and !Zld.symbolIsExt(sym)) {
+            if (MachO.symbolIsSect(sym) and !MachO.symbolIsExt(sym)) {
                 const where_index = object.symbol_mapping.get(rel.r_symbolnum) orelse unreachable;
                 subtractor = where_index;
             } else {
-                const resolv = ctx.zld.symbol_resolver.get(sym_name) orelse unreachable;
+                const resolv = ctx.macho_file.symbol_resolver.get(sym_name) orelse unreachable;
                 assert(resolv.where == .global);
                 subtractor = resolv.local_sym_index;
             }
@@ -732,11 +794,7 @@ pub fn parseRelocsFromObject(
             else => unreachable,
         }
 
-        try self.relocs.append(parsed_rel);
-
-        if (parsed_rel.where == .local) {
-            try self.references.put(parsed_rel.where_index, {});
-        }
+        try self.relocs.append(allocator, parsed_rel);
 
         const is_via_got = switch (parsed_rel.payload) {
             .pointer_to_got => true,
@@ -747,28 +805,30 @@ pub fn parseRelocsFromObject(
         };
 
         if (is_via_got) blk: {
-            const key = Zld.GotIndirectionKey{
+            const key = MachO.GotIndirectionKey{
                 .where = switch (parsed_rel.where) {
                     .local => .local,
                     .import => .import,
                 },
                 .where_index = parsed_rel.where_index,
             };
-            if (ctx.zld.got_entries.contains(key)) break :blk;
+            if (ctx.macho_file.got_entries_map.contains(key)) break :blk;
 
-            try ctx.zld.got_entries.putNoClobber(ctx.zld.allocator, key, {});
+            const got_index = @intCast(u32, ctx.macho_file.got_entries.items.len);
+            try ctx.macho_file.got_entries.append(ctx.macho_file.base.allocator, key);
+            try ctx.macho_file.got_entries_map.putNoClobber(ctx.macho_file.base.allocator, key, got_index);
         } else if (parsed_rel.payload == .unsigned) {
             switch (parsed_rel.where) {
                 .import => {
-                    try self.bindings.append(.{
+                    try self.bindings.append(allocator, .{
                         .local_sym_index = parsed_rel.where_index,
                         .offset = parsed_rel.offset,
                     });
                 },
                 .local => {
-                    const source_sym = ctx.zld.locals.items[self.local_sym_index];
-                    const match = ctx.zld.unpackSectionId(source_sym.n_sect);
-                    const seg = ctx.zld.load_commands.items[match.seg].Segment;
+                    const source_sym = ctx.macho_file.locals.items[self.local_sym_index];
+                    const match = ctx.macho_file.unpackSectionId(source_sym.n_sect);
+                    const seg = ctx.macho_file.load_commands.items[match.seg].Segment;
                     const sect = seg.sections.items[match.sect];
                     const sect_type = commands.sectionType(sect);
 
@@ -778,12 +838,12 @@ pub fn parseRelocsFromObject(
                         // TODO actually, a check similar to what dyld is doing, that is, verifying
                         // that the segment is writable should be enough here.
                         const is_right_segment = blk: {
-                            if (ctx.zld.data_segment_cmd_index) |idx| {
+                            if (ctx.macho_file.data_segment_cmd_index) |idx| {
                                 if (match.seg == idx) {
                                     break :blk true;
                                 }
                             }
-                            if (ctx.zld.data_const_segment_cmd_index) |idx| {
+                            if (ctx.macho_file.data_const_segment_cmd_index) |idx| {
                                 if (match.seg == idx) {
                                     break :blk true;
                                 }
@@ -804,15 +864,17 @@ pub fn parseRelocsFromObject(
                     };
 
                     if (should_rebase) {
-                        try self.rebases.append(parsed_rel.offset);
+                        try self.rebases.append(allocator, parsed_rel.offset);
                     }
                 },
             }
         } else if (parsed_rel.payload == .branch) blk: {
             if (parsed_rel.where != .import) break :blk;
-            if (ctx.zld.stubs.contains(parsed_rel.where_index)) break :blk;
+            if (ctx.macho_file.stubs_map.contains(parsed_rel.where_index)) break :blk;
 
-            try ctx.zld.stubs.putNoClobber(ctx.zld.allocator, parsed_rel.where_index, {});
+            const stubs_index = @intCast(u32, ctx.macho_file.stubs.items.len);
+            try ctx.macho_file.stubs.append(ctx.macho_file.base.allocator, parsed_rel.where_index);
+            try ctx.macho_file.stubs_map.putNoClobber(ctx.macho_file.base.allocator, parsed_rel.where_index, stubs_index);
         }
     }
 }
@@ -852,7 +914,7 @@ fn parseUnsigned(
 
     if (rel.r_extern == 0) {
         assert(out.where == .local);
-        const target_sym = ctx.zld.locals.items[out.where_index];
+        const target_sym = ctx.macho_file.locals.items[out.where_index];
         addend -= @intCast(i64, target_sym.n_value);
     }
 
@@ -872,7 +934,7 @@ fn parseBranch(self: TextBlock, rel: macho.relocation_info, out: *Relocation, ct
 
     out.payload = .{
         .branch = .{
-            .arch = ctx.zld.target.?.cpu.arch,
+            .arch = ctx.macho_file.base.options.target.cpu.arch,
         },
     };
 }
@@ -948,10 +1010,10 @@ fn parseSigned(self: TextBlock, rel: macho.relocation_info, out: *Relocation, ct
     var addend: i64 = mem.readIntLittle(i32, self.code[out.offset..][0..4]) + correction;
 
     if (rel.r_extern == 0) {
-        const source_sym = ctx.zld.locals.items[self.local_sym_index];
+        const source_sym = ctx.macho_file.locals.items[self.local_sym_index];
         const target_sym = switch (out.where) {
-            .local => ctx.zld.locals.items[out.where_index],
-            .import => ctx.zld.imports.items[out.where_index],
+            .local => ctx.macho_file.locals.items[out.where_index],
+            .import => ctx.macho_file.imports.items[out.where_index],
         };
         addend = @intCast(i64, source_sym.n_value + out.offset + 4) + addend - @intCast(i64, target_sym.n_value);
     }
@@ -986,12 +1048,12 @@ fn parseLoad(self: TextBlock, rel: macho.relocation_info, out: *Relocation) void
     };
 }
 
-pub fn resolveRelocs(self: *TextBlock, zld: *Zld) !void {
+pub fn resolveRelocs(self: *TextBlock, macho_file: *MachO) !void {
     for (self.relocs.items) |rel| {
         log.debug("relocating {}", .{rel});
 
         const source_addr = blk: {
-            const sym = zld.locals.items[self.local_sym_index];
+            const sym = macho_file.locals.items[self.local_sym_index];
             break :blk sym.n_value + rel.offset;
         };
         const target_addr = blk: {
@@ -1004,9 +1066,9 @@ pub fn resolveRelocs(self: *TextBlock, zld: *Zld) !void {
             };
 
             if (is_via_got) {
-                const dc_seg = zld.load_commands.items[zld.data_const_segment_cmd_index.?].Segment;
-                const got = dc_seg.sections.items[zld.got_section_index.?];
-                const got_index = zld.got_entries.getIndex(.{
+                const dc_seg = macho_file.load_commands.items[macho_file.data_const_segment_cmd_index.?].Segment;
+                const got = dc_seg.sections.items[macho_file.got_section_index.?];
+                const got_index = macho_file.got_entries_map.get(.{
                     .where = switch (rel.where) {
                         .local => .local,
                         .import => .import,
@@ -1014,10 +1076,10 @@ pub fn resolveRelocs(self: *TextBlock, zld: *Zld) !void {
                     .where_index = rel.where_index,
                 }) orelse {
                     const sym = switch (rel.where) {
-                        .local => zld.locals.items[rel.where_index],
-                        .import => zld.imports.items[rel.where_index],
+                        .local => macho_file.locals.items[rel.where_index],
+                        .import => macho_file.imports.items[rel.where_index],
                     };
-                    log.err("expected GOT entry for symbol '{s}'", .{zld.getString(sym.n_strx)});
+                    log.err("expected GOT entry for symbol '{s}'", .{macho_file.getString(sym.n_strx)});
                     log.err("  this is an internal linker error", .{});
                     return error.FailedToResolveRelocationTarget;
                 };
@@ -1026,11 +1088,11 @@ pub fn resolveRelocs(self: *TextBlock, zld: *Zld) !void {
 
             switch (rel.where) {
                 .local => {
-                    const sym = zld.locals.items[rel.where_index];
+                    const sym = macho_file.locals.items[rel.where_index];
                     const is_tlv = is_tlv: {
-                        const source_sym = zld.locals.items[self.local_sym_index];
-                        const match = zld.unpackSectionId(source_sym.n_sect);
-                        const seg = zld.load_commands.items[match.seg].Segment;
+                        const source_sym = macho_file.locals.items[self.local_sym_index];
+                        const match = macho_file.unpackSectionId(source_sym.n_sect);
+                        const seg = macho_file.load_commands.items[match.seg].Segment;
                         const sect = seg.sections.items[match.sect];
                         break :is_tlv commands.sectionType(sect) == macho.S_THREAD_LOCAL_VARIABLES;
                     };
@@ -1040,11 +1102,11 @@ pub fn resolveRelocs(self: *TextBlock, zld: *Zld) !void {
                         // defined TLV template init section in the following order:
                         // * wrt to __thread_data if defined, then
                         // * wrt to __thread_bss
-                        const seg = zld.load_commands.items[zld.data_segment_cmd_index.?].Segment;
+                        const seg = macho_file.load_commands.items[macho_file.data_segment_cmd_index.?].Segment;
                         const base_address = inner: {
-                            if (zld.tlv_data_section_index) |i| {
+                            if (macho_file.tlv_data_section_index) |i| {
                                 break :inner seg.sections.items[i].addr;
-                            } else if (zld.tlv_bss_section_index) |i| {
+                            } else if (macho_file.tlv_bss_section_index) |i| {
                                 break :inner seg.sections.items[i].addr;
                             } else {
                                 log.err("threadlocal variables present but no initializer sections found", .{});
@@ -1059,12 +1121,12 @@ pub fn resolveRelocs(self: *TextBlock, zld: *Zld) !void {
                     break :blk sym.n_value;
                 },
                 .import => {
-                    const stubs_index = zld.stubs.getIndex(rel.where_index) orelse {
+                    const stubs_index = macho_file.stubs_map.get(rel.where_index) orelse {
                         // TODO verify in TextBlock that the symbol is indeed dynamically bound.
                         break :blk 0; // Dynamically bound by dyld.
                     };
-                    const segment = zld.load_commands.items[zld.text_segment_cmd_index.?].Segment;
-                    const stubs = segment.sections.items[zld.stubs_section_index.?];
+                    const segment = macho_file.load_commands.items[macho_file.text_segment_cmd_index.?].Segment;
+                    const stubs = segment.sections.items[macho_file.stubs_section_index.?];
                     break :blk stubs.addr + stubs_index * stubs.reserved2;
                 },
             }
@@ -1078,14 +1140,14 @@ pub fn resolveRelocs(self: *TextBlock, zld: *Zld) !void {
             .offset = rel.offset,
             .source_addr = source_addr,
             .target_addr = target_addr,
-            .zld = zld,
+            .macho_file = macho_file,
         });
     }
 }
 
-pub fn print_this(self: *const TextBlock, zld: *Zld) void {
+pub fn print_this(self: *const TextBlock, macho_file: MachO) void {
     log.warn("TextBlock", .{});
-    log.warn("  {}: {}", .{ self.local_sym_index, zld.locals.items[self.local_sym_index] });
+    log.warn("  {}: {}", .{ self.local_sym_index, macho_file.locals.items[self.local_sym_index] });
     if (self.stab) |stab| {
         log.warn("  stab: {}", .{stab});
     }
@@ -1125,11 +1187,11 @@ pub fn print_this(self: *const TextBlock, zld: *Zld) void {
     log.warn("  align = {}", .{self.alignment});
 }
 
-pub fn print(self: *const TextBlock, zld: *Zld) void {
+pub fn print(self: *const TextBlock, macho_file: MachO) void {
     if (self.prev) |prev| {
-        prev.print(zld);
+        prev.print(macho_file);
     }
-    self.print_this(zld);
+    self.print_this(macho_file);
 }
 
 const RelocIterator = struct {
@@ -1159,8 +1221,8 @@ fn filterRelocs(relocs: []macho.relocation_info, start_addr: u64, end_addr: u64)
         }
     };
 
-    const start = Zld.findFirst(macho.relocation_info, relocs, 0, Predicate{ .addr = end_addr });
-    const end = Zld.findFirst(macho.relocation_info, relocs, start, Predicate{ .addr = start_addr });
+    const start = MachO.findFirst(macho.relocation_info, relocs, 0, Predicate{ .addr = end_addr });
+    const end = MachO.findFirst(macho.relocation_info, relocs, start, Predicate{ .addr = start_addr });
 
     return relocs[start..end];
 }
