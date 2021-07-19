@@ -5295,11 +5295,6 @@ fn zirBoolBr(
         then_block.instructions.items.len + else_block.instructions.items.len +
         @typeInfo(Air.Block).Struct.fields.len + child_block.instructions.items.len);
 
-    sema.air_instructions.items(.data)[block_inst].ty_pl.payload = sema.addExtraAssumeCapacity(
-        Air.Block{ .body_len = @intCast(u32, child_block.instructions.items.len) },
-    );
-    sema.air_extra.appendSliceAssumeCapacity(child_block.instructions.items);
-
     const cond_br_payload = sema.addExtraAssumeCapacity(Air.CondBr{
         .then_body_len = @intCast(u32, then_block.instructions.items.len),
         .else_body_len = @intCast(u32, else_block.instructions.items.len),
@@ -5311,6 +5306,11 @@ fn zirBoolBr(
         .operand = lhs,
         .payload = cond_br_payload,
     } } });
+
+    sema.air_instructions.items(.data)[block_inst].ty_pl.payload = sema.addExtraAssumeCapacity(
+        Air.Block{ .body_len = @intCast(u32, child_block.instructions.items.len) },
+    );
+    sema.air_extra.appendSliceAssumeCapacity(child_block.instructions.items);
 
     try parent_block.instructions.append(gpa, block_inst);
     return Air.indexToRef(block_inst);
