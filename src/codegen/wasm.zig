@@ -871,7 +871,7 @@ pub const Context = struct {
         };
 
         for (args) |arg| {
-            const arg_val = self.resolveInst(Air.indexToRef(arg));
+            const arg_val = self.resolveInst(@intToEnum(Air.Inst.Ref, arg));
             try self.emitWValue(arg_val);
         }
 
@@ -959,7 +959,7 @@ pub const Context = struct {
         try self.emitWValue(lhs);
         try self.emitWValue(rhs);
 
-        const bin_ty = self.air.getRefType(bin_op.lhs);
+        const bin_ty = self.air.typeOf(bin_op.lhs);
         const opcode: wasm.Opcode = buildOpcode(.{
             .op = op,
             .valtype1 = try self.typeToValtype(bin_ty),
@@ -1179,7 +1179,7 @@ pub const Context = struct {
         const data: Air.Inst.Data = self.air.instructions.items(.data)[inst];
         const lhs = self.resolveInst(data.bin_op.lhs);
         const rhs = self.resolveInst(data.bin_op.rhs);
-        const lhs_ty = self.air.getRefType(data.bin_op.lhs);
+        const lhs_ty = self.air.typeOf(data.bin_op.lhs);
 
         try self.emitWValue(lhs);
         try self.emitWValue(rhs);
@@ -1211,7 +1211,7 @@ pub const Context = struct {
         const br = self.air.instructions.items(.data)[inst].br;
 
         // if operand has codegen bits we should break with a value
-        if (self.air.getRefType(br.operand).hasCodeGenBits()) {
+        if (self.air.typeOf(br.operand).hasCodeGenBits()) {
             try self.emitWValue(self.resolveInst(br.operand));
         }
 
@@ -1277,7 +1277,7 @@ pub const Context = struct {
         const else_body = self.air.extra[extra.end + cases.len ..][0..extra.data.else_body_len];
 
         const target = self.resolveInst(pl_op.operand);
-        const target_ty = self.air.getRefType(pl_op.operand);
+        const target_ty = self.air.typeOf(pl_op.operand);
         const valtype = try self.typeToValtype(target_ty);
         // result type is always 'noreturn'
         const blocktype = wasm.block_empty;
