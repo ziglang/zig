@@ -2315,7 +2315,7 @@ const AstGenSrc = union(enum) {
     root,
     import: struct {
         importing_file: *Module.Scope.File,
-        import_inst: Zir.Inst.Index,
+        import_tok: std.zig.ast.TokenIndex,
     },
 };
 
@@ -2352,11 +2352,15 @@ fn workerAstGenFile(
     assert(file.zir_loaded);
     const imports_index = file.zir.extra[@enumToInt(Zir.ExtraIndex.imports)];
     if (imports_index != 0) {
-        const imports_len = file.zir.extra[imports_index];
+        const extra = file.zir.extraData(Zir.Inst.Imports, imports_index);
+        var import_i: u32 = 0;
+        var extra_index = extra.end;
 
-        for (file.zir.extra[imports_index + 1 ..][0..imports_len]) |import_inst| {
-            const inst_data = file.zir.instructions.items(.data)[import_inst].str_tok;
-            const import_path = inst_data.get(file.zir);
+        while (import_i < extra.data.imports_len) : (import_i += 1) {
+            const item = file.zir.extraData(Zir.Inst.Imports.Item, extra_index);
+            extra_index = item.end;
+
+            const import_path = file.zir.nullTerminatedString(item.data.name);
 
             const import_result = blk: {
                 const lock = comp.mutex.acquire();
@@ -2370,7 +2374,7 @@ fn workerAstGenFile(
                 });
                 const sub_src: AstGenSrc = .{ .import = .{
                     .importing_file = file,
-                    .import_inst = import_inst,
+                    .import_tok = item.data.token,
                 } };
                 wg.start();
                 comp.thread_pool.spawn(workerAstGenFile, .{
@@ -2602,12 +2606,11 @@ fn reportRetryableAstGenError(
         },
         .import => |info| blk: {
             const importing_file = info.importing_file;
-            const import_inst = info.import_inst;
-            const inst_data = importing_file.zir.instructions.items(.data)[import_inst].str_tok;
+
             break :blk .{
                 .file_scope = importing_file,
                 .parent_decl_node = 0,
-                .lazy = .{ .token_offset = inst_data.src_tok },
+                .lazy = .{ .token_abs = info.import_tok },
             };
         },
     };

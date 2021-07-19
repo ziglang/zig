@@ -138,11 +138,17 @@ pub fn renderAsTextToFile(
     const imports_index = scope_file.zir.extra[@enumToInt(ExtraIndex.imports)];
     if (imports_index != 0) {
         try fs_file.writeAll("Imports:\n");
-        const imports_len = scope_file.zir.extra[imports_index];
-        for (scope_file.zir.extra[imports_index + 1 ..][0..imports_len]) |import_inst| {
-            const inst_data = writer.code.instructions.items(.data)[import_inst].str_tok;
-            const src = inst_data.src();
-            const import_path = inst_data.get(writer.code);
+
+        const extra = scope_file.zir.extraData(Inst.Imports, imports_index);
+        var import_i: u32 = 0;
+        var extra_index = extra.end;
+
+        while (import_i < extra.data.imports_len) : (import_i += 1) {
+            const item = scope_file.zir.extraData(Inst.Imports.Item, extra_index);
+            extra_index = item.end;
+
+            const src: LazySrcLoc = .{ .token_abs = item.data.token };
+            const import_path = scope_file.zir.nullTerminatedString(item.data.name);
             try fs_file.writer().print("  @import(\"{}\") ", .{
                 std.zig.fmtEscapes(import_path),
             });
@@ -2780,10 +2786,16 @@ pub const Inst = struct {
         };
     };
 
-    /// Trailing: for each `imports_len` there is an instruction index
-    /// to an import instruction.
+    /// Trailing: for each `imports_len` there is an Item
     pub const Imports = struct {
         imports_len: Zir.Inst.Index,
+
+        pub const Item = struct {
+            /// null terminated string index
+            name: u32,
+            /// points to the import name
+            token: ast.TokenIndex,
+        };
     };
 };
 
