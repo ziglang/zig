@@ -792,43 +792,45 @@ pub const Context = struct {
     fn genInst(self: *Context, inst: Air.Inst.Index) !WValue {
         const air_tags = self.air.instructions.items(.tag);
         return switch (air_tags[inst]) {
-            .add => self.genBinOp(inst, .add),
-            .alloc => self.genAlloc(inst),
-            .arg => self.genArg(inst),
-            .bit_and => self.genBinOp(inst, .@"and"),
-            .bitcast => self.genBitcast(inst),
-            .bit_or => self.genBinOp(inst, .@"or"),
-            .block => self.genBlock(inst),
-            .bool_and => self.genBinOp(inst, .@"and"),
-            .bool_or => self.genBinOp(inst, .@"or"),
-            .breakpoint => self.genBreakpoint(inst),
-            .br => self.genBr(inst),
-            .call => self.genCall(inst),
-            .cmp_eq => self.genCmp(inst, .eq),
-            .cmp_gte => self.genCmp(inst, .gte),
-            .cmp_gt => self.genCmp(inst, .gt),
-            .cmp_lte => self.genCmp(inst, .lte),
-            .cmp_lt => self.genCmp(inst, .lt),
-            .cmp_neq => self.genCmp(inst, .neq),
-            .cond_br => self.genCondBr(inst),
+            .add => self.airBinOp(inst, .add),
+            .sub => self.airBinOp(inst, .sub),
+            .mul => self.airBinOp(inst, .mul),
+            .div => self.airBinOp(inst, .div),
+            .bit_and => self.airBinOp(inst, .@"and"),
+            .bit_or => self.airBinOp(inst, .@"or"),
+            .bool_and => self.airBinOp(inst, .@"and"),
+            .bool_or => self.airBinOp(inst, .@"or"),
+            .xor => self.airBinOp(inst, .xor),
+
+            .cmp_eq => self.airCmp(inst, .eq),
+            .cmp_gte => self.airCmp(inst, .gte),
+            .cmp_gt => self.airCmp(inst, .gt),
+            .cmp_lte => self.airCmp(inst, .lte),
+            .cmp_lt => self.airCmp(inst, .lt),
+            .cmp_neq => self.airCmp(inst, .neq),
+
+            .alloc => self.airAlloc(inst),
+            .arg => self.airArg(inst),
+            .bitcast => self.airBitcast(inst),
+            .block => self.airBlock(inst),
+            .breakpoint => self.airBreakpoint(inst),
+            .br => self.airBr(inst),
+            .call => self.airCall(inst),
+            .cond_br => self.airCondBr(inst),
             .constant => unreachable,
             .dbg_stmt => WValue.none,
-            .div => self.genBinOp(inst, .div),
-            .is_err => self.genIsErr(inst, .i32_ne),
-            .is_non_err => self.genIsErr(inst, .i32_eq),
-            .load => self.genLoad(inst),
-            .loop => self.genLoop(inst),
-            .mul => self.genBinOp(inst, .mul),
-            .not => self.genNot(inst),
-            .ret => self.genRet(inst),
-            .store => self.genStore(inst),
-            .struct_field_ptr => self.genStructFieldPtr(inst),
-            .sub => self.genBinOp(inst, .sub),
-            .switch_br => self.genSwitchBr(inst),
-            .unreach => self.genUnreachable(inst),
-            .unwrap_errunion_payload => self.genUnwrapErrUnionPayload(inst),
-            .wrap_errunion_payload => self.genWrapErrUnionPayload(inst),
-            .xor => self.genBinOp(inst, .xor),
+            .is_err => self.airIsErr(inst, .i32_ne),
+            .is_non_err => self.airIsErr(inst, .i32_eq),
+            .load => self.airLoad(inst),
+            .loop => self.airLoop(inst),
+            .not => self.airNot(inst),
+            .ret => self.airRet(inst),
+            .store => self.airStore(inst),
+            .struct_field_ptr => self.airStructFieldPtr(inst),
+            .switch_br => self.airSwitchBr(inst),
+            .unreach => self.airUnreachable(inst),
+            .unwrap_errunion_payload => self.airUnwrapErrUnionPayload(inst),
+            .wrap_errunion_payload => self.airWrapErrUnionPayload(inst),
             else => |tag| self.fail("TODO: Implement wasm inst: {s}", .{@tagName(tag)}),
         };
     }
@@ -840,7 +842,7 @@ pub const Context = struct {
         }
     }
 
-    fn genRet(self: *Context, inst: Air.Inst.Index) InnerError!WValue {
+    fn airRet(self: *Context, inst: Air.Inst.Index) InnerError!WValue {
         const un_op = self.air.instructions.items(.data)[inst].un_op;
         const operand = self.resolveInst(un_op);
         try self.emitWValue(operand);
@@ -848,7 +850,7 @@ pub const Context = struct {
         return .none;
     }
 
-    fn genCall(self: *Context, inst: Air.Inst.Index) InnerError!WValue {
+    fn airCall(self: *Context, inst: Air.Inst.Index) InnerError!WValue {
         const pl_op = self.air.instructions.items(.data)[inst].pl_op;
         const extra = self.air.extraData(Air.Call, pl_op.payload);
         const args = self.air.extra[extra.end..][0..extra.data.args_len];
@@ -882,12 +884,12 @@ pub const Context = struct {
         return .none;
     }
 
-    fn genAlloc(self: *Context, inst: Air.Inst.Index) InnerError!WValue {
+    fn airAlloc(self: *Context, inst: Air.Inst.Index) InnerError!WValue {
         const elem_type = self.air.typeOfIndex(inst).elemType();
         return self.allocLocal(elem_type);
     }
 
-    fn genStore(self: *Context, inst: Air.Inst.Index) InnerError!WValue {
+    fn airStore(self: *Context, inst: Air.Inst.Index) InnerError!WValue {
         const bin_op = self.air.instructions.items(.data)[inst].bin_op;
         const writer = self.code.writer();
 
@@ -926,19 +928,19 @@ pub const Context = struct {
         return .none;
     }
 
-    fn genLoad(self: *Context, inst: Air.Inst.Index) InnerError!WValue {
+    fn airLoad(self: *Context, inst: Air.Inst.Index) InnerError!WValue {
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         return self.resolveInst(ty_op.operand);
     }
 
-    fn genArg(self: *Context, inst: Air.Inst.Index) InnerError!WValue {
+    fn airArg(self: *Context, inst: Air.Inst.Index) InnerError!WValue {
         _ = inst;
         // arguments share the index with locals
         defer self.local_index += 1;
         return WValue{ .local = self.local_index };
     }
 
-    fn genBinOp(self: *Context, inst: Air.Inst.Index, op: Op) InnerError!WValue {
+    fn airBinOp(self: *Context, inst: Air.Inst.Index, op: Op) InnerError!WValue {
         const bin_op = self.air.instructions.items(.data)[inst].bin_op;
         const lhs = self.resolveInst(bin_op.lhs);
         const rhs = self.resolveInst(bin_op.rhs);
@@ -1074,7 +1076,7 @@ pub const Context = struct {
         }
     }
 
-    fn genBlock(self: *Context, inst: Air.Inst.Index) InnerError!WValue {
+    fn airBlock(self: *Context, inst: Air.Inst.Index) InnerError!WValue {
         const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
         const block_ty = try self.genBlockType(self.air.getRefType(ty_pl.ty));
         const extra = self.air.extraData(Air.Block, ty_pl.payload);
@@ -1108,7 +1110,7 @@ pub const Context = struct {
         self.block_depth -= 1;
     }
 
-    fn genLoop(self: *Context, inst: Air.Inst.Index) InnerError!WValue {
+    fn airLoop(self: *Context, inst: Air.Inst.Index) InnerError!WValue {
         const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
         const loop = self.air.extraData(Air.Block, ty_pl.payload);
         const body = self.air.extra[loop.end..][0..loop.data.body_len];
@@ -1127,7 +1129,7 @@ pub const Context = struct {
         return .none;
     }
 
-    fn genCondBr(self: *Context, inst: Air.Inst.Index) InnerError!WValue {
+    fn airCondBr(self: *Context, inst: Air.Inst.Index) InnerError!WValue {
         const pl_op = self.air.instructions.items(.data)[inst].pl_op;
         const condition = self.resolveInst(pl_op.operand);
         const extra = self.air.extraData(Air.CondBr, pl_op.payload);
@@ -1166,7 +1168,7 @@ pub const Context = struct {
         return .none;
     }
 
-    fn genCmp(self: *Context, inst: Air.Inst.Index, op: std.math.CompareOperator) InnerError!WValue {
+    fn airCmp(self: *Context, inst: Air.Inst.Index, op: std.math.CompareOperator) InnerError!WValue {
         // save offset, so potential conditions can insert blocks in front of
         // the comparison that we can later jump back to
         const offset = self.code.items.len;
@@ -1202,7 +1204,7 @@ pub const Context = struct {
         return WValue{ .code_offset = offset };
     }
 
-    fn genBr(self: *Context, inst: Air.Inst.Index) InnerError!WValue {
+    fn airBr(self: *Context, inst: Air.Inst.Index) InnerError!WValue {
         const br = self.air.instructions.items(.data)[inst].br;
 
         // if operand has codegen bits we should break with a value
@@ -1220,7 +1222,7 @@ pub const Context = struct {
         return .none;
     }
 
-    fn genNot(self: *Context, inst: Air.Inst.Index) InnerError!WValue {
+    fn airNot(self: *Context, inst: Air.Inst.Index) InnerError!WValue {
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         const offset = self.code.items.len;
 
@@ -1238,7 +1240,7 @@ pub const Context = struct {
         return WValue{ .code_offset = offset };
     }
 
-    fn genBreakpoint(self: *Context, inst: Air.Inst.Index) InnerError!WValue {
+    fn airBreakpoint(self: *Context, inst: Air.Inst.Index) InnerError!WValue {
         _ = self;
         _ = inst;
         // unsupported by wasm itself. Can be implemented once we support DWARF
@@ -1246,18 +1248,18 @@ pub const Context = struct {
         return .none;
     }
 
-    fn genUnreachable(self: *Context, inst: Air.Inst.Index) InnerError!WValue {
+    fn airUnreachable(self: *Context, inst: Air.Inst.Index) InnerError!WValue {
         _ = inst;
         try self.code.append(wasm.opcode(.@"unreachable"));
         return .none;
     }
 
-    fn genBitcast(self: *Context, inst: Air.Inst.Index) InnerError!WValue {
+    fn airBitcast(self: *Context, inst: Air.Inst.Index) InnerError!WValue {
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         return self.resolveInst(ty_op.operand);
     }
 
-    fn genStructFieldPtr(self: *Context, inst: Air.Inst.Index) InnerError!WValue {
+    fn airStructFieldPtr(self: *Context, inst: Air.Inst.Index) InnerError!WValue {
         const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
         const extra = self.air.extraData(Air.StructField, ty_pl.payload);
         const struct_ptr = self.resolveInst(extra.data.struct_ptr);
@@ -1265,7 +1267,7 @@ pub const Context = struct {
         return WValue{ .local = struct_ptr.multi_value.index + @intCast(u32, extra.data.field_index) };
     }
 
-    fn genSwitchBr(self: *Context, inst: Air.Inst.Index) InnerError!WValue {
+    fn airSwitchBr(self: *Context, inst: Air.Inst.Index) InnerError!WValue {
         const pl_op = self.air.instructions.items(.data)[inst].pl_op;
         const extra = self.air.extraData(Air.SwitchBr, pl_op.payload);
         const cases = self.air.extra[extra.end..][0..extra.data.cases_len];
@@ -1319,7 +1321,7 @@ pub const Context = struct {
         return .none;
     }
 
-    fn genIsErr(self: *Context, inst: Air.Inst.Index, opcode: wasm.Opcode) InnerError!WValue {
+    fn airIsErr(self: *Context, inst: Air.Inst.Index, opcode: wasm.Opcode) InnerError!WValue {
         const un_op = self.air.instructions.items(.data)[inst].un_op;
         const operand = self.resolveInst(un_op);
         const offset = self.code.items.len;
@@ -1336,7 +1338,7 @@ pub const Context = struct {
         return WValue{ .code_offset = offset };
     }
 
-    fn genUnwrapErrUnionPayload(self: *Context, inst: Air.Inst.Index) InnerError!WValue {
+    fn airUnwrapErrUnionPayload(self: *Context, inst: Air.Inst.Index) InnerError!WValue {
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         const operand = self.resolveInst(ty_op.operand);
         // The index of multi_value contains the error code. To get the initial index of the payload we get
@@ -1346,7 +1348,7 @@ pub const Context = struct {
         return WValue{ .local = operand.multi_value.index + 1 };
     }
 
-    fn genWrapErrUnionPayload(self: *Context, inst: Air.Inst.Index) InnerError!WValue {
+    fn airWrapErrUnionPayload(self: *Context, inst: Air.Inst.Index) InnerError!WValue {
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         return self.resolveInst(ty_op.operand);
     }
