@@ -881,8 +881,8 @@ pub const FuncGen = struct {
         if (self.liveness.isUnused(inst))
             return null;
 
-        const un_op = self.air.instructions.items(.data)[inst].un_op;
-        const operand = try self.resolveInst(un_op);
+        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const operand = try self.resolveInst(ty_op.operand);
 
         return self.builder.buildNot(operand, "");
     }
