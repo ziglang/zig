@@ -13,6 +13,7 @@ const Type = @import("../type.zig").Type;
 const Value = @import("../value.zig").Value;
 const LazySrcLoc = Module.LazySrcLoc;
 const Air = @import("../Air.zig");
+const Liveness = @import("../Liveness.zig");
 
 pub const Word = u32;
 pub const ResultId = u32;
@@ -247,6 +248,7 @@ pub const DeclGen = struct {
         return .{
             .spv = spv,
             .air = undefined,
+            .liveness = undefined,
             .args = std.ArrayList(ResultId).init(spv.gpa),
             .next_arg_index = undefined,
             .inst_results = InstMap.init(spv.gpa),
@@ -259,11 +261,12 @@ pub const DeclGen = struct {
     }
 
     /// Generate the code for `decl`. If a reportable error occured during code generation,
-    /// a message is returned by this function. Callee owns the memory. If this function returns such
-    /// a reportable error, it is valid to be called again for a different decl.
-    pub fn gen(self: *DeclGen, decl: *Decl, air: Air) !?*Module.ErrorMsg {
+    /// a message is returned by this function. Callee owns the memory. If this function
+    /// returns such a reportable error, it is valid to be called again for a different decl.
+    pub fn gen(self: *DeclGen, decl: *Decl, air: Air, liveness: Liveness) !?*Module.ErrorMsg {
         // Reset internal resources, we don't want to re-allocate these.
-        self.air = &air;
+        self.air = air;
+        self.liveness = liveness;
         self.args.items.len = 0;
         self.next_arg_index = 0;
         self.inst_results.clearRetainingCapacity();
@@ -297,12 +300,12 @@ pub const DeclGen = struct {
         return error.AnalysisFail;
     }
 
-    fn resolve(self: *DeclGen, inst: Air.Inst.Index) !ResultId {
-        if (inst.value()) |val| {
-            return self.genConstant(inst.ty, val);
+    fn resolve(self: *DeclGen, inst: Air.Inst.Ref) !ResultId {
+        if (self.air.value(inst)) |val| {
+            return self.genConstant(self.air.typeOf(inst), val);
         }
-
-        return self.inst_results.get(inst).?; // Instruction does not dominate all uses!
+        const index = Air.refToIndex(inst).?;
+        return self.inst_results.get(index).?; // Assertion means instruction does not dominate usage.
     }
 
     fn beginSPIRVBlock(self: *DeclGen, label_id: ResultId) !void {
@@ -663,40 +666,40 @@ pub const DeclGen = struct {
         const air_tags = self.air.instructions.items(.tag);
         const result_id = switch (air_tags[inst]) {
             // zig fmt: off
-            .add, .addwrap => try self.genArithOp(inst, .{.OpFAdd, .OpIAdd, .OpIAdd}),
-            .sub, .subwrap => try self.genArithOp(inst, .{.OpFSub, .OpISub, .OpISub}),
-            .mul, .mulwrap => try self.genArithOp(inst, .{.OpFMul, .OpIMul, .OpIMul}),
-            .div           => try self.genArithOp(inst, .{.OpFDiv, .OpSDiv, .OpUDiv}),
+            .add, .addwrap => try self.airArithOp(inst, .{.OpFAdd, .OpIAdd, .OpIAdd}),
+            .sub, .subwrap => try self.airArithOp(inst, .{.OpFSub, .OpISub, .OpISub}),
+            .mul, .mulwrap => try self.airArithOp(inst, .{.OpFMul, .OpIMul, .OpIMul}),
+            .div           => try self.airArithOp(inst, .{.OpFDiv, .OpSDiv, .OpUDiv}),
 
-            .bit_and  => try self.genBinOpSimple(inst, .OpBitwiseAnd),
-            .bit_or   => try self.genBinOpSimple(inst, .OpBitwiseOr),
-            .xor      => try self.genBinOpSimple(inst, .OpBitwiseXor),
-            .bool_and => try self.genBinOpSimple(inst, .OpLogicalAnd),
-            .bool_or  => try self.genBinOpSimple(inst, .OpLogicalOr),
+            .bit_and  => try self.airBinOpSimple(inst, .OpBitwiseAnd),
+            .bit_or   => try self.airBinOpSimple(inst, .OpBitwiseOr),
+            .xor      => try self.airBinOpSimple(inst, .OpBitwiseXor),
+            .bool_and => try self.airBinOpSimple(inst, .OpLogicalAnd),
+            .bool_or  => try self.airBinOpSimple(inst, .OpLogicalOr),
 
-            .not => try self.genNot(inst),
+            .not => try self.airNot(inst),
 
-            .cmp_eq  => try self.genCmp(inst, .{.OpFOrdEqual,            .OpLogicalEqual,      .OpIEqual}),
-            .cmp_neq => try self.genCmp(inst, .{.OpFOrdNotEqual,         .OpLogicalNotEqual,   .OpINotEqual}),
-            .cmp_gt  => try self.genCmp(inst, .{.OpFOrdGreaterThan,      .OpSGreaterThan,      .OpUGreaterThan}),
-            .cmp_gte => try self.genCmp(inst, .{.OpFOrdGreaterThanEqual, .OpSGreaterThanEqual, .OpUGreaterThanEqual}),
-            .cmp_lt  => try self.genCmp(inst, .{.OpFOrdLessThan,         .OpSLessThan,         .OpULessThan}),
-            .cmp_lte => try self.genCmp(inst, .{.OpFOrdLessThanEqual,    .OpSLessThanEqual,    .OpULessThanEqual}),
+            .cmp_eq  => try self.airCmp(inst, .{.OpFOrdEqual,            .OpLogicalEqual,      .OpIEqual}),
+            .cmp_neq => try self.airCmp(inst, .{.OpFOrdNotEqual,         .OpLogicalNotEqual,   .OpINotEqual}),
+            .cmp_gt  => try self.airCmp(inst, .{.OpFOrdGreaterThan,      .OpSGreaterThan,      .OpUGreaterThan}),
+            .cmp_gte => try self.airCmp(inst, .{.OpFOrdGreaterThanEqual, .OpSGreaterThanEqual, .OpUGreaterThanEqual}),
+            .cmp_lt  => try self.airCmp(inst, .{.OpFOrdLessThan,         .OpSLessThan,         .OpULessThan}),
+            .cmp_lte => try self.airCmp(inst, .{.OpFOrdLessThanEqual,    .OpSLessThanEqual,    .OpULessThanEqual}),
 
-            .arg   => self.genArg(),
-            .alloc => try self.genAlloc(inst),
-            .block => (try self.genBlock(inst)) orelse return,
-            .load  => try self.genLoad(inst),
+            .arg   => self.airArg(),
+            .alloc => try self.airAlloc(inst),
+            .block => (try self.airBlock(inst)) orelse return,
+            .load  => try self.airLoad(inst),
 
-            .br         => return self.genBr(inst),
+            .br         => return self.airBr(inst),
             .breakpoint => return,
-            .cond_br    => return self.genCondBr(inst),
+            .cond_br    => return self.airCondBr(inst),
             .constant   => unreachable,
-            .dbg_stmt   => return self.genDbgStmt(inst),
-            .loop       => return self.genLoop(inst),
-            .ret        => return self.genRet(inst),
-            .store      => return self.genStore(inst),
-            .unreach    => return self.genUnreach(),
+            .dbg_stmt   => return self.airDbgStmt(inst),
+            .loop       => return self.airLoop(inst),
+            .ret        => return self.airRet(inst),
+            .store      => return self.airStore(inst),
+            .unreach    => return self.airUnreach(),
             // zig fmt: on
 
             else => |tag| return self.fail("TODO: SPIR-V backend: implement AIR tag {s}", .{
@@ -707,21 +710,22 @@ pub const DeclGen = struct {
         try self.inst_results.putNoClobber(inst, result_id);
     }
 
-    fn genBinOpSimple(self: *DeclGen, inst: Air.Inst.Index, opcode: Opcode) !ResultId {
+    fn airBinOpSimple(self: *DeclGen, inst: Air.Inst.Index, opcode: Opcode) !ResultId {
         const bin_op = self.air.instructions.items(.data)[inst].bin_op;
         const lhs_id = try self.resolve(bin_op.lhs);
         const rhs_id = try self.resolve(bin_op.rhs);
         const result_id = self.spv.allocResultId();
+        const result_type_id = try self.genType(self.air.typeOfIndex(inst));
         try writeInstruction(&self.code, opcode, &[_]Word{
             result_type_id, result_id, lhs_id, rhs_id,
         });
         return result_id;
     }
 
-    fn genArithOp(self: *DeclGen, inst: Air.Inst.Index, ops: [3]Opcode) !ResultId {
+    fn airArithOp(self: *DeclGen, inst: Air.Inst.Index, ops: [3]Opcode) !ResultId {
         // LHS and RHS are guaranteed to have the same type, and AIR guarantees
         // the result to be the same as the LHS and RHS, which matches SPIR-V.
-        const ty = self.air.getType(inst);
+        const ty = self.air.typeOfIndex(inst);
         const bin_op = self.air.instructions.items(.data)[inst].bin_op;
         const lhs_id = try self.resolve(bin_op.lhs);
         const rhs_id = try self.resolve(bin_op.rhs);
@@ -729,8 +733,8 @@ pub const DeclGen = struct {
         const result_id = self.spv.allocResultId();
         const result_type_id = try self.genType(ty);
 
-        assert(self.air.getType(bin_op.lhs).eql(ty));
-        assert(self.air.getType(bin_op.rhs).eql(ty));
+        assert(self.air.typeOf(bin_op.lhs).eql(ty));
+        assert(self.air.typeOf(bin_op.rhs).eql(ty));
 
         // Binary operations are generally applicable to both scalar and vector operations
         // in SPIR-V, but int and float versions of operations require different opcodes.
@@ -744,8 +748,8 @@ pub const DeclGen = struct {
                 return self.fail("TODO: SPIR-V backend: binary operations for strange integers", .{});
             },
             .integer => switch (info.signedness) {
-                .signed => 1,
-                .unsigned => 2,
+                .signed => @as(usize, 1),
+                .unsigned => @as(usize, 2),
             },
             .float => 0,
             else => unreachable,
@@ -759,14 +763,14 @@ pub const DeclGen = struct {
         return result_id;
     }
 
-    fn genCmp(self: *DeclGen, inst: Air.Inst.Index, ops: [3]Opcode) !ResultId {
+    fn airCmp(self: *DeclGen, inst: Air.Inst.Index, ops: [3]Opcode) !ResultId {
         const bin_op = self.air.instructions.items(.data)[inst].bin_op;
         const lhs_id = try self.resolve(bin_op.lhs);
         const rhs_id = try self.resolve(bin_op.rhs);
         const result_id = self.spv.allocResultId();
         const result_type_id = try self.genType(Type.initTag(.bool));
-        const op_ty = self.air.getType(bin_op.lhs);
-        assert(op_ty.eql(self.air.getType(bin_op.rhs)));
+        const op_ty = self.air.typeOf(bin_op.lhs);
+        assert(op_ty.eql(self.air.typeOf(bin_op.rhs)));
 
         // Comparisons are generally applicable to both scalar and vector operations in SPIR-V,
         // but int and float versions of operations require different opcodes.
@@ -782,10 +786,9 @@ pub const DeclGen = struct {
             .float => 0,
             .bool => 1,
             .integer => switch (info.signedness) {
-                .signed => 1,
-                .unsigned => 2,
+                .signed => @as(usize, 1),
+                .unsigned => @as(usize, 2),
             },
-            else => unreachable,
         };
         const opcode = ops[opcode_index];
 
@@ -793,7 +796,7 @@ pub const DeclGen = struct {
         return result_id;
     }
 
-    fn genNot(self: *DeclGen, inst: Air.Inst.Index) !ResultId {
+    fn airNot(self: *DeclGen, inst: Air.Inst.Index) !ResultId {
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         const operand_id = try self.resolve(ty_op.operand);
         const result_id = self.spv.allocResultId();
@@ -803,8 +806,8 @@ pub const DeclGen = struct {
         return result_id;
     }
 
-    fn genAlloc(self: *DeclGen, inst: Air.Inst.Index) !ResultId {
-        const ty = self.air.getType(inst);
+    fn airAlloc(self: *DeclGen, inst: Air.Inst.Index) !ResultId {
+        const ty = self.air.typeOfIndex(inst);
         const storage_class = spec.StorageClass.Function;
         const result_type_id = try self.genPointerType(ty, storage_class);
         const result_id = self.spv.allocResultId();
@@ -816,12 +819,12 @@ pub const DeclGen = struct {
         return result_id;
     }
 
-    fn genArg(self: *DeclGen) ResultId {
+    fn airArg(self: *DeclGen) ResultId {
         defer self.next_arg_index += 1;
         return self.args.items[self.next_arg_index];
     }
 
-    fn genBlock(self: *DeclGen, inst: Air.Inst.Index) !?ResultId {
+    fn airBlock(self: *DeclGen, inst: Air.Inst.Index) !?ResultId {
         // In IR, a block doesn't really define an entry point like a block, but more like a scope that breaks can jump out of and
         // "return" a value from. This cannot be directly modelled in SPIR-V, so in a block instruction, we're going to split up
         // the current block by first generating the code of the block, then a label, and then generate the rest of the current
@@ -841,7 +844,7 @@ pub const DeclGen = struct {
             incoming_blocks.deinit(self.spv.gpa);
         }
 
-        const ty = self.air.getType(inst);
+        const ty = self.air.typeOfIndex(inst);
         const inst_datas = self.air.instructions.items(.data);
         const extra = self.air.extraData(Air.Block, inst_datas[inst].ty_pl.payload);
         const body = self.air.extra[extra.end..][0..extra.data.body_len];
@@ -872,10 +875,10 @@ pub const DeclGen = struct {
         return result_id;
     }
 
-    fn genBr(self: *DeclGen, inst: Air.Inst.Index) !void {
+    fn airBr(self: *DeclGen, inst: Air.Inst.Index) !void {
         const br = self.air.instructions.items(.data)[inst].br;
         const block = self.blocks.get(br.block_inst).?;
-        const operand_ty = self.air.getType(br.operand);
+        const operand_ty = self.air.typeOf(br.operand);
 
         if (operand_ty.hasCodeGenBits()) {
             const operand_id = try self.resolve(br.operand);
@@ -886,7 +889,7 @@ pub const DeclGen = struct {
         try writeInstruction(&self.code, .OpBranch, &[_]Word{block.label_id});
     }
 
-    fn genCondBr(self: *DeclGen, inst: *Inst.CondBr) !void {
+    fn airCondBr(self: *DeclGen, inst: Air.Inst.Index) !void {
         const pl_op = self.air.instructions.items(.data)[inst].pl_op;
         const cond_br = self.air.extraData(Air.CondBr, pl_op.payload);
         const then_body = self.air.extra[cond_br.end..][0..cond_br.data.then_body_len];
@@ -912,16 +915,16 @@ pub const DeclGen = struct {
         try self.genBody(else_body);
     }
 
-    fn genDbgStmt(self: *DeclGen, inst: Air.Inst.Index) !void {
+    fn airDbgStmt(self: *DeclGen, inst: Air.Inst.Index) !void {
         const dbg_stmt = self.air.instructions.items(.data)[inst].dbg_stmt;
         const src_fname_id = try self.spv.resolveSourceFileName(self.decl);
         try writeInstruction(&self.code, .OpLine, &[_]Word{ src_fname_id, dbg_stmt.line, dbg_stmt.column });
     }
 
-    fn genLoad(self: *DeclGen, inst: Air.Inst.Index) !ResultId {
+    fn airLoad(self: *DeclGen, inst: Air.Inst.Index) !ResultId {
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         const operand_id = try self.resolve(ty_op.operand);
-        const ty = self.air.getType(inst);
+        const ty = self.air.typeOfIndex(inst);
 
         const result_type_id = try self.genType(ty);
         const result_id = self.spv.allocResultId();
@@ -936,8 +939,9 @@ pub const DeclGen = struct {
         return result_id;
     }
 
-    fn genLoop(self: *DeclGen, inst: Air.Inst.Index) !void {
-        const loop = self.air.extraData(Air.Block, inst_datas[inst].ty_pl.payload);
+    fn airLoop(self: *DeclGen, inst: Air.Inst.Index) !void {
+        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+        const loop = self.air.extraData(Air.Block, ty_pl.payload);
         const body = self.air.extra[loop.end..][0..loop.data.body_len];
         const loop_label_id = self.spv.allocResultId();
 
@@ -952,9 +956,9 @@ pub const DeclGen = struct {
         try writeInstruction(&self.code, .OpBranch, &[_]Word{loop_label_id});
     }
 
-    fn genRet(self: *DeclGen, inst: Air.Inst.Index) !void {
-        const operand = inst_datas[inst].un_op;
-        const operand_ty = self.air.getType(operand);
+    fn airRet(self: *DeclGen, inst: Air.Inst.Index) !void {
+        const operand = self.air.instructions.items(.data)[inst].un_op;
+        const operand_ty = self.air.typeOf(operand);
         if (operand_ty.hasCodeGenBits()) {
             const operand_id = try self.resolve(operand);
             try writeInstruction(&self.code, .OpReturnValue, &[_]Word{operand_id});
@@ -963,11 +967,11 @@ pub const DeclGen = struct {
         }
     }
 
-    fn genStore(self: *DeclGen, inst: Air.Inst.Index) !void {
+    fn airStore(self: *DeclGen, inst: Air.Inst.Index) !void {
         const bin_op = self.air.instructions.items(.data)[inst].bin_op;
         const dst_ptr_id = try self.resolve(bin_op.lhs);
         const src_val_id = try self.resolve(bin_op.rhs);
-        const lhs_ty = self.air.getType(bin_op.lhs);
+        const lhs_ty = self.air.typeOf(bin_op.lhs);
 
         const operands = if (lhs_ty.isVolatilePtr())
             &[_]Word{ dst_ptr_id, src_val_id, @bitCast(u32, spec.MemoryAccess{ .Volatile = true }) }
@@ -977,7 +981,7 @@ pub const DeclGen = struct {
         try writeInstruction(&self.code, .OpStore, operands);
     }
 
-    fn genUnreach(self: *DeclGen) !void {
+    fn airUnreach(self: *DeclGen) !void {
         try writeInstruction(&self.code, .OpUnreachable, &[_]Word{});
     }
 };

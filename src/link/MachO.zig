@@ -1150,9 +1150,13 @@ pub fn updateFunc(self: *MachO, module: *Module, func: *Module.Fn, air: Air, liv
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
 
-    var debug_buffers = if (self.d_sym) |*ds| try ds.initDeclDebugBuffers(self.base.allocator, module, decl) else null;
+    var debug_buffers_buf: DebugSymbols.DeclDebugBuffers = undefined;
+    const debug_buffers = if (self.d_sym) |*ds| blk: {
+        debug_buffers_buf = try ds.initDeclDebugBuffers(self.base.allocator, module, decl);
+        break :blk &debug_buffers_buf;
+    } else null;
     defer {
-        if (debug_buffers) |*dbg| {
+        if (debug_buffers) |dbg| {
             dbg.dbg_line_buffer.deinit();
             dbg.dbg_info_buffer.deinit();
             var it = dbg.dbg_info_type_relocs.valueIterator();
@@ -1163,7 +1167,7 @@ pub fn updateFunc(self: *MachO, module: *Module, func: *Module.Fn, air: Air, liv
         }
     }
 
-    const res = if (debug_buffers) |*dbg|
+    const res = if (debug_buffers) |dbg|
         try codegen.generateFunction(&self.base, decl.srcLoc(), func, air, liveness, &code_buffer, .{
             .dwarf = .{
                 .dbg_line = &dbg.dbg_line_buffer,
@@ -1172,9 +1176,109 @@ pub fn updateFunc(self: *MachO, module: *Module, func: *Module.Fn, air: Air, liv
             },
         })
     else
-        try codegen.generateSymbol(&self.base, decl.srcLoc(), func, air, liveness, &code_buffer, .none);
+        try codegen.generateFunction(&self.base, decl.srcLoc(), func, air, liveness, &code_buffer, .none);
+    switch (res) {
+        .appended => {},
+        .fail => |em| {
+            // Clear any PIE fixups for this decl.
+            self.pie_fixups.shrinkRetainingCapacity(0);
+            // Clear any stub fixups for this decl.
+            self.stub_fixups.shrinkRetainingCapacity(0);
+            decl.analysis = .codegen_failure;
+            try module.failed_decls.put(module.gpa, decl, em);
+            return;
+        },
+    }
+    const symbol = try self.placeDecl(decl, code_buffer.items.len);
 
-    return self.finishUpdateDecl(module, decl, res);
+    // Calculate displacements to target addr (if any).
+    while (self.pie_fixups.popOrNull()) |fixup| {
+        assert(fixup.size == 4);
+        const this_addr = symbol.n_value + fixup.offset;
+        const target_addr = fixup.target_addr;
+
+        switch (self.base.options.target.cpu.arch) {
+            .x86_64 => {
+                const displacement = try math.cast(u32, target_addr - this_addr - 4);
+                mem.writeIntLittle(u32, code_buffer.items[fixup.offset..][0..4], displacement);
+            },
+            .aarch64 => {
+                // TODO optimize instruction based on jump length (use ldr(literal) + nop if possible).
+                {
+                    const inst = code_buffer.items[fixup.offset..][0..4];
+                    const parsed = mem.bytesAsValue(meta.TagPayload(
+                        aarch64.Instruction,
+                        aarch64.Instruction.pc_relative_address,
+                    ), inst);
+                    const this_page = @intCast(i32, this_addr >> 12);
+                    const target_page = @intCast(i32, target_addr >> 12);
+                    const pages = @bitCast(u21, @intCast(i21, target_page - this_page));
+                    parsed.immhi = @truncate(u19, pages >> 2);
+                    parsed.immlo = @truncate(u2, pages);
+                }
+                {
+                    const inst = code_buffer.items[fixup.offset + 4 ..][0..4];
+                    const parsed = mem.bytesAsValue(meta.TagPayload(
+                        aarch64.Instruction,
+                        aarch64.Instruction.load_store_register,
+                    ), inst);
+                    const narrowed = @truncate(u12, target_addr);
+                    const offset = try math.divExact(u12, narrowed, 8);
+                    parsed.offset = offset;
+                }
+            },
+            else => unreachable, // unsupported target architecture
+        }
+    }
+
+    // Resolve stubs (if any)
+    const text_segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
+    const stubs = text_segment.sections.items[self.stubs_section_index.?];
+    for (self.stub_fixups.items) |fixup| {
+        const stub_addr = stubs.addr + fixup.symbol * stubs.reserved2;
+        const text_addr = symbol.n_value + fixup.start;
+        switch (self.base.options.target.cpu.arch) {
+            .x86_64 => {
+                assert(stub_addr >= text_addr + fixup.len);
+                const displacement = try math.cast(u32, stub_addr - text_addr - fixup.len);
+                const placeholder = code_buffer.items[fixup.start + fixup.len - @sizeOf(u32) ..][0..@sizeOf(u32)];
+                mem.writeIntSliceLittle(u32, placeholder, displacement);
+            },
+            .aarch64 => {
+                assert(stub_addr >= text_addr);
+                const displacement = try math.cast(i28, stub_addr - text_addr);
+                const placeholder = code_buffer.items[fixup.start..][0..fixup.len];
+                mem.writeIntSliceLittle(u32, placeholder, aarch64.Instruction.bl(displacement).toU32());
+            },
+            else => unreachable, // unsupported target architecture
+        }
+        if (!fixup.already_defined) {
+            try self.writeStub(fixup.symbol);
+            try self.writeStubInStubHelper(fixup.symbol);
+            try self.writeLazySymbolPointer(fixup.symbol);
+
+            self.rebase_info_dirty = true;
+            self.lazy_binding_info_dirty = true;
+        }
+    }
+    self.stub_fixups.shrinkRetainingCapacity(0);
+
+    try self.writeCode(symbol, code_buffer.items);
+
+    if (debug_buffers) |db| {
+        try self.d_sym.?.commitDeclDebugInfo(
+            self.base.allocator,
+            module,
+            decl,
+            db,
+            self.base.options.target,
+        );
+    }
+
+    // Since we updated the vaddr and the size, each corresponding export symbol also
+    // needs to be updated.
+    const decl_exports = module.decl_exports.get(decl) orelse &[0]*Module.Export{};
+    try self.updateDeclExports(module, decl, decl_exports);
 }
 
 pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
@@ -1194,9 +1298,13 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
 
-    var debug_buffers = if (self.d_sym) |*ds| try ds.initDeclDebugBuffers(self.base.allocator, module, decl) else null;
+    var debug_buffers_buf: DebugSymbols.DeclDebugBuffers = undefined;
+    const debug_buffers = if (self.d_sym) |*ds| blk: {
+        debug_buffers_buf = try ds.initDeclDebugBuffers(self.base.allocator, module, decl);
+        break :blk &debug_buffers_buf;
+    } else null;
     defer {
-        if (debug_buffers) |*dbg| {
+        if (debug_buffers) |dbg| {
             dbg.dbg_line_buffer.deinit();
             dbg.dbg_info_buffer.deinit();
             var it = dbg.dbg_info_type_relocs.valueIterator();
@@ -1207,7 +1315,7 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
         }
     }
 
-    const res = if (debug_buffers) |*dbg|
+    const res = if (debug_buffers) |dbg|
         try codegen.generateSymbol(&self.base, decl.srcLoc(), .{
             .ty = decl.ty,
             .val = decl.val,
@@ -1224,33 +1332,37 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
             .val = decl.val,
         }, &code_buffer, .none);
 
-    return self.finishUpdateDecl(module, decl, res);
-}
-
-fn finishUpdateDecl(self: *MachO, module: *Module, decl: *Module.Decl, res: codegen.Result) !void {
     const code = switch (res) {
         .externally_managed => |x| x,
         .appended => code_buffer.items,
         .fail => |em| {
-            // Clear any PIE fixups for this decl.
-            self.pie_fixups.shrinkRetainingCapacity(0);
-            // Clear any stub fixups for this decl.
-            self.stub_fixups.shrinkRetainingCapacity(0);
             decl.analysis = .codegen_failure;
             try module.failed_decls.put(module.gpa, decl, em);
             return;
         },
     };
+    const symbol = try self.placeDecl(decl, code.len);
+    assert(self.pie_fixups.items.len == 0);
+    assert(self.stub_fixups.items.len == 0);
 
+    try self.writeCode(symbol, code);
+
+    // Since we updated the vaddr and the size, each corresponding export symbol also
+    // needs to be updated.
+    const decl_exports = module.decl_exports.get(decl) orelse &[0]*Module.Export{};
+    try self.updateDeclExports(module, decl, decl_exports);
+}
+
+fn placeDecl(self: *MachO, decl: *Module.Decl, code_len: usize) !*macho.nlist_64 {
     const required_alignment = decl.ty.abiAlignment(self.base.options.target);
     assert(decl.link.macho.local_sym_index != 0); // Caller forgot to call allocateDeclIndexes()
     const symbol = &self.locals.items[decl.link.macho.local_sym_index];
 
     if (decl.link.macho.size != 0) {
         const capacity = decl.link.macho.capacity(self.*);
-        const need_realloc = code.len > capacity or !mem.isAlignedGeneric(u64, symbol.n_value, required_alignment);
+        const need_realloc = code_len > capacity or !mem.isAlignedGeneric(u64, symbol.n_value, required_alignment);
         if (need_realloc) {
-            const vaddr = try self.growTextBlock(&decl.link.macho, code.len, required_alignment);
+            const vaddr = try self.growTextBlock(&decl.link.macho, code_len, required_alignment);
 
             log.debug("growing {s} and moving from 0x{x} to 0x{x}", .{ decl.name, symbol.n_value, vaddr });
 
@@ -1265,10 +1377,10 @@ fn finishUpdateDecl(self: *MachO, module: *Module, decl: *Module.Decl, res: code
             }
 
             symbol.n_value = vaddr;
-        } else if (code.len < decl.link.macho.size) {
-            self.shrinkTextBlock(&decl.link.macho, code.len);
+        } else if (code_len < decl.link.macho.size) {
+            self.shrinkTextBlock(&decl.link.macho, code_len);
         }
-        decl.link.macho.size = code.len;
+        decl.link.macho.size = code_len;
 
         const new_name = try std.fmt.allocPrint(self.base.allocator, "_{s}", .{mem.spanZ(decl.name)});
         defer self.base.allocator.free(new_name);
@@ -1286,7 +1398,7 @@ fn finishUpdateDecl(self: *MachO, module: *Module, decl: *Module.Decl, res: code
         defer self.base.allocator.free(decl_name);
 
         const name_str_index = try self.makeString(decl_name);
-        const addr = try self.allocateTextBlock(&decl.link.macho, code.len, required_alignment);
+        const addr = try self.allocateTextBlock(&decl.link.macho, code_len, required_alignment);
 
         log.debug("allocated text block for {s} at 0x{x}", .{ decl_name, addr });
 
@@ -1311,96 +1423,15 @@ fn finishUpdateDecl(self: *MachO, module: *Module, decl: *Module.Decl, res: code
         try self.writeOffsetTableEntry(decl.link.macho.offset_table_index);
     }
 
-    // Calculate displacements to target addr (if any).
-    while (self.pie_fixups.popOrNull()) |fixup| {
-        assert(fixup.size == 4);
-        const this_addr = symbol.n_value + fixup.offset;
-        const target_addr = fixup.target_addr;
+    return symbol;
+}
 
-        switch (self.base.options.target.cpu.arch) {
-            .x86_64 => {
-                const displacement = try math.cast(u32, target_addr - this_addr - 4);
-                mem.writeIntLittle(u32, code_buffer.items[fixup.offset..][0..4], displacement);
-            },
-            .aarch64 => {
-                // TODO optimize instruction based on jump length (use ldr(literal) + nop if possible).
-                {
-                    const inst = code_buffer.items[fixup.offset..][0..4];
-                    var parsed = mem.bytesAsValue(meta.TagPayload(
-                        aarch64.Instruction,
-                        aarch64.Instruction.pc_relative_address,
-                    ), inst);
-                    const this_page = @intCast(i32, this_addr >> 12);
-                    const target_page = @intCast(i32, target_addr >> 12);
-                    const pages = @bitCast(u21, @intCast(i21, target_page - this_page));
-                    parsed.immhi = @truncate(u19, pages >> 2);
-                    parsed.immlo = @truncate(u2, pages);
-                }
-                {
-                    const inst = code_buffer.items[fixup.offset + 4 ..][0..4];
-                    var parsed = mem.bytesAsValue(meta.TagPayload(
-                        aarch64.Instruction,
-                        aarch64.Instruction.load_store_register,
-                    ), inst);
-                    const narrowed = @truncate(u12, target_addr);
-                    const offset = try math.divExact(u12, narrowed, 8);
-                    parsed.offset = offset;
-                }
-            },
-            else => unreachable, // unsupported target architecture
-        }
-    }
-
-    // Resolve stubs (if any)
-    const text_segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
-    const stubs = text_segment.sections.items[self.stubs_section_index.?];
-    for (self.stub_fixups.items) |fixup| {
-        const stub_addr = stubs.addr + fixup.symbol * stubs.reserved2;
-        const text_addr = symbol.n_value + fixup.start;
-        switch (self.base.options.target.cpu.arch) {
-            .x86_64 => {
-                assert(stub_addr >= text_addr + fixup.len);
-                const displacement = try math.cast(u32, stub_addr - text_addr - fixup.len);
-                var placeholder = code_buffer.items[fixup.start + fixup.len - @sizeOf(u32) ..][0..@sizeOf(u32)];
-                mem.writeIntSliceLittle(u32, placeholder, displacement);
-            },
-            .aarch64 => {
-                assert(stub_addr >= text_addr);
-                const displacement = try math.cast(i28, stub_addr - text_addr);
-                var placeholder = code_buffer.items[fixup.start..][0..fixup.len];
-                mem.writeIntSliceLittle(u32, placeholder, aarch64.Instruction.bl(displacement).toU32());
-            },
-            else => unreachable, // unsupported target architecture
-        }
-        if (!fixup.already_defined) {
-            try self.writeStub(fixup.symbol);
-            try self.writeStubInStubHelper(fixup.symbol);
-            try self.writeLazySymbolPointer(fixup.symbol);
-
-            self.rebase_info_dirty = true;
-            self.lazy_binding_info_dirty = true;
-        }
-    }
-    self.stub_fixups.shrinkRetainingCapacity(0);
-
+fn writeCode(self: *MachO, symbol: *macho.nlist_64, code: []const u8) !void {
+    const text_segment = &self.load_commands.items[self.text_segment_cmd_index.?].Segment;
     const text_section = text_segment.sections.items[self.text_section_index.?];
     const section_offset = symbol.n_value - text_section.addr;
     const file_offset = text_section.offset + section_offset;
     try self.base.file.?.pwriteAll(code, file_offset);
-
-    if (debug_buffers) |*db| {
-        try self.d_sym.?.commitDeclDebugInfo(
-            self.base.allocator,
-            module,
-            decl,
-            db,
-            self.base.options.target,
-        );
-    }
-
-    // Since we updated the vaddr and the size, each corresponding export symbol also needs to be updated.
-    const decl_exports = module.decl_exports.get(decl) orelse &[0]*Module.Export{};
-    try self.updateDeclExports(module, decl, decl_exports);
 }
 
 pub fn updateDeclLineNumber(self: *MachO, module: *Module, decl: *const Module.Decl) !void {

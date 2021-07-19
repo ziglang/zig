@@ -642,7 +642,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
                         try self.dbgSetPrologueEnd();
 
-                        try self.genBody(self.mod_fn.body);
+                        try self.genBody(self.air.getMainBody());
 
                         // Backpatch push callee saved regs
                         var saved_regs = Instruction.RegisterList{
@@ -703,7 +703,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         writeInt(u32, try self.code.addManyAsArray(4), Instruction.ldm(.al, .sp, true, saved_regs).toU32());
                     } else {
                         try self.dbgSetPrologueEnd();
-                        try self.genBody(self.mod_fn.body);
+                        try self.genBody(self.air.getMainBody());
                         try self.dbgSetEpilogueBegin();
                     }
                 },
@@ -727,7 +727,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
                         try self.dbgSetPrologueEnd();
 
-                        try self.genBody(self.mod_fn.body);
+                        try self.genBody(self.air.getMainBody());
 
                         // Backpatch stack offset
                         const stack_end = self.max_end_stack;
@@ -779,13 +779,13 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         writeInt(u32, try self.code.addManyAsArray(4), Instruction.ret(null).toU32());
                     } else {
                         try self.dbgSetPrologueEnd();
-                        try self.genBody(self.mod_fn.body);
+                        try self.genBody(self.air.getMainBody());
                         try self.dbgSetEpilogueBegin();
                     }
                 },
                 else => {
                     try self.dbgSetPrologueEnd();
-                    try self.genBody(self.mod_fn.body);
+                    try self.genBody(self.air.getMainBody());
                     try self.dbgSetEpilogueBegin();
                 },
             }
@@ -1492,7 +1492,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             };
         }
 
-        fn genArmBinOp(self: *Self, inst: Air.Inst.Index, op_lhs: Air.Inst.Ref, op_rhs: Air.Inst.Ref, op: ir.Inst.Tag) !MCValue {
+        fn genArmBinOp(self: *Self, inst: Air.Inst.Index, op_lhs: Air.Inst.Ref, op_rhs: Air.Inst.Ref, op: Air.Inst.Tag) !MCValue {
             const lhs = try self.resolveInst(op_lhs);
             const rhs = try self.resolveInst(op_rhs);
 
@@ -1514,14 +1514,14 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             if (reuse_lhs) {
                 // Allocate 0 or 1 registers
                 if (!rhs_is_register and rhs_should_be_register) {
-                    rhs_mcv = MCValue{ .register = try self.register_manager.allocReg(op_rhs, &.{lhs.register}) };
+                    rhs_mcv = MCValue{ .register = try self.register_manager.allocReg(Air.refToIndex(op_rhs).?, &.{lhs.register}) };
                     branch.inst_table.putAssumeCapacity(Air.refToIndex(op_rhs).?, rhs_mcv);
                 }
                 dst_mcv = lhs;
             } else if (reuse_rhs) {
                 // Allocate 0 or 1 registers
                 if (!lhs_is_register and lhs_should_be_register) {
-                    lhs_mcv = MCValue{ .register = try self.register_manager.allocReg(op_lhs, &.{rhs.register}) };
+                    lhs_mcv = MCValue{ .register = try self.register_manager.allocReg(Air.refToIndex(op_lhs).?, &.{rhs.register}) };
                     branch.inst_table.putAssumeCapacity(Air.refToIndex(op_lhs).?, lhs_mcv);
                 }
                 dst_mcv = rhs;
@@ -1542,7 +1542,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         lhs_mcv = dst_mcv;
                     } else {
                         // Move LHS and RHS to register
-                        const regs = try self.register_manager.allocRegs(2, .{ inst, op_rhs }, &.{});
+                        const regs = try self.register_manager.allocRegs(2, .{ inst, Air.refToIndex(op_rhs).? }, &.{});
                         lhs_mcv = MCValue{ .register = regs[0] };
                         rhs_mcv = MCValue{ .register = regs[1] };
                         dst_mcv = lhs_mcv;
@@ -1572,10 +1572,10 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
             // Move the operands to the newly allocated registers
             if (lhs_mcv == .register and !lhs_is_register) {
-                try self.genSetReg(op_lhs.ty, lhs_mcv.register, lhs);
+                try self.genSetReg(self.air.typeOf(op_lhs), lhs_mcv.register, lhs);
             }
             if (rhs_mcv == .register and !rhs_is_register) {
-                try self.genSetReg(op_rhs.ty, rhs_mcv.register, rhs);
+                try self.genSetReg(self.air.typeOf(op_rhs), rhs_mcv.register, rhs);
             }
 
             try self.genArmBinOpCode(
@@ -1594,7 +1594,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             lhs_mcv: MCValue,
             rhs_mcv: MCValue,
             swap_lhs_and_rhs: bool,
-            op: ir.Inst.Tag,
+            op: Air.Inst.Tag,
         ) !void {
             assert(lhs_mcv == .register or rhs_mcv == .register);
 
@@ -1665,14 +1665,14 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             if (reuse_lhs) {
                 // Allocate 0 or 1 registers
                 if (!rhs_is_register) {
-                    rhs_mcv = MCValue{ .register = try self.register_manager.allocReg(op_rhs, &.{lhs.register}) };
+                    rhs_mcv = MCValue{ .register = try self.register_manager.allocReg(Air.refToIndex(op_rhs).?, &.{lhs.register}) };
                     branch.inst_table.putAssumeCapacity(Air.refToIndex(op_rhs).?, rhs_mcv);
                 }
                 dst_mcv = lhs;
             } else if (reuse_rhs) {
                 // Allocate 0 or 1 registers
                 if (!lhs_is_register) {
-                    lhs_mcv = MCValue{ .register = try self.register_manager.allocReg(op_lhs, &.{rhs.register}) };
+                    lhs_mcv = MCValue{ .register = try self.register_manager.allocReg(Air.refToIndex(op_lhs).?, &.{rhs.register}) };
                     branch.inst_table.putAssumeCapacity(Air.refToIndex(op_lhs).?, lhs_mcv);
                 }
                 dst_mcv = rhs;
@@ -1690,7 +1690,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     lhs_mcv = dst_mcv;
                 } else {
                     // Move LHS and RHS to register
-                    const regs = try self.register_manager.allocRegs(2, .{ inst, op_rhs }, &.{});
+                    const regs = try self.register_manager.allocRegs(2, .{ inst, Air.refToIndex(op_rhs).? }, &.{});
                     lhs_mcv = MCValue{ .register = regs[0] };
                     rhs_mcv = MCValue{ .register = regs[1] };
                     dst_mcv = lhs_mcv;
@@ -1701,10 +1701,10 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
             // Move the operands to the newly allocated registers
             if (!lhs_is_register) {
-                try self.genSetReg(op_lhs.ty, lhs_mcv.register, lhs);
+                try self.genSetReg(self.air.typeOf(op_lhs), lhs_mcv.register, lhs);
             }
             if (!rhs_is_register) {
-                try self.genSetReg(op_rhs.ty, rhs_mcv.register, rhs);
+                try self.genSetReg(self.air.typeOf(op_rhs), rhs_mcv.register, rhs);
             }
 
             writeInt(u32, try self.code.addManyAsArray(4), Instruction.mul(.al, dst_mcv.register, lhs_mcv.register, rhs_mcv.register).toU32());
@@ -2704,9 +2704,9 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     },
                     .aarch64 => {
                         for (info.args) |mc_arg, arg_i| {
-                            const arg = inst.args[arg_i];
+                            const arg = args[arg_i];
                             const arg_ty = self.air.typeOf(arg);
-                            const arg_mcv = try self.resolveInst(inst.args[arg_i]);
+                            const arg_mcv = try self.resolveInst(args[arg_i]);
 
                             switch (mc_arg) {
                                 .none => continue,
@@ -2733,7 +2733,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 },
                             }
                         }
-                        if (inst.func.value()) |func_value| {
+                        if (self.air.value(callee)) |func_value| {
                             if (func_value.castTag(.function)) |func_payload| {
                                 const ptr_bits = self.target.cpu.arch.ptrBitWidth();
                                 const ptr_bytes: u64 = @divExact(ptr_bits, 8);
@@ -2899,15 +2899,17 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     // Allocate registers
                     if (rhs_should_be_register) {
                         if (!lhs_is_register and !rhs_is_register) {
-                            const regs = try self.register_manager.allocRegs(2, .{ bin_op.rhs, bin_op.lhs }, &.{});
+                            const regs = try self.register_manager.allocRegs(2, .{
+                                Air.refToIndex(bin_op.rhs).?, Air.refToIndex(bin_op.lhs).?,
+                            }, &.{});
                             lhs_mcv = MCValue{ .register = regs[0] };
                             rhs_mcv = MCValue{ .register = regs[1] };
                         } else if (!rhs_is_register) {
-                            rhs_mcv = MCValue{ .register = try self.register_manager.allocReg(bin_op.rhs, &.{}) };
+                            rhs_mcv = MCValue{ .register = try self.register_manager.allocReg(Air.refToIndex(bin_op.rhs).?, &.{}) };
                         }
                     }
                     if (!lhs_is_register) {
-                        lhs_mcv = MCValue{ .register = try self.register_manager.allocReg(bin_op.lhs, &.{}) };
+                        lhs_mcv = MCValue{ .register = try self.register_manager.allocReg(Air.refToIndex(bin_op.lhs).?, &.{}) };
                     }
 
                     // Move the operands to the newly allocated registers
@@ -3538,7 +3540,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
                         break :result MCValue{ .register = reg };
                     } else {
-                        break :result MCValue.none;
+                        break :result MCValue{ .none = {} };
                     }
                 },
                 .aarch64 => result: {
@@ -3576,7 +3578,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             return self.fail("unrecognized register: '{s}'", .{reg_name});
                         break :result MCValue{ .register = reg };
                     } else {
-                        break :result MCValue.none;
+                        break :result MCValue{ .none = {} };
                     }
                 },
                 .riscv64 => result: {
@@ -3612,7 +3614,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             return self.fail("unrecognized register: '{s}'", .{reg_name});
                         break :result MCValue{ .register = reg };
                     } else {
-                        break :result MCValue.none;
+                        break :result MCValue{ .none = {} };
                     }
                 },
                 .x86_64, .i386 => result: {
