@@ -276,10 +276,71 @@ pub const Object = struct {
         }
     }
 
-    pub fn updateDecl(self: *Object, module: *Module, decl: *Module.Decl) !void {
-        const tracy = trace(@src());
-        defer tracy.end();
+    pub fn updateFunc(
+        self: *Object,
+        module: *Module,
+        func: *Module.Fn,
+        air: Air,
+        liveness: Liveness,
+    ) !void {
+        var dg: DeclGen = .{
+            .object = self,
+            .module = module,
+            .decl = func.owner_decl,
+            .err_msg = null,
+            .gpa = module.gpa,
+        };
 
+        const llvm_func = try dg.resolveLLVMFunction(func.owner_decl);
+
+        // This gets the LLVM values from the function and stores them in `dg.args`.
+        const fn_param_len = func.owner_decl.ty.fnParamLen();
+        var args = try dg.gpa.alloc(*const llvm.Value, fn_param_len);
+
+        for (args) |*arg, i| {
+            arg.* = llvm.getParam(llvm_func, @intCast(c_uint, i));
+        }
+
+        // We remove all the basic blocks of a function to support incremental
+        // compilation!
+        // TODO: remove all basic blocks if functions can have more than one
+        if (llvm_func.getFirstBasicBlock()) |bb| {
+            bb.deleteBasicBlock();
+        }
+
+        const builder = dg.context().createBuilder();
+
+        const entry_block = dg.context().appendBasicBlock(llvm_func, "Entry");
+        builder.positionBuilderAtEnd(entry_block);
+
+        var fg: FuncGen = .{
+            .gpa = dg.gpa,
+            .air = air,
+            .liveness = liveness,
+            .dg = &dg,
+            .builder = builder,
+            .args = args,
+            .arg_index = 0,
+            .func_inst_table = .{},
+            .entry_block = entry_block,
+            .latest_alloca_inst = null,
+            .llvm_func = llvm_func,
+            .blocks = .{},
+        };
+        defer fg.deinit();
+
+        fg.genBody(air.getMainBody()) catch |err| switch (err) {
+            error.CodegenFail => {
+                func.owner_decl.analysis = .codegen_failure;
+                try module.failed_decls.put(module.gpa, func.owner_decl, dg.err_msg.?);
+                dg.err_msg = null;
+                return;
+            },
+            else => |e| return e,
+        };
+    }
+
+    pub fn updateDecl(self: *Object, module: *Module, decl: *Module.Decl) !void {
         var dg: DeclGen = .{
             .object = self,
             .module = module,
@@ -330,45 +391,8 @@ pub const DeclGen = struct {
         log.debug("gen: {s} type: {}, value: {}", .{ decl.name, decl.ty, decl.val });
 
         if (decl.val.castTag(.function)) |func_payload| {
-            const func = func_payload.data;
-
-            const llvm_func = try self.resolveLLVMFunction(func.owner_decl);
-
-            // This gets the LLVM values from the function and stores them in `self.args`.
-            const fn_param_len = func.owner_decl.ty.fnParamLen();
-            var args = try self.gpa.alloc(*const llvm.Value, fn_param_len);
-
-            for (args) |*arg, i| {
-                arg.* = llvm.getParam(llvm_func, @intCast(c_uint, i));
-            }
-
-            // We remove all the basic blocks of a function to support incremental
-            // compilation!
-            // TODO: remove all basic blocks if functions can have more than one
-            if (llvm_func.getFirstBasicBlock()) |bb| {
-                bb.deleteBasicBlock();
-            }
-
-            const builder = self.context().createBuilder();
-
-            const entry_block = self.context().appendBasicBlock(llvm_func, "Entry");
-            builder.positionBuilderAtEnd(entry_block);
-
-            var fg: FuncGen = .{
-                .gpa = self.gpa,
-                .dg = self,
-                .builder = builder,
-                .args = args,
-                .arg_index = 0,
-                .func_inst_table = .{},
-                .entry_block = entry_block,
-                .latest_alloca_inst = null,
-                .llvm_func = llvm_func,
-                .blocks = .{},
-            };
-            defer fg.deinit();
-
-            try fg.genBody(func.body);
+            _ = func_payload;
+            @panic("TODO llvm backend genDecl function pointer");
         } else if (decl.val.castTag(.extern_fn)) |extern_fn| {
             _ = try self.resolveLLVMFunction(extern_fn.data);
         } else {
@@ -596,6 +620,8 @@ pub const DeclGen = struct {
 pub const FuncGen = struct {
     gpa: *Allocator,
     dg: *DeclGen,
+    air: Air,
+    liveness: Liveness,
 
     builder: *const llvm.Builder,
 
@@ -649,14 +675,15 @@ pub const FuncGen = struct {
         if (self.air.value(inst)) |val| {
             return self.dg.genTypedValue(.{ .ty = self.air.typeOf(inst), .val = val }, self);
         }
-        if (self.func_inst_table.get(inst)) |value| return value;
+        const inst_index = Air.refToIndex(inst).?;
+        if (self.func_inst_table.get(inst_index)) |value| return value;
 
         return self.todo("implement global llvm values (or the value is not in the func_inst_table table)", .{});
     }
 
-    fn genBody(self: *FuncGen, body: ir.Body) error{ OutOfMemory, CodegenFail }!void {
+    fn genBody(self: *FuncGen, body: []const Air.Inst.Index) error{ OutOfMemory, CodegenFail }!void {
         const air_tags = self.air.instructions.items(.tag);
-        for (body.instructions) |inst| {
+        for (body) |inst| {
             const opt_value = switch (air_tags[inst]) {
                 .add => try self.airAdd(inst),
                 .sub => try self.airSub(inst),
@@ -828,8 +855,8 @@ pub const FuncGen = struct {
 
         // If the break doesn't break a value, then we don't have to add
         // the values to the lists.
-        if (self.air.typeOf(branch.result).hasCodeGenBits()) {
-            const val = try self.resolveInst(branch.result);
+        if (self.air.typeOf(branch.operand).hasCodeGenBits()) {
+            const val = try self.resolveInst(branch.operand);
 
             // For the phi node, we need the basic blocks and the values of the
             // break instructions.

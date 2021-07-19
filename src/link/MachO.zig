@@ -30,12 +30,16 @@ const DebugSymbols = @import("MachO/DebugSymbols.zig");
 const Trie = @import("MachO/Trie.zig");
 const CodeSignature = @import("MachO/CodeSignature.zig");
 const Zld = @import("MachO/Zld.zig");
+const llvm_backend = @import("../codegen/llvm.zig");
 
 usingnamespace @import("MachO/commands.zig");
 
 pub const base_tag: File.Tag = File.Tag.macho;
 
 base: File,
+
+/// If this is not null, an object file is created by LLVM and linked with LLD afterwards.
+llvm_object: ?*llvm_backend.Object = null,
 
 /// Debug symbols bundle (or dSym).
 d_sym: ?DebugSymbols = null,
@@ -347,8 +351,13 @@ pub const SrcFn = struct {
 pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Options) !*MachO {
     assert(options.object_format == .macho);
 
-    if (options.use_llvm) return error.LLVM_BackendIsTODO_ForMachO; // TODO
-    if (options.use_lld) return error.LLD_LinkingIsTODO_ForMachO; // TODO
+    if (build_options.have_llvm and options.use_llvm) {
+        const self = try createEmpty(allocator, options);
+        errdefer self.base.destroy();
+
+        self.llvm_object = try llvm_backend.Object.create(allocator, sub_path, options);
+        return self;
+    }
 
     const file = try options.emit.?.directory.handle.createFile(sub_path, .{
         .truncate = false,
