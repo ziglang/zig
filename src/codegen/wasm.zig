@@ -24,8 +24,8 @@ const WValue = union(enum) {
     none: void,
     /// Index of the local variable
     local: u32,
-    /// Instruction holding a constant `Value`
-    constant: Air.Inst.Index,
+    /// Holds a memoized typed value
+    constant: TypedValue,
     /// Offset position in the list of bytecode instructions
     code_offset: usize,
     /// Used for variables that create multiple locals on the stack when allocated
@@ -484,7 +484,7 @@ pub const Result = union(enum) {
 };
 
 /// Hashmap to store generated `WValue` for each `Air.Inst.Ref`
-pub const ValueTable = std.AutoHashMapUnmanaged(Air.Inst.Ref, WValue);
+pub const ValueTable = std.AutoHashMapUnmanaged(Air.Inst.Index, WValue);
 
 /// Code represents the `Code` section of wasm that
 /// belongs to a function
@@ -548,14 +548,23 @@ pub const Context = struct {
     /// Resolves the `WValue` for the given instruction `inst`
     /// When the given instruction has a `Value`, it returns a constant instead
     fn resolveInst(self: Context, ref: Air.Inst.Ref) WValue {
-        const ref_type = self.air.getRefType(ref);
-        if (ref_type.hasCodeGenBits()) return .none;
+        const inst_index = Air.refToIndex(ref) orelse {
+            const tv = Air.Inst.Ref.typed_value_map[@enumToInt(ref)];
+            if (!tv.ty.hasCodeGenBits()) {
+                return WValue.none;
+            }
+            return WValue{ .constant = tv };
+        };
 
-        if (self.air.instructions.items(.tag)[@enumToInt(ref)] == .constant) {
-            return WValue{ .constant = @enumToInt(ref) };
+        const inst_type = self.air.typeOfIndex(inst_index);
+        if (!inst_type.hasCodeGenBits()) return .none;
+
+        if (self.air.instructions.items(.tag)[inst_index] == .constant) {
+            const ty_pl = self.air.instructions.items(.data)[inst_index].ty_pl;
+            return WValue{ .constant = .{ .ty = inst_type, .val = self.air.values[ty_pl.payload] } };
         }
 
-        return self.values.get(ref).?; // Instruction does not dominate all uses!
+        return self.values.get(inst_index).?; // Instruction does not dominate all uses!
     }
 
     /// Using a given `Type`, returns the corresponding wasm Valtype
@@ -611,12 +620,7 @@ pub const Context = struct {
                 try writer.writeByte(wasm.opcode(.local_get));
                 try leb.writeULEB128(writer, idx);
             },
-            .constant => |index| {
-                const ty_pl = self.air.instructions.items(.data)[index].ty_pl;
-                const value = self.air.values[ty_pl.payload];
-                // create a new constant onto the stack
-                try self.emitConstant(value, self.air.getRefType(ty_pl.ty));
-            },
+            .constant => |tv| try self.emitConstant(tv.val, tv.ty), // Creates a new constant on the stack
         }
     }
 
@@ -838,7 +842,7 @@ pub const Context = struct {
     fn genBody(self: *Context, body: []const Air.Inst.Index) InnerError!void {
         for (body) |inst| {
             const result = try self.genInst(inst);
-            try self.values.putNoClobber(self.gpa, @intToEnum(Air.Inst.Ref, inst), result);
+            try self.values.putNoClobber(self.gpa, inst, result);
         }
     }
 
@@ -856,8 +860,7 @@ pub const Context = struct {
         const args = self.air.extra[extra.end..][0..extra.data.args_len];
 
         const target: *Decl = blk: {
-            const ty_pl = self.air.instructions.items(.data)[@enumToInt(pl_op.operand)].ty_pl;
-            const func_val = self.air.values[ty_pl.payload];
+            const func_val = self.air.value(pl_op.operand).?;
 
             if (func_val.castTag(.function)) |func| {
                 break :blk func.data.owner_decl;
@@ -868,7 +871,7 @@ pub const Context = struct {
         };
 
         for (args) |arg| {
-            const arg_val = self.resolveInst(@intToEnum(Air.Inst.Ref, arg));
+            const arg_val = self.resolveInst(Air.indexToRef(arg));
             try self.emitWValue(arg_val);
         }
 
@@ -902,7 +905,7 @@ pub const Context = struct {
                 // we simply assign the local_index to the rhs one.
                 // This allows us to update struct fields without having to individually
                 // set each local as each field's index will be calculated off the struct's base index
-                .multi_value => self.values.put(self.gpa, bin_op.lhs, rhs) catch unreachable, // Instruction does not dominate all uses!
+                .multi_value => self.values.put(self.gpa, Air.refToIndex(bin_op.lhs).?, rhs) catch unreachable, // Instruction does not dominate all uses!
                 .constant, .none => {
                     // emit all values onto the stack if constant
                     try self.emitWValue(rhs);
@@ -1294,10 +1297,8 @@ pub const Context = struct {
             try self.startBlock(.block, blocktype, null);
             try self.emitWValue(target);
 
-            // cases must represent a constant of which its type is in the `typed_value_map`
-            // Therefore we can simply retrieve it.
-            const ty_val = Air.Inst.Ref.typed_value_map[@enumToInt(case.data.item)];
-            try self.emitConstant(ty_val.val, target_ty);
+            const val = self.air.value(case.data.item).?;
+            try self.emitConstant(val, target_ty);
             const opcode = buildOpcode(.{
                 .valtype1 = valtype,
                 .op = .ne, // not equal because we jump out the block if it does not match the condition
