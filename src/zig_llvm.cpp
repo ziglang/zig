@@ -986,11 +986,11 @@ static AtomicOrdering mapFromLLVMOrdering(LLVMAtomicOrdering Ordering) {
 }
 
 LLVMValueRef ZigLLVMBuildCmpXchg(LLVMBuilderRef builder, LLVMValueRef ptr, LLVMValueRef cmp,
-        LLVMValueRef new_val, LLVMAtomicOrdering success_ordering,
+        LLVMValueRef new_val, unsigned Align, LLVMAtomicOrdering success_ordering,
         LLVMAtomicOrdering failure_ordering, bool is_weak)
 {
     AtomicCmpXchgInst *inst = unwrap(builder)->CreateAtomicCmpXchg(unwrap(ptr), unwrap(cmp),
-                unwrap(new_val), Align(), mapFromLLVMOrdering(success_ordering),
+                unwrap(new_val), MaybeAlign(Align), mapFromLLVMOrdering(success_ordering),
                 mapFromLLVMOrdering(failure_ordering));
     inst->setWeak(is_weak);
     return wrap(inst);
@@ -1231,12 +1231,12 @@ inline Attribute unwrap(LLVMAttributeRef Attr) {
 }
 
 LLVMValueRef ZigLLVMBuildAtomicRMW(LLVMBuilderRef B, enum ZigLLVM_AtomicRMWBinOp op,
-    LLVMValueRef PTR, LLVMValueRef Val,
+    LLVMValueRef PTR, LLVMValueRef Val, unsigned Align,
     LLVMAtomicOrdering ordering, LLVMBool singleThread)
 {
     AtomicRMWInst::BinOp intop = toLLVMRMWBinOp(op);
     return wrap(unwrap(B)->CreateAtomicRMW(intop, unwrap(PTR),
-        unwrap(Val), Align(), toLLVMOrdering(ordering),
+        unwrap(Val), MaybeAlign(Align), toLLVMOrdering(ordering),
         singleThread ? SyncScope::SingleThread : SyncScope::System));
 }
 
