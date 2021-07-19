@@ -36,7 +36,7 @@ compile_errors: ArrayListUnmanaged(Zir.Inst.CompileErrors.Item) = .{},
 fn_block: ?*GenZir = null,
 /// Maps string table indexes to the first `@import` ZIR instruction
 /// that uses this string as the operand.
-imports: std.AutoArrayHashMapUnmanaged(u32, Zir.Inst.Index) = .{},
+imports: std.AutoArrayHashMapUnmanaged(u32, ast.TokenIndex) = .{},
 
 const InnerError = error{ OutOfMemory, AnalysisFail };
 
@@ -132,8 +132,7 @@ pub fn generate(gpa: *Allocator, tree: ast.Tree) Allocator.Error!Zir {
     if (astgen.compile_errors.items.len == 0) {
         astgen.extra.items[err_index] = 0;
     } else {
-        try astgen.extra.ensureCapacity(gpa, astgen.extra.items.len +
-            1 + astgen.compile_errors.items.len *
+        try astgen.extra.ensureUnusedCapacity(gpa, 1 + astgen.compile_errors.items.len *
             @typeInfo(Zir.Inst.CompileErrors.Item).Struct.fields.len);
 
         astgen.extra.items[err_index] = astgen.addExtraAssumeCapacity(Zir.Inst.CompileErrors{
@@ -149,13 +148,20 @@ pub fn generate(gpa: *Allocator, tree: ast.Tree) Allocator.Error!Zir {
     if (astgen.imports.count() == 0) {
         astgen.extra.items[imports_index] = 0;
     } else {
-        try astgen.extra.ensureCapacity(gpa, astgen.extra.items.len +
-            @typeInfo(Zir.Inst.Imports).Struct.fields.len + astgen.imports.count());
+        try astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.Imports).Struct.fields.len +
+            astgen.imports.count() * @typeInfo(Zir.Inst.Imports.Item).Struct.fields.len);
 
         astgen.extra.items[imports_index] = astgen.addExtraAssumeCapacity(Zir.Inst.Imports{
             .imports_len = @intCast(u32, astgen.imports.count()),
         });
-        astgen.extra.appendSliceAssumeCapacity(astgen.imports.values());
+
+        var it = astgen.imports.iterator();
+        while (it.next()) |entry| {
+            _ = astgen.addExtraAssumeCapacity(Zir.Inst.Imports.Item{
+                .name = entry.key_ptr.*,
+                .token = entry.value_ptr.*,
+            });
+        }
     }
 
     return Zir{
@@ -6986,12 +6992,10 @@ fn builtinCall(
             const str_lit_token = main_tokens[operand_node];
             const str = try astgen.strLitAsString(str_lit_token);
             const result = try gz.addStrTok(.import, str.index, str_lit_token);
-            if (gz.refToIndex(result)) |import_inst_index| {
                 const gop = try astgen.imports.getOrPut(astgen.gpa, str.index);
                 if (!gop.found_existing) {
-                    gop.value_ptr.* = import_inst_index;
+                    gop.value_ptr.* = str_lit_token;
                 }
-            }
             return rvalue(gz, rl, result, node);
         },
         .compile_log => {
