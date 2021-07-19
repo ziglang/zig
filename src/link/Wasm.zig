@@ -19,12 +19,15 @@ const build_options = @import("build_options");
 const wasi_libc = @import("../wasi_libc.zig");
 const Cache = @import("../Cache.zig");
 const TypedValue = @import("../TypedValue.zig");
+const llvm_backend = @import("../codegen/llvm.zig");
 const Air = @import("../Air.zig");
 const Liveness = @import("../Liveness.zig");
 
 pub const base_tag = link.File.Tag.wasm;
 
 base: link.File,
+/// If this is not null, an object file is created by LLVM and linked with LLD afterwards.
+llvm_object: ?*llvm_backend.Object = null,
 /// List of all function Decls to be written to the output file. The index of
 /// each Decl in this list at the time of writing the binary is used as the
 /// function index. In the event where ext_funcs' size is not 0, the index of
@@ -114,8 +117,13 @@ pub const DeclBlock = struct {
 pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Options) !*Wasm {
     assert(options.object_format == .wasm);
 
-    if (options.use_llvm) return error.LLVM_BackendIsTODO_ForWasm; // TODO
-    if (options.use_lld) return error.LLD_LinkingIsTODO_ForWasm; // TODO
+    if (build_options.have_llvm and options.use_llvm) {
+        const self = try createEmpty(allocator, options);
+        errdefer self.base.destroy();
+
+        self.llvm_object = try llvm_backend.Object.create(allocator, sub_path, options);
+        return self;
+    }
 
     // TODO: read the file and keep valid parts instead of truncating
     const file = try options.emit.?.directory.handle.createFile(sub_path, .{ .truncate = true, .read = true });
