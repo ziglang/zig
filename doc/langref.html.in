@@ -5725,9 +5725,8 @@ test "turn HashMap into a set with void" {
       value is deleted, as seen above.
       </p>
       <p>
-      {#syntax#}void{#endsyntax#} is distinct from {#syntax#}c_void{#endsyntax#}, which is defined like this:
-              {#syntax#}pub const c_void = opaque {};{#endsyntax#}.
-                  {#syntax#}void{#endsyntax#} has a known size of 0 bytes, and {#syntax#}c_void{#endsyntax#} has an unknown, but non-zero, size.
+      {#syntax#}void{#endsyntax#} is distinct from {#syntax#}c_void{#endsyntax#}.
+      {#syntax#}void{#endsyntax#} has a known size of 0 bytes, and {#syntax#}c_void{#endsyntax#} has an unknown, but non-zero, size.
       </p>
       <p>
       Expressions of type {#syntax#}void{#endsyntax#} are the only ones whose value can be ignored. For example:
