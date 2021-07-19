@@ -250,6 +250,8 @@ pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
 
     var context = codegen.Context{
         .gpa = self.base.allocator,
+        .air = undefined,
+        .liveness = undefined,
         .values = .{},
         .code = fn_data.code.toManaged(self.base.allocator),
         .func_type_data = fn_data.functype.toManaged(self.base.allocator),

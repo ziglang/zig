@@ -657,11 +657,16 @@ fn writeOffsetTableEntry(self: *Coff, index: usize) !void {
 }
 
 pub fn updateFunc(self: *Coff, module: *Module, func: *Module.Fn, air: Air, liveness: Liveness) !void {
-    if (build_options.skip_non_native and builtin.object_format != .coff and builtin.object_format != .pe) {
+    if (build_options.skip_non_native and
+        builtin.object_format != .coff and
+        builtin.object_format != .pe)
+    {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
     if (build_options.have_llvm) {
-        if (self.llvm_object) |llvm_object| return llvm_object.updateFunc(module, func, air, liveness);
+        if (self.llvm_object) |llvm_object| {
+            return llvm_object.updateFunc(module, func, air, liveness);
+        }
     }
     const tracy = trace(@src());
     defer tracy.end();
@@ -669,6 +674,7 @@ pub fn updateFunc(self: *Coff, module: *Module, func: *Module.Fn, air: Air, live
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
 
+    const decl = func.owner_decl;
     const res = try codegen.generateFunction(
         &self.base,
         decl.srcLoc(),
@@ -679,7 +685,6 @@ pub fn updateFunc(self: *Coff, module: *Module, func: *Module.Fn, air: Air, live
         .none,
     );
     const code = switch (res) {
-        .externally_managed => |x| x,
         .appended => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
@@ -725,10 +730,10 @@ pub fn updateDecl(self: *Coff, module: *Module, decl: *Module.Decl) !void {
         },
     };
 
-    return self.finishUpdateDecl(module, func.owner_decl, code);
+    return self.finishUpdateDecl(module, decl, code);
 }
 
-fn finishUpdateDecl(self: *Coff, decl: *Module.Decl, code: []const u8) !void {
+fn finishUpdateDecl(self: *Coff, module: *Module, decl: *Module.Decl, code: []const u8) !void {
     const required_alignment = decl.ty.abiAlignment(self.base.options.target);
     const curr_size = decl.link.coff.size;
     if (curr_size != 0) {

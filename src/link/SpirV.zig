@@ -51,7 +51,12 @@ base: link.File,
 /// This linker backend does not try to incrementally link output SPIR-V code.
 /// Instead, it tracks all declarations in this table, and iterates over it
 /// in the flush function.
-decl_table: std.AutoArrayHashMapUnmanaged(*Module.Decl, void) = .{},
+decl_table: std.AutoArrayHashMapUnmanaged(*Module.Decl, DeclGenContext) = .{},
+
+const DeclGenContext = struct {
+    air: Air,
+    liveness: Liveness,
+};
 
 pub fn createEmpty(gpa: *Allocator, options: link.Options) !*SpirV {
     const spirv = try gpa.create(SpirV);
@@ -181,10 +186,15 @@ pub fn flushModule(self: *SpirV, comp: *Compilation) !void {
         var decl_gen = codegen.DeclGen.init(&spv);
         defer decl_gen.deinit();
 
-        for (self.decl_table.keys()) |decl| {
+        var it = self.decl_table.iterator();
+        while (it.next()) |entry| {
+            const decl = entry.key_ptr.*;
             if (!decl.has_tv) continue;
 
-            if (try decl_gen.gen(decl)) |msg| {
+            const air = entry.value_ptr.air;
+            const liveness = entry.value_ptr.liveness;
+
+            if (try decl_gen.gen(decl, air, liveness)) |msg| {
                 try module.failed_decls.put(module.gpa, decl, msg);
                 return; // TODO: Attempt to generate more decls?
             }

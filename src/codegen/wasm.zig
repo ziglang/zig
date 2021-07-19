@@ -774,7 +774,7 @@ pub const Context = struct {
                         }
                     }
                     return Result{ .externally_managed = payload.data };
-                } else return self.fail(.{ .node_offset = 0 }, "TODO implement gen for more kinds of arrays", .{});
+                } else return self.fail("TODO implement gen for more kinds of arrays", .{});
             },
             .Int => {
                 const info = typed_value.ty.intInfo(self.target);
@@ -783,9 +783,9 @@ pub const Context = struct {
                     try self.code.append(@intCast(u8, int_byte));
                     return Result.appended;
                 }
-                return self.fail(.{ .node_offset = 0 }, "TODO: Implement codegen for int type: '{}'", .{typed_value.ty});
+                return self.fail("TODO: Implement codegen for int type: '{}'", .{typed_value.ty});
             },
-            else => |tag| return self.fail(.{ .node_offset = 0 }, "TODO: Implement zig type codegen for type: '{s}'", .{tag}),
+            else => |tag| return self.fail("TODO: Implement zig type codegen for type: '{s}'", .{tag}),
         }
     }
 
@@ -883,7 +883,7 @@ pub const Context = struct {
     }
 
     fn genAlloc(self: *Context, inst: Air.Inst.Index) InnerError!WValue {
-        const elem_type = self.air.getType(inst).elemType();
+        const elem_type = self.air.typeOfIndex(inst).elemType();
         return self.allocLocal(elem_type);
     }
 

@@ -974,6 +974,9 @@ fn airArg(o: *Object) CValue {
 
 fn airLoad(o: *Object, inst: Air.Inst.Index) !CValue {
     const ty_op = o.air.instructions.items(.data)[inst].ty_op;
+    const is_volatile = o.air.typeOf(ty_op.operand).isVolatilePtr();
+    if (!is_volatile and o.liveness.isUnused(inst))
+        return CValue.none;
     const inst_ty = o.air.typeOfIndex(inst);
     const operand = try o.resolveInst(ty_op.operand);
     const writer = o.writer();
