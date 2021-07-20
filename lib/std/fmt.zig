@@ -845,13 +845,13 @@ fn formatSizeImpl(comptime radix: comptime_int) type {
                 1024 => mags_iec[magnitude],
                 else => unreachable,
             };
-            var fmt_buffer: [64]u8 = undefined;
+            var fmt_buffer: [64]u8 = undefined; // 64bit int can't be formatted greater than 64 chars
             var buf_writer = std.io.fixedBufferStream(fmt_buffer[0..]);
-            try formatFloatDecimal(new_value, options, buf_writer.writer());
+            formatFloatDecimal(new_value, options, buf_writer.writer()) catch unreachable;
             var end = false;
             if (suffix == ' ') {
                 end = true;
-                try buf_writer.writer().writeAll("B");
+                buf_writer.writer().writeAll("B") catch {};
             }
 
             if (!end) {
@@ -860,7 +860,7 @@ fn formatSizeImpl(comptime radix: comptime_int) type {
                     1024 => &[_]u8{ suffix, 'i', 'B' },
                     else => unreachable,
                 };
-                try buf_writer.writer().writeAll(buf);
+                buf_writer.writer().writeAll(buf) catch unreachable;
             }
             var writenVal = buf_writer.getWritten();
             try formatBuf(writenVal, options, writer);
