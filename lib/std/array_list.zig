@@ -227,10 +227,11 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         /// Append the slice of items to the list, asserting the capacity is already
         /// enough to store the new items. **Does not** invalidate pointers.
         pub fn appendSliceAssumeCapacity(self: *Self, items: []const T) void {
-            const oldlen = self.items.len;
-            const newlen = self.items.len + items.len;
-            self.items.len = newlen;
-            mem.copy(T, self.items[oldlen..], items);
+            const old_len = self.items.len;
+            const new_len = old_len + items.len;
+            assert(new_len <= self.capacity);
+            self.items.len = new_len;
+            mem.copy(T, self.items[old_len..], items);
         }
 
         pub usingnamespace if (T != u8) struct {} else struct {
@@ -570,11 +571,11 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// Append the slice of items to the list, asserting the capacity is enough
         /// to store the new items.
         pub fn appendSliceAssumeCapacity(self: *Self, items: []const T) void {
-            const oldlen = self.items.len;
-            const newlen = self.items.len + items.len;
-
-            self.items.len = newlen;
-            mem.copy(T, self.items[oldlen..], items);
+            const old_len = self.items.len;
+            const new_len = old_len + items.len;
+            assert(new_len <= self.capacity);
+            self.items.len = new_len;
+            mem.copy(T, self.items[old_len..], items);
         }
 
         /// Append a value to the list `n` times.
