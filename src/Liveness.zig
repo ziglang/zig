@@ -442,9 +442,9 @@ fn analyzeInst(
             return trackOperands(a, new_set, inst, main_tomb, .{ condition, .none, .none });
         },
         .switch_br => {
-            const inst_data = inst_datas[inst].pl_op;
-            const condition = inst_data.operand;
-            const switch_br = a.air.extraData(Air.SwitchBr, inst_data.payload);
+            const pl_op = inst_datas[inst].pl_op;
+            const condition = pl_op.operand;
+            const switch_br = a.air.extraData(Air.SwitchBr, pl_op.payload);
 
             const Table = std.AutoHashMapUnmanaged(Air.Inst.Index, void);
             const case_tables = try gpa.alloc(Table, switch_br.data.cases_len + 1); // +1 for else
@@ -456,8 +456,8 @@ fn analyzeInst(
             var air_extra_index: usize = switch_br.end;
             for (case_tables[0..switch_br.data.cases_len]) |*case_table| {
                 const case = a.air.extraData(Air.SwitchBr.Case, air_extra_index);
-                const case_body = a.air.extra[case.end..][0..case.data.body_len];
-                air_extra_index = case.end + case_body.len;
+                const case_body = a.air.extra[case.end + case.data.items_len ..][0..case.data.body_len];
+                air_extra_index = case.end + case.data.items_len + case_body.len;
                 try analyzeWithContext(a, case_table, case_body);
 
                 // Reset the table back to its state from before the case.

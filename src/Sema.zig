@@ -4213,6 +4213,7 @@ fn analyzeSwitch(
     var prev_then_body: []const Air.Inst.Index = &.{};
     defer gpa.free(prev_then_body);
 
+    var cases_len = scalar_cases_len;
     var multi_i: usize = 0;
     while (multi_i < multi_cases_len) : (multi_i += 1) {
         const items_len = sema.code.extra[extra_index];
@@ -4232,6 +4233,8 @@ fn analyzeSwitch(
         // else prong. Otherwise, we can take advantage of multiple items
         // mapping to the same body.
         if (ranges_len == 0) {
+            cases_len += 1;
+
             const body = sema.code.extra[extra_index..][0..body_len];
             extra_index += body_len;
             _ = try sema.analyzeBody(&case_block, body);
@@ -4239,7 +4242,7 @@ fn analyzeSwitch(
             try cases_extra.ensureUnusedCapacity(gpa, 2 + items.len +
                 case_block.instructions.items.len);
 
-            cases_extra.appendAssumeCapacity(1); // items_len
+            cases_extra.appendAssumeCapacity(@intCast(u32, items.len));
             cases_extra.appendAssumeCapacity(@intCast(u32, case_block.instructions.items.len));
 
             for (items) |item_ref| {
@@ -4352,12 +4355,12 @@ fn analyzeSwitch(
     }
 
     try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.SwitchBr).Struct.fields.len +
-        cases_extra.items.len);
+        cases_extra.items.len + final_else_body.len);
 
     _ = try child_block.addInst(.{ .tag = .switch_br, .data = .{ .pl_op = .{
         .operand = operand,
         .payload = sema.addExtraAssumeCapacity(Air.SwitchBr{
-            .cases_len = @intCast(u32, scalar_cases_len + multi_cases_len),
+            .cases_len = @intCast(u32, cases_len),
             .else_body_len = @intCast(u32, final_else_body.len),
         }),
     } } });

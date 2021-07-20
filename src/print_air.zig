@@ -300,33 +300,44 @@ const Writer = struct {
 
     fn writeSwitchBr(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
         const pl_op = w.air.instructions.items(.data)[inst].pl_op;
-        const extra = w.air.extraData(Air.SwitchBr, pl_op.payload);
-        const cases = w.air.extra[extra.end..][0..extra.data.cases_len];
-        const else_body = w.air.extra[extra.end + cases.len ..][0..extra.data.else_body_len];
+        const switch_br = w.air.extraData(Air.SwitchBr, pl_op.payload);
+        var extra_index: usize = switch_br.end;
+        var case_i: u32 = 0;
 
         try w.writeInstRef(s, pl_op.operand);
-        try s.writeAll(", {\n");
-
         const old_indent = w.indent;
-        if (else_body.len != 0) {
-            w.indent += 2;
-            try w.writeBody(s, else_body);
-            try s.writeByteNTimes(' ', old_indent);
-            try s.writeAll("}, {\n");
-            w.indent = old_indent;
-        }
+        w.indent += 2;
 
-        for (cases) |case_index| {
-            const case = w.air.extraData(Air.SwitchBr.Case, case_index);
-            const case_body = w.air.extra[case.end..][0..case.data.body_len];
+        while (case_i < switch_br.data.cases_len) : (case_i += 1) {
+            const case = w.air.extraData(Air.SwitchBr.Case, extra_index);
+            const items = @bitCast([]const Air.Inst.Ref, w.air.extra[case.end..][0..case.data.items_len]);
+            const case_body = w.air.extra[case.end + items.len ..][0..case.data.body_len];
+            extra_index = case.end + case.data.items_len + case_body.len;
 
+            try s.writeAll(", [");
+            for (items) |item, item_i| {
+                if (item_i != 0) try s.writeAll(", ");
+                try w.writeInstRef(s, item);
+            }
+            try s.writeAll("] => {\n");
             w.indent += 2;
             try w.writeBody(s, case_body);
-            try s.writeByteNTimes(' ', old_indent);
-            try s.writeAll("}, {\n");
-            w.indent = old_indent;
+            w.indent -= 2;
+            try s.writeByteNTimes(' ', w.indent);
+            try s.writeAll("}");
         }
 
+        const else_body = w.air.extra[extra_index..][0..switch_br.data.else_body_len];
+        if (else_body.len != 0) {
+            try s.writeAll(", else => {\n");
+            w.indent += 2;
+            try w.writeBody(s, else_body);
+            w.indent -= 2;
+            try s.writeByteNTimes(' ', w.indent);
+            try s.writeAll("}");
+        }
+
+        try s.writeAll("\n");
         try s.writeByteNTimes(' ', old_indent);
         try s.writeAll("}");
     }
