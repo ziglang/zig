@@ -1006,11 +1006,15 @@ fn airLoad(o: *Object, inst: Air.Inst.Index) !CValue {
 
 fn airRet(o: *Object, inst: Air.Inst.Index) !CValue {
     const un_op = o.air.instructions.items(.data)[inst].un_op;
-    const operand = try o.resolveInst(un_op);
     const writer = o.writer();
-    try writer.writeAll("return ");
-    try o.writeCValue(writer, operand);
-    try writer.writeAll(";\n");
+    if (o.air.typeOf(un_op).hasCodeGenBits()) {
+        const operand = try o.resolveInst(un_op);
+        try writer.writeAll("return ");
+        try o.writeCValue(writer, operand);
+        try writer.writeAll(";\n");
+    } else {
+        try writer.writeAll("return;\n");
+    }
     return CValue.none;
 }
 
