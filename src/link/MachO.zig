@@ -3726,7 +3726,7 @@ pub fn updateDeclExports(
             const i = if (self.globals_free_list.popOrNull()) |i| i else blk: {
                 _ = self.globals.addOneAssumeCapacity();
                 self.export_info_dirty = true;
-                break :blk self.globals.items.len - 1;
+                break :blk @intCast(u32, self.globals.items.len - 1);
             };
             self.globals.items[i] = .{
                 .n_strx = name_str_index,
@@ -3734,6 +3734,14 @@ pub fn updateDeclExports(
                 .n_sect = @intCast(u8, self.text_section_index.?) + 1,
                 .n_desc = n_desc,
                 .n_value = decl_sym.n_value,
+            };
+            const resolv_name = try self.base.allocator.dupe(u8, exp_name);
+            const resolv = try self.symbol_resolver.getOrPut(self.base.allocator, resolv_name);
+            defer if (resolv.found_existing) self.base.allocator.free(resolv_name);
+            resolv.value_ptr.* = .{
+                .where = .global,
+                .where_index = i,
+                .local_sym_index = decl.link.macho.local_sym_index,
             };
 
             exp.link.macho.sym_index = @intCast(u32, i);
