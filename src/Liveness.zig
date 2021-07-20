@@ -250,7 +250,6 @@ fn analyzeInst(
 
         .arg,
         .alloc,
-        .br,
         .constant,
         .const_ty,
         .breakpoint,
@@ -320,6 +319,10 @@ fn analyzeInst(
         .struct_field_ptr => {
             const extra = a.air.extraData(Air.StructField, inst_datas[inst].ty_pl.payload).data;
             return trackOperands(a, new_set, inst, main_tomb, .{ extra.struct_ptr, .none, .none });
+        },
+        .br => {
+            const br = inst_datas[inst].br;
+            return trackOperands(a, new_set, inst, main_tomb, .{ br.operand, .none, .none });
         },
         .assembly => {
             const extra = a.air.extraData(Air.Asm, inst_datas[inst].ty_pl.payload);
