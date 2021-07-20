@@ -169,8 +169,10 @@ pub const CSourceFile = struct {
 };
 
 const Job = union(enum) {
-    /// Write the machine code for a Decl to the output file.
+    /// Write the constant value for a Decl to the output file.
     codegen_decl: *Module.Decl,
+    /// Write the machine code for a function to the output file.
+    codegen_func: *Module.Fn,
     /// Render the .h file snippet for the Decl.
     emit_h_decl: *Module.Decl,
     /// The Decl needs to be analyzed and possibly export itself.
@@ -2006,54 +2008,56 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
                 const module = self.bin_file.options.module.?;
                 assert(decl.has_tv);
                 if (decl.val.castTag(.function)) |payload| {
-                    const func = payload.data;
+                    if (decl.owns_tv) {
+                        const func = payload.data;
 
-                    var air = switch (func.state) {
-                        .queued => module.analyzeFnBody(decl, func) catch |err| switch (err) {
+                        var air = switch (func.state) {
+                            .sema_failure, .dependency_failure => continue,
+                            .queued => module.analyzeFnBody(decl, func) catch |err| switch (err) {
+                                error.AnalysisFail => {
+                                    assert(func.state != .in_progress);
+                                    continue;
+                                },
+                                error.OutOfMemory => return error.OutOfMemory,
+                            },
+                            .in_progress => unreachable,
+                            .inline_only => unreachable, // don't queue work for this
+                            .success => unreachable, // don't queue it twice
+                        };
+                        defer air.deinit(gpa);
+
+                        log.debug("analyze liveness of {s}", .{decl.name});
+                        var liveness = try Liveness.analyze(gpa, air, decl.namespace.file_scope.zir);
+                        defer liveness.deinit(gpa);
+
+                        if (builtin.mode == .Debug and self.verbose_air) {
+                            std.debug.print("# Begin Function AIR: {s}:\n", .{decl.name});
+                            @import("print_air.zig").dump(gpa, air, liveness);
+                            std.debug.print("# End Function AIR: {s}:\n", .{decl.name});
+                        }
+
+                        assert(decl.ty.hasCodeGenBits());
+
+                        self.bin_file.updateFunc(module, func, air, liveness) catch |err| switch (err) {
+                            error.OutOfMemory => return error.OutOfMemory,
                             error.AnalysisFail => {
-                                assert(func.state != .in_progress);
+                                decl.analysis = .codegen_failure;
                                 continue;
                             },
-                            error.OutOfMemory => return error.OutOfMemory,
-                        },
-                        .in_progress => unreachable,
-                        .inline_only => unreachable, // don't queue work for this
-                        .sema_failure, .dependency_failure => continue,
-                        .success => unreachable, // don't queue it twice
-                    };
-                    defer air.deinit(gpa);
-
-                    log.debug("analyze liveness of {s}", .{decl.name});
-                    var liveness = try Liveness.analyze(gpa, air, decl.namespace.file_scope.zir);
-                    defer liveness.deinit(gpa);
-
-                    if (builtin.mode == .Debug and self.verbose_air) {
-                        std.debug.print("# Begin Function AIR: {s}:\n", .{decl.name});
-                        @import("print_air.zig").dump(gpa, air, liveness);
-                        std.debug.print("# End Function AIR: {s}:\n", .{decl.name});
+                            else => {
+                                try module.failed_decls.ensureUnusedCapacity(gpa, 1);
+                                module.failed_decls.putAssumeCapacityNoClobber(decl, try Module.ErrorMsg.create(
+                                    gpa,
+                                    decl.srcLoc(),
+                                    "unable to codegen: {s}",
+                                    .{@errorName(err)},
+                                ));
+                                decl.analysis = .codegen_failure_retryable;
+                                continue;
+                            },
+                        };
+                        continue;
                     }
-
-                    assert(decl.ty.hasCodeGenBits());
-
-                    self.bin_file.updateFunc(module, func, air, liveness) catch |err| switch (err) {
-                        error.OutOfMemory => return error.OutOfMemory,
-                        error.AnalysisFail => {
-                            decl.analysis = .codegen_failure;
-                            continue;
-                        },
-                        else => {
-                            try module.failed_decls.ensureUnusedCapacity(gpa, 1);
-                            module.failed_decls.putAssumeCapacityNoClobber(decl, try Module.ErrorMsg.create(
-                                gpa,
-                                decl.srcLoc(),
-                                "unable to codegen: {s}",
-                                .{@errorName(err)},
-                            ));
-                            decl.analysis = .codegen_failure_retryable;
-                            continue;
-                        },
-                    };
-                    continue;
                 }
 
                 assert(decl.ty.hasCodeGenBits());
@@ -2076,6 +2080,72 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
                         continue;
                     },
                 };
+            },
+        },
+        .codegen_func => |func| switch (func.owner_decl.analysis) {
+            .unreferenced => unreachable,
+            .in_progress => unreachable,
+            .outdated => unreachable,
+
+            .file_failure,
+            .sema_failure,
+            .codegen_failure,
+            .dependency_failure,
+            .sema_failure_retryable,
+            => continue,
+
+            .complete, .codegen_failure_retryable => {
+                if (build_options.omit_stage2)
+                    @panic("sadly stage2 is omitted from this build to save memory on the CI server");
+                switch (func.state) {
+                    .sema_failure, .dependency_failure => continue,
+                    .queued => {},
+                    .in_progress => unreachable,
+                    .inline_only => unreachable, // don't queue work for this
+                    .success => unreachable, // don't queue it twice
+                }
+
+                const module = self.bin_file.options.module.?;
+                const decl = func.owner_decl;
+
+                var air = module.analyzeFnBody(decl, func) catch |err| switch (err) {
+                    error.AnalysisFail => {
+                        assert(func.state != .in_progress);
+                        continue;
+                    },
+                    error.OutOfMemory => return error.OutOfMemory,
+                };
+                defer air.deinit(gpa);
+
+                log.debug("analyze liveness of {s}", .{decl.name});
+                var liveness = try Liveness.analyze(gpa, air, decl.namespace.file_scope.zir);
+                defer liveness.deinit(gpa);
+
+                if (builtin.mode == .Debug and self.verbose_air) {
+                    std.debug.print("# Begin Function AIR: {s}:\n", .{decl.name});
+                    @import("print_air.zig").dump(gpa, air, liveness);
+                    std.debug.print("# End Function AIR: {s}:\n", .{decl.name});
+                }
+
+                self.bin_file.updateFunc(module, func, air, liveness) catch |err| switch (err) {
+                    error.OutOfMemory => return error.OutOfMemory,
+                    error.AnalysisFail => {
+                        decl.analysis = .codegen_failure;
+                        continue;
+                    },
+                    else => {
+                        try module.failed_decls.ensureUnusedCapacity(gpa, 1);
+                        module.failed_decls.putAssumeCapacityNoClobber(decl, try Module.ErrorMsg.create(
+                            gpa,
+                            decl.srcLoc(),
+                            "unable to codegen: {s}",
+                            .{@errorName(err)},
+                        ));
+                        decl.analysis = .codegen_failure_retryable;
+                        continue;
+                    },
+                };
+                continue;
             },
         },
         .emit_h_decl => |decl| switch (decl.analysis) {

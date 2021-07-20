@@ -2902,6 +2902,7 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
         decl.generation = mod.generation;
         return false;
     }
+    log.debug("semaDecl {*} ({s})", .{ decl, decl.name });
 
     var block_scope: Scope.Block = .{
         .parent = null,
@@ -2938,106 +2939,109 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
     const decl_arena_state = try decl_arena.allocator.create(std.heap.ArenaAllocator.State);
 
     if (decl_tv.val.castTag(.function)) |fn_payload| {
-        var prev_type_has_bits = false;
-        var prev_is_inline = false;
-        var type_changed = true;
+        const func = fn_payload.data;
+        const owns_tv = func.owner_decl == decl;
+        if (owns_tv) {
+            var prev_type_has_bits = false;
+            var prev_is_inline = false;
+            var type_changed = true;
 
-        if (decl.has_tv) {
-            prev_type_has_bits = decl.ty.hasCodeGenBits();
-            type_changed = !decl.ty.eql(decl_tv.ty);
-            if (decl.getFunction()) |prev_func| {
-                prev_is_inline = prev_func.state == .inline_only;
+            if (decl.has_tv) {
+                prev_type_has_bits = decl.ty.hasCodeGenBits();
+                type_changed = !decl.ty.eql(decl_tv.ty);
+                if (decl.getFunction()) |prev_func| {
+                    prev_is_inline = prev_func.state == .inline_only;
+                }
+                decl.clearValues(gpa);
             }
-            decl.clearValues(gpa);
-        }
 
-        decl.ty = try decl_tv.ty.copy(&decl_arena.allocator);
-        decl.val = try decl_tv.val.copy(&decl_arena.allocator);
-        decl.align_val = try align_val.copy(&decl_arena.allocator);
-        decl.linksection_val = try linksection_val.copy(&decl_arena.allocator);
-        decl.has_tv = true;
-        decl.owns_tv = fn_payload.data.owner_decl == decl;
-        decl_arena_state.* = decl_arena.state;
-        decl.value_arena = decl_arena_state;
-        decl.analysis = .complete;
-        decl.generation = mod.generation;
+            decl.ty = try decl_tv.ty.copy(&decl_arena.allocator);
+            decl.val = try decl_tv.val.copy(&decl_arena.allocator);
+            decl.align_val = try align_val.copy(&decl_arena.allocator);
+            decl.linksection_val = try linksection_val.copy(&decl_arena.allocator);
+            decl.has_tv = true;
+            decl.owns_tv = owns_tv;
+            decl_arena_state.* = decl_arena.state;
+            decl.value_arena = decl_arena_state;
+            decl.analysis = .complete;
+            decl.generation = mod.generation;
 
-        const is_inline = decl_tv.ty.fnCallingConvention() == .Inline;
-        if (!is_inline and decl_tv.ty.hasCodeGenBits()) {
-            // We don't fully codegen the decl until later, but we do need to reserve a global
-            // offset table index for it. This allows us to codegen decls out of dependency order,
-            // increasing how many computations can be done in parallel.
-            try mod.comp.bin_file.allocateDeclIndexes(decl);
-            try mod.comp.work_queue.writeItem(.{ .codegen_decl = decl });
-            if (type_changed and mod.emit_h != null) {
-                try mod.comp.work_queue.writeItem(.{ .emit_h_decl = decl });
+            const is_inline = decl_tv.ty.fnCallingConvention() == .Inline;
+            if (!is_inline and decl_tv.ty.hasCodeGenBits()) {
+                // We don't fully codegen the decl until later, but we do need to reserve a global
+                // offset table index for it. This allows us to codegen decls out of dependency order,
+                // increasing how many computations can be done in parallel.
+                try mod.comp.bin_file.allocateDeclIndexes(decl);
+                try mod.comp.work_queue.writeItem(.{ .codegen_func = func });
+                if (type_changed and mod.emit_h != null) {
+                    try mod.comp.work_queue.writeItem(.{ .emit_h_decl = decl });
+                }
+            } else if (!prev_is_inline and prev_type_has_bits) {
+                mod.comp.bin_file.freeDecl(decl);
             }
-        } else if (!prev_is_inline and prev_type_has_bits) {
-            mod.comp.bin_file.freeDecl(decl);
-        }
 
-        if (decl.is_exported) {
-            const export_src = src; // TODO make this point at `export` token
-            if (is_inline) {
-                return mod.fail(&block_scope.base, export_src, "export of inline function", .{});
+            if (decl.is_exported) {
+                const export_src = src; // TODO make this point at `export` token
+                if (is_inline) {
+                    return mod.fail(&block_scope.base, export_src, "export of inline function", .{});
+                }
+                // The scope needs to have the decl in it.
+                try mod.analyzeExport(&block_scope.base, export_src, mem.spanZ(decl.name), decl);
             }
-            // The scope needs to have the decl in it.
-            try mod.analyzeExport(&block_scope.base, export_src, mem.spanZ(decl.name), decl);
+            return type_changed or is_inline != prev_is_inline;
         }
-        return type_changed or is_inline != prev_is_inline;
-    } else {
-        var type_changed = true;
-        if (decl.has_tv) {
-            type_changed = !decl.ty.eql(decl_tv.ty);
-            decl.clearValues(gpa);
-        }
-
-        decl.owns_tv = false;
-        var queue_linker_work = false;
-        if (decl_tv.val.castTag(.variable)) |payload| {
-            const variable = payload.data;
-            if (variable.owner_decl == decl) {
-                decl.owns_tv = true;
-                queue_linker_work = true;
-
-                const copied_init = try variable.init.copy(&decl_arena.allocator);
-                variable.init = copied_init;
-            }
-        } else if (decl_tv.val.castTag(.extern_fn)) |payload| {
-            const owner_decl = payload.data;
-            if (decl == owner_decl) {
-                decl.owns_tv = true;
-                queue_linker_work = true;
-            }
-        }
-
-        decl.ty = try decl_tv.ty.copy(&decl_arena.allocator);
-        decl.val = try decl_tv.val.copy(&decl_arena.allocator);
-        decl.align_val = try align_val.copy(&decl_arena.allocator);
-        decl.linksection_val = try linksection_val.copy(&decl_arena.allocator);
-        decl.has_tv = true;
-        decl_arena_state.* = decl_arena.state;
-        decl.value_arena = decl_arena_state;
-        decl.analysis = .complete;
-        decl.generation = mod.generation;
-
-        if (queue_linker_work and decl.ty.hasCodeGenBits()) {
-            try mod.comp.bin_file.allocateDeclIndexes(decl);
-            try mod.comp.work_queue.writeItem(.{ .codegen_decl = decl });
-
-            if (type_changed and mod.emit_h != null) {
-                try mod.comp.work_queue.writeItem(.{ .emit_h_decl = decl });
-            }
-        }
-
-        if (decl.is_exported) {
-            const export_src = src; // TODO point to the export token
-            // The scope needs to have the decl in it.
-            try mod.analyzeExport(&block_scope.base, export_src, mem.spanZ(decl.name), decl);
-        }
-
-        return type_changed;
     }
+    var type_changed = true;
+    if (decl.has_tv) {
+        type_changed = !decl.ty.eql(decl_tv.ty);
+        decl.clearValues(gpa);
+    }
+
+    decl.owns_tv = false;
+    var queue_linker_work = false;
+    if (decl_tv.val.castTag(.variable)) |payload| {
+        const variable = payload.data;
+        if (variable.owner_decl == decl) {
+            decl.owns_tv = true;
+            queue_linker_work = true;
+
+            const copied_init = try variable.init.copy(&decl_arena.allocator);
+            variable.init = copied_init;
+        }
+    } else if (decl_tv.val.castTag(.extern_fn)) |payload| {
+        const owner_decl = payload.data;
+        if (decl == owner_decl) {
+            decl.owns_tv = true;
+            queue_linker_work = true;
+        }
+    }
+
+    decl.ty = try decl_tv.ty.copy(&decl_arena.allocator);
+    decl.val = try decl_tv.val.copy(&decl_arena.allocator);
+    decl.align_val = try align_val.copy(&decl_arena.allocator);
+    decl.linksection_val = try linksection_val.copy(&decl_arena.allocator);
+    decl.has_tv = true;
+    decl_arena_state.* = decl_arena.state;
+    decl.value_arena = decl_arena_state;
+    decl.analysis = .complete;
+    decl.generation = mod.generation;
+
+    if (queue_linker_work and decl.ty.hasCodeGenBits()) {
+        try mod.comp.bin_file.allocateDeclIndexes(decl);
+        try mod.comp.work_queue.writeItem(.{ .codegen_decl = decl });
+
+        if (type_changed and mod.emit_h != null) {
+            try mod.comp.work_queue.writeItem(.{ .emit_h_decl = decl });
+        }
+    }
+
+    if (decl.is_exported) {
+        const export_src = src; // TODO point to the export token
+        // The scope needs to have the decl in it.
+        try mod.analyzeExport(&block_scope.base, export_src, mem.spanZ(decl.name), decl);
+    }
+
+    return type_changed;
 }
 
 /// Returns the depender's index of the dependee.
