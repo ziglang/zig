@@ -1275,7 +1275,7 @@ fn airCall(o: *Object, inst: Air.Inst.Index) !CValue {
 fn airDbgStmt(o: *Object, inst: Air.Inst.Index) !CValue {
     const dbg_stmt = o.air.instructions.items(.data)[inst].dbg_stmt;
     const writer = o.writer();
-    try writer.print("#line {d}\n", .{dbg_stmt.line});
+    try writer.print("#line {d}\n", .{dbg_stmt.line + 1});
     return CValue.none;
 }
 
@@ -1403,35 +1403,41 @@ fn airSwitchBr(o: *Object, inst: Air.Inst.Index) !CValue {
     const pl_op = o.air.instructions.items(.data)[inst].pl_op;
     const condition = try o.resolveInst(pl_op.operand);
     const condition_ty = o.air.typeOf(pl_op.operand);
+    const switch_br = o.air.extraData(Air.SwitchBr, pl_op.payload);
     const writer = o.writer();
 
     try writer.writeAll("switch (");
     try o.writeCValue(writer, condition);
-    try writer.writeAll(") {\n");
+    try writer.writeAll(") {");
     o.indent_writer.pushIndent();
 
-    // Need to rework Sema so that multiple cases are represented rather than
-    // getting branching logic inside the else, this way we get multiple case
-    // labels here rather than logic in the default case.
-    _ = condition_ty;
-    return o.dg.fail("TODO implement switch in C backend", .{});
+    var extra_index: usize = switch_br.end;
+    var case_i: u32 = 0;
+    while (case_i < switch_br.data.cases_len) : (case_i += 1) {
+        const case = o.air.extraData(Air.SwitchBr.Case, extra_index);
+        const items = @bitCast([]const Air.Inst.Ref, o.air.extra[case.end..][0..case.data.items_len]);
+        const case_body = o.air.extra[case.end + items.len ..][0..case.data.body_len];
+        extra_index = case.end + case.data.items_len + case_body.len;
 
-    //for (inst.cases) |case| {
-    //    try writer.writeAll("case ");
-    //    try o.dg.renderValue(writer, condition_ty, case.item);
-    //    try writer.writeAll(": ");
-    //    // the case body must be noreturn so we don't need to insert a break
-    //    try genBody(o, case.body);
-    //    try o.indent_writer.insertNewline();
-    //}
+        for (items) |item| {
+            try o.indent_writer.insertNewline();
+            try writer.writeAll("case ");
+            try o.dg.renderValue(writer, condition_ty, o.air.value(item).?);
+            try writer.writeAll(": ");
+        }
+        // The case body must be noreturn so we don't need to insert a break.
+        try genBody(o, case_body);
+    }
 
-    //try writer.writeAll("default: ");
-    //try genBody(o, inst.else_body);
-    //try o.indent_writer.insertNewline();
+    const else_body = o.air.extra[extra_index..][0..switch_br.data.else_body_len];
+    try o.indent_writer.insertNewline();
+    try writer.writeAll("default: ");
+    try genBody(o, else_body);
+    try o.indent_writer.insertNewline();
 
-    //o.indent_writer.popIndent();
-    //try writer.writeAll("}\n");
-    //return CValue.none;
+    o.indent_writer.popIndent();
+    try writer.writeAll("}\n");
+    return CValue.none;
 }
 
 fn airAsm(o: *Object, inst: Air.Inst.Index) !CValue {
