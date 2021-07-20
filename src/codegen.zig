@@ -2523,36 +2523,29 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         }
                     } else if (func_value.castTag(.extern_fn)) |func_payload| {
                         const decl = func_payload.data;
-                        const decl_name = try std.fmt.allocPrint(self.bin_file.allocator, "_{s}", .{decl.name});
-                        defer self.bin_file.allocator.free(decl_name);
-                        const already_defined = macho_file.symbol_resolver.contains(decl_name);
-                        const resolv = macho_file.symbol_resolver.get(decl_name) orelse blk: {
-                            break :blk try macho_file.addExternFn(decl_name);
-                        };
-                        const start = self.code.items.len;
-                        const len: usize = blk: {
-                            switch (arch) {
-                                .x86_64 => {
-                                    // callq
-                                    try self.code.ensureCapacity(self.code.items.len + 5);
-                                    self.code.appendSliceAssumeCapacity(&[5]u8{ 0xe8, 0x0, 0x0, 0x0, 0x0 });
-                                    break :blk 5;
-                                },
-                                .aarch64 => {
-                                    // bl
-                                    writeInt(u32, try self.code.addManyAsArray(4), 0);
-                                    break :blk 4;
-                                },
-                                else => unreachable, // unsupported architecture on MachO
-                            }
-                        };
-                        try macho_file.stub_fixups.append(self.bin_file.allocator, .{
-                            .symbol = resolv.where_index,
-                            .already_defined = already_defined,
-                            .start = start,
-                            .len = len,
+                        const where_index = try macho_file.addExternFn(mem.spanZ(decl.name));
+                        const offset = @intCast(u32, self.code.items.len);
+                        switch (arch) {
+                            .x86_64 => {
+                                // callq
+                                try self.code.ensureCapacity(self.code.items.len + 5);
+                                self.code.appendSliceAssumeCapacity(&[5]u8{ 0xe8, 0x0, 0x0, 0x0, 0x0 });
+                            },
+                            .aarch64 => {
+                                // bl
+                                writeInt(u32, try self.code.addManyAsArray(4), Instruction.bl(0).toU32());
+                            },
+                            else => unreachable, // unsupported architecture on MachO
+                        }
+                        // Add relocation to the decl.
+                        try decl.link.macho.relocs.append(self.bin_file.allocator, .{
+                            .offset = offset,
+                            .where = .import,
+                            .where_index = where_index,
+                            .payload = .{ .branch = .{
+                                .arch = arch,
+                            } },
                         });
-                        // We mark the space and fix it up later.
                     } else {
                         return self.fail(inst.base.src, "TODO implement calling bitcasted functions", .{});
                     }

@@ -159,6 +159,14 @@ strtab_needs_relocation: bool = false,
 has_dices: bool = false,
 has_stabs: bool = false,
 
+pending_updates: std.ArrayListUnmanaged(struct {
+    kind: enum {
+        got,
+        stub,
+    },
+    index: u32,
+}) = .{},
+
 /// A list of text blocks that have surplus capacity. This list can have false
 /// positives, as functions grow and shrink over time, only sometimes being added
 /// or removed from the freelist.
@@ -179,6 +187,7 @@ text_block_free_list: std.ArrayListUnmanaged(*TextBlock) = .{},
 /// Pointer to the last allocated text block
 last_text_block: ?*TextBlock = null,
 
+managed_blocks: std.ArrayListUnmanaged(TextBlock) = .{},
 blocks: std.AutoHashMapUnmanaged(MatchingSection, *TextBlock) = .{},
 
 /// A list of all PIE fixups required for this run of the linker.
@@ -189,13 +198,6 @@ blocks: std.AutoHashMapUnmanaged(MatchingSection, *TextBlock) = .{},
 /// TODO We should also rewrite this using generic relocations common to all
 /// backends.
 pie_fixups: std.ArrayListUnmanaged(PIEFixup) = .{},
-
-/// A list of all stub (extern decls) fixups required for this run of the linker.
-/// Warning, this is currently NOT thread-safe. See the TODO below.
-/// TODO Move this list inside `updateDecl` where it should be allocated
-/// prior to calling `generateSymbol`, and then immediately deallocated
-/// rather than sitting in the global scope.
-stub_fixups: std.ArrayListUnmanaged(StubFixup) = .{},
 
 const SymbolWithLoc = struct {
     // Table where the symbol can be found.
@@ -227,19 +229,6 @@ pub const PIEFixup = struct {
 
     /// Size of the relocation.
     size: usize,
-};
-
-pub const StubFixup = struct {
-    /// Id of extern (lazy) symbol.
-    symbol: u32,
-    /// Signals whether the symbol has already been declared before. If so,
-    /// then there is no need to rewrite the stub entry and related.
-    already_defined: bool,
-    /// Where in the byte stream we should perform the fixup.
-    start: usize,
-    /// The length of the byte stream. For x86_64, this will be
-    /// variable. For aarch64, it will be fixed at 4 bytes.
-    len: usize,
 };
 
 /// When allocating, the ideal_capacity is calculated by
@@ -2244,9 +2233,7 @@ fn resolveSymbols(self: *MachO) !void {
             .local_sym_index = local_sym_index,
         };
 
-        const block = try self.base.allocator.create(TextBlock);
-        errdefer self.base.allocator.destroy(block);
-
+        const block = try self.managed_blocks.addOne(self.base.allocator);
         block.* = TextBlock.empty;
         block.local_sym_index = local_sym_index;
         block.code = code;
@@ -2382,9 +2369,7 @@ fn resolveSymbols(self: *MachO) !void {
         // We create an empty atom for this symbol.
         // TODO perhaps we should special-case special symbols? Create a separate
         // linked list of atoms?
-        const block = try self.base.allocator.create(TextBlock);
-        errdefer self.base.allocator.destroy(block);
-
+        const block = try self.managed_blocks.addOne(self.base.allocator);
         block.* = TextBlock.empty;
         block.local_sym_index = local_sym_index;
         block.code = try self.base.allocator.alloc(u8, 0);
@@ -3243,9 +3228,8 @@ pub fn deinit(self: *MachO) void {
         ds.deinit(self.base.allocator);
     }
 
+    self.pending_updates.deinit(self.base.allocator);
     self.pie_fixups.deinit(self.base.allocator);
-    self.stub_fixups.deinit(self.base.allocator);
-    self.text_block_free_list.deinit(self.base.allocator);
     self.got_entries.deinit(self.base.allocator);
     self.got_entries_map.deinit(self.base.allocator);
     self.got_entries_free_list.deinit(self.base.allocator);
@@ -3288,8 +3272,12 @@ pub fn deinit(self: *MachO) void {
     }
     self.load_commands.deinit(self.base.allocator);
 
-    // TODO dealloc all blocks
+    for (self.managed_blocks.items) |*block| {
+        block.deinit(self.base.allocator);
+    }
+    self.managed_blocks.deinit(self.base.allocator);
     self.blocks.deinit(self.base.allocator);
+    self.text_block_free_list.deinit(self.base.allocator);
 }
 
 pub fn closeFiles(self: MachO) void {
@@ -3302,6 +3290,9 @@ pub fn closeFiles(self: MachO) void {
 }
 
 fn freeTextBlock(self: *MachO, text_block: *TextBlock) void {
+    log.debug("freeTextBlock {*}", .{text_block});
+    // text_block.deinit(self.base.allocator);
+
     var already_have_free_list_node = false;
     {
         var i: usize = 0;
@@ -3467,18 +3458,22 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
             .val = decl.val,
         }, &code_buffer, .none);
 
-    const code = switch (res) {
-        .externally_managed => |x| x,
-        .appended => code_buffer.items,
-        .fail => |em| {
-            // Clear any PIE fixups for this decl.
-            self.pie_fixups.shrinkRetainingCapacity(0);
-            // Clear any stub fixups for this decl.
-            self.stub_fixups.shrinkRetainingCapacity(0);
-            decl.analysis = .codegen_failure;
-            try module.failed_decls.put(module.gpa, decl, em);
-            return;
-        },
+    const code = blk: {
+        switch (res) {
+            .externally_managed => |x| break :blk x,
+            .appended => {
+                decl.link.macho.code = code_buffer.toOwnedSlice();
+                log.warn("WAT", .{});
+                break :blk decl.link.macho.code;
+            },
+            .fail => |em| {
+                // Clear any PIE fixups for this decl.
+                self.pie_fixups.shrinkRetainingCapacity(0);
+                decl.analysis = .codegen_failure;
+                try module.failed_decls.put(module.gpa, decl, em);
+                return;
+            },
+        }
     };
 
     const required_alignment = decl.ty.abiAlignment(self.base.options.target);
@@ -3559,12 +3554,12 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
         switch (self.base.options.target.cpu.arch) {
             .x86_64 => {
                 const displacement = try math.cast(u32, target_addr - this_addr - 4);
-                mem.writeIntLittle(u32, code_buffer.items[fixup.offset..][0..4], displacement);
+                mem.writeIntLittle(u32, decl.link.macho.code[fixup.offset..][0..4], displacement);
             },
             .aarch64 => {
                 // TODO optimize instruction based on jump length (use ldr(literal) + nop if possible).
                 {
-                    const inst = code_buffer.items[fixup.offset..][0..4];
+                    const inst = decl.link.macho.code[fixup.offset..][0..4];
                     var parsed = mem.bytesAsValue(meta.TagPayload(
                         aarch64.Instruction,
                         aarch64.Instruction.pc_relative_address,
@@ -3576,7 +3571,7 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
                     parsed.immlo = @truncate(u2, pages);
                 }
                 {
-                    const inst = code_buffer.items[fixup.offset + 4 ..][0..4];
+                    const inst = decl.link.macho.code[fixup.offset + 4 ..][0..4];
                     var parsed = mem.bytesAsValue(meta.TagPayload(
                         aarch64.Instruction,
                         aarch64.Instruction.load_store_register,
@@ -3590,39 +3585,24 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
         }
     }
 
-    // Resolve stubs (if any)
-    const text_segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
-    const stubs = text_segment.sections.items[self.stubs_section_index.?];
-    for (self.stub_fixups.items) |fixup| {
-        const stubs_index = self.stubs_map.get(fixup.symbol) orelse unreachable;
-        const stub_addr = stubs.addr + stubs_index * stubs.reserved2;
-        const text_addr = symbol.n_value + fixup.start;
-        switch (self.base.options.target.cpu.arch) {
-            .x86_64 => {
-                assert(stub_addr >= text_addr + fixup.len);
-                const displacement = try math.cast(u32, stub_addr - text_addr - fixup.len);
-                var placeholder = code_buffer.items[fixup.start + fixup.len - @sizeOf(u32) ..][0..@sizeOf(u32)];
-                mem.writeIntSliceLittle(u32, placeholder, displacement);
-            },
-            .aarch64 => {
-                assert(stub_addr >= text_addr);
-                const displacement = try math.cast(i28, stub_addr - text_addr);
-                var placeholder = code_buffer.items[fixup.start..][0..fixup.len];
-                mem.writeIntSliceLittle(u32, placeholder, aarch64.Instruction.bl(displacement).toU32());
-            },
-            else => unreachable, // unsupported target architecture
-        }
-        if (!fixup.already_defined) {
-            try self.writeStub(stubs_index);
-            try self.writeStubInStubHelper(stubs_index);
-            try self.writeLazySymbolPointer(stubs_index);
+    // Resolve relocations
+    try decl.link.macho.resolveRelocs(self);
 
-            self.rebase_info_dirty = true;
-            self.lazy_binding_info_dirty = true;
+    // Apply pending updates
+    while (self.pending_updates.popOrNull()) |update| {
+        switch (update.kind) {
+            .got => unreachable,
+            .stub => {
+                try self.writeStub(update.index);
+                try self.writeStubInStubHelper(update.index);
+                try self.writeLazySymbolPointer(update.index);
+                self.rebase_info_dirty = true;
+                self.lazy_binding_info_dirty = true;
+            },
         }
     }
-    self.stub_fixups.shrinkRetainingCapacity(0);
 
+    const text_segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
     const text_section = text_segment.sections.items[self.text_section_index.?];
     const section_offset = symbol.n_value - text_section.addr;
     const file_offset = text_section.offset + section_offset;
@@ -3756,6 +3736,7 @@ pub fn deleteExport(self: *MachO, exp: Export) void {
 }
 
 pub fn freeDecl(self: *MachO, decl: *Module.Decl) void {
+    log.debug("freeDecl {*}", .{decl});
     // Appending to free lists is allowed to fail because the free lists are heuristics based anyway.
     self.freeTextBlock(&decl.link.macho);
     if (decl.link.macho.local_sym_index != 0) {
@@ -4314,7 +4295,8 @@ fn allocateTextBlock(self: *MachO, text_block: *TextBlock, new_block_size: u64, 
                 // should be deleted because the block that it points to has grown to take up
                 // more of the extra capacity.
                 if (!big_block.freeListEligible(self.*)) {
-                    _ = self.text_block_free_list.swapRemove(i);
+                    const bl = self.text_block_free_list.swapRemove(i);
+                    bl.deinit(self.base.allocator);
                 } else {
                     i += 1;
                 }
@@ -4386,25 +4368,43 @@ fn allocateTextBlock(self: *MachO, text_block: *TextBlock, new_block_size: u64, 
     return vaddr;
 }
 
-pub fn addExternFn(self: *MachO, name: []const u8) !SymbolWithLoc {
-    log.debug("adding new extern function '{s}' with dylib ordinal 1", .{name});
+pub fn addExternFn(self: *MachO, name: []const u8) !u32 {
+    const sym_name = try std.fmt.allocPrint(self.base.allocator, "_{s}", .{name});
+    const already_defined = self.symbol_resolver.contains(sym_name);
+
+    if (already_defined) {
+        const resolv = self.symbol_resolver.get(sym_name) orelse unreachable;
+        self.base.allocator.free(sym_name);
+        return resolv.where_index;
+    }
+
+    log.debug("adding new extern function '{s}' with dylib ordinal 1", .{sym_name});
     const import_sym_index = @intCast(u32, self.imports.items.len);
     try self.imports.append(self.base.allocator, .{
-        .n_strx = try self.makeString(name),
+        .n_strx = try self.makeString(sym_name),
         .n_type = macho.N_UNDF | macho.N_EXT,
         .n_sect = 0,
         .n_desc = packDylibOrdinal(1),
         .n_value = 0,
     });
-    const resolv = .{
+    try self.symbol_resolver.putNoClobber(self.base.allocator, sym_name, .{
         .where = .import,
         .where_index = import_sym_index,
-    };
-    try self.symbol_resolver.putNoClobber(self.base.allocator, try self.base.allocator.dupe(u8, name), resolv);
+    });
+
     const stubs_index = @intCast(u32, self.stubs.items.len);
     try self.stubs.append(self.base.allocator, import_sym_index);
     try self.stubs_map.putNoClobber(self.base.allocator, import_sym_index, stubs_index);
-    return resolv;
+
+    // TODO discuss this. The caller context expects codegen.InnerError{ OutOfMemory, CodegenFail },
+    // which obviously doesn't include file writing op errors. So instead of trying to write the stub
+    // entry right here and now, queue it up and dispose of when updating decl.
+    try self.pending_updates.append(self.base.allocator, .{
+        .kind = .stub,
+        .index = stubs_index,
+    });
+
+    return import_sym_index;
 }
 
 const NextSegmentAddressAndOffset = struct {

@@ -558,9 +558,9 @@ pub fn deinit(self: *TextBlock, allocator: *Allocator) void {
     self.bindings.deinit(allocator);
     self.rebases.deinit(allocator);
     self.relocs.deinit(allocator);
-    self.allocator.free(self.code);
     self.contained.deinit(allocator);
     self.aliases.deinit(allocator);
+    allocator.free(self.code);
 }
 
 /// Returns how much room there is to grow in virtual address space.
