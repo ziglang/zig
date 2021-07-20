@@ -640,7 +640,10 @@ fn initRelocFromObject(rel: macho.relocation_info, object: *Object, ctx: RelocCo
             parsed_rel.where = .local;
             parsed_rel.where_index = where_index;
         } else {
-            const resolv = ctx.macho_file.symbol_resolver.get(sym_name) orelse unreachable;
+            const n_strx = ctx.macho_file.strtab_dir.getAdapted(@as([]const u8, sym_name), MachO.StringSliceAdapter{
+                .strtab = &ctx.macho_file.strtab,
+            }) orelse unreachable;
+            const resolv = ctx.macho_file.symbol_resolver.get(n_strx) orelse unreachable;
             switch (resolv.where) {
                 .global => {
                     parsed_rel.where = .local;
@@ -704,7 +707,10 @@ pub fn parseRelocsFromObject(
                 const where_index = object.symbol_mapping.get(rel.r_symbolnum) orelse unreachable;
                 subtractor = where_index;
             } else {
-                const resolv = ctx.macho_file.symbol_resolver.get(sym_name) orelse unreachable;
+                const n_strx = ctx.macho_file.strtab_dir.getAdapted(@as([]const u8, sym_name), MachO.StringSliceAdapter{
+                    .strtab = &ctx.macho_file.strtab,
+                }) orelse unreachable;
+                const resolv = ctx.macho_file.symbol_resolver.get(n_strx) orelse unreachable;
                 assert(resolv.where == .global);
                 subtractor = resolv.local_sym_index;
             }

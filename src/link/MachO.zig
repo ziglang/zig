@@ -127,7 +127,7 @@ globals: std.ArrayListUnmanaged(macho.nlist_64) = .{},
 imports: std.ArrayListUnmanaged(macho.nlist_64) = .{},
 undefs: std.ArrayListUnmanaged(macho.nlist_64) = .{},
 tentatives: std.ArrayListUnmanaged(macho.nlist_64) = .{},
-symbol_resolver: std.StringArrayHashMapUnmanaged(SymbolWithLoc) = .{},
+symbol_resolver: std.AutoHashMapUnmanaged(u32, SymbolWithLoc) = .{},
 
 locals_free_list: std.ArrayListUnmanaged(u32) = .{},
 globals_free_list: std.ArrayListUnmanaged(u32) = .{},
@@ -135,6 +135,7 @@ globals_free_list: std.ArrayListUnmanaged(u32) = .{},
 stub_helper_stubs_start_off: ?u64 = null,
 
 strtab: std.ArrayListUnmanaged(u8) = .{},
+strtab_dir: std.HashMapUnmanaged(u32, u32, StringIndexContext, std.hash_map.default_max_load_percentage) = .{},
 
 got_entries: std.ArrayListUnmanaged(GotIndirectionKey) = .{},
 got_entries_map: std.AutoHashMapUnmanaged(GotIndirectionKey, u32) = .{},
@@ -198,6 +199,33 @@ blocks: std.AutoHashMapUnmanaged(MatchingSection, *TextBlock) = .{},
 /// TODO We should also rewrite this using generic relocations common to all
 /// backends.
 pie_fixups: std.ArrayListUnmanaged(PIEFixup) = .{},
+
+const StringIndexContext = struct {
+    strtab: *std.ArrayListUnmanaged(u8),
+
+    pub fn eql(self: StringIndexContext, a: u32, b: u32) bool {
+        return a == b;
+    }
+
+    pub fn hash(self: StringIndexContext, x: u32) u64 {
+        const x_slice = mem.spanZ(@ptrCast([*:0]const u8, self.strtab.items.ptr) + x);
+        return std.hash_map.hashString(x_slice);
+    }
+};
+
+pub const StringSliceAdapter = struct {
+    strtab: *std.ArrayListUnmanaged(u8),
+
+    pub fn eql(self: StringSliceAdapter, a_slice: []const u8, b: u32) bool {
+        const b_slice = mem.spanZ(@ptrCast([*:0]const u8, self.strtab.items.ptr) + b);
+        return mem.eql(u8, a_slice, b_slice);
+    }
+
+    pub fn hash(self: StringSliceAdapter, adapted_key: []const u8) u64 {
+        _ = self;
+        return std.hash_map.hashString(adapted_key);
+    }
+};
 
 const SymbolWithLoc = struct {
     // Table where the symbol can be found.
@@ -882,7 +910,10 @@ fn linkWithZld(self: *MachO, comp: *Compilation) !void {
 
         {
             // Add dyld_stub_binder as the final GOT entry.
-            const resolv = self.symbol_resolver.get("dyld_stub_binder") orelse unreachable;
+            const n_strx = self.strtab_dir.getAdapted(@as([]const u8, "dyld_stub_binder"), StringSliceAdapter{
+                .strtab = &self.strtab,
+            }) orelse unreachable;
+            const resolv = self.symbol_resolver.get(n_strx) orelse unreachable;
             const got_index = @intCast(u32, self.got_entries.items.len);
             const got_entry = GotIndirectionKey{
                 .where = .import,
@@ -1722,14 +1753,17 @@ fn allocateTextBlocks(self: *MachO) !void {
     }
 
     // Update globals
-    for (self.symbol_resolver.values()) |resolv| {
-        if (resolv.where != .global) continue;
+    {
+        var sym_it = self.symbol_resolver.valueIterator();
+        while (sym_it.next()) |resolv| {
+            if (resolv.where != .global) continue;
 
-        assert(resolv.local_sym_index != 0);
-        const local_sym = self.locals.items[resolv.local_sym_index];
-        const sym = &self.globals.items[resolv.where_index];
-        sym.n_value = local_sym.n_value;
-        sym.n_sect = local_sym.n_sect;
+            assert(resolv.local_sym_index != 0);
+            const local_sym = self.locals.items[resolv.local_sym_index];
+            const sym = &self.globals.items[resolv.where_index];
+            sym.n_value = local_sym.n_value;
+            sym.n_sect = local_sym.n_sect;
+        }
     }
 }
 
@@ -1821,7 +1855,10 @@ fn writeStubHelperCommon(self: *MachO) !void {
                 code[9] = 0xff;
                 code[10] = 0x25;
                 {
-                    const resolv = self.symbol_resolver.get("dyld_stub_binder") orelse unreachable;
+                    const n_strx = self.strtab_dir.getAdapted(@as([]const u8, "dyld_stub_binder"), StringSliceAdapter{
+                        .strtab = &self.strtab,
+                    }) orelse unreachable;
+                    const resolv = self.symbol_resolver.get(n_strx) orelse unreachable;
                     const got_index = self.got_entries_map.get(.{
                         .where = .import,
                         .where_index = resolv.where_index,
@@ -1869,7 +1906,10 @@ fn writeStubHelperCommon(self: *MachO) !void {
                 code[10] = 0xbf;
                 code[11] = 0xa9;
                 binder_blk_outer: {
-                    const resolv = self.symbol_resolver.get("dyld_stub_binder") orelse unreachable;
+                    const n_strx = self.strtab_dir.getAdapted(@as([]const u8, "dyld_stub_binder"), StringSliceAdapter{
+                        .strtab = &self.strtab,
+                    }) orelse unreachable;
+                    const resolv = self.symbol_resolver.get(n_strx) orelse unreachable;
                     const got_index = self.got_entries_map.get(.{
                         .where = .import,
                         .where_index = resolv.where_index,
@@ -1965,19 +2005,9 @@ fn resolveSymbolsInObject(self: *MachO, object_id: u16) !void {
             return error.UnhandledSymbolType;
         }
 
+        const n_strx = try self.makeString(sym_name);
         if (symbolIsSect(sym)) {
             // Defined symbol regardless of scope lands in the locals symbol table.
-            const n_strx = blk: {
-                if (self.symbol_resolver.get(sym_name)) |resolv| {
-                    switch (resolv.where) {
-                        .global => break :blk self.globals.items[resolv.where_index].n_strx,
-                        .tentative => break :blk self.tentatives.items[resolv.where_index].n_strx,
-                        .undef => break :blk self.undefs.items[resolv.where_index].n_strx,
-                        .import => unreachable,
-                    }
-                }
-                break :blk try self.makeString(sym_name);
-            };
             const local_sym_index = @intCast(u32, self.locals.items.len);
             try self.locals.append(self.base.allocator, .{
                 .n_strx = n_strx,
@@ -1993,7 +2023,7 @@ fn resolveSymbolsInObject(self: *MachO, object_id: u16) !void {
             if (!symbolIsExt(sym)) continue;
 
             const local = self.locals.items[local_sym_index];
-            const resolv = self.symbol_resolver.getPtr(sym_name) orelse {
+            const resolv = self.symbol_resolver.getPtr(n_strx) orelse {
                 const global_sym_index = @intCast(u32, self.globals.items.len);
                 try self.globals.append(self.base.allocator, .{
                     .n_strx = n_strx,
@@ -2002,7 +2032,7 @@ fn resolveSymbolsInObject(self: *MachO, object_id: u16) !void {
                     .n_desc = sym.n_desc,
                     .n_value = sym.n_value,
                 });
-                try self.symbol_resolver.putNoClobber(self.base.allocator, try self.base.allocator.dupe(u8, sym_name), .{
+                try self.symbol_resolver.putNoClobber(self.base.allocator, n_strx, .{
                     .where = .global,
                     .where_index = global_sym_index,
                     .local_sym_index = local_sym_index,
@@ -2072,7 +2102,7 @@ fn resolveSymbolsInObject(self: *MachO, object_id: u16) !void {
             };
         } else if (symbolIsTentative(sym)) {
             // Symbol is a tentative definition.
-            const resolv = self.symbol_resolver.getPtr(sym_name) orelse {
+            const resolv = self.symbol_resolver.getPtr(n_strx) orelse {
                 const tent_sym_index = @intCast(u32, self.tentatives.items.len);
                 try self.tentatives.append(self.base.allocator, .{
                     .n_strx = try self.makeString(sym_name),
@@ -2081,7 +2111,7 @@ fn resolveSymbolsInObject(self: *MachO, object_id: u16) !void {
                     .n_desc = sym.n_desc,
                     .n_value = sym.n_value,
                 });
-                try self.symbol_resolver.putNoClobber(self.base.allocator, try self.base.allocator.dupe(u8, sym_name), .{
+                try self.symbol_resolver.putNoClobber(self.base.allocator, n_strx, .{
                     .where = .tentative,
                     .where_index = tent_sym_index,
                     .file = object_id,
@@ -2126,7 +2156,7 @@ fn resolveSymbolsInObject(self: *MachO, object_id: u16) !void {
             }
         } else {
             // Symbol is undefined.
-            if (self.symbol_resolver.contains(sym_name)) continue;
+            if (self.symbol_resolver.contains(n_strx)) continue;
 
             const undef_sym_index = @intCast(u32, self.undefs.items.len);
             try self.undefs.append(self.base.allocator, .{
@@ -2136,7 +2166,7 @@ fn resolveSymbolsInObject(self: *MachO, object_id: u16) !void {
                 .n_desc = 0,
                 .n_value = 0,
             });
-            try self.symbol_resolver.putNoClobber(self.base.allocator, try self.base.allocator.dupe(u8, sym_name), .{
+            try self.symbol_resolver.putNoClobber(self.base.allocator, n_strx, .{
                 .where = .undef,
                 .where_index = undef_sym_index,
                 .file = object_id,
@@ -2214,7 +2244,7 @@ fn resolveSymbols(self: *MachO) !void {
         mem.set(u8, code, 0);
         const alignment = (sym.n_desc >> 8) & 0x0f;
 
-        const resolv = self.symbol_resolver.getPtr(sym_name) orelse unreachable;
+        const resolv = self.symbol_resolver.getPtr(sym.n_strx) orelse unreachable;
         const local_sym_index = @intCast(u32, self.locals.items.len);
         var nlist = macho.nlist_64{
             .n_strx = sym.n_strx,
@@ -2263,15 +2293,16 @@ fn resolveSymbols(self: *MachO) !void {
     // Third pass, resolve symbols in dynamic libraries.
     {
         // Put dyld_stub_binder as an undefined special symbol.
+        const n_strx = try self.makeString("dyld_stub_binder");
         const undef_sym_index = @intCast(u32, self.undefs.items.len);
         try self.undefs.append(self.base.allocator, .{
-            .n_strx = try self.makeString("dyld_stub_binder"),
+            .n_strx = n_strx,
             .n_type = macho.N_UNDF,
             .n_sect = 0,
             .n_desc = 0,
             .n_value = 0,
         });
-        try self.symbol_resolver.putNoClobber(self.base.allocator, try self.base.allocator.dupe(u8, "dyld_stub_binder"), .{
+        try self.symbol_resolver.putNoClobber(self.base.allocator, n_strx, .{
             .where = .undef,
             .where_index = undef_sym_index,
         });
@@ -2304,7 +2335,7 @@ fn resolveSymbols(self: *MachO) !void {
                 try referenced.putNoClobber(dylib, {});
             }
 
-            const resolv = self.symbol_resolver.getPtr(sym_name) orelse unreachable;
+            const resolv = self.symbol_resolver.getPtr(sym.n_strx) orelse unreachable;
             const undef = &self.undefs.items[resolv.where_index];
             const import_sym_index = @intCast(u32, self.imports.items.len);
             try self.imports.append(self.base.allocator, .{
@@ -2331,7 +2362,10 @@ fn resolveSymbols(self: *MachO) !void {
     }
 
     // Fourth pass, handle synthetic symbols and flag any undefined references.
-    if (self.symbol_resolver.getPtr("___dso_handle")) |resolv| blk: {
+    if (self.strtab_dir.getAdapted(@as([]const u8, "___dso_handle"), StringSliceAdapter{
+        .strtab = &self.strtab,
+    })) |n_strx| blk: {
+        const resolv = self.symbol_resolver.getPtr(n_strx) orelse break :blk;
         if (resolv.where != .undef) break :blk;
 
         const undef = &self.undefs.items[resolv.where_index];
@@ -2390,7 +2424,7 @@ fn resolveSymbols(self: *MachO) !void {
         if (symbolIsNull(sym)) continue;
 
         const sym_name = self.getString(sym.n_strx);
-        const resolv = self.symbol_resolver.get(sym_name) orelse unreachable;
+        const resolv = self.symbol_resolver.get(sym.n_strx) orelse unreachable;
 
         log.err("undefined reference to symbol '{s}'", .{sym_name});
         log.err("  first referenced in '{s}'", .{self.objects.items[resolv.file].name.?});
@@ -2830,10 +2864,13 @@ fn setEntryPoint(self: *MachO) !void {
     // TODO we should respect the -entry flag passed in by the user to set a custom
     // entrypoint. For now, assume default of `_main`.
     const seg = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
-    const resolv = self.symbol_resolver.get("_main") orelse {
+    const n_strx = self.strtab_dir.getAdapted(@as([]const u8, "_main"), StringSliceAdapter{
+        .strtab = &self.strtab,
+    }) orelse {
         log.err("'_main' export not found", .{});
         return error.MissingMainEntrypoint;
     };
+    const resolv = self.symbol_resolver.get(n_strx) orelse unreachable;
     assert(resolv.where == .global);
     const sym = self.globals.items[resolv.where_index];
     const ec = &self.load_commands.items[self.main_cmd_index.?].Main;
@@ -3235,6 +3272,7 @@ pub fn deinit(self: *MachO) void {
     self.got_entries_free_list.deinit(self.base.allocator);
     self.stubs.deinit(self.base.allocator);
     self.stubs_map.deinit(self.base.allocator);
+    self.strtab_dir.deinit(self.base.allocator);
     self.strtab.deinit(self.base.allocator);
     self.undefs.deinit(self.base.allocator);
     self.tentatives.deinit(self.base.allocator);
@@ -3243,10 +3281,6 @@ pub fn deinit(self: *MachO) void {
     self.globals_free_list.deinit(self.base.allocator);
     self.locals.deinit(self.base.allocator);
     self.locals_free_list.deinit(self.base.allocator);
-
-    for (self.symbol_resolver.keys()) |key| {
-        self.base.allocator.free(key);
-    }
     self.symbol_resolver.deinit(self.base.allocator);
 
     for (self.objects.items) |object| {
@@ -3715,9 +3749,7 @@ pub fn updateDeclExports(
                 .n_desc = n_desc,
                 .n_value = decl_sym.n_value,
             };
-            const resolv_name = try self.base.allocator.dupe(u8, exp_name);
-            const resolv = try self.symbol_resolver.getOrPut(self.base.allocator, resolv_name);
-            defer if (resolv.found_existing) self.base.allocator.free(resolv_name);
+            const resolv = try self.symbol_resolver.getOrPut(self.base.allocator, name_str_index);
             resolv.value_ptr.* = .{
                 .where = .global,
                 .where_index = i,
@@ -4233,17 +4265,19 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         });
         self.load_commands_dirty = true;
     }
-    if (!self.symbol_resolver.contains("dyld_stub_binder")) {
+    if (!self.strtab_dir.containsAdapted(@as([]const u8, "dyld_stub_binder"), StringSliceAdapter{
+        .strtab = &self.strtab,
+    })) {
         const import_sym_index = @intCast(u32, self.imports.items.len);
+        const n_strx = try self.makeString("dyld_stub_binder");
         try self.imports.append(self.base.allocator, .{
-            .n_strx = try self.makeString("dyld_stub_binder"),
+            .n_strx = n_strx,
             .n_type = macho.N_UNDF | macho.N_EXT,
             .n_sect = 0,
             .n_desc = packDylibOrdinal(1),
             .n_value = 0,
         });
-        const name = try self.base.allocator.dupe(u8, "dyld_stub_binder");
-        try self.symbol_resolver.putNoClobber(self.base.allocator, name, .{
+        try self.symbol_resolver.putNoClobber(self.base.allocator, n_strx, .{
             .where = .import,
             .where_index = import_sym_index,
         });
@@ -4370,24 +4404,26 @@ fn allocateTextBlock(self: *MachO, text_block: *TextBlock, new_block_size: u64, 
 
 pub fn addExternFn(self: *MachO, name: []const u8) !u32 {
     const sym_name = try std.fmt.allocPrint(self.base.allocator, "_{s}", .{name});
-    const already_defined = self.symbol_resolver.contains(sym_name);
+    defer self.base.allocator.free(sym_name);
 
-    if (already_defined) {
-        const resolv = self.symbol_resolver.get(sym_name) orelse unreachable;
-        self.base.allocator.free(sym_name);
+    if (self.strtab_dir.getAdapted(@as([]const u8, sym_name), StringSliceAdapter{
+        .strtab = &self.strtab,
+    })) |n_strx| {
+        const resolv = self.symbol_resolver.get(n_strx) orelse unreachable;
         return resolv.where_index;
     }
 
     log.debug("adding new extern function '{s}' with dylib ordinal 1", .{sym_name});
     const import_sym_index = @intCast(u32, self.imports.items.len);
+    const n_strx = try self.makeString(sym_name);
     try self.imports.append(self.base.allocator, .{
-        .n_strx = try self.makeString(sym_name),
+        .n_strx = n_strx,
         .n_type = macho.N_UNDF | macho.N_EXT,
         .n_sect = 0,
         .n_desc = packDylibOrdinal(1),
         .n_value = 0,
     });
-    try self.symbol_resolver.putNoClobber(self.base.allocator, sym_name, .{
+    try self.symbol_resolver.putNoClobber(self.base.allocator, n_strx, .{
         .where = .import,
         .where_index = import_sym_index,
     });
@@ -5609,6 +5645,11 @@ pub fn padToIdeal(actual_size: anytype) @TypeOf(actual_size) {
 }
 
 pub fn makeString(self: *MachO, string: []const u8) !u32 {
+    if (self.strtab_dir.getAdapted(@as([]const u8, string), StringSliceAdapter{ .strtab = &self.strtab })) |off| {
+        log.debug("reusing string '{s}' at offset 0x{x}", .{ string, off });
+        return off;
+    }
+
     try self.strtab.ensureUnusedCapacity(self.base.allocator, string.len + 1);
     const new_off = @intCast(u32, self.strtab.items.len);
 
@@ -5616,6 +5657,10 @@ pub fn makeString(self: *MachO, string: []const u8) !u32 {
 
     self.strtab.appendSliceAssumeCapacity(string);
     self.strtab.appendAssumeCapacity(0);
+
+    try self.strtab_dir.putContext(self.base.allocator, new_off, new_off, StringIndexContext{
+        .strtab = &self.strtab,
+    });
 
     return new_off;
 }
