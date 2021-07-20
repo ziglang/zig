@@ -1282,44 +1282,49 @@ pub const Context = struct {
         // result type is always 'noreturn'
         const blocktype = wasm.block_empty;
 
-        const signedness: std.builtin.Signedness = blk: {
-            // by default we tell the operand type is unsigned (i.e. bools and enum values)
-            if (target_ty.zigTypeTag() != .Int) break :blk .unsigned;
+        _ = valtype;
+        _ = blocktype;
+        _ = target;
+        _ = else_body;
+        return self.fail("TODO implement wasm codegen for switch", .{});
+        //const signedness: std.builtin.Signedness = blk: {
+        //    // by default we tell the operand type is unsigned (i.e. bools and enum values)
+        //    if (target_ty.zigTypeTag() != .Int) break :blk .unsigned;
 
-            // incase of an actual integer, we emit the correct signedness
-            break :blk target_ty.intInfo(self.target).signedness;
-        };
-        for (cases) |case_idx| {
-            const case = self.air.extraData(Air.SwitchBr.Case, case_idx);
-            const case_body = self.air.extra[case.end..][0..case.data.body_len];
+        //    // incase of an actual integer, we emit the correct signedness
+        //    break :blk target_ty.intInfo(self.target).signedness;
+        //};
+        //for (cases) |case_idx| {
+        //    const case = self.air.extraData(Air.SwitchBr.Case, case_idx);
+        //    const case_body = self.air.extra[case.end..][0..case.data.body_len];
 
-            // create a block for each case, when the condition does not match we break out of it
-            try self.startBlock(.block, blocktype, null);
-            try self.emitWValue(target);
+        //    // create a block for each case, when the condition does not match we break out of it
+        //    try self.startBlock(.block, blocktype, null);
+        //    try self.emitWValue(target);
 
-            const val = self.air.value(case.data.item).?;
-            try self.emitConstant(val, target_ty);
-            const opcode = buildOpcode(.{
-                .valtype1 = valtype,
-                .op = .ne, // not equal because we jump out the block if it does not match the condition
-                .signedness = signedness,
-            });
-            try self.code.append(wasm.opcode(opcode));
-            try self.code.append(wasm.opcode(.br_if));
-            try leb.writeULEB128(self.code.writer(), @as(u32, 0));
+        //    const val = self.air.value(case.data.item).?;
+        //    try self.emitConstant(val, target_ty);
+        //    const opcode = buildOpcode(.{
+        //        .valtype1 = valtype,
+        //        .op = .ne, // not equal because we jump out the block if it does not match the condition
+        //        .signedness = signedness,
+        //    });
+        //    try self.code.append(wasm.opcode(opcode));
+        //    try self.code.append(wasm.opcode(.br_if));
+        //    try leb.writeULEB128(self.code.writer(), @as(u32, 0));
 
-            // emit our block code
-            try self.genBody(case_body);
+        //    // emit our block code
+        //    try self.genBody(case_body);
 
-            // end the block we created earlier
-            try self.endBlock();
-        }
+        //    // end the block we created earlier
+        //    try self.endBlock();
+        //}
 
-        // finally, emit the else case if it exists. Here we will not have to
-        // check for a condition, so also no need to emit a block.
-        try self.genBody(else_body);
+        //// finally, emit the else case if it exists. Here we will not have to
+        //// check for a condition, so also no need to emit a block.
+        //try self.genBody(else_body);
 
-        return .none;
+        //return .none;
     }
 
     fn airIsErr(self: *Context, inst: Air.Inst.Index, opcode: wasm.Opcode) InnerError!WValue {

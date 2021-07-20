@@ -1300,6 +1300,10 @@ pub const Scope = struct {
         }
 
         pub fn addInst(block: *Block, inst: Air.Inst) error{OutOfMemory}!Air.Inst.Ref {
+            return Air.indexToRef(try block.addInstAsIndex(inst));
+        }
+
+        pub fn addInstAsIndex(block: *Block, inst: Air.Inst) error{OutOfMemory}!Air.Inst.Index {
             const sema = block.sema;
             const gpa = sema.gpa;
 
@@ -1309,7 +1313,7 @@ pub const Scope = struct {
             const result_index = @intCast(Air.Inst.Index, sema.air_instructions.len);
             sema.air_instructions.appendAssumeCapacity(inst);
             block.instructions.appendAssumeCapacity(result_index);
-            return Air.indexToRef(result_index);
+            return result_index;
         }
     };
 };

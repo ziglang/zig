@@ -352,9 +352,10 @@ pub const SwitchBr = struct {
     else_body_len: u32,
 
     /// Trailing:
+    /// * item: Inst.Ref // for each `items_len`.
     /// * instruction index for each `body_len`.
     pub const Case = struct {
-        item: Inst.Ref,
+        items_len: u32,
         body_len: u32,
     };
 };

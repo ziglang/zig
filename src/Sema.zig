@@ -4170,159 +4170,201 @@ fn analyzeSwitch(
 
     try sema.requireRuntimeBlock(block, src);
 
-    // TODO when reworking AIR memory layout make multi cases get generated as cases,
-    // not as part of the "else" block.
-    return mod.fail(&block.base, src, "TODO rework runtime switch Sema", .{});
-    //const cases = try sema.arena.alloc(Inst.SwitchBr.Case, scalar_cases_len);
+    var cases_extra: std.ArrayListUnmanaged(u32) = .{};
+    defer cases_extra.deinit(gpa);
 
-    //var case_block = child_block.makeSubBlock();
-    //case_block.runtime_loop = null;
-    //case_block.runtime_cond = operand.src;
-    //case_block.runtime_index += 1;
-    //defer case_block.instructions.deinit(gpa);
+    try cases_extra.ensureTotalCapacity(gpa, (scalar_cases_len + multi_cases_len) *
+        @typeInfo(Air.SwitchBr.Case).Struct.fields.len + 2);
 
-    //var extra_index: usize = special.end;
+    var case_block = child_block.makeSubBlock();
+    case_block.runtime_loop = null;
+    case_block.runtime_cond = operand_src;
+    case_block.runtime_index += 1;
+    defer case_block.instructions.deinit(gpa);
 
-    //var scalar_i: usize = 0;
-    //while (scalar_i < scalar_cases_len) : (scalar_i += 1) {
-    //    const item_ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_index]);
-    //    extra_index += 1;
-    //    const body_len = sema.code.extra[extra_index];
-    //    extra_index += 1;
-    //    const body = sema.code.extra[extra_index..][0..body_len];
-    //    extra_index += body_len;
+    var extra_index: usize = special.end;
 
-    //    case_block.instructions.shrinkRetainingCapacity(0);
-    //    const item = sema.resolveInst(item_ref);
-    //    // We validate these above; these two calls are guaranteed to succeed.
-    //    const item_val = sema.resolveConstValue(&case_block, .unneeded, item) catch unreachable;
+    var scalar_i: usize = 0;
+    while (scalar_i < scalar_cases_len) : (scalar_i += 1) {
+        const item_ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_index]);
+        extra_index += 1;
+        const body_len = sema.code.extra[extra_index];
+        extra_index += 1;
+        const body = sema.code.extra[extra_index..][0..body_len];
+        extra_index += body_len;
 
-    //    _ = try sema.analyzeBody(&case_block, body);
+        case_block.instructions.shrinkRetainingCapacity(0);
+        const item = sema.resolveInst(item_ref);
+        // `item` is already guaranteed to be constant known.
 
-    //    cases[scalar_i] = .{
-    //        .item = item_val,
-    //        .body = .{ .instructions = try sema.arena.dupe(Air.Inst.Index, case_block.instructions.items) },
-    //    };
-    //}
+        _ = try sema.analyzeBody(&case_block, body);
 
-    //var first_else_body: Body = undefined;
-    //var prev_condbr: ?*Inst.CondBr = null;
+        try cases_extra.ensureUnusedCapacity(gpa, 3 + case_block.instructions.items.len);
+        cases_extra.appendAssumeCapacity(1); // items_len
+        cases_extra.appendAssumeCapacity(@intCast(u32, case_block.instructions.items.len));
+        cases_extra.appendAssumeCapacity(@enumToInt(item));
+        cases_extra.appendSliceAssumeCapacity(case_block.instructions.items);
+    }
 
-    //var multi_i: usize = 0;
-    //while (multi_i < multi_cases_len) : (multi_i += 1) {
-    //    const items_len = sema.code.extra[extra_index];
-    //    extra_index += 1;
-    //    const ranges_len = sema.code.extra[extra_index];
-    //    extra_index += 1;
-    //    const body_len = sema.code.extra[extra_index];
-    //    extra_index += 1;
-    //    const items = sema.code.refSlice(extra_index, items_len);
-    //    extra_index += items_len;
+    var is_first = true;
+    var prev_cond_br: Air.Inst.Index = undefined;
+    var first_else_body: []const Air.Inst.Index = &.{};
+    defer gpa.free(first_else_body);
+    var prev_then_body: []const Air.Inst.Index = &.{};
+    defer gpa.free(prev_then_body);
 
-    //    case_block.instructions.shrinkRetainingCapacity(0);
+    var multi_i: usize = 0;
+    while (multi_i < multi_cases_len) : (multi_i += 1) {
+        const items_len = sema.code.extra[extra_index];
+        extra_index += 1;
+        const ranges_len = sema.code.extra[extra_index];
+        extra_index += 1;
+        const body_len = sema.code.extra[extra_index];
+        extra_index += 1;
+        const items = sema.code.refSlice(extra_index, items_len);
+        extra_index += items_len;
 
-    //    var any_ok: ?Air.Inst.Index = null;
+        case_block.instructions.shrinkRetainingCapacity(0);
 
-    //    for (items) |item_ref| {
-    //        const item = sema.resolveInst(item_ref);
-    //        _ = try sema.resolveConstValue(&child_block, item.src, item);
+        var any_ok: Air.Inst.Ref = .none;
 
-    //        const cmp_ok = try case_block.addBinOp(.cmp_eq, operand, item);
-    //        if (any_ok) |some| {
-    //            any_ok = try case_block.addBinOp(.bool_or, some, cmp_ok);
-    //        } else {
-    //            any_ok = cmp_ok;
-    //        }
-    //    }
+        // If there are any ranges, we have to put all the items into the
+        // else prong. Otherwise, we can take advantage of multiple items
+        // mapping to the same body.
+        if (ranges_len == 0) {
+            const body = sema.code.extra[extra_index..][0..body_len];
+            extra_index += body_len;
+            _ = try sema.analyzeBody(&case_block, body);
 
-    //    var range_i: usize = 0;
-    //    while (range_i < ranges_len) : (range_i += 1) {
-    //        const first_ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_index]);
-    //        extra_index += 1;
-    //        const last_ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_index]);
-    //        extra_index += 1;
+            try cases_extra.ensureUnusedCapacity(gpa, 2 + items.len +
+                case_block.instructions.items.len);
 
-    //        const item_first = sema.resolveInst(first_ref);
-    //        const item_last = sema.resolveInst(last_ref);
+            cases_extra.appendAssumeCapacity(1); // items_len
+            cases_extra.appendAssumeCapacity(@intCast(u32, case_block.instructions.items.len));
 
-    //        _ = try sema.resolveConstValue(&child_block, item_first.src, item_first);
-    //        _ = try sema.resolveConstValue(&child_block, item_last.src, item_last);
+            for (items) |item_ref| {
+                const item = sema.resolveInst(item_ref);
+                cases_extra.appendAssumeCapacity(@enumToInt(item));
+            }
 
-    //        // operand >= first and operand <= last
-    //        const range_first_ok = try case_block.addBinOp(
-    //            .cmp_gte,
-    //            operand,
-    //            item_first,
-    //        );
-    //        const range_last_ok = try case_block.addBinOp(
-    //            .cmp_lte,
-    //            operand,
-    //            item_last,
-    //        );
-    //        const range_ok = try case_block.addBinOp(
-    //            .bool_and,
-    //            range_first_ok,
-    //            range_last_ok,
-    //        );
-    //        if (any_ok) |some| {
-    //            any_ok = try case_block.addBinOp(.bool_or, some, range_ok);
-    //        } else {
-    //            any_ok = range_ok;
-    //        }
-    //    }
+            cases_extra.appendSliceAssumeCapacity(case_block.instructions.items);
+        } else {
+            for (items) |item_ref| {
+                const item = sema.resolveInst(item_ref);
+                const cmp_ok = try case_block.addBinOp(.cmp_eq, operand, item);
+                if (any_ok != .none) {
+                    any_ok = try case_block.addBinOp(.bool_or, any_ok, cmp_ok);
+                } else {
+                    any_ok = cmp_ok;
+                }
+            }
 
-    //    const new_condbr = try sema.arena.create(Inst.CondBr);
-    //    new_condbr.* = .{
-    //        .base = .{
-    //            .tag = .condbr,
-    //            .ty = Type.initTag(.noreturn),
-    //            .src = src,
-    //        },
-    //        .condition = any_ok.?,
-    //        .then_body = undefined,
-    //        .else_body = undefined,
-    //    };
-    //    try case_block.instructions.append(gpa, &new_condbr.base);
+            var range_i: usize = 0;
+            while (range_i < ranges_len) : (range_i += 1) {
+                const first_ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_index]);
+                extra_index += 1;
+                const last_ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_index]);
+                extra_index += 1;
 
-    //    const cond_body: Body = .{
-    //        .instructions = try sema.arena.dupe(Air.Inst.Index, case_block.instructions.items),
-    //    };
+                const item_first = sema.resolveInst(first_ref);
+                const item_last = sema.resolveInst(last_ref);
 
-    //    case_block.instructions.shrinkRetainingCapacity(0);
-    //    const body = sema.code.extra[extra_index..][0..body_len];
-    //    extra_index += body_len;
-    //    _ = try sema.analyzeBody(&case_block, body);
-    //    new_condbr.then_body = .{
-    //        .instructions = try sema.arena.dupe(Air.Inst.Index, case_block.instructions.items),
-    //    };
-    //    if (prev_condbr) |condbr| {
-    //        condbr.else_body = cond_body;
-    //    } else {
-    //        first_else_body = cond_body;
-    //    }
-    //    prev_condbr = new_condbr;
-    //}
+                // operand >= first and operand <= last
+                const range_first_ok = try case_block.addBinOp(
+                    .cmp_gte,
+                    operand,
+                    item_first,
+                );
+                const range_last_ok = try case_block.addBinOp(
+                    .cmp_lte,
+                    operand,
+                    item_last,
+                );
+                const range_ok = try case_block.addBinOp(
+                    .bool_and,
+                    range_first_ok,
+                    range_last_ok,
+                );
+                if (any_ok != .none) {
+                    any_ok = try case_block.addBinOp(.bool_or, any_ok, range_ok);
+                } else {
+                    any_ok = range_ok;
+                }
+            }
 
-    //const final_else_body: Body = blk: {
-    //    if (special.body.len != 0) {
-    //        case_block.instructions.shrinkRetainingCapacity(0);
-    //        _ = try sema.analyzeBody(&case_block, special.body);
-    //        const else_body: Body = .{
-    //            .instructions = try sema.arena.dupe(Air.Inst.Index, case_block.instructions.items),
-    //        };
-    //        if (prev_condbr) |condbr| {
-    //            condbr.else_body = else_body;
-    //            break :blk first_else_body;
-    //        } else {
-    //            break :blk else_body;
-    //        }
-    //    } else {
-    //        break :blk .{ .instructions = &.{} };
-    //    }
-    //};
+            const new_cond_br = try case_block.addInstAsIndex(.{ .tag = .cond_br, .data = .{
+                .pl_op = .{
+                    .operand = any_ok,
+                    .payload = undefined,
+                },
+            } });
+            var cond_body = case_block.instructions.toOwnedSlice(gpa);
+            defer gpa.free(cond_body);
 
-    //_ = try child_block.addSwitchBr(src, operand, cases, final_else_body);
-    //return sema.analyzeBlockBody(block, src, &child_block, merges);
+            case_block.instructions.shrinkRetainingCapacity(0);
+            const body = sema.code.extra[extra_index..][0..body_len];
+            extra_index += body_len;
+            _ = try sema.analyzeBody(&case_block, body);
+
+            if (is_first) {
+                is_first = false;
+                first_else_body = cond_body;
+                cond_body = &.{};
+            } else {
+                try sema.air_extra.ensureUnusedCapacity(
+                    gpa,
+                    @typeInfo(Air.CondBr).Struct.fields.len + prev_then_body.len + cond_body.len,
+                );
+
+                sema.air_instructions.items(.data)[prev_cond_br].pl_op.payload =
+                    sema.addExtraAssumeCapacity(Air.CondBr{
+                    .then_body_len = @intCast(u32, prev_then_body.len),
+                    .else_body_len = @intCast(u32, cond_body.len),
+                });
+                sema.air_extra.appendSliceAssumeCapacity(prev_then_body);
+                sema.air_extra.appendSliceAssumeCapacity(cond_body);
+            }
+            prev_then_body = case_block.instructions.toOwnedSlice(gpa);
+            prev_cond_br = new_cond_br;
+        }
+    }
+
+    var final_else_body: []const Air.Inst.Index = &.{};
+    if (special.body.len != 0) {
+        case_block.instructions.shrinkRetainingCapacity(0);
+        _ = try sema.analyzeBody(&case_block, special.body);
+
+        if (is_first) {
+            final_else_body = case_block.instructions.items;
+        } else {
+            try sema.air_extra.ensureUnusedCapacity(gpa, prev_then_body.len +
+                @typeInfo(Air.CondBr).Struct.fields.len + case_block.instructions.items.len);
+
+            sema.air_instructions.items(.data)[prev_cond_br].pl_op.payload =
+                sema.addExtraAssumeCapacity(Air.CondBr{
+                .then_body_len = @intCast(u32, prev_then_body.len),
+                .else_body_len = @intCast(u32, case_block.instructions.items.len),
+            });
+            sema.air_extra.appendSliceAssumeCapacity(prev_then_body);
+            sema.air_extra.appendSliceAssumeCapacity(case_block.instructions.items);
+            final_else_body = first_else_body;
+        }
+    }
+
+    try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.SwitchBr).Struct.fields.len +
+        cases_extra.items.len);
+
+    _ = try child_block.addInst(.{ .tag = .switch_br, .data = .{ .pl_op = .{
+        .operand = operand,
+        .payload = sema.addExtraAssumeCapacity(Air.SwitchBr{
+            .cases_len = @intCast(u32, scalar_cases_len + multi_cases_len),
+            .else_body_len = @intCast(u32, final_else_body.len),
+        }),
+    } } });
+    sema.air_extra.appendSliceAssumeCapacity(cases_extra.items);
+    sema.air_extra.appendSliceAssumeCapacity(final_else_body);
+
+    return sema.analyzeBlockBody(block, src, &child_block, merges);
 }
 
 fn resolveSwitchItemVal(
