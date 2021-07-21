@@ -122,12 +122,9 @@ pub fn hash(hasher: anytype, key: anytype, comptime strat: HashStrategy) void {
         .Array => hashArray(hasher, key, strat),
 
         .Vector => |info| {
-            if (std.meta.bitCount(info.child) % 8 == 0) {
-                // If there's no unused bits in the child type, we can just hash
-                // this as an array of bytes.
+            if (comptime meta.trait.hasUniqueRepresentation(Key)) {
                 hasher.update(mem.asBytes(&key));
             } else {
-                // Otherwise, hash every element.
                 comptime var i = 0;
                 inline while (i < info.len) : (i += 1) {
                     hash(hasher, key[i], strat);
