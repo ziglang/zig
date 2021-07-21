@@ -481,7 +481,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             fn finishAir(bt: *BigTomb, result: MCValue) void {
                 const is_used = !bt.function.liveness.isUnused(bt.inst);
                 if (is_used) {
-                    log.debug("{} => {}", .{ bt.inst, result });
+                    log.debug("%{d} => {}", .{ bt.inst, result });
                     const branch = &bt.function.branch_stack.items[bt.function.branch_stack.items.len - 1];
                     branch.inst_table.putAssumeCapacityNoClobber(bt.inst, result);
                 }
@@ -871,12 +871,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     // zig fmt: on
                 }
                 if (std.debug.runtime_safety) {
-                    if (self.air_bookkeeping != old_air_bookkeeping + 1) {
-                        std.debug.panic(
-                            \\in codegen.zig, handling of AIR instruction %{d} ('{}') did not do proper bookkeeping.
-                            \\Look for a missing call to finishAir or an extra call to it.
-                            \\
-                        , .{ inst, air_tags[inst] });
+                    if (self.air_bookkeeping < old_air_bookkeeping + 1) {
+                        std.debug.panic("in codegen.zig, handling of AIR instruction %{d} ('{}') did not do proper bookkeeping. Look for a missing call to finishAir.", .{ inst, air_tags[inst] });
                     }
                 }
             }
@@ -963,7 +959,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             }
             const is_used = @truncate(u1, tomb_bits) == 0;
             if (is_used) {
-                log.debug("{} => {}", .{ inst, result });
+                log.debug("%{d} => {}", .{ inst, result });
                 const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
                 branch.inst_table.putAssumeCapacityNoClobber(inst, result);
             }
@@ -1350,10 +1346,10 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             self.register_manager.registers[index] = inst;
                         }
                     }
-                    log.debug("reusing {} => {}", .{ reg, inst });
+                    log.debug("%{d} => {} (reused)", .{ inst, reg });
                 },
                 .stack_offset => |off| {
-                    log.debug("reusing stack offset {} => {}", .{ off, inst });
+                    log.debug("%{d} => stack offset {d} (reused)", .{ inst, off });
                 },
                 else => return false,
             }
@@ -2852,7 +2848,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             const un_op = self.air.instructions.items(.data)[inst].un_op;
             const operand = try self.resolveInst(un_op);
             try self.ret(operand);
-            return self.finishAirBookkeeping();
+            return self.finishAir(inst, .dead, .{ un_op, .none, .none });
         }
 
         fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {

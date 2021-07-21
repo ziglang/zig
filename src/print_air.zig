@@ -4,10 +4,11 @@ const fmtIntSizeBin = std.fmt.fmtIntSizeBin;
 
 const Module = @import("Module.zig");
 const Value = @import("value.zig").Value;
+const Zir = @import("Zir.zig");
 const Air = @import("Air.zig");
 const Liveness = @import("Liveness.zig");
 
-pub fn dump(gpa: *Allocator, air: Air, liveness: Liveness) void {
+pub fn dump(gpa: *Allocator, air: Air, zir: Zir, liveness: Liveness) void {
     const instruction_bytes = air.instructions.len *
         // Here we don't use @sizeOf(Air.Inst.Data) because it would include
         // the debug safety tag but we want to measure release size.
@@ -51,11 +52,13 @@ pub fn dump(gpa: *Allocator, air: Air, liveness: Liveness) void {
         .gpa = gpa,
         .arena = &arena.allocator,
         .air = air,
+        .zir = zir,
         .liveness = liveness,
-        .indent = 0,
+        .indent = 2,
     };
     const stream = std.io.getStdErr().writer();
     writer.writeAllConstants(stream) catch return;
+    stream.writeByte('\n') catch return;
     writer.writeBody(stream, air.getMainBody()) catch return;
 }
 
@@ -63,6 +66,7 @@ const Writer = struct {
     gpa: *Allocator,
     arena: *Allocator,
     air: Air,
+    zir: Zir,
     liveness: Liveness,
     indent: usize,
 
@@ -84,13 +88,13 @@ const Writer = struct {
     fn writeBody(w: *Writer, s: anytype, body: []const Air.Inst.Index) @TypeOf(s).Error!void {
         for (body) |inst| {
             try s.writeByteNTimes(' ', w.indent);
-            try s.print("%{d} ", .{inst});
-            try w.writeInst(s, inst);
             if (w.liveness.isUnused(inst)) {
-                try s.writeAll(") unused\n");
+                try s.print("%{d}!", .{inst});
             } else {
-                try s.writeAll(")\n");
+                try s.print("%{d} ", .{inst});
             }
+            try w.writeInst(s, inst);
+            try s.writeAll(")\n");
         }
     }
 
@@ -176,21 +180,21 @@ const Writer = struct {
     }
 
     fn writeTyStr(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
-        _ = w;
-        _ = inst;
-        try s.writeAll("TODO");
+        const ty_str = w.air.instructions.items(.data)[inst].ty_str;
+        const name = w.zir.nullTerminatedString(ty_str.str);
+        try s.print("\"{}\", {}", .{ std.zig.fmtEscapes(name), ty_str.ty });
     }
 
     fn writeBinOp(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
         const bin_op = w.air.instructions.items(.data)[inst].bin_op;
-        try w.writeInstRef(s, bin_op.lhs);
+        try w.writeOperand(s, inst, 0, bin_op.lhs);
         try s.writeAll(", ");
-        try w.writeInstRef(s, bin_op.rhs);
+        try w.writeOperand(s, inst, 1, bin_op.rhs);
     }
 
     fn writeUnOp(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
         const un_op = w.air.instructions.items(.data)[inst].un_op;
-        try w.writeInstRef(s, un_op);
+        try w.writeOperand(s, inst, 0, un_op);
     }
 
     fn writeNoOp(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
@@ -208,7 +212,7 @@ const Writer = struct {
     fn writeTyOp(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
         const ty_op = w.air.instructions.items(.data)[inst].ty_op;
         try s.print("{}, ", .{w.air.getRefType(ty_op.ty)});
-        try w.writeInstRef(s, ty_op.operand);
+        try w.writeOperand(s, inst, 0, ty_op.operand);
     }
 
     fn writeBlock(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
@@ -229,7 +233,7 @@ const Writer = struct {
         const ty_pl = w.air.instructions.items(.data)[inst].ty_pl;
         const extra = w.air.extraData(Air.StructField, ty_pl.payload);
 
-        try w.writeInstRef(s, extra.data.struct_ptr);
+        try w.writeOperand(s, inst, 0, extra.data.struct_ptr);
         try s.print(", {d}", .{extra.data.field_index});
     }
 
@@ -259,21 +263,21 @@ const Writer = struct {
     fn writeCall(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
         const pl_op = w.air.instructions.items(.data)[inst].pl_op;
         const extra = w.air.extraData(Air.Call, pl_op.payload);
-        const args = w.air.extra[extra.end..][0..extra.data.args_len];
-        try w.writeInstRef(s, pl_op.operand);
+        const args = @bitCast([]const Air.Inst.Ref, w.air.extra[extra.end..][0..extra.data.args_len]);
+        try w.writeOperand(s, inst, 0, pl_op.operand);
         try s.writeAll(", [");
         for (args) |arg, i| {
             if (i != 0) try s.writeAll(", ");
-            try w.writeInstRef(s, @intToEnum(Air.Inst.Ref, arg));
+            try w.writeOperand(s, inst, 1 + i, arg);
         }
         try s.writeAll("]");
     }
 
     fn writeBr(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
         const br = w.air.instructions.items(.data)[inst].br;
-        try w.writeInstIndex(s, br.block_inst);
+        try w.writeInstIndex(s, br.block_inst, false);
         try s.writeAll(", ");
-        try w.writeInstRef(s, br.operand);
+        try w.writeOperand(s, inst, 0, br.operand);
     }
 
     fn writeCondBr(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
@@ -281,15 +285,34 @@ const Writer = struct {
         const extra = w.air.extraData(Air.CondBr, pl_op.payload);
         const then_body = w.air.extra[extra.end..][0..extra.data.then_body_len];
         const else_body = w.air.extra[extra.end + then_body.len ..][0..extra.data.else_body_len];
+        const liveness_condbr = w.liveness.getCondBr(inst);
 
-        try w.writeInstRef(s, pl_op.operand);
+        try w.writeOperand(s, inst, 0, pl_op.operand);
         try s.writeAll(", {\n");
         const old_indent = w.indent;
         w.indent += 2;
 
+        if (liveness_condbr.then_deaths.len != 0) {
+            try s.writeByteNTimes(' ', w.indent);
+            for (liveness_condbr.then_deaths) |operand, i| {
+                if (i != 0) try s.writeAll(" ");
+                try s.print("%{d}!", .{operand});
+            }
+            try s.writeAll("\n");
+        }
+
         try w.writeBody(s, then_body);
         try s.writeByteNTimes(' ', old_indent);
         try s.writeAll("}, {\n");
+
+        if (liveness_condbr.else_deaths.len != 0) {
+            try s.writeByteNTimes(' ', w.indent);
+            for (liveness_condbr.else_deaths) |operand, i| {
+                if (i != 0) try s.writeAll(" ");
+                try s.print("%{d}!", .{operand});
+            }
+            try s.writeAll("\n");
+        }
 
         try w.writeBody(s, else_body);
         w.indent = old_indent;
@@ -304,7 +327,7 @@ const Writer = struct {
         var extra_index: usize = switch_br.end;
         var case_i: u32 = 0;
 
-        try w.writeInstRef(s, pl_op.operand);
+        try w.writeOperand(s, inst, 0, pl_op.operand);
         const old_indent = w.indent;
         w.indent += 2;
 
@@ -317,7 +340,7 @@ const Writer = struct {
             try s.writeAll(", [");
             for (items) |item, item_i| {
                 if (item_i != 0) try s.writeAll(", ");
-                try w.writeInstRef(s, item);
+                try w.writeInstRef(s, item, false);
             }
             try s.writeAll("] => {\n");
             w.indent += 2;
@@ -342,19 +365,49 @@ const Writer = struct {
         try s.writeAll("}");
     }
 
-    fn writeInstRef(w: *Writer, s: anytype, inst: Air.Inst.Ref) @TypeOf(s).Error!void {
-        var i: usize = @enumToInt(inst);
+    fn writeOperand(
+        w: *Writer,
+        s: anytype,
+        inst: Air.Inst.Index,
+        op_index: usize,
+        operand: Air.Inst.Ref,
+    ) @TypeOf(s).Error!void {
+        const dies = if (op_index < Liveness.bpi - 1)
+            w.liveness.operandDies(inst, @intCast(Liveness.OperandInt, op_index))
+        else blk: {
+            // TODO
+            break :blk false;
+        };
+        return w.writeInstRef(s, operand, dies);
+    }
+
+    fn writeInstRef(
+        w: *Writer,
+        s: anytype,
+        operand: Air.Inst.Ref,
+        dies: bool,
+    ) @TypeOf(s).Error!void {
+        var i: usize = @enumToInt(operand);
 
         if (i < Air.Inst.Ref.typed_value_map.len) {
-            return s.print("@{}", .{inst});
+            return s.print("@{}", .{operand});
         }
         i -= Air.Inst.Ref.typed_value_map.len;
 
-        return w.writeInstIndex(s, @intCast(Air.Inst.Index, i));
+        return w.writeInstIndex(s, @intCast(Air.Inst.Index, i), dies);
     }
 
-    fn writeInstIndex(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
+    fn writeInstIndex(
+        w: *Writer,
+        s: anytype,
+        inst: Air.Inst.Index,
+        dies: bool,
+    ) @TypeOf(s).Error!void {
         _ = w;
-        return s.print("%{d}", .{inst});
+        if (dies) {
+            try s.print("%{d}!", .{inst});
+        } else {
+            try s.print("%{d}", .{inst});
+        }
     }
 };

@@ -2007,59 +2007,6 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
                     @panic("sadly stage2 is omitted from this build to save memory on the CI server");
                 const module = self.bin_file.options.module.?;
                 assert(decl.has_tv);
-                if (decl.val.castTag(.function)) |payload| {
-                    if (decl.owns_tv) {
-                        const func = payload.data;
-
-                        var air = switch (func.state) {
-                            .sema_failure, .dependency_failure => continue,
-                            .queued => module.analyzeFnBody(decl, func) catch |err| switch (err) {
-                                error.AnalysisFail => {
-                                    assert(func.state != .in_progress);
-                                    continue;
-                                },
-                                error.OutOfMemory => return error.OutOfMemory,
-                            },
-                            .in_progress => unreachable,
-                            .inline_only => unreachable, // don't queue work for this
-                            .success => unreachable, // don't queue it twice
-                        };
-                        defer air.deinit(gpa);
-
-                        log.debug("analyze liveness of {s}", .{decl.name});
-                        var liveness = try Liveness.analyze(gpa, air, decl.namespace.file_scope.zir);
-                        defer liveness.deinit(gpa);
-
-                        if (builtin.mode == .Debug and self.verbose_air) {
-                            std.debug.print("# Begin Function AIR: {s}:\n", .{decl.name});
-                            @import("print_air.zig").dump(gpa, air, liveness);
-                            std.debug.print("# End Function AIR: {s}:\n", .{decl.name});
-                        }
-
-                        assert(decl.ty.hasCodeGenBits());
-
-                        self.bin_file.updateFunc(module, func, air, liveness) catch |err| switch (err) {
-                            error.OutOfMemory => return error.OutOfMemory,
-                            error.AnalysisFail => {
-                                decl.analysis = .codegen_failure;
-                                continue;
-                            },
-                            else => {
-                                try module.failed_decls.ensureUnusedCapacity(gpa, 1);
-                                module.failed_decls.putAssumeCapacityNoClobber(decl, try Module.ErrorMsg.create(
-                                    gpa,
-                                    decl.srcLoc(),
-                                    "unable to codegen: {s}",
-                                    .{@errorName(err)},
-                                ));
-                                decl.analysis = .codegen_failure_retryable;
-                                continue;
-                            },
-                        };
-                        continue;
-                    }
-                }
-
                 assert(decl.ty.hasCodeGenBits());
 
                 self.bin_file.updateDecl(module, decl) catch |err| switch (err) {
@@ -2069,7 +2016,7 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
                         continue;
                     },
                     else => {
-                        try module.failed_decls.ensureCapacity(gpa, module.failed_decls.count() + 1);
+                        try module.failed_decls.ensureUnusedCapacity(gpa, 1);
                         module.failed_decls.putAssumeCapacityNoClobber(decl, try Module.ErrorMsg.create(
                             gpa,
                             decl.srcLoc(),
@@ -2123,7 +2070,7 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
 
                 if (builtin.mode == .Debug and self.verbose_air) {
                     std.debug.print("# Begin Function AIR: {s}:\n", .{decl.name});
-                    @import("print_air.zig").dump(gpa, air, liveness);
+                    @import("print_air.zig").dump(gpa, air, decl.namespace.file_scope.zir, liveness);
                     std.debug.print("# End Function AIR: {s}:\n", .{decl.name});
                 }
 
@@ -2207,7 +2154,7 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
                 @panic("sadly stage2 is omitted from this build to save memory on the CI server");
             const module = self.bin_file.options.module.?;
             self.bin_file.updateDeclLineNumber(module, decl) catch |err| {
-                try module.failed_decls.ensureCapacity(gpa, module.failed_decls.count() + 1);
+                try module.failed_decls.ensureUnusedCapacity(gpa, 1);
                 module.failed_decls.putAssumeCapacityNoClobber(decl, try Module.ErrorMsg.create(
                     gpa,
                     decl.srcLoc(),
