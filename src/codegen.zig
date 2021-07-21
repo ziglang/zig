@@ -2506,7 +2506,6 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             }) orelse unreachable;
                             break :blk got.addr + got_index * @sizeOf(u64);
                         };
-                        log.debug("got_addr = 0x{x}", .{got_addr});
                         switch (arch) {
                             .x86_64 => {
                                 try self.genSetReg(inst.base.src, Type.initTag(.u64), .rax, .{ .memory = got_addr });
@@ -3864,19 +3863,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     .memory => |addr| {
                         if (self.bin_file.options.pie) {
                             // PC-relative displacement to the entry in the GOT table.
-                            // TODO we should come up with our own, backend independent relocation types
-                            // which each backend (Elf, MachO, etc.) would then translate into an actual
-                            // fixup when linking.
-                            // adrp reg, pages
-                            if (self.bin_file.cast(link.File.MachO)) |macho_file| {
-                                try macho_file.pie_fixups.append(self.bin_file.allocator, .{
-                                    .target_addr = addr,
-                                    .offset = self.code.items.len,
-                                    .size = 4,
-                                });
-                            } else {
-                                return self.fail(src, "TODO implement genSetReg for PIE GOT indirection on this platform", .{});
-                            }
+                            // adrp
+                            const offset = @intCast(u32, self.code.items.len);
                             mem.writeIntLittle(
                                 u32,
                                 try self.code.addManyAsArray(4),
@@ -3889,6 +3877,26 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                     .offset = Instruction.LoadStoreOffset.imm(0),
                                 },
                             }).toU32());
+
+                            if (self.bin_file.cast(link.File.MachO)) |macho_file| {
+                                const decl = macho_file.active_decl.?;
+                                // Page reloc for adrp instruction.
+                                try decl.link.macho.relocs.append(self.bin_file.allocator, .{
+                                    .offset = offset,
+                                    .where = .local,
+                                    .where_index = decl.link.macho.local_sym_index,
+                                    .payload = .{ .page = .{ .kind = .got } },
+                                });
+                                // Pageoff reloc for adrp instruction.
+                                try decl.link.macho.relocs.append(self.bin_file.allocator, .{
+                                    .offset = offset + 4,
+                                    .where = .local,
+                                    .where_index = decl.link.macho.local_sym_index,
+                                    .payload = .{ .page_off = .{ .kind = .got } },
+                                });
+                            } else {
+                                return self.fail(src, "TODO implement genSetReg for PIE GOT indirection on this platform", .{});
+                            }
                         } else {
                             // The value is in memory at a hard-coded address.
                             // If the type is a pointer, it means the pointer address is at this memory location.
@@ -4128,6 +4136,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             const abi_size = ty.abiSize(self.target.*);
                             const encoder = try X8664Encoder.init(self.code, 10);
 
+                            const offset = @intCast(u32, self.code.items.len);
                             // LEA reg, [<offset>]
 
                             // We encode the instruction FIRST because prefixes may or may not appear.
@@ -4141,14 +4150,14 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             encoder.modRm_RIPDisp32(reg.low_id());
                             encoder.disp32(0);
 
-                            // TODO we should come up with our own, backend independent relocation types
-                            // which each backend (Elf, MachO, etc.) would then translate into an actual
-                            // fixup when linking.
                             if (self.bin_file.cast(link.File.MachO)) |macho_file| {
-                                try macho_file.pie_fixups.append(self.bin_file.allocator, .{
-                                    .target_addr = x,
-                                    .offset = self.code.items.len - 4,
-                                    .size = 4,
+                                const decl = macho_file.active_decl.?;
+                                // Load reloc for LEA instruction.
+                                try decl.link.macho.relocs.append(self.bin_file.allocator, .{
+                                    .offset = offset,
+                                    .where = .local,
+                                    .where_index = decl.link.macho.local_sym_index,
+                                    .payload = .{ .load = .{ .kind = .got } },
                                 });
                             } else {
                                 return self.fail(src, "TODO implement genSetReg for PIE GOT indirection on this platform", .{});

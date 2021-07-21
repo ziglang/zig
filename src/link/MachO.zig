@@ -203,14 +203,11 @@ blocks: std.AutoHashMapUnmanaged(MatchingSection, *TextBlock) = .{},
 /// TODO consolidate this.
 decls: std.ArrayListUnmanaged(*Module.Decl) = .{},
 
-/// A list of all PIE fixups required for this run of the linker.
-/// Warning, this is currently NOT thread-safe. See the TODO below.
-/// TODO Move this list inside `updateDecl` where it should be allocated
-/// prior to calling `generateSymbol`, and then immediately deallocated
-/// rather than sitting in the global scope.
-/// TODO We should also rewrite this using generic relocations common to all
-/// backends.
-pie_fixups: std.ArrayListUnmanaged(PIEFixup) = .{},
+/// Currently active Module.Decl.
+/// TODO this might not be necessary if we figure out how to pass Module.Decl instance
+/// to codegen.genSetReg() or alterntively move PIE displacement for MCValue{ .memory = x }
+/// somewhere else in the codegen.
+active_decl: ?*Module.Decl = null,
 
 const StringIndexContext = struct {
     strtab: *std.ArrayListUnmanaged(u8),
@@ -3279,7 +3276,6 @@ pub fn deinit(self: *MachO) void {
     }
 
     self.pending_updates.deinit(self.base.allocator);
-    self.pie_fixups.deinit(self.base.allocator);
     self.got_entries.deinit(self.base.allocator);
     self.got_entries_map.deinit(self.base.allocator);
     self.got_entries_free_list.deinit(self.base.allocator);
@@ -3497,6 +3493,8 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
         }
     }
 
+    self.active_decl = decl;
+
     const res = if (debug_buffers) |*dbg|
         try codegen.generateSymbol(&self.base, decl.srcLoc(), .{
             .ty = decl.ty,
@@ -3522,8 +3520,6 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
                 break :blk decl.link.macho.code;
             },
             .fail => |em| {
-                // Clear any PIE fixups for this decl.
-                self.pie_fixups.shrinkRetainingCapacity(0);
                 decl.analysis = .codegen_failure;
                 try module.failed_decls.put(module.gpa, decl, em);
                 return;
@@ -3598,46 +3594,6 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
             .where_index = decl.link.macho.local_sym_index,
         }) orelse unreachable;
         try self.writeGotEntry(got_index);
-    }
-
-    // Calculate displacements to target addr (if any).
-    while (self.pie_fixups.popOrNull()) |fixup| {
-        assert(fixup.size == 4);
-        const this_addr = symbol.n_value + fixup.offset;
-        const target_addr = fixup.target_addr;
-
-        switch (self.base.options.target.cpu.arch) {
-            .x86_64 => {
-                const displacement = try math.cast(u32, target_addr - this_addr - 4);
-                mem.writeIntLittle(u32, decl.link.macho.code[fixup.offset..][0..4], displacement);
-            },
-            .aarch64 => {
-                // TODO optimize instruction based on jump length (use ldr(literal) + nop if possible).
-                {
-                    const inst = decl.link.macho.code[fixup.offset..][0..4];
-                    var parsed = mem.bytesAsValue(meta.TagPayload(
-                        aarch64.Instruction,
-                        aarch64.Instruction.pc_relative_address,
-                    ), inst);
-                    const this_page = @intCast(i32, this_addr >> 12);
-                    const target_page = @intCast(i32, target_addr >> 12);
-                    const pages = @bitCast(u21, @intCast(i21, target_page - this_page));
-                    parsed.immhi = @truncate(u19, pages >> 2);
-                    parsed.immlo = @truncate(u2, pages);
-                }
-                {
-                    const inst = decl.link.macho.code[fixup.offset + 4 ..][0..4];
-                    var parsed = mem.bytesAsValue(meta.TagPayload(
-                        aarch64.Instruction,
-                        aarch64.Instruction.load_store_register,
-                    ), inst);
-                    const narrowed = @truncate(u12, target_addr);
-                    const offset = try math.divExact(u12, narrowed, 8);
-                    parsed.offset = offset;
-                }
-            },
-            else => unreachable, // unsupported target architecture
-        }
     }
 
     // Resolve relocations
