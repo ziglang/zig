@@ -197,11 +197,11 @@ managed_blocks: std.ArrayListUnmanaged(*TextBlock) = .{},
 
 blocks: std.AutoHashMapUnmanaged(MatchingSection, *TextBlock) = .{},
 
-/// List of Decls that are currently alive.
+/// Table of Decls that are currently alive.
 /// We store them here so that we can properly dispose of any allocated
 /// memory within the TextBlock in the incremental linker.
 /// TODO consolidate this.
-decls: std.ArrayListUnmanaged(*Module.Decl) = .{},
+decls: std.AutoArrayHashMapUnmanaged(*Module.Decl, void) = .{},
 
 /// Currently active Module.Decl.
 /// TODO this might not be necessary if we figure out how to pass Module.Decl instance
@@ -3323,7 +3323,7 @@ pub fn deinit(self: *MachO) void {
     self.blocks.deinit(self.base.allocator);
     self.text_block_free_list.deinit(self.base.allocator);
 
-    for (self.decls.items) |decl| {
+    for (self.decls.keys()) |decl| {
         decl.link.macho.deinit(self.base.allocator);
     }
     self.decls.deinit(self.base.allocator);
@@ -3427,9 +3427,8 @@ pub fn allocateDeclIndexes(self: *MachO, decl: *Module.Decl) !void {
 
     try self.locals.ensureUnusedCapacity(self.base.allocator, 1);
     try self.got_entries.ensureUnusedCapacity(self.base.allocator, 1);
-    try self.decls.ensureUnusedCapacity(self.base.allocator, 1);
 
-    self.decls.appendAssumeCapacity(decl);
+    try self.decls.putNoClobber(self.base.allocator, decl, {});
 
     if (self.locals_free_list.popOrNull()) |i| {
         log.debug("reusing symbol index {d} for {s}", .{ i, decl.name });
@@ -3598,6 +3597,9 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
 
     // Resolve relocations
     try decl.link.macho.resolveRelocs(self);
+    // TODO this requires further investigation: should we dispose of resolved relocs, or keep them
+    // so that we can reapply them when moving/growing sections?
+    decl.link.macho.relocs.clearRetainingCapacity();
 
     // Apply pending updates
     while (self.pending_updates.popOrNull()) |update| {
@@ -3746,6 +3748,7 @@ pub fn deleteExport(self: *MachO, exp: Export) void {
 
 pub fn freeDecl(self: *MachO, decl: *Module.Decl) void {
     log.debug("freeDecl {*}", .{decl});
+    _ = self.decls.swapRemove(decl);
     // Appending to free lists is allowed to fail because the free lists are heuristics based anyway.
     self.freeTextBlock(&decl.link.macho);
     if (decl.link.macho.local_sym_index != 0) {
