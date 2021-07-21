@@ -2523,21 +2523,25 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     } else if (func_value.castTag(.extern_fn)) |func_payload| {
                         const decl = func_payload.data;
                         const where_index = try macho_file.addExternFn(mem.spanZ(decl.name));
-                        const offset = @intCast(u32, self.code.items.len);
-                        switch (arch) {
-                            .x86_64 => {
-                                // callq
-                                try self.code.ensureCapacity(self.code.items.len + 5);
-                                self.code.appendSliceAssumeCapacity(&[5]u8{ 0xe8, 0x0, 0x0, 0x0, 0x0 });
-                            },
-                            .aarch64 => {
-                                // bl
-                                writeInt(u32, try self.code.addManyAsArray(4), Instruction.bl(0).toU32());
-                            },
-                            else => unreachable, // unsupported architecture on MachO
-                        }
+                        const offset = blk: {
+                            switch (arch) {
+                                .x86_64 => {
+                                    // callq
+                                    try self.code.ensureCapacity(self.code.items.len + 5);
+                                    self.code.appendSliceAssumeCapacity(&[5]u8{ 0xe8, 0x0, 0x0, 0x0, 0x0 });
+                                    break :blk @intCast(u32, self.code.items.len) - 4;
+                                },
+                                .aarch64 => {
+                                    const offset = @intCast(u32, self.code.items.len);
+                                    // bl
+                                    writeInt(u32, try self.code.addManyAsArray(4), Instruction.bl(0).toU32());
+                                    break :blk offset;
+                                },
+                                else => unreachable, // unsupported architecture on MachO
+                            }
+                        };
                         // Add relocation to the decl.
-                        try decl.link.macho.relocs.append(self.bin_file.allocator, .{
+                        try macho_file.active_decl.?.link.macho.relocs.append(self.bin_file.allocator, .{
                             .offset = offset,
                             .where = .import,
                             .where_index = where_index,
@@ -3879,19 +3883,29 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             }).toU32());
 
                             if (self.bin_file.cast(link.File.MachO)) |macho_file| {
+                                // TODO this is super awkward. We are reversing the address of the GOT entry here.
+                                // We should probably have it cached or move the reloc adding somewhere else.
+                                const got_addr = blk: {
+                                    const seg = macho_file.load_commands.items[macho_file.data_const_segment_cmd_index.?].Segment;
+                                    const got = seg.sections.items[macho_file.got_section_index.?];
+                                    break :blk got.addr;
+                                };
+                                const where_index = blk: for (macho_file.got_entries.items) |key, id| {
+                                    if (got_addr + id * @sizeOf(u64) == addr) break :blk key.where_index;
+                                } else unreachable;
                                 const decl = macho_file.active_decl.?;
                                 // Page reloc for adrp instruction.
                                 try decl.link.macho.relocs.append(self.bin_file.allocator, .{
                                     .offset = offset,
                                     .where = .local,
-                                    .where_index = decl.link.macho.local_sym_index,
+                                    .where_index = where_index,
                                     .payload = .{ .page = .{ .kind = .got } },
                                 });
                                 // Pageoff reloc for adrp instruction.
                                 try decl.link.macho.relocs.append(self.bin_file.allocator, .{
                                     .offset = offset + 4,
                                     .where = .local,
-                                    .where_index = decl.link.macho.local_sym_index,
+                                    .where_index = where_index,
                                     .payload = .{ .page_off = .{ .kind = .got } },
                                 });
                             } else {
@@ -4136,7 +4150,6 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             const abi_size = ty.abiSize(self.target.*);
                             const encoder = try X8664Encoder.init(self.code, 10);
 
-                            const offset = @intCast(u32, self.code.items.len);
                             // LEA reg, [<offset>]
 
                             // We encode the instruction FIRST because prefixes may or may not appear.
@@ -4150,13 +4163,25 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             encoder.modRm_RIPDisp32(reg.low_id());
                             encoder.disp32(0);
 
+                            const offset = @intCast(u32, self.code.items.len);
+
                             if (self.bin_file.cast(link.File.MachO)) |macho_file| {
+                                // TODO this is super awkward. We are reversing the address of the GOT entry here.
+                                // We should probably have it cached or move the reloc adding somewhere else.
+                                const got_addr = blk: {
+                                    const seg = macho_file.load_commands.items[macho_file.data_const_segment_cmd_index.?].Segment;
+                                    const got = seg.sections.items[macho_file.got_section_index.?];
+                                    break :blk got.addr;
+                                };
+                                const where_index = blk: for (macho_file.got_entries.items) |key, id| {
+                                    if (got_addr + id * @sizeOf(u64) == x) break :blk key.where_index;
+                                } else unreachable;
                                 const decl = macho_file.active_decl.?;
                                 // Load reloc for LEA instruction.
                                 try decl.link.macho.relocs.append(self.bin_file.allocator, .{
-                                    .offset = offset,
+                                    .offset = offset - 4,
                                     .where = .local,
-                                    .where_index = decl.link.macho.local_sym_index,
+                                    .where_index = where_index,
                                     .payload = .{ .load = .{ .kind = .got } },
                                 });
                             } else {
