@@ -3404,7 +3404,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         fn airBr(self: *Self, inst: Air.Inst.Index) !void {
             const branch = self.air.instructions.items(.data)[inst].br;
             try self.br(branch.block_inst, branch.operand);
-            return self.finishAirBookkeeping();
+            return self.finishAir(inst, .dead, .{ branch.operand, .none, .none });
         }
 
         fn airBoolOp(self: *Self, inst: Air.Inst.Index) !void {
