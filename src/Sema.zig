@@ -2625,9 +2625,7 @@ fn zirMergeErrorSets(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) Com
     const rhs_src: LazySrcLoc = .{ .node_offset_bin_rhs = inst_data.src_node };
     const lhs = sema.resolveInst(extra.lhs);
     const rhs = sema.resolveInst(extra.rhs);
-    const lhs_ty = sema.typeOf(lhs);
-    const rhs_ty = sema.typeOf(rhs);
-    if (rhs_ty.zigTypeTag() == .Bool and lhs_ty.zigTypeTag() == .Bool) {
+    if (sema.typeOf(lhs).zigTypeTag() == .Bool and sema.typeOf(rhs).zigTypeTag() == .Bool) {
         const msg = msg: {
             const msg = try sema.mod.errMsg(&block.base, lhs_src, "expected error set type, found 'bool'", .{});
             errdefer msg.destroy(sema.gpa);
@@ -2636,10 +2634,12 @@ fn zirMergeErrorSets(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) Com
         };
         return sema.mod.failWithOwnedErrorMsg(&block.base, msg);
     }
-    if (rhs_ty.zigTypeTag() != .ErrorSet)
-        return sema.mod.fail(&block.base, rhs_src, "expected error set type, found {}", .{rhs_ty});
+    const lhs_ty = try sema.analyzeAsType(block, lhs_src, lhs);
+    const rhs_ty = try sema.analyzeAsType(block, rhs_src, rhs);
     if (lhs_ty.zigTypeTag() != .ErrorSet)
         return sema.mod.fail(&block.base, lhs_src, "expected error set type, found {}", .{lhs_ty});
+    if (rhs_ty.zigTypeTag() != .ErrorSet)
+        return sema.mod.fail(&block.base, rhs_src, "expected error set type, found {}", .{rhs_ty});
 
     // Anything merged with anyerror is anyerror.
     if (lhs_ty.tag() == .anyerror or rhs_ty.tag() == .anyerror) {
