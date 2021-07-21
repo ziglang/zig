@@ -505,8 +505,8 @@ const LinuxThreadImpl = struct {
         /// Ported over from musl libc's pthread detached implementation:
         /// https://github.com/ifduyue/musl/search?q=__unmapself
         fn freeAndExit(self: *ThreadCompletion) noreturn {
-            const unmap_and_exit: []const u8 = switch (target.cpu.arch) {
-                .i386 => (
+            switch (target.cpu.arch) {
+                .i386 => asm volatile (
                     \\  movl $91, %%eax
                     \\  movl %[ptr], %%ebx
                     \\  movl %[len], %%ecx
@@ -514,8 +514,12 @@ const LinuxThreadImpl = struct {
                     \\  movl $1, %%eax
                     \\  movl $0, %%ebx
                     \\  int $128
+                    :
+                    : [ptr] "r" (@ptrToInt(self.mapped.ptr)),
+                      [len] "r" (self.mapped.len)
+                    : "memory"
                 ),
-                .x86_64 => (
+                .x86_64 => asm volatile (
                     \\  movq $11, %%rax
                     \\  movq %[ptr], %%rbx
                     \\  movq %[len], %%rcx
@@ -523,8 +527,12 @@ const LinuxThreadImpl = struct {
                     \\  movq $60, %%rax
                     \\  movq $1, %%rdi
                     \\  syscall
+                    :
+                    : [ptr] "r" (@ptrToInt(self.mapped.ptr)),
+                      [len] "r" (self.mapped.len)
+                    : "memory"
                 ),
-                .arm, .armeb, .thumb, .thumbeb => (
+                .arm, .armeb, .thumb, .thumbeb => asm volatile (
                     \\  mov r7, #91
                     \\  mov r0, %[ptr]
                     \\  mov r1, %[len]
@@ -532,8 +540,12 @@ const LinuxThreadImpl = struct {
                     \\  mov r7, #1
                     \\  mov r0, #0
                     \\  svc 0
+                    :
+                    : [ptr] "r" (@ptrToInt(self.mapped.ptr)),
+                      [len] "r" (self.mapped.len)
+                    : "memory"
                 ),
-                .aarch64, .aarch64_be, .aarch64_32 => (
+                .aarch64, .aarch64_be, .aarch64_32 => asm volatile (
                     \\  mov x8, #215
                     \\  mov x0, %[ptr]
                     \\  mov x1, %[len]
@@ -541,8 +553,12 @@ const LinuxThreadImpl = struct {
                     \\  mov x8, #93
                     \\  mov x0, #0
                     \\  svc 0
+                    :
+                    : [ptr] "r" (@ptrToInt(self.mapped.ptr)),
+                      [len] "r" (self.mapped.len)
+                    : "memory"
                 ),
-                .mips, .mipsel => (
+                .mips, .mipsel => asm volatile (
                     \\  move $sp, $25
                     \\  li $2, 4091
                     \\  move $4, %[ptr]
@@ -551,8 +567,12 @@ const LinuxThreadImpl = struct {
                     \\  li $2, 4001
                     \\  li $4, 0
                     \\  syscall
+                    :
+                    : [ptr] "r" (@ptrToInt(self.mapped.ptr)),
+                      [len] "r" (self.mapped.len)
+                    : "memory"
                 ),
-                .mips64, .mips64el => (
+                .mips64, .mips64el => asm volatile (
                     \\  li $2, 4091
                     \\  move $4, %[ptr]
                     \\  move $5, %[len]
@@ -560,8 +580,12 @@ const LinuxThreadImpl = struct {
                     \\  li $2, 4001
                     \\  li $4, 0
                     \\  syscall
+                    :
+                    : [ptr] "r" (@ptrToInt(self.mapped.ptr)),
+                      [len] "r" (self.mapped.len)
+                    : "memory"
                 ),
-                .powerpc, .powerpcle, .powerpc64, .powerpc64le => (
+                .powerpc, .powerpcle, .powerpc64, .powerpc64le => asm volatile (
                     \\  li 0, 91
                     \\  mr %[ptr], 3
                     \\  mr %[len], 4
@@ -570,8 +594,12 @@ const LinuxThreadImpl = struct {
                     \\  li 3, 0
                     \\  sc
                     \\  blr
+                    :
+                    : [ptr] "r" (@ptrToInt(self.mapped.ptr)),
+                      [len] "r" (self.mapped.len)
+                    : "memory"
                 ),
-                .riscv64 => (
+                .riscv64 => asm volatile (
                     \\  li a7, 215
                     \\  mv a0, %[ptr]
                     \\  mv a1, %[len]
@@ -579,19 +607,13 @@ const LinuxThreadImpl = struct {
                     \\  li a7, 93
                     \\  mv a0, zero
                     \\  ecall
+                    :
+                    : [ptr] "r" (@ptrToInt(self.mapped.ptr)),
+                      [len] "r" (self.mapped.len)
+                    : "memory"
                 ),
-                else => |cpu_arch| {
-                    @compileLog("Unsupported linux arch ", cpu_arch);
-                },
-            };
-
-            asm volatile (unmap_and_exit
-                :
-                : [ptr] "r" (@ptrToInt(self.mapped.ptr)),
-                  [len] "r" (self.mapped.len)
-                : "memory"
-            );
-
+                else => |cpu_arch| @compileError("Unsupported linux arch: " ++ @tagName(cpu_arch)),
+            }
             unreachable;
         }
     };

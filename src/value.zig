@@ -7,7 +7,7 @@ const BigIntMutable = std.math.big.int.Mutable;
 const Target = std.Target;
 const Allocator = std.mem.Allocator;
 const Module = @import("Module.zig");
-const ir = @import("air.zig");
+const Air = @import("Air.zig");
 
 /// This is the raw data, with no bookkeeping, no memory awareness,
 /// no de-duplication, and no type system awareness.
@@ -573,7 +573,7 @@ pub const Value = extern union {
             .int_i64 => return std.fmt.formatIntValue(val.castTag(.int_i64).?.data, "", options, out_stream),
             .int_big_positive => return out_stream.print("{}", .{val.castTag(.int_big_positive).?.asBigInt()}),
             .int_big_negative => return out_stream.print("{}", .{val.castTag(.int_big_negative).?.asBigInt()}),
-            .function => return out_stream.writeAll("(function)"),
+            .function => return out_stream.print("(function '{s}')", .{val.castTag(.function).?.data.owner_decl.name}),
             .extern_fn => return out_stream.writeAll("(extern function)"),
             .variable => return out_stream.writeAll("(variable)"),
             .ref_val => {
@@ -1700,7 +1700,7 @@ pub const Value = extern union {
                 /// peer type resolution. This is stored in a separate list so that
                 /// the items are contiguous in memory and thus can be passed to
                 /// `Module.resolvePeerTypes`.
-                stored_inst_list: std.ArrayListUnmanaged(*ir.Inst) = .{},
+                stored_inst_list: std.ArrayListUnmanaged(Air.Inst.Ref) = .{},
             },
         };
 
