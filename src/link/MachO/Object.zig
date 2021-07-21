@@ -723,12 +723,13 @@ pub fn parseTextBlocks(self: *Object, macho_file: *MachO) !void {
                 break :blk block_local_sym_index;
             };
 
-            const block = try macho_file.managed_blocks.addOne(macho_file.base.allocator);
+            const block = try macho_file.base.allocator.create(TextBlock);
             block.* = TextBlock.empty;
             block.local_sym_index = block_local_sym_index;
             block.code = try self.allocator.dupe(u8, code);
             block.size = sect.size;
             block.alignment = sect.@"align";
+            try macho_file.managed_blocks.append(macho_file.base.allocator, block);
 
             try block.parseRelocsFromObject(self.allocator, relocs, self, .{
                 .base_addr = 0,

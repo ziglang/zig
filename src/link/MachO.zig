@@ -188,8 +188,20 @@ text_block_free_list: std.ArrayListUnmanaged(*TextBlock) = .{},
 /// Pointer to the last allocated text block
 last_text_block: ?*TextBlock = null,
 
-managed_blocks: std.ArrayListUnmanaged(TextBlock) = .{},
+/// List of TextBlocks that are owned directly by the linker.
+/// Currently these are only TextBlocks that are the result of linking
+/// object files. TextBlock which take part in incremental linking are 
+/// at present owned by Module.Decl.
+/// TODO consolidate this.
+managed_blocks: std.ArrayListUnmanaged(*TextBlock) = .{},
+
 blocks: std.AutoHashMapUnmanaged(MatchingSection, *TextBlock) = .{},
+
+/// List of Decls that are currently alive.
+/// We store them here so that we can properly dispose of any allocated
+/// memory within the TextBlock in the incremental linker.
+/// TODO consolidate this.
+decls: std.ArrayListUnmanaged(*Module.Decl) = .{},
 
 /// A list of all PIE fixups required for this run of the linker.
 /// Warning, this is currently NOT thread-safe. See the TODO below.
@@ -203,7 +215,7 @@ pie_fixups: std.ArrayListUnmanaged(PIEFixup) = .{},
 const StringIndexContext = struct {
     strtab: *std.ArrayListUnmanaged(u8),
 
-    pub fn eql(self: StringIndexContext, a: u32, b: u32) bool {
+    pub fn eql(_: StringIndexContext, a: u32, b: u32) bool {
         return a == b;
     }
 
@@ -2224,7 +2236,6 @@ fn resolveSymbols(self: *MachO) !void {
     for (self.tentatives.items) |sym| {
         if (symbolIsNull(sym)) continue;
 
-        const sym_name = self.getString(sym.n_strx);
         const match: MatchingSection = blk: {
             if (self.common_section_index == null) {
                 const data_seg = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
@@ -2263,12 +2274,13 @@ fn resolveSymbols(self: *MachO) !void {
             .local_sym_index = local_sym_index,
         };
 
-        const block = try self.managed_blocks.addOne(self.base.allocator);
+        const block = try self.base.allocator.create(TextBlock);
         block.* = TextBlock.empty;
         block.local_sym_index = local_sym_index;
         block.code = code;
         block.size = size;
         block.alignment = alignment;
+        try self.managed_blocks.append(self.base.allocator, block);
 
         // Update target section's metadata
         // TODO should we update segment's size here too?
@@ -2403,12 +2415,13 @@ fn resolveSymbols(self: *MachO) !void {
         // We create an empty atom for this symbol.
         // TODO perhaps we should special-case special symbols? Create a separate
         // linked list of atoms?
-        const block = try self.managed_blocks.addOne(self.base.allocator);
+        const block = try self.base.allocator.create(TextBlock);
         block.* = TextBlock.empty;
         block.local_sym_index = local_sym_index;
         block.code = try self.base.allocator.alloc(u8, 0);
         block.size = 0;
         block.alignment = 0;
+        try self.managed_blocks.append(self.base.allocator, block);
 
         if (self.blocks.getPtr(match)) |last| {
             last.*.next = block;
@@ -3306,12 +3319,18 @@ pub fn deinit(self: *MachO) void {
     }
     self.load_commands.deinit(self.base.allocator);
 
-    for (self.managed_blocks.items) |*block| {
+    for (self.managed_blocks.items) |block| {
         block.deinit(self.base.allocator);
+        self.base.allocator.destroy(block);
     }
     self.managed_blocks.deinit(self.base.allocator);
     self.blocks.deinit(self.base.allocator);
     self.text_block_free_list.deinit(self.base.allocator);
+
+    for (self.decls.items) |decl| {
+        decl.link.macho.deinit(self.base.allocator);
+    }
+    self.decls.deinit(self.base.allocator);
 }
 
 pub fn closeFiles(self: MachO) void {
@@ -3325,7 +3344,7 @@ pub fn closeFiles(self: MachO) void {
 
 fn freeTextBlock(self: *MachO, text_block: *TextBlock) void {
     log.debug("freeTextBlock {*}", .{text_block});
-    // text_block.deinit(self.base.allocator);
+    text_block.deinit(self.base.allocator);
 
     var already_have_free_list_node = false;
     {
@@ -3412,6 +3431,9 @@ pub fn allocateDeclIndexes(self: *MachO, decl: *Module.Decl) !void {
 
     try self.locals.ensureUnusedCapacity(self.base.allocator, 1);
     try self.got_entries.ensureUnusedCapacity(self.base.allocator, 1);
+    try self.decls.ensureUnusedCapacity(self.base.allocator, 1);
+
+    self.decls.appendAssumeCapacity(decl);
 
     if (self.locals_free_list.popOrNull()) |i| {
         log.debug("reusing symbol index {d} for {s}", .{ i, decl.name });
@@ -3497,7 +3519,6 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
             .externally_managed => |x| break :blk x,
             .appended => {
                 decl.link.macho.code = code_buffer.toOwnedSlice();
-                log.warn("WAT", .{});
                 break :blk decl.link.macho.code;
             },
             .fail => |em| {
