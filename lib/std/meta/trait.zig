@@ -582,7 +582,7 @@ pub fn hasUniqueRepresentation(comptime T: type) bool {
             return @sizeOf(T) == sum_size;
         },
 
-        .Vector => |info| return comptime hasUniqueRepresentation(info.child),
+        .Vector => |info| return comptime hasUniqueRepresentation(info.child) and @sizeOf(T) == @sizeOf(info.child) * info.len,
     }
 }
 
@@ -653,4 +653,7 @@ test "std.meta.trait.hasUniqueRepresentation" {
 
     try testing.expect(!hasUniqueRepresentation([]u8));
     try testing.expect(!hasUniqueRepresentation([]const u8));
+
+    try testing.expect(hasUniqueRepresentation(@Vector(4, u16)));
+    try testing.expect(!hasUniqueRepresentation(@Vector(3, u16)));
 }
