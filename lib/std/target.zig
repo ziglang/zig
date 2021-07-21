@@ -550,7 +550,6 @@ pub const Target = struct {
 
     pub const ObjectFormat = enum {
         coff,
-        pe,
         elf,
         macho,
         wasm,

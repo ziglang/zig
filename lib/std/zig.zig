@@ -109,7 +109,7 @@ pub fn binNameAlloc(allocator: *std.mem.Allocator, options: BinNameOptions) erro
     const root_name = options.root_name;
     const target = options.target;
     switch (options.object_format orelse target.getObjectFormat()) {
-        .coff, .pe => switch (options.output_mode) {
+        .coff => switch (options.output_mode) {
             .Exe => return std.fmt.allocPrint(allocator, "{s}{s}", .{ root_name, target.exeFileExt() }),
             .Lib => {
                 const suffix = switch (options.link_mode orelse .Static) {

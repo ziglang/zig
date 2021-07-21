@@ -287,9 +287,9 @@ const usage_build_generic =
     \\                      .s    Target-specific assembly source code
     \\                      .S    Assembly with C preprocessor (requires LLVM extensions)
     \\                      .c    C source code (requires LLVM extensions)
-    \\                    .cpp    C++ source code (requires LLVM extensions)
-    \\                            Other C++ extensions: .C .cc .cxx
+    \\        .cxx .cc .C .cpp    C++ source code (requires LLVM extensions)
     \\                      .m    Objective-C source code (requires LLVM extensions)
+    \\                     .bc    LLVM IR Module (requires LLVM extensions)
     \\
     \\General Options:
     \\  -h, --help                Print this help and exit
@@ -361,13 +361,12 @@ const usage_build_generic =
     \\    elf                     Executable and Linking Format
     \\    c                       Compile to C source code
     \\    wasm                    WebAssembly
-    \\    pe                      Portable Executable (Windows)
     \\    coff                    Common Object File Format (Windows)
     \\    macho                   macOS relocatables
     \\    spirv                   Standard, Portable Intermediate Representation V (SPIR-V)
     \\    plan9                   Plan 9 from Bell Labs object format
-    \\    hex    (planned)        Intel IHEX
-    \\    raw    (planned)        Dump machine code directly
+    \\    hex  (planned feature)  Intel IHEX
+    \\    raw  (planned feature)  Dump machine code directly
     \\  -dirafter [dir]           Add directory to AFTER include search path
     \\  -isystem  [dir]           Add directory to SYSTEM include search path
     \\  -I[dir]                   Add directory to include search path
@@ -1708,8 +1707,6 @@ fn buildOutputType(
             break :blk .c;
         } else if (mem.eql(u8, ofmt, "coff")) {
             break :blk .coff;
-        } else if (mem.eql(u8, ofmt, "pe")) {
-            break :blk .pe;
         } else if (mem.eql(u8, ofmt, "macho")) {
             break :blk .macho;
         } else if (mem.eql(u8, ofmt, "wasm")) {
@@ -1753,7 +1750,7 @@ fn buildOutputType(
     };
 
     const a_out_basename = switch (object_format) {
-        .pe, .coff => "a.exe",
+        .coff => "a.exe",
         else => "a.out",
     };
 
@@ -2396,11 +2393,8 @@ fn updateModule(gpa: *Allocator, comp: *Compilation, hook: AfterUpdateHook) !voi
 
             // If a .pdb file is part of the expected output, we must also copy
             // it into place here.
-            const coff_or_pe = switch (comp.bin_file.options.object_format) {
-                .coff, .pe => true,
-                else => false,
-            };
-            const have_pdb = coff_or_pe and !comp.bin_file.options.strip;
+            const is_coff = comp.bin_file.options.object_format == .coff;
+            const have_pdb = is_coff and !comp.bin_file.options.strip;
             if (have_pdb) {
                 // Replace `.out` or `.exe` with `.pdb` on both the source and destination
                 const src_bin_ext = fs.path.extension(bin_sub_path);

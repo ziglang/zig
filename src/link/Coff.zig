@@ -657,10 +657,7 @@ fn writeOffsetTableEntry(self: *Coff, index: usize) !void {
 }
 
 pub fn updateFunc(self: *Coff, module: *Module, func: *Module.Fn, air: Air, liveness: Liveness) !void {
-    if (build_options.skip_non_native and
-        builtin.object_format != .coff and
-        builtin.object_format != .pe)
-    {
+    if (build_options.skip_non_native and builtin.object_format != .coff) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
     if (build_options.have_llvm) {
@@ -697,7 +694,7 @@ pub fn updateFunc(self: *Coff, module: *Module, func: *Module.Fn, air: Air, live
 }
 
 pub fn updateDecl(self: *Coff, module: *Module, decl: *Module.Decl) !void {
-    if (build_options.skip_non_native and builtin.object_format != .coff and builtin.object_format != .pe) {
+    if (build_options.skip_non_native and builtin.object_format != .coff) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
     if (build_options.have_llvm) {
