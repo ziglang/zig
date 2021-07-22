@@ -295,7 +295,20 @@ const NlistWithIndex = struct {
     index: u32,
 
     fn lessThan(_: void, lhs: NlistWithIndex, rhs: NlistWithIndex) bool {
-        return lhs.nlist.n_value < rhs.nlist.n_value;
+        // We sort by type: defined < undefined, and
+        // afterwards by address in each group. Normally, dysymtab should
+        // be enough to guarantee the sort, but turns out not every compiler
+        // is kind enough to specify the symbols in the correct order.
+        if (MachO.symbolIsSect(lhs.nlist)) {
+            if (MachO.symbolIsSect(rhs.nlist)) {
+                // Same group, sort by address.
+                return lhs.nlist.n_value < rhs.nlist.n_value;
+            } else {
+                return true;
+            }
+        } else {
+            return false;
+        }
     }
 
     fn filterInSection(symbols: []NlistWithIndex, sect: macho.section_64) []NlistWithIndex {
@@ -488,22 +501,27 @@ pub fn parseTextBlocks(self: *Object, macho_file: *MachO) !void {
 
     log.debug("analysing {s}", .{self.name.?});
 
-    const dysymtab = self.load_commands.items[self.dysymtab_cmd_index.?].Dysymtab;
-    // We only care about defined symbols, so filter every other out.
-    const nlists = self.symtab.items[dysymtab.ilocalsym..dysymtab.iundefsym];
+    // You would expect that the symbol table is at least pre-sorted based on symbol's type:
+    // local < extern defined < undefined. Unfortunately, this is not guaranteed! For instance,
+    // the GO compiler does not necessarily respect that therefore we sort immediately by type
+    // and address within.
+    var sorted_all_nlists = std.ArrayList(NlistWithIndex).init(self.allocator);
+    defer sorted_all_nlists.deinit();
+    try sorted_all_nlists.ensureTotalCapacity(self.symtab.items.len);
 
-    var sorted_nlists = std.ArrayList(NlistWithIndex).init(self.allocator);
-    defer sorted_nlists.deinit();
-    try sorted_nlists.ensureTotalCapacity(nlists.len);
-
-    for (nlists) |nlist, index| {
-        sorted_nlists.appendAssumeCapacity(.{
+    for (self.symtab.items) |nlist, index| {
+        sorted_all_nlists.appendAssumeCapacity(.{
             .nlist = nlist,
-            .index = @intCast(u32, index + dysymtab.ilocalsym),
+            .index = @intCast(u32, index),
         });
     }
 
-    sort.sort(NlistWithIndex, sorted_nlists.items, {}, NlistWithIndex.lessThan);
+    sort.sort(NlistWithIndex, sorted_all_nlists.items, {}, NlistWithIndex.lessThan);
+
+    const dysymtab = self.load_commands.items[self.dysymtab_cmd_index.?].Dysymtab;
+
+    // We only care about defined symbols, so filter every other out.
+    const sorted_nlists = sorted_all_nlists.items[dysymtab.ilocalsym..dysymtab.iundefsym];
 
     for (seg.sections.items) |sect, id| {
         const sect_id = @intCast(u8, id);
@@ -530,7 +548,7 @@ pub fn parseTextBlocks(self: *Object, macho_file: *MachO) !void {
         const relocs = mem.bytesAsSlice(macho.relocation_info, raw_relocs);
 
         // Symbols within this section only.
-        const filtered_nlists = NlistWithIndex.filterInSection(sorted_nlists.items, sect);
+        const filtered_nlists = NlistWithIndex.filterInSection(sorted_nlists, sect);
 
         // Is there any padding between symbols within the section?
         // const is_splittable = self.header.?.flags & macho.MH_SUBSECTIONS_VIA_SYMBOLS != 0;
@@ -808,44 +826,6 @@ pub fn parseTextBlocks(self: *Object, macho_file: *MachO) !void {
             try self.text_blocks.append(self.allocator, block);
         }
     }
-}
-
-pub fn symbolFromReloc(self: *Object, macho_file: *MachO, rel: macho.relocation_info) !*Symbol {
-    const symbol = blk: {
-        if (rel.r_extern == 1) {
-            break :blk self.symbols.items[rel.r_symbolnum];
-        } else {
-            const sect_id = @intCast(u8, rel.r_symbolnum - 1);
-            const symbol = self.sections_as_symbols.get(sect_id) orelse symbol: {
-                // We need a valid pointer to Symbol even if there is no symbol, so we create a
-                // dummy symbol upfront which will later be populated when created a TextBlock from
-                // the target section here.
-                const seg = self.load_commands.items[self.segment_cmd_index.?].Segment;
-                const sect = seg.sections.items[sect_id];
-                const name = try std.fmt.allocPrint(self.allocator, "l_{s}_{s}_{s}", .{
-                    self.name.?,
-                    segmentName(sect),
-                    sectionName(sect),
-                });
-                defer self.allocator.free(name);
-                const symbol = try macho_file.allocator.create(Symbol);
-                symbol.* = .{
-                    .strx = try macho_file.makeString(name),
-                    .payload = .{
-                        .regular = .{
-                            .linkage = .translation_unit,
-                            .address = sect.addr,
-                            .file = self,
-                        },
-                    },
-                };
-                try self.sections_as_symbols.putNoClobber(self.allocator, sect_id, symbol);
-                break :symbol symbol;
-            };
-            break :blk symbol;
-        }
-    };
-    return symbol;
 }
 
 fn parseSymtab(self: *Object) !void {
