@@ -425,7 +425,8 @@ pub fn flush(self: *MachO, comp: *Compilation) !void {
         }
     }
 
-    if (build_options.is_stage1) {
+    const use_stage1 = build_options.is_stage1 and self.base.options.use_stage1;
+    if (use_stage1) {
         return self.linkWithZld(comp);
     } else {
         switch (self.base.options.effectiveOutputMode()) {
@@ -3153,7 +3154,7 @@ fn writeSymbolTable(self: *MachO) !void {
             if (object.debug_info == null) continue;
 
             // Open scope
-            try locals.ensureUnusedCapacity(4);
+            try locals.ensureUnusedCapacity(3);
             locals.appendAssumeCapacity(.{
                 .n_strx = try self.makeString(object.tu_comp_dir.?),
                 .n_type = macho.N_SO,
@@ -3192,7 +3193,7 @@ fn writeSymbolTable(self: *MachO) !void {
             }
 
             // Close scope
-            locals.appendAssumeCapacity(.{
+            try locals.append(.{
                 .n_strx = 0,
                 .n_type = macho.N_SO,
                 .n_sect = 0,
