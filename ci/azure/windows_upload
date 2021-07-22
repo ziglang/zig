@@ -11,6 +11,11 @@ if [ "${BUILD_REASON}" != "PullRequest" ]; then
   mv dist/bin/zig.exe dist/
   rmdir dist/bin
 
+  # Remove the unnecessary zig dir in $prefix/lib/zig/std/std.zig
+  mv dist/lib/zig dist/lib2
+  rmdir dist/lib
+  mv dist/lib2 dist/lib
+
   VERSION=$(dist/zig.exe version)
   DIRNAME="zig-windows-x86_64-$VERSION"
   TARBALL="$DIRNAME.zip"
