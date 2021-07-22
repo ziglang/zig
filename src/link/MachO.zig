@@ -1828,7 +1828,7 @@ fn writeTextBlocks(self: *MachO) !void {
                 });
 
                 try block.resolveRelocs(self);
-                mem.copy(u8, code[aligned_base_off..][0..block.size], block.code);
+                mem.copy(u8, code[aligned_base_off..][0..block.size], block.code.items);
 
                 // TODO NOP for machine code instead of just zeroing out
                 const padding_len = aligned_base_off - base_off;
@@ -2262,6 +2262,7 @@ fn resolveSymbols(self: *MachO) !void {
 
         const size = sym.n_value;
         const code = try self.base.allocator.alloc(u8, size);
+        defer self.base.allocator.free(code);
         mem.set(u8, code, 0);
         const alignment = (sym.n_desc >> 8) & 0x0f;
 
@@ -2287,10 +2288,11 @@ fn resolveSymbols(self: *MachO) !void {
         const block = try self.base.allocator.create(TextBlock);
         block.* = TextBlock.empty;
         block.local_sym_index = local_sym_index;
-        block.code = code;
         block.size = size;
         block.alignment = alignment;
         try self.managed_blocks.append(self.base.allocator, block);
+
+        try block.code.appendSlice(self.base.allocator, code);
 
         // Update target section's metadata
         // TODO should we update segment's size here too?
@@ -2428,7 +2430,6 @@ fn resolveSymbols(self: *MachO) !void {
         const block = try self.base.allocator.create(TextBlock);
         block.* = TextBlock.empty;
         block.local_sym_index = local_sym_index;
-        block.code = try self.base.allocator.alloc(u8, 0);
         block.size = 0;
         block.alignment = 0;
         try self.managed_blocks.append(self.base.allocator, block);
@@ -3527,7 +3528,13 @@ pub fn updateFunc(self: *MachO, module: *Module, func: *Module.Fn, air: Air, liv
         try codegen.generateFunction(&self.base, decl.srcLoc(), func, air, liveness, &code_buffer, .none);
     switch (res) {
         .appended => {
-            decl.link.macho.code = code_buffer.toOwnedSlice();
+            // TODO clearing the code and relocs buffer should probably be orchestrated
+            // in a different, smarter, more automatic way somewhere else, in a more centralised
+            // way than this.
+            // If we don't clear the buffers here, we are up for some nasty surprises when
+            // this TextBlock is reused later on and was not freed by freeTextBlock().
+            decl.link.macho.code.clearAndFree(self.base.allocator);
+            try decl.link.macho.code.appendSlice(self.base.allocator, code_buffer.items);
         },
         .fail => |em| {
             decl.analysis = .codegen_failure;
@@ -3536,9 +3543,9 @@ pub fn updateFunc(self: *MachO, module: *Module, func: *Module.Fn, air: Air, liv
         },
     }
 
-    const symbol = try self.placeDecl(decl, decl.link.macho.code.len);
+    const symbol = try self.placeDecl(decl, decl.link.macho.code.items.len);
 
-    try self.writeCode(symbol, decl.link.macho.code);
+    try self.writeCode(symbol, decl.link.macho.code.items);
 
     if (debug_buffers) |db| {
         try self.d_sym.?.commitDeclDebugInfo(
@@ -3613,8 +3620,14 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
         switch (res) {
             .externally_managed => |x| break :blk x,
             .appended => {
-                decl.link.macho.code = code_buffer.toOwnedSlice();
-                break :blk decl.link.macho.code;
+                // TODO clearing the code and relocs buffer should probably be orchestrated
+                // in a different, smarter, more automatic way somewhere else, in a more centralised
+                // way than this.
+                // If we don't clear the buffers here, we are up for some nasty surprises when
+                // this TextBlock is reused later on and was not freed by freeTextBlock().
+                decl.link.macho.code.clearAndFree(self.base.allocator);
+                try decl.link.macho.code.appendSlice(self.base.allocator, code_buffer.items);
+                break :blk decl.link.macho.code.items;
             },
             .fail => |em| {
                 decl.analysis = .codegen_failure;
@@ -3705,7 +3718,7 @@ fn placeDecl(self: *MachO, decl: *Module.Decl, code_len: usize) !*macho.nlist_64
     try decl.link.macho.resolveRelocs(self);
     // TODO this requires further investigation: should we dispose of resolved relocs, or keep them
     // so that we can reapply them when moving/growing sections?
-    decl.link.macho.relocs.clearRetainingCapacity();
+    decl.link.macho.relocs.clearAndFree(self.base.allocator);
 
     // Apply pending updates
     while (self.pending_updates.popOrNull()) |update| {

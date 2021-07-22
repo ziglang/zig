@@ -30,7 +30,7 @@ aliases: std.ArrayListUnmanaged(u32) = .{},
 contained: std.ArrayListUnmanaged(SymbolAtOffset) = .{},
 
 /// Code (may be non-relocated) this block represents
-code: []u8,
+code: std.ArrayListUnmanaged(u8) = .{},
 
 /// Size and alignment of this text block
 /// Unlike in Elf, we need to store the size of this symbol as part of
@@ -196,9 +196,9 @@ pub const Relocation = struct {
             };
 
             if (self.is_64bit) {
-                mem.writeIntLittle(u64, args.block.code[args.offset..][0..8], @bitCast(u64, result));
+                mem.writeIntLittle(u64, args.block.code.items[args.offset..][0..8], @bitCast(u64, result));
             } else {
-                mem.writeIntLittle(u32, args.block.code[args.offset..][0..4], @truncate(u32, @bitCast(u64, result)));
+                mem.writeIntLittle(u32, args.block.code.items[args.offset..][0..4], @truncate(u32, @bitCast(u64, result)));
             }
         }
 
@@ -226,7 +226,7 @@ pub const Relocation = struct {
                         i28,
                         @intCast(i64, args.target_addr) - @intCast(i64, args.source_addr),
                     );
-                    const code = args.block.code[args.offset..][0..4];
+                    const code = args.block.code.items[args.offset..][0..4];
                     var inst = aarch64.Instruction{
                         .unconditional_branch_immediate = mem.bytesToValue(meta.TagPayload(
                             aarch64.Instruction,
@@ -241,7 +241,7 @@ pub const Relocation = struct {
                         i32,
                         @intCast(i64, args.target_addr) - @intCast(i64, args.source_addr) - 4,
                     );
-                    mem.writeIntLittle(u32, args.block.code[args.offset..][0..4], @bitCast(u32, displacement));
+                    mem.writeIntLittle(u32, args.block.code.items[args.offset..][0..4], @bitCast(u32, displacement));
                 },
                 else => return error.UnsupportedCpuArchitecture,
             }
@@ -269,7 +269,7 @@ pub const Relocation = struct {
             const target_page = @intCast(i32, target_addr >> 12);
             const pages = @bitCast(u21, @intCast(i21, target_page - source_page));
 
-            const code = args.block.code[args.offset..][0..4];
+            const code = args.block.code.items[args.offset..][0..4];
             var inst = aarch64.Instruction{
                 .pc_relative_address = mem.bytesToValue(meta.TagPayload(
                     aarch64.Instruction,
@@ -315,7 +315,7 @@ pub const Relocation = struct {
         };
 
         pub fn resolve(self: PageOff, args: ResolveArgs) !void {
-            const code = args.block.code[args.offset..][0..4];
+            const code = args.block.code.items[args.offset..][0..4];
 
             switch (self.kind) {
                 .page => {
@@ -445,7 +445,7 @@ pub const Relocation = struct {
     pub const PointerToGot = struct {
         pub fn resolve(_: PointerToGot, args: ResolveArgs) !void {
             const result = try math.cast(i32, @intCast(i64, args.target_addr) - @intCast(i64, args.source_addr));
-            mem.writeIntLittle(u32, args.block.code[args.offset..][0..4], @bitCast(u32, result));
+            mem.writeIntLittle(u32, args.block.code.items[args.offset..][0..4], @bitCast(u32, result));
         }
 
         pub fn format(self: PointerToGot, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
@@ -466,7 +466,7 @@ pub const Relocation = struct {
                 i32,
                 target_addr - @intCast(i64, args.source_addr) - self.correction - 4,
             );
-            mem.writeIntLittle(u32, args.block.code[args.offset..][0..4], @bitCast(u32, displacement));
+            mem.writeIntLittle(u32, args.block.code.items[args.offset..][0..4], @bitCast(u32, displacement));
         }
 
         pub fn format(self: Signed, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
@@ -489,13 +489,13 @@ pub const Relocation = struct {
         pub fn resolve(self: Load, args: ResolveArgs) !void {
             if (self.kind == .tlvp) {
                 // We need to rewrite the opcode from movq to leaq.
-                args.block.code[args.offset - 2] = 0x8d;
+                args.block.code.items[args.offset - 2] = 0x8d;
             }
             const displacement = try math.cast(
                 i32,
                 @intCast(i64, args.target_addr) - @intCast(i64, args.source_addr) - 4 + self.addend,
             );
-            mem.writeIntLittle(u32, args.block.code[args.offset..][0..4], @bitCast(u32, displacement));
+            mem.writeIntLittle(u32, args.block.code.items[args.offset..][0..4], @bitCast(u32, displacement));
         }
 
         pub fn format(self: Load, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
@@ -542,7 +542,6 @@ pub const Relocation = struct {
 
 pub const empty = TextBlock{
     .local_sym_index = 0,
-    .code = undefined,
     .size = 0,
     .alignment = 0,
     .prev = null,
@@ -560,7 +559,7 @@ pub fn deinit(self: *TextBlock, allocator: *Allocator) void {
     self.relocs.deinit(allocator);
     self.contained.deinit(allocator);
     self.aliases.deinit(allocator);
-    allocator.free(self.code);
+    self.code.deinit(allocator);
 }
 
 /// Returns how much room there is to grow in virtual address space.
@@ -914,9 +913,9 @@ fn parseUnsigned(
     };
 
     var addend: i64 = if (is_64bit)
-        mem.readIntLittle(i64, self.code[out.offset..][0..8])
+        mem.readIntLittle(i64, self.code.items[out.offset..][0..8])
     else
-        mem.readIntLittle(i32, self.code[out.offset..][0..4]);
+        mem.readIntLittle(i32, self.code.items[out.offset..][0..4]);
 
     if (rel.r_extern == 0) {
         assert(out.where == .local);
@@ -970,7 +969,7 @@ fn parsePageOff(self: TextBlock, rel: macho.relocation_info, out: *Relocation, a
     const rel_type = @intToEnum(macho.reloc_type_arm64, rel.r_type);
     const op_kind: ?Relocation.PageOff.OpKind = blk: {
         if (rel_type != .ARM64_RELOC_PAGEOFF12) break :blk null;
-        const op_kind: Relocation.PageOff.OpKind = if (isArithmeticOp(self.code[out.offset..][0..4]))
+        const op_kind: Relocation.PageOff.OpKind = if (isArithmeticOp(self.code.items[out.offset..][0..4]))
             .arithmetic
         else
             .load;
@@ -1013,7 +1012,7 @@ fn parseSigned(self: TextBlock, rel: macho.relocation_info, out: *Relocation, ct
         .X86_64_RELOC_SIGNED_4 => 4,
         else => unreachable,
     };
-    var addend: i64 = mem.readIntLittle(i32, self.code[out.offset..][0..4]) + correction;
+    var addend: i64 = mem.readIntLittle(i32, self.code.items[out.offset..][0..4]) + correction;
 
     if (rel.r_extern == 0) {
         const source_sym = ctx.macho_file.locals.items[self.local_sym_index];
@@ -1038,7 +1037,7 @@ fn parseLoad(self: TextBlock, rel: macho.relocation_info, out: *Relocation) void
 
     const rel_type = @intToEnum(macho.reloc_type_x86_64, rel.r_type);
     const addend: i32 = if (rel_type == .X86_64_RELOC_GOT)
-        mem.readIntLittle(i32, self.code[out.offset..][0..4])
+        mem.readIntLittle(i32, self.code.items[out.offset..][0..4])
     else
         0;
 
@@ -1173,7 +1172,7 @@ pub fn print_this(self: *const TextBlock, macho_file: MachO) void {
             }
         }
     }
-    log.warn("  code.len = {}", .{self.code.len});
+    log.warn("  code.len = {}", .{self.code.items.len});
     if (self.relocs.items.len > 0) {
         log.warn("  relocations:", .{});
         for (self.relocs.items) |rel| {
