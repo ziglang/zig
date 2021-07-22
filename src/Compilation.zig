@@ -143,6 +143,7 @@ debug_compiler_runtime_libs: bool,
 
 emit_asm: ?EmitLoc,
 emit_llvm_ir: ?EmitLoc,
+emit_llvm_bc: ?EmitLoc,
 emit_analysis: ?EmitLoc,
 emit_docs: ?EmitLoc,
 
@@ -586,6 +587,17 @@ pub const Directory = struct {
             return std.fs.path.join(allocator, paths);
         }
     }
+
+    pub fn joinZ(self: Directory, allocator: *Allocator, paths: []const []const u8) ![:0]u8 {
+        if (self.path) |p| {
+            // TODO clean way to do this with only 1 allocation
+            const part2 = try std.fs.path.join(allocator, paths);
+            defer allocator.free(part2);
+            return std.fs.path.joinZ(allocator, &[_][]const u8{ p, part2 });
+        } else {
+            return std.fs.path.joinZ(allocator, paths);
+        }
+    }
 };
 
 pub const EmitLoc = struct {
@@ -623,6 +635,8 @@ pub const InitOptions = struct {
     emit_asm: ?EmitLoc = null,
     /// `null` means to not emit LLVM IR.
     emit_llvm_ir: ?EmitLoc = null,
+    /// `null` means to not emit LLVM module bitcode.
+    emit_llvm_bc: ?EmitLoc = null,
     /// `null` means to not emit semantic analysis JSON.
     emit_analysis: ?EmitLoc = null,
     /// `null` means to not emit docs.
@@ -819,6 +833,10 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
                     break :blk false;
                 }
             }
+            // If we have no zig code to compile, no need for stage1 backend.
+            if (options.root_pkg == null)
+                break :blk false;
+
             break :blk build_options.is_stage1;
         };
 
@@ -834,6 +852,10 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             // If we are outputting .c code we must use Zig backend.
             if (ofmt == .c)
                 break :blk false;
+
+            // If emitting to LLVM bitcode object format, must use LLVM backend.
+            if (options.emit_llvm_ir != null or options.emit_llvm_bc != null)
+                break :blk true;
 
             // The stage1 compiler depends on the stage1 C++ LLVM backend
             // to compile zig code.
@@ -852,6 +874,12 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             }
             if (options.machine_code_model != .default) {
                 return error.MachineCodeModelNotSupportedWithoutLlvm;
+            }
+            if (options.emit_llvm_ir != null or options.emit_llvm_bc != null) {
+                return error.EmittingLlvmModuleRequiresUsingLlvmBackend;
+            }
+            if (use_stage1) {
+                return error.@"stage1 only supports LLVM backend";
             }
         }
 
@@ -1381,6 +1409,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .bin_file = bin_file,
             .emit_asm = options.emit_asm,
             .emit_llvm_ir = options.emit_llvm_ir,
+            .emit_llvm_bc = options.emit_llvm_bc,
             .emit_analysis = options.emit_analysis,
             .emit_docs = options.emit_docs,
             .work_queue = std.fifo.LinearFifo(Job, .Dynamic).init(gpa),
@@ -2728,7 +2757,10 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
         comp.bin_file.options.root_name
     else
         c_source_basename[0 .. c_source_basename.len - std.fs.path.extension(c_source_basename).len];
-    const o_basename = try std.fmt.allocPrint(arena, "{s}{s}", .{ o_basename_noext, comp.getTarget().oFileExt() });
+    const o_basename = try std.fmt.allocPrint(arena, "{s}{s}", .{
+        o_basename_noext,
+        comp.bin_file.options.object_format.fileExt(comp.bin_file.options.target.cpu.arch),
+    });
 
     const digest = if (!comp.disable_c_depfile and try man.hit()) man.final() else blk: {
         var argv = std.ArrayList([]const u8).init(comp.gpa);
@@ -3978,6 +4010,7 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
     }
     man.hash.addOptionalEmitLoc(comp.emit_asm);
     man.hash.addOptionalEmitLoc(comp.emit_llvm_ir);
+    man.hash.addOptionalEmitLoc(comp.emit_llvm_bc);
     man.hash.addOptionalEmitLoc(comp.emit_analysis);
     man.hash.addOptionalEmitLoc(comp.emit_docs);
     man.hash.add(comp.test_evented_io);
@@ -4083,13 +4116,14 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
     ) orelse return error.OutOfMemory;
 
     const emit_bin_path = if (comp.bin_file.options.emit != null) blk: {
-        const bin_basename = try std.zig.binNameAlloc(arena, .{
+        const obj_basename = try std.zig.binNameAlloc(arena, .{
             .root_name = comp.bin_file.options.root_name,
             .target = target,
             .output_mode = .Obj,
         });
-        break :blk try directory.join(arena, &[_][]const u8{bin_basename});
+        break :blk try directory.join(arena, &[_][]const u8{obj_basename});
     } else "";
+
     if (mod.emit_h != null) {
         log.warn("-femit-h is not available in the stage1 backend; no .h file will be produced", .{});
     }
@@ -4097,6 +4131,7 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
     const emit_h_path = try stage1LocPath(arena, emit_h_loc, directory);
     const emit_asm_path = try stage1LocPath(arena, comp.emit_asm, directory);
     const emit_llvm_ir_path = try stage1LocPath(arena, comp.emit_llvm_ir, directory);
+    const emit_llvm_bc_path = try stage1LocPath(arena, comp.emit_llvm_bc, directory);
     const emit_analysis_path = try stage1LocPath(arena, comp.emit_analysis, directory);
     const emit_docs_path = try stage1LocPath(arena, comp.emit_docs, directory);
     const stage1_pkg = try createStage1Pkg(arena, "root", mod.root_pkg, null);
@@ -4117,6 +4152,8 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
         .emit_asm_len = emit_asm_path.len,
         .emit_llvm_ir_ptr = emit_llvm_ir_path.ptr,
         .emit_llvm_ir_len = emit_llvm_ir_path.len,
+        .emit_bitcode_ptr = emit_llvm_bc_path.ptr,
+        .emit_bitcode_len = emit_llvm_bc_path.len,
         .emit_analysis_json_ptr = emit_analysis_path.ptr,
         .emit_analysis_json_len = emit_analysis_path.len,
         .emit_docs_ptr = emit_docs_path.ptr,

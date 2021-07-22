@@ -95,6 +95,8 @@ pub const Module = extern struct {
     emit_asm_len: usize,
     emit_llvm_ir_ptr: [*]const u8,
     emit_llvm_ir_len: usize,
+    emit_bitcode_ptr: [*]const u8,
+    emit_bitcode_len: usize,
     emit_analysis_json_ptr: [*]const u8,
     emit_analysis_json_len: usize,
     emit_docs_ptr: [*]const u8,

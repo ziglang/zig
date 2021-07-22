@@ -30,7 +30,7 @@ const DebugSymbols = @import("MachO/DebugSymbols.zig");
 const Trie = @import("MachO/Trie.zig");
 const CodeSignature = @import("MachO/CodeSignature.zig");
 const Zld = @import("MachO/Zld.zig");
-const llvm_backend = @import("../codegen/llvm.zig");
+const LlvmObject = @import("../codegen/llvm.zig").Object;
 
 usingnamespace @import("MachO/commands.zig");
 
@@ -39,7 +39,7 @@ pub const base_tag: File.Tag = File.Tag.macho;
 base: File,
 
 /// If this is not null, an object file is created by LLVM and linked with LLD afterwards.
-llvm_object: ?*llvm_backend.Object = null,
+llvm_object: ?*LlvmObject = null,
 
 /// Debug symbols bundle (or dSym).
 d_sym: ?DebugSymbols = null,
@@ -355,7 +355,7 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
         const self = try createEmpty(allocator, options);
         errdefer self.base.destroy();
 
-        self.llvm_object = try llvm_backend.Object.create(allocator, sub_path, options);
+        self.llvm_object = try LlvmObject.create(allocator, options);
         return self;
     }
 
@@ -989,6 +989,9 @@ fn darwinArchString(arch: std.Target.Cpu.Arch) []const u8 {
 }
 
 pub fn deinit(self: *MachO) void {
+    if (build_options.have_llvm) {
+        if (self.llvm_object) |llvm_object| llvm_object.destroy(self.base.allocator);
+    }
     if (self.d_sym) |*ds| {
         ds.deinit(self.base.allocator);
     }

@@ -206,7 +206,8 @@ pub const File = struct {
         const use_lld = build_options.have_llvm and options.use_lld; // comptime known false when !have_llvm
         const sub_path = if (use_lld) blk: {
             if (options.module == null) {
-                // No point in opening a file, we would not write anything to it. Initialize with empty.
+                // No point in opening a file, we would not write anything to it.
+                // Initialize with empty.
                 return switch (options.object_format) {
                     .coff => &(try Coff.createEmpty(allocator, options)).base,
                     .elf => &(try Elf.createEmpty(allocator, options)).base,
@@ -219,8 +220,11 @@ pub const File = struct {
                     .raw => return error.RawObjectFormatUnimplemented,
                 };
             }
-            // Open a temporary object file, not the final output file because we want to link with LLD.
-            break :blk try std.fmt.allocPrint(allocator, "{s}{s}", .{ emit.sub_path, options.target.oFileExt() });
+            // Open a temporary object file, not the final output file because we
+            // want to link with LLD.
+            break :blk try std.fmt.allocPrint(allocator, "{s}{s}", .{
+                emit.sub_path, options.object_format.fileExt(options.target.cpu.arch),
+            });
         } else emit.sub_path;
         errdefer if (use_lld) allocator.free(sub_path);
 
