@@ -50,6 +50,15 @@ pub fn acquire(m: *Mutex) Impl.Held {
     return m.impl.acquire();
 }
 
+/// This is required to get AtomicCondition to work properly
+/// but isn't meant to be called from user code
+pub fn force_release_internal(m: *Mutex) void {
+    if(Impl == AtomicMutex){
+        var releaser = AtomicMutex.Held {.mutex = m.impl};
+        releaser.release();
+    }
+}
+
 const Impl = if (builtin.single_threaded)
     Dummy
 else if (builtin.os.tag == .windows)

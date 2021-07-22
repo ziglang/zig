@@ -157,9 +157,9 @@ pub const AtomicCondition = struct {
             @atomicStore(bool, &cond.pending, true, .SeqCst);
         }
 
-        mutex.unlock();
+        mutex.force_release_internal();
         waiter.data.wait();
-        mutex.lock();
+        _ = mutex.acquire();
     }
 
     pub fn signal(cond: *AtomicCondition) void {
