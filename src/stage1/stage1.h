@@ -196,6 +196,7 @@ struct ZigStage1 {
     bool valgrind_enabled;
     bool tsan_enabled;
     bool function_sections;
+    bool include_compiler_rt;
     bool enable_stack_probing;
     bool red_zone;
     bool enable_time_report;

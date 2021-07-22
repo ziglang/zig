@@ -2150,6 +2150,7 @@ struct CodeGen {
     bool have_stack_probing;
     bool red_zone;
     bool function_sections;
+    bool include_compiler_rt;
     bool test_is_evented;
     bool valgrind_enabled;
     bool tsan_enabled;

@@ -645,7 +645,9 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
         break :blk full_obj_path;
     } else null;
 
-    const compiler_rt_path: ?[]const u8 = if (self.base.options.include_compiler_rt)
+    const is_obj = self.base.options.output_mode == .Obj;
+
+    const compiler_rt_path: ?[]const u8 = if (self.base.options.include_compiler_rt and !is_obj)
         comp.compiler_rt_static_lib.?.full_object_path
     else
         null;

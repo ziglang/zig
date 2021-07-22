@@ -385,8 +385,8 @@ const usage_build_generic =
     \\  --dynamic-linker [path]        Set the dynamic interpreter path (usually ld.so)
     \\  --sysroot [path]               Set the system root directory (usually /)
     \\  --version [ver]                Dynamic library semver
-    \\  -fsoname[=name]                (Linux) Override the default SONAME value
-    \\  -fno-soname                    (Linux) Disable emitting a SONAME
+    \\  -fsoname[=name]                Override the default SONAME value
+    \\  -fno-soname                    Disable emitting a SONAME
     \\  -fLLD                          Force using LLD as the linker
     \\  -fno-LLD                       Prevent using LLD as the linker
     \\  -fcompiler-rt                  Always include compiler-rt symbols in output

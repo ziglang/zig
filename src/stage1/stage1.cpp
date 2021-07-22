@@ -101,6 +101,7 @@ void zig_stage1_build_object(struct ZigStage1 *stage1) {
     g->link_libc = stage1->link_libc;
     g->link_libcpp = stage1->link_libcpp;
     g->function_sections = stage1->function_sections;
+    g->include_compiler_rt = stage1->include_compiler_rt;
 
     g->subsystem = stage1->subsystem;
 

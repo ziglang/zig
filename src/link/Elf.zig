@@ -1289,6 +1289,10 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         // TODO: remove when stage2 can build compiler_rt.zig
         if (!build_options.is_stage1) break :blk null;
 
+        // In the case of build-obj we include the compiler-rt symbols directly alongside
+        // the symbols of the root source file, in the same compilation unit.
+        if (is_obj) break :blk null;
+
         if (is_exe_or_dyn_lib) {
             break :blk comp.compiler_rt_static_lib.?.full_object_path;
         } else {

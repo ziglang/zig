@@ -21,7 +21,6 @@ comptime {
     assert(build_options.is_stage1);
     assert(build_options.have_llvm);
     if (!builtin.is_test) {
-        _ = @import("compiler_rt");
         @export(main, .{ .name = "main" });
     }
 }
@@ -126,6 +125,7 @@ pub const Module = extern struct {
     valgrind_enabled: bool,
     tsan_enabled: bool,
     function_sections: bool,
+    include_compiler_rt: bool,
     enable_stack_probing: bool,
     red_zone: bool,
     enable_time_report: bool,

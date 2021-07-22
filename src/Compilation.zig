@@ -826,6 +826,9 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
         const ofmt = options.object_format orelse options.target.getObjectFormat();
 
         const use_stage1 = options.use_stage1 orelse blk: {
+            // Even though we may have no Zig code to compile (depending on `options.root_pkg`),
+            // we may need to use stage1 for building compiler-rt and other dependencies.
+
             if (build_options.omit_stage2)
                 break :blk true;
             if (options.use_llvm) |use_llvm| {
@@ -833,9 +836,6 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
                     break :blk false;
                 }
             }
-            // If we have no zig code to compile, no need for stage1 backend.
-            if (options.root_pkg == null)
-                break :blk false;
 
             break :blk build_options.is_stage1;
         };
@@ -877,9 +877,6 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             }
             if (options.emit_llvm_ir != null or options.emit_llvm_bc != null) {
                 return error.EmittingLlvmModuleRequiresUsingLlvmBackend;
-            }
-            if (use_stage1) {
-                return error.@"stage1 only supports LLVM backend";
             }
         }
 
@@ -1542,24 +1539,19 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
         }
 
         // The `use_stage1` condition is here only because stage2 cannot yet build compiler-rt.
-        // Once it is capable this condition should be removed.
+        // Once it is capable this condition should be removed. When removing this condition,
+        // also test the use case of `build-obj -fcompiler-rt` with the self-hosted compiler
+        // and make sure the compiler-rt symbols are emitted. Currently this is hooked up for
+        // stage1 but not stage2.
         if (comp.bin_file.options.use_stage1) {
             if (comp.bin_file.options.include_compiler_rt) {
                 if (is_exe_or_dyn_lib) {
                     try comp.work_queue.writeItem(.{ .compiler_rt_lib = {} });
-                } else {
+                } else if (options.output_mode != .Obj) {
+                    // If build-obj with -fcompiler-rt is requested, that is handled specially
+                    // elsewhere. In this case we are making a static library, so we ask
+                    // for a compiler-rt object to put in it.
                     try comp.work_queue.writeItem(.{ .compiler_rt_obj = {} });
-                    if (comp.bin_file.options.object_format != .elf and
-                        comp.bin_file.options.output_mode == .Obj)
-                    {
-                        // For ELF we can rely on using -r to link multiple objects together into one,
-                        // but to truly support `build-obj -fcompiler-rt` will require virtually
-                        // injecting `_ = @import("compiler_rt.zig")` into the root source file of
-                        // the compilation.
-                        fatal("Embedding compiler-rt into {s} objects is not yet implemented.", .{
-                            @tagName(comp.bin_file.options.object_format),
-                        });
-                    }
                 }
             }
             if (needs_c_symbols) {
@@ -4002,6 +3994,7 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
     man.hash.add(target.os.getVersionRange());
     man.hash.add(comp.bin_file.options.dll_export_fns);
     man.hash.add(comp.bin_file.options.function_sections);
+    man.hash.add(comp.bin_file.options.include_compiler_rt);
     man.hash.add(comp.bin_file.options.is_test);
     man.hash.add(comp.bin_file.options.emit != null);
     man.hash.add(mod.emit_h != null);
@@ -4182,6 +4175,7 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
         .valgrind_enabled = comp.bin_file.options.valgrind,
         .tsan_enabled = comp.bin_file.options.tsan,
         .function_sections = comp.bin_file.options.function_sections,
+        .include_compiler_rt = comp.bin_file.options.include_compiler_rt,
         .enable_stack_probing = comp.bin_file.options.stack_check,
         .red_zone = comp.bin_file.options.red_zone,
         .enable_time_report = comp.time_report,

@@ -796,6 +796,7 @@ set(BUILD_ZIG1_ARGS
     --name zig1
     --zig-lib-dir "${CMAKE_SOURCE_DIR}/lib"
     "-femit-bin=${ZIG1_OBJECT}"
+    -fcompiler-rt
     "${ZIG1_RELEASE_ARG}"
     "${ZIG1_SINGLE_THREADED_ARG}"
     -lc

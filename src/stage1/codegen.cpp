@@ -9542,6 +9542,22 @@ static void gen_root_source(CodeGen *g) {
     g->panic_fn = panic_fn_val->data.x_ptr.data.fn.fn_entry;
     assert(g->panic_fn != nullptr);
 
+    if (g->include_compiler_rt) {
+        Buf *import_target_path;
+        Buf full_path = BUF_INIT;
+        ZigType *compiler_rt_import;
+        if ((err = analyze_import(g, std_import, buf_create_from_str("./special/compiler_rt.zig"),
+            &compiler_rt_import, &import_target_path, &full_path)))
+        {
+            if (err == ErrorFileNotFound) {
+                fprintf(stderr, "unable to find '%s'", buf_ptr(import_target_path));
+            } else {
+                fprintf(stderr, "unable to open '%s': %s\n", buf_ptr(&full_path), err_str(err));
+            }
+            exit(1);
+        }
+    }
+
     if (!g->error_during_imports) {
         semantic_analyze(g);
     }
