@@ -479,66 +479,68 @@ pub fn addCases(ctx: *TestContext) !void {
         , "30\n");
     }
 
-    {
-        var case = ctx.exe("wasm switch", wasi);
+    // This test case is disabled until the codegen for switch is reworked
+    // to take advantage of br_table rather than a series of br_if opcodes.
+    //{
+    //    var case = ctx.exe("wasm switch", wasi);
 
-        case.addCompareOutput(
-            \\pub export fn _start() u32 {
-            \\    var val: u32 = 1;
-            \\    var a: u32 = switch (val) {
-            \\        0, 1 => 2,
-            \\        2 => 3,
-            \\        3 => 4,
-            \\        else => 5,
-            \\    };
-            \\
-            \\    return a;
-            \\}
-        , "2\n");
+    //    case.addCompareOutput(
+    //        \\pub export fn _start() u32 {
+    //        \\    var val: u32 = 1;
+    //        \\    var a: u32 = switch (val) {
+    //        \\        0, 1 => 2,
+    //        \\        2 => 3,
+    //        \\        3 => 4,
+    //        \\        else => 5,
+    //        \\    };
+    //        \\
+    //        \\    return a;
+    //        \\}
+    //    , "2\n");
 
-        case.addCompareOutput(
-            \\pub export fn _start() u32 {
-            \\    var val: u32 = 2;
-            \\    var a: u32 = switch (val) {
-            \\        0, 1 => 2,
-            \\        2 => 3,
-            \\        3 => 4,
-            \\        else => 5,
-            \\    };
-            \\
-            \\    return a;
-            \\}
-        , "3\n");
+    //    case.addCompareOutput(
+    //        \\pub export fn _start() u32 {
+    //        \\    var val: u32 = 2;
+    //        \\    var a: u32 = switch (val) {
+    //        \\        0, 1 => 2,
+    //        \\        2 => 3,
+    //        \\        3 => 4,
+    //        \\        else => 5,
+    //        \\    };
+    //        \\
+    //        \\    return a;
+    //        \\}
+    //    , "3\n");
 
-        case.addCompareOutput(
-            \\pub export fn _start() u32 {
-            \\    var val: u32 = 10;
-            \\    var a: u32 = switch (val) {
-            \\        0, 1 => 2,
-            \\        2 => 3,
-            \\        3 => 4,
-            \\        else => 5,
-            \\    };
-            \\
-            \\    return a;
-            \\}
-        , "5\n");
+    //    case.addCompareOutput(
+    //        \\pub export fn _start() u32 {
+    //        \\    var val: u32 = 10;
+    //        \\    var a: u32 = switch (val) {
+    //        \\        0, 1 => 2,
+    //        \\        2 => 3,
+    //        \\        3 => 4,
+    //        \\        else => 5,
+    //        \\    };
+    //        \\
+    //        \\    return a;
+    //        \\}
+    //    , "5\n");
 
-        case.addCompareOutput(
-            \\const MyEnum = enum { One, Two, Three };
-            \\
-            \\pub export fn _start() u32 {
-            \\    var val: MyEnum = .Two;
-            \\    var a: u32 = switch (val) {
-            \\        .One => 1,
-            \\        .Two => 2,
-            \\        .Three => 3,
-            \\    };
-            \\
-            \\    return a;
-            \\}
-        , "2\n");
-    }
+    //    case.addCompareOutput(
+    //        \\const MyEnum = enum { One, Two, Three };
+    //        \\
+    //        \\pub export fn _start() u32 {
+    //        \\    var val: MyEnum = .Two;
+    //        \\    var a: u32 = switch (val) {
+    //        \\        .One => 1,
+    //        \\        .Two => 2,
+    //        \\        .Three => 3,
+    //        \\    };
+    //        \\
+    //        \\    return a;
+    //        \\}
+    //    , "2\n");
+    //}
 
     {
         var case = ctx.exe("wasm error unions", wasi);

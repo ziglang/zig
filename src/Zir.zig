@@ -22,7 +22,6 @@ const Zir = @This();
 const Type = @import("type.zig").Type;
 const Value = @import("value.zig").Value;
 const TypedValue = @import("TypedValue.zig");
-const ir = @import("air.zig");
 const Module = @import("Module.zig");
 const LazySrcLoc = Module.LazySrcLoc;
 
@@ -138,11 +137,17 @@ pub fn renderAsTextToFile(
     const imports_index = scope_file.zir.extra[@enumToInt(ExtraIndex.imports)];
     if (imports_index != 0) {
         try fs_file.writeAll("Imports:\n");
-        const imports_len = scope_file.zir.extra[imports_index];
-        for (scope_file.zir.extra[imports_index + 1 ..][0..imports_len]) |import_inst| {
-            const inst_data = writer.code.instructions.items(.data)[import_inst].str_tok;
-            const src = inst_data.src();
-            const import_path = inst_data.get(writer.code);
+
+        const extra = scope_file.zir.extraData(Inst.Imports, imports_index);
+        var import_i: u32 = 0;
+        var extra_index = extra.end;
+
+        while (import_i < extra.data.imports_len) : (import_i += 1) {
+            const item = scope_file.zir.extraData(Inst.Imports.Item, extra_index);
+            extra_index = item.end;
+
+            const src: LazySrcLoc = .{ .token_abs = item.data.token };
+            const import_path = scope_file.zir.nullTerminatedString(item.data.name);
             try fs_file.writer().print("  @import(\"{}\") ", .{
                 std.zig.fmtEscapes(import_path),
             });
@@ -208,7 +213,7 @@ pub const Inst = struct {
         as_node,
         /// Bitwise AND. `&`
         bit_and,
-        /// Bitcast a value to a different type.
+        /// Reinterpret the memory representation of a value as a different type.
         /// Uses the pl_node field with payload `Bin`.
         bitcast,
         /// A typed result location pointer is bitcasted to a new result location pointer.
@@ -231,15 +236,9 @@ pub const Inst = struct {
         /// Implements `suspend {...}`.
         /// Uses the `pl_node` union field. Payload is `Block`.
         suspend_block,
-        /// Boolean AND. See also `bit_and`.
-        /// Uses the `pl_node` union field. Payload is `Bin`.
-        bool_and,
         /// Boolean NOT. See also `bit_not`.
         /// Uses the `un_node` field.
         bool_not,
-        /// Boolean OR. See also `bit_or`.
-        /// Uses the `pl_node` union field. Payload is `Bin`.
-        bool_or,
         /// Short-circuiting boolean `and`. `lhs` is a boolean `Ref` and the other operand
         /// is a block, which is evaluated if `lhs` is `true`.
         /// Uses the `bool_br` union field.
@@ -387,7 +386,7 @@ pub const Inst = struct {
         int,
         /// Arbitrary sized integer literal. Uses the `str` union field.
         int_big,
-        /// A float literal that fits in a f32. Uses the float union value.
+        /// A float literal that fits in a f64. Uses the float union value.
         float,
         /// A float literal that fits in a f128. Uses the `pl_node` union value.
         /// Payload is `Float128`.
@@ -993,8 +992,6 @@ pub const Inst = struct {
                 .bool_br_and,
                 .bool_br_or,
                 .bool_not,
-                .bool_and,
-                .bool_or,
                 .breakpoint,
                 .fence,
                 .call,
@@ -1243,9 +1240,7 @@ pub const Inst = struct {
                 .block = .pl_node,
                 .block_inline = .pl_node,
                 .suspend_block = .pl_node,
-                .bool_and = .pl_node,
                 .bool_not = .un_node,
-                .bool_or = .pl_node,
                 .bool_br_and = .bool_br,
                 .bool_br_or = .bool_br,
                 .@"break" = .@"break",
@@ -2063,16 +2058,7 @@ pub const Inst = struct {
         /// Offset from Decl AST node index.
         node: i32,
         int: u64,
-        float: struct {
-            /// Offset from Decl AST node index.
-            /// `Tag` determines which kind of AST node this points to.
-            src_node: i32,
-            number: f32,
-
-            pub fn src(self: @This()) LazySrcLoc {
-                return .{ .node_offset = self.src_node };
-            }
-        },
+        float: f64,
         array_type_sentinel: struct {
             len: Ref,
             /// index into extra, points to an `ArrayTypeSentinel`
@@ -2190,7 +2176,8 @@ pub const Inst = struct {
     /// 2. clobber: u32 // index into string_bytes (null terminated) for every clobbers_len.
     pub const Asm = struct {
         src_node: i32,
-        asm_source: Ref,
+        // null-terminated string index
+        asm_source: u32,
         /// 1 bit for each outputs_len: whether it uses `-> T` or not.
         ///   0b0 - operand is a pointer to where to store the output.
         ///   0b1 - operand is a type; asm expression has the output as the result.
@@ -2780,10 +2767,16 @@ pub const Inst = struct {
         };
     };
 
-    /// Trailing: for each `imports_len` there is an instruction index
-    /// to an import instruction.
+    /// Trailing: for each `imports_len` there is an Item
     pub const Imports = struct {
         imports_len: Zir.Inst.Index,
+
+        pub const Item = struct {
+            /// null terminated string index
+            name: u32,
+            /// points to the import name
+            token: ast.TokenIndex,
+        };
     };
 };
 
@@ -2970,8 +2963,6 @@ const Writer = struct {
             .mulwrap,
             .sub,
             .subwrap,
-            .bool_and,
-            .bool_or,
             .cmp_lt,
             .cmp_lte,
             .cmp_eq,
@@ -3257,10 +3248,8 @@ const Writer = struct {
     }
 
     fn writeFloat(self: *Writer, stream: anytype, inst: Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].float;
-        const src = inst_data.src();
-        try stream.print("{d}) ", .{inst_data.number});
-        try self.writeSrc(stream, src);
+        const number = self.code.instructions.items(.data)[inst].float;
+        try stream.print("{d})", .{number});
     }
 
     fn writeFloat128(self: *Writer, stream: anytype, inst: Inst.Index) !void {
@@ -3395,9 +3384,10 @@ const Writer = struct {
         const inputs_len = @truncate(u5, extended.small >> 5);
         const clobbers_len = @truncate(u5, extended.small >> 10);
         const is_volatile = @truncate(u1, extended.small >> 15) != 0;
+        const asm_source = self.code.nullTerminatedString(extra.data.asm_source);
 
         try self.writeFlag(stream, "volatile, ", is_volatile);
-        try self.writeInstRef(stream, extra.data.asm_source);
+        try stream.print("\"{}\", ", .{std.zig.fmtEscapes(asm_source)});
         try stream.writeAll(", ");
 
         var extra_i: usize = extra.end;

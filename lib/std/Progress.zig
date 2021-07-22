@@ -63,6 +63,10 @@ done: bool = true,
 /// while it was still being accessed by the `refresh` function.
 update_lock: std.Thread.Mutex = .{},
 
+/// Keeps track of how many columns in the terminal have been output, so that
+/// we can move the cursor back later.
+columns_written: usize = undefined,
+
 /// Represents one unit of progress. Each node can have children nodes, or
 /// one can use integers with `update`.
 pub const Node = struct {
@@ -160,6 +164,7 @@ pub fn start(self: *Progress, name: []const u8, estimated_total_items: usize) !*
         .unprotected_estimated_total_items = estimated_total_items,
         .unprotected_completed_items = 0,
     };
+    self.columns_written = 0;
     self.prev_refresh_timestamp = 0;
     self.timer = try std.time.Timer.start();
     self.done = false;
@@ -187,15 +192,6 @@ pub fn refresh(self: *Progress) void {
     return self.refreshWithHeldLock();
 }
 
-// ED -- Clear screen
-const ED = "\x1b[J";
-// DECSC -- Save cursor position
-const DECSC = "\x1b7";
-// DECRC -- Restore cursor position
-const DECRC = "\x1b8";
-// Note that ESC7/ESC8 are used instead of CSI s/CSI u as the latter are not
-// supported by some terminals (eg. Terminal.app).
-
 fn refreshWithHeldLock(self: *Progress) void {
     const is_dumb = !self.supports_ansi_escape_codes and !self.is_windows_terminal;
     if (is_dumb and self.dont_print_on_dumb) return;
@@ -203,54 +199,59 @@ fn refreshWithHeldLock(self: *Progress) void {
     const file = self.terminal orelse return;
 
     var end: usize = 0;
-    // Save the cursor position and clear the part of the screen below.
-    // Clearing only the line is not enough as the terminal may wrap the line
-    // when it becomes too long.
-    var saved_cursor_pos: windows.COORD = undefined;
-    if (self.supports_ansi_escape_codes) {
-        const seq_before = DECSC ++ ED;
-        std.mem.copy(u8, self.output_buffer[end..], seq_before);
-        end += seq_before.len;
-    } else if (std.builtin.os.tag == .windows) winapi: {
-        std.debug.assert(self.is_windows_terminal);
+    if (self.columns_written > 0) {
+        // restore the cursor position by moving the cursor
+        // `columns_written` cells to the left, then clear the rest of the
+        // line
+        if (self.supports_ansi_escape_codes) {
+            end += (std.fmt.bufPrint(self.output_buffer[end..], "\x1b[{d}D", .{self.columns_written}) catch unreachable).len;
+            end += (std.fmt.bufPrint(self.output_buffer[end..], "\x1b[0K", .{}) catch unreachable).len;
+        } else if (std.builtin.os.tag == .windows) winapi: {
+            std.debug.assert(self.is_windows_terminal);
 
-        var info: windows.CONSOLE_SCREEN_BUFFER_INFO = undefined;
-        if (windows.kernel32.GetConsoleScreenBufferInfo(file.handle, &info) != windows.TRUE)
-            unreachable;
+            var info: windows.CONSOLE_SCREEN_BUFFER_INFO = undefined;
+            if (windows.kernel32.GetConsoleScreenBufferInfo(file.handle, &info) != windows.TRUE)
+                unreachable;
 
-        saved_cursor_pos = info.dwCursorPosition;
+            var cursor_pos = windows.COORD{
+                .X = info.dwCursorPosition.X - @intCast(windows.SHORT, self.columns_written),
+                .Y = info.dwCursorPosition.Y,
+            };
 
-        const window_height = @intCast(windows.DWORD, info.srWindow.Bottom - info.srWindow.Top + 1);
-        const window_width = @intCast(windows.DWORD, info.srWindow.Right - info.srWindow.Left + 1);
-        // Number of terminal cells to clear, starting from the cursor position
-        // and ending at the window bottom right corner.
-        const fill_chars = if (window_width == 0 or window_height == 0) 0 else chars: {
-            break :chars window_width * (window_height -
-                @intCast(windows.DWORD, info.dwCursorPosition.Y - info.srWindow.Top)) -
-                @intCast(windows.DWORD, info.dwCursorPosition.X - info.srWindow.Left);
-        };
+            if (cursor_pos.X < 0)
+                cursor_pos.X = 0;
 
-        var written: windows.DWORD = undefined;
-        if (windows.kernel32.FillConsoleOutputAttribute(
-            file.handle,
-            info.wAttributes,
-            fill_chars,
-            saved_cursor_pos,
-            &written,
-        ) != windows.TRUE) {
-            // Stop trying to write to this file.
-            self.terminal = null;
-            break :winapi;
+            const fill_chars = @intCast(windows.DWORD, info.dwSize.X - cursor_pos.X);
+
+            var written: windows.DWORD = undefined;
+            if (windows.kernel32.FillConsoleOutputAttribute(
+                file.handle,
+                info.wAttributes,
+                fill_chars,
+                cursor_pos,
+                &written,
+            ) != windows.TRUE) {
+                // Stop trying to write to this file.
+                self.terminal = null;
+                break :winapi;
+            }
+            if (windows.kernel32.FillConsoleOutputCharacterW(
+                file.handle,
+                ' ',
+                fill_chars,
+                cursor_pos,
+                &written,
+            ) != windows.TRUE) unreachable;
+
+            if (windows.kernel32.SetConsoleCursorPosition(file.handle, cursor_pos) != windows.TRUE)
+                unreachable;
+        } else {
+            // we are in a "dumb" terminal like in acme or writing to a file
+            self.output_buffer[end] = '\n';
+            end += 1;
         }
-        if (windows.kernel32.FillConsoleOutputCharacterW(
-            file.handle,
-            ' ',
-            fill_chars,
-            saved_cursor_pos,
-            &written,
-        ) != windows.TRUE) {
-            unreachable;
-        }
+
+        self.columns_written = 0;
     }
 
     if (!self.done) {
@@ -285,28 +286,10 @@ fn refreshWithHeldLock(self: *Progress) void {
         }
     }
 
-    // We're done printing the updated message, restore the cursor position.
-    if (self.supports_ansi_escape_codes) {
-        const seq_after = DECRC;
-        std.mem.copy(u8, self.output_buffer[end..], seq_after);
-        end += seq_after.len;
-    } else if (!self.is_windows_terminal) {
-        self.output_buffer[end] = '\n';
-        end += 1;
-    }
-
     _ = file.write(self.output_buffer[0..end]) catch {
         // Stop trying to write to this file once it errors.
         self.terminal = null;
     };
-
-    if (std.builtin.os.tag == .windows) {
-        if (self.is_windows_terminal) {
-            const res = windows.kernel32.SetConsoleCursorPosition(file.handle, saved_cursor_pos);
-            std.debug.assert(res == windows.TRUE);
-        }
-    }
-
     self.prev_refresh_timestamp = self.timer.read();
 }
 
@@ -317,14 +300,17 @@ pub fn log(self: *Progress, comptime format: []const u8, args: anytype) void {
         self.terminal = null;
         return;
     };
+    self.columns_written = 0;
 }
 
 fn bufWrite(self: *Progress, end: *usize, comptime format: []const u8, args: anytype) void {
     if (std.fmt.bufPrint(self.output_buffer[end.*..], format, args)) |written| {
         const amt = written.len;
         end.* += amt;
+        self.columns_written += amt;
     } else |err| switch (err) {
         error.NoSpaceLeft => {
+            self.columns_written += self.output_buffer.len - end.*;
             end.* = self.output_buffer.len;
         },
     }
@@ -332,6 +318,7 @@ fn bufWrite(self: *Progress, end: *usize, comptime format: []const u8, args: any
     const max_end = self.output_buffer.len - bytes_needed_for_esc_codes_at_end;
     if (end.* > max_end) {
         const suffix = "... ";
+        self.columns_written = self.columns_written - (end.* - max_end) + suffix.len;
         std.mem.copy(u8, self.output_buffer[max_end..], suffix);
         end.* = max_end + suffix.len;
     }

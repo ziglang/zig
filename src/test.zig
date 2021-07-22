@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const link = @import("link.zig");
 const Compilation = @import("Compilation.zig");
 const Allocator = std.mem.Allocator;
@@ -610,7 +611,7 @@ pub const TestContext = struct {
 
     fn run(self: *TestContext) !void {
         var progress = std.Progress{};
-        const root_node = try progress.start("tests", self.cases.items.len);
+        const root_node = try progress.start("compiler", self.cases.items.len);
         defer root_node.end();
 
         var zig_lib_directory = try introspect.findZigLibDir(std.testing.allocator);
@@ -640,8 +641,12 @@ pub const TestContext = struct {
         var fail_count: usize = 0;
 
         for (self.cases.items) |case| {
-            if (build_options.skip_non_native and case.target.getCpuArch() != std.Target.current.cpu.arch)
-                continue;
+            if (build_options.skip_non_native) {
+                if (case.target.getCpuArch() != builtin.cpu.arch)
+                    continue;
+                if (case.target.getObjectFormat() != builtin.object_format)
+                    continue;
+            }
 
             // Skip tests that require LLVM backend when it is not available
             if (!build_options.have_llvm and case.backend == .llvm)

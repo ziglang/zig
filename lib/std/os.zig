@@ -385,7 +385,6 @@ pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
             else => |err| return unexpectedErrno(err),
         }
     }
-    return index;
 }
 
 /// Number of bytes read is returned. Upon reading end-of-file, zero is returned.

@@ -1,6 +1,7 @@
 const Wasm = @This();
 
 const std = @import("std");
+const builtin = @import("builtin");
 const mem = std.mem;
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
@@ -18,10 +19,15 @@ const build_options = @import("build_options");
 const wasi_libc = @import("../wasi_libc.zig");
 const Cache = @import("../Cache.zig");
 const TypedValue = @import("../TypedValue.zig");
+const llvm_backend = @import("../codegen/llvm.zig");
+const Air = @import("../Air.zig");
+const Liveness = @import("../Liveness.zig");
 
 pub const base_tag = link.File.Tag.wasm;
 
 base: link.File,
+/// If this is not null, an object file is created by LLVM and linked with LLD afterwards.
+llvm_object: ?*llvm_backend.Object = null,
 /// List of all function Decls to be written to the output file. The index of
 /// each Decl in this list at the time of writing the binary is used as the
 /// function index. In the event where ext_funcs' size is not 0, the index of
@@ -111,8 +117,13 @@ pub const DeclBlock = struct {
 pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Options) !*Wasm {
     assert(options.object_format == .wasm);
 
-    if (options.use_llvm) return error.LLVM_BackendIsTODO_ForWasm; // TODO
-    if (options.use_lld) return error.LLD_LinkingIsTODO_ForWasm; // TODO
+    if (build_options.have_llvm and options.use_llvm) {
+        const self = try createEmpty(allocator, options);
+        errdefer self.base.destroy();
+
+        self.llvm_object = try llvm_backend.Object.create(allocator, sub_path, options);
+        return self;
+    }
 
     // TODO: read the file and keep valid parts instead of truncating
     const file = try options.emit.?.directory.handle.createFile(sub_path, .{ .truncate = true, .read = true });
@@ -186,10 +197,15 @@ pub fn allocateDeclIndexes(self: *Wasm, decl: *Module.Decl) !void {
     }
 }
 
-// Generate code for the Decl, storing it in memory to be later written to
-// the file on flush().
-pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
-    std.debug.assert(decl.link.wasm.init); // Must call allocateDeclIndexes()
+pub fn updateFunc(self: *Wasm, module: *Module, func: *Module.Fn, air: Air, liveness: Liveness) !void {
+    if (build_options.skip_non_native and builtin.object_format != .wasm) {
+        @panic("Attempted to compile for object format that was disabled by build configuration");
+    }
+    if (build_options.have_llvm) {
+        if (self.llvm_object) |llvm_object| return llvm_object.updateFunc(module, func, air, liveness);
+    }
+    const decl = func.owner_decl;
+    assert(decl.link.wasm.init); // Must call allocateDeclIndexes()
 
     const fn_data = &decl.fn_link.wasm;
     fn_data.functype.items.len = 0;
@@ -198,6 +214,52 @@ pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
 
     var context = codegen.Context{
         .gpa = self.base.allocator,
+        .air = air,
+        .liveness = liveness,
+        .values = .{},
+        .code = fn_data.code.toManaged(self.base.allocator),
+        .func_type_data = fn_data.functype.toManaged(self.base.allocator),
+        .decl = decl,
+        .err_msg = undefined,
+        .locals = .{},
+        .target = self.base.options.target,
+        .global_error_set = self.base.options.module.?.global_error_set,
+    };
+    defer context.deinit();
+
+    // generate the 'code' section for the function declaration
+    const result = context.genFunc() catch |err| switch (err) {
+        error.CodegenFail => {
+            decl.analysis = .codegen_failure;
+            try module.failed_decls.put(module.gpa, decl, context.err_msg);
+            return;
+        },
+        else => |e| return e,
+    };
+    return self.finishUpdateDecl(decl, result, &context);
+}
+
+// Generate code for the Decl, storing it in memory to be later written to
+// the file on flush().
+pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
+    if (build_options.skip_non_native and builtin.object_format != .wasm) {
+        @panic("Attempted to compile for object format that was disabled by build configuration");
+    }
+    if (build_options.have_llvm) {
+        if (self.llvm_object) |llvm_object| return llvm_object.updateDecl(module, decl);
+    }
+    assert(decl.link.wasm.init); // Must call allocateDeclIndexes()
+
+    // TODO don't use this for non-functions
+    const fn_data = &decl.fn_link.wasm;
+    fn_data.functype.items.len = 0;
+    fn_data.code.items.len = 0;
+    fn_data.idx_refs.items.len = 0;
+
+    var context = codegen.Context{
+        .gpa = self.base.allocator,
+        .air = undefined,
+        .liveness = undefined,
         .values = .{},
         .code = fn_data.code.toManaged(self.base.allocator),
         .func_type_data = fn_data.functype.toManaged(self.base.allocator),
@@ -219,13 +281,19 @@ pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
         else => |e| return e,
     };
 
-    const code: []const u8 = switch (result) {
-        .appended => @as([]const u8, context.code.items),
-        .externally_managed => |payload| payload,
-    };
+    return self.finishUpdateDecl(decl, result, &context);
+}
+
+fn finishUpdateDecl(self: *Wasm, decl: *Module.Decl, result: codegen.Result, context: *codegen.Context) !void {
+    const fn_data: *FnData = &decl.fn_link.wasm;
 
     fn_data.code = context.code.toUnmanaged();
     fn_data.functype = context.func_type_data.toUnmanaged();
+
+    const code: []const u8 = switch (result) {
+        .appended => @as([]const u8, fn_data.code.items),
+        .externally_managed => |payload| payload,
+    };
 
     const block = &decl.link.wasm;
     if (decl.ty.zigTypeTag() == .Fn) {
@@ -521,7 +589,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
         var data_offset = offset_table_size;
         while (cur) |cur_block| : (cur = cur_block.next) {
             if (cur_block.size == 0) continue;
-            std.debug.assert(cur_block.init);
+            assert(cur_block.init);
 
             const offset = (cur_block.offset_index) * ptr_width;
             var buf: [4]u8 = undefined;

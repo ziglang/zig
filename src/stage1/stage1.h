@@ -97,6 +97,7 @@ enum Os {
     OsOpenCL,
     OsGLSL450,
     OsVulkan,
+    OsPlan9,
     OsOther,
 };
 

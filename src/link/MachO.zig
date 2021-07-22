@@ -2,6 +2,7 @@ const MachO = @This();
 
 const std = @import("std");
 const build_options = @import("build_options");
+const builtin = @import("builtin");
 const assert = std.debug.assert;
 const fmt = std.fmt;
 const fs = std.fs;
@@ -16,9 +17,11 @@ const bind = @import("MachO/bind.zig");
 const codegen = @import("../codegen.zig");
 const commands = @import("MachO/commands.zig");
 const link = @import("../link.zig");
+const llvm_backend = @import("../codegen/llvm.zig");
 const target_util = @import("../target.zig");
 const trace = @import("../tracy.zig").trace;
 
+const Air = @import("../Air.zig");
 const Allocator = mem.Allocator;
 const Archive = @import("MachO/Archive.zig");
 const Cache = @import("../Cache.zig");
@@ -27,6 +30,7 @@ const Compilation = @import("../Compilation.zig");
 const DebugSymbols = @import("MachO/DebugSymbols.zig");
 const Dylib = @import("MachO/Dylib.zig");
 const Object = @import("MachO/Object.zig");
+const Liveness = @import("../Liveness.zig");
 const LoadCommand = commands.LoadCommand;
 const Module = @import("../Module.zig");
 const File = link.File;
@@ -37,6 +41,9 @@ const SegmentCommand = commands.SegmentCommand;
 pub const base_tag: File.Tag = File.Tag.macho;
 
 base: File,
+
+/// If this is not null, an object file is created by LLVM and linked with LLD afterwards.
+llvm_object: ?*llvm_backend.Object = null,
 
 /// Debug symbols bundle (or dSym).
 d_sym: ?DebugSymbols = null,
@@ -319,7 +326,13 @@ pub const SrcFn = struct {
 pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Options) !*MachO {
     assert(options.object_format == .macho);
 
-    if (options.use_llvm) return error.LLVM_BackendIsTODO_ForMachO; // TODO
+    if (build_options.have_llvm and options.use_llvm) {
+        const self = try createEmpty(allocator, options);
+        errdefer self.base.destroy();
+
+        self.llvm_object = try llvm_backend.Object.create(allocator, sub_path, options);
+        return self;
+    }
 
     const file = try options.emit.?.directory.handle.createFile(sub_path, .{
         .truncate = false,
@@ -3468,20 +3481,28 @@ pub fn allocateDeclIndexes(self: *MachO, decl: *Module.Decl) !void {
     try self.got_entries_map.putNoClobber(self.base.allocator, got_entry, got_index);
 }
 
-pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
+pub fn updateFunc(self: *MachO, module: *Module, func: *Module.Fn, air: Air, liveness: Liveness) !void {
+    if (build_options.skip_non_native and builtin.object_format != .macho) {
+        @panic("Attempted to compile for object format that was disabled by build configuration");
+    }
+    if (build_options.have_llvm) {
+        if (self.llvm_object) |llvm_object| return llvm_object.updateFunc(module, func, air, liveness);
+    }
     const tracy = trace(@src());
     defer tracy.end();
 
-    if (decl.val.tag() == .extern_fn) {
-        return; // TODO Should we do more when front-end analyzed extern decl?
-    }
+    const decl = func.owner_decl;
 
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
 
-    var debug_buffers = if (self.d_sym) |*ds| try ds.initDeclDebugBuffers(self.base.allocator, module, decl) else null;
+    var debug_buffers_buf: DebugSymbols.DeclDebugBuffers = undefined;
+    const debug_buffers = if (self.d_sym) |*ds| blk: {
+        debug_buffers_buf = try ds.initDeclDebugBuffers(self.base.allocator, module, decl);
+        break :blk &debug_buffers_buf;
+    } else null;
     defer {
-        if (debug_buffers) |*dbg| {
+        if (debug_buffers) |dbg| {
             dbg.dbg_line_buffer.deinit();
             dbg.dbg_info_buffer.deinit();
             var it = dbg.dbg_info_type_relocs.valueIterator();
@@ -3494,7 +3515,84 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
 
     self.active_decl = decl;
 
-    const res = if (debug_buffers) |*dbg|
+    const res = if (debug_buffers) |dbg|
+        try codegen.generateFunction(&self.base, decl.srcLoc(), func, air, liveness, &code_buffer, .{
+            .dwarf = .{
+                .dbg_line = &dbg.dbg_line_buffer,
+                .dbg_info = &dbg.dbg_info_buffer,
+                .dbg_info_type_relocs = &dbg.dbg_info_type_relocs,
+            },
+        })
+    else
+        try codegen.generateFunction(&self.base, decl.srcLoc(), func, air, liveness, &code_buffer, .none);
+    switch (res) {
+        .appended => {
+            decl.link.macho.code = code_buffer.toOwnedSlice();
+        },
+        .fail => |em| {
+            decl.analysis = .codegen_failure;
+            try module.failed_decls.put(module.gpa, decl, em);
+            return;
+        },
+    }
+
+    const symbol = try self.placeDecl(decl, decl.link.macho.code.len);
+
+    try self.writeCode(symbol, decl.link.macho.code);
+
+    if (debug_buffers) |db| {
+        try self.d_sym.?.commitDeclDebugInfo(
+            self.base.allocator,
+            module,
+            decl,
+            db,
+            self.base.options.target,
+        );
+    }
+
+    // Since we updated the vaddr and the size, each corresponding export symbol also
+    // needs to be updated.
+    const decl_exports = module.decl_exports.get(decl) orelse &[0]*Module.Export{};
+    try self.updateDeclExports(module, decl, decl_exports);
+}
+
+pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
+    if (build_options.skip_non_native and builtin.object_format != .macho) {
+        @panic("Attempted to compile for object format that was disabled by build configuration");
+    }
+    if (build_options.have_llvm) {
+        if (self.llvm_object) |llvm_object| return llvm_object.updateDecl(module, decl);
+    }
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    if (decl.val.tag() == .extern_fn) {
+        return; // TODO Should we do more when front-end analyzed extern decl?
+    }
+
+    var code_buffer = std.ArrayList(u8).init(self.base.allocator);
+    defer code_buffer.deinit();
+
+    var debug_buffers_buf: DebugSymbols.DeclDebugBuffers = undefined;
+    const debug_buffers = if (self.d_sym) |*ds| blk: {
+        debug_buffers_buf = try ds.initDeclDebugBuffers(self.base.allocator, module, decl);
+        break :blk &debug_buffers_buf;
+    } else null;
+    defer {
+        if (debug_buffers) |dbg| {
+            dbg.dbg_line_buffer.deinit();
+            dbg.dbg_info_buffer.deinit();
+            var it = dbg.dbg_info_type_relocs.valueIterator();
+            while (it.next()) |value| {
+                value.relocs.deinit(self.base.allocator);
+            }
+            dbg.dbg_info_type_relocs.deinit(self.base.allocator);
+        }
+    }
+
+    self.active_decl = decl;
+
+    const res = if (debug_buffers) |dbg|
         try codegen.generateSymbol(&self.base, decl.srcLoc(), .{
             .ty = decl.ty,
             .val = decl.val,
@@ -3525,16 +3623,26 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
             },
         }
     };
+    const symbol = try self.placeDecl(decl, code.len);
 
+    try self.writeCode(symbol, code);
+
+    // Since we updated the vaddr and the size, each corresponding export symbol also
+    // needs to be updated.
+    const decl_exports = module.decl_exports.get(decl) orelse &[0]*Module.Export{};
+    try self.updateDeclExports(module, decl, decl_exports);
+}
+
+fn placeDecl(self: *MachO, decl: *Module.Decl, code_len: usize) !*macho.nlist_64 {
     const required_alignment = decl.ty.abiAlignment(self.base.options.target);
     assert(decl.link.macho.local_sym_index != 0); // Caller forgot to call allocateDeclIndexes()
     const symbol = &self.locals.items[decl.link.macho.local_sym_index];
 
     if (decl.link.macho.size != 0) {
         const capacity = decl.link.macho.capacity(self.*);
-        const need_realloc = code.len > capacity or !mem.isAlignedGeneric(u64, symbol.n_value, required_alignment);
+        const need_realloc = code_len > capacity or !mem.isAlignedGeneric(u64, symbol.n_value, required_alignment);
         if (need_realloc) {
-            const vaddr = try self.growTextBlock(&decl.link.macho, code.len, required_alignment);
+            const vaddr = try self.growTextBlock(&decl.link.macho, code_len, required_alignment);
 
             log.debug("growing {s} and moving from 0x{x} to 0x{x}", .{ decl.name, symbol.n_value, vaddr });
 
@@ -3548,10 +3656,10 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
             }
 
             symbol.n_value = vaddr;
-        } else if (code.len < decl.link.macho.size) {
-            self.shrinkTextBlock(&decl.link.macho, code.len);
+        } else if (code_len < decl.link.macho.size) {
+            self.shrinkTextBlock(&decl.link.macho, code_len);
         }
-        decl.link.macho.size = code.len;
+        decl.link.macho.size = code_len;
 
         const new_name = try std.fmt.allocPrint(self.base.allocator, "_{s}", .{mem.spanZ(decl.name)});
         defer self.base.allocator.free(new_name);
@@ -3569,7 +3677,7 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
         defer self.base.allocator.free(decl_name);
 
         const name_str_index = try self.makeString(decl_name);
-        const addr = try self.allocateTextBlock(&decl.link.macho, code.len, required_alignment);
+        const addr = try self.allocateTextBlock(&decl.link.macho, code_len, required_alignment);
 
         log.debug("allocated text block for {s} at 0x{x}", .{ decl_name, addr });
 
@@ -3582,17 +3690,15 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
             .n_desc = 0,
             .n_value = addr,
         };
-
-        try self.writeLocalSymbol(decl.link.macho.local_sym_index);
-
-        if (self.d_sym) |*ds|
-            try ds.writeLocalSymbol(decl.link.macho.local_sym_index);
-
         const got_index = self.got_entries_map.get(.{
             .where = .local,
             .where_index = decl.link.macho.local_sym_index,
         }) orelse unreachable;
         try self.writeGotEntry(got_index);
+
+        try self.writeLocalSymbol(decl.link.macho.local_sym_index);
+        if (self.d_sym) |*ds|
+            try ds.writeLocalSymbol(decl.link.macho.local_sym_index);
     }
 
     // Resolve relocations
@@ -3615,25 +3721,16 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
         }
     }
 
-    const text_segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
+    return symbol;
+}
+
+fn writeCode(self: *MachO, symbol: *macho.nlist_64, code: []const u8) !void {
+    const text_segment = &self.load_commands.items[self.text_segment_cmd_index.?].Segment;
     const text_section = text_segment.sections.items[self.text_section_index.?];
     const section_offset = symbol.n_value - text_section.addr;
     const file_offset = text_section.offset + section_offset;
+    log.debug("writing code for symbol {s} at file offset 0x{x}", .{ self.getString(symbol.n_strx), file_offset });
     try self.base.file.?.pwriteAll(code, file_offset);
-
-    if (debug_buffers) |*db| {
-        try self.d_sym.?.commitDeclDebugInfo(
-            self.base.allocator,
-            module,
-            decl,
-            db,
-            self.base.options.target,
-        );
-    }
-
-    // Since we updated the vaddr and the size, each corresponding export symbol also needs to be updated.
-    const decl_exports = module.decl_exports.get(decl) orelse &[0]*Module.Export{};
-    try self.updateDeclExports(module, decl, decl_exports);
 }
 
 pub fn updateDeclLineNumber(self: *MachO, module: *Module, decl: *const Module.Decl) !void {
