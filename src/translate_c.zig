@@ -4868,6 +4868,8 @@ const PatternList = struct {
         [2][]const u8{ "Ull_SUFFIX(X) (X ## Ull)", "ULL_SUFFIX" },
         [2][]const u8{ "ULL_SUFFIX(X) (X ## ULL)", "ULL_SUFFIX" },
 
+        [2][]const u8{ "CAST_OR_CALL(X, Y) (X)(Y)", "CAST_OR_CALL" },
+
         [2][]const u8{
             \\wl_container_of(ptr, sample, member)                     \
             \\(__typeof__(sample))((char *)(ptr) -                     \
@@ -5048,6 +5050,7 @@ test "Macro matching" {
     , "WL_CONTAINER_OF");
 
     try helper.checkMacro(allocator, pattern_list, "NO_MATCH(X, Y) (X + Y)", null);
+    try helper.checkMacro(allocator, pattern_list, "CAST_OR_CALL(X, Y) (X)(Y)", "CAST_OR_CALL");
 }
 
 const MacroCtx = struct {
