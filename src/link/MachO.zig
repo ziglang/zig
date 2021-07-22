@@ -167,6 +167,9 @@ strtab_needs_relocation: bool = false,
 has_dices: bool = false,
 has_stabs: bool = false,
 
+section_ordinals: std.ArrayListUnmanaged(MatchingSection) = .{},
+section_to_ordinal: std.AutoHashMapUnmanaged(MatchingSection, u8) = .{},
+
 pending_updates: std.ArrayListUnmanaged(struct {
     kind: enum {
         got,
@@ -925,6 +928,13 @@ fn linkWithZld(self: *MachO, comp: *Compilation) !void {
             else => unreachable,
         };
 
+        // Initialize section ordinals with null ordinal pointing at
+        // PAGEZERO segment.
+        try self.section_ordinals.append(self.base.allocator, .{
+            .seg = 0,
+            .sect = 0,
+        });
+
         try self.populateMetadata();
         try self.parseInputFiles(positionals.items, self.base.options.sysroot);
         try self.parseLibs(libs.items, self.base.options.sysroot);
@@ -1482,6 +1492,10 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
         }
     };
 
+    if (res) |match| {
+        try self.createSectionOrdinal(match);
+    }
+
     return res;
 }
 
@@ -1605,6 +1619,38 @@ fn sortSections(self: *MachO) !void {
         self.blocks.clearAndFree(self.base.allocator);
         self.blocks.deinit(self.base.allocator);
         self.blocks = transient;
+    }
+
+    {
+        // Create new section ordinals.
+        self.section_ordinals.clearRetainingCapacity();
+        self.section_to_ordinal.clearRetainingCapacity();
+        // First ordinal is always null
+        self.section_ordinals.appendAssumeCapacity(.{
+            .seg = 0,
+            .sect = 0,
+        });
+        const text_seg = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
+        for (text_seg.sections.items) |_, sect_id| {
+            try self.createSectionOrdinal(.{
+                .seg = self.text_segment_cmd_index.?,
+                .sect = @intCast(u16, sect_id),
+            });
+        }
+        const data_const_seg = self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
+        for (data_const_seg.sections.items) |_, sect_id| {
+            try self.createSectionOrdinal(.{
+                .seg = self.data_const_segment_cmd_index.?,
+                .sect = @intCast(u16, sect_id),
+            });
+        }
+        const data_seg = self.load_commands.items[self.data_segment_cmd_index.?].Segment;
+        for (data_seg.sections.items) |_, sect_id| {
+            try self.createSectionOrdinal(.{
+                .seg = self.data_segment_cmd_index.?,
+                .sect = @intCast(u16, sect_id),
+            });
+        }
     }
 }
 
@@ -1732,7 +1778,7 @@ fn allocateTextBlocks(self: *MachO) !void {
         const sect = seg.sections.items[match.sect];
 
         var base_addr: u64 = sect.addr;
-        const n_sect = self.sectionId(match);
+        const n_sect = self.section_to_ordinal.get(match) orelse unreachable;
 
         log.debug("  within section {s},{s}", .{ commands.segmentName(sect), commands.sectionName(sect) });
         log.debug("    {}", .{sect});
@@ -2260,6 +2306,7 @@ fn resolveSymbols(self: *MachO) !void {
                 .sect = self.common_section_index.?,
             };
         };
+        try self.createSectionOrdinal(match);
 
         const size = sym.n_value;
         const code = try self.base.allocator.alloc(u8, size);
@@ -2272,7 +2319,7 @@ fn resolveSymbols(self: *MachO) !void {
         var nlist = macho.nlist_64{
             .n_strx = sym.n_strx,
             .n_type = macho.N_SECT,
-            .n_sect = self.sectionId(match),
+            .n_sect = self.section_to_ordinal.get(match) orelse unreachable,
             .n_desc = 0,
             .n_value = 0,
         };
@@ -2402,7 +2449,7 @@ fn resolveSymbols(self: *MachO) !void {
         var nlist = macho.nlist_64{
             .n_strx = undef.n_strx,
             .n_type = macho.N_SECT,
-            .n_sect = self.sectionId(match),
+            .n_sect = self.section_to_ordinal.get(match) orelse unreachable,
             .n_desc = 0,
             .n_value = 0,
         };
@@ -2498,6 +2545,10 @@ fn populateMetadata(self: *MachO) !void {
             .@"align" = alignment,
             .flags = macho.S_REGULAR | macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS,
         });
+        try self.createSectionOrdinal(.{
+            .seg = self.text_segment_cmd_index.?,
+            .sect = self.text_section_index.?,
+        });
     }
 
     if (self.stubs_section_index == null) {
@@ -2517,6 +2568,10 @@ fn populateMetadata(self: *MachO) !void {
             .@"align" = alignment,
             .flags = macho.S_SYMBOL_STUBS | macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS,
             .reserved2 = stub_size,
+        });
+        try self.createSectionOrdinal(.{
+            .seg = self.text_segment_cmd_index.?,
+            .sect = self.stubs_section_index.?,
         });
     }
 
@@ -2538,6 +2593,10 @@ fn populateMetadata(self: *MachO) !void {
             .@"align" = alignment,
             .flags = macho.S_REGULAR | macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS,
         });
+        try self.createSectionOrdinal(.{
+            .seg = self.text_segment_cmd_index.?,
+            .sect = self.stub_helper_section_index.?,
+        });
     }
 
     if (self.data_const_segment_cmd_index == null) {
@@ -2556,6 +2615,10 @@ fn populateMetadata(self: *MachO) !void {
         try data_const_seg.addSection(self.base.allocator, "__got", .{
             .@"align" = 3, // 2^3 = @sizeOf(u64)
             .flags = macho.S_NON_LAZY_SYMBOL_POINTERS,
+        });
+        try self.createSectionOrdinal(.{
+            .seg = self.data_const_segment_cmd_index.?,
+            .sect = self.got_section_index.?,
         });
     }
 
@@ -2576,6 +2639,10 @@ fn populateMetadata(self: *MachO) !void {
             .@"align" = 3, // 2^3 = @sizeOf(u64)
             .flags = macho.S_LAZY_SYMBOL_POINTERS,
         });
+        try self.createSectionOrdinal(.{
+            .seg = self.data_segment_cmd_index.?,
+            .sect = self.la_symbol_ptr_section_index.?,
+        });
     }
 
     if (self.data_section_index == null) {
@@ -2583,6 +2650,10 @@ fn populateMetadata(self: *MachO) !void {
         self.data_section_index = @intCast(u16, data_seg.sections.items.len);
         try data_seg.addSection(self.base.allocator, "__data", .{
             .@"align" = 3, // 2^3 = @sizeOf(u64)
+        });
+        try self.createSectionOrdinal(.{
+            .seg = self.data_segment_cmd_index.?,
+            .sect = self.data_section_index.?,
         });
     }
 
@@ -3290,6 +3361,8 @@ pub fn deinit(self: *MachO) void {
         ds.deinit(self.base.allocator);
     }
 
+    self.section_ordinals.deinit(self.base.allocator);
+    self.section_to_ordinal.deinit(self.base.allocator);
     self.pending_updates.deinit(self.base.allocator);
     self.got_entries.deinit(self.base.allocator);
     self.got_entries_map.deinit(self.base.allocator);
@@ -5816,37 +5889,6 @@ pub fn symbolIsTemp(sym: macho.nlist_64, sym_name: []const u8) bool {
     return mem.startsWith(u8, sym_name, "l") or mem.startsWith(u8, sym_name, "L");
 }
 
-pub fn sectionId(self: MachO, match: MatchingSection) u8 {
-    // TODO there might be a more generic way of doing this.
-    var section: u8 = 0;
-    for (self.load_commands.items) |cmd, cmd_id| {
-        if (cmd != .Segment) break;
-        if (cmd_id == match.seg) {
-            section += @intCast(u8, match.sect) + 1;
-            break;
-        }
-        section += @intCast(u8, cmd.Segment.sections.items.len);
-    }
-    return section;
-}
-
-pub fn unpackSectionId(self: MachO, section_id: u8) MatchingSection {
-    var match: MatchingSection = undefined;
-    var section: u8 = 0;
-    outer: for (self.load_commands.items) |cmd, cmd_id| {
-        assert(cmd == .Segment);
-        for (cmd.Segment.sections.items) |_, sect_id| {
-            section += 1;
-            if (section_id == section) {
-                match.seg = @intCast(u16, cmd_id);
-                match.sect = @intCast(u16, sect_id);
-                break :outer;
-            }
-        }
-    }
-    return match;
-}
-
 fn packDylibOrdinal(ordinal: u16) u16 {
     return ordinal * macho.N_SYMBOL_RESOLVER;
 }
@@ -5866,4 +5908,11 @@ pub fn findFirst(comptime T: type, haystack: []T, start: usize, predicate: anyty
         if (predicate.predicate(haystack[i])) break;
     }
     return i;
+}
+
+fn createSectionOrdinal(self: *MachO, match: MatchingSection) !void {
+    if (self.section_to_ordinal.contains(match)) return;
+    const ordinal = @intCast(u8, self.section_ordinals.items.len);
+    try self.section_ordinals.append(self.base.allocator, match);
+    try self.section_to_ordinal.putNoClobber(self.base.allocator, match, ordinal);
 }

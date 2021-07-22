@@ -733,7 +733,7 @@ pub fn parseTextBlocks(self: *Object, macho_file: *MachO) !void {
                 try macho_file.locals.append(macho_file.base.allocator, .{
                     .n_strx = try macho_file.makeString(sym_name),
                     .n_type = macho.N_SECT,
-                    .n_sect = macho_file.sectionId(match),
+                    .n_sect = macho_file.section_to_ordinal.get(match) orelse unreachable,
                     .n_desc = 0,
                     .n_value = sect.addr,
                 });
@@ -779,7 +779,7 @@ pub fn parseTextBlocks(self: *Object, macho_file: *MachO) !void {
                 const nlist = nlist_with_index.nlist;
                 const local_sym_index = self.symbol_mapping.get(nlist_with_index.index) orelse unreachable;
                 const local = &macho_file.locals.items[local_sym_index];
-                local.n_sect = macho_file.sectionId(match);
+                local.n_sect = macho_file.section_to_ordinal.get(match) orelse unreachable;
 
                 const stab: ?TextBlock.Stab = if (self.debug_info) |di| blk: {
                     // TODO there has to be a better to handle this.

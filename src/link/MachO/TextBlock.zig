@@ -620,7 +620,7 @@ fn initRelocFromObject(rel: macho.relocation_info, object: *Object, ctx: RelocCo
             try ctx.macho_file.locals.append(ctx.macho_file.base.allocator, .{
                 .n_strx = try ctx.macho_file.makeString(sym_name),
                 .n_type = macho.N_SECT,
-                .n_sect = ctx.macho_file.sectionId(match),
+                .n_sect = ctx.macho_file.section_to_ordinal.get(match) orelse unreachable,
                 .n_desc = 0,
                 .n_value = sect.addr,
             });
@@ -832,7 +832,7 @@ pub fn parseRelocsFromObject(
                 },
                 .local => {
                     const source_sym = ctx.macho_file.locals.items[self.local_sym_index];
-                    const match = ctx.macho_file.unpackSectionId(source_sym.n_sect);
+                    const match = ctx.macho_file.section_ordinals.items[source_sym.n_sect];
                     const seg = ctx.macho_file.load_commands.items[match.seg].Segment;
                     const sect = seg.sections.items[match.sect];
                     const sect_type = commands.sectionType(sect);
@@ -1096,7 +1096,7 @@ pub fn resolveRelocs(self: *TextBlock, macho_file: *MachO) !void {
                     const sym = macho_file.locals.items[rel.where_index];
                     const is_tlv = is_tlv: {
                         const source_sym = macho_file.locals.items[self.local_sym_index];
-                        const match = macho_file.unpackSectionId(source_sym.n_sect);
+                        const match = macho_file.section_ordinals.items[source_sym.n_sect];
                         const seg = macho_file.load_commands.items[match.seg].Segment;
                         const sect = seg.sections.items[match.sect];
                         break :is_tlv commands.sectionType(sect) == macho.S_THREAD_LOCAL_VARIABLES;
