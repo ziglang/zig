@@ -1271,60 +1271,73 @@ pub const Context = struct {
     }
 
     fn airSwitchBr(self: *Context, inst: Air.Inst.Index) InnerError!WValue {
-        const pl_op = self.air.instructions.items(.data)[inst].pl_op;
-        const extra = self.air.extraData(Air.SwitchBr, pl_op.payload);
-        const cases = self.air.extra[extra.end..][0..extra.data.cases_len];
-        const else_body = self.air.extra[extra.end + cases.len ..][0..extra.data.else_body_len];
-
-        const target = self.resolveInst(pl_op.operand);
-        const target_ty = self.air.typeOf(pl_op.operand);
-        const valtype = try self.typeToValtype(target_ty);
         // result type is always 'noreturn'
         const blocktype = wasm.block_empty;
+        const pl_op = self.air.instructions.items(.data)[inst].pl_op;
+        const target = self.resolveInst(pl_op.operand);
+        const switch_br = self.air.extraData(Air.SwitchBr, pl_op.payload);
+        var extra_index: usize = switch_br.end;
+        var case_i: u32 = 0;
 
-        _ = valtype;
-        _ = blocktype;
-        _ = target;
-        _ = else_body;
-        return self.fail("TODO implement wasm codegen for switch", .{});
-        //const signedness: std.builtin.Signedness = blk: {
-        //    // by default we tell the operand type is unsigned (i.e. bools and enum values)
-        //    if (target_ty.zigTypeTag() != .Int) break :blk .unsigned;
+        // a map that maps each value with its index and body
+        var map = std.AutoArrayHashMap(u32, struct { index: u32, body: []const Air.Inst.Index }).init(self.gpa);
+        defer map.deinit();
 
-        //    // incase of an actual integer, we emit the correct signedness
-        //    break :blk target_ty.intInfo(self.target).signedness;
-        //};
-        //for (cases) |case_idx| {
-        //    const case = self.air.extraData(Air.SwitchBr.Case, case_idx);
-        //    const case_body = self.air.extra[case.end..][0..case.data.body_len];
+        var lowest: u32 = 0;
+        var highest: u32 = 0;
+        while (case_i < switch_br.data.cases_len) : (case_i += 1) {
+            const case = self.air.extraData(Air.SwitchBr.Case, extra_index);
+            const items = @bitCast([]const Air.Inst.Ref, self.air.extra[case.end..][0..case.data.items_len]);
+            const case_body = self.air.extra[case.end + items.len ..][0..case.data.body_len];
+            extra_index = case.end + items.len + case_body.len;
 
-        //    // create a block for each case, when the condition does not match we break out of it
-        //    try self.startBlock(.block, blocktype, null);
-        //    try self.emitWValue(target);
+            for (items) |ref| {
+                const item_val = @intCast(u32, self.air.value(ref).?.toUnsignedInt());
+                if (item_val < lowest) {
+                    lowest = item_val;
+                }
+                if (item_val > highest) {
+                    highest = item_val;
+                }
+                try map.put(item_val, .{ .index = case_i, .body = case_body });
+            }
 
-        //    const val = self.air.value(case.data.item).?;
-        //    try self.emitConstant(val, target_ty);
-        //    const opcode = buildOpcode(.{
-        //        .valtype1 = valtype,
-        //        .op = .ne, // not equal because we jump out the block if it does not match the condition
-        //        .signedness = signedness,
-        //    });
-        //    try self.code.append(wasm.opcode(opcode));
-        //    try self.code.append(wasm.opcode(.br_if));
-        //    try leb.writeULEB128(self.code.writer(), @as(u32, 0));
+            try self.startBlock(.block, blocktype, null);
+        }
 
-        //    // emit our block code
-        //    try self.genBody(case_body);
+        const else_body = self.air.extra[extra_index..][0..switch_br.data.else_body_len];
+        if (else_body.len != 0) {
+            try self.startBlock(.block, blocktype, null);
+        }
 
-        //    // end the block we created earlier
-        //    try self.endBlock();
-        //}
+        // Generate the jump table 'br_table'.
+        // The value 'target' represents the index into the table.
+        // Each index in the table represents a label to the branch
+        // to jump to.
+        try self.startBlock(.block, blocktype, null);
+        try self.emitWValue(target);
+        try self.code.append(wasm.opcode(.br_table));
+        try leb.writeULEB128(self.code.writer(), highest - lowest + 1);
+        while (lowest <= highest) : (lowest += 1) {
+            const idx = if (map.get(lowest)) |value| blk: {
+                break :blk value.index + 1;
+            } else 0;
+            try leb.writeULEB128(self.code.writer(), idx);
+        } else if (else_body.len != 0) {
+            try leb.writeULEB128(self.code.writer(), @as(u32, 0)); // default branch
+        }
+        try self.endBlock();
 
-        //// finally, emit the else case if it exists. Here we will not have to
-        //// check for a condition, so also no need to emit a block.
-        //try self.genBody(else_body);
+        if (else_body.len != 0) {
+            try self.genBody(else_body);
+            try self.endBlock();
+        }
 
-        //return .none;
+        for (map.values()) |val| {
+            try self.genBody(val.body);
+            try self.endBlock();
+        }
+        return .none;
     }
 
     fn airIsErr(self: *Context, inst: Air.Inst.Index, opcode: wasm.Opcode) InnerError!WValue {
