@@ -350,3 +350,135 @@ test "Flexible Array Type" {
     try testing.expectEqual(FlexibleArrayType(*volatile Container, c_int), [*c]volatile c_int);
     try testing.expectEqual(FlexibleArrayType(*const volatile Container, c_int), [*c]const volatile c_int);
 }
+
+pub const Macros = struct {
+    pub fn U_SUFFIX(comptime n: comptime_int) @TypeOf(promoteIntLiteral(c_uint, n, .decimal)) {
+        return promoteIntLiteral(c_uint, n, .decimal);
+    }
+
+    fn L_SUFFIX_ReturnType(comptime number: anytype) type {
+        switch (@TypeOf(number)) {
+            comptime_int => return @TypeOf(promoteIntLiteral(c_long, number, .decimal)),
+            comptime_float => return c_longdouble,
+            else => @compileError("Invalid value for L suffix"),
+        }
+    }
+    pub fn L_SUFFIX(comptime number: anytype) L_SUFFIX_ReturnType(number) {
+        switch (@TypeOf(number)) {
+            comptime_int => return promoteIntLiteral(c_long, number, .decimal),
+            comptime_float => @compileError("TODO: c_longdouble initialization from comptime_float not supported"),
+            else => @compileError("Invalid value for L suffix"),
+        }
+    }
+
+    pub fn UL_SUFFIX(comptime n: comptime_int) @TypeOf(promoteIntLiteral(c_ulong, n, .decimal)) {
+        return promoteIntLiteral(c_ulong, n, .decimal);
+    }
+
+    pub fn LL_SUFFIX(comptime n: comptime_int) @TypeOf(promoteIntLiteral(c_longlong, n, .decimal)) {
+        return promoteIntLiteral(c_longlong, n, .decimal);
+    }
+
+    pub fn ULL_SUFFIX(comptime n: comptime_int) @TypeOf(promoteIntLiteral(c_ulonglong, n, .decimal)) {
+        return promoteIntLiteral(c_ulonglong, n, .decimal);
+    }
+
+    pub fn F_SUFFIX(comptime f: comptime_float) f32 {
+        return @as(f32, f);
+    }
+
+    pub fn WL_CONTAINER_OF(ptr: anytype, sample: anytype, comptime member: []const u8) @TypeOf(sample) {
+        return @fieldParentPtr(@TypeOf(sample.*), member, ptr);
+    }
+
+    /// A 2-argument function-like macro defined as #define FOO(A, B) (A)(B)
+    /// could be either: cast B to A, or call A with the value B.
+    pub fn CAST_OR_CALL(a: anytype, b: anytype) switch (@typeInfo(@TypeOf(a))) {
+        .Type => a,
+        .Fn => |fn_info| fn_info.return_type orelse void,
+        else => |info| @compileError("Unexpected argument type: " ++ @tagName(info)),
+    } {
+        switch (@typeInfo(@TypeOf(a))) {
+            .Type => return cast(a, b),
+            .Fn => return a(b),
+            else => unreachable, // return type will be a compile error otherwise
+        }
+    }
+};
+
+test "Macro suffix functions" {
+    try testing.expect(@TypeOf(Macros.F_SUFFIX(1)) == f32);
+
+    try testing.expect(@TypeOf(Macros.U_SUFFIX(1)) == c_uint);
+    if (math.maxInt(c_ulong) > math.maxInt(c_uint)) {
+        try testing.expect(@TypeOf(Macros.U_SUFFIX(math.maxInt(c_uint) + 1)) == c_ulong);
+    }
+    if (math.maxInt(c_ulonglong) > math.maxInt(c_ulong)) {
+        try testing.expect(@TypeOf(Macros.U_SUFFIX(math.maxInt(c_ulong) + 1)) == c_ulonglong);
+    }
+
+    try testing.expect(@TypeOf(Macros.L_SUFFIX(1)) == c_long);
+    if (math.maxInt(c_long) > math.maxInt(c_int)) {
+        try testing.expect(@TypeOf(Macros.L_SUFFIX(math.maxInt(c_int) + 1)) == c_long);
+    }
+    if (math.maxInt(c_longlong) > math.maxInt(c_long)) {
+        try testing.expect(@TypeOf(Macros.L_SUFFIX(math.maxInt(c_long) + 1)) == c_longlong);
+    }
+
+    try testing.expect(@TypeOf(Macros.UL_SUFFIX(1)) == c_ulong);
+    if (math.maxInt(c_ulonglong) > math.maxInt(c_ulong)) {
+        try testing.expect(@TypeOf(Macros.UL_SUFFIX(math.maxInt(c_ulong) + 1)) == c_ulonglong);
+    }
+
+    try testing.expect(@TypeOf(Macros.LL_SUFFIX(1)) == c_longlong);
+    try testing.expect(@TypeOf(Macros.ULL_SUFFIX(1)) == c_ulonglong);
+}
+
+test "WL_CONTAINER_OF" {
+    const S = struct {
+        a: u32 = 0,
+        b: u32 = 0,
+    };
+    var x = S{};
+    var y = S{};
+    var ptr = Macros.WL_CONTAINER_OF(&x.b, &y, "b");
+    try testing.expectEqual(&x, ptr);
+}
+
+test "CAST_OR_CALL casting" {
+    var arg = @as(c_int, 1000);
+    var casted = Macros.CAST_OR_CALL(u8, arg);
+    try testing.expectEqual(cast(u8, arg), casted);
+
+    const S = struct {
+        x: u32 = 0,
+    };
+    var s = S{};
+    var casted_ptr = Macros.CAST_OR_CALL(*u8, &s);
+    try testing.expectEqual(cast(*u8, &s), casted_ptr);
+}
+
+test "CAST_OR_CALL calling" {
+    const Helper = struct {
+        var last_val: bool = false;
+        fn returnsVoid(val: bool) void {
+            last_val = val;
+        }
+        fn returnsBool(f: f32) bool {
+            return f > 0;
+        }
+        fn identity(self: c_uint) c_uint {
+            return self;
+        }
+    };
+
+    Macros.CAST_OR_CALL(Helper.returnsVoid, true);
+    try testing.expectEqual(true, Helper.last_val);
+    Macros.CAST_OR_CALL(Helper.returnsVoid, false);
+    try testing.expectEqual(false, Helper.last_val);
+
+    try testing.expectEqual(Helper.returnsBool(1), Macros.CAST_OR_CALL(Helper.returnsBool, @as(f32, 1)));
+    try testing.expectEqual(Helper.returnsBool(-1), Macros.CAST_OR_CALL(Helper.returnsBool, @as(f32, -1)));
+
+    try testing.expectEqual(Helper.identity(@as(c_uint, 100)), Macros.CAST_OR_CALL(Helper.identity, @as(c_uint, 100)));
+}

@@ -29,21 +29,22 @@ const CodeSignature = @import("MachO/CodeSignature.zig");
 const Compilation = @import("../Compilation.zig");
 const DebugSymbols = @import("MachO/DebugSymbols.zig");
 const Dylib = @import("MachO/Dylib.zig");
+const File = link.File;
 const Object = @import("MachO/Object.zig");
 const Liveness = @import("../Liveness.zig");
+const LlvmObject = @import("../codegen/llvm.zig").Object;
 const LoadCommand = commands.LoadCommand;
 const Module = @import("../Module.zig");
-const File = link.File;
+const SegmentCommand = commands.SegmentCommand;
 pub const TextBlock = @import("MachO/TextBlock.zig");
 const Trie = @import("MachO/Trie.zig");
-const SegmentCommand = commands.SegmentCommand;
 
 pub const base_tag: File.Tag = File.Tag.macho;
 
 base: File,
 
 /// If this is not null, an object file is created by LLVM and linked with LLD afterwards.
-llvm_object: ?*llvm_backend.Object = null,
+llvm_object: ?*LlvmObject = null,
 
 /// Debug symbols bundle (or dSym).
 d_sym: ?DebugSymbols = null,
@@ -333,7 +334,7 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
         const self = try createEmpty(allocator, options);
         errdefer self.base.destroy();
 
-        self.llvm_object = try llvm_backend.Object.create(allocator, sub_path, options);
+        self.llvm_object = try LlvmObject.create(allocator, options);
         return self;
     }
 
@@ -3305,6 +3306,10 @@ fn writeSymbolTable(self: *MachO) !void {
 }
 
 pub fn deinit(self: *MachO) void {
+    if (build_options.have_llvm) {
+        if (self.llvm_object) |llvm_object| llvm_object.destroy(self.base.allocator);
+    }
+
     if (self.d_sym) |*ds| {
         ds.deinit(self.base.allocator);
     }

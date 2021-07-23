@@ -123,6 +123,9 @@ pub const Module = opaque {
 
     pub const getNamedGlobal = LLVMGetNamedGlobal;
     extern fn LLVMGetNamedGlobal(M: *const Module, Name: [*:0]const u8) ?*const Value;
+
+    pub const dump = LLVMDumpModule;
+    extern fn LLVMDumpModule(M: *const Module) void;
 };
 
 pub const lookupIntrinsicID = LLVMLookupIntrinsicID;
@@ -250,31 +253,41 @@ pub const BasicBlock = opaque {
 };
 
 pub const TargetMachine = opaque {
-    pub const create = LLVMCreateTargetMachine;
-    extern fn LLVMCreateTargetMachine(
+    pub const create = ZigLLVMCreateTargetMachine;
+    extern fn ZigLLVMCreateTargetMachine(
         T: *const Target,
         Triple: [*:0]const u8,
-        CPU: [*:0]const u8,
-        Features: [*:0]const u8,
+        CPU: ?[*:0]const u8,
+        Features: ?[*:0]const u8,
         Level: CodeGenOptLevel,
         Reloc: RelocMode,
-        CodeModel: CodeMode,
+        CodeModel: CodeModel,
+        function_sections: bool,
+        float_abi: ABIType,
+        abi_name: ?[*:0]const u8,
     ) *const TargetMachine;
 
     pub const dispose = LLVMDisposeTargetMachine;
     extern fn LLVMDisposeTargetMachine(T: *const TargetMachine) void;
 
-    pub const emitToFile = LLVMTargetMachineEmitToFile;
-    extern fn LLVMTargetMachineEmitToFile(
-        *const TargetMachine,
+    pub const emitToFile = ZigLLVMTargetMachineEmitToFile;
+    extern fn ZigLLVMTargetMachineEmitToFile(
+        T: *const TargetMachine,
         M: *const Module,
-        Filename: [*:0]const u8,
-        codegen: CodeGenFileType,
         ErrorMessage: *[*:0]const u8,
-    ) Bool;
+        is_debug: bool,
+        is_small: bool,
+        time_report: bool,
+        tsan: bool,
+        lto: bool,
+        asm_filename: ?[*:0]const u8,
+        bin_filename: ?[*:0]const u8,
+        llvm_ir_filename: ?[*:0]const u8,
+        bitcode_filename: ?[*:0]const u8,
+    ) bool;
 };
 
-pub const CodeMode = enum(c_int) {
+pub const CodeModel = enum(c_int) {
     Default,
     JITDefault,
     Tiny,
@@ -295,7 +308,7 @@ pub const RelocMode = enum(c_int) {
     Default,
     Static,
     PIC,
-    DynamicNoPic,
+    DynamicNoPIC,
     ROPI,
     RWPI,
     ROPI_RWPI,
@@ -304,6 +317,15 @@ pub const RelocMode = enum(c_int) {
 pub const CodeGenFileType = enum(c_int) {
     AssemblyFile,
     ObjectFile,
+};
+
+pub const ABIType = enum(c_int) {
+    /// Target-specific (either soft or hard depending on triple, etc).
+    Default,
+    /// Soft float.
+    Soft,
+    // Hard float.
+    Hard,
 };
 
 pub const Target = opaque {

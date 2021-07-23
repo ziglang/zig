@@ -8506,19 +8506,22 @@ static void zig_llvm_emit_output(CodeGen *g) {
     const char *asm_filename = nullptr;
     const char *bin_filename = nullptr;
     const char *llvm_ir_filename = nullptr;
+    const char *bitcode_filename = nullptr;
 
     if (buf_len(&g->o_file_output_path) != 0) bin_filename = buf_ptr(&g->o_file_output_path);
     if (buf_len(&g->asm_file_output_path) != 0) asm_filename = buf_ptr(&g->asm_file_output_path);
     if (buf_len(&g->llvm_ir_file_output_path) != 0) llvm_ir_filename = buf_ptr(&g->llvm_ir_file_output_path);
+    if (buf_len(&g->bitcode_file_output_path) != 0) bitcode_filename = buf_ptr(&g->bitcode_file_output_path);
 
-    // Unfortunately, LLVM shits the bed when we ask for both binary and assembly. So we call the entire
-    // pipeline multiple times if this is requested.
+    // Unfortunately, LLVM shits the bed when we ask for both binary and assembly.
+    // So we call the entire pipeline multiple times if this is requested.
     if (asm_filename != nullptr && bin_filename != nullptr) {
         if (ZigLLVMTargetMachineEmitToFile(g->target_machine, g->module, &err_msg,
             g->build_mode == BuildModeDebug, is_small, g->enable_time_report, g->tsan_enabled,
-            g->have_lto, nullptr, bin_filename, llvm_ir_filename))
+            g->have_lto, nullptr, bin_filename, llvm_ir_filename, nullptr))
         {
-            fprintf(stderr, "LLVM failed to emit file: %s\n", err_msg);
+            fprintf(stderr, "LLVM failed to emit bin=%s, ir=%s: %s\n",
+                    bin_filename, llvm_ir_filename, err_msg);
             exit(1);
         }
         bin_filename = nullptr;
@@ -8527,9 +8530,11 @@ static void zig_llvm_emit_output(CodeGen *g) {
 
     if (ZigLLVMTargetMachineEmitToFile(g->target_machine, g->module, &err_msg,
         g->build_mode == BuildModeDebug, is_small, g->enable_time_report, g->tsan_enabled,
-        g->have_lto, asm_filename, bin_filename, llvm_ir_filename))
+        g->have_lto, asm_filename, bin_filename, llvm_ir_filename, bitcode_filename))
     {
-        fprintf(stderr, "LLVM failed to emit file: %s\n", err_msg);
+        fprintf(stderr, "LLVM failed to emit asm=%s, bin=%s, ir=%s, bc=%s: %s\n",
+                asm_filename, bin_filename, llvm_ir_filename, bitcode_filename,
+                err_msg);
         exit(1);
     }
 
@@ -9536,6 +9541,22 @@ static void gen_root_source(CodeGen *g) {
     assert(panic_fn_val->data.x_ptr.special == ConstPtrSpecialFunction);
     g->panic_fn = panic_fn_val->data.x_ptr.data.fn.fn_entry;
     assert(g->panic_fn != nullptr);
+
+    if (g->include_compiler_rt) {
+        Buf *import_target_path;
+        Buf full_path = BUF_INIT;
+        ZigType *compiler_rt_import;
+        if ((err = analyze_import(g, std_import, buf_create_from_str("./special/compiler_rt.zig"),
+            &compiler_rt_import, &import_target_path, &full_path)))
+        {
+            if (err == ErrorFileNotFound) {
+                fprintf(stderr, "unable to find '%s'", buf_ptr(import_target_path));
+            } else {
+                fprintf(stderr, "unable to open '%s': %s\n", buf_ptr(&full_path), err_str(err));
+            }
+            exit(1);
+        }
+    }
 
     if (!g->error_during_imports) {
         semantic_analyze(g);

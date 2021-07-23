@@ -108,8 +108,9 @@ pub const BinNameOptions = struct {
 pub fn binNameAlloc(allocator: *std.mem.Allocator, options: BinNameOptions) error{OutOfMemory}![]u8 {
     const root_name = options.root_name;
     const target = options.target;
-    switch (options.object_format orelse target.getObjectFormat()) {
-        .coff, .pe => switch (options.output_mode) {
+    const ofmt = options.object_format orelse target.getObjectFormat();
+    switch (ofmt) {
+        .coff => switch (options.output_mode) {
             .Exe => return std.fmt.allocPrint(allocator, "{s}{s}", .{ root_name, target.exeFileExt() }),
             .Lib => {
                 const suffix = switch (options.link_mode orelse .Static) {
@@ -118,7 +119,7 @@ pub fn binNameAlloc(allocator: *std.mem.Allocator, options: BinNameOptions) erro
                 };
                 return std.fmt.allocPrint(allocator, "{s}{s}", .{ root_name, suffix });
             },
-            .Obj => return std.fmt.allocPrint(allocator, "{s}{s}", .{ root_name, target.oFileExt() }),
+            .Obj => return std.fmt.allocPrint(allocator, "{s}.obj", .{root_name}),
         },
         .elf => switch (options.output_mode) {
             .Exe => return allocator.dupe(u8, root_name),
@@ -140,7 +141,7 @@ pub fn binNameAlloc(allocator: *std.mem.Allocator, options: BinNameOptions) erro
                     },
                 }
             },
-            .Obj => return std.fmt.allocPrint(allocator, "{s}{s}", .{ root_name, target.oFileExt() }),
+            .Obj => return std.fmt.allocPrint(allocator, "{s}.o", .{root_name}),
         },
         .macho => switch (options.output_mode) {
             .Exe => return allocator.dupe(u8, root_name),
@@ -163,7 +164,7 @@ pub fn binNameAlloc(allocator: *std.mem.Allocator, options: BinNameOptions) erro
                 }
                 return std.fmt.allocPrint(allocator, "{s}{s}{s}", .{ target.libPrefix(), root_name, suffix });
             },
-            .Obj => return std.fmt.allocPrint(allocator, "{s}{s}", .{ root_name, target.oFileExt() }),
+            .Obj => return std.fmt.allocPrint(allocator, "{s}.o", .{root_name}),
         },
         .wasm => switch (options.output_mode) {
             .Exe => return std.fmt.allocPrint(allocator, "{s}{s}", .{ root_name, target.exeFileExt() }),
@@ -175,36 +176,15 @@ pub fn binNameAlloc(allocator: *std.mem.Allocator, options: BinNameOptions) erro
                     .Dynamic => return std.fmt.allocPrint(allocator, "{s}.wasm", .{root_name}),
                 }
             },
-            .Obj => return std.fmt.allocPrint(allocator, "{s}{s}", .{ root_name, target.oFileExt() }),
+            .Obj => return std.fmt.allocPrint(allocator, "{s}.o", .{root_name}),
         },
         .c => return std.fmt.allocPrint(allocator, "{s}.c", .{root_name}),
         .spirv => return std.fmt.allocPrint(allocator, "{s}.spv", .{root_name}),
         .hex => return std.fmt.allocPrint(allocator, "{s}.ihex", .{root_name}),
         .raw => return std.fmt.allocPrint(allocator, "{s}.bin", .{root_name}),
-        .plan9 => {
-            // copied from 2c(1)
-            // 0c spim    little-endian MIPS 3000 family
-            // 1c 68000   Motorola MC68000
-            // 2c 68020   Motorola MC68020
-            // 5c arm     little-endian ARM
-            // 6c amd64   AMD64 and compatibles (e.g., Intel EM64T)
-            // 7c arm64   ARM64 (ARMv8)
-            // 8c 386     Intel i386, i486, Pentium, etc.
-            // kc sparc   Sun SPARC
-            // qc power   Power PC
-            // vc mips    big-endian MIPS 3000 family
-            const char: u8 = switch (target.cpu.arch) {
-                .arm => '5',
-                .x86_64 => '6',
-                .aarch64 => '7',
-                .i386 => '8',
-                .sparc => 'k',
-                .powerpc, .powerpcle => 'q',
-                .mips, .mipsel => 'v',
-                else => 'X', // this arch does not have a char or maybe was not ported to plan9 so we just use X
-            };
-            return std.fmt.allocPrint(allocator, "{s}.{c}", .{ root_name, char });
-        },
+        .plan9 => return std.fmt.allocPrint(allocator, "{s}{s}", .{
+            root_name, ofmt.fileExt(target.cpu.arch),
+        }),
     }
 }
 

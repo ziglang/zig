@@ -1,5 +1,5 @@
 const std = @import("std");
-const builtin = std.builtin;
+const builtin = @import("builtin");
 const io = std.io;
 const fs = std.fs;
 const process = std.process;
@@ -13,7 +13,7 @@ const Allocator = std.mem.Allocator;
 const max_doc_file_size = 10 * 1024 * 1024;
 
 const exe_ext = @as(std.zig.CrossTarget, .{}).exeFileExt();
-const obj_ext = @as(std.zig.CrossTarget, .{}).oFileExt();
+const obj_ext = builtin.object_format.fileExt(builtin.cpu.arch);
 const tmp_dir_name = "docgen_tmp";
 const test_out_path = tmp_dir_name ++ fs.path.sep_str ++ "test" ++ exe_ext;
 
@@ -281,7 +281,7 @@ const Code = struct {
     name: []const u8,
     source_token: Token,
     is_inline: bool,
-    mode: builtin.Mode,
+    mode: std.builtin.Mode,
     link_objects: []const []const u8,
     target_str: ?[]const u8,
     link_libc: bool,
@@ -531,7 +531,7 @@ fn genToc(allocator: *Allocator, tokenizer: *Tokenizer) !Toc {
                         return parseError(tokenizer, code_kind_tok, "unrecognized code kind: {s}", .{code_kind_str});
                     }
 
-                    var mode: builtin.Mode = .Debug;
+                    var mode: std.builtin.Mode = .Debug;
                     var link_objects = std.ArrayList([]const u8).init(allocator);
                     defer link_objects.deinit();
                     var target_str: ?[]const u8 = null;

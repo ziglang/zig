@@ -25,9 +25,9 @@ const target_util = @import("../target.zig");
 const glibc = @import("../glibc.zig");
 const musl = @import("../musl.zig");
 const Cache = @import("../Cache.zig");
-const llvm_backend = @import("../codegen/llvm.zig");
 const Air = @import("../Air.zig");
 const Liveness = @import("../Liveness.zig");
+const LlvmObject = @import("../codegen/llvm.zig").Object;
 
 const default_entry_addr = 0x8000000;
 
@@ -38,7 +38,7 @@ base: File,
 ptr_width: PtrWidth,
 
 /// If this is not null, an object file is created by LLVM and linked with LLD afterwards.
-llvm_object: ?*llvm_backend.Object = null,
+llvm_object: ?*LlvmObject = null,
 
 /// Stored in native-endian format, depending on target endianness needs to be bswapped on read/write.
 /// Same order as in the file.
@@ -235,7 +235,7 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
         const self = try createEmpty(allocator, options);
         errdefer self.base.destroy();
 
-        self.llvm_object = try llvm_backend.Object.create(allocator, sub_path, options);
+        self.llvm_object = try LlvmObject.create(allocator, options);
         return self;
     }
 
@@ -301,9 +301,9 @@ pub fn createEmpty(gpa: *Allocator, options: link.Options) !*Elf {
 }
 
 pub fn deinit(self: *Elf) void {
-    if (build_options.have_llvm)
-        if (self.llvm_object) |ir_module|
-            ir_module.deinit(self.base.allocator);
+    if (build_options.have_llvm) {
+        if (self.llvm_object) |llvm_object| llvm_object.destroy(self.base.allocator);
+    }
 
     self.sections.deinit(self.base.allocator);
     self.program_headers.deinit(self.base.allocator);
@@ -750,8 +750,8 @@ pub fn flushModule(self: *Elf, comp: *Compilation) !void {
     if (build_options.have_llvm)
         if (self.llvm_object) |llvm_object| return try llvm_object.flushModule(comp);
 
-    // TODO This linker code currently assumes there is only 1 compilation unit and it corresponds to the
-    // Zig source code.
+    // TODO This linker code currently assumes there is only 1 compilation unit and it
+    // corresponds to the Zig source code.
     const module = self.base.options.module orelse return error.LinkingWithoutZigSourceUnimplemented;
 
     const target_endian = self.base.options.target.cpu.arch.endian();
@@ -1288,6 +1288,10 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
     const compiler_rt_path: ?[]const u8 = if (self.base.options.include_compiler_rt) blk: {
         // TODO: remove when stage2 can build compiler_rt.zig
         if (!build_options.is_stage1) break :blk null;
+
+        // In the case of build-obj we include the compiler-rt symbols directly alongside
+        // the symbols of the root source file, in the same compilation unit.
+        if (is_obj) break :blk null;
 
         if (is_exe_or_dyn_lib) {
             break :blk comp.compiler_rt_static_lib.?.full_object_path;

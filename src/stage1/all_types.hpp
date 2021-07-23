@@ -2090,6 +2090,7 @@ struct CodeGen {
     Buf h_file_output_path;
     Buf asm_file_output_path;
     Buf llvm_ir_file_output_path;
+    Buf bitcode_file_output_path;
     Buf analysis_json_output_path;
     Buf docs_output_path;
 
@@ -2149,6 +2150,7 @@ struct CodeGen {
     bool have_stack_probing;
     bool red_zone;
     bool function_sections;
+    bool include_compiler_rt;
     bool test_is_evented;
     bool valgrind_enabled;
     bool tsan_enabled;

@@ -473,10 +473,6 @@ pub const CrossTarget = struct {
         return self.getOsTag() == .windows;
     }
 
-    pub fn oFileExt(self: CrossTarget) [:0]const u8 {
-        return Target.oFileExt_os_abi(self.getOsTag(), self.getAbi());
-    }
-
     pub fn exeFileExt(self: CrossTarget) [:0]const u8 {
         return Target.exeFileExtSimple(self.getCpuArch(), self.getOsTag());
     }

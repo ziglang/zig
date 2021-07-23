@@ -93,7 +93,7 @@ pub const Fe = struct {
         return s;
     }
 
-    /// Map a 64-bit big endian string into a field element
+    /// Map a 64 bytes big endian string into a field element
     pub fn fromBytes64(s: [64]u8) Fe {
         var fl: [32]u8 = undefined;
         var gl: [32]u8 = undefined;
@@ -106,7 +106,7 @@ pub const Fe = struct {
         gl[31] &= 0x7f;
         var fe_f = fromBytes(fl);
         const fe_g = fromBytes(gl);
-        fe_f.limbs[0] += (s[32] >> 7) * 19;
+        fe_f.limbs[0] += (s[32] >> 7) * 19 + @as(u10, s[0] >> 7) * 722;
         i = 0;
         while (i < 5) : (i += 1) {
             fe_f.limbs[i] += 38 * fe_g.limbs[i];
