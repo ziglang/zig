@@ -2667,6 +2667,7 @@ pub fn cmdInit(
     output_mode: std.builtin.OutputMode,
 ) !void {
     _ = gpa;
+    var git_init = false;
     {
         var i: usize = 0;
         while (i < args.len) : (i += 1) {
@@ -2675,6 +2676,8 @@ pub fn cmdInit(
                 if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
                     try io.getStdOut().writeAll(usage_init);
                     return cleanExit();
+                } else if (mem.eql(u8, arg, "--git")) {
+                    git_init = true;
                 } else {
                     fatal("unrecognized parameter: '{s}'", .{arg});
                 }
@@ -2733,6 +2736,34 @@ pub fn cmdInit(
 
     std.log.info("Created build.zig", .{});
     std.log.info("Created src" ++ s ++ "main.zig", .{});
+
+    if (git_init) {
+        const gitignore_contents =
+            \\zig-cache/
+            \\zig-out/
+        ;
+        try fs.cwd().writeFile(".gitignore", gitignore_contents);
+
+        const child_argv = &[_][]const u8{ "git", "init" };
+        const child = try std.ChildProcess.init(child_argv, gpa);
+        defer child.deinit();
+
+        child.stdin_behavior = .Inherit;
+        child.stdout_behavior = .Inherit;
+        child.stderr_behavior = .Inherit;
+
+        const term = try child.spawnAndWait();
+        switch (term) {
+            .Exited => |code| {
+                if (code != 0) {
+                    fatal("git init failed with code {d}", .{code});
+                }
+            },
+            else => {
+                fatal("git init crashed", .{});
+            },
+        }
+    }
 
     switch (output_mode) {
         .Lib => std.log.info("Next, try `zig build --help` or `zig build test`", .{}),
