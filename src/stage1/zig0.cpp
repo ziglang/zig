@@ -39,6 +39,7 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  --color [auto|off|on]        enable or disable colored error messages\n"
         "  --name [name]                override output name\n"
         "  -femit-bin=[path]            Output machine code\n"
+        "  -fcompiler-rt                Always include compiler-rt symbols in output\n"
         "  --pkg-begin [name] [path]    make pkg available to import and push current pkg\n"
         "  --pkg-end                    pop current pkg\n"
         "  -ODebug                      build with optimizations off and safety on\n"
@@ -266,6 +267,7 @@ int main(int argc, char **argv) {
     const char *mcpu = nullptr;
     bool single_threaded = false;
     bool is_test_build = false;
+    bool include_compiler_rt = false;
 
     for (int i = 1; i < argc; i += 1) {
         char *arg = argv[i];
@@ -334,6 +336,8 @@ int main(int argc, char **argv) {
                 mcpu = arg + strlen("-mcpu=");
             } else if (str_starts_with(arg, "-femit-bin=")) {
                 emit_bin_path = arg + strlen("-femit-bin=");
+            } else if (strcmp(arg, "-fcompiler-rt") == 0) {
+                include_compiler_rt = true;
             } else if (i + 1 >= argc) {
                 fprintf(stderr, "Expected another argument after %s\n", arg);
                 return print_error_usage(arg0);
@@ -468,6 +472,7 @@ int main(int argc, char **argv) {
     stage1->subsystem = subsystem;
     stage1->pic = true;
     stage1->is_single_threaded = single_threaded;
+    stage1->include_compiler_rt = include_compiler_rt;
 
     zig_stage1_build_object(stage1);
 

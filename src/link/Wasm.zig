@@ -19,7 +19,7 @@ const build_options = @import("build_options");
 const wasi_libc = @import("../wasi_libc.zig");
 const Cache = @import("../Cache.zig");
 const TypedValue = @import("../TypedValue.zig");
-const llvm_backend = @import("../codegen/llvm.zig");
+const LlvmObject = @import("../codegen/llvm.zig").Object;
 const Air = @import("../Air.zig");
 const Liveness = @import("../Liveness.zig");
 
@@ -27,7 +27,7 @@ pub const base_tag = link.File.Tag.wasm;
 
 base: link.File,
 /// If this is not null, an object file is created by LLVM and linked with LLD afterwards.
-llvm_object: ?*llvm_backend.Object = null,
+llvm_object: ?*LlvmObject = null,
 /// List of all function Decls to be written to the output file. The index of
 /// each Decl in this list at the time of writing the binary is used as the
 /// function index. In the event where ext_funcs' size is not 0, the index of
@@ -121,7 +121,7 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
         const self = try createEmpty(allocator, options);
         errdefer self.base.destroy();
 
-        self.llvm_object = try llvm_backend.Object.create(allocator, sub_path, options);
+        self.llvm_object = try LlvmObject.create(allocator, options);
         return self;
     }
 
@@ -153,6 +153,9 @@ pub fn createEmpty(gpa: *Allocator, options: link.Options) !*Wasm {
 }
 
 pub fn deinit(self: *Wasm) void {
+    if (build_options.have_llvm) {
+        if (self.llvm_object) |llvm_object| llvm_object.destroy(self.base.allocator);
+    }
     for (self.symbols.items) |decl| {
         decl.fn_link.wasm.functype.deinit(self.base.allocator);
         decl.fn_link.wasm.code.deinit(self.base.allocator);
@@ -642,7 +645,9 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
         break :blk full_obj_path;
     } else null;
 
-    const compiler_rt_path: ?[]const u8 = if (self.base.options.include_compiler_rt)
+    const is_obj = self.base.options.output_mode == .Obj;
+
+    const compiler_rt_path: ?[]const u8 = if (self.base.options.include_compiler_rt and !is_obj)
         comp.compiler_rt_static_lib.?.full_object_path
     else
         null;

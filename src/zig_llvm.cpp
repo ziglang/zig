@@ -229,12 +229,14 @@ struct TimeTracerRAII {
 bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMModuleRef module_ref,
         char **error_message, bool is_debug,
         bool is_small, bool time_report, bool tsan, bool lto,
-        const char *asm_filename, const char *bin_filename, const char *llvm_ir_filename)
+        const char *asm_filename, const char *bin_filename,
+        const char *llvm_ir_filename, const char *bitcode_filename)
 {
     TimePassesIsEnabled = time_report;
 
     raw_fd_ostream *dest_asm_ptr = nullptr;
     raw_fd_ostream *dest_bin_ptr = nullptr;
+    raw_fd_ostream *dest_bitcode_ptr = nullptr;
 
     if (asm_filename) {
         std::error_code EC;
@@ -252,9 +254,19 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
             return true;
         }
     }
+    if (bitcode_filename) {
+        std::error_code EC;
+        dest_bitcode_ptr = new(std::nothrow) raw_fd_ostream(bitcode_filename, EC, sys::fs::F_None);
+        if (EC) {
+            *error_message = strdup((const char *)StringRef(EC.message()).bytes_begin());
+            return true;
+        }
+    }
 
     std::unique_ptr<raw_fd_ostream> dest_asm(dest_asm_ptr),
-                                    dest_bin(dest_bin_ptr);
+                                    dest_bin(dest_bin_ptr),
+                                    dest_bitcode(dest_bitcode_ptr);
+
 
     auto PID = sys::Process::getProcessId();
     std::string ProcName = "zig-";
@@ -388,6 +400,9 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
 
     if (dest_bin && lto) {
         WriteBitcodeToFile(module, *dest_bin);
+    }
+    if (dest_bitcode) {
+        WriteBitcodeToFile(module, *dest_bitcode);
     }
 
     if (time_report) {

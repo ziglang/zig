@@ -72,9 +72,9 @@ pub fn targetTriple(allocator: *Allocator, target: std.Target) ![:0]u8 {
         .renderscript32 => "renderscript32",
         .renderscript64 => "renderscript64",
         .ve => "ve",
-        .spu_2 => return error.LLVMBackendDoesNotSupportSPUMarkII,
-        .spirv32 => return error.LLVMBackendDoesNotSupportSPIRV,
-        .spirv64 => return error.LLVMBackendDoesNotSupportSPIRV,
+        .spu_2 => return error.@"LLVM backend does not support SPU Mark II",
+        .spirv32 => return error.@"LLVM backend does not support SPIR-V",
+        .spirv64 => return error.@"LLVM backend does not support SPIR-V",
     };
 
     const llvm_os = switch (target.os.tag) {
@@ -114,11 +114,13 @@ pub fn targetTriple(allocator: *Allocator, target: std.Target) ![:0]u8 {
         .wasi => "wasi",
         .emscripten => "emscripten",
         .uefi => "windows",
-        .opencl => return error.LLVMBackendDoesNotSupportOpenCL,
-        .glsl450 => return error.LLVMBackendDoesNotSupportGLSL450,
-        .vulkan => return error.LLVMBackendDoesNotSupportVulkan,
-        .plan9 => return error.LLVMBackendDoesNotSupportPlan9,
-        .other => "unknown",
+
+        .opencl,
+        .glsl450,
+        .vulkan,
+        .plan9,
+        .other,
+        => "unknown",
     };
 
     const llvm_abi = switch (target.abi) {
@@ -152,84 +154,105 @@ pub const Object = struct {
     llvm_module: *const llvm.Module,
     context: *const llvm.Context,
     target_machine: *const llvm.TargetMachine,
-    object_pathZ: [:0]const u8,
 
-    pub fn create(allocator: *Allocator, sub_path: []const u8, options: link.Options) !*Object {
-        _ = sub_path;
-        const self = try allocator.create(Object);
-        errdefer allocator.destroy(self);
+    pub fn create(gpa: *Allocator, options: link.Options) !*Object {
+        const obj = try gpa.create(Object);
+        errdefer gpa.destroy(obj);
+        obj.* = try Object.init(gpa, options);
+        return obj;
+    }
 
-        const obj_basename = try std.zig.binNameAlloc(allocator, .{
-            .root_name = options.root_name,
-            .target = options.target,
-            .output_mode = .Obj,
-        });
-        defer allocator.free(obj_basename);
-
-        const o_directory = options.module.?.zig_cache_artifact_directory;
-        const object_path = try o_directory.join(allocator, &[_][]const u8{obj_basename});
-        defer allocator.free(object_path);
-
-        const object_pathZ = try allocator.dupeZ(u8, object_path);
-        errdefer allocator.free(object_pathZ);
-
+    pub fn init(gpa: *Allocator, options: link.Options) !Object {
         const context = llvm.Context.create();
         errdefer context.dispose();
 
         initializeLLVMTargets();
 
-        const root_nameZ = try allocator.dupeZ(u8, options.root_name);
-        defer allocator.free(root_nameZ);
+        const root_nameZ = try gpa.dupeZ(u8, options.root_name);
+        defer gpa.free(root_nameZ);
         const llvm_module = llvm.Module.createWithName(root_nameZ.ptr, context);
         errdefer llvm_module.dispose();
 
-        const llvm_target_triple = try targetTriple(allocator, options.target);
-        defer allocator.free(llvm_target_triple);
+        const llvm_target_triple = try targetTriple(gpa, options.target);
+        defer gpa.free(llvm_target_triple);
 
         var error_message: [*:0]const u8 = undefined;
         var target: *const llvm.Target = undefined;
         if (llvm.Target.getFromTriple(llvm_target_triple.ptr, &target, &error_message).toBool()) {
             defer llvm.disposeMessage(error_message);
 
-            const stderr = std.io.getStdErr().writer();
-            try stderr.print(
-                \\Zig is expecting LLVM to understand this target: '{s}'
-                \\However LLVM responded with: "{s}"
-                \\
-            ,
-                .{ llvm_target_triple, error_message },
-            );
-            return error.InvalidLLVMTriple;
+            log.err("LLVM failed to parse '{s}': {s}", .{ llvm_target_triple, error_message });
+            return error.InvalidLlvmTriple;
         }
 
-        const opt_level: llvm.CodeGenOptLevel = if (options.optimize_mode == .Debug) .None else .Aggressive;
+        const opt_level: llvm.CodeGenOptLevel = if (options.optimize_mode == .Debug)
+            .None
+        else
+            .Aggressive;
+
+        const reloc_mode: llvm.RelocMode = if (options.pic)
+            .PIC
+        else if (options.link_mode == .Dynamic)
+            llvm.RelocMode.DynamicNoPIC
+        else
+            .Static;
+
+        const code_model: llvm.CodeModel = switch (options.machine_code_model) {
+            .default => .Default,
+            .tiny => .Tiny,
+            .small => .Small,
+            .kernel => .Kernel,
+            .medium => .Medium,
+            .large => .Large,
+        };
+
+        // TODO handle float ABI better- it should depend on the ABI portion of std.Target
+        const float_abi: llvm.ABIType = .Default;
+
+        // TODO a way to override this as part of std.Target ABI?
+        const abi_name: ?[*:0]const u8 = switch (options.target.cpu.arch) {
+            .riscv32 => switch (options.target.os.tag) {
+                .linux => "ilp32d",
+                else => "ilp32",
+            },
+            .riscv64 => switch (options.target.os.tag) {
+                .linux => "lp64d",
+                else => "lp64",
+            },
+            else => null,
+        };
+
         const target_machine = llvm.TargetMachine.create(
             target,
             llvm_target_triple.ptr,
-            "",
-            "",
+            if (options.target.cpu.model.llvm_name) |s| s.ptr else null,
+            options.llvm_cpu_features,
             opt_level,
-            .Static,
-            .Default,
+            reloc_mode,
+            code_model,
+            options.function_sections,
+            float_abi,
+            abi_name,
         );
         errdefer target_machine.dispose();
 
-        self.* = .{
+        return Object{
             .llvm_module = llvm_module,
             .context = context,
             .target_machine = target_machine,
-            .object_pathZ = object_pathZ,
         };
-        return self;
     }
 
-    pub fn deinit(self: *Object, allocator: *Allocator) void {
+    pub fn deinit(self: *Object) void {
         self.target_machine.dispose();
         self.llvm_module.dispose();
         self.context.dispose();
+        self.* = undefined;
+    }
 
-        allocator.free(self.object_pathZ);
-        allocator.destroy(self);
+    pub fn destroy(self: *Object, gpa: *Allocator) void {
+        self.deinit();
+        gpa.destroy(self);
     }
 
     fn initializeLLVMTargets() void {
@@ -240,38 +263,81 @@ pub const Object = struct {
         llvm.initializeAllAsmParsers();
     }
 
+    fn locPath(
+        arena: *Allocator,
+        opt_loc: ?Compilation.EmitLoc,
+        cache_directory: Compilation.Directory,
+    ) !?[*:0]u8 {
+        const loc = opt_loc orelse return null;
+        const directory = loc.directory orelse cache_directory;
+        const slice = try directory.joinZ(arena, &[_][]const u8{loc.basename});
+        return slice.ptr;
+    }
+
     pub fn flushModule(self: *Object, comp: *Compilation) !void {
         if (comp.verbose_llvm_ir) {
-            const dump = self.llvm_module.printToString();
-            defer llvm.disposeMessage(dump);
-
-            const stderr = std.io.getStdErr().writer();
-            try stderr.writeAll(std.mem.spanZ(dump));
+            self.llvm_module.dump();
         }
 
-        {
+        if (std.debug.runtime_safety) {
             var error_message: [*:0]const u8 = undefined;
             // verifyModule always allocs the error_message even if there is no error
             defer llvm.disposeMessage(error_message);
 
             if (self.llvm_module.verify(.ReturnStatus, &error_message).toBool()) {
-                const stderr = std.io.getStdErr().writer();
-                try stderr.print("broken LLVM module found: {s}\nThis is a bug in the Zig compiler.", .{error_message});
-                return error.BrokenLLVMModule;
+                std.debug.print("\n{s}\n", .{error_message});
+                @panic("LLVM module verification failed");
             }
         }
+
+        var arena_allocator = std.heap.ArenaAllocator.init(comp.gpa);
+        defer arena_allocator.deinit();
+        const arena = &arena_allocator.allocator;
+
+        const mod = comp.bin_file.options.module.?;
+        const cache_dir = mod.zig_cache_artifact_directory;
+
+        const emit_bin_path: ?[*:0]const u8 = if (comp.bin_file.options.emit != null) blk: {
+            const obj_basename = try std.zig.binNameAlloc(arena, .{
+                .root_name = comp.bin_file.options.root_name,
+                .target = comp.bin_file.options.target,
+                .output_mode = .Obj,
+            });
+            if (cache_dir.joinZ(arena, &[_][]const u8{obj_basename})) |p| {
+                break :blk p.ptr;
+            } else |err| {
+                return err;
+            }
+        } else null;
+
+        const emit_asm_path = try locPath(arena, comp.emit_asm, cache_dir);
+        const emit_llvm_ir_path = try locPath(arena, comp.emit_llvm_ir, cache_dir);
+        const emit_llvm_bc_path = try locPath(arena, comp.emit_llvm_bc, cache_dir);
 
         var error_message: [*:0]const u8 = undefined;
         if (self.target_machine.emitToFile(
             self.llvm_module,
-            self.object_pathZ.ptr,
-            .ObjectFile,
             &error_message,
-        ).toBool()) {
+            comp.bin_file.options.optimize_mode == .Debug,
+            comp.bin_file.options.optimize_mode == .ReleaseSmall,
+            comp.time_report,
+            comp.bin_file.options.tsan,
+            comp.bin_file.options.lto,
+            emit_asm_path,
+            emit_bin_path,
+            emit_llvm_ir_path,
+            emit_llvm_bc_path,
+        )) {
             defer llvm.disposeMessage(error_message);
 
-            const stderr = std.io.getStdErr().writer();
-            try stderr.print("LLVM failed to emit file: {s}\n", .{error_message});
+            const emit_asm_msg = emit_asm_path orelse "(none)";
+            const emit_bin_msg = emit_bin_path orelse "(none)";
+            const emit_llvm_ir_msg = emit_llvm_ir_path orelse "(none)";
+            const emit_llvm_bc_msg = emit_llvm_bc_path orelse "(none)";
+            log.err("LLVM failed to emit asm={s} bin={s} ir={s} bc={s}: {s}", .{
+                emit_asm_msg,  emit_bin_msg, emit_llvm_ir_msg, emit_llvm_bc_msg,
+                error_message,
+            });
             return error.FailedToEmit;
         }
     }

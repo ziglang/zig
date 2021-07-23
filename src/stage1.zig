@@ -21,7 +21,6 @@ comptime {
     assert(build_options.is_stage1);
     assert(build_options.have_llvm);
     if (!builtin.is_test) {
-        _ = @import("compiler_rt");
         @export(main, .{ .name = "main" });
     }
 }
@@ -95,6 +94,8 @@ pub const Module = extern struct {
     emit_asm_len: usize,
     emit_llvm_ir_ptr: [*]const u8,
     emit_llvm_ir_len: usize,
+    emit_bitcode_ptr: [*]const u8,
+    emit_bitcode_len: usize,
     emit_analysis_json_ptr: [*]const u8,
     emit_analysis_json_len: usize,
     emit_docs_ptr: [*]const u8,
@@ -124,6 +125,7 @@ pub const Module = extern struct {
     valgrind_enabled: bool,
     tsan_enabled: bool,
     function_sections: bool,
+    include_compiler_rt: bool,
     enable_stack_probing: bool,
     red_zone: bool,
     enable_time_report: bool,

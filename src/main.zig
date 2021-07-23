@@ -287,9 +287,9 @@ const usage_build_generic =
     \\                      .s    Target-specific assembly source code
     \\                      .S    Assembly with C preprocessor (requires LLVM extensions)
     \\                      .c    C source code (requires LLVM extensions)
-    \\                    .cpp    C++ source code (requires LLVM extensions)
-    \\                            Other C++ extensions: .C .cc .cxx
+    \\        .cxx .cc .C .cpp    C++ source code (requires LLVM extensions)
     \\                      .m    Objective-C source code (requires LLVM extensions)
+    \\                     .bc    LLVM IR Module (requires LLVM extensions)
     \\
     \\General Options:
     \\  -h, --help                Print this help and exit
@@ -301,6 +301,8 @@ const usage_build_generic =
     \\  -fno-emit-asm             (default) Do not output .s (assembly code)
     \\  -femit-llvm-ir[=path]     Produce a .ll file with LLVM IR (requires LLVM extensions)
     \\  -fno-emit-llvm-ir         (default) Do not produce a .ll file with LLVM IR
+    \\  -femit-llvm-bc[=path]     Produce a LLVM module as a .bc file (requires LLVM extensions)
+    \\  -fno-emit-llvm-bc         (default) Do not produce a LLVM module as a .bc file
     \\  -femit-h[=path]           Generate a C header file (.h)
     \\  -fno-emit-h               (default) Do not generate a C header file (.h)
     \\  -femit-docs[=path]        Create a docs/ dir with html documentation
@@ -359,15 +361,14 @@ const usage_build_generic =
     \\  --single-threaded         Code assumes it is only used single-threaded
     \\  -ofmt=[mode]              Override target object format
     \\    elf                     Executable and Linking Format
-    \\    c                       Compile to C source code
+    \\    c                       C source code
     \\    wasm                    WebAssembly
-    \\    pe                      Portable Executable (Windows)
     \\    coff                    Common Object File Format (Windows)
     \\    macho                   macOS relocatables
     \\    spirv                   Standard, Portable Intermediate Representation V (SPIR-V)
     \\    plan9                   Plan 9 from Bell Labs object format
-    \\    hex    (planned)        Intel IHEX
-    \\    raw    (planned)        Dump machine code directly
+    \\    hex  (planned feature)  Intel IHEX
+    \\    raw  (planned feature)  Dump machine code directly
     \\  -dirafter [dir]           Add directory to AFTER include search path
     \\  -isystem  [dir]           Add directory to SYSTEM include search path
     \\  -I[dir]                   Add directory to include search path
@@ -384,8 +385,8 @@ const usage_build_generic =
     \\  --dynamic-linker [path]        Set the dynamic interpreter path (usually ld.so)
     \\  --sysroot [path]               Set the system root directory (usually /)
     \\  --version [ver]                Dynamic library semver
-    \\  -fsoname[=name]                (Linux) Override the default SONAME value
-    \\  -fno-soname                    (Linux) Disable emitting a SONAME
+    \\  -fsoname[=name]                Override the default SONAME value
+    \\  -fno-soname                    Disable emitting a SONAME
     \\  -fLLD                          Force using LLD as the linker
     \\  -fno-LLD                       Prevent using LLD as the linker
     \\  -fcompiler-rt                  Always include compiler-rt symbols in output
@@ -552,6 +553,7 @@ fn buildOutputType(
     var emit_bin: EmitBin = .yes_default_path;
     var emit_asm: Emit = .no;
     var emit_llvm_ir: Emit = .no;
+    var emit_llvm_bc: Emit = .no;
     var emit_docs: Emit = .no;
     var emit_analysis: Emit = .no;
     var target_arch_os_abi: []const u8 = "native";
@@ -1011,6 +1013,12 @@ fn buildOutputType(
                         emit_llvm_ir = .{ .yes = arg["-femit-llvm-ir=".len..] };
                     } else if (mem.eql(u8, arg, "-fno-emit-llvm-ir")) {
                         emit_llvm_ir = .no;
+                    } else if (mem.eql(u8, arg, "-femit-llvm-bc")) {
+                        emit_llvm_bc = .yes_default_path;
+                    } else if (mem.startsWith(u8, arg, "-femit-llvm-bc=")) {
+                        emit_llvm_bc = .{ .yes = arg["-femit-llvm-bc=".len..] };
+                    } else if (mem.eql(u8, arg, "-fno-emit-llvm-bc")) {
+                        emit_llvm_bc = .no;
                     } else if (mem.eql(u8, arg, "-femit-docs")) {
                         emit_docs = .yes_default_path;
                     } else if (mem.startsWith(u8, arg, "-femit-docs=")) {
@@ -1708,8 +1716,6 @@ fn buildOutputType(
             break :blk .c;
         } else if (mem.eql(u8, ofmt, "coff")) {
             break :blk .coff;
-        } else if (mem.eql(u8, ofmt, "pe")) {
-            break :blk .pe;
         } else if (mem.eql(u8, ofmt, "macho")) {
             break :blk .macho;
         } else if (mem.eql(u8, ofmt, "wasm")) {
@@ -1753,7 +1759,7 @@ fn buildOutputType(
     };
 
     const a_out_basename = switch (object_format) {
-        .pe, .coff => "a.exe",
+        .coff => "a.exe",
         else => "a.out",
     };
 
@@ -1818,10 +1824,10 @@ fn buildOutputType(
     var emit_h_resolved = emit_h.resolve(default_h_basename) catch |err| {
         switch (emit_h) {
             .yes => {
-                fatal("unable to open directory from argument 'femit-h', '{s}': {s}", .{ emit_h.yes, @errorName(err) });
+                fatal("unable to open directory from argument '-femit-h', '{s}': {s}", .{ emit_h.yes, @errorName(err) });
             },
             .yes_default_path => {
-                fatal("unable to open directory from arguments 'name' or 'soname', '{s}': {s}", .{ default_h_basename, @errorName(err) });
+                fatal("unable to open directory from arguments '--name' or '-fsoname', '{s}': {s}", .{ default_h_basename, @errorName(err) });
             },
             .no => unreachable,
         }
@@ -1832,10 +1838,10 @@ fn buildOutputType(
     var emit_asm_resolved = emit_asm.resolve(default_asm_basename) catch |err| {
         switch (emit_asm) {
             .yes => {
-                fatal("unable to open directory from argument 'femit-asm', '{s}': {s}", .{ emit_asm.yes, @errorName(err) });
+                fatal("unable to open directory from argument '-femit-asm', '{s}': {s}", .{ emit_asm.yes, @errorName(err) });
             },
             .yes_default_path => {
-                fatal("unable to open directory from arguments 'name' or 'soname', '{s}': {s}", .{ default_asm_basename, @errorName(err) });
+                fatal("unable to open directory from arguments '--name' or '-fsoname', '{s}': {s}", .{ default_asm_basename, @errorName(err) });
             },
             .no => unreachable,
         }
@@ -1846,15 +1852,29 @@ fn buildOutputType(
     var emit_llvm_ir_resolved = emit_llvm_ir.resolve(default_llvm_ir_basename) catch |err| {
         switch (emit_llvm_ir) {
             .yes => {
-                fatal("unable to open directory from argument 'femit-llvm-ir', '{s}': {s}", .{ emit_llvm_ir.yes, @errorName(err) });
+                fatal("unable to open directory from argument '-femit-llvm-ir', '{s}': {s}", .{ emit_llvm_ir.yes, @errorName(err) });
             },
             .yes_default_path => {
-                fatal("unable to open directory from arguments 'name' or 'soname', '{s}': {s}", .{ default_llvm_ir_basename, @errorName(err) });
+                fatal("unable to open directory from arguments '--name' or '-fsoname', '{s}': {s}", .{ default_llvm_ir_basename, @errorName(err) });
             },
             .no => unreachable,
         }
     };
     defer emit_llvm_ir_resolved.deinit();
+
+    const default_llvm_bc_basename = try std.fmt.allocPrint(arena, "{s}.bc", .{root_name});
+    var emit_llvm_bc_resolved = emit_llvm_bc.resolve(default_llvm_bc_basename) catch |err| {
+        switch (emit_llvm_bc) {
+            .yes => {
+                fatal("unable to open directory from argument '-femit-llvm-bc', '{s}': {s}", .{ emit_llvm_bc.yes, @errorName(err) });
+            },
+            .yes_default_path => {
+                fatal("unable to open directory from arguments '--name' or '-fsoname', '{s}': {s}", .{ default_llvm_bc_basename, @errorName(err) });
+            },
+            .no => unreachable,
+        }
+    };
+    defer emit_llvm_bc_resolved.deinit();
 
     const default_analysis_basename = try std.fmt.allocPrint(arena, "{s}-analysis.json", .{root_name});
     var emit_analysis_resolved = emit_analysis.resolve(default_analysis_basename) catch |err| {
@@ -1991,6 +2011,7 @@ fn buildOutputType(
         .emit_h = emit_h_resolved.data,
         .emit_asm = emit_asm_resolved.data,
         .emit_llvm_ir = emit_llvm_ir_resolved.data,
+        .emit_llvm_bc = emit_llvm_bc_resolved.data,
         .emit_docs = emit_docs_resolved.data,
         .emit_analysis = emit_analysis_resolved.data,
         .link_mode = link_mode,
@@ -2396,11 +2417,8 @@ fn updateModule(gpa: *Allocator, comp: *Compilation, hook: AfterUpdateHook) !voi
 
             // If a .pdb file is part of the expected output, we must also copy
             // it into place here.
-            const coff_or_pe = switch (comp.bin_file.options.object_format) {
-                .coff, .pe => true,
-                else => false,
-            };
-            const have_pdb = coff_or_pe and !comp.bin_file.options.strip;
+            const is_coff = comp.bin_file.options.object_format == .coff;
+            const have_pdb = is_coff and !comp.bin_file.options.strip;
             if (have_pdb) {
                 // Replace `.out` or `.exe` with `.pdb` on both the source and destination
                 const src_bin_ext = fs.path.extension(bin_sub_path);
