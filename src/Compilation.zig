@@ -3973,6 +3973,16 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
     const id_symlink_basename = "stage1.id";
     const libs_txt_basename = "libs.txt";
 
+    // The include_compiler_rt stored in the bin file options here means that we need
+    // compiler-rt symbols *somehow*. However, in the context of using the stage1 backend
+    // we need to tell stage1 to include compiler-rt only if stage1 is the place that
+    // needs to provide those symbols. Otherwise the stage2 infrastructure will take care
+    // of it in the linker, by putting compiler_rt.o into a static archive, or linking
+    // compiler_rt.a against an executable. In other words we only want to set this flag
+    // for stage1 if we are using build-obj.
+    const include_compiler_rt = comp.bin_file.options.output_mode == .Obj and
+        comp.bin_file.options.include_compiler_rt;
+
     // We are about to obtain this lock, so here we give other processes a chance first.
     comp.releaseStage1Lock();
 
@@ -3994,7 +4004,7 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
     man.hash.add(target.os.getVersionRange());
     man.hash.add(comp.bin_file.options.dll_export_fns);
     man.hash.add(comp.bin_file.options.function_sections);
-    man.hash.add(comp.bin_file.options.include_compiler_rt);
+    man.hash.add(include_compiler_rt);
     man.hash.add(comp.bin_file.options.is_test);
     man.hash.add(comp.bin_file.options.emit != null);
     man.hash.add(mod.emit_h != null);
@@ -4175,7 +4185,7 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
         .valgrind_enabled = comp.bin_file.options.valgrind,
         .tsan_enabled = comp.bin_file.options.tsan,
         .function_sections = comp.bin_file.options.function_sections,
-        .include_compiler_rt = comp.bin_file.options.include_compiler_rt,
+        .include_compiler_rt = include_compiler_rt,
         .enable_stack_probing = comp.bin_file.options.stack_check,
         .red_zone = comp.bin_file.options.red_zone,
         .enable_time_report = comp.time_report,
