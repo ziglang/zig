@@ -1281,15 +1281,15 @@ pub const Context = struct {
         var case_i: u32 = 0;
 
         // a map that maps each value with its index and body
-        var map = std.AutoArrayHashMap(u32, struct {
+        var map = std.AutoArrayHashMap(i32, struct {
             index: u32,
             body: []const Air.Inst.Index,
             value: Value,
         }).init(self.gpa);
         defer map.deinit();
 
-        var lowest: u32 = 0;
-        var highest: u32 = 0;
+        var lowest: i32 = 0;
+        var highest: i32 = 0;
         while (case_i < switch_br.data.cases_len) : (case_i += 1) {
             const case = self.air.extraData(Air.SwitchBr.Case, extra_index);
             const items = @bitCast([]const Air.Inst.Ref, self.air.extra[case.end..][0..case.data.items_len]);
@@ -1298,9 +1298,15 @@ pub const Context = struct {
 
             for (items) |ref| {
                 const item_val = self.air.value(ref).?;
-                // safe to truncate the values as we only use them when
-                // the target's bits is 32 or lower.
-                const int_val = @truncate(u32, item_val.toUnsignedInt());
+                const int_val: i32 = blk: {
+                    if (target_ty.intInfo(self.target).signedness == .signed) {
+                        // safe to truncate the values as we only use them when
+                        // the target's bits is 32 or lower.
+                        break :blk @truncate(i32, item_val.toSignedInt());
+                    }
+
+                    break :blk @intCast(i32, @truncate(u31, item_val.toUnsignedInt()) - 1);
+                };
                 if (int_val < lowest) {
                     lowest = int_val;
                 }
@@ -1333,9 +1339,16 @@ pub const Context = struct {
             // to jump to.
             try self.startBlock(.block, blocktype, null);
             try self.emitWValue(target);
+            if (lowest < 0) {
+                // since br_table works using indexes, starting from '0', we must ensure all values
+                // we put inside, are atleast 0.
+                try self.code.append(wasm.opcode(.i32_const));
+                try leb.writeILEB128(self.code.writer(), lowest * -1);
+                try self.code.append(wasm.opcode(.i32_add));
+            }
             try self.code.append(wasm.opcode(.br_table));
             const depth = highest - lowest + @boolToInt(has_else_body);
-            try leb.writeULEB128(self.code.writer(), depth);
+            try leb.writeILEB128(self.code.writer(), depth);
             while (lowest <= highest) : (lowest += 1) {
                 const idx = if (map.get(lowest)) |value| blk: {
                     break :blk value.index;
