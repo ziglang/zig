@@ -75,6 +75,21 @@ pub const SymbolAtOffset = struct {
     local_sym_index: u32,
     offset: u64,
     stab: ?Stab = null,
+
+    pub fn format(
+        self: SymbolAtOffset,
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = fmt;
+        _ = options;
+        try std.fmt.format(writer, "{{ {d}: .offset = {d}", .{ self.local_sym_index, self.offset });
+        if (self.stab) |stab| {
+            try std.fmt.format(writer, ", .stab = {any}", .{stab});
+        }
+        try std.fmt.format(writer, " }}", .{});
+    }
 };
 
 pub const Stab = union(enum) {
@@ -1150,53 +1165,24 @@ pub fn resolveRelocs(self: *TextBlock, macho_file: *MachO) !void {
     }
 }
 
-pub fn print_this(self: *const TextBlock, macho_file: MachO) void {
-    log.warn("TextBlock", .{});
-    log.warn("  {}: {}", .{ self.local_sym_index, macho_file.locals.items[self.local_sym_index] });
+pub fn format(self: TextBlock, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+    _ = fmt;
+    _ = options;
+    try std.fmt.format(writer, "TextBlock {{ ", .{});
+    try std.fmt.format(writer, ".local_sym_index = {d}, ", .{self.local_sym_index});
+    try std.fmt.format(writer, ".aliases = {any}, ", .{self.aliases.items});
+    try std.fmt.format(writer, ".contained = {any}, ", .{self.contained.items});
+    try std.fmt.format(writer, ".code = {*}, ", .{self.code.items});
+    try std.fmt.format(writer, ".size = {d}, ", .{self.size});
+    try std.fmt.format(writer, ".alignment = {d}, ", .{self.alignment});
+    try std.fmt.format(writer, ".relocs = {any}, ", .{self.relocs.items});
+    try std.fmt.format(writer, ".rebases = {any}, ", .{self.rebases.items});
+    try std.fmt.format(writer, ".bindings = {any}, ", .{self.bindings.items});
+    try std.fmt.format(writer, ".dices = {any}, ", .{self.dices.items});
     if (self.stab) |stab| {
-        log.warn("  stab: {}", .{stab});
+        try std.fmt.format(writer, ".stab = {any}, ", .{stab});
     }
-    if (self.aliases.items.len > 0) {
-        log.warn("  aliases: {any}", .{self.aliases.items});
-    }
-    if (self.references.count() > 0) {
-        log.warn("  references: {any}", .{self.references.keys()});
-    }
-    if (self.contained) |contained| {
-        log.warn("  contained symbols:", .{});
-        for (contained) |sym_at_off| {
-            if (sym_at_off.stab) |stab| {
-                log.warn("    {}: {}, stab: {}", .{ sym_at_off.offset, sym_at_off.local_sym_index, stab });
-            } else {
-                log.warn("    {}: {}", .{ sym_at_off.offset, sym_at_off.local_sym_index });
-            }
-        }
-    }
-    log.warn("  code.len = {}", .{self.code.items.len});
-    if (self.relocs.items.len > 0) {
-        log.warn("  relocations:", .{});
-        for (self.relocs.items) |rel| {
-            log.warn("    {}", .{rel});
-        }
-    }
-    if (self.rebases.items.len > 0) {
-        log.warn("  rebases: {any}", .{self.rebases.items});
-    }
-    if (self.bindings.items.len > 0) {
-        log.warn("  bindings: {any}", .{self.bindings.items});
-    }
-    if (self.dices.items.len > 0) {
-        log.warn("  dices: {any}", .{self.dices.items});
-    }
-    log.warn("  size = {}", .{self.size});
-    log.warn("  align = {}", .{self.alignment});
-}
-
-pub fn print(self: *const TextBlock, macho_file: MachO) void {
-    if (self.prev) |prev| {
-        prev.print(macho_file);
-    }
-    self.print_this(macho_file);
+    try std.fmt.format(writer, "}}", .{});
 }
 
 const RelocIterator = struct {

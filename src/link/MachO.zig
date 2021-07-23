@@ -965,60 +965,7 @@ fn linkWithZld(self: *MachO, comp: *Compilation) !void {
         try self.allocateDataSegment();
         self.allocateLinkeditSegment();
         try self.allocateTextBlocks();
-
-        // log.warn("locals", .{});
-        // for (self.locals.items) |sym, id| {
-        //     log.warn("  {d}: {s}, {}", .{ id, self.getString(sym.n_strx), sym });
-        // }
-
-        // log.warn("globals", .{});
-        // for (self.globals.items) |sym, id| {
-        //     log.warn("  {d}: {s}, {}", .{ id, self.getString(sym.n_strx), sym });
-        // }
-
-        // log.warn("tentatives", .{});
-        // for (self.tentatives.items) |sym, id| {
-        //     log.warn("  {d}: {s}, {}", .{ id, self.getString(sym.n_strx), sym });
-        // }
-
-        // log.warn("undefines", .{});
-        // for (self.undefs.items) |sym, id| {
-        //     log.warn("  {d}: {s}, {}", .{ id, self.getString(sym.n_strx), sym });
-        // }
-
-        // log.warn("imports", .{});
-        // for (self.imports.items) |sym, id| {
-        //     log.warn("  {d}: {s}, {}", .{ id, self.getString(sym.n_strx), sym });
-        // }
-
-        // log.warn("symbol resolver", .{});
-        // for (self.symbol_resolver.keys()) |key| {
-        //     log.warn("  {s} => {}", .{ key, self.symbol_resolver.get(key).? });
-        // }
-
-        // log.warn("mappings", .{});
-        // for (self.objects.items) |object, id| {
-        //     const object_id = @intCast(u16, id);
-        //     log.warn("  in object {s}", .{object.name.?});
-        //     for (object.symtab.items) |sym, sym_id| {
-        //         if (object.symbol_mapping.get(@intCast(u32, sym_id))) |local_id| {
-        //             log.warn("    | {d} => {d}", .{ sym_id, local_id });
-        //         } else {
-        //             log.warn("    | {d} no local mapping for {s}", .{ sym_id, object.getString(sym.n_strx) });
-        //         }
-        //     }
-        // }
-
-        // var it = self.blocks.iterator();
-        // while (it.next()) |entry| {
-        //     const seg = self.load_commands.items[entry.key_ptr.seg].Segment;
-        //     const sect = seg.sections.items[entry.key_ptr.sect];
-
-        //     log.warn("\n\n{s},{s} contents:", .{ segmentName(sect), sectionName(sect) });
-        //     log.warn("  {}", .{sect});
-        //     entry.value_ptr.*.print(self);
-        // }
-
+        self.printSymtabAndTextBlock();
         try self.flushZld();
     }
 
@@ -2086,6 +2033,7 @@ fn resolveSymbolsInObject(self: *MachO, object_id: u16) !void {
                 .n_value = sym.n_value,
             });
             try object.symbol_mapping.putNoClobber(self.base.allocator, sym_id, local_sym_index);
+            try object.reverse_symbol_mapping.putNoClobber(self.base.allocator, local_sym_index, sym_id);
 
             // If the symbol's scope is not local aka translation unit, then we need work out
             // if we should save the symbol as a global, or potentially flag the error.
@@ -5915,4 +5863,71 @@ fn createSectionOrdinal(self: *MachO, match: MatchingSection) !void {
     const ordinal = @intCast(u8, self.section_ordinals.items.len);
     try self.section_ordinals.append(self.base.allocator, match);
     try self.section_to_ordinal.putNoClobber(self.base.allocator, match, ordinal);
+}
+
+fn printSymtabAndTextBlock(self: *MachO) void {
+    log.debug("locals", .{});
+    for (self.locals.items) |sym, id| {
+        log.debug("  {d}: {s}, {}", .{ id, self.getString(sym.n_strx), sym });
+    }
+
+    log.debug("globals", .{});
+    for (self.globals.items) |sym, id| {
+        log.debug("  {d}: {s}, {}", .{ id, self.getString(sym.n_strx), sym });
+    }
+
+    log.debug("tentatives", .{});
+    for (self.tentatives.items) |sym, id| {
+        log.debug("  {d}: {s}, {}", .{ id, self.getString(sym.n_strx), sym });
+    }
+
+    log.debug("undefines", .{});
+    for (self.undefs.items) |sym, id| {
+        log.debug("  {d}: {s}, {}", .{ id, self.getString(sym.n_strx), sym });
+    }
+
+    log.debug("imports", .{});
+    for (self.imports.items) |sym, id| {
+        log.debug("  {d}: {s}, {}", .{ id, self.getString(sym.n_strx), sym });
+    }
+
+    {
+        log.debug("symbol resolver", .{});
+        var it = self.symbol_resolver.keyIterator();
+        while (it.next()) |key_ptr| {
+            const sym_name = self.getString(key_ptr.*);
+            log.debug("  {s} => {}", .{ sym_name, self.symbol_resolver.get(key_ptr.*).? });
+        }
+    }
+
+    log.debug("mappings", .{});
+    for (self.objects.items) |object| {
+        log.debug("  in object {s}", .{object.name.?});
+        for (object.symtab.items) |sym, sym_id| {
+            if (object.symbol_mapping.get(@intCast(u32, sym_id))) |local_id| {
+                log.debug("    | {d} => {d}", .{ sym_id, local_id });
+            } else {
+                log.debug("    | {d} no local mapping for {s}", .{ sym_id, object.getString(sym.n_strx) });
+            }
+        }
+    }
+
+    {
+        var it = self.blocks.iterator();
+        while (it.next()) |entry| {
+            const seg = self.load_commands.items[entry.key_ptr.seg].Segment;
+            const sect = seg.sections.items[entry.key_ptr.sect];
+
+            var block: *TextBlock = entry.value_ptr.*;
+
+            log.debug("\n\n{s},{s} contents:", .{ commands.segmentName(sect), commands.sectionName(sect) });
+            log.debug("{}", .{sect});
+            log.debug("{}", .{block});
+
+            while (block.prev) |prev| {
+                block = prev;
+                log.debug("{}", .{block});
+            }
+        }
+    }
 }

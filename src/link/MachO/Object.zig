@@ -55,7 +55,11 @@ mtime: ?u64 = null,
 
 text_blocks: std.ArrayListUnmanaged(*TextBlock) = .{},
 sections_as_symbols: std.AutoHashMapUnmanaged(u16, u32) = .{},
+
+// TODO symbol mapping and its inverse can probably be simple arrays
+// instead of hash maps.
 symbol_mapping: std.AutoHashMapUnmanaged(u32, u32) = .{},
+reverse_symbol_mapping: std.AutoHashMapUnmanaged(u32, u32) = .{},
 
 const DebugInfo = struct {
     inner: dwarf.DwarfInfo,
@@ -164,6 +168,7 @@ pub fn deinit(self: *Object) void {
     self.text_blocks.deinit(self.allocator);
     self.sections_as_symbols.deinit(self.allocator);
     self.symbol_mapping.deinit(self.allocator);
+    self.reverse_symbol_mapping.deinit(self.allocator);
 
     if (self.debug_info) |*db| {
         db.deinit(self.allocator);
@@ -367,7 +372,7 @@ const TextBlockParser = struct {
         } else if (MachO.symbolIsPext(rhs.nlist) or MachO.symbolIsWeakDef(rhs.nlist)) {
             return !MachO.symbolIsExt(lhs.nlist);
         } else {
-            return true;
+            return false;
         }
     }
 
@@ -392,15 +397,7 @@ const TextBlockParser = struct {
         } else null;
 
         for (aliases.items) |*nlist_with_index| {
-            nlist_with_index.index = self.symbol_mapping.get(nlist_with_index.index);
-            const sym = self.object.symbols.items[nlist_with_index.index];
-            if (sym.payload != .regular) {
-                log.err("expected a regular symbol, found {s}", .{sym.payload});
-                log.err("  when remapping {s}", .{self.macho_file.getString(sym.strx)});
-                return error.SymbolIsNotRegular;
-            }
-            assert(sym.payload.regular.local_sym_index != 0); // This means the symbol has not been properly resolved.
-            nlist_with_index.index = sym.payload.regular.local_sym_index;
+            nlist_with_index.index = self.object.symbol_mapping.get(nlist_with_index.index) orelse unreachable;
         }
 
         if (aliases.items.len > 1) {
@@ -409,15 +406,13 @@ const TextBlockParser = struct {
                 NlistWithIndex,
                 aliases.items,
                 SeniorityContext{ .object = self.object },
-                @This().lessThanBySeniority,
+                TextBlockParser.lessThanBySeniority,
             );
         }
 
         const senior_nlist = aliases.pop();
-        const senior_sym = self.macho_file.locals.items[senior_nlist.index];
-        assert(senior_sym.payload == .regular);
-        senior_sym.payload.regular.segment_id = self.match.seg;
-        senior_sym.payload.regular.section_id = self.match.sect;
+        const senior_sym = &self.macho_file.locals.items[senior_nlist.index];
+        senior_sym.n_sect = self.macho_file.section_to_ordinal.get(self.match) orelse unreachable;
 
         const start_addr = senior_nlist.nlist.n_value - self.section.addr;
         const end_addr = if (next_nlist) |n| n.nlist.n_value - self.section.addr else self.section.size;
@@ -442,33 +437,29 @@ const TextBlockParser = struct {
                     }
                 }
             }
-            if (self.macho_file.globals.contains(self.macho_file.getString(senior_sym.strx))) break :blk .global;
+            // TODO
+            // if (self.macho_file.globals.contains(self.macho_file.getString(senior_sym.strx))) break :blk .global;
             break :blk .static;
         } else null;
 
-        const block = try self.allocator.create(TextBlock);
-        errdefer self.allocator.destroy(block);
-
-        block.* = TextBlock.init(self.allocator);
+        const block = try self.macho_file.base.allocator.create(TextBlock);
+        block.* = TextBlock.empty;
         block.local_sym_index = senior_nlist.index;
         block.stab = stab;
-        block.code = try self.allocator.dupe(u8, code);
         block.size = size;
         block.alignment = actual_align;
+        try self.macho_file.managed_blocks.append(self.macho_file.base.allocator, block);
 
-        if (aliases.items.len > 0) {
-            try block.aliases.ensureTotalCapacity(aliases.items.len);
-            for (aliases.items) |alias| {
-                block.aliases.appendAssumeCapacity(alias.index);
+        try block.code.appendSlice(self.macho_file.base.allocator, code);
 
-                const sym = self.macho_file.locals.items[alias.index];
-                const reg = &sym.payload.regular;
-                reg.segment_id = self.match.seg;
-                reg.section_id = self.match.sect;
-            }
+        try block.aliases.ensureTotalCapacity(self.macho_file.base.allocator, aliases.items.len);
+        for (aliases.items) |alias| {
+            block.aliases.appendAssumeCapacity(alias.index);
+            const sym = &self.macho_file.locals.items[alias.index];
+            sym.n_sect = self.macho_file.section_to_ordinal.get(self.match) orelse unreachable;
         }
 
-        try block.parseRelocsFromObject(self.allocator, relocs, object, .{
+        try block.parseRelocsFromObject(self.macho_file.base.allocator, self.relocs, self.object, .{
             .base_addr = start_addr,
             .macho_file = self.macho_file,
         });
@@ -479,7 +470,7 @@ const TextBlockParser = struct {
                 senior_nlist.nlist.n_value,
                 senior_nlist.nlist.n_value + size,
             );
-            try block.dices.ensureTotalCapacity(dices.len);
+            try block.dices.ensureTotalCapacity(self.macho_file.base.allocator, dices.len);
 
             for (dices) |dice| {
                 block.dices.appendAssumeCapacity(.{
@@ -518,10 +509,22 @@ pub fn parseTextBlocks(self: *Object, macho_file: *MachO) !void {
 
     sort.sort(NlistWithIndex, sorted_all_nlists.items, {}, NlistWithIndex.lessThan);
 
-    const dysymtab = self.load_commands.items[self.dysymtab_cmd_index.?].Dysymtab;
+    // Well, shit, sometimes compilers skip the dysymtab load command altogether, meaning we
+    // have to infer the start of undef section in the symtab ourselves.
+    const iundefsym = if (self.dysymtab_cmd_index) |cmd_index| blk: {
+        const dysymtab = self.load_commands.items[cmd_index].Dysymtab;
+        break :blk dysymtab.iundefsym;
+    } else blk: {
+        var iundefsym: usize = sorted_all_nlists.items.len;
+        while (iundefsym > 0) : (iundefsym -= 1) {
+            const nlist = sorted_all_nlists.items[iundefsym];
+            if (MachO.symbolIsSect(nlist.nlist)) break;
+        }
+        break :blk iundefsym;
+    };
 
     // We only care about defined symbols, so filter every other out.
-    const sorted_nlists = sorted_all_nlists.items[dysymtab.ilocalsym..dysymtab.iundefsym];
+    const sorted_nlists = sorted_all_nlists.items[0..iundefsym];
 
     for (seg.sections.items) |sect, id| {
         const sect_id = @intCast(u8, id);
@@ -550,11 +553,12 @@ pub fn parseTextBlocks(self: *Object, macho_file: *MachO) !void {
         // Symbols within this section only.
         const filtered_nlists = NlistWithIndex.filterInSection(sorted_nlists, sect);
 
-        // Is there any padding between symbols within the section?
-        // const is_splittable = self.header.?.flags & macho.MH_SUBSECTIONS_VIA_SYMBOLS != 0;
-        // TODO is it perhaps worth skip parsing subsections in Debug mode and not worry about
-        // duplicates at all? Need some benchmarks!
-        // const is_splittable = false;
+        // In release mode, if the object file was generated with dead code stripping optimisations,
+        // note it now and parse sections as atoms.
+        const is_splittable = blk: {
+            if (macho_file.base.options.optimize_mode == .Debug) break :blk false;
+            break :blk self.header.?.flags & macho.MH_SUBSECTIONS_VIA_SYMBOLS != 0;
+        };
 
         macho_file.has_dices = blk: {
             if (self.text_section_index) |index| {
@@ -566,157 +570,152 @@ pub fn parseTextBlocks(self: *Object, macho_file: *MachO) !void {
         };
         macho_file.has_stabs = macho_file.has_stabs or self.debug_info != null;
 
-        {
-            // next: {
-            // if (is_splittable) blocks: {
-            //     if (filtered_nlists.len == 0) break :blocks;
+        next: {
+            if (is_splittable) blocks: {
+                if (filtered_nlists.len == 0) break :blocks;
 
-            //     // If the first nlist does not match the start of the section,
-            //     // then we need encapsulate the memory range [section start, first symbol)
-            //     // as a temporary symbol and insert the matching TextBlock.
-            //     const first_nlist = filtered_nlists[0].nlist;
-            //     if (first_nlist.n_value > sect.addr) {
-            //         const symbol = self.sections_as_symbols.get(sect_id) orelse symbol: {
-            //             const name = try std.fmt.allocPrint(self.allocator, "l_{s}_{s}_{s}", .{
-            //                 self.name.?,
-            //                 segmentName(sect),
-            //                 sectionName(sect),
-            //             });
-            //             defer self.allocator.free(name);
-            //             const symbol = try zld.allocator.create(Symbol);
-            //             symbol.* = .{
-            //                 .strx = try zld.makeString(name),
-            //                 .payload = .{ .undef = .{} },
-            //             };
-            //             try self.sections_as_symbols.putNoClobber(self.allocator, sect_id, symbol);
-            //             break :symbol symbol;
-            //         };
+                // If the first nlist does not match the start of the section,
+                // then we need to encapsulate the memory range [section start, first symbol)
+                // as a temporary symbol and insert the matching TextBlock.
+                const first_nlist = filtered_nlists[0].nlist;
+                if (first_nlist.n_value > sect.addr) {
+                    const sym_name = try std.fmt.allocPrint(self.allocator, "l_{s}_{s}_{s}", .{
+                        self.name.?,
+                        segmentName(sect),
+                        sectionName(sect),
+                    });
+                    defer self.allocator.free(sym_name);
 
-            //         const local_sym_index = @intCast(u32, zld.locals.items.len);
-            //         symbol.payload = .{
-            //             .regular = .{
-            //                 .linkage = .translation_unit,
-            //                 .address = sect.addr,
-            //                 .segment_id = match.seg,
-            //                 .section_id = match.sect,
-            //                 .file = self,
-            //                 .local_sym_index = local_sym_index,
-            //             },
-            //         };
-            //         try zld.locals.append(zld.allocator, symbol);
+                    const block_local_sym_index = self.sections_as_symbols.get(sect_id) orelse blk: {
+                        const block_local_sym_index = @intCast(u32, macho_file.locals.items.len);
+                        try macho_file.locals.append(macho_file.base.allocator, .{
+                            .n_strx = try macho_file.makeString(sym_name),
+                            .n_type = macho.N_SECT,
+                            .n_sect = macho_file.section_to_ordinal.get(match) orelse unreachable,
+                            .n_desc = 0,
+                            .n_value = sect.addr,
+                        });
+                        try self.sections_as_symbols.putNoClobber(self.allocator, sect_id, block_local_sym_index);
+                        break :blk block_local_sym_index;
+                    };
 
-            //         const block_code = code[0 .. first_nlist.n_value - sect.addr];
-            //         const block_size = block_code.len;
+                    const block_code = code[0 .. first_nlist.n_value - sect.addr];
+                    const block_size = block_code.len;
 
-            //         const block = try self.allocator.create(TextBlock);
-            //         errdefer self.allocator.destroy(block);
+                    const block = try macho_file.base.allocator.create(TextBlock);
+                    block.* = TextBlock.empty;
+                    block.local_sym_index = block_local_sym_index;
+                    block.size = block_size;
+                    block.alignment = sect.@"align";
+                    try macho_file.managed_blocks.append(macho_file.base.allocator, block);
 
-            //         block.* = TextBlock.init(self.allocator);
-            //         block.local_sym_index = local_sym_index;
-            //         block.code = try self.allocator.dupe(u8, block_code);
-            //         block.size = block_size;
-            //         block.alignment = sect.@"align";
+                    try block.code.appendSlice(macho_file.base.allocator, block_code);
 
-            //         const block_relocs = filterRelocs(relocs, 0, block_size);
-            //         if (block_relocs.len > 0) {
-            //             try self.parseRelocs(zld, block_relocs, block, 0);
-            //         }
+                    try block.parseRelocsFromObject(self.allocator, relocs, self, .{
+                        .base_addr = 0,
+                        .macho_file = macho_file,
+                    });
 
-            //         if (zld.has_dices) {
-            //             const dices = filterDice(self.data_in_code_entries.items, sect.addr, sect.addr + block_size);
-            //             try block.dices.ensureTotalCapacity(dices.len);
+                    if (macho_file.has_dices) {
+                        const dices = filterDice(self.data_in_code_entries.items, sect.addr, sect.addr + block_size);
+                        try block.dices.ensureTotalCapacity(macho_file.base.allocator, dices.len);
 
-            //             for (dices) |dice| {
-            //                 block.dices.appendAssumeCapacity(.{
-            //                     .offset = dice.offset - try math.cast(u32, sect.addr),
-            //                     .length = dice.length,
-            //                     .kind = dice.kind,
-            //                 });
-            //             }
-            //         }
+                        for (dices) |dice| {
+                            block.dices.appendAssumeCapacity(.{
+                                .offset = dice.offset - try math.cast(u32, sect.addr),
+                                .length = dice.length,
+                                .kind = dice.kind,
+                            });
+                        }
+                    }
 
-            //         // Update target section's metadata
-            //         // TODO should we update segment's size here too?
-            //         // How does it tie with incremental space allocs?
-            //         const tseg = &zld.load_commands.items[match.seg].Segment;
-            //         const tsect = &tseg.sections.items[match.sect];
-            //         const new_alignment = math.max(tsect.@"align", block.alignment);
-            //         const new_alignment_pow_2 = try math.powi(u32, 2, new_alignment);
-            //         const new_size = mem.alignForwardGeneric(u64, tsect.size, new_alignment_pow_2) + block.size;
-            //         tsect.size = new_size;
-            //         tsect.@"align" = new_alignment;
+                    // Update target section's metadata
+                    // TODO should we update segment's size here too?
+                    // How does it tie with incremental space allocs?
+                    const tseg = &macho_file.load_commands.items[match.seg].Segment;
+                    const tsect = &tseg.sections.items[match.sect];
+                    const new_alignment = math.max(tsect.@"align", block.alignment);
+                    const new_alignment_pow_2 = try math.powi(u32, 2, new_alignment);
+                    const new_size = mem.alignForwardGeneric(u64, tsect.size, new_alignment_pow_2) + block.size;
+                    tsect.size = new_size;
+                    tsect.@"align" = new_alignment;
 
-            //         if (zld.blocks.getPtr(match)) |last| {
-            //             last.*.next = block;
-            //             block.prev = last.*;
-            //             last.* = block;
-            //         } else {
-            //             try zld.blocks.putNoClobber(zld.allocator, match, block);
-            //         }
+                    if (macho_file.blocks.getPtr(match)) |last| {
+                        last.*.next = block;
+                        block.prev = last.*;
+                        last.* = block;
+                    } else {
+                        try macho_file.blocks.putNoClobber(macho_file.base.allocator, match, block);
+                    }
 
-            //         try self.text_blocks.append(self.allocator, block);
-            //     }
+                    try self.text_blocks.append(self.allocator, block);
+                }
 
-            //     var parser = TextBlockParser{
-            //         .allocator = self.allocator,
-            //         .section = sect,
-            //         .code = code,
-            //         .relocs = relocs,
-            //         .object = self,
-            //         .zld = zld,
-            //         .nlists = filtered_nlists,
-            //         .match = match,
-            //     };
+                var parser = TextBlockParser{
+                    .allocator = self.allocator,
+                    .section = sect,
+                    .code = code,
+                    .relocs = relocs,
+                    .object = self,
+                    .macho_file = macho_file,
+                    .nlists = filtered_nlists,
+                    .match = match,
+                };
 
-            //     while (try parser.next()) |block| {
-            //         const sym = zld.locals.items[block.local_sym_index];
-            //         const reg = &sym.payload.regular;
-            //         if (reg.file) |file| {
-            //             if (file != self) {
-            //                 log.debug("deduping definition of {s} in {s}", .{ zld.getString(sym.strx), self.name.? });
-            //                 block.deinit();
-            //                 self.allocator.destroy(block);
-            //                 continue;
-            //             }
-            //         }
+                while (try parser.next()) |block| {
+                    const sym = macho_file.locals.items[block.local_sym_index];
+                    const is_ext = blk: {
+                        const orig_sym_id = self.reverse_symbol_mapping.get(block.local_sym_index) orelse unreachable;
+                        break :blk MachO.symbolIsExt(self.symtab.items[orig_sym_id]);
+                    };
+                    if (is_ext) {
+                        if (macho_file.symbol_resolver.get(sym.n_strx)) |resolv| {
+                            assert(resolv.where == .global);
+                            const global_object = macho_file.objects.items[resolv.file];
+                            if (global_object != self) {
+                                log.debug("deduping definition of {s} in {s}", .{
+                                    macho_file.getString(sym.n_strx),
+                                    self.name.?,
+                                });
+                                log.debug("  already defined in {s}", .{global_object.name.?});
+                                continue;
+                            }
+                        }
+                    }
 
-            //         if (reg.address == sect.addr) {
-            //             if (self.sections_as_symbols.get(sect_id)) |alias| {
-            //                 // Add alias.
-            //                 const local_sym_index = @intCast(u32, zld.locals.items.len);
-            //                 const reg_alias = &alias.payload.regular;
-            //                 reg_alias.segment_id = match.seg;
-            //                 reg_alias.section_id = match.sect;
-            //                 reg_alias.local_sym_index = local_sym_index;
-            //                 try block.aliases.append(local_sym_index);
-            //                 try zld.locals.append(zld.allocator, alias);
-            //             }
-            //         }
+                    if (sym.n_value == sect.addr) {
+                        if (self.sections_as_symbols.get(sect_id)) |alias| {
+                            // In x86_64 relocs, it can so happen that the compiler refers to the same
+                            // atom by both the actual assigned symbol and the start of the section. In this
+                            // case, we need to link the two together so add an alias.
+                            try block.aliases.append(macho_file.base.allocator, alias);
+                        }
+                    }
 
-            //         // Update target section's metadata
-            //         // TODO should we update segment's size here too?
-            //         // How does it tie with incremental space allocs?
-            //         const tseg = &zld.load_commands.items[match.seg].Segment;
-            //         const tsect = &tseg.sections.items[match.sect];
-            //         const new_alignment = math.max(tsect.@"align", block.alignment);
-            //         const new_alignment_pow_2 = try math.powi(u32, 2, new_alignment);
-            //         const new_size = mem.alignForwardGeneric(u64, tsect.size, new_alignment_pow_2) + block.size;
-            //         tsect.size = new_size;
-            //         tsect.@"align" = new_alignment;
+                    // Update target section's metadata
+                    // TODO should we update segment's size here too?
+                    // How does it tie with incremental space allocs?
+                    const tseg = &macho_file.load_commands.items[match.seg].Segment;
+                    const tsect = &tseg.sections.items[match.sect];
+                    const new_alignment = math.max(tsect.@"align", block.alignment);
+                    const new_alignment_pow_2 = try math.powi(u32, 2, new_alignment);
+                    const new_size = mem.alignForwardGeneric(u64, tsect.size, new_alignment_pow_2) + block.size;
+                    tsect.size = new_size;
+                    tsect.@"align" = new_alignment;
 
-            //         if (zld.blocks.getPtr(match)) |last| {
-            //             last.*.next = block;
-            //             block.prev = last.*;
-            //             last.* = block;
-            //         } else {
-            //             try zld.blocks.putNoClobber(zld.allocator, match, block);
-            //         }
+                    if (macho_file.blocks.getPtr(match)) |last| {
+                        last.*.next = block;
+                        block.prev = last.*;
+                        last.* = block;
+                    } else {
+                        try macho_file.blocks.putNoClobber(macho_file.base.allocator, match, block);
+                    }
 
-            //         try self.text_blocks.append(self.allocator, block);
-            //     }
+                    try self.text_blocks.append(self.allocator, block);
+                }
 
-            //     break :next;
-            // }
+                break :next;
+            }
 
             // Since there is no symbol to refer to this block, we create
             // a temp one, unless we already did that when working out the relocations
@@ -757,7 +756,7 @@ pub fn parseTextBlocks(self: *Object, macho_file: *MachO) !void {
 
             if (macho_file.has_dices) {
                 const dices = filterDice(self.data_in_code_entries.items, sect.addr, sect.addr + sect.size);
-                try block.dices.ensureTotalCapacity(self.allocator, dices.len);
+                try block.dices.ensureTotalCapacity(macho_file.base.allocator, dices.len);
 
                 for (dices) |dice| {
                     block.dices.appendAssumeCapacity(.{
@@ -820,7 +819,7 @@ pub fn parseTextBlocks(self: *Object, macho_file: *MachO) !void {
                 block.prev = last.*;
                 last.* = block;
             } else {
-                try macho_file.blocks.putNoClobber(self.allocator, match, block);
+                try macho_file.blocks.putNoClobber(macho_file.base.allocator, match, block);
             }
 
             try self.text_blocks.append(self.allocator, block);
