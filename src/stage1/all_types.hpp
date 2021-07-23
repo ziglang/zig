@@ -107,6 +107,7 @@ enum X64CABIClass {
     X64CABIClass_MEMORY_nobyval,
     X64CABIClass_INTEGER,
     X64CABIClass_SSE,
+    X64CABIClass_AGG,
 };
 
 struct Stage1Zir {
@@ -1569,8 +1570,9 @@ struct ZigType {
 
     // These are not supposed to be accessed directly. They're
     // null during semantic analysis, memoized with get_llvm_type
-    // and get_llvm_di_type
+    // get_llvm_c_abi_type and get_llvm_di_type
     LLVMTypeRef llvm_type;
+    LLVMTypeRef llvm_c_abi_type;
     ZigLLVMDIType *llvm_di_type;
 
     union {
@@ -1624,6 +1626,7 @@ struct GlobalExport {
 
 struct ZigFn {
     LLVMValueRef llvm_value;
+    LLVMValueRef abi_return_value; // alloca used when converting at SysV ABI boundaries
     const char *llvm_name;
     AstNode *proto_node;
     AstNode *body_node;
