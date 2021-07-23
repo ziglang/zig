@@ -6063,6 +6063,12 @@ Error type_has_bits2(CodeGen *g, ZigType *type_entry, bool *result) {
     return ErrorNone;
 }
 
+bool fn_returns_c_abi_small_struct(FnTypeId *fn_type_id) {
+    ZigType *type = fn_type_id->return_type;
+    return !calling_convention_allows_zig_types(fn_type_id->cc) && 
+        type->id == ZigTypeIdStruct && type->abi_size <= 16;
+}
+
 // Whether you can infer the value based solely on the type.
 OnePossibleValue type_has_one_possible_value(CodeGen *g, ZigType *type_entry) {
     assert(type_entry != nullptr);
@@ -8376,6 +8382,9 @@ static X64CABIClass type_system_V_abi_x86_64_class(CodeGen *g, ZigType *ty, size
                 // be memory.
                 return X64CABIClass_MEMORY;
             }
+            // "If the size of the aggregate exceeds a single eightbyte, each is classified
+            // separately.".
+            // "If one of the classes is MEMORY, the whole argument is passed in memory"
             X64CABIClass working_class = X64CABIClass_Unknown;
             for (uint32_t i = 0; i < ty->data.structure.src_field_count; i += 1) {
                 X64CABIClass field_class = type_c_abi_x86_64_class(g, ty->data.structure.fields[0]->type_entry);
@@ -8385,7 +8394,10 @@ static X64CABIClass type_system_V_abi_x86_64_class(CodeGen *g, ZigType *ty, size
                     working_class = field_class;
                 }
             }
-            return working_class;
+            if (working_class == X64CABIClass_MEMORY) {
+                return X64CABIClass_MEMORY;
+            }
+            return X64CABIClass_AGG;
         }
         case ZigTypeIdUnion: {
             // "If the size of an object is larger than four eightbytes, or it contains unaligned
@@ -8407,7 +8419,7 @@ static X64CABIClass type_system_V_abi_x86_64_class(CodeGen *g, ZigType *ty, size
                 X64CABIClass field_class = type_c_abi_x86_64_class(g, ty->data.unionation.fields->type_entry);
                 if (field_class == X64CABIClass_Unknown)
                     return X64CABIClass_Unknown;
-                if (i == 0 || field_class == X64CABIClass_MEMORY || working_class == X64CABIClass_SSE) {
+                if (i == 0 || field_class == X64CABIClass_MEMORY || field_class == X64CABIClass_INTEGER || working_class == X64CABIClass_SSE) {
                     working_class = field_class;
                 }
             }
@@ -8678,6 +8690,95 @@ static LLVMTypeRef get_llvm_type_of_n_bytes(unsigned byte_size) {
         LLVMInt8Type() : LLVMArrayType(LLVMInt8Type(), byte_size);
 }
 
+static LLVMTypeRef llvm_int_for_size(size_t size) {
+    if (size > 4) {
+        return LLVMInt64Type();
+    } else if (size > 2) {
+        return LLVMInt32Type();
+    } else if (size == 2) {
+        return LLVMInt16Type();
+    } else {
+        return LLVMInt8Type();
+    }
+}
+
+static LLVMTypeRef llvm_sse_for_size(size_t size) {
+    if (size > 4)
+        return LLVMDoubleType();
+    else 
+        return LLVMFloatType();
+}
+
+// Since it's not possible to control calling convention or register
+// allocation in LLVM, clang seems to use intermediate types to manipulate
+// LLVM into doing the right thing. It uses a float to force SSE registers,
+// and a struct when 2 registers must be used. Some examples:
+// { f32 } -> float
+// { f32, i32 } -> { float, i32 }
+// { i32, i32, f32 } -> { i64, float }
+//
+// The implementation below does not match clang 1:1. For instance, clang
+// uses `<2x float>` while we generate `double`. There's a lot more edge
+// cases and complexity when converting back and forth in clang though,
+// so below is the simplest implementation that passes all tests.
+static Error resolve_llvm_c_abi_type(CodeGen *g, ZigType *ty) {
+    size_t ty_size = type_size(g, ty);
+    LLVMTypeRef abi_type;
+    switch (ty->id) {
+        case ZigTypeIdEnum:
+        case ZigTypeIdInt:
+        case ZigTypeIdBool:
+            abi_type = llvm_int_for_size(ty_size);
+            break;
+        case ZigTypeIdFloat:
+        case ZigTypeIdVector:
+            abi_type = llvm_sse_for_size(ty_size);
+            break;
+        case ZigTypeIdStruct: {
+            uint32_t eightbyte_index = 0;
+            size_t type_sizes[] = {0, 0};
+            X64CABIClass type_classes[] = {X64CABIClass_Unknown, X64CABIClass_Unknown};
+            for (uint32_t i = 0; i < ty->data.structure.src_field_count; i += 1) {
+                if (ty->data.structure.fields[i]->offset >= 8) {
+                    eightbyte_index = 1;
+                }
+                X64CABIClass field_class = type_c_abi_x86_64_class(g, ty->data.structure.fields[i]->type_entry);
+
+                if (field_class == X64CABIClass_INTEGER) {
+                    type_classes[eightbyte_index] = X64CABIClass_INTEGER;
+                } else if (type_classes[eightbyte_index] == X64CABIClass_Unknown) {
+                    type_classes[eightbyte_index] = field_class;
+                }
+                type_sizes[eightbyte_index] += ty->data.structure.fields[i]->type_entry->abi_size;
+            }
+
+            LLVMTypeRef return_elem_types[] = {
+                LLVMVoidType(),
+                LLVMVoidType(), 
+            };
+            for (uint32_t i = 0; i <= eightbyte_index; i += 1) {
+                if (type_classes[i] == X64CABIClass_INTEGER) {
+                    return_elem_types[i] = llvm_int_for_size(type_sizes[i]);
+                } else {
+                    return_elem_types[i] = llvm_sse_for_size(type_sizes[i]);
+                }
+            }
+            if (eightbyte_index == 0) {
+                abi_type = return_elem_types[0];
+            } else {
+                abi_type = LLVMStructType(return_elem_types, 2, false);
+            }
+            break;
+        }
+        case ZigTypeIdUnion:
+        default:
+            // currently unreachable
+            zig_panic("TODO: support C ABI unions");
+    }
+    ty->llvm_c_abi_type = abi_type;
+    return ErrorNone;
+}
+
 static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveStatus wanted_resolve_status,
         ZigType *async_frame_type)
 {
@@ -8936,6 +9037,9 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveS
         g->type_resolve_stack.swap_remove(struct_type->data.structure.llvm_full_type_queue_index);
         struct_type->data.structure.llvm_full_type_queue_index = SIZE_MAX;
     }
+
+    if (struct_type->abi_size <= 16 && struct_type->data.structure.layout == ContainerLayoutExtern)
+        resolve_llvm_c_abi_type(g, struct_type);
 }
 
 // This is to be used instead of void for debug info types, to avoid tripping
@@ -9536,8 +9640,13 @@ static void resolve_llvm_types_fn_type(CodeGen *g, ZigType *fn_type) {
         assert(gen_param_types.items[i] != nullptr);
     }
 
-    fn_type->data.fn.raw_type_ref = LLVMFunctionType(get_llvm_type(g, gen_return_type),
-            gen_param_types.items, (unsigned int)gen_param_types.length, fn_type_id->is_var_args);
+    if (!first_arg_return && fn_returns_c_abi_small_struct(fn_type_id)) {
+        fn_type->data.fn.raw_type_ref = LLVMFunctionType(get_llvm_c_abi_type(g, gen_return_type),
+                gen_param_types.items, (unsigned int)gen_param_types.length, fn_type_id->is_var_args);
+    } else {
+        fn_type->data.fn.raw_type_ref = LLVMFunctionType(get_llvm_type(g, gen_return_type),
+                gen_param_types.items, (unsigned int)gen_param_types.length, fn_type_id->is_var_args);
+    }
     const unsigned fn_addrspace = ZigLLVMDataLayoutGetProgramAddressSpace(g->target_data_ref);
     fn_type->llvm_type = LLVMPointerType(fn_type->data.fn.raw_type_ref, fn_addrspace);
     fn_type->data.fn.raw_di_type = ZigLLVMCreateSubroutineType(g->dbuilder, param_di_types.items, (int)param_di_types.length, 0);
@@ -9825,6 +9934,13 @@ static void resolve_llvm_types(CodeGen *g, ZigType *type, ResolveStatus wanted_r
             return resolve_llvm_types_any_frame(g, type, wanted_resolve_status);
     }
     zig_unreachable();
+}
+
+LLVMTypeRef get_llvm_c_abi_type(CodeGen *g, ZigType *type) {
+    assertNoError(type_resolve(g, type, ResolveStatusLLVMFull));
+    assert(type->abi_size == 0 || type->abi_size >= LLVMABISizeOfType(g->target_data_ref, type->llvm_type));
+    assert(type->abi_align == 0 || type->abi_align >= LLVMABIAlignmentOfType(g->target_data_ref, type->llvm_type));
+    return type->llvm_c_abi_type;
 }
 
 LLVMTypeRef get_llvm_type(CodeGen *g, ZigType *type) {

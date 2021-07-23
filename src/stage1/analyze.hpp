@@ -54,6 +54,8 @@ uint32_t get_async_frame_align_bytes(CodeGen *g);
 bool type_has_bits(CodeGen *g, ZigType *type_entry);
 Error type_has_bits2(CodeGen *g, ZigType *type_entry, bool *result);
 
+bool fn_returns_c_abi_small_struct(FnTypeId *fn_type_id);
+
 enum ExternPosition {
     ExternPositionFunctionParameter,
     ExternPositionFunctionReturn,
@@ -268,6 +270,7 @@ Buf *type_bare_name(ZigType *t);
 Buf *type_h_name(ZigType *t);
 
 LLVMTypeRef get_llvm_type(CodeGen *g, ZigType *type);
+LLVMTypeRef get_llvm_c_abi_type(CodeGen *g, ZigType *type);
 ZigLLVMDIType *get_llvm_di_type(CodeGen *g, ZigType *type);
 
 void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_path, bool translate_c,

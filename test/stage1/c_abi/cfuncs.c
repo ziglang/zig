@@ -61,7 +61,20 @@ struct SmallStructInts {
     uint8_t c;
     uint8_t d;
 };
+
 void zig_small_struct_ints(struct SmallStructInts);
+struct SmallStructInts zig_ret_small_struct_ints();
+
+struct MedStructMixed {
+    uint32_t a;
+    float b;
+    float c;
+    uint32_t d;
+};
+
+void zig_med_struct_mixed(struct MedStructMixed);
+struct MedStructMixed zig_ret_med_struct_mixed();
+
 
 struct SplitStructInts {
     uint64_t a;
@@ -69,6 +82,14 @@ struct SplitStructInts {
     uint32_t c;
 };
 void zig_split_struct_ints(struct SplitStructInts);
+
+struct SplitStructMixed {
+    uint64_t a;
+    uint8_t b;
+    float c;
+};
+void zig_split_struct_mixed(struct SplitStructMixed);
+struct SplitStructMixed zig_ret_split_struct_mixed();
 
 struct BigStruct zig_big_struct_both(struct BigStruct);
 
@@ -119,6 +140,16 @@ void run_c_tests(void) {
     {
         struct SplitStructInts s = {1234, 100, 1337};
         zig_split_struct_ints(s);
+    }
+
+    {
+        struct MedStructMixed s = {1234, 100.0f, 1337.0f};
+        zig_med_struct_mixed(s);
+    }
+
+    {
+        struct SplitStructMixed s = {1234, 100, 1337.0f};
+        zig_split_struct_mixed(s);
     }
 
     {
@@ -230,12 +261,70 @@ void c_small_struct_ints(struct SmallStructInts x) {
     assert_or_panic(x.b == 2);
     assert_or_panic(x.c == 3);
     assert_or_panic(x.d == 4);
+
+    struct SmallStructInts y = zig_ret_small_struct_ints();
+
+    assert_or_panic(y.a == 1);
+    assert_or_panic(y.b == 2);
+    assert_or_panic(y.c == 3);
+    assert_or_panic(y.d == 4);
+}
+
+struct SmallStructInts c_ret_small_struct_ints() {
+    struct SmallStructInts s = {
+        .a = 1,
+        .b = 2,
+        .c = 3,
+        .d = 4,
+    };
+    return s;
+}
+
+void c_med_struct_mixed(struct MedStructMixed x) {
+    assert_or_panic(x.a == 1234);
+    assert_or_panic(x.b == 100.0f);
+    assert_or_panic(x.c == 1337.0f);
+
+    struct MedStructMixed y = zig_ret_med_struct_mixed();
+
+    assert_or_panic(y.a == 1234);
+    assert_or_panic(y.b == 100.0f);
+    assert_or_panic(y.c == 1337.0f);
+}
+
+struct MedStructMixed c_ret_med_struct_mixed() {
+    struct MedStructMixed s = {
+        .a = 1234,
+        .b = 100.0,
+        .c = 1337.0,
+    };
+    return s;
 }
 
 void c_split_struct_ints(struct SplitStructInts x) {
     assert_or_panic(x.a == 1234);
     assert_or_panic(x.b == 100);
     assert_or_panic(x.c == 1337);
+}
+
+void c_split_struct_mixed(struct SplitStructMixed x) {
+    assert_or_panic(x.a == 1234);
+    assert_or_panic(x.b == 100);
+    assert_or_panic(x.c == 1337.0f);
+    struct SplitStructMixed y = zig_ret_split_struct_mixed();
+
+    assert_or_panic(y.a == 1234);
+    assert_or_panic(y.b == 100);
+    assert_or_panic(y.c == 1337.0f);
+}
+
+struct SplitStructMixed c_ret_split_struct_mixed() {
+    struct SplitStructMixed s = {
+        .a = 1234,
+        .b = 100,
+        .c = 1337.0f,
+    };
+    return s;
 }
 
 struct BigStruct c_big_struct_both(struct BigStruct x) {
