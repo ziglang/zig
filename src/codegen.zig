@@ -2590,9 +2590,12 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         const got_addr = blk: {
                             const seg = macho_file.load_commands.items[macho_file.data_const_segment_cmd_index.?].Segment;
                             const got = seg.sections.items[macho_file.got_section_index.?];
-                            break :blk got.addr + func.owner_decl.link.macho.offset_table_index * @sizeOf(u64);
+                            const got_index = macho_file.got_entries_map.get(.{
+                                .where = .local,
+                                .where_index = func.owner_decl.link.macho.local_sym_index,
+                            }) orelse unreachable;
+                            break :blk got.addr + got_index * @sizeOf(u64);
                         };
-                        log.debug("got_addr = 0x{x}", .{got_addr});
                         switch (arch) {
                             .x86_64 => {
                                 try self.genSetReg(Type.initTag(.u64), .rax, .{ .memory = got_addr });
@@ -2609,37 +2612,33 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         }
                     } else if (func_value.castTag(.extern_fn)) |func_payload| {
                         const decl = func_payload.data;
-                        const decl_name = try std.fmt.allocPrint(self.bin_file.allocator, "_{s}", .{decl.name});
-                        defer self.bin_file.allocator.free(decl_name);
-                        const already_defined = macho_file.lazy_imports.contains(decl_name);
-                        const symbol: u32 = if (macho_file.lazy_imports.getIndex(decl_name)) |index|
-                            @intCast(u32, index)
-                        else
-                            try macho_file.addExternSymbol(decl_name);
-                        const start = self.code.items.len;
-                        const len: usize = blk: {
+                        const where_index = try macho_file.addExternFn(mem.spanZ(decl.name));
+                        const offset = blk: {
                             switch (arch) {
                                 .x86_64 => {
                                     // callq
                                     try self.code.ensureCapacity(self.code.items.len + 5);
                                     self.code.appendSliceAssumeCapacity(&[5]u8{ 0xe8, 0x0, 0x0, 0x0, 0x0 });
-                                    break :blk 5;
+                                    break :blk @intCast(u32, self.code.items.len) - 4;
                                 },
                                 .aarch64 => {
+                                    const offset = @intCast(u32, self.code.items.len);
                                     // bl
-                                    writeInt(u32, try self.code.addManyAsArray(4), 0);
-                                    break :blk 4;
+                                    writeInt(u32, try self.code.addManyAsArray(4), Instruction.bl(0).toU32());
+                                    break :blk offset;
                                 },
                                 else => unreachable, // unsupported architecture on MachO
                             }
                         };
-                        try macho_file.stub_fixups.append(self.bin_file.allocator, .{
-                            .symbol = symbol,
-                            .already_defined = already_defined,
-                            .start = start,
-                            .len = len,
+                        // Add relocation to the decl.
+                        try macho_file.active_decl.?.link.macho.relocs.append(self.bin_file.allocator, .{
+                            .offset = offset,
+                            .where = .import,
+                            .where_index = where_index,
+                            .payload = .{ .branch = .{
+                                .arch = arch,
+                            } },
                         });
-                        // We mark the space and fix it up later.
                     } else {
                         return self.fail("TODO implement calling bitcasted functions", .{});
                     }
@@ -4144,19 +4143,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     .memory => |addr| {
                         if (self.bin_file.options.pie) {
                             // PC-relative displacement to the entry in the GOT table.
-                            // TODO we should come up with our own, backend independent relocation types
-                            // which each backend (Elf, MachO, etc.) would then translate into an actual
-                            // fixup when linking.
-                            // adrp reg, pages
-                            if (self.bin_file.cast(link.File.MachO)) |macho_file| {
-                                try macho_file.pie_fixups.append(self.bin_file.allocator, .{
-                                    .target_addr = addr,
-                                    .offset = self.code.items.len,
-                                    .size = 4,
-                                });
-                            } else {
-                                return self.fail("TODO implement genSetReg for PIE GOT indirection on this platform", .{});
-                            }
+                            // adrp
+                            const offset = @intCast(u32, self.code.items.len);
                             mem.writeIntLittle(
                                 u32,
                                 try self.code.addManyAsArray(4),
@@ -4169,6 +4157,36 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                     .offset = Instruction.LoadStoreOffset.imm(0),
                                 },
                             }).toU32());
+
+                            if (self.bin_file.cast(link.File.MachO)) |macho_file| {
+                                // TODO this is super awkward. We are reversing the address of the GOT entry here.
+                                // We should probably have it cached or move the reloc adding somewhere else.
+                                const got_addr = blk: {
+                                    const seg = macho_file.load_commands.items[macho_file.data_const_segment_cmd_index.?].Segment;
+                                    const got = seg.sections.items[macho_file.got_section_index.?];
+                                    break :blk got.addr;
+                                };
+                                const where_index = blk: for (macho_file.got_entries.items) |key, id| {
+                                    if (got_addr + id * @sizeOf(u64) == addr) break :blk key.where_index;
+                                } else unreachable;
+                                const decl = macho_file.active_decl.?;
+                                // Page reloc for adrp instruction.
+                                try decl.link.macho.relocs.append(self.bin_file.allocator, .{
+                                    .offset = offset,
+                                    .where = .local,
+                                    .where_index = where_index,
+                                    .payload = .{ .page = .{ .kind = .got } },
+                                });
+                                // Pageoff reloc for adrp instruction.
+                                try decl.link.macho.relocs.append(self.bin_file.allocator, .{
+                                    .offset = offset + 4,
+                                    .where = .local,
+                                    .where_index = where_index,
+                                    .payload = .{ .page_off = .{ .kind = .got } },
+                                });
+                            } else {
+                                return self.fail("TODO implement genSetReg for PIE GOT indirection on this platform", .{});
+                            }
                         } else {
                             // The value is in memory at a hard-coded address.
                             // If the type is a pointer, it means the pointer address is at this memory location.
@@ -4421,14 +4439,26 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             encoder.modRm_RIPDisp32(reg.low_id());
                             encoder.disp32(0);
 
-                            // TODO we should come up with our own, backend independent relocation types
-                            // which each backend (Elf, MachO, etc.) would then translate into an actual
-                            // fixup when linking.
+                            const offset = @intCast(u32, self.code.items.len);
+
                             if (self.bin_file.cast(link.File.MachO)) |macho_file| {
-                                try macho_file.pie_fixups.append(self.bin_file.allocator, .{
-                                    .target_addr = x,
-                                    .offset = self.code.items.len - 4,
-                                    .size = 4,
+                                // TODO this is super awkward. We are reversing the address of the GOT entry here.
+                                // We should probably have it cached or move the reloc adding somewhere else.
+                                const got_addr = blk: {
+                                    const seg = macho_file.load_commands.items[macho_file.data_const_segment_cmd_index.?].Segment;
+                                    const got = seg.sections.items[macho_file.got_section_index.?];
+                                    break :blk got.addr;
+                                };
+                                const where_index = blk: for (macho_file.got_entries.items) |key, id| {
+                                    if (got_addr + id * @sizeOf(u64) == x) break :blk key.where_index;
+                                } else unreachable;
+                                const decl = macho_file.active_decl.?;
+                                // Load reloc for LEA instruction.
+                                try decl.link.macho.relocs.append(self.bin_file.allocator, .{
+                                    .offset = offset - 4,
+                                    .where = .local,
+                                    .where_index = where_index,
+                                    .payload = .{ .load = .{ .kind = .got } },
                                 });
                             } else {
                                 return self.fail("TODO implement genSetReg for PIE GOT indirection on this platform", .{});
@@ -4647,7 +4677,11 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 const got_addr = blk: {
                                     const seg = macho_file.load_commands.items[macho_file.data_const_segment_cmd_index.?].Segment;
                                     const got = seg.sections.items[macho_file.got_section_index.?];
-                                    break :blk got.addr + decl.link.macho.offset_table_index * ptr_bytes;
+                                    const got_index = macho_file.got_entries_map.get(.{
+                                        .where = .local,
+                                        .where_index = decl.link.macho.local_sym_index,
+                                    }) orelse unreachable;
+                                    break :blk got.addr + got_index * ptr_bytes;
                                 };
                                 return MCValue{ .memory = got_addr };
                             } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
