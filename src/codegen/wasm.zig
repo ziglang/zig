@@ -1084,6 +1084,42 @@ pub const Context = struct {
         }
     }
 
+    /// Returns a `Value` as a signed 32 bit value.
+    /// It's illegale to provide a value with a type that cannot be represented
+    /// as an integer value.
+    fn valueAsI32(self: Context, val: Value, ty: Type) i32 {
+        switch (ty.zigTypeTag()) {
+            .Enum => {
+                if (val.castTag(.enum_field_index)) |field_index| {
+                    switch (ty.tag()) {
+                        .enum_simple => return @bitCast(i32, field_index.data),
+                        .enum_full, .enum_nonexhaustive => {
+                            const enum_full = ty.cast(Type.Payload.EnumFull).?.data;
+                            if (enum_full.values.count() != 0) {
+                                const tag_val = enum_full.values.keys()[field_index.data];
+                                return self.valueAsI32(tag_val, enum_full.tag_ty);
+                            } else return @bitCast(i32, field_index.data);
+                        },
+                        else => unreachable,
+                    }
+                } else {
+                    var int_tag_buffer: Type.Payload.Bits = undefined;
+                    const int_tag_ty = ty.intTagType(&int_tag_buffer);
+                    return self.valueAsI32(val, int_tag_ty);
+                }
+            },
+            .Int => switch (ty.intInfo(self.target).signedness) {
+                .signed => return @truncate(i32, val.toSignedInt()),
+                .unsigned => return @bitCast(i32, @truncate(u32, val.toUnsignedInt())),
+            },
+            .ErrorSet => {
+                const error_index = self.global_error_set.get(val.getError().?).?;
+                return @bitCast(i32, error_index);
+            },
+            else => unreachable, // Programmer called this function for an illegal type
+        }
+    }
+
     fn airBlock(self: *Context, inst: Air.Inst.Index) InnerError!WValue {
         const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
         const block_ty = try self.genBlockType(self.air.getRefType(ty_pl.ty));
@@ -1307,15 +1343,7 @@ pub const Context = struct {
 
             for (items) |ref, i| {
                 const item_val = self.air.value(ref).?;
-                const int_val: i32 = blk: {
-                    if (target_ty.intInfo(self.target).signedness == .signed) {
-                        // safe to truncate the values as we only use them when
-                        // the target's bits is 32 or lower.
-                        break :blk @truncate(i32, item_val.toSignedInt());
-                    }
-
-                    break :blk @bitCast(i32, @truncate(u32, item_val.toUnsignedInt()));
-                };
+                const int_val = self.valueAsI32(item_val, target_ty);
                 if (int_val < lowest) {
                     lowest = int_val;
                 }
@@ -1334,7 +1362,7 @@ pub const Context = struct {
         // When the target is an integer size larger than u32, we have no way to use the value
         // as an index, therefore we also use an if/else-chain for those cases.
         // TODO: Benchmark this to find a proper value, LLVM seems to draw the line at '40~45'.
-        const is_sparse = target_ty.intInfo(self.target).bits > 32 or highest - lowest > 50;
+        const is_sparse = highest - lowest > 50 or target_ty.bitSize(self.target) > 32;
 
         const else_body = self.air.extra[extra_index..][0..switch_br.data.else_body_len];
         const has_else_body = else_body.len != 0;
