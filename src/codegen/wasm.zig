@@ -979,10 +979,15 @@ pub const Context = struct {
                     .valtype1 = try self.typeToValtype(ty),
                 });
                 try writer.writeByte(wasm.opcode(opcode));
+                const int_info = ty.intInfo(self.target);
                 // write constant
-                switch (ty.intInfo(self.target).signedness) {
+                switch (int_info.signedness) {
                     .signed => try leb.writeILEB128(writer, value.toSignedInt()),
-                    .unsigned => try leb.writeILEB128(writer, value.toUnsignedInt()),
+                    .unsigned => switch (int_info.bits) {
+                        0...32 => try leb.writeILEB128(writer, @bitCast(i32, @intCast(u32, value.toUnsignedInt()))),
+                        33...64 => try leb.writeILEB128(writer, @bitCast(i64, value.toUnsignedInt())),
+                        else => |bits| return self.fail("Wasm TODO: emitConstant for integer with {d} bits", .{bits}),
+                    },
                 }
             },
             .Bool => {
@@ -1280,13 +1285,15 @@ pub const Context = struct {
         var extra_index: usize = switch_br.end;
         var case_i: u32 = 0;
 
-        // a map that maps each value with its index and body
-        var map = std.AutoArrayHashMap(i32, struct {
-            index: u32,
+        // a list that maps each value with its value and body based on the order inside the list.
+        const CaseValue = struct { integer: i32, value: Value };
+        var case_list = try std.ArrayList(struct {
+            values: []const CaseValue,
             body: []const Air.Inst.Index,
-            value: Value,
-        }).init(self.gpa);
-        defer map.deinit();
+        }).initCapacity(self.gpa, switch_br.data.cases_len);
+        defer for (case_list.items) |case| {
+            self.gpa.free(case.values);
+        } else case_list.deinit();
 
         var lowest: i32 = 0;
         var highest: i32 = 0;
@@ -1295,8 +1302,10 @@ pub const Context = struct {
             const items = @bitCast([]const Air.Inst.Ref, self.air.extra[case.end..][0..case.data.items_len]);
             const case_body = self.air.extra[case.end + items.len ..][0..case.data.body_len];
             extra_index = case.end + items.len + case_body.len;
+            const values = try self.gpa.alloc(CaseValue, items.len);
+            errdefer self.gpa.free(values);
 
-            for (items) |ref| {
+            for (items) |ref, i| {
                 const item_val = self.air.value(ref).?;
                 const int_val: i32 = blk: {
                     if (target_ty.intInfo(self.target).signedness == .signed) {
@@ -1305,7 +1314,7 @@ pub const Context = struct {
                         break :blk @truncate(i32, item_val.toSignedInt());
                     }
 
-                    break :blk @intCast(i32, @truncate(u31, item_val.toUnsignedInt()) - 1);
+                    break :blk @bitCast(i32, @truncate(u32, item_val.toUnsignedInt()));
                 };
                 if (int_val < lowest) {
                     lowest = int_val;
@@ -1313,9 +1322,10 @@ pub const Context = struct {
                 if (int_val > highest) {
                     highest = int_val;
                 }
-                try map.put(int_val, .{ .index = case_i, .body = case_body, .value = item_val });
+                values[i] = .{ .integer = int_val, .value = item_val };
             }
 
+            case_list.appendAssumeCapacity(.{ .values = values, .body = case_body });
             try self.startBlock(.block, blocktype, null);
         }
 
@@ -1350,9 +1360,15 @@ pub const Context = struct {
             const depth = highest - lowest + @boolToInt(has_else_body);
             try leb.writeILEB128(self.code.writer(), depth);
             while (lowest <= highest) : (lowest += 1) {
-                const idx = if (map.get(lowest)) |value| blk: {
-                    break :blk value.index;
-                } else if (has_else_body) case_i else unreachable;
+                // idx represents the branch we jump to
+                const idx = blk: {
+                    for (case_list.items) |case, idx| {
+                        for (case.values) |case_value| {
+                            if (case_value.integer == lowest) break :blk @intCast(u32, idx);
+                        }
+                    }
+                    break :blk if (has_else_body) case_i else unreachable;
+                };
                 try leb.writeULEB128(self.code.writer(), idx);
             } else if (has_else_body) {
                 try leb.writeULEB128(self.code.writer(), @as(u32, case_i)); // default branch
@@ -1368,21 +1384,43 @@ pub const Context = struct {
             break :blk target_ty.intInfo(self.target).signedness;
         };
 
-        for (map.values()) |val| {
+        for (case_list.items) |case| {
             // when sparse, we use if/else-chain, so emit conditional checks
             if (is_sparse) {
-                try self.emitWValue(target);
-                try self.emitConstant(val.value, target_ty);
-                const opcode = buildOpcode(.{
-                    .valtype1 = try self.typeToValtype(target_ty),
-                    .op = .ne, // not equal, because we want to jump out of this block if it does not match the condition.
-                    .signedness = signedness,
-                });
-                try self.code.append(wasm.opcode(opcode));
-                try self.code.append(wasm.opcode(.br_if));
-                try leb.writeULEB128(self.code.writer(), @as(u32, 0));
+                // for single value prong we can emit a simple if
+                if (case.values.len == 1) {
+                    try self.emitWValue(target);
+                    try self.emitConstant(case.values[0].value, target_ty);
+                    const opcode = buildOpcode(.{
+                        .valtype1 = try self.typeToValtype(target_ty),
+                        .op = .ne, // not equal, because we want to jump out of this block if it does not match the condition.
+                        .signedness = signedness,
+                    });
+                    try self.code.append(wasm.opcode(opcode));
+                    try self.code.append(wasm.opcode(.br_if));
+                    try leb.writeULEB128(self.code.writer(), @as(u32, 0));
+                } else {
+                    // in multi-value prongs we must check if any prongs match the target value.
+                    try self.startBlock(.block, blocktype, null);
+                    for (case.values) |value| {
+                        try self.emitWValue(target);
+                        try self.emitConstant(value.value, target_ty);
+                        const opcode = buildOpcode(.{
+                            .valtype1 = try self.typeToValtype(target_ty),
+                            .op = .eq,
+                            .signedness = signedness,
+                        });
+                        try self.code.append(wasm.opcode(opcode));
+                        try self.code.append(wasm.opcode(.br_if));
+                        try leb.writeULEB128(self.code.writer(), @as(u32, 0));
+                    }
+                    // value did not match any of the prong values
+                    try self.code.append(wasm.opcode(.br));
+                    try leb.writeULEB128(self.code.writer(), @as(u32, 1));
+                    try self.endBlock();
+                }
             }
-            try self.genBody(val.body);
+            try self.genBody(case.body);
             try self.endBlock();
         }
 
@@ -1390,7 +1428,6 @@ pub const Context = struct {
             try self.genBody(else_body);
             try self.endBlock();
         }
-
         return .none;
     }
 
