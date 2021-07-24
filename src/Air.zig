@@ -247,6 +247,21 @@ pub const Inst = struct {
         /// Given a pointer to a struct and a field index, returns a pointer to the field.
         /// Uses the `ty_pl` field, payload is `StructField`.
         struct_field_ptr,
+        /// Given a slice value, return the length.
+        /// Result type is always usize.
+        /// Uses the `ty_op` field.
+        slice_len,
+        /// Given a slice value, return the pointer.
+        /// Uses the `ty_op` field.
+        slice_ptr,
+        /// Given a slice value, and element index, return the element value at that index.
+        /// Result type is the element type of the slice operand.
+        /// Uses the `bin_op` field.
+        slice_elem_val,
+        /// Given a pointer to a slice, and element index, return the element value at that index.
+        /// Result type is the element type of the slice operand (2 element type operations).
+        /// Uses the `bin_op` field.
+        ptr_slice_elem_val,
 
         pub fn fromCmpOp(op: std.math.CompareOperator) Tag {
             return switch (op) {
@@ -450,6 +465,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .unwrap_errunion_err_ptr,
         .wrap_errunion_payload,
         .wrap_errunion_err,
+        .slice_ptr,
         => return air.getRefType(datas[inst].ty_op.ty),
 
         .loop,
@@ -465,11 +481,23 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .store,
         => return Type.initTag(.void),
 
-        .ptrtoint => return Type.initTag(.usize),
+        .ptrtoint,
+        .slice_len,
+        => return Type.initTag(.usize),
 
         .call => {
             const callee_ty = air.typeOf(datas[inst].pl_op.operand);
             return callee_ty.fnReturnType();
+        },
+
+        .slice_elem_val => {
+            const slice_ty = air.typeOf(datas[inst].bin_op.lhs);
+            return slice_ty.elemType();
+        },
+        .ptr_slice_elem_val => {
+            const ptr_slice_ty = air.typeOf(datas[inst].bin_op.lhs);
+            const slice_ty = ptr_slice_ty.elemType();
+            return slice_ty.elemType();
         },
     }
 }

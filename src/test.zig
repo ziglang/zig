@@ -848,11 +848,11 @@ pub const TestContext = struct {
             .path = local_cache_path,
         };
 
-        var root_pkg: Package = .{
+        var main_pkg: Package = .{
             .root_src_directory = .{ .path = tmp_dir_path, .handle = tmp.dir },
             .root_src_path = tmp_src_path,
         };
-        defer root_pkg.table.deinit(allocator);
+        defer main_pkg.table.deinit(allocator);
 
         const bin_name = try std.zig.binNameAlloc(arena, .{
             .root_name = "test_case",
@@ -896,7 +896,7 @@ pub const TestContext = struct {
             .optimize_mode = case.optimize_mode,
             .emit_bin = emit_bin,
             .emit_h = emit_h,
-            .root_pkg = &root_pkg,
+            .main_pkg = &main_pkg,
             .keep_source_files_loaded = true,
             .object_format = case.object_format,
             .is_native_os = case.target.isNativeOs(),

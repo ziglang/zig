@@ -124,6 +124,8 @@ const Writer = struct {
             .bool_and,
             .bool_or,
             .store,
+            .slice_elem_val,
+            .ptr_slice_elem_val,
             => try w.writeBinOp(s, inst),
 
             .is_null,
@@ -161,6 +163,8 @@ const Writer = struct {
             .unwrap_errunion_err_ptr,
             .wrap_errunion_payload,
             .wrap_errunion_err,
+            .slice_ptr,
+            .slice_len,
             => try w.writeTyOp(s, inst),
 
             .block,

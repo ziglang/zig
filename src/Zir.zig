@@ -2462,9 +2462,10 @@ pub const Inst = struct {
             has_body_len: bool,
             has_fields_len: bool,
             has_decls_len: bool,
+            known_has_bits: bool,
             name_strategy: NameStrategy,
             layout: std.builtin.TypeInfo.ContainerLayout,
-            _: u8 = undefined,
+            _: u7 = undefined,
         };
     };
 
@@ -3543,6 +3544,7 @@ const Writer = struct {
             break :blk decls_len;
         } else 0;
 
+        try self.writeFlag(stream, "known_has_bits, ", small.known_has_bits);
         try stream.print("{s}, {s}, ", .{
             @tagName(small.name_strategy), @tagName(small.layout),
         });

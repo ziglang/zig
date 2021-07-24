@@ -263,12 +263,12 @@ pub fn mainArgs(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
 }
 
 const usage_build_generic =
-    \\Usage: zig build-exe   <options> [files]
-    \\       zig build-lib   <options> [files]
-    \\       zig build-obj   <options> [files]
-    \\       zig test        <options> [files]
-    \\       zig run         <options> [file] [-- [args]]
-    \\       zig translate-c <options> [file]
+    \\Usage: zig build-exe   [options] [files]
+    \\       zig build-lib   [options] [files]
+    \\       zig build-obj   [options] [files]
+    \\       zig test        [options] [files]
+    \\       zig run         [options] [files] [-- [args]]
+    \\       zig translate-c [options] [file]
     \\
     \\Supported file types:
     \\                    .zig    Zig source code
@@ -1915,7 +1915,7 @@ fn buildOutputType(
     };
     defer emit_docs_resolved.deinit();
 
-    const root_pkg: ?*Package = if (root_src_file) |src_path| blk: {
+    const main_pkg: ?*Package = if (root_src_file) |src_path| blk: {
         if (main_pkg_path) |p| {
             const rel_src_path = try fs.path.relative(gpa, p, src_path);
             defer gpa.free(rel_src_path);
@@ -1924,10 +1924,10 @@ fn buildOutputType(
             break :blk try Package.create(gpa, fs.path.dirname(src_path), fs.path.basename(src_path));
         }
     } else null;
-    defer if (root_pkg) |p| p.destroy(gpa);
+    defer if (main_pkg) |p| p.destroy(gpa);
 
     // Transfer packages added with --pkg-begin/--pkg-end to the root package
-    if (root_pkg) |pkg| {
+    if (main_pkg) |pkg| {
         pkg.table = pkg_tree_root.table;
         pkg_tree_root.table = .{};
     }
@@ -1980,7 +1980,7 @@ fn buildOutputType(
         if (arg_mode == .run) {
             break :l global_cache_directory;
         }
-        if (root_pkg) |pkg| {
+        if (main_pkg) |pkg| {
             const cache_dir_path = try pkg.root_src_directory.join(arena, &[_][]const u8{"zig-cache"});
             const dir = try pkg.root_src_directory.handle.makeOpenPath("zig-cache", .{});
             cleanup_local_cache_dir = dir;
@@ -2018,7 +2018,7 @@ fn buildOutputType(
         .dynamic_linker = target_info.dynamic_linker.get(),
         .sysroot = sysroot,
         .output_mode = output_mode,
-        .root_pkg = root_pkg,
+        .main_pkg = main_pkg,
         .emit_bin = emit_bin_loc,
         .emit_h = emit_h_resolved.data,
         .emit_asm = emit_asm_resolved.data,
@@ -2823,7 +2823,7 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
         const std_special = "std" ++ fs.path.sep_str ++ "special";
         const special_dir_path = try zig_lib_directory.join(arena, &[_][]const u8{std_special});
 
-        var root_pkg: Package = .{
+        var main_pkg: Package = .{
             .root_src_directory = .{
                 .path = special_dir_path,
                 .handle = zig_lib_directory.handle.openDir(std_special, .{}) catch |err| {
@@ -2832,7 +2832,7 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
             },
             .root_src_path = "build_runner.zig",
         };
-        defer root_pkg.root_src_directory.handle.close();
+        defer main_pkg.root_src_directory.handle.close();
 
         var cleanup_build_dir: ?fs.Dir = null;
         defer if (cleanup_build_dir) |*dir| dir.close();
@@ -2881,7 +2881,7 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
             .root_src_directory = build_directory,
             .root_src_path = build_zig_basename,
         };
-        try root_pkg.addAndAdopt(arena, "@build", &build_pkg);
+        try main_pkg.addAndAdopt(arena, "@build", &build_pkg);
 
         var global_cache_directory: Compilation.Directory = l: {
             const p = override_global_cache_dir orelse try introspect.resolveGlobalCacheDir(arena);
@@ -2938,7 +2938,7 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
             .is_native_abi = cross_target.isNativeAbi(),
             .dynamic_linker = target_info.dynamic_linker.get(),
             .output_mode = .Exe,
-            .root_pkg = &root_pkg,
+            .main_pkg = &main_pkg,
             .emit_bin = emit_bin,
             .emit_h = null,
             .optimize_mode = .Debug,

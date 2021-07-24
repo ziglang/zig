@@ -622,7 +622,7 @@ pub const InitOptions = struct {
     global_cache_directory: Directory,
     target: Target,
     root_name: []const u8,
-    root_pkg: ?*Package,
+    main_pkg: ?*Package,
     output_mode: std.builtin.OutputMode,
     thread_pool: *ThreadPool,
     dynamic_linker: ?[]const u8 = null,
@@ -826,7 +826,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
         const ofmt = options.object_format orelse options.target.getObjectFormat();
 
         const use_stage1 = options.use_stage1 orelse blk: {
-            // Even though we may have no Zig code to compile (depending on `options.root_pkg`),
+            // Even though we may have no Zig code to compile (depending on `options.main_pkg`),
             // we may need to use stage1 for building compiler-rt and other dependencies.
 
             if (build_options.omit_stage2)
@@ -846,7 +846,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
                 break :blk explicit;
 
             // If we have no zig code to compile, no need for LLVM.
-            if (options.root_pkg == null)
+            if (options.main_pkg == null)
                 break :blk false;
 
             // If we are outputting .c code we must use Zig backend.
@@ -929,7 +929,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             if (use_llvm) {
                 // If stage1 generates an object file, self-hosted linker is not
                 // yet sophisticated enough to handle that.
-                break :blk options.root_pkg != null;
+                break :blk options.main_pkg != null;
             }
 
             break :blk false;
@@ -1159,7 +1159,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
         if (options.target.os.tag == .wasi) cache.hash.add(wasi_exec_model);
         // TODO audit this and make sure everything is in it
 
-        const module: ?*Module = if (options.root_pkg) |root_pkg| blk: {
+        const module: ?*Module = if (options.main_pkg) |main_pkg| blk: {
             // Options that are specific to zig source files, that cannot be
             // modified between incremental updates.
             var hash = cache.hash;
@@ -1169,13 +1169,13 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             // incremental compilation will handle it, but we do want to namespace different
             // source file names because they are likely different compilations and therefore this
             // would be likely to cause cache hits.
-            hash.addBytes(root_pkg.root_src_path);
-            hash.addOptionalBytes(root_pkg.root_src_directory.path);
+            hash.addBytes(main_pkg.root_src_path);
+            hash.addOptionalBytes(main_pkg.root_src_directory.path);
             {
                 var local_arena = std.heap.ArenaAllocator.init(gpa);
                 defer local_arena.deinit();
                 var seen_table = std.AutoHashMap(*Package, void).init(&local_arena.allocator);
-                try addPackageTableToCacheHash(&hash, &local_arena, root_pkg.table, &seen_table, .path_bytes);
+                try addPackageTableToCacheHash(&hash, &local_arena, main_pkg.table, &seen_table, .path_bytes);
             }
             hash.add(valgrind);
             hash.add(single_threaded);
@@ -1212,9 +1212,26 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             );
             errdefer std_pkg.destroy(gpa);
 
-            try root_pkg.addAndAdopt(gpa, "builtin", builtin_pkg);
-            try root_pkg.add(gpa, "root", root_pkg);
-            try root_pkg.addAndAdopt(gpa, "std", std_pkg);
+            const root_pkg = if (options.is_test) root_pkg: {
+                const test_pkg = try Package.createWithDir(
+                    gpa,
+                    options.zig_lib_directory,
+                    "std" ++ std.fs.path.sep_str ++ "special",
+                    "test_runner.zig",
+                );
+                errdefer test_pkg.destroy(gpa);
+
+                try test_pkg.add(gpa, "builtin", builtin_pkg);
+                try test_pkg.add(gpa, "root", test_pkg);
+                try test_pkg.add(gpa, "std", std_pkg);
+
+                break :root_pkg test_pkg;
+            } else main_pkg;
+            errdefer if (options.is_test) root_pkg.destroy(gpa);
+
+            try main_pkg.addAndAdopt(gpa, "builtin", builtin_pkg);
+            try main_pkg.add(gpa, "root", root_pkg);
+            try main_pkg.addAndAdopt(gpa, "std", std_pkg);
 
             try std_pkg.add(gpa, "builtin", builtin_pkg);
             try std_pkg.add(gpa, "root", root_pkg);
@@ -1258,6 +1275,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             module.* = .{
                 .gpa = gpa,
                 .comp = comp,
+                .main_pkg = main_pkg,
                 .root_pkg = root_pkg,
                 .zig_cache_artifact_directory = zig_cache_artifact_directory,
                 .global_zir_cache = global_zir_cache,
@@ -1684,7 +1702,7 @@ pub fn update(self: *Compilation) !void {
 
         // Make sure std.zig is inside the import_table. We unconditionally need
         // it for start.zig.
-        const std_pkg = module.root_pkg.table.get("std").?;
+        const std_pkg = module.main_pkg.table.get("std").?;
         _ = try module.importPkg(std_pkg);
 
         // Normally we rely on importing std to in turn import the root source file
@@ -1692,7 +1710,7 @@ pub fn update(self: *Compilation) !void {
         // so in order to run AstGen on the root source file we put it into the
         // import_table here.
         if (use_stage1) {
-            _ = try module.importPkg(module.root_pkg);
+            _ = try module.importPkg(module.main_pkg);
         }
 
         // Put a work item in for every known source file to detect if
@@ -3873,7 +3891,7 @@ fn buildOutputFromZig(
     var special_dir = try comp.zig_lib_directory.handle.openDir(special_sub, .{});
     defer special_dir.close();
 
-    var root_pkg: Package = .{
+    var main_pkg: Package = .{
         .root_src_directory = .{
             .path = special_path,
             .handle = special_dir,
@@ -3899,7 +3917,7 @@ fn buildOutputFromZig(
         .zig_lib_directory = comp.zig_lib_directory,
         .target = target,
         .root_name = root_name,
-        .root_pkg = &root_pkg,
+        .main_pkg = &main_pkg,
         .output_mode = output_mode,
         .thread_pool = comp.thread_pool,
         .libc_installation = comp.bin_file.options.libc_installation,
@@ -3969,8 +3987,8 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
     // Here we use the legacy stage1 C++ compiler to compile Zig code.
     const mod = comp.bin_file.options.module.?;
     const directory = mod.zig_cache_artifact_directory; // Just an alias to make it shorter to type.
-    const main_zig_file = try mod.root_pkg.root_src_directory.join(arena, &[_][]const u8{
-        mod.root_pkg.root_src_path,
+    const main_zig_file = try mod.main_pkg.root_src_directory.join(arena, &[_][]const u8{
+        mod.main_pkg.root_src_path,
     });
     const zig_lib_dir = comp.zig_lib_directory.path.?;
     const builtin_zig_path = try directory.join(arena, &[_][]const u8{"builtin.zig"});
@@ -4002,7 +4020,7 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
     _ = try man.addFile(main_zig_file, null);
     {
         var seen_table = std.AutoHashMap(*Package, void).init(&arena_allocator.allocator);
-        try addPackageTableToCacheHash(&man.hash, &arena_allocator, mod.root_pkg.table, &seen_table, .{ .files = &man });
+        try addPackageTableToCacheHash(&man.hash, &arena_allocator, mod.main_pkg.table, &seen_table, .{ .files = &man });
     }
     man.hash.add(comp.bin_file.options.valgrind);
     man.hash.add(comp.bin_file.options.single_threaded);
@@ -4045,7 +4063,7 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
             &prev_digest_buf,
         ) catch |err| blk: {
             log.debug("stage1 {s} new_digest={s} error: {s}", .{
-                mod.root_pkg.root_src_path,
+                mod.main_pkg.root_src_path,
                 std.fmt.fmtSliceHexLower(&digest),
                 @errorName(err),
             });
@@ -4057,7 +4075,7 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
                 break :hit;
 
             log.debug("stage1 {s} digest={s} match - skipping invocation", .{
-                mod.root_pkg.root_src_path,
+                mod.main_pkg.root_src_path,
                 std.fmt.fmtSliceHexLower(&digest),
             });
             var flags_bytes: [1]u8 = undefined;
@@ -4083,7 +4101,7 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
             return;
         }
         log.debug("stage1 {s} prev_digest={s} new_digest={s}", .{
-            mod.root_pkg.root_src_path,
+            mod.main_pkg.root_src_path,
             std.fmt.fmtSliceHexLower(prev_digest),
             std.fmt.fmtSliceHexLower(&digest),
         });
@@ -4109,7 +4127,7 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
 
     comp.stage1_cache_manifest = &man;
 
-    const main_pkg_path = mod.root_pkg.root_src_directory.path orelse "";
+    const main_pkg_path = mod.main_pkg.root_src_directory.path orelse "";
 
     const stage1_module = stage1.create(
         @enumToInt(comp.bin_file.options.optimize_mode),
@@ -4142,7 +4160,7 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
     const emit_llvm_bc_path = try stage1LocPath(arena, comp.emit_llvm_bc, directory);
     const emit_analysis_path = try stage1LocPath(arena, comp.emit_analysis, directory);
     const emit_docs_path = try stage1LocPath(arena, comp.emit_docs, directory);
-    const stage1_pkg = try createStage1Pkg(arena, "root", mod.root_pkg, null);
+    const stage1_pkg = try createStage1Pkg(arena, "root", mod.main_pkg, null);
     const test_filter = comp.test_filter orelse ""[0..0];
     const test_name_prefix = comp.test_name_prefix orelse ""[0..0];
     const subsystem = if (comp.bin_file.options.subsystem) |s|
@@ -4173,7 +4191,7 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
         .test_name_prefix_ptr = test_name_prefix.ptr,
         .test_name_prefix_len = test_name_prefix.len,
         .userdata = @ptrToInt(comp),
-        .root_pkg = stage1_pkg,
+        .main_pkg = stage1_pkg,
         .code_model = @enumToInt(comp.bin_file.options.machine_code_model),
         .subsystem = subsystem,
         .err_color = @enumToInt(comp.color),
@@ -4239,7 +4257,7 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
     // means that the next invocation will have an unnecessary cache miss.
     const stage1_flags_byte = @bitCast(u8, mod.stage1_flags);
     log.debug("stage1 {s} final digest={s} flags={x}", .{
-        mod.root_pkg.root_src_path, std.fmt.fmtSliceHexLower(&digest), stage1_flags_byte,
+        mod.main_pkg.root_src_path, std.fmt.fmtSliceHexLower(&digest), stage1_flags_byte,
     });
     var digest_plus_flags: [digest.len + 2]u8 = undefined;
     digest_plus_flags[0..digest.len].* = digest;
@@ -4333,7 +4351,7 @@ pub fn build_crt_file(
         .zig_lib_directory = comp.zig_lib_directory,
         .target = target,
         .root_name = root_name,
-        .root_pkg = null,
+        .main_pkg = null,
         .output_mode = output_mode,
         .thread_pool = comp.thread_pool,
         .libc_installation = comp.bin_file.options.libc_installation,

@@ -1,6 +1,6 @@
 const builtin = @import("builtin");
 
-comptime {
+test {
     // Tests that pass for both.
     {}
 

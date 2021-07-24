@@ -107,7 +107,7 @@ pub const Module = extern struct {
     test_name_prefix_ptr: [*]const u8,
     test_name_prefix_len: usize,
     userdata: usize,
-    root_pkg: *Pkg,
+    main_pkg: *Pkg,
     main_progress_node: ?*std.Progress.Node,
     code_model: CodeModel,
     subsystem: TargetSubsystem,

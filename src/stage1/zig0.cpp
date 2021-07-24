@@ -465,7 +465,7 @@ int main(int argc, char **argv) {
     stage1->verbose_llvm_cpu_features = verbose_llvm_cpu_features;
     stage1->emit_o_ptr = emit_bin_path;
     stage1->emit_o_len = strlen(emit_bin_path);
-    stage1->root_pkg = cur_pkg;
+    stage1->main_pkg = cur_pkg;
     stage1->err_color = color;
     stage1->link_libc = link_libc;
     stage1->link_libcpp = link_libcpp;

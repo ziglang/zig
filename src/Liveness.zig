@@ -243,6 +243,8 @@ fn analyzeInst(
         .bool_and,
         .bool_or,
         .store,
+        .slice_elem_val,
+        .ptr_slice_elem_val,
         => {
             const o = inst_datas[inst].bin_op;
             return trackOperands(a, new_set, inst, main_tomb, .{ o.lhs, o.rhs, .none });
@@ -273,6 +275,8 @@ fn analyzeInst(
         .unwrap_errunion_err_ptr,
         .wrap_errunion_payload,
         .wrap_errunion_err,
+        .slice_ptr,
+        .slice_len,
         => {
             const o = inst_datas[inst].ty_op;
             return trackOperands(a, new_set, inst, main_tomb, .{ o.operand, .none, .none });

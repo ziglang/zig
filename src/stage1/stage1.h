@@ -176,7 +176,7 @@ struct ZigStage1 {
     size_t test_name_prefix_len;
 
     void *userdata;
-    struct ZigStage1Pkg *root_pkg;
+    struct ZigStage1Pkg *main_pkg;
     struct Stage2ProgressNode *main_progress_node;
 
     enum CodeModel code_model;

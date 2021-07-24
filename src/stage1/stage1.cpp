@@ -126,7 +126,7 @@ void zig_stage1_build_object(struct ZigStage1 *stage1) {
 
     g->main_progress_node = stage1->main_progress_node;
 
-    add_package(g, stage1->root_pkg, g->main_pkg);
+    add_package(g, stage1->main_pkg, g->main_pkg);
 
     codegen_build_object(g);
 }

@@ -21,9 +21,9 @@ fn processArgs() void {
     std.testing.zig_exe_path = args[1];
 }
 
-pub fn main() anyerror!void {
+pub fn main() void {
     if (builtin.zig_is_stage2) {
-        return main2();
+        return main2() catch @panic("test failure");
     }
     processArgs();
     const test_fn_list = builtin.test_functions;

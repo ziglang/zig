@@ -35,8 +35,11 @@ comp: *Compilation,
 
 /// Where our incremental compilation metadata serialization will go.
 zig_cache_artifact_directory: Compilation.Directory,
-/// Pointer to externally managed resource. `null` if there is no zig file being compiled.
+/// Pointer to externally managed resource.
 root_pkg: *Package,
+/// Normally, `main_pkg` and `root_pkg` are the same. The exception is `zig test`, in which
+/// `root_pkg` is the test runner, and `main_pkg` is the user's source file which has the tests.
+main_pkg: *Package,
 
 /// Used by AstGen worker to load and store ZIR cache.
 global_zir_cache: Compilation.Directory,
@@ -598,6 +601,9 @@ pub const Struct = struct {
         layout_wip,
         have_layout,
     },
+    /// If true, definitely nonzero size at runtime. If false, resolving the fields
+    /// is necessary to determine whether it has bits at runtime.
+    known_has_bits: bool,
 
     pub const Field = struct {
         /// Uses `noreturn` to indicate `anytype`.
@@ -2048,18 +2054,21 @@ pub fn deinit(mod: *Module) void {
 
     mod.deletion_set.deinit(gpa);
 
-    // The callsite of `Compilation.create` owns the `root_pkg`, however
+    // The callsite of `Compilation.create` owns the `main_pkg`, however
     // Module owns the builtin and std packages that it adds.
-    if (mod.root_pkg.table.fetchRemove("builtin")) |kv| {
+    if (mod.main_pkg.table.fetchRemove("builtin")) |kv| {
         gpa.free(kv.key);
         kv.value.destroy(gpa);
     }
-    if (mod.root_pkg.table.fetchRemove("std")) |kv| {
+    if (mod.main_pkg.table.fetchRemove("std")) |kv| {
         gpa.free(kv.key);
         kv.value.destroy(gpa);
     }
-    if (mod.root_pkg.table.fetchRemove("root")) |kv| {
+    if (mod.main_pkg.table.fetchRemove("root")) |kv| {
         gpa.free(kv.key);
+    }
+    if (mod.root_pkg != mod.main_pkg) {
+        mod.root_pkg.destroy(gpa);
     }
 
     mod.compile_log_text.deinit(gpa);
@@ -2148,7 +2157,7 @@ pub fn astGenFile(mod: *Module, file: *Scope.File) !void {
 
     const stat = try source_file.stat();
 
-    const want_local_cache = file.pkg == mod.root_pkg;
+    const want_local_cache = file.pkg == mod.main_pkg;
     const digest = hash: {
         var path_hash: Cache.HashHelper = .{};
         path_hash.addBytes(build_options.version);
@@ -2792,6 +2801,7 @@ pub fn semaFile(mod: *Module, file: *Scope.File) SemaError!void {
         .zir_index = undefined, // set below
         .layout = .Auto,
         .status = .none,
+        .known_has_bits = undefined,
         .namespace = .{
             .parent = null,
             .ty = struct_ty,
@@ -3301,10 +3311,23 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) SemaError!voi
         gop.value_ptr.* = new_decl;
         // Exported decls, comptime decls, usingnamespace decls, and
         // test decls if in test mode, get analyzed.
+        const decl_pkg = namespace.file_scope.pkg;
         const want_analysis = is_exported or switch (decl_name_index) {
             0 => true, // comptime decl
-            1 => mod.comp.bin_file.options.is_test, // test decl
-            else => is_named_test and mod.comp.bin_file.options.is_test,
+            1 => blk: {
+                // test decl with no name. Skip the part where we check against
+                // the test name filter.
+                if (!mod.comp.bin_file.options.is_test) break :blk false;
+                if (decl_pkg != mod.main_pkg) break :blk false;
+                break :blk true;
+            },
+            else => blk: {
+                if (!is_named_test) break :blk false;
+                if (!mod.comp.bin_file.options.is_test) break :blk false;
+                if (decl_pkg != mod.main_pkg) break :blk false;
+                // TODO check the name against --test-filter
+                break :blk true;
+            },
         };
         if (want_analysis) {
             mod.comp.work_queue.writeItemAssumeCapacity(.{ .analyze_decl = new_decl });

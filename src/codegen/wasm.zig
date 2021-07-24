@@ -646,7 +646,7 @@ pub const Context = struct {
                 } };
             },
             .ErrorUnion => {
-                const payload_type = ty.errorUnionChild();
+                const payload_type = ty.errorUnionPayload();
                 const val_type = try self.genValtype(payload_type);
 
                 // we emit the error value as the first local, and the payload as the following.
@@ -699,7 +699,7 @@ pub const Context = struct {
             .Struct => return self.fail("TODO: Implement struct as return type for wasm", .{}),
             .Optional => return self.fail("TODO: Implement optionals as return type for wasm", .{}),
             .ErrorUnion => {
-                const val_type = try self.genValtype(return_type.errorUnionChild());
+                const val_type = try self.genValtype(return_type.errorUnionPayload());
 
                 // write down the amount of return values
                 try leb.writeULEB128(writer, @as(u32, 2));
@@ -1055,7 +1055,7 @@ pub const Context = struct {
             .ErrorUnion => {
                 const data = value.castTag(.error_union).?.data;
                 const error_type = ty.errorUnionSet();
-                const payload_type = ty.errorUnionChild();
+                const payload_type = ty.errorUnionPayload();
                 if (value.getError()) |_| {
                     // write the error value
                     try self.emitConstant(data, error_type);

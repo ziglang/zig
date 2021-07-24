@@ -3470,6 +3470,7 @@ fn structDeclInner(
             .fields_len = 0,
             .body_len = 0,
             .decls_len = 0,
+            .known_has_bits = false,
         });
         return indexToRef(decl_inst);
     }
@@ -3510,6 +3511,7 @@ fn structDeclInner(
     var bit_bag = ArrayListUnmanaged(u32){};
     defer bit_bag.deinit(gpa);
 
+    var known_has_bits = false;
     var cur_bit_bag: u32 = 0;
     var field_index: usize = 0;
     for (container_decl.ast.members) |member_node| {
@@ -3657,6 +3659,8 @@ fn structDeclInner(
             try typeExpr(&block_scope, &block_scope.base, member.ast.type_expr);
         fields_data.appendAssumeCapacity(@enumToInt(field_type));
 
+        known_has_bits = known_has_bits or nodeImpliesRuntimeBits(tree, member.ast.type_expr);
+
         const have_align = member.ast.align_expr != 0;
         const have_value = member.ast.value_expr != 0;
         const is_comptime = member.comptime_token != null;
@@ -3706,6 +3710,7 @@ fn structDeclInner(
         .body_len = @intCast(u32, block_scope.instructions.items.len),
         .fields_len = @intCast(u32, field_index),
         .decls_len = @intCast(u32, wip_decls.decl_index),
+        .known_has_bits = known_has_bits,
     });
 
     try astgen.extra.ensureUnusedCapacity(gpa, bit_bag.items.len +
@@ -8150,6 +8155,189 @@ fn nodeMayEvalToError(tree: *const ast.Tree, start_node: ast.Node.Index) enum { 
     }
 }
 
+fn nodeImpliesRuntimeBits(tree: *const ast.Tree, start_node: ast.Node.Index) bool {
+    const node_tags = tree.nodes.items(.tag);
+    const node_datas = tree.nodes.items(.data);
+
+    var node = start_node;
+    while (true) {
+        switch (node_tags[node]) {
+            .root,
+            .@"usingnamespace",
+            .test_decl,
+            .switch_case,
+            .switch_case_one,
+            .container_field_init,
+            .container_field_align,
+            .container_field,
+            .asm_output,
+            .asm_input,
+            .global_var_decl,
+            .local_var_decl,
+            .simple_var_decl,
+            .aligned_var_decl,
+            => unreachable,
+
+            .@"return",
+            .@"break",
+            .@"continue",
+            .bit_not,
+            .bool_not,
+            .@"defer",
+            .@"errdefer",
+            .address_of,
+            .negation,
+            .negation_wrap,
+            .@"resume",
+            .array_type,
+            .@"suspend",
+            .@"anytype",
+            .fn_decl,
+            .anyframe_literal,
+            .integer_literal,
+            .float_literal,
+            .enum_literal,
+            .string_literal,
+            .multiline_string_literal,
+            .char_literal,
+            .true_literal,
+            .false_literal,
+            .null_literal,
+            .undefined_literal,
+            .unreachable_literal,
+            .identifier,
+            .error_set_decl,
+            .container_decl,
+            .container_decl_trailing,
+            .container_decl_two,
+            .container_decl_two_trailing,
+            .container_decl_arg,
+            .container_decl_arg_trailing,
+            .tagged_union,
+            .tagged_union_trailing,
+            .tagged_union_two,
+            .tagged_union_two_trailing,
+            .tagged_union_enum_tag,
+            .tagged_union_enum_tag_trailing,
+            .@"asm",
+            .asm_simple,
+            .add,
+            .add_wrap,
+            .array_cat,
+            .array_mult,
+            .assign,
+            .assign_bit_and,
+            .assign_bit_or,
+            .assign_bit_shift_left,
+            .assign_bit_shift_right,
+            .assign_bit_xor,
+            .assign_div,
+            .assign_sub,
+            .assign_sub_wrap,
+            .assign_mod,
+            .assign_add,
+            .assign_add_wrap,
+            .assign_mul,
+            .assign_mul_wrap,
+            .bang_equal,
+            .bit_and,
+            .bit_or,
+            .bit_shift_left,
+            .bit_shift_right,
+            .bit_xor,
+            .bool_and,
+            .bool_or,
+            .div,
+            .equal_equal,
+            .error_union,
+            .greater_or_equal,
+            .greater_than,
+            .less_or_equal,
+            .less_than,
+            .merge_error_sets,
+            .mod,
+            .mul,
+            .mul_wrap,
+            .switch_range,
+            .field_access,
+            .sub,
+            .sub_wrap,
+            .slice,
+            .slice_open,
+            .slice_sentinel,
+            .deref,
+            .array_access,
+            .error_value,
+            .while_simple,
+            .while_cont,
+            .for_simple,
+            .if_simple,
+            .@"catch",
+            .@"orelse",
+            .array_init_one,
+            .array_init_one_comma,
+            .array_init_dot_two,
+            .array_init_dot_two_comma,
+            .array_init_dot,
+            .array_init_dot_comma,
+            .array_init,
+            .array_init_comma,
+            .struct_init_one,
+            .struct_init_one_comma,
+            .struct_init_dot_two,
+            .struct_init_dot_two_comma,
+            .struct_init_dot,
+            .struct_init_dot_comma,
+            .struct_init,
+            .struct_init_comma,
+            .@"while",
+            .@"if",
+            .@"for",
+            .@"switch",
+            .switch_comma,
+            .call_one,
+            .call_one_comma,
+            .async_call_one,
+            .async_call_one_comma,
+            .call,
+            .call_comma,
+            .async_call,
+            .async_call_comma,
+            .block_two,
+            .block_two_semicolon,
+            .block,
+            .block_semicolon,
+            .builtin_call,
+            .builtin_call_comma,
+            .builtin_call_two,
+            .builtin_call_two_comma,
+            => return false,
+
+            // Forward the question to the LHS sub-expression.
+            .grouped_expression,
+            .@"try",
+            .@"await",
+            .@"comptime",
+            .@"nosuspend",
+            .unwrap_optional,
+            => node = node_datas[node].lhs,
+
+            .fn_proto_simple,
+            .fn_proto_multi,
+            .fn_proto_one,
+            .fn_proto,
+            .ptr_type_aligned,
+            .ptr_type_sentinel,
+            .ptr_type,
+            .ptr_type_bit_range,
+            .optional_type,
+            .anyframe_type,
+            .array_type_sentinel,
+            => return true,
+        }
+    }
+}
+
 /// Applies `rl` semantics to `inst`. Expressions which do not do their own handling of
 /// result locations must call this function on their result.
 /// As an example, if the `ResultLoc` is `ptr`, it will write the result to the pointer.
@@ -9556,6 +9744,7 @@ const GenZir = struct {
         fields_len: u32,
         decls_len: u32,
         layout: std.builtin.TypeInfo.ContainerLayout,
+        known_has_bits: bool,
     }) !void {
         const astgen = gz.astgen;
         const gpa = astgen.gpa;
@@ -9585,6 +9774,7 @@ const GenZir = struct {
                     .has_body_len = args.body_len != 0,
                     .has_fields_len = args.fields_len != 0,
                     .has_decls_len = args.decls_len != 0,
+                    .known_has_bits = args.known_has_bits,
                     .name_strategy = gz.anon_name_strategy,
                     .layout = args.layout,
                 }),

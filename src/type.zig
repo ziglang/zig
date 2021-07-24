@@ -525,9 +525,19 @@ pub const Type = extern union {
                 const b_data = b.castTag(.error_union).?.data;
                 return a_data.error_set.eql(b_data.error_set) and a_data.payload.eql(b_data.payload);
             },
+            .ErrorSet => {
+                const a_is_anyerror = a.tag() == .anyerror;
+                const b_is_anyerror = b.tag() == .anyerror;
+
+                if (a_is_anyerror and b_is_anyerror) return true;
+                if (a_is_anyerror or b_is_anyerror) return false;
+
+                std.debug.panic("TODO implement Type equality comparison of {} and {}", .{
+                    a.tag(), b.tag(),
+                });
+            },
             .Opaque,
             .Float,
-            .ErrorSet,
             .BoundFn,
             .Frame,
             => std.debug.panic("TODO implement Type equality comparison of {} and {}", .{ a, b }),
@@ -1190,6 +1200,9 @@ pub const Type = extern union {
             .@"struct" => {
                 // TODO introduce lazy value mechanism
                 const struct_obj = self.castTag(.@"struct").?.data;
+                if (struct_obj.known_has_bits) {
+                    return true;
+                }
                 assert(struct_obj.status == .have_field_types or
                     struct_obj.status == .layout_wip or
                     struct_obj.status == .have_layout);
@@ -1645,7 +1658,7 @@ pub const Type = extern union {
                 } else if (!payload.payload.hasCodeGenBits()) {
                     return payload.error_set.abiSize(target);
                 }
-                @panic("TODO abiSize error union");
+                std.debug.panic("TODO abiSize error union {}", .{self});
             },
         };
     }
@@ -2038,7 +2051,7 @@ pub const Type = extern union {
                 return ty.optionalChild(&buf).isValidVarType(is_extern);
             },
             .Pointer, .Array, .Vector => ty = ty.elemType(),
-            .ErrorUnion => ty = ty.errorUnionChild(),
+            .ErrorUnion => ty = ty.errorUnionPayload(),
 
             .Fn => @panic("TODO fn isValidVarType"),
             .Struct => {
@@ -2119,13 +2132,10 @@ pub const Type = extern union {
     }
 
     /// Asserts that the type is an error union.
-    pub fn errorUnionChild(self: Type) Type {
+    pub fn errorUnionPayload(self: Type) Type {
         return switch (self.tag()) {
-            .anyerror_void_error_union => Type.initTag(.anyerror),
-            .error_union => {
-                const payload = self.castTag(.error_union).?;
-                return payload.data.payload;
-            },
+            .anyerror_void_error_union => Type.initTag(.void),
+            .error_union => self.castTag(.error_union).?.data.payload,
             else => unreachable,
         };
     }
@@ -2133,10 +2143,7 @@ pub const Type = extern union {
     pub fn errorUnionSet(self: Type) Type {
         return switch (self.tag()) {
             .anyerror_void_error_union => Type.initTag(.anyerror),
-            .error_union => {
-                const payload = self.castTag(.error_union).?;
-                return payload.data.error_set;
-            },
+            .error_union => self.castTag(.error_union).?.data.error_set,
             else => unreachable,
         };
     }
