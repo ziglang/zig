@@ -2797,9 +2797,9 @@ pub fn stringify(
         .Enum => {
             if (comptime std.meta.trait.hasFn("jsonStringify")(T)) {
                 return value.jsonStringify(options, out_stream);
+            } else {
+                return stringify(@tagName(value), options, out_stream);
             }
-
-            @compileError("Unable to stringify enum '" ++ @typeName(T) ++ "'");
         },
         .Union => {
             if (comptime std.meta.trait.hasFn("jsonStringify")(T)) {
