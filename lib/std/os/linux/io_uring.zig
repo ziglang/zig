@@ -647,7 +647,7 @@ pub const IO_Uring = struct {
         const res = linux.io_uring_register(
             self.fd,
             .REGISTER_EVENTFD,
-            @ptrCast(*const c_void, &fds),
+            @ptrCast(*const c_void, &fd),
             @intCast(u32, 1),
         );
         try convert_registration_error(res);
@@ -662,7 +662,7 @@ pub const IO_Uring = struct {
         const res = linux.io_uring_register(
             self.fd,
             .REGISTER_EVENTFD_ASYNC,
-            @ptrCast(*const c_void, &fds),
+            @ptrCast(*const c_void, &fd),
             @intCast(u32, 1),
         );
         try convert_registration_error(res);
