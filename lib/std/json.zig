@@ -3138,3 +3138,15 @@ test "stringify struct with custom stringifier" {
 test "stringify vector" {
     try teststringify("[1,1]", @splat(2, @as(u32, 1)), StringifyOptions{});
 }
+
+test "stringify enum based on tag name" {
+    const Foo = struct {
+        kind: []const enum {
+            string,
+            integer,
+            boolean,
+        },
+    };
+
+    try teststringify("{\"kind\":[\"string\",\"integer\",\"boolean\"]}", Foo{ .kind = &.{ .string, .integer, .boolean } }, StringifyOptions{});
+}
