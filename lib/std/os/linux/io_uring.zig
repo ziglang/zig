@@ -636,6 +636,53 @@ pub const IO_Uring = struct {
             @ptrCast(*const c_void, fds.ptr),
             @intCast(u32, fds.len),
         );
+        try convert_registration_error(res);
+    }
+
+    /// Registers the file descriptor for an eventfd that will be notified of completion events on
+    //  an io_uring instance.
+    pub fn register_eventfd(self: *IO_Uring, fd: os.fd_t) !void {
+        assert(self.fd >= 0);
+        comptime assert(@sizeOf(os.fd_t) == @sizeOf(c_int));
+        const res = linux.io_uring_register(
+            self.fd,
+            .REGISTER_EVENTFD,
+            @ptrCast(*const c_void, &fds),
+            @intCast(u32, 1),
+        );
+        try convert_registration_error(res);
+    }
+
+    /// Registers the file descriptor for an eventfd that will be notified of completion events on
+    /// an io_uring instance. Notifications are only posted for events that complete in an async manner. 
+    /// This means that events that complete inline while being submitted do not trigger a notification event.
+    pub fn register_eventfd_async(self: *IO_Uring, fd: os.fd_t) !void {
+        assert(self.fd >= 0);
+        comptime assert(@sizeOf(os.fd_t) == @sizeOf(c_int));
+        const res = linux.io_uring_register(
+            self.fd,
+            .REGISTER_EVENTFD_ASYNC,
+            @ptrCast(*const c_void, &fds),
+            @intCast(u32, 1),
+        );
+        try convert_registration_error(res);
+    }
+
+    /// Unregister the registered eventfd file descriptor.
+    pub fn unregister_eventfd(self: *IO_Uring) !void {
+        assert(self.fd >= 0);
+        const res = linux.io_uring_register(
+            self.fd,
+            .UNREGISTER_EVENTFD,
+            @ptrCast(*const c_void, null),
+            @intCast(u32, 0),
+        );
+        try convert_registration_error(res);
+    }
+
+
+
+    fn convert_registration_error(res: usize) !void {
         switch (linux.getErrno(res)) {
             0 => {},
             // One or more fds in the array are invalid, or the kernel does not support sparse sets:
