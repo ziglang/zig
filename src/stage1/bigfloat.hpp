@@ -45,8 +45,11 @@ void bigfloat_div_floor(BigFloat *dest, const BigFloat *op1, const BigFloat *op2
 void bigfloat_rem(BigFloat *dest, const BigFloat *op1, const BigFloat *op2);
 void bigfloat_mod(BigFloat *dest, const BigFloat *op1, const BigFloat *op2);
 void bigfloat_sqrt(BigFloat *dest, const BigFloat *op);
+void bigfloat_min(BigFloat *dest, const BigFloat *op1, const BigFloat *op2);
+void bigfloat_max(BigFloat *dest, const BigFloat *op1, const BigFloat *op2);
 void bigfloat_append_buf(Buf *buf, const BigFloat *op);
 Cmp bigfloat_cmp(const BigFloat *op1, const BigFloat *op2);
+
 
 bool bigfloat_is_nan(const BigFloat *op);
 

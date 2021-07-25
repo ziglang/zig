@@ -3231,6 +3231,30 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, Stage1Air *executable,
         case IrBinOpRemMod:
             return gen_rem(g, want_runtime_safety, ir_want_fast_math(g, &bin_op_instruction->base),
                     op1_value, op2_value, operand_type, RemKindMod);
+        case IrBinOpMaximum:
+            if (scalar_type->id == ZigTypeIdFloat) {
+                return ZigLLVMBuildMaxNum(g->builder, op1_value, op2_value, "");
+            } else if (scalar_type->id == ZigTypeIdInt) {
+                if (scalar_type->data.integral.is_signed) {
+                    return ZigLLVMBuildSMax(g->builder, op1_value, op2_value, "");
+                } else {
+                    return ZigLLVMBuildUMax(g->builder, op1_value, op2_value, "");
+                }
+            } else {
+                zig_unreachable();
+            }
+        case IrBinOpMinimum:
+            if (scalar_type->id == ZigTypeIdFloat) {
+                return ZigLLVMBuildMinNum(g->builder, op1_value, op2_value, "");
+            } else if (scalar_type->id == ZigTypeIdInt) {
+                if (scalar_type->data.integral.is_signed) {
+                    return ZigLLVMBuildSMin(g->builder, op1_value, op2_value, "");
+                } else {
+                    return ZigLLVMBuildUMin(g->builder, op1_value, op2_value, "");
+                }
+            } else {
+                zig_unreachable();
+            }
     }
     zig_unreachable();
 }
@@ -8962,6 +8986,8 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdWasmMemoryGrow, "wasmMemoryGrow", 2);
     create_builtin_fn(g, BuiltinFnIdSrc, "src", 0);
     create_builtin_fn(g, BuiltinFnIdReduce, "reduce", 2);
+    create_builtin_fn(g, BuiltinFnIdMaximum, "maximum", 2);
+    create_builtin_fn(g, BuiltinFnIdMinimum, "minimum", 2);
 }
 
 static const char *bool_to_str(bool b) {

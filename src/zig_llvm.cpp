@@ -458,6 +458,36 @@ LLVMValueRef ZigLLVMBuildMemSet(LLVMBuilderRef B, LLVMValueRef Ptr, LLVMValueRef
     return wrap(call_inst);
 }
 
+LLVMValueRef ZigLLVMBuildMaxNum(LLVMBuilderRef B, LLVMValueRef LHS, LLVMValueRef RHS, const char *name) {
+    CallInst *call_inst = unwrap(B)->CreateMaxNum(unwrap(LHS), unwrap(RHS), name);
+    return wrap(call_inst);
+}
+
+LLVMValueRef ZigLLVMBuildMinNum(LLVMBuilderRef B, LLVMValueRef LHS, LLVMValueRef RHS, const char *name) {
+    CallInst *call_inst = unwrap(B)->CreateMinNum(unwrap(LHS), unwrap(RHS), name);
+    return wrap(call_inst);
+}
+
+LLVMValueRef ZigLLVMBuildUMax(LLVMBuilderRef B, LLVMValueRef LHS, LLVMValueRef RHS, const char *name) {
+    CallInst *call_inst = unwrap(B)->CreateBinaryIntrinsic(Intrinsic::umax, unwrap(LHS), unwrap(RHS), nullptr, name);
+    return wrap(call_inst);
+}
+
+LLVMValueRef ZigLLVMBuildUMin(LLVMBuilderRef B, LLVMValueRef LHS, LLVMValueRef RHS, const char *name) {
+    CallInst *call_inst = unwrap(B)->CreateBinaryIntrinsic(Intrinsic::umin, unwrap(LHS), unwrap(RHS), nullptr, name);
+    return wrap(call_inst);
+}
+
+LLVMValueRef ZigLLVMBuildSMax(LLVMBuilderRef B, LLVMValueRef LHS, LLVMValueRef RHS, const char *name) {
+    CallInst *call_inst = unwrap(B)->CreateBinaryIntrinsic(Intrinsic::smax, unwrap(LHS), unwrap(RHS), nullptr, name);
+    return wrap(call_inst);
+}
+
+LLVMValueRef ZigLLVMBuildSMin(LLVMBuilderRef B, LLVMValueRef LHS, LLVMValueRef RHS, const char *name) {
+    CallInst *call_inst = unwrap(B)->CreateBinaryIntrinsic(Intrinsic::smin, unwrap(LHS), unwrap(RHS), nullptr, name);
+    return wrap(call_inst);
+}
+
 void ZigLLVMFnSetSubprogram(LLVMValueRef fn, ZigLLVMDISubprogram *subprogram) {
     assert( isa<Function>(unwrap(fn)) );
     Function *unwrapped_function = reinterpret_cast<Function*>(unwrap(fn));
