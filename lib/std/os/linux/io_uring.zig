@@ -680,8 +680,6 @@ pub const IO_Uring = struct {
         try convert_registration_error(res);
     }
 
-
-
     fn convert_registration_error(res: usize) !void {
         switch (linux.getErrno(res)) {
             0 => {},
