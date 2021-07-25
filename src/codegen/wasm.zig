@@ -979,10 +979,15 @@ pub const Context = struct {
                     .valtype1 = try self.typeToValtype(ty),
                 });
                 try writer.writeByte(wasm.opcode(opcode));
+                const int_info = ty.intInfo(self.target);
                 // write constant
-                switch (ty.intInfo(self.target).signedness) {
+                switch (int_info.signedness) {
                     .signed => try leb.writeILEB128(writer, value.toSignedInt()),
-                    .unsigned => try leb.writeILEB128(writer, value.toUnsignedInt()),
+                    .unsigned => switch (int_info.bits) {
+                        0...32 => try leb.writeILEB128(writer, @bitCast(i32, @intCast(u32, value.toUnsignedInt()))),
+                        33...64 => try leb.writeILEB128(writer, @bitCast(i64, value.toUnsignedInt())),
+                        else => |bits| return self.fail("Wasm TODO: emitConstant for integer with {d} bits", .{bits}),
+                    },
                 }
             },
             .Bool => {
@@ -1076,6 +1081,42 @@ pub const Context = struct {
                 }
             },
             else => |zig_type| return self.fail("Wasm TODO: emitConstant for zigTypeTag {s}", .{zig_type}),
+        }
+    }
+
+    /// Returns a `Value` as a signed 32 bit value.
+    /// It's illegale to provide a value with a type that cannot be represented
+    /// as an integer value.
+    fn valueAsI32(self: Context, val: Value, ty: Type) i32 {
+        switch (ty.zigTypeTag()) {
+            .Enum => {
+                if (val.castTag(.enum_field_index)) |field_index| {
+                    switch (ty.tag()) {
+                        .enum_simple => return @bitCast(i32, field_index.data),
+                        .enum_full, .enum_nonexhaustive => {
+                            const enum_full = ty.cast(Type.Payload.EnumFull).?.data;
+                            if (enum_full.values.count() != 0) {
+                                const tag_val = enum_full.values.keys()[field_index.data];
+                                return self.valueAsI32(tag_val, enum_full.tag_ty);
+                            } else return @bitCast(i32, field_index.data);
+                        },
+                        else => unreachable,
+                    }
+                } else {
+                    var int_tag_buffer: Type.Payload.Bits = undefined;
+                    const int_tag_ty = ty.intTagType(&int_tag_buffer);
+                    return self.valueAsI32(val, int_tag_ty);
+                }
+            },
+            .Int => switch (ty.intInfo(self.target).signedness) {
+                .signed => return @truncate(i32, val.toSignedInt()),
+                .unsigned => return @bitCast(i32, @truncate(u32, val.toUnsignedInt())),
+            },
+            .ErrorSet => {
+                const error_index = self.global_error_set.get(val.getError().?).?;
+                return @bitCast(i32, error_index);
+            },
+            else => unreachable, // Programmer called this function for an illegal type
         }
     }
 
@@ -1271,60 +1312,151 @@ pub const Context = struct {
     }
 
     fn airSwitchBr(self: *Context, inst: Air.Inst.Index) InnerError!WValue {
-        const pl_op = self.air.instructions.items(.data)[inst].pl_op;
-        const extra = self.air.extraData(Air.SwitchBr, pl_op.payload);
-        const cases = self.air.extra[extra.end..][0..extra.data.cases_len];
-        const else_body = self.air.extra[extra.end + cases.len ..][0..extra.data.else_body_len];
-
-        const target = self.resolveInst(pl_op.operand);
-        const target_ty = self.air.typeOf(pl_op.operand);
-        const valtype = try self.typeToValtype(target_ty);
         // result type is always 'noreturn'
         const blocktype = wasm.block_empty;
+        const pl_op = self.air.instructions.items(.data)[inst].pl_op;
+        const target = self.resolveInst(pl_op.operand);
+        const target_ty = self.air.typeOf(pl_op.operand);
+        const switch_br = self.air.extraData(Air.SwitchBr, pl_op.payload);
+        var extra_index: usize = switch_br.end;
+        var case_i: u32 = 0;
 
-        _ = valtype;
-        _ = blocktype;
-        _ = target;
-        _ = else_body;
-        return self.fail("TODO implement wasm codegen for switch", .{});
-        //const signedness: std.builtin.Signedness = blk: {
-        //    // by default we tell the operand type is unsigned (i.e. bools and enum values)
-        //    if (target_ty.zigTypeTag() != .Int) break :blk .unsigned;
+        // a list that maps each value with its value and body based on the order inside the list.
+        const CaseValue = struct { integer: i32, value: Value };
+        var case_list = try std.ArrayList(struct {
+            values: []const CaseValue,
+            body: []const Air.Inst.Index,
+        }).initCapacity(self.gpa, switch_br.data.cases_len);
+        defer for (case_list.items) |case| {
+            self.gpa.free(case.values);
+        } else case_list.deinit();
 
-        //    // incase of an actual integer, we emit the correct signedness
-        //    break :blk target_ty.intInfo(self.target).signedness;
-        //};
-        //for (cases) |case_idx| {
-        //    const case = self.air.extraData(Air.SwitchBr.Case, case_idx);
-        //    const case_body = self.air.extra[case.end..][0..case.data.body_len];
+        var lowest: i32 = 0;
+        var highest: i32 = 0;
+        while (case_i < switch_br.data.cases_len) : (case_i += 1) {
+            const case = self.air.extraData(Air.SwitchBr.Case, extra_index);
+            const items = @bitCast([]const Air.Inst.Ref, self.air.extra[case.end..][0..case.data.items_len]);
+            const case_body = self.air.extra[case.end + items.len ..][0..case.data.body_len];
+            extra_index = case.end + items.len + case_body.len;
+            const values = try self.gpa.alloc(CaseValue, items.len);
+            errdefer self.gpa.free(values);
 
-        //    // create a block for each case, when the condition does not match we break out of it
-        //    try self.startBlock(.block, blocktype, null);
-        //    try self.emitWValue(target);
+            for (items) |ref, i| {
+                const item_val = self.air.value(ref).?;
+                const int_val = self.valueAsI32(item_val, target_ty);
+                if (int_val < lowest) {
+                    lowest = int_val;
+                }
+                if (int_val > highest) {
+                    highest = int_val;
+                }
+                values[i] = .{ .integer = int_val, .value = item_val };
+            }
 
-        //    const val = self.air.value(case.data.item).?;
-        //    try self.emitConstant(val, target_ty);
-        //    const opcode = buildOpcode(.{
-        //        .valtype1 = valtype,
-        //        .op = .ne, // not equal because we jump out the block if it does not match the condition
-        //        .signedness = signedness,
-        //    });
-        //    try self.code.append(wasm.opcode(opcode));
-        //    try self.code.append(wasm.opcode(.br_if));
-        //    try leb.writeULEB128(self.code.writer(), @as(u32, 0));
+            case_list.appendAssumeCapacity(.{ .values = values, .body = case_body });
+            try self.startBlock(.block, blocktype, null);
+        }
 
-        //    // emit our block code
-        //    try self.genBody(case_body);
+        // When the highest and lowest values are seperated by '50',
+        // we define it as sparse and use an if/else-chain, rather than a jump table.
+        // When the target is an integer size larger than u32, we have no way to use the value
+        // as an index, therefore we also use an if/else-chain for those cases.
+        // TODO: Benchmark this to find a proper value, LLVM seems to draw the line at '40~45'.
+        const is_sparse = highest - lowest > 50 or target_ty.bitSize(self.target) > 32;
 
-        //    // end the block we created earlier
-        //    try self.endBlock();
-        //}
+        const else_body = self.air.extra[extra_index..][0..switch_br.data.else_body_len];
+        const has_else_body = else_body.len != 0;
+        if (has_else_body) {
+            try self.startBlock(.block, blocktype, null);
+        }
 
-        //// finally, emit the else case if it exists. Here we will not have to
-        //// check for a condition, so also no need to emit a block.
-        //try self.genBody(else_body);
+        if (!is_sparse) {
+            // Generate the jump table 'br_table' when the prongs are not sparse.
+            // The value 'target' represents the index into the table.
+            // Each index in the table represents a label to the branch
+            // to jump to.
+            try self.startBlock(.block, blocktype, null);
+            try self.emitWValue(target);
+            if (lowest < 0) {
+                // since br_table works using indexes, starting from '0', we must ensure all values
+                // we put inside, are atleast 0.
+                try self.code.append(wasm.opcode(.i32_const));
+                try leb.writeILEB128(self.code.writer(), lowest * -1);
+                try self.code.append(wasm.opcode(.i32_add));
+            }
+            try self.code.append(wasm.opcode(.br_table));
+            const depth = highest - lowest + @boolToInt(has_else_body);
+            try leb.writeILEB128(self.code.writer(), depth);
+            while (lowest <= highest) : (lowest += 1) {
+                // idx represents the branch we jump to
+                const idx = blk: {
+                    for (case_list.items) |case, idx| {
+                        for (case.values) |case_value| {
+                            if (case_value.integer == lowest) break :blk @intCast(u32, idx);
+                        }
+                    }
+                    break :blk if (has_else_body) case_i else unreachable;
+                };
+                try leb.writeULEB128(self.code.writer(), idx);
+            } else if (has_else_body) {
+                try leb.writeULEB128(self.code.writer(), @as(u32, case_i)); // default branch
+            }
+            try self.endBlock();
+        }
 
-        //return .none;
+        const signedness: std.builtin.Signedness = blk: {
+            // by default we tell the operand type is unsigned (i.e. bools and enum values)
+            if (target_ty.zigTypeTag() != .Int) break :blk .unsigned;
+
+            // incase of an actual integer, we emit the correct signedness
+            break :blk target_ty.intInfo(self.target).signedness;
+        };
+
+        for (case_list.items) |case| {
+            // when sparse, we use if/else-chain, so emit conditional checks
+            if (is_sparse) {
+                // for single value prong we can emit a simple if
+                if (case.values.len == 1) {
+                    try self.emitWValue(target);
+                    try self.emitConstant(case.values[0].value, target_ty);
+                    const opcode = buildOpcode(.{
+                        .valtype1 = try self.typeToValtype(target_ty),
+                        .op = .ne, // not equal, because we want to jump out of this block if it does not match the condition.
+                        .signedness = signedness,
+                    });
+                    try self.code.append(wasm.opcode(opcode));
+                    try self.code.append(wasm.opcode(.br_if));
+                    try leb.writeULEB128(self.code.writer(), @as(u32, 0));
+                } else {
+                    // in multi-value prongs we must check if any prongs match the target value.
+                    try self.startBlock(.block, blocktype, null);
+                    for (case.values) |value| {
+                        try self.emitWValue(target);
+                        try self.emitConstant(value.value, target_ty);
+                        const opcode = buildOpcode(.{
+                            .valtype1 = try self.typeToValtype(target_ty),
+                            .op = .eq,
+                            .signedness = signedness,
+                        });
+                        try self.code.append(wasm.opcode(opcode));
+                        try self.code.append(wasm.opcode(.br_if));
+                        try leb.writeULEB128(self.code.writer(), @as(u32, 0));
+                    }
+                    // value did not match any of the prong values
+                    try self.code.append(wasm.opcode(.br));
+                    try leb.writeULEB128(self.code.writer(), @as(u32, 1));
+                    try self.endBlock();
+                }
+            }
+            try self.genBody(case.body);
+            try self.endBlock();
+        }
+
+        if (has_else_body) {
+            try self.genBody(else_body);
+            try self.endBlock();
+        }
+        return .none;
     }
 
     fn airIsErr(self: *Context, inst: Air.Inst.Index, opcode: wasm.Opcode) InnerError!WValue {
