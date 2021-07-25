@@ -9,6 +9,7 @@ const math = std.math;
 
 const Module = @import("../Module.zig");
 const TypedValue = @import("../TypedValue.zig");
+const Zir = @import("../Zir.zig");
 const Air = @import("../Air.zig");
 const Liveness = @import("../Liveness.zig");
 
@@ -488,9 +489,9 @@ pub const DeclGen = struct {
             llvm_param[i] = try self.getLLVMType(fn_param);
         }
 
-        const fn_type = llvm.Type.functionType(
+        const fn_type = llvm.functionType(
             try self.getLLVMType(return_type),
-            if (fn_param_len == 0) null else llvm_param.ptr,
+            llvm_param.ptr,
             @intCast(c_uint, fn_param_len),
             .False,
         );
@@ -750,7 +751,7 @@ pub const FuncGen = struct {
     fn genBody(self: *FuncGen, body: []const Air.Inst.Index) error{ OutOfMemory, CodegenFail }!void {
         const air_tags = self.air.instructions.items(.tag);
         for (body) |inst| {
-            const opt_value = switch (air_tags[inst]) {
+            const opt_value: ?*const llvm.Value = switch (air_tags[inst]) {
                 .add => try self.airAdd(inst),
                 .sub => try self.airSub(inst),
 
@@ -775,6 +776,7 @@ pub const FuncGen = struct {
                 .call => try self.airCall(inst),
                 .cond_br => try self.airCondBr(inst),
                 .intcast => try self.airIntCast(inst),
+                .ptrtoint => try self.airPtrToInt(inst),
                 .load => try self.airLoad(inst),
                 .loop => try self.airLoop(inst),
                 .not => try self.airNot(inst),
@@ -783,6 +785,7 @@ pub const FuncGen = struct {
                 .unreach => self.airUnreach(inst),
                 .optional_payload => try self.airOptionalPayload(inst, false),
                 .optional_payload_ptr => try self.airOptionalPayload(inst, true),
+                .assembly => try self.airAssembly(inst),
                 .dbg_stmt => blk: {
                     // TODO: implement debug info
                     break :blk null;
@@ -821,7 +824,7 @@ pub const FuncGen = struct {
             //       Do we need that?
             const call = self.builder.buildCall(
                 llvm_fn,
-                if (args.len == 0) null else llvm_param_vals.ptr,
+                llvm_param_vals.ptr,
                 @intCast(c_uint, args.len),
                 "",
             );
@@ -986,6 +989,128 @@ pub const FuncGen = struct {
         return null;
     }
 
+    fn airAssembly(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        // Eventually, the Zig compiler needs to be reworked to have inline assembly go
+        // through the same parsing code regardless of backend, and have LLVM-flavored
+        // inline assembly be *output* from that assembler.
+        // We don't have such an assembler implemented yet though. For now, this
+        // implementation feeds the inline assembly code directly to LLVM, same
+        // as stage1.
+
+        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+        const air_asm = self.air.extraData(Air.Asm, ty_pl.payload);
+        const zir = self.dg.decl.namespace.file_scope.zir;
+        const extended = zir.instructions.items(.data)[air_asm.data.zir_index].extended;
+        const zir_extra = zir.extraData(Zir.Inst.Asm, extended.operand);
+        const asm_source = zir.nullTerminatedString(zir_extra.data.asm_source);
+        const outputs_len = @truncate(u5, extended.small);
+        const args_len = @truncate(u5, extended.small >> 5);
+        const clobbers_len = @truncate(u5, extended.small >> 10);
+        const is_volatile = @truncate(u1, extended.small >> 15) != 0;
+        const outputs = @bitCast([]const Air.Inst.Ref, self.air.extra[air_asm.end..][0..outputs_len]);
+        const args = @bitCast([]const Air.Inst.Ref, self.air.extra[air_asm.end + outputs.len ..][0..args_len]);
+        if (outputs_len > 1) {
+            return self.todo("implement llvm codegen for asm with more than 1 output", .{});
+        }
+
+        var extra_i: usize = zir_extra.end;
+        const output_constraint: ?[]const u8 = out: {
+            var i: usize = 0;
+            while (i < outputs_len) : (i += 1) {
+                const output = zir.extraData(Zir.Inst.Asm.Output, extra_i);
+                extra_i = output.end;
+                break :out zir.nullTerminatedString(output.data.constraint);
+            }
+            break :out null;
+        };
+
+        if (!is_volatile and self.liveness.isUnused(inst)) {
+            return null;
+        }
+
+        var llvm_constraints: std.ArrayListUnmanaged(u8) = .{};
+        defer llvm_constraints.deinit(self.gpa);
+
+        var arena_allocator = std.heap.ArenaAllocator.init(self.gpa);
+        defer arena_allocator.deinit();
+        const arena = &arena_allocator.allocator;
+
+        const llvm_params_len = args.len + @boolToInt(output_constraint != null);
+        const llvm_param_types = try arena.alloc(*const llvm.Type, llvm_params_len);
+        const llvm_param_values = try arena.alloc(*const llvm.Value, llvm_params_len);
+
+        var llvm_param_i: usize = 0;
+        var total_i: usize = 0;
+
+        if (output_constraint) |constraint| {
+            try llvm_constraints.ensureUnusedCapacity(self.gpa, constraint.len + 1);
+            if (total_i != 0) {
+                llvm_constraints.appendAssumeCapacity(',');
+            }
+            llvm_constraints.appendSliceAssumeCapacity(constraint);
+
+            total_i += 1;
+        }
+
+        for (args) |arg| {
+            const input = zir.extraData(Zir.Inst.Asm.Input, extra_i);
+            extra_i = input.end;
+            const constraint = zir.nullTerminatedString(input.data.constraint);
+            const arg_llvm_value = try self.resolveInst(arg);
+
+            llvm_param_values[llvm_param_i] = arg_llvm_value;
+            llvm_param_types[llvm_param_i] = arg_llvm_value.typeOf();
+
+            try llvm_constraints.ensureUnusedCapacity(self.gpa, constraint.len + 1);
+            if (total_i != 0) {
+                llvm_constraints.appendAssumeCapacity(',');
+            }
+            llvm_constraints.appendSliceAssumeCapacity(constraint);
+
+            llvm_param_i += 1;
+            total_i += 1;
+        }
+
+        const clobbers = zir.extra[extra_i..][0..clobbers_len];
+        for (clobbers) |clobber_index| {
+            const clobber = zir.nullTerminatedString(clobber_index);
+            try llvm_constraints.ensureUnusedCapacity(self.gpa, clobber.len + 4);
+            if (total_i != 0) {
+                llvm_constraints.appendAssumeCapacity(',');
+            }
+            llvm_constraints.appendSliceAssumeCapacity("~{");
+            llvm_constraints.appendSliceAssumeCapacity(clobber);
+            llvm_constraints.appendSliceAssumeCapacity("}");
+
+            total_i += 1;
+        }
+
+        const ret_ty = self.air.typeOfIndex(inst);
+        const ret_llvm_ty = try self.dg.getLLVMType(ret_ty);
+        const llvm_fn_ty = llvm.functionType(
+            ret_llvm_ty,
+            llvm_param_types.ptr,
+            @intCast(c_uint, llvm_param_types.len),
+            .False,
+        );
+        const asm_fn = llvm.getInlineAsm(
+            llvm_fn_ty,
+            asm_source.ptr,
+            asm_source.len,
+            llvm_constraints.items.ptr,
+            llvm_constraints.items.len,
+            llvm.Bool.fromBool(is_volatile),
+            .False,
+            .ATT,
+        );
+        return self.builder.buildCall(
+            asm_fn,
+            llvm_param_values.ptr,
+            @intCast(c_uint, llvm_param_values.len),
+            "",
+        );
+    }
+
     fn airIsNonNull(self: *FuncGen, inst: Air.Inst.Index, operand_is_ptr: bool) !?*const llvm.Value {
         if (self.liveness.isUnused(inst))
             return null;
@@ -1087,6 +1212,16 @@ pub const FuncGen = struct {
         return self.builder.buildIntCast2(operand, try self.dg.getLLVMType(inst_ty), llvm.Bool.fromBool(signed), "");
     }
 
+    fn airPtrToInt(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst))
+            return null;
+
+        const un_op = self.air.instructions.items(.data)[inst].un_op;
+        const operand = try self.resolveInst(un_op);
+        const dest_llvm_ty = try self.dg.getLLVMType(self.air.typeOfIndex(inst));
+        return self.builder.buildPtrToInt(operand, dest_llvm_ty, "");
+    }
+
     fn airBitCast(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
         if (self.liveness.isUnused(inst))
             return null;
@@ -1168,7 +1303,7 @@ pub const FuncGen = struct {
     fn airBreakpoint(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
         _ = inst;
         const llvn_fn = self.getIntrinsic("llvm.debugtrap");
-        _ = self.builder.buildCall(llvn_fn, null, 0, "");
+        _ = self.builder.buildCall(llvn_fn, undefined, 0, "");
         return null;
     }
 

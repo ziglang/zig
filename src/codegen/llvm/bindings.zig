@@ -68,12 +68,12 @@ pub const Value = opaque {
 
     pub const getNextInstruction = LLVMGetNextInstruction;
     extern fn LLVMGetNextInstruction(Inst: *const Value) ?*const Value;
+
+    pub const typeOf = LLVMTypeOf;
+    extern fn LLVMTypeOf(Val: *const Value) *const Type;
 };
 
 pub const Type = opaque {
-    pub const functionType = LLVMFunctionType;
-    extern fn LLVMFunctionType(ReturnType: *const Type, ParamTypes: ?[*]*const Type, ParamCount: c_uint, IsVarArg: Bool) *const Type;
-
     pub const constNull = LLVMConstNull;
     extern fn LLVMConstNull(Ty: *const Type) *const Value;
 
@@ -152,6 +152,28 @@ extern fn LLVMGetParam(Fn: *const Value, Index: c_uint) *const Value;
 pub const getEnumAttributeKindForName = LLVMGetEnumAttributeKindForName;
 extern fn LLVMGetEnumAttributeKindForName(Name: [*]const u8, SLen: usize) c_uint;
 
+pub const getInlineAsm = LLVMGetInlineAsm;
+extern fn LLVMGetInlineAsm(
+    Ty: *const Type,
+    AsmString: [*]const u8,
+    AsmStringSize: usize,
+    Constraints: [*]const u8,
+    ConstraintsSize: usize,
+    HasSideEffects: Bool,
+    IsAlignStack: Bool,
+    Dialect: InlineAsmDialect,
+) *const Value;
+
+pub const functionType = LLVMFunctionType;
+extern fn LLVMFunctionType(
+    ReturnType: *const Type,
+    ParamTypes: [*]*const Type,
+    ParamCount: c_uint,
+    IsVarArg: Bool,
+) *const Type;
+
+pub const InlineAsmDialect = enum(c_uint) { ATT, Intel };
+
 pub const Attribute = opaque {};
 
 pub const Builder = opaque {
@@ -159,7 +181,11 @@ pub const Builder = opaque {
     extern fn LLVMDisposeBuilder(Builder: *const Builder) void;
 
     pub const positionBuilder = LLVMPositionBuilder;
-    extern fn LLVMPositionBuilder(Builder: *const Builder, Block: *const BasicBlock, Instr: *const Value) void;
+    extern fn LLVMPositionBuilder(
+        Builder: *const Builder,
+        Block: *const BasicBlock,
+        Instr: *const Value,
+    ) void;
 
     pub const positionBuilderAtEnd = LLVMPositionBuilderAtEnd;
     extern fn LLVMPositionBuilderAtEnd(Builder: *const Builder, Block: *const BasicBlock) void;
@@ -168,10 +194,23 @@ pub const Builder = opaque {
     extern fn LLVMGetInsertBlock(Builder: *const Builder) *const BasicBlock;
 
     pub const buildCall = LLVMBuildCall;
-    extern fn LLVMBuildCall(*const Builder, Fn: *const Value, Args: ?[*]*const Value, NumArgs: c_uint, Name: [*:0]const u8) *const Value;
+    extern fn LLVMBuildCall(
+        *const Builder,
+        Fn: *const Value,
+        Args: [*]*const Value,
+        NumArgs: c_uint,
+        Name: [*:0]const u8,
+    ) *const Value;
 
     pub const buildCall2 = LLVMBuildCall2;
-    extern fn LLVMBuildCall2(*const Builder, *const Type, Fn: *const Value, Args: [*]*const Value, NumArgs: c_uint, Name: [*:0]const u8) *const Value;
+    extern fn LLVMBuildCall2(
+        *const Builder,
+        *const Type,
+        Fn: *const Value,
+        Args: [*]*const Value,
+        NumArgs: c_uint,
+        Name: [*:0]const u8,
+    ) *const Value;
 
     pub const buildRetVoid = LLVMBuildRetVoid;
     extern fn LLVMBuildRetVoid(*const Builder) *const Value;
@@ -229,6 +268,9 @@ pub const Builder = opaque {
 
     pub const buildExtractValue = LLVMBuildExtractValue;
     extern fn LLVMBuildExtractValue(*const Builder, AggVal: *const Value, Index: c_uint, Name: [*:0]const u8) *const Value;
+
+    pub const buildPtrToInt = LLVMBuildPtrToInt;
+    extern fn LLVMBuildPtrToInt(*const Builder, Val: *const Value, DestTy: *const Type, Name: [*:0]const u8) *const Value;
 };
 
 pub const IntPredicate = enum(c_int) {
@@ -533,12 +575,6 @@ pub const ObjectFormatType = enum(c_int) {
     Wasm,
     XCOFF,
 };
-
-pub const GetHostCPUName = LLVMGetHostCPUName;
-extern fn LLVMGetHostCPUName() ?[*:0]u8;
-
-pub const GetNativeFeatures = ZigLLVMGetNativeFeatures;
-extern fn ZigLLVMGetNativeFeatures() ?[*:0]u8;
 
 pub const WriteArchive = ZigLLVMWriteArchive;
 extern fn ZigLLVMWriteArchive(
