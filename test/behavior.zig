@@ -105,6 +105,7 @@ test {
         _ = @import("behavior/inttoptr.zig");
         _ = @import("behavior/ir_block_deps.zig");
         _ = @import("behavior/math.zig");
+        _ = @import("behavior/maximum_minimum.zig");
         _ = @import("behavior/merge_error_sets.zig");
         _ = @import("behavior/misc.zig");
         _ = @import("behavior/muladd.zig");

@@ -448,6 +448,26 @@ bool mul_u64_overflow(uint64_t op1, uint64_t op2, uint64_t *result) {
 }
 #endif
 
+void bigint_max(BigInt* dest, const BigInt *op1, const BigInt *op2) {
+    switch (bigint_cmp(op1, op2)) {
+        case CmpEQ:
+        case CmpLT:
+            return bigint_init_bigint(dest, op2);
+        case CmpGT:
+            return bigint_init_bigint(dest, op1);
+    }
+}
+
+void bigint_min(BigInt* dest, const BigInt *op1, const BigInt *op2) {
+    switch (bigint_cmp(op1, op2)) {
+        case CmpEQ:
+        case CmpLT:
+            return bigint_init_bigint(dest, op1);
+        case CmpGT:
+            return bigint_init_bigint(dest, op2);
+    }
+}
+
 void bigint_add(BigInt *dest, const BigInt *op1, const BigInt *op2) {
     if (op1->digit_count == 0) {
         return bigint_init_bigint(dest, op2);

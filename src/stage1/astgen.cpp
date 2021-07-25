@@ -4686,6 +4686,21 @@ static Stage1ZirInst *astgen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, Ast
                     arg0_value, arg1_value);
                 return ir_lval_wrap(ag, scope, splat, lval, result_loc);
             }
+        case BuiltinFnIdMaximum:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
+                if (arg0_value == ag->codegen->invalid_inst_src)
+                    return arg0_value;
+
+                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
+                Stage1ZirInst *arg1_value = astgen_node(ag, arg1_node, scope);
+                if (arg1_value == ag->codegen->invalid_inst_src)
+                    return arg1_value;
+
+                Stage1ZirInst *bin_op = ir_build_bin_op(ag, scope, node, IrBinOpMaximum, arg0_value, arg1_value, true);
+                return ir_lval_wrap(ag, scope, bin_op, lval, result_loc);
+            }
         case BuiltinFnIdMemcpy:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
@@ -4725,6 +4740,21 @@ static Stage1ZirInst *astgen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, Ast
 
                 Stage1ZirInst *ir_memset = ir_build_memset_src(ag, scope, node, arg0_value, arg1_value, arg2_value);
                 return ir_lval_wrap(ag, scope, ir_memset, lval, result_loc);
+            }
+        case BuiltinFnIdMinimum:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
+                if (arg0_value == ag->codegen->invalid_inst_src)
+                    return arg0_value;
+
+                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
+                Stage1ZirInst *arg1_value = astgen_node(ag, arg1_node, scope);
+                if (arg1_value == ag->codegen->invalid_inst_src)
+                    return arg1_value;
+
+                Stage1ZirInst *bin_op = ir_build_bin_op(ag, scope, node, IrBinOpMinimum, arg0_value, arg1_value, true);
+                return ir_lval_wrap(ag, scope, bin_op, lval, result_loc);
             }
         case BuiltinFnIdWasmMemorySize:
             {

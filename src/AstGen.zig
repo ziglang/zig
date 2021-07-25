@@ -2098,8 +2098,10 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: ast.Node.Index) Inner
             .builtin_call,
             .field_ptr_type,
             .field_parent_ptr,
+            .maximum,
             .memcpy,
             .memset,
+            .minimum,
             .builtin_async_call,
             .c_import,
             .@"resume",
@@ -7223,6 +7225,25 @@ fn builtinCall(
             const result = try gz.addPlNode(.reduce, node, Zir.Inst.Bin{
                 .lhs = op,
                 .rhs = scalar,
+            });
+            return rvalue(gz, rl, result, node);
+        },
+
+        .maximum => {
+            const a = try expr(gz, scope, .none, params[0]);
+            const b = try expr(gz, scope, .none, params[1]);
+            const result = try gz.addPlNode(.maximum, node, Zir.Inst.Bin{
+                .lhs = a,
+                .rhs = b,
+            });
+            return rvalue(gz, rl, result, node);
+        },
+        .minimum => {
+            const a = try expr(gz, scope, .none, params[0]);
+            const b = try expr(gz, scope, .none, params[1]);
+            const result = try gz.addPlNode(.minimum, node, Zir.Inst.Bin{
+                .lhs = a,
+                .rhs = b,
             });
             return rvalue(gz, rl, result, node);
         },

@@ -346,8 +346,10 @@ pub fn analyzeBody(
             .builtin_call                 => try sema.zirBuiltinCall(block, inst),
             .field_ptr_type               => try sema.zirFieldPtrType(block, inst),
             .field_parent_ptr             => try sema.zirFieldParentPtr(block, inst),
+            .maximum                      => try sema.zirMaximum(block, inst),
             .memcpy                       => try sema.zirMemcpy(block, inst),
             .memset                       => try sema.zirMemset(block, inst),
+            .minimum                      => try sema.zirMinimum(block, inst),
             .builtin_async_call           => try sema.zirBuiltinAsyncCall(block, inst),
             .@"resume"                    => try sema.zirResume(block, inst),
             .@"await"                     => try sema.zirAwait(block, inst, false),
@@ -6148,6 +6150,12 @@ fn zirFieldParentPtr(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) Com
     return sema.mod.fail(&block.base, src, "TODO: Sema.zirFieldParentPtr", .{});
 }
 
+fn zirMaximum(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const src = inst_data.src();
+    return sema.mod.fail(&block.base, src, "TODO: Sema.zirMaximum", .{});
+}
+
 fn zirMemcpy(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
@@ -6158,6 +6166,12 @@ fn zirMemset(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileErro
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
     return sema.mod.fail(&block.base, src, "TODO: Sema.zirMemset", .{});
+}
+
+fn zirMinimum(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const src = inst_data.src();
+    return sema.mod.fail(&block.base, src, "TODO: Sema.zirMinimum", .{});
 }
 
 fn zirBuiltinAsyncCall(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {

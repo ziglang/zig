@@ -3311,6 +3311,108 @@ static void float_mod(ZigValue *out_val, ZigValue *op1, ZigValue *op2) {
     }
 }
 
+static void float_max(ZigValue *out_val, ZigValue *op1, ZigValue *op2) {
+    assert(op1->type == op2->type);
+    out_val->type = op1->type;
+    if (op1->type->id == ZigTypeIdComptimeFloat) {
+        bigfloat_max(&out_val->data.x_bigfloat, &op1->data.x_bigfloat, &op2->data.x_bigfloat);
+    } else if (op1->type->id == ZigTypeIdFloat) {
+        switch (op1->type->data.floating.bit_count) {
+            case 16:
+                if (zig_f16_isNaN(op1->data.x_f16)) {
+                    out_val->data.x_f16 = op2->data.x_f16;
+                } else if (zig_f16_isNaN(op2->data.x_f16)) {
+                    out_val->data.x_f16 = op1->data.x_f16;
+                } else {
+                    out_val->data.x_f16 = f16_lt(op1->data.x_f16, op2->data.x_f16) ? op2->data.x_f16 : op1->data.x_f16;
+                }
+                return;
+            case 32:
+                if (op1->data.x_f32 != op1->data.x_f32) {
+                    out_val->data.x_f32 = op2->data.x_f32;
+                } else if (op2->data.x_f32 != op2->data.x_f32) {
+                    out_val->data.x_f32 = op1->data.x_f32;
+                } else {
+                    out_val->data.x_f32 = op1->data.x_f32 > op2->data.x_f32 ? op1->data.x_f32 : op2->data.x_f32;
+                }
+                return;
+            case 64:
+                if (op1->data.x_f64 != op1->data.x_f64) {
+                    out_val->data.x_f64 = op2->data.x_f64;
+                } else if (op2->data.x_f64 != op2->data.x_f64) {
+                    out_val->data.x_f64 = op1->data.x_f64;
+                } else {
+                    out_val->data.x_f64 = op1->data.x_f64 > op2->data.x_f64 ? op1->data.x_f64 : op2->data.x_f64;
+                }
+                return;
+            case 128:
+                if (zig_f128_isNaN(&op1->data.x_f128)) {
+                    out_val->data.x_f128 = op2->data.x_f128;
+                } else if (zig_f128_isNaN(&op2->data.x_f128)) {
+                    out_val->data.x_f128 = op1->data.x_f128;
+                } else {
+                    out_val->data.x_f128 = f128M_lt(&op1->data.x_f128, &op2->data.x_f128) ? op2->data.x_f128 : op1->data.x_f128;
+                }
+                return;
+            default:
+                zig_unreachable();
+        }
+    } else {
+        zig_unreachable();
+    }
+}
+
+static void float_min(ZigValue *out_val, ZigValue *op1, ZigValue *op2) {
+    assert(op1->type == op2->type);
+    out_val->type = op1->type;
+    if (op1->type->id == ZigTypeIdComptimeFloat) {
+        bigfloat_min(&out_val->data.x_bigfloat, &op1->data.x_bigfloat, &op2->data.x_bigfloat);
+    } else if (op1->type->id == ZigTypeIdFloat) {
+        switch (op1->type->data.floating.bit_count) {
+            case 16:
+                if (zig_f16_isNaN(op1->data.x_f16)) {
+                    out_val->data.x_f16 = op2->data.x_f16;
+                } else if (zig_f16_isNaN(op2->data.x_f16)) {
+                    out_val->data.x_f16 = op1->data.x_f16;
+                } else {
+                    out_val->data.x_f16 = f16_lt(op1->data.x_f16, op2->data.x_f16) ? op1->data.x_f16 : op2->data.x_f16;
+                }
+                return;
+            case 32:
+                if (op1->data.x_f32 != op1->data.x_f32) {
+                    out_val->data.x_f32 = op2->data.x_f32;
+                } else if (op2->data.x_f32 != op2->data.x_f32) {
+                    out_val->data.x_f32 = op1->data.x_f32;
+                } else {
+                    out_val->data.x_f32 = op1->data.x_f32 < op2->data.x_f32 ? op1->data.x_f32 : op2->data.x_f32;
+                }
+                return;
+            case 64:
+                if (op1->data.x_f64 != op1->data.x_f64) {
+                    out_val->data.x_f64 = op2->data.x_f64;
+                } else if (op2->data.x_f64 != op2->data.x_f64) {
+                    out_val->data.x_f64 = op1->data.x_f64;
+                } else {
+                    out_val->data.x_f64 = op1->data.x_f32 < op2->data.x_f64 ? op1->data.x_f64 : op2->data.x_f64;
+                }
+                return;
+            case 128:
+                if (zig_f128_isNaN(&op1->data.x_f128)) {
+                    out_val->data.x_f128 = op2->data.x_f128;
+                } else if (zig_f128_isNaN(&op2->data.x_f128)) {
+                    out_val->data.x_f128 = op1->data.x_f128;
+                } else {
+                    out_val->data.x_f128 = f128M_lt(&op1->data.x_f128, &op2->data.x_f128) ? op1->data.x_f128 : op2->data.x_f128;
+                }
+                return;
+            default:
+                zig_unreachable();
+        }
+    } else {
+        zig_unreachable();
+    }
+}
+
 static void float_negate(ZigValue *out_val, ZigValue *op) {
     out_val->type = op->type;
     if (op->type->id == ZigTypeIdComptimeFloat) {
@@ -9704,6 +9806,20 @@ static ErrorMsg *ir_eval_math_op_scalar(IrAnalyze *ira, Scope *scope, AstNode *s
                 float_mod(out_val, op1_val, op2_val);
             }
             break;
+        case IrBinOpMaximum:
+            if (is_int) {
+                bigint_max(&out_val->data.x_bigint, &op1_val->data.x_bigint, &op2_val->data.x_bigint);
+            } else {
+                float_max(out_val, op1_val, op2_val);
+            }
+            break;
+        case IrBinOpMinimum:
+            if (is_int) {
+                bigint_min(&out_val->data.x_bigint, &op1_val->data.x_bigint, &op2_val->data.x_bigint);
+            } else {
+                float_min(out_val, op1_val, op2_val);
+            }
+            break;
     }
 
     if (type_entry->id == ZigTypeIdInt) {
@@ -9904,6 +10020,8 @@ static bool ok_float_op(IrBinOp op) {
         case IrBinOpRemRem:
         case IrBinOpRemMod:
         case IrBinOpRemUnspecified:
+        case IrBinOpMaximum:
+        case IrBinOpMinimum:
             return true;
 
         case IrBinOpBoolOr:
@@ -10894,6 +11012,8 @@ static Stage1AirInst *ir_analyze_instruction_bin_op(IrAnalyze *ira, Stage1ZirIns
         case IrBinOpRemUnspecified:
         case IrBinOpRemRem:
         case IrBinOpRemMod:
+        case IrBinOpMaximum:
+        case IrBinOpMinimum:
             return ir_analyze_bin_op_math(ira, bin_op_instruction);
         case IrBinOpArrayCat:
             return ir_analyze_array_cat(ira, bin_op_instruction);

@@ -1796,6 +1796,8 @@ enum BuiltinFnId {
     BuiltinFnIdWasmMemoryGrow,
     BuiltinFnIdSrc,
     BuiltinFnIdReduce,
+    BuiltinFnIdMaximum,
+    BuiltinFnIdMinimum,
 };
 
 struct BuiltinFnEntry {
@@ -2938,6 +2940,8 @@ enum IrBinOp {
     IrBinOpRemMod,
     IrBinOpArrayCat,
     IrBinOpArrayMult,
+    IrBinOpMaximum,
+    IrBinOpMinimum,
 };
 
 struct Stage1ZirInstBinOp {
