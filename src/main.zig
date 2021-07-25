@@ -3574,7 +3574,7 @@ pub const ClangArgIterator = struct {
     argv: []const []const u8,
     next_index: usize,
     root_args: ?*Args,
-    allocator: *Allocator,
+    arena: *Allocator,
 
     pub const ZigEquivalent = enum {
         target,
@@ -3626,7 +3626,8 @@ pub const ClangArgIterator = struct {
         argv: []const []const u8,
     };
 
-    fn init(allocator: *Allocator, argv: []const []const u8) ClangArgIterator {
+    /// arena must be a std.heap.ArenaAllocator as this does not free anything allocated with it.
+    fn init(arena: *Allocator, argv: []const []const u8) ClangArgIterator {
         return .{
             .next_index = 2, // `zig cc foo` this points to `foo`
             .has_next = argv.len > 2,
@@ -3636,7 +3637,7 @@ pub const ClangArgIterator = struct {
             .other_args = undefined,
             .argv = argv,
             .root_args = null,
-            .allocator = allocator,
+            .arena = arena,
         };
     }
 
@@ -3647,7 +3648,7 @@ pub const ClangArgIterator = struct {
         // rather than an argument to a parameter.
         // We adjust the len below when necessary.
         self.other_args = (self.argv.ptr + self.next_index)[0..1];
-        var arg = mem.span(self.argv[self.next_index]);
+        var arg = self.argv[self.next_index];
         self.incrementArgIndex();
 
         if (mem.startsWith(u8, arg, "@")) {
@@ -3655,49 +3656,44 @@ pub const ClangArgIterator = struct {
 
             // This is a "compiler response file". We must parse the file and treat its
             // contents as command line parameters.
-            const allocator = self.allocator;
-            const max_bytes = 10 * 1024 * 1024; // 10 MiB of command line arguments is a reasonable limit
-            const resp_file_path = arg[1..];
-            const resp_contents = fs.cwd().readFileAlloc(allocator, resp_file_path, max_bytes) catch |err| {
-                fatal("unable to read response file '{s}': {s}", .{ resp_file_path, @errorName(err) });
-            };
-            defer allocator.free(resp_contents);
-            // TODO is there a specification for this file format? Let's find it and make this parsing more robust
-            // at the very least I'm guessing this needs to handle quotes and `#` comments.
-            var it = mem.tokenize(u8, resp_contents, " \t\r\n");
-            var resp_arg_list = std.ArrayList([]const u8).init(allocator);
-            defer resp_arg_list.deinit();
-            {
-                errdefer {
-                    for (resp_arg_list.items) |item| {
-                        allocator.free(mem.span(item));
-                    }
-                }
-                while (it.next()) |token| {
-                    const dupe_token = try mem.dupeZ(allocator, u8, token);
-                    errdefer allocator.free(dupe_token);
-                    try resp_arg_list.append(dupe_token);
-                }
-                const args = try allocator.create(Args);
-                errdefer allocator.destroy(args);
-                args.* = .{
-                    .next_index = self.next_index,
-                    .argv = self.argv,
-                };
-                self.root_args = args;
+            const arg_z = try self.arena.dupeZ(u8, arg);
+            var tokens: [*][*:0]u8 = undefined;
+            var token_count: usize = undefined;
+            // placing this inside the if causes https://github.com/ziglang/zig/issues/9600
+            // but since the false branch is noreturn it is safe to put here
+            defer {
+                for (tokens[0..token_count]) |tok| std.c.free(tok);
+                std.c.free(@ptrCast(*c_void, tokens));
             }
-            const resp_arg_slice = resp_arg_list.toOwnedSlice();
-            self.next_index = 0;
-            self.argv = resp_arg_slice;
+            const llvm = @import("codegen/llvm/bindings.zig");
+            const resp_args = if (llvm.ExpandResponseFile(arg_z, &tokens, &token_count)) resp_args: {
+                const resp_args = try self.arena.alloc([]const u8, token_count);
+                for (tokens[0..token_count]) |tok, i| {
+                    resp_args[i] = try self.arena.dupe(u8, mem.sliceTo(tok, 0));
+                }
+                break :resp_args resp_args;
+            } else {
+                fatal("unable to expand response file '{s}'", .{arg});
+            };
 
-            if (resp_arg_slice.len == 0) {
+            const args = try self.arena.create(Args);
+            args.* = .{
+                .next_index = self.next_index,
+                .argv = self.argv,
+            };
+            self.root_args = args;
+
+            self.next_index = 0;
+            self.argv = resp_args;
+
+            if (resp_args.len == 0) {
                 self.resolveRespFileArgs();
                 return;
             }
 
             self.has_next = true;
             self.other_args = (self.argv.ptr + self.next_index)[0..1]; // We adjust len below when necessary.
-            arg = mem.span(self.argv[self.next_index]);
+            arg = self.argv[self.next_index];
             self.incrementArgIndex();
         }
         if (mem.eql(u8, arg, "-") or !mem.startsWith(u8, arg, "-")) {
@@ -3799,13 +3795,10 @@ pub const ClangArgIterator = struct {
     }
 
     fn resolveRespFileArgs(self: *ClangArgIterator) void {
-        const allocator = self.allocator;
         if (self.next_index >= self.argv.len) {
             if (self.root_args) |root_args| {
                 self.next_index = root_args.next_index;
                 self.argv = root_args.argv;
-
-                allocator.destroy(root_args);
                 self.root_args = null;
             }
             if (self.next_index >= self.argv.len) {

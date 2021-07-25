@@ -14,6 +14,7 @@
  */
 
 #include "zig_llvm.h"
+#include "heap.hpp"
 
 #if __GNUC__ >= 9
 #pragma GCC diagnostic push
@@ -187,6 +188,25 @@ unsigned ZigLLVMDataLayoutGetStackAlignment(LLVMTargetDataRef TD) {
 
 unsigned ZigLLVMDataLayoutGetProgramAddressSpace(LLVMTargetDataRef TD) {
     return unwrap(TD)->getProgramAddressSpace();
+}
+
+bool ZigLLVMExpandResponseFile(const char *response_file, char ***tokens, size_t *token_count) {
+    BumpPtrAllocator alloc;
+    StringSaver saver(alloc);
+    SmallVector<const char *> new_argv;
+    SmallVector<const char *> argv{nullptr, response_file};
+    if (cl::expandResponseFiles(argv.size(), argv.data(), nullptr, saver, new_argv)) {
+         *token_count = new_argv.size();
+         *tokens = static_cast<char **>(mem::os::malloc(sizeof(char *) * *token_count));
+         for (size_t i = 0; i < *token_count; i++) {
+             const auto& new_arg = new_argv[i];
+             size_t len = strlen(new_arg) + 1;
+             (*tokens)[i] = static_cast<char *>(mem::os::malloc(len));
+             memcpy((*tokens)[i], new_arg, len);
+         }
+         return true;
+    }
+    return false;
 }
 
 namespace {

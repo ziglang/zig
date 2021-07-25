@@ -539,4 +539,7 @@ ZIG_EXTERN_C void ZigLLVMGetNativeTarget(enum ZigLLVM_ArchType *arch_type,
 ZIG_EXTERN_C unsigned ZigLLVMDataLayoutGetStackAlignment(LLVMTargetDataRef TD);
 ZIG_EXTERN_C unsigned ZigLLVMDataLayoutGetProgramAddressSpace(LLVMTargetDataRef TD);
 
+ZIG_EXTERN_C bool ZigLLVMExpandResponseFile(const char *response_file, char ***tokens,
+        size_t *token_count);
+
 #endif

@@ -908,7 +908,7 @@ pub const WriteImportLibrary = ZigLLVMWriteImportLibrary;
 extern fn ZigLLVMWriteImportLibrary(
     def_path: [*:0]const u8,
     arch: ArchType,
-    output_lib_path: [*c]const u8,
+    output_lib_path: [*:0]const u8,
     kill_at: bool,
 ) bool;
 
@@ -931,3 +931,10 @@ pub const Linkage = enum(c_uint) {
     LinkerPrivate,
     LinkerPrivateWeak,
 };
+
+pub const ExpandResponseFile = ZigLLVMExpandResponseFile;
+extern fn ZigLLVMExpandResponseFile(
+    response_file: [*:0]const u8,
+    tokens: *[*][*:0]u8,
+    token_count: *usize,
+) bool;
