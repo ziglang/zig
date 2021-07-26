@@ -5070,6 +5070,7 @@ static LLVMValueRef get_int_builtin_fn(CodeGen *g, ZigType *expr_type, BuiltinFn
         n_args = 1;
         key.id = ZigLLVMFnIdPopCount;
         key.data.pop_count.bit_count = (uint32_t)int_type->data.integral.bit_count;
+        key.data.pop_count.vector_len = vector_len;
     } else if (fn_id == BuiltinFnIdBswap) {
         fn_name = "bswap";
         n_args = 1;

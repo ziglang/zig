@@ -7366,18 +7366,20 @@ pub const CallOptions = struct {
       {#header_close#}
 
       {#header_open|@clz#}
-      <pre>{#syntax#}@clz(comptime T: type, integer: T){#endsyntax#}</pre>
+      <pre>{#syntax#}@clz(comptime T: type, operand: T){#endsyntax#}</pre>
+      <p>{#syntax#}T{#endsyntax#} must be an integer type.</p>
+      <p>{#syntax#}operand{#endsyntax#} may be an {#link|integer|Integers#} or {#link|vector|Vectors#}.</p>
       <p>
-      This function counts the number of most-significant (leading in a big-Endian sense) zeroes in {#syntax#}integer{#endsyntax#}.
+      This function counts the number of most-significant (leading in a big-Endian sense) zeroes in an integer.
       </p>
       <p>
-      If {#syntax#}integer{#endsyntax#} is known at {#link|comptime#},
+      If {#syntax#}operand{#endsyntax#} is a {#link|comptime#}-known integer,
       the return type is {#syntax#}comptime_int{#endsyntax#}.
-      Otherwise, the return type is an unsigned integer with the minimum number
+      Otherwise, the return type is an unsigned integer or vector of unsigned integers with the minimum number
       of bits that can represent the bit count of the integer type.
       </p>
       <p>
-      If {#syntax#}integer{#endsyntax#} is zero, {#syntax#}@clz{#endsyntax#} returns the bit width
+      If {#syntax#}operand{#endsyntax#} is zero, {#syntax#}@clz{#endsyntax#} returns the bit width
       of integer type {#syntax#}T{#endsyntax#}.
       </p>
       {#see_also|@ctz|@popCount#}
@@ -7509,18 +7511,20 @@ test "main" {
       {#header_close#}
 
       {#header_open|@ctz#}
-      <pre>{#syntax#}@ctz(comptime T: type, integer: T){#endsyntax#}</pre>
+      <pre>{#syntax#}@ctz(comptime T: type, operand: T){#endsyntax#}</pre>
+      <p>{#syntax#}T{#endsyntax#} must be an integer type.</p>
+      <p>{#syntax#}operand{#endsyntax#} may be an {#link|integer|Integers#} or {#link|vector|Vectors#}.</p>
       <p>
-      This function counts the number of least-significant (trailing in a big-Endian sense) zeroes in {#syntax#}integer{#endsyntax#}.
+      This function counts the number of least-significant (trailing in a big-Endian sense) zeroes in an integer.
       </p>
       <p>
-      If {#syntax#}integer{#endsyntax#} is known at {#link|comptime#},
+      If {#syntax#}operand{#endsyntax#} is a {#link|comptime#}-known integer,
       the return type is {#syntax#}comptime_int{#endsyntax#}.
-      Otherwise, the return type is an unsigned integer with the minimum number
+      Otherwise, the return type is an unsigned integer or vector of unsigned integers with the minimum number
       of bits that can represent the bit count of the integer type.
       </p>
       <p>
-      If {#syntax#}integer{#endsyntax#} is zero, {#syntax#}@ctz{#endsyntax#} returns
+      If {#syntax#}operand{#endsyntax#} is zero, {#syntax#}@ctz{#endsyntax#} returns
       the bit width of integer type {#syntax#}T{#endsyntax#}.
       </p>
       {#see_also|@clz|@popCount#}
@@ -8105,12 +8109,14 @@ test "@wasmMemoryGrow" {
       {#header_close#}
 
       {#header_open|@popCount#}
-      <pre>{#syntax#}@popCount(comptime T: type, integer: T){#endsyntax#}</pre>
+      <pre>{#syntax#}@popCount(comptime T: type, operand: T){#endsyntax#}</pre>
+      <p>{#syntax#}T{#endsyntax#} must be an integer type.</p>
+      <p>{#syntax#}operand{#endsyntax#} may be an {#link|integer|Integers#} or {#link|vector|Vectors#}.</p>
       <p>Counts the number of bits set in an integer.</p>
       <p>
-      If {#syntax#}integer{#endsyntax#} is known at {#link|comptime#},
+      If {#syntax#}operand{#endsyntax#} is a {#link|comptime#}-known integer,
       the return type is {#syntax#}comptime_int{#endsyntax#}.
-      Otherwise, the return type is an unsigned integer with the minimum number
+      Otherwise, the return type is an unsigned integer or vector of unsigned integers with the minimum number
       of bits that can represent the bit count of the integer type.
       </p>
       {#see_also|@ctz|@clz#}

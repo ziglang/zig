@@ -7883,11 +7883,14 @@ bool type_id_eql(TypeId const *a, TypeId const *b) {
 uint32_t zig_llvm_fn_key_hash(ZigLLVMFnKey const *x) {
     switch (x->id) {
         case ZigLLVMFnIdCtz:
-            return (uint32_t)(x->data.ctz.bit_count) * (uint32_t)810453934;
+            return (uint32_t)(x->data.ctz.bit_count) * (uint32_t)810453934 +
+                   (uint32_t)(x->data.ctz.vector_len) * (((uint32_t)x->id << 5) + 1025);
         case ZigLLVMFnIdClz:
-            return (uint32_t)(x->data.clz.bit_count) * (uint32_t)2428952817;
+            return (uint32_t)(x->data.clz.bit_count) * (uint32_t)2428952817 +
+                   (uint32_t)(x->data.clz.vector_len) * (((uint32_t)x->id << 5) + 1025);
         case ZigLLVMFnIdPopCount:
-            return (uint32_t)(x->data.clz.bit_count) * (uint32_t)101195049;
+            return (uint32_t)(x->data.pop_count.bit_count) * (uint32_t)101195049 +
+                   (uint32_t)(x->data.pop_count.vector_len) * (((uint32_t)x->id << 5) + 1025);
         case ZigLLVMFnIdFloatOp:
             return (uint32_t)(x->data.floating.bit_count) * ((uint32_t)x->id + 1025) +
                    (uint32_t)(x->data.floating.vector_len) * (((uint32_t)x->id << 5) + 1025) +
