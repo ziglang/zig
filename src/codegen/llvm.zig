@@ -486,11 +486,11 @@ pub const DeclGen = struct {
         defer self.gpa.free(llvm_param);
 
         for (fn_param_types) |fn_param, i| {
-            llvm_param[i] = try self.getLLVMType(fn_param);
+            llvm_param[i] = try self.llvmType(fn_param);
         }
 
         const fn_type = llvm.functionType(
-            try self.getLLVMType(return_type),
+            try self.llvmType(return_type),
             llvm_param.ptr,
             @intCast(c_uint, fn_param_len),
             .False,
@@ -510,8 +510,8 @@ pub const DeclGen = struct {
 
         assert(decl.has_tv);
 
-        // TODO: remove this redundant `getLLVMType`, it is also called in `genTypedValue`.
-        const llvm_type = try self.getLLVMType(decl.ty);
+        // TODO: remove this redundant `llvmType`, it is also called in `genTypedValue`.
+        const llvm_type = try self.llvmType(decl.ty);
         const val = try self.genTypedValue(.{ .ty = decl.ty, .val = decl.val }, null);
         const global = self.llvmModule().addGlobal(llvm_type, decl.name);
         llvm.setInitializer(global, val);
@@ -522,8 +522,8 @@ pub const DeclGen = struct {
         return global;
     }
 
-    fn getLLVMType(self: *DeclGen, t: Type) error{ OutOfMemory, CodegenFail }!*const llvm.Type {
-        log.debug("getLLVMType for {}", .{t});
+    fn llvmType(self: *DeclGen, t: Type) error{ OutOfMemory, CodegenFail }!*const llvm.Type {
+        log.debug("llvmType for {}", .{t});
         switch (t.zigTypeTag()) {
             .Void => return self.context().voidType(),
             .NoReturn => return self.context().voidType(),
@@ -536,12 +536,12 @@ pub const DeclGen = struct {
                 if (t.isSlice()) {
                     return self.todo("implement slices", .{});
                 } else {
-                    const elem_type = try self.getLLVMType(t.elemType());
+                    const elem_type = try self.llvmType(t.elemType());
                     return elem_type.pointerType(0);
                 }
             },
             .Array => {
-                const elem_type = try self.getLLVMType(t.elemType());
+                const elem_type = try self.llvmType(t.elemType());
                 return elem_type.arrayType(@intCast(c_uint, t.abiSize(self.module.getTarget())));
             },
             .Optional => {
@@ -550,7 +550,7 @@ pub const DeclGen = struct {
                     const child_type = t.optionalChild(&buf);
 
                     var optional_types: [2]*const llvm.Type = .{
-                        try self.getLLVMType(child_type),
+                        try self.llvmType(child_type),
                         self.context().intType(1),
                     };
                     return self.context().structType(&optional_types, 2, .False);
@@ -578,13 +578,13 @@ pub const DeclGen = struct {
             .Frame,
             .AnyFrame,
             .Vector,
-            => return self.todo("implement getLLVMType for type '{}'", .{t}),
+            => return self.todo("implement llvmType for type '{}'", .{t}),
         }
     }
 
     // TODO: figure out a way to remove the FuncGen argument
     fn genTypedValue(self: *DeclGen, tv: TypedValue, fg: ?*FuncGen) error{ OutOfMemory, CodegenFail }!*const llvm.Value {
-        const llvm_type = try self.getLLVMType(tv.ty);
+        const llvm_type = try self.llvmType(tv.ty);
 
         if (tv.val.isUndef())
             return llvm_type.getUndef();
@@ -611,7 +611,7 @@ pub const DeclGen = struct {
                     const decl = tv.val.castTag(.decl_ref).?.data;
                     const val = try self.resolveGlobalDecl(decl);
 
-                    const usize_type = try self.getLLVMType(Type.initTag(.usize));
+                    const usize_type = try self.llvmType(Type.initTag(.usize));
 
                     // TODO: second index should be the index into the memory!
                     var indices: [2]*const llvm.Value = .{
@@ -625,7 +625,7 @@ pub const DeclGen = struct {
                 .ref_val => {
                     const elem_value = tv.val.castTag(.ref_val).?.data;
                     const elem_type = tv.ty.castPointer().?.data;
-                    const alloca = fg.?.buildAlloca(try self.getLLVMType(elem_type));
+                    const alloca = fg.?.buildAlloca(try self.llvmType(elem_type));
                     _ = fg.?.builder.buildStore(try self.genTypedValue(.{ .ty = elem_type, .val = elem_value }, fg), alloca);
                     return alloca;
                 },
@@ -647,7 +647,7 @@ pub const DeclGen = struct {
                 if (!tv.ty.isPtrLikeOptional()) {
                     var buf: Type.Payload.ElemType = undefined;
                     const child_type = tv.ty.optionalChild(&buf);
-                    const llvm_child_type = try self.getLLVMType(child_type);
+                    const llvm_child_type = try self.llvmType(child_type);
 
                     if (tv.val.tag() == .null_value) {
                         var optional_values: [2]*const llvm.Value = .{
@@ -909,7 +909,7 @@ pub const FuncGen = struct {
         const inst_ty = self.air.typeOfIndex(inst);
         if (!inst_ty.hasCodeGenBits()) return null;
 
-        const phi_node = self.builder.buildPhi(try self.dg.getLLVMType(inst_ty), "");
+        const phi_node = self.builder.buildPhi(try self.dg.llvmType(inst_ty), "");
         phi_node.addIncoming(
             break_vals.items.ptr,
             break_bbs.items.ptr,
@@ -1086,7 +1086,7 @@ pub const FuncGen = struct {
         }
 
         const ret_ty = self.air.typeOfIndex(inst);
-        const ret_llvm_ty = try self.dg.getLLVMType(ret_ty);
+        const ret_llvm_ty = try self.dg.llvmType(ret_ty);
         const llvm_fn_ty = llvm.functionType(
             ret_llvm_ty,
             llvm_param_types.ptr,
@@ -1209,7 +1209,7 @@ pub const FuncGen = struct {
         const signed = inst_ty.isSignedInt();
         // TODO: Should we use intcast here or just a simple bitcast?
         //       LLVM does truncation vs bitcast (+signed extension) in the intcast depending on the sizes
-        return self.builder.buildIntCast2(operand, try self.dg.getLLVMType(inst_ty), llvm.Bool.fromBool(signed), "");
+        return self.builder.buildIntCast2(operand, try self.dg.llvmType(inst_ty), llvm.Bool.fromBool(signed), "");
     }
 
     fn airPtrToInt(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
@@ -1218,7 +1218,7 @@ pub const FuncGen = struct {
 
         const un_op = self.air.instructions.items(.data)[inst].un_op;
         const operand = try self.resolveInst(un_op);
-        const dest_llvm_ty = try self.dg.getLLVMType(self.air.typeOfIndex(inst));
+        const dest_llvm_ty = try self.dg.llvmType(self.air.typeOfIndex(inst));
         return self.builder.buildPtrToInt(operand, dest_llvm_ty, "");
     }
 
@@ -1229,7 +1229,7 @@ pub const FuncGen = struct {
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         const operand = try self.resolveInst(ty_op.operand);
         const inst_ty = self.air.typeOfIndex(inst);
-        const dest_type = try self.dg.getLLVMType(inst_ty);
+        const dest_type = try self.dg.llvmType(inst_ty);
 
         return self.builder.buildBitCast(operand, dest_type, "");
     }
@@ -1239,7 +1239,7 @@ pub const FuncGen = struct {
         self.arg_index += 1;
 
         const inst_ty = self.air.typeOfIndex(inst);
-        const ptr_val = self.buildAlloca(try self.dg.getLLVMType(inst_ty));
+        const ptr_val = self.buildAlloca(try self.dg.llvmType(inst_ty));
         _ = self.builder.buildStore(arg_val, ptr_val);
         return self.builder.buildLoad(ptr_val, "");
     }
@@ -1254,7 +1254,7 @@ pub const FuncGen = struct {
 
         // TODO: figure out a way to get the name of the var decl.
         // TODO: set alignment and volatile
-        return self.buildAlloca(try self.dg.getLLVMType(pointee_type));
+        return self.buildAlloca(try self.dg.llvmType(pointee_type));
     }
 
     /// Use this instead of builder.buildAlloca, because this function makes sure to
