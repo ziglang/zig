@@ -1913,6 +1913,7 @@ struct ZigLLVMFnKey {
         } clz;
         struct {
             uint32_t bit_count;
+            uint32_t vector_len; // 0 means not a vector
         } pop_count;
         struct {
             BuiltinFnId op;
