@@ -8794,6 +8794,9 @@ static void define_builtin_types(CodeGen *g) {
         case ZigLLVM_sparcv9:
             add_fp_entry(g, "c_longdouble", 128, LLVMFP128Type(), &g->builtin_types.entry_c_longdouble);
             break;
+        case ZigLLVM_systemz:
+            add_fp_entry(g, "c_longdouble", 128, LLVMDoubleType(), &g->builtin_types.entry_c_longdouble);
+            break;
         case ZigLLVM_avr:
             // It's either a float or a double, depending on a toolchain switch
             add_fp_entry(g, "c_longdouble", 64, LLVMDoubleType(), &g->builtin_types.entry_c_longdouble);
