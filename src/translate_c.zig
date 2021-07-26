@@ -1969,7 +1969,7 @@ fn transBuiltinFnExpr(c: *Context, scope: *Scope, expr: *const clang.Expr, used:
     const node = try transExpr(c, scope, expr, used);
     if (node.castTag(.identifier)) |ident| {
         const name = ident.data;
-        if (!isBuiltinDefined(name)) return fail(c, error.UnsupportedTranslation, expr.getBeginLoc(), "TODO implement function '{s}' in std.c.builtins", .{name});
+        if (!isBuiltinDefined(name)) return fail(c, error.UnsupportedTranslation, expr.getBeginLoc(), "TODO implement function '{s}' in std.zig.c_builtins", .{name});
     }
     return node;
 }
@@ -5574,7 +5574,7 @@ fn parseCPrimaryExprInner(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!N
         .Identifier => {
             const mangled_name = scope.getAlias(slice);
             if (mem.startsWith(u8, mangled_name, "__builtin_") and !isBuiltinDefined(mangled_name)) {
-                try m.fail(c, "TODO implement function '{s}' in std.c.builtins", .{mangled_name});
+                try m.fail(c, "TODO implement function '{s}' in std.zig.c_builtins", .{mangled_name});
                 return error.ParseError;
             }
             const identifier = try Tag.identifier.create(c.arena, builtin_typedef_map.get(mangled_name) orelse mangled_name);

@@ -1243,7 +1243,7 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
         \\}
     , "");
 
-    // See __builtin_alloca_with_align comment in std.c.builtins
+    // See __builtin_alloca_with_align comment in std.zig.c_builtins
     cases.add("use of unimplemented builtin in unused function does not prevent compilation",
         \\#include <stdlib.h>
         \\void unused() {
