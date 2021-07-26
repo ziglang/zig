@@ -43,17 +43,32 @@ pub fn isSep(byte: u8) bool {
 fn joinSepMaybeZ(allocator: *Allocator, separator: u8, sepPredicate: fn (u8) bool, paths: []const []const u8, zero: bool) ![]u8 {
     if (paths.len == 0) return if (zero) try allocator.dupe(u8, &[1]u8{0}) else &[0]u8{};
 
+    // Find first non-empty path index.
+    const first_path_index = blk: {
+        for (paths) |path, index| {
+            if (path.len == 0) continue else break :blk index;
+        }
+
+        // All paths provided were empty, so return early.
+        return if (zero) try allocator.dupe(u8, &[1]u8{0}) else &[0]u8{};
+    };
+
+    // Calculate length needed for resulting joined path buffer.
     const total_len = blk: {
-        var sum: usize = paths[0].len;
-        var i: usize = 1;
+        var sum: usize = paths[first_path_index].len;
+        var prev_path = paths[first_path_index];
+        assert(prev_path.len > 0);
+        var i: usize = first_path_index + 1;
         while (i < paths.len) : (i += 1) {
-            const prev_path = paths[i - 1];
             const this_path = paths[i];
-            const prev_sep = (prev_path.len != 0 and sepPredicate(prev_path[prev_path.len - 1]));
-            const this_sep = (this_path.len != 0 and sepPredicate(this_path[0]));
+            if (this_path.len == 0) continue;
+            const prev_sep = sepPredicate(prev_path[prev_path.len - 1]);
+            const this_sep = sepPredicate(this_path[0]);
             sum += @boolToInt(!prev_sep and !this_sep);
             sum += if (prev_sep and this_sep) this_path.len - 1 else this_path.len;
+            prev_path = this_path;
         }
+
         if (zero) sum += 1;
         break :blk sum;
     };
@@ -61,14 +76,16 @@ fn joinSepMaybeZ(allocator: *Allocator, separator: u8, sepPredicate: fn (u8) boo
     const buf = try allocator.alloc(u8, total_len);
     errdefer allocator.free(buf);
 
-    mem.copy(u8, buf, paths[0]);
-    var buf_index: usize = paths[0].len;
-    var i: usize = 1;
+    mem.copy(u8, buf, paths[first_path_index]);
+    var buf_index: usize = paths[first_path_index].len;
+    var prev_path = paths[first_path_index];
+    assert(prev_path.len > 0);
+    var i: usize = first_path_index + 1;
     while (i < paths.len) : (i += 1) {
-        const prev_path = paths[i - 1];
         const this_path = paths[i];
-        const prev_sep = (prev_path.len != 0 and sepPredicate(prev_path[prev_path.len - 1]));
-        const this_sep = (this_path.len != 0 and sepPredicate(this_path[0]));
+        if (this_path.len == 0) continue;
+        const prev_sep = sepPredicate(prev_path[prev_path.len - 1]);
+        const this_sep = sepPredicate(this_path[0]);
         if (!prev_sep and !this_sep) {
             buf[buf_index] = separator;
             buf_index += 1;
@@ -76,6 +93,7 @@ fn joinSepMaybeZ(allocator: *Allocator, separator: u8, sepPredicate: fn (u8) boo
         const adjusted_path = if (prev_sep and this_sep) this_path[1..] else this_path;
         mem.copy(u8, buf[buf_index..], adjusted_path);
         buf_index += adjusted_path.len;
+        prev_path = this_path;
     }
 
     if (zero) buf[buf.len - 1] = 0;
@@ -148,6 +166,10 @@ test "join" {
         try testJoinMaybeZWindows(&[_][]const u8{ "c:\\", "a", "b/", "c" }, "c:\\a\\b/c", zero);
         try testJoinMaybeZWindows(&[_][]const u8{ "c:\\a/", "b\\", "/c" }, "c:\\a/b\\c", zero);
 
+        try testJoinMaybeZWindows(&[_][]const u8{ "", "c:\\", "", "", "a", "b\\", "c", "" }, "c:\\a\\b\\c", zero);
+        try testJoinMaybeZWindows(&[_][]const u8{ "c:\\a/", "", "b\\", "", "/c" }, "c:\\a/b\\c", zero);
+        try testJoinMaybeZWindows(&[_][]const u8{ "", "" }, "", zero);
+
         try testJoinMaybeZPosix(&[_][]const u8{}, "", zero);
         try testJoinMaybeZPosix(&[_][]const u8{ "/a/b", "c" }, "/a/b/c", zero);
         try testJoinMaybeZPosix(&[_][]const u8{ "/a/b/", "c" }, "/a/b/c", zero);
@@ -163,6 +185,10 @@ test "join" {
 
         try testJoinMaybeZPosix(&[_][]const u8{ "a", "/c" }, "a/c", zero);
         try testJoinMaybeZPosix(&[_][]const u8{ "a/", "/c" }, "a/c", zero);
+
+        try testJoinMaybeZPosix(&[_][]const u8{ "", "/", "a", "", "b/", "c", "" }, "/a/b/c", zero);
+        try testJoinMaybeZPosix(&[_][]const u8{ "/a/", "", "", "b/", "c" }, "/a/b/c", zero);
+        try testJoinMaybeZPosix(&[_][]const u8{ "", "" }, "", zero);
     }
 }
 
