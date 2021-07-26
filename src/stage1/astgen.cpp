@@ -196,6 +196,8 @@ void destroy_instruction_src(Stage1ZirInst *inst) {
             return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstVectorType *>(inst));
         case Stage1ZirInstIdShuffleVector:
             return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstShuffleVector *>(inst));
+        case Stage1ZirInstIdSelect:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstSelect *>(inst));
         case Stage1ZirInstIdSplat:
             return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstSplat *>(inst));
         case Stage1ZirInstIdBoolNot:
@@ -649,6 +651,10 @@ static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstVectorType *) {
 
 static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstShuffleVector *) {
     return Stage1ZirInstIdShuffleVector;
+}
+
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstSelect *) {
+    return Stage1ZirInstIdSelect;
 }
 
 static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstSplat *) {
@@ -2033,6 +2039,22 @@ static Stage1ZirInst *ir_build_shuffle_vector(Stage1AstGen *ag, Scope *scope, As
     ir_ref_instruction(a, ag->current_basic_block);
     ir_ref_instruction(b, ag->current_basic_block);
     ir_ref_instruction(mask, ag->current_basic_block);
+
+    return &instruction->base;
+}
+
+static Stage1ZirInst *ir_build_select(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+    Stage1ZirInst *scalar_type, Stage1ZirInst *pred, Stage1ZirInst *a, Stage1ZirInst *b)
+{
+    Stage1ZirInstSelect *instruction = ir_build_instruction<Stage1ZirInstSelect>(ag, scope, source_node);
+    instruction->scalar_type = scalar_type;
+    instruction->pred = pred;
+    instruction->a = a;
+    instruction->b = b;
+
+    ir_ref_instruction(pred, ag->current_basic_block);
+    ir_ref_instruction(a, ag->current_basic_block);
+    ir_ref_instruction(b, ag->current_basic_block);
 
     return &instruction->base;
 }
@@ -4618,6 +4640,35 @@ static Stage1ZirInst *astgen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, Ast
                 Stage1ZirInst *shuffle_vector = ir_build_shuffle_vector(ag, scope, node,
                     arg0_value, arg1_value, arg2_value, arg3_value);
                 return ir_lval_wrap(ag, scope, shuffle_vector, lval, result_loc);
+            }
+        case BuiltinFnIdSelect:
+            {
+                // Used for the type expr
+                Scope *comptime_scope = create_comptime_scope(ag->codegen, node, scope);
+
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, comptime_scope);
+                if (arg0_value == ag->codegen->invalid_inst_src)
+                    return arg0_value;
+
+                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
+                Stage1ZirInst *arg1_value = astgen_node(ag, arg1_node, scope);
+                if (arg0_value == ag->codegen->invalid_inst_src)
+                    return arg1_value;
+
+                AstNode *arg2_node = node->data.fn_call_expr.params.at(2);
+                Stage1ZirInst *arg2_value = astgen_node(ag, arg2_node, scope);
+                if (arg1_value == ag->codegen->invalid_inst_src)
+                    return arg2_value;
+
+                AstNode *arg3_node = node->data.fn_call_expr.params.at(3);
+                Stage1ZirInst *arg3_value = astgen_node(ag, arg3_node, scope);
+                if (arg2_value == ag->codegen->invalid_inst_src)
+                    return arg3_value;
+
+                Stage1ZirInst *select = ir_build_select(ag, scope, node,
+                    arg0_value, arg1_value, arg2_value, arg3_value);
+                return ir_lval_wrap(ag, scope, select, lval, result_loc);
             }
         case BuiltinFnIdSplat:
             {

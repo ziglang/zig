@@ -355,6 +355,8 @@ void destroy_instruction_gen(Stage1AirInst *inst) {
             return heap::c_allocator.destroy(reinterpret_cast<Stage1AirInstTruncate *>(inst));
         case Stage1AirInstIdShuffleVector:
             return heap::c_allocator.destroy(reinterpret_cast<Stage1AirInstShuffleVector *>(inst));
+        case Stage1AirInstIdSelect:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1AirInstSelect *>(inst));
         case Stage1AirInstIdSplat:
             return heap::c_allocator.destroy(reinterpret_cast<Stage1AirInstSplat *>(inst));
         case Stage1AirInstIdBoolNot:
@@ -899,6 +901,10 @@ static constexpr Stage1AirInstId ir_inst_id(Stage1AirInstTruncate *) {
 
 static constexpr Stage1AirInstId ir_inst_id(Stage1AirInstShuffleVector *) {
     return Stage1AirInstIdShuffleVector;
+}
+
+static constexpr Stage1AirInstId ir_inst_id(Stage1AirInstSelect *) {
+    return Stage1AirInstIdSelect;
 }
 
 static constexpr Stage1AirInstId ir_inst_id(Stage1AirInstSplat *) {
@@ -1752,6 +1758,22 @@ static Stage1AirInst *ir_build_shuffle_vector_gen(IrAnalyze *ira, Scope *scope, 
     ir_ref_inst_gen(a);
     ir_ref_inst_gen(b);
     ir_ref_inst_gen(mask);
+
+    return &inst->base;
+}
+
+static Stage1AirInst *ir_build_select_gen(IrAnalyze *ira, Scope *scope, AstNode *source_node,
+        ZigType *result_type, Stage1AirInst *pred, Stage1AirInst *a, Stage1AirInst *b)
+{
+    Stage1AirInstSelect *inst = ir_build_inst_gen<Stage1AirInstSelect>(&ira->new_irb, scope, source_node);
+    inst->base.value->type = result_type;
+    inst->pred = pred;
+    inst->a = a;
+    inst->b = b;
+
+    ir_ref_inst_gen(pred);
+    ir_ref_inst_gen(a);
+    ir_ref_inst_gen(b);
 
     return &inst->base;
 }
@@ -20164,6 +20186,100 @@ static Stage1AirInst *ir_analyze_instruction_shuffle_vector(IrAnalyze *ira, Stag
     return ir_analyze_shuffle_vector(ira, instruction->base.scope, instruction->base.source_node, scalar_type, a, b, mask);
 }
 
+static Stage1AirInst *ir_analyze_instruction_select(IrAnalyze *ira, Stage1ZirInstSelect *instruction) {
+    Error err;
+
+    ZigType *scalar_type = ir_resolve_vector_elem_type(ira, instruction->scalar_type->child);
+    if (type_is_invalid(scalar_type))
+        return ira->codegen->invalid_inst_gen;
+
+    if ((err = ir_validate_vector_elem_type(ira, instruction->base.source_node, scalar_type)))
+        return ira->codegen->invalid_inst_gen;
+
+    Stage1AirInst *pred = instruction->pred->child;
+    if (type_is_invalid(pred->value->type))
+        return ira->codegen->invalid_inst_gen;
+
+    Stage1AirInst *a = instruction->a->child;
+    if (type_is_invalid(a->value->type))
+        return ira->codegen->invalid_inst_gen;
+
+    Stage1AirInst *b = instruction->b->child;
+    if (type_is_invalid(b->value->type))
+        return ira->codegen->invalid_inst_gen;
+
+    if (pred->value->type->id != ZigTypeIdVector) {
+        ir_add_error(ira, pred,
+                buf_sprintf("expected vector type, found '%s'",
+                    buf_ptr(&pred->value->type->name)));
+        return ira->codegen->invalid_inst_gen;
+    }
+
+    uint32_t pred_len = pred->value->type->data.vector.len;
+    pred = ir_implicit_cast(ira, pred, get_vector_type(ira->codegen, pred_len,
+                ira->codegen->builtin_types.entry_bool));
+    if (type_is_invalid(pred->value->type))
+        return ira->codegen->invalid_inst_gen;
+
+    if (a->value->type->id != ZigTypeIdVector) {
+        ir_add_error(ira, a,
+                buf_sprintf("expected vector type, found '%s'",
+                    buf_ptr(&a->value->type->name)));
+        return ira->codegen->invalid_inst_gen;
+    }
+
+    if (b->value->type->id != ZigTypeIdVector) {
+        ir_add_error(ira, b,
+                buf_sprintf("expected vector type, found '%s'",
+                    buf_ptr(&b->value->type->name)));
+        return ira->codegen->invalid_inst_gen;
+    }
+
+    ZigType *result_type = get_vector_type(ira->codegen, pred_len, scalar_type);
+
+    a = ir_implicit_cast(ira, a, result_type);
+    if (type_is_invalid(a->value->type))
+        return ira->codegen->invalid_inst_gen;
+
+    b = ir_implicit_cast(ira, b, result_type);
+    if (type_is_invalid(a->value->type))
+        return ira->codegen->invalid_inst_gen;
+
+    if (instr_is_comptime(pred) && instr_is_comptime(a) && instr_is_comptime(b)) {
+        ZigValue *pred_val = ir_resolve_const(ira, pred, UndefBad);
+        if (pred_val == nullptr)
+            return ira->codegen->invalid_inst_gen;
+
+        ZigValue *a_val = ir_resolve_const(ira, a, UndefBad);
+        if (a_val == nullptr)
+            return ira->codegen->invalid_inst_gen;
+
+        ZigValue *b_val = ir_resolve_const(ira, b, UndefBad);
+        if (b_val == nullptr)
+            return ira->codegen->invalid_inst_gen;
+
+        expand_undef_array(ira->codegen, a_val);
+        expand_undef_array(ira->codegen, b_val);
+
+        Stage1AirInst *result = ir_const(ira, instruction->base.scope, instruction->base.source_node, result_type);
+        result->value->data.x_array.data.s_none.elements = ira->codegen->pass1_arena->allocate<ZigValue>(pred_len);
+
+        for (uint64_t i = 0; i < pred_len; i += 1) {
+            ZigValue *dst_elem_val = &result->value->data.x_array.data.s_none.elements[i];
+            ZigValue *pred_elem_val = &pred_val->data.x_array.data.s_none.elements[i];
+            ZigValue *a_elem_val = &a_val->data.x_array.data.s_none.elements[i];
+            ZigValue *b_elem_val = &b_val->data.x_array.data.s_none.elements[i];
+            ZigValue *result_elem_val = pred_elem_val->data.x_bool ? a_elem_val : b_elem_val;
+            copy_const_val(ira->codegen, dst_elem_val, result_elem_val);
+        }
+
+        result->value->special = ConstValSpecialStatic;
+        return result;
+    }
+
+    return ir_build_select_gen(ira, instruction->base.scope, instruction->base.source_node, result_type, pred, a, b);
+}
+
 static Stage1AirInst *ir_analyze_instruction_splat(IrAnalyze *ira, Stage1ZirInstSplat *instruction) {
     Error err;
 
@@ -24441,7 +24557,9 @@ static Stage1AirInst *ir_analyze_instruction_base(IrAnalyze *ira, Stage1ZirInst 
             return ir_analyze_instruction_vector_type(ira, (Stage1ZirInstVectorType *)instruction);
         case Stage1ZirInstIdShuffleVector:
             return ir_analyze_instruction_shuffle_vector(ira, (Stage1ZirInstShuffleVector *)instruction);
-         case Stage1ZirInstIdSplat:
+        case Stage1ZirInstIdSelect:
+            return ir_analyze_instruction_select(ira, (Stage1ZirInstSelect *)instruction);
+        case Stage1ZirInstIdSplat:
             return ir_analyze_instruction_splat(ira, (Stage1ZirInstSplat *)instruction);
         case Stage1ZirInstIdBoolNot:
             return ir_analyze_instruction_bool_not(ira, (Stage1ZirInstBoolNot *)instruction);
@@ -24777,6 +24895,7 @@ bool ir_inst_gen_has_side_effects(Stage1AirInst *instruction) {
         case Stage1AirInstIdUnionTag:
         case Stage1AirInstIdTruncate:
         case Stage1AirInstIdShuffleVector:
+        case Stage1AirInstIdSelect:
         case Stage1AirInstIdSplat:
         case Stage1AirInstIdBoolNot:
         case Stage1AirInstIdReturnAddress:
@@ -24930,6 +25049,7 @@ bool ir_inst_src_has_side_effects(Stage1ZirInst *instruction) {
         case Stage1ZirInstIdTruncate:
         case Stage1ZirInstIdVectorType:
         case Stage1ZirInstIdShuffleVector:
+        case Stage1ZirInstIdSelect:
         case Stage1ZirInstIdSplat:
         case Stage1ZirInstIdBoolNot:
         case Stage1ZirInstIdSlice:
@@ -25597,7 +25717,7 @@ static Error ir_resolve_lazy_recurse_array(AstNode *source_node, ZigValue *val, 
 
 static Error ir_resolve_lazy_recurse(AstNode *source_node, ZigValue *val) {
     Error err;
-    if ((err = ir_resolve_lazy_raw(source_node, val))) 
+    if ((err = ir_resolve_lazy_raw(source_node, val)))
         return err;
     assert(val->special != ConstValSpecialRuntime);
     assert(val->special != ConstValSpecialLazy);

@@ -69,6 +69,7 @@ pub const Tag = enum {
     ptr_to_int,
     rem,
     return_address,
+    select,
     set_align_stack,
     set_cold,
     set_eval_branch_quota,
@@ -599,6 +600,13 @@ pub const list = list: {
             .{
                 .tag = .return_address,
                 .param_count = 0,
+            },
+        },
+        .{
+            "@select",
+            .{
+                .tag = .select,
+                .param_count = 4,
             },
         },
         .{

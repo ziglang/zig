@@ -2090,6 +2090,7 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: ast.Node.Index) Inner
             .splat,
             .reduce,
             .shuffle,
+            .select,
             .atomic_load,
             .atomic_rmw,
             .atomic_store,
@@ -7372,6 +7373,15 @@ fn builtinCall(
                 .a = try expr(gz, scope, .none, params[1]),
                 .b = try expr(gz, scope, .none, params[2]),
                 .mask = try comptimeExpr(gz, scope, .none, params[3]),
+            });
+            return rvalue(gz, rl, result, node);
+        },
+        .select => {
+            const result = try gz.addPlNode(.select, node, Zir.Inst.Select{
+                .elem_type = try typeExpr(gz, scope, params[0]),
+                .pred = try expr(gz, scope, .none, params[1]),
+                .a = try expr(gz, scope, .none, params[2]),
+                .b = try expr(gz, scope, .none, params[3]),
             });
             return rvalue(gz, rl, result, node);
         },

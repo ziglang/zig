@@ -5144,6 +5144,13 @@ static LLVMValueRef ir_render_shuffle_vector(CodeGen *g, Stage1Air *executable, 
         llvm_mask_value, "");
 }
 
+static LLVMValueRef ir_render_select(CodeGen *g, Stage1Air *executable, Stage1AirInstSelect *instruction) {
+    LLVMValueRef pred = ir_llvm_value(g, instruction->pred);
+    LLVMValueRef a = ir_llvm_value(g, instruction->a);
+    LLVMValueRef b = ir_llvm_value(g, instruction->b);
+    return LLVMBuildSelect(g->builder, pred, a, b, "");
+}
+
 static LLVMValueRef ir_render_splat(CodeGen *g, Stage1Air *executable, Stage1AirInstSplat *instruction) {
     ZigType *result_type = instruction->base.value->type;
     ir_assert(result_type->id == ZigTypeIdVector, &instruction->base);
@@ -6997,6 +7004,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, Stage1Air *executable, Sta
             return ir_render_spill_end(g, executable, (Stage1AirInstSpillEnd *)instruction);
         case Stage1AirInstIdShuffleVector:
             return ir_render_shuffle_vector(g, executable, (Stage1AirInstShuffleVector *) instruction);
+        case Stage1AirInstIdSelect:
+            return ir_render_select(g, executable, (Stage1AirInstSelect *) instruction);
         case Stage1AirInstIdSplat:
             return ir_render_splat(g, executable, (Stage1AirInstSplat *) instruction);
         case Stage1AirInstIdVectorExtractElem:
@@ -8902,6 +8911,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdCompileLog, "compileLog", SIZE_MAX);
     create_builtin_fn(g, BuiltinFnIdVectorType, "Vector", 2);
     create_builtin_fn(g, BuiltinFnIdShuffle, "shuffle", 4);
+    create_builtin_fn(g, BuiltinFnIdSelect, "select", 4);
     create_builtin_fn(g, BuiltinFnIdSplat, "splat", 2);
     create_builtin_fn(g, BuiltinFnIdSetCold, "setCold", 1);
     create_builtin_fn(g, BuiltinFnIdSetRuntimeSafety, "setRuntimeSafety", 1);

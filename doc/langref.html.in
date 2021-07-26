@@ -7125,6 +7125,7 @@ fn func(y: *i32) void {
       an integer or an enum.
       </p>
       {#header_close#}
+
       {#header_open|@bitCast#}
       <pre>{#syntax#}@bitCast(comptime DestType: type, value: anytype) DestType{#endsyntax#}</pre>
       <p>
@@ -8171,6 +8172,15 @@ test "@wasmMemoryGrow" {
       a calling function, the returned address will apply to the calling function.
       </p>
       {#header_close#}
+
+      {#header_open|@select#}
+      <pre>{#syntax#}@select(comptime T: type, pred: std.meta.Vector(len, bool), a: std.meta.Vector(len, T), b: std.meta.Vector(len, T)) std.meta.Vector(len, T){#endsyntax#}</pre>
+      <p>
+      Selects values element-wise from {#syntax#}a{#endsyntax#} or {#syntax#}b{#endsyntax#} based on {#syntax#}pred{#endsyntax#}. If {#syntax#}pred[i]{#endsyntax#} is {#syntax#}true{#endsyntax#}, the corresponding element in the result will be {#syntax#}a[i]{#endsyntax#} and otherwise {#syntax#}b[i]{#endsyntax#}.
+      </p>
+      {#see_also|SIMD|Vectors#}
+      {#header_close#}
+
       {#header_open|@setAlignStack#}
       <pre>{#syntax#}@setAlignStack(comptime alignment: u29){#endsyntax#}</pre>
       <p>
