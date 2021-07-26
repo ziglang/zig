@@ -15945,16 +15945,42 @@ static Stage1AirInst *ir_analyze_instruction_optional_unwrap_ptr(IrAnalyze *ira,
 }
 
 static Stage1AirInst *ir_analyze_instruction_ctz(IrAnalyze *ira, Stage1ZirInstCtz *instruction) {
+    Error err;
+    
     ZigType *int_type = ir_resolve_int_type(ira, instruction->type->child);
     if (type_is_invalid(int_type))
         return ira->codegen->invalid_inst_gen;
 
-    Stage1AirInst *op = ir_implicit_cast(ira, instruction->op->child, int_type);
+    Stage1AirInst *uncasted_op = instruction->op->child;
+    if (type_is_invalid(uncasted_op->value->type))
+        return ira->codegen->invalid_inst_gen;
+
+    uint32_t vector_len = UINT32_MAX; // means not a vector
+    if (uncasted_op->value->type->id == ZigTypeIdArray) {
+        bool can_be_vec_elem;
+        if ((err = is_valid_vector_elem_type(ira->codegen, uncasted_op->value->type->data.array.child_type,
+                        &can_be_vec_elem)))
+        {
+            return ira->codegen->invalid_inst_gen;
+        }
+        if (can_be_vec_elem) {
+            vector_len = uncasted_op->value->type->data.array.len;
+        }
+    } else if (uncasted_op->value->type->id == ZigTypeIdVector) {
+        vector_len = uncasted_op->value->type->data.vector.len;
+    }
+
+    bool is_vector = (vector_len != UINT32_MAX);
+    ZigType *op_type = is_vector ? get_vector_type(ira->codegen, vector_len, int_type) : int_type;
+
+    Stage1AirInst *op = ir_implicit_cast(ira, uncasted_op, op_type);
     if (type_is_invalid(op->value->type))
         return ira->codegen->invalid_inst_gen;
 
     if (int_type->data.integral.bit_count == 0)
         return ir_const_unsigned(ira, instruction->base.scope, instruction->base.source_node, 0);
+
+    ZigType *smallest_type = get_smallest_unsigned_int_type(ira->codegen, int_type->data.integral.bit_count);
 
     if (instr_is_comptime(op)) {
         ZigValue *val = ir_resolve_const(ira, op, UndefOk);
@@ -15962,25 +15988,75 @@ static Stage1AirInst *ir_analyze_instruction_ctz(IrAnalyze *ira, Stage1ZirInstCt
             return ira->codegen->invalid_inst_gen;
         if (val->special == ConstValSpecialUndef)
             return ir_const_undef(ira, instruction->base.scope, instruction->base.source_node, ira->codegen->builtin_types.entry_num_lit_int);
-        size_t result_usize = bigint_ctz(&op->value->data.x_bigint, int_type->data.integral.bit_count);
-        return ir_const_unsigned(ira, instruction->base.scope, instruction->base.source_node, result_usize);
+        
+        if (is_vector) {
+            ZigType *smallest_vec_type = get_vector_type(ira->codegen, vector_len, smallest_type);
+            Stage1AirInst *result = ir_const(ira, instruction->base.scope, instruction->base.source_node, smallest_vec_type);
+            expand_undef_array(ira->codegen, val);
+            result->value->data.x_array.data.s_none.elements = ira->codegen->pass1_arena->allocate<ZigValue>(smallest_vec_type->data.vector.len);
+            for (unsigned i = 0; i < smallest_vec_type->data.vector.len; i += 1) {
+                ZigValue *op_elem_val = &val->data.x_array.data.s_none.elements[i];
+                if ((err = ir_resolve_const_val(ira->codegen, ira->new_irb.exec, instruction->base.source_node,
+                    op_elem_val, UndefOk)))
+                {
+                    return ira->codegen->invalid_inst_gen;
+                }
+                ZigValue *result_elem_val = &result->value->data.x_array.data.s_none.elements[i];
+                result_elem_val->type = smallest_type;
+                result_elem_val->special = op_elem_val->special;
+                if (op_elem_val->special == ConstValSpecialUndef)
+                    continue;
+                size_t value = bigint_ctz(&op_elem_val->data.x_bigint, int_type->data.integral.bit_count);
+                bigint_init_unsigned(&result->value->data.x_array.data.s_none.elements[i].data.x_bigint, value);
+            }
+            return result;
+        } else {
+            size_t result_usize = bigint_ctz(&op->value->data.x_bigint, int_type->data.integral.bit_count);
+            return ir_const_unsigned(ira, instruction->base.scope, instruction->base.source_node, result_usize);
+        }
     }
 
-    ZigType *return_type = get_smallest_unsigned_int_type(ira->codegen, int_type->data.integral.bit_count);
+    ZigType *return_type = is_vector ? get_vector_type(ira->codegen, vector_len, smallest_type) : smallest_type;
     return ir_build_ctz_gen(ira, instruction->base.scope, instruction->base.source_node, return_type, op);
 }
 
 static Stage1AirInst *ir_analyze_instruction_clz(IrAnalyze *ira, Stage1ZirInstClz *instruction) {
+    Error err;
+    
     ZigType *int_type = ir_resolve_int_type(ira, instruction->type->child);
     if (type_is_invalid(int_type))
         return ira->codegen->invalid_inst_gen;
 
-    Stage1AirInst *op = ir_implicit_cast(ira, instruction->op->child, int_type);
+    Stage1AirInst *uncasted_op = instruction->op->child;
+    if (type_is_invalid(uncasted_op->value->type))
+        return ira->codegen->invalid_inst_gen;
+
+    uint32_t vector_len = UINT32_MAX; // means not a vector
+    if (uncasted_op->value->type->id == ZigTypeIdArray) {
+        bool can_be_vec_elem;
+        if ((err = is_valid_vector_elem_type(ira->codegen, uncasted_op->value->type->data.array.child_type,
+                        &can_be_vec_elem)))
+        {
+            return ira->codegen->invalid_inst_gen;
+        }
+        if (can_be_vec_elem) {
+            vector_len = uncasted_op->value->type->data.array.len;
+        }
+    } else if (uncasted_op->value->type->id == ZigTypeIdVector) {
+        vector_len = uncasted_op->value->type->data.vector.len;
+    }
+
+    bool is_vector = (vector_len != UINT32_MAX);
+    ZigType *op_type = is_vector ? get_vector_type(ira->codegen, vector_len, int_type) : int_type;
+
+    Stage1AirInst *op = ir_implicit_cast(ira, uncasted_op, op_type);
     if (type_is_invalid(op->value->type))
         return ira->codegen->invalid_inst_gen;
 
     if (int_type->data.integral.bit_count == 0)
         return ir_const_unsigned(ira, instruction->base.scope, instruction->base.source_node, 0);
+
+    ZigType *smallest_type = get_smallest_unsigned_int_type(ira->codegen, int_type->data.integral.bit_count);
 
     if (instr_is_comptime(op)) {
         ZigValue *val = ir_resolve_const(ira, op, UndefOk);
@@ -15988,11 +16064,35 @@ static Stage1AirInst *ir_analyze_instruction_clz(IrAnalyze *ira, Stage1ZirInstCl
             return ira->codegen->invalid_inst_gen;
         if (val->special == ConstValSpecialUndef)
             return ir_const_undef(ira, instruction->base.scope, instruction->base.source_node, ira->codegen->builtin_types.entry_num_lit_int);
-        size_t result_usize = bigint_clz(&op->value->data.x_bigint, int_type->data.integral.bit_count);
-        return ir_const_unsigned(ira, instruction->base.scope, instruction->base.source_node, result_usize);
+        
+        if (is_vector) {
+            ZigType *smallest_vec_type = get_vector_type(ira->codegen, vector_len, smallest_type);
+            Stage1AirInst *result = ir_const(ira, instruction->base.scope, instruction->base.source_node, smallest_vec_type);
+            expand_undef_array(ira->codegen, val);
+            result->value->data.x_array.data.s_none.elements = ira->codegen->pass1_arena->allocate<ZigValue>(smallest_vec_type->data.vector.len);
+            for (unsigned i = 0; i < smallest_vec_type->data.vector.len; i += 1) {
+                ZigValue *op_elem_val = &val->data.x_array.data.s_none.elements[i];
+                if ((err = ir_resolve_const_val(ira->codegen, ira->new_irb.exec, instruction->base.source_node,
+                    op_elem_val, UndefOk)))
+                {
+                    return ira->codegen->invalid_inst_gen;
+                }
+                ZigValue *result_elem_val = &result->value->data.x_array.data.s_none.elements[i];
+                result_elem_val->type = smallest_type;
+                result_elem_val->special = op_elem_val->special;
+                if (op_elem_val->special == ConstValSpecialUndef)
+                    continue;
+                size_t value = bigint_clz(&op_elem_val->data.x_bigint, int_type->data.integral.bit_count);
+                bigint_init_unsigned(&result->value->data.x_array.data.s_none.elements[i].data.x_bigint, value);
+            }
+            return result;
+        } else {
+            size_t result_usize = bigint_clz(&op->value->data.x_bigint, int_type->data.integral.bit_count);
+            return ir_const_unsigned(ira, instruction->base.scope, instruction->base.source_node, result_usize);
+        }
     }
 
-    ZigType *return_type = get_smallest_unsigned_int_type(ira->codegen, int_type->data.integral.bit_count);
+    ZigType *return_type = is_vector ? get_vector_type(ira->codegen, vector_len, smallest_type) : smallest_type;
     return ir_build_clz_gen(ira, instruction->base.scope, instruction->base.source_node, return_type, op);
 }
 

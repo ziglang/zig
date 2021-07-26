@@ -123,16 +123,27 @@ test "@clz" {
 }
 
 fn testClz() !void {
-    try expect(clz(u8, 0b10001010) == 0);
-    try expect(clz(u8, 0b00001010) == 4);
-    try expect(clz(u8, 0b00011010) == 3);
-    try expect(clz(u8, 0b00000000) == 8);
-    try expect(clz(u128, 0xffffffffffffffff) == 64);
-    try expect(clz(u128, 0x10000000000000000) == 63);
+    try expect(@clz(u8, 0b10001010) == 0);
+    try expect(@clz(u8, 0b00001010) == 4);
+    try expect(@clz(u8, 0b00011010) == 3);
+    try expect(@clz(u8, 0b00000000) == 8);
+    try expect(@clz(u128, 0xffffffffffffffff) == 64);
+    try expect(@clz(u128, 0x10000000000000000) == 63);
 }
 
-fn clz(comptime T: type, x: T) usize {
-    return @clz(T, x);
+test "@clz vectors" {
+    try testClzVectors();
+    comptime try testClzVectors();
+}
+
+fn testClzVectors() !void {
+    @setEvalBranchQuota(10_000);
+    try expectEqual(@clz(u8, @splat(64, @as(u8, 0b10001010))), @splat(64, @as(u4, 0)));
+    try expectEqual(@clz(u8, @splat(64, @as(u8, 0b00001010))), @splat(64, @as(u4, 4)));
+    try expectEqual(@clz(u8, @splat(64, @as(u8, 0b00011010))), @splat(64, @as(u4, 3)));
+    try expectEqual(@clz(u8, @splat(64, @as(u8, 0b00000000))), @splat(64, @as(u4, 8)));
+    try expectEqual(@clz(u128, @splat(64, @as(u128, 0xffffffffffffffff))), @splat(64, @as(u8, 64)));
+    try expectEqual(@clz(u128, @splat(64, @as(u128, 0x10000000000000000))), @splat(64, @as(u8, 63)));
 }
 
 test "@ctz" {
@@ -141,14 +152,23 @@ test "@ctz" {
 }
 
 fn testCtz() !void {
-    try expect(ctz(u8, 0b10100000) == 5);
-    try expect(ctz(u8, 0b10001010) == 1);
-    try expect(ctz(u8, 0b00000000) == 8);
-    try expect(ctz(u16, 0b00000000) == 16);
+    try expect(@ctz(u8, 0b10100000) == 5);
+    try expect(@ctz(u8, 0b10001010) == 1);
+    try expect(@ctz(u8, 0b00000000) == 8);
+    try expect(@ctz(u16, 0b00000000) == 16);
 }
 
-fn ctz(comptime T: type, x: T) usize {
-    return @ctz(T, x);
+test "@ctz vectors" {
+    try testClzVectors();
+    comptime try testClzVectors();
+}
+
+fn testCtzVectors() !void {
+    @setEvalBranchQuota(10_000);
+    try expectEqual(@ctz(u8, @splat(64, @as(u8, 0b10100000))), @splat(64, @as(u4, 5)));
+    try expectEqual(@ctz(u8, @splat(64, @as(u8, 0b10001010))), @splat(64, @as(u4, 1)));
+    try expectEqual(@ctz(u8, @splat(64, @as(u8, 0b00000000))), @splat(64, @as(u4, 8)));
+    try expectEqual(@ctz(u16, @splat(64, @as(u16, 0b00000000))), @splat(64, @as(u5, 16)));
 }
 
 test "assignment operators" {
