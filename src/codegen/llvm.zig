@@ -512,12 +512,15 @@ pub const DeclGen = struct {
 
         // TODO: remove this redundant `llvmType`, it is also called in `genTypedValue`.
         const llvm_type = try self.llvmType(decl.ty);
-        const val = try self.genTypedValue(.{ .ty = decl.ty, .val = decl.val }, null);
         const global = self.llvmModule().addGlobal(llvm_type, decl.name);
-        llvm.setInitializer(global, val);
+        const init_val = if (decl.val.castTag(.variable)) |payload| init_val: {
+            const variable = payload.data;
+            global.setGlobalConstant(.False);
+            break :init_val variable.init;
+        } else decl.val;
 
-        // TODO ask the Decl if it is const
-        // https://github.com/ziglang/zig/issues/7582
+        const llvm_init = try self.genTypedValue(.{ .ty = decl.ty, .val = init_val }, null);
+        llvm.setInitializer(global, llvm_init);
 
         return global;
     }
@@ -576,6 +579,36 @@ pub const DeclGen = struct {
             .ErrorSet => {
                 return self.context.intType(16);
             },
+            .Struct => {
+                const struct_obj = t.castTag(.@"struct").?.data;
+                assert(struct_obj.haveFieldTypes());
+                const llvm_fields = try self.gpa.alloc(*const llvm.Type, struct_obj.fields.count());
+                defer self.gpa.free(llvm_fields);
+                for (struct_obj.fields.values()) |field, i| {
+                    llvm_fields[i] = try self.llvmType(field.ty);
+                }
+                return self.context.structType(
+                    llvm_fields.ptr,
+                    @intCast(c_uint, llvm_fields.len),
+                    .False,
+                );
+            },
+            .Fn => {
+                const ret_ty = try self.llvmType(t.fnReturnType());
+                const params_len = t.fnParamLen();
+                const llvm_params = try self.gpa.alloc(*const llvm.Type, params_len);
+                defer self.gpa.free(llvm_params);
+                for (llvm_params) |*llvm_param, i| {
+                    llvm_param.* = try self.llvmType(t.fnParamType(i));
+                }
+                const is_var_args = t.fnIsVarArgs();
+                return llvm.functionType(
+                    ret_ty,
+                    llvm_params.ptr,
+                    @intCast(c_uint, llvm_params.len),
+                    llvm.Bool.fromBool(is_var_args),
+                );
+            },
             .ComptimeInt => unreachable,
             .ComptimeFloat => unreachable,
             .Type => unreachable,
@@ -586,10 +619,8 @@ pub const DeclGen = struct {
             .BoundFn => @panic("TODO remove BoundFn from the language"),
 
             .Float,
-            .Struct,
             .Enum,
             .Union,
-            .Fn,
             .Opaque,
             .Frame,
             .AnyFrame,
@@ -645,7 +676,11 @@ pub const DeclGen = struct {
                     _ = fg.?.builder.buildStore(try self.genTypedValue(.{ .ty = elem_type, .val = elem_value }, fg), alloca);
                     return alloca;
                 },
-                else => return self.todo("implement const of pointer type '{}'", .{tv.ty}),
+                .variable => {
+                    const variable = tv.val.castTag(.variable).?.data;
+                    return self.resolveGlobalDecl(variable.owner_decl);
+                },
+                else => |tag| return self.todo("implement const of pointer type '{}' ({})", .{ tv.ty, tag }),
             },
             .Array => {
                 if (tv.val.castTag(.bytes)) |payload| {
@@ -765,45 +800,64 @@ pub const FuncGen = struct {
         const air_tags = self.air.instructions.items(.tag);
         for (body) |inst| {
             const opt_value: ?*const llvm.Value = switch (air_tags[inst]) {
+                // zig fmt: off
                 .add => try self.airAdd(inst),
                 .sub => try self.airSub(inst),
 
-                .cmp_eq => try self.airCmp(inst, .eq),
-                .cmp_gt => try self.airCmp(inst, .gt),
+                .cmp_eq  => try self.airCmp(inst, .eq),
+                .cmp_gt  => try self.airCmp(inst, .gt),
                 .cmp_gte => try self.airCmp(inst, .gte),
-                .cmp_lt => try self.airCmp(inst, .lt),
+                .cmp_lt  => try self.airCmp(inst, .lt),
                 .cmp_lte => try self.airCmp(inst, .lte),
                 .cmp_neq => try self.airCmp(inst, .neq),
 
-                .is_non_null => try self.airIsNonNull(inst, false),
+                .is_non_null     => try self.airIsNonNull(inst, false),
                 .is_non_null_ptr => try self.airIsNonNull(inst, true),
-                .is_null => try self.airIsNull(inst, false),
-                .is_null_ptr => try self.airIsNull(inst, true),
+                .is_null         => try self.airIsNull(inst, false),
+                .is_null_ptr     => try self.airIsNull(inst, true),
+                .is_non_err      => try self.airIsErr(inst, true, false),
+                .is_non_err_ptr  => try self.airIsErr(inst, true, true),
+                .is_err          => try self.airIsErr(inst, false, false),
+                .is_err_ptr      => try self.airIsErr(inst, false, true),
 
-                .alloc => try self.airAlloc(inst),
-                .arg => try self.airArg(inst),
-                .bitcast => try self.airBitCast(inst),
-                .block => try self.airBlock(inst),
-                .br => try self.airBr(inst),
+                .alloc      => try self.airAlloc(inst),
+                .arg        => try self.airArg(inst),
+                .bitcast    => try self.airBitCast(inst),
+                .block      => try self.airBlock(inst),
+                .br         => try self.airBr(inst),
                 .breakpoint => try self.airBreakpoint(inst),
-                .call => try self.airCall(inst),
-                .cond_br => try self.airCondBr(inst),
-                .intcast => try self.airIntCast(inst),
-                .ptrtoint => try self.airPtrToInt(inst),
-                .load => try self.airLoad(inst),
-                .loop => try self.airLoop(inst),
-                .not => try self.airNot(inst),
-                .ret => try self.airRet(inst),
-                .store => try self.airStore(inst),
-                .unreach => self.airUnreach(inst),
-                .optional_payload => try self.airOptionalPayload(inst, false),
+                .call       => try self.airCall(inst),
+                .cond_br    => try self.airCondBr(inst),
+                .intcast    => try self.airIntCast(inst),
+                .ptrtoint   => try self.airPtrToInt(inst),
+                .load       => try self.airLoad(inst),
+                .loop       => try self.airLoop(inst),
+                .not        => try self.airNot(inst),
+                .ret        => try self.airRet(inst),
+                .store      => try self.airStore(inst),
+                .assembly   => try self.airAssembly(inst),
+                .varptr     => try self.airVarPtr(inst),
+                .slice_ptr  => try self.airSliceField(inst, 0),
+                .slice_len  => try self.airSliceField(inst, 1),
+
+                .slice_elem_val     => try self.airSliceElemVal(inst, false),
+                .ptr_slice_elem_val => try self.airSliceElemVal(inst, true),
+
+                .optional_payload     => try self.airOptionalPayload(inst, false),
                 .optional_payload_ptr => try self.airOptionalPayload(inst, true),
-                .assembly => try self.airAssembly(inst),
+
+                .unwrap_errunion_payload     => try self.airErrUnionPayload(inst, false),
+                .unwrap_errunion_payload_ptr => try self.airErrUnionPayload(inst, true),
+                .unwrap_errunion_err         => try self.airErrUnionErr(inst, false),
+                .unwrap_errunion_err_ptr     => try self.airErrUnionErr(inst, true),
+
+                .unreach  => self.airUnreach(inst),
                 .dbg_stmt => blk: {
                     // TODO: implement debug info
                     break :blk null;
                 },
                 else => |tag| return self.todo("implement AIR instruction: {}", .{tag}),
+                // zig fmt: on
             };
             if (opt_value) |val| try self.func_inst_table.putNoClobber(self.gpa, inst, val);
         }
@@ -986,6 +1040,52 @@ pub const FuncGen = struct {
         return null;
     }
 
+    fn airVarPtr(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst))
+            return null;
+
+        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+        const variable = self.air.variables[ty_pl.payload];
+        const decl_llvm_value = self.dg.resolveGlobalDecl(variable.owner_decl);
+        return decl_llvm_value;
+    }
+
+    fn airSliceField(self: *FuncGen, inst: Air.Inst.Index, index: c_uint) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst))
+            return null;
+
+        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const operand = try self.resolveInst(ty_op.operand);
+        return self.builder.buildExtractValue(operand, index, "");
+    }
+
+    fn airSliceElemVal(
+        self: *FuncGen,
+        inst: Air.Inst.Index,
+        operand_is_ptr: bool,
+    ) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst))
+            return null;
+
+        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const lhs = try self.resolveInst(bin_op.lhs);
+        const rhs = try self.resolveInst(bin_op.rhs);
+
+        const base_ptr = if (!operand_is_ptr) lhs else ptr: {
+            const index_type = self.context.intType(32);
+            const indices: [2]*const llvm.Value = .{
+                index_type.constNull(),
+                index_type.constInt(0, .False),
+            };
+            const ptr_field_ptr = self.builder.buildInBoundsGEP(lhs, &indices, 2, "");
+            break :ptr self.builder.buildLoad(ptr_field_ptr, "");
+        };
+
+        const indices: [1]*const llvm.Value = .{rhs};
+        const ptr = self.builder.buildInBoundsGEP(base_ptr, &indices, 1, "");
+        return self.builder.buildLoad(ptr, "");
+    }
+
     fn airNot(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
         if (self.liveness.isUnused(inst))
             return null;
@@ -1152,6 +1252,31 @@ pub const FuncGen = struct {
         return self.builder.buildNot((try self.airIsNonNull(inst, operand_is_ptr)).?, "");
     }
 
+    fn airIsErr(
+        self: *FuncGen,
+        inst: Air.Inst.Index,
+        invert_logic: bool,
+        operand_is_ptr: bool,
+    ) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst))
+            return null;
+
+        const un_op = self.air.instructions.items(.data)[inst].un_op;
+        const operand = try self.resolveInst(un_op);
+        const err_union_ty = self.air.typeOf(un_op);
+        const payload_ty = err_union_ty.errorUnionPayload();
+
+        if (!payload_ty.hasCodeGenBits()) {
+            const loaded = if (operand_is_ptr) self.builder.buildLoad(operand, "") else operand;
+            const op: llvm.IntPredicate = if (invert_logic) .EQ else .NE;
+            const err_set_ty = try self.dg.llvmType(Type.initTag(.anyerror));
+            const zero = err_set_ty.constNull();
+            return self.builder.buildICmp(op, loaded, zero, "");
+        }
+
+        return self.todo("implement 'airIsErr' for error unions with nonzero payload", .{});
+    }
+
     fn airOptionalPayload(
         self: *FuncGen,
         inst: Air.Inst.Index,
@@ -1175,6 +1300,40 @@ pub const FuncGen = struct {
         } else {
             return self.builder.buildExtractValue(operand, 0, "");
         }
+    }
+
+    fn airErrUnionPayload(
+        self: *FuncGen,
+        inst: Air.Inst.Index,
+        operand_is_ptr: bool,
+    ) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst))
+            return null;
+
+        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const operand = try self.resolveInst(ty_op.operand);
+        const err_union_ty = self.air.typeOf(ty_op.operand);
+        const payload_ty = err_union_ty.errorUnionPayload();
+
+        if (!payload_ty.hasCodeGenBits()) {
+            return null;
+        }
+
+        _ = operand;
+        _ = operand_is_ptr;
+        return self.todo("implement 'airErrUnionPayload' for type {}", .{self.air.typeOf(ty_op.operand)});
+    }
+
+    fn airErrUnionErr(
+        self: *FuncGen,
+        inst: Air.Inst.Index,
+        operand_is_ptr: bool,
+    ) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst))
+            return null;
+
+        _ = operand_is_ptr;
+        return self.todo("implement 'airErrUnionErr'", .{});
     }
 
     fn airAdd(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {

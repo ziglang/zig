@@ -42,6 +42,9 @@ pub const Context = opaque {
         Packed: Bool,
     ) *const Type;
 
+    const structCreateNamed = LLVMStructCreateNamed;
+    extern fn LLVMStructCreateNamed(C: *const Context, Name: [*:0]const u8) *const Type;
+
     pub const constString = LLVMConstStringInContext;
     extern fn LLVMConstStringInContext(C: *const Context, Str: [*]const u8, Length: c_uint, DontNullTerminate: Bool) *const Value;
 
@@ -76,6 +79,9 @@ pub const Value = opaque {
 
     pub const typeOf = LLVMTypeOf;
     extern fn LLVMTypeOf(Val: *const Value) *const Type;
+
+    pub const setGlobalConstant = LLVMSetGlobalConstant;
+    extern fn LLVMSetGlobalConstant(GlobalVar: *const Value, IsConstant: Bool) void;
 };
 
 pub const Type = opaque {
@@ -99,6 +105,14 @@ pub const Type = opaque {
 
     pub const arrayType = LLVMArrayType;
     extern fn LLVMArrayType(ElementType: *const Type, ElementCount: c_uint) *const Type;
+
+    pub const structSetBody = LLVMStructSetBody;
+    extern fn LLVMStructSetBody(
+        StructTy: *const Type,
+        ElementTypes: [*]*const Type,
+        ElementCount: c_uint,
+        Packed: Bool,
+    ) void;
 };
 
 pub const Module = opaque {
@@ -257,7 +271,13 @@ pub const Builder = opaque {
     extern fn LLVMBuildBitCast(*const Builder, Val: *const Value, DestTy: *const Type, Name: [*:0]const u8) *const Value;
 
     pub const buildInBoundsGEP = LLVMBuildInBoundsGEP;
-    extern fn LLVMBuildInBoundsGEP(B: *const Builder, Pointer: *const Value, Indices: [*]*const Value, NumIndices: c_uint, Name: [*:0]const u8) *const Value;
+    extern fn LLVMBuildInBoundsGEP(
+        B: *const Builder,
+        Pointer: *const Value,
+        Indices: [*]const *const Value,
+        NumIndices: c_uint,
+        Name: [*:0]const u8,
+    ) *const Value;
 
     pub const buildICmp = LLVMBuildICmp;
     extern fn LLVMBuildICmp(*const Builder, Op: IntPredicate, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;

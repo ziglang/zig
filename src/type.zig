@@ -915,7 +915,7 @@ pub const Type = extern union {
                     }
                     try writer.writeAll(") callconv(.");
                     try writer.writeAll(@tagName(payload.cc));
-                    try writer.writeAll(")");
+                    try writer.writeAll(") ");
                     ty = payload.return_type;
                     continue;
                 },
