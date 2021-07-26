@@ -890,6 +890,9 @@ pub const Inst = struct {
         /// Implements the `@shuffle` builtin.
         /// Uses the `pl_node` union field with payload `Shuffle`.
         shuffle,
+        /// Implements the `@select` builtin.
+        /// Uses the `pl_node` union field with payload `Select`.
+        select,
         /// Implements the `@atomicLoad` builtin.
         /// Uses the `pl_node` union field with payload `Bin`.
         atomic_load,
@@ -1181,6 +1184,7 @@ pub const Inst = struct {
                 .splat,
                 .reduce,
                 .shuffle,
+                .select,
                 .atomic_load,
                 .atomic_rmw,
                 .atomic_store,
@@ -1451,6 +1455,7 @@ pub const Inst = struct {
                 .splat = .pl_node,
                 .reduce = .pl_node,
                 .shuffle = .pl_node,
+                .select = .pl_node,
                 .atomic_load = .pl_node,
                 .atomic_rmw = .pl_node,
                 .atomic_store = .pl_node,
@@ -2725,6 +2730,13 @@ pub const Inst = struct {
         mask: Ref,
     };
 
+    pub const Select = struct {
+        elem_type: Ref,
+        pred: Ref,
+        a: Ref,
+        b: Ref,
+    };
+
     pub const AsyncCall = struct {
         frame_buffer: Ref,
         result_ptr: Ref,
@@ -2935,6 +2947,7 @@ const Writer = struct {
             .cmpxchg_strong,
             .cmpxchg_weak,
             .shuffle,
+            .select,
             .atomic_rmw,
             .atomic_store,
             .mul_add,
