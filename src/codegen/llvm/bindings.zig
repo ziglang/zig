@@ -35,7 +35,12 @@ pub const Context = opaque {
     extern fn LLVMVoidTypeInContext(C: *const Context) *const Type;
 
     pub const structType = LLVMStructTypeInContext;
-    extern fn LLVMStructTypeInContext(C: *const Context, ElementTypes: [*]*const Type, ElementCount: c_uint, Packed: Bool) *const Type;
+    extern fn LLVMStructTypeInContext(
+        C: *const Context,
+        ElementTypes: [*]const *const Type,
+        ElementCount: c_uint,
+        Packed: Bool,
+    ) *const Type;
 
     pub const constString = LLVMConstStringInContext;
     extern fn LLVMConstStringInContext(C: *const Context, Str: [*]const u8, Length: c_uint, DontNullTerminate: Bool) *const Value;

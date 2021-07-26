@@ -534,7 +534,14 @@ pub const DeclGen = struct {
             .Bool => return self.context.intType(1),
             .Pointer => {
                 if (t.isSlice()) {
-                    return self.todo("implement slices", .{});
+                    var buf: Type.Payload.ElemType = undefined;
+                    const ptr_type = t.slicePtrFieldType(&buf);
+
+                    const fields: [2]*const llvm.Type = .{
+                        try self.llvmType(ptr_type),
+                        try self.llvmType(Type.initTag(.usize)),
+                    };
+                    return self.context.structType(&fields, 2, .False);
                 } else {
                     const elem_type = try self.llvmType(t.elemType());
                     return elem_type.pointerType(0);
@@ -549,7 +556,7 @@ pub const DeclGen = struct {
                     var buf: Type.Payload.ElemType = undefined;
                     const child_type = t.optionalChild(&buf);
 
-                    var optional_types: [2]*const llvm.Type = .{
+                    const optional_types: [2]*const llvm.Type = .{
                         try self.llvmType(child_type),
                         self.context.intType(1),
                     };
@@ -559,7 +566,15 @@ pub const DeclGen = struct {
                 }
             },
             .ErrorUnion => {
+                const error_type = t.errorUnionSet();
+                const payload_type = t.errorUnionPayload();
+                if (!payload_type.hasCodeGenBits()) {
+                    return self.llvmType(error_type);
+                }
                 return self.todo("implement llvmType for error unions", .{});
+            },
+            .ErrorSet => {
+                return self.context.intType(16);
             },
             .ComptimeInt => unreachable,
             .ComptimeFloat => unreachable,
@@ -572,7 +587,6 @@ pub const DeclGen = struct {
 
             .Float,
             .Struct,
-            .ErrorSet,
             .Enum,
             .Union,
             .Fn,
