@@ -351,6 +351,7 @@ pub const Object = struct {
         liveness: Liveness,
     ) !void {
         var dg: DeclGen = .{
+            .context = self.context,
             .object = self,
             .module = module,
             .decl = func.owner_decl,
@@ -375,15 +376,16 @@ pub const Object = struct {
             bb.deleteBasicBlock();
         }
 
-        const builder = dg.context().createBuilder();
+        const builder = dg.context.createBuilder();
 
-        const entry_block = dg.context().appendBasicBlock(llvm_func, "Entry");
+        const entry_block = dg.context.appendBasicBlock(llvm_func, "Entry");
         builder.positionBuilderAtEnd(entry_block);
 
         var fg: FuncGen = .{
             .gpa = dg.gpa,
             .air = air,
             .liveness = liveness,
+            .context = dg.context,
             .dg = &dg,
             .builder = builder,
             .args = args,
@@ -409,6 +411,7 @@ pub const Object = struct {
 
     pub fn updateDecl(self: *Object, module: *Module, decl: *Module.Decl) !void {
         var dg: DeclGen = .{
+            .context = self.context,
             .object = self,
             .module = module,
             .decl = decl,
@@ -428,6 +431,7 @@ pub const Object = struct {
 };
 
 pub const DeclGen = struct {
+    context: *const llvm.Context,
     object: *Object,
     module: *Module,
     decl: *Module.Decl,
@@ -445,10 +449,6 @@ pub const DeclGen = struct {
 
     fn llvmModule(self: *DeclGen) *const llvm.Module {
         return self.object.llvm_module;
-    }
-
-    fn context(self: *DeclGen) *const llvm.Context {
-        return self.object.context;
     }
 
     fn genDecl(self: *DeclGen) !void {
@@ -525,13 +525,13 @@ pub const DeclGen = struct {
     fn llvmType(self: *DeclGen, t: Type) error{ OutOfMemory, CodegenFail }!*const llvm.Type {
         log.debug("llvmType for {}", .{t});
         switch (t.zigTypeTag()) {
-            .Void => return self.context().voidType(),
-            .NoReturn => return self.context().voidType(),
+            .Void => return self.context.voidType(),
+            .NoReturn => return self.context.voidType(),
             .Int => {
                 const info = t.intInfo(self.module.getTarget());
-                return self.context().intType(info.bits);
+                return self.context.intType(info.bits);
             },
-            .Bool => return self.context().intType(1),
+            .Bool => return self.context.intType(1),
             .Pointer => {
                 if (t.isSlice()) {
                     return self.todo("implement slices", .{});
@@ -551,12 +551,15 @@ pub const DeclGen = struct {
 
                     var optional_types: [2]*const llvm.Type = .{
                         try self.llvmType(child_type),
-                        self.context().intType(1),
+                        self.context.intType(1),
                     };
-                    return self.context().structType(&optional_types, 2, .False);
+                    return self.context.structType(&optional_types, 2, .False);
                 } else {
                     return self.todo("implement optional pointers as actual pointers", .{});
                 }
+            },
+            .ErrorUnion => {
+                return self.todo("implement llvmType for error unions", .{});
             },
             .ComptimeInt => unreachable,
             .ComptimeFloat => unreachable,
@@ -569,7 +572,6 @@ pub const DeclGen = struct {
 
             .Float,
             .Struct,
-            .ErrorUnion,
             .ErrorSet,
             .Enum,
             .Union,
@@ -638,7 +640,7 @@ pub const DeclGen = struct {
                         return self.todo("handle other sentinel values", .{});
                     } else false;
 
-                    return self.context().constString(payload.data.ptr, @intCast(c_uint, payload.data.len), llvm.Bool.fromBool(!zero_sentinel));
+                    return self.context.constString(payload.data.ptr, @intCast(c_uint, payload.data.len), llvm.Bool.fromBool(!zero_sentinel));
                 } else {
                     return self.todo("handle more array values", .{});
                 }
@@ -652,15 +654,15 @@ pub const DeclGen = struct {
                     if (tv.val.tag() == .null_value) {
                         var optional_values: [2]*const llvm.Value = .{
                             llvm_child_type.constNull(),
-                            self.context().intType(1).constNull(),
+                            self.context.intType(1).constNull(),
                         };
-                        return self.context().constStruct(&optional_values, 2, .False);
+                        return self.context.constStruct(&optional_values, 2, .False);
                     } else {
                         var optional_values: [2]*const llvm.Value = .{
                             try self.genTypedValue(.{ .ty = child_type, .val = tv.val }, fg),
-                            self.context().intType(1).constAllOnes(),
+                            self.context.intType(1).constAllOnes(),
                         };
-                        return self.context().constStruct(&optional_values, 2, .False);
+                        return self.context.constStruct(&optional_values, 2, .False);
                     }
                 } else {
                     return self.todo("implement const of optional pointer", .{});
@@ -674,7 +676,7 @@ pub const DeclGen = struct {
     fn addAttr(self: *DeclGen, val: *const llvm.Value, index: llvm.AttributeIndex, name: []const u8) void {
         const kind_id = llvm.getEnumAttributeKindForName(name.ptr, name.len);
         assert(kind_id != 0);
-        const llvm_attr = self.context().createEnumAttribute(kind_id, 0);
+        const llvm_attr = self.context.createEnumAttribute(kind_id, 0);
         val.addAttributeAtIndex(index, llvm_attr);
     }
 
@@ -689,6 +691,7 @@ pub const FuncGen = struct {
     dg: *DeclGen,
     air: Air,
     liveness: Liveness,
+    context: *const llvm.Context,
 
     builder: *const llvm.Builder,
 
@@ -732,10 +735,6 @@ pub const FuncGen = struct {
 
     fn llvmModule(self: *FuncGen) *const llvm.Module {
         return self.dg.object.llvm_module;
-    }
-
-    fn context(self: *FuncGen) *const llvm.Context {
-        return self.dg.object.context;
     }
 
     fn resolveInst(self: *FuncGen, inst: Air.Inst.Ref) !*const llvm.Value {
@@ -884,7 +883,7 @@ pub const FuncGen = struct {
         const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
         const extra = self.air.extraData(Air.Block, ty_pl.payload);
         const body = self.air.extra[extra.end..][0..extra.data.body_len];
-        const parent_bb = self.context().createBasicBlock("Block");
+        const parent_bb = self.context.createBasicBlock("Block");
 
         // 5 breaks to a block seems like a reasonable default.
         var break_bbs = try BreakBasicBlocks.initCapacity(self.gpa, 5);
@@ -943,8 +942,8 @@ pub const FuncGen = struct {
         const then_body = self.air.extra[extra.end..][0..extra.data.then_body_len];
         const else_body = self.air.extra[extra.end + then_body.len ..][0..extra.data.else_body_len];
 
-        const then_block = self.context().appendBasicBlock(self.llvm_func, "Then");
-        const else_block = self.context().appendBasicBlock(self.llvm_func, "Else");
+        const then_block = self.context.appendBasicBlock(self.llvm_func, "Then");
+        const else_block = self.context.appendBasicBlock(self.llvm_func, "Else");
         {
             const prev_block = self.builder.getInsertBlock();
             defer self.builder.positionBuilderAtEnd(prev_block);
@@ -963,7 +962,7 @@ pub const FuncGen = struct {
         const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
         const loop = self.air.extraData(Air.Block, ty_pl.payload);
         const body = self.air.extra[loop.end..][0..loop.data.body_len];
-        const loop_block = self.context().appendBasicBlock(self.llvm_func, "Loop");
+        const loop_block = self.context.appendBasicBlock(self.llvm_func, "Loop");
         _ = self.builder.buildBr(loop_block);
 
         self.builder.positionBuilderAtEnd(loop_block);
@@ -1119,7 +1118,7 @@ pub const FuncGen = struct {
         const operand = try self.resolveInst(un_op);
 
         if (operand_is_ptr) {
-            const index_type = self.context().intType(32);
+            const index_type = self.context.intType(32);
 
             var indices: [2]*const llvm.Value = .{
                 index_type.constNull(),
@@ -1151,7 +1150,7 @@ pub const FuncGen = struct {
         const operand = try self.resolveInst(ty_op.operand);
 
         if (operand_is_ptr) {
-            const index_type = self.context().intType(32);
+            const index_type = self.context.intType(32);
 
             var indices: [2]*const llvm.Value = .{
                 index_type.constNull(),
