@@ -24,7 +24,7 @@ pub const Condition = @import("Thread/Condition.zig");
 
 pub const spinLoopHint = @compileError("deprecated: use std.atomic.spinLoopHint");
 
-pub const use_pthreads = target.os.tag != .windows and std.builtin.link_libc;
+pub const use_pthreads = target.os.tag != .windows and std.Target.current.os.tag != .wasi and std.builtin.link_libc;
 
 const Thread = @This();
 const Impl = if (target.os.tag == .windows)

@@ -88,7 +88,7 @@ pub fn getEnvMap(allocator: *Allocator) !BufMap {
             try result.putMove(key, value);
         }
         return result;
-    } else if (builtin.os.tag == .wasi) {
+    } else if (builtin.os.tag == .wasi and !builtin.link_libc) {
         var environ_count: usize = undefined;
         var environ_buf_size: usize = undefined;
 
@@ -450,7 +450,7 @@ pub const ArgIteratorWindows = struct {
 pub const ArgIterator = struct {
     const InnerType = switch (builtin.os.tag) {
         .windows => ArgIteratorWindows,
-        .wasi => ArgIteratorWasi,
+        .wasi => if (builtin.link_libc) ArgIteratorPosix else ArgIteratorWasi,
         else => ArgIteratorPosix,
     };
 
@@ -469,7 +469,7 @@ pub const ArgIterator = struct {
 
     /// You must deinitialize iterator's internal buffers by calling `deinit` when done.
     pub fn initWithAllocator(allocator: *mem.Allocator) InitError!ArgIterator {
-        if (builtin.os.tag == .wasi) {
+        if (builtin.os.tag == .wasi and !builtin.link_libc) {
             return ArgIterator{ .inner = try InnerType.init(allocator) };
         }
 
@@ -507,7 +507,7 @@ pub const ArgIterator = struct {
     /// was created with `initWithAllocator` function.
     pub fn deinit(self: *ArgIterator) void {
         // Unless we're targeting WASI, this is a no-op.
-        if (builtin.os.tag == .wasi) {
+        if (builtin.os.tag == .wasi and !builtin.link_libc) {
             self.inner.deinit();
         }
     }
