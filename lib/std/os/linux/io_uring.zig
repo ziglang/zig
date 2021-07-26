@@ -629,7 +629,6 @@ pub const IO_Uring = struct {
     /// An application need unregister only if it wants to register a new array of file descriptors.
     pub fn register_files(self: *IO_Uring, fds: []const os.fd_t) !void {
         assert(self.fd >= 0);
-        comptime assert(@sizeOf(os.fd_t) == @sizeOf(c_int));
         const res = linux.io_uring_register(
             self.fd,
             .REGISTER_FILES,
@@ -641,14 +640,14 @@ pub const IO_Uring = struct {
 
     /// Registers the file descriptor for an eventfd that will be notified of completion events on
     //  an io_uring instance.
+    /// Only a single a eventfd can be registered at any given point in time.
     pub fn register_eventfd(self: *IO_Uring, fd: os.fd_t) !void {
         assert(self.fd >= 0);
-        comptime assert(@sizeOf(os.fd_t) == @sizeOf(c_int));
         const res = linux.io_uring_register(
             self.fd,
             .REGISTER_EVENTFD,
             @ptrCast(*const c_void, &fd),
-            @intCast(u32, 1),
+            1,
         );
         try convert_registration_error(res);
     }
@@ -656,14 +655,14 @@ pub const IO_Uring = struct {
     /// Registers the file descriptor for an eventfd that will be notified of completion events on
     /// an io_uring instance. Notifications are only posted for events that complete in an async manner. 
     /// This means that events that complete inline while being submitted do not trigger a notification event.
+    /// Only a single a eventfd can be registered at any given point in time.
     pub fn register_eventfd_async(self: *IO_Uring, fd: os.fd_t) !void {
         assert(self.fd >= 0);
-        comptime assert(@sizeOf(os.fd_t) == @sizeOf(c_int));
         const res = linux.io_uring_register(
             self.fd,
             .REGISTER_EVENTFD_ASYNC,
             @ptrCast(*const c_void, &fd),
-            @intCast(u32, 1),
+            1,
         );
         try convert_registration_error(res);
     }
@@ -674,8 +673,8 @@ pub const IO_Uring = struct {
         const res = linux.io_uring_register(
             self.fd,
             .UNREGISTER_EVENTFD,
-            @ptrCast(*const c_void, null),
-            @intCast(u32, 0),
+            null,
+            0,
         );
         try convert_registration_error(res);
     }
