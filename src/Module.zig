@@ -3702,8 +3702,8 @@ pub fn analyzeExport(
         else => return mod.fail(scope, src, "unable to export type '{}'", .{exported_decl.ty}),
     }
 
-    try mod.decl_exports.ensureCapacity(mod.gpa, mod.decl_exports.count() + 1);
-    try mod.export_owners.ensureCapacity(mod.gpa, mod.export_owners.count() + 1);
+    try mod.decl_exports.ensureUnusedCapacity(mod.gpa, 1);
+    try mod.export_owners.ensureUnusedCapacity(mod.gpa, 1);
 
     const new_export = try mod.gpa.create(Export);
     errdefer mod.gpa.destroy(new_export);

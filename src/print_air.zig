@@ -171,7 +171,8 @@ const Writer = struct {
             .loop,
             => try w.writeBlock(s, inst),
 
-            .struct_field_ptr => try w.writeStructFieldPtr(s, inst),
+            .struct_field_ptr => try w.writeStructField(s, inst),
+            .struct_field_val => try w.writeStructField(s, inst),
             .varptr => try w.writeVarPtr(s, inst),
             .constant => try w.writeConstant(s, inst),
             .assembly => try w.writeAssembly(s, inst),
@@ -233,11 +234,11 @@ const Writer = struct {
         try s.writeAll("}");
     }
 
-    fn writeStructFieldPtr(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
+    fn writeStructField(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
         const ty_pl = w.air.instructions.items(.data)[inst].ty_pl;
         const extra = w.air.extraData(Air.StructField, ty_pl.payload);
 
-        try w.writeOperand(s, inst, 0, extra.data.struct_ptr);
+        try w.writeOperand(s, inst, 0, extra.data.struct_operand);
         try s.print(", {d}", .{extra.data.field_index});
     }
 

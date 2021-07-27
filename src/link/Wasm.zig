@@ -330,10 +330,12 @@ pub fn updateDeclExports(
     decl: *const Module.Decl,
     exports: []const *Module.Export,
 ) !void {
-    _ = self;
-    _ = module;
-    _ = decl;
-    _ = exports;
+    if (build_options.skip_non_native and builtin.object_format != .wasm) {
+        @panic("Attempted to compile for object format that was disabled by build configuration");
+    }
+    if (build_options.have_llvm) {
+        if (self.llvm_object) |llvm_object| return llvm_object.updateDeclExports(module, decl, exports);
+    }
 }
 
 pub fn freeDecl(self: *Wasm, decl: *Module.Decl) void {

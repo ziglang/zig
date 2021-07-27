@@ -777,8 +777,18 @@ pub fn freeDecl(self: *Coff, decl: *Module.Decl) void {
     self.offset_table_free_list.append(self.base.allocator, decl.link.coff.offset_table_index) catch {};
 }
 
-pub fn updateDeclExports(self: *Coff, module: *Module, decl: *Module.Decl, exports: []const *Module.Export) !void {
-    if (self.llvm_object) |_| return;
+pub fn updateDeclExports(
+    self: *Coff,
+    module: *Module,
+    decl: *Module.Decl,
+    exports: []const *Module.Export,
+) !void {
+    if (build_options.skip_non_native and builtin.object_format != .coff) {
+        @panic("Attempted to compile for object format that was disabled by build configuration");
+    }
+    if (build_options.have_llvm) {
+        if (self.llvm_object) |llvm_object| return llvm_object.updateDeclExports(module, decl, exports);
+    }
 
     for (exports) |exp| {
         if (exp.options.section) |section_name| {

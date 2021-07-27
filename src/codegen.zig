@@ -851,6 +851,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     .ret             => try self.airRet(inst),
                     .store           => try self.airStore(inst),
                     .struct_field_ptr=> try self.airStructFieldPtr(inst),
+                    .struct_field_val=> try self.airStructFieldVal(inst),
                     .switch_br       => try self.airSwitch(inst),
                     .varptr          => try self.airVarPtr(inst),
                     .slice_ptr       => try self.airSlicePtr(inst),
@@ -1498,6 +1499,14 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             const extra = self.air.extraData(Air.StructField, ty_pl.payload).data;
             _ = extra;
             return self.fail("TODO implement codegen struct_field_ptr", .{});
+            //return self.finishAir(inst, result, .{ extra.struct_ptr, .none, .none });
+        }
+
+        fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
+            const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+            const extra = self.air.extraData(Air.StructField, ty_pl.payload).data;
+            _ = extra;
+            return self.fail("TODO implement codegen struct_field_val", .{});
             //return self.finishAir(inst, result, .{ extra.struct_ptr, .none, .none });
         }
 

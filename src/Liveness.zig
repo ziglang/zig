@@ -320,9 +320,9 @@ fn analyzeInst(
             }
             return extra_tombs.finish();
         },
-        .struct_field_ptr => {
+        .struct_field_ptr, .struct_field_val => {
             const extra = a.air.extraData(Air.StructField, inst_datas[inst].ty_pl.payload).data;
-            return trackOperands(a, new_set, inst, main_tomb, .{ extra.struct_ptr, .none, .none });
+            return trackOperands(a, new_set, inst, main_tomb, .{ extra.struct_operand, .none, .none });
         },
         .br => {
             const br = inst_datas[inst].br;

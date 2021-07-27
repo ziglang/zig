@@ -247,6 +247,9 @@ pub const Inst = struct {
         /// Given a pointer to a struct and a field index, returns a pointer to the field.
         /// Uses the `ty_pl` field, payload is `StructField`.
         struct_field_ptr,
+        /// Given a byval struct and a field index, returns the field byval.
+        /// Uses the `ty_pl` field, payload is `StructField`.
+        struct_field_val,
         /// Given a slice value, return the length.
         /// Result type is always usize.
         /// Uses the `ty_op` field.
@@ -376,7 +379,8 @@ pub const SwitchBr = struct {
 };
 
 pub const StructField = struct {
-    struct_ptr: Inst.Ref,
+    /// Whether this is a pointer or byval is determined by the AIR tag.
+    struct_operand: Inst.Ref,
     field_index: u32,
 };
 
@@ -448,6 +452,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .constant,
         .varptr,
         .struct_field_ptr,
+        .struct_field_val,
         => return air.getRefType(datas[inst].ty_pl.ty),
 
         .not,

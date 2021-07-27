@@ -1306,7 +1306,7 @@ pub const Context = struct {
     fn airStructFieldPtr(self: *Context, inst: Air.Inst.Index) InnerError!WValue {
         const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
         const extra = self.air.extraData(Air.StructField, ty_pl.payload);
-        const struct_ptr = self.resolveInst(extra.data.struct_ptr);
+        const struct_ptr = self.resolveInst(extra.data.struct_operand);
 
         return WValue{ .local = struct_ptr.multi_value.index + @intCast(u32, extra.data.field_index) };
     }

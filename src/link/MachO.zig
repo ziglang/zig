@@ -3785,6 +3785,12 @@ pub fn updateDeclExports(
     decl: *Module.Decl,
     exports: []const *Module.Export,
 ) !void {
+    if (build_options.skip_non_native and builtin.object_format != .macho) {
+        @panic("Attempted to compile for object format that was disabled by build configuration");
+    }
+    if (build_options.have_llvm) {
+        if (self.llvm_object) |llvm_object| return llvm_object.updateDeclExports(module, decl, exports);
+    }
     const tracy = trace(@src());
     defer tracy.end();
 

@@ -82,6 +82,24 @@ pub const Value = opaque {
 
     pub const setGlobalConstant = LLVMSetGlobalConstant;
     extern fn LLVMSetGlobalConstant(GlobalVar: *const Value, IsConstant: Bool) void;
+
+    pub const setLinkage = LLVMSetLinkage;
+    extern fn LLVMSetLinkage(Global: *const Value, Linkage: Linkage) void;
+
+    pub const setUnnamedAddr = LLVMSetUnnamedAddr;
+    extern fn LLVMSetUnnamedAddr(Global: *const Value, HasUnnamedAddr: Bool) void;
+
+    pub const deleteGlobal = LLVMDeleteGlobal;
+    extern fn LLVMDeleteGlobal(GlobalVar: *const Value) void;
+
+    pub const getNextGlobalAlias = LLVMGetNextGlobalAlias;
+    extern fn LLVMGetNextGlobalAlias(GA: *const Value) *const Value;
+
+    pub const getAliasee = LLVMAliasGetAliasee;
+    extern fn LLVMAliasGetAliasee(Alias: *const Value) *const Value;
+
+    pub const setAliasee = LLVMAliasSetAliasee;
+    extern fn LLVMAliasSetAliasee(Alias: *const Value, Aliasee: *const Value) void;
 };
 
 pub const Type = opaque {
@@ -145,6 +163,27 @@ pub const Module = opaque {
 
     pub const dump = LLVMDumpModule;
     extern fn LLVMDumpModule(M: *const Module) void;
+
+    pub const getFirstGlobalAlias = LLVMGetFirstGlobalAlias;
+    extern fn LLVMGetFirstGlobalAlias(M: *const Module) *const Value;
+
+    pub const getLastGlobalAlias = LLVMGetLastGlobalAlias;
+    extern fn LLVMGetLastGlobalAlias(M: *const Module) *const Value;
+
+    pub const addAlias = LLVMAddAlias;
+    extern fn LLVMAddAlias(
+        M: *const Module,
+        Ty: *const Type,
+        Aliasee: *const Value,
+        Name: [*:0]const u8,
+    ) *const Value;
+
+    pub const getNamedGlobalAlias = LLVMGetNamedGlobalAlias;
+    extern fn LLVMGetNamedGlobalAlias(
+        M: *const Module,
+        Name: [*]const u8,
+        NameLen: usize,
+    ) ?*const Value;
 };
 
 pub const lookupIntrinsicID = LLVMLookupIntrinsicID;
@@ -252,17 +291,59 @@ pub const Builder = opaque {
     pub const buildNot = LLVMBuildNot;
     extern fn LLVMBuildNot(*const Builder, V: *const Value, Name: [*:0]const u8) *const Value;
 
+    pub const buildFAdd = LLVMBuildFAdd;
+    extern fn LLVMBuildFAdd(*const Builder, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;
+
+    pub const buildAdd = LLVMBuildAdd;
+    extern fn LLVMBuildAdd(*const Builder, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;
+
     pub const buildNSWAdd = LLVMBuildNSWAdd;
     extern fn LLVMBuildNSWAdd(*const Builder, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;
 
     pub const buildNUWAdd = LLVMBuildNUWAdd;
     extern fn LLVMBuildNUWAdd(*const Builder, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;
 
+    pub const buildFSub = LLVMBuildFSub;
+    extern fn LLVMBuildFSub(*const Builder, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;
+
+    pub const buildSub = LLVMBuildSub;
+    extern fn LLVMBuildSub(*const Builder, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;
+
     pub const buildNSWSub = LLVMBuildNSWSub;
     extern fn LLVMBuildNSWSub(*const Builder, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;
 
     pub const buildNUWSub = LLVMBuildNUWSub;
     extern fn LLVMBuildNUWSub(*const Builder, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;
+
+    pub const buildFMul = LLVMBuildFMul;
+    extern fn LLVMBuildFMul(*const Builder, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;
+
+    pub const buildMul = LLVMBuildMul;
+    extern fn LLVMBuildMul(*const Builder, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;
+
+    pub const buildNSWMul = LLVMBuildNSWMul;
+    extern fn LLVMBuildNSWMul(*const Builder, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;
+
+    pub const buildNUWMul = LLVMBuildNUWMul;
+    extern fn LLVMBuildNUWMul(*const Builder, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;
+
+    pub const buildUDiv = LLVMBuildUDiv;
+    extern fn LLVMBuildUDiv(*const Builder, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;
+
+    pub const buildSDiv = LLVMBuildSDiv;
+    extern fn LLVMBuildSDiv(*const Builder, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;
+
+    pub const buildFDiv = LLVMBuildFDiv;
+    extern fn LLVMBuildFDiv(*const Builder, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;
+
+    pub const buildAnd = LLVMBuildAnd;
+    extern fn LLVMBuildAnd(*const Builder, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;
+
+    pub const buildOr = LLVMBuildOr;
+    extern fn LLVMBuildOr(*const Builder, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;
+
+    pub const buildXor = LLVMBuildXor;
+    extern fn LLVMBuildXor(*const Builder, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;
 
     pub const buildIntCast2 = LLVMBuildIntCast2;
     extern fn LLVMBuildIntCast2(*const Builder, Val: *const Value, DestTy: *const Type, IsSigned: Bool, Name: [*:0]const u8) *const Value;
@@ -273,6 +354,16 @@ pub const Builder = opaque {
     pub const buildInBoundsGEP = LLVMBuildInBoundsGEP;
     extern fn LLVMBuildInBoundsGEP(
         B: *const Builder,
+        Pointer: *const Value,
+        Indices: [*]const *const Value,
+        NumIndices: c_uint,
+        Name: [*:0]const u8,
+    ) *const Value;
+
+    pub const buildInBoundsGEP2 = LLVMBuildInBoundsGEP2;
+    extern fn LLVMBuildInBoundsGEP2(
+        B: *const Builder,
+        Ty: *const Type,
         Pointer: *const Value,
         Indices: [*]const *const Value,
         NumIndices: c_uint,
@@ -292,10 +383,28 @@ pub const Builder = opaque {
     extern fn LLVMBuildPhi(*const Builder, Ty: *const Type, Name: [*:0]const u8) *const Value;
 
     pub const buildExtractValue = LLVMBuildExtractValue;
-    extern fn LLVMBuildExtractValue(*const Builder, AggVal: *const Value, Index: c_uint, Name: [*:0]const u8) *const Value;
+    extern fn LLVMBuildExtractValue(
+        *const Builder,
+        AggVal: *const Value,
+        Index: c_uint,
+        Name: [*:0]const u8,
+    ) *const Value;
 
     pub const buildPtrToInt = LLVMBuildPtrToInt;
-    extern fn LLVMBuildPtrToInt(*const Builder, Val: *const Value, DestTy: *const Type, Name: [*:0]const u8) *const Value;
+    extern fn LLVMBuildPtrToInt(
+        *const Builder,
+        Val: *const Value,
+        DestTy: *const Type,
+        Name: [*:0]const u8,
+    ) *const Value;
+
+    pub const buildStructGEP = LLVMBuildStructGEP;
+    extern fn LLVMBuildStructGEP(
+        B: *const Builder,
+        Pointer: *const Value,
+        Idx: c_uint,
+        Name: [*:0]const u8,
+    ) *const Value;
 };
 
 pub const IntPredicate = enum(c_int) {
@@ -715,3 +824,23 @@ extern fn ZigLLVMWriteImportLibrary(
     output_lib_path: [*c]const u8,
     kill_at: bool,
 ) bool;
+
+pub const Linkage = enum(c_uint) {
+    External,
+    AvailableExternally,
+    LinkOnceAny,
+    LinkOnceODR,
+    LinkOnceODRAutoHide,
+    WeakAny,
+    WeakODR,
+    Appending,
+    Internal,
+    Private,
+    DLLImport,
+    DLLExport,
+    ExternalWeak,
+    Ghost,
+    Common,
+    LinkerPrivate,
+    LinkerPrivateWeak,
+};

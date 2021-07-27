@@ -935,6 +935,7 @@ fn genBody(o: *Object, body: []const Air.Inst.Index) error{ AnalysisFail, OutOfM
             .wrap_optional    => try airWrapOptional(o, inst),
             .ref              => try airRef(o, inst),
             .struct_field_ptr => try airStructFieldPtr(o, inst),
+            .struct_field_val => try airStructFieldVal(o, inst),
             .varptr           => try airVarPtr(o, inst),
             .slice_ptr        => try airSliceField(o, inst, ".ptr;\n"),
             .slice_len        => try airSliceField(o, inst, ".len;\n"),
@@ -1660,8 +1661,8 @@ fn airStructFieldPtr(o: *Object, inst: Air.Inst.Index) !CValue {
     const ty_pl = o.air.instructions.items(.data)[inst].ty_pl;
     const extra = o.air.extraData(Air.StructField, ty_pl.payload).data;
     const writer = o.writer();
-    const struct_ptr = try o.resolveInst(extra.struct_ptr);
-    const struct_ptr_ty = o.air.typeOf(extra.struct_ptr);
+    const struct_ptr = try o.resolveInst(extra.struct_operand);
+    const struct_ptr_ty = o.air.typeOf(extra.struct_operand);
     const struct_obj = struct_ptr_ty.elemType().castTag(.@"struct").?.data;
     const field_name = struct_obj.fields.keys()[extra.field_index];
 
@@ -1677,6 +1678,26 @@ fn airStructFieldPtr(o: *Object, inst: Air.Inst.Index) !CValue {
             try writer.print("->{};\n", .{fmtIdent(field_name)});
         },
     }
+    return local;
+}
+
+fn airStructFieldVal(o: *Object, inst: Air.Inst.Index) !CValue {
+    if (o.liveness.isUnused(inst))
+        return CValue.none;
+
+    const ty_pl = o.air.instructions.items(.data)[inst].ty_pl;
+    const extra = o.air.extraData(Air.StructField, ty_pl.payload).data;
+    const writer = o.writer();
+    const struct_byval = try o.resolveInst(extra.struct_operand);
+    const struct_ty = o.air.typeOf(extra.struct_operand);
+    const struct_obj = struct_ty.castTag(.@"struct").?.data;
+    const field_name = struct_obj.fields.keys()[extra.field_index];
+
+    const inst_ty = o.air.typeOfIndex(inst);
+    const local = try o.allocLocal(inst_ty, .Const);
+    try writer.writeAll(" = ");
+    try o.writeCValue(writer, struct_byval);
+    try writer.print(".{};\n", .{fmtIdent(field_name)});
     return local;
 }
 
