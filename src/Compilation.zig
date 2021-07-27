@@ -1737,6 +1737,13 @@ pub fn update(self: *Compilation) !void {
 
     if (!use_stage1) {
         if (self.bin_file.options.module) |module| {
+            if (self.bin_file.options.is_test and self.totalErrorCount() == 0) {
+                // The `test_functions` decl has been intentionally postponed until now,
+                // at which point we must populate it with the list of test functions that
+                // have been discovered and not filtered out.
+                try module.populateTestFunctions();
+            }
+
             // Process the deletion set. We use a while loop here because the
             // deletion set may grow as we call `clearDecl` within this loop,
             // and more unreferenced Decls are revealed.
@@ -2384,14 +2391,6 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
             };
         },
     };
-
-    if (self.bin_file.options.is_test and self.totalErrorCount() == 0) {
-        // The `test_functions` decl has been intentionally postponed until now,
-        // at which point we must populate it with the list of test functions that
-        // have been discovered and not filtered out.
-        const mod = self.bin_file.options.module.?;
-        try mod.populateTestFunctions();
-    }
 }
 
 const AstGenSrc = union(enum) {
