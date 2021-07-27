@@ -193,7 +193,10 @@ pub const Module = opaque {
     pub const getNamedGlobalAlias = LLVMGetNamedGlobalAlias;
     extern fn LLVMGetNamedGlobalAlias(
         M: *const Module,
-        Name: [*]const u8,
+        /// Empirically, LLVM will call strlen() on `Name` and so it
+        /// must be both null terminated and also have `NameLen` set
+        /// to the size.
+        Name: [*:0]const u8,
         NameLen: usize,
     ) ?*const Value;
 };

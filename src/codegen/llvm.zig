@@ -454,12 +454,12 @@ pub const Object = struct {
         // Until then we iterate over existing aliases and make them point
         // to the correct decl, or otherwise add a new alias. Old aliases are leaked.
         for (exports) |exp| {
-            if (self.llvm_module.getNamedGlobalAlias(exp.options.name.ptr, exp.options.name.len)) |alias| {
+            const exp_name_z = try module.gpa.dupeZ(u8, exp.options.name);
+            defer module.gpa.free(exp_name_z);
+
+            if (self.llvm_module.getNamedGlobalAlias(exp_name_z.ptr, exp_name_z.len)) |alias| {
                 alias.setAliasee(llvm_fn);
             } else {
-                const exp_name_z = try module.gpa.dupeZ(u8, exp.options.name);
-                defer module.gpa.free(exp_name_z);
-
                 const alias = self.llvm_module.addAlias(llvm_fn.typeOf(), llvm_fn, exp_name_z);
                 _ = alias;
             }
