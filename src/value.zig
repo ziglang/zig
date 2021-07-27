@@ -112,6 +112,10 @@ pub const Value = extern union {
         /// This value is repeated some number of times. The amount of times to repeat
         /// is stored externally.
         repeated,
+        /// Each element stored as a `Value`.
+        array,
+        /// Pointer and length as sub `Value` objects.
+        slice,
         float_16,
         float_32,
         float_64,
@@ -216,6 +220,9 @@ pub const Value = extern union {
                 .bytes,
                 .enum_literal,
                 => Payload.Bytes,
+
+                .array => Payload.Array,
+                .slice => Payload.Slice,
 
                 .enum_field_index => Payload.U32,
 
@@ -442,6 +449,28 @@ pub const Value = extern union {
                 };
                 return Value{ .ptr_otherwise = &new_payload.base };
             },
+            .array => {
+                const payload = self.castTag(.array).?;
+                const new_payload = try allocator.create(Payload.Array);
+                new_payload.* = .{
+                    .base = payload.base,
+                    .data = try allocator.alloc(Value, payload.data.len),
+                };
+                std.mem.copy(Value, new_payload.data, payload.data);
+                return Value{ .ptr_otherwise = &new_payload.base };
+            },
+            .slice => {
+                const payload = self.castTag(.slice).?;
+                const new_payload = try allocator.create(Payload.Slice);
+                new_payload.* = .{
+                    .base = payload.base,
+                    .data = .{
+                        .ptr = try payload.data.ptr.copy(allocator),
+                        .len = try payload.data.len.copy(allocator),
+                    },
+                };
+                return Value{ .ptr_otherwise = &new_payload.base };
+            },
             .float_16 => return self.copyPayloadShallow(allocator, Payload.Float_16),
             .float_32 => return self.copyPayloadShallow(allocator, Payload.Float_32),
             .float_64 => return self.copyPayloadShallow(allocator, Payload.Float_64),
@@ -605,6 +634,8 @@ pub const Value = extern union {
                 try out_stream.writeAll("(repeated) ");
                 val = val.castTag(.repeated).?.data;
             },
+            .array => return out_stream.writeAll("(array)"),
+            .slice => return out_stream.writeAll("(slice)"),
             .float_16 => return out_stream.print("{}", .{val.castTag(.float_16).?.data}),
             .float_32 => return out_stream.print("{}", .{val.castTag(.float_32).?.data}),
             .float_64 => return out_stream.print("{}", .{val.castTag(.float_64).?.data}),
@@ -729,6 +760,8 @@ pub const Value = extern union {
             .field_ptr,
             .bytes,
             .repeated,
+            .array,
+            .slice,
             .float_16,
             .float_32,
             .float_64,
@@ -1075,6 +1108,8 @@ pub const Value = extern union {
         return orderAgainstZero(lhs).compare(op);
     }
 
+    /// TODO we can't compare value equality without also knowing the type to treat
+    /// the values as
     pub fn eql(a: Value, b: Value) bool {
         const a_tag = a.tag();
         const b_tag = b.tag();
@@ -1109,6 +1144,8 @@ pub const Value = extern union {
         return @truncate(u32, self.hash());
     }
 
+    /// TODO we can't hash without also knowing the type of the value.
+    /// we have to hash as if there were a canonical value memory layout.
     pub fn hash(self: Value) u64 {
         var hasher = std.hash.Wyhash.init(0);
 
@@ -1203,6 +1240,15 @@ pub const Value = extern union {
                 const payload = self.castTag(.bytes).?;
                 hasher.update(payload.data);
             },
+            .repeated => {
+                @panic("TODO Value.hash for repeated");
+            },
+            .array => {
+                @panic("TODO Value.hash for array");
+            },
+            .slice => {
+                @panic("TODO Value.hash for slice");
+            },
             .int_u64 => {
                 const payload = self.castTag(.int_u64).?;
                 std.hash.autoHash(&hasher, payload.data);
@@ -1210,10 +1256,6 @@ pub const Value = extern union {
             .int_i64 => {
                 const payload = self.castTag(.int_i64).?;
                 std.hash.autoHash(&hasher, payload.data);
-            },
-            .repeated => {
-                const payload = self.castTag(.repeated).?;
-                std.hash.autoHash(&hasher, payload.data.hash());
             },
             .ref_val => {
                 const payload = self.castTag(.ref_val).?;
@@ -1340,6 +1382,8 @@ pub const Value = extern union {
         return switch (val.tag()) {
             .empty_array => 0,
             .bytes => val.castTag(.bytes).?.data.len,
+            .array => val.castTag(.array).?.data.len,
+            .slice => val.castTag(.slice).?.data.len.toUnsignedInt(),
             .ref_val => sliceLen(val.castTag(.ref_val).?.data),
             .decl_ref => {
                 const decl = val.castTag(.decl_ref).?.data;
@@ -1363,6 +1407,9 @@ pub const Value = extern union {
 
             // No matter the index; all the elements are the same!
             .repeated => return self.castTag(.repeated).?.data,
+
+            .array => return self.castTag(.array).?.data[index],
+            .slice => return self.castTag(.slice).?.data.ptr.elemValue(allocator, index),
 
             else => unreachable,
         }
@@ -1450,7 +1497,8 @@ pub const Value = extern union {
     }
 
     /// Valid for all types. Asserts the value is not undefined.
-    pub fn isType(self: Value) bool {
+    /// TODO this function is a code smell and should be deleted
+    fn isType(self: Value) bool {
         return switch (self.tag()) {
             .ty,
             .int_type,
@@ -1528,6 +1576,8 @@ pub const Value = extern union {
             .field_ptr,
             .bytes,
             .repeated,
+            .array,
+            .slice,
             .float_16,
             .float_32,
             .float_64,
@@ -1636,6 +1686,19 @@ pub const Value = extern union {
         pub const Bytes = struct {
             base: Payload,
             data: []const u8,
+        };
+
+        pub const Array = struct {
+            base: Payload,
+            data: []Value,
+        };
+
+        pub const Slice = struct {
+            base: Payload,
+            data: struct {
+                ptr: Value,
+                len: Value,
+            },
         };
 
         pub const Ty = struct {

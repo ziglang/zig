@@ -1526,6 +1526,8 @@ pub const Type = extern union {
             .var_args_param => unreachable,
 
             .@"struct" => {
+                const s = self.castTag(.@"struct").?.data;
+                assert(s.status == .have_layout);
                 @panic("TODO abiSize struct");
             },
             .enum_simple, .enum_full, .enum_nonexhaustive => {
@@ -2764,6 +2766,26 @@ pub const Type = extern union {
             .export_options,
             .extern_options,
             => @panic("TODO resolve std.builtin types"),
+            else => unreachable,
+        }
+    }
+
+    pub fn structFieldCount(ty: Type) usize {
+        switch (ty.tag()) {
+            .@"struct" => {
+                const struct_obj = ty.castTag(.@"struct").?.data;
+                return struct_obj.fields.count();
+            },
+            else => unreachable,
+        }
+    }
+
+    pub fn structFieldType(ty: Type, index: usize) Type {
+        switch (ty.tag()) {
+            .@"struct" => {
+                const struct_obj = ty.castTag(.@"struct").?.data;
+                return struct_obj.fields.values()[index].ty;
+            },
             else => unreachable,
         }
     }

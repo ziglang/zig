@@ -112,6 +112,8 @@ compile_log_text: ArrayListUnmanaged(u8) = .{},
 
 emit_h: ?*GlobalEmitH,
 
+test_functions: std.AutoArrayHashMapUnmanaged(*Decl, void) = .{},
+
 /// A `Module` has zero or one of these depending on whether `-femit-h` is enabled.
 pub const GlobalEmitH = struct {
     /// Where to put the output.
@@ -282,6 +284,7 @@ pub const Decl = struct {
     pub fn destroy(decl: *Decl, module: *Module) void {
         const gpa = module.gpa;
         log.debug("destroy {*} ({s})", .{ decl, decl.name });
+        _ = module.test_functions.swapRemove(decl);
         if (decl.deletion_flag) {
             assert(module.deletion_set.swapRemove(decl));
         }
@@ -3319,6 +3322,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) SemaError!voi
                 // the test name filter.
                 if (!mod.comp.bin_file.options.is_test) break :blk false;
                 if (decl_pkg != mod.main_pkg) break :blk false;
+                try mod.test_functions.put(gpa, new_decl, {});
                 break :blk true;
             },
             else => blk: {
@@ -3326,6 +3330,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) SemaError!voi
                 if (!mod.comp.bin_file.options.is_test) break :blk false;
                 if (decl_pkg != mod.main_pkg) break :blk false;
                 // TODO check the name against --test-filter
+                try mod.test_functions.put(gpa, new_decl, {});
                 break :blk true;
             },
         };
@@ -3766,16 +3771,37 @@ pub fn createAnonymousDeclNamed(
     typed_value: TypedValue,
     name: [:0]u8,
 ) !*Decl {
+    return mod.createAnonymousDeclFromDeclNamed(scope.ownerDecl().?, typed_value, name);
+}
+
+pub fn createAnonymousDecl(mod: *Module, scope: *Scope, typed_value: TypedValue) !*Decl {
+    return mod.createAnonymousDeclFromDecl(scope.ownerDecl().?, typed_value);
+}
+
+pub fn createAnonymousDeclFromDecl(mod: *Module, owner_decl: *Decl, tv: TypedValue) !*Decl {
+    const name_index = mod.getNextAnonNameIndex();
+    const name = try std.fmt.allocPrintZ(mod.gpa, "{s}__anon_{d}", .{
+        owner_decl.name, name_index,
+    });
+    return mod.createAnonymousDeclFromDeclNamed(owner_decl, tv, name);
+}
+
+/// Takes ownership of `name` even if it returns an error.
+pub fn createAnonymousDeclFromDeclNamed(
+    mod: *Module,
+    owner_decl: *Decl,
+    typed_value: TypedValue,
+    name: [:0]u8,
+) !*Decl {
     errdefer mod.gpa.free(name);
 
-    const scope_decl = scope.ownerDecl().?;
-    const namespace = scope_decl.namespace;
+    const namespace = owner_decl.namespace;
     try namespace.anon_decls.ensureUnusedCapacity(mod.gpa, 1);
 
-    const new_decl = try mod.allocateNewDecl(namespace, scope_decl.src_node);
+    const new_decl = try mod.allocateNewDecl(namespace, owner_decl.src_node);
 
     new_decl.name = name;
-    new_decl.src_line = scope_decl.src_line;
+    new_decl.src_line = owner_decl.src_line;
     new_decl.ty = typed_value.ty;
     new_decl.val = typed_value.val;
     new_decl.has_tv = true;
@@ -3794,15 +3820,6 @@ pub fn createAnonymousDeclNamed(
     }
 
     return new_decl;
-}
-
-pub fn createAnonymousDecl(mod: *Module, scope: *Scope, typed_value: TypedValue) !*Decl {
-    const scope_decl = scope.ownerDecl().?;
-    const name_index = mod.getNextAnonNameIndex();
-    const name = try std.fmt.allocPrintZ(mod.gpa, "{s}__anon_{d}", .{
-        scope_decl.name, name_index,
-    });
-    return mod.createAnonymousDeclNamed(scope, typed_value, name);
 }
 
 pub fn getNextAnonNameIndex(mod: *Module) usize {
@@ -4800,4 +4817,96 @@ pub fn processExports(mod: *Module) !void {
             },
         };
     }
+}
+
+pub fn populateTestFunctions(mod: *Module) !void {
+    const gpa = mod.gpa;
+    const builtin_pkg = mod.main_pkg.table.get("builtin").?;
+    const builtin_file = (mod.importPkg(builtin_pkg) catch unreachable).file;
+    const builtin_namespace = builtin_file.root_decl.?.namespace;
+    const decl = builtin_namespace.decls.get("test_functions").?;
+    var buf: Type.Payload.ElemType = undefined;
+    const tmp_test_fn_ty = decl.ty.slicePtrFieldType(&buf).elemType();
+
+    const array_decl = d: {
+        // Add mod.test_functions to an array decl then make the test_functions
+        // decl reference it as a slice.
+        var new_decl_arena = std.heap.ArenaAllocator.init(gpa);
+        errdefer new_decl_arena.deinit();
+        const arena = &new_decl_arena.allocator;
+
+        const test_fn_vals = try arena.alloc(Value, mod.test_functions.count());
+        const array_decl = try mod.createAnonymousDeclFromDecl(decl, .{
+            .ty = try Type.Tag.array.create(arena, .{
+                .len = test_fn_vals.len,
+                .elem_type = try tmp_test_fn_ty.copy(arena),
+            }),
+            .val = try Value.Tag.array.create(arena, test_fn_vals),
+        });
+        for (mod.test_functions.keys()) |test_decl, i| {
+            const test_name_slice = mem.sliceTo(test_decl.name, 0);
+            const test_name_decl = n: {
+                var name_decl_arena = std.heap.ArenaAllocator.init(gpa);
+                errdefer name_decl_arena.deinit();
+                const bytes = try name_decl_arena.allocator.dupe(u8, test_name_slice);
+                const test_name_decl = try mod.createAnonymousDeclFromDecl(array_decl, .{
+                    .ty = try Type.Tag.array_u8.create(&name_decl_arena.allocator, bytes.len),
+                    .val = try Value.Tag.bytes.create(&name_decl_arena.allocator, bytes),
+                });
+                try test_name_decl.finalizeNewArena(&name_decl_arena);
+                break :n test_name_decl;
+            };
+            try mod.linkerUpdateDecl(test_name_decl);
+
+            const field_vals = try arena.create([3]Value);
+            field_vals.* = .{
+                try Value.Tag.slice.create(arena, .{
+                    .ptr = try Value.Tag.decl_ref.create(arena, test_name_decl),
+                    .len = try Value.Tag.int_u64.create(arena, test_name_slice.len),
+                }), // name
+                try Value.Tag.decl_ref.create(arena, test_decl), // func
+                Value.initTag(.null_value), // async_frame_size
+            };
+            test_fn_vals[i] = try Value.Tag.@"struct".create(arena, field_vals);
+        }
+
+        try array_decl.finalizeNewArena(&new_decl_arena);
+        break :d array_decl;
+    };
+    try mod.linkerUpdateDecl(array_decl);
+
+    {
+        var arena_instance = decl.value_arena.?.promote(gpa);
+        defer decl.value_arena.?.* = arena_instance.state;
+        const arena = &arena_instance.allocator;
+
+        decl.ty = try Type.Tag.const_slice.create(arena, try tmp_test_fn_ty.copy(arena));
+        decl.val = try Value.Tag.slice.create(arena, .{
+            .ptr = try Value.Tag.decl_ref.create(arena, array_decl),
+            .len = try Value.Tag.int_u64.create(arena, mod.test_functions.count()),
+        });
+    }
+    try mod.linkerUpdateDecl(decl);
+}
+
+pub fn linkerUpdateDecl(mod: *Module, decl: *Decl) !void {
+    mod.comp.bin_file.updateDecl(mod, decl) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        error.AnalysisFail => {
+            decl.analysis = .codegen_failure;
+            return;
+        },
+        else => {
+            const gpa = mod.gpa;
+            try mod.failed_decls.ensureUnusedCapacity(gpa, 1);
+            mod.failed_decls.putAssumeCapacityNoClobber(decl, try ErrorMsg.create(
+                gpa,
+                decl.srcLoc(),
+                "unable to codegen: {s}",
+                .{@errorName(err)},
+            ));
+            decl.analysis = .codegen_failure_retryable;
+            return;
+        },
+    };
 }

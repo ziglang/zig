@@ -500,7 +500,18 @@ pub const DeclGen = struct {
         } else if (decl.val.castTag(.extern_fn)) |extern_fn| {
             _ = try self.resolveLlvmFunction(extern_fn.data);
         } else {
-            _ = try self.resolveGlobalDecl(decl);
+            const global = try self.resolveGlobalDecl(decl);
+            assert(decl.has_tv);
+            const init_val = if (decl.val.castTag(.variable)) |payload| init_val: {
+                const variable = payload.data;
+                break :init_val variable.init;
+            } else init_val: {
+                global.setGlobalConstant(.True);
+                break :init_val decl.val;
+            };
+
+            const llvm_init = try self.genTypedValue(.{ .ty = decl.ty, .val = init_val });
+            llvm.setInitializer(global, llvm_init);
         }
     }
 
@@ -548,25 +559,11 @@ pub const DeclGen = struct {
     }
 
     fn resolveGlobalDecl(self: *DeclGen, decl: *Module.Decl) error{ OutOfMemory, CodegenFail }!*const llvm.Value {
-        if (self.llvmModule().getNamedGlobal(decl.name)) |val| return val;
-
-        assert(decl.has_tv);
-
+        const llvm_module = self.object.llvm_module;
+        if (llvm_module.getNamedGlobal(decl.name)) |val| return val;
         // TODO: remove this redundant `llvmType`, it is also called in `genTypedValue`.
         const llvm_type = try self.llvmType(decl.ty);
-        const global = self.llvmModule().addGlobal(llvm_type, decl.name);
-        const init_val = if (decl.val.castTag(.variable)) |payload| init_val: {
-            const variable = payload.data;
-            break :init_val variable.init;
-        } else init_val: {
-            global.setGlobalConstant(.True);
-            break :init_val decl.val;
-        };
-
-        const llvm_init = try self.genTypedValue(.{ .ty = decl.ty, .val = init_val }, null);
-        llvm.setInitializer(global, llvm_init);
-
-        return global;
+        return llvm_module.addGlobal(llvm_type, decl.name);
     }
 
     fn llvmType(self: *DeclGen, t: Type) error{ OutOfMemory, CodegenFail }!*const llvm.Type {
@@ -596,7 +593,8 @@ pub const DeclGen = struct {
             },
             .Array => {
                 const elem_type = try self.llvmType(t.elemType());
-                return elem_type.arrayType(@intCast(c_uint, t.abiSize(self.module.getTarget())));
+                const total_len = t.arrayLen() + @boolToInt(t.sentinel() != null);
+                return elem_type.arrayType(@intCast(c_uint, total_len));
             },
             .Optional => {
                 if (!t.isPtrLikeOptional()) {
@@ -674,8 +672,7 @@ pub const DeclGen = struct {
         }
     }
 
-    // TODO: figure out a way to remove the FuncGen argument
-    fn genTypedValue(self: *DeclGen, tv: TypedValue, fg: ?*FuncGen) error{ OutOfMemory, CodegenFail }!*const llvm.Value {
+    fn genTypedValue(self: *DeclGen, tv: TypedValue) error{ OutOfMemory, CodegenFail }!*const llvm.Value {
         const llvm_type = try self.llvmType(tv.ty);
 
         if (tv.val.isUndef())
@@ -711,19 +708,35 @@ pub const DeclGen = struct {
                         usize_type.constNull(),
                     };
 
-                    // TODO: consider using buildInBoundsGEP2 for opaque pointers
-                    return fg.?.builder.buildInBoundsGEP(val, &indices, 2, "");
+                    return val.constInBoundsGEP(&indices, indices.len);
                 },
                 .ref_val => {
-                    const elem_value = tv.val.castTag(.ref_val).?.data;
-                    const elem_type = tv.ty.castPointer().?.data;
-                    const alloca = fg.?.buildAlloca(try self.llvmType(elem_type));
-                    _ = fg.?.builder.buildStore(try self.genTypedValue(.{ .ty = elem_type, .val = elem_value }, fg), alloca);
-                    return alloca;
+                    //const elem_value = tv.val.castTag(.ref_val).?.data;
+                    //const elem_type = tv.ty.castPointer().?.data;
+                    //const alloca = fg.?.buildAlloca(try self.llvmType(elem_type));
+                    //_ = fg.?.builder.buildStore(try self.genTypedValue(.{ .ty = elem_type, .val = elem_value }, fg), alloca);
+                    //return alloca;
+                    // TODO eliminate the ref_val Value Tag
+                    return self.todo("implement const of pointer tag ref_val", .{});
                 },
                 .variable => {
                     const variable = tv.val.castTag(.variable).?.data;
                     return self.resolveGlobalDecl(variable.owner_decl);
+                },
+                .slice => {
+                    const slice = tv.val.castTag(.slice).?.data;
+                    var buf: Type.Payload.ElemType = undefined;
+                    const fields: [2]*const llvm.Value = .{
+                        try self.genTypedValue(.{
+                            .ty = tv.ty.slicePtrFieldType(&buf),
+                            .val = slice.ptr,
+                        }),
+                        try self.genTypedValue(.{
+                            .ty = Type.initTag(.usize),
+                            .val = slice.len,
+                        }),
+                    };
+                    return self.context.constStruct(&fields, fields.len, .False);
                 },
                 else => |tag| return self.todo("implement const of pointer type '{}' ({})", .{ tv.ty, tag }),
             },
@@ -734,10 +747,28 @@ pub const DeclGen = struct {
                         return self.todo("handle other sentinel values", .{});
                     } else false;
 
-                    return self.context.constString(payload.data.ptr, @intCast(c_uint, payload.data.len), llvm.Bool.fromBool(!zero_sentinel));
-                } else {
-                    return self.todo("handle more array values", .{});
+                    return self.context.constString(
+                        payload.data.ptr,
+                        @intCast(c_uint, payload.data.len),
+                        llvm.Bool.fromBool(!zero_sentinel),
+                    );
                 }
+                if (tv.val.castTag(.array)) |payload| {
+                    const gpa = self.gpa;
+                    const elem_ty = tv.ty.elemType();
+                    const elem_vals = payload.data;
+                    const llvm_elems = try gpa.alloc(*const llvm.Value, elem_vals.len);
+                    defer gpa.free(llvm_elems);
+                    for (elem_vals) |elem_val, i| {
+                        llvm_elems[i] = try self.genTypedValue(.{ .ty = elem_ty, .val = elem_val });
+                    }
+                    const llvm_elem_ty = try self.llvmType(elem_ty);
+                    return llvm_elem_ty.constArray(
+                        llvm_elems.ptr,
+                        @intCast(c_uint, llvm_elems.len),
+                    );
+                }
+                return self.todo("handle more array values", .{});
             },
             .Optional => {
                 if (!tv.ty.isPtrLikeOptional()) {
@@ -750,26 +781,25 @@ pub const DeclGen = struct {
                             llvm_child_type.constNull(),
                             self.context.intType(1).constNull(),
                         };
-                        return self.context.constStruct(&optional_values, 2, .False);
+                        return self.context.constStruct(&optional_values, optional_values.len, .False);
                     } else {
                         var optional_values: [2]*const llvm.Value = .{
-                            try self.genTypedValue(.{ .ty = child_type, .val = tv.val }, fg),
+                            try self.genTypedValue(.{ .ty = child_type, .val = tv.val }),
                             self.context.intType(1).constAllOnes(),
                         };
-                        return self.context.constStruct(&optional_values, 2, .False);
+                        return self.context.constStruct(&optional_values, optional_values.len, .False);
                     }
                 } else {
                     return self.todo("implement const of optional pointer", .{});
                 }
             },
             .Fn => {
-                const fn_decl = if (tv.val.castTag(.extern_fn)) |extern_fn|
-                    extern_fn.data
-                else if (tv.val.castTag(.function)) |func_payload|
-                    func_payload.data.owner_decl
-                else
-                    unreachable;
-
+                const fn_decl = switch (tv.val.tag()) {
+                    .extern_fn => tv.val.castTag(.extern_fn).?.data,
+                    .function => tv.val.castTag(.function).?.data.owner_decl,
+                    .decl_ref => tv.val.castTag(.decl_ref).?.data,
+                    else => unreachable,
+                };
                 return self.resolveLlvmFunction(fn_decl);
             },
             .ErrorSet => {
@@ -793,10 +823,28 @@ pub const DeclGen = struct {
 
                 if (!payload_type.hasCodeGenBits()) {
                     // We use the error type directly as the type.
-                    return self.genTypedValue(.{ .ty = error_type, .val = sub_val }, fg);
+                    return self.genTypedValue(.{ .ty = error_type, .val = sub_val });
                 }
 
                 return self.todo("implement error union const of type '{}'", .{tv.ty});
+            },
+            .Struct => {
+                const fields_len = tv.ty.structFieldCount();
+                const field_vals = tv.val.castTag(.@"struct").?.data;
+                const gpa = self.gpa;
+                const llvm_fields = try gpa.alloc(*const llvm.Value, fields_len);
+                defer gpa.free(llvm_fields);
+                for (llvm_fields) |*llvm_field, i| {
+                    llvm_field.* = try self.genTypedValue(.{
+                        .ty = tv.ty.structFieldType(i),
+                        .val = field_vals[i],
+                    });
+                }
+                return self.context.constStruct(
+                    llvm_fields.ptr,
+                    @intCast(c_uint, llvm_fields.len),
+                    .False,
+                );
             },
             else => return self.todo("implement const of type '{}'", .{tv.ty}),
         }
@@ -869,7 +917,7 @@ pub const FuncGen = struct {
 
     fn resolveInst(self: *FuncGen, inst: Air.Inst.Ref) !*const llvm.Value {
         if (self.air.value(inst)) |val| {
-            return self.dg.genTypedValue(.{ .ty = self.air.typeOf(inst), .val = val }, self);
+            return self.dg.genTypedValue(.{ .ty = self.air.typeOf(inst), .val = val });
         }
         const inst_index = Air.refToIndex(inst).?;
         if (self.func_inst_table.get(inst_index)) |value| return value;
