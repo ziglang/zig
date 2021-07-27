@@ -269,6 +269,11 @@ pub const CharacterLiteral = opaque {
     extern fn ZigClangCharacterLiteral_getValue(*const CharacterLiteral) c_uint;
 };
 
+pub const ChooseExpr = opaque {
+    pub const getChosenSubExpr = ZigClangChooseExpr_getChosenSubExpr;
+    extern fn ZigClangChooseExpr_getChosenSubExpr(*const ChooseExpr) *const Expr;
+};
+
 pub const CompoundAssignOperator = opaque {
     pub const getType = ZigClangCompoundAssignOperator_getType;
     extern fn ZigClangCompoundAssignOperator_getType(*const CompoundAssignOperator) QualType;

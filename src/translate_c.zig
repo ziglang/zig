@@ -1308,6 +1308,10 @@ fn transStmt(
             const shuffle_vec_node = try transShuffleVectorExpr(c, scope, shuffle_vec_expr);
             return maybeSuppressResult(c, scope, result_used, shuffle_vec_node);
         },
+        .ChooseExprClass => {
+            const choose_expr = @ptrCast(*const clang.ChooseExpr, stmt);
+            return transExpr(c, scope, choose_expr.getChosenSubExpr(), result_used);
+        },
         // When adding new cases here, see comment for maybeBlockify()
         .GCCAsmStmtClass,
         .GotoStmtClass,
