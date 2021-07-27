@@ -2802,6 +2802,7 @@ pub const LibExeObjStep = struct {
                         mem.eql(u8, entry.name, "llvm-ar.id") or
                         mem.eql(u8, entry.name, "libs.txt") or
                         mem.eql(u8, entry.name, "builtin.zig") or
+                        mem.eql(u8, entry.name, "zld.id") or
                         mem.eql(u8, entry.name, "lld.id")) continue;
 
                     _ = try src_dir.updateFile(entry.name, dest_dir, entry.name, .{});
