@@ -2123,6 +2123,7 @@ pub fn deinit(mod: *Module) void {
     mod.global_error_set.deinit(gpa);
 
     mod.error_name_list.deinit(gpa);
+    mod.test_functions.deinit(gpa);
 }
 
 fn freeExportList(gpa: *Allocator, export_list: []*Export) void {
