@@ -1523,6 +1523,41 @@ pub fn fadvise(fd: fd_t, offset: i64, len: i64, advice: usize) usize {
     }
 }
 
+pub fn landlock_abi_version() usize {
+    return syscall3(.landlock_create_ruleset, @as(c_int, 0), @as(c_int, 0), LANDLOCK_CREATE_RULESET_VERSION);
+}
+
+pub fn landlock_create_ruleset(attr: *const landlock_ruleset_attr, flags: u32) usize {
+    return syscall3(.landlock_create_ruleset, @ptrToInt(attr), @sizeOf(@TypeOf(attr.*)), flags);
+}
+
+pub fn landlock_add_rule(ruleset_fd: fd_t, rule: landlock_rule) usize {
+    const attr = blk: {
+        inline for (std.meta.fields(landlock_rule)) |field| {
+            if (rule == @field(std.meta.Tag(landlock_rule), field.name)) {
+                break :blk &@field(rule, field.name);
+            }
+        } else unreachable;
+    };
+    // Flags must be set to zero, but this may change in the future.
+    return syscall4(
+        .landlock_add_rule,
+        @bitCast(usize, @as(isize, ruleset_fd)),
+        @bitCast(usize, @as(isize, @enumToInt(rule))),
+        @ptrToInt(attr),
+        @as(usize, 0),
+    );
+}
+
+pub fn landlock_restrict_self(ruleset_fd: fd_t) usize {
+    // Flags must be set to zero, but this may change in the future.
+    return syscall2(
+        .landlock_restrict_self,
+        @bitCast(usize, @as(isize, ruleset_fd)),
+        @as(usize, 0),
+    );
+}
+
 test {
     if (std.Target.current.os.tag == .linux) {
         _ = @import("linux/test.zig");

@@ -2442,3 +2442,36 @@ pub const __kernel_timespec = extern struct {
     tv_sec: i64,
     tv_nsec: i64,
 };
+
+pub const LANDLOCK_ACCESS_FS_EXECUTE = @as(u64, 1 << 0);
+pub const LANDLOCK_ACCESS_FS_WRITE_FILE = @as(u64, 1 << 1);
+pub const LANDLOCK_ACCESS_FS_READ_FILE = @as(u64, 1 << 2);
+pub const LANDLOCK_ACCESS_FS_READ_DIR = @as(u64, 1 << 3);
+pub const LANDLOCK_ACCESS_FS_REMOVE_DIR = @as(u64, 1 << 4);
+pub const LANDLOCK_ACCESS_FS_REMOVE_FILE = @as(u64, 1 << 5);
+pub const LANDLOCK_ACCESS_FS_MAKE_CHAR = @as(u64, 1 << 6);
+pub const LANDLOCK_ACCESS_FS_MAKE_DIR = @as(u64, 1 << 7);
+pub const LANDLOCK_ACCESS_FS_MAKE_REG = @as(u64, 1 << 8);
+pub const LANDLOCK_ACCESS_FS_MAKE_SOCK = @as(u64, 1 << 9);
+pub const LANDLOCK_ACCESS_FS_MAKE_FIFO = @as(u64, 1 << 10);
+pub const LANDLOCK_ACCESS_FS_MAKE_BLOCK = @as(u64, 1 << 11);
+pub const LANDLOCK_ACCESS_FS_MAKE_SYM = @as(u64, 1 << 12);
+
+pub const LANDLOCK_CREATE_RULESET_VERSION = @as(u32, 1 << 0);
+
+pub const landlock_ruleset_attr = extern struct {
+    handled_access_fs: u64,
+};
+
+pub const landlock_rule_type = enum(c_int) {
+    PATH_BENEATH = 1,
+};
+
+pub const landlock_rule = union(landlock_rule_type) {
+    PATH_BENEATH: PathBeneath,
+
+    pub const PathBeneath = packed struct {
+        allowed_access: u64,
+        parent_fd: fd_t,
+    };
+};
