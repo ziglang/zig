@@ -961,6 +961,7 @@ pub const FuncGen = struct {
                 .alloc      => try self.airAlloc(inst),
                 .arg        => try self.airArg(inst),
                 .bitcast    => try self.airBitCast(inst),
+                .bool_to_int=> try self.airBoolToInt(inst),
                 .block      => try self.airBlock(inst),
                 .br         => try self.airBr(inst),
                 .switch_br  => try self.airSwitchBr(inst),
@@ -1654,6 +1655,15 @@ pub const FuncGen = struct {
         const dest_type = try self.dg.llvmType(inst_ty);
 
         return self.builder.buildBitCast(operand, dest_type, "");
+    }
+
+    fn airBoolToInt(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst))
+            return null;
+
+        const un_op = self.air.instructions.items(.data)[inst].un_op;
+        const operand = try self.resolveInst(un_op);
+        return operand;
     }
 
     fn airArg(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {

@@ -7165,8 +7165,8 @@ fn func(y: *i32) void {
       {#header_open|@boolToInt#}
       <pre>{#syntax#}@boolToInt(value: bool) u1{#endsyntax#}</pre>
       <p>
-      Converts {#syntax#}true{#endsyntax#} to {#syntax#}u1(1){#endsyntax#} and {#syntax#}false{#endsyntax#} to
-                  {#syntax#}u1(0){#endsyntax#}.
+      Converts {#syntax#}true{#endsyntax#} to {#syntax#}@as(u1, 1){#endsyntax#} and {#syntax#}false{#endsyntax#} to
+                  {#syntax#}@as(u1, 0){#endsyntax#}.
       </p>
       <p>
       If the value is known at compile-time, the return type is {#syntax#}comptime_int{#endsyntax#}

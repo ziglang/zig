@@ -189,6 +189,10 @@ pub const Inst = struct {
         /// Converts a pointer to its address. Result type is always `usize`.
         /// Uses the `un_op` field.
         ptrtoint,
+        /// Given a boolean, returns 0 or 1.
+        /// Result type is always `u1`.
+        /// Uses the `un_op` field.
+        bool_to_int,
         /// Stores a value onto the stack and returns a pointer to it.
         /// TODO audit where this AIR instruction is emitted, maybe it should instead be emitting
         /// alloca instruction and storing to the alloca.
@@ -489,6 +493,8 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .ptrtoint,
         .slice_len,
         => return Type.initTag(.usize),
+
+        .bool_to_int => return Type.initTag(.u1),
 
         .call => {
             const callee_ty = air.typeOf(datas[inst].pl_op.operand);

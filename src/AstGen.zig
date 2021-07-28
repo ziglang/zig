@@ -7754,6 +7754,7 @@ pub const simple_types = std.ComptimeStringMap(Zir.Inst.Ref, .{
     .{ "u32", .u32_type },
     .{ "u64", .u64_type },
     .{ "u128", .u128_type },
+    .{ "u1", .u1_type },
     .{ "u8", .u8_type },
     .{ "undefined", .undef },
     .{ "usize", .usize_type },
@@ -8400,6 +8401,7 @@ fn rvalue(
             const as_usize = @as(u64, @enumToInt(Zir.Inst.Ref.usize_type)) << 32;
             const as_void = @as(u64, @enumToInt(Zir.Inst.Ref.void_type)) << 32;
             switch ((@as(u64, @enumToInt(ty_inst)) << 32) | @as(u64, @enumToInt(result))) {
+                as_ty | @enumToInt(Zir.Inst.Ref.u1_type),
                 as_ty | @enumToInt(Zir.Inst.Ref.u8_type),
                 as_ty | @enumToInt(Zir.Inst.Ref.i8_type),
                 as_ty | @enumToInt(Zir.Inst.Ref.u16_type),

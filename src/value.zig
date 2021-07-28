@@ -22,6 +22,7 @@ pub const Value = extern union {
 
     pub const Tag = enum {
         // The first section of this enum are tags that require no payload.
+        u1_type,
         u8_type,
         i8_type,
         u16_type,
@@ -138,6 +139,7 @@ pub const Value = extern union {
 
         pub fn Type(comptime t: Tag) type {
             return switch (t) {
+                .u1_type,
                 .u8_type,
                 .i8_type,
                 .u16_type,
@@ -314,6 +316,7 @@ pub const Value = extern union {
         if (self.tag_if_small_enough < Tag.no_payload_count) {
             return Value{ .tag_if_small_enough = self.tag_if_small_enough };
         } else switch (self.ptr_otherwise.tag) {
+            .u1_type,
             .u8_type,
             .i8_type,
             .u16_type,
@@ -520,6 +523,7 @@ pub const Value = extern union {
         comptime assert(fmt.len == 0);
         var val = start_val;
         while (true) switch (val.tag()) {
+            .u1_type => return out_stream.writeAll("u1"),
             .u8_type => return out_stream.writeAll("u8"),
             .i8_type => return out_stream.writeAll("i8"),
             .u16_type => return out_stream.writeAll("u16"),
@@ -671,6 +675,7 @@ pub const Value = extern union {
     pub fn toType(self: Value, allocator: *Allocator) !Type {
         return switch (self.tag()) {
             .ty => self.castTag(.ty).?.data,
+            .u1_type => Type.initTag(.u1),
             .u8_type => Type.initTag(.u8),
             .i8_type => Type.initTag(.i8),
             .u16_type => Type.initTag(.u16),
@@ -1150,6 +1155,7 @@ pub const Value = extern union {
         var hasher = std.hash.Wyhash.init(0);
 
         switch (self.tag()) {
+            .u1_type,
             .u8_type,
             .i8_type,
             .u16_type,
@@ -1502,6 +1508,7 @@ pub const Value = extern union {
         return switch (self.tag()) {
             .ty,
             .int_type,
+            .u1_type,
             .u8_type,
             .i8_type,
             .u16_type,

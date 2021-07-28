@@ -1257,7 +1257,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         // Both stage1 and stage2 LLVM backend put the object file in the cache directory.
         if (self.base.options.use_llvm) {
             // Stage2 has to call flushModule since that outputs the LLVM object file.
-            if (!build_options.is_stage1) try self.flushModule(comp);
+            if (!build_options.is_stage1 or !self.base.options.use_stage1) try self.flushModule(comp);
 
             const obj_basename = try std.zig.binNameAlloc(arena, .{
                 .root_name = self.base.options.root_name,
@@ -1287,7 +1287,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
     const allow_shlib_undefined = self.base.options.allow_shlib_undefined orelse !self.base.options.is_native_os;
     const compiler_rt_path: ?[]const u8 = if (self.base.options.include_compiler_rt) blk: {
         // TODO: remove when stage2 can build compiler_rt.zig
-        if (!build_options.is_stage1) break :blk null;
+        if (!build_options.is_stage1 or !self.base.options.use_stage1) break :blk null;
 
         // In the case of build-obj we include the compiler-rt symbols directly alongside
         // the symbols of the root source file, in the same compilation unit.
@@ -1605,7 +1605,8 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         if (is_exe_or_dyn_lib and
             !self.base.options.skip_linker_dependencies and
             !self.base.options.link_libc and
-            build_options.is_stage1)
+            build_options.is_stage1 and
+            self.base.options.use_stage1)
         {
             try argv.append(comp.libc_static_lib.?.full_object_path);
         }

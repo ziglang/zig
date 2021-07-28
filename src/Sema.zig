@@ -5848,8 +5848,14 @@ fn zirAlignOf(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileErr
 
 fn zirBoolToInt(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
-    const src = inst_data.src();
-    return sema.mod.fail(&block.base, src, "TODO: Sema.zirBoolToInt", .{});
+    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
+    const operand = sema.resolveInst(inst_data.operand);
+    if (try sema.resolveMaybeUndefVal(block, operand_src, operand)) |val| {
+        if (val.isUndef()) return sema.addConstUndef(Type.initTag(.u1));
+        const bool_ints = [2]Air.Inst.Ref{ .zero, .one };
+        return bool_ints[@boolToInt(val.toBool())];
+    }
+    return block.addUnOp(.bool_to_int, operand);
 }
 
 fn zirEmbedFile(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -8252,6 +8258,7 @@ fn typeHasOnePossibleValue(
         .c_longdouble,
         .comptime_int,
         .comptime_float,
+        .u1,
         .u8,
         .i8,
         .u16,

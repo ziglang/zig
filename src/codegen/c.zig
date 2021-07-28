@@ -925,6 +925,7 @@ fn genBody(o: *Object, body: []const Air.Inst.Index) error{ AnalysisFail, OutOfM
             .call             => try airCall(o, inst),
             .dbg_stmt         => try airDbgStmt(o, inst),
             .intcast          => try airIntCast(o, inst),
+            .bool_to_int      => try airBoolToInt(o, inst),
             .load             => try airLoad(o, inst),
             .ret              => try airRet(o, inst),
             .store            => try airStore(o, inst),
@@ -1079,6 +1080,20 @@ fn airIntCast(o: *Object, inst: Air.Inst.Index) !CValue {
     try o.dg.renderType(writer, inst_ty);
     try writer.writeAll(")");
     try o.writeCValue(writer, from);
+    try writer.writeAll(";\n");
+    return local;
+}
+
+fn airBoolToInt(o: *Object, inst: Air.Inst.Index) !CValue {
+    if (o.liveness.isUnused(inst))
+        return CValue.none;
+    const un_op = o.air.instructions.items(.data)[inst].un_op;
+    const writer = o.writer();
+    const inst_ty = o.air.typeOfIndex(inst);
+    const operand = try o.resolveInst(un_op);
+    const local = try o.allocLocal(inst_ty, .Const);
+    try writer.writeAll(" = ");
+    try o.writeCValue(writer, operand);
     try writer.writeAll(";\n");
     return local;
 }

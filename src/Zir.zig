@@ -1633,6 +1633,7 @@ pub const Inst = struct {
         /// value and may instead be used as a sentinel to indicate null.
         none,
 
+        u1_type,
         u8_type,
         i8_type,
         u16_type,
@@ -1719,6 +1720,10 @@ pub const Inst = struct {
         pub const typed_value_map = std.enums.directEnumArray(Ref, TypedValue, 0, .{
             .none = undefined,
 
+            .u1_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.u1_type),
+            },
             .u8_type = .{
                 .ty = Type.initTag(.type),
                 .val = Value.initTag(.u8_type),

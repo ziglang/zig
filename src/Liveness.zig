@@ -291,6 +291,7 @@ fn analyzeInst(
         .is_err_ptr,
         .is_non_err_ptr,
         .ptrtoint,
+        .bool_to_int,
         .ret,
         => {
             const operand = inst_datas[inst].un_op;

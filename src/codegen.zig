@@ -835,6 +835,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     .dbg_stmt        => try self.airDbgStmt(inst),
                     .floatcast       => try self.airFloatCast(inst),
                     .intcast         => try self.airIntCast(inst),
+                    .bool_to_int     => try self.airBoolToInt(inst),
                     .is_non_null     => try self.airIsNonNull(inst),
                     .is_non_null_ptr => try self.airIsNonNullPtr(inst),
                     .is_null         => try self.airIsNull(inst),
@@ -1108,6 +1109,13 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 else => return self.fail("TODO implement intCast for {}", .{self.target.cpu.arch}),
             };
             return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+        }
+
+        fn airBoolToInt(self: *Self, inst: Air.Inst.Index) !void {
+            const un_op = self.air.instructions.items(.data)[inst].un_op;
+            const operand = try self.resolveInst(un_op);
+            const result: MCValue = if (self.liveness.isUnused(inst)) .dead else operand;
+            return self.finishAir(inst, result, .{ un_op, .none, .none });
         }
 
         fn airNot(self: *Self, inst: Air.Inst.Index) !void {

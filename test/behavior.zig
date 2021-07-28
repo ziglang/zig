@@ -2,11 +2,9 @@ const builtin = @import("builtin");
 
 test {
     // Tests that pass for both.
-    {}
+    _ = @import("behavior/bool.zig");
 
-    if (builtin.zig_is_stage2) {
-        // Tests that only pass for stage2.
-    } else {
+    if (!builtin.zig_is_stage2) {
         // Tests that only pass for stage1.
         _ = @import("behavior/align.zig");
         _ = @import("behavior/alignof.zig");
@@ -20,7 +18,6 @@ test {
         _ = @import("behavior/bit_shifting.zig");
         _ = @import("behavior/bitcast.zig");
         _ = @import("behavior/bitreverse.zig");
-        _ = @import("behavior/bool.zig");
         _ = @import("behavior/bugs/1025.zig");
         _ = @import("behavior/bugs/1076.zig");
         _ = @import("behavior/bugs/1111.zig");

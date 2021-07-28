@@ -885,7 +885,7 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
         // Both stage1 and stage2 LLVM backend put the object file in the cache directory.
         if (self.base.options.use_llvm) {
             // Stage2 has to call flushModule since that outputs the LLVM object file.
-            if (!build_options.is_stage1) try self.flushModule(comp);
+            if (!build_options.is_stage1 or !self.base.options.use_stage1) try self.flushModule(comp);
 
             const obj_basename = try std.zig.binNameAlloc(arena, .{
                 .root_name = self.base.options.root_name,
@@ -1269,7 +1269,10 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
 
         // TODO: remove when stage2 can build compiler_rt.zig, c.zig and ssp.zig
         // compiler-rt, libc and libssp
-        if (is_exe_or_dyn_lib and !self.base.options.skip_linker_dependencies and build_options.is_stage1) {
+        if (is_exe_or_dyn_lib and
+            !self.base.options.skip_linker_dependencies and
+            build_options.is_stage1 and self.base.options.use_stage1)
+        {
             if (!self.base.options.link_libc) {
                 try argv.append(comp.libc_static_lib.?.full_object_path);
             }

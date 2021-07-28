@@ -137,6 +137,7 @@ const Writer = struct {
             .is_err_ptr,
             .is_non_err_ptr,
             .ptrtoint,
+            .bool_to_int,
             .ret,
             => try w.writeUnOp(s, inst),
 
