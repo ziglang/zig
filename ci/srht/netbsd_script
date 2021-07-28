@@ -51,6 +51,11 @@ samu install
 unset CC
 unset CXX
 
+# TODO ld.lld: error: undefined symbol: main
+#>>> referenced by crt0-common.c
+#>>>               /usr/lib/crt0.o:(___start)
+#release/bin/zig test ../test/behavior.zig -fno-stage1 -fLLVM -I ../test
+
 # Here we skip some tests to save time.
 release/bin/zig build test -Dskip-compile-errors -Dskip-non-native
 
