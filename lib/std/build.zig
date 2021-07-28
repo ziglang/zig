@@ -41,7 +41,7 @@ pub const Builder = struct {
     verbose_ast: bool,
     verbose_link: bool,
     verbose_cc: bool,
-    verbose_ir: bool,
+    verbose_air: bool,
     verbose_llvm_ir: bool,
     verbose_cimport: bool,
     verbose_llvm_cpu_features: bool,
@@ -155,7 +155,7 @@ pub const Builder = struct {
             .verbose_ast = false,
             .verbose_link = false,
             .verbose_cc = false,
-            .verbose_ir = false,
+            .verbose_air = false,
             .verbose_llvm_ir = false,
             .verbose_cimport = false,
             .verbose_llvm_cpu_features = false,
@@ -2451,7 +2451,7 @@ pub const LibExeObjStep = struct {
         if (builder.verbose_tokenize) zig_args.append("--verbose-tokenize") catch unreachable;
         if (builder.verbose_ast) zig_args.append("--verbose-ast") catch unreachable;
         if (builder.verbose_cimport) zig_args.append("--verbose-cimport") catch unreachable;
-        if (builder.verbose_ir) zig_args.append("--verbose-ir") catch unreachable;
+        if (builder.verbose_air) zig_args.append("--verbose-air") catch unreachable;
         if (builder.verbose_llvm_ir) zig_args.append("--verbose-llvm-ir") catch unreachable;
         if (builder.verbose_link or self.verbose_link) zig_args.append("--verbose-link") catch unreachable;
         if (builder.verbose_cc or self.verbose_cc) zig_args.append("--verbose-cc") catch unreachable;

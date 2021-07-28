@@ -147,8 +147,8 @@ pub fn main() !void {
                 builder.verbose_ast = true;
             } else if (mem.eql(u8, arg, "--verbose-link")) {
                 builder.verbose_link = true;
-            } else if (mem.eql(u8, arg, "--verbose-ir")) {
-                builder.verbose_ir = true;
+            } else if (mem.eql(u8, arg, "--verbose-air")) {
+                builder.verbose_air = true;
             } else if (mem.eql(u8, arg, "--verbose-llvm-ir")) {
                 builder.verbose_llvm_ir = true;
             } else if (mem.eql(u8, arg, "--verbose-cimport")) {
@@ -262,7 +262,7 @@ fn usage(builder: *Builder, already_ran_build: bool, out_stream: anytype) !void 
         \\  --verbose-tokenize           Enable compiler debug output for tokenization
         \\  --verbose-ast                Enable compiler debug output for parsing into an AST
         \\  --verbose-link               Enable compiler debug output for linking
-        \\  --verbose-ir                 Enable compiler debug output for Zig IR
+        \\  --verbose-air                Enable compiler debug output for Zig AIR
         \\  --verbose-llvm-ir            Enable compiler debug output for LLVM IR
         \\  --verbose-cimport            Enable compiler debug output for C imports
         \\  --verbose-cc                 Enable compiler debug output for C compilation
