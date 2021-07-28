@@ -1731,6 +1731,7 @@ pub const LibExeObjStep = struct {
 
     pub fn setLinkerScriptPath(self: *LibExeObjStep, source: FileSource) void {
         self.linker_script = source.dupe(self.builder);
+        source.addStepDependencies(&self.step);
     }
 
     pub fn linkFramework(self: *LibExeObjStep, framework_name: []const u8) void {
