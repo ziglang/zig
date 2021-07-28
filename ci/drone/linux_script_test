@@ -10,21 +10,27 @@
 # see `zig build --help` for the full list of test-* components
 case "$1" in
   1)
-    steps="\
-      test-stage2 \
-      test-fmt \
-      test-behavior"
+#   steps="\
+#     test-stage2 \
+#     test-fmt \
+#     test-behavior"
+    echo "try drone test-$1"
+    steps="test-toolchain"
     ;;
   2)
-    steps="test-std"
+#   steps="test-std"
+    echo "noop drone test-$1"
+    exit 0
     ;;
   3)
-    steps="\
-      test-compiler-rt \
-      test-minilibc \
-      test-compare-output \
-      test-translate-c \
-      test-run-translated-c"
+#   steps="\
+#     test-compiler-rt \
+#     test-minilibc \
+#     test-compare-output \
+#     test-translate-c \
+#     test-run-translated-c"
+    echo "noop drone test-$1"
+    exit 0
     ;;
   '')
     echo "error: expecting test group argument"
