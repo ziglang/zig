@@ -699,29 +699,12 @@ pub const DeclGen = struct {
                 .decl_ref => {
                     const decl = tv.val.castTag(.decl_ref).?.data;
                     const val = try self.resolveGlobalDecl(decl);
-
-                    const usize_type = try self.llvmType(Type.initTag(.usize));
-
-                    // TODO: second index should be the index into the memory!
-                    var indices: [2]*const llvm.Value = .{
-                        usize_type.constNull(),
-                        usize_type.constNull(),
-                    };
-
-                    return val.constInBoundsGEP(&indices, indices.len);
-                },
-                .ref_val => {
-                    //const elem_value = tv.val.castTag(.ref_val).?.data;
-                    //const elem_type = tv.ty.castPointer().?.data;
-                    //const alloca = fg.?.buildAlloca(try self.llvmType(elem_type));
-                    //_ = fg.?.builder.buildStore(try self.genTypedValue(.{ .ty = elem_type, .val = elem_value }, fg), alloca);
-                    //return alloca;
-                    // TODO eliminate the ref_val Value Tag
-                    return self.todo("implement const of pointer tag ref_val", .{});
+                    return val.constBitCast(llvm_type);
                 },
                 .variable => {
                     const variable = tv.val.castTag(.variable).?.data;
-                    return self.resolveGlobalDecl(variable.owner_decl);
+                    const val = try self.resolveGlobalDecl(variable.owner_decl);
+                    return val.constBitCast(llvm_type);
                 },
                 .slice => {
                     const slice = tv.val.castTag(.slice).?.data;
@@ -977,7 +960,6 @@ pub const FuncGen = struct {
                 .ret        => try self.airRet(inst),
                 .store      => try self.airStore(inst),
                 .assembly   => try self.airAssembly(inst),
-                .varptr     => try self.airVarPtr(inst),
                 .slice_ptr  => try self.airSliceField(inst, 0),
                 .slice_len  => try self.airSliceField(inst, 1),
 
@@ -1001,7 +983,6 @@ pub const FuncGen = struct {
 
                 .constant => unreachable,
                 .const_ty => unreachable,
-                .ref => unreachable, // TODO eradicate this instruction
                 .unreach  => self.airUnreach(inst),
                 .dbg_stmt => blk: {
                     // TODO: implement debug info
@@ -1178,16 +1159,6 @@ pub const FuncGen = struct {
 
         _ = self.builder.buildBr(loop_block);
         return null;
-    }
-
-    fn airVarPtr(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
-        if (self.liveness.isUnused(inst))
-            return null;
-
-        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
-        const variable = self.air.variables[ty_pl.payload];
-        const decl_llvm_value = self.dg.resolveGlobalDecl(variable.owner_decl);
-        return decl_llvm_value;
     }
 
     fn airSliceField(self: *FuncGen, inst: Air.Inst.Index, index: c_uint) !?*const llvm.Value {

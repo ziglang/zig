@@ -848,13 +848,11 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     .loop            => try self.airLoop(inst),
                     .not             => try self.airNot(inst),
                     .ptrtoint        => try self.airPtrToInt(inst),
-                    .ref             => try self.airRef(inst),
                     .ret             => try self.airRet(inst),
                     .store           => try self.airStore(inst),
                     .struct_field_ptr=> try self.airStructFieldPtr(inst),
                     .struct_field_val=> try self.airStructFieldVal(inst),
                     .switch_br       => try self.airSwitch(inst),
-                    .varptr          => try self.airVarPtr(inst),
                     .slice_ptr       => try self.airSlicePtr(inst),
                     .slice_len       => try self.airSliceLen(inst),
 
@@ -1338,13 +1336,6 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 else => return self.fail("TODO implement wrap errunion error for {}", .{self.target.cpu.arch}),
             };
             return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
-        }
-
-        fn airVarPtr(self: *Self, inst: Air.Inst.Index) !void {
-            const result: MCValue = if (self.liveness.isUnused(inst)) .dead else switch (arch) {
-                else => return self.fail("TODO implement varptr for {}", .{self.target.cpu.arch}),
-            };
-            return self.finishAir(inst, result, .{ .none, .none, .none });
         }
 
         fn airSlicePtr(self: *Self, inst: Air.Inst.Index) !void {
@@ -2831,38 +2822,6 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 bt.feed(arg);
             }
             return bt.finishAir(result);
-        }
-
-        fn airRef(self: *Self, inst: Air.Inst.Index) !void {
-            const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-            const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
-                const operand_ty = self.air.typeOf(ty_op.operand);
-                const operand = try self.resolveInst(ty_op.operand);
-                switch (operand) {
-                    .unreach => unreachable,
-                    .dead => unreachable,
-                    .none => break :result MCValue{ .none = {} },
-
-                    .immediate,
-                    .register,
-                    .ptr_stack_offset,
-                    .ptr_embedded_in_code,
-                    .compare_flags_unsigned,
-                    .compare_flags_signed,
-                    => {
-                        const stack_offset = try self.allocMemPtr(inst);
-                        try self.genSetStack(operand_ty, stack_offset, operand);
-                        break :result MCValue{ .ptr_stack_offset = stack_offset };
-                    },
-
-                    .stack_offset => |offset| break :result MCValue{ .ptr_stack_offset = offset },
-                    .embedded_in_code => |offset| break :result MCValue{ .ptr_embedded_in_code = offset },
-                    .memory => |vaddr| break :result MCValue{ .immediate = vaddr },
-
-                    .undef => return self.fail("TODO implement ref on an undefined value", .{}),
-                }
-            };
-            return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
         }
 
         fn ret(self: *Self, mcv: MCValue) !void {

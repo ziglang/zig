@@ -15,12 +15,11 @@ pub fn dump(gpa: *Allocator, air: Air, zir: Zir, liveness: Liveness) void {
         (@sizeOf(Air.Inst.Tag) + 8);
     const extra_bytes = air.extra.len * @sizeOf(u32);
     const values_bytes = air.values.len * @sizeOf(Value);
-    const variables_bytes = air.variables.len * @sizeOf(*Module.Var);
     const tomb_bytes = liveness.tomb_bits.len * @sizeOf(usize);
     const liveness_extra_bytes = liveness.extra.len * @sizeOf(u32);
     const liveness_special_bytes = liveness.special.count() * 8;
     const total_bytes = @sizeOf(Air) + instruction_bytes + extra_bytes +
-        values_bytes * variables_bytes + @sizeOf(Liveness) + liveness_extra_bytes +
+        values_bytes + @sizeOf(Liveness) + liveness_extra_bytes +
         liveness_special_bytes + tomb_bytes;
 
     // zig fmt: off
@@ -29,7 +28,6 @@ pub fn dump(gpa: *Allocator, air: Air, zir: Zir, liveness: Liveness) void {
         \\# AIR Instructions:         {d} ({})
         \\# AIR Extra Data:           {d} ({})
         \\# AIR Values Bytes:         {d} ({})
-        \\# AIR Variables Bytes:      {d} ({})
         \\# Liveness tomb_bits:       {}
         \\# Liveness Extra Data:      {d} ({})
         \\# Liveness special table:   {d} ({})
@@ -39,7 +37,6 @@ pub fn dump(gpa: *Allocator, air: Air, zir: Zir, liveness: Liveness) void {
         air.instructions.len, fmtIntSizeBin(instruction_bytes),
         air.extra.len, fmtIntSizeBin(extra_bytes),
         air.values.len, fmtIntSizeBin(values_bytes),
-        air.variables.len, fmtIntSizeBin(variables_bytes),
         fmtIntSizeBin(tomb_bytes),
         liveness.extra.len, fmtIntSizeBin(liveness_extra_bytes),
         liveness.special.count(), fmtIntSizeBin(liveness_special_bytes),
@@ -152,7 +149,6 @@ const Writer = struct {
             .not,
             .bitcast,
             .load,
-            .ref,
             .floatcast,
             .intcast,
             .optional_payload,
@@ -174,7 +170,6 @@ const Writer = struct {
 
             .struct_field_ptr => try w.writeStructField(s, inst),
             .struct_field_val => try w.writeStructField(s, inst),
-            .varptr => try w.writeVarPtr(s, inst),
             .constant => try w.writeConstant(s, inst),
             .assembly => try w.writeAssembly(s, inst),
             .dbg_stmt => try w.writeDbgStmt(s, inst),
@@ -241,12 +236,6 @@ const Writer = struct {
 
         try w.writeOperand(s, inst, 0, extra.data.struct_operand);
         try s.print(", {d}", .{extra.data.field_index});
-    }
-
-    fn writeVarPtr(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
-        _ = w;
-        _ = inst;
-        try s.writeAll("TODO");
     }
 
     fn writeConstant(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {

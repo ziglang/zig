@@ -112,6 +112,9 @@ pub const Value = opaque {
         ConstantIndices: [*]const *const Value,
         NumIndices: c_uint,
     ) *const Value;
+
+    pub const constBitCast = LLVMConstBitCast;
+    extern fn LLVMConstBitCast(ConstantVal: *const Value, ToType: *const Type) *const Value;
 };
 
 pub const Type = opaque {

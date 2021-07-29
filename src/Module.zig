@@ -1324,6 +1324,42 @@ pub const Scope = struct {
             block.instructions.appendAssumeCapacity(result_index);
             return result_index;
         }
+
+        pub fn startAnonDecl(block: *Block) !WipAnonDecl {
+            return WipAnonDecl{
+                .block = block,
+                .new_decl_arena = std.heap.ArenaAllocator.init(block.sema.gpa),
+                .finished = false,
+            };
+        }
+
+        pub const WipAnonDecl = struct {
+            block: *Scope.Block,
+            new_decl_arena: std.heap.ArenaAllocator,
+            finished: bool,
+
+            pub fn arena(wad: *WipAnonDecl) *Allocator {
+                return &wad.new_decl_arena.allocator;
+            }
+
+            pub fn deinit(wad: *WipAnonDecl) void {
+                if (!wad.finished) {
+                    wad.new_decl_arena.deinit();
+                }
+                wad.* = undefined;
+            }
+
+            pub fn finish(wad: *WipAnonDecl, ty: Type, val: Value) !*Decl {
+                const new_decl = try wad.block.sema.mod.createAnonymousDecl(&wad.block.base, .{
+                    .ty = ty,
+                    .val = val,
+                });
+                errdefer wad.block.sema.mod.deleteAnonDecl(&wad.block.base, new_decl);
+                try new_decl.finalizeNewArena(&wad.new_decl_arena);
+                wad.finished = true;
+                return new_decl;
+            }
+        };
     };
 };
 
@@ -1700,6 +1736,7 @@ pub const SrcLoc = struct {
 
             .node_offset_fn_type_cc => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
+                const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
                 var params: [1]ast.Node.Index = undefined;
@@ -1708,6 +1745,13 @@ pub const SrcLoc = struct {
                     .fn_proto_multi => tree.fnProtoMulti(node),
                     .fn_proto_one => tree.fnProtoOne(&params, node),
                     .fn_proto => tree.fnProto(node),
+                    .fn_decl => switch (node_tags[node_datas[node].lhs]) {
+                        .fn_proto_simple => tree.fnProtoSimple(&params, node_datas[node].lhs),
+                        .fn_proto_multi => tree.fnProtoMulti(node_datas[node].lhs),
+                        .fn_proto_one => tree.fnProtoOne(&params, node_datas[node].lhs),
+                        .fn_proto => tree.fnProto(node_datas[node].lhs),
+                        else => unreachable,
+                    },
                     else => unreachable,
                 };
                 const main_tokens = tree.nodes.items(.main_token);
@@ -2935,7 +2979,7 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
     const break_index = try sema.analyzeBody(&block_scope, body);
     const result_ref = zir_datas[break_index].@"break".operand;
     const src: LazySrcLoc = .{ .node_offset = 0 };
-    const decl_tv = try sema.resolveInstConst(&block_scope, src, result_ref);
+    const decl_tv = try sema.resolveInstValue(&block_scope, src, result_ref);
     const align_val = blk: {
         const align_ref = decl.zirAlignRef();
         if (align_ref == .none) break :blk Value.initTag(.null_value);
@@ -3603,7 +3647,6 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn) SemaError!Air {
         .instructions = sema.air_instructions.toOwnedSlice(),
         .extra = sema.air_extra.toOwnedSlice(gpa),
         .values = sema.air_values.toOwnedSlice(gpa),
-        .variables = sema.air_variables.toOwnedSlice(gpa),
     };
 }
 
