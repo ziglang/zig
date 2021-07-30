@@ -19,7 +19,6 @@ const DW = std.dwarf;
 const leb128 = std.leb;
 const log = std.log.scoped(.codegen);
 const build_options = @import("build_options");
-const LazySrcLoc = Module.LazySrcLoc;
 const RegisterManager = @import("register_manager.zig").RegisterManager;
 
 const X8664Encoder = @import("codegen/x86_64.zig").Encoder;
@@ -4740,6 +4739,33 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         return MCValue{ .immediate = @boolToInt(typed_value.val.isNull()) };
                     }
                     return self.fail("TODO non pointer optionals", .{});
+                },
+                .ErrorSet => {
+                    switch (typed_value.val.tag()) {
+                        .@"error" => {
+                            const err_name = typed_value.val.castTag(.@"error").?.data.name;
+                            const module = self.bin_file.options.module.?;
+                            const global_error_set = module.global_error_set;
+                            const error_index = global_error_set.get(err_name).?;
+                            return MCValue{ .immediate = error_index };
+                        },
+                        else => {
+                            // In this case we are rendering an error union which has a 0 bits payload.
+                            return MCValue{ .immediate = 0 };
+                        },
+                    }
+                },
+                .ErrorUnion => {
+                    const error_type = typed_value.ty.errorUnionSet();
+                    const payload_type = typed_value.ty.errorUnionPayload();
+                    const sub_val = typed_value.val.castTag(.error_union).?.data;
+
+                    if (!payload_type.hasCodeGenBits()) {
+                        // We use the error type directly as the type.
+                        return self.genTypedValue(.{ .ty = error_type, .val = sub_val });
+                    }
+
+                    return self.fail("TODO implement error union const of type '{}'", .{typed_value.ty});
                 },
                 else => return self.fail("TODO implement const of type '{}'", .{typed_value.ty}),
             }
