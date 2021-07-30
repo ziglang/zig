@@ -798,6 +798,32 @@ const LinuxThreadImpl = struct {
                       [len] "r" (self.mapped.len)
                     : "memory"
                 ),
+                .sparcv9 => asm volatile (
+                    \\ # SPARCs really don't like it when active stack frames
+                    \\ # is unmapped (it will result in a segfault), so we
+                    \\ # force-deactivate it by running `restore` until
+                    \\ # all frames are cleared.
+                    \\  1:
+                    \\  cmp %%sp, 0
+                    \\  beq 2f
+                    \\  restore
+                    \\  ba 1f
+                    \\  2:
+                    \\  mov 73, %%g1
+                    \\  mov %[ptr], %%o0
+                    \\  mov %[len], %%o1
+                    \\  # Flush register window contents to prevent background
+                    \\  # memory access before unmapping the stack.
+                    \\  flushw
+                    \\  t 0x6d
+                    \\  mov 1, %%g1
+                    \\  mov 1, %%o0
+                    \\  t 0x6d
+                    :
+                    : [ptr] "r" (@ptrToInt(self.mapped.ptr)),
+                      [len] "r" (self.mapped.len)
+                    : "memory"
+                ),
                 else => |cpu_arch| @compileError("Unsupported linux arch: " ++ @tagName(cpu_arch)),
             }
             unreachable;
