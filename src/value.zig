@@ -103,6 +103,7 @@ pub const Value = extern union {
         /// Represents a comptime variables storage.
         comptime_alloc,
         /// Represents a pointer to a decl, not the value of the decl.
+        /// When machine codegen backend sees this, it must set the Decl's `alive` field to true.
         decl_ref,
         elem_ptr,
         field_ptr,
@@ -1346,28 +1347,48 @@ pub const Value = extern union {
 
     /// Asserts the value is a pointer and dereferences it.
     /// Returns error.AnalysisFail if the pointer points to a Decl that failed semantic analysis.
-    pub fn pointerDeref(self: Value, allocator: *Allocator) error{ AnalysisFail, OutOfMemory }!Value {
-        return switch (self.tag()) {
+    pub fn pointerDeref(
+        self: Value,
+        allocator: *Allocator,
+    ) error{ AnalysisFail, OutOfMemory }!?Value {
+        const sub_val: Value = switch (self.tag()) {
             .comptime_alloc => self.castTag(.comptime_alloc).?.data.val,
-            .decl_ref => self.castTag(.decl_ref).?.data.value(),
-            .elem_ptr => {
+            .decl_ref => try self.castTag(.decl_ref).?.data.value(),
+            .elem_ptr => blk: {
                 const elem_ptr = self.castTag(.elem_ptr).?.data;
-                const array_val = try elem_ptr.array_ptr.pointerDeref(allocator);
-                return array_val.elemValue(allocator, elem_ptr.index);
+                const array_val = (try elem_ptr.array_ptr.pointerDeref(allocator)) orelse return null;
+                break :blk try array_val.elemValue(allocator, elem_ptr.index);
             },
-            .field_ptr => {
+            .field_ptr => blk: {
                 const field_ptr = self.castTag(.field_ptr).?.data;
-                const container_val = try field_ptr.container_ptr.pointerDeref(allocator);
-                return container_val.fieldValue(allocator, field_ptr.field_index);
+                const container_val = (try field_ptr.container_ptr.pointerDeref(allocator)) orelse return null;
+                break :blk try container_val.fieldValue(allocator, field_ptr.field_index);
             },
-            .eu_payload_ptr => {
+            .eu_payload_ptr => blk: {
                 const err_union_ptr = self.castTag(.eu_payload_ptr).?.data;
-                const err_union_val = try err_union_ptr.pointerDeref(allocator);
-                return err_union_val.castTag(.error_union).?.data;
+                const err_union_val = (try err_union_ptr.pointerDeref(allocator)) orelse return null;
+                break :blk err_union_val.castTag(.error_union).?.data;
             },
+
+            .zero,
+            .one,
+            .int_u64,
+            .int_i64,
+            .int_big_positive,
+            .int_big_negative,
+            .variable,
+            .extern_fn,
+            .function,
+            => return null,
 
             else => unreachable,
         };
+        if (sub_val.tag() == .variable) {
+            // This would be loading a runtime value at compile-time so we return
+            // the indicator that this pointer dereference requires being done at runtime.
+            return null;
+        }
+        return sub_val;
     }
 
     pub fn sliceLen(val: Value) u64 {

@@ -255,6 +255,15 @@ pub const Decl = struct {
     has_align: bool,
     /// Whether the ZIR code provides a linksection instruction.
     has_linksection: bool,
+    /// Flag used by garbage collection to mark and sweep.
+    /// Decls which correspond to an AST node always have this field set to `true`.
+    /// Anonymous Decls are initialized with this field set to `false` and then it
+    /// is the responsibility of machine code backends to mark it `true` whenever
+    /// a `decl_ref` Value is encountered that points to this Decl.
+    /// When the `codegen_decl` job is encountered in the main work queue, if the
+    /// Decl is marked alive, then it sends the Decl to the linker. Otherwise it
+    /// deletes the Decl on the spot.
+    alive: bool,
 
     /// Represents the position of the code in the output file.
     /// This is populated regardless of semantic analysis and code generation.
@@ -2869,6 +2878,7 @@ pub fn semaFile(mod: *Module, file: *Scope.File) SemaError!void {
     new_decl.val = struct_val;
     new_decl.has_tv = true;
     new_decl.owns_tv = true;
+    new_decl.alive = true; // This Decl corresponds to a File and is therefore always alive.
     new_decl.analysis = .in_progress;
     new_decl.generation = mod.generation;
 
@@ -2990,6 +3000,7 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
         if (linksection_ref == .none) break :blk Value.initTag(.null_value);
         break :blk (try sema.resolveInstConst(&block_scope, src, linksection_ref)).val;
     };
+    try sema.resolveTypeLayout(&block_scope, src, decl_tv.ty);
 
     // We need the memory for the Type to go into the arena for the Decl
     var decl_arena = std.heap.ArenaAllocator.init(gpa);
@@ -3027,8 +3038,8 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
             const is_inline = decl_tv.ty.fnCallingConvention() == .Inline;
             if (!is_inline and decl_tv.ty.hasCodeGenBits()) {
                 // We don't fully codegen the decl until later, but we do need to reserve a global
-                // offset table index for it. This allows us to codegen decls out of dependency order,
-                // increasing how many computations can be done in parallel.
+                // offset table index for it. This allows us to codegen decls out of dependency
+                // order, increasing how many computations can be done in parallel.
                 try mod.comp.bin_file.allocateDeclIndexes(decl);
                 try mod.comp.work_queue.writeItem(.{ .codegen_func = func });
                 if (type_changed and mod.emit_h != null) {
@@ -3387,6 +3398,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) SemaError!voi
         new_decl.has_align = has_align;
         new_decl.has_linksection = has_linksection;
         new_decl.zir_decl_index = @intCast(u32, decl_sub_index);
+        new_decl.alive = true; // This Decl corresponds to an AST node and therefore always alive.
         return;
     }
     gpa.free(decl_name);
@@ -3524,6 +3536,43 @@ pub fn clearDecl(
     }
 
     decl.analysis = .unreferenced;
+}
+
+pub fn deleteUnusedDecl(mod: *Module, decl: *Decl) void {
+    log.debug("deleteUnusedDecl {*} ({s})", .{ decl, decl.name });
+
+    // TODO: remove `allocateDeclIndexes` and make the API that the linker backends
+    // are required to notice the first time `updateDecl` happens and keep track
+    // of it themselves. However they can rely on getting a `freeDecl` call if any
+    // `updateDecl` or `updateFunc` calls happen. This will allow us to avoid any call
+    // into the linker backend here, since the linker backend will never have been told
+    // about the Decl in the first place.
+    // Until then, we did call `allocateDeclIndexes` on this anonymous Decl and so we
+    // must call `freeDecl` in the linker backend now.
+    if (decl.has_tv) {
+        if (decl.ty.hasCodeGenBits()) {
+            mod.comp.bin_file.freeDecl(decl);
+        }
+    }
+
+    const dependants = decl.dependants.keys();
+    assert(dependants[0].namespace.anon_decls.swapRemove(decl));
+
+    for (dependants) |dep| {
+        dep.removeDependency(decl);
+    }
+
+    for (decl.dependencies.keys()) |dep| {
+        dep.removeDependant(decl);
+    }
+    decl.destroy(mod);
+}
+
+pub fn deleteAnonDecl(mod: *Module, scope: *Scope, decl: *Decl) void {
+    log.debug("deleteAnonDecl {*} ({s})", .{ decl, decl.name });
+    const scope_decl = scope.ownerDecl().?;
+    assert(scope_decl.namespace.anon_decls.swapRemove(decl));
+    decl.destroy(mod);
 }
 
 /// Delete all the Export objects that are caused by this Decl. Re-analysis of
@@ -3713,6 +3762,7 @@ fn allocateNewDecl(mod: *Module, namespace: *Scope.Namespace, src_node: ast.Node
         .is_exported = false,
         .has_linksection = false,
         .has_align = false,
+        .alive = false,
     };
     return new_decl;
 }
@@ -3800,12 +3850,6 @@ pub fn analyzeExport(
     de_gop.value_ptr.* = try mod.gpa.realloc(de_gop.value_ptr.*, de_gop.value_ptr.len + 1);
     de_gop.value_ptr.*[de_gop.value_ptr.len - 1] = new_export;
     errdefer de_gop.value_ptr.* = mod.gpa.shrink(de_gop.value_ptr.*, de_gop.value_ptr.len - 1);
-}
-
-pub fn deleteAnonDecl(mod: *Module, scope: *Scope, decl: *Decl) void {
-    const scope_decl = scope.ownerDecl().?;
-    assert(scope_decl.namespace.anon_decls.swapRemove(decl));
-    decl.destroy(mod);
 }
 
 /// Takes ownership of `name` even if it returns an error.

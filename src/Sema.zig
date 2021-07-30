@@ -696,7 +696,7 @@ fn resolveMaybeUndefVal(
 ) CompileError!?Value {
     const val = (try sema.resolveMaybeUndefValAllowVariables(block, src, inst)) orelse return null;
     if (val.tag() == .variable) {
-        return sema.failWithNeededComptime(block, src);
+        return null;
     }
     return val;
 }
@@ -2917,12 +2917,13 @@ fn zirOptionalPayloadPtr(
     const child_pointer = try Module.simplePtrType(sema.arena, child_type, !optional_ptr_ty.isConstPtr(), .One);
 
     if (try sema.resolveDefinedValue(block, src, optional_ptr)) |pointer_val| {
-        const val = try pointer_val.pointerDeref(sema.arena);
-        if (val.isNull()) {
-            return sema.mod.fail(&block.base, src, "unable to unwrap null", .{});
+        if (try pointer_val.pointerDeref(sema.arena)) |val| {
+            if (val.isNull()) {
+                return sema.mod.fail(&block.base, src, "unable to unwrap null", .{});
+            }
+            // The same Value represents the pointer to the optional and the payload.
+            return sema.addConstant(child_pointer, pointer_val);
         }
-        // The same Value represents the pointer to the optional and the payload.
-        return sema.addConstant(child_pointer, pointer_val);
     }
 
     try sema.requireRuntimeBlock(block, src);
@@ -3027,14 +3028,15 @@ fn zirErrUnionPayloadPtr(
     const operand_pointer_ty = try Module.simplePtrType(sema.arena, payload_ty, !operand_ty.isConstPtr(), .One);
 
     if (try sema.resolveDefinedValue(block, src, operand)) |pointer_val| {
-        const val = try pointer_val.pointerDeref(sema.arena);
-        if (val.getError()) |name| {
-            return sema.mod.fail(&block.base, src, "caught unexpected error '{s}'", .{name});
+        if (try pointer_val.pointerDeref(sema.arena)) |val| {
+            if (val.getError()) |name| {
+                return sema.mod.fail(&block.base, src, "caught unexpected error '{s}'", .{name});
+            }
+            return sema.addConstant(
+                operand_pointer_ty,
+                try Value.Tag.eu_payload_ptr.create(sema.arena, pointer_val),
+            );
         }
-        return sema.addConstant(
-            operand_pointer_ty,
-            try Value.Tag.eu_payload_ptr.create(sema.arena, pointer_val),
-        );
     }
 
     try sema.requireRuntimeBlock(block, src);
@@ -3086,10 +3088,11 @@ fn zirErrUnionCodePtr(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) Co
     const result_ty = operand_ty.elemType().errorUnionSet();
 
     if (try sema.resolveDefinedValue(block, src, operand)) |pointer_val| {
-        const val = try pointer_val.pointerDeref(sema.arena);
-        assert(val.getError() != null);
-        const data = val.castTag(.error_union).?.data;
-        return sema.addConstant(result_ty, data);
+        if (try pointer_val.pointerDeref(sema.arena)) |val| {
+            assert(val.getError() != null);
+            const data = val.castTag(.error_union).?.data;
+            return sema.addConstant(result_ty, data);
+        }
     }
 
     try sema.requireRuntimeBlock(block, src);
@@ -4920,10 +4923,13 @@ fn analyzeArithmetic(
             log.debug("{s}({}, {}) result: {}", .{ @tagName(zir_tag), lhs_val, rhs_val, value });
 
             return sema.addConstant(scalar_type, value);
+        } else {
+            try sema.requireRuntimeBlock(block, rhs_src);
         }
+    } else {
+        try sema.requireRuntimeBlock(block, lhs_src);
     }
 
-    try sema.requireRuntimeBlock(block, src);
     const air_tag: Air.Inst.Tag = switch (zir_tag) {
         .add => .add,
         .addwrap => .addwrap,
@@ -6811,16 +6817,10 @@ fn fieldPtr(
             if (mem.eql(u8, field_name, "len")) {
                 var anon_decl = try block.startAnonDecl();
                 defer anon_decl.deinit();
-                return sema.addConstant(
-                    Type.initTag(.single_const_pointer_to_comptime_int),
-                    try Value.Tag.decl_ref.create(
-                        arena,
-                        try anon_decl.finish(
-                            Type.initTag(.comptime_int),
-                            try Value.Tag.int_u64.create(anon_decl.arena(), object_ty.arrayLen()),
-                        ),
-                    ),
-                );
+                return sema.analyzeDeclRef(try anon_decl.finish(
+                    Type.initTag(.comptime_int),
+                    try Value.Tag.int_u64.create(anon_decl.arena(), object_ty.arrayLen()),
+                ));
             } else {
                 return mod.fail(
                     &block.base,
@@ -6867,16 +6867,10 @@ fn fieldPtr(
                     if (mem.eql(u8, field_name, "len")) {
                         var anon_decl = try block.startAnonDecl();
                         defer anon_decl.deinit();
-                        return sema.addConstant(
-                            Type.initTag(.single_const_pointer_to_comptime_int),
-                            try Value.Tag.decl_ref.create(
-                                arena,
-                                try anon_decl.finish(
-                                    Type.initTag(.comptime_int),
-                                    try Value.Tag.int_u64.create(anon_decl.arena(), ptr_child.arrayLen()),
-                                ),
-                            ),
-                        );
+                        return sema.analyzeDeclRef(try anon_decl.finish(
+                            Type.initTag(.comptime_int),
+                            try Value.Tag.int_u64.create(anon_decl.arena(), ptr_child.arrayLen()),
+                        ));
                     } else {
                         return mod.fail(
                             &block.base,
@@ -6915,16 +6909,10 @@ fn fieldPtr(
 
                     var anon_decl = try block.startAnonDecl();
                     defer anon_decl.deinit();
-                    return sema.addConstant(
-                        try Module.simplePtrType(arena, child_type, false, .One),
-                        try Value.Tag.decl_ref.create(
-                            arena,
-                            try anon_decl.finish(
-                                child_type,
-                                try Value.Tag.@"error".create(anon_decl.arena(), .{ .name = name }),
-                            ),
-                        ),
-                    );
+                    return sema.analyzeDeclRef(try anon_decl.finish(
+                        child_type,
+                        try Value.Tag.@"error".create(anon_decl.arena(), .{ .name = name }),
+                    ));
                 },
                 .Struct, .Opaque, .Union => {
                     if (child_type.getNamespace()) |namespace| {
@@ -6971,16 +6959,10 @@ fn fieldPtr(
                     const field_index_u32 = @intCast(u32, field_index);
                     var anon_decl = try block.startAnonDecl();
                     defer anon_decl.deinit();
-                    return sema.addConstant(
-                        try Module.simplePtrType(arena, child_type, false, .One),
-                        try Value.Tag.decl_ref.create(
-                            arena,
-                            try anon_decl.finish(
-                                child_type,
-                                try Value.Tag.enum_field_index.create(anon_decl.arena(), field_index_u32),
-                            ),
-                        ),
-                    );
+                    return sema.analyzeDeclRef(try anon_decl.finish(
+                        child_type,
+                        try Value.Tag.enum_field_index.create(anon_decl.arena(), field_index_u32),
+                    ));
                 },
                 else => return mod.fail(&block.base, src, "type '{}' has no members", .{child_type}),
             }
@@ -7671,21 +7653,18 @@ fn analyzeRef(
     operand: Air.Inst.Ref,
 ) CompileError!Air.Inst.Ref {
     const operand_ty = sema.typeOf(operand);
-    const ptr_type = try Module.simplePtrType(sema.arena, operand_ty, false, .One);
 
     if (try sema.resolveMaybeUndefVal(block, src, operand)) |val| {
         var anon_decl = try block.startAnonDecl();
         defer anon_decl.deinit();
-        return sema.addConstant(
-            ptr_type,
-            try Value.Tag.decl_ref.create(
-                sema.arena,
-                try anon_decl.finish(operand_ty, try val.copy(anon_decl.arena())),
-            ),
-        );
+        return sema.analyzeDeclRef(try anon_decl.finish(
+            operand_ty,
+            try val.copy(anon_decl.arena()),
+        ));
     }
 
     try sema.requireRuntimeBlock(block, src);
+    const ptr_type = try Module.simplePtrType(sema.arena, operand_ty, false, .One);
     const alloc = try block.addTy(.alloc, ptr_type);
     try sema.storePtr(block, src, alloc, operand);
     return alloc;
@@ -7703,11 +7682,10 @@ fn analyzeLoad(
         .Pointer => ptr_ty.elemType(),
         else => return sema.mod.fail(&block.base, ptr_src, "expected pointer, found '{}'", .{ptr_ty}),
     };
-    if (try sema.resolveDefinedValue(block, ptr_src, ptr)) |ptr_val| blk: {
-        if (ptr_val.tag() == .int_u64)
-            break :blk; // do it at runtime
-
-        return sema.addConstant(elem_ty, try ptr_val.pointerDeref(sema.arena));
+    if (try sema.resolveDefinedValue(block, ptr_src, ptr)) |ptr_val| {
+        if (try ptr_val.pointerDeref(sema.arena)) |elem_val| {
+            return sema.addConstant(elem_ty, elem_val);
+        }
     }
 
     try sema.requireRuntimeBlock(block, src);
@@ -8215,6 +8193,36 @@ fn resolvePeerTypes(
     return sema.typeOf(chosen);
 }
 
+pub fn resolveTypeLayout(
+    sema: *Sema,
+    block: *Scope.Block,
+    src: LazySrcLoc,
+    ty: Type,
+) CompileError!void {
+    switch (ty.zigTypeTag()) {
+        .Pointer => {
+            return sema.resolveTypeLayout(block, src, ty.elemType());
+        },
+        .Struct => {
+            const resolved_ty = try sema.resolveTypeFields(block, src, ty);
+            const struct_obj = resolved_ty.castTag(.@"struct").?.data;
+            switch (struct_obj.status) {
+                .none, .have_field_types => {},
+                .field_types_wip, .layout_wip => {
+                    return sema.mod.fail(&block.base, src, "struct {} depends on itself", .{ty});
+                },
+                .have_layout => return,
+            }
+            struct_obj.status = .layout_wip;
+            for (struct_obj.fields.values()) |field| {
+                try sema.resolveTypeLayout(block, src, field.ty);
+            }
+            struct_obj.status = .have_layout;
+        },
+        else => {},
+    }
+}
+
 fn resolveTypeFields(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, ty: Type) CompileError!Type {
     switch (ty.tag()) {
         .@"struct" => {
@@ -8222,9 +8230,7 @@ fn resolveTypeFields(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, ty: Type
             switch (struct_obj.status) {
                 .none => {},
                 .field_types_wip => {
-                    return sema.mod.fail(&block.base, src, "struct {} depends on itself", .{
-                        ty,
-                    });
+                    return sema.mod.fail(&block.base, src, "struct {} depends on itself", .{ty});
                 },
                 .have_field_types, .have_layout, .layout_wip => return ty,
             }

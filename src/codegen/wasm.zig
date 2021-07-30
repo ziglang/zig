@@ -1016,6 +1016,7 @@ pub const Context = struct {
             .Pointer => {
                 if (val.castTag(.decl_ref)) |payload| {
                     const decl = payload.data;
+                    decl.alive = true;
 
                     // offset into the offset table within the 'data' section
                     const ptr_width = self.target.cpu.arch.ptrBitWidth() / 8;

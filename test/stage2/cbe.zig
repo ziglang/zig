@@ -49,7 +49,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\export fn foo() callconv(y) c_int {
             \\    return 0;
             \\}
-            \\var y: i32 = 1234;
+            \\var y: @import("std").builtin.CallingConvention = .C;
         , &.{
             ":2:22: error: unable to resolve comptime value",
             ":5:26: error: unable to resolve comptime value",

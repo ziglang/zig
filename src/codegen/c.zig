@@ -262,6 +262,7 @@ pub const DeclGen = struct {
                     .one => try writer.writeAll("1"),
                     .decl_ref => {
                         const decl = val.castTag(.decl_ref).?.data;
+                        decl.alive = true;
 
                         // Determine if we must pointer cast.
                         assert(decl.has_tv);
@@ -281,21 +282,7 @@ pub const DeclGen = struct {
                         const decl = val.castTag(.extern_fn).?.data;
                         try writer.print("{s}", .{decl.name});
                     },
-                    else => switch (t.ptrSize()) {
-                        .Slice => unreachable,
-                        .Many => unreachable,
-                        .One => {
-                            var arena = std.heap.ArenaAllocator.init(dg.module.gpa);
-                            defer arena.deinit();
-
-                            const elem_ty = t.elemType();
-                            const elem_val = try val.pointerDeref(&arena.allocator);
-
-                            try writer.writeAll("&");
-                            try dg.renderValue(writer, elem_ty, elem_val);
-                        },
-                        .C => unreachable,
-                    },
+                    else => unreachable,
                 },
             },
             .Array => {
@@ -421,6 +408,7 @@ pub const DeclGen = struct {
                 .one => try writer.writeAll("1"),
                 .decl_ref => {
                     const decl = val.castTag(.decl_ref).?.data;
+                    decl.alive = true;
 
                     // Determine if we must pointer cast.
                     assert(decl.has_tv);
@@ -433,11 +421,13 @@ pub const DeclGen = struct {
                     }
                 },
                 .function => {
-                    const func = val.castTag(.function).?.data;
-                    try writer.print("{s}", .{func.owner_decl.name});
+                    const decl = val.castTag(.function).?.data.owner_decl;
+                    decl.alive = true;
+                    try writer.print("{s}", .{decl.name});
                 },
                 .extern_fn => {
                     const decl = val.castTag(.extern_fn).?.data;
+                    decl.alive = true;
                     try writer.print("{s}", .{decl.name});
                 },
                 else => unreachable,

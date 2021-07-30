@@ -2061,11 +2061,19 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
             .complete, .codegen_failure_retryable => {
                 if (build_options.omit_stage2)
                     @panic("sadly stage2 is omitted from this build to save memory on the CI server");
+
                 const module = self.bin_file.options.module.?;
                 assert(decl.has_tv);
                 assert(decl.ty.hasCodeGenBits());
 
-                try module.linkerUpdateDecl(decl);
+                if (decl.alive) {
+                    try module.linkerUpdateDecl(decl);
+                    continue;
+                }
+
+                // Instead of sending this decl to the linker, we actually will delete it
+                // because we found out that it in fact was never referenced.
+                module.deleteUnusedDecl(decl);
             },
         },
         .codegen_func => |func| switch (func.owner_decl.analysis) {

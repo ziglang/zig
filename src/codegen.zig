@@ -184,6 +184,7 @@ pub fn generateSymbol(
                 if (typed_value.val.castTag(.decl_ref)) |payload| {
                     const decl = payload.data;
                     if (decl.analysis != .complete) return error.AnalysisFail;
+                    decl.alive = true;
                     // TODO handle the dependency of this symbol on the decl's vaddr.
                     // If the decl changes vaddr, then this symbol needs to get regenerated.
                     const vaddr = bin_file.getDeclVAddr(decl);
@@ -4680,13 +4681,13 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     },
                     else => {
                         if (typed_value.val.castTag(.decl_ref)) |payload| {
+                            const decl = payload.data;
+                            decl.alive = true;
                             if (self.bin_file.cast(link.File.Elf)) |elf_file| {
-                                const decl = payload.data;
                                 const got = &elf_file.program_headers.items[elf_file.phdr_got_index.?];
                                 const got_addr = got.p_vaddr + decl.link.elf.offset_table_index * ptr_bytes;
                                 return MCValue{ .memory = got_addr };
                             } else if (self.bin_file.cast(link.File.MachO)) |macho_file| {
-                                const decl = payload.data;
                                 const got_addr = blk: {
                                     const seg = macho_file.load_commands.items[macho_file.data_const_segment_cmd_index.?].Segment;
                                     const got = seg.sections.items[macho_file.got_section_index.?];
@@ -4698,11 +4699,9 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 };
                                 return MCValue{ .memory = got_addr };
                             } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
-                                const decl = payload.data;
                                 const got_addr = coff_file.offset_table_virtual_address + decl.link.coff.offset_table_index * ptr_bytes;
                                 return MCValue{ .memory = got_addr };
                             } else if (self.bin_file.cast(link.File.Plan9)) |p9| {
-                                const decl = payload.data;
                                 const got_addr = p9.bases.data + decl.link.plan9.got_index.? * ptr_bytes;
                                 return MCValue{ .memory = got_addr };
                             } else {
