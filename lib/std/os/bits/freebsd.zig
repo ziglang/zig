@@ -7,6 +7,8 @@ const std = @import("../../std.zig");
 const builtin = @import("builtin");
 const maxInt = std.math.maxInt;
 
+pub usingnamespace @import("posix.zig");
+
 pub const blksize_t = i32;
 pub const blkcnt_t = i64;
 pub const clockid_t = i32;

@@ -8,6 +8,11 @@
 usingnamespace @import("../windows/bits.zig");
 const ws2_32 = @import("../windows/ws2_32.zig");
 
+// TODO: Stop using os.iovec in std.fs et al on Windows in the future
+const posix = @import("posix.zig");
+pub const iovec = posix.iovec;
+pub const iovec_const = posix.iovec_const;
+
 pub const fd_t = HANDLE;
 pub const ino_t = LARGE_INTEGER;
 pub const pid_t = HANDLE;
