@@ -4740,6 +4740,29 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     }
                     return self.fail("TODO non pointer optionals", .{});
                 },
+                .Enum => {
+                    if (typed_value.val.castTag(.enum_field_index)) |field_index| {
+                        switch (typed_value.ty.tag()) {
+                            .enum_simple => {
+                                return MCValue{ .immediate = field_index.data };
+                            },
+                            .enum_full, .enum_nonexhaustive => {
+                                const enum_full = typed_value.ty.cast(Type.Payload.EnumFull).?.data;
+                                if (enum_full.values.count() != 0) {
+                                    const tag_val = enum_full.values.keys()[field_index.data];
+                                    return self.genTypedValue(.{ .ty = enum_full.tag_ty, .val = tag_val });
+                                } else {
+                                    return MCValue{ .immediate = field_index.data };
+                                }
+                            },
+                            else => unreachable,
+                        }
+                    } else {
+                        var int_tag_buffer: Type.Payload.Bits = undefined;
+                        const int_tag_ty = typed_value.ty.intTagType(&int_tag_buffer);
+                        return self.genTypedValue(.{ .ty = int_tag_ty, .val = typed_value.val });
+                    }
+                },
                 .ErrorSet => {
                     switch (typed_value.val.tag()) {
                         .@"error" => {
