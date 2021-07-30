@@ -300,6 +300,28 @@ pub fn addCases(ctx: *TestContext) !void {
     }
 
     {
+        var case = ctx.exe("enums", linux_arm);
+        case.addCompareOutput(
+            \\const Number = enum { one, two, three };
+            \\
+            \\pub fn main() void {
+            \\    var x: Number = .one;
+            \\    var y = Number.two;
+            \\    var z = @intToEnum(Number, 2);
+            \\    assert(@enumToInt(x) == 0);
+            \\    assert(@enumToInt(y) == 1);
+            \\    assert(@enumToInt(z) == 2);
+            \\}
+            \\
+            \\fn assert(ok: bool) void {
+            \\    if (!ok) unreachable; // assertion failure
+            \\}
+        ,
+            "",
+        );
+    }
+
+    {
         var case = ctx.exe("recursive fibonacci", linux_arm);
         case.addCompareOutput(
             \\pub fn main() void {
