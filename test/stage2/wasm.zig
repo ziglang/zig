@@ -114,6 +114,13 @@ pub fn addCases(ctx: *TestContext) !void {
         , "25\n");
 
         case.addCompareOutput(
+            \\pub export fn _start() i32 {
+            \\    var i: i32 = 2147483647;
+            \\    return i +% 1;
+            \\}
+        , "-2147483648\n");
+
+        case.addCompareOutput(
             \\pub export fn _start() u32 {
             \\    var i: u32 = 5;
             \\    i += 20;
@@ -132,6 +139,13 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    return i;
             \\}
         , "15\n");
+
+        case.addCompareOutput(
+            \\pub export fn _start() i32 {
+            \\    var i: i32 = -2147483648;
+            \\    return i -% 1;
+            \\}
+        , "2147483647\n");
 
         case.addCompareOutput(
             \\pub export fn _start() u32 {
@@ -156,6 +170,13 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    return x * y;
             \\}
         , "350\n");
+
+        case.addCompareOutput(
+            \\pub export fn _start() i32 {
+            \\    var i: i32 = 2147483647;
+            \\    return i *% 2;
+            \\}
+        , "-2\n");
 
         case.addCompareOutput(
             \\pub export fn _start() u32 {
@@ -611,5 +632,16 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    return error.Dab;
             \\}
         , "42\n");
+    }
+
+    {
+        var case = ctx.exe("wasm integer widening", wasi);
+
+        case.addCompareOutput(
+            \\pub export fn _start() u64 {
+            \\    var x: u32 = 5;
+            \\    return x;
+            \\}
+        , "5\n");
     }
 }
