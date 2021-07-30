@@ -4299,7 +4299,6 @@ pub fn simplePtrType(
 }
 
 pub fn ptrType(
-    mod: *Module,
     arena: *Allocator,
     elem_ty: Type,
     sentinel: ?Value,
@@ -4311,7 +4310,6 @@ pub fn ptrType(
     @"volatile": bool,
     size: std.builtin.TypeInfo.Pointer.Size,
 ) Allocator.Error!Type {
-    _ = mod;
     assert(host_size == 0 or bit_offset < host_size * 8);
 
     // TODO check if type can be represented by simplePtrType
@@ -4328,8 +4326,7 @@ pub fn ptrType(
     });
 }
 
-pub fn optionalType(mod: *Module, arena: *Allocator, child_type: Type) Allocator.Error!Type {
-    _ = mod;
+pub fn optionalType(arena: *Allocator, child_type: Type) Allocator.Error!Type {
     switch (child_type.tag()) {
         .single_const_pointer => return Type.Tag.optional_single_const_pointer.create(
             arena,
@@ -4344,16 +4341,14 @@ pub fn optionalType(mod: *Module, arena: *Allocator, child_type: Type) Allocator
 }
 
 pub fn arrayType(
-    mod: *Module,
     arena: *Allocator,
     len: u64,
     sentinel: ?Value,
     elem_type: Type,
 ) Allocator.Error!Type {
-    _ = mod;
     if (elem_type.eql(Type.initTag(.u8))) {
         if (sentinel) |some| {
-            if (some.eql(Value.initTag(.zero))) {
+            if (some.eql(Value.initTag(.zero), elem_type)) {
                 return Type.Tag.array_u8_sentinel_0.create(arena, len);
             }
         } else {
@@ -4376,12 +4371,10 @@ pub fn arrayType(
 }
 
 pub fn errorUnionType(
-    mod: *Module,
     arena: *Allocator,
     error_set: Type,
     payload: Type,
 ) Allocator.Error!Type {
-    _ = mod;
     assert(error_set.zigTypeTag() == .ErrorSet);
     if (error_set.eql(Type.initTag(.anyerror)) and payload.eql(Type.initTag(.void))) {
         return Type.initTag(.anyerror_void_error_union);

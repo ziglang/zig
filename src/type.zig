@@ -426,7 +426,7 @@ pub const Type = extern union {
                 const sentinel_b = info_b.sentinel;
                 if (sentinel_a) |sa| {
                     if (sentinel_b) |sb| {
-                        if (!sa.eql(sb))
+                        if (!sa.eql(sb, info_a.pointee_type))
                             return false;
                     } else {
                         return false;
@@ -455,13 +455,14 @@ pub const Type = extern union {
             .Array, .Vector => {
                 if (a.arrayLen() != b.arrayLen())
                     return false;
-                if (!a.elemType().eql(b.elemType()))
+                const elem_ty = a.elemType();
+                if (!elem_ty.eql(b.elemType()))
                     return false;
                 const sentinel_a = a.sentinel();
                 const sentinel_b = b.sentinel();
                 if (sentinel_a) |sa| {
                     if (sentinel_b) |sb| {
-                        return sa.eql(sb);
+                        return sa.eql(sb, elem_ty);
                     } else {
                         return false;
                     }
@@ -2744,29 +2745,37 @@ pub const Type = extern union {
             return @as(usize, payload.data);
         }
         const S = struct {
-            fn fieldWithRange(int_val: Value, end: usize) ?usize {
+            fn fieldWithRange(int_ty: Type, int_val: Value, end: usize) ?usize {
                 if (int_val.compareWithZero(.lt)) return null;
                 var end_payload: Value.Payload.U64 = .{
                     .base = .{ .tag = .int_u64 },
                     .data = end,
                 };
                 const end_val = Value.initPayload(&end_payload.base);
-                if (int_val.compare(.gte, end_val)) return null;
+                if (int_val.compare(.gte, end_val, int_ty)) return null;
                 return @intCast(usize, int_val.toUnsignedInt());
             }
         };
         switch (ty.tag()) {
             .enum_full, .enum_nonexhaustive => {
                 const enum_full = ty.cast(Payload.EnumFull).?.data;
+                const tag_ty = enum_full.tag_ty;
                 if (enum_full.values.count() == 0) {
-                    return S.fieldWithRange(enum_tag, enum_full.fields.count());
+                    return S.fieldWithRange(tag_ty, enum_tag, enum_full.fields.count());
                 } else {
-                    return enum_full.values.getIndex(enum_tag);
+                    return enum_full.values.getIndexContext(enum_tag, .{ .ty = tag_ty });
                 }
             },
             .enum_simple => {
                 const enum_simple = ty.castTag(.enum_simple).?.data;
-                return S.fieldWithRange(enum_tag, enum_simple.fields.count());
+                const fields_len = enum_simple.fields.count();
+                const bits = std.math.log2_int_ceil(usize, fields_len);
+                var buffer: Payload.Bits = .{
+                    .base = .{ .tag = .int_unsigned },
+                    .data = bits,
+                };
+                const tag_ty = Type.initPayload(&buffer.base);
+                return S.fieldWithRange(tag_ty, enum_tag, fields_len);
             },
             .atomic_ordering,
             .atomic_rmw_op,
@@ -2875,14 +2884,14 @@ pub const Type = extern union {
     /// Asserts the type is an enum.
     pub fn enumHasInt(ty: Type, int: Value, target: Target) bool {
         const S = struct {
-            fn intInRange(int_val: Value, end: usize) bool {
+            fn intInRange(tag_ty: Type, int_val: Value, end: usize) bool {
                 if (int_val.compareWithZero(.lt)) return false;
                 var end_payload: Value.Payload.U64 = .{
                     .base = .{ .tag = .int_u64 },
                     .data = end,
                 };
                 const end_val = Value.initPayload(&end_payload.base);
-                if (int_val.compare(.gte, end_val)) return false;
+                if (int_val.compare(.gte, end_val, tag_ty)) return false;
                 return true;
             }
         };
@@ -2890,15 +2899,23 @@ pub const Type = extern union {
             .enum_nonexhaustive => return int.intFitsInType(ty, target),
             .enum_full => {
                 const enum_full = ty.castTag(.enum_full).?.data;
+                const tag_ty = enum_full.tag_ty;
                 if (enum_full.values.count() == 0) {
-                    return S.intInRange(int, enum_full.fields.count());
+                    return S.intInRange(tag_ty, int, enum_full.fields.count());
                 } else {
-                    return enum_full.values.contains(int);
+                    return enum_full.values.containsContext(int, .{ .ty = tag_ty });
                 }
             },
             .enum_simple => {
                 const enum_simple = ty.castTag(.enum_simple).?.data;
-                return S.intInRange(int, enum_simple.fields.count());
+                const fields_len = enum_simple.fields.count();
+                const bits = std.math.log2_int_ceil(usize, fields_len);
+                var buffer: Payload.Bits = .{
+                    .base = .{ .tag = .int_unsigned },
+                    .data = bits,
+                };
+                const tag_ty = Type.initPayload(&buffer.base);
+                return S.intInRange(tag_ty, int, fields_len);
             },
             .atomic_ordering,
             .atomic_rmw_op,

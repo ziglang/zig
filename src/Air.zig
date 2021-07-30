@@ -503,7 +503,8 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
 pub fn getRefType(air: Air, ref: Air.Inst.Ref) Type {
     const ref_int = @enumToInt(ref);
     if (ref_int < Air.Inst.Ref.typed_value_map.len) {
-        return Air.Inst.Ref.typed_value_map[ref_int].val.toType(undefined) catch unreachable;
+        var buffer: Value.ToTypeBuffer = undefined;
+        return Air.Inst.Ref.typed_value_map[ref_int].val.toType(&buffer);
     }
     const inst_index = ref_int - Air.Inst.Ref.typed_value_map.len;
     const air_tags = air.instructions.items(.tag);
