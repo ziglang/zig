@@ -15,7 +15,6 @@ instructions: std.MultiArrayList(Inst).Slice,
 /// The first few indexes are reserved. See `ExtraIndex` for the values.
 extra: []const u32,
 values: []const Value,
-variables: []const *Module.Var,
 
 pub const ExtraIndex = enum(u32) {
     /// Payload index of the main `Block` in the `extra` array.
@@ -193,20 +192,10 @@ pub const Inst = struct {
         /// Result type is always `u1`.
         /// Uses the `un_op` field.
         bool_to_int,
-        /// Stores a value onto the stack and returns a pointer to it.
-        /// TODO audit where this AIR instruction is emitted, maybe it should instead be emitting
-        /// alloca instruction and storing to the alloca.
-        /// Uses the `ty_op` field.
-        ref,
         /// Return a value from a function.
         /// Result type is always noreturn; no instructions in a block follow this one.
         /// Uses the `un_op` field.
         ret,
-        /// Returns a pointer to a global variable.
-        /// Uses the `ty_pl` field. Index is into the `variables` array.
-        /// TODO this can be modeled simply as a constant with a decl ref and then
-        /// the variables array can be removed from Air.
-        varptr,
         /// Write a value to a pointer. LHS is pointer, RHS is value.
         /// Result type is always void.
         /// Uses the `bin_op` field.
@@ -454,7 +443,6 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .assembly,
         .block,
         .constant,
-        .varptr,
         .struct_field_ptr,
         .struct_field_val,
         => return air.getRefType(datas[inst].ty_pl.ty),
@@ -462,7 +450,6 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .not,
         .bitcast,
         .load,
-        .ref,
         .floatcast,
         .intcast,
         .optional_payload,
@@ -550,7 +537,6 @@ pub fn deinit(air: *Air, gpa: *std.mem.Allocator) void {
     air.instructions.deinit(gpa);
     gpa.free(air.extra);
     gpa.free(air.values);
-    gpa.free(air.variables);
     air.* = undefined;
 }
 

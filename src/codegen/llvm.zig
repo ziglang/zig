@@ -673,17 +673,21 @@ pub const DeclGen = struct {
     }
 
     fn genTypedValue(self: *DeclGen, tv: TypedValue) error{ OutOfMemory, CodegenFail }!*const llvm.Value {
-        const llvm_type = try self.llvmType(tv.ty);
-
-        if (tv.val.isUndef())
+        if (tv.val.isUndef()) {
+            const llvm_type = try self.llvmType(tv.ty);
             return llvm_type.getUndef();
+        }
 
         switch (tv.ty.zigTypeTag()) {
-            .Bool => return if (tv.val.toBool()) llvm_type.constAllOnes() else llvm_type.constNull(),
+            .Bool => {
+                const llvm_type = try self.llvmType(tv.ty);
+                return if (tv.val.toBool()) llvm_type.constAllOnes() else llvm_type.constNull();
+            },
             .Int => {
                 var bigint_space: Value.BigIntSpace = undefined;
                 const bigint = tv.val.toBigInt(&bigint_space);
 
+                const llvm_type = try self.llvmType(tv.ty);
                 if (bigint.eqZero()) return llvm_type.constNull();
 
                 if (bigint.limbs.len != 1) {
@@ -698,30 +702,18 @@ pub const DeclGen = struct {
             .Pointer => switch (tv.val.tag()) {
                 .decl_ref => {
                     const decl = tv.val.castTag(.decl_ref).?.data;
+                    decl.alive = true;
                     const val = try self.resolveGlobalDecl(decl);
-
-                    const usize_type = try self.llvmType(Type.initTag(.usize));
-
-                    // TODO: second index should be the index into the memory!
-                    var indices: [2]*const llvm.Value = .{
-                        usize_type.constNull(),
-                        usize_type.constNull(),
-                    };
-
-                    return val.constInBoundsGEP(&indices, indices.len);
-                },
-                .ref_val => {
-                    //const elem_value = tv.val.castTag(.ref_val).?.data;
-                    //const elem_type = tv.ty.castPointer().?.data;
-                    //const alloca = fg.?.buildAlloca(try self.llvmType(elem_type));
-                    //_ = fg.?.builder.buildStore(try self.genTypedValue(.{ .ty = elem_type, .val = elem_value }, fg), alloca);
-                    //return alloca;
-                    // TODO eliminate the ref_val Value Tag
-                    return self.todo("implement const of pointer tag ref_val", .{});
+                    const llvm_type = try self.llvmType(tv.ty);
+                    return val.constBitCast(llvm_type);
                 },
                 .variable => {
-                    const variable = tv.val.castTag(.variable).?.data;
-                    return self.resolveGlobalDecl(variable.owner_decl);
+                    const decl = tv.val.castTag(.variable).?.data.owner_decl;
+                    decl.alive = true;
+                    const val = try self.resolveGlobalDecl(decl);
+                    const llvm_var_type = try self.llvmType(tv.ty);
+                    const llvm_type = llvm_var_type.pointerType(0);
+                    return val.constBitCast(llvm_type);
                 },
                 .slice => {
                     const slice = tv.val.castTag(.slice).?.data;
@@ -800,6 +792,7 @@ pub const DeclGen = struct {
                     .decl_ref => tv.val.castTag(.decl_ref).?.data,
                     else => unreachable,
                 };
+                fn_decl.alive = true;
                 return self.resolveLlvmFunction(fn_decl);
             },
             .ErrorSet => {
@@ -920,9 +913,7 @@ pub const FuncGen = struct {
             return self.dg.genTypedValue(.{ .ty = self.air.typeOf(inst), .val = val });
         }
         const inst_index = Air.refToIndex(inst).?;
-        if (self.func_inst_table.get(inst_index)) |value| return value;
-
-        return self.todo("implement global llvm values (or the value is not in the func_inst_table table)", .{});
+        return self.func_inst_table.get(inst_index).?;
     }
 
     fn genBody(self: *FuncGen, body: []const Air.Inst.Index) error{ OutOfMemory, CodegenFail }!void {
@@ -977,15 +968,14 @@ pub const FuncGen = struct {
                 .ret        => try self.airRet(inst),
                 .store      => try self.airStore(inst),
                 .assembly   => try self.airAssembly(inst),
-                .varptr     => try self.airVarPtr(inst),
                 .slice_ptr  => try self.airSliceField(inst, 0),
                 .slice_len  => try self.airSliceField(inst, 1),
 
                 .struct_field_ptr => try self.airStructFieldPtr(inst),
                 .struct_field_val => try self.airStructFieldVal(inst),
 
-                .slice_elem_val     => try self.airSliceElemVal(inst, false),
-                .ptr_slice_elem_val => try self.airSliceElemVal(inst, true),
+                .slice_elem_val     => try self.airSliceElemVal(inst),
+                .ptr_slice_elem_val => try self.airPtrSliceElemVal(inst),
 
                 .optional_payload     => try self.airOptionalPayload(inst, false),
                 .optional_payload_ptr => try self.airOptionalPayload(inst, true),
@@ -1001,7 +991,6 @@ pub const FuncGen = struct {
 
                 .constant => unreachable,
                 .const_ty => unreachable,
-                .ref => unreachable, // TODO eradicate this instruction
                 .unreach  => self.airUnreach(inst),
                 .dbg_stmt => blk: {
                     // TODO: implement debug info
@@ -1180,16 +1169,6 @@ pub const FuncGen = struct {
         return null;
     }
 
-    fn airVarPtr(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
-        if (self.liveness.isUnused(inst))
-            return null;
-
-        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
-        const variable = self.air.variables[ty_pl.payload];
-        const decl_llvm_value = self.dg.resolveGlobalDecl(variable.owner_decl);
-        return decl_llvm_value;
-    }
-
     fn airSliceField(self: *FuncGen, inst: Air.Inst.Index, index: c_uint) !?*const llvm.Value {
         if (self.liveness.isUnused(inst))
             return null;
@@ -1199,11 +1178,20 @@ pub const FuncGen = struct {
         return self.builder.buildExtractValue(operand, index, "");
     }
 
-    fn airSliceElemVal(
-        self: *FuncGen,
-        inst: Air.Inst.Index,
-        operand_is_ptr: bool,
-    ) !?*const llvm.Value {
+    fn airSliceElemVal(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst))
+            return null;
+
+        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const lhs = try self.resolveInst(bin_op.lhs);
+        const rhs = try self.resolveInst(bin_op.rhs);
+        const base_ptr = self.builder.buildExtractValue(lhs, 0, "");
+        const indices: [1]*const llvm.Value = .{rhs};
+        const ptr = self.builder.buildInBoundsGEP(base_ptr, &indices, indices.len, "");
+        return self.builder.buildLoad(ptr, "");
+    }
+
+    fn airPtrSliceElemVal(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
         if (self.liveness.isUnused(inst))
             return null;
 
@@ -1211,7 +1199,7 @@ pub const FuncGen = struct {
         const lhs = try self.resolveInst(bin_op.lhs);
         const rhs = try self.resolveInst(bin_op.rhs);
 
-        const base_ptr = if (!operand_is_ptr) lhs else ptr: {
+        const base_ptr = ptr: {
             const index_type = self.context.intType(32);
             const indices: [2]*const llvm.Value = .{
                 index_type.constNull(),

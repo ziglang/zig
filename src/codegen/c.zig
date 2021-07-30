@@ -262,6 +262,7 @@ pub const DeclGen = struct {
                     .one => try writer.writeAll("1"),
                     .decl_ref => {
                         const decl = val.castTag(.decl_ref).?.data;
+                        decl.alive = true;
 
                         // Determine if we must pointer cast.
                         assert(decl.has_tv);
@@ -281,36 +282,7 @@ pub const DeclGen = struct {
                         const decl = val.castTag(.extern_fn).?.data;
                         try writer.print("{s}", .{decl.name});
                     },
-                    else => switch (t.ptrSize()) {
-                        .Slice => unreachable,
-                        .Many => {
-                            if (val.castTag(.ref_val)) |ref_val_payload| {
-                                const sub_val = ref_val_payload.data;
-                                if (sub_val.castTag(.bytes)) |bytes_payload| {
-                                    const bytes = bytes_payload.data;
-                                    try writer.writeByte('(');
-                                    try dg.renderType(writer, t);
-                                    // TODO: make our own C string escape instead of using std.zig.fmtEscapes
-                                    try writer.print(")\"{}\"", .{std.zig.fmtEscapes(bytes)});
-                                } else {
-                                    unreachable;
-                                }
-                            } else {
-                                unreachable;
-                            }
-                        },
-                        .One => {
-                            var arena = std.heap.ArenaAllocator.init(dg.module.gpa);
-                            defer arena.deinit();
-
-                            const elem_ty = t.elemType();
-                            const elem_val = try val.pointerDeref(&arena.allocator);
-
-                            try writer.writeAll("&");
-                            try dg.renderValue(writer, elem_ty, elem_val);
-                        },
-                        .C => unreachable,
-                    },
+                    else => unreachable,
                 },
             },
             .Array => {
@@ -436,6 +408,7 @@ pub const DeclGen = struct {
                 .one => try writer.writeAll("1"),
                 .decl_ref => {
                     const decl = val.castTag(.decl_ref).?.data;
+                    decl.alive = true;
 
                     // Determine if we must pointer cast.
                     assert(decl.has_tv);
@@ -448,11 +421,13 @@ pub const DeclGen = struct {
                     }
                 },
                 .function => {
-                    const func = val.castTag(.function).?.data;
-                    try writer.print("{s}", .{func.owner_decl.name});
+                    const decl = val.castTag(.function).?.data.owner_decl;
+                    decl.alive = true;
+                    try writer.print("{s}", .{decl.name});
                 },
                 .extern_fn => {
                     const decl = val.castTag(.extern_fn).?.data;
+                    decl.alive = true;
                     try writer.print("{s}", .{decl.name});
                 },
                 else => unreachable,
@@ -934,10 +909,8 @@ fn genBody(o: *Object, body: []const Air.Inst.Index) error{ AnalysisFail, OutOfM
             .br               => try airBr(o, inst),
             .switch_br        => try airSwitchBr(o, inst),
             .wrap_optional    => try airWrapOptional(o, inst),
-            .ref              => try airRef(o, inst),
             .struct_field_ptr => try airStructFieldPtr(o, inst),
             .struct_field_val => try airStructFieldVal(o, inst),
-            .varptr           => try airVarPtr(o, inst),
             .slice_ptr        => try airSliceField(o, inst, ".ptr;\n"),
             .slice_len        => try airSliceField(o, inst, ".len;\n"),
 
@@ -994,12 +967,6 @@ fn airSliceElemVal(o: *Object, inst: Air.Inst.Index, prefix: []const u8) !CValue
     try o.writeCValue(writer, index);
     try writer.writeAll("];\n");
     return local;
-}
-
-fn airVarPtr(o: *Object, inst: Air.Inst.Index) !CValue {
-    const ty_pl = o.air.instructions.items(.data)[inst].ty_pl;
-    const variable = o.air.variables[ty_pl.payload];
-    return CValue{ .decl_ref = variable.owner_decl };
 }
 
 fn airAlloc(o: *Object, inst: Air.Inst.Index) !CValue {
@@ -1650,22 +1617,6 @@ fn airOptionalPayload(o: *Object, inst: Air.Inst.Index) !CValue {
     try o.writeCValue(writer, operand);
 
     try writer.print("){s}payload;\n", .{maybe_deref});
-    return local;
-}
-
-fn airRef(o: *Object, inst: Air.Inst.Index) !CValue {
-    if (o.liveness.isUnused(inst))
-        return CValue.none;
-
-    const ty_op = o.air.instructions.items(.data)[inst].ty_op;
-    const writer = o.writer();
-    const operand = try o.resolveInst(ty_op.operand);
-
-    const inst_ty = o.air.typeOfIndex(inst);
-    const local = try o.allocLocal(inst_ty, .Const);
-    try writer.writeAll(" = ");
-    try o.writeCValue(writer, operand);
-    try writer.writeAll(";\n");
     return local;
 }
 

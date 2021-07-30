@@ -184,6 +184,7 @@ pub fn generateSymbol(
                 if (typed_value.val.castTag(.decl_ref)) |payload| {
                     const decl = payload.data;
                     if (decl.analysis != .complete) return error.AnalysisFail;
+                    decl.alive = true;
                     // TODO handle the dependency of this symbol on the decl's vaddr.
                     // If the decl changes vaddr, then this symbol needs to get regenerated.
                     const vaddr = bin_file.getDeclVAddr(decl);
@@ -848,13 +849,11 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     .loop            => try self.airLoop(inst),
                     .not             => try self.airNot(inst),
                     .ptrtoint        => try self.airPtrToInt(inst),
-                    .ref             => try self.airRef(inst),
                     .ret             => try self.airRet(inst),
                     .store           => try self.airStore(inst),
                     .struct_field_ptr=> try self.airStructFieldPtr(inst),
                     .struct_field_val=> try self.airStructFieldVal(inst),
                     .switch_br       => try self.airSwitch(inst),
-                    .varptr          => try self.airVarPtr(inst),
                     .slice_ptr       => try self.airSlicePtr(inst),
                     .slice_len       => try self.airSliceLen(inst),
 
@@ -1338,13 +1337,6 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 else => return self.fail("TODO implement wrap errunion error for {}", .{self.target.cpu.arch}),
             };
             return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
-        }
-
-        fn airVarPtr(self: *Self, inst: Air.Inst.Index) !void {
-            const result: MCValue = if (self.liveness.isUnused(inst)) .dead else switch (arch) {
-                else => return self.fail("TODO implement varptr for {}", .{self.target.cpu.arch}),
-            };
-            return self.finishAir(inst, result, .{ .none, .none, .none });
         }
 
         fn airSlicePtr(self: *Self, inst: Air.Inst.Index) !void {
@@ -2831,38 +2823,6 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 bt.feed(arg);
             }
             return bt.finishAir(result);
-        }
-
-        fn airRef(self: *Self, inst: Air.Inst.Index) !void {
-            const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-            const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
-                const operand_ty = self.air.typeOf(ty_op.operand);
-                const operand = try self.resolveInst(ty_op.operand);
-                switch (operand) {
-                    .unreach => unreachable,
-                    .dead => unreachable,
-                    .none => break :result MCValue{ .none = {} },
-
-                    .immediate,
-                    .register,
-                    .ptr_stack_offset,
-                    .ptr_embedded_in_code,
-                    .compare_flags_unsigned,
-                    .compare_flags_signed,
-                    => {
-                        const stack_offset = try self.allocMemPtr(inst);
-                        try self.genSetStack(operand_ty, stack_offset, operand);
-                        break :result MCValue{ .ptr_stack_offset = stack_offset };
-                    },
-
-                    .stack_offset => |offset| break :result MCValue{ .ptr_stack_offset = offset },
-                    .embedded_in_code => |offset| break :result MCValue{ .ptr_embedded_in_code = offset },
-                    .memory => |vaddr| break :result MCValue{ .immediate = vaddr },
-
-                    .undef => return self.fail("TODO implement ref on an undefined value", .{}),
-                }
-            };
-            return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
         }
 
         fn ret(self: *Self, mcv: MCValue) !void {
@@ -4721,13 +4681,13 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     },
                     else => {
                         if (typed_value.val.castTag(.decl_ref)) |payload| {
+                            const decl = payload.data;
+                            decl.alive = true;
                             if (self.bin_file.cast(link.File.Elf)) |elf_file| {
-                                const decl = payload.data;
                                 const got = &elf_file.program_headers.items[elf_file.phdr_got_index.?];
                                 const got_addr = got.p_vaddr + decl.link.elf.offset_table_index * ptr_bytes;
                                 return MCValue{ .memory = got_addr };
                             } else if (self.bin_file.cast(link.File.MachO)) |macho_file| {
-                                const decl = payload.data;
                                 const got_addr = blk: {
                                     const seg = macho_file.load_commands.items[macho_file.data_const_segment_cmd_index.?].Segment;
                                     const got = seg.sections.items[macho_file.got_section_index.?];
@@ -4739,11 +4699,9 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 };
                                 return MCValue{ .memory = got_addr };
                             } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
-                                const decl = payload.data;
                                 const got_addr = coff_file.offset_table_virtual_address + decl.link.coff.offset_table_index * ptr_bytes;
                                 return MCValue{ .memory = got_addr };
                             } else if (self.bin_file.cast(link.File.Plan9)) |p9| {
-                                const decl = payload.data;
                                 const got_addr = p9.bases.data + decl.link.plan9.got_index.? * ptr_bytes;
                                 return MCValue{ .memory = got_addr };
                             } else {

@@ -100,11 +100,10 @@ pub const Value = extern union {
         function,
         extern_fn,
         variable,
-        /// Represents a pointer to another immutable value.
-        ref_val,
         /// Represents a comptime variables storage.
         comptime_alloc,
         /// Represents a pointer to a decl, not the value of the decl.
+        /// When machine codegen backend sees this, it must set the Decl's `alive` field to true.
         decl_ref,
         elem_ptr,
         field_ptr,
@@ -126,6 +125,8 @@ pub const Value = extern union {
         enum_field_index,
         @"error",
         error_union,
+        /// A pointer to the payload of an error union, based on a pointer to an error union.
+        eu_payload_ptr,
         /// An instance of a struct.
         @"struct",
         /// An instance of a union.
@@ -214,9 +215,9 @@ pub const Value = extern union {
                 .decl_ref,
                 => Payload.Decl,
 
-                .ref_val,
                 .repeated,
                 .error_union,
+                .eu_payload_ptr,
                 => Payload.SubValue,
 
                 .bytes,
@@ -407,15 +408,6 @@ pub const Value = extern union {
             .function => return self.copyPayloadShallow(allocator, Payload.Function),
             .extern_fn => return self.copyPayloadShallow(allocator, Payload.Decl),
             .variable => return self.copyPayloadShallow(allocator, Payload.Variable),
-            .ref_val => {
-                const payload = self.castTag(.ref_val).?;
-                const new_payload = try allocator.create(Payload.SubValue);
-                new_payload.* = .{
-                    .base = payload.base,
-                    .data = try payload.data.copy(allocator),
-                };
-                return Value{ .ptr_otherwise = &new_payload.base };
-            },
             .comptime_alloc => return self.copyPayloadShallow(allocator, Payload.ComptimeAlloc),
             .decl_ref => return self.copyPayloadShallow(allocator, Payload.Decl),
             .elem_ptr => {
@@ -443,8 +435,8 @@ pub const Value = extern union {
                 return Value{ .ptr_otherwise = &new_payload.base };
             },
             .bytes => return self.copyPayloadShallow(allocator, Payload.Bytes),
-            .repeated => {
-                const payload = self.castTag(.repeated).?;
+            .repeated, .error_union, .eu_payload_ptr => {
+                const payload = self.cast(Payload.SubValue).?;
                 const new_payload = try allocator.create(Payload.SubValue);
                 new_payload.* = .{
                     .base = payload.base,
@@ -489,15 +481,6 @@ pub const Value = extern union {
             },
             .enum_field_index => return self.copyPayloadShallow(allocator, Payload.U32),
             .@"error" => return self.copyPayloadShallow(allocator, Payload.Error),
-            .error_union => {
-                const payload = self.castTag(.error_union).?;
-                const new_payload = try allocator.create(Payload.SubValue);
-                new_payload.* = .{
-                    .base = payload.base,
-                    .data = try payload.data.copy(allocator),
-                };
-                return Value{ .ptr_otherwise = &new_payload.base };
-            },
             .@"struct" => @panic("TODO can't copy struct value without knowing the type"),
             .@"union" => @panic("TODO can't copy union value without knowing the type"),
 
@@ -609,11 +592,6 @@ pub const Value = extern union {
             .function => return out_stream.print("(function '{s}')", .{val.castTag(.function).?.data.owner_decl.name}),
             .extern_fn => return out_stream.writeAll("(extern function)"),
             .variable => return out_stream.writeAll("(variable)"),
-            .ref_val => {
-                const ref_val = val.castTag(.ref_val).?.data;
-                try out_stream.writeAll("&const ");
-                val = ref_val;
-            },
             .comptime_alloc => {
                 const ref_val = val.castTag(.comptime_alloc).?.data.val;
                 try out_stream.writeAll("&");
@@ -648,6 +626,10 @@ pub const Value = extern union {
             // TODO to print this it should be error{ Set, Items }!T(val), but we need the type for that
             .error_union => return out_stream.print("error_union_val({})", .{val.castTag(.error_union).?.data}),
             .inferred_alloc => return out_stream.writeAll("(inferred allocation value)"),
+            .eu_payload_ptr => {
+                try out_stream.writeAll("(eu_payload_ptr)");
+                val = val.castTag(.eu_payload_ptr).?.data;
+            },
         };
     }
 
@@ -758,7 +740,6 @@ pub const Value = extern union {
             .function,
             .extern_fn,
             .variable,
-            .ref_val,
             .comptime_alloc,
             .decl_ref,
             .elem_ptr,
@@ -780,18 +761,21 @@ pub const Value = extern union {
             .@"union",
             .inferred_alloc,
             .abi_align_default,
+            .eu_payload_ptr,
             => unreachable,
         };
     }
 
     /// Asserts the type is an enum type.
-    pub fn toEnum(val: Value, enum_ty: Type, comptime E: type) E {
-        _ = enum_ty;
-        // TODO this needs to resolve other kinds of Value tags rather than
-        // assuming the tag will be .enum_field_index.
-        const field_index = val.castTag(.enum_field_index).?.data;
-        // TODO should `@intToEnum` do this `@intCast` for you?
-        return @intToEnum(E, @intCast(@typeInfo(E).Enum.tag_type, field_index));
+    pub fn toEnum(val: Value, comptime E: type) E {
+        switch (val.tag()) {
+            .enum_field_index => {
+                const field_index = val.castTag(.enum_field_index).?.data;
+                // TODO should `@intToEnum` do this `@intCast` for you?
+                return @intToEnum(E, @intCast(@typeInfo(E).Enum.tag_type, field_index));
+            },
+            else => unreachable,
+        }
     }
 
     /// Asserts the value is an integer.
@@ -1255,6 +1239,9 @@ pub const Value = extern union {
             .slice => {
                 @panic("TODO Value.hash for slice");
             },
+            .eu_payload_ptr => {
+                @panic("TODO Value.hash for eu_payload_ptr");
+            },
             .int_u64 => {
                 const payload = self.castTag(.int_u64).?;
                 std.hash.autoHash(&hasher, payload.data);
@@ -1262,10 +1249,6 @@ pub const Value = extern union {
             .int_i64 => {
                 const payload = self.castTag(.int_i64).?;
                 std.hash.autoHash(&hasher, payload.data);
-            },
-            .ref_val => {
-                const payload = self.castTag(.ref_val).?;
-                std.hash.autoHash(&hasher, payload.data.hash());
             },
             .comptime_alloc => {
                 const payload = self.castTag(.comptime_alloc).?;
@@ -1364,24 +1347,48 @@ pub const Value = extern union {
 
     /// Asserts the value is a pointer and dereferences it.
     /// Returns error.AnalysisFail if the pointer points to a Decl that failed semantic analysis.
-    pub fn pointerDeref(self: Value, allocator: *Allocator) error{ AnalysisFail, OutOfMemory }!Value {
-        return switch (self.tag()) {
+    pub fn pointerDeref(
+        self: Value,
+        allocator: *Allocator,
+    ) error{ AnalysisFail, OutOfMemory }!?Value {
+        const sub_val: Value = switch (self.tag()) {
             .comptime_alloc => self.castTag(.comptime_alloc).?.data.val,
-            .ref_val => self.castTag(.ref_val).?.data,
-            .decl_ref => self.castTag(.decl_ref).?.data.value(),
-            .elem_ptr => {
+            .decl_ref => try self.castTag(.decl_ref).?.data.value(),
+            .elem_ptr => blk: {
                 const elem_ptr = self.castTag(.elem_ptr).?.data;
-                const array_val = try elem_ptr.array_ptr.pointerDeref(allocator);
-                return array_val.elemValue(allocator, elem_ptr.index);
+                const array_val = (try elem_ptr.array_ptr.pointerDeref(allocator)) orelse return null;
+                break :blk try array_val.elemValue(allocator, elem_ptr.index);
             },
-            .field_ptr => {
+            .field_ptr => blk: {
                 const field_ptr = self.castTag(.field_ptr).?.data;
-                const container_val = try field_ptr.container_ptr.pointerDeref(allocator);
-                return container_val.fieldValue(allocator, field_ptr.field_index);
+                const container_val = (try field_ptr.container_ptr.pointerDeref(allocator)) orelse return null;
+                break :blk try container_val.fieldValue(allocator, field_ptr.field_index);
             },
+            .eu_payload_ptr => blk: {
+                const err_union_ptr = self.castTag(.eu_payload_ptr).?.data;
+                const err_union_val = (try err_union_ptr.pointerDeref(allocator)) orelse return null;
+                break :blk err_union_val.castTag(.error_union).?.data;
+            },
+
+            .zero,
+            .one,
+            .int_u64,
+            .int_i64,
+            .int_big_positive,
+            .int_big_negative,
+            .variable,
+            .extern_fn,
+            .function,
+            => return null,
 
             else => unreachable,
         };
+        if (sub_val.tag() == .variable) {
+            // This would be loading a runtime value at compile-time so we return
+            // the indicator that this pointer dereference requires being done at runtime.
+            return null;
+        }
+        return sub_val;
     }
 
     pub fn sliceLen(val: Value) u64 {
@@ -1390,7 +1397,6 @@ pub const Value = extern union {
             .bytes => val.castTag(.bytes).?.data.len,
             .array => val.castTag(.array).?.data.len,
             .slice => val.castTag(.slice).?.data.len.toUnsignedInt(),
-            .ref_val => sliceLen(val.castTag(.ref_val).?.data),
             .decl_ref => {
                 const decl = val.castTag(.decl_ref).?.data;
                 if (decl.ty.zigTypeTag() == .Array) {
@@ -1576,7 +1582,6 @@ pub const Value = extern union {
             .int_i64,
             .int_big_positive,
             .int_big_negative,
-            .ref_val,
             .comptime_alloc,
             .decl_ref,
             .elem_ptr,
@@ -1599,6 +1604,7 @@ pub const Value = extern union {
             .@"union",
             .null_value,
             .abi_align_default,
+            .eu_payload_ptr,
             => false,
 
             .undef => unreachable,

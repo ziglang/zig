@@ -224,7 +224,9 @@ pub fn flushModule(self: *Plan9, comp: *Compilation) !void {
 
     const mod = self.base.options.module orelse return error.LinkingWithoutZigSourceUnimplemented;
 
-    assert(self.got_len == self.fn_decl_table.count() + self.data_decl_table.count());
+    // TODO I changed this assert from == to >= but this code all needs to be audited; see
+    // the comment in `freeDecl`.
+    assert(self.got_len >= self.fn_decl_table.count() + self.data_decl_table.count());
     const got_size = self.got_len * if (!self.sixtyfour_bit) @as(u32, 4) else 8;
     var got_table = try self.base.allocator.alloc(u8, got_size);
     defer self.base.allocator.free(got_table);
@@ -358,11 +360,18 @@ fn addDeclExports(
 }
 
 pub fn freeDecl(self: *Plan9, decl: *Module.Decl) void {
+    // TODO this is not the correct check for being function body,
+    // it could just be a function pointer.
+    // TODO audit the lifetimes of decls table entries. It's possible to get
+    // allocateDeclIndexes and then freeDecl without any updateDecl in between.
+    // However that is planned to change, see the TODO comment in Module.zig
+    // in the deleteUnusedDecl function.
     const is_fn = (decl.ty.zigTypeTag() == .Fn);
-    if (is_fn)
-        assert(self.fn_decl_table.swapRemove(decl))
-    else
-        assert(self.data_decl_table.swapRemove(decl));
+    if (is_fn) {
+        _ = self.fn_decl_table.swapRemove(decl);
+    } else {
+        _ = self.data_decl_table.swapRemove(decl);
+    }
 }
 
 pub fn updateDeclExports(
