@@ -6,6 +6,8 @@
 const std = @import("../../std.zig");
 const maxInt = std.math.maxInt;
 
+pub usingnamespace @import("posix.zig");
+
 pub const fd_t = c_int;
 pub const pid_t = c_int;
 pub const uid_t = u32;

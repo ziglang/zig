@@ -4,7 +4,6 @@
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
 
-usingnamespace @import("../bits.zig");
 usingnamespace @import("../bits/linux.zig");
 
 pub fn syscall0(number: SYS) usize {

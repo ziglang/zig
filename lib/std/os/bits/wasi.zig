@@ -4,6 +4,10 @@
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
 // Convenience types and consts used by std.os module
+const posix = @import("posix.zig");
+pub const iovec = posix.iovec;
+pub const iovec_const = posix.iovec_const;
+
 pub const STDIN_FILENO = 0;
 pub const STDOUT_FILENO = 1;
 pub const STDERR_FILENO = 2;

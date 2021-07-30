@@ -6,7 +6,7 @@
 const std = @import("../../std.zig");
 const maxInt = std.math.maxInt;
 const arch = @import("builtin").target.cpu.arch;
-usingnamespace @import("../bits.zig");
+pub usingnamespace @import("posix.zig");
 
 pub usingnamespace switch (arch) {
     .mips, .mipsel => @import("linux/errno-mips.zig"),
