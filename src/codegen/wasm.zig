@@ -591,7 +591,7 @@ pub const Context = struct {
             .ErrorSet,
             => wasm.Valtype.i32,
             .Struct, .ErrorUnion => unreachable, // Multi typed, must be handled individually.
-            else => self.fail("TODO - Wasm valtype for type '{s}'", .{ty.zigTypeTag()}),
+            else => |tag| self.fail("TODO - Wasm valtype for type '{s}'", .{tag}),
         };
     }
 
@@ -800,8 +800,11 @@ pub const Context = struct {
         const air_tags = self.air.instructions.items(.tag);
         return switch (air_tags[inst]) {
             .add => self.airBinOp(inst, .add),
+            .addwrap => self.airBinOp(inst, .add),
             .sub => self.airBinOp(inst, .sub),
+            .subwrap => self.airBinOp(inst, .sub),
             .mul => self.airBinOp(inst, .mul),
+            .mulwrap => self.airBinOp(inst, .mul),
             .div => self.airBinOp(inst, .div),
             .bit_and => self.airBinOp(inst, .@"and"),
             .bit_or => self.airBinOp(inst, .@"or"),
@@ -826,6 +829,7 @@ pub const Context = struct {
             .cond_br => self.airCondBr(inst),
             .constant => unreachable,
             .dbg_stmt => WValue.none,
+            .intcast => self.airIntcast(inst),
             .is_err => self.airIsErr(inst, .i32_ne),
             .is_non_err => self.airIsErr(inst, .i32_eq),
             .load => self.airLoad(inst),
@@ -1493,5 +1497,28 @@ pub const Context = struct {
     fn airWrapErrUnionPayload(self: *Context, inst: Air.Inst.Index) InnerError!WValue {
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         return self.resolveInst(ty_op.operand);
+    }
+
+    fn airIntcast(self: *Context, inst: Air.Inst.Index) InnerError!WValue {
+        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const ty = self.air.getRefType(ty_op.ty);
+        const operand = self.resolveInst(ty_op.operand);
+        const ref_ty = self.air.typeOf(ty_op.operand);
+        const ref_info = ref_ty.intInfo(self.target);
+        const op_bits = ref_info.bits;
+        const wanted_bits = ty.intInfo(self.target).bits;
+
+        try self.emitWValue(operand);
+        if (op_bits > 32 and wanted_bits <= 32) {
+            try self.code.append(wasm.opcode(.i32_wrap_i64));
+        } else if (op_bits <= 32 and wanted_bits > 32) {
+            try self.code.append(wasm.opcode(switch (ref_info.signedness) {
+                .signed => .i64_extend_i32_s,
+                .unsigned => .i64_extend_i32_u,
+            }));
+        }
+
+        // other cases are no-op
+        return .none;
     }
 };
