@@ -590,7 +590,7 @@ pub const Context = struct {
             .Pointer,
             .ErrorSet,
             => wasm.Valtype.i32,
-            .Struct, .ErrorUnion => unreachable, // Multi typed, must be handled individually.
+            .Struct, .ErrorUnion, .Optional => unreachable, // Multi typed, must be handled individually.
             else => |tag| self.fail("TODO - Wasm valtype for type '{s}'", .{tag}),
         };
     }
@@ -656,6 +656,23 @@ pub const Context = struct {
                 try self.locals.ensureCapacity(self.gpa, self.locals.items.len + 2);
                 self.locals.appendAssumeCapacity(wasm.valtype(.i32)); // error values are always i32
                 self.locals.appendAssumeCapacity(val_type);
+                self.local_index += 2;
+
+                return WValue{ .multi_value = .{
+                    .index = initial_index,
+                    .count = 2,
+                } };
+            },
+            .Optional => {
+                var opt_buf: Type.Payload.ElemType = undefined;
+                const child_type = ty.optionalChild(&opt_buf);
+                if (ty.isPtrLikeOptional()) {
+                    return self.fail("TODO: wasm optional pointer", .{});
+                }
+
+                try self.locals.ensureCapacity(self.gpa, self.locals.items.len + 2);
+                self.locals.appendAssumeCapacity(wasm.valtype(.i32)); // optional 'tag' for null-checking is always i32
+                self.locals.appendAssumeCapacity(try self.genValtype(child_type));
                 self.local_index += 2;
 
                 return WValue{ .multi_value = .{
@@ -830,8 +847,15 @@ pub const Context = struct {
             .constant => unreachable,
             .dbg_stmt => WValue.none,
             .intcast => self.airIntcast(inst),
+
             .is_err => self.airIsErr(inst, .i32_ne),
             .is_non_err => self.airIsErr(inst, .i32_eq),
+
+            .is_null => self.airIsNull(inst, .i32_ne),
+            .is_non_null => self.airIsNull(inst, .i32_eq),
+            .is_null_ptr => self.airIsNull(inst, .i32_ne),
+            .is_non_null_ptr => self.airIsNull(inst, .i32_eq),
+
             .load => self.airLoad(inst),
             .loop => self.airLoop(inst),
             .not => self.airNot(inst),
@@ -840,8 +864,13 @@ pub const Context = struct {
             .struct_field_ptr => self.airStructFieldPtr(inst),
             .switch_br => self.airSwitchBr(inst),
             .unreach => self.airUnreachable(inst),
+            .wrap_optional => self.airWrapOptional(inst),
+
             .unwrap_errunion_payload => self.airUnwrapErrUnionPayload(inst),
             .wrap_errunion_payload => self.airWrapErrUnionPayload(inst),
+
+            .optional_payload => self.airOptionalPayload(inst),
+            .optional_payload_ptr => self.airOptionalPayload(inst),
             else => |tag| self.fail("TODO: Implement wasm inst: {s}", .{@tagName(tag)}),
         };
     }
@@ -925,6 +954,22 @@ pub const Context = struct {
                         try writer.writeByte(wasm.opcode(.local_set));
                         try leb.writeULEB128(writer, multi_value.index + i - 1);
                     }
+                },
+                .local => {
+                    // This can occur when we wrap a single value into a multi-value,
+                    // such as wrapping a non-optional value into an optional.
+                    // This means we must zero the null-tag, and set the payload.
+                    assert(multi_value.count == 2);
+                    // set null-tag
+                    try writer.writeByte(wasm.opcode(.i32_const));
+                    try leb.writeULEB128(writer, @as(u32, 0));
+                    try writer.writeByte(wasm.opcode(.local_set));
+                    try leb.writeULEB128(writer, multi_value.index);
+
+                    // set payload
+                    try self.emitWValue(rhs);
+                    try writer.writeByte(wasm.opcode(.local_set));
+                    try leb.writeULEB128(writer, multi_value.index + 1);
                 },
                 else => unreachable,
             },
@@ -1088,6 +1133,31 @@ pub const Context = struct {
                     try self.emitConstant(data, payload_type);
                 }
             },
+            .Optional => {
+                var buf: Type.Payload.ElemType = undefined;
+                const payload_type = ty.optionalChild(&buf);
+                if (ty.isPtrLikeOptional()) {
+                    return self.fail("Wasm TODO: emitConstant for optional pointer", .{});
+                }
+
+                // When constant has value 'null', set is_null local to '1'
+                // and payload to '0'
+                if (val.tag() == .null_value) {
+                    try writer.writeByte(wasm.opcode(.i32_const));
+                    try leb.writeILEB128(writer, @as(i32, 1));
+
+                    const opcode: wasm.Opcode = buildOpcode(.{
+                        .op = .@"const",
+                        .valtype1 = try self.typeToValtype(payload_type),
+                    });
+                    try writer.writeByte(wasm.opcode(opcode));
+                    try leb.writeULEB128(writer, @as(u32, 0));
+                } else {
+                    try writer.writeByte(wasm.opcode(.i32_const));
+                    try leb.writeILEB128(writer, @as(i32, 0));
+                    try self.emitConstant(val, payload_type);
+                }
+            },
             else => |zig_type| return self.fail("Wasm TODO: emitConstant for zigTypeTag {s}", .{zig_type}),
         }
     }
@@ -1188,7 +1258,6 @@ pub const Context = struct {
         const then_body = self.air.extra[extra.end..][0..extra.data.then_body_len];
         const else_body = self.air.extra[extra.end + then_body.len ..][0..extra.data.else_body_len];
         const writer = self.code.writer();
-
         // TODO: Handle death instructions for then and else body
 
         // insert blocks at the position of `offset` so
@@ -1520,5 +1589,38 @@ pub const Context = struct {
 
         // other cases are no-op
         return .none;
+    }
+
+    fn airIsNull(self: *Context, inst: Air.Inst.Index, opcode: wasm.Opcode) InnerError!WValue {
+        const un_op = self.air.instructions.items(.data)[inst].un_op;
+        const operand = self.resolveInst(un_op);
+        // const offset = self.code.items.len;
+        const writer = self.code.writer();
+
+        // load the null value which is positioned at multi_value's index
+        try self.emitWValue(.{ .local = operand.multi_value.index });
+        // Compare the null value with '0'
+        try writer.writeByte(wasm.opcode(.i32_const));
+        try leb.writeILEB128(writer, @as(i32, 0));
+
+        try writer.writeByte(@enumToInt(opcode));
+
+        // we save the result in a new local
+        const local = try self.allocLocal(Type.initTag(.i32));
+        try writer.writeByte(wasm.opcode(.local_set));
+        try leb.writeULEB128(writer, local.local);
+
+        return local;
+    }
+
+    fn airOptionalPayload(self: *Context, inst: Air.Inst.Index) InnerError!WValue {
+        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const operand = self.resolveInst(ty_op.operand);
+        return WValue{ .local = operand.multi_value.index + 1 };
+    }
+
+    fn airWrapOptional(self: *Context, inst: Air.Inst.Index) InnerError!WValue {
+        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        return self.resolveInst(ty_op.operand);
     }
 };
