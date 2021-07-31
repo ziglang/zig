@@ -264,14 +264,12 @@ pub fn parseObject(self: Archive, offset: u32) !*Object {
     errdefer self.allocator.destroy(object);
 
     object.* = .{
-        .allocator = self.allocator,
-        .arch = self.arch.?,
         .file = try fs.cwd().openFile(self.name.?, .{}),
         .name = name,
         .file_offset = @intCast(u32, try reader.context.getPos()),
         .mtime = try self.header.?.date(),
     };
-    try object.parse();
+    try object.parse(self.allocator, self.arch.?);
     try reader.context.seekTo(0);
 
     return object;

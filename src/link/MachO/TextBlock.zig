@@ -606,12 +606,14 @@ pub fn freeListEligible(self: TextBlock, macho_file: MachO) bool {
 
 const RelocContext = struct {
     base_addr: u64 = 0,
+    allocator: *Allocator,
+    object: *Object,
     macho_file: *MachO,
 };
 
-fn initRelocFromObject(rel: macho.relocation_info, object: *Object, ctx: RelocContext) !Relocation {
+fn initRelocFromObject(rel: macho.relocation_info, context: RelocContext) !Relocation {
     var parsed_rel = Relocation{
-        .offset = @intCast(u32, @intCast(u64, rel.r_address) - ctx.base_addr),
+        .offset = @intCast(u32, @intCast(u64, rel.r_address) - context.base_addr),
         .where = undefined,
         .where_index = undefined,
         .payload = undefined,
@@ -620,44 +622,44 @@ fn initRelocFromObject(rel: macho.relocation_info, object: *Object, ctx: RelocCo
     if (rel.r_extern == 0) {
         const sect_id = @intCast(u16, rel.r_symbolnum - 1);
 
-        const local_sym_index = object.sections_as_symbols.get(sect_id) orelse blk: {
-            const seg = object.load_commands.items[object.segment_cmd_index.?].Segment;
+        const local_sym_index = context.object.sections_as_symbols.get(sect_id) orelse blk: {
+            const seg = context.object.load_commands.items[context.object.segment_cmd_index.?].Segment;
             const sect = seg.sections.items[sect_id];
-            const match = (try ctx.macho_file.getMatchingSection(sect)) orelse unreachable;
-            const local_sym_index = @intCast(u32, ctx.macho_file.locals.items.len);
-            const sym_name = try std.fmt.allocPrint(ctx.macho_file.base.allocator, "l_{s}_{s}_{s}", .{
-                object.name.?,
+            const match = (try context.macho_file.getMatchingSection(sect)) orelse unreachable;
+            const local_sym_index = @intCast(u32, context.macho_file.locals.items.len);
+            const sym_name = try std.fmt.allocPrint(context.allocator, "l_{s}_{s}_{s}", .{
+                context.object.name,
                 commands.segmentName(sect),
                 commands.sectionName(sect),
             });
-            defer ctx.macho_file.base.allocator.free(sym_name);
+            defer context.allocator.free(sym_name);
 
-            try ctx.macho_file.locals.append(ctx.macho_file.base.allocator, .{
-                .n_strx = try ctx.macho_file.makeString(sym_name),
+            try context.macho_file.locals.append(context.allocator, .{
+                .n_strx = try context.macho_file.makeString(sym_name),
                 .n_type = macho.N_SECT,
-                .n_sect = ctx.macho_file.section_to_ordinal.get(match) orelse unreachable,
+                .n_sect = context.macho_file.section_to_ordinal.get(match) orelse unreachable,
                 .n_desc = 0,
                 .n_value = sect.addr,
             });
-            try object.sections_as_symbols.putNoClobber(object.allocator, sect_id, local_sym_index);
+            try context.object.sections_as_symbols.putNoClobber(context.allocator, sect_id, local_sym_index);
             break :blk local_sym_index;
         };
 
         parsed_rel.where = .local;
         parsed_rel.where_index = local_sym_index;
     } else {
-        const sym = object.symtab.items[rel.r_symbolnum];
-        const sym_name = object.getString(sym.n_strx);
+        const sym = context.object.symtab.items[rel.r_symbolnum];
+        const sym_name = context.object.getString(sym.n_strx);
 
         if (MachO.symbolIsSect(sym) and !MachO.symbolIsExt(sym)) {
-            const where_index = object.symbol_mapping.get(rel.r_symbolnum) orelse unreachable;
+            const where_index = context.object.symbol_mapping.get(rel.r_symbolnum) orelse unreachable;
             parsed_rel.where = .local;
             parsed_rel.where_index = where_index;
         } else {
-            const n_strx = ctx.macho_file.strtab_dir.getAdapted(@as([]const u8, sym_name), MachO.StringSliceAdapter{
-                .strtab = &ctx.macho_file.strtab,
+            const n_strx = context.macho_file.strtab_dir.getAdapted(@as([]const u8, sym_name), MachO.StringSliceAdapter{
+                .strtab = &context.macho_file.strtab,
             }) orelse unreachable;
-            const resolv = ctx.macho_file.symbol_resolver.get(n_strx) orelse unreachable;
+            const resolv = context.macho_file.symbol_resolver.get(n_strx) orelse unreachable;
             switch (resolv.where) {
                 .global => {
                     parsed_rel.where = .local;
@@ -675,29 +677,24 @@ fn initRelocFromObject(rel: macho.relocation_info, object: *Object, ctx: RelocCo
     return parsed_rel;
 }
 
-pub fn parseRelocsFromObject(
-    self: *TextBlock,
-    allocator: *Allocator,
-    relocs: []macho.relocation_info,
-    object: *Object,
-    ctx: RelocContext,
-) !void {
-    const filtered_relocs = filterRelocs(relocs, ctx.base_addr, ctx.base_addr + self.size);
+pub fn parseRelocs(self: *TextBlock, relocs: []macho.relocation_info, context: RelocContext) !void {
+    const filtered_relocs = filterRelocs(relocs, context.base_addr, context.base_addr + self.size);
     var it = RelocIterator{
         .buffer = filtered_relocs,
     };
 
     var addend: u32 = 0;
     var subtractor: ?u32 = null;
+    const arch = context.macho_file.base.options.target.cpu.arch;
 
     while (it.next()) |rel| {
-        if (isAddend(rel, object.arch.?)) {
+        if (isAddend(rel, arch)) {
             // Addend is not a relocation with effect on the TextBlock, so
             // parse it and carry on.
             assert(addend == 0); // Oh no, addend was not reset!
             addend = rel.r_symbolnum;
 
-            // Verify ADDEND is followed by a load.
+            // Verify ADDEND is followed by a PAGE21 or PAGEOFF12.
             const next = @intToEnum(macho.reloc_type_arm64, it.peek().r_type);
             switch (next) {
                 .ARM64_RELOC_PAGE21, .ARM64_RELOC_PAGEOFF12 => {},
@@ -709,28 +706,28 @@ pub fn parseRelocsFromObject(
             continue;
         }
 
-        if (isSubtractor(rel, object.arch.?)) {
+        if (isSubtractor(rel, arch)) {
             // Subtractor is not a relocation with effect on the TextBlock, so
             // parse it and carry on.
             assert(subtractor == null); // Oh no, subtractor was not reset!
             assert(rel.r_extern == 1);
-            const sym = object.symtab.items[rel.r_symbolnum];
-            const sym_name = object.getString(sym.n_strx);
+            const sym = context.object.symtab.items[rel.r_symbolnum];
+            const sym_name = context.object.getString(sym.n_strx);
 
             if (MachO.symbolIsSect(sym) and !MachO.symbolIsExt(sym)) {
-                const where_index = object.symbol_mapping.get(rel.r_symbolnum) orelse unreachable;
+                const where_index = context.object.symbol_mapping.get(rel.r_symbolnum) orelse unreachable;
                 subtractor = where_index;
             } else {
-                const n_strx = ctx.macho_file.strtab_dir.getAdapted(@as([]const u8, sym_name), MachO.StringSliceAdapter{
-                    .strtab = &ctx.macho_file.strtab,
+                const n_strx = context.macho_file.strtab_dir.getAdapted(@as([]const u8, sym_name), MachO.StringSliceAdapter{
+                    .strtab = &context.macho_file.strtab,
                 }) orelse unreachable;
-                const resolv = ctx.macho_file.symbol_resolver.get(n_strx) orelse unreachable;
+                const resolv = context.macho_file.symbol_resolver.get(n_strx) orelse unreachable;
                 assert(resolv.where == .global);
                 subtractor = resolv.local_sym_index;
             }
 
             // Verify SUBTRACTOR is followed by UNSIGNED.
-            switch (object.arch.?) {
+            switch (arch) {
                 .aarch64 => {
                     const next = @intToEnum(macho.reloc_type_arm64, it.peek().r_type);
                     if (next != .ARM64_RELOC_UNSIGNED) {
@@ -750,19 +747,19 @@ pub fn parseRelocsFromObject(
             continue;
         }
 
-        var parsed_rel = try initRelocFromObject(rel, object, ctx);
+        var parsed_rel = try initRelocFromObject(rel, context);
 
-        switch (object.arch.?) {
+        switch (arch) {
             .aarch64 => {
                 const rel_type = @intToEnum(macho.reloc_type_arm64, rel.r_type);
                 switch (rel_type) {
                     .ARM64_RELOC_ADDEND => unreachable,
                     .ARM64_RELOC_SUBTRACTOR => unreachable,
                     .ARM64_RELOC_BRANCH26 => {
-                        self.parseBranch(rel, &parsed_rel, ctx);
+                        self.parseBranch(rel, &parsed_rel, context);
                     },
                     .ARM64_RELOC_UNSIGNED => {
-                        self.parseUnsigned(rel, &parsed_rel, subtractor, ctx);
+                        self.parseUnsigned(rel, &parsed_rel, subtractor, context);
                         subtractor = null;
                     },
                     .ARM64_RELOC_PAGE21,
@@ -790,10 +787,10 @@ pub fn parseRelocsFromObject(
                 switch (@intToEnum(macho.reloc_type_x86_64, rel.r_type)) {
                     .X86_64_RELOC_SUBTRACTOR => unreachable,
                     .X86_64_RELOC_BRANCH => {
-                        self.parseBranch(rel, &parsed_rel, ctx);
+                        self.parseBranch(rel, &parsed_rel, context);
                     },
                     .X86_64_RELOC_UNSIGNED => {
-                        self.parseUnsigned(rel, &parsed_rel, subtractor, ctx);
+                        self.parseUnsigned(rel, &parsed_rel, subtractor, context);
                         subtractor = null;
                     },
                     .X86_64_RELOC_SIGNED,
@@ -801,7 +798,7 @@ pub fn parseRelocsFromObject(
                     .X86_64_RELOC_SIGNED_2,
                     .X86_64_RELOC_SIGNED_4,
                     => {
-                        self.parseSigned(rel, &parsed_rel, ctx);
+                        self.parseSigned(rel, &parsed_rel, context);
                     },
                     .X86_64_RELOC_GOT_LOAD,
                     .X86_64_RELOC_GOT,
@@ -814,7 +811,7 @@ pub fn parseRelocsFromObject(
             else => unreachable,
         }
 
-        try self.relocs.append(allocator, parsed_rel);
+        try self.relocs.append(context.allocator, parsed_rel);
 
         const is_via_got = switch (parsed_rel.payload) {
             .pointer_to_got => true,
@@ -832,23 +829,23 @@ pub fn parseRelocsFromObject(
                 },
                 .where_index = parsed_rel.where_index,
             };
-            if (ctx.macho_file.got_entries_map.contains(key)) break :blk;
+            if (context.macho_file.got_entries_map.contains(key)) break :blk;
 
-            const got_index = @intCast(u32, ctx.macho_file.got_entries.items.len);
-            try ctx.macho_file.got_entries.append(ctx.macho_file.base.allocator, key);
-            try ctx.macho_file.got_entries_map.putNoClobber(ctx.macho_file.base.allocator, key, got_index);
+            const got_index = @intCast(u32, context.macho_file.got_entries.items.len);
+            try context.macho_file.got_entries.append(context.allocator, key);
+            try context.macho_file.got_entries_map.putNoClobber(context.allocator, key, got_index);
         } else if (parsed_rel.payload == .unsigned) {
             switch (parsed_rel.where) {
                 .import => {
-                    try self.bindings.append(allocator, .{
+                    try self.bindings.append(context.allocator, .{
                         .local_sym_index = parsed_rel.where_index,
                         .offset = parsed_rel.offset,
                     });
                 },
                 .local => {
-                    const source_sym = ctx.macho_file.locals.items[self.local_sym_index];
-                    const match = ctx.macho_file.section_ordinals.items[source_sym.n_sect];
-                    const seg = ctx.macho_file.load_commands.items[match.seg].Segment;
+                    const source_sym = context.macho_file.locals.items[self.local_sym_index];
+                    const match = context.macho_file.section_ordinals.items[source_sym.n_sect];
+                    const seg = context.macho_file.load_commands.items[match.seg].Segment;
                     const sect = seg.sections.items[match.sect];
                     const sect_type = commands.sectionType(sect);
 
@@ -858,12 +855,12 @@ pub fn parseRelocsFromObject(
                         // TODO actually, a check similar to what dyld is doing, that is, verifying
                         // that the segment is writable should be enough here.
                         const is_right_segment = blk: {
-                            if (ctx.macho_file.data_segment_cmd_index) |idx| {
+                            if (context.macho_file.data_segment_cmd_index) |idx| {
                                 if (match.seg == idx) {
                                     break :blk true;
                                 }
                             }
-                            if (ctx.macho_file.data_const_segment_cmd_index) |idx| {
+                            if (context.macho_file.data_const_segment_cmd_index) |idx| {
                                 if (match.seg == idx) {
                                     break :blk true;
                                 }
@@ -884,17 +881,17 @@ pub fn parseRelocsFromObject(
                     };
 
                     if (should_rebase) {
-                        try self.rebases.append(allocator, parsed_rel.offset);
+                        try self.rebases.append(context.allocator, parsed_rel.offset);
                     }
                 },
             }
         } else if (parsed_rel.payload == .branch) blk: {
             if (parsed_rel.where != .import) break :blk;
-            if (ctx.macho_file.stubs_map.contains(parsed_rel.where_index)) break :blk;
+            if (context.macho_file.stubs_map.contains(parsed_rel.where_index)) break :blk;
 
-            const stubs_index = @intCast(u32, ctx.macho_file.stubs.items.len);
-            try ctx.macho_file.stubs.append(ctx.macho_file.base.allocator, parsed_rel.where_index);
-            try ctx.macho_file.stubs_map.putNoClobber(ctx.macho_file.base.allocator, parsed_rel.where_index, stubs_index);
+            const stubs_index = @intCast(u32, context.macho_file.stubs.items.len);
+            try context.macho_file.stubs.append(context.allocator, parsed_rel.where_index);
+            try context.macho_file.stubs_map.putNoClobber(context.allocator, parsed_rel.where_index, stubs_index);
         }
     }
 }
@@ -917,7 +914,7 @@ fn parseUnsigned(
     rel: macho.relocation_info,
     out: *Relocation,
     subtractor: ?u32,
-    ctx: RelocContext,
+    context: RelocContext,
 ) void {
     assert(rel.r_pcrel == 0);
 
@@ -934,7 +931,7 @@ fn parseUnsigned(
 
     if (rel.r_extern == 0) {
         assert(out.where == .local);
-        const target_sym = ctx.macho_file.locals.items[out.where_index];
+        const target_sym = context.macho_file.locals.items[out.where_index];
         addend -= @intCast(i64, target_sym.n_value);
     }
 
@@ -947,14 +944,14 @@ fn parseUnsigned(
     };
 }
 
-fn parseBranch(self: TextBlock, rel: macho.relocation_info, out: *Relocation, ctx: RelocContext) void {
+fn parseBranch(self: TextBlock, rel: macho.relocation_info, out: *Relocation, context: RelocContext) void {
     _ = self;
     assert(rel.r_pcrel == 1);
     assert(rel.r_length == 2);
 
     out.payload = .{
         .branch = .{
-            .arch = ctx.macho_file.base.options.target.cpu.arch,
+            .arch = context.macho_file.base.options.target.cpu.arch,
         },
     };
 }
@@ -1015,7 +1012,7 @@ fn parsePointerToGot(self: TextBlock, rel: macho.relocation_info, out: *Relocati
     };
 }
 
-fn parseSigned(self: TextBlock, rel: macho.relocation_info, out: *Relocation, ctx: RelocContext) void {
+fn parseSigned(self: TextBlock, rel: macho.relocation_info, out: *Relocation, context: RelocContext) void {
     assert(rel.r_pcrel == 1);
     assert(rel.r_length == 2);
 
@@ -1030,10 +1027,10 @@ fn parseSigned(self: TextBlock, rel: macho.relocation_info, out: *Relocation, ct
     var addend: i64 = mem.readIntLittle(i32, self.code.items[out.offset..][0..4]) + correction;
 
     if (rel.r_extern == 0) {
-        const source_sym = ctx.macho_file.locals.items[self.local_sym_index];
+        const source_sym = context.macho_file.locals.items[self.local_sym_index];
         const target_sym = switch (out.where) {
-            .local => ctx.macho_file.locals.items[out.where_index],
-            .import => ctx.macho_file.imports.items[out.where_index],
+            .local => context.macho_file.locals.items[out.where_index],
+            .import => context.macho_file.imports.items[out.where_index],
         };
         addend = @intCast(i64, source_sym.n_value + out.offset + 4) + addend - @intCast(i64, target_sym.n_value);
     }

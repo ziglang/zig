@@ -2004,21 +2004,21 @@ fn resolveSymbolsInObject(self: *MachO, object_id: u16) !void {
         if (symbolIsStab(sym)) {
             log.err("unhandled symbol type: stab", .{});
             log.err("  symbol '{s}'", .{sym_name});
-            log.err("  first definition in '{s}'", .{object.name.?});
+            log.err("  first definition in '{s}'", .{object.name});
             return error.UnhandledSymbolType;
         }
 
         if (symbolIsIndr(sym)) {
             log.err("unhandled symbol type: indirect", .{});
             log.err("  symbol '{s}'", .{sym_name});
-            log.err("  first definition in '{s}'", .{object.name.?});
+            log.err("  first definition in '{s}'", .{object.name});
             return error.UnhandledSymbolType;
         }
 
         if (symbolIsAbs(sym)) {
             log.err("unhandled symbol type: absolute", .{});
             log.err("  symbol '{s}'", .{sym_name});
-            log.err("  first definition in '{s}'", .{object.name.?});
+            log.err("  first definition in '{s}'", .{object.name});
             return error.UnhandledSymbolType;
         }
 
@@ -2068,8 +2068,8 @@ fn resolveSymbolsInObject(self: *MachO, object_id: u16) !void {
                         !(symbolIsWeakDef(global.*) or symbolIsPext(global.*)))
                     {
                         log.err("symbol '{s}' defined multiple times", .{sym_name});
-                        log.err("  first definition in '{s}'", .{self.objects.items[resolv.file].name.?});
-                        log.err("  next definition in '{s}'", .{object.name.?});
+                        log.err("  first definition in '{s}'", .{self.objects.items[resolv.file].name});
+                        log.err("  next definition in '{s}'", .{object.name});
                         return error.MultipleSymbolDefinitions;
                     }
 
@@ -2448,7 +2448,7 @@ fn resolveSymbols(self: *MachO) !void {
         const resolv = self.symbol_resolver.get(sym.n_strx) orelse unreachable;
 
         log.err("undefined reference to symbol '{s}'", .{sym_name});
-        log.err("  first referenced in '{s}'", .{self.objects.items[resolv.file].name.?});
+        log.err("  first referenced in '{s}'", .{self.objects.items[resolv.file].name});
         has_undefined = true;
     }
 
@@ -2457,7 +2457,7 @@ fn resolveSymbols(self: *MachO) !void {
 
 fn parseTextBlocks(self: *MachO) !void {
     for (self.objects.items) |object| {
-        try object.parseTextBlocks(self);
+        try object.parseTextBlocks(self.base.allocator, self);
     }
 }
 
@@ -3190,7 +3190,7 @@ fn writeSymbolTable(self: *MachO) !void {
                 .n_value = 0,
             });
             locals.appendAssumeCapacity(.{
-                .n_strx = try self.makeString(object.name.?),
+                .n_strx = try self.makeString(object.name),
                 .n_type = macho.N_OSO,
                 .n_sect = 0,
                 .n_desc = 1,
@@ -3334,7 +3334,7 @@ pub fn deinit(self: *MachO) void {
     self.symbol_resolver.deinit(self.base.allocator);
 
     for (self.objects.items) |object| {
-        object.deinit();
+        object.deinit(self.base.allocator);
         self.base.allocator.destroy(object);
     }
     self.objects.deinit(self.base.allocator);
@@ -3372,7 +3372,7 @@ pub fn deinit(self: *MachO) void {
 
 pub fn closeFiles(self: MachO) void {
     for (self.objects.items) |object| {
-        object.closeFile();
+        object.file.close();
     }
     for (self.archives.items) |archive| {
         archive.closeFile();
@@ -5913,7 +5913,7 @@ fn printSymtabAndTextBlock(self: *MachO) void {
 
     log.debug("mappings", .{});
     for (self.objects.items) |object| {
-        log.debug("  in object {s}", .{object.name.?});
+        log.debug("  in object {s}", .{object.name});
         for (object.symtab.items) |sym, sym_id| {
             if (object.symbol_mapping.get(@intCast(u32, sym_id))) |local_id| {
                 log.debug("    | {d} => {d}", .{ sym_id, local_id });
