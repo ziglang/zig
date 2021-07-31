@@ -2228,7 +2228,11 @@ fn resolveSymbols(self: *MachO) !void {
             };
             assert(offsets.items.len > 0);
 
-            const object = try archive.parseObject(offsets.items[0]);
+            const object = try archive.parseObject(
+                self.base.allocator,
+                self.base.options.target.cpu.arch,
+                offsets.items[0],
+            );
             const object_id = @intCast(u16, self.objects.items.len);
             try self.objects.append(self.base.allocator, object);
             try self.resolveSymbolsInObject(object_id);
@@ -3340,7 +3344,7 @@ pub fn deinit(self: *MachO) void {
     self.objects.deinit(self.base.allocator);
 
     for (self.archives.items) |archive| {
-        archive.deinit();
+        archive.deinit(self.base.allocator);
         self.base.allocator.destroy(archive);
     }
     self.archives.deinit(self.base.allocator);
@@ -3375,7 +3379,7 @@ pub fn closeFiles(self: MachO) void {
         object.file.close();
     }
     for (self.archives.items) |archive| {
-        archive.closeFile();
+        archive.file.close();
     }
 }
 
