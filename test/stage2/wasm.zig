@@ -644,4 +644,58 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
         , "5\n");
     }
+
+    {
+        var case = ctx.exe("wasm optionals", wasi);
+
+        case.addCompareOutput(
+            \\pub export fn _start() u32 {
+            \\    var x: ?u32 = 5;
+            \\    var y: u32 = 0;
+            \\    if (x) |val| {
+            \\        y = val;
+            \\    }
+            \\    return y;
+            \\}
+        , "5\n");
+
+        case.addCompareOutput(
+            \\pub export fn _start() u32 {
+            \\    var x: ?u32 = null;
+            \\    var y: u32 = 0;
+            \\    if (x) |val| {
+            \\        y = val;
+            \\    }
+            \\    return y;
+            \\}
+        , "0\n");
+
+        case.addCompareOutput(
+            \\pub export fn _start() u32 {
+            \\    var x: ?u32 = 5;
+            \\    return x.?;
+            \\}
+        , "5\n");
+
+        case.addCompareOutput(
+            \\pub export fn _start() u32 {
+            \\    var x: u32 = 5;
+            \\    var y: ?u32 = x;
+            \\    return y.?;
+            \\}
+        , "5\n");
+
+        case.addCompareOutput(
+            \\pub export fn _start() u32 {
+            \\    var val: ?u32 = 5;
+            \\    while (val) |*v| {
+            \\        v.* -= 1;
+            \\        if (v.* == 2) {
+            \\            val = null;
+            \\        }
+            \\    }
+            \\    return 0;
+            \\}
+        , "0\n");
+    }
 }
