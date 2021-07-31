@@ -215,8 +215,8 @@ fn parseTableOfContents(self: *Archive, allocator: *Allocator, reader: anytype) 
     }
 }
 
-pub fn extractObject(self: Archive, allocator: *Allocator, offset: u32) !Object {
-    var reader = self.file.reader();
+pub fn parseObject(self: Archive, allocator: *Allocator, arch: Arch, offset: u32) !Object {
+    const reader = self.file.reader();
     try reader.context.seekTo(offset + self.library_offset);
 
     const object_header = try reader.readStruct(ar_hdr);
@@ -244,6 +244,7 @@ pub fn extractObject(self: Archive, allocator: *Allocator, offset: u32) !Object 
         .mtime = try self.header.?.date(),
     };
 
+    try object.parse(allocator, arch);
     try reader.context.seekTo(0);
 
     return object;

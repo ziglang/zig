@@ -2231,8 +2231,11 @@ fn resolveSymbols(self: *MachO) !void {
 
             const object_id = @intCast(u16, self.objects.items.len);
             const object = try self.objects.addOne(self.base.allocator);
-            object.* = try archive.extractObject(self.base.allocator, offsets.items[0]);
-            try object.parse(self.base.allocator, self.base.options.target.cpu.arch);
+            object.* = try archive.parseObject(
+                self.base.allocator,
+                self.base.options.target.cpu.arch,
+                offsets.items[0],
+            );
             try self.resolveSymbolsInObject(object_id);
 
             continue :loop;
