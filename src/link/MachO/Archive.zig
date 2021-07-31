@@ -223,8 +223,7 @@ fn parseTableOfContents(self: *Archive, allocator: *Allocator, reader: anytype) 
     }
 }
 
-/// Caller owns the Object instance.
-pub fn parseObject(self: Archive, allocator: *Allocator, arch: Arch, offset: u32) !*Object {
+pub fn extractObject(self: Archive, allocator: *Allocator, offset: u32) !Object {
     var reader = self.file.reader();
     try reader.context.seekTo(offset + self.library_offset);
 
@@ -246,16 +245,13 @@ pub fn parseObject(self: Archive, allocator: *Allocator, arch: Arch, offset: u32
         break :name try std.fmt.allocPrint(allocator, "{s}({s})", .{ path, object_name });
     };
 
-    var object = try allocator.create(Object);
-    errdefer allocator.destroy(object);
-
-    object.* = .{
+    var object = Object{
         .file = try fs.cwd().openFile(self.name, .{}),
         .name = name,
         .file_offset = @intCast(u32, try reader.context.getPos()),
         .mtime = try self.header.?.date(),
     };
-    try object.parse(allocator, arch);
+
     try reader.context.seekTo(0);
 
     return object;

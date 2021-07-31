@@ -127,36 +127,6 @@ const DebugInfo = struct {
     }
 };
 
-pub fn createAndParseFromPath(allocator: *Allocator, arch: Arch, path: []const u8) !?*Object {
-    const file = fs.cwd().openFile(path, .{}) catch |err| switch (err) {
-        error.FileNotFound => return null,
-        else => |e| return e,
-    };
-    errdefer file.close();
-
-    const object = try allocator.create(Object);
-    errdefer allocator.destroy(object);
-
-    const name = try allocator.dupe(u8, path);
-    errdefer allocator.free(name);
-
-    object.* = .{
-        .name = name,
-        .file = file,
-    };
-
-    object.parse(allocator, arch) catch |err| switch (err) {
-        error.EndOfStream, error.NotObject => {
-            object.deinit(allocator);
-            allocator.destroy(object);
-            return null;
-        },
-        else => |e| return e,
-    };
-
-    return object;
-}
-
 pub fn deinit(self: *Object, allocator: *Allocator) void {
     for (self.load_commands.items) |*lc| {
         lc.deinit(allocator);
@@ -182,6 +152,22 @@ pub fn deinit(self: *Object, allocator: *Allocator) void {
     if (self.tu_comp_dir) |n| {
         allocator.free(n);
     }
+}
+
+pub fn isObject(file: fs.File) !bool {
+    const reader = file.reader();
+    const is_object = blk: {
+        if (reader.readStruct(macho.mach_header_64)) |header| {
+            break :blk header.filetype == macho.MH_OBJECT;
+        } else |err| {
+            switch (err) {
+                error.EndOfStream => break :blk false,
+                else => |e| return e,
+            }
+        }
+    };
+    try file.seekTo(0);
+    return is_object;
 }
 
 pub fn parse(self: *Object, allocator: *Allocator, arch: Arch) !void {
@@ -481,7 +467,12 @@ const TextBlockParser = struct {
     }
 };
 
-pub fn parseTextBlocks(self: *Object, allocator: *Allocator, macho_file: *MachO) !void {
+pub fn parseTextBlocks(
+    self: *Object,
+    allocator: *Allocator,
+    object_id: u16,
+    macho_file: *MachO,
+) !void {
     const seg = self.load_commands.items[self.segment_cmd_index.?].Segment;
 
     log.debug("analysing {s}", .{self.name});
@@ -668,13 +659,14 @@ pub fn parseTextBlocks(self: *Object, allocator: *Allocator, macho_file: *MachO)
                     if (is_ext) {
                         if (macho_file.symbol_resolver.get(sym.n_strx)) |resolv| {
                             assert(resolv.where == .global);
-                            const global_object = macho_file.objects.items[resolv.file];
-                            if (global_object != self) {
+                            if (resolv.file != object_id) {
                                 log.debug("deduping definition of {s} in {s}", .{
                                     macho_file.getString(sym.n_strx),
                                     self.name,
                                 });
-                                log.debug("  already defined in {s}", .{global_object.name});
+                                log.debug("  already defined in {s}", .{
+                                    macho_file.objects.items[resolv.file].name,
+                                });
                                 continue;
                             }
                         }

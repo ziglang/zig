@@ -61,7 +61,7 @@ header_pad: u16 = 0x1000,
 /// The absolute address of the entry point.
 entry_addr: ?u64 = null,
 
-objects: std.ArrayListUnmanaged(*Object) = .{},
+objects: std.ArrayListUnmanaged(Object) = .{},
 archives: std.ArrayListUnmanaged(*Archive) = .{},
 dylibs: std.ArrayListUnmanaged(*Dylib) = .{},
 
@@ -990,13 +990,19 @@ fn parseInputFiles(self: *MachO, files: []const []const u8, syslibroot: ?[]const
     const arch = self.base.options.target.cpu.arch;
     for (files) |file_name| {
         const full_path = full_path: {
-            var buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+            var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
             const path = try std.fs.realpath(file_name, &buffer);
             break :full_path try self.base.allocator.dupe(u8, path);
         };
+        const file = try fs.cwd().openFile(full_path, .{});
 
-        if (try Object.createAndParseFromPath(self.base.allocator, arch, full_path)) |object| {
-            try self.objects.append(self.base.allocator, object);
+        if (try Object.isObject(file)) {
+            const object = try self.objects.addOne(self.base.allocator);
+            object.* = .{
+                .name = full_path,
+                .file = file,
+            };
+            try object.parse(self.base.allocator, arch);
             continue;
         }
 
@@ -1993,7 +1999,7 @@ fn writeStubHelperCommon(self: *MachO) !void {
 }
 
 fn resolveSymbolsInObject(self: *MachO, object_id: u16) !void {
-    const object = self.objects.items[object_id];
+    const object = &self.objects.items[object_id];
 
     log.debug("resolving symbols in '{s}'", .{object.name});
 
@@ -2228,13 +2234,10 @@ fn resolveSymbols(self: *MachO) !void {
             };
             assert(offsets.items.len > 0);
 
-            const object = try archive.parseObject(
-                self.base.allocator,
-                self.base.options.target.cpu.arch,
-                offsets.items[0],
-            );
             const object_id = @intCast(u16, self.objects.items.len);
-            try self.objects.append(self.base.allocator, object);
+            const object = try self.objects.addOne(self.base.allocator);
+            object.* = try archive.extractObject(self.base.allocator, offsets.items[0]);
+            try object.parse(self.base.allocator, self.base.options.target.cpu.arch);
             try self.resolveSymbolsInObject(object_id);
 
             continue :loop;
@@ -2460,8 +2463,8 @@ fn resolveSymbols(self: *MachO) !void {
 }
 
 fn parseTextBlocks(self: *MachO) !void {
-    for (self.objects.items) |object| {
-        try object.parseTextBlocks(self.base.allocator, self);
+    for (self.objects.items) |*object, object_id| {
+        try object.parseTextBlocks(self.base.allocator, @intCast(u16, object_id), self);
     }
 }
 
@@ -3337,9 +3340,8 @@ pub fn deinit(self: *MachO) void {
     self.locals_free_list.deinit(self.base.allocator);
     self.symbol_resolver.deinit(self.base.allocator);
 
-    for (self.objects.items) |object| {
+    for (self.objects.items) |*object| {
         object.deinit(self.base.allocator);
-        self.base.allocator.destroy(object);
     }
     self.objects.deinit(self.base.allocator);
 
