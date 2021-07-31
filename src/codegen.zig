@@ -4916,7 +4916,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             }
 
                             result.stack_byte_count = nsaa;
-                            result.stack_align = 4;
+                            result.stack_align = 8;
                         },
                         else => return self.fail("TODO implement function parameters for {} on arm", .{cc}),
                     }
