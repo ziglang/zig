@@ -3350,7 +3350,7 @@ pub fn deinit(self: *MachO) void {
     self.archives.deinit(self.base.allocator);
 
     for (self.dylibs.items) |dylib| {
-        dylib.deinit();
+        dylib.deinit(self.base.allocator);
         self.base.allocator.destroy(dylib);
     }
     self.dylibs.deinit(self.base.allocator);
@@ -3380,6 +3380,9 @@ pub fn closeFiles(self: MachO) void {
     }
     for (self.archives.items) |archive| {
         archive.file.close();
+    }
+    for (self.dylibs.items) |dylib| {
+        dylib.file.close();
     }
 }
 
