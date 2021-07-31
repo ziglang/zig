@@ -155,16 +155,17 @@ pub fn deinit(self: *Object, allocator: *Allocator) void {
 }
 
 pub fn isObject(file: fs.File) !bool {
-    const reader = file.reader();
-    const is_object = blk: {
-        if (reader.readStruct(macho.mach_header_64)) |header| {
-            break :blk header.filetype == macho.MH_OBJECT;
-        } else |err| {
-            switch (err) {
-                error.EndOfStream => break :blk false,
-                else => |e| return e,
-            }
+    const Internal = struct {
+        fn isObject(reader: anytype) !bool {
+            const header = try reader.readStruct(macho.mach_header_64);
+            return header.filetype == macho.MH_OBJECT;
         }
+    };
+    const is_object = if (Internal.isObject(file.reader())) |res|
+        res
+    else |err| switch (err) {
+        error.EndOfStream => false,
+        else => |e| return e,
     };
     try file.seekTo(0);
     return is_object;
@@ -175,14 +176,7 @@ pub fn parse(self: *Object, allocator: *Allocator, arch: Arch) !void {
     if (self.file_offset) |offset| {
         try reader.context.seekTo(offset);
     }
-
     const header = try reader.readStruct(macho.mach_header_64);
-
-    if (header.filetype != macho.MH_OBJECT) {
-        log.debug("invalid filetype: expected 0x{x}, found 0x{x}", .{ macho.MH_OBJECT, header.filetype });
-        return error.NotObject;
-    }
-
     const this_arch: Arch = switch (header.cputype) {
         macho.CPU_TYPE_ARM64 => .aarch64,
         macho.CPU_TYPE_X86_64 => .x86_64,
@@ -195,7 +189,6 @@ pub fn parse(self: *Object, allocator: *Allocator, arch: Arch) !void {
         log.err("mismatched cpu architecture: expected {s}, found {s}", .{ arch, this_arch });
         return error.MismatchedCpuArchitecture;
     }
-
     self.header = header;
 
     try self.readLoadCommands(allocator, reader);

@@ -62,7 +62,7 @@ header_pad: u16 = 0x1000,
 entry_addr: ?u64 = null,
 
 objects: std.ArrayListUnmanaged(Object) = .{},
-archives: std.ArrayListUnmanaged(*Archive) = .{},
+archives: std.ArrayListUnmanaged(Archive) = .{},
 dylibs: std.ArrayListUnmanaged(*Dylib) = .{},
 
 next_dylib_ordinal: u16 = 1,
@@ -1006,8 +1006,13 @@ fn parseInputFiles(self: *MachO, files: []const []const u8, syslibroot: ?[]const
             continue;
         }
 
-        if (try Archive.createAndParseFromPath(self.base.allocator, arch, full_path)) |archive| {
-            try self.archives.append(self.base.allocator, archive);
+        if (try Archive.isArchive(file, arch)) {
+            const archive = try self.archives.addOne(self.base.allocator);
+            archive.* = .{
+                .name = full_path,
+                .file = file,
+            };
+            try archive.parse(self.base.allocator, arch);
             continue;
         }
 
@@ -1019,6 +1024,8 @@ fn parseInputFiles(self: *MachO, files: []const []const u8, syslibroot: ?[]const
             continue;
         }
 
+        self.base.allocator.free(full_path);
+        file.close();
         log.warn("unknown filetype for positional input file: '{s}'", .{file_name});
     }
 }
@@ -1026,6 +1033,8 @@ fn parseInputFiles(self: *MachO, files: []const []const u8, syslibroot: ?[]const
 fn parseLibs(self: *MachO, libs: []const []const u8, syslibroot: ?[]const u8) !void {
     const arch = self.base.options.target.cpu.arch;
     for (libs) |lib| {
+        const file = try fs.cwd().openFile(lib, .{});
+
         if (try Dylib.createAndParseFromPath(self.base.allocator, arch, lib, .{
             .syslibroot = syslibroot,
         })) |dylibs| {
@@ -1034,11 +1043,17 @@ fn parseLibs(self: *MachO, libs: []const []const u8, syslibroot: ?[]const u8) !v
             continue;
         }
 
-        if (try Archive.createAndParseFromPath(self.base.allocator, arch, lib)) |archive| {
-            try self.archives.append(self.base.allocator, archive);
+        if (try Archive.isArchive(file, arch)) {
+            const archive = try self.archives.addOne(self.base.allocator);
+            archive.* = .{
+                .name = try self.base.allocator.dupe(u8, lib),
+                .file = file,
+            };
+            try archive.parse(self.base.allocator, arch);
             continue;
         }
 
+        file.close();
         log.warn("unknown filetype for a library: '{s}'", .{lib});
     }
 }
@@ -3345,9 +3360,8 @@ pub fn deinit(self: *MachO) void {
     }
     self.objects.deinit(self.base.allocator);
 
-    for (self.archives.items) |archive| {
+    for (self.archives.items) |*archive| {
         archive.deinit(self.base.allocator);
-        self.base.allocator.destroy(archive);
     }
     self.archives.deinit(self.base.allocator);
 

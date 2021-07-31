@@ -93,36 +93,6 @@ const ar_hdr = extern struct {
     }
 };
 
-pub fn createAndParseFromPath(allocator: *Allocator, arch: Arch, path: []const u8) !?*Archive {
-    const file = fs.cwd().openFile(path, .{}) catch |err| switch (err) {
-        error.FileNotFound => return null,
-        else => |e| return e,
-    };
-    errdefer file.close();
-
-    const archive = try allocator.create(Archive);
-    errdefer allocator.destroy(archive);
-
-    const name = try allocator.dupe(u8, path);
-    errdefer allocator.free(name);
-
-    archive.* = .{
-        .name = name,
-        .file = file,
-    };
-
-    archive.parse(allocator, arch) catch |err| switch (err) {
-        error.EndOfStream, error.NotArchive => {
-            archive.deinit(allocator);
-            allocator.destroy(archive);
-            return null;
-        },
-        else => |e| return e,
-    };
-
-    return archive;
-}
-
 pub fn deinit(self: *Archive, allocator: *Allocator) void {
     for (self.toc.keys()) |*key| {
         allocator.free(key.*);
@@ -134,32 +104,40 @@ pub fn deinit(self: *Archive, allocator: *Allocator) void {
     allocator.free(self.name);
 }
 
+pub fn isArchive(file: fs.File, arch: Arch) !bool {
+    const Internal = struct {
+        fn isArchive(reader: anytype, a: Arch) !bool {
+            const offset = try fat.getLibraryOffset(reader, a);
+            try reader.context.seekTo(offset);
+            const magic = try reader.readBytesNoEof(SARMAG);
+            if (!mem.eql(u8, &magic, ARMAG)) return false;
+            const header = try reader.readStruct(ar_hdr);
+            return mem.eql(u8, &header.ar_fmag, ARFMAG);
+        }
+    };
+    const is_archive = if (Internal.isArchive(file.reader(), arch)) |res|
+        res
+    else |err| switch (err) {
+        error.EndOfStream => false,
+        error.MismatchedCpuArchitecture => true, // TODO maybe this check should be done differently?
+        else => |e| return e,
+    };
+    try file.seekTo(0);
+    return is_archive;
+}
+
 pub fn parse(self: *Archive, allocator: *Allocator, arch: Arch) !void {
     self.library_offset = try fat.getLibraryOffset(self.file.reader(), arch);
-
     try self.file.seekTo(self.library_offset);
-
-    var reader = self.file.reader();
+    const reader = self.file.reader();
     const magic = try reader.readBytesNoEof(SARMAG);
-
-    if (!mem.eql(u8, &magic, ARMAG)) {
-        log.debug("invalid magic: expected '{s}', found '{s}'", .{ ARMAG, magic });
-        return error.NotArchive;
-    }
-
     self.header = try reader.readStruct(ar_hdr);
-
-    if (!mem.eql(u8, &self.header.?.ar_fmag, ARFMAG)) {
-        log.debug("invalid header delimiter: expected '{s}', found '{s}'", .{ ARFMAG, self.header.?.ar_fmag });
-        return error.NotArchive;
-    }
-
     var embedded_name = try parseName(allocator, self.header.?, reader);
-    log.debug("parsing archive '{s}' at '{s}'", .{ embedded_name, self.name });
     defer allocator.free(embedded_name);
 
-    try self.parseTableOfContents(allocator, reader);
+    log.debug("parsing archive '{s}' at '{s}'", .{ embedded_name, self.name });
 
+    try self.parseTableOfContents(allocator, reader);
     try reader.context.seekTo(0);
 }
 
