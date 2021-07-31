@@ -3126,8 +3126,8 @@ fn writeLazyBindInfoTableZld(self: *MachO) !void {
 }
 
 fn writeExportInfoZld(self: *MachO) !void {
-    var trie = Trie.init(self.base.allocator);
-    defer trie.deinit();
+    var trie: Trie = .{};
+    defer trie.deinit(self.base.allocator);
 
     const text_segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
     const base_address = text_segment.inner.vmaddr;
@@ -3139,14 +3139,14 @@ fn writeExportInfoZld(self: *MachO) !void {
         const sym_name = self.getString(sym.n_strx);
         log.debug("  | putting '{s}' defined at 0x{x}", .{ sym_name, sym.n_value });
 
-        try trie.put(.{
+        try trie.put(self.base.allocator, .{
             .name = sym_name,
             .vmaddr_offset = sym.n_value - base_address,
             .export_flags = macho.EXPORT_SYMBOL_FLAGS_KIND_REGULAR,
         });
     }
 
-    try trie.finalize();
+    try trie.finalize(self.base.allocator);
 
     var buffer = try self.base.allocator.alloc(u8, @intCast(usize, trie.size));
     defer self.base.allocator.free(buffer);
@@ -5269,8 +5269,8 @@ fn writeExportInfo(self: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    var trie = Trie.init(self.base.allocator);
-    defer trie.deinit();
+    var trie: Trie = .{};
+    defer trie.deinit(self.base.allocator);
 
     const text_segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
     const base_address = text_segment.inner.vmaddr;
@@ -5282,14 +5282,14 @@ fn writeExportInfo(self: *MachO) !void {
         const sym_name = self.getString(sym.n_strx);
         log.debug("  | putting '{s}' defined at 0x{x}", .{ sym_name, sym.n_value });
 
-        try trie.put(.{
+        try trie.put(self.base.allocator, .{
             .name = sym_name,
             .vmaddr_offset = sym.n_value - base_address,
             .export_flags = macho.EXPORT_SYMBOL_FLAGS_KIND_REGULAR,
         });
     }
+    try trie.finalize(self.base.allocator);
 
-    try trie.finalize();
     var buffer = try self.base.allocator.alloc(u8, @intCast(usize, trie.size));
     defer self.base.allocator.free(buffer);
     var stream = std.io.fixedBufferStream(buffer);

@@ -273,8 +273,6 @@ pub const Node = struct {
 /// The root node of the trie.
 root: ?*Node = null,
 
-allocator: *Allocator,
-
 /// If you want to access nodes ordered in DFS fashion,
 /// you should call `finalize` first since the nodes
 /// in this container are not guaranteed to not be stale
@@ -294,10 +292,6 @@ node_count: usize = 0,
 
 trie_dirty: bool = true,
 
-pub fn init(allocator: *Allocator) Trie {
-    return .{ .allocator = allocator };
-}
-
 /// Export symbol that is to be placed in the trie.
 pub const ExportSymbol = struct {
     /// Name of the symbol.
@@ -314,9 +308,9 @@ pub const ExportSymbol = struct {
 /// Insert a symbol into the trie, updating the prefixes in the process.
 /// This operation may change the layout of the trie by splicing edges in
 /// certain circumstances.
-pub fn put(self: *Trie, symbol: ExportSymbol) !void {
-    try self.createRoot();
-    const node = try self.root.?.put(self.allocator, symbol.name);
+pub fn put(self: *Trie, allocator: *Allocator, symbol: ExportSymbol) !void {
+    try self.createRoot(allocator);
+    const node = try self.root.?.put(allocator, symbol.name);
     node.terminal_info = .{
         .vmaddr_offset = symbol.vmaddr_offset,
         .export_flags = symbol.export_flags,
@@ -328,13 +322,13 @@ pub fn put(self: *Trie, symbol: ExportSymbol) !void {
 /// This step performs multiple passes through the trie ensuring
 /// there are no gaps after every `Node` is ULEB128 encoded.
 /// Call this method before trying to `write` the trie to a byte stream.
-pub fn finalize(self: *Trie) !void {
+pub fn finalize(self: *Trie, allocator: *Allocator) !void {
     if (!self.trie_dirty) return;
 
     self.ordered_nodes.shrinkRetainingCapacity(0);
-    try self.ordered_nodes.ensureCapacity(self.allocator, self.node_count);
+    try self.ordered_nodes.ensureCapacity(allocator, self.node_count);
 
-    var fifo = std.fifo.LinearFifo(*Node, .Dynamic).init(self.allocator);
+    var fifo = std.fifo.LinearFifo(*Node, .Dynamic).init(allocator);
     defer fifo.deinit();
 
     try fifo.writeItem(self.root.?);
@@ -383,17 +377,17 @@ pub fn write(self: Trie, writer: anytype) !u64 {
     return counting_writer.bytes_written;
 }
 
-pub fn deinit(self: *Trie) void {
+pub fn deinit(self: *Trie, allocator: *Allocator) void {
     if (self.root) |root| {
-        root.deinit(self.allocator);
-        self.allocator.destroy(root);
+        root.deinit(allocator);
+        allocator.destroy(root);
     }
-    self.ordered_nodes.deinit(self.allocator);
+    self.ordered_nodes.deinit(allocator);
 }
 
-fn createRoot(self: *Trie) !void {
+fn createRoot(self: *Trie, allocator: *Allocator) !void {
     if (self.root == null) {
-        const root = try self.allocator.create(Node);
+        const root = try allocator.create(Node);
         root.* = .{ .base = self };
         self.root = root;
         self.node_count += 1;
