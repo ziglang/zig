@@ -63,7 +63,7 @@ entry_addr: ?u64 = null,
 
 objects: std.ArrayListUnmanaged(Object) = .{},
 archives: std.ArrayListUnmanaged(Archive) = .{},
-dylibs: std.ArrayListUnmanaged(*Dylib) = .{},
+dylibs: std.ArrayListUnmanaged(Dylib) = .{},
 
 next_dylib_ordinal: u16 = 1,
 
@@ -994,25 +994,15 @@ fn parseInputFiles(self: *MachO, files: []const []const u8, syslibroot: ?[]const
             const path = try std.fs.realpath(file_name, &buffer);
             break :full_path try self.base.allocator.dupe(u8, path);
         };
-        const file = try fs.cwd().openFile(full_path, .{});
+        defer self.base.allocator.free(full_path);
 
-        if (try Object.isObject(file)) {
-            const object = try self.objects.addOne(self.base.allocator);
-            object.* = .{
-                .name = full_path,
-                .file = file,
-            };
-            try object.parse(self.base.allocator, arch);
+        if (try Object.createAndParseFromPath(self.base.allocator, arch, full_path)) |object| {
+            try self.objects.append(self.base.allocator, object);
             continue;
         }
 
-        if (try Archive.isArchive(file, arch)) {
-            const archive = try self.archives.addOne(self.base.allocator);
-            archive.* = .{
-                .name = full_path,
-                .file = file,
-            };
-            try archive.parse(self.base.allocator, arch);
+        if (try Archive.createAndParseFromPath(self.base.allocator, arch, full_path)) |archive| {
+            try self.archives.append(self.base.allocator, archive);
             continue;
         }
 
@@ -1024,8 +1014,6 @@ fn parseInputFiles(self: *MachO, files: []const []const u8, syslibroot: ?[]const
             continue;
         }
 
-        self.base.allocator.free(full_path);
-        file.close();
         log.warn("unknown filetype for positional input file: '{s}'", .{file_name});
     }
 }
@@ -1033,8 +1021,6 @@ fn parseInputFiles(self: *MachO, files: []const []const u8, syslibroot: ?[]const
 fn parseLibs(self: *MachO, libs: []const []const u8, syslibroot: ?[]const u8) !void {
     const arch = self.base.options.target.cpu.arch;
     for (libs) |lib| {
-        const file = try fs.cwd().openFile(lib, .{});
-
         if (try Dylib.createAndParseFromPath(self.base.allocator, arch, lib, .{
             .syslibroot = syslibroot,
         })) |dylibs| {
@@ -1043,17 +1029,11 @@ fn parseLibs(self: *MachO, libs: []const []const u8, syslibroot: ?[]const u8) !v
             continue;
         }
 
-        if (try Archive.isArchive(file, arch)) {
-            const archive = try self.archives.addOne(self.base.allocator);
-            archive.* = .{
-                .name = try self.base.allocator.dupe(u8, lib),
-                .file = file,
-            };
-            try archive.parse(self.base.allocator, arch);
+        if (try Archive.createAndParseFromPath(self.base.allocator, arch, lib)) |archive| {
+            try self.archives.append(self.base.allocator, archive);
             continue;
         }
 
-        file.close();
         log.warn("unknown filetype for a library: '{s}'", .{lib});
     }
 }
@@ -2351,17 +2331,17 @@ fn resolveSymbols(self: *MachO) !void {
         });
     }
 
-    var referenced = std.AutoHashMap(*Dylib, void).init(self.base.allocator);
+    var referenced = std.AutoHashMap(u16, void).init(self.base.allocator);
     defer referenced.deinit();
 
     loop: for (self.undefs.items) |sym| {
         if (symbolIsNull(sym)) continue;
 
         const sym_name = self.getString(sym.n_strx);
-        for (self.dylibs.items) |dylib| {
+        for (self.dylibs.items) |*dylib, id| {
             if (!dylib.symbols.contains(sym_name)) continue;
 
-            if (!referenced.contains(dylib)) {
+            if (!referenced.contains(@intCast(u16, id))) {
                 // Add LC_LOAD_DYLIB load command for each referenced dylib/stub.
                 dylib.ordinal = self.next_dylib_ordinal;
                 const dylib_id = dylib.id orelse unreachable;
@@ -2375,7 +2355,7 @@ fn resolveSymbols(self: *MachO) !void {
                 errdefer dylib_cmd.deinit(self.base.allocator);
                 try self.load_commands.append(self.base.allocator, .{ .Dylib = dylib_cmd });
                 self.next_dylib_ordinal += 1;
-                try referenced.putNoClobber(dylib, {});
+                try referenced.putNoClobber(@intCast(u16, id), {});
             }
 
             const resolv = self.symbol_resolver.getPtr(sym.n_strx) orelse unreachable;
@@ -3365,9 +3345,8 @@ pub fn deinit(self: *MachO) void {
     }
     self.archives.deinit(self.base.allocator);
 
-    for (self.dylibs.items) |dylib| {
+    for (self.dylibs.items) |*dylib| {
         dylib.deinit(self.base.allocator);
-        self.base.allocator.destroy(dylib);
     }
     self.dylibs.deinit(self.base.allocator);
 

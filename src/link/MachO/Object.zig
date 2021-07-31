@@ -154,29 +154,47 @@ pub fn deinit(self: *Object, allocator: *Allocator) void {
     }
 }
 
-pub fn isObject(file: fs.File) !bool {
-    const Internal = struct {
-        fn isObject(reader: anytype) !bool {
-            const header = try reader.readStruct(macho.mach_header_64);
-            return header.filetype == macho.MH_OBJECT;
-        }
-    };
-    const is_object = if (Internal.isObject(file.reader())) |res|
-        res
-    else |err| switch (err) {
-        error.EndOfStream => false,
+pub fn createAndParseFromPath(allocator: *Allocator, arch: Arch, path: []const u8) !?Object {
+    const file = fs.cwd().openFile(path, .{}) catch |err| switch (err) {
+        error.FileNotFound => return null,
         else => |e| return e,
     };
-    try file.seekTo(0);
-    return is_object;
+    errdefer file.close();
+
+    const name = try allocator.dupe(u8, path);
+    errdefer allocator.free(name);
+
+    var object = Object{
+        .name = name,
+        .file = file,
+    };
+
+    object.parse(allocator, arch) catch |err| switch (err) {
+        error.EndOfStream, error.NotObject => {
+            object.deinit(allocator);
+            return null;
+        },
+        else => |e| return e,
+    };
+
+    return object;
 }
 
 pub fn parse(self: *Object, allocator: *Allocator, arch: Arch) !void {
-    var reader = self.file.reader();
+    const reader = self.file.reader();
     if (self.file_offset) |offset| {
         try reader.context.seekTo(offset);
     }
+
     const header = try reader.readStruct(macho.mach_header_64);
+    if (header.filetype != macho.MH_OBJECT) {
+        log.debug("invalid filetype: expected 0x{x}, found 0x{x}", .{
+            macho.MH_OBJECT,
+            header.filetype,
+        });
+        return error.NotObject;
+    }
+
     const this_arch: Arch = switch (header.cputype) {
         macho.CPU_TYPE_ARM64 => .aarch64,
         macho.CPU_TYPE_X86_64 => .x86_64,
@@ -189,6 +207,7 @@ pub fn parse(self: *Object, allocator: *Allocator, arch: Arch) !void {
         log.err("mismatched cpu architecture: expected {s}, found {s}", .{ arch, this_arch });
         return error.MismatchedCpuArchitecture;
     }
+
     self.header = header;
 
     try self.readLoadCommands(allocator, reader);

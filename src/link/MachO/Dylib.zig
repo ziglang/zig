@@ -148,20 +148,17 @@ pub fn createAndParseFromPath(
     arch: Arch,
     path: []const u8,
     opts: CreateOpts,
-) Error!?[]*Dylib {
+) Error!?[]Dylib {
     const file = fs.cwd().openFile(path, .{}) catch |err| switch (err) {
         error.FileNotFound => return null,
         else => |e| return e,
     };
     errdefer file.close();
 
-    const dylib = try allocator.create(Dylib);
-    errdefer allocator.destroy(dylib);
-
     const name = try allocator.dupe(u8, path);
     errdefer allocator.free(name);
 
-    dylib.* = .{
+    var dylib = Dylib{
         .name = name,
         .file = file,
     };
@@ -172,7 +169,6 @@ pub fn createAndParseFromPath(
 
             var lib_stub = LibStub.loadFromFile(allocator, file) catch {
                 dylib.deinit(allocator);
-                allocator.destroy(dylib);
                 return null;
             };
             defer lib_stub.deinit();
@@ -191,12 +187,11 @@ pub fn createAndParseFromPath(
 
             // TODO maybe this should be an error and facilitate auto-cleanup?
             dylib.deinit(allocator);
-            allocator.destroy(dylib);
             return null;
         }
     }
 
-    var dylibs = std.ArrayList(*Dylib).init(allocator);
+    var dylibs = std.ArrayList(Dylib).init(allocator);
     defer dylibs.deinit();
 
     try dylibs.append(dylib);
@@ -449,7 +444,7 @@ pub fn parseDependentLibs(
     self: *Dylib,
     allocator: *Allocator,
     arch: Arch,
-    out: *std.ArrayList(*Dylib),
+    out: *std.ArrayList(Dylib),
     syslibroot: ?[]const u8,
 ) !void {
     outer: for (self.dependent_libs.items) |id| {
@@ -489,6 +484,7 @@ pub fn parseDependentLibs(
             )) orelse {
                 continue;
             };
+            defer allocator.free(dylibs);
 
             try out.appendSlice(dylibs);
 
