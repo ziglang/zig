@@ -2889,10 +2889,9 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     const src_mcv = try self.limitImmediateType(bin_op.rhs, i32);
 
                     try self.genX8664BinMathCode(Type.initTag(.bool), dst_mcv, src_mcv, 7, 0x38);
-                    const info = ty.intInfo(self.target.*);
-                    break :result switch (info.signedness) {
-                        .signed => MCValue{ .compare_flags_signed = op },
-                        .unsigned => MCValue{ .compare_flags_unsigned = op },
+                    break :result switch (ty.isSignedInt()) {
+                        true => MCValue{ .compare_flags_signed = op },
+                        false => MCValue{ .compare_flags_unsigned = op },
                     };
                 },
                 .arm, .armeb => result: {
@@ -2934,10 +2933,9 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     // The destination register is not present in the cmp instruction
                     try self.genArmBinOpCode(undefined, lhs_mcv, rhs_mcv, false, .cmp_eq);
 
-                    const info = ty.intInfo(self.target.*);
-                    break :result switch (info.signedness) {
-                        .signed => MCValue{ .compare_flags_signed = op },
-                        .unsigned => MCValue{ .compare_flags_unsigned = op },
+                    break :result switch (ty.isSignedInt()) {
+                        true => MCValue{ .compare_flags_signed = op },
+                        false => MCValue{ .compare_flags_unsigned = op },
                     };
                 },
                 else => return self.fail("TODO implement cmp for {}", .{self.target.cpu.arch}),
