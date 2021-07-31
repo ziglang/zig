@@ -3886,6 +3886,8 @@ const usage_ast_check =
     \\  -h, --help            Print this help and exit
     \\  --color [auto|off|on] Enable or disable colored error messages
     \\  -t                    (debug option) Output ZIR in text form to stdout
+    \\
+    \\
 ;
 
 pub fn cmdAstCheck(
