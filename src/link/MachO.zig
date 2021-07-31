@@ -5239,14 +5239,17 @@ fn writeCodeSignature(self: *MachO) !void {
     const text_segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
     const code_sig_cmd = self.load_commands.items[self.code_signature_cmd_index.?].LinkeditData;
 
-    var code_sig = CodeSignature.init(self.base.allocator, self.page_size);
-    defer code_sig.deinit();
+    var code_sig: CodeSignature = .{};
+    defer code_sig.deinit(self.base.allocator);
+
     try code_sig.calcAdhocSignature(
+        self.base.allocator,
         self.base.file.?,
         self.base.options.emit.?.sub_path,
         text_segment.inner,
         code_sig_cmd,
         self.base.options.output_mode,
+        self.page_size,
     );
 
     var buffer = try self.base.allocator.alloc(u8, code_sig.size());
