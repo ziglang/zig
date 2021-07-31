@@ -361,9 +361,9 @@ const ReadError = error{
 };
 
 /// Parse the trie from a byte stream.
-pub fn read(self: *Trie, reader: anytype) ReadError!usize {
-    try self.createRoot();
-    return self.root.?.read(self.allocator, reader);
+pub fn read(self: *Trie, allocator: *Allocator, reader: anytype) ReadError!usize {
+    try self.createRoot(allocator);
+    return self.root.?.read(allocator, reader);
 }
 
 /// Write the trie to a byte stream.
@@ -396,13 +396,13 @@ fn createRoot(self: *Trie, allocator: *Allocator) !void {
 
 test "Trie node count" {
     var gpa = testing.allocator;
-    var trie = Trie.init(gpa);
-    defer trie.deinit();
+    var trie: Trie = .{};
+    defer trie.deinit(gpa);
 
     try testing.expectEqual(trie.node_count, 0);
     try testing.expect(trie.root == null);
 
-    try trie.put(.{
+    try trie.put(gpa, .{
         .name = "_main",
         .vmaddr_offset = 0,
         .export_flags = 0,
@@ -410,14 +410,14 @@ test "Trie node count" {
     try testing.expectEqual(trie.node_count, 2);
 
     // Inserting the same node shouldn't update the trie.
-    try trie.put(.{
+    try trie.put(gpa, .{
         .name = "_main",
         .vmaddr_offset = 0,
         .export_flags = 0,
     });
     try testing.expectEqual(trie.node_count, 2);
 
-    try trie.put(.{
+    try trie.put(gpa, .{
         .name = "__mh_execute_header",
         .vmaddr_offset = 0x1000,
         .export_flags = 0,
@@ -425,13 +425,13 @@ test "Trie node count" {
     try testing.expectEqual(trie.node_count, 4);
 
     // Inserting the same node shouldn't update the trie.
-    try trie.put(.{
+    try trie.put(gpa, .{
         .name = "__mh_execute_header",
         .vmaddr_offset = 0x1000,
         .export_flags = 0,
     });
     try testing.expectEqual(trie.node_count, 4);
-    try trie.put(.{
+    try trie.put(gpa, .{
         .name = "_main",
         .vmaddr_offset = 0,
         .export_flags = 0,
@@ -441,11 +441,11 @@ test "Trie node count" {
 
 test "Trie basic" {
     var gpa = testing.allocator;
-    var trie = Trie.init(gpa);
-    defer trie.deinit();
+    var trie: Trie = .{};
+    defer trie.deinit(gpa);
 
     // root --- _st ---> node
-    try trie.put(.{
+    try trie.put(gpa, .{
         .name = "_st",
         .vmaddr_offset = 0,
         .export_flags = 0,
@@ -455,7 +455,7 @@ test "Trie basic" {
 
     {
         // root --- _st ---> node --- art ---> node
-        try trie.put(.{
+        try trie.put(gpa, .{
             .name = "_start",
             .vmaddr_offset = 0,
             .export_flags = 0,
@@ -471,7 +471,7 @@ test "Trie basic" {
         // root --- _ ---> node --- st ---> node --- art ---> node
         //                  |
         //                  |   --- main ---> node
-        try trie.put(.{
+        try trie.put(gpa, .{
             .name = "_main",
             .vmaddr_offset = 0,
             .export_flags = 0,
@@ -491,22 +491,22 @@ test "Trie basic" {
 
 test "write Trie to a byte stream" {
     var gpa = testing.allocator;
-    var trie = Trie.init(gpa);
-    defer trie.deinit();
+    var trie: Trie = .{};
+    defer trie.deinit(gpa);
 
-    try trie.put(.{
+    try trie.put(gpa, .{
         .name = "__mh_execute_header",
         .vmaddr_offset = 0,
         .export_flags = 0,
     });
-    try trie.put(.{
+    try trie.put(gpa, .{
         .name = "_main",
         .vmaddr_offset = 0x1000,
         .export_flags = 0,
     });
 
-    try trie.finalize();
-    try trie.finalize(); // Finalizing mulitple times is a nop subsequently unless we add new nodes.
+    try trie.finalize(gpa);
+    try trie.finalize(gpa); // Finalizing mulitple times is a nop subsequently unless we add new nodes.
 
     const exp_buffer = [_]u8{
         0x0, 0x1, // node root
@@ -551,13 +551,13 @@ test "parse Trie from byte stream" {
     };
 
     var in_stream = std.io.fixedBufferStream(&in_buffer);
-    var trie = Trie.init(gpa);
-    defer trie.deinit();
-    const nread = try trie.read(in_stream.reader());
+    var trie: Trie = .{};
+    defer trie.deinit(gpa);
+    const nread = try trie.read(gpa, in_stream.reader());
 
     try testing.expect(nread == in_buffer.len);
 
-    try trie.finalize();
+    try trie.finalize(gpa);
 
     var out_buffer = try gpa.alloc(u8, trie.size);
     defer gpa.free(out_buffer);

@@ -163,8 +163,8 @@ fn writeBlobIndex(tt: u32, offset: u32, writer: anytype) !void {
 }
 
 test "CodeSignature header" {
-    var code_sig = CodeSignature.init(testing.allocator, 0x1000);
-    defer code_sig.deinit();
+    var code_sig: CodeSignature = .{};
+    defer code_sig.deinit(testing.allocator);
 
     var buffer: [@sizeOf(macho.SuperBlob)]u8 = undefined;
     var stream = std.io.fixedBufferStream(&buffer);
