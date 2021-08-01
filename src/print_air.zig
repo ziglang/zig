@@ -151,6 +151,7 @@ const Writer = struct {
             .load,
             .floatcast,
             .intcast,
+            .trunc,
             .optional_payload,
             .optional_payload_ptr,
             .wrap_optional,

@@ -3479,27 +3479,8 @@ fn zirIntCast(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileErr
     const dest_type = try sema.resolveType(block, dest_ty_src, extra.lhs);
     const operand = sema.resolveInst(extra.rhs);
 
-    const dest_is_comptime_int = switch (dest_type.zigTypeTag()) {
-        .ComptimeInt => true,
-        .Int => false,
-        else => return sema.mod.fail(
-            &block.base,
-            dest_ty_src,
-            "expected integer type, found '{}'",
-            .{dest_type},
-        ),
-    };
-
-    const operand_ty = sema.typeOf(operand);
-    switch (operand_ty.zigTypeTag()) {
-        .ComptimeInt, .Int => {},
-        else => return sema.mod.fail(
-            &block.base,
-            operand_src,
-            "expected integer type, found '{}'",
-            .{operand_ty},
-        ),
-    }
+    const dest_is_comptime_int = try sema.requireIntegerType(block, dest_ty_src, dest_type);
+    _ = try sema.requireIntegerType(block, operand_src, sema.typeOf(operand));
 
     if (try sema.isComptimeKnown(block, operand_src, operand)) {
         return sema.coerce(block, dest_type, operand, operand_src);
@@ -4951,30 +4932,30 @@ fn analyzeArithmetic(
             const value = switch (zir_tag) {
                 .add => blk: {
                     const val = if (is_int)
-                        try Module.intAdd(sema.arena, lhs_val, rhs_val)
+                        try lhs_val.intAdd(rhs_val, sema.arena)
                     else
-                        try Module.floatAdd(sema.arena, scalar_type, src, lhs_val, rhs_val);
+                        try lhs_val.floatAdd(rhs_val, scalar_type, sema.arena);
                     break :blk val;
                 },
                 .sub => blk: {
                     const val = if (is_int)
-                        try Module.intSub(sema.arena, lhs_val, rhs_val)
+                        try lhs_val.intSub(rhs_val, sema.arena)
                     else
-                        try Module.floatSub(sema.arena, scalar_type, src, lhs_val, rhs_val);
+                        try lhs_val.floatSub(rhs_val, scalar_type, sema.arena);
                     break :blk val;
                 },
                 .div => blk: {
                     const val = if (is_int)
-                        try Module.intDiv(sema.arena, lhs_val, rhs_val)
+                        try lhs_val.intDiv(rhs_val, sema.arena)
                     else
-                        try Module.floatDiv(sema.arena, scalar_type, src, lhs_val, rhs_val);
+                        try lhs_val.floatDiv(rhs_val, scalar_type, sema.arena);
                     break :blk val;
                 },
                 .mul => blk: {
                     const val = if (is_int)
-                        try Module.intMul(sema.arena, lhs_val, rhs_val)
+                        try lhs_val.intMul(rhs_val, sema.arena)
                     else
-                        try Module.floatMul(sema.arena, scalar_type, src, lhs_val, rhs_val);
+                        try lhs_val.floatMul(rhs_val, scalar_type, sema.arena);
                     break :blk val;
                 },
                 else => return sema.mod.fail(&block.base, src, "TODO Implement arithmetic operand '{s}'", .{@tagName(zir_tag)}),
@@ -6173,7 +6154,62 @@ fn zirPtrCast(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileErr
 fn zirTruncate(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
-    return sema.mod.fail(&block.base, src, "TODO: Sema.zirTruncate", .{});
+    const dest_ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
+    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
+    const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
+    const dest_ty = try sema.resolveType(block, dest_ty_src, extra.lhs);
+    const operand = sema.resolveInst(extra.rhs);
+    const operand_ty = sema.typeOf(operand);
+    const mod = sema.mod;
+    const dest_is_comptime_int = try sema.requireIntegerType(block, dest_ty_src, dest_ty);
+    const src_is_comptime_int = try sema.requireIntegerType(block, operand_src, operand_ty);
+
+    if (dest_is_comptime_int) {
+        return sema.coerce(block, dest_ty, operand, operand_src);
+    }
+
+    const target = mod.getTarget();
+    const src_info = operand_ty.intInfo(target);
+    const dest_info = dest_ty.intInfo(target);
+
+    if (src_info.bits == 0 or dest_info.bits == 0) {
+        return sema.addConstant(dest_ty, Value.initTag(.zero));
+    }
+
+    if (!src_is_comptime_int) {
+        if (src_info.signedness != dest_info.signedness) {
+            return mod.fail(&block.base, operand_src, "expected {s} integer type, found '{}'", .{
+                @tagName(dest_info.signedness), operand_ty,
+            });
+        }
+        if (src_info.bits > 0 and src_info.bits < dest_info.bits) {
+            const msg = msg: {
+                const msg = try mod.errMsg(
+                    &block.base,
+                    src,
+                    "destination type '{}' has more bits than source type '{}'",
+                    .{ dest_ty, operand_ty },
+                );
+                errdefer msg.destroy(mod.gpa);
+                try mod.errNote(&block.base, dest_ty_src, msg, "destination type has {d} bits", .{
+                    dest_info.bits,
+                });
+                try mod.errNote(&block.base, operand_src, msg, "source type has {d} bits", .{
+                    src_info.bits,
+                });
+                break :msg msg;
+            };
+            return mod.failWithOwnedErrorMsg(&block.base, msg);
+        }
+    }
+
+    if (try sema.resolveMaybeUndefVal(block, operand_src, operand)) |val| {
+        if (val.isUndef()) return sema.addConstUndef(dest_ty);
+        return sema.addConstant(dest_ty, try val.intTrunc(sema.arena, dest_info.bits));
+    }
+
+    try sema.requireRuntimeBlock(block, src);
+    return block.addTyOp(.trunc, dest_ty, operand);
 }
 
 fn zirAlignCast(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -6592,6 +6628,14 @@ fn requireRuntimeBlock(sema: *Sema, block: *Scope.Block, src: LazySrcLoc) !void 
         return sema.failWithNeededComptime(block, src);
     }
     try sema.requireFunctionBlock(block, src);
+}
+
+fn requireIntegerType(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, ty: Type) !bool {
+    switch (ty.zigTypeTag()) {
+        .ComptimeInt => return true,
+        .Int => return false,
+        else => return sema.mod.fail(&block.base, src, "expected integer type, found '{}'", .{ty}),
+    }
 }
 
 fn validateVarType(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, ty: Type) !void {

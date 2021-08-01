@@ -423,6 +423,14 @@ pub const Builder = opaque {
         Idx: c_uint,
         Name: [*:0]const u8,
     ) *const Value;
+
+    pub const buildTrunc = LLVMBuildTrunc;
+    extern fn LLVMBuildTrunc(
+        *const Builder,
+        Val: *const Value,
+        DestTy: *const Type,
+        Name: [*:0]const u8,
+    ) *const Value;
 };
 
 pub const IntPredicate = enum(c_int) {

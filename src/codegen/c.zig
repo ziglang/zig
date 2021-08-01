@@ -900,6 +900,7 @@ fn genBody(o: *Object, body: []const Air.Inst.Index) error{ AnalysisFail, OutOfM
             .call             => try airCall(o, inst),
             .dbg_stmt         => try airDbgStmt(o, inst),
             .intcast          => try airIntCast(o, inst),
+            .trunc            => try airTrunc(o, inst),
             .bool_to_int      => try airBoolToInt(o, inst),
             .load             => try airLoad(o, inst),
             .ret              => try airRet(o, inst),
@@ -1038,7 +1039,7 @@ fn airIntCast(o: *Object, inst: Air.Inst.Index) !CValue {
         return CValue.none;
 
     const ty_op = o.air.instructions.items(.data)[inst].ty_op;
-    const from = try o.resolveInst(ty_op.operand);
+    const operand = try o.resolveInst(ty_op.operand);
 
     const writer = o.writer();
     const inst_ty = o.air.typeOfIndex(inst);
@@ -1046,9 +1047,19 @@ fn airIntCast(o: *Object, inst: Air.Inst.Index) !CValue {
     try writer.writeAll(" = (");
     try o.dg.renderType(writer, inst_ty);
     try writer.writeAll(")");
-    try o.writeCValue(writer, from);
+    try o.writeCValue(writer, operand);
     try writer.writeAll(";\n");
     return local;
+}
+
+fn airTrunc(o: *Object, inst: Air.Inst.Index) !CValue {
+    if (o.liveness.isUnused(inst))
+        return CValue.none;
+
+    const ty_op = o.air.instructions.items(.data)[inst].ty_op;
+    const operand = try o.resolveInst(ty_op.operand);
+    _ = operand;
+    return o.dg.fail("TODO: C backend: airTrunc", .{});
 }
 
 fn airBoolToInt(o: *Object, inst: Air.Inst.Index) !CValue {

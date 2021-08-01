@@ -960,6 +960,7 @@ pub const FuncGen = struct {
                 .call       => try self.airCall(inst),
                 .cond_br    => try self.airCondBr(inst),
                 .intcast    => try self.airIntCast(inst),
+                .trunc      => try self.airTrunc(inst),
                 .floatcast  => try self.airFloatCast(inst),
                 .ptrtoint   => try self.airPtrToInt(inst),
                 .load       => try self.airLoad(inst),
@@ -1613,6 +1614,16 @@ pub const FuncGen = struct {
         // TODO: Should we use intcast here or just a simple bitcast?
         //       LLVM does truncation vs bitcast (+signed extension) in the intcast depending on the sizes
         return self.builder.buildIntCast2(operand, try self.dg.llvmType(inst_ty), llvm.Bool.fromBool(signed), "");
+    }
+
+    fn airTrunc(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst))
+            return null;
+
+        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const operand = try self.resolveInst(ty_op.operand);
+        const dest_llvm_ty = try self.dg.llvmType(self.air.typeOfIndex(inst));
+        return self.builder.buildTrunc(operand, dest_llvm_ty, "");
     }
 
     fn airFloatCast(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {

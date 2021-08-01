@@ -206,10 +206,16 @@ pub const Inst = struct {
         /// Convert from one float type to another.
         /// Uses the `ty_op` field.
         floatcast,
-        /// TODO audit uses of this. We should have explicit instructions for integer
-        /// widening and truncating.
+        /// Returns an integer with a different type than the operand. The new type may have
+        /// fewer, the same, or more bits than the operand type. However, the instruction
+        /// guarantees that the same integer value fits in both types.
+        /// See `trunc` for integer truncation.
         /// Uses the `ty_op` field.
         intcast,
+        /// Truncate higher bits from an integer, resulting in an integer with the same
+        /// sign but an equal or smaller number of bits.
+        /// Uses the `ty_op` field.
+        trunc,
         /// ?T => T. If the value is null, undefined behavior.
         /// Uses the `ty_op` field.
         optional_payload,
@@ -452,6 +458,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .load,
         .floatcast,
         .intcast,
+        .trunc,
         .optional_payload,
         .optional_payload_ptr,
         .wrap_optional,

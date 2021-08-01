@@ -835,6 +835,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     .dbg_stmt        => try self.airDbgStmt(inst),
                     .floatcast       => try self.airFloatCast(inst),
                     .intcast         => try self.airIntCast(inst),
+                    .trunc           => try self.airTrunc(inst),
                     .bool_to_int     => try self.airBoolToInt(inst),
                     .is_non_null     => try self.airIsNonNull(inst),
                     .is_non_null_ptr => try self.airIsNonNullPtr(inst),
@@ -1105,6 +1106,19 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
             const result: MCValue = switch (arch) {
                 else => return self.fail("TODO implement intCast for {}", .{self.target.cpu.arch}),
+            };
+            return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+        }
+
+        fn airTrunc(self: *Self, inst: Air.Inst.Index) !void {
+            const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+            if (self.liveness.isUnused(inst))
+                return self.finishAir(inst, .dead, .{ ty_op.operand, .none, .none });
+
+            const operand = try self.resolveInst(ty_op.operand);
+            _ = operand;
+            const result: MCValue = switch (arch) {
+                else => return self.fail("TODO implement trunc for {}", .{self.target.cpu.arch}),
             };
             return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
         }

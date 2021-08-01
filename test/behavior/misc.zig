@@ -5,13 +5,6 @@ const expectEqualStrings = std.testing.expectEqualStrings;
 const mem = std.mem;
 const builtin = @import("builtin");
 
-test "truncate" {
-    try expect(testTruncate(0x10fd) == 0xfd);
-}
-fn testTruncate(x: u32) u8 {
-    return @truncate(u8, x);
-}
-
 fn first4KeysOfHomeRow() []const u8 {
     return "aoeu";
 }
