@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 test {
     // Tests that pass for both.
     _ = @import("behavior/bool.zig");
+    _ = @import("behavior/basic.zig");
 
     if (!builtin.zig_is_stage2) {
         // Tests that only pass for stage1.

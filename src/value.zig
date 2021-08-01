@@ -100,11 +100,13 @@ pub const Value = extern union {
         function,
         extern_fn,
         variable,
-        /// Represents a comptime variables storage.
-        comptime_alloc,
-        /// Represents a pointer to a decl, not the value of the decl.
+        /// Represents a pointer to a Decl.
         /// When machine codegen backend sees this, it must set the Decl's `alive` field to true.
         decl_ref,
+        /// Pointer to a Decl, but allows comptime code to mutate the Decl's Value.
+        /// This Tag will never be seen by machine codegen backends. It is changed into a
+        /// `decl_ref` when a comptime variable goes out of scope.
+        decl_ref_mut,
         elem_ptr,
         field_ptr,
         /// A slice of u8 whose memory is managed externally.
@@ -134,6 +136,9 @@ pub const Value = extern union {
         /// This is a special value that tracks a set of types that have been stored
         /// to an inferred allocation. It does not support any of the normal value queries.
         inferred_alloc,
+        /// Used to coordinate alloc_inferred, store_to_inferred_ptr, and resolve_inferred_alloc
+        /// instructions for comptime code.
+        inferred_alloc_comptime,
 
         pub const last_no_payload_tag = Tag.empty_array;
         pub const no_payload_count = @enumToInt(last_no_payload_tag) + 1;
@@ -213,6 +218,7 @@ pub const Value = extern union {
 
                 .extern_fn,
                 .decl_ref,
+                .inferred_alloc_comptime,
                 => Payload.Decl,
 
                 .repeated,
@@ -235,7 +241,7 @@ pub const Value = extern union {
                 .int_i64 => Payload.I64,
                 .function => Payload.Function,
                 .variable => Payload.Variable,
-                .comptime_alloc => Payload.ComptimeAlloc,
+                .decl_ref_mut => Payload.DeclRefMut,
                 .elem_ptr => Payload.ElemPtr,
                 .field_ptr => Payload.FieldPtr,
                 .float_16 => Payload.Float_16,
@@ -408,8 +414,8 @@ pub const Value = extern union {
             .function => return self.copyPayloadShallow(allocator, Payload.Function),
             .extern_fn => return self.copyPayloadShallow(allocator, Payload.Decl),
             .variable => return self.copyPayloadShallow(allocator, Payload.Variable),
-            .comptime_alloc => return self.copyPayloadShallow(allocator, Payload.ComptimeAlloc),
             .decl_ref => return self.copyPayloadShallow(allocator, Payload.Decl),
+            .decl_ref_mut => return self.copyPayloadShallow(allocator, Payload.DeclRefMut),
             .elem_ptr => {
                 const payload = self.castTag(.elem_ptr).?;
                 const new_payload = try allocator.create(Payload.ElemPtr);
@@ -485,6 +491,7 @@ pub const Value = extern union {
             .@"union" => @panic("TODO can't copy union value without knowing the type"),
 
             .inferred_alloc => unreachable,
+            .inferred_alloc_comptime => unreachable,
         }
     }
 
@@ -592,10 +599,9 @@ pub const Value = extern union {
             .function => return out_stream.print("(function '{s}')", .{val.castTag(.function).?.data.owner_decl.name}),
             .extern_fn => return out_stream.writeAll("(extern function)"),
             .variable => return out_stream.writeAll("(variable)"),
-            .comptime_alloc => {
-                const ref_val = val.castTag(.comptime_alloc).?.data.val;
-                try out_stream.writeAll("&");
-                val = ref_val;
+            .decl_ref_mut => {
+                const decl = val.castTag(.decl_ref_mut).?.data.decl;
+                return out_stream.print("(decl_ref_mut '{s}')", .{decl.name});
             },
             .decl_ref => return out_stream.writeAll("(decl ref)"),
             .elem_ptr => {
@@ -626,6 +632,7 @@ pub const Value = extern union {
             // TODO to print this it should be error{ Set, Items }!T(val), but we need the type for that
             .error_union => return out_stream.print("error_union_val({})", .{val.castTag(.error_union).?.data}),
             .inferred_alloc => return out_stream.writeAll("(inferred allocation value)"),
+            .inferred_alloc_comptime => return out_stream.writeAll("(inferred comptime allocation value)"),
             .eu_payload_ptr => {
                 try out_stream.writeAll("(eu_payload_ptr)");
                 val = val.castTag(.eu_payload_ptr).?.data;
@@ -741,8 +748,8 @@ pub const Value = extern union {
             .function,
             .extern_fn,
             .variable,
-            .comptime_alloc,
             .decl_ref,
+            .decl_ref_mut,
             .elem_ptr,
             .field_ptr,
             .bytes,
@@ -761,6 +768,7 @@ pub const Value = extern union {
             .@"struct",
             .@"union",
             .inferred_alloc,
+            .inferred_alloc_comptime,
             .abi_align_default,
             .eu_payload_ptr,
             => unreachable,
@@ -1234,7 +1242,13 @@ pub const Value = extern union {
         allocator: *Allocator,
     ) error{ AnalysisFail, OutOfMemory }!?Value {
         const sub_val: Value = switch (self.tag()) {
-            .comptime_alloc => self.castTag(.comptime_alloc).?.data.val,
+            .decl_ref_mut => val: {
+                // The decl whose value we are obtaining here may be overwritten with
+                // a different value, which would invalidate this memory. So we must
+                // copy here.
+                const val = try self.castTag(.decl_ref_mut).?.data.decl.value();
+                break :val try val.copy(allocator);
+            },
             .decl_ref => try self.castTag(.decl_ref).?.data.value(),
             .elem_ptr => blk: {
                 const elem_ptr = self.castTag(.elem_ptr).?.data;
@@ -1351,6 +1365,7 @@ pub const Value = extern union {
             .undef => unreachable,
             .unreachable_value => unreachable,
             .inferred_alloc => unreachable,
+            .inferred_alloc_comptime => unreachable,
             .null_value => true,
 
             else => false,
@@ -1371,6 +1386,7 @@ pub const Value = extern union {
             .undef => unreachable,
             .unreachable_value => unreachable,
             .inferred_alloc => unreachable,
+            .inferred_alloc_comptime => unreachable,
 
             else => null,
         };
@@ -1380,6 +1396,7 @@ pub const Value = extern union {
         return switch (self.tag()) {
             .undef => unreachable,
             .inferred_alloc => unreachable,
+            .inferred_alloc_comptime => unreachable,
 
             .float_16,
             .float_32,
@@ -1443,12 +1460,12 @@ pub const Value = extern union {
             data: Value,
         };
 
-        pub const ComptimeAlloc = struct {
-            pub const base_tag = Tag.comptime_alloc;
+        pub const DeclRefMut = struct {
+            pub const base_tag = Tag.decl_ref_mut;
 
             base: Payload = Payload{ .tag = base_tag },
             data: struct {
-                val: Value,
+                decl: *Module.Decl,
                 runtime_index: u32,
             },
         };

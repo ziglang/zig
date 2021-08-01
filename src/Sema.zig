@@ -154,9 +154,6 @@ pub fn analyzeBody(
     // We use a while(true) loop here to avoid a redundant way of breaking out of
     // the loop. The only way to break out of the loop is with a `noreturn`
     // instruction.
-    // TODO: As an optimization, make sure the codegen for these switch prongs
-    // directly jump to the next one, rather than detouring through the loop
-    // continue expression. Related: https://github.com/ziglang/zig/issues/8220
     var i: usize = 0;
     while (true) {
         const inst = body[i];
@@ -391,7 +388,7 @@ pub fn analyzeBody(
             .condbr         => return sema.zirCondbr(block, inst),
             .@"break"       => return sema.zirBreak(block, inst),
             .compile_error  => return sema.zirCompileError(block, inst),
-            .ret_coerce     => return sema.zirRetCoerce(block, inst, true),
+            .ret_coerce     => return sema.zirRetCoerce(block, inst),
             .ret_node       => return sema.zirRetNode(block, inst),
             .ret_err_value  => return sema.zirRetErrValue(block, inst),
             .@"unreachable" => return sema.zirUnreachable(block, inst),
@@ -1396,14 +1393,19 @@ fn zirAllocComptime(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) Comp
     const var_type = try sema.resolveType(block, ty_src, inst_data.operand);
     const ptr_type = try Module.simplePtrType(sema.arena, var_type, true, .One);
 
-    const val_payload = try sema.arena.create(Value.Payload.ComptimeAlloc);
-    val_payload.* = .{
-        .data = .{
-            .runtime_index = block.runtime_index,
-            .val = undefined, // astgen guarantees there will be a store before the first load
-        },
-    };
-    return sema.addConstant(ptr_type, Value.initPayload(&val_payload.base));
+    var anon_decl = try block.startAnonDecl();
+    defer anon_decl.deinit();
+    const decl = try anon_decl.finish(
+        try var_type.copy(anon_decl.arena()),
+        // AstGen guarantees there will be a store before the first load, so we put a value
+        // here indicating there is no valid value.
+        Value.initTag(.unreachable_value),
+    );
+    try sema.mod.declareDeclDependency(sema.owner_decl, decl);
+    return sema.addConstant(ptr_type, try Value.Tag.decl_ref_mut.create(sema.arena, .{
+        .runtime_index = block.runtime_index,
+        .decl = decl,
+    }));
 }
 
 fn zirAllocInferredComptime(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -1450,16 +1452,23 @@ fn zirAllocInferred(
 
     const src_node = sema.code.instructions.items(.data)[inst].node;
     const src: LazySrcLoc = .{ .node_offset = src_node };
+    sema.src = src;
 
-    const val_payload = try sema.arena.create(Value.Payload.InferredAlloc);
-    val_payload.* = .{
-        .data = .{},
-    };
-    // `Module.constInst` does not add the instruction to the block because it is
+    if (block.is_comptime) {
+        return sema.addConstant(
+            inferred_alloc_ty,
+            try Value.Tag.inferred_alloc_comptime.create(sema.arena, undefined),
+        );
+    }
+
+    // `Sema.addConstant` does not add the instruction to the block because it is
     // not needed in the case of constant values. However here, we plan to "downgrade"
     // to a normal instruction when we hit `resolve_inferred_alloc`. So we append
     // to the block even though it is currently a `.constant`.
-    const result = try sema.addConstant(inferred_alloc_ty, Value.initPayload(&val_payload.base));
+    const result = try sema.addConstant(
+        inferred_alloc_ty,
+        try Value.Tag.inferred_alloc.create(sema.arena, .{}),
+    );
     try sema.requireFunctionBlock(block, src);
     try block.instructions.append(sema.gpa, Air.refToIndex(result).?);
     return result;
@@ -1475,25 +1484,47 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Inde
     const ptr_inst = Air.refToIndex(ptr).?;
     assert(sema.air_instructions.items(.tag)[ptr_inst] == .constant);
     const air_datas = sema.air_instructions.items(.data);
-    const ptr_val = sema.air_values.items[air_datas[ptr_inst].ty_pl.payload];
-    const inferred_alloc = ptr_val.castTag(.inferred_alloc).?;
-    const peer_inst_list = inferred_alloc.data.stored_inst_list.items;
-    const final_elem_ty = try sema.resolvePeerTypes(block, ty_src, peer_inst_list);
+    const value_index = air_datas[ptr_inst].ty_pl.payload;
+    const ptr_val = sema.air_values.items[value_index];
     const var_is_mut = switch (sema.typeOf(ptr).tag()) {
         .inferred_alloc_const => false,
         .inferred_alloc_mut => true,
         else => unreachable,
     };
-    if (var_is_mut) {
-        try sema.validateVarType(block, ty_src, final_elem_ty);
-    }
-    const final_ptr_ty = try Module.simplePtrType(sema.arena, final_elem_ty, true, .One);
 
-    // Change it to a normal alloc.
-    sema.air_instructions.set(ptr_inst, .{
-        .tag = .alloc,
-        .data = .{ .ty = final_ptr_ty },
-    });
+    if (ptr_val.castTag(.inferred_alloc_comptime)) |iac| {
+        const decl = iac.data;
+        try sema.mod.declareDeclDependency(sema.owner_decl, decl);
+
+        const final_elem_ty = try decl.ty.copy(sema.arena);
+        const final_ptr_ty = try Module.simplePtrType(sema.arena, final_elem_ty, true, .One);
+        air_datas[ptr_inst].ty_pl.ty = try sema.addType(final_ptr_ty);
+
+        if (var_is_mut) {
+            sema.air_values.items[value_index] = try Value.Tag.decl_ref_mut.create(sema.arena, .{
+                .decl = decl,
+                .runtime_index = block.runtime_index,
+            });
+        } else {
+            sema.air_values.items[value_index] = try Value.Tag.decl_ref.create(sema.arena, decl);
+        }
+        return;
+    }
+
+    if (ptr_val.castTag(.inferred_alloc)) |inferred_alloc| {
+        const peer_inst_list = inferred_alloc.data.stored_inst_list.items;
+        const final_elem_ty = try sema.resolvePeerTypes(block, ty_src, peer_inst_list);
+        if (var_is_mut) {
+            try sema.validateVarType(block, ty_src, final_elem_ty);
+        }
+        // Change it to a normal alloc.
+        const final_ptr_ty = try Module.simplePtrType(sema.arena, final_elem_ty, true, .One);
+        sema.air_instructions.set(ptr_inst, .{
+            .tag = .alloc,
+            .data = .{ .ty = final_ptr_ty },
+        });
+        return;
+    }
 }
 
 fn zirValidateStructInitPtr(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!void {
@@ -1654,23 +1685,45 @@ fn zirStoreToInferredPtr(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index)
     const tracy = trace(@src());
     defer tracy.end();
 
-    const src: LazySrcLoc = .unneeded;
+    const src: LazySrcLoc = sema.src;
     const bin_inst = sema.code.instructions.items(.data)[inst].bin;
     const ptr = sema.resolveInst(bin_inst.lhs);
-    const value = sema.resolveInst(bin_inst.rhs);
+    const operand = sema.resolveInst(bin_inst.rhs);
+    const operand_ty = sema.typeOf(operand);
     const ptr_inst = Air.refToIndex(ptr).?;
     assert(sema.air_instructions.items(.tag)[ptr_inst] == .constant);
     const air_datas = sema.air_instructions.items(.data);
     const ptr_val = sema.air_values.items[air_datas[ptr_inst].ty_pl.payload];
-    const inferred_alloc = ptr_val.castTag(.inferred_alloc).?;
-    // Add the stored instruction to the set we will use to resolve peer types
-    // for the inferred allocation.
-    try inferred_alloc.data.stored_inst_list.append(sema.arena, value);
-    // Create a runtime bitcast instruction with exactly the type the pointer wants.
-    const ptr_ty = try Module.simplePtrType(sema.arena, sema.typeOf(value), true, .One);
-    try sema.requireRuntimeBlock(block, src);
-    const bitcasted_ptr = try block.addTyOp(.bitcast, ptr_ty, ptr);
-    return sema.storePtr(block, src, bitcasted_ptr, value);
+
+    if (ptr_val.castTag(.inferred_alloc_comptime)) |iac| {
+        // There will be only one store_to_inferred_ptr because we are running at comptime.
+        // The alloc will turn into a Decl.
+        if (try sema.resolveMaybeUndefValAllowVariables(block, src, operand)) |operand_val| {
+            if (operand_val.tag() == .variable) {
+                return sema.failWithNeededComptime(block, src);
+            }
+            var anon_decl = try block.startAnonDecl();
+            defer anon_decl.deinit();
+            iac.data = try anon_decl.finish(
+                try operand_ty.copy(anon_decl.arena()),
+                try operand_val.copy(anon_decl.arena()),
+            );
+            return;
+        } else {
+            return sema.failWithNeededComptime(block, src);
+        }
+    }
+
+    if (ptr_val.castTag(.inferred_alloc)) |inferred_alloc| {
+        // Add the stored instruction to the set we will use to resolve peer types
+        // for the inferred allocation.
+        try inferred_alloc.data.stored_inst_list.append(sema.arena, operand);
+        // Create a runtime bitcast instruction with exactly the type the pointer wants.
+        const ptr_ty = try Module.simplePtrType(sema.arena, operand_ty, true, .One);
+        const bitcasted_ptr = try block.addTyOp(.bitcast, ptr_ty, ptr);
+        return sema.storePtr(block, src, bitcasted_ptr, operand);
+    }
+    unreachable;
 }
 
 fn zirSetEvalBranchQuota(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!void {
@@ -5643,7 +5696,6 @@ fn zirRetCoerce(
     sema: *Sema,
     block: *Scope.Block,
     inst: Zir.Inst.Index,
-    need_coercion: bool,
 ) CompileError!Zir.Inst.Index {
     const tracy = trace(@src());
     defer tracy.end();
@@ -5652,7 +5704,7 @@ fn zirRetCoerce(
     const operand = sema.resolveInst(inst_data.operand);
     const src = inst_data.src();
 
-    return sema.analyzeRet(block, operand, src, need_coercion);
+    return sema.analyzeRet(block, operand, src, true);
 }
 
 fn zirRetNode(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Zir.Inst.Index {
@@ -5673,23 +5725,20 @@ fn analyzeRet(
     src: LazySrcLoc,
     need_coercion: bool,
 ) CompileError!Zir.Inst.Index {
+    const casted_operand = if (!need_coercion) operand else op: {
+        const func = sema.func.?;
+        const fn_ty = func.owner_decl.ty;
+        const fn_ret_ty = fn_ty.fnReturnType();
+        break :op try sema.coerce(block, fn_ret_ty, operand, src);
+    };
     if (block.inlining) |inlining| {
         // We are inlining a function call; rewrite the `ret` as a `break`.
-        try inlining.merges.results.append(sema.gpa, operand);
-        _ = try block.addBr(inlining.merges.block_inst, operand);
+        try inlining.merges.results.append(sema.gpa, casted_operand);
+        _ = try block.addBr(inlining.merges.block_inst, casted_operand);
         return always_noreturn;
     }
 
-    if (need_coercion) {
-        if (sema.func) |func| {
-            const fn_ty = func.owner_decl.ty;
-            const fn_ret_ty = fn_ty.fnReturnType();
-            const casted_operand = try sema.coerce(block, fn_ret_ty, operand, src);
-            _ = try block.addUnOp(.ret, casted_operand);
-            return always_noreturn;
-        }
-    }
-    _ = try block.addUnOp(.ret, operand);
+    _ = try block.addUnOp(.ret, casted_operand);
     return always_noreturn;
 }
 
@@ -7603,37 +7652,45 @@ fn storePtr(
     if ((try sema.typeHasOnePossibleValue(block, src, elem_ty)) != null)
         return;
 
-    if (try sema.resolveMaybeUndefVal(block, src, ptr)) |ptr_val| blk: {
-        const const_val = (try sema.resolveMaybeUndefVal(block, src, value)) orelse
-            return sema.mod.fail(&block.base, src, "cannot store runtime value in compile time variable", .{});
+    if (try sema.resolveDefinedValue(block, src, ptr)) |ptr_val| {
+        if (ptr_val.castTag(.decl_ref_mut)) |decl_ref_mut| {
+            const const_val = (try sema.resolveMaybeUndefVal(block, src, value)) orelse
+                return sema.mod.fail(&block.base, src, "cannot store runtime value in compile time variable", .{});
 
-        if (ptr_val.tag() == .int_u64)
-            break :blk; // propogate it down to runtime
-
-        const comptime_alloc = ptr_val.castTag(.comptime_alloc).?;
-        if (comptime_alloc.data.runtime_index < block.runtime_index) {
-            if (block.runtime_cond) |cond_src| {
-                const msg = msg: {
-                    const msg = try sema.mod.errMsg(&block.base, src, "store to comptime variable depends on runtime condition", .{});
-                    errdefer msg.destroy(sema.gpa);
-                    try sema.mod.errNote(&block.base, cond_src, msg, "runtime condition here", .{});
-                    break :msg msg;
-                };
-                return sema.mod.failWithOwnedErrorMsg(&block.base, msg);
+            if (decl_ref_mut.data.runtime_index < block.runtime_index) {
+                if (block.runtime_cond) |cond_src| {
+                    const msg = msg: {
+                        const msg = try sema.mod.errMsg(&block.base, src, "store to comptime variable depends on runtime condition", .{});
+                        errdefer msg.destroy(sema.gpa);
+                        try sema.mod.errNote(&block.base, cond_src, msg, "runtime condition here", .{});
+                        break :msg msg;
+                    };
+                    return sema.mod.failWithOwnedErrorMsg(&block.base, msg);
+                }
+                if (block.runtime_loop) |loop_src| {
+                    const msg = msg: {
+                        const msg = try sema.mod.errMsg(&block.base, src, "cannot store to comptime variable in non-inline loop", .{});
+                        errdefer msg.destroy(sema.gpa);
+                        try sema.mod.errNote(&block.base, loop_src, msg, "non-inline loop here", .{});
+                        break :msg msg;
+                    };
+                    return sema.mod.failWithOwnedErrorMsg(&block.base, msg);
+                }
+                unreachable;
             }
-            if (block.runtime_loop) |loop_src| {
-                const msg = msg: {
-                    const msg = try sema.mod.errMsg(&block.base, src, "cannot store to comptime variable in non-inline loop", .{});
-                    errdefer msg.destroy(sema.gpa);
-                    try sema.mod.errNote(&block.base, loop_src, msg, "non-inline loop here", .{});
-                    break :msg msg;
-                };
-                return sema.mod.failWithOwnedErrorMsg(&block.base, msg);
-            }
-            unreachable;
+            var new_arena = std.heap.ArenaAllocator.init(sema.gpa);
+            errdefer new_arena.deinit();
+            const new_ty = try elem_ty.copy(&new_arena.allocator);
+            const new_val = try const_val.copy(&new_arena.allocator);
+            const decl = decl_ref_mut.data.decl;
+            var old_arena = decl.value_arena.?.promote(sema.gpa);
+            decl.value_arena = null;
+            try decl.finalizeNewArena(&new_arena);
+            decl.ty = new_ty;
+            decl.val = new_val;
+            old_arena.deinit();
+            return;
         }
-        comptime_alloc.data.val = const_val;
-        return;
     }
     // TODO handle if the element type requires comptime
 
