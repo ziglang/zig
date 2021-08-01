@@ -635,7 +635,7 @@ pub const IO_Uring = struct {
             @ptrCast(*const c_void, fds.ptr),
             @intCast(u32, fds.len),
         );
-        try convert_registration_error(res);
+        try handle_registration_result(res);
     }
 
     /// Registers the file descriptor for an eventfd that will be notified of completion events on
@@ -649,7 +649,7 @@ pub const IO_Uring = struct {
             @ptrCast(*const c_void, &fd),
             1,
         );
-        try convert_registration_error(res);
+        try handle_registration_result(res);
     }
 
     /// Registers the file descriptor for an eventfd that will be notified of completion events on
@@ -664,7 +664,7 @@ pub const IO_Uring = struct {
             @ptrCast(*const c_void, &fd),
             1,
         );
-        try convert_registration_error(res);
+        try handle_registration_result(res);
     }
 
     /// Unregister the registered eventfd file descriptor.
@@ -676,10 +676,10 @@ pub const IO_Uring = struct {
             null,
             0,
         );
-        try convert_registration_error(res);
+        try handle_registration_result(res);
     }
 
-    fn convert_registration_error(res: usize) !void {
+    fn handle_registration_result(res: usize) !void {
         switch (linux.getErrno(res)) {
             0 => {},
             // One or more fds in the array are invalid, or the kernel does not support sparse sets:
