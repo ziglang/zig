@@ -634,7 +634,7 @@ pub const Context = struct {
                 // for each struct field, generate a local
                 const struct_data: *Module.Struct = ty.castTag(.@"struct").?.data;
                 const fields_len = @intCast(u32, struct_data.fields.count());
-                try self.locals.ensureCapacity(self.gpa, self.locals.items.len + fields_len);
+                try self.locals.ensureUnusedCapacity(self.gpa, fields_len);
                 for (struct_data.fields.values()) |*value| {
                     const val_type = try self.genValtype(value.ty);
                     self.locals.appendAssumeCapacity(val_type);
@@ -653,7 +653,7 @@ pub const Context = struct {
                 // The first local is also used to find the index of the error and payload.
                 //
                 // TODO: Add support where the payload is a type that contains multiple locals such as a struct.
-                try self.locals.ensureCapacity(self.gpa, self.locals.items.len + 2);
+                try self.locals.ensureUnusedCapacity(self.gpa, 2);
                 self.locals.appendAssumeCapacity(wasm.valtype(.i32)); // error values are always i32
                 self.locals.appendAssumeCapacity(val_type);
                 self.local_index += 2;
@@ -670,7 +670,7 @@ pub const Context = struct {
                     return self.fail("TODO: wasm optional pointer", .{});
                 }
 
-                try self.locals.ensureCapacity(self.gpa, self.locals.items.len + 2);
+                try self.locals.ensureUnusedCapacity(self.gpa, 2);
                 self.locals.appendAssumeCapacity(wasm.valtype(.i32)); // optional 'tag' for null-checking is always i32
                 self.locals.appendAssumeCapacity(try self.genValtype(child_type));
                 self.local_index += 2;
@@ -817,11 +817,11 @@ pub const Context = struct {
         const air_tags = self.air.instructions.items(.tag);
         return switch (air_tags[inst]) {
             .add => self.airBinOp(inst, .add),
-            .addwrap => self.airBinOp(inst, .add),
+            .addwrap => self.airWrapBinOp(inst, .add),
             .sub => self.airBinOp(inst, .sub),
-            .subwrap => self.airBinOp(inst, .sub),
+            .subwrap => self.airWrapBinOp(inst, .sub),
             .mul => self.airBinOp(inst, .mul),
-            .mulwrap => self.airBinOp(inst, .mul),
+            .mulwrap => self.airWrapBinOp(inst, .mul),
             .div => self.airBinOp(inst, .div),
             .bit_and => self.airBinOp(inst, .@"and"),
             .bit_or => self.airBinOp(inst, .@"or"),
@@ -1018,6 +1018,62 @@ pub const Context = struct {
             .signedness = if (bin_ty.isSignedInt()) .signed else .unsigned,
         });
         try self.code.append(wasm.opcode(opcode));
+        return WValue{ .code_offset = offset };
+    }
+
+    fn airWrapBinOp(self: *Context, inst: Air.Inst.Index, op: Op) InnerError!WValue {
+        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const lhs = self.resolveInst(bin_op.lhs);
+        const rhs = self.resolveInst(bin_op.rhs);
+
+        // it's possible for both lhs and/or rhs to return an offset as well,
+        // in which case we return the first offset occurance we find.
+        const offset = blk: {
+            if (lhs == .code_offset) break :blk lhs.code_offset;
+            if (rhs == .code_offset) break :blk rhs.code_offset;
+            break :blk self.code.items.len;
+        };
+
+        try self.emitWValue(lhs);
+        try self.emitWValue(rhs);
+
+        const bin_ty = self.air.typeOf(bin_op.lhs);
+        const opcode: wasm.Opcode = buildOpcode(.{
+            .op = op,
+            .valtype1 = try self.typeToValtype(bin_ty),
+            .signedness = if (bin_ty.isSignedInt()) .signed else .unsigned,
+        });
+        try self.code.append(wasm.opcode(opcode));
+
+        const int_info = bin_ty.intInfo(self.target);
+        const bitsize = int_info.bits;
+        const is_signed = int_info.signedness == .signed;
+        // if target type bitsize is x < 32 and 32 > x < 64, we perform
+        // result & ((1<<N)-1) where N = bitsize or bitsize -1 incase of signed.
+        if (bitsize != 32 and bitsize < 64) {
+            // first check if we can use a single instruction,
+            // wasm provides those if the integers are signed and 8/16-bit.
+            // For arbitrary integer sizes, we use the algorithm mentioned above.
+            if (is_signed and bitsize == 8) {
+                try self.code.append(wasm.opcode(.i32_extend8_s));
+            } else if (is_signed and bitsize == 16) {
+                try self.code.append(wasm.opcode(.i32_extend16_s));
+            } else {
+                const result = (@as(u64, 1) << @intCast(u6, bitsize - @boolToInt(is_signed))) - 1;
+                if (bitsize < 32) {
+                    try self.code.append(wasm.opcode(.i32_const));
+                    try leb.writeILEB128(self.code.writer(), @bitCast(i32, @intCast(u32, result)));
+                    try self.code.append(wasm.opcode(.i32_and));
+                } else {
+                    try self.code.append(wasm.opcode(.i64_const));
+                    try leb.writeILEB128(self.code.writer(), @bitCast(i64, result));
+                    try self.code.append(wasm.opcode(.i64_and));
+                }
+            }
+        } else if (int_info.bits > 64) {
+            return self.fail("TODO wasm: Integer wrapping for bitsizes larger than 64", .{});
+        }
+
         return WValue{ .code_offset = offset };
     }
 
