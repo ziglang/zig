@@ -2846,7 +2846,7 @@ test "pointer to non-bit-aligned field" {
       Zig should correctly understand the alignment of fields. However there is
       <a href="https://github.com/ziglang/zig/issues/1994">a bug</a>:
       </p>
-      {#code_begin|test_err#}
+      {#code_begin|test_err|expected type '*u32', found '*align(1) u32'#}
 const S = packed struct {
     a: u32,
     b: u32,
@@ -2855,6 +2855,7 @@ test "overaligned pointer to packed struct" {
     var foo: S align(4) = undefined;
     const ptr: *align(4) S = &foo;
     const ptr_to_b: *u32 = &ptr.b;
+    _ = ptr_to_b;
 }
       {#code_end#}
       <p>When this bug is fixed, the above test in the documentation will unexpectedly pass, which will
