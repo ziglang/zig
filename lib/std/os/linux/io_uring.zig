@@ -639,7 +639,7 @@ pub const IO_Uring = struct {
     }
 
     /// Registers the file descriptor for an eventfd that will be notified of completion events on
-    //  an io_uring instance.
+    ///  an io_uring instance.
     /// Only a single a eventfd can be registered at any given point in time.
     pub fn register_eventfd(self: *IO_Uring, fd: os.fd_t) !void {
         assert(self.fd >= 0);
