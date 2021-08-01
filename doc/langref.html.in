@@ -3422,10 +3422,11 @@ test "call foo" {
       <p>
       Blocks are used to limit the scope of variable declarations:
       </p>
-      {#code_begin|test_err|unused local variable#}
+      {#code_begin|test_err|use of undeclared identifier 'x'#}
 test "access variable after block scope" {
     {
         var x: i32 = 1;
+        _ = x;
     }
     x += 1;
 }
