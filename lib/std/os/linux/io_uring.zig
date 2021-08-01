@@ -655,7 +655,7 @@ pub const IO_Uring = struct {
     /// Registers the file descriptor for an eventfd that will be notified of completion events on
     /// an io_uring instance. Notifications are only posted for events that complete in an async manner. 
     /// This means that events that complete inline while being submitted do not trigger a notification event.
-    /// Only a single a eventfd can be registered at any given point in time.
+    /// Only a single eventfd can be registered at any given point in time.
     pub fn register_eventfd_async(self: *IO_Uring, fd: os.fd_t) !void {
         assert(self.fd >= 0);
         const res = linux.io_uring_register(
