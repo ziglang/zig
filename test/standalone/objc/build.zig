@@ -1,5 +1,15 @@
 const std = @import("std");
 const Builder = std.build.Builder;
+const CrossTarget = std.zig.CrossTarget;
+
+fn isRunnableTarget(t: CrossTarget) bool {
+    // TODO I think we might be able to run this on Linux via Darling.
+    // Add a check for that here, and return true if Darling is available.
+    if (t.isNative() and t.getOsTag() == .macos)
+        return true
+    else
+        return false;
+}
 
 pub fn build(b: *Builder) void {
     const mode = b.standardReleaseOptions();
@@ -15,8 +25,12 @@ pub fn build(b: *Builder) void {
     exe.setBuildMode(mode);
     exe.setTarget(target);
     exe.linkLibC();
+    // TODO when we figure out how to ship framework stubs for cross-compilation,
+    // populate paths to the sysroot here.
     exe.linkFramework("Foundation");
 
-    const run_cmd = exe.run();
-    test_step.dependOn(&run_cmd.step);
+    if (isRunnableTarget(target)) {
+        const run_cmd = exe.run();
+        test_step.dependOn(&run_cmd.step);
+    }
 }
