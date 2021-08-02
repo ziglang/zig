@@ -755,7 +755,9 @@ pub const GUID = extern struct {
     }
 };
 
+pub const FOLDERID_ProgramData = GUID.parse("{62AB5D82-FDC1-4DC3-A9DD-070D1D495D97}");
 pub const FOLDERID_LocalAppData = GUID.parse("{F1B32785-6FBA-4FCF-9D55-7B8E7F157091}");
+pub const FOLDERID_RoamingAppData = GUID.parse("{3EB685DB-65F9-4CF6-A03A-E3EF65729F3D}");
 
 pub const KF_FLAG_DEFAULT = 0;
 pub const KF_FLAG_NO_APPCONTAINER_REDIRECTION = 65536;
