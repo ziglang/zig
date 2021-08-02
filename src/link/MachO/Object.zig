@@ -402,7 +402,7 @@ const TextBlockParser = struct {
 
         const senior_nlist = aliases.pop();
         const senior_sym = &context.macho_file.locals.items[senior_nlist.index];
-        senior_sym.n_sect = context.macho_file.section_to_ordinal.get(context.match) orelse unreachable;
+        senior_sym.n_sect = @intCast(u8, context.macho_file.section_ordinals.getIndex(context.match).? + 1);
 
         const start_addr = senior_nlist.nlist.n_value - self.section.addr;
         const end_addr = if (next_nlist) |n| n.nlist.n_value - self.section.addr else self.section.size;
@@ -446,7 +446,7 @@ const TextBlockParser = struct {
         for (aliases.items) |alias| {
             block.aliases.appendAssumeCapacity(alias.index);
             const sym = &context.macho_file.locals.items[alias.index];
-            sym.n_sect = context.macho_file.section_to_ordinal.get(context.match) orelse unreachable;
+            sym.n_sect = @intCast(u8, context.macho_file.section_ordinals.getIndex(context.match).? + 1);
         }
 
         try block.parseRelocs(self.relocs, .{
@@ -588,7 +588,7 @@ pub fn parseTextBlocks(
                         try macho_file.locals.append(allocator, .{
                             .n_strx = try macho_file.makeString(sym_name),
                             .n_type = macho.N_SECT,
-                            .n_sect = macho_file.section_to_ordinal.get(match) orelse unreachable,
+                            .n_sect = @intCast(u8, macho_file.section_ordinals.getIndex(match).? + 1),
                             .n_desc = 0,
                             .n_value = sect.addr,
                         });
@@ -733,7 +733,7 @@ pub fn parseTextBlocks(
                 try macho_file.locals.append(allocator, .{
                     .n_strx = try macho_file.makeString(sym_name),
                     .n_type = macho.N_SECT,
-                    .n_sect = macho_file.section_to_ordinal.get(match) orelse unreachable,
+                    .n_sect = @intCast(u8, macho_file.section_ordinals.getIndex(match).? + 1),
                     .n_desc = 0,
                     .n_value = sect.addr,
                 });
@@ -781,7 +781,7 @@ pub fn parseTextBlocks(
                 const nlist = nlist_with_index.nlist;
                 const local_sym_index = self.symbol_mapping.get(nlist_with_index.index) orelse unreachable;
                 const local = &macho_file.locals.items[local_sym_index];
-                local.n_sect = macho_file.section_to_ordinal.get(match) orelse unreachable;
+                local.n_sect = @intCast(u8, macho_file.section_ordinals.getIndex(match).? + 1);
 
                 const stab: ?TextBlock.Stab = if (self.debug_info) |di| blk: {
                     // TODO there has to be a better to handle this.
