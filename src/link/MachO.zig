@@ -63,9 +63,9 @@ entry_addr: ?u64 = null,
 
 objects: std.ArrayListUnmanaged(Object) = .{},
 archives: std.ArrayListUnmanaged(Archive) = .{},
-dylibs: std.ArrayListUnmanaged(Dylib) = .{},
 
-next_dylib_ordinal: u16 = 1,
+dylibs: std.ArrayListUnmanaged(Dylib) = .{},
+referenced_dylibs: std.AutoArrayHashMapUnmanaged(u16, void) = .{},
 
 load_commands: std.ArrayListUnmanaged(LoadCommand) = .{},
 
@@ -929,6 +929,17 @@ fn linkWithZld(self: *MachO, comp: *Compilation) !void {
             else => unreachable,
         };
 
+        // TODO mimicking insertion of null symbol from incremental linker.
+        // This will need to moved.
+        try self.locals.append(self.base.allocator, .{
+            .n_strx = 0,
+            .n_type = macho.N_UNDF,
+            .n_sect = 0,
+            .n_desc = 0,
+            .n_value = 0,
+        });
+        try self.strtab.append(self.base.allocator, 0);
+
         // Initialize section ordinals with null ordinal pointing at
         // PAGEZERO segment.
         try self.section_ordinals.append(self.base.allocator, .{
@@ -958,7 +969,8 @@ fn linkWithZld(self: *MachO, comp: *Compilation) !void {
         }
 
         try self.sortSections();
-        try self.addRpaths(rpaths.items);
+        try self.addRpathLCs(rpaths.items);
+        try self.addLoadDylibLCs();
         try self.addDataInCodeLC();
         try self.addCodeSignatureLC();
         try self.allocateTextSegment();
@@ -2196,17 +2208,6 @@ fn resolveSymbolsInObject(self: *MachO, object_id: u16) !void {
 }
 
 fn resolveSymbols(self: *MachO) !void {
-    // TODO mimicking insertion of null symbol from incremental linker.
-    // This will need to moved.
-    try self.locals.append(self.base.allocator, .{
-        .n_strx = 0,
-        .n_type = macho.N_UNDF,
-        .n_sect = 0,
-        .n_desc = 0,
-        .n_value = 0,
-    });
-    try self.strtab.append(self.base.allocator, 0);
-
     // First pass, resolve symbols in provided objects.
     for (self.objects.items) |_, object_id| {
         try self.resolveSymbolsInObject(@intCast(u16, object_id));
@@ -2335,9 +2336,6 @@ fn resolveSymbols(self: *MachO) !void {
         });
     }
 
-    var referenced = std.AutoHashMap(u16, void).init(self.base.allocator);
-    defer referenced.deinit();
-
     loop: for (self.undefs.items) |sym| {
         if (symbolIsNull(sym)) continue;
 
@@ -2345,23 +2343,12 @@ fn resolveSymbols(self: *MachO) !void {
         for (self.dylibs.items) |*dylib, id| {
             if (!dylib.symbols.contains(sym_name)) continue;
 
-            if (!referenced.contains(@intCast(u16, id))) {
-                // Add LC_LOAD_DYLIB load command for each referenced dylib/stub.
-                dylib.ordinal = self.next_dylib_ordinal;
-                const dylib_id = dylib.id orelse unreachable;
-                var dylib_cmd = try commands.createLoadDylibCommand(
-                    self.base.allocator,
-                    dylib_id.name,
-                    dylib_id.timestamp,
-                    dylib_id.current_version,
-                    dylib_id.compatibility_version,
-                );
-                errdefer dylib_cmd.deinit(self.base.allocator);
-                try self.load_commands.append(self.base.allocator, .{ .Dylib = dylib_cmd });
-                self.next_dylib_ordinal += 1;
-                try referenced.putNoClobber(@intCast(u16, id), {});
+            const dylib_id = @intCast(u16, id);
+            if (!self.referenced_dylibs.contains(dylib_id)) {
+                try self.referenced_dylibs.putNoClobber(self.base.allocator, dylib_id, {});
             }
 
+            const ordinal = self.referenced_dylibs.getIndex(dylib_id) orelse unreachable;
             const resolv = self.symbol_resolver.getPtr(sym.n_strx) orelse unreachable;
             const undef = &self.undefs.items[resolv.where_index];
             const import_sym_index = @intCast(u32, self.imports.items.len);
@@ -2369,7 +2356,7 @@ fn resolveSymbols(self: *MachO) !void {
                 .n_strx = undef.n_strx,
                 .n_type = macho.N_UNDF | macho.N_EXT,
                 .n_sect = 0,
-                .n_desc = packDylibOrdinal(dylib.ordinal.?),
+                .n_desc = packDylibOrdinal(@intCast(u16, ordinal + 1)),
                 .n_value = 0,
             });
             resolv.* = .{
@@ -2804,7 +2791,7 @@ fn addCodeSignatureLC(self: *MachO) !void {
     }
 }
 
-fn addRpaths(self: *MachO, rpaths: []const []const u8) !void {
+fn addRpathLCs(self: *MachO, rpaths: []const []const u8) !void {
     for (rpaths) |rpath| {
         const cmdsize = @intCast(u32, mem.alignForwardGeneric(
             u64,
@@ -2820,6 +2807,22 @@ fn addRpaths(self: *MachO, rpaths: []const []const u8) !void {
         mem.set(u8, rpath_cmd.data, 0);
         mem.copy(u8, rpath_cmd.data, rpath);
         try self.load_commands.append(self.base.allocator, .{ .Rpath = rpath_cmd });
+    }
+}
+
+fn addLoadDylibLCs(self: *MachO) !void {
+    for (self.referenced_dylibs.keys()) |id| {
+        const dylib = self.dylibs.items[id];
+        const dylib_id = dylib.id orelse unreachable;
+        var dylib_cmd = try commands.createLoadDylibCommand(
+            self.base.allocator,
+            dylib_id.name,
+            dylib_id.timestamp,
+            dylib_id.current_version,
+            dylib_id.compatibility_version,
+        );
+        errdefer dylib_cmd.deinit(self.base.allocator);
+        try self.load_commands.append(self.base.allocator, .{ .Dylib = dylib_cmd });
     }
 }
 
@@ -3353,6 +3356,7 @@ pub fn deinit(self: *MachO) void {
         dylib.deinit(self.base.allocator);
     }
     self.dylibs.deinit(self.base.allocator);
+    self.referenced_dylibs.deinit(self.base.allocator);
 
     for (self.load_commands.items) |*lc| {
         lc.deinit(self.base.allocator);

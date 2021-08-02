@@ -22,8 +22,6 @@ name: []const u8,
 
 header: ?macho.mach_header_64 = null,
 
-ordinal: ?u16 = null,
-
 // The actual dylib contents we care about linking with will be embedded at
 // an offset within a file if we are linking against a fat lib
 library_offset: u64 = 0,
