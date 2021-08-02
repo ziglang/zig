@@ -970,7 +970,6 @@ fn linkWithZld(self: *MachO, comp: *Compilation) !void {
         try self.allocateDataSegment();
         self.allocateLinkeditSegment();
         try self.allocateTextBlocks();
-        self.printSymtabAndTextBlock();
         try self.flushZld();
     }
 
@@ -2345,7 +2344,7 @@ fn resolveSymbols(self: *MachO) !void {
                 .n_strx = undef.n_strx,
                 .n_type = macho.N_UNDF | macho.N_EXT,
                 .n_sect = 0,
-                .n_desc = packDylibOrdinal(@intCast(u16, ordinal + 1)),
+                .n_desc = @intCast(u16, ordinal + 1) * macho.N_SYMBOL_RESOLVER,
                 .n_value = 0,
             });
             resolv.* = .{
@@ -3021,7 +3020,7 @@ fn writeBindInfoTableZld(self: *MachO) !void {
             try pointers.append(.{
                 .offset = base_offset + i * @sizeOf(u64),
                 .segment_id = segment_id,
-                .dylib_ordinal = unpackDylibOrdinal(sym.n_desc),
+                .dylib_ordinal = @divExact(sym.n_desc, macho.N_SYMBOL_RESOLVER),
                 .name = self.getString(sym.n_strx),
             });
         }
@@ -3046,7 +3045,7 @@ fn writeBindInfoTableZld(self: *MachO) !void {
                     try pointers.append(.{
                         .offset = binding.offset + base_offset,
                         .segment_id = match.seg,
-                        .dylib_ordinal = unpackDylibOrdinal(bind_sym.n_desc),
+                        .dylib_ordinal = @divExact(bind_sym.n_desc, macho.N_SYMBOL_RESOLVER),
                         .name = self.getString(bind_sym.n_strx),
                     });
                 }
@@ -3093,7 +3092,7 @@ fn writeLazyBindInfoTableZld(self: *MachO) !void {
             pointers.appendAssumeCapacity(.{
                 .offset = base_offset + i * @sizeOf(u64),
                 .segment_id = segment_id,
-                .dylib_ordinal = unpackDylibOrdinal(sym.n_desc),
+                .dylib_ordinal = @divExact(sym.n_desc, macho.N_SYMBOL_RESOLVER),
                 .name = self.getString(sym.n_strx),
             });
         }
@@ -4395,7 +4394,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
             .n_strx = n_strx,
             .n_type = macho.N_UNDF | macho.N_EXT,
             .n_sect = 0,
-            .n_desc = packDylibOrdinal(1),
+            .n_desc = @intCast(u8, 1) * macho.N_SYMBOL_RESOLVER,
             .n_value = 0,
         });
         try self.symbol_resolver.putNoClobber(self.base.allocator, n_strx, .{
@@ -4541,7 +4540,7 @@ pub fn addExternFn(self: *MachO, name: []const u8) !u32 {
         .n_strx = n_strx,
         .n_type = macho.N_UNDF | macho.N_EXT,
         .n_sect = 0,
-        .n_desc = packDylibOrdinal(1),
+        .n_desc = @intCast(u8, 1) * macho.N_SYMBOL_RESOLVER,
         .n_value = 0,
     });
     try self.symbol_resolver.putNoClobber(self.base.allocator, n_strx, .{
@@ -5423,7 +5422,7 @@ fn writeBindInfoTable(self: *MachO) !void {
             try pointers.append(.{
                 .offset = base_offset + i * @sizeOf(u64),
                 .segment_id = segment_id,
-                .dylib_ordinal = unpackDylibOrdinal(sym.n_desc),
+                .dylib_ordinal = @divExact(sym.n_desc, macho.N_SYMBOL_RESOLVER),
                 .name = self.getString(sym.n_strx),
             });
         }
@@ -5448,7 +5447,7 @@ fn writeBindInfoTable(self: *MachO) !void {
                     try pointers.append(.{
                         .offset = binding.offset + base_offset,
                         .segment_id = match.seg,
-                        .dylib_ordinal = unpackDylibOrdinal(bind_sym.n_desc),
+                        .dylib_ordinal = @divExact(bind_sym.n_desc, macho.N_SYMBOL_RESOLVER),
                         .name = self.getString(bind_sym.n_strx),
                     });
                 }
@@ -5507,7 +5506,7 @@ fn writeLazyBindInfoTable(self: *MachO) !void {
             pointers.appendAssumeCapacity(.{
                 .offset = base_offset + i * @sizeOf(u64),
                 .segment_id = segment_id,
-                .dylib_ordinal = unpackDylibOrdinal(sym.n_desc),
+                .dylib_ordinal = @divExact(sym.n_desc, macho.N_SYMBOL_RESOLVER),
                 .name = self.getString(sym.n_strx),
             });
         }
@@ -5849,14 +5848,6 @@ pub fn symbolIsTemp(sym: macho.nlist_64, sym_name: []const u8) bool {
     return mem.startsWith(u8, sym_name, "l") or mem.startsWith(u8, sym_name, "L");
 }
 
-fn packDylibOrdinal(ordinal: u16) u16 {
-    return ordinal * macho.N_SYMBOL_RESOLVER;
-}
-
-fn unpackDylibOrdinal(pack: u16) u16 {
-    return @divExact(pack, macho.N_SYMBOL_RESOLVER);
-}
-
 pub fn findFirst(comptime T: type, haystack: []T, start: usize, predicate: anytype) usize {
     if (!@hasDecl(@TypeOf(predicate), "predicate"))
         @compileError("Predicate is required to define fn predicate(@This(), T) bool");
@@ -5868,71 +5859,4 @@ pub fn findFirst(comptime T: type, haystack: []T, start: usize, predicate: anyty
         if (predicate.predicate(haystack[i])) break;
     }
     return i;
-}
-
-fn printSymtabAndTextBlock(self: *MachO) void {
-    log.debug("locals", .{});
-    for (self.locals.items) |sym, id| {
-        log.debug("  {d}: {s}, {}", .{ id, self.getString(sym.n_strx), sym });
-    }
-
-    log.debug("globals", .{});
-    for (self.globals.items) |sym, id| {
-        log.debug("  {d}: {s}, {}", .{ id, self.getString(sym.n_strx), sym });
-    }
-
-    log.debug("tentatives", .{});
-    for (self.tentatives.items) |sym, id| {
-        log.debug("  {d}: {s}, {}", .{ id, self.getString(sym.n_strx), sym });
-    }
-
-    log.debug("undefines", .{});
-    for (self.undefs.items) |sym, id| {
-        log.debug("  {d}: {s}, {}", .{ id, self.getString(sym.n_strx), sym });
-    }
-
-    log.debug("imports", .{});
-    for (self.imports.items) |sym, id| {
-        log.debug("  {d}: {s}, {}", .{ id, self.getString(sym.n_strx), sym });
-    }
-
-    {
-        log.debug("symbol resolver", .{});
-        var it = self.symbol_resolver.keyIterator();
-        while (it.next()) |key_ptr| {
-            const sym_name = self.getString(key_ptr.*);
-            log.debug("  {s} => {}", .{ sym_name, self.symbol_resolver.get(key_ptr.*).? });
-        }
-    }
-
-    log.debug("mappings", .{});
-    for (self.objects.items) |object| {
-        log.debug("  in object {s}", .{object.name});
-        for (object.symtab.items) |sym, sym_id| {
-            if (object.symbol_mapping.get(@intCast(u32, sym_id))) |local_id| {
-                log.debug("    | {d} => {d}", .{ sym_id, local_id });
-            } else {
-                log.debug("    | {d} no local mapping for {s}", .{ sym_id, object.getString(sym.n_strx) });
-            }
-        }
-    }
-
-    {
-        var it = self.blocks.iterator();
-        while (it.next()) |entry| {
-            const seg = self.load_commands.items[entry.key_ptr.seg].Segment;
-            const sect = seg.sections.items[entry.key_ptr.sect];
-
-            var block: *TextBlock = entry.value_ptr.*;
-
-            log.debug("\n\n{s},{s} contents:", .{ commands.segmentName(sect), commands.sectionName(sect) });
-            log.debug("{}", .{sect});
-            log.debug("{}", .{block});
-
-            while (block.prev) |prev| {
-                block = prev;
-                log.debug("{}", .{block});
-            }
-        }
-    }
 }
