@@ -2754,7 +2754,7 @@ struct ZigClangSourceLocation ZigClangIntegerLiteral_getBeginLoc(const struct Zi
     return bitcast(casted->getBeginLoc());
 }
 
-bool ZigClangIntegerLiteral_isZero(const struct ZigClangIntegerLiteral *self, bool *result, const struct ZigClangASTContext *ctx) {
+bool ZigClangIntegerLiteral_getSignum(const struct ZigClangIntegerLiteral *self, int *result, const struct ZigClangASTContext *ctx) {
     auto casted_self = reinterpret_cast<const clang::IntegerLiteral *>(self);
     auto casted_ctx = reinterpret_cast<const clang::ASTContext *>(ctx);
     clang::Expr::EvalResult eval_result;
@@ -2763,7 +2763,17 @@ bool ZigClangIntegerLiteral_isZero(const struct ZigClangIntegerLiteral *self, bo
     }
     const llvm::APSInt result_int = eval_result.Val.getInt();
     const llvm::APSInt zero(result_int.getBitWidth(), result_int.isUnsigned());
-    *result = zero == result_int;
+
+    if (zero == result_int) {
+        *result = 0;
+    } else if (result_int < zero) {
+        *result = -1;
+    } else if (result_int > zero) {
+        *result = 1;
+    } else {
+        return false;
+    }
+
     return true;
 }
 

@@ -1985,10 +1985,11 @@ fn transBoolExpr(
     used: ResultUsed,
 ) TransError!Node {
     if (@ptrCast(*const clang.Stmt, expr).getStmtClass() == .IntegerLiteralClass) {
-        var is_zero: bool = undefined;
-        if (!(@ptrCast(*const clang.IntegerLiteral, expr).isZero(&is_zero, c.clang_context))) {
+        var signum: c_int = undefined;
+        if (!(@ptrCast(*const clang.IntegerLiteral, expr).getSignum(&signum, c.clang_context))) {
             return fail(c, error.UnsupportedTranslation, expr.getBeginLoc(), "invalid integer literal", .{});
         }
+        const is_zero = signum == 0;
         return Node{ .tag_if_small_enough = @enumToInt(([2]Tag{ .true_literal, .false_literal })[@boolToInt(is_zero)]) };
     }
 
@@ -3360,6 +3361,7 @@ fn transArrayAccess(c: *Context, scope: *Scope, stmt: *const clang.ArraySubscrip
     const subscr_qt = getExprQualType(c, subscr_expr);
     const is_longlong = cIsLongLongInteger(subscr_qt);
     const is_signed = cIsSignedInteger(subscr_qt);
+    const is_nonnegative_int_literal = cIsNonNegativeIntLiteral(c, subscr_expr);
 
     // Unwrap the base statement if it's an array decayed to a bare pointer type
     // so that we index the array itself
@@ -3374,7 +3376,7 @@ fn transArrayAccess(c: *Context, scope: *Scope, stmt: *const clang.ArraySubscrip
 
     // Special case: actual pointer (not decayed array) and signed integer subscript
     // See discussion at https://github.com/ziglang/zig/pull/8589
-    if (is_signed and (base_stmt == unwrapped_base) and !is_vector) return transSignedArrayAccess(c, scope, base_stmt, subscr_expr, result_used);
+    if (is_signed and (base_stmt == unwrapped_base) and !is_vector and !is_nonnegative_int_literal) return transSignedArrayAccess(c, scope, base_stmt, subscr_expr, result_used);
 
     const container_node = try transExpr(c, scope, unwrapped_base, .used);
     const rhs = if (is_longlong or is_signed) blk: {
@@ -4258,6 +4260,18 @@ fn cIntTypeCmp(a: clang.QualType, b: clang.QualType) math.Order {
     const a_index = cIntTypeToIndex(a);
     const b_index = cIntTypeToIndex(b);
     return math.order(a_index, b_index);
+}
+
+/// Checks if expr is an integer literal >= 0
+fn cIsNonNegativeIntLiteral(c: *Context, expr: *const clang.Expr) bool {
+    if (@ptrCast(*const clang.Stmt, expr).getStmtClass() == .IntegerLiteralClass) {
+        var signum: c_int = undefined;
+        if (!(@ptrCast(*const clang.IntegerLiteral, expr).getSignum(&signum, c.clang_context))) {
+            return false;
+        }
+        return signum >= 0;
+    }
+    return false;
 }
 
 fn cIsSignedInteger(qt: clang.QualType) bool {
