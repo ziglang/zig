@@ -13,15 +13,6 @@ test "return string from function" {
     try expect(mem.eql(u8, first4KeysOfHomeRow(), "aoeu"));
 }
 
-const g1: i32 = 1233 + 1;
-var g2: i32 = 0;
-
-test "global variables" {
-    try expect(g2 == 0);
-    g2 = g1;
-    try expect(g2 == 1234);
-}
-
 test "memcpy and memset intrinsics" {
     var foo: [20]u8 = undefined;
     var bar: [20]u8 = undefined;
@@ -30,13 +21,6 @@ test "memcpy and memset intrinsics" {
     @memcpy(&bar, &foo, bar.len);
 
     if (bar[11] != 'A') unreachable;
-}
-
-test "builtin static eval" {
-    const x: i32 = comptime x: {
-        break :x 1 + 2 + 3;
-    };
-    try expect(x == comptime 6);
 }
 
 test "slicing" {
@@ -148,10 +132,6 @@ test "multiline C string" {
     try expect(std.cstr.cmp(s1, s2) == 0);
 }
 
-test "type equality" {
-    try expect(*const u8 != *u8);
-}
-
 const global_a: i32 = 1234;
 const global_b: *const i32 = &global_a;
 const global_c: *const f32 = @ptrCast(*const f32, global_b);
@@ -187,17 +167,6 @@ fn testCastUndefined(x: []const u8) void {
     _ = x;
 }
 
-test "cast small unsigned to larger signed" {
-    try expect(castSmallUnsignedToLargerSigned1(200) == @as(i16, 200));
-    try expect(castSmallUnsignedToLargerSigned2(9999) == @as(i64, 9999));
-}
-fn castSmallUnsignedToLargerSigned1(x: u8) i16 {
-    return x;
-}
-fn castSmallUnsignedToLargerSigned2(x: u16) i64 {
-    return x;
-}
-
 test "implicit cast after unreachable" {
     try expect(outer() == 1234);
 }
@@ -206,16 +175,6 @@ fn inner() i32 {
 }
 fn outer() i64 {
     return inner();
-}
-
-test "pointer dereferencing" {
-    var x = @as(i32, 3);
-    const y = &x;
-
-    y.* += 1;
-
-    try expect(x == 4);
-    try expect(y.* == 4);
 }
 
 test "call result of if else expression" {
@@ -230,13 +189,6 @@ fn fA() []const u8 {
 }
 fn fB() []const u8 {
     return "b";
-}
-
-test "const expression eval handling of variables" {
-    var x = true;
-    while (x) {
-        x = false;
-    }
 }
 
 test "constant enum initialization with differing sizes" {
@@ -276,11 +228,6 @@ fn test3_2(f: Test3Foo) !void {
         else => unreachable,
     }
 }
-
-test "character literals" {
-    try expect('\'' == single_quote);
-}
-const single_quote = '\'';
 
 test "take address of parameter" {
     try testTakeAddressOfParameter(12.34);
@@ -330,11 +277,6 @@ fn testPointerToVoidReturnType2() *const void {
     return &test_pointer_to_void_return_type_x;
 }
 
-test "non const ptr to aliased type" {
-    const int = i32;
-    try expect(?*int == ?*i32);
-}
-
 test "array 2D const double ptr" {
     const rect_2d_vertexes = [_][1]f32{
         [_]f32{1.0},
@@ -348,22 +290,6 @@ fn testArray2DConstDoublePtr(ptr: *const f32) !void {
     try expect(ptr2[0] == 1.0);
     try expect(ptr2[1] == 2.0);
 }
-
-const AStruct = struct {
-    x: i32,
-};
-const AnEnum = enum {
-    One,
-    Two,
-};
-const AUnionEnum = union(enum) {
-    One: i32,
-    Two: void,
-};
-const AUnion = union {
-    One: void,
-    Two: void,
-};
 
 test "double implicit cast in same expression" {
     var x = @as(i32, @as(u16, nine()));
@@ -438,15 +364,6 @@ fn fnThatClosesOverLocalConst() type {
 test "function closes over local const" {
     const x = fnThatClosesOverLocalConst().g();
     try expect(x == 1);
-}
-
-test "cold function" {
-    thisIsAColdFn();
-    comptime thisIsAColdFn();
-}
-
-fn thisIsAColdFn() void {
-    @setCold(true);
 }
 
 const PackedStruct = packed struct {
@@ -560,15 +477,6 @@ test "thread local variable" {
     };
     S.t += 1;
     try expect(S.t == 1235);
-}
-
-test "unicode escape in character literal" {
-    var a: u24 = '\u{01f4a9}';
-    try expect(a == 128169);
-}
-
-test "unicode character in character literal" {
-    try expect('💩' == 128169);
 }
 
 test "result location zero sized array inside struct field implicit cast to slice" {
