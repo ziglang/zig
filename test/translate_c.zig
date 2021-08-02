@@ -3630,4 +3630,15 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub const FOO = @import("std").zig.c_translation.Macros.U_SUFFIX;
     });
+
+    cases.add("Simple array access of pointer with non-negative integer constant",
+        \\void foo(int *p) {
+        \\    p[0];
+        \\    p[1];
+        \\}
+    , &[_][]const u8{
+        \\_ = p[@intCast(c_uint, @as(c_int, 0))];
+        ,
+        \\_ = p[@intCast(c_uint, @as(c_int, 1))];
+    });
 }
