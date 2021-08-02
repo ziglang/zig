@@ -1471,6 +1471,7 @@ fn sortSections(self: *MachO) !void {
             &self.cstring_section_index,
             &self.ustring_section_index,
             &self.text_const_section_index,
+            &self.objc_methlist_section_index,
             &self.objc_methname_section_index,
             &self.objc_methtype_section_index,
             &self.objc_classname_section_index,

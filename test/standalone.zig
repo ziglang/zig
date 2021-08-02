@@ -37,6 +37,10 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
     if (std.Target.current.os.tag == .linux) {
         cases.addBuildFile("test/standalone/pie/build.zig", .{});
     }
+    // Try to build and run an Objective-C executable.
+    if (std.Target.current.os.tag == .macos) {
+        cases.addBuildFile("test/standalone/objc/build.zig", .{ .build_modes = true });
+    }
 
     // Ensure the development tools are buildable.
     cases.add("tools/gen_spirv_spec.zig");
