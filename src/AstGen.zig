@@ -1064,11 +1064,28 @@ fn fnProtoExpr(
     const param_types = try gpa.alloc(Zir.Inst.Ref, param_count);
     defer gpa.free(param_types);
 
+    const bits_per_param = 1;
+    const params_per_u32 = 32 / bits_per_param;
+    // We only need this if there are greater than params_per_u32 fields.
+    var bit_bag = ArrayListUnmanaged(u32){};
+    defer bit_bag.deinit(gpa);
+    var cur_bit_bag: u32 = 0;
     var is_var_args = false;
     {
         var param_type_i: usize = 0;
         var it = fn_proto.iterate(tree.*);
         while (it.next()) |param| : (param_type_i += 1) {
+            if (param_type_i % params_per_u32 == 0 and param_type_i != 0) {
+                try bit_bag.append(gpa, cur_bit_bag);
+                cur_bit_bag = 0;
+            }
+            const is_comptime = if (param.comptime_noalias) |token|
+                token_tags[token] == .keyword_comptime
+            else
+                false;
+            cur_bit_bag = (cur_bit_bag >> bits_per_param) |
+                (@as(u32, @boolToInt(is_comptime)) << 31);
+
             if (param.anytype_ellipsis3) |token| {
                 switch (token_tags[token]) {
                     .keyword_anytype => {
@@ -1088,6 +1105,11 @@ fn fnProtoExpr(
                 try expr(gz, scope, .{ .ty = .type_type }, param_type_node);
         }
         assert(param_type_i == param_count);
+
+        const empty_slot_count = params_per_u32 - (param_type_i % params_per_u32);
+        if (empty_slot_count < params_per_u32) {
+            cur_bit_bag >>= @intCast(u5, empty_slot_count * bits_per_param);
+        }
     }
 
     const align_inst: Zir.Inst.Ref = if (fn_proto.ast.align_expr == 0) .none else inst: {
@@ -1131,6 +1153,8 @@ fn fnProtoExpr(
         .is_inferred_error = false,
         .is_test = false,
         .is_extern = false,
+        .cur_bit_bag = cur_bit_bag,
+        .bit_bag = bit_bag.items,
     });
     return rvalue(gz, rl, result, fn_proto.ast.proto_node);
 }
@@ -2916,11 +2940,28 @@ fn fnDecl(
     const param_types = try gpa.alloc(Zir.Inst.Ref, param_count);
     defer gpa.free(param_types);
 
+    const bits_per_param = 1;
+    const params_per_u32 = 32 / bits_per_param;
+    // We only need this if there are greater than params_per_u32 fields.
+    var bit_bag = ArrayListUnmanaged(u32){};
+    defer bit_bag.deinit(gpa);
+    var cur_bit_bag: u32 = 0;
     var is_var_args = false;
     {
         var param_type_i: usize = 0;
         var it = fn_proto.iterate(tree.*);
         while (it.next()) |param| : (param_type_i += 1) {
+            if (param_type_i % params_per_u32 == 0 and param_type_i != 0) {
+                try bit_bag.append(gpa, cur_bit_bag);
+                cur_bit_bag = 0;
+            }
+            const is_comptime = if (param.comptime_noalias) |token|
+                token_tags[token] == .keyword_comptime
+            else
+                false;
+            cur_bit_bag = (cur_bit_bag >> bits_per_param) |
+                (@as(u32, @boolToInt(is_comptime)) << 31);
+
             if (param.anytype_ellipsis3) |token| {
                 switch (token_tags[token]) {
                     .keyword_anytype => {
@@ -2940,6 +2981,11 @@ fn fnDecl(
                 try expr(&decl_gz, &decl_gz.base, .{ .ty = .type_type }, param_type_node);
         }
         assert(param_type_i == param_count);
+
+        const empty_slot_count = params_per_u32 - (param_type_i % params_per_u32);
+        if (empty_slot_count < params_per_u32) {
+            cur_bit_bag >>= @intCast(u5, empty_slot_count * bits_per_param);
+        }
     }
 
     const lib_name: u32 = if (fn_proto.lib_name) |lib_name_token| blk: {
@@ -3001,6 +3047,8 @@ fn fnDecl(
             .is_inferred_error = false,
             .is_test = false,
             .is_extern = true,
+            .cur_bit_bag = cur_bit_bag,
+            .bit_bag = bit_bag.items,
         });
     } else func: {
         if (is_var_args) {
@@ -3094,6 +3142,8 @@ fn fnDecl(
             .is_inferred_error = is_inferred_error,
             .is_test = false,
             .is_extern = false,
+            .cur_bit_bag = cur_bit_bag,
+            .bit_bag = bit_bag.items,
         });
     };
 
@@ -3439,6 +3489,8 @@ fn testDecl(
         .is_inferred_error = true,
         .is_test = true,
         .is_extern = false,
+        .cur_bit_bag = 0,
+        .bit_bag = &.{},
     });
 
     _ = try decl_block.addBreak(.break_inline, block_inst, func_inst);
@@ -9135,6 +9187,8 @@ const GenZir = struct {
         is_inferred_error: bool,
         is_test: bool,
         is_extern: bool,
+        cur_bit_bag: u32,
+        bit_bag: []const u32,
     }) !Zir.Inst.Ref {
         assert(args.src_node != 0);
         assert(args.ret_ty != .none);
@@ -9172,13 +9226,18 @@ const GenZir = struct {
             src_locs = &src_locs_buffer;
         }
 
+        const any_are_comptime = args.cur_bit_bag != 0 or for (args.bit_bag) |x| {
+            if (x != 0) break true;
+        } else false;
+
         if (args.cc != .none or args.lib_name != 0 or
             args.is_var_args or args.is_test or args.align_inst != .none or
-            args.is_extern)
+            args.is_extern or any_are_comptime)
         {
             try astgen.extra.ensureUnusedCapacity(
                 gpa,
                 @typeInfo(Zir.Inst.ExtendedFunc).Struct.fields.len +
+                    @boolToInt(any_are_comptime) + args.bit_bag.len +
                     args.param_types.len + args.body.len + src_locs.len +
                     @boolToInt(args.lib_name != 0) +
                     @boolToInt(args.align_inst != .none) +
@@ -9199,6 +9258,10 @@ const GenZir = struct {
             if (args.align_inst != .none) {
                 astgen.extra.appendAssumeCapacity(@enumToInt(args.align_inst));
             }
+            if (any_are_comptime) {
+                astgen.extra.appendSliceAssumeCapacity(args.bit_bag); // Likely empty.
+                astgen.extra.appendAssumeCapacity(args.cur_bit_bag);
+            }
             astgen.appendRefsAssumeCapacity(args.param_types);
             astgen.extra.appendSliceAssumeCapacity(args.body);
             astgen.extra.appendSliceAssumeCapacity(src_locs);
@@ -9216,6 +9279,7 @@ const GenZir = struct {
                         .has_align = args.align_inst != .none,
                         .is_test = args.is_test,
                         .is_extern = args.is_extern,
+                        .has_comptime_bits = any_are_comptime,
                     }),
                     .operand = payload_index,
                 } },

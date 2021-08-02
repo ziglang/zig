@@ -764,6 +764,7 @@ pub const Type = extern union {
                     .param_types = param_types,
                     .cc = payload.cc,
                     .is_var_args = payload.is_var_args,
+                    .is_generic = payload.is_generic,
                 });
             },
             .pointer => {
@@ -2407,6 +2408,19 @@ pub const Type = extern union {
         };
     }
 
+    /// Asserts the type is a function.
+    pub fn fnIsGeneric(self: Type) bool {
+        return switch (self.tag()) {
+            .fn_noreturn_no_args => false,
+            .fn_void_no_args => false,
+            .fn_naked_noreturn_no_args => false,
+            .fn_ccc_void_no_args => false,
+            .function => self.castTag(.function).?.data.is_generic,
+
+            else => unreachable,
+        };
+    }
+
     pub fn isNumeric(self: Type) bool {
         return switch (self.tag()) {
             .f16,
@@ -3214,6 +3228,7 @@ pub const Type = extern union {
                 return_type: Type,
                 cc: std.builtin.CallingConvention,
                 is_var_args: bool,
+                is_generic: bool,
             },
         };
 

@@ -2226,9 +2226,13 @@ pub const Inst = struct {
     /// 0. lib_name: u32, // null terminated string index, if has_lib_name is set
     /// 1. cc: Ref, // if has_cc is set
     /// 2. align: Ref, // if has_align is set
-    /// 3. param_type: Ref // for each param_types_len
-    /// 4. body: Index // for each body_len
-    /// 5. src_locs: Func.SrcLocs // if body_len != 0
+    /// 3. comptime_bits: u32 // for every 32 parameters, if has_comptime_bits is set
+    ///    - sets of 1 bit:
+    ///      0bX: whether corresponding parameter is comptime
+    /// 4. param_type: Ref // for each param_types_len
+    ///    - `none` indicates that the param type is `anytype`.
+    /// 5. body: Index // for each body_len
+    /// 6. src_locs: Func.SrcLocs // if body_len != 0
     pub const ExtendedFunc = struct {
         src_node: i32,
         return_type: Ref,
@@ -2243,7 +2247,8 @@ pub const Inst = struct {
             has_align: bool,
             is_test: bool,
             is_extern: bool,
-            _: u9 = undefined,
+            has_comptime_bits: bool,
+            _: u8 = undefined,
         };
     };
 
@@ -4291,6 +4296,7 @@ const Writer = struct {
             body,
             src,
             src_locs,
+            &.{},
         );
     }
 
@@ -4317,6 +4323,13 @@ const Writer = struct {
             break :blk align_inst;
         };
 
+        const comptime_bits: []const u32 = if (!small.has_comptime_bits) &.{} else blk: {
+            const amt = (extra.data.param_types_len + 31) / 32;
+            const bit_bags = self.code.extra[extra_index..][0..amt];
+            extra_index += amt;
+            break :blk bit_bags;
+        };
+
         const param_types = self.code.refSlice(extra_index, extra.data.param_types_len);
         extra_index += param_types.len;
 
@@ -4339,6 +4352,7 @@ const Writer = struct {
             body,
             src,
             src_locs,
+            comptime_bits,
         );
     }
 
@@ -4422,10 +4436,16 @@ const Writer = struct {
         body: []const Inst.Index,
         src: LazySrcLoc,
         src_locs: Zir.Inst.Func.SrcLocs,
+        comptime_bits: []const u32,
     ) !void {
         try stream.writeAll("[");
         for (param_types) |param_type, i| {
             if (i != 0) try stream.writeAll(", ");
+            if (comptime_bits.len != 0) {
+                const bag = comptime_bits[i / 32];
+                const is_comptime = @truncate(u1, bag >> @intCast(u5, i % 32)) != 0;
+                try self.writeFlag(stream, "comptime ", is_comptime);
+            }
             try self.writeInstRef(stream, param_type);
         }
         try stream.writeAll("], ");

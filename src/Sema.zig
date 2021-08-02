@@ -104,6 +104,9 @@ pub fn analyzeFnBody(
             extra_index += @boolToInt(small.has_lib_name);
             extra_index += @boolToInt(small.has_cc);
             extra_index += @boolToInt(small.has_align);
+            if (small.has_comptime_bits) {
+                extra_index += (extra.data.param_types_len + 31) / 32;
+            }
             extra_index += extra.data.param_types_len;
             const body = sema.code.extra[extra_index..][0..extra.data.body_len];
             break :blk body;
@@ -2533,6 +2536,9 @@ fn analyzeCall(
 
         break :res result;
     } else res: {
+        if (func_ty.fnIsGeneric()) {
+            return sema.mod.fail(&block.base, func_src, "TODO implement generic fn call", .{});
+        }
         try sema.requireRuntimeBlock(block, call_src);
         try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Call).Struct.fields.len +
             args.len);
@@ -3208,6 +3214,7 @@ fn zirFunc(
         false,
         src_locs,
         null,
+        &.{},
     );
 }
 
@@ -3225,6 +3232,7 @@ fn funcCommon(
     is_extern: bool,
     src_locs: Zir.Inst.Func.SrcLocs,
     opt_lib_name: ?[]const u8,
+    comptime_bits: []const u32,
 ) CompileError!Air.Inst.Ref {
     const src: LazySrcLoc = .{ .node_offset = src_node_offset };
     const ret_ty_src: LazySrcLoc = .{ .node_offset_fn_type_ret_ty = src_node_offset };
@@ -3257,13 +3265,23 @@ fn funcCommon(
             }
         }
 
+        var any_are_comptime = false;
         const param_types = try sema.arena.alloc(Type, zir_param_types.len);
         for (zir_param_types) |param_type, i| {
             // TODO make a compile error from `resolveType` report the source location
             // of the specific parameter. Will need to take a similar strategy as
             // `resolveSwitchItemVal` to avoid resolving the source location unless
             // we actually need to report an error.
-            param_types[i] = try sema.resolveType(block, src, param_type);
+            const param_src = src;
+            param_types[i] = try sema.resolveType(block, param_src, param_type);
+
+            any_are_comptime = any_are_comptime or blk: {
+                if (comptime_bits.len == 0)
+                    break :blk false;
+                const bag = comptime_bits[i / 32];
+                const is_comptime = @truncate(u1, bag >> @intCast(u5, i % 32)) != 0;
+                break :blk is_comptime;
+            };
         }
 
         if (align_val.tag() != .null_value) {
@@ -3286,6 +3304,7 @@ fn funcCommon(
             .return_type = return_type,
             .cc = cc,
             .is_var_args = var_args,
+            .is_generic = any_are_comptime,
         });
     };
 
@@ -6526,6 +6545,13 @@ fn zirFuncExtended(
         break :blk align_tv.val;
     } else Value.initTag(.null_value);
 
+    const comptime_bits: []const u32 = if (!small.has_comptime_bits) &.{} else blk: {
+        const amt = (extra.data.param_types_len + 31) / 32;
+        const bit_bags = sema.code.extra[extra_index..][0..amt];
+        extra_index += amt;
+        break :blk bit_bags;
+    };
+
     const param_types = sema.code.refSlice(extra_index, extra.data.param_types_len);
     extra_index += param_types.len;
 
@@ -6554,6 +6580,7 @@ fn zirFuncExtended(
         is_extern,
         src_locs,
         lib_name,
+        comptime_bits,
     );
 }
 
