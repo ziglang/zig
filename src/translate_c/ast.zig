@@ -558,9 +558,10 @@ pub const Payload = struct {
     pub const Record = struct {
         base: Payload,
         data: struct {
-            is_packed: bool,
+            layout: enum { @"packed", @"extern", none },
             fields: []Field,
             functions: []Node,
+            variables: []Node,
         },
 
         pub const Field = struct {
@@ -1952,9 +1953,9 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
 
 fn renderRecord(c: *Context, node: Node) !NodeIndex {
     const payload = @fieldParentPtr(Payload.Record, "base", node.ptr_otherwise).data;
-    if (payload.is_packed)
+    if (payload.layout == .@"packed")
         _ = try c.addToken(.keyword_packed, "packed")
-    else
+    else if (payload.layout == .@"extern")
         _ = try c.addToken(.keyword_extern, "extern");
     const kind_tok = if (node.tag() == .@"struct")
         try c.addToken(.keyword_struct, "struct")
@@ -1963,8 +1964,9 @@ fn renderRecord(c: *Context, node: Node) !NodeIndex {
 
     _ = try c.addToken(.l_brace, "{");
 
+    const num_vars = payload.variables.len;
     const num_funcs = payload.functions.len;
-    const total_members = payload.fields.len + num_funcs;
+    const total_members = payload.fields.len + num_vars + num_funcs;
     const members = try c.gpa.alloc(NodeIndex, std.math.max(total_members, 2));
     defer c.gpa.free(members);
     members[0] = 0;
@@ -2006,8 +2008,11 @@ fn renderRecord(c: *Context, node: Node) !NodeIndex {
         });
         _ = try c.addToken(.comma, ",");
     }
+    for (payload.variables) |variable, i| {
+        members[payload.fields.len + i] = try renderNode(c, variable);
+    }
     for (payload.functions) |function, i| {
-        members[payload.fields.len + i] = try renderNode(c, function);
+        members[payload.fields.len + num_vars + i] = try renderNode(c, function);
     }
     _ = try c.addToken(.r_brace, "}");
 
