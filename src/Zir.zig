@@ -173,11 +173,22 @@ pub const Inst = struct {
         /// Twos complement wrapping integer addition.
         /// Uses the `pl_node` union field. Payload is `Bin`.
         addwrap,
-        /// Declares a parameter of the current function. Used for debug info and
-        /// for checking shadowing against declarations in the current namespace.
-        /// Uses the `str_tok` field. Token is the parameter name, string is the
-        /// parameter name.
-        arg,
+        /// Declares a parameter of the current function. Used for:
+        /// * debug info
+        /// * checking shadowing against declarations in the current namespace
+        /// * parameter type expressions referencing other parameters
+        /// These occur in the block outside a function body (the same block as
+        /// contains the func instruction).
+        /// Uses the `pl_tok` field. Token is the parameter name, payload is a `Param`.
+        param,
+        /// Same as `param` except the parameter is marked comptime.
+        param_comptime,
+        /// Same as `param` except the parameter is marked anytype.
+        /// Uses the `str_tok` field. Token is the parameter name. String is the parameter name.
+        param_anytype,
+        /// Same as `param` except the parameter is marked both comptime and anytype.
+        /// Uses the `str_tok` field. Token is the parameter name. String is the parameter name.
+        param_anytype_comptime,
         /// Array concatenation. `a ++ b`
         /// Uses the `pl_node` union field. Payload is `Bin`.
         array_cat,
@@ -971,7 +982,10 @@ pub const Inst = struct {
         /// Function calls do not count.
         pub fn isNoReturn(tag: Tag) bool {
             return switch (tag) {
-                .arg,
+                .param,
+                .param_comptime,
+                .param_anytype,
+                .param_anytype_comptime,
                 .add,
                 .addwrap,
                 .alloc,
@@ -1233,7 +1247,10 @@ pub const Inst = struct {
             break :list std.enums.directEnumArray(Tag, Data.FieldEnum, 0, .{
                 .add = .pl_node,
                 .addwrap = .pl_node,
-                .arg = .str_tok,
+                .param = .pl_tok,
+                .param_comptime = .pl_tok,
+                .param_anytype = .str_tok,
+                .param_anytype_comptime = .str_tok,
                 .array_cat = .pl_node,
                 .array_mul = .pl_node,
                 .array_type = .bin,
@@ -2047,6 +2064,17 @@ pub const Inst = struct {
                 return .{ .node_offset = self.src_node };
             }
         },
+        pl_tok: struct {
+            /// Offset from Decl AST token index.
+            src_tok: ast.TokenIndex,
+            /// index into extra.
+            /// `Tag` determines what lives there.
+            payload_index: u32,
+
+            pub fn src(self: @This()) LazySrcLoc {
+                return .{ .token_offset = self.src_tok };
+            }
+        },
         bin: Bin,
         /// For strings which may contain null bytes.
         str: struct {
@@ -2170,6 +2198,7 @@ pub const Inst = struct {
             un_node,
             un_tok,
             pl_node,
+            pl_tok,
             bin,
             str,
             str_tok,
@@ -2226,17 +2255,11 @@ pub const Inst = struct {
     /// 0. lib_name: u32, // null terminated string index, if has_lib_name is set
     /// 1. cc: Ref, // if has_cc is set
     /// 2. align: Ref, // if has_align is set
-    /// 3. comptime_bits: u32 // for every 32 parameters, if has_comptime_bits is set
-    ///    - sets of 1 bit:
-    ///      0bX: whether corresponding parameter is comptime
-    /// 4. param_type: Ref // for each param_types_len
-    ///    - `none` indicates that the param type is `anytype`.
-    /// 5. body: Index // for each body_len
-    /// 6. src_locs: Func.SrcLocs // if body_len != 0
+    /// 3. body: Index // for each body_len
+    /// 4. src_locs: Func.SrcLocs // if body_len != 0
     pub const ExtendedFunc = struct {
         src_node: i32,
         return_type: Ref,
-        param_types_len: u32,
         body_len: u32,
 
         pub const Small = packed struct {
@@ -2247,8 +2270,7 @@ pub const Inst = struct {
             has_align: bool,
             is_test: bool,
             is_extern: bool,
-            has_comptime_bits: bool,
-            _: u8 = undefined,
+            _: u9 = undefined,
         };
     };
 
@@ -2271,13 +2293,10 @@ pub const Inst = struct {
     };
 
     /// Trailing:
-    /// 0. param_type: Ref // for each param_types_len
-    ///    - `none` indicates that the param type is `anytype`.
-    /// 1. body: Index // for each body_len
-    /// 2. src_locs: SrcLocs // if body_len != 0
+    /// 0. body: Index // for each body_len
+    /// 1. src_locs: SrcLocs // if body_len != 0
     pub const Func = struct {
         return_type: Ref,
-        param_types_len: u32,
         body_len: u32,
 
         pub const SrcLocs = struct {
@@ -2764,6 +2783,12 @@ pub const Inst = struct {
         args: Ref,
     };
 
+    pub const Param = struct {
+        /// Null-terminated string index.
+        name: u32,
+        ty: Ref,
+    };
+
     /// Trailing:
     /// 0. type_inst: Ref,  // if small 0b000X is set
     /// 1. align_inst: Ref, // if small 0b00X0 is set
@@ -3108,10 +3133,13 @@ const Writer = struct {
             .decl_ref,
             .decl_val,
             .import,
-            .arg,
             .ret_err_value,
             .ret_err_value_code,
+            .param_anytype,
+            .param_anytype_comptime,
             => try self.writeStrTok(stream, inst),
+
+            .param, .param_comptime => try self.writeParam(stream, inst),
 
             .func => try self.writeFunc(stream, inst, false),
             .func_inferred => try self.writeFunc(stream, inst, true),
@@ -3311,6 +3339,17 @@ const Writer = struct {
     fn writePlNode(self: *Writer, stream: anytype, inst: Inst.Index) !void {
         const inst_data = self.code.instructions.items(.data)[inst].pl_node;
         try stream.writeAll("TODO) ");
+        try self.writeSrc(stream, inst_data.src());
+    }
+
+    fn writeParam(self: *Writer, stream: anytype, inst: Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[inst].pl_tok;
+        const extra = self.code.extraData(Inst.Param, inst_data.payload_index).data;
+        try stream.print("\"{}\", ", .{
+            std.zig.fmtEscapes(self.code.nullTerminatedString(extra.name)),
+        });
+        try self.writeInstRef(stream, extra.ty);
+        try stream.writeAll(") ");
         try self.writeSrc(stream, inst_data.src());
     }
 
@@ -4277,16 +4316,14 @@ const Writer = struct {
         const inst_data = self.code.instructions.items(.data)[inst].pl_node;
         const src = inst_data.src();
         const extra = self.code.extraData(Inst.Func, inst_data.payload_index);
-        const param_types = self.code.refSlice(extra.end, extra.data.param_types_len);
-        const body = self.code.extra[extra.end + param_types.len ..][0..extra.data.body_len];
+        const body = self.code.extra[extra.end..][0..extra.data.body_len];
         var src_locs: Zir.Inst.Func.SrcLocs = undefined;
         if (body.len != 0) {
-            const extra_index = extra.end + param_types.len + body.len;
+            const extra_index = extra.end + body.len;
             src_locs = self.code.extraData(Zir.Inst.Func.SrcLocs, extra_index).data;
         }
         return self.writeFuncCommon(
             stream,
-            param_types,
             extra.data.return_type,
             inferred_error_set,
             false,
@@ -4296,7 +4333,6 @@ const Writer = struct {
             body,
             src,
             src_locs,
-            &.{},
         );
     }
 
@@ -4323,16 +4359,6 @@ const Writer = struct {
             break :blk align_inst;
         };
 
-        const comptime_bits: []const u32 = if (!small.has_comptime_bits) &.{} else blk: {
-            const amt = (extra.data.param_types_len + 31) / 32;
-            const bit_bags = self.code.extra[extra_index..][0..amt];
-            extra_index += amt;
-            break :blk bit_bags;
-        };
-
-        const param_types = self.code.refSlice(extra_index, extra.data.param_types_len);
-        extra_index += param_types.len;
-
         const body = self.code.extra[extra_index..][0..extra.data.body_len];
         extra_index += body.len;
 
@@ -4342,7 +4368,6 @@ const Writer = struct {
         }
         return self.writeFuncCommon(
             stream,
-            param_types,
             extra.data.return_type,
             small.is_inferred_error,
             small.is_var_args,
@@ -4352,7 +4377,6 @@ const Writer = struct {
             body,
             src,
             src_locs,
-            comptime_bits,
         );
     }
 
@@ -4426,7 +4450,6 @@ const Writer = struct {
     fn writeFuncCommon(
         self: *Writer,
         stream: anytype,
-        param_types: []const Inst.Ref,
         ret_ty: Inst.Ref,
         inferred_error_set: bool,
         var_args: bool,
@@ -4436,19 +4459,7 @@ const Writer = struct {
         body: []const Inst.Index,
         src: LazySrcLoc,
         src_locs: Zir.Inst.Func.SrcLocs,
-        comptime_bits: []const u32,
     ) !void {
-        try stream.writeAll("[");
-        for (param_types) |param_type, i| {
-            if (i != 0) try stream.writeAll(", ");
-            if (comptime_bits.len != 0) {
-                const bag = comptime_bits[i / 32];
-                const is_comptime = @truncate(u1, bag >> @intCast(u5, i % 32)) != 0;
-                try self.writeFlag(stream, "comptime ", is_comptime);
-            }
-            try self.writeInstRef(stream, param_type);
-        }
-        try stream.writeAll("], ");
         try self.writeInstRef(stream, ret_ty);
         try self.writeOptionalInstRef(stream, ", cc=", cc);
         try self.writeOptionalInstRef(stream, ", align=", align_inst);
@@ -4714,8 +4725,7 @@ fn findDeclsInner(
 
             const inst_data = datas[inst].pl_node;
             const extra = zir.extraData(Inst.Func, inst_data.payload_index);
-            const param_types_len = extra.data.param_types_len;
-            const body = zir.extra[extra.end + param_types_len ..][0..extra.data.body_len];
+            const body = zir.extra[extra.end..][0..extra.data.body_len];
             return zir.findDeclsBody(list, body);
         },
         .extended => {
@@ -4730,7 +4740,6 @@ fn findDeclsInner(
                     extra_index += @boolToInt(small.has_lib_name);
                     extra_index += @boolToInt(small.has_cc);
                     extra_index += @boolToInt(small.has_align);
-                    extra_index += extra.data.param_types_len;
                     const body = zir.extra[extra_index..][0..extra.data.body_len];
                     return zir.findDeclsBody(list, body);
                 },

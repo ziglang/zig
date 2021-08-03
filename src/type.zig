@@ -759,12 +759,15 @@ pub const Type = extern union {
                 for (payload.param_types) |param_type, i| {
                     param_types[i] = try param_type.copy(allocator);
                 }
+                const other_comptime_params = payload.comptime_params[0..payload.param_types.len];
+                const comptime_params = try allocator.dupe(bool, other_comptime_params);
                 return Tag.function.create(allocator, .{
                     .return_type = try payload.return_type.copy(allocator),
                     .param_types = param_types,
                     .cc = payload.cc,
                     .is_var_args = payload.is_var_args,
                     .is_generic = payload.is_generic,
+                    .comptime_params = comptime_params.ptr,
                 });
             },
             .pointer => {
@@ -2408,14 +2411,41 @@ pub const Type = extern union {
         };
     }
 
-    /// Asserts the type is a function.
-    pub fn fnIsGeneric(self: Type) bool {
-        return switch (self.tag()) {
-            .fn_noreturn_no_args => false,
-            .fn_void_no_args => false,
-            .fn_naked_noreturn_no_args => false,
-            .fn_ccc_void_no_args => false,
-            .function => self.castTag(.function).?.data.is_generic,
+    pub fn fnInfo(ty: Type) Payload.Function.Data {
+        return switch (ty.tag()) {
+            .fn_noreturn_no_args => .{
+                .param_types = &.{},
+                .comptime_params = undefined,
+                .return_type = initTag(.noreturn),
+                .cc = .Unspecified,
+                .is_var_args = false,
+                .is_generic = false,
+            },
+            .fn_void_no_args => .{
+                .param_types = &.{},
+                .comptime_params = undefined,
+                .return_type = initTag(.void),
+                .cc = .Unspecified,
+                .is_var_args = false,
+                .is_generic = false,
+            },
+            .fn_naked_noreturn_no_args => .{
+                .param_types = &.{},
+                .comptime_params = undefined,
+                .return_type = initTag(.noreturn),
+                .cc = .Naked,
+                .is_var_args = false,
+                .is_generic = false,
+            },
+            .fn_ccc_void_no_args => .{
+                .param_types = &.{},
+                .comptime_params = undefined,
+                .return_type = initTag(.void),
+                .cc = .C,
+                .is_var_args = false,
+                .is_generic = false,
+            },
+            .function => ty.castTag(.function).?.data,
 
             else => unreachable,
         };
@@ -3223,13 +3253,23 @@ pub const Type = extern union {
             pub const base_tag = Tag.function;
 
             base: Payload = Payload{ .tag = base_tag },
-            data: struct {
+            data: Data,
+
+            // TODO look into optimizing this memory to take fewer bytes
+            const Data = struct {
                 param_types: []Type,
+                comptime_params: [*]bool,
                 return_type: Type,
                 cc: std.builtin.CallingConvention,
                 is_var_args: bool,
                 is_generic: bool,
-            },
+
+                fn paramIsComptime(self: @This(), i: usize) bool {
+                    if (!self.is_generic) return false;
+                    assert(i < self.param_types.len);
+                    return self.comptime_params[i];
+                }
+            };
         };
 
         pub const ErrorSet = struct {

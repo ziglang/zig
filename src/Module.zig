@@ -3714,7 +3714,7 @@ fn markOutdatedDecl(mod: *Module, decl: *Decl) !void {
     decl.analysis = .outdated;
 }
 
-fn allocateNewDecl(mod: *Module, namespace: *Scope.Namespace, src_node: ast.Node.Index) !*Decl {
+pub fn allocateNewDecl(mod: *Module, namespace: *Scope.Namespace, src_node: ast.Node.Index) !*Decl {
     // If we have emit-h then we must allocate a bigger structure to store the emit-h state.
     const new_decl: *Decl = if (mod.emit_h != null) blk: {
         const parent_struct = try mod.gpa.create(DeclPlusEmitH);
