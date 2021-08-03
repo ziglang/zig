@@ -18,3 +18,15 @@ struct Foo {
 #define SIZE_OF_FOO sizeof(struct Foo)
 
 #define MAP_FAILED	((void *) -1)
+
+#define IGNORE_ME_1(x) ((void)(x))
+#define IGNORE_ME_2(x) ((const void)(x))
+#define IGNORE_ME_3(x) ((volatile void)(x))
+#define IGNORE_ME_4(x) ((const volatile void)(x))
+#define IGNORE_ME_5(x) ((volatile const void)(x))
+
+#define IGNORE_ME_6(x) (void)(x)
+#define IGNORE_ME_7(x) (const void)(x)
+#define IGNORE_ME_8(x) (volatile void)(x)
+#define IGNORE_ME_9(x) (const volatile void)(x)
+#define IGNORE_ME_10(x) (volatile const void)(x)
