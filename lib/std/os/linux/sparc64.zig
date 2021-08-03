@@ -169,7 +169,9 @@ pub extern fn clone(func: fn (arg: usize) callconv(.C) u8, stack: usize, flags: 
 
 pub const restore = restore_rt;
 
-pub fn restore_rt() callconv(.Naked) void {
+// Need to use C ABI here instead of naked
+// to prevent an infinite loop when calling rt_sigreturn.
+pub fn restore_rt() callconv(.C) void {
     return asm volatile ("t 0x6d"
         :
         : [number] "{g1}" (@enumToInt(SYS.rt_sigreturn))
