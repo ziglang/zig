@@ -4978,6 +4978,17 @@ const PatternList = struct {
             ,
             "WL_CONTAINER_OF",
         },
+
+        [2][]const u8{ "IGNORE_ME(X) ((void)(X))", "DISCARD" },
+        [2][]const u8{ "IGNORE_ME(X) (void)(X)", "DISCARD" },
+        [2][]const u8{ "IGNORE_ME(X) ((const void)(X))", "DISCARD" },
+        [2][]const u8{ "IGNORE_ME(X) (const void)(X)", "DISCARD" },
+        [2][]const u8{ "IGNORE_ME(X) ((volatile void)(X))", "DISCARD" },
+        [2][]const u8{ "IGNORE_ME(X) (volatile void)(X)", "DISCARD" },
+        [2][]const u8{ "IGNORE_ME(X) ((const volatile void)(X))", "DISCARD" },
+        [2][]const u8{ "IGNORE_ME(X) (const volatile void)(X)", "DISCARD" },
+        [2][]const u8{ "IGNORE_ME(X) ((volatile const void)(X))", "DISCARD" },
+        [2][]const u8{ "IGNORE_ME(X) (volatile const void)(X)", "DISCARD" },
     };
 
     /// Assumes that `ms` represents a tokenized function-like macro.
@@ -5152,6 +5163,16 @@ test "Macro matching" {
 
     try helper.checkMacro(allocator, pattern_list, "NO_MATCH(X, Y) (X + Y)", null);
     try helper.checkMacro(allocator, pattern_list, "CAST_OR_CALL(X, Y) (X)(Y)", "CAST_OR_CALL");
+    try helper.checkMacro(allocator, pattern_list, "IGNORE_ME(X) (void)(X)", "DISCARD");
+    try helper.checkMacro(allocator, pattern_list, "IGNORE_ME(X) ((void)(X))", "DISCARD");
+    try helper.checkMacro(allocator, pattern_list, "IGNORE_ME(X) (const void)(X)", "DISCARD");
+    try helper.checkMacro(allocator, pattern_list, "IGNORE_ME(X) ((const void)(X))", "DISCARD");
+    try helper.checkMacro(allocator, pattern_list, "IGNORE_ME(X) (volatile void)(X)", "DISCARD");
+    try helper.checkMacro(allocator, pattern_list, "IGNORE_ME(X) ((volatile void)(X))", "DISCARD");
+    try helper.checkMacro(allocator, pattern_list, "IGNORE_ME(X) (const volatile void)(X)", "DISCARD");
+    try helper.checkMacro(allocator, pattern_list, "IGNORE_ME(X) ((const volatile void)(X))", "DISCARD");
+    try helper.checkMacro(allocator, pattern_list, "IGNORE_ME(X) (volatile const void)(X)", "DISCARD");
+    try helper.checkMacro(allocator, pattern_list, "IGNORE_ME(X) ((volatile const void)(X))", "DISCARD");
 }
 
 const MacroCtx = struct {

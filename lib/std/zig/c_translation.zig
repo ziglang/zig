@@ -404,6 +404,10 @@ pub const Macros = struct {
             else => unreachable, // return type will be a compile error otherwise
         }
     }
+
+    pub inline fn DISCARD(x: anytype) void {
+        _ = x;
+    }
 };
 
 test "Macro suffix functions" {
