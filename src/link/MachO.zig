@@ -2167,19 +2167,16 @@ fn resolveSymbolsInObject(
                 .global => {
                     const global = &self.globals.items[resolv.where_index];
 
-                    if (!(symbolIsWeakDef(sym) or symbolIsPext(sym)) and
+                    if (symbolIsTentative(global.*)) {
+                        _ = tentatives.fetchSwapRemove(resolv.where_index);
+                    } else if (!(symbolIsWeakDef(sym) or symbolIsPext(sym)) and
                         !(symbolIsWeakDef(global.*) or symbolIsPext(global.*)))
                     {
                         log.err("symbol '{s}' defined multiple times", .{sym_name});
                         log.err("  first definition in '{s}'", .{self.objects.items[resolv.file].name});
                         log.err("  next definition in '{s}'", .{object.name});
                         return error.MultipleSymbolDefinitions;
-                    }
-                    if (symbolIsWeakDef(sym) or symbolIsPext(sym)) continue; // Current symbol is weak, so skip it.
-
-                    if (symbolIsTentative(global.*)) {
-                        _ = tentatives.fetchSwapRemove(resolv.where_index);
-                    }
+                    } else if (symbolIsWeakDef(sym) or symbolIsPext(sym)) continue; // Current symbol is weak, so skip it.
 
                     // Otherwise, update the resolver and the global symbol.
                     global.n_type = sym.n_type;
