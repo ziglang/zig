@@ -165,7 +165,7 @@ pub const Relocation = struct {
 
     where: enum {
         local,
-        import,
+        undef,
     },
 
     where_index: u32,
@@ -665,11 +665,10 @@ fn initRelocFromObject(rel: macho.relocation_info, context: RelocContext) !Reloc
                     parsed_rel.where = .local;
                     parsed_rel.where_index = resolv.local_sym_index;
                 },
-                .import => {
-                    parsed_rel.where = .import;
+                .undef => {
+                    parsed_rel.where = .undef;
                     parsed_rel.where_index = resolv.where_index;
                 },
-                else => unreachable,
             }
         }
     }
@@ -825,7 +824,7 @@ pub fn parseRelocs(self: *TextBlock, relocs: []macho.relocation_info, context: R
             const key = MachO.GotIndirectionKey{
                 .where = switch (parsed_rel.where) {
                     .local => .local,
-                    .import => .import,
+                    .undef => .undef,
                 },
                 .where_index = parsed_rel.where_index,
             };
@@ -836,7 +835,7 @@ pub fn parseRelocs(self: *TextBlock, relocs: []macho.relocation_info, context: R
             try context.macho_file.got_entries_map.putNoClobber(context.allocator, key, got_index);
         } else if (parsed_rel.payload == .unsigned) {
             switch (parsed_rel.where) {
-                .import => {
+                .undef => {
                     try self.bindings.append(context.allocator, .{
                         .local_sym_index = parsed_rel.where_index,
                         .offset = parsed_rel.offset,
@@ -886,7 +885,7 @@ pub fn parseRelocs(self: *TextBlock, relocs: []macho.relocation_info, context: R
                 },
             }
         } else if (parsed_rel.payload == .branch) blk: {
-            if (parsed_rel.where != .import) break :blk;
+            if (parsed_rel.where != .undef) break :blk;
             if (context.macho_file.stubs_map.contains(parsed_rel.where_index)) break :blk;
 
             const stubs_index = @intCast(u32, context.macho_file.stubs.items.len);
@@ -1030,7 +1029,7 @@ fn parseSigned(self: TextBlock, rel: macho.relocation_info, out: *Relocation, co
         const source_sym = context.macho_file.locals.items[self.local_sym_index];
         const target_sym = switch (out.where) {
             .local => context.macho_file.locals.items[out.where_index],
-            .import => context.macho_file.imports.items[out.where_index],
+            .undef => context.macho_file.undefs.items[out.where_index],
         };
         addend = @intCast(i64, source_sym.n_value + out.offset + 4) + addend - @intCast(i64, target_sym.n_value);
     }
@@ -1088,13 +1087,13 @@ pub fn resolveRelocs(self: *TextBlock, macho_file: *MachO) !void {
                 const got_index = macho_file.got_entries_map.get(.{
                     .where = switch (rel.where) {
                         .local => .local,
-                        .import => .import,
+                        .undef => .undef,
                     },
                     .where_index = rel.where_index,
                 }) orelse {
                     const sym = switch (rel.where) {
                         .local => macho_file.locals.items[rel.where_index],
-                        .import => macho_file.imports.items[rel.where_index],
+                        .undef => macho_file.undefs.items[rel.where_index],
                     };
                     log.err("expected GOT entry for symbol '{s}'", .{macho_file.getString(sym.n_strx)});
                     log.err("  this is an internal linker error", .{});
@@ -1137,7 +1136,7 @@ pub fn resolveRelocs(self: *TextBlock, macho_file: *MachO) !void {
 
                     break :blk sym.n_value;
                 },
-                .import => {
+                .undef => {
                     const stubs_index = macho_file.stubs_map.get(rel.where_index) orelse {
                         // TODO verify in TextBlock that the symbol is indeed dynamically bound.
                         break :blk 0; // Dynamically bound by dyld.

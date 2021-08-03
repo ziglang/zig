@@ -2714,7 +2714,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         // Add relocation to the decl.
                         try macho_file.active_decl.?.link.macho.relocs.append(self.bin_file.allocator, .{
                             .offset = offset,
-                            .where = .import,
+                            .where = .undef,
                             .where_index = where_index,
                             .payload = .{ .branch = .{
                                 .arch = arch,
