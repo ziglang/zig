@@ -1547,13 +1547,14 @@ fn ParseInternalErrorImpl(comptime T: type, comptime inferred_types: []const typ
         .Bool => return error{UnexpectedToken},
         .Float, .ComptimeFloat => return error{UnexpectedToken} || std.fmt.ParseFloatError,
         .Int, .ComptimeInt => {
-            return error{ UnexpectedToken, InvalidNumber, Overflow, InvalidCharacter } ||
+            return error{ UnexpectedToken, InvalidNumber, Overflow } ||
                 std.fmt.ParseIntError || std.fmt.ParseFloatError;
         },
         .Optional => |optionalInfo| {
             return ParseInternalErrorImpl(optionalInfo.child, inferred_types ++ [_]type{T});
         },
-        .Enum => return error{UnexpectedToken} || std.fmt.ParseIntError || std.meta.IntToEnumError,
+        .Enum => return error{ UnexpectedToken, InvalidEnumTag } || std.fmt.ParseIntError ||
+            std.meta.IntToEnumError || std.meta.IntToEnumError,
         .Union => |unionInfo| {
             if (unionInfo.tag_type) |_| {
                 var errors = error{NoUnionMembersMatched};
@@ -1573,7 +1574,7 @@ fn ParseInternalErrorImpl(comptime T: type, comptime inferred_types: []const typ
                 UnexpectedValue,
                 UnknownField,
                 MissingField,
-            } || SkipValueError;
+            } || SkipValueError || TokenStream.Error;
             for (structInfo.fields) |field| {
                 errors = errors || ParseInternalErrorImpl(field.field_type, inferred_types ++ [_]type{T});
             }
