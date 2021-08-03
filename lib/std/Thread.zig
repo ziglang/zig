@@ -806,8 +806,10 @@ const LinuxThreadImpl = struct {
                     \\  1:
                     \\  cmp %%sp, 0
                     \\  beq 2f
+                    \\  nop
                     \\  restore
                     \\  ba 1f
+                    \\  nop
                     \\  2:
                     \\  mov 73, %%g1
                     \\  mov %[ptr], %%o0
