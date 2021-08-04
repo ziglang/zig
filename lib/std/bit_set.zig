@@ -872,7 +872,7 @@ pub const DynamicBitSet = struct {
     /// ascending order.  Modifications to the underlying bit set may
     /// or may not be observed by the iterator.  Resizing the underlying
     /// bit set invalidates the iterator.
-    pub fn iterator(self: *Self, comptime options: IteratorOptions) Iterator(options) {
+    pub fn iterator(self: *const Self, comptime options: IteratorOptions) Iterator(options) {
         return self.unmanaged.iterator(options);
     }
 
