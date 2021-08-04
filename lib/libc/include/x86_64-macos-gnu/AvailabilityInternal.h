@@ -45,6 +45,9 @@
     #ifdef __ENVIRONMENT_IPHONE_OS_VERSION_MIN_REQUIRED__
         /* compiler sets __ENVIRONMENT_IPHONE_OS_VERSION_MIN_REQUIRED__ when -miphoneos-version-min is used */
         #define __IPHONE_OS_VERSION_MIN_REQUIRED __ENVIRONMENT_IPHONE_OS_VERSION_MIN_REQUIRED__
+    /* set to 1 when RC_FALLBACK_PLATFORM=iphoneos */
+    #elif 0
+        #define __IPHONE_OS_VERSION_MIN_REQUIRED __IPHONE_14_0
     #endif
 #endif /* __IPHONE_OS_VERSION_MIN_REQUIRED */
 
@@ -52,7 +55,7 @@
     #ifdef __ENVIRONMENT_TV_OS_VERSION_MIN_REQUIRED__
         /* compiler sets __ENVIRONMENT_TV_OS_VERSION_MIN_REQUIRED__ when -mtvos-version-min is used */
         #define __TV_OS_VERSION_MIN_REQUIRED __ENVIRONMENT_TV_OS_VERSION_MIN_REQUIRED__
-        #define __TV_OS_VERSION_MAX_ALLOWED __TVOS_13_0 
+        #define __TV_OS_VERSION_MAX_ALLOWED __TVOS_14_5
         /* for compatibility with existing code.  New code should use platform specific checks */
         #define __IPHONE_OS_VERSION_MIN_REQUIRED 90000
     #endif
@@ -62,7 +65,7 @@
     #ifdef __ENVIRONMENT_WATCH_OS_VERSION_MIN_REQUIRED__
         /* compiler sets __ENVIRONMENT_WATCH_OS_VERSION_MIN_REQUIRED__ when -mwatchos-version-min is used */
         #define __WATCH_OS_VERSION_MIN_REQUIRED __ENVIRONMENT_WATCH_OS_VERSION_MIN_REQUIRED__
-        #define __WATCH_OS_VERSION_MAX_ALLOWED 60000
+        #define __WATCH_OS_VERSION_MAX_ALLOWED __WATCHOS_7_4
         /* for compatibility with existing code.  New code should use platform specific checks */
         #define __IPHONE_OS_VERSION_MIN_REQUIRED 90000
     #endif
@@ -72,7 +75,7 @@
     #ifdef __ENVIRONMENT_BRIDGE_OS_VERSION_MIN_REQUIRED__
         
         #define __BRIDGE_OS_VERSION_MIN_REQUIRED __ENVIRONMENT_BRIDGE_OS_VERSION_MIN_REQUIRED__
-        #define __BRIDGE_OS_VERSION_MAX_ALLOWED 20000
+        #define __BRIDGE_OS_VERSION_MAX_ALLOWED 50300
         /* for compatibility with existing code.  New code should use platform specific checks */
         #define __IPHONE_OS_VERSION_MIN_REQUIRED 110000
     #endif
@@ -87,14 +90,14 @@
 #ifdef __MAC_OS_X_VERSION_MIN_REQUIRED
     /* make sure a default max version is set */
     #ifndef __MAC_OS_X_VERSION_MAX_ALLOWED
-        #define __MAC_OS_X_VERSION_MAX_ALLOWED __MAC_10_15
+        #define __MAC_OS_X_VERSION_MAX_ALLOWED __MAC_11_3
     #endif
 #endif /* __MAC_OS_X_VERSION_MIN_REQUIRED */
 
 #ifdef __IPHONE_OS_VERSION_MIN_REQUIRED
     /* make sure a default max version is set */
     #ifndef __IPHONE_OS_VERSION_MAX_ALLOWED
-        #define __IPHONE_OS_VERSION_MAX_ALLOWED     __IPHONE_13_0
+        #define __IPHONE_OS_VERSION_MAX_ALLOWED     __IPHONE_14_5
     #endif
     /* make sure a valid min is set */
     #if __IPHONE_OS_VERSION_MIN_REQUIRED < __IPHONE_2_0
@@ -2887,7 +2890,7 @@
                #if __has_builtin(__is_target_environment)
                 #if __has_builtin(__is_target_variant_os)
                  #if __has_builtin(__is_target_variant_environment)
-                  #if (__is_target_arch(x86_64) && __is_target_vendor(apple) && __is_target_os(ios) && __is_target_environment(macabi))
+                  #if ((__is_target_arch(x86_64) || __is_target_arch(arm64) || __is_target_arch(arm64e)) && __is_target_vendor(apple) && __is_target_os(ios) && __is_target_environment(macabi))
                     #define __AVAILABILITY_INTERNAL__IPHONE_COMPAT_VERSION __attribute__((availability(ios,introduced=4.0)))
                     #define __AVAILABILITY_INTERNAL__IPHONE_COMPAT_VERSION_DEP__IPHONE_COMPAT_VERSION               __attribute__((availability(ios,unavailable)))
                     #define __AVAILABILITY_INTERNAL__IPHONE_COMPAT_VERSION_DEP__IPHONE_COMPAT_VERSION_MSG(_msg)     __attribute__((availability(ios,unavailable)))
@@ -4643,7 +4646,7 @@
 
 /*
  * Swift compiler version
- * Allows for project-agnostic “epochs” for frameworks imported into Swift via the Clang importer, like #if _compiler_version for Swift
+ * Allows for project-agnostic "epochs" for frameworks imported into Swift via the Clang importer, like #if _compiler_version for Swift
  * Example:
  *
  *  #if __swift_compiler_version_at_least(800, 2, 20)
