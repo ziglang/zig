@@ -61,7 +61,7 @@ pub const ExtraIndex = enum(u32) {
     _,
 };
 
-pub fn getMainStruct(zir: Zir) Zir.Inst.Index {
+pub fn getMainStruct(zir: Zir) Inst.Index {
     return zir.extra[@enumToInt(ExtraIndex.main_struct)] -
         @intCast(u32, Inst.Ref.typed_value_map.len);
 }
@@ -2260,6 +2260,8 @@ pub const Inst = struct {
     pub const ExtendedFunc = struct {
         src_node: i32,
         return_type: Ref,
+        /// Points to the block that contains the param instructions for this function.
+        param_block: Index,
         body_len: u32,
 
         pub const Small = packed struct {
@@ -2297,6 +2299,8 @@ pub const Inst = struct {
     /// 1. src_locs: SrcLocs // if body_len != 0
     pub const Func = struct {
         return_type: Ref,
+        /// Points to the block that contains the param instructions for this function.
+        param_block: Index,
         body_len: u32,
 
         pub const SrcLocs = struct {
@@ -4894,10 +4898,54 @@ fn findDeclsSwitchMulti(
 
 fn findDeclsBody(
     zir: Zir,
-    list: *std.ArrayList(Zir.Inst.Index),
-    body: []const Zir.Inst.Index,
+    list: *std.ArrayList(Inst.Index),
+    body: []const Inst.Index,
 ) Allocator.Error!void {
     for (body) |member| {
         try zir.findDeclsInner(list, member);
     }
+}
+
+pub fn getFnInfo(zir: Zir, fn_inst: Inst.Index) struct {
+    param_body: []const Inst.Index,
+    body: []const Inst.Index,
+} {
+    const tags = zir.instructions.items(.tag);
+    const datas = zir.instructions.items(.data);
+    const info: struct {
+        param_block: Inst.Index,
+        body: []const Inst.Index,
+    } = switch (tags[fn_inst]) {
+        .func, .func_inferred => blk: {
+            const inst_data = datas[fn_inst].pl_node;
+            const extra = zir.extraData(Inst.Func, inst_data.payload_index);
+            const body = zir.extra[extra.end..][0..extra.data.body_len];
+            break :blk .{
+                .param_block = extra.data.param_block,
+                .body = body,
+            };
+        },
+        .extended => blk: {
+            const extended = datas[fn_inst].extended;
+            assert(extended.opcode == .func);
+            const extra = zir.extraData(Inst.ExtendedFunc, extended.operand);
+            const small = @bitCast(Inst.ExtendedFunc.Small, extended.small);
+            var extra_index: usize = extra.end;
+            extra_index += @boolToInt(small.has_lib_name);
+            extra_index += @boolToInt(small.has_cc);
+            extra_index += @boolToInt(small.has_align);
+            const body = zir.extra[extra_index..][0..extra.data.body_len];
+            break :blk .{
+                .param_block = extra.data.param_block,
+                .body = body,
+            };
+        },
+        else => unreachable,
+    };
+    assert(tags[info.param_block] == .block or tags[info.param_block] == .block_inline);
+    const param_block = zir.extraData(Inst.Block, datas[info.param_block].pl_node.payload_index);
+    return .{
+        .param_body = zir.extra[param_block.end..][0..param_block.data.body_len],
+        .body = info.body,
+    };
 }

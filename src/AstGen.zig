@@ -1125,6 +1125,7 @@ fn fnProtoExpr(
 
     const result = try gz.addFunc(.{
         .src_node = fn_proto.ast.proto_node,
+        .param_block = 0,
         .ret_ty = return_type_inst,
         .body = &[0]Zir.Inst.Index{},
         .cc = cc,
@@ -3035,6 +3036,7 @@ fn fnDecl(
         break :func try decl_gz.addFunc(.{
             .src_node = decl_node,
             .ret_ty = return_type_inst,
+            .param_block = block_inst,
             .body = &[0]Zir.Inst.Index{},
             .cc = cc,
             .align_inst = .none, // passed in the per-decl data
@@ -3071,6 +3073,7 @@ fn fnDecl(
 
         break :func try decl_gz.addFunc(.{
             .src_node = decl_node,
+            .param_block = block_inst,
             .ret_ty = return_type_inst,
             .body = fn_gz.instructions.items,
             .cc = cc,
@@ -3415,6 +3418,7 @@ fn testDecl(
 
     const func_inst = try decl_block.addFunc(.{
         .src_node = node,
+        .param_block = block_inst,
         .ret_ty = .void_type,
         .body = fn_block.instructions.items,
         .cc = .none,
@@ -9111,6 +9115,7 @@ const GenZir = struct {
     fn addFunc(gz: *GenZir, args: struct {
         src_node: ast.Node.Index,
         body: []const Zir.Inst.Index,
+        param_block: Zir.Inst.Index,
         ret_ty: Zir.Inst.Ref,
         cc: Zir.Inst.Ref,
         align_inst: Zir.Inst.Ref,
@@ -9170,6 +9175,7 @@ const GenZir = struct {
             );
             const payload_index = astgen.addExtraAssumeCapacity(Zir.Inst.ExtendedFunc{
                 .src_node = gz.nodeIndexToRelative(args.src_node),
+                .param_block = args.param_block,
                 .return_type = args.ret_ty,
                 .body_len = @intCast(u32, args.body.len),
             });
@@ -9212,6 +9218,7 @@ const GenZir = struct {
             );
 
             const payload_index = gz.astgen.addExtraAssumeCapacity(Zir.Inst.Func{
+                .param_block = args.param_block,
                 .return_type = args.ret_ty,
                 .body_len = @intCast(u32, args.body.len),
             });

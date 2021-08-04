@@ -2899,7 +2899,6 @@ pub fn semaFile(mod: *Module, file: *Scope.File) SemaError!void {
             .namespace = &struct_obj.namespace,
             .func = null,
             .owner_func = null,
-            .param_inst_list = &.{},
         };
         defer sema.deinit();
         var block_scope: Scope.Block = .{
@@ -2954,7 +2953,6 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
         .namespace = decl.namespace,
         .func = null,
         .owner_func = null,
-        .param_inst_list = &.{},
     };
     defer sema.deinit();
 
@@ -3625,8 +3623,6 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn) SemaError!Air {
     defer decl.value_arena.?.* = arena.state;
 
     const fn_ty = decl.ty;
-    const param_inst_list = try gpa.alloc(Air.Inst.Ref, fn_ty.fnParamLen());
-    defer gpa.free(param_inst_list);
 
     var sema: Sema = .{
         .mod = mod,
@@ -3637,7 +3633,6 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn) SemaError!Air {
         .namespace = decl.namespace,
         .func = func,
         .owner_func = func,
-        .param_inst_list = param_inst_list,
     };
     defer sema.deinit();
 
@@ -3656,29 +3651,55 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn) SemaError!Air {
     };
     defer inner_block.instructions.deinit(gpa);
 
-    // AIR requires the arg parameters to be the first N instructions.
-    try inner_block.instructions.ensureTotalCapacity(gpa, param_inst_list.len);
-    for (param_inst_list) |*param_inst, param_index| {
+    const fn_info = sema.code.getFnInfo(func.zir_body_inst);
+    const zir_tags = sema.code.instructions.items(.tag);
+
+    // Here we are performing "runtime semantic analysis" for a function body, which means
+    // we must map the parameter ZIR instructions to `arg` AIR instructions.
+    // AIR requires the `arg` parameters to be the first N instructions.
+    const params_len = @intCast(u32, fn_ty.fnParamLen());
+    try inner_block.instructions.ensureTotalCapacity(gpa, params_len);
+    try sema.air_instructions.ensureUnusedCapacity(gpa, params_len * 2); // * 2 for the `addType`
+    try sema.inst_map.ensureUnusedCapacity(gpa, params_len);
+
+    var param_index: usize = 0;
+    for (fn_info.param_body) |inst| {
+        const name = switch (zir_tags[inst]) {
+            .param, .param_comptime => blk: {
+                const inst_data = sema.code.instructions.items(.data)[inst].pl_tok;
+                const extra = sema.code.extraData(Zir.Inst.Param, inst_data.payload_index).data;
+                break :blk extra.name;
+            },
+
+            .param_anytype, .param_anytype_comptime => blk: {
+                const str_tok = sema.code.instructions.items(.data)[inst].str_tok;
+                break :blk str_tok.start;
+            },
+
+            else => continue,
+        };
         const param_type = fn_ty.fnParamType(param_index);
+        param_index += 1;
         const ty_ref = try sema.addType(param_type);
         const arg_index = @intCast(u32, sema.air_instructions.len);
         inner_block.instructions.appendAssumeCapacity(arg_index);
-        param_inst.* = Air.indexToRef(arg_index);
-        try sema.air_instructions.append(gpa, .{
+        sema.air_instructions.appendAssumeCapacity(.{
             .tag = .arg,
-            .data = .{
-                .ty_str = .{
-                    .ty = ty_ref,
-                    .str = undefined, // Set in the semantic analysis of the arg instruction.
-                },
-            },
+            .data = .{ .ty_str = .{
+                .ty = ty_ref,
+                .str = name,
+            } },
         });
+        sema.inst_map.putAssumeCapacityNoClobber(inst, Air.indexToRef(arg_index));
     }
 
     func.state = .in_progress;
     log.debug("set {s} to in_progress", .{decl.name});
 
-    try sema.analyzeFnBody(&inner_block, func.zir_body_inst);
+    _ = sema.analyzeBody(&inner_block, fn_info.body) catch |err| switch (err) {
+        error.NeededSourceLocation => unreachable,
+        else => |e| return e,
+    };
 
     // Copy the block into place and mark that as the main block.
     try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Block).Struct.fields.len +
@@ -4330,7 +4351,6 @@ pub fn analyzeStructFields(mod: *Module, struct_obj: *Struct) CompileError!void 
         .namespace = &struct_obj.namespace,
         .owner_func = null,
         .func = null,
-        .param_inst_list = &.{},
     };
     defer sema.deinit();
 
@@ -4484,7 +4504,6 @@ pub fn analyzeUnionFields(mod: *Module, union_obj: *Union) CompileError!void {
         .namespace = &union_obj.namespace,
         .owner_func = null,
         .func = null,
-        .param_inst_list = &.{},
     };
     defer sema.deinit();
 

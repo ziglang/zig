@@ -1,6 +1,4 @@
 * update arg instructions:
-  - runtime function call inserts AIR arg instructions and Sema map items for them
-  - comptime/inline function call inserts Sema map items for the args
   - generic instantiation inserts Sema map items for the comptime args only, re-runs the
     Decl ZIR to get the new Fn.
 * generic function call where it makes a new function

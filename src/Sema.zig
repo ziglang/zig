@@ -29,13 +29,6 @@ owner_func: ?*Module.Fn,
 /// This starts out the same as `owner_func` and then diverges in the case of
 /// an inline or comptime function call.
 func: ?*Module.Fn,
-/// For now, AIR requires arg instructions to be the first N instructions in the
-/// AIR code. We store references here for the purpose of `resolveInst`.
-/// This can get reworked with AIR memory layout changes, into simply:
-/// > Denormalized data to make `resolveInst` faster. This is 0 if not inside a function,
-/// > otherwise it is the number of parameters of the function.
-/// > param_count: u32
-param_inst_list: []const Air.Inst.Ref,
 branch_quota: u32 = 1000,
 branch_count: u32 = 0,
 /// This field is updated when a new source location becomes active, so that
@@ -85,41 +78,8 @@ pub fn deinit(sema: *Sema) void {
     sema.air_values.deinit(gpa);
     sema.inst_map.deinit(gpa);
     sema.decl_val_table.deinit(gpa);
+    sema.params.deinit(gpa);
     sema.* = undefined;
-}
-
-pub fn analyzeFnBody(
-    sema: *Sema,
-    block: *Scope.Block,
-    fn_body_inst: Zir.Inst.Index,
-) SemaError!void {
-    const tags = sema.code.instructions.items(.tag);
-    const datas = sema.code.instructions.items(.data);
-    const body: []const Zir.Inst.Index = switch (tags[fn_body_inst]) {
-        .func, .func_inferred => blk: {
-            const inst_data = datas[fn_body_inst].pl_node;
-            const extra = sema.code.extraData(Zir.Inst.Func, inst_data.payload_index);
-            const body = sema.code.extra[extra.end..][0..extra.data.body_len];
-            break :blk body;
-        },
-        .extended => blk: {
-            const extended = datas[fn_body_inst].extended;
-            assert(extended.opcode == .func);
-            const extra = sema.code.extraData(Zir.Inst.ExtendedFunc, extended.operand);
-            const small = @bitCast(Zir.Inst.ExtendedFunc.Small, extended.small);
-            var extra_index: usize = extra.end;
-            extra_index += @boolToInt(small.has_lib_name);
-            extra_index += @boolToInt(small.has_cc);
-            extra_index += @boolToInt(small.has_align);
-            const body = sema.code.extra[extra_index..][0..extra.data.body_len];
-            break :blk body;
-        },
-        else => unreachable,
-    };
-    _ = sema.analyzeBody(block, body) catch |err| switch (err) {
-        error.NeededSourceLocation => unreachable,
-        else => |e| return e,
-    };
 }
 
 /// Returns only the result from the body that is specified.
@@ -1066,7 +1026,6 @@ fn zirEnumDecl(
             .namespace = &enum_obj.namespace,
             .owner_func = null,
             .func = null,
-            .param_inst_list = &.{},
             .branch_quota = sema.branch_quota,
             .branch_count = sema.branch_count,
         };
@@ -2538,10 +2497,6 @@ fn analyzeCall(
         sema.func = module_fn;
         defer sema.func = parent_func;
 
-        const parent_param_inst_list = sema.param_inst_list;
-        sema.param_inst_list = args;
-        defer sema.param_inst_list = parent_param_inst_list;
-
         const parent_next_arg_index = sema.next_arg_index;
         sema.next_arg_index = 0;
         defer sema.next_arg_index = parent_next_arg_index;
@@ -2565,12 +2520,23 @@ fn analyzeCall(
         try sema.emitBackwardBranch(&child_block, call_src);
 
         // This will have return instructions analyzed as break instructions to
-        // the block_inst above.
-        try sema.analyzeFnBody(&child_block, module_fn.zir_body_inst);
-
-        const result = try sema.analyzeBlockBody(block, call_src, &child_block, merges);
-
-        break :res result;
+        // the block_inst above. Here we are performing "comptime/inline semantic analysis"
+        // for a function body, which means we must map the parameter ZIR instructions to
+        // the AIR instructions of the callsite.
+        const fn_info = sema.code.getFnInfo(module_fn.zir_body_inst);
+        const zir_tags = sema.code.instructions.items(.tag);
+        var arg_i: usize = 0;
+        try sema.inst_map.ensureUnusedCapacity(gpa, @intCast(u32, args.len));
+        for (fn_info.param_body) |inst| {
+            switch (zir_tags[inst]) {
+                .param, .param_comptime, .param_anytype, .param_anytype_comptime => {},
+                else => continue,
+            }
+            sema.inst_map.putAssumeCapacityNoClobber(inst, args[arg_i]);
+            arg_i += 1;
+        }
+        _ = try sema.analyzeBody(&child_block, fn_info.body);
+        break :res try sema.analyzeBlockBody(block, call_src, &child_block, merges);
     } else if (func_ty_info.is_generic) {
         const func_val = try sema.resolveConstValue(block, func_src, func);
         const module_fn = func_val.castTag(.function).?.data;
@@ -2601,7 +2567,7 @@ fn analyzeCall(
         // TODO
 
         // Queue up a `codegen_func` work item for the new Fn, making sure it will have
-        // `analyzeFnBody` called with the Scope which contains the comptime parameters.
+        // `analyzeBody` called with the ZIR parameters mapped appropriately.
         // TODO
 
         // Save it into the Module's generic function map.
@@ -3344,11 +3310,12 @@ fn funcCommon(
                 // `resolveSwitchItemVal` to avoid resolving the source location unless
                 // we actually need to report an error.
                 const param_src = src;
-                param_types[i] = try sema.resolveType(block, param_src, param.ty);
+                param_types[i] = try sema.analyzeAsType(block, param_src, param.ty);
             }
             comptime_params[i] = param.is_comptime;
             any_are_comptime = any_are_comptime or param.is_comptime;
         }
+        sema.params.clearRetainingCapacity();
 
         if (align_val.tag() != .null_value) {
             return mod.fail(&block.base, src, "TODO implement support for function prototypes to have alignment specified", .{});
