@@ -4909,6 +4909,7 @@ fn findDeclsBody(
 pub fn getFnInfo(zir: Zir, fn_inst: Inst.Index) struct {
     param_body: []const Inst.Index,
     body: []const Inst.Index,
+    total_params_len: u32,
 } {
     const tags = zir.instructions.items(.tag);
     const datas = zir.instructions.items(.data);
@@ -4944,8 +4945,19 @@ pub fn getFnInfo(zir: Zir, fn_inst: Inst.Index) struct {
     };
     assert(tags[info.param_block] == .block or tags[info.param_block] == .block_inline);
     const param_block = zir.extraData(Inst.Block, datas[info.param_block].pl_node.payload_index);
+    const param_body = zir.extra[param_block.end..][0..param_block.data.body_len];
+    var total_params_len: u32 = 0;
+    for (param_body) |inst| {
+        switch (tags[inst]) {
+            .param, .param_comptime, .param_anytype, .param_anytype_comptime => {
+                total_params_len += 1;
+            },
+            else => continue,
+        }
+    }
     return .{
-        .param_body = zir.extra[param_block.end..][0..param_block.data.body_len],
+        .param_body = param_body,
         .body = info.body,
+        .total_params_len = total_params_len,
     };
 }

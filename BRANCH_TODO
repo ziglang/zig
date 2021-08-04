@@ -1,7 +1,4 @@
-* update arg instructions:
-  - generic instantiation inserts Sema map items for the comptime args only, re-runs the
-    Decl ZIR to get the new Fn.
-* generic function call where it makes a new function
 * memoize the instantiation in a table
-* anytype with next parameter expression using it
+* expressions that depend on comptime stuff need a poison value to use for
+  types when generating the generic function type
 * comptime anytype

@@ -757,6 +757,10 @@ pub const Union = struct {
 pub const Fn = struct {
     /// The Decl that corresponds to the function itself.
     owner_decl: *Decl,
+    /// If this is not null, this function is a generic function instantiation, and
+    /// there is a `Value` here for each parameter of the function. Non-comptime
+    /// parameters are marked with an `unreachable_value`.
+    comptime_args: ?[*]TypedValue = null,
     /// The ZIR instruction that is a function instruction. Use this to find
     /// the body. We store this rather than the body directly so that when ZIR
     /// is regenerated on update(), we can map this to the new corresponding
@@ -3657,10 +3661,13 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn) SemaError!Air {
     // Here we are performing "runtime semantic analysis" for a function body, which means
     // we must map the parameter ZIR instructions to `arg` AIR instructions.
     // AIR requires the `arg` parameters to be the first N instructions.
-    const params_len = @intCast(u32, fn_ty.fnParamLen());
-    try inner_block.instructions.ensureTotalCapacity(gpa, params_len);
-    try sema.air_instructions.ensureUnusedCapacity(gpa, params_len * 2); // * 2 for the `addType`
-    try sema.inst_map.ensureUnusedCapacity(gpa, params_len);
+    // This could be a generic function instantiation, however, in which case we need to
+    // map the comptime parameters to constant values and only emit arg AIR instructions
+    // for the runtime ones.
+    const runtime_params_len = @intCast(u32, fn_ty.fnParamLen());
+    try inner_block.instructions.ensureTotalCapacity(gpa, runtime_params_len);
+    try sema.air_instructions.ensureUnusedCapacity(gpa, fn_info.total_params_len * 2); // * 2 for the `addType`
+    try sema.inst_map.ensureUnusedCapacity(gpa, fn_info.total_params_len);
 
     var param_index: usize = 0;
     for (fn_info.param_body) |inst| {
@@ -3678,8 +3685,17 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn) SemaError!Air {
 
             else => continue,
         };
+        if (func.comptime_args) |comptime_args| {
+            const arg_tv = comptime_args[param_index];
+            if (arg_tv.val.tag() != .unreachable_value) {
+                // We have a comptime value for this parameter.
+                const arg = try sema.addConstant(arg_tv.ty, arg_tv.val);
+                sema.inst_map.putAssumeCapacityNoClobber(inst, arg);
+                param_index += 1;
+                continue;
+            }
+        }
         const param_type = fn_ty.fnParamType(param_index);
-        param_index += 1;
         const ty_ref = try sema.addType(param_type);
         const arg_index = @intCast(u32, sema.air_instructions.len);
         inner_block.instructions.appendAssumeCapacity(arg_index);
@@ -3691,6 +3707,7 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn) SemaError!Air {
             } },
         });
         sema.inst_map.putAssumeCapacityNoClobber(inst, Air.indexToRef(arg_index));
+        param_index += 1;
     }
 
     func.state = .in_progress;

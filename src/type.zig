@@ -1182,7 +1182,6 @@ pub const Type = extern union {
             .fn_void_no_args,
             .fn_naked_noreturn_no_args,
             .fn_ccc_void_no_args,
-            .function,
             .single_const_pointer_to_comptime_int,
             .const_slice_u8,
             .array_u8_sentinel_0,
@@ -1206,6 +1205,8 @@ pub const Type = extern union {
             .@"anyframe",
             .anyframe_T,
             => true,
+
+            .function => !self.castTag(.function).?.data.is_generic,
 
             .@"struct" => {
                 // TODO introduce lazy value mechanism

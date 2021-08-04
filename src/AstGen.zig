@@ -2906,14 +2906,7 @@ fn fnDecl(
         const maybe_inline_token = fn_proto.extern_export_inline_token orelse break :blk false;
         break :blk token_tags[maybe_inline_token] == .keyword_inline;
     };
-    const align_inst: Zir.Inst.Ref = if (fn_proto.ast.align_expr == 0) .none else inst: {
-        break :inst try expr(&decl_gz, &decl_gz.base, align_rl, fn_proto.ast.align_expr);
-    };
-    const section_inst: Zir.Inst.Ref = if (fn_proto.ast.section_expr == 0) .none else inst: {
-        break :inst try comptimeExpr(&decl_gz, &decl_gz.base, .{ .ty = .const_slice_u8_type }, fn_proto.ast.section_expr);
-    };
-
-    try wip_decls.next(gpa, is_pub, is_export, align_inst != .none, section_inst != .none);
+    try wip_decls.next(gpa, is_pub, is_export, fn_proto.ast.align_expr != 0, fn_proto.ast.section_expr != 0);
 
     var params_scope = &fn_gz.base;
     const is_var_args = is_var_args: {
@@ -2993,6 +2986,13 @@ fn fnDecl(
 
     const maybe_bang = tree.firstToken(fn_proto.ast.return_type) - 1;
     const is_inferred_error = token_tags[maybe_bang] == .bang;
+
+    const align_inst: Zir.Inst.Ref = if (fn_proto.ast.align_expr == 0) .none else inst: {
+        break :inst try expr(&decl_gz, params_scope, align_rl, fn_proto.ast.align_expr);
+    };
+    const section_inst: Zir.Inst.Ref = if (fn_proto.ast.section_expr == 0) .none else inst: {
+        break :inst try comptimeExpr(&decl_gz, params_scope, .{ .ty = .const_slice_u8_type }, fn_proto.ast.section_expr);
+    };
 
     const return_type_inst = try AstGen.expr(
         &decl_gz,
