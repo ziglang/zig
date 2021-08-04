@@ -2329,11 +2329,8 @@ fn resolveSymbols(self: *MachO) !void {
 
     // Convert any tentative definition into a regular symbol and allocate
     // text blocks for each tentative defintion.
-    var tentatives_count: usize = 0;
-    const ntentatives = tentatives.count();
-    while (tentatives_count < ntentatives) : (tentatives_count += 1) {
-        const index = tentatives.pop().key;
-        const sym = &self.globals.items[index];
+    while (tentatives.popOrNull()) |entry| {
+        const sym = &self.globals.items[entry.key];
         const match: MatchingSection = blk: {
             if (self.common_section_index == null) {
                 const data_seg = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
