@@ -944,8 +944,6 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             if (options.sysroot) |sysroot| {
                 break :blk sysroot;
             } else if (darwin_can_use_system_sdk) {
-                // TODO Revisit this targeting versions lower than macOS 11 when LLVM 12 is out.
-                // See https://github.com/ziglang/zig/issues/6996
                 const at_least_big_sur = options.target.os.getVersionRange().semver.min.major >= 11;
                 break :blk if (at_least_big_sur) try std.zig.system.getSDKPath(arena) else null;
             } else {
@@ -1029,7 +1027,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             options.target,
             options.is_native_abi,
             link_libc,
-            options.system_libs.len != 0,
+            options.system_libs.len != 0 or options.frameworks.len != 0,
             options.libc_installation,
         );
 
