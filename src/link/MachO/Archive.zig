@@ -9,7 +9,6 @@ const mem = std.mem;
 const fat = @import("fat.zig");
 
 const Allocator = mem.Allocator;
-const Arch = std.Target.Cpu.Arch;
 const Object = @import("Object.zig");
 
 file: fs.File,
@@ -104,7 +103,7 @@ pub fn deinit(self: *Archive, allocator: *Allocator) void {
     allocator.free(self.name);
 }
 
-pub fn createAndParseFromPath(allocator: *Allocator, arch: Arch, path: []const u8) !?Archive {
+pub fn createAndParseFromPath(allocator: *Allocator, target: std.Target, path: []const u8) !?Archive {
     const file = fs.cwd().openFile(path, .{}) catch |err| switch (err) {
         error.FileNotFound => return null,
         else => |e| return e,
@@ -119,7 +118,7 @@ pub fn createAndParseFromPath(allocator: *Allocator, arch: Arch, path: []const u
         .file = file,
     };
 
-    archive.parse(allocator, arch) catch |err| switch (err) {
+    archive.parse(allocator, target) catch |err| switch (err) {
         error.EndOfStream, error.NotArchive => {
             archive.deinit(allocator);
             return null;
@@ -130,9 +129,9 @@ pub fn createAndParseFromPath(allocator: *Allocator, arch: Arch, path: []const u
     return archive;
 }
 
-pub fn parse(self: *Archive, allocator: *Allocator, arch: Arch) !void {
+pub fn parse(self: *Archive, allocator: *Allocator, target: std.Target) !void {
     const reader = self.file.reader();
-    self.library_offset = try fat.getLibraryOffset(reader, arch);
+    self.library_offset = try fat.getLibraryOffset(reader, target);
     try self.file.seekTo(self.library_offset);
 
     const magic = try reader.readBytesNoEof(SARMAG);
@@ -215,7 +214,7 @@ fn parseTableOfContents(self: *Archive, allocator: *Allocator, reader: anytype) 
     }
 }
 
-pub fn parseObject(self: Archive, allocator: *Allocator, arch: Arch, offset: u32) !Object {
+pub fn parseObject(self: Archive, allocator: *Allocator, target: std.Target, offset: u32) !Object {
     const reader = self.file.reader();
     try reader.context.seekTo(offset + self.library_offset);
 
@@ -244,7 +243,7 @@ pub fn parseObject(self: Archive, allocator: *Allocator, arch: Arch, offset: u32
         .mtime = try self.header.?.date(),
     };
 
-    try object.parse(allocator, arch);
+    try object.parse(allocator, target);
     try reader.context.seekTo(0);
 
     return object;

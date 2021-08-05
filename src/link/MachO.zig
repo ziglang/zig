@@ -995,7 +995,6 @@ fn linkWithZld(self: *MachO, comp: *Compilation) !void {
 }
 
 fn parseInputFiles(self: *MachO, files: []const []const u8, syslibroot: ?[]const u8) !void {
-    const arch = self.base.options.target.cpu.arch;
     for (files) |file_name| {
         const full_path = full_path: {
             var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
@@ -1004,17 +1003,17 @@ fn parseInputFiles(self: *MachO, files: []const []const u8, syslibroot: ?[]const
         };
         defer self.base.allocator.free(full_path);
 
-        if (try Object.createAndParseFromPath(self.base.allocator, arch, full_path)) |object| {
+        if (try Object.createAndParseFromPath(self.base.allocator, self.base.options.target, full_path)) |object| {
             try self.objects.append(self.base.allocator, object);
             continue;
         }
 
-        if (try Archive.createAndParseFromPath(self.base.allocator, arch, full_path)) |archive| {
+        if (try Archive.createAndParseFromPath(self.base.allocator, self.base.options.target, full_path)) |archive| {
             try self.archives.append(self.base.allocator, archive);
             continue;
         }
 
-        if (try Dylib.createAndParseFromPath(self.base.allocator, arch, full_path, .{
+        if (try Dylib.createAndParseFromPath(self.base.allocator, self.base.options.target, full_path, .{
             .syslibroot = syslibroot,
         })) |dylibs| {
             defer self.base.allocator.free(dylibs);
@@ -1032,9 +1031,8 @@ fn parseInputFiles(self: *MachO, files: []const []const u8, syslibroot: ?[]const
 }
 
 fn parseLibs(self: *MachO, libs: []const []const u8, syslibroot: ?[]const u8) !void {
-    const arch = self.base.options.target.cpu.arch;
     for (libs) |lib| {
-        if (try Dylib.createAndParseFromPath(self.base.allocator, arch, lib, .{
+        if (try Dylib.createAndParseFromPath(self.base.allocator, self.base.options.target, lib, .{
             .syslibroot = syslibroot,
         })) |dylibs| {
             defer self.base.allocator.free(dylibs);
@@ -1047,7 +1045,7 @@ fn parseLibs(self: *MachO, libs: []const []const u8, syslibroot: ?[]const u8) !v
             continue;
         }
 
-        if (try Archive.createAndParseFromPath(self.base.allocator, arch, lib)) |archive| {
+        if (try Archive.createAndParseFromPath(self.base.allocator, self.base.options.target, lib)) |archive| {
             try self.archives.append(self.base.allocator, archive);
             continue;
         }
@@ -2236,11 +2234,7 @@ fn resolveSymbols(self: *MachO) !void {
 
             const object_id = @intCast(u16, self.objects.items.len);
             const object = try self.objects.addOne(self.base.allocator);
-            object.* = try archive.parseObject(
-                self.base.allocator,
-                self.base.options.target.cpu.arch,
-                offsets.items[0],
-            );
+            object.* = try archive.parseObject(self.base.allocator, self.base.options.target, offsets.items[0]);
             try self.resolveSymbolsInObject(object_id);
 
             continue :loop;
@@ -2885,11 +2879,6 @@ fn flushZld(self: *MachO) !void {
     if (self.base.options.target.cpu.arch == .aarch64) {
         try self.writeCodeSignature();
     }
-
-    // if (comptime std.Target.current.isDarwin() and std.Target.current.cpu.arch == .aarch64) {
-    //     const out_path = self.output.?.path;
-    //     try fs.cwd().copyFile(out_path, fs.cwd(), out_path, .{});
-    // }
 }
 
 fn writeGotEntries(self: *MachO) !void {
