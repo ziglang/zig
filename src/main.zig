@@ -830,7 +830,10 @@ fn buildOutputType(
                     } else if (mem.eql(u8, arg, "-D") or
                         mem.eql(u8, arg, "-isystem") or
                         mem.eql(u8, arg, "-I") or
-                        mem.eql(u8, arg, "-dirafter"))
+                        mem.eql(u8, arg, "-dirafter") or
+                        mem.eql(u8, arg, "-iwithsysroot") or
+                        mem.eql(u8, arg, "-iframework") or
+                        mem.eql(u8, arg, "-iframeworkwithsysroot"))
                     {
                         if (i + 1 >= args.len) fatal("expected parameter after {s}", .{arg});
                         i += 1;
@@ -873,6 +876,8 @@ fn buildOutputType(
                         if (i + 1 >= args.len) fatal("expected parameter after {s}", .{arg});
                         i += 1;
                         sysroot = args[i];
+                        try clang_argv.append("-isysroot");
+                        try clang_argv.append(args[i]);
                     } else if (mem.eql(u8, arg, "--libc")) {
                         if (i + 1 >= args.len) fatal("expected parameter after {s}", .{arg});
                         i += 1;

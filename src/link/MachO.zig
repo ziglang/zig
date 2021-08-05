@@ -794,15 +794,14 @@ fn linkWithZld(self: *MachO, comp: *Compilation) !void {
             }
         }
 
-        // If we're compiling native and we can find libSystem.B.{dylib, tbd},
-        // we link against that instead of embedded libSystem.B.tbd file.
-        var native_libsystem_available = false;
-        if (self.base.options.is_native_os) blk: {
+        // If we were given the sysroot, try to look there first for libSystem.B.{dylib, tbd}.
+        var libsystem_available = false;
+        if (self.base.options.sysroot != null) blk: {
             // Try stub file first. If we hit it, then we're done as the stub file
             // re-exports every single symbol definition.
             if (try resolveLib(arena, lib_dirs.items, "System", ".tbd")) |full_path| {
                 try libs.append(full_path);
-                native_libsystem_available = true;
+                libsystem_available = true;
                 break :blk;
             }
             // If we didn't hit the stub file, try .dylib next. However, libSystem.dylib
@@ -811,12 +810,12 @@ fn linkWithZld(self: *MachO, comp: *Compilation) !void {
                 if (try resolveLib(arena, lib_dirs.items, "c", ".dylib")) |libc_path| {
                     try libs.append(libsystem_path);
                     try libs.append(libc_path);
-                    native_libsystem_available = true;
+                    libsystem_available = true;
                     break :blk;
                 }
             }
         }
-        if (!native_libsystem_available) {
+        if (!libsystem_available) {
             const full_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
                 "libc", "darwin", "libSystem.B.tbd",
             });
@@ -841,7 +840,7 @@ fn linkWithZld(self: *MachO, comp: *Compilation) !void {
                     break;
                 }
             } else {
-                log.warn("framework not found for '-f{s}'", .{framework});
+                log.warn("framework not found for '-framework {s}'", .{framework});
                 framework_not_found = true;
             }
         }
@@ -901,10 +900,8 @@ fn linkWithZld(self: *MachO, comp: *Compilation) !void {
             try argv.append("-o");
             try argv.append(full_out_path);
 
-            if (native_libsystem_available) {
-                try argv.append("-lSystem");
-                try argv.append("-lc");
-            }
+            try argv.append("-lSystem");
+            try argv.append("-lc");
 
             for (search_lib_names.items) |l_name| {
                 try argv.append(try std.fmt.allocPrint(arena, "-l{s}", .{l_name}));
@@ -912,6 +909,14 @@ fn linkWithZld(self: *MachO, comp: *Compilation) !void {
 
             for (self.base.options.lib_dirs) |lib_dir| {
                 try argv.append(try std.fmt.allocPrint(arena, "-L{s}", .{lib_dir}));
+            }
+
+            for (self.base.options.frameworks) |framework| {
+                try argv.append(try std.fmt.allocPrint(arena, "-framework {s}", .{framework}));
+            }
+
+            for (self.base.options.framework_dirs) |framework_dir| {
+                try argv.append(try std.fmt.allocPrint(arena, "-F{s}", .{framework_dir}));
             }
 
             Compilation.dump_argv(argv.items);
