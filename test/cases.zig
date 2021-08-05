@@ -1572,7 +1572,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    const x = asm volatile ("syscall"
             \\        : [o] "{rax}" (-> number)
             \\        : [number] "{rax}" (231),
-            \\          [arg1] "{rdi}" (code)
+            \\          [arg1] "{rdi}" (60)
             \\        : "rcx", "r11", "memory"
             \\    );
             \\    _ = x;

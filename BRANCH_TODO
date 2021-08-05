@@ -1,4 +1,0 @@
-* memoize the instantiation in a table
-* expressions that depend on comptime stuff need a poison value to use for
-  types when generating the generic function type
-* comptime anytype

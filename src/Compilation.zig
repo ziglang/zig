@@ -2118,7 +2118,7 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
                 if (builtin.mode == .Debug and self.verbose_air) {
                     std.debug.print("# Begin Function AIR: {s}:\n", .{decl.name});
                     @import("print_air.zig").dump(gpa, air, decl.namespace.file_scope.zir, liveness);
-                    std.debug.print("# End Function AIR: {s}:\n", .{decl.name});
+                    std.debug.print("# End Function AIR: {s}\n\n", .{decl.name});
                 }
 
                 self.bin_file.updateFunc(module, func, air, liveness) catch |err| switch (err) {

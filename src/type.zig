@@ -130,6 +130,7 @@ pub const Type = extern union {
             => return .Union,
 
             .var_args_param => unreachable, // can be any type
+            .generic_poison => unreachable, // must be handled earlier
         }
     }
 
@@ -699,6 +700,7 @@ pub const Type = extern union {
             .export_options,
             .extern_options,
             .@"anyframe",
+            .generic_poison,
             => unreachable,
 
             .array_u8,
@@ -1083,9 +1085,115 @@ pub const Type = extern union {
                 },
                 .inferred_alloc_const => return writer.writeAll("(inferred_alloc_const)"),
                 .inferred_alloc_mut => return writer.writeAll("(inferred_alloc_mut)"),
+                .generic_poison => return writer.writeAll("(generic poison)"),
             }
             unreachable;
         }
+    }
+
+    /// Anything that reports hasCodeGenBits() false returns false here as well.
+    pub fn requiresComptime(ty: Type) bool {
+        return switch (ty.tag()) {
+            .u1,
+            .u8,
+            .i8,
+            .u16,
+            .i16,
+            .u32,
+            .i32,
+            .u64,
+            .i64,
+            .u128,
+            .i128,
+            .usize,
+            .isize,
+            .c_short,
+            .c_ushort,
+            .c_int,
+            .c_uint,
+            .c_long,
+            .c_ulong,
+            .c_longlong,
+            .c_ulonglong,
+            .c_longdouble,
+            .f16,
+            .f32,
+            .f64,
+            .f128,
+            .c_void,
+            .bool,
+            .void,
+            .anyerror,
+            .noreturn,
+            .@"anyframe",
+            .@"null",
+            .@"undefined",
+            .atomic_ordering,
+            .atomic_rmw_op,
+            .calling_convention,
+            .float_mode,
+            .reduce_op,
+            .call_options,
+            .export_options,
+            .extern_options,
+            .manyptr_u8,
+            .manyptr_const_u8,
+            .fn_noreturn_no_args,
+            .fn_void_no_args,
+            .fn_naked_noreturn_no_args,
+            .fn_ccc_void_no_args,
+            .single_const_pointer_to_comptime_int,
+            .const_slice_u8,
+            .anyerror_void_error_union,
+            .empty_struct_literal,
+            .function,
+            .empty_struct,
+            .error_set,
+            .error_set_single,
+            .error_set_inferred,
+            .@"opaque",
+            => false,
+
+            .type,
+            .comptime_int,
+            .comptime_float,
+            .enum_literal,
+            => true,
+
+            .var_args_param => unreachable,
+            .inferred_alloc_mut => unreachable,
+            .inferred_alloc_const => unreachable,
+            .generic_poison => unreachable,
+
+            .array_u8,
+            .array_u8_sentinel_0,
+            .array,
+            .array_sentinel,
+            .vector,
+            .pointer,
+            .single_const_pointer,
+            .single_mut_pointer,
+            .many_const_pointer,
+            .many_mut_pointer,
+            .c_const_pointer,
+            .c_mut_pointer,
+            .const_slice,
+            .mut_slice,
+            .int_signed,
+            .int_unsigned,
+            .optional,
+            .optional_single_mut_pointer,
+            .optional_single_const_pointer,
+            .error_union,
+            .anyframe_T,
+            .@"struct",
+            .@"union",
+            .union_tagged,
+            .enum_simple,
+            .enum_full,
+            .enum_nonexhaustive,
+            => false, // TODO some of these should be `true` depending on their child types
+        };
     }
 
     pub fn toValue(self: Type, allocator: *Allocator) Allocator.Error!Value {
@@ -1287,6 +1395,7 @@ pub const Type = extern union {
             .inferred_alloc_const => unreachable,
             .inferred_alloc_mut => unreachable,
             .var_args_param => unreachable,
+            .generic_poison => unreachable,
         };
     }
 
@@ -1509,6 +1618,8 @@ pub const Type = extern union {
             .@"opaque",
             .var_args_param,
             => unreachable,
+
+            .generic_poison => unreachable,
         };
     }
 
@@ -1536,6 +1647,7 @@ pub const Type = extern union {
             .inferred_alloc_mut => unreachable,
             .@"opaque" => unreachable,
             .var_args_param => unreachable,
+            .generic_poison => unreachable,
 
             .@"struct" => {
                 const s = self.castTag(.@"struct").?.data;
@@ -1702,6 +1814,7 @@ pub const Type = extern union {
             .inferred_alloc_mut => unreachable,
             .@"opaque" => unreachable,
             .var_args_param => unreachable,
+            .generic_poison => unreachable,
 
             .@"struct" => {
                 @panic("TODO bitSize struct");
@@ -2626,6 +2739,7 @@ pub const Type = extern union {
 
             .inferred_alloc_const => unreachable,
             .inferred_alloc_mut => unreachable,
+            .generic_poison => unreachable,
         };
     }
 
@@ -3039,6 +3153,7 @@ pub const Type = extern union {
         single_const_pointer_to_comptime_int,
         const_slice_u8,
         anyerror_void_error_union,
+        generic_poison,
         /// This is a special type for variadic parameters of a function call.
         /// Casts to it will validate that the type can be passed to a c calling convetion function.
         var_args_param,
@@ -3136,6 +3251,7 @@ pub const Type = extern union {
                 .single_const_pointer_to_comptime_int,
                 .anyerror_void_error_union,
                 .const_slice_u8,
+                .generic_poison,
                 .inferred_alloc_const,
                 .inferred_alloc_mut,
                 .var_args_param,

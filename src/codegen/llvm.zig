@@ -839,6 +839,10 @@ pub const DeclGen = struct {
                     .False,
                 );
             },
+            .ComptimeInt => unreachable,
+            .ComptimeFloat => unreachable,
+            .Type => unreachable,
+            .EnumLiteral => unreachable,
             else => return self.todo("implement const of type '{}'", .{tv.ty}),
         }
     }

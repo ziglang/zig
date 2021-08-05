@@ -195,6 +195,9 @@ pub const ResultLoc = union(enum) {
     none_or_ref,
     /// The expression will be coerced into this type, but it will be evaluated as an rvalue.
     ty: Zir.Inst.Ref,
+    /// Same as `ty` but it is guaranteed that Sema will additionall perform the coercion,
+    /// so no `as` instruction needs to be emitted.
+    coerced_ty: Zir.Inst.Ref,
     /// The expression must store its result into this typed pointer. The result instruction
     /// from the expression must be ignored.
     ptr: Zir.Inst.Ref,
@@ -225,7 +228,7 @@ pub const ResultLoc = union(enum) {
     fn strategy(rl: ResultLoc, block_scope: *GenZir) Strategy {
         switch (rl) {
             // In this branch there will not be any store_to_block_ptr instructions.
-            .discard, .none, .none_or_ref, .ty, .ref => return .{
+            .discard, .none, .none_or_ref, .ty, .coerced_ty, .ref => return .{
                 .tag = .break_operand,
                 .elide_store_to_block_ptr_instructions = false,
             },
@@ -260,13 +263,14 @@ pub const ResultLoc = union(enum) {
 pub const align_rl: ResultLoc = .{ .ty = .u16_type };
 pub const bool_rl: ResultLoc = .{ .ty = .bool_type };
 pub const type_rl: ResultLoc = .{ .ty = .type_type };
+pub const coerced_type_rl: ResultLoc = .{ .coerced_ty = .type_type };
 
 fn typeExpr(gz: *GenZir, scope: *Scope, type_node: ast.Node.Index) InnerError!Zir.Inst.Ref {
     const prev_force_comptime = gz.force_comptime;
     gz.force_comptime = true;
     defer gz.force_comptime = prev_force_comptime;
 
-    return expr(gz, scope, .{ .ty = .type_type }, type_node);
+    return expr(gz, scope, coerced_type_rl, type_node);
 }
 
 /// Same as `expr` but fails with a compile error if the result type is `noreturn`.
@@ -1079,16 +1083,19 @@ fn fnProtoExpr(
                     .param_anytype;
                 _ = try gz.addStrTok(tag, param_name, name_token);
             } else {
+                const gpa = astgen.gpa;
                 const param_type_node = param.type_expr;
                 assert(param_type_node != 0);
-                const param_type = try expr(gz, scope, type_rl, param_type_node);
+                var param_gz = gz.makeSubBlock(scope);
+                defer param_gz.instructions.deinit(gpa);
+                const param_type = try expr(&param_gz, scope, coerced_type_rl, param_type_node);
+                const param_inst_expected = @intCast(u32, astgen.instructions.len + 1);
+                _ = try param_gz.addBreak(.break_inline, param_inst_expected, param_type);
                 const main_tokens = tree.nodes.items(.main_token);
                 const name_token = param.name_token orelse main_tokens[param_type_node];
                 const tag: Zir.Inst.Tag = if (is_comptime) .param_comptime else .param;
-                _ = try gz.addPlTok(tag, name_token, Zir.Inst.Param{
-                    .name = param_name,
-                    .ty = param_type,
-                });
+                const param_inst = try gz.addParam(tag, name_token, param_name, param_gz.instructions.items);
+                assert(param_inst_expected == param_inst);
             }
         }
         break :is_var_args false;
@@ -1219,7 +1226,7 @@ fn arrayInitExpr(
                 return arrayInitExprRlNone(gz, scope, node, array_init.ast.elements, .array_init_anon);
             }
         },
-        .ty => |ty_inst| {
+        .ty, .coerced_ty => |ty_inst| {
             if (types.array != .none) {
                 const result = try arrayInitExprRlTy(gz, scope, node, array_init.ast.elements, types.elem, .array_init);
                 return rvalue(gz, rl, result, node);
@@ -1388,7 +1395,7 @@ fn structInitExpr(
                 return structInitExprRlNone(gz, scope, node, struct_init, .struct_init_anon);
             }
         },
-        .ty => |ty_inst| {
+        .ty, .coerced_ty => |ty_inst| {
             if (struct_init.ast.type_expr == 0) {
                 return structInitExprRlTy(gz, scope, node, struct_init, ty_inst, .struct_init);
             }
@@ -2617,7 +2624,7 @@ fn assignOp(
     const lhs_ptr = try lvalExpr(gz, scope, node_datas[infix_node].lhs);
     const lhs = try gz.addUnNode(.load, lhs_ptr, infix_node);
     const lhs_type = try gz.addUnNode(.typeof, lhs, infix_node);
-    const rhs = try expr(gz, scope, .{ .ty = lhs_type }, node_datas[infix_node].rhs);
+    const rhs = try expr(gz, scope, .{ .coerced_ty = lhs_type }, node_datas[infix_node].rhs);
 
     const result = try gz.addPlNode(op_inst_tag, infix_node, Zir.Inst.Bin{
         .lhs = lhs,
@@ -2953,14 +2960,18 @@ fn fnDecl(
             } else param: {
                 const param_type_node = param.type_expr;
                 assert(param_type_node != 0);
-                const param_type = try expr(&decl_gz, params_scope, type_rl, param_type_node);
+                var param_gz = decl_gz.makeSubBlock(scope);
+                defer param_gz.instructions.deinit(gpa);
+                const param_type = try expr(&param_gz, params_scope, coerced_type_rl, param_type_node);
+                const param_inst_expected = @intCast(u32, astgen.instructions.len + 1);
+                _ = try param_gz.addBreak(.break_inline, param_inst_expected, param_type);
+
                 const main_tokens = tree.nodes.items(.main_token);
                 const name_token = param.name_token orelse main_tokens[param_type_node];
                 const tag: Zir.Inst.Tag = if (is_comptime) .param_comptime else .param;
-                break :param try decl_gz.addPlTok(tag, name_token, Zir.Inst.Param{
-                    .name = param_name,
-                    .ty = param_type,
-                });
+                const param_inst = try decl_gz.addParam(tag, name_token, param_name, param_gz.instructions.items);
+                assert(param_inst_expected == param_inst);
+                break :param indexToRef(param_inst);
             };
 
             if (param_name == 0) continue;
@@ -6758,7 +6769,7 @@ fn as(
 ) InnerError!Zir.Inst.Ref {
     const dest_type = try typeExpr(gz, scope, lhs);
     switch (rl) {
-        .none, .none_or_ref, .discard, .ref, .ty => {
+        .none, .none_or_ref, .discard, .ref, .ty, .coerced_ty => {
             const result = try reachableExpr(gz, scope, .{ .ty = dest_type }, rhs, node);
             return rvalue(gz, rl, result, node);
         },
@@ -6781,7 +6792,7 @@ fn unionInit(
     const union_type = try typeExpr(gz, scope, params[0]);
     const field_name = try comptimeExpr(gz, scope, .{ .ty = .const_slice_u8_type }, params[1]);
     switch (rl) {
-        .none, .none_or_ref, .discard, .ref, .ty, .inferred_ptr => {
+        .none, .none_or_ref, .discard, .ref, .ty, .coerced_ty, .inferred_ptr => {
             _ = try gz.addPlNode(.field_type_ref, params[1], Zir.Inst.FieldTypeRef{
                 .container_type = union_type,
                 .field_name = field_name,
@@ -6867,7 +6878,7 @@ fn bitCast(
     const astgen = gz.astgen;
     const dest_type = try typeExpr(gz, scope, lhs);
     switch (rl) {
-        .none, .none_or_ref, .discard, .ty => {
+        .none, .none_or_ref, .discard, .ty, .coerced_ty => {
             const operand = try expr(gz, scope, .none, rhs);
             const result = try gz.addPlNode(.bitcast, node, Zir.Inst.Bin{
                 .lhs = dest_type,
@@ -7677,7 +7688,7 @@ fn callExpr(
                 .param_index = @intCast(u32, i),
             } },
         });
-        args[i] = try expr(gz, scope, .{ .ty = param_type }, param_node);
+        args[i] = try expr(gz, scope, .{ .coerced_ty = param_type }, param_node);
     }
 
     const modifier: std.builtin.CallOptions.Modifier = blk: {
@@ -8370,7 +8381,7 @@ fn rvalue(
     src_node: ast.Node.Index,
 ) InnerError!Zir.Inst.Ref {
     switch (rl) {
-        .none, .none_or_ref => return result,
+        .none, .none_or_ref, .coerced_ty => return result,
         .discard => {
             // Emit a compile error for discarding error values.
             _ = try gz.addUnNode(.ensure_result_non_error, result, src_node);
@@ -9042,7 +9053,7 @@ const GenZir = struct {
         // we emit ZIR for the block break instructions to have the result values,
         // and then rvalue() on that to pass the value to the result location.
         switch (parent_rl) {
-            .ty => |ty_inst| {
+            .ty, .coerced_ty => |ty_inst| {
                 gz.rl_ty_inst = ty_inst;
                 gz.break_result_loc = parent_rl;
             },
@@ -9425,18 +9436,26 @@ const GenZir = struct {
         return indexToRef(new_index);
     }
 
-    fn addPlTok(
+    fn addParam(
         gz: *GenZir,
         tag: Zir.Inst.Tag,
         /// Absolute token index. This function does the conversion to Decl offset.
         abs_tok_index: ast.TokenIndex,
-        extra: anytype,
-    ) !Zir.Inst.Ref {
+        name: u32,
+        body: []const u32,
+    ) !Zir.Inst.Index {
         const gpa = gz.astgen.gpa;
         try gz.instructions.ensureUnusedCapacity(gpa, 1);
         try gz.astgen.instructions.ensureUnusedCapacity(gpa, 1);
+        try gz.astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.Param).Struct.fields.len +
+            body.len);
 
-        const payload_index = try gz.astgen.addExtra(extra);
+        const payload_index = gz.astgen.addExtraAssumeCapacity(Zir.Inst.Param{
+            .name = name,
+            .body_len = @intCast(u32, body.len),
+        });
+        gz.astgen.extra.appendSliceAssumeCapacity(body);
+
         const new_index = @intCast(Zir.Inst.Index, gz.astgen.instructions.len);
         gz.astgen.instructions.appendAssumeCapacity(.{
             .tag = tag,
@@ -9446,7 +9465,7 @@ const GenZir = struct {
             } },
         });
         gz.instructions.appendAssumeCapacity(new_index);
-        return indexToRef(new_index);
+        return new_index;
     }
 
     fn addExtendedPayload(

@@ -1704,6 +1704,8 @@ pub const Inst = struct {
         fn_ccc_void_no_args_type,
         single_const_pointer_to_comptime_int_type,
         const_slice_u8_type,
+        anyerror_void_error_union_type,
+        generic_poison_type,
 
         /// `undefined` (untyped)
         undef,
@@ -1731,6 +1733,9 @@ pub const Inst = struct {
         calling_convention_c,
         /// `std.builtin.CallingConvention.Inline`
         calling_convention_inline,
+        /// Used for generic parameters where the type and value
+        /// is not known until generic function instantiation.
+        generic_poison,
 
         _,
 
@@ -1909,6 +1914,14 @@ pub const Inst = struct {
                 .ty = Type.initTag(.type),
                 .val = Value.initTag(.const_slice_u8_type),
             },
+            .anyerror_void_error_union_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.anyerror_void_error_union_type),
+            },
+            .generic_poison_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.generic_poison_type),
+            },
             .enum_literal_type = .{
                 .ty = Type.initTag(.type),
                 .val = Value.initTag(.enum_literal_type),
@@ -2005,6 +2018,10 @@ pub const Inst = struct {
             .calling_convention_inline = .{
                 .ty = Type.initTag(.calling_convention),
                 .val = .{ .ptr_otherwise = &calling_convention_inline_payload.base },
+            },
+            .generic_poison = .{
+                .ty = Type.initTag(.generic_poison),
+                .val = Value.initTag(.generic_poison),
             },
         });
     };
@@ -2787,10 +2804,12 @@ pub const Inst = struct {
         args: Ref,
     };
 
+    /// Trailing: inst: Index // for every body_len
     pub const Param = struct {
         /// Null-terminated string index.
         name: u32,
-        ty: Ref,
+        /// The body contains the type of the parameter.
+        body_len: u32,
     };
 
     /// Trailing:
@@ -3348,11 +3367,16 @@ const Writer = struct {
 
     fn writeParam(self: *Writer, stream: anytype, inst: Inst.Index) !void {
         const inst_data = self.code.instructions.items(.data)[inst].pl_tok;
-        const extra = self.code.extraData(Inst.Param, inst_data.payload_index).data;
+        const extra = self.code.extraData(Inst.Param, inst_data.payload_index);
+        const body = self.code.extra[extra.end..][0..extra.data.body_len];
         try stream.print("\"{}\", ", .{
-            std.zig.fmtEscapes(self.code.nullTerminatedString(extra.name)),
+            std.zig.fmtEscapes(self.code.nullTerminatedString(extra.data.name)),
         });
-        try self.writeInstRef(stream, extra.ty);
+        try stream.writeAll("{\n");
+        self.indent += 2;
+        try self.writeBody(stream, body);
+        self.indent -= 2;
+        try stream.writeByteNTimes(' ', self.indent);
         try stream.writeAll(") ");
         try self.writeSrc(stream, inst_data.src());
     }

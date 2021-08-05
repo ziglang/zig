@@ -1173,6 +1173,8 @@ pub const Scope = struct {
         /// for the one that will be the same for all Block instances.
         src_decl: *Decl,
         instructions: ArrayListUnmanaged(Air.Inst.Index),
+        // `param` instructions are collected here to be used by the `func` instruction.
+        params: std.ArrayListUnmanaged(Param) = .{},
         label: ?*Label = null,
         inlining: ?*Inlining,
         /// If runtime_index is not 0 then one of these is guaranteed to be non null.
@@ -1186,6 +1188,12 @@ pub const Scope = struct {
 
         /// when null, it is determined by build mode, changed by @setRuntimeSafety
         want_safety: ?bool = null,
+
+        const Param = struct {
+            /// `noreturn` means `anytype`.
+            ty: Type,
+            is_comptime: bool,
+        };
 
         /// This `Block` maps a block ZIR instruction to the corresponding
         /// AIR instruction for break instruction analysis.
@@ -1634,8 +1642,11 @@ pub const SrcLoc = struct {
                     .@"asm" => tree.asmFull(node),
                     else => unreachable,
                 };
+                const asm_output = full.outputs[0];
+                const node_datas = tree.nodes.items(.data);
+                const ret_ty_node = node_datas[asm_output].lhs;
                 const main_tokens = tree.nodes.items(.main_token);
-                const tok_index = main_tokens[full.outputs[0]];
+                const tok_index = main_tokens[ret_ty_node];
                 const token_starts = tree.tokens.items(.start);
                 return token_starts[tok_index];
             },
@@ -2099,7 +2110,20 @@ pub const LazySrcLoc = union(enum) {
 };
 
 pub const SemaError = error{ OutOfMemory, AnalysisFail };
-pub const CompileError = error{ OutOfMemory, AnalysisFail, NeededSourceLocation };
+pub const CompileError = error{
+    OutOfMemory,
+    /// When this is returned, the compile error for the failure has already been recorded.
+    AnalysisFail,
+    /// Returned when a compile error needed to be reported but a provided LazySrcLoc was set
+    /// to the `unneeded` tag. The source location was, in fact, needed. It is expected that
+    /// somewhere up the call stack, the operation will be retried after doing expensive work
+    /// to compute a source location.
+    NeededSourceLocation,
+    /// A Type or Value was needed to be used during semantic analysis, but it was not available
+    /// because the function is generic. This is only seen when analyzing the body of a param
+    /// instruction.
+    GenericPoison,
+};
 
 pub fn deinit(mod: *Module) void {
     const gpa = mod.gpa;
@@ -2796,14 +2820,16 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl: *Decl) SemaError!void {
             }
             return error.AnalysisFail;
         },
-        else => {
+        error.NeededSourceLocation => unreachable,
+        error.GenericPoison => unreachable,
+        else => |e| {
             decl.analysis = .sema_failure_retryable;
             try mod.failed_decls.ensureUnusedCapacity(mod.gpa, 1);
             mod.failed_decls.putAssumeCapacityNoClobber(decl, try ErrorMsg.create(
                 mod.gpa,
                 decl.srcLoc(),
                 "unable to analyze: {s}",
-                .{@errorName(err)},
+                .{@errorName(e)},
             ));
             return error.AnalysisFail;
         },
@@ -2982,7 +3008,10 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
         .inlining = null,
         .is_comptime = true,
     };
-    defer block_scope.instructions.deinit(gpa);
+    defer {
+        block_scope.instructions.deinit(gpa);
+        block_scope.params.deinit(gpa);
+    }
 
     const zir_block_index = decl.zirBlockIndex();
     const inst_data = zir_datas[zir_block_index].pl_node;
@@ -3669,7 +3698,8 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn) SemaError!Air {
     try sema.air_instructions.ensureUnusedCapacity(gpa, fn_info.total_params_len * 2); // * 2 for the `addType`
     try sema.inst_map.ensureUnusedCapacity(gpa, fn_info.total_params_len);
 
-    var param_index: usize = 0;
+    var runtime_param_index: usize = 0;
+    var total_param_index: usize = 0;
     for (fn_info.param_body) |inst| {
         const name = switch (zir_tags[inst]) {
             .param, .param_comptime => blk: {
@@ -3686,16 +3716,16 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn) SemaError!Air {
             else => continue,
         };
         if (func.comptime_args) |comptime_args| {
-            const arg_tv = comptime_args[param_index];
+            const arg_tv = comptime_args[total_param_index];
             if (arg_tv.val.tag() != .unreachable_value) {
                 // We have a comptime value for this parameter.
                 const arg = try sema.addConstant(arg_tv.ty, arg_tv.val);
                 sema.inst_map.putAssumeCapacityNoClobber(inst, arg);
-                param_index += 1;
+                total_param_index += 1;
                 continue;
             }
         }
-        const param_type = fn_ty.fnParamType(param_index);
+        const param_type = fn_ty.fnParamType(runtime_param_index);
         const ty_ref = try sema.addType(param_type);
         const arg_index = @intCast(u32, sema.air_instructions.len);
         inner_block.instructions.appendAssumeCapacity(arg_index);
@@ -3707,7 +3737,8 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn) SemaError!Air {
             } },
         });
         sema.inst_map.putAssumeCapacityNoClobber(inst, Air.indexToRef(arg_index));
-        param_index += 1;
+        total_param_index += 1;
+        runtime_param_index += 1;
     }
 
     func.state = .in_progress;
@@ -3715,6 +3746,7 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn) SemaError!Air {
 
     _ = sema.analyzeBody(&inner_block, fn_info.body) catch |err| switch (err) {
         error.NeededSourceLocation => unreachable,
+        error.GenericPoison => unreachable,
         else => |e| return e,
     };
 
