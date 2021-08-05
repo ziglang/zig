@@ -1306,38 +1306,44 @@ fn zirIndexablePtrLen(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) Co
 
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
-    const array_ptr = sema.resolveInst(inst_data.operand);
-    const array_ptr_src = src;
+    const array = sema.resolveInst(inst_data.operand);
+    const array_ty = sema.typeOf(array);
 
-    const elem_ty = sema.typeOf(array_ptr).elemType();
-    if (elem_ty.isSlice()) {
-        const slice_inst = try sema.analyzeLoad(block, src, array_ptr, array_ptr_src);
-        return sema.analyzeSliceLen(block, src, slice_inst);
+    if (array_ty.isSlice()) {
+        return sema.analyzeSliceLen(block, src, array);
     }
-    if (!elem_ty.isIndexable()) {
-        const cond_src: LazySrcLoc = .{ .node_offset_for_cond = inst_data.src_node };
-        const msg = msg: {
-            const msg = try sema.mod.errMsg(
-                &block.base,
-                cond_src,
-                "type '{}' does not support indexing",
-                .{elem_ty},
-            );
-            errdefer msg.destroy(sema.gpa);
-            try sema.mod.errNote(
-                &block.base,
-                cond_src,
-                msg,
-                "for loop operand must be an array, slice, tuple, or vector",
-                .{},
-            );
-            break :msg msg;
-        };
-        return sema.mod.failWithOwnedErrorMsg(&block.base, msg);
+
+    if (array_ty.isSinglePointer()) {
+        const elem_ty = array_ty.elemType();
+        if (elem_ty.isSlice()) {
+            const slice_inst = try sema.analyzeLoad(block, src, array, src);
+            return sema.analyzeSliceLen(block, src, slice_inst);
+        }
+        if (!elem_ty.isIndexable()) {
+            const msg = msg: {
+                const msg = try sema.mod.errMsg(
+                    &block.base,
+                    src,
+                    "type '{}' does not support indexing",
+                    .{elem_ty},
+                );
+                errdefer msg.destroy(sema.gpa);
+                try sema.mod.errNote(
+                    &block.base,
+                    src,
+                    msg,
+                    "for loop operand must be an array, slice, tuple, or vector",
+                    .{},
+                );
+                break :msg msg;
+            };
+            return sema.mod.failWithOwnedErrorMsg(&block.base, msg);
+        }
+        const result_ptr = try sema.fieldPtr(block, src, array, "len", src);
+        return sema.analyzeLoad(block, src, result_ptr, src);
     }
-    const result_ptr = try sema.fieldPtr(block, src, array_ptr, "len", src);
-    const result_ptr_src = array_ptr_src;
-    return sema.analyzeLoad(block, src, result_ptr, result_ptr_src);
+
+    return sema.mod.fail(&block.base, src, "TODO implement Sema.zirIndexablePtrLen", .{});
 }
 
 fn zirAllocExtended(
@@ -2520,10 +2526,11 @@ fn analyzeCall(
         // generic Scope only to junk it if it matches an existing instantiation.
         // TODO
 
-        const fn_info = sema.code.getFnInfo(module_fn.zir_body_inst);
-        const zir_tags = sema.code.instructions.items(.tag);
+        const namespace = module_fn.owner_decl.namespace;
+        const fn_zir = namespace.file_scope.zir;
+        const fn_info = fn_zir.getFnInfo(module_fn.zir_body_inst);
+        const zir_tags = fn_zir.instructions.items(.tag);
         const new_func = new_func: {
-            const namespace = module_fn.owner_decl.namespace;
             try namespace.anon_decls.ensureUnusedCapacity(gpa, 1);
 
             // Create a Decl for the new function.
@@ -2558,7 +2565,7 @@ fn analyzeCall(
                 .mod = mod,
                 .gpa = gpa,
                 .arena = sema.arena,
-                .code = sema.code,
+                .code = fn_zir,
                 .owner_decl = new_decl,
                 .namespace = namespace,
                 .func = null,

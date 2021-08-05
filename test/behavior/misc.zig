@@ -5,14 +5,6 @@ const expectEqualStrings = std.testing.expectEqualStrings;
 const mem = std.mem;
 const builtin = @import("builtin");
 
-fn first4KeysOfHomeRow() []const u8 {
-    return "aoeu";
-}
-
-test "return string from function" {
-    try expect(mem.eql(u8, first4KeysOfHomeRow(), "aoeu"));
-}
-
 test "memcpy and memset intrinsics" {
     var foo: [20]u8 = undefined;
     var bar: [20]u8 = undefined;

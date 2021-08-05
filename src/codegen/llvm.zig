@@ -701,11 +701,31 @@ pub const DeclGen = struct {
             },
             .Pointer => switch (tv.val.tag()) {
                 .decl_ref => {
-                    const decl = tv.val.castTag(.decl_ref).?.data;
-                    decl.alive = true;
-                    const val = try self.resolveGlobalDecl(decl);
-                    const llvm_type = try self.llvmType(tv.ty);
-                    return val.constBitCast(llvm_type);
+                    if (tv.ty.isSlice()) {
+                        var buf: Type.Payload.ElemType = undefined;
+                        const ptr_ty = tv.ty.slicePtrFieldType(&buf);
+                        var slice_len: Value.Payload.U64 = .{
+                            .base = .{ .tag = .int_u64 },
+                            .data = tv.val.sliceLen(),
+                        };
+                        const fields: [2]*const llvm.Value = .{
+                            try self.genTypedValue(.{
+                                .ty = ptr_ty,
+                                .val = tv.val,
+                            }),
+                            try self.genTypedValue(.{
+                                .ty = Type.initTag(.usize),
+                                .val = Value.initPayload(&slice_len.base),
+                            }),
+                        };
+                        return self.context.constStruct(&fields, fields.len, .False);
+                    } else {
+                        const decl = tv.val.castTag(.decl_ref).?.data;
+                        decl.alive = true;
+                        const val = try self.resolveGlobalDecl(decl);
+                        const llvm_type = try self.llvmType(tv.ty);
+                        return val.constBitCast(llvm_type);
+                    }
                 },
                 .variable => {
                     const decl = tv.val.castTag(.variable).?.data.owner_decl;

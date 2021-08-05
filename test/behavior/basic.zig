@@ -1,4 +1,5 @@
 const std = @import("std");
+const mem = std.mem;
 const expect = std.testing.expect;
 
 // normal comment
@@ -82,4 +83,12 @@ test "unicode escape in character literal" {
 
 test "unicode character in character literal" {
     try expect('💩' == 128169);
+}
+
+fn first4KeysOfHomeRow() []const u8 {
+    return "aoeu";
+}
+
+test "return string from function" {
+    try expect(mem.eql(u8, first4KeysOfHomeRow(), "aoeu"));
 }

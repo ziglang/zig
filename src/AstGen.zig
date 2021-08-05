@@ -5423,7 +5423,7 @@ fn forExpr(
     const tree = astgen.tree;
     const token_tags = tree.tokens.items(.tag);
 
-    const array_ptr = try expr(parent_gz, scope, .ref, for_full.ast.cond_expr);
+    const array_ptr = try expr(parent_gz, scope, .none_or_ref, for_full.ast.cond_expr);
     const len = try parent_gz.addUnNode(.indexable_ptr_len, array_ptr, for_full.ast.cond_expr);
 
     const index_ptr = blk: {
