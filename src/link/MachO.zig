@@ -82,8 +82,8 @@ data_in_code_cmd_index: ?u16 = null,
 function_starts_cmd_index: ?u16 = null,
 main_cmd_index: ?u16 = null,
 dylib_id_cmd_index: ?u16 = null,
-version_min_cmd_index: ?u16 = null,
 source_version_cmd_index: ?u16 = null,
+build_version_cmd_index: ?u16 = null,
 uuid_cmd_index: ?u16 = null,
 code_signature_cmd_index: ?u16 = null,
 /// Path to libSystem
@@ -2716,27 +2716,6 @@ fn populateMetadata(self: *MachO) !void {
         try self.load_commands.append(self.base.allocator, .{ .Dylib = dylib_cmd });
     }
 
-    if (self.version_min_cmd_index == null) {
-        self.version_min_cmd_index = @intCast(u16, self.load_commands.items.len);
-        const cmd: u32 = switch (self.base.options.target.os.tag) {
-            .macos => macho.LC_VERSION_MIN_MACOSX,
-            .ios => macho.LC_VERSION_MIN_IPHONEOS,
-            .tvos => macho.LC_VERSION_MIN_TVOS,
-            .watchos => macho.LC_VERSION_MIN_WATCHOS,
-            else => unreachable, // wrong OS
-        };
-        const ver = self.base.options.target.os.version_range.semver.min;
-        const version = ver.major << 16 | ver.minor << 8 | ver.patch;
-        try self.load_commands.append(self.base.allocator, .{
-            .VersionMin = .{
-                .cmd = cmd,
-                .cmdsize = @sizeOf(macho.version_min_command),
-                .version = version,
-                .sdk = version,
-            },
-        });
-    }
-
     if (self.source_version_cmd_index == null) {
         self.source_version_cmd_index = @intCast(u16, self.load_commands.items.len);
         try self.load_commands.append(self.base.allocator, .{
@@ -2746,6 +2725,39 @@ fn populateMetadata(self: *MachO) !void {
                 .version = 0x0,
             },
         });
+    }
+
+    if (self.build_version_cmd_index == null) {
+        self.build_version_cmd_index = @intCast(u16, self.load_commands.items.len);
+        const cmdsize = @intCast(u32, mem.alignForwardGeneric(
+            u64,
+            @sizeOf(macho.build_version_command) + @sizeOf(macho.build_tool_version),
+            @sizeOf(u64),
+        ));
+        const ver = self.base.options.target.os.version_range.semver.min;
+        const version = ver.major << 16 | ver.minor << 8 | ver.patch;
+        var cmd = commands.emptyGenericCommandWithData(macho.build_version_command{
+            .cmd = macho.LC_BUILD_VERSION,
+            .cmdsize = cmdsize,
+            .platform = switch (self.base.options.target.os.tag) {
+                .macos => macho.PLATFORM_MACOS,
+                .ios => macho.PLATFORM_IOSSIMULATOR,
+                .watchos => macho.PLATFORM_WATCHOS,
+                .tvos => macho.PLATFORM_TVOS,
+                else => unreachable,
+            },
+            .minos = version,
+            .sdk = version,
+            .ntools = 1,
+        });
+        const ld_ver = macho.build_tool_version{
+            .tool = macho.TOOL_LD,
+            .version = 0x0,
+        };
+        cmd.data = try self.base.allocator.alloc(u8, cmdsize - @sizeOf(macho.build_version_command));
+        mem.set(u8, cmd.data, 0);
+        mem.copy(u8, cmd.data, mem.asBytes(&ld_ver));
+        try self.load_commands.append(self.base.allocator, .{ .BuildVersion = cmd });
     }
 
     if (self.uuid_cmd_index == null) {
@@ -4334,26 +4346,37 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         });
         self.load_commands_dirty = true;
     }
-    if (self.version_min_cmd_index == null) {
-        self.version_min_cmd_index = @intCast(u16, self.load_commands.items.len);
-        const cmd: u32 = switch (self.base.options.target.os.tag) {
-            .macos => macho.LC_VERSION_MIN_MACOSX,
-            .ios => macho.LC_VERSION_MIN_IPHONEOS,
-            .tvos => macho.LC_VERSION_MIN_TVOS,
-            .watchos => macho.LC_VERSION_MIN_WATCHOS,
-            else => unreachable, // wrong OS
-        };
+    if (self.build_version_cmd_index == null) {
+        self.build_version_cmd_index = @intCast(u16, self.load_commands.items.len);
+        const cmdsize = @intCast(u32, mem.alignForwardGeneric(
+            u64,
+            @sizeOf(macho.build_version_command) + @sizeOf(macho.build_tool_version),
+            @sizeOf(u64),
+        ));
         const ver = self.base.options.target.os.version_range.semver.min;
         const version = ver.major << 16 | ver.minor << 8 | ver.patch;
-        try self.load_commands.append(self.base.allocator, .{
-            .VersionMin = .{
-                .cmd = cmd,
-                .cmdsize = @sizeOf(macho.version_min_command),
-                .version = version,
-                .sdk = version,
+        var cmd = commands.emptyGenericCommandWithData(macho.build_version_command{
+            .cmd = macho.LC_BUILD_VERSION,
+            .cmdsize = cmdsize,
+            .platform = switch (self.base.options.target.os.tag) {
+                .macos => macho.PLATFORM_MACOS,
+                .ios => macho.PLATFORM_IOSSIMULATOR,
+                .watchos => macho.PLATFORM_WATCHOS,
+                .tvos => macho.PLATFORM_TVOS,
+                else => unreachable,
             },
+            .minos = version,
+            .sdk = version,
+            .ntools = 1,
         });
-        self.load_commands_dirty = true;
+        const ld_ver = macho.build_tool_version{
+            .tool = macho.TOOL_LD,
+            .version = 0x0,
+        };
+        cmd.data = try self.base.allocator.alloc(u8, cmdsize - @sizeOf(macho.build_version_command));
+        mem.set(u8, cmd.data, 0);
+        mem.copy(u8, cmd.data, mem.asBytes(&ld_ver));
+        try self.load_commands.append(self.base.allocator, .{ .BuildVersion = cmd });
     }
     if (self.source_version_cmd_index == null) {
         self.source_version_cmd_index = @intCast(u16, self.load_commands.items.len);

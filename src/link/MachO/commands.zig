@@ -43,6 +43,7 @@ pub const LoadCommand = union(enum) {
     Main: macho.entry_point_command,
     VersionMin: macho.version_min_command,
     SourceVersion: macho.source_version_command,
+    BuildVersion: GenericCommandWithData(macho.build_version_command),
     Uuid: macho.uuid_command,
     LinkeditData: macho.linkedit_data_command,
     Rpath: GenericCommandWithData(macho.rpath_command),
@@ -97,6 +98,9 @@ pub const LoadCommand = union(enum) {
             macho.LC_SOURCE_VERSION => LoadCommand{
                 .SourceVersion = try stream.reader().readStruct(macho.source_version_command),
             },
+            macho.LC_BUILD_VERSION => LoadCommand{
+                .BuildVersion = try GenericCommandWithData(macho.build_version_command).read(allocator, stream.reader()),
+            },
             macho.LC_UUID => LoadCommand{
                 .Uuid = try stream.reader().readStruct(macho.uuid_command),
             },
@@ -129,6 +133,7 @@ pub const LoadCommand = union(enum) {
             .Dylinker => |x| x.write(writer),
             .Dylib => |x| x.write(writer),
             .Rpath => |x| x.write(writer),
+            .BuildVersion => |x| x.write(writer),
             .Unknown => |x| x.write(writer),
         };
     }
@@ -147,6 +152,7 @@ pub const LoadCommand = union(enum) {
             .Dylinker => |x| x.inner.cmd,
             .Dylib => |x| x.inner.cmd,
             .Rpath => |x| x.inner.cmd,
+            .BuildVersion => |x| x.inner.cmd,
             .Unknown => |x| x.inner.cmd,
         };
     }
@@ -165,6 +171,7 @@ pub const LoadCommand = union(enum) {
             .Dylinker => |x| x.inner.cmdsize,
             .Dylib => |x| x.inner.cmdsize,
             .Rpath => |x| x.inner.cmdsize,
+            .BuildVersion => |x| x.inner.cmdsize,
             .Unknown => |x| x.inner.cmdsize,
         };
     }
@@ -193,6 +200,7 @@ pub const LoadCommand = union(enum) {
             .Main => |x| meta.eql(x, other.Main),
             .VersionMin => |x| meta.eql(x, other.VersionMin),
             .SourceVersion => |x| meta.eql(x, other.SourceVersion),
+            .BuildVersion => |x| x.eql(other.BuildVersion),
             .Uuid => |x| meta.eql(x, other.Uuid),
             .LinkeditData => |x| meta.eql(x, other.LinkeditData),
             .Segment => |x| x.eql(other.Segment),
