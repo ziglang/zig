@@ -46,6 +46,12 @@ comptime_args: []TypedValue = &.{},
 /// don't accidentally apply it to a function prototype which is used in the
 /// type expression of a generic function parameter.
 comptime_args_fn_inst: Zir.Inst.Index = 0,
+/// When `comptime_args` is provided, this field is also provided. It was used as
+/// the key in the `monomorphed_funcs` set. The `func` instruction is supposed
+/// to use this instead of allocating a fresh one. This avoids an unnecessary
+/// extra hash table lookup in the `monomorphed_funcs` set.
+/// Sema will set this to null when it takes ownership.
+preallocated_new_func: ?*Module.Fn = null,
 
 const std = @import("std");
 const mem = std.mem;
@@ -2354,6 +2360,40 @@ fn zirCall(
     return sema.analyzeCall(block, func, func_src, call_src, modifier, ensure_result_used, resolved_args);
 }
 
+const GenericCallAdapter = struct {
+    generic_fn: *Module.Fn,
+    precomputed_hash: u64,
+    func_ty_info: Type.Payload.Function.Data,
+    comptime_vals: []const Value,
+
+    pub fn eql(ctx: @This(), adapted_key: void, other_key: *Module.Fn) bool {
+        _ = adapted_key;
+        // The generic function Decl is guaranteed to be the first dependency
+        // of each of its instantiations.
+        const generic_owner_decl = other_key.owner_decl.dependencies.keys()[0];
+        if (ctx.generic_fn.owner_decl != generic_owner_decl) return false;
+
+        // This logic must be kept in sync with the logic in `analyzeCall` that
+        // computes the hash.
+        const other_comptime_args = other_key.comptime_args.?;
+        for (ctx.func_ty_info.param_types) |param_ty, i| {
+            if (ctx.func_ty_info.paramIsComptime(i) and param_ty.tag() != .generic_poison) {
+                if (!ctx.comptime_vals[i].eql(other_comptime_args[i].val, param_ty)) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    /// The implementation of the hash is in semantic analysis of function calls, so
+    /// that any errors when computing the hash can be properly reported.
+    pub fn hash(ctx: @This(), adapted_key: void) u64 {
+        _ = adapted_key;
+        return ctx.precomputed_hash;
+    }
+};
+
 fn analyzeCall(
     sema: *Sema,
     block: *Scope.Block,
@@ -2524,193 +2564,192 @@ fn analyzeCall(
         // Check the Module's generic function map with an adapted context, so that we
         // can match against `uncasted_args` rather than doing the work below to create a
         // generic Scope only to junk it if it matches an existing instantiation.
-        // TODO
-
         const namespace = module_fn.owner_decl.namespace;
         const fn_zir = namespace.file_scope.zir;
         const fn_info = fn_zir.getFnInfo(module_fn.zir_body_inst);
         const zir_tags = fn_zir.instructions.items(.tag);
-        const new_func = new_func: {
-            try namespace.anon_decls.ensureUnusedCapacity(gpa, 1);
+        const new_module_func = new_func: {
+            // This hash must match `Module.MonomorphedFuncsContext.hash`.
+            // For parameters explicitly marked comptime and simple parameter type expressions,
+            // we know whether a parameter is elided from a monomorphed function, and can
+            // use it in the hash here. However, for parameter type expressions that are not
+            // explicitly marked comptime and rely on previous parameter comptime values, we
+            // don't find out until after generating a monomorphed function whether the parameter
+            // type ended up being a "must-be-comptime-known" type.
+            var hasher = std.hash.Wyhash.init(0);
+            std.hash.autoHash(&hasher, @ptrToInt(module_fn));
 
-            // Create a Decl for the new function.
-            const new_decl = try mod.allocateNewDecl(namespace, module_fn.owner_decl.src_node);
-            // TODO better names for generic function instantiations
-            const name_index = mod.getNextAnonNameIndex();
-            new_decl.name = try std.fmt.allocPrintZ(gpa, "{s}__anon_{d}", .{
-                module_fn.owner_decl.name, name_index,
-            });
-            new_decl.src_line = module_fn.owner_decl.src_line;
-            new_decl.is_pub = module_fn.owner_decl.is_pub;
-            new_decl.is_exported = module_fn.owner_decl.is_exported;
-            new_decl.has_align = module_fn.owner_decl.has_align;
-            new_decl.has_linksection = module_fn.owner_decl.has_linksection;
-            new_decl.zir_decl_index = module_fn.owner_decl.zir_decl_index;
-            new_decl.alive = true; // This Decl is called at runtime.
-            new_decl.has_tv = true;
-            new_decl.owns_tv = true;
-            new_decl.analysis = .in_progress;
-            new_decl.generation = mod.generation;
+            const comptime_vals = try sema.arena.alloc(Value, func_ty_info.param_types.len);
 
-            namespace.anon_decls.putAssumeCapacityNoClobber(new_decl, {});
+            for (func_ty_info.param_types) |param_ty, i| {
+                const is_comptime = func_ty_info.paramIsComptime(i);
+                if (is_comptime and param_ty.tag() != .generic_poison) {
+                    const arg_src = call_src; // TODO better source location
+                    const casted_arg = try sema.coerce(block, param_ty, uncasted_args[i], arg_src);
+                    if (try sema.resolveMaybeUndefVal(block, arg_src, casted_arg)) |arg_val| {
+                        arg_val.hash(param_ty, &hasher);
+                        comptime_vals[i] = arg_val;
+                    } else {
+                        return sema.failWithNeededComptime(block, arg_src);
+                    }
+                }
+            }
 
-            var new_decl_arena = std.heap.ArenaAllocator.init(sema.gpa);
-            errdefer new_decl_arena.deinit();
-
-            // Re-run the block that creates the function, with the comptime parameters
-            // pre-populated inside `inst_map`. This causes `param_comptime` and
-            // `param_anytype_comptime` ZIR instructions to be ignored, resulting in a
-            // new, monomorphized function, with the comptime parameters elided.
-            var child_sema: Sema = .{
-                .mod = mod,
-                .gpa = gpa,
-                .arena = sema.arena,
-                .code = fn_zir,
-                .owner_decl = new_decl,
-                .namespace = namespace,
-                .func = null,
-                .owner_func = null,
-                .comptime_args = try new_decl_arena.allocator.alloc(TypedValue, uncasted_args.len),
-                .comptime_args_fn_inst = module_fn.zir_body_inst,
+            const adapter: GenericCallAdapter = .{
+                .generic_fn = module_fn,
+                .precomputed_hash = hasher.final(),
+                .func_ty_info = func_ty_info,
+                .comptime_vals = comptime_vals,
             };
-            defer child_sema.deinit();
-
-            var child_block: Scope.Block = .{
-                .parent = null,
-                .sema = &child_sema,
-                .src_decl = new_decl,
-                .instructions = .{},
-                .inlining = null,
-                .is_comptime = true,
-            };
-            defer {
-                child_block.instructions.deinit(gpa);
-                child_block.params.deinit(gpa);
+            const gop = try mod.monomorphed_funcs.getOrPutAdapted(gpa, {}, adapter);
+            if (gop.found_existing) {
+                const callee_func = gop.key_ptr.*;
+                break :res try sema.finishGenericCall(
+                    block,
+                    call_src,
+                    callee_func,
+                    func_src,
+                    uncasted_args,
+                    fn_info,
+                    zir_tags,
+                );
             }
-
-            try child_sema.inst_map.ensureUnusedCapacity(gpa, @intCast(u32, uncasted_args.len));
-            var arg_i: usize = 0;
-            for (fn_info.param_body) |inst| {
-                const is_comptime = switch (zir_tags[inst]) {
-                    .param_comptime, .param_anytype_comptime => true,
-                    .param, .param_anytype => false,
-                    else => continue,
-                };
-                // TODO: pass .unneeded to resolveConstValue and then if we get
-                // error.NeededSourceLocation resolve the arg source location and
-                // try again.
-                const arg_src = call_src;
-                const arg = uncasted_args[arg_i];
-                if (try sema.resolveMaybeUndefVal(block, arg_src, arg)) |arg_val| {
-                    const child_arg = try child_sema.addConstant(sema.typeOf(arg), arg_val);
-                    child_sema.inst_map.putAssumeCapacityNoClobber(inst, child_arg);
-                } else if (is_comptime) {
-                    return sema.failWithNeededComptime(block, arg_src);
-                }
-                arg_i += 1;
-            }
-            const new_func_inst = try child_sema.resolveBody(&child_block, fn_info.param_body);
-            const new_func_val = try child_sema.resolveConstValue(&child_block, .unneeded, new_func_inst);
-            const new_func = new_func_val.castTag(.function).?.data;
-
-            arg_i = 0;
-            for (fn_info.param_body) |inst| {
-                switch (zir_tags[inst]) {
-                    .param_comptime, .param_anytype_comptime, .param, .param_anytype => {},
-                    else => continue,
-                }
-                const arg = child_sema.inst_map.get(inst).?;
-                const arg_val = (child_sema.resolveMaybeUndefValAllowVariables(&child_block, .unneeded, arg) catch unreachable).?;
-
-                if (arg_val.tag() == .generic_poison) {
-                    child_sema.comptime_args[arg_i] = .{
-                        .ty = Type.initTag(.noreturn),
-                        .val = Value.initTag(.unreachable_value),
-                    };
-                } else {
-                    child_sema.comptime_args[arg_i] = .{
-                        .ty = try child_sema.typeOf(arg).copy(&new_decl_arena.allocator),
-                        .val = try arg_val.copy(&new_decl_arena.allocator),
-                    };
-                }
-
-                arg_i += 1;
-            }
-
-            // Populate the Decl ty/val with the function and its type.
-            new_decl.ty = try child_sema.typeOf(new_func_inst).copy(&new_decl_arena.allocator);
-            new_decl.val = try Value.Tag.function.create(&new_decl_arena.allocator, new_func);
-            new_decl.analysis = .complete;
-
-            // Queue up a `codegen_func` work item for the new Fn. The `comptime_args` field
-            // will be populated, ensuring it will have `analyzeBody` called with the ZIR
-            // parameters mapped appropriately.
-            try mod.comp.bin_file.allocateDeclIndexes(new_decl);
-            try mod.comp.work_queue.writeItem(.{ .codegen_func = new_func });
-
-            try new_decl.finalizeNewArena(&new_decl_arena);
-            break :new_func try sema.analyzeDeclVal(block, func_src, new_decl);
+            gop.key_ptr.* = try gpa.create(Module.Fn);
+            break :new_func gop.key_ptr.*;
         };
 
-        // Save it into the Module's generic function map.
-        // TODO
+        try namespace.anon_decls.ensureUnusedCapacity(gpa, 1);
 
-        // Make a runtime call to the new function, making sure to omit the comptime args.
-        try sema.requireRuntimeBlock(block, call_src);
-        const new_func_val = sema.resolveConstValue(block, .unneeded, new_func) catch unreachable;
-        const new_module_func = new_func_val.castTag(.function).?.data;
-        const comptime_args = new_module_func.comptime_args.?;
-        const runtime_args_len = count: {
-            var count: u32 = 0;
-            var arg_i: usize = 0;
-            for (fn_info.param_body) |inst| {
-                switch (zir_tags[inst]) {
-                    .param_comptime, .param_anytype_comptime, .param, .param_anytype => {
-                        if (comptime_args[arg_i].val.tag() == .unreachable_value) {
-                            count += 1;
-                        }
-                        arg_i += 1;
-                    },
-                    else => continue,
-                }
-            }
-            break :count count;
-        };
-        const runtime_args = try sema.arena.alloc(Air.Inst.Ref, runtime_args_len);
-        {
-            const new_fn_ty = new_module_func.owner_decl.ty;
-            var runtime_i: u32 = 0;
-            var total_i: u32 = 0;
-            for (fn_info.param_body) |inst| {
-                switch (zir_tags[inst]) {
-                    .param_comptime, .param_anytype_comptime, .param, .param_anytype => {},
-                    else => continue,
-                }
-                const is_runtime = comptime_args[total_i].val.tag() == .unreachable_value;
-                if (is_runtime) {
-                    const param_ty = new_fn_ty.fnParamType(runtime_i);
-                    const arg_src = call_src; // TODO: better source location
-                    const uncasted_arg = uncasted_args[total_i];
-                    const casted_arg = try sema.coerce(block, param_ty, uncasted_arg, arg_src);
-                    runtime_args[runtime_i] = casted_arg;
-                    runtime_i += 1;
-                }
-                total_i += 1;
-            }
-        }
-        try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Call).Struct.fields.len +
-            runtime_args_len);
-        const func_inst = try block.addInst(.{
-            .tag = .call,
-            .data = .{ .pl_op = .{
-                .operand = new_func,
-                .payload = sema.addExtraAssumeCapacity(Air.Call{
-                    .args_len = runtime_args_len,
-                }),
-            } },
+        // Create a Decl for the new function.
+        const new_decl = try mod.allocateNewDecl(namespace, module_fn.owner_decl.src_node);
+        // TODO better names for generic function instantiations
+        const name_index = mod.getNextAnonNameIndex();
+        new_decl.name = try std.fmt.allocPrintZ(gpa, "{s}__anon_{d}", .{
+            module_fn.owner_decl.name, name_index,
         });
-        sema.appendRefsAssumeCapacity(runtime_args);
-        break :res func_inst;
+        new_decl.src_line = module_fn.owner_decl.src_line;
+        new_decl.is_pub = module_fn.owner_decl.is_pub;
+        new_decl.is_exported = module_fn.owner_decl.is_exported;
+        new_decl.has_align = module_fn.owner_decl.has_align;
+        new_decl.has_linksection = module_fn.owner_decl.has_linksection;
+        new_decl.zir_decl_index = module_fn.owner_decl.zir_decl_index;
+        new_decl.alive = true; // This Decl is called at runtime.
+        new_decl.has_tv = true;
+        new_decl.owns_tv = true;
+        new_decl.analysis = .in_progress;
+        new_decl.generation = mod.generation;
+
+        namespace.anon_decls.putAssumeCapacityNoClobber(new_decl, {});
+
+        var new_decl_arena = std.heap.ArenaAllocator.init(sema.gpa);
+        errdefer new_decl_arena.deinit();
+
+        // Re-run the block that creates the function, with the comptime parameters
+        // pre-populated inside `inst_map`. This causes `param_comptime` and
+        // `param_anytype_comptime` ZIR instructions to be ignored, resulting in a
+        // new, monomorphized function, with the comptime parameters elided.
+        var child_sema: Sema = .{
+            .mod = mod,
+            .gpa = gpa,
+            .arena = sema.arena,
+            .code = fn_zir,
+            .owner_decl = new_decl,
+            .namespace = namespace,
+            .func = null,
+            .owner_func = null,
+            .comptime_args = try new_decl_arena.allocator.alloc(TypedValue, uncasted_args.len),
+            .comptime_args_fn_inst = module_fn.zir_body_inst,
+            .preallocated_new_func = new_module_func,
+        };
+        defer child_sema.deinit();
+
+        var child_block: Scope.Block = .{
+            .parent = null,
+            .sema = &child_sema,
+            .src_decl = new_decl,
+            .instructions = .{},
+            .inlining = null,
+            .is_comptime = true,
+        };
+        defer {
+            child_block.instructions.deinit(gpa);
+            child_block.params.deinit(gpa);
+        }
+
+        try child_sema.inst_map.ensureUnusedCapacity(gpa, @intCast(u32, uncasted_args.len));
+        var arg_i: usize = 0;
+        for (fn_info.param_body) |inst| {
+            const is_comptime = switch (zir_tags[inst]) {
+                .param_comptime, .param_anytype_comptime => true,
+                .param, .param_anytype => false,
+                else => continue,
+            } or func_ty_info.paramIsComptime(arg_i);
+            const arg_src = call_src; // TODO: better source location
+            const arg = uncasted_args[arg_i];
+            if (try sema.resolveMaybeUndefVal(block, arg_src, arg)) |arg_val| {
+                const child_arg = try child_sema.addConstant(sema.typeOf(arg), arg_val);
+                child_sema.inst_map.putAssumeCapacityNoClobber(inst, child_arg);
+            } else if (is_comptime) {
+                return sema.failWithNeededComptime(block, arg_src);
+            }
+            arg_i += 1;
+        }
+        const new_func_inst = try child_sema.resolveBody(&child_block, fn_info.param_body);
+        const new_func_val = try child_sema.resolveConstValue(&child_block, .unneeded, new_func_inst);
+        const new_func = new_func_val.castTag(.function).?.data;
+        assert(new_func == new_module_func);
+
+        arg_i = 0;
+        for (fn_info.param_body) |inst| {
+            switch (zir_tags[inst]) {
+                .param_comptime, .param_anytype_comptime, .param, .param_anytype => {},
+                else => continue,
+            }
+            const arg = child_sema.inst_map.get(inst).?;
+            const arg_val = (child_sema.resolveMaybeUndefValAllowVariables(&child_block, .unneeded, arg) catch unreachable).?;
+
+            if (arg_val.tag() == .generic_poison) {
+                child_sema.comptime_args[arg_i] = .{
+                    .ty = Type.initTag(.noreturn),
+                    .val = Value.initTag(.unreachable_value),
+                };
+            } else {
+                child_sema.comptime_args[arg_i] = .{
+                    .ty = try child_sema.typeOf(arg).copy(&new_decl_arena.allocator),
+                    .val = try arg_val.copy(&new_decl_arena.allocator),
+                };
+            }
+
+            arg_i += 1;
+        }
+
+        // Populate the Decl ty/val with the function and its type.
+        new_decl.ty = try child_sema.typeOf(new_func_inst).copy(&new_decl_arena.allocator);
+        new_decl.val = try Value.Tag.function.create(&new_decl_arena.allocator, new_func);
+        new_decl.analysis = .complete;
+
+        // Queue up a `codegen_func` work item for the new Fn. The `comptime_args` field
+        // will be populated, ensuring it will have `analyzeBody` called with the ZIR
+        // parameters mapped appropriately.
+        try mod.comp.bin_file.allocateDeclIndexes(new_decl);
+        try mod.comp.work_queue.writeItem(.{ .codegen_func = new_func });
+
+        try new_decl.finalizeNewArena(&new_decl_arena);
+
+        // The generic function Decl is guaranteed to be the first dependency
+        // of each of its instantiations.
+        assert(new_decl.dependencies.keys().len == 0);
+        try mod.declareDeclDependency(new_decl, module_fn.owner_decl);
+
+        break :res try sema.finishGenericCall(
+            block,
+            call_src,
+            new_module_func,
+            func_src,
+            uncasted_args,
+            fn_info,
+            zir_tags,
+        );
     } else res: {
         const args = try sema.arena.alloc(Air.Inst.Ref, uncasted_args.len);
         for (uncasted_args) |uncasted_arg, i| {
@@ -2743,6 +2782,75 @@ fn analyzeCall(
         try sema.ensureResultUsed(block, result, call_src);
     }
     return result;
+}
+
+fn finishGenericCall(
+    sema: *Sema,
+    block: *Scope.Block,
+    call_src: LazySrcLoc,
+    callee: *Module.Fn,
+    func_src: LazySrcLoc,
+    uncasted_args: []const Air.Inst.Ref,
+    fn_info: Zir.FnInfo,
+    zir_tags: []const Zir.Inst.Tag,
+) CompileError!Air.Inst.Ref {
+    const callee_inst = try sema.analyzeDeclVal(block, func_src, callee.owner_decl);
+
+    // Make a runtime call to the new function, making sure to omit the comptime args.
+    try sema.requireRuntimeBlock(block, call_src);
+
+    const comptime_args = callee.comptime_args.?;
+    const runtime_args_len = count: {
+        var count: u32 = 0;
+        var arg_i: usize = 0;
+        for (fn_info.param_body) |inst| {
+            switch (zir_tags[inst]) {
+                .param_comptime, .param_anytype_comptime, .param, .param_anytype => {
+                    if (comptime_args[arg_i].val.tag() == .unreachable_value) {
+                        count += 1;
+                    }
+                    arg_i += 1;
+                },
+                else => continue,
+            }
+        }
+        break :count count;
+    };
+    const runtime_args = try sema.arena.alloc(Air.Inst.Ref, runtime_args_len);
+    {
+        const new_fn_ty = callee.owner_decl.ty;
+        var runtime_i: u32 = 0;
+        var total_i: u32 = 0;
+        for (fn_info.param_body) |inst| {
+            switch (zir_tags[inst]) {
+                .param_comptime, .param_anytype_comptime, .param, .param_anytype => {},
+                else => continue,
+            }
+            const is_runtime = comptime_args[total_i].val.tag() == .unreachable_value;
+            if (is_runtime) {
+                const param_ty = new_fn_ty.fnParamType(runtime_i);
+                const arg_src = call_src; // TODO: better source location
+                const uncasted_arg = uncasted_args[total_i];
+                const casted_arg = try sema.coerce(block, param_ty, uncasted_arg, arg_src);
+                runtime_args[runtime_i] = casted_arg;
+                runtime_i += 1;
+            }
+            total_i += 1;
+        }
+    }
+    try sema.air_extra.ensureUnusedCapacity(sema.gpa, @typeInfo(Air.Call).Struct.fields.len +
+        runtime_args_len);
+    const func_inst = try block.addInst(.{
+        .tag = .call,
+        .data = .{ .pl_op = .{
+            .operand = callee_inst,
+            .payload = sema.addExtraAssumeCapacity(Air.Call{
+                .args_len = runtime_args_len,
+            }),
+        } },
+    });
+    sema.appendRefsAssumeCapacity(runtime_args);
+    return func_inst;
 }
 
 fn zirIntType(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -3419,7 +3527,15 @@ fn funcCommon(
 
     const mod = sema.mod;
 
-    const new_func = if (body_inst == 0) undefined else try sema.gpa.create(Module.Fn);
+    const new_func: *Module.Fn = new_func: {
+        if (body_inst == 0) break :new_func undefined;
+        if (sema.comptime_args_fn_inst == body_inst) {
+            const new_func = sema.preallocated_new_func.?;
+            sema.preallocated_new_func = null; // take ownership
+            break :new_func new_func;
+        }
+        break :new_func try sema.gpa.create(Module.Fn);
+    };
     errdefer if (body_inst != 0) sema.gpa.destroy(new_func);
 
     const fn_ty: Type = fn_ty: {
@@ -3620,7 +3736,7 @@ fn zirParam(
 
     try block.params.append(sema.gpa, .{
         .ty = param_ty,
-        .is_comptime = is_comptime,
+        .is_comptime = is_comptime or param_ty.requiresComptime(),
     });
     const result = try sema.addConstant(param_ty, Value.initTag(.generic_poison));
     try sema.inst_map.putNoClobber(sema.gpa, inst, result);

@@ -1117,12 +1117,82 @@ pub const Value = extern union {
         return order(a, b).compare(.eq);
     }
 
+    pub fn hash(val: Value, ty: Type, hasher: *std.hash.Wyhash) void {
+        switch (ty.zigTypeTag()) {
+            .BoundFn => unreachable, // TODO remove this from the language
+
+            .Void,
+            .NoReturn,
+            .Undefined,
+            .Null,
+            => {},
+
+            .Type => {
+                var buf: ToTypeBuffer = undefined;
+                return val.toType(&buf).hashWithHasher(hasher);
+            },
+            .Bool => {
+                std.hash.autoHash(hasher, val.toBool());
+            },
+            .Int, .ComptimeInt => {
+                var space: BigIntSpace = undefined;
+                const big = val.toBigInt(&space);
+                std.hash.autoHash(hasher, big.positive);
+                for (big.limbs) |limb| {
+                    std.hash.autoHash(hasher, limb);
+                }
+            },
+            .Float, .ComptimeFloat => {
+                @panic("TODO implement hashing float values");
+            },
+            .Pointer => {
+                @panic("TODO implement hashing pointer values");
+            },
+            .Array, .Vector => {
+                @panic("TODO implement hashing array/vector values");
+            },
+            .Struct => {
+                @panic("TODO implement hashing struct values");
+            },
+            .Optional => {
+                @panic("TODO implement hashing optional values");
+            },
+            .ErrorUnion => {
+                @panic("TODO implement hashing error union values");
+            },
+            .ErrorSet => {
+                @panic("TODO implement hashing error set values");
+            },
+            .Enum => {
+                @panic("TODO implement hashing enum values");
+            },
+            .Union => {
+                @panic("TODO implement hashing union values");
+            },
+            .Fn => {
+                @panic("TODO implement hashing function values");
+            },
+            .Opaque => {
+                @panic("TODO implement hashing opaque values");
+            },
+            .Frame => {
+                @panic("TODO implement hashing frame values");
+            },
+            .AnyFrame => {
+                @panic("TODO implement hashing anyframe values");
+            },
+            .EnumLiteral => {
+                @panic("TODO implement hashing enum literal values");
+            },
+        }
+    }
+
     pub const ArrayHashContext = struct {
         ty: Type,
 
-        pub fn hash(self: @This(), v: Value) u32 {
+        pub fn hash(self: @This(), val: Value) u32 {
             const other_context: HashContext = .{ .ty = self.ty };
-            return @truncate(u32, other_context.hash(v));
+            return @truncate(u32, other_context.hash(val));
         }
         pub fn eql(self: @This(), a: Value, b: Value) bool {
             return a.eql(b, self.ty);
@@ -1132,76 +1202,9 @@ pub const Value = extern union {
     pub const HashContext = struct {
         ty: Type,
 
-        pub fn hash(self: @This(), v: Value) u64 {
+        pub fn hash(self: @This(), val: Value) u64 {
             var hasher = std.hash.Wyhash.init(0);
-
-            switch (self.ty.zigTypeTag()) {
-                .BoundFn => unreachable, // TODO remove this from the language
-
-                .Void,
-                .NoReturn,
-                .Undefined,
-                .Null,
-                => {},
-
-                .Type => {
-                    var buf: ToTypeBuffer = undefined;
-                    return v.toType(&buf).hash();
-                },
-                .Bool => {
-                    std.hash.autoHash(&hasher, v.toBool());
-                },
-                .Int, .ComptimeInt => {
-                    var space: BigIntSpace = undefined;
-                    const big = v.toBigInt(&space);
-                    std.hash.autoHash(&hasher, big.positive);
-                    for (big.limbs) |limb| {
-                        std.hash.autoHash(&hasher, limb);
-                    }
-                },
-                .Float, .ComptimeFloat => {
-                    @panic("TODO implement hashing float values");
-                },
-                .Pointer => {
-                    @panic("TODO implement hashing pointer values");
-                },
-                .Array, .Vector => {
-                    @panic("TODO implement hashing array/vector values");
-                },
-                .Struct => {
-                    @panic("TODO implement hashing struct values");
-                },
-                .Optional => {
-                    @panic("TODO implement hashing optional values");
-                },
-                .ErrorUnion => {
-                    @panic("TODO implement hashing error union values");
-                },
-                .ErrorSet => {
-                    @panic("TODO implement hashing error set values");
-                },
-                .Enum => {
-                    @panic("TODO implement hashing enum values");
-                },
-                .Union => {
-                    @panic("TODO implement hashing union values");
-                },
-                .Fn => {
-                    @panic("TODO implement hashing function values");
-                },
-                .Opaque => {
-                    @panic("TODO implement hashing opaque values");
-                },
-                .Frame => {
-                    @panic("TODO implement hashing frame values");
-                },
-                .AnyFrame => {
-                    @panic("TODO implement hashing anyframe values");
-                },
-                .EnumLiteral => {
-                    @panic("TODO implement hashing enum literal values");
-                },
-            }
+            val.hash(self.ty, &hasher);
             return hasher.final();
         }
 

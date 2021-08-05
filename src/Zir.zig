@@ -4930,11 +4930,13 @@ fn findDeclsBody(
     }
 }
 
-pub fn getFnInfo(zir: Zir, fn_inst: Inst.Index) struct {
+pub const FnInfo = struct {
     param_body: []const Inst.Index,
     body: []const Inst.Index,
     total_params_len: u32,
-} {
+};
+
+pub fn getFnInfo(zir: Zir, fn_inst: Inst.Index) FnInfo {
     const tags = zir.instructions.items(.tag);
     const datas = zir.instructions.items(.data);
     const info: struct {

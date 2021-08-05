@@ -549,8 +549,13 @@ pub const Type = extern union {
 
     pub fn hash(self: Type) u64 {
         var hasher = std.hash.Wyhash.init(0);
+        self.hashWithHasher(&hasher);
+        return hasher.final();
+    }
+
+    pub fn hashWithHasher(self: Type, hasher: *std.hash.Wyhash) void {
         const zig_type_tag = self.zigTypeTag();
-        std.hash.autoHash(&hasher, zig_type_tag);
+        std.hash.autoHash(hasher, zig_type_tag);
         switch (zig_type_tag) {
             .Type,
             .Void,
@@ -568,34 +573,34 @@ pub const Type = extern union {
             .Int => {
                 // Detect that e.g. u64 != usize, even if the bits match on a particular target.
                 if (self.isNamedInt()) {
-                    std.hash.autoHash(&hasher, self.tag());
+                    std.hash.autoHash(hasher, self.tag());
                 } else {
                     // Remaining cases are arbitrary sized integers.
                     // The target will not be branched upon, because we handled target-dependent cases above.
                     const info = self.intInfo(@as(Target, undefined));
-                    std.hash.autoHash(&hasher, info.signedness);
-                    std.hash.autoHash(&hasher, info.bits);
+                    std.hash.autoHash(hasher, info.signedness);
+                    std.hash.autoHash(hasher, info.bits);
                 }
             },
             .Array, .Vector => {
-                std.hash.autoHash(&hasher, self.arrayLen());
-                std.hash.autoHash(&hasher, self.elemType().hash());
+                std.hash.autoHash(hasher, self.arrayLen());
+                std.hash.autoHash(hasher, self.elemType().hash());
                 // TODO hash array sentinel
             },
             .Fn => {
-                std.hash.autoHash(&hasher, self.fnReturnType().hash());
-                std.hash.autoHash(&hasher, self.fnCallingConvention());
+                std.hash.autoHash(hasher, self.fnReturnType().hash());
+                std.hash.autoHash(hasher, self.fnCallingConvention());
                 const params_len = self.fnParamLen();
-                std.hash.autoHash(&hasher, params_len);
+                std.hash.autoHash(hasher, params_len);
                 var i: usize = 0;
                 while (i < params_len) : (i += 1) {
-                    std.hash.autoHash(&hasher, self.fnParamType(i).hash());
+                    std.hash.autoHash(hasher, self.fnParamType(i).hash());
                 }
-                std.hash.autoHash(&hasher, self.fnIsVarArgs());
+                std.hash.autoHash(hasher, self.fnIsVarArgs());
             },
             .Optional => {
                 var buf: Payload.ElemType = undefined;
-                std.hash.autoHash(&hasher, self.optionalChild(&buf).hash());
+                std.hash.autoHash(hasher, self.optionalChild(&buf).hash());
             },
             .Float,
             .Struct,
@@ -612,7 +617,6 @@ pub const Type = extern union {
                 // TODO implement more type hashing
             },
         }
-        return hasher.final();
     }
 
     pub const HashContext64 = struct {
@@ -3373,7 +3377,7 @@ pub const Type = extern union {
             data: Data,
 
             // TODO look into optimizing this memory to take fewer bytes
-            const Data = struct {
+            pub const Data = struct {
                 param_types: []Type,
                 comptime_params: [*]bool,
                 return_type: Type,
@@ -3381,7 +3385,7 @@ pub const Type = extern union {
                 is_var_args: bool,
                 is_generic: bool,
 
-                fn paramIsComptime(self: @This(), i: usize) bool {
+                pub fn paramIsComptime(self: @This(), i: usize) bool {
                     if (!self.is_generic) return false;
                     assert(i < self.param_types.len);
                     return self.comptime_params[i];

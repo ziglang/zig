@@ -4,6 +4,7 @@ test {
     // Tests that pass for both.
     _ = @import("behavior/bool.zig");
     _ = @import("behavior/basic.zig");
+    _ = @import("behavior/generics.zig");
 
     if (!builtin.zig_is_stage2) {
         // Tests that only pass for stage1.
@@ -94,7 +95,7 @@ test {
         _ = @import("behavior/fn_in_struct_in_comptime.zig");
         _ = @import("behavior/fn_delegation.zig");
         _ = @import("behavior/for.zig");
-        _ = @import("behavior/generics.zig");
+        _ = @import("behavior/generics_stage1.zig");
         _ = @import("behavior/hasdecl.zig");
         _ = @import("behavior/hasfield.zig");
         _ = @import("behavior/if.zig");

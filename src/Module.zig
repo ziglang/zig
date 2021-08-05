@@ -61,6 +61,11 @@ export_owners: std.AutoArrayHashMapUnmanaged(*Decl, []*Export) = .{},
 /// Keys are fully resolved file paths. This table owns the keys and values.
 import_table: std.StringArrayHashMapUnmanaged(*Scope.File) = .{},
 
+/// The set of all the generic function instantiations. This is used so that when a generic
+/// function is called twice with the same comptime parameter arguments, both calls dispatch
+/// to the same function.
+monomorphed_funcs: MonomorphedFuncsSet = .{},
+
 /// We optimize memory usage for a compilation with no compile errors by storing the
 /// error messages and mapping outside of `Decl`.
 /// The ErrorMsg memory is owned by the decl, using Module's general purpose allocator.
@@ -113,6 +118,44 @@ compile_log_text: ArrayListUnmanaged(u8) = .{},
 emit_h: ?*GlobalEmitH,
 
 test_functions: std.AutoArrayHashMapUnmanaged(*Decl, void) = .{},
+
+const MonomorphedFuncsSet = std.HashMapUnmanaged(
+    *Fn,
+    void,
+    MonomorphedFuncsContext,
+    std.hash_map.default_max_load_percentage,
+);
+
+const MonomorphedFuncsContext = struct {
+    pub fn eql(ctx: @This(), a: *Fn, b: *Fn) bool {
+        _ = ctx;
+        return a == b;
+    }
+
+    /// Must match `Sema.GenericCallAdapter.hash`.
+    pub fn hash(ctx: @This(), key: *Fn) u64 {
+        _ = ctx;
+        var hasher = std.hash.Wyhash.init(0);
+
+        // The generic function Decl is guaranteed to be the first dependency
+        // of each of its instantiations.
+        const generic_owner_decl = key.owner_decl.dependencies.keys()[0];
+        const generic_func = generic_owner_decl.val.castTag(.function).?.data;
+        std.hash.autoHash(&hasher, @ptrToInt(generic_func));
+
+        // This logic must be kept in sync with the logic in `analyzeCall` that
+        // computes the hash.
+        const comptime_args = key.comptime_args.?;
+        const generic_ty_info = generic_owner_decl.ty.fnInfo();
+        for (generic_ty_info.param_types) |param_ty, i| {
+            if (generic_ty_info.paramIsComptime(i) and param_ty.tag() != .generic_poison) {
+                comptime_args[i].val.hash(param_ty, &hasher);
+            }
+        }
+
+        return hasher.final();
+    }
+};
 
 /// A `Module` has zero or one of these depending on whether `-femit-h` is enabled.
 pub const GlobalEmitH = struct {
@@ -2205,6 +2248,7 @@ pub fn deinit(mod: *Module) void {
 
     mod.error_name_list.deinit(gpa);
     mod.test_functions.deinit(gpa);
+    mod.monomorphed_funcs.deinit(gpa);
 }
 
 fn freeExportList(gpa: *Allocator, export_list: []*Export) void {
