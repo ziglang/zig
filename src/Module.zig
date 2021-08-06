@@ -3792,8 +3792,8 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn) SemaError!Air {
     log.debug("set {s} to in_progress", .{decl.name});
 
     _ = sema.analyzeBody(&inner_block, fn_info.body) catch |err| switch (err) {
-        error.NeededSourceLocation => unreachable,
-        error.GenericPoison => unreachable,
+        error.NeededSourceLocation => @panic("zig compiler bug: NeededSourceLocation"),
+        error.GenericPoison => @panic("zig compiler bug: GenericPoison"),
         else => |e| return e,
     };
 
