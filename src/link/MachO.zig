@@ -2736,14 +2736,15 @@ fn populateMetadata(self: *MachO) !void {
         ));
         const ver = self.base.options.target.os.version_range.semver.min;
         const version = ver.major << 16 | ver.minor << 8 | ver.patch;
+        const is_simulator_abi = self.base.options.target.abi == .simulator;
         var cmd = commands.emptyGenericCommandWithData(macho.build_version_command{
             .cmd = macho.LC_BUILD_VERSION,
             .cmdsize = cmdsize,
             .platform = switch (self.base.options.target.os.tag) {
                 .macos => macho.PLATFORM_MACOS,
-                .ios => macho.PLATFORM_IOSSIMULATOR,
-                .watchos => macho.PLATFORM_WATCHOS,
-                .tvos => macho.PLATFORM_TVOS,
+                .ios => if (is_simulator_abi) macho.PLATFORM_IOSSIMULATOR else macho.PLATFORM_IOS,
+                .watchos => if (is_simulator_abi) macho.PLATFORM_WATCHOSSIMULATOR else macho.PLATFORM_WATCHOS,
+                .tvos => if (is_simulator_abi) macho.PLATFORM_TVOSSIMULATOR else macho.PLATFORM_TVOS,
                 else => unreachable,
             },
             .minos = version,
@@ -4355,14 +4356,15 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         ));
         const ver = self.base.options.target.os.version_range.semver.min;
         const version = ver.major << 16 | ver.minor << 8 | ver.patch;
+        const is_simulator_abi = self.base.options.target.abi == .simulator;
         var cmd = commands.emptyGenericCommandWithData(macho.build_version_command{
             .cmd = macho.LC_BUILD_VERSION,
             .cmdsize = cmdsize,
             .platform = switch (self.base.options.target.os.tag) {
                 .macos => macho.PLATFORM_MACOS,
-                .ios => macho.PLATFORM_IOSSIMULATOR,
-                .watchos => macho.PLATFORM_WATCHOS,
-                .tvos => macho.PLATFORM_TVOS,
+                .ios => if (is_simulator_abi) macho.PLATFORM_IOSSIMULATOR else macho.PLATFORM_IOS,
+                .watchos => if (is_simulator_abi) macho.PLATFORM_WATCHOSSIMULATOR else macho.PLATFORM_WATCHOS,
+                .tvos => if (is_simulator_abi) macho.PLATFORM_TVOSSIMULATOR else macho.PLATFORM_TVOS,
                 else => unreachable,
             },
             .minos = version,

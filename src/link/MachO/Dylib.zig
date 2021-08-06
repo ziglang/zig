@@ -340,10 +340,16 @@ fn targetToAppleString(allocator: *Allocator, target: std.Target) ![]const u8 {
         .x86_64 => "x86_64",
         else => unreachable,
     };
-    if (target.os.tag == .ios) {
-        return std.fmt.allocPrint(allocator, "{s}-{s}-simulator", .{ arch, @tagName(target.os.tag) });
+    const os = @tagName(target.os.tag);
+    const abi: ?[]const u8 = switch (target.abi) {
+        .gnu => null,
+        .simulator => "simulator",
+        else => unreachable,
+    };
+    if (abi) |x| {
+        return std.fmt.allocPrint(allocator, "{s}-{s}-{s}", .{ arch, os, x });
     }
-    return std.fmt.allocPrint(allocator, "{s}-{s}", .{ arch, @tagName(target.os.tag) });
+    return std.fmt.allocPrint(allocator, "{s}-{s}", .{ arch, os });
 }
 
 pub fn parseFromStub(self: *Dylib, allocator: *Allocator, target: std.Target, lib_stub: LibStub) !void {
