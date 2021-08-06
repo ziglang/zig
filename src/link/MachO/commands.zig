@@ -182,6 +182,7 @@ pub const LoadCommand = union(enum) {
             .Dylinker => |*x| x.deinit(allocator),
             .Dylib => |*x| x.deinit(allocator),
             .Rpath => |*x| x.deinit(allocator),
+            .BuildVersion => |*x| x.deinit(allocator),
             .Unknown => |*x| x.deinit(allocator),
             else => {},
         };
