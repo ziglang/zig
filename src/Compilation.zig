@@ -1227,6 +1227,12 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             } else main_pkg;
             errdefer if (options.is_test) root_pkg.destroy(gpa);
 
+            var other_pkg_iter = main_pkg.table.valueIterator();
+            while (other_pkg_iter.next()) |pkg| {
+                try pkg.*.add(gpa, "builtin", builtin_pkg);
+                try pkg.*.add(gpa, "std", std_pkg);
+            }
+
             try main_pkg.addAndAdopt(gpa, "builtin", builtin_pkg);
             try main_pkg.add(gpa, "root", root_pkg);
             try main_pkg.addAndAdopt(gpa, "std", std_pkg);
