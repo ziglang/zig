@@ -188,9 +188,9 @@ pub fn main() !void {
                 std.debug.warn("unable to open {s}: {}\n", .{ abi_list_filename, err });
                 std.process.exit(1);
             };
-            var lines_it = std.mem.tokenize(contents, "\n");
+            var lines_it = std.mem.tokenize(u8, contents, "\n");
             while (lines_it.next()) |line| {
-                var tok_it = std.mem.tokenize(line, " ");
+                var tok_it = std.mem.tokenize(u8, line, " ");
                 const ver = tok_it.next().?;
                 const name = tok_it.next().?;
                 const category = tok_it.next().?;
@@ -319,8 +319,8 @@ pub fn strCmpLessThan(context: void, a: []const u8, b: []const u8) bool {
 pub fn versionLessThan(context: void, a: []const u8, b: []const u8) bool {
     _ = context;
     const sep_chars = "GLIBC_.";
-    var a_tokens = std.mem.tokenize(a, sep_chars);
-    var b_tokens = std.mem.tokenize(b, sep_chars);
+    var a_tokens = std.mem.tokenize(u8, a, sep_chars);
+    var b_tokens = std.mem.tokenize(u8, b, sep_chars);
 
     while (true) {
         const a_next = a_tokens.next();

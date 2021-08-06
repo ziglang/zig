@@ -3341,7 +3341,7 @@ pub fn hasSharedLibraryExt(filename: []const u8) bool {
         return true;
     }
     // Look for .so.X, .so.X.Y, .so.X.Y.Z
-    var it = mem.split(filename, ".");
+    var it = mem.split(u8, filename, ".");
     _ = it.next().?;
     var so_txt = it.next() orelse return false;
     while (!mem.eql(u8, so_txt, "so")) {
@@ -4086,7 +4086,7 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
             };
 
             if (directory.handle.readFileAlloc(comp.gpa, libs_txt_basename, 10 * 1024 * 1024)) |libs_txt| {
-                var it = mem.tokenize(libs_txt, "\n");
+                var it = mem.tokenize(u8, libs_txt, "\n");
                 while (it.next()) |lib_name| {
                     try comp.stage1AddLinkLib(lib_name);
                 }

@@ -187,7 +187,7 @@ pub fn build(b: *Builder) !void {
             },
             2 => {
                 // Untagged development build (e.g. 0.8.0-684-gbbe2cca1a).
-                var it = mem.split(git_describe, "-");
+                var it = mem.split(u8, git_describe, "-");
                 const tagged_ancestor = it.next() orelse unreachable;
                 const commit_height = it.next() orelse unreachable;
                 const commit_id = it.next() orelse unreachable;
@@ -479,7 +479,7 @@ fn addCxxKnownPath(
         ctx.cxx_compiler,
         b.fmt("-print-file-name={s}", .{objname}),
     });
-    const path_unpadded = mem.tokenize(path_padded, "\r\n").next().?;
+    const path_unpadded = mem.tokenize(u8, path_padded, "\r\n").next().?;
     if (mem.eql(u8, path_unpadded, objname)) {
         if (errtxt) |msg| {
             warn("{s}", .{msg});
@@ -502,7 +502,7 @@ fn addCxxKnownPath(
 }
 
 fn addCMakeLibraryList(exe: *std.build.LibExeObjStep, list: []const u8) void {
-    var it = mem.tokenize(list, ";");
+    var it = mem.tokenize(u8, list, ";");
     while (it.next()) |lib| {
         if (mem.startsWith(u8, lib, "-l")) {
             exe.linkSystemLibrary(lib["-l".len..]);
@@ -596,11 +596,11 @@ fn findAndParseConfigH(b: *Builder, config_h_path_option: ?[]const u8) ?CMakeCon
         },
     };
 
-    var lines_it = mem.tokenize(config_h_text, "\r\n");
+    var lines_it = mem.tokenize(u8, config_h_text, "\r\n");
     while (lines_it.next()) |line| {
         inline for (mappings) |mapping| {
             if (mem.startsWith(u8, line, mapping.prefix)) {
-                var it = mem.split(line, "\"");
+                var it = mem.split(u8, line, "\"");
                 _ = it.next().?; // skip the stuff before the quote
                 const quoted = it.next().?; // the stuff inside the quote
                 @field(ctx, mapping.field) = toNativePathSep(b, quoted);

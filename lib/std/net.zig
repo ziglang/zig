@@ -1130,9 +1130,9 @@ fn linuxLookupNameFromHosts(
         },
         else => |e| return e,
     }) |line| {
-        const no_comment_line = mem.split(line, "#").next().?;
+        const no_comment_line = mem.split(u8, line, "#").next().?;
 
-        var line_it = mem.tokenize(no_comment_line, " \t");
+        var line_it = mem.tokenize(u8, no_comment_line, " \t");
         const ip_text = line_it.next() orelse continue;
         var first_name_text: ?[]const u8 = null;
         while (line_it.next()) |name_text| {
@@ -1211,7 +1211,7 @@ fn linuxLookupNameFromDnsSearch(
     mem.copy(u8, canon.items, canon_name);
     try canon.append('.');
 
-    var tok_it = mem.tokenize(search, " \t");
+    var tok_it = mem.tokenize(u8, search, " \t");
     while (tok_it.next()) |tok| {
         canon.shrinkRetainingCapacity(canon_name.len + 1);
         try canon.appendSlice(tok);
@@ -1328,13 +1328,13 @@ fn getResolvConf(allocator: *mem.Allocator, rc: *ResolvConf) !void {
         },
         else => |e| return e,
     }) |line| {
-        const no_comment_line = mem.split(line, "#").next().?;
-        var line_it = mem.tokenize(no_comment_line, " \t");
+        const no_comment_line = mem.split(u8, line, "#").next().?;
+        var line_it = mem.tokenize(u8, no_comment_line, " \t");
 
         const token = line_it.next() orelse continue;
         if (mem.eql(u8, token, "options")) {
             while (line_it.next()) |sub_tok| {
-                var colon_it = mem.split(sub_tok, ":");
+                var colon_it = mem.split(u8, sub_tok, ":");
                 const name = colon_it.next().?;
                 const value_txt = colon_it.next() orelse continue;
                 const value = std.fmt.parseInt(u8, value_txt, 10) catch |err| switch (err) {
