@@ -563,7 +563,7 @@ pub fn HashMap(
             return self.unmanaged.getPtrContext(key, self.ctx);
         }
         pub fn getPtrAdapted(self: Self, key: anytype, ctx: anytype) ?*V {
-            return self.unmanaged.getPtrAdapted(key, self.ctx);
+            return self.unmanaged.getPtrAdapted(key, ctx);
         }
 
         /// Finds the key and value associated with a key in the map

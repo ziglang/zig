@@ -5,14 +5,6 @@ const expectEqualStrings = std.testing.expectEqualStrings;
 const mem = std.mem;
 const builtin = @import("builtin");
 
-fn first4KeysOfHomeRow() []const u8 {
-    return "aoeu";
-}
-
-test "return string from function" {
-    try expect(mem.eql(u8, first4KeysOfHomeRow(), "aoeu"));
-}
-
 test "memcpy and memset intrinsics" {
     var foo: [20]u8 = undefined;
     var bar: [20]u8 = undefined;
@@ -48,10 +40,6 @@ test "constant equal function pointers" {
 
 fn emptyFn() void {}
 
-test "hex escape" {
-    try expect(mem.eql(u8, "\x68\x65\x6c\x6c\x6f", "hello"));
-}
-
 test "string concatenation" {
     try expect(mem.eql(u8, "OK" ++ " IT " ++ "WORKED", "OK IT WORKED"));
 }
@@ -70,59 +58,7 @@ test "string escapes" {
     try expectEqualStrings("\u{1234}\u{069}\u{1}", "\xe1\x88\xb4\x69\x01");
 }
 
-test "multiline string" {
-    const s1 =
-        \\one
-        \\two)
-        \\three
-    ;
-    const s2 = "one\ntwo)\nthree";
-    try expect(mem.eql(u8, s1, s2));
-}
-
-test "multiline string comments at start" {
-    const s1 =
-        //\\one
-        \\two)
-        \\three
-    ;
-    const s2 = "two)\nthree";
-    try expect(mem.eql(u8, s1, s2));
-}
-
-test "multiline string comments at end" {
-    const s1 =
-        \\one
-        \\two)
-        //\\three
-    ;
-    const s2 = "one\ntwo)";
-    try expect(mem.eql(u8, s1, s2));
-}
-
-test "multiline string comments in middle" {
-    const s1 =
-        \\one
-        //\\two)
-        \\three
-    ;
-    const s2 = "one\nthree";
-    try expect(mem.eql(u8, s1, s2));
-}
-
-test "multiline string comments at multiple places" {
-    const s1 =
-        \\one
-        //\\two
-        \\three
-        //\\four
-        \\five
-    ;
-    const s2 = "one\nthree\nfive";
-    try expect(mem.eql(u8, s1, s2));
-}
-
-test "multiline C string" {
+test "multiline string literal is null terminated" {
     const s1 =
         \\one
         \\two)
@@ -175,20 +111,6 @@ fn inner() i32 {
 }
 fn outer() i64 {
     return inner();
-}
-
-test "call result of if else expression" {
-    try expect(mem.eql(u8, f2(true), "a"));
-    try expect(mem.eql(u8, f2(false), "b"));
-}
-fn f2(x: bool) []const u8 {
-    return (if (x) fA else fB)();
-}
-fn fA() []const u8 {
-    return "a";
-}
-fn fB() []const u8 {
-    return "b";
 }
 
 test "constant enum initialization with differing sizes" {

@@ -575,6 +575,14 @@ pub const DeclGen = struct {
                 const info = t.intInfo(self.module.getTarget());
                 return self.context.intType(info.bits);
             },
+            .Float => switch (t.floatBits(self.module.getTarget())) {
+                16 => return self.context.halfType(),
+                32 => return self.context.floatType(),
+                64 => return self.context.doubleType(),
+                80 => return self.context.x86FP80Type(),
+                128 => return self.context.fp128Type(),
+                else => unreachable,
+            },
             .Bool => return self.context.intType(1),
             .Pointer => {
                 if (t.isSlice()) {
@@ -661,7 +669,6 @@ pub const DeclGen = struct {
 
             .BoundFn => @panic("TODO remove BoundFn from the language"),
 
-            .Float,
             .Enum,
             .Union,
             .Opaque,
@@ -699,13 +706,40 @@ pub const DeclGen = struct {
                 }
                 return llvm_int;
             },
+            .Float => {
+                if (tv.ty.floatBits(self.module.getTarget()) <= 64) {
+                    const llvm_ty = try self.llvmType(tv.ty);
+                    return llvm_ty.constReal(tv.val.toFloat(f64));
+                }
+                return self.todo("bitcast to f128 from an integer", .{});
+            },
             .Pointer => switch (tv.val.tag()) {
                 .decl_ref => {
-                    const decl = tv.val.castTag(.decl_ref).?.data;
-                    decl.alive = true;
-                    const val = try self.resolveGlobalDecl(decl);
-                    const llvm_type = try self.llvmType(tv.ty);
-                    return val.constBitCast(llvm_type);
+                    if (tv.ty.isSlice()) {
+                        var buf: Type.Payload.ElemType = undefined;
+                        const ptr_ty = tv.ty.slicePtrFieldType(&buf);
+                        var slice_len: Value.Payload.U64 = .{
+                            .base = .{ .tag = .int_u64 },
+                            .data = tv.val.sliceLen(),
+                        };
+                        const fields: [2]*const llvm.Value = .{
+                            try self.genTypedValue(.{
+                                .ty = ptr_ty,
+                                .val = tv.val,
+                            }),
+                            try self.genTypedValue(.{
+                                .ty = Type.initTag(.usize),
+                                .val = Value.initPayload(&slice_len.base),
+                            }),
+                        };
+                        return self.context.constStruct(&fields, fields.len, .False);
+                    } else {
+                        const decl = tv.val.castTag(.decl_ref).?.data;
+                        decl.alive = true;
+                        const val = try self.resolveGlobalDecl(decl);
+                        const llvm_type = try self.llvmType(tv.ty);
+                        return val.constBitCast(llvm_type);
+                    }
                 },
                 .variable => {
                     const decl = tv.val.castTag(.variable).?.data.owner_decl;
@@ -839,6 +873,10 @@ pub const DeclGen = struct {
                     .False,
                 );
             },
+            .ComptimeInt => unreachable,
+            .ComptimeFloat => unreachable,
+            .Type => unreachable,
+            .EnumLiteral => unreachable,
             else => return self.todo("implement const of type '{}'", .{tv.ty}),
         }
     }

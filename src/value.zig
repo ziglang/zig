@@ -76,6 +76,8 @@ pub const Value = extern union {
         fn_ccc_void_no_args_type,
         single_const_pointer_to_comptime_int_type,
         const_slice_u8_type,
+        anyerror_void_error_union_type,
+        generic_poison_type,
 
         undef,
         zero,
@@ -85,6 +87,7 @@ pub const Value = extern union {
         null_value,
         bool_true,
         bool_false,
+        generic_poison,
 
         abi_align_default,
         empty_struct_value,
@@ -188,6 +191,8 @@ pub const Value = extern union {
                 .single_const_pointer_to_comptime_int_type,
                 .anyframe_type,
                 .const_slice_u8_type,
+                .anyerror_void_error_union_type,
+                .generic_poison_type,
                 .enum_literal_type,
                 .undef,
                 .zero,
@@ -210,6 +215,7 @@ pub const Value = extern union {
                 .call_options_type,
                 .export_options_type,
                 .extern_options_type,
+                .generic_poison,
                 => @compileError("Value Tag " ++ @tagName(t) ++ " has no payload"),
 
                 .int_big_positive,
@@ -366,6 +372,8 @@ pub const Value = extern union {
             .single_const_pointer_to_comptime_int_type,
             .anyframe_type,
             .const_slice_u8_type,
+            .anyerror_void_error_union_type,
+            .generic_poison_type,
             .enum_literal_type,
             .undef,
             .zero,
@@ -388,6 +396,7 @@ pub const Value = extern union {
             .call_options_type,
             .export_options_type,
             .extern_options_type,
+            .generic_poison,
             => unreachable,
 
             .ty => {
@@ -556,6 +565,9 @@ pub const Value = extern union {
             .single_const_pointer_to_comptime_int_type => return out_stream.writeAll("*const comptime_int"),
             .anyframe_type => return out_stream.writeAll("anyframe"),
             .const_slice_u8_type => return out_stream.writeAll("[]const u8"),
+            .anyerror_void_error_union_type => return out_stream.writeAll("anyerror!void"),
+            .generic_poison_type => return out_stream.writeAll("(generic poison type)"),
+            .generic_poison => return out_stream.writeAll("(generic poison)"),
             .enum_literal_type => return out_stream.writeAll("@Type(.EnumLiteral)"),
             .manyptr_u8_type => return out_stream.writeAll("[*]u8"),
             .manyptr_const_u8_type => return out_stream.writeAll("[*]const u8"),
@@ -709,6 +721,8 @@ pub const Value = extern union {
             .single_const_pointer_to_comptime_int_type => Type.initTag(.single_const_pointer_to_comptime_int),
             .anyframe_type => Type.initTag(.@"anyframe"),
             .const_slice_u8_type => Type.initTag(.const_slice_u8),
+            .anyerror_void_error_union_type => Type.initTag(.anyerror_void_error_union),
+            .generic_poison_type => Type.initTag(.generic_poison),
             .enum_literal_type => Type.initTag(.enum_literal),
             .manyptr_u8_type => Type.initTag(.manyptr_u8),
             .manyptr_const_u8_type => Type.initTag(.manyptr_const_u8),
@@ -732,46 +746,7 @@ pub const Value = extern union {
                 return Type.initPayload(&buffer.base);
             },
 
-            .undef,
-            .zero,
-            .one,
-            .void_value,
-            .unreachable_value,
-            .empty_array,
-            .bool_true,
-            .bool_false,
-            .null_value,
-            .int_u64,
-            .int_i64,
-            .int_big_positive,
-            .int_big_negative,
-            .function,
-            .extern_fn,
-            .variable,
-            .decl_ref,
-            .decl_ref_mut,
-            .elem_ptr,
-            .field_ptr,
-            .bytes,
-            .repeated,
-            .array,
-            .slice,
-            .float_16,
-            .float_32,
-            .float_64,
-            .float_128,
-            .enum_literal,
-            .enum_field_index,
-            .@"error",
-            .error_union,
-            .empty_struct_value,
-            .@"struct",
-            .@"union",
-            .inferred_alloc,
-            .inferred_alloc_comptime,
-            .abi_align_default,
-            .eu_payload_ptr,
-            => unreachable,
+            else => unreachable,
         };
     }
 
@@ -1142,12 +1117,82 @@ pub const Value = extern union {
         return order(a, b).compare(.eq);
     }
 
+    pub fn hash(val: Value, ty: Type, hasher: *std.hash.Wyhash) void {
+        switch (ty.zigTypeTag()) {
+            .BoundFn => unreachable, // TODO remove this from the language
+
+            .Void,
+            .NoReturn,
+            .Undefined,
+            .Null,
+            => {},
+
+            .Type => {
+                var buf: ToTypeBuffer = undefined;
+                return val.toType(&buf).hashWithHasher(hasher);
+            },
+            .Bool => {
+                std.hash.autoHash(hasher, val.toBool());
+            },
+            .Int, .ComptimeInt => {
+                var space: BigIntSpace = undefined;
+                const big = val.toBigInt(&space);
+                std.hash.autoHash(hasher, big.positive);
+                for (big.limbs) |limb| {
+                    std.hash.autoHash(hasher, limb);
+                }
+            },
+            .Float, .ComptimeFloat => {
+                @panic("TODO implement hashing float values");
+            },
+            .Pointer => {
+                @panic("TODO implement hashing pointer values");
+            },
+            .Array, .Vector => {
+                @panic("TODO implement hashing array/vector values");
+            },
+            .Struct => {
+                @panic("TODO implement hashing struct values");
+            },
+            .Optional => {
+                @panic("TODO implement hashing optional values");
+            },
+            .ErrorUnion => {
+                @panic("TODO implement hashing error union values");
+            },
+            .ErrorSet => {
+                @panic("TODO implement hashing error set values");
+            },
+            .Enum => {
+                @panic("TODO implement hashing enum values");
+            },
+            .Union => {
+                @panic("TODO implement hashing union values");
+            },
+            .Fn => {
+                @panic("TODO implement hashing function values");
+            },
+            .Opaque => {
+                @panic("TODO implement hashing opaque values");
+            },
+            .Frame => {
+                @panic("TODO implement hashing frame values");
+            },
+            .AnyFrame => {
+                @panic("TODO implement hashing anyframe values");
+            },
+            .EnumLiteral => {
+                @panic("TODO implement hashing enum literal values");
+            },
+        }
+    }
+
     pub const ArrayHashContext = struct {
         ty: Type,
 
-        pub fn hash(self: @This(), v: Value) u32 {
+        pub fn hash(self: @This(), val: Value) u32 {
             const other_context: HashContext = .{ .ty = self.ty };
-            return @truncate(u32, other_context.hash(v));
+            return @truncate(u32, other_context.hash(val));
         }
         pub fn eql(self: @This(), a: Value, b: Value) bool {
             return a.eql(b, self.ty);
@@ -1157,76 +1202,9 @@ pub const Value = extern union {
     pub const HashContext = struct {
         ty: Type,
 
-        pub fn hash(self: @This(), v: Value) u64 {
+        pub fn hash(self: @This(), val: Value) u64 {
             var hasher = std.hash.Wyhash.init(0);
-
-            switch (self.ty.zigTypeTag()) {
-                .BoundFn => unreachable, // TODO remove this from the language
-
-                .Void,
-                .NoReturn,
-                .Undefined,
-                .Null,
-                => {},
-
-                .Type => {
-                    var buf: ToTypeBuffer = undefined;
-                    return v.toType(&buf).hash();
-                },
-                .Bool => {
-                    std.hash.autoHash(&hasher, v.toBool());
-                },
-                .Int, .ComptimeInt => {
-                    var space: BigIntSpace = undefined;
-                    const big = v.toBigInt(&space);
-                    std.hash.autoHash(&hasher, big.positive);
-                    for (big.limbs) |limb| {
-                        std.hash.autoHash(&hasher, limb);
-                    }
-                },
-                .Float, .ComptimeFloat => {
-                    @panic("TODO implement hashing float values");
-                },
-                .Pointer => {
-                    @panic("TODO implement hashing pointer values");
-                },
-                .Array, .Vector => {
-                    @panic("TODO implement hashing array/vector values");
-                },
-                .Struct => {
-                    @panic("TODO implement hashing struct values");
-                },
-                .Optional => {
-                    @panic("TODO implement hashing optional values");
-                },
-                .ErrorUnion => {
-                    @panic("TODO implement hashing error union values");
-                },
-                .ErrorSet => {
-                    @panic("TODO implement hashing error set values");
-                },
-                .Enum => {
-                    @panic("TODO implement hashing enum values");
-                },
-                .Union => {
-                    @panic("TODO implement hashing union values");
-                },
-                .Fn => {
-                    @panic("TODO implement hashing function values");
-                },
-                .Opaque => {
-                    @panic("TODO implement hashing opaque values");
-                },
-                .Frame => {
-                    @panic("TODO implement hashing frame values");
-                },
-                .AnyFrame => {
-                    @panic("TODO implement hashing anyframe values");
-                },
-                .EnumLiteral => {
-                    @panic("TODO implement hashing enum literal values");
-                },
-            }
+            val.hash(self.ty, &hasher);
             return hasher.final();
         }
 

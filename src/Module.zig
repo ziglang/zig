@@ -61,6 +61,11 @@ export_owners: std.AutoArrayHashMapUnmanaged(*Decl, []*Export) = .{},
 /// Keys are fully resolved file paths. This table owns the keys and values.
 import_table: std.StringArrayHashMapUnmanaged(*Scope.File) = .{},
 
+/// The set of all the generic function instantiations. This is used so that when a generic
+/// function is called twice with the same comptime parameter arguments, both calls dispatch
+/// to the same function.
+monomorphed_funcs: MonomorphedFuncsSet = .{},
+
 /// We optimize memory usage for a compilation with no compile errors by storing the
 /// error messages and mapping outside of `Decl`.
 /// The ErrorMsg memory is owned by the decl, using Module's general purpose allocator.
@@ -113,6 +118,44 @@ compile_log_text: ArrayListUnmanaged(u8) = .{},
 emit_h: ?*GlobalEmitH,
 
 test_functions: std.AutoArrayHashMapUnmanaged(*Decl, void) = .{},
+
+const MonomorphedFuncsSet = std.HashMapUnmanaged(
+    *Fn,
+    void,
+    MonomorphedFuncsContext,
+    std.hash_map.default_max_load_percentage,
+);
+
+const MonomorphedFuncsContext = struct {
+    pub fn eql(ctx: @This(), a: *Fn, b: *Fn) bool {
+        _ = ctx;
+        return a == b;
+    }
+
+    /// Must match `Sema.GenericCallAdapter.hash`.
+    pub fn hash(ctx: @This(), key: *Fn) u64 {
+        _ = ctx;
+        var hasher = std.hash.Wyhash.init(0);
+
+        // The generic function Decl is guaranteed to be the first dependency
+        // of each of its instantiations.
+        const generic_owner_decl = key.owner_decl.dependencies.keys()[0];
+        const generic_func = generic_owner_decl.val.castTag(.function).?.data;
+        std.hash.autoHash(&hasher, @ptrToInt(generic_func));
+
+        // This logic must be kept in sync with the logic in `analyzeCall` that
+        // computes the hash.
+        const comptime_args = key.comptime_args.?;
+        const generic_ty_info = generic_owner_decl.ty.fnInfo();
+        for (generic_ty_info.param_types) |param_ty, i| {
+            if (generic_ty_info.paramIsComptime(i) and param_ty.tag() != .generic_poison) {
+                comptime_args[i].val.hash(param_ty, &hasher);
+            }
+        }
+
+        return hasher.final();
+    }
+};
 
 /// A `Module` has zero or one of these depending on whether `-femit-h` is enabled.
 pub const GlobalEmitH = struct {
@@ -757,6 +800,10 @@ pub const Union = struct {
 pub const Fn = struct {
     /// The Decl that corresponds to the function itself.
     owner_decl: *Decl,
+    /// If this is not null, this function is a generic function instantiation, and
+    /// there is a `Value` here for each parameter of the function. Non-comptime
+    /// parameters are marked with an `unreachable_value`.
+    comptime_args: ?[*]TypedValue = null,
     /// The ZIR instruction that is a function instruction. Use this to find
     /// the body. We store this rather than the body directly so that when ZIR
     /// is regenerated on update(), we can map this to the new corresponding
@@ -795,6 +842,9 @@ pub const Fn = struct {
 
     pub fn getInferredErrorSet(func: *Fn) ?*std.StringHashMapUnmanaged(void) {
         const ret_ty = func.owner_decl.ty.fnReturnType();
+        if (ret_ty.tag() == .generic_poison) {
+            return null;
+        }
         if (ret_ty.zigTypeTag() == .ErrorUnion) {
             if (ret_ty.errorUnionSet().castTag(.error_set_inferred)) |payload| {
                 return &payload.data.map;
@@ -1169,6 +1219,8 @@ pub const Scope = struct {
         /// for the one that will be the same for all Block instances.
         src_decl: *Decl,
         instructions: ArrayListUnmanaged(Air.Inst.Index),
+        // `param` instructions are collected here to be used by the `func` instruction.
+        params: std.ArrayListUnmanaged(Param) = .{},
         label: ?*Label = null,
         inlining: ?*Inlining,
         /// If runtime_index is not 0 then one of these is guaranteed to be non null.
@@ -1182,6 +1234,12 @@ pub const Scope = struct {
 
         /// when null, it is determined by build mode, changed by @setRuntimeSafety
         want_safety: ?bool = null,
+
+        const Param = struct {
+            /// `noreturn` means `anytype`.
+            ty: Type,
+            is_comptime: bool,
+        };
 
         /// This `Block` maps a block ZIR instruction to the corresponding
         /// AIR instruction for break instruction analysis.
@@ -1630,8 +1688,11 @@ pub const SrcLoc = struct {
                     .@"asm" => tree.asmFull(node),
                     else => unreachable,
                 };
+                const asm_output = full.outputs[0];
+                const node_datas = tree.nodes.items(.data);
+                const ret_ty_node = node_datas[asm_output].lhs;
                 const main_tokens = tree.nodes.items(.main_token);
-                const tok_index = main_tokens[full.outputs[0]];
+                const tok_index = main_tokens[ret_ty_node];
                 const token_starts = tree.tokens.items(.start);
                 return token_starts[tok_index];
             },
@@ -2095,7 +2156,20 @@ pub const LazySrcLoc = union(enum) {
 };
 
 pub const SemaError = error{ OutOfMemory, AnalysisFail };
-pub const CompileError = error{ OutOfMemory, AnalysisFail, NeededSourceLocation };
+pub const CompileError = error{
+    OutOfMemory,
+    /// When this is returned, the compile error for the failure has already been recorded.
+    AnalysisFail,
+    /// Returned when a compile error needed to be reported but a provided LazySrcLoc was set
+    /// to the `unneeded` tag. The source location was, in fact, needed. It is expected that
+    /// somewhere up the call stack, the operation will be retried after doing expensive work
+    /// to compute a source location.
+    NeededSourceLocation,
+    /// A Type or Value was needed to be used during semantic analysis, but it was not available
+    /// because the function is generic. This is only seen when analyzing the body of a param
+    /// instruction.
+    GenericPoison,
+};
 
 pub fn deinit(mod: *Module) void {
     const gpa = mod.gpa;
@@ -2177,6 +2251,7 @@ pub fn deinit(mod: *Module) void {
 
     mod.error_name_list.deinit(gpa);
     mod.test_functions.deinit(gpa);
+    mod.monomorphed_funcs.deinit(gpa);
 }
 
 fn freeExportList(gpa: *Allocator, export_list: []*Export) void {
@@ -2792,14 +2867,16 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl: *Decl) SemaError!void {
             }
             return error.AnalysisFail;
         },
-        else => {
+        error.NeededSourceLocation => unreachable,
+        error.GenericPoison => unreachable,
+        else => |e| {
             decl.analysis = .sema_failure_retryable;
             try mod.failed_decls.ensureUnusedCapacity(mod.gpa, 1);
             mod.failed_decls.putAssumeCapacityNoClobber(decl, try ErrorMsg.create(
                 mod.gpa,
                 decl.srcLoc(),
                 "unable to analyze: {s}",
-                .{@errorName(err)},
+                .{@errorName(e)},
             ));
             return error.AnalysisFail;
         },
@@ -2899,7 +2976,6 @@ pub fn semaFile(mod: *Module, file: *Scope.File) SemaError!void {
             .namespace = &struct_obj.namespace,
             .func = null,
             .owner_func = null,
-            .param_inst_list = &.{},
         };
         defer sema.deinit();
         var block_scope: Scope.Block = .{
@@ -2954,7 +3030,6 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
         .namespace = decl.namespace,
         .func = null,
         .owner_func = null,
-        .param_inst_list = &.{},
     };
     defer sema.deinit();
 
@@ -2980,7 +3055,10 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
         .inlining = null,
         .is_comptime = true,
     };
-    defer block_scope.instructions.deinit(gpa);
+    defer {
+        block_scope.instructions.deinit(gpa);
+        block_scope.params.deinit(gpa);
+    }
 
     const zir_block_index = decl.zirBlockIndex();
     const inst_data = zir_datas[zir_block_index].pl_node;
@@ -3625,8 +3703,6 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn) SemaError!Air {
     defer decl.value_arena.?.* = arena.state;
 
     const fn_ty = decl.ty;
-    const param_inst_list = try gpa.alloc(Air.Inst.Ref, fn_ty.fnParamLen());
-    defer gpa.free(param_inst_list);
 
     var sema: Sema = .{
         .mod = mod,
@@ -3637,7 +3713,6 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn) SemaError!Air {
         .namespace = decl.namespace,
         .func = func,
         .owner_func = func,
-        .param_inst_list = param_inst_list,
     };
     defer sema.deinit();
 
@@ -3656,29 +3731,71 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn) SemaError!Air {
     };
     defer inner_block.instructions.deinit(gpa);
 
-    // AIR requires the arg parameters to be the first N instructions.
-    try inner_block.instructions.ensureTotalCapacity(gpa, param_inst_list.len);
-    for (param_inst_list) |*param_inst, param_index| {
-        const param_type = fn_ty.fnParamType(param_index);
+    const fn_info = sema.code.getFnInfo(func.zir_body_inst);
+    const zir_tags = sema.code.instructions.items(.tag);
+
+    // Here we are performing "runtime semantic analysis" for a function body, which means
+    // we must map the parameter ZIR instructions to `arg` AIR instructions.
+    // AIR requires the `arg` parameters to be the first N instructions.
+    // This could be a generic function instantiation, however, in which case we need to
+    // map the comptime parameters to constant values and only emit arg AIR instructions
+    // for the runtime ones.
+    const runtime_params_len = @intCast(u32, fn_ty.fnParamLen());
+    try inner_block.instructions.ensureTotalCapacity(gpa, runtime_params_len);
+    try sema.air_instructions.ensureUnusedCapacity(gpa, fn_info.total_params_len * 2); // * 2 for the `addType`
+    try sema.inst_map.ensureUnusedCapacity(gpa, fn_info.total_params_len);
+
+    var runtime_param_index: usize = 0;
+    var total_param_index: usize = 0;
+    for (fn_info.param_body) |inst| {
+        const name = switch (zir_tags[inst]) {
+            .param, .param_comptime => blk: {
+                const inst_data = sema.code.instructions.items(.data)[inst].pl_tok;
+                const extra = sema.code.extraData(Zir.Inst.Param, inst_data.payload_index).data;
+                break :blk extra.name;
+            },
+
+            .param_anytype, .param_anytype_comptime => blk: {
+                const str_tok = sema.code.instructions.items(.data)[inst].str_tok;
+                break :blk str_tok.start;
+            },
+
+            else => continue,
+        };
+        if (func.comptime_args) |comptime_args| {
+            const arg_tv = comptime_args[total_param_index];
+            if (arg_tv.val.tag() != .unreachable_value) {
+                // We have a comptime value for this parameter.
+                const arg = try sema.addConstant(arg_tv.ty, arg_tv.val);
+                sema.inst_map.putAssumeCapacityNoClobber(inst, arg);
+                total_param_index += 1;
+                continue;
+            }
+        }
+        const param_type = fn_ty.fnParamType(runtime_param_index);
         const ty_ref = try sema.addType(param_type);
         const arg_index = @intCast(u32, sema.air_instructions.len);
         inner_block.instructions.appendAssumeCapacity(arg_index);
-        param_inst.* = Air.indexToRef(arg_index);
-        try sema.air_instructions.append(gpa, .{
+        sema.air_instructions.appendAssumeCapacity(.{
             .tag = .arg,
-            .data = .{
-                .ty_str = .{
-                    .ty = ty_ref,
-                    .str = undefined, // Set in the semantic analysis of the arg instruction.
-                },
-            },
+            .data = .{ .ty_str = .{
+                .ty = ty_ref,
+                .str = name,
+            } },
         });
+        sema.inst_map.putAssumeCapacityNoClobber(inst, Air.indexToRef(arg_index));
+        total_param_index += 1;
+        runtime_param_index += 1;
     }
 
     func.state = .in_progress;
     log.debug("set {s} to in_progress", .{decl.name});
 
-    try sema.analyzeFnBody(&inner_block, func.zir_body_inst);
+    _ = sema.analyzeBody(&inner_block, fn_info.body) catch |err| switch (err) {
+        error.NeededSourceLocation => @panic("zig compiler bug: NeededSourceLocation"),
+        error.GenericPoison => @panic("zig compiler bug: GenericPoison"),
+        else => |e| return e,
+    };
 
     // Copy the block into place and mark that as the main block.
     try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Block).Struct.fields.len +
@@ -3714,7 +3831,7 @@ fn markOutdatedDecl(mod: *Module, decl: *Decl) !void {
     decl.analysis = .outdated;
 }
 
-fn allocateNewDecl(mod: *Module, namespace: *Scope.Namespace, src_node: ast.Node.Index) !*Decl {
+pub fn allocateNewDecl(mod: *Module, namespace: *Scope.Namespace, src_node: ast.Node.Index) !*Decl {
     // If we have emit-h then we must allocate a bigger structure to store the emit-h state.
     const new_decl: *Decl = if (mod.emit_h != null) blk: {
         const parent_struct = try mod.gpa.create(DeclPlusEmitH);
@@ -4330,7 +4447,6 @@ pub fn analyzeStructFields(mod: *Module, struct_obj: *Struct) CompileError!void 
         .namespace = &struct_obj.namespace,
         .owner_func = null,
         .func = null,
-        .param_inst_list = &.{},
     };
     defer sema.deinit();
 
@@ -4484,7 +4600,6 @@ pub fn analyzeUnionFields(mod: *Module, union_obj: *Union) CompileError!void {
         .namespace = &union_obj.namespace,
         .owner_func = null,
         .func = null,
-        .param_inst_list = &.{},
     };
     defer sema.deinit();
 

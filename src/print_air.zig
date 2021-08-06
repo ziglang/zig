@@ -222,7 +222,7 @@ const Writer = struct {
         const extra = w.air.extraData(Air.Block, ty_pl.payload);
         const body = w.air.extra[extra.end..][0..extra.data.body_len];
 
-        try s.writeAll("{\n");
+        try s.print("{}, {{\n", .{w.air.getRefType(ty_pl.ty)});
         const old_indent = w.indent;
         w.indent += 2;
         try w.writeBody(s, body);
