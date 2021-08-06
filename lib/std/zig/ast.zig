@@ -2198,6 +2198,9 @@ pub const full = struct {
                             .type_expr = param_type,
                         };
                     }
+                    if (token_tags[it.tok_i] == .comma) {
+                        it.tok_i += 1;
+                    }
                     if (token_tags[it.tok_i] == .r_paren) {
                         return null;
                     }
