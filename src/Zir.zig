@@ -4501,12 +4501,16 @@ const Writer = struct {
         src: LazySrcLoc,
         src_locs: Zir.Inst.Func.SrcLocs,
     ) !void {
-        try stream.writeAll("ret_ty={\n");
-        self.indent += 2;
-        try self.writeBody(stream, ret_ty_body);
-        self.indent -= 2;
-        try stream.writeByteNTimes(' ', self.indent);
-        try stream.writeAll("}");
+        if (ret_ty_body.len == 0) {
+            try stream.writeAll("ret_ty=void");
+        } else {
+            try stream.writeAll("ret_ty={\n");
+            self.indent += 2;
+            try self.writeBody(stream, ret_ty_body);
+            self.indent -= 2;
+            try stream.writeByteNTimes(' ', self.indent);
+            try stream.writeAll("}");
+        }
 
         try self.writeOptionalInstRef(stream, ", cc=", cc);
         try self.writeOptionalInstRef(stream, ", align=", align_inst);

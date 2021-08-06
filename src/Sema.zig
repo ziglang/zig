@@ -2461,7 +2461,8 @@ fn analyzeCall(
 
     const gpa = sema.gpa;
 
-    const is_comptime_call = block.is_comptime or modifier == .compile_time;
+    const is_comptime_call = block.is_comptime or modifier == .compile_time or
+        func_ty_info.return_type.requiresComptime();
     const is_inline_call = is_comptime_call or modifier == .always_inline or
         func_ty_info.cc == .Inline;
     const result: Air.Inst.Ref = if (is_inline_call) res: {
@@ -3608,6 +3609,8 @@ fn funcCommon(
         if (align_val.tag() != .null_value) {
             return mod.fail(&block.base, src, "TODO implement support for function prototypes to have alignment specified", .{});
         }
+
+        is_generic = is_generic or bare_return_type.requiresComptime();
 
         const return_type = if (!inferred_error_set or bare_return_type.tag() == .generic_poison)
             bare_return_type
@@ -5334,18 +5337,18 @@ fn analyzeArithmetic(
 ) CompileError!Air.Inst.Ref {
     const lhs_ty = sema.typeOf(lhs);
     const rhs_ty = sema.typeOf(rhs);
-    if (lhs_ty.zigTypeTag() == .Vector and rhs_ty.zigTypeTag() == .Vector) {
+    const lhs_zig_ty_tag = try lhs_ty.zigTypeTagOrPoison();
+    const rhs_zig_ty_tag = try rhs_ty.zigTypeTagOrPoison();
+    if (lhs_zig_ty_tag == .Vector and rhs_zig_ty_tag == .Vector) {
         if (lhs_ty.arrayLen() != rhs_ty.arrayLen()) {
             return sema.mod.fail(&block.base, src, "vector length mismatch: {d} and {d}", .{
-                lhs_ty.arrayLen(),
-                rhs_ty.arrayLen(),
+                lhs_ty.arrayLen(), rhs_ty.arrayLen(),
             });
         }
         return sema.mod.fail(&block.base, src, "TODO implement support for vectors in zirBinOp", .{});
-    } else if (lhs_ty.zigTypeTag() == .Vector or rhs_ty.zigTypeTag() == .Vector) {
+    } else if (lhs_zig_ty_tag == .Vector or rhs_zig_ty_tag == .Vector) {
         return sema.mod.fail(&block.base, src, "mixed scalar and vector operands to binary expression: '{}' and '{}'", .{
-            lhs_ty,
-            rhs_ty,
+            lhs_ty, rhs_ty,
         });
     }
 
@@ -5365,7 +5368,9 @@ fn analyzeArithmetic(
     const is_float = scalar_tag == .Float or scalar_tag == .ComptimeFloat;
 
     if (!is_int and !(is_float and floatOpAllowed(zir_tag))) {
-        return sema.mod.fail(&block.base, src, "invalid operands to binary expression: '{s}' and '{s}'", .{ @tagName(lhs_ty.zigTypeTag()), @tagName(rhs_ty.zigTypeTag()) });
+        return sema.mod.fail(&block.base, src, "invalid operands to binary expression: '{s}' and '{s}'", .{
+            @tagName(lhs_zig_ty_tag), @tagName(rhs_zig_ty_tag),
+        });
     }
 
     if (try sema.resolveMaybeUndefVal(block, lhs_src, casted_lhs)) |lhs_val| {
@@ -6164,6 +6169,10 @@ fn analyzeRet(
     const casted_operand = if (!need_coercion) operand else op: {
         const func = sema.func.?;
         const fn_ty = func.owner_decl.ty;
+        // TODO: In the case of a comptime/inline function call of a generic function,
+        // this needs to be the resolved return type based on the function parameter type
+        // expressions being evaluated with comptime arguments passed in. Otherwise, this
+        // ends up being .generic_poison and failing the comptime/inline function call analysis.
         const fn_ret_ty = fn_ty.fnReturnType();
         break :op try sema.coerce(block, fn_ret_ty, operand, src);
     };
@@ -9093,7 +9102,7 @@ fn typeHasOnePossibleValue(
 
         .inferred_alloc_const => unreachable,
         .inferred_alloc_mut => unreachable,
-        .generic_poison => unreachable,
+        .generic_poison => return error.GenericPoison,
     };
 }
 

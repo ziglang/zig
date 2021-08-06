@@ -21,8 +21,14 @@ pub const Type = extern union {
     tag_if_small_enough: usize,
     ptr_otherwise: *Payload,
 
-    pub fn zigTypeTag(self: Type) std.builtin.TypeId {
-        switch (self.tag()) {
+    pub fn zigTypeTag(ty: Type) std.builtin.TypeId {
+        return ty.zigTypeTagOrPoison() catch unreachable;
+    }
+
+    pub fn zigTypeTagOrPoison(ty: Type) error{GenericPoison}!std.builtin.TypeId {
+        switch (ty.tag()) {
+            .generic_poison => return error.GenericPoison,
+
             .u1,
             .u8,
             .i8,
@@ -130,7 +136,6 @@ pub const Type = extern union {
             => return .Union,
 
             .var_args_param => unreachable, // can be any type
-            .generic_poison => unreachable, // must be handled earlier
         }
     }
 
@@ -1096,6 +1101,7 @@ pub const Type = extern union {
     }
 
     /// Anything that reports hasCodeGenBits() false returns false here as well.
+    /// `generic_poison` will return false.
     pub fn requiresComptime(ty: Type) bool {
         return switch (ty.tag()) {
             .u1,
@@ -1156,6 +1162,7 @@ pub const Type = extern union {
             .error_set_single,
             .error_set_inferred,
             .@"opaque",
+            .generic_poison,
             => false,
 
             .type,
@@ -1167,7 +1174,6 @@ pub const Type = extern union {
             .var_args_param => unreachable,
             .inferred_alloc_mut => unreachable,
             .inferred_alloc_const => unreachable,
-            .generic_poison => unreachable,
 
             .array_u8,
             .array_u8_sentinel_0,

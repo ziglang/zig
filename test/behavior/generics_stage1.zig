@@ -13,16 +13,16 @@ test {
     comptime try expect(max_f64(1.2, 3.4) == 3.4);
 }
 
-fn max_var(a: anytype, b: anytype) @TypeOf(a + b) {
+fn max_anytype(a: anytype, b: anytype) @TypeOf(a + b) {
     return if (a > b) a else b;
 }
 
 fn max_i32(a: i32, b: i32) i32 {
-    return max_var(a, b);
+    return max_anytype(a, b);
 }
 
 fn max_f64(a: f64, b: f64) f64 {
-    return max_var(a, b);
+    return max_anytype(a, b);
 }
 
 pub fn List(comptime T: type) type {
