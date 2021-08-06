@@ -3004,9 +3004,9 @@ fn fnDecl(
         break :inst try comptimeExpr(&decl_gz, params_scope, .{ .ty = .const_slice_u8_type }, fn_proto.ast.section_expr);
     };
 
-    var ret_gz = gz.makeSubBlock(params_scope);
+    var ret_gz = decl_gz.makeSubBlock(params_scope);
     defer ret_gz.instructions.deinit(gpa);
-    const ret_ty = try expr(&decl_gz, params_scope, coerced_type_rl, fn_proto.ast.return_type);
+    const ret_ty = try expr(&ret_gz, params_scope, coerced_type_rl, fn_proto.ast.return_type);
     const ret_br = try ret_gz.addBreak(.break_inline, 0, ret_ty);
 
     const cc: Zir.Inst.Ref = blk: {
