@@ -944,8 +944,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             if (options.sysroot) |sysroot| {
                 break :blk sysroot;
             } else if (darwin_can_use_system_sdk) {
-                const at_least_big_sur = options.target.os.getVersionRange().semver.min.major >= 11;
-                break :blk if (at_least_big_sur) try std.zig.system.getSDKPath(arena) else null;
+                break :blk try std.zig.system.darwin.getSDKPath(arena, options.target);
             } else {
                 break :blk null;
             }

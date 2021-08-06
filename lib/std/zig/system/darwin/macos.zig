@@ -408,28 +408,6 @@ fn testVersionEquality(expected: std.builtin.Version, got: std.builtin.Version) 
     try testing.expectEqualStrings(s_expected, s_got);
 }
 
-/// Detect SDK path on Darwin.
-/// Calls `xcrun --show-sdk-path` which result can be used to specify
-/// `-syslibroot` param of the linker.
-/// The caller needs to free the resulting path slice.
-pub fn getSDKPath(allocator: *mem.Allocator) ![]u8 {
-    assert(Target.current.isDarwin());
-    const argv = &[_][]const u8{ "xcrun", "--show-sdk-path" };
-    const result = try std.ChildProcess.exec(.{ .allocator = allocator, .argv = argv });
-    defer {
-        allocator.free(result.stderr);
-        allocator.free(result.stdout);
-    }
-    if (result.stderr.len != 0) {
-        std.log.err("unexpected 'xcrun --show-sdk-path' stderr: {s}", .{result.stderr});
-    }
-    if (result.term.Exited != 0) {
-        return error.ProcessTerminated;
-    }
-    const syslibroot = mem.trimRight(u8, result.stdout, "\r\n");
-    return mem.dupe(allocator, u8, syslibroot);
-}
-
 pub fn detectNativeCpuAndFeatures() ?Target.Cpu {
     var cpu_family: os.CPUFAMILY = undefined;
     var len: usize = @sizeOf(os.CPUFAMILY);
