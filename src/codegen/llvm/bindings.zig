@@ -31,6 +31,21 @@ pub const Context = opaque {
     pub const intType = LLVMIntTypeInContext;
     extern fn LLVMIntTypeInContext(C: *const Context, NumBits: c_uint) *const Type;
 
+    pub const halfType = LLVMHalfTypeInContext;
+    extern fn LLVMHalfTypeInContext(C: *const Context) *const Type;
+
+    pub const floatType = LLVMFloatTypeInContext;
+    extern fn LLVMFloatTypeInContext(C: *const Context) *const Type;
+
+    pub const doubleType = LLVMDoubleTypeInContext;
+    extern fn LLVMDoubleTypeInContext(C: *const Context) *const Type;
+
+    pub const x86FP80Type = LLVMX86FP80TypeInContext;
+    extern fn LLVMX86FP80TypeInContext(C: *const Context) *const Type;
+
+    pub const fp128Type = LLVMFP128TypeInContext;
+    extern fn LLVMFP128TypeInContext(C: *const Context) *const Type;
+
     pub const voidType = LLVMVoidTypeInContext;
     extern fn LLVMVoidTypeInContext(C: *const Context) *const Type;
 
@@ -126,6 +141,9 @@ pub const Type = opaque {
 
     pub const constInt = LLVMConstInt;
     extern fn LLVMConstInt(IntTy: *const Type, N: c_ulonglong, SignExtend: Bool) *const Value;
+
+    pub const constReal = LLVMConstReal;
+    extern fn LLVMConstReal(RealTy: *const Type, N: f64) *const Value;
 
     pub const constArray = LLVMConstArray;
     extern fn LLVMConstArray(ElementTy: *const Type, ConstantVals: [*]*const Value, Length: c_uint) *const Value;

@@ -842,6 +842,9 @@ pub const Fn = struct {
 
     pub fn getInferredErrorSet(func: *Fn) ?*std.StringHashMapUnmanaged(void) {
         const ret_ty = func.owner_decl.ty.fnReturnType();
+        if (ret_ty.tag() == .generic_poison) {
+            return null;
+        }
         if (ret_ty.zigTypeTag() == .ErrorUnion) {
             if (ret_ty.errorUnionSet().castTag(.error_set_inferred)) |payload| {
                 return &payload.data.map;

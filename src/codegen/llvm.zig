@@ -575,6 +575,14 @@ pub const DeclGen = struct {
                 const info = t.intInfo(self.module.getTarget());
                 return self.context.intType(info.bits);
             },
+            .Float => switch (t.floatBits(self.module.getTarget())) {
+                16 => return self.context.halfType(),
+                32 => return self.context.floatType(),
+                64 => return self.context.doubleType(),
+                80 => return self.context.x86FP80Type(),
+                128 => return self.context.fp128Type(),
+                else => unreachable,
+            },
             .Bool => return self.context.intType(1),
             .Pointer => {
                 if (t.isSlice()) {
@@ -661,7 +669,6 @@ pub const DeclGen = struct {
 
             .BoundFn => @panic("TODO remove BoundFn from the language"),
 
-            .Float,
             .Enum,
             .Union,
             .Opaque,
@@ -698,6 +705,13 @@ pub const DeclGen = struct {
                     return llvm.constNeg(llvm_int);
                 }
                 return llvm_int;
+            },
+            .Float => {
+                if (tv.ty.floatBits(self.module.getTarget()) <= 64) {
+                    const llvm_ty = try self.llvmType(tv.ty);
+                    return llvm_ty.constReal(tv.val.toFloat(f64));
+                }
+                return self.todo("bitcast to f128 from an integer", .{});
             },
             .Pointer => switch (tv.val.tag()) {
                 .decl_ref => {

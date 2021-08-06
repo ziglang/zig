@@ -1041,6 +1041,7 @@ fn fnProtoExpr(
     fn_proto: ast.full.FnProto,
 ) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
+    const gpa = astgen.gpa;
     const tree = astgen.tree;
     const token_tags = tree.tokens.items(.tag);
 
@@ -1083,7 +1084,6 @@ fn fnProtoExpr(
                     .param_anytype;
                 _ = try gz.addStrTok(tag, param_name, name_token);
             } else {
-                const gpa = astgen.gpa;
                 const param_type_node = param.type_expr;
                 assert(param_type_node != 0);
                 var param_gz = gz.makeSubBlock(scope);
@@ -1113,15 +1113,13 @@ fn fnProtoExpr(
     if (is_inferred_error) {
         return astgen.failTok(maybe_bang, "function prototype may not have inferred error set", .{});
     }
-    const return_type_inst = try AstGen.expr(
-        gz,
-        scope,
-        .{ .ty = .type_type },
-        fn_proto.ast.return_type,
-    );
+    var ret_gz = gz.makeSubBlock(scope);
+    defer ret_gz.instructions.deinit(gpa);
+    const ret_ty = try expr(&ret_gz, scope, coerced_type_rl, fn_proto.ast.return_type);
+    const ret_br = try ret_gz.addBreak(.break_inline, 0, ret_ty);
 
     const cc: Zir.Inst.Ref = if (fn_proto.ast.callconv_expr != 0)
-        try AstGen.expr(
+        try expr(
             gz,
             scope,
             .{ .ty = .calling_convention_type },
@@ -1133,7 +1131,8 @@ fn fnProtoExpr(
     const result = try gz.addFunc(.{
         .src_node = fn_proto.ast.proto_node,
         .param_block = 0,
-        .ret_ty = return_type_inst,
+        .ret_ty = ret_gz.instructions.items,
+        .ret_br = ret_br,
         .body = &[0]Zir.Inst.Index{},
         .cc = cc,
         .align_inst = align_inst,
@@ -3005,12 +3004,10 @@ fn fnDecl(
         break :inst try comptimeExpr(&decl_gz, params_scope, .{ .ty = .const_slice_u8_type }, fn_proto.ast.section_expr);
     };
 
-    const return_type_inst = try AstGen.expr(
-        &decl_gz,
-        params_scope,
-        .{ .ty = .type_type },
-        fn_proto.ast.return_type,
-    );
+    var ret_gz = gz.makeSubBlock(params_scope);
+    defer ret_gz.instructions.deinit(gpa);
+    const ret_ty = try expr(&decl_gz, params_scope, coerced_type_rl, fn_proto.ast.return_type);
+    const ret_br = try ret_gz.addBreak(.break_inline, 0, ret_ty);
 
     const cc: Zir.Inst.Ref = blk: {
         if (fn_proto.ast.callconv_expr != 0) {
@@ -3021,7 +3018,7 @@ fn fnDecl(
                     .{},
                 );
             }
-            break :blk try AstGen.expr(
+            break :blk try expr(
                 &decl_gz,
                 params_scope,
                 .{ .ty = .calling_convention_type },
@@ -3046,7 +3043,8 @@ fn fnDecl(
         }
         break :func try decl_gz.addFunc(.{
             .src_node = decl_node,
-            .ret_ty = return_type_inst,
+            .ret_ty = ret_gz.instructions.items,
+            .ret_br = ret_br,
             .param_block = block_inst,
             .body = &[0]Zir.Inst.Index{},
             .cc = cc,
@@ -3085,7 +3083,8 @@ fn fnDecl(
         break :func try decl_gz.addFunc(.{
             .src_node = decl_node,
             .param_block = block_inst,
-            .ret_ty = return_type_inst,
+            .ret_ty = ret_gz.instructions.items,
+            .ret_br = ret_br,
             .body = fn_gz.instructions.items,
             .cc = cc,
             .align_inst = .none, // passed in the per-decl data
@@ -3430,7 +3429,8 @@ fn testDecl(
     const func_inst = try decl_block.addFunc(.{
         .src_node = node,
         .param_block = block_inst,
-        .ret_ty = .void_type,
+        .ret_ty = &.{},
+        .ret_br = 0,
         .body = fn_block.instructions.items,
         .cc = .none,
         .align_inst = .none,
@@ -9127,7 +9127,8 @@ const GenZir = struct {
         src_node: ast.Node.Index,
         body: []const Zir.Inst.Index,
         param_block: Zir.Inst.Index,
-        ret_ty: Zir.Inst.Ref,
+        ret_ty: []const Zir.Inst.Index,
+        ret_br: Zir.Inst.Index,
         cc: Zir.Inst.Ref,
         align_inst: Zir.Inst.Ref,
         lib_name: u32,
@@ -9137,7 +9138,6 @@ const GenZir = struct {
         is_extern: bool,
     }) !Zir.Inst.Ref {
         assert(args.src_node != 0);
-        assert(args.ret_ty != .none);
         const astgen = gz.astgen;
         const gpa = astgen.gpa;
 
@@ -9179,7 +9179,7 @@ const GenZir = struct {
             try astgen.extra.ensureUnusedCapacity(
                 gpa,
                 @typeInfo(Zir.Inst.ExtendedFunc).Struct.fields.len +
-                    args.body.len + src_locs.len +
+                    args.ret_ty.len + args.body.len + src_locs.len +
                     @boolToInt(args.lib_name != 0) +
                     @boolToInt(args.align_inst != .none) +
                     @boolToInt(args.cc != .none),
@@ -9187,7 +9187,7 @@ const GenZir = struct {
             const payload_index = astgen.addExtraAssumeCapacity(Zir.Inst.ExtendedFunc{
                 .src_node = gz.nodeIndexToRelative(args.src_node),
                 .param_block = args.param_block,
-                .return_type = args.ret_ty,
+                .ret_body_len = @intCast(u32, args.ret_ty.len),
                 .body_len = @intCast(u32, args.body.len),
             });
             if (args.lib_name != 0) {
@@ -9199,10 +9199,14 @@ const GenZir = struct {
             if (args.align_inst != .none) {
                 astgen.extra.appendAssumeCapacity(@enumToInt(args.align_inst));
             }
+            astgen.extra.appendSliceAssumeCapacity(args.ret_ty);
             astgen.extra.appendSliceAssumeCapacity(args.body);
             astgen.extra.appendSliceAssumeCapacity(src_locs);
 
             const new_index = @intCast(Zir.Inst.Index, astgen.instructions.len);
+            if (args.ret_br != 0) {
+                astgen.instructions.items(.data)[args.ret_br].@"break".block_inst = new_index;
+            }
             astgen.instructions.appendAssumeCapacity(.{
                 .tag = .extended,
                 .data = .{ .extended = .{
@@ -9222,23 +9226,27 @@ const GenZir = struct {
             gz.instructions.appendAssumeCapacity(new_index);
             return indexToRef(new_index);
         } else {
-            try gz.astgen.extra.ensureUnusedCapacity(
+            try astgen.extra.ensureUnusedCapacity(
                 gpa,
                 @typeInfo(Zir.Inst.Func).Struct.fields.len +
-                    args.body.len + src_locs.len,
+                    args.ret_ty.len + args.body.len + src_locs.len,
             );
 
-            const payload_index = gz.astgen.addExtraAssumeCapacity(Zir.Inst.Func{
+            const payload_index = astgen.addExtraAssumeCapacity(Zir.Inst.Func{
                 .param_block = args.param_block,
-                .return_type = args.ret_ty,
+                .ret_body_len = @intCast(u32, args.ret_ty.len),
                 .body_len = @intCast(u32, args.body.len),
             });
-            gz.astgen.extra.appendSliceAssumeCapacity(args.body);
-            gz.astgen.extra.appendSliceAssumeCapacity(src_locs);
+            astgen.extra.appendSliceAssumeCapacity(args.ret_ty);
+            astgen.extra.appendSliceAssumeCapacity(args.body);
+            astgen.extra.appendSliceAssumeCapacity(src_locs);
 
             const tag: Zir.Inst.Tag = if (args.is_inferred_error) .func_inferred else .func;
-            const new_index = @intCast(Zir.Inst.Index, gz.astgen.instructions.len);
-            gz.astgen.instructions.appendAssumeCapacity(.{
+            const new_index = @intCast(Zir.Inst.Index, astgen.instructions.len);
+            if (args.ret_br != 0) {
+                astgen.instructions.items(.data)[args.ret_br].@"break".block_inst = new_index;
+            }
+            astgen.instructions.appendAssumeCapacity(.{
                 .tag = tag,
                 .data = .{ .pl_node = .{
                     .src_node = gz.nodeIndexToRelative(args.src_node),

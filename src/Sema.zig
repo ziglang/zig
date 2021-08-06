@@ -2618,128 +2618,130 @@ fn analyzeCall(
             break :new_func gop.key_ptr.*;
         };
 
-        try namespace.anon_decls.ensureUnusedCapacity(gpa, 1);
+        {
+            try namespace.anon_decls.ensureUnusedCapacity(gpa, 1);
 
-        // Create a Decl for the new function.
-        const new_decl = try mod.allocateNewDecl(namespace, module_fn.owner_decl.src_node);
-        // TODO better names for generic function instantiations
-        const name_index = mod.getNextAnonNameIndex();
-        new_decl.name = try std.fmt.allocPrintZ(gpa, "{s}__anon_{d}", .{
-            module_fn.owner_decl.name, name_index,
-        });
-        new_decl.src_line = module_fn.owner_decl.src_line;
-        new_decl.is_pub = module_fn.owner_decl.is_pub;
-        new_decl.is_exported = module_fn.owner_decl.is_exported;
-        new_decl.has_align = module_fn.owner_decl.has_align;
-        new_decl.has_linksection = module_fn.owner_decl.has_linksection;
-        new_decl.zir_decl_index = module_fn.owner_decl.zir_decl_index;
-        new_decl.alive = true; // This Decl is called at runtime.
-        new_decl.has_tv = true;
-        new_decl.owns_tv = true;
-        new_decl.analysis = .in_progress;
-        new_decl.generation = mod.generation;
+            // Create a Decl for the new function.
+            const new_decl = try mod.allocateNewDecl(namespace, module_fn.owner_decl.src_node);
+            // TODO better names for generic function instantiations
+            const name_index = mod.getNextAnonNameIndex();
+            new_decl.name = try std.fmt.allocPrintZ(gpa, "{s}__anon_{d}", .{
+                module_fn.owner_decl.name, name_index,
+            });
+            new_decl.src_line = module_fn.owner_decl.src_line;
+            new_decl.is_pub = module_fn.owner_decl.is_pub;
+            new_decl.is_exported = module_fn.owner_decl.is_exported;
+            new_decl.has_align = module_fn.owner_decl.has_align;
+            new_decl.has_linksection = module_fn.owner_decl.has_linksection;
+            new_decl.zir_decl_index = module_fn.owner_decl.zir_decl_index;
+            new_decl.alive = true; // This Decl is called at runtime.
+            new_decl.has_tv = true;
+            new_decl.owns_tv = true;
+            new_decl.analysis = .in_progress;
+            new_decl.generation = mod.generation;
 
-        namespace.anon_decls.putAssumeCapacityNoClobber(new_decl, {});
+            namespace.anon_decls.putAssumeCapacityNoClobber(new_decl, {});
 
-        var new_decl_arena = std.heap.ArenaAllocator.init(sema.gpa);
-        errdefer new_decl_arena.deinit();
+            var new_decl_arena = std.heap.ArenaAllocator.init(sema.gpa);
+            errdefer new_decl_arena.deinit();
 
-        // Re-run the block that creates the function, with the comptime parameters
-        // pre-populated inside `inst_map`. This causes `param_comptime` and
-        // `param_anytype_comptime` ZIR instructions to be ignored, resulting in a
-        // new, monomorphized function, with the comptime parameters elided.
-        var child_sema: Sema = .{
-            .mod = mod,
-            .gpa = gpa,
-            .arena = sema.arena,
-            .code = fn_zir,
-            .owner_decl = new_decl,
-            .namespace = namespace,
-            .func = null,
-            .owner_func = null,
-            .comptime_args = try new_decl_arena.allocator.alloc(TypedValue, uncasted_args.len),
-            .comptime_args_fn_inst = module_fn.zir_body_inst,
-            .preallocated_new_func = new_module_func,
-        };
-        defer child_sema.deinit();
+            // Re-run the block that creates the function, with the comptime parameters
+            // pre-populated inside `inst_map`. This causes `param_comptime` and
+            // `param_anytype_comptime` ZIR instructions to be ignored, resulting in a
+            // new, monomorphized function, with the comptime parameters elided.
+            var child_sema: Sema = .{
+                .mod = mod,
+                .gpa = gpa,
+                .arena = sema.arena,
+                .code = fn_zir,
+                .owner_decl = new_decl,
+                .namespace = namespace,
+                .func = null,
+                .owner_func = null,
+                .comptime_args = try new_decl_arena.allocator.alloc(TypedValue, uncasted_args.len),
+                .comptime_args_fn_inst = module_fn.zir_body_inst,
+                .preallocated_new_func = new_module_func,
+            };
+            defer child_sema.deinit();
 
-        var child_block: Scope.Block = .{
-            .parent = null,
-            .sema = &child_sema,
-            .src_decl = new_decl,
-            .instructions = .{},
-            .inlining = null,
-            .is_comptime = true,
-        };
-        defer {
-            child_block.instructions.deinit(gpa);
-            child_block.params.deinit(gpa);
-        }
-
-        try child_sema.inst_map.ensureUnusedCapacity(gpa, @intCast(u32, uncasted_args.len));
-        var arg_i: usize = 0;
-        for (fn_info.param_body) |inst| {
-            const is_comptime = switch (zir_tags[inst]) {
-                .param_comptime, .param_anytype_comptime => true,
-                .param, .param_anytype => false,
-                else => continue,
-            } or func_ty_info.paramIsComptime(arg_i);
-            const arg_src = call_src; // TODO: better source location
-            const arg = uncasted_args[arg_i];
-            if (try sema.resolveMaybeUndefVal(block, arg_src, arg)) |arg_val| {
-                const child_arg = try child_sema.addConstant(sema.typeOf(arg), arg_val);
-                child_sema.inst_map.putAssumeCapacityNoClobber(inst, child_arg);
-            } else if (is_comptime) {
-                return sema.failWithNeededComptime(block, arg_src);
-            }
-            arg_i += 1;
-        }
-        const new_func_inst = try child_sema.resolveBody(&child_block, fn_info.param_body);
-        const new_func_val = try child_sema.resolveConstValue(&child_block, .unneeded, new_func_inst);
-        const new_func = new_func_val.castTag(.function).?.data;
-        assert(new_func == new_module_func);
-
-        arg_i = 0;
-        for (fn_info.param_body) |inst| {
-            switch (zir_tags[inst]) {
-                .param_comptime, .param_anytype_comptime, .param, .param_anytype => {},
-                else => continue,
-            }
-            const arg = child_sema.inst_map.get(inst).?;
-            const arg_val = (child_sema.resolveMaybeUndefValAllowVariables(&child_block, .unneeded, arg) catch unreachable).?;
-
-            if (arg_val.tag() == .generic_poison) {
-                child_sema.comptime_args[arg_i] = .{
-                    .ty = Type.initTag(.noreturn),
-                    .val = Value.initTag(.unreachable_value),
-                };
-            } else {
-                child_sema.comptime_args[arg_i] = .{
-                    .ty = try child_sema.typeOf(arg).copy(&new_decl_arena.allocator),
-                    .val = try arg_val.copy(&new_decl_arena.allocator),
-                };
+            var child_block: Scope.Block = .{
+                .parent = null,
+                .sema = &child_sema,
+                .src_decl = new_decl,
+                .instructions = .{},
+                .inlining = null,
+                .is_comptime = true,
+            };
+            defer {
+                child_block.instructions.deinit(gpa);
+                child_block.params.deinit(gpa);
             }
 
-            arg_i += 1;
+            try child_sema.inst_map.ensureUnusedCapacity(gpa, @intCast(u32, uncasted_args.len));
+            var arg_i: usize = 0;
+            for (fn_info.param_body) |inst| {
+                const is_comptime = switch (zir_tags[inst]) {
+                    .param_comptime, .param_anytype_comptime => true,
+                    .param, .param_anytype => false,
+                    else => continue,
+                } or func_ty_info.paramIsComptime(arg_i);
+                const arg_src = call_src; // TODO: better source location
+                const arg = uncasted_args[arg_i];
+                if (try sema.resolveMaybeUndefVal(block, arg_src, arg)) |arg_val| {
+                    const child_arg = try child_sema.addConstant(sema.typeOf(arg), arg_val);
+                    child_sema.inst_map.putAssumeCapacityNoClobber(inst, child_arg);
+                } else if (is_comptime) {
+                    return sema.failWithNeededComptime(block, arg_src);
+                }
+                arg_i += 1;
+            }
+            const new_func_inst = try child_sema.resolveBody(&child_block, fn_info.param_body);
+            const new_func_val = try child_sema.resolveConstValue(&child_block, .unneeded, new_func_inst);
+            const new_func = new_func_val.castTag(.function).?.data;
+            assert(new_func == new_module_func);
+
+            arg_i = 0;
+            for (fn_info.param_body) |inst| {
+                switch (zir_tags[inst]) {
+                    .param_comptime, .param_anytype_comptime, .param, .param_anytype => {},
+                    else => continue,
+                }
+                const arg = child_sema.inst_map.get(inst).?;
+                const arg_val = (child_sema.resolveMaybeUndefValAllowVariables(&child_block, .unneeded, arg) catch unreachable).?;
+
+                if (arg_val.tag() == .generic_poison) {
+                    child_sema.comptime_args[arg_i] = .{
+                        .ty = Type.initTag(.noreturn),
+                        .val = Value.initTag(.unreachable_value),
+                    };
+                } else {
+                    child_sema.comptime_args[arg_i] = .{
+                        .ty = try child_sema.typeOf(arg).copy(&new_decl_arena.allocator),
+                        .val = try arg_val.copy(&new_decl_arena.allocator),
+                    };
+                }
+
+                arg_i += 1;
+            }
+
+            // Populate the Decl ty/val with the function and its type.
+            new_decl.ty = try child_sema.typeOf(new_func_inst).copy(&new_decl_arena.allocator);
+            new_decl.val = try Value.Tag.function.create(&new_decl_arena.allocator, new_func);
+            new_decl.analysis = .complete;
+
+            // The generic function Decl is guaranteed to be the first dependency
+            // of each of its instantiations.
+            assert(new_decl.dependencies.keys().len == 0);
+            try mod.declareDeclDependency(new_decl, module_fn.owner_decl);
+
+            // Queue up a `codegen_func` work item for the new Fn. The `comptime_args` field
+            // will be populated, ensuring it will have `analyzeBody` called with the ZIR
+            // parameters mapped appropriately.
+            try mod.comp.bin_file.allocateDeclIndexes(new_decl);
+            try mod.comp.work_queue.writeItem(.{ .codegen_func = new_func });
+
+            try new_decl.finalizeNewArena(&new_decl_arena);
         }
-
-        // Populate the Decl ty/val with the function and its type.
-        new_decl.ty = try child_sema.typeOf(new_func_inst).copy(&new_decl_arena.allocator);
-        new_decl.val = try Value.Tag.function.create(&new_decl_arena.allocator, new_func);
-        new_decl.analysis = .complete;
-
-        // Queue up a `codegen_func` work item for the new Fn. The `comptime_args` field
-        // will be populated, ensuring it will have `analyzeBody` called with the ZIR
-        // parameters mapped appropriately.
-        try mod.comp.bin_file.allocateDeclIndexes(new_decl);
-        try mod.comp.work_queue.writeItem(.{ .codegen_func = new_func });
-
-        try new_decl.finalizeNewArena(&new_decl_arena);
-
-        // The generic function Decl is guaranteed to be the first dependency
-        // of each of its instantiations.
-        assert(new_decl.dependencies.keys().len == 0);
-        try mod.declareDeclDependency(new_decl, module_fn.owner_decl);
 
         break :res try sema.finishGenericCall(
             block,
@@ -3478,12 +3480,15 @@ fn zirFunc(
 
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const extra = sema.code.extraData(Zir.Inst.Func, inst_data.payload_index);
+    var extra_index = extra.end;
+    const ret_ty_body = sema.code.extra[extra_index..][0..extra.data.ret_body_len];
+    extra_index += ret_ty_body.len;
 
     var body_inst: Zir.Inst.Index = 0;
     var src_locs: Zir.Inst.Func.SrcLocs = undefined;
     if (extra.data.body_len != 0) {
         body_inst = inst;
-        const extra_index = extra.end + extra.data.body_len;
+        extra_index += extra.data.body_len;
         src_locs = sema.code.extraData(Zir.Inst.Func.SrcLocs, extra_index).data;
     }
 
@@ -3496,7 +3501,7 @@ fn zirFunc(
         block,
         inst_data.src_node,
         body_inst,
-        extra.data.return_type,
+        ret_ty_body,
         cc,
         Value.initTag(.null_value),
         false,
@@ -3512,7 +3517,7 @@ fn funcCommon(
     block: *Scope.Block,
     src_node_offset: i32,
     body_inst: Zir.Inst.Index,
-    zir_return_type: Zir.Inst.Ref,
+    ret_ty_body: []const Zir.Inst.Index,
     cc: std.builtin.CallingConvention,
     align_val: Value,
     var_args: bool,
@@ -3523,7 +3528,37 @@ fn funcCommon(
 ) CompileError!Air.Inst.Ref {
     const src: LazySrcLoc = .{ .node_offset = src_node_offset };
     const ret_ty_src: LazySrcLoc = .{ .node_offset_fn_type_ret_ty = src_node_offset };
-    const bare_return_type = try sema.resolveType(block, ret_ty_src, zir_return_type);
+
+    // The return type body might be a type expression that depends on generic parameters.
+    // In such case we need to use a generic_poison value for the return type and mark
+    // the function as generic.
+    var is_generic = false;
+    const bare_return_type: Type = ret_ty: {
+        if (ret_ty_body.len == 0) break :ret_ty Type.initTag(.void);
+
+        const err = err: {
+            // Make sure any nested param instructions don't clobber our work.
+            const prev_params = block.params;
+            block.params = .{};
+            defer {
+                block.params.deinit(sema.gpa);
+                block.params = prev_params;
+            }
+            if (sema.resolveBody(block, ret_ty_body)) |ret_ty_inst| {
+                if (sema.analyzeAsType(block, ret_ty_src, ret_ty_inst)) |ret_ty| {
+                    break :ret_ty ret_ty;
+                } else |err| break :err err;
+            } else |err| break :err err;
+        };
+        switch (err) {
+            error.GenericPoison => {
+                // The type is not available until the generic instantiation.
+                is_generic = true;
+                break :ret_ty Type.initTag(.generic_poison);
+            },
+            else => |e| return e,
+        }
+    };
 
     const mod = sema.mod;
 
@@ -3540,8 +3575,9 @@ fn funcCommon(
 
     const fn_ty: Type = fn_ty: {
         // Hot path for some common function types.
-        if (block.params.items.len == 0 and !var_args and align_val.tag() == .null_value and
-            !inferred_error_set)
+        // TODO can we eliminate some of these Type tag values? seems unnecessarily complicated.
+        if (!is_generic and block.params.items.len == 0 and !var_args and
+            align_val.tag() == .null_value and !inferred_error_set)
         {
             if (bare_return_type.zigTypeTag() == .NoReturn and cc == .Unspecified) {
                 break :fn_ty Type.initTag(.fn_noreturn_no_args);
@@ -3560,7 +3596,6 @@ fn funcCommon(
             }
         }
 
-        var is_generic = false;
         const param_types = try sema.arena.alloc(Type, block.params.items.len);
         const comptime_params = try sema.arena.alloc(bool, block.params.items.len);
         for (block.params.items) |param, i| {
@@ -3574,7 +3609,9 @@ fn funcCommon(
             return mod.fail(&block.base, src, "TODO implement support for function prototypes to have alignment specified", .{});
         }
 
-        const return_type = if (!inferred_error_set) bare_return_type else blk: {
+        const return_type = if (!inferred_error_set or bare_return_type.tag() == .generic_poison)
+            bare_return_type
+        else blk: {
             const error_set_ty = try Type.Tag.error_set_inferred.create(sema.arena, .{
                 .func = new_func,
                 .map = .{},
@@ -6944,6 +6981,9 @@ fn zirFuncExtended(
         break :blk align_tv.val;
     } else Value.initTag(.null_value);
 
+    const ret_ty_body = sema.code.extra[extra_index..][0..extra.data.ret_body_len];
+    extra_index += ret_ty_body.len;
+
     var body_inst: Zir.Inst.Index = 0;
     var src_locs: Zir.Inst.Func.SrcLocs = undefined;
     if (extra.data.body_len != 0) {
@@ -6960,7 +7000,7 @@ fn zirFuncExtended(
         block,
         extra.data.src_node,
         body_inst,
-        extra.data.return_type,
+        ret_ty_body,
         cc,
         align_val,
         is_var_args,

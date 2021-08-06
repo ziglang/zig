@@ -2272,11 +2272,13 @@ pub const Inst = struct {
     /// 0. lib_name: u32, // null terminated string index, if has_lib_name is set
     /// 1. cc: Ref, // if has_cc is set
     /// 2. align: Ref, // if has_align is set
-    /// 3. body: Index // for each body_len
-    /// 4. src_locs: Func.SrcLocs // if body_len != 0
+    /// 3. return_type: Index // for each ret_body_len
+    /// 4. body: Index // for each body_len
+    /// 5. src_locs: Func.SrcLocs // if body_len != 0
     pub const ExtendedFunc = struct {
         src_node: i32,
-        return_type: Ref,
+        /// If this is 0 it means a void return type.
+        ret_body_len: u32,
         /// Points to the block that contains the param instructions for this function.
         param_block: Index,
         body_len: u32,
@@ -2312,10 +2314,12 @@ pub const Inst = struct {
     };
 
     /// Trailing:
-    /// 0. body: Index // for each body_len
-    /// 1. src_locs: SrcLocs // if body_len != 0
+    /// 0. return_type: Index // for each ret_body_len
+    /// 1. body: Index // for each body_len
+    /// 2. src_locs: SrcLocs // if body_len != 0
     pub const Func = struct {
-        return_type: Ref,
+        /// If this is 0 it means a void return type.
+        ret_body_len: u32,
         /// Points to the block that contains the param instructions for this function.
         param_block: Index,
         body_len: u32,
@@ -4344,15 +4348,21 @@ const Writer = struct {
         const inst_data = self.code.instructions.items(.data)[inst].pl_node;
         const src = inst_data.src();
         const extra = self.code.extraData(Inst.Func, inst_data.payload_index);
-        const body = self.code.extra[extra.end..][0..extra.data.body_len];
+        var extra_index = extra.end;
+
+        const ret_ty_body = self.code.extra[extra_index..][0..extra.data.ret_body_len];
+        extra_index += ret_ty_body.len;
+
+        const body = self.code.extra[extra_index..][0..extra.data.body_len];
+        extra_index += body.len;
+
         var src_locs: Zir.Inst.Func.SrcLocs = undefined;
         if (body.len != 0) {
-            const extra_index = extra.end + body.len;
             src_locs = self.code.extraData(Zir.Inst.Func.SrcLocs, extra_index).data;
         }
         return self.writeFuncCommon(
             stream,
-            extra.data.return_type,
+            ret_ty_body,
             inferred_error_set,
             false,
             false,
@@ -4387,6 +4397,9 @@ const Writer = struct {
             break :blk align_inst;
         };
 
+        const ret_ty_body = self.code.extra[extra_index..][0..extra.data.ret_body_len];
+        extra_index += ret_ty_body.len;
+
         const body = self.code.extra[extra_index..][0..extra.data.body_len];
         extra_index += body.len;
 
@@ -4396,7 +4409,7 @@ const Writer = struct {
         }
         return self.writeFuncCommon(
             stream,
-            extra.data.return_type,
+            ret_ty_body,
             small.is_inferred_error,
             small.is_var_args,
             small.is_extern,
@@ -4478,7 +4491,7 @@ const Writer = struct {
     fn writeFuncCommon(
         self: *Writer,
         stream: anytype,
-        ret_ty: Inst.Ref,
+        ret_ty_body: []const Inst.Index,
         inferred_error_set: bool,
         var_args: bool,
         is_extern: bool,
@@ -4488,7 +4501,13 @@ const Writer = struct {
         src: LazySrcLoc,
         src_locs: Zir.Inst.Func.SrcLocs,
     ) !void {
-        try self.writeInstRef(stream, ret_ty);
+        try stream.writeAll("ret_ty={\n");
+        self.indent += 2;
+        try self.writeBody(stream, ret_ty_body);
+        self.indent -= 2;
+        try stream.writeByteNTimes(' ', self.indent);
+        try stream.writeAll("}");
+
         try self.writeOptionalInstRef(stream, ", cc=", cc);
         try self.writeOptionalInstRef(stream, ", align=", align_inst);
         try self.writeFlag(stream, ", vargs", var_args);
@@ -4496,9 +4515,9 @@ const Writer = struct {
         try self.writeFlag(stream, ", inferror", inferred_error_set);
 
         if (body.len == 0) {
-            try stream.writeAll(", {}) ");
+            try stream.writeAll(", body={}) ");
         } else {
-            try stream.writeAll(", {\n");
+            try stream.writeAll(", body={\n");
             self.indent += 2;
             try self.writeBody(stream, body);
             self.indent -= 2;
@@ -4932,6 +4951,7 @@ fn findDeclsBody(
 
 pub const FnInfo = struct {
     param_body: []const Inst.Index,
+    ret_ty_body: []const Inst.Index,
     body: []const Inst.Index,
     total_params_len: u32,
 };
@@ -4942,13 +4962,22 @@ pub fn getFnInfo(zir: Zir, fn_inst: Inst.Index) FnInfo {
     const info: struct {
         param_block: Inst.Index,
         body: []const Inst.Index,
+        ret_ty_body: []const Inst.Index,
     } = switch (tags[fn_inst]) {
         .func, .func_inferred => blk: {
             const inst_data = datas[fn_inst].pl_node;
             const extra = zir.extraData(Inst.Func, inst_data.payload_index);
-            const body = zir.extra[extra.end..][0..extra.data.body_len];
+            var extra_index: usize = extra.end;
+
+            const ret_ty_body = zir.extra[extra_index..][0..extra.data.ret_body_len];
+            extra_index += ret_ty_body.len;
+
+            const body = zir.extra[extra_index..][0..extra.data.body_len];
+            extra_index += body.len;
+
             break :blk .{
                 .param_block = extra.data.param_block,
+                .ret_ty_body = ret_ty_body,
                 .body = body,
             };
         },
@@ -4961,9 +4990,13 @@ pub fn getFnInfo(zir: Zir, fn_inst: Inst.Index) FnInfo {
             extra_index += @boolToInt(small.has_lib_name);
             extra_index += @boolToInt(small.has_cc);
             extra_index += @boolToInt(small.has_align);
+            const ret_ty_body = zir.extra[extra_index..][0..extra.data.ret_body_len];
+            extra_index += ret_ty_body.len;
             const body = zir.extra[extra_index..][0..extra.data.body_len];
+            extra_index += body.len;
             break :blk .{
                 .param_block = extra.data.param_block,
+                .ret_ty_body = ret_ty_body,
                 .body = body,
             };
         },
@@ -4983,6 +5016,7 @@ pub fn getFnInfo(zir: Zir, fn_inst: Inst.Index) FnInfo {
     }
     return .{
         .param_body = param_body,
+        .ret_ty_body = info.ret_ty_body,
         .body = info.body,
         .total_params_len = total_params_len,
     };
