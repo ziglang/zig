@@ -1093,21 +1093,32 @@ pub const FuncGen = struct {
         const rhs = try self.resolveInst(bin_op.rhs);
         const inst_ty = self.air.typeOfIndex(inst);
 
-        if (!inst_ty.isInt())
-            if (inst_ty.tag() != .bool)
-                return self.todo("implement 'airCmp' for type {}", .{inst_ty});
-
-        const is_signed = inst_ty.isSignedInt();
-        const operation = switch (op) {
-            .eq => .EQ,
-            .neq => .NE,
-            .lt => @as(llvm.IntPredicate, if (is_signed) .SLT else .ULT),
-            .lte => @as(llvm.IntPredicate, if (is_signed) .SLE else .ULE),
-            .gt => @as(llvm.IntPredicate, if (is_signed) .SGT else .UGT),
-            .gte => @as(llvm.IntPredicate, if (is_signed) .SGE else .UGE),
-        };
-
-        return self.builder.buildICmp(operation, lhs, rhs, "");
+        switch (self.air.typeOf(bin_op.lhs).zigTypeTag()) {
+            .Int, .Bool, .Pointer => {
+                const is_signed = inst_ty.isSignedInt();
+                const operation = switch (op) {
+                    .eq => .EQ,
+                    .neq => .NE,
+                    .lt => @as(llvm.IntPredicate, if (is_signed) .SLT else .ULT),
+                    .lte => @as(llvm.IntPredicate, if (is_signed) .SLE else .ULE),
+                    .gt => @as(llvm.IntPredicate, if (is_signed) .SGT else .UGT),
+                    .gte => @as(llvm.IntPredicate, if (is_signed) .SGE else .UGE),
+                };
+                return self.builder.buildICmp(operation, lhs, rhs, "");
+            },
+            .Float => {
+                const operation: llvm.RealPredicate = switch (op) {
+                    .eq => .OEQ,
+                    .neq => .UNE,
+                    .lt => .OLT,
+                    .lte => .OLE,
+                    .gt => .OGT,
+                    .gte => .OGE,
+                };
+                return self.builder.buildFCmp(operation, lhs, rhs, "");
+            },
+            else => unreachable,
+        }
     }
 
     fn airBlock(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {

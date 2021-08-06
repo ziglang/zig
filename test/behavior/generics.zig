@@ -64,9 +64,41 @@ fn sameButWithFloats(a: f64, b: f64) f64 {
 test "fn with comptime args" {
     try expect(gimmeTheBigOne(1234, 5678) == 5678);
     try expect(shouldCallSameInstance(34, 12) == 34);
+    try expect(sameButWithFloats(0.43, 0.49) == 0.49);
+}
+
+test "anytype params" {
+    try expect(max_i32(12, 34) == 34);
+    try expect(max_f64(1.2, 3.4) == 3.4);
     if (!builtin.zig_is_stage2) {
-        // TODO: stage2 llvm backend needs to use fcmp instead of icmp
-        // probably AIR should just have different instructions for floats.
-        try expect(sameButWithFloats(0.43, 0.49) == 0.49);
+        // TODO: stage2 is incorrectly hitting the following problem:
+        // error: unable to resolve comptime value
+        //     return max_anytype(a, b);
+        //                       ^
+        comptime {
+            try expect(max_i32(12, 34) == 34);
+            try expect(max_f64(1.2, 3.4) == 3.4);
+        }
     }
+}
+
+fn max_anytype(a: anytype, b: anytype) @TypeOf(a, b) {
+    if (!builtin.zig_is_stage2) {
+        // TODO: stage2 is incorrectly emitting AIR that allocates a result
+        // value, stores to it, but then returns void instead of the result.
+        return if (a > b) a else b;
+    }
+    if (a > b) {
+        return a;
+    } else {
+        return b;
+    }
+}
+
+fn max_i32(a: i32, b: i32) i32 {
+    return max_anytype(a, b);
+}
+
+fn max_f64(a: f64, b: f64) f64 {
+    return max_anytype(a, b);
 }

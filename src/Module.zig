@@ -801,8 +801,9 @@ pub const Fn = struct {
     /// The Decl that corresponds to the function itself.
     owner_decl: *Decl,
     /// If this is not null, this function is a generic function instantiation, and
-    /// there is a `Value` here for each parameter of the function. Non-comptime
-    /// parameters are marked with an `unreachable_value`.
+    /// there is a `TypedValue` here for each parameter of the function.
+    /// Non-comptime parameters are marked with a `generic_poison` for the value.
+    /// Non-anytype parameters are marked with a `generic_poison` for the type.
     comptime_args: ?[*]TypedValue = null,
     /// The ZIR instruction that is a function instruction. Use this to find
     /// the body. We store this rather than the body directly so that when ZIR
@@ -2975,6 +2976,7 @@ pub fn semaFile(mod: *Module, file: *Scope.File) SemaError!void {
             .owner_decl = new_decl,
             .namespace = &struct_obj.namespace,
             .func = null,
+            .fn_ret_ty = Type.initTag(.void),
             .owner_func = null,
         };
         defer sema.deinit();
@@ -3029,6 +3031,7 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
         .owner_decl = decl,
         .namespace = decl.namespace,
         .func = null,
+        .fn_ret_ty = Type.initTag(.void),
         .owner_func = null,
     };
     defer sema.deinit();
@@ -3712,6 +3715,7 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn) SemaError!Air {
         .owner_decl = decl,
         .namespace = decl.namespace,
         .func = func,
+        .fn_ret_ty = func.owner_decl.ty.fnReturnType(),
         .owner_func = func,
     };
     defer sema.deinit();
@@ -3764,7 +3768,7 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn) SemaError!Air {
         };
         if (func.comptime_args) |comptime_args| {
             const arg_tv = comptime_args[total_param_index];
-            if (arg_tv.val.tag() != .unreachable_value) {
+            if (arg_tv.val.tag() != .generic_poison) {
                 // We have a comptime value for this parameter.
                 const arg = try sema.addConstant(arg_tv.ty, arg_tv.val);
                 sema.inst_map.putAssumeCapacityNoClobber(inst, arg);
@@ -4447,6 +4451,7 @@ pub fn analyzeStructFields(mod: *Module, struct_obj: *Struct) CompileError!void 
         .namespace = &struct_obj.namespace,
         .owner_func = null,
         .func = null,
+        .fn_ret_ty = Type.initTag(.void),
     };
     defer sema.deinit();
 
@@ -4600,6 +4605,7 @@ pub fn analyzeUnionFields(mod: *Module, union_obj: *Union) CompileError!void {
         .namespace = &union_obj.namespace,
         .owner_func = null,
         .func = null,
+        .fn_ret_ty = Type.initTag(.void),
     };
     defer sema.deinit();
 

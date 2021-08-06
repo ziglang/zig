@@ -409,6 +409,9 @@ pub const Builder = opaque {
     pub const buildICmp = LLVMBuildICmp;
     extern fn LLVMBuildICmp(*const Builder, Op: IntPredicate, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;
 
+    pub const buildFCmp = LLVMBuildFCmp;
+    extern fn LLVMBuildFCmp(*const Builder, Op: RealPredicate, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;
+
     pub const buildBr = LLVMBuildBr;
     extern fn LLVMBuildBr(*const Builder, Dest: *const BasicBlock) *const Value;
 
@@ -451,7 +454,7 @@ pub const Builder = opaque {
     ) *const Value;
 };
 
-pub const IntPredicate = enum(c_int) {
+pub const IntPredicate = enum(c_uint) {
     EQ = 32,
     NE = 33,
     UGT = 34,
@@ -462,6 +465,23 @@ pub const IntPredicate = enum(c_int) {
     SGE = 39,
     SLT = 40,
     SLE = 41,
+};
+
+pub const RealPredicate = enum(c_uint) {
+    OEQ = 1,
+    OGT = 2,
+    OGE = 3,
+    OLT = 4,
+    OLE = 5,
+    ONE = 6,
+    ORD = 7,
+    UNO = 8,
+    UEQ = 9,
+    UGT = 10,
+    UGE = 11,
+    ULT = 12,
+    ULE = 13,
+    UNE = 14,
 };
 
 pub const BasicBlock = opaque {

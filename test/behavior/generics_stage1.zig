@@ -3,28 +3,6 @@ const testing = std.testing;
 const expect = testing.expect;
 const expectEqual = testing.expectEqual;
 
-test "anytype params" {
-    try expect(max_i32(12, 34) == 34);
-    try expect(max_f64(1.2, 3.4) == 3.4);
-}
-
-test {
-    comptime try expect(max_i32(12, 34) == 34);
-    comptime try expect(max_f64(1.2, 3.4) == 3.4);
-}
-
-fn max_anytype(a: anytype, b: anytype) @TypeOf(a + b) {
-    return if (a > b) a else b;
-}
-
-fn max_i32(a: i32, b: i32) i32 {
-    return max_anytype(a, b);
-}
-
-fn max_f64(a: f64, b: f64) f64 {
-    return max_anytype(a, b);
-}
-
 pub fn List(comptime T: type) type {
     return SmallList(T, 8);
 }

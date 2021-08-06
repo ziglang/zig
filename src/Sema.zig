@@ -29,6 +29,12 @@ owner_func: ?*Module.Fn,
 /// This starts out the same as `owner_func` and then diverges in the case of
 /// an inline or comptime function call.
 func: ?*Module.Fn,
+/// When semantic analysis needs to know the return type of the function whose body
+/// is being analyzed, this `Type` should be used instead of going through `func`.
+/// This will correctly handle the case of a comptime/inline function call of a
+/// generic function which uses a type expression for the return type.
+/// The type will be `void` in the case that `func` is `null`.
+fn_ret_ty: Type,
 branch_quota: u32 = 1000,
 branch_count: u32 = 0,
 /// This field is updated when a new source location becomes active, so that
@@ -628,6 +634,7 @@ fn analyzeAsType(
 
 /// May return Value Tags: `variable`, `undef`.
 /// See `resolveConstValue` for an alternative.
+/// Value Tag `generic_poison` causes `error.GenericPoison` to be returned.
 fn resolveValue(
     sema: *Sema,
     block: *Scope.Block,
@@ -679,6 +686,7 @@ fn resolveDefinedValue(
 
 /// Value Tag `variable` causes this function to return `null`.
 /// Value Tag `undef` causes this function to return the Value.
+/// Value Tag `generic_poison` causes `error.GenericPoison` to be returned.
 fn resolveMaybeUndefVal(
     sema: *Sema,
     block: *Scope.Block,
@@ -686,10 +694,11 @@ fn resolveMaybeUndefVal(
     inst: Air.Inst.Ref,
 ) CompileError!?Value {
     const val = (try sema.resolveMaybeUndefValAllowVariables(block, src, inst)) orelse return null;
-    if (val.tag() == .variable) {
-        return null;
+    switch (val.tag()) {
+        .variable => return null,
+        .generic_poison => return error.GenericPoison,
+        else => return val,
     }
-    return val;
 }
 
 /// Returns all Value tags including `variable` and `undef`.
@@ -1033,6 +1042,7 @@ fn zirEnumDecl(
             .namespace = &enum_obj.namespace,
             .owner_func = null,
             .func = null,
+            .fn_ret_ty = Type.initTag(.void),
             .branch_quota = sema.branch_quota,
             .branch_count = sema.branch_count,
         };
@@ -1238,9 +1248,7 @@ fn zirRetPtr(
 
     const src: LazySrcLoc = .{ .node_offset = @bitCast(i32, extended.operand) };
     try sema.requireFunctionBlock(block, src);
-    const fn_ty = sema.func.?.owner_decl.ty;
-    const ret_type = fn_ty.fnReturnType();
-    const ptr_type = try Module.simplePtrType(sema.arena, ret_type, true, .One);
+    const ptr_type = try Module.simplePtrType(sema.arena, sema.fn_ret_ty, true, .One);
     return block.addTy(.alloc, ptr_type);
 }
 
@@ -1263,9 +1271,7 @@ fn zirRetType(
 
     const src: LazySrcLoc = .{ .node_offset = @bitCast(i32, extended.operand) };
     try sema.requireFunctionBlock(block, src);
-    const fn_ty = sema.func.?.owner_decl.ty;
-    const ret_type = fn_ty.fnReturnType();
-    return sema.addType(ret_type);
+    return sema.addType(sema.fn_ret_ty);
 }
 
 fn zirEnsureResultUsed(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!void {
@@ -2364,7 +2370,7 @@ const GenericCallAdapter = struct {
     generic_fn: *Module.Fn,
     precomputed_hash: u64,
     func_ty_info: Type.Payload.Function.Data,
-    comptime_vals: []const Value,
+    comptime_tvs: []const TypedValue,
 
     pub fn eql(ctx: @This(), adapted_key: void, other_key: *Module.Fn) bool {
         _ = adapted_key;
@@ -2373,12 +2379,22 @@ const GenericCallAdapter = struct {
         const generic_owner_decl = other_key.owner_decl.dependencies.keys()[0];
         if (ctx.generic_fn.owner_decl != generic_owner_decl) return false;
 
-        // This logic must be kept in sync with the logic in `analyzeCall` that
-        // computes the hash.
         const other_comptime_args = other_key.comptime_args.?;
-        for (ctx.func_ty_info.param_types) |param_ty, i| {
-            if (ctx.func_ty_info.paramIsComptime(i) and param_ty.tag() != .generic_poison) {
-                if (!ctx.comptime_vals[i].eql(other_comptime_args[i].val, param_ty)) {
+        for (other_comptime_args[0..ctx.func_ty_info.param_types.len]) |other_arg, i| {
+            if (other_arg.ty.tag() != .generic_poison) {
+                // anytype parameter
+                if (!other_arg.ty.eql(ctx.comptime_tvs[i].ty)) {
+                    return false;
+                }
+            }
+            if (other_arg.val.tag() != .generic_poison) {
+                // comptime parameter
+                if (ctx.comptime_tvs[i].val.tag() == .generic_poison) {
+                    // No match because the instantiation has a comptime parameter
+                    // but the callsite does not.
+                    return false;
+                }
+                if (!other_arg.val.eql(ctx.comptime_tvs[i].val, other_arg.ty)) {
                     return false;
                 }
             }
@@ -2389,6 +2405,22 @@ const GenericCallAdapter = struct {
     /// The implementation of the hash is in semantic analysis of function calls, so
     /// that any errors when computing the hash can be properly reported.
     pub fn hash(ctx: @This(), adapted_key: void) u64 {
+        _ = adapted_key;
+        return ctx.precomputed_hash;
+    }
+};
+
+const GenericRemoveAdapter = struct {
+    precomputed_hash: u64,
+
+    pub fn eql(ctx: @This(), adapted_key: *Module.Fn, other_key: *Module.Fn) bool {
+        _ = ctx;
+        return adapted_key == other_key;
+    }
+
+    /// The implementation of the hash is in semantic analysis of function calls, so
+    /// that any errors when computing the hash can be properly reported.
+    pub fn hash(ctx: @This(), adapted_key: *Module.Fn) u64 {
         _ = adapted_key;
         return ctx.precomputed_hash;
     }
@@ -2466,14 +2498,6 @@ fn analyzeCall(
     const is_inline_call = is_comptime_call or modifier == .always_inline or
         func_ty_info.cc == .Inline;
     const result: Air.Inst.Ref = if (is_inline_call) res: {
-        // TODO look into not allocating this args array
-        const args = try sema.arena.alloc(Air.Inst.Ref, uncasted_args.len);
-        for (uncasted_args) |uncasted_arg, i| {
-            const param_ty = func_ty.fnParamType(i);
-            const arg_src = call_src; // TODO: better source location
-            args[i] = try sema.coerce(block, param_ty, uncasted_arg, arg_src);
-        }
-
         const func_val = try sema.resolveConstValue(block, func_src, func);
         const module_fn = switch (func_val.tag()) {
             .function => func_val.castTag(.function).?.data,
@@ -2544,19 +2568,62 @@ fn analyzeCall(
         // This will have return instructions analyzed as break instructions to
         // the block_inst above. Here we are performing "comptime/inline semantic analysis"
         // for a function body, which means we must map the parameter ZIR instructions to
-        // the AIR instructions of the callsite.
+        // the AIR instructions of the callsite. The callee could be a generic function
+        // which means its parameter type expressions must be resolved in order and used
+        // to successively coerce the arguments.
         const fn_info = sema.code.getFnInfo(module_fn.zir_body_inst);
         const zir_tags = sema.code.instructions.items(.tag);
         var arg_i: usize = 0;
-        try sema.inst_map.ensureUnusedCapacity(gpa, @intCast(u32, args.len));
-        for (fn_info.param_body) |inst| {
-            switch (zir_tags[inst]) {
-                .param, .param_comptime, .param_anytype, .param_anytype_comptime => {},
-                else => continue,
+        for (fn_info.param_body) |inst| switch (zir_tags[inst]) {
+            .param, .param_comptime => {
+                // Evaluate the parameter type expression now that previous ones have
+                // been mapped, and coerce the corresponding argument to it.
+                const pl_tok = sema.code.instructions.items(.data)[inst].pl_tok;
+                const param_src = pl_tok.src();
+                const extra = sema.code.extraData(Zir.Inst.Param, pl_tok.payload_index);
+                const param_body = sema.code.extra[extra.end..][0..extra.data.body_len];
+                const param_ty_inst = try sema.resolveBody(&child_block, param_body);
+                const param_ty = try sema.analyzeAsType(&child_block, param_src, param_ty_inst);
+                const arg_src = call_src; // TODO: better source location
+                const casted_arg = try sema.coerce(&child_block, param_ty, uncasted_args[arg_i], arg_src);
+                try sema.inst_map.putNoClobber(gpa, inst, casted_arg);
+                arg_i += 1;
+                continue;
+            },
+            .param_anytype, .param_anytype_comptime => {
+                // No coercion needed.
+                try sema.inst_map.putNoClobber(gpa, inst, uncasted_args[arg_i]);
+                arg_i += 1;
+                continue;
+            },
+            else => continue,
+        };
+
+        // In case it is a generic function with an expression for the return type that depends
+        // on parameters, we must now do the same for the return type as we just did with
+        // each of the parameters, resolving the return type and providing it to the child
+        // `Sema` so that it can be used for the `ret_ptr` instruction.
+        const ret_ty_inst = try sema.resolveBody(&child_block, fn_info.ret_ty_body);
+        const ret_ty_src = func_src; // TODO better source location
+        const bare_return_type = try sema.analyzeAsType(&child_block, ret_ty_src, ret_ty_inst);
+        // If the function has an inferred error set, `bare_return_type` is the payload type only.
+        const fn_ret_ty = blk: {
+            // TODO instead of reusing the function's inferred error set, this code should
+            // create a temporary error set which is used for the comptime/inline function
+            // call alone, independent from the runtime instantiation.
+            if (func_ty_info.return_type.castTag(.error_union)) |payload| {
+                const error_set_ty = payload.data.error_set;
+                break :blk try Type.Tag.error_union.create(sema.arena, .{
+                    .error_set = error_set_ty,
+                    .payload = bare_return_type,
+                });
             }
-            sema.inst_map.putAssumeCapacityNoClobber(inst, args[arg_i]);
-            arg_i += 1;
-        }
+            break :blk bare_return_type;
+        };
+        const parent_fn_ret_ty = sema.fn_ret_ty;
+        sema.fn_ret_ty = fn_ret_ty;
+        defer sema.fn_ret_ty = parent_fn_ret_ty;
+
         _ = try sema.analyzeBody(&child_block, fn_info.body);
         break :res try sema.analyzeBlockBody(block, call_src, &child_block, merges);
     } else if (func_ty_info.is_generic) res: {
@@ -2569,57 +2636,74 @@ fn analyzeCall(
         const fn_zir = namespace.file_scope.zir;
         const fn_info = fn_zir.getFnInfo(module_fn.zir_body_inst);
         const zir_tags = fn_zir.instructions.items(.tag);
-        const new_module_func = new_func: {
-            // This hash must match `Module.MonomorphedFuncsContext.hash`.
-            // For parameters explicitly marked comptime and simple parameter type expressions,
-            // we know whether a parameter is elided from a monomorphed function, and can
-            // use it in the hash here. However, for parameter type expressions that are not
-            // explicitly marked comptime and rely on previous parameter comptime values, we
-            // don't find out until after generating a monomorphed function whether the parameter
-            // type ended up being a "must-be-comptime-known" type.
-            var hasher = std.hash.Wyhash.init(0);
-            std.hash.autoHash(&hasher, @ptrToInt(module_fn));
 
-            const comptime_vals = try sema.arena.alloc(Value, func_ty_info.param_types.len);
+        // This hash must match `Module.MonomorphedFuncsContext.hash`.
+        // For parameters explicitly marked comptime and simple parameter type expressions,
+        // we know whether a parameter is elided from a monomorphed function, and can
+        // use it in the hash here. However, for parameter type expressions that are not
+        // explicitly marked comptime and rely on previous parameter comptime values, we
+        // don't find out until after generating a monomorphed function whether the parameter
+        // type ended up being a "must-be-comptime-known" type.
+        var hasher = std.hash.Wyhash.init(0);
+        std.hash.autoHash(&hasher, @ptrToInt(module_fn));
 
-            for (func_ty_info.param_types) |param_ty, i| {
-                const is_comptime = func_ty_info.paramIsComptime(i);
-                if (is_comptime and param_ty.tag() != .generic_poison) {
-                    const arg_src = call_src; // TODO better source location
-                    const casted_arg = try sema.coerce(block, param_ty, uncasted_args[i], arg_src);
-                    if (try sema.resolveMaybeUndefVal(block, arg_src, casted_arg)) |arg_val| {
+        const comptime_tvs = try sema.arena.alloc(TypedValue, func_ty_info.param_types.len);
+
+        for (func_ty_info.param_types) |param_ty, i| {
+            const is_comptime = func_ty_info.paramIsComptime(i);
+            if (is_comptime) {
+                const arg_src = call_src; // TODO better source location
+                const casted_arg = try sema.coerce(block, param_ty, uncasted_args[i], arg_src);
+                if (try sema.resolveMaybeUndefVal(block, arg_src, casted_arg)) |arg_val| {
+                    if (param_ty.tag() != .generic_poison) {
                         arg_val.hash(param_ty, &hasher);
-                        comptime_vals[i] = arg_val;
-                    } else {
-                        return sema.failWithNeededComptime(block, arg_src);
                     }
+                    comptime_tvs[i] = .{
+                        // This will be different than `param_ty` in the case of `generic_poison`.
+                        .ty = sema.typeOf(casted_arg),
+                        .val = arg_val,
+                    };
+                } else {
+                    return sema.failWithNeededComptime(block, arg_src);
                 }
+            } else {
+                comptime_tvs[i] = .{
+                    .ty = sema.typeOf(uncasted_args[i]),
+                    .val = Value.initTag(.generic_poison),
+                };
             }
+        }
 
-            const adapter: GenericCallAdapter = .{
-                .generic_fn = module_fn,
-                .precomputed_hash = hasher.final(),
-                .func_ty_info = func_ty_info,
-                .comptime_vals = comptime_vals,
-            };
-            const gop = try mod.monomorphed_funcs.getOrPutAdapted(gpa, {}, adapter);
-            if (gop.found_existing) {
-                const callee_func = gop.key_ptr.*;
-                break :res try sema.finishGenericCall(
-                    block,
-                    call_src,
-                    callee_func,
-                    func_src,
-                    uncasted_args,
-                    fn_info,
-                    zir_tags,
-                );
-            }
-            gop.key_ptr.* = try gpa.create(Module.Fn);
-            break :new_func gop.key_ptr.*;
+        const precomputed_hash = hasher.final();
+
+        const adapter: GenericCallAdapter = .{
+            .generic_fn = module_fn,
+            .precomputed_hash = precomputed_hash,
+            .func_ty_info = func_ty_info,
+            .comptime_tvs = comptime_tvs,
         };
-
+        const gop = try mod.monomorphed_funcs.getOrPutAdapted(gpa, {}, adapter);
+        if (gop.found_existing) {
+            const callee_func = gop.key_ptr.*;
+            break :res try sema.finishGenericCall(
+                block,
+                call_src,
+                callee_func,
+                func_src,
+                uncasted_args,
+                fn_info,
+                zir_tags,
+            );
+        }
+        const new_module_func = try gpa.create(Module.Fn);
+        gop.key_ptr.* = new_module_func;
         {
+            errdefer gpa.destroy(new_module_func);
+            const remove_adapter: GenericRemoveAdapter = .{
+                .precomputed_hash = precomputed_hash,
+            };
+            errdefer assert(mod.monomorphed_funcs.removeAdapted(new_module_func, remove_adapter));
+
             try namespace.anon_decls.ensureUnusedCapacity(gpa, 1);
 
             // Create a Decl for the new function.
@@ -2658,6 +2742,7 @@ fn analyzeCall(
                 .owner_decl = new_decl,
                 .namespace = namespace,
                 .func = null,
+                .fn_ret_ty = Type.initTag(.void),
                 .owner_func = null,
                 .comptime_args = try new_decl_arena.allocator.alloc(TypedValue, uncasted_args.len),
                 .comptime_args_fn_inst = module_fn.zir_body_inst,
@@ -2681,11 +2766,25 @@ fn analyzeCall(
             try child_sema.inst_map.ensureUnusedCapacity(gpa, @intCast(u32, uncasted_args.len));
             var arg_i: usize = 0;
             for (fn_info.param_body) |inst| {
-                const is_comptime = switch (zir_tags[inst]) {
-                    .param_comptime, .param_anytype_comptime => true,
-                    .param, .param_anytype => false,
+                var is_comptime = false;
+                var is_anytype = false;
+                switch (zir_tags[inst]) {
+                    .param => {
+                        is_comptime = func_ty_info.paramIsComptime(arg_i);
+                    },
+                    .param_comptime => {
+                        is_comptime = true;
+                    },
+                    .param_anytype => {
+                        is_anytype = true;
+                        is_comptime = func_ty_info.paramIsComptime(arg_i);
+                    },
+                    .param_anytype_comptime => {
+                        is_anytype = true;
+                        is_comptime = true;
+                    },
                     else => continue,
-                } or func_ty_info.paramIsComptime(arg_i);
+                }
                 const arg_src = call_src; // TODO: better source location
                 const arg = uncasted_args[arg_i];
                 if (try sema.resolveMaybeUndefVal(block, arg_src, arg)) |arg_val| {
@@ -2693,6 +2792,12 @@ fn analyzeCall(
                     child_sema.inst_map.putAssumeCapacityNoClobber(inst, child_arg);
                 } else if (is_comptime) {
                     return sema.failWithNeededComptime(block, arg_src);
+                } else if (is_anytype) {
+                    const child_arg = try child_sema.addConstant(
+                        sema.typeOf(arg),
+                        Value.initTag(.generic_poison),
+                    );
+                    child_sema.inst_map.putAssumeCapacityNoClobber(inst, child_arg);
                 }
                 arg_i += 1;
             }
@@ -2710,17 +2815,10 @@ fn analyzeCall(
                 const arg = child_sema.inst_map.get(inst).?;
                 const arg_val = (child_sema.resolveMaybeUndefValAllowVariables(&child_block, .unneeded, arg) catch unreachable).?;
 
-                if (arg_val.tag() == .generic_poison) {
-                    child_sema.comptime_args[arg_i] = .{
-                        .ty = Type.initTag(.noreturn),
-                        .val = Value.initTag(.unreachable_value),
-                    };
-                } else {
-                    child_sema.comptime_args[arg_i] = .{
-                        .ty = try child_sema.typeOf(arg).copy(&new_decl_arena.allocator),
-                        .val = try arg_val.copy(&new_decl_arena.allocator),
-                    };
-                }
+                child_sema.comptime_args[arg_i] = .{
+                    .ty = try child_sema.typeOf(arg).copy(&new_decl_arena.allocator),
+                    .val = try arg_val.copy(&new_decl_arena.allocator),
+                };
 
                 arg_i += 1;
             }
@@ -2729,6 +2827,18 @@ fn analyzeCall(
             new_decl.ty = try child_sema.typeOf(new_func_inst).copy(&new_decl_arena.allocator);
             new_decl.val = try Value.Tag.function.create(&new_decl_arena.allocator, new_func);
             new_decl.analysis = .complete;
+
+            if (new_decl.ty.fnInfo().is_generic) {
+                // TODO improve this error message. This can happen because of the parameter
+                // type expression or return type expression depending on runtime-provided values.
+                // The error message should be emitted in zirParam or funcCommon when it
+                // is determined that we are trying to instantiate a generic function.
+                return mod.fail(&block.base, call_src, "unable to monomorphize function", .{});
+            }
+
+            log.debug("generic function '{s}' instantiated with type {}", .{
+                new_decl.name, new_decl.ty,
+            });
 
             // The generic function Decl is guaranteed to be the first dependency
             // of each of its instantiations.
@@ -2809,7 +2919,7 @@ fn finishGenericCall(
         for (fn_info.param_body) |inst| {
             switch (zir_tags[inst]) {
                 .param_comptime, .param_anytype_comptime, .param, .param_anytype => {
-                    if (comptime_args[arg_i].val.tag() == .unreachable_value) {
+                    if (comptime_args[arg_i].val.tag() == .generic_poison) {
                         count += 1;
                     }
                     arg_i += 1;
@@ -2829,7 +2939,7 @@ fn finishGenericCall(
                 .param_comptime, .param_anytype_comptime, .param, .param_anytype => {},
                 else => continue,
             }
-            const is_runtime = comptime_args[total_i].val.tag() == .unreachable_value;
+            const is_runtime = comptime_args[total_i].val.tag() == .generic_poison;
             if (is_runtime) {
                 const param_ty = new_fn_ty.fnParamType(runtime_i);
                 const arg_src = call_src; // TODO: better source location
@@ -6162,28 +6272,23 @@ fn zirRetNode(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileErr
 fn analyzeRet(
     sema: *Sema,
     block: *Scope.Block,
-    operand: Air.Inst.Ref,
+    uncasted_operand: Air.Inst.Ref,
     src: LazySrcLoc,
     need_coercion: bool,
 ) CompileError!Zir.Inst.Index {
-    const casted_operand = if (!need_coercion) operand else op: {
-        const func = sema.func.?;
-        const fn_ty = func.owner_decl.ty;
-        // TODO: In the case of a comptime/inline function call of a generic function,
-        // this needs to be the resolved return type based on the function parameter type
-        // expressions being evaluated with comptime arguments passed in. Otherwise, this
-        // ends up being .generic_poison and failing the comptime/inline function call analysis.
-        const fn_ret_ty = fn_ty.fnReturnType();
-        break :op try sema.coerce(block, fn_ret_ty, operand, src);
-    };
+    const operand = if (!need_coercion)
+        uncasted_operand
+    else
+        try sema.coerce(block, sema.fn_ret_ty, uncasted_operand, src);
+
     if (block.inlining) |inlining| {
         // We are inlining a function call; rewrite the `ret` as a `break`.
-        try inlining.merges.results.append(sema.gpa, casted_operand);
-        _ = try block.addBr(inlining.merges.block_inst, casted_operand);
+        try inlining.merges.results.append(sema.gpa, operand);
+        _ = try block.addBr(inlining.merges.block_inst, operand);
         return always_noreturn;
     }
 
-    _ = try block.addUnOp(.ret, casted_operand);
+    _ = try block.addUnOp(.ret, operand);
     return always_noreturn;
 }
 
