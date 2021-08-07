@@ -119,6 +119,9 @@ pub const FUTEX_LOCK_PI = 6;
 pub const FUTEX_UNLOCK_PI = 7;
 pub const FUTEX_TRYLOCK_PI = 8;
 pub const FUTEX_WAIT_BITSET = 9;
+pub const FUTEX_WAKE_BITSET = 10;
+pub const FUTEX_WAIT_REQUEUE_PI = 11;
+pub const FUTEX_CMP_REQUEUE_PI = 12;
 
 pub const FUTEX_PRIVATE_FLAG = 128;
 
