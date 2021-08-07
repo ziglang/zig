@@ -139,7 +139,7 @@ pub fn analyzeBody(
             .alloc                        => try sema.zirAlloc(block, inst),
             .alloc_inferred               => try sema.zirAllocInferred(block, inst, Type.initTag(.inferred_alloc_const)),
             .alloc_inferred_mut           => try sema.zirAllocInferred(block, inst, Type.initTag(.inferred_alloc_mut)),
-            .alloc_inferred_comptime      => try sema.zirAllocInferredComptime(block, inst),
+            .alloc_inferred_comptime      => try sema.zirAllocInferredComptime(inst),
             .alloc_mut                    => try sema.zirAllocMut(block, inst),
             .alloc_comptime               => try sema.zirAllocComptime(block, inst),
             .anyframe_type                => try sema.zirAnyframeType(block, inst),
@@ -1384,10 +1384,14 @@ fn zirAllocComptime(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) Comp
     return sema.analyzeComptimeAlloc(block, var_type);
 }
 
-fn zirAllocInferredComptime(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+fn zirAllocInferredComptime(sema: *Sema, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const src_node = sema.code.instructions.items(.data)[inst].node;
     const src: LazySrcLoc = .{ .node_offset = src_node };
-    return sema.mod.fail(&block.base, src, "TODO implement Sema.zirAllocInferredComptime", .{});
+    sema.src = src;
+    return sema.addConstant(
+        Type.initTag(.inferred_alloc_mut),
+        try Value.Tag.inferred_alloc_comptime.create(sema.arena, undefined),
+    );
 }
 
 fn zirAlloc(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {

@@ -5,6 +5,7 @@ test {
     _ = @import("behavior/bool.zig");
     _ = @import("behavior/basic.zig");
     _ = @import("behavior/generics.zig");
+    _ = @import("behavior/eval.zig");
 
     if (!builtin.zig_is_stage2) {
         // Tests that only pass for stage1.
@@ -88,7 +89,7 @@ test {
         _ = @import("behavior/enum.zig");
         _ = @import("behavior/enum_with_members.zig");
         _ = @import("behavior/error.zig");
-        _ = @import("behavior/eval.zig");
+        _ = @import("behavior/eval_stage1.zig");
         _ = @import("behavior/field_parent_ptr.zig");
         _ = @import("behavior/floatop.zig");
         _ = @import("behavior/fn.zig");
