@@ -3656,7 +3656,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     }
 
                     {
-                        var iter = std.mem.tokenize(asm_source, "\n\r");
+                        var iter = std.mem.tokenize(u8, asm_source, "\n\r");
                         while (iter.next()) |ins| {
                             if (mem.eql(u8, ins, "syscall")) {
                                 try self.code.appendSlice(&[_]u8{ 0x0f, 0x05 });

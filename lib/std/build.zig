@@ -1085,7 +1085,7 @@ pub const Builder = struct {
                 if (fs.path.isAbsolute(name)) {
                     return name;
                 }
-                var it = mem.tokenize(PATH, &[_]u8{fs.path.delimiter});
+                var it = mem.tokenize(u8, PATH, &[_]u8{fs.path.delimiter});
                 while (it.next()) |path| {
                     const full_path = try fs.path.join(self.allocator, &[_][]const u8{
                         path,
@@ -1211,10 +1211,10 @@ pub const Builder = struct {
         const stdout = try self.execAllowFail(&[_][]const u8{ "pkg-config", "--list-all" }, out_code, .Ignore);
         var list = ArrayList(PkgConfigPkg).init(self.allocator);
         errdefer list.deinit();
-        var line_it = mem.tokenize(stdout, "\r\n");
+        var line_it = mem.tokenize(u8, stdout, "\r\n");
         while (line_it.next()) |line| {
             if (mem.trim(u8, line, " \t").len == 0) continue;
-            var tok_it = mem.tokenize(line, " \t");
+            var tok_it = mem.tokenize(u8, line, " \t");
             try list.append(PkgConfigPkg{
                 .name = tok_it.next() orelse return error.PkgConfigInvalidOutput,
                 .desc = tok_it.rest(),
@@ -1872,7 +1872,7 @@ pub const LibExeObjStep = struct {
             error.FileNotFound => return error.PkgConfigNotInstalled,
             else => return err,
         };
-        var it = mem.tokenize(stdout, " \r\n\t");
+        var it = mem.tokenize(u8, stdout, " \r\n\t");
         while (it.next()) |tok| {
             if (mem.eql(u8, tok, "-I")) {
                 const dir = it.next() orelse return error.PkgConfigInvalidOutput;

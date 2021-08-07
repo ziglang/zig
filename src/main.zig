@@ -1200,7 +1200,7 @@ fn buildOutputType(
                     },
                     .rdynamic => rdynamic = true,
                     .wl => {
-                        var split_it = mem.split(it.only_arg, ",");
+                        var split_it = mem.split(u8, it.only_arg, ",");
                         while (split_it.next()) |linker_arg| {
                             // Handle nested-joined args like `-Wl,-rpath=foo`.
                             // Must be prefixed with 1 or 2 dashes.
@@ -3655,7 +3655,7 @@ pub const ClangArgIterator = struct {
             defer allocator.free(resp_contents);
             // TODO is there a specification for this file format? Let's find it and make this parsing more robust
             // at the very least I'm guessing this needs to handle quotes and `#` comments.
-            var it = mem.tokenize(resp_contents, " \t\r\n");
+            var it = mem.tokenize(u8, resp_contents, " \t\r\n");
             var resp_arg_list = std.ArrayList([]const u8).init(allocator);
             defer resp_arg_list.deinit();
             {

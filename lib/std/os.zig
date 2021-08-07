@@ -1378,7 +1378,7 @@ pub fn execvpeZ_expandArg0(
     // Use of MAX_PATH_BYTES here is valid as the path_buf will be passed
     // directly to the operating system in execveZ.
     var path_buf: [MAX_PATH_BYTES]u8 = undefined;
-    var it = mem.tokenize(PATH, ":");
+    var it = mem.tokenize(u8, PATH, ":");
     var seen_eacces = false;
     var err: ExecveError = undefined;
 

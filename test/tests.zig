@@ -768,7 +768,7 @@ pub const StackTracesContext = struct {
                 var buf = ArrayList(u8).init(b.allocator);
                 defer buf.deinit();
                 if (stderr.len != 0 and stderr[stderr.len - 1] == '\n') stderr = stderr[0 .. stderr.len - 1];
-                var it = mem.split(stderr, "\n");
+                var it = mem.split(u8, stderr, "\n");
                 process_lines: while (it.next()) |line| {
                     if (line.len == 0) continue;
 

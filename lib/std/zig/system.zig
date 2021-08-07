@@ -44,7 +44,7 @@ pub const NativePaths = struct {
             defer allocator.free(nix_cflags_compile);
 
             is_nix = true;
-            var it = mem.tokenize(nix_cflags_compile, " ");
+            var it = mem.tokenize(u8, nix_cflags_compile, " ");
             while (true) {
                 const word = it.next() orelse break;
                 if (mem.eql(u8, word, "-isystem")) {
@@ -69,7 +69,7 @@ pub const NativePaths = struct {
             defer allocator.free(nix_ldflags);
 
             is_nix = true;
-            var it = mem.tokenize(nix_ldflags, " ");
+            var it = mem.tokenize(u8, nix_ldflags, " ");
             while (true) {
                 const word = it.next() orelse break;
                 if (mem.eql(u8, word, "-rpath")) {
@@ -839,7 +839,7 @@ pub const NativeTargetInfo = struct {
                         error.Overflow => return error.InvalidElfFile,
                     };
                     const rpath_list = mem.spanZ(std.meta.assumeSentinel(strtab[rpoff_usize..].ptr, 0));
-                    var it = mem.tokenize(rpath_list, ":");
+                    var it = mem.tokenize(u8, rpath_list, ":");
                     while (it.next()) |rpath| {
                         var dir = fs.cwd().openDir(rpath, .{}) catch |err| switch (err) {
                             error.NameTooLong => unreachable,

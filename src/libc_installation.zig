@@ -60,10 +60,10 @@ pub const LibCInstallation = struct {
         const contents = try std.fs.cwd().readFileAlloc(allocator, libc_file, std.math.maxInt(usize));
         defer allocator.free(contents);
 
-        var it = std.mem.tokenize(contents, "\n");
+        var it = std.mem.tokenize(u8, contents, "\n");
         while (it.next()) |line| {
             if (line.len == 0 or line[0] == '#') continue;
-            var line_it = std.mem.split(line, "=");
+            var line_it = std.mem.split(u8, line, "=");
             const name = line_it.next() orelse {
                 log.err("missing equal sign after field name\n", .{});
                 return error.ParseError;
@@ -298,7 +298,7 @@ pub const LibCInstallation = struct {
             },
         }
 
-        var it = std.mem.tokenize(exec_res.stderr, "\n\r");
+        var it = std.mem.tokenize(u8, exec_res.stderr, "\n\r");
         var search_paths = std.ArrayList([]const u8).init(allocator);
         defer search_paths.deinit();
         while (it.next()) |line| {
@@ -616,7 +616,7 @@ fn ccPrintFileName(args: CCPrintFileNameOptions) ![:0]u8 {
         },
     }
 
-    var it = std.mem.tokenize(exec_res.stdout, "\n\r");
+    var it = std.mem.tokenize(u8, exec_res.stdout, "\n\r");
     const line = it.next() orelse return error.LibCRuntimeNotFound;
     // When this command fails, it returns exit code 0 and duplicates the input file name.
     // So we detect failure by checking if the output matches exactly the input.
@@ -695,7 +695,7 @@ fn appendCcExe(args: *std.ArrayList([]const u8), skip_cc_env_var: bool) !void {
         return;
     };
     // Respect space-separated flags to the C compiler.
-    var it = std.mem.tokenize(cc_env_var, " ");
+    var it = std.mem.tokenize(u8, cc_env_var, " ");
     while (it.next()) |arg| {
         try args.append(arg);
     }

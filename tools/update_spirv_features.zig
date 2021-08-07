@@ -19,7 +19,7 @@ const Version = struct {
     minor: u32,
 
     fn parse(str: []const u8) !Version {
-        var it = std.mem.split(str, ".");
+        var it = std.mem.split(u8, str, ".");
 
         const major = it.next() orelse return error.InvalidVersion;
         const minor = it.next() orelse return error.InvalidVersion;
