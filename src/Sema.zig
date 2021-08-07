@@ -2793,16 +2793,24 @@ fn analyzeCall(
                 } else if (is_comptime) {
                     return sema.failWithNeededComptime(block, arg_src);
                 } else if (is_anytype) {
-                    const child_arg = try child_sema.addConstant(
-                        sema.typeOf(arg),
-                        Value.initTag(.generic_poison),
-                    );
+                    // We insert into the map an instruction which is runtime-known
+                    // but has the type of the comptime argument.
+                    const child_arg = try child_block.addArg(sema.typeOf(arg), 0);
                     child_sema.inst_map.putAssumeCapacityNoClobber(inst, child_arg);
                 }
                 arg_i += 1;
             }
-            const new_func_inst = try child_sema.resolveBody(&child_block, fn_info.param_body);
-            const new_func_val = try child_sema.resolveConstValue(&child_block, .unneeded, new_func_inst);
+            const new_func_inst = child_sema.resolveBody(&child_block, fn_info.param_body) catch |err| {
+                // TODO look up the compile error that happened here and attach a note to it
+                // pointing here, at the generic instantiation callsite.
+                if (sema.owner_func) |owner_func| {
+                    owner_func.state = .dependency_failure;
+                } else {
+                    sema.owner_decl.analysis = .dependency_failure;
+                }
+                return err;
+            };
+            const new_func_val = child_sema.resolveConstValue(&child_block, .unneeded, new_func_inst) catch unreachable;
             const new_func = new_func_val.castTag(.function).?.data;
             assert(new_func == new_module_func);
 
@@ -2813,12 +2821,22 @@ fn analyzeCall(
                     else => continue,
                 }
                 const arg = child_sema.inst_map.get(inst).?;
-                const arg_val = (child_sema.resolveMaybeUndefValAllowVariables(&child_block, .unneeded, arg) catch unreachable).?;
-
-                child_sema.comptime_args[arg_i] = .{
-                    .ty = try child_sema.typeOf(arg).copy(&new_decl_arena.allocator),
-                    .val = try arg_val.copy(&new_decl_arena.allocator),
-                };
+                const copied_arg_ty = try child_sema.typeOf(arg).copy(&new_decl_arena.allocator);
+                if (child_sema.resolveMaybeUndefValAllowVariables(
+                    &child_block,
+                    .unneeded,
+                    arg,
+                ) catch unreachable) |arg_val| {
+                    child_sema.comptime_args[arg_i] = .{
+                        .ty = copied_arg_ty,
+                        .val = try arg_val.copy(&new_decl_arena.allocator),
+                    };
+                } else {
+                    child_sema.comptime_args[arg_i] = .{
+                        .ty = copied_arg_ty,
+                        .val = Value.initTag(.generic_poison),
+                    };
+                }
 
                 arg_i += 1;
             }
@@ -2828,17 +2846,10 @@ fn analyzeCall(
             new_decl.val = try Value.Tag.function.create(&new_decl_arena.allocator, new_func);
             new_decl.analysis = .complete;
 
-            if (new_decl.ty.fnInfo().is_generic) {
-                // TODO improve this error message. This can happen because of the parameter
-                // type expression or return type expression depending on runtime-provided values.
-                // The error message should be emitted in zirParam or funcCommon when it
-                // is determined that we are trying to instantiate a generic function.
-                return mod.fail(&block.base, call_src, "unable to monomorphize function", .{});
-            }
-
             log.debug("generic function '{s}' instantiated with type {}", .{
                 new_decl.name, new_decl.ty,
             });
+            assert(!new_decl.ty.fnInfo().is_generic);
 
             // The generic function Decl is guaranteed to be the first dependency
             // of each of its instantiations.
@@ -8371,8 +8382,8 @@ fn analyzeDeclVal(
 fn analyzeDeclRef(sema: *Sema, decl: *Decl) CompileError!Air.Inst.Ref {
     try sema.mod.declareDeclDependency(sema.owner_decl, decl);
     sema.mod.ensureDeclAnalyzed(decl) catch |err| {
-        if (sema.func) |func| {
-            func.state = .dependency_failure;
+        if (sema.owner_func) |owner_func| {
+            owner_func.state = .dependency_failure;
         } else {
             sema.owner_decl.analysis = .dependency_failure;
         }

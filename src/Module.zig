@@ -1376,6 +1376,16 @@ pub const Scope = struct {
             });
         }
 
+        pub fn addArg(block: *Block, ty: Type, name: u32) error{OutOfMemory}!Air.Inst.Ref {
+            return block.addInst(.{
+                .tag = .arg,
+                .data = .{ .ty_str = .{
+                    .ty = try block.sema.addType(ty),
+                    .str = name,
+                } },
+            });
+        }
+
         pub fn addInst(block: *Block, inst: Air.Inst) error{OutOfMemory}!Air.Inst.Ref {
             return Air.indexToRef(try block.addInstAsIndex(inst));
         }
