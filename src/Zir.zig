@@ -465,6 +465,11 @@ pub const Inst = struct {
         /// Uses the `un_node` union field.
         ret_node,
         /// Sends control flow back to the function's callee.
+        /// The operand is a `ret_ptr` instruction, where the return value can be found.
+        /// Includes an AST node source location.
+        /// Uses the `un_node` union field.
+        ret_load,
+        /// Sends control flow back to the function's callee.
         /// Includes an operand as the return value.
         /// Includes a token source location.
         /// Uses the `un_tok` union field.
@@ -1231,6 +1236,7 @@ pub const Inst = struct {
                 .condbr_inline,
                 .compile_error,
                 .ret_node,
+                .ret_load,
                 .ret_coerce,
                 .ret_err_value,
                 .@"unreachable",
@@ -1335,6 +1341,7 @@ pub const Inst = struct {
                 .param_type = .param_type,
                 .ref = .un_tok,
                 .ret_node = .un_node,
+                .ret_load = .un_node,
                 .ret_coerce = .un_tok,
                 .ret_err_value = .str_tok,
                 .ret_err_value_code = .str_tok,
@@ -2912,6 +2919,7 @@ const Writer = struct {
             .ensure_result_used,
             .ensure_result_non_error,
             .ret_node,
+            .ret_load,
             .resolve_inferred_alloc,
             .optional_type,
             .optional_payload_safe,

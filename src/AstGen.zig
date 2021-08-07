@@ -2131,6 +2131,7 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: ast.Node.Index) Inner
             .condbr_inline,
             .compile_error,
             .ret_node,
+            .ret_load,
             .ret_coerce,
             .ret_err_value,
             .@"unreachable",
@@ -4791,11 +4792,10 @@ fn finishThenElseBlock(
     const strat = rl.strategy(block_scope);
     switch (strat.tag) {
         .break_void => {
-            if (!parent_gz.refIsNoReturn(then_result)) {
+            if (!then_scope.endsWithNoReturn()) {
                 _ = try then_scope.addBreak(break_tag, then_break_block, .void_value);
             }
-            const elide_else = if (else_result != .none) parent_gz.refIsNoReturn(else_result) else false;
-            if (!elide_else) {
+            if (!else_scope.endsWithNoReturn()) {
                 _ = try else_scope.addBreak(break_tag, main_block, .void_value);
             }
             assert(!strat.elide_store_to_block_ptr_instructions);
@@ -4803,11 +4803,11 @@ fn finishThenElseBlock(
             return indexToRef(main_block);
         },
         .break_operand => {
-            if (!parent_gz.refIsNoReturn(then_result)) {
+            if (!then_scope.endsWithNoReturn()) {
                 _ = try then_scope.addBreak(break_tag, then_break_block, then_result);
             }
             if (else_result != .none) {
-                if (!parent_gz.refIsNoReturn(else_result)) {
+                if (!else_scope.endsWithNoReturn()) {
                     _ = try else_scope.addBreak(break_tag, main_block, else_result);
                 }
             } else {
@@ -6236,7 +6236,7 @@ fn ret(gz: *GenZir, scope: *Scope, node: ast.Node.Index) InnerError!Zir.Inst.Ref
             // Value is always an error. Emit both error defers and regular defers.
             const err_code = try gz.addUnNode(.err_union_code, operand, node);
             try genDefers(gz, defer_outer, scope, .{ .both = err_code });
-            _ = try gz.addUnNode(.ret_node, operand, node);
+            try gz.addRet(rl, operand, node);
             return Zir.Inst.Ref.unreachable_value;
         },
         .maybe => {
@@ -6244,7 +6244,7 @@ fn ret(gz: *GenZir, scope: *Scope, node: ast.Node.Index) InnerError!Zir.Inst.Ref
             if (!defer_counts.have_err) {
                 // Only regular defers; no branch needed.
                 try genDefers(gz, defer_outer, scope, .normal_only);
-                _ = try gz.addUnNode(.ret_node, operand, node);
+                try gz.addRet(rl, operand, node);
                 return Zir.Inst.Ref.unreachable_value;
             }
 
@@ -6256,7 +6256,7 @@ fn ret(gz: *GenZir, scope: *Scope, node: ast.Node.Index) InnerError!Zir.Inst.Ref
             defer then_scope.instructions.deinit(astgen.gpa);
 
             try genDefers(&then_scope, defer_outer, scope, .normal_only);
-            _ = try then_scope.addUnNode(.ret_node, operand, node);
+            try then_scope.addRet(rl, operand, node);
 
             var else_scope = gz.makeSubBlock(scope);
             defer else_scope.instructions.deinit(astgen.gpa);
@@ -6265,7 +6265,7 @@ fn ret(gz: *GenZir, scope: *Scope, node: ast.Node.Index) InnerError!Zir.Inst.Ref
                 .both = try else_scope.addUnNode(.err_union_code, operand, node),
             };
             try genDefers(&else_scope, defer_outer, scope, which_ones);
-            _ = try else_scope.addUnNode(.ret_node, operand, node);
+            try else_scope.addRet(rl, operand, node);
 
             try setCondBrPayload(condbr, is_non_err, &then_scope, &else_scope);
 
@@ -9003,6 +9003,14 @@ const GenZir = struct {
         used: bool = false,
     };
 
+    fn endsWithNoReturn(gz: GenZir) bool {
+        const tags = gz.astgen.instructions.items(.tag);
+        if (gz.instructions.items.len == 0) return false;
+        const last_inst = gz.instructions.items[gz.instructions.items.len - 1];
+        return tags[last_inst].isNoReturn();
+    }
+
+    /// TODO all uses of this should be replaced with uses of `endsWithNoReturn`.
     fn refIsNoReturn(gz: GenZir, inst_ref: Zir.Inst.Ref) bool {
         if (inst_ref == .unreachable_value) return true;
         if (refToIndex(inst_ref)) |inst_index| {
@@ -9976,6 +9984,14 @@ const GenZir = struct {
         gz.astgen.instructions.len += 1;
         gz.instructions.appendAssumeCapacity(new_index);
         return new_index;
+    }
+
+    fn addRet(gz: *GenZir, rl: ResultLoc, operand: Zir.Inst.Ref, node: ast.Node.Index) !void {
+        switch (rl) {
+            .ptr => |ret_ptr| _ = try gz.addUnNode(.ret_load, ret_ptr, node),
+            .ty => _ = try gz.addUnNode(.ret_node, operand, node),
+            else => unreachable,
+        }
     }
 };
 

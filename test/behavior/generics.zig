@@ -28,16 +28,7 @@ test "simple generic fn" {
 }
 
 fn max(comptime T: type, a: T, b: T) T {
-    if (!builtin.zig_is_stage2) {
-        // TODO: stage2 is incorrectly emitting AIR that allocates a result
-        // value, stores to it, but then returns void instead of the result.
-        return if (a > b) a else b;
-    }
-    if (a > b) {
-        return a;
-    } else {
-        return b;
-    }
+    return if (a > b) a else b;
 }
 
 fn add(comptime a: i32, b: i32) i32 {
@@ -70,29 +61,14 @@ test "fn with comptime args" {
 test "anytype params" {
     try expect(max_i32(12, 34) == 34);
     try expect(max_f64(1.2, 3.4) == 3.4);
-    if (!builtin.zig_is_stage2) {
-        // TODO: stage2 is incorrectly hitting the following problem:
-        // error: unable to resolve comptime value
-        //     return max_anytype(a, b);
-        //                       ^
-        comptime {
-            try expect(max_i32(12, 34) == 34);
-            try expect(max_f64(1.2, 3.4) == 3.4);
-        }
+    comptime {
+        try expect(max_i32(12, 34) == 34);
+        try expect(max_f64(1.2, 3.4) == 3.4);
     }
 }
 
 fn max_anytype(a: anytype, b: anytype) @TypeOf(a, b) {
-    if (!builtin.zig_is_stage2) {
-        // TODO: stage2 is incorrectly emitting AIR that allocates a result
-        // value, stores to it, but then returns void instead of the result.
-        return if (a > b) a else b;
-    }
-    if (a > b) {
-        return a;
-    } else {
-        return b;
-    }
+    return if (a > b) a else b;
 }
 
 fn max_i32(a: i32, b: i32) i32 {

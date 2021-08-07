@@ -366,6 +366,7 @@ pub fn analyzeBody(
             .compile_error  => return sema.zirCompileError(block, inst),
             .ret_coerce     => return sema.zirRetCoerce(block, inst),
             .ret_node       => return sema.zirRetNode(block, inst),
+            .ret_load       => return sema.zirRetLoad(block, inst),
             .ret_err_value  => return sema.zirRetErrValue(block, inst),
             .@"unreachable" => return sema.zirUnreachable(block, inst),
             .repeat         => return sema.zirRepeat(block, inst),
@@ -718,8 +719,8 @@ fn resolveMaybeUndefValAllowVariables(
     if (try sema.typeHasOnePossibleValue(block, src, sema.typeOf(inst))) |opv| {
         return opv;
     }
-
-    switch (sema.air_instructions.items(.tag)[i]) {
+    const air_tags = sema.air_instructions.items(.tag);
+    switch (air_tags[i]) {
         .constant => {
             const ty_pl = sema.air_instructions.items(.data)[i].ty_pl;
             return sema.air_values.items[ty_pl.payload];
@@ -1248,6 +1249,11 @@ fn zirRetPtr(
 
     const src: LazySrcLoc = .{ .node_offset = @bitCast(i32, extended.operand) };
     try sema.requireFunctionBlock(block, src);
+
+    if (block.is_comptime) {
+        return sema.analyzeComptimeAlloc(block, sema.fn_ret_ty);
+    }
+
     const ptr_type = try Module.simplePtrType(sema.arena, sema.fn_ret_ty, true, .One);
     return block.addTy(.alloc, ptr_type);
 }
@@ -1375,21 +1381,7 @@ fn zirAllocComptime(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) Comp
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const ty_src: LazySrcLoc = .{ .node_offset_var_decl_ty = inst_data.src_node };
     const var_type = try sema.resolveType(block, ty_src, inst_data.operand);
-    const ptr_type = try Module.simplePtrType(sema.arena, var_type, true, .One);
-
-    var anon_decl = try block.startAnonDecl();
-    defer anon_decl.deinit();
-    const decl = try anon_decl.finish(
-        try var_type.copy(anon_decl.arena()),
-        // AstGen guarantees there will be a store before the first load, so we put a value
-        // here indicating there is no valid value.
-        Value.initTag(.unreachable_value),
-    );
-    try sema.mod.declareDeclDependency(sema.owner_decl, decl);
-    return sema.addConstant(ptr_type, try Value.Tag.decl_ref_mut.create(sema.arena, .{
-        .runtime_index = block.runtime_index,
-        .decl = decl,
-    }));
+    return sema.analyzeComptimeAlloc(block, var_type);
 }
 
 fn zirAllocInferredComptime(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -1419,6 +1411,9 @@ fn zirAllocMut(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileEr
     const var_decl_src = inst_data.src();
     const ty_src: LazySrcLoc = .{ .node_offset_var_decl_ty = inst_data.src_node };
     const var_type = try sema.resolveType(block, ty_src, inst_data.operand);
+    if (block.is_comptime) {
+        return sema.analyzeComptimeAlloc(block, var_type);
+    }
     try sema.validateVarType(block, ty_src, var_type);
     const ptr_type = try Module.simplePtrType(sema.arena, var_type, true, .One);
     try sema.requireRuntimeBlock(block, var_decl_src);
@@ -6280,6 +6275,21 @@ fn zirRetNode(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileErr
     return sema.analyzeRet(block, operand, src, false);
 }
 
+fn zirRetLoad(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Zir.Inst.Index {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const src = inst_data.src();
+    // TODO: when implementing functions that accept a result location pointer,
+    // this logic will be updated to only do a load in case that the function's return
+    // type in fact does not need a result location pointer. Until then we assume
+    // the `ret_ptr` is the same as an `alloc` and do a load here.
+    const ret_ptr = sema.resolveInst(inst_data.operand);
+    const operand = try sema.analyzeLoad(block, src, ret_ptr, src);
+    return sema.analyzeRet(block, operand, src, false);
+}
+
 fn analyzeRet(
     sema: *Sema,
     block: *Scope.Block,
@@ -9415,4 +9425,26 @@ fn isComptimeKnown(
     inst: Air.Inst.Ref,
 ) !bool {
     return (try sema.resolveMaybeUndefVal(block, src, inst)) != null;
+}
+
+fn analyzeComptimeAlloc(
+    sema: *Sema,
+    block: *Scope.Block,
+    var_type: Type,
+) CompileError!Air.Inst.Ref {
+    const ptr_type = try Module.simplePtrType(sema.arena, var_type, true, .One);
+
+    var anon_decl = try block.startAnonDecl();
+    defer anon_decl.deinit();
+    const decl = try anon_decl.finish(
+        try var_type.copy(anon_decl.arena()),
+        // AstGen guarantees there will be a store before the first load, so we put a value
+        // here indicating there is no valid value.
+        Value.initTag(.unreachable_value),
+    );
+    try sema.mod.declareDeclDependency(sema.owner_decl, decl);
+    return sema.addConstant(ptr_type, try Value.Tag.decl_ref_mut.create(sema.arena, .{
+        .runtime_index = block.runtime_index,
+        .decl = decl,
+    }));
 }

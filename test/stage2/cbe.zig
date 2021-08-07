@@ -240,6 +240,10 @@ pub fn addCases(ctx: *TestContext) !void {
     if (host_supports_custom_stack_size) {
         var case = ctx.exeFromCompiledC("@setEvalBranchQuota", .{});
 
+        // TODO when adding result location support to function calls, revisit this test
+        // case. It can go back to what it was before, with `y` being comptime known.
+        // Because the ret_ptr will passed in with the inline fn call, and there will
+        // only be 1 store to it, and it will be comptime known.
         case.addCompareOutput(
             \\pub export fn main() i32 {
             \\    @setEvalBranchQuota(1001);
@@ -247,7 +251,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    return y - 1;
             \\}
             \\
-            \\fn rec(n: usize) callconv(.Inline) usize {
+            \\inline fn rec(n: i32) i32 {
             \\    if (n <= 1) return n;
             \\    return rec(n - 1);
             \\}
