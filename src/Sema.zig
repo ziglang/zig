@@ -5471,6 +5471,41 @@ fn analyzeArithmetic(
             lhs_ty, rhs_ty,
         });
     }
+    if (lhs_zig_ty_tag == .Pointer) switch (lhs_ty.ptrSize()) {
+        .One, .Slice => {},
+        .Many, .C => {
+            // Pointer arithmetic.
+            const op_src = src; // TODO better source location
+            const air_tag: Air.Inst.Tag = switch (zir_tag) {
+                .add => .ptr_add,
+                .sub => .ptr_sub,
+                else => return sema.mod.fail(
+                    &block.base,
+                    op_src,
+                    "invalid pointer arithmetic operand: '{s}''",
+                    .{@tagName(zir_tag)},
+                ),
+            };
+            // TODO if the operand is comptime-known to be negative, or is a negative int,
+            // coerce to isize instead of usize.
+            const casted_rhs = try sema.coerce(block, Type.initTag(.usize), rhs, rhs_src);
+            const runtime_src = runtime_src: {
+                if (try sema.resolveDefinedValue(block, lhs_src, lhs)) |lhs_val| {
+                    if (try sema.resolveDefinedValue(block, rhs_src, casted_rhs)) |rhs_val| {
+                        _ = lhs_val;
+                        _ = rhs_val;
+                        return sema.mod.fail(&block.base, src, "TODO implement Sema for comptime pointer arithmetic", .{});
+                    } else {
+                        break :runtime_src rhs_src;
+                    }
+                } else {
+                    break :runtime_src lhs_src;
+                }
+            };
+            try sema.requireRuntimeBlock(block, runtime_src);
+            return block.addBinOp(air_tag, lhs, casted_rhs);
+        },
+    };
 
     const instructions = &[_]Air.Inst.Ref{ lhs, rhs };
     const resolved_type = try sema.resolvePeerTypes(block, src, instructions);
@@ -7959,38 +7994,83 @@ fn elemVal(
 ) CompileError!Air.Inst.Ref {
     const array_ptr_src = src; // TODO better source location
     const maybe_ptr_ty = sema.typeOf(array_maybe_ptr);
-    if (maybe_ptr_ty.isSinglePointer()) {
-        const indexable_ty = maybe_ptr_ty.elemType();
-        if (indexable_ty.isSlice()) {
-            // We have a pointer to a slice and we want an element value.
-            if (try sema.isComptimeKnown(block, src, array_maybe_ptr)) {
-                const slice = try sema.analyzeLoad(block, src, array_maybe_ptr, array_ptr_src);
-                if (try sema.resolveDefinedValue(block, src, slice)) |slice_val| {
+    switch (maybe_ptr_ty.zigTypeTag()) {
+        .Pointer => switch (maybe_ptr_ty.ptrSize()) {
+            .Slice => {
+                if (try sema.resolveDefinedValue(block, src, array_maybe_ptr)) |slice_val| {
                     _ = slice_val;
                     return sema.mod.fail(&block.base, src, "TODO implement Sema for elemVal for comptime known slice", .{});
                 }
                 try sema.requireRuntimeBlock(block, src);
-                return block.addBinOp(.slice_elem_val, slice, elem_index);
-            }
-            try sema.requireRuntimeBlock(block, src);
-            return block.addBinOp(.ptr_slice_elem_val, array_maybe_ptr, elem_index);
-        }
+                return block.addBinOp(.slice_elem_val, array_maybe_ptr, elem_index);
+            },
+            .Many, .C => {
+                if (try sema.resolveDefinedValue(block, src, array_maybe_ptr)) |ptr_val| {
+                    _ = ptr_val;
+                    return sema.mod.fail(&block.base, src, "TODO implement Sema for elemVal for comptime known pointer", .{});
+                }
+                try sema.requireRuntimeBlock(block, src);
+                return block.addBinOp(.ptr_elem_val, array_maybe_ptr, elem_index);
+            },
+            .One => {
+                const indexable_ty = maybe_ptr_ty.elemType();
+                switch (indexable_ty.zigTypeTag()) {
+                    .Pointer => switch (indexable_ty.ptrSize()) {
+                        .Slice => {
+                            // We have a pointer to a slice and we want an element value.
+                            if (try sema.isComptimeKnown(block, src, array_maybe_ptr)) {
+                                const slice = try sema.analyzeLoad(block, src, array_maybe_ptr, array_ptr_src);
+                                if (try sema.resolveDefinedValue(block, src, slice)) |slice_val| {
+                                    _ = slice_val;
+                                    return sema.mod.fail(&block.base, src, "TODO implement Sema for elemVal for comptime known slice", .{});
+                                }
+                                try sema.requireRuntimeBlock(block, src);
+                                return block.addBinOp(.slice_elem_val, slice, elem_index);
+                            }
+                            try sema.requireRuntimeBlock(block, src);
+                            return block.addBinOp(.ptr_slice_elem_val, array_maybe_ptr, elem_index);
+                        },
+                        .Many, .C => {
+                            // We have a pointer to a pointer and we want an element value.
+                            if (try sema.isComptimeKnown(block, src, array_maybe_ptr)) {
+                                const ptr = try sema.analyzeLoad(block, src, array_maybe_ptr, array_ptr_src);
+                                if (try sema.resolveDefinedValue(block, src, ptr)) |ptr_val| {
+                                    _ = ptr_val;
+                                    return sema.mod.fail(&block.base, src, "TODO implement Sema for elemVal for comptime known pointer", .{});
+                                }
+                                try sema.requireRuntimeBlock(block, src);
+                                return block.addBinOp(.ptr_elem_val, ptr, elem_index);
+                            }
+                            try sema.requireRuntimeBlock(block, src);
+                            return block.addBinOp(.ptr_ptr_elem_val, array_maybe_ptr, elem_index);
+                        },
+                        .One => return sema.mod.fail(
+                            &block.base,
+                            array_ptr_src,
+                            "expected pointer, found '{}'",
+                            .{indexable_ty.elemType()},
+                        ),
+                    },
+                    .Array => {
+                        const ptr = try sema.elemPtr(block, src, array_maybe_ptr, elem_index, elem_index_src);
+                        return sema.analyzeLoad(block, src, ptr, elem_index_src);
+                    },
+                    else => return sema.mod.fail(
+                        &block.base,
+                        array_ptr_src,
+                        "expected pointer, found '{}'",
+                        .{indexable_ty},
+                    ),
+                }
+            },
+        },
+        else => return sema.mod.fail(
+            &block.base,
+            array_ptr_src,
+            "expected pointer, found '{}'",
+            .{maybe_ptr_ty},
+        ),
     }
-    if (maybe_ptr_ty.isSlice()) {
-        if (try sema.resolveDefinedValue(block, src, array_maybe_ptr)) |slice_val| {
-            _ = slice_val;
-            return sema.mod.fail(&block.base, src, "TODO implement Sema for elemVal for comptime known slice", .{});
-        }
-        try sema.requireRuntimeBlock(block, src);
-        return block.addBinOp(.slice_elem_val, array_maybe_ptr, elem_index);
-    }
-
-    const array_ptr = if (maybe_ptr_ty.zigTypeTag() == .Pointer)
-        array_maybe_ptr
-    else
-        try sema.analyzeRef(block, src, array_maybe_ptr);
-    const ptr = try sema.elemPtr(block, src, array_ptr, elem_index, elem_index_src);
-    return sema.analyzeLoad(block, src, ptr, elem_index_src);
 }
 
 fn elemPtrArray(
@@ -8107,17 +8187,15 @@ fn coerce(
                     .Many => {
                         // *[N]T to [*]T
                         // *[N:s]T to [*:s]T
-                        const src_sentinel = array_type.sentinel();
-                        const dst_sentinel = dest_type.sentinel();
-                        if (src_sentinel == null and dst_sentinel == null)
-                            return sema.coerceArrayPtrToMany(block, dest_type, inst, inst_src);
-
-                        if (src_sentinel) |src_s| {
-                            if (dst_sentinel) |dst_s| {
-                                if (src_s.eql(dst_s, dst_elem_type)) {
+                        // *[N:s]T to [*]T
+                        if (dest_type.sentinel()) |dst_sentinel| {
+                            if (array_type.sentinel()) |src_sentinel| {
+                                if (src_sentinel.eql(dst_sentinel, dst_elem_type)) {
                                     return sema.coerceArrayPtrToMany(block, dest_type, inst, inst_src);
                                 }
                             }
+                        } else {
+                            return sema.coerceArrayPtrToMany(block, dest_type, inst, inst_src);
                         }
                     },
                     .One => {},

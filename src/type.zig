@@ -2753,11 +2753,15 @@ pub const Type = extern union {
         };
     }
 
-    pub fn isIndexable(self: Type) bool {
-        const zig_tag = self.zigTypeTag();
-        // TODO tuples are indexable
-        return zig_tag == .Array or zig_tag == .Vector or self.isSlice() or
-            (self.isSinglePointer() and self.elemType().zigTypeTag() == .Array);
+    pub fn isIndexable(ty: Type) bool {
+        return switch (ty.zigTypeTag()) {
+            .Array, .Vector => true,
+            .Pointer => switch (ty.ptrSize()) {
+                .Slice, .Many, .C => true,
+                .One => ty.elemType().zigTypeTag() == .Array,
+            },
+            else => false, // TODO tuples are indexable
+        };
     }
 
     /// Returns null if the type has no namespace.

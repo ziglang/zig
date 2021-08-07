@@ -966,6 +966,8 @@ pub const FuncGen = struct {
                 .mul     => try self.airMul(inst, false),
                 .mulwrap => try self.airMul(inst, true),
                 .div     => try self.airDiv(inst),
+                .ptr_add => try self.airPtrAdd(inst),
+                .ptr_sub => try self.airPtrSub(inst),
 
                 .bit_and, .bool_and => try self.airAnd(inst),
                 .bit_or, .bool_or   => try self.airOr(inst),
@@ -1015,6 +1017,8 @@ pub const FuncGen = struct {
 
                 .slice_elem_val     => try self.airSliceElemVal(inst),
                 .ptr_slice_elem_val => try self.airPtrSliceElemVal(inst),
+                .ptr_elem_val       => try self.airPtrElemVal(inst),
+                .ptr_ptr_elem_val   => try self.airPtrPtrElemVal(inst),
 
                 .optional_payload     => try self.airOptionalPayload(inst, false),
                 .optional_payload_ptr => try self.airOptionalPayload(inst, true),
@@ -1229,7 +1233,8 @@ pub const FuncGen = struct {
     }
 
     fn airSliceElemVal(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
-        if (self.liveness.isUnused(inst))
+        const is_volatile = false; // TODO
+        if (!is_volatile and self.liveness.isUnused(inst))
             return null;
 
         const bin_op = self.air.instructions.items(.data)[inst].bin_op;
@@ -1242,7 +1247,8 @@ pub const FuncGen = struct {
     }
 
     fn airPtrSliceElemVal(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
-        if (self.liveness.isUnused(inst))
+        const is_volatile = false; // TODO
+        if (!is_volatile and self.liveness.isUnused(inst))
             return null;
 
         const bin_op = self.air.instructions.items(.data)[inst].bin_op;
@@ -1259,6 +1265,33 @@ pub const FuncGen = struct {
             break :ptr self.builder.buildLoad(ptr_field_ptr, "");
         };
 
+        const indices: [1]*const llvm.Value = .{rhs};
+        const ptr = self.builder.buildInBoundsGEP(base_ptr, &indices, indices.len, "");
+        return self.builder.buildLoad(ptr, "");
+    }
+
+    fn airPtrElemVal(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        const is_volatile = false; // TODO
+        if (!is_volatile and self.liveness.isUnused(inst))
+            return null;
+
+        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const base_ptr = try self.resolveInst(bin_op.lhs);
+        const rhs = try self.resolveInst(bin_op.rhs);
+        const indices: [1]*const llvm.Value = .{rhs};
+        const ptr = self.builder.buildInBoundsGEP(base_ptr, &indices, indices.len, "");
+        return self.builder.buildLoad(ptr, "");
+    }
+
+    fn airPtrPtrElemVal(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        const is_volatile = false; // TODO
+        if (!is_volatile and self.liveness.isUnused(inst))
+            return null;
+
+        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const lhs = try self.resolveInst(bin_op.lhs);
+        const rhs = try self.resolveInst(bin_op.rhs);
+        const base_ptr = self.builder.buildLoad(lhs, "");
         const indices: [1]*const llvm.Value = .{rhs};
         const ptr = self.builder.buildInBoundsGEP(base_ptr, &indices, indices.len, "");
         return self.builder.buildLoad(ptr, "");
@@ -1622,6 +1655,29 @@ pub const FuncGen = struct {
         if (inst_ty.isFloat()) return self.builder.buildFDiv(lhs, rhs, "");
         if (inst_ty.isSignedInt()) return self.builder.buildSDiv(lhs, rhs, "");
         return self.builder.buildUDiv(lhs, rhs, "");
+    }
+
+    fn airPtrAdd(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst))
+            return null;
+
+        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const base_ptr = try self.resolveInst(bin_op.lhs);
+        const offset = try self.resolveInst(bin_op.rhs);
+        const indices: [1]*const llvm.Value = .{offset};
+        return self.builder.buildInBoundsGEP(base_ptr, &indices, indices.len, "");
+    }
+
+    fn airPtrSub(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst))
+            return null;
+
+        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const base_ptr = try self.resolveInst(bin_op.lhs);
+        const offset = try self.resolveInst(bin_op.rhs);
+        const negative_offset = self.builder.buildNeg(offset, "");
+        const indices: [1]*const llvm.Value = .{negative_offset};
+        return self.builder.buildInBoundsGEP(base_ptr, &indices, indices.len, "");
     }
 
     fn airAnd(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {

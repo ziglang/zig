@@ -6,6 +6,7 @@ test {
     _ = @import("behavior/basic.zig");
     _ = @import("behavior/generics.zig");
     _ = @import("behavior/eval.zig");
+    _ = @import("behavior/pointers.zig");
 
     if (!builtin.zig_is_stage2) {
         // Tests that only pass for stage1.
@@ -112,7 +113,7 @@ test {
         _ = @import("behavior/namespace_depends_on_compile_var.zig");
         _ = @import("behavior/null.zig");
         _ = @import("behavior/optional.zig");
-        _ = @import("behavior/pointers.zig");
+        _ = @import("behavior/pointers_stage1.zig");
         _ = @import("behavior/popcount.zig");
         _ = @import("behavior/ptrcast.zig");
         _ = @import("behavior/pub_enum.zig");

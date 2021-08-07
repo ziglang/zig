@@ -802,13 +802,13 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
                 switch (air_tags[inst]) {
                     // zig fmt: off
-                    .add     => try self.airAdd(inst),
-                    .addwrap => try self.airAddWrap(inst),
-                    .sub     => try self.airSub(inst),
-                    .subwrap => try self.airSubWrap(inst),
-                    .mul     => try self.airMul(inst),
-                    .mulwrap => try self.airMulWrap(inst),
-                    .div     => try self.airDiv(inst),
+                    .add, .ptr_add => try self.airAdd(inst),
+                    .addwrap       => try self.airAddWrap(inst),
+                    .sub, .ptr_sub => try self.airSub(inst),
+                    .subwrap       => try self.airSubWrap(inst),
+                    .mul           => try self.airMul(inst),
+                    .mulwrap       => try self.airMulWrap(inst),
+                    .div           => try self.airDiv(inst),
 
                     .cmp_lt  => try self.airCmp(inst, .lt),
                     .cmp_lte => try self.airCmp(inst, .lte),
@@ -859,6 +859,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
                     .slice_elem_val      => try self.airSliceElemVal(inst),
                     .ptr_slice_elem_val  => try self.airPtrSliceElemVal(inst),
+                    .ptr_elem_val        => try self.airPtrElemVal(inst),
+                    .ptr_ptr_elem_val    => try self.airPtrPtrElemVal(inst),
 
                     .constant => unreachable, // excluded from function bodies
                     .const_ty => unreachable, // excluded from function bodies
@@ -1369,17 +1371,37 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         }
 
         fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) !void {
+            const is_volatile = false; // TODO
             const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-            const result: MCValue = if (self.liveness.isUnused(inst)) .dead else switch (arch) {
+            const result: MCValue = if (!is_volatile and self.liveness.isUnused(inst)) .dead else switch (arch) {
                 else => return self.fail("TODO implement slice_elem_val for {}", .{self.target.cpu.arch}),
             };
             return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
         }
 
         fn airPtrSliceElemVal(self: *Self, inst: Air.Inst.Index) !void {
+            const is_volatile = false; // TODO
             const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-            const result: MCValue = if (self.liveness.isUnused(inst)) .dead else switch (arch) {
+            const result: MCValue = if (!is_volatile and self.liveness.isUnused(inst)) .dead else switch (arch) {
                 else => return self.fail("TODO implement ptr_slice_elem_val for {}", .{self.target.cpu.arch}),
+            };
+            return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
+        }
+
+        fn airPtrElemVal(self: *Self, inst: Air.Inst.Index) !void {
+            const is_volatile = false; // TODO
+            const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+            const result: MCValue = if (!is_volatile and self.liveness.isUnused(inst)) .dead else switch (arch) {
+                else => return self.fail("TODO implement ptr_elem_val for {}", .{self.target.cpu.arch}),
+            };
+            return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
+        }
+
+        fn airPtrPtrElemVal(self: *Self, inst: Air.Inst.Index) !void {
+            const is_volatile = false; // TODO
+            const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+            const result: MCValue = if (!is_volatile and self.liveness.isUnused(inst)) .dead else switch (arch) {
+                else => return self.fail("TODO implement ptr_ptr_elem_val for {}", .{self.target.cpu.arch}),
             };
             return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
         }

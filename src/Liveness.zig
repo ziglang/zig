@@ -231,6 +231,8 @@ fn analyzeInst(
         .mul,
         .mulwrap,
         .div,
+        .ptr_add,
+        .ptr_sub,
         .bit_and,
         .bit_or,
         .xor,
@@ -245,6 +247,8 @@ fn analyzeInst(
         .store,
         .slice_elem_val,
         .ptr_slice_elem_val,
+        .ptr_elem_val,
+        .ptr_ptr_elem_val,
         => {
             const o = inst_datas[inst].bin_op;
             return trackOperands(a, new_set, inst, main_tomb, .{ o.lhs, o.rhs, .none });

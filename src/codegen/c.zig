@@ -850,19 +850,19 @@ fn genBody(o: *Object, body: []const Air.Inst.Index) error{ AnalysisFail, OutOfM
 
             // TODO use a different strategy for add that communicates to the optimizer
             // that wrapping is UB.
-            .add     => try airBinOp( o, inst, " + "),
-            .addwrap => try airWrapOp(o, inst, " + ", "addw_"),
+            .add, .ptr_add => try airBinOp( o, inst, " + "),
+            .addwrap       => try airWrapOp(o, inst, " + ", "addw_"),
             // TODO use a different strategy for sub that communicates to the optimizer
             // that wrapping is UB.
-            .sub     => try airBinOp( o, inst, " - "),
-            .subwrap => try airWrapOp(o, inst, " - ", "subw_"),
+            .sub, .ptr_sub => try airBinOp( o, inst, " - "),
+            .subwrap       => try airWrapOp(o, inst, " - ", "subw_"),
             // TODO use a different strategy for mul that communicates to the optimizer
             // that wrapping is UB.
-            .mul     => try airBinOp( o, inst, " * "),
-            .mulwrap => try airWrapOp(o, inst, " * ", "mulw_"),
+            .mul           => try airBinOp( o, inst, " * "),
+            .mulwrap       => try airWrapOp(o, inst, " * ", "mulw_"),
             // TODO use a different strategy for div that communicates to the optimizer
             // that wrapping is UB.
-            .div     => try airBinOp( o, inst, " / "),
+            .div           => try airBinOp( o, inst, " / "),
 
             .cmp_eq  => try airBinOp(o, inst, " == "),
             .cmp_gt  => try airBinOp(o, inst, " > "),
@@ -915,6 +915,8 @@ fn genBody(o: *Object, body: []const Air.Inst.Index) error{ AnalysisFail, OutOfM
             .slice_ptr        => try airSliceField(o, inst, ".ptr;\n"),
             .slice_len        => try airSliceField(o, inst, ".len;\n"),
 
+            .ptr_elem_val       => try airPtrElemVal(o, inst, "["),
+            .ptr_ptr_elem_val   => try airPtrElemVal(o, inst, "[0]["),
             .slice_elem_val     => try airSliceElemVal(o, inst, "["),
             .ptr_slice_elem_val => try airSliceElemVal(o, inst, "[0]["),
 
@@ -953,8 +955,18 @@ fn airSliceField(o: *Object, inst: Air.Inst.Index, suffix: []const u8) !CValue {
     return local;
 }
 
+fn airPtrElemVal(o: *Object, inst: Air.Inst.Index, prefix: []const u8) !CValue {
+    const is_volatile = false; // TODO
+    if (!is_volatile and o.liveness.isUnused(inst))
+        return CValue.none;
+
+    _ = prefix;
+    return o.dg.fail("TODO: C backend: airPtrElemVal", .{});
+}
+
 fn airSliceElemVal(o: *Object, inst: Air.Inst.Index, prefix: []const u8) !CValue {
-    if (o.liveness.isUnused(inst))
+    const is_volatile = false; // TODO
+    if (!is_volatile and o.liveness.isUnused(inst))
         return CValue.none;
 
     const bin_op = o.air.instructions.items(.data)[inst].bin_op;

@@ -109,6 +109,8 @@ const Writer = struct {
             .mul,
             .mulwrap,
             .div,
+            .ptr_add,
+            .ptr_sub,
             .bit_and,
             .bit_or,
             .xor,
@@ -123,6 +125,8 @@ const Writer = struct {
             .store,
             .slice_elem_val,
             .ptr_slice_elem_val,
+            .ptr_elem_val,
+            .ptr_ptr_elem_val,
             => try w.writeBinOp(s, inst),
 
             .is_null,

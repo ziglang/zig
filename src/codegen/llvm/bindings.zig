@@ -324,6 +324,9 @@ pub const Builder = opaque {
     pub const buildLoad = LLVMBuildLoad;
     extern fn LLVMBuildLoad(*const Builder, PointerVal: *const Value, Name: [*:0]const u8) *const Value;
 
+    pub const buildNeg = LLVMBuildNeg;
+    extern fn LLVMBuildNeg(*const Builder, V: *const Value, Name: [*:0]const u8) *const Value;
+
     pub const buildNot = LLVMBuildNot;
     extern fn LLVMBuildNot(*const Builder, V: *const Value, Name: [*:0]const u8) *const Value;
 

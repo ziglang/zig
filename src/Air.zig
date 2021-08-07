@@ -69,6 +69,18 @@ pub const Inst = struct {
         /// is the same as both operands.
         /// Uses the `bin_op` field.
         div,
+        /// Add an offset to a pointer, returning a new pointer.
+        /// The offset is in element type units, not bytes.
+        /// Wrapping is undefined behavior.
+        /// The lhs is the pointer, rhs is the offset. Result type is the same as lhs.
+        /// Uses the `bin_op` field.
+        ptr_add,
+        /// Subtract an offset from a pointer, returning a new pointer.
+        /// The offset is in element type units, not bytes.
+        /// Wrapping is undefined behavior.
+        /// The lhs is the pointer, rhs is the offset. Result type is the same as lhs.
+        /// Uses the `bin_op` field.
+        ptr_sub,
         /// Allocates stack local memory.
         /// Uses the `ty` field.
         alloc,
@@ -264,6 +276,15 @@ pub const Inst = struct {
         /// Result type is the element type of the slice operand (2 element type operations).
         /// Uses the `bin_op` field.
         ptr_slice_elem_val,
+        /// Given a pointer value, and element index, return the element value at that index.
+        /// Result type is the element type of the pointer operand.
+        /// Uses the `bin_op` field.
+        ptr_elem_val,
+        /// Given a pointer to a pointer, and element index, return the element value of the inner
+        /// pointer at that index.
+        /// Result type is the element type of the inner pointer operand.
+        /// Uses the `bin_op` field.
+        ptr_ptr_elem_val,
 
         pub fn fromCmpOp(op: std.math.CompareOperator) Tag {
             return switch (op) {
@@ -422,6 +443,8 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .bit_and,
         .bit_or,
         .xor,
+        .ptr_add,
+        .ptr_sub,
         => return air.typeOf(datas[inst].bin_op.lhs),
 
         .cmp_lt,
@@ -495,14 +518,14 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
             return callee_ty.fnReturnType();
         },
 
-        .slice_elem_val => {
+        .slice_elem_val, .ptr_elem_val => {
             const slice_ty = air.typeOf(datas[inst].bin_op.lhs);
             return slice_ty.elemType();
         },
-        .ptr_slice_elem_val => {
-            const ptr_slice_ty = air.typeOf(datas[inst].bin_op.lhs);
-            const slice_ty = ptr_slice_ty.elemType();
-            return slice_ty.elemType();
+        .ptr_slice_elem_val, .ptr_ptr_elem_val => {
+            const outer_ptr_ty = air.typeOf(datas[inst].bin_op.lhs);
+            const inner_ptr_ty = outer_ptr_ty.elemType();
+            return inner_ptr_ty.elemType();
         },
     }
 }
