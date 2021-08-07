@@ -10,9 +10,10 @@ const math = std.math;
 const mem = std.mem;
 const fat = @import("fat.zig");
 const commands = @import("commands.zig");
+const tapi = @import("../tapi.zig");
 
 const Allocator = mem.Allocator;
-const LibStub = @import("../tapi.zig").LibStub;
+const LibStub = tapi.LibStub;
 const LoadCommand = commands.LoadCommand;
 const MachO = @import("../MachO.zig");
 
@@ -315,9 +316,9 @@ fn parseSymbols(self: *Dylib, allocator: *Allocator) !void {
     }
 }
 
-fn hasTarget(targets: []const []const u8, target: []const u8) bool {
-    for (targets) |t| {
-        if (mem.eql(u8, t, target)) return true;
+fn hasValue(stack: []const []const u8, needle: []const u8) bool {
+    for (stack) |v| {
+        if (mem.eql(u8, v, needle)) return true;
     }
     return false;
 }
@@ -332,6 +333,78 @@ fn addObjCClassSymbols(self: *Dylib, allocator: *Allocator, sym_name: []const u8
         if (self.symbols.contains(sym)) continue;
         try self.symbols.putNoClobber(allocator, sym, .{});
     }
+}
+
+fn hasArch(archs: []const []const u8, arch: []const u8) bool {
+    for (archs) |x| {
+        if (mem.eql(u8, x, arch)) return true;
+    }
+    return false;
+}
+
+fn parseFromStubV3(self: *Dylib, allocator: *Allocator, target: std.Target, lib_stub: LibStub) !void {
+    var umbrella_libs = std.StringHashMap(void).init(allocator);
+    defer umbrella_libs.deinit();
+
+    const arch_string = @tagName(target.cpu.arch);
+
+    for (lib_stub.inner) |elem, stub_index| {
+        const stub = elem.v3;
+        if (!hasArch(stub.archs, arch_string)) continue;
+
+        if (stub_index > 0) {
+            // TODO I thought that we could switch on presence of `parent-umbrella` map;
+            // however, turns out `libsystem_notify.dylib` is fully reexported by `libSystem.dylib`
+            // BUT does not feature a `parent-umbrella` map as the only sublib. Apple's bug perhaps?
+            try umbrella_libs.put(stub.install_name, .{});
+        }
+
+        if (stub.exports) |exports| {
+            for (exports) |exp| {
+                if (!hasArch(exp.archs, arch_string)) continue;
+
+                if (exp.symbols) |symbols| {
+                    for (symbols) |sym_name| {
+                        if (self.symbols.contains(sym_name)) continue;
+                        try self.symbols.putNoClobber(allocator, try allocator.dupe(u8, sym_name), {});
+                    }
+                }
+
+                if (exp.re_exports) |re_exports| {
+                    for (re_exports) |reexp| {
+                        if (self.symbols.contains(reexp)) continue;
+                        try self.symbols.putNoClobber(allocator, try allocator.dupe(u8, reexp), {});
+                    }
+                }
+            }
+        }
+    }
+
+    log.debug("{s}", .{lib_stub.inner[0].installName()});
+
+    // // TODO track which libs were already parsed in different steps
+    // for (lib_stub.inner) |elem| {
+    //     const stub = elem.v3;
+    //     if (!archMatches(stub.archs, arch_string)) continue;
+
+    //     if (stub.reexported_libraries) |reexports| {
+    //         for (reexports) |reexp| {
+    //             if (!matcher.matches(reexp.targets)) continue;
+
+    //             for (reexp.libraries) |lib| {
+    //                 if (umbrella_libs.contains(lib)) {
+    //                     log.debug("  | {s} <= {s}", .{ lib, umbrella_lib.install_name });
+    //                     continue;
+    //                 }
+
+    //                 log.debug("  | {s}", .{lib});
+
+    //                 const dep_id = try Id.default(allocator, lib);
+    //                 try self.dependent_libs.append(allocator, dep_id);
+    //             }
+    //         }
+    //     }
+    // }
 }
 
 fn targetToAppleString(allocator: *Allocator, target: std.Target) ![]const u8 {
@@ -380,6 +453,13 @@ const TargetMatcher = struct {
         self.target_strings.deinit(self.allocator);
     }
 
+    fn hasTarget(targets: []const []const u8, target: []const u8) bool {
+        for (targets) |x| {
+            if (mem.eql(u8, x, target)) return true;
+        }
+        return false;
+    }
+
     fn matches(self: TargetMatcher, targets: []const []const u8) bool {
         for (self.target_strings.items) |t| {
             if (hasTarget(targets, t)) return true;
@@ -388,29 +468,15 @@ const TargetMatcher = struct {
     }
 };
 
-pub fn parseFromStub(self: *Dylib, allocator: *Allocator, target: std.Target, lib_stub: LibStub) !void {
-    if (lib_stub.inner.len == 0) return error.EmptyStubFile;
-
-    log.debug("parsing shared library from stub '{s}'", .{self.name});
-
-    const umbrella_lib = lib_stub.inner[0];
-
-    var id = try Id.default(allocator, umbrella_lib.install_name);
-    if (umbrella_lib.current_version) |version| {
-        try id.parseCurrentVersion(version);
-    }
-    if (umbrella_lib.compatibility_version) |version| {
-        try id.parseCompatibilityVersion(version);
-    }
-    self.id = id;
-
+fn parseFromStubV4(self: *Dylib, allocator: *Allocator, target: std.Target, lib_stub: LibStub) !void {
     var matcher = try TargetMatcher.init(allocator, target);
     defer matcher.deinit();
 
     var umbrella_libs = std.StringHashMap(void).init(allocator);
     defer umbrella_libs.deinit();
 
-    for (lib_stub.inner) |stub, stub_index| {
+    for (lib_stub.inner) |elem, stub_index| {
+        const stub = elem.v4;
         if (!matcher.matches(stub.targets)) continue;
 
         if (stub_index > 0) {
@@ -465,10 +531,11 @@ pub fn parseFromStub(self: *Dylib, allocator: *Allocator, target: std.Target, li
         }
     }
 
-    log.debug("{s}", .{umbrella_lib.install_name});
+    log.debug("{s}", .{lib_stub.inner[0].installName()});
 
     // TODO track which libs were already parsed in different steps
-    for (lib_stub.inner) |stub| {
+    for (lib_stub.inner) |elem| {
+        const stub = elem.v4;
         if (!matcher.matches(stub.targets)) continue;
 
         if (stub.reexported_libraries) |reexports| {
@@ -477,7 +544,7 @@ pub fn parseFromStub(self: *Dylib, allocator: *Allocator, target: std.Target, li
 
                 for (reexp.libraries) |lib| {
                     if (umbrella_libs.contains(lib)) {
-                        log.debug("  | {s} <= {s}", .{ lib, umbrella_lib.install_name });
+                        log.debug("  | {s} <= {s}", .{ lib, lib_stub.inner[0].installName() });
                         continue;
                     }
 
@@ -488,6 +555,28 @@ pub fn parseFromStub(self: *Dylib, allocator: *Allocator, target: std.Target, li
                 }
             }
         }
+    }
+}
+
+pub fn parseFromStub(self: *Dylib, allocator: *Allocator, target: std.Target, lib_stub: LibStub) !void {
+    if (lib_stub.inner.len == 0) return error.EmptyStubFile;
+
+    log.debug("parsing shared library from stub '{s}'", .{self.name});
+
+    const umbrella_lib = lib_stub.inner[0];
+
+    var id = try Id.default(allocator, umbrella_lib.installName());
+    if (umbrella_lib.currentVersion()) |version| {
+        try id.parseCurrentVersion(version);
+    }
+    if (umbrella_lib.compatibilityVersion()) |version| {
+        try id.parseCompatibilityVersion(version);
+    }
+    self.id = id;
+
+    switch (umbrella_lib) {
+        .v3 => try self.parseFromStubV3(allocator, target, lib_stub),
+        .v4 => try self.parseFromStubV4(allocator, target, lib_stub),
     }
 }
 
