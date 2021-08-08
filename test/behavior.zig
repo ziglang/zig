@@ -7,6 +7,7 @@ test {
     _ = @import("behavior/generics.zig");
     _ = @import("behavior/eval.zig");
     _ = @import("behavior/pointers.zig");
+    _ = @import("behavior/if.zig");
 
     if (!builtin.zig_is_stage2) {
         // Tests that only pass for stage1.
@@ -100,7 +101,7 @@ test {
         _ = @import("behavior/generics_stage1.zig");
         _ = @import("behavior/hasdecl.zig");
         _ = @import("behavior/hasfield.zig");
-        _ = @import("behavior/if.zig");
+        _ = @import("behavior/if_stage1.zig");
         _ = @import("behavior/import.zig");
         _ = @import("behavior/incomplete_struct_param_tld.zig");
         _ = @import("behavior/inttoptr.zig");

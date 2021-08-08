@@ -4815,7 +4815,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .ErrorUnion => {
                     const error_type = typed_value.ty.errorUnionSet();
                     const payload_type = typed_value.ty.errorUnionPayload();
-                    const sub_val = typed_value.val.castTag(.error_union).?.data;
+                    const sub_val = typed_value.val.castTag(.eu_payload).?.data;
 
                     if (!payload_type.hasCodeGenBits()) {
                         // We use the error type directly as the type.

@@ -1167,12 +1167,18 @@ pub const Context = struct {
                 try leb.writeULEB128(writer, error_index);
             },
             .ErrorUnion => {
-                const data = val.castTag(.error_union).?.data;
                 const error_type = ty.errorUnionSet();
                 const payload_type = ty.errorUnionPayload();
-                if (val.getError()) |_| {
+                if (val.castTag(.eu_payload)) |pl| {
+                    const payload_val = pl.data;
+                    // no error, so write a '0' const
+                    try writer.writeByte(wasm.opcode(.i32_const));
+                    try leb.writeULEB128(writer, @as(u32, 0));
+                    // after the error code, we emit the payload
+                    try self.emitConstant(payload_val, payload_type);
+                } else {
                     // write the error val
-                    try self.emitConstant(data, error_type);
+                    try self.emitConstant(val, error_type);
 
                     // no payload, so write a '0' const
                     const opcode: wasm.Opcode = buildOpcode(.{
@@ -1181,12 +1187,6 @@ pub const Context = struct {
                     });
                     try writer.writeByte(wasm.opcode(opcode));
                     try leb.writeULEB128(writer, @as(u32, 0));
-                } else {
-                    // no error, so write a '0' const
-                    try writer.writeByte(wasm.opcode(.i32_const));
-                    try leb.writeULEB128(writer, @as(u32, 0));
-                    // after the error code, we emit the payload
-                    try self.emitConstant(data, payload_type);
                 }
             },
             .Optional => {

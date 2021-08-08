@@ -129,7 +129,13 @@ pub const Value = extern union {
         /// A specific enum tag, indicated by the field index (declaration order).
         enum_field_index,
         @"error",
-        error_union,
+        /// When the type is error union:
+        /// * If the tag is `.@"error"`, the error union is an error.
+        /// * If the tag is `.eu_payload`, the error union is a payload.
+        /// * A nested error such as `((anyerror!T1)!T2)` in which the the outer error union
+        ///   is non-error, but the inner error union is an error, is represented as
+        ///   a tag of `.eu_payload`, with a sub-tag of `.@"error"`.
+        eu_payload,
         /// A pointer to the payload of an error union, based on a pointer to an error union.
         eu_payload_ptr,
         /// An instance of a struct.
@@ -228,7 +234,7 @@ pub const Value = extern union {
                 => Payload.Decl,
 
                 .repeated,
-                .error_union,
+                .eu_payload,
                 .eu_payload_ptr,
                 => Payload.SubValue,
 
@@ -450,7 +456,7 @@ pub const Value = extern union {
                 return Value{ .ptr_otherwise = &new_payload.base };
             },
             .bytes => return self.copyPayloadShallow(allocator, Payload.Bytes),
-            .repeated, .error_union, .eu_payload_ptr => {
+            .repeated, .eu_payload, .eu_payload_ptr => {
                 const payload = self.cast(Payload.SubValue).?;
                 const new_payload = try allocator.create(Payload.SubValue);
                 new_payload.* = .{
@@ -642,7 +648,10 @@ pub const Value = extern union {
             .float_128 => return out_stream.print("{}", .{val.castTag(.float_128).?.data}),
             .@"error" => return out_stream.print("error.{s}", .{val.castTag(.@"error").?.data.name}),
             // TODO to print this it should be error{ Set, Items }!T(val), but we need the type for that
-            .error_union => return out_stream.print("error_union_val({})", .{val.castTag(.error_union).?.data}),
+            .eu_payload => {
+                try out_stream.writeAll("(eu_payload) ");
+                val = val.castTag(.eu_payload).?.data;
+            },
             .inferred_alloc => return out_stream.writeAll("(inferred allocation value)"),
             .inferred_alloc_comptime => return out_stream.writeAll("(inferred comptime allocation value)"),
             .eu_payload_ptr => {
@@ -1241,7 +1250,7 @@ pub const Value = extern union {
             .eu_payload_ptr => blk: {
                 const err_union_ptr = self.castTag(.eu_payload_ptr).?.data;
                 const err_union_val = (try err_union_ptr.pointerDeref(allocator)) orelse return null;
-                break :blk err_union_val.castTag(.error_union).?.data;
+                break :blk err_union_val.castTag(.eu_payload).?.data;
             },
 
             .zero,
@@ -1351,16 +1360,16 @@ pub const Value = extern union {
     }
 
     /// Valid for all types. Asserts the value is not undefined and not unreachable.
+    /// Prefer `errorUnionIsPayload` to find out whether something is an error or not
+    /// because it works without having to figure out the string.
     pub fn getError(self: Value) ?[]const u8 {
         return switch (self.tag()) {
-            .error_union => {
-                const data = self.castTag(.error_union).?.data;
-                return if (data.tag() == .@"error")
-                    data.castTag(.@"error").?.data.name
-                else
-                    null;
-            },
             .@"error" => self.castTag(.@"error").?.data.name,
+            .int_u64 => @panic("TODO"),
+            .int_i64 => @panic("TODO"),
+            .int_big_positive => @panic("TODO"),
+            .int_big_negative => @panic("TODO"),
+            .one => @panic("TODO"),
             .undef => unreachable,
             .unreachable_value => unreachable,
             .inferred_alloc => unreachable,
@@ -1369,6 +1378,16 @@ pub const Value = extern union {
             else => null,
         };
     }
+
+    /// Assumes the type is an error union. Returns true if and only if the value is
+    /// the error union payload, not an error.
+    pub fn errorUnionIsPayload(val: Value) bool {
+        return switch (val.tag()) {
+            .eu_payload => true,
+            else => false,
+        };
+    }
+
     /// Valid for all types. Asserts the value is not undefined.
     pub fn isFloat(self: Value) bool {
         return switch (self.tag()) {

@@ -350,32 +350,25 @@ pub const DeclGen = struct {
             .ErrorUnion => {
                 const error_type = t.errorUnionSet();
                 const payload_type = t.errorUnionPayload();
-                const sub_val = val.castTag(.error_union).?.data;
 
                 if (!payload_type.hasCodeGenBits()) {
                     // We use the error type directly as the type.
-                    return dg.renderValue(writer, error_type, sub_val);
+                    const err_val = if (val.errorUnionIsPayload()) Value.initTag(.zero) else val;
+                    return dg.renderValue(writer, error_type, err_val);
                 }
 
                 try writer.writeByte('(');
                 try dg.renderType(writer, t);
                 try writer.writeAll("){");
-                if (val.getError()) |_| {
-                    try writer.writeAll(" .error = ");
-                    try dg.renderValue(
-                        writer,
-                        error_type,
-                        sub_val,
-                    );
-                    try writer.writeAll(" }");
-                } else {
+                if (val.castTag(.eu_payload)) |pl| {
+                    const payload_val = pl.data;
                     try writer.writeAll(" .payload = ");
-                    try dg.renderValue(
-                        writer,
-                        payload_type,
-                        sub_val,
-                    );
+                    try dg.renderValue(writer, payload_type, payload_val);
                     try writer.writeAll(", .error = 0 }");
+                } else {
+                    try writer.writeAll(" .error = ");
+                    try dg.renderValue(writer, error_type, val);
+                    try writer.writeAll(" }");
                 }
             },
             .Enum => {

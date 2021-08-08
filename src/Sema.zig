@@ -3468,7 +3468,7 @@ fn zirErrUnionPayload(
         if (val.getError()) |name| {
             return sema.mod.fail(&block.base, src, "caught unexpected error '{s}'", .{name});
         }
-        const data = val.castTag(.error_union).?.data;
+        const data = val.castTag(.eu_payload).?.data;
         const result_ty = operand_ty.errorUnionPayload();
         return sema.addConstant(result_ty, data);
     }
@@ -3539,8 +3539,7 @@ fn zirErrUnionCode(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) Compi
 
     if (try sema.resolveDefinedValue(block, src, operand)) |val| {
         assert(val.getError() != null);
-        const data = val.castTag(.error_union).?.data;
-        return sema.addConstant(result_ty, data);
+        return sema.addConstant(result_ty, val);
     }
 
     try sema.requireRuntimeBlock(block, src);
@@ -3566,8 +3565,7 @@ fn zirErrUnionCodePtr(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) Co
     if (try sema.resolveDefinedValue(block, src, operand)) |pointer_val| {
         if (try pointer_val.pointerDeref(sema.arena)) |val| {
             assert(val.getError() != null);
-            const data = val.castTag(.error_union).?.data;
-            return sema.addConstant(result_ty, data);
+            return sema.addConstant(result_ty, val);
         }
     }
 
@@ -8900,7 +8898,9 @@ fn wrapErrorUnion(
     if (try sema.resolveMaybeUndefVal(block, inst_src, inst)) |val| {
         if (inst_ty.zigTypeTag() != .ErrorSet) {
             _ = try sema.coerce(block, dest_payload_ty, inst, inst_src);
-        } else switch (dest_err_set_ty.tag()) {
+            return sema.addConstant(dest_type, try Value.Tag.eu_payload.create(sema.arena, val));
+        }
+        switch (dest_err_set_ty.tag()) {
             .anyerror => {},
             .error_set_single => {
                 const expected_name = val.castTag(.@"error").?.data.name;
@@ -8946,9 +8946,7 @@ fn wrapErrorUnion(
             },
             else => unreachable,
         }
-
-        // Create a SubValue for the error_union payload.
-        return sema.addConstant(dest_type, try Value.Tag.error_union.create(sema.arena, val));
+        return sema.addConstant(dest_type, val);
     }
 
     try sema.requireRuntimeBlock(block, inst_src);
