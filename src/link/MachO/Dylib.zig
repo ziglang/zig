@@ -352,6 +352,42 @@ fn targetToAppleString(allocator: *Allocator, target: std.Target) ![]const u8 {
     return std.fmt.allocPrint(allocator, "{s}-{s}", .{ arch, os });
 }
 
+const TargetMatcher = struct {
+    allocator: *Allocator,
+    target_strings: std.ArrayListUnmanaged([]const u8) = .{},
+
+    fn init(allocator: *Allocator, target: std.Target) !TargetMatcher {
+        var self = TargetMatcher{ .allocator = allocator };
+        try self.target_strings.append(allocator, try targetToAppleString(allocator, target));
+
+        if (target.abi == .simulator) {
+            // For Apple simulator targets, linking gets tricky as we need to link against the simulator
+            // hosts dylibs too.
+            const host_target = try targetToAppleString(allocator, (std.zig.CrossTarget{
+                .cpu_arch = target.cpu.arch,
+                .os_tag = .macos,
+            }).toTarget());
+            try self.target_strings.append(allocator, host_target);
+        }
+
+        return self;
+    }
+
+    fn deinit(self: *TargetMatcher) void {
+        for (self.target_strings.items) |t| {
+            self.allocator.free(t);
+        }
+        self.target_strings.deinit(self.allocator);
+    }
+
+    fn matches(self: TargetMatcher, targets: []const []const u8) bool {
+        for (self.target_strings.items) |t| {
+            if (hasTarget(targets, t)) return true;
+        }
+        return false;
+    }
+};
+
 pub fn parseFromStub(self: *Dylib, allocator: *Allocator, target: std.Target, lib_stub: LibStub) !void {
     if (lib_stub.inner.len == 0) return error.EmptyStubFile;
 
@@ -368,14 +404,14 @@ pub fn parseFromStub(self: *Dylib, allocator: *Allocator, target: std.Target, li
     }
     self.id = id;
 
-    const target_string = try targetToAppleString(allocator, target);
-    defer allocator.free(target_string);
+    var matcher = try TargetMatcher.init(allocator, target);
+    defer matcher.deinit();
 
     var umbrella_libs = std.StringHashMap(void).init(allocator);
     defer umbrella_libs.deinit();
 
     for (lib_stub.inner) |stub, stub_index| {
-        if (!hasTarget(stub.targets, target_string)) continue;
+        if (!matcher.matches(stub.targets)) continue;
 
         if (stub_index > 0) {
             // TODO I thought that we could switch on presence of `parent-umbrella` map;
@@ -386,7 +422,7 @@ pub fn parseFromStub(self: *Dylib, allocator: *Allocator, target: std.Target, li
 
         if (stub.exports) |exports| {
             for (exports) |exp| {
-                if (!hasTarget(exp.targets, target_string)) continue;
+                if (!matcher.matches(exp.targets)) continue;
 
                 if (exp.symbols) |symbols| {
                     for (symbols) |sym_name| {
@@ -405,7 +441,7 @@ pub fn parseFromStub(self: *Dylib, allocator: *Allocator, target: std.Target, li
 
         if (stub.reexports) |reexports| {
             for (reexports) |reexp| {
-                if (!hasTarget(reexp.targets, target_string)) continue;
+                if (!matcher.matches(reexp.targets)) continue;
 
                 if (reexp.symbols) |symbols| {
                     for (symbols) |sym_name| {
@@ -433,11 +469,11 @@ pub fn parseFromStub(self: *Dylib, allocator: *Allocator, target: std.Target, li
 
     // TODO track which libs were already parsed in different steps
     for (lib_stub.inner) |stub| {
-        if (!hasTarget(stub.targets, target_string)) continue;
+        if (!matcher.matches(stub.targets)) continue;
 
         if (stub.reexported_libraries) |reexports| {
             for (reexports) |reexp| {
-                if (!hasTarget(reexp.targets, target_string)) continue;
+                if (!matcher.matches(reexp.targets)) continue;
 
                 for (reexp.libraries) |lib| {
                     if (umbrella_libs.contains(lib)) {
