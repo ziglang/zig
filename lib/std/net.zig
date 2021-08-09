@@ -56,6 +56,7 @@ pub const Address = extern union {
             error.InvalidEnd,
             error.InvalidCharacter,
             error.Incomplete,
+            error.NonCanonical,
             => {},
         }
 
