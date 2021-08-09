@@ -92,6 +92,7 @@ test "parse and render IPv4 addresses" {
     try testing.expectError(error.InvalidEnd, net.Address.parseIp4("127.0.0.1.1", 0));
     try testing.expectError(error.Incomplete, net.Address.parseIp4("127.0.0.", 0));
     try testing.expectError(error.InvalidCharacter, net.Address.parseIp4("100..0.1", 0));
+    try testing.expectError(error.NonCanonical, net.Address.parseIp4("127.01.0.1", 0));
 }
 
 test "resolve DNS" {

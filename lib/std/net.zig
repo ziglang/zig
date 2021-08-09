@@ -34,6 +34,7 @@ pub const Address = extern union {
             error.InvalidEnd,
             error.InvalidCharacter,
             error.Incomplete,
+            error.NonCanonical,
             => {},
         }
 
@@ -55,6 +56,7 @@ pub const Address = extern union {
             error.InvalidEnd,
             error.InvalidCharacter,
             error.Incomplete,
+            error.NonCanonical,
             => {},
         }
 
@@ -204,6 +206,7 @@ pub const Ip4Address = extern struct {
         var x: u8 = 0;
         var index: u8 = 0;
         var saw_any_digits = false;
+        var has_zero_prefix = false;
         for (buf) |c| {
             if (c == '.') {
                 if (!saw_any_digits) {
@@ -216,7 +219,13 @@ pub const Ip4Address = extern struct {
                 index += 1;
                 x = 0;
                 saw_any_digits = false;
+                has_zero_prefix = false;
             } else if (c >= '0' and c <= '9') {
+                if (c == '0' and !saw_any_digits) {
+                    has_zero_prefix = true;
+                } else if (has_zero_prefix) {
+                    return error.NonCanonical;
+                }
                 saw_any_digits = true;
                 x = try std.math.mul(u8, x, 10);
                 x = try std.math.add(u8, x, c - '0');
@@ -1149,6 +1158,7 @@ fn linuxLookupNameFromHosts(
             error.Incomplete,
             error.InvalidIPAddressFormat,
             error.InvalidIpv4Mapping,
+            error.NonCanonical,
             => continue,
         };
         try addrs.append(LookupAddr{ .addr = addr });
