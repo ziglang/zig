@@ -193,6 +193,8 @@ pub fn createAndParseFromPath(
     defer dylibs.deinit();
 
     try dylibs.append(dylib);
+    // TODO this should not be performed if the user specifies `-flat_namespace` flag.
+    // See ld64 manpages.
     try dylib.parseDependentLibs(allocator, arch, &dylibs, opts.syslibroot);
 
     return dylibs.toOwnedSlice();

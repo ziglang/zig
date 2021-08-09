@@ -1013,7 +1013,12 @@ fn parseInputFiles(self: *MachO, files: []const []const u8, syslibroot: ?[]const
             .syslibroot = syslibroot,
         })) |dylibs| {
             defer self.base.allocator.free(dylibs);
+            const dylib_id = @intCast(u16, self.dylibs.items.len);
             try self.dylibs.appendSlice(self.base.allocator, dylibs);
+            // We always have to add the dylib that was on the linker line.
+            if (!self.referenced_dylibs.contains(dylib_id)) {
+                try self.referenced_dylibs.putNoClobber(self.base.allocator, dylib_id, {});
+            }
             continue;
         }
 
@@ -1028,7 +1033,12 @@ fn parseLibs(self: *MachO, libs: []const []const u8, syslibroot: ?[]const u8) !v
             .syslibroot = syslibroot,
         })) |dylibs| {
             defer self.base.allocator.free(dylibs);
+            const dylib_id = @intCast(u16, self.dylibs.items.len);
             try self.dylibs.appendSlice(self.base.allocator, dylibs);
+            // We always have to add the dylib that was on the linker line.
+            if (!self.referenced_dylibs.contains(dylib_id)) {
+                try self.referenced_dylibs.putNoClobber(self.base.allocator, dylib_id, {});
+            }
             continue;
         }
 

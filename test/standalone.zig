@@ -16,6 +16,7 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
     cases.addBuildFile("test/standalone/link_interdependent_static_c_libs/build.zig", .{});
     cases.addBuildFile("test/standalone/link_static_lib_as_system_lib/build.zig", .{});
     cases.addBuildFile("test/standalone/link_common_symbols/build.zig", .{});
+    cases.addBuildFile("test/standalone/link_frameworks/build.zig", .{ .requires_macos_sdk = true });
     cases.addBuildFile("test/standalone/issue_339/build.zig", .{});
     cases.addBuildFile("test/standalone/issue_8550/build.zig", .{});
     cases.addBuildFile("test/standalone/issue_794/build.zig", .{});
