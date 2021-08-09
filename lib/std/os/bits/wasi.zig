@@ -277,22 +277,23 @@ pub const lookupflags_t = u32;
 pub const LOOKUP_SYMLINK_FOLLOW: lookupflags_t = 0x00000001;
 
 pub usingnamespace if (builtin.link_libc) struct {
+    // Derived from https://github.com/WebAssembly/wasi-libc/blob/main/expected/wasm32-wasi/predefined-macros.txt
     pub const O_ACCMODE = (O_EXEC | O_RDWR | O_SEARCH);
-    pub const O_APPEND = 1 << 0; // = __WASI_FDFLAGS_APPEND
+    pub const O_APPEND = FDFLAG_APPEND;
     pub const O_CLOEXEC = (0);
     pub const O_CREAT = ((1 << 0) << 12); // = __WASI_OFLAGS_CREAT << 12
     pub const O_DIRECTORY = ((1 << 1) << 12); // = __WASI_OFLAGS_DIRECTORY << 12
-    pub const O_DSYNC = (1 << 1); // = __WASI_FDFLAGS_DSYNC
+    pub const O_DSYNC = FDFLAG_DSYNC;
     pub const O_EXCL = ((1 << 2) << 12); // = __WASI_OFLAGS_EXCL << 12
     pub const O_EXEC = (0x02000000);
     pub const O_NOCTTY = (0);
     pub const O_NOFOLLOW = (0x01000000);
-    pub const O_NONBLOCK = (1 << 2); // = __WASI_FDFLAGS_NONBLOCK
+    pub const O_NONBLOCK = (1 << FDFLAG_NONBLOCK);
     pub const O_RDONLY = (0x04000000);
     pub const O_RDWR = (O_RDONLY | O_WRONLY);
-    pub const O_RSYNC = (1 << 3); // = __WASI_FDFLAGS_RSYNC
+    pub const O_RSYNC = (1 << FDFLAG_RSYNC);
     pub const O_SEARCH = (0x08000000);
-    pub const O_SYNC = (1 << 4); // = __WASI_FDFLAGS_SYNC
+    pub const O_SYNC = (1 << FDFLAG_SYNC);
     pub const O_TRUNC = ((1 << 3) << 12); // = __WASI_OFLAGS_TRUNC << 12
     pub const O_TTY_INIT = (0);
     pub const O_WRONLY = (0x10000000);
@@ -476,9 +477,9 @@ pub const S_IFREG = 0x8000;
 // There's no concept of UNIX domain socket but we define this value here in order to line with other OSes.
 pub const S_IFSOCK = 0x1;
 
-pub const SEEK_SET = 0x0; // = __WASI_WHENCE_SET
-pub const SEEK_CUR = 0x1; // = __WASI_WHENCE_CUR
-pub const SEEK_END = 0x2; // = __WASI_WHENCE_END
+pub const SEEK_SET = WHENCE_SET;
+pub const SEEK_CUR = WHENCE_CUR;
+pub const SEEK_END = WHENCE_END;
 
 pub const LOCK_SH = 0x1;
 pub const LOCK_EX = 0x2;
