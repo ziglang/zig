@@ -1200,7 +1200,7 @@ fn buildOutputType(
                     },
                     .rdynamic => rdynamic = true,
                     .wl => {
-                        var split_it = mem.split(it.only_arg, ",");
+                        var split_it = mem.split(u8, it.only_arg, ",");
                         while (split_it.next()) |linker_arg| {
                             // Handle nested-joined args like `-Wl,-rpath=foo`.
                             // Must be prefixed with 1 or 2 dashes.
@@ -2753,6 +2753,8 @@ pub const usage_build =
 ;
 
 pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !void {
+    var prominent_compile_errors: bool = false;
+
     // We want to release all the locks before executing the child process, so we make a nice
     // big block here to ensure the cleanup gets run when we extract out our argv.
     const child_argv = argv: {
@@ -2804,6 +2806,8 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
                         i += 1;
                         override_global_cache_dir = args[i];
                         continue;
+                    } else if (mem.eql(u8, arg, "--prominent-compile-errors")) {
+                        prominent_compile_errors = true;
                     }
                 }
                 try child_argv.append(arg);
@@ -2973,8 +2977,13 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
     switch (term) {
         .Exited => |code| {
             if (code == 0) return cleanExit();
-            const cmd = try argvCmd(arena, child_argv);
-            fatal("the following build command failed with exit code {d}:\n{s}", .{ code, cmd });
+
+            if (prominent_compile_errors) {
+                fatal("the build command failed with exit code {d}", .{code});
+            } else {
+                const cmd = try argvCmd(arena, child_argv);
+                fatal("the following build command failed with exit code {d}:\n{s}", .{ code, cmd });
+            }
         },
         else => {
             const cmd = try argvCmd(arena, child_argv);
@@ -3646,7 +3655,7 @@ pub const ClangArgIterator = struct {
             defer allocator.free(resp_contents);
             // TODO is there a specification for this file format? Let's find it and make this parsing more robust
             // at the very least I'm guessing this needs to handle quotes and `#` comments.
-            var it = mem.tokenize(resp_contents, " \t\r\n");
+            var it = mem.tokenize(u8, resp_contents, " \t\r\n");
             var resp_arg_list = std.ArrayList([]const u8).init(allocator);
             defer resp_arg_list.deinit();
             {
@@ -3877,6 +3886,8 @@ const usage_ast_check =
     \\  -h, --help            Print this help and exit
     \\  --color [auto|off|on] Enable or disable colored error messages
     \\  -t                    (debug option) Output ZIR in text form to stdout
+    \\
+    \\
 ;
 
 pub fn cmdAstCheck(

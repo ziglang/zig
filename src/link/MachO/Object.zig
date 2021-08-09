@@ -10,20 +10,22 @@ const macho = std.macho;
 const math = std.math;
 const mem = std.mem;
 const sort = std.sort;
+const commands = @import("commands.zig");
+const segmentName = commands.segmentName;
+const sectionName = commands.sectionName;
 
 const Allocator = mem.Allocator;
 const Arch = std.Target.Cpu.Arch;
+const LoadCommand = commands.LoadCommand;
 const MachO = @import("../MachO.zig");
 const TextBlock = @import("TextBlock.zig");
 
-usingnamespace @import("commands.zig");
+file: fs.File,
+name: []const u8,
 
-allocator: *Allocator,
-arch: ?Arch = null,
-header: ?macho.mach_header_64 = null,
-file: ?fs.File = null,
 file_offset: ?u32 = null,
-name: ?[]const u8 = null,
+
+header: ?macho.mach_header_64 = null,
 
 load_commands: std.ArrayListUnmanaged(LoadCommand) = .{},
 
@@ -125,30 +127,51 @@ const DebugInfo = struct {
     }
 };
 
-pub fn createAndParseFromPath(allocator: *Allocator, arch: Arch, path: []const u8) !?*Object {
+pub fn deinit(self: *Object, allocator: *Allocator) void {
+    for (self.load_commands.items) |*lc| {
+        lc.deinit(allocator);
+    }
+    self.load_commands.deinit(allocator);
+    self.data_in_code_entries.deinit(allocator);
+    self.symtab.deinit(allocator);
+    self.strtab.deinit(allocator);
+    self.text_blocks.deinit(allocator);
+    self.sections_as_symbols.deinit(allocator);
+    self.symbol_mapping.deinit(allocator);
+    self.reverse_symbol_mapping.deinit(allocator);
+    allocator.free(self.name);
+
+    if (self.debug_info) |*db| {
+        db.deinit(allocator);
+    }
+
+    if (self.tu_name) |n| {
+        allocator.free(n);
+    }
+
+    if (self.tu_comp_dir) |n| {
+        allocator.free(n);
+    }
+}
+
+pub fn createAndParseFromPath(allocator: *Allocator, arch: Arch, path: []const u8) !?Object {
     const file = fs.cwd().openFile(path, .{}) catch |err| switch (err) {
         error.FileNotFound => return null,
         else => |e| return e,
     };
     errdefer file.close();
 
-    const object = try allocator.create(Object);
-    errdefer allocator.destroy(object);
-
     const name = try allocator.dupe(u8, path);
     errdefer allocator.free(name);
 
-    object.* = .{
-        .allocator = allocator,
-        .arch = arch,
+    var object = Object{
         .name = name,
         .file = file,
     };
 
-    object.parse() catch |err| switch (err) {
+    object.parse(allocator, arch) catch |err| switch (err) {
         error.EndOfStream, error.NotObject => {
-            object.deinit();
-            allocator.destroy(object);
+            object.deinit(allocator);
             return null;
         },
         else => |e| return e,
@@ -157,52 +180,18 @@ pub fn createAndParseFromPath(allocator: *Allocator, arch: Arch, path: []const u
     return object;
 }
 
-pub fn deinit(self: *Object) void {
-    for (self.load_commands.items) |*lc| {
-        lc.deinit(self.allocator);
-    }
-    self.load_commands.deinit(self.allocator);
-    self.data_in_code_entries.deinit(self.allocator);
-    self.symtab.deinit(self.allocator);
-    self.strtab.deinit(self.allocator);
-    self.text_blocks.deinit(self.allocator);
-    self.sections_as_symbols.deinit(self.allocator);
-    self.symbol_mapping.deinit(self.allocator);
-    self.reverse_symbol_mapping.deinit(self.allocator);
-
-    if (self.debug_info) |*db| {
-        db.deinit(self.allocator);
-    }
-
-    if (self.tu_name) |n| {
-        self.allocator.free(n);
-    }
-
-    if (self.tu_comp_dir) |n| {
-        self.allocator.free(n);
-    }
-
-    if (self.name) |n| {
-        self.allocator.free(n);
-    }
-}
-
-pub fn closeFile(self: Object) void {
-    if (self.file) |f| {
-        f.close();
-    }
-}
-
-pub fn parse(self: *Object) !void {
-    var reader = self.file.?.reader();
+pub fn parse(self: *Object, allocator: *Allocator, arch: Arch) !void {
+    const reader = self.file.reader();
     if (self.file_offset) |offset| {
         try reader.context.seekTo(offset);
     }
 
     const header = try reader.readStruct(macho.mach_header_64);
-
     if (header.filetype != macho.MH_OBJECT) {
-        log.debug("invalid filetype: expected 0x{x}, found 0x{x}", .{ macho.MH_OBJECT, header.filetype });
+        log.debug("invalid filetype: expected 0x{x}, found 0x{x}", .{
+            macho.MH_OBJECT,
+            header.filetype,
+        });
         return error.NotObject;
     }
 
@@ -214,26 +203,28 @@ pub fn parse(self: *Object) !void {
             return error.UnsupportedCpuArchitecture;
         },
     };
-    if (this_arch != self.arch.?) {
-        log.err("mismatched cpu architecture: expected {s}, found {s}", .{ self.arch.?, this_arch });
+    if (this_arch != arch) {
+        log.err("mismatched cpu architecture: expected {s}, found {s}", .{ arch, this_arch });
         return error.MismatchedCpuArchitecture;
     }
 
     self.header = header;
 
-    try self.readLoadCommands(reader);
-    try self.parseSymtab();
-    try self.parseDataInCode();
-    try self.parseDebugInfo();
+    try self.readLoadCommands(allocator, reader);
+    try self.parseSymtab(allocator);
+    try self.parseDataInCode(allocator);
+    try self.parseDebugInfo(allocator);
 }
 
-pub fn readLoadCommands(self: *Object, reader: anytype) !void {
+pub fn readLoadCommands(self: *Object, allocator: *Allocator, reader: anytype) !void {
+    const header = self.header orelse unreachable; // Unreachable here signifies a fatal unexplored condition.
     const offset = self.file_offset orelse 0;
-    try self.load_commands.ensureCapacity(self.allocator, self.header.?.ncmds);
+
+    try self.load_commands.ensureCapacity(allocator, header.ncmds);
 
     var i: u16 = 0;
-    while (i < self.header.?.ncmds) : (i += 1) {
-        var cmd = try LoadCommand.read(self.allocator, reader);
+    while (i < header.ncmds) : (i += 1) {
+        var cmd = try LoadCommand.read(allocator, reader);
         switch (cmd.cmd()) {
             macho.LC_SEGMENT_64 => {
                 self.segment_cmd_index = i;
@@ -347,26 +338,25 @@ fn filterDice(dices: []macho.data_in_code_entry, start_addr: u64, end_addr: u64)
     return dices[start..end];
 }
 
-const TextBlockParser = struct {
+const Context = struct {
     allocator: *Allocator,
+    object: *Object,
+    macho_file: *MachO,
+    match: MachO.MatchingSection,
+};
+
+const TextBlockParser = struct {
     section: macho.section_64,
     code: []u8,
     relocs: []macho.relocation_info,
-    object: *Object,
-    macho_file: *MachO,
     nlists: []NlistWithIndex,
     index: u32 = 0,
-    match: MachO.MatchingSection,
 
-    fn peek(self: *TextBlockParser) ?NlistWithIndex {
+    fn peek(self: TextBlockParser) ?NlistWithIndex {
         return if (self.index + 1 < self.nlists.len) self.nlists[self.index + 1] else null;
     }
 
-    const SeniorityContext = struct {
-        object: *Object,
-    };
-
-    fn lessThanBySeniority(context: SeniorityContext, lhs: NlistWithIndex, rhs: NlistWithIndex) bool {
+    fn lessThanBySeniority(context: Context, lhs: NlistWithIndex, rhs: NlistWithIndex) bool {
         if (!MachO.symbolIsExt(rhs.nlist)) {
             return MachO.symbolIsTemp(lhs.nlist, context.object.getString(lhs.nlist.n_strx));
         } else if (MachO.symbolIsPext(rhs.nlist) or MachO.symbolIsWeakDef(rhs.nlist)) {
@@ -376,10 +366,10 @@ const TextBlockParser = struct {
         }
     }
 
-    pub fn next(self: *TextBlockParser) !?*TextBlock {
+    pub fn next(self: *TextBlockParser, context: Context) !?*TextBlock {
         if (self.index == self.nlists.len) return null;
 
-        var aliases = std.ArrayList(NlistWithIndex).init(self.allocator);
+        var aliases = std.ArrayList(NlistWithIndex).init(context.allocator);
         defer aliases.deinit();
 
         const next_nlist: ?NlistWithIndex = blk: while (true) {
@@ -397,7 +387,7 @@ const TextBlockParser = struct {
         } else null;
 
         for (aliases.items) |*nlist_with_index| {
-            nlist_with_index.index = self.object.symbol_mapping.get(nlist_with_index.index) orelse unreachable;
+            nlist_with_index.index = context.object.symbol_mapping.get(nlist_with_index.index) orelse unreachable;
         }
 
         if (aliases.items.len > 1) {
@@ -405,14 +395,14 @@ const TextBlockParser = struct {
             sort.sort(
                 NlistWithIndex,
                 aliases.items,
-                SeniorityContext{ .object = self.object },
+                context,
                 TextBlockParser.lessThanBySeniority,
             );
         }
 
         const senior_nlist = aliases.pop();
-        const senior_sym = &self.macho_file.locals.items[senior_nlist.index];
-        senior_sym.n_sect = self.macho_file.section_to_ordinal.get(self.match) orelse unreachable;
+        const senior_sym = &context.macho_file.locals.items[senior_nlist.index];
+        senior_sym.n_sect = @intCast(u8, context.macho_file.section_ordinals.getIndex(context.match).? + 1);
 
         const start_addr = senior_nlist.nlist.n_value - self.section.addr;
         const end_addr = if (next_nlist) |n| n.nlist.n_value - self.section.addr else self.section.size;
@@ -426,7 +416,7 @@ const TextBlockParser = struct {
         else
             max_align;
 
-        const stab: ?TextBlock.Stab = if (self.object.debug_info) |di| blk: {
+        const stab: ?TextBlock.Stab = if (context.object.debug_info) |di| blk: {
             // TODO there has to be a better to handle this.
             for (di.inner.func_list.items) |func| {
                 if (func.pc_range) |range| {
@@ -442,35 +432,37 @@ const TextBlockParser = struct {
             break :blk .static;
         } else null;
 
-        const block = try self.macho_file.base.allocator.create(TextBlock);
+        const block = try context.allocator.create(TextBlock);
         block.* = TextBlock.empty;
         block.local_sym_index = senior_nlist.index;
         block.stab = stab;
         block.size = size;
         block.alignment = actual_align;
-        try self.macho_file.managed_blocks.append(self.macho_file.base.allocator, block);
+        try context.macho_file.managed_blocks.append(context.allocator, block);
 
-        try block.code.appendSlice(self.macho_file.base.allocator, code);
+        try block.code.appendSlice(context.allocator, code);
 
-        try block.aliases.ensureTotalCapacity(self.macho_file.base.allocator, aliases.items.len);
+        try block.aliases.ensureTotalCapacity(context.allocator, aliases.items.len);
         for (aliases.items) |alias| {
             block.aliases.appendAssumeCapacity(alias.index);
-            const sym = &self.macho_file.locals.items[alias.index];
-            sym.n_sect = self.macho_file.section_to_ordinal.get(self.match) orelse unreachable;
+            const sym = &context.macho_file.locals.items[alias.index];
+            sym.n_sect = @intCast(u8, context.macho_file.section_ordinals.getIndex(context.match).? + 1);
         }
 
-        try block.parseRelocsFromObject(self.macho_file.base.allocator, self.relocs, self.object, .{
+        try block.parseRelocs(self.relocs, .{
             .base_addr = start_addr,
-            .macho_file = self.macho_file,
+            .allocator = context.allocator,
+            .object = context.object,
+            .macho_file = context.macho_file,
         });
 
-        if (self.macho_file.has_dices) {
+        if (context.macho_file.has_dices) {
             const dices = filterDice(
-                self.object.data_in_code_entries.items,
+                context.object.data_in_code_entries.items,
                 senior_nlist.nlist.n_value,
                 senior_nlist.nlist.n_value + size,
             );
-            try block.dices.ensureTotalCapacity(self.macho_file.base.allocator, dices.len);
+            try block.dices.ensureTotalCapacity(context.allocator, dices.len);
 
             for (dices) |dice| {
                 block.dices.appendAssumeCapacity(.{
@@ -487,16 +479,21 @@ const TextBlockParser = struct {
     }
 };
 
-pub fn parseTextBlocks(self: *Object, macho_file: *MachO) !void {
+pub fn parseTextBlocks(
+    self: *Object,
+    allocator: *Allocator,
+    object_id: u16,
+    macho_file: *MachO,
+) !void {
     const seg = self.load_commands.items[self.segment_cmd_index.?].Segment;
 
-    log.debug("analysing {s}", .{self.name.?});
+    log.debug("analysing {s}", .{self.name});
 
     // You would expect that the symbol table is at least pre-sorted based on symbol's type:
     // local < extern defined < undefined. Unfortunately, this is not guaranteed! For instance,
     // the GO compiler does not necessarily respect that therefore we sort immediately by type
     // and address within.
-    var sorted_all_nlists = std.ArrayList(NlistWithIndex).init(self.allocator);
+    var sorted_all_nlists = std.ArrayList(NlistWithIndex).init(allocator);
     defer sorted_all_nlists.deinit();
     try sorted_all_nlists.ensureTotalCapacity(self.symtab.items.len);
 
@@ -540,14 +537,14 @@ pub fn parseTextBlocks(self: *Object, macho_file: *MachO) !void {
         };
 
         // Read section's code
-        var code = try self.allocator.alloc(u8, @intCast(usize, sect.size));
-        defer self.allocator.free(code);
-        _ = try self.file.?.preadAll(code, sect.offset);
+        var code = try allocator.alloc(u8, @intCast(usize, sect.size));
+        defer allocator.free(code);
+        _ = try self.file.preadAll(code, sect.offset);
 
         // Read section's list of relocations
-        var raw_relocs = try self.allocator.alloc(u8, sect.nreloc * @sizeOf(macho.relocation_info));
-        defer self.allocator.free(raw_relocs);
-        _ = try self.file.?.preadAll(raw_relocs, sect.reloff);
+        var raw_relocs = try allocator.alloc(u8, sect.nreloc * @sizeOf(macho.relocation_info));
+        defer allocator.free(raw_relocs);
+        _ = try self.file.preadAll(raw_relocs, sect.reloff);
         const relocs = mem.bytesAsSlice(macho.relocation_info, raw_relocs);
 
         // Symbols within this section only.
@@ -579,46 +576,48 @@ pub fn parseTextBlocks(self: *Object, macho_file: *MachO) !void {
                 // as a temporary symbol and insert the matching TextBlock.
                 const first_nlist = filtered_nlists[0].nlist;
                 if (first_nlist.n_value > sect.addr) {
-                    const sym_name = try std.fmt.allocPrint(self.allocator, "l_{s}_{s}_{s}", .{
-                        self.name.?,
+                    const sym_name = try std.fmt.allocPrint(allocator, "l_{s}_{s}_{s}", .{
+                        self.name,
                         segmentName(sect),
                         sectionName(sect),
                     });
-                    defer self.allocator.free(sym_name);
+                    defer allocator.free(sym_name);
 
                     const block_local_sym_index = self.sections_as_symbols.get(sect_id) orelse blk: {
                         const block_local_sym_index = @intCast(u32, macho_file.locals.items.len);
-                        try macho_file.locals.append(macho_file.base.allocator, .{
+                        try macho_file.locals.append(allocator, .{
                             .n_strx = try macho_file.makeString(sym_name),
                             .n_type = macho.N_SECT,
-                            .n_sect = macho_file.section_to_ordinal.get(match) orelse unreachable,
+                            .n_sect = @intCast(u8, macho_file.section_ordinals.getIndex(match).? + 1),
                             .n_desc = 0,
                             .n_value = sect.addr,
                         });
-                        try self.sections_as_symbols.putNoClobber(self.allocator, sect_id, block_local_sym_index);
+                        try self.sections_as_symbols.putNoClobber(allocator, sect_id, block_local_sym_index);
                         break :blk block_local_sym_index;
                     };
 
                     const block_code = code[0 .. first_nlist.n_value - sect.addr];
                     const block_size = block_code.len;
 
-                    const block = try macho_file.base.allocator.create(TextBlock);
+                    const block = try allocator.create(TextBlock);
                     block.* = TextBlock.empty;
                     block.local_sym_index = block_local_sym_index;
                     block.size = block_size;
                     block.alignment = sect.@"align";
-                    try macho_file.managed_blocks.append(macho_file.base.allocator, block);
+                    try macho_file.managed_blocks.append(allocator, block);
 
-                    try block.code.appendSlice(macho_file.base.allocator, block_code);
+                    try block.code.appendSlice(allocator, block_code);
 
-                    try block.parseRelocsFromObject(self.allocator, relocs, self, .{
+                    try block.parseRelocs(relocs, .{
                         .base_addr = 0,
+                        .allocator = allocator,
+                        .object = self,
                         .macho_file = macho_file,
                     });
 
                     if (macho_file.has_dices) {
                         const dices = filterDice(self.data_in_code_entries.items, sect.addr, sect.addr + block_size);
-                        try block.dices.ensureTotalCapacity(macho_file.base.allocator, dices.len);
+                        try block.dices.ensureTotalCapacity(allocator, dices.len);
 
                         for (dices) |dice| {
                             block.dices.appendAssumeCapacity(.{
@@ -645,24 +644,25 @@ pub fn parseTextBlocks(self: *Object, macho_file: *MachO) !void {
                         block.prev = last.*;
                         last.* = block;
                     } else {
-                        try macho_file.blocks.putNoClobber(macho_file.base.allocator, match, block);
+                        try macho_file.blocks.putNoClobber(allocator, match, block);
                     }
 
-                    try self.text_blocks.append(self.allocator, block);
+                    try self.text_blocks.append(allocator, block);
                 }
 
                 var parser = TextBlockParser{
-                    .allocator = self.allocator,
                     .section = sect,
                     .code = code,
                     .relocs = relocs,
-                    .object = self,
-                    .macho_file = macho_file,
                     .nlists = filtered_nlists,
-                    .match = match,
                 };
 
-                while (try parser.next()) |block| {
+                while (try parser.next(.{
+                    .allocator = allocator,
+                    .object = self,
+                    .macho_file = macho_file,
+                    .match = match,
+                })) |block| {
                     const sym = macho_file.locals.items[block.local_sym_index];
                     const is_ext = blk: {
                         const orig_sym_id = self.reverse_symbol_mapping.get(block.local_sym_index) orelse unreachable;
@@ -671,13 +671,14 @@ pub fn parseTextBlocks(self: *Object, macho_file: *MachO) !void {
                     if (is_ext) {
                         if (macho_file.symbol_resolver.get(sym.n_strx)) |resolv| {
                             assert(resolv.where == .global);
-                            const global_object = macho_file.objects.items[resolv.file];
-                            if (global_object != self) {
+                            if (resolv.file != object_id) {
                                 log.debug("deduping definition of {s} in {s}", .{
                                     macho_file.getString(sym.n_strx),
-                                    self.name.?,
+                                    self.name,
                                 });
-                                log.debug("  already defined in {s}", .{global_object.name.?});
+                                log.debug("  already defined in {s}", .{
+                                    macho_file.objects.items[resolv.file].name,
+                                });
                                 continue;
                             }
                         }
@@ -688,7 +689,7 @@ pub fn parseTextBlocks(self: *Object, macho_file: *MachO) !void {
                             // In x86_64 relocs, it can so happen that the compiler refers to the same
                             // atom by both the actual assigned symbol and the start of the section. In this
                             // case, we need to link the two together so add an alias.
-                            try block.aliases.append(macho_file.base.allocator, alias);
+                            try block.aliases.append(allocator, alias);
                         }
                     }
 
@@ -708,10 +709,10 @@ pub fn parseTextBlocks(self: *Object, macho_file: *MachO) !void {
                         block.prev = last.*;
                         last.* = block;
                     } else {
-                        try macho_file.blocks.putNoClobber(macho_file.base.allocator, match, block);
+                        try macho_file.blocks.putNoClobber(allocator, match, block);
                     }
 
-                    try self.text_blocks.append(self.allocator, block);
+                    try self.text_blocks.append(allocator, block);
                 }
 
                 break :next;
@@ -720,43 +721,45 @@ pub fn parseTextBlocks(self: *Object, macho_file: *MachO) !void {
             // Since there is no symbol to refer to this block, we create
             // a temp one, unless we already did that when working out the relocations
             // of other text blocks.
-            const sym_name = try std.fmt.allocPrint(self.allocator, "l_{s}_{s}_{s}", .{
-                self.name.?,
+            const sym_name = try std.fmt.allocPrint(allocator, "l_{s}_{s}_{s}", .{
+                self.name,
                 segmentName(sect),
                 sectionName(sect),
             });
-            defer self.allocator.free(sym_name);
+            defer allocator.free(sym_name);
 
             const block_local_sym_index = self.sections_as_symbols.get(sect_id) orelse blk: {
                 const block_local_sym_index = @intCast(u32, macho_file.locals.items.len);
-                try macho_file.locals.append(macho_file.base.allocator, .{
+                try macho_file.locals.append(allocator, .{
                     .n_strx = try macho_file.makeString(sym_name),
                     .n_type = macho.N_SECT,
-                    .n_sect = macho_file.section_to_ordinal.get(match) orelse unreachable,
+                    .n_sect = @intCast(u8, macho_file.section_ordinals.getIndex(match).? + 1),
                     .n_desc = 0,
                     .n_value = sect.addr,
                 });
-                try self.sections_as_symbols.putNoClobber(self.allocator, sect_id, block_local_sym_index);
+                try self.sections_as_symbols.putNoClobber(allocator, sect_id, block_local_sym_index);
                 break :blk block_local_sym_index;
             };
 
-            const block = try macho_file.base.allocator.create(TextBlock);
+            const block = try allocator.create(TextBlock);
             block.* = TextBlock.empty;
             block.local_sym_index = block_local_sym_index;
             block.size = sect.size;
             block.alignment = sect.@"align";
-            try macho_file.managed_blocks.append(macho_file.base.allocator, block);
+            try macho_file.managed_blocks.append(allocator, block);
 
-            try block.code.appendSlice(macho_file.base.allocator, code);
+            try block.code.appendSlice(allocator, code);
 
-            try block.parseRelocsFromObject(self.allocator, relocs, self, .{
+            try block.parseRelocs(relocs, .{
                 .base_addr = 0,
+                .allocator = allocator,
+                .object = self,
                 .macho_file = macho_file,
             });
 
             if (macho_file.has_dices) {
                 const dices = filterDice(self.data_in_code_entries.items, sect.addr, sect.addr + sect.size);
-                try block.dices.ensureTotalCapacity(macho_file.base.allocator, dices.len);
+                try block.dices.ensureTotalCapacity(allocator, dices.len);
 
                 for (dices) |dice| {
                     block.dices.appendAssumeCapacity(.{
@@ -772,13 +775,13 @@ pub fn parseTextBlocks(self: *Object, macho_file: *MachO) !void {
             // the filtered symbols and note which symbol is contained within so that
             // we can properly allocate addresses down the line.
             // While we're at it, we need to update segment,section mapping of each symbol too.
-            try block.contained.ensureTotalCapacity(self.allocator, filtered_nlists.len);
+            try block.contained.ensureTotalCapacity(allocator, filtered_nlists.len);
 
             for (filtered_nlists) |nlist_with_index| {
                 const nlist = nlist_with_index.nlist;
                 const local_sym_index = self.symbol_mapping.get(nlist_with_index.index) orelse unreachable;
                 const local = &macho_file.locals.items[local_sym_index];
-                local.n_sect = macho_file.section_to_ordinal.get(match) orelse unreachable;
+                local.n_sect = @intCast(u8, macho_file.section_ordinals.getIndex(match).? + 1);
 
                 const stab: ?TextBlock.Stab = if (self.debug_info) |di| blk: {
                     // TODO there has to be a better to handle this.
@@ -819,35 +822,35 @@ pub fn parseTextBlocks(self: *Object, macho_file: *MachO) !void {
                 block.prev = last.*;
                 last.* = block;
             } else {
-                try macho_file.blocks.putNoClobber(macho_file.base.allocator, match, block);
+                try macho_file.blocks.putNoClobber(allocator, match, block);
             }
 
-            try self.text_blocks.append(self.allocator, block);
+            try self.text_blocks.append(allocator, block);
         }
     }
 }
 
-fn parseSymtab(self: *Object) !void {
+fn parseSymtab(self: *Object, allocator: *Allocator) !void {
     const index = self.symtab_cmd_index orelse return;
     const symtab_cmd = self.load_commands.items[index].Symtab;
 
-    var symtab = try self.allocator.alloc(u8, @sizeOf(macho.nlist_64) * symtab_cmd.nsyms);
-    defer self.allocator.free(symtab);
-    _ = try self.file.?.preadAll(symtab, symtab_cmd.symoff);
+    var symtab = try allocator.alloc(u8, @sizeOf(macho.nlist_64) * symtab_cmd.nsyms);
+    defer allocator.free(symtab);
+    _ = try self.file.preadAll(symtab, symtab_cmd.symoff);
     const slice = @alignCast(@alignOf(macho.nlist_64), mem.bytesAsSlice(macho.nlist_64, symtab));
-    try self.symtab.appendSlice(self.allocator, slice);
+    try self.symtab.appendSlice(allocator, slice);
 
-    var strtab = try self.allocator.alloc(u8, symtab_cmd.strsize);
-    defer self.allocator.free(strtab);
-    _ = try self.file.?.preadAll(strtab, symtab_cmd.stroff);
-    try self.strtab.appendSlice(self.allocator, strtab);
+    var strtab = try allocator.alloc(u8, symtab_cmd.strsize);
+    defer allocator.free(strtab);
+    _ = try self.file.preadAll(strtab, symtab_cmd.stroff);
+    try self.strtab.appendSlice(allocator, strtab);
 }
 
-pub fn parseDebugInfo(self: *Object) !void {
-    log.debug("parsing debug info in '{s}'", .{self.name.?});
+pub fn parseDebugInfo(self: *Object, allocator: *Allocator) !void {
+    log.debug("parsing debug info in '{s}'", .{self.name});
 
     var debug_info = blk: {
-        var di = try DebugInfo.parseFromObject(self.allocator, self);
+        var di = try DebugInfo.parseFromObject(allocator, self);
         break :blk di orelse return;
     };
 
@@ -855,7 +858,7 @@ pub fn parseDebugInfo(self: *Object) !void {
     const compile_unit = debug_info.inner.findCompileUnit(0x0) catch |err| switch (err) {
         error.MissingDebugInfo => {
             // TODO audit cases with missing debug info and audit our dwarf.zig module.
-            log.debug("invalid or missing debug info in {s}; skipping", .{self.name.?});
+            log.debug("invalid or missing debug info in {s}; skipping", .{self.name});
             return;
         },
         else => |e| return e,
@@ -864,26 +867,25 @@ pub fn parseDebugInfo(self: *Object) !void {
     const comp_dir = try compile_unit.die.getAttrString(&debug_info.inner, dwarf.AT_comp_dir);
 
     self.debug_info = debug_info;
-    self.tu_name = try self.allocator.dupe(u8, name);
-    self.tu_comp_dir = try self.allocator.dupe(u8, comp_dir);
+    self.tu_name = try allocator.dupe(u8, name);
+    self.tu_comp_dir = try allocator.dupe(u8, comp_dir);
 
     if (self.mtime == null) {
         self.mtime = mtime: {
-            const file = self.file orelse break :mtime 0;
-            const stat = file.stat() catch break :mtime 0;
+            const stat = self.file.stat() catch break :mtime 0;
             break :mtime @intCast(u64, @divFloor(stat.mtime, 1_000_000_000));
         };
     }
 }
 
-pub fn parseDataInCode(self: *Object) !void {
+pub fn parseDataInCode(self: *Object, allocator: *Allocator) !void {
     const index = self.data_in_code_cmd_index orelse return;
     const data_in_code = self.load_commands.items[index].LinkeditData;
 
-    var buffer = try self.allocator.alloc(u8, data_in_code.datasize);
-    defer self.allocator.free(buffer);
+    var buffer = try allocator.alloc(u8, data_in_code.datasize);
+    defer allocator.free(buffer);
 
-    _ = try self.file.?.preadAll(buffer, data_in_code.dataoff);
+    _ = try self.file.preadAll(buffer, data_in_code.dataoff);
 
     var stream = io.fixedBufferStream(buffer);
     var reader = stream.reader();
@@ -892,7 +894,7 @@ pub fn parseDataInCode(self: *Object) !void {
             error.EndOfStream => break,
             else => |e| return e,
         };
-        try self.data_in_code_entries.append(self.allocator, dice);
+        try self.data_in_code_entries.append(allocator, dice);
     }
 }
 
@@ -900,7 +902,7 @@ fn readSection(self: Object, allocator: *Allocator, index: u16) ![]u8 {
     const seg = self.load_commands.items[self.segment_cmd_index.?].Segment;
     const sect = seg.sections.items[index];
     var buffer = try allocator.alloc(u8, @intCast(usize, sect.size));
-    _ = try self.file.?.preadAll(buffer, sect.offset);
+    _ = try self.file.preadAll(buffer, sect.offset);
     return buffer;
 }
 

@@ -107,7 +107,7 @@ pub fn loadMetaData(gpa: *Allocator, zig_lib_dir: std.fs.Dir) LoadMetaDataError!
     defer gpa.free(abi_txt_contents);
 
     {
-        var it = mem.tokenize(vers_txt_contents, "\r\n");
+        var it = mem.tokenize(u8, vers_txt_contents, "\r\n");
         var line_i: usize = 1;
         while (it.next()) |line| : (line_i += 1) {
             const prefix = "GLIBC_";
@@ -124,10 +124,10 @@ pub fn loadMetaData(gpa: *Allocator, zig_lib_dir: std.fs.Dir) LoadMetaDataError!
         }
     }
     {
-        var file_it = mem.tokenize(fns_txt_contents, "\r\n");
+        var file_it = mem.tokenize(u8, fns_txt_contents, "\r\n");
         var line_i: usize = 1;
         while (file_it.next()) |line| : (line_i += 1) {
-            var line_it = mem.tokenize(line, " ");
+            var line_it = mem.tokenize(u8, line, " ");
             const fn_name = line_it.next() orelse {
                 std.log.err("fns.txt:{d}: expected function name", .{line_i});
                 return error.ZigInstallationCorrupt;
@@ -147,7 +147,7 @@ pub fn loadMetaData(gpa: *Allocator, zig_lib_dir: std.fs.Dir) LoadMetaDataError!
         }
     }
     {
-        var file_it = mem.split(abi_txt_contents, "\n");
+        var file_it = mem.split(u8, abi_txt_contents, "\n");
         var line_i: usize = 0;
         while (true) {
             const ver_list_base: []VerList = blk: {
@@ -155,9 +155,9 @@ pub fn loadMetaData(gpa: *Allocator, zig_lib_dir: std.fs.Dir) LoadMetaDataError!
                 if (line.len == 0) break;
                 line_i += 1;
                 const ver_list_base = try arena.alloc(VerList, all_functions.items.len);
-                var line_it = mem.tokenize(line, " ");
+                var line_it = mem.tokenize(u8, line, " ");
                 while (line_it.next()) |target_string| {
-                    var component_it = mem.tokenize(target_string, "-");
+                    var component_it = mem.tokenize(u8, target_string, "-");
                     const arch_name = component_it.next() orelse {
                         std.log.err("abi.txt:{d}: expected arch name", .{line_i});
                         return error.ZigInstallationCorrupt;
@@ -203,7 +203,7 @@ pub fn loadMetaData(gpa: *Allocator, zig_lib_dir: std.fs.Dir) LoadMetaDataError!
                     .versions = undefined,
                     .len = 0,
                 };
-                var line_it = mem.tokenize(line, " ");
+                var line_it = mem.tokenize(u8, line, " ");
                 while (line_it.next()) |version_index_string| {
                     if (ver_list.len >= ver_list.versions.len) {
                         // If this happens with legit data, increase the array len in the type.

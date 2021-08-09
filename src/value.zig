@@ -22,6 +22,7 @@ pub const Value = extern union {
 
     pub const Tag = enum {
         // The first section of this enum are tags that require no payload.
+        u1_type,
         u8_type,
         i8_type,
         u16_type,
@@ -75,6 +76,8 @@ pub const Value = extern union {
         fn_ccc_void_no_args_type,
         single_const_pointer_to_comptime_int_type,
         const_slice_u8_type,
+        anyerror_void_error_union_type,
+        generic_poison_type,
 
         undef,
         zero,
@@ -84,6 +87,7 @@ pub const Value = extern union {
         null_value,
         bool_true,
         bool_false,
+        generic_poison,
 
         abi_align_default,
         empty_struct_value,
@@ -99,12 +103,13 @@ pub const Value = extern union {
         function,
         extern_fn,
         variable,
-        /// Represents a pointer to another immutable value.
-        ref_val,
-        /// Represents a comptime variables storage.
-        comptime_alloc,
-        /// Represents a pointer to a decl, not the value of the decl.
+        /// Represents a pointer to a Decl.
+        /// When machine codegen backend sees this, it must set the Decl's `alive` field to true.
         decl_ref,
+        /// Pointer to a Decl, but allows comptime code to mutate the Decl's Value.
+        /// This Tag will never be seen by machine codegen backends. It is changed into a
+        /// `decl_ref` when a comptime variable goes out of scope.
+        decl_ref_mut,
         elem_ptr,
         field_ptr,
         /// A slice of u8 whose memory is managed externally.
@@ -112,6 +117,10 @@ pub const Value = extern union {
         /// This value is repeated some number of times. The amount of times to repeat
         /// is stored externally.
         repeated,
+        /// Each element stored as a `Value`.
+        array,
+        /// Pointer and length as sub `Value` objects.
+        slice,
         float_16,
         float_32,
         float_64,
@@ -120,7 +129,15 @@ pub const Value = extern union {
         /// A specific enum tag, indicated by the field index (declaration order).
         enum_field_index,
         @"error",
-        error_union,
+        /// When the type is error union:
+        /// * If the tag is `.@"error"`, the error union is an error.
+        /// * If the tag is `.eu_payload`, the error union is a payload.
+        /// * A nested error such as `((anyerror!T1)!T2)` in which the the outer error union
+        ///   is non-error, but the inner error union is an error, is represented as
+        ///   a tag of `.eu_payload`, with a sub-tag of `.@"error"`.
+        eu_payload,
+        /// A pointer to the payload of an error union, based on a pointer to an error union.
+        eu_payload_ptr,
         /// An instance of a struct.
         @"struct",
         /// An instance of a union.
@@ -128,12 +145,16 @@ pub const Value = extern union {
         /// This is a special value that tracks a set of types that have been stored
         /// to an inferred allocation. It does not support any of the normal value queries.
         inferred_alloc,
+        /// Used to coordinate alloc_inferred, store_to_inferred_ptr, and resolve_inferred_alloc
+        /// instructions for comptime code.
+        inferred_alloc_comptime,
 
         pub const last_no_payload_tag = Tag.empty_array;
         pub const no_payload_count = @enumToInt(last_no_payload_tag) + 1;
 
         pub fn Type(comptime t: Tag) type {
             return switch (t) {
+                .u1_type,
                 .u8_type,
                 .i8_type,
                 .u16_type,
@@ -176,6 +197,8 @@ pub const Value = extern union {
                 .single_const_pointer_to_comptime_int_type,
                 .anyframe_type,
                 .const_slice_u8_type,
+                .anyerror_void_error_union_type,
+                .generic_poison_type,
                 .enum_literal_type,
                 .undef,
                 .zero,
@@ -198,6 +221,7 @@ pub const Value = extern union {
                 .call_options_type,
                 .export_options_type,
                 .extern_options_type,
+                .generic_poison,
                 => @compileError("Value Tag " ++ @tagName(t) ++ " has no payload"),
 
                 .int_big_positive,
@@ -206,16 +230,20 @@ pub const Value = extern union {
 
                 .extern_fn,
                 .decl_ref,
+                .inferred_alloc_comptime,
                 => Payload.Decl,
 
-                .ref_val,
                 .repeated,
-                .error_union,
+                .eu_payload,
+                .eu_payload_ptr,
                 => Payload.SubValue,
 
                 .bytes,
                 .enum_literal,
                 => Payload.Bytes,
+
+                .array => Payload.Array,
+                .slice => Payload.Slice,
 
                 .enum_field_index => Payload.U32,
 
@@ -225,7 +253,7 @@ pub const Value = extern union {
                 .int_i64 => Payload.I64,
                 .function => Payload.Function,
                 .variable => Payload.Variable,
-                .comptime_alloc => Payload.ComptimeAlloc,
+                .decl_ref_mut => Payload.DeclRefMut,
                 .elem_ptr => Payload.ElemPtr,
                 .field_ptr => Payload.FieldPtr,
                 .float_16 => Payload.Float_16,
@@ -307,6 +335,7 @@ pub const Value = extern union {
         if (self.tag_if_small_enough < Tag.no_payload_count) {
             return Value{ .tag_if_small_enough = self.tag_if_small_enough };
         } else switch (self.ptr_otherwise.tag) {
+            .u1_type,
             .u8_type,
             .i8_type,
             .u16_type,
@@ -349,6 +378,8 @@ pub const Value = extern union {
             .single_const_pointer_to_comptime_int_type,
             .anyframe_type,
             .const_slice_u8_type,
+            .anyerror_void_error_union_type,
+            .generic_poison_type,
             .enum_literal_type,
             .undef,
             .zero,
@@ -371,6 +402,7 @@ pub const Value = extern union {
             .call_options_type,
             .export_options_type,
             .extern_options_type,
+            .generic_poison,
             => unreachable,
 
             .ty => {
@@ -397,17 +429,8 @@ pub const Value = extern union {
             .function => return self.copyPayloadShallow(allocator, Payload.Function),
             .extern_fn => return self.copyPayloadShallow(allocator, Payload.Decl),
             .variable => return self.copyPayloadShallow(allocator, Payload.Variable),
-            .ref_val => {
-                const payload = self.castTag(.ref_val).?;
-                const new_payload = try allocator.create(Payload.SubValue);
-                new_payload.* = .{
-                    .base = payload.base,
-                    .data = try payload.data.copy(allocator),
-                };
-                return Value{ .ptr_otherwise = &new_payload.base };
-            },
-            .comptime_alloc => return self.copyPayloadShallow(allocator, Payload.ComptimeAlloc),
             .decl_ref => return self.copyPayloadShallow(allocator, Payload.Decl),
+            .decl_ref_mut => return self.copyPayloadShallow(allocator, Payload.DeclRefMut),
             .elem_ptr => {
                 const payload = self.castTag(.elem_ptr).?;
                 const new_payload = try allocator.create(Payload.ElemPtr);
@@ -433,12 +456,34 @@ pub const Value = extern union {
                 return Value{ .ptr_otherwise = &new_payload.base };
             },
             .bytes => return self.copyPayloadShallow(allocator, Payload.Bytes),
-            .repeated => {
-                const payload = self.castTag(.repeated).?;
+            .repeated, .eu_payload, .eu_payload_ptr => {
+                const payload = self.cast(Payload.SubValue).?;
                 const new_payload = try allocator.create(Payload.SubValue);
                 new_payload.* = .{
                     .base = payload.base,
                     .data = try payload.data.copy(allocator),
+                };
+                return Value{ .ptr_otherwise = &new_payload.base };
+            },
+            .array => {
+                const payload = self.castTag(.array).?;
+                const new_payload = try allocator.create(Payload.Array);
+                new_payload.* = .{
+                    .base = payload.base,
+                    .data = try allocator.alloc(Value, payload.data.len),
+                };
+                std.mem.copy(Value, new_payload.data, payload.data);
+                return Value{ .ptr_otherwise = &new_payload.base };
+            },
+            .slice => {
+                const payload = self.castTag(.slice).?;
+                const new_payload = try allocator.create(Payload.Slice);
+                new_payload.* = .{
+                    .base = payload.base,
+                    .data = .{
+                        .ptr = try payload.data.ptr.copy(allocator),
+                        .len = try payload.data.len.copy(allocator),
+                    },
                 };
                 return Value{ .ptr_otherwise = &new_payload.base };
             },
@@ -457,19 +502,11 @@ pub const Value = extern union {
             },
             .enum_field_index => return self.copyPayloadShallow(allocator, Payload.U32),
             .@"error" => return self.copyPayloadShallow(allocator, Payload.Error),
-            .error_union => {
-                const payload = self.castTag(.error_union).?;
-                const new_payload = try allocator.create(Payload.SubValue);
-                new_payload.* = .{
-                    .base = payload.base,
-                    .data = try payload.data.copy(allocator),
-                };
-                return Value{ .ptr_otherwise = &new_payload.base };
-            },
             .@"struct" => @panic("TODO can't copy struct value without knowing the type"),
             .@"union" => @panic("TODO can't copy union value without knowing the type"),
 
             .inferred_alloc => unreachable,
+            .inferred_alloc_comptime => unreachable,
         }
     }
 
@@ -491,6 +528,7 @@ pub const Value = extern union {
         comptime assert(fmt.len == 0);
         var val = start_val;
         while (true) switch (val.tag()) {
+            .u1_type => return out_stream.writeAll("u1"),
             .u8_type => return out_stream.writeAll("u8"),
             .i8_type => return out_stream.writeAll("i8"),
             .u16_type => return out_stream.writeAll("u16"),
@@ -533,6 +571,9 @@ pub const Value = extern union {
             .single_const_pointer_to_comptime_int_type => return out_stream.writeAll("*const comptime_int"),
             .anyframe_type => return out_stream.writeAll("anyframe"),
             .const_slice_u8_type => return out_stream.writeAll("[]const u8"),
+            .anyerror_void_error_union_type => return out_stream.writeAll("anyerror!void"),
+            .generic_poison_type => return out_stream.writeAll("(generic poison type)"),
+            .generic_poison => return out_stream.writeAll("(generic poison)"),
             .enum_literal_type => return out_stream.writeAll("@Type(.EnumLiteral)"),
             .manyptr_u8_type => return out_stream.writeAll("[*]u8"),
             .manyptr_const_u8_type => return out_stream.writeAll("[*]const u8"),
@@ -576,15 +617,9 @@ pub const Value = extern union {
             .function => return out_stream.print("(function '{s}')", .{val.castTag(.function).?.data.owner_decl.name}),
             .extern_fn => return out_stream.writeAll("(extern function)"),
             .variable => return out_stream.writeAll("(variable)"),
-            .ref_val => {
-                const ref_val = val.castTag(.ref_val).?.data;
-                try out_stream.writeAll("&const ");
-                val = ref_val;
-            },
-            .comptime_alloc => {
-                const ref_val = val.castTag(.comptime_alloc).?.data.val;
-                try out_stream.writeAll("&");
-                val = ref_val;
+            .decl_ref_mut => {
+                const decl = val.castTag(.decl_ref_mut).?.data.decl;
+                return out_stream.print("(decl_ref_mut '{s}')", .{decl.name});
             },
             .decl_ref => return out_stream.writeAll("(decl ref)"),
             .elem_ptr => {
@@ -605,14 +640,24 @@ pub const Value = extern union {
                 try out_stream.writeAll("(repeated) ");
                 val = val.castTag(.repeated).?.data;
             },
+            .array => return out_stream.writeAll("(array)"),
+            .slice => return out_stream.writeAll("(slice)"),
             .float_16 => return out_stream.print("{}", .{val.castTag(.float_16).?.data}),
             .float_32 => return out_stream.print("{}", .{val.castTag(.float_32).?.data}),
             .float_64 => return out_stream.print("{}", .{val.castTag(.float_64).?.data}),
             .float_128 => return out_stream.print("{}", .{val.castTag(.float_128).?.data}),
             .@"error" => return out_stream.print("error.{s}", .{val.castTag(.@"error").?.data.name}),
             // TODO to print this it should be error{ Set, Items }!T(val), but we need the type for that
-            .error_union => return out_stream.print("error_union_val({})", .{val.castTag(.error_union).?.data}),
+            .eu_payload => {
+                try out_stream.writeAll("(eu_payload) ");
+                val = val.castTag(.eu_payload).?.data;
+            },
             .inferred_alloc => return out_stream.writeAll("(inferred allocation value)"),
+            .inferred_alloc_comptime => return out_stream.writeAll("(inferred comptime allocation value)"),
+            .eu_payload_ptr => {
+                try out_stream.writeAll("(eu_payload_ptr)");
+                val = val.castTag(.eu_payload_ptr).?.data;
+            },
         };
     }
 
@@ -636,10 +681,13 @@ pub const Value = extern union {
         unreachable;
     }
 
+    pub const ToTypeBuffer = Type.Payload.Bits;
+
     /// Asserts that the value is representable as a type.
-    pub fn toType(self: Value, allocator: *Allocator) !Type {
+    pub fn toType(self: Value, buffer: *ToTypeBuffer) Type {
         return switch (self.tag()) {
             .ty => self.castTag(.ty).?.data,
+            .u1_type => Type.initTag(.u1),
             .u8_type => Type.initTag(.u8),
             .i8_type => Type.initTag(.i8),
             .u16_type => Type.initTag(.u16),
@@ -682,6 +730,8 @@ pub const Value = extern union {
             .single_const_pointer_to_comptime_int_type => Type.initTag(.single_const_pointer_to_comptime_int),
             .anyframe_type => Type.initTag(.@"anyframe"),
             .const_slice_u8_type => Type.initTag(.const_slice_u8),
+            .anyerror_void_error_union_type => Type.initTag(.anyerror_void_error_union),
+            .generic_poison_type => Type.initTag(.generic_poison),
             .enum_literal_type => Type.initTag(.enum_literal),
             .manyptr_u8_type => Type.initTag(.manyptr_u8),
             .manyptr_const_u8_type => Type.initTag(.manyptr_const_u8),
@@ -696,64 +746,29 @@ pub const Value = extern union {
 
             .int_type => {
                 const payload = self.castTag(.int_type).?.data;
-                const new = try allocator.create(Type.Payload.Bits);
-                new.* = .{
+                buffer.* = .{
                     .base = .{
                         .tag = if (payload.signed) .int_signed else .int_unsigned,
                     },
                     .data = payload.bits,
                 };
-                return Type.initPayload(&new.base);
+                return Type.initPayload(&buffer.base);
             },
 
-            .undef,
-            .zero,
-            .one,
-            .void_value,
-            .unreachable_value,
-            .empty_array,
-            .bool_true,
-            .bool_false,
-            .null_value,
-            .int_u64,
-            .int_i64,
-            .int_big_positive,
-            .int_big_negative,
-            .function,
-            .extern_fn,
-            .variable,
-            .ref_val,
-            .comptime_alloc,
-            .decl_ref,
-            .elem_ptr,
-            .field_ptr,
-            .bytes,
-            .repeated,
-            .float_16,
-            .float_32,
-            .float_64,
-            .float_128,
-            .enum_literal,
-            .enum_field_index,
-            .@"error",
-            .error_union,
-            .empty_struct_value,
-            .@"struct",
-            .@"union",
-            .inferred_alloc,
-            .abi_align_default,
-            => unreachable,
+            else => unreachable,
         };
     }
 
     /// Asserts the type is an enum type.
-    pub fn toEnum(val: Value, enum_ty: Type, comptime E: type) E {
-        _ = enum_ty;
-        // TODO this needs to resolve other kinds of Value tags rather than
-        // assuming the tag will be .enum_field_index.
-        const field_index = val.castTag(.enum_field_index).?.data;
-        // TODO should `@intToEnum` do this `@intCast` for you?
-        return @intToEnum(E, @intCast(@typeInfo(E).Enum.tag_type, field_index));
+    pub fn toEnum(val: Value, comptime E: type) E {
+        switch (val.tag()) {
+            .enum_field_index => {
+                const field_index = val.castTag(.enum_field_index).?.data;
+                // TODO should `@intToEnum` do this `@intCast` for you?
+                return @intToEnum(E, @intCast(@typeInfo(E).Enum.tag_type, field_index));
+            },
+            else => unreachable,
+        }
     }
 
     /// Asserts the value is an integer.
@@ -936,9 +951,8 @@ pub const Value = extern union {
 
     /// Converts an integer or a float to a float.
     /// Returns `error.Overflow` if the value does not fit in the new type.
-    pub fn floatCast(self: Value, allocator: *Allocator, ty: Type, target: Target) !Value {
-        _ = target;
-        switch (ty.tag()) {
+    pub fn floatCast(self: Value, allocator: *Allocator, dest_ty: Type) !Value {
+        switch (dest_ty.tag()) {
             .f16 => {
                 @panic("TODO add __trunctfhf2 to compiler-rt");
                 //const res = try Value.Tag.float_16.create(allocator, self.toFloat(f16));
@@ -948,13 +962,13 @@ pub const Value = extern union {
             },
             .f32 => {
                 const res = try Value.Tag.float_32.create(allocator, self.toFloat(f32));
-                if (!self.eql(res))
+                if (!self.eql(res, dest_ty))
                     return error.Overflow;
                 return res;
             },
             .f64 => {
                 const res = try Value.Tag.float_64.create(allocator, self.toFloat(f64));
-                if (!self.eql(res))
+                if (!self.eql(res, dest_ty))
                     return error.Overflow;
                 return res;
             },
@@ -1061,12 +1075,18 @@ pub const Value = extern union {
         return lhs_bigint.order(rhs_bigint);
     }
 
-    /// Asserts the value is comparable.
-    pub fn compare(lhs: Value, op: std.math.CompareOperator, rhs: Value) bool {
+    /// Asserts the value is comparable. Does not take a type parameter because it supports
+    /// comparisons between heterogeneous types.
+    pub fn compareHetero(lhs: Value, op: std.math.CompareOperator, rhs: Value) bool {
+        return order(lhs, rhs).compare(op);
+    }
+
+    /// Asserts the value is comparable. Both operands have type `ty`.
+    pub fn compare(lhs: Value, op: std.math.CompareOperator, rhs: Value, ty: Type) bool {
         return switch (op) {
-            .eq => lhs.eql(rhs),
-            .neq => !lhs.eql(rhs),
-            else => order(lhs, rhs).compare(op),
+            .eq => lhs.eql(rhs, ty),
+            .neq => !lhs.eql(rhs, ty),
+            else => compareHetero(lhs, op, rhs),
         };
     }
 
@@ -1075,9 +1095,11 @@ pub const Value = extern union {
         return orderAgainstZero(lhs).compare(op);
     }
 
-    pub fn eql(a: Value, b: Value) bool {
+    pub fn eql(a: Value, b: Value, ty: Type) bool {
         const a_tag = a.tag();
         const b_tag = b.tag();
+        assert(a_tag != .undef);
+        assert(b_tag != .undef);
         if (a_tag == b_tag) {
             switch (a_tag) {
                 .void_value, .null_value => return true,
@@ -1094,253 +1116,170 @@ pub const Value = extern union {
                 else => {},
             }
         }
-        if (a.isType() and b.isType()) {
-            // 128 bytes should be enough to hold both types
-            var buf: [128]u8 = undefined;
-            var fib = std.heap.FixedBufferAllocator.init(&buf);
-            const a_type = a.toType(&fib.allocator) catch unreachable;
-            const b_type = b.toType(&fib.allocator) catch unreachable;
+        if (ty.zigTypeTag() == .Type) {
+            var buf_a: ToTypeBuffer = undefined;
+            var buf_b: ToTypeBuffer = undefined;
+            const a_type = a.toType(&buf_a);
+            const b_type = b.toType(&buf_b);
             return a_type.eql(b_type);
         }
         return order(a, b).compare(.eq);
     }
 
-    pub fn hash_u32(self: Value) u32 {
-        return @truncate(u32, self.hash());
-    }
+    pub fn hash(val: Value, ty: Type, hasher: *std.hash.Wyhash) void {
+        switch (ty.zigTypeTag()) {
+            .BoundFn => unreachable, // TODO remove this from the language
 
-    pub fn hash(self: Value) u64 {
-        var hasher = std.hash.Wyhash.init(0);
-
-        switch (self.tag()) {
-            .u8_type,
-            .i8_type,
-            .u16_type,
-            .i16_type,
-            .u32_type,
-            .i32_type,
-            .u64_type,
-            .i64_type,
-            .u128_type,
-            .i128_type,
-            .usize_type,
-            .isize_type,
-            .c_short_type,
-            .c_ushort_type,
-            .c_int_type,
-            .c_uint_type,
-            .c_long_type,
-            .c_ulong_type,
-            .c_longlong_type,
-            .c_ulonglong_type,
-            .c_longdouble_type,
-            .f16_type,
-            .f32_type,
-            .f64_type,
-            .f128_type,
-            .c_void_type,
-            .bool_type,
-            .void_type,
-            .type_type,
-            .anyerror_type,
-            .comptime_int_type,
-            .comptime_float_type,
-            .noreturn_type,
-            .null_type,
-            .undefined_type,
-            .fn_noreturn_no_args_type,
-            .fn_void_no_args_type,
-            .fn_naked_noreturn_no_args_type,
-            .fn_ccc_void_no_args_type,
-            .single_const_pointer_to_comptime_int_type,
-            .anyframe_type,
-            .const_slice_u8_type,
-            .enum_literal_type,
-            .ty,
-            .abi_align_default,
-            => {
-                // Directly return Type.hash, toType can only fail for .int_type.
-                var allocator = std.heap.FixedBufferAllocator.init(&[_]u8{});
-                return (self.toType(&allocator.allocator) catch unreachable).hash();
-            },
-            .int_type => {
-                const payload = self.castTag(.int_type).?.data;
-                var int_payload = Type.Payload.Bits{
-                    .base = .{
-                        .tag = if (payload.signed) .int_signed else .int_unsigned,
-                    },
-                    .data = payload.bits,
-                };
-                return Type.initPayload(&int_payload.base).hash();
-            },
-
-            .empty_struct_value,
-            .empty_array,
+            .Void,
+            .NoReturn,
+            .Undefined,
+            .Null,
             => {},
 
-            .undef,
-            .null_value,
-            .void_value,
-            .unreachable_value,
-            => std.hash.autoHash(&hasher, self.tag()),
-
-            .zero, .bool_false => std.hash.autoHash(&hasher, @as(u64, 0)),
-            .one, .bool_true => std.hash.autoHash(&hasher, @as(u64, 1)),
-
-            .float_16, .float_32, .float_64, .float_128 => {
-                @panic("TODO implement Value.hash for floats");
+            .Type => {
+                var buf: ToTypeBuffer = undefined;
+                return val.toType(&buf).hashWithHasher(hasher);
             },
-
-            .enum_literal => {
-                const payload = self.castTag(.enum_literal).?;
-                hasher.update(payload.data);
+            .Bool => {
+                std.hash.autoHash(hasher, val.toBool());
             },
-            .enum_field_index => {
-                const payload = self.castTag(.enum_field_index).?;
-                std.hash.autoHash(&hasher, payload.data);
-            },
-            .bytes => {
-                const payload = self.castTag(.bytes).?;
-                hasher.update(payload.data);
-            },
-            .int_u64 => {
-                const payload = self.castTag(.int_u64).?;
-                std.hash.autoHash(&hasher, payload.data);
-            },
-            .int_i64 => {
-                const payload = self.castTag(.int_i64).?;
-                std.hash.autoHash(&hasher, payload.data);
-            },
-            .repeated => {
-                const payload = self.castTag(.repeated).?;
-                std.hash.autoHash(&hasher, payload.data.hash());
-            },
-            .ref_val => {
-                const payload = self.castTag(.ref_val).?;
-                std.hash.autoHash(&hasher, payload.data.hash());
-            },
-            .comptime_alloc => {
-                const payload = self.castTag(.comptime_alloc).?;
-                std.hash.autoHash(&hasher, payload.data.val.hash());
-            },
-            .int_big_positive, .int_big_negative => {
+            .Int, .ComptimeInt => {
                 var space: BigIntSpace = undefined;
-                const big = self.toBigInt(&space);
-                if (big.limbs.len == 1) {
-                    // handle like {u,i}64 to ensure same hash as with Int{i,u}64
-                    if (big.positive) {
-                        std.hash.autoHash(&hasher, @as(u64, big.limbs[0]));
-                    } else {
-                        std.hash.autoHash(&hasher, @as(u64, @bitCast(usize, -@bitCast(isize, big.limbs[0]))));
-                    }
-                } else {
-                    std.hash.autoHash(&hasher, big.positive);
-                    for (big.limbs) |limb| {
-                        std.hash.autoHash(&hasher, limb);
-                    }
+                const big = val.toBigInt(&space);
+                std.hash.autoHash(hasher, big.positive);
+                for (big.limbs) |limb| {
+                    std.hash.autoHash(hasher, limb);
                 }
             },
-            .elem_ptr => {
-                const payload = self.castTag(.elem_ptr).?.data;
-                std.hash.autoHash(&hasher, payload.array_ptr.hash());
-                std.hash.autoHash(&hasher, payload.index);
+            .Float, .ComptimeFloat => {
+                @panic("TODO implement hashing float values");
             },
-            .field_ptr => {
-                const payload = self.castTag(.field_ptr).?.data;
-                std.hash.autoHash(&hasher, payload.container_ptr.hash());
-                std.hash.autoHash(&hasher, payload.field_index);
+            .Pointer => {
+                @panic("TODO implement hashing pointer values");
             },
-            .decl_ref => {
-                const decl = self.castTag(.decl_ref).?.data;
-                std.hash.autoHash(&hasher, decl);
+            .Array, .Vector => {
+                @panic("TODO implement hashing array/vector values");
             },
-            .function => {
-                const func = self.castTag(.function).?.data;
-                std.hash.autoHash(&hasher, func);
+            .Struct => {
+                @panic("TODO implement hashing struct values");
             },
-            .extern_fn => {
-                const decl = self.castTag(.extern_fn).?.data;
-                std.hash.autoHash(&hasher, decl);
+            .Optional => {
+                @panic("TODO implement hashing optional values");
             },
-            .variable => {
-                const variable = self.castTag(.variable).?.data;
-                std.hash.autoHash(&hasher, variable);
+            .ErrorUnion => {
+                @panic("TODO implement hashing error union values");
             },
-            .@"error" => {
-                const payload = self.castTag(.@"error").?.data;
-                hasher.update(payload.name);
+            .ErrorSet => {
+                @panic("TODO implement hashing error set values");
             },
-            .error_union => {
-                const payload = self.castTag(.error_union).?.data;
-                std.hash.autoHash(&hasher, payload.hash());
+            .Enum => {
+                @panic("TODO implement hashing enum values");
             },
-            .inferred_alloc => unreachable,
-
-            .manyptr_u8_type,
-            .manyptr_const_u8_type,
-            .atomic_ordering_type,
-            .atomic_rmw_op_type,
-            .calling_convention_type,
-            .float_mode_type,
-            .reduce_op_type,
-            .call_options_type,
-            .export_options_type,
-            .extern_options_type,
-            .@"struct",
-            .@"union",
-            => @panic("TODO this hash function looks pretty broken. audit it"),
+            .Union => {
+                @panic("TODO implement hashing union values");
+            },
+            .Fn => {
+                @panic("TODO implement hashing function values");
+            },
+            .Opaque => {
+                @panic("TODO implement hashing opaque values");
+            },
+            .Frame => {
+                @panic("TODO implement hashing frame values");
+            },
+            .AnyFrame => {
+                @panic("TODO implement hashing anyframe values");
+            },
+            .EnumLiteral => {
+                @panic("TODO implement hashing enum literal values");
+            },
         }
-        return hasher.final();
     }
 
     pub const ArrayHashContext = struct {
-        pub fn hash(self: @This(), v: Value) u32 {
-            _ = self;
-            return v.hash_u32();
+        ty: Type,
+
+        pub fn hash(self: @This(), val: Value) u32 {
+            const other_context: HashContext = .{ .ty = self.ty };
+            return @truncate(u32, other_context.hash(val));
         }
         pub fn eql(self: @This(), a: Value, b: Value) bool {
-            _ = self;
-            return a.eql(b);
+            return a.eql(b, self.ty);
         }
     };
+
     pub const HashContext = struct {
-        pub fn hash(self: @This(), v: Value) u64 {
-            _ = self;
-            return v.hash();
+        ty: Type,
+
+        pub fn hash(self: @This(), val: Value) u64 {
+            var hasher = std.hash.Wyhash.init(0);
+            val.hash(self.ty, &hasher);
+            return hasher.final();
         }
+
         pub fn eql(self: @This(), a: Value, b: Value) bool {
-            _ = self;
-            return a.eql(b);
+            return a.eql(b, self.ty);
         }
     };
 
     /// Asserts the value is a pointer and dereferences it.
     /// Returns error.AnalysisFail if the pointer points to a Decl that failed semantic analysis.
-    pub fn pointerDeref(self: Value, allocator: *Allocator) error{ AnalysisFail, OutOfMemory }!Value {
-        return switch (self.tag()) {
-            .comptime_alloc => self.castTag(.comptime_alloc).?.data.val,
-            .ref_val => self.castTag(.ref_val).?.data,
-            .decl_ref => self.castTag(.decl_ref).?.data.value(),
-            .elem_ptr => {
+    pub fn pointerDeref(
+        self: Value,
+        allocator: *Allocator,
+    ) error{ AnalysisFail, OutOfMemory }!?Value {
+        const sub_val: Value = switch (self.tag()) {
+            .decl_ref_mut => val: {
+                // The decl whose value we are obtaining here may be overwritten with
+                // a different value, which would invalidate this memory. So we must
+                // copy here.
+                const val = try self.castTag(.decl_ref_mut).?.data.decl.value();
+                break :val try val.copy(allocator);
+            },
+            .decl_ref => try self.castTag(.decl_ref).?.data.value(),
+            .elem_ptr => blk: {
                 const elem_ptr = self.castTag(.elem_ptr).?.data;
-                const array_val = try elem_ptr.array_ptr.pointerDeref(allocator);
-                return array_val.elemValue(allocator, elem_ptr.index);
+                const array_val = (try elem_ptr.array_ptr.pointerDeref(allocator)) orelse return null;
+                break :blk try array_val.elemValue(allocator, elem_ptr.index);
             },
-            .field_ptr => {
+            .field_ptr => blk: {
                 const field_ptr = self.castTag(.field_ptr).?.data;
-                const container_val = try field_ptr.container_ptr.pointerDeref(allocator);
-                return container_val.fieldValue(allocator, field_ptr.field_index);
+                const container_val = (try field_ptr.container_ptr.pointerDeref(allocator)) orelse return null;
+                break :blk try container_val.fieldValue(allocator, field_ptr.field_index);
             },
+            .eu_payload_ptr => blk: {
+                const err_union_ptr = self.castTag(.eu_payload_ptr).?.data;
+                const err_union_val = (try err_union_ptr.pointerDeref(allocator)) orelse return null;
+                break :blk err_union_val.castTag(.eu_payload).?.data;
+            },
+
+            .zero,
+            .one,
+            .int_u64,
+            .int_i64,
+            .int_big_positive,
+            .int_big_negative,
+            .variable,
+            .extern_fn,
+            .function,
+            => return null,
 
             else => unreachable,
         };
+        if (sub_val.tag() == .variable) {
+            // This would be loading a runtime value at compile-time so we return
+            // the indicator that this pointer dereference requires being done at runtime.
+            return null;
+        }
+        return sub_val;
     }
 
     pub fn sliceLen(val: Value) u64 {
         return switch (val.tag()) {
             .empty_array => 0,
             .bytes => val.castTag(.bytes).?.data.len,
-            .ref_val => sliceLen(val.castTag(.ref_val).?.data),
+            .array => val.castTag(.array).?.data.len,
+            .slice => val.castTag(.slice).?.data.len.toUnsignedInt(),
             .decl_ref => {
                 const decl = val.castTag(.decl_ref).?.data;
                 if (decl.ty.zigTypeTag() == .Array) {
@@ -1363,6 +1302,9 @@ pub const Value = extern union {
 
             // No matter the index; all the elements are the same!
             .repeated => return self.castTag(.repeated).?.data,
+
+            .array => return self.castTag(.array).?.data[index],
+            .slice => return self.castTag(.slice).?.data.ptr.elemValue(allocator, index),
 
             else => unreachable,
         }
@@ -1410,6 +1352,7 @@ pub const Value = extern union {
             .undef => unreachable,
             .unreachable_value => unreachable,
             .inferred_alloc => unreachable,
+            .inferred_alloc_comptime => unreachable,
             .null_value => true,
 
             else => false,
@@ -1417,28 +1360,40 @@ pub const Value = extern union {
     }
 
     /// Valid for all types. Asserts the value is not undefined and not unreachable.
+    /// Prefer `errorUnionIsPayload` to find out whether something is an error or not
+    /// because it works without having to figure out the string.
     pub fn getError(self: Value) ?[]const u8 {
         return switch (self.tag()) {
-            .error_union => {
-                const data = self.castTag(.error_union).?.data;
-                return if (data.tag() == .@"error")
-                    data.castTag(.@"error").?.data.name
-                else
-                    null;
-            },
             .@"error" => self.castTag(.@"error").?.data.name,
+            .int_u64 => @panic("TODO"),
+            .int_i64 => @panic("TODO"),
+            .int_big_positive => @panic("TODO"),
+            .int_big_negative => @panic("TODO"),
+            .one => @panic("TODO"),
             .undef => unreachable,
             .unreachable_value => unreachable,
             .inferred_alloc => unreachable,
+            .inferred_alloc_comptime => unreachable,
 
             else => null,
         };
     }
+
+    /// Assumes the type is an error union. Returns true if and only if the value is
+    /// the error union payload, not an error.
+    pub fn errorUnionIsPayload(val: Value) bool {
+        return switch (val.tag()) {
+            .eu_payload => true,
+            else => false,
+        };
+    }
+
     /// Valid for all types. Asserts the value is not undefined.
     pub fn isFloat(self: Value) bool {
         return switch (self.tag()) {
             .undef => unreachable,
             .inferred_alloc => unreachable,
+            .inferred_alloc_comptime => unreachable,
 
             .float_16,
             .float_32,
@@ -1449,105 +1404,242 @@ pub const Value = extern union {
         };
     }
 
-    /// Valid for all types. Asserts the value is not undefined.
-    pub fn isType(self: Value) bool {
-        return switch (self.tag()) {
-            .ty,
-            .int_type,
-            .u8_type,
-            .i8_type,
-            .u16_type,
-            .i16_type,
-            .u32_type,
-            .i32_type,
-            .u64_type,
-            .i64_type,
-            .u128_type,
-            .i128_type,
-            .usize_type,
-            .isize_type,
-            .c_short_type,
-            .c_ushort_type,
-            .c_int_type,
-            .c_uint_type,
-            .c_long_type,
-            .c_ulong_type,
-            .c_longlong_type,
-            .c_ulonglong_type,
-            .c_longdouble_type,
-            .f16_type,
-            .f32_type,
-            .f64_type,
-            .f128_type,
-            .c_void_type,
-            .bool_type,
-            .void_type,
-            .type_type,
-            .anyerror_type,
-            .comptime_int_type,
-            .comptime_float_type,
-            .noreturn_type,
-            .null_type,
-            .undefined_type,
-            .fn_noreturn_no_args_type,
-            .fn_void_no_args_type,
-            .fn_naked_noreturn_no_args_type,
-            .fn_ccc_void_no_args_type,
-            .single_const_pointer_to_comptime_int_type,
-            .anyframe_type,
-            .const_slice_u8_type,
-            .enum_literal_type,
-            .manyptr_u8_type,
-            .manyptr_const_u8_type,
-            .atomic_ordering_type,
-            .atomic_rmw_op_type,
-            .calling_convention_type,
-            .float_mode_type,
-            .reduce_op_type,
-            .call_options_type,
-            .export_options_type,
-            .extern_options_type,
-            => true,
+    pub fn intAdd(lhs: Value, rhs: Value, allocator: *Allocator) !Value {
+        // TODO is this a performance issue? maybe we should try the operation without
+        // resorting to BigInt first.
+        var lhs_space: Value.BigIntSpace = undefined;
+        var rhs_space: Value.BigIntSpace = undefined;
+        const lhs_bigint = lhs.toBigInt(&lhs_space);
+        const rhs_bigint = rhs.toBigInt(&rhs_space);
+        const limbs = try allocator.alloc(
+            std.math.big.Limb,
+            std.math.max(lhs_bigint.limbs.len, rhs_bigint.limbs.len) + 1,
+        );
+        var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
+        result_bigint.add(lhs_bigint, rhs_bigint);
+        const result_limbs = result_bigint.limbs[0..result_bigint.len];
 
-            .zero,
-            .one,
-            .empty_array,
-            .bool_true,
-            .bool_false,
-            .function,
-            .extern_fn,
-            .variable,
-            .int_u64,
-            .int_i64,
-            .int_big_positive,
-            .int_big_negative,
-            .ref_val,
-            .comptime_alloc,
-            .decl_ref,
-            .elem_ptr,
-            .field_ptr,
-            .bytes,
-            .repeated,
-            .float_16,
-            .float_32,
-            .float_64,
-            .float_128,
-            .void_value,
-            .enum_literal,
-            .enum_field_index,
-            .@"error",
-            .error_union,
-            .empty_struct_value,
-            .@"struct",
-            .@"union",
-            .null_value,
-            .abi_align_default,
-            => false,
+        if (result_bigint.positive) {
+            return Value.Tag.int_big_positive.create(allocator, result_limbs);
+        } else {
+            return Value.Tag.int_big_negative.create(allocator, result_limbs);
+        }
+    }
 
-            .undef => unreachable,
-            .unreachable_value => unreachable,
-            .inferred_alloc => unreachable,
-        };
+    pub fn intSub(lhs: Value, rhs: Value, allocator: *Allocator) !Value {
+        // TODO is this a performance issue? maybe we should try the operation without
+        // resorting to BigInt first.
+        var lhs_space: Value.BigIntSpace = undefined;
+        var rhs_space: Value.BigIntSpace = undefined;
+        const lhs_bigint = lhs.toBigInt(&lhs_space);
+        const rhs_bigint = rhs.toBigInt(&rhs_space);
+        const limbs = try allocator.alloc(
+            std.math.big.Limb,
+            std.math.max(lhs_bigint.limbs.len, rhs_bigint.limbs.len) + 1,
+        );
+        var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
+        result_bigint.sub(lhs_bigint, rhs_bigint);
+        const result_limbs = result_bigint.limbs[0..result_bigint.len];
+
+        if (result_bigint.positive) {
+            return Value.Tag.int_big_positive.create(allocator, result_limbs);
+        } else {
+            return Value.Tag.int_big_negative.create(allocator, result_limbs);
+        }
+    }
+
+    pub fn intDiv(lhs: Value, rhs: Value, allocator: *Allocator) !Value {
+        // TODO is this a performance issue? maybe we should try the operation without
+        // resorting to BigInt first.
+        var lhs_space: Value.BigIntSpace = undefined;
+        var rhs_space: Value.BigIntSpace = undefined;
+        const lhs_bigint = lhs.toBigInt(&lhs_space);
+        const rhs_bigint = rhs.toBigInt(&rhs_space);
+        const limbs_q = try allocator.alloc(
+            std.math.big.Limb,
+            lhs_bigint.limbs.len + rhs_bigint.limbs.len + 1,
+        );
+        const limbs_r = try allocator.alloc(
+            std.math.big.Limb,
+            lhs_bigint.limbs.len,
+        );
+        const limbs_buffer = try allocator.alloc(
+            std.math.big.Limb,
+            std.math.big.int.calcDivLimbsBufferLen(lhs_bigint.limbs.len, rhs_bigint.limbs.len),
+        );
+        var result_q = BigIntMutable{ .limbs = limbs_q, .positive = undefined, .len = undefined };
+        var result_r = BigIntMutable{ .limbs = limbs_r, .positive = undefined, .len = undefined };
+        result_q.divTrunc(&result_r, lhs_bigint, rhs_bigint, limbs_buffer, null);
+        const result_limbs = result_q.limbs[0..result_q.len];
+
+        if (result_q.positive) {
+            return Value.Tag.int_big_positive.create(allocator, result_limbs);
+        } else {
+            return Value.Tag.int_big_negative.create(allocator, result_limbs);
+        }
+    }
+
+    pub fn intMul(lhs: Value, rhs: Value, allocator: *Allocator) !Value {
+        // TODO is this a performance issue? maybe we should try the operation without
+        // resorting to BigInt first.
+        var lhs_space: Value.BigIntSpace = undefined;
+        var rhs_space: Value.BigIntSpace = undefined;
+        const lhs_bigint = lhs.toBigInt(&lhs_space);
+        const rhs_bigint = rhs.toBigInt(&rhs_space);
+        const limbs = try allocator.alloc(
+            std.math.big.Limb,
+            lhs_bigint.limbs.len + rhs_bigint.limbs.len + 1,
+        );
+        var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
+        var limbs_buffer = try allocator.alloc(
+            std.math.big.Limb,
+            std.math.big.int.calcMulLimbsBufferLen(lhs_bigint.limbs.len, rhs_bigint.limbs.len, 1),
+        );
+        defer allocator.free(limbs_buffer);
+        result_bigint.mul(lhs_bigint, rhs_bigint, limbs_buffer, allocator);
+        const result_limbs = result_bigint.limbs[0..result_bigint.len];
+
+        if (result_bigint.positive) {
+            return Value.Tag.int_big_positive.create(allocator, result_limbs);
+        } else {
+            return Value.Tag.int_big_negative.create(allocator, result_limbs);
+        }
+    }
+
+    pub fn intTrunc(val: Value, arena: *Allocator, bits: u16) !Value {
+        const x = val.toUnsignedInt(); // TODO: implement comptime truncate on big ints
+        if (bits == 64) return val;
+        const mask = (@as(u64, 1) << @intCast(u6, bits)) - 1;
+        const truncated = x & mask;
+        return Tag.int_u64.create(arena, truncated);
+    }
+
+    pub fn floatAdd(
+        lhs: Value,
+        rhs: Value,
+        float_type: Type,
+        arena: *Allocator,
+    ) !Value {
+        switch (float_type.tag()) {
+            .f16 => {
+                @panic("TODO add __trunctfhf2 to compiler-rt");
+                //const lhs_val = lhs.toFloat(f16);
+                //const rhs_val = rhs.toFloat(f16);
+                //return Value.Tag.float_16.create(arena, lhs_val + rhs_val);
+            },
+            .f32 => {
+                const lhs_val = lhs.toFloat(f32);
+                const rhs_val = rhs.toFloat(f32);
+                return Value.Tag.float_32.create(arena, lhs_val + rhs_val);
+            },
+            .f64 => {
+                const lhs_val = lhs.toFloat(f64);
+                const rhs_val = rhs.toFloat(f64);
+                return Value.Tag.float_64.create(arena, lhs_val + rhs_val);
+            },
+            .f128, .comptime_float, .c_longdouble => {
+                const lhs_val = lhs.toFloat(f128);
+                const rhs_val = rhs.toFloat(f128);
+                return Value.Tag.float_128.create(arena, lhs_val + rhs_val);
+            },
+            else => unreachable,
+        }
+    }
+
+    pub fn floatSub(
+        lhs: Value,
+        rhs: Value,
+        float_type: Type,
+        arena: *Allocator,
+    ) !Value {
+        switch (float_type.tag()) {
+            .f16 => {
+                @panic("TODO add __trunctfhf2 to compiler-rt");
+                //const lhs_val = lhs.toFloat(f16);
+                //const rhs_val = rhs.toFloat(f16);
+                //return Value.Tag.float_16.create(arena, lhs_val - rhs_val);
+            },
+            .f32 => {
+                const lhs_val = lhs.toFloat(f32);
+                const rhs_val = rhs.toFloat(f32);
+                return Value.Tag.float_32.create(arena, lhs_val - rhs_val);
+            },
+            .f64 => {
+                const lhs_val = lhs.toFloat(f64);
+                const rhs_val = rhs.toFloat(f64);
+                return Value.Tag.float_64.create(arena, lhs_val - rhs_val);
+            },
+            .f128, .comptime_float, .c_longdouble => {
+                const lhs_val = lhs.toFloat(f128);
+                const rhs_val = rhs.toFloat(f128);
+                return Value.Tag.float_128.create(arena, lhs_val - rhs_val);
+            },
+            else => unreachable,
+        }
+    }
+
+    pub fn floatDiv(
+        lhs: Value,
+        rhs: Value,
+        float_type: Type,
+        arena: *Allocator,
+    ) !Value {
+        switch (float_type.tag()) {
+            .f16 => {
+                @panic("TODO add __trunctfhf2 to compiler-rt");
+                //const lhs_val = lhs.toFloat(f16);
+                //const rhs_val = rhs.toFloat(f16);
+                //return Value.Tag.float_16.create(arena, lhs_val / rhs_val);
+            },
+            .f32 => {
+                const lhs_val = lhs.toFloat(f32);
+                const rhs_val = rhs.toFloat(f32);
+                return Value.Tag.float_32.create(arena, lhs_val / rhs_val);
+            },
+            .f64 => {
+                const lhs_val = lhs.toFloat(f64);
+                const rhs_val = rhs.toFloat(f64);
+                return Value.Tag.float_64.create(arena, lhs_val / rhs_val);
+            },
+            .f128, .comptime_float, .c_longdouble => {
+                const lhs_val = lhs.toFloat(f128);
+                const rhs_val = rhs.toFloat(f128);
+                return Value.Tag.float_128.create(arena, lhs_val / rhs_val);
+            },
+            else => unreachable,
+        }
+    }
+
+    pub fn floatMul(
+        lhs: Value,
+        rhs: Value,
+        float_type: Type,
+        arena: *Allocator,
+    ) !Value {
+        switch (float_type.tag()) {
+            .f16 => {
+                @panic("TODO add __trunctfhf2 to compiler-rt");
+                //const lhs_val = lhs.toFloat(f16);
+                //const rhs_val = rhs.toFloat(f16);
+                //return Value.Tag.float_16.create(arena, lhs_val * rhs_val);
+            },
+            .f32 => {
+                const lhs_val = lhs.toFloat(f32);
+                const rhs_val = rhs.toFloat(f32);
+                return Value.Tag.float_32.create(arena, lhs_val * rhs_val);
+            },
+            .f64 => {
+                const lhs_val = lhs.toFloat(f64);
+                const rhs_val = rhs.toFloat(f64);
+                return Value.Tag.float_64.create(arena, lhs_val * rhs_val);
+            },
+            .f128, .comptime_float, .c_longdouble => {
+                const lhs_val = lhs.toFloat(f128);
+                const rhs_val = rhs.toFloat(f128);
+                return Value.Tag.float_128.create(arena, lhs_val * rhs_val);
+            },
+            else => unreachable,
+        }
     }
 
     /// This type is not copyable since it may contain pointers to its inner data.
@@ -1603,12 +1695,12 @@ pub const Value = extern union {
             data: Value,
         };
 
-        pub const ComptimeAlloc = struct {
-            pub const base_tag = Tag.comptime_alloc;
+        pub const DeclRefMut = struct {
+            pub const base_tag = Tag.decl_ref_mut;
 
             base: Payload = Payload{ .tag = base_tag },
             data: struct {
-                val: Value,
+                decl: *Module.Decl,
                 runtime_index: u32,
             },
         };
@@ -1636,6 +1728,19 @@ pub const Value = extern union {
         pub const Bytes = struct {
             base: Payload,
             data: []const u8,
+        };
+
+        pub const Array = struct {
+            base: Payload,
+            data: []Value,
+        };
+
+        pub const Slice = struct {
+            base: Payload,
+            data: struct {
+                ptr: Value,
+                len: Value,
+            },
         };
 
         pub const Ty = struct {
@@ -1730,27 +1835,3 @@ pub const Value = extern union {
         limbs: [(@sizeOf(u64) / @sizeOf(std.math.big.Limb)) + 1]std.math.big.Limb,
     };
 };
-
-test "hash same value different representation" {
-    const zero_1 = Value.initTag(.zero);
-    var payload_1 = Value.Payload.U64{
-        .base = .{ .tag = .int_u64 },
-        .data = 0,
-    };
-    const zero_2 = Value.initPayload(&payload_1.base);
-    try std.testing.expectEqual(zero_1.hash(), zero_2.hash());
-
-    var payload_2 = Value.Payload.I64{
-        .base = .{ .tag = .int_i64 },
-        .data = 0,
-    };
-    const zero_3 = Value.initPayload(&payload_2.base);
-    try std.testing.expectEqual(zero_2.hash(), zero_3.hash());
-
-    var payload_3 = Value.Payload.BigInt{
-        .base = .{ .tag = .int_big_negative },
-        .data = &[_]std.math.big.Limb{0},
-    };
-    const zero_4 = Value.initPayload(&payload_3.base);
-    try std.testing.expectEqual(zero_3.hash(), zero_4.hash());
-}

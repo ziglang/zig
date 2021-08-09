@@ -90,47 +90,34 @@
 #ifndef _MACH_I386_VM_PARAM_H_
 #define _MACH_I386_VM_PARAM_H_
 
+#if !defined(KERNEL) && !defined(__ASSEMBLER__)
+
+#include <mach/vm_page_size.h>
+#endif
+
 #define BYTE_SIZE               8               /* byte size in bits */
 
 #define I386_PGBYTES            4096            /* bytes per 80386 page */
 #define I386_PGSHIFT            12              /* bitshift for pages */
 
-#define PAGE_SIZE               I386_PGBYTES
+
+#if !defined(__MAC_OS_X_VERSION_MIN_REQUIRED) || (__MAC_OS_X_VERSION_MIN_REQUIRED < 101600)
 #define PAGE_SHIFT              I386_PGSHIFT
-#define PAGE_MASK               (PAGE_SIZE - 1)
+#define PAGE_SIZE               I386_PGBYTES
+#define PAGE_MASK               (PAGE_SIZE-1)
+#else /* !defined(__MAC_OS_X_VERSION_MIN_REQUIRED) || (__MAC_OS_X_VERSION_MIN_REQUIRED < 101600) */
+#define PAGE_SHIFT              vm_page_shift
+#define PAGE_SIZE               vm_page_size
+#define PAGE_MASK               vm_page_mask
+#endif /* !defined(__MAC_OS_X_VERSION_MIN_REQUIRED) || (__MAC_OS_X_VERSION_MIN_REQUIRED < 101600) */
 
-#define PAGE_MAX_SHIFT          PAGE_SHIFT
-#define PAGE_MAX_SIZE           PAGE_SIZE
-#define PAGE_MAX_MASK           PAGE_MASK
+#define PAGE_MAX_SHIFT          14
+#define PAGE_MAX_SIZE           (1 << PAGE_MAX_SHIFT)
+#define PAGE_MAX_MASK           (PAGE_MAX_SIZE-1)
 
-#define PAGE_MIN_SHIFT          PAGE_SHIFT
-#define PAGE_MIN_SIZE           PAGE_SIZE
-#define PAGE_MIN_MASK           PAGE_MASK
-
-#define I386_LPGBYTES           2*1024*1024     /* bytes per large page */
-#define I386_LPGSHIFT           21              /* bitshift for large pages */
-#define I386_LPGMASK            (I386_LPGBYTES-1)
-
-/*
- *	Convert bytes to pages and convert pages to bytes.
- *	No rounding is used.
- */
-
-#define i386_btop(x)            ((ppnum_t)((x) >> I386_PGSHIFT))
-#define machine_btop(x)         i386_btop(x)
-#define i386_ptob(x)            (((pmap_paddr_t)(x)) << I386_PGSHIFT)
-#define machine_ptob(x)         i386_ptob(x)
-
-/*
- *	Round off or truncate to the nearest page.  These will work
- *	for either addresses or counts.  (i.e. 1 byte rounds to 1 page
- *	bytes.
- */
-
-#define i386_round_page(x)      ((((pmap_paddr_t)(x)) + I386_PGBYTES - 1) & \
-	                                ~(I386_PGBYTES-1))
-#define i386_trunc_page(x)      (((pmap_paddr_t)(x)) & ~(I386_PGBYTES-1))
-
+#define PAGE_MIN_SHIFT          12
+#define PAGE_MIN_SIZE           (1 << PAGE_MIN_SHIFT)
+#define PAGE_MIN_MASK           (PAGE_MIN_SIZE-1)
 
 
 #define VM_MIN_ADDRESS64        ((user_addr_t) 0x0000000000000000ULL)

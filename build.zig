@@ -61,6 +61,7 @@ pub fn build(b: *Builder) !void {
     const omit_stage2 = b.option(bool, "omit-stage2", "Do not include stage2 behind a feature flag inside stage1") orelse false;
     const static_llvm = b.option(bool, "static-llvm", "Disable integration with system-installed LLVM, Clang, LLD, and libc++") orelse false;
     const enable_llvm = b.option(bool, "enable-llvm", "Build self-hosted compiler with LLVM backend enabled") orelse (is_stage1 or static_llvm);
+    const enable_macos_sdk = b.option(bool, "enable-macos-sdk", "Run tests requiring presence of macOS SDK and frameworks") orelse false;
     const config_h_path_option = b.option([]const u8, "config_h", "Path to the generated config.h");
 
     if (!skip_install_lib_files) {
@@ -186,7 +187,7 @@ pub fn build(b: *Builder) !void {
             },
             2 => {
                 // Untagged development build (e.g. 0.8.0-684-gbbe2cca1a).
-                var it = mem.split(git_describe, "-");
+                var it = mem.split(u8, git_describe, "-");
                 const tagged_ancestor = it.next() orelse unreachable;
                 const commit_height = it.next() orelse unreachable;
                 const commit_id = it.next() orelse unreachable;
@@ -340,7 +341,7 @@ pub fn build(b: *Builder) !void {
     ));
 
     toolchain_step.dependOn(tests.addCompareOutputTests(b, test_filter, modes));
-    toolchain_step.dependOn(tests.addStandaloneTests(b, test_filter, modes, skip_non_native, target));
+    toolchain_step.dependOn(tests.addStandaloneTests(b, test_filter, modes, skip_non_native, enable_macos_sdk, target));
     toolchain_step.dependOn(tests.addStackTraceTests(b, test_filter, modes));
     toolchain_step.dependOn(tests.addCliTests(b, test_filter, modes));
     toolchain_step.dependOn(tests.addAssembleAndLinkTests(b, test_filter, modes));
@@ -478,7 +479,7 @@ fn addCxxKnownPath(
         ctx.cxx_compiler,
         b.fmt("-print-file-name={s}", .{objname}),
     });
-    const path_unpadded = mem.tokenize(path_padded, "\r\n").next().?;
+    const path_unpadded = mem.tokenize(u8, path_padded, "\r\n").next().?;
     if (mem.eql(u8, path_unpadded, objname)) {
         if (errtxt) |msg| {
             warn("{s}", .{msg});
@@ -501,7 +502,7 @@ fn addCxxKnownPath(
 }
 
 fn addCMakeLibraryList(exe: *std.build.LibExeObjStep, list: []const u8) void {
-    var it = mem.tokenize(list, ";");
+    var it = mem.tokenize(u8, list, ";");
     while (it.next()) |lib| {
         if (mem.startsWith(u8, lib, "-l")) {
             exe.linkSystemLibrary(lib["-l".len..]);
@@ -595,11 +596,11 @@ fn findAndParseConfigH(b: *Builder, config_h_path_option: ?[]const u8) ?CMakeCon
         },
     };
 
-    var lines_it = mem.tokenize(config_h_text, "\r\n");
+    var lines_it = mem.tokenize(u8, config_h_text, "\r\n");
     while (lines_it.next()) |line| {
         inline for (mappings) |mapping| {
             if (mem.startsWith(u8, line, mapping.prefix)) {
-                var it = mem.split(line, "\"");
+                var it = mem.split(u8, line, "\"");
                 _ = it.next().?; // skip the stuff before the quote
                 const quoted = it.next().?; // the stuff inside the quote
                 @field(ctx, mapping.field) = toNativePathSep(b, quoted);

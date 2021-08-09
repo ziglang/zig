@@ -15,7 +15,6 @@ instructions: std.MultiArrayList(Inst).Slice,
 /// The first few indexes are reserved. See `ExtraIndex` for the values.
 extra: []const u32,
 values: []const Value,
-variables: []const *Module.Var,
 
 pub const ExtraIndex = enum(u32) {
     /// Payload index of the main `Block` in the `extra` array.
@@ -70,6 +69,18 @@ pub const Inst = struct {
         /// is the same as both operands.
         /// Uses the `bin_op` field.
         div,
+        /// Add an offset to a pointer, returning a new pointer.
+        /// The offset is in element type units, not bytes.
+        /// Wrapping is undefined behavior.
+        /// The lhs is the pointer, rhs is the offset. Result type is the same as lhs.
+        /// Uses the `bin_op` field.
+        ptr_add,
+        /// Subtract an offset from a pointer, returning a new pointer.
+        /// The offset is in element type units, not bytes.
+        /// Wrapping is undefined behavior.
+        /// The lhs is the pointer, rhs is the offset. Result type is the same as lhs.
+        /// Uses the `bin_op` field.
+        ptr_sub,
         /// Allocates stack local memory.
         /// Uses the `ty` field.
         alloc,
@@ -189,20 +200,14 @@ pub const Inst = struct {
         /// Converts a pointer to its address. Result type is always `usize`.
         /// Uses the `un_op` field.
         ptrtoint,
-        /// Stores a value onto the stack and returns a pointer to it.
-        /// TODO audit where this AIR instruction is emitted, maybe it should instead be emitting
-        /// alloca instruction and storing to the alloca.
-        /// Uses the `ty_op` field.
-        ref,
+        /// Given a boolean, returns 0 or 1.
+        /// Result type is always `u1`.
+        /// Uses the `un_op` field.
+        bool_to_int,
         /// Return a value from a function.
         /// Result type is always noreturn; no instructions in a block follow this one.
         /// Uses the `un_op` field.
         ret,
-        /// Returns a pointer to a global variable.
-        /// Uses the `ty_pl` field. Index is into the `variables` array.
-        /// TODO this can be modeled simply as a constant with a decl ref and then
-        /// the variables array can be removed from Air.
-        varptr,
         /// Write a value to a pointer. LHS is pointer, RHS is value.
         /// Result type is always void.
         /// Uses the `bin_op` field.
@@ -213,10 +218,16 @@ pub const Inst = struct {
         /// Convert from one float type to another.
         /// Uses the `ty_op` field.
         floatcast,
-        /// TODO audit uses of this. We should have explicit instructions for integer
-        /// widening and truncating.
+        /// Returns an integer with a different type than the operand. The new type may have
+        /// fewer, the same, or more bits than the operand type. However, the instruction
+        /// guarantees that the same integer value fits in both types.
+        /// See `trunc` for integer truncation.
         /// Uses the `ty_op` field.
         intcast,
+        /// Truncate higher bits from an integer, resulting in an integer with the same
+        /// sign but an equal or smaller number of bits.
+        /// Uses the `ty_op` field.
+        trunc,
         /// ?T => T. If the value is null, undefined behavior.
         /// Uses the `ty_op` field.
         optional_payload,
@@ -247,6 +258,9 @@ pub const Inst = struct {
         /// Given a pointer to a struct and a field index, returns a pointer to the field.
         /// Uses the `ty_pl` field, payload is `StructField`.
         struct_field_ptr,
+        /// Given a byval struct and a field index, returns the field byval.
+        /// Uses the `ty_pl` field, payload is `StructField`.
+        struct_field_val,
         /// Given a slice value, return the length.
         /// Result type is always usize.
         /// Uses the `ty_op` field.
@@ -262,6 +276,15 @@ pub const Inst = struct {
         /// Result type is the element type of the slice operand (2 element type operations).
         /// Uses the `bin_op` field.
         ptr_slice_elem_val,
+        /// Given a pointer value, and element index, return the element value at that index.
+        /// Result type is the element type of the pointer operand.
+        /// Uses the `bin_op` field.
+        ptr_elem_val,
+        /// Given a pointer to a pointer, and element index, return the element value of the inner
+        /// pointer at that index.
+        /// Result type is the element type of the inner pointer operand.
+        /// Uses the `bin_op` field.
+        ptr_ptr_elem_val,
 
         pub fn fromCmpOp(op: std.math.CompareOperator) Tag {
             return switch (op) {
@@ -376,7 +399,8 @@ pub const SwitchBr = struct {
 };
 
 pub const StructField = struct {
-    struct_ptr: Inst.Ref,
+    /// Whether this is a pointer or byval is determined by the AIR tag.
+    struct_operand: Inst.Ref,
     field_index: u32,
 };
 
@@ -419,6 +443,8 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .bit_and,
         .bit_or,
         .xor,
+        .ptr_add,
+        .ptr_sub,
         => return air.typeOf(datas[inst].bin_op.lhs),
 
         .cmp_lt,
@@ -446,16 +472,16 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .assembly,
         .block,
         .constant,
-        .varptr,
         .struct_field_ptr,
+        .struct_field_val,
         => return air.getRefType(datas[inst].ty_pl.ty),
 
         .not,
         .bitcast,
         .load,
-        .ref,
         .floatcast,
         .intcast,
+        .trunc,
         .optional_payload,
         .optional_payload_ptr,
         .wrap_optional,
@@ -485,19 +511,21 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .slice_len,
         => return Type.initTag(.usize),
 
+        .bool_to_int => return Type.initTag(.u1),
+
         .call => {
             const callee_ty = air.typeOf(datas[inst].pl_op.operand);
             return callee_ty.fnReturnType();
         },
 
-        .slice_elem_val => {
+        .slice_elem_val, .ptr_elem_val => {
             const slice_ty = air.typeOf(datas[inst].bin_op.lhs);
             return slice_ty.elemType();
         },
-        .ptr_slice_elem_val => {
-            const ptr_slice_ty = air.typeOf(datas[inst].bin_op.lhs);
-            const slice_ty = ptr_slice_ty.elemType();
-            return slice_ty.elemType();
+        .ptr_slice_elem_val, .ptr_ptr_elem_val => {
+            const outer_ptr_ty = air.typeOf(datas[inst].bin_op.lhs);
+            const inner_ptr_ty = outer_ptr_ty.elemType();
+            return inner_ptr_ty.elemType();
         },
     }
 }
@@ -505,7 +533,8 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
 pub fn getRefType(air: Air, ref: Air.Inst.Ref) Type {
     const ref_int = @enumToInt(ref);
     if (ref_int < Air.Inst.Ref.typed_value_map.len) {
-        return Air.Inst.Ref.typed_value_map[ref_int].val.toType(undefined) catch unreachable;
+        var buffer: Value.ToTypeBuffer = undefined;
+        return Air.Inst.Ref.typed_value_map[ref_int].val.toType(&buffer);
     }
     const inst_index = ref_int - Air.Inst.Ref.typed_value_map.len;
     const air_tags = air.instructions.items(.tag);
@@ -539,7 +568,6 @@ pub fn deinit(air: *Air, gpa: *std.mem.Allocator) void {
     air.instructions.deinit(gpa);
     gpa.free(air.extra);
     gpa.free(air.values);
-    gpa.free(air.variables);
     air.* = undefined;
 }
 

@@ -231,6 +231,8 @@ fn analyzeInst(
         .mul,
         .mulwrap,
         .div,
+        .ptr_add,
+        .ptr_sub,
         .bit_and,
         .bit_or,
         .xor,
@@ -245,6 +247,8 @@ fn analyzeInst(
         .store,
         .slice_elem_val,
         .ptr_slice_elem_val,
+        .ptr_elem_val,
+        .ptr_ptr_elem_val,
         => {
             const o = inst_datas[inst].bin_op;
             return trackOperands(a, new_set, inst, main_tomb, .{ o.lhs, o.rhs, .none });
@@ -256,16 +260,15 @@ fn analyzeInst(
         .const_ty,
         .breakpoint,
         .dbg_stmt,
-        .varptr,
         .unreach,
         => return trackOperands(a, new_set, inst, main_tomb, .{ .none, .none, .none }),
 
         .not,
         .bitcast,
         .load,
-        .ref,
         .floatcast,
         .intcast,
+        .trunc,
         .optional_payload,
         .optional_payload_ptr,
         .wrap_optional,
@@ -291,6 +294,7 @@ fn analyzeInst(
         .is_err_ptr,
         .is_non_err_ptr,
         .ptrtoint,
+        .bool_to_int,
         .ret,
         => {
             const operand = inst_datas[inst].un_op;
@@ -320,9 +324,9 @@ fn analyzeInst(
             }
             return extra_tombs.finish();
         },
-        .struct_field_ptr => {
+        .struct_field_ptr, .struct_field_val => {
             const extra = a.air.extraData(Air.StructField, inst_datas[inst].ty_pl.payload).data;
-            return trackOperands(a, new_set, inst, main_tomb, .{ extra.struct_ptr, .none, .none });
+            return trackOperands(a, new_set, inst, main_tomb, .{ extra.struct_operand, .none, .none });
         },
         .br => {
             const br = inst_datas[inst].br;

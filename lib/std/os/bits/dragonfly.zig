@@ -6,6 +6,8 @@
 const std = @import("../../std.zig");
 const maxInt = std.math.maxInt;
 
+pub usingnamespace @import("posix.zig");
+
 pub fn S_ISCHR(m: u32) bool {
     return m & S_IFMT == S_IFCHR;
 }

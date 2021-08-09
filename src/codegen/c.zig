@@ -262,6 +262,7 @@ pub const DeclGen = struct {
                     .one => try writer.writeAll("1"),
                     .decl_ref => {
                         const decl = val.castTag(.decl_ref).?.data;
+                        decl.alive = true;
 
                         // Determine if we must pointer cast.
                         assert(decl.has_tv);
@@ -281,36 +282,7 @@ pub const DeclGen = struct {
                         const decl = val.castTag(.extern_fn).?.data;
                         try writer.print("{s}", .{decl.name});
                     },
-                    else => switch (t.ptrSize()) {
-                        .Slice => unreachable,
-                        .Many => {
-                            if (val.castTag(.ref_val)) |ref_val_payload| {
-                                const sub_val = ref_val_payload.data;
-                                if (sub_val.castTag(.bytes)) |bytes_payload| {
-                                    const bytes = bytes_payload.data;
-                                    try writer.writeByte('(');
-                                    try dg.renderType(writer, t);
-                                    // TODO: make our own C string escape instead of using std.zig.fmtEscapes
-                                    try writer.print(")\"{}\"", .{std.zig.fmtEscapes(bytes)});
-                                } else {
-                                    unreachable;
-                                }
-                            } else {
-                                unreachable;
-                            }
-                        },
-                        .One => {
-                            var arena = std.heap.ArenaAllocator.init(dg.module.gpa);
-                            defer arena.deinit();
-
-                            const elem_ty = t.elemType();
-                            const elem_val = try val.pointerDeref(&arena.allocator);
-
-                            try writer.writeAll("&");
-                            try dg.renderValue(writer, elem_ty, elem_val);
-                        },
-                        .C => unreachable,
-                    },
+                    else => unreachable,
                 },
             },
             .Array => {
@@ -378,32 +350,25 @@ pub const DeclGen = struct {
             .ErrorUnion => {
                 const error_type = t.errorUnionSet();
                 const payload_type = t.errorUnionPayload();
-                const sub_val = val.castTag(.error_union).?.data;
 
                 if (!payload_type.hasCodeGenBits()) {
                     // We use the error type directly as the type.
-                    return dg.renderValue(writer, error_type, sub_val);
+                    const err_val = if (val.errorUnionIsPayload()) Value.initTag(.zero) else val;
+                    return dg.renderValue(writer, error_type, err_val);
                 }
 
                 try writer.writeByte('(');
                 try dg.renderType(writer, t);
                 try writer.writeAll("){");
-                if (val.getError()) |_| {
-                    try writer.writeAll(" .error = ");
-                    try dg.renderValue(
-                        writer,
-                        error_type,
-                        sub_val,
-                    );
-                    try writer.writeAll(" }");
-                } else {
+                if (val.castTag(.eu_payload)) |pl| {
+                    const payload_val = pl.data;
                     try writer.writeAll(" .payload = ");
-                    try dg.renderValue(
-                        writer,
-                        payload_type,
-                        sub_val,
-                    );
+                    try dg.renderValue(writer, payload_type, payload_val);
                     try writer.writeAll(", .error = 0 }");
+                } else {
+                    try writer.writeAll(" .error = ");
+                    try dg.renderValue(writer, error_type, val);
+                    try writer.writeAll(" }");
                 }
             },
             .Enum => {
@@ -436,6 +401,7 @@ pub const DeclGen = struct {
                 .one => try writer.writeAll("1"),
                 .decl_ref => {
                     const decl = val.castTag(.decl_ref).?.data;
+                    decl.alive = true;
 
                     // Determine if we must pointer cast.
                     assert(decl.has_tv);
@@ -448,11 +414,13 @@ pub const DeclGen = struct {
                     }
                 },
                 .function => {
-                    const func = val.castTag(.function).?.data;
-                    try writer.print("{s}", .{func.owner_decl.name});
+                    const decl = val.castTag(.function).?.data.owner_decl;
+                    decl.alive = true;
+                    try writer.print("{s}", .{decl.name});
                 },
                 .extern_fn => {
                     const decl = val.castTag(.extern_fn).?.data;
+                    decl.alive = true;
                     try writer.print("{s}", .{decl.name});
                 },
                 else => unreachable,
@@ -875,19 +843,19 @@ fn genBody(o: *Object, body: []const Air.Inst.Index) error{ AnalysisFail, OutOfM
 
             // TODO use a different strategy for add that communicates to the optimizer
             // that wrapping is UB.
-            .add     => try airBinOp( o, inst, " + "),
-            .addwrap => try airWrapOp(o, inst, " + ", "addw_"),
+            .add, .ptr_add => try airBinOp( o, inst, " + "),
+            .addwrap       => try airWrapOp(o, inst, " + ", "addw_"),
             // TODO use a different strategy for sub that communicates to the optimizer
             // that wrapping is UB.
-            .sub     => try airBinOp( o, inst, " - "),
-            .subwrap => try airWrapOp(o, inst, " - ", "subw_"),
+            .sub, .ptr_sub => try airBinOp( o, inst, " - "),
+            .subwrap       => try airWrapOp(o, inst, " - ", "subw_"),
             // TODO use a different strategy for mul that communicates to the optimizer
             // that wrapping is UB.
-            .mul     => try airBinOp( o, inst, " * "),
-            .mulwrap => try airWrapOp(o, inst, " * ", "mulw_"),
+            .mul           => try airBinOp( o, inst, " * "),
+            .mulwrap       => try airWrapOp(o, inst, " * ", "mulw_"),
             // TODO use a different strategy for div that communicates to the optimizer
             // that wrapping is UB.
-            .div     => try airBinOp( o, inst, " / "),
+            .div           => try airBinOp( o, inst, " / "),
 
             .cmp_eq  => try airBinOp(o, inst, " == "),
             .cmp_gt  => try airBinOp(o, inst, " > "),
@@ -925,6 +893,8 @@ fn genBody(o: *Object, body: []const Air.Inst.Index) error{ AnalysisFail, OutOfM
             .call             => try airCall(o, inst),
             .dbg_stmt         => try airDbgStmt(o, inst),
             .intcast          => try airIntCast(o, inst),
+            .trunc            => try airTrunc(o, inst),
+            .bool_to_int      => try airBoolToInt(o, inst),
             .load             => try airLoad(o, inst),
             .ret              => try airRet(o, inst),
             .store            => try airStore(o, inst),
@@ -933,12 +903,13 @@ fn genBody(o: *Object, body: []const Air.Inst.Index) error{ AnalysisFail, OutOfM
             .br               => try airBr(o, inst),
             .switch_br        => try airSwitchBr(o, inst),
             .wrap_optional    => try airWrapOptional(o, inst),
-            .ref              => try airRef(o, inst),
             .struct_field_ptr => try airStructFieldPtr(o, inst),
-            .varptr           => try airVarPtr(o, inst),
+            .struct_field_val => try airStructFieldVal(o, inst),
             .slice_ptr        => try airSliceField(o, inst, ".ptr;\n"),
             .slice_len        => try airSliceField(o, inst, ".len;\n"),
 
+            .ptr_elem_val       => try airPtrElemVal(o, inst, "["),
+            .ptr_ptr_elem_val   => try airPtrElemVal(o, inst, "[0]["),
             .slice_elem_val     => try airSliceElemVal(o, inst, "["),
             .ptr_slice_elem_val => try airSliceElemVal(o, inst, "[0]["),
 
@@ -977,8 +948,18 @@ fn airSliceField(o: *Object, inst: Air.Inst.Index, suffix: []const u8) !CValue {
     return local;
 }
 
+fn airPtrElemVal(o: *Object, inst: Air.Inst.Index, prefix: []const u8) !CValue {
+    const is_volatile = false; // TODO
+    if (!is_volatile and o.liveness.isUnused(inst))
+        return CValue.none;
+
+    _ = prefix;
+    return o.dg.fail("TODO: C backend: airPtrElemVal", .{});
+}
+
 fn airSliceElemVal(o: *Object, inst: Air.Inst.Index, prefix: []const u8) !CValue {
-    if (o.liveness.isUnused(inst))
+    const is_volatile = false; // TODO
+    if (!is_volatile and o.liveness.isUnused(inst))
         return CValue.none;
 
     const bin_op = o.air.instructions.items(.data)[inst].bin_op;
@@ -992,12 +973,6 @@ fn airSliceElemVal(o: *Object, inst: Air.Inst.Index, prefix: []const u8) !CValue
     try o.writeCValue(writer, index);
     try writer.writeAll("];\n");
     return local;
-}
-
-fn airVarPtr(o: *Object, inst: Air.Inst.Index) !CValue {
-    const ty_pl = o.air.instructions.items(.data)[inst].ty_pl;
-    const variable = o.air.variables[ty_pl.payload];
-    return CValue{ .decl_ref = variable.owner_decl };
 }
 
 fn airAlloc(o: *Object, inst: Air.Inst.Index) !CValue {
@@ -1069,7 +1044,7 @@ fn airIntCast(o: *Object, inst: Air.Inst.Index) !CValue {
         return CValue.none;
 
     const ty_op = o.air.instructions.items(.data)[inst].ty_op;
-    const from = try o.resolveInst(ty_op.operand);
+    const operand = try o.resolveInst(ty_op.operand);
 
     const writer = o.writer();
     const inst_ty = o.air.typeOfIndex(inst);
@@ -1077,7 +1052,31 @@ fn airIntCast(o: *Object, inst: Air.Inst.Index) !CValue {
     try writer.writeAll(" = (");
     try o.dg.renderType(writer, inst_ty);
     try writer.writeAll(")");
-    try o.writeCValue(writer, from);
+    try o.writeCValue(writer, operand);
+    try writer.writeAll(";\n");
+    return local;
+}
+
+fn airTrunc(o: *Object, inst: Air.Inst.Index) !CValue {
+    if (o.liveness.isUnused(inst))
+        return CValue.none;
+
+    const ty_op = o.air.instructions.items(.data)[inst].ty_op;
+    const operand = try o.resolveInst(ty_op.operand);
+    _ = operand;
+    return o.dg.fail("TODO: C backend: airTrunc", .{});
+}
+
+fn airBoolToInt(o: *Object, inst: Air.Inst.Index) !CValue {
+    if (o.liveness.isUnused(inst))
+        return CValue.none;
+    const un_op = o.air.instructions.items(.data)[inst].un_op;
+    const writer = o.writer();
+    const inst_ty = o.air.typeOfIndex(inst);
+    const operand = try o.resolveInst(un_op);
+    const local = try o.allocLocal(inst_ty, .Const);
+    try writer.writeAll(" = ");
+    try o.writeCValue(writer, operand);
     try writer.writeAll(";\n");
     return local;
 }
@@ -1637,22 +1636,6 @@ fn airOptionalPayload(o: *Object, inst: Air.Inst.Index) !CValue {
     return local;
 }
 
-fn airRef(o: *Object, inst: Air.Inst.Index) !CValue {
-    if (o.liveness.isUnused(inst))
-        return CValue.none;
-
-    const ty_op = o.air.instructions.items(.data)[inst].ty_op;
-    const writer = o.writer();
-    const operand = try o.resolveInst(ty_op.operand);
-
-    const inst_ty = o.air.typeOfIndex(inst);
-    const local = try o.allocLocal(inst_ty, .Const);
-    try writer.writeAll(" = ");
-    try o.writeCValue(writer, operand);
-    try writer.writeAll(";\n");
-    return local;
-}
-
 fn airStructFieldPtr(o: *Object, inst: Air.Inst.Index) !CValue {
     if (o.liveness.isUnused(inst))
         return CValue.none;
@@ -1660,8 +1643,8 @@ fn airStructFieldPtr(o: *Object, inst: Air.Inst.Index) !CValue {
     const ty_pl = o.air.instructions.items(.data)[inst].ty_pl;
     const extra = o.air.extraData(Air.StructField, ty_pl.payload).data;
     const writer = o.writer();
-    const struct_ptr = try o.resolveInst(extra.struct_ptr);
-    const struct_ptr_ty = o.air.typeOf(extra.struct_ptr);
+    const struct_ptr = try o.resolveInst(extra.struct_operand);
+    const struct_ptr_ty = o.air.typeOf(extra.struct_operand);
     const struct_obj = struct_ptr_ty.elemType().castTag(.@"struct").?.data;
     const field_name = struct_obj.fields.keys()[extra.field_index];
 
@@ -1677,6 +1660,26 @@ fn airStructFieldPtr(o: *Object, inst: Air.Inst.Index) !CValue {
             try writer.print("->{};\n", .{fmtIdent(field_name)});
         },
     }
+    return local;
+}
+
+fn airStructFieldVal(o: *Object, inst: Air.Inst.Index) !CValue {
+    if (o.liveness.isUnused(inst))
+        return CValue.none;
+
+    const ty_pl = o.air.instructions.items(.data)[inst].ty_pl;
+    const extra = o.air.extraData(Air.StructField, ty_pl.payload).data;
+    const writer = o.writer();
+    const struct_byval = try o.resolveInst(extra.struct_operand);
+    const struct_ty = o.air.typeOf(extra.struct_operand);
+    const struct_obj = struct_ty.castTag(.@"struct").?.data;
+    const field_name = struct_obj.fields.keys()[extra.field_index];
+
+    const inst_ty = o.air.typeOfIndex(inst);
+    const local = try o.allocLocal(inst_ty, .Const);
+    try writer.writeAll(" = ");
+    try o.writeCValue(writer, struct_byval);
+    try writer.print(".{};\n", .{fmtIdent(field_name)});
     return local;
 }
 

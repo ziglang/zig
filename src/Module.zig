@@ -61,6 +61,11 @@ export_owners: std.AutoArrayHashMapUnmanaged(*Decl, []*Export) = .{},
 /// Keys are fully resolved file paths. This table owns the keys and values.
 import_table: std.StringArrayHashMapUnmanaged(*Scope.File) = .{},
 
+/// The set of all the generic function instantiations. This is used so that when a generic
+/// function is called twice with the same comptime parameter arguments, both calls dispatch
+/// to the same function.
+monomorphed_funcs: MonomorphedFuncsSet = .{},
+
 /// We optimize memory usage for a compilation with no compile errors by storing the
 /// error messages and mapping outside of `Decl`.
 /// The ErrorMsg memory is owned by the decl, using Module's general purpose allocator.
@@ -111,6 +116,46 @@ job_queued_update_builtin_zig: bool = true,
 compile_log_text: ArrayListUnmanaged(u8) = .{},
 
 emit_h: ?*GlobalEmitH,
+
+test_functions: std.AutoArrayHashMapUnmanaged(*Decl, void) = .{},
+
+const MonomorphedFuncsSet = std.HashMapUnmanaged(
+    *Fn,
+    void,
+    MonomorphedFuncsContext,
+    std.hash_map.default_max_load_percentage,
+);
+
+const MonomorphedFuncsContext = struct {
+    pub fn eql(ctx: @This(), a: *Fn, b: *Fn) bool {
+        _ = ctx;
+        return a == b;
+    }
+
+    /// Must match `Sema.GenericCallAdapter.hash`.
+    pub fn hash(ctx: @This(), key: *Fn) u64 {
+        _ = ctx;
+        var hasher = std.hash.Wyhash.init(0);
+
+        // The generic function Decl is guaranteed to be the first dependency
+        // of each of its instantiations.
+        const generic_owner_decl = key.owner_decl.dependencies.keys()[0];
+        const generic_func = generic_owner_decl.val.castTag(.function).?.data;
+        std.hash.autoHash(&hasher, @ptrToInt(generic_func));
+
+        // This logic must be kept in sync with the logic in `analyzeCall` that
+        // computes the hash.
+        const comptime_args = key.comptime_args.?;
+        const generic_ty_info = generic_owner_decl.ty.fnInfo();
+        for (generic_ty_info.param_types) |param_ty, i| {
+            if (generic_ty_info.paramIsComptime(i) and param_ty.tag() != .generic_poison) {
+                comptime_args[i].val.hash(param_ty, &hasher);
+            }
+        }
+
+        return hasher.final();
+    }
+};
 
 /// A `Module` has zero or one of these depending on whether `-femit-h` is enabled.
 pub const GlobalEmitH = struct {
@@ -253,6 +298,15 @@ pub const Decl = struct {
     has_align: bool,
     /// Whether the ZIR code provides a linksection instruction.
     has_linksection: bool,
+    /// Flag used by garbage collection to mark and sweep.
+    /// Decls which correspond to an AST node always have this field set to `true`.
+    /// Anonymous Decls are initialized with this field set to `false` and then it
+    /// is the responsibility of machine code backends to mark it `true` whenever
+    /// a `decl_ref` Value is encountered that points to this Decl.
+    /// When the `codegen_decl` job is encountered in the main work queue, if the
+    /// Decl is marked alive, then it sends the Decl to the linker. Otherwise it
+    /// deletes the Decl on the spot.
+    alive: bool,
 
     /// Represents the position of the code in the output file.
     /// This is populated regardless of semantic analysis and code generation.
@@ -282,6 +336,7 @@ pub const Decl = struct {
     pub fn destroy(decl: *Decl, module: *Module) void {
         const gpa = module.gpa;
         log.debug("destroy {*} ({s})", .{ decl, decl.name });
+        _ = module.test_functions.swapRemove(decl);
         if (decl.deletion_flag) {
             assert(module.deletion_set.swapRemove(decl));
         }
@@ -745,6 +800,11 @@ pub const Union = struct {
 pub const Fn = struct {
     /// The Decl that corresponds to the function itself.
     owner_decl: *Decl,
+    /// If this is not null, this function is a generic function instantiation, and
+    /// there is a `TypedValue` here for each parameter of the function.
+    /// Non-comptime parameters are marked with a `generic_poison` for the value.
+    /// Non-anytype parameters are marked with a `generic_poison` for the type.
+    comptime_args: ?[*]TypedValue = null,
     /// The ZIR instruction that is a function instruction. Use this to find
     /// the body. We store this rather than the body directly so that when ZIR
     /// is regenerated on update(), we can map this to the new corresponding
@@ -783,6 +843,9 @@ pub const Fn = struct {
 
     pub fn getInferredErrorSet(func: *Fn) ?*std.StringHashMapUnmanaged(void) {
         const ret_ty = func.owner_decl.ty.fnReturnType();
+        if (ret_ty.tag() == .generic_poison) {
+            return null;
+        }
         if (ret_ty.zigTypeTag() == .ErrorUnion) {
             if (ret_ty.errorUnionSet().castTag(.error_set_inferred)) |payload| {
                 return &payload.data.map;
@@ -1157,6 +1220,8 @@ pub const Scope = struct {
         /// for the one that will be the same for all Block instances.
         src_decl: *Decl,
         instructions: ArrayListUnmanaged(Air.Inst.Index),
+        // `param` instructions are collected here to be used by the `func` instruction.
+        params: std.ArrayListUnmanaged(Param) = .{},
         label: ?*Label = null,
         inlining: ?*Inlining,
         /// If runtime_index is not 0 then one of these is guaranteed to be non null.
@@ -1170,6 +1235,12 @@ pub const Scope = struct {
 
         /// when null, it is determined by build mode, changed by @setRuntimeSafety
         want_safety: ?bool = null,
+
+        const Param = struct {
+            /// `noreturn` means `anytype`.
+            ty: Type,
+            is_comptime: bool,
+        };
 
         /// This `Block` maps a block ZIR instruction to the corresponding
         /// AIR instruction for break instruction analysis.
@@ -1305,6 +1376,16 @@ pub const Scope = struct {
             });
         }
 
+        pub fn addArg(block: *Block, ty: Type, name: u32) error{OutOfMemory}!Air.Inst.Ref {
+            return block.addInst(.{
+                .tag = .arg,
+                .data = .{ .ty_str = .{
+                    .ty = try block.sema.addType(ty),
+                    .str = name,
+                } },
+            });
+        }
+
         pub fn addInst(block: *Block, inst: Air.Inst) error{OutOfMemory}!Air.Inst.Ref {
             return Air.indexToRef(try block.addInstAsIndex(inst));
         }
@@ -1321,6 +1402,42 @@ pub const Scope = struct {
             block.instructions.appendAssumeCapacity(result_index);
             return result_index;
         }
+
+        pub fn startAnonDecl(block: *Block) !WipAnonDecl {
+            return WipAnonDecl{
+                .block = block,
+                .new_decl_arena = std.heap.ArenaAllocator.init(block.sema.gpa),
+                .finished = false,
+            };
+        }
+
+        pub const WipAnonDecl = struct {
+            block: *Scope.Block,
+            new_decl_arena: std.heap.ArenaAllocator,
+            finished: bool,
+
+            pub fn arena(wad: *WipAnonDecl) *Allocator {
+                return &wad.new_decl_arena.allocator;
+            }
+
+            pub fn deinit(wad: *WipAnonDecl) void {
+                if (!wad.finished) {
+                    wad.new_decl_arena.deinit();
+                }
+                wad.* = undefined;
+            }
+
+            pub fn finish(wad: *WipAnonDecl, ty: Type, val: Value) !*Decl {
+                const new_decl = try wad.block.sema.mod.createAnonymousDecl(&wad.block.base, .{
+                    .ty = ty,
+                    .val = val,
+                });
+                errdefer wad.block.sema.mod.deleteAnonDecl(&wad.block.base, new_decl);
+                try new_decl.finalizeNewArena(&wad.new_decl_arena);
+                wad.finished = true;
+                return new_decl;
+            }
+        };
     };
 };
 
@@ -1582,8 +1699,11 @@ pub const SrcLoc = struct {
                     .@"asm" => tree.asmFull(node),
                     else => unreachable,
                 };
+                const asm_output = full.outputs[0];
+                const node_datas = tree.nodes.items(.data);
+                const ret_ty_node = node_datas[asm_output].lhs;
                 const main_tokens = tree.nodes.items(.main_token);
-                const tok_index = main_tokens[full.outputs[0]];
+                const tok_index = main_tokens[ret_ty_node];
                 const token_starts = tree.tokens.items(.start);
                 return token_starts[tok_index];
             },
@@ -1697,6 +1817,7 @@ pub const SrcLoc = struct {
 
             .node_offset_fn_type_cc => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
+                const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
                 var params: [1]ast.Node.Index = undefined;
@@ -1705,6 +1826,13 @@ pub const SrcLoc = struct {
                     .fn_proto_multi => tree.fnProtoMulti(node),
                     .fn_proto_one => tree.fnProtoOne(&params, node),
                     .fn_proto => tree.fnProto(node),
+                    .fn_decl => switch (node_tags[node_datas[node].lhs]) {
+                        .fn_proto_simple => tree.fnProtoSimple(&params, node_datas[node].lhs),
+                        .fn_proto_multi => tree.fnProtoMulti(node_datas[node].lhs),
+                        .fn_proto_one => tree.fnProtoOne(&params, node_datas[node].lhs),
+                        .fn_proto => tree.fnProto(node_datas[node].lhs),
+                        else => unreachable,
+                    },
                     else => unreachable,
                 };
                 const main_tokens = tree.nodes.items(.main_token);
@@ -2039,7 +2167,20 @@ pub const LazySrcLoc = union(enum) {
 };
 
 pub const SemaError = error{ OutOfMemory, AnalysisFail };
-pub const CompileError = error{ OutOfMemory, AnalysisFail, NeededSourceLocation };
+pub const CompileError = error{
+    OutOfMemory,
+    /// When this is returned, the compile error for the failure has already been recorded.
+    AnalysisFail,
+    /// Returned when a compile error needed to be reported but a provided LazySrcLoc was set
+    /// to the `unneeded` tag. The source location was, in fact, needed. It is expected that
+    /// somewhere up the call stack, the operation will be retried after doing expensive work
+    /// to compute a source location.
+    NeededSourceLocation,
+    /// A Type or Value was needed to be used during semantic analysis, but it was not available
+    /// because the function is generic. This is only seen when analyzing the body of a param
+    /// instruction.
+    GenericPoison,
+};
 
 pub fn deinit(mod: *Module) void {
     const gpa = mod.gpa;
@@ -2120,6 +2261,8 @@ pub fn deinit(mod: *Module) void {
     mod.global_error_set.deinit(gpa);
 
     mod.error_name_list.deinit(gpa);
+    mod.test_functions.deinit(gpa);
+    mod.monomorphed_funcs.deinit(gpa);
 }
 
 fn freeExportList(gpa: *Allocator, export_list: []*Export) void {
@@ -2735,14 +2878,16 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl: *Decl) SemaError!void {
             }
             return error.AnalysisFail;
         },
-        else => {
+        error.NeededSourceLocation => unreachable,
+        error.GenericPoison => unreachable,
+        else => |e| {
             decl.analysis = .sema_failure_retryable;
             try mod.failed_decls.ensureUnusedCapacity(mod.gpa, 1);
             mod.failed_decls.putAssumeCapacityNoClobber(decl, try ErrorMsg.create(
                 mod.gpa,
                 decl.srcLoc(),
                 "unable to analyze: {s}",
-                .{@errorName(err)},
+                .{@errorName(e)},
             ));
             return error.AnalysisFail;
         },
@@ -2821,6 +2966,7 @@ pub fn semaFile(mod: *Module, file: *Scope.File) SemaError!void {
     new_decl.val = struct_val;
     new_decl.has_tv = true;
     new_decl.owns_tv = true;
+    new_decl.alive = true; // This Decl corresponds to a File and is therefore always alive.
     new_decl.analysis = .in_progress;
     new_decl.generation = mod.generation;
 
@@ -2840,8 +2986,8 @@ pub fn semaFile(mod: *Module, file: *Scope.File) SemaError!void {
             .owner_decl = new_decl,
             .namespace = &struct_obj.namespace,
             .func = null,
+            .fn_ret_ty = Type.initTag(.void),
             .owner_func = null,
-            .param_inst_list = &.{},
         };
         defer sema.deinit();
         var block_scope: Scope.Block = .{
@@ -2895,8 +3041,8 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
         .owner_decl = decl,
         .namespace = decl.namespace,
         .func = null,
+        .fn_ret_ty = Type.initTag(.void),
         .owner_func = null,
-        .param_inst_list = &.{},
     };
     defer sema.deinit();
 
@@ -2922,7 +3068,10 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
         .inlining = null,
         .is_comptime = true,
     };
-    defer block_scope.instructions.deinit(gpa);
+    defer {
+        block_scope.instructions.deinit(gpa);
+        block_scope.params.deinit(gpa);
+    }
 
     const zir_block_index = decl.zirBlockIndex();
     const inst_data = zir_datas[zir_block_index].pl_node;
@@ -2931,7 +3080,7 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
     const break_index = try sema.analyzeBody(&block_scope, body);
     const result_ref = zir_datas[break_index].@"break".operand;
     const src: LazySrcLoc = .{ .node_offset = 0 };
-    const decl_tv = try sema.resolveInstConst(&block_scope, src, result_ref);
+    const decl_tv = try sema.resolveInstValue(&block_scope, src, result_ref);
     const align_val = blk: {
         const align_ref = decl.zirAlignRef();
         if (align_ref == .none) break :blk Value.initTag(.null_value);
@@ -2942,6 +3091,7 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
         if (linksection_ref == .none) break :blk Value.initTag(.null_value);
         break :blk (try sema.resolveInstConst(&block_scope, src, linksection_ref)).val;
     };
+    try sema.resolveTypeLayout(&block_scope, src, decl_tv.ty);
 
     // We need the memory for the Type to go into the arena for the Decl
     var decl_arena = std.heap.ArenaAllocator.init(gpa);
@@ -2979,8 +3129,8 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
             const is_inline = decl_tv.ty.fnCallingConvention() == .Inline;
             if (!is_inline and decl_tv.ty.hasCodeGenBits()) {
                 // We don't fully codegen the decl until later, but we do need to reserve a global
-                // offset table index for it. This allows us to codegen decls out of dependency order,
-                // increasing how many computations can be done in parallel.
+                // offset table index for it. This allows us to codegen decls out of dependency
+                // order, increasing how many computations can be done in parallel.
                 try mod.comp.bin_file.allocateDeclIndexes(decl);
                 try mod.comp.work_queue.writeItem(.{ .codegen_func = func });
                 if (type_changed and mod.emit_h != null) {
@@ -3319,6 +3469,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) SemaError!voi
                 // the test name filter.
                 if (!mod.comp.bin_file.options.is_test) break :blk false;
                 if (decl_pkg != mod.main_pkg) break :blk false;
+                try mod.test_functions.put(gpa, new_decl, {});
                 break :blk true;
             },
             else => blk: {
@@ -3326,6 +3477,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) SemaError!voi
                 if (!mod.comp.bin_file.options.is_test) break :blk false;
                 if (decl_pkg != mod.main_pkg) break :blk false;
                 // TODO check the name against --test-filter
+                try mod.test_functions.put(gpa, new_decl, {});
                 break :blk true;
             },
         };
@@ -3337,6 +3489,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) SemaError!voi
         new_decl.has_align = has_align;
         new_decl.has_linksection = has_linksection;
         new_decl.zir_decl_index = @intCast(u32, decl_sub_index);
+        new_decl.alive = true; // This Decl corresponds to an AST node and therefore always alive.
         return;
     }
     gpa.free(decl_name);
@@ -3476,6 +3629,43 @@ pub fn clearDecl(
     decl.analysis = .unreferenced;
 }
 
+pub fn deleteUnusedDecl(mod: *Module, decl: *Decl) void {
+    log.debug("deleteUnusedDecl {*} ({s})", .{ decl, decl.name });
+
+    // TODO: remove `allocateDeclIndexes` and make the API that the linker backends
+    // are required to notice the first time `updateDecl` happens and keep track
+    // of it themselves. However they can rely on getting a `freeDecl` call if any
+    // `updateDecl` or `updateFunc` calls happen. This will allow us to avoid any call
+    // into the linker backend here, since the linker backend will never have been told
+    // about the Decl in the first place.
+    // Until then, we did call `allocateDeclIndexes` on this anonymous Decl and so we
+    // must call `freeDecl` in the linker backend now.
+    if (decl.has_tv) {
+        if (decl.ty.hasCodeGenBits()) {
+            mod.comp.bin_file.freeDecl(decl);
+        }
+    }
+
+    const dependants = decl.dependants.keys();
+    assert(dependants[0].namespace.anon_decls.swapRemove(decl));
+
+    for (dependants) |dep| {
+        dep.removeDependency(decl);
+    }
+
+    for (decl.dependencies.keys()) |dep| {
+        dep.removeDependant(decl);
+    }
+    decl.destroy(mod);
+}
+
+pub fn deleteAnonDecl(mod: *Module, scope: *Scope, decl: *Decl) void {
+    log.debug("deleteAnonDecl {*} ({s})", .{ decl, decl.name });
+    const scope_decl = scope.ownerDecl().?;
+    assert(scope_decl.namespace.anon_decls.swapRemove(decl));
+    decl.destroy(mod);
+}
+
 /// Delete all the Export objects that are caused by this Decl. Re-analysis of
 /// this Decl will cause them to be re-created (or not).
 fn deleteDeclExports(mod: *Module, decl: *Decl) void {
@@ -3526,8 +3716,6 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn) SemaError!Air {
     defer decl.value_arena.?.* = arena.state;
 
     const fn_ty = decl.ty;
-    const param_inst_list = try gpa.alloc(Air.Inst.Ref, fn_ty.fnParamLen());
-    defer gpa.free(param_inst_list);
 
     var sema: Sema = .{
         .mod = mod,
@@ -3537,8 +3725,8 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn) SemaError!Air {
         .owner_decl = decl,
         .namespace = decl.namespace,
         .func = func,
+        .fn_ret_ty = func.owner_decl.ty.fnReturnType(),
         .owner_func = func,
-        .param_inst_list = param_inst_list,
     };
     defer sema.deinit();
 
@@ -3557,29 +3745,71 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn) SemaError!Air {
     };
     defer inner_block.instructions.deinit(gpa);
 
-    // AIR requires the arg parameters to be the first N instructions.
-    try inner_block.instructions.ensureTotalCapacity(gpa, param_inst_list.len);
-    for (param_inst_list) |*param_inst, param_index| {
-        const param_type = fn_ty.fnParamType(param_index);
+    const fn_info = sema.code.getFnInfo(func.zir_body_inst);
+    const zir_tags = sema.code.instructions.items(.tag);
+
+    // Here we are performing "runtime semantic analysis" for a function body, which means
+    // we must map the parameter ZIR instructions to `arg` AIR instructions.
+    // AIR requires the `arg` parameters to be the first N instructions.
+    // This could be a generic function instantiation, however, in which case we need to
+    // map the comptime parameters to constant values and only emit arg AIR instructions
+    // for the runtime ones.
+    const runtime_params_len = @intCast(u32, fn_ty.fnParamLen());
+    try inner_block.instructions.ensureTotalCapacity(gpa, runtime_params_len);
+    try sema.air_instructions.ensureUnusedCapacity(gpa, fn_info.total_params_len * 2); // * 2 for the `addType`
+    try sema.inst_map.ensureUnusedCapacity(gpa, fn_info.total_params_len);
+
+    var runtime_param_index: usize = 0;
+    var total_param_index: usize = 0;
+    for (fn_info.param_body) |inst| {
+        const name = switch (zir_tags[inst]) {
+            .param, .param_comptime => blk: {
+                const inst_data = sema.code.instructions.items(.data)[inst].pl_tok;
+                const extra = sema.code.extraData(Zir.Inst.Param, inst_data.payload_index).data;
+                break :blk extra.name;
+            },
+
+            .param_anytype, .param_anytype_comptime => blk: {
+                const str_tok = sema.code.instructions.items(.data)[inst].str_tok;
+                break :blk str_tok.start;
+            },
+
+            else => continue,
+        };
+        if (func.comptime_args) |comptime_args| {
+            const arg_tv = comptime_args[total_param_index];
+            if (arg_tv.val.tag() != .generic_poison) {
+                // We have a comptime value for this parameter.
+                const arg = try sema.addConstant(arg_tv.ty, arg_tv.val);
+                sema.inst_map.putAssumeCapacityNoClobber(inst, arg);
+                total_param_index += 1;
+                continue;
+            }
+        }
+        const param_type = fn_ty.fnParamType(runtime_param_index);
         const ty_ref = try sema.addType(param_type);
         const arg_index = @intCast(u32, sema.air_instructions.len);
         inner_block.instructions.appendAssumeCapacity(arg_index);
-        param_inst.* = Air.indexToRef(arg_index);
-        try sema.air_instructions.append(gpa, .{
+        sema.air_instructions.appendAssumeCapacity(.{
             .tag = .arg,
-            .data = .{
-                .ty_str = .{
-                    .ty = ty_ref,
-                    .str = undefined, // Set in the semantic analysis of the arg instruction.
-                },
-            },
+            .data = .{ .ty_str = .{
+                .ty = ty_ref,
+                .str = name,
+            } },
         });
+        sema.inst_map.putAssumeCapacityNoClobber(inst, Air.indexToRef(arg_index));
+        total_param_index += 1;
+        runtime_param_index += 1;
     }
 
     func.state = .in_progress;
     log.debug("set {s} to in_progress", .{decl.name});
 
-    try sema.analyzeFnBody(&inner_block, func.zir_body_inst);
+    _ = sema.analyzeBody(&inner_block, fn_info.body) catch |err| switch (err) {
+        error.NeededSourceLocation => @panic("zig compiler bug: NeededSourceLocation"),
+        error.GenericPoison => @panic("zig compiler bug: GenericPoison"),
+        else => |e| return e,
+    };
 
     // Copy the block into place and mark that as the main block.
     try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Block).Struct.fields.len +
@@ -3597,7 +3827,6 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn) SemaError!Air {
         .instructions = sema.air_instructions.toOwnedSlice(),
         .extra = sema.air_extra.toOwnedSlice(gpa),
         .values = sema.air_values.toOwnedSlice(gpa),
-        .variables = sema.air_variables.toOwnedSlice(gpa),
     };
 }
 
@@ -3616,7 +3845,7 @@ fn markOutdatedDecl(mod: *Module, decl: *Decl) !void {
     decl.analysis = .outdated;
 }
 
-fn allocateNewDecl(mod: *Module, namespace: *Scope.Namespace, src_node: ast.Node.Index) !*Decl {
+pub fn allocateNewDecl(mod: *Module, namespace: *Scope.Namespace, src_node: ast.Node.Index) !*Decl {
     // If we have emit-h then we must allocate a bigger structure to store the emit-h state.
     const new_decl: *Decl = if (mod.emit_h != null) blk: {
         const parent_struct = try mod.gpa.create(DeclPlusEmitH);
@@ -3664,6 +3893,7 @@ fn allocateNewDecl(mod: *Module, namespace: *Scope.Namespace, src_node: ast.Node
         .is_exported = false,
         .has_linksection = false,
         .has_align = false,
+        .alive = false,
     };
     return new_decl;
 }
@@ -3702,8 +3932,8 @@ pub fn analyzeExport(
         else => return mod.fail(scope, src, "unable to export type '{}'", .{exported_decl.ty}),
     }
 
-    try mod.decl_exports.ensureCapacity(mod.gpa, mod.decl_exports.count() + 1);
-    try mod.export_owners.ensureCapacity(mod.gpa, mod.export_owners.count() + 1);
+    try mod.decl_exports.ensureUnusedCapacity(mod.gpa, 1);
+    try mod.export_owners.ensureUnusedCapacity(mod.gpa, 1);
 
     const new_export = try mod.gpa.create(Export);
     errdefer mod.gpa.destroy(new_export);
@@ -3753,12 +3983,6 @@ pub fn analyzeExport(
     errdefer de_gop.value_ptr.* = mod.gpa.shrink(de_gop.value_ptr.*, de_gop.value_ptr.len - 1);
 }
 
-pub fn deleteAnonDecl(mod: *Module, scope: *Scope, decl: *Decl) void {
-    const scope_decl = scope.ownerDecl().?;
-    assert(scope_decl.namespace.anon_decls.swapRemove(decl));
-    decl.destroy(mod);
-}
-
 /// Takes ownership of `name` even if it returns an error.
 pub fn createAnonymousDeclNamed(
     mod: *Module,
@@ -3766,16 +3990,37 @@ pub fn createAnonymousDeclNamed(
     typed_value: TypedValue,
     name: [:0]u8,
 ) !*Decl {
+    return mod.createAnonymousDeclFromDeclNamed(scope.ownerDecl().?, typed_value, name);
+}
+
+pub fn createAnonymousDecl(mod: *Module, scope: *Scope, typed_value: TypedValue) !*Decl {
+    return mod.createAnonymousDeclFromDecl(scope.ownerDecl().?, typed_value);
+}
+
+pub fn createAnonymousDeclFromDecl(mod: *Module, owner_decl: *Decl, tv: TypedValue) !*Decl {
+    const name_index = mod.getNextAnonNameIndex();
+    const name = try std.fmt.allocPrintZ(mod.gpa, "{s}__anon_{d}", .{
+        owner_decl.name, name_index,
+    });
+    return mod.createAnonymousDeclFromDeclNamed(owner_decl, tv, name);
+}
+
+/// Takes ownership of `name` even if it returns an error.
+pub fn createAnonymousDeclFromDeclNamed(
+    mod: *Module,
+    owner_decl: *Decl,
+    typed_value: TypedValue,
+    name: [:0]u8,
+) !*Decl {
     errdefer mod.gpa.free(name);
 
-    const scope_decl = scope.ownerDecl().?;
-    const namespace = scope_decl.namespace;
+    const namespace = owner_decl.namespace;
     try namespace.anon_decls.ensureUnusedCapacity(mod.gpa, 1);
 
-    const new_decl = try mod.allocateNewDecl(namespace, scope_decl.src_node);
+    const new_decl = try mod.allocateNewDecl(namespace, owner_decl.src_node);
 
     new_decl.name = name;
-    new_decl.src_line = scope_decl.src_line;
+    new_decl.src_line = owner_decl.src_line;
     new_decl.ty = typed_value.ty;
     new_decl.val = typed_value.val;
     new_decl.has_tv = true;
@@ -3794,15 +4039,6 @@ pub fn createAnonymousDeclNamed(
     }
 
     return new_decl;
-}
-
-pub fn createAnonymousDecl(mod: *Module, scope: *Scope, typed_value: TypedValue) !*Decl {
-    const scope_decl = scope.ownerDecl().?;
-    const name_index = mod.getNextAnonNameIndex();
-    const name = try std.fmt.allocPrintZ(mod.gpa, "{s}__anon_{d}", .{
-        scope_decl.name, name_index,
-    });
-    return mod.createAnonymousDeclNamed(scope, typed_value, name);
 }
 
 pub fn getNextAnonNameIndex(mod: *Module) usize {
@@ -3928,244 +4164,6 @@ pub fn failWithOwnedErrorMsg(mod: *Module, scope: *Scope, err_msg: *ErrorMsg) Co
     return error.AnalysisFail;
 }
 
-pub fn intAdd(allocator: *Allocator, lhs: Value, rhs: Value) !Value {
-    // TODO is this a performance issue? maybe we should try the operation without
-    // resorting to BigInt first.
-    var lhs_space: Value.BigIntSpace = undefined;
-    var rhs_space: Value.BigIntSpace = undefined;
-    const lhs_bigint = lhs.toBigInt(&lhs_space);
-    const rhs_bigint = rhs.toBigInt(&rhs_space);
-    const limbs = try allocator.alloc(
-        std.math.big.Limb,
-        std.math.max(lhs_bigint.limbs.len, rhs_bigint.limbs.len) + 1,
-    );
-    var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
-    result_bigint.add(lhs_bigint, rhs_bigint);
-    const result_limbs = result_bigint.limbs[0..result_bigint.len];
-
-    if (result_bigint.positive) {
-        return Value.Tag.int_big_positive.create(allocator, result_limbs);
-    } else {
-        return Value.Tag.int_big_negative.create(allocator, result_limbs);
-    }
-}
-
-pub fn intSub(allocator: *Allocator, lhs: Value, rhs: Value) !Value {
-    // TODO is this a performance issue? maybe we should try the operation without
-    // resorting to BigInt first.
-    var lhs_space: Value.BigIntSpace = undefined;
-    var rhs_space: Value.BigIntSpace = undefined;
-    const lhs_bigint = lhs.toBigInt(&lhs_space);
-    const rhs_bigint = rhs.toBigInt(&rhs_space);
-    const limbs = try allocator.alloc(
-        std.math.big.Limb,
-        std.math.max(lhs_bigint.limbs.len, rhs_bigint.limbs.len) + 1,
-    );
-    var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
-    result_bigint.sub(lhs_bigint, rhs_bigint);
-    const result_limbs = result_bigint.limbs[0..result_bigint.len];
-
-    if (result_bigint.positive) {
-        return Value.Tag.int_big_positive.create(allocator, result_limbs);
-    } else {
-        return Value.Tag.int_big_negative.create(allocator, result_limbs);
-    }
-}
-
-pub fn intDiv(allocator: *Allocator, lhs: Value, rhs: Value) !Value {
-    // TODO is this a performance issue? maybe we should try the operation without
-    // resorting to BigInt first.
-    var lhs_space: Value.BigIntSpace = undefined;
-    var rhs_space: Value.BigIntSpace = undefined;
-    const lhs_bigint = lhs.toBigInt(&lhs_space);
-    const rhs_bigint = rhs.toBigInt(&rhs_space);
-    const limbs_q = try allocator.alloc(
-        std.math.big.Limb,
-        lhs_bigint.limbs.len + rhs_bigint.limbs.len + 1,
-    );
-    const limbs_r = try allocator.alloc(
-        std.math.big.Limb,
-        lhs_bigint.limbs.len,
-    );
-    const limbs_buffer = try allocator.alloc(
-        std.math.big.Limb,
-        std.math.big.int.calcDivLimbsBufferLen(lhs_bigint.limbs.len, rhs_bigint.limbs.len),
-    );
-    var result_q = BigIntMutable{ .limbs = limbs_q, .positive = undefined, .len = undefined };
-    var result_r = BigIntMutable{ .limbs = limbs_r, .positive = undefined, .len = undefined };
-    result_q.divTrunc(&result_r, lhs_bigint, rhs_bigint, limbs_buffer, null);
-    const result_limbs = result_q.limbs[0..result_q.len];
-
-    if (result_q.positive) {
-        return Value.Tag.int_big_positive.create(allocator, result_limbs);
-    } else {
-        return Value.Tag.int_big_negative.create(allocator, result_limbs);
-    }
-}
-
-pub fn intMul(allocator: *Allocator, lhs: Value, rhs: Value) !Value {
-    // TODO is this a performance issue? maybe we should try the operation without
-    // resorting to BigInt first.
-    var lhs_space: Value.BigIntSpace = undefined;
-    var rhs_space: Value.BigIntSpace = undefined;
-    const lhs_bigint = lhs.toBigInt(&lhs_space);
-    const rhs_bigint = rhs.toBigInt(&rhs_space);
-    const limbs = try allocator.alloc(
-        std.math.big.Limb,
-        lhs_bigint.limbs.len + rhs_bigint.limbs.len + 1,
-    );
-    var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
-    var limbs_buffer = try allocator.alloc(
-        std.math.big.Limb,
-        std.math.big.int.calcMulLimbsBufferLen(lhs_bigint.limbs.len, rhs_bigint.limbs.len, 1),
-    );
-    defer allocator.free(limbs_buffer);
-    result_bigint.mul(lhs_bigint, rhs_bigint, limbs_buffer, allocator);
-    const result_limbs = result_bigint.limbs[0..result_bigint.len];
-
-    if (result_bigint.positive) {
-        return Value.Tag.int_big_positive.create(allocator, result_limbs);
-    } else {
-        return Value.Tag.int_big_negative.create(allocator, result_limbs);
-    }
-}
-
-pub fn floatAdd(
-    arena: *Allocator,
-    float_type: Type,
-    src: LazySrcLoc,
-    lhs: Value,
-    rhs: Value,
-) !Value {
-    _ = src;
-    switch (float_type.tag()) {
-        .f16 => {
-            @panic("TODO add __trunctfhf2 to compiler-rt");
-            //const lhs_val = lhs.toFloat(f16);
-            //const rhs_val = rhs.toFloat(f16);
-            //return Value.Tag.float_16.create(arena, lhs_val + rhs_val);
-        },
-        .f32 => {
-            const lhs_val = lhs.toFloat(f32);
-            const rhs_val = rhs.toFloat(f32);
-            return Value.Tag.float_32.create(arena, lhs_val + rhs_val);
-        },
-        .f64 => {
-            const lhs_val = lhs.toFloat(f64);
-            const rhs_val = rhs.toFloat(f64);
-            return Value.Tag.float_64.create(arena, lhs_val + rhs_val);
-        },
-        .f128, .comptime_float, .c_longdouble => {
-            const lhs_val = lhs.toFloat(f128);
-            const rhs_val = rhs.toFloat(f128);
-            return Value.Tag.float_128.create(arena, lhs_val + rhs_val);
-        },
-        else => unreachable,
-    }
-}
-
-pub fn floatSub(
-    arena: *Allocator,
-    float_type: Type,
-    src: LazySrcLoc,
-    lhs: Value,
-    rhs: Value,
-) !Value {
-    _ = src;
-    switch (float_type.tag()) {
-        .f16 => {
-            @panic("TODO add __trunctfhf2 to compiler-rt");
-            //const lhs_val = lhs.toFloat(f16);
-            //const rhs_val = rhs.toFloat(f16);
-            //return Value.Tag.float_16.create(arena, lhs_val - rhs_val);
-        },
-        .f32 => {
-            const lhs_val = lhs.toFloat(f32);
-            const rhs_val = rhs.toFloat(f32);
-            return Value.Tag.float_32.create(arena, lhs_val - rhs_val);
-        },
-        .f64 => {
-            const lhs_val = lhs.toFloat(f64);
-            const rhs_val = rhs.toFloat(f64);
-            return Value.Tag.float_64.create(arena, lhs_val - rhs_val);
-        },
-        .f128, .comptime_float, .c_longdouble => {
-            const lhs_val = lhs.toFloat(f128);
-            const rhs_val = rhs.toFloat(f128);
-            return Value.Tag.float_128.create(arena, lhs_val - rhs_val);
-        },
-        else => unreachable,
-    }
-}
-
-pub fn floatDiv(
-    arena: *Allocator,
-    float_type: Type,
-    src: LazySrcLoc,
-    lhs: Value,
-    rhs: Value,
-) !Value {
-    _ = src;
-    switch (float_type.tag()) {
-        .f16 => {
-            @panic("TODO add __trunctfhf2 to compiler-rt");
-            //const lhs_val = lhs.toFloat(f16);
-            //const rhs_val = rhs.toFloat(f16);
-            //return Value.Tag.float_16.create(arena, lhs_val / rhs_val);
-        },
-        .f32 => {
-            const lhs_val = lhs.toFloat(f32);
-            const rhs_val = rhs.toFloat(f32);
-            return Value.Tag.float_32.create(arena, lhs_val / rhs_val);
-        },
-        .f64 => {
-            const lhs_val = lhs.toFloat(f64);
-            const rhs_val = rhs.toFloat(f64);
-            return Value.Tag.float_64.create(arena, lhs_val / rhs_val);
-        },
-        .f128, .comptime_float, .c_longdouble => {
-            const lhs_val = lhs.toFloat(f128);
-            const rhs_val = rhs.toFloat(f128);
-            return Value.Tag.float_128.create(arena, lhs_val / rhs_val);
-        },
-        else => unreachable,
-    }
-}
-
-pub fn floatMul(
-    arena: *Allocator,
-    float_type: Type,
-    src: LazySrcLoc,
-    lhs: Value,
-    rhs: Value,
-) !Value {
-    _ = src;
-    switch (float_type.tag()) {
-        .f16 => {
-            @panic("TODO add __trunctfhf2 to compiler-rt");
-            //const lhs_val = lhs.toFloat(f16);
-            //const rhs_val = rhs.toFloat(f16);
-            //return Value.Tag.float_16.create(arena, lhs_val * rhs_val);
-        },
-        .f32 => {
-            const lhs_val = lhs.toFloat(f32);
-            const rhs_val = rhs.toFloat(f32);
-            return Value.Tag.float_32.create(arena, lhs_val * rhs_val);
-        },
-        .f64 => {
-            const lhs_val = lhs.toFloat(f64);
-            const rhs_val = rhs.toFloat(f64);
-            return Value.Tag.float_64.create(arena, lhs_val * rhs_val);
-        },
-        .f128, .comptime_float, .c_longdouble => {
-            const lhs_val = lhs.toFloat(f128);
-            const rhs_val = rhs.toFloat(f128);
-            return Value.Tag.float_128.create(arena, lhs_val * rhs_val);
-        },
-        else => unreachable,
-    }
-}
-
 pub fn simplePtrType(
     arena: *Allocator,
     elem_ty: Type,
@@ -4194,7 +4192,6 @@ pub fn simplePtrType(
 }
 
 pub fn ptrType(
-    mod: *Module,
     arena: *Allocator,
     elem_ty: Type,
     sentinel: ?Value,
@@ -4206,7 +4203,6 @@ pub fn ptrType(
     @"volatile": bool,
     size: std.builtin.TypeInfo.Pointer.Size,
 ) Allocator.Error!Type {
-    _ = mod;
     assert(host_size == 0 or bit_offset < host_size * 8);
 
     // TODO check if type can be represented by simplePtrType
@@ -4223,8 +4219,7 @@ pub fn ptrType(
     });
 }
 
-pub fn optionalType(mod: *Module, arena: *Allocator, child_type: Type) Allocator.Error!Type {
-    _ = mod;
+pub fn optionalType(arena: *Allocator, child_type: Type) Allocator.Error!Type {
     switch (child_type.tag()) {
         .single_const_pointer => return Type.Tag.optional_single_const_pointer.create(
             arena,
@@ -4239,16 +4234,14 @@ pub fn optionalType(mod: *Module, arena: *Allocator, child_type: Type) Allocator
 }
 
 pub fn arrayType(
-    mod: *Module,
     arena: *Allocator,
     len: u64,
     sentinel: ?Value,
     elem_type: Type,
 ) Allocator.Error!Type {
-    _ = mod;
     if (elem_type.eql(Type.initTag(.u8))) {
         if (sentinel) |some| {
-            if (some.eql(Value.initTag(.zero))) {
+            if (some.eql(Value.initTag(.zero), elem_type)) {
                 return Type.Tag.array_u8_sentinel_0.create(arena, len);
             }
         } else {
@@ -4271,12 +4264,10 @@ pub fn arrayType(
 }
 
 pub fn errorUnionType(
-    mod: *Module,
     arena: *Allocator,
     error_set: Type,
     payload: Type,
 ) Allocator.Error!Type {
-    _ = mod;
     assert(error_set.zigTypeTag() == .ErrorSet);
     if (error_set.eql(Type.initTag(.anyerror)) and payload.eql(Type.initTag(.void))) {
         return Type.initTag(.anyerror_void_error_union);
@@ -4470,7 +4461,7 @@ pub fn analyzeStructFields(mod: *Module, struct_obj: *Struct) CompileError!void 
         .namespace = &struct_obj.namespace,
         .owner_func = null,
         .func = null,
-        .param_inst_list = &.{},
+        .fn_ret_ty = Type.initTag(.void),
     };
     defer sema.deinit();
 
@@ -4624,7 +4615,7 @@ pub fn analyzeUnionFields(mod: *Module, union_obj: *Union) CompileError!void {
         .namespace = &union_obj.namespace,
         .owner_func = null,
         .func = null,
-        .param_inst_list = &.{},
+        .fn_ret_ty = Type.initTag(.void),
     };
     defer sema.deinit();
 
@@ -4800,4 +4791,96 @@ pub fn processExports(mod: *Module) !void {
             },
         };
     }
+}
+
+pub fn populateTestFunctions(mod: *Module) !void {
+    const gpa = mod.gpa;
+    const builtin_pkg = mod.main_pkg.table.get("builtin").?;
+    const builtin_file = (mod.importPkg(builtin_pkg) catch unreachable).file;
+    const builtin_namespace = builtin_file.root_decl.?.namespace;
+    const decl = builtin_namespace.decls.get("test_functions").?;
+    var buf: Type.Payload.ElemType = undefined;
+    const tmp_test_fn_ty = decl.ty.slicePtrFieldType(&buf).elemType();
+
+    const array_decl = d: {
+        // Add mod.test_functions to an array decl then make the test_functions
+        // decl reference it as a slice.
+        var new_decl_arena = std.heap.ArenaAllocator.init(gpa);
+        errdefer new_decl_arena.deinit();
+        const arena = &new_decl_arena.allocator;
+
+        const test_fn_vals = try arena.alloc(Value, mod.test_functions.count());
+        const array_decl = try mod.createAnonymousDeclFromDecl(decl, .{
+            .ty = try Type.Tag.array.create(arena, .{
+                .len = test_fn_vals.len,
+                .elem_type = try tmp_test_fn_ty.copy(arena),
+            }),
+            .val = try Value.Tag.array.create(arena, test_fn_vals),
+        });
+        for (mod.test_functions.keys()) |test_decl, i| {
+            const test_name_slice = mem.sliceTo(test_decl.name, 0);
+            const test_name_decl = n: {
+                var name_decl_arena = std.heap.ArenaAllocator.init(gpa);
+                errdefer name_decl_arena.deinit();
+                const bytes = try name_decl_arena.allocator.dupe(u8, test_name_slice);
+                const test_name_decl = try mod.createAnonymousDeclFromDecl(array_decl, .{
+                    .ty = try Type.Tag.array_u8.create(&name_decl_arena.allocator, bytes.len),
+                    .val = try Value.Tag.bytes.create(&name_decl_arena.allocator, bytes),
+                });
+                try test_name_decl.finalizeNewArena(&name_decl_arena);
+                break :n test_name_decl;
+            };
+            try mod.linkerUpdateDecl(test_name_decl);
+
+            const field_vals = try arena.create([3]Value);
+            field_vals.* = .{
+                try Value.Tag.slice.create(arena, .{
+                    .ptr = try Value.Tag.decl_ref.create(arena, test_name_decl),
+                    .len = try Value.Tag.int_u64.create(arena, test_name_slice.len),
+                }), // name
+                try Value.Tag.decl_ref.create(arena, test_decl), // func
+                Value.initTag(.null_value), // async_frame_size
+            };
+            test_fn_vals[i] = try Value.Tag.@"struct".create(arena, field_vals);
+        }
+
+        try array_decl.finalizeNewArena(&new_decl_arena);
+        break :d array_decl;
+    };
+    try mod.linkerUpdateDecl(array_decl);
+
+    {
+        var arena_instance = decl.value_arena.?.promote(gpa);
+        defer decl.value_arena.?.* = arena_instance.state;
+        const arena = &arena_instance.allocator;
+
+        decl.ty = try Type.Tag.const_slice.create(arena, try tmp_test_fn_ty.copy(arena));
+        decl.val = try Value.Tag.slice.create(arena, .{
+            .ptr = try Value.Tag.decl_ref.create(arena, array_decl),
+            .len = try Value.Tag.int_u64.create(arena, mod.test_functions.count()),
+        });
+    }
+    try mod.linkerUpdateDecl(decl);
+}
+
+pub fn linkerUpdateDecl(mod: *Module, decl: *Decl) !void {
+    mod.comp.bin_file.updateDecl(mod, decl) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        error.AnalysisFail => {
+            decl.analysis = .codegen_failure;
+            return;
+        },
+        else => {
+            const gpa = mod.gpa;
+            try mod.failed_decls.ensureUnusedCapacity(gpa, 1);
+            mod.failed_decls.putAssumeCapacityNoClobber(decl, try ErrorMsg.create(
+                gpa,
+                decl.srcLoc(),
+                "unable to codegen: {s}",
+                .{@errorName(err)},
+            ));
+            decl.analysis = .codegen_failure_retryable;
+            return;
+        },
+    };
 }

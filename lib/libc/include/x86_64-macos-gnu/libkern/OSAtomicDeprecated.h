@@ -35,13 +35,14 @@
  * is preferred.
  */
 
+#include    <Availability.h>
+
 #if !(defined(OSATOMIC_USE_INLINED) && OSATOMIC_USE_INLINED)
 
 #include    <sys/cdefs.h>
 #include    <stddef.h>
 #include    <stdint.h>
 #include    <stdbool.h>
-#include    <Availability.h>
 
 #ifndef OSATOMIC_DEPRECATED
 #define OSATOMIC_DEPRECATED 1
@@ -161,7 +162,7 @@ __OSX_AVAILABLE_STARTING(__MAC_10_4, __IPHONE_2_0)
 int32_t	OSAtomicAdd32Barrier( int32_t __theAmount, volatile int32_t *__theValue );
 
 
-#if __MAC_OS_X_VERSION_MIN_REQUIRED >= __MAC_10_10 || __IPHONE_OS_VERSION_MIN_REQUIRED >= __IPHONE_7_1
+#if __MAC_OS_X_VERSION_MIN_REQUIRED >= __MAC_10_10 || __IPHONE_OS_VERSION_MIN_REQUIRED >= __IPHONE_7_1 || TARGET_OS_DRIVERKIT
 
 /*! @abstract Atomically increments a 32-bit value.
     @result Returns the new value.
@@ -248,7 +249,7 @@ int64_t	OSAtomicAdd64Barrier( int64_t __theAmount,
 		volatile OSAtomic_int64_aligned64_t *__theValue );
 
 
-#if __MAC_OS_X_VERSION_MIN_REQUIRED >= __MAC_10_10 || __IPHONE_OS_VERSION_MIN_REQUIRED >= __IPHONE_7_1
+#if __MAC_OS_X_VERSION_MIN_REQUIRED >= __MAC_10_10 || __IPHONE_OS_VERSION_MIN_REQUIRED >= __IPHONE_7_1 || TARGET_OS_DRIVERKIT
 
 /*! @abstract Atomically increments a 64-bit value.
     @result Returns the new value.
@@ -361,7 +362,7 @@ int32_t	OSAtomicOr32Orig( uint32_t __theMask, volatile uint32_t *__theValue );
 	This function performs the bitwise OR of the value given by <code>__theMask</code>
 	with the value in the memory location referenced by <code>__theValue</code>,
 	storing the result back to that memory location atomically.
- 
+
 	This function is equivalent to {@link OSAtomicOr32Orig}
 	except that it also introduces a barrier.
     @result Returns the original value referenced by <code>__theValue</code>.
@@ -481,7 +482,7 @@ int32_t	OSAtomicXor32Orig( uint32_t __theMask, volatile uint32_t *__theValue );
 OSATOMIC_BARRIER_DEPRECATED_REPLACE_WITH(atomic_fetch_xor)
 __OSX_AVAILABLE_STARTING(__MAC_10_5, __IPHONE_3_2)
 int32_t	OSAtomicXor32OrigBarrier( uint32_t __theMask, volatile uint32_t *__theValue );
- 
+
 
 /*! @group Compare and swap
  * Functions in this group return true if the swap occured.  There are several versions,
@@ -587,7 +588,7 @@ bool	OSAtomicCompareAndSwapIntBarrier( int __oldValue, int __newValue, volatile 
 	match, this function stores the value from <code>__newValue</code> into
 	that memory location atomically.
 
-	This function is equivalent to {@link OSAtomicCompareAndSwap32} on 32-bit architectures, 
+	This function is equivalent to {@link OSAtomicCompareAndSwap32} on 32-bit architectures,
 	or {@link OSAtomicCompareAndSwap64} on 64-bit architectures.
     @result Returns TRUE on a match, FALSE otherwise.
  */
@@ -606,7 +607,7 @@ bool	OSAtomicCompareAndSwapLong( long __oldValue, long __newValue, volatile long
 	This function is equivalent to {@link OSAtomicCompareAndSwapLong}
 	except that it also introduces a barrier.
 
-	This function is equivalent to {@link OSAtomicCompareAndSwap32} on 32-bit architectures, 
+	This function is equivalent to {@link OSAtomicCompareAndSwap32} on 32-bit architectures,
 	or {@link OSAtomicCompareAndSwap64} on 64-bit architectures.
     @result Returns TRUE on a match, FALSE otherwise.
  */
@@ -706,7 +707,7 @@ bool    OSAtomicTestAndSetBarrier( uint32_t __n, volatile void *__theAddress );
 	For example, if <code>__theAddress</code> points to a 64-bit value,
 	to compare the value of the most significant bit, you would specify
 	<code>56</code> for <code>__n</code>.
- 
+
     @result
 	Returns the original value of the bit being tested.
  */
@@ -719,15 +720,15 @@ bool    OSAtomicTestAndClear( uint32_t __n, volatile void *__theAddress );
     @discussion
 	This function tests a bit in the value referenced by <code>__theAddress</code>
 	and if it is not cleared, clears it.
- 
+
 	The bit is chosen by the value of <code>__n</code> such that the
 	operation will be performed on bit <code>(0x80 >> (__n & 7))</code>
 	of byte <code>((char *)__theAddress + (n >> 3))</code>.
- 
+
 	For example, if <code>__theAddress</code> points to a 64-bit value,
 	to compare the value of the most significant bit, you would specify
 	<code>56</code> for <code>__n</code>.
- 
+
 	This function is equivalent to {@link OSAtomicTestAndSet}
 	except that it also introduces a barrier.
     @result
@@ -736,7 +737,7 @@ bool    OSAtomicTestAndClear( uint32_t __n, volatile void *__theAddress );
 OSATOMIC_BARRIER_DEPRECATED_REPLACE_WITH(atomic_fetch_and)
 __OSX_AVAILABLE_STARTING(__MAC_10_4, __IPHONE_2_0)
 bool    OSAtomicTestAndClearBarrier( uint32_t __n, volatile void *__theAddress );
- 
+
 
 /*! @group Memory barriers */
 
@@ -1173,5 +1174,93 @@ __END_DECLS
 #endif
 
 #endif // defined(OSATOMIC_USE_INLINED) && OSATOMIC_USE_INLINED
+
+#if TARGET_OS_OSX || TARGET_OS_DRIVERKIT
+
+__BEGIN_DECLS
+
+/*! @group Lockless atomic fifo enqueue and dequeue
+ * These routines manipulate singly-linked FIFO lists.
+ *
+ * This API is deprecated and no longer recommended
+ */
+
+/*! @abstract The data structure for a fifo queue head.
+    @discussion
+	You should always initialize a fifo queue head structure with the
+	initialization vector {@link OS_ATOMIC_FIFO_QUEUE_INIT} before use.
+ */
+#if defined(__LP64__)
+
+typedef	volatile struct {
+	void	*opaque1;
+	void	*opaque2;
+	int	 opaque3;
+} __attribute__ ((aligned (16))) OSFifoQueueHead;
+
+#else
+
+typedef	volatile struct {
+	void	*opaque1;
+	void	*opaque2;
+	int	 opaque3;
+} OSFifoQueueHead;
+
+#endif
+/*! @abstract The initialization vector for a fifo queue head. */
+#define OS_ATOMIC_FIFO_QUEUE_INIT   { NULL, NULL, 0 }
+
+/*! @abstract Enqueue an element onto a list.
+    @discussion
+	Memory barriers are incorporated as needed to permit thread-safe access
+	to the queue element.
+    @param __list
+	The list on which you want to enqueue the element.
+    @param __new
+	The element to add.
+    @param __offset
+	The "offset" parameter is the offset (in bytes) of the link field
+	from the beginning of the data structure being queued (<code>__new</code>).
+	The link field should be a pointer type.
+	The <code>__offset</code> value needs to be same for all enqueuing and
+	dequeuing operations on the same list, even if different structure types
+	are enqueued on that list.  The use of <code>offsetset()</code>, defined in
+	<code>stddef.h</code> is the common way to specify the <code>__offset</code>
+	value.
+
+	@note
+	This API is deprecated and no longer recommended
+ */
+__API_DEPRECATED("No longer supported", macos(10.7, 11.0))
+void  OSAtomicFifoEnqueue( OSFifoQueueHead *__list, void *__new, size_t __offset);
+
+/*! @abstract Dequeue an element from a list.
+    @discussion
+	Memory barriers are incorporated as needed to permit thread-safe access
+	to the queue element.
+    @param __list
+	The list from which you want to dequeue an element.
+    @param __offset
+	The "offset" parameter is the offset (in bytes) of the link field
+	from the beginning of the data structure being dequeued (<code>__new</code>).
+	The link field should be a pointer type.
+	The <code>__offset</code> value needs to be same for all enqueuing and
+	dequeuing operations on the same list, even if different structure types
+	are enqueued on that list.  The use of <code>offsetset()</code>, defined in
+	<code>stddef.h</code> is the common way to specify the <code>__offset</code>
+	value.
+    @result
+	Returns the oldest enqueued element, or <code>NULL</code> if the
+	list is empty.
+
+	@note
+	This API is deprecated and no longer recommended
+ */
+__API_DEPRECATED("No longer supported", macos(10.7, 11.0))
+void* OSAtomicFifoDequeue( OSFifoQueueHead *__list, size_t __offset);
+
+__END_DECLS
+
+#endif /* TARGET_OS_OSX || TARGET_OS_DRIVERKIT */
 
 #endif /* _OSATOMIC_DEPRECATED_H_ */

@@ -104,6 +104,7 @@ struct ZigClangCStyleCastExpr;
 struct ZigClangCallExpr;
 struct ZigClangCaseStmt;
 struct ZigClangCharacterLiteral;
+struct ZigClangChooseExpr;
 struct ZigClangCompoundAssignOperator;
 struct ZigClangCompoundStmt;
 struct ZigClangConditionalOperator;
@@ -1221,7 +1222,7 @@ ZIG_EXTERN_C struct ZigClangQualType ZigClangCStyleCastExpr_getType(const struct
 
 ZIG_EXTERN_C bool ZigClangIntegerLiteral_EvaluateAsInt(const struct ZigClangIntegerLiteral *, struct ZigClangExprEvalResult *, const struct ZigClangASTContext *);
 ZIG_EXTERN_C struct ZigClangSourceLocation ZigClangIntegerLiteral_getBeginLoc(const struct ZigClangIntegerLiteral *);
-ZIG_EXTERN_C bool ZigClangIntegerLiteral_isZero(const struct ZigClangIntegerLiteral *, bool *, const struct ZigClangASTContext *);
+ZIG_EXTERN_C bool ZigClangIntegerLiteral_getSignum(const struct ZigClangIntegerLiteral *, int *, const struct ZigClangASTContext *);
 
 ZIG_EXTERN_C const struct ZigClangExpr *ZigClangReturnStmt_getRetValue(const struct ZigClangReturnStmt *);
 
@@ -1241,6 +1242,8 @@ ZIG_EXTERN_C const struct ZigClangCompoundStmt *ZigClangStmtExpr_getSubStmt(cons
 ZIG_EXTERN_C struct ZigClangSourceLocation ZigClangCharacterLiteral_getBeginLoc(const struct ZigClangCharacterLiteral *);
 ZIG_EXTERN_C enum ZigClangCharacterLiteral_CharacterKind ZigClangCharacterLiteral_getKind(const struct ZigClangCharacterLiteral *);
 ZIG_EXTERN_C unsigned ZigClangCharacterLiteral_getValue(const struct ZigClangCharacterLiteral *);
+
+ZIG_EXTERN_C const struct ZigClangExpr *ZigClangChooseExpr_getChosenSubExpr(const struct ZigClangChooseExpr *);
 
 ZIG_EXTERN_C const struct ZigClangExpr *ZigClangAbstractConditionalOperator_getCond(const struct ZigClangAbstractConditionalOperator *);
 ZIG_EXTERN_C const struct ZigClangExpr *ZigClangAbstractConditionalOperator_getTrueExpr(const struct ZigClangAbstractConditionalOperator *);

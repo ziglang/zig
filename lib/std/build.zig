@@ -41,10 +41,12 @@ pub const Builder = struct {
     verbose_ast: bool,
     verbose_link: bool,
     verbose_cc: bool,
-    verbose_ir: bool,
+    verbose_air: bool,
     verbose_llvm_ir: bool,
     verbose_cimport: bool,
     verbose_llvm_cpu_features: bool,
+    /// The purpose of executing the command is for a human to read compile errors from the terminal
+    prominent_compile_errors: bool,
     color: enum { auto, on, off } = .auto,
     invalid_user_input: bool,
     zig_exe: []const u8,
@@ -153,10 +155,11 @@ pub const Builder = struct {
             .verbose_ast = false,
             .verbose_link = false,
             .verbose_cc = false,
-            .verbose_ir = false,
+            .verbose_air = false,
             .verbose_llvm_ir = false,
             .verbose_cimport = false,
             .verbose_llvm_cpu_features = false,
+            .prominent_compile_errors = false,
             .invalid_user_input = false,
             .allocator = allocator,
             .user_input_options = UserInputOptionsMap.init(allocator),
@@ -1082,7 +1085,7 @@ pub const Builder = struct {
                 if (fs.path.isAbsolute(name)) {
                     return name;
                 }
-                var it = mem.tokenize(PATH, &[_]u8{fs.path.delimiter});
+                var it = mem.tokenize(u8, PATH, &[_]u8{fs.path.delimiter});
                 while (it.next()) |path| {
                     const full_path = try fs.path.join(self.allocator, &[_][]const u8{
                         path,
@@ -1162,8 +1165,13 @@ pub const Builder = struct {
             },
             error.ExitCodeFailure => {
                 if (src_step) |s| warn("{s}...", .{s.name});
-                warn("The following command exited with error code {d}:\n", .{code});
-                printCmd(null, argv);
+                if (self.prominent_compile_errors) {
+                    warn("The step exited with error code {d}\n", .{code});
+                } else {
+                    warn("The following command exited with error code {d}:\n", .{code});
+                    printCmd(null, argv);
+                }
+
                 std.os.exit(@truncate(u8, code));
             },
             error.ProcessTerminated => {
@@ -1203,10 +1211,10 @@ pub const Builder = struct {
         const stdout = try self.execAllowFail(&[_][]const u8{ "pkg-config", "--list-all" }, out_code, .Ignore);
         var list = ArrayList(PkgConfigPkg).init(self.allocator);
         errdefer list.deinit();
-        var line_it = mem.tokenize(stdout, "\r\n");
+        var line_it = mem.tokenize(u8, stdout, "\r\n");
         while (line_it.next()) |line| {
             if (mem.trim(u8, line, " \t").len == 0) continue;
-            var tok_it = mem.tokenize(line, " \t");
+            var tok_it = mem.tokenize(u8, line, " \t");
             try list.append(PkgConfigPkg{
                 .name = tok_it.next() orelse return error.PkgConfigInvalidOutput,
                 .desc = tok_it.rest(),
@@ -1723,6 +1731,7 @@ pub const LibExeObjStep = struct {
 
     pub fn setLinkerScriptPath(self: *LibExeObjStep, source: FileSource) void {
         self.linker_script = source.dupe(self.builder);
+        source.addStepDependencies(&self.step);
     }
 
     pub fn linkFramework(self: *LibExeObjStep, framework_name: []const u8) void {
@@ -1863,7 +1872,7 @@ pub const LibExeObjStep = struct {
             error.FileNotFound => return error.PkgConfigNotInstalled,
             else => return err,
         };
-        var it = mem.tokenize(stdout, " \r\n\t");
+        var it = mem.tokenize(u8, stdout, " \r\n\t");
         while (it.next()) |tok| {
             if (mem.eql(u8, tok, "-I")) {
                 const dir = it.next() orelse return error.PkgConfigInvalidOutput;
@@ -2443,7 +2452,7 @@ pub const LibExeObjStep = struct {
         if (builder.verbose_tokenize) zig_args.append("--verbose-tokenize") catch unreachable;
         if (builder.verbose_ast) zig_args.append("--verbose-ast") catch unreachable;
         if (builder.verbose_cimport) zig_args.append("--verbose-cimport") catch unreachable;
-        if (builder.verbose_ir) zig_args.append("--verbose-ir") catch unreachable;
+        if (builder.verbose_air) zig_args.append("--verbose-air") catch unreachable;
         if (builder.verbose_llvm_ir) zig_args.append("--verbose-llvm-ir") catch unreachable;
         if (builder.verbose_link or self.verbose_link) zig_args.append("--verbose-link") catch unreachable;
         if (builder.verbose_cc or self.verbose_cc) zig_args.append("--verbose-cc") catch unreachable;
@@ -2802,6 +2811,7 @@ pub const LibExeObjStep = struct {
                         mem.eql(u8, entry.name, "llvm-ar.id") or
                         mem.eql(u8, entry.name, "libs.txt") or
                         mem.eql(u8, entry.name, "builtin.zig") or
+                        mem.eql(u8, entry.name, "zld.id") or
                         mem.eql(u8, entry.name, "lld.id")) continue;
 
                     _ = try src_dir.updateFile(entry.name, dest_dir, entry.name, .{});
@@ -3006,7 +3016,8 @@ pub const InstallDirStep = struct {
         const self = @fieldParentPtr(InstallDirStep, "step", step);
         const dest_prefix = self.builder.getInstallPath(self.options.install_dir, self.options.install_subdir);
         const full_src_dir = self.builder.pathFromRoot(self.options.source_dir);
-        var it = try fs.walkPath(self.builder.allocator, full_src_dir);
+        const src_dir = try std.fs.cwd().openDir(full_src_dir, .{ .iterate = true });
+        var it = try src_dir.walk(self.builder.allocator);
         next_entry: while (try it.next()) |entry| {
             for (self.options.exclude_extensions) |ext| {
                 if (mem.endsWith(u8, entry.path, ext)) {
@@ -3014,9 +3025,12 @@ pub const InstallDirStep = struct {
                 }
             }
 
-            const rel_path = entry.path[full_src_dir.len + 1 ..];
+            const full_path = try fs.path.join(self.builder.allocator, &[_][]const u8{
+                full_src_dir, entry.path,
+            });
+
             const dest_path = try fs.path.join(self.builder.allocator, &[_][]const u8{
-                dest_prefix, rel_path,
+                dest_prefix, entry.path,
             });
 
             switch (entry.kind) {
@@ -3029,7 +3043,7 @@ pub const InstallDirStep = struct {
                         }
                     }
 
-                    try self.builder.updateFile(entry.path, dest_path);
+                    try self.builder.updateFile(full_path, dest_path);
                 },
                 else => continue,
             }

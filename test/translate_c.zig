@@ -3461,11 +3461,11 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const MAY_NEED_PROMOTION_OCT = @import("std").zig.c_translation.promoteIntLiteral(c_int, 0o20000000000, .octal);
     });
 
-    // See __builtin_alloca_with_align comment in std.c.builtins
+    // See __builtin_alloca_with_align comment in std.zig.c_builtins
     cases.add("demote un-implemented builtins",
         \\#define FOO(X) __builtin_alloca_with_align((X), 8)
     , &[_][]const u8{
-        \\pub const FOO = @compileError("TODO implement function '__builtin_alloca_with_align' in std.c.builtins");
+        \\pub const FOO = @compileError("TODO implement function '__builtin_alloca_with_align' in std.zig.c_builtins");
     });
 
     cases.add("null sentinel arrays when initialized from string literal. Issue #8256",
@@ -3629,5 +3629,16 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\#define FOO(X) (X ## U)
     , &[_][]const u8{
         \\pub const FOO = @import("std").zig.c_translation.Macros.U_SUFFIX;
+    });
+
+    cases.add("Simple array access of pointer with non-negative integer constant",
+        \\void foo(int *p) {
+        \\    p[0];
+        \\    p[1];
+        \\}
+    , &[_][]const u8{
+        \\_ = p[@intCast(c_uint, @as(c_int, 0))];
+        ,
+        \\_ = p[@intCast(c_uint, @as(c_int, 1))];
     });
 }

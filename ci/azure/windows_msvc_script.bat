@@ -26,6 +26,10 @@ cd %ZIGBUILDDIR%
 cmake.exe .. -Thost=x64 -G"Visual Studio 16 2019" -A x64 "-DCMAKE_INSTALL_PREFIX=%ZIGINSTALLDIR%" "-DCMAKE_PREFIX_PATH=%ZIGPREFIXPATH%" -DCMAKE_BUILD_TYPE=Release -DZIG_OMIT_STAGE2=ON || exit /b
 msbuild /maxcpucount /p:Configuration=Release INSTALL.vcxproj || exit /b
 
+REM Sadly, stage2 is omitted from this build to save memory on the CI server. Once self-hosted is
+REM built with itself and does not gobble as much memory, we can enable these tests.
+REM "%ZIGINSTALLDIR%\bin\zig.exe" test "..\test\behavior.zig" -fno-stage1 -fLLVM -I "..\test" || exit /b
+
 "%ZIGINSTALLDIR%\bin\zig.exe" build test-toolchain -Dskip-non-native -Dskip-stage2-tests || exit /b
 "%ZIGINSTALLDIR%\bin\zig.exe" build test-std -Dskip-non-native || exit /b
 "%ZIGINSTALLDIR%\bin\zig.exe" build docs || exit /b

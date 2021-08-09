@@ -37,3 +37,14 @@ test "float widening f16 to f128" {
     var y: f128 = x;
     try expect(x == y);
 }
+
+test "cast small unsigned to larger signed" {
+    try expect(castSmallUnsignedToLargerSigned1(200) == @as(i16, 200));
+    try expect(castSmallUnsignedToLargerSigned2(9999) == @as(i64, 9999));
+}
+fn castSmallUnsignedToLargerSigned1(x: u8) i16 {
+    return x;
+}
+fn castSmallUnsignedToLargerSigned2(x: u16) i64 {
+    return x;
+}

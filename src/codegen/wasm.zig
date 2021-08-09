@@ -590,8 +590,8 @@ pub const Context = struct {
             .Pointer,
             .ErrorSet,
             => wasm.Valtype.i32,
-            .Struct, .ErrorUnion => unreachable, // Multi typed, must be handled individually.
-            else => self.fail("TODO - Wasm valtype for type '{s}'", .{ty.zigTypeTag()}),
+            .Struct, .ErrorUnion, .Optional => unreachable, // Multi typed, must be handled individually.
+            else => |tag| self.fail("TODO - Wasm valtype for type '{s}'", .{tag}),
         };
     }
 
@@ -634,7 +634,7 @@ pub const Context = struct {
                 // for each struct field, generate a local
                 const struct_data: *Module.Struct = ty.castTag(.@"struct").?.data;
                 const fields_len = @intCast(u32, struct_data.fields.count());
-                try self.locals.ensureCapacity(self.gpa, self.locals.items.len + fields_len);
+                try self.locals.ensureUnusedCapacity(self.gpa, fields_len);
                 for (struct_data.fields.values()) |*value| {
                     const val_type = try self.genValtype(value.ty);
                     self.locals.appendAssumeCapacity(val_type);
@@ -653,9 +653,26 @@ pub const Context = struct {
                 // The first local is also used to find the index of the error and payload.
                 //
                 // TODO: Add support where the payload is a type that contains multiple locals such as a struct.
-                try self.locals.ensureCapacity(self.gpa, self.locals.items.len + 2);
+                try self.locals.ensureUnusedCapacity(self.gpa, 2);
                 self.locals.appendAssumeCapacity(wasm.valtype(.i32)); // error values are always i32
                 self.locals.appendAssumeCapacity(val_type);
+                self.local_index += 2;
+
+                return WValue{ .multi_value = .{
+                    .index = initial_index,
+                    .count = 2,
+                } };
+            },
+            .Optional => {
+                var opt_buf: Type.Payload.ElemType = undefined;
+                const child_type = ty.optionalChild(&opt_buf);
+                if (ty.isPtrLikeOptional()) {
+                    return self.fail("TODO: wasm optional pointer", .{});
+                }
+
+                try self.locals.ensureUnusedCapacity(self.gpa, 2);
+                self.locals.appendAssumeCapacity(wasm.valtype(.i32)); // optional 'tag' for null-checking is always i32
+                self.locals.appendAssumeCapacity(try self.genValtype(child_type));
                 self.local_index += 2;
 
                 return WValue{ .multi_value = .{
@@ -754,22 +771,21 @@ pub const Context = struct {
     }
 
     /// Generates the wasm bytecode for the declaration belonging to `Context`
-    pub fn gen(self: *Context, typed_value: TypedValue) InnerError!Result {
-        switch (typed_value.ty.zigTypeTag()) {
+    pub fn gen(self: *Context, ty: Type, val: Value) InnerError!Result {
+        switch (ty.zigTypeTag()) {
             .Fn => {
                 try self.genFunctype();
-                if (typed_value.val.castTag(.extern_fn)) |_| return Result.appended; // don't need code body for extern functions
+                if (val.tag() == .extern_fn) {
+                    return Result.appended; // don't need code body for extern functions
+                }
                 return self.fail("TODO implement wasm codegen for function pointers", .{});
             },
             .Array => {
-                if (typed_value.val.castTag(.bytes)) |payload| {
-                    if (typed_value.ty.sentinel()) |sentinel| {
+                if (val.castTag(.bytes)) |payload| {
+                    if (ty.sentinel()) |sentinel| {
                         try self.code.appendSlice(payload.data);
 
-                        switch (try self.gen(.{
-                            .ty = typed_value.ty.elemType(),
-                            .val = sentinel,
-                        })) {
+                        switch (try self.gen(ty.elemType(), sentinel)) {
                             .appended => return Result.appended,
                             .externally_managed => |data| {
                                 try self.code.appendSlice(data);
@@ -781,13 +797,17 @@ pub const Context = struct {
                 } else return self.fail("TODO implement gen for more kinds of arrays", .{});
             },
             .Int => {
-                const info = typed_value.ty.intInfo(self.target);
+                const info = ty.intInfo(self.target);
                 if (info.bits == 8 and info.signedness == .unsigned) {
-                    const int_byte = typed_value.val.toUnsignedInt();
+                    const int_byte = val.toUnsignedInt();
                     try self.code.append(@intCast(u8, int_byte));
                     return Result.appended;
                 }
-                return self.fail("TODO: Implement codegen for int type: '{}'", .{typed_value.ty});
+                return self.fail("TODO: Implement codegen for int type: '{}'", .{ty});
+            },
+            .Enum => {
+                try self.emitConstant(val, ty);
+                return Result.appended;
             },
             else => |tag| return self.fail("TODO: Implement zig type codegen for type: '{s}'", .{tag}),
         }
@@ -797,8 +817,11 @@ pub const Context = struct {
         const air_tags = self.air.instructions.items(.tag);
         return switch (air_tags[inst]) {
             .add => self.airBinOp(inst, .add),
+            .addwrap => self.airWrapBinOp(inst, .add),
             .sub => self.airBinOp(inst, .sub),
+            .subwrap => self.airWrapBinOp(inst, .sub),
             .mul => self.airBinOp(inst, .mul),
+            .mulwrap => self.airWrapBinOp(inst, .mul),
             .div => self.airBinOp(inst, .div),
             .bit_and => self.airBinOp(inst, .@"and"),
             .bit_or => self.airBinOp(inst, .@"or"),
@@ -823,8 +846,16 @@ pub const Context = struct {
             .cond_br => self.airCondBr(inst),
             .constant => unreachable,
             .dbg_stmt => WValue.none,
+            .intcast => self.airIntcast(inst),
+
             .is_err => self.airIsErr(inst, .i32_ne),
             .is_non_err => self.airIsErr(inst, .i32_eq),
+
+            .is_null => self.airIsNull(inst, .i32_ne),
+            .is_non_null => self.airIsNull(inst, .i32_eq),
+            .is_null_ptr => self.airIsNull(inst, .i32_ne),
+            .is_non_null_ptr => self.airIsNull(inst, .i32_eq),
+
             .load => self.airLoad(inst),
             .loop => self.airLoop(inst),
             .not => self.airNot(inst),
@@ -833,8 +864,13 @@ pub const Context = struct {
             .struct_field_ptr => self.airStructFieldPtr(inst),
             .switch_br => self.airSwitchBr(inst),
             .unreach => self.airUnreachable(inst),
+            .wrap_optional => self.airWrapOptional(inst),
+
             .unwrap_errunion_payload => self.airUnwrapErrUnionPayload(inst),
             .wrap_errunion_payload => self.airWrapErrUnionPayload(inst),
+
+            .optional_payload => self.airOptionalPayload(inst),
+            .optional_payload_ptr => self.airOptionalPayload(inst),
             else => |tag| self.fail("TODO: Implement wasm inst: {s}", .{@tagName(tag)}),
         };
     }
@@ -919,6 +955,22 @@ pub const Context = struct {
                         try leb.writeULEB128(writer, multi_value.index + i - 1);
                     }
                 },
+                .local => {
+                    // This can occur when we wrap a single value into a multi-value,
+                    // such as wrapping a non-optional value into an optional.
+                    // This means we must zero the null-tag, and set the payload.
+                    assert(multi_value.count == 2);
+                    // set null-tag
+                    try writer.writeByte(wasm.opcode(.i32_const));
+                    try leb.writeULEB128(writer, @as(u32, 0));
+                    try writer.writeByte(wasm.opcode(.local_set));
+                    try leb.writeULEB128(writer, multi_value.index);
+
+                    // set payload
+                    try self.emitWValue(rhs);
+                    try writer.writeByte(wasm.opcode(.local_set));
+                    try leb.writeULEB128(writer, multi_value.index + 1);
+                },
                 else => unreachable,
             },
             .local => |local| {
@@ -969,7 +1021,63 @@ pub const Context = struct {
         return WValue{ .code_offset = offset };
     }
 
-    fn emitConstant(self: *Context, value: Value, ty: Type) InnerError!void {
+    fn airWrapBinOp(self: *Context, inst: Air.Inst.Index, op: Op) InnerError!WValue {
+        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const lhs = self.resolveInst(bin_op.lhs);
+        const rhs = self.resolveInst(bin_op.rhs);
+
+        // it's possible for both lhs and/or rhs to return an offset as well,
+        // in which case we return the first offset occurance we find.
+        const offset = blk: {
+            if (lhs == .code_offset) break :blk lhs.code_offset;
+            if (rhs == .code_offset) break :blk rhs.code_offset;
+            break :blk self.code.items.len;
+        };
+
+        try self.emitWValue(lhs);
+        try self.emitWValue(rhs);
+
+        const bin_ty = self.air.typeOf(bin_op.lhs);
+        const opcode: wasm.Opcode = buildOpcode(.{
+            .op = op,
+            .valtype1 = try self.typeToValtype(bin_ty),
+            .signedness = if (bin_ty.isSignedInt()) .signed else .unsigned,
+        });
+        try self.code.append(wasm.opcode(opcode));
+
+        const int_info = bin_ty.intInfo(self.target);
+        const bitsize = int_info.bits;
+        const is_signed = int_info.signedness == .signed;
+        // if target type bitsize is x < 32 and 32 > x < 64, we perform
+        // result & ((1<<N)-1) where N = bitsize or bitsize -1 incase of signed.
+        if (bitsize != 32 and bitsize < 64) {
+            // first check if we can use a single instruction,
+            // wasm provides those if the integers are signed and 8/16-bit.
+            // For arbitrary integer sizes, we use the algorithm mentioned above.
+            if (is_signed and bitsize == 8) {
+                try self.code.append(wasm.opcode(.i32_extend8_s));
+            } else if (is_signed and bitsize == 16) {
+                try self.code.append(wasm.opcode(.i32_extend16_s));
+            } else {
+                const result = (@as(u64, 1) << @intCast(u6, bitsize - @boolToInt(is_signed))) - 1;
+                if (bitsize < 32) {
+                    try self.code.append(wasm.opcode(.i32_const));
+                    try leb.writeILEB128(self.code.writer(), @bitCast(i32, @intCast(u32, result)));
+                    try self.code.append(wasm.opcode(.i32_and));
+                } else {
+                    try self.code.append(wasm.opcode(.i64_const));
+                    try leb.writeILEB128(self.code.writer(), @bitCast(i64, result));
+                    try self.code.append(wasm.opcode(.i64_and));
+                }
+            }
+        } else if (int_info.bits > 64) {
+            return self.fail("TODO wasm: Integer wrapping for bitsizes larger than 64", .{});
+        }
+
+        return WValue{ .code_offset = offset };
+    }
+
+    fn emitConstant(self: *Context, val: Value, ty: Type) InnerError!void {
         const writer = self.code.writer();
         switch (ty.zigTypeTag()) {
             .Int => {
@@ -982,10 +1090,10 @@ pub const Context = struct {
                 const int_info = ty.intInfo(self.target);
                 // write constant
                 switch (int_info.signedness) {
-                    .signed => try leb.writeILEB128(writer, value.toSignedInt()),
+                    .signed => try leb.writeILEB128(writer, val.toSignedInt()),
                     .unsigned => switch (int_info.bits) {
-                        0...32 => try leb.writeILEB128(writer, @bitCast(i32, @intCast(u32, value.toUnsignedInt()))),
-                        33...64 => try leb.writeILEB128(writer, @bitCast(i64, value.toUnsignedInt())),
+                        0...32 => try leb.writeILEB128(writer, @bitCast(i32, @intCast(u32, val.toUnsignedInt()))),
+                        33...64 => try leb.writeILEB128(writer, @bitCast(i64, val.toUnsignedInt())),
                         else => |bits| return self.fail("Wasm TODO: emitConstant for integer with {d} bits", .{bits}),
                     },
                 }
@@ -994,7 +1102,7 @@ pub const Context = struct {
                 // write opcode
                 try writer.writeByte(wasm.opcode(.i32_const));
                 // write constant
-                try leb.writeILEB128(writer, value.toSignedInt());
+                try leb.writeILEB128(writer, val.toSignedInt());
             },
             .Float => {
                 // write opcode
@@ -1005,14 +1113,15 @@ pub const Context = struct {
                 try writer.writeByte(wasm.opcode(opcode));
                 // write constant
                 switch (ty.floatBits(self.target)) {
-                    0...32 => try writer.writeIntLittle(u32, @bitCast(u32, value.toFloat(f32))),
-                    64 => try writer.writeIntLittle(u64, @bitCast(u64, value.toFloat(f64))),
+                    0...32 => try writer.writeIntLittle(u32, @bitCast(u32, val.toFloat(f32))),
+                    64 => try writer.writeIntLittle(u64, @bitCast(u64, val.toFloat(f64))),
                     else => |bits| return self.fail("Wasm TODO: emitConstant for float with {d} bits", .{bits}),
                 }
             },
             .Pointer => {
-                if (value.castTag(.decl_ref)) |payload| {
+                if (val.castTag(.decl_ref)) |payload| {
                     const decl = payload.data;
+                    decl.alive = true;
 
                     // offset into the offset table within the 'data' section
                     const ptr_width = self.target.cpu.arch.ptrBitWidth() / 8;
@@ -1024,11 +1133,11 @@ pub const Context = struct {
                     try writer.writeByte(wasm.opcode(.i32_load));
                     try leb.writeULEB128(writer, @as(u32, 0));
                     try leb.writeULEB128(writer, @as(u32, 0));
-                } else return self.fail("Wasm TODO: emitConstant for other const pointer tag {s}", .{value.tag()});
+                } else return self.fail("Wasm TODO: emitConstant for other const pointer tag {s}", .{val.tag()});
             },
             .Void => {},
             .Enum => {
-                if (value.castTag(.enum_field_index)) |field_index| {
+                if (val.castTag(.enum_field_index)) |field_index| {
                     switch (ty.tag()) {
                         .enum_simple => {
                             try writer.writeByte(wasm.opcode(.i32_const));
@@ -1049,21 +1158,27 @@ pub const Context = struct {
                 } else {
                     var int_tag_buffer: Type.Payload.Bits = undefined;
                     const int_tag_ty = ty.intTagType(&int_tag_buffer);
-                    try self.emitConstant(value, int_tag_ty);
+                    try self.emitConstant(val, int_tag_ty);
                 }
             },
             .ErrorSet => {
-                const error_index = self.global_error_set.get(value.getError().?).?;
+                const error_index = self.global_error_set.get(val.getError().?).?;
                 try writer.writeByte(wasm.opcode(.i32_const));
                 try leb.writeULEB128(writer, error_index);
             },
             .ErrorUnion => {
-                const data = value.castTag(.error_union).?.data;
                 const error_type = ty.errorUnionSet();
                 const payload_type = ty.errorUnionPayload();
-                if (value.getError()) |_| {
-                    // write the error value
-                    try self.emitConstant(data, error_type);
+                if (val.castTag(.eu_payload)) |pl| {
+                    const payload_val = pl.data;
+                    // no error, so write a '0' const
+                    try writer.writeByte(wasm.opcode(.i32_const));
+                    try leb.writeULEB128(writer, @as(u32, 0));
+                    // after the error code, we emit the payload
+                    try self.emitConstant(payload_val, payload_type);
+                } else {
+                    // write the error val
+                    try self.emitConstant(val, error_type);
 
                     // no payload, so write a '0' const
                     const opcode: wasm.Opcode = buildOpcode(.{
@@ -1072,12 +1187,31 @@ pub const Context = struct {
                     });
                     try writer.writeByte(wasm.opcode(opcode));
                     try leb.writeULEB128(writer, @as(u32, 0));
-                } else {
-                    // no error, so write a '0' const
+                }
+            },
+            .Optional => {
+                var buf: Type.Payload.ElemType = undefined;
+                const payload_type = ty.optionalChild(&buf);
+                if (ty.isPtrLikeOptional()) {
+                    return self.fail("Wasm TODO: emitConstant for optional pointer", .{});
+                }
+
+                // When constant has value 'null', set is_null local to '1'
+                // and payload to '0'
+                if (val.tag() == .null_value) {
                     try writer.writeByte(wasm.opcode(.i32_const));
+                    try leb.writeILEB128(writer, @as(i32, 1));
+
+                    const opcode: wasm.Opcode = buildOpcode(.{
+                        .op = .@"const",
+                        .valtype1 = try self.typeToValtype(payload_type),
+                    });
+                    try writer.writeByte(wasm.opcode(opcode));
                     try leb.writeULEB128(writer, @as(u32, 0));
-                    // after the error code, we emit the payload
-                    try self.emitConstant(data, payload_type);
+                } else {
+                    try writer.writeByte(wasm.opcode(.i32_const));
+                    try leb.writeILEB128(writer, @as(i32, 0));
+                    try self.emitConstant(val, payload_type);
                 }
             },
             else => |zig_type| return self.fail("Wasm TODO: emitConstant for zigTypeTag {s}", .{zig_type}),
@@ -1085,7 +1219,7 @@ pub const Context = struct {
     }
 
     /// Returns a `Value` as a signed 32 bit value.
-    /// It's illegale to provide a value with a type that cannot be represented
+    /// It's illegal to provide a value with a type that cannot be represented
     /// as an integer value.
     fn valueAsI32(self: Context, val: Value, ty: Type) i32 {
         switch (ty.zigTypeTag()) {
@@ -1180,7 +1314,6 @@ pub const Context = struct {
         const then_body = self.air.extra[extra.end..][0..extra.data.then_body_len];
         const else_body = self.air.extra[extra.end + then_body.len ..][0..extra.data.else_body_len];
         const writer = self.code.writer();
-
         // TODO: Handle death instructions for then and else body
 
         // insert blocks at the position of `offset` so
@@ -1306,7 +1439,7 @@ pub const Context = struct {
     fn airStructFieldPtr(self: *Context, inst: Air.Inst.Index) InnerError!WValue {
         const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
         const extra = self.air.extraData(Air.StructField, ty_pl.payload);
-        const struct_ptr = self.resolveInst(extra.data.struct_ptr);
+        const struct_ptr = self.resolveInst(extra.data.struct_operand);
 
         return WValue{ .local = struct_ptr.multi_value.index + @intCast(u32, extra.data.field_index) };
     }
@@ -1487,6 +1620,62 @@ pub const Context = struct {
     }
 
     fn airWrapErrUnionPayload(self: *Context, inst: Air.Inst.Index) InnerError!WValue {
+        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        return self.resolveInst(ty_op.operand);
+    }
+
+    fn airIntcast(self: *Context, inst: Air.Inst.Index) InnerError!WValue {
+        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const ty = self.air.getRefType(ty_op.ty);
+        const operand = self.resolveInst(ty_op.operand);
+        const ref_ty = self.air.typeOf(ty_op.operand);
+        const ref_info = ref_ty.intInfo(self.target);
+        const op_bits = ref_info.bits;
+        const wanted_bits = ty.intInfo(self.target).bits;
+
+        try self.emitWValue(operand);
+        if (op_bits > 32 and wanted_bits <= 32) {
+            try self.code.append(wasm.opcode(.i32_wrap_i64));
+        } else if (op_bits <= 32 and wanted_bits > 32) {
+            try self.code.append(wasm.opcode(switch (ref_info.signedness) {
+                .signed => .i64_extend_i32_s,
+                .unsigned => .i64_extend_i32_u,
+            }));
+        }
+
+        // other cases are no-op
+        return .none;
+    }
+
+    fn airIsNull(self: *Context, inst: Air.Inst.Index, opcode: wasm.Opcode) InnerError!WValue {
+        const un_op = self.air.instructions.items(.data)[inst].un_op;
+        const operand = self.resolveInst(un_op);
+        // const offset = self.code.items.len;
+        const writer = self.code.writer();
+
+        // load the null value which is positioned at multi_value's index
+        try self.emitWValue(.{ .local = operand.multi_value.index });
+        // Compare the null value with '0'
+        try writer.writeByte(wasm.opcode(.i32_const));
+        try leb.writeILEB128(writer, @as(i32, 0));
+
+        try writer.writeByte(@enumToInt(opcode));
+
+        // we save the result in a new local
+        const local = try self.allocLocal(Type.initTag(.i32));
+        try writer.writeByte(wasm.opcode(.local_set));
+        try leb.writeULEB128(writer, local.local);
+
+        return local;
+    }
+
+    fn airOptionalPayload(self: *Context, inst: Air.Inst.Index) InnerError!WValue {
+        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const operand = self.resolveInst(ty_op.operand);
+        return WValue{ .local = operand.multi_value.index + 1 };
+    }
+
+    fn airWrapOptional(self: *Context, inst: Air.Inst.Index) InnerError!WValue {
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         return self.resolveInst(ty_op.operand);
     }

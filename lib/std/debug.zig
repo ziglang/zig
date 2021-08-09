@@ -438,7 +438,12 @@ pub fn writeCurrentStackTrace(
     }
     var it = StackIterator.init(start_addr, null);
     while (it.next()) |return_address| {
-        try printSourceAtAddress(debug_info, out_stream, return_address - 1, tty_config);
+        // On arm64 macOS, the address of the last frame is 0x0 rather than 0x1 as on x86_64 macOS,
+        // therefore, we do a check for `return_address == 0` before subtracting 1 from it to avoid
+        // an overflow. We do not need to signal `StackIterator` as it will correctly detect this
+        // condition on the subsequent iteration and return `null` thus terminating the loop.
+        const address = if (return_address == 0) return_address else return_address - 1;
+        try printSourceAtAddress(debug_info, out_stream, address, tty_config);
     }
 }
 

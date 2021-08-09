@@ -1182,10 +1182,11 @@ pub fn addCases(ctx: *TestContext) !void {
         var case = ctx.obj("extern variable has no type", linux_x64);
         case.addError(
             \\comptime {
-            \\    _ = foo;
+            \\    const x = foo + foo;
+            \\    _ = x;
             \\}
             \\extern var foo: i32;
-        , &[_][]const u8{":2:9: error: unable to resolve comptime value"});
+        , &[_][]const u8{":2:15: error: unable to resolve comptime value"});
         case.addError(
             \\export fn entry() void {
             \\    _ = foo;
@@ -1571,7 +1572,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    const x = asm volatile ("syscall"
             \\        : [o] "{rax}" (-> number)
             \\        : [number] "{rax}" (231),
-            \\          [arg1] "{rdi}" (code)
+            \\          [arg1] "{rdi}" (60)
             \\        : "rcx", "r11", "memory"
             \\    );
             \\    _ = x;

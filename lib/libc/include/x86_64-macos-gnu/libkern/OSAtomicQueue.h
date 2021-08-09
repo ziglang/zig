@@ -28,6 +28,7 @@
 #include    <sys/cdefs.h>
 #include    <stdint.h>
 #include    <stdbool.h>
+#include    "OSAtomicDeprecated.h"
 
 #include    <Availability.h>
 
@@ -108,83 +109,6 @@ void  OSAtomicEnqueue( OSQueueHead *__list, void *__new, size_t __offset);
  */
 __OSX_AVAILABLE_STARTING(__MAC_10_5, __IPHONE_4_0)
 void* OSAtomicDequeue( OSQueueHead *__list, size_t __offset);
-
-#if defined(__x86_64__) || defined(__i386__)
-
-/*! @group Lockless atomic fifo enqueue and dequeue
- * These routines manipulate singly-linked FIFO lists.
- */
-
-/*! @abstract The data structure for a fifo queue head.
-    @discussion
-	You should always initialize a fifo queue head structure with the
-	initialization vector {@link OS_ATOMIC_FIFO_QUEUE_INIT} before use.
- */
-#if defined(__x86_64__)
-
-typedef	volatile struct {
-	void	*opaque1;
-	void	*opaque2;
-	int	 opaque3;
-} __attribute__ ((aligned (16))) OSFifoQueueHead;
-
-#else
-
-typedef	volatile struct {
-	void	*opaque1;
-	void	*opaque2;
-	int	 opaque3;
-} OSFifoQueueHead;
-
-#endif
-
-/*! @abstract The initialization vector for a fifo queue head. */
-#define OS_ATOMIC_FIFO_QUEUE_INIT   { NULL, NULL, 0 }
-
-/*! @abstract Enqueue an element onto a list.
-    @discussion
-	Memory barriers are incorporated as needed to permit thread-safe access
-	to the queue element.
-    @param __list
-	The list on which you want to enqueue the element.
-    @param __new
-	The element to add.
-    @param __offset
-	The "offset" parameter is the offset (in bytes) of the link field
-	from the beginning of the data structure being queued (<code>__new</code>).
-	The link field should be a pointer type.
-	The <code>__offset</code> value needs to be same for all enqueuing and
-	dequeuing operations on the same list, even if different structure types
-	are enqueued on that list.  The use of <code>offsetset()</code>, defined in
-	<code>stddef.h</code> is the common way to specify the <code>__offset</code>
-	value.
- */
-__OSX_AVAILABLE_STARTING(__MAC_10_7, __IPHONE_NA)
-void  OSAtomicFifoEnqueue( OSFifoQueueHead *__list, void *__new, size_t __offset);
-
-/*! @abstract Dequeue an element from a list.
-    @discussion
-	Memory barriers are incorporated as needed to permit thread-safe access
-	to the queue element.
-    @param __list
-	The list from which you want to dequeue an element.
-    @param __offset
-	The "offset" parameter is the offset (in bytes) of the link field
-	from the beginning of the data structure being dequeued (<code>__new</code>).
-	The link field should be a pointer type.
-	The <code>__offset</code> value needs to be same for all enqueuing and
-	dequeuing operations on the same list, even if different structure types
-	are enqueued on that list.  The use of <code>offsetset()</code>, defined in
-	<code>stddef.h</code> is the common way to specify the <code>__offset</code>
-	value.
-    @result
-	Returns the oldest enqueued element, or <code>NULL</code> if the
-	list is empty.
- */
-__OSX_AVAILABLE_STARTING(__MAC_10_7, __IPHONE_NA)
-void* OSAtomicFifoDequeue( OSFifoQueueHead *__list, size_t __offset);
-
-#endif /* __i386__ || __x86_64__ */
 
 __END_DECLS
 

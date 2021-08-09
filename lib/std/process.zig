@@ -109,7 +109,7 @@ pub fn getEnvMap(allocator: *Allocator) !BufMap {
 
         for (environ) |env| {
             const pair = mem.spanZ(env);
-            var parts = mem.split(pair, "=");
+            var parts = mem.split(u8, pair, "=");
             const key = parts.next().?;
             const value = parts.next().?;
             try result.put(key, value);

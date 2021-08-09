@@ -21,8 +21,15 @@ pub const Type = extern union {
     tag_if_small_enough: usize,
     ptr_otherwise: *Payload,
 
-    pub fn zigTypeTag(self: Type) std.builtin.TypeId {
-        switch (self.tag()) {
+    pub fn zigTypeTag(ty: Type) std.builtin.TypeId {
+        return ty.zigTypeTagOrPoison() catch unreachable;
+    }
+
+    pub fn zigTypeTagOrPoison(ty: Type) error{GenericPoison}!std.builtin.TypeId {
+        switch (ty.tag()) {
+            .generic_poison => return error.GenericPoison,
+
+            .u1,
             .u8,
             .i8,
             .u16,
@@ -425,7 +432,7 @@ pub const Type = extern union {
                 const sentinel_b = info_b.sentinel;
                 if (sentinel_a) |sa| {
                     if (sentinel_b) |sb| {
-                        if (!sa.eql(sb))
+                        if (!sa.eql(sb, info_a.pointee_type))
                             return false;
                     } else {
                         return false;
@@ -454,13 +461,14 @@ pub const Type = extern union {
             .Array, .Vector => {
                 if (a.arrayLen() != b.arrayLen())
                     return false;
-                if (!a.elemType().eql(b.elemType()))
+                const elem_ty = a.elemType();
+                if (!elem_ty.eql(b.elemType()))
                     return false;
                 const sentinel_a = a.sentinel();
                 const sentinel_b = b.sentinel();
                 if (sentinel_a) |sa| {
                     if (sentinel_b) |sb| {
-                        return sa.eql(sb);
+                        return sa.eql(sb, elem_ty);
                     } else {
                         return false;
                     }
@@ -546,8 +554,13 @@ pub const Type = extern union {
 
     pub fn hash(self: Type) u64 {
         var hasher = std.hash.Wyhash.init(0);
+        self.hashWithHasher(&hasher);
+        return hasher.final();
+    }
+
+    pub fn hashWithHasher(self: Type, hasher: *std.hash.Wyhash) void {
         const zig_type_tag = self.zigTypeTag();
-        std.hash.autoHash(&hasher, zig_type_tag);
+        std.hash.autoHash(hasher, zig_type_tag);
         switch (zig_type_tag) {
             .Type,
             .Void,
@@ -565,34 +578,34 @@ pub const Type = extern union {
             .Int => {
                 // Detect that e.g. u64 != usize, even if the bits match on a particular target.
                 if (self.isNamedInt()) {
-                    std.hash.autoHash(&hasher, self.tag());
+                    std.hash.autoHash(hasher, self.tag());
                 } else {
                     // Remaining cases are arbitrary sized integers.
                     // The target will not be branched upon, because we handled target-dependent cases above.
                     const info = self.intInfo(@as(Target, undefined));
-                    std.hash.autoHash(&hasher, info.signedness);
-                    std.hash.autoHash(&hasher, info.bits);
+                    std.hash.autoHash(hasher, info.signedness);
+                    std.hash.autoHash(hasher, info.bits);
                 }
             },
             .Array, .Vector => {
-                std.hash.autoHash(&hasher, self.arrayLen());
-                std.hash.autoHash(&hasher, self.elemType().hash());
+                std.hash.autoHash(hasher, self.arrayLen());
+                std.hash.autoHash(hasher, self.elemType().hash());
                 // TODO hash array sentinel
             },
             .Fn => {
-                std.hash.autoHash(&hasher, self.fnReturnType().hash());
-                std.hash.autoHash(&hasher, self.fnCallingConvention());
+                std.hash.autoHash(hasher, self.fnReturnType().hash());
+                std.hash.autoHash(hasher, self.fnCallingConvention());
                 const params_len = self.fnParamLen();
-                std.hash.autoHash(&hasher, params_len);
+                std.hash.autoHash(hasher, params_len);
                 var i: usize = 0;
                 while (i < params_len) : (i += 1) {
-                    std.hash.autoHash(&hasher, self.fnParamType(i).hash());
+                    std.hash.autoHash(hasher, self.fnParamType(i).hash());
                 }
-                std.hash.autoHash(&hasher, self.fnIsVarArgs());
+                std.hash.autoHash(hasher, self.fnIsVarArgs());
             },
             .Optional => {
                 var buf: Payload.ElemType = undefined;
-                std.hash.autoHash(&hasher, self.optionalChild(&buf).hash());
+                std.hash.autoHash(hasher, self.optionalChild(&buf).hash());
             },
             .Float,
             .Struct,
@@ -609,7 +622,6 @@ pub const Type = extern union {
                 // TODO implement more type hashing
             },
         }
-        return hasher.final();
     }
 
     pub const HashContext64 = struct {
@@ -638,6 +650,7 @@ pub const Type = extern union {
         if (self.tag_if_small_enough < Tag.no_payload_count) {
             return Type{ .tag_if_small_enough = self.tag_if_small_enough };
         } else switch (self.ptr_otherwise.tag) {
+            .u1,
             .u8,
             .i8,
             .u16,
@@ -696,6 +709,7 @@ pub const Type = extern union {
             .export_options,
             .extern_options,
             .@"anyframe",
+            .generic_poison,
             => unreachable,
 
             .array_u8,
@@ -756,11 +770,15 @@ pub const Type = extern union {
                 for (payload.param_types) |param_type, i| {
                     param_types[i] = try param_type.copy(allocator);
                 }
+                const other_comptime_params = payload.comptime_params[0..payload.param_types.len];
+                const comptime_params = try allocator.dupe(bool, other_comptime_params);
                 return Tag.function.create(allocator, .{
                     .return_type = try payload.return_type.copy(allocator),
                     .param_types = param_types,
                     .cc = payload.cc,
                     .is_var_args = payload.is_var_args,
+                    .is_generic = payload.is_generic,
+                    .comptime_params = comptime_params.ptr,
                 });
             },
             .pointer => {
@@ -819,6 +837,7 @@ pub const Type = extern union {
         while (true) {
             const t = ty.tag();
             switch (t) {
+                .u1,
                 .u8,
                 .i8,
                 .u16,
@@ -1075,13 +1094,121 @@ pub const Type = extern union {
                 },
                 .inferred_alloc_const => return writer.writeAll("(inferred_alloc_const)"),
                 .inferred_alloc_mut => return writer.writeAll("(inferred_alloc_mut)"),
+                .generic_poison => return writer.writeAll("(generic poison)"),
             }
             unreachable;
         }
     }
 
+    /// Anything that reports hasCodeGenBits() false returns false here as well.
+    /// `generic_poison` will return false.
+    pub fn requiresComptime(ty: Type) bool {
+        return switch (ty.tag()) {
+            .u1,
+            .u8,
+            .i8,
+            .u16,
+            .i16,
+            .u32,
+            .i32,
+            .u64,
+            .i64,
+            .u128,
+            .i128,
+            .usize,
+            .isize,
+            .c_short,
+            .c_ushort,
+            .c_int,
+            .c_uint,
+            .c_long,
+            .c_ulong,
+            .c_longlong,
+            .c_ulonglong,
+            .c_longdouble,
+            .f16,
+            .f32,
+            .f64,
+            .f128,
+            .c_void,
+            .bool,
+            .void,
+            .anyerror,
+            .noreturn,
+            .@"anyframe",
+            .@"null",
+            .@"undefined",
+            .atomic_ordering,
+            .atomic_rmw_op,
+            .calling_convention,
+            .float_mode,
+            .reduce_op,
+            .call_options,
+            .export_options,
+            .extern_options,
+            .manyptr_u8,
+            .manyptr_const_u8,
+            .fn_noreturn_no_args,
+            .fn_void_no_args,
+            .fn_naked_noreturn_no_args,
+            .fn_ccc_void_no_args,
+            .single_const_pointer_to_comptime_int,
+            .const_slice_u8,
+            .anyerror_void_error_union,
+            .empty_struct_literal,
+            .function,
+            .empty_struct,
+            .error_set,
+            .error_set_single,
+            .error_set_inferred,
+            .@"opaque",
+            .generic_poison,
+            => false,
+
+            .type,
+            .comptime_int,
+            .comptime_float,
+            .enum_literal,
+            => true,
+
+            .var_args_param => unreachable,
+            .inferred_alloc_mut => unreachable,
+            .inferred_alloc_const => unreachable,
+
+            .array_u8,
+            .array_u8_sentinel_0,
+            .array,
+            .array_sentinel,
+            .vector,
+            .pointer,
+            .single_const_pointer,
+            .single_mut_pointer,
+            .many_const_pointer,
+            .many_mut_pointer,
+            .c_const_pointer,
+            .c_mut_pointer,
+            .const_slice,
+            .mut_slice,
+            .int_signed,
+            .int_unsigned,
+            .optional,
+            .optional_single_mut_pointer,
+            .optional_single_const_pointer,
+            .error_union,
+            .anyframe_T,
+            .@"struct",
+            .@"union",
+            .union_tagged,
+            .enum_simple,
+            .enum_full,
+            .enum_nonexhaustive,
+            => false, // TODO some of these should be `true` depending on their child types
+        };
+    }
+
     pub fn toValue(self: Type, allocator: *Allocator) Allocator.Error!Value {
         switch (self.tag()) {
+            .u1 => return Value.initTag(.u1_type),
             .u8 => return Value.initTag(.u8_type),
             .i8 => return Value.initTag(.i8_type),
             .u16 => return Value.initTag(.u16_type),
@@ -1141,6 +1268,7 @@ pub const Type = extern union {
 
     pub fn hasCodeGenBits(self: Type) bool {
         return switch (self.tag()) {
+            .u1,
             .u8,
             .i8,
             .u16,
@@ -1172,7 +1300,6 @@ pub const Type = extern union {
             .fn_void_no_args,
             .fn_naked_noreturn_no_args,
             .fn_ccc_void_no_args,
-            .function,
             .single_const_pointer_to_comptime_int,
             .const_slice_u8,
             .array_u8_sentinel_0,
@@ -1196,6 +1323,8 @@ pub const Type = extern union {
             .@"anyframe",
             .anyframe_T,
             => true,
+
+            .function => !self.castTag(.function).?.data.is_generic,
 
             .@"struct" => {
                 // TODO introduce lazy value mechanism
@@ -1276,6 +1405,7 @@ pub const Type = extern union {
             .inferred_alloc_const => unreachable,
             .inferred_alloc_mut => unreachable,
             .var_args_param => unreachable,
+            .generic_poison => unreachable,
         };
     }
 
@@ -1321,6 +1451,7 @@ pub const Type = extern union {
     /// Asserts that hasCodeGenBits() is true.
     pub fn abiAlignment(self: Type, target: Target) u32 {
         return switch (self.tag()) {
+            .u1,
             .u8,
             .i8,
             .bool,
@@ -1497,6 +1628,8 @@ pub const Type = extern union {
             .@"opaque",
             .var_args_param,
             => unreachable,
+
+            .generic_poison => unreachable,
         };
     }
 
@@ -1524,8 +1657,11 @@ pub const Type = extern union {
             .inferred_alloc_mut => unreachable,
             .@"opaque" => unreachable,
             .var_args_param => unreachable,
+            .generic_poison => unreachable,
 
             .@"struct" => {
+                const s = self.castTag(.@"struct").?.data;
+                assert(s.status == .have_layout);
                 @panic("TODO abiSize struct");
             },
             .enum_simple, .enum_full, .enum_nonexhaustive => {
@@ -1537,6 +1673,7 @@ pub const Type = extern union {
                 @panic("TODO abiSize unions");
             },
 
+            .u1,
             .u8,
             .i8,
             .bool,
@@ -1687,6 +1824,7 @@ pub const Type = extern union {
             .inferred_alloc_mut => unreachable,
             .@"opaque" => unreachable,
             .var_args_param => unreachable,
+            .generic_poison => unreachable,
 
             .@"struct" => {
                 @panic("TODO bitSize struct");
@@ -1702,7 +1840,7 @@ pub const Type = extern union {
 
             .u8, .i8 => 8,
 
-            .bool => 1,
+            .bool, .u1 => 1,
 
             .vector => {
                 const payload = self.castTag(.vector).?.data;
@@ -2215,12 +2353,13 @@ pub const Type = extern union {
     pub fn isUnsignedInt(self: Type) bool {
         return switch (self.tag()) {
             .int_unsigned,
-            .u8,
             .usize,
             .c_ushort,
             .c_uint,
             .c_ulong,
             .c_ulonglong,
+            .u1,
+            .u8,
             .u16,
             .u32,
             .u64,
@@ -2242,6 +2381,7 @@ pub const Type = extern union {
                 .signedness = .signed,
                 .bits = self.castTag(.int_signed).?.data,
             },
+            .u1 => .{ .signedness = .unsigned, .bits = 1 },
             .u8 => .{ .signedness = .unsigned, .bits = 8 },
             .i8 => .{ .signedness = .signed, .bits = 8 },
             .u16 => .{ .signedness = .unsigned, .bits = 16 },
@@ -2395,6 +2535,46 @@ pub const Type = extern union {
         };
     }
 
+    pub fn fnInfo(ty: Type) Payload.Function.Data {
+        return switch (ty.tag()) {
+            .fn_noreturn_no_args => .{
+                .param_types = &.{},
+                .comptime_params = undefined,
+                .return_type = initTag(.noreturn),
+                .cc = .Unspecified,
+                .is_var_args = false,
+                .is_generic = false,
+            },
+            .fn_void_no_args => .{
+                .param_types = &.{},
+                .comptime_params = undefined,
+                .return_type = initTag(.void),
+                .cc = .Unspecified,
+                .is_var_args = false,
+                .is_generic = false,
+            },
+            .fn_naked_noreturn_no_args => .{
+                .param_types = &.{},
+                .comptime_params = undefined,
+                .return_type = initTag(.noreturn),
+                .cc = .Naked,
+                .is_var_args = false,
+                .is_generic = false,
+            },
+            .fn_ccc_void_no_args => .{
+                .param_types = &.{},
+                .comptime_params = undefined,
+                .return_type = initTag(.void),
+                .cc = .C,
+                .is_var_args = false,
+                .is_generic = false,
+            },
+            .function => ty.castTag(.function).?.data,
+
+            else => unreachable,
+        };
+    }
+
     pub fn isNumeric(self: Type) bool {
         return switch (self.tag()) {
             .f16,
@@ -2404,6 +2584,7 @@ pub const Type = extern union {
             .c_longdouble,
             .comptime_int,
             .comptime_float,
+            .u1,
             .u8,
             .i8,
             .u16,
@@ -2444,6 +2625,7 @@ pub const Type = extern union {
             .c_longdouble,
             .comptime_int,
             .comptime_float,
+            .u1,
             .u8,
             .i8,
             .u16,
@@ -2567,14 +2749,19 @@ pub const Type = extern union {
 
             .inferred_alloc_const => unreachable,
             .inferred_alloc_mut => unreachable,
+            .generic_poison => unreachable,
         };
     }
 
-    pub fn isIndexable(self: Type) bool {
-        const zig_tag = self.zigTypeTag();
-        // TODO tuples are indexable
-        return zig_tag == .Array or zig_tag == .Vector or self.isSlice() or
-            (self.isSinglePointer() and self.elemType().zigTypeTag() == .Array);
+    pub fn isIndexable(ty: Type) bool {
+        return switch (ty.zigTypeTag()) {
+            .Array, .Vector => true,
+            .Pointer => switch (ty.ptrSize()) {
+                .Slice, .Many, .C => true,
+                .One => ty.elemType().zigTypeTag() == .Array,
+            },
+            else => false, // TODO tuples are indexable
+        };
     }
 
     /// Returns null if the type has no namespace.
@@ -2731,29 +2918,37 @@ pub const Type = extern union {
             return @as(usize, payload.data);
         }
         const S = struct {
-            fn fieldWithRange(int_val: Value, end: usize) ?usize {
+            fn fieldWithRange(int_ty: Type, int_val: Value, end: usize) ?usize {
                 if (int_val.compareWithZero(.lt)) return null;
                 var end_payload: Value.Payload.U64 = .{
                     .base = .{ .tag = .int_u64 },
                     .data = end,
                 };
                 const end_val = Value.initPayload(&end_payload.base);
-                if (int_val.compare(.gte, end_val)) return null;
+                if (int_val.compare(.gte, end_val, int_ty)) return null;
                 return @intCast(usize, int_val.toUnsignedInt());
             }
         };
         switch (ty.tag()) {
             .enum_full, .enum_nonexhaustive => {
                 const enum_full = ty.cast(Payload.EnumFull).?.data;
+                const tag_ty = enum_full.tag_ty;
                 if (enum_full.values.count() == 0) {
-                    return S.fieldWithRange(enum_tag, enum_full.fields.count());
+                    return S.fieldWithRange(tag_ty, enum_tag, enum_full.fields.count());
                 } else {
-                    return enum_full.values.getIndex(enum_tag);
+                    return enum_full.values.getIndexContext(enum_tag, .{ .ty = tag_ty });
                 }
             },
             .enum_simple => {
                 const enum_simple = ty.castTag(.enum_simple).?.data;
-                return S.fieldWithRange(enum_tag, enum_simple.fields.count());
+                const fields_len = enum_simple.fields.count();
+                const bits = std.math.log2_int_ceil(usize, fields_len);
+                var buffer: Payload.Bits = .{
+                    .base = .{ .tag = .int_unsigned },
+                    .data = bits,
+                };
+                const tag_ty = Type.initPayload(&buffer.base);
+                return S.fieldWithRange(tag_ty, enum_tag, fields_len);
             },
             .atomic_ordering,
             .atomic_rmw_op,
@@ -2764,6 +2959,26 @@ pub const Type = extern union {
             .export_options,
             .extern_options,
             => @panic("TODO resolve std.builtin types"),
+            else => unreachable,
+        }
+    }
+
+    pub fn structFieldCount(ty: Type) usize {
+        switch (ty.tag()) {
+            .@"struct" => {
+                const struct_obj = ty.castTag(.@"struct").?.data;
+                return struct_obj.fields.count();
+            },
+            else => unreachable,
+        }
+    }
+
+    pub fn structFieldType(ty: Type, index: usize) Type {
+        switch (ty.tag()) {
+            .@"struct" => {
+                const struct_obj = ty.castTag(.@"struct").?.data;
+                return struct_obj.fields.values()[index].ty;
+            },
             else => unreachable,
         }
     }
@@ -2842,14 +3057,14 @@ pub const Type = extern union {
     /// Asserts the type is an enum.
     pub fn enumHasInt(ty: Type, int: Value, target: Target) bool {
         const S = struct {
-            fn intInRange(int_val: Value, end: usize) bool {
+            fn intInRange(tag_ty: Type, int_val: Value, end: usize) bool {
                 if (int_val.compareWithZero(.lt)) return false;
                 var end_payload: Value.Payload.U64 = .{
                     .base = .{ .tag = .int_u64 },
                     .data = end,
                 };
                 const end_val = Value.initPayload(&end_payload.base);
-                if (int_val.compare(.gte, end_val)) return false;
+                if (int_val.compare(.gte, end_val, tag_ty)) return false;
                 return true;
             }
         };
@@ -2857,15 +3072,23 @@ pub const Type = extern union {
             .enum_nonexhaustive => return int.intFitsInType(ty, target),
             .enum_full => {
                 const enum_full = ty.castTag(.enum_full).?.data;
+                const tag_ty = enum_full.tag_ty;
                 if (enum_full.values.count() == 0) {
-                    return S.intInRange(int, enum_full.fields.count());
+                    return S.intInRange(tag_ty, int, enum_full.fields.count());
                 } else {
-                    return enum_full.values.contains(int);
+                    return enum_full.values.containsContext(int, .{ .ty = tag_ty });
                 }
             },
             .enum_simple => {
                 const enum_simple = ty.castTag(.enum_simple).?.data;
-                return S.intInRange(int, enum_simple.fields.count());
+                const fields_len = enum_simple.fields.count();
+                const bits = std.math.log2_int_ceil(usize, fields_len);
+                var buffer: Payload.Bits = .{
+                    .base = .{ .tag = .int_unsigned },
+                    .data = bits,
+                };
+                const tag_ty = Type.initPayload(&buffer.base);
+                return S.intInRange(tag_ty, int, fields_len);
             },
             .atomic_ordering,
             .atomic_rmw_op,
@@ -2889,6 +3112,7 @@ pub const Type = extern union {
     /// See `zigTypeTag` for the function that corresponds to `std.builtin.TypeId`.
     pub const Tag = enum {
         // The first section of this enum are tags that require no payload.
+        u1,
         u8,
         i8,
         u16,
@@ -2943,6 +3167,7 @@ pub const Type = extern union {
         single_const_pointer_to_comptime_int,
         const_slice_u8,
         anyerror_void_error_union,
+        generic_poison,
         /// This is a special type for variadic parameters of a function call.
         /// Casts to it will validate that the type can be passed to a c calling convetion function.
         var_args_param,
@@ -2996,6 +3221,7 @@ pub const Type = extern union {
 
         pub fn Type(comptime t: Tag) type {
             return switch (t) {
+                .u1,
                 .u8,
                 .i8,
                 .u16,
@@ -3039,6 +3265,7 @@ pub const Type = extern union {
                 .single_const_pointer_to_comptime_int,
                 .anyerror_void_error_union,
                 .const_slice_u8,
+                .generic_poison,
                 .inferred_alloc_const,
                 .inferred_alloc_mut,
                 .var_args_param,
@@ -3157,12 +3384,23 @@ pub const Type = extern union {
             pub const base_tag = Tag.function;
 
             base: Payload = Payload{ .tag = base_tag },
-            data: struct {
+            data: Data,
+
+            // TODO look into optimizing this memory to take fewer bytes
+            pub const Data = struct {
                 param_types: []Type,
+                comptime_params: [*]bool,
                 return_type: Type,
                 cc: std.builtin.CallingConvention,
                 is_var_args: bool,
-            },
+                is_generic: bool,
+
+                pub fn paramIsComptime(self: @This(), i: usize) bool {
+                    if (!self.is_generic) return false;
+                    assert(i < self.param_types.len);
+                    return self.comptime_params[i];
+                }
+            };
         };
 
         pub const ErrorSet = struct {

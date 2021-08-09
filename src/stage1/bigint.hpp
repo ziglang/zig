@@ -56,6 +56,8 @@ bool bigint_fits_in_bits(const BigInt *bn, size_t bit_count, bool is_signed);
 void bigint_write_twos_complement(const BigInt *big_int, uint8_t *buf, size_t bit_count, bool is_big_endian);
 void bigint_read_twos_complement(BigInt *dest, const uint8_t *buf, size_t bit_count, bool is_big_endian,
         bool is_signed);
+void bigint_max(BigInt* dest, const BigInt *op1, const BigInt *op2);
+void bigint_min(BigInt* dest, const BigInt *op1, const BigInt *op2);
 void bigint_add(BigInt *dest, const BigInt *op1, const BigInt *op2);
 void bigint_add_wrap(BigInt *dest, const BigInt *op1, const BigInt *op2, size_t bit_count, bool is_signed);
 void bigint_sub(BigInt *dest, const BigInt *op1, const BigInt *op2);

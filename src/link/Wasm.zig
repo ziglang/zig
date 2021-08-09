@@ -275,7 +275,7 @@ pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
     defer context.deinit();
 
     // generate the 'code' section for the function declaration
-    const result = context.gen(.{ .ty = decl.ty, .val = decl.val }) catch |err| switch (err) {
+    const result = context.gen(decl.ty, decl.val) catch |err| switch (err) {
         error.CodegenFail => {
             decl.analysis = .codegen_failure;
             try module.failed_decls.put(module.gpa, decl, context.err_msg);
@@ -330,10 +330,12 @@ pub fn updateDeclExports(
     decl: *const Module.Decl,
     exports: []const *Module.Export,
 ) !void {
-    _ = self;
-    _ = module;
-    _ = decl;
-    _ = exports;
+    if (build_options.skip_non_native and builtin.object_format != .wasm) {
+        @panic("Attempted to compile for object format that was disabled by build configuration");
+    }
+    if (build_options.have_llvm) {
+        if (self.llvm_object) |llvm_object| return llvm_object.updateDeclExports(module, decl, exports);
+    }
 }
 
 pub fn freeDecl(self: *Wasm, decl: *Module.Decl) void {

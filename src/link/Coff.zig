@@ -777,8 +777,18 @@ pub fn freeDecl(self: *Coff, decl: *Module.Decl) void {
     self.offset_table_free_list.append(self.base.allocator, decl.link.coff.offset_table_index) catch {};
 }
 
-pub fn updateDeclExports(self: *Coff, module: *Module, decl: *Module.Decl, exports: []const *Module.Export) !void {
-    if (self.llvm_object) |_| return;
+pub fn updateDeclExports(
+    self: *Coff,
+    module: *Module,
+    decl: *Module.Decl,
+    exports: []const *Module.Export,
+) !void {
+    if (build_options.skip_non_native and builtin.object_format != .coff) {
+        @panic("Attempted to compile for object format that was disabled by build configuration");
+    }
+    if (build_options.have_llvm) {
+        if (self.llvm_object) |llvm_object| return llvm_object.updateDeclExports(module, decl, exports);
+    }
 
     for (exports) |exp| {
         if (exp.options.section) |section_name| {
@@ -875,7 +885,7 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
         // Both stage1 and stage2 LLVM backend put the object file in the cache directory.
         if (self.base.options.use_llvm) {
             // Stage2 has to call flushModule since that outputs the LLVM object file.
-            if (!build_options.is_stage1) try self.flushModule(comp);
+            if (!build_options.is_stage1 or !self.base.options.use_stage1) try self.flushModule(comp);
 
             const obj_basename = try std.zig.binNameAlloc(arena, .{
                 .root_name = self.base.options.root_name,
@@ -1259,7 +1269,10 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
 
         // TODO: remove when stage2 can build compiler_rt.zig, c.zig and ssp.zig
         // compiler-rt, libc and libssp
-        if (is_exe_or_dyn_lib and !self.base.options.skip_linker_dependencies and build_options.is_stage1) {
+        if (is_exe_or_dyn_lib and
+            !self.base.options.skip_linker_dependencies and
+            build_options.is_stage1 and self.base.options.use_stage1)
+        {
             if (!self.base.options.link_libc) {
                 try argv.append(comp.libc_static_lib.?.full_object_path);
             }

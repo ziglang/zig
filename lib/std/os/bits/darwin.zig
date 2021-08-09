@@ -7,6 +7,8 @@ const std = @import("../../std.zig");
 const assert = std.debug.assert;
 const maxInt = std.math.maxInt;
 
+pub usingnamespace @import("posix.zig");
+
 // See: https://opensource.apple.com/source/xnu/xnu-6153.141.1/bsd/sys/_types.h.auto.html
 // TODO: audit mode_t/pid_t, should likely be u16/i32
 pub const fd_t = c_int;

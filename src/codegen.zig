@@ -19,7 +19,6 @@ const DW = std.dwarf;
 const leb128 = std.leb;
 const log = std.log.scoped(.codegen);
 const build_options = @import("build_options");
-const LazySrcLoc = Module.LazySrcLoc;
 const RegisterManager = @import("register_manager.zig").RegisterManager;
 
 const X8664Encoder = @import("codegen/x86_64.zig").Encoder;
@@ -184,6 +183,7 @@ pub fn generateSymbol(
                 if (typed_value.val.castTag(.decl_ref)) |payload| {
                     const decl = payload.data;
                     if (decl.analysis != .complete) return error.AnalysisFail;
+                    decl.alive = true;
                     // TODO handle the dependency of this symbol on the decl's vaddr.
                     // If the decl changes vaddr, then this symbol needs to get regenerated.
                     const vaddr = bin_file.getDeclVAddr(decl);
@@ -802,13 +802,13 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
                 switch (air_tags[inst]) {
                     // zig fmt: off
-                    .add     => try self.airAdd(inst),
-                    .addwrap => try self.airAddWrap(inst),
-                    .sub     => try self.airSub(inst),
-                    .subwrap => try self.airSubWrap(inst),
-                    .mul     => try self.airMul(inst),
-                    .mulwrap => try self.airMulWrap(inst),
-                    .div     => try self.airDiv(inst),
+                    .add, .ptr_add => try self.airAdd(inst),
+                    .addwrap       => try self.airAddWrap(inst),
+                    .sub, .ptr_sub => try self.airSub(inst),
+                    .subwrap       => try self.airSubWrap(inst),
+                    .mul           => try self.airMul(inst),
+                    .mulwrap       => try self.airMulWrap(inst),
+                    .div           => try self.airDiv(inst),
 
                     .cmp_lt  => try self.airCmp(inst, .lt),
                     .cmp_lte => try self.airCmp(inst, .lte),
@@ -835,6 +835,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     .dbg_stmt        => try self.airDbgStmt(inst),
                     .floatcast       => try self.airFloatCast(inst),
                     .intcast         => try self.airIntCast(inst),
+                    .trunc           => try self.airTrunc(inst),
+                    .bool_to_int     => try self.airBoolToInt(inst),
                     .is_non_null     => try self.airIsNonNull(inst),
                     .is_non_null_ptr => try self.airIsNonNullPtr(inst),
                     .is_null         => try self.airIsNull(inst),
@@ -847,17 +849,18 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     .loop            => try self.airLoop(inst),
                     .not             => try self.airNot(inst),
                     .ptrtoint        => try self.airPtrToInt(inst),
-                    .ref             => try self.airRef(inst),
                     .ret             => try self.airRet(inst),
                     .store           => try self.airStore(inst),
                     .struct_field_ptr=> try self.airStructFieldPtr(inst),
+                    .struct_field_val=> try self.airStructFieldVal(inst),
                     .switch_br       => try self.airSwitch(inst),
-                    .varptr          => try self.airVarPtr(inst),
                     .slice_ptr       => try self.airSlicePtr(inst),
                     .slice_len       => try self.airSliceLen(inst),
 
                     .slice_elem_val      => try self.airSliceElemVal(inst),
                     .ptr_slice_elem_val  => try self.airPtrSliceElemVal(inst),
+                    .ptr_elem_val        => try self.airPtrElemVal(inst),
+                    .ptr_ptr_elem_val    => try self.airPtrPtrElemVal(inst),
 
                     .constant => unreachable, // excluded from function bodies
                     .const_ty => unreachable, // excluded from function bodies
@@ -1109,6 +1112,26 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
         }
 
+        fn airTrunc(self: *Self, inst: Air.Inst.Index) !void {
+            const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+            if (self.liveness.isUnused(inst))
+                return self.finishAir(inst, .dead, .{ ty_op.operand, .none, .none });
+
+            const operand = try self.resolveInst(ty_op.operand);
+            _ = operand;
+            const result: MCValue = switch (arch) {
+                else => return self.fail("TODO implement trunc for {}", .{self.target.cpu.arch}),
+            };
+            return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+        }
+
+        fn airBoolToInt(self: *Self, inst: Air.Inst.Index) !void {
+            const un_op = self.air.instructions.items(.data)[inst].un_op;
+            const operand = try self.resolveInst(un_op);
+            const result: MCValue = if (self.liveness.isUnused(inst)) .dead else operand;
+            return self.finishAir(inst, result, .{ un_op, .none, .none });
+        }
+
         fn airNot(self: *Self, inst: Air.Inst.Index) !void {
             const ty_op = self.air.instructions.items(.data)[inst].ty_op;
             const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
@@ -1331,13 +1354,6 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
         }
 
-        fn airVarPtr(self: *Self, inst: Air.Inst.Index) !void {
-            const result: MCValue = if (self.liveness.isUnused(inst)) .dead else switch (arch) {
-                else => return self.fail("TODO implement varptr for {}", .{self.target.cpu.arch}),
-            };
-            return self.finishAir(inst, result, .{ .none, .none, .none });
-        }
-
         fn airSlicePtr(self: *Self, inst: Air.Inst.Index) !void {
             const ty_op = self.air.instructions.items(.data)[inst].ty_op;
             const result: MCValue = if (self.liveness.isUnused(inst)) .dead else switch (arch) {
@@ -1355,17 +1371,37 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         }
 
         fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) !void {
+            const is_volatile = false; // TODO
             const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-            const result: MCValue = if (self.liveness.isUnused(inst)) .dead else switch (arch) {
+            const result: MCValue = if (!is_volatile and self.liveness.isUnused(inst)) .dead else switch (arch) {
                 else => return self.fail("TODO implement slice_elem_val for {}", .{self.target.cpu.arch}),
             };
             return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
         }
 
         fn airPtrSliceElemVal(self: *Self, inst: Air.Inst.Index) !void {
+            const is_volatile = false; // TODO
             const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-            const result: MCValue = if (self.liveness.isUnused(inst)) .dead else switch (arch) {
+            const result: MCValue = if (!is_volatile and self.liveness.isUnused(inst)) .dead else switch (arch) {
                 else => return self.fail("TODO implement ptr_slice_elem_val for {}", .{self.target.cpu.arch}),
+            };
+            return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
+        }
+
+        fn airPtrElemVal(self: *Self, inst: Air.Inst.Index) !void {
+            const is_volatile = false; // TODO
+            const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+            const result: MCValue = if (!is_volatile and self.liveness.isUnused(inst)) .dead else switch (arch) {
+                else => return self.fail("TODO implement ptr_elem_val for {}", .{self.target.cpu.arch}),
+            };
+            return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
+        }
+
+        fn airPtrPtrElemVal(self: *Self, inst: Air.Inst.Index) !void {
+            const is_volatile = false; // TODO
+            const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+            const result: MCValue = if (!is_volatile and self.liveness.isUnused(inst)) .dead else switch (arch) {
+                else => return self.fail("TODO implement ptr_ptr_elem_val for {}", .{self.target.cpu.arch}),
             };
             return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
         }
@@ -1498,6 +1534,14 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             const extra = self.air.extraData(Air.StructField, ty_pl.payload).data;
             _ = extra;
             return self.fail("TODO implement codegen struct_field_ptr", .{});
+            //return self.finishAir(inst, result, .{ extra.struct_ptr, .none, .none });
+        }
+
+        fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
+            const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+            const extra = self.air.extraData(Air.StructField, ty_pl.payload).data;
+            _ = extra;
+            return self.fail("TODO implement codegen struct_field_val", .{});
             //return self.finishAir(inst, result, .{ extra.struct_ptr, .none, .none });
         }
 
@@ -2816,38 +2860,6 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             return bt.finishAir(result);
         }
 
-        fn airRef(self: *Self, inst: Air.Inst.Index) !void {
-            const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-            const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
-                const operand_ty = self.air.typeOf(ty_op.operand);
-                const operand = try self.resolveInst(ty_op.operand);
-                switch (operand) {
-                    .unreach => unreachable,
-                    .dead => unreachable,
-                    .none => break :result MCValue{ .none = {} },
-
-                    .immediate,
-                    .register,
-                    .ptr_stack_offset,
-                    .ptr_embedded_in_code,
-                    .compare_flags_unsigned,
-                    .compare_flags_signed,
-                    => {
-                        const stack_offset = try self.allocMemPtr(inst);
-                        try self.genSetStack(operand_ty, stack_offset, operand);
-                        break :result MCValue{ .ptr_stack_offset = stack_offset };
-                    },
-
-                    .stack_offset => |offset| break :result MCValue{ .ptr_stack_offset = offset },
-                    .embedded_in_code => |offset| break :result MCValue{ .ptr_embedded_in_code = offset },
-                    .memory => |vaddr| break :result MCValue{ .immediate = vaddr },
-
-                    .undef => return self.fail("TODO implement ref on an undefined value", .{}),
-                }
-            };
-            return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
-        }
-
         fn ret(self: *Self, mcv: MCValue) !void {
             const ret_ty = self.fn_type.fnReturnType();
             try self.setRegOrMem(ret_ty, self.ret_mcv, mcv);
@@ -2913,10 +2925,9 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     const src_mcv = try self.limitImmediateType(bin_op.rhs, i32);
 
                     try self.genX8664BinMathCode(Type.initTag(.bool), dst_mcv, src_mcv, 7, 0x38);
-                    const info = ty.intInfo(self.target.*);
-                    break :result switch (info.signedness) {
-                        .signed => MCValue{ .compare_flags_signed = op },
-                        .unsigned => MCValue{ .compare_flags_unsigned = op },
+                    break :result switch (ty.isSignedInt()) {
+                        true => MCValue{ .compare_flags_signed = op },
+                        false => MCValue{ .compare_flags_unsigned = op },
                     };
                 },
                 .arm, .armeb => result: {
@@ -2958,10 +2969,9 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     // The destination register is not present in the cmp instruction
                     try self.genArmBinOpCode(undefined, lhs_mcv, rhs_mcv, false, .cmp_eq);
 
-                    const info = ty.intInfo(self.target.*);
-                    break :result switch (info.signedness) {
-                        .signed => MCValue{ .compare_flags_signed = op },
-                        .unsigned => MCValue{ .compare_flags_unsigned = op },
+                    break :result switch (ty.isSignedInt()) {
+                        true => MCValue{ .compare_flags_signed = op },
+                        false => MCValue{ .compare_flags_unsigned = op },
                     };
                 },
                 else => return self.fail("TODO implement cmp for {}", .{self.target.cpu.arch}),
@@ -3668,7 +3678,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     }
 
                     {
-                        var iter = std.mem.tokenize(asm_source, "\n\r");
+                        var iter = std.mem.tokenize(u8, asm_source, "\n\r");
                         while (iter.next()) |ins| {
                             if (mem.eql(u8, ins, "syscall")) {
                                 try self.code.appendSlice(&[_]u8{ 0x0f, 0x05 });
@@ -4704,13 +4714,13 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     },
                     else => {
                         if (typed_value.val.castTag(.decl_ref)) |payload| {
+                            const decl = payload.data;
+                            decl.alive = true;
                             if (self.bin_file.cast(link.File.Elf)) |elf_file| {
-                                const decl = payload.data;
                                 const got = &elf_file.program_headers.items[elf_file.phdr_got_index.?];
                                 const got_addr = got.p_vaddr + decl.link.elf.offset_table_index * ptr_bytes;
                                 return MCValue{ .memory = got_addr };
                             } else if (self.bin_file.cast(link.File.MachO)) |macho_file| {
-                                const decl = payload.data;
                                 const got_addr = blk: {
                                     const seg = macho_file.load_commands.items[macho_file.data_const_segment_cmd_index.?].Segment;
                                     const got = seg.sections.items[macho_file.got_section_index.?];
@@ -4722,11 +4732,9 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 };
                                 return MCValue{ .memory = got_addr };
                             } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
-                                const decl = payload.data;
                                 const got_addr = coff_file.offset_table_virtual_address + decl.link.coff.offset_table_index * ptr_bytes;
                                 return MCValue{ .memory = got_addr };
                             } else if (self.bin_file.cast(link.File.Plan9)) |p9| {
-                                const decl = payload.data;
                                 const got_addr = p9.bases.data + decl.link.plan9.got_index.? * ptr_bytes;
                                 return MCValue{ .memory = got_addr };
                             } else {
@@ -4765,6 +4773,56 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         return MCValue{ .immediate = @boolToInt(typed_value.val.isNull()) };
                     }
                     return self.fail("TODO non pointer optionals", .{});
+                },
+                .Enum => {
+                    if (typed_value.val.castTag(.enum_field_index)) |field_index| {
+                        switch (typed_value.ty.tag()) {
+                            .enum_simple => {
+                                return MCValue{ .immediate = field_index.data };
+                            },
+                            .enum_full, .enum_nonexhaustive => {
+                                const enum_full = typed_value.ty.cast(Type.Payload.EnumFull).?.data;
+                                if (enum_full.values.count() != 0) {
+                                    const tag_val = enum_full.values.keys()[field_index.data];
+                                    return self.genTypedValue(.{ .ty = enum_full.tag_ty, .val = tag_val });
+                                } else {
+                                    return MCValue{ .immediate = field_index.data };
+                                }
+                            },
+                            else => unreachable,
+                        }
+                    } else {
+                        var int_tag_buffer: Type.Payload.Bits = undefined;
+                        const int_tag_ty = typed_value.ty.intTagType(&int_tag_buffer);
+                        return self.genTypedValue(.{ .ty = int_tag_ty, .val = typed_value.val });
+                    }
+                },
+                .ErrorSet => {
+                    switch (typed_value.val.tag()) {
+                        .@"error" => {
+                            const err_name = typed_value.val.castTag(.@"error").?.data.name;
+                            const module = self.bin_file.options.module.?;
+                            const global_error_set = module.global_error_set;
+                            const error_index = global_error_set.get(err_name).?;
+                            return MCValue{ .immediate = error_index };
+                        },
+                        else => {
+                            // In this case we are rendering an error union which has a 0 bits payload.
+                            return MCValue{ .immediate = 0 };
+                        },
+                    }
+                },
+                .ErrorUnion => {
+                    const error_type = typed_value.ty.errorUnionSet();
+                    const payload_type = typed_value.ty.errorUnionPayload();
+                    const sub_val = typed_value.val.castTag(.eu_payload).?.data;
+
+                    if (!payload_type.hasCodeGenBits()) {
+                        // We use the error type directly as the type.
+                        return self.genTypedValue(.{ .ty = error_type, .val = sub_val });
+                    }
+
+                    return self.fail("TODO implement error union const of type '{}'", .{typed_value.ty});
                 },
                 else => return self.fail("TODO implement const of type '{}'", .{typed_value.ty}),
             }
@@ -4894,7 +4952,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             }
 
                             result.stack_byte_count = nsaa;
-                            result.stack_align = 4;
+                            result.stack_align = 8;
                         },
                         else => return self.fail("TODO implement function parameters for {} on arm", .{cc}),
                     }

@@ -1308,6 +1308,10 @@ fn transStmt(
             const shuffle_vec_node = try transShuffleVectorExpr(c, scope, shuffle_vec_expr);
             return maybeSuppressResult(c, scope, result_used, shuffle_vec_node);
         },
+        .ChooseExprClass => {
+            const choose_expr = @ptrCast(*const clang.ChooseExpr, stmt);
+            return transExpr(c, scope, choose_expr.getChosenSubExpr(), result_used);
+        },
         // When adding new cases here, see comment for maybeBlockify()
         .GCCAsmStmtClass,
         .GotoStmtClass,
@@ -1969,7 +1973,7 @@ fn transBuiltinFnExpr(c: *Context, scope: *Scope, expr: *const clang.Expr, used:
     const node = try transExpr(c, scope, expr, used);
     if (node.castTag(.identifier)) |ident| {
         const name = ident.data;
-        if (!isBuiltinDefined(name)) return fail(c, error.UnsupportedTranslation, expr.getBeginLoc(), "TODO implement function '{s}' in std.c.builtins", .{name});
+        if (!isBuiltinDefined(name)) return fail(c, error.UnsupportedTranslation, expr.getBeginLoc(), "TODO implement function '{s}' in std.zig.c_builtins", .{name});
     }
     return node;
 }
@@ -1981,10 +1985,11 @@ fn transBoolExpr(
     used: ResultUsed,
 ) TransError!Node {
     if (@ptrCast(*const clang.Stmt, expr).getStmtClass() == .IntegerLiteralClass) {
-        var is_zero: bool = undefined;
-        if (!(@ptrCast(*const clang.IntegerLiteral, expr).isZero(&is_zero, c.clang_context))) {
+        var signum: c_int = undefined;
+        if (!(@ptrCast(*const clang.IntegerLiteral, expr).getSignum(&signum, c.clang_context))) {
             return fail(c, error.UnsupportedTranslation, expr.getBeginLoc(), "invalid integer literal", .{});
         }
+        const is_zero = signum == 0;
         return Node{ .tag_if_small_enough = @enumToInt(([2]Tag{ .true_literal, .false_literal })[@boolToInt(is_zero)]) };
     }
 
@@ -3269,30 +3274,114 @@ fn transMemberExpr(c: *Context, scope: *Scope, stmt: *const clang.MemberExpr, re
     return maybeSuppressResult(c, scope, result_used, node);
 }
 
+/// ptr[subscr] (`subscr` is a signed integer expression, `ptr` a pointer) becomes:
+/// (blk: {
+///     const tmp = subscr;
+///     if (tmp >= 0) break :blk ptr + @intCast(usize, tmp) else break :blk ptr - ~@bitCast(usize, @intCast(isize, tmp) +% -1);
+/// }).*
+/// Todo: rip this out once `[*]T + isize` becomes valid.
+fn transSignedArrayAccess(
+    c: *Context,
+    scope: *Scope,
+    container_expr: *const clang.Expr,
+    subscr_expr: *const clang.Expr,
+    result_used: ResultUsed,
+) TransError!Node {
+    var block_scope = try Scope.Block.init(c, scope, true);
+    defer block_scope.deinit();
+
+    const tmp = try block_scope.makeMangledName(c, "tmp");
+
+    const subscr_node = try transExpr(c, &block_scope.base, subscr_expr, .used);
+    const subscr_decl = try Tag.var_simple.create(c.arena, .{ .name = tmp, .init = subscr_node });
+    try block_scope.statements.append(subscr_decl);
+
+    const tmp_ref = try Tag.identifier.create(c.arena, tmp);
+
+    const container_node = try transExpr(c, &block_scope.base, container_expr, .used);
+
+    const cond_node = try Tag.greater_than_equal.create(c.arena, .{ .lhs = tmp_ref, .rhs = Tag.zero_literal.init() });
+
+    const then_value = try Tag.add.create(c.arena, .{
+        .lhs = container_node,
+        .rhs = try Tag.int_cast.create(c.arena, .{
+            .lhs = try Tag.identifier.create(c.arena, "usize"),
+            .rhs = tmp_ref,
+        }),
+    });
+
+    const then_body = try Tag.break_val.create(c.arena, .{
+        .label = block_scope.label,
+        .val = then_value,
+    });
+
+    const minuend = container_node;
+    const signed_size = try Tag.int_cast.create(c.arena, .{
+        .lhs = try Tag.identifier.create(c.arena, "isize"),
+        .rhs = tmp_ref,
+    });
+    const to_cast = try Tag.add_wrap.create(c.arena, .{
+        .lhs = signed_size,
+        .rhs = try Tag.negate.create(c.arena, Tag.one_literal.init()),
+    });
+    const bitcast_node = try Tag.bit_cast.create(c.arena, .{
+        .lhs = try Tag.identifier.create(c.arena, "usize"),
+        .rhs = to_cast,
+    });
+    const subtrahend = try Tag.bit_not.create(c.arena, bitcast_node);
+    const difference = try Tag.sub.create(c.arena, .{
+        .lhs = minuend,
+        .rhs = subtrahend,
+    });
+    const else_body = try Tag.break_val.create(c.arena, .{
+        .label = block_scope.label,
+        .val = difference,
+    });
+
+    const if_node = try Tag.@"if".create(c.arena, .{
+        .cond = cond_node,
+        .then = then_body,
+        .@"else" = else_body,
+    });
+
+    try block_scope.statements.append(if_node);
+    const block_node = try block_scope.complete(c);
+
+    const derefed = try Tag.deref.create(c.arena, block_node);
+
+    return maybeSuppressResult(c, &block_scope.base, result_used, derefed);
+}
+
 fn transArrayAccess(c: *Context, scope: *Scope, stmt: *const clang.ArraySubscriptExpr, result_used: ResultUsed) TransError!Node {
-    var base_stmt = stmt.getBase();
+    const base_stmt = stmt.getBase();
+    const base_qt = getExprQualType(c, base_stmt);
+    const is_vector = cIsVector(base_qt);
+
+    const subscr_expr = stmt.getIdx();
+    const subscr_qt = getExprQualType(c, subscr_expr);
+    const is_longlong = cIsLongLongInteger(subscr_qt);
+    const is_signed = cIsSignedInteger(subscr_qt);
+    const is_nonnegative_int_literal = cIsNonNegativeIntLiteral(c, subscr_expr);
 
     // Unwrap the base statement if it's an array decayed to a bare pointer type
     // so that we index the array itself
+    var unwrapped_base = base_stmt;
     if (@ptrCast(*const clang.Stmt, base_stmt).getStmtClass() == .ImplicitCastExprClass) {
         const implicit_cast = @ptrCast(*const clang.ImplicitCastExpr, base_stmt);
 
         if (implicit_cast.getCastKind() == .ArrayToPointerDecay) {
-            base_stmt = implicit_cast.getSubExpr();
+            unwrapped_base = implicit_cast.getSubExpr();
         }
     }
 
-    const container_node = try transExpr(c, scope, base_stmt, .used);
+    // Special case: actual pointer (not decayed array) and signed integer subscript
+    // See discussion at https://github.com/ziglang/zig/pull/8589
+    if (is_signed and (base_stmt == unwrapped_base) and !is_vector and !is_nonnegative_int_literal) return transSignedArrayAccess(c, scope, base_stmt, subscr_expr, result_used);
 
-    // cast if the index is long long or signed
-    const subscr_expr = stmt.getIdx();
-    const qt = getExprQualType(c, subscr_expr);
-    const is_longlong = cIsLongLongInteger(qt);
-    const is_signed = cIsSignedInteger(qt);
-
+    const container_node = try transExpr(c, scope, unwrapped_base, .used);
     const rhs = if (is_longlong or is_signed) blk: {
         // check if long long first so that signed long long doesn't just become unsigned long long
-        var typeid_node = if (is_longlong) try Tag.identifier.create(c.arena, "usize") else try transQualTypeIntWidthOf(c, qt, false);
+        const typeid_node = if (is_longlong) try Tag.identifier.create(c.arena, "usize") else try transQualTypeIntWidthOf(c, subscr_qt, false);
         break :blk try Tag.int_cast.create(c.arena, .{ .lhs = typeid_node, .rhs = try transExpr(c, scope, subscr_expr, .used) });
     } else try transExpr(c, scope, subscr_expr, .used);
 
@@ -4173,6 +4262,18 @@ fn cIntTypeCmp(a: clang.QualType, b: clang.QualType) math.Order {
     return math.order(a_index, b_index);
 }
 
+/// Checks if expr is an integer literal >= 0
+fn cIsNonNegativeIntLiteral(c: *Context, expr: *const clang.Expr) bool {
+    if (@ptrCast(*const clang.Stmt, expr).getStmtClass() == .IntegerLiteralClass) {
+        var signum: c_int = undefined;
+        if (!(@ptrCast(*const clang.IntegerLiteral, expr).getSignum(&signum, c.clang_context))) {
+            return false;
+        }
+        return signum >= 0;
+    }
+    return false;
+}
+
 fn cIsSignedInteger(qt: clang.QualType) bool {
     const c_type = qualTypeCanon(qt);
     if (c_type.getTypeClass() != .Builtin) return false;
@@ -4877,6 +4978,17 @@ const PatternList = struct {
             ,
             "WL_CONTAINER_OF",
         },
+
+        [2][]const u8{ "IGNORE_ME(X) ((void)(X))", "DISCARD" },
+        [2][]const u8{ "IGNORE_ME(X) (void)(X)", "DISCARD" },
+        [2][]const u8{ "IGNORE_ME(X) ((const void)(X))", "DISCARD" },
+        [2][]const u8{ "IGNORE_ME(X) (const void)(X)", "DISCARD" },
+        [2][]const u8{ "IGNORE_ME(X) ((volatile void)(X))", "DISCARD" },
+        [2][]const u8{ "IGNORE_ME(X) (volatile void)(X)", "DISCARD" },
+        [2][]const u8{ "IGNORE_ME(X) ((const volatile void)(X))", "DISCARD" },
+        [2][]const u8{ "IGNORE_ME(X) (const volatile void)(X)", "DISCARD" },
+        [2][]const u8{ "IGNORE_ME(X) ((volatile const void)(X))", "DISCARD" },
+        [2][]const u8{ "IGNORE_ME(X) (volatile const void)(X)", "DISCARD" },
     };
 
     /// Assumes that `ms` represents a tokenized function-like macro.
@@ -5051,6 +5163,16 @@ test "Macro matching" {
 
     try helper.checkMacro(allocator, pattern_list, "NO_MATCH(X, Y) (X + Y)", null);
     try helper.checkMacro(allocator, pattern_list, "CAST_OR_CALL(X, Y) (X)(Y)", "CAST_OR_CALL");
+    try helper.checkMacro(allocator, pattern_list, "IGNORE_ME(X) (void)(X)", "DISCARD");
+    try helper.checkMacro(allocator, pattern_list, "IGNORE_ME(X) ((void)(X))", "DISCARD");
+    try helper.checkMacro(allocator, pattern_list, "IGNORE_ME(X) (const void)(X)", "DISCARD");
+    try helper.checkMacro(allocator, pattern_list, "IGNORE_ME(X) ((const void)(X))", "DISCARD");
+    try helper.checkMacro(allocator, pattern_list, "IGNORE_ME(X) (volatile void)(X)", "DISCARD");
+    try helper.checkMacro(allocator, pattern_list, "IGNORE_ME(X) ((volatile void)(X))", "DISCARD");
+    try helper.checkMacro(allocator, pattern_list, "IGNORE_ME(X) (const volatile void)(X)", "DISCARD");
+    try helper.checkMacro(allocator, pattern_list, "IGNORE_ME(X) ((const volatile void)(X))", "DISCARD");
+    try helper.checkMacro(allocator, pattern_list, "IGNORE_ME(X) (volatile const void)(X)", "DISCARD");
+    try helper.checkMacro(allocator, pattern_list, "IGNORE_ME(X) ((volatile const void)(X))", "DISCARD");
 }
 
 const MacroCtx = struct {
@@ -5574,7 +5696,7 @@ fn parseCPrimaryExprInner(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!N
         .Identifier => {
             const mangled_name = scope.getAlias(slice);
             if (mem.startsWith(u8, mangled_name, "__builtin_") and !isBuiltinDefined(mangled_name)) {
-                try m.fail(c, "TODO implement function '{s}' in std.c.builtins", .{mangled_name});
+                try m.fail(c, "TODO implement function '{s}' in std.zig.c_builtins", .{mangled_name});
                 return error.ParseError;
             }
             const identifier = try Tag.identifier.create(c.arena, builtin_typedef_map.get(mangled_name) orelse mangled_name);

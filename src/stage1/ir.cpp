@@ -355,6 +355,8 @@ void destroy_instruction_gen(Stage1AirInst *inst) {
             return heap::c_allocator.destroy(reinterpret_cast<Stage1AirInstTruncate *>(inst));
         case Stage1AirInstIdShuffleVector:
             return heap::c_allocator.destroy(reinterpret_cast<Stage1AirInstShuffleVector *>(inst));
+        case Stage1AirInstIdSelect:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1AirInstSelect *>(inst));
         case Stage1AirInstIdSplat:
             return heap::c_allocator.destroy(reinterpret_cast<Stage1AirInstSplat *>(inst));
         case Stage1AirInstIdBoolNot:
@@ -899,6 +901,10 @@ static constexpr Stage1AirInstId ir_inst_id(Stage1AirInstTruncate *) {
 
 static constexpr Stage1AirInstId ir_inst_id(Stage1AirInstShuffleVector *) {
     return Stage1AirInstIdShuffleVector;
+}
+
+static constexpr Stage1AirInstId ir_inst_id(Stage1AirInstSelect *) {
+    return Stage1AirInstIdSelect;
 }
 
 static constexpr Stage1AirInstId ir_inst_id(Stage1AirInstSplat *) {
@@ -1752,6 +1758,22 @@ static Stage1AirInst *ir_build_shuffle_vector_gen(IrAnalyze *ira, Scope *scope, 
     ir_ref_inst_gen(a);
     ir_ref_inst_gen(b);
     ir_ref_inst_gen(mask);
+
+    return &inst->base;
+}
+
+static Stage1AirInst *ir_build_select_gen(IrAnalyze *ira, Scope *scope, AstNode *source_node,
+        ZigType *result_type, Stage1AirInst *pred, Stage1AirInst *a, Stage1AirInst *b)
+{
+    Stage1AirInstSelect *inst = ir_build_inst_gen<Stage1AirInstSelect>(&ira->new_irb, scope, source_node);
+    inst->base.value->type = result_type;
+    inst->pred = pred;
+    inst->a = a;
+    inst->b = b;
+
+    ir_ref_inst_gen(pred);
+    ir_ref_inst_gen(a);
+    ir_ref_inst_gen(b);
 
     return &inst->base;
 }
@@ -3280,6 +3302,108 @@ static void float_mod(ZigValue *out_val, ZigValue *op1, ZigValue *op2) {
                 return;
             case 128:
                 zig_f128M_mod(&op1->data.x_f128, &op2->data.x_f128, &out_val->data.x_f128);
+                return;
+            default:
+                zig_unreachable();
+        }
+    } else {
+        zig_unreachable();
+    }
+}
+
+static void float_max(ZigValue *out_val, ZigValue *op1, ZigValue *op2) {
+    assert(op1->type == op2->type);
+    out_val->type = op1->type;
+    if (op1->type->id == ZigTypeIdComptimeFloat) {
+        bigfloat_max(&out_val->data.x_bigfloat, &op1->data.x_bigfloat, &op2->data.x_bigfloat);
+    } else if (op1->type->id == ZigTypeIdFloat) {
+        switch (op1->type->data.floating.bit_count) {
+            case 16:
+                if (zig_f16_isNaN(op1->data.x_f16)) {
+                    out_val->data.x_f16 = op2->data.x_f16;
+                } else if (zig_f16_isNaN(op2->data.x_f16)) {
+                    out_val->data.x_f16 = op1->data.x_f16;
+                } else {
+                    out_val->data.x_f16 = f16_lt(op1->data.x_f16, op2->data.x_f16) ? op2->data.x_f16 : op1->data.x_f16;
+                }
+                return;
+            case 32:
+                if (op1->data.x_f32 != op1->data.x_f32) {
+                    out_val->data.x_f32 = op2->data.x_f32;
+                } else if (op2->data.x_f32 != op2->data.x_f32) {
+                    out_val->data.x_f32 = op1->data.x_f32;
+                } else {
+                    out_val->data.x_f32 = op1->data.x_f32 > op2->data.x_f32 ? op1->data.x_f32 : op2->data.x_f32;
+                }
+                return;
+            case 64:
+                if (op1->data.x_f64 != op1->data.x_f64) {
+                    out_val->data.x_f64 = op2->data.x_f64;
+                } else if (op2->data.x_f64 != op2->data.x_f64) {
+                    out_val->data.x_f64 = op1->data.x_f64;
+                } else {
+                    out_val->data.x_f64 = op1->data.x_f64 > op2->data.x_f64 ? op1->data.x_f64 : op2->data.x_f64;
+                }
+                return;
+            case 128:
+                if (zig_f128_isNaN(&op1->data.x_f128)) {
+                    out_val->data.x_f128 = op2->data.x_f128;
+                } else if (zig_f128_isNaN(&op2->data.x_f128)) {
+                    out_val->data.x_f128 = op1->data.x_f128;
+                } else {
+                    out_val->data.x_f128 = f128M_lt(&op1->data.x_f128, &op2->data.x_f128) ? op2->data.x_f128 : op1->data.x_f128;
+                }
+                return;
+            default:
+                zig_unreachable();
+        }
+    } else {
+        zig_unreachable();
+    }
+}
+
+static void float_min(ZigValue *out_val, ZigValue *op1, ZigValue *op2) {
+    assert(op1->type == op2->type);
+    out_val->type = op1->type;
+    if (op1->type->id == ZigTypeIdComptimeFloat) {
+        bigfloat_min(&out_val->data.x_bigfloat, &op1->data.x_bigfloat, &op2->data.x_bigfloat);
+    } else if (op1->type->id == ZigTypeIdFloat) {
+        switch (op1->type->data.floating.bit_count) {
+            case 16:
+                if (zig_f16_isNaN(op1->data.x_f16)) {
+                    out_val->data.x_f16 = op2->data.x_f16;
+                } else if (zig_f16_isNaN(op2->data.x_f16)) {
+                    out_val->data.x_f16 = op1->data.x_f16;
+                } else {
+                    out_val->data.x_f16 = f16_lt(op1->data.x_f16, op2->data.x_f16) ? op1->data.x_f16 : op2->data.x_f16;
+                }
+                return;
+            case 32:
+                if (op1->data.x_f32 != op1->data.x_f32) {
+                    out_val->data.x_f32 = op2->data.x_f32;
+                } else if (op2->data.x_f32 != op2->data.x_f32) {
+                    out_val->data.x_f32 = op1->data.x_f32;
+                } else {
+                    out_val->data.x_f32 = op1->data.x_f32 < op2->data.x_f32 ? op1->data.x_f32 : op2->data.x_f32;
+                }
+                return;
+            case 64:
+                if (op1->data.x_f64 != op1->data.x_f64) {
+                    out_val->data.x_f64 = op2->data.x_f64;
+                } else if (op2->data.x_f64 != op2->data.x_f64) {
+                    out_val->data.x_f64 = op1->data.x_f64;
+                } else {
+                    out_val->data.x_f64 = op1->data.x_f32 < op2->data.x_f64 ? op1->data.x_f64 : op2->data.x_f64;
+                }
+                return;
+            case 128:
+                if (zig_f128_isNaN(&op1->data.x_f128)) {
+                    out_val->data.x_f128 = op2->data.x_f128;
+                } else if (zig_f128_isNaN(&op2->data.x_f128)) {
+                    out_val->data.x_f128 = op1->data.x_f128;
+                } else {
+                    out_val->data.x_f128 = f128M_lt(&op1->data.x_f128, &op2->data.x_f128) ? op1->data.x_f128 : op2->data.x_f128;
+                }
                 return;
             default:
                 zig_unreachable();
@@ -9682,6 +9806,20 @@ static ErrorMsg *ir_eval_math_op_scalar(IrAnalyze *ira, Scope *scope, AstNode *s
                 float_mod(out_val, op1_val, op2_val);
             }
             break;
+        case IrBinOpMaximum:
+            if (is_int) {
+                bigint_max(&out_val->data.x_bigint, &op1_val->data.x_bigint, &op2_val->data.x_bigint);
+            } else {
+                float_max(out_val, op1_val, op2_val);
+            }
+            break;
+        case IrBinOpMinimum:
+            if (is_int) {
+                bigint_min(&out_val->data.x_bigint, &op1_val->data.x_bigint, &op2_val->data.x_bigint);
+            } else {
+                float_min(out_val, op1_val, op2_val);
+            }
+            break;
     }
 
     if (type_entry->id == ZigTypeIdInt) {
@@ -9882,6 +10020,8 @@ static bool ok_float_op(IrBinOp op) {
         case IrBinOpRemRem:
         case IrBinOpRemMod:
         case IrBinOpRemUnspecified:
+        case IrBinOpMaximum:
+        case IrBinOpMinimum:
             return true;
 
         case IrBinOpBoolOr:
@@ -10283,7 +10423,7 @@ static Stage1AirInst *ir_analyze_tuple_cat(IrAnalyze *ira, Scope *scope, AstNode
 
     Buf *bare_name = buf_alloc();
     Buf *name = get_anon_type_name(ira->codegen, nullptr, container_string(ContainerKindStruct),
-            scope, source_node, bare_name);
+            scope, source_node, bare_name, nullptr);
     ZigType *new_type = get_partial_container_type(ira->codegen, scope,
         ContainerKindStruct, source_node, buf_ptr(name), bare_name, ContainerLayoutAuto);
     new_type->data.structure.special = StructSpecialInferredTuple;
@@ -10615,7 +10755,7 @@ static Stage1AirInst *ir_analyze_tuple_mult(IrAnalyze *ira, Scope *scope, AstNod
 
     Buf *bare_name = buf_alloc();
     Buf *name = get_anon_type_name(ira->codegen, nullptr, container_string(ContainerKindStruct),
-        scope, source_node, bare_name);
+        scope, source_node, bare_name, nullptr);
     ZigType *new_type = get_partial_container_type(ira->codegen, scope,
         ContainerKindStruct, source_node, buf_ptr(name), bare_name, ContainerLayoutAuto);
     new_type->data.structure.special = StructSpecialInferredTuple;
@@ -10872,6 +11012,8 @@ static Stage1AirInst *ir_analyze_instruction_bin_op(IrAnalyze *ira, Stage1ZirIns
         case IrBinOpRemUnspecified:
         case IrBinOpRemRem:
         case IrBinOpRemMod:
+        case IrBinOpMaximum:
+        case IrBinOpMinimum:
             return ir_analyze_bin_op_math(ira, bin_op_instruction);
         case IrBinOpArrayCat:
             return ir_analyze_array_cat(ira, bin_op_instruction);
@@ -12135,7 +12277,7 @@ static Stage1AirInst *ir_analyze_instruction_resolve_result(IrAnalyze *ira, Stag
         if (implicit_elem_type == ira->codegen->builtin_types.entry_anytype) {
             Buf *bare_name = buf_alloc();
             Buf *name = get_anon_type_name(ira->codegen, nullptr, container_string(ContainerKindStruct),
-                    instruction->base.scope, instruction->base.source_node, bare_name);
+                    instruction->base.scope, instruction->base.source_node, bare_name, nullptr);
 
             StructSpecial struct_special = StructSpecialInferredStruct;
             if (instruction->base.source_node->type == NodeTypeContainerInitExpr &&
@@ -18756,7 +18898,7 @@ static ZigType *type_info_to_type(IrAnalyze *ira, Scope *scope, AstNode *source_
 
             Buf *bare_name = buf_alloc();
             Buf *full_name = get_anon_type_name(ira->codegen,
-                ira->zir, "opaque", scope, source_node, bare_name);
+                ira->zir, "opaque", scope, source_node, bare_name, nullptr);
             return get_opaque_type(ira->codegen,
                 scope, source_node, buf_ptr(full_name), bare_name);
         }
@@ -18803,7 +18945,8 @@ static ZigType *type_info_to_type(IrAnalyze *ira, Scope *scope, AstNode *source_
             assert(is_slice(slice->type));
             ZigType *err_set_type = new_type_table_entry(ZigTypeIdErrorSet);
             Buf bare_name = BUF_INIT;
-            buf_init_from_buf(&err_set_type->name, get_anon_type_name(ira->codegen, ira->zir, "error", scope, source_node, &bare_name));
+            buf_init_from_buf(&err_set_type->name,
+                get_anon_type_name(ira->codegen, ira->zir, "error", scope, source_node, &bare_name, nullptr));
             err_set_type->size_in_bits = ira->codegen->builtin_types.entry_global_error_set->size_in_bits;
             err_set_type->abi_align = ira->codegen->builtin_types.entry_global_error_set->abi_align;
             err_set_type->abi_size = ira->codegen->builtin_types.entry_global_error_set->abi_size;
@@ -18882,7 +19025,7 @@ static ZigType *type_info_to_type(IrAnalyze *ira, Scope *scope, AstNode *source_
 
             ZigType *entry = new_type_table_entry(ZigTypeIdStruct);
             buf_init_from_buf(&entry->name,
-                get_anon_type_name(ira->codegen, ira->zir, "struct", scope, source_node, &entry->name));
+                get_anon_type_name(ira->codegen, ira->zir, "struct", scope, source_node, &entry->name, nullptr));
             entry->data.structure.decl_node = source_node;
             entry->data.structure.fields = alloc_type_struct_fields(fields_len);
             entry->data.structure.fields_by_name.init(fields_len);
@@ -18992,7 +19135,7 @@ static ZigType *type_info_to_type(IrAnalyze *ira, Scope *scope, AstNode *source_
 
             ZigType *entry = new_type_table_entry(ZigTypeIdEnum);
             buf_init_from_buf(&entry->name,
-                get_anon_type_name(ira->codegen, ira->zir, "enum", scope, source_node, &entry->name));
+                get_anon_type_name(ira->codegen, ira->zir, "enum", scope, source_node, &entry->name, nullptr));
             entry->data.enumeration.decl_node = source_node;
             entry->data.enumeration.tag_int_type = tag_type;
             entry->data.enumeration.decls_scope = create_decls_scope(
@@ -19074,7 +19217,7 @@ static ZigType *type_info_to_type(IrAnalyze *ira, Scope *scope, AstNode *source_
 
             ZigType *entry = new_type_table_entry(ZigTypeIdUnion);
             buf_init_from_buf(&entry->name,
-                get_anon_type_name(ira->codegen, ira->zir, "union", scope, source_node, &entry->name));
+                get_anon_type_name(ira->codegen, ira->zir, "union", scope, source_node, &entry->name, nullptr));
             entry->data.unionation.decl_node = source_node;
             entry->data.unionation.fields = heap::c_allocator.allocate<TypeUnionField>(fields_len);
             entry->data.unionation.fields_by_name.init(fields_len);
@@ -20316,6 +20459,100 @@ static Stage1AirInst *ir_analyze_instruction_shuffle_vector(IrAnalyze *ira, Stag
         return ira->codegen->invalid_inst_gen;
 
     return ir_analyze_shuffle_vector(ira, instruction->base.scope, instruction->base.source_node, scalar_type, a, b, mask);
+}
+
+static Stage1AirInst *ir_analyze_instruction_select(IrAnalyze *ira, Stage1ZirInstSelect *instruction) {
+    Error err;
+
+    ZigType *scalar_type = ir_resolve_vector_elem_type(ira, instruction->scalar_type->child);
+    if (type_is_invalid(scalar_type))
+        return ira->codegen->invalid_inst_gen;
+
+    if ((err = ir_validate_vector_elem_type(ira, instruction->base.source_node, scalar_type)))
+        return ira->codegen->invalid_inst_gen;
+
+    Stage1AirInst *pred = instruction->pred->child;
+    if (type_is_invalid(pred->value->type))
+        return ira->codegen->invalid_inst_gen;
+
+    Stage1AirInst *a = instruction->a->child;
+    if (type_is_invalid(a->value->type))
+        return ira->codegen->invalid_inst_gen;
+
+    Stage1AirInst *b = instruction->b->child;
+    if (type_is_invalid(b->value->type))
+        return ira->codegen->invalid_inst_gen;
+
+    if (pred->value->type->id != ZigTypeIdVector) {
+        ir_add_error(ira, pred,
+                buf_sprintf("expected vector type, found '%s'",
+                    buf_ptr(&pred->value->type->name)));
+        return ira->codegen->invalid_inst_gen;
+    }
+
+    uint32_t pred_len = pred->value->type->data.vector.len;
+    pred = ir_implicit_cast(ira, pred, get_vector_type(ira->codegen, pred_len,
+                ira->codegen->builtin_types.entry_bool));
+    if (type_is_invalid(pred->value->type))
+        return ira->codegen->invalid_inst_gen;
+
+    if (a->value->type->id != ZigTypeIdVector) {
+        ir_add_error(ira, a,
+                buf_sprintf("expected vector type, found '%s'",
+                    buf_ptr(&a->value->type->name)));
+        return ira->codegen->invalid_inst_gen;
+    }
+
+    if (b->value->type->id != ZigTypeIdVector) {
+        ir_add_error(ira, b,
+                buf_sprintf("expected vector type, found '%s'",
+                    buf_ptr(&b->value->type->name)));
+        return ira->codegen->invalid_inst_gen;
+    }
+
+    ZigType *result_type = get_vector_type(ira->codegen, pred_len, scalar_type);
+
+    a = ir_implicit_cast(ira, a, result_type);
+    if (type_is_invalid(a->value->type))
+        return ira->codegen->invalid_inst_gen;
+
+    b = ir_implicit_cast(ira, b, result_type);
+    if (type_is_invalid(a->value->type))
+        return ira->codegen->invalid_inst_gen;
+
+    if (instr_is_comptime(pred) && instr_is_comptime(a) && instr_is_comptime(b)) {
+        ZigValue *pred_val = ir_resolve_const(ira, pred, UndefBad);
+        if (pred_val == nullptr)
+            return ira->codegen->invalid_inst_gen;
+
+        ZigValue *a_val = ir_resolve_const(ira, a, UndefBad);
+        if (a_val == nullptr)
+            return ira->codegen->invalid_inst_gen;
+
+        ZigValue *b_val = ir_resolve_const(ira, b, UndefBad);
+        if (b_val == nullptr)
+            return ira->codegen->invalid_inst_gen;
+
+        expand_undef_array(ira->codegen, a_val);
+        expand_undef_array(ira->codegen, b_val);
+
+        Stage1AirInst *result = ir_const(ira, instruction->base.scope, instruction->base.source_node, result_type);
+        result->value->data.x_array.data.s_none.elements = ira->codegen->pass1_arena->allocate<ZigValue>(pred_len);
+
+        for (uint64_t i = 0; i < pred_len; i += 1) {
+            ZigValue *dst_elem_val = &result->value->data.x_array.data.s_none.elements[i];
+            ZigValue *pred_elem_val = &pred_val->data.x_array.data.s_none.elements[i];
+            ZigValue *a_elem_val = &a_val->data.x_array.data.s_none.elements[i];
+            ZigValue *b_elem_val = &b_val->data.x_array.data.s_none.elements[i];
+            ZigValue *result_elem_val = pred_elem_val->data.x_bool ? a_elem_val : b_elem_val;
+            copy_const_val(ira->codegen, dst_elem_val, result_elem_val);
+        }
+
+        result->value->special = ConstValSpecialStatic;
+        return result;
+    }
+
+    return ir_build_select_gen(ira, instruction->base.scope, instruction->base.source_node, result_type, pred, a, b);
 }
 
 static Stage1AirInst *ir_analyze_instruction_splat(IrAnalyze *ira, Stage1ZirInstSplat *instruction) {
@@ -24595,7 +24832,9 @@ static Stage1AirInst *ir_analyze_instruction_base(IrAnalyze *ira, Stage1ZirInst 
             return ir_analyze_instruction_vector_type(ira, (Stage1ZirInstVectorType *)instruction);
         case Stage1ZirInstIdShuffleVector:
             return ir_analyze_instruction_shuffle_vector(ira, (Stage1ZirInstShuffleVector *)instruction);
-         case Stage1ZirInstIdSplat:
+        case Stage1ZirInstIdSelect:
+            return ir_analyze_instruction_select(ira, (Stage1ZirInstSelect *)instruction);
+        case Stage1ZirInstIdSplat:
             return ir_analyze_instruction_splat(ira, (Stage1ZirInstSplat *)instruction);
         case Stage1ZirInstIdBoolNot:
             return ir_analyze_instruction_bool_not(ira, (Stage1ZirInstBoolNot *)instruction);
@@ -24931,6 +25170,7 @@ bool ir_inst_gen_has_side_effects(Stage1AirInst *instruction) {
         case Stage1AirInstIdUnionTag:
         case Stage1AirInstIdTruncate:
         case Stage1AirInstIdShuffleVector:
+        case Stage1AirInstIdSelect:
         case Stage1AirInstIdSplat:
         case Stage1AirInstIdBoolNot:
         case Stage1AirInstIdReturnAddress:
@@ -25084,6 +25324,7 @@ bool ir_inst_src_has_side_effects(Stage1ZirInst *instruction) {
         case Stage1ZirInstIdTruncate:
         case Stage1ZirInstIdVectorType:
         case Stage1ZirInstIdShuffleVector:
+        case Stage1ZirInstIdSelect:
         case Stage1ZirInstIdSplat:
         case Stage1ZirInstIdBoolNot:
         case Stage1ZirInstIdSlice:
@@ -25751,7 +25992,7 @@ static Error ir_resolve_lazy_recurse_array(AstNode *source_node, ZigValue *val, 
 
 static Error ir_resolve_lazy_recurse(AstNode *source_node, ZigValue *val) {
     Error err;
-    if ((err = ir_resolve_lazy_raw(source_node, val))) 
+    if ((err = ir_resolve_lazy_raw(source_node, val)))
         return err;
     assert(val->special != ConstValSpecialRuntime);
     assert(val->special != ConstValSpecialLazy);

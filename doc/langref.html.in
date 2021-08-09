@@ -2846,7 +2846,7 @@ test "pointer to non-bit-aligned field" {
       Zig should correctly understand the alignment of fields. However there is
       <a href="https://github.com/ziglang/zig/issues/1994">a bug</a>:
       </p>
-      {#code_begin|test_err#}
+      {#code_begin|test_err|expected type '*u32', found '*align(1) u32'#}
 const S = packed struct {
     a: u32,
     b: u32,
@@ -2855,6 +2855,7 @@ test "overaligned pointer to packed struct" {
     var foo: S align(4) = undefined;
     const ptr: *align(4) S = &foo;
     const ptr_to_b: *u32 = &ptr.b;
+    _ = ptr_to_b;
 }
       {#code_end#}
       <p>When this bug is fixed, the above test in the documentation will unexpectedly pass, which will
@@ -3422,10 +3423,11 @@ test "call foo" {
       <p>
       Blocks are used to limit the scope of variable declarations:
       </p>
-      {#code_begin|test_err|unused local variable#}
+      {#code_begin|test_err|use of undeclared identifier 'x'#}
 test "access variable after block scope" {
     {
         var x: i32 = 1;
+        _ = x;
     }
     x += 1;
 }
@@ -7125,6 +7127,7 @@ fn func(y: *i32) void {
       an integer or an enum.
       </p>
       {#header_close#}
+
       {#header_open|@bitCast#}
       <pre>{#syntax#}@bitCast(comptime DestType: type, value: anytype) DestType{#endsyntax#}</pre>
       <p>
@@ -7164,8 +7167,8 @@ fn func(y: *i32) void {
       {#header_open|@boolToInt#}
       <pre>{#syntax#}@boolToInt(value: bool) u1{#endsyntax#}</pre>
       <p>
-      Converts {#syntax#}true{#endsyntax#} to {#syntax#}u1(1){#endsyntax#} and {#syntax#}false{#endsyntax#} to
-                  {#syntax#}u1(0){#endsyntax#}.
+      Converts {#syntax#}true{#endsyntax#} to {#syntax#}@as(u1, 1){#endsyntax#} and {#syntax#}false{#endsyntax#} to
+                  {#syntax#}@as(u1, 0){#endsyntax#}.
       </p>
       <p>
       If the value is known at compile-time, the return type is {#syntax#}comptime_int{#endsyntax#}
@@ -7987,6 +7990,17 @@ test "@hasDecl" {
       </p>
       {#header_close#}
 
+      {#header_open|@maximum#}
+      <pre>{#syntax#}@maximum(a: T, b: T) T{#endsyntax#}</pre>
+      <p>
+      Returns the maximum value of {#syntax#}a{#endsyntax#} and {#syntax#}b{#endsyntax#}. This builtin accepts integers, floats, and vectors of either. In the latter case, the operation is performed element wise.
+      </p>
+      <p>
+      NaNs are handled as follows: if one of the operands of a (pairwise) operation is NaN, the other operand is returned. If both operands are NaN, NaN is returned.
+      </p>
+      {#see_also|@minimum|SIMD|Vectors#}
+      {#header_close#}
+
       {#header_open|@memcpy#}
       <pre>{#syntax#}@memcpy(noalias dest: [*]u8, noalias source: [*]const u8, byte_count: usize){#endsyntax#}</pre>
       <p>
@@ -8022,6 +8036,17 @@ mem.copy(u8, dest[0..byte_count], source[0..byte_count]);{#endsyntax#}</pre>
       <p>There is also a standard library function for this:</p>
       <pre>{#syntax#}const mem = @import("std").mem;
 mem.set(u8, dest, c);{#endsyntax#}</pre>
+      {#header_close#}
+
+      {#header_open|@minimum#}
+      <pre>{#syntax#}@minimum(a: T, b: T) T{#endsyntax#}</pre>
+      <p>
+      Returns the minimum value of {#syntax#}a{#endsyntax#} and {#syntax#}b{#endsyntax#}. This builtin accepts integers, floats, and vectors of either. In the latter case, the operation is performed element wise.
+      </p>
+      <p>
+      NaNs are handled as follows: if one of the operands of a (pairwise) operation is NaN, the other operand is returned. If both operands are NaN, NaN is returned.
+      </p>
+      {#see_also|@maximum|SIMD|Vectors#}
       {#header_close#}
 
       {#header_open|@wasmMemorySize#}
@@ -8177,6 +8202,15 @@ test "@wasmMemoryGrow" {
       a calling function, the returned address will apply to the calling function.
       </p>
       {#header_close#}
+
+      {#header_open|@select#}
+      <pre>{#syntax#}@select(comptime T: type, pred: std.meta.Vector(len, bool), a: std.meta.Vector(len, T), b: std.meta.Vector(len, T)) std.meta.Vector(len, T){#endsyntax#}</pre>
+      <p>
+      Selects values element-wise from {#syntax#}a{#endsyntax#} or {#syntax#}b{#endsyntax#} based on {#syntax#}pred{#endsyntax#}. If {#syntax#}pred[i]{#endsyntax#} is {#syntax#}true{#endsyntax#}, the corresponding element in the result will be {#syntax#}a[i]{#endsyntax#} and otherwise {#syntax#}b[i]{#endsyntax#}.
+      </p>
+      {#see_also|SIMD|Vectors#}
+      {#header_close#}
+
       {#header_open|@setAlignStack#}
       <pre>{#syntax#}@setAlignStack(comptime alignment: u29){#endsyntax#}</pre>
       <p>

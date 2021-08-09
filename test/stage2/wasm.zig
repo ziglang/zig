@@ -114,6 +114,27 @@ pub fn addCases(ctx: *TestContext) !void {
         , "25\n");
 
         case.addCompareOutput(
+            \\pub export fn _start() i32 {
+            \\    var i: i32 = 2147483647;
+            \\    return i +% 1;
+            \\}
+        , "-2147483648\n");
+
+        case.addCompareOutput(
+            \\pub export fn _start() i32 {
+            \\    var i: i4 = 7;
+            \\    return i +% 1;
+            \\}
+        , "0\n");
+
+        case.addCompareOutput(
+            \\pub export fn _start() u32 {
+            \\    var i: u8 = 255;
+            \\    return i +% 1;
+            \\}
+        , "0\n");
+
+        case.addCompareOutput(
             \\pub export fn _start() u32 {
             \\    var i: u32 = 5;
             \\    i += 20;
@@ -130,6 +151,27 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    var i: u32 = 20;
             \\    i -= 5;
             \\    return i;
+            \\}
+        , "15\n");
+
+        case.addCompareOutput(
+            \\pub export fn _start() i32 {
+            \\    var i: i32 = -2147483648;
+            \\    return i -% 1;
+            \\}
+        , "2147483647\n");
+
+        case.addCompareOutput(
+            \\pub export fn _start() i32 {
+            \\    var i: i7 = -64;
+            \\    return i -% 1;
+            \\}
+        , "63\n");
+
+        case.addCompareOutput(
+            \\pub export fn _start() u32 {
+            \\    var i: u4 = 0;
+            \\    return i -% 1;
             \\}
         , "15\n");
 
@@ -156,6 +198,27 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    return x * y;
             \\}
         , "350\n");
+
+        case.addCompareOutput(
+            \\pub export fn _start() i32 {
+            \\    var i: i32 = 2147483647;
+            \\    return i *% 2;
+            \\}
+        , "-2\n");
+
+        case.addCompareOutput(
+            \\pub export fn _start() u32 {
+            \\    var i: u3 = 3;
+            \\    return i *% 3;
+            \\}
+        , "1\n");
+
+        case.addCompareOutput(
+            \\pub export fn _start() i32 {
+            \\    var i: i4 = 3;
+            \\    return i *% 3;
+            \\}
+        , "1\n");
 
         case.addCompareOutput(
             \\pub export fn _start() u32 {
@@ -611,5 +674,70 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    return error.Dab;
             \\}
         , "42\n");
+    }
+
+    {
+        var case = ctx.exe("wasm integer widening", wasi);
+
+        case.addCompareOutput(
+            \\pub export fn _start() u64 {
+            \\    var x: u32 = 5;
+            \\    return x;
+            \\}
+        , "5\n");
+    }
+
+    {
+        var case = ctx.exe("wasm optionals", wasi);
+
+        case.addCompareOutput(
+            \\pub export fn _start() u32 {
+            \\    var x: ?u32 = 5;
+            \\    var y: u32 = 0;
+            \\    if (x) |val| {
+            \\        y = val;
+            \\    }
+            \\    return y;
+            \\}
+        , "5\n");
+
+        case.addCompareOutput(
+            \\pub export fn _start() u32 {
+            \\    var x: ?u32 = null;
+            \\    var y: u32 = 0;
+            \\    if (x) |val| {
+            \\        y = val;
+            \\    }
+            \\    return y;
+            \\}
+        , "0\n");
+
+        case.addCompareOutput(
+            \\pub export fn _start() u32 {
+            \\    var x: ?u32 = 5;
+            \\    return x.?;
+            \\}
+        , "5\n");
+
+        case.addCompareOutput(
+            \\pub export fn _start() u32 {
+            \\    var x: u32 = 5;
+            \\    var y: ?u32 = x;
+            \\    return y.?;
+            \\}
+        , "5\n");
+
+        case.addCompareOutput(
+            \\pub export fn _start() u32 {
+            \\    var val: ?u32 = 5;
+            \\    while (val) |*v| {
+            \\        v.* -= 1;
+            \\        if (v.* == 2) {
+            \\            val = null;
+            \\        }
+            \\    }
+            \\    return 0;
+            \\}
+        , "0\n");
     }
 }

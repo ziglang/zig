@@ -228,7 +228,7 @@ pub const TestContext = struct {
                     continue;
                 }
                 // example: "file.zig:1:2: error: bad thing happened"
-                var it = std.mem.split(err_msg_line, ":");
+                var it = std.mem.split(u8, err_msg_line, ":");
                 const src_path = it.next() orelse @panic("missing colon");
                 const line_text = it.next() orelse @panic("missing line");
                 const col_text = it.next() orelse @panic("missing column");
@@ -779,7 +779,7 @@ pub const TestContext = struct {
                     }
                     var ok = true;
                     if (case.expect_exact) {
-                        var err_iter = std.mem.split(result.stderr, "\n");
+                        var err_iter = std.mem.split(u8, result.stderr, "\n");
                         var i: usize = 0;
                         ok = while (err_iter.next()) |line| : (i += 1) {
                             if (i >= case_error_list.len) break false;
