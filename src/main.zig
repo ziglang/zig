@@ -3654,7 +3654,7 @@ pub const ClangArgIterator = struct {
             };
             defer allocator.free(resp_contents);
             // TODO is there a specification for this file format? Let's find it and make this parsing more robust
-            // at the very least I'm guessing this needs to handle quotes and `#` comments.
+            // at the very least I'm guessing this needs to handle spaces in quotes and `#` comments.
             var it = mem.tokenize(u8, resp_contents, " \t\r\n");
             var resp_arg_list = std.ArrayList([]const u8).init(allocator);
             defer resp_arg_list.deinit();
@@ -3665,7 +3665,7 @@ pub const ClangArgIterator = struct {
                     }
                 }
                 while (it.next()) |token| {
-                    const dupe_token = try mem.dupeZ(allocator, u8, token);
+                    const dupe_token = try mem.dupeZ(allocator, u8, mem.trim(u8, token, "'\""));
                     errdefer allocator.free(dupe_token);
                     try resp_arg_list.append(dupe_token);
                 }
