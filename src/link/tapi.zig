@@ -19,11 +19,12 @@ pub const TbdV3 = struct {
     install_name: []const u8,
     current_version: ?VersionField,
     compatibility_version: ?VersionField,
-    objc_constraint: []const u8,
+    objc_constraint: ?[]const u8,
     exports: ?[]const struct {
         archs: []const []const u8,
         re_exports: ?[]const []const u8,
         symbols: ?[]const []const u8,
+        objc_classes: ?[]const []const u8,
     },
 };
 
@@ -107,10 +108,8 @@ pub const LibStub = struct {
         // TODO clean this up.
         lib_stub.inner = blk: {
             err: {
-                const inner = lib_stub.yaml.parse([]TbdV4) catch |err| switch (err) {
-                    error.TypeMismatch => break :err,
-                    else => |e| return e,
-                };
+                log.debug("trying to parse as []TbdV4", .{});
+                const inner = lib_stub.yaml.parse([]TbdV4) catch break :err;
                 var out = try lib_stub.yaml.arena.allocator.alloc(Tbd, inner.len);
                 for (inner) |doc, i| {
                     out[i] = .{ .v4 = doc };
@@ -119,25 +118,22 @@ pub const LibStub = struct {
             }
 
             err: {
-                const inner = lib_stub.yaml.parse(TbdV4) catch |err| switch (err) {
-                    error.TypeMismatch => break :err,
-                    else => |e| return e,
-                };
+                log.debug("trying to parse as TbdV4", .{});
+                const inner = lib_stub.yaml.parse(TbdV4) catch break :err;
                 var out = try lib_stub.yaml.arena.allocator.alloc(Tbd, 1);
                 out[0] = .{ .v4 = inner };
                 break :blk out;
             }
 
             err: {
-                const inner = lib_stub.yaml.parse(TbdV3) catch |err| switch (err) {
-                    error.TypeMismatch => break :err,
-                    else => |e| return e,
-                };
+                log.debug("trying to parse as TbdV3", .{});
+                const inner = lib_stub.yaml.parse(TbdV3) catch break :err;
                 var out = try lib_stub.yaml.arena.allocator.alloc(Tbd, 1);
                 out[0] = .{ .v3 = inner };
                 break :blk out;
             }
 
+            // TODO this is clunky. Perhaps an optional would be better here?
             return error.TypeMismatch;
         };
 

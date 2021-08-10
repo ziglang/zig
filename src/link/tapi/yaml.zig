@@ -371,7 +371,7 @@ pub const Yaml = struct {
             }
 
             const unwrapped = value orelse {
-                log.err("missing struct field: {s}: {s}", .{ field.name, @typeName(field.field_type) });
+                log.debug("missing struct field: {s}: {s}", .{ field.name, @typeName(field.field_type) });
                 return error.StructFieldMissing;
             };
             @field(parsed, field.name) = try self.parseValue(field.field_type, unwrapped);

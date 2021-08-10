@@ -348,6 +348,8 @@ fn parseFromStubV3(self: *Dylib, allocator: *Allocator, target: std.Target, lib_
 
     const arch_string = @tagName(target.cpu.arch);
 
+    log.debug("{s}", .{lib_stub.inner[0].installName()});
+
     for (lib_stub.inner) |elem, stub_index| {
         const stub = elem.v3;
         if (!hasArch(stub.archs, arch_string)) continue;
@@ -370,41 +372,28 @@ fn parseFromStubV3(self: *Dylib, allocator: *Allocator, target: std.Target, lib_
                     }
                 }
 
+                if (exp.objc_classes) |objc_classes| {
+                    for (objc_classes) |class_name| {
+                        try self.addObjCClassSymbols(allocator, class_name);
+                    }
+                }
+
                 if (exp.re_exports) |re_exports| {
-                    for (re_exports) |reexp| {
-                        if (self.symbols.contains(reexp)) continue;
-                        try self.symbols.putNoClobber(allocator, try allocator.dupe(u8, reexp), {});
+                    for (re_exports) |lib| {
+                        if (umbrella_libs.contains(lib)) {
+                            log.debug("  | {s} <= {s}", .{ lib, lib_stub.inner[0].installName() });
+                            continue;
+                        }
+
+                        log.debug("  | {s}", .{lib});
+
+                        const dep_id = try Id.default(allocator, lib);
+                        try self.dependent_libs.append(allocator, dep_id);
                     }
                 }
             }
         }
     }
-
-    log.debug("{s}", .{lib_stub.inner[0].installName()});
-
-    // // TODO track which libs were already parsed in different steps
-    // for (lib_stub.inner) |elem| {
-    //     const stub = elem.v3;
-    //     if (!archMatches(stub.archs, arch_string)) continue;
-
-    //     if (stub.reexported_libraries) |reexports| {
-    //         for (reexports) |reexp| {
-    //             if (!matcher.matches(reexp.targets)) continue;
-
-    //             for (reexp.libraries) |lib| {
-    //                 if (umbrella_libs.contains(lib)) {
-    //                     log.debug("  | {s} <= {s}", .{ lib, umbrella_lib.install_name });
-    //                     continue;
-    //                 }
-
-    //                 log.debug("  | {s}", .{lib});
-
-    //                 const dep_id = try Id.default(allocator, lib);
-    //                 try self.dependent_libs.append(allocator, dep_id);
-    //             }
-    //         }
-    //     }
-    // }
 }
 
 fn targetToAppleString(allocator: *Allocator, target: std.Target) ![]const u8 {
