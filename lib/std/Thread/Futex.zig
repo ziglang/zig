@@ -180,23 +180,22 @@ const DarwinFutex = struct {
     const darwin = std.os.darwin;
 
     fn wait(ptr: *const Atomic(u32), expect: u32, timeout: ?u64) error{TimedOut}!void {
-        // ulock_wait() uses micro-second timeouts, where 0 = INIFITE or no-timeout
-        var timeout_us: u32 = 0;
-        if (timeout) |timeout_ns| {
-            timeout_us = @intCast(u32, timeout_ns / std.time.ns_per_us);
-        }
-
         // Darwin XNU 7195.50.7.100.1 introduced __ulock_wait2 and migrated code paths (notably pthread_cond_t) towards it:
         // https://github.com/apple/darwin-xnu/commit/d4061fb0260b3ed486147341b72468f836ed6c8f#diff-08f993cc40af475663274687b7c326cc6c3031e0db3ac8de7b24624610616be6
         //
         // This XNU version appears to correspond to 11.0.1:
         // https://kernelshaman.blogspot.com/2021/01/building-xnu-for-macos-big-sur-1101.html
+        //
+        // ulock_wait() uses 32-bit micro-second timeouts, where 0 = INIFITE or no-timeout
+        // ulock_wait2() uses 64-bit nano-second timeouts (with the same convention)
+        const timeout_ns: u64 = timeout orelse 0;
         const addr = @ptrCast(*const c_void, ptr);
         const flags = darwin.UL_COMPARE_AND_WAIT | darwin.ULF_NO_ERRNO;
         const status = blk: {
             if (target.os.version_range.semver.max.major >= 11) {
-                break :blk darwin.__ulock_wait2(flags, addr, expect, timeout_us, 0);
+                break :blk darwin.__ulock_wait2(flags, addr, expect, timeout_ns, 0);
             } else {
+                const timeout_us = @intCast(u32, timeout_ns / std.time.ns_per_us);
                 break :blk darwin.__ulock_wait(flags, addr, expect, timeout_us);
             }
         };
@@ -204,7 +203,10 @@ const DarwinFutex = struct {
         if (status >= 0) return;
         switch (-status) {
             darwin.EINTR => {},
-            darwin.EFAULT => unreachable,
+            // Address of the futex is paged out. This is unlikely, but possible in theory, and
+            // pthread/libdispatch on darwin bother to handle it. In this case we'll return
+            // without waiting, but the caller should retry anyway.
+            darwin.EFAULT => {},
             darwin.ETIMEDOUT => return error.TimedOut,
             else => unreachable,
         }
@@ -223,6 +225,7 @@ const DarwinFutex = struct {
             if (status >= 0) return;
             switch (-status) {
                 darwin.EINTR => continue, // spurious wake()
+                darwin.EFAULT => continue, // address of the lock was paged out
                 darwin.ENOENT => return, // nothing was woken up
                 darwin.EALREADY => unreachable, // only for ULF_WAKE_THREAD
                 else => unreachable,
