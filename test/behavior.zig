@@ -8,6 +8,7 @@ test {
     _ = @import("behavior/eval.zig");
     _ = @import("behavior/pointers.zig");
     _ = @import("behavior/if.zig");
+    _ = @import("behavior/cast.zig");
 
     if (!builtin.zig_is_stage2) {
         // Tests that only pass for stage1.
@@ -85,7 +86,7 @@ test {
         _ = @import("behavior/byteswap.zig");
         _ = @import("behavior/byval_arg_var.zig");
         _ = @import("behavior/call.zig");
-        _ = @import("behavior/cast.zig");
+        _ = @import("behavior/cast_stage1.zig");
         _ = @import("behavior/const_slice_child.zig");
         _ = @import("behavior/defer.zig");
         _ = @import("behavior/enum.zig");

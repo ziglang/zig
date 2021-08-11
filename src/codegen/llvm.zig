@@ -768,6 +768,11 @@ pub const DeclGen = struct {
                     };
                     return self.context.constStruct(&fields, fields.len, .False);
                 },
+                .int_u64 => {
+                    const llvm_usize = try self.llvmType(Type.initTag(.usize));
+                    const llvm_int = llvm_usize.constInt(tv.val.toUnsignedInt(), .False);
+                    return llvm_int.constIntToPtr(try self.llvmType(tv.ty));
+                },
                 else => |tag| return self.todo("implement const of pointer type '{}' ({})", .{ tv.ty, tag }),
             },
             .Array => {

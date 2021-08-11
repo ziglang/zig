@@ -130,6 +130,9 @@ pub const Value = opaque {
 
     pub const constBitCast = LLVMConstBitCast;
     extern fn LLVMConstBitCast(ConstantVal: *const Value, ToType: *const Type) *const Value;
+
+    pub const constIntToPtr = LLVMConstIntToPtr;
+    extern fn LLVMConstIntToPtr(ConstantVal: *const Value, ToType: *const Type) *const Value;
 };
 
 pub const Type = opaque {
