@@ -103,32 +103,6 @@ pub fn deinit(self: *Archive, allocator: *Allocator) void {
     allocator.free(self.name);
 }
 
-pub fn createAndParseFromPath(allocator: *Allocator, target: std.Target, path: []const u8) !?Archive {
-    const file = fs.cwd().openFile(path, .{}) catch |err| switch (err) {
-        error.FileNotFound => return null,
-        else => |e| return e,
-    };
-    errdefer file.close();
-
-    const name = try allocator.dupe(u8, path);
-    errdefer allocator.free(name);
-
-    var archive = Archive{
-        .name = name,
-        .file = file,
-    };
-
-    archive.parse(allocator, target) catch |err| switch (err) {
-        error.EndOfStream, error.NotArchive => {
-            archive.deinit(allocator);
-            return null;
-        },
-        else => |e| return e,
-    };
-
-    return archive;
-}
-
 pub fn parse(self: *Archive, allocator: *Allocator, target: std.Target) !void {
     const reader = self.file.reader();
     self.library_offset = try fat.getLibraryOffset(reader, target);

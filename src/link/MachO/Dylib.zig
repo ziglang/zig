@@ -10,10 +10,9 @@ const math = std.math;
 const mem = std.mem;
 const fat = @import("fat.zig");
 const commands = @import("commands.zig");
-const tapi = @import("../tapi.zig");
 
 const Allocator = mem.Allocator;
-const LibStub = tapi.LibStub;
+const LibStub = @import("../tapi.zig").LibStub;
 const LoadCommand = commands.LoadCommand;
 const MachO = @import("../MachO.zig");
 
@@ -74,7 +73,7 @@ pub const Id = struct {
         allocator.free(id.name);
     }
 
-    const ParseError = fmt.ParseIntError || fmt.BufPrintError;
+    pub const ParseError = fmt.ParseIntError || fmt.BufPrintError;
 
     pub fn parseCurrentVersion(id: *Id, version: anytype) ParseError!void {
         id.current_version = try parseVersion(version);
@@ -110,7 +109,7 @@ pub const Id = struct {
         var count: u4 = 0;
         while (split.next()) |value| {
             if (count > 2) {
-                log.warn("malformed version field: {s}", .{string});
+                log.debug("malformed version field: {s}", .{string});
                 return 0x10000;
             }
             values[count] = value;
@@ -128,78 +127,6 @@ pub const Id = struct {
         return out;
     }
 };
-
-pub const Error = error{
-    OutOfMemory,
-    EmptyStubFile,
-    MismatchedCpuArchitecture,
-    UnsupportedCpuArchitecture,
-} || fs.File.OpenError || std.os.PReadError || Id.ParseError;
-
-pub const CreateOpts = struct {
-    syslibroot: ?[]const u8 = null,
-    id: ?Id = null,
-    target: ?std.Target = null,
-};
-
-pub fn createAndParseFromPath(
-    allocator: *Allocator,
-    target: std.Target,
-    path: []const u8,
-    opts: CreateOpts,
-) Error!?[]Dylib {
-    const file = fs.cwd().openFile(path, .{}) catch |err| switch (err) {
-        error.FileNotFound => return null,
-        else => |e| return e,
-    };
-    errdefer file.close();
-
-    const name = try allocator.dupe(u8, path);
-    errdefer allocator.free(name);
-
-    var dylib = Dylib{
-        .name = name,
-        .file = file,
-    };
-
-    dylib.parse(allocator, target) catch |err| switch (err) {
-        error.EndOfStream, error.NotDylib => {
-            try file.seekTo(0);
-
-            var lib_stub = LibStub.loadFromFile(allocator, file) catch {
-                dylib.deinit(allocator);
-                return null;
-            };
-            defer lib_stub.deinit();
-
-            try dylib.parseFromStub(allocator, target, lib_stub);
-        },
-        else => |e| return e,
-    };
-
-    if (opts.id) |id| {
-        if (dylib.id.?.current_version < id.compatibility_version) {
-            log.warn("found dylib is incompatible with the required minimum version", .{});
-            log.warn("  dylib: {s}", .{id.name});
-            log.warn("  required minimum version: {}", .{id.compatibility_version});
-            log.warn("  dylib version: {}", .{dylib.id.?.current_version});
-
-            // TODO maybe this should be an error and facilitate auto-cleanup?
-            dylib.deinit(allocator);
-            return null;
-        }
-    }
-
-    var dylibs = std.ArrayList(Dylib).init(allocator);
-    defer dylibs.deinit();
-
-    try dylibs.append(dylib);
-    // TODO this should not be performed if the user specifies `-flat_namespace` flag.
-    // See ld64 manpages.
-    try dylib.parseDependentLibs(allocator, target, &dylibs, opts.syslibroot);
-
-    return dylibs.toOwnedSlice();
-}
 
 pub fn deinit(self: *Dylib, allocator: *Allocator) void {
     for (self.load_commands.items) |*lc| {
@@ -421,7 +348,7 @@ pub fn parseFromStub(self: *Dylib, allocator: *Allocator, target: std.Target, li
     var umbrella_libs = std.StringHashMap(void).init(allocator);
     defer umbrella_libs.deinit();
 
-    log.debug("found umbrella lib '{s}'", .{umbrella_lib.installName()});
+    log.debug("  (install_name '{s}')", .{umbrella_lib.installName()});
 
     var matcher = try TargetMatcher.init(allocator, target);
     defer matcher.deinit();
@@ -520,7 +447,7 @@ pub fn parseFromStub(self: *Dylib, allocator: *Allocator, target: std.Target, li
 
     // For V4, we add dependent libs in a separate pass since some stubs such as libSystem include
     // re-exports directly in the stub file.
-    for (lib_stub.inner) |elem, stub_index| {
+    for (lib_stub.inner) |elem| {
         if (elem == .v3) break;
         const stub = elem.v4;
 
@@ -544,12 +471,12 @@ pub fn parseFromStub(self: *Dylib, allocator: *Allocator, target: std.Target, li
 
 pub fn parseDependentLibs(
     self: *Dylib,
-    allocator: *Allocator,
-    target: std.Target,
-    out: *std.ArrayList(Dylib),
+    macho_file: *MachO,
     syslibroot: ?[]const u8,
 ) !void {
     outer: for (self.dependent_libs.items) |id| {
+        if (macho_file.dylibs_map.contains(id.name)) continue :outer;
+
         const has_ext = blk: {
             const basename = fs.path.basename(id.name);
             break :blk mem.lastIndexOfScalar(u8, basename, '.') != null;
@@ -561,36 +488,26 @@ pub fn parseDependentLibs(
         } else id.name;
 
         for (&[_][]const u8{ extension, ".tbd" }) |ext| {
-            const with_ext = try std.fmt.allocPrint(allocator, "{s}{s}", .{
+            const with_ext = try std.fmt.allocPrint(macho_file.base.allocator, "{s}{s}", .{
                 without_ext,
                 ext,
             });
-            defer allocator.free(with_ext);
+            defer macho_file.base.allocator.free(with_ext);
 
             const full_path = if (syslibroot) |root|
-                try fs.path.join(allocator, &.{ root, with_ext })
+                try fs.path.join(macho_file.base.allocator, &.{ root, with_ext })
             else
                 with_ext;
-            defer if (syslibroot) |_| allocator.free(full_path);
+            defer if (syslibroot) |_| macho_file.base.allocator.free(full_path);
 
             log.debug("trying dependency at fully resolved path {s}", .{full_path});
 
-            const dylibs = (try createAndParseFromPath(
-                allocator,
-                target,
-                full_path,
-                .{
-                    .id = id,
-                    .syslibroot = syslibroot,
-                },
-            )) orelse {
-                continue;
-            };
-            defer allocator.free(dylibs);
-
-            try out.appendSlice(dylibs);
-
-            continue :outer;
+            const did_parse_successfully = try macho_file.parseDylib(full_path, .{
+                .id = id,
+                .syslibroot = syslibroot,
+                .is_dependent = true,
+            });
+            if (!did_parse_successfully) continue;
         } else {
             log.debug("unable to resolve dependency {s}", .{id.name});
         }

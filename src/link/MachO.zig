@@ -31,6 +31,7 @@ const DebugSymbols = @import("MachO/DebugSymbols.zig");
 const Dylib = @import("MachO/Dylib.zig");
 const File = link.File;
 const Object = @import("MachO/Object.zig");
+const LibStub = @import("tapi.zig").LibStub;
 const Liveness = @import("../Liveness.zig");
 const LlvmObject = @import("../codegen/llvm.zig").Object;
 const LoadCommand = commands.LoadCommand;
@@ -65,6 +66,7 @@ objects: std.ArrayListUnmanaged(Object) = .{},
 archives: std.ArrayListUnmanaged(Archive) = .{},
 
 dylibs: std.ArrayListUnmanaged(Dylib) = .{},
+dylibs_map: std.StringHashMapUnmanaged(u16) = .{},
 referenced_dylibs: std.AutoArrayHashMapUnmanaged(u16, void) = .{},
 
 load_commands: std.ArrayListUnmanaged(LoadCommand) = .{},
@@ -994,6 +996,133 @@ fn linkWithZld(self: *MachO, comp: *Compilation) !void {
     }
 }
 
+fn parseObject(self: *MachO, path: []const u8) !bool {
+    const file = fs.cwd().openFile(path, .{}) catch |err| switch (err) {
+        error.FileNotFound => return false,
+        else => |e| return e,
+    };
+    errdefer file.close();
+
+    const name = try self.base.allocator.dupe(u8, path);
+    errdefer self.base.allocator.free(name);
+
+    var object = Object{
+        .name = name,
+        .file = file,
+    };
+
+    object.parse(self.base.allocator, self.base.options.target) catch |err| switch (err) {
+        error.EndOfStream, error.NotObject => {
+            object.deinit(self.base.allocator);
+            return false;
+        },
+        else => |e| return e,
+    };
+
+    try self.objects.append(self.base.allocator, object);
+
+    return true;
+}
+
+fn parseArchive(self: *MachO, path: []const u8) !bool {
+    const file = fs.cwd().openFile(path, .{}) catch |err| switch (err) {
+        error.FileNotFound => return false,
+        else => |e| return e,
+    };
+    errdefer file.close();
+
+    const name = try self.base.allocator.dupe(u8, path);
+    errdefer self.base.allocator.free(name);
+
+    var archive = Archive{
+        .name = name,
+        .file = file,
+    };
+
+    archive.parse(self.base.allocator, self.base.options.target) catch |err| switch (err) {
+        error.EndOfStream, error.NotArchive => {
+            archive.deinit(self.base.allocator);
+            return false;
+        },
+        else => |e| return e,
+    };
+
+    try self.archives.append(self.base.allocator, archive);
+
+    return true;
+}
+
+const ParseDylibError = error{
+    OutOfMemory,
+    EmptyStubFile,
+    MismatchedCpuArchitecture,
+    UnsupportedCpuArchitecture,
+} || fs.File.OpenError || std.os.PReadError || Dylib.Id.ParseError;
+
+const DylibCreateOpts = struct {
+    syslibroot: ?[]const u8 = null,
+    id: ?Dylib.Id = null,
+    is_dependent: bool = false,
+};
+
+pub fn parseDylib(self: *MachO, path: []const u8, opts: DylibCreateOpts) ParseDylibError!bool {
+    const file = fs.cwd().openFile(path, .{}) catch |err| switch (err) {
+        error.FileNotFound => return false,
+        else => |e| return e,
+    };
+    errdefer file.close();
+
+    const name = try self.base.allocator.dupe(u8, path);
+    errdefer self.base.allocator.free(name);
+
+    var dylib = Dylib{
+        .name = name,
+        .file = file,
+    };
+
+    dylib.parse(self.base.allocator, self.base.options.target) catch |err| switch (err) {
+        error.EndOfStream, error.NotDylib => {
+            try file.seekTo(0);
+
+            var lib_stub = LibStub.loadFromFile(self.base.allocator, file) catch {
+                dylib.deinit(self.base.allocator);
+                return false;
+            };
+            defer lib_stub.deinit();
+
+            try dylib.parseFromStub(self.base.allocator, self.base.options.target, lib_stub);
+        },
+        else => |e| return e,
+    };
+
+    if (opts.id) |id| {
+        if (dylib.id.?.current_version < id.compatibility_version) {
+            log.warn("found dylib is incompatible with the required minimum version", .{});
+            log.warn("  dylib: {s}", .{id.name});
+            log.warn("  required minimum version: {}", .{id.compatibility_version});
+            log.warn("  dylib version: {}", .{dylib.id.?.current_version});
+
+            // TODO maybe this should be an error and facilitate auto-cleanup?
+            dylib.deinit(self.base.allocator);
+            return false;
+        }
+    }
+
+    const dylib_id = @intCast(u16, self.dylibs.items.len);
+    try self.dylibs.append(self.base.allocator, dylib);
+    try self.dylibs_map.putNoClobber(self.base.allocator, dylib.id.?.name, dylib_id);
+
+    if (!(opts.is_dependent or self.referenced_dylibs.contains(dylib_id))) {
+        try self.referenced_dylibs.putNoClobber(self.base.allocator, dylib_id, {});
+    }
+
+    // TODO this should not be performed if the user specifies `-flat_namespace` flag.
+    // See ld64 manpages.
+    try dylib.parseDependentLibs(self, opts.syslibroot);
+
+    return true;
+}
+
 fn parseInputFiles(self: *MachO, files: []const []const u8, syslibroot: ?[]const u8) !void {
     for (files) |file_name| {
         const full_path = full_path: {
@@ -1003,28 +1132,11 @@ fn parseInputFiles(self: *MachO, files: []const []const u8, syslibroot: ?[]const
         };
         defer self.base.allocator.free(full_path);
 
-        if (try Object.createAndParseFromPath(self.base.allocator, self.base.options.target, full_path)) |object| {
-            try self.objects.append(self.base.allocator, object);
-            continue;
-        }
-
-        if (try Archive.createAndParseFromPath(self.base.allocator, self.base.options.target, full_path)) |archive| {
-            try self.archives.append(self.base.allocator, archive);
-            continue;
-        }
-
-        if (try Dylib.createAndParseFromPath(self.base.allocator, self.base.options.target, full_path, .{
+        if (try self.parseObject(full_path)) continue;
+        if (try self.parseArchive(full_path)) continue;
+        if (try self.parseDylib(full_path, .{
             .syslibroot = syslibroot,
-        })) |dylibs| {
-            defer self.base.allocator.free(dylibs);
-            const dylib_id = @intCast(u16, self.dylibs.items.len);
-            try self.dylibs.appendSlice(self.base.allocator, dylibs);
-            // We always have to add the dylib that was on the linker line.
-            if (!self.referenced_dylibs.contains(dylib_id)) {
-                try self.referenced_dylibs.putNoClobber(self.base.allocator, dylib_id, {});
-            }
-            continue;
-        }
+        })) continue;
 
         log.warn("unknown filetype for positional input file: '{s}'", .{file_name});
     }
@@ -1032,23 +1144,10 @@ fn parseInputFiles(self: *MachO, files: []const []const u8, syslibroot: ?[]const
 
 fn parseLibs(self: *MachO, libs: []const []const u8, syslibroot: ?[]const u8) !void {
     for (libs) |lib| {
-        if (try Dylib.createAndParseFromPath(self.base.allocator, self.base.options.target, lib, .{
+        if (try self.parseDylib(lib, .{
             .syslibroot = syslibroot,
-        })) |dylibs| {
-            defer self.base.allocator.free(dylibs);
-            const dylib_id = @intCast(u16, self.dylibs.items.len);
-            try self.dylibs.appendSlice(self.base.allocator, dylibs);
-            // We always have to add the dylib that was on the linker line.
-            if (!self.referenced_dylibs.contains(dylib_id)) {
-                try self.referenced_dylibs.putNoClobber(self.base.allocator, dylib_id, {});
-            }
-            continue;
-        }
-
-        if (try Archive.createAndParseFromPath(self.base.allocator, self.base.options.target, lib)) |archive| {
-            try self.archives.append(self.base.allocator, archive);
-            continue;
-        }
+        })) continue;
+        if (try self.parseArchive(lib)) continue;
 
         log.warn("unknown filetype for a library: '{s}'", .{lib});
     }
@@ -3360,6 +3459,7 @@ pub fn deinit(self: *MachO) void {
         dylib.deinit(self.base.allocator);
     }
     self.dylibs.deinit(self.base.allocator);
+    self.dylibs_map.deinit(self.base.allocator);
     self.referenced_dylibs.deinit(self.base.allocator);
 
     for (self.load_commands.items) |*lc| {
