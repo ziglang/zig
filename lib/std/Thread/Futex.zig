@@ -186,17 +186,24 @@ const DarwinFutex = struct {
         // This XNU version appears to correspond to 11.0.1:
         // https://kernelshaman.blogspot.com/2021/01/building-xnu-for-macos-big-sur-1101.html
         //
-        // ulock_wait() uses 32-bit micro-second timeouts, where 0 = INIFITE or no-timeout
+        // ulock_wait() uses 32-bit micro-second timeouts where 0 = INFINITE or no-timeout
         // ulock_wait2() uses 64-bit nano-second timeouts (with the same convention)
         const timeout_ns: u64 = timeout orelse 0;
         const addr = @ptrCast(*const c_void, ptr);
         const flags = darwin.UL_COMPARE_AND_WAIT | darwin.ULF_NO_ERRNO;
+        // If we're using `__ulock_wait` and `timeout` is too big to fit inside a `u32` count of
+        // micro-seconds (around 70min), we'll request a shorter timeout. This is fine (users
+        // should handle spurious wakeups), but we need to remember that we did so, so that
+        // we don't return `TimedOut` incorrectly.
+        var timeout_overflowed = false;
         const status = blk: {
             if (target.os.version_range.semver.max.major >= 11) {
                 break :blk darwin.__ulock_wait2(flags, addr, expect, timeout_ns, 0);
             } else {
-                const timeout_us = @intCast(u32, timeout_ns / std.time.ns_per_us);
-                break :blk darwin.__ulock_wait(flags, addr, expect, timeout_us);
+                const timeout_us = timeout_ns / std.time.ns_per_us;
+                timeout_overflowed = timeout_us > std.math.maxInt(u32);
+                const timeout_us32 = if (timeout_overflowed) std.math.maxInt(u32) else @intCast(u32, timeout_us);
+                break :blk darwin.__ulock_wait(flags, addr, expect, timeout_us32);
             }
         };
 
@@ -207,7 +214,7 @@ const DarwinFutex = struct {
             // pthread/libdispatch on darwin bother to handle it. In this case we'll return
             // without waiting, but the caller should retry anyway.
             darwin.EFAULT => {},
-            darwin.ETIMEDOUT => return error.TimedOut,
+            darwin.ETIMEDOUT => if (!timeout_overflowed) return error.TimedOut,
             else => unreachable,
         }
     }
