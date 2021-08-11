@@ -13,12 +13,10 @@ const assert = std.debug.assert;
 const process = std.process;
 const Target = std.Target;
 const CrossTarget = std.zig.CrossTarget;
-const macos = @import("system/macos.zig");
 const native_endian = std.Target.current.cpu.arch.endian();
 const linux = @import("system/linux.zig");
 pub const windows = @import("system/windows.zig");
-
-pub const getSDKPath = macos.getSDKPath;
+pub const darwin = @import("system/darwin.zig");
 
 pub const NativePaths = struct {
     include_dirs: ArrayList([:0]u8),
@@ -255,7 +253,7 @@ pub const NativeTargetInfo = struct {
                     os.version_range.windows.min = detected_version;
                     os.version_range.windows.max = detected_version;
                 },
-                .macos => try macos.detect(&os),
+                .macos => try darwin.macos.detect(&os),
                 .freebsd, .netbsd, .dragonfly => {
                     const key = switch (Target.current.os.tag) {
                         .freebsd => "kern.osreldate",
@@ -972,7 +970,7 @@ pub const NativeTargetInfo = struct {
 
         switch (std.Target.current.os.tag) {
             .linux => return linux.detectNativeCpuAndFeatures(),
-            .macos => return macos.detectNativeCpuAndFeatures(),
+            .macos => return darwin.macos.detectNativeCpuAndFeatures(),
             else => {},
         }
 
@@ -983,6 +981,6 @@ pub const NativeTargetInfo = struct {
 };
 
 test {
-    _ = @import("system/macos.zig");
+    _ = @import("system/darwin.zig");
     _ = @import("system/linux.zig");
 }

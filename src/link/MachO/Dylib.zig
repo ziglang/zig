@@ -12,7 +12,6 @@ const fat = @import("fat.zig");
 const commands = @import("commands.zig");
 
 const Allocator = mem.Allocator;
-const Arch = std.Target.Cpu.Arch;
 const LibStub = @import("../tapi.zig").LibStub;
 const LoadCommand = commands.LoadCommand;
 const MachO = @import("../MachO.zig");
@@ -139,11 +138,12 @@ pub const Error = error{
 pub const CreateOpts = struct {
     syslibroot: ?[]const u8 = null,
     id: ?Id = null,
+    target: ?std.Target = null,
 };
 
 pub fn createAndParseFromPath(
     allocator: *Allocator,
-    arch: Arch,
+    target: std.Target,
     path: []const u8,
     opts: CreateOpts,
 ) Error!?[]Dylib {
@@ -161,7 +161,7 @@ pub fn createAndParseFromPath(
         .file = file,
     };
 
-    dylib.parse(allocator, arch) catch |err| switch (err) {
+    dylib.parse(allocator, target) catch |err| switch (err) {
         error.EndOfStream, error.NotDylib => {
             try file.seekTo(0);
 
@@ -171,7 +171,7 @@ pub fn createAndParseFromPath(
             };
             defer lib_stub.deinit();
 
-            try dylib.parseFromStub(allocator, arch, lib_stub);
+            try dylib.parseFromStub(allocator, target, lib_stub);
         },
         else => |e| return e,
     };
@@ -195,7 +195,7 @@ pub fn createAndParseFromPath(
     try dylibs.append(dylib);
     // TODO this should not be performed if the user specifies `-flat_namespace` flag.
     // See ld64 manpages.
-    try dylib.parseDependentLibs(allocator, arch, &dylibs, opts.syslibroot);
+    try dylib.parseDependentLibs(allocator, target, &dylibs, opts.syslibroot);
 
     return dylibs.toOwnedSlice();
 }
@@ -222,10 +222,10 @@ pub fn deinit(self: *Dylib, allocator: *Allocator) void {
     }
 }
 
-pub fn parse(self: *Dylib, allocator: *Allocator, arch: Arch) !void {
+pub fn parse(self: *Dylib, allocator: *Allocator, target: std.Target) !void {
     log.debug("parsing shared library '{s}'", .{self.name});
 
-    self.library_offset = try fat.getLibraryOffset(self.file.reader(), arch);
+    self.library_offset = try fat.getLibraryOffset(self.file.reader(), target);
 
     try self.file.seekTo(self.library_offset);
 
@@ -237,10 +237,10 @@ pub fn parse(self: *Dylib, allocator: *Allocator, arch: Arch) !void {
         return error.NotDylib;
     }
 
-    const this_arch: Arch = try fat.decodeArch(self.header.?.cputype, true);
+    const this_arch: std.Target.Cpu.Arch = try fat.decodeArch(self.header.?.cputype, true);
 
-    if (this_arch != arch) {
-        log.err("mismatched cpu architecture: expected {s}, found {s}", .{ arch, this_arch });
+    if (this_arch != target.cpu.arch) {
+        log.err("mismatched cpu architecture: expected {s}, found {s}", .{ target.cpu.arch, this_arch });
         return error.MismatchedCpuArchitecture;
     }
 
@@ -334,7 +334,61 @@ fn addObjCClassSymbols(self: *Dylib, allocator: *Allocator, sym_name: []const u8
     }
 }
 
-pub fn parseFromStub(self: *Dylib, allocator: *Allocator, arch: Arch, lib_stub: LibStub) !void {
+fn targetToAppleString(allocator: *Allocator, target: std.Target) ![]const u8 {
+    const arch = switch (target.cpu.arch) {
+        .aarch64 => "arm64",
+        .x86_64 => "x86_64",
+        else => unreachable,
+    };
+    const os = @tagName(target.os.tag);
+    const abi: ?[]const u8 = switch (target.abi) {
+        .gnu => null,
+        .simulator => "simulator",
+        else => unreachable,
+    };
+    if (abi) |x| {
+        return std.fmt.allocPrint(allocator, "{s}-{s}-{s}", .{ arch, os, x });
+    }
+    return std.fmt.allocPrint(allocator, "{s}-{s}", .{ arch, os });
+}
+
+const TargetMatcher = struct {
+    allocator: *Allocator,
+    target_strings: std.ArrayListUnmanaged([]const u8) = .{},
+
+    fn init(allocator: *Allocator, target: std.Target) !TargetMatcher {
+        var self = TargetMatcher{ .allocator = allocator };
+        try self.target_strings.append(allocator, try targetToAppleString(allocator, target));
+
+        if (target.abi == .simulator) {
+            // For Apple simulator targets, linking gets tricky as we need to link against the simulator
+            // hosts dylibs too.
+            const host_target = try targetToAppleString(allocator, (std.zig.CrossTarget{
+                .cpu_arch = target.cpu.arch,
+                .os_tag = .macos,
+            }).toTarget());
+            try self.target_strings.append(allocator, host_target);
+        }
+
+        return self;
+    }
+
+    fn deinit(self: *TargetMatcher) void {
+        for (self.target_strings.items) |t| {
+            self.allocator.free(t);
+        }
+        self.target_strings.deinit(self.allocator);
+    }
+
+    fn matches(self: TargetMatcher, targets: []const []const u8) bool {
+        for (self.target_strings.items) |t| {
+            if (hasTarget(targets, t)) return true;
+        }
+        return false;
+    }
+};
+
+pub fn parseFromStub(self: *Dylib, allocator: *Allocator, target: std.Target, lib_stub: LibStub) !void {
     if (lib_stub.inner.len == 0) return error.EmptyStubFile;
 
     log.debug("parsing shared library from stub '{s}'", .{self.name});
@@ -350,17 +404,14 @@ pub fn parseFromStub(self: *Dylib, allocator: *Allocator, arch: Arch, lib_stub: 
     }
     self.id = id;
 
-    const target_string: []const u8 = switch (arch) {
-        .aarch64 => "arm64-macos",
-        .x86_64 => "x86_64-macos",
-        else => unreachable,
-    };
+    var matcher = try TargetMatcher.init(allocator, target);
+    defer matcher.deinit();
 
     var umbrella_libs = std.StringHashMap(void).init(allocator);
     defer umbrella_libs.deinit();
 
     for (lib_stub.inner) |stub, stub_index| {
-        if (!hasTarget(stub.targets, target_string)) continue;
+        if (!matcher.matches(stub.targets)) continue;
 
         if (stub_index > 0) {
             // TODO I thought that we could switch on presence of `parent-umbrella` map;
@@ -371,7 +422,7 @@ pub fn parseFromStub(self: *Dylib, allocator: *Allocator, arch: Arch, lib_stub: 
 
         if (stub.exports) |exports| {
             for (exports) |exp| {
-                if (!hasTarget(exp.targets, target_string)) continue;
+                if (!matcher.matches(exp.targets)) continue;
 
                 if (exp.symbols) |symbols| {
                     for (symbols) |sym_name| {
@@ -390,7 +441,7 @@ pub fn parseFromStub(self: *Dylib, allocator: *Allocator, arch: Arch, lib_stub: 
 
         if (stub.reexports) |reexports| {
             for (reexports) |reexp| {
-                if (!hasTarget(reexp.targets, target_string)) continue;
+                if (!matcher.matches(reexp.targets)) continue;
 
                 if (reexp.symbols) |symbols| {
                     for (symbols) |sym_name| {
@@ -418,11 +469,11 @@ pub fn parseFromStub(self: *Dylib, allocator: *Allocator, arch: Arch, lib_stub: 
 
     // TODO track which libs were already parsed in different steps
     for (lib_stub.inner) |stub| {
-        if (!hasTarget(stub.targets, target_string)) continue;
+        if (!matcher.matches(stub.targets)) continue;
 
         if (stub.reexported_libraries) |reexports| {
             for (reexports) |reexp| {
-                if (!hasTarget(reexp.targets, target_string)) continue;
+                if (!matcher.matches(reexp.targets)) continue;
 
                 for (reexp.libraries) |lib| {
                     if (umbrella_libs.contains(lib)) {
@@ -443,7 +494,7 @@ pub fn parseFromStub(self: *Dylib, allocator: *Allocator, arch: Arch, lib_stub: 
 pub fn parseDependentLibs(
     self: *Dylib,
     allocator: *Allocator,
-    arch: Arch,
+    target: std.Target,
     out: *std.ArrayList(Dylib),
     syslibroot: ?[]const u8,
 ) !void {
@@ -475,7 +526,7 @@ pub fn parseDependentLibs(
 
             const dylibs = (try createAndParseFromPath(
                 allocator,
-                arch,
+                target,
                 full_path,
                 .{
                     .id = id,

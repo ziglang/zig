@@ -82,8 +82,8 @@ data_in_code_cmd_index: ?u16 = null,
 function_starts_cmd_index: ?u16 = null,
 main_cmd_index: ?u16 = null,
 dylib_id_cmd_index: ?u16 = null,
-version_min_cmd_index: ?u16 = null,
 source_version_cmd_index: ?u16 = null,
+build_version_cmd_index: ?u16 = null,
 uuid_cmd_index: ?u16 = null,
 code_signature_cmd_index: ?u16 = null,
 /// Path to libSystem
@@ -794,15 +794,14 @@ fn linkWithZld(self: *MachO, comp: *Compilation) !void {
             }
         }
 
-        // If we're compiling native and we can find libSystem.B.{dylib, tbd},
-        // we link against that instead of embedded libSystem.B.tbd file.
-        var native_libsystem_available = false;
-        if (self.base.options.is_native_os) blk: {
+        // If we were given the sysroot, try to look there first for libSystem.B.{dylib, tbd}.
+        var libsystem_available = false;
+        if (self.base.options.sysroot != null) blk: {
             // Try stub file first. If we hit it, then we're done as the stub file
             // re-exports every single symbol definition.
             if (try resolveLib(arena, lib_dirs.items, "System", ".tbd")) |full_path| {
                 try libs.append(full_path);
-                native_libsystem_available = true;
+                libsystem_available = true;
                 break :blk;
             }
             // If we didn't hit the stub file, try .dylib next. However, libSystem.dylib
@@ -811,12 +810,12 @@ fn linkWithZld(self: *MachO, comp: *Compilation) !void {
                 if (try resolveLib(arena, lib_dirs.items, "c", ".dylib")) |libc_path| {
                     try libs.append(libsystem_path);
                     try libs.append(libc_path);
-                    native_libsystem_available = true;
+                    libsystem_available = true;
                     break :blk;
                 }
             }
         }
-        if (!native_libsystem_available) {
+        if (!libsystem_available) {
             const full_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
                 "libc", "darwin", "libSystem.B.tbd",
             });
@@ -841,7 +840,7 @@ fn linkWithZld(self: *MachO, comp: *Compilation) !void {
                     break;
                 }
             } else {
-                log.warn("framework not found for '-f{s}'", .{framework});
+                log.warn("framework not found for '-framework {s}'", .{framework});
                 framework_not_found = true;
             }
         }
@@ -901,10 +900,8 @@ fn linkWithZld(self: *MachO, comp: *Compilation) !void {
             try argv.append("-o");
             try argv.append(full_out_path);
 
-            if (native_libsystem_available) {
-                try argv.append("-lSystem");
-                try argv.append("-lc");
-            }
+            try argv.append("-lSystem");
+            try argv.append("-lc");
 
             for (search_lib_names.items) |l_name| {
                 try argv.append(try std.fmt.allocPrint(arena, "-l{s}", .{l_name}));
@@ -912,6 +909,14 @@ fn linkWithZld(self: *MachO, comp: *Compilation) !void {
 
             for (self.base.options.lib_dirs) |lib_dir| {
                 try argv.append(try std.fmt.allocPrint(arena, "-L{s}", .{lib_dir}));
+            }
+
+            for (self.base.options.frameworks) |framework| {
+                try argv.append(try std.fmt.allocPrint(arena, "-framework {s}", .{framework}));
+            }
+
+            for (self.base.options.framework_dirs) |framework_dir| {
+                try argv.append(try std.fmt.allocPrint(arena, "-F{s}", .{framework_dir}));
             }
 
             Compilation.dump_argv(argv.items);
@@ -990,7 +995,6 @@ fn linkWithZld(self: *MachO, comp: *Compilation) !void {
 }
 
 fn parseInputFiles(self: *MachO, files: []const []const u8, syslibroot: ?[]const u8) !void {
-    const arch = self.base.options.target.cpu.arch;
     for (files) |file_name| {
         const full_path = full_path: {
             var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
@@ -999,17 +1003,17 @@ fn parseInputFiles(self: *MachO, files: []const []const u8, syslibroot: ?[]const
         };
         defer self.base.allocator.free(full_path);
 
-        if (try Object.createAndParseFromPath(self.base.allocator, arch, full_path)) |object| {
+        if (try Object.createAndParseFromPath(self.base.allocator, self.base.options.target, full_path)) |object| {
             try self.objects.append(self.base.allocator, object);
             continue;
         }
 
-        if (try Archive.createAndParseFromPath(self.base.allocator, arch, full_path)) |archive| {
+        if (try Archive.createAndParseFromPath(self.base.allocator, self.base.options.target, full_path)) |archive| {
             try self.archives.append(self.base.allocator, archive);
             continue;
         }
 
-        if (try Dylib.createAndParseFromPath(self.base.allocator, arch, full_path, .{
+        if (try Dylib.createAndParseFromPath(self.base.allocator, self.base.options.target, full_path, .{
             .syslibroot = syslibroot,
         })) |dylibs| {
             defer self.base.allocator.free(dylibs);
@@ -1027,9 +1031,8 @@ fn parseInputFiles(self: *MachO, files: []const []const u8, syslibroot: ?[]const
 }
 
 fn parseLibs(self: *MachO, libs: []const []const u8, syslibroot: ?[]const u8) !void {
-    const arch = self.base.options.target.cpu.arch;
     for (libs) |lib| {
-        if (try Dylib.createAndParseFromPath(self.base.allocator, arch, lib, .{
+        if (try Dylib.createAndParseFromPath(self.base.allocator, self.base.options.target, lib, .{
             .syslibroot = syslibroot,
         })) |dylibs| {
             defer self.base.allocator.free(dylibs);
@@ -1042,7 +1045,7 @@ fn parseLibs(self: *MachO, libs: []const []const u8, syslibroot: ?[]const u8) !v
             continue;
         }
 
-        if (try Archive.createAndParseFromPath(self.base.allocator, arch, lib)) |archive| {
+        if (try Archive.createAndParseFromPath(self.base.allocator, self.base.options.target, lib)) |archive| {
             try self.archives.append(self.base.allocator, archive);
             continue;
         }
@@ -2231,11 +2234,7 @@ fn resolveSymbols(self: *MachO) !void {
 
             const object_id = @intCast(u16, self.objects.items.len);
             const object = try self.objects.addOne(self.base.allocator);
-            object.* = try archive.parseObject(
-                self.base.allocator,
-                self.base.options.target.cpu.arch,
-                offsets.items[0],
-            );
+            object.* = try archive.parseObject(self.base.allocator, self.base.options.target, offsets.items[0]);
             try self.resolveSymbolsInObject(object_id);
 
             continue :loop;
@@ -2717,27 +2716,6 @@ fn populateMetadata(self: *MachO) !void {
         try self.load_commands.append(self.base.allocator, .{ .Dylib = dylib_cmd });
     }
 
-    if (self.version_min_cmd_index == null) {
-        self.version_min_cmd_index = @intCast(u16, self.load_commands.items.len);
-        const cmd: u32 = switch (self.base.options.target.os.tag) {
-            .macos => macho.LC_VERSION_MIN_MACOSX,
-            .ios => macho.LC_VERSION_MIN_IPHONEOS,
-            .tvos => macho.LC_VERSION_MIN_TVOS,
-            .watchos => macho.LC_VERSION_MIN_WATCHOS,
-            else => unreachable, // wrong OS
-        };
-        const ver = self.base.options.target.os.version_range.semver.min;
-        const version = ver.major << 16 | ver.minor << 8 | ver.patch;
-        try self.load_commands.append(self.base.allocator, .{
-            .VersionMin = .{
-                .cmd = cmd,
-                .cmdsize = @sizeOf(macho.version_min_command),
-                .version = version,
-                .sdk = version,
-            },
-        });
-    }
-
     if (self.source_version_cmd_index == null) {
         self.source_version_cmd_index = @intCast(u16, self.load_commands.items.len);
         try self.load_commands.append(self.base.allocator, .{
@@ -2747,6 +2725,40 @@ fn populateMetadata(self: *MachO) !void {
                 .version = 0x0,
             },
         });
+    }
+
+    if (self.build_version_cmd_index == null) {
+        self.build_version_cmd_index = @intCast(u16, self.load_commands.items.len);
+        const cmdsize = @intCast(u32, mem.alignForwardGeneric(
+            u64,
+            @sizeOf(macho.build_version_command) + @sizeOf(macho.build_tool_version),
+            @sizeOf(u64),
+        ));
+        const ver = self.base.options.target.os.version_range.semver.min;
+        const version = ver.major << 16 | ver.minor << 8 | ver.patch;
+        const is_simulator_abi = self.base.options.target.abi == .simulator;
+        var cmd = commands.emptyGenericCommandWithData(macho.build_version_command{
+            .cmd = macho.LC_BUILD_VERSION,
+            .cmdsize = cmdsize,
+            .platform = switch (self.base.options.target.os.tag) {
+                .macos => macho.PLATFORM_MACOS,
+                .ios => if (is_simulator_abi) macho.PLATFORM_IOSSIMULATOR else macho.PLATFORM_IOS,
+                .watchos => if (is_simulator_abi) macho.PLATFORM_WATCHOSSIMULATOR else macho.PLATFORM_WATCHOS,
+                .tvos => if (is_simulator_abi) macho.PLATFORM_TVOSSIMULATOR else macho.PLATFORM_TVOS,
+                else => unreachable,
+            },
+            .minos = version,
+            .sdk = version,
+            .ntools = 1,
+        });
+        const ld_ver = macho.build_tool_version{
+            .tool = macho.TOOL_LD,
+            .version = 0x0,
+        };
+        cmd.data = try self.base.allocator.alloc(u8, cmdsize - @sizeOf(macho.build_version_command));
+        mem.set(u8, cmd.data, 0);
+        mem.copy(u8, cmd.data, mem.asBytes(&ld_ver));
+        try self.load_commands.append(self.base.allocator, .{ .BuildVersion = cmd });
     }
 
     if (self.uuid_cmd_index == null) {
@@ -2880,11 +2892,6 @@ fn flushZld(self: *MachO) !void {
     if (self.base.options.target.cpu.arch == .aarch64) {
         try self.writeCodeSignature();
     }
-
-    // if (comptime std.Target.current.isDarwin() and std.Target.current.cpu.arch == .aarch64) {
-    //     const out_path = self.output.?.path;
-    //     try fs.cwd().copyFile(out_path, fs.cwd(), out_path, .{});
-    // }
 }
 
 fn writeGotEntries(self: *MachO) !void {
@@ -4340,26 +4347,38 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         });
         self.load_commands_dirty = true;
     }
-    if (self.version_min_cmd_index == null) {
-        self.version_min_cmd_index = @intCast(u16, self.load_commands.items.len);
-        const cmd: u32 = switch (self.base.options.target.os.tag) {
-            .macos => macho.LC_VERSION_MIN_MACOSX,
-            .ios => macho.LC_VERSION_MIN_IPHONEOS,
-            .tvos => macho.LC_VERSION_MIN_TVOS,
-            .watchos => macho.LC_VERSION_MIN_WATCHOS,
-            else => unreachable, // wrong OS
-        };
+    if (self.build_version_cmd_index == null) {
+        self.build_version_cmd_index = @intCast(u16, self.load_commands.items.len);
+        const cmdsize = @intCast(u32, mem.alignForwardGeneric(
+            u64,
+            @sizeOf(macho.build_version_command) + @sizeOf(macho.build_tool_version),
+            @sizeOf(u64),
+        ));
         const ver = self.base.options.target.os.version_range.semver.min;
         const version = ver.major << 16 | ver.minor << 8 | ver.patch;
-        try self.load_commands.append(self.base.allocator, .{
-            .VersionMin = .{
-                .cmd = cmd,
-                .cmdsize = @sizeOf(macho.version_min_command),
-                .version = version,
-                .sdk = version,
+        const is_simulator_abi = self.base.options.target.abi == .simulator;
+        var cmd = commands.emptyGenericCommandWithData(macho.build_version_command{
+            .cmd = macho.LC_BUILD_VERSION,
+            .cmdsize = cmdsize,
+            .platform = switch (self.base.options.target.os.tag) {
+                .macos => macho.PLATFORM_MACOS,
+                .ios => if (is_simulator_abi) macho.PLATFORM_IOSSIMULATOR else macho.PLATFORM_IOS,
+                .watchos => if (is_simulator_abi) macho.PLATFORM_WATCHOSSIMULATOR else macho.PLATFORM_WATCHOS,
+                .tvos => if (is_simulator_abi) macho.PLATFORM_TVOSSIMULATOR else macho.PLATFORM_TVOS,
+                else => unreachable,
             },
+            .minos = version,
+            .sdk = version,
+            .ntools = 1,
         });
-        self.load_commands_dirty = true;
+        const ld_ver = macho.build_tool_version{
+            .tool = macho.TOOL_LD,
+            .version = 0x0,
+        };
+        cmd.data = try self.base.allocator.alloc(u8, cmdsize - @sizeOf(macho.build_version_command));
+        mem.set(u8, cmd.data, 0);
+        mem.copy(u8, cmd.data, mem.asBytes(&ld_ver));
+        try self.load_commands.append(self.base.allocator, .{ .BuildVersion = cmd });
     }
     if (self.source_version_cmd_index == null) {
         self.source_version_cmd_index = @intCast(u16, self.load_commands.items.len);

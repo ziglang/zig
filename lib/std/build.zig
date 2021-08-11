@@ -2672,7 +2672,11 @@ pub const LibExeObjStep = struct {
                     try zig_args.append(self.builder.pathFromRoot(include_path));
                 },
                 .raw_path_system => |include_path| {
-                    try zig_args.append("-isystem");
+                    if (builder.sysroot != null) {
+                        try zig_args.append("-iwithsysroot");
+                    } else {
+                        try zig_args.append("-isystem");
+                    }
                     try zig_args.append(self.builder.pathFromRoot(include_path));
                 },
                 .other_step => |other| if (other.emit_h) {
@@ -2700,6 +2704,12 @@ pub const LibExeObjStep = struct {
 
         if (self.target.isDarwin()) {
             for (self.framework_dirs.items) |dir| {
+                if (builder.sysroot != null) {
+                    try zig_args.append("-iframeworkwithsysroot");
+                } else {
+                    try zig_args.append("-iframework");
+                }
+                try zig_args.append(dir);
                 try zig_args.append("-F");
                 try zig_args.append(dir);
             }

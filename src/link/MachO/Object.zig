@@ -15,7 +15,6 @@ const segmentName = commands.segmentName;
 const sectionName = commands.sectionName;
 
 const Allocator = mem.Allocator;
-const Arch = std.Target.Cpu.Arch;
 const LoadCommand = commands.LoadCommand;
 const MachO = @import("../MachO.zig");
 const TextBlock = @import("TextBlock.zig");
@@ -154,7 +153,7 @@ pub fn deinit(self: *Object, allocator: *Allocator) void {
     }
 }
 
-pub fn createAndParseFromPath(allocator: *Allocator, arch: Arch, path: []const u8) !?Object {
+pub fn createAndParseFromPath(allocator: *Allocator, target: std.Target, path: []const u8) !?Object {
     const file = fs.cwd().openFile(path, .{}) catch |err| switch (err) {
         error.FileNotFound => return null,
         else => |e| return e,
@@ -169,7 +168,7 @@ pub fn createAndParseFromPath(allocator: *Allocator, arch: Arch, path: []const u
         .file = file,
     };
 
-    object.parse(allocator, arch) catch |err| switch (err) {
+    object.parse(allocator, target) catch |err| switch (err) {
         error.EndOfStream, error.NotObject => {
             object.deinit(allocator);
             return null;
@@ -180,7 +179,7 @@ pub fn createAndParseFromPath(allocator: *Allocator, arch: Arch, path: []const u
     return object;
 }
 
-pub fn parse(self: *Object, allocator: *Allocator, arch: Arch) !void {
+pub fn parse(self: *Object, allocator: *Allocator, target: std.Target) !void {
     const reader = self.file.reader();
     if (self.file_offset) |offset| {
         try reader.context.seekTo(offset);
@@ -195,7 +194,7 @@ pub fn parse(self: *Object, allocator: *Allocator, arch: Arch) !void {
         return error.NotObject;
     }
 
-    const this_arch: Arch = switch (header.cputype) {
+    const this_arch: std.Target.Cpu.Arch = switch (header.cputype) {
         macho.CPU_TYPE_ARM64 => .aarch64,
         macho.CPU_TYPE_X86_64 => .x86_64,
         else => |value| {
@@ -203,8 +202,8 @@ pub fn parse(self: *Object, allocator: *Allocator, arch: Arch) !void {
             return error.UnsupportedCpuArchitecture;
         },
     };
-    if (this_arch != arch) {
-        log.err("mismatched cpu architecture: expected {s}, found {s}", .{ arch, this_arch });
+    if (this_arch != target.cpu.arch) {
+        log.err("mismatched cpu architecture: expected {s}, found {s}", .{ target.cpu.arch, this_arch });
         return error.MismatchedCpuArchitecture;
     }
 
