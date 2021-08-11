@@ -153,32 +153,6 @@ pub fn deinit(self: *Object, allocator: *Allocator) void {
     }
 }
 
-pub fn createAndParseFromPath(allocator: *Allocator, target: std.Target, path: []const u8) !?Object {
-    const file = fs.cwd().openFile(path, .{}) catch |err| switch (err) {
-        error.FileNotFound => return null,
-        else => |e| return e,
-    };
-    errdefer file.close();
-
-    const name = try allocator.dupe(u8, path);
-    errdefer allocator.free(name);
-
-    var object = Object{
-        .name = name,
-        .file = file,
-    };
-
-    object.parse(allocator, target) catch |err| switch (err) {
-        error.EndOfStream, error.NotObject => {
-            object.deinit(allocator);
-            return null;
-        },
-        else => |e| return e,
-    };
-
-    return object;
-}
-
 pub fn parse(self: *Object, allocator: *Allocator, target: std.Target) !void {
     const reader = self.file.reader();
     if (self.file_offset) |offset| {

@@ -73,7 +73,7 @@ pub const Id = struct {
         allocator.free(id.name);
     }
 
-    const ParseError = fmt.ParseIntError || fmt.BufPrintError;
+    pub const ParseError = fmt.ParseIntError || fmt.BufPrintError;
 
     pub fn parseCurrentVersion(id: *Id, version: anytype) ParseError!void {
         id.current_version = try parseVersion(version);
@@ -109,7 +109,7 @@ pub const Id = struct {
         var count: u4 = 0;
         while (split.next()) |value| {
             if (count > 2) {
-                log.warn("malformed version field: {s}", .{string});
+                log.debug("malformed version field: {s}", .{string});
                 return 0x10000;
             }
             values[count] = value;
@@ -127,78 +127,6 @@ pub const Id = struct {
         return out;
     }
 };
-
-pub const Error = error{
-    OutOfMemory,
-    EmptyStubFile,
-    MismatchedCpuArchitecture,
-    UnsupportedCpuArchitecture,
-} || fs.File.OpenError || std.os.PReadError || Id.ParseError;
-
-pub const CreateOpts = struct {
-    syslibroot: ?[]const u8 = null,
-    id: ?Id = null,
-    target: ?std.Target = null,
-};
-
-pub fn createAndParseFromPath(
-    allocator: *Allocator,
-    target: std.Target,
-    path: []const u8,
-    opts: CreateOpts,
-) Error!?[]Dylib {
-    const file = fs.cwd().openFile(path, .{}) catch |err| switch (err) {
-        error.FileNotFound => return null,
-        else => |e| return e,
-    };
-    errdefer file.close();
-
-    const name = try allocator.dupe(u8, path);
-    errdefer allocator.free(name);
-
-    var dylib = Dylib{
-        .name = name,
-        .file = file,
-    };
-
-    dylib.parse(allocator, target) catch |err| switch (err) {
-        error.EndOfStream, error.NotDylib => {
-            try file.seekTo(0);
-
-            var lib_stub = LibStub.loadFromFile(allocator, file) catch {
-                dylib.deinit(allocator);
-                return null;
-            };
-            defer lib_stub.deinit();
-
-            try dylib.parseFromStub(allocator, target, lib_stub);
-        },
-        else => |e| return e,
-    };
-
-    if (opts.id) |id| {
-        if (dylib.id.?.current_version < id.compatibility_version) {
-            log.warn("found dylib is incompatible with the required minimum version", .{});
-            log.warn("  | dylib: {s}", .{id.name});
-            log.warn("  | required minimum version: {}", .{id.compatibility_version});
-            log.warn("  | dylib version: {}", .{dylib.id.?.current_version});
-
-            // TODO maybe this should be an error and facilitate auto-cleanup?
-            dylib.deinit(allocator);
-            return null;
-        }
-    }
-
-    var dylibs = std.ArrayList(Dylib).init(allocator);
-    defer dylibs.deinit();
-
-    try dylibs.append(dylib);
-    // TODO this should not be performed if the user specifies `-flat_namespace` flag.
-    // See ld64 manpages.
-    try dylib.parseDependentLibs(allocator, target, &dylibs, opts.syslibroot);
-
-    return dylibs.toOwnedSlice();
-}
 
 pub fn deinit(self: *Dylib, allocator: *Allocator) void {
     for (self.load_commands.items) |*lc| {
@@ -315,14 +243,7 @@ fn parseSymbols(self: *Dylib, allocator: *Allocator) !void {
     }
 }
 
-fn hasTarget(targets: []const []const u8, target: []const u8) bool {
-    for (targets) |t| {
-        if (mem.eql(u8, t, target)) return true;
-    }
-    return false;
-}
-
-fn addObjCClassSymbols(self: *Dylib, allocator: *Allocator, sym_name: []const u8) !void {
+fn addObjCClassSymbol(self: *Dylib, allocator: *Allocator, sym_name: []const u8) !void {
     const expanded = &[_][]const u8{
         try std.fmt.allocPrint(allocator, "_OBJC_CLASS_$_{s}", .{sym_name}),
         try std.fmt.allocPrint(allocator, "_OBJC_METACLASS_$_{s}", .{sym_name}),
@@ -334,30 +255,21 @@ fn addObjCClassSymbols(self: *Dylib, allocator: *Allocator, sym_name: []const u8
     }
 }
 
-fn targetToAppleString(allocator: *Allocator, target: std.Target) ![]const u8 {
-    const arch = switch (target.cpu.arch) {
-        .aarch64 => "arm64",
-        .x86_64 => "x86_64",
-        else => unreachable,
-    };
-    const os = @tagName(target.os.tag);
-    const abi: ?[]const u8 = switch (target.abi) {
-        .gnu => null,
-        .simulator => "simulator",
-        else => unreachable,
-    };
-    if (abi) |x| {
-        return std.fmt.allocPrint(allocator, "{s}-{s}-{s}", .{ arch, os, x });
-    }
-    return std.fmt.allocPrint(allocator, "{s}-{s}", .{ arch, os });
+fn addSymbol(self: *Dylib, allocator: *Allocator, sym_name: []const u8) !void {
+    if (self.symbols.contains(sym_name)) return;
+    try self.symbols.putNoClobber(allocator, try allocator.dupe(u8, sym_name), {});
 }
 
 const TargetMatcher = struct {
     allocator: *Allocator,
+    target: std.Target,
     target_strings: std.ArrayListUnmanaged([]const u8) = .{},
 
     fn init(allocator: *Allocator, target: std.Target) !TargetMatcher {
-        var self = TargetMatcher{ .allocator = allocator };
+        var self = TargetMatcher{
+            .allocator = allocator,
+            .target = target,
+        };
         try self.target_strings.append(allocator, try targetToAppleString(allocator, target));
 
         if (target.abi == .simulator) {
@@ -380,11 +292,40 @@ const TargetMatcher = struct {
         self.target_strings.deinit(self.allocator);
     }
 
-    fn matches(self: TargetMatcher, targets: []const []const u8) bool {
-        for (self.target_strings.items) |t| {
-            if (hasTarget(targets, t)) return true;
+    fn targetToAppleString(allocator: *Allocator, target: std.Target) ![]const u8 {
+        const arch = switch (target.cpu.arch) {
+            .aarch64 => "arm64",
+            .x86_64 => "x86_64",
+            else => unreachable,
+        };
+        const os = @tagName(target.os.tag);
+        const abi: ?[]const u8 = switch (target.abi) {
+            .gnu => null,
+            .simulator => "simulator",
+            else => unreachable,
+        };
+        if (abi) |x| {
+            return std.fmt.allocPrint(allocator, "{s}-{s}-{s}", .{ arch, os, x });
+        }
+        return std.fmt.allocPrint(allocator, "{s}-{s}", .{ arch, os });
+    }
+
+    fn hasValue(stack: []const []const u8, needle: []const u8) bool {
+        for (stack) |v| {
+            if (mem.eql(u8, v, needle)) return true;
         }
         return false;
+    }
+
+    fn matchesTarget(self: TargetMatcher, targets: []const []const u8) bool {
+        for (self.target_strings.items) |t| {
+            if (hasValue(targets, t)) return true;
+        }
+        return false;
+    }
+
+    fn matchesArch(self: TargetMatcher, archs: []const []const u8) bool {
+        return hasValue(archs, @tagName(self.target.cpu.arch));
     }
 };
 
@@ -395,93 +336,130 @@ pub fn parseFromStub(self: *Dylib, allocator: *Allocator, target: std.Target, li
 
     const umbrella_lib = lib_stub.inner[0];
 
-    var id = try Id.default(allocator, umbrella_lib.install_name);
-    if (umbrella_lib.current_version) |version| {
+    var id = try Id.default(allocator, umbrella_lib.installName());
+    if (umbrella_lib.currentVersion()) |version| {
         try id.parseCurrentVersion(version);
     }
-    if (umbrella_lib.compatibility_version) |version| {
+    if (umbrella_lib.compatibilityVersion()) |version| {
         try id.parseCompatibilityVersion(version);
     }
     self.id = id;
 
-    var matcher = try TargetMatcher.init(allocator, target);
-    defer matcher.deinit();
-
     var umbrella_libs = std.StringHashMap(void).init(allocator);
     defer umbrella_libs.deinit();
 
-    for (lib_stub.inner) |stub, stub_index| {
-        if (!matcher.matches(stub.targets)) continue;
+    log.debug("  (install_name '{s}')", .{umbrella_lib.installName()});
+
+    var matcher = try TargetMatcher.init(allocator, target);
+    defer matcher.deinit();
+
+    for (lib_stub.inner) |elem, stub_index| {
+        const is_match = switch (elem) {
+            .v3 => |stub| matcher.matchesArch(stub.archs),
+            .v4 => |stub| matcher.matchesTarget(stub.targets),
+        };
+        if (!is_match) continue;
 
         if (stub_index > 0) {
             // TODO I thought that we could switch on presence of `parent-umbrella` map;
             // however, turns out `libsystem_notify.dylib` is fully reexported by `libSystem.dylib`
             // BUT does not feature a `parent-umbrella` map as the only sublib. Apple's bug perhaps?
-            try umbrella_libs.put(stub.install_name, .{});
+            try umbrella_libs.put(elem.installName(), .{});
         }
 
-        if (stub.exports) |exports| {
-            for (exports) |exp| {
-                if (!matcher.matches(exp.targets)) continue;
+        switch (elem) {
+            .v3 => |stub| {
+                if (stub.exports) |exports| {
+                    for (exports) |exp| {
+                        if (!matcher.matchesArch(exp.archs)) continue;
 
-                if (exp.symbols) |symbols| {
-                    for (symbols) |sym_name| {
-                        if (self.symbols.contains(sym_name)) continue;
-                        try self.symbols.putNoClobber(allocator, try allocator.dupe(u8, sym_name), {});
+                        if (exp.symbols) |symbols| {
+                            for (symbols) |sym_name| {
+                                try self.addSymbol(allocator, sym_name);
+                            }
+                        }
+
+                        if (exp.objc_classes) |objc_classes| {
+                            for (objc_classes) |class_name| {
+                                try self.addObjCClassSymbol(allocator, class_name);
+                            }
+                        }
+
+                        // TODO track which libs were already parsed in different steps
+                        if (exp.re_exports) |re_exports| {
+                            for (re_exports) |lib| {
+                                if (umbrella_libs.contains(lib)) continue;
+
+                                log.debug("  (found re-export '{s}')", .{lib});
+
+                                const dep_id = try Id.default(allocator, lib);
+                                try self.dependent_libs.append(allocator, dep_id);
+                            }
+                        }
+                    }
+                }
+            },
+            .v4 => |stub| {
+                if (stub.exports) |exports| {
+                    for (exports) |exp| {
+                        if (!matcher.matchesTarget(exp.targets)) continue;
+
+                        if (exp.symbols) |symbols| {
+                            for (symbols) |sym_name| {
+                                try self.addSymbol(allocator, sym_name);
+                            }
+                        }
+
+                        if (exp.objc_classes) |classes| {
+                            for (classes) |sym_name| {
+                                try self.addObjCClassSymbol(allocator, sym_name);
+                            }
+                        }
                     }
                 }
 
-                if (exp.objc_classes) |classes| {
+                if (stub.reexports) |reexports| {
+                    for (reexports) |reexp| {
+                        if (!matcher.matchesTarget(reexp.targets)) continue;
+
+                        if (reexp.symbols) |symbols| {
+                            for (symbols) |sym_name| {
+                                try self.addSymbol(allocator, sym_name);
+                            }
+                        }
+
+                        if (reexp.objc_classes) |classes| {
+                            for (classes) |sym_name| {
+                                try self.addObjCClassSymbol(allocator, sym_name);
+                            }
+                        }
+                    }
+                }
+
+                if (stub.objc_classes) |classes| {
                     for (classes) |sym_name| {
-                        try self.addObjCClassSymbols(allocator, sym_name);
+                        try self.addObjCClassSymbol(allocator, sym_name);
                     }
                 }
-            }
-        }
-
-        if (stub.reexports) |reexports| {
-            for (reexports) |reexp| {
-                if (!matcher.matches(reexp.targets)) continue;
-
-                if (reexp.symbols) |symbols| {
-                    for (symbols) |sym_name| {
-                        if (self.symbols.contains(sym_name)) continue;
-                        try self.symbols.putNoClobber(allocator, try allocator.dupe(u8, sym_name), {});
-                    }
-                }
-
-                if (reexp.objc_classes) |classes| {
-                    for (classes) |sym_name| {
-                        try self.addObjCClassSymbols(allocator, sym_name);
-                    }
-                }
-            }
-        }
-
-        if (stub.objc_classes) |classes| {
-            for (classes) |sym_name| {
-                try self.addObjCClassSymbols(allocator, sym_name);
-            }
+            },
         }
     }
 
-    log.debug("{s}", .{umbrella_lib.install_name});
+    // For V4, we add dependent libs in a separate pass since some stubs such as libSystem include
+    // re-exports directly in the stub file.
+    for (lib_stub.inner) |elem| {
+        if (elem == .v3) break;
+        const stub = elem.v4;
 
-    // TODO track which libs were already parsed in different steps
-    for (lib_stub.inner) |stub| {
-        if (!matcher.matches(stub.targets)) continue;
-
+        // TODO track which libs were already parsed in different steps
         if (stub.reexported_libraries) |reexports| {
             for (reexports) |reexp| {
-                if (!matcher.matches(reexp.targets)) continue;
+                if (!matcher.matchesTarget(reexp.targets)) continue;
 
                 for (reexp.libraries) |lib| {
-                    if (umbrella_libs.contains(lib)) {
-                        log.debug("  | {s} <= {s}", .{ lib, umbrella_lib.install_name });
-                        continue;
-                    }
+                    if (umbrella_libs.contains(lib)) continue;
 
-                    log.debug("  | {s}", .{lib});
+                    log.debug("  (found re-export '{s}')", .{lib});
 
                     const dep_id = try Id.default(allocator, lib);
                     try self.dependent_libs.append(allocator, dep_id);
@@ -493,12 +471,12 @@ pub fn parseFromStub(self: *Dylib, allocator: *Allocator, target: std.Target, li
 
 pub fn parseDependentLibs(
     self: *Dylib,
-    allocator: *Allocator,
-    target: std.Target,
-    out: *std.ArrayList(Dylib),
+    macho_file: *MachO,
     syslibroot: ?[]const u8,
 ) !void {
     outer: for (self.dependent_libs.items) |id| {
+        if (macho_file.dylibs_map.contains(id.name)) continue :outer;
+
         const has_ext = blk: {
             const basename = fs.path.basename(id.name);
             break :blk mem.lastIndexOfScalar(u8, basename, '.') != null;
@@ -510,38 +488,28 @@ pub fn parseDependentLibs(
         } else id.name;
 
         for (&[_][]const u8{ extension, ".tbd" }) |ext| {
-            const with_ext = try std.fmt.allocPrint(allocator, "{s}{s}", .{
+            const with_ext = try std.fmt.allocPrint(macho_file.base.allocator, "{s}{s}", .{
                 without_ext,
                 ext,
             });
-            defer allocator.free(with_ext);
+            defer macho_file.base.allocator.free(with_ext);
 
             const full_path = if (syslibroot) |root|
-                try fs.path.join(allocator, &.{ root, with_ext })
+                try fs.path.join(macho_file.base.allocator, &.{ root, with_ext })
             else
                 with_ext;
-            defer if (syslibroot) |_| allocator.free(full_path);
+            defer if (syslibroot) |_| macho_file.base.allocator.free(full_path);
 
             log.debug("trying dependency at fully resolved path {s}", .{full_path});
 
-            const dylibs = (try createAndParseFromPath(
-                allocator,
-                target,
-                full_path,
-                .{
-                    .id = id,
-                    .syslibroot = syslibroot,
-                },
-            )) orelse {
-                continue;
-            };
-            defer allocator.free(dylibs);
-
-            try out.appendSlice(dylibs);
-
-            continue :outer;
+            const did_parse_successfully = try macho_file.parseDylib(full_path, .{
+                .id = id,
+                .syslibroot = syslibroot,
+                .is_dependent = true,
+            });
+            if (!did_parse_successfully) continue;
         } else {
-            log.warn("unable to resolve dependency {s}", .{id.name});
+            log.debug("unable to resolve dependency {s}", .{id.name});
         }
     }
 }
