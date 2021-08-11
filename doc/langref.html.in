@@ -6,225 +6,312 @@
     <title>Documentation - The Zig Programming Language</title>
     <link rel="icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAgklEQVR4AWMYWuD7EllJIM4G4g4g5oIJ/odhOJ8wToOxSTXgNxDHoeiBMfA4+wGShjyYOCkG/IGqWQziEzYAoUAeiF9D5U+DxEg14DRU7jWIT5IBIOdCxf+A+CQZAAoopEB7QJwBCBwHiip8UYmRdrAlDpIMgApwQZNnNii5Dq0MBgCxxycBnwEd+wAAAABJRU5ErkJggg=="/>
     <style>
+      :root{
+         --nav-width: 24em;
+         --nav-margin-l: 1em;
+      }
       body{
         font-family: system-ui, -apple-system, Roboto, "Segoe UI", sans-serif;
         margin: 0;
+        line-height: 1.5;
       }
-      a:not(:hover) {
-        text-decoration: none;
+      header {
+        padding: 0 1em;
       }
-      table, th, td {
-        border-collapse: collapse;
-        border: 1px solid grey;
-      }
-      th, td {
-        padding: 0.1em;
-      }
-      .t0_1, .t37, .t37_1 {
-        font-weight: bold;
-      }
-      .t2_0 {
-        color: grey;
-      }
-      .t31_1 {
-        color: red;
-      }
-      .t32_1 {
-        color: green;
-      }
-      .t36_1 {
-        color: #0086b3;
-      }
-      .file {
-        text-decoration: underline;
-      }
-      pre > code {
-        display: block;
-        overflow: auto;
-        padding: 0.5em;
-        color: #333;
-        background: #f8f8f8;
-        border: 1px dotted silver;
-        line-height: normal;
-      }
-      code {
-        background-color: #f8f8f8;
-        border: 1px dotted silver;
-        padding-left: 0.3em;
-        padding-right: 0.3em;
-      }
-      .table-wrapper {
-        width: 100%;
-        overflow-y: auto;
-      }
-
-      .tok-kw {
-          color: #333;
-          font-weight: bold;
-      }
-      .tok-str {
-          color: #d14;
-      }
-      .tok-builtin {
-          color: #0086b3;
-      }
-      .tok-comment {
-          color: #777;
-          font-style: italic;
-      }
-      .tok-fn {
-          color: #900;
-          font-weight: bold;
-      }
-      .tok-null {
-          color: #008080;
-      }
-      .tok-number {
-          color: #008080;
-      }
-      .tok-type {
-          color: #458;
-          font-weight: bold;
-      }
-
-      #main-wrapper {
-        display: flex;
-        flex-direction: column;
-      }
-
-      #contents-wrapper {
-        flex-grow: 1;
-        padding: 0 2em;
-      }
-
       #contents {
         max-width: 60em;
         margin: auto;
-        line-height: 1.5;
+        padding: 0 1em;
       }
-
-      #toc {
+      #navigation {
         padding: 0 1em;
       }
 
       @media screen and (min-width: 1025px) {
-        #main-wrapper {
-            flex-direction: row;
+        header {
+          margin-left: calc(var(--nav-width) + var(--nav-margin-l));
         }
-        #toc {
-            height: 100vh;
-            position: sticky;
-            top: 0;
+        header h1 {
+          margin: auto;
+          max-width: 30em;
         }
-        #contents-wrapper, #toc {
-            overflow: auto;
+        #navigation {
+          overflow: auto;
+          width: var(--nav-width);
+          height: 100vh;
+          position: fixed;
+          top:0;
+          left:0;
+          bottom:0;
+          padding: unset;
+          margin-left: var(--nav-margin-l);
         }
-      }
+        #navigation nav ul {
+          padding-left: 1em;
+        }
+        #contents-wrapper {
+          margin-left: calc(var(--nav-width) + var(--nav-margin-l));
+        }
+    }
 
-      h1 a, h2 a, h3 a, h4 a, h5 a {
-        text-decoration: none;
+    a:hover,a:focus {
+      background: #fff2a8;
+    }
+    dt {
+      font-weight: bold;
+    }
+    table, th, td {
+      border-collapse: collapse;
+      border: 1px solid grey;
+    }
+    th, td {
+      padding: 0.1em;
+    }
+    th[scope=row] {
+        text-align: left;
+        font-weight: normal;
+    }
+    .t0_1, .t37, .t37_1 {
+      font-weight: bold;
+    }
+    .t2_0 {
+      color: #575757;
+    }
+    .t31_1 {
+      color: #b40000;
+    }
+    .t32_1 {
+      color: green;
+    }
+    .t36_1 {
+      color: #005C7A;
+    }
+    .file {
+      font-weight: bold;
+      border: unset;
+    }
+    code {
+      background: #f8f8f8;
+      border: 1px dotted silver;
+      padding-left: 0.3em;
+      padding-right: 0.3em;
+    }
+    pre > code {
+      display: block;
+      overflow: auto;
+      padding: 0.5em;
+      border: 1px solid #eee;
+      line-height: normal;
+    }
+    samp {
+      background: #fafafa;
+    }
+    pre > samp {
+      display: block;
+      overflow: auto;
+      padding: 0.5em;
+      border: 1px solid #eee;
+      line-height: normal;
+    }
+    kbd {
+      font-weight: bold;
+    }
+    .table-wrapper {
+      width: 100%;
+      overflow-x: auto;
+    }
+
+    .tok-kw {
         color: #333;
-      }
+        font-weight: bold;
+    }
+    .tok-str {
+        color: #d14;
+    }
+    .tok-builtin {
+        color: #005C7A;
+    }
+    .tok-comment {
+        color: #545454;
+        font-style: italic;
+    }
+    .tok-fn {
+        color: #900;
+        font-weight: bold;
+    }
+    .tok-null {
+        color: #005C5C;
+    }
+    .tok-number {
+        color: #005C5C;
+    }
+    .tok-type {
+        color: #458;
+        font-weight: bold;
+    }
 
-      a.hdr {
-        visibility: hidden;
-      }
-      h1:hover > a.hdr, h2:hover > a.hdr, h3:hover > a.hdr, h4:hover > a.hdr, h5:hover > a.hdr {
-        visibility: visible;
-      }
+    figure {
+      margin: auto 0;
+    }
+    figure pre {
+      margin-top: 0;
+    }
 
-      @media (prefers-color-scheme: dark) {
-        body{
-            background-color:#111;
-            color: #bbb;
-        }
-        a {
-            color: #f7a31d;
-        }
-        table, th, td {
-            border-color: grey;
-        }
-        .t2_0 {
-            color: grey;
-        }
-        .t31_1 {
-            color: red;
-        }
-        .t32_1 {
-            color: green;
-        }
-        .t36_1 {
-            color: #0086b3;
-        }
-        pre > code {
-            color: #ccc;
-            background: #222;
-            border-color: #444;
-        }
-        code {
-          background-color: #222;
-          border-color: #444;
-        }
-        .tok-kw {
-            color: #eee;
-        }
-        .tok-str {
-            color: #2e5;
-        }
-        .tok-builtin {
-            color: #ff894c;
-        }
-        .tok-comment {
-            color: #aa7;
-        }
-        .tok-fn {
-            color: #e33;
-        }
-        .tok-null {
-            color: #ff8080;
-        }
-        .tok-number {
-            color: #ff8080;
-        }
-        .tok-type {
-            color: #68f;
-        }
-        h1 a, h2 a, h3 a, h4 a, h5 a {
-            color: #aaa;
-        }
+    figcaption {
+      padding-left: 0.5em;
+      font-size: small;
+      border-top-left-radius: 5px;
+      border-top-right-radius: 5px;
+    }
+    figcaption.zig-cap {
+      background: #fcdba5;
+    }
+    figcaption.c-cap {
+      background: #a8b9cc;
+      color: #000;
+    }
+    figcaption.javascript-cap {
+      background: #365d95;
+      color: #fff;
+    }
+    figcaption.shell-cap {
+      background: #ccc;
+      color: #000;
+    }
+
+    aside {
+      border-left: 0.25em solid #f7a41d;
+      padding: 0 1em 0 1em;
+    }
+
+    h1 a, h2 a, h3 a, h4 a, h5 a {
+      text-decoration: none;
+      color: #333;
+    }
+
+    a.hdr {
+      visibility: hidden;
+    }
+    h1:hover > a.hdr, h2:hover > a.hdr, h3:hover > a.hdr, h4:hover > a.hdr, h5:hover > a.hdr {
+      visibility: visible;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      body{
+          background:#121212;
+          color: #ccc;
       }
-    </style>
-  </head>
-  <body>
-    <div id="main-wrapper">
-      <div id="toc">
-        <a href="https://ziglang.org/documentation/0.1.1/">0.1.1</a> |
-        <a href="https://ziglang.org/documentation/0.2.0/">0.2.0</a> |
-        <a href="https://ziglang.org/documentation/0.3.0/">0.3.0</a> |
-        <a href="https://ziglang.org/documentation/0.4.0/">0.4.0</a> |
-        <a href="https://ziglang.org/documentation/0.5.0/">0.5.0</a> |
-        <a href="https://ziglang.org/documentation/0.6.0/">0.6.0</a> |
-        <a href="https://ziglang.org/documentation/0.7.1/">0.7.1</a> |
-        <a href="https://ziglang.org/documentation/0.8.1/">0.8.1</a> |
-        master
-        <h1>Contents</h1>
-        {#nav#}
+      a {
+          color: #88f;
+      }
+      a:hover,a:focus {
+          color: #000;
+      }
+      table, th, td {
+          border-color: grey;
+      }
+      .t2_0 {
+          color: grey;
+      }
+      .t31_1 {
+          color: red;
+      }
+      .t32_1 {
+          color: #00B800;
+      }
+      .t36_1 {
+          color: #0086b3;
+      }
+      code {
+        background: #222;
+        border-color: #444;
+      }
+      pre > code {
+          color: #ccc;
+          background: #222;
+          border: unset;
+      }
+      samp {
+        background: #000;
+        color: #ccc;
+      }
+      pre > samp {
+        border: unset;
+      }
+      .tok-kw {
+          color: #eee;
+      }
+      .tok-str {
+          color: #2e5;
+      }
+      .tok-builtin {
+          color: #ff894c;
+      }
+      .tok-comment {
+          color: #aa7;
+      }
+      .tok-fn {
+          color: #B1A0F8;
+      }
+      .tok-null {
+          color: #ff8080;
+      }
+      .tok-number {
+          color: #ff8080;
+      }
+      .tok-type {
+          color: #68f;
+      }
+      h1 a, h2 a, h3 a, h4 a, h5 a {
+          color: #aaa;
+      }
+      figcaption.zig-cap {
+          background-color: #b27306;
+          color: #000;
+      }
+      figcaption.shell-cap {
+        background: #2a2a2a;
+        color: #fff;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header><h1>Zig Language Reference</h1></header>
+  <div id="main-wrapper">
+      <div id="navigation">
+        <nav aria-labelledby="zig-version">
+          <h2 id="zig-version">Zig Version</h2>
+          <a href="https://ziglang.org/documentation/0.1.1/">0.1.1</a> |
+          <a href="https://ziglang.org/documentation/0.2.0/">0.2.0</a> |
+          <a href="https://ziglang.org/documentation/0.3.0/">0.3.0</a> |
+          <a href="https://ziglang.org/documentation/0.4.0/">0.4.0</a> |
+          <a href="https://ziglang.org/documentation/0.5.0/">0.5.0</a> |
+          <a href="https://ziglang.org/documentation/0.6.0/">0.6.0</a> |
+          <a href="https://ziglang.org/documentation/0.7.1/">0.7.1</a> |
+          <a href="https://ziglang.org/documentation/0.8.1/">0.8.1</a> |
+          master
+        </nav>
+        <nav aria-labelledby="table-of-contents">
+          <h2 id="table-of-contents">Table of Contents</h2>
+          {#nav#}
+        </nav>
       </div>
-      <div id="contents-wrapper"><div id="contents">
+      <div id="contents-wrapper"><main id="contents">
       {#header_open|Introduction#}
       <p>
-      Zig is a general-purpose programming language and toolchain for maintaining
+      <a href="https://ziglang.org">Zig</a> is a general-purpose programming language and toolchain for maintaining
       <strong>robust</strong>, <strong>optimal</strong>, and <strong>reusable</strong> software.
       </p>
-      <ul>
-        <li><strong>Robust</strong> - behavior is correct even for edge cases such as out of memory.</li>
-        <li><strong>Optimal</strong> - write programs the best way they can behave and perform.</li>
-        <li><strong>Reusable</strong> - the same code works in many environments which have different
-          constraints.</li>
-        <li><strong>Maintainable</strong> - precisely communicate intent to the compiler and
+      <dl>
+        <dt>Robust</dt><dd>Behavior is correct even for edge cases such as out of memory.</dd>
+        <dt>Optimal</dt><dd>Write programs the best way they can behave and perform.</dd>
+        <dt>Reusable</dt><dd>The same code works in many environments which have different
+          constraints.</dd>
+        <dt>Maintainable</dt><dd>Precisely communicate intent to the compiler and
           other programmers. The language imposes a low overhead to reading code and is
-          resilient to changing requirements and environments.</li>
-      </ul>
+          resilient to changing requirements and environments.</dd>
+      </dl>
       <p>
       Often the most efficient way to learn something new is to see examples, so
       this documentation shows how to use each of Zig's features. It is
@@ -236,8 +323,16 @@
       <p>
       This HTML document depends on no external files, so you can use it offline.
       </p>
+      {#header_close#}
+
+      {#header_open|Zig Standard Library#}
       <p>
-      <a href="https://github.com/ziglang/zig/wiki/FAQ#where-is-the-documentation-for-the-zig-standard-library">Where is the documentation for the Zig standard library?</a>
+        The <a href="https://ziglang.org/documentation/master/std/">Zig Standard Library</a> has its own documentation.
+      </p>
+      <p>
+        Zig's Standard Library contains commonly used algorithms, data structures, and definitions to help you build programs or libraries.
+        You will see many examples of Zig's Standard Library used in this documentation. To learn more about the Zig Standard Library,
+        visit the link above.
       </p>
       {#header_close#}
 
@@ -252,96 +347,102 @@ pub fn main() !void {
 }
       {#code_end#}
       <p>
-        The Zig code sample above demonstrates one way to create a program that will output <code>Hello, world!</code>.
+        The Zig code sample above demonstrates one way to create a program that will output: <samp>Hello, world!</samp>.
       </p>
       <p>
-        The code sample shows the contents of a file named <code>hello.zig</code>. Files storing Zig
+        The code sample shows the contents of a file named <code class="file">hello.zig</code>. Files storing Zig
         source code are {#link|UTF-8 encoded|Source Encoding#} text files. The files storing
-        Zig source code are usually named with the <code>.zig</code> extension.
+        Zig source code are usually named with the <code class="file"><em>.zig</em></code> extension.
       </p>
       <p>
-        Following the <code>hello.zig</code> Zig code sample, the {#link|Zig Build System#} is used
-        to build an executable program from the <code>hello.zig</code> source code. Then, the
-        <code>hello</code> program is executed showing its output <code>Hello, world!</code>. The
-        lines beginning with <code>$</code> represent command line prompts and a command.
+        Following the <code class="file">hello.zig</code> Zig code sample, the {#link|Zig Build System#} is used
+        to build an executable program from the <code class="file">hello.zig</code> source code. Then, the
+        <code class="file">hello</code> program is executed showing its output <samp>Hello, world!</samp>. The
+        lines beginning with <samp>$</samp> represent command line prompts and a command.
         Everything else is program output.
       </p>
       <p>
-        The code sample begins by adding Zig's Standard Library to the build using the {#link|@import#} builtin function.
-        The {#syntax#}@import("std"){#endsyntax#} function call creates a structure to represent the Standard Library.
+        The code sample begins by adding the {#link|Zig Standard Library#} to the build using the {#link|@import#} builtin function.
+        The {#syntax#}@import("std"){#endsyntax#} function call creates a structure that represents the Zig Standard Library.
         The code then {#link|declares|Container Level Variables#} a
-        {#link|constant identifier|Assignment#}, named <code>std</code>, for easy access to
-        <a href="https://github.com/ziglang/zig/wiki/FAQ#where-is-the-documentation-for-the-zig-standard-library">Zig's standard library</a>.
+        {#link|constant identifier|Assignment#}, named {#syntax#}std{#endsyntax#}, that gives access the features of the Zig Standard Library.
       </p>
       <p>
-        Next, a {#link|public function|Functions#}, {#syntax#}pub fn{#endsyntax#}, named <code>main</code>
-        is declared. The <code>main</code> function is necessary because it tells the Zig compiler where the start of
+        Next, a {#link|public function|Functions#}, {#syntax#}pub fn{#endsyntax#}, named {#syntax#}main{#endsyntax#}
+        is declared. The {#syntax#}main{#endsyntax#} function is necessary because it tells the Zig compiler where the start of
         the program exists. Programs designed to be executed will need a {#syntax#}pub fn main{#endsyntax#} function.
-        For more advanced use cases, Zig offers other features to inform the compiler where the start of
-        the program exists. Libraries, on the other hand, do not need a <code>main</code> function because
-        library code is usually called by other programs.
       </p>
+      <aside role="note" aria-label="Note about main function">
+        <p>
+          For more advanced use cases, Zig offers other features to inform the compiler where the start of
+          the program exists. Also, libraries do not need a {#syntax#}pub fn main{#endsyntax#} function because
+          library code is called by other programs or libraries.
+        </p>
+      </aside>
       <p>
         A function is a block of any number of statements and expressions that, as a whole, perform a task.
         Functions may or may not return data after they are done performing their task. If a function
         cannot perform its task, it might return an error. Zig makes all of this explicit.
       </p>
       <p>
-        In the <code>hello.zig</code> code sample, the <code>main</code> function is declared
+        In the <code class="file">hello.zig</code> code sample, the <code>main</code> function is declared
         with the {#syntax#}!void{#endsyntax#} return type. This return type is known as an {#link|Error Union Type#}.
         This syntax tells the Zig compiler that the function will either return an
-        error or a value. An error union type combines an {#link|Error Set Type#} and a {#link|Primitive Type|Primitive Types#}.
+        error or a value. An error union type combines an {#link|Error Set Type#} and any other data type
+        (e.g. a {#link|Primitive Type|Primitive Types#} or a user-defined type such as a {#link|struct#}, {#link|enum#}, or {#link|union#}).
         The full form of an error union type is
-        <code>&lt;error set type&gt;</code>{#syntax#}!{#endsyntax#}<code>&lt;primitive type&gt;</code>. In the code
+        <code>&lt;error set type&gt;</code>{#syntax#}!{#endsyntax#}<code>&lt;any data type&gt;</code>. In the code
         sample, the error set type is not explicitly written on the left side of the {#syntax#}!{#endsyntax#} operator.
-        When written this way, the error set type is a special kind of error union type that has an
-        {#link|inferred error set type|Inferred Error Sets#}. The {#syntax#}void{#endsyntax#} after the {#syntax#}!{#endsyntax#} operator
-        tells the compiler that the function will not return a value under normal circumstances (i.e. no errors occur).
+        When written this way, the error set type is an {#link|inferred error set type|Inferred Error Sets#}. The
+        {#syntax#}void{#endsyntax#} after the {#syntax#}!{#endsyntax#} operator
+        tells the compiler that the function will not return a value under normal circumstances (i.e. when no errors occur).
+      </p>
+      <aside role="note" aria-label="Note to disambiguate exclamation mark operator">
+        <p>
+          Note to experienced programmers: Zig also has the boolean {#link|operator|Operators#} {#syntax#}!a{#endsyntax#}
+          where {#syntax#}a{#endsyntax#} is a value of type {#syntax#}bool{#endsyntax#}. Error union types contain the
+          name of the type in the syntax: {#syntax#}!{#endsyntax#}<code>&lt;any data type&gt;</code>.
+        </p>
+      </aside>
+      <p>
+        In Zig, a function's block of statements and expressions are surrounded by an open curly-brace <code>{</code> and
+        close curly-brace <code>}</code>. Inside of the {#syntax#}main{#endsyntax#} function are expressions that perform
+        the task of outputting <samp>Hello, world!</samp> to standard output.
       </p>
       <p>
-        Note to experienced programmers: Zig also has the boolean {#link|operator|Operators#} {#syntax#}!a{#endsyntax#}
-        where {#syntax#}a{#endsyntax#} is a value of type {#syntax#}bool{#endsyntax#}. Error union types contain the
-        name of the type in the syntax: {#syntax#}!{#endsyntax#}<code>&lt;primitive type&gt;</code>.
-      </p>
-      <p>
-        In Zig, a function's block of statements and expressions are surrounded by <code>{</code> and
-        <code>}</code> curly-braces. Inside of the <code>main</code> function are expressions that perform
-        the task of outputting <code>Hello, world!</code> to standard output.
-      </p>
-      <p>
-        First, a constant identifier, <code>stdout</code>, is initialized to represent standard output's
-        writer. Then, the program tries to print the <code>Hello, world!</code>
+        First, a constant identifier, {#syntax#}stdout{#endsyntax#}, is initialized to represent standard output's
+        writer. Then, the program tries to print the <samp>Hello, world!</samp>
         message to standard output.
       </p>
       <p>
         Functions sometimes need information to perform their task. In Zig, information is passed
-        to functions between open <code>(</code> and close <code>)</code> parenthesis placed after
+        to functions between an open parenthesis {#syntax#}({#endsyntax#} and a close parenthesis {#syntax#}){#endsyntax#} placed after
         the function's name. This information is also known as arguments. When there are
-        multiple arguments passed to a function, they are separated by commas <code>,</code>.
+        multiple arguments passed to a function, they are separated by commas {#syntax#},{#endsyntax#}.
       </p>
       <p>
-        The two arguments passed to the <code>stdout.print()</code> function, <code>"Hello, {s}!\n"</code>
-        and <code>.{"world"}</code>, are evaluated at {#link|compile-time|comptime#}. The code sample is
+        The two arguments passed to the {#syntax#}stdout.print(){#endsyntax#} function, {#syntax#}"Hello, {s}!\n"{#endsyntax#}
+        and {#syntax#}.{"world"}{#endsyntax#}, are evaluated at {#link|compile-time|comptime#}. The code sample is
         purposely written to show how to perform {#link|string|String Literals and Unicode Code Point Literals#}
-        substitution in the <code>print</code> function. The curly-braces inside of the first argument
+        substitution in the {#syntax#}print{#endsyntax#} function. The curly-braces inside of the first argument
         are substituted with the compile-time known value inside of the second argument
         (known as an {#link|anonymous struct literal|Anonymous Struct Literals#}). The <code>\n</code>
         inside of the double-quotes of the first argument is the {#link|escape sequence|Escape Sequences#} for the
-        newline character. The {#link|try#} expression evaluates the result of <code>stdout.print</code>.
+        newline character. The {#link|try#} expression evaluates the result of {#syntax#}stdout.print{#endsyntax#}.
         If the result is an error, then the {#syntax#}try{#endsyntax#} expression will return from
-        <code>main</code> with the error. Otherwise, the program will continue. In this case, there are no
-        more statements or expressions left to execute in the <code>main</code> function, so the program exits.
+        {#syntax#}main{#endsyntax#} with the error. Otherwise, the program will continue. In this case, there are no
+        more statements or expressions left to execute in the {#syntax#}main{#endsyntax#} function, so the program exits.
       </p>
       <p>
-        In Zig, the standard output writer's <code>print</code> function is allowed to fail because
+        In Zig, the standard output writer's {#syntax#}print{#endsyntax#} function is allowed to fail because
         it is actually a function defined as part of a generic Writer. Consider a generic Writer that
         represents writing data to a file. When the disk is full, a write to the file will fail.
         However, we typically do not expect writing text to the standard output to fail. To avoid having
         to handle the failure case of printing to standard output, you can use alternate functions: the
-        functions in <code>std.log</code> for proper logging or the <code>std.debug.print</code> function.
+        functions in {#syntax#}std.log{#endsyntax#} for proper logging or the {#syntax#}std.debug.print{#endsyntax#} function.
         This documentation will use the latter option to print to standard error (stderr) and silently return
-        on failure. The next code sample, <code>hello_again.zig</code> demonstrates the use of
-        <code>std.debug.print</code>.
+        on failure. The next code sample, <code class="file">hello_again.zig</code> demonstrates the use of
+        {#syntax#}std.debug.print{#endsyntax#}.
       </p>
       {#code_begin|exe|hello_again#}
 const print = @import("std").debug.print;
@@ -351,13 +452,13 @@ pub fn main() void {
 }
       {#code_end#}
       <p>
-      Note that you can leave off the {#syntax#}!{#endsyntax#} from the return type because <code>std.debug.print</code> cannot fail.
+      Note that you can leave off the {#syntax#}!{#endsyntax#} from the return type because {#syntax#}std.debug.print{#endsyntax#} cannot fail.
       </p>
       {#see_also|Values|@import|Errors|Root Source File|Source Encoding#}
       {#header_close#}
       {#header_open|Zig Test#}
       <p>
-      <code>zig test</code> is a tool that can be used to quickly build and run Zig code
+      <kbd>zig test</kbd> is a tool that can be used to quickly build and run Zig code
       to make sure behavior meets expectations. {#syntax#}@import("builtin").is_test{#endsyntax#}
       is available for code to detect whether the current build is a test build.
       </p>
@@ -387,7 +488,7 @@ test "unused function" { }
       undefined behavior. The implementation of {#syntax#}std.debug.assert{#endsyntax#} is as
       simple as:
       </p>
-      {#code_begin|syntax#}
+      {#code_begin|syntax|assert#}
 pub fn assert(ok: bool) void {
     if (!ok) unreachable;
 }
@@ -396,7 +497,7 @@ pub fn assert(ok: bool) void {
       This means that when testing in ReleaseFast or ReleaseSmall mode, {#syntax#}assert{#endsyntax#}
       is not sufficient to check the result of a computation:
       </p>
-      {#code_begin|syntax#}
+      {#code_begin|syntax|assert_release_fast_mode#}
 const std = @import("std");
 const assert = std.debug.assert;
 
@@ -423,14 +524,13 @@ test "expect in release fast mode" {
       {#code_end#}
       <p>See the rest of the {#syntax#}std.testing{#endsyntax#} namespace for more available functions.</p>
       <p>
-      <code>zig test</code> has a few command line parameters which affect the compilation. See
-      <code>zig --help</code> for a full list. The most interesting one is <code>--test-filter [text]</code>.
+      <kbd>zig test</kbd> has a few command line parameters which affect the compilation. See
+      <kbd>zig --help</kbd> for a full list. The most interesting one is <kbd>--test-filter [text]</kbd>.
       This makes the test build only include tests whose name contains the supplied filter text.
       Again, thanks to lazy analysis, this can allow you to narrow a build to only a few functions in
       isolation.
       </p>
       {#header_close#}
-
       {#header_open|Comments#}
       {#code_begin|test|comments#}
 const expect = @import("std").testing.expect;
@@ -555,184 +655,183 @@ pub fn main() void {
       {#header_open|Primitive Types#}
       <div class="table-wrapper">
       <table>
-        <tr>
-          <th>
-            Name
-          </th>
-          <th>
-            C Equivalent
-          </th>
-          <th>
-            Description
-          </th>
+        <caption>Primitive Types</caption>
+        <thead>
+            <tr>
+            <th scope="col">Type</th>
+            <th scope="col">C Equivalent</th>
+            <th scope="col">Description</th>
         </tr>
+        </thead>
+        <tbody>
         <tr>
-            <td>{#syntax#}i8{#endsyntax#}</td>
+            <th scope="row">{#syntax#}i8{#endsyntax#}</th>
           <td><code class="c">int8_t</code></td>
           <td>signed 8-bit integer</td>
         </tr>
         <tr>
-            <td>{#syntax#}u8{#endsyntax#}</td>
+            <th scope="row">{#syntax#}u8{#endsyntax#}</th>
           <td><code class="c">uint8_t</code></td>
           <td>unsigned 8-bit integer</td>
         </tr>
         <tr>
-            <td>{#syntax#}i16{#endsyntax#}</td>
+            <th scope="row">{#syntax#}i16{#endsyntax#}</th>
           <td><code class="c">int16_t</code></td>
           <td>signed 16-bit integer</td>
         </tr>
         <tr>
-            <td>{#syntax#}u16{#endsyntax#}</td>
+            <th scope="row">{#syntax#}u16{#endsyntax#}</th>
           <td><code class="c">uint16_t</code></td>
           <td>unsigned 16-bit integer</td>
         </tr>
         <tr>
-            <td>{#syntax#}i32{#endsyntax#}</td>
+            <th scope="row">{#syntax#}i32{#endsyntax#}</th>
           <td><code class="c">int32_t</code></td>
           <td>signed 32-bit integer</td>
         </tr>
         <tr>
-            <td>{#syntax#}u32{#endsyntax#}</td>
+            <th scope="row">{#syntax#}u32{#endsyntax#}</th>
           <td><code class="c">uint32_t</code></td>
           <td>unsigned 32-bit integer</td>
         </tr>
         <tr>
-            <td>{#syntax#}i64{#endsyntax#}</td>
+            <th scope="row">{#syntax#}i64{#endsyntax#}</th>
           <td><code class="c">int64_t</code></td>
           <td>signed 64-bit integer</td>
         </tr>
         <tr>
-            <td>{#syntax#}u64{#endsyntax#}</td>
+            <th scope="row">{#syntax#}u64{#endsyntax#}</th>
           <td><code class="c">uint64_t</code></td>
           <td>unsigned 64-bit integer</td>
         </tr>
         <tr>
-            <td>{#syntax#}i128{#endsyntax#}</td>
+            <th scope="row">{#syntax#}i128{#endsyntax#}</th>
           <td><code class="c">__int128</code></td>
           <td>signed 128-bit integer</td>
         </tr>
         <tr>
-            <td>{#syntax#}u128{#endsyntax#}</td>
+            <th scope="row">{#syntax#}u128{#endsyntax#}</th>
           <td><code class="c">unsigned __int128</code></td>
           <td>unsigned 128-bit integer</td>
         </tr>
         <tr>
-            <td>{#syntax#}isize{#endsyntax#}</td>
+            <th scope="row">{#syntax#}isize{#endsyntax#}</th>
           <td><code class="c">intptr_t</code></td>
           <td>signed pointer sized integer</td>
         </tr>
         <tr>
-            <td>{#syntax#}usize{#endsyntax#}</td>
+            <th scope="row">{#syntax#}usize{#endsyntax#}</th>
           <td><code class="c">uintptr_t</code></td>
           <td>unsigned pointer sized integer</td>
         </tr>
 
         <tr>
-            <td>{#syntax#}c_short{#endsyntax#}</td>
+            <th scope="row">{#syntax#}c_short{#endsyntax#}</th>
           <td><code class="c">short</code></td>
           <td>for ABI compatibility with C</td>
         </tr>
         <tr>
-            <td>{#syntax#}c_ushort{#endsyntax#}</td>
+            <th scope="row">{#syntax#}c_ushort{#endsyntax#}</th>
           <td><code class="c">unsigned short</code></td>
           <td>for ABI compatibility with C</td>
         </tr>
         <tr>
-            <td>{#syntax#}c_int{#endsyntax#}</td>
+            <th scope="row">{#syntax#}c_int{#endsyntax#}</th>
           <td><code class="c">int</code></td>
           <td>for ABI compatibility with C</td>
         </tr>
         <tr>
-            <td>{#syntax#}c_uint{#endsyntax#}</td>
+            <th scope="row">{#syntax#}c_uint{#endsyntax#}</th>
           <td><code class="c">unsigned int</code></td>
           <td>for ABI compatibility with C</td>
         </tr>
         <tr>
-            <td>{#syntax#}c_long{#endsyntax#}</td>
+            <th scope="row">{#syntax#}c_long{#endsyntax#}</th>
           <td><code class="c">long</code></td>
           <td>for ABI compatibility with C</td>
         </tr>
         <tr>
-            <td>{#syntax#}c_ulong{#endsyntax#}</td>
+            <th scope="row">{#syntax#}c_ulong{#endsyntax#}</th>
           <td><code class="c">unsigned long</code></td>
           <td>for ABI compatibility with C</td>
         </tr>
         <tr>
-            <td>{#syntax#}c_longlong{#endsyntax#}</td>
+            <th scope="row">{#syntax#}c_longlong{#endsyntax#}</th>
           <td><code class="c">long long</code></td>
           <td>for ABI compatibility with C</td>
         </tr>
         <tr>
-            <td>{#syntax#}c_ulonglong{#endsyntax#}</td>
+            <th scope="row">{#syntax#}c_ulonglong{#endsyntax#}</th>
           <td><code class="c">unsigned long long</code></td>
           <td>for ABI compatibility with C</td>
         </tr>
         <tr>
-            <td>{#syntax#}c_longdouble{#endsyntax#}</td>
+            <th scope="row">{#syntax#}c_longdouble{#endsyntax#}</th>
           <td><code class="c">long double</code></td>
           <td>for ABI compatibility with C</td>
         </tr>
         <tr>
-            <td>{#syntax#}c_void{#endsyntax#}</td>
+            <th scope="row">{#syntax#}c_void{#endsyntax#}</th>
           <td><code class="c">void</code></td>
           <td>for ABI compatibility with C</td>
         </tr>
 
         <tr>
-            <td>{#syntax#}f16{#endsyntax#}</td>
+            <th scope="row">{#syntax#}f16{#endsyntax#}</th>
           <td><code class="c">_Float16</code></td>
           <td>16-bit floating point (10-bit mantissa) IEEE-754-2008 binary16</td>
         </tr>
         <tr>
-            <td>{#syntax#}f32{#endsyntax#}</td>
+            <th scope="row">{#syntax#}f32{#endsyntax#}</th>
           <td><code class="c">float</code></td>
           <td>32-bit floating point (23-bit mantissa) IEEE-754-2008 binary32</td>
         </tr>
         <tr>
-            <td>{#syntax#}f64{#endsyntax#}</td>
+            <th scope="row">{#syntax#}f64{#endsyntax#}</th>
           <td><code class="c">double</code></td>
           <td>64-bit floating point (52-bit mantissa) IEEE-754-2008 binary64</td>
         </tr>
         <tr>
-            <td>{#syntax#}f128{#endsyntax#}</td>
+            <th scope="row">{#syntax#}f128{#endsyntax#}</th>
             <td><code class="c">_Float128</code></td>
           <td>128-bit floating point (112-bit mantissa) IEEE-754-2008 binary128</td>
         </tr>
         <tr>
-            <td>{#syntax#}bool{#endsyntax#}</td>
+            <th scope="row">{#syntax#}bool{#endsyntax#}</th>
           <td><code class="c">bool</code></td>
           <td>{#syntax#}true{#endsyntax#} or {#syntax#}false{#endsyntax#}</td>
         </tr>
         <tr>
-            <td>{#syntax#}void{#endsyntax#}</td>
+            <th scope="row">{#syntax#}void{#endsyntax#}</th>
           <td>(none)</td>
           <td>0 bit type</td>
         </tr>
         <tr>
-            <td>{#syntax#}noreturn{#endsyntax#}</td>
+            <th scope="row">{#syntax#}noreturn{#endsyntax#}</th>
           <td>(none)</td>
           <td>the type of {#syntax#}break{#endsyntax#}, {#syntax#}continue{#endsyntax#}, {#syntax#}return{#endsyntax#}, {#syntax#}unreachable{#endsyntax#}, and {#syntax#}while (true) {}{#endsyntax#}</td>
         </tr>
         <tr>
-            <td>{#syntax#}type{#endsyntax#}</td>
+            <th scope="row">{#syntax#}type{#endsyntax#}</th>
           <td>(none)</td>
           <td>the type of types</td>
         </tr>
         <tr>
-            <td>{#syntax#}anyerror{#endsyntax#}</td>
+            <th scope="row">{#syntax#}anyerror{#endsyntax#}</th>
           <td>(none)</td>
           <td>an error code</td>
         </tr>
         <tr>
-            <td>{#syntax#}comptime_int{#endsyntax#}</td>
+            <th scope="row">{#syntax#}comptime_int{#endsyntax#}</th>
           <td>(none)</td>
           <td>Only allowed for {#link|comptime#}-known values. The type of integer literals.</td>
         </tr>
         <tr>
-            <td>{#syntax#}comptime_float{#endsyntax#}</td>
+            <th scope="row">{#syntax#}comptime_float{#endsyntax#}</th>
           <td>(none)</td>
           <td>Only allowed for {#link|comptime#}-known values. The type of float literals.</td>
         </tr>
+        </tbody>
       </table>
       </div>
       <p>
@@ -746,26 +845,27 @@ pub fn main() void {
       {#header_open|Primitive Values#}
       <div class="table-wrapper">
       <table>
+        <caption>Primitive Values</caption>
+        <thead>
         <tr>
-          <th>
-            Name
-          </th>
-          <th>
-            Description
-          </th>
+          <th scope="col">Name</th>
+          <th scope="col">Description</th>
         </tr>
+        </thead>
+        <tbody>
         <tr>
-            <td>{#syntax#}true{#endsyntax#} and {#syntax#}false{#endsyntax#}</td>
+            <th scope="row">{#syntax#}true{#endsyntax#} and {#syntax#}false{#endsyntax#}</th>
             <td>{#syntax#}bool{#endsyntax#} values</td>
         </tr>
         <tr>
-            <td>{#syntax#}null{#endsyntax#}</td>
+            <th scope="row">{#syntax#}null{#endsyntax#}</th>
             <td>used to set an optional type to {#syntax#}null{#endsyntax#}</td>
         </tr>
         <tr>
-            <td>{#syntax#}undefined{#endsyntax#}</td>
+            <th scope="row">{#syntax#}undefined{#endsyntax#}</th>
           <td>used to leave a value unspecified</td>
         </tr>
+        </tbody>
       </table>
       </div>
       {#see_also|Optionals|undefined#}
@@ -796,7 +896,7 @@ pub fn main() void {
       in recent versions of the Unicode specification (as of Unicode 13.0).
       In Zig, a Unicode code point literal corresponds to the Unicode definition of a code point.
       </p>
-      {#code_begin|test#}
+      {#code_begin|test|string_literals_test#}
 const expect = @import("std").testing.expect;
 const mem = @import("std").mem;
 
@@ -817,46 +917,47 @@ test "string literals" {
       {#header_open|Escape Sequences#}
       <div class="table-wrapper">
       <table>
+        <caption>Escape Sequences</caption>
+        <thead>
         <tr>
-          <th>
-            Escape Sequence
-          </th>
-          <th>
-            Name
-          </th>
+          <th scope="col">Escape Sequence</th>
+          <th scope="col">Name</th>
         </tr>
+        </thead>
+        <tbody>
         <tr>
-            <td><code>\n</code></td>
+            <th scope="row"><code>\n</code></th>
           <td>Newline</td>
         </tr>
         <tr>
-            <td><code>\r</code></td>
+            <th scope="row"><code>\r</code></th>
           <td>Carriage Return</td>
         </tr>
         <tr>
-            <td><code>\t</code></td>
+            <th scope="row"><code>\t</code></th>
           <td>Tab</td>
         </tr>
         <tr>
-            <td><code>\\</code></td>
+            <th scope="row"><code>\\</code></th>
           <td>Backslash</td>
         </tr>
         <tr>
-            <td><code>\'</code></td>
+            <th scope="row"><code>\'</code></th>
           <td>Single Quote</td>
         </tr>
         <tr>
-            <td><code>\"</code></td>
+            <th scope="row"><code>\"</code></th>
           <td>Double Quote</td>
         </tr>
         <tr>
-            <td><code>\xNN</code></td>
+            <th scope="row"><code>\xNN</code></th>
           <td>hexadecimal 8-bit byte value (2 digits)</td>
         </tr>
         <tr>
-            <td><code>\u{NNNNNN}</code></td>
+            <th scope="row"><code>\u{NNNNNN}</code></th>
           <td>hexadecimal Unicode code point UTF-8 encoded (1 or more digits)</td>
         </tr>
+        </tbody>
       </table>
       </div>
       <p>Note that the maximum valid Unicode point is {#syntax#}0x10ffff{#endsyntax#}.</p>
@@ -870,7 +971,7 @@ test "string literals" {
       However, if the next line begins with {#syntax#}\\{#endsyntax#} then a newline is appended and
       the string literal continues.
       </p>
-      {#code_begin|syntax#}
+      {#code_begin|syntax|multiline_string_literals#}
 const hello_world_in_c =
     \\#include <stdio.h>
     \\
@@ -902,7 +1003,7 @@ test "assignment" {
       {#code_end#}
       <p>{#syntax#}const{#endsyntax#} applies to all of the bytes that the identifier immediately addresses. {#link|Pointers#} have their own const-ness.</p>
       <p>If you need a variable that you can modify, use the {#syntax#}var{#endsyntax#} keyword:</p>
-      {#code_begin|test#}
+      {#code_begin|test|var_test#}
 const expect = @import("std").testing.expect;
 
 test "var" {
@@ -923,7 +1024,7 @@ test "initialization" {
       {#code_end#}
       {#header_open|undefined#}
       <p>Use {#syntax#}undefined{#endsyntax#} to leave variables uninitialized:</p>
-      {#code_begin|test#}
+      {#code_begin|test|undefined_test#}
 const expect = @import("std").testing.expect;
 
 test "init with undefined" {
@@ -1108,7 +1209,7 @@ test "comptime vars" {
 
       {#header_open|Integers#}
       {#header_open|Integer Literals#}
-      {#code_begin|syntax#}
+      {#code_begin|syntax|integer_literals#}
 const decimal_int = 98222;
 const hex_int = 0xff;
 const another_hex_int = 0xFF;
@@ -1131,7 +1232,7 @@ const big_address = 0xFF80_0000_0000_0000;
       However, once an integer value is no longer known at compile-time, it must have a
       known size, and is vulnerable to undefined behavior.
       </p>
-      {#code_begin|syntax#}
+      {#code_begin|syntax|runtime_vs_comptime#}
 fn divide(a: i32, b: i32) i32 {
     return a / b;
 }
@@ -1174,7 +1275,7 @@ fn divide(a: i32, b: i32) i32 {
       Float literals {#link|coerce|Type Coercion#} to any floating point type,
       and to any {#link|integer|Integers#} type when there is no fractional component.
       </p>
-      {#code_begin|syntax#}
+      {#code_begin|syntax|float_literals#}
 const floating_point = 123.0E+77;
 const another_float = 123.0;
 const yet_another = 123.0e+77;
@@ -1192,7 +1293,7 @@ const more_hex = 0x1234_5678.9ABC_CDEFp-10;
       There is no syntax for NaN, infinity, or negative infinity. For these special values,
       one must use the standard library:
       </p>
-      {#code_begin|syntax#}
+      {#code_begin|syntax|float_special_values#}
 const std = @import("std");
 
 const inf = std.math.inf(f32);
@@ -1245,23 +1346,19 @@ pub fn main() void {
       {#header_open|Table of Operators#}
       <div class="table-wrapper">
       <table>
+        <caption>Table of Operators</caption>
+        <thead>
         <tr>
-          <th>
-            Syntax
-          </th>
-          <th>
-            Relevant Types
-          </th>
-          <th>
-            Description
-          </th>
-          <th>
-            Example
-          </th>
+          <th scope="col">Syntax</th>
+          <th scope="col">Relevant Types</th>
+          <th scope="col">Description</th>
+          <th scope="col">Example</th>
         </tr>
+        </thead>
+        <tbody>
         <tr>
-          <td><pre>{#syntax#}a + b
-a += b{#endsyntax#}</pre></td>
+          <th scope="row"><pre>{#syntax#}a + b
+a += b{#endsyntax#}</pre></th>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
@@ -1280,8 +1377,8 @@ a += b{#endsyntax#}</pre></td>
           </td>
         </tr>
         <tr>
-          <td><pre>{#syntax#}a +% b
-a +%= b{#endsyntax#}</pre></td>
+          <th scope="row"><pre>{#syntax#}a +% b
+a +%= b{#endsyntax#}</pre></th>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
@@ -1299,8 +1396,8 @@ a +%= b{#endsyntax#}</pre></td>
           </td>
         </tr>
         <tr>
-          <td><pre>{#syntax#}a - b
-a -= b{#endsyntax#}</pre></td>
+          <th scope="row"><pre>{#syntax#}a - b
+a -= b{#endsyntax#}</pre></th>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
@@ -1319,8 +1416,8 @@ a -= b{#endsyntax#}</pre></td>
           </td>
         </tr>
         <tr>
-          <td><pre>{#syntax#}a -% b
-a -%= b{#endsyntax#}</pre></td>
+          <th scope="row"><pre>{#syntax#}a -% b
+a -%= b{#endsyntax#}</pre></th>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
@@ -1338,7 +1435,7 @@ a -%= b{#endsyntax#}</pre></td>
           </td>
         </tr>
         <tr>
-          <td><pre>{#syntax#}-a{#endsyntax#}</pre></td>
+          <th scope="row"><pre>{#syntax#}-a{#endsyntax#}</pre></th>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
@@ -1356,7 +1453,7 @@ a -%= b{#endsyntax#}</pre></td>
           </td>
         </tr>
         <tr>
-          <td><pre>{#syntax#}-%a{#endsyntax#}</pre></td>
+          <th scope="row"><pre>{#syntax#}-%a{#endsyntax#}</pre></th>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
@@ -1373,8 +1470,8 @@ a -%= b{#endsyntax#}</pre></td>
           </td>
         </tr>
         <tr>
-          <td><pre>{#syntax#}a * b
-a *= b{#endsyntax#}</pre></td>
+          <th scope="row"><pre>{#syntax#}a * b
+a *= b{#endsyntax#}</pre></th>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
@@ -1393,8 +1490,8 @@ a *= b{#endsyntax#}</pre></td>
           </td>
         </tr>
         <tr>
-          <td><pre>{#syntax#}a *% b
-a *%= b{#endsyntax#}</pre></td>
+          <th scope="row"><pre>{#syntax#}a *% b
+a *%= b{#endsyntax#}</pre></th>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
@@ -1412,8 +1509,8 @@ a *%= b{#endsyntax#}</pre></td>
           </td>
         </tr>
         <tr>
-          <td><pre>{#syntax#}a / b
-a /= b{#endsyntax#}</pre></td>
+          <th scope="row"><pre>{#syntax#}a / b
+a /= b{#endsyntax#}</pre></th>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
@@ -1438,8 +1535,8 @@ a /= b{#endsyntax#}</pre></td>
           </td>
         </tr>
         <tr>
-          <td><pre>{#syntax#}a % b
-a %= b{#endsyntax#}</pre></td>
+          <th scope="row"><pre>{#syntax#}a % b
+a %= b{#endsyntax#}</pre></th>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
@@ -1462,8 +1559,8 @@ a %= b{#endsyntax#}</pre></td>
           </td>
         </tr>
         <tr>
-          <td><pre>{#syntax#}a << b
-a <<= b{#endsyntax#}</pre></td>
+          <th scope="row"><pre>{#syntax#}a << b
+a <<= b{#endsyntax#}</pre></th>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
@@ -1481,8 +1578,8 @@ a <<= b{#endsyntax#}</pre></td>
           </td>
         </tr>
         <tr>
-          <td><pre>{#syntax#}a >> b
-a >>= b{#endsyntax#}</pre></td>
+          <th scope="row"><pre>{#syntax#}a >> b
+a >>= b{#endsyntax#}</pre></th>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
@@ -1499,8 +1596,8 @@ a >>= b{#endsyntax#}</pre></td>
           </td>
         </tr>
         <tr>
-          <td><pre>{#syntax#}a & b
-a &= b{#endsyntax#}</pre></td>
+          <th scope="row"><pre>{#syntax#}a & b
+a &= b{#endsyntax#}</pre></th>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
@@ -1516,8 +1613,8 @@ a &= b{#endsyntax#}</pre></td>
           </td>
         </tr>
         <tr>
-          <td><pre>{#syntax#}a | b
-a |= b{#endsyntax#}</pre></td>
+          <th scope="row"><pre>{#syntax#}a | b
+a |= b{#endsyntax#}</pre></th>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
@@ -1533,8 +1630,8 @@ a |= b{#endsyntax#}</pre></td>
           </td>
         </tr>
         <tr>
-          <td><pre>{#syntax#}a ^ b
-a ^= b{#endsyntax#}</pre></td>
+          <th scope="row"><pre>{#syntax#}a ^ b
+a ^= b{#endsyntax#}</pre></th>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
@@ -1550,7 +1647,7 @@ a ^= b{#endsyntax#}</pre></td>
           </td>
         </tr>
         <tr>
-          <td><pre>{#syntax#}~a{#endsyntax#}</pre></td>
+          <th scope="row"><pre>{#syntax#}~a{#endsyntax#}</pre></th>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
@@ -1564,7 +1661,7 @@ a ^= b{#endsyntax#}</pre></td>
           </td>
         </tr>
         <tr>
-          <td><pre>{#syntax#}a orelse b{#endsyntax#}</pre></td>
+          <th scope="row"><pre>{#syntax#}a orelse b{#endsyntax#}</pre></th>
           <td>
             <ul>
               <li>{#link|Optionals#}</li>
@@ -1582,7 +1679,7 @@ unwrapped == 1234{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <td><pre>{#syntax#}a.?{#endsyntax#}</pre></td>
+          <th scope="row"><pre>{#syntax#}a.?{#endsyntax#}</pre></th>
           <td>
             <ul>
               <li>{#link|Optionals#}</li>
@@ -1598,8 +1695,8 @@ value.? == 5678{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <td><pre>{#syntax#}a catch b
-a catch |err| b{#endsyntax#}</pre></td>
+          <th scope="row"><pre>{#syntax#}a catch b
+a catch |err| b{#endsyntax#}</pre></th>
           <td>
             <ul>
               <li>{#link|Error Unions|Errors#}</li>
@@ -1618,7 +1715,7 @@ unwrapped == 1234{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <td><pre>{#syntax#}a and b{#endsyntax#}</pre></td>
+          <th scope="row"><pre>{#syntax#}a and b{#endsyntax#}</pre></th>
           <td>
             <ul>
               <li>{#link|bool|Primitive Types#}</li>
@@ -1633,7 +1730,7 @@ unwrapped == 1234{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <td><pre>{#syntax#}a or b{#endsyntax#}</pre></td>
+          <th scope="row"><pre>{#syntax#}a or b{#endsyntax#}</pre></th>
           <td>
             <ul>
               <li>{#link|bool|Primitive Types#}</li>
@@ -1648,7 +1745,7 @@ unwrapped == 1234{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <td><pre>{#syntax#}!a{#endsyntax#}</pre></td>
+          <th scope="row"><pre>{#syntax#}!a{#endsyntax#}</pre></th>
           <td>
             <ul>
               <li>{#link|bool|Primitive Types#}</li>
@@ -1662,7 +1759,7 @@ unwrapped == 1234{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <td><pre>{#syntax#}a == b{#endsyntax#}</pre></td>
+          <th scope="row"><pre>{#syntax#}a == b{#endsyntax#}</pre></th>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
@@ -1680,7 +1777,7 @@ unwrapped == 1234{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <td><pre>{#syntax#}a == null{#endsyntax#}</pre></td>
+          <th scope="row"><pre>{#syntax#}a == null{#endsyntax#}</pre></th>
           <td>
             <ul>
               <li>{#link|Optionals#}</li>
@@ -1695,7 +1792,7 @@ value == null{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <td><pre>{#syntax#}a != b{#endsyntax#}</pre></td>
+          <th scope="row"><pre>{#syntax#}a != b{#endsyntax#}</pre></th>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
@@ -1713,7 +1810,7 @@ value == null{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <td><pre>{#syntax#}a > b{#endsyntax#}</pre></td>
+          <th scope="row"><pre>{#syntax#}a > b{#endsyntax#}</pre></th>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
@@ -1729,7 +1826,7 @@ value == null{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <td><pre>{#syntax#}a >= b{#endsyntax#}</pre></td>
+          <th scope="row"><pre>{#syntax#}a >= b{#endsyntax#}</pre></th>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
@@ -1745,7 +1842,7 @@ value == null{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <td><pre>{#syntax#}a < b{#endsyntax#}</pre></td>
+          <th scope="row"><pre>{#syntax#}a < b{#endsyntax#}</pre></th>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
@@ -1761,7 +1858,7 @@ value == null{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <td><pre>{#syntax#}a <= b{#endsyntax#}</pre></td>
+          <th scope="row"><pre>{#syntax#}a <= b{#endsyntax#}</pre></th>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
@@ -1777,7 +1874,7 @@ value == null{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <td><pre>{#syntax#}a ++ b{#endsyntax#}</pre></td>
+          <th scope="row"><pre>{#syntax#}a ++ b{#endsyntax#}</pre></th>
           <td>
             <ul>
               <li>{#link|Arrays#}</li>
@@ -1786,7 +1883,7 @@ value == null{#endsyntax#}</pre>
           <td>
             Array concatenation.
             <ul>
-                <li>Only available when {#syntax#}a{#endsyntax#} and {#syntax#}b{#endsyntax#} are {#link|compile-time known|comptime#}.
+              <li>Only available when {#syntax#}a{#endsyntax#} and {#syntax#}b{#endsyntax#} are {#link|compile-time known|comptime#}.</li>
             </ul>
           </td>
           <td>
@@ -1798,7 +1895,7 @@ mem.eql(u32, &together, &[_]u32{1,2,3,4}){#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <td><pre>{#syntax#}a ** b{#endsyntax#}</pre></td>
+          <th scope="row"><pre>{#syntax#}a ** b{#endsyntax#}</pre></th>
           <td>
             <ul>
               <li>{#link|Arrays#}</li>
@@ -1807,7 +1904,7 @@ mem.eql(u32, &together, &[_]u32{1,2,3,4}){#endsyntax#}</pre>
           <td>
             Array multiplication.
             <ul>
-                <li>Only available when {#syntax#}a{#endsyntax#} and {#syntax#}b{#endsyntax#} are {#link|compile-time known|comptime#}.
+              <li>Only available when {#syntax#}a{#endsyntax#} and {#syntax#}b{#endsyntax#} are {#link|compile-time known|comptime#}.</li>
             </ul>
           </td>
           <td>
@@ -1817,7 +1914,7 @@ mem.eql(u8, pattern, "ababab"){#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <td><pre>{#syntax#}a.*{#endsyntax#}</pre></td>
+          <th scope="row"><pre>{#syntax#}a.*{#endsyntax#}</pre></th>
           <td>
             <ul>
               <li>{#link|Pointers#}</li>
@@ -1833,7 +1930,7 @@ ptr.* == 1234{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <td><pre>{#syntax#}&a{#endsyntax#}</pre></td>
+          <th scope="row"><pre>{#syntax#}&a{#endsyntax#}</pre></th>
           <td>
             All types
           </td>
@@ -1847,7 +1944,7 @@ ptr.* == 1234{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <td><pre>{#syntax#}a || b{#endsyntax#}</pre></td>
+          <th scope="row"><pre>{#syntax#}a || b{#endsyntax#}</pre></th>
           <td>
             <ul>
               <li>{#link|Error Set Type#}</li>
@@ -1862,6 +1959,7 @@ const B = error{Two};
 (A || B) == error{One, Two}{#endsyntax#}</pre>
           </td>
         </tr>
+        </tbody>
       </table>
       </div>
       {#header_close#}
@@ -2138,7 +2236,7 @@ test "null terminated array" {
             </li>
         </ul>
         <p>Use {#syntax#}&x{#endsyntax#} to obtain a single-item pointer:</p>
-        {#code_begin|test#}
+        {#code_begin|test|single_item_pointer_test#}
 const expect = @import("std").testing.expect;
 
 test "address of syntax" {
@@ -2182,7 +2280,7 @@ test "pointer array access" {
         against this kind of undefined behavior. This is one reason
         we prefer slices to pointers.
       </p>
-      {#code_begin|test#}
+      {#code_begin|test|slice_bounds#}
 const expect = @import("std").testing.expect;
 
 test "pointer slicing" {
@@ -2197,7 +2295,7 @@ test "pointer slicing" {
       {#code_end#}
       <p>Pointers work at compile-time too, as long as the code does not depend on
       an undefined memory layout:</p>
-      {#code_begin|test#}
+      {#code_begin|test|comptime_pointers#}
 const expect = @import("std").testing.expect;
 
 test "comptime pointers" {
@@ -2212,7 +2310,7 @@ test "comptime pointers" {
       {#code_end#}
       <p>To convert an integer address into a pointer, use {#syntax#}@intToPtr{#endsyntax#}.
       To convert a pointer to an integer, use {#syntax#}@ptrToInt{#endsyntax#}:</p>
-      {#code_begin|test#}
+      {#code_begin|test|integer_pointer_conversion#}
 const expect = @import("std").testing.expect;
 
 test "@ptrToInt and @intToPtr" {
@@ -2224,7 +2322,7 @@ test "@ptrToInt and @intToPtr" {
       {#code_end#}
       <p>Zig is able to preserve memory addresses in comptime code, as long as
       the pointer is never dereferenced:</p>
-      {#code_begin|test#}
+      {#code_begin|test|comptime_pointer_conversion#}
 const expect = @import("std").testing.expect;
 
 test "comptime @intToPtr" {
@@ -2244,7 +2342,7 @@ test "comptime @intToPtr" {
       should have side effects, such as Memory Mapped Input/Output (MMIO), use {#syntax#}volatile{#endsyntax#}.
       In the following code, loads and stores with {#syntax#}mmio_ptr{#endsyntax#} are guaranteed to all happen
       and in the same order as in source code:</p>
-      {#code_begin|test#}
+      {#code_begin|test|volatile#}
 const expect = @import("std").testing.expect;
 
 test "volatile" {
@@ -2263,7 +2361,7 @@ test "volatile" {
       operation that Zig cannot protect you against. Use {#syntax#}@ptrCast{#endsyntax#} only when other
       conversions are not possible.
       </p>
-      {#code_begin|test#}
+      {#code_begin|test|pointer_casting#}
 const std = @import("std");
 const expect = std.testing.expect;
 
@@ -2301,7 +2399,7 @@ test "pointer child type" {
       In Zig, a pointer type has an alignment value. If the value is equal to the
       alignment of the underlying type, it can be omitted from the type:
       </p>
-      {#code_begin|test#}
+      {#code_begin|test|variable_alignment#}
 const std = @import("std");
 const expect = std.testing.expect;
 
@@ -2323,7 +2421,7 @@ test "variable alignment" {
       You can specify alignment on variables and functions. If you do this, then
       pointers to them get the specified alignment:
       </p>
-      {#code_begin|test#}
+      {#code_begin|test|variable_func_alignment#}
 const expect = @import("std").testing.expect;
 
 var foo: u8 align(4) = 100;
@@ -2660,7 +2758,7 @@ test "linked list" {
       Each struct field may have an expression indicating the default field value. Such expressions
       are executed at {#link|comptime#}, and allow the field to be omitted in a struct literal expression:
       </p>
-      {#code_begin|test#}
+      {#code_begin|test|default_field_values#}
 const Foo = struct {
     a: i32 = 1234,
     b: i32,
@@ -2709,7 +2807,7 @@ test "default struct initialization fields" {
       in a {#link|@bitCast#} or a {#link|@ptrCast#} to reinterpret memory.
       This even works at {#link|comptime#}:
       </p>
-      {#code_begin|test#}
+      {#code_begin|test|packed_structs#}
 const std = @import("std");
 const native_endian = @import("builtin").target.cpu.arch.endian();
 const expect = std.testing.expect;
@@ -2750,7 +2848,7 @@ fn doTheTest() !void {
       <p>
       Zig allows the address to be taken of a non-byte-aligned field:
       </p>
-      {#code_begin|test#}
+      {#code_begin|test|pointer_to_non-byte_aligned_field#}
 const std = @import("std");
 const expect = std.testing.expect;
 
@@ -2806,7 +2904,7 @@ fn bar(x: *const u3) u3 {
       <p>
       Pointers to non-ABI-aligned fields share the same address as the other fields within their host integer:
       </p>
-      {#code_begin|test#}
+      {#code_begin|test|pointer_to_non-bit_aligned_field#}
 const std = @import("std");
 const expect = std.testing.expect;
 
@@ -2830,7 +2928,7 @@ test "pointer to non-bit-aligned field" {
       <p>
       This can be observed with {#link|@bitOffsetOf#} and {#link|offsetOf#}:
       </p>
-      {#code_begin|test#}
+      {#code_begin|test|test_bitOffsetOf_offsetOf#}
 const std = @import("std");
 const expect = std.testing.expect;
 
@@ -2875,7 +2973,7 @@ test "overaligned pointer to packed struct" {
       <p>
       It's also possible to set alignment of struct fields:
       </p>
-      {#code_begin|test#}
+      {#code_begin|test|test_aligned_struct_fields#}
 const std = @import("std");
 const expectEqual = std.testing.expectEqual;
 
@@ -3129,7 +3227,7 @@ export fn entry(foo: Foo) void { _ = foo; }
       <p>
       Enum literals allow specifying the name of an enum field without specifying the enum type:
       </p>
-      {#code_begin|test#}
+      {#code_begin|test|test_enum_literals#}
 const std = @import("std");
 const expect = std.testing.expect;
 
@@ -3171,7 +3269,7 @@ test "switch using enum literals" {
       A switch on a non-exhaustive enum can include a '_' prong as an alternative to an {#syntax#}else{#endsyntax#} prong
       with the difference being that it makes it a compile error if all the known tag names are not handled by the switch.
       </p>
-      {#code_begin|test#}
+      {#code_begin|test|test_switch_non-exhaustive#}
 const std = @import("std");
 const expect = std.testing.expect;
 
@@ -3224,7 +3322,7 @@ test "simple union" {
 }
       {#code_end#}
       <p>You can activate another field by assigning the entire union:</p>
-      {#code_begin|test#}
+      {#code_begin|test|test_simple_union#}
 const std = @import("std");
 const expect = std.testing.expect;
 
@@ -3253,7 +3351,7 @@ test "simple union" {
       to use with {#link|switch#} expressions.
       Tagged unions coerce to their tag type: {#link|Type Coercion: unions and enums#}.
       </p>
-      {#code_begin|test#}
+      {#code_begin|test|test_switch_tagged_union#}
 const std = @import("std");
 const expect = std.testing.expect;
 
@@ -3291,7 +3389,7 @@ test "coerce to enum" {
       <p>In order to modify the payload of a tagged union in a switch expression,
       place a {#syntax#}*{#endsyntax#} before the variable name to make it a pointer:
       </p>
-      {#code_begin|test#}
+      {#code_begin|test|test_switch_modify_tagged_union#}
 const std = @import("std");
 const expect = std.testing.expect;
 
@@ -3320,7 +3418,7 @@ test "modify tagged union in switch" {
       Unions can be made to infer the enum tag type.
       Further, unions can have methods just like structs and enums.
       </p>
-      {#code_begin|test#}
+      {#code_begin|test|test_union_method#}
 const std = @import("std");
 const expect = std.testing.expect;
 
@@ -3352,7 +3450,7 @@ test "union method" {
       {#link|@tagName#} can be used to return a {#link|comptime#}
       {#syntax#}[:0]const u8{#endsyntax#} value representing the field name:
       </p>
-      {#code_begin|test#}
+      {#code_begin|test|test_tagName#}
 const std = @import("std");
 const expect = std.testing.expect;
 
@@ -3377,7 +3475,7 @@ test "@tagName" {
 
       {#header_open|packed union#}
       <p>A {#syntax#}packed union{#endsyntax#} has well-defined in-memory layout and is eligible
-      to be in a {#link|packed struct#}.
+          to be in a {#link|packed struct#}.</p>
       {#header_close#}
 
       {#header_open|Anonymous Union Literals#}
@@ -3448,7 +3546,7 @@ test "access variable after block scope" {
       <p>Blocks are expressions. When labeled, {#syntax#}break{#endsyntax#} can be used
       to return a value from the block:
       </p>
-      {#code_begin|test#}
+      {#code_begin|test|test_labeled_break#}
 const std = @import("std");
 const expect = std.testing.expect;
 
@@ -3482,7 +3580,7 @@ test "inside test block" {
       Because of this, when you read Zig code you can rely on an identifier always meaning the same thing,
       within the scope it is defined. Note that you can, however use the same name if the scopes are separate:
       </p>
-      {#code_begin|test#}
+      {#code_begin|test|test_scopes#}
 test "separate scopes" {
     {
         const pi = 3.14;
@@ -3569,7 +3667,7 @@ test "switch inside function" {
       done by placing a {#syntax#}*{#endsyntax#} before the capture variable name,
       turning it into a pointer.
       </p>
-      {#code_begin|test#}
+      {#code_begin|test|test_switch_tagged_union#}
 const expect = @import("std").testing.expect;
 
 test "switch on tagged union" {
@@ -3636,7 +3734,7 @@ test "exhaustive switching" {
       {#link|Enum Literals#} can be useful to use with {#syntax#}switch{#endsyntax#} to avoid
       repetitively specifying {#link|enum#} or {#link|union#} types:
       </p>
-      {#code_begin|test#}
+      {#code_begin|test|test_exhaustive_switch#}
 const std = @import("std");
 const expect = std.testing.expect;
 
@@ -3761,7 +3859,7 @@ fn rangeHasNumber(begin: usize, end: usize, number: usize) bool {
       {#header_open|Labeled while#}
       <p>When a {#syntax#}while{#endsyntax#} loop is labeled, it can be referenced from a {#syntax#}break{#endsyntax#}
               or {#syntax#}continue{#endsyntax#} from within a nested loop:</p>
-      {#code_begin|test#}
+      {#code_begin|test|test_nested_break#}
 test "nested break" {
     outer: while (true) {
         while (true) {
@@ -3866,7 +3964,7 @@ fn eventuallyErrorSequence() anyerror!u32 {
       allows the code to do some things which only work at compile time,
       such as use types as first class values.
       </p>
-      {#code_begin|test#}
+      {#code_begin|test|test_inline_while#}
 const expect = @import("std").testing.expect;
 
 test "inline while loop" {
@@ -3969,7 +4067,7 @@ test "for else" {
       {#header_open|Labeled for#}
       <p>When a {#syntax#}for{#endsyntax#} loop is labeled, it can be referenced from a {#syntax#}break{#endsyntax#}
               or {#syntax#}continue{#endsyntax#} from within a nested loop:</p>
-      {#code_begin|test#}
+      {#code_begin|test|test_nested_break#}
 const std = @import("std");
 const expect = std.testing.expect;
 
@@ -4005,7 +4103,7 @@ test "nested continue" {
       The capture value and iterator value of inlined for loops are
       compile-time known.
       </p>
-      {#code_begin|test#}
+      {#code_begin|test|test_inline_loop#}
 const expect = @import("std").testing.expect;
 
 test "inline for loop" {
@@ -4278,16 +4376,16 @@ test "errdefer unwinding" {
       {#header_close#}
       {#header_open|unreachable#}
       <p>
-      In {#syntax#}Debug{#endsyntax#} and {#syntax#}ReleaseSafe{#endsyntax#} mode, and when using <code>zig test</code>,
+      In {#syntax#}Debug{#endsyntax#} and {#syntax#}ReleaseSafe{#endsyntax#} mode, and when using <kbd>zig test</kbd>,
       {#syntax#}unreachable{#endsyntax#} emits a call to {#syntax#}panic{#endsyntax#} with the message <code>reached unreachable code</code>.
       </p>
       <p>
       In {#syntax#}ReleaseFast{#endsyntax#} mode, the optimizer uses the assumption that {#syntax#}unreachable{#endsyntax#} code
-      will never be hit to perform optimizations. However, <code>zig test</code> even in {#syntax#}ReleaseFast{#endsyntax#} mode
+      will never be hit to perform optimizations. However, <kbd>zig test</kbd> even in {#syntax#}ReleaseFast{#endsyntax#} mode
                   still emits {#syntax#}unreachable{#endsyntax#} as calls to {#syntax#}panic{#endsyntax#}.
       </p>
       {#header_open|Basics#}
-      {#code_begin|test#}
+      {#code_begin|test|test_unreachable#}
 // unreachable is used to assert that control flow will never happen upon a
 // particular location:
 test "basic math" {
@@ -4343,7 +4441,7 @@ test "type of unreachable" {
       <p>When resolving types together, such as {#syntax#}if{#endsyntax#} clauses or {#syntax#}switch{#endsyntax#} prongs,
               the {#syntax#}noreturn{#endsyntax#} type is compatible with every other type. Consider:
       </p>
-      {#code_begin|test#}
+      {#code_begin|test|test_noreturn#}
 fn foo(condition: bool, b: u32) void {
     const a = if (condition) b else return;
     _ = a;
@@ -4354,7 +4452,7 @@ test "noreturn" {
 }
       {#code_end#}
       <p>Another use case for {#syntax#}noreturn{#endsyntax#} is the {#syntax#}exit{#endsyntax#} function:</p>
-      {#code_begin|test#}
+      {#code_begin|test|noreturn_from_exit#}
       {#target_windows#}
 pub extern "kernel32" fn ExitProcess(exit_code: c_uint) callconv(if (@import("builtin").target.cpu.arch == .i386) .Stdcall else .C) noreturn;
 
@@ -4451,7 +4549,7 @@ fn foo() void { }
       as parameters, Zig may choose to copy and pass by value, or pass by reference, whichever way
       Zig decides will be faster. This is made possible, in part, by the fact that parameters are immutable.
       </p>
-      {#code_begin|test#}
+      {#code_begin|test|pass_by_reference_or_value#}
 const Point = struct {
     x: i32,
     y: i32,
@@ -4481,7 +4579,7 @@ test "pass struct to function" {
       In this case the parameter types will be inferred when the function is called.
       Use {#link|@TypeOf#} and {#link|@typeInfo#} to get information about the inferred type.
       </p>
-      {#code_begin|test#}
+      {#code_begin|test|test_fn_type_inference#}
 const expect = @import("std").testing.expect;
 
 fn addFortyTwo(x: anytype) @TypeOf(x) {
@@ -4499,7 +4597,7 @@ test "fn type inference" {
 
       {#header_close#}
       {#header_open|Function Reflection#}
-      {#code_begin|test#}
+      {#code_begin|test|test_fn_reflection#}
 const expect = @import("std").testing.expect;
 
 test "fn reflection" {
@@ -4524,7 +4622,7 @@ test "fn reflection" {
       <p>
       You can {#link|coerce|Type Coercion#} an error from a subset to a superset:
       </p>
-      {#code_begin|test#}
+      {#code_begin|test|coercing_subset_to_superset#}
 const std = @import("std");
 
 const FileOpenError = error {
@@ -4608,7 +4706,7 @@ const err = (error {FileNotFound}).FileNotFound;
       <p>
       Here is a function to parse a string into a 64-bit integer:
       </p>
-      {#code_begin|test#}
+      {#code_begin|test|error_union_parsing_u64#}
 const std = @import("std");
 const maxInt = std.math.maxInt;
 
@@ -4791,7 +4889,7 @@ fn createFoo(param: i32) !Foo {
 
       <p>An error union is created with the {#syntax#}!{#endsyntax#} binary operator.
       You can use compile-time reflection to access the child type of an error union:</p>
-      {#code_begin|test#}
+      {#code_begin|test|test_error_union#}
 const expect = @import("std").testing.expect;
 
 test "error union" {
@@ -4823,7 +4921,7 @@ test "error union" {
       {#syntax#}LinuxFileOpenError || WindowsFileOpenError{#endsyntax#} for the error set of opening
       files.
       </p>
-      {#code_begin|test#}
+      {#code_begin|test|test_merging_error_sets#}
 const A = error{
     NotDir,
 
@@ -4859,7 +4957,7 @@ test "merge error sets" {
       Because many functions in Zig return a possible error, Zig supports inferring the error set.
       To infer the error set for a function, use this syntax:
       </p>
-{#code_begin|test#}
+{#code_begin|test|inferred_error_sets#}
 // With an inferred error set
 pub fn add_inferred(comptime T: type, a: T, b: T) !T {
     var answer: T = undefined;
@@ -5173,7 +5271,7 @@ fn doAThing(optional_foo: ?*Foo) void {
       {#header_open|Optional Type#}
       <p>An optional is created by putting {#syntax#}?{#endsyntax#} in front of a type. You can use compile-time
       reflection to access the child type of an optional:</p>
-      {#code_begin|test#}
+      {#code_begin|test|test_optional_type#}
 const expect = @import("std").testing.expect;
 
 test "optional type" {
@@ -5200,7 +5298,7 @@ const optional_value: ?i32 = null;
       {#header_open|Optional Pointers#}
       <p>An optional pointer is guaranteed to be the same size as a pointer. The {#syntax#}null{#endsyntax#} of
       the optional is guaranteed to be address 0.</p>
-      {#code_begin|test#}
+      {#code_begin|test|test_optional_pointer#}
 const expect = @import("std").testing.expect;
 
 test "optional pointers" {
@@ -5232,7 +5330,7 @@ test "optional pointers" {
       <p>
       Type coercion occurs when one type is expected, but different type is provided:
       </p>
-      {#code_begin|test#}
+      {#code_begin|test|type_coercion#}
 test "type coercion - variable declaration" {
     var a: u8 = 1;
     var b: u16 = a;
@@ -5272,7 +5370,7 @@ test "type coercion - @as builtin" {
       <p>
       These casts are no-ops at runtime since the value representation does not change.
       </p>
-      {#code_begin|test#}
+      {#code_begin|test|no_op_casts#}
 test "type coercion - const qualification" {
     var a: i32 = 1;
     var b: *i32 = &a;
@@ -5284,7 +5382,7 @@ fn foo(_: *const i32) void {}
       <p>
       In addition, pointers coerce to const optional pointers:
       </p>
-      {#code_begin|test#}
+      {#code_begin|test|pointer_coerce_const_optional#}
 const std = @import("std");
 const expect = std.testing.expect;
 const mem = std.mem;
@@ -5301,7 +5399,7 @@ test "cast *[1][*]const u8 to [*]const ?[*]const u8" {
       {#link|Integers#} coerce to integer types which can represent every value of the old type, and likewise
       {#link|Floats#} coerce to float types which can represent every value of the old type.
       </p>
-      {#code_begin|test#}
+      {#code_begin|test|test_integer_widening#}
 const std = @import("std");
 const expect = std.testing.expect;
 const mem = std.mem;
@@ -5429,7 +5527,7 @@ test "*T to *[1]T" {
       <p>
       The payload type of {#link|Optionals#}, as well as {#link|null#}, coerce to the optional type.
       </p>
-      {#code_begin|test#}
+      {#code_begin|test|test_coerce_optionals#}
 const std = @import("std");
 const expect = std.testing.expect;
 
@@ -5442,7 +5540,7 @@ test "coerce to optionals" {
 }
       {#code_end#}
       <p>It works nested inside the {#link|Error Union Type#}, too:</p>
-      {#code_begin|test#}
+      {#code_begin|test|test_corerce_optional_wrapped_error_union#}
 const std = @import("std");
 const expect = std.testing.expect;
 
@@ -5459,7 +5557,7 @@ test "coerce to optionals wrapped in error union" {
       <p>The payload type of an {#link|Error Union Type#} as well as the {#link|Error Set Type#}
       coerce to the error union type:
       </p>
-      {#code_begin|test#}
+      {#code_begin|test|test_coerce_to_error_union#}
 const std = @import("std");
 const expect = std.testing.expect;
 
@@ -5476,7 +5574,7 @@ test "coercion to error unions" {
       <p>When a number is {#link|comptime#}-known to be representable in the destination type,
       it may be coerced:
       </p>
-      {#code_begin|test#}
+      {#code_begin|test|test_coerce_large_to_small#}
 const std = @import("std");
 const expect = std.testing.expect;
 
@@ -5492,7 +5590,7 @@ test "coercing large integer type to smaller one when value is comptime known to
       when they are {#link|comptime#}-known to be a field of the union that has only one possible value, such as
       {#link|void#}:
       </p>
-      {#code_begin|test#}
+      {#code_begin|test|test_coerce_unions_enums#}
 const std = @import("std");
 const expect = std.testing.expect;
 
@@ -5525,7 +5623,7 @@ test "coercion between unions and enums" {
       regardless of const.</p>
       <p>TODO document the reasoning for this</p>
       <p>TODO document whether vice versa should work and why</p>
-      {#code_begin|test#}
+      {#code_begin|test|coerce_zero_bit_types#}
 test "coercion of zero bit types" {
     var x: void = {};
     var y: *void = x;
@@ -5715,7 +5813,7 @@ export fn entry() void {
           {#syntax#}Map(Key, Value){#endsyntax#}, one can pass {#syntax#}void{#endsyntax#} for the {#syntax#}Value{#endsyntax#}
                       type to make it into a {#syntax#}Set{#endsyntax#}:
       </p>
-      {#code_begin|test#}
+      {#code_begin|test|void_in_hashmap#}
 const std = @import("std");
 const expect = std.testing.expect;
 
@@ -5755,7 +5853,7 @@ fn foo() i32 {
 }
       {#code_end#}
       <p>However, if the expression has type {#syntax#}void{#endsyntax#}, there will be no error. Function return values can also be explicitly ignored by assigning them to {#syntax#}_{#endsyntax#}. </p>
-      {#code_begin|test#}
+      {#code_begin|test|void_ignored#}
 test "void is ignored" {
     returnsVoid();
 }
@@ -5774,7 +5872,7 @@ fn foo() i32 {
 
       {#header_open|Pointers to Zero Bit Types#}
       <p>Pointers to zero bit types also have zero bits. They always compare equal to each other:</p>
-      {#code_begin|test#}
+      {#code_begin|test|pointers_to_zero_bits#}
 const std = @import("std");
 const expect = std.testing.expect;
 
@@ -5826,10 +5924,10 @@ test "using std namespace" {
       {#code_end#}
       <p>
       {#syntax#}usingnamespace{#endsyntax#} has an important use case when organizing the public
-      API of a file or package. For example, one might have <code>c.zig</code> with all of the
+      API of a file or package. For example, one might have <code class="file">c.zig</code> with all of the
       {#link|C imports|Import from C Header File#}:
       </p>
-      <pre>{#syntax#}
+      {#syntax_block|zig|c.zig#}
 pub usingnamespace @cImport({
     @cInclude("epoxy/gl.h");
     @cInclude("GLFW/glfw3.h");
@@ -5837,7 +5935,7 @@ pub usingnamespace @cImport({
     @cDefine("STBI_NO_STDIO", "");
     @cInclude("stb_image.h");
 });
-      {#endsyntax#}</pre>
+      {#end_syntax_block#}
       <p>
       The above example demonstrates using {#syntax#}pub{#endsyntax#} to qualify the
       {#syntax#}usingnamespace{#endsyntax#} additionally makes the imported declarations
@@ -5923,7 +6021,7 @@ test "try to compare bools" {
       value is known at compile-time. This means that we actually could make this work for the bool type
       if we wanted to:
       </p>
-      {#code_begin|test#}
+      {#code_begin|test|comptime_max_with_bool#}
 fn max(comptime T: type, a: T, b: T) T {
     if (T == bool) {
         return a or b;
@@ -6086,7 +6184,7 @@ test "foo" {
       <p>
       Let's look at an example:
       </p>
-      {#code_begin|test#}
+      {#code_begin|test|fibonacci_recursion#}
 const expect = @import("std").testing.expect;
 
 fn fibonacci(index: u32) u32 {
@@ -6179,7 +6277,7 @@ test "fibonacci" {
       {#syntax#}comptime{#endsyntax#} expressions. This means that we can use functions to
       initialize complex static data. For example:
       </p>
-      {#code_begin|test#}
+      {#code_begin|test|N_primes#}
 const first_25_primes = firstNPrimes(25);
 const sum_of_first_25_primes = sum(&first_25_primes);
 
@@ -6480,7 +6578,7 @@ pub fn syscall3(number: usize, arg1: usize, arg2: usize, arg3: usize) usize {
       <p>
       Dissecting the syntax:
       </p>
-      <pre>{#syntax#}// Inline assembly is an expression which returns a value.
+      {#syntax_block|zig|Assembly Syntax Explained#}// Inline assembly is an expression which returns a value.
 // the `asm` keyword begins the expression.
 _ = asm
 // `volatile` is an optional modifier that tells Zig this
@@ -6535,7 +6633,7 @@ volatile (
 // output. In this example we list $rcx and $r11 because it is known the
 // kernel syscall does not preserve these registers.
     : "rcx", "r11"
-);{#endsyntax#}</pre>
+);{#end_syntax_block#}
       <p>
       For i386 and x86_64 targets, the syntax is AT&amp;T syntax, rather than the more
       popular Intel syntax. This is due to technical constraints; assembly parsing is
@@ -6661,7 +6759,7 @@ test "global assembly" {
       return to the callsite (in the case of the first suspension),
       or resumer (in the case of subsequent suspensions).
       </p>
-      {#code_begin|test#}
+      {#code_begin|test|suspend_no_resume#}
 const std = @import("std");
 const expect = std.testing.expect;
 
@@ -6688,7 +6786,7 @@ fn func() void {
       {#syntax#}resume{#endsyntax#} operation on a different thread.
       {#link|@frame#} provides access to the async function frame pointer.
       </p>
-      {#code_begin|test#}
+      {#code_begin|test|async_suspend_block#}
 const std = @import("std");
 const expect = std.testing.expect;
 
@@ -6726,7 +6824,7 @@ fn testSuspendBlock() void {
       However, the async function can be directly resumed from the suspend block, in which case it
       never returns to its resumer and continues executing.
       </p>
-      {#code_begin|test#}
+      {#code_begin|test|resume_from_suspend#}
 const std = @import("std");
 const expect = std.testing.expect;
 
@@ -6762,7 +6860,7 @@ fn testResumeFromSuspend(my_result: *i32) void {
       execution would continue at the most recent {#syntax#}async{#endsyntax#} callsite or {#syntax#}resume{#endsyntax#} callsite,
       and the return value of the async function would be lost.
       </p>
-      {#code_begin|test#}
+      {#code_begin|test|async_await#}
 const std = @import("std");
 const expect = std.testing.expect;
 
@@ -6806,7 +6904,7 @@ fn func() void {
       does not suspend; instead it copies the
       return value directly from the target function's frame.
       </p>
-      {#code_begin|test#}
+      {#code_begin|test|async_await_sequence#}
 const std = @import("std");
 const expect = std.testing.expect;
 
@@ -7084,7 +7182,7 @@ comptime {
       read after {#link|await|Async and Await#} completes. Any result location provided to
       {#syntax#}await{#endsyntax#} will copy the result from {#syntax#}result_ptr{#endsyntax#}.
       </p>
-      {#code_begin|test#}
+      {#code_begin|test|async_struct_field_fn_pointer#}
 const std = @import("std");
 const expect = std.testing.expect;
 
@@ -7526,7 +7624,7 @@ test "main" {
       not encountered by analysis, the
       program compiles successfully and the generated executable prints:
       </p>
-      {#code_begin|test#}
+      {#code_begin|test|without_compileLog#}
 const print = @import("std").debug.print;
 
 const num1 = blk: {
@@ -7758,7 +7856,7 @@ export fn @"A function name that is a complete sentence."() void {}
       <pre>{#syntax#}@field(lhs: anytype, comptime field_name: []const u8) (field){#endsyntax#}</pre>
       <p>Performs field access by a compile-time string. Works on both fields and declarations.
       </p>
-       {#code_begin|test#}
+       {#code_begin|test|field_decl_access_by_string#}
 const std = @import("std");
 
 const Point = struct {
@@ -7843,7 +7941,7 @@ test "decl access by string" {
       This type is suitable to be used as the return type of {#link|async|Async and Await#} which
       allows one to, for example, heap-allocate an async function frame:
       </p>
-      {#code_begin|test#}
+      {#code_begin|test|heap_allocated_frame#}
 const std = @import("std");
 
 test "heap allocated frame" {
@@ -7889,7 +7987,7 @@ fn func() void {
       Returns whether or not a {#link|struct#}, {#link|enum#}, or {#link|union#} has a declaration
       matching {#syntax#}name{#endsyntax#}.
       </p>
-      {#code_begin|test#}
+      {#code_begin|test|hasDecl#}
 const std = @import("std");
 const expect = std.testing.expect;
 
@@ -8104,7 +8202,7 @@ mem.set(u8, dest, c);{#endsyntax#}</pre>
       designers targeting Wasm. So unless you are writing a new allocator from scratch, you should use
       something like {#syntax#}@import("std").heap.WasmPageAllocator{#endsyntax#}.
       </p>
-      {#code_begin|test#}
+      {#code_begin|test|wasmMemoryGrow#}
 const std = @import("std");
 const native_arch = @import("builtin").target.cpu.arch;
 const expect = std.testing.expect;
@@ -8291,7 +8389,7 @@ test "foo" {
 }
       {#code_end#}
       <p>Now we use {#syntax#}@setEvalBranchQuota{#endsyntax#}:</p>
-      {#code_begin|test#}
+      {#code_begin|test|setEvalBranchQuota#}
 test "foo" {
     comptime {
         @setEvalBranchQuota(1001);
@@ -8490,7 +8588,7 @@ test "@setRuntimeSafety" {
       Produces a vector of length {#syntax#}len{#endsyntax#} where each element is the value
       {#syntax#}scalar{#endsyntax#}:
       </p>
-      {#code_begin|test#}
+      {#code_begin|test|vector_splat#}
 const std = @import("std");
 const expect = std.testing.expect;
 
@@ -8524,7 +8622,7 @@ test "vector @splat" {
           <li>{#syntax#}.Min{#endsyntax#}, {#syntax#}.Max{#endsyntax#},
             {#syntax#}.Add{#endsyntax#}, {#syntax#}.Mul{#endsyntax#} are
             available for {#link|floating point|Floats#} vectors,</li>
-          <li>Every operator is available for {#link|integer|Integers#} vectors.
+          <li>Every operator is available for {#link|integer|Integers#} vectors.</li>
       </ul>
       <p>
       Note that {#syntax#}.Add{#endsyntax#} and {#syntax#}.Mul{#endsyntax#}
@@ -8532,7 +8630,7 @@ test "vector @splat" {
       types the operation associativity is preserved, unless the float mode is
       set to {#syntax#}Optimized{#endsyntax#}.
       </p>
-      {#code_begin|test#}
+      {#code_begin|test|vector_reduce#}
 const std = @import("std");
 const expect = std.testing.expect;
 
@@ -8554,7 +8652,7 @@ test "vector @reduce" {
       <p>
       Returns a {#syntax#}SourceLocation{#endsyntax#} struct representing the function's name and location in the source code. This must be called in a function.
       </p>
-      {#code_begin|test#}
+      {#code_begin|test|source_location#}
 const std = @import("std");
 const expect = std.testing.expect;
 
@@ -8568,7 +8666,7 @@ fn doTheTest() !void {
     try expect(src.line == 9);
     try expect(src.column == 17);
     try expect(std.mem.endsWith(u8, src.fn_name, "doTheTest"));
-    try expect(std.mem.endsWith(u8, src.file, "test.zig"));
+    try expect(std.mem.endsWith(u8, src.file, "source_location.zig"));
 }
       {#code_end#}
       {#header_close#}
@@ -8749,7 +8847,7 @@ fn doTheTest() !void {
       Returns the innermost struct, enum, or union that this function call is inside.
       This can be useful for an anonymous struct that needs to refer to itself:
       </p>
-      {#code_begin|test#}
+      {#code_begin|test|this_innermost#}
 const std = @import("std");
 const expect = std.testing.expect;
 
@@ -8884,7 +8982,7 @@ test "integer truncation" {
       <p>
       The expressions are evaluated, however they are guaranteed to have no <em>runtime</em> side-effects:
       </p>
-      {#code_begin|test#}
+      {#code_begin|test|no_runtime_side_effects#}
 const std = @import("std");
 const expect = std.testing.expect;
 
@@ -8925,9 +9023,9 @@ fn foo(comptime T: type, ptr: *T) T {
         <li>{#link|ReleaseSmall#}</li>
       </ul>
       <p>
-      To add standard build options to a <code>build.zig</code> file:
+      To add standard build options to a <code class="file">build.zig</code> file:
       </p>
-      {#code_begin|syntax#}
+      {#code_begin|syntax|build#}
 const Builder = @import("std").build.Builder;
 
 pub fn build(b: *Builder) void {
@@ -8939,11 +9037,13 @@ pub fn build(b: *Builder) void {
       <p>
       This causes these options to be available:
       </p>
-      <pre><code class="shell">  -Drelease-safe=[bool] optimizations on and safety on
-  -Drelease-fast=[bool] optimizations on and safety off
-  -Drelease-small=[bool] size optimizations on and safety off</code></pre>
+      <dl>
+        <dt><kbd>-Drelease-safe=[bool]</kbd></dt><dd>Optimizations on and safety on</dd>
+        <dt><kbd>-Drelease-fast=[bool]</kbd></dt><dd>Optimizations on and safety off</dd>
+        <dt><kbd>-Drelease-small=[bool]</kbd></dt><dd>Size optimizations on and safety off</dd>
+      </dl>
       {#header_open|Debug#}
-      <pre><code class="shell">$ zig build-exe example.zig</code></pre>
+      {#shell_samp#}$ zig build-exe example.zig{#end_shell_samp#}
       <ul>
         <li>Fast compilation speed</li>
         <li>Safety checks enabled</li>
@@ -8953,7 +9053,7 @@ pub fn build(b: *Builder) void {
       </ul>
       {#header_close#}
       {#header_open|ReleaseFast#}
-      <pre><code class="shell">$ zig build-exe example.zig -O ReleaseFast</code></pre>
+      {#shell_samp#}$ zig build-exe example.zig -O ReleaseFast{#end_shell_samp#}
       <ul>
         <li>Fast runtime performance</li>
         <li>Safety checks disabled</li>
@@ -8963,7 +9063,7 @@ pub fn build(b: *Builder) void {
       </ul>
       {#header_close#}
       {#header_open|ReleaseSafe#}
-      <pre><code class="shell">$ zig build-exe example.zig -O ReleaseSafe</code></pre>
+      {#shell_samp#}$ zig build-exe example.zig -O ReleaseSafe{#end_shell_samp#}
       <ul>
         <li>Medium runtime performance</li>
         <li>Safety checks enabled</li>
@@ -8973,7 +9073,7 @@ pub fn build(b: *Builder) void {
       </ul>
       {#header_close#}
       {#header_open|ReleaseSmall#}
-      <pre><code class="shell">$ zig build-exe example.zig -O ReleaseSmall</code></pre>
+      {#shell_samp#}$ zig build-exe example.zig -O ReleaseSmall{#end_shell_samp#}
       <ul>
         <li>Medium runtime performance</li>
         <li>Safety checks disabled</li>
@@ -8986,7 +9086,7 @@ pub fn build(b: *Builder) void {
       {#header_close#}
 
       {#header_open|Single Threaded Builds#}
-      <p>Zig has a compile option <code>--single-threaded</code> which has the following effects:</p>
+      <p>Zig has a compile option <kbd>--single-threaded</kbd> which has the following effects:</p>
       <ul>
         <li>All {#link|Thread Local Variables#} are treated as regular {#link|Container Level Variables#}.</li>
         <li>The overhead of {#link|Async Functions#} becomes equivalent to function call overhead.</li>
@@ -9197,7 +9297,7 @@ pub fn main() void {
           <li>{#syntax#}-%{#endsyntax#} (wraparound negation)</li>
           <li>{#syntax#}*%{#endsyntax#} (wraparound multiplication)</li>
       </ul>
-      {#code_begin|test#}
+      {#code_begin|test|wraparound_semantics#}
 const std = @import("std");
 const expect = std.testing.expect;
 const minInt = std.math.minInt;
@@ -9935,14 +10035,14 @@ const separator = if (builtin.os.tag == builtin.Os.windows) '\\' else '/';
         <li>Custom tasks.</li>
       </ul>
       <p>
-      To use the build system, run <code class="shell">zig build --help</code>
+      To use the build system, run <kbd>zig build --help</kbd>
       to see a command-line usage help menu. This will include project-specific
       options that were declared in the build.zig script.
       </p>
 
       {#header_open|Building an Executable#}
-      <p>This <code>build.zig</code> file is automatically generated
-        by <code>zig init-exe</code>.</p>
+      <p>This <code class="file">build.zig</code> file is automatically generated
+        by <kbd>zig init-exe</kbd>.</p>
       {#code_begin|syntax|build#}
 const Builder = @import("std").build.Builder;
 
@@ -9975,8 +10075,8 @@ pub fn build(b: *Builder) void {
       {#header_close#}
 
       {#header_open|Building a Library#}
-      <p>This <code>build.zig</code> file is automatically generated
-        by <code>zig init-lib</code>.</p>
+      <p>This <code class="file">build.zig</code> file is automatically generated
+        by <kbd>zig init-lib</kbd>.</p>
       {#code_begin|syntax|build#}
 const Builder = @import("std").build.Builder;
 
@@ -10035,7 +10135,7 @@ lib.addCSourceFile("src/lib.c", &[_][]const u8{
       {#header_open|Import from C Header File#}
       <p>
       The {#syntax#}@cImport{#endsyntax#} builtin function can be used
-      to directly import symbols from .h files:
+      to directly import symbols from <code class="file">.h</code> files:
       </p>
       {#code_begin|exe#}
       {#link_libc#}
@@ -10051,7 +10151,7 @@ pub fn main() void {
       <p>
       The {#syntax#}@cImport{#endsyntax#} function takes an expression as a parameter.
       This expression is evaluated at compile-time and is used to control
-      preprocessor directives and include multiple .h files:
+      preprocessor directives and include multiple <code class="file">.h</code> files:
       </p>
       {#code_begin|syntax#}
 const builtin = @import("builtin");
@@ -10072,66 +10172,65 @@ const c = @cImport({
       {#header_close#}
 
       {#header_open|C Translation CLI#}
-      Zig's C translation capability is available as a CLI tool via <code class="shell">zig translate-c</code>.
+      Zig's C translation capability is available as a CLI tool via <kbd>zig translate-c</kbd>.
       It requires a single filename as an argument. It may also take a set of optional flags that are
       forwarded to clang. It writes the translated file to stdout.
       {#header_open|Command line flags#}
       <ul>
         <li>
-          <code class="shell">-I</code>:
+          <kbd>-I</kbd>:
           Specify a search directory for include files. May be used multiple times. Equivalent to
           <a href="https://releases.llvm.org/12.0.0/tools/clang/docs/ClangCommandLineReference.html#cmdoption-clang-i-dir">
-          clang's <code>-I</code> flag</a>. The current directory is <em>not</em> included by default;
-          use <code>-I.</code> to include it.
+          clang's <kbd>-I</kbd> flag</a>. The current directory is <em>not</em> included by default;
+          use <kbd>-I.</kbd> to include it.
         </li>
         <li>
-          <code class="shell">-D</code>: Define a preprocessor macro. Equivalent to
+          <kbd>-D</kbd>: Define a preprocessor macro. Equivalent to
           <a href="https://releases.llvm.org/12.0.0/tools/clang/docs/ClangCommandLineReference.html#cmdoption-clang-d-macro">
-          clang's <code>-D</code> flag</a>.
+          clang's <kbd>-D</kbd> flag</a>.
         </li>
         <li>
-          <code class="shell">-cflags [flags] --</code>: Pass arbitrary additional
+          <kbd>-cflags [flags] --</kbd>: Pass arbitrary additional
           <a href="https://releases.llvm.org/12.0.0/tools/clang/docs/ClangCommandLineReference.html">command line
-          flags</a> to clang. Note: the list of flags must end with <code>--</code>
+          flags</a> to clang. Note: the list of flags must end with <kbd>--</kbd>
         </li>
         <li>
-          <code class="shell">-target</code>: The {#link|target triple|Targets#} for the translated Zig code.
+          <kbd>-target</kbd>: The {#link|target triple|Targets#} for the translated Zig code.
           If no target is specified, the current host target will be used.
         </li>
       </ul>
       {#header_close#}
       {#header_open|Using -target and -cflags#}
       <p>
-        <strong>Important!</strong> When translating C code with <code class="shell">zig translate-c</code>,
-        you <strong>must</strong> use the same <code>-target</code> triple that you will use when compiling
-        the translated code. In addition, you <strong>must</strong> ensure that the <code>-cflags</code> used,
-        if any, match the cflags used by code on the target system. Using the incorrect <code>-target</code>
-        or <code>-cflags</code> could result in clang or Zig parse failures, or subtle ABI incompatibilities
+        <strong>Important!</strong> When translating C code with <kbd>zig translate-c</kbd>,
+        you <strong>must</strong> use the same <kbd>-target</kbd> triple that you will use when compiling
+        the translated code. In addition, you <strong>must</strong> ensure that the <kbd>-cflags</kbd> used,
+        if any, match the cflags used by code on the target system. Using the incorrect <kbd>-target</kbd>
+        or <kbd>-cflags</kbd> could result in clang or Zig parse failures, or subtle ABI incompatibilities
         when linking with C code.
       </p>
-      <p class="file">varytarget.h</p>
-      <pre><code class="c">long FOO = __LONG_MAX__;</code></pre>
-      <pre><code class="shell">$ zig translate-c -target <strong>thumb-freestanding-gnueabihf</strong> varytarget.h|grep FOO
-pub export var FOO: c_long = <strong>2147483647</strong>;</code></pre>
-      <pre><code class="shell">$ zig translate-c -target <strong>x86_64-macos-gnu</strong> varytarget.h|grep FOO
-pub export var FOO: c_long = <strong>9223372036854775807</strong>;</code></pre>
-      <p class="file">varycflags.h</p>
-      <pre><code class="c">enum FOO { BAR };
-int do_something(enum FOO foo);</code></pre>
-      <pre><code class="shell">$ zig translate-c varycflags.h|grep -B1 do_something
-pub const enum_FOO = <strong>c_uint</strong>;
-pub extern fn do_something(foo: enum_FOO) c_int;</code></pre>
-      <pre><code class="shell">$ zig translate-c <strong>-cflags -fshort-enums --</strong> varycflags.h|grep -B1 do_something
-pub const enum_FOO = <strong>u8</strong>;
-pub extern fn do_something(foo: enum_FOO) c_int;</code></pre>
+      {#syntax_block|c|varytarget.h#}long FOO = __LONG_MAX__;{#end_syntax_block#}
+      {#shell_samp#}$ zig translate-c -target <em>thumb-freestanding-gnueabihf</em> varytarget.h|grep FOO
+pub export var FOO: c_long = <em>2147483647</em>;
+$ zig translate-c -target <em>x86_64-macos-gnu</em> varytarget.h|grep FOO
+pub export var FOO: c_long = <em>9223372036854775807</em>;{#end_shell_samp#}
+      {#syntax_block|c|varycflags.h#}enum FOO { BAR };
+int do_something(enum FOO foo);
+      {#end_syntax_block#}
+      {#shell_samp#}$ zig translate-c varycflags.h|grep -B1 do_something
+pub const enum_FOO = <em>c_uint</em>;
+pub extern fn do_something(foo: enum_FOO) c_int;
+$ zig translate-c <em>-cflags -fshort-enums --</em> varycflags.h|grep -B1 do_something
+pub const enum_FOO = <em>u8</em>;
+pub extern fn do_something(foo: enum_FOO) c_int;{#end_shell_samp#}
       {#header_close#}
       {#header_open|@cImport vs translate-c#}
-      <p>{#syntax#}@cImport{#endsyntax#} and <code class="shell">zig translate-c</code> use the same underlying
+      <p>{#syntax#}@cImport{#endsyntax#} and <kbd>zig translate-c</kbd> use the same underlying
       C translation functionality, so on a technical level they are equivalent. In practice,
       {#syntax#}@cImport{#endsyntax#} is useful as a way to quickly and easily access numeric constants, typedefs,
       and record types without needing any extra setup. If you need to pass {#link|cflags|Using -target and -cflags#}
       to clang, or if you would like to edit the translated code, it is recommended to use
-      <code class="shell">zig translate-c</code> and save the results to a file. Common reasons for editing
+      <kbd>zig translate-c</kbd> and save the results to a file. Common reasons for editing
       the generated code include: changing {#syntax#}anytype{#endsyntax#} parameters in function-like macros to more
       specific types; changing {#syntax#}[*c]T{#endsyntax#} pointers to {#syntax#}[*]T{#endsyntax#} or
       {#syntax#}*T{#endsyntax#} pointers for improved type safety; and
@@ -10142,14 +10241,14 @@ pub extern fn do_something(foo: enum_FOO) c_int;</code></pre>
       {#header_close#}
       {#header_open|C Translation Caching#}
       <p>
-        The C translation feature (whether used via <code class="shell">zig translate-c</code> or
+        The C translation feature (whether used via <kbd>zig translate-c</kbd> or
         {#syntax#}@cImport{#endsyntax#}) integrates with the Zig caching system. Subsequent runs with
         the same source file, target, and cflags will use the cache instead of repeatedly translating
         the same code.
       </p>
       <p>
         To see where the cached files are stored when compiling code that uses {#syntax#}@cImport{#endsyntax#},
-        use the <code class="shell">--verbose-cimport</code> flag:
+        use the <kbd>--verbose-cimport</kbd> flag:
       </p>
       {#code_begin|exe|verbose#}
       {#link_libc#}
@@ -10163,10 +10262,10 @@ pub fn main() void {
 }
       {#code_end#}
       <p>
-        <code class="shell">cimport.h</code> contains the file to translate (constructed from calls to
+        <code class="file">cimport.h</code> contains the file to translate (constructed from calls to
         {#syntax#}@cInclude{#endsyntax#}, {#syntax#}@cDefine{#endsyntax#}, and {#syntax#}@cUndef{#endsyntax#}),
-        <code class="shell">cimport.h.d</code> is the list of file dependencies, and
-        <code class="shell">cimport.zig</code> contains the translated output.
+        <code class="file">cimport.h.d</code> is the list of file dependencies, and
+        <code class="file">cimport.zig</code> contains the translated output.
       </p>
       {#see_also|Import from C Header File|C Translation CLI|@cInclude|@cImport#}
       {#header_close#}
@@ -10206,22 +10305,22 @@ pub fn main() void {
         Zig.
       </p>
       <p>Consider the following example:</p>
-      <p class="file">macro.c</p>
-      <pre><code class="c">#define MAKELOCAL(NAME, INIT) int NAME = INIT
+      {#syntax_block|c|macro.c#}#define MAKELOCAL(NAME, INIT) int NAME = INIT
 int foo(void) {
    MAKELOCAL(a, 1);
    MAKELOCAL(b, 2);
    return a + b;
-}</code></pre>
-<pre><code class="shell">$ zig translate-c macro.c > macro.zig
-</code></pre>
-      <p class="file">macro.zig</p>
-      <pre>{#syntax#}pub export fn foo() c_int {
+}
+      {#end_syntax_block#}
+      {#shell_samp#}$ zig translate-c macro.c > macro.zig{#end_shell_samp#}
+      {#code_begin|syntax|macro#}
+pub export fn foo() c_int {
     var a: c_int = 1;
     var b: c_int = 2;
     return a + b;
 }
-pub const MAKELOCAL = @compileError("unable to translate C expr: unexpected token .Equal"); // macro.c:1:9{#endsyntax#}</pre>
+pub const MAKELOCAL = @compileError("unable to translate C expr: unexpected token .Equal"); // macro.c:1:9
+      {#code_end#}
       <p>Note that {#syntax#}foo{#endsyntax#} was translated correctly despite using a non-translateable
         macro. {#syntax#}MAKELOCAL{#endsyntax#} was demoted to {#syntax#}@compileError{#endsyntax#} since
         it cannot be expressed as a Zig function; this simply means that you cannot directly use
@@ -10272,31 +10371,27 @@ pub const MAKELOCAL = @compileError("unable to translate C expr: unexpected toke
       to call into. The {#syntax#}export{#endsyntax#} keyword in front of functions, variables, and types causes them to
       be part of the library API:
       </p>
-      <p class="file">mathtest.zig</p>
-      {#code_begin|syntax#}
+      {#code_begin|syntax|mathtest#}
 export fn add(a: i32, b: i32) i32 {
     return a + b;
 }
       {#code_end#}
       <p>To make a static library:</p>
-      <pre><code class="shell">$ zig build-lib mathtest.zig
-</code></pre>
+      {#shell_samp#}$ zig build-lib mathtest.zig{#end_shell_samp#}
       <p>To make a shared library:</p>
-      <pre><code class="shell">$ zig build-lib mathtest.zig -dynamic
-</code></pre>
+      {#shell_samp#}$ zig build-lib mathtest.zig -dynamic{#end_shell_samp#}
       <p>Here is an example with the {#link|Zig Build System#}:</p>
-      <p class="file">test.c</p>
-      <pre><code class="cpp">// This header is generated by zig from mathtest.zig
+      {#syntax_block|c|test.c#}// This header is generated by zig from mathtest.zig
 #include "mathtest.h"
-#include &lt;stdio.h&gt;
+#include <stdio.h>
 
 int main(int argc, char **argv) {
     int32_t result = add(42, 1337);
     printf("%d\n", result);
     return 0;
-}</code></pre>
-      <p class="file">build.zig</p>
-      {#code_begin|syntax#}
+}
+      {#end_syntax_block#}
+      {#code_begin|syntax|build#}
 const Builder = @import("std").build.Builder;
 
 pub fn build(b: *Builder) void {
@@ -10315,18 +10410,15 @@ pub fn build(b: *Builder) void {
     test_step.dependOn(&run_cmd.step);
 }
       {#code_end#}
-      <p class="file">terminal</p>
-      <pre><code class="shell">$ zig build test
-1379
-</code></pre>
+      {#shell_samp#}$ zig build test
+1379{#end_shell_samp#}
       {#see_also|export#}
       {#header_close#}
       {#header_open|Mixing Object Files#}
       <p>
       You can mix Zig object files with any other object files that respect the C ABI. Example:
       </p>
-      <p class="file">base64.zig</p>
-      {#code_begin|syntax#}
+      {#code_begin|syntax|base64#}
 const base64 = @import("std").base64;
 
 export fn decode_base_64(
@@ -10343,12 +10435,11 @@ export fn decode_base_64(
     return decoded_size;
 }
       {#code_end#}
-      <p class="file">test.c</p>
-      <pre><code class="cpp">// This header is generated by zig from base64.zig
+      {#syntax_block|c|test.c#}// This header is generated by zig from base64.zig
 #include "base64.h"
 
-#include &lt;string.h&gt;
-#include &lt;stdio.h&gt;
+#include <string.h>
+#include <stdio.h>
 
 int main(int argc, char **argv) {
     const char *encoded = "YWxsIHlvdXIgYmFzZSBhcmUgYmVsb25nIHRvIHVz";
@@ -10359,9 +10450,9 @@ int main(int argc, char **argv) {
     puts(buf);
 
     return 0;
-}</code></pre>
-      <p class="file">build.zig</p>
-      {#code_begin|syntax#}
+}
+      {#end_syntax_block#}
+      {#code_begin|syntax|build#}
 const Builder = @import("std").build.Builder;
 
 pub fn build(b: *Builder) void {
@@ -10374,10 +10465,9 @@ pub fn build(b: *Builder) void {
     exe.install();
 }
       {#code_end#}
-      <p class="file">terminal</p>
-      <pre><code class="shell">$ zig build
+      {#shell_samp#}$ zig build
 $ ./zig-out/bin/test
-all your base are belong to us</code></pre>
+all your base are belong to us{#end_shell_samp#}
       {#see_also|Targets|Zig Build System#}
       {#header_close#}
       {#header_close#}
@@ -10395,9 +10485,7 @@ export fn add(a: i32, b: i32) void {
     print(a + b);
 }
       {#code_end#}
-      {#header_close#}
-      <p class="file">test.js</p>
-    <pre><code>const fs = require('fs');
+      {#syntax_block|javascript|test.js#}const fs = require('fs');
 const source = fs.readFileSync("./math.wasm");
 const typedArray = new Uint8Array(source);
 
@@ -10407,9 +10495,10 @@ WebAssembly.instantiate(typedArray, {
   }}).then(result =&gt; {
   const add = result.instance.exports.add;
   add(1, 2);
-});</code></pre>
-    <pre><code>$ node test.js
-The result is 3</code></pre>
+});{#end_syntax_block#}
+    {#shell_samp#}$ node test.js
+The result is 3{#end_shell_samp#}
+      {#header_close#}
       {#header_open|WASI#}
       <p>Zig's support for WebAssembly System Interface (WASI) is under active development.
       Example of using the standard library and reading command line arguments:</p>
@@ -10428,10 +10517,10 @@ pub fn main() !void {
     }
 }
       {#code_end#}
-      <pre><code>$ wasmtime args.wasm 123 hello
+      {#shell_samp#}$ wasmtime args.wasm 123 hello
 0: args.wasm
 1: 123
-2: hello</code></pre>
+2: hello{#end_shell_samp#}
       <p>A more interesting example would be extracting the list of preopens from the runtime.
       This is now supported in the standard library via {#syntax#}std.fs.wasi.PreopenList{#endsyntax#}:</p>
       {#code_begin|exe|preopens#}
@@ -10453,9 +10542,9 @@ pub fn main() !void {
     }
 }
       {#code_end#}
-      <pre><code>$ wasmtime --dir=. preopens.wasm
+      {#shell_samp#}$ wasmtime --dir=. preopens.wasm
 0: Preopen{ .fd = 3, .type = PreopenType{ .Dir = '.' } }
-</code></pre>
+      {#end_shell_samp#}
       {#header_close#}
       {#header_close#}
       {#header_open|Targets#}
@@ -10464,7 +10553,7 @@ pub fn main() !void {
       what it looks like to execute <code>zig targets</code> on a Linux x86_64
       computer:
       </p>
-      <pre><code class="shell">$ zig targets
+      {#shell_samp#}$ zig targets
 Architectures:
   arm
     v8_4a
@@ -10701,7 +10790,7 @@ Available libcs:
   wasm32-wasi-musl
   x86_64-linux-gnu
   x86_64-linux-gnux32
-  x86_64-linux-musl</code></pre>
+  x86_64-linux-musl{#end_shell_samp#}
       <p>
       The Zig Standard Library ({#syntax#}@import("std"){#endsyntax#}) has architecture, environment, and operating system
       abstractions, and thus takes additional work to support more platforms.
@@ -10771,9 +10860,9 @@ coding style.
       <p>
       File names fall into two categories: types and namespaces. If the file
       (implicitly a struct) has top level fields, it should be named like any
-      other struct with fields using {#syntax#}TitleCase{#endsyntax#}. Otherwise,
-      it should use {#syntax#}snake_case{#endsyntax#}. Directory names should be
-      {#syntax#}snake_case{#endsyntax#}.
+      other struct with fields using <code class="file">TitleCase</code>. Otherwise,
+      it should use <code class="file">snake_case</code>. Directory names should be
+      <code class="file">snake_case</code>.
       </p>
       <p>
       These are general rules of thumb; if it makes sense to do something different,
@@ -10782,7 +10871,7 @@ coding style.
       </p>
       {#header_close#}
       {#header_open|Examples#}
-      <pre>{#syntax#}
+      {#syntax_block|zig|style_example.zig#}
 const namespace_name = @import("dir_name/file_name.zig");
 const TypeName = @import("dir_name/TypeName.zig");
 var global_var: i32 = undefined;
@@ -10826,9 +10915,9 @@ const XmlParser = struct {
 
 // The initials BE (Big Endian) are just another word in Zig identifier names.
 fn readU32Be() u32 {}
-      {#endsyntax#}</pre>
+      {#end_syntax_block#}
       <p>
-      See the Zig Standard Library for more examples.
+      See the {#link|Zig Standard Library#} for more examples.
       </p>
       {#header_close#}
       {#header_open|Doc Comment Guidance#}
@@ -10863,7 +10952,7 @@ fn readU32Be() u32 {}
       but use of hard tabs is discouraged. See {#link|Grammar#}.
       </p>
       <p>
-      Note that running <code>zig fmt</code> on a source file will implement all recommendations mentioned here.
+      Note that running <kbd>zig fmt</kbd> on a source file will implement all recommendations mentioned here.
       Note also that the stage1 compiler does <a href="https://github.com/ziglang/zig/wiki/FAQ#why-does-zig-force-me-to-use-spaces-instead-of-tabs">not yet support CR or HT</a> control characters.
       </p>
       <p>
@@ -10881,18 +10970,18 @@ fn readU32Be() u32 {}
       {#header_open|Keyword Reference#}
       <div class="table-wrapper">
       <table>
+        <caption>Keywords</caption>
+        <thead>
         <tr>
-          <th>
-            Keyword
-          </th>
-          <th>
-            Description
-          </th>
+          <th scope="col">Keyword</th>
+          <th scope="col">Description</th>
         </tr>
+        </thead>
+        <tbody>
         <tr>
-          <td>
+          <th scope="row">
             <pre>{#syntax#}align{#endsyntax#}</pre>
-          </td>
+          </th>
           <td>
             {#syntax#}align{#endsyntax#} can be used to specify the alignment of a pointer.
             It can also be used after a variable or function declaration to specify the alignment of pointers to that variable or function.
@@ -10902,9 +10991,9 @@ fn readU32Be() u32 {}
           </td>
         </tr>
         <tr>
-          <td>
+          <th scope="row">
             <pre>{#syntax#}allowzero{#endsyntax#}</pre>
-          </td>
+          </th>
           <td>
             The pointer attribute {#syntax#}allowzero{#endsyntax#} allows a pointer to have address zero.
             <ul>
@@ -10913,9 +11002,9 @@ fn readU32Be() u32 {}
           </td>
         </tr>
         <tr>
-          <td>
+          <th scope="row">
             <pre>{#syntax#}and{#endsyntax#}</pre>
-          </td>
+          </th>
           <td>
             The boolean operator {#syntax#}and{#endsyntax#}.
             <ul>
@@ -10924,9 +11013,9 @@ fn readU32Be() u32 {}
           </td>
         </tr>
         <tr>
-          <td>
+          <th scope="row">
             <pre>{#syntax#}anyframe{#endsyntax#}</pre>
-          </td>
+          </th>
           <td>
             {#syntax#}anyframe{#endsyntax#} can be used as a type for variables which hold pointers to function frames.
             <ul>
@@ -10935,9 +11024,9 @@ fn readU32Be() u32 {}
           </td>
         </tr>
         <tr>
-          <td>
+          <th scope="row">
             <pre>{#syntax#}anytype{#endsyntax#}</pre>
-          </td>
+          </th>
           <td>
             Function parameters and struct fields can be declared with {#syntax#}anytype{#endsyntax#} in place of the type.
             The type will be inferred where the function is called or the struct is instantiated.
@@ -10947,9 +11036,9 @@ fn readU32Be() u32 {}
           </td>
         </tr>
         <tr>
-          <td>
+          <th scope="row">
             <pre>{#syntax#}asm{#endsyntax#}</pre>
-          </td>
+          </th>
           <td>
             {#syntax#}asm{#endsyntax#} begins an inline assembly expression. This allows for directly controlling the machine code generated on compilation.
             <ul>
@@ -10958,9 +11047,9 @@ fn readU32Be() u32 {}
           </td>
         </tr>
         <tr>
-          <td>
+          <th scope="row">
             <pre>{#syntax#}async{#endsyntax#}</pre>
-          </td>
+          </th>
           <td>
             {#syntax#}async{#endsyntax#} can be used before a function call to get a pointer to the function's frame when it suspends.
             <ul>
@@ -10969,9 +11058,9 @@ fn readU32Be() u32 {}
           </td>
         </tr>
         <tr>
-          <td>
+          <th scope="row">
             <pre>{#syntax#}await{#endsyntax#}</pre>
-          </td>
+          </th>
           <td>
             {#syntax#}await{#endsyntax#} can be used to suspend the current function until the frame provided after the {#syntax#}await{#endsyntax#} completes.
             {#syntax#}await{#endsyntax#} copies the value returned from the target function's frame to the caller.
@@ -10981,9 +11070,9 @@ fn readU32Be() u32 {}
           </td>
         </tr>
         <tr>
-          <td>
+          <th scope="row">
             <pre>{#syntax#}break{#endsyntax#}</pre>
-          </td>
+          </th>
           <td>
             {#syntax#}break{#endsyntax#} can be used with a block label to return a value from the block.
             It can also be used to exit a loop before iteration completes naturally.
@@ -10993,9 +11082,9 @@ fn readU32Be() u32 {}
           </td>
         </tr>
         <tr>
-          <td>
+          <th scope="row">
             <pre>{#syntax#}catch{#endsyntax#}</pre>
-          </td>
+          </th>
           <td>
             {#syntax#}catch{#endsyntax#} can be used to evaluate an expression if the expression before it evaluates to an error.
             The expression after the {#syntax#}catch{#endsyntax#} can optionally capture the error value.
@@ -11005,9 +11094,9 @@ fn readU32Be() u32 {}
           </td>
         </tr>
         <tr>
-          <td>
+          <th scope="row">
             <pre>{#syntax#}comptime{#endsyntax#}</pre>
-          </td>
+          </th>
           <td>
             {#syntax#}comptime{#endsyntax#} before a declaration can be used to label variables or function parameters as known at compile time.
             It can also be used to guarantee an expression is run at compile time.
@@ -11017,9 +11106,9 @@ fn readU32Be() u32 {}
           </td>
         </tr>
         <tr>
-          <td>
+          <th scope="row">
             <pre>{#syntax#}const{#endsyntax#}</pre>
-          </td>
+          </th>
           <td>
             {#syntax#}const{#endsyntax#} declares a variable that can not be modified.
             Used as a pointer attribute, it denotes the value referenced by the pointer cannot be modified.
@@ -11029,9 +11118,9 @@ fn readU32Be() u32 {}
           </td>
         </tr>
         <tr>
-          <td>
+          <th scope="row">
             <pre>{#syntax#}continue{#endsyntax#}</pre>
-          </td>
+          </th>
           <td>
             {#syntax#}continue{#endsyntax#} can be used in a loop to jump back to the beginning of the loop.
             <ul>
@@ -11040,9 +11129,9 @@ fn readU32Be() u32 {}
           </td>
         </tr>
         <tr>
-          <td>
+          <th scope="row">
             <pre>{#syntax#}defer{#endsyntax#}</pre>
-          </td>
+          </th>
           <td>
             {#syntax#}defer{#endsyntax#} will execute an expression when control flow leaves the current block.
             <ul>
@@ -11051,9 +11140,9 @@ fn readU32Be() u32 {}
           </td>
         </tr>
         <tr>
-          <td>
+          <th scope="row">
             <pre>{#syntax#}else{#endsyntax#}</pre>
-          </td>
+          </th>
           <td>
             {#syntax#}else{#endsyntax#} can be used to provide an alternate branch for {#syntax#}if{#endsyntax#}, {#syntax#}switch{#endsyntax#},
             {#syntax#}while{#endsyntax#}, and {#syntax#}for{#endsyntax#} expressions.
@@ -11066,9 +11155,9 @@ fn readU32Be() u32 {}
           </td>
         </tr>
         <tr>
-          <td>
+          <th scope="row">
             <pre>{#syntax#}enum{#endsyntax#}</pre>
-          </td>
+          </th>
           <td>
             {#syntax#}enum{#endsyntax#} defines an enum type.
             <ul>
@@ -11077,9 +11166,9 @@ fn readU32Be() u32 {}
           </td>
         </tr>
         <tr>
-          <td>
+          <th scope="row">
             <pre>{#syntax#}errdefer{#endsyntax#}</pre>
-          </td>
+          </th>
           <td>
             {#syntax#}errdefer{#endsyntax#} will execute an expression when control flow leaves the current block if the function returns an error.
             <ul>
@@ -11088,9 +11177,9 @@ fn readU32Be() u32 {}
           </td>
         </tr>
         <tr>
-          <td>
+          <th scope="row">
             <pre>{#syntax#}error{#endsyntax#}</pre>
-          </td>
+          </th>
           <td>
             {#syntax#}error{#endsyntax#} defines an error type.
             <ul>
@@ -11099,9 +11188,9 @@ fn readU32Be() u32 {}
           </td>
         </tr>
         <tr>
-          <td>
+          <th scope="row">
             <pre>{#syntax#}export{#endsyntax#}</pre>
-          </td>
+          </th>
           <td>
             {#syntax#}export{#endsyntax#} makes a function or variable externally visible in the generated object file.
             Exported functions default to the C calling convention.
@@ -11111,9 +11200,9 @@ fn readU32Be() u32 {}
           </td>
         </tr>
         <tr>
-          <td>
+          <th scope="row">
             <pre>{#syntax#}extern{#endsyntax#}</pre>
-          </td>
+          </th>
           <td>
             {#syntax#}extern{#endsyntax#} can be used to declare a function or variable that will be resolved at link time, when linking statically
             or at runtime, when linking dynamically.
@@ -11123,9 +11212,9 @@ fn readU32Be() u32 {}
           </td>
         </tr>
         <tr>
-          <td>
+          <th scope="row">
             <pre>{#syntax#}false{#endsyntax#}</pre>
-          </td>
+          </th>
           <td>
             The boolean value {#syntax#}false{#endsyntax#}.
             <ul>
@@ -11134,9 +11223,9 @@ fn readU32Be() u32 {}
           </td>
         </tr>
         <tr>
-          <td>
+          <th scope="row">
             <pre>{#syntax#}fn{#endsyntax#}</pre>
-          </td>
+          </th>
           <td>
             {#syntax#}fn{#endsyntax#} declares a function.
             <ul>
@@ -11145,9 +11234,9 @@ fn readU32Be() u32 {}
           </td>
         </tr>
         <tr>
-          <td>
+          <th scope="row">
             <pre>{#syntax#}for{#endsyntax#}</pre>
-          </td>
+          </th>
           <td>
             A {#syntax#}for{#endsyntax#} expression can be used to iterate over the elements of a slice, array, or tuple.
             <ul>
@@ -11156,9 +11245,9 @@ fn readU32Be() u32 {}
           </td>
         </tr>
         <tr>
-          <td>
+          <th scope="row">
             <pre>{#syntax#}if{#endsyntax#}</pre>
-          </td>
+          </th>
           <td>
             An {#syntax#}if{#endsyntax#} expression can test boolean expressions, optional values, or error unions.
             For optional values or error unions, the if expression can capture the unwrapped value.
@@ -11168,9 +11257,9 @@ fn readU32Be() u32 {}
           </td>
         </tr>
         <tr>
-          <td>
+          <th scope="row">
             <pre>{#syntax#}inline{#endsyntax#}</pre>
-          </td>
+          </th>
           <td>
             {#syntax#}inline{#endsyntax#} can be used to label a loop expression such that it will be unrolled at compile time.
             It can also be used to force a function to be inlined at all call sites.
@@ -11180,9 +11269,9 @@ fn readU32Be() u32 {}
           </td>
         </tr>
         <tr>
-          <td>
+          <th scope="row">
             <pre>{#syntax#}noalias{#endsyntax#}</pre>
-          </td>
+          </th>
           <td>
             The {#syntax#}noalias{#endsyntax#} keyword.
             <ul>
@@ -11191,9 +11280,9 @@ fn readU32Be() u32 {}
           </td>
         </tr>
         <tr>
-          <td>
+          <th scope="row">
             <pre>{#syntax#}nosuspend{#endsyntax#}</pre>
-          </td>
+          </th>
           <td>
             The {#syntax#}nosuspend{#endsyntax#} keyword can be used in front of a block, statement or expression, to mark a scope where no suspension points are reached.
             In particular, inside a {#syntax#}nosuspend{#endsyntax#} scope:
@@ -11209,9 +11298,9 @@ fn readU32Be() u32 {}
           </td>
         </tr>
         <tr>
-          <td>
+          <th scope="row">
             <pre>{#syntax#}null{#endsyntax#}</pre>
-          </td>
+          </th>
           <td>
             The optional value {#syntax#}null{#endsyntax#}.
             <ul>
@@ -11220,9 +11309,9 @@ fn readU32Be() u32 {}
           </td>
         </tr>
         <tr>
-          <td>
+          <th scope="row">
             <pre>{#syntax#}or{#endsyntax#}</pre>
-          </td>
+          </th>
           <td>
             The boolean operator {#syntax#}or{#endsyntax#}.
             <ul>
@@ -11231,9 +11320,9 @@ fn readU32Be() u32 {}
           </td>
         </tr>
         <tr>
-          <td>
+          <th scope="row">
             <pre>{#syntax#}orelse{#endsyntax#}</pre>
-          </td>
+          </th>
           <td>
             {#syntax#}orelse{#endsyntax#} can be used to evaluate an expression if the expression before it evaluates to null.
             <ul>
@@ -11242,9 +11331,9 @@ fn readU32Be() u32 {}
           </td>
         </tr>
         <tr>
-          <td>
+          <th scope="row">
             <pre>{#syntax#}packed{#endsyntax#}</pre>
-          </td>
+          </th>
           <td>
             The {#syntax#}packed{#endsyntax#} keyword before a struct definition changes the struct's in-memory layout
             to the guaranteed {#syntax#}packed{#endsyntax#} layout.
@@ -11254,9 +11343,9 @@ fn readU32Be() u32 {}
           </td>
         </tr>
         <tr>
-          <td>
+          <th scope="row">
             <pre>{#syntax#}pub{#endsyntax#}</pre>
-          </td>
+          </th>
           <td>
             The {#syntax#}pub{#endsyntax#} in front of a top level declaration makes the declaration available
             to reference from a different file than the one it is declared in.
@@ -11266,9 +11355,9 @@ fn readU32Be() u32 {}
           </td>
         </tr>
         <tr>
-          <td>
+          <th scope="row">
             <pre>{#syntax#}resume{#endsyntax#}</pre>
-          </td>
+          </th>
           <td>
             {#syntax#}resume{#endsyntax#} will continue execution of a function frame after the point the function was suspended.
             <ul>
@@ -11277,9 +11366,9 @@ fn readU32Be() u32 {}
           </td>
         </tr>
         <tr>
-          <td>
+          <th scope="row">
             <pre>{#syntax#}return{#endsyntax#}</pre>
-          </td>
+          </th>
           <td>
             {#syntax#}return{#endsyntax#} exits a function with a value.
             <ul>
@@ -11288,9 +11377,9 @@ fn readU32Be() u32 {}
           </td>
         </tr>
         <tr>
-          <td>
+          <th scope="row">
             <pre>{#syntax#}linksection{#endsyntax#}</pre>
-          </td>
+          </th>
           <td>
             The {#syntax#}linksection{#endsyntax#} keyword.
             <ul>
@@ -11299,9 +11388,9 @@ fn readU32Be() u32 {}
           </td>
         </tr>
         <tr>
-          <td>
+          <th scope="row">
             <pre>{#syntax#}struct{#endsyntax#}</pre>
-          </td>
+          </th>
           <td>
             {#syntax#}struct{#endsyntax#} defines a struct.
             <ul>
@@ -11310,9 +11399,9 @@ fn readU32Be() u32 {}
           </td>
         </tr>
         <tr>
-          <td>
+          <th scope="row">
             <pre>{#syntax#}suspend{#endsyntax#}</pre>
-          </td>
+          </th>
           <td>
             {#syntax#}suspend{#endsyntax#} will cause control flow to return to the call site or resumer of the function.
             {#syntax#}suspend{#endsyntax#} can also be used before a block within a function,
@@ -11323,9 +11412,9 @@ fn readU32Be() u32 {}
           </td>
         </tr>
         <tr>
-          <td>
+          <th scope="row">
             <pre>{#syntax#}switch{#endsyntax#}</pre>
-          </td>
+          </th>
           <td>
             A {#syntax#}switch{#endsyntax#} expression can be used to test values of a common type.
             {#syntax#}switch{#endsyntax#} cases can capture field values of a {#link|Tagged union#}.
@@ -11335,9 +11424,9 @@ fn readU32Be() u32 {}
           </td>
         </tr>
         <tr>
-          <td>
+          <th scope="row">
             <pre>{#syntax#}test{#endsyntax#}</pre>
-          </td>
+          </th>
           <td>
             The {#syntax#}test{#endsyntax#} keyword can be used to denote a top-level block of code
             used to make sure behavior meets expectations.
@@ -11347,9 +11436,9 @@ fn readU32Be() u32 {}
           </td>
         </tr>
         <tr>
-          <td>
+          <th scope="row">
             <pre>{#syntax#}threadlocal{#endsyntax#}</pre>
-          </td>
+          </th>
           <td>
             {#syntax#}threadlocal{#endsyntax#} can be used to specify a variable as thread-local.
             <ul>
@@ -11358,9 +11447,9 @@ fn readU32Be() u32 {}
           </td>
         </tr>
         <tr>
-          <td>
+          <th scope="row">
             <pre>{#syntax#}true{#endsyntax#}</pre>
-          </td>
+          </th>
           <td>
             The boolean value {#syntax#}true{#endsyntax#}.
             <ul>
@@ -11369,9 +11458,9 @@ fn readU32Be() u32 {}
           </td>
         </tr>
         <tr>
-          <td>
+          <th scope="row">
             <pre>{#syntax#}try{#endsyntax#}</pre>
-          </td>
+          </th>
           <td>
             {#syntax#}try{#endsyntax#} evaluates an error union expression.
             If it is an error, it returns from the current function with the same error.
@@ -11382,9 +11471,9 @@ fn readU32Be() u32 {}
           </td>
         </tr>
         <tr>
-          <td>
+          <th scope="row">
             <pre>{#syntax#}undefined{#endsyntax#}</pre>
-          </td>
+          </th>
           <td>
             {#syntax#}undefined{#endsyntax#} can be used to leave a value uninitialized.
             <ul>
@@ -11393,9 +11482,9 @@ fn readU32Be() u32 {}
           </td>
         </tr>
         <tr>
-          <td>
+          <th scope="row">
             <pre>{#syntax#}union{#endsyntax#}</pre>
-          </td>
+          </th>
           <td>
             {#syntax#}union{#endsyntax#} defines a union.
             <ul>
@@ -11404,23 +11493,23 @@ fn readU32Be() u32 {}
           </td>
         </tr>
         <tr>
-          <td>
+          <th scope="row">
             <pre>{#syntax#}unreachable{#endsyntax#}</pre>
-          </td>
+          </th>
           <td>
             {#syntax#}unreachable{#endsyntax#} can be used to assert that control flow will never happen upon a particular location.
             Depending on the build mode, {#syntax#}unreachable{#endsyntax#} may emit a panic.
             <ul>
-              <li>Emits a panic in {#syntax#}Debug{#endsyntax#} and {#syntax#}ReleaseSafe{#endsyntax#} mode, or when using <code>zig test</code>.</li>
-              <li>Does not emit a panic in {#syntax#}ReleaseFast{#endsyntax#} mode, unless <code>zig test</code> is being used.</li>
+              <li>Emits a panic in {#syntax#}Debug{#endsyntax#} and {#syntax#}ReleaseSafe{#endsyntax#} mode, or when using <kbd>zig test</kbd>.</li>
+              <li>Does not emit a panic in {#syntax#}ReleaseFast{#endsyntax#} mode, unless <kbd>zig test</kbd> is being used.</li>
               <li>See also {#link|unreachable#}</li>
             </ul>
           </td>
         </tr>
         <tr>
-          <td>
+          <th scope="row">
             <pre>{#syntax#}usingnamespace{#endsyntax#}</pre>
-          </td>
+          </th>
           <td>
             {#syntax#}usingnamespace{#endsyntax#} is a top-level declaration that imports all the public declarations of the operand,
             which must be a struct, union, or enum, into the current scope.
@@ -11430,9 +11519,9 @@ fn readU32Be() u32 {}
           </td>
         </tr>
         <tr>
-          <td>
+          <th scope="row">
             <pre>{#syntax#}var{#endsyntax#}</pre>
-          </td>
+          </th>
           <td>
             {#syntax#}var{#endsyntax#} declares a variable that may be modified.
             <ul>
@@ -11441,9 +11530,9 @@ fn readU32Be() u32 {}
           </td>
         </tr>
         <tr>
-          <td>
+          <th scope="row">
             <pre>{#syntax#}volatile{#endsyntax#}</pre>
-          </td>
+          </th>
           <td>
             {#syntax#}volatile{#endsyntax#} can be used to denote loads or stores of a pointer have side effects.
             It can also modify an inline assembly expression to denote it has side effects.
@@ -11453,9 +11542,9 @@ fn readU32Be() u32 {}
           </td>
         </tr>
         <tr>
-          <td>
+          <th scope="row">
             <pre>{#syntax#}while{#endsyntax#}</pre>
-          </td>
+          </th>
           <td>
             A {#syntax#}while{#endsyntax#} expression can be used to repeatedly test a boolean, optional, or error union expression,
             and cease looping when that expression evaluates to false, null, or an error, respectively.
@@ -11464,6 +11553,7 @@ fn readU32Be() u32 {}
             </ul>
           </td>
         </tr>
+        </tbody>
       </table>
       </div>
       {#header_close#}
@@ -12034,7 +12124,7 @@ keyword &lt;- KEYWORD_align / KEYWORD_allowzero / KEYWORD_and / KEYWORD_anyframe
         <li>Together we serve the users.</li>
       </ul>
       {#header_close#}
-      </div></div>
+      </main></div>
     </div>
   </body>
 </html>
