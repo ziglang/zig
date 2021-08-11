@@ -180,9 +180,9 @@ pub fn createAndParseFromPath(
     if (opts.id) |id| {
         if (dylib.id.?.current_version < id.compatibility_version) {
             log.warn("found dylib is incompatible with the required minimum version", .{});
-            log.warn("  | dylib: {s}", .{id.name});
-            log.warn("  | required minimum version: {}", .{id.compatibility_version});
-            log.warn("  | dylib version: {}", .{dylib.id.?.current_version});
+            log.warn("  dylib: {s}", .{id.name});
+            log.warn("  required minimum version: {}", .{id.compatibility_version});
+            log.warn("  dylib version: {}", .{dylib.id.?.current_version});
 
             // TODO maybe this should be an error and facilitate auto-cleanup?
             dylib.deinit(allocator);
@@ -316,14 +316,7 @@ fn parseSymbols(self: *Dylib, allocator: *Allocator) !void {
     }
 }
 
-fn hasValue(stack: []const []const u8, needle: []const u8) bool {
-    for (stack) |v| {
-        if (mem.eql(u8, v, needle)) return true;
-    }
-    return false;
-}
-
-fn addObjCClassSymbols(self: *Dylib, allocator: *Allocator, sym_name: []const u8) !void {
+fn addObjCClassSymbol(self: *Dylib, allocator: *Allocator, sym_name: []const u8) !void {
     const expanded = &[_][]const u8{
         try std.fmt.allocPrint(allocator, "_OBJC_CLASS_$_{s}", .{sym_name}),
         try std.fmt.allocPrint(allocator, "_OBJC_METACLASS_$_{s}", .{sym_name}),
@@ -335,91 +328,21 @@ fn addObjCClassSymbols(self: *Dylib, allocator: *Allocator, sym_name: []const u8
     }
 }
 
-fn hasArch(archs: []const []const u8, arch: []const u8) bool {
-    for (archs) |x| {
-        if (mem.eql(u8, x, arch)) return true;
-    }
-    return false;
-}
-
-fn parseFromStubV3(self: *Dylib, allocator: *Allocator, target: std.Target, lib_stub: LibStub) !void {
-    var umbrella_libs = std.StringHashMap(void).init(allocator);
-    defer umbrella_libs.deinit();
-
-    const arch_string = @tagName(target.cpu.arch);
-
-    log.debug("{s}", .{lib_stub.inner[0].installName()});
-
-    for (lib_stub.inner) |elem, stub_index| {
-        const stub = elem.v3;
-        if (!hasArch(stub.archs, arch_string)) continue;
-
-        if (stub_index > 0) {
-            // TODO I thought that we could switch on presence of `parent-umbrella` map;
-            // however, turns out `libsystem_notify.dylib` is fully reexported by `libSystem.dylib`
-            // BUT does not feature a `parent-umbrella` map as the only sublib. Apple's bug perhaps?
-            try umbrella_libs.put(stub.install_name, .{});
-        }
-
-        if (stub.exports) |exports| {
-            for (exports) |exp| {
-                if (!hasArch(exp.archs, arch_string)) continue;
-
-                if (exp.symbols) |symbols| {
-                    for (symbols) |sym_name| {
-                        if (self.symbols.contains(sym_name)) continue;
-                        try self.symbols.putNoClobber(allocator, try allocator.dupe(u8, sym_name), {});
-                    }
-                }
-
-                if (exp.objc_classes) |objc_classes| {
-                    for (objc_classes) |class_name| {
-                        try self.addObjCClassSymbols(allocator, class_name);
-                    }
-                }
-
-                if (exp.re_exports) |re_exports| {
-                    for (re_exports) |lib| {
-                        if (umbrella_libs.contains(lib)) {
-                            log.debug("  | {s} <= {s}", .{ lib, lib_stub.inner[0].installName() });
-                            continue;
-                        }
-
-                        log.debug("  | {s}", .{lib});
-
-                        const dep_id = try Id.default(allocator, lib);
-                        try self.dependent_libs.append(allocator, dep_id);
-                    }
-                }
-            }
-        }
-    }
-}
-
-fn targetToAppleString(allocator: *Allocator, target: std.Target) ![]const u8 {
-    const arch = switch (target.cpu.arch) {
-        .aarch64 => "arm64",
-        .x86_64 => "x86_64",
-        else => unreachable,
-    };
-    const os = @tagName(target.os.tag);
-    const abi: ?[]const u8 = switch (target.abi) {
-        .gnu => null,
-        .simulator => "simulator",
-        else => unreachable,
-    };
-    if (abi) |x| {
-        return std.fmt.allocPrint(allocator, "{s}-{s}-{s}", .{ arch, os, x });
-    }
-    return std.fmt.allocPrint(allocator, "{s}-{s}", .{ arch, os });
+fn addSymbol(self: *Dylib, allocator: *Allocator, sym_name: []const u8) !void {
+    if (self.symbols.contains(sym_name)) return;
+    try self.symbols.putNoClobber(allocator, try allocator.dupe(u8, sym_name), {});
 }
 
 const TargetMatcher = struct {
     allocator: *Allocator,
+    target: std.Target,
     target_strings: std.ArrayListUnmanaged([]const u8) = .{},
 
     fn init(allocator: *Allocator, target: std.Target) !TargetMatcher {
-        var self = TargetMatcher{ .allocator = allocator };
+        var self = TargetMatcher{
+            .allocator = allocator,
+            .target = target,
+        };
         try self.target_strings.append(allocator, try targetToAppleString(allocator, target));
 
         if (target.abi == .simulator) {
@@ -442,110 +365,42 @@ const TargetMatcher = struct {
         self.target_strings.deinit(self.allocator);
     }
 
-    fn hasTarget(targets: []const []const u8, target: []const u8) bool {
-        for (targets) |x| {
-            if (mem.eql(u8, x, target)) return true;
+    fn targetToAppleString(allocator: *Allocator, target: std.Target) ![]const u8 {
+        const arch = switch (target.cpu.arch) {
+            .aarch64 => "arm64",
+            .x86_64 => "x86_64",
+            else => unreachable,
+        };
+        const os = @tagName(target.os.tag);
+        const abi: ?[]const u8 = switch (target.abi) {
+            .gnu => null,
+            .simulator => "simulator",
+            else => unreachable,
+        };
+        if (abi) |x| {
+            return std.fmt.allocPrint(allocator, "{s}-{s}-{s}", .{ arch, os, x });
+        }
+        return std.fmt.allocPrint(allocator, "{s}-{s}", .{ arch, os });
+    }
+
+    fn hasValue(stack: []const []const u8, needle: []const u8) bool {
+        for (stack) |v| {
+            if (mem.eql(u8, v, needle)) return true;
         }
         return false;
     }
 
-    fn matches(self: TargetMatcher, targets: []const []const u8) bool {
+    fn matchesTarget(self: TargetMatcher, targets: []const []const u8) bool {
         for (self.target_strings.items) |t| {
-            if (hasTarget(targets, t)) return true;
+            if (hasValue(targets, t)) return true;
         }
         return false;
+    }
+
+    fn matchesArch(self: TargetMatcher, archs: []const []const u8) bool {
+        return hasValue(archs, @tagName(self.target.cpu.arch));
     }
 };
-
-fn parseFromStubV4(self: *Dylib, allocator: *Allocator, target: std.Target, lib_stub: LibStub) !void {
-    var matcher = try TargetMatcher.init(allocator, target);
-    defer matcher.deinit();
-
-    var umbrella_libs = std.StringHashMap(void).init(allocator);
-    defer umbrella_libs.deinit();
-
-    for (lib_stub.inner) |elem, stub_index| {
-        const stub = elem.v4;
-        if (!matcher.matches(stub.targets)) continue;
-
-        if (stub_index > 0) {
-            // TODO I thought that we could switch on presence of `parent-umbrella` map;
-            // however, turns out `libsystem_notify.dylib` is fully reexported by `libSystem.dylib`
-            // BUT does not feature a `parent-umbrella` map as the only sublib. Apple's bug perhaps?
-            try umbrella_libs.put(stub.install_name, .{});
-        }
-
-        if (stub.exports) |exports| {
-            for (exports) |exp| {
-                if (!matcher.matches(exp.targets)) continue;
-
-                if (exp.symbols) |symbols| {
-                    for (symbols) |sym_name| {
-                        if (self.symbols.contains(sym_name)) continue;
-                        try self.symbols.putNoClobber(allocator, try allocator.dupe(u8, sym_name), {});
-                    }
-                }
-
-                if (exp.objc_classes) |classes| {
-                    for (classes) |sym_name| {
-                        try self.addObjCClassSymbols(allocator, sym_name);
-                    }
-                }
-            }
-        }
-
-        if (stub.reexports) |reexports| {
-            for (reexports) |reexp| {
-                if (!matcher.matches(reexp.targets)) continue;
-
-                if (reexp.symbols) |symbols| {
-                    for (symbols) |sym_name| {
-                        if (self.symbols.contains(sym_name)) continue;
-                        try self.symbols.putNoClobber(allocator, try allocator.dupe(u8, sym_name), {});
-                    }
-                }
-
-                if (reexp.objc_classes) |classes| {
-                    for (classes) |sym_name| {
-                        try self.addObjCClassSymbols(allocator, sym_name);
-                    }
-                }
-            }
-        }
-
-        if (stub.objc_classes) |classes| {
-            for (classes) |sym_name| {
-                try self.addObjCClassSymbols(allocator, sym_name);
-            }
-        }
-    }
-
-    log.debug("{s}", .{lib_stub.inner[0].installName()});
-
-    // TODO track which libs were already parsed in different steps
-    for (lib_stub.inner) |elem| {
-        const stub = elem.v4;
-        if (!matcher.matches(stub.targets)) continue;
-
-        if (stub.reexported_libraries) |reexports| {
-            for (reexports) |reexp| {
-                if (!matcher.matches(reexp.targets)) continue;
-
-                for (reexp.libraries) |lib| {
-                    if (umbrella_libs.contains(lib)) {
-                        log.debug("  | {s} <= {s}", .{ lib, lib_stub.inner[0].installName() });
-                        continue;
-                    }
-
-                    log.debug("  | {s}", .{lib});
-
-                    const dep_id = try Id.default(allocator, lib);
-                    try self.dependent_libs.append(allocator, dep_id);
-                }
-            }
-        }
-    }
-}
 
 pub fn parseFromStub(self: *Dylib, allocator: *Allocator, target: std.Target, lib_stub: LibStub) !void {
     if (lib_stub.inner.len == 0) return error.EmptyStubFile;
@@ -563,9 +418,127 @@ pub fn parseFromStub(self: *Dylib, allocator: *Allocator, target: std.Target, li
     }
     self.id = id;
 
-    switch (umbrella_lib) {
-        .v3 => try self.parseFromStubV3(allocator, target, lib_stub),
-        .v4 => try self.parseFromStubV4(allocator, target, lib_stub),
+    var umbrella_libs = std.StringHashMap(void).init(allocator);
+    defer umbrella_libs.deinit();
+
+    log.debug("found umbrella lib '{s}'", .{umbrella_lib.installName()});
+
+    var matcher = try TargetMatcher.init(allocator, target);
+    defer matcher.deinit();
+
+    for (lib_stub.inner) |elem, stub_index| {
+        const is_match = switch (elem) {
+            .v3 => |stub| matcher.matchesArch(stub.archs),
+            .v4 => |stub| matcher.matchesTarget(stub.targets),
+        };
+        if (!is_match) continue;
+
+        if (stub_index > 0) {
+            // TODO I thought that we could switch on presence of `parent-umbrella` map;
+            // however, turns out `libsystem_notify.dylib` is fully reexported by `libSystem.dylib`
+            // BUT does not feature a `parent-umbrella` map as the only sublib. Apple's bug perhaps?
+            try umbrella_libs.put(elem.installName(), .{});
+        }
+
+        switch (elem) {
+            .v3 => |stub| {
+                if (stub.exports) |exports| {
+                    for (exports) |exp| {
+                        if (!matcher.matchesArch(exp.archs)) continue;
+
+                        if (exp.symbols) |symbols| {
+                            for (symbols) |sym_name| {
+                                try self.addSymbol(allocator, sym_name);
+                            }
+                        }
+
+                        if (exp.objc_classes) |objc_classes| {
+                            for (objc_classes) |class_name| {
+                                try self.addObjCClassSymbol(allocator, class_name);
+                            }
+                        }
+
+                        // TODO track which libs were already parsed in different steps
+                        if (exp.re_exports) |re_exports| {
+                            for (re_exports) |lib| {
+                                if (umbrella_libs.contains(lib)) continue;
+
+                                log.debug("  (found re-export '{s}')", .{lib});
+
+                                const dep_id = try Id.default(allocator, lib);
+                                try self.dependent_libs.append(allocator, dep_id);
+                            }
+                        }
+                    }
+                }
+            },
+            .v4 => |stub| {
+                if (stub.exports) |exports| {
+                    for (exports) |exp| {
+                        if (!matcher.matchesTarget(exp.targets)) continue;
+
+                        if (exp.symbols) |symbols| {
+                            for (symbols) |sym_name| {
+                                try self.addSymbol(allocator, sym_name);
+                            }
+                        }
+
+                        if (exp.objc_classes) |classes| {
+                            for (classes) |sym_name| {
+                                try self.addObjCClassSymbol(allocator, sym_name);
+                            }
+                        }
+                    }
+                }
+
+                if (stub.reexports) |reexports| {
+                    for (reexports) |reexp| {
+                        if (!matcher.matchesTarget(reexp.targets)) continue;
+
+                        if (reexp.symbols) |symbols| {
+                            for (symbols) |sym_name| {
+                                try self.addSymbol(allocator, sym_name);
+                            }
+                        }
+
+                        if (reexp.objc_classes) |classes| {
+                            for (classes) |sym_name| {
+                                try self.addObjCClassSymbol(allocator, sym_name);
+                            }
+                        }
+                    }
+                }
+
+                if (stub.objc_classes) |classes| {
+                    for (classes) |sym_name| {
+                        try self.addObjCClassSymbol(allocator, sym_name);
+                    }
+                }
+            },
+        }
+    }
+
+    // For V4, we add dependent libs in a separate pass since some stubs such as libSystem include
+    // re-exports directly in the stub file.
+    for (lib_stub.inner) |elem, stub_index| {
+        if (elem == .v3) break;
+        const stub = elem.v4;
+
+        // TODO track which libs were already parsed in different steps
+        if (stub.reexported_libraries) |reexports| {
+            for (reexports) |reexp| {
+                if (!matcher.matchesTarget(reexp.targets)) continue;
+
+                for (reexp.libraries) |lib| {
+                    if (umbrella_libs.contains(lib)) continue;
+
+                    log.debug("  (found re-export '{s}')", .{lib});
+
+                    const dep_id = try Id.default(allocator, lib);
+                    try self.dependent_libs.append(allocator, dep_id);
+                }
+            }
+        }
     }
 }
 
@@ -619,7 +592,7 @@ pub fn parseDependentLibs(
 
             continue :outer;
         } else {
-            log.warn("unable to resolve dependency {s}", .{id.name});
+            log.debug("unable to resolve dependency {s}", .{id.name});
         }
     }
 }

@@ -105,7 +105,7 @@ pub const LibStub = struct {
             .inner = undefined,
         };
 
-        // TODO clean this up.
+        // TODO revisit this logic in the hope of simplifying it.
         lib_stub.inner = blk: {
             err: {
                 log.debug("trying to parse as []TbdV4", .{});
@@ -133,8 +133,7 @@ pub const LibStub = struct {
                 break :blk out;
             }
 
-            // TODO this is clunky. Perhaps an optional would be better here?
-            return error.TypeMismatch;
+            return error.NotLibStub;
         };
 
         return lib_stub;
