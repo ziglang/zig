@@ -595,9 +595,9 @@ comptime {
     @export(__muloti4, .{ .name = "__muloti4", .linkage = linkage });
     const __mulodi4 = @import("compiler_rt/mulodi4.zig").__mulodi4;
     @export(__mulodi4, .{ .name = "__mulodi4", .linkage = linkage });
-}
 
-pub usingnamespace @import("compiler_rt/atomics.zig");
+    _ = @import("compiler_rt/atomics.zig");
+}
 
 // Avoid dragging in the runtime safety mechanisms into this .o file,
 // unless we're trying to test this file.
