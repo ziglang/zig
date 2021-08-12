@@ -188,22 +188,29 @@ const DarwinFutex = struct {
         //
         // ulock_wait() uses 32-bit micro-second timeouts where 0 = INFINITE or no-timeout
         // ulock_wait2() uses 64-bit nano-second timeouts (with the same convention)
-        const timeout_ns: u64 = timeout orelse 0;
+        var timeout_ns: u64 = 0;
+        if (timeout) |timeout_value| {
+            // This should be checked by the caller.
+            assert(timeout_value != 0);
+            timeout_ns = timeout_value;
+        }
         const addr = @ptrCast(*const c_void, ptr);
         const flags = darwin.UL_COMPARE_AND_WAIT | darwin.ULF_NO_ERRNO;
         // If we're using `__ulock_wait` and `timeout` is too big to fit inside a `u32` count of
         // micro-seconds (around 70min), we'll request a shorter timeout. This is fine (users
         // should handle spurious wakeups), but we need to remember that we did so, so that
-        // we don't return `TimedOut` incorrectly.
+        // we don't return `TimedOut` incorrectly. If that happens, we set this variable to
+        // true so that we we know to ignore the ETIMEDOUT result.
         var timeout_overflowed = false;
         const status = blk: {
             if (target.os.version_range.semver.max.major >= 11) {
                 break :blk darwin.__ulock_wait2(flags, addr, expect, timeout_ns, 0);
             } else {
-                const timeout_us = timeout_ns / std.time.ns_per_us;
-                timeout_overflowed = timeout_us > std.math.maxInt(u32);
-                const timeout_us32 = if (timeout_overflowed) std.math.maxInt(u32) else @intCast(u32, timeout_us);
-                break :blk darwin.__ulock_wait(flags, addr, expect, timeout_us32);
+                const timeout_us = std.math.cast(u32, timeout_ns / std.time.ns_per_us) catch overflow: {
+                    timeout_overflowed = true;
+                    break :overflow std.math.maxInt(u32);
+                };
+                break :blk darwin.__ulock_wait(flags, addr, expect, timeout_us);
             }
         };
 
