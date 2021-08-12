@@ -1496,7 +1496,7 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Inde
 
     if (ptr_val.castTag(.inferred_alloc)) |inferred_alloc| {
         const peer_inst_list = inferred_alloc.data.stored_inst_list.items;
-        const final_elem_ty = try sema.resolvePeerTypes(block, ty_src, peer_inst_list);
+        const final_elem_ty = try sema.resolvePeerTypes(block, ty_src, peer_inst_list, .none);
         if (var_is_mut) {
             try sema.validateVarType(block, ty_src, final_elem_ty);
         }
@@ -2103,7 +2103,7 @@ fn analyzeBlockBody(
     // Need to set the type and emit the Block instruction. This allows machine code generation
     // to emit a jump instruction to after the block when it encounters the break.
     try parent_block.instructions.append(gpa, merges.block_inst);
-    const resolved_ty = try sema.resolvePeerTypes(parent_block, src, merges.results.items);
+    const resolved_ty = try sema.resolvePeerTypes(parent_block, src, merges.results.items, .none);
     try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Block).Struct.fields.len +
         child_block.instructions.items.len);
     sema.air_instructions.items(.data)[merges.block_inst] = .{ .ty_pl = .{
@@ -5325,7 +5325,7 @@ fn zirBitwise(
     const rhs_ty = sema.typeOf(rhs);
 
     const instructions = &[_]Air.Inst.Ref{ lhs, rhs };
-    const resolved_type = try sema.resolvePeerTypes(block, src, instructions);
+    const resolved_type = try sema.resolvePeerTypes(block, src, instructions, .{ .override = &[_]LazySrcLoc{ lhs_src, rhs_src } });
     const casted_lhs = try sema.coerce(block, resolved_type, lhs, lhs_src);
     const casted_rhs = try sema.coerce(block, resolved_type, rhs, rhs_src);
 
@@ -5506,7 +5506,7 @@ fn analyzeArithmetic(
     };
 
     const instructions = &[_]Air.Inst.Ref{ lhs, rhs };
-    const resolved_type = try sema.resolvePeerTypes(block, src, instructions);
+    const resolved_type = try sema.resolvePeerTypes(block, src, instructions, .{ .override = &[_]LazySrcLoc{ lhs_src, rhs_src } });
     const casted_lhs = try sema.coerce(block, resolved_type, lhs, lhs_src);
     const casted_rhs = try sema.coerce(block, resolved_type, rhs, rhs_src);
 
@@ -5817,7 +5817,7 @@ fn analyzeCmp(
         return sema.cmpNumeric(block, src, lhs, rhs, op, lhs_src, rhs_src);
     }
     const instructions = &[_]Air.Inst.Ref{ lhs, rhs };
-    const resolved_type = try sema.resolvePeerTypes(block, src, instructions);
+    const resolved_type = try sema.resolvePeerTypes(block, src, instructions, .{ .override = &[_]LazySrcLoc{ lhs_src, rhs_src } });
     if (!resolved_type.isSelfComparable(is_equality_cmp)) {
         return sema.mod.fail(&block.base, src, "{s} operator not allowed for type '{}'", .{
             @tagName(op), resolved_type,
@@ -6027,7 +6027,7 @@ fn zirTypeofPeer(
         inst_list[i] = sema.resolveInst(arg_ref);
     }
 
-    const result_type = try sema.resolvePeerTypes(block, src, inst_list);
+    const result_type = try sema.resolvePeerTypes(block, src, inst_list, .{ .typeof_builtin_call_node_offset = extra.data.src_node });
     return sema.addType(result_type);
 }
 
@@ -8966,6 +8966,7 @@ fn resolvePeerTypes(
     block: *Scope.Block,
     src: LazySrcLoc,
     instructions: []Air.Inst.Ref,
+    candidate_srcs: Module.PeerTypeCandidateSrc,
 ) !Type {
     if (instructions.len == 0)
         return Type.initTag(.noreturn);
@@ -8976,7 +8977,8 @@ fn resolvePeerTypes(
     const target = sema.mod.getTarget();
 
     var chosen = instructions[0];
-    for (instructions[1..]) |candidate| {
+    var chosen_i: usize = 0;
+    for (instructions[1..]) |candidate, candidate_i| {
         const candidate_ty = sema.typeOf(candidate);
         const chosen_ty = sema.typeOf(chosen);
         if (candidate_ty.eql(chosen_ty))
@@ -8985,12 +8987,14 @@ fn resolvePeerTypes(
             continue;
         if (chosen_ty.zigTypeTag() == .NoReturn) {
             chosen = candidate;
+            chosen_i = candidate_i + 1;
             continue;
         }
         if (candidate_ty.zigTypeTag() == .Undefined)
             continue;
         if (chosen_ty.zigTypeTag() == .Undefined) {
             chosen = candidate;
+            chosen_i = candidate_i + 1;
             continue;
         }
         if (chosen_ty.isInt() and
@@ -8999,18 +9003,21 @@ fn resolvePeerTypes(
         {
             if (chosen_ty.intInfo(target).bits < candidate_ty.intInfo(target).bits) {
                 chosen = candidate;
+                chosen_i = candidate_i + 1;
             }
             continue;
         }
         if (chosen_ty.isFloat() and candidate_ty.isFloat()) {
             if (chosen_ty.floatBits(target) < candidate_ty.floatBits(target)) {
                 chosen = candidate;
+                chosen_i = candidate_i + 1;
             }
             continue;
         }
 
         if (chosen_ty.zigTypeTag() == .ComptimeInt and candidate_ty.isInt()) {
             chosen = candidate;
+            chosen_i = candidate_i + 1;
             continue;
         }
 
@@ -9020,6 +9027,7 @@ fn resolvePeerTypes(
 
         if (chosen_ty.zigTypeTag() == .ComptimeFloat and candidate_ty.isFloat()) {
             chosen = candidate;
+            chosen_i = candidate_i + 1;
             continue;
         }
 
@@ -9032,11 +9040,38 @@ fn resolvePeerTypes(
         }
         if (chosen_ty.zigTypeTag() == .EnumLiteral and candidate_ty.zigTypeTag() == .Enum) {
             chosen = candidate;
+            chosen_i = candidate_i + 1;
             continue;
         }
 
-        // TODO error notes pointing out each type
-        return sema.mod.fail(&block.base, src, "incompatible types: '{}' and '{}'", .{ chosen_ty, candidate_ty });
+        // At this point, we hit a compile error. We need to recover
+        // the source locations.
+        const chosen_src = candidate_srcs.resolve(
+            sema.gpa,
+            block.src_decl,
+            instructions.len,
+            chosen_i,
+        );
+        const candidate_src = candidate_srcs.resolve(
+            sema.gpa,
+            block.src_decl,
+            instructions.len,
+            candidate_i + 1,
+        );
+
+        const msg = msg: {
+            const msg = try sema.mod.errMsg(&block.base, src, "incompatible types: '{}' and '{}'", .{ chosen_ty, candidate_ty });
+            errdefer msg.destroy(sema.gpa);
+
+            if (chosen_src) |src_loc|
+                try sema.mod.errNote(&block.base, src_loc, msg, "type '{}' here", .{chosen_ty});
+
+            if (candidate_src) |src_loc|
+                try sema.mod.errNote(&block.base, src_loc, msg, "type '{}' here", .{candidate_ty});
+
+            break :msg msg;
+        };
+        return sema.mod.failWithOwnedErrorMsg(&block.base, msg);
     }
 
     return sema.typeOf(chosen);
