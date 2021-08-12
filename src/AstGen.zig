@@ -2791,7 +2791,7 @@ fn arrayType(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) !Z
     {
         return astgen.failNode(len_node, "unable to infer array size", .{});
     }
-    const len = try expr(gz, scope, .{ .ty = .usize_type }, len_node);
+    const len = try expr(gz, scope, .{ .coerced_ty = .usize_type }, len_node);
     const elem_type = try typeExpr(gz, scope, node_datas[node].rhs);
 
     const result = try gz.addBin(.array_type, len, elem_type);
@@ -2812,9 +2812,9 @@ fn arrayTypeSentinel(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: ast.Node.I
     {
         return astgen.failNode(len_node, "unable to infer array size", .{});
     }
-    const len = try expr(gz, scope, .{ .ty = .usize_type }, len_node);
+    const len = try expr(gz, scope, .{ .coerced_ty = .usize_type }, len_node);
     const elem_type = try typeExpr(gz, scope, extra.elem_type);
-    const sentinel = try expr(gz, scope, .{ .ty = elem_type }, extra.sentinel);
+    const sentinel = try expr(gz, scope, .{ .coerced_ty = elem_type }, extra.sentinel);
 
     const result = try gz.addArrayTypeSentinel(len, elem_type, sentinel);
     return rvalue(gz, rl, result, node);

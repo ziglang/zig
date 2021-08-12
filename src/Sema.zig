@@ -3026,9 +3026,9 @@ fn zirArrayType(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileE
     defer tracy.end();
 
     const bin_inst = sema.code.instructions.items(.data)[inst].bin;
-    const len = try sema.resolveInstConst(block, .unneeded, bin_inst.lhs);
+    const len = try sema.resolveInt(block, .unneeded, bin_inst.lhs, Type.initTag(.usize));
     const elem_type = try sema.resolveType(block, .unneeded, bin_inst.rhs);
-    const array_ty = try Module.arrayType(sema.arena, len.val.toUnsignedInt(), null, elem_type);
+    const array_ty = try Module.arrayType(sema.arena, len, null, elem_type);
 
     return sema.addType(array_ty);
 }
@@ -3038,11 +3038,13 @@ fn zirArrayTypeSentinel(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) 
     defer tracy.end();
 
     const inst_data = sema.code.instructions.items(.data)[inst].array_type_sentinel;
-    const len = try sema.resolveInstConst(block, .unneeded, inst_data.len);
+    const len = try sema.resolveInt(block, .unneeded, inst_data.len, Type.initTag(.usize));
     const extra = sema.code.extraData(Zir.Inst.ArrayTypeSentinel, inst_data.payload_index).data;
-    const sentinel = try sema.resolveInstConst(block, .unneeded, extra.sentinel);
     const elem_type = try sema.resolveType(block, .unneeded, extra.elem_type);
-    const array_ty = try Module.arrayType(sema.arena, len.val.toUnsignedInt(), sentinel.val, elem_type);
+    const uncasted_sentinel = sema.resolveInst(extra.sentinel);
+    const sentinel = try sema.coerce(block, elem_type, uncasted_sentinel, .unneeded);
+    const sentinel_val = try sema.resolveConstValue(block, .unneeded, sentinel);
+    const array_ty = try Module.arrayType(sema.arena, len, sentinel_val, elem_type);
 
     return sema.addType(array_ty);
 }
@@ -6774,8 +6776,26 @@ fn zirErrSetCast(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) Compile
 
 fn zirPtrCast(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    const src = inst_data.src();
-    return sema.mod.fail(&block.base, src, "TODO: Sema.zirPtrCast", .{});
+    const dest_ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
+    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
+    const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
+    const dest_ty = try sema.resolveType(block, dest_ty_src, extra.lhs);
+    const operand = sema.resolveInst(extra.rhs);
+    const operand_ty = sema.typeOf(operand);
+    if (operand_ty.zigTypeTag() != .Pointer) {
+        return sema.mod.fail(&block.base, operand_src, "expected pointer, found {s} type '{}'", .{
+            @tagName(operand_ty.zigTypeTag()), operand_ty,
+        });
+    }
+    if (dest_ty.zigTypeTag() != .Pointer) {
+        return sema.mod.fail(&block.base, dest_ty_src, "expected pointer, found {s} type '{}'", .{
+            @tagName(dest_ty.zigTypeTag()), dest_ty,
+        });
+    }
+    if (try sema.resolveMaybeUndefVal(block, operand_src, operand)) |val| {
+        return sema.addConstant(dest_ty, val);
+    }
+    return block.addTyOp(.bitcast, dest_ty, operand);
 }
 
 fn zirTruncate(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -8151,11 +8171,8 @@ fn coerce(
             // T to ?T
             var buf: Type.Payload.ElemType = undefined;
             const child_type = dest_type.optionalChild(&buf);
-            if (child_type.eql(inst_ty)) {
-                return sema.wrapOptional(block, dest_type, inst, inst_src);
-            } else if (try sema.coerceNum(block, child_type, inst, inst_src)) |some| {
-                return sema.wrapOptional(block, dest_type, some, inst_src);
-            }
+            const intermediate = try sema.coerce(block, child_type, inst, inst_src);
+            return sema.wrapOptional(block, dest_type, intermediate, inst_src);
         },
         .Pointer => {
             // Coercions where the source is a single pointer to an array.
