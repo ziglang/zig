@@ -1569,7 +1569,7 @@ test "bswapAllFields" {
 
 /// Returns an iterator that iterates over the slices of `buffer` that are not
 /// any of the bytes in `delimiter_bytes`.
-/// tokenize("   abc def    ghi  ", " ")
+/// tokenize(u8, "   abc def    ghi  ", " ")
 /// Will return slices for "abc", "def", "ghi", null, in that order.
 /// If `buffer` is empty, the iterator will return null.
 /// If `delimiter_bytes` does not exist in buffer,
@@ -1663,7 +1663,7 @@ test "mem.tokenize (reset)" {
 
 /// Returns an iterator that iterates over the slices of `buffer` that
 /// are separated by bytes in `delimiter`.
-/// split("abc|def||ghi", "|")
+/// split(u8, "abc|def||ghi", "|")
 /// will return slices for "abc", "def", "", "ghi", null, in that order.
 /// If `delimiter` does not exist in buffer,
 /// the iterator will return `buffer`, null, in that order.
