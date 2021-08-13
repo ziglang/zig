@@ -937,6 +937,8 @@ pub const Dir = struct {
             try os.openatZ(self.fd, sub_path, os_flags, 0);
         errdefer os.close(fd);
 
+        // WASI doesn't have os.flock so we intetinally check OS prior to the inner if block
+        // since it is not compiltime-known and we need to avoid undefined symbol in Wasm.
         if (builtin.target.os.tag != .wasi) {
             if (!has_flock_open_flags and flags.lock != .None) {
                 // TODO: integrate async I/O
@@ -1089,8 +1091,10 @@ pub const Dir = struct {
             try os.openatZ(self.fd, sub_path_c, os_flags, flags.mode);
         errdefer os.close(fd);
 
+        // WASI doesn't have os.flock so we intetinally check OS prior to the inner if block
+        // since it is not compiltime-known and we need to avoid undefined symbol in Wasm.
         if (builtin.target.os.tag != .wasi) {
-            if (!has_flock_open_flags and flags.lock != .None and builtin.target.os.tag != .wasi) {
+            if (!has_flock_open_flags and flags.lock != .None) {
                 // TODO: integrate async I/O
                 const lock_nonblocking = if (flags.lock_nonblocking) os.LOCK_NB else @as(i32, 0);
                 try os.flock(fd, switch (flags.lock) {
