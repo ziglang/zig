@@ -614,7 +614,6 @@ fn linkWithZld(self: *MachO, comp: *Compilation) !void {
     const is_dyn_lib = self.base.options.link_mode == .Dynamic and is_lib;
     const is_exe_or_dyn_lib = is_dyn_lib or self.base.options.output_mode == .Exe;
     const stack_size = self.base.options.stack_size_override orelse 0;
-    const allow_shlib_undefined = self.base.options.allow_shlib_undefined orelse !self.base.options.is_native_os;
 
     const id_symlink_basename = "zld.id";
 
@@ -629,8 +628,6 @@ fn linkWithZld(self: *MachO, comp: *Compilation) !void {
         // We are about to obtain this lock, so here we give other processes a chance first.
         self.base.releaseLock();
 
-        try man.addOptionalFile(self.base.options.linker_script);
-        try man.addOptionalFile(self.base.options.version_script);
         try man.addListOfFiles(self.base.options.objects);
         for (comp.c_object_table.keys()) |key| {
             _ = try man.addFile(key.status.success.object_path, null);
@@ -639,21 +636,14 @@ fn linkWithZld(self: *MachO, comp: *Compilation) !void {
         // We can skip hashing libc and libc++ components that we are in charge of building from Zig
         // installation sources because they are always a product of the compiler version + target information.
         man.hash.add(stack_size);
-        man.hash.add(self.base.options.rdynamic);
-        man.hash.addListOfBytes(self.base.options.extra_lld_args);
         man.hash.addListOfBytes(self.base.options.lib_dirs);
         man.hash.addListOfBytes(self.base.options.framework_dirs);
         man.hash.addListOfBytes(self.base.options.frameworks);
         man.hash.addListOfBytes(self.base.options.rpath_list);
-        man.hash.add(self.base.options.skip_linker_dependencies);
-        man.hash.add(self.base.options.z_nodelete);
-        man.hash.add(self.base.options.z_defs);
         if (is_dyn_lib) {
             man.hash.addOptional(self.base.options.version);
         }
         man.hash.addStringSet(self.base.options.system_libs);
-        man.hash.add(allow_shlib_undefined);
-        man.hash.add(self.base.options.bind_global_refs_locally);
         man.hash.addOptionalBytes(self.base.options.sysroot);
 
         // We don't actually care whether it's a cache hit or miss; we just need the digest and the lock.
@@ -909,16 +899,12 @@ fn linkWithZld(self: *MachO, comp: *Compilation) !void {
             Compilation.dump_argv(argv.items);
         }
 
-        self.base.file = try fs.cwd().createFile(full_out_path, .{
+        const sub_path = self.base.options.emit.?.sub_path;
+        self.base.file = try directory.handle.createFile(sub_path, .{
             .truncate = true,
             .read = true,
-            .mode = if (std.Target.current.os.tag == .windows) 0 else 0o777,
+            .mode = link.determineMode(self.base.options),
         });
-        self.page_size = switch (self.base.options.target.cpu.arch) {
-            .aarch64 => 0x4000,
-            .x86_64 => 0x1000,
-            else => unreachable,
-        };
 
         // TODO mimicking insertion of null symbol from incremental linker.
         // This will need to moved.
@@ -932,10 +918,14 @@ fn linkWithZld(self: *MachO, comp: *Compilation) !void {
         try self.strtab.append(self.base.allocator, 0);
 
         try self.populateMetadata();
+        try self.addRpathLCs(rpaths.items);
         try self.parseInputFiles(positionals.items, self.base.options.sysroot);
         try self.parseLibs(libs.items, self.base.options.sysroot);
         try self.resolveSymbols();
         try self.parseTextBlocks();
+        try self.addLoadDylibLCs();
+        try self.addDataInCodeLC();
+        try self.addCodeSignatureLC();
 
         {
             // Add dyld_stub_binder as the final GOT entry.
@@ -953,10 +943,6 @@ fn linkWithZld(self: *MachO, comp: *Compilation) !void {
         }
 
         try self.sortSections();
-        try self.addRpathLCs(rpaths.items);
-        try self.addLoadDylibLCs();
-        try self.addDataInCodeLC();
-        try self.addCodeSignatureLC();
         try self.allocateTextSegment();
         try self.allocateDataConstSegment();
         try self.allocateDataSegment();
