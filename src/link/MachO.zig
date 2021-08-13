@@ -415,171 +415,6 @@ pub fn flush(self: *MachO, comp: *Compilation) !void {
         }
     }
 
-    const use_stage1 = build_options.is_stage1 and self.base.options.use_stage1;
-    if (use_stage1) {
-        return self.linkWithZld(comp);
-    } else {
-        switch (self.base.options.effectiveOutputMode()) {
-            .Exe, .Obj => {},
-            .Lib => return error.TODOImplementWritingLibFiles,
-        }
-        return self.flushModule(comp);
-    }
-}
-
-pub fn flushModule(self: *MachO, comp: *Compilation) !void {
-    _ = comp;
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const output_mode = self.base.options.output_mode;
-    const target = self.base.options.target;
-
-    switch (output_mode) {
-        .Exe => {
-            if (self.entry_addr) |addr| {
-                // Update LC_MAIN with entry offset.
-                const text_segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
-                const main_cmd = &self.load_commands.items[self.main_cmd_index.?].Main;
-                main_cmd.entryoff = addr - text_segment.inner.vmaddr;
-                main_cmd.stacksize = self.base.options.stack_size_override orelse 0;
-                self.load_commands_dirty = true;
-            }
-            try self.writeRebaseInfoTable();
-            try self.writeBindInfoTable();
-            try self.writeLazyBindInfoTable();
-            try self.writeExportInfo();
-            try self.writeAllGlobalAndUndefSymbols();
-            try self.writeIndirectSymbolTable();
-            try self.writeStringTable();
-            try self.updateLinkeditSegmentSizes();
-
-            if (self.d_sym) |*ds| {
-                // Flush debug symbols bundle.
-                try ds.flushModule(self.base.allocator, self.base.options);
-            }
-
-            if (target.cpu.arch == .aarch64) {
-                // Preallocate space for the code signature.
-                // We need to do this at this stage so that we have the load commands with proper values
-                // written out to the file.
-                // The most important here is to have the correct vm and filesize of the __LINKEDIT segment
-                // where the code signature goes into.
-                try self.writeCodeSignaturePadding();
-            }
-        },
-        .Obj => {},
-        .Lib => return error.TODOImplementWritingLibFiles,
-    }
-
-    try self.writeLoadCommands();
-    try self.writeHeader();
-
-    if (self.entry_addr == null and self.base.options.output_mode == .Exe) {
-        log.debug("flushing. no_entry_point_found = true", .{});
-        self.error_flags.no_entry_point_found = true;
-    } else {
-        log.debug("flushing. no_entry_point_found = false", .{});
-        self.error_flags.no_entry_point_found = false;
-    }
-
-    assert(!self.got_entries_count_dirty);
-    assert(!self.load_commands_dirty);
-    assert(!self.rebase_info_dirty);
-    assert(!self.binding_info_dirty);
-    assert(!self.lazy_binding_info_dirty);
-    assert(!self.export_info_dirty);
-    assert(!self.strtab_dirty);
-    assert(!self.strtab_needs_relocation);
-
-    if (target.cpu.arch == .aarch64) {
-        switch (output_mode) {
-            .Exe, .Lib => try self.writeCodeSignature(), // code signing always comes last
-            else => {},
-        }
-    }
-}
-
-fn resolveSearchDir(
-    arena: *Allocator,
-    dir: []const u8,
-    syslibroot: ?[]const u8,
-) !?[]const u8 {
-    var candidates = std.ArrayList([]const u8).init(arena);
-
-    if (fs.path.isAbsolute(dir)) {
-        if (syslibroot) |root| {
-            const full_path = try fs.path.join(arena, &[_][]const u8{ root, dir });
-            try candidates.append(full_path);
-        }
-    }
-
-    try candidates.append(dir);
-
-    for (candidates.items) |candidate| {
-        // Verify that search path actually exists
-        var tmp = fs.cwd().openDir(candidate, .{}) catch |err| switch (err) {
-            error.FileNotFound => continue,
-            else => |e| return e,
-        };
-        defer tmp.close();
-
-        return candidate;
-    }
-
-    return null;
-}
-
-fn resolveLib(
-    arena: *Allocator,
-    search_dirs: []const []const u8,
-    name: []const u8,
-    ext: []const u8,
-) !?[]const u8 {
-    const search_name = try std.fmt.allocPrint(arena, "lib{s}{s}", .{ name, ext });
-
-    for (search_dirs) |dir| {
-        const full_path = try fs.path.join(arena, &[_][]const u8{ dir, search_name });
-
-        // Check if the file exists.
-        const tmp = fs.cwd().openFile(full_path, .{}) catch |err| switch (err) {
-            error.FileNotFound => continue,
-            else => |e| return e,
-        };
-        defer tmp.close();
-
-        return full_path;
-    }
-
-    return null;
-}
-
-fn resolveFramework(
-    arena: *Allocator,
-    search_dirs: []const []const u8,
-    name: []const u8,
-    ext: []const u8,
-) !?[]const u8 {
-    const search_name = try std.fmt.allocPrint(arena, "{s}{s}", .{ name, ext });
-    const prefix_path = try std.fmt.allocPrint(arena, "{s}.framework", .{name});
-
-    for (search_dirs) |dir| {
-        const full_path = try fs.path.join(arena, &[_][]const u8{ dir, prefix_path, search_name });
-
-        // Check if the file exists.
-        const tmp = fs.cwd().openFile(full_path, .{}) catch |err| switch (err) {
-            error.FileNotFound => continue,
-            else => |e| return e,
-        };
-        defer tmp.close();
-
-        return full_path;
-    }
-
-    return null;
-}
-
-fn linkWithZld(self: *MachO, comp: *Compilation) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -588,11 +423,11 @@ fn linkWithZld(self: *MachO, comp: *Compilation) !void {
     const arena = &arena_allocator.allocator;
 
     const directory = self.base.options.emit.?.directory; // Just an alias to make it shorter to type.
+    const use_stage1 = build_options.is_stage1 and self.base.options.use_stage1;
 
     // If there is no Zig code to compile, then we should skip flushing the output file because it
     // will not be part of the linker line anyway.
     const module_obj_path: ?[]const u8 = if (self.base.options.module) |module| blk: {
-        const use_stage1 = build_options.is_stage1 and self.base.options.use_stage1;
         if (use_stage1) {
             const obj_basename = try std.zig.binNameAlloc(arena, .{
                 .root_name = self.base.options.root_name,
@@ -604,8 +439,8 @@ fn linkWithZld(self: *MachO, comp: *Compilation) !void {
             break :blk full_obj_path;
         }
 
+        const obj_basename = self.base.intermediary_basename orelse break :blk null;
         try self.flushModule(comp);
-        const obj_basename = self.base.intermediary_basename.?;
         const full_obj_path = try directory.join(arena, &[_][]const u8{obj_basename});
         break :blk full_obj_path;
     } else null;
@@ -714,7 +549,9 @@ fn linkWithZld(self: *MachO, comp: *Compilation) !void {
             try positionals.append(p);
         }
 
-        try positionals.append(comp.compiler_rt_static_lib.?.full_object_path);
+        if (comp.compiler_rt_static_lib) |lib| {
+            try positionals.append(lib.full_object_path);
+        }
 
         // libc++ dep
         if (self.base.options.link_libcpp) {
@@ -899,56 +736,60 @@ fn linkWithZld(self: *MachO, comp: *Compilation) !void {
             Compilation.dump_argv(argv.items);
         }
 
-        const sub_path = self.base.options.emit.?.sub_path;
-        self.base.file = try directory.handle.createFile(sub_path, .{
-            .truncate = true,
-            .read = true,
-            .mode = link.determineMode(self.base.options),
-        });
+        if (use_stage1) {
+            const sub_path = self.base.options.emit.?.sub_path;
+            self.base.file = try directory.handle.createFile(sub_path, .{
+                .truncate = true,
+                .read = true,
+                .mode = link.determineMode(self.base.options),
+            });
 
-        // TODO mimicking insertion of null symbol from incremental linker.
-        // This will need to moved.
-        try self.locals.append(self.base.allocator, .{
-            .n_strx = 0,
-            .n_type = macho.N_UNDF,
-            .n_sect = 0,
-            .n_desc = 0,
-            .n_value = 0,
-        });
-        try self.strtab.append(self.base.allocator, 0);
+            // TODO mimicking insertion of null symbol from incremental linker.
+            // This will need to moved.
+            try self.locals.append(self.base.allocator, .{
+                .n_strx = 0,
+                .n_type = macho.N_UNDF,
+                .n_sect = 0,
+                .n_desc = 0,
+                .n_value = 0,
+            });
+            try self.strtab.append(self.base.allocator, 0);
 
-        try self.populateMetadata();
-        try self.addRpathLCs(rpaths.items);
-        try self.parseInputFiles(positionals.items, self.base.options.sysroot);
-        try self.parseLibs(libs.items, self.base.options.sysroot);
-        try self.resolveSymbols();
-        try self.parseTextBlocks();
-        try self.addLoadDylibLCs();
-        try self.addDataInCodeLC();
-        try self.addCodeSignatureLC();
+            try self.populateMetadata();
+            try self.addRpathLCs(rpaths.items);
+            try self.parseInputFiles(positionals.items, self.base.options.sysroot);
+            try self.parseLibs(libs.items, self.base.options.sysroot);
+            try self.resolveSymbols();
+            try self.parseTextBlocks();
+            try self.addLoadDylibLCs();
+            try self.addDataInCodeLC();
+            try self.addCodeSignatureLC();
 
-        {
-            // Add dyld_stub_binder as the final GOT entry.
-            const n_strx = self.strtab_dir.getAdapted(@as([]const u8, "dyld_stub_binder"), StringSliceAdapter{
-                .strtab = &self.strtab,
-            }) orelse unreachable;
-            const resolv = self.symbol_resolver.get(n_strx) orelse unreachable;
-            const got_index = @intCast(u32, self.got_entries.items.len);
-            const got_entry = GotIndirectionKey{
-                .where = .undef,
-                .where_index = resolv.where_index,
-            };
-            try self.got_entries.append(self.base.allocator, got_entry);
-            try self.got_entries_map.putNoClobber(self.base.allocator, got_entry, got_index);
+            {
+                // Add dyld_stub_binder as the final GOT entry.
+                const n_strx = self.strtab_dir.getAdapted(@as([]const u8, "dyld_stub_binder"), StringSliceAdapter{
+                    .strtab = &self.strtab,
+                }) orelse unreachable;
+                const resolv = self.symbol_resolver.get(n_strx) orelse unreachable;
+                const got_index = @intCast(u32, self.got_entries.items.len);
+                const got_entry = GotIndirectionKey{
+                    .where = .undef,
+                    .where_index = resolv.where_index,
+                };
+                try self.got_entries.append(self.base.allocator, got_entry);
+                try self.got_entries_map.putNoClobber(self.base.allocator, got_entry, got_index);
+            }
+
+            try self.sortSections();
+            try self.allocateTextSegment();
+            try self.allocateDataConstSegment();
+            try self.allocateDataSegment();
+            self.allocateLinkeditSegment();
+            try self.allocateTextBlocks();
+            try self.flushZld();
+        } else {
+            try self.flushModule(comp);
         }
-
-        try self.sortSections();
-        try self.allocateTextSegment();
-        try self.allocateDataConstSegment();
-        try self.allocateDataSegment();
-        self.allocateLinkeditSegment();
-        try self.allocateTextBlocks();
-        try self.flushZld();
     }
 
     if (!self.base.options.disable_lld_caching) {
@@ -965,6 +806,158 @@ fn linkWithZld(self: *MachO, comp: *Compilation) !void {
         // other processes clobbering it.
         self.base.lock = man.toOwnedLock();
     }
+}
+
+pub fn flushModule(self: *MachO, comp: *Compilation) !void {
+    _ = comp;
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const output_mode = self.base.options.output_mode;
+    const target = self.base.options.target;
+
+    switch (output_mode) {
+        .Exe => {
+            if (self.entry_addr) |addr| {
+                // Update LC_MAIN with entry offset.
+                const text_segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
+                const main_cmd = &self.load_commands.items[self.main_cmd_index.?].Main;
+                main_cmd.entryoff = addr - text_segment.inner.vmaddr;
+                main_cmd.stacksize = self.base.options.stack_size_override orelse 0;
+                self.load_commands_dirty = true;
+            }
+            try self.writeRebaseInfoTable();
+            try self.writeBindInfoTable();
+            try self.writeLazyBindInfoTable();
+            try self.writeExportInfo();
+            try self.writeAllGlobalAndUndefSymbols();
+            try self.writeIndirectSymbolTable();
+            try self.writeStringTable();
+            try self.updateLinkeditSegmentSizes();
+
+            if (self.d_sym) |*ds| {
+                // Flush debug symbols bundle.
+                try ds.flushModule(self.base.allocator, self.base.options);
+            }
+
+            if (target.cpu.arch == .aarch64) {
+                // Preallocate space for the code signature.
+                // We need to do this at this stage so that we have the load commands with proper values
+                // written out to the file.
+                // The most important here is to have the correct vm and filesize of the __LINKEDIT segment
+                // where the code signature goes into.
+                try self.writeCodeSignaturePadding();
+            }
+        },
+        .Obj => {},
+        .Lib => return error.TODOImplementWritingLibFiles,
+    }
+
+    try self.writeLoadCommands();
+    try self.writeHeader();
+
+    if (self.entry_addr == null and self.base.options.output_mode == .Exe) {
+        log.debug("flushing. no_entry_point_found = true", .{});
+        self.error_flags.no_entry_point_found = true;
+    } else {
+        log.debug("flushing. no_entry_point_found = false", .{});
+        self.error_flags.no_entry_point_found = false;
+    }
+
+    assert(!self.got_entries_count_dirty);
+    assert(!self.load_commands_dirty);
+    assert(!self.rebase_info_dirty);
+    assert(!self.binding_info_dirty);
+    assert(!self.lazy_binding_info_dirty);
+    assert(!self.export_info_dirty);
+    assert(!self.strtab_dirty);
+    assert(!self.strtab_needs_relocation);
+
+    if (target.cpu.arch == .aarch64) {
+        switch (output_mode) {
+            .Exe, .Lib => try self.writeCodeSignature(), // code signing always comes last
+            else => {},
+        }
+    }
+}
+
+fn resolveSearchDir(
+    arena: *Allocator,
+    dir: []const u8,
+    syslibroot: ?[]const u8,
+) !?[]const u8 {
+    var candidates = std.ArrayList([]const u8).init(arena);
+
+    if (fs.path.isAbsolute(dir)) {
+        if (syslibroot) |root| {
+            const full_path = try fs.path.join(arena, &[_][]const u8{ root, dir });
+            try candidates.append(full_path);
+        }
+    }
+
+    try candidates.append(dir);
+
+    for (candidates.items) |candidate| {
+        // Verify that search path actually exists
+        var tmp = fs.cwd().openDir(candidate, .{}) catch |err| switch (err) {
+            error.FileNotFound => continue,
+            else => |e| return e,
+        };
+        defer tmp.close();
+
+        return candidate;
+    }
+
+    return null;
+}
+
+fn resolveLib(
+    arena: *Allocator,
+    search_dirs: []const []const u8,
+    name: []const u8,
+    ext: []const u8,
+) !?[]const u8 {
+    const search_name = try std.fmt.allocPrint(arena, "lib{s}{s}", .{ name, ext });
+
+    for (search_dirs) |dir| {
+        const full_path = try fs.path.join(arena, &[_][]const u8{ dir, search_name });
+
+        // Check if the file exists.
+        const tmp = fs.cwd().openFile(full_path, .{}) catch |err| switch (err) {
+            error.FileNotFound => continue,
+            else => |e| return e,
+        };
+        defer tmp.close();
+
+        return full_path;
+    }
+
+    return null;
+}
+
+fn resolveFramework(
+    arena: *Allocator,
+    search_dirs: []const []const u8,
+    name: []const u8,
+    ext: []const u8,
+) !?[]const u8 {
+    const search_name = try std.fmt.allocPrint(arena, "{s}{s}", .{ name, ext });
+    const prefix_path = try std.fmt.allocPrint(arena, "{s}.framework", .{name});
+
+    for (search_dirs) |dir| {
+        const full_path = try fs.path.join(arena, &[_][]const u8{ dir, prefix_path, search_name });
+
+        // Check if the file exists.
+        const tmp = fs.cwd().openFile(full_path, .{}) catch |err| switch (err) {
+            error.FileNotFound => continue,
+            else => |e| return e,
+        };
+        defer tmp.close();
+
+        return full_path;
+    }
+
+    return null;
 }
 
 fn parseObject(self: *MachO, path: []const u8) !bool {
