@@ -1022,6 +1022,8 @@ const mingwex_arm32_src = [_][]const u8{
 };
 
 const mingwex_arm64_src = [_][]const u8{
+    // TODO: I'm guessing this source file is common to more platforms???
+    "misc" ++ path.sep_str ++ "initenv.c",
     "math" ++ path.sep_str ++ "arm64" ++ path.sep_str ++ "_chgsignl.S",
     "math" ++ path.sep_str ++ "arm64" ++ path.sep_str ++ "rint.c",
     "math" ++ path.sep_str ++ "arm64" ++ path.sep_str ++ "rintf.c",
