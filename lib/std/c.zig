@@ -31,6 +31,7 @@ pub usingnamespace switch (std.Target.current.os.tag) {
     .fuchsia => @import("c/fuchsia.zig"),
     .minix => @import("c/minix.zig"),
     .emscripten => @import("c/emscripten.zig"),
+    .wasi => @import("c/wasi.zig"),
     else => struct {},
 };
 

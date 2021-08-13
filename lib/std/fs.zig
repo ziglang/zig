@@ -647,6 +647,9 @@ pub const Dir = struct {
             /// Memory such as file names referenced in this returned entry becomes invalid
             /// with subsequent calls to `next`, as well as when this `Dir` is deinitialized.
             pub fn next(self: *Self) Error!?Entry {
+                // We intentinally use fd_readdir even when linked with libc,
+                // since its implementation is exactly the same as below,
+                // and we avoid the code complexity here.
                 const w = os.wasi;
                 start_over: while (true) {
                     if (self.index >= self.end_index) {
@@ -858,7 +861,7 @@ pub const Dir = struct {
             const path_w = try os.windows.sliceToPrefixedFileW(sub_path);
             return self.openFileW(path_w.span(), flags);
         }
-        if (builtin.os.tag == .wasi) {
+        if (builtin.os.tag == .wasi and !builtin.link_libc) {
             return self.openFileWasi(sub_path, flags);
         }
         const path_c = try os.toPosixPath(sub_path);
@@ -934,14 +937,18 @@ pub const Dir = struct {
             try os.openatZ(self.fd, sub_path, os_flags, 0);
         errdefer os.close(fd);
 
-        if (!has_flock_open_flags and flags.lock != .None) {
-            // TODO: integrate async I/O
-            const lock_nonblocking = if (flags.lock_nonblocking) os.LOCK_NB else @as(i32, 0);
-            try os.flock(fd, switch (flags.lock) {
-                .None => unreachable,
-                .Shared => os.LOCK_SH | lock_nonblocking,
-                .Exclusive => os.LOCK_EX | lock_nonblocking,
-            });
+        // WASI doesn't have os.flock so we intetinally check OS prior to the inner if block
+        // since it is not compiltime-known and we need to avoid undefined symbol in Wasm.
+        if (builtin.target.os.tag != .wasi) {
+            if (!has_flock_open_flags and flags.lock != .None) {
+                // TODO: integrate async I/O
+                const lock_nonblocking = if (flags.lock_nonblocking) os.LOCK_NB else @as(i32, 0);
+                try os.flock(fd, switch (flags.lock) {
+                    .None => unreachable,
+                    .Shared => os.LOCK_SH | lock_nonblocking,
+                    .Exclusive => os.LOCK_EX | lock_nonblocking,
+                });
+            }
         }
 
         if (has_flock_open_flags and flags.lock_nonblocking) {
@@ -1014,7 +1021,7 @@ pub const Dir = struct {
             const path_w = try os.windows.sliceToPrefixedFileW(sub_path);
             return self.createFileW(path_w.span(), flags);
         }
-        if (builtin.os.tag == .wasi) {
+        if (builtin.os.tag == .wasi and !builtin.link_libc) {
             return self.createFileWasi(sub_path, flags);
         }
         const path_c = try os.toPosixPath(sub_path);
@@ -1084,14 +1091,18 @@ pub const Dir = struct {
             try os.openatZ(self.fd, sub_path_c, os_flags, flags.mode);
         errdefer os.close(fd);
 
-        if (!has_flock_open_flags and flags.lock != .None) {
-            // TODO: integrate async I/O
-            const lock_nonblocking = if (flags.lock_nonblocking) os.LOCK_NB else @as(i32, 0);
-            try os.flock(fd, switch (flags.lock) {
-                .None => unreachable,
-                .Shared => os.LOCK_SH | lock_nonblocking,
-                .Exclusive => os.LOCK_EX | lock_nonblocking,
-            });
+        // WASI doesn't have os.flock so we intetinally check OS prior to the inner if block
+        // since it is not compiltime-known and we need to avoid undefined symbol in Wasm.
+        if (builtin.target.os.tag != .wasi) {
+            if (!has_flock_open_flags and flags.lock != .None) {
+                // TODO: integrate async I/O
+                const lock_nonblocking = if (flags.lock_nonblocking) os.LOCK_NB else @as(i32, 0);
+                try os.flock(fd, switch (flags.lock) {
+                    .None => unreachable,
+                    .Shared => os.LOCK_SH | lock_nonblocking,
+                    .Exclusive => os.LOCK_EX | lock_nonblocking,
+                });
+            }
         }
 
         if (has_flock_open_flags and flags.lock_nonblocking) {
@@ -1372,7 +1383,7 @@ pub const Dir = struct {
         if (builtin.os.tag == .windows) {
             const sub_path_w = try os.windows.sliceToPrefixedFileW(sub_path);
             return self.openDirW(sub_path_w.span().ptr, args);
-        } else if (builtin.os.tag == .wasi) {
+        } else if (builtin.os.tag == .wasi and !builtin.link_libc) {
             return self.openDirWasi(sub_path, args);
         } else {
             const sub_path_c = try os.toPosixPath(sub_path);
@@ -1519,7 +1530,7 @@ pub const Dir = struct {
         if (builtin.os.tag == .windows) {
             const sub_path_w = try os.windows.sliceToPrefixedFileW(sub_path);
             return self.deleteFileW(sub_path_w.span());
-        } else if (builtin.os.tag == .wasi) {
+        } else if (builtin.os.tag == .wasi and !builtin.link_libc) {
             os.unlinkatWasi(self.fd, sub_path, 0) catch |err| switch (err) {
                 error.DirNotEmpty => unreachable, // not passing AT_REMOVEDIR
                 else => |e| return e,
@@ -1582,7 +1593,7 @@ pub const Dir = struct {
         if (builtin.os.tag == .windows) {
             const sub_path_w = try os.windows.sliceToPrefixedFileW(sub_path);
             return self.deleteDirW(sub_path_w.span());
-        } else if (builtin.os.tag == .wasi) {
+        } else if (builtin.os.tag == .wasi and !builtin.link_libc) {
             os.unlinkat(self.fd, sub_path, os.AT_REMOVEDIR) catch |err| switch (err) {
                 error.IsDir => unreachable, // not possible since we pass AT_REMOVEDIR
                 else => |e| return e,
@@ -1641,7 +1652,7 @@ pub const Dir = struct {
         sym_link_path: []const u8,
         flags: SymLinkFlags,
     ) !void {
-        if (builtin.os.tag == .wasi) {
+        if (builtin.os.tag == .wasi and !builtin.link_libc) {
             return self.symLinkWasi(target_path, sym_link_path, flags);
         }
         if (builtin.os.tag == .windows) {
@@ -1694,7 +1705,7 @@ pub const Dir = struct {
     /// The return value is a slice of `buffer`, from index `0`.
     /// Asserts that the path parameter has no null bytes.
     pub fn readLink(self: Dir, sub_path: []const u8, buffer: []u8) ![]u8 {
-        if (builtin.os.tag == .wasi) {
+        if (builtin.os.tag == .wasi and !builtin.link_libc) {
             return self.readLinkWasi(sub_path, buffer);
         }
         if (builtin.os.tag == .windows) {
@@ -2113,7 +2124,7 @@ pub const Dir = struct {
 pub fn cwd() Dir {
     if (builtin.os.tag == .windows) {
         return Dir{ .fd = os.windows.peb().ProcessParameters.CurrentDirectory.Handle };
-    } else if (builtin.os.tag == .wasi) {
+    } else if (builtin.os.tag == .wasi and !builtin.link_libc) {
         @compileError("WASI doesn't have a concept of cwd(); use std.fs.wasi.PreopenList to get available Dir handles instead");
     } else {
         return Dir{ .fd = os.AT_FDCWD };
