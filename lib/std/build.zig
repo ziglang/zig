@@ -3026,7 +3026,8 @@ pub const InstallDirStep = struct {
         const self = @fieldParentPtr(InstallDirStep, "step", step);
         const dest_prefix = self.builder.getInstallPath(self.options.install_dir, self.options.install_subdir);
         const full_src_dir = self.builder.pathFromRoot(self.options.source_dir);
-        const src_dir = try std.fs.cwd().openDir(full_src_dir, .{ .iterate = true });
+        var src_dir = try std.fs.cwd().openDir(full_src_dir, .{ .iterate = true });
+        defer src_dir.close();
         var it = try src_dir.walk(self.builder.allocator);
         next_entry: while (try it.next()) |entry| {
             for (self.options.exclude_extensions) |ext| {
