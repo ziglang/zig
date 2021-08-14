@@ -766,11 +766,12 @@ pub const Dir = struct {
             while (self.stack.items.len != 0) {
                 // `top` becomes invalid after appending to `self.stack`
                 var top = &self.stack.items[self.stack.items.len - 1];
-                const dirname_len = top.dirname_len;
+                var dirname_len = top.dirname_len;
                 if (try top.iter.next()) |base| {
                     self.name_buffer.shrinkRetainingCapacity(dirname_len);
                     if (self.name_buffer.items.len != 0) {
                         try self.name_buffer.append(path.sep);
+                        dirname_len += 1;
                     }
                     try self.name_buffer.appendSlice(base.name);
                     if (base.kind == .Directory) {
@@ -789,7 +790,7 @@ pub const Dir = struct {
                     }
                     return WalkerEntry{
                         .dir = top.iter.dir,
-                        .basename = self.name_buffer.items[dirname_len + 1 ..],
+                        .basename = self.name_buffer.items[dirname_len..],
                         .path = self.name_buffer.items,
                         .kind = base.kind,
                     };
