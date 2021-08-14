@@ -544,6 +544,13 @@ pub fn formatType(
                             return formatText(value, actual_fmt, options, writer);
                         }
                     }
+                    if (comptime std.meta.trait.isZigString(info.child)) {
+                        for (value) |item, i| {
+                            if (i != 0) try formatText(", ", actual_fmt, options, writer);
+                            try formatText(item, actual_fmt, options, writer);
+                        }
+                        return;
+                    }
                     @compileError("Unknown format string: '" ++ actual_fmt ++ "'");
                 },
                 .Enum, .Union, .Struct => {
