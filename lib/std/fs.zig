@@ -795,22 +795,31 @@ pub const Dir = struct {
                         .kind = base.kind,
                     };
                 } else {
-                    self.stack.pop().iter.dir.close();
+                    var item = self.stack.pop();
+                    if (self.stack.items.len != 0) {
+                        item.iter.dir.close();
+                    }
                 }
             }
             return null;
         }
 
         pub fn deinit(self: *Walker) void {
-            while (self.stack.popOrNull()) |*item| item.iter.dir.close();
+            while (self.stack.popOrNull()) |*item| {
+                if (self.stack.items.len != 0) {
+                    item.iter.dir.close();
+                }
+            }
             self.stack.deinit();
             self.name_buffer.deinit();
         }
     };
 
     /// Recursively iterates over a directory.
+    /// `self` must have been opened with `OpenDirOptions{.iterate = true}`.
     /// Must call `Walker.deinit` when done.
     /// The order of returned file system entries is undefined.
+    /// `self` will not be closed after walking it.
     pub fn walk(self: Dir, allocator: *Allocator) !Walker {
         var name_buffer = std.ArrayList(u8).init(allocator);
         errdefer name_buffer.deinit();
