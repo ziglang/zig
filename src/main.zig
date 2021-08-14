@@ -2492,6 +2492,7 @@ fn cmdTranslateC(comp: *Compilation, arena: *Allocator, enable_cache: bool) !voi
 
     const digest = if (try man.hit()) man.final() else digest: {
         var argv = std.ArrayList([]const u8).init(arena);
+        try argv.append(""); // argv[0] is program name, actual args start at [1]
 
         var zig_cache_tmp_dir = try comp.local_cache_directory.handle.makeOpenPath("tmp", .{});
         defer zig_cache_tmp_dir.close();
