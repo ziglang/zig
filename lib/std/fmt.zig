@@ -544,7 +544,7 @@ pub fn formatType(
                             return formatText(value, actual_fmt, options, writer);
                         }
                     }
-                    @compileError("Unknown format string: '" ++ actual_fmt ++ "'");
+                    @compileError("Unknown format string: '" ++ actual_fmt ++ "' for type '" ++ @typeName(T) ++ "'");
                 },
                 .Enum, .Union, .Struct => {
                     return formatType(value.*, actual_fmt, options, writer, max_depth);
@@ -562,7 +562,7 @@ pub fn formatType(
                         return formatText(mem.span(value), actual_fmt, options, writer);
                     }
                 }
-                @compileError("Unknown format string: '" ++ actual_fmt ++ "'");
+                @compileError("Unknown format string: '" ++ actual_fmt ++ "' for type '" ++ @typeName(T) ++ "'");
             },
             .Slice => {
                 if (actual_fmt.len == 0)
