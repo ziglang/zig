@@ -629,13 +629,57 @@ pub const IO_Uring = struct {
     /// An application need unregister only if it wants to register a new array of file descriptors.
     pub fn register_files(self: *IO_Uring, fds: []const os.fd_t) !void {
         assert(self.fd >= 0);
-        comptime assert(@sizeOf(os.fd_t) == @sizeOf(c_int));
         const res = linux.io_uring_register(
             self.fd,
             .REGISTER_FILES,
             @ptrCast(*const c_void, fds.ptr),
             @intCast(u32, fds.len),
         );
+        try handle_registration_result(res);
+    }
+
+    /// Registers the file descriptor for an eventfd that will be notified of completion events on
+    ///  an io_uring instance.
+    /// Only a single a eventfd can be registered at any given point in time.
+    pub fn register_eventfd(self: *IO_Uring, fd: os.fd_t) !void {
+        assert(self.fd >= 0);
+        const res = linux.io_uring_register(
+            self.fd,
+            .REGISTER_EVENTFD,
+            @ptrCast(*const c_void, &fd),
+            1,
+        );
+        try handle_registration_result(res);
+    }
+
+    /// Registers the file descriptor for an eventfd that will be notified of completion events on
+    /// an io_uring instance. Notifications are only posted for events that complete in an async manner. 
+    /// This means that events that complete inline while being submitted do not trigger a notification event.
+    /// Only a single eventfd can be registered at any given point in time.
+    pub fn register_eventfd_async(self: *IO_Uring, fd: os.fd_t) !void {
+        assert(self.fd >= 0);
+        const res = linux.io_uring_register(
+            self.fd,
+            .REGISTER_EVENTFD_ASYNC,
+            @ptrCast(*const c_void, &fd),
+            1,
+        );
+        try handle_registration_result(res);
+    }
+
+    /// Unregister the registered eventfd file descriptor.
+    pub fn unregister_eventfd(self: *IO_Uring) !void {
+        assert(self.fd >= 0);
+        const res = linux.io_uring_register(
+            self.fd,
+            .UNREGISTER_EVENTFD,
+            null,
+            0,
+        );
+        try handle_registration_result(res);
+    }
+
+    fn handle_registration_result(res: usize) !void {
         switch (linux.getErrno(res)) {
             0 => {},
             // One or more fds in the array are invalid, or the kernel does not support sparse sets:
