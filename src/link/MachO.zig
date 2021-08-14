@@ -536,6 +536,27 @@ pub fn flush(self: *MachO, comp: *Compilation) !void {
             try fs.cwd().copyFile(the_object_path, fs.cwd(), full_out_path, .{});
         }
     } else {
+        if (use_stage1) {
+            const sub_path = self.base.options.emit.?.sub_path;
+            self.base.file = try directory.handle.createFile(sub_path, .{
+                .truncate = true,
+                .read = true,
+                .mode = link.determineMode(self.base.options),
+            });
+            try self.populateMetadata();
+
+            // TODO mimicking insertion of null symbol from incremental linker.
+            // This will need to moved.
+            try self.locals.append(self.base.allocator, .{
+                .n_strx = 0,
+                .n_type = macho.N_UNDF,
+                .n_sect = 0,
+                .n_desc = 0,
+                .n_value = 0,
+            });
+            try self.strtab.append(self.base.allocator, 0);
+        }
+
         // Positional arguments to the linker such as object files and static archives.
         var positionals = std.ArrayList([]const u8).init(arena);
 
@@ -673,12 +694,6 @@ pub fn flush(self: *MachO, comp: *Compilation) !void {
             try rpath_table.putNoClobber(rpath, {});
         }
 
-        var rpaths = std.ArrayList([]const u8).init(arena);
-        try rpaths.ensureCapacity(rpath_table.count());
-        for (rpath_table.keys()) |*key| {
-            rpaths.appendAssumeCapacity(key.*);
-        }
-
         if (self.base.options.verbose_link) {
             var argv = std.ArrayList([]const u8).init(arena);
 
@@ -704,7 +719,7 @@ pub fn flush(self: *MachO, comp: *Compilation) !void {
                 try argv.append(syslibroot);
             }
 
-            for (rpaths.items) |rpath| {
+            for (rpath_table.keys()) |rpath| {
                 try argv.append("-rpath");
                 try argv.append(rpath);
             }
@@ -736,27 +751,9 @@ pub fn flush(self: *MachO, comp: *Compilation) !void {
             Compilation.dump_argv(argv.items);
         }
 
+        try self.addRpathLCs(rpath_table.keys());
+
         if (use_stage1) {
-            const sub_path = self.base.options.emit.?.sub_path;
-            self.base.file = try directory.handle.createFile(sub_path, .{
-                .truncate = true,
-                .read = true,
-                .mode = link.determineMode(self.base.options),
-            });
-
-            // TODO mimicking insertion of null symbol from incremental linker.
-            // This will need to moved.
-            try self.locals.append(self.base.allocator, .{
-                .n_strx = 0,
-                .n_type = macho.N_UNDF,
-                .n_sect = 0,
-                .n_desc = 0,
-                .n_value = 0,
-            });
-            try self.strtab.append(self.base.allocator, 0);
-
-            try self.populateMetadata();
-            try self.addRpathLCs(rpaths.items);
             try self.parseInputFiles(positionals.items, self.base.options.sysroot);
             try self.parseLibs(libs.items, self.base.options.sysroot);
             try self.resolveSymbols();
