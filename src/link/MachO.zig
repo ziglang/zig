@@ -396,6 +396,13 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
 
 pub fn createEmpty(gpa: *Allocator, options: link.Options) !*MachO {
     const self = try gpa.create(MachO);
+    const cpu_arch = options.target.cpu.arch;
+    const os_tag = options.target.os.tag;
+    const abi = options.target.abi;
+    const page_size = if (cpu_arch == .aarch64) 0x4000 else 0x1000;
+    // Adhoc code signature is required when targeting aarch64-macos either directly or indirectly via the simulator
+    // ABI such as aarch64-ios-simulator, etc.
+    const requires_adhoc_codesig = cpu_arch == .aarch64 and (os_tag == .macos or abi == .simulator);
 
     self.* = .{
         .base = .{
@@ -404,8 +411,8 @@ pub fn createEmpty(gpa: *Allocator, options: link.Options) !*MachO {
             .allocator = gpa,
             .file = null,
         },
-        .page_size = if (options.target.cpu.arch == .aarch64) 0x4000 else 0x1000,
-        .requires_adhoc_codesig = options.target.cpu.arch == .aarch64 and options.target.os.tag == .macos,
+        .page_size = page_size,
+        .requires_adhoc_codesig = requires_adhoc_codesig,
     };
 
     return self;
