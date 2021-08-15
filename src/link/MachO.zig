@@ -399,7 +399,7 @@ pub fn createEmpty(gpa: *Allocator, options: link.Options) !*MachO {
     const cpu_arch = options.target.cpu.arch;
     const os_tag = options.target.os.tag;
     const abi = options.target.abi;
-    const page_size = if (cpu_arch == .aarch64) 0x4000 else 0x1000;
+    const page_size: u16 = if (cpu_arch == .aarch64) 0x4000 else 0x1000;
     // Adhoc code signature is required when targeting aarch64-macos either directly or indirectly via the simulator
     // ABI such as aarch64-ios-simulator, etc.
     const requires_adhoc_codesig = cpu_arch == .aarch64 and (os_tag == .macos or abi == .simulator);
@@ -446,7 +446,6 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
     defer tracy.end();
 
     const output_mode = self.base.options.output_mode;
-    const target = self.base.options.target;
 
     switch (output_mode) {
         .Exe => {
