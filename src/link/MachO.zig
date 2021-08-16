@@ -386,6 +386,36 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
     try self.populateMissingMetadata();
     try self.writeLocalSymbol(0);
 
+    if (!self.strtab_dir.containsAdapted(@as([]const u8, "dyld_stub_binder"), StringSliceAdapter{
+        .strtab = &self.strtab,
+    })) {
+        const import_sym_index = @intCast(u32, self.undefs.items.len);
+        const n_strx = try self.makeString("dyld_stub_binder");
+        try self.undefs.append(self.base.allocator, .{
+            .n_strx = n_strx,
+            .n_type = macho.N_UNDF | macho.N_EXT,
+            .n_sect = 0,
+            .n_desc = @intCast(u8, 1) * macho.N_SYMBOL_RESOLVER,
+            .n_value = 0,
+        });
+        try self.symbol_resolver.putNoClobber(self.base.allocator, n_strx, .{
+            .where = .undef,
+            .where_index = import_sym_index,
+        });
+        const got_key = GotIndirectionKey{
+            .where = .undef,
+            .where_index = import_sym_index,
+        };
+        const got_index = @intCast(u32, self.got_entries.items.len);
+        try self.got_entries.append(self.base.allocator, got_key);
+        try self.got_entries_map.putNoClobber(self.base.allocator, got_key, got_index);
+        try self.writeGotEntry(got_index);
+        self.binding_info_dirty = true;
+    }
+    if (self.stub_helper_stubs_start_off == null) {
+        try self.writeStubHelperPreamble();
+    }
+
     if (self.d_sym) |*ds| {
         try ds.populateMissingMetadata(allocator);
         try ds.writeLocalSymbol(0);
@@ -556,7 +586,7 @@ pub fn flush(self: *MachO, comp: *Compilation) !void {
                 .read = true,
                 .mode = link.determineMode(self.base.options),
             });
-            try self.populateMetadata();
+            try self.populateMissingMetadata();
 
             // TODO mimicking insertion of null symbol from incremental linker.
             // This will need to moved.
@@ -798,6 +828,17 @@ pub fn flush(self: *MachO, comp: *Compilation) !void {
             try self.allocateTextBlocks();
             try self.flushZld();
         } else {
+            // TODO this is just a temp; libsystem load command will be autoresolved when parsing libSystem from
+            // the linker line and actually referencing symbols.
+            if (self.libsystem_cmd_index == null) {
+                self.libsystem_cmd_index = @intCast(u16, self.load_commands.items.len);
+                var dylib_cmd = try commands.createLoadDylibCommand(self.base.allocator, mem.spanZ(LIB_SYSTEM_PATH), 2, 0, 0);
+                errdefer dylib_cmd.deinit(self.base.allocator);
+                try self.load_commands.append(self.base.allocator, .{ .Dylib = dylib_cmd });
+                self.load_commands_dirty = true;
+            }
+            try self.addDataInCodeLC();
+            try self.addCodeSignatureLC();
             try self.flushModule(comp);
         }
     }
@@ -2503,328 +2544,6 @@ fn parseTextBlocks(self: *MachO) !void {
     }
 }
 
-fn populateMetadata(self: *MachO) !void {
-    if (self.pagezero_segment_cmd_index == null) {
-        self.pagezero_segment_cmd_index = @intCast(u16, self.load_commands.items.len);
-        try self.load_commands.append(self.base.allocator, .{
-            .Segment = SegmentCommand.empty("__PAGEZERO", .{
-                .vmsize = 0x100000000, // size always set to 4GB
-            }),
-        });
-    }
-
-    if (self.text_segment_cmd_index == null) {
-        self.text_segment_cmd_index = @intCast(u16, self.load_commands.items.len);
-        try self.load_commands.append(self.base.allocator, .{
-            .Segment = SegmentCommand.empty("__TEXT", .{
-                .vmaddr = 0x100000000, // always starts at 4GB
-                .maxprot = macho.VM_PROT_READ | macho.VM_PROT_EXECUTE,
-                .initprot = macho.VM_PROT_READ | macho.VM_PROT_EXECUTE,
-            }),
-        });
-    }
-
-    if (self.text_section_index == null) {
-        const text_seg = &self.load_commands.items[self.text_segment_cmd_index.?].Segment;
-        self.text_section_index = @intCast(u16, text_seg.sections.items.len);
-        const alignment: u2 = switch (self.base.options.target.cpu.arch) {
-            .x86_64 => 0,
-            .aarch64 => 2,
-            else => unreachable, // unhandled architecture type
-        };
-        try text_seg.addSection(self.base.allocator, "__text", .{
-            .@"align" = alignment,
-            .flags = macho.S_REGULAR | macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS,
-        });
-        _ = try self.section_ordinals.getOrPut(self.base.allocator, .{
-            .seg = self.text_segment_cmd_index.?,
-            .sect = self.text_section_index.?,
-        });
-    }
-
-    if (self.stubs_section_index == null) {
-        const text_seg = &self.load_commands.items[self.text_segment_cmd_index.?].Segment;
-        self.stubs_section_index = @intCast(u16, text_seg.sections.items.len);
-        const alignment: u2 = switch (self.base.options.target.cpu.arch) {
-            .x86_64 => 0,
-            .aarch64 => 2,
-            else => unreachable, // unhandled architecture type
-        };
-        const stub_size: u4 = switch (self.base.options.target.cpu.arch) {
-            .x86_64 => 6,
-            .aarch64 => 3 * @sizeOf(u32),
-            else => unreachable, // unhandled architecture type
-        };
-        try text_seg.addSection(self.base.allocator, "__stubs", .{
-            .@"align" = alignment,
-            .flags = macho.S_SYMBOL_STUBS | macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS,
-            .reserved2 = stub_size,
-        });
-        _ = try self.section_ordinals.getOrPut(self.base.allocator, .{
-            .seg = self.text_segment_cmd_index.?,
-            .sect = self.stubs_section_index.?,
-        });
-    }
-
-    if (self.stub_helper_section_index == null) {
-        const text_seg = &self.load_commands.items[self.text_segment_cmd_index.?].Segment;
-        self.stub_helper_section_index = @intCast(u16, text_seg.sections.items.len);
-        const alignment: u2 = switch (self.base.options.target.cpu.arch) {
-            .x86_64 => 0,
-            .aarch64 => 2,
-            else => unreachable, // unhandled architecture type
-        };
-        const stub_helper_size: u6 = switch (self.base.options.target.cpu.arch) {
-            .x86_64 => 15,
-            .aarch64 => 6 * @sizeOf(u32),
-            else => unreachable,
-        };
-        try text_seg.addSection(self.base.allocator, "__stub_helper", .{
-            .size = stub_helper_size,
-            .@"align" = alignment,
-            .flags = macho.S_REGULAR | macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS,
-        });
-        _ = try self.section_ordinals.getOrPut(self.base.allocator, .{
-            .seg = self.text_segment_cmd_index.?,
-            .sect = self.stub_helper_section_index.?,
-        });
-    }
-
-    if (self.data_const_segment_cmd_index == null) {
-        self.data_const_segment_cmd_index = @intCast(u16, self.load_commands.items.len);
-        try self.load_commands.append(self.base.allocator, .{
-            .Segment = SegmentCommand.empty("__DATA_CONST", .{
-                .maxprot = macho.VM_PROT_READ | macho.VM_PROT_WRITE,
-                .initprot = macho.VM_PROT_READ | macho.VM_PROT_WRITE,
-            }),
-        });
-    }
-
-    if (self.got_section_index == null) {
-        const data_const_seg = &self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
-        self.got_section_index = @intCast(u16, data_const_seg.sections.items.len);
-        try data_const_seg.addSection(self.base.allocator, "__got", .{
-            .@"align" = 3, // 2^3 = @sizeOf(u64)
-            .flags = macho.S_NON_LAZY_SYMBOL_POINTERS,
-        });
-        _ = try self.section_ordinals.getOrPut(self.base.allocator, .{
-            .seg = self.data_const_segment_cmd_index.?,
-            .sect = self.got_section_index.?,
-        });
-    }
-
-    if (self.data_segment_cmd_index == null) {
-        self.data_segment_cmd_index = @intCast(u16, self.load_commands.items.len);
-        try self.load_commands.append(self.base.allocator, .{
-            .Segment = SegmentCommand.empty("__DATA", .{
-                .maxprot = macho.VM_PROT_READ | macho.VM_PROT_WRITE,
-                .initprot = macho.VM_PROT_READ | macho.VM_PROT_WRITE,
-            }),
-        });
-    }
-
-    if (self.la_symbol_ptr_section_index == null) {
-        const data_seg = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
-        self.la_symbol_ptr_section_index = @intCast(u16, data_seg.sections.items.len);
-        try data_seg.addSection(self.base.allocator, "__la_symbol_ptr", .{
-            .@"align" = 3, // 2^3 = @sizeOf(u64)
-            .flags = macho.S_LAZY_SYMBOL_POINTERS,
-        });
-        _ = try self.section_ordinals.getOrPut(self.base.allocator, .{
-            .seg = self.data_segment_cmd_index.?,
-            .sect = self.la_symbol_ptr_section_index.?,
-        });
-    }
-
-    if (self.data_section_index == null) {
-        const data_seg = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
-        self.data_section_index = @intCast(u16, data_seg.sections.items.len);
-        try data_seg.addSection(self.base.allocator, "__data", .{
-            .@"align" = 3, // 2^3 = @sizeOf(u64)
-        });
-        _ = try self.section_ordinals.getOrPut(self.base.allocator, .{
-            .seg = self.data_segment_cmd_index.?,
-            .sect = self.data_section_index.?,
-        });
-    }
-
-    if (self.linkedit_segment_cmd_index == null) {
-        self.linkedit_segment_cmd_index = @intCast(u16, self.load_commands.items.len);
-        try self.load_commands.append(self.base.allocator, .{
-            .Segment = SegmentCommand.empty("__LINKEDIT", .{
-                .maxprot = macho.VM_PROT_READ,
-                .initprot = macho.VM_PROT_READ,
-            }),
-        });
-    }
-
-    if (self.dyld_info_cmd_index == null) {
-        self.dyld_info_cmd_index = @intCast(u16, self.load_commands.items.len);
-        try self.load_commands.append(self.base.allocator, .{
-            .DyldInfoOnly = .{
-                .cmd = macho.LC_DYLD_INFO_ONLY,
-                .cmdsize = @sizeOf(macho.dyld_info_command),
-                .rebase_off = 0,
-                .rebase_size = 0,
-                .bind_off = 0,
-                .bind_size = 0,
-                .weak_bind_off = 0,
-                .weak_bind_size = 0,
-                .lazy_bind_off = 0,
-                .lazy_bind_size = 0,
-                .export_off = 0,
-                .export_size = 0,
-            },
-        });
-    }
-
-    if (self.symtab_cmd_index == null) {
-        self.symtab_cmd_index = @intCast(u16, self.load_commands.items.len);
-        try self.load_commands.append(self.base.allocator, .{
-            .Symtab = .{
-                .cmd = macho.LC_SYMTAB,
-                .cmdsize = @sizeOf(macho.symtab_command),
-                .symoff = 0,
-                .nsyms = 0,
-                .stroff = 0,
-                .strsize = 0,
-            },
-        });
-    }
-
-    if (self.dysymtab_cmd_index == null) {
-        self.dysymtab_cmd_index = @intCast(u16, self.load_commands.items.len);
-        try self.load_commands.append(self.base.allocator, .{
-            .Dysymtab = .{
-                .cmd = macho.LC_DYSYMTAB,
-                .cmdsize = @sizeOf(macho.dysymtab_command),
-                .ilocalsym = 0,
-                .nlocalsym = 0,
-                .iextdefsym = 0,
-                .nextdefsym = 0,
-                .iundefsym = 0,
-                .nundefsym = 0,
-                .tocoff = 0,
-                .ntoc = 0,
-                .modtaboff = 0,
-                .nmodtab = 0,
-                .extrefsymoff = 0,
-                .nextrefsyms = 0,
-                .indirectsymoff = 0,
-                .nindirectsyms = 0,
-                .extreloff = 0,
-                .nextrel = 0,
-                .locreloff = 0,
-                .nlocrel = 0,
-            },
-        });
-    }
-
-    if (self.dylinker_cmd_index == null) {
-        self.dylinker_cmd_index = @intCast(u16, self.load_commands.items.len);
-        const cmdsize = @intCast(u32, mem.alignForwardGeneric(
-            u64,
-            @sizeOf(macho.dylinker_command) + mem.lenZ(DEFAULT_DYLD_PATH),
-            @sizeOf(u64),
-        ));
-        var dylinker_cmd = commands.emptyGenericCommandWithData(macho.dylinker_command{
-            .cmd = macho.LC_LOAD_DYLINKER,
-            .cmdsize = cmdsize,
-            .name = @sizeOf(macho.dylinker_command),
-        });
-        dylinker_cmd.data = try self.base.allocator.alloc(u8, cmdsize - dylinker_cmd.inner.name);
-        mem.set(u8, dylinker_cmd.data, 0);
-        mem.copy(u8, dylinker_cmd.data, mem.spanZ(DEFAULT_DYLD_PATH));
-        try self.load_commands.append(self.base.allocator, .{ .Dylinker = dylinker_cmd });
-    }
-
-    if (self.main_cmd_index == null and self.base.options.output_mode == .Exe) {
-        self.main_cmd_index = @intCast(u16, self.load_commands.items.len);
-        try self.load_commands.append(self.base.allocator, .{
-            .Main = .{
-                .cmd = macho.LC_MAIN,
-                .cmdsize = @sizeOf(macho.entry_point_command),
-                .entryoff = 0x0,
-                .stacksize = 0,
-            },
-        });
-    }
-
-    if (self.dylib_id_cmd_index == null and self.base.options.output_mode == .Lib) {
-        self.dylib_id_cmd_index = @intCast(u16, self.load_commands.items.len);
-        const install_name = try std.fmt.allocPrint(self.base.allocator, "@rpath/{s}", .{
-            self.base.options.emit.?.sub_path,
-        });
-        defer self.base.allocator.free(install_name);
-        var dylib_cmd = try commands.createLoadDylibCommand(
-            self.base.allocator,
-            install_name,
-            2,
-            0x10000, // TODO forward user-provided versions
-            0x10000,
-        );
-        errdefer dylib_cmd.deinit(self.base.allocator);
-        dylib_cmd.inner.cmd = macho.LC_ID_DYLIB;
-        try self.load_commands.append(self.base.allocator, .{ .Dylib = dylib_cmd });
-    }
-
-    if (self.source_version_cmd_index == null) {
-        self.source_version_cmd_index = @intCast(u16, self.load_commands.items.len);
-        try self.load_commands.append(self.base.allocator, .{
-            .SourceVersion = .{
-                .cmd = macho.LC_SOURCE_VERSION,
-                .cmdsize = @sizeOf(macho.source_version_command),
-                .version = 0x0,
-            },
-        });
-    }
-
-    if (self.build_version_cmd_index == null) {
-        self.build_version_cmd_index = @intCast(u16, self.load_commands.items.len);
-        const cmdsize = @intCast(u32, mem.alignForwardGeneric(
-            u64,
-            @sizeOf(macho.build_version_command) + @sizeOf(macho.build_tool_version),
-            @sizeOf(u64),
-        ));
-        const ver = self.base.options.target.os.version_range.semver.min;
-        const version = ver.major << 16 | ver.minor << 8 | ver.patch;
-        const is_simulator_abi = self.base.options.target.abi == .simulator;
-        var cmd = commands.emptyGenericCommandWithData(macho.build_version_command{
-            .cmd = macho.LC_BUILD_VERSION,
-            .cmdsize = cmdsize,
-            .platform = switch (self.base.options.target.os.tag) {
-                .macos => macho.PLATFORM_MACOS,
-                .ios => if (is_simulator_abi) macho.PLATFORM_IOSSIMULATOR else macho.PLATFORM_IOS,
-                .watchos => if (is_simulator_abi) macho.PLATFORM_WATCHOSSIMULATOR else macho.PLATFORM_WATCHOS,
-                .tvos => if (is_simulator_abi) macho.PLATFORM_TVOSSIMULATOR else macho.PLATFORM_TVOS,
-                else => unreachable,
-            },
-            .minos = version,
-            .sdk = version,
-            .ntools = 1,
-        });
-        const ld_ver = macho.build_tool_version{
-            .tool = macho.TOOL_LD,
-            .version = 0x0,
-        };
-        cmd.data = try self.base.allocator.alloc(u8, cmdsize - @sizeOf(macho.build_version_command));
-        mem.set(u8, cmd.data, 0);
-        mem.copy(u8, cmd.data, mem.asBytes(&ld_ver));
-        try self.load_commands.append(self.base.allocator, .{ .BuildVersion = cmd });
-    }
-
-    if (self.uuid_cmd_index == null) {
-        self.uuid_cmd_index = @intCast(u16, self.load_commands.items.len);
-        var uuid_cmd: macho.uuid_command = .{
-            .cmd = macho.LC_UUID,
-            .cmdsize = @sizeOf(macho.uuid_command),
-            .uuid = undefined,
-        };
-        std.crypto.random.bytes(&uuid_cmd.uuid);
-        try self.load_commands.append(self.base.allocator, .{ .Uuid = uuid_cmd });
-    }
-}
-
 fn addDataInCodeLC(self: *MachO) !void {
     if (self.data_in_code_cmd_index == null) {
         self.data_in_code_cmd_index = @intCast(u16, self.load_commands.items.len);
@@ -4004,12 +3723,6 @@ pub fn getDeclVAddr(self: *MachO, decl: *const Module.Decl) u64 {
 }
 
 pub fn populateMissingMetadata(self: *MachO) !void {
-    switch (self.base.options.output_mode) {
-        .Exe => {},
-        .Obj => return error.TODOImplementWritingObjFiles,
-        .Lib => return error.TODOImplementWritingLibFiles,
-    }
-
     if (self.pagezero_segment_cmd_index == null) {
         self.pagezero_segment_cmd_index = @intCast(u16, self.load_commands.items.len);
         try self.load_commands.append(self.base.allocator, .{
@@ -4019,11 +3732,9 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         });
         self.load_commands_dirty = true;
     }
+
     if (self.text_segment_cmd_index == null) {
         self.text_segment_cmd_index = @intCast(u16, self.load_commands.items.len);
-        const maxprot = macho.VM_PROT_READ | macho.VM_PROT_WRITE | macho.VM_PROT_EXECUTE;
-        const initprot = macho.VM_PROT_READ | macho.VM_PROT_EXECUTE;
-
         const program_code_size_hint = self.base.options.program_code_size_hint;
         const got_size_hint = @sizeOf(u64) * self.base.options.symbol_count_hint;
         const ideal_size = self.header_pad + program_code_size_hint + 3 * got_size_hint;
@@ -4036,12 +3747,13 @@ pub fn populateMissingMetadata(self: *MachO) !void {
                 .vmaddr = 0x100000000, // always starts at 4GB
                 .vmsize = needed_size,
                 .filesize = needed_size,
-                .maxprot = maxprot,
-                .initprot = initprot,
+                .maxprot = macho.VM_PROT_READ | macho.VM_PROT_EXECUTE,
+                .initprot = macho.VM_PROT_READ | macho.VM_PROT_EXECUTE,
             }),
         });
         self.load_commands_dirty = true;
     }
+
     if (self.text_section_index == null) {
         const text_segment = &self.load_commands.items[self.text_segment_cmd_index.?].Segment;
         self.text_section_index = @intCast(u16, text_segment.sections.items.len);
@@ -4051,7 +3763,6 @@ pub fn populateMissingMetadata(self: *MachO) !void {
             .aarch64 => 2,
             else => unreachable, // unhandled architecture type
         };
-        const flags = macho.S_REGULAR | macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS;
         const needed_size = self.base.options.program_code_size_hint;
         const off = text_segment.findFreeSpace(needed_size, @as(u16, 1) << alignment, self.header_pad);
 
@@ -4062,10 +3773,15 @@ pub fn populateMissingMetadata(self: *MachO) !void {
             .size = @intCast(u32, needed_size),
             .offset = @intCast(u32, off),
             .@"align" = alignment,
-            .flags = flags,
+            .flags = macho.S_REGULAR | macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS,
+        });
+        _ = try self.section_ordinals.getOrPut(self.base.allocator, .{
+            .seg = self.text_segment_cmd_index.?,
+            .sect = self.text_section_index.?,
         });
         self.load_commands_dirty = true;
     }
+
     if (self.stubs_section_index == null) {
         const text_segment = &self.load_commands.items[self.text_segment_cmd_index.?].Segment;
         self.stubs_section_index = @intCast(u16, text_segment.sections.items.len);
@@ -4080,7 +3796,6 @@ pub fn populateMissingMetadata(self: *MachO) !void {
             .aarch64 => 3 * @sizeOf(u32),
             else => unreachable, // unhandled architecture type
         };
-        const flags = macho.S_SYMBOL_STUBS | macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS;
         const needed_size = @sizeOf(u64) * self.base.options.symbol_count_hint;
         const off = text_segment.findFreeSpace(needed_size, @alignOf(u64), self.header_pad);
         assert(off + needed_size <= text_segment.inner.fileoff + text_segment.inner.filesize); // TODO Must expand __TEXT segment.
@@ -4092,11 +3807,16 @@ pub fn populateMissingMetadata(self: *MachO) !void {
             .size = needed_size,
             .offset = @intCast(u32, off),
             .@"align" = alignment,
-            .flags = flags,
+            .flags = macho.S_SYMBOL_STUBS | macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS,
             .reserved2 = stub_size,
+        });
+        _ = try self.section_ordinals.getOrPut(self.base.allocator, .{
+            .seg = self.text_segment_cmd_index.?,
+            .sect = self.stubs_section_index.?,
         });
         self.load_commands_dirty = true;
     }
+
     if (self.stub_helper_section_index == null) {
         const text_segment = &self.load_commands.items[self.text_segment_cmd_index.?].Segment;
         self.stub_helper_section_index = @intCast(u16, text_segment.sections.items.len);
@@ -4106,7 +3826,6 @@ pub fn populateMissingMetadata(self: *MachO) !void {
             .aarch64 => 2,
             else => unreachable, // unhandled architecture type
         };
-        const flags = macho.S_REGULAR | macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS;
         const needed_size = @sizeOf(u64) * self.base.options.symbol_count_hint;
         const off = text_segment.findFreeSpace(needed_size, @alignOf(u64), self.header_pad);
         assert(off + needed_size <= text_segment.inner.fileoff + text_segment.inner.filesize); // TODO Must expand __TEXT segment.
@@ -4118,16 +3837,18 @@ pub fn populateMissingMetadata(self: *MachO) !void {
             .size = needed_size,
             .offset = @intCast(u32, off),
             .@"align" = alignment,
-            .flags = flags,
+            .flags = macho.S_REGULAR | macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS,
+        });
+        _ = try self.section_ordinals.getOrPut(self.base.allocator, .{
+            .seg = self.text_segment_cmd_index.?,
+            .sect = self.stub_helper_section_index.?,
         });
         self.load_commands_dirty = true;
     }
+
     if (self.data_const_segment_cmd_index == null) {
         self.data_const_segment_cmd_index = @intCast(u16, self.load_commands.items.len);
-        const maxprot = macho.VM_PROT_READ | macho.VM_PROT_WRITE | macho.VM_PROT_EXECUTE;
-        const initprot = macho.VM_PROT_READ | macho.VM_PROT_WRITE;
         const address_and_offset = self.nextSegmentAddressAndOffset();
-
         const ideal_size = @sizeOf(u64) * self.base.options.symbol_count_hint;
         const needed_size = mem.alignForwardGeneric(u64, padToIdeal(ideal_size), self.page_size);
 
@@ -4139,17 +3860,17 @@ pub fn populateMissingMetadata(self: *MachO) !void {
                 .vmsize = needed_size,
                 .fileoff = address_and_offset.offset,
                 .filesize = needed_size,
-                .maxprot = maxprot,
-                .initprot = initprot,
+                .maxprot = macho.VM_PROT_READ | macho.VM_PROT_WRITE,
+                .initprot = macho.VM_PROT_READ | macho.VM_PROT_WRITE,
             }),
         });
         self.load_commands_dirty = true;
     }
+
     if (self.got_section_index == null) {
         const dc_segment = &self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
         self.got_section_index = @intCast(u16, dc_segment.sections.items.len);
 
-        const flags = macho.S_NON_LAZY_SYMBOL_POINTERS;
         const needed_size = @sizeOf(u64) * self.base.options.symbol_count_hint;
         const off = dc_segment.findFreeSpace(needed_size, @alignOf(u64), null);
         assert(off + needed_size <= dc_segment.inner.fileoff + dc_segment.inner.filesize); // TODO Must expand __DATA_CONST segment.
@@ -4161,16 +3882,18 @@ pub fn populateMissingMetadata(self: *MachO) !void {
             .size = needed_size,
             .offset = @intCast(u32, off),
             .@"align" = 3, // 2^3 = @sizeOf(u64)
-            .flags = flags,
+            .flags = macho.S_NON_LAZY_SYMBOL_POINTERS,
+        });
+        _ = try self.section_ordinals.getOrPut(self.base.allocator, .{
+            .seg = self.data_const_segment_cmd_index.?,
+            .sect = self.got_section_index.?,
         });
         self.load_commands_dirty = true;
     }
+
     if (self.data_segment_cmd_index == null) {
         self.data_segment_cmd_index = @intCast(u16, self.load_commands.items.len);
-        const maxprot = macho.VM_PROT_READ | macho.VM_PROT_WRITE | macho.VM_PROT_EXECUTE;
-        const initprot = macho.VM_PROT_READ | macho.VM_PROT_WRITE;
         const address_and_offset = self.nextSegmentAddressAndOffset();
-
         const ideal_size = 2 * @sizeOf(u64) * self.base.options.symbol_count_hint;
         const needed_size = mem.alignForwardGeneric(u64, padToIdeal(ideal_size), self.page_size);
 
@@ -4182,17 +3905,17 @@ pub fn populateMissingMetadata(self: *MachO) !void {
                 .vmsize = needed_size,
                 .fileoff = address_and_offset.offset,
                 .filesize = needed_size,
-                .maxprot = maxprot,
-                .initprot = initprot,
+                .maxprot = macho.VM_PROT_READ | macho.VM_PROT_WRITE,
+                .initprot = macho.VM_PROT_READ | macho.VM_PROT_WRITE,
             }),
         });
         self.load_commands_dirty = true;
     }
+
     if (self.la_symbol_ptr_section_index == null) {
         const data_segment = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
         self.la_symbol_ptr_section_index = @intCast(u16, data_segment.sections.items.len);
 
-        const flags = macho.S_LAZY_SYMBOL_POINTERS;
         const needed_size = @sizeOf(u64) * self.base.options.symbol_count_hint;
         const off = data_segment.findFreeSpace(needed_size, @alignOf(u64), null);
         assert(off + needed_size <= data_segment.inner.fileoff + data_segment.inner.filesize); // TODO Must expand __DATA segment.
@@ -4204,10 +3927,15 @@ pub fn populateMissingMetadata(self: *MachO) !void {
             .size = needed_size,
             .offset = @intCast(u32, off),
             .@"align" = 3, // 2^3 = @sizeOf(u64)
-            .flags = flags,
+            .flags = macho.S_LAZY_SYMBOL_POINTERS,
+        });
+        _ = try self.section_ordinals.getOrPut(self.base.allocator, .{
+            .seg = self.data_segment_cmd_index.?,
+            .sect = self.la_symbol_ptr_section_index.?,
         });
         self.load_commands_dirty = true;
     }
+
     if (self.data_section_index == null) {
         const data_segment = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
         self.data_section_index = @intCast(u16, data_segment.sections.items.len);
@@ -4224,13 +3952,15 @@ pub fn populateMissingMetadata(self: *MachO) !void {
             .offset = @intCast(u32, off),
             .@"align" = 3, // 2^3 = @sizeOf(u64)
         });
+        _ = try self.section_ordinals.getOrPut(self.base.allocator, .{
+            .seg = self.data_segment_cmd_index.?,
+            .sect = self.data_section_index.?,
+        });
         self.load_commands_dirty = true;
     }
+
     if (self.linkedit_segment_cmd_index == null) {
         self.linkedit_segment_cmd_index = @intCast(u16, self.load_commands.items.len);
-
-        const maxprot = macho.VM_PROT_READ | macho.VM_PROT_WRITE | macho.VM_PROT_EXECUTE;
-        const initprot = macho.VM_PROT_READ;
         const address_and_offset = self.nextSegmentAddressAndOffset();
 
         log.debug("found __LINKEDIT segment free space at 0x{x}", .{address_and_offset.offset});
@@ -4239,12 +3969,13 @@ pub fn populateMissingMetadata(self: *MachO) !void {
             .Segment = SegmentCommand.empty("__LINKEDIT", .{
                 .vmaddr = address_and_offset.address,
                 .fileoff = address_and_offset.offset,
-                .maxprot = maxprot,
-                .initprot = initprot,
+                .maxprot = macho.VM_PROT_READ,
+                .initprot = macho.VM_PROT_READ,
             }),
         });
         self.load_commands_dirty = true;
     }
+
     if (self.dyld_info_cmd_index == null) {
         self.dyld_info_cmd_index = @intCast(u16, self.load_commands.items.len);
 
@@ -4291,6 +4022,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
 
         self.load_commands_dirty = true;
     }
+
     if (self.symtab_cmd_index == null) {
         self.symtab_cmd_index = @intCast(u16, self.load_commands.items.len);
 
@@ -4323,6 +4055,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         self.load_commands_dirty = true;
         self.strtab_dirty = true;
     }
+
     if (self.dysymtab_cmd_index == null) {
         self.dysymtab_cmd_index = @intCast(u16, self.load_commands.items.len);
 
@@ -4358,6 +4091,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         });
         self.load_commands_dirty = true;
     }
+
     if (self.dylinker_cmd_index == null) {
         self.dylinker_cmd_index = @intCast(u16, self.load_commands.items.len);
         const cmdsize = @intCast(u32, mem.alignForwardGeneric(
@@ -4376,17 +4110,8 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         try self.load_commands.append(self.base.allocator, .{ .Dylinker = dylinker_cmd });
         self.load_commands_dirty = true;
     }
-    if (self.libsystem_cmd_index == null) {
-        self.libsystem_cmd_index = @intCast(u16, self.load_commands.items.len);
 
-        var dylib_cmd = try commands.createLoadDylibCommand(self.base.allocator, mem.spanZ(LIB_SYSTEM_PATH), 2, 0, 0);
-        errdefer dylib_cmd.deinit(self.base.allocator);
-
-        try self.load_commands.append(self.base.allocator, .{ .Dylib = dylib_cmd });
-
-        self.load_commands_dirty = true;
-    }
-    if (self.main_cmd_index == null) {
+    if (self.main_cmd_index == null and self.base.options.output_mode == .Exe) {
         self.main_cmd_index = @intCast(u16, self.load_commands.items.len);
         try self.load_commands.append(self.base.allocator, .{
             .Main = .{
@@ -4398,6 +4123,38 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         });
         self.load_commands_dirty = true;
     }
+
+    if (self.dylib_id_cmd_index == null and self.base.options.output_mode == .Lib) {
+        self.dylib_id_cmd_index = @intCast(u16, self.load_commands.items.len);
+        const install_name = try std.fmt.allocPrint(self.base.allocator, "@rpath/{s}", .{
+            self.base.options.emit.?.sub_path,
+        });
+        defer self.base.allocator.free(install_name);
+        var dylib_cmd = try commands.createLoadDylibCommand(
+            self.base.allocator,
+            install_name,
+            2,
+            0x10000, // TODO forward user-provided versions
+            0x10000,
+        );
+        errdefer dylib_cmd.deinit(self.base.allocator);
+        dylib_cmd.inner.cmd = macho.LC_ID_DYLIB;
+        try self.load_commands.append(self.base.allocator, .{ .Dylib = dylib_cmd });
+        self.load_commands_dirty = true;
+    }
+
+    if (self.source_version_cmd_index == null) {
+        self.source_version_cmd_index = @intCast(u16, self.load_commands.items.len);
+        try self.load_commands.append(self.base.allocator, .{
+            .SourceVersion = .{
+                .cmd = macho.LC_SOURCE_VERSION,
+                .cmdsize = @sizeOf(macho.source_version_command),
+                .version = 0x0,
+            },
+        });
+        self.load_commands_dirty = true;
+    }
+
     if (self.build_version_cmd_index == null) {
         self.build_version_cmd_index = @intCast(u16, self.load_commands.items.len);
         const cmdsize = @intCast(u32, mem.alignForwardGeneric(
@@ -4430,18 +4187,9 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         mem.set(u8, cmd.data, 0);
         mem.copy(u8, cmd.data, mem.asBytes(&ld_ver));
         try self.load_commands.append(self.base.allocator, .{ .BuildVersion = cmd });
-    }
-    if (self.source_version_cmd_index == null) {
-        self.source_version_cmd_index = @intCast(u16, self.load_commands.items.len);
-        try self.load_commands.append(self.base.allocator, .{
-            .SourceVersion = .{
-                .cmd = macho.LC_SOURCE_VERSION,
-                .cmdsize = @sizeOf(macho.source_version_command),
-                .version = 0x0,
-            },
-        });
         self.load_commands_dirty = true;
     }
+
     if (self.uuid_cmd_index == null) {
         self.uuid_cmd_index = @intCast(u16, self.load_commands.items.len);
         var uuid_cmd: macho.uuid_command = .{
@@ -4452,47 +4200,6 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         std.crypto.random.bytes(&uuid_cmd.uuid);
         try self.load_commands.append(self.base.allocator, .{ .Uuid = uuid_cmd });
         self.load_commands_dirty = true;
-    }
-    if (self.code_signature_cmd_index == null and self.requires_adhoc_codesig) {
-        self.code_signature_cmd_index = @intCast(u16, self.load_commands.items.len);
-        try self.load_commands.append(self.base.allocator, .{
-            .LinkeditData = .{
-                .cmd = macho.LC_CODE_SIGNATURE,
-                .cmdsize = @sizeOf(macho.linkedit_data_command),
-                .dataoff = 0,
-                .datasize = 0,
-            },
-        });
-        self.load_commands_dirty = true;
-    }
-    if (!self.strtab_dir.containsAdapted(@as([]const u8, "dyld_stub_binder"), StringSliceAdapter{
-        .strtab = &self.strtab,
-    })) {
-        const import_sym_index = @intCast(u32, self.undefs.items.len);
-        const n_strx = try self.makeString("dyld_stub_binder");
-        try self.undefs.append(self.base.allocator, .{
-            .n_strx = n_strx,
-            .n_type = macho.N_UNDF | macho.N_EXT,
-            .n_sect = 0,
-            .n_desc = @intCast(u8, 1) * macho.N_SYMBOL_RESOLVER,
-            .n_value = 0,
-        });
-        try self.symbol_resolver.putNoClobber(self.base.allocator, n_strx, .{
-            .where = .undef,
-            .where_index = import_sym_index,
-        });
-        const got_key = GotIndirectionKey{
-            .where = .undef,
-            .where_index = import_sym_index,
-        };
-        const got_index = @intCast(u32, self.got_entries.items.len);
-        try self.got_entries.append(self.base.allocator, got_key);
-        try self.got_entries_map.putNoClobber(self.base.allocator, got_key, got_index);
-        try self.writeGotEntry(got_index);
-        self.binding_info_dirty = true;
-    }
-    if (self.stub_helper_stubs_start_off == null) {
-        try self.writeStubHelperPreamble();
     }
 }
 
