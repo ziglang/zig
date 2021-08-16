@@ -430,6 +430,7 @@ pub const Target = struct {
     };
 
     pub const aarch64 = @import("target/aarch64.zig");
+    pub const arc = @import("target/arc.zig");
     pub const amdgpu = @import("target/amdgpu.zig");
     pub const arm = @import("target/arm.zig");
     pub const avr = @import("target/avr.zig");

@@ -219,7 +219,6 @@ const llvm_targets = [_]LlvmTarget{
                     "use_postra_scheduler",
                     "use_reciprocal_square_root",
                     "v8a",
-                    "zcz_fp",
                 },
             },
             .{
@@ -236,7 +235,6 @@ const llvm_targets = [_]LlvmTarget{
                     "slow_paired_128",
                     "use_postra_scheduler",
                     "v8a",
-                    "zcz_fp",
                 },
             },
             .{
