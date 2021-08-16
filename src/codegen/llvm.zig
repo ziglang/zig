@@ -31,6 +31,7 @@ pub fn targetTriple(allocator: *Allocator, target: std.Target) ![:0]u8 {
         .bpfeb => "bpfeb",
         .csky => "csky",
         .hexagon => "hexagon",
+        .m68k => "m68k",
         .mips => "mips",
         .mipsel => "mipsel",
         .mips64 => "mips64",
@@ -140,6 +141,7 @@ pub fn targetTriple(allocator: *Allocator, target: std.Target) ![:0]u8 {
         .musl => "musl",
         .musleabi => "musleabi",
         .musleabihf => "musleabihf",
+        .muslx32 => "muslx32",
         .msvc => "msvc",
         .itanium => "itanium",
         .cygnus => "cygnus",
@@ -1463,6 +1465,7 @@ pub const FuncGen = struct {
             llvm.Bool.fromBool(is_volatile),
             .False,
             .ATT,
+            .False,
         );
         return self.builder.buildCall(
             asm_fn,

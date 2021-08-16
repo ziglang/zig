@@ -259,6 +259,7 @@ extern fn LLVMGetInlineAsm(
     HasSideEffects: Bool,
     IsAlignStack: Bool,
     Dialect: InlineAsmDialect,
+    CanThrow: Bool,
 ) *const Value;
 
 pub const functionType = LLVMFunctionType;
@@ -840,6 +841,7 @@ pub const ArchType = enum(c_int) {
     bpfeb,
     csky,
     hexagon,
+    m68k,
     mips,
     mipsel,
     mips64,

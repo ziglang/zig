@@ -3953,7 +3953,7 @@ static LLVMValueRef gen_valgrind_client_request(CodeGen *g, LLVMValueRef default
                     input_and_output_count, false);
             LLVMValueRef asm_fn = LLVMGetInlineAsm(function_type, buf_ptr(asm_template), buf_len(asm_template),
                     buf_ptr(asm_constraints), buf_len(asm_constraints), asm_has_side_effects, asm_is_alignstack,
-                    LLVMInlineAsmDialectATT);
+                    LLVMInlineAsmDialectATT, false);
             return LLVMBuildCall(g->builder, asm_fn, param_values, input_and_output_count, "");
         }
     }
@@ -5064,7 +5064,7 @@ static LLVMValueRef ir_render_asm_gen(CodeGen *g, Stage1Air *executable, Stage1A
 
     bool is_volatile = instruction->has_side_effects || (asm_expr->output_list.length == 0);
     LLVMValueRef asm_fn = LLVMGetInlineAsm(function_type, buf_ptr(&llvm_template), buf_len(&llvm_template),
-            buf_ptr(&constraint_buf), buf_len(&constraint_buf), is_volatile, false, LLVMInlineAsmDialectATT);
+            buf_ptr(&constraint_buf), buf_len(&constraint_buf), is_volatile, false, LLVMInlineAsmDialectATT, false);
 
     LLVMValueRef built_call = LLVMBuildCall(g->builder, asm_fn, param_values, (unsigned)input_and_output_count, "");
     heap::c_allocator.deallocate(param_values, input_and_output_count);
@@ -5606,21 +5606,21 @@ static LLVMAtomicOrdering to_LLVMAtomicOrdering(AtomicOrder atomic_order) {
     zig_unreachable();
 }
 
-static enum ZigLLVM_AtomicRMWBinOp to_ZigLLVMAtomicRMWBinOp(AtomicRmwOp op, bool is_signed, bool is_float) {
+static LLVMAtomicRMWBinOp to_LLVMAtomicRMWBinOp(AtomicRmwOp op, bool is_signed, bool is_float) {
     switch (op) {
-        case AtomicRmwOp_xchg: return ZigLLVMAtomicRMWBinOpXchg;
+        case AtomicRmwOp_xchg: return LLVMAtomicRMWBinOpXchg;
         case AtomicRmwOp_add:
-            return is_float ? ZigLLVMAtomicRMWBinOpFAdd : ZigLLVMAtomicRMWBinOpAdd;
+            return is_float ? LLVMAtomicRMWBinOpFAdd : LLVMAtomicRMWBinOpAdd;
         case AtomicRmwOp_sub:
-            return is_float ? ZigLLVMAtomicRMWBinOpFSub : ZigLLVMAtomicRMWBinOpSub;
-        case AtomicRmwOp_and: return ZigLLVMAtomicRMWBinOpAnd;
-        case AtomicRmwOp_nand: return ZigLLVMAtomicRMWBinOpNand;
-        case AtomicRmwOp_or: return ZigLLVMAtomicRMWBinOpOr;
-        case AtomicRmwOp_xor: return ZigLLVMAtomicRMWBinOpXor;
+            return is_float ? LLVMAtomicRMWBinOpFSub : LLVMAtomicRMWBinOpSub;
+        case AtomicRmwOp_and: return LLVMAtomicRMWBinOpAnd;
+        case AtomicRmwOp_nand: return LLVMAtomicRMWBinOpNand;
+        case AtomicRmwOp_or: return LLVMAtomicRMWBinOpOr;
+        case AtomicRmwOp_xor: return LLVMAtomicRMWBinOpXor;
         case AtomicRmwOp_max:
-            return is_signed ? ZigLLVMAtomicRMWBinOpMax : ZigLLVMAtomicRMWBinOpUMax;
+            return is_signed ? LLVMAtomicRMWBinOpMax : LLVMAtomicRMWBinOpUMax;
         case AtomicRmwOp_min:
-            return is_signed ? ZigLLVMAtomicRMWBinOpMin : ZigLLVMAtomicRMWBinOpUMin;
+            return is_signed ? LLVMAtomicRMWBinOpMin : LLVMAtomicRMWBinOpUMin;
     }
     zig_unreachable();
 }
@@ -5679,8 +5679,9 @@ static LLVMValueRef ir_render_cmpxchg(CodeGen *g, Stage1Air *executable, Stage1A
     LLVMAtomicOrdering success_order = to_LLVMAtomicOrdering(instruction->success_order);
     LLVMAtomicOrdering failure_order = to_LLVMAtomicOrdering(instruction->failure_order);
 
-    LLVMValueRef result_val = ZigLLVMBuildCmpXchg(g->builder, ptr_val, cmp_val, new_val,
-            success_order, failure_order, instruction->is_weak);
+    LLVMValueRef result_val = LLVMBuildAtomicCmpXchg(g->builder, ptr_val, cmp_val, new_val,
+            success_order, failure_order, g->is_single_threaded);
+    LLVMSetWeak(result_val, instruction->is_weak);
 
     ZigType *optional_type = instruction->base.value->type;
     assert(optional_type->id == ZigTypeIdOptional);
@@ -6446,13 +6447,13 @@ static LLVMValueRef ir_render_atomic_rmw(CodeGen *g, Stage1Air *executable,
     } else {
         is_signed = false;
     }
-    enum ZigLLVM_AtomicRMWBinOp op = to_ZigLLVMAtomicRMWBinOp(instruction->op, is_signed, is_float);
+    LLVMAtomicRMWBinOp op = to_LLVMAtomicRMWBinOp(instruction->op, is_signed, is_float);
     LLVMAtomicOrdering ordering = to_LLVMAtomicOrdering(instruction->ordering);
     LLVMValueRef ptr = ir_llvm_value(g, instruction->ptr);
     LLVMValueRef operand = ir_llvm_value(g, instruction->operand);
 
     LLVMTypeRef actual_abi_type = get_atomic_abi_type(g, instruction->ptr,
-            op == ZigLLVMAtomicRMWBinOpXchg);
+            op == LLVMAtomicRMWBinOpXchg);
     if (actual_abi_type != nullptr) {
         // operand needs widening and truncating or bitcasting.
         LLVMValueRef casted_ptr = LLVMBuildBitCast(g->builder, ptr,
@@ -6465,7 +6466,7 @@ static LLVMValueRef ir_render_atomic_rmw(CodeGen *g, Stage1Air *executable,
         } else {
             casted_operand = LLVMBuildZExt(g->builder, operand, actual_abi_type, "");
         }
-        LLVMValueRef uncasted_result = ZigLLVMBuildAtomicRMW(g->builder, op, casted_ptr, casted_operand, ordering,
+        LLVMValueRef uncasted_result = LLVMBuildAtomicRMW(g->builder, op, casted_ptr, casted_operand, ordering,
                 g->is_single_threaded);
         if (is_float) {
             return LLVMBuildBitCast(g->builder, uncasted_result, get_llvm_type(g, operand_type), "");
@@ -6475,14 +6476,14 @@ static LLVMValueRef ir_render_atomic_rmw(CodeGen *g, Stage1Air *executable,
     }
 
     if (get_codegen_ptr_type_bail(g, operand_type) == nullptr) {
-        return ZigLLVMBuildAtomicRMW(g->builder, op, ptr, operand, ordering, g->is_single_threaded);
+        return LLVMBuildAtomicRMW(g->builder, op, ptr, operand, ordering, g->is_single_threaded);
     }
 
     // it's a pointer but we need to treat it as an int
     LLVMValueRef casted_ptr = LLVMBuildBitCast(g->builder, ptr,
         LLVMPointerType(g->builtin_types.entry_usize->llvm_type, 0), "");
     LLVMValueRef casted_operand = LLVMBuildPtrToInt(g->builder, operand, g->builtin_types.entry_usize->llvm_type, "");
-    LLVMValueRef uncasted_result = ZigLLVMBuildAtomicRMW(g->builder, op, casted_ptr, casted_operand, ordering,
+    LLVMValueRef uncasted_result = LLVMBuildAtomicRMW(g->builder, op, casted_ptr, casted_operand, ordering,
             g->is_single_threaded);
     return LLVMBuildIntToPtr(g->builder, uncasted_result, get_llvm_type(g, operand_type), "");
 }

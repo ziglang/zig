@@ -137,10 +137,6 @@ ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildUMin(LLVMBuilderRef builder, LLVMValueRef 
 ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildSMax(LLVMBuilderRef builder, LLVMValueRef LHS, LLVMValueRef RHS, const char* name);
 ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildSMin(LLVMBuilderRef builder, LLVMValueRef LHS, LLVMValueRef RHS, const char* name);
 
-ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildCmpXchg(LLVMBuilderRef builder, LLVMValueRef ptr, LLVMValueRef cmp,
-        LLVMValueRef new_val, LLVMAtomicOrdering success_ordering,
-        LLVMAtomicOrdering failure_ordering, bool is_weak);
-
 ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildNSWShl(LLVMBuilderRef builder, LLVMValueRef LHS, LLVMValueRef RHS,
         const char *name);
 ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildNUWShl(LLVMBuilderRef builder, LLVMValueRef LHS, LLVMValueRef RHS,
@@ -303,6 +299,7 @@ enum ZigLLVM_ArchType {
     ZigLLVM_bpfeb,          // eBPF or extended BPF or 64-bit BPF (big endian)
     ZigLLVM_csky,           // CSKY: csky
     ZigLLVM_hexagon,        // Hexagon: hexagon
+    ZigLLVM_m68k,           // M68k: Motorola 680x0 family
     ZigLLVM_mips,           // MIPS: mips, mipsallegrex, mipsr6
     ZigLLVM_mipsel,         // MIPSEL: mipsel, mipsallegrexe, mipsr6el
     ZigLLVM_mips64,         // MIPS64: mips64, mips64r6, mipsn32, mipsn32r6
@@ -345,7 +342,6 @@ enum ZigLLVM_ArchType {
     ZigLLVM_renderscript32, // 32-bit RenderScript
     ZigLLVM_renderscript64, // 64-bit RenderScript
     ZigLLVM_ve,             // NEC SX-Aurora Vector Engine
-
     ZigLLVM_LastArchType = ZigLLVM_ve
 };
 
@@ -430,6 +426,7 @@ enum ZigLLVM_EnvironmentType {
     ZigLLVM_Musl,
     ZigLLVM_MuslEABI,
     ZigLLVM_MuslEABIHF,
+    ZigLLVM_MuslX32,
 
     ZigLLVM_MSVC,
     ZigLLVM_Itanium,
@@ -437,7 +434,6 @@ enum ZigLLVM_EnvironmentType {
     ZigLLVM_CoreCLR,
     ZigLLVM_Simulator, // Simulator variants of other systems, e.g., Apple's iOS
     ZigLLVM_MacABI, // Mac Catalyst variant of Apple's iOS deployment target.
-
     ZigLLVM_LastEnvironmentType = ZigLLVM_MacABI
 };
 
@@ -451,26 +447,6 @@ enum ZigLLVM_ObjectFormatType {
     ZigLLVM_Wasm,
     ZigLLVM_XCOFF,
 };
-
-enum ZigLLVM_AtomicRMWBinOp {
-    ZigLLVMAtomicRMWBinOpXchg,
-    ZigLLVMAtomicRMWBinOpAdd,
-    ZigLLVMAtomicRMWBinOpSub,
-    ZigLLVMAtomicRMWBinOpAnd,
-    ZigLLVMAtomicRMWBinOpNand,
-    ZigLLVMAtomicRMWBinOpOr,
-    ZigLLVMAtomicRMWBinOpXor,
-    ZigLLVMAtomicRMWBinOpMax,
-    ZigLLVMAtomicRMWBinOpMin,
-    ZigLLVMAtomicRMWBinOpUMax,
-    ZigLLVMAtomicRMWBinOpUMin,
-    ZigLLVMAtomicRMWBinOpFAdd,
-    ZigLLVMAtomicRMWBinOpFSub,
-};
-
-LLVMValueRef ZigLLVMBuildAtomicRMW(LLVMBuilderRef B, enum ZigLLVM_AtomicRMWBinOp op,
-    LLVMValueRef PTR, LLVMValueRef Val,
-    LLVMAtomicOrdering ordering, LLVMBool singleThread);
 
 LLVMValueRef ZigLLVMBuildAndReduce(LLVMBuilderRef B, LLVMValueRef Val);
 LLVMValueRef ZigLLVMBuildOrReduce(LLVMBuilderRef B, LLVMValueRef Val);
