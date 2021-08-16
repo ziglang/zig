@@ -1,4 +1,6 @@
-/* Copyright (C) 1999-2021 Free Software Foundation, Inc.
+/* Types of pr_uid and pr_gid in struct elf_prpsinfo.  M68K version.
+   Copyright (C) 2018-2021 Free Software Foundation, Inc.
+
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -15,7 +17,9 @@
    License along with the GNU C Library; if not, see
    <https://www.gnu.org/licenses/>.  */
 
-#define __WORDSIZE			32
-#define __WORDSIZE_TIME64_COMPAT32	0
-#define __WORDSIZE32_SIZE_ULONG		0
-#define __WORDSIZE32_PTRDIFF_LONG	0
+#ifndef _SYS_PROCFS_H
+# error "Never include <bits/procfs-id.h> directly; use <sys/procfs.h> instead."
+#endif
+
+typedef unsigned short int __pr_uid_t;
+typedef unsigned short int __pr_gid_t;

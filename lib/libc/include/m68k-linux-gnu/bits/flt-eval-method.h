@@ -1,4 +1,5 @@
-/* Copyright (C) 1999-2021 Free Software Foundation, Inc.
+/* Define __GLIBC_FLT_EVAL_METHOD.  M68K version.
+   Copyright (C) 2016-2021 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -15,7 +16,10 @@
    License along with the GNU C Library; if not, see
    <https://www.gnu.org/licenses/>.  */
 
-#define __WORDSIZE			32
-#define __WORDSIZE_TIME64_COMPAT32	0
-#define __WORDSIZE32_SIZE_ULONG		0
-#define __WORDSIZE32_PTRDIFF_LONG	0
+#ifndef _MATH_H
+# error "Never use <bits/flt-eval-method.h> directly; include <math.h> instead."
+#endif
+
+/* The m68k FPUs evaluate all values in the 96-bit floating-point
+   format which is also available for the user as 'long double'.  */
+#define __GLIBC_FLT_EVAL_METHOD	2

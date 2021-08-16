@@ -1,9 +1,10 @@
-/* Copyright (C) 1999-2021 Free Software Foundation, Inc.
+/* Properties of long double type.  ldbl-96 version.
+   Copyright (C) 2016-2021 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
    modify it under the terms of the GNU Lesser General Public
-   License as published by the Free Software Foundation; either
+   License  published by the Free Software Foundation; either
    version 2.1 of the License, or (at your option) any later version.
 
    The GNU C Library is distributed in the hope that it will be useful,
@@ -15,7 +16,6 @@
    License along with the GNU C Library; if not, see
    <https://www.gnu.org/licenses/>.  */
 
-#define __WORDSIZE			32
-#define __WORDSIZE_TIME64_COMPAT32	0
-#define __WORDSIZE32_SIZE_ULONG		0
-#define __WORDSIZE32_PTRDIFF_LONG	0
+/* long double is distinct from double, so there is nothing to
+   define here.  */
+#define __LDOUBLE_REDIRECTS_TO_FLOAT128_ABI 0

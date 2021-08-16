@@ -1,4 +1,5 @@
-/* Copyright (C) 1999-2021 Free Software Foundation, Inc.
+/* Define __FP_LOGB0_IS_MIN and __FP_LOGBNAN_IS_MIN.  M68K version.
+   Copyright (C) 2016-2021 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -15,7 +16,9 @@
    License along with the GNU C Library; if not, see
    <https://www.gnu.org/licenses/>.  */
 
-#define __WORDSIZE			32
-#define __WORDSIZE_TIME64_COMPAT32	0
-#define __WORDSIZE32_SIZE_ULONG		0
-#define __WORDSIZE32_PTRDIFF_LONG	0
+#ifndef _MATH_H
+# error "Never use <bits/fp-logb.h> directly; include <math.h> instead."
+#endif
+
+#define __FP_LOGB0_IS_MIN	1
+#define __FP_LOGBNAN_IS_MIN	0
