@@ -2706,6 +2706,7 @@ fn renderFunc(c: *Context, node: Node) !NodeIndex {
                     .lhs = try c.addExtra(std.zig.Ast.Node.FnProtoOne{
                         .param = params.items[0],
                         .align_expr = align_expr,
+                        .addrspace_expr = 0, // TODO
                         .section_expr = section_expr,
                         .callconv_expr = callconv_expr,
                     }),
@@ -2721,6 +2722,7 @@ fn renderFunc(c: *Context, node: Node) !NodeIndex {
                         .params_start = span.start,
                         .params_end = span.end,
                         .align_expr = align_expr,
+                        .addrspace_expr = 0, // TODO
                         .section_expr = section_expr,
                         .callconv_expr = callconv_expr,
                     }),

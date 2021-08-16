@@ -1116,6 +1116,11 @@ fn fnProtoExpr(
     const align_inst: Zir.Inst.Ref = if (fn_proto.ast.align_expr == 0) .none else inst: {
         break :inst try expr(gz, scope, align_rl, fn_proto.ast.align_expr);
     };
+
+    const addrspace_inst: Zir.Inst.Ref = if (fn_proto.ast.addrspace_expr == 0) .none else inst: {
+        break :inst try expr(gz, scope, .{ .ty = .address_space_type }, fn_proto.ast.addrspace_expr);
+    };
+
     if (fn_proto.ast.section_expr != 0) {
         return astgen.failNode(fn_proto.ast.section_expr, "linksection not allowed on function prototypes", .{});
     }
@@ -1148,6 +1153,7 @@ fn fnProtoExpr(
         .body = &[0]Zir.Inst.Index{},
         .cc = cc,
         .align_inst = align_inst,
+        .addrspace_inst = addrspace_inst,
         .lib_name = 0,
         .is_var_args = is_var_args,
         .is_inferred_error = false,
@@ -2714,6 +2720,7 @@ fn ptrType(
     const elem_type = try typeExpr(gz, scope, ptr_info.ast.child_type);
 
     const simple = ptr_info.ast.align_node == 0 and
+        ptr_info.ast.addrspace_node == 0 and
         ptr_info.ast.sentinel == 0 and
         ptr_info.ast.bit_range_start == 0;
 
@@ -2732,6 +2739,7 @@ fn ptrType(
 
     var sentinel_ref: Zir.Inst.Ref = .none;
     var align_ref: Zir.Inst.Ref = .none;
+    var addrspace_ref: Zir.Inst.Ref = .none;
     var bit_start_ref: Zir.Inst.Ref = .none;
     var bit_end_ref: Zir.Inst.Ref = .none;
     var trailing_count: u32 = 0;
@@ -2742,6 +2750,10 @@ fn ptrType(
     }
     if (ptr_info.ast.align_node != 0) {
         align_ref = try expr(gz, scope, align_rl, ptr_info.ast.align_node);
+        trailing_count += 1;
+    }
+    if (ptr_info.ast.addrspace_node != 0) {
+        addrspace_ref = try expr(gz, scope, .{ .ty = .address_space_type }, ptr_info.ast.addrspace_node);
         trailing_count += 1;
     }
     if (ptr_info.ast.bit_range_start != 0) {
@@ -2764,6 +2776,9 @@ fn ptrType(
     if (align_ref != .none) {
         gz.astgen.extra.appendAssumeCapacity(@enumToInt(align_ref));
     }
+    if (addrspace_ref != .none) {
+        gz.astgen.extra.appendAssumeCapacity(@enumToInt(addrspace_ref));
+    }
     if (bit_start_ref != .none) {
         gz.astgen.extra.appendAssumeCapacity(@enumToInt(bit_start_ref));
         gz.astgen.extra.appendAssumeCapacity(@enumToInt(bit_end_ref));
@@ -2779,6 +2794,7 @@ fn ptrType(
                 .is_volatile = ptr_info.volatile_token != null,
                 .has_sentinel = sentinel_ref != .none,
                 .has_align = align_ref != .none,
+                .has_addrspace = addrspace_ref != .none,
                 .has_bit_range = bit_start_ref != .none,
             },
             .size = ptr_info.size,
@@ -2847,7 +2863,7 @@ const WipDecls = struct {
         is_pub: bool,
         is_export: bool,
         has_align: bool,
-        has_section: bool,
+        has_section_or_addrspace: bool,
     ) Allocator.Error!void {
         if (wip_decls.decl_index % fields_per_u32 == 0 and wip_decls.decl_index != 0) {
             try wip_decls.bit_bag.append(gpa, wip_decls.cur_bit_bag);
@@ -2857,7 +2873,7 @@ const WipDecls = struct {
             (@as(u32, @boolToInt(is_pub)) << 28) |
             (@as(u32, @boolToInt(is_export)) << 29) |
             (@as(u32, @boolToInt(has_align)) << 30) |
-            (@as(u32, @boolToInt(has_section)) << 31);
+            (@as(u32, @boolToInt(has_section_or_addrspace)) << 31);
         wip_decls.decl_index += 1;
     }
 
@@ -2922,7 +2938,8 @@ fn fnDecl(
         const maybe_inline_token = fn_proto.extern_export_inline_token orelse break :blk false;
         break :blk token_tags[maybe_inline_token] == .keyword_inline;
     };
-    try wip_decls.next(gpa, is_pub, is_export, fn_proto.ast.align_expr != 0, fn_proto.ast.section_expr != 0);
+    const has_section_or_addrspace = fn_proto.ast.section_expr != 0 or fn_proto.ast.addrspace_expr != 0;
+    try wip_decls.next(gpa, is_pub, is_export, fn_proto.ast.align_expr != 0, has_section_or_addrspace);
 
     var params_scope = &fn_gz.base;
     const is_var_args = is_var_args: {
@@ -3011,6 +3028,9 @@ fn fnDecl(
     const align_inst: Zir.Inst.Ref = if (fn_proto.ast.align_expr == 0) .none else inst: {
         break :inst try expr(&decl_gz, params_scope, align_rl, fn_proto.ast.align_expr);
     };
+    const addrspace_inst: Zir.Inst.Ref = if (fn_proto.ast.addrspace_expr == 0) .none else inst: {
+        break :inst try expr(&decl_gz, params_scope, .{ .ty = .address_space_type }, fn_proto.ast.addrspace_expr);
+    };
     const section_inst: Zir.Inst.Ref = if (fn_proto.ast.section_expr == 0) .none else inst: {
         break :inst try comptimeExpr(&decl_gz, params_scope, .{ .ty = .const_slice_u8_type }, fn_proto.ast.section_expr);
     };
@@ -3060,6 +3080,7 @@ fn fnDecl(
             .body = &[0]Zir.Inst.Index{},
             .cc = cc,
             .align_inst = .none, // passed in the per-decl data
+            .addrspace_inst = .none, // passed in the per-decl data
             .lib_name = lib_name,
             .is_var_args = is_var_args,
             .is_inferred_error = false,
@@ -3099,6 +3120,7 @@ fn fnDecl(
             .body = fn_gz.instructions.items,
             .cc = cc,
             .align_inst = .none, // passed in the per-decl data
+            .addrspace_inst = .none, // passed in the per-decl data
             .lib_name = lib_name,
             .is_var_args = is_var_args,
             .is_inferred_error = is_inferred_error,
@@ -3127,8 +3149,10 @@ fn fnDecl(
     if (align_inst != .none) {
         wip_decls.payload.appendAssumeCapacity(@enumToInt(align_inst));
     }
-    if (section_inst != .none) {
+
+    if (has_section_or_addrspace) {
         wip_decls.payload.appendAssumeCapacity(@enumToInt(section_inst));
+        wip_decls.payload.appendAssumeCapacity(@enumToInt(addrspace_inst));
     }
 }
 
@@ -3175,10 +3199,14 @@ fn globalVarDecl(
     const align_inst: Zir.Inst.Ref = if (var_decl.ast.align_node == 0) .none else inst: {
         break :inst try expr(&block_scope, &block_scope.base, align_rl, var_decl.ast.align_node);
     };
+    const addrspace_inst: Zir.Inst.Ref = if (var_decl.ast.addrspace_node == 0) .none else inst: {
+        break :inst try expr(&block_scope, &block_scope.base, .{ .ty = .address_space_type }, var_decl.ast.addrspace_node);
+    };
     const section_inst: Zir.Inst.Ref = if (var_decl.ast.section_node == 0) .none else inst: {
         break :inst try comptimeExpr(&block_scope, &block_scope.base, .{ .ty = .const_slice_u8_type }, var_decl.ast.section_node);
     };
-    try wip_decls.next(gpa, is_pub, is_export, align_inst != .none, section_inst != .none);
+    const has_section_or_addrspace = section_inst != .none or addrspace_inst != .none;
+    try wip_decls.next(gpa, is_pub, is_export, align_inst != .none, has_section_or_addrspace);
 
     const is_threadlocal = if (var_decl.threadlocal_token) |tok| blk: {
         if (!is_mutable) {
@@ -3271,8 +3299,9 @@ fn globalVarDecl(
     if (align_inst != .none) {
         wip_decls.payload.appendAssumeCapacity(@enumToInt(align_inst));
     }
-    if (section_inst != .none) {
+    if (has_section_or_addrspace) {
         wip_decls.payload.appendAssumeCapacity(@enumToInt(section_inst));
+        wip_decls.payload.appendAssumeCapacity(@enumToInt(addrspace_inst));
     }
 }
 
@@ -3443,6 +3472,7 @@ fn testDecl(
         .body = fn_block.instructions.items,
         .cc = .none,
         .align_inst = .none,
+        .addrspace_inst = .none,
         .lib_name = 0,
         .is_var_args = false,
         .is_inferred_error = true,
@@ -9178,6 +9208,7 @@ const GenZir = struct {
         ret_br: Zir.Inst.Index,
         cc: Zir.Inst.Ref,
         align_inst: Zir.Inst.Ref,
+        addrspace_inst: Zir.Inst.Ref,
         lib_name: u32,
         is_var_args: bool,
         is_inferred_error: bool,
@@ -9221,7 +9252,7 @@ const GenZir = struct {
 
         if (args.cc != .none or args.lib_name != 0 or
             args.is_var_args or args.is_test or args.align_inst != .none or
-            args.is_extern)
+            args.addrspace_inst != .none or args.is_extern)
         {
             try astgen.extra.ensureUnusedCapacity(
                 gpa,
@@ -9229,6 +9260,7 @@ const GenZir = struct {
                     args.ret_ty.len + args.body.len + src_locs.len +
                     @boolToInt(args.lib_name != 0) +
                     @boolToInt(args.align_inst != .none) +
+                    @boolToInt(args.addrspace_inst != .none) +
                     @boolToInt(args.cc != .none),
             );
             const payload_index = astgen.addExtraAssumeCapacity(Zir.Inst.ExtendedFunc{
@@ -9245,6 +9277,9 @@ const GenZir = struct {
             }
             if (args.align_inst != .none) {
                 astgen.extra.appendAssumeCapacity(@enumToInt(args.align_inst));
+            }
+            if (args.addrspace_inst != .none) {
+                astgen.extra.appendAssumeCapacity(@enumToInt(args.addrspace_inst));
             }
             astgen.extra.appendSliceAssumeCapacity(args.ret_ty);
             astgen.extra.appendSliceAssumeCapacity(args.body);
@@ -9264,6 +9299,7 @@ const GenZir = struct {
                         .has_lib_name = args.lib_name != 0,
                         .has_cc = args.cc != .none,
                         .has_align = args.align_inst != .none,
+                        .has_addrspace = args.addrspace_inst != .none,
                         .is_test = args.is_test,
                         .is_extern = args.is_extern,
                     }),
