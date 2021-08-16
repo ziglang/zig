@@ -597,7 +597,6 @@ pub fn flush(self: *MachO, comp: *Compilation) !void {
                 .n_desc = 0,
                 .n_value = 0,
             });
-            try self.strtab.append(self.base.allocator, 0);
         }
 
         // Positional arguments to the linker such as object files and static archives.
@@ -2608,7 +2607,6 @@ fn addLoadDylibLCs(self: *MachO) !void {
 }
 
 fn flushZld(self: *MachO) !void {
-    self.load_commands_dirty = true;
     try self.writeTextBlocks();
     try self.writeStubHelperCommon();
 
@@ -3012,7 +3010,7 @@ fn writeSymbolTable(self: *MachO) !void {
     const nexports = self.globals.items.len;
     const nundefs = self.undefs.items.len;
 
-    const locals_off = symtab.symoff + symtab.nsyms * @sizeOf(macho.nlist_64);
+    const locals_off = symtab.symoff + @sizeOf(macho.nlist_64);
     const locals_size = nlocals * @sizeOf(macho.nlist_64);
     log.debug("writing local symbols from 0x{x} to 0x{x}", .{ locals_off, locals_size + locals_off });
     try self.base.file.?.pwriteAll(mem.sliceAsBytes(locals.items), locals_off);
@@ -3027,7 +3025,7 @@ fn writeSymbolTable(self: *MachO) !void {
     log.debug("writing undefined symbols from 0x{x} to 0x{x}", .{ undefs_off, undefs_size + undefs_off });
     try self.base.file.?.pwriteAll(mem.sliceAsBytes(self.undefs.items), undefs_off);
 
-    symtab.nsyms += @intCast(u32, nlocals + nexports + nundefs);
+    symtab.nsyms = @intCast(u32, nlocals + nexports + nundefs);
     seg.inner.filesize += locals_size + exports_size + undefs_size;
 
     // Update dynamic symbol table.
@@ -3826,7 +3824,11 @@ pub fn populateMissingMetadata(self: *MachO) !void {
             .aarch64 => 2,
             else => unreachable, // unhandled architecture type
         };
-        const needed_size = @sizeOf(u64) * self.base.options.symbol_count_hint;
+        const needed_size: u6 = switch (self.base.options.target.cpu.arch) {
+            .x86_64 => 15,
+            .aarch64 => 6 * @sizeOf(u32),
+            else => unreachable,
+        };
         const off = text_segment.findFreeSpace(needed_size, @alignOf(u64), self.header_pad);
         assert(off + needed_size <= text_segment.inner.fileoff + text_segment.inner.filesize); // TODO Must expand __TEXT segment.
 
