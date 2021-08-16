@@ -174,6 +174,11 @@ const glibc_targets = [_]LibCTarget{
         .arch = MultiArch{ .specific = Arch.x86_64 },
         .abi = MultiAbi{ .specific = Abi.gnux32 },
     },
+    LibCTarget{
+        .name = "m68k-linux-gnu",
+        .arch = MultiArch{ .specific = Arch.m68k },
+        .abi = MultiAbi{ .specific = Abi.gnu },
+    },
 };
 
 const musl_targets = [_]LibCTarget{
@@ -226,6 +231,11 @@ const musl_targets = [_]LibCTarget{
         .name = "x86_64",
         .arch = MultiArch{ .specific = .x86_64 },
         .abi = MultiAbi.musl,
+    },
+    LibCTarget{
+        .name = "m68k",
+        .arch = MultiArch{ .specific = .m68k },
+        .abi = MultiAbi{ .specific = .musl },
     },
 };
 
