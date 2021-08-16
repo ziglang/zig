@@ -54,6 +54,11 @@ d_sym: ?DebugSymbols = null,
 /// For x86_64 that's 4KB, whereas for aarch64, that's 16KB.
 page_size: u16,
 
+/// TODO Should we figure out embedding code signatures for other Apple platforms as part of the linker?
+/// Or should this be a separate tool?
+/// https://github.com/ziglang/zig/issues/9567
+requires_adhoc_codesig: bool,
+
 /// We commit 0x1000 = 4096 bytes of space to the header and
 /// the table of load commands. This should be plenty for any
 /// potential future extensions.
@@ -391,6 +396,13 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
 
 pub fn createEmpty(gpa: *Allocator, options: link.Options) !*MachO {
     const self = try gpa.create(MachO);
+    const cpu_arch = options.target.cpu.arch;
+    const os_tag = options.target.os.tag;
+    const abi = options.target.abi;
+    const page_size: u16 = if (cpu_arch == .aarch64) 0x4000 else 0x1000;
+    // Adhoc code signature is required when targeting aarch64-macos either directly or indirectly via the simulator
+    // ABI such as aarch64-ios-simulator, etc.
+    const requires_adhoc_codesig = cpu_arch == .aarch64 and (os_tag == .macos or abi == .simulator);
 
     self.* = .{
         .base = .{
@@ -399,7 +411,8 @@ pub fn createEmpty(gpa: *Allocator, options: link.Options) !*MachO {
             .allocator = gpa,
             .file = null,
         },
-        .page_size = if (options.target.cpu.arch == .aarch64) 0x4000 else 0x1000,
+        .page_size = page_size,
+        .requires_adhoc_codesig = requires_adhoc_codesig,
     };
 
     return self;
@@ -433,7 +446,6 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
     defer tracy.end();
 
     const output_mode = self.base.options.output_mode;
-    const target = self.base.options.target;
 
     switch (output_mode) {
         .Exe => {
@@ -459,7 +471,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
                 try ds.flushModule(self.base.allocator, self.base.options);
             }
 
-            if (target.cpu.arch == .aarch64) {
+            if (self.requires_adhoc_codesig) {
                 // Preallocate space for the code signature.
                 // We need to do this at this stage so that we have the load commands with proper values
                 // written out to the file.
@@ -492,11 +504,8 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
     assert(!self.strtab_dirty);
     assert(!self.strtab_needs_relocation);
 
-    if (target.cpu.arch == .aarch64) {
-        switch (output_mode) {
-            .Exe, .Lib => try self.writeCodeSignature(), // code signing always comes last
-            else => {},
-        }
+    if (self.requires_adhoc_codesig) {
+        try self.writeCodeSignature(); // code signing always comes last
     }
 }
 
@@ -2841,7 +2850,7 @@ fn addDataInCodeLC(self: *MachO) !void {
 }
 
 fn addCodeSignatureLC(self: *MachO) !void {
-    if (self.code_signature_cmd_index == null and self.base.options.target.cpu.arch == .aarch64) {
+    if (self.code_signature_cmd_index == null and self.requires_adhoc_codesig) {
         self.code_signature_cmd_index = @intCast(u16, self.load_commands.items.len);
         try self.load_commands.append(self.base.allocator, .{
             .LinkeditData = .{
@@ -2935,14 +2944,14 @@ fn flushZld(self: *MachO) !void {
         seg.inner.vmsize = mem.alignForwardGeneric(u64, seg.inner.filesize, self.page_size);
     }
 
-    if (self.base.options.target.cpu.arch == .aarch64) {
+    if (self.requires_adhoc_codesig) {
         try self.writeCodeSignaturePadding();
     }
 
     try self.writeLoadCommands();
     try self.writeHeader();
 
-    if (self.base.options.target.cpu.arch == .aarch64) {
+    if (self.requires_adhoc_codesig) {
         try self.writeCodeSignature();
     }
 }
@@ -4454,7 +4463,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         try self.load_commands.append(self.base.allocator, .{ .Uuid = uuid_cmd });
         self.load_commands_dirty = true;
     }
-    if (self.code_signature_cmd_index == null) {
+    if (self.code_signature_cmd_index == null and self.requires_adhoc_codesig) {
         self.code_signature_cmd_index = @intCast(u16, self.load_commands.items.len);
         try self.load_commands.append(self.base.allocator, .{
             .LinkeditData = .{
@@ -5719,8 +5728,8 @@ fn writeStringTableZld(self: *MachO) !void {
 
     try self.base.file.?.pwriteAll(self.strtab.items, symtab.stroff);
 
-    if (symtab.strsize > self.strtab.items.len and self.base.options.target.cpu.arch == .x86_64) {
-        // This is the last section, so we need to pad it out.
+    if (symtab.strsize > self.strtab.items.len) {
+        // This is potentially the last section, so we need to pad it out.
         try self.base.file.?.pwriteAll(&[_]u8{0}, seg.inner.fileoff + seg.inner.filesize - 1);
     }
 }
