@@ -166,6 +166,8 @@ __DEVICE__ long long llrint(double __a) { return __nv_llrint(__a); }
 __DEVICE__ long long llrintf(float __a) { return __nv_llrintf(__a); }
 __DEVICE__ long long llround(double __a) { return __nv_llround(__a); }
 __DEVICE__ long long llroundf(float __a) { return __nv_llroundf(__a); }
+__DEVICE__ double round(double __a) { return __nv_round(__a); }
+__DEVICE__ float roundf(float __a) { return __nv_roundf(__a); }
 __DEVICE__ double log(double __a) { return __nv_log(__a); }
 __DEVICE__ double log10(double __a) { return __nv_log10(__a); }
 __DEVICE__ float log10f(float __a) { return __nv_log10f(__a); }
@@ -270,8 +272,6 @@ __DEVICE__ float rnorm4df(float __a, float __b, float __c, float __d) {
 __DEVICE__ float rnormf(int __dim, const float *__t) {
   return __nv_rnormf(__dim, __t);
 }
-__DEVICE__ double round(double __a) { return __nv_round(__a); }
-__DEVICE__ float roundf(float __a) { return __nv_roundf(__a); }
 __DEVICE__ double rsqrt(double __a) { return __nv_rsqrt(__a); }
 __DEVICE__ float rsqrtf(float __a) { return __nv_rsqrtf(__a); }
 __DEVICE__ double scalbn(double __a, int __b) { return __nv_scalbn(__a, __b); }

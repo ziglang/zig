@@ -639,6 +639,49 @@ __jcvt(double __a) {
 }
 #endif
 
+/* Armv8.5-A FP rounding intrinsics */
+#if __ARM_64BIT_STATE && defined(__ARM_FEATURE_FRINT)
+static __inline__ float __attribute__((__always_inline__, __nodebug__))
+__frint32zf(float __a) {
+  return __builtin_arm_frint32zf(__a);
+}
+
+static __inline__ double __attribute__((__always_inline__, __nodebug__))
+__frint32z(double __a) {
+  return __builtin_arm_frint32z(__a);
+}
+
+static __inline__ float __attribute__((__always_inline__, __nodebug__))
+__frint64zf(float __a) {
+  return __builtin_arm_frint64zf(__a);
+}
+
+static __inline__ double __attribute__((__always_inline__, __nodebug__))
+__frint64z(double __a) {
+  return __builtin_arm_frint64z(__a);
+}
+
+static __inline__ float __attribute__((__always_inline__, __nodebug__))
+__frint32xf(float __a) {
+  return __builtin_arm_frint32xf(__a);
+}
+
+static __inline__ double __attribute__((__always_inline__, __nodebug__))
+__frint32x(double __a) {
+  return __builtin_arm_frint32x(__a);
+}
+
+static __inline__ float __attribute__((__always_inline__, __nodebug__))
+__frint64xf(float __a) {
+  return __builtin_arm_frint64xf(__a);
+}
+
+static __inline__ double __attribute__((__always_inline__, __nodebug__))
+__frint64x(double __a) {
+  return __builtin_arm_frint64x(__a);
+}
+#endif
+
 /* Armv8.7-A load/store 64-byte intrinsics */
 #if __ARM_64BIT_STATE && defined(__ARM_FEATURE_LS64)
 typedef struct {
@@ -708,6 +751,18 @@ __arm_st64bv0(void *__addr, data512_t __value) {
 #define __ttest()         __builtin_arm_ttest()
 
 #endif /* __ARM_FEATURE_TME */
+
+/* Armv8.5-A Random number generation intrinsics */
+#if __ARM_64BIT_STATE && defined(__ARM_FEATURE_RNG)
+static __inline__ int __attribute__((__always_inline__, __nodebug__))
+__rndr(uint64_t *__p) {
+  return __builtin_arm_rndr(__p);
+}
+static __inline__ int __attribute__((__always_inline__, __nodebug__))
+__rndrrs(uint64_t *__p) {
+  return __builtin_arm_rndrrs(__p);
+}
+#endif
 
 #if defined(__cplusplus)
 }

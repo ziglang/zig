@@ -17,7 +17,6 @@
 // We require std::math functions in the complex builtins below.
 #include <cmath>
 
-#define __CUDA__
 #define __OPENMP_NVPTX__
 #include <__clang_cuda_complex_builtins.h>
 #undef __OPENMP_NVPTX__
@@ -25,9 +24,6 @@
 
 // Grab the host header too.
 #include_next <complex>
-
-
-#ifdef __cplusplus
 
 // If we are compiling against libc++, the macro _LIBCPP_STD_VER should be set
 // after including <cmath> above. Since the complex header we use is a
@@ -46,7 +42,5 @@
 #include <complex_cmath.h>
 
 #pragma omp end declare variant
-
-#endif
 
 #endif

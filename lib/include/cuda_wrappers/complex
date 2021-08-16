@@ -72,8 +72,16 @@
 #define _GLIBCXX_USE_C99_COMPLEX 0
 #define _GLIBCXX_USE_C99_COMPLEX_TR1 0
 
+// Work around a compatibility issue with libstdc++ 11.1.0
+// https://bugs.llvm.org/show_bug.cgi?id=50383
+#pragma push_macro("__failed_assertion")
+#if _GLIBCXX_RELEASE == 11
+#define __failed_assertion __cuda_failed_assertion
+#endif
+
 #include_next <complex>
 
+#pragma pop_macro("__failed_assertion")
 #pragma pop_macro("_GLIBCXX_USE_C99_COMPLEX_TR1")
 #pragma pop_macro("_GLIBCXX_USE_C99_COMPLEX")
 

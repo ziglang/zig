@@ -17,7 +17,6 @@
 // We require math functions in the complex builtins below.
 #include <math.h>
 
-#define __CUDA__
 #define __OPENMP_NVPTX__
 #include <__clang_cuda_complex_builtins.h>
 #undef __OPENMP_NVPTX__

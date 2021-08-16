@@ -39,4 +39,46 @@ extern "C" {
 
 #pragma omp end declare variant
 
+// Ensure we make `_ZdlPv`, aka. `operator delete(void*)` available without the
+// need to `include <new>` in C++ mode.
+#ifdef __cplusplus
+
+// We require malloc/free.
+#include <cstdlib>
+
+#pragma push_macro("OPENMP_NOEXCEPT")
+#if __cplusplus >= 201103L
+#define OPENMP_NOEXCEPT noexcept
+#else
+#define OPENMP_NOEXCEPT
+#endif
+
+// Device overrides for non-placement new and delete.
+inline void *operator new(__SIZE_TYPE__ size) {
+  if (size == 0)
+    size = 1;
+  return ::malloc(size);
+}
+
+inline void *operator new[](__SIZE_TYPE__ size) { return ::operator new(size); }
+
+inline void operator delete(void *ptr)OPENMP_NOEXCEPT { ::free(ptr); }
+
+inline void operator delete[](void *ptr) OPENMP_NOEXCEPT {
+  ::operator delete(ptr);
+}
+
+// Sized delete, C++14 only.
+#if __cplusplus >= 201402L
+inline void operator delete(void *ptr, __SIZE_TYPE__ size)OPENMP_NOEXCEPT {
+  ::operator delete(ptr);
+}
+inline void operator delete[](void *ptr, __SIZE_TYPE__ size) OPENMP_NOEXCEPT {
+  ::operator delete(ptr);
+}
+#endif
+
+#pragma pop_macro("OPENMP_NOEXCEPT")
+#endif
+
 #endif

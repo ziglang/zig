@@ -230,10 +230,12 @@ _mm_aesenc128kl_u8(__m128i* __odata, __m128i __idata, const void *__h) {
 ///                    HandleKeyType (Handle[511:0]) != HANDLE_KEY_TYPE_AES256 )
 /// IF (IllegalHandle)
 ///   ZF := 1
+///   MEM[__odata+127:__odata] := 0
 /// ELSE
 ///   (UnwrappedKey, Authentic) := UnwrapKeyAndAuthenticate512 (Handle[511:0], IWKey)
 ///   IF (Authentic == 0)
 ///     ZF := 1
+///     MEM[__odata+127:__odata] := 0
 ///   ELSE
 ///     MEM[__odata+127:__odata] := AES256Encrypt (__idata[127:0], UnwrappedKey)
 ///     ZF := 0
@@ -267,10 +269,12 @@ _mm_aesenc256kl_u8(__m128i* __odata, __m128i __idata, const void *__h) {
 ///                  HandleKeyType (Handle[383:0]) != HANDLE_KEY_TYPE_AES128)
 /// IF (IllegalHandle)
 ///   ZF := 1
+///   MEM[__odata+127:__odata] := 0
 /// ELSE
 ///   (UnwrappedKey, Authentic) := UnwrapKeyAndAuthenticate384 (Handle[383:0], IWKey)
 ///   IF (Authentic == 0)
 ///     ZF := 1
+///     MEM[__odata+127:__odata] := 0
 ///   ELSE
 ///     MEM[__odata+127:__odata] := AES128Decrypt (__idata[127:0], UnwrappedKey)
 ///     ZF := 0
@@ -304,10 +308,12 @@ _mm_aesdec128kl_u8(__m128i* __odata, __m128i __idata, const void *__h) {
 ///                   HandleKeyType (Handle[511:0]) != HANDLE_KEY_TYPE_AES256)
 /// IF (IllegalHandle)
 ///   ZF := 1
+///   MEM[__odata+127:__odata] := 0
 /// ELSE
 ///   (UnwrappedKey, Authentic) := UnwrapKeyAndAuthenticate512 (Handle[511:0], IWKey)
 ///   IF (Authentic == 0)
 ///     ZF := 1
+///     MEM[__odata+127:__odata] := 0
 ///   ELSE
 ///     MEM[__odata+127:__odata] := AES256Decrypt (__idata[127:0], UnwrappedKey)
 ///     ZF := 0
@@ -354,10 +360,16 @@ _mm_aesdec256kl_u8(__m128i* __odata, __m128i __idata, const void *__h) {
 ///                    HandleKeyType (Handle[383:0]) != HANDLE_KEY_TYPE_AES128 )
 /// IF (IllegalHandle)
 ///   ZF := 1
+///   FOR i := 0 to 7
+///     __odata[i] := 0
+///   ENDFOR
 /// ELSE
 ///   (UnwrappedKey, Authentic) := UnwrapKeyAndAuthenticate384 (Handle[383:0], IWKey)
 ///   IF Authentic == 0
 ///     ZF := 1
+///     FOR i := 0 to 7
+///       __odata[i] := 0
+///     ENDFOR
 ///   ELSE
 ///     FOR i := 0 to 7
 ///       __odata[i] := AES128Encrypt (__idata[i], UnwrappedKey)
@@ -394,10 +406,16 @@ _mm_aesencwide128kl_u8(__m128i __odata[8], const __m128i __idata[8], const void*
 ///                    HandleKeyType (Handle[511:0]) != HANDLE_KEY_TYPE_AES512 )
 /// IF (IllegalHandle)
 ///   ZF := 1
+///   FOR i := 0 to 7
+///     __odata[i] := 0
+///   ENDFOR
 /// ELSE
 ///   (UnwrappedKey, Authentic) := UnwrapKeyAndAuthenticate512 (Handle[511:0], IWKey)
 ///   IF Authentic == 0
 ///     ZF := 1
+///     FOR i := 0 to 7
+///       __odata[i] := 0
+///     ENDFOR
 ///   ELSE
 ///     FOR i := 0 to 7
 ///       __odata[i] := AES256Encrypt (__idata[i], UnwrappedKey)
@@ -434,10 +452,16 @@ _mm_aesencwide256kl_u8(__m128i __odata[8], const __m128i __idata[8], const void*
 ///                    HandleKeyType (Handle) != HANDLE_KEY_TYPE_AES128 )
 /// IF (IllegalHandle)
 ///   ZF := 1
+///   FOR i := 0 to 7
+///     __odata[i] := 0
+///   ENDFOR
 /// ELSE
 ///   (UnwrappedKey, Authentic) := UnwrapKeyAndAuthenticate384 (Handle[383:0], IWKey)
 ///   IF Authentic == 0
 ///     ZF := 1
+///     FOR i := 0 to 7
+///       __odata[i] := 0
+///     ENDFOR
 ///   ELSE
 ///     FOR i := 0 to 7
 ///       __odata[i] := AES128Decrypt (__idata[i], UnwrappedKey)
@@ -474,10 +498,16 @@ _mm_aesdecwide128kl_u8(__m128i __odata[8], const __m128i __idata[8], const void*
 ///                   HandleKeyType (Handle) != HANDLE_KEY_TYPE_AES512 )
 /// If (IllegalHandle)
 ///   ZF := 1
+///   FOR i := 0 to 7
+///     __odata[i] := 0
+///   ENDFOR
 /// ELSE
 ///   (UnwrappedKey, Authentic) := UnwrapKeyAndAuthenticate512 (Handle[511:0], IWKey)
 ///   IF Authentic == 0
 ///     ZF := 1
+///     FOR i := 0 to 7
+///       __odata[i] := 0
+///     ENDFOR
 ///   ELSE
 ///     FOR i := 0 to 7
 ///       __odata[i] := AES256Decrypt (__idata[i], UnwrappedKey)
