@@ -8040,14 +8040,29 @@ fn structFieldPtr(
     }
 
     try sema.requireRuntimeBlock(block, src);
+    const tag: Air.Inst.Tag = switch (field_index) {
+        0 => .struct_field_ptr_index_0,
+        1 => .struct_field_ptr_index_1,
+        2 => .struct_field_ptr_index_2,
+        3 => .struct_field_ptr_index_3,
+        else => {
+            return block.addInst(.{
+                .tag = .struct_field_ptr,
+                .data = .{ .ty_pl = .{
+                    .ty = try sema.addType(ptr_field_ty),
+                    .payload = try sema.addExtra(Air.StructField{
+                        .struct_operand = struct_ptr,
+                        .field_index = @intCast(u32, field_index),
+                    }),
+                } },
+            });
+        },
+    };
     return block.addInst(.{
-        .tag = .struct_field_ptr,
-        .data = .{ .ty_pl = .{
+        .tag = tag,
+        .data = .{ .ty_op = .{
             .ty = try sema.addType(ptr_field_ty),
-            .payload = try sema.addExtra(Air.StructField{
-                .struct_operand = struct_ptr,
-                .field_index = @intCast(u32, field_index),
-            }),
+            .operand = struct_ptr,
         } },
     });
 }

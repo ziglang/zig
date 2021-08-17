@@ -1042,6 +1042,11 @@ pub const FuncGen = struct {
                 .struct_field_ptr => try self.airStructFieldPtr(inst),
                 .struct_field_val => try self.airStructFieldVal(inst),
 
+                .struct_field_ptr_index_0 => try self.airStructFieldPtrIndex(inst, 0),
+                .struct_field_ptr_index_1 => try self.airStructFieldPtrIndex(inst, 1),
+                .struct_field_ptr_index_2 => try self.airStructFieldPtrIndex(inst, 2),
+                .struct_field_ptr_index_3 => try self.airStructFieldPtrIndex(inst, 3),
+
                 .slice_elem_val     => try self.airSliceElemVal(inst),
                 .ptr_slice_elem_val => try self.airPtrSliceElemVal(inst),
                 .ptr_elem_val       => try self.airPtrElemVal(inst),
@@ -1352,6 +1357,15 @@ pub const FuncGen = struct {
         const struct_field = self.air.extraData(Air.StructField, ty_pl.payload).data;
         const struct_ptr = try self.resolveInst(struct_field.struct_operand);
         const field_index = @intCast(c_uint, struct_field.field_index);
+        return self.builder.buildStructGEP(struct_ptr, field_index, "");
+    }
+
+    fn airStructFieldPtrIndex(self: *FuncGen, inst: Air.Inst.Index, field_index: c_uint) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst))
+            return null;
+
+        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const struct_ptr = try self.resolveInst(ty_op.operand);
         return self.builder.buildStructGEP(struct_ptr, field_index, "");
     }
 

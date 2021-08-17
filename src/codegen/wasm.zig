@@ -862,6 +862,10 @@ pub const Context = struct {
             .ret => self.airRet(inst),
             .store => self.airStore(inst),
             .struct_field_ptr => self.airStructFieldPtr(inst),
+            .struct_field_ptr_index_0 => self.airStructFieldPtrIndex(inst, 0),
+            .struct_field_ptr_index_1 => self.airStructFieldPtrIndex(inst, 1),
+            .struct_field_ptr_index_2 => self.airStructFieldPtrIndex(inst, 2),
+            .struct_field_ptr_index_3 => self.airStructFieldPtrIndex(inst, 3),
             .switch_br => self.airSwitchBr(inst),
             .unreach => self.airUnreachable(inst),
             .wrap_optional => self.airWrapOptional(inst),
@@ -1440,8 +1444,15 @@ pub const Context = struct {
         const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
         const extra = self.air.extraData(Air.StructField, ty_pl.payload);
         const struct_ptr = self.resolveInst(extra.data.struct_operand);
-
-        return WValue{ .local = struct_ptr.multi_value.index + @intCast(u32, extra.data.field_index) };
+        return structFieldPtr(struct_ptr, extra.data.field_index);
+    }
+    fn airStructFieldPtrIndex(self: *Context, inst: Air.Inst.Index, index: u32) InnerError!WValue {
+        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const struct_ptr = self.resolveInst(ty_op.operand);
+        return structFieldPtr(struct_ptr, index);
+    }
+    fn structFieldPtr(struct_ptr: WValue, index: u32) InnerError!WValue {
+        return WValue{ .local = struct_ptr.multi_value.index + index };
     }
 
     fn airSwitchBr(self: *Context, inst: Air.Inst.Index) InnerError!WValue {
