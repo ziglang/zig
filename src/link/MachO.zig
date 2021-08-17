@@ -93,9 +93,6 @@ source_version_cmd_index: ?u16 = null,
 build_version_cmd_index: ?u16 = null,
 uuid_cmd_index: ?u16 = null,
 code_signature_cmd_index: ?u16 = null,
-/// Path to libSystem
-/// TODO this is obsolete, remove it.
-libsystem_cmd_index: ?u16 = null,
 
 // __TEXT segment sections
 text_section_index: ?u16 = null,
@@ -280,15 +277,6 @@ const ideal_factor = 2;
 /// TODO instead of hardcoding it, we should probably look through some env vars and search paths
 /// instead but this will do for now.
 const DEFAULT_DYLD_PATH: [*:0]const u8 = "/usr/lib/dyld";
-
-/// Default lib search path
-/// TODO instead of hardcoding it, we should probably look through some env vars and search paths
-/// instead but this will do for now.
-const DEFAULT_LIB_SEARCH_PATH: []const u8 = "/usr/lib";
-
-const LIB_SYSTEM_NAME: [*:0]const u8 = "System";
-/// TODO we should search for libSystem and fail if it doesn't exist, instead of hardcoding it
-const LIB_SYSTEM_PATH: [*:0]const u8 = DEFAULT_LIB_SEARCH_PATH ++ "/libSystem.B.dylib";
 
 /// In order for a slice of bytes to be considered eligible to keep metadata pointing at
 /// it as a possible place to put new symbols, it must have enough room for this many bytes
@@ -793,17 +781,17 @@ pub fn flush(self: *MachO, comp: *Compilation) !void {
             Compilation.dump_argv(argv.items);
         }
 
+        try self.parseInputFiles(positionals.items, self.base.options.sysroot);
+        try self.parseLibs(libs.items, self.base.options.sysroot);
+        try self.resolveSymbols();
+        try self.resolveDyldStubBinder();
+        try self.parseTextBlocks();
         try self.addRpathLCs(rpath_table.keys());
+        try self.addLoadDylibLCs();
+        try self.addDataInCodeLC();
+        try self.addCodeSignatureLC();
 
         if (use_stage1) {
-            try self.parseInputFiles(positionals.items, self.base.options.sysroot);
-            try self.parseLibs(libs.items, self.base.options.sysroot);
-            try self.resolveSymbols();
-            try self.resolveDyldStubBinder();
-            try self.parseTextBlocks();
-            try self.addLoadDylibLCs();
-            try self.addDataInCodeLC();
-            try self.addCodeSignatureLC();
             try self.sortSections();
             try self.allocateTextSegment();
             try self.allocateDataConstSegment();
@@ -812,17 +800,6 @@ pub fn flush(self: *MachO, comp: *Compilation) !void {
             try self.allocateTextBlocks();
             try self.flushZld();
         } else {
-            // TODO this is just a temp; libsystem load command will be autoresolved when parsing libSystem from
-            // the linker line and actually referencing symbols.
-            if (self.libsystem_cmd_index == null) {
-                self.libsystem_cmd_index = @intCast(u16, self.load_commands.items.len);
-                var dylib_cmd = try commands.createLoadDylibCommand(self.base.allocator, mem.spanZ(LIB_SYSTEM_PATH), 2, 0, 0);
-                errdefer dylib_cmd.deinit(self.base.allocator);
-                try self.load_commands.append(self.base.allocator, .{ .Dylib = dylib_cmd });
-                self.load_commands_dirty = true;
-            }
-            try self.addDataInCodeLC();
-            try self.addCodeSignatureLC();
             try self.flushModule(comp);
         }
     }
