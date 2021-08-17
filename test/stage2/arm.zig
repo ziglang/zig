@@ -319,6 +319,22 @@ pub fn addCases(ctx: *TestContext) !void {
         ,
             "",
         );
+
+        case.addCompareOutput(
+            \\const Number = enum { one, two, three };
+            \\
+            \\pub fn main() void {
+            \\    var x: Number = .one;
+            \\    var y = Number.two;
+            \\    assert(@enumToInt(x) < @enumToInt(y));
+            \\}
+            \\
+            \\fn assert(ok: bool) void {
+            \\    if (!ok) unreachable; // assertion failure
+            \\}
+        ,
+            "",
+        );
     }
 
     {
