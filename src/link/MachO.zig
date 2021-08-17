@@ -376,30 +376,6 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
     try self.populateMissingMetadata();
     try self.writeLocalSymbol(0);
 
-    if (self.dyld_stub_binder_index == null) {
-        self.dyld_stub_binder_index = @intCast(u32, self.undefs.items.len);
-        const n_strx = try self.makeString("dyld_stub_binder");
-        try self.undefs.append(self.base.allocator, .{
-            .n_strx = n_strx,
-            .n_type = macho.N_UNDF | macho.N_EXT,
-            .n_sect = 0,
-            .n_desc = @intCast(u8, 1) * macho.N_SYMBOL_RESOLVER,
-            .n_value = 0,
-        });
-        try self.symbol_resolver.putNoClobber(self.base.allocator, n_strx, .{
-            .where = .undef,
-            .where_index = self.dyld_stub_binder_index.?,
-        });
-        const got_key = GotIndirectionKey{
-            .where = .undef,
-            .where_index = self.dyld_stub_binder_index.?,
-        };
-        const got_index = @intCast(u32, self.got_entries.items.len);
-        try self.got_entries.append(self.base.allocator, got_key);
-        try self.got_entries_map.putNoClobber(self.base.allocator, got_key, got_index);
-        try self.writeGotEntry(got_index);
-        self.binding_info_dirty = true;
-    }
     if (self.stub_helper_stubs_start_off == null) {
         try self.writeStubHelperPreamble();
     }
@@ -1089,6 +1065,7 @@ fn parseInputFiles(self: *MachO, files: []const []const u8, syslibroot: ?[]const
             break :full_path try self.base.allocator.dupe(u8, path);
         };
         defer self.base.allocator.free(full_path);
+        log.debug("parsing input file path '{s}'", .{full_path});
 
         if (try self.parseObject(full_path)) continue;
         if (try self.parseArchive(full_path)) continue;
@@ -1102,6 +1079,7 @@ fn parseInputFiles(self: *MachO, files: []const []const u8, syslibroot: ?[]const
 
 fn parseLibs(self: *MachO, libs: []const []const u8, syslibroot: ?[]const u8) !void {
     for (libs) |lib| {
+        log.debug("parsing lib path '{s}'", .{lib});
         if (try self.parseDylib(lib, .{
             .syslibroot = syslibroot,
         })) continue;
@@ -2510,6 +2488,11 @@ fn resolveDyldStubBinder(self: *MachO) !void {
 
     self.binding_info_dirty = true;
     self.got_entries_count_dirty = true;
+
+    if (!(build_options.is_stage1 and self.base.options.use_stage1)) {
+        // TODO remove once we can incrementally update in stage1 too.
+        try self.writeGotEntry(got_index);
+    }
 }
 
 fn parseTextBlocks(self: *MachO) !void {
