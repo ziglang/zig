@@ -860,46 +860,32 @@ pub fn flush(self: *MachO, comp: *Compilation) !void {
 
 pub fn flushModule(self: *MachO, comp: *Compilation) !void {
     _ = comp;
+
     const tracy = trace(@src());
     defer tracy.end();
 
-    const output_mode = self.base.options.output_mode;
+    try self.setEntryPoint();
+    try self.writeRebaseInfoTable();
+    try self.writeBindInfoTable();
+    try self.writeLazyBindInfoTable();
+    try self.writeExportInfo();
+    try self.writeAllGlobalAndUndefSymbols();
+    try self.writeIndirectSymbolTable();
+    try self.writeStringTable();
+    try self.updateLinkeditSegmentSizes();
 
-    switch (output_mode) {
-        .Exe => {
-            if (self.entry_addr) |addr| {
-                // Update LC_MAIN with entry offset.
-                const text_segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
-                const main_cmd = &self.load_commands.items[self.main_cmd_index.?].Main;
-                main_cmd.entryoff = addr - text_segment.inner.vmaddr;
-                main_cmd.stacksize = self.base.options.stack_size_override orelse 0;
-                self.load_commands_dirty = true;
-            }
-            try self.writeRebaseInfoTable();
-            try self.writeBindInfoTable();
-            try self.writeLazyBindInfoTable();
-            try self.writeExportInfo();
-            try self.writeAllGlobalAndUndefSymbols();
-            try self.writeIndirectSymbolTable();
-            try self.writeStringTable();
-            try self.updateLinkeditSegmentSizes();
+    if (self.d_sym) |*ds| {
+        // Flush debug symbols bundle.
+        try ds.flushModule(self.base.allocator, self.base.options);
+    }
 
-            if (self.d_sym) |*ds| {
-                // Flush debug symbols bundle.
-                try ds.flushModule(self.base.allocator, self.base.options);
-            }
-
-            if (self.requires_adhoc_codesig) {
-                // Preallocate space for the code signature.
-                // We need to do this at this stage so that we have the load commands with proper values
-                // written out to the file.
-                // The most important here is to have the correct vm and filesize of the __LINKEDIT segment
-                // where the code signature goes into.
-                try self.writeCodeSignaturePadding();
-            }
-        },
-        .Obj => {},
-        .Lib => return error.TODOImplementWritingLibFiles,
+    if (self.requires_adhoc_codesig) {
+        // Preallocate space for the code signature.
+        // We need to do this at this stage so that we have the load commands with proper values
+        // written out to the file.
+        // The most important here is to have the correct vm and filesize of the __LINKEDIT segment
+        // where the code signature goes into.
+        try self.writeCodeSignaturePadding();
     }
 
     try self.writeLoadCommands();
@@ -2704,6 +2690,7 @@ fn setEntryPoint(self: *MachO) !void {
     const ec = &self.load_commands.items[self.main_cmd_index.?].Main;
     ec.entryoff = @intCast(u32, sym.n_value - seg.inner.vmaddr);
     ec.stacksize = self.base.options.stack_size_override orelse 0;
+    self.load_commands_dirty = true;
 }
 
 fn writeRebaseInfoTableZld(self: *MachO) !void {
