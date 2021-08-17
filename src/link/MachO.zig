@@ -174,13 +174,7 @@ has_stabs: bool = false,
 
 section_ordinals: std.AutoArrayHashMapUnmanaged(MatchingSection, void) = .{},
 
-pending_updates: std.ArrayListUnmanaged(struct {
-    kind: enum {
-        got,
-        stub,
-    },
-    index: u32,
-}) = .{},
+pending_updates: std.ArrayListUnmanaged(PendingUpdate) = .{},
 
 /// A list of text blocks that have surplus capacity. This list can have false
 /// positives, as functions grow and shrink over time, only sometimes being added
@@ -222,6 +216,12 @@ decls: std.AutoArrayHashMapUnmanaged(*Module.Decl, void) = .{},
 /// to codegen.genSetReg() or alterntively move PIE displacement for MCValue{ .memory = x }
 /// somewhere else in the codegen.
 active_decl: ?*Module.Decl = null,
+
+const PendingUpdate = union(enum) {
+    resolve_undef: u32,
+    add_stub_entry: u32,
+    add_got_entry: u32,
+};
 
 const StringIndexContext = struct {
     strtab: *std.ArrayListUnmanaged(u8),
@@ -761,6 +761,56 @@ pub fn flush(self: *MachO, comp: *Compilation) !void {
         try self.parseLibs(libs.items, self.base.options.sysroot);
         try self.resolveSymbols();
         try self.resolveDyldStubBinder();
+
+        // Apply pending updates
+        var still_pending = std.ArrayList(PendingUpdate).init(self.base.allocator);
+        defer still_pending.deinit();
+
+        for (self.pending_updates.items) |update| {
+            switch (update) {
+                .resolve_undef => |sym_index| {
+                    const sym = &self.undefs.items[sym_index];
+                    const sym_name = self.getString(sym.n_strx);
+                    const resolv = self.symbol_resolver.getPtr(sym.n_strx) orelse unreachable;
+
+                    for (self.dylibs.items) |dylib, id| {
+                        if (!dylib.symbols.contains(sym_name)) continue;
+
+                        const dylib_id = @intCast(u16, id);
+                        if (!self.referenced_dylibs.contains(dylib_id)) {
+                            try self.referenced_dylibs.putNoClobber(self.base.allocator, dylib_id, {});
+                        }
+
+                        const ordinal = self.referenced_dylibs.getIndex(dylib_id) orelse unreachable;
+                        sym.n_type |= macho.N_EXT;
+                        sym.n_desc = @intCast(u16, ordinal + 1) * macho.N_SYMBOL_RESOLVER;
+
+                        break;
+                    } else {
+                        try still_pending.append(update);
+                        log.warn("undefined reference to symbol '{s}'", .{sym_name});
+                        // TODO self-reference for incremental means resolv.file == 0!
+                        if (self.objects.items.len > 0) {
+                            log.warn("  first referenced in '{s}'", .{self.objects.items[resolv.file].name});
+                        }
+                    }
+                },
+                .add_got_entry => return error.TODOAddGotEntryUpdate,
+                .add_stub_entry => |stub_index| {
+                    try self.writeStub(stub_index);
+                    try self.writeStubInStubHelper(stub_index);
+                    try self.writeLazySymbolPointer(stub_index);
+                    self.rebase_info_dirty = true;
+                    self.lazy_binding_info_dirty = true;
+                },
+            }
+        }
+
+        self.pending_updates.clearRetainingCapacity();
+        for (still_pending.items) |update| {
+            self.pending_updates.appendAssumeCapacity(update);
+        }
+
         try self.parseTextBlocks();
         try self.addRpathLCs(rpath_table.keys());
         try self.addLoadDylibLCs();
@@ -3488,20 +3538,6 @@ fn placeDecl(self: *MachO, decl: *Module.Decl, code_len: usize) !*macho.nlist_64
     // so that we can reapply them when moving/growing sections?
     decl.link.macho.relocs.clearAndFree(self.base.allocator);
 
-    // Apply pending updates
-    while (self.pending_updates.popOrNull()) |update| {
-        switch (update.kind) {
-            .got => unreachable,
-            .stub => {
-                try self.writeStub(update.index);
-                try self.writeStubInStubHelper(update.index);
-                try self.writeLazySymbolPointer(update.index);
-                self.rebase_info_dirty = true;
-                self.lazy_binding_info_dirty = true;
-            },
-        }
-    }
-
     return symbol;
 }
 
@@ -4281,34 +4317,33 @@ pub fn addExternFn(self: *MachO, name: []const u8) !u32 {
         return resolv.where_index;
     }
 
-    log.debug("adding new extern function '{s}' with dylib ordinal 1", .{sym_name});
-    const import_sym_index = @intCast(u32, self.undefs.items.len);
+    log.debug("adding new extern function '{s}'", .{sym_name});
+    const sym_index = @intCast(u32, self.undefs.items.len);
     const n_strx = try self.makeString(sym_name);
     try self.undefs.append(self.base.allocator, .{
         .n_strx = n_strx,
-        .n_type = macho.N_UNDF | macho.N_EXT,
+        .n_type = macho.N_UNDF,
         .n_sect = 0,
-        .n_desc = @intCast(u8, 1) * macho.N_SYMBOL_RESOLVER,
+        .n_desc = 0,
         .n_value = 0,
     });
     try self.symbol_resolver.putNoClobber(self.base.allocator, n_strx, .{
         .where = .undef,
-        .where_index = import_sym_index,
+        .where_index = sym_index,
     });
 
     const stubs_index = @intCast(u32, self.stubs.items.len);
-    try self.stubs.append(self.base.allocator, import_sym_index);
-    try self.stubs_map.putNoClobber(self.base.allocator, import_sym_index, stubs_index);
+    try self.stubs.append(self.base.allocator, sym_index);
+    try self.stubs_map.putNoClobber(self.base.allocator, sym_index, stubs_index);
 
     // TODO discuss this. The caller context expects codegen.InnerError{ OutOfMemory, CodegenFail },
     // which obviously doesn't include file writing op errors. So instead of trying to write the stub
     // entry right here and now, queue it up and dispose of when updating decl.
-    try self.pending_updates.append(self.base.allocator, .{
-        .kind = .stub,
-        .index = stubs_index,
-    });
+    try self.pending_updates.ensureUnusedCapacity(self.base.allocator, 2);
+    self.pending_updates.appendAssumeCapacity(.{ .resolve_undef = sym_index });
+    self.pending_updates.appendAssumeCapacity(.{ .add_stub_entry = stubs_index });
 
-    return import_sym_index;
+    return sym_index;
 }
 
 const NextSegmentAddressAndOffset = struct {
