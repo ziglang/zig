@@ -973,6 +973,20 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 log.debug("%{d} => {}", .{ inst, result });
                 const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
                 branch.inst_table.putAssumeCapacityNoClobber(inst, result);
+
+                switch (result) {
+                    .register => |reg| {
+                        // In some cases (such as bitcast), an operand
+                        // may be the same MCValue as the result. If
+                        // that operand died and was a register, it
+                        // was freed by processDeath. We have to
+                        // "re-allocate" the register.
+                        if (self.register_manager.isRegFree(reg)) {
+                            self.register_manager.getRegAssumeFree(reg, inst);
+                        }
+                    },
+                    else => {},
+                }
             }
             self.finishAirBookkeeping();
         }
