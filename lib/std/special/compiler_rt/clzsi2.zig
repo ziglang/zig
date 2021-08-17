@@ -14,13 +14,16 @@ fn __clzsi2_generic(a: i32) callconv(.C) i32 {
 
     // Count first bit set using binary search, from Hacker's Delight
     var y: u32 = 0;
-    inline for ([_]i32{ 16, 8, 4, 2, 1 }) |shift| {
+    inline for ([_]i32{ 16, 8, 4, 2 }) |shift| {
         y = x >> shift;
         if (y != 0) {
             n = n - shift;
             x = y;
         }
     }
+    y = x >> 1;
+    if (y != 0)
+        return n - 2;
 
     return n - @bitCast(i32, x);
 }
