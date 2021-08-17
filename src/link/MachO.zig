@@ -145,6 +145,8 @@ symbol_resolver: std.AutoHashMapUnmanaged(u32, SymbolWithLoc) = .{},
 locals_free_list: std.ArrayListUnmanaged(u32) = .{},
 globals_free_list: std.ArrayListUnmanaged(u32) = .{},
 
+dyld_stub_binder_index: ?u32 = null,
+
 stub_helper_stubs_start_off: ?u64 = null,
 
 strtab: std.ArrayListUnmanaged(u8) = .{},
@@ -386,10 +388,8 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
     try self.populateMissingMetadata();
     try self.writeLocalSymbol(0);
 
-    if (!self.strtab_dir.containsAdapted(@as([]const u8, "dyld_stub_binder"), StringSliceAdapter{
-        .strtab = &self.strtab,
-    })) {
-        const import_sym_index = @intCast(u32, self.undefs.items.len);
+    if (self.dyld_stub_binder_index == null) {
+        self.dyld_stub_binder_index = @intCast(u32, self.undefs.items.len);
         const n_strx = try self.makeString("dyld_stub_binder");
         try self.undefs.append(self.base.allocator, .{
             .n_strx = n_strx,
@@ -400,11 +400,11 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
         });
         try self.symbol_resolver.putNoClobber(self.base.allocator, n_strx, .{
             .where = .undef,
-            .where_index = import_sym_index,
+            .where_index = self.dyld_stub_binder_index.?,
         });
         const got_key = GotIndirectionKey{
             .where = .undef,
-            .where_index = import_sym_index,
+            .where_index = self.dyld_stub_binder_index.?,
         };
         const got_index = @intCast(u32, self.got_entries.items.len);
         try self.got_entries.append(self.base.allocator, got_key);
@@ -799,26 +799,11 @@ pub fn flush(self: *MachO, comp: *Compilation) !void {
             try self.parseInputFiles(positionals.items, self.base.options.sysroot);
             try self.parseLibs(libs.items, self.base.options.sysroot);
             try self.resolveSymbols();
+            try self.resolveDyldStubBinder();
             try self.parseTextBlocks();
             try self.addLoadDylibLCs();
             try self.addDataInCodeLC();
             try self.addCodeSignatureLC();
-
-            {
-                // Add dyld_stub_binder as the final GOT entry.
-                const n_strx = self.strtab_dir.getAdapted(@as([]const u8, "dyld_stub_binder"), StringSliceAdapter{
-                    .strtab = &self.strtab,
-                }) orelse unreachable;
-                const resolv = self.symbol_resolver.get(n_strx) orelse unreachable;
-                const got_index = @intCast(u32, self.got_entries.items.len);
-                const got_entry = GotIndirectionKey{
-                    .where = .undef,
-                    .where_index = resolv.where_index,
-                };
-                try self.got_entries.append(self.base.allocator, got_entry);
-                try self.got_entries_map.putNoClobber(self.base.allocator, got_entry, got_index);
-            }
-
             try self.sortSections();
             try self.allocateTextSegment();
             try self.allocateDataConstSegment();
@@ -1982,13 +1967,9 @@ fn writeStubHelperCommon(self: *MachO) !void {
                 code[9] = 0xff;
                 code[10] = 0x25;
                 {
-                    const n_strx = self.strtab_dir.getAdapted(@as([]const u8, "dyld_stub_binder"), StringSliceAdapter{
-                        .strtab = &self.strtab,
-                    }) orelse unreachable;
-                    const resolv = self.symbol_resolver.get(n_strx) orelse unreachable;
                     const got_index = self.got_entries_map.get(.{
                         .where = .undef,
-                        .where_index = resolv.where_index,
+                        .where_index = self.dyld_stub_binder_index.?,
                     }) orelse unreachable;
                     const addr = got.addr + got_index * @sizeOf(u64);
                     const displacement = try math.cast(u32, addr - stub_helper.addr - code_size);
@@ -2033,13 +2014,9 @@ fn writeStubHelperCommon(self: *MachO) !void {
                 code[10] = 0xbf;
                 code[11] = 0xa9;
                 binder_blk_outer: {
-                    const n_strx = self.strtab_dir.getAdapted(@as([]const u8, "dyld_stub_binder"), StringSliceAdapter{
-                        .strtab = &self.strtab,
-                    }) orelse unreachable;
-                    const resolv = self.symbol_resolver.get(n_strx) orelse unreachable;
                     const got_index = self.got_entries_map.get(.{
                         .where = .undef,
-                        .where_index = resolv.where_index,
+                        .where_index = self.dyld_stub_binder_index.?,
                     }) orelse unreachable;
                     const this_addr = stub_helper.addr + 3 * @sizeOf(u32);
                     const target_addr = got.addr + got_index * @sizeOf(u64);
@@ -2405,24 +2382,6 @@ fn resolveSymbols(self: *MachO) !void {
     }
 
     // Third pass, resolve symbols in dynamic libraries.
-    {
-        // Put dyld_stub_binder as an undefined special symbol.
-        const n_strx = try self.makeString("dyld_stub_binder");
-        const undef_sym_index = @intCast(u32, self.undefs.items.len);
-        try self.undefs.append(self.base.allocator, .{
-            .n_strx = n_strx,
-            .n_type = macho.N_UNDF,
-            .n_sect = 0,
-            .n_desc = 0,
-            .n_value = 0,
-        });
-        try self.symbol_resolver.putNoClobber(self.base.allocator, n_strx, .{
-            .where = .undef,
-            .where_index = undef_sym_index,
-        });
-        _ = try unresolved.getOrPut(undef_sym_index);
-    }
-
     next_sym = 0;
     loop: while (next_sym < unresolved.count()) {
         const sym = self.undefs.items[unresolved.keys()[next_sym]];
@@ -2521,6 +2480,59 @@ fn resolveSymbols(self: *MachO) !void {
 
     if (unresolved.count() > 0)
         return error.UndefinedSymbolReference;
+}
+
+fn resolveDyldStubBinder(self: *MachO) !void {
+    if (self.dyld_stub_binder_index != null) return;
+
+    const n_strx = try self.makeString("dyld_stub_binder");
+    const sym_index = @intCast(u32, self.undefs.items.len);
+    try self.undefs.append(self.base.allocator, .{
+        .n_strx = n_strx,
+        .n_type = macho.N_UNDF,
+        .n_sect = 0,
+        .n_desc = 0,
+        .n_value = 0,
+    });
+    try self.symbol_resolver.putNoClobber(self.base.allocator, n_strx, .{
+        .where = .undef,
+        .where_index = sym_index,
+    });
+    const sym = &self.undefs.items[sym_index];
+    const sym_name = self.getString(n_strx);
+
+    for (self.dylibs.items) |dylib, id| {
+        if (!dylib.symbols.contains(sym_name)) continue;
+
+        const dylib_id = @intCast(u16, id);
+        if (!self.referenced_dylibs.contains(dylib_id)) {
+            try self.referenced_dylibs.putNoClobber(self.base.allocator, dylib_id, {});
+        }
+
+        const ordinal = self.referenced_dylibs.getIndex(dylib_id) orelse unreachable;
+        sym.n_type |= macho.N_EXT;
+        sym.n_desc = @intCast(u16, ordinal + 1) * macho.N_SYMBOL_RESOLVER;
+        self.dyld_stub_binder_index = sym_index;
+
+        break;
+    }
+
+    if (self.dyld_stub_binder_index == null) {
+        log.err("undefined reference to symbol '{s}'", .{sym_name});
+        return error.UndefinedSymbolReference;
+    }
+
+    // Add dyld_stub_binder as the final GOT entry.
+    const got_index = @intCast(u32, self.got_entries.items.len);
+    const got_entry = GotIndirectionKey{
+        .where = .undef,
+        .where_index = self.dyld_stub_binder_index.?,
+    };
+    try self.got_entries.append(self.base.allocator, got_entry);
+    try self.got_entries_map.putNoClobber(self.base.allocator, got_entry, got_index);
+
+    self.binding_info_dirty = true;
+    self.got_entries_count_dirty = true;
 }
 
 fn parseTextBlocks(self: *MachO) !void {
