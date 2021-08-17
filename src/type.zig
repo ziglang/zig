@@ -534,15 +534,24 @@ pub const Type = extern union {
                 return a_data.error_set.eql(b_data.error_set) and a_data.payload.eql(b_data.payload);
             },
             .ErrorSet => {
-                const a_is_anyerror = a.tag() == .anyerror;
-                const b_is_anyerror = b.tag() == .anyerror;
+                if (a.tag() == .anyerror and b.tag() == .anyerror) {
+                    return true;
+                }
 
-                if (a_is_anyerror and b_is_anyerror) return true;
-                if (a_is_anyerror or b_is_anyerror) return false;
+                if (a.tag() == .error_set and b.tag() == .error_set) {
+                    return a.castTag(.error_set).?.data.owner_decl == b.castTag(.error_set).?.data.owner_decl;
+                }
 
-                std.debug.panic("TODO implement Type equality comparison of {} and {}", .{
-                    a.tag(), b.tag(),
-                });
+                if (a.tag() == .error_set_inferred and b.tag() == .error_set_inferred) {
+                    return a.castTag(.error_set_inferred).?.data.func == b.castTag(.error_set_inferred).?.data.func;
+                }
+
+                if (a.tag() == .error_set_single and b.tag() == .error_set_single) {
+                    const a_data = a.castTag(.error_set_single).?.data;
+                    const b_data = b.castTag(.error_set_single).?.data;
+                    return std.mem.eql(u8, a_data, b_data);
+                }
+                return false;
             },
             .Opaque,
             .Float,
