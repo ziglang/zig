@@ -75,6 +75,6 @@ wctrans_t wctrans(const char* property);
 #undef towctrans
 #undef wctrans
 
-#endif  // __cplusplus
+#endif // __cplusplus
 
-#endif  // _LIBCPP_WCTYPE_H
+#endif // _LIBCPP_WCTYPE_H

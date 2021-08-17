@@ -280,17 +280,20 @@ public:
 class VendorExtQualType final : public Node {
   const Node *Ty;
   StringView Ext;
+  const Node *TA;
 
 public:
-  VendorExtQualType(const Node *Ty_, StringView Ext_)
-      : Node(KVendorExtQualType), Ty(Ty_), Ext(Ext_) {}
+  VendorExtQualType(const Node *Ty_, StringView Ext_, const Node *TA_)
+      : Node(KVendorExtQualType), Ty(Ty_), Ext(Ext_), TA(TA_) {}
 
-  template<typename Fn> void match(Fn F) const { F(Ty, Ext); }
+  template <typename Fn> void match(Fn F) const { F(Ty, Ext, TA); }
 
   void printLeft(OutputStream &S) const override {
     Ty->print(S);
     S += " ";
     S += Ext;
+    if (TA != nullptr)
+      TA->print(S);
   }
 };
 
@@ -3680,8 +3683,6 @@ Node *AbstractManglingParser<Derived, Alloc>::parseQualifiedType() {
     if (Qual.empty())
       return nullptr;
 
-    // FIXME parse the optional <template-args> here!
-
     // extension            ::= U <objc-name> <objc-type>  # objc-type<identifier>
     if (Qual.startsWith("objcproto")) {
       StringView ProtoSourceName = Qual.dropFront(std::strlen("objcproto"));
@@ -3699,10 +3700,17 @@ Node *AbstractManglingParser<Derived, Alloc>::parseQualifiedType() {
       return make<ObjCProtoName>(Child, Proto);
     }
 
+    Node *TA = nullptr;
+    if (look() == 'I') {
+      TA = getDerived().parseTemplateArgs();
+      if (TA == nullptr)
+        return nullptr;
+    }
+
     Node *Child = getDerived().parseQualifiedType();
     if (Child == nullptr)
       return nullptr;
-    return make<VendorExtQualType>(Child, Qual);
+    return make<VendorExtQualType>(Child, Qual, TA);
   }
 
   Qualifiers Quals = parseCVQualifiers();
@@ -3875,7 +3883,7 @@ Node *AbstractManglingParser<Derived, Alloc>::parseType() {
     //                ::= Dh   # IEEE 754r half-precision floating point (16 bits)
     case 'h':
       First += 2;
-      return make<NameType>("decimal16");
+      return make<NameType>("half");
     //                ::= Di   # char32_t
     case 'i':
       First += 2;
@@ -5227,14 +5235,18 @@ Node *AbstractManglingParser<Derived, Alloc>::parseEncoding() {
   class SaveTemplateParams {
     AbstractManglingParser *Parser;
     decltype(TemplateParams) OldParams;
+    decltype(OuterTemplateParams) OldOuterParams;
 
   public:
     SaveTemplateParams(AbstractManglingParser *TheParser) : Parser(TheParser) {
       OldParams = std::move(Parser->TemplateParams);
+      OldOuterParams = std::move(Parser->OuterTemplateParams);
       Parser->TemplateParams.clear();
+      Parser->OuterTemplateParams.clear();
     }
     ~SaveTemplateParams() {
       Parser->TemplateParams = std::move(OldParams);
+      Parser->OuterTemplateParams = std::move(OldOuterParams);
     }
   } SaveTemplateParams(this);
 

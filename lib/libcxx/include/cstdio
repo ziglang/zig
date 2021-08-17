@@ -104,72 +104,72 @@ void perror(const char* s);
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-using ::FILE;
-using ::fpos_t;
-using ::size_t;
+using ::FILE _LIBCPP_USING_IF_EXISTS;
+using ::fpos_t _LIBCPP_USING_IF_EXISTS;
+using ::size_t _LIBCPP_USING_IF_EXISTS;
 
-using ::fclose;
-using ::fflush;
-using ::setbuf;
-using ::setvbuf;
-using ::fprintf;
-using ::fscanf;
-using ::snprintf;
-using ::sprintf;
-using ::sscanf;
-using ::vfprintf;
-using ::vfscanf;
-using ::vsscanf;
-using ::vsnprintf;
-using ::vsprintf;
-using ::fgetc;
-using ::fgets;
-using ::fputc;
-using ::fputs;
-using ::getc;
-using ::putc;
-using ::ungetc;
-using ::fread;
-using ::fwrite;
+using ::fclose _LIBCPP_USING_IF_EXISTS;
+using ::fflush _LIBCPP_USING_IF_EXISTS;
+using ::setbuf _LIBCPP_USING_IF_EXISTS;
+using ::setvbuf _LIBCPP_USING_IF_EXISTS;
+using ::fprintf _LIBCPP_USING_IF_EXISTS;
+using ::fscanf _LIBCPP_USING_IF_EXISTS;
+using ::snprintf _LIBCPP_USING_IF_EXISTS;
+using ::sprintf _LIBCPP_USING_IF_EXISTS;
+using ::sscanf _LIBCPP_USING_IF_EXISTS;
+using ::vfprintf _LIBCPP_USING_IF_EXISTS;
+using ::vfscanf _LIBCPP_USING_IF_EXISTS;
+using ::vsscanf _LIBCPP_USING_IF_EXISTS;
+using ::vsnprintf _LIBCPP_USING_IF_EXISTS;
+using ::vsprintf _LIBCPP_USING_IF_EXISTS;
+using ::fgetc _LIBCPP_USING_IF_EXISTS;
+using ::fgets _LIBCPP_USING_IF_EXISTS;
+using ::fputc _LIBCPP_USING_IF_EXISTS;
+using ::fputs _LIBCPP_USING_IF_EXISTS;
+using ::getc _LIBCPP_USING_IF_EXISTS;
+using ::putc _LIBCPP_USING_IF_EXISTS;
+using ::ungetc _LIBCPP_USING_IF_EXISTS;
+using ::fread _LIBCPP_USING_IF_EXISTS;
+using ::fwrite _LIBCPP_USING_IF_EXISTS;
 #ifndef _LIBCPP_HAS_NO_FGETPOS_FSETPOS
-using ::fgetpos;
+using ::fgetpos _LIBCPP_USING_IF_EXISTS;
 #endif
-using ::fseek;
+using ::fseek _LIBCPP_USING_IF_EXISTS;
 #ifndef _LIBCPP_HAS_NO_FGETPOS_FSETPOS
-using ::fsetpos;
+using ::fsetpos _LIBCPP_USING_IF_EXISTS;
 #endif
-using ::ftell;
-using ::rewind;
-using ::clearerr;
-using ::feof;
-using ::ferror;
-using ::perror;
+using ::ftell _LIBCPP_USING_IF_EXISTS;
+using ::rewind _LIBCPP_USING_IF_EXISTS;
+using ::clearerr _LIBCPP_USING_IF_EXISTS;
+using ::feof _LIBCPP_USING_IF_EXISTS;
+using ::ferror _LIBCPP_USING_IF_EXISTS;
+using ::perror _LIBCPP_USING_IF_EXISTS;
 
 #ifndef _LIBCPP_HAS_NO_GLOBAL_FILESYSTEM_NAMESPACE
-using ::fopen;
-using ::freopen;
-using ::remove;
-using ::rename;
-using ::tmpfile;
-using ::tmpnam;
+using ::fopen _LIBCPP_USING_IF_EXISTS;
+using ::freopen _LIBCPP_USING_IF_EXISTS;
+using ::remove _LIBCPP_USING_IF_EXISTS;
+using ::rename _LIBCPP_USING_IF_EXISTS;
+using ::tmpfile _LIBCPP_USING_IF_EXISTS;
+using ::tmpnam _LIBCPP_USING_IF_EXISTS;
 #endif
 
 #ifndef _LIBCPP_HAS_NO_STDIN
-using ::getchar;
+using ::getchar _LIBCPP_USING_IF_EXISTS;
 #if _LIBCPP_STD_VER <= 11 && !defined(_LIBCPP_C_HAS_NO_GETS)
-using ::gets;
+using ::gets _LIBCPP_USING_IF_EXISTS;
 #endif
-using ::scanf;
-using ::vscanf;
+using ::scanf _LIBCPP_USING_IF_EXISTS;
+using ::vscanf _LIBCPP_USING_IF_EXISTS;
 #endif
 
 #ifndef _LIBCPP_HAS_NO_STDOUT
-using ::printf;
-using ::putchar;
-using ::puts;
-using ::vprintf;
+using ::printf _LIBCPP_USING_IF_EXISTS;
+using ::putchar _LIBCPP_USING_IF_EXISTS;
+using ::puts _LIBCPP_USING_IF_EXISTS;
+using ::vprintf _LIBCPP_USING_IF_EXISTS;
 #endif
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif  // _LIBCPP_CSTDIO
+#endif // _LIBCPP_CSTDIO

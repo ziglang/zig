@@ -211,8 +211,8 @@ storage-class-specifier const error_category& iostream_category() noexcept;
 */
 
 #include <__config>
-#include <iosfwd>
 #include <__locale>
+#include <iosfwd>
 #include <system_error>
 
 #if !defined(_LIBCPP_HAS_NO_ATOMIC_HEADER)
@@ -591,13 +591,6 @@ ios_base::exceptions(iostate __iostate)
     clear(__rdstate_);
 }
 
-#if defined(_LIBCPP_CXX03_LANG)
-struct _LIBCPP_TYPE_VIS __cxx03_bool {
-  typedef void (__cxx03_bool::*__bool_type)();
-  void __true_value() {}
-};
-#endif
-
 template <class _CharT, class _Traits>
 class _LIBCPP_TEMPLATE_VIS basic_ios
     : public ios_base
@@ -614,17 +607,14 @@ public:
     static_assert((is_same<_CharT, typename traits_type::char_type>::value),
                   "traits_type::char_type must be the same type as CharT");
 
-  // __true_value will generate undefined references when linking unless
-  // we give it internal linkage.
-
-#if defined(_LIBCPP_CXX03_LANG)
+#ifdef _LIBCPP_CXX03_LANG
+    // Preserve the ability to compare with literal 0,
+    // and implicitly convert to bool, but not implicitly convert to int.
     _LIBCPP_INLINE_VISIBILITY
-    operator __cxx03_bool::__bool_type() const {
-        return !fail() ? &__cxx03_bool::__true_value : nullptr;
-    }
+    operator void*() const {return fail() ? nullptr : (void*)this;}
 #else
     _LIBCPP_INLINE_VISIBILITY
-    _LIBCPP_EXPLICIT operator bool() const {return !fail();}
+    explicit operator bool() const {return !fail();}
 #endif
 
     _LIBCPP_INLINE_VISIBILITY bool operator!() const    {return  fail();}
@@ -679,10 +669,8 @@ protected:
 
     _LIBCPP_INLINE_VISIBILITY
     void move(basic_ios& __rhs);
-#ifndef _LIBCPP_CXX03_LANG
     _LIBCPP_INLINE_VISIBILITY
     void move(basic_ios&& __rhs) {move(__rhs);}
-#endif
     _LIBCPP_INLINE_VISIBILITY
     void swap(basic_ios& __rhs) _NOEXCEPT;
     _LIBCPP_INLINE_VISIBILITY
@@ -1037,4 +1025,4 @@ defaultfloat(ios_base& __str)
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif  // _LIBCPP_IOS
+#endif // _LIBCPP_IOS

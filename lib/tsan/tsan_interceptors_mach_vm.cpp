@@ -19,12 +19,11 @@
 
 namespace __tsan {
 
-static bool intersects_with_shadow(mach_vm_address_t *address,
+static bool intersects_with_shadow(mach_vm_address_t address,
                                    mach_vm_size_t size, int flags) {
   // VM_FLAGS_FIXED is 0x0, so we have to test for VM_FLAGS_ANYWHERE.
   if (flags & VM_FLAGS_ANYWHERE) return false;
-  uptr ptr = *address;
-  return !IsAppMem(ptr) || !IsAppMem(ptr + size - 1);
+  return !IsAppMem(address) || !IsAppMem(address + size - 1);
 }
 
 TSAN_INTERCEPTOR(kern_return_t, mach_vm_allocate, vm_map_t target,
@@ -32,12 +31,12 @@ TSAN_INTERCEPTOR(kern_return_t, mach_vm_allocate, vm_map_t target,
   SCOPED_TSAN_INTERCEPTOR(mach_vm_allocate, target, address, size, flags);
   if (target != mach_task_self())
     return REAL(mach_vm_allocate)(target, address, size, flags);
-  if (intersects_with_shadow(address, size, flags))
+  if (address && intersects_with_shadow(*address, size, flags))
     return KERN_NO_SPACE;
-  kern_return_t res = REAL(mach_vm_allocate)(target, address, size, flags);
-  if (res == KERN_SUCCESS)
+  kern_return_t kr = REAL(mach_vm_allocate)(target, address, size, flags);
+  if (kr == KERN_SUCCESS)
     MemoryRangeImitateWriteOrResetRange(thr, pc, *address, size);
-  return res;
+  return kr;
 }
 
 TSAN_INTERCEPTOR(kern_return_t, mach_vm_deallocate, vm_map_t target,
@@ -45,8 +44,10 @@ TSAN_INTERCEPTOR(kern_return_t, mach_vm_deallocate, vm_map_t target,
   SCOPED_TSAN_INTERCEPTOR(mach_vm_deallocate, target, address, size);
   if (target != mach_task_self())
     return REAL(mach_vm_deallocate)(target, address, size);
-  UnmapShadow(thr, address, size);
-  return REAL(mach_vm_deallocate)(target, address, size);
+  kern_return_t kr = REAL(mach_vm_deallocate)(target, address, size);
+  if (kr == KERN_SUCCESS && address)
+    UnmapShadow(thr, address, size);
+  return kr;
 }
 
 }  // namespace __tsan

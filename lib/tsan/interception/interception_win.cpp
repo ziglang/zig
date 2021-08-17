@@ -136,7 +136,7 @@ namespace __interception {
 static const int kAddressLength = FIRST_32_SECOND_64(4, 8);
 static const int kJumpInstructionLength = 5;
 static const int kShortJumpInstructionLength = 2;
-static const int kIndirectJumpInstructionLength = 6;
+UNUSED static const int kIndirectJumpInstructionLength = 6;
 static const int kBranchLength =
     FIRST_32_SECOND_64(kJumpInstructionLength, kIndirectJumpInstructionLength);
 static const int kDirectBranchLength = kBranchLength + kAddressLength;
@@ -165,7 +165,7 @@ static uptr GetMmapGranularity() {
   return si.dwAllocationGranularity;
 }
 
-static uptr RoundUpTo(uptr size, uptr boundary) {
+UNUSED static uptr RoundUpTo(uptr size, uptr boundary) {
   return (size + boundary - 1) & ~(boundary - 1);
 }
 
@@ -309,7 +309,7 @@ struct TrampolineMemoryRegion {
   uptr max_size;
 };
 
-static const uptr kTrampolineScanLimitRange = 1 << 31;  // 2 gig
+UNUSED static const uptr kTrampolineScanLimitRange = 1 << 31;  // 2 gig
 static const int kMaxTrampolineRegion = 1024;
 static TrampolineMemoryRegion TrampolineRegions[kMaxTrampolineRegion];
 

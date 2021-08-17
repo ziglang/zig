@@ -2666,7 +2666,7 @@ fn reportRetryableCObjectError(
 
     const c_obj_err_msg = try comp.gpa.create(CObject.ErrorMsg);
     errdefer comp.gpa.destroy(c_obj_err_msg);
-    const msg = try std.fmt.allocPrint(comp.gpa, "unable to build C object: {s}", .{@errorName(err)});
+    const msg = try std.fmt.allocPrint(comp.gpa, "{s}", .{@errorName(err)});
     errdefer comp.gpa.free(msg);
     c_obj_err_msg.* = .{
         .msg = msg,
@@ -2741,6 +2741,8 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
 
     const tracy = trace(@src());
     defer tracy.end();
+
+    log.debug("updating C object: {s}", .{c_object.src.src_path});
 
     if (c_object.clearStatus(comp.gpa)) {
         // There was previous failure.
@@ -3271,7 +3273,7 @@ fn failCObjWithOwnedErrorMsg(
         defer lock.release();
         {
             errdefer err_msg.destroy(comp.gpa);
-            try comp.failed_c_objects.ensureCapacity(comp.gpa, comp.failed_c_objects.count() + 1);
+            try comp.failed_c_objects.ensureUnusedCapacity(comp.gpa, 1);
         }
         comp.failed_c_objects.putAssumeCapacityNoClobber(c_object, err_msg);
     }

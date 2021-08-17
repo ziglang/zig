@@ -24,7 +24,7 @@
 //             E.g. with kNumBits==3 all size classes after 2^kMidSizeLog
 //             look like 0b1xx0..0, where x is either 0 or 1.
 //
-// Example: kNumBits=3, kMidSizeLog=4, kMidSizeLog=8, kMaxSizeLog=17:
+// Example: kNumBits=3, kMinSizeLog=4, kMidSizeLog=8, kMaxSizeLog=17:
 //
 // Classes 1 - 16 correspond to sizes 16 to 256 (size = class_id * 16).
 // Next 4 classes: 256 + i * 64  (i = 1 to 4).

@@ -45,8 +45,8 @@ namespace std
 
 */
 
-#include <__config>
 #include <__availability>
+#include <__config>
 #include <atomic>
 #ifndef _LIBCPP_HAS_NO_TREE_BARRIER
 # include <memory>
@@ -107,7 +107,6 @@ void __destroy_barrier_algorithm_base(__barrier_algorithm_base* __barrier);
 
 template<class _CompletionF>
 class __barrier_base {
-
     ptrdiff_t                                               __expected;
     unique_ptr<__barrier_algorithm_base,
                void (*)(__barrier_algorithm_base*)>         __base;
@@ -146,7 +145,7 @@ public:
     _LIBCPP_AVAILABILITY_SYNC _LIBCPP_INLINE_VISIBILITY
     void wait(arrival_token&& __old_phase) const
     {
-        auto const __test_fn = [=]() -> bool {
+        auto const __test_fn = [this, __old_phase]() -> bool {
             return __phase.load(memory_order_acquire) != __old_phase;
         };
         __libcpp_thread_poll_with_backoff(__test_fn, __libcpp_timed_backoff_policy());
@@ -309,11 +308,11 @@ public:
     {
         __b.wait(_VSTD::move(__phase));
     }
-	_LIBCPP_AVAILABILITY_SYNC _LIBCPP_INLINE_VISIBILITY
+    _LIBCPP_AVAILABILITY_SYNC _LIBCPP_INLINE_VISIBILITY
     void arrive_and_wait()
     {
         wait(arrive());
-	}
+    }
     _LIBCPP_AVAILABILITY_SYNC _LIBCPP_INLINE_VISIBILITY
     void arrive_and_drop()
     {

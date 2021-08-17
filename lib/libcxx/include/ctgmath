@@ -25,4 +25,4 @@
 #pragma GCC system_header
 #endif
 
-#endif  // _LIBCPP_CTGMATH
+#endif // _LIBCPP_CTGMATH

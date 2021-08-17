@@ -162,8 +162,8 @@ AddrHashMap<T, kSize>::AddrHashMap() {
   table_ = (Bucket*)MmapOrDie(kSize * sizeof(table_[0]), "AddrHashMap");
 }
 
-template<typename T, uptr kSize>
-void AddrHashMap<T, kSize>::acquire(Handle *h) {
+template <typename T, uptr kSize>
+void AddrHashMap<T, kSize>::acquire(Handle *h) NO_THREAD_SAFETY_ANALYSIS {
   uptr addr = h->addr_;
   uptr hash = calcHash(addr);
   Bucket *b = &table_[hash];
@@ -289,57 +289,57 @@ void AddrHashMap<T, kSize>::acquire(Handle *h) {
   CHECK_EQ(atomic_load(&c->addr, memory_order_relaxed), 0);
   h->addidx_ = i;
   h->cell_ = c;
-}
+ }
 
-template<typename T, uptr kSize>
-void AddrHashMap<T, kSize>::release(Handle *h) {
-  if (!h->cell_)
-    return;
-  Bucket *b = h->bucket_;
-  Cell *c = h->cell_;
-  uptr addr1 = atomic_load(&c->addr, memory_order_relaxed);
-  if (h->created_) {
-    // Denote completion of insertion.
-    CHECK_EQ(addr1, 0);
-    // After the following store, the element becomes available
-    // for lock-free reads.
-    atomic_store(&c->addr, h->addr_, memory_order_release);
-    b->mtx.Unlock();
-  } else if (h->remove_) {
-    // Denote that the cell is empty now.
-    CHECK_EQ(addr1, h->addr_);
-    atomic_store(&c->addr, 0, memory_order_release);
-    // See if we need to compact the bucket.
-    AddBucket *add = (AddBucket*)atomic_load(&b->add, memory_order_relaxed);
-    if (h->addidx_ == -1U) {
-      // Removed from embed array, move an add element into the freed cell.
-      if (add && add->size != 0) {
-        uptr last = --add->size;
-        Cell *c1 = &add->cells[last];
-        c->val = c1->val;
-        uptr addr1 = atomic_load(&c1->addr, memory_order_relaxed);
-        atomic_store(&c->addr, addr1, memory_order_release);
-        atomic_store(&c1->addr, 0, memory_order_release);
-      }
-    } else {
-      // Removed from add array, compact it.
-      uptr last = --add->size;
-      Cell *c1 = &add->cells[last];
-      if (c != c1) {
-        *c = *c1;
-        atomic_store(&c1->addr, 0, memory_order_relaxed);
-      }
-    }
-    if (add && add->size == 0) {
-      // FIXME(dvyukov): free add?
-    }
-    b->mtx.Unlock();
-  } else {
-    CHECK_EQ(addr1, h->addr_);
-    if (h->addidx_ != -1U)
-      b->mtx.ReadUnlock();
-  }
-}
+ template <typename T, uptr kSize>
+ void AddrHashMap<T, kSize>::release(Handle *h) NO_THREAD_SAFETY_ANALYSIS {
+   if (!h->cell_)
+     return;
+   Bucket *b = h->bucket_;
+   Cell *c = h->cell_;
+   uptr addr1 = atomic_load(&c->addr, memory_order_relaxed);
+   if (h->created_) {
+     // Denote completion of insertion.
+     CHECK_EQ(addr1, 0);
+     // After the following store, the element becomes available
+     // for lock-free reads.
+     atomic_store(&c->addr, h->addr_, memory_order_release);
+     b->mtx.Unlock();
+   } else if (h->remove_) {
+     // Denote that the cell is empty now.
+     CHECK_EQ(addr1, h->addr_);
+     atomic_store(&c->addr, 0, memory_order_release);
+     // See if we need to compact the bucket.
+     AddBucket *add = (AddBucket *)atomic_load(&b->add, memory_order_relaxed);
+     if (h->addidx_ == -1U) {
+       // Removed from embed array, move an add element into the freed cell.
+       if (add && add->size != 0) {
+         uptr last = --add->size;
+         Cell *c1 = &add->cells[last];
+         c->val = c1->val;
+         uptr addr1 = atomic_load(&c1->addr, memory_order_relaxed);
+         atomic_store(&c->addr, addr1, memory_order_release);
+         atomic_store(&c1->addr, 0, memory_order_release);
+       }
+     } else {
+       // Removed from add array, compact it.
+       uptr last = --add->size;
+       Cell *c1 = &add->cells[last];
+       if (c != c1) {
+         *c = *c1;
+         atomic_store(&c1->addr, 0, memory_order_relaxed);
+       }
+     }
+     if (add && add->size == 0) {
+       // FIXME(dvyukov): free add?
+     }
+     b->mtx.Unlock();
+   } else {
+     CHECK_EQ(addr1, h->addr_);
+     if (h->addidx_ != -1U)
+       b->mtx.ReadUnlock();
+   }
+ }
 
 template<typename T, uptr kSize>
 uptr AddrHashMap<T, kSize>::calcHash(uptr addr) {

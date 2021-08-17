@@ -76,4 +76,4 @@ Macros:
 #pragma GCC system_header
 #endif
 
-#endif  // _LIBCPP_CFLOAT
+#endif // _LIBCPP_CFLOAT

@@ -354,8 +354,8 @@ bool MemoryMappingLayout::Next(MemoryMappedSegment *segment) {
 void MemoryMappingLayout::DumpListOfModules(
     InternalMmapVectorNoCtor<LoadedModule> *modules) {
   Reset();
-  InternalScopedString module_name(kMaxPathLength);
-  MemoryMappedSegment segment(module_name.data(), kMaxPathLength);
+  InternalMmapVector<char> module_name(kMaxPathLength);
+  MemoryMappedSegment segment(module_name.data(), module_name.size());
   MemoryMappedSegmentData data;
   segment.data_ = &data;
   while (Next(&segment)) {

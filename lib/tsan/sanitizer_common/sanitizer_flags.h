@@ -62,6 +62,10 @@ void RegisterIncludeFlags(FlagParser *parser, CommonFlags *cf);
 // and perform initializations common to all sanitizers (e.g. setting
 // verbosity).
 void InitializeCommonFlags(CommonFlags *cf = &common_flags_dont_use);
+
+// Platform specific flags initialization.
+void InitializePlatformCommonFlags(CommonFlags *cf);
+
 }  // namespace __sanitizer
 
 #endif  // SANITIZER_FLAGS_H

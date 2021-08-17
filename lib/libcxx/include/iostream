@@ -14,9 +14,9 @@
     iostream synopsis
 
 #include <ios>
-#include <streambuf>
 #include <istream>
 #include <ostream>
+#include <streambuf>
 
 namespace std {
 
@@ -35,9 +35,9 @@ extern wostream wclog;
 
 #include <__config>
 #include <ios>
-#include <streambuf>
 #include <istream>
 #include <ostream>
+#include <streambuf>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #pragma GCC system_header
@@ -60,4 +60,4 @@ extern _LIBCPP_FUNC_VIS wostream wclog;
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif  // _LIBCPP_IOSTREAM
+#endif // _LIBCPP_IOSTREAM

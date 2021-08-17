@@ -9,13 +9,13 @@
 // Information about the process mappings (Solaris-specific parts).
 //===----------------------------------------------------------------------===//
 
+// Before Solaris 11.4, <procfs.h> doesn't work in a largefile environment.
+#undef _FILE_OFFSET_BITS
 #include "sanitizer_platform.h"
 #if SANITIZER_SOLARIS
 #include "sanitizer_common.h"
 #include "sanitizer_procmaps.h"
 
-// Before Solaris 11.4, <procfs.h> doesn't work in a largefile environment.
-#undef _FILE_OFFSET_BITS
 #include <procfs.h>
 #include <limits.h>
 
@@ -35,7 +35,8 @@ bool MemoryMappingLayout::Next(MemoryMappedSegment *segment) {
   char *last = data_.proc_self_maps.data + data_.proc_self_maps.len;
   if (data_.current >= last) return false;
 
-  prxmap_t *xmapentry = (prxmap_t*)data_.current;
+  prxmap_t *xmapentry =
+      const_cast<prxmap_t *>(reinterpret_cast<const prxmap_t *>(data_.current));
 
   segment->start = (uptr)xmapentry->pr_vaddr;
   segment->end = (uptr)(xmapentry->pr_vaddr + xmapentry->pr_size);

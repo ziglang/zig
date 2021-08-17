@@ -10,11 +10,12 @@
 #ifndef _LIBCPP_THREADING_SUPPORT
 #define _LIBCPP_THREADING_SUPPORT
 
-#include <__config>
 #include <__availability>
+#include <__config>
 #include <chrono>
-#include <iosfwd>
 #include <errno.h>
+#include <iosfwd>
+#include <limits>
 
 #ifdef __MVS__
 # include <__support/ibm/nanosleep.h>
@@ -28,14 +29,15 @@
 # include <__external_threading>
 #elif !defined(_LIBCPP_HAS_NO_THREADS)
 
+#if defined(__APPLE__) || defined(__MVS__)
+# define _LIBCPP_NO_NATIVE_SEMAPHORES
+#endif
+
 #if defined(_LIBCPP_HAS_THREAD_API_PTHREAD)
 # include <pthread.h>
 # include <sched.h>
-# if defined(__APPLE__) || defined(__MVS__)
-#  define _LIBCPP_NO_NATIVE_SEMAPHORES
-# endif
 # ifndef _LIBCPP_NO_NATIVE_SEMAPHORES
-# include <semaphore.h>
+#   include <semaphore.h>
 # endif
 #elif defined(_LIBCPP_HAS_THREAD_API_C11)
 # include <threads.h>
@@ -149,6 +151,9 @@ typedef void* __libcpp_condvar_t;
 
 // Semaphore
 typedef void* __libcpp_semaphore_t;
+#if defined(_LIBCPP_HAS_THREAD_API_WIN32)
+# define _LIBCPP_SEMAPHORE_MAX (::std::numeric_limits<long>::max())
+#endif
 
 // Execute Once
 typedef void* __libcpp_exec_once_flag;
@@ -390,7 +395,7 @@ bool __libcpp_recursive_mutex_trylock(__libcpp_recursive_mutex_t *__m)
   return pthread_mutex_trylock(__m) == 0;
 }
 
-int __libcpp_recursive_mutex_unlock(__libcpp_mutex_t *__m)
+int __libcpp_recursive_mutex_unlock(__libcpp_recursive_mutex_t *__m)
 {
   return pthread_mutex_unlock(__m);
 }
@@ -500,7 +505,7 @@ bool __libcpp_thread_id_less(__libcpp_thread_id t1, __libcpp_thread_id t2)
 
 // Thread
 bool __libcpp_thread_isnull(const __libcpp_thread_t *__t) {
-  return *__t == __libcpp_thread_t();
+  return __libcpp_thread_get_id(__t) == 0;
 }
 
 int __libcpp_thread_create(__libcpp_thread_t *__t, void *(*__func)(void *),
@@ -578,7 +583,7 @@ bool __libcpp_recursive_mutex_trylock(__libcpp_recursive_mutex_t *__m)
   return mtx_trylock(__m) == thrd_success;
 }
 
-int __libcpp_recursive_mutex_unlock(__libcpp_mutex_t *__m)
+int __libcpp_recursive_mutex_unlock(__libcpp_recursive_mutex_t *__m)
 {
   return mtx_unlock(__m) == thrd_success ? 0 : EINVAL;
 }

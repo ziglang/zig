@@ -18,8 +18,8 @@
 // (currently, 32 bits and internal allocator).
 class LargeMmapAllocatorPtrArrayStatic {
  public:
-  INLINE void *Init() { return &p_[0]; }
-  INLINE void EnsureSpace(uptr n) { CHECK_LT(n, kMaxNumChunks); }
+  inline void *Init() { return &p_[0]; }
+  inline void EnsureSpace(uptr n) { CHECK_LT(n, kMaxNumChunks); }
  private:
   static const int kMaxNumChunks = 1 << 15;
   uptr p_[kMaxNumChunks];
@@ -31,14 +31,14 @@ class LargeMmapAllocatorPtrArrayStatic {
 // same functionality in Fuchsia case, which does not support MAP_NORESERVE.
 class LargeMmapAllocatorPtrArrayDynamic {
  public:
-  INLINE void *Init() {
+  inline void *Init() {
     uptr p = address_range_.Init(kMaxNumChunks * sizeof(uptr),
                                  SecondaryAllocatorName);
     CHECK(p);
     return reinterpret_cast<void*>(p);
   }
 
-  INLINE void EnsureSpace(uptr n) {
+  inline void EnsureSpace(uptr n) {
     CHECK_LT(n, kMaxNumChunks);
     DCHECK(n <= n_reserved_);
     if (UNLIKELY(n == n_reserved_)) {
@@ -267,13 +267,9 @@ class LargeMmapAllocator {
 
   // ForceLock() and ForceUnlock() are needed to implement Darwin malloc zone
   // introspection API.
-  void ForceLock() {
-    mutex_.Lock();
-  }
+  void ForceLock() ACQUIRE(mutex_) { mutex_.Lock(); }
 
-  void ForceUnlock() {
-    mutex_.Unlock();
-  }
+  void ForceUnlock() RELEASE(mutex_) { mutex_.Unlock(); }
 
   // Iterate over all existing chunks.
   // The allocator must be locked when calling this function.

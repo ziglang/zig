@@ -22,7 +22,10 @@ int __libcpp_vasprintf( char **sptr, const char *__restrict format, va_list ap )
 {
     *sptr = NULL;
     // Query the count required.
-    int count = _vsnprintf( NULL, 0, format, ap );
+    va_list ap_copy;
+    va_copy(ap_copy, ap);
+    int count = _vsnprintf( NULL, 0, format, ap_copy );
+    va_end(ap_copy);
     if (count < 0)
         return count;
     size_t buffer_size = static_cast<size_t>(count) + 1;

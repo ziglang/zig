@@ -161,12 +161,16 @@ template <class T, class Allocator, class Predicate>
 */
 
 #include <__config>
+#include <__debug>
 #include <__split_buffer>
-#include <type_traits>
+#include <__utility/forward.h>
+#include <algorithm>
+#include <compare>
 #include <initializer_list>
 #include <iterator>
-#include <algorithm>
+#include <limits>
 #include <stdexcept>
+#include <type_traits>
 #include <version>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -1055,7 +1059,7 @@ public:
     __deque_base(__deque_base&& __c)
         _NOEXCEPT_(is_nothrow_move_constructible<allocator_type>::value);
     __deque_base(__deque_base&& __c, const allocator_type& __a);
-#endif  // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_CXX03_LANG
 
     void swap(__deque_base& __c)
 #if _LIBCPP_STD_VER >= 14
@@ -1222,7 +1226,7 @@ __deque_base<_Tp, _Allocator>::__deque_base(__deque_base&& __c, const allocator_
     }
 }
 
-#endif  // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_CXX03_LANG
 
 template <class _Tp, class _Allocator>
 void
@@ -1315,7 +1319,7 @@ public:
         deque(_InputIter __f, _InputIter __l, const allocator_type& __a,
               typename enable_if<__is_cpp17_input_iterator<_InputIter>::value>::type* = 0);
     deque(const deque& __c);
-    deque(const deque& __c, const allocator_type& __a);
+    deque(const deque& __c, const __identity_t<allocator_type>& __a);
 
     deque& operator=(const deque& __c);
 
@@ -1329,7 +1333,7 @@ public:
     _LIBCPP_INLINE_VISIBILITY
     deque(deque&& __c) _NOEXCEPT_(is_nothrow_move_constructible<__base>::value);
     _LIBCPP_INLINE_VISIBILITY
-    deque(deque&& __c, const allocator_type& __a);
+    deque(deque&& __c, const __identity_t<allocator_type>& __a);
     _LIBCPP_INLINE_VISIBILITY
     deque& operator=(deque&& __c)
         _NOEXCEPT_(__alloc_traits::propagate_on_container_move_assignment::value &&
@@ -1337,7 +1341,7 @@ public:
 
     _LIBCPP_INLINE_VISIBILITY
     void assign(initializer_list<value_type> __il) {assign(__il.begin(), __il.end());}
-#endif  // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_CXX03_LANG
 
     template <class _InputIter>
         void assign(_InputIter __f, _InputIter __l,
@@ -1440,7 +1444,7 @@ public:
     _LIBCPP_INLINE_VISIBILITY
     iterator insert(const_iterator __p, initializer_list<value_type> __il)
         {return insert(__p, __il.begin(), __il.end());}
-#endif  // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_CXX03_LANG
     iterator insert(const_iterator __p, const value_type& __v);
     iterator insert(const_iterator __p, size_type __n, const value_type& __v);
     template <class _InputIter>
@@ -1586,18 +1590,18 @@ public:
 
 #ifndef _LIBCPP_HAS_NO_DEDUCTION_GUIDES
 template<class _InputIterator,
-         class _Alloc = allocator<typename iterator_traits<_InputIterator>::value_type>,
-         class = typename enable_if<__is_allocator<_Alloc>::value, void>::type
+         class _Alloc = allocator<__iter_value_type<_InputIterator>>,
+         class = _EnableIf<__is_allocator<_Alloc>::value>
          >
 deque(_InputIterator, _InputIterator)
-  -> deque<typename iterator_traits<_InputIterator>::value_type, _Alloc>;
+  -> deque<__iter_value_type<_InputIterator>, _Alloc>;
 
 template<class _InputIterator,
          class _Alloc,
-         class = typename enable_if<__is_allocator<_Alloc>::value, void>::type
+         class = _EnableIf<__is_allocator<_Alloc>::value>
          >
 deque(_InputIterator, _InputIterator, _Alloc)
-  -> deque<typename iterator_traits<_InputIterator>::value_type, _Alloc>;
+  -> deque<__iter_value_type<_InputIterator>, _Alloc>;
 #endif
 
 
@@ -1658,7 +1662,7 @@ deque<_Tp, _Allocator>::deque(const deque& __c)
 }
 
 template <class _Tp, class _Allocator>
-deque<_Tp, _Allocator>::deque(const deque& __c, const allocator_type& __a)
+deque<_Tp, _Allocator>::deque(const deque& __c, const __identity_t<allocator_type>& __a)
     : __base(__a)
 {
     __append(__c.begin(), __c.end());
@@ -1701,7 +1705,7 @@ deque<_Tp, _Allocator>::deque(deque&& __c)
 
 template <class _Tp, class _Allocator>
 inline
-deque<_Tp, _Allocator>::deque(deque&& __c, const allocator_type& __a)
+deque<_Tp, _Allocator>::deque(deque&& __c, const __identity_t<allocator_type>& __a)
     : __base(_VSTD::move(__c), __a)
 {
     if (__a != __c.__alloc())
@@ -1746,7 +1750,7 @@ deque<_Tp, _Allocator>::__move_assign(deque& __c, true_type)
     __base::__move_assign(__c);
 }
 
-#endif  // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_CXX03_LANG
 
 template <class _Tp, class _Allocator>
 template <class _InputIter>
@@ -2128,7 +2132,7 @@ deque<_Tp, _Allocator>::emplace(const_iterator __p, _Args&&... __args)
     return __base::begin() + __pos;
 }
 
-#endif  // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_CXX03_LANG
 
 
 template <class _Tp, class _Allocator>
@@ -2532,7 +2536,7 @@ deque<_Tp, _Allocator>::__add_front_capacity(size_type __n)
 #ifndef _LIBCPP_NO_EXCEPTIONS
         try
         {
-#endif  // _LIBCPP_NO_EXCEPTIONS
+#endif // _LIBCPP_NO_EXCEPTIONS
             for (; __nb > 0; --__nb)
                 __buf.push_back(__alloc_traits::allocate(__a, __base::__block_size));
 #ifndef _LIBCPP_NO_EXCEPTIONS
@@ -2544,7 +2548,7 @@ deque<_Tp, _Allocator>::__add_front_capacity(size_type __n)
                 __alloc_traits::deallocate(__a, *__i, __base::__block_size);
             throw;
         }
-#endif  // _LIBCPP_NO_EXCEPTIONS
+#endif // _LIBCPP_NO_EXCEPTIONS
         for (; __back_capacity > 0; --__back_capacity)
         {
             __buf.push_back(__base::__map_.back());
@@ -2674,7 +2678,7 @@ deque<_Tp, _Allocator>::__add_back_capacity(size_type __n)
 #ifndef _LIBCPP_NO_EXCEPTIONS
         try
         {
-#endif  // _LIBCPP_NO_EXCEPTIONS
+#endif // _LIBCPP_NO_EXCEPTIONS
             for (; __nb > 0; --__nb)
                 __buf.push_back(__alloc_traits::allocate(__a, __base::__block_size));
 #ifndef _LIBCPP_NO_EXCEPTIONS
@@ -2686,7 +2690,7 @@ deque<_Tp, _Allocator>::__add_back_capacity(size_type __n)
                 __alloc_traits::deallocate(__a, *__i, __base::__block_size);
             throw;
         }
-#endif  // _LIBCPP_NO_EXCEPTIONS
+#endif // _LIBCPP_NO_EXCEPTIONS
         for (; __front_capacity > 0; --__front_capacity)
         {
             __buf.push_back(__base::__map_.front());
@@ -2720,7 +2724,7 @@ template <class _Tp, class _Allocator>
 void
 deque<_Tp, _Allocator>::pop_back()
 {
-    _LIBCPP_ASSERT(!empty(), "deque::pop_back called for empty deque");
+    _LIBCPP_ASSERT(!empty(), "deque::pop_back called on an empty deque");
     allocator_type& __a = __base::__alloc();
     size_type __p = __base::size() + __base::__start_ - 1;
     __alloc_traits::destroy(__a, _VSTD::__to_address(*(__base::__map_.begin() +
@@ -3044,4 +3048,4 @@ _LIBCPP_END_NAMESPACE_STD
 
 _LIBCPP_POP_MACROS
 
-#endif  // _LIBCPP_DEQUE
+#endif // _LIBCPP_DEQUE

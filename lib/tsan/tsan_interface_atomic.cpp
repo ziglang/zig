@@ -218,8 +218,9 @@ static a128 NoTsanAtomicLoad(const volatile a128 *a, morder mo) {
 }
 #endif
 
-template<typename T>
-static T AtomicLoad(ThreadState *thr, uptr pc, const volatile T *a, morder mo) {
+template <typename T>
+static T AtomicLoad(ThreadState *thr, uptr pc, const volatile T *a,
+                    morder mo) NO_THREAD_SAFETY_ANALYSIS {
   CHECK(IsLoadOrder(mo));
   // This fast-path is critical for performance.
   // Assume the access is atomic.
@@ -254,9 +255,9 @@ static void NoTsanAtomicStore(volatile a128 *a, a128 v, morder mo) {
 }
 #endif
 
-template<typename T>
+template <typename T>
 static void AtomicStore(ThreadState *thr, uptr pc, volatile T *a, T v,
-    morder mo) {
+                        morder mo) NO_THREAD_SAFETY_ANALYSIS {
   CHECK(IsStoreOrder(mo));
   MemoryWriteAtomic(thr, pc, (uptr)a, SizeLog<T>());
   // This fast-path is critical for performance.
@@ -277,8 +278,9 @@ static void AtomicStore(ThreadState *thr, uptr pc, volatile T *a, T v,
   s->mtx.Unlock();
 }
 
-template<typename T, T (*F)(volatile T *v, T op)>
-static T AtomicRMW(ThreadState *thr, uptr pc, volatile T *a, T v, morder mo) {
+template <typename T, T (*F)(volatile T *v, T op)>
+static T AtomicRMW(ThreadState *thr, uptr pc, volatile T *a, T v,
+                   morder mo) NO_THREAD_SAFETY_ANALYSIS {
   MemoryWriteAtomic(thr, pc, (uptr)a, SizeLog<T>());
   SyncVar *s = 0;
   if (mo != mo_relaxed) {
@@ -399,37 +401,48 @@ static T NoTsanAtomicCAS(volatile T *a, T c, T v, morder mo, morder fmo) {
   return c;
 }
 
-template<typename T>
-static bool AtomicCAS(ThreadState *thr, uptr pc,
-    volatile T *a, T *c, T v, morder mo, morder fmo) {
-  (void)fmo;  // Unused because llvm does not pass it yet.
+template <typename T>
+static bool AtomicCAS(ThreadState *thr, uptr pc, volatile T *a, T *c, T v, morder mo,
+                      morder fmo) NO_THREAD_SAFETY_ANALYSIS {
+  // 31.7.2.18: "The failure argument shall not be memory_order_release
+  // nor memory_order_acq_rel". LLVM (2021-05) fallbacks to Monotonic
+  // (mo_relaxed) when those are used.
+  CHECK(IsLoadOrder(fmo));
+
   MemoryWriteAtomic(thr, pc, (uptr)a, SizeLog<T>());
   SyncVar *s = 0;
-  bool write_lock = mo != mo_acquire && mo != mo_consume;
-  if (mo != mo_relaxed) {
+  bool write_lock = IsReleaseOrder(mo);
+
+  if (mo != mo_relaxed || fmo != mo_relaxed)
     s = ctx->metamap.GetOrCreateAndLock(thr, pc, (uptr)a, write_lock);
+
+  T cc = *c;
+  T pr = func_cas(a, cc, v);
+  bool success = pr == cc;
+  if (!success) {
+    *c = pr;
+    mo = fmo;
+  }
+
+  if (s) {
     thr->fast_state.IncrementEpoch();
     // Can't increment epoch w/o writing to the trace as well.
     TraceAddEvent(thr, thr->fast_state, EventTypeMop, 0);
-    if (IsAcqRelOrder(mo))
+
+    if (success && IsAcqRelOrder(mo))
       AcquireReleaseImpl(thr, pc, &s->clock);
-    else if (IsReleaseOrder(mo))
+    else if (success && IsReleaseOrder(mo))
       ReleaseImpl(thr, pc, &s->clock);
     else if (IsAcquireOrder(mo))
       AcquireImpl(thr, pc, &s->clock);
-  }
-  T cc = *c;
-  T pr = func_cas(a, cc, v);
-  if (s) {
+
     if (write_lock)
       s->mtx.Unlock();
     else
       s->mtx.ReadUnlock();
   }
-  if (pr == cc)
-    return true;
-  *c = pr;
-  return false;
+
+  return success;
 }
 
 template<typename T>
@@ -481,7 +494,6 @@ static morder convert_morder(morder mo) {
     const uptr callpc = (uptr)__builtin_return_address(0); \
     uptr pc = StackTrace::GetCurrentPc(); \
     mo = convert_morder(mo); \
-    AtomicStatInc(thr, sizeof(*a), mo, StatAtomic##func); \
     ScopedAtomic sa(thr, callpc, a, mo, __func__); \
     return Atomic##func(thr, pc, __VA_ARGS__); \
 /**/
@@ -501,22 +513,6 @@ class ScopedAtomic {
  private:
   ThreadState *thr_;
 };
-
-static void AtomicStatInc(ThreadState *thr, uptr size, morder mo, StatType t) {
-  StatInc(thr, StatAtomic);
-  StatInc(thr, t);
-  StatInc(thr, size == 1 ? StatAtomic1
-             : size == 2 ? StatAtomic2
-             : size == 4 ? StatAtomic4
-             : size == 8 ? StatAtomic8
-             :             StatAtomic16);
-  StatInc(thr, mo == mo_relaxed ? StatAtomicRelaxed
-             : mo == mo_consume ? StatAtomicConsume
-             : mo == mo_acquire ? StatAtomicAcquire
-             : mo == mo_release ? StatAtomicRelease
-             : mo == mo_acq_rel ? StatAtomicAcq_Rel
-             :                    StatAtomicSeq_Cst);
-}
 
 extern "C" {
 SANITIZER_INTERFACE_ATTRIBUTE

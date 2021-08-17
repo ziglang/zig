@@ -13,11 +13,11 @@
 
 namespace std {
 
-bad_exception::~bad_exception() _NOEXCEPT
+bad_exception::~bad_exception() noexcept
 {
 }
 
-const char* bad_exception::what() const _NOEXCEPT
+const char* bad_exception::what() const noexcept
 {
   return "std::bad_exception";
 }

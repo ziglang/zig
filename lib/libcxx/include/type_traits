@@ -99,7 +99,7 @@ namespace std
     template <class T> struct is_trivial;
     template <class T> struct is_trivially_copyable;
     template <class T> struct is_standard_layout;
-    template <class T> struct is_literal_type;
+    template <class T> struct is_literal_type; // Deprecated in C++17; removed in C++20
     template <class T> struct is_empty;
     template <class T> struct is_polymorphic;
     template <class T> struct is_abstract;
@@ -165,8 +165,8 @@ namespace std
     template <class T> struct decay;
     template <class... T> struct common_type;
     template <class T> struct underlying_type;
-    template <class> class result_of; // undefined
-    template <class Fn, class... ArgTypes> class result_of<Fn(ArgTypes...)>;
+    template <class> class result_of; // undefined; deprecated in C++17; removed in C++20
+    template <class Fn, class... ArgTypes> class result_of<Fn(ArgTypes...)>; // deprecated in C++17; removed in C++20
     template <class Fn, class... ArgTypes> struct invoke_result;  // C++17
 
     // const-volatile modifications:
@@ -216,9 +216,9 @@ namespace std
       using add_pointer_t    = typename add_pointer<T>::type;  // C++14
 
     // other transformations:
-    template <size_t Len, std::size_t Align=default-alignment>
+    template <size_t Len, size_t Align=default-alignment>
       using aligned_storage_t = typename aligned_storage<Len,Align>::type;  // C++14
-    template <std::size_t Len, class... Types>
+    template <size_t Len, class... Types>
       using aligned_union_t   = typename aligned_union<Len,Types...>::type;  // C++14
     template <class T>
       using remove_cvref_t    = typename remove_cvref<T>::type;  // C++20
@@ -233,7 +233,7 @@ namespace std
     template <class T>
       using underlying_type_t = typename underlying_type<T>::type;  // C++14
     template <class T>
-      using result_of_t       = typename result_of<T>::type;  // C++14
+      using result_of_t       = typename result_of<T>::type;  // C++14; deprecated in C++17; removed in C++20
     template <class Fn, class... ArgTypes>
       using invoke_result_t   = typename invoke_result<Fn, ArgTypes...>::type;  // C++17
 
@@ -302,7 +302,7 @@ namespace std
       template <class T> inline constexpr bool is_pod_v
         = is_pod<T>::value;                                              // C++17
       template <class T> inline constexpr bool is_literal_type_v
-        = is_literal_type<T>::value;                                     // C++17
+        = is_literal_type<T>::value;                                     // C++17; deprecated in C++17; removed in C++20
       template <class T> inline constexpr bool is_empty_v
         = is_empty<T>::value;                                            // C++17
       template <class T> inline constexpr bool is_polymorphic_v
@@ -476,8 +476,6 @@ struct _MetaBase<true> {
   using _EnableIfImpl _LIBCPP_NODEBUG_TYPE = _Tp;
   template <class _Result, class _First, class ..._Rest>
   using _OrImpl _LIBCPP_NODEBUG_TYPE = typename _MetaBase<_First::value != true && sizeof...(_Rest) != 0>::template _OrImpl<_First, _Rest...>;
-  template <class _Result, class _First, class ..._Rest>
-  using _AndImpl _LIBCPP_NODEBUG_TYPE = typename _MetaBase<_First::value == true && sizeof...(_Rest) != 0>::template _AndImpl<_First, _Rest...>;
 };
 
 template <>
@@ -488,8 +486,6 @@ struct _MetaBase<false> {
   using _SelectApplyImpl _LIBCPP_NODEBUG_TYPE = _SecondFn<_Args...>;
   template <class _Result, class ...>
   using _OrImpl _LIBCPP_NODEBUG_TYPE = _Result;
-  template <class _Result, class ...>
-  using _AndImpl _LIBCPP_NODEBUG_TYPE = _Result;
 };
 template <bool _Cond, class _Ret = void>
 using _EnableIf _LIBCPP_NODEBUG_TYPE = typename _MetaBase<_Cond>::template _EnableIfImpl<_Ret>;
@@ -497,14 +493,20 @@ template <bool _Cond, class _IfRes, class _ElseRes>
 using _If _LIBCPP_NODEBUG_TYPE = typename _MetaBase<_Cond>::template _SelectImpl<_IfRes, _ElseRes>;
 template <class ..._Rest>
 using _Or _LIBCPP_NODEBUG_TYPE = typename _MetaBase< sizeof...(_Rest) != 0 >::template _OrImpl<false_type, _Rest...>;
-template <class ..._Rest>
-using _And _LIBCPP_NODEBUG_TYPE = typename _MetaBase< sizeof...(_Rest) != 0 >::template _AndImpl<true_type, _Rest...>;
 template <class _Pred>
 struct _Not : _BoolConstant<!_Pred::value> {};
 template <class ..._Args>
 using _FirstType _LIBCPP_NODEBUG_TYPE = typename _MetaBase<(sizeof...(_Args) >= 1)>::template _FirstImpl<_Args...>;
 template <class ..._Args>
 using _SecondType _LIBCPP_NODEBUG_TYPE = typename _MetaBase<(sizeof...(_Args) >= 2)>::template _SecondImpl<_Args...>;
+
+template <class ...> using __expand_to_true = true_type;
+template <class ..._Pred>
+__expand_to_true<_EnableIf<_Pred::value>...> __and_helper(int);
+template <class ...>
+false_type __and_helper(...);
+template <class ..._Pred>
+using _And _LIBCPP_NODEBUG_TYPE = decltype(__and_helper<_Pred...>(0));
 
 template <template <class...> class _Func, class ..._Args>
 struct _Lazy : _Func<_Args...> {};
@@ -524,6 +526,9 @@ struct __void_t { typedef void type; };
 
 template <class _Tp>
 struct __identity { typedef _Tp type; };
+
+template <class _Tp>
+using __identity_t _LIBCPP_NODEBUG_TYPE = typename __identity<_Tp>::type;
 
 template <class _Tp, bool>
 struct _LIBCPP_TEMPLATE_VIS __dependent_type : public _Tp {};
@@ -575,7 +580,7 @@ using _IsSame = _BoolConstant<
 #ifdef __clang__
     __is_same(_Tp, _Up)
 #else
-    _VSTD::is_same<_Tp, _Up>::value
+    is_same<_Tp, _Up>::value
 #endif
 >;
 
@@ -584,7 +589,7 @@ using _IsNotSame = _BoolConstant<
 #ifdef __clang__
     !__is_same(_Tp, _Up)
 #else
-    !_VSTD::is_same<_Tp, _Up>::value
+    !is_same<_Tp, _Up>::value
 #endif
 >;
 
@@ -784,6 +789,33 @@ _LIBCPP_INLINE_VAR _LIBCPP_CONSTEXPR bool is_integral_v
 
 #endif // __has_keyword(__is_integral)
 
+// __libcpp_is_signed_integer, __libcpp_is_unsigned_integer
+
+// [basic.fundamental] defines five standard signed integer types;
+// __int128_t is an extended signed integer type.
+// The signed and unsigned integer types, plus bool and the
+// five types with "char" in their name, compose the "integral" types.
+
+template <class _Tp> struct __libcpp_is_signed_integer : public false_type {};
+template <> struct __libcpp_is_signed_integer<signed char>      : public true_type {};
+template <> struct __libcpp_is_signed_integer<signed short>     : public true_type {};
+template <> struct __libcpp_is_signed_integer<signed int>       : public true_type {};
+template <> struct __libcpp_is_signed_integer<signed long>      : public true_type {};
+template <> struct __libcpp_is_signed_integer<signed long long> : public true_type {};
+#ifndef _LIBCPP_HAS_NO_INT128
+template <> struct __libcpp_is_signed_integer<__int128_t>       : public true_type {};
+#endif
+
+template <class _Tp> struct __libcpp_is_unsigned_integer : public false_type {};
+template <> struct __libcpp_is_unsigned_integer<unsigned char>      : public true_type {};
+template <> struct __libcpp_is_unsigned_integer<unsigned short>     : public true_type {};
+template <> struct __libcpp_is_unsigned_integer<unsigned int>       : public true_type {};
+template <> struct __libcpp_is_unsigned_integer<unsigned long>      : public true_type {};
+template <> struct __libcpp_is_unsigned_integer<unsigned long long> : public true_type {};
+#ifndef _LIBCPP_HAS_NO_INT128
+template <> struct __libcpp_is_unsigned_integer<__uint128_t>        : public true_type {};
+#endif
+
 // is_floating_point
 
 template <class _Tp> struct __libcpp_is_floating_point              : public false_type {};
@@ -831,8 +863,10 @@ _LIBCPP_INLINE_VAR _LIBCPP_CONSTEXPR bool is_array_v
 
 // is_pointer
 
-// In clang 10.0.0 and earlier __is_pointer didn't work with Objective-C types.
-#if __has_keyword(__is_pointer) && _LIBCPP_CLANG_VER > 1000
+// Before Clang 11 / AppleClang 12.0.5, __is_pointer didn't work for Objective-C types.
+#if __has_keyword(__is_pointer) &&                                             \
+    !(defined(_LIBCPP_CLANG_VER) && _LIBCPP_CLANG_VER < 1100) &&               \
+    !(defined(_LIBCPP_APPLE_CLANG_VER) && _LIBCPP_APPLE_CLANG_VER < 1205)
 
 template<class _Tp>
 struct _LIBCPP_TEMPLATE_VIS is_pointer : _BoolConstant<__is_pointer(_Tp)> { };
@@ -1126,9 +1160,11 @@ _LIBCPP_INLINE_VAR _LIBCPP_CONSTEXPR bool is_arithmetic_v
 
 // is_fundamental
 
-// In clang 9 and lower, this builtin did not work for nullptr_t. Additionally, in C++03 mode,
-// nullptr isn't defined by the compiler so, this builtin won't work.
-#if __has_keyword(__is_fundamental) && _LIBCPP_CLANG_VER > 900 && !defined(_LIBCPP_CXX03_LANG)
+// Before Clang 10, __is_fundamental didn't work for nullptr_t.
+// In C++03 nullptr_t is library-provided but must still count as "fundamental."
+#if __has_keyword(__is_fundamental) &&                                         \
+    !(defined(_LIBCPP_CLANG_VER) && _LIBCPP_CLANG_VER < 1000) &&               \
+    !defined(_LIBCPP_CXX03_LANG)
 
 template<class _Tp>
 struct _LIBCPP_TEMPLATE_VIS is_fundamental : _BoolConstant<__is_fundamental(_Tp)> { };
@@ -1155,7 +1191,7 @@ _LIBCPP_INLINE_VAR _LIBCPP_CONSTEXPR bool is_fundamental_v
 
 // is_scalar
 
-// >= 11 because in C++03 nullptr isn't actually nullptr
+// In C++03 nullptr_t is library-provided but must still count as "scalar."
 #if __has_keyword(__is_scalar) && !defined(_LIBCPP_CXX03_LANG)
 
 template<class _Tp>
@@ -1335,7 +1371,7 @@ template <class _Tp> _Tp   __declval(long);
 _LIBCPP_SUPPRESS_DEPRECATED_POP
 
 template <class _Tp>
-decltype(_VSTD::__declval<_Tp>(0))
+decltype(__declval<_Tp>(0))
 declval() _NOEXCEPT;
 
 // __uncvref
@@ -1412,8 +1448,9 @@ template<class _Tp> using type_identity_t = typename type_identity<_Tp>::type;
 
 // is_signed
 
-// In clang 9 and earlier, this builtin did not work for floating points or enums
-#if __has_keyword(__is_signed) && _LIBCPP_CLANG_VER > 900
+// Before Clang 10, __is_signed didn't work for floating-point types or enums.
+#if __has_keyword(__is_signed) &&                                              \
+    !(defined(_LIBCPP_CLANG_VER) && _LIBCPP_CLANG_VER < 1000)
 
 template<class _Tp>
 struct _LIBCPP_TEMPLATE_VIS is_signed : _BoolConstant<__is_signed(_Tp)> { };
@@ -1448,7 +1485,11 @@ _LIBCPP_INLINE_VAR _LIBCPP_CONSTEXPR bool is_signed_v
 
 // is_unsigned
 
-#if __has_keyword(__is_unsigned)
+// Before Clang 13, __is_unsigned returned true for enums with signed underlying type.
+// No currently-released version of AppleClang contains the fixed intrinsic.
+#if __has_keyword(__is_unsigned) &&                                            \
+    !(defined(_LIBCPP_CLANG_VER) && _LIBCPP_CLANG_VER < 1300) &&               \
+    !defined(_LIBCPP_APPLE_CLANG_VER)
 
 template<class _Tp>
 struct _LIBCPP_TEMPLATE_VIS is_unsigned : _BoolConstant<__is_unsigned(_Tp)> { };
@@ -1698,7 +1739,7 @@ struct __is_convertible_test : public false_type {};
 
 template <class _From, class _To>
 struct __is_convertible_test<_From, _To,
-    decltype(_VSTD::__is_convertible_imp::__test_convert<_To>(_VSTD::declval<_From>()))> : public true_type
+    decltype(__is_convertible_imp::__test_convert<_To>(declval<_From>()))> : public true_type
 {};
 
 template <class _Tp, bool _IsArray =    is_array<_Tp>::value,
@@ -1754,7 +1795,7 @@ template <class _T1, class _T2> struct _LIBCPP_TEMPLATE_VIS is_convertible
     static const size_t __complete_check2 = __is_convertible_check<_T2>::__v;
 };
 
-#endif  // __has_feature(is_convertible_to)
+#endif // __has_feature(is_convertible_to)
 
 #if _LIBCPP_STD_VER > 14 && !defined(_LIBCPP_HAS_NO_VARIABLE_TEMPLATES)
 template <class _From, class _To>
@@ -1817,7 +1858,7 @@ template <class _Tp> struct __libcpp_empty<_Tp, false> : public false_type {};
 
 template <class _Tp> struct _LIBCPP_TEMPLATE_VIS is_empty : public __libcpp_empty<_Tp> {};
 
-#endif  // __has_feature(is_empty)
+#endif // __has_feature(is_empty)
 
 #if _LIBCPP_STD_VER > 14 && !defined(_LIBCPP_HAS_NO_VARIABLE_TEMPLATES)
 template <class _Tp>
@@ -2297,6 +2338,14 @@ struct _LIBCPP_TEMPLATE_VIS make_unsigned
 template <class _Tp> using make_unsigned_t = typename make_unsigned<_Tp>::type;
 #endif
 
+#ifndef _LIBCPP_CXX03_LANG
+template <class _Tp>
+_LIBCPP_NODISCARD_ATTRIBUTE _LIBCPP_INLINE_VISIBILITY constexpr
+typename make_unsigned<_Tp>::type __to_unsigned_like(_Tp __x) noexcept {
+    return static_cast<typename make_unsigned<_Tp>::type>(__x);
+}
+#endif
+
 #if _LIBCPP_STD_VER > 14
 template <class...> using void_t = void;
 #endif
@@ -2304,7 +2353,7 @@ template <class...> using void_t = void;
 #if _LIBCPP_STD_VER > 17
 // Let COND_RES(X, Y) be:
 template <class _Tp, class _Up>
-using __cond_type = decltype(false ? _VSTD::declval<_Tp>() : _VSTD::declval<_Up>());
+using __cond_type = decltype(false ? declval<_Tp>() : declval<_Up>());
 
 template <class _Tp, class _Up, class = void>
 struct __common_type3 {};
@@ -2327,11 +2376,11 @@ struct __common_type2_imp {};
 template <class _Tp, class _Up>
 struct __common_type2_imp<_Tp, _Up,
                           typename __void_t<decltype(
-                                            true ? _VSTD::declval<_Tp>() : _VSTD::declval<_Up>()
+                                            true ? declval<_Tp>() : declval<_Up>()
                                             )>::type>
 {
   typedef _LIBCPP_NODEBUG_TYPE typename decay<decltype(
-                         true ? _VSTD::declval<_Tp>() : _VSTD::declval<_Up>()
+                         true ? declval<_Tp>() : declval<_Up>()
                          )>::type type;
 };
 
@@ -2411,6 +2460,216 @@ struct _LIBCPP_TEMPLATE_VIS
 template <class ..._Tp> using common_type_t = typename common_type<_Tp...>::type;
 #endif
 
+#if _LIBCPP_STD_VER > 11
+// Let COPYCV(FROM, TO) be an alias for type TO with the addition of FROM's
+// top-level cv-qualifiers.
+template <class _From, class _To>
+struct __copy_cv
+{
+    using type = _To;
+};
+
+template <class _From, class _To>
+struct __copy_cv<const _From, _To>
+{
+    using type = add_const_t<_To>;
+};
+
+template <class _From, class _To>
+struct __copy_cv<volatile _From, _To>
+{
+    using type = add_volatile_t<_To>;
+};
+
+template <class _From, class _To>
+struct __copy_cv<const volatile _From, _To>
+{
+    using type = add_cv_t<_To>;
+};
+
+template <class _From, class _To>
+using __copy_cv_t = typename __copy_cv<_From, _To>::type;
+
+template <class _From, class _To>
+struct __copy_cvref
+{
+    using type = __copy_cv_t<_From, _To>;
+};
+
+template <class _From, class _To>
+struct __copy_cvref<_From&, _To>
+{
+    using type = add_lvalue_reference_t<__copy_cv_t<_From, _To>>;
+};
+
+template <class _From, class _To>
+struct __copy_cvref<_From&&, _To>
+{
+    using type = add_rvalue_reference_t<__copy_cv_t<_From, _To>>;
+};
+
+template <class _From, class _To>
+using __copy_cvref_t = typename __copy_cvref<_From, _To>::type;
+
+#endif // _LIBCPP_STD_VER > 11
+
+// common_reference
+#if _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_CONCEPTS)
+// Let COND_RES(X, Y) be:
+template <class _Xp, class _Yp>
+using __cond_res =
+    decltype(false ? declval<_Xp(&)()>()() : declval<_Yp(&)()>()());
+
+// Let `XREF(A)` denote a unary alias template `T` such that `T<U>` denotes the same type as `U`
+// with the addition of `A`'s cv and reference qualifiers, for a non-reference cv-unqualified type
+// `U`.
+// [Note: `XREF(A)` is `__xref<A>::template __apply`]
+template <class _Tp>
+struct __xref {
+  template<class _Up>
+  using __apply = __copy_cvref_t<_Tp, _Up>;
+};
+
+// Given types A and B, let X be remove_reference_t<A>, let Y be remove_reference_t<B>,
+// and let COMMON-REF(A, B) be:
+template<class _Ap, class _Bp, class _Xp = remove_reference_t<_Ap>, class _Yp = remove_reference_t<_Bp>>
+struct __common_ref;
+
+template<class _Xp, class _Yp>
+using __common_ref_t = typename __common_ref<_Xp, _Yp>::__type;
+
+template<class _Xp, class _Yp>
+using __cv_cond_res = __cond_res<__copy_cv_t<_Xp, _Yp>&, __copy_cv_t<_Yp, _Xp>&>;
+
+
+//    If A and B are both lvalue reference types, COMMON-REF(A, B) is
+//    COND-RES(COPYCV(X, Y)&, COPYCV(Y, X)&) if that type exists and is a reference type.
+template<class _Ap, class _Bp, class _Xp, class _Yp>
+requires requires { typename __cv_cond_res<_Xp, _Yp>; } && is_reference_v<__cv_cond_res<_Xp, _Yp>>
+struct __common_ref<_Ap&, _Bp&, _Xp, _Yp>
+{
+    using __type = __cv_cond_res<_Xp, _Yp>;
+};
+
+//    Otherwise, let C be remove_reference_t<COMMON-REF(X&, Y&)>&&. ...
+template <class _Xp, class _Yp>
+using __common_ref_C = remove_reference_t<__common_ref_t<_Xp&, _Yp&>>&&;
+
+
+//    .... If A and B are both rvalue reference types, C is well-formed, and
+//    is_convertible_v<A, C> && is_convertible_v<B, C> is true, then COMMON-REF(A, B) is C.
+template<class _Ap, class _Bp, class _Xp, class _Yp>
+requires
+  requires { typename __common_ref_C<_Xp, _Yp>; } &&
+  is_convertible_v<_Ap&&, __common_ref_C<_Xp, _Yp>> &&
+  is_convertible_v<_Bp&&, __common_ref_C<_Xp, _Yp>>
+struct __common_ref<_Ap&&, _Bp&&, _Xp, _Yp>
+{
+    using __type = __common_ref_C<_Xp, _Yp>;
+};
+
+//    Otherwise, let D be COMMON-REF(const X&, Y&). ...
+template <class _Tp, class _Up>
+using __common_ref_D = __common_ref_t<const _Tp&, _Up&>;
+
+//    ... If A is an rvalue reference and B is an lvalue reference and D is well-formed and
+//    is_convertible_v<A, D> is true, then COMMON-REF(A, B) is D.
+template<class _Ap, class _Bp, class _Xp, class _Yp>
+requires requires { typename __common_ref_D<_Xp, _Yp>; } &&
+         is_convertible_v<_Ap&&, __common_ref_D<_Xp, _Yp>>
+struct __common_ref<_Ap&&, _Bp&, _Xp, _Yp>
+{
+    using __type = __common_ref_D<_Xp, _Yp>;
+};
+
+//    Otherwise, if A is an lvalue reference and B is an rvalue reference, then
+//    COMMON-REF(A, B) is COMMON-REF(B, A).
+template<class _Ap, class _Bp, class _Xp, class _Yp>
+struct __common_ref<_Ap&, _Bp&&, _Xp, _Yp> : __common_ref<_Bp&&, _Ap&> {};
+
+//    Otherwise, COMMON-REF(A, B) is ill-formed.
+template<class _Ap, class _Bp, class _Xp, class _Yp>
+struct __common_ref {};
+
+// Note C: For the common_reference trait applied to a parameter pack [...]
+
+template <class...>
+struct common_reference;
+
+template <class... _Types>
+using common_reference_t = typename common_reference<_Types...>::type;
+
+// bullet 1 - sizeof...(T) == 0
+template<>
+struct common_reference<> {};
+
+// bullet 2 - sizeof...(T) == 1
+template <class _Tp>
+struct common_reference<_Tp>
+{
+    using type = _Tp;
+};
+
+// bullet 3 - sizeof...(T) == 2
+template <class _Tp, class _Up> struct __common_reference_sub_bullet3;
+template <class _Tp, class _Up> struct __common_reference_sub_bullet2 : __common_reference_sub_bullet3<_Tp, _Up> {};
+template <class _Tp, class _Up> struct __common_reference_sub_bullet1 : __common_reference_sub_bullet2<_Tp, _Up> {};
+
+// sub-bullet 1 - If T1 and T2 are reference types and COMMON-REF(T1, T2) is well-formed, then
+// the member typedef `type` denotes that type.
+template <class _Tp, class _Up> struct common_reference<_Tp, _Up> : __common_reference_sub_bullet1<_Tp, _Up> {};
+
+template <class _Tp, class _Up>
+requires is_reference_v<_Tp> && is_reference_v<_Up> && requires { typename __common_ref_t<_Tp, _Up>; }
+struct __common_reference_sub_bullet1<_Tp, _Up>
+{
+    using type = __common_ref_t<_Tp, _Up>;
+};
+
+// sub-bullet 2 - Otherwise, if basic_common_reference<remove_cvref_t<T1>, remove_cvref_t<T2>, XREF(T1), XREF(T2)>::type
+// is well-formed, then the member typedef `type` denotes that type.
+template <class, class, template <class> class, template <class> class> struct basic_common_reference {};
+
+template <class _Tp, class _Up>
+using __basic_common_reference_t = typename basic_common_reference<
+    remove_cvref_t<_Tp>, remove_cvref_t<_Up>,
+    __xref<_Tp>::template __apply, __xref<_Up>::template __apply>::type;
+
+template <class _Tp, class _Up>
+requires requires { typename __basic_common_reference_t<_Tp, _Up>; }
+struct __common_reference_sub_bullet2<_Tp, _Up>
+{
+    using type = __basic_common_reference_t<_Tp, _Up>;
+};
+
+// sub-bullet 3 - Otherwise, if COND-RES(T1, T2) is well-formed,
+// then the member typedef `type` denotes that type.
+template <class _Tp, class _Up>
+requires requires { typename __cond_res<_Tp, _Up>; }
+struct __common_reference_sub_bullet3<_Tp, _Up>
+{
+    using type = __cond_res<_Tp, _Up>;
+};
+
+
+// sub-bullet 4 & 5 - Otherwise, if common_type_t<T1, T2> is well-formed,
+//                    then the member typedef `type` denotes that type.
+//                  - Otherwise, there shall be no member `type`.
+template <class _Tp, class _Up> struct __common_reference_sub_bullet3 : common_type<_Tp, _Up> {};
+
+// bullet 4 - If there is such a type `C`, the member typedef type shall denote the same type, if
+//            any, as `common_reference_t<C, Rest...>`.
+template <class _Tp, class _Up, class _Vp, class... _Rest>
+requires requires { typename common_reference_t<_Tp, _Up>; }
+struct common_reference<_Tp, _Up, _Vp, _Rest...>
+    : common_reference<common_reference_t<_Tp, _Up>, _Vp, _Rest...>
+{};
+
+// bullet 5 - Otherwise, there shall be no member `type`.
+template <class...> struct common_reference {};
+
+#endif // _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_CONCEPTS)
+
 // is_assignable
 
 template<typename, typename _Tp> struct __select_2nd { typedef _LIBCPP_NODEBUG_TYPE _Tp type; };
@@ -2428,7 +2687,7 @@ _LIBCPP_INLINE_VAR _LIBCPP_CONSTEXPR bool is_assignable_v = __is_assignable(_Tp,
 #else // __has_keyword(__is_assignable)
 
 template <class _Tp, class _Arg>
-typename __select_2nd<decltype((_VSTD::declval<_Tp>() = _VSTD::declval<_Arg>())), true_type>::type
+typename __select_2nd<decltype((declval<_Tp>() = declval<_Arg>())), true_type>::type
 __is_assignable_test(int);
 
 template <class, class>
@@ -2455,7 +2714,7 @@ _LIBCPP_INLINE_VAR _LIBCPP_CONSTEXPR bool is_assignable_v
     = is_assignable<_Tp, _Arg>::value;
 #endif
 
-#endif  // __has_keyword(__is_assignable)
+#endif // __has_keyword(__is_assignable)
 
 // is_copy_assignable
 
@@ -2509,7 +2768,7 @@ template <typename _Tp>
 struct __is_destructor_wellformed {
     template <typename _Tp1>
     static char  __test (
-        typename __is_destructible_apply<decltype(_VSTD::declval<_Tp1&>().~_Tp1())>::type
+        typename __is_destructible_apply<decltype(declval<_Tp1&>().~_Tp1())>::type
     );
 
     template <typename _Tp1>
@@ -2523,33 +2782,33 @@ struct __destructible_imp;
 
 template <class _Tp>
 struct __destructible_imp<_Tp, false>
-   : public _VSTD::integral_constant<bool,
-        __is_destructor_wellformed<typename _VSTD::remove_all_extents<_Tp>::type>::value> {};
+   : public integral_constant<bool,
+        __is_destructor_wellformed<typename remove_all_extents<_Tp>::type>::value> {};
 
 template <class _Tp>
 struct __destructible_imp<_Tp, true>
-    : public _VSTD::true_type {};
+    : public true_type {};
 
 template <class _Tp, bool>
 struct __destructible_false;
 
 template <class _Tp>
-struct __destructible_false<_Tp, false> : public __destructible_imp<_Tp, _VSTD::is_reference<_Tp>::value> {};
+struct __destructible_false<_Tp, false> : public __destructible_imp<_Tp, is_reference<_Tp>::value> {};
 
 template <class _Tp>
-struct __destructible_false<_Tp, true> : public _VSTD::false_type {};
+struct __destructible_false<_Tp, true> : public false_type {};
 
 template <class _Tp>
 struct is_destructible
-    : public __destructible_false<_Tp, _VSTD::is_function<_Tp>::value> {};
+    : public __destructible_false<_Tp, is_function<_Tp>::value> {};
 
 template <class _Tp>
 struct is_destructible<_Tp[]>
-    : public _VSTD::false_type {};
+    : public false_type {};
 
 template <>
 struct is_destructible<void>
-    : public _VSTD::false_type {};
+    : public false_type {};
 
 #if _LIBCPP_STD_VER > 14 && !defined(_LIBCPP_HAS_NO_VARIABLE_TEMPLATES)
 template <class _Tp>
@@ -2558,43 +2817,6 @@ _LIBCPP_INLINE_VAR _LIBCPP_CONSTEXPR bool is_destructible_v
 #endif
 
 #endif // __has_keyword(__is_destructible)
-
-// move
-
-template <class _Tp>
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR
-typename remove_reference<_Tp>::type&&
-move(_Tp&& __t) _NOEXCEPT
-{
-    typedef _LIBCPP_NODEBUG_TYPE typename remove_reference<_Tp>::type _Up;
-    return static_cast<_Up&&>(__t);
-}
-
-template <class _Tp>
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR
-_Tp&&
-forward(typename remove_reference<_Tp>::type& __t) _NOEXCEPT
-{
-    return static_cast<_Tp&&>(__t);
-}
-
-template <class _Tp>
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR
-_Tp&&
-forward(typename remove_reference<_Tp>::type&& __t) _NOEXCEPT
-{
-    static_assert(!is_lvalue_reference<_Tp>::value,
-                  "can not forward an rvalue as an lvalue");
-    return static_cast<_Tp&&>(__t);
-}
-
-template <class _Tp>
-inline _LIBCPP_INLINE_VISIBILITY
-typename decay<_Tp>::type
-__decay_copy(_Tp&& __t)
-{
-    return _VSTD::forward<_Tp>(__t);
-}
 
 template <class _MP, bool _IsMemberFunctionPtr, bool _IsMemberObjectPtr>
 struct __member_pointer_traits_imp
@@ -2795,7 +3017,7 @@ struct __member_pointer_traits_imp<_Rp (_Class::*)(_Param..., ...) const volatil
     typedef _Rp (_FnType) (_Param..., ...);
 };
 
-#endif  // __has_feature(cxx_reference_qualified_functions) || defined(_LIBCPP_COMPILER_GCC)
+#endif // __has_feature(cxx_reference_qualified_functions) || defined(_LIBCPP_COMPILER_GCC)
 
 
 template <class _Rp, class _Class>
@@ -2876,11 +3098,11 @@ struct __is_constructible_helper
     // NOTE: The static_cast implementation below is required to support
     //  classes with explicit conversion operators.
     template <class _To, class _From,
-              class = decltype(__eat<_To>(_VSTD::declval<_From>()))>
+              class = decltype(__eat<_To>(declval<_From>()))>
     static true_type __test_cast(int);
 
     template <class _To, class _From,
-              class = decltype(static_cast<_To>(_VSTD::declval<_From>()))>
+              class = decltype(static_cast<_To>(declval<_From>()))>
     static integral_constant<bool,
         !__is_invalid_base_to_derived_cast<_To, _From>::value &&
         !__is_invalid_lvalue_to_rvalue_cast<_To, _From>::value
@@ -2890,12 +3112,12 @@ struct __is_constructible_helper
     static false_type __test_cast(...);
 
     template <class _Tp, class ..._Args,
-        class = decltype(_Tp(_VSTD::declval<_Args>()...))>
+        class = decltype(_Tp(declval<_Args>()...))>
     static true_type __test_nary(int);
     template <class _Tp, class...>
     static false_type __test_nary(...);
 
-    template <class _Tp, class _A0, class = decltype(::new _Tp(_VSTD::declval<_A0>()))>
+    template <class _Tp, class _A0, class = decltype(::new _Tp(declval<_A0>()))>
     static is_destructible<_Tp> __test_unary(int);
     template <class, class>
     static false_type __test_unary(...);
@@ -2984,18 +3206,18 @@ _LIBCPP_INLINE_VAR _LIBCPP_CONSTEXPR bool is_default_constructible_v
 template <class _Tp>
 void __test_implicit_default_constructible(_Tp);
 
-template <class _Tp, class = void, bool = is_default_constructible<_Tp>::value>
+template <class _Tp, class = void, class = typename is_default_constructible<_Tp>::type>
 struct __is_implicitly_default_constructible
     : false_type
 { };
 
 template <class _Tp>
-struct __is_implicitly_default_constructible<_Tp, decltype(__test_implicit_default_constructible<_Tp const&>({})), true>
+struct __is_implicitly_default_constructible<_Tp, decltype(__test_implicit_default_constructible<_Tp const&>({})), true_type>
     : true_type
 { };
 
 template <class _Tp>
-struct __is_implicitly_default_constructible<_Tp, decltype(__test_implicit_default_constructible<_Tp const&>({})), false>
+struct __is_implicitly_default_constructible<_Tp, decltype(__test_implicit_default_constructible<_Tp const&>({})), false_type>
     : false_type
 { };
 #endif // !C++03
@@ -3072,7 +3294,7 @@ struct _LIBCPP_TEMPLATE_VIS is_trivially_constructible<_Tp, _Tp&>
 {
 };
 
-#endif  // !__has_feature(is_trivially_constructible)
+#endif // !__has_feature(is_trivially_constructible)
 
 
 #if _LIBCPP_STD_VER > 14 && !defined(_LIBCPP_HAS_NO_VARIABLE_TEMPLATES)
@@ -3149,7 +3371,7 @@ template <class _Tp>
 struct is_trivially_assignable<_Tp&, _Tp&&>
     : integral_constant<bool, is_scalar<_Tp>::value> {};
 
-#endif  // !__has_feature(is_trivially_assignable)
+#endif // !__has_feature(is_trivially_assignable)
 
 #if _LIBCPP_STD_VER > 14 && !defined(_LIBCPP_HAS_NO_VARIABLE_TEMPLATES)
 template <class _Tp, class _Arg>
@@ -3259,7 +3481,7 @@ struct _LIBCPP_TEMPLATE_VIS is_nothrow_constructible<_Tp[_Ns]>
 {
 };
 
-#endif  // _LIBCPP_HAS_NO_NOEXCEPT
+#endif // _LIBCPP_HAS_NO_NOEXCEPT
 
 
 #if _LIBCPP_STD_VER > 14 && !defined(_LIBCPP_HAS_NO_VARIABLE_TEMPLATES)
@@ -3324,7 +3546,7 @@ struct __libcpp_is_nothrow_assignable<false, _Tp, _Arg>
 
 template <class _Tp, class _Arg>
 struct __libcpp_is_nothrow_assignable<true, _Tp, _Arg>
-    : public integral_constant<bool, noexcept(_VSTD::declval<_Tp>() = _VSTD::declval<_Arg>()) >
+    : public integral_constant<bool, noexcept(declval<_Tp>() = declval<_Arg>()) >
 {
 };
 
@@ -3334,7 +3556,7 @@ struct _LIBCPP_TEMPLATE_VIS is_nothrow_assignable
 {
 };
 
-#endif  // _LIBCPP_HAS_NO_NOEXCEPT
+#endif // _LIBCPP_HAS_NO_NOEXCEPT
 
 #if _LIBCPP_STD_VER > 14 && !defined(_LIBCPP_HAS_NO_VARIABLE_TEMPLATES)
 template <class _Tp, class _Arg>
@@ -3381,7 +3603,7 @@ struct __libcpp_is_nothrow_destructible<false, _Tp>
 
 template <class _Tp>
 struct __libcpp_is_nothrow_destructible<true, _Tp>
-    : public integral_constant<bool, noexcept(_VSTD::declval<_Tp>().~_Tp()) >
+    : public integral_constant<bool, noexcept(declval<_Tp>().~_Tp()) >
 {
 };
 
@@ -3455,15 +3677,17 @@ _LIBCPP_INLINE_VAR _LIBCPP_CONSTEXPR bool is_pod_v
 
 // is_literal_type;
 
-template <class _Tp> struct _LIBCPP_TEMPLATE_VIS is_literal_type
+#if _LIBCPP_STD_VER <= 17 || defined(_LIBCPP_ENABLE_CXX20_REMOVED_TYPE_TRAITS)
+template <class _Tp> struct _LIBCPP_TEMPLATE_VIS _LIBCPP_DEPRECATED_IN_CXX17 is_literal_type
     : public integral_constant<bool, __is_literal_type(_Tp)>
     {};
 
 #if _LIBCPP_STD_VER > 14 && !defined(_LIBCPP_HAS_NO_VARIABLE_TEMPLATES)
 template <class _Tp>
-_LIBCPP_INLINE_VAR _LIBCPP_CONSTEXPR bool is_literal_type_v
+_LIBCPP_DEPRECATED_IN_CXX17 _LIBCPP_INLINE_VAR _LIBCPP_CONSTEXPR bool is_literal_type_v
     = is_literal_type<_Tp>::value;
-#endif
+#endif // _LIBCPP_STD_VER > 14 && !defined(_LIBCPP_HAS_NO_VARIABLE_TEMPLATES)
+#endif // _LIBCPP_STD_VER <= 17 || defined(_LIBCPP_ENABLE_CXX20_REMOVED_TYPE_TRAITS)
 
 // is_standard_layout;
 
@@ -3604,42 +3828,42 @@ template <class _Fp, class _A0, class ..._Args,
 inline _LIBCPP_INLINE_VISIBILITY
 _LIBCPP_CONSTEXPR_AFTER_CXX17 auto
 __invoke(_Fp&& __f, _A0&& __a0, _Args&& ...__args)
-_LIBCPP_INVOKE_RETURN((_VSTD::forward<_A0>(__a0).*__f)(_VSTD::forward<_Args>(__args)...))
+_LIBCPP_INVOKE_RETURN((static_cast<_A0&&>(__a0).*__f)(static_cast<_Args&&>(__args)...))
 
 template <class _Fp, class _A0, class ..._Args,
           class = __enable_if_bullet1<_Fp, _A0>>
 inline _LIBCPP_INLINE_VISIBILITY
 _LIBCPP_CONSTEXPR auto
 __invoke_constexpr(_Fp&& __f, _A0&& __a0, _Args&& ...__args)
-_LIBCPP_INVOKE_RETURN((_VSTD::forward<_A0>(__a0).*__f)(_VSTD::forward<_Args>(__args)...))
+_LIBCPP_INVOKE_RETURN((static_cast<_A0&&>(__a0).*__f)(static_cast<_Args&&>(__args)...))
 
 template <class _Fp, class _A0, class ..._Args,
           class = __enable_if_bullet2<_Fp, _A0>>
 inline _LIBCPP_INLINE_VISIBILITY
 _LIBCPP_CONSTEXPR_AFTER_CXX17 auto
 __invoke(_Fp&& __f, _A0&& __a0, _Args&& ...__args)
-_LIBCPP_INVOKE_RETURN((__a0.get().*__f)(_VSTD::forward<_Args>(__args)...))
+_LIBCPP_INVOKE_RETURN((__a0.get().*__f)(static_cast<_Args&&>(__args)...))
 
 template <class _Fp, class _A0, class ..._Args,
           class = __enable_if_bullet2<_Fp, _A0>>
 inline _LIBCPP_INLINE_VISIBILITY
 _LIBCPP_CONSTEXPR auto
 __invoke_constexpr(_Fp&& __f, _A0&& __a0, _Args&& ...__args)
-_LIBCPP_INVOKE_RETURN((__a0.get().*__f)(_VSTD::forward<_Args>(__args)...))
+_LIBCPP_INVOKE_RETURN((__a0.get().*__f)(static_cast<_Args&&>(__args)...))
 
 template <class _Fp, class _A0, class ..._Args,
           class = __enable_if_bullet3<_Fp, _A0>>
 inline _LIBCPP_INLINE_VISIBILITY
 _LIBCPP_CONSTEXPR_AFTER_CXX17 auto
 __invoke(_Fp&& __f, _A0&& __a0, _Args&& ...__args)
-_LIBCPP_INVOKE_RETURN(((*_VSTD::forward<_A0>(__a0)).*__f)(_VSTD::forward<_Args>(__args)...))
+_LIBCPP_INVOKE_RETURN(((*static_cast<_A0&&>(__a0)).*__f)(static_cast<_Args&&>(__args)...))
 
 template <class _Fp, class _A0, class ..._Args,
           class = __enable_if_bullet3<_Fp, _A0>>
 inline _LIBCPP_INLINE_VISIBILITY
 _LIBCPP_CONSTEXPR auto
 __invoke_constexpr(_Fp&& __f, _A0&& __a0, _Args&& ...__args)
-_LIBCPP_INVOKE_RETURN(((*_VSTD::forward<_A0>(__a0)).*__f)(_VSTD::forward<_Args>(__args)...))
+_LIBCPP_INVOKE_RETURN(((*static_cast<_A0&&>(__a0)).*__f)(static_cast<_Args&&>(__args)...))
 
 // bullets 4, 5 and 6
 
@@ -3648,14 +3872,14 @@ template <class _Fp, class _A0,
 inline _LIBCPP_INLINE_VISIBILITY
 _LIBCPP_CONSTEXPR_AFTER_CXX17 auto
 __invoke(_Fp&& __f, _A0&& __a0)
-_LIBCPP_INVOKE_RETURN(_VSTD::forward<_A0>(__a0).*__f)
+_LIBCPP_INVOKE_RETURN(static_cast<_A0&&>(__a0).*__f)
 
 template <class _Fp, class _A0,
           class = __enable_if_bullet4<_Fp, _A0>>
 inline _LIBCPP_INLINE_VISIBILITY
 _LIBCPP_CONSTEXPR auto
 __invoke_constexpr(_Fp&& __f, _A0&& __a0)
-_LIBCPP_INVOKE_RETURN(_VSTD::forward<_A0>(__a0).*__f)
+_LIBCPP_INVOKE_RETURN(static_cast<_A0&&>(__a0).*__f)
 
 template <class _Fp, class _A0,
           class = __enable_if_bullet5<_Fp, _A0>>
@@ -3676,14 +3900,14 @@ template <class _Fp, class _A0,
 inline _LIBCPP_INLINE_VISIBILITY
 _LIBCPP_CONSTEXPR_AFTER_CXX17 auto
 __invoke(_Fp&& __f, _A0&& __a0)
-_LIBCPP_INVOKE_RETURN((*_VSTD::forward<_A0>(__a0)).*__f)
+_LIBCPP_INVOKE_RETURN((*static_cast<_A0&&>(__a0)).*__f)
 
 template <class _Fp, class _A0,
           class = __enable_if_bullet6<_Fp, _A0>>
 inline _LIBCPP_INLINE_VISIBILITY
 _LIBCPP_CONSTEXPR auto
 __invoke_constexpr(_Fp&& __f, _A0&& __a0)
-_LIBCPP_INVOKE_RETURN((*_VSTD::forward<_A0>(__a0)).*__f)
+_LIBCPP_INVOKE_RETURN((*static_cast<_A0&&>(__a0)).*__f)
 
 // bullet 7
 
@@ -3691,13 +3915,13 @@ template <class _Fp, class ..._Args>
 inline _LIBCPP_INLINE_VISIBILITY
 _LIBCPP_CONSTEXPR_AFTER_CXX17 auto
 __invoke(_Fp&& __f, _Args&& ...__args)
-_LIBCPP_INVOKE_RETURN(_VSTD::forward<_Fp>(__f)(_VSTD::forward<_Args>(__args)...))
+_LIBCPP_INVOKE_RETURN(static_cast<_Fp&&>(__f)(static_cast<_Args&&>(__args)...))
 
 template <class _Fp, class ..._Args>
 inline _LIBCPP_INLINE_VISIBILITY
 _LIBCPP_CONSTEXPR auto
 __invoke_constexpr(_Fp&& __f, _Args&& ...__args)
-_LIBCPP_INVOKE_RETURN(_VSTD::forward<_Fp>(__f)(_VSTD::forward<_Args>(__args)...))
+_LIBCPP_INVOKE_RETURN(static_cast<_Fp&&>(__f)(static_cast<_Args&&>(__args)...))
 
 #undef _LIBCPP_INVOKE_RETURN
 
@@ -3707,7 +3931,7 @@ struct __invokable_r
 {
   template <class _XFp, class ..._XArgs>
   static auto __try_call(int) -> decltype(
-    _VSTD::__invoke(_VSTD::declval<_XFp>(), _VSTD::declval<_XArgs>()...));
+    _VSTD::__invoke(declval<_XFp>(), declval<_XArgs>()...));
   template <class _XFp, class ..._XArgs>
   static __nat __try_call(...);
 
@@ -3744,14 +3968,14 @@ struct __nothrow_invokable_r_imp<true, false, _Ret, _Fp, _Args...>
     static void __test_noexcept(_Tp) noexcept;
 
     static const bool value = noexcept(_ThisT::__test_noexcept<_Ret>(
-        _VSTD::__invoke(_VSTD::declval<_Fp>(), _VSTD::declval<_Args>()...)));
+        _VSTD::__invoke(declval<_Fp>(), declval<_Args>()...)));
 };
 
 template <class _Ret, class _Fp, class ..._Args>
 struct __nothrow_invokable_r_imp<true, true, _Ret, _Fp, _Args...>
 {
     static const bool value = noexcept(
-        _VSTD::__invoke(_VSTD::declval<_Fp>(), _VSTD::declval<_Args>()...));
+        _VSTD::__invoke(declval<_Fp>(), declval<_Args>()...));
 };
 
 template <class _Ret, class _Fp, class ..._Args>
@@ -3781,7 +4005,8 @@ struct __invoke_of
 
 // result_of
 
-template <class _Callable> class result_of;
+#if _LIBCPP_STD_VER <= 17 || defined(_LIBCPP_ENABLE_CXX20_REMOVED_TYPE_TRAITS)
+template <class _Callable> class _LIBCPP_DEPRECATED_IN_CXX17 result_of;
 
 #ifndef _LIBCPP_CXX03_LANG
 
@@ -3812,8 +4037,8 @@ struct __result_of_mp;
 
 template <class _MP, class _Tp>
 struct __result_of_mp<_MP, _Tp, true>
-    : public __identity<typename __member_pointer_traits<_MP>::_ReturnType>
 {
+    using type = typename __member_pointer_traits<_MP>::_ReturnType;
 };
 
 // member data pointer
@@ -3824,13 +4049,13 @@ struct __result_of_mdp;
 template <class _Rp, class _Class, class _Tp>
 struct __result_of_mdp<_Rp _Class::*, _Tp, false>
 {
-    typedef typename __apply_cv<decltype(*_VSTD::declval<_Tp>()), _Rp>::type& type;
+    using type = typename __apply_cv<decltype(*declval<_Tp>()), _Rp>::type&;
 };
 
 template <class _Rp, class _Class, class _Tp>
 struct __result_of_mdp<_Rp _Class::*, _Tp, true>
 {
-    typedef typename __apply_cv<_Tp, _Rp>::type& type;
+    using type = typename __apply_cv<_Tp, _Rp>::type&;
 };
 
 template <class _Rp, class _Class, class _Tp>
@@ -3866,11 +4091,12 @@ class _LIBCPP_TEMPLATE_VIS result_of<_Fn(_Args...)>
 {
 };
 
-#endif  // C++03
+#endif // C++03
 
 #if _LIBCPP_STD_VER > 11
-template <class _Tp> using result_of_t = typename result_of<_Tp>::type;
-#endif
+template <class _Tp> using result_of_t _LIBCPP_DEPRECATED_IN_CXX17 = typename result_of<_Tp>::type;
+#endif // _LIBCPP_STD_VER > 11
+#endif // _LIBCPP_STD_VER <= 17 || defined(_LIBCPP_ENABLE_CXX20_REMOVED_TYPE_TRAITS)
 
 #if _LIBCPP_STD_VER > 14
 
@@ -3923,70 +4149,32 @@ _LIBCPP_INLINE_VAR constexpr bool is_nothrow_invocable_r_v
 
 #endif // _LIBCPP_STD_VER > 14
 
+// __swappable
+
 template <class _Tp> struct __is_swappable;
 template <class _Tp> struct __is_nothrow_swappable;
 
-// swap, swap_ranges
 
-template <class _ForwardIterator1, class _ForwardIterator2>
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
-_ForwardIterator2
-swap_ranges(_ForwardIterator1 __first1, _ForwardIterator1 __last1, _ForwardIterator2 __first2);
+#ifndef _LIBCPP_CXX03_LANG
+template <class _Tp>
+using __swap_result_t = typename enable_if<is_move_constructible<_Tp>::value && is_move_assignable<_Tp>::value>::type;
+#else
+template <class>
+using __swap_result_t = void;
+#endif
 
 template <class _Tp>
 inline _LIBCPP_INLINE_VISIBILITY
-#ifndef _LIBCPP_CXX03_LANG
-typename enable_if
-<
-    is_move_constructible<_Tp>::value &&
-    is_move_assignable<_Tp>::value
->::type
-#else
-void
-#endif
-_LIBCPP_CONSTEXPR_AFTER_CXX17
+_LIBCPP_CONSTEXPR_AFTER_CXX17 __swap_result_t<_Tp>
 swap(_Tp& __x, _Tp& __y) _NOEXCEPT_(is_nothrow_move_constructible<_Tp>::value &&
-                                    is_nothrow_move_assignable<_Tp>::value)
-{
-    _Tp __t(_VSTD::move(__x));
-    __x = _VSTD::move(__y);
-    __y = _VSTD::move(__t);
-}
+                                    is_nothrow_move_assignable<_Tp>::value);
 
 template<class _Tp, size_t _Np>
 inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
 typename enable_if<
     __is_swappable<_Tp>::value
 >::type
-swap(_Tp (&__a)[_Np], _Tp (&__b)[_Np]) _NOEXCEPT_(__is_nothrow_swappable<_Tp>::value)
-{
-    _VSTD::swap_ranges(__a, __a + _Np, __b);
-}
-
-template <class _ForwardIterator1, class _ForwardIterator2>
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
-_ForwardIterator2
-swap_ranges(_ForwardIterator1 __first1, _ForwardIterator1 __last1, _ForwardIterator2 __first2)
-{
-    for(; __first1 != __last1; ++__first1, (void) ++__first2)
-        swap(*__first1, *__first2);
-    return __first2;
-}
-
-// iter_swap
-
-template <class _ForwardIterator1, class _ForwardIterator2>
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
-void
-iter_swap(_ForwardIterator1 __a, _ForwardIterator2 __b)
-    //                                  _NOEXCEPT_(_NOEXCEPT_(swap(*__a, *__b)))
-               _NOEXCEPT_(_NOEXCEPT_(swap(*_VSTD::declval<_ForwardIterator1>(),
-                                          *_VSTD::declval<_ForwardIterator2>())))
-{
-    swap(*__a, *__b);
-}
-
-// __swappable
+swap(_Tp (&__a)[_Np], _Tp (&__b)[_Np]) _NOEXCEPT_(__is_nothrow_swappable<_Tp>::value);
 
 namespace __detail
 {
@@ -3997,7 +4185,7 @@ template <class _Tp, class _Up = _Tp,
 struct __swappable_with
 {
     template <class _LHS, class _RHS>
-    static decltype(swap(_VSTD::declval<_LHS>(), _VSTD::declval<_RHS>()))
+    static decltype(swap(declval<_LHS>(), declval<_RHS>()))
     __test_swap(int);
     template <class, class>
     static __nat __test_swap(long);
@@ -4017,8 +4205,8 @@ template <class _Tp, class _Up = _Tp, bool _Swappable = __swappable_with<_Tp, _U
 struct __nothrow_swappable_with {
   static const bool value =
 #ifndef _LIBCPP_HAS_NO_NOEXCEPT
-      noexcept(swap(_VSTD::declval<_Tp>(), _VSTD::declval<_Up>()))
-  &&  noexcept(swap(_VSTD::declval<_Up>(), _VSTD::declval<_Tp>()));
+      noexcept(swap(declval<_Tp>(), declval<_Up>()))
+  &&  noexcept(swap(declval<_Up>(), declval<_Tp>()));
 #else
       false;
 #endif
@@ -4168,7 +4356,7 @@ struct __has_operator_addressof_member_imp
 {
     template <class _Up>
         static auto __test(int)
-            -> typename __select_2nd<decltype(_VSTD::declval<_Up>().operator&()), true_type>::type;
+            -> typename __select_2nd<decltype(declval<_Up>().operator&()), true_type>::type;
     template <class>
         static auto __test(long) -> false_type;
 
@@ -4180,7 +4368,7 @@ struct __has_operator_addressof_free_imp
 {
     template <class _Up>
         static auto __test(int)
-            -> typename __select_2nd<decltype(operator&(_VSTD::declval<_Up>())), true_type>::type;
+            -> typename __select_2nd<decltype(operator&(declval<_Up>())), true_type>::type;
     template <class>
         static auto __test(long) -> false_type;
 
@@ -4193,7 +4381,7 @@ struct __has_operator_addressof
                                   || __has_operator_addressof_free_imp<_Tp>::value>
 {};
 
-#endif  // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_CXX03_LANG
 
 // is_scoped_enum [meta.unary.prop]
 
@@ -4233,7 +4421,7 @@ struct negation : _Not<_Tp> {};
 template<class _Tp>
 _LIBCPP_INLINE_VAR constexpr bool negation_v
     = negation<_Tp>::value;
-#endif  // _LIBCPP_STD_VER > 14
+#endif // _LIBCPP_STD_VER > 14
 
 // These traits are used in __tree and __hash_table
 struct __extract_key_fail_tag {};
@@ -4283,6 +4471,14 @@ bool __libcpp_is_constant_evaluated() _NOEXCEPT { return false; }
 template <class _CharT>
 using _IsCharLikeType = _And<is_standard_layout<_CharT>, is_trivial<_CharT> >;
 
+template<class _Tp>
+using __make_const_lvalue_ref = const typename remove_reference<_Tp>::type&;
+
+#if _LIBCPP_STD_VER > 17
+template<bool _Const, class _Tp>
+using __maybe_const = conditional_t<_Const, const _Tp, _Tp>;
+#endif // _LIBCPP_STD_VER > 17
+
 _LIBCPP_END_NAMESPACE_STD
 
 #if _LIBCPP_STD_VER > 14
@@ -4294,4 +4490,4 @@ namespace std  // purposefully not versioned
 }
 #endif
 
-#endif  // _LIBCPP_TYPE_TRAITS
+#endif // _LIBCPP_TYPE_TRAITS

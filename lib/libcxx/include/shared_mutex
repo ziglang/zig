@@ -122,8 +122,8 @@ template <class Mutex>
 
 */
 
-#include <__config>
 #include <__availability>
+#include <__config>
 #include <version>
 
 _LIBCPP_PUSH_MACROS
@@ -500,10 +500,10 @@ swap(shared_lock<_Mutex>& __x, shared_lock<_Mutex>& __y) _NOEXCEPT
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif  // !_LIBCPP_HAS_NO_THREADS
+#endif // !_LIBCPP_HAS_NO_THREADS
 
-#endif  // _LIBCPP_STD_VER > 11
+#endif // _LIBCPP_STD_VER > 11
 
 _LIBCPP_POP_MACROS
 
-#endif  // _LIBCPP_SHARED_MUTEX
+#endif // _LIBCPP_SHARED_MUTEX

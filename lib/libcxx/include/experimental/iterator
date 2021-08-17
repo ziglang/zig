@@ -56,6 +56,9 @@ namespace std {
 
 #if _LIBCPP_STD_VER > 11
 
+#include <__memory/addressof.h>
+#include <__utility/move.h>
+#include <__utility/forward.h>
 #include <iterator>
 
 _LIBCPP_BEGIN_NAMESPACE_LFTS

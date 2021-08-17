@@ -210,7 +210,7 @@ pub const Manifest = struct {
     pub fn addFile(self: *Manifest, file_path: []const u8, max_file_size: ?usize) !usize {
         assert(self.manifest_file == null);
 
-        try self.files.ensureCapacity(self.cache.gpa, self.files.items.len + 1);
+        try self.files.ensureUnusedCapacity(self.cache.gpa, 1);
         const resolved_path = try fs.path.resolve(self.cache.gpa, &[_][]const u8{file_path});
 
         const idx = self.files.items.len;

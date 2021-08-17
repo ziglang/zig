@@ -12,7 +12,6 @@
 
 #include "tsan_interface_java.h"
 #include "tsan_rtl.h"
-#include "tsan_mutex.h"
 #include "sanitizer_common/sanitizer_internal_defs.h"
 #include "sanitizer_common/sanitizer_common.h"
 #include "sanitizer_common/sanitizer_placement_new.h"

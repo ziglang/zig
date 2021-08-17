@@ -7,11 +7,11 @@
 //===----------------------------------------------------------------------===//
 //
 // Information about the process mappings
-// (FreeBSD, OpenBSD and NetBSD-specific parts).
+// (FreeBSD and NetBSD-specific parts).
 //===----------------------------------------------------------------------===//
 
 #include "sanitizer_platform.h"
-#if SANITIZER_FREEBSD || SANITIZER_NETBSD || SANITIZER_OPENBSD
+#if SANITIZER_FREEBSD || SANITIZER_NETBSD
 #include "sanitizer_common.h"
 #if SANITIZER_FREEBSD
 #include "sanitizer_freebsd.h"
@@ -28,11 +28,6 @@
 #endif
 
 #include <limits.h>
-#if SANITIZER_OPENBSD
-#define KVME_PROT_READ KVE_PROT_READ
-#define KVME_PROT_WRITE KVE_PROT_WRITE
-#define KVME_PROT_EXEC KVE_PROT_EXEC
-#endif
 
 // Fix 'kinfo_vmentry' definition on FreeBSD prior v9.2 in 32-bit mode.
 #if SANITIZER_FREEBSD && (SANITIZER_WORDSIZE == 32)
@@ -51,10 +46,6 @@ void ReadProcMaps(ProcSelfMapsBuff *proc_maps) {
     KERN_PROC,
     KERN_PROC_VMMAP,
     getpid()
-#elif SANITIZER_OPENBSD
-    CTL_KERN,
-    KERN_PROC_VMMAP,
-    getpid()
 #elif SANITIZER_NETBSD
     CTL_VM,
     VM_PROC,
@@ -71,28 +62,12 @@ void ReadProcMaps(ProcSelfMapsBuff *proc_maps) {
   CHECK_EQ(Err, 0);
   CHECK_GT(Size, 0);
 
-#if !SANITIZER_OPENBSD
   size_t MmapedSize = Size * 4 / 3;
   void *VmMap = MmapOrDie(MmapedSize, "ReadProcMaps()");
   Size = MmapedSize;
   Err = internal_sysctl(Mib, ARRAY_SIZE(Mib), VmMap, &Size, NULL, 0);
   CHECK_EQ(Err, 0);
   proc_maps->data = (char *)VmMap;
-#else
-  size_t PageSize = GetPageSize();
-  size_t MmapedSize = Size;
-  MmapedSize = ((MmapedSize - 1) / PageSize + 1) * PageSize;
-  char *Mem = (char *)MmapOrDie(MmapedSize, "ReadProcMaps()");
-  Size = 2 * Size + 10 * sizeof(struct kinfo_vmentry);
-  if (Size > 0x10000)
-    Size = 0x10000;
-  Size = (Size / sizeof(struct kinfo_vmentry)) * sizeof(struct kinfo_vmentry);
-  Err = internal_sysctl(Mib, ARRAY_SIZE(Mib), Mem, &Size, NULL, 0);
-  CHECK_EQ(Err, 0);
-  MmapedSize = Size;
-  proc_maps->data = Mem;
-#endif
-
   proc_maps->mmaped_size = MmapedSize;
   proc_maps->len = Size;
 }
@@ -117,13 +92,11 @@ bool MemoryMappingLayout::Next(MemoryMappedSegment *segment) {
   if ((VmEntry->kve_protection & KVME_PROT_EXEC) != 0)
     segment->protection |= kProtectionExecute;
 
-#if !SANITIZER_OPENBSD
   if (segment->filename != NULL && segment->filename_size > 0) {
     internal_snprintf(segment->filename,
                       Min(segment->filename_size, (uptr)PATH_MAX), "%s",
                       VmEntry->kve_path);
   }
-#endif
 
 #if SANITIZER_FREEBSD
   data_.current += VmEntry->kve_structsize;

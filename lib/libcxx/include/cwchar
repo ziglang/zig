@@ -112,81 +112,81 @@ size_t wcsrtombs(char* restrict dst, const wchar_t** restrict src, size_t len,
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-using ::mbstate_t;
-using ::size_t;
-using ::tm;
-using ::wint_t;
-using ::FILE;
-using ::fwprintf;
-using ::fwscanf;
-using ::swprintf;
-using ::vfwprintf;
-using ::vswprintf;
-using ::swscanf;
-using ::vfwscanf;
-using ::vswscanf;
-using ::fgetwc;
-using ::fgetws;
-using ::fputwc;
-using ::fputws;
-using ::fwide;
-using ::getwc;
-using ::putwc;
-using ::ungetwc;
-using ::wcstod;
-using ::wcstof;
-using ::wcstold;
-using ::wcstol;
+using ::mbstate_t _LIBCPP_USING_IF_EXISTS;
+using ::size_t _LIBCPP_USING_IF_EXISTS;
+using ::tm _LIBCPP_USING_IF_EXISTS;
+using ::wint_t _LIBCPP_USING_IF_EXISTS;
+using ::FILE _LIBCPP_USING_IF_EXISTS;
+using ::fwprintf _LIBCPP_USING_IF_EXISTS;
+using ::fwscanf _LIBCPP_USING_IF_EXISTS;
+using ::swprintf _LIBCPP_USING_IF_EXISTS;
+using ::vfwprintf _LIBCPP_USING_IF_EXISTS;
+using ::vswprintf _LIBCPP_USING_IF_EXISTS;
+using ::swscanf _LIBCPP_USING_IF_EXISTS;
+using ::vfwscanf _LIBCPP_USING_IF_EXISTS;
+using ::vswscanf _LIBCPP_USING_IF_EXISTS;
+using ::fgetwc _LIBCPP_USING_IF_EXISTS;
+using ::fgetws _LIBCPP_USING_IF_EXISTS;
+using ::fputwc _LIBCPP_USING_IF_EXISTS;
+using ::fputws _LIBCPP_USING_IF_EXISTS;
+using ::fwide _LIBCPP_USING_IF_EXISTS;
+using ::getwc _LIBCPP_USING_IF_EXISTS;
+using ::putwc _LIBCPP_USING_IF_EXISTS;
+using ::ungetwc _LIBCPP_USING_IF_EXISTS;
+using ::wcstod _LIBCPP_USING_IF_EXISTS;
+using ::wcstof _LIBCPP_USING_IF_EXISTS;
+using ::wcstold _LIBCPP_USING_IF_EXISTS;
+using ::wcstol _LIBCPP_USING_IF_EXISTS;
 #ifndef _LIBCPP_HAS_NO_LONG_LONG
-using ::wcstoll;
+using ::wcstoll _LIBCPP_USING_IF_EXISTS;
 #endif // _LIBCPP_HAS_NO_LONG_LONG
-using ::wcstoul;
+using ::wcstoul _LIBCPP_USING_IF_EXISTS;
 #ifndef _LIBCPP_HAS_NO_LONG_LONG
-using ::wcstoull;
+using ::wcstoull _LIBCPP_USING_IF_EXISTS;
 #endif // _LIBCPP_HAS_NO_LONG_LONG
-using ::wcscpy;
-using ::wcsncpy;
-using ::wcscat;
-using ::wcsncat;
-using ::wcscmp;
-using ::wcscoll;
-using ::wcsncmp;
-using ::wcsxfrm;
-using ::wcschr;
-using ::wcspbrk;
-using ::wcsrchr;
-using ::wcsstr;
-using ::wmemchr;
-using ::wcscspn;
-using ::wcslen;
-using ::wcsspn;
-using ::wcstok;
-using ::wmemcmp;
-using ::wmemcpy;
-using ::wmemmove;
-using ::wmemset;
-using ::wcsftime;
-using ::btowc;
-using ::wctob;
-using ::mbsinit;
-using ::mbrlen;
-using ::mbrtowc;
-using ::wcrtomb;
-using ::mbsrtowcs;
-using ::wcsrtombs;
+using ::wcscpy _LIBCPP_USING_IF_EXISTS;
+using ::wcsncpy _LIBCPP_USING_IF_EXISTS;
+using ::wcscat _LIBCPP_USING_IF_EXISTS;
+using ::wcsncat _LIBCPP_USING_IF_EXISTS;
+using ::wcscmp _LIBCPP_USING_IF_EXISTS;
+using ::wcscoll _LIBCPP_USING_IF_EXISTS;
+using ::wcsncmp _LIBCPP_USING_IF_EXISTS;
+using ::wcsxfrm _LIBCPP_USING_IF_EXISTS;
+using ::wcschr _LIBCPP_USING_IF_EXISTS;
+using ::wcspbrk _LIBCPP_USING_IF_EXISTS;
+using ::wcsrchr _LIBCPP_USING_IF_EXISTS;
+using ::wcsstr _LIBCPP_USING_IF_EXISTS;
+using ::wmemchr _LIBCPP_USING_IF_EXISTS;
+using ::wcscspn _LIBCPP_USING_IF_EXISTS;
+using ::wcslen _LIBCPP_USING_IF_EXISTS;
+using ::wcsspn _LIBCPP_USING_IF_EXISTS;
+using ::wcstok _LIBCPP_USING_IF_EXISTS;
+using ::wmemcmp _LIBCPP_USING_IF_EXISTS;
+using ::wmemcpy _LIBCPP_USING_IF_EXISTS;
+using ::wmemmove _LIBCPP_USING_IF_EXISTS;
+using ::wmemset _LIBCPP_USING_IF_EXISTS;
+using ::wcsftime _LIBCPP_USING_IF_EXISTS;
+using ::btowc _LIBCPP_USING_IF_EXISTS;
+using ::wctob _LIBCPP_USING_IF_EXISTS;
+using ::mbsinit _LIBCPP_USING_IF_EXISTS;
+using ::mbrlen _LIBCPP_USING_IF_EXISTS;
+using ::mbrtowc _LIBCPP_USING_IF_EXISTS;
+using ::wcrtomb _LIBCPP_USING_IF_EXISTS;
+using ::mbsrtowcs _LIBCPP_USING_IF_EXISTS;
+using ::wcsrtombs _LIBCPP_USING_IF_EXISTS;
 
 #ifndef _LIBCPP_HAS_NO_STDIN
-using ::getwchar;
-using ::vwscanf;
-using ::wscanf;
+using ::getwchar _LIBCPP_USING_IF_EXISTS;
+using ::vwscanf _LIBCPP_USING_IF_EXISTS;
+using ::wscanf _LIBCPP_USING_IF_EXISTS;
 #endif
 
 #ifndef _LIBCPP_HAS_NO_STDOUT
-using ::putwchar;
-using ::vwprintf;
-using ::wprintf;
+using ::putwchar _LIBCPP_USING_IF_EXISTS;
+using ::vwprintf _LIBCPP_USING_IF_EXISTS;
+using ::wprintf _LIBCPP_USING_IF_EXISTS;
 #endif
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif  // _LIBCPP_CWCHAR
+#endif // _LIBCPP_CWCHAR

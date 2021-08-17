@@ -13,19 +13,19 @@
 
 namespace std {
 
-bad_alloc::bad_alloc() _NOEXCEPT
+bad_alloc::bad_alloc() noexcept
 {
 }
 
-bad_array_new_length::bad_array_new_length() _NOEXCEPT
+bad_array_new_length::bad_array_new_length() noexcept
 {
 }
 
-bad_cast::bad_cast() _NOEXCEPT
+bad_cast::bad_cast() noexcept
 {
 }
 
-bad_typeid::bad_typeid() _NOEXCEPT
+bad_typeid::bad_typeid() noexcept
 {
 }
 

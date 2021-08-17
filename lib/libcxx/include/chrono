@@ -823,12 +823,13 @@ constexpr chrono::year                                  operator ""y(unsigned lo
 }  // std
 */
 
-#include <__config>
 #include <__availability>
+#include <__config>
+#include <compare>
 #include <ctime>
-#include <type_traits>
-#include <ratio>
 #include <limits>
+#include <ratio>
+#include <type_traits>
 #include <version>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -1091,7 +1092,7 @@ public:
                 (__no_overflow<_Period2, period>::type::den == 1 &&
                  !treat_as_floating_point<_Rep2>::value))
             >::type* = nullptr)
-                : __rep_(_VSTD::chrono::duration_cast<duration>(__d).count()) {}
+                : __rep_(chrono::duration_cast<duration>(__d).count()) {}
 
     // observer
 
@@ -1410,7 +1411,7 @@ inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11
 time_point<_Clock, _ToDuration>
 time_point_cast(const time_point<_Clock, _Duration>& __t)
 {
-    return time_point<_Clock, _ToDuration>(_VSTD::chrono::duration_cast<_ToDuration>(__t.time_since_epoch()));
+    return time_point<_Clock, _ToDuration>(chrono::duration_cast<_ToDuration>(__t.time_since_epoch()));
 }
 
 #if _LIBCPP_STD_VER > 14
@@ -1926,13 +1927,13 @@ inline constexpr weekday& weekday::operator-=(const days& __dd) noexcept
 
 class weekday_indexed {
 private:
-    _VSTD::chrono::weekday __wd;
+    chrono::weekday __wd;
     unsigned char          __idx;
 public:
     weekday_indexed() = default;
-    inline constexpr weekday_indexed(const _VSTD::chrono::weekday& __wdval, unsigned __idxval) noexcept
+    inline constexpr weekday_indexed(const chrono::weekday& __wdval, unsigned __idxval) noexcept
         : __wd{__wdval}, __idx(__idxval) {}
-    inline constexpr _VSTD::chrono::weekday weekday() const noexcept { return __wd; }
+    inline constexpr chrono::weekday weekday() const noexcept { return __wd; }
     inline constexpr unsigned                 index() const noexcept { return __idx; }
     inline constexpr bool ok() const noexcept { return __wd.ok() && __idx >= 1 && __idx <= 5; }
 };
@@ -1948,11 +1949,11 @@ bool operator!=(const weekday_indexed& __lhs, const weekday_indexed& __rhs) noex
 
 class weekday_last {
 private:
-    _VSTD::chrono::weekday __wd;
+    chrono::weekday __wd;
 public:
-    explicit constexpr weekday_last(const _VSTD::chrono::weekday& __val) noexcept
+    explicit constexpr weekday_last(const chrono::weekday& __val) noexcept
         : __wd{__val} {}
-    constexpr _VSTD::chrono::weekday weekday() const noexcept { return __wd; }
+    constexpr chrono::weekday weekday() const noexcept { return __wd; }
     constexpr bool ok() const noexcept { return __wd.ok(); }
 };
 
@@ -2308,8 +2309,8 @@ inline constexpr
 year_month_day
 year_month_day::__from_days(days __d) noexcept
 {
-    static_assert(std::numeric_limits<unsigned>::digits >= 18, "");
-    static_assert(std::numeric_limits<int>::digits >= 20     , "");
+    static_assert(numeric_limits<unsigned>::digits >= 18, "");
+    static_assert(numeric_limits<int>::digits >= 20     , "");
     const int      __z = __d.count() + 719468;
     const int      __era = (__z >= 0 ? __z : __z - 146096) / 146097;
     const unsigned __doe = static_cast<unsigned>(__z - __era * 146097);              // [0, 146096]
@@ -2325,8 +2326,8 @@ year_month_day::__from_days(days __d) noexcept
 // https://howardhinnant.github.io/date_algorithms.html#days_from_civil
 inline constexpr days year_month_day::__to_days() const noexcept
 {
-    static_assert(std::numeric_limits<unsigned>::digits >= 18, "");
-    static_assert(std::numeric_limits<int>::digits >= 20     , "");
+    static_assert(numeric_limits<unsigned>::digits >= 18, "");
+    static_assert(numeric_limits<int>::digits >= 20     , "");
 
     const int      __yr  = static_cast<int>(__y) - (__m <= February);
     const unsigned __mth = static_cast<unsigned>(__m);
@@ -2964,4 +2965,4 @@ _LIBCPP_END_NAMESPACE_FILESYSTEM
 
 _LIBCPP_POP_MACROS
 
-#endif  // _LIBCPP_CHRONO
+#endif // _LIBCPP_CHRONO

@@ -142,11 +142,14 @@ template <> struct hash<std::error_condition>;
 
 */
 
+#include <__config>
 #include <__errc>
-#include <type_traits>
-#include <stdexcept>
+#include <__functional/unary_function.h>
 #include <__functional_base>
+#include <compare>
+#include <stdexcept>
 #include <string>
+#include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #pragma GCC system_header
@@ -289,8 +292,7 @@ public:
     string message() const;
 
     _LIBCPP_INLINE_VISIBILITY
-        _LIBCPP_EXPLICIT
-        operator bool() const _NOEXCEPT {return __val_ != 0;}
+    explicit operator bool() const _NOEXCEPT {return __val_ != 0;}
 };
 
 inline _LIBCPP_INLINE_VISIBILITY
@@ -366,8 +368,7 @@ public:
     string message() const;
 
     _LIBCPP_INLINE_VISIBILITY
-        _LIBCPP_EXPLICIT
-        operator bool() const _NOEXCEPT {return __val_ != 0;}
+    explicit operator bool() const _NOEXCEPT {return __val_ != 0;}
 };
 
 inline _LIBCPP_INLINE_VISIBILITY
@@ -484,4 +485,4 @@ void __throw_system_error(int ev, const char* what_arg);
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif  // _LIBCPP_SYSTEM_ERROR
+#endif // _LIBCPP_SYSTEM_ERROR

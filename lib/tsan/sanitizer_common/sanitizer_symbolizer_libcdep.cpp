@@ -12,6 +12,7 @@
 
 #include "sanitizer_allocator_internal.h"
 #include "sanitizer_internal_defs.h"
+#include "sanitizer_platform.h"
 #include "sanitizer_symbolizer_internal.h"
 
 namespace __sanitizer {
@@ -236,7 +237,7 @@ const LoadedModule *Symbolizer::FindModuleForAddress(uptr address) {
 //   <file_name>:<line_number>:<column_number>
 //   ...
 //   <empty line>
-class LLVMSymbolizerProcess : public SymbolizerProcess {
+class LLVMSymbolizerProcess final : public SymbolizerProcess {
  public:
   explicit LLVMSymbolizerProcess(const char *path)
       : SymbolizerProcess(path, /*use_posix_spawn=*/SANITIZER_MAC) {}
@@ -258,6 +259,8 @@ class LLVMSymbolizerProcess : public SymbolizerProcess {
     const char* const kSymbolizerArch = "--default-arch=x86_64";
 #elif defined(__i386__)
     const char* const kSymbolizerArch = "--default-arch=i386";
+#elif SANITIZER_RISCV64
+    const char *const kSymbolizerArch = "--default-arch=riscv64";
 #elif defined(__aarch64__)
     const char* const kSymbolizerArch = "--default-arch=arm64";
 #elif defined(__arm__)
@@ -275,8 +278,8 @@ class LLVMSymbolizerProcess : public SymbolizerProcess {
 #endif
 
     const char *const inline_flag = common_flags()->symbolize_inline_frames
-                                        ? "--inlining=true"
-                                        : "--inlining=false";
+                                        ? "--inlines"
+                                        : "--no-inlines";
     int i = 0;
     argv[i++] = path_to_binary;
     argv[i++] = inline_flag;
@@ -353,7 +356,7 @@ void ParseSymbolizePCOutput(const char *str, SymbolizedStack *res) {
       InternalFree(info->function);
       info->function = 0;
     }
-    if (0 == internal_strcmp(info->file, "??")) {
+    if (info->file && 0 == internal_strcmp(info->file, "??")) {
       InternalFree(info->file);
       info->file = 0;
     }

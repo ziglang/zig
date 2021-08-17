@@ -24,35 +24,35 @@ __ExceptionPtrCopyException(void*, const void*, const void*);
 
 namespace std {
 
-exception_ptr::exception_ptr() _NOEXCEPT { __ExceptionPtrCreate(this); }
-exception_ptr::exception_ptr(nullptr_t) _NOEXCEPT { __ExceptionPtrCreate(this); }
+exception_ptr::exception_ptr() noexcept { __ExceptionPtrCreate(this); }
+exception_ptr::exception_ptr(nullptr_t) noexcept { __ExceptionPtrCreate(this); }
 
-exception_ptr::exception_ptr(const exception_ptr& __other) _NOEXCEPT {
+exception_ptr::exception_ptr(const exception_ptr& __other) noexcept {
   __ExceptionPtrCopy(this, &__other);
 }
-exception_ptr& exception_ptr::operator=(const exception_ptr& __other) _NOEXCEPT {
+exception_ptr& exception_ptr::operator=(const exception_ptr& __other) noexcept {
   __ExceptionPtrAssign(this, &__other);
   return *this;
 }
 
-exception_ptr& exception_ptr::operator=(nullptr_t) _NOEXCEPT {
+exception_ptr& exception_ptr::operator=(nullptr_t) noexcept {
   exception_ptr dummy;
   __ExceptionPtrAssign(this, &dummy);
   return *this;
 }
 
-exception_ptr::~exception_ptr() _NOEXCEPT { __ExceptionPtrDestroy(this); }
+exception_ptr::~exception_ptr() noexcept { __ExceptionPtrDestroy(this); }
 
-exception_ptr::operator bool() const _NOEXCEPT {
+exception_ptr::operator bool() const noexcept {
   return __ExceptionPtrToBool(this);
 }
 
-bool operator==(const exception_ptr& __x, const exception_ptr& __y) _NOEXCEPT {
+bool operator==(const exception_ptr& __x, const exception_ptr& __y) noexcept {
   return __ExceptionPtrCompare(&__x, &__y);
 }
 
 
-void swap(exception_ptr& lhs, exception_ptr& rhs) _NOEXCEPT {
+void swap(exception_ptr& lhs, exception_ptr& rhs) noexcept {
   __ExceptionPtrSwap(&rhs, &lhs);
 }
 
@@ -63,7 +63,7 @@ exception_ptr __copy_exception_ptr(void* __except, const void* __ptr) {
   return __ret;
 }
 
-exception_ptr current_exception() _NOEXCEPT {
+exception_ptr current_exception() noexcept {
   exception_ptr __ret;
   __ExceptionPtrCurrentException(&__ret);
   return __ret;
@@ -72,9 +72,9 @@ exception_ptr current_exception() _NOEXCEPT {
 _LIBCPP_NORETURN
 void rethrow_exception(exception_ptr p) { __ExceptionPtrRethrow(&p); }
 
-nested_exception::nested_exception() _NOEXCEPT : __ptr_(current_exception()) {}
+nested_exception::nested_exception() noexcept : __ptr_(current_exception()) {}
 
-nested_exception::~nested_exception() _NOEXCEPT {}
+nested_exception::~nested_exception() noexcept {}
 
 _LIBCPP_NORETURN
 void nested_exception::rethrow_nested() const {

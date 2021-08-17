@@ -56,12 +56,13 @@ public:
 
 */
 
-#include <__config>
 #include <__availability>
-#include <exception>
+#include <__config>
 #include <cstddef>
 #include <cstdint>
+#include <exception>
 #include <type_traits>
+
 #ifdef _LIBCPP_NO_EXCEPTIONS
 #include <cstdlib>
 #endif
@@ -125,7 +126,7 @@ public:
 //               (_LIBCPP_TYPEINFO_COMPARISON_IMPLEMENTATION = 1)
 // ------------------------------------------------------------------------- //
 // This implementation of type_info assumes a unique copy of the RTTI for a
-// given type inside a program. This is a valid assumption when abiding to
+// given type inside a program. This is a valid assumption when abiding to the
 // Itanium ABI (http://itanium-cxx-abi.github.io/cxx-abi/abi.html#vtable-components).
 // Under this assumption, we can always compare the addresses of the type names
 // to implement equality-comparison of type_infos instead of having to perform
@@ -144,22 +145,29 @@ public:
 //                          NonUniqueARMRTTIBit
 //               (_LIBCPP_TYPEINFO_COMPARISON_IMPLEMENTATION = 3)
 // -------------------------------------------------------------------------- //
-// This implementation of type_info does not assume always a unique copy of
-// the RTTI for a given type inside a program. It packs the pointer to the
-// type name into a uintptr_t and reserves the high bit of that pointer (which
-// is assumed to be free for use under the ABI in use) to represent whether
-// that specific copy of the RTTI can be assumed unique inside the program.
-// To implement equality-comparison of type_infos, we check whether BOTH
-// type_infos are guaranteed unique, and if so, we simply compare the addresses
-// of their type names instead of doing a deep string comparison, which is
-// faster. If at least one of the type_infos can't guarantee uniqueness, we
-// have no choice but to fall back to a deep string comparison.
-//
 // This implementation is specific to ARM64 on Apple platforms.
 //
-// Note that the compiler is the one setting (or unsetting) the high bit of
-// the pointer when it constructs the type_info, depending on whether it can
-// guarantee uniqueness for that specific type_info.
+// This implementation of type_info does not assume always a unique copy of
+// the RTTI for a given type inside a program. When constructing the type_info,
+// the compiler packs the pointer to the type name into a uintptr_t and reserves
+// the high bit of that pointer, which is assumed to be free for use under that
+// ABI. If that high bit is set, that specific copy of the RTTI can't be assumed
+// to be unique within the program. If the high bit is unset, then the RTTI can
+// be assumed to be unique within the program.
+//
+// When comparing type_infos, if both RTTIs can be assumed to be unique, it
+// suffices to compare their addresses. If both the RTTIs can't be assumed to
+// be unique, we must perform a deep string comparison of the type names.
+// However, if one of the RTTIs is guaranteed unique and the other one isn't,
+// then both RTTIs are necessarily not to be considered equal.
+//
+// The intent of this design is to remove the need for weak symbols. Specifically,
+// if a type would normally have a default-visibility RTTI emitted as a weak
+// symbol, it is given hidden visibility instead and the non-unique bit is set.
+// Otherwise, types declared with hidden visibility are always considered to have
+// a unique RTTI: the RTTI is emitted with linkonce_odr linkage and is assumed
+// to be deduplicated by the linker within the linked image. Across linked image
+// boundaries, such types are thus considered different types.
 
 // This value can be overriden in the __config_site. When it's not overriden,
 // we pick a default implementation based on the platform here.
@@ -241,20 +249,22 @@ struct __type_info_implementations {
     _LIBCPP_INLINE_VISIBILITY _LIBCPP_ALWAYS_INLINE
     static size_t __hash(__type_name_t __v) _NOEXCEPT {
       if (__is_type_name_unique(__v))
-        return reinterpret_cast<size_t>(__v);
+        return __v;
       return __non_unique_impl::__hash(__type_name_to_string(__v));
     }
     _LIBCPP_INLINE_VISIBILITY _LIBCPP_ALWAYS_INLINE
     static bool __eq(__type_name_t __lhs, __type_name_t __rhs) _NOEXCEPT {
       if (__lhs == __rhs)
         return true;
-      if (__is_type_name_unique(__lhs, __rhs))
+      if (__is_type_name_unique(__lhs) || __is_type_name_unique(__rhs))
+        // Either both are unique and have a different address, or one of them
+        // is unique and the other one isn't. In both cases they are unequal.
         return false;
       return __builtin_strcmp(__type_name_to_string(__lhs), __type_name_to_string(__rhs)) == 0;
     }
     _LIBCPP_INLINE_VISIBILITY _LIBCPP_ALWAYS_INLINE
     static bool __lt(__type_name_t __lhs, __type_name_t __rhs) _NOEXCEPT {
-      if (__is_type_name_unique(__lhs, __rhs))
+      if (__is_type_name_unique(__lhs) || __is_type_name_unique(__rhs))
         return __lhs < __rhs;
       return __builtin_strcmp(__type_name_to_string(__lhs), __type_name_to_string(__rhs)) < 0;
     }
@@ -268,10 +278,6 @@ struct __type_info_implementations {
     _LIBCPP_INLINE_VISIBILITY
     static bool __is_type_name_unique(__type_name_t __lhs) _NOEXCEPT {
       return !(__lhs & __non_unique_rtti_bit::value);
-    }
-    _LIBCPP_INLINE_VISIBILITY
-    static bool __is_type_name_unique(__type_name_t __lhs, __type_name_t __rhs) _NOEXCEPT {
-      return !((__lhs & __rhs) & __non_unique_rtti_bit::value);
     }
   };
 
@@ -371,4 +377,4 @@ void __throw_bad_cast()
 }
 _LIBCPP_END_NAMESPACE_STD
 
-#endif  // __LIBCPP_TYPEINFO
+#endif // __LIBCPP_TYPEINFO

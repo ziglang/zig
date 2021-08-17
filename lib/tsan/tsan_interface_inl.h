@@ -12,6 +12,7 @@
 
 #include "tsan_interface.h"
 #include "tsan_rtl.h"
+#include "sanitizer_common/sanitizer_ptrauth.h"
 
 #define CALLERPC ((uptr)__builtin_return_address(0))
 
@@ -50,35 +51,35 @@ void __tsan_write8(void *addr) {
 }
 
 void __tsan_read1_pc(void *addr, void *pc) {
-  MemoryRead(cur_thread(), (uptr)pc, (uptr)addr, kSizeLog1);
+  MemoryRead(cur_thread(), STRIP_PAC_PC(pc), (uptr)addr, kSizeLog1);
 }
 
 void __tsan_read2_pc(void *addr, void *pc) {
-  MemoryRead(cur_thread(), (uptr)pc, (uptr)addr, kSizeLog2);
+  MemoryRead(cur_thread(), STRIP_PAC_PC(pc), (uptr)addr, kSizeLog2);
 }
 
 void __tsan_read4_pc(void *addr, void *pc) {
-  MemoryRead(cur_thread(), (uptr)pc, (uptr)addr, kSizeLog4);
+  MemoryRead(cur_thread(), STRIP_PAC_PC(pc), (uptr)addr, kSizeLog4);
 }
 
 void __tsan_read8_pc(void *addr, void *pc) {
-  MemoryRead(cur_thread(), (uptr)pc, (uptr)addr, kSizeLog8);
+  MemoryRead(cur_thread(), STRIP_PAC_PC(pc), (uptr)addr, kSizeLog8);
 }
 
 void __tsan_write1_pc(void *addr, void *pc) {
-  MemoryWrite(cur_thread(), (uptr)pc, (uptr)addr, kSizeLog1);
+  MemoryWrite(cur_thread(), STRIP_PAC_PC(pc), (uptr)addr, kSizeLog1);
 }
 
 void __tsan_write2_pc(void *addr, void *pc) {
-  MemoryWrite(cur_thread(), (uptr)pc, (uptr)addr, kSizeLog2);
+  MemoryWrite(cur_thread(), STRIP_PAC_PC(pc), (uptr)addr, kSizeLog2);
 }
 
 void __tsan_write4_pc(void *addr, void *pc) {
-  MemoryWrite(cur_thread(), (uptr)pc, (uptr)addr, kSizeLog4);
+  MemoryWrite(cur_thread(), STRIP_PAC_PC(pc), (uptr)addr, kSizeLog4);
 }
 
 void __tsan_write8_pc(void *addr, void *pc) {
-  MemoryWrite(cur_thread(), (uptr)pc, (uptr)addr, kSizeLog8);
+  MemoryWrite(cur_thread(), STRIP_PAC_PC(pc), (uptr)addr, kSizeLog8);
 }
 
 void __tsan_vptr_update(void **vptr_p, void *new_val) {
@@ -100,7 +101,7 @@ void __tsan_vptr_read(void **vptr_p) {
 }
 
 void __tsan_func_entry(void *pc) {
-  FuncEntry(cur_thread(), (uptr)pc);
+  FuncEntry(cur_thread(), STRIP_PAC_PC(pc));
 }
 
 void __tsan_func_exit() {
@@ -124,9 +125,9 @@ void __tsan_write_range(void *addr, uptr size) {
 }
 
 void __tsan_read_range_pc(void *addr, uptr size, void *pc) {
-  MemoryAccessRange(cur_thread(), (uptr)pc, (uptr)addr, size, false);
+  MemoryAccessRange(cur_thread(), STRIP_PAC_PC(pc), (uptr)addr, size, false);
 }
 
 void __tsan_write_range_pc(void *addr, uptr size, void *pc) {
-  MemoryAccessRange(cur_thread(), (uptr)pc, (uptr)addr, size, true);
+  MemoryAccessRange(cur_thread(), STRIP_PAC_PC(pc), (uptr)addr, size, true);
 }

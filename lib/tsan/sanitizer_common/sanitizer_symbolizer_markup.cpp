@@ -16,14 +16,13 @@
 
 #if SANITIZER_FUCHSIA
 #include "sanitizer_symbolizer_fuchsia.h"
-#elif SANITIZER_RTEMS
-#include "sanitizer_symbolizer_rtems.h"
-#endif
-#include "sanitizer_stacktrace.h"
-#include "sanitizer_symbolizer.h"
+#  endif
 
-#include <limits.h>
-#include <unwind.h>
+#  include <limits.h>
+#  include <unwind.h>
+
+#  include "sanitizer_stacktrace.h"
+#  include "sanitizer_symbolizer.h"
 
 namespace __sanitizer {
 
@@ -54,6 +53,10 @@ bool Symbolizer::GetModuleNameAndOffsetForPC(uptr pc, const char **module_name,
   return false;
 }
 
+// This is mainly used by hwasan for online symbolization. This isn't needed
+// since hwasan can always just dump stack frames for offline symbolization.
+bool Symbolizer::SymbolizeFrame(uptr addr, FrameInfo *info) { return false; }
+
 // This is used in some places for suppression checking, which we
 // don't really support for Fuchsia.  It's also used in UBSan to
 // identify a PC location to a function name, so we always fill in
@@ -83,11 +86,14 @@ void RenderData(InternalScopedString *buffer, const char *format,
   buffer->append(kFormatData, DI->start);
 }
 
+bool RenderNeedsSymbolization(const char *format) { return false; }
+
 // We don't support the stack_trace_format flag at all.
 void RenderFrame(InternalScopedString *buffer, const char *format, int frame_no,
-                 const AddressInfo &info, bool vs_style,
+                 uptr address, const AddressInfo *info, bool vs_style,
                  const char *strip_path_prefix, const char *strip_func_prefix) {
-  buffer->append(kFormatFrame, frame_no, info.address);
+  CHECK(!RenderNeedsSymbolization(format));
+  buffer->append(kFormatFrame, frame_no, address);
 }
 
 Symbolizer *Symbolizer::PlatformInit() {

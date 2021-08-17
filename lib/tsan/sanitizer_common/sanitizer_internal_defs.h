@@ -39,7 +39,7 @@
 
 // TLS is handled differently on different platforms
 #if SANITIZER_LINUX || SANITIZER_NETBSD || \
-  SANITIZER_FREEBSD || SANITIZER_OPENBSD
+  SANITIZER_FREEBSD
 # define SANITIZER_TLS_INITIAL_EXEC_ATTRIBUTE \
     __attribute__((tls_model("initial-exec"))) thread_local
 #else
@@ -104,8 +104,7 @@
 //
 // FIXME: do we have anything like this on Mac?
 #ifndef SANITIZER_CAN_USE_PREINIT_ARRAY
-#if ((SANITIZER_LINUX && !SANITIZER_ANDROID) || SANITIZER_OPENBSD || \
-     SANITIZER_FUCHSIA || SANITIZER_NETBSD) && !defined(PIC)
+#if (SANITIZER_LINUX || SANITIZER_FUCHSIA || SANITIZER_NETBSD) && !defined(PIC)
 #define SANITIZER_CAN_USE_PREINIT_ARRAY 1
 // Before Solaris 11.4, .preinit_array is fully supported only with GNU ld.
 // FIXME: Check for those conditions.
@@ -170,7 +169,7 @@ typedef int pid_t;
 #endif
 
 #if SANITIZER_FREEBSD || SANITIZER_NETBSD || \
-    SANITIZER_OPENBSD || SANITIZER_MAC || \
+    SANITIZER_MAC || \
     (SANITIZER_SOLARIS && (defined(_LP64) || _FILE_OFFSET_BITS == 64)) || \
     (SANITIZER_LINUX && defined(__x86_64__))
 typedef u64 OFF_T;
@@ -182,7 +181,7 @@ typedef u64  OFF64_T;
 #if (SANITIZER_WORDSIZE == 64) || SANITIZER_MAC
 typedef uptr operator_new_size_type;
 #else
-# if SANITIZER_OPENBSD || defined(__s390__) && !defined(__s390x__)
+# if defined(__s390__) && !defined(__s390x__)
 // Special case: 31-bit s390 has unsigned long as size_t.
 typedef unsigned long operator_new_size_type;
 # else
@@ -196,9 +195,6 @@ typedef u64 tid_t;
 // This header should NOT include any other headers to avoid portability issues.
 
 // Common defs.
-#ifndef INLINE
-#define INLINE inline
-#endif
 #define INTERFACE_ATTRIBUTE SANITIZER_INTERFACE_ATTRIBUTE
 #define SANITIZER_WEAK_DEFAULT_IMPL \
   extern "C" SANITIZER_INTERFACE_ATTRIBUTE SANITIZER_WEAK_ATTRIBUTE NOINLINE
@@ -333,13 +329,9 @@ void NORETURN CheckFailed(const char *file, int line, const char *cond,
 
 #define UNIMPLEMENTED() UNREACHABLE("unimplemented")
 
-#define COMPILER_CHECK(pred) IMPL_COMPILER_ASSERT(pred, __LINE__)
+#define COMPILER_CHECK(pred) static_assert(pred, "")
 
 #define ARRAY_SIZE(a) (sizeof(a)/sizeof((a)[0]))
-
-#define IMPL_PASTE(a, b) a##b
-#define IMPL_COMPILER_ASSERT(pred, line) \
-    typedef char IMPL_PASTE(assertion_failed_##_, line)[2*(int)(pred)-1]
 
 // Limits for integral types. We have to redefine it in case we don't
 // have stdint.h (like in Visual Studio 9).
@@ -417,6 +409,9 @@ inline void Trap() {
     (void)enable_fp;                      \
   } while (0)
 
+constexpr u32 kInvalidTid = -1;
+constexpr u32 kMainTid = 0;
+
 }  // namespace __sanitizer
 
 namespace __asan {
@@ -453,6 +448,9 @@ namespace __interception {
 using namespace __sanitizer;
 }
 namespace __hwasan {
+using namespace __sanitizer;
+}
+namespace __memprof {
 using namespace __sanitizer;
 }
 

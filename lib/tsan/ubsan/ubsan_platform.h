@@ -14,10 +14,10 @@
 
 // Other platforms should be easy to add, and probably work as-is.
 #if defined(__linux__) || defined(__FreeBSD__) || defined(__APPLE__) ||        \
-    defined(__NetBSD__) || defined(__OpenBSD__) || \
-    (defined(__sun__) && defined(__svr4__)) || \
-    defined(_WIN32) || defined(__Fuchsia__) || defined(__rtems__)
-# define CAN_SANITIZE_UB 1
+    defined(__NetBSD__) || defined(__DragonFly__) ||                           \
+    (defined(__sun__) && defined(__svr4__)) || defined(_WIN32) ||              \
+    defined(__Fuchsia__)
+#define CAN_SANITIZE_UB 1
 #else
 # define CAN_SANITIZE_UB 0
 #endif

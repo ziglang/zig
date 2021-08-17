@@ -83,20 +83,20 @@ void sleep_for(const chrono::duration<Rep, Period>& rel_time);
 */
 
 #include <__config>
-#include <iosfwd>
+#include <__debug>
 #include <__functional_base>
-#include <type_traits>
+#include <__mutex_base>
+#include <__threading_support>
+#include <__utility/__decay_copy.h>
+#include <__utility/forward.h>
+#include <chrono>
 #include <cstddef>
 #include <functional>
+#include <iosfwd>
 #include <memory>
 #include <system_error>
-#include <chrono>
-#include <__mutex_base>
-#ifndef _LIBCPP_CXX03_LANG
 #include <tuple>
-#endif
-#include <__threading_support>
-#include <__debug>
+#include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #pragma GCC system_header
@@ -346,7 +346,7 @@ thread::thread(_Fp __f)
         __throw_system_error(__ec, "thread constructor failed");
 }
 
-#endif  // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_CXX03_LANG
 
 inline _LIBCPP_INLINE_VISIBILITY
 void swap(thread& __x, thread& __y) _NOEXCEPT {__x.swap(__y);}
@@ -362,12 +362,11 @@ sleep_for(const chrono::duration<_Rep, _Period>& __d)
 {
     if (__d > chrono::duration<_Rep, _Period>::zero())
     {
-#if defined(_LIBCPP_COMPILER_GCC) && (__powerpc__ || __POWERPC__)
-    //  GCC's long double const folding is incomplete for IBM128 long doubles.
-        _LIBCPP_CONSTEXPR chrono::duration<long double> _Max = chrono::duration<long double>(ULLONG_MAX/1000000000ULL) ;
-#else
-        _LIBCPP_CONSTEXPR chrono::duration<long double> _Max = chrono::nanoseconds::max();
-#endif
+        // The standard guarantees a 64bit signed integer resolution for nanoseconds,
+        // so use INT64_MAX / 1e9 as cut-off point. Use a constant to avoid <climits>
+        // and issues with long double folding on PowerPC with GCC.
+        _LIBCPP_CONSTEXPR chrono::duration<long double> _Max =
+            chrono::duration<long double>(9223372036.0L);
         chrono::nanoseconds __ns;
         if (__d < _Max)
         {
@@ -411,4 +410,4 @@ _LIBCPP_END_NAMESPACE_STD
 
 _LIBCPP_POP_MACROS
 
-#endif  // _LIBCPP_THREAD
+#endif // _LIBCPP_THREAD

@@ -74,6 +74,20 @@ DECLARE__REAL_AND_INTERNAL(int, mprotect, void *addr, uptr length, int prot) {
   return _REAL(mprotect)(addr, length, prot);
 }
 
+// Illumos' declaration of madvise cannot be made visible if _XOPEN_SOURCE
+// is defined as g++ does on Solaris.
+//
+// This declaration is consistent with Solaris 11.4. Both Illumos and Solaris
+// versions older than 11.4 declared madvise with a caddr_t as the first
+// argument, but we don't currently support Solaris versions older than 11.4,
+// and as mentioned above the declaration is not visible on Illumos so we can
+// use any declaration we like on Illumos.
+extern "C" int madvise(void *, size_t, int);
+
+int internal_madvise(uptr addr, uptr length, int advice) {
+  return madvise((void *)addr, length, advice);
+}
+
 DECLARE__REAL_AND_INTERNAL(uptr, close, fd_t fd) {
   return _REAL(close)(fd);
 }
@@ -146,8 +160,11 @@ DECLARE__REAL_AND_INTERNAL(uptr, sched_yield, void) {
   return sched_yield();
 }
 
-DECLARE__REAL_AND_INTERNAL(void, _exit, int exitcode) {
-  _exit(exitcode);
+DECLARE__REAL_AND_INTERNAL(void, usleep, u64 useconds) {
+  struct timespec ts;
+  ts.tv_sec = useconds / 1000000;
+  ts.tv_nsec = (useconds % 1000000) * 1000;
+  nanosleep(&ts, nullptr);
 }
 
 DECLARE__REAL_AND_INTERNAL(uptr, execve, const char *filename,
@@ -201,6 +218,13 @@ uptr internal_clock_gettime(__sanitizer_clockid_t clk_id, void *tp) {
 }
 
 // ----------------- sanitizer_common.h
+void FutexWait(atomic_uint32_t *p, u32 cmp) {
+  // FIXME: implement actual blocking.
+  sched_yield();
+}
+
+void FutexWake(atomic_uint32_t *p, u32 count) {}
+
 BlockingMutex::BlockingMutex() {
   CHECK(sizeof(mutex_t) <= sizeof(opaque_storage_));
   internal_memset(this, 0, sizeof(*this));
@@ -221,9 +245,7 @@ void BlockingMutex::Unlock() {
   CHECK_EQ(mutex_unlock((mutex_t *)&opaque_storage_), 0);
 }
 
-void BlockingMutex::CheckLocked() {
-  CHECK_EQ((uptr)thr_self(), owner_);
-}
+void BlockingMutex::CheckLocked() const { CHECK_EQ((uptr)thr_self(), owner_); }
 
 }  // namespace __sanitizer
 

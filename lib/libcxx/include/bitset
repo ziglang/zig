@@ -114,12 +114,12 @@ template <size_t N> struct hash<std::bitset<N>>;
 
 #include <__config>
 #include <__bit_reference>
-#include <cstddef>
-#include <climits>
-#include <string>
-#include <stdexcept>
-#include <iosfwd>
 #include <__functional_base>
+#include <climits>
+#include <cstddef>
+#include <iosfwd>
+#include <stdexcept>
+#include <string>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #pragma GCC system_header
@@ -202,7 +202,7 @@ private:
     void __init(unsigned long long __v, false_type) _NOEXCEPT;
     _LIBCPP_INLINE_VISIBILITY
     void __init(unsigned long long __v, true_type) _NOEXCEPT;
-#endif  // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_CXX03_LANG
     unsigned long to_ulong(false_type) const;
     _LIBCPP_INLINE_VISIBILITY
     unsigned long to_ulong(true_type) const;
@@ -258,7 +258,7 @@ __bitset<_N_words, _Size>::__init(unsigned long long __v, true_type) _NOEXCEPT
     _VSTD::fill(__first_ + 1, __first_ + sizeof(__first_)/sizeof(__first_[0]), __storage_type(0));
 }
 
-#endif  // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_CXX03_LANG
 
 template <size_t _N_words, size_t _Size>
 inline
@@ -775,10 +775,7 @@ bitset<_Size>::bitset(const _CharT* __str,
     for (; __i < _Mp; ++__i)
     {
         _CharT __c = __str[_Mp - 1 - __i];
-        if (__c == __zero)
-            (*this)[__i] = false;
-        else
-            (*this)[__i] = true;
+        (*this)[__i] = (__c == __one);
     }
     _VSTD::fill(base::__make_iter(__i), base::__make_iter(_Size), false);
 }
@@ -803,10 +800,7 @@ bitset<_Size>::bitset(const basic_string<_CharT,_Traits,_Allocator>& __str,
     for (; __i < _Mp; ++__i)
     {
         _CharT __c = __str[__pos + _Mp - 1 - __i];
-        if (_Traits::eq(__c, __zero))
-            (*this)[__i] = false;
-        else
-            (*this)[__i] = true;
+        (*this)[__i] = _Traits::eq(__c, __one);
     }
     _VSTD::fill(base::__make_iter(__i), base::__make_iter(_Size), false);
 }
@@ -1106,4 +1100,4 @@ _LIBCPP_END_NAMESPACE_STD
 
 _LIBCPP_POP_MACROS
 
-#endif  // _LIBCPP_BITSET
+#endif // _LIBCPP_BITSET

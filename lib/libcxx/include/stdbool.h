@@ -35,4 +35,4 @@ Macros:
 #define __bool_true_false_are_defined 1
 #endif
 
-#endif  // _LIBCPP_STDBOOL_H
+#endif // _LIBCPP_STDBOOL_H

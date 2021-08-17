@@ -196,7 +196,8 @@ typedef unsigned short a16;
 typedef unsigned int       a32;
 typedef unsigned long long a64;
 #if !SANITIZER_GO && (defined(__SIZEOF_INT128__) \
-    || (__clang_major__ * 100 + __clang_minor__ >= 302)) && !defined(__mips64)
+    || (__clang_major__ * 100 + __clang_minor__ >= 302)) && \
+    !defined(__mips64) && !defined(__s390x__)
 __extension__ typedef __int128 a128;
 # define __TSAN_HAS_INT128 1
 #else
@@ -204,7 +205,7 @@ __extension__ typedef __int128 a128;
 #endif
 
 // Part of ABI, do not change.
-// https://github.com/llvm/llvm-project/blob/master/libcxx/include/atomic
+// https://github.com/llvm/llvm-project/blob/main/libcxx/include/atomic
 typedef enum {
   mo_relaxed,
   mo_consume,
@@ -415,6 +416,13 @@ void __tsan_go_atomic32_compare_exchange(ThreadState *thr, uptr cpc, uptr pc,
 SANITIZER_INTERFACE_ATTRIBUTE
 void __tsan_go_atomic64_compare_exchange(ThreadState *thr, uptr cpc, uptr pc,
                                          u8 *a);
+
+SANITIZER_INTERFACE_ATTRIBUTE
+void __tsan_on_initialize();
+
+SANITIZER_INTERFACE_ATTRIBUTE
+int __tsan_on_finalize(int failed);
+
 }  // extern "C"
 
 }  // namespace __tsan

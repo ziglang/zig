@@ -11,9 +11,28 @@
 #define _LIBCPP_SUPPORT_WIN32_LOCALE_WIN32_H
 
 #include <__config>
-#include <stdio.h>
-#include <xlocinfo.h> // _locale_t
 #include <__nullptr>
+#include <locale.h> // _locale_t
+#include <stdio.h>
+
+#define _X_ALL LC_ALL
+#define _X_COLLATE LC_COLLATE
+#define _X_CTYPE LC_CTYPE
+#define _X_MONETARY LC_MONETARY
+#define _X_NUMERIC LC_NUMERIC
+#define _X_TIME LC_TIME
+#define _X_MAX LC_MAX
+#define _X_MESSAGES 6
+#define _NCAT (_X_MESSAGES + 1)
+
+#define _CATMASK(n) ((1 << (n)) >> 1)
+#define _M_COLLATE _CATMASK(_X_COLLATE)
+#define _M_CTYPE _CATMASK(_X_CTYPE)
+#define _M_MONETARY _CATMASK(_X_MONETARY)
+#define _M_NUMERIC _CATMASK(_X_NUMERIC)
+#define _M_TIME _CATMASK(_X_TIME)
+#define _M_MESSAGES _CATMASK(_X_MESSAGES)
+#define _M_ALL (_CATMASK(_NCAT) - 1)
 
 #define LC_COLLATE_MASK _M_COLLATE
 #define LC_CTYPE_MASK _M_CTYPE

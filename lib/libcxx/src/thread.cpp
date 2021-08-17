@@ -70,7 +70,7 @@ thread::detach()
 }
 
 unsigned
-thread::hardware_concurrency() _NOEXCEPT
+thread::hardware_concurrency() noexcept
 {
 #if defined(_SC_NPROCESSORS_ONLN)
     long result = sysconf(_SC_NPROCESSORS_ONLN);
@@ -94,7 +94,7 @@ thread::hardware_concurrency() _NOEXCEPT
 #       warning hardware_concurrency not yet implemented
 #   endif
     return 0;  // Means not computable [thread.thread.static]
-#endif  // defined(CTL_HW) && defined(HW_NCPU)
+#endif // defined(CTL_HW) && defined(HW_NCPU)
 }
 
 namespace this_thread

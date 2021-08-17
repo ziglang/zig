@@ -56,6 +56,6 @@ namespace std
     typedef decltype(nullptr) nullptr_t;
 }
 
-#endif  // _LIBCPP_HAS_NO_NULLPTR
+#endif // _LIBCPP_HAS_NO_NULLPTR
 
-#endif  // _LIBCPP_NULLPTR
+#endif // _LIBCPP_NULLPTR

@@ -13,9 +13,10 @@
 #include "sanitizer_flags.h"
 
 #include "sanitizer_common.h"
-#include "sanitizer_libc.h"
-#include "sanitizer_list.h"
 #include "sanitizer_flag_parser.h"
+#include "sanitizer_libc.h"
+#include "sanitizer_linux.h"
+#include "sanitizer_list.h"
 
 namespace __sanitizer {
 
@@ -34,6 +35,7 @@ void CommonFlags::CopyFrom(const CommonFlags &other) {
 // Copy the string from "s" to "out", making the following substitutions:
 // %b = binary basename
 // %p = pid
+// %d = binary directory
 void SubstituteForFlagValue(const char *s, char *out, uptr out_size) {
   char *out_end = out + out_size;
   while (*s && out < out_end - 1) {
@@ -63,6 +65,12 @@ void SubstituteForFlagValue(const char *s, char *out, uptr out_size) {
         s += 2; // skip "%p"
         break;
       }
+      case 'd': {
+        uptr len = ReadBinaryDir(out, out_end - out);
+        out += len;
+        s += 2;  // skip "%d"
+        break;
+      }
       default:
         *out++ = *s++;
         break;
@@ -72,7 +80,7 @@ void SubstituteForFlagValue(const char *s, char *out, uptr out_size) {
   *out = '\0';
 }
 
-class FlagHandlerInclude : public FlagHandlerBase {
+class FlagHandlerInclude final : public FlagHandlerBase {
   FlagParser *parser_;
   bool ignore_missing_;
   const char *original_path_;
@@ -91,7 +99,7 @@ class FlagHandlerInclude : public FlagHandlerBase {
     }
     return parser_->ParseFile(value, ignore_missing_);
   }
-  bool Format(char *buffer, uptr size) {
+  bool Format(char *buffer, uptr size) override {
     // Note `original_path_` isn't actually what's parsed due to `%`
     // substitutions. Printing the substituted path would require holding onto
     // mmap'ed memory.
@@ -124,6 +132,8 @@ void InitializeCommonFlags(CommonFlags *cf) {
   // need to record coverage to generate coverage report.
   cf->coverage |= cf->html_cov_report;
   SetVerbosity(cf->verbosity);
+
+  InitializePlatformCommonFlags(cf);
 }
 
 }  // namespace __sanitizer

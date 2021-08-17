@@ -108,7 +108,7 @@ namespace std
 {
 
 unexpected_handler
-set_unexpected(unexpected_handler func) _NOEXCEPT
+set_unexpected(unexpected_handler func) noexcept
 {
     if (func == 0)
         func = default_unexpected_handler;
@@ -117,7 +117,7 @@ set_unexpected(unexpected_handler func) _NOEXCEPT
 }
 
 terminate_handler
-set_terminate(terminate_handler func) _NOEXCEPT
+set_terminate(terminate_handler func) noexcept
 {
     if (func == 0)
         func = default_terminate_handler;

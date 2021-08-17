@@ -28,7 +28,7 @@
 
 namespace __sanitizer {
 
-class LibbacktraceSymbolizer : public SymbolizerTool {
+class LibbacktraceSymbolizer final : public SymbolizerTool {
  public:
   static LibbacktraceSymbolizer *get(LowLevelAllocator *alloc);
 

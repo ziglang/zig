@@ -181,8 +181,8 @@ typedef basic_stringstream<wchar_t> wstringstream;
 */
 
 #include <__config>
-#include <ostream>
 #include <istream>
+#include <ostream>
 #include <string>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -219,19 +219,13 @@ private:
 
 public:
     // 30.8.2.1 [stringbuf.cons], constructors
-#ifndef _LIBCPP_CXX03_LANG
     _LIBCPP_INLINE_VISIBILITY
-    basic_stringbuf() : basic_stringbuf(ios_base::in | ios_base::out) {}
+    basic_stringbuf()
+        : __hm_(nullptr), __mode_(ios_base::in | ios_base::out) {}
 
     _LIBCPP_INLINE_VISIBILITY
     explicit basic_stringbuf(ios_base::openmode __wch)
         : __hm_(nullptr), __mode_(__wch) {}
-#else
-    _LIBCPP_INLINE_VISIBILITY
-    explicit basic_stringbuf(ios_base::openmode __wch = ios_base::in |
-                                                        ios_base::out)
-        : __hm_(nullptr), __mode_(__wch) {}
-#endif
 
     _LIBCPP_INLINE_VISIBILITY
     explicit basic_stringbuf(const string_type& __s,
@@ -542,7 +536,7 @@ basic_stringbuf<_CharT, _Traits, _Allocator>::overflow(int_type __c)
 #ifndef _LIBCPP_NO_EXCEPTIONS
             try
             {
-#endif  // _LIBCPP_NO_EXCEPTIONS
+#endif // _LIBCPP_NO_EXCEPTIONS
                 ptrdiff_t __nout = this->pptr()  - this->pbase();
                 ptrdiff_t __hm = __hm_ - this->pbase();
                 __str_.push_back(char_type());
@@ -557,7 +551,7 @@ basic_stringbuf<_CharT, _Traits, _Allocator>::overflow(int_type __c)
             {
                 return traits_type::eof();
             }
-#endif  // _LIBCPP_NO_EXCEPTIONS
+#endif // _LIBCPP_NO_EXCEPTIONS
         }
         __hm_ = _VSTD::max(this->pptr() + 1, __hm_);
         if (__mode_ & ios_base::in)
@@ -643,18 +637,13 @@ private:
 
 public:
     // 30.8.3.1 [istringstream.cons], constructors
-#ifndef _LIBCPP_CXX03_LANG
     _LIBCPP_INLINE_VISIBILITY
-    basic_istringstream() : basic_istringstream(ios_base::in) {}
+    basic_istringstream()
+        : basic_istream<_CharT, _Traits>(&__sb_), __sb_(ios_base::in) {}
 
     _LIBCPP_INLINE_VISIBILITY
     explicit basic_istringstream(ios_base::openmode __wch)
         : basic_istream<_CharT, _Traits>(&__sb_), __sb_(__wch | ios_base::in) {}
-#else
-    _LIBCPP_INLINE_VISIBILITY
-    explicit basic_istringstream(ios_base::openmode __wch = ios_base::in)
-        : basic_istream<_CharT, _Traits>(&__sb_), __sb_(__wch | ios_base::in) {}
-#endif
 
     _LIBCPP_INLINE_VISIBILITY
     explicit basic_istringstream(const string_type& __s,
@@ -728,20 +717,13 @@ private:
 
 public:
     // 30.8.4.1 [ostringstream.cons], constructors
-#ifndef _LIBCPP_CXX03_LANG
     _LIBCPP_INLINE_VISIBILITY
-    basic_ostringstream() : basic_ostringstream(ios_base::out) {}
+    basic_ostringstream()
+        : basic_ostream<_CharT, _Traits>(&__sb_), __sb_(ios_base::out) {}
 
     _LIBCPP_INLINE_VISIBILITY
     explicit basic_ostringstream(ios_base::openmode __wch)
-        : basic_ostream<_CharT, _Traits>(&__sb_),
-          __sb_(__wch | ios_base::out) {}
-#else
-    _LIBCPP_INLINE_VISIBILITY
-    explicit basic_ostringstream(ios_base::openmode __wch = ios_base::out)
-        : basic_ostream<_CharT, _Traits>(&__sb_),
-          __sb_(__wch | ios_base::out) {}
-#endif
+        : basic_ostream<_CharT, _Traits>(&__sb_), __sb_(__wch | ios_base::out) {}
 
     _LIBCPP_INLINE_VISIBILITY
     explicit basic_ostringstream(const string_type& __s,
@@ -816,19 +798,13 @@ private:
 
 public:
     // 30.8.5.1 [stringstream.cons], constructors
-#ifndef _LIBCPP_CXX03_LANG
     _LIBCPP_INLINE_VISIBILITY
-    basic_stringstream() : basic_stringstream(ios_base::in | ios_base::out) {}
+    basic_stringstream()
+        : basic_iostream<_CharT, _Traits>(&__sb_), __sb_(ios_base::in | ios_base::out) {}
 
     _LIBCPP_INLINE_VISIBILITY
     explicit basic_stringstream(ios_base::openmode __wch)
         : basic_iostream<_CharT, _Traits>(&__sb_), __sb_(__wch) {}
-#else
-    _LIBCPP_INLINE_VISIBILITY
-    explicit basic_stringstream(ios_base::openmode __wch = ios_base::in |
-                                                           ios_base::out)
-        : basic_iostream<_CharT, _Traits>(&__sb_), __sb_(__wch) {}
-#endif
 
     _LIBCPP_INLINE_VISIBILITY
     explicit basic_stringstream(const string_type& __s,
@@ -892,4 +868,4 @@ _LIBCPP_END_NAMESPACE_STD
 
 _LIBCPP_POP_MACROS
 
-#endif  // _LIBCPP_SSTREAM
+#endif // _LIBCPP_SSTREAM

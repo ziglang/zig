@@ -21,4 +21,4 @@
 #pragma GCC system_header
 #endif
 
-#endif  // _LIBCPP_CISO646
+#endif // _LIBCPP_CISO646

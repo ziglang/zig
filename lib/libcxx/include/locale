@@ -188,23 +188,28 @@ template <class charT> class messages_byname;
 */
 
 #include <__config>
-#include <__locale>
 #include <__debug>
+#include <__locale>
 #include <algorithm>
-#include <memory>
-#include <ios>
-#include <streambuf>
-#include <iterator>
-#include <limits>
-#include <version>
 #ifndef __APPLE__
-#include <cstdarg>
+# include <cstdarg>
 #endif
+#include <cstdio>
 #include <cstdlib>
 #include <ctime>
-#include <cstdio>
-#ifdef _LIBCPP_HAS_CATOPEN
-#include <nl_types.h>
+#include <ios>
+#include <iterator>
+#include <limits>
+#include <memory>
+#include <streambuf>
+#include <version>
+
+#if defined(__unix__) || (defined(__APPLE__) && defined(__MACH__))
+// Most unix variants have catopen.  These are the specific ones that don't.
+#  if !defined(__BIONIC__) && !defined(_NEWLIB_VERSION)
+#    define _LIBCPP_HAS_CATOPEN 1
+#    include <nl_types.h>
+#  endif
 #endif
 
 #ifdef _LIBCPP_LOCALE__L_EXTENSIONS
@@ -1453,10 +1458,12 @@ num_put<_CharT, _OutputIterator>::do_put(iter_type __s, ios_base& __iob,
     char __fmt[6] = {'%', 0};
     const char* __len = "l";
     this->__format_int(__fmt+1, __len, true, __iob.flags());
-    const unsigned __nbuf = (numeric_limits<long>::digits / 3)
-                          + ((numeric_limits<long>::digits % 3) != 0)
-                          + ((__iob.flags() & ios_base::showbase) != 0)
-                          + 2;
+    // Worst case is octal, with showbase enabled. Note that octal is always
+    // printed as an unsigned value.
+    _LIBCPP_CONSTEXPR const unsigned __nbuf
+        = (numeric_limits<unsigned long>::digits / 3)        // 1 char per 3 bits
+        + ((numeric_limits<unsigned long>::digits % 3) != 0) // round up
+        + 2; // base prefix + terminating null character
     char __nar[__nbuf];
     int __nc = __libcpp_snprintf_l(__nar, sizeof(__nar), _LIBCPP_GET_C_LOCALE, __fmt, __v);
     char* __ne = __nar + __nc;
@@ -1480,10 +1487,12 @@ num_put<_CharT, _OutputIterator>::do_put(iter_type __s, ios_base& __iob,
     char __fmt[8] = {'%', 0};
     const char* __len = "ll";
     this->__format_int(__fmt+1, __len, true, __iob.flags());
-    const unsigned __nbuf = (numeric_limits<long long>::digits / 3)
-                          + ((numeric_limits<long long>::digits % 3) != 0)
-                          + ((__iob.flags() & ios_base::showbase) != 0)
-                          + 2;
+    // Worst case is octal, with showbase enabled. Note that octal is always
+    // printed as an unsigned value.
+    _LIBCPP_CONSTEXPR const unsigned __nbuf
+        = (numeric_limits<unsigned long long>::digits / 3)        // 1 char per 3 bits
+        + ((numeric_limits<unsigned long long>::digits % 3) != 0) // round up
+        + 2; // base prefix + terminating null character
     char __nar[__nbuf];
     int __nc = __libcpp_snprintf_l(__nar, sizeof(__nar), _LIBCPP_GET_C_LOCALE, __fmt, __v);
     char* __ne = __nar + __nc;
@@ -1507,10 +1516,11 @@ num_put<_CharT, _OutputIterator>::do_put(iter_type __s, ios_base& __iob,
     char __fmt[6] = {'%', 0};
     const char* __len = "l";
     this->__format_int(__fmt+1, __len, false, __iob.flags());
-    const unsigned __nbuf = (numeric_limits<unsigned long>::digits / 3)
-                          + ((numeric_limits<unsigned long>::digits % 3) != 0)
-                          + ((__iob.flags() & ios_base::showbase) != 0)
-                          + 1;
+    // Worst case is octal, with showbase enabled.
+    _LIBCPP_CONSTEXPR const unsigned __nbuf
+        = (numeric_limits<unsigned long>::digits / 3)        // 1 char per 3 bits
+        + ((numeric_limits<unsigned long>::digits % 3) != 0) // round up
+        + 2; // base prefix + terminating null character
     char __nar[__nbuf];
     int __nc = __libcpp_snprintf_l(__nar, sizeof(__nar), _LIBCPP_GET_C_LOCALE, __fmt, __v);
     char* __ne = __nar + __nc;
@@ -1534,10 +1544,11 @@ num_put<_CharT, _OutputIterator>::do_put(iter_type __s, ios_base& __iob,
     char __fmt[8] = {'%', 0};
     const char* __len = "ll";
     this->__format_int(__fmt+1, __len, false, __iob.flags());
-    const unsigned __nbuf = (numeric_limits<unsigned long long>::digits / 3)
-                          + ((numeric_limits<unsigned long long>::digits % 3) != 0)
-                          + ((__iob.flags() & ios_base::showbase) != 0)
-                          + 1;
+    // Worst case is octal, with showbase enabled.
+    _LIBCPP_CONSTEXPR const unsigned __nbuf
+        = (numeric_limits<unsigned long long>::digits / 3)        // 1 char per 3 bits
+        + ((numeric_limits<unsigned long long>::digits % 3) != 0) // round up
+        + 2; // base prefix + terminating null character
     char __nar[__nbuf];
     int __nc = __libcpp_snprintf_l(__nar, sizeof(__nar), _LIBCPP_GET_C_LOCALE, __fmt, __v);
     char* __ne = __nar + __nc;
@@ -3567,7 +3578,7 @@ messages<_CharT>::do_open(const basic_string<char>& __nm, const locale&) const
         __cat = static_cast<catalog>((static_cast<size_t>(__cat) >> 1));
     return __cat;
 #else // !_LIBCPP_HAS_CATOPEN
-    _LIBCPP_UNUSED_VAR(__nm);
+    (void)__nm;
     return -1;
 #endif // _LIBCPP_HAS_CATOPEN
 }
@@ -3591,9 +3602,9 @@ messages<_CharT>::do_get(catalog __c, int __set, int __msgid,
                                                         __n, __n + _VSTD::strlen(__n));
     return __w;
 #else // !_LIBCPP_HAS_CATOPEN
-    _LIBCPP_UNUSED_VAR(__c);
-    _LIBCPP_UNUSED_VAR(__set);
-    _LIBCPP_UNUSED_VAR(__msgid);
+    (void)__c;
+    (void)__set;
+    (void)__msgid;
     return __dflt;
 #endif // _LIBCPP_HAS_CATOPEN
 }
@@ -3608,7 +3619,7 @@ messages<_CharT>::do_close(catalog __c) const
     nl_catd __cat = (nl_catd)__c;
     catclose(__cat);
 #else // !_LIBCPP_HAS_CATOPEN
-    _LIBCPP_UNUSED_VAR(__c);
+    (void)__c;
 #endif // _LIBCPP_HAS_CATOPEN
 }
 
@@ -3748,7 +3759,7 @@ wstring_convert<_Codecvt, _Elem, _Wide_alloc, _Byte_alloc>::
     __wc.__cvtptr_ = nullptr;
 }
 
-#endif  // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_CXX03_LANG
 
 template<class _Codecvt, class _Elem, class _Wide_alloc, class _Byte_alloc>
 wstring_convert<_Codecvt, _Elem, _Wide_alloc, _Byte_alloc>::~wstring_convert()
@@ -4376,4 +4387,4 @@ _LIBCPP_END_NAMESPACE_STD
 
 _LIBCPP_POP_MACROS
 
-#endif  // _LIBCPP_LOCALE
+#endif // _LIBCPP_LOCALE

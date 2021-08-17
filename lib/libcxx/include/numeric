@@ -145,10 +145,11 @@ template<class T>
 */
 
 #include <__config>
+#include <__debug>
+#include <cmath> // for isnormal
+#include <functional>
 #include <iterator>
 #include <limits> // for numeric_limits
-#include <functional>
-#include <cmath> // for isnormal
 #include <version>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -613,8 +614,8 @@ _LIBCPP_INLINE_VISIBILITY constexpr
 enable_if_t<is_floating_point_v<_Fp>, _Fp>
 midpoint(_Fp __a, _Fp __b) noexcept
 {
-	constexpr _Fp __lo = numeric_limits<_Fp>::min()*2;
-	constexpr _Fp __hi = numeric_limits<_Fp>::max()/2;
+    constexpr _Fp __lo = numeric_limits<_Fp>::min()*2;
+    constexpr _Fp __hi = numeric_limits<_Fp>::max()/2;
     return __fp_abs(__a) <= __hi && __fp_abs(__b) <= __hi ?  // typical case: overflow is impossible
       (__a + __b)/2 :                                        // always correctly rounded
       __fp_abs(__a) < __lo ? __a + __b/2 :                   // not safe to halve a
@@ -632,4 +633,4 @@ _LIBCPP_POP_MACROS
 #   include <__pstl_numeric>
 #endif
 
-#endif  // _LIBCPP_NUMERIC
+#endif // _LIBCPP_NUMERIC

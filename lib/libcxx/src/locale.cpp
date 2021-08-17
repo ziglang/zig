@@ -27,7 +27,6 @@
 #define _CTYPE_DISABLE_MACROS
 #endif
 #include "cwctype"
-#include "__sso_allocator"
 #if defined(_LIBCPP_MSVCRT) || defined(__MINGW32__)
 #include "__support/win32/locale_win32.h"
 #elif !defined(__BIONIC__) && !defined(__NuttX__)
@@ -36,6 +35,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include "include/atomic_support.h"
+#include "include/sso_allocator.h"
 #include "__undef_macros"
 
 // On Linux, wint_t and wchar_t have different signed-ness, and this causes
@@ -206,7 +206,7 @@ _LIBCPP_SUPPRESS_DEPRECATED_PUSH
     install(&make<codecvt<char16_t, char, mbstate_t> >(1u));
     install(&make<codecvt<char32_t, char, mbstate_t> >(1u));
 _LIBCPP_SUPPRESS_DEPRECATED_POP
-#ifndef _LIBCPP_NO_HAS_CHAR8_T
+#ifndef _LIBCPP_HAS_NO_CHAR8_T
     install(&make<codecvt<char16_t, char8_t, mbstate_t> >(1u));
     install(&make<codecvt<char32_t, char8_t, mbstate_t> >(1u));
 #endif
@@ -240,7 +240,7 @@ locale::__imp::__imp(const string& name, size_t refs)
 #ifndef _LIBCPP_NO_EXCEPTIONS
     try
     {
-#endif  // _LIBCPP_NO_EXCEPTIONS
+#endif // _LIBCPP_NO_EXCEPTIONS
         facets_ = locale::classic().__locale_->facets_;
         for (unsigned i = 0; i < facets_.size(); ++i)
             if (facets_[i])
@@ -255,7 +255,7 @@ _LIBCPP_SUPPRESS_DEPRECATED_PUSH
         install(new codecvt_byname<char16_t, char, mbstate_t>(name_));
         install(new codecvt_byname<char32_t, char, mbstate_t>(name_));
 _LIBCPP_SUPPRESS_DEPRECATED_POP
-#ifndef _LIBCPP_NO_HAS_CHAR8_T
+#ifndef _LIBCPP_HAS_NO_CHAR8_T
         install(new codecvt_byname<char16_t, char8_t, mbstate_t>(name_));
         install(new codecvt_byname<char32_t, char8_t, mbstate_t>(name_));
 #endif
@@ -280,7 +280,7 @@ _LIBCPP_SUPPRESS_DEPRECATED_POP
                 facets_[i]->__release_shared();
         throw;
     }
-#endif  // _LIBCPP_NO_EXCEPTIONS
+#endif // _LIBCPP_NO_EXCEPTIONS
 }
 
 // NOTE avoid the `base class should be explicitly initialized in the
@@ -315,7 +315,7 @@ locale::__imp::__imp(const __imp& other, const string& name, locale::category c)
 #ifndef _LIBCPP_NO_EXCEPTIONS
     try
     {
-#endif  // _LIBCPP_NO_EXCEPTIONS
+#endif // _LIBCPP_NO_EXCEPTIONS
         if (c & locale::collate)
         {
             install(new collate_byname<char>(name));
@@ -331,7 +331,7 @@ _LIBCPP_SUPPRESS_DEPRECATED_PUSH
             install(new codecvt_byname<char16_t, char, mbstate_t>(name));
             install(new codecvt_byname<char32_t, char, mbstate_t>(name));
 _LIBCPP_SUPPRESS_DEPRECATED_POP
-#ifndef _LIBCPP_NO_HAS_CHAR8_T
+#ifndef _LIBCPP_HAS_NO_CHAR8_T
             install(new codecvt_byname<char16_t, char8_t, mbstate_t>(name));
             install(new codecvt_byname<char32_t, char8_t, mbstate_t>(name));
 #endif
@@ -369,7 +369,7 @@ _LIBCPP_SUPPRESS_DEPRECATED_POP
                 facets_[i]->__release_shared();
         throw;
     }
-#endif  // _LIBCPP_NO_EXCEPTIONS
+#endif // _LIBCPP_NO_EXCEPTIONS
 }
 
 template<class F>
@@ -392,7 +392,7 @@ locale::__imp::__imp(const __imp& other, const __imp& one, locale::category c)
 #ifndef _LIBCPP_NO_EXCEPTIONS
     try
     {
-#endif  // _LIBCPP_NO_EXCEPTIONS
+#endif // _LIBCPP_NO_EXCEPTIONS
         if (c & locale::collate)
         {
             install_from<_VSTD::collate<char> >(one);
@@ -407,7 +407,7 @@ _LIBCPP_SUPPRESS_DEPRECATED_PUSH
             install_from<_VSTD::codecvt<char16_t, char, mbstate_t> >(one);
             install_from<_VSTD::codecvt<char32_t, char, mbstate_t> >(one);
 _LIBCPP_SUPPRESS_DEPRECATED_POP
-#ifndef _LIBCPP_NO_HAS_CHAR8_T
+#ifndef _LIBCPP_HAS_NO_CHAR8_T
             install_from<_VSTD::codecvt<char16_t, char8_t, mbstate_t> >(one);
             install_from<_VSTD::codecvt<char32_t, char8_t, mbstate_t> >(one);
 #endif
@@ -454,7 +454,7 @@ _LIBCPP_SUPPRESS_DEPRECATED_POP
                 facets_[i]->__release_shared();
         throw;
     }
-#endif  // _LIBCPP_NO_EXCEPTIONS
+#endif // _LIBCPP_NO_EXCEPTIONS
 }
 
 locale::__imp::__imp(const __imp& other, facet* f, long id)
@@ -532,13 +532,13 @@ locale::__global()
     return g;
 }
 
-locale::locale()  _NOEXCEPT
+locale::locale() noexcept
     : __locale_(__global().__locale_)
 {
     __locale_->__add_shared();
 }
 
-locale::locale(const locale& l)  _NOEXCEPT
+locale::locale(const locale& l) noexcept
     : __locale_(l.__locale_)
 {
     __locale_->__add_shared();
@@ -550,7 +550,7 @@ locale::~locale()
 }
 
 const locale&
-locale::operator=(const locale& other)  _NOEXCEPT
+locale::operator=(const locale& other) noexcept
 {
     other.__locale_->__add_shared();
     __locale_->__release_shared();
@@ -643,7 +643,7 @@ locale::facet::~facet()
 }
 
 void
-locale::facet::__on_zero_shared() _NOEXCEPT
+locale::facet::__on_zero_shared() noexcept
 {
     delete this;
 }
@@ -1051,7 +1051,7 @@ extern "C" const int ** __ctype_toupper_loc();
 
 #ifdef _LIBCPP_PROVIDES_DEFAULT_RUNE_TABLE
 const ctype<char>::mask*
-ctype<char>::classic_table()  _NOEXCEPT
+ctype<char>::classic_table() noexcept
 {
     static _LIBCPP_CONSTEXPR const ctype<char>::mask builtin_table[table_size] = {
         cntrl,                          cntrl,
@@ -1131,7 +1131,7 @@ ctype<char>::classic_table()  _NOEXCEPT
 }
 #else
 const ctype<char>::mask*
-ctype<char>::classic_table()  _NOEXCEPT
+ctype<char>::classic_table() noexcept
 {
 #if defined(__APPLE__) || defined(__FreeBSD__)
     return _DefaultRuneLocale.__runetype;
@@ -1139,7 +1139,7 @@ ctype<char>::classic_table()  _NOEXCEPT
     return _C_ctype_tab_ + 1;
 #elif defined(__GLIBC__)
     return _LIBCPP_GET_C_LOCALE->__ctype_b;
-#elif __sun__
+#elif defined(__sun__)
     return __ctype_mask;
 #elif defined(_LIBCPP_MSVCRT) || defined(__MINGW32__)
     return __pctype_func();
@@ -1163,38 +1163,38 @@ ctype<char>::classic_table()  _NOEXCEPT
 
 #if defined(__GLIBC__)
 const int*
-ctype<char>::__classic_lower_table() _NOEXCEPT
+ctype<char>::__classic_lower_table() noexcept
 {
     return _LIBCPP_GET_C_LOCALE->__ctype_tolower;
 }
 
 const int*
-ctype<char>::__classic_upper_table() _NOEXCEPT
+ctype<char>::__classic_upper_table() noexcept
 {
     return _LIBCPP_GET_C_LOCALE->__ctype_toupper;
 }
 #elif defined(__NetBSD__)
 const short*
-ctype<char>::__classic_lower_table() _NOEXCEPT
+ctype<char>::__classic_lower_table() noexcept
 {
     return _C_tolower_tab_ + 1;
 }
 
 const short*
-ctype<char>::__classic_upper_table() _NOEXCEPT
+ctype<char>::__classic_upper_table() noexcept
 {
     return _C_toupper_tab_ + 1;
 }
 
 #elif defined(__EMSCRIPTEN__)
 const int*
-ctype<char>::__classic_lower_table() _NOEXCEPT
+ctype<char>::__classic_lower_table() noexcept
 {
     return *__ctype_tolower_loc();
 }
 
 const int*
-ctype<char>::__classic_upper_table() _NOEXCEPT
+ctype<char>::__classic_upper_table() noexcept
 {
     return *__ctype_toupper_loc();
 }
@@ -1492,13 +1492,13 @@ codecvt<char, char, mbstate_t>::do_unshift(state_type&,
 }
 
 int
-codecvt<char, char, mbstate_t>::do_encoding() const  _NOEXCEPT
+codecvt<char, char, mbstate_t>::do_encoding() const noexcept
 {
     return 1;
 }
 
 bool
-codecvt<char, char, mbstate_t>::do_always_noconv() const  _NOEXCEPT
+codecvt<char, char, mbstate_t>::do_always_noconv() const noexcept
 {
     return true;
 }
@@ -1511,7 +1511,7 @@ codecvt<char, char, mbstate_t>::do_length(state_type&,
 }
 
 int
-codecvt<char, char, mbstate_t>::do_max_length() const  _NOEXCEPT
+codecvt<char, char, mbstate_t>::do_max_length() const noexcept
 {
     return 1;
 }
@@ -1682,7 +1682,7 @@ codecvt<wchar_t, char, mbstate_t>::do_unshift(state_type& st,
 }
 
 int
-codecvt<wchar_t, char, mbstate_t>::do_encoding() const  _NOEXCEPT
+codecvt<wchar_t, char, mbstate_t>::do_encoding() const noexcept
 {
     if (__libcpp_mbtowc_l(nullptr, nullptr, MB_LEN_MAX, __l) != 0)
         return -1;
@@ -1694,7 +1694,7 @@ codecvt<wchar_t, char, mbstate_t>::do_encoding() const  _NOEXCEPT
 }
 
 bool
-codecvt<wchar_t, char, mbstate_t>::do_always_noconv() const  _NOEXCEPT
+codecvt<wchar_t, char, mbstate_t>::do_always_noconv() const noexcept
 {
     return false;
 }
@@ -1726,7 +1726,7 @@ codecvt<wchar_t, char, mbstate_t>::do_length(state_type& st,
 }
 
 int
-codecvt<wchar_t, char, mbstate_t>::do_max_length() const  _NOEXCEPT
+codecvt<wchar_t, char, mbstate_t>::do_max_length() const noexcept
 {
     return __l == 0 ? 1 : static_cast<int>(__libcpp_mb_cur_max_l(__l));
 }
@@ -3169,13 +3169,13 @@ codecvt<char16_t, char, mbstate_t>::do_unshift(state_type&,
 }
 
 int
-codecvt<char16_t, char, mbstate_t>::do_encoding() const  _NOEXCEPT
+codecvt<char16_t, char, mbstate_t>::do_encoding() const noexcept
 {
     return 0;
 }
 
 bool
-codecvt<char16_t, char, mbstate_t>::do_always_noconv() const  _NOEXCEPT
+codecvt<char16_t, char, mbstate_t>::do_always_noconv() const noexcept
 {
     return false;
 }
@@ -3190,12 +3190,12 @@ codecvt<char16_t, char, mbstate_t>::do_length(state_type&,
 }
 
 int
-codecvt<char16_t, char, mbstate_t>::do_max_length() const  _NOEXCEPT
+codecvt<char16_t, char, mbstate_t>::do_max_length() const noexcept
 {
     return 4;
 }
 
-#ifndef _LIBCPP_NO_HAS_CHAR8_T
+#ifndef _LIBCPP_HAS_NO_CHAR8_T
 
 // template <> class codecvt<char16_t, char8_t, mbstate_t>
 
@@ -3248,13 +3248,13 @@ codecvt<char16_t, char8_t, mbstate_t>::do_unshift(state_type&,
 }
 
 int
-codecvt<char16_t, char8_t, mbstate_t>::do_encoding() const  _NOEXCEPT
+codecvt<char16_t, char8_t, mbstate_t>::do_encoding() const noexcept
 {
     return 0;
 }
 
 bool
-codecvt<char16_t, char8_t, mbstate_t>::do_always_noconv() const  _NOEXCEPT
+codecvt<char16_t, char8_t, mbstate_t>::do_always_noconv() const noexcept
 {
     return false;
 }
@@ -3269,7 +3269,7 @@ codecvt<char16_t, char8_t, mbstate_t>::do_length(state_type&,
 }
 
 int
-codecvt<char16_t, char8_t, mbstate_t>::do_max_length() const  _NOEXCEPT
+codecvt<char16_t, char8_t, mbstate_t>::do_max_length() const noexcept
 {
     return 4;
 }
@@ -3327,13 +3327,13 @@ codecvt<char32_t, char, mbstate_t>::do_unshift(state_type&,
 }
 
 int
-codecvt<char32_t, char, mbstate_t>::do_encoding() const  _NOEXCEPT
+codecvt<char32_t, char, mbstate_t>::do_encoding() const noexcept
 {
     return 0;
 }
 
 bool
-codecvt<char32_t, char, mbstate_t>::do_always_noconv() const  _NOEXCEPT
+codecvt<char32_t, char, mbstate_t>::do_always_noconv() const noexcept
 {
     return false;
 }
@@ -3348,12 +3348,12 @@ codecvt<char32_t, char, mbstate_t>::do_length(state_type&,
 }
 
 int
-codecvt<char32_t, char, mbstate_t>::do_max_length() const  _NOEXCEPT
+codecvt<char32_t, char, mbstate_t>::do_max_length() const noexcept
 {
     return 4;
 }
 
-#ifndef _LIBCPP_NO_HAS_CHAR8_T
+#ifndef _LIBCPP_HAS_NO_CHAR8_T
 
 // template <> class codecvt<char32_t, char8_t, mbstate_t>
 
@@ -3406,13 +3406,13 @@ codecvt<char32_t, char8_t, mbstate_t>::do_unshift(state_type&,
 }
 
 int
-codecvt<char32_t, char8_t, mbstate_t>::do_encoding() const  _NOEXCEPT
+codecvt<char32_t, char8_t, mbstate_t>::do_encoding() const noexcept
 {
     return 0;
 }
 
 bool
-codecvt<char32_t, char8_t, mbstate_t>::do_always_noconv() const  _NOEXCEPT
+codecvt<char32_t, char8_t, mbstate_t>::do_always_noconv() const noexcept
 {
     return false;
 }
@@ -3427,7 +3427,7 @@ codecvt<char32_t, char8_t, mbstate_t>::do_length(state_type&,
 }
 
 int
-codecvt<char32_t, char8_t, mbstate_t>::do_max_length() const  _NOEXCEPT
+codecvt<char32_t, char8_t, mbstate_t>::do_max_length() const noexcept
 {
     return 4;
 }
@@ -3500,13 +3500,13 @@ __codecvt_utf8<wchar_t>::do_unshift(state_type&,
 }
 
 int
-__codecvt_utf8<wchar_t>::do_encoding() const  _NOEXCEPT
+__codecvt_utf8<wchar_t>::do_encoding() const noexcept
 {
     return 0;
 }
 
 bool
-__codecvt_utf8<wchar_t>::do_always_noconv() const  _NOEXCEPT
+__codecvt_utf8<wchar_t>::do_always_noconv() const noexcept
 {
     return false;
 }
@@ -3521,7 +3521,7 @@ __codecvt_utf8<wchar_t>::do_length(state_type&,
 }
 
 int
-__codecvt_utf8<wchar_t>::do_max_length() const  _NOEXCEPT
+__codecvt_utf8<wchar_t>::do_max_length() const noexcept
 {
     if (_Mode_ & consume_header)
         return 7;
@@ -3575,13 +3575,13 @@ __codecvt_utf8<char16_t>::do_unshift(state_type&,
 }
 
 int
-__codecvt_utf8<char16_t>::do_encoding() const  _NOEXCEPT
+__codecvt_utf8<char16_t>::do_encoding() const noexcept
 {
     return 0;
 }
 
 bool
-__codecvt_utf8<char16_t>::do_always_noconv() const  _NOEXCEPT
+__codecvt_utf8<char16_t>::do_always_noconv() const noexcept
 {
     return false;
 }
@@ -3596,7 +3596,7 @@ __codecvt_utf8<char16_t>::do_length(state_type&,
 }
 
 int
-__codecvt_utf8<char16_t>::do_max_length() const  _NOEXCEPT
+__codecvt_utf8<char16_t>::do_max_length() const noexcept
 {
     if (_Mode_ & consume_header)
         return 6;
@@ -3650,13 +3650,13 @@ __codecvt_utf8<char32_t>::do_unshift(state_type&,
 }
 
 int
-__codecvt_utf8<char32_t>::do_encoding() const  _NOEXCEPT
+__codecvt_utf8<char32_t>::do_encoding() const noexcept
 {
     return 0;
 }
 
 bool
-__codecvt_utf8<char32_t>::do_always_noconv() const  _NOEXCEPT
+__codecvt_utf8<char32_t>::do_always_noconv() const noexcept
 {
     return false;
 }
@@ -3671,7 +3671,7 @@ __codecvt_utf8<char32_t>::do_length(state_type&,
 }
 
 int
-__codecvt_utf8<char32_t>::do_max_length() const  _NOEXCEPT
+__codecvt_utf8<char32_t>::do_max_length() const noexcept
 {
     if (_Mode_ & consume_header)
         return 7;
@@ -3725,13 +3725,13 @@ __codecvt_utf16<wchar_t, false>::do_unshift(state_type&,
 }
 
 int
-__codecvt_utf16<wchar_t, false>::do_encoding() const  _NOEXCEPT
+__codecvt_utf16<wchar_t, false>::do_encoding() const noexcept
 {
     return 0;
 }
 
 bool
-__codecvt_utf16<wchar_t, false>::do_always_noconv() const  _NOEXCEPT
+__codecvt_utf16<wchar_t, false>::do_always_noconv() const noexcept
 {
     return false;
 }
@@ -3746,7 +3746,7 @@ __codecvt_utf16<wchar_t, false>::do_length(state_type&,
 }
 
 int
-__codecvt_utf16<wchar_t, false>::do_max_length() const  _NOEXCEPT
+__codecvt_utf16<wchar_t, false>::do_max_length() const noexcept
 {
     if (_Mode_ & consume_header)
         return 6;
@@ -3800,13 +3800,13 @@ __codecvt_utf16<wchar_t, true>::do_unshift(state_type&,
 }
 
 int
-__codecvt_utf16<wchar_t, true>::do_encoding() const  _NOEXCEPT
+__codecvt_utf16<wchar_t, true>::do_encoding() const noexcept
 {
     return 0;
 }
 
 bool
-__codecvt_utf16<wchar_t, true>::do_always_noconv() const  _NOEXCEPT
+__codecvt_utf16<wchar_t, true>::do_always_noconv() const noexcept
 {
     return false;
 }
@@ -3821,7 +3821,7 @@ __codecvt_utf16<wchar_t, true>::do_length(state_type&,
 }
 
 int
-__codecvt_utf16<wchar_t, true>::do_max_length() const  _NOEXCEPT
+__codecvt_utf16<wchar_t, true>::do_max_length() const noexcept
 {
     if (_Mode_ & consume_header)
         return 6;
@@ -3875,13 +3875,13 @@ __codecvt_utf16<char16_t, false>::do_unshift(state_type&,
 }
 
 int
-__codecvt_utf16<char16_t, false>::do_encoding() const  _NOEXCEPT
+__codecvt_utf16<char16_t, false>::do_encoding() const noexcept
 {
     return 0;
 }
 
 bool
-__codecvt_utf16<char16_t, false>::do_always_noconv() const  _NOEXCEPT
+__codecvt_utf16<char16_t, false>::do_always_noconv() const noexcept
 {
     return false;
 }
@@ -3896,7 +3896,7 @@ __codecvt_utf16<char16_t, false>::do_length(state_type&,
 }
 
 int
-__codecvt_utf16<char16_t, false>::do_max_length() const  _NOEXCEPT
+__codecvt_utf16<char16_t, false>::do_max_length() const noexcept
 {
     if (_Mode_ & consume_header)
         return 4;
@@ -3950,13 +3950,13 @@ __codecvt_utf16<char16_t, true>::do_unshift(state_type&,
 }
 
 int
-__codecvt_utf16<char16_t, true>::do_encoding() const  _NOEXCEPT
+__codecvt_utf16<char16_t, true>::do_encoding() const noexcept
 {
     return 0;
 }
 
 bool
-__codecvt_utf16<char16_t, true>::do_always_noconv() const  _NOEXCEPT
+__codecvt_utf16<char16_t, true>::do_always_noconv() const noexcept
 {
     return false;
 }
@@ -3971,7 +3971,7 @@ __codecvt_utf16<char16_t, true>::do_length(state_type&,
 }
 
 int
-__codecvt_utf16<char16_t, true>::do_max_length() const  _NOEXCEPT
+__codecvt_utf16<char16_t, true>::do_max_length() const noexcept
 {
     if (_Mode_ & consume_header)
         return 4;
@@ -4025,13 +4025,13 @@ __codecvt_utf16<char32_t, false>::do_unshift(state_type&,
 }
 
 int
-__codecvt_utf16<char32_t, false>::do_encoding() const  _NOEXCEPT
+__codecvt_utf16<char32_t, false>::do_encoding() const noexcept
 {
     return 0;
 }
 
 bool
-__codecvt_utf16<char32_t, false>::do_always_noconv() const  _NOEXCEPT
+__codecvt_utf16<char32_t, false>::do_always_noconv() const noexcept
 {
     return false;
 }
@@ -4046,7 +4046,7 @@ __codecvt_utf16<char32_t, false>::do_length(state_type&,
 }
 
 int
-__codecvt_utf16<char32_t, false>::do_max_length() const  _NOEXCEPT
+__codecvt_utf16<char32_t, false>::do_max_length() const noexcept
 {
     if (_Mode_ & consume_header)
         return 6;
@@ -4100,13 +4100,13 @@ __codecvt_utf16<char32_t, true>::do_unshift(state_type&,
 }
 
 int
-__codecvt_utf16<char32_t, true>::do_encoding() const  _NOEXCEPT
+__codecvt_utf16<char32_t, true>::do_encoding() const noexcept
 {
     return 0;
 }
 
 bool
-__codecvt_utf16<char32_t, true>::do_always_noconv() const  _NOEXCEPT
+__codecvt_utf16<char32_t, true>::do_always_noconv() const noexcept
 {
     return false;
 }
@@ -4121,7 +4121,7 @@ __codecvt_utf16<char32_t, true>::do_length(state_type&,
 }
 
 int
-__codecvt_utf16<char32_t, true>::do_max_length() const  _NOEXCEPT
+__codecvt_utf16<char32_t, true>::do_max_length() const noexcept
 {
     if (_Mode_ & consume_header)
         return 6;
@@ -4175,13 +4175,13 @@ __codecvt_utf8_utf16<wchar_t>::do_unshift(state_type&,
 }
 
 int
-__codecvt_utf8_utf16<wchar_t>::do_encoding() const  _NOEXCEPT
+__codecvt_utf8_utf16<wchar_t>::do_encoding() const noexcept
 {
     return 0;
 }
 
 bool
-__codecvt_utf8_utf16<wchar_t>::do_always_noconv() const  _NOEXCEPT
+__codecvt_utf8_utf16<wchar_t>::do_always_noconv() const noexcept
 {
     return false;
 }
@@ -4196,7 +4196,7 @@ __codecvt_utf8_utf16<wchar_t>::do_length(state_type&,
 }
 
 int
-__codecvt_utf8_utf16<wchar_t>::do_max_length() const  _NOEXCEPT
+__codecvt_utf8_utf16<wchar_t>::do_max_length() const noexcept
 {
     if (_Mode_ & consume_header)
         return 7;
@@ -4250,13 +4250,13 @@ __codecvt_utf8_utf16<char16_t>::do_unshift(state_type&,
 }
 
 int
-__codecvt_utf8_utf16<char16_t>::do_encoding() const  _NOEXCEPT
+__codecvt_utf8_utf16<char16_t>::do_encoding() const noexcept
 {
     return 0;
 }
 
 bool
-__codecvt_utf8_utf16<char16_t>::do_always_noconv() const  _NOEXCEPT
+__codecvt_utf8_utf16<char16_t>::do_always_noconv() const noexcept
 {
     return false;
 }
@@ -4271,7 +4271,7 @@ __codecvt_utf8_utf16<char16_t>::do_length(state_type&,
 }
 
 int
-__codecvt_utf8_utf16<char16_t>::do_max_length() const  _NOEXCEPT
+__codecvt_utf8_utf16<char16_t>::do_max_length() const noexcept
 {
     if (_Mode_ & consume_header)
         return 7;
@@ -4325,13 +4325,13 @@ __codecvt_utf8_utf16<char32_t>::do_unshift(state_type&,
 }
 
 int
-__codecvt_utf8_utf16<char32_t>::do_encoding() const  _NOEXCEPT
+__codecvt_utf8_utf16<char32_t>::do_encoding() const noexcept
 {
     return 0;
 }
 
 bool
-__codecvt_utf8_utf16<char32_t>::do_always_noconv() const  _NOEXCEPT
+__codecvt_utf8_utf16<char32_t>::do_always_noconv() const noexcept
 {
     return false;
 }
@@ -4346,7 +4346,7 @@ __codecvt_utf8_utf16<char32_t>::do_length(state_type&,
 }
 
 int
-__codecvt_utf8_utf16<char32_t>::do_max_length() const  _NOEXCEPT
+__codecvt_utf8_utf16<char32_t>::do_max_length() const noexcept
 {
     if (_Mode_ & consume_header)
         return 7;
@@ -4597,7 +4597,10 @@ void
 __num_put_base::__format_int(char* __fmtp, const char* __len, bool __signd,
                              ios_base::fmtflags __flags)
 {
-    if (__flags & ios_base::showpos)
+    if ((__flags & ios_base::showpos) &&
+        (__flags & ios_base::basefield) != ios_base::oct &&
+        (__flags & ios_base::basefield) != ios_base::hex &&
+	__signd)
         *__fmtp++ = '+';
     if (__flags & ios_base::showbase)
         *__fmtp++ = '#';
@@ -6336,7 +6339,7 @@ template class _LIBCPP_CLASS_TEMPLATE_INSTANTIATION_VIS codecvt_byname<char, cha
 template class _LIBCPP_CLASS_TEMPLATE_INSTANTIATION_VIS codecvt_byname<wchar_t, char, mbstate_t>;
 template class _LIBCPP_DEPRECATED_IN_CXX20 _LIBCPP_CLASS_TEMPLATE_INSTANTIATION_VIS codecvt_byname<char16_t, char, mbstate_t>;
 template class _LIBCPP_DEPRECATED_IN_CXX20 _LIBCPP_CLASS_TEMPLATE_INSTANTIATION_VIS codecvt_byname<char32_t, char, mbstate_t>;
-#ifndef _LIBCPP_NO_HAS_CHAR8_T
+#ifndef _LIBCPP_HAS_NO_CHAR8_T
 template class _LIBCPP_CLASS_TEMPLATE_INSTANTIATION_VIS codecvt_byname<char16_t, char8_t, mbstate_t>;
 template class _LIBCPP_CLASS_TEMPLATE_INSTANTIATION_VIS codecvt_byname<char32_t, char8_t, mbstate_t>;
 #endif

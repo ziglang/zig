@@ -42,7 +42,7 @@ class FlagHandlerBase {
 };
 
 template <typename T>
-class FlagHandler : public FlagHandlerBase {
+class FlagHandler final : public FlagHandlerBase {
   T *t_;
 
  public:

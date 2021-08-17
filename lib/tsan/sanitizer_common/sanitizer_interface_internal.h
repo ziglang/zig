@@ -28,6 +28,10 @@ extern "C" {
   // (casted to void *).
   SANITIZER_INTERFACE_ATTRIBUTE
   void __sanitizer_set_report_fd(void *fd);
+  // Get the current full report file path, if a path was specified by
+  // an earlier call to __sanitizer_set_report_path. Returns null otherwise.
+  SANITIZER_INTERFACE_ATTRIBUTE
+  const char *__sanitizer_get_report_path();
 
   typedef struct {
       int coverage_sandboxed;

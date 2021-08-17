@@ -76,9 +76,9 @@ template <class E> void rethrow_if_nested(const E& e);
 
 */
 
-#include <__config>
 #include <__availability>
-#include <__memory/base.h>
+#include <__config>
+#include <__memory/addressof.h>
 #include <cstddef>
 #include <cstdlib>
 #include <type_traits>
@@ -151,7 +151,7 @@ public:
     exception_ptr& operator=(const exception_ptr&) _NOEXCEPT;
     ~exception_ptr() _NOEXCEPT;
 
-    _LIBCPP_INLINE_VISIBILITY _LIBCPP_EXPLICIT operator bool() const _NOEXCEPT
+    _LIBCPP_INLINE_VISIBILITY explicit operator bool() const _NOEXCEPT
     {return __ptr_ != nullptr;}
 
     friend _LIBCPP_INLINE_VISIBILITY
@@ -205,7 +205,7 @@ public:
     exception_ptr& operator=(const exception_ptr& __other) _NOEXCEPT;
     exception_ptr& operator=(nullptr_t) _NOEXCEPT;
     ~exception_ptr() _NOEXCEPT;
-    _LIBCPP_EXPLICIT operator bool() const _NOEXCEPT;
+    explicit operator bool() const _NOEXCEPT;
 };
 
 _LIBCPP_FUNC_VIS
@@ -266,7 +266,7 @@ struct __throw_with_nested<_Tp, _Up, true> {
     _LIBCPP_NORETURN static inline _LIBCPP_INLINE_VISIBILITY void
     __do_throw(_Tp&& __t)
     {
-        throw __nested<_Up>(_VSTD::forward<_Tp>(__t));
+        throw __nested<_Up>(static_cast<_Tp&&>(__t));
     }
 };
 
@@ -277,9 +277,9 @@ struct __throw_with_nested<_Tp, _Up, false> {
     __do_throw(_Tp&& __t)
 #else
     __do_throw (_Tp& __t)
-#endif  // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_CXX03_LANG
     {
-        throw _VSTD::forward<_Tp>(__t);
+        throw static_cast<_Tp&&>(__t);
     }
 };
 #endif
@@ -296,7 +296,7 @@ throw_with_nested(_Tp&& __t)
         is_class<_Up>::value &&
         !is_base_of<nested_exception, _Up>::value &&
         !__libcpp_is_final<_Up>::value>::
-            __do_throw(_VSTD::forward<_Tp>(__t));
+            __do_throw(static_cast<_Tp&&>(__t));
 #else
     ((void)__t);
     // FIXME: Make this abort
@@ -330,4 +330,4 @@ rethrow_if_nested(const _Ep&,
 
 }  // std
 
-#endif  // _LIBCPP_EXCEPTION
+#endif // _LIBCPP_EXCEPTION

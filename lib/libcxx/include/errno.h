@@ -72,9 +72,9 @@ static const int __elast2 = 105;
 #define ELAST ENOTRECOVERABLE
 #endif
 
-#endif  // defined(EOWNERDEAD)
+#endif // defined(EOWNERDEAD)
 
-#endif  // !defined(EOWNERDEAD) || !defined(ENOTRECOVERABLE)
+#endif // !defined(EOWNERDEAD) || !defined(ENOTRECOVERABLE)
 
 //  supply errno values likely to be missing, particularly on Windows
 
@@ -394,4 +394,4 @@ static const int __elast2 = 105;
 
 #endif // __cplusplus
 
-#endif  // _LIBCPP_ERRNO_H
+#endif // _LIBCPP_ERRNO_H

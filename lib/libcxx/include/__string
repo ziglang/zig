@@ -10,55 +10,21 @@
 #ifndef _LIBCPP___STRING
 #define _LIBCPP___STRING
 
-/*
-    string synopsis
-
-namespace std
-{
-
-template <class charT>
-struct char_traits
-{
-    typedef charT     char_type;
-    typedef ...       int_type;
-    typedef streamoff off_type;
-    typedef streampos pos_type;
-    typedef mbstate_t state_type;
-
-    static constexpr void assign(char_type& c1, const char_type& c2) noexcept;
-    static constexpr bool eq(char_type c1, char_type c2) noexcept;
-    static constexpr bool lt(char_type c1, char_type c2) noexcept;
-
-    static constexpr int    compare(const char_type* s1, const char_type* s2, size_t n);
-    static constexpr size_t length(const char_type* s);
-    static constexpr const char_type*
-                            find(const char_type* s, size_t n, const char_type& a);
-
-    static constexpr char_type* move(char_type* s1, const char_type* s2, size_t n); // constexpr in C++20
-    static constexpr char_type* copy(char_type* s1, const char_type* s2, size_t n); // constexpr in C++20
-    static constexpr char_type* assign(char_type* s, size_t n, char_type a);        // constexpr in C++20
-
-    static constexpr int_type  not_eof(int_type c) noexcept;
-    static constexpr char_type to_char_type(int_type c) noexcept;
-    static constexpr int_type  to_int_type(char_type c) noexcept;
-    static constexpr bool      eq_int_type(int_type c1, int_type c2) noexcept;
-    static constexpr int_type  eof() noexcept;
-};
-
-template <> struct char_traits<char>;
-template <> struct char_traits<wchar_t>;
-template <> struct char_traits<char8_t>;  // c++20
-
-}  // std
-
-*/
-
 #include <__config>
-#include <algorithm>  // for search and min
-#include <cstdio>     // for EOF
-#include <cstring>    // for memcpy
-#include <cwchar>     // for wmemcpy
-#include <memory>     // for __murmur2_or_cityhash
+#include <__algorithm/copy.h>
+#include <__algorithm/copy_backward.h>
+#include <__algorithm/copy_n.h>
+#include <__algorithm/fill_n.h>
+#include <__algorithm/find_first_of.h>
+#include <__algorithm/find_end.h>
+#include <__algorithm/min.h>
+#include <__functional/hash.h>     // for __murmur2_or_cityhash
+#include <__iterator/iterator_traits.h>
+#include <cstdio>      // for EOF
+#include <cstdint>     // for uint_least16_t
+#include <cstring>     // for memcpy
+#include <cwchar>      // for wmemcpy
+#include <type_traits> // for __libcpp_is_constant_evaluated
 
 #include <__debug>
 
@@ -581,7 +547,7 @@ char_traits<wchar_t>::find(const char_type* __s, size_t __n, const char_type& __
 }
 
 
-#ifndef _LIBCPP_NO_HAS_CHAR8_T
+#ifndef _LIBCPP_HAS_NO_CHAR8_T
 
 template <>
 struct _LIBCPP_TEMPLATE_VIS char_traits<char8_t>
@@ -688,7 +654,7 @@ char_traits<char8_t>::find(const char_type* __s, size_t __n, const char_type& __
     return nullptr;
 }
 
-#endif // #_LIBCPP_NO_HAS_CHAR8_T
+#endif // #_LIBCPP_HAS_NO_CHAR8_T
 
 #ifndef _LIBCPP_HAS_NO_UNICODE_CHARS
 
@@ -932,7 +898,7 @@ char_traits<char32_t>::assign(char_type* __s, size_t __n, char_type __a) _NOEXCE
     return __r;
 }
 
-#endif  // _LIBCPP_HAS_NO_UNICODE_CHARS
+#endif // _LIBCPP_HAS_NO_UNICODE_CHARS
 
 // helper fns for basic_string and string_view
 
@@ -953,7 +919,7 @@ __str_find(const _CharT *__p, _SizeT __sz,
 template <class _CharT, class _Traits>
 inline _LIBCPP_CONSTEXPR_AFTER_CXX11 const _CharT *
 __search_substring(const _CharT *__first1, const _CharT *__last1,
-                   const _CharT *__first2, const _CharT *__last2) {
+                   const _CharT *__first2, const _CharT *__last2) _NOEXCEPT {
   // Take advantage of knowing source and pattern lengths.
   // Stop short when source is smaller than pattern.
   const ptrdiff_t __len2 = __last2 - __first2;
@@ -1177,4 +1143,4 @@ _LIBCPP_END_NAMESPACE_STD
 
 _LIBCPP_POP_MACROS
 
-#endif  // _LIBCPP___STRING
+#endif // _LIBCPP___STRING

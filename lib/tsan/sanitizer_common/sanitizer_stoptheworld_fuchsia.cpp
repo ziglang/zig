@@ -17,6 +17,7 @@
 #include <zircon/sanitizer.h>
 
 #include "sanitizer_stoptheworld.h"
+#include "sanitizer_stoptheworld_fuchsia.h"
 
 namespace __sanitizer {
 
@@ -32,7 +33,7 @@ void StopTheWorld(StopTheWorldCallback callback, void *argument) {
       nullptr, nullptr, nullptr, nullptr,
       [](zx_status_t, void *data) {
         auto params = reinterpret_cast<Params *>(data);
-        params->callback({}, params->argument);
+        params->callback(SuspendedThreadsListFuchsia(), params->argument);
       },
       &params);
 }

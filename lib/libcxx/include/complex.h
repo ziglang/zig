@@ -31,6 +31,6 @@
 
 #include_next <complex.h>
 
-#endif  // __cplusplus
+#endif // __cplusplus
 
-#endif  // _LIBCPP_COMPLEX_H
+#endif // _LIBCPP_COMPLEX_H

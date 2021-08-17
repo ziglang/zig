@@ -34,6 +34,7 @@
 #include <sys/chio.h>
 #include <sys/clockctl.h>
 #include <sys/cpuio.h>
+#include <sys/dkbad.h>
 #include <sys/dkio.h>
 #include <sys/drvctlio.h>
 #include <sys/dvdio.h>
@@ -83,6 +84,7 @@
 
 #include <sys/resource.h>
 #include <sys/sem.h>
+#include <sys/scsiio.h>
 #include <sys/sha1.h>
 #include <sys/sha2.h>
 #include <sys/shm.h>
@@ -139,7 +141,158 @@
 #include <dev/ir/irdaio.h>
 #include <dev/isa/isvio.h>
 #include <dev/isa/wtreg.h>
+#if __has_include(<dev/iscsi/iscsi_ioctl.h>)
 #include <dev/iscsi/iscsi_ioctl.h>
+#else
+/* Fallback for MKISCSI=no */
+
+typedef struct {
+  uint32_t status;
+  uint32_t session_id;
+  uint32_t connection_id;
+} iscsi_conn_status_parameters_t;
+
+typedef struct {
+  uint32_t status;
+  uint16_t interface_version;
+  uint16_t major;
+  uint16_t minor;
+  uint8_t version_string[224];
+} iscsi_get_version_parameters_t;
+
+typedef struct {
+  uint32_t status;
+  uint32_t session_id;
+  uint32_t connection_id;
+  struct {
+    unsigned int immediate : 1;
+  } options;
+  uint64_t lun;
+  scsireq_t req; /* from <sys/scsiio.h> */
+} iscsi_iocommand_parameters_t;
+
+typedef enum {
+  ISCSI_AUTH_None = 0,
+  ISCSI_AUTH_CHAP = 1,
+  ISCSI_AUTH_KRB5 = 2,
+  ISCSI_AUTH_SRP = 3
+} iscsi_auth_types_t;
+
+typedef enum {
+  ISCSI_LOGINTYPE_DISCOVERY = 0,
+  ISCSI_LOGINTYPE_NOMAP = 1,
+  ISCSI_LOGINTYPE_MAP = 2
+} iscsi_login_session_type_t;
+
+typedef enum { ISCSI_DIGEST_None = 0, ISCSI_DIGEST_CRC32C = 1 } iscsi_digest_t;
+
+typedef enum {
+  ISCSI_SESSION_TERMINATED = 1,
+  ISCSI_CONNECTION_TERMINATED,
+  ISCSI_RECOVER_CONNECTION,
+  ISCSI_DRIVER_TERMINATING
+} iscsi_event_t;
+
+typedef struct {
+  unsigned int mutual_auth : 1;
+  unsigned int is_secure : 1;
+  unsigned int auth_number : 4;
+  iscsi_auth_types_t auth_type[4];
+} iscsi_auth_info_t;
+
+typedef struct {
+  uint32_t status;
+  int socket;
+  struct {
+    unsigned int HeaderDigest : 1;
+    unsigned int DataDigest : 1;
+    unsigned int MaxConnections : 1;
+    unsigned int DefaultTime2Wait : 1;
+    unsigned int DefaultTime2Retain : 1;
+    unsigned int MaxRecvDataSegmentLength : 1;
+    unsigned int auth_info : 1;
+    unsigned int user_name : 1;
+    unsigned int password : 1;
+    unsigned int target_password : 1;
+    unsigned int TargetName : 1;
+    unsigned int TargetAlias : 1;
+    unsigned int ErrorRecoveryLevel : 1;
+  } is_present;
+  iscsi_auth_info_t auth_info;
+  iscsi_login_session_type_t login_type;
+  iscsi_digest_t HeaderDigest;
+  iscsi_digest_t DataDigest;
+  uint32_t session_id;
+  uint32_t connection_id;
+  uint32_t MaxRecvDataSegmentLength;
+  uint16_t MaxConnections;
+  uint16_t DefaultTime2Wait;
+  uint16_t DefaultTime2Retain;
+  uint16_t ErrorRecoveryLevel;
+  void *user_name;
+  void *password;
+  void *target_password;
+  void *TargetName;
+  void *TargetAlias;
+} iscsi_login_parameters_t;
+
+typedef struct {
+  uint32_t status;
+  uint32_t session_id;
+} iscsi_logout_parameters_t;
+
+typedef struct {
+  uint32_t status;
+  uint32_t event_id;
+} iscsi_register_event_parameters_t;
+
+typedef struct {
+  uint32_t status;
+  uint32_t session_id;
+  uint32_t connection_id;
+} iscsi_remove_parameters_t;
+
+typedef struct {
+  uint32_t status;
+  uint32_t session_id;
+  void *response_buffer;
+  uint32_t response_size;
+  uint32_t response_used;
+  uint32_t response_total;
+  uint8_t key[224];
+} iscsi_send_targets_parameters_t;
+
+typedef struct {
+  uint32_t status;
+  uint8_t InitiatorName[224];
+  uint8_t InitiatorAlias[224];
+  uint8_t ISID[6];
+} iscsi_set_node_name_parameters_t;
+
+typedef struct {
+  uint32_t status;
+  uint32_t event_id;
+  iscsi_event_t event_kind;
+  uint32_t session_id;
+  uint32_t connection_id;
+  uint32_t reason;
+} iscsi_wait_event_parameters_t;
+
+#define ISCSI_GET_VERSION _IOWR(0, 1, iscsi_get_version_parameters_t)
+#define ISCSI_LOGIN _IOWR(0, 2, iscsi_login_parameters_t)
+#define ISCSI_LOGOUT _IOWR(0, 3, iscsi_logout_parameters_t)
+#define ISCSI_ADD_CONNECTION _IOWR(0, 4, iscsi_login_parameters_t)
+#define ISCSI_RESTORE_CONNECTION _IOWR(0, 5, iscsi_login_parameters_t)
+#define ISCSI_REMOVE_CONNECTION _IOWR(0, 6, iscsi_remove_parameters_t)
+#define ISCSI_CONNECTION_STATUS _IOWR(0, 7, iscsi_conn_status_parameters_t)
+#define ISCSI_SEND_TARGETS _IOWR(0, 8, iscsi_send_targets_parameters_t)
+#define ISCSI_SET_NODE_NAME _IOWR(0, 9, iscsi_set_node_name_parameters_t)
+#define ISCSI_IO_COMMAND _IOWR(0, 10, iscsi_iocommand_parameters_t)
+#define ISCSI_REGISTER_EVENT _IOWR(0, 11, iscsi_register_event_parameters_t)
+#define ISCSI_DEREGISTER_EVENT _IOWR(0, 12, iscsi_register_event_parameters_t)
+#define ISCSI_WAIT_EVENT _IOWR(0, 13, iscsi_wait_event_parameters_t)
+#define ISCSI_POLL_EVENT _IOWR(0, 14, iscsi_wait_event_parameters_t)
+#endif
 #include <dev/ofw/openfirmio.h>
 #include <dev/pci/amrio.h>
 #include <dev/pci/mlyreg.h>
@@ -372,7 +525,7 @@ struct urio_command {
 #include "sanitizer_platform_limits_netbsd.h"
 
 namespace __sanitizer {
-void *__sanitizer_get_link_map_by_dlopen_handle(void* handle) {
+void *__sanitizer_get_link_map_by_dlopen_handle(void *handle) {
   void *p = nullptr;
   return internal_dlinfo(handle, RTLD_DI_LINKMAP, &p) == 0 ? p : nullptr;
 }

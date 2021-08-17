@@ -33,7 +33,7 @@ decltype(::UnDecorateSymbolName) *UnDecorateSymbolName;
 
 namespace {
 
-class WinSymbolizerTool : public SymbolizerTool {
+class WinSymbolizerTool final : public SymbolizerTool {
  public:
   // The constructor is provided to avoid synthesized memsets.
   WinSymbolizerTool() {}
@@ -136,9 +136,10 @@ void InitializeDbgHelpIfNeeded() {
 bool WinSymbolizerTool::SymbolizePC(uptr addr, SymbolizedStack *frame) {
   InitializeDbgHelpIfNeeded();
 
-  // See http://msdn.microsoft.com/en-us/library/ms680578(VS.85).aspx
-  char buffer[sizeof(SYMBOL_INFO) + MAX_SYM_NAME * sizeof(CHAR)];
-  PSYMBOL_INFO symbol = (PSYMBOL_INFO)buffer;
+  // See https://docs.microsoft.com/en-us/windows/win32/debug/retrieving-symbol-information-by-address
+  InternalMmapVector<char> buffer(sizeof(SYMBOL_INFO) +
+                                  MAX_SYM_NAME * sizeof(CHAR));
+  PSYMBOL_INFO symbol = (PSYMBOL_INFO)&buffer[0];
   symbol->SizeOfStruct = sizeof(SYMBOL_INFO);
   symbol->MaxNameLen = MAX_SYM_NAME;
   DWORD64 offset = 0;
@@ -223,7 +224,7 @@ bool SymbolizerProcess::StartSymbolizerSubprocess() {
   // Compute the command line. Wrap double quotes around everything.
   const char *argv[kArgVMax];
   GetArgV(path_, argv);
-  InternalScopedString command_line(kMaxPathLength * 3);
+  InternalScopedString command_line;
   for (int i = 0; argv[i]; i++) {
     const char *arg = argv[i];
     int arglen = internal_strlen(arg);
@@ -281,8 +282,15 @@ static void ChooseSymbolizerTools(IntrusiveList<SymbolizerTool> *list,
     return;
   }
 
-  // Add llvm-symbolizer in case the binary has dwarf.
+  // Add llvm-symbolizer.
   const char *user_path = common_flags()->external_symbolizer_path;
+
+  if (user_path && internal_strchr(user_path, '%')) {
+    char *new_path = (char *)InternalAlloc(kMaxPathLength);
+    SubstituteForFlagValue(user_path, new_path, kMaxPathLength);
+    user_path = new_path;
+  }
+
   const char *path =
       user_path ? user_path : FindPathToBinary("llvm-symbolizer.exe");
   if (path) {

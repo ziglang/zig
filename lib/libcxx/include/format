@@ -1,0 +1,86 @@
+// -*- C++ -*-
+//===--------------------------- format -----------------------------------===//
+//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+
+#ifndef _LIBCPP_FORMAT
+#define _LIBCPP_FORMAT
+
+/*
+
+namespace std {
+  // [format.error], class format_error
+  class format_error : public runtime_error {
+  public:
+    explicit format_error(const string& what_arg);
+    explicit format_error(const char* what_arg);
+  };
+
+  // [format.parse.ctx], class template basic_format_parse_context
+  template<class charT>
+  class basic_format_parse_context {
+  public:
+    using char_type = charT;
+    using const_iterator = typename basic_string_view<charT>::const_iterator;
+    using iterator = const_iterator;
+
+  private:
+    iterator begin_;                                    // exposition only
+    iterator end_;                                      // exposition only
+    enum indexing { unknown, manual, automatic };       // exposition only
+    indexing indexing_;                                 // exposition only
+    size_t next_arg_id_;                                // exposition only
+    size_t num_args_;                                   // exposition only
+
+  public:
+    constexpr explicit basic_format_parse_context(basic_string_view<charT> fmt,
+                                                  size_t num_args = 0) noexcept;
+    basic_format_parse_context(const basic_format_parse_context&) = delete;
+    basic_format_parse_context& operator=(const basic_format_parse_context&) = delete;
+
+    constexpr const_iterator begin() const noexcept;
+    constexpr const_iterator end() const noexcept;
+    constexpr void advance_to(const_iterator it);
+
+    constexpr size_t next_arg_id();
+    constexpr void check_arg_id(size_t id);
+  };
+  using format_parse_context = basic_format_parse_context<char>;
+  using wformat_parse_context = basic_format_parse_context<wchar_t>;
+}
+
+*/
+
+// Make sure all feature tests macros are always available.
+#include <version>
+// Only enable the contents of the header when libc++ was build with LIBCXX_ENABLE_INCOMPLETE_FEATURES enabled
+#if !defined(_LIBCPP_HAS_NO_INCOMPLETE_FORMAT)
+
+#include <__config>
+#include <__format/format_error.h>
+#include <__format/format_parse_context.h>
+
+#if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#  pragma GCC system_header
+#endif
+
+_LIBCPP_PUSH_MACROS
+#include <__undef_macros>
+
+_LIBCPP_BEGIN_NAMESPACE_STD
+
+#if _LIBCPP_STD_VER > 17
+
+#endif //_LIBCPP_STD_VER > 17
+
+_LIBCPP_END_NAMESPACE_STD
+
+_LIBCPP_POP_MACROS
+
+#endif // !defined(_LIBCPP_HAS_NO_INCOMPLETE_FORMAT)
+
+#endif // _LIBCPP_FORMAT

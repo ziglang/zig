@@ -199,18 +199,20 @@ namespace std {
 
 */
 
-#include <__config>
 #include <__availability>
+#include <__config>
+#include <__functional/hash.h>
 #include <__tuple>
-#include <array>
+#include <__utility/forward.h>
+#include <__variant/monostate.h>
+#include <compare>
 #include <exception>
-#include <functional>
 #include <initializer_list>
+#include <limits>
 #include <new>
 #include <tuple>
 #include <type_traits>
 #include <utility>
-#include <limits>
 #include <version>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -235,6 +237,19 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 //       really doesn't). That breaks variant, which uses some C++17 features.
 //       Remove this once we drop support for GCC 5.
 #if _LIBCPP_STD_VER > 14 && !(defined(_LIBCPP_COMPILER_GCC) && _GNUC_VER_NEW < 6000)
+
+// Light N-dimensional array of function pointers. Used in place of std::array to avoid
+// adding a dependency.
+template<class _Tp, size_t _Size>
+struct __farray {
+  static_assert(_Size > 0, "N-dimensional array should never be empty in std::visit");
+  _Tp __buf_[_Size] = {};
+
+  _LIBCPP_INLINE_VISIBILITY constexpr
+  const _Tp &operator[](size_t __n) const noexcept {
+      return __buf_[__n];
+  }
+};
 
 _LIBCPP_NORETURN
 inline _LIBCPP_INLINE_VISIBILITY
@@ -317,6 +332,33 @@ using __variant_index_t =
 
 template <class _IndexType>
 constexpr _IndexType __variant_npos = static_cast<_IndexType>(-1);
+
+template <class... _Types>
+class _LIBCPP_TEMPLATE_VIS variant;
+
+template <class... _Types>
+_LIBCPP_INLINE_VISIBILITY constexpr variant<_Types...>&
+__as_variant(variant<_Types...>& __vs) noexcept {
+  return __vs;
+}
+
+template <class... _Types>
+_LIBCPP_INLINE_VISIBILITY constexpr const variant<_Types...>&
+__as_variant(const variant<_Types...>& __vs) noexcept {
+  return __vs;
+}
+
+template <class... _Types>
+_LIBCPP_INLINE_VISIBILITY constexpr variant<_Types...>&&
+__as_variant(variant<_Types...>&& __vs) noexcept {
+  return _VSTD::move(__vs);
+}
+
+template <class... _Types>
+_LIBCPP_INLINE_VISIBILITY constexpr const variant<_Types...>&&
+__as_variant(const variant<_Types...>&& __vs) noexcept {
+  return _VSTD::move(__vs);
+}
 
 namespace __find_detail {
 
@@ -469,7 +511,7 @@ private:
 
   template <class _Tp, size_t _Np, typename... _Indices>
   inline _LIBCPP_INLINE_VISIBILITY
-  static constexpr auto&& __at(const array<_Tp, _Np>& __elems,
+  static constexpr auto&& __at(const __farray<_Tp, _Np>& __elems,
                                size_t __index, _Indices... __indices) {
     return __at(__elems[__index], __indices...);
   }
@@ -485,7 +527,7 @@ private:
   inline _LIBCPP_INLINE_VISIBILITY
   static constexpr auto __make_farray(_Fs&&... __fs) {
     __std_visit_visitor_return_type_check<__uncvref_t<_Fs>...>();
-    using __result = array<common_type_t<__uncvref_t<_Fs>...>, sizeof...(_Fs)>;
+    using __result = __farray<common_type_t<__uncvref_t<_Fs>...>, sizeof...(_Fs)>;
     return __result{{_VSTD::forward<_Fs>(__fs)...}};
   }
 
@@ -564,8 +606,9 @@ struct __variant {
   inline _LIBCPP_INLINE_VISIBILITY
   static constexpr decltype(auto) __visit_alt(_Visitor&& __visitor,
                                               _Vs&&... __vs) {
-    return __base::__visit_alt(_VSTD::forward<_Visitor>(__visitor),
-                               _VSTD::forward<_Vs>(__vs).__impl...);
+    return __base::__visit_alt(
+        _VSTD::forward<_Visitor>(__visitor),
+        _VSTD::__as_variant(_VSTD::forward<_Vs>(__vs)).__impl...);
   }
 
   template <class _Visitor, class... _Vs>
@@ -586,6 +629,7 @@ struct __variant {
         __make_value_visitor(_VSTD::forward<_Visitor>(__visitor)),
         _VSTD::forward<_Vs>(__vs)...);
   }
+
 #if _LIBCPP_STD_VER > 17
   template <class _Rp, class _Visitor, class... _Vs>
   inline _LIBCPP_INLINE_VISIBILITY
@@ -1152,7 +1196,7 @@ struct __narrowing_check {
   template <class _Dest>
   static auto __test_impl(_Dest (&&)[1]) -> __identity<_Dest>;
   template <class _Dest, class _Source>
-  using _Apply _LIBCPP_NODEBUG_TYPE = decltype(__test_impl<_Dest>({_VSTD::declval<_Source>()}));
+  using _Apply _LIBCPP_NODEBUG_TYPE = decltype(__test_impl<_Dest>({declval<_Source>()}));
 };
 
 template <class _Dest, class _Source>
@@ -1637,18 +1681,21 @@ constexpr bool operator>=(const variant<_Types...>& __lhs,
 
 template <class... _Vs>
 inline _LIBCPP_INLINE_VISIBILITY
-_LIBCPP_AVAILABILITY_THROW_BAD_VARIANT_ACCESS
-constexpr void __throw_if_valueless(_Vs&&... __vs) {
-  const bool __valueless = (... || __vs.valueless_by_exception());
+    _LIBCPP_AVAILABILITY_THROW_BAD_VARIANT_ACCESS constexpr void
+    __throw_if_valueless(_Vs&&... __vs) {
+  const bool __valueless =
+      (... || _VSTD::__as_variant(__vs).valueless_by_exception());
   if (__valueless) {
-      __throw_bad_variant_access();
+    __throw_bad_variant_access();
   }
 }
 
-template <class _Visitor, class... _Vs>
+template <
+    class _Visitor, class... _Vs,
+    typename = void_t<decltype(_VSTD::__as_variant(declval<_Vs>()))...> >
 inline _LIBCPP_INLINE_VISIBILITY
-_LIBCPP_AVAILABILITY_THROW_BAD_VARIANT_ACCESS
-constexpr decltype(auto) visit(_Visitor&& __visitor, _Vs&&... __vs) {
+    _LIBCPP_AVAILABILITY_THROW_BAD_VARIANT_ACCESS constexpr
+    decltype(auto) visit(_Visitor&& __visitor, _Vs&&... __vs) {
   using __variant_detail::__visitation::__variant;
   _VSTD::__throw_if_valueless(_VSTD::forward<_Vs>(__vs)...);
   return __variant::__visit_value(_VSTD::forward<_Visitor>(__visitor),
@@ -1656,36 +1703,18 @@ constexpr decltype(auto) visit(_Visitor&& __visitor, _Vs&&... __vs) {
 }
 
 #if _LIBCPP_STD_VER > 17
-template <class _Rp, class _Visitor, class... _Vs>
+template <
+    class _Rp, class _Visitor, class... _Vs,
+    typename = void_t<decltype(_VSTD::__as_variant(declval<_Vs>()))...> >
 inline _LIBCPP_INLINE_VISIBILITY
-_LIBCPP_AVAILABILITY_THROW_BAD_VARIANT_ACCESS
-constexpr _Rp visit(_Visitor&& __visitor, _Vs&&... __vs) {
+    _LIBCPP_AVAILABILITY_THROW_BAD_VARIANT_ACCESS constexpr _Rp
+    visit(_Visitor&& __visitor, _Vs&&... __vs) {
   using __variant_detail::__visitation::__variant;
   _VSTD::__throw_if_valueless(_VSTD::forward<_Vs>(__vs)...);
   return __variant::__visit_value<_Rp>(_VSTD::forward<_Visitor>(__visitor),
                                        _VSTD::forward<_Vs>(__vs)...);
 }
 #endif
-
-struct _LIBCPP_TEMPLATE_VIS monostate {};
-
-inline _LIBCPP_INLINE_VISIBILITY
-constexpr bool operator<(monostate, monostate) noexcept { return false; }
-
-inline _LIBCPP_INLINE_VISIBILITY
-constexpr bool operator>(monostate, monostate) noexcept { return false; }
-
-inline _LIBCPP_INLINE_VISIBILITY
-constexpr bool operator<=(monostate, monostate) noexcept { return true; }
-
-inline _LIBCPP_INLINE_VISIBILITY
-constexpr bool operator>=(monostate, monostate) noexcept { return true; }
-
-inline _LIBCPP_INLINE_VISIBILITY
-constexpr bool operator==(monostate, monostate) noexcept { return true; }
-
-inline _LIBCPP_INLINE_VISIBILITY
-constexpr bool operator!=(monostate, monostate) noexcept { return false; }
 
 template <class... _Types>
 inline _LIBCPP_INLINE_VISIBILITY
@@ -1719,21 +1748,32 @@ struct _LIBCPP_TEMPLATE_VIS hash<
   }
 };
 
-template <>
-struct _LIBCPP_TEMPLATE_VIS hash<monostate> {
-  using argument_type = monostate;
-  using result_type = size_t;
+// __unchecked_get is the same as std::get, except, it is UB to use it with the wrong
+// type whereas std::get will throw or returning nullptr. This makes it faster than
+// std::get.
+template <size_t _Ip, class _Vp>
+inline _LIBCPP_INLINE_VISIBILITY
+constexpr auto&& __unchecked_get(_Vp&& __v) noexcept {
+  using __variant_detail::__access::__variant;
+  return __variant::__get_alt<_Ip>(_VSTD::forward<_Vp>(__v)).__value;
+}
 
-  inline _LIBCPP_INLINE_VISIBILITY
-  result_type operator()(const argument_type&) const _NOEXCEPT {
-    return 66740831; // return a fundamentally attractive random value.
-  }
-};
+template <class _Tp, class... _Types>
+inline _LIBCPP_INLINE_VISIBILITY
+constexpr auto&& __unchecked_get(const variant<_Types...>& __v) noexcept {
+  return __unchecked_get<__find_exactly_one_t<_Tp, _Types...>::value>(__v);
+}
 
-#endif  // _LIBCPP_STD_VER > 14
+template <class _Tp, class... _Types>
+inline _LIBCPP_INLINE_VISIBILITY
+constexpr auto&& __unchecked_get(variant<_Types...>& __v) noexcept {
+  return __unchecked_get<__find_exactly_one_t<_Tp, _Types...>::value>(__v);
+}
+
+#endif // _LIBCPP_STD_VER > 14
 
 _LIBCPP_END_NAMESPACE_STD
 
 _LIBCPP_POP_MACROS
 
-#endif  // _LIBCPP_VARIANT
+#endif // _LIBCPP_VARIANT

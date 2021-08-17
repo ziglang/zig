@@ -14,12 +14,11 @@
 
 #include "sanitizer_platform.h"
 #if SANITIZER_FREEBSD || SANITIZER_LINUX || SANITIZER_NETBSD ||                \
-    SANITIZER_OPENBSD || SANITIZER_SOLARIS
+    SANITIZER_SOLARIS
 #include "sanitizer_common.h"
 #include "sanitizer_internal_defs.h"
 #include "sanitizer_platform_limits_freebsd.h"
 #include "sanitizer_platform_limits_netbsd.h"
-#include "sanitizer_platform_limits_openbsd.h"
 #include "sanitizer_platform_limits_posix.h"
 #include "sanitizer_platform_limits_solaris.h"
 #include "sanitizer_posix.h"
@@ -50,7 +49,9 @@ uptr internal_getdents(fd_t fd, struct linux_dirent *dirp, unsigned int count);
 uptr internal_sigaltstack(const void* ss, void* oss);
 uptr internal_sigprocmask(int how, __sanitizer_sigset_t *set,
     __sanitizer_sigset_t *oldset);
+#if SANITIZER_GLIBC
 uptr internal_clock_gettime(__sanitizer_clockid_t clk_id, void *tp);
+#endif
 
 // Linux-only syscalls.
 #if SANITIZER_LINUX
@@ -60,9 +61,9 @@ uptr internal_prctl(int option, uptr arg2, uptr arg3, uptr arg4, uptr arg5);
 // internal_sigaction instead.
 int internal_sigaction_norestorer(int signum, const void *act, void *oldact);
 void internal_sigdelset(__sanitizer_sigset_t *set, int signum);
-#if defined(__x86_64__) || defined(__mips__) || defined(__aarch64__) \
-  || defined(__powerpc64__) || defined(__s390__) || defined(__i386__) \
-  || defined(__arm__)
+#if defined(__x86_64__) || defined(__mips__) || defined(__aarch64__) || \
+    defined(__powerpc64__) || defined(__s390__) || defined(__i386__) || \
+    defined(__arm__) || SANITIZER_RISCV64
 uptr internal_clone(int (*fn)(void *), void *child_stack, int flags, void *arg,
                     int *parent_tidptr, void *newtls, int *child_tidptr);
 #endif
@@ -97,7 +98,6 @@ class ThreadLister {
 // Exposed for testing.
 uptr ThreadDescriptorSize();
 uptr ThreadSelf();
-uptr ThreadSelfOffset();
 
 // Matches a library's file name against a base name (stripping path and version
 // information).
@@ -109,7 +109,7 @@ void ForEachMappedRegion(link_map *map, void (*cb)(const void *, uptr));
 // Releases memory pages entirely within the [beg, end] address range.
 // The pages no longer count toward RSS; reads are guaranteed to return 0.
 // Requires (but does not verify!) that pages are MAP_PRIVATE.
-INLINE void ReleaseMemoryPagesToOSAndZeroFill(uptr beg, uptr end) {
+inline void ReleaseMemoryPagesToOSAndZeroFill(uptr beg, uptr end) {
   // man madvise on Linux promises zero-fill for anonymous private pages.
   // Testing shows the same behaviour for private (but not anonymous) mappings
   // of shm_open() files, as long as the underlying file is untouched.

@@ -53,7 +53,10 @@ INTERCEPTOR(uptr, signal, int signum, uptr handler) {
 
 INTERCEPTOR(int, sigaction_symname, int signum,
             const __sanitizer_sigaction *act, __sanitizer_sigaction *oldact) {
-  if (GetHandleSignalMode(signum) == kHandleSignalExclusive) return 0;
+  if (GetHandleSignalMode(signum) == kHandleSignalExclusive) {
+    if (!oldact) return 0;
+    act = nullptr;
+  }
   SIGNAL_INTERCEPTOR_SIGACTION_IMPL(signum, act, oldact);
 }
 #define INIT_SIGACTION COMMON_INTERCEPT_FUNCTION(sigaction_symname)

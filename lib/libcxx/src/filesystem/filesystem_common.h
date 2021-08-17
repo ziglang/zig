@@ -35,15 +35,17 @@
 #endif
 #endif
 
-#if defined(__GNUC__)
+#if defined(__GNUC__) || defined(__clang__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-function"
 #endif
 
 #if defined(_LIBCPP_WIN32API)
 #define PS(x) (L##x)
+#define PATH_CSTR_FMT "\"%ls\""
 #else
 #define PS(x) (x)
+#define PATH_CSTR_FMT "\"%s\""
 #endif
 
 _LIBCPP_BEGIN_NAMESPACE_FILESYSTEM
@@ -57,68 +59,47 @@ errc __win_err_to_errc(int err);
 
 namespace {
 
-static string format_string_imp(const char* msg, ...) {
-  // we might need a second shot at this, so pre-emptivly make a copy
-  struct GuardVAList {
-    va_list& target;
-    bool active = true;
-    GuardVAList(va_list& tgt) : target(tgt), active(true) {}
-    void clear() {
-      if (active)
-        va_end(target);
-      active = false;
-    }
-    ~GuardVAList() {
-      if (active)
-        va_end(target);
-    }
-  };
-  va_list args;
-  va_start(args, msg);
-  GuardVAList args_guard(args);
+static _LIBCPP_FORMAT_PRINTF(1, 0) string
+format_string_impl(const char* msg, va_list ap) {
+  array<char, 256> buf;
 
-  va_list args_cp;
-  va_copy(args_cp, args);
-  GuardVAList args_copy_guard(args_cp);
+  va_list apcopy;
+  va_copy(apcopy, ap);
+  int ret = ::vsnprintf(buf.data(), buf.size(), msg, apcopy);
+  va_end(apcopy);
 
-  std::string result;
-
-  array<char, 256> local_buff;
-  size_t size_with_null = local_buff.size();
-  auto ret = ::vsnprintf(local_buff.data(), size_with_null, msg, args_cp);
-
-  args_copy_guard.clear();
-
-  // handle empty expansion
-  if (ret == 0)
-    return result;
-  if (static_cast<size_t>(ret) < size_with_null) {
-    result.assign(local_buff.data(), static_cast<size_t>(ret));
-    return result;
+  string result;
+  if (static_cast<size_t>(ret) < buf.size()) {
+    result.assign(buf.data(), static_cast<size_t>(ret));
+  } else {
+    // we did not provide a long enough buffer on our first attempt. The
+    // return value is the number of bytes (excluding the null byte) that are
+    // needed for formatting.
+    size_t size_with_null = static_cast<size_t>(ret) + 1;
+    result.__resize_default_init(size_with_null - 1);
+    ret = ::vsnprintf(&result[0], size_with_null, msg, ap);
+    _LIBCPP_ASSERT(static_cast<size_t>(ret) == (size_with_null - 1), "TODO");
   }
-
-  // we did not provide a long enough buffer on our first attempt. The
-  // return value is the number of bytes (excluding the null byte) that are
-  // needed for formatting.
-  size_with_null = static_cast<size_t>(ret) + 1;
-  result.__resize_default_init(size_with_null - 1);
-  ret = ::vsnprintf(&result[0], size_with_null, msg, args);
-  _LIBCPP_ASSERT(static_cast<size_t>(ret) == (size_with_null - 1), "TODO");
-
   return result;
 }
 
-const path::value_type* unwrap(path::string_type const& s) { return s.c_str(); }
-const path::value_type* unwrap(path const& p) { return p.native().c_str(); }
-template <class Arg>
-Arg const& unwrap(Arg const& a) {
-  static_assert(!is_class<Arg>::value, "cannot pass class here");
-  return a;
-}
-
-template <class... Args>
-string format_string(const char* fmt, Args const&... args) {
-  return format_string_imp(fmt, unwrap(args)...);
+static _LIBCPP_FORMAT_PRINTF(1, 2) string
+format_string(const char* msg, ...) {
+  string ret;
+  va_list ap;
+  va_start(ap, msg);
+#ifndef _LIBCPP_NO_EXCEPTIONS
+  try {
+#endif // _LIBCPP_NO_EXCEPTIONS
+    ret = format_string_impl(msg, ap);
+#ifndef _LIBCPP_NO_EXCEPTIONS
+  } catch (...) {
+    va_end(ap);
+    throw;
+  }
+#endif // _LIBCPP_NO_EXCEPTIONS
+  va_end(ap);
+  return ret;
 }
 
 error_code capture_errno() {
@@ -190,14 +171,14 @@ struct ErrorHandler {
     _LIBCPP_UNREACHABLE();
   }
 
-  template <class... Args>
-  T report(const error_code& ec, const char* msg, Args const&... args) const {
+  _LIBCPP_FORMAT_PRINTF(3, 0)
+  void report_impl(const error_code& ec, const char* msg, va_list ap) const {
     if (ec_) {
       *ec_ = ec;
-      return error_value<T>();
+      return;
     }
     string what =
-        string("in ") + func_name_ + ": " + format_string(msg, args...);
+        string("in ") + func_name_ + ": " + format_string_impl(msg, ap);
     switch (bool(p1_) + bool(p2_)) {
     case 0:
       __throw_filesystem_error(what, ec);
@@ -209,11 +190,44 @@ struct ErrorHandler {
     _LIBCPP_UNREACHABLE();
   }
 
-  T report(errc const& err) const { return report(make_error_code(err)); }
+  _LIBCPP_FORMAT_PRINTF(3, 4)
+  T report(const error_code& ec, const char* msg, ...) const {
+    va_list ap;
+    va_start(ap, msg);
+#ifndef _LIBCPP_NO_EXCEPTIONS
+    try {
+#endif // _LIBCPP_NO_EXCEPTIONS
+      report_impl(ec, msg, ap);
+#ifndef _LIBCPP_NO_EXCEPTIONS
+    } catch (...) {
+      va_end(ap);
+      throw;
+    }
+#endif // _LIBCPP_NO_EXCEPTIONS
+    va_end(ap);
+    return error_value<T>();
+  }
 
-  template <class... Args>
-  T report(errc const& err, const char* msg, Args const&... args) const {
-    return report(make_error_code(err), msg, args...);
+  T report(errc const& err) const {
+    return report(make_error_code(err));
+  }
+
+  _LIBCPP_FORMAT_PRINTF(3, 4)
+  T report(errc const& err, const char* msg, ...) const {
+    va_list ap;
+    va_start(ap, msg);
+#ifndef _LIBCPP_NO_EXCEPTIONS
+    try {
+#endif // _LIBCPP_NO_EXCEPTIONS
+      report_impl(make_error_code(err), msg, ap);
+#ifndef _LIBCPP_NO_EXCEPTIONS
+    } catch (...) {
+      va_end(ap);
+      throw;
+    }
+#endif // _LIBCPP_NO_EXCEPTIONS
+    va_end(ap);
+    return error_value<T>();
   }
 
 private:
@@ -224,9 +238,41 @@ private:
 using chrono::duration;
 using chrono::duration_cast;
 
+#if defined(_LIBCPP_WIN32API)
+// Various C runtime versions (UCRT, or the legacy msvcrt.dll used by
+// some mingw toolchains) provide different stat function implementations,
+// with a number of limitations with respect to what we want from the
+// stat function. Instead provide our own (in the anonymous detail namespace
+// in posix_compat.h) which does exactly what we want, along with our own
+// stat structure and flag macros.
+
+struct TimeSpec {
+  int64_t tv_sec;
+  int64_t tv_nsec;
+};
+struct StatT {
+  unsigned st_mode;
+  TimeSpec st_atim;
+  TimeSpec st_mtim;
+  uint64_t st_dev; // FILE_ID_INFO::VolumeSerialNumber
+  struct FileIdStruct {
+    unsigned char id[16]; // FILE_ID_INFO::FileId
+    bool operator==(const FileIdStruct &other) const {
+      for (int i = 0; i < 16; i++)
+        if (id[i] != other.id[i])
+          return false;
+      return true;
+    }
+  } st_ino;
+  uint32_t st_nlink;
+  uintmax_t st_size;
+};
+
+#else
 using TimeSpec = struct timespec;
 using TimeVal = struct timeval;
 using StatT = struct stat;
+#endif
 
 template <class FileTimeT, class TimeT,
           bool IsFloat = is_floating_point<typename FileTimeT::rep>::value>
@@ -255,8 +301,7 @@ struct time_util_base {
           .count();
 
 private:
-#if _LIBCPP_STD_VER > 11 && !defined(_LIBCPP_HAS_NO_CXX14_CONSTEXPR)
-  static constexpr fs_duration get_min_nsecs() {
+  static _LIBCPP_CONSTEXPR_AFTER_CXX11 fs_duration get_min_nsecs() {
     return duration_cast<fs_duration>(
         fs_nanoseconds(min_nsec_timespec) -
         duration_cast<fs_nanoseconds>(fs_seconds(1)));
@@ -266,7 +311,7 @@ private:
                     FileTimeT::duration::min(),
                 "value doesn't roundtrip");
 
-  static constexpr bool check_range() {
+  static _LIBCPP_CONSTEXPR_AFTER_CXX11 bool check_range() {
     // This kinda sucks, but it's what happens when we don't have __int128_t.
     if (sizeof(TimeT) == sizeof(rep)) {
       typedef duration<long long, ratio<3600 * 24 * 365> > Years;
@@ -277,7 +322,6 @@ private:
            min_seconds <= numeric_limits<TimeT>::min();
   }
   static_assert(check_range(), "the representable range is unacceptable small");
-#endif
 };
 
 template <class FileTimeT, class TimeT>
@@ -405,7 +449,11 @@ public:
   }
 };
 
+#if defined(_LIBCPP_WIN32API)
+using fs_time = time_util<file_time_type, int64_t, TimeSpec>;
+#else
 using fs_time = time_util<file_time_type, time_t, TimeSpec>;
+#endif
 
 #if defined(__APPLE__)
 inline TimeSpec extract_mtime(StatT const& st) { return st.st_mtimespec; }
@@ -419,11 +467,21 @@ inline TimeSpec extract_atime(StatT const& st) {
   TimeSpec TS = {st.st_atime, 0};
   return TS;
 }
+#elif defined(_AIX)
+inline TimeSpec extract_mtime(StatT const& st) {
+  TimeSpec TS = {st.st_mtime, st.st_mtime_n};
+  return TS;
+}
+inline TimeSpec extract_atime(StatT const& st) {
+  TimeSpec TS = {st.st_atime, st.st_atime_n};
+  return TS;
+}
 #else
 inline TimeSpec extract_mtime(StatT const& st) { return st.st_mtim; }
 inline TimeSpec extract_atime(StatT const& st) { return st.st_atim; }
 #endif
 
+#if !defined(_LIBCPP_WIN32API)
 inline TimeVal make_timeval(TimeSpec const& ts) {
   using namespace chrono;
   auto Convert = [](long nsec) {
@@ -466,6 +524,7 @@ bool set_file_times(const path& p, std::array<TimeSpec, 2> const& TS,
   return posix_utimensat(p, TS, ec);
 #endif
 }
+#endif /* !_LIBCPP_WIN32API */
 
 } // namespace
 } // end namespace detail

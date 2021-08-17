@@ -1114,28 +1114,26 @@ public:
 #endif
     {}
 
-    // avoid re-declaring a copy constructor for the non-const version.
-    using __type_for_copy_to_const =
-      _If<_IsConst, __bit_iterator<_Cp, false>, struct __private_nat>;
-
+    // When _IsConst=false, this is the copy constructor.
+    // It is non-trivial. Making it trivial would break ABI.
+    // When _IsConst=true, this is a converting constructor;
+    // the copy and move constructors are implicitly generated
+    // and trivial.
     _LIBCPP_INLINE_VISIBILITY
-    __bit_iterator(const __type_for_copy_to_const& __it) _NOEXCEPT
+    __bit_iterator(const __bit_iterator<_Cp, false>& __it) _NOEXCEPT
         : __seg_(__it.__seg_), __ctz_(__it.__ctz_) {}
 
-    // The non-const __bit_iterator has historically had a non-trivial
-    // copy constructor (as a quirk of its construction). We need to maintain
-    // this for ABI purposes.
-    using __type_for_abi_non_trivial_copy_ctor =
-      _If<!_IsConst, __bit_iterator, struct __private_nat>;
-
+    // When _IsConst=false, we have a user-provided copy constructor,
+    // so we must also provide a copy assignment operator because
+    // the implicit generation of a defaulted one is deprecated.
+    // When _IsConst=true, the assignment operators are
+    // implicitly generated and trivial.
     _LIBCPP_INLINE_VISIBILITY
-    __bit_iterator(__type_for_abi_non_trivial_copy_ctor const& __it) _NOEXCEPT
-      : __seg_(__it.__seg_), __ctz_(__it.__ctz_) {}
-
-    // Always declare the copy assignment operator since the implicit declaration
-    // is deprecated.
-    _LIBCPP_INLINE_VISIBILITY
-    __bit_iterator& operator=(__bit_iterator const&) = default;
+    __bit_iterator& operator=(const _If<_IsConst, struct __private_nat, __bit_iterator>& __it) {
+        __seg_ = __it.__seg_;
+        __ctz_ = __it.__ctz_;
+        return *this;
+    }
 
     _LIBCPP_INLINE_VISIBILITY reference operator*() const _NOEXCEPT
         {return reference(__seg_, __storage_type(1) << __ctz_);}
@@ -1302,4 +1300,4 @@ _LIBCPP_END_NAMESPACE_STD
 
 _LIBCPP_POP_MACROS
 
-#endif  // _LIBCPP___BIT_REFERENCE
+#endif // _LIBCPP___BIT_REFERENCE

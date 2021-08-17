@@ -68,28 +68,28 @@ int timespec_get( struct timespec *ts, int base); // C++17
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-using ::clock_t;
-using ::size_t;
-using ::time_t;
-using ::tm;
+using ::clock_t _LIBCPP_USING_IF_EXISTS;
+using ::size_t _LIBCPP_USING_IF_EXISTS;
+using ::time_t _LIBCPP_USING_IF_EXISTS;
+using ::tm _LIBCPP_USING_IF_EXISTS;
 #if _LIBCPP_STD_VER > 14 && defined(_LIBCPP_HAS_TIMESPEC_GET)
-using ::timespec;
+using ::timespec _LIBCPP_USING_IF_EXISTS;
 #endif
-using ::clock;
-using ::difftime;
-using ::mktime;
-using ::time;
+using ::clock _LIBCPP_USING_IF_EXISTS;
+using ::difftime _LIBCPP_USING_IF_EXISTS;
+using ::mktime _LIBCPP_USING_IF_EXISTS;
+using ::time _LIBCPP_USING_IF_EXISTS;
 #ifndef _LIBCPP_HAS_NO_THREAD_UNSAFE_C_FUNCTIONS
-using ::asctime;
-using ::ctime;
-using ::gmtime;
-using ::localtime;
+using ::asctime _LIBCPP_USING_IF_EXISTS;
+using ::ctime _LIBCPP_USING_IF_EXISTS;
+using ::gmtime _LIBCPP_USING_IF_EXISTS;
+using ::localtime _LIBCPP_USING_IF_EXISTS;
 #endif
-using ::strftime;
+using ::strftime _LIBCPP_USING_IF_EXISTS;
 #if _LIBCPP_STD_VER > 14 && defined(_LIBCPP_HAS_TIMESPEC_GET) && !defined(_LIBCPP_HAS_TIMESPEC_GET_NOT_ACTUALLY_PROVIDED)
-using ::timespec_get;
+using ::timespec_get _LIBCPP_USING_IF_EXISTS;
 #endif
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif  // _LIBCPP_CTIME
+#endif // _LIBCPP_CTIME

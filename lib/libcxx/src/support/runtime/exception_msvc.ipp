@@ -31,11 +31,11 @@ int __cdecl __uncaught_exceptions();
 namespace std {
 
 unexpected_handler
-set_unexpected(unexpected_handler func) _NOEXCEPT {
+set_unexpected(unexpected_handler func) noexcept {
   return ::set_unexpected(func);
 }
 
-unexpected_handler get_unexpected() _NOEXCEPT {
+unexpected_handler get_unexpected() noexcept {
   return ::_get_unexpected();
 }
 
@@ -46,21 +46,21 @@ void unexpected() {
     terminate();
 }
 
-terminate_handler set_terminate(terminate_handler func) _NOEXCEPT {
+terminate_handler set_terminate(terminate_handler func) noexcept {
   return ::set_terminate(func);
 }
 
-terminate_handler get_terminate() _NOEXCEPT {
+terminate_handler get_terminate() noexcept {
   return ::_get_terminate();
 }
 
 _LIBCPP_NORETURN
-void terminate() _NOEXCEPT
+void terminate() noexcept
 {
 #ifndef _LIBCPP_NO_EXCEPTIONS
     try
     {
-#endif  // _LIBCPP_NO_EXCEPTIONS
+#endif // _LIBCPP_NO_EXCEPTIONS
         (*get_terminate())();
         // handler should not return
         fprintf(stderr, "terminate_handler unexpectedly returned\n");
@@ -73,88 +73,88 @@ void terminate() _NOEXCEPT
         fprintf(stderr, "terminate_handler unexpectedly threw an exception\n");
         ::abort();
     }
-#endif  // _LIBCPP_NO_EXCEPTIONS
+#endif // _LIBCPP_NO_EXCEPTIONS
 }
 
-bool uncaught_exception() _NOEXCEPT { return uncaught_exceptions() > 0; }
+bool uncaught_exception() noexcept { return uncaught_exceptions() > 0; }
 
-int uncaught_exceptions() _NOEXCEPT {
+int uncaught_exceptions() noexcept {
     return __uncaught_exceptions();
 }
 
 #if !defined(_LIBCPP_ABI_VCRUNTIME)
-bad_cast::bad_cast() _NOEXCEPT
+bad_cast::bad_cast() noexcept
 {
 }
 
-bad_cast::~bad_cast() _NOEXCEPT
+bad_cast::~bad_cast() noexcept
 {
 }
 
 const char *
-bad_cast::what() const _NOEXCEPT
+bad_cast::what() const noexcept
 {
   return "std::bad_cast";
 }
 
-bad_typeid::bad_typeid() _NOEXCEPT
+bad_typeid::bad_typeid() noexcept
 {
 }
 
-bad_typeid::~bad_typeid() _NOEXCEPT
+bad_typeid::~bad_typeid() noexcept
 {
 }
 
 const char *
-bad_typeid::what() const _NOEXCEPT
+bad_typeid::what() const noexcept
 {
   return "std::bad_typeid";
 }
 
-exception::~exception() _NOEXCEPT
+exception::~exception() noexcept
 {
 }
 
-const char* exception::what() const _NOEXCEPT
+const char* exception::what() const noexcept
 {
   return "std::exception";
 }
 
 
-bad_exception::~bad_exception() _NOEXCEPT
+bad_exception::~bad_exception() noexcept
 {
 }
 
-const char* bad_exception::what() const _NOEXCEPT
+const char* bad_exception::what() const noexcept
 {
   return "std::bad_exception";
 }
 
 
-bad_alloc::bad_alloc() _NOEXCEPT
+bad_alloc::bad_alloc() noexcept
 {
 }
 
-bad_alloc::~bad_alloc() _NOEXCEPT
+bad_alloc::~bad_alloc() noexcept
 {
 }
 
 const char*
-bad_alloc::what() const _NOEXCEPT
+bad_alloc::what() const noexcept
 {
     return "std::bad_alloc";
 }
 
-bad_array_new_length::bad_array_new_length() _NOEXCEPT
+bad_array_new_length::bad_array_new_length() noexcept
 {
 }
 
-bad_array_new_length::~bad_array_new_length() _NOEXCEPT
+bad_array_new_length::~bad_array_new_length() noexcept
 {
 }
 
 const char*
-bad_array_new_length::what() const _NOEXCEPT
+bad_array_new_length::what() const noexcept
 {
     return "bad_array_new_length";
 }

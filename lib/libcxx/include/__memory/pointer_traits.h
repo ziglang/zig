@@ -11,6 +11,7 @@
 #define _LIBCPP___MEMORY_POINTER_TRAITS_H
 
 #include <__config>
+#include <__memory/addressof.h>
 #include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -120,7 +121,7 @@ struct _LIBCPP_TEMPLATE_VIS pointer_traits
 #else
     template <class _Up> struct rebind
         {typedef typename __pointer_traits_rebind<pointer, _Up>::type other;};
-#endif  // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_CXX03_LANG
 
 private:
     struct __nat {};
@@ -162,8 +163,54 @@ struct __rebind_pointer {
 #endif
 };
 
+// to_address
+
+template <class _Pointer, class = void>
+struct __to_address_helper;
+
+template <class _Tp>
+_LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR
+_Tp* __to_address(_Tp* __p) _NOEXCEPT {
+    static_assert(!is_function<_Tp>::value, "_Tp is a function type");
+    return __p;
+}
+
+// enable_if is needed here to avoid instantiating checks for fancy pointers on raw pointers
+template <class _Pointer, class = _EnableIf<!is_pointer<_Pointer>::value> >
+_LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR
+typename decay<decltype(__to_address_helper<_Pointer>::__call(declval<const _Pointer&>()))>::type
+__to_address(const _Pointer& __p) _NOEXCEPT {
+    return __to_address_helper<_Pointer>::__call(__p);
+}
+
+template <class _Pointer, class>
+struct __to_address_helper {
+    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR
+    static decltype(_VSTD::__to_address(declval<const _Pointer&>().operator->()))
+    __call(const _Pointer&__p) _NOEXCEPT {
+        return _VSTD::__to_address(__p.operator->());
+    }
+};
+
+template <class _Pointer>
+struct __to_address_helper<_Pointer, decltype((void)pointer_traits<_Pointer>::to_address(declval<const _Pointer&>()))> {
+    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR
+    static decltype(pointer_traits<_Pointer>::to_address(declval<const _Pointer&>()))
+    __call(const _Pointer&__p) _NOEXCEPT {
+        return pointer_traits<_Pointer>::to_address(__p);
+    }
+};
+
+#if _LIBCPP_STD_VER > 17
+template <class _Pointer>
+inline _LIBCPP_INLINE_VISIBILITY constexpr
+auto to_address(const _Pointer& __p) noexcept {
+    return _VSTD::__to_address(__p);
+}
+#endif
+
 _LIBCPP_END_NAMESPACE_STD
 
 _LIBCPP_POP_MACROS
 
-#endif  // _LIBCPP___MEMORY_POINTER_TRAITS_H
+#endif // _LIBCPP___MEMORY_POINTER_TRAITS_H

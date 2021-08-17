@@ -92,14 +92,13 @@ void *BackgroundThread(void *arg) {
 #endif
 
 void WriteToSyslog(const char *msg) {
-  InternalScopedString msg_copy(kErrorMessageBufferSize);
+  InternalScopedString msg_copy;
   msg_copy.append("%s", msg);
-  char *p = msg_copy.data();
-  char *q;
+  const char *p = msg_copy.data();
 
   // Print one line at a time.
   // syslog, at least on Android, has an implicit message length limit.
-  while ((q = internal_strchr(p, '\n'))) {
+  while (char* q = internal_strchr(p, '\n')) {
     *q = '\0';
     WriteOneLineToSyslog(p);
     p = q + 1;
@@ -138,6 +137,59 @@ uptr ReservedAddressRange::InitAligned(uptr size, uptr align,
   start += align - (start & (align - 1));
   return start;
 }
+
+#if !SANITIZER_FUCHSIA
+
+// Reserve memory range [beg, end].
+// We need to use inclusive range because end+1 may not be representable.
+void ReserveShadowMemoryRange(uptr beg, uptr end, const char *name,
+                              bool madvise_shadow) {
+  CHECK_EQ((beg % GetMmapGranularity()), 0);
+  CHECK_EQ(((end + 1) % GetMmapGranularity()), 0);
+  uptr size = end - beg + 1;
+  DecreaseTotalMmap(size);  // Don't count the shadow against mmap_limit_mb.
+  if (madvise_shadow ? !MmapFixedSuperNoReserve(beg, size, name)
+                     : !MmapFixedNoReserve(beg, size, name)) {
+    Report(
+        "ReserveShadowMemoryRange failed while trying to map 0x%zx bytes. "
+        "Perhaps you're using ulimit -v\n",
+        size);
+    Abort();
+  }
+  if (madvise_shadow && common_flags()->use_madv_dontdump)
+    DontDumpShadowMemory(beg, size);
+}
+
+void ProtectGap(uptr addr, uptr size, uptr zero_base_shadow_start,
+                uptr zero_base_max_shadow_start) {
+  if (!size)
+    return;
+  void *res = MmapFixedNoAccess(addr, size, "shadow gap");
+  if (addr == (uptr)res)
+    return;
+  // A few pages at the start of the address space can not be protected.
+  // But we really want to protect as much as possible, to prevent this memory
+  // being returned as a result of a non-FIXED mmap().
+  if (addr == zero_base_shadow_start) {
+    uptr step = GetMmapGranularity();
+    while (size > step && addr < zero_base_max_shadow_start) {
+      addr += step;
+      size -= step;
+      void *res = MmapFixedNoAccess(addr, size, "shadow gap");
+      if (addr == (uptr)res)
+        return;
+    }
+  }
+
+  Report(
+      "ERROR: Failed to protect the shadow gap. "
+      "%s cannot proceed correctly. ABORTING.\n",
+      SanitizerToolName);
+  DumpProcessMap();
+  Die();
+}
+
+#endif  // !SANITIZER_FUCHSIA
 
 }  // namespace __sanitizer
 

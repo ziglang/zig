@@ -197,7 +197,7 @@ template <class Value, class Hash, class Pred, class Alloc>
 #include <functional>
 #include <ext/__hash>
 
-#if __DEPRECATED
+#if defined(__DEPRECATED) && __DEPRECATED
 #if defined(_LIBCPP_WARNING)
     _LIBCPP_WARNING("Use of the header <ext/hash_set> is deprecated.  Migrate to <unordered_set>")
 #else
@@ -656,4 +656,4 @@ operator!=(const hash_multiset<_Value, _Hash, _Pred, _Alloc>& __x,
 
 } // __gnu_cxx
 
-#endif  // _LIBCPP_HASH_SET
+#endif // _LIBCPP_HASH_SET

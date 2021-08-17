@@ -76,7 +76,6 @@ inline _LIBCPP_INLINE_VISIBILITY
 int __libcpp_ctz(unsigned long long __x) {
     unsigned long __where;
 #if defined(_LIBCPP_HAS_BITSCAN64)
-    (defined(_M_AMD64) || defined(__x86_64__))
   if (_BitScanForward64(&__where, __x))
     return static_cast<int>(__where);
 #else
@@ -143,4 +142,4 @@ _LIBCPP_END_NAMESPACE_STD
 
 _LIBCPP_POP_MACROS
 
-#endif  // _LIBCPP__BITS
+#endif // _LIBCPP___BITS

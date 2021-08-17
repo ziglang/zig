@@ -330,13 +330,17 @@ static void ioctl_table_fill() {
   _(SOUND_PCM_WRITE_CHANNELS, WRITE, sizeof(int));
   _(SOUND_PCM_WRITE_FILTER, WRITE, sizeof(int));
   _(TCFLSH, NONE, 0);
+#if SANITIZER_GLIBC
   _(TCGETA, WRITE, struct_termio_sz);
+#endif
   _(TCGETS, WRITE, struct_termios_sz);
   _(TCSBRK, NONE, 0);
   _(TCSBRKP, NONE, 0);
+#if SANITIZER_GLIBC
   _(TCSETA, READ, struct_termio_sz);
   _(TCSETAF, READ, struct_termio_sz);
   _(TCSETAW, READ, struct_termio_sz);
+#endif
   _(TCSETS, READ, struct_termios_sz);
   _(TCSETSF, READ, struct_termios_sz);
   _(TCSETSW, READ, struct_termios_sz);
@@ -364,17 +368,8 @@ static void ioctl_table_fill() {
   _(VT_WAITACTIVE, NONE, 0);
 #endif
 
-#if SANITIZER_LINUX && !SANITIZER_ANDROID
+#if SANITIZER_GLIBC
   // _(SIOCDEVPLIP, WRITE, struct_ifreq_sz); // the same as EQL_ENSLAVE
-  _(CYGETDEFTHRESH, WRITE, sizeof(int));
-  _(CYGETDEFTIMEOUT, WRITE, sizeof(int));
-  _(CYGETMON, WRITE, struct_cyclades_monitor_sz);
-  _(CYGETTHRESH, WRITE, sizeof(int));
-  _(CYGETTIMEOUT, WRITE, sizeof(int));
-  _(CYSETDEFTHRESH, NONE, 0);
-  _(CYSETDEFTIMEOUT, NONE, 0);
-  _(CYSETTHRESH, NONE, 0);
-  _(CYSETTIMEOUT, NONE, 0);
   _(EQL_EMANCIPATE, WRITE, struct_ifreq_sz);
   _(EQL_ENSLAVE, WRITE, struct_ifreq_sz);
   _(EQL_GETMASTRCFG, WRITE, struct_ifreq_sz);

@@ -45,8 +45,8 @@ using binary_semaphore = counting_semaphore<1>;
 
 */
 
-#include <__config>
 #include <__availability>
+#include <__config>
 #include <__threading_support>
 #include <atomic>
 
@@ -98,7 +98,7 @@ public:
     _LIBCPP_AVAILABILITY_SYNC _LIBCPP_INLINE_VISIBILITY
     void acquire()
     {
-        auto const __test_fn = [=]() -> bool {
+        auto const __test_fn = [this]() -> bool {
             auto __old = __a.load(memory_order_relaxed);
             return (__old != 0) && __a.compare_exchange_strong(__old, __old - 1, memory_order_acquire, memory_order_relaxed);
         };
@@ -108,7 +108,7 @@ public:
     _LIBCPP_AVAILABILITY_SYNC _LIBCPP_INLINE_VISIBILITY
     bool try_acquire_for(chrono::duration<Rep, Period> const& __rel_time)
     {
-        auto const __test_fn = [=]() -> bool {
+        auto const __test_fn = [this]() -> bool {
             auto __old = __a.load(memory_order_acquire);
             while(1) {
                 if (__old == 0)

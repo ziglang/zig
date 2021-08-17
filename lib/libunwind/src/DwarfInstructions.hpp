@@ -167,6 +167,16 @@ int DwarfInstructions<A, R>::stepWithDwarf(A &addressSpace, pint_t pc,
 
        // restore registers that DWARF says were saved
       R newRegisters = registers;
+
+      // Typically, the CFA is the stack pointer at the call site in
+      // the previous frame. However, there are scenarios in which this is not
+      // true. For example, if we switched to a new stack. In that case, the
+      // value of the previous SP might be indicated by a CFI directive.
+      //
+      // We set the SP here to the CFA, allowing for it to be overridden
+      // by a CFI directive later on.
+      newRegisters.setSP(cfa);
+
       pint_t returnAddress = 0;
       const int lastReg = R::lastDwarfRegNum();
       assert(static_cast<int>(CFI_Parser<A>::kMaxRegisterNumber) >= lastReg &&
@@ -200,10 +210,6 @@ int DwarfInstructions<A, R>::stepWithDwarf(A &addressSpace, pint_t pc,
         }
       }
 
-      // By definition, the CFA is the stack pointer at the call site, so
-      // restoring SP means setting it to CFA.
-      newRegisters.setSP(cfa);
-
       isSignalFrame = cieInfo.isSignalFrame;
 
 #if defined(_LIBUNWIND_TARGET_AARCH64)
@@ -213,7 +219,8 @@ int DwarfInstructions<A, R>::stepWithDwarf(A &addressSpace, pint_t pc,
       // restored. autia1716 is used instead of autia as autia1716 assembles
       // to a NOP on pre-v8.3a architectures.
       if ((R::getArch() == REGISTERS_ARM64) &&
-          prolog.savedRegisters[UNW_ARM64_RA_SIGN_STATE].value) {
+          prolog.savedRegisters[UNW_ARM64_RA_SIGN_STATE].value &&
+          returnAddress != 0) {
 #if !defined(_LIBUNWIND_IS_NATIVE_ONLY)
         return UNW_ECROSSRASIGNING;
 #else
