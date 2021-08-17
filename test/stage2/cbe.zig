@@ -555,6 +555,19 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    return p.y - p.x - p.x;
             \\}
         , "");
+        case.addCompareOutput(
+            \\const Point = struct { x: i32, y: i32, z: i32, a: i32, b: i32 };
+            \\pub export fn main() c_int {
+            \\    var p: Point = .{
+            \\        .x = 18,
+            \\        .y = 24,
+            \\        .z = 1,
+            \\        .a = 2,
+            \\        .b = 3,
+            \\    };
+            \\    return p.y - p.x - p.z - p.a - p.b;
+            \\}
+        , "");
     }
 
     {

@@ -855,6 +855,12 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     .store           => try self.airStore(inst),
                     .struct_field_ptr=> try self.airStructFieldPtr(inst),
                     .struct_field_val=> try self.airStructFieldVal(inst),
+
+                    .struct_field_ptr_index_0 => try self.airStructFieldPtrIndex(inst, 0),
+                    .struct_field_ptr_index_1 => try self.airStructFieldPtrIndex(inst, 1),
+                    .struct_field_ptr_index_2 => try self.airStructFieldPtrIndex(inst, 2),
+                    .struct_field_ptr_index_3 => try self.airStructFieldPtrIndex(inst, 3),
+
                     .switch_br       => try self.airSwitch(inst),
                     .slice_ptr       => try self.airSlicePtr(inst),
                     .slice_len       => try self.airSliceLen(inst),
@@ -1592,7 +1598,18 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         fn airStructFieldPtr(self: *Self, inst: Air.Inst.Index) !void {
             const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
             const extra = self.air.extraData(Air.StructField, ty_pl.payload).data;
-            _ = extra;
+            return self.structFieldPtr(extra.struct_operand, ty_pl.ty, extra.field_index);
+        }
+
+        fn airStructFieldPtrIndex(self: *Self, inst: Air.Inst.Index, index: u8) !void {
+            const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+            return self.structFieldPtr(ty_op.operand, ty_op.ty, index);
+        }
+        fn structFieldPtr(self: *Self, operand: Air.Inst.Ref, ty: Air.Inst.Ref, index: u32) !void {
+            _ = self;
+            _ = operand;
+            _ = ty;
+            _ = index;
             return self.fail("TODO implement codegen struct_field_ptr", .{});
             //return self.finishAir(inst, result, .{ extra.struct_ptr, .none, .none });
         }

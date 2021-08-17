@@ -264,6 +264,13 @@ pub const Inst = struct {
         /// Given a pointer to a struct and a field index, returns a pointer to the field.
         /// Uses the `ty_pl` field, payload is `StructField`.
         struct_field_ptr,
+        /// Given a pointer to a struct, returns a pointer to the field.
+        /// The field index is the number at the end of the name.
+        /// Uses `ty_op` field.
+        struct_field_ptr_index_0,
+        struct_field_ptr_index_1,
+        struct_field_ptr_index_2,
+        struct_field_ptr_index_3,
         /// Given a byval struct and a field index, returns the field byval.
         /// Uses the `ty_pl` field, payload is `StructField`.
         struct_field_val,
@@ -510,6 +517,10 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .wrap_errunion_payload,
         .wrap_errunion_err,
         .slice_ptr,
+        .struct_field_ptr_index_0,
+        .struct_field_ptr_index_1,
+        .struct_field_ptr_index_2,
+        .struct_field_ptr_index_3,
         => return air.getRefType(datas[inst].ty_op.ty),
 
         .loop,
