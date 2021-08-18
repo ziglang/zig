@@ -47,6 +47,30 @@ pub const Random = struct {
         return r.int(u1) != 0;
     }
 
+    /// Returns a random value from an enum, evenly distributed.
+    pub fn enumValue(r: *Random, comptime EnumType: type) EnumType {
+        if (comptime !std.meta.trait.is(.Enum)(EnumType)) {
+            @compileError("Random.enumValue requires an enum type, not a "++@typeName(EnumType));
+        }
+
+        // We won't use int -> enum casting because enum elements can have
+        //  arbitrary values.  Instead we'll randomly pick one of the type's
+        //  fields (values).
+        const options = comptime std.meta.fields(EnumType);
+        if (options.len == 0) {
+            @compileError("Cannot get a random value from an empty enum");
+        }
+        const index = r.uintLessThan(u64, options.len);
+        inline for (options) |field, i| {
+            if (i == index) {
+                return @field(EnumType, field.name);
+            }
+        }
+
+        // The above loop should be exhaustive
+        unreachable;
+    }
+
     /// Returns a random int `i` such that `0 <= i <= maxInt(T)`.
     /// `i` is evenly distributed.
     pub fn int(r: *Random, comptime T: type) T {
@@ -375,6 +399,23 @@ fn testRandomBoolean() !void {
     try expect(r.random.boolean() == true);
     try expect(r.random.boolean() == false);
     try expect(r.random.boolean() == true);
+}
+
+test "Random enum" {
+    try testRandomEnumValue();
+    comptime try testRandomEnumValue();
+}
+fn testRandomEnumValue() !void {
+    const TestEnum = enum {
+        First,
+        Second,
+        Third,
+    };
+    var r = SequentialPrng.init();
+    r.next_value = 0;
+    try expect(r.random.enumValue(TestEnum) == TestEnum.First);
+    try expect(r.random.enumValue(TestEnum) == TestEnum.First);
+    try expect(r.random.enumValue(TestEnum) == TestEnum.First);
 }
 
 test "Random intLessThan" {
