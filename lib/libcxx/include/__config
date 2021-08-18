@@ -352,6 +352,16 @@
 #  define _LIBCPP_NO_CFI
 #endif
 
+// If the compiler supports using_if_exists, pretend we have those functions and they'll
+// be picked up if the C library provides them.
+//
+// TODO: Once we drop support for Clang 12, we can assume the compiler supports using_if_exists
+//       for platforms that don't have a conforming C11 library, so we can drop this whole thing.
+#if __has_attribute(using_if_exists)
+# define _LIBCPP_HAS_TIMESPEC_GET
+# define _LIBCPP_HAS_QUICK_EXIT
+# define _LIBCPP_HAS_ALIGNED_ALLOC
+#else
 #if (defined(__ISO_C_VISIBLE) && (__ISO_C_VISIBLE >= 2011)) || __cplusplus >= 201103L
 #  if defined(__FreeBSD__)
 #    define _LIBCPP_HAS_ALIGNED_ALLOC
@@ -406,6 +416,7 @@
 #    endif
 #  endif // __APPLE__
 #endif
+#endif // __has_attribute(using_if_exists)
 
 #ifndef _LIBCPP_CXX03_LANG
 # define _LIBCPP_ALIGNOF(_Tp) alignof(_Tp)

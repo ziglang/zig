@@ -59,7 +59,7 @@ int timespec_get( struct timespec *ts, int base); // C++17
 // we're detecting this here instead of in <__config> because we can't include
 // system headers from <__config>, since it leads to circular module dependencies.
 // This is also meant to be a very temporary workaround until the SDKs are fixed.
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !__has_attribute(using_if_exists)
 #   include <sys/cdefs.h>
 #   if defined(_LIBCPP_HAS_TIMESPEC_GET) && (__DARWIN_C_LEVEL < __DARWIN_C_FULL)
 #       define _LIBCPP_HAS_TIMESPEC_GET_NOT_ACTUALLY_PROVIDED
