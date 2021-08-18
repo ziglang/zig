@@ -1439,7 +1439,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             return true;
         }
 
-        fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) !void {
+        fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!void {
             const elem_ty = ptr_ty.elemType();
             switch (ptr) {
                 .none => unreachable,
@@ -1456,11 +1456,25 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .embedded_in_code => {
                     return self.fail("TODO implement loading from MCValue.embedded_in_code", .{});
                 },
-                .register => {
-                    return self.fail("TODO implement loading from MCValue.register", .{});
+                .register => |reg| {
+                    switch (arch) {
+                        .arm, .armeb => switch (dst_mcv) {
+                            .dead => unreachable,
+                            .undef => unreachable,
+                            .compare_flags_signed, .compare_flags_unsigned => unreachable,
+                            .embedded_in_code => unreachable,
+                            .register => |dst_reg| {
+                                writeInt(u32, try self.code.addManyAsArray(4), Instruction.ldr(.al, dst_reg, reg, .{ .offset = Instruction.Offset.none }).toU32());
+                            },
+                            else => return self.fail("TODO load from register into {}", .{dst_mcv}),
+                        },
+                        else => return self.fail("TODO implement loading from MCValue.register for {}", .{arch}),
+                    }
                 },
-                .memory => {
-                    return self.fail("TODO implement loading from MCValue.memory", .{});
+                .memory => |addr| {
+                    const reg = try self.register_manager.allocReg(null, &.{});
+                    try self.genSetReg(ptr_ty, reg, .{ .memory = addr });
+                    try self.load(dst_mcv, .{ .register = reg }, ptr_ty);
                 },
                 .stack_offset => {
                     return self.fail("TODO implement loading from MCValue.stack_offset", .{});
@@ -3792,15 +3806,10 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             else => return self.fail("TODO implement memset", .{}),
                         }
                     },
-                    .compare_flags_unsigned => |op| {
-                        _ = op;
-                        return self.fail("TODO implement set stack variable with compare flags value (unsigned)", .{});
-                    },
-                    .compare_flags_signed => |op| {
-                        _ = op;
-                        return self.fail("TODO implement set stack variable with compare flags value (signed)", .{});
-                    },
-                    .immediate => {
+                    .compare_flags_unsigned,
+                    .compare_flags_signed,
+                    .immediate,
+                    => {
                         const reg = try self.copyToTmpRegister(ty, mcv);
                         return self.genSetStack(ty, stack_offset, MCValue{ .register = reg });
                     },
@@ -3968,15 +3977,10 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             else => return self.fail("TODO implement memset", .{}),
                         }
                     },
-                    .compare_flags_unsigned => |op| {
-                        _ = op;
-                        return self.fail("TODO implement set stack variable with compare flags value (unsigned)", .{});
-                    },
-                    .compare_flags_signed => |op| {
-                        _ = op;
-                        return self.fail("TODO implement set stack variable with compare flags value (signed)", .{});
-                    },
-                    .immediate => {
+                    .compare_flags_unsigned,
+                    .compare_flags_signed,
+                    .immediate,
+                    => {
                         const reg = try self.copyToTmpRegister(ty, mcv);
                         return self.genSetStack(ty, stack_offset, MCValue{ .register = reg });
                     },
