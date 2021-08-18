@@ -57,9 +57,6 @@ pub const Random = struct {
         //  arbitrary values.  Instead we'll randomly pick one of the type's
         //  fields (values).
         const options = comptime std.meta.fields(EnumType);
-        if (options.len == 0) {
-            @compileError("Cannot get a random value from an empty enum");
-        }
         const index = r.uintLessThan(u64, options.len);
         inline for (options) |field, i| {
             if (i == index) {
@@ -67,8 +64,7 @@ pub const Random = struct {
             }
         }
 
-        // The above loop should be exhaustive
-        unreachable;
+        unreachable; // The above loop should be exhaustive
     }
 
     /// Returns a random int `i` such that `0 <= i <= maxInt(T)`.
