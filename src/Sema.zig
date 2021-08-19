@@ -8323,7 +8323,7 @@ fn coerceNum(
             return sema.mod.fail(&block.base, inst_src, "TODO float to int", .{});
         } else if (src_zig_tag == .Int or src_zig_tag == .ComptimeInt) {
             if (!val.intFitsInType(dest_type, target)) {
-                return sema.mod.fail(&block.base, inst_src, "type {} cannot represent integer value {}", .{ inst_ty, val });
+                return sema.mod.fail(&block.base, inst_src, "type {} cannot represent integer value {}", .{ dest_type, val });
             }
             return try sema.addConstant(dest_type, val);
         }
