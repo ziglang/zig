@@ -3,12 +3,10 @@
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
-// Algorithms taken from Bit Twiddling Hacks (under public domain)
-
-const std = @import("std");
-const builtin = std.builtin;
+const builtin = @import("std").builtin;
 
 // Returns: if number of bits odd: 1, else: 0
+// Algorithms taken from Bit Twiddling Hacks (under public domain)
 
 pub fn __paritysi2(a: i32) callconv(.C) i32 {
     @setRuntimeSafety(builtin.is_test);
