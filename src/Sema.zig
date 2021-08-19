@@ -5303,8 +5303,25 @@ fn zirShr(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!A
     const tracy = trace(@src());
     defer tracy.end();
 
-    _ = inst;
-    return sema.mod.fail(&block.base, sema.src, "TODO implement zirShr", .{});
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const src: LazySrcLoc = .{ .node_offset_bin_op = inst_data.src_node };
+    const lhs_src: LazySrcLoc = .{ .node_offset_bin_lhs = inst_data.src_node };
+    const rhs_src: LazySrcLoc = .{ .node_offset_bin_rhs = inst_data.src_node };
+    const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
+    const lhs = sema.resolveInst(extra.lhs);
+    const rhs = sema.resolveInst(extra.rhs);
+
+    if (try sema.resolveMaybeUndefVal(block, lhs_src, lhs)) |lhs_val| {
+        if (try sema.resolveMaybeUndefVal(block, rhs_src, rhs)) |rhs_val| {
+            if (lhs_val.isUndef() or rhs_val.isUndef()) {
+                return sema.addConstUndef(sema.typeOf(lhs));
+            }
+            return sema.mod.fail(&block.base, src, "TODO implement comptime shr", .{});
+        }
+    }
+
+    try sema.requireRuntimeBlock(block, src);
+    return block.addBinOp(.shr, lhs, rhs);
 }
 
 fn zirBitwise(
@@ -6001,13 +6018,33 @@ fn zirTypeofElem(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) Compile
 fn zirTypeofLog2IntType(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
-    return sema.mod.fail(&block.base, src, "TODO: implement Sema.zirTypeofLog2IntType", .{});
+    const operand = sema.resolveInst(inst_data.operand);
+    const operand_ty = sema.typeOf(operand);
+    return sema.log2IntType(block, operand_ty, src);
 }
 
 fn zirLog2IntType(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
-    return sema.mod.fail(&block.base, src, "TODO: implement Sema.zirLog2IntType", .{});
+    const operand = try sema.resolveType(block, src, inst_data.operand);
+    return sema.log2IntType(block, operand, src);
+}
+
+fn log2IntType(sema: *Sema, block: *Scope.Block, operand: Type, src: LazySrcLoc) CompileError!Air.Inst.Ref {
+    if (operand.zigTypeTag() != .Int) return sema.mod.fail(
+        &block.base,
+        src,
+        "bit shifting operation expected integer type, found '{}'",
+        .{operand},
+    );
+
+    var count: u16 = 0;
+    var s = operand.bitSize(sema.mod.getTarget()) - 1;
+    while (s != 0) : (s >>= 1) {
+        count += 1;
+    }
+    const res = try Module.makeIntType(sema.arena, .unsigned, count);
+    return sema.addType(res);
 }
 
 fn zirTypeofPeer(

@@ -871,6 +871,9 @@ fn genBody(o: *Object, body: []const Air.Inst.Index) error{ AnalysisFail, OutOfM
             .bit_or     => try airBinOp(o, inst, " | "),
             .xor        => try airBinOp(o, inst, " ^ "),
 
+            .shr        => try airBinOp(o, inst, " >> "),
+            .shl        => try airBinOp(o, inst, " << "),
+
             .not        => try airNot(  o, inst),
 
             .optional_payload     => try airOptionalPayload(o, inst),
