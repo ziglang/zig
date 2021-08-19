@@ -54,17 +54,10 @@ pub const Random = struct {
         }
 
         // We won't use int -> enum casting because enum elements can have
-        //  arbitrary values.  Instead we'll randomly pick one of the type's
-        //  fields (values).
-        const options = comptime std.meta.fields(EnumType);
-        const index = r.uintLessThan(u64, options.len);
-        inline for (options) |field, i| {
-            if (i == index) {
-                return @field(EnumType, field.name);
-            }
-        }
-
-        unreachable; // The above loop should be exhaustive
+        //  arbitrary values.  Instead we'll randomly pick one of the type's values.
+        const values = std.enums.values(EnumType);
+        const index = r.uintLessThan(usize, values.len);
+        return values[index];
     }
 
     /// Returns a random int `i` such that `0 <= i <= maxInt(T)`.
