@@ -5294,9 +5294,25 @@ fn zirShl(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!A
     const tracy = trace(@src());
     defer tracy.end();
 
-    _ = block;
-    _ = inst;
-    return sema.mod.fail(&block.base, sema.src, "TODO implement zirShl", .{});
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const src: LazySrcLoc = .{ .node_offset_bin_op = inst_data.src_node };
+    const lhs_src: LazySrcLoc = .{ .node_offset_bin_lhs = inst_data.src_node };
+    const rhs_src: LazySrcLoc = .{ .node_offset_bin_rhs = inst_data.src_node };
+    const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
+    const lhs = sema.resolveInst(extra.lhs);
+    const rhs = sema.resolveInst(extra.rhs);
+
+    if (try sema.resolveMaybeUndefVal(block, lhs_src, lhs)) |lhs_val| {
+        if (try sema.resolveMaybeUndefVal(block, rhs_src, rhs)) |rhs_val| {
+            if (lhs_val.isUndef() or rhs_val.isUndef()) {
+                return sema.addConstUndef(sema.typeOf(lhs));
+            }
+            return sema.mod.fail(&block.base, src, "TODO implement comptime shl", .{});
+        }
+    }
+
+    try sema.requireRuntimeBlock(block, src);
+    return block.addBinOp(.shl, lhs, rhs);
 }
 
 fn zirShr(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
