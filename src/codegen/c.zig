@@ -913,6 +913,7 @@ fn genBody(o: *Object, body: []const Air.Inst.Index) error{ AnalysisFail, OutOfM
 
             .ptr_elem_val       => try airPtrElemVal(o, inst, "["),
             .ptr_ptr_elem_val   => try airPtrElemVal(o, inst, "[0]["),
+            .ptr_elem_ptr       => try airPtrElemPtr(o, inst),
             .slice_elem_val     => try airSliceElemVal(o, inst, "["),
             .ptr_slice_elem_val => try airSliceElemVal(o, inst, "[0]["),
 
@@ -958,6 +959,13 @@ fn airPtrElemVal(o: *Object, inst: Air.Inst.Index, prefix: []const u8) !CValue {
 
     _ = prefix;
     return o.dg.fail("TODO: C backend: airPtrElemVal", .{});
+}
+
+fn airPtrElemPtr(o: *Object, inst: Air.Inst.Index) !CValue {
+    if (o.liveness.isUnused(inst))
+        return CValue.none;
+
+    return o.dg.fail("TODO: C backend: airPtrElemPtr", .{});
 }
 
 fn airSliceElemVal(o: *Object, inst: Air.Inst.Index, prefix: []const u8) !CValue {

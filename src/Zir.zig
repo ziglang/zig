@@ -687,14 +687,14 @@ pub const Inst = struct {
         /// A struct literal with a specified type, with no fields.
         /// Uses the `un_node` field.
         struct_init_empty,
-        /// Given a struct, union, or enum, and a field name as a string index,
+        /// Given a struct or union, and a field name as a string index,
         /// returns the field type. Uses the `pl_node` field. Payload is `FieldType`.
         field_type,
-        /// Given a struct, union, or enum, and a field name as a Ref,
+        /// Given a struct or union, and a field name as a Ref,
         /// returns the field type. Uses the `pl_node` field. Payload is `FieldTypeRef`.
         field_type_ref,
-        /// Finalizes a typed struct initialization, performs validation, and returns the
-        /// struct value.
+        /// Finalizes a typed struct or union initialization, performs validation, and returns the
+        /// struct or union value.
         /// Uses the `pl_node` field. Payload is `StructInit`.
         struct_init,
         /// Struct initialization syntax, make the result a pointer.
@@ -1703,6 +1703,7 @@ pub const Inst = struct {
         call_options_type,
         export_options_type,
         extern_options_type,
+        type_info_type,
         manyptr_u8_type,
         manyptr_const_u8_type,
         fn_noreturn_no_args_type,
@@ -1972,6 +1973,10 @@ pub const Inst = struct {
             .extern_options_type = .{
                 .ty = Type.initTag(.type),
                 .val = Value.initTag(.extern_options_type),
+            },
+            .type_info_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.type_info_type),
             },
 
             .undef = .{

@@ -432,6 +432,8 @@ pub const Object = struct {
             },
             else => |e| return e,
         };
+        const decl_exports = module.decl_exports.get(decl) orelse &[0]*Module.Export{};
+        try self.updateDeclExports(module, decl, decl_exports);
     }
 
     pub fn updateDeclExports(
@@ -440,7 +442,9 @@ pub const Object = struct {
         decl: *const Module.Decl,
         exports: []const *Module.Export,
     ) !void {
-        const llvm_fn = self.llvm_module.getNamedFunction(decl.name).?;
+        // If the module does not already have the function, we ignore this function call
+        // because we call `updateDeclExports` at the end of `updateFunc` and `updateDecl`.
+        const llvm_fn = self.llvm_module.getNamedFunction(decl.name) orelse return;
         const is_extern = decl.val.tag() == .extern_fn;
         if (is_extern or exports.len != 0) {
             llvm_fn.setLinkage(.External);
@@ -1041,6 +1045,7 @@ pub const FuncGen = struct {
                 .slice_elem_val     => try self.airSliceElemVal(inst),
                 .ptr_slice_elem_val => try self.airPtrSliceElemVal(inst),
                 .ptr_elem_val       => try self.airPtrElemVal(inst),
+                .ptr_elem_ptr       => try self.airPtrElemPtr(inst),
                 .ptr_ptr_elem_val   => try self.airPtrPtrElemVal(inst),
 
                 .optional_payload     => try self.airOptionalPayload(inst, false),
@@ -1296,9 +1301,33 @@ pub const FuncGen = struct {
         const bin_op = self.air.instructions.items(.data)[inst].bin_op;
         const base_ptr = try self.resolveInst(bin_op.lhs);
         const rhs = try self.resolveInst(bin_op.rhs);
-        const indices: [1]*const llvm.Value = .{rhs};
-        const ptr = self.builder.buildInBoundsGEP(base_ptr, &indices, indices.len, "");
+        const ptr = if (self.air.typeOf(bin_op.lhs).isSinglePointer()) ptr: {
+            // If this is a single-item pointer to an array, we need another index in the GEP.
+            const indices: [2]*const llvm.Value = .{ self.context.intType(32).constNull(), rhs };
+            break :ptr self.builder.buildInBoundsGEP(base_ptr, &indices, indices.len, "");
+        } else ptr: {
+            const indices: [1]*const llvm.Value = .{rhs};
+            break :ptr self.builder.buildInBoundsGEP(base_ptr, &indices, indices.len, "");
+        };
         return self.builder.buildLoad(ptr, "");
+    }
+
+    fn airPtrElemPtr(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst))
+            return null;
+
+        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+        const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
+        const base_ptr = try self.resolveInst(bin_op.lhs);
+        const rhs = try self.resolveInst(bin_op.rhs);
+        if (self.air.typeOf(bin_op.lhs).isSinglePointer()) {
+            // If this is a single-item pointer to an array, we need another index in the GEP.
+            const indices: [2]*const llvm.Value = .{ self.context.intType(32).constNull(), rhs };
+            return self.builder.buildInBoundsGEP(base_ptr, &indices, indices.len, "");
+        } else {
+            const indices: [1]*const llvm.Value = .{rhs};
+            return self.builder.buildInBoundsGEP(base_ptr, &indices, indices.len, "");
+        }
     }
 
     fn airPtrPtrElemVal(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {

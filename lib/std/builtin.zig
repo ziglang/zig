@@ -237,7 +237,7 @@ pub const TypeInfo = union(enum) {
         /// This field is an optional type.
         /// The type of the sentinel is the element type of the pointer, which is
         /// the value of the `child` field in this struct. However there is no way
-        /// to refer to that type here, so we use `var`.
+        /// to refer to that type here, so we use `anytype`.
         sentinel: anytype,
 
         /// This data structure is used by the Zig language code generation and

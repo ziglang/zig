@@ -130,3 +130,21 @@ test "no undeclared identifier error in unanalyzed branches" {
         lol_this_doesnt_exist = nonsense;
     }
 }
+
+test "a type constructed in a global expression" {
+    var l: List = undefined;
+    l.array[0] = 10;
+    l.array[1] = 11;
+    l.array[2] = 12;
+    const ptr = @ptrCast([*]u8, &l.array);
+    try expect(ptr[0] == 10);
+    try expect(ptr[1] == 11);
+    try expect(ptr[2] == 12);
+}
+
+const List = blk: {
+    const T = [10]u8;
+    break :blk struct {
+        array: T,
+    };
+};

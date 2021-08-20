@@ -286,6 +286,10 @@ pub const Inst = struct {
         /// Result type is the element type of the pointer operand.
         /// Uses the `bin_op` field.
         ptr_elem_val,
+        /// Given a pointer value, and element index, return the element pointer at that index.
+        /// Result type is pointer to the element type of the pointer operand.
+        /// Uses the `ty_pl` field with payload `Bin`.
+        ptr_elem_ptr,
         /// Given a pointer to a pointer, and element index, return the element value of the inner
         /// pointer at that index.
         /// Result type is the element type of the inner pointer operand.
@@ -410,6 +414,11 @@ pub const StructField = struct {
     field_index: u32,
 };
 
+pub const Bin = struct {
+    lhs: Inst.Ref,
+    rhs: Inst.Ref,
+};
+
 /// Trailing:
 /// 0. `Inst.Ref` for every outputs_len
 /// 1. `Inst.Ref` for every inputs_len
@@ -482,6 +491,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .constant,
         .struct_field_ptr,
         .struct_field_val,
+        .ptr_elem_ptr,
         => return air.getRefType(datas[inst].ty_pl.ty),
 
         .not,
@@ -527,8 +537,8 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         },
 
         .slice_elem_val, .ptr_elem_val => {
-            const slice_ty = air.typeOf(datas[inst].bin_op.lhs);
-            return slice_ty.elemType();
+            const ptr_ty = air.typeOf(datas[inst].bin_op.lhs);
+            return ptr_ty.elemType();
         },
         .ptr_slice_elem_val, .ptr_ptr_elem_val => {
             const outer_ptr_ty = air.typeOf(datas[inst].bin_op.lhs);

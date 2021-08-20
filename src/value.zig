@@ -68,6 +68,7 @@ pub const Value = extern union {
         call_options_type,
         export_options_type,
         extern_options_type,
+        type_info_type,
         manyptr_u8_type,
         manyptr_const_u8_type,
         fn_noreturn_no_args_type,
@@ -221,6 +222,7 @@ pub const Value = extern union {
                 .call_options_type,
                 .export_options_type,
                 .extern_options_type,
+                .type_info_type,
                 .generic_poison,
                 => @compileError("Value Tag " ++ @tagName(t) ++ " has no payload"),
 
@@ -402,6 +404,7 @@ pub const Value = extern union {
             .call_options_type,
             .export_options_type,
             .extern_options_type,
+            .type_info_type,
             .generic_poison,
             => unreachable,
 
@@ -585,6 +588,7 @@ pub const Value = extern union {
             .call_options_type => return out_stream.writeAll("std.builtin.CallOptions"),
             .export_options_type => return out_stream.writeAll("std.builtin.ExportOptions"),
             .extern_options_type => return out_stream.writeAll("std.builtin.ExternOptions"),
+            .type_info_type => return out_stream.writeAll("std.builtin.TypeInfo"),
             .abi_align_default => return out_stream.writeAll("(default ABI alignment)"),
 
             .empty_struct_value => return out_stream.writeAll("struct {}{}"),
@@ -743,6 +747,7 @@ pub const Value = extern union {
             .call_options_type => Type.initTag(.call_options),
             .export_options_type => Type.initTag(.export_options),
             .extern_options_type => Type.initTag(.extern_options),
+            .type_info_type => Type.initTag(.type_info),
 
             .int_type => {
                 const payload = self.castTag(.int_type).?.data;
@@ -1512,6 +1517,31 @@ pub const Value = extern union {
         const mask = (@as(u64, 1) << @intCast(u6, bits)) - 1;
         const truncated = x & mask;
         return Tag.int_u64.create(arena, truncated);
+    }
+
+    pub fn shr(lhs: Value, rhs: Value, allocator: *Allocator) !Value {
+        // TODO is this a performance issue? maybe we should try the operation without
+        // resorting to BigInt first.
+        var lhs_space: Value.BigIntSpace = undefined;
+        const lhs_bigint = lhs.toBigInt(&lhs_space);
+        const shift = rhs.toUnsignedInt();
+        const limbs = try allocator.alloc(
+            std.math.big.Limb,
+            lhs_bigint.limbs.len - (shift / (@sizeOf(std.math.big.Limb) * 8)),
+        );
+        var result_bigint = BigIntMutable{
+            .limbs = limbs,
+            .positive = undefined,
+            .len = undefined,
+        };
+        result_bigint.shiftRight(lhs_bigint, shift);
+        const result_limbs = result_bigint.limbs[0..result_bigint.len];
+
+        if (result_bigint.positive) {
+            return Value.Tag.int_big_positive.create(allocator, result_limbs);
+        } else {
+            return Value.Tag.int_big_negative.create(allocator, result_limbs);
+        }
     }
 
     pub fn floatAdd(
