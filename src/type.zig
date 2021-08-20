@@ -1526,6 +1526,30 @@ pub const Type = extern union {
         }
     }
 
+    pub fn ptrAddressSpace(self: Type) std.builtin.AddressSpace {
+        return switch (self.tag()) {
+            .single_const_pointer_to_comptime_int,
+            .const_slice_u8,
+            .single_const_pointer,
+            .single_mut_pointer,
+            .many_const_pointer,
+            .many_mut_pointer,
+            .c_const_pointer,
+            .c_mut_pointer,
+            .const_slice,
+            .mut_slice,
+            .inferred_alloc_const,
+            .inferred_alloc_mut,
+            .manyptr_u8,
+            .manyptr_const_u8,
+            => .generic,
+
+            .pointer => self.castTag(.pointer).?.data.@"addrspace",
+
+            else => unreachable,
+        };
+    }
+
     /// Asserts that hasCodeGenBits() is true.
     pub fn abiAlignment(self: Type, target: Target) u32 {
         return switch (self.tag()) {

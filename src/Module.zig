@@ -353,7 +353,7 @@ pub const Decl = struct {
         /// to require re-analysis.
         outdated,
     },
-    /// Whether `typed_value`, `align_val`, `linksection_val` and `has_addrspace` are populated.
+    /// Whether `typed_value`, `align_val`, `linksection_val` and `addrspace` are populated.
     has_tv: bool,
     /// If `true` it means the `Decl` is the resource owner of the type/value associated
     /// with it. That means when `Decl` is destroyed, the cleanup code should additionally
@@ -4399,6 +4399,34 @@ pub fn ptrType(
         .@"volatile" = @"volatile",
         .size = size,
     });
+}
+
+/// Create a pointer type with an explicit address space. This function might return results
+/// of either simplePtrType or ptrType, depending on the address space.
+/// TODO(Snektron) unify ptrType functions.
+pub fn simplePtrTypeWithAddressSpace(
+    arena: *Allocator,
+    elem_ty: Type,
+    mutable: bool,
+    size: std.builtin.TypeInfo.Pointer.Size,
+    address_space: std.builtin.AddressSpace,
+) Allocator.Error!Type {
+    switch (address_space) {
+        .generic => return simplePtrType(arena, elem_ty, mutable, size),
+        else => return ptrType(
+            arena,
+            elem_ty,
+            null,
+            0,
+            address_space,
+            0,
+            0,
+            mutable,
+            false,
+            false,
+            size,
+        ),
+    }
 }
 
 pub fn optionalType(arena: *Allocator, child_type: Type) Allocator.Error!Type {

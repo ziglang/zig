@@ -3658,7 +3658,13 @@ fn zirOptionalPayloadPtr(
     }
 
     const child_type = try opt_type.optionalChildAlloc(sema.arena);
-    const child_pointer = try Module.simplePtrType(sema.arena, child_type, !optional_ptr_ty.isConstPtr(), .One);
+    const child_pointer = try Module.simplePtrTypeWithAddressSpace(
+        sema.arena,
+        child_type,
+        !optional_ptr_ty.isConstPtr(),
+        .One,
+        optional_ptr_ty.ptrAddressSpace(),
+    );
 
     if (try sema.resolveDefinedValue(block, src, optional_ptr)) |pointer_val| {
         if (try pointer_val.pointerDeref(sema.arena)) |val| {
@@ -3773,7 +3779,13 @@ fn zirErrUnionPayloadPtr(
         return sema.mod.fail(&block.base, src, "expected error union type, found {}", .{operand_ty.elemType()});
 
     const payload_ty = operand_ty.elemType().errorUnionPayload();
-    const operand_pointer_ty = try Module.simplePtrType(sema.arena, payload_ty, !operand_ty.isConstPtr(), .One);
+    const operand_pointer_ty = try Module.simplePtrTypeWithAddressSpace(
+        sema.arena,
+        payload_ty,
+        !operand_ty.isConstPtr(),
+        .One,
+        operand_ty.ptrAddressSpace(),
+    );
 
     if (try sema.resolveDefinedValue(block, src, operand)) |pointer_val| {
         if (try pointer_val.pointerDeref(sema.arena)) |val| {
@@ -9525,11 +9537,11 @@ fn analyzeDeclRef(sema: *Sema, decl: *Decl) CompileError!Air.Inst.Ref {
     const decl_tv = try decl.typedValue();
     if (decl_tv.val.castTag(.variable)) |payload| {
         const variable = payload.data;
-        const ty = try Module.simplePtrType(sema.arena, decl_tv.ty, variable.is_mutable, .One);
+        const ty = try Module.simplePtrTypeWithAddressSpace(sema.arena, decl_tv.ty, variable.is_mutable, .One, decl.@"addrspace");
         return sema.addConstant(ty, try Value.Tag.decl_ref.create(sema.arena, decl));
     }
     return sema.addConstant(
-        try Module.simplePtrType(sema.arena, decl_tv.ty, false, .One),
+        try Module.simplePtrTypeWithAddressSpace(sema.arena, decl_tv.ty, false, .One, decl.@"addrspace"),
         try Value.Tag.decl_ref.create(sema.arena, decl),
     );
 }
