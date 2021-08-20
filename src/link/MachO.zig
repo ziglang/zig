@@ -770,34 +770,6 @@ pub fn flush(self: *MachO, comp: *Compilation) !void {
 
         for (self.pending_updates.items) |update| {
             switch (update) {
-                .resolve_undef => |sym_index| {
-                    const sym = &self.undefs.items[sym_index];
-                    const sym_name = self.getString(sym.n_strx);
-                    const resolv = self.symbol_resolver.getPtr(sym.n_strx) orelse unreachable;
-
-                    for (self.dylibs.items) |dylib, id| {
-                        if (!dylib.symbols.contains(sym_name)) continue;
-
-                        const dylib_id = @intCast(u16, id);
-                        if (!self.referenced_dylibs.contains(dylib_id)) {
-                            try self.referenced_dylibs.putNoClobber(self.base.allocator, dylib_id, {});
-                        }
-
-                        const ordinal = self.referenced_dylibs.getIndex(dylib_id) orelse unreachable;
-                        sym.n_type |= macho.N_EXT;
-                        sym.n_desc = @intCast(u16, ordinal + 1) * macho.N_SYMBOL_RESOLVER;
-
-                        break;
-                    } else {
-                        try still_pending.append(update);
-                        log.warn("undefined reference to symbol '{s}'", .{sym_name});
-                        // TODO self-reference for incremental means resolv.file == 0!
-                        if (self.objects.items.len > 0) {
-                            log.warn("  first referenced in '{s}'", .{self.objects.items[resolv.file].name});
-                        }
-                    }
-                },
-                .add_got_entry => return error.TODOAddGotEntryUpdate,
                 .add_stub_entry => |stub_index| {
                     try self.writeStub(stub_index);
                     try self.writeStubInStubHelper(stub_index);
@@ -805,6 +777,7 @@ pub fn flush(self: *MachO, comp: *Compilation) !void {
                     self.rebase_info_dirty = true;
                     self.lazy_binding_info_dirty = true;
                 },
+                else => unreachable,
             }
         }
 
@@ -856,6 +829,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
     defer tracy.end();
 
     try self.setEntryPoint();
+    try self.writeTextBlocks();
     try self.writeRebaseInfoTable();
     try self.writeBindInfoTable();
     try self.writeLazyBindInfoTable();
@@ -1946,6 +1920,174 @@ fn writeTextBlocks(self: *MachO) !void {
     }
 }
 
+fn createEmptyAtom(
+    self: *MachO,
+    match: MatchingSection,
+    local_sym_index: u32,
+    size: u64,
+    alignment: u32,
+) !*TextBlock {
+    const code = try self.base.allocator.alloc(u8, size);
+    defer self.base.allocator.free(code);
+    mem.set(u8, code, 0);
+
+    const block = try self.base.allocator.create(TextBlock);
+    errdefer self.base.allocator.destroy(block);
+    block.* = TextBlock.empty;
+    block.local_sym_index = local_sym_index;
+    block.size = size;
+    block.alignment = alignment;
+    try block.code.appendSlice(self.base.allocator, code);
+
+    try self.managed_blocks.append(self.base.allocator, block);
+
+    // Update target section's metadata
+    // TODO should we update segment's size here too?
+    // How does it tie with incremental space allocs?
+    const tseg = &self.load_commands.items[match.seg].Segment;
+    const tsect = &tseg.sections.items[match.sect];
+    const new_alignment = math.max(tsect.@"align", alignment);
+    const new_alignment_pow_2 = try math.powi(u32, 2, new_alignment);
+    const new_size = mem.alignForwardGeneric(u64, tsect.size, new_alignment_pow_2) + size;
+    tsect.size = new_size;
+    tsect.@"align" = new_alignment;
+
+    if (self.blocks.getPtr(match)) |last| {
+        last.*.next = block;
+        block.prev = last.*;
+        last.* = block;
+    } else {
+        try self.blocks.putNoClobber(self.base.allocator, match, block);
+    }
+
+    return block;
+}
+
+// fn createStubHelperPreambleAtom(self: *MachO) !void {
+//     switch (self.base.options.target.cpu.arch) {
+//         .x86_64 => {
+//             const code_size = 15;
+//             var code = try self.base.allocator.alloc(u8, code_size);
+//             errdefer self.base.allocator.free(code);
+//             // lea %r11, [rip + disp]
+//             code[0] = 0x4c;
+//             code[1] = 0x8d;
+//             code[2] = 0x1d;
+//             {
+//                 const target_addr = data.addr + data.size - @sizeOf(u64);
+//                 const displacement = try math.cast(u32, target_addr - stub_helper.addr - 7);
+//                 mem.writeIntLittle(u32, code[3..7], displacement);
+//             }
+//             // push %r11
+//             code[7] = 0x41;
+//             code[8] = 0x53;
+//             // jmp [rip + disp]
+//             code[9] = 0xff;
+//             code[10] = 0x25;
+//             {
+//                 const got_index = self.got_entries_map.get(.{
+//                     .where = .undef,
+//                     .where_index = self.dyld_stub_binder_index.?,
+//                 }) orelse unreachable;
+//                 const addr = got.addr + got_index * @sizeOf(u64);
+//                 const displacement = try math.cast(u32, addr - stub_helper.addr - code_size);
+//                 mem.writeIntLittle(u32, code[11..], displacement);
+//             }
+//             try self.base.file.?.pwriteAll(&code, stub_helper.offset);
+//             break :blk stub_helper.offset + code_size;
+//         },
+//         .aarch64 => {
+//             var code: [6 * @sizeOf(u32)]u8 = undefined;
+//             data_blk_outer: {
+//                 const this_addr = stub_helper.addr;
+//                 const target_addr = data.addr + data.size - @sizeOf(u64);
+//                 data_blk: {
+//                     const displacement = math.cast(i21, target_addr - this_addr) catch break :data_blk;
+//                     // adr x17, disp
+//                     mem.writeIntLittle(u32, code[0..4], aarch64.Instruction.adr(.x17, displacement).toU32());
+//                     // nop
+//                     mem.writeIntLittle(u32, code[4..8], aarch64.Instruction.nop().toU32());
+//                     break :data_blk_outer;
+//                 }
+//                 data_blk: {
+//                     const new_this_addr = this_addr + @sizeOf(u32);
+//                     const displacement = math.cast(i21, target_addr - new_this_addr) catch break :data_blk;
+//                     // nop
+//                     mem.writeIntLittle(u32, code[0..4], aarch64.Instruction.nop().toU32());
+//                     // adr x17, disp
+//                     mem.writeIntLittle(u32, code[4..8], aarch64.Instruction.adr(.x17, displacement).toU32());
+//                     break :data_blk_outer;
+//                 }
+//                 // Jump is too big, replace adr with adrp and add.
+//                 const this_page = @intCast(i32, this_addr >> 12);
+//                 const target_page = @intCast(i32, target_addr >> 12);
+//                 const pages = @intCast(i21, target_page - this_page);
+//                 mem.writeIntLittle(u32, code[0..4], aarch64.Instruction.adrp(.x17, pages).toU32());
+//                 const narrowed = @truncate(u12, target_addr);
+//                 mem.writeIntLittle(u32, code[4..8], aarch64.Instruction.add(.x17, .x17, narrowed, false).toU32());
+//             }
+//             // stp x16, x17, [sp, #-16]!
+//             code[8] = 0xf0;
+//             code[9] = 0x47;
+//             code[10] = 0xbf;
+//             code[11] = 0xa9;
+//             binder_blk_outer: {
+//                 const got_index = self.got_entries_map.get(.{
+//                     .where = .undef,
+//                     .where_index = self.dyld_stub_binder_index.?,
+//                 }) orelse unreachable;
+//                 const this_addr = stub_helper.addr + 3 * @sizeOf(u32);
+//                 const target_addr = got.addr + got_index * @sizeOf(u64);
+//                 binder_blk: {
+//                     const displacement = math.divExact(u64, target_addr - this_addr, 4) catch break :binder_blk;
+//                     const literal = math.cast(u18, displacement) catch break :binder_blk;
+//                     // ldr x16, label
+//                     mem.writeIntLittle(u32, code[12..16], aarch64.Instruction.ldr(.x16, .{
+//                         .literal = literal,
+//                     }).toU32());
+//                     // nop
+//                     mem.writeIntLittle(u32, code[16..20], aarch64.Instruction.nop().toU32());
+//                     break :binder_blk_outer;
+//                 }
+//                 binder_blk: {
+//                     const new_this_addr = this_addr + @sizeOf(u32);
+//                     const displacement = math.divExact(u64, target_addr - new_this_addr, 4) catch break :binder_blk;
+//                     const literal = math.cast(u18, displacement) catch break :binder_blk;
+//                     // Pad with nop to please division.
+//                     // nop
+//                     mem.writeIntLittle(u32, code[12..16], aarch64.Instruction.nop().toU32());
+//                     // ldr x16, label
+//                     mem.writeIntLittle(u32, code[16..20], aarch64.Instruction.ldr(.x16, .{
+//                         .literal = literal,
+//                     }).toU32());
+//                     break :binder_blk_outer;
+//                 }
+//                 // Use adrp followed by ldr(immediate).
+//                 const this_page = @intCast(i32, this_addr >> 12);
+//                 const target_page = @intCast(i32, target_addr >> 12);
+//                 const pages = @intCast(i21, target_page - this_page);
+//                 mem.writeIntLittle(u32, code[12..16], aarch64.Instruction.adrp(.x16, pages).toU32());
+//                 const narrowed = @truncate(u12, target_addr);
+//                 const offset = try math.divExact(u12, narrowed, 8);
+//                 mem.writeIntLittle(u32, code[16..20], aarch64.Instruction.ldr(.x16, .{
+//                     .register = .{
+//                         .rn = .x16,
+//                         .offset = aarch64.Instruction.LoadStoreOffset.imm(offset),
+//                     },
+//                 }).toU32());
+//             }
+//             // br x16
+//             code[20] = 0x00;
+//             code[21] = 0x02;
+//             code[22] = 0x1f;
+//             code[23] = 0xd6;
+//             try self.base.file.?.pwriteAll(&code, stub_helper.offset);
+//             break :blk stub_helper.offset + 6 * @sizeOf(u32);
+//         },
+//         else => unreachable,
+//     }
+// }
+
 fn writeStubHelperPreamble(self: *MachO) !void {
     const text_segment = &self.load_commands.items[self.text_segment_cmd_index.?].Segment;
     const stub_helper = &text_segment.sections.items[self.stub_helper_section_index.?];
@@ -2331,9 +2473,6 @@ fn resolveSymbols(self: *MachO) !void {
         _ = try self.section_ordinals.getOrPut(self.base.allocator, match);
 
         const size = sym.n_value;
-        const code = try self.base.allocator.alloc(u8, size);
-        defer self.base.allocator.free(code);
-        mem.set(u8, code, 0);
         const alignment = (sym.n_desc >> 8) & 0x0f;
 
         sym.n_value = 0;
@@ -2348,33 +2487,7 @@ fn resolveSymbols(self: *MachO) !void {
         const resolv = self.symbol_resolver.getPtr(sym.n_strx) orelse unreachable;
         resolv.local_sym_index = local_sym_index;
 
-        const block = try self.base.allocator.create(TextBlock);
-        block.* = TextBlock.empty;
-        block.local_sym_index = local_sym_index;
-        block.size = size;
-        block.alignment = alignment;
-        try self.managed_blocks.append(self.base.allocator, block);
-
-        try block.code.appendSlice(self.base.allocator, code);
-
-        // Update target section's metadata
-        // TODO should we update segment's size here too?
-        // How does it tie with incremental space allocs?
-        const tseg = &self.load_commands.items[match.seg].Segment;
-        const tsect = &tseg.sections.items[match.sect];
-        const new_alignment = math.max(tsect.@"align", block.alignment);
-        const new_alignment_pow_2 = try math.powi(u32, 2, new_alignment);
-        const new_size = mem.alignForwardGeneric(u64, tsect.size, new_alignment_pow_2) + block.size;
-        tsect.size = new_size;
-        tsect.@"align" = new_alignment;
-
-        if (self.blocks.getPtr(match)) |last| {
-            last.*.next = block;
-            block.prev = last.*;
-            last.* = block;
-        } else {
-            try self.blocks.putNoClobber(self.base.allocator, match, block);
-        }
+        _ = try self.createEmptyAtom(match, local_sym_index, size, alignment);
     }
 
     // Third pass, resolve symbols in dynamic libraries.
@@ -2449,20 +2562,7 @@ fn resolveSymbols(self: *MachO) !void {
         // We create an empty atom for this symbol.
         // TODO perhaps we should special-case special symbols? Create a separate
         // linked list of atoms?
-        const block = try self.base.allocator.create(TextBlock);
-        block.* = TextBlock.empty;
-        block.local_sym_index = local_sym_index;
-        block.size = 0;
-        block.alignment = 0;
-        try self.managed_blocks.append(self.base.allocator, block);
-
-        if (self.blocks.getPtr(match)) |last| {
-            last.*.next = block;
-            block.prev = last.*;
-            last.* = block;
-        } else {
-            try self.blocks.putNoClobber(self.base.allocator, match, block);
-        }
+        _ = try self.createEmptyAtom(match, local_sym_index, 0, 0);
     }
 
     for (self.unresolved.keys()) |index| {
