@@ -1757,6 +1757,7 @@ test "parseUnsigned" {
 }
 
 pub const parseFloat = @import("fmt/parse_float.zig").parseFloat;
+pub const ParseFloatError = @import("fmt/parse_float.zig").ParseFloatError;
 pub const parseHexFloat = @import("fmt/parse_hex_float.zig").parseHexFloat;
 
 test {
