@@ -94,6 +94,12 @@ pub const Inst = struct {
         /// Result type is the same as both operands.
         /// Uses the `bin_op` field.
         bit_or,
+        /// Shift right. `>>`
+        /// Uses the `bin_op` field.
+        shr,
+        /// Shift left. `<<`
+        /// Uses the `bin_op` field.
+        shl,
         /// Bitwise XOR. `^`
         /// Uses the `bin_op` field.
         xor,
@@ -445,6 +451,8 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .xor,
         .ptr_add,
         .ptr_sub,
+        .shr,
+        .shl,
         => return air.typeOf(datas[inst].bin_op.lhs),
 
         .cmp_lt,

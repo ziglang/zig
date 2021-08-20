@@ -993,6 +993,9 @@ pub const FuncGen = struct {
                 .bit_or, .bool_or   => try self.airOr(inst),
                 .xor                => try self.airXor(inst),
 
+                .shl                => try self.airShl(inst),
+                .shr                => try self.airShr(inst),
+
                 .cmp_eq  => try self.airCmp(inst, .eq),
                 .cmp_gt  => try self.airCmp(inst, .gt),
                 .cmp_gte => try self.airCmp(inst, .gte),
@@ -1734,6 +1737,41 @@ pub const FuncGen = struct {
         const lhs = try self.resolveInst(bin_op.lhs);
         const rhs = try self.resolveInst(bin_op.rhs);
         return self.builder.buildXor(lhs, rhs, "");
+    }
+
+    fn airShl(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst))
+            return null;
+        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const lhs = try self.resolveInst(bin_op.lhs);
+        const rhs = try self.resolveInst(bin_op.rhs);
+        const lhs_type = self.air.typeOf(bin_op.lhs);
+        const tg = self.dg.module.getTarget();
+        const casted_rhs = if (self.air.typeOf(bin_op.rhs).bitSize(tg) < lhs_type.bitSize(tg))
+            self.builder.buildZExt(rhs, try self.dg.llvmType(lhs_type), "")
+        else
+            rhs;
+        return self.builder.buildShl(lhs, casted_rhs, "");
+    }
+
+    fn airShr(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst))
+            return null;
+        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const lhs = try self.resolveInst(bin_op.lhs);
+        const rhs = try self.resolveInst(bin_op.rhs);
+        const lhs_type = self.air.typeOf(bin_op.lhs);
+        const tg = self.dg.module.getTarget();
+        const casted_rhs = if (self.air.typeOf(bin_op.rhs).bitSize(tg) < lhs_type.bitSize(tg))
+            self.builder.buildZExt(rhs, try self.dg.llvmType(lhs_type), "")
+        else
+            rhs;
+
+        if (self.air.typeOfIndex(inst).isSignedInt()) {
+            return self.builder.buildAShr(lhs, casted_rhs, "");
+        } else {
+            return self.builder.buildLShr(lhs, casted_rhs, "");
+        }
     }
 
     fn airIntCast(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {

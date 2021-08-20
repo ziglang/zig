@@ -249,6 +249,8 @@ fn analyzeInst(
         .ptr_slice_elem_val,
         .ptr_elem_val,
         .ptr_ptr_elem_val,
+        .shl,
+        .shr,
         => {
             const o = inst_datas[inst].bin_op;
             return trackOperands(a, new_set, inst, main_tomb, .{ o.lhs, o.rhs, .none });

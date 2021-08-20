@@ -127,6 +127,8 @@ const Writer = struct {
             .ptr_slice_elem_val,
             .ptr_elem_val,
             .ptr_ptr_elem_val,
+            .shl,
+            .shr,
             => try w.writeBinOp(s, inst),
 
             .is_null,

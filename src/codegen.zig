@@ -822,6 +822,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     .bit_and  => try self.airBitAnd(inst),
                     .bit_or   => try self.airBitOr(inst),
                     .xor      => try self.airXor(inst),
+                    .shr      => try self.airShr(inst),
+                    .shl      => try self.airShl(inst),
 
                     .alloc           => try self.airAlloc(inst),
                     .arg             => try self.airArg(inst),
@@ -1268,6 +1270,24 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             const result: MCValue = if (self.liveness.isUnused(inst)) .dead else switch (arch) {
                 .arm, .armeb => try self.genArmBinOp(inst, bin_op.lhs, bin_op.rhs, .xor),
                 else => return self.fail("TODO implement xor for {}", .{self.target.cpu.arch}),
+            };
+            return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
+        }
+
+        fn airShl(self: *Self, inst: Air.Inst.Index) !void {
+            const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+            const result: MCValue = if (self.liveness.isUnused(inst)) .dead else switch (arch) {
+                .arm, .armeb => try self.genArmBinOp(inst, bin_op.lhs, bin_op.rhs, .shl),
+                else => return self.fail("TODO implement shl for {}", .{self.target.cpu.arch}),
+            };
+            return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
+        }
+
+        fn airShr(self: *Self, inst: Air.Inst.Index) !void {
+            const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+            const result: MCValue = if (self.liveness.isUnused(inst)) .dead else switch (arch) {
+                .arm, .armeb => try self.genArmBinOp(inst, bin_op.lhs, bin_op.rhs, .shr),
+                else => return self.fail("TODO implement shr for {}", .{self.target.cpu.arch}),
             };
             return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
         }
