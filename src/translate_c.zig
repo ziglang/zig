@@ -721,27 +721,13 @@ fn transQualTypeMaybeInitialized(c: *Context, scope: *Scope, qt: clang.QualType,
 
 /// This is used in global scope to convert a string literal `S` to [*c]u8:
 /// &(struct {
-///     var static: @TypeOf(S.*) = S.*;
+///     var static = S.*;
 /// }).static;
 fn stringLiteralToCharStar(c: *Context, str: Node) Error!Node {
     const var_name = Scope.Block.StaticInnerName;
 
-    const derefed = try Tag.deref.create(c.arena, str);
-    const var_type = try Tag.typeof.create(c.arena, derefed);
-
     const variables = try c.arena.alloc(Node, 1);
-    variables[0] = try Tag.var_decl.create(c.arena, .{
-        .is_pub = false,
-        .is_const = false,
-        .is_extern = false,
-        .is_export = false,
-        .is_threadlocal = false,
-        .linksection_string = null,
-        .alignment = null,
-        .name = var_name,
-        .type = var_type,
-        .init = derefed,
-    });
+    variables[0] = try Tag.mut_str.create(c.arena, .{ .name = var_name, .init = str });
 
     const anon_struct = try Tag.@"struct".create(c.arena, .{
         .layout = .none,
