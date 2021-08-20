@@ -138,6 +138,7 @@ locals: std.ArrayListUnmanaged(macho.nlist_64) = .{},
 globals: std.ArrayListUnmanaged(macho.nlist_64) = .{},
 undefs: std.ArrayListUnmanaged(macho.nlist_64) = .{},
 symbol_resolver: std.AutoHashMapUnmanaged(u32, SymbolWithLoc) = .{},
+unresolved: std.AutoArrayHashMapUnmanaged(u32, void) = .{},
 
 locals_free_list: std.ArrayListUnmanaged(u32) = .{},
 globals_free_list: std.ArrayListUnmanaged(u32) = .{},
@@ -2082,7 +2083,6 @@ fn resolveSymbolsInObject(
     self: *MachO,
     object_id: u16,
     tentatives: *std.AutoArrayHashMap(u32, void),
-    unresolved: *std.AutoArrayHashMap(u32, void),
 ) !void {
     const object = &self.objects.items[object_id];
 
@@ -2181,7 +2181,7 @@ fn resolveSymbolsInObject(
                         .n_desc = 0,
                         .n_value = 0,
                     };
-                    _ = unresolved.fetchSwapRemove(resolv.where_index);
+                    _ = self.unresolved.fetchSwapRemove(resolv.where_index);
                 },
             }
 
@@ -2252,7 +2252,7 @@ fn resolveSymbolsInObject(
                         .n_desc = 0,
                         .n_value = 0,
                     };
-                    _ = unresolved.fetchSwapRemove(resolv.where_index);
+                    _ = self.unresolved.fetchSwapRemove(resolv.where_index);
                 },
             }
         } else {
@@ -2272,7 +2272,7 @@ fn resolveSymbolsInObject(
                 .where_index = undef_sym_index,
                 .file = object_id,
             });
-            _ = try unresolved.getOrPut(undef_sym_index);
+            _ = try self.unresolved.getOrPut(self.base.allocator, undef_sym_index);
         }
     }
 }
@@ -2281,18 +2281,15 @@ fn resolveSymbols(self: *MachO) !void {
     var tentatives = std.AutoArrayHashMap(u32, void).init(self.base.allocator);
     defer tentatives.deinit();
 
-    var unresolved = std.AutoArrayHashMap(u32, void).init(self.base.allocator);
-    defer unresolved.deinit();
-
     // First pass, resolve symbols in provided objects.
     for (self.objects.items) |_, object_id| {
-        try self.resolveSymbolsInObject(@intCast(u16, object_id), &tentatives, &unresolved);
+        try self.resolveSymbolsInObject(@intCast(u16, object_id), &tentatives);
     }
 
     // Second pass, resolve symbols in static libraries.
     var next_sym: usize = 0;
-    loop: while (next_sym < unresolved.count()) {
-        const sym = self.undefs.items[unresolved.keys()[next_sym]];
+    loop: while (next_sym < self.unresolved.count()) {
+        const sym = self.undefs.items[self.unresolved.keys()[next_sym]];
         const sym_name = self.getString(sym.n_strx);
 
         for (self.archives.items) |archive| {
@@ -2306,7 +2303,7 @@ fn resolveSymbols(self: *MachO) !void {
             const object_id = @intCast(u16, self.objects.items.len);
             const object = try self.objects.addOne(self.base.allocator);
             object.* = try archive.parseObject(self.base.allocator, self.base.options.target, offsets.items[0]);
-            try self.resolveSymbolsInObject(object_id, &tentatives, &unresolved);
+            try self.resolveSymbolsInObject(object_id, &tentatives);
 
             continue :loop;
         }
@@ -2382,8 +2379,8 @@ fn resolveSymbols(self: *MachO) !void {
 
     // Third pass, resolve symbols in dynamic libraries.
     next_sym = 0;
-    loop: while (next_sym < unresolved.count()) {
-        const sym = self.undefs.items[unresolved.keys()[next_sym]];
+    loop: while (next_sym < self.unresolved.count()) {
+        const sym = self.undefs.items[self.unresolved.keys()[next_sym]];
         const sym_name = self.getString(sym.n_strx);
 
         for (self.dylibs.items) |dylib, id| {
@@ -2400,7 +2397,7 @@ fn resolveSymbols(self: *MachO) !void {
             undef.n_type |= macho.N_EXT;
             undef.n_desc = @intCast(u16, ordinal + 1) * macho.N_SYMBOL_RESOLVER;
 
-            _ = unresolved.fetchSwapRemove(resolv.where_index);
+            _ = self.unresolved.fetchSwapRemove(resolv.where_index);
 
             continue :loop;
         }
@@ -2434,7 +2431,7 @@ fn resolveSymbols(self: *MachO) !void {
         nlist.n_desc = macho.N_WEAK_DEF;
         try self.globals.append(self.base.allocator, nlist);
 
-        _ = unresolved.fetchSwapRemove(resolv.where_index);
+        _ = self.unresolved.fetchSwapRemove(resolv.where_index);
 
         undef.* = .{
             .n_strx = 0,
@@ -2468,7 +2465,7 @@ fn resolveSymbols(self: *MachO) !void {
         }
     }
 
-    for (unresolved.keys()) |index| {
+    for (self.unresolved.keys()) |index| {
         const sym = self.undefs.items[index];
         const sym_name = self.getString(sym.n_strx);
         const resolv = self.symbol_resolver.get(sym.n_strx) orelse unreachable;
@@ -2477,7 +2474,7 @@ fn resolveSymbols(self: *MachO) !void {
         log.err("  first referenced in '{s}'", .{self.objects.items[resolv.file].name});
     }
 
-    if (unresolved.count() > 0)
+    if (self.unresolved.count() > 0)
         return error.UndefinedSymbolReference;
 }
 
@@ -3122,6 +3119,7 @@ pub fn deinit(self: *MachO) void {
     self.locals.deinit(self.base.allocator);
     self.locals_free_list.deinit(self.base.allocator);
     self.symbol_resolver.deinit(self.base.allocator);
+    self.unresolved.deinit(self.base.allocator);
 
     for (self.objects.items) |*object| {
         object.deinit(self.base.allocator);
@@ -4332,6 +4330,7 @@ pub fn addExternFn(self: *MachO, name: []const u8) !u32 {
         .where = .undef,
         .where_index = sym_index,
     });
+    _ = try self.unresolved.getOrPut(self.base.allocator, sym_index);
 
     const stubs_index = @intCast(u32, self.stubs.items.len);
     try self.stubs.append(self.base.allocator, sym_index);
@@ -4340,8 +4339,7 @@ pub fn addExternFn(self: *MachO, name: []const u8) !u32 {
     // TODO discuss this. The caller context expects codegen.InnerError{ OutOfMemory, CodegenFail },
     // which obviously doesn't include file writing op errors. So instead of trying to write the stub
     // entry right here and now, queue it up and dispose of when updating decl.
-    try self.pending_updates.ensureUnusedCapacity(self.base.allocator, 2);
-    self.pending_updates.appendAssumeCapacity(.{ .resolve_undef = sym_index });
+    try self.pending_updates.ensureUnusedCapacity(self.base.allocator, 1);
     self.pending_updates.appendAssumeCapacity(.{ .add_stub_entry = stubs_index });
 
     return sym_index;
