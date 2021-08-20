@@ -168,6 +168,7 @@ pub const SA_NOCLDWAIT = 0x0020;
 pub const SA_SIGINFO = 0x0040;
 
 pub const PATH_MAX = 1024;
+pub const IOV_MAX = KERN_IOV_MAX;
 
 pub const ino_t = c_ulong;
 

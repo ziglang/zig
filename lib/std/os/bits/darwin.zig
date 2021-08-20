@@ -235,6 +235,7 @@ pub const host_t = mach_port_t;
 pub const CALENDAR_CLOCK = 1;
 
 pub const PATH_MAX = 1024;
+pub const IOV_MAX = 16;
 
 pub const STDIN_FILENO = 0;
 pub const STDOUT_FILENO = 1;
