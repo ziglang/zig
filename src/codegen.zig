@@ -1592,15 +1592,53 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         }
 
         fn genArmBinOp(self: *Self, inst: Air.Inst.Index, op_lhs: Air.Inst.Ref, op_rhs: Air.Inst.Ref, op: Air.Inst.Tag) !MCValue {
+            // In the case of bitshifts, the type of rhs is different
+            // from the resulting type
+            const ty = self.air.typeOf(op_lhs);
+
+            switch (ty.zigTypeTag()) {
+                .Float => return self.fail("TODO ARM binary operations on floats", .{}),
+                .Vector => return self.fail("TODO ARM binary operations on vectors", .{}),
+                .Bool => {
+                    return self.genArmBinIntOp(inst, op_lhs, op_rhs, op, 1, .unsigned);
+                },
+                .Int => {
+                    const int_info = ty.intInfo(self.target.*);
+                    return self.genArmBinIntOp(inst, op_lhs, op_rhs, op, int_info.bits, int_info.signedness);
+                },
+                else => unreachable,
+            }
+        }
+
+        fn genArmBinIntOp(
+            self: *Self,
+            inst: Air.Inst.Index,
+            op_lhs: Air.Inst.Ref,
+            op_rhs: Air.Inst.Ref,
+            op: Air.Inst.Tag,
+            bits: u16,
+            signedness: std.builtin.Signedness,
+        ) !MCValue {
+            if (bits > 32) {
+                return self.fail("TODO ARM binary operations on integers > u32/i32", .{});
+            }
+
             const lhs = try self.resolveInst(op_lhs);
             const rhs = try self.resolveInst(op_rhs);
 
             const lhs_is_register = lhs == .register;
             const rhs_is_register = rhs == .register;
-            const lhs_should_be_register = try self.armOperandShouldBeRegister(lhs);
+            const lhs_should_be_register = switch (op) {
+                .shr, .shl => true,
+                else => try self.armOperandShouldBeRegister(lhs),
+            };
             const rhs_should_be_register = try self.armOperandShouldBeRegister(rhs);
             const reuse_lhs = lhs_is_register and self.reuseOperand(inst, op_lhs, 0, lhs);
             const reuse_rhs = !reuse_lhs and rhs_is_register and self.reuseOperand(inst, op_rhs, 1, rhs);
+            const can_swap_lhs_and_rhs = switch (op) {
+                .shr, .shl => false,
+                else => true,
+            };
 
             // Destination must be a register
             var dst_mcv: MCValue = undefined;
@@ -1617,7 +1655,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     branch.inst_table.putAssumeCapacity(Air.refToIndex(op_rhs).?, rhs_mcv);
                 }
                 dst_mcv = lhs;
-            } else if (reuse_rhs) {
+            } else if (reuse_rhs and can_swap_lhs_and_rhs) {
                 // Allocate 0 or 1 registers
                 if (!lhs_is_register and lhs_should_be_register) {
                     lhs_mcv = MCValue{ .register = try self.register_manager.allocReg(Air.refToIndex(op_lhs).?, &.{rhs.register}) };
@@ -1656,7 +1694,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         dst_mcv = MCValue{ .register = try self.register_manager.allocReg(inst, &.{}) };
                         lhs_mcv = dst_mcv;
                     }
-                } else if (rhs_should_be_register) {
+                } else if (rhs_should_be_register and can_swap_lhs_and_rhs) {
                     // LHS is immediate
                     if (rhs_is_register) {
                         dst_mcv = MCValue{ .register = try self.register_manager.allocReg(inst, &.{rhs.register}) };
@@ -1683,6 +1721,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 rhs_mcv,
                 swap_lhs_and_rhs,
                 op,
+                signedness,
             );
             return dst_mcv;
         }
@@ -1694,6 +1733,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             rhs_mcv: MCValue,
             swap_lhs_and_rhs: bool,
             op: Air.Inst.Tag,
+            signedness: std.builtin.Signedness,
         ) !void {
             assert(lhs_mcv == .register or rhs_mcv == .register);
 
@@ -1738,6 +1778,27 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 },
                 .cmp_eq => {
                     writeInt(u32, try self.code.addManyAsArray(4), Instruction.cmp(.al, op1, operand).toU32());
+                },
+                .shl => {
+                    assert(!swap_lhs_and_rhs);
+                    const shift_amout = switch (operand) {
+                        .Register => |reg_op| Instruction.ShiftAmount.reg(@intToEnum(Register, reg_op.rm)),
+                        .Immediate => |imm_op| Instruction.ShiftAmount.imm(@intCast(u5, imm_op.imm)),
+                    };
+                    writeInt(u32, try self.code.addManyAsArray(4), Instruction.lsl(.al, dst_reg, op1, shift_amout).toU32());
+                },
+                .shr => {
+                    assert(!swap_lhs_and_rhs);
+                    const shift_amout = switch (operand) {
+                        .Register => |reg_op| Instruction.ShiftAmount.reg(@intToEnum(Register, reg_op.rm)),
+                        .Immediate => |imm_op| Instruction.ShiftAmount.imm(@intCast(u5, imm_op.imm)),
+                    };
+
+                    const shr = switch (signedness) {
+                        .signed => Instruction.asr,
+                        .unsigned => Instruction.lsr,
+                    };
+                    writeInt(u32, try self.code.addManyAsArray(4), shr(.al, dst_reg, op1, shift_amout).toU32());
                 },
                 else => unreachable, // not a binary instruction
             }
@@ -2989,7 +3050,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     }
 
                     // The destination register is not present in the cmp instruction
-                    try self.genArmBinOpCode(undefined, lhs_mcv, rhs_mcv, false, .cmp_eq);
+                    // The signedness of the integer does not matter for the cmp instruction
+                    try self.genArmBinOpCode(undefined, lhs_mcv, rhs_mcv, false, .cmp_eq, undefined);
 
                     break :result switch (ty.isSignedInt()) {
                         true => MCValue{ .compare_flags_signed = op },
