@@ -866,6 +866,7 @@ fn zirStructDecl(
         .ty = Type.initTag(.type),
         .val = struct_val,
     }, type_name);
+    new_decl.owns_tv = true;
     errdefer sema.mod.deleteAnonDecl(&block.base, new_decl);
     struct_obj.* = .{
         .owner_decl = new_decl,
@@ -986,6 +987,7 @@ fn zirEnumDecl(
         .ty = Type.initTag(.type),
         .val = enum_val,
     }, type_name);
+    new_decl.owns_tv = true;
     errdefer sema.mod.deleteAnonDecl(&block.base, new_decl);
 
     enum_obj.* = .{
@@ -1152,6 +1154,7 @@ fn zirUnionDecl(
         .ty = Type.initTag(.type),
         .val = union_val,
     }, type_name);
+    new_decl.owns_tv = true;
     errdefer sema.mod.deleteAnonDecl(&block.base, new_decl);
     union_obj.* = .{
         .owner_decl = new_decl,
@@ -1223,6 +1226,7 @@ fn zirErrorSetDecl(
         .ty = Type.initTag(.type),
         .val = error_set_val,
     }, type_name);
+    new_decl.owns_tv = true;
     errdefer sema.mod.deleteAnonDecl(&block.base, new_decl);
     const names = try new_decl_arena.allocator.alloc([]const u8, fields.len);
     for (fields) |str_index, i| {

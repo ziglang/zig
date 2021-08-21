@@ -80,7 +80,7 @@ fn max_f64(a: f64, b: f64) f64 {
 }
 
 test "type constructed by comptime function call" {
-    var l: List(10) = undefined;
+    var l: SimpleList(10) = undefined;
     l.array[0] = 10;
     l.array[1] = 11;
     l.array[2] = 12;
@@ -90,9 +90,30 @@ test "type constructed by comptime function call" {
     try expect(ptr[2] == 12);
 }
 
-fn List(comptime L: usize) type {
+fn SimpleList(comptime L: usize) type {
     var T = u8;
     return struct {
         array: [L]T,
+    };
+}
+
+test "function with return type type" {
+    var list: List(i32) = undefined;
+    var list2: List(i32) = undefined;
+    list.length = 10;
+    list2.length = 10;
+    try expect(list.prealloc_items.len == 8);
+    try expect(list2.prealloc_items.len == 8);
+}
+
+pub fn List(comptime T: type) type {
+    return SmallList(T, 8);
+}
+
+pub fn SmallList(comptime T: type, comptime STATIC_SIZE: usize) type {
+    return struct {
+        items: []T,
+        length: usize,
+        prealloc_items: [STATIC_SIZE]T,
     };
 }

@@ -3,27 +3,6 @@ const testing = std.testing;
 const expect = testing.expect;
 const expectEqual = testing.expectEqual;
 
-pub fn List(comptime T: type) type {
-    return SmallList(T, 8);
-}
-
-pub fn SmallList(comptime T: type, comptime STATIC_SIZE: usize) type {
-    return struct {
-        items: []T,
-        length: usize,
-        prealloc_items: [STATIC_SIZE]T,
-    };
-}
-
-test "function with return type type" {
-    var list: List(i32) = undefined;
-    var list2: List(i32) = undefined;
-    list.length = 10;
-    list2.length = 10;
-    try expect(list.prealloc_items.len == 8);
-    try expect(list2.prealloc_items.len == 8);
-}
-
 test "generic struct" {
     var a1 = GenNode(i32){
         .value = 13,

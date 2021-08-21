@@ -4037,7 +4037,6 @@ pub fn createAnonymousDeclFromDeclNamed(
     new_decl.ty = typed_value.ty;
     new_decl.val = typed_value.val;
     new_decl.has_tv = true;
-    new_decl.owns_tv = true;
     new_decl.analysis = .complete;
     new_decl.generation = mod.generation;
 
