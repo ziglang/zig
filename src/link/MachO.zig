@@ -764,8 +764,14 @@ pub fn flush(self: *MachO, comp: *Compilation) !void {
         try self.createStubHelperPreambleAtom();
 
         if (!use_stage1) {
-            // TODO this should be made common when I figure out how to prealloc space for traditional linker path.
-            try self.writeStubHelperPreamble();
+            // TODO just a temp
+            const seg = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
+            const sect = seg.sections.items[self.stub_helper_section_index.?];
+            self.stub_helper_stubs_start_off = sect.offset + switch (self.base.options.target.cpu.arch) {
+                .x86_64 => @intCast(u64, 15),
+                .aarch64 => @intCast(u64, 6 * @sizeOf(u32)),
+                else => unreachable,
+            };
         }
 
         // Apply pending updates
@@ -842,7 +848,6 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
     defer tracy.end();
 
     try self.setEntryPoint();
-    try self.writeTextBlocks();
     try self.writeRebaseInfoTable();
     try self.writeBindInfoTable();
     try self.writeLazyBindInfoTable();
@@ -1989,7 +1994,29 @@ fn createDyldPrivateAtom(self: *MachO) !void {
         .n_desc = 0,
         .n_value = 0,
     });
-    _ = try self.createEmptyAtom(match, local_sym_index, @sizeOf(u64), 3);
+    const last = self.blocks.get(match);
+    const atom = try self.createEmptyAtom(match, local_sym_index, @sizeOf(u64), 3);
+
+    if (!(build_options.is_stage1 and self.base.options.use_stage1)) {
+        const seg = self.load_commands.items[match.seg].Segment;
+        const sect = seg.sections.items[match.sect];
+        const base_addr = if (last) |last_atom| blk: {
+            const last_atom_sym = self.locals.items[last_atom.local_sym_index];
+            break :blk last_atom_sym.n_value;
+        } else sect.addr;
+        const n_sect = @intCast(u8, self.section_ordinals.getIndex(match).? + 1);
+        const atom_alignment = try math.powi(u32, 2, atom.alignment);
+        const vaddr = mem.alignForwardGeneric(u64, base_addr, atom_alignment);
+
+        const sym = &self.locals.items[local_sym_index];
+        sym.n_value = vaddr;
+        sym.n_sect = n_sect;
+
+        const file_offset = sect.offset + vaddr - sect.addr;
+        log.debug("writing code for symbol {s} at file offset 0x{x}", .{ self.getString(sym.n_strx), file_offset });
+        try self.base.file.?.pwriteAll(atom.code.items, file_offset);
+        try self.writeLocalSymbol(local_sym_index);
+    }
 
     self.dyld_private_sym_index = local_sym_index;
 }
@@ -2019,6 +2046,7 @@ fn createStubHelperPreambleAtom(self: *MachO) !void {
         .n_desc = 0,
         .n_value = 0,
     });
+    const last = self.blocks.get(match);
     const atom = try self.createEmptyAtom(match, local_sym_index, size, alignment);
     switch (arch) {
         .x86_64 => {
@@ -2130,145 +2158,35 @@ fn createStubHelperPreambleAtom(self: *MachO) !void {
     }
     self.stub_preamble_sym_index = local_sym_index;
 
+    if (!(build_options.is_stage1 and self.base.options.use_stage1)) {
+        const seg = self.load_commands.items[match.seg].Segment;
+        const sect = seg.sections.items[match.sect];
+        const base_addr = if (last) |last_atom| blk: {
+            const last_atom_sym = self.locals.items[last_atom.local_sym_index];
+            break :blk last_atom_sym.n_value;
+        } else sect.addr;
+        const n_sect = @intCast(u8, self.section_ordinals.getIndex(match).? + 1);
+        const atom_alignment = try math.powi(u32, 2, atom.alignment);
+        const vaddr = mem.alignForwardGeneric(u64, base_addr, atom_alignment);
+
+        const sym = &self.locals.items[local_sym_index];
+        sym.n_value = vaddr;
+        sym.n_sect = n_sect;
+
+        try atom.resolveRelocs(self);
+
+        const file_offset = sect.offset + vaddr - sect.addr;
+        log.debug("writing code for symbol {s} at file offset 0x{x}", .{ self.getString(sym.n_strx), file_offset });
+        try self.base.file.?.pwriteAll(atom.code.items, file_offset);
+        try self.writeLocalSymbol(local_sym_index);
+    }
+
     // TODO this needs to be fixed
     // We already prealloc stub helper size in populateMissingMetadata(), but
     // perhaps it's not needed after all?
     const seg = &self.load_commands.items[self.text_segment_cmd_index.?].Segment;
     const sect = &seg.sections.items[self.stub_helper_section_index.?];
     sect.size -= size;
-}
-
-fn writeStubHelperPreamble(self: *MachO) !void {
-    const text_segment = &self.load_commands.items[self.text_segment_cmd_index.?].Segment;
-    const stub_helper = &text_segment.sections.items[self.stub_helper_section_index.?];
-    const data_const_segment = &self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
-    const got = &data_const_segment.sections.items[self.got_section_index.?];
-    const data_segment = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
-    const data = &data_segment.sections.items[self.data_section_index.?];
-
-    self.stub_helper_stubs_start_off = blk: {
-        switch (self.base.options.target.cpu.arch) {
-            .x86_64 => {
-                const code_size = 15;
-                var code: [code_size]u8 = undefined;
-                // lea %r11, [rip + disp]
-                code[0] = 0x4c;
-                code[1] = 0x8d;
-                code[2] = 0x1d;
-                {
-                    const target_addr = data.addr + data.size - @sizeOf(u64);
-                    const displacement = try math.cast(u32, target_addr - stub_helper.addr - 7);
-                    mem.writeIntLittle(u32, code[3..7], displacement);
-                }
-                // push %r11
-                code[7] = 0x41;
-                code[8] = 0x53;
-                // jmp [rip + disp]
-                code[9] = 0xff;
-                code[10] = 0x25;
-                {
-                    const got_index = self.got_entries_map.get(.{
-                        .where = .undef,
-                        .where_index = self.dyld_stub_binder_index.?,
-                    }) orelse unreachable;
-                    const addr = got.addr + got_index * @sizeOf(u64);
-                    const displacement = try math.cast(u32, addr - stub_helper.addr - code_size);
-                    mem.writeIntLittle(u32, code[11..], displacement);
-                }
-                try self.base.file.?.pwriteAll(&code, stub_helper.offset);
-                break :blk stub_helper.offset + code_size;
-            },
-            .aarch64 => {
-                var code: [6 * @sizeOf(u32)]u8 = undefined;
-                data_blk_outer: {
-                    const this_addr = stub_helper.addr;
-                    const target_addr = data.addr + data.size - @sizeOf(u64);
-                    data_blk: {
-                        const displacement = math.cast(i21, target_addr - this_addr) catch break :data_blk;
-                        // adr x17, disp
-                        mem.writeIntLittle(u32, code[0..4], aarch64.Instruction.adr(.x17, displacement).toU32());
-                        // nop
-                        mem.writeIntLittle(u32, code[4..8], aarch64.Instruction.nop().toU32());
-                        break :data_blk_outer;
-                    }
-                    data_blk: {
-                        const new_this_addr = this_addr + @sizeOf(u32);
-                        const displacement = math.cast(i21, target_addr - new_this_addr) catch break :data_blk;
-                        // nop
-                        mem.writeIntLittle(u32, code[0..4], aarch64.Instruction.nop().toU32());
-                        // adr x17, disp
-                        mem.writeIntLittle(u32, code[4..8], aarch64.Instruction.adr(.x17, displacement).toU32());
-                        break :data_blk_outer;
-                    }
-                    // Jump is too big, replace adr with adrp and add.
-                    const this_page = @intCast(i32, this_addr >> 12);
-                    const target_page = @intCast(i32, target_addr >> 12);
-                    const pages = @intCast(i21, target_page - this_page);
-                    mem.writeIntLittle(u32, code[0..4], aarch64.Instruction.adrp(.x17, pages).toU32());
-                    const narrowed = @truncate(u12, target_addr);
-                    mem.writeIntLittle(u32, code[4..8], aarch64.Instruction.add(.x17, .x17, narrowed, false).toU32());
-                }
-                // stp x16, x17, [sp, #-16]!
-                code[8] = 0xf0;
-                code[9] = 0x47;
-                code[10] = 0xbf;
-                code[11] = 0xa9;
-                binder_blk_outer: {
-                    const got_index = self.got_entries_map.get(.{
-                        .where = .undef,
-                        .where_index = self.dyld_stub_binder_index.?,
-                    }) orelse unreachable;
-                    const this_addr = stub_helper.addr + 3 * @sizeOf(u32);
-                    const target_addr = got.addr + got_index * @sizeOf(u64);
-                    binder_blk: {
-                        const displacement = math.divExact(u64, target_addr - this_addr, 4) catch break :binder_blk;
-                        const literal = math.cast(u18, displacement) catch break :binder_blk;
-                        // ldr x16, label
-                        mem.writeIntLittle(u32, code[12..16], aarch64.Instruction.ldr(.x16, .{
-                            .literal = literal,
-                        }).toU32());
-                        // nop
-                        mem.writeIntLittle(u32, code[16..20], aarch64.Instruction.nop().toU32());
-                        break :binder_blk_outer;
-                    }
-                    binder_blk: {
-                        const new_this_addr = this_addr + @sizeOf(u32);
-                        const displacement = math.divExact(u64, target_addr - new_this_addr, 4) catch break :binder_blk;
-                        const literal = math.cast(u18, displacement) catch break :binder_blk;
-                        // Pad with nop to please division.
-                        // nop
-                        mem.writeIntLittle(u32, code[12..16], aarch64.Instruction.nop().toU32());
-                        // ldr x16, label
-                        mem.writeIntLittle(u32, code[16..20], aarch64.Instruction.ldr(.x16, .{
-                            .literal = literal,
-                        }).toU32());
-                        break :binder_blk_outer;
-                    }
-                    // Use adrp followed by ldr(immediate).
-                    const this_page = @intCast(i32, this_addr >> 12);
-                    const target_page = @intCast(i32, target_addr >> 12);
-                    const pages = @intCast(i21, target_page - this_page);
-                    mem.writeIntLittle(u32, code[12..16], aarch64.Instruction.adrp(.x16, pages).toU32());
-                    const narrowed = @truncate(u12, target_addr);
-                    const offset = try math.divExact(u12, narrowed, 8);
-                    mem.writeIntLittle(u32, code[16..20], aarch64.Instruction.ldr(.x16, .{
-                        .register = .{
-                            .rn = .x16,
-                            .offset = aarch64.Instruction.LoadStoreOffset.imm(offset),
-                        },
-                    }).toU32());
-                }
-                // br x16
-                code[20] = 0x00;
-                code[21] = 0x02;
-                code[22] = 0x1f;
-                code[23] = 0xd6;
-                try self.base.file.?.pwriteAll(&code, stub_helper.offset);
-                break :blk stub_helper.offset + 6 * @sizeOf(u32);
-            },
-            else => unreachable,
-        }
-    };
 }
 
 fn resolveSymbolsInObject(
@@ -4873,7 +4791,7 @@ fn writeAllGlobalAndUndefSymbols(self: *MachO) !void {
 
     const undefs_off = globals_off + globals_size;
     const undefs_size = nundefs * @sizeOf(macho.nlist_64);
-    log.debug("writing extern symbols from 0x{x} to 0x{x}", .{ undefs_off, undefs_size + undefs_off });
+    log.debug("writing undef symbols from 0x{x} to 0x{x}", .{ undefs_off, undefs_size + undefs_off });
     try self.base.file.?.pwriteAll(mem.sliceAsBytes(self.undefs.items), undefs_off);
 
     // Update dynamic symbol table.
