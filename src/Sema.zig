@@ -2623,7 +2623,18 @@ fn analyzeCall(
         defer sema.fn_ret_ty = parent_fn_ret_ty;
 
         _ = try sema.analyzeBody(&child_block, fn_info.body);
-        break :res try sema.analyzeBlockBody(block, call_src, &child_block, merges);
+        const result = try sema.analyzeBlockBody(block, call_src, &child_block, merges);
+
+        // Much like in `Module.semaDecl`, if the result is a struct or union type,
+        // we need to resolve the field type expressions right here, right now, while
+        // the child `Sema` is still available, with the AIR instruction map intact,
+        // because the field type expressions may reference into it.
+        if (sema.typeOf(result).zigTypeTag() == .Type) {
+            const ty = try sema.analyzeAsType(&child_block, call_src, result);
+            try sema.resolveDeclFields(&child_block, call_src, ty);
+        }
+
+        break :res result;
     } else if (func_ty_info.is_generic) res: {
         const func_val = try sema.resolveConstValue(block, func_src, func);
         const module_fn = func_val.castTag(.function).?.data;

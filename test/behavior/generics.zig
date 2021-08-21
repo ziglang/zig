@@ -78,3 +78,21 @@ fn max_i32(a: i32, b: i32) i32 {
 fn max_f64(a: f64, b: f64) f64 {
     return max_anytype(a, b);
 }
+
+test "type constructed by comptime function call" {
+    var l: List(10) = undefined;
+    l.array[0] = 10;
+    l.array[1] = 11;
+    l.array[2] = 12;
+    const ptr = @ptrCast([*]u8, &l.array);
+    try expect(ptr[0] == 10);
+    try expect(ptr[1] == 11);
+    try expect(ptr[2] == 12);
+}
+
+fn List(comptime L: usize) type {
+    var T = u8;
+    return struct {
+        array: [L]T,
+    };
+}
