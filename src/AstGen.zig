@@ -4854,7 +4854,7 @@ fn fieldAccess(
     const str_index = try astgen.identAsString(field_ident);
     switch (rl) {
         .ref => return gz.addPlNode(.field_ptr, node, Zir.Inst.Field{
-            .lhs = try expr(gz, scope, .ref, object_node),
+            .lhs = try expr(gz, scope, .none_or_ref, object_node),
             .field_name_start = str_index,
         }),
         else => return rvalue(gz, rl, try gz.addPlNode(.field_val, node, Zir.Inst.Field{
@@ -4876,7 +4876,7 @@ fn arrayAccess(
     switch (rl) {
         .ref => return gz.addBin(
             .elem_ptr,
-            try expr(gz, scope, .ref, node_datas[node].lhs),
+            try expr(gz, scope, .none_or_ref, node_datas[node].lhs),
             try expr(gz, scope, .{ .ty = .usize_type }, node_datas[node].rhs),
         ),
         else => return rvalue(gz, rl, try gz.addBin(

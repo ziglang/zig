@@ -4013,8 +4013,13 @@ fn zirFieldPtr(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileEr
     const field_name_src: LazySrcLoc = .{ .node_offset_field_name = inst_data.src_node };
     const extra = sema.code.extraData(Zir.Inst.Field, inst_data.payload_index).data;
     const field_name = sema.code.nullTerminatedString(extra.field_name_start);
-    const object_ptr = sema.resolveInst(extra.lhs);
-    return sema.fieldPtr(block, src, object_ptr, field_name, field_name_src);
+    const object = sema.resolveInst(extra.lhs);
+    if (sema.typeOf(object).isSinglePointer()) {
+        return sema.fieldPtr(block, src, object, field_name, field_name_src);
+    } else {
+        const field_value = try sema.fieldVal(block, src, object, field_name, field_name_src);
+        return sema.analyzeRef(block, src, field_value);
+    }
 }
 
 fn zirFieldValNamed(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -4024,23 +4029,34 @@ fn zirFieldValNamed(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) Comp
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
     const field_name_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
+    const lhs_src: LazySrcLoc = src; // TODO
     const extra = sema.code.extraData(Zir.Inst.FieldNamed, inst_data.payload_index).data;
     const object = sema.resolveInst(extra.lhs);
     const field_name = try sema.resolveConstString(block, field_name_src, extra.field_name);
-    return sema.fieldVal(block, src, object, field_name, field_name_src);
+    if (sema.typeOf(object).isSinglePointer()) {
+        const result_ptr = try sema.fieldPtr(block, src, object, field_name, field_name_src);
+        return sema.analyzeLoad(block, src, result_ptr, lhs_src);
+    } else {
+        return sema.fieldVal(block, src, object, field_name, field_name_src);
+    }
 }
 
 fn zirFieldPtrNamed(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
-
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
     const field_name_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
     const extra = sema.code.extraData(Zir.Inst.FieldNamed, inst_data.payload_index).data;
-    const object_ptr = sema.resolveInst(extra.lhs);
+    const object = sema.resolveInst(extra.lhs);
     const field_name = try sema.resolveConstString(block, field_name_src, extra.field_name);
-    return sema.fieldPtr(block, src, object_ptr, field_name, field_name_src);
+
+    if (sema.typeOf(object).isSinglePointer()) {
+        return sema.fieldPtr(block, src, object, field_name, field_name_src);
+    } else {
+        const field_value = try sema.fieldVal(block, src, object, field_name, field_name_src);
+        return sema.analyzeRef(block, src, field_value);
+    }
 }
 
 fn zirIntCast(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -4133,7 +4149,13 @@ fn zirElemVal(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileErr
     const bin_inst = sema.code.instructions.items(.data)[inst].bin;
     const array = sema.resolveInst(bin_inst.lhs);
     const elem_index = sema.resolveInst(bin_inst.rhs);
-    return sema.elemVal(block, sema.src, array, elem_index, sema.src);
+
+    if (sema.typeOf(array).isSinglePointer()) {
+        const result_ptr = try sema.elemPtr(block, sema.src, array, elem_index, sema.src);
+        return sema.analyzeLoad(block, sema.src, result_ptr, sema.src);
+    } else {
+        return sema.elemVal(block, sema.src, array, elem_index, sema.src);
+    }
 }
 
 fn zirElemValNode(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -4146,7 +4168,13 @@ fn zirElemValNode(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) Compil
     const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
     const array = sema.resolveInst(extra.lhs);
     const elem_index = sema.resolveInst(extra.rhs);
-    return sema.elemVal(block, src, array, elem_index, elem_index_src);
+
+    if (sema.typeOf(array).isSinglePointer()) {
+        const result_ptr = try sema.elemPtr(block, src, array, elem_index, elem_index_src);
+        return sema.analyzeLoad(block, src, result_ptr, elem_index_src);
+    } else {
+        return sema.elemVal(block, src, array, elem_index, elem_index_src);
+    }
 }
 
 fn zirElemPtr(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -4154,9 +4182,15 @@ fn zirElemPtr(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileErr
     defer tracy.end();
 
     const bin_inst = sema.code.instructions.items(.data)[inst].bin;
-    const array_ptr = sema.resolveInst(bin_inst.lhs);
+    const array = sema.resolveInst(bin_inst.lhs);
     const elem_index = sema.resolveInst(bin_inst.rhs);
-    return sema.elemPtr(block, sema.src, array_ptr, elem_index, sema.src);
+
+    if (sema.typeOf(array).isSinglePointer()) {
+        return sema.elemPtr(block, sema.src, array, elem_index, sema.src);
+    } else {
+        const elem_value = try sema.elemVal(block, sema.src, array, elem_index, sema.src);
+        return sema.analyzeRef(block, sema.src, elem_value);
+    }
 }
 
 fn zirElemPtrNode(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -4167,9 +4201,15 @@ fn zirElemPtrNode(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) Compil
     const src = inst_data.src();
     const elem_index_src: LazySrcLoc = .{ .node_offset_array_access_index = inst_data.src_node };
     const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
-    const array_ptr = sema.resolveInst(extra.lhs);
+    const array = sema.resolveInst(extra.lhs);
     const elem_index = sema.resolveInst(extra.rhs);
-    return sema.elemPtr(block, src, array_ptr, elem_index, elem_index_src);
+
+    if (sema.typeOf(array).isSinglePointer()) {
+        return sema.elemPtr(block, src, array, elem_index, elem_index_src);
+    } else {
+        const elem_value = try sema.elemVal(block, src, array, elem_index, elem_index_src);
+        return sema.analyzeRef(block, src, elem_value);
+    }
 }
 
 fn zirSliceStart(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -8713,9 +8753,12 @@ fn analyzeRef(
 
     try sema.requireRuntimeBlock(block, src);
     const ptr_type = try Module.simplePtrType(sema.arena, operand_ty, false, .One);
-    const alloc = try block.addTy(.alloc, ptr_type);
+    const mut_ptr_type = try Module.simplePtrType(sema.arena, operand_ty, true, .One);
+    const alloc = try block.addTy(.alloc, mut_ptr_type);
     try sema.storePtr(block, src, alloc, operand);
-    return alloc;
+
+    // TODO replace with sema.coerce when that supports adding const
+    return sema.bitcast(block, ptr_type, alloc, src);
 }
 
 fn analyzeLoad(
