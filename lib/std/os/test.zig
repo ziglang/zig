@@ -786,3 +786,17 @@ test "dup & dup2" {
     var buf: [7]u8 = undefined;
     try testing.expectEqualStrings("dupdup2", buf[0..try file.readAll(&buf)]);
 }
+
+test "writev longer than IOV_MAX" {
+    if (native_os == .windows or native_os == .wasi) return error.SkipZigTest;
+
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    var file = try tmp.dir.createFile("pwritev", .{});
+    defer file.close();
+
+    const iovecs = [_]os.iovec_const{.{ .iov_base = "a", .iov_len = 1 }} ** (os.IOV_MAX + 1);
+    const amt = try file.writev(&iovecs);
+    try testing.expectEqual(@as(usize, os.IOV_MAX), amt);
+}
