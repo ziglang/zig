@@ -143,6 +143,7 @@ unresolved: std.AutoArrayHashMapUnmanaged(u32, void) = .{},
 locals_free_list: std.ArrayListUnmanaged(u32) = .{},
 globals_free_list: std.ArrayListUnmanaged(u32) = .{},
 
+dyld_private_sym_index: ?u32 = null,
 dyld_stub_binder_index: ?u32 = null,
 
 stub_helper_stubs_start_off: ?u64 = null,
@@ -758,6 +759,7 @@ pub fn flush(self: *MachO, comp: *Compilation) !void {
         try self.parseLibs(libs.items, self.base.options.sysroot);
         try self.resolveSymbols();
         try self.resolveDyldStubBinder();
+        try self.createDyldPrivateAtom();
 
         if (!use_stage1) {
             // TODO this should be made common when I figure out how to prealloc space for traditional linker path.
@@ -1963,7 +1965,31 @@ fn createEmptyAtom(
     return block;
 }
 
+fn createDyldPrivateAtom(self: *MachO) !void {
+    if (self.dyld_private_sym_index != null) return;
+
+    const match = MatchingSection{
+        .seg = self.data_segment_cmd_index.?,
+        .sect = self.data_section_index.?,
+    };
+    const local_sym_index = @intCast(u32, self.locals.items.len);
+    try self.locals.append(self.base.allocator, .{
+        .n_strx = try self.makeString("dyld_private"),
+        .n_type = macho.N_SECT,
+        .n_sect = 0,
+        .n_desc = 0,
+        .n_value = 0,
+    });
+    _ = try self.createEmptyAtom(match, local_sym_index, @sizeOf(u64), 3);
+
+    self.dyld_private_sym_index = local_sym_index;
+}
+
 // fn createStubHelperPreambleAtom(self: *MachO) !void {
+//     const match = MatchingSection{
+//         .seg = self.text_segment_cmd_index.?,
+//         .sect = self.stub_helper_section_index.?,
+//     };
 //     switch (self.base.options.target.cpu.arch) {
 //         .x86_64 => {
 //             const code_size = 15;
