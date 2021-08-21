@@ -1432,6 +1432,7 @@ pub const LibExeObjStep = struct {
     single_threaded: bool,
     test_evented_io: bool = false,
     code_model: builtin.CodeModel = .default,
+    wasi_exec_model: ?builtin.WasiExecModel = null,
 
     root_src: ?FileSource,
     out_h_filename: []const u8,
@@ -2548,6 +2549,9 @@ pub const LibExeObjStep = struct {
         if (self.code_model != .default) {
             try zig_args.append("-mcmodel");
             try zig_args.append(@tagName(self.code_model));
+        }
+        if (self.wasi_exec_model) |model| {
+            try zig_args.append(builder.fmt("-mexec-model={s}", .{@tagName(model)}));
         }
 
         if (!self.target.isNative()) {
