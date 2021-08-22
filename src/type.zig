@@ -273,6 +273,15 @@ pub const Type = extern union {
         };
     }
 
+    pub const ArrayInfo = struct { elem_type: Type, sentinel: ?Value = null, len: u64 };
+    pub fn arrayInfo(self: Type) ArrayInfo {
+        return .{
+            .len = self.arrayLen(),
+            .sentinel = self.sentinel(),
+            .elem_type = self.elemType(),
+        };
+    }
+
     pub fn ptrInfo(self: Type) Payload.Pointer {
         switch (self.tag()) {
             .single_const_pointer_to_comptime_int => return .{ .data = .{
