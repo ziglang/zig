@@ -4653,17 +4653,17 @@ static Stage1ZirInst *astgen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, Ast
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
                 Stage1ZirInst *arg1_value = astgen_node(ag, arg1_node, scope);
-                if (arg0_value == ag->codegen->invalid_inst_src)
+                if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
                 AstNode *arg2_node = node->data.fn_call_expr.params.at(2);
                 Stage1ZirInst *arg2_value = astgen_node(ag, arg2_node, scope);
-                if (arg1_value == ag->codegen->invalid_inst_src)
+                if (arg2_value == ag->codegen->invalid_inst_src)
                     return arg2_value;
 
                 AstNode *arg3_node = node->data.fn_call_expr.params.at(3);
                 Stage1ZirInst *arg3_value = astgen_node(ag, arg3_node, scope);
-                if (arg2_value == ag->codegen->invalid_inst_src)
+                if (arg3_value == ag->codegen->invalid_inst_src)
                     return arg3_value;
 
                 Stage1ZirInst *select = ir_build_select(ag, scope, node,
