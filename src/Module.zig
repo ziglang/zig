@@ -66,6 +66,10 @@ import_table: std.StringArrayHashMapUnmanaged(*Scope.File) = .{},
 /// to the same function.
 monomorphed_funcs: MonomorphedFuncsSet = .{},
 
+/// The set of all comptime function calls that have been cached so that future calls
+/// with the same parameters will get the same return value.
+memoized_calls: MemoizedCallSet = .{},
+
 /// We optimize memory usage for a compilation with no compile errors by storing the
 /// error messages and mapping outside of `Decl`.
 /// The ErrorMsg memory is owned by the decl, using Module's general purpose allocator.
@@ -151,6 +155,60 @@ const MonomorphedFuncsContext = struct {
             if (generic_ty_info.paramIsComptime(i) and param_ty.tag() != .generic_poison) {
                 comptime_args[i].val.hash(param_ty, &hasher);
             }
+        }
+
+        return hasher.final();
+    }
+};
+
+pub const MemoizedCallSet = std.HashMapUnmanaged(
+    MemoizedCall.Key,
+    MemoizedCall.Result,
+    MemoizedCall,
+    std.hash_map.default_max_load_percentage,
+);
+
+pub const MemoizedCall = struct {
+    pub const Key = struct {
+        func: *Fn,
+        args: []TypedValue,
+    };
+
+    pub const Result = struct {
+        val: Value,
+        arena: std.heap.ArenaAllocator.State,
+    };
+
+    pub fn eql(ctx: @This(), a: Key, b: Key) bool {
+        _ = ctx;
+
+        if (a.func != b.func) return false;
+
+        assert(a.args.len == b.args.len);
+        for (a.args) |a_arg, arg_i| {
+            const b_arg = b.args[arg_i];
+            if (!a_arg.eql(b_arg)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// Must match `Sema.GenericCallAdapter.hash`.
+    pub fn hash(ctx: @This(), key: Key) u64 {
+        _ = ctx;
+
+        var hasher = std.hash.Wyhash.init(0);
+
+        // The generic function Decl is guaranteed to be the first dependency
+        // of each of its instantiations.
+        std.hash.autoHash(&hasher, @ptrToInt(key.func));
+
+        // This logic must be kept in sync with the logic in `analyzeCall` that
+        // computes the hash.
+        for (key.args) |arg| {
+            arg.hash(&hasher);
         }
 
         return hasher.final();
@@ -2255,15 +2313,26 @@ pub fn deinit(mod: *Module) void {
     }
     mod.export_owners.deinit(gpa);
 
-    var it = mod.global_error_set.keyIterator();
-    while (it.next()) |key| {
-        gpa.free(key.*);
+    {
+        var it = mod.global_error_set.keyIterator();
+        while (it.next()) |key| {
+            gpa.free(key.*);
+        }
+        mod.global_error_set.deinit(gpa);
     }
-    mod.global_error_set.deinit(gpa);
 
     mod.error_name_list.deinit(gpa);
     mod.test_functions.deinit(gpa);
     mod.monomorphed_funcs.deinit(gpa);
+
+    {
+        var it = mod.memoized_calls.iterator();
+        while (it.next()) |entry| {
+            gpa.free(entry.key_ptr.args);
+            entry.value_ptr.arena.promote(gpa).deinit();
+        }
+        mod.memoized_calls.deinit(gpa);
+    }
 }
 
 fn freeExportList(gpa: *Allocator, export_list: []*Export) void {

@@ -649,6 +649,24 @@ fn resolveValue(
     return sema.failWithNeededComptime(block, src);
 }
 
+/// Value Tag `variable` will cause a compile error.
+/// Value Tag `undef` may be returned.
+fn resolveConstMaybeUndefVal(
+    sema: *Sema,
+    block: *Scope.Block,
+    src: LazySrcLoc,
+    inst: Air.Inst.Ref,
+) CompileError!Value {
+    if (try sema.resolveMaybeUndefValAllowVariables(block, src, inst)) |val| {
+        switch (val.tag()) {
+            .variable => return sema.failWithNeededComptime(block, src),
+            .generic_poison => return error.GenericPoison,
+            else => return val,
+        }
+    }
+    return sema.failWithNeededComptime(block, src);
+}
+
 /// Will not return Value Tags: `variable`, `undef`. Instead they will emit compile errors.
 /// See `resolveValue` for an alternative.
 fn resolveConstValue(
@@ -2565,6 +2583,19 @@ fn analyzeCall(
         defer merges.results.deinit(gpa);
         defer merges.br_list.deinit(gpa);
 
+        // If it's a comptime function call, we need to memoize it as long as no external
+        // comptime memory is mutated.
+        var memoized_call_key: Module.MemoizedCall.Key = undefined;
+        var delete_memoized_call_key = false;
+        defer if (delete_memoized_call_key) gpa.free(memoized_call_key.args);
+        if (is_comptime_call) {
+            memoized_call_key = .{
+                .func = module_fn,
+                .args = try gpa.alloc(TypedValue, func_ty_info.param_types.len),
+            };
+            delete_memoized_call_key = true;
+        }
+
         try sema.emitBackwardBranch(&child_block, call_src);
 
         // This will have return instructions analyzed as break instructions to
@@ -2589,12 +2620,32 @@ fn analyzeCall(
                 const arg_src = call_src; // TODO: better source location
                 const casted_arg = try sema.coerce(&child_block, param_ty, uncasted_args[arg_i], arg_src);
                 try sema.inst_map.putNoClobber(gpa, inst, casted_arg);
+
+                if (is_comptime_call) {
+                    const arg_val = try sema.resolveConstMaybeUndefVal(&child_block, arg_src, casted_arg);
+                    memoized_call_key.args[arg_i] = .{
+                        .ty = param_ty,
+                        .val = arg_val,
+                    };
+                }
+
                 arg_i += 1;
                 continue;
             },
             .param_anytype, .param_anytype_comptime => {
                 // No coercion needed.
-                try sema.inst_map.putNoClobber(gpa, inst, uncasted_args[arg_i]);
+                const uncasted_arg = uncasted_args[arg_i];
+                try sema.inst_map.putNoClobber(gpa, inst, uncasted_arg);
+
+                if (is_comptime_call) {
+                    const arg_src = call_src; // TODO: better source location
+                    const arg_val = try sema.resolveConstMaybeUndefVal(&child_block, arg_src, uncasted_arg);
+                    memoized_call_key.args[arg_i] = .{
+                        .ty = sema.typeOf(uncasted_arg),
+                        .val = arg_val,
+                    };
+                }
+
                 arg_i += 1;
                 continue;
             },
@@ -2626,19 +2677,61 @@ fn analyzeCall(
         sema.fn_ret_ty = fn_ret_ty;
         defer sema.fn_ret_ty = parent_fn_ret_ty;
 
-        _ = try sema.analyzeBody(&child_block, fn_info.body);
-        const result = try sema.analyzeBlockBody(block, call_src, &child_block, merges);
+        // This `res2` is here instead of directly breaking from `res` due to a stage1
+        // bug generating invalid LLVM IR.
+        const res2: Air.Inst.Ref = res2: {
+            if (is_comptime_call) {
+                if (mod.memoized_calls.get(memoized_call_key)) |result| {
+                    const ty_inst = try sema.addType(fn_ret_ty);
+                    try sema.air_values.append(gpa, result.val);
+                    sema.air_instructions.set(block_inst, .{
+                        .tag = .constant,
+                        .data = .{ .ty_pl = .{
+                            .ty = ty_inst,
+                            .payload = @intCast(u32, sema.air_values.items.len - 1),
+                        } },
+                    });
+                    break :res2 Air.indexToRef(block_inst);
+                }
+            }
 
-        // Much like in `Module.semaDecl`, if the result is a struct or union type,
-        // we need to resolve the field type expressions right here, right now, while
-        // the child `Sema` is still available, with the AIR instruction map intact,
-        // because the field type expressions may reference into it.
-        if (sema.typeOf(result).zigTypeTag() == .Type) {
-            const ty = try sema.analyzeAsType(&child_block, call_src, result);
-            try sema.resolveDeclFields(&child_block, call_src, ty);
-        }
+            _ = try sema.analyzeBody(&child_block, fn_info.body);
+            const result = try sema.analyzeBlockBody(block, call_src, &child_block, merges);
 
-        break :res result;
+            if (is_comptime_call) {
+                const result_val = try sema.resolveConstMaybeUndefVal(block, call_src, result);
+
+                // TODO: check whether any external comptime memory was mutated by the
+                // comptime function call. If so, then do not memoize the call here.
+                {
+                    var arena_allocator = std.heap.ArenaAllocator.init(gpa);
+                    errdefer arena_allocator.deinit();
+                    const arena = &arena_allocator.allocator;
+
+                    for (memoized_call_key.args) |*arg| {
+                        arg.* = try arg.*.copy(arena);
+                    }
+
+                    try mod.memoized_calls.put(gpa, memoized_call_key, .{
+                        .val = result_val,
+                        .arena = arena_allocator.state,
+                    });
+                    delete_memoized_call_key = false;
+                }
+
+                // Much like in `Module.semaDecl`, if the result is a struct or union type,
+                // we need to resolve the field type expressions right here, right now, while
+                // the child `Sema` is still available, with the AIR instruction map intact,
+                // because the field type expressions may reference into it.
+                if (sema.typeOf(result).zigTypeTag() == .Type) {
+                    const ty = try sema.analyzeAsType(&child_block, call_src, result);
+                    try sema.resolveDeclFields(&child_block, call_src, ty);
+                }
+            }
+
+            break :res2 result;
+        };
+        break :res res2;
     } else if (func_ty_info.is_generic) res: {
         const func_val = try sema.resolveConstValue(block, func_src, func);
         const module_fn = func_val.castTag(.function).?.data;
@@ -3305,31 +3398,9 @@ fn zirEnumToInt(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileE
     }
 
     if (try sema.resolveMaybeUndefVal(block, operand_src, enum_tag)) |enum_tag_val| {
-        if (enum_tag_val.castTag(.enum_field_index)) |enum_field_payload| {
-            const field_index = enum_field_payload.data;
-            switch (enum_tag_ty.tag()) {
-                .enum_full => {
-                    const enum_full = enum_tag_ty.castTag(.enum_full).?.data;
-                    if (enum_full.values.count() != 0) {
-                        const val = enum_full.values.keys()[field_index];
-                        return sema.addConstant(int_tag_ty, val);
-                    } else {
-                        // Field index and integer values are the same.
-                        const val = try Value.Tag.int_u64.create(arena, field_index);
-                        return sema.addConstant(int_tag_ty, val);
-                    }
-                },
-                .enum_simple => {
-                    // Field index and integer values are the same.
-                    const val = try Value.Tag.int_u64.create(arena, field_index);
-                    return sema.addConstant(int_tag_ty, val);
-                },
-                else => unreachable,
-            }
-        } else {
-            // Assume it is already an integer and return it directly.
-            return sema.addConstant(int_tag_ty, enum_tag_val);
-        }
+        var buffer: Value.Payload.U64 = undefined;
+        const val = enum_tag_val.enumToInt(enum_tag_ty, &buffer);
+        return sema.addConstant(int_tag_ty, try val.copy(sema.arena));
     }
 
     try sema.requireRuntimeBlock(block, src);
@@ -3414,7 +3485,10 @@ fn zirOptionalPayloadPtr(
                 return sema.mod.fail(&block.base, src, "unable to unwrap null", .{});
             }
             // The same Value represents the pointer to the optional and the payload.
-            return sema.addConstant(child_pointer, pointer_val);
+            return sema.addConstant(
+                child_pointer,
+                try Value.Tag.opt_payload_ptr.create(sema.arena, pointer_val),
+            );
         }
     }
 
@@ -3451,7 +3525,8 @@ fn zirOptionalPayload(
         if (val.isNull()) {
             return sema.mod.fail(&block.base, src, "unable to unwrap null", .{});
         }
-        return sema.addConstant(child_type, val);
+        const sub_val = val.castTag(.opt_payload).?.data;
+        return sema.addConstant(child_type, sub_val);
     }
 
     try sema.requireRuntimeBlock(block, src);
@@ -9095,7 +9170,7 @@ fn wrapOptional(
     inst_src: LazySrcLoc,
 ) !Air.Inst.Ref {
     if (try sema.resolveMaybeUndefVal(block, inst_src, inst)) |val| {
-        return sema.addConstant(dest_type, val);
+        return sema.addConstant(dest_type, try Value.Tag.opt_payload.create(sema.arena, val));
     }
 
     try sema.requireRuntimeBlock(block, inst_src);

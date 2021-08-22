@@ -319,18 +319,20 @@ pub const DeclGen = struct {
             .Bool => return writer.print("{}", .{val.toBool()}),
             .Optional => {
                 var opt_buf: Type.Payload.ElemType = undefined;
-                const child_type = t.optionalChild(&opt_buf);
+                const payload_type = t.optionalChild(&opt_buf);
                 if (t.isPtrLikeOptional()) {
-                    return dg.renderValue(writer, child_type, val);
+                    return dg.renderValue(writer, payload_type, val);
                 }
                 try writer.writeByte('(');
                 try dg.renderType(writer, t);
-                if (val.tag() == .null_value) {
-                    try writer.writeAll("){ .is_null = true }");
-                } else {
-                    try writer.writeAll("){ .is_null = false, .payload = ");
-                    try dg.renderValue(writer, child_type, val);
+                try writer.writeAll("){");
+                if (val.castTag(.opt_payload)) |pl| {
+                    const payload_val = pl.data;
+                    try writer.writeAll(" .is_null = false, .payload = ");
+                    try dg.renderValue(writer, payload_type, payload_val);
                     try writer.writeAll(" }");
+                } else {
+                    try writer.writeAll(" .is_null = true }");
                 }
             },
             .ErrorSet => {

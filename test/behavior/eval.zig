@@ -148,3 +148,16 @@ const List = blk: {
         array: T,
     };
 };
+
+test "comptime function with the same args is memoized" {
+    comptime {
+        try expect(MakeType(i32) == MakeType(i32));
+        try expect(MakeType(i32) != MakeType(f64));
+    }
+}
+
+fn MakeType(comptime T: type) type {
+    return struct {
+        field: T,
+    };
+}

@@ -1198,7 +1198,12 @@ pub const Context = struct {
 
                 // When constant has value 'null', set is_null local to '1'
                 // and payload to '0'
-                if (val.tag() == .null_value) {
+                if (val.castTag(.opt_payload)) |pl| {
+                    const payload_val = pl.data;
+                    try writer.writeByte(wasm.opcode(.i32_const));
+                    try leb.writeILEB128(writer, @as(i32, 0));
+                    try self.emitConstant(payload_val, payload_type);
+                } else {
                     try writer.writeByte(wasm.opcode(.i32_const));
                     try leb.writeILEB128(writer, @as(i32, 1));
 
@@ -1208,10 +1213,6 @@ pub const Context = struct {
                     });
                     try writer.writeByte(wasm.opcode(opcode));
                     try leb.writeULEB128(writer, @as(u32, 0));
-                } else {
-                    try writer.writeByte(wasm.opcode(.i32_const));
-                    try leb.writeILEB128(writer, @as(i32, 0));
-                    try self.emitConstant(val, payload_type);
                 }
             },
             else => |zig_type| return self.fail("Wasm TODO: emitConstant for zigTypeTag {s}", .{zig_type}),

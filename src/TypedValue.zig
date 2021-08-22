@@ -23,9 +23,18 @@ pub const Managed = struct {
 };
 
 /// Assumes arena allocation. Does a recursive copy.
-pub fn copy(self: TypedValue, allocator: *Allocator) error{OutOfMemory}!TypedValue {
+pub fn copy(self: TypedValue, arena: *Allocator) error{OutOfMemory}!TypedValue {
     return TypedValue{
-        .ty = try self.ty.copy(allocator),
-        .val = try self.val.copy(allocator),
+        .ty = try self.ty.copy(arena),
+        .val = try self.val.copy(arena),
     };
+}
+
+pub fn eql(a: TypedValue, b: TypedValue) bool {
+    if (!a.ty.eql(b.ty)) return false;
+    return a.val.eql(b.val, a.ty);
+}
+
+pub fn hash(tv: TypedValue, hasher: *std.hash.Wyhash) void {
+    return tv.val.hash(tv.ty, hasher);
 }

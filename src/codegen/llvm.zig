@@ -810,27 +810,22 @@ pub const DeclGen = struct {
                 return self.todo("handle more array values", .{});
             },
             .Optional => {
-                if (!tv.ty.isPtrLikeOptional()) {
-                    var buf: Type.Payload.ElemType = undefined;
-                    const child_type = tv.ty.optionalChild(&buf);
-                    const llvm_child_type = try self.llvmType(child_type);
-
-                    if (tv.val.tag() == .null_value) {
-                        var optional_values: [2]*const llvm.Value = .{
-                            llvm_child_type.constNull(),
-                            self.context.intType(1).constNull(),
-                        };
-                        return self.context.constStruct(&optional_values, optional_values.len, .False);
-                    } else {
-                        var optional_values: [2]*const llvm.Value = .{
-                            try self.genTypedValue(.{ .ty = child_type, .val = tv.val }),
-                            self.context.intType(1).constAllOnes(),
-                        };
-                        return self.context.constStruct(&optional_values, optional_values.len, .False);
-                    }
-                } else {
+                if (tv.ty.isPtrLikeOptional()) {
                     return self.todo("implement const of optional pointer", .{});
                 }
+                var buf: Type.Payload.ElemType = undefined;
+                const payload_type = tv.ty.optionalChild(&buf);
+                const is_pl = !tv.val.isNull();
+                const llvm_i1 = self.context.intType(1);
+
+                const fields: [2]*const llvm.Value = .{
+                    try self.genTypedValue(.{
+                        .ty = payload_type,
+                        .val = if (tv.val.castTag(.opt_payload)) |pl| pl.data else Value.initTag(.undef),
+                    }),
+                    if (is_pl) llvm_i1.constAllOnes() else llvm_i1.constNull(),
+                };
+                return self.context.constStruct(&fields, fields.len, .False);
             },
             .Fn => {
                 const fn_decl = switch (tv.val.tag()) {
