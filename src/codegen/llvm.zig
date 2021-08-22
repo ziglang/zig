@@ -796,11 +796,13 @@ pub const DeclGen = struct {
                     const gpa = self.gpa;
                     const elem_ty = tv.ty.elemType();
                     const elem_vals = payload.data;
-                    const llvm_elems = try gpa.alloc(*const llvm.Value, elem_vals.len);
+                    const sento = tv.ty.sentinel();
+                    const llvm_elems = try gpa.alloc(*const llvm.Value, elem_vals.len + @boolToInt(sento != null));
                     defer gpa.free(llvm_elems);
                     for (elem_vals) |elem_val, i| {
                         llvm_elems[i] = try self.genTypedValue(.{ .ty = elem_ty, .val = elem_val });
                     }
+                    if (sento) |sent| llvm_elems[elem_vals.len] = try self.genTypedValue(.{ .ty = elem_ty, .val = sent });
                     const llvm_elem_ty = try self.llvmType(elem_ty);
                     return llvm_elem_ty.constArray(
                         llvm_elems.ptr,
