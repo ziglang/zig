@@ -238,8 +238,10 @@ pub const CTL_DEBUG = 5;
 
 pub const KERN_PROC = 14; // struct: process entries
 pub const KERN_PROC_PATHNAME = 12; // path to executable
+pub const KERN_IOV_MAX = 35;
 
 pub const PATH_MAX = 1024;
+pub const IOV_MAX = KERN_IOV_MAX;
 
 pub const STDIN_FILENO = 0;
 pub const STDOUT_FILENO = 1;

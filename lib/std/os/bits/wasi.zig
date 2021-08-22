@@ -76,6 +76,8 @@ pub const kernel_stat = struct {
     }
 };
 
+pub const IOV_MAX = 1024;
+
 pub const AT_REMOVEDIR: u32 = 0x4;
 pub const AT_FDCWD: fd_t = -2;
 
