@@ -656,7 +656,7 @@ fn initRelocFromObject(rel: macho.relocation_info, context: RelocContext) !Reloc
             parsed_rel.where = .local;
             parsed_rel.where_index = where_index;
         } else {
-            const n_strx = context.macho_file.strtab_dir.getAdapted(@as([]const u8, sym_name), MachO.StringSliceAdapter{
+            const n_strx = context.macho_file.strtab_dir.getKeyAdapted(@as([]const u8, sym_name), MachO.StringSliceAdapter{
                 .strtab = &context.macho_file.strtab,
             }) orelse unreachable;
             const resolv = context.macho_file.symbol_resolver.get(n_strx) orelse unreachable;
@@ -717,7 +717,7 @@ pub fn parseRelocs(self: *TextBlock, relocs: []macho.relocation_info, context: R
                 const where_index = context.object.symbol_mapping.get(rel.r_symbolnum) orelse unreachable;
                 subtractor = where_index;
             } else {
-                const n_strx = context.macho_file.strtab_dir.getAdapted(@as([]const u8, sym_name), MachO.StringSliceAdapter{
+                const n_strx = context.macho_file.strtab_dir.getKeyAdapted(@as([]const u8, sym_name), MachO.StringSliceAdapter{
                     .strtab = &context.macho_file.strtab,
                 }) orelse unreachable;
                 const resolv = context.macho_file.symbol_resolver.get(n_strx) orelse unreachable;
