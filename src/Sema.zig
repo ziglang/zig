@@ -5598,8 +5598,48 @@ fn zirArrayMul(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileEr
     const tracy = trace(@src());
     defer tracy.end();
 
-    _ = inst;
-    return sema.mod.fail(&block.base, sema.src, "TODO implement zirArrayMul", .{});
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
+    const lhs = sema.resolveInst(extra.lhs);
+    const lhs_ty = sema.typeOf(lhs);
+    const lhs_src: LazySrcLoc = .{ .node_offset_bin_lhs = inst_data.src_node };
+    const rhs_src: LazySrcLoc = .{ .node_offset_bin_rhs = inst_data.src_node };
+
+    // In `**` rhs has to be comptime-known, but lhs can be runtime-known
+    const tomulby = try sema.resolveInt(block, rhs_src, extra.rhs, Type.initTag(.usize));
+    const mulinfo = getArrayCatInfo(lhs_ty) orelse
+        return sema.mod.fail(&block.base, lhs_src, "expected array, found '{}'", .{lhs_ty});
+
+    const final_len = std.math.mul(u64, mulinfo.len, tomulby) catch return sema.mod.fail(&block.base, rhs_src, "operation results in overflow", .{});
+    if (try sema.resolveDefinedValue(block, lhs_src, lhs)) |lhs_val| {
+        if (lhs_ty.zigTypeTag() == .Pointer) {
+            var anon_decl = try block.startAnonDecl();
+            defer anon_decl.deinit();
+            const lhs_sub_val = (try lhs_val.pointerDeref(anon_decl.arena())).?;
+
+            const final_ty = if (mulinfo.sentinel) |sent|
+                try Type.Tag.array_sentinel.create(anon_decl.arena(), .{ .len = final_len, .elem_type = mulinfo.elem_type, .sentinel = sent })
+            else
+                try Type.Tag.array.create(anon_decl.arena(), .{ .len = final_len, .elem_type = mulinfo.elem_type });
+
+            const buf = try anon_decl.arena().alloc(Value, final_len);
+            var i: u64 = 0;
+            while (i < tomulby) : (i += 1) {
+                var j: u64 = 0;
+                while (j < mulinfo.len) : (j += 1) {
+                    const val = try lhs_sub_val.elemValue(sema.arena, j);
+                    buf[mulinfo.len * i + j] = try val.copy(anon_decl.arena());
+                }
+            }
+            const val = try Value.Tag.array.create(anon_decl.arena(), buf);
+            return sema.analyzeDeclRef(try anon_decl.finish(
+                final_ty,
+                val,
+            ));
+        }
+        return sema.mod.fail(&block.base, lhs_src, "TODO array_mul more types of Values", .{});
+    }
+    return sema.mod.fail(&block.base, lhs_src, "TODO runtime array_mul", .{});
 }
 
 fn zirNegate(
