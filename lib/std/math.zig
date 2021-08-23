@@ -111,11 +111,11 @@ pub const inf = @import("math/inf.zig").inf;
 /// the specified tolerance.
 ///
 /// The `tolerance` parameter is the absolute tolerance used when determining if
-/// the two numbers are close enough, a good value for this parameter is a small
+/// the two numbers are close enough; a good value for this parameter is a small
 /// multiple of `epsilon(T)`.
 ///
-/// Note that this function is recommended for for comparing small numbers
-/// around zero, using `approxEqRel` is suggested otherwise.
+/// Note that this function is recommended for comparing small numbers
+/// around zero; using `approxEqRel` is suggested otherwise.
 ///
 /// NaN values are never considered equal to any value.
 pub fn approxEqAbs(comptime T: type, x: T, y: T, tolerance: T) bool {
@@ -138,7 +138,7 @@ pub fn approxEqAbs(comptime T: type, x: T, y: T, tolerance: T) bool {
 /// than zero.
 ///
 /// The `tolerance` parameter is the relative tolerance used when determining if
-/// the two numbers are close enough, a good value for this parameter is usually
+/// the two numbers are close enough; a good value for this parameter is usually
 /// `sqrt(epsilon(T))`, meaning that the two numbers are considered equal if at
 /// least half of the digits are equal.
 ///
