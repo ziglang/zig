@@ -177,8 +177,6 @@ has_stabs: bool = false,
 
 section_ordinals: std.AutoArrayHashMapUnmanaged(MatchingSection, void) = .{},
 
-pending_updates: std.ArrayListUnmanaged(PendingUpdate) = .{},
-
 /// A list of text blocks that have surplus capacity. This list can have false
 /// positives, as functions grow and shrink over time, only sometimes being added
 /// or removed from the freelist.
@@ -382,6 +380,26 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
     if (self.d_sym) |*ds| {
         try ds.populateMissingMetadata(allocator);
         try ds.writeLocalSymbol(0);
+    }
+
+    {
+        const atom = try self.createDyldPrivateAtom();
+        const match = MatchingSection{
+            .seg = self.data_segment_cmd_index.?,
+            .sect = self.data_section_index.?,
+        };
+        const vaddr = try self.allocateAtom(atom, match);
+        try self.writeAtom(atom, match);
+    }
+
+    {
+        const atom = try self.createStubHelperPreambleAtom();
+        const match = MatchingSection{
+            .seg = self.text_segment_cmd_index.?,
+            .sect = self.stub_helper_section_index.?,
+        };
+        const vaddr = try self.allocateAtom(atom, match);
+        try self.writeAtom(atom, match);
     }
 
     return self;
@@ -760,50 +778,42 @@ pub fn flush(self: *MachO, comp: *Compilation) !void {
         try self.parseLibs(libs.items, self.base.options.sysroot);
         try self.resolveSymbols();
         try self.resolveDyldStubBinder();
-        try self.createDyldPrivateAtom();
-        try self.createStubHelperPreambleAtom();
-
-        if (!use_stage1) {
-            // TODO just a temp
-            const seg = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
-            const sect = seg.sections.items[self.stub_helper_section_index.?];
-            self.stub_helper_stubs_start_off = sect.offset + switch (self.base.options.target.cpu.arch) {
-                .x86_64 => @intCast(u64, 15),
-                .aarch64 => @intCast(u64, 6 * @sizeOf(u32)),
-                else => unreachable,
-            };
-        }
-
-        // Apply pending updates
-        var still_pending = std.ArrayList(PendingUpdate).init(self.base.allocator);
-        defer still_pending.deinit();
-
-        for (self.pending_updates.items) |update| {
-            switch (update) {
-                .add_stub_entry => |stub_index| {
-                    try self.writeStub(stub_index);
-                    try self.writeStubInStubHelper(stub_index);
-                    try self.writeLazySymbolPointer(stub_index);
-                    self.rebase_info_dirty = true;
-                    self.lazy_binding_info_dirty = true;
-                },
-                else => unreachable,
-            }
-        }
-
-        self.pending_updates.clearRetainingCapacity();
-        for (still_pending.items) |update| {
-            self.pending_updates.appendAssumeCapacity(update);
-        }
-
-        try self.parseTextBlocks();
         try self.addRpathLCs(rpath_table.keys());
         try self.addLoadDylibLCs();
         try self.addDataInCodeLC();
         try self.addCodeSignatureLC();
 
         if (use_stage1) {
+            try self.parseTextBlocks();
             try self.sortSections();
+            {
+                const atom = try self.createDyldPrivateAtom();
+                try self.allocateAtomStage1(atom, .{
+                    .seg = self.data_segment_cmd_index.?,
+                    .sect = self.data_section_index.?,
+                });
+            }
+            {
+                const atom = try self.createStubHelperPreambleAtom();
+                try self.allocateAtomStage1(atom, .{
+                    .seg = self.text_segment_cmd_index.?,
+                    .sect = self.stub_helper_section_index.?,
+                });
+
+                // TODO this is just a temp
+                // We already prealloc stub helper size in populateMissingMetadata(), but
+                // perhaps it's not needed after all?
+                const seg = &self.load_commands.items[self.text_segment_cmd_index.?].Segment;
+                const sect = &seg.sections.items[self.stub_helper_section_index.?];
+                sect.size -= atom.size;
+            }
+            for (self.stubs.items) |_| {
+                const atom = try self.createStubHelperAtom();
+                try self.allocateAtomStage1(atom, .{
+                    .seg = self.text_segment_cmd_index.?,
+                    .sect = self.stub_helper_section_index.?,
+                });
+            }
             try self.allocateTextSegment();
             try self.allocateDataConstSegment();
             try self.allocateDataSegment();
@@ -1705,17 +1715,9 @@ fn allocateTextSegment(self: *MachO) !void {
     seg.inner.fileoff = 0;
     seg.inner.vmaddr = base_vmaddr;
 
-    // Set stubs and stub_helper sizes
+    // Set stubs sizes
     const stubs = &seg.sections.items[self.stubs_section_index.?];
-    const stub_helper = &seg.sections.items[self.stub_helper_section_index.?];
     stubs.size += nstubs * stubs.reserved2;
-
-    const stub_size: u4 = switch (self.base.options.target.cpu.arch) {
-        .x86_64 => 10,
-        .aarch64 => 3 * @sizeOf(u32),
-        else => unreachable,
-    };
-    stub_helper.size += nstubs * stub_size;
 
     var sizeofcmds: u64 = 0;
     for (self.load_commands.items) |lc| {
@@ -1947,41 +1949,81 @@ fn createEmptyAtom(
     defer self.base.allocator.free(code);
     mem.set(u8, code, 0);
 
-    const block = try self.base.allocator.create(TextBlock);
-    errdefer self.base.allocator.destroy(block);
-    block.* = TextBlock.empty;
-    block.local_sym_index = local_sym_index;
-    block.size = size;
-    block.alignment = alignment;
-    try block.code.appendSlice(self.base.allocator, code);
+    const atom = try self.base.allocator.create(TextBlock);
+    errdefer self.base.allocator.destroy(atom);
+    atom.* = TextBlock.empty;
+    atom.local_sym_index = local_sym_index;
+    atom.size = size;
+    atom.alignment = alignment;
+    try atom.code.appendSlice(self.base.allocator, code);
+    try self.managed_blocks.append(self.base.allocator, atom);
 
-    try self.managed_blocks.append(self.base.allocator, block);
+    return atom;
+}
 
+fn allocateAtom(self: *MachO, atom: *TextBlock, match: MatchingSection) !u64 {
+    // TODO converge with `allocateTextBlock`
+    const seg = self.load_commands.items[match.seg].Segment;
+    const sect = seg.sections.items[match.sect];
+    const base_addr = if (atom.prev) |prev| blk: {
+        const prev_atom_sym = self.locals.items[prev.local_sym_index];
+        break :blk prev_atom_sym.n_value;
+    } else sect.addr;
+    const atom_alignment = try math.powi(u32, 2, atom.alignment);
+    const vaddr = mem.alignForwardGeneric(u64, base_addr, atom_alignment);
+
+    // TODO we should check if we need to expand the section or not like we
+    // do in `allocateTextBlock`.
+    if (self.blocks.getPtr(match)) |last| {
+        last.*.next = atom;
+        atom.prev = last.*;
+        last.* = atom;
+    } else {
+        try self.blocks.putNoClobber(self.base.allocator, match, atom);
+    }
+
+    return vaddr;
+}
+
+fn writeAtom(self: *MachO, atom: *TextBlock, match: MatchingSection) !void {
+    const seg = self.load_commands.items[match.seg].Segment;
+    const sect = seg.sections.items[match.sect];
+
+    const vaddr = try self.allocateAtom(atom, match);
+    const sym = &self.locals.items[atom.local_sym_index];
+    sym.n_value = vaddr;
+    sym.n_sect = @intCast(u8, self.section_ordinals.getIndex(match).? + 1);
+
+    try atom.resolveRelocs(self);
+
+    const file_offset = sect.offset + vaddr - sect.addr;
+    log.debug("writing atom for symbol {s} at file offset 0x{x}", .{ self.getString(sym.n_strx), file_offset });
+    try self.base.file.?.pwriteAll(atom.code.items, file_offset);
+    try self.writeLocalSymbol(atom.local_sym_index);
+}
+
+fn allocateAtomStage1(self: *MachO, atom: *TextBlock, match: MatchingSection) !void {
     // Update target section's metadata
     // TODO should we update segment's size here too?
     // How does it tie with incremental space allocs?
     const tseg = &self.load_commands.items[match.seg].Segment;
     const tsect = &tseg.sections.items[match.sect];
-    const new_alignment = math.max(tsect.@"align", alignment);
+    const new_alignment = math.max(tsect.@"align", atom.alignment);
     const new_alignment_pow_2 = try math.powi(u32, 2, new_alignment);
-    const new_size = mem.alignForwardGeneric(u64, tsect.size, new_alignment_pow_2) + size;
+    const new_size = mem.alignForwardGeneric(u64, tsect.size, new_alignment_pow_2) + atom.size;
     tsect.size = new_size;
     tsect.@"align" = new_alignment;
 
     if (self.blocks.getPtr(match)) |last| {
-        last.*.next = block;
-        block.prev = last.*;
-        last.* = block;
+        last.*.next = atom;
+        atom.prev = last.*;
+        last.* = atom;
     } else {
-        try self.blocks.putNoClobber(self.base.allocator, match, block);
+        try self.blocks.putNoClobber(self.base.allocator, match, atom);
     }
-
-    return block;
 }
 
-fn createDyldPrivateAtom(self: *MachO) !void {
-    if (self.dyld_private_sym_index != null) return;
-
+fn createDyldPrivateAtom(self: *MachO) !*TextBlock {
     const match = MatchingSection{
         .seg = self.data_segment_cmd_index.?,
         .sect = self.data_section_index.?,
@@ -1994,35 +2036,11 @@ fn createDyldPrivateAtom(self: *MachO) !void {
         .n_desc = 0,
         .n_value = 0,
     });
-    const last = self.blocks.get(match);
-    const atom = try self.createEmptyAtom(match, local_sym_index, @sizeOf(u64), 3);
-
-    if (!(build_options.is_stage1 and self.base.options.use_stage1)) {
-        const seg = self.load_commands.items[match.seg].Segment;
-        const sect = seg.sections.items[match.sect];
-        const base_addr = if (last) |last_atom| blk: {
-            const last_atom_sym = self.locals.items[last_atom.local_sym_index];
-            break :blk last_atom_sym.n_value;
-        } else sect.addr;
-        const n_sect = @intCast(u8, self.section_ordinals.getIndex(match).? + 1);
-        const atom_alignment = try math.powi(u32, 2, atom.alignment);
-        const vaddr = mem.alignForwardGeneric(u64, base_addr, atom_alignment);
-
-        const sym = &self.locals.items[local_sym_index];
-        sym.n_value = vaddr;
-        sym.n_sect = n_sect;
-
-        const file_offset = sect.offset + vaddr - sect.addr;
-        log.debug("writing code for symbol {s} at file offset 0x{x}", .{ self.getString(sym.n_strx), file_offset });
-        try self.base.file.?.pwriteAll(atom.code.items, file_offset);
-        try self.writeLocalSymbol(local_sym_index);
-    }
-
     self.dyld_private_sym_index = local_sym_index;
+    return self.createEmptyAtom(match, local_sym_index, @sizeOf(u64), 3);
 }
 
-fn createStubHelperPreambleAtom(self: *MachO) !void {
-    if (self.stub_preamble_sym_index != null) return;
+fn createStubHelperPreambleAtom(self: *MachO) !*TextBlock {
     const arch = self.base.options.target.cpu.arch;
     const match = MatchingSection{
         .seg = self.text_segment_cmd_index.?,
@@ -2046,7 +2064,6 @@ fn createStubHelperPreambleAtom(self: *MachO) !void {
         .n_desc = 0,
         .n_value = 0,
     });
-    const last = self.blocks.get(match);
     const atom = try self.createEmptyAtom(match, local_sym_index, size, alignment);
     switch (arch) {
         .x86_64 => {
@@ -2157,36 +2174,71 @@ fn createStubHelperPreambleAtom(self: *MachO) !void {
         else => unreachable,
     }
     self.stub_preamble_sym_index = local_sym_index;
+    return atom;
+}
 
-    if (!(build_options.is_stage1 and self.base.options.use_stage1)) {
-        const seg = self.load_commands.items[match.seg].Segment;
-        const sect = seg.sections.items[match.sect];
-        const base_addr = if (last) |last_atom| blk: {
-            const last_atom_sym = self.locals.items[last_atom.local_sym_index];
-            break :blk last_atom_sym.n_value;
-        } else sect.addr;
-        const n_sect = @intCast(u8, self.section_ordinals.getIndex(match).? + 1);
-        const atom_alignment = try math.powi(u32, 2, atom.alignment);
-        const vaddr = mem.alignForwardGeneric(u64, base_addr, atom_alignment);
+fn createStubHelperAtom(self: *MachO) !*TextBlock {
+    const arch = self.base.options.target.cpu.arch;
+    const stub_size: u4 = switch (arch) {
+        .x86_64 => 10,
+        .aarch64 => 3 * @sizeOf(u32),
+        else => unreachable,
+    };
+    const local_sym_index = @intCast(u32, self.locals.items.len);
+    try self.locals.append(self.base.allocator, .{
+        .n_strx = try self.makeString("stub_in_stub_helper"),
+        .n_type = macho.N_SECT,
+        .n_sect = 0,
+        .n_desc = 0,
+        .n_value = 0,
+    });
+    const atom = try self.createEmptyAtom(.{
+        .seg = self.text_segment_cmd_index.?,
+        .sect = self.stub_helper_section_index.?,
+    }, local_sym_index, stub_size, 2);
+    try atom.relocs.ensureTotalCapacity(self.base.allocator, 1);
 
-        const sym = &self.locals.items[local_sym_index];
-        sym.n_value = vaddr;
-        sym.n_sect = n_sect;
-
-        try atom.resolveRelocs(self);
-
-        const file_offset = sect.offset + vaddr - sect.addr;
-        log.debug("writing code for symbol {s} at file offset 0x{x}", .{ self.getString(sym.n_strx), file_offset });
-        try self.base.file.?.pwriteAll(atom.code.items, file_offset);
-        try self.writeLocalSymbol(local_sym_index);
+    switch (arch) {
+        .x86_64 => {
+            // pushq
+            atom.code.items[0] = 0x68;
+            // Next 4 bytes 1..4 are just a placeholder populated in `populateLazyBindOffsetsInStubHelper`.
+            // jmpq
+            atom.code.items[5] = 0xe9;
+            atom.relocs.appendAssumeCapacity(.{
+                .offset = 6,
+                .where = .local,
+                .where_index = self.stub_preamble_sym_index.?,
+                .payload = .{
+                    .branch = .{ .arch = arch },
+                },
+            });
+        },
+        .aarch64 => {
+            const literal = blk: {
+                const div_res = try math.divExact(u64, stub_size - @sizeOf(u32), 4);
+                break :blk try math.cast(u18, div_res);
+            };
+            // ldr w16, literal
+            mem.writeIntLittle(u32, atom.code.items[0..4], aarch64.Instruction.ldr(.w16, .{
+                .literal = literal,
+            }).toU32());
+            // b disp
+            mem.writeIntLittle(u32, atom.code.items[4..8], aarch64.Instruction.b(0).toU32());
+            atom.relocs.appendAssumeCapacity(.{
+                .offset = 4,
+                .where = .local,
+                .where_index = self.stub_preamble_sym_index.?,
+                .payload = .{
+                    .branch = .{ .arch = arch },
+                },
+            });
+            // Next 4 bytes 8..12 are just a placeholder populated in `populateLazyBindOffsetsInStubHelper`.
+        },
+        else => unreachable,
     }
 
-    // TODO this needs to be fixed
-    // We already prealloc stub helper size in populateMissingMetadata(), but
-    // perhaps it's not needed after all?
-    const seg = &self.load_commands.items[self.text_segment_cmd_index.?].Segment;
-    const sect = &seg.sections.items[self.stub_helper_section_index.?];
-    sect.size -= size;
+    return atom;
 }
 
 fn resolveSymbolsInObject(
@@ -2681,7 +2733,6 @@ fn flushZld(self: *MachO) !void {
         // TODO weak bound pointers
         try self.writeLazySymbolPointer(index);
         try self.writeStub(index);
-        try self.writeStubInStubHelper(index);
     }
 
     if (self.common_section_index) |index| {
@@ -3173,7 +3224,6 @@ pub fn deinit(self: *MachO) void {
     }
 
     self.section_ordinals.deinit(self.base.allocator);
-    self.pending_updates.deinit(self.base.allocator);
     self.got_entries.deinit(self.base.allocator);
     self.got_entries_map.deinit(self.base.allocator);
     self.got_entries_free_list.deinit(self.base.allocator);
@@ -4404,11 +4454,7 @@ pub fn addExternFn(self: *MachO, name: []const u8) !u32 {
     try self.stubs.append(self.base.allocator, sym_index);
     try self.stubs_map.putNoClobber(self.base.allocator, sym_index, stubs_index);
 
-    // TODO discuss this. The caller context expects codegen.InnerError{ OutOfMemory, CodegenFail },
-    // which obviously doesn't include file writing op errors. So instead of trying to write the stub
-    // entry right here and now, queue it up and dispose of when updating decl.
-    try self.pending_updates.ensureUnusedCapacity(self.base.allocator, 1);
-    self.pending_updates.appendAssumeCapacity(.{ .add_stub_entry = stubs_index });
+    // TODO create and write stub, stub_helper and lazy_ptr atoms
 
     return sym_index;
 }
@@ -4677,53 +4723,6 @@ fn writeStub(self: *MachO, index: u32) !void {
             }
             // br x16
             mem.writeIntLittle(u32, code[8..12], aarch64.Instruction.br(.x16).toU32());
-        },
-        else => unreachable,
-    }
-    try self.base.file.?.pwriteAll(code, stub_off);
-}
-
-fn writeStubInStubHelper(self: *MachO, index: u32) !void {
-    const text_segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
-    const stub_helper = text_segment.sections.items[self.stub_helper_section_index.?];
-
-    const stub_size: u4 = switch (self.base.options.target.cpu.arch) {
-        .x86_64 => 10,
-        .aarch64 => 3 * @sizeOf(u32),
-        else => unreachable,
-    };
-    const stub_off = self.stub_helper_stubs_start_off.? + index * stub_size;
-
-    var code = try self.base.allocator.alloc(u8, stub_size);
-    defer self.base.allocator.free(code);
-
-    switch (self.base.options.target.cpu.arch) {
-        .x86_64 => {
-            const displacement = try math.cast(
-                i32,
-                @intCast(i64, stub_helper.offset) - @intCast(i64, stub_off) - stub_size,
-            );
-            // pushq
-            code[0] = 0x68;
-            mem.writeIntLittle(u32, code[1..][0..4], 0x0); // Just a placeholder populated in `populateLazyBindOffsetsInStubHelper`.
-            // jmpq
-            code[5] = 0xe9;
-            mem.writeIntLittle(u32, code[6..][0..4], @bitCast(u32, displacement));
-        },
-        .aarch64 => {
-            const literal = blk: {
-                const div_res = try math.divExact(u64, stub_size - @sizeOf(u32), 4);
-                break :blk try math.cast(u18, div_res);
-            };
-            // ldr w16, literal
-            mem.writeIntLittle(u32, code[0..4], aarch64.Instruction.ldr(.w16, .{
-                .literal = literal,
-            }).toU32());
-            const displacement = try math.cast(i28, @intCast(i64, stub_helper.offset) - @intCast(i64, stub_off) - 4);
-            // b disp
-            mem.writeIntLittle(u32, code[4..8], aarch64.Instruction.b(displacement).toU32());
-            // Just a placeholder populated in `populateLazyBindOffsetsInStubHelper`.
-            mem.writeIntLittle(u32, code[8..12], 0x0);
         },
         else => unreachable,
     }
