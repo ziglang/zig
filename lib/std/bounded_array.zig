@@ -17,11 +17,11 @@ const testing = std.testing;
 ///
 /// ```zig
 /// var actual_size = 32;
-/// var a = try ArrayListFixed(u8, 64).init(actual_size);
+/// var a = try BoundedArray(u8, 64).init(actual_size);
 /// var slice = a.slice(); // a slice of the 64-byte array
 /// var a_clone = a; // creates a copy - the structure doesn't use any internal pointers
 /// ```
-pub fn ArrayListFixed(comptime T: type, comptime capacity: usize) type {
+pub fn BoundedArray(comptime T: type, comptime capacity: usize) type {
     return struct {
         const Self = @This();
         buffer: [capacity]T,
@@ -232,8 +232,8 @@ pub fn ArrayListFixed(comptime T: type, comptime capacity: usize) type {
     };
 }
 
-test "ArraysFixed" {
-    var a = try ArrayListFixed(u8, 64).init(32);
+test "BoundedArray" {
+    var a = try BoundedArray(u8, 64).init(32);
 
     try testing.expectEqual(a.capacity(), 64);
     try testing.expectEqual(a.slice().len, 32);
@@ -243,7 +243,7 @@ test "ArraysFixed" {
     try testing.expectEqual(a.len, 48);
 
     const x = [_]u8{1} ** 10;
-    a = try ArrayListFixed(u8, 64).fromSlice(&x);
+    a = try BoundedArray(u8, 64).fromSlice(&x);
     try testing.expectEqualSlices(u8, &x, a.constSlice());
 
     var a2 = a;
@@ -252,7 +252,7 @@ test "ArraysFixed" {
     try testing.expect(a.get(0) != a2.get(0));
 
     try testing.expectError(error.Overflow, a.resize(100));
-    try testing.expectError(error.Overflow, ArrayListFixed(u8, x.len - 1).fromSlice(&x));
+    try testing.expectError(error.Overflow, BoundedArray(u8, x.len - 1).fromSlice(&x));
 
     try a.resize(0);
     try a.ensureUnusedCapacity(a.capacity());
