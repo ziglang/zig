@@ -584,6 +584,8 @@ comptime {
             @export(__divti3_windows, .{ .name = "__divti3", .linkage = linkage });
             const __udivti3_windows = @import("compiler_rt/udivti3.zig").__udivti3;
             @export(__udivti3_windows, .{ .name = "__udivti3", .linkage = linkage });
+            const __umodti3 = @import("compiler_rt/umodti3.zig").__umodti3;
+            @export(__umodti3, .{ .name = "__umodti3", .linkage = linkage });
         }
     } else {
         const __divti3 = @import("compiler_rt/divti3.zig").__divti3;
