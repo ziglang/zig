@@ -808,8 +808,14 @@ pub fn flush(self: *MachO, comp: *Compilation) !void {
                 sect.size -= atom.size;
             }
             for (self.stubs.items) |_| {
-                const atom = try self.createStubHelperAtom();
-                try self.allocateAtomStage1(atom, .{
+                const stub_atom = try self.createStubHelperAtom();
+                try self.allocateAtomStage1(stub_atom, .{
+                    .seg = self.text_segment_cmd_index.?,
+                    .sect = self.stub_helper_section_index.?,
+                });
+
+                const laptr_atom = try self.createLazyPointerAtom(stub_atom.local_sym_index);
+                try self.allocateAtomStage1(laptr_atom, .{
                     .seg = self.text_segment_cmd_index.?,
                     .sect = self.stub_helper_section_index.?,
                 });
@@ -1767,16 +1773,9 @@ fn allocateDataConstSegment(self: *MachO) !void {
 
 fn allocateDataSegment(self: *MachO) !void {
     const seg = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
-    const nstubs = @intCast(u32, self.stubs.items.len);
-
     const data_const_seg = self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
     seg.inner.fileoff = data_const_seg.inner.fileoff + data_const_seg.inner.filesize;
     seg.inner.vmaddr = data_const_seg.inner.vmaddr + data_const_seg.inner.vmsize;
-
-    // Set la_symbol_ptr
-    const la_symbol_ptr = &seg.sections.items[self.la_symbol_ptr_section_index.?];
-    la_symbol_ptr.size += nstubs * @sizeOf(u64);
-
     try self.allocateSegment(self.data_segment_cmd_index.?, 0);
 }
 
@@ -2238,6 +2237,35 @@ fn createStubHelperAtom(self: *MachO) !*TextBlock {
         else => unreachable,
     }
 
+    return atom;
+}
+
+fn createLazyPointerAtom(self: *MachO, stub_sym_index: u32) !*TextBlock {
+    const local_sym_index = @intCast(u32, self.locals.items.len);
+    try self.locals.append(self.base.allocator, .{
+        .n_strx = try self.makeString("lazy_ptr"),
+        .n_type = macho.N_SECT,
+        .n_sect = 0,
+        .n_desc = 0,
+        .n_value = 0,
+    });
+    const atom = try self.createEmptyAtom(.{
+        .seg = self.data_segment_cmd_index.?,
+        .sect = self.la_symbol_ptr_section_index.?,
+    }, local_sym_index, @sizeOf(u64), 3);
+    try atom.relocs.append(self.base.allocator, .{
+        .offset = 0,
+        .where = .local,
+        .where_index = stub_sym_index,
+        .payload = .{
+            .unsigned = .{
+                .subtractor = null,
+                .addend = 0,
+                .is_64bit = true,
+            },
+        },
+    });
+    self.lazy_binding_info_dirty = true;
     return atom;
 }
 
@@ -2731,7 +2759,6 @@ fn flushZld(self: *MachO) !void {
     for (self.stubs.items) |_, i| {
         const index = @intCast(u32, i);
         // TODO weak bound pointers
-        try self.writeLazySymbolPointer(index);
         try self.writeStub(index);
     }
 
@@ -4631,26 +4658,6 @@ fn writeGotEntry(self: *MachO, index: usize) !void {
         self.getString(sym.n_strx),
     });
     try self.base.file.?.pwriteAll(mem.asBytes(&sym.n_value), off);
-}
-
-fn writeLazySymbolPointer(self: *MachO, index: u32) !void {
-    const text_segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
-    const stub_helper = text_segment.sections.items[self.stub_helper_section_index.?];
-    const data_segment = self.load_commands.items[self.data_segment_cmd_index.?].Segment;
-    const la_symbol_ptr = data_segment.sections.items[self.la_symbol_ptr_section_index.?];
-
-    const stub_size: u4 = switch (self.base.options.target.cpu.arch) {
-        .x86_64 => 10,
-        .aarch64 => 3 * @sizeOf(u32),
-        else => unreachable,
-    };
-    const stub_off = self.stub_helper_stubs_start_off.? + index * stub_size;
-    const end = stub_helper.addr + stub_off - stub_helper.offset;
-    var buf: [@sizeOf(u64)]u8 = undefined;
-    mem.writeIntLittle(u64, &buf, end);
-    const off = la_symbol_ptr.offset + index * @sizeOf(u64);
-    log.debug("writing lazy symbol pointer entry 0x{x} at 0x{x}", .{ end, off });
-    try self.base.file.?.pwriteAll(&buf, off);
 }
 
 fn writeStub(self: *MachO, index: u32) !void {
