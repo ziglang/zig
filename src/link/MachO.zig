@@ -808,16 +808,22 @@ pub fn flush(self: *MachO, comp: *Compilation) !void {
                 sect.size -= atom.size;
             }
             for (self.stubs.items) |_| {
-                const stub_atom = try self.createStubHelperAtom();
-                try self.allocateAtomStage1(stub_atom, .{
+                const stub_helper_atom = try self.createStubHelperAtom();
+                try self.allocateAtomStage1(stub_helper_atom, .{
                     .seg = self.text_segment_cmd_index.?,
                     .sect = self.stub_helper_section_index.?,
                 });
 
-                const laptr_atom = try self.createLazyPointerAtom(stub_atom.local_sym_index);
+                const laptr_atom = try self.createLazyPointerAtom(stub_helper_atom.local_sym_index);
                 try self.allocateAtomStage1(laptr_atom, .{
                     .seg = self.data_segment_cmd_index.?,
                     .sect = self.la_symbol_ptr_section_index.?,
+                });
+
+                const stub_atom = try self.createStubAtom(laptr_atom.local_sym_index);
+                try self.allocateAtomStage1(stub_atom, .{
+                    .seg = self.text_segment_cmd_index.?,
+                    .sect = self.stubs_section_index.?,
                 });
             }
             try self.allocateTextSegment();
@@ -1715,15 +1721,9 @@ fn sortSections(self: *MachO) !void {
 
 fn allocateTextSegment(self: *MachO) !void {
     const seg = &self.load_commands.items[self.text_segment_cmd_index.?].Segment;
-    const nstubs = @intCast(u32, self.stubs.items.len);
-
     const base_vmaddr = self.load_commands.items[self.pagezero_segment_cmd_index.?].Segment.inner.vmsize;
     seg.inner.fileoff = 0;
     seg.inner.vmaddr = base_vmaddr;
-
-    // Set stubs sizes
-    const stubs = &seg.sections.items[self.stubs_section_index.?];
-    stubs.size += nstubs * stubs.reserved2;
 
     var sizeofcmds: u64 = 0;
     for (self.load_commands.items) |lc| {
@@ -2274,6 +2274,86 @@ fn createLazyPointerAtom(self: *MachO, stub_sym_index: u32) !*TextBlock {
     return atom;
 }
 
+fn createStubAtom(self: *MachO, laptr_sym_index: u32) !*TextBlock {
+    const arch = self.base.options.target.cpu.arch;
+    const alignment: u2 = switch (arch) {
+        .x86_64 => 0,
+        .aarch64 => 2,
+        else => unreachable, // unhandled architecture type
+    };
+    const stub_size: u4 = switch (arch) {
+        .x86_64 => 6,
+        .aarch64 => 3 * @sizeOf(u32),
+        else => unreachable, // unhandled architecture type
+    };
+    const local_sym_index = @intCast(u32, self.locals.items.len);
+    try self.locals.append(self.base.allocator, .{
+        .n_strx = try self.makeString("stub"),
+        .n_type = macho.N_SECT,
+        .n_sect = 0,
+        .n_desc = 0,
+        .n_value = 0,
+    });
+    const atom = try self.createEmptyAtom(.{
+        .seg = self.text_segment_cmd_index.?,
+        .sect = self.stubs_section_index.?,
+    }, local_sym_index, stub_size, alignment);
+    switch (arch) {
+        .x86_64 => {
+            // jmp
+            atom.code.items[0] = 0xff;
+            atom.code.items[1] = 0x25;
+            try atom.relocs.append(self.base.allocator, .{
+                .offset = 2,
+                .where = .local,
+                .where_index = laptr_sym_index,
+                .payload = .{
+                    .branch = .{ .arch = arch },
+                },
+            });
+        },
+        .aarch64 => {
+            try atom.relocs.ensureTotalCapacity(self.base.allocator, 2);
+            // adrp x16, pages
+            mem.writeIntLittle(u32, atom.code.items[0..4], aarch64.Instruction.adrp(.x16, 0).toU32());
+            atom.relocs.appendAssumeCapacity(.{
+                .offset = 0,
+                .where = .local,
+                .where_index = laptr_sym_index,
+                .payload = .{
+                    .page = .{
+                        .kind = .page,
+                        .addend = 0,
+                    },
+                },
+            });
+            // ldr x16, x16, offset
+            mem.writeIntLittle(u32, atom.code.items[4..8], aarch64.Instruction.ldr(.x16, .{
+                .register = .{
+                    .rn = .x16,
+                    .offset = aarch64.Instruction.LoadStoreOffset.imm(0),
+                },
+            }).toU32());
+            atom.relocs.appendAssumeCapacity(.{
+                .offset = 4,
+                .where = .local,
+                .where_index = laptr_sym_index,
+                .payload = .{
+                    .page_off = .{
+                        .kind = .page,
+                        .addend = 0,
+                        .op_kind = .load,
+                    },
+                },
+            });
+            // br x16
+            mem.writeIntLittle(u32, atom.code.items[8..12], aarch64.Instruction.br(.x16).toU32());
+        },
+        else => unreachable,
+    }
+    return atom;
+}
+
 fn resolveSymbolsInObject(
     self: *MachO,
     object_id: u16,
@@ -2760,12 +2840,6 @@ fn addLoadDylibLCs(self: *MachO) !void {
 
 fn flushZld(self: *MachO) !void {
     try self.writeTextBlocks();
-
-    for (self.stubs.items) |_, i| {
-        const index = @intCast(u32, i);
-        // TODO weak bound pointers
-        try self.writeStub(index);
-    }
 
     if (self.common_section_index) |index| {
         const seg = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
@@ -4663,82 +4737,6 @@ fn writeGotEntry(self: *MachO, index: usize) !void {
         self.getString(sym.n_strx),
     });
     try self.base.file.?.pwriteAll(mem.asBytes(&sym.n_value), off);
-}
-
-fn writeStub(self: *MachO, index: u32) !void {
-    const text_segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
-    const stubs = text_segment.sections.items[self.stubs_section_index.?];
-    const data_segment = self.load_commands.items[self.data_segment_cmd_index.?].Segment;
-    const la_symbol_ptr = data_segment.sections.items[self.la_symbol_ptr_section_index.?];
-
-    const stub_off = stubs.offset + index * stubs.reserved2;
-    const stub_addr = stubs.addr + index * stubs.reserved2;
-    const la_ptr_addr = la_symbol_ptr.addr + index * @sizeOf(u64);
-
-    log.debug("writing stub at 0x{x}", .{stub_off});
-
-    var code = try self.base.allocator.alloc(u8, stubs.reserved2);
-    defer self.base.allocator.free(code);
-
-    switch (self.base.options.target.cpu.arch) {
-        .x86_64 => {
-            assert(la_ptr_addr >= stub_addr + stubs.reserved2);
-            const displacement = try math.cast(u32, la_ptr_addr - stub_addr - stubs.reserved2);
-            // jmp
-            code[0] = 0xff;
-            code[1] = 0x25;
-            mem.writeIntLittle(u32, code[2..][0..4], displacement);
-        },
-        .aarch64 => {
-            assert(la_ptr_addr >= stub_addr);
-            outer: {
-                const this_addr = stub_addr;
-                const target_addr = la_ptr_addr;
-                inner: {
-                    const displacement = math.divExact(u64, target_addr - this_addr, 4) catch break :inner;
-                    const literal = math.cast(u18, displacement) catch break :inner;
-                    // ldr x16, literal
-                    mem.writeIntLittle(u32, code[0..4], aarch64.Instruction.ldr(.x16, .{
-                        .literal = literal,
-                    }).toU32());
-                    // nop
-                    mem.writeIntLittle(u32, code[4..8], aarch64.Instruction.nop().toU32());
-                    break :outer;
-                }
-                inner: {
-                    const new_this_addr = this_addr + @sizeOf(u32);
-                    const displacement = math.divExact(u64, target_addr - new_this_addr, 4) catch break :inner;
-                    const literal = math.cast(u18, displacement) catch break :inner;
-                    // nop
-                    mem.writeIntLittle(u32, code[0..4], aarch64.Instruction.nop().toU32());
-                    // ldr x16, literal
-                    mem.writeIntLittle(u32, code[4..8], aarch64.Instruction.ldr(.x16, .{
-                        .literal = literal,
-                    }).toU32());
-                    break :outer;
-                }
-                // Use adrp followed by ldr(register).
-                const this_page = @intCast(i32, this_addr >> 12);
-                const target_page = @intCast(i32, target_addr >> 12);
-                const pages = @intCast(i21, target_page - this_page);
-                // adrp x16, pages
-                mem.writeIntLittle(u32, code[0..4], aarch64.Instruction.adrp(.x16, pages).toU32());
-                const narrowed = @truncate(u12, target_addr);
-                const offset = try math.divExact(u12, narrowed, 8);
-                // ldr x16, x16, offset
-                mem.writeIntLittle(u32, code[4..8], aarch64.Instruction.ldr(.x16, .{
-                    .register = .{
-                        .rn = .x16,
-                        .offset = aarch64.Instruction.LoadStoreOffset.imm(offset),
-                    },
-                }).toU32());
-            }
-            // br x16
-            mem.writeIntLittle(u32, code[8..12], aarch64.Instruction.br(.x16).toU32());
-        },
-        else => unreachable,
-    }
-    try self.base.file.?.pwriteAll(code, stub_off);
 }
 
 fn relocateSymbolTable(self: *MachO) !void {
