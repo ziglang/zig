@@ -7691,12 +7691,12 @@ pub fn addCases(ctx: *TestContext) !void {
         \\};
         \\
         \\export fn entry() void {
-        \\    var y = @as(u3, 3);
+        \\    var y = @as(f32, 3);
         \\    var x = @intToEnum(Small, y);
         \\    _ = x;
         \\}
     , &[_][]const u8{
-        "tmp.zig:10:31: error: expected type 'u2', found 'u3'",
+        "tmp.zig:10:31: error: expected integer type, found 'f32'",
     });
 
     ctx.objErrStage1("union fields with value assignments",

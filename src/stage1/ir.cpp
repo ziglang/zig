@@ -20007,29 +20007,24 @@ static Stage1AirInst *ir_analyze_instruction_truncate(IrAnalyze *ira, Stage1ZirI
     return ir_build_truncate_gen(ira, instruction->base.scope, instruction->base.source_node, dest_type, target);
 }
 
-static Stage1AirInst *ir_analyze_instruction_int_cast(IrAnalyze *ira, Stage1ZirInstIntCast *instruction) {
-    ZigType *dest_type = ir_resolve_type(ira, instruction->dest_type->child);
-    if (type_is_invalid(dest_type))
-        return ira->codegen->invalid_inst_gen;
-
+static Stage1AirInst *ir_analyze_int_cast(IrAnalyze *ira, Scope *scope, AstNode *source_node,
+    ZigType *dest_type, AstNode *dest_type_src_node,
+    Stage1AirInst *target, AstNode *target_src_node)
+{
     ZigType *scalar_dest_type = (dest_type->id == ZigTypeIdVector) ?
         dest_type->data.vector.elem_type : dest_type;
 
     if (scalar_dest_type->id != ZigTypeIdInt && scalar_dest_type->id != ZigTypeIdComptimeInt) {
-        ir_add_error_node(ira, instruction->dest_type->source_node,
+        ir_add_error_node(ira, dest_type_src_node,
                 buf_sprintf("expected integer type, found '%s'", buf_ptr(&scalar_dest_type->name)));
         return ira->codegen->invalid_inst_gen;
     }
-
-    Stage1AirInst *target = instruction->target->child;
-    if (type_is_invalid(target->value->type))
-        return ira->codegen->invalid_inst_gen;
 
     ZigType *scalar_target_type = (target->value->type->id == ZigTypeIdVector) ?
         target->value->type->data.vector.elem_type : target->value->type;
 
     if (scalar_target_type->id != ZigTypeIdInt && scalar_target_type->id != ZigTypeIdComptimeInt) {
-        ir_add_error_node(ira, instruction->target->source_node, buf_sprintf("expected integer type, found '%s'",
+        ir_add_error_node(ira, target_src_node, buf_sprintf("expected integer type, found '%s'",
                     buf_ptr(&scalar_target_type->name)));
         return ira->codegen->invalid_inst_gen;
     }
@@ -20039,10 +20034,24 @@ static Stage1AirInst *ir_analyze_instruction_int_cast(IrAnalyze *ira, Stage1ZirI
         if (val == nullptr)
             return ira->codegen->invalid_inst_gen;
 
-        return ir_implicit_cast2(ira, instruction->target->scope, instruction->target->source_node, target, dest_type);
+        return ir_implicit_cast2(ira, scope, target_src_node, target, dest_type);
     }
 
-    return ir_analyze_widen_or_shorten(ira, instruction->base.scope, instruction->base.source_node, target, dest_type);
+    return ir_analyze_widen_or_shorten(ira, scope, source_node, target, dest_type);
+}
+
+static Stage1AirInst *ir_analyze_instruction_int_cast(IrAnalyze *ira, Stage1ZirInstIntCast *instruction) {
+    ZigType *dest_type = ir_resolve_type(ira, instruction->dest_type->child);
+    if (type_is_invalid(dest_type))
+        return ira->codegen->invalid_inst_gen;
+
+    Stage1AirInst *target = instruction->target->child;
+    if (type_is_invalid(target->value->type))
+        return ira->codegen->invalid_inst_gen;
+
+    return ir_analyze_int_cast(ira, instruction->base.scope, instruction->base.source_node,
+            dest_type, instruction->dest_type->source_node,
+            target, instruction->target->source_node);
 }
 
 static Stage1AirInst *ir_analyze_instruction_float_cast(IrAnalyze *ira, Stage1ZirInstFloatCast *instruction) {
@@ -24282,7 +24291,9 @@ static Stage1AirInst *ir_analyze_instruction_int_to_enum(IrAnalyze *ira, Stage1Z
     if (type_is_invalid(target->value->type))
         return ira->codegen->invalid_inst_gen;
 
-    Stage1AirInst *casted_target = ir_implicit_cast(ira, target, tag_type);
+    Stage1AirInst *casted_target = ir_analyze_int_cast(ira, instruction->base.scope,
+            instruction->base.source_node, tag_type, instruction->dest_type->source_node,
+            target, instruction->target->source_node);
     if (type_is_invalid(casted_target->value->type))
         return ira->codegen->invalid_inst_gen;
 

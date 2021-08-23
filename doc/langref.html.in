@@ -3163,7 +3163,9 @@ test "switch using enum literals" {
       It  must specify a tag type and cannot consume every enumeration value.
       </p>
       <p>
-      {#link|@intToEnum#} on a non-exhaustive enum cannot fail.
+      {#link|@intToEnum#} on a non-exhaustive enum involves the safety semantics
+      of {#link|@intCast#} to the integer tag type, but beyond that always results in
+      a well-defined enum value.
       </p>
       <p>
       A switch on a non-exhaustive enum can include a '_' prong as an alternative to an {#syntax#}else{#endsyntax#} prong
@@ -7972,7 +7974,7 @@ test "@hasDecl" {
       {#header_close#}
 
       {#header_open|@intToEnum#}
-      <pre>{#syntax#}@intToEnum(comptime DestType: type, int_value: std.meta.Tag(DestType)) DestType{#endsyntax#}</pre>
+      <pre>{#syntax#}@intToEnum(comptime DestType: type, integer: anytype) DestType{#endsyntax#}</pre>
       <p>
       Converts an integer into an {#link|enum#} value.
       </p>

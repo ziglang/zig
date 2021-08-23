@@ -203,7 +203,7 @@ test "int to enum" {
     try testIntToEnumEval(3);
 }
 fn testIntToEnumEval(x: i32) !void {
-    try expect(@intToEnum(IntToEnumNumber, @intCast(u3, x)) == IntToEnumNumber.Three);
+    try expect(@intToEnum(IntToEnumNumber, x) == IntToEnumNumber.Three);
 }
 const IntToEnumNumber = enum {
     Zero,
