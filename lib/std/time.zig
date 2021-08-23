@@ -11,16 +11,18 @@ pub const epoch = @import("time/epoch.zig");
 /// Spurious wakeups are possible and no precision of timing is guaranteed.
 pub fn sleep(nanoseconds: u64) void {
     // TODO: opting out of async sleeping?
-    if (std.io.is_async)
+    if (std.io.is_async) {
         return std.event.Loop.instance.?.sleep(nanoseconds);
+    }
 
-    if (is_windows) {
+    if (target.os.tag == .windows) {
         const big_ms_from_ns = nanoseconds / ns_per_ms;
         const ms = math.cast(os.windows.DWORD, big_ms_from_ns) catch math.maxInt(os.windows.DWORD);
         os.windows.kernel32.Sleep(ms);
         return;
     }
-    if (builtin.os.tag == .wasi) {
+
+    if (target.os.tag == .wasi) {
         const w = std.os.wasi;
         const userdata: w.userdata_t = 0x0123_45678;
         const clock = w.subscription_clock_t{
@@ -50,51 +52,45 @@ pub fn sleep(nanoseconds: u64) void {
     std.os.nanosleep(s, ns);
 }
 
+test "sleep" {
+    sleep(1);
+}
+
 /// Get a calendar timestamp, in seconds, relative to UTC 1970-01-01.
 /// Precision of timing depends on the hardware and operating system.
-/// The return value is signed because it is possible to have a date that is
-/// before the epoch.
 /// See `std.os.clock_gettime` for a POSIX timestamp.
-pub fn timestamp() i64 {
+pub fn timestamp() u64 {
     return @divFloor(milliTimestamp(), ms_per_s);
 }
 
 /// Get a calendar timestamp, in milliseconds, relative to UTC 1970-01-01.
 /// Precision of timing depends on the hardware and operating system.
-/// The return value is signed because it is possible to have a date that is
-/// before the epoch.
 /// See `std.os.clock_gettime` for a POSIX timestamp.
-pub fn milliTimestamp() i64 {
-    return @intCast(i64, @divFloor(nanoTimestamp(), ns_per_ms));
+pub fn milliTimestamp() u64 {
+    return @divFloor(nanoTimestamp(), ns_per_ms);
 }
 
 /// Get a calendar timestamp, in nanoseconds, relative to UTC 1970-01-01.
 /// Precision of timing depends on the hardware and operating system.
 /// On Windows this has a maximum granularity of 100 nanoseconds.
-/// The return value is signed because it is possible to have a date that is
-/// before the epoch.
 /// See `std.os.clock_gettime` for a POSIX timestamp.
-pub fn nanoTimestamp() i128 {
-    if (is_windows) {
-        // FileTime has a granularity of 100 nanoseconds and uses the NTFS/Windows epoch,
-        // which is 1601-01-01.
-        const epoch_adj = epoch.windows * (ns_per_s / 100);
-        var ft: os.windows.FILETIME = undefined;
-        os.windows.kernel32.GetSystemTimeAsFileTime(&ft);
-        const ft64 = (@as(u64, ft.dwHighDateTime) << 32) | ft.dwLowDateTime;
-        return @as(i128, @bitCast(i64, ft64) + epoch_adj) * 100;
-    }
-    if (builtin.os.tag == .wasi and !builtin.link_libc) {
-        var ns: os.wasi.timestamp_t = undefined;
-        const err = os.wasi.clock_time_get(os.wasi.CLOCK.REALTIME, 1, &ns);
-        assert(err == .SUCCESS);
-        return ns;
-    }
-    var ts: os.timespec = undefined;
-    os.clock_gettime(os.CLOCK.REALTIME, &ts) catch |err| switch (err) {
-        error.UnsupportedClock, error.Unexpected => return 0, // "Precision of timing depends on hardware and OS".
+pub fn nanoTimestamp() u64 {
+    return Clock.read(.realtime) catch {
+        // "Precision of timing depends on hardware and OS".
+        return 0;
     };
-    return (@as(i128, ts.tv_sec) * ns_per_s) + ts.tv_nsec;
+}
+
+test "timestamp" {
+    const margin = ns_per_ms * 50;
+
+    const time_0 = milliTimestamp();
+    sleep(ns_per_ms);
+    const time_1 = milliTimestamp();
+    const interval = time_1 - time_0;
+    try testing.expect(interval > 0);
+    // Tests should not depend on timings: skip test if outside margin.
+    if (!(interval < margin)) return error.SkipZigTest;
 }
 
 // Divisions of a nanosecond.
@@ -127,147 +123,51 @@ pub const s_per_hour = s_per_min * 60;
 pub const s_per_day = s_per_hour * 24;
 pub const s_per_week = s_per_day * 7;
 
-/// A monotonic high-performance timer.
-/// Timer.start() must be called to initialize the struct, which captures
-/// the counter frequency on windows and darwin, records the resolution,
-/// and gives the user an opportunity to check for the existnece of
-/// monotonic clocks without forcing them to check for error on each read.
-/// .resolution is in nanoseconds on all platforms but .start_time's meaning
-/// depends on the OS. On Windows and Darwin it is a hardware counter
-/// value that requires calculation to convert to a meaninful unit.
+/// A high-performance timer that tries to be monotonically increasing.
+/// Timer.start() must be called to initialize the struct, which gives 
+/// the user an opportunity to check for the existnece of monotonic clocks 
+/// without forcing them to check for error on each read.
 pub const Timer = struct {
-    ///if we used resolution's value when performing the
-    ///  performance counter calc on windows/darwin, it would
-    ///  be less precise
-    frequency: switch (builtin.os.tag) {
-        .windows => u64,
-        .macos, .ios, .tvos, .watchos => os.darwin.mach_timebase_info_data,
-        else => void,
-    },
-    resolution: u64,
     start_time: u64,
 
     pub const Error = error{TimerUnsupported};
 
-    /// At some point we may change our minds on RAW, but for now we're
-    /// sticking with posix standard MONOTONIC. For more information, see:
-    /// https://github.com/ziglang/zig/pull/933
-    const monotonic_clock_id = os.CLOCK.MONOTONIC;
+    /// At some point we may change our minds, but for now we're
+    /// sticking with posix standard MONOTONIC.
+    /// For more information, see: https://github.com/ziglang/zig/pull/933
+    const clock_id = Clock.Id.monotonic;
 
     /// Initialize the timer structure.
-    /// Can only fail when running in a hostile environment that intentionally injects
-    /// error values into syscalls, such as using seccomp on Linux to intercept
-    /// `clock_gettime`.
     pub fn start() Error!Timer {
-        // This gives us an opportunity to grab the counter frequency in windows.
-        // On Windows: QueryPerformanceCounter will succeed on anything >= XP/2000.
-        // On Posix: CLOCK.MONOTONIC will only fail if the monotonic counter is not
-        // supported, or if the timespec pointer is out of bounds, which should be
-        // impossible here barring cosmic rays or other such occurrences of
-        // incredibly bad luck.
-        // On Darwin: This cannot fail, as far as I am able to tell.
-        if (is_windows) {
-            const freq = os.windows.QueryPerformanceFrequency();
-            return Timer{
-                .frequency = freq,
-                .resolution = @divFloor(ns_per_s, freq),
-                .start_time = os.windows.QueryPerformanceCounter(),
-            };
-        } else if (comptime builtin.target.isDarwin()) {
-            var freq: os.darwin.mach_timebase_info_data = undefined;
-            os.darwin.mach_timebase_info(&freq);
-
-            return Timer{
-                .frequency = freq,
-                .resolution = @divFloor(freq.numer, freq.denom),
-                .start_time = os.darwin.mach_absolute_time(),
-            };
-        } else {
-            // On Linux, seccomp can do arbitrary things to our ability to call
-            // syscalls, including return any errno value it wants and
-            // inconsistently throwing errors. Since we can't account for
-            // abuses of seccomp in a reasonable way, we'll assume that if
-            // seccomp is going to block us it will at least do so consistently
-            var res: os.timespec = undefined;
-            os.clock_getres(monotonic_clock_id, &res) catch return error.TimerUnsupported;
-
-            var ts: os.timespec = undefined;
-            os.clock_gettime(monotonic_clock_id, &ts) catch return error.TimerUnsupported;
-
-            return Timer{
-                .resolution = @intCast(u64, res.tv_sec) * ns_per_s + @intCast(u64, res.tv_nsec),
-                .start_time = @intCast(u64, ts.tv_sec) * ns_per_s + @intCast(u64, ts.tv_nsec),
-                .frequency = {},
-            };
-        }
+        // We assume that if the system is blocking us from using clock_gettime
+        // (i.e. with use of linux seccomp), it should at least block us consistently.
+        const start_time = Clock.read(clock_id) catch return error.TimerUnsupported;
+        return Timer{ .start_time = start_time };
     }
 
     /// Reads the timer value since start or the last reset in nanoseconds
     pub fn read(self: Timer) u64 {
-        var clock = clockNative() - self.start_time;
-        return self.nativeDurationToNanos(clock);
+        const current = Clock.read(clock_id) catch 0;
+        if (current < self.start_time) return 0;
+        return current - self.start_time;
     }
 
     /// Resets the timer value to 0/now.
     pub fn reset(self: *Timer) void {
-        self.start_time = clockNative();
+        self.start_time = Clock.read(clock_id) catch 0;
     }
 
     /// Returns the current value of the timer in nanoseconds, then resets it
     pub fn lap(self: *Timer) u64 {
-        var now = clockNative();
-        var lap_time = self.nativeDurationToNanos(now - self.start_time);
-        self.start_time = now;
-        return lap_time;
-    }
+        const current = Clock.read(clock_id) catch 0;
+        defer if (current > self.start_time) {
+            self.start_time = current;
+        };
 
-    fn clockNative() u64 {
-        if (is_windows) {
-            return os.windows.QueryPerformanceCounter();
-        }
-        if (comptime builtin.target.isDarwin()) {
-            return os.darwin.mach_absolute_time();
-        }
-        var ts: os.timespec = undefined;
-        os.clock_gettime(monotonic_clock_id, &ts) catch unreachable;
-        return @intCast(u64, ts.tv_sec) * @as(u64, ns_per_s) + @intCast(u64, ts.tv_nsec);
-    }
-
-    fn nativeDurationToNanos(self: Timer, duration: u64) u64 {
-        if (is_windows) {
-            return safeMulDiv(duration, ns_per_s, self.frequency);
-        }
-        if (comptime builtin.target.isDarwin()) {
-            return safeMulDiv(duration, self.frequency.numer, self.frequency.denom);
-        }
-        return duration;
+        if (current < self.start_time) return 0;
+        return current - self.start_time;
     }
 };
-
-// Calculate (a * b) / c without risk of overflowing too early because of the
-// multiplication.
-fn safeMulDiv(a: u64, b: u64, c: u64) u64 {
-    const q = a / c;
-    const r = a % c;
-    // (a * b) / c == (a / c) * b + ((a % c) * b) / c
-    return (q * b) + (r * b) / c;
-}
-
-test "sleep" {
-    sleep(1);
-}
-
-test "timestamp" {
-    const margin = ns_per_ms * 50;
-
-    const time_0 = milliTimestamp();
-    sleep(ns_per_ms);
-    const time_1 = milliTimestamp();
-    const interval = time_1 - time_0;
-    try testing.expect(interval > 0);
-    // Tests should not depend on timings: skip test if outside margin.
-    if (!(interval < margin)) return error.SkipZigTest;
-}
 
 test "Timer" {
     const margin = ns_per_ms * 150;
@@ -288,4 +188,233 @@ test "Timer" {
 
 test {
     _ = @import("time/epoch.zig");
+}
+
+pub const Clock = struct {
+    pub const Id = enum {
+        /// Returns nanoseconds since Unix Epoch (Jan 1 1970)
+        realtime,
+        /// Returns nanoseconds since an arbitrary point in time. Increments while suspended
+        monotonic,
+        /// Returns nanoseconds since an arbitrary point in time. Pauses while suspended.
+        uptime,
+        /// Returns nanoseconds of cpu time spent by the caller's thread.
+        thread_cputime,
+        /// Returns nanoseconds of cpu time spent all threads in the caller's process
+        process_cputime,
+    };
+
+    pub const Error = error{
+        UnsupportedClock
+    } || os.UnexpectedError;
+
+    pub fn read(id: Id) Error!u64 {
+        return Impl.read(id);
+    }
+
+    const Impl = switch (target.os.tag) {
+        .windows => WindowsImpl,
+        else => PosixImpl,
+    };
+
+    const PosixImpl = struct {
+        pub fn read(id: Id) Error!u64 {
+            const clock_id = toOsClockId(id) orelse return error.UnsupportedClock;
+            var ts: os.timespec = undefined;
+            try os.clock_gettime(clock_id, &ts);
+            return @intCast(u64, ts.tv_sec) * ns_per_s + @intCast(u64, ts.tv_nsec);
+        }
+
+        // https://github.com/polazarus/oclock-testing/blob/master/docs/clock_gettime.md
+        //
+        // https://linux.die.net/man/2/clock_gettime
+        // https://opensource.apple.com/source/Libc/Libc-1439.40.11/gen/clock_gettime.c.auto.html
+        // https://man.openbsd.org/clock_gettime.2
+        // https://man.netbsd.org/amd64/clock_gettime.2
+        // https://github.com/WebAssembly/WASI/blob/main/phases/snapshot/docs.md#-clockid-variant
+        // https://man.dragonflybsd.org/?command=clock_gettime&section=2
+        // https://www.freebsd.org/cgi/man.cgi?query=clock_gettime
+        fn toOsClockId(id: Id) ?i32 {
+            return switch (id) {
+                .realtime => os.CLOCK_REALTIME,
+                .monotonic => switch (target.os.tag) {
+                    .macos, .tvos, .ios, .watchos => os.CLOCK_MONOTONIC_RAW, // mach_continuous_time
+                    .linux => os.CLOCK_BOOTTIME, // actually counts time suspended
+                    else => os.CLOCK_MONOTONIC,
+                },
+                .uptime => switch (target.os.tag) {
+                    .openbsd, .freebsd, .kfreebsd, .dragonfly => os.CLOCK_UPTIME,
+                    .macos, .tvos, .ios, .watchos => os.CLOCK_UPTIME_RAW, // mach_absolute_time
+                    .linux => os.CLOCK_MONOTONIC, // doesn't count time suspended
+                    else => null,
+                },
+                .thread_cputime => os.CLOCK_THREAD_CPUTIME_ID,
+                .process_cputime => os.CLOCK_PROCESS_CPUTIME_ID,
+            };
+        }
+    };
+
+    const WindowsImpl = struct {
+        pub fn read(id: Id) Error!u64 {
+            return switch (id) {
+                .realtime => getSystemTime(),
+                .monotonic => getInterruptTime(),
+                .uptime => getUnbiasedInterruptTime(),
+                .thread_cputime => getCpuTime("GetThreadTimes", "GetCurrentThread"),
+                .thread_cputime => getCpuTime("GetProcessTimes", "GetCurrentProcess"),
+            };
+        }
+
+        fn getSystemTime() u64 {
+            var ft: os.windows.FILETIME = undefined;
+            os.windows.kernel32.GetSystemTimePreciseAsFileTime(&ft);
+            var system_time = (@as(u64, ft.dwHighDateTime) << 32) | ft.dwLowDateTime;
+
+            const utc_epoch = -(epoch.windows * (ns_per_s / 100));
+            if (system_time <= utc_epoch) {
+                return 0;
+            }
+
+            const utc_now = system_time - utc_epoch;
+            return utc_now * 100;
+        }
+
+        fn getInterruptTime() u64 {
+            const counter = os.windows.QueryPerformanceCounter();
+            const qpc = getDeltaTime(struct{}, counter);
+            return getQPCInterruptTime(qpc) * 100;
+        }
+
+        fn getUnbiasedInterruptTime() u64 {
+            // Compute the unbiased (without suspend) time by sampling the current interrupt time
+            // then subtracting the InterruptTimeBias while accounting for racy updates.
+            // https://stackoverflow.com/questions/24330496/how-do-i-create-monotonic-clock-on-windows-which-doesnt-tick-during-suspend
+            // https://www.geoffchappell.com/studies/windows/km/ntoskrnl/inc/api/ntexapi_x/kuser_shared_data/index.htm
+            const KUSER_SHARED_DATA = 0x7ffe0000;
+            const InterruptTimeBias = @intToPtr(*volatile u64, KUSER_SHARED_DATA + 0x3b0);
+
+            while (true) {
+                const bias = InterruptTimeBias.*;
+                const counter = os.windows.QueryPerformanceCounter();
+                if (bias != InterruptTimeBias.*) {
+                    continue;
+                }
+
+                const qpc = getDeltaTime(struct{}, counter);
+                const qpc_bias = getDeltaTime(struct{}, bias);
+                return (getQPCInterruptTime(qpc) - qpc_bias) * 100;
+            }
+        }
+
+        fn getQPCInterruptTime(qpc: u64) u64 {
+            // doesn't need to be cached. It just reads from KUSER_SHARED_DATA:
+            // https://www.geoffchappell.com/studies/windows/km/ntoskrnl/inc/api/ntexapi_x/kuser_shared_data/index.htm
+            const frequency = os.windows.QueryPerformanceFrequency();
+
+            // Interrupt time in units of 100ns 
+            const scale = ns_per_s / 100; 
+
+            // Try to do qpc * scale / frequency
+            var qpc_scaled: u64 = undefined;
+            if (!@mulWithOverflow(u64, qpc, scale, &qpc_scaled)) {
+                return qpc_scaled / frequency;
+            }
+
+            // Does qpc * scale / frequency without overflowing too early
+            const div = qpc / frequency;
+            const rem = qpc % frequency;
+            return (div * scale) + (rem * scale) / frequency;
+        }
+
+        fn getDeltaTime(comptime UniqueType: type, current: u64) u64 {
+            _ = UniqueType;
+
+            const Atomic = std.atomic.Atomic;
+            const Static = struct {
+                var delta = Atomic(u64).init(0);
+                var delta_sync = Atomic(u64).init(0);
+            };
+
+            const delta = blk: {
+                // Use 64bit atomics when available to set delta if it hasn't been already
+                if (@sizeOf(usize) >= @sizeOf(u64)) {
+                    const delta = Static.delta.load(.Monotonic);
+                    if (delta != 0) break :blk delta;
+                    break :blk Static.delta.compareAndSwap(
+                        delta,
+                        current,
+                        .Monotonic,
+                        .Monotonic,
+                    ) orelse current;
+                }
+
+                // 64-bit atomics aren't available so we need to use mutual exclusion.
+                // It's relatively OK to spin here since windows employ dynamic priority boosting
+                // to avoid priority inversion so the owning thread will eventually get scheduled.
+                // https://docs.microsoft.com/en-us/windows/win32/procthread/priority-inversion
+                var delta_sync = Static.delta_sync.load(.Acquire);
+                while (true) {
+                    delta_sync = switch (delta_sync) {
+                        0 => Static.delta_sync(0, 1, .Acquire, .Acquire) orelse {
+                            Static.delta.storeUnchecked(current);
+                            Static.delta_sync.store(2, .Release);
+                            break :blk current;
+                        },
+                        1 => sync: {
+                            std.atomic.spinLoopHint();
+                            break :sync Static.delta_sync.load(.Acquire);
+                        },
+                        2 => break :blk Static.delta.loadUnchecked(),
+                        else => unreachable,
+                    };
+                }
+            };
+
+            if (current < delta) return 0;
+            return current - delta;
+        }
+
+        fn getCpuTime(comptime GetTimesFn: []const u8, comptime GetCurrentFn: []const u8) !u64 {
+            var creation_time: os.windows.FILETIME = undefined;
+            var exit_time: os.windows.FILETIME = undefined;
+            var kernel_time: os.windows.FILETIME = undefined;
+            var user_time: os.windows.FILETIME = undefined;
+
+            const result = @field(os.windows.kernel32, GetTimesFn)(
+                @field(os.windows.kernel32, GetCurrentFn)(),
+                &creation_time,
+                &exit_time,
+                &kernel_time,
+                &user_time,
+            );
+
+            if (result == 0) {
+                const err = os.windows.kernel32.GetLastError();
+                return os.windows.unexpectedError(err);
+            }
+
+            var cpu_time = (@as(u64, kernel_time.dwHighDateTime) << 32) | kernel_time.dwLowDateTime;
+            cpu_time += (@as(u64, user_time.dwHighDateTime) << 32) | user_time.dwLowDateTime;
+            return cpu_time * 100;
+        }
+    };
+};
+
+test "Clock" {
+    comptime var clock_ids: []const Clock.Id = &[_]Clock.Id{};
+    inline for (std.meta.fields(Clock.Id)) |field| {
+        const clock_id = @field(Clock.Id, field.name);
+        clock_ids = clock_ids ++ [_]Clock.Id{ clock_id };
+    }
+
+    for (clock_ids) |clock_id| {
+        _ = Clock.read(clock_id) catch |err| {
+            // Only return errors for clock sources that we use personally.
+            // The rest are just tested for their code paths
+            switch (clock_id) {
+                .realtime, .monotonic => return err,
+                else => continue,
+            }
+        };
+    }
 }
