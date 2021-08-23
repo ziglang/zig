@@ -816,8 +816,8 @@ pub fn flush(self: *MachO, comp: *Compilation) !void {
 
                 const laptr_atom = try self.createLazyPointerAtom(stub_atom.local_sym_index);
                 try self.allocateAtomStage1(laptr_atom, .{
-                    .seg = self.text_segment_cmd_index.?,
-                    .sect = self.stub_helper_section_index.?,
+                    .seg = self.data_segment_cmd_index.?,
+                    .sect = self.la_symbol_ptr_section_index.?,
                 });
             }
             try self.allocateTextSegment();
@@ -2183,6 +2183,11 @@ fn createStubHelperAtom(self: *MachO) !*TextBlock {
         .aarch64 => 3 * @sizeOf(u32),
         else => unreachable,
     };
+    const alignment: u2 = switch (arch) {
+        .x86_64 => 0,
+        .aarch64 => 2,
+        else => unreachable,
+    };
     const local_sym_index = @intCast(u32, self.locals.items.len);
     try self.locals.append(self.base.allocator, .{
         .n_strx = try self.makeString("stub_in_stub_helper"),
@@ -2194,7 +2199,7 @@ fn createStubHelperAtom(self: *MachO) !*TextBlock {
     const atom = try self.createEmptyAtom(.{
         .seg = self.text_segment_cmd_index.?,
         .sect = self.stub_helper_section_index.?,
-    }, local_sym_index, stub_size, 2);
+    }, local_sym_index, stub_size, alignment);
     try atom.relocs.ensureTotalCapacity(self.base.allocator, 1);
 
     switch (arch) {
