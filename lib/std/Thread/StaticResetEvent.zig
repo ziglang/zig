@@ -194,7 +194,7 @@ pub const AtomicEvent = struct {
             _ = wake_count;
             const waiting = std.math.maxInt(i32); // wake_count
             const ptr = @ptrCast(*const i32, waiters);
-            const rc = linux.futex_wake(ptr, linux.FUTEX_WAKE | linux.FUTEX_PRIVATE_FLAG, waiting);
+            const rc = linux.futex_wake(ptr, linux.FUTEX.WAKE | linux.FUTEX.PRIVATE_FLAG, waiting);
             assert(linux.getErrno(rc) == .SUCCESS);
         }
 
@@ -213,7 +213,7 @@ pub const AtomicEvent = struct {
                     return;
                 const expected = @intCast(i32, waiting);
                 const ptr = @ptrCast(*const i32, waiters);
-                const rc = linux.futex_wait(ptr, linux.FUTEX_WAIT | linux.FUTEX_PRIVATE_FLAG, expected, ts_ptr);
+                const rc = linux.futex_wait(ptr, linux.FUTEX.WAIT | linux.FUTEX.PRIVATE_FLAG, expected, ts_ptr);
                 switch (linux.getErrno(rc)) {
                     .SUCCESS => continue,
                     .TIMEDOUT => return error.TimedOut,

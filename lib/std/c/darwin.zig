@@ -4,8 +4,6 @@ const builtin = @import("builtin");
 const macho = std.macho;
 const native_arch = builtin.target.cpu.arch;
 
-usingnamespace @import("../os/bits.zig");
-
 extern "c" fn __error() *c_int;
 pub extern "c" fn NSVersionOfRunTimeLibrary(library_name: [*:0]const u8) u32;
 pub extern "c" fn _NSGetExecutablePath(buf: [*:0]u8, bufsize: *u32) c_int;

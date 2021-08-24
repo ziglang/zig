@@ -907,35 +907,35 @@ pub const Dir = struct {
             return self.openFileW(path_w.span(), flags);
         }
 
-        var os_flags: u32 = os.O_CLOEXEC;
+        var os_flags: u32 = os.O.CLOEXEC;
         // Use the O_ locking flags if the os supports them to acquire the lock
         // atomically.
-        const has_flock_open_flags = @hasDecl(os, "O_EXLOCK");
+        const has_flock_open_flags = @hasDecl(os.O, "EXLOCK");
         if (has_flock_open_flags) {
             // Note that the O_NONBLOCK flag is removed after the openat() call
             // is successful.
             const nonblocking_lock_flag: u32 = if (flags.lock_nonblocking)
-                os.O_NONBLOCK
+                os.O.NONBLOCK
             else
                 0;
             os_flags |= switch (flags.lock) {
                 .None => @as(u32, 0),
-                .Shared => os.O_SHLOCK | nonblocking_lock_flag,
-                .Exclusive => os.O_EXLOCK | nonblocking_lock_flag,
+                .Shared => os.O.SHLOCK | nonblocking_lock_flag,
+                .Exclusive => os.O.EXLOCK | nonblocking_lock_flag,
             };
         }
-        if (@hasDecl(os, "O_LARGEFILE")) {
-            os_flags |= os.O_LARGEFILE;
+        if (@hasDecl(os.O, "LARGEFILE")) {
+            os_flags |= os.O.LARGEFILE;
         }
         if (!flags.allow_ctty) {
-            os_flags |= os.O_NOCTTY;
+            os_flags |= os.O.NOCTTY;
         }
         os_flags |= if (flags.write and flags.read)
-            @as(u32, os.O_RDWR)
+            @as(u32, os.O.RDWR)
         else if (flags.write)
-            @as(u32, os.O_WRONLY)
+            @as(u32, os.O.WRONLY)
         else
-            @as(u32, os.O_RDONLY);
+            @as(u32, os.O.RDONLY);
         const fd = if (flags.intended_io_mode != .blocking)
             try std.event.Loop.instance.?.openatZ(self.fd, sub_path, os_flags, 0)
         else
@@ -947,11 +947,11 @@ pub const Dir = struct {
         if (builtin.target.os.tag != .wasi) {
             if (!has_flock_open_flags and flags.lock != .None) {
                 // TODO: integrate async I/O
-                const lock_nonblocking = if (flags.lock_nonblocking) os.LOCK_NB else @as(i32, 0);
+                const lock_nonblocking = if (flags.lock_nonblocking) os.LOCK.NB else @as(i32, 0);
                 try os.flock(fd, switch (flags.lock) {
                     .None => unreachable,
-                    .Shared => os.LOCK_SH | lock_nonblocking,
-                    .Exclusive => os.LOCK_EX | lock_nonblocking,
+                    .Shared => os.LOCK.SH | lock_nonblocking,
+                    .Exclusive => os.LOCK.EX | lock_nonblocking,
                 });
             }
         }
@@ -963,7 +963,7 @@ pub const Dir = struct {
                 error.PermissionDenied => unreachable,
                 else => |e| return e,
             };
-            fl_flags &= ~@as(usize, os.O_NONBLOCK);
+            fl_flags &= ~@as(usize, os.O.NONBLOCK);
             _ = os.fcntl(fd, os.F_SETFL, fl_flags) catch |err| switch (err) {
                 error.FileBusy => unreachable,
                 error.Locked => unreachable,
@@ -1038,7 +1038,7 @@ pub const Dir = struct {
     /// Same as `createFile` but WASI only.
     pub fn createFileWasi(self: Dir, sub_path: []const u8, flags: File.CreateFlags) File.OpenError!File {
         const w = os.wasi;
-        var oflags = w.O_CREAT;
+        var oflags = w.O.CREAT;
         var base: w.rights_t = w.RIGHT_FD_WRITE |
             w.RIGHT_FD_DATASYNC |
             w.RIGHT_FD_SEEK |
@@ -1054,10 +1054,10 @@ pub const Dir = struct {
             base |= w.RIGHT_FD_READ;
         }
         if (flags.truncate) {
-            oflags |= w.O_TRUNC;
+            oflags |= w.O.TRUNC;
         }
         if (flags.exclusive) {
-            oflags |= w.O_EXCL;
+            oflags |= w.O.EXCL;
         }
         const fd = try os.openatWasi(self.fd, sub_path, 0x0, oflags, 0x0, base, 0x0);
         return File{ .handle = fd };
@@ -1072,24 +1072,24 @@ pub const Dir = struct {
 
         // Use the O_ locking flags if the os supports them to acquire the lock
         // atomically.
-        const has_flock_open_flags = @hasDecl(os, "O_EXLOCK");
+        const has_flock_open_flags = @hasDecl(os.O, "EXLOCK");
         // Note that the O_NONBLOCK flag is removed after the openat() call
         // is successful.
         const nonblocking_lock_flag: u32 = if (has_flock_open_flags and flags.lock_nonblocking)
-            os.O_NONBLOCK
+            os.O.NONBLOCK
         else
             0;
         const lock_flag: u32 = if (has_flock_open_flags) switch (flags.lock) {
             .None => @as(u32, 0),
-            .Shared => os.O_SHLOCK | nonblocking_lock_flag,
-            .Exclusive => os.O_EXLOCK | nonblocking_lock_flag,
+            .Shared => os.O.SHLOCK | nonblocking_lock_flag,
+            .Exclusive => os.O.EXLOCK | nonblocking_lock_flag,
         } else 0;
 
-        const O_LARGEFILE = if (@hasDecl(os, "O_LARGEFILE")) os.O_LARGEFILE else 0;
-        const os_flags = lock_flag | O_LARGEFILE | os.O_CREAT | os.O_CLOEXEC |
-            (if (flags.truncate) @as(u32, os.O_TRUNC) else 0) |
-            (if (flags.read) @as(u32, os.O_RDWR) else os.O_WRONLY) |
-            (if (flags.exclusive) @as(u32, os.O_EXCL) else 0);
+        const O_LARGEFILE = if (@hasDecl(os.O, "LARGEFILE")) os.O.LARGEFILE else 0;
+        const os_flags = lock_flag | O_LARGEFILE | os.O.CREAT | os.O.CLOEXEC |
+            (if (flags.truncate) @as(u32, os.O.TRUNC) else 0) |
+            (if (flags.read) @as(u32, os.O.RDWR) else os.O.WRONLY) |
+            (if (flags.exclusive) @as(u32, os.O.EXCL) else 0);
         const fd = if (flags.intended_io_mode != .blocking)
             try std.event.Loop.instance.?.openatZ(self.fd, sub_path_c, os_flags, flags.mode)
         else
@@ -1101,11 +1101,11 @@ pub const Dir = struct {
         if (builtin.target.os.tag != .wasi) {
             if (!has_flock_open_flags and flags.lock != .None) {
                 // TODO: integrate async I/O
-                const lock_nonblocking = if (flags.lock_nonblocking) os.LOCK_NB else @as(i32, 0);
+                const lock_nonblocking = if (flags.lock_nonblocking) os.LOCK.NB else @as(i32, 0);
                 try os.flock(fd, switch (flags.lock) {
                     .None => unreachable,
-                    .Shared => os.LOCK_SH | lock_nonblocking,
-                    .Exclusive => os.LOCK_EX | lock_nonblocking,
+                    .Shared => os.LOCK.SH | lock_nonblocking,
+                    .Exclusive => os.LOCK.EX | lock_nonblocking,
                 });
             }
         }
@@ -1117,7 +1117,7 @@ pub const Dir = struct {
                 error.PermissionDenied => unreachable,
                 else => |e| return e,
             };
-            fl_flags &= ~@as(usize, os.O_NONBLOCK);
+            fl_flags &= ~@as(usize, os.O.NONBLOCK);
             _ = os.fcntl(fd, os.F_SETFL, fl_flags) catch |err| switch (err) {
                 error.FileBusy => unreachable,
                 error.Locked => unreachable,
@@ -1262,7 +1262,7 @@ pub const Dir = struct {
             return self.realpathW(pathname_w.span(), out_buffer);
         }
 
-        const flags = if (builtin.os.tag == .linux) os.O_PATH | os.O_NONBLOCK | os.O_CLOEXEC else os.O_NONBLOCK | os.O_CLOEXEC;
+        const flags = if (builtin.os.tag == .linux) os.O.PATH | os.O.NONBLOCK | os.O.CLOEXEC else os.O.NONBLOCK | os.O.CLOEXEC;
         const fd = os.openatZ(self.fd, pathname, flags, 0) catch |err| switch (err) {
             error.FileLocksNotSupported => unreachable,
             else => |e| return e,
@@ -1423,7 +1423,7 @@ pub const Dir = struct {
         // TODO do we really need all the rights here?
         const inheriting: w.rights_t = w.RIGHT_ALL ^ w.RIGHT_SOCK_SHUTDOWN;
 
-        const result = os.openatWasi(self.fd, sub_path, symlink_flags, w.O_DIRECTORY, 0x0, base, inheriting);
+        const result = os.openatWasi(self.fd, sub_path, symlink_flags, w.O.DIRECTORY, 0x0, base, inheriting);
         const fd = result catch |err| switch (err) {
             error.FileTooBig => unreachable, // can't happen for directories
             error.IsDir => unreachable, // we're providing O_DIRECTORY
@@ -1442,12 +1442,12 @@ pub const Dir = struct {
             const sub_path_w = try os.windows.cStrToPrefixedFileW(sub_path_c);
             return self.openDirW(sub_path_w.span().ptr, args);
         }
-        const symlink_flags: u32 = if (args.no_follow) os.O_NOFOLLOW else 0x0;
+        const symlink_flags: u32 = if (args.no_follow) os.O.NOFOLLOW else 0x0;
         if (!args.iterate) {
-            const O_PATH = if (@hasDecl(os, "O_PATH")) os.O_PATH else 0;
-            return self.openDirFlagsZ(sub_path_c, os.O_DIRECTORY | os.O_RDONLY | os.O_CLOEXEC | O_PATH | symlink_flags);
+            const O_PATH = if (@hasDecl(os.O, "PATH")) os.O.PATH else 0;
+            return self.openDirFlagsZ(sub_path_c, os.O.DIRECTORY | os.O.RDONLY | os.O.CLOEXEC | O_PATH | symlink_flags);
         } else {
-            return self.openDirFlagsZ(sub_path_c, os.O_DIRECTORY | os.O_RDONLY | os.O_CLOEXEC | symlink_flags);
+            return self.openDirFlagsZ(sub_path_c, os.O.DIRECTORY | os.O.RDONLY | os.O.CLOEXEC | symlink_flags);
         }
     }
 
@@ -2132,7 +2132,7 @@ pub fn cwd() Dir {
     } else if (builtin.os.tag == .wasi and !builtin.link_libc) {
         @compileError("WASI doesn't have a concept of cwd(); use std.fs.wasi.PreopenList to get available Dir handles instead");
     } else {
-        return Dir{ .fd = os.AT_FDCWD };
+        return Dir{ .fd = os.AT.FDCWD };
     }
 }
 

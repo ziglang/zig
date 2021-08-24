@@ -10,8 +10,6 @@ test {
     _ = tokenizer;
 }
 
-pub usingnamespace @import("os/bits.zig");
-
 pub usingnamespace switch (std.Target.current.os.tag) {
     .linux => @import("c/linux.zig"),
     .windows => @import("c/windows.zig"),

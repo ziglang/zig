@@ -4,8 +4,6 @@
 const std = @import("std");
 const assert = std.debug.assert;
 
-pub usingnamespace @import("bits.zig");
-
 comptime {
     assert(@alignOf(i8) == 1);
     assert(@alignOf(u8) == 1);

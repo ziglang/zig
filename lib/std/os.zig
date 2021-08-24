@@ -16,7 +16,7 @@
 
 const root = @import("root");
 const std = @import("std.zig");
-const builtin = std.builtin;
+const builtin = @import("builtin");
 const assert = std.debug.assert;
 const math = std.math;
 const mem = std.mem;
@@ -24,12 +24,12 @@ const elf = std.elf;
 const dl = @import("dynamic_library.zig");
 const MAX_PATH_BYTES = std.fs.MAX_PATH_BYTES;
 
-pub const darwin = @import("os/darwin.zig");
-pub const dragonfly = @import("os/dragonfly.zig");
-pub const freebsd = @import("os/freebsd.zig");
-pub const haiku = @import("os/haiku.zig");
-pub const netbsd = @import("os/netbsd.zig");
-pub const openbsd = @import("os/openbsd.zig");
+pub const darwin = std.c;
+pub const dragonfly = std.c;
+pub const freebsd = std.c;
+pub const haiku = std.c;
+pub const netbsd = std.c;
+pub const openbsd = std.c;
 pub const linux = @import("os/linux.zig");
 pub const uefi = @import("os/uefi.zig");
 pub const wasi = @import("os/wasi.zig");
@@ -73,7 +73,102 @@ else switch (builtin.os.tag) {
     else => struct {},
 };
 
-pub usingnamespace @import("os/bits.zig");
+const bits = switch (builtin.os.tag) {
+    .macos, .ios, .tvos, .watchos => std.c,
+    .dragonfly => @import("os/bits/dragonfly.zig"),
+    .freebsd => @import("os/bits/freebsd.zig"),
+    .haiku => @import("os/bits/haiku.zig"),
+    .linux => linux,
+    .netbsd => @import("os/bits/netbsd.zig"),
+    .openbsd => @import("os/bits/openbsd.zig"),
+    .wasi => @import("os/bits/wasi.zig"),
+    .windows => @import("os/bits/windows.zig"),
+    else => struct {},
+};
+pub const E = bits.E;
+pub const ARCH = bits.ARCH;
+pub const Elf_Symndx = bits.Elf_Symndx;
+pub const F = bits.F;
+pub const Flock = bits.Flock;
+pub const LOCK = bits.LOCK;
+pub const MAP = bits.MAP;
+pub const MMAP2_UNIT = bits.MMAP2_UNIT;
+pub const O = bits.O;
+pub const REG = bits.REG;
+pub const SC = bits.SC;
+pub const SYS = bits.SYS;
+pub const VDSO = bits.VDSO;
+pub const blkcnt_t = bits.blkcnt_t;
+pub const blksize_t = bits.blksize_t;
+pub const dev_t = bits.dev_t;
+pub const ino_t = bits.ino_t;
+pub const kernel_stat = bits.kernel_stat;
+pub const libc_stat = bits.libc_stat;
+pub const mcontext_t = bits.mcontext_t;
+pub const mode_t = bits.mode_t;
+pub const msghdr = bits.msghdr;
+pub const msghdr_const = bits.msghdr_const;
+pub const nlink_t = bits.nlink_t;
+pub const off_t = bits.off_t;
+pub const time_t = bits.time_t;
+pub const timespec = bits.timespec;
+pub const timeval = bits.timeval;
+pub const timezone = bits.timezone;
+pub const ucontext_t = bits.ucontext_t;
+pub const user_desc = bits.user_desc;
+pub const pid_t = bits.pid_t;
+pub const fd_t = bits.fd_t;
+pub const uid_t = bits.uid_t;
+pub const gid_t = bits.gid_t;
+pub const clock_t = bits.clock_t;
+pub const NAME_MAX = bits.NAME_MAX;
+pub const PATH_MAX = bits.PATH_MAX;
+pub const IOV_MAX = bits.IOV_MAX;
+pub const MAX_ADDR_LEN = bits.MAX_ADDR_LEN;
+pub const STDIN_FILENO = bits.STDIN_FILENO;
+pub const STDOUT_FILENO = bits.STDIN_FILENO;
+pub const STDERR_FILENO = bits.STDIN_FILENO;
+pub const AT = bits.AT;
+pub const PROT = bits.PROT;
+pub const CLOCK = bits.CLOCK;
+pub const dl_phdr_info = bits.dl_phdr_info;
+pub const Sigaction = bits.Sigaction;
+pub const rlimit_resource = bits.rlimit_resource;
+pub const SIG = bits.SIG;
+pub const rlimit = bits.rlimit;
+pub const empty_sigset = bits.empty_sigset;
+pub const S = bits.S;
+pub const siginfo_t = bits.siginfo_t;
+pub const SA = bits.SA;
+
+pub const iovec = extern struct {
+    iov_base: [*]u8,
+    iov_len: usize,
+};
+
+pub const iovec_const = extern struct {
+    iov_base: [*]const u8,
+    iov_len: usize,
+};
+
+pub const LOG = struct {
+    /// system is unusable
+    pub const EMERG = 0;
+    /// action must be taken immediately
+    pub const ALERT = 1;
+    /// critical conditions
+    pub const CRIT = 2;
+    /// error conditions
+    pub const ERR = 3;
+    /// warning conditions
+    pub const WARNING = 4;
+    /// normal but significant condition
+    pub const NOTICE = 5;
+    /// informational
+    pub const INFO = 6;
+    /// debug-level messages
+    pub const DEBUG = 7;
+};
 
 pub const socket_t = if (builtin.os.tag == .windows) windows.ws2_32.SOCKET else fd_t;
 
@@ -136,7 +231,7 @@ pub fn getrandom(buffer: []u8) GetRandomError!void {
     if (builtin.os.tag == .linux or builtin.os.tag == .freebsd) {
         var buf = buffer;
         const use_c = builtin.os.tag != .linux or
-            std.c.versionCheck(builtin.Version{ .major = 2, .minor = 25, .patch = 0 }).ok;
+            std.c.versionCheck(std.builtin.Version{ .major = 2, .minor = 25, .patch = 0 }).ok;
 
         while (buf.len != 0) {
             const res = if (use_c) blk: {
@@ -210,11 +305,11 @@ pub fn abort() noreturn {
         windows.kernel32.ExitProcess(3);
     }
     if (!builtin.link_libc and builtin.os.tag == .linux) {
-        raise(SIGABRT) catch {};
+        raise(SIG.ABRT) catch {};
 
         // TODO the rest of the implementation of abort() from musl libc here
 
-        raise(SIGKILL) catch {};
+        raise(SIG.KILL) catch {};
         exit(127);
     }
     if (builtin.os.tag == .uefi) {
@@ -239,15 +334,15 @@ pub fn raise(sig: u8) RaiseError!void {
     }
 
     if (builtin.os.tag == .linux) {
-        var set: linux.sigset_t = undefined;
+        var set: bits.sigset_t = undefined;
         // block application signals
-        _ = linux.sigprocmask(SIG_BLOCK, &linux.app_mask, &set);
+        _ = linux.sigprocmask(SIG.BLOCK, &linux.app_mask, &set);
 
         const tid = linux.gettid();
         const rc = linux.tkill(tid, sig);
 
         // restore signal mask
-        _ = linux.sigprocmask(SIG_SETMASK, &set, null);
+        _ = linux.sigprocmask(SIG.SETMASK, &set, null);
 
         switch (errno(rc)) {
             .SUCCESS => return,
@@ -2676,7 +2771,7 @@ pub fn isatty(handle: fd_t) bool {
         while (true) {
             var wsz: linux.winsize = undefined;
             const fd = @bitCast(usize, @as(isize, handle));
-            const rc = linux.syscall3(.ioctl, fd, linux.TIOCGWINSZ, @ptrToInt(&wsz));
+            const rc = linux.syscall3(.ioctl, fd, linux.T.IOCGWINSZ, @ptrToInt(&wsz));
             switch (linux.getErrno(rc)) {
                 .SUCCESS => return true,
                 .INTR => continue,
@@ -4679,7 +4774,7 @@ pub fn clock_gettime(clk_id: i32, tp: *timespec) ClockGetTimeError!void {
         return;
     }
     if (std.Target.current.os.tag == .windows) {
-        if (clk_id == CLOCK_REALTIME) {
+        if (clk_id == CLOCK.REALTIME) {
             var ft: windows.FILETIME = undefined;
             windows.kernel32.GetSystemTimeAsFileTime(&ft);
             // FileTime has a granularity of 100 nanoseconds and uses the NTFS/Windows epoch.
@@ -4691,7 +4786,7 @@ pub fn clock_gettime(clk_id: i32, tp: *timespec) ClockGetTimeError!void {
             };
             return;
         } else {
-            // TODO POSIX implementation of CLOCK_MONOTONIC on Windows.
+            // TODO POSIX implementation of CLOCK.MONOTONIC on Windows.
             return error.UnsupportedClock;
         }
     }
@@ -4929,7 +5024,7 @@ pub fn res_mkquery(
 
     // Make a reasonably unpredictable id
     var ts: timespec = undefined;
-    clock_gettime(CLOCK_REALTIME, &ts) catch {};
+    clock_gettime(CLOCK.REALTIME, &ts) catch {};
     const UInt = std.meta.Int(.unsigned, std.meta.bitCount(@TypeOf(ts.tv_nsec)));
     const unsec = @bitCast(UInt, ts.tv_nsec);
     const id = @truncate(u32, unsec + unsec / 65536);

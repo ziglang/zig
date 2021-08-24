@@ -948,8 +948,8 @@ fn mapWholeFile(file: File) ![]align(mem.page_size) const u8 {
         const mapped_mem = try os.mmap(
             null,
             file_len,
-            os.PROT_READ,
-            os.MAP_SHARED,
+            os.PROT.READ,
+            os.MAP.SHARED,
             file.handle,
             0,
         );
@@ -1498,12 +1498,12 @@ pub fn attachSegfaultHandler() void {
     var act = os.Sigaction{
         .handler = .{ .sigaction = handleSegfaultLinux },
         .mask = os.empty_sigset,
-        .flags = (os.SA_SIGINFO | os.SA_RESTART | os.SA_RESETHAND),
+        .flags = (os.SA.SIGINFO | os.SA.RESTART | os.SA.RESETHAND),
     };
 
-    os.sigaction(os.SIGSEGV, &act, null);
-    os.sigaction(os.SIGILL, &act, null);
-    os.sigaction(os.SIGBUS, &act, null);
+    os.sigaction(os.SIG.SEGV, &act, null);
+    os.sigaction(os.SIG.ILL, &act, null);
+    os.sigaction(os.SIG.BUS, &act, null);
 }
 
 fn resetSegfaultHandler() void {
@@ -1515,13 +1515,13 @@ fn resetSegfaultHandler() void {
         return;
     }
     var act = os.Sigaction{
-        .handler = .{ .sigaction = os.SIG_DFL },
+        .handler = .{ .sigaction = os.SIG.DFL },
         .mask = os.empty_sigset,
         .flags = 0,
     };
-    os.sigaction(os.SIGSEGV, &act, null);
-    os.sigaction(os.SIGILL, &act, null);
-    os.sigaction(os.SIGBUS, &act, null);
+    os.sigaction(os.SIG.SEGV, &act, null);
+    os.sigaction(os.SIG.ILL, &act, null);
+    os.sigaction(os.SIG.BUS, &act, null);
 }
 
 fn handleSegfaultLinux(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const c_void) callconv(.C) noreturn {
@@ -1542,9 +1542,9 @@ fn handleSegfaultLinux(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const c_v
     nosuspend {
         const stderr = io.getStdErr().writer();
         _ = switch (sig) {
-            os.SIGSEGV => stderr.print("Segmentation fault at address 0x{x}\n", .{addr}),
-            os.SIGILL => stderr.print("Illegal instruction at address 0x{x}\n", .{addr}),
-            os.SIGBUS => stderr.print("Bus error at address 0x{x}\n", .{addr}),
+            os.SIG.SEGV => stderr.print("Segmentation fault at address 0x{x}\n", .{addr}),
+            os.SIG.ILL => stderr.print("Illegal instruction at address 0x{x}\n", .{addr}),
+            os.SIG.BUS => stderr.print("Bus error at address 0x{x}\n", .{addr}),
             else => unreachable,
         } catch os.abort();
     }
@@ -1552,20 +1552,20 @@ fn handleSegfaultLinux(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const c_v
     switch (native_arch) {
         .i386 => {
             const ctx = @ptrCast(*const os.ucontext_t, @alignCast(@alignOf(os.ucontext_t), ctx_ptr));
-            const ip = @intCast(usize, ctx.mcontext.gregs[os.REG_EIP]);
-            const bp = @intCast(usize, ctx.mcontext.gregs[os.REG_EBP]);
+            const ip = @intCast(usize, ctx.mcontext.gregs[os.REG.EIP]);
+            const bp = @intCast(usize, ctx.mcontext.gregs[os.REG.EBP]);
             dumpStackTraceFromBase(bp, ip);
         },
         .x86_64 => {
             const ctx = @ptrCast(*const os.ucontext_t, @alignCast(@alignOf(os.ucontext_t), ctx_ptr));
             const ip = switch (native_os) {
-                .linux, .netbsd => @intCast(usize, ctx.mcontext.gregs[os.REG_RIP]),
+                .linux, .netbsd => @intCast(usize, ctx.mcontext.gregs[os.REG.RIP]),
                 .freebsd => @intCast(usize, ctx.mcontext.rip),
                 .openbsd => @intCast(usize, ctx.sc_rip),
                 else => unreachable,
             };
             const bp = switch (native_os) {
-                .linux, .netbsd => @intCast(usize, ctx.mcontext.gregs[os.REG_RBP]),
+                .linux, .netbsd => @intCast(usize, ctx.mcontext.gregs[os.REG.RBP]),
                 .openbsd => @intCast(usize, ctx.sc_rbp),
                 .freebsd => @intCast(usize, ctx.mcontext.rbp),
                 else => unreachable,

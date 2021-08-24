@@ -24,7 +24,7 @@ pub fn sleep(nanoseconds: u64) void {
         const w = std.os.wasi;
         const userdata: w.userdata_t = 0x0123_45678;
         const clock = w.subscription_clock_t{
-            .id = w.CLOCK_MONOTONIC,
+            .id = w.CLOCK.MONOTONIC,
             .timeout = nanoseconds,
             .precision = 0,
             .flags = 0,
@@ -152,7 +152,7 @@ pub const Timer = struct {
     /// At some point we may change our minds on RAW, but for now we're
     /// sticking with posix standard MONOTONIC. For more information, see:
     /// https://github.com/ziglang/zig/pull/933
-    const monotonic_clock_id = os.CLOCK_MONOTONIC;
+    const monotonic_clock_id = os.CLOCK.MONOTONIC;
 
     /// Initialize the timer structure.
     /// Can only fail when running in a hostile environment that intentionally injects
@@ -161,7 +161,7 @@ pub const Timer = struct {
     pub fn start() Error!Timer {
         // This gives us an opportunity to grab the counter frequency in windows.
         // On Windows: QueryPerformanceCounter will succeed on anything >= XP/2000.
-        // On Posix: CLOCK_MONOTONIC will only fail if the monotonic counter is not
+        // On Posix: CLOCK.MONOTONIC will only fail if the monotonic counter is not
         // supported, or if the timespec pointer is out of bounds, which should be
         // impossible here barring cosmic rays or other such occurrences of
         // incredibly bad luck.
