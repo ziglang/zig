@@ -6876,9 +6876,28 @@ fn zirEmbedFile(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileE
 }
 
 fn zirErrorName(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+    const tracy = trace(@src());
+    defer tracy.end();
+
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
-    return sema.mod.fail(&block.base, src, "TODO: Sema.zirErrorName", .{});
+    _ = src;
+    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
+    const op = sema.resolveInst(inst_data.operand);
+    const op_coerced = try sema.coerce(block, Type.initTag(.anyerror), op, operand_src);
+
+    if (try sema.resolveDefinedValue(block, src, op_coerced)) |val| {
+        var anon = try block.startAnonDecl();
+        errdefer anon.deinit();
+
+        const bytes = try anon.new_decl_arena.allocator.dupe(u8, val.castTag(.@"error").?.data.name);
+        const decl_ty = try Type.Tag.array_u8_sentinel_0.create(&anon.new_decl_arena.allocator, bytes.len);
+        const decl_val = try Value.Tag.bytes.create(&anon.new_decl_arena.allocator, bytes);
+
+        return sema.analyzeDeclRef(try anon.finish(decl_ty, decl_val));
+    }
+
+    return sema.mod.fail(&block.base, src, "TODO: Sema.zirErrorName at runtime", .{});
 }
 
 fn zirUnaryMath(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -8570,6 +8589,14 @@ fn coerce(
         .ErrorUnion => {
             // T to E!T or E to E!T
             return sema.wrapErrorUnion(block, dest_type, inst, inst_src);
+        },
+        .ErrorSet => {
+            // error.Joe to anyerror
+            if (dest_type.tag() == .anyerror and inst_ty.tag() == .error_set_single) {
+                if (try sema.resolveDefinedValue(block, inst_src, inst)) |val| {
+                    return sema.addConstant(dest_type, val);
+                }
+            }
         },
         else => {},
     }
