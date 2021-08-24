@@ -1,5 +1,3 @@
-usingnamespace @import("../bits/linux.zig");
-
 pub fn syscall0(number: SYS) usize {
     return asm volatile ("int $0x80"
         : [ret] "={eax}" (-> usize),

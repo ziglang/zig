@@ -1,5 +1,3 @@
-usingnamespace @import("../os/bits.zig");
-
 extern threadlocal var errno: c_int;
 
 pub fn _errno() *c_int {

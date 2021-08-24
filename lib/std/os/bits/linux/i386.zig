@@ -448,94 +448,145 @@ pub const SYS = enum(usize) {
     _,
 };
 
-pub const O_CREAT = 0o100;
-pub const O_EXCL = 0o200;
-pub const O_NOCTTY = 0o400;
-pub const O_TRUNC = 0o1000;
-pub const O_APPEND = 0o2000;
-pub const O_NONBLOCK = 0o4000;
-pub const O_DSYNC = 0o10000;
-pub const O_SYNC = 0o4010000;
-pub const O_RSYNC = 0o4010000;
-pub const O_DIRECTORY = 0o200000;
-pub const O_NOFOLLOW = 0o400000;
-pub const O_CLOEXEC = 0o2000000;
+pub const O = struct {
+    pub const RDONLY = 0o0;
+    pub const WRONLY = 0o1;
+    pub const RDWR = 0o2;
 
-pub const O_ASYNC = 0o20000;
-pub const O_DIRECT = 0o40000;
-pub const O_LARGEFILE = 0o100000;
-pub const O_NOATIME = 0o1000000;
-pub const O_PATH = 0o10000000;
-pub const O_TMPFILE = 0o20200000;
-pub const O_NDELAY = O_NONBLOCK;
+    pub const CREAT = 0o100;
+    pub const EXCL = 0o200;
+    pub const NOCTTY = 0o400;
+    pub const TRUNC = 0o1000;
+    pub const APPEND = 0o2000;
+    pub const NONBLOCK = 0o4000;
+    pub const DSYNC = 0o10000;
+    pub const SYNC = 0o4010000;
+    pub const RSYNC = 0o4010000;
+    pub const DIRECTORY = 0o200000;
+    pub const NOFOLLOW = 0o400000;
+    pub const CLOEXEC = 0o2000000;
 
-pub const F_DUPFD = 0;
-pub const F_GETFD = 1;
-pub const F_SETFD = 2;
-pub const F_GETFL = 3;
-pub const F_SETFL = 4;
+    pub const ASYNC = 0o20000;
+    pub const DIRECT = 0o40000;
+    pub const LARGEFILE = 0o100000;
+    pub const NOATIME = 0o1000000;
+    pub const PATH = 0o10000000;
+    pub const TMPFILE = 0o20200000;
+    pub const NDELAY = NONBLOCK;
+};
 
-pub const F_SETOWN = 8;
-pub const F_GETOWN = 9;
-pub const F_SETSIG = 10;
-pub const F_GETSIG = 11;
+pub const F = struct {
+    pub const DUPFD = 0;
+    pub const GETFD = 1;
+    pub const SETFD = 2;
+    pub const GETFL = 3;
+    pub const SETFL = 4;
+    pub const SETOWN = 8;
+    pub const GETOWN = 9;
+    pub const SETSIG = 10;
+    pub const GETSIG = 11;
+    pub const GETLK = 12;
+    pub const SETLK = 13;
+    pub const SETLKW = 14;
+    pub const SETOWN_EX = 15;
+    pub const GETOWN_EX = 16;
+    pub const GETOWNER_UIDS = 17;
 
-pub const F_GETLK = 12;
-pub const F_SETLK = 13;
-pub const F_SETLKW = 14;
+    pub const RDLCK = 0;
+    pub const WRLCK = 1;
+    pub const UNLCK = 2;
+};
 
-pub const F_RDLCK = 0;
-pub const F_WRLCK = 1;
-pub const F_UNLCK = 2;
+pub const LOCK = struct {
+    pub const SH = 1;
+    pub const EX = 2;
+    pub const NB = 4;
+    pub const UN = 8;
+};
 
-pub const LOCK_SH = 1;
-pub const LOCK_EX = 2;
-pub const LOCK_UN = 8;
-pub const LOCK_NB = 4;
+pub const MAP = struct {
+    /// Share changes
+    pub const SHARED = 0x01;
 
-pub const F_SETOWN_EX = 15;
-pub const F_GETOWN_EX = 16;
+    /// Changes are private
+    pub const PRIVATE = 0x02;
 
-pub const F_GETOWNER_UIDS = 17;
+    /// share + validate extension flags
+    pub const SHARED_VALIDATE = 0x03;
 
-pub const MAP_NORESERVE = 0x4000;
-pub const MAP_GROWSDOWN = 0x0100;
-pub const MAP_DENYWRITE = 0x0800;
-pub const MAP_EXECUTABLE = 0x1000;
-pub const MAP_LOCKED = 0x2000;
-pub const MAP_32BIT = 0x40;
+    /// Mask for type of mapping
+    pub const TYPE = 0x0f;
+
+    /// Interpret addr exactly
+    pub const FIXED = 0x10;
+
+    /// don't use a file
+    pub const ANONYMOUS = if (is_mips) 0x800 else 0x20;
+
+    /// populate (prefault) pagetables
+    pub const POPULATE = if (is_mips) 0x10000 else 0x8000;
+
+    /// do not block on IO
+    pub const NONBLOCK = if (is_mips) 0x20000 else 0x10000;
+
+    /// give out an address that is best suited for process/thread stacks
+    pub const STACK = if (is_mips) 0x40000 else 0x20000;
+
+    /// create a huge page mapping
+    pub const HUGETLB = if (is_mips) 0x80000 else 0x40000;
+
+    /// perform synchronous page faults for the mapping
+    pub const SYNC = 0x80000;
+
+    /// FIXED which doesn't unmap underlying mapping
+    pub const FIXED_NOREPLACE = 0x100000;
+
+    /// For anonymous mmap, memory could be uninitialized
+    pub const UNINITIALIZED = 0x4000000;
+
+    pub const NORESERVE = 0x4000;
+    pub const GROWSDOWN = 0x0100;
+    pub const DENYWRITE = 0x0800;
+    pub const EXECUTABLE = 0x1000;
+    pub const LOCKED = 0x2000;
+    pub const @"32BIT" = 0x40;
+};
 
 pub const MMAP2_UNIT = 4096;
 
-pub const VDSO_CGT_SYM = "__vdso_clock_gettime";
-pub const VDSO_CGT_VER = "LINUX_2.6";
+pub const VDSO = struct {
+    pub const CGT_SYM = "__vdso_clock_gettime";
+    pub const CGT_VER = "LINUX_2.6";
+};
+
+pub const ARCH = struct {};
 
 pub const Flock = extern struct {
-    l_type: i16,
-    l_whence: i16,
-    l_start: off_t,
-    l_len: off_t,
-    l_pid: pid_t,
+    type: i16,
+    whence: i16,
+    start: off_t,
+    len: off_t,
+    pid: pid_t,
 };
 
 pub const msghdr = extern struct {
-    msg_name: ?*sockaddr,
-    msg_namelen: socklen_t,
-    msg_iov: [*]iovec,
-    msg_iovlen: i32,
-    msg_control: ?*c_void,
-    msg_controllen: socklen_t,
-    msg_flags: i32,
+    name: ?*sockaddr,
+    namelen: socklen_t,
+    iov: [*]iovec,
+    iovlen: i32,
+    control: ?*c_void,
+    controllen: socklen_t,
+    flags: i32,
 };
 
 pub const msghdr_const = extern struct {
-    msg_name: ?*const sockaddr,
-    msg_namelen: socklen_t,
-    msg_iov: [*]iovec_const,
-    msg_iovlen: i32,
-    msg_control: ?*c_void,
-    msg_controllen: socklen_t,
-    msg_flags: i32,
+    name: ?*const sockaddr,
+    namelen: socklen_t,
+    iov: [*]iovec_const,
+    iovlen: i32,
+    control: ?*c_void,
+    controllen: socklen_t,
+    flags: i32,
 };
 
 pub const blksize_t = i32;
@@ -604,25 +655,27 @@ pub const mcontext_t = extern struct {
     cr2: usize,
 };
 
-pub const REG_GS = 0;
-pub const REG_FS = 1;
-pub const REG_ES = 2;
-pub const REG_DS = 3;
-pub const REG_EDI = 4;
-pub const REG_ESI = 5;
-pub const REG_EBP = 6;
-pub const REG_ESP = 7;
-pub const REG_EBX = 8;
-pub const REG_EDX = 9;
-pub const REG_ECX = 10;
-pub const REG_EAX = 11;
-pub const REG_TRAPNO = 12;
-pub const REG_ERR = 13;
-pub const REG_EIP = 14;
-pub const REG_CS = 15;
-pub const REG_EFL = 16;
-pub const REG_UESP = 17;
-pub const REG_SS = 18;
+pub const REG = struct {
+    pub const GS = 0;
+    pub const FS = 1;
+    pub const ES = 2;
+    pub const DS = 3;
+    pub const EDI = 4;
+    pub const ESI = 5;
+    pub const EBP = 6;
+    pub const ESP = 7;
+    pub const EBX = 8;
+    pub const EDX = 9;
+    pub const ECX = 10;
+    pub const EAX = 11;
+    pub const TRAPNO = 12;
+    pub const ERR = 13;
+    pub const EIP = 14;
+    pub const CS = 15;
+    pub const EFL = 16;
+    pub const UESP = 17;
+    pub const SS = 18;
+};
 
 pub const ucontext_t = extern struct {
     flags: usize,
@@ -647,24 +700,26 @@ pub const user_desc = packed struct {
     useable: u1,
 };
 
-// socketcall() call numbers
-pub const SC_socket = 1;
-pub const SC_bind = 2;
-pub const SC_connect = 3;
-pub const SC_listen = 4;
-pub const SC_accept = 5;
-pub const SC_getsockname = 6;
-pub const SC_getpeername = 7;
-pub const SC_socketpair = 8;
-pub const SC_send = 9;
-pub const SC_recv = 10;
-pub const SC_sendto = 11;
-pub const SC_recvfrom = 12;
-pub const SC_shutdown = 13;
-pub const SC_setsockopt = 14;
-pub const SC_getsockopt = 15;
-pub const SC_sendmsg = 16;
-pub const SC_recvmsg = 17;
-pub const SC_accept4 = 18;
-pub const SC_recvmmsg = 19;
-pub const SC_sendmmsg = 20;
+/// socketcall() call numbers
+pub const SC = struct {
+    pub const socket = 1;
+    pub const bind = 2;
+    pub const connect = 3;
+    pub const listen = 4;
+    pub const accept = 5;
+    pub const getsockname = 6;
+    pub const getpeername = 7;
+    pub const socketpair = 8;
+    pub const send = 9;
+    pub const recv = 10;
+    pub const sendto = 11;
+    pub const recvfrom = 12;
+    pub const shutdown = 13;
+    pub const setsockopt = 14;
+    pub const getsockopt = 15;
+    pub const sendmsg = 16;
+    pub const recvmsg = 17;
+    pub const accept4 = 18;
+    pub const recvmmsg = 19;
+    pub const sendmmsg = 20;
+};

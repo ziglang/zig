@@ -1,5 +1,3 @@
-usingnamespace @import("../bits/linux.zig");
-
 pub fn syscall_pipe(fd: *[2]i32) usize {
     return asm volatile (
         \\ mov %[arg], %%g3

@@ -1,6 +1,5 @@
 // Convenience types and consts used by std.os module
 const builtin = @import("builtin");
-const posix = @import("posix.zig");
 pub const iovec = posix.iovec;
 pub const iovec_const = posix.iovec_const;
 
@@ -87,10 +86,12 @@ pub const ADVICE_DONTNEED: advice_t = 4;
 pub const ADVICE_NOREUSE: advice_t = 5;
 
 pub const clockid_t = u32;
-pub const CLOCK_REALTIME: clockid_t = 0;
-pub const CLOCK_MONOTONIC: clockid_t = 1;
-pub const CLOCK_PROCESS_CPUTIME_ID: clockid_t = 2;
-pub const CLOCK_THREAD_CPUTIME_ID: clockid_t = 3;
+pub const CLOCK = struct {
+    pub const REALTIME: clockid_t = 0;
+    pub const MONOTONIC: clockid_t = 1;
+    pub const PROCESS_CPUTIME_ID: clockid_t = 2;
+    pub const THREAD_CPUTIME_ID: clockid_t = 3;
+};
 
 pub const device_t = u64;
 
