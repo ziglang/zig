@@ -339,10 +339,10 @@ pub const Dir = struct {
                         if (rc == 0) return null;
                         if (rc < 0) {
                             switch (os.errno(rc)) {
-                                os.EBADF => unreachable, // Dir is invalid or was opened without iteration ability
-                                os.EFAULT => unreachable,
-                                os.ENOTDIR => unreachable,
-                                os.EINVAL => unreachable,
+                                .BADF => unreachable, // Dir is invalid or was opened without iteration ability
+                                .FAULT => unreachable,
+                                .NOTDIR => unreachable,
+                                .INVAL => unreachable,
                                 else => |err| return os.unexpectedErrno(err),
                             }
                         }
@@ -385,11 +385,11 @@ pub const Dir = struct {
                         else
                             os.system.getdents(self.dir.fd, &self.buf, self.buf.len);
                         switch (os.errno(rc)) {
-                            0 => {},
-                            os.EBADF => unreachable, // Dir is invalid or was opened without iteration ability
-                            os.EFAULT => unreachable,
-                            os.ENOTDIR => unreachable,
-                            os.EINVAL => unreachable,
+                            .SUCCESS => {},
+                            .BADF => unreachable, // Dir is invalid or was opened without iteration ability
+                            .FAULT => unreachable,
+                            .NOTDIR => unreachable,
+                            .INVAL => unreachable,
                             else => |err| return os.unexpectedErrno(err),
                         }
                         if (rc == 0) return null;
@@ -457,10 +457,10 @@ pub const Dir = struct {
                         if (rc == 0) return null;
                         if (rc < 0) {
                             switch (os.errno(rc)) {
-                                os.EBADF => unreachable, // Dir is invalid or was opened without iteration ability
-                                os.EFAULT => unreachable,
-                                os.ENOTDIR => unreachable,
-                                os.EINVAL => unreachable,
+                                .BADF => unreachable, // Dir is invalid or was opened without iteration ability
+                                .FAULT => unreachable,
+                                .NOTDIR => unreachable,
+                                .INVAL => unreachable,
                                 else => |err| return os.unexpectedErrno(err),
                             }
                         }
@@ -522,11 +522,11 @@ pub const Dir = struct {
                     if (self.index >= self.end_index) {
                         const rc = os.linux.getdents64(self.dir.fd, &self.buf, self.buf.len);
                         switch (os.linux.getErrno(rc)) {
-                            0 => {},
-                            os.EBADF => unreachable, // Dir is invalid or was opened without iteration ability
-                            os.EFAULT => unreachable,
-                            os.ENOTDIR => unreachable,
-                            os.EINVAL => unreachable,
+                            .SUCCESS => {},
+                            .BADF => unreachable, // Dir is invalid or was opened without iteration ability
+                            .FAULT => unreachable,
+                            .NOTDIR => unreachable,
+                            .INVAL => unreachable,
                             else => |err| return os.unexpectedErrno(err),
                         }
                         if (rc == 0) return null;
@@ -655,12 +655,12 @@ pub const Dir = struct {
                     if (self.index >= self.end_index) {
                         var bufused: usize = undefined;
                         switch (w.fd_readdir(self.dir.fd, &self.buf, self.buf.len, self.cookie, &bufused)) {
-                            w.ESUCCESS => {},
-                            w.EBADF => unreachable, // Dir is invalid or was opened without iteration ability
-                            w.EFAULT => unreachable,
-                            w.ENOTDIR => unreachable,
-                            w.EINVAL => unreachable,
-                            w.ENOTCAPABLE => return error.AccessDenied,
+                            .SUCCESS => {},
+                            .BADF => unreachable, // Dir is invalid or was opened without iteration ability
+                            .FAULT => unreachable,
+                            .NOTDIR => unreachable,
+                            .INVAL => unreachable,
+                            .NOTCAPABLE => return error.AccessDenied,
                             else => |err| return os.unexpectedErrno(err),
                         }
                         if (bufused == 0) return null;
@@ -2557,12 +2557,12 @@ fn copy_file(fd_in: os.fd_t, fd_out: os.fd_t) CopyFileError!void {
     if (comptime std.Target.current.isDarwin()) {
         const rc = os.system.fcopyfile(fd_in, fd_out, null, os.system.COPYFILE_DATA);
         switch (os.errno(rc)) {
-            0 => return,
-            os.EINVAL => unreachable,
-            os.ENOMEM => return error.SystemResources,
+            .SUCCESS => return,
+            .INVAL => unreachable,
+            .NOMEM => return error.SystemResources,
             // The source file is not a directory, symbolic link, or regular file.
             // Try with the fallback path before giving up.
-            os.ENOTSUP => {},
+            .OPNOTSUPP => {},
             else => |err| return os.unexpectedErrno(err),
         }
     }

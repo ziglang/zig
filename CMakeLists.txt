@@ -426,7 +426,7 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/lib/std/os.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/os/bits.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/os/bits/linux.zig"
-    "${CMAKE_SOURCE_DIR}/lib/std/os/bits/linux/errno-generic.zig"
+    "${CMAKE_SOURCE_DIR}/lib/std/os/bits/linux/errno/generic.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/os/bits/linux/netlink.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/os/bits/linux/prctl.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/os/bits/linux/securebits.zig"

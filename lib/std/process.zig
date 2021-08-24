@@ -93,7 +93,7 @@ pub fn getEnvMap(allocator: *Allocator) !BufMap {
         var environ_buf_size: usize = undefined;
 
         const environ_sizes_get_ret = os.wasi.environ_sizes_get(&environ_count, &environ_buf_size);
-        if (environ_sizes_get_ret != os.wasi.ESUCCESS) {
+        if (environ_sizes_get_ret != .SUCCESS) {
             return os.unexpectedErrno(environ_sizes_get_ret);
         }
 
@@ -103,7 +103,7 @@ pub fn getEnvMap(allocator: *Allocator) !BufMap {
         defer allocator.free(environ_buf);
 
         const environ_get_ret = os.wasi.environ_get(environ.ptr, environ_buf.ptr);
-        if (environ_get_ret != os.wasi.ESUCCESS) {
+        if (environ_get_ret != .SUCCESS) {
             return os.unexpectedErrno(environ_get_ret);
         }
 
@@ -255,7 +255,7 @@ pub const ArgIteratorWasi = struct {
         var buf_size: usize = undefined;
 
         switch (w.args_sizes_get(&count, &buf_size)) {
-            w.ESUCCESS => {},
+            .SUCCESS => {},
             else => |err| return os.unexpectedErrno(err),
         }
 
@@ -265,7 +265,7 @@ pub const ArgIteratorWasi = struct {
         var argv_buf = try allocator.alloc(u8, buf_size);
 
         switch (w.args_get(argv.ptr, argv_buf.ptr)) {
-            w.ESUCCESS => {},
+            .SUCCESS => {},
             else => |err| return os.unexpectedErrno(err),
         }
 

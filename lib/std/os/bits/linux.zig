@@ -8,10 +8,10 @@ const maxInt = std.math.maxInt;
 const arch = @import("builtin").target.cpu.arch;
 pub usingnamespace @import("posix.zig");
 
-pub usingnamespace switch (arch) {
-    .mips, .mipsel => @import("linux/errno-mips.zig"),
-    .sparc, .sparcel, .sparcv9 => @import("linux/errno-sparc.zig"),
-    else => @import("linux/errno-generic.zig"),
+pub const E = switch (arch) {
+    .mips, .mipsel => @import("linux/errno/mips.zig").E,
+    .sparc, .sparcel, .sparcv9 => @import("linux/errno/sparc.zig").E,
+    else => @import("linux/errno/generic.zig").E,
 };
 
 pub usingnamespace switch (arch) {
@@ -1665,6 +1665,13 @@ pub const io_uring_cqe = extern struct {
     /// result code for this event
     res: i32,
     flags: u32,
+
+    pub fn err(self: io_uring_cqe) E {
+        if (self.res > -4096 and self.res < 0) {
+            return @intToEnum(E, -self.res);
+        }
+        return .SUCCESS;
+    }
 };
 
 // io_uring_cqe.flags

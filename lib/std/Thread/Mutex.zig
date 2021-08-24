@@ -143,9 +143,9 @@ pub const AtomicMutex = struct {
                         @enumToInt(new_state),
                         null,
                     ))) {
-                        0 => {},
-                        std.os.EINTR => {},
-                        std.os.EAGAIN => {},
+                        .SUCCESS => {},
+                        .INTR => {},
+                        .AGAIN => {},
                         else => unreachable,
                     }
                 },
@@ -164,8 +164,8 @@ pub const AtomicMutex = struct {
                     linux.FUTEX_PRIVATE_FLAG | linux.FUTEX_WAKE,
                     1,
                 ))) {
-                    0 => {},
-                    std.os.EFAULT => {},
+                    .SUCCESS => {},
+                    .FAULT => unreachable, // invalid pointer passed to futex_wake
                     else => unreachable,
                 }
             },
@@ -182,10 +182,10 @@ pub const PthreadMutex = struct {
 
         pub fn release(held: Held) void {
             switch (std.c.pthread_mutex_unlock(&held.mutex.pthread_mutex)) {
-                0 => return,
-                std.c.EINVAL => unreachable,
-                std.c.EAGAIN => unreachable,
-                std.c.EPERM => unreachable,
+                .SUCCESS => return,
+                .INVAL => unreachable,
+                .AGAIN => unreachable,
+                .PERM => unreachable,
                 else => unreachable,
             }
         }
@@ -195,7 +195,7 @@ pub const PthreadMutex = struct {
     /// the mutex is unavailable. Otherwise returns Held. Call
     /// release on Held.
     pub fn tryAcquire(m: *PthreadMutex) ?Held {
-        if (std.c.pthread_mutex_trylock(&m.pthread_mutex) == 0) {
+        if (std.c.pthread_mutex_trylock(&m.pthread_mutex) == .SUCCESS) {
             return Held{ .mutex = m };
         } else {
             return null;
@@ -206,12 +206,12 @@ pub const PthreadMutex = struct {
     /// held by the calling thread.
     pub fn acquire(m: *PthreadMutex) Held {
         switch (std.c.pthread_mutex_lock(&m.pthread_mutex)) {
-            0 => return Held{ .mutex = m },
-            std.c.EINVAL => unreachable,
-            std.c.EBUSY => unreachable,
-            std.c.EAGAIN => unreachable,
-            std.c.EDEADLK => unreachable,
-            std.c.EPERM => unreachable,
+            .SUCCESS => return Held{ .mutex = m },
+            .INVAL => unreachable,
+            .BUSY => unreachable,
+            .AGAIN => unreachable,
+            .DEADLK => unreachable,
+            .PERM => unreachable,
             else => unreachable,
         }
     }

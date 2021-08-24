@@ -81,17 +81,17 @@ pub const PthreadCondition = struct {
 
     pub fn wait(cond: *PthreadCondition, mutex: *Mutex) void {
         const rc = std.c.pthread_cond_wait(&cond.cond, &mutex.impl.pthread_mutex);
-        assert(rc == 0);
+        assert(rc == .SUCCESS);
     }
 
     pub fn signal(cond: *PthreadCondition) void {
         const rc = std.c.pthread_cond_signal(&cond.cond);
-        assert(rc == 0);
+        assert(rc == .SUCCESS);
     }
 
     pub fn broadcast(cond: *PthreadCondition) void {
         const rc = std.c.pthread_cond_broadcast(&cond.cond);
-        assert(rc == 0);
+        assert(rc == .SUCCESS);
     }
 };
 
@@ -115,9 +115,9 @@ pub const AtomicCondition = struct {
                             0,
                             null,
                         ))) {
-                            0 => {},
-                            std.os.EINTR => {},
-                            std.os.EAGAIN => {},
+                            .SUCCESS => {},
+                            .INTR => {},
+                            .AGAIN => {},
                             else => unreachable,
                         }
                     },
@@ -136,8 +136,8 @@ pub const AtomicCondition = struct {
                         linux.FUTEX_PRIVATE_FLAG | linux.FUTEX_WAKE,
                         1,
                     ))) {
-                        0 => {},
-                        std.os.EFAULT => {},
+                        .SUCCESS => {},
+                        .FAULT => {},
                         else => unreachable,
                     }
                 },
