@@ -138,7 +138,11 @@ locals: std.ArrayListUnmanaged(macho.nlist_64) = .{},
 globals: std.ArrayListUnmanaged(macho.nlist_64) = .{},
 undefs: std.ArrayListUnmanaged(macho.nlist_64) = .{},
 symbol_resolver: std.AutoHashMapUnmanaged(u32, SymbolWithLoc) = .{},
-unresolved: std.AutoArrayHashMapUnmanaged(u32, void) = .{},
+unresolved: std.AutoArrayHashMapUnmanaged(u32, enum {
+    none,
+    stub,
+    got,
+}) = .{},
 
 locals_free_list: std.ArrayListUnmanaged(u32) = .{},
 globals_free_list: std.ArrayListUnmanaged(u32) = .{},
@@ -146,8 +150,6 @@ globals_free_list: std.ArrayListUnmanaged(u32) = .{},
 dyld_private_sym_index: ?u32 = null,
 dyld_stub_binder_index: ?u32 = null,
 stub_preamble_sym_index: ?u32 = null,
-
-stub_helper_stubs_start_off: ?u64 = null,
 
 strtab: std.ArrayListUnmanaged(u8) = .{},
 strtab_dir: std.HashMapUnmanaged(u32, u32, StringIndexContext, std.hash_map.default_max_load_percentage) = .{},
@@ -380,26 +382,6 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
     if (self.d_sym) |*ds| {
         try ds.populateMissingMetadata(allocator);
         try ds.writeLocalSymbol(0);
-    }
-
-    {
-        const atom = try self.createDyldPrivateAtom();
-        const match = MatchingSection{
-            .seg = self.data_segment_cmd_index.?,
-            .sect = self.data_section_index.?,
-        };
-        const vaddr = try self.allocateAtom(atom, match);
-        try self.writeAtom(atom, match);
-    }
-
-    {
-        const atom = try self.createStubHelperPreambleAtom();
-        const match = MatchingSection{
-            .seg = self.text_segment_cmd_index.?,
-            .sect = self.stub_helper_section_index.?,
-        };
-        const vaddr = try self.allocateAtom(atom, match);
-        try self.writeAtom(atom, match);
     }
 
     return self;
@@ -776,8 +758,8 @@ pub fn flush(self: *MachO, comp: *Compilation) !void {
 
         try self.parseInputFiles(positionals.items, self.base.options.sysroot);
         try self.parseLibs(libs.items, self.base.options.sysroot);
+
         try self.resolveSymbols();
-        try self.resolveDyldStubBinder();
         try self.addRpathLCs(rpath_table.keys());
         try self.addLoadDylibLCs();
         try self.addDataInCodeLC();
@@ -799,7 +781,6 @@ pub fn flush(self: *MachO, comp: *Compilation) !void {
                     .seg = self.text_segment_cmd_index.?,
                     .sect = self.stub_helper_section_index.?,
                 });
-
                 // TODO this is just a temp
                 // We already prealloc stub helper size in populateMissingMetadata(), but
                 // perhaps it's not needed after all?
@@ -807,6 +788,7 @@ pub fn flush(self: *MachO, comp: *Compilation) !void {
                 const sect = &seg.sections.items[self.stub_helper_section_index.?];
                 sect.size -= atom.size;
             }
+
             for (self.stubs.items) |_| {
                 const stub_helper_atom = try self.createStubHelperAtom();
                 try self.allocateAtomStage1(stub_helper_atom, .{
@@ -826,21 +808,12 @@ pub fn flush(self: *MachO, comp: *Compilation) !void {
                     .sect = self.stubs_section_index.?,
                 });
             }
+
             try self.allocateTextSegment();
             try self.allocateDataConstSegment();
             try self.allocateDataSegment();
             self.allocateLinkeditSegment();
             try self.allocateTextBlocks();
-            {
-                // TODO just a temp
-                const seg = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
-                const sect = seg.sections.items[self.stub_helper_section_index.?];
-                self.stub_helper_stubs_start_off = sect.offset + switch (self.base.options.target.cpu.arch) {
-                    .x86_64 => @intCast(u64, 15),
-                    .aarch64 => @intCast(u64, 6 * @sizeOf(u32)),
-                    else => unreachable,
-                };
-            }
             try self.flushZld();
         } else {
             try self.flushModule(comp);
@@ -1937,13 +1910,7 @@ fn writeTextBlocks(self: *MachO) !void {
     }
 }
 
-fn createEmptyAtom(
-    self: *MachO,
-    match: MatchingSection,
-    local_sym_index: u32,
-    size: u64,
-    alignment: u32,
-) !*TextBlock {
+fn createEmptyAtom(self: *MachO, local_sym_index: u32, size: u64, alignment: u32) !*TextBlock {
     const code = try self.base.allocator.alloc(u8, size);
     defer self.base.allocator.free(code);
     mem.set(u8, code, 0);
@@ -1964,15 +1931,20 @@ fn allocateAtom(self: *MachO, atom: *TextBlock, match: MatchingSection) !u64 {
     // TODO converge with `allocateTextBlock`
     const seg = self.load_commands.items[match.seg].Segment;
     const sect = seg.sections.items[match.sect];
-    const base_addr = if (atom.prev) |prev| blk: {
-        const prev_atom_sym = self.locals.items[prev.local_sym_index];
-        break :blk prev_atom_sym.n_value;
+    const sym = &self.locals.items[atom.local_sym_index];
+    const base_addr = if (self.blocks.get(match)) |last| blk: {
+        const last_atom_sym = self.locals.items[last.local_sym_index];
+        break :blk last_atom_sym.n_value + last.size;
     } else sect.addr;
     const atom_alignment = try math.powi(u32, 2, atom.alignment);
     const vaddr = mem.alignForwardGeneric(u64, base_addr, atom_alignment);
+    log.debug("allocating atom for symbol {s} at address 0x{x}", .{ self.getString(sym.n_strx), vaddr });
 
     // TODO we should check if we need to expand the section or not like we
     // do in `allocateTextBlock`.
+    sym.n_value = vaddr;
+    sym.n_sect = @intCast(u8, self.section_ordinals.getIndex(match).? + 1);
+
     if (self.blocks.getPtr(match)) |last| {
         last.*.next = atom;
         atom.prev = last.*;
@@ -1987,15 +1959,9 @@ fn allocateAtom(self: *MachO, atom: *TextBlock, match: MatchingSection) !u64 {
 fn writeAtom(self: *MachO, atom: *TextBlock, match: MatchingSection) !void {
     const seg = self.load_commands.items[match.seg].Segment;
     const sect = seg.sections.items[match.sect];
-
-    const vaddr = try self.allocateAtom(atom, match);
-    const sym = &self.locals.items[atom.local_sym_index];
-    sym.n_value = vaddr;
-    sym.n_sect = @intCast(u8, self.section_ordinals.getIndex(match).? + 1);
-
+    const sym = self.locals.items[atom.local_sym_index];
+    const file_offset = sect.offset + sym.n_value - sect.addr;
     try atom.resolveRelocs(self);
-
-    const file_offset = sect.offset + vaddr - sect.addr;
     log.debug("writing atom for symbol {s} at file offset 0x{x}", .{ self.getString(sym.n_strx), file_offset });
     try self.base.file.?.pwriteAll(atom.code.items, file_offset);
     try self.writeLocalSymbol(atom.local_sym_index);
@@ -2023,10 +1989,6 @@ fn allocateAtomStage1(self: *MachO, atom: *TextBlock, match: MatchingSection) !v
 }
 
 fn createDyldPrivateAtom(self: *MachO) !*TextBlock {
-    const match = MatchingSection{
-        .seg = self.data_segment_cmd_index.?,
-        .sect = self.data_section_index.?,
-    };
     const local_sym_index = @intCast(u32, self.locals.items.len);
     try self.locals.append(self.base.allocator, .{
         .n_strx = try self.makeString("dyld_private"),
@@ -2036,15 +1998,11 @@ fn createDyldPrivateAtom(self: *MachO) !*TextBlock {
         .n_value = 0,
     });
     self.dyld_private_sym_index = local_sym_index;
-    return self.createEmptyAtom(match, local_sym_index, @sizeOf(u64), 3);
+    return self.createEmptyAtom(local_sym_index, @sizeOf(u64), 3);
 }
 
 fn createStubHelperPreambleAtom(self: *MachO) !*TextBlock {
     const arch = self.base.options.target.cpu.arch;
-    const match = MatchingSection{
-        .seg = self.text_segment_cmd_index.?,
-        .sect = self.stub_helper_section_index.?,
-    };
     const size: u64 = switch (arch) {
         .x86_64 => 15,
         .aarch64 => 6 * @sizeOf(u32),
@@ -2063,7 +2021,7 @@ fn createStubHelperPreambleAtom(self: *MachO) !*TextBlock {
         .n_desc = 0,
         .n_value = 0,
     });
-    const atom = try self.createEmptyAtom(match, local_sym_index, size, alignment);
+    const atom = try self.createEmptyAtom(local_sym_index, size, alignment);
     switch (arch) {
         .x86_64 => {
             try atom.relocs.ensureUnusedCapacity(self.base.allocator, 2);
@@ -2196,10 +2154,7 @@ fn createStubHelperAtom(self: *MachO) !*TextBlock {
         .n_desc = 0,
         .n_value = 0,
     });
-    const atom = try self.createEmptyAtom(.{
-        .seg = self.text_segment_cmd_index.?,
-        .sect = self.stub_helper_section_index.?,
-    }, local_sym_index, stub_size, alignment);
+    const atom = try self.createEmptyAtom(local_sym_index, stub_size, alignment);
     try atom.relocs.ensureTotalCapacity(self.base.allocator, 1);
 
     switch (arch) {
@@ -2254,10 +2209,7 @@ fn createLazyPointerAtom(self: *MachO, stub_sym_index: u32) !*TextBlock {
         .n_desc = 0,
         .n_value = 0,
     });
-    const atom = try self.createEmptyAtom(.{
-        .seg = self.data_segment_cmd_index.?,
-        .sect = self.la_symbol_ptr_section_index.?,
-    }, local_sym_index, @sizeOf(u64), 3);
+    const atom = try self.createEmptyAtom(local_sym_index, @sizeOf(u64), 3);
     try atom.relocs.append(self.base.allocator, .{
         .offset = 0,
         .where = .local,
@@ -2294,10 +2246,7 @@ fn createStubAtom(self: *MachO, laptr_sym_index: u32) !*TextBlock {
         .n_desc = 0,
         .n_value = 0,
     });
-    const atom = try self.createEmptyAtom(.{
-        .seg = self.text_segment_cmd_index.?,
-        .sect = self.stubs_section_index.?,
-    }, local_sym_index, stub_size, alignment);
+    const atom = try self.createEmptyAtom(local_sym_index, stub_size, alignment);
     switch (arch) {
         .x86_64 => {
             // jmp
@@ -2547,12 +2496,14 @@ fn resolveSymbolsInObject(
                 .where_index = undef_sym_index,
                 .file = object_id,
             });
-            _ = try self.unresolved.getOrPut(self.base.allocator, undef_sym_index);
+            try self.unresolved.putNoClobber(self.base.allocator, undef_sym_index, .none);
         }
     }
 }
 
 fn resolveSymbols(self: *MachO) !void {
+    const use_stage1 = build_options.is_stage1 and self.base.options.use_stage1;
+
     var tentatives = std.AutoArrayHashMap(u32, void).init(self.base.allocator);
     defer tentatives.deinit();
 
@@ -2620,7 +2571,32 @@ fn resolveSymbols(self: *MachO) !void {
         const resolv = self.symbol_resolver.getPtr(sym.n_strx) orelse unreachable;
         resolv.local_sym_index = local_sym_index;
 
-        _ = try self.createEmptyAtom(match, local_sym_index, size, alignment);
+        const atom = try self.createEmptyAtom(local_sym_index, size, alignment);
+        if (use_stage1) {
+            try self.allocateAtomStage1(atom, match);
+        }
+    }
+
+    try self.resolveDyldStubBinder();
+    if (!use_stage1) {
+        {
+            const atom = try self.createDyldPrivateAtom();
+            const match = MatchingSection{
+                .seg = self.data_segment_cmd_index.?,
+                .sect = self.data_section_index.?,
+            };
+            _ = try self.allocateAtom(atom, match);
+            try self.writeAtom(atom, match);
+        }
+        {
+            const atom = try self.createStubHelperPreambleAtom();
+            const match = MatchingSection{
+                .seg = self.text_segment_cmd_index.?,
+                .sect = self.stub_helper_section_index.?,
+            };
+            _ = try self.allocateAtom(atom, match);
+            try self.writeAtom(atom, match);
+        }
     }
 
     // Third pass, resolve symbols in dynamic libraries.
@@ -2643,7 +2619,43 @@ fn resolveSymbols(self: *MachO) !void {
             undef.n_type |= macho.N_EXT;
             undef.n_desc = @intCast(u16, ordinal + 1) * macho.N_SYMBOL_RESOLVER;
 
-            _ = self.unresolved.fetchSwapRemove(resolv.where_index);
+            if (self.unresolved.fetchSwapRemove(resolv.where_index)) |entry| {
+                switch (entry.value) {
+                    .none => {},
+                    .got => return error.TODOGotHint,
+                    .stub => {
+                        const stub_helper_atom = blk: {
+                            const atom = try self.createStubHelperAtom();
+                            const match = MatchingSection{
+                                .seg = self.text_segment_cmd_index.?,
+                                .sect = self.stub_helper_section_index.?,
+                            };
+                            _ = try self.allocateAtom(atom, match);
+                            try self.writeAtom(atom, match);
+                            break :blk atom;
+                        };
+                        const laptr_atom = blk: {
+                            const atom = try self.createLazyPointerAtom(stub_helper_atom.local_sym_index);
+                            const match = MatchingSection{
+                                .seg = self.data_segment_cmd_index.?,
+                                .sect = self.la_symbol_ptr_section_index.?,
+                            };
+                            _ = try self.allocateAtom(atom, match);
+                            try self.writeAtom(atom, match);
+                            break :blk atom;
+                        };
+                        {
+                            const atom = try self.createStubAtom(laptr_atom.local_sym_index);
+                            const match = MatchingSection{
+                                .seg = self.text_segment_cmd_index.?,
+                                .sect = self.stubs_section_index.?,
+                            };
+                            _ = try self.allocateAtom(atom, match);
+                            try self.writeAtom(atom, match);
+                        }
+                    },
+                }
+            }
 
             continue :loop;
         }
@@ -2695,7 +2707,10 @@ fn resolveSymbols(self: *MachO) !void {
         // We create an empty atom for this symbol.
         // TODO perhaps we should special-case special symbols? Create a separate
         // linked list of atoms?
-        _ = try self.createEmptyAtom(match, local_sym_index, 0, 0);
+        const atom = try self.createEmptyAtom(local_sym_index, 0, 0);
+        if (use_stage1) {
+            try self.allocateAtomStage1(atom, match);
+        }
     }
 
     for (self.unresolved.keys()) |index| {
@@ -4554,13 +4569,11 @@ pub fn addExternFn(self: *MachO, name: []const u8) !u32 {
         .where = .undef,
         .where_index = sym_index,
     });
-    _ = try self.unresolved.getOrPut(self.base.allocator, sym_index);
+    try self.unresolved.putNoClobber(self.base.allocator, sym_index, .stub);
 
     const stubs_index = @intCast(u32, self.stubs.items.len);
     try self.stubs.append(self.base.allocator, sym_index);
     try self.stubs_map.putNoClobber(self.base.allocator, sym_index, stubs_index);
-
-    // TODO create and write stub, stub_helper and lazy_ptr atoms
 
     return sym_index;
 }
@@ -5271,7 +5284,11 @@ fn writeLazyBindInfoTable(self: *MachO) !void {
 }
 
 fn populateLazyBindOffsetsInStubHelper(self: *MachO, buffer: []const u8) !void {
-    if (self.stubs.items.len == 0) return;
+    const last_atom = self.blocks.get(.{
+        .seg = self.text_segment_cmd_index.?,
+        .sect = self.stub_helper_section_index.?,
+    }) orelse return;
+    if (last_atom.local_sym_index == self.stub_preamble_sym_index.?) return;
 
     var stream = std.io.fixedBufferStream(buffer);
     var reader = stream.reader();
@@ -5316,7 +5333,6 @@ fn populateLazyBindOffsetsInStubHelper(self: *MachO, buffer: []const u8) !void {
             else => {},
         }
     }
-    assert(self.stubs.items.len <= offsets.items.len);
 
     const stub_size: u4 = switch (self.base.options.target.cpu.arch) {
         .x86_64 => 10,
@@ -5329,8 +5345,22 @@ fn populateLazyBindOffsetsInStubHelper(self: *MachO, buffer: []const u8) !void {
         else => unreachable,
     };
     var buf: [@sizeOf(u32)]u8 = undefined;
+
+    var first_atom = last_atom;
+    while (first_atom.prev) |prev| {
+        first_atom = prev;
+    }
+
+    const start_off = blk: {
+        const seg = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
+        const sect = seg.sections.items[self.stub_helper_section_index.?];
+        const sym = self.locals.items[first_atom.next.?.local_sym_index];
+        break :blk sym.n_value - sect.addr + sect.offset;
+    };
+    log.warn("start_off = 0x{x}", .{start_off});
+
     for (self.stubs.items) |_, index| {
-        const placeholder_off = self.stub_helper_stubs_start_off.? + index * stub_size + off;
+        const placeholder_off = start_off + index * stub_size + off;
         mem.writeIntLittle(u32, &buf, offsets.items[index]);
         try self.base.file.?.pwriteAll(&buf, placeholder_off);
     }
