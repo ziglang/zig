@@ -765,12 +765,8 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
             if (self.base.options.wasi_exec_model == .reactor) {
                 // Reactor execution model does not have _start so lld doesn't look for it.
                 try argv.append("--no-entry");
-                // Make sure "_initialize" is exported even if this is pure Zig WASI reactor
-                // where WASM_SYMBOL_EXPORTED flag in LLVM is not set on _initialize.
-                try argv.appendSlice(&[_][]const u8{
-                    "--export",
-                    "_initialize",
-                });
+                // Make sure "_initialize" and other used-defined functions are exported if this is WASI reactor.
+                try argv.append("--export-dynamic");
             }
         } else {
             try argv.append("--no-entry"); // So lld doesn't look for _start.
