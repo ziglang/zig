@@ -163,7 +163,7 @@ pub fn isSingleThreaded(target: std.Target) bool {
 pub fn hasValgrindSupport(target: std.Target) bool {
     switch (target.cpu.arch) {
         .x86_64 => {
-            return target.os.tag == .linux or target.isDarwin() or target.os.tag == .solaris or
+            return target.os.tag == .linux or target.os.tag == .solaris or
                 (target.os.tag == .windows and target.abi != .msvc);
         },
         else => return false,
