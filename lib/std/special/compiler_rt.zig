@@ -269,8 +269,12 @@ comptime {
     const __negdf2 = @import("compiler_rt/negXf2.zig").__negdf2;
     @export(__negdf2, .{ .name = "__negdf2", .linkage = linkage });
 
-    const __clzsi2 = @import("compiler_rt/clzsi2.zig").__clzsi2;
+    const __clzsi2 = @import("compiler_rt/count0bits.zig").__clzsi2;
     @export(__clzsi2, .{ .name = "__clzsi2", .linkage = linkage });
+    const __clzdi2 = @import("compiler_rt/count0bits.zig").__clzdi2;
+    @export(__clzdi2, .{ .name = "__clzdi2", .linkage = linkage });
+    const __clzti2 = @import("compiler_rt/count0bits.zig").__clzti2;
+    @export(__clzti2, .{ .name = "__clzti2", .linkage = linkage });
 
     if (builtin.link_libc and os_tag == .openbsd) {
         const __emutls_get_address = @import("compiler_rt/emutls.zig").__emutls_get_address;
