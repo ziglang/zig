@@ -2223,6 +2223,7 @@ fn createLazyPointerAtom(self: *MachO, stub_sym_index: u32) !*TextBlock {
             },
         },
     });
+    try atom.rebases.append(self.base.allocator, 0);
     self.lazy_binding_info_dirty = true;
     return atom;
 }
@@ -2996,21 +2997,6 @@ fn writeRebaseInfoTableZld(self: *MachO) !void {
             if (entry.where == .undef) continue;
 
             try pointers.append(.{
-                .offset = base_offset + i * @sizeOf(u64),
-                .segment_id = segment_id,
-            });
-        }
-    }
-
-    if (self.la_symbol_ptr_section_index) |idx| {
-        const seg = self.load_commands.items[self.data_segment_cmd_index.?].Segment;
-        const sect = seg.sections.items[idx];
-        const base_offset = sect.addr - seg.inner.vmaddr;
-        const segment_id = @intCast(u16, self.data_segment_cmd_index.?);
-
-        try pointers.ensureUnusedCapacity(self.stubs.items.len);
-        for (self.stubs.items) |_, i| {
-            pointers.appendAssumeCapacity(.{
                 .offset = base_offset + i * @sizeOf(u64),
                 .segment_id = segment_id,
             });
@@ -5098,21 +5084,6 @@ fn writeRebaseInfoTable(self: *MachO) !void {
             if (entry.where == .undef) continue;
 
             try pointers.append(.{
-                .offset = base_offset + i * @sizeOf(u64),
-                .segment_id = segment_id,
-            });
-        }
-    }
-
-    if (self.la_symbol_ptr_section_index) |idx| {
-        const seg = self.load_commands.items[self.data_segment_cmd_index.?].Segment;
-        const sect = seg.sections.items[idx];
-        const base_offset = sect.addr - seg.inner.vmaddr;
-        const segment_id = @intCast(u16, self.data_segment_cmd_index.?);
-
-        try pointers.ensureUnusedCapacity(self.stubs.items.len);
-        for (self.stubs.items) |_, i| {
-            pointers.appendAssumeCapacity(.{
                 .offset = base_offset + i * @sizeOf(u64),
                 .segment_id = segment_id,
             });
