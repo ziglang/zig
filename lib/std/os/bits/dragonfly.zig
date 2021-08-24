@@ -345,7 +345,7 @@ pub fn WIFEXITED(s: u32) bool {
     return WTERMSIG(s) == 0;
 }
 pub fn WIFSTOPPED(s: u32) bool {
-    return @intCast(u16, (((s & 0xffff) *% 0x10001) >> 8)) > 0x7f00;
+    return @truncate(u16, (((s & 0xffff) *% 0x10001) >> 8)) > 0x7f00;
 }
 pub fn WIFSIGNALED(s: u32) bool {
     return (s & 0xffff) -% 1 < 0xff;
