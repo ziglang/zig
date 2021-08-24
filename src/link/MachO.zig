@@ -766,8 +766,6 @@ pub fn flush(self: *MachO, comp: *Compilation) !void {
         try self.addCodeSignatureLC();
 
         if (use_stage1) {
-            try self.parseTextBlocks();
-            try self.sortSections();
             {
                 const atom = try self.createDyldPrivateAtom();
                 try self.allocateAtomStage1(atom, .{
@@ -788,6 +786,9 @@ pub fn flush(self: *MachO, comp: *Compilation) !void {
                 const sect = &seg.sections.items[self.stub_helper_section_index.?];
                 sect.size -= atom.size;
             }
+
+            try self.parseTextBlocks();
+            try self.sortSections();
 
             for (self.stubs.items) |_| {
                 const stub_helper_atom = try self.createStubHelperAtom();
@@ -5334,35 +5335,30 @@ fn populateLazyBindOffsetsInStubHelper(self: *MachO, buffer: []const u8) !void {
         }
     }
 
-    const stub_size: u4 = switch (self.base.options.target.cpu.arch) {
-        .x86_64 => 10,
-        .aarch64 => 3 * @sizeOf(u32),
-        else => unreachable,
-    };
-    const off: u4 = switch (self.base.options.target.cpu.arch) {
+    const seg = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
+    const sect = seg.sections.items[self.stub_helper_section_index.?];
+    const stub_offset: u4 = switch (self.base.options.target.cpu.arch) {
         .x86_64 => 1,
         .aarch64 => 2 * @sizeOf(u32),
         else => unreachable,
     };
     var buf: [@sizeOf(u32)]u8 = undefined;
+    var atom = last_atom;
+    _ = offsets.pop();
+    while (offsets.popOrNull()) |bind_offset| {
+        const sym = self.locals.items[atom.local_sym_index];
+        const file_offset = sect.offset + sym.n_value - sect.addr + stub_offset;
+        mem.writeIntLittle(u32, &buf, bind_offset);
+        log.debug("writing lazy binding offset in stub helper of 0x{x} for symbol {s} at offset 0x{x}", .{
+            bind_offset,
+            self.getString(sym.n_strx),
+            file_offset,
+        });
+        try self.base.file.?.pwriteAll(&buf, file_offset);
 
-    var first_atom = last_atom;
-    while (first_atom.prev) |prev| {
-        first_atom = prev;
-    }
-
-    const start_off = blk: {
-        const seg = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
-        const sect = seg.sections.items[self.stub_helper_section_index.?];
-        const sym = self.locals.items[first_atom.next.?.local_sym_index];
-        break :blk sym.n_value - sect.addr + sect.offset;
-    };
-    log.warn("start_off = 0x{x}", .{start_off});
-
-    for (self.stubs.items) |_, index| {
-        const placeholder_off = start_off + index * stub_size + off;
-        mem.writeIntLittle(u32, &buf, offsets.items[index]);
-        try self.base.file.?.pwriteAll(&buf, placeholder_off);
+        if (atom.prev) |prev| {
+            atom = prev;
+        } else break;
     }
 }
 
