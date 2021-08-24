@@ -133,7 +133,7 @@ pub const AtomicMutex = struct {
                 .linux => {
                     switch (linux.getErrno(linux.futex_wait(
                         @ptrCast(*const i32, &m.state),
-                        linux.FUTEX_PRIVATE_FLAG | linux.FUTEX_WAIT,
+                        linux.FUTEX.PRIVATE_FLAG | linux.FUTEX.WAIT,
                         @enumToInt(new_state),
                         null,
                     ))) {
@@ -155,7 +155,7 @@ pub const AtomicMutex = struct {
             .linux => {
                 switch (linux.getErrno(linux.futex_wake(
                     @ptrCast(*const i32, &m.state),
-                    linux.FUTEX_PRIVATE_FLAG | linux.FUTEX_WAKE,
+                    linux.FUTEX.PRIVATE_FLAG | linux.FUTEX.WAKE,
                     1,
                 ))) {
                     .SUCCESS => {},

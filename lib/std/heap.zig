@@ -304,8 +304,8 @@ const PageAllocator = struct {
         const slice = os.mmap(
             hint,
             alloc_len,
-            os.PROT_READ | os.PROT_WRITE,
-            os.MAP_PRIVATE | os.MAP_ANONYMOUS,
+            os.PROT.READ | os.PROT.WRITE,
+            os.MAP.PRIVATE | os.MAP.ANONYMOUS,
             -1,
             0,
         ) catch return error.OutOfMemory;
