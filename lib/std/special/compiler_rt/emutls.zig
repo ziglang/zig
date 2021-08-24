@@ -1,9 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2018 LLVM Compiler Infrastructure
-// Copyright (c) 2020 Sebastien Marie <semarie@online.fr>
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
 // __emutls_get_address specific builtin
 //
 // derived work from LLVM Compiler Infrastructure - release 8.0 (MIT)

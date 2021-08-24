@@ -1,9 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
-
 //! Futex is a mechanism used to block (`wait`) and unblock (`wake`) threads using a 32bit memory address as hints.
 //! Blocking a thread is acknowledged only if the 32bit memory address is equal to a given value.
 //! This check helps avoid block/unblock deadlocks which occur if a `wake()` happens before a `wait()`.

@@ -1,9 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
-
 //! Lock may be held only once. If the same thread tries to acquire
 //! the same mutex twice, it deadlocks.  This type supports static
 //! initialization and is at most `@sizeOf(usize)` in size.  When an
