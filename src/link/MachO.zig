@@ -5859,7 +5859,7 @@ pub fn padToIdeal(actual_size: anytype) @TypeOf(actual_size) {
 
 pub fn makeString(self: *MachO, string: []const u8) !u32 {
     const gop = try self.strtab_dir.getOrPutContextAdapted(self.base.allocator, @as([]const u8, string), StringSliceAdapter{
-        .strtab = &self.strtab
+        .strtab = &self.strtab,
     }, StringIndexContext{
         .strtab = &self.strtab,
     });
