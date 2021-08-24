@@ -14,7 +14,7 @@ pub fn addCases(ctx: *TestContext) !void {
         {
             var case = ctx.exe("hello world with updates", target);
             case.addError("", &[_][]const u8{
-                ":95:9: error: struct 'tmp.tmp' has no member named 'main'",
+                ":90:9: error: struct 'tmp.tmp' has no member named 'main'",
             });
 
             // Incorrect return type
