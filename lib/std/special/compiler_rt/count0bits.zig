@@ -1,23 +1,37 @@
 const std = @import("std");
 const builtin = std.builtin;
 
-fn __clzsi2_generic(a: i32) callconv(.C) i32 {
-    @setRuntimeSafety(builtin.is_test);
+// clz - count leading zeroes
+// - clzXi2_generic for little endian
+// - __clzsi2_thumb1: assume a != 0
+// - __clzsi2_arm32: assume a != 0
 
-    var x = @bitCast(u32, a);
-    var n: i32 = 32;
+fn clzXi2_generic(comptime T: type) fn (a: T) callconv(.C) i32 {
+    return struct {
+        fn f(a: T) callconv(.C) i32 {
+            @setRuntimeSafety(builtin.is_test);
 
-    // Count first bit set using binary search, from Hacker's Delight
-    var y: u32 = 0;
-    inline for ([_]i32{ 16, 8, 4, 2, 1 }) |shift| {
-        y = x >> shift;
-        if (y != 0) {
-            n = n - shift;
-            x = y;
+            var x = switch (@bitSizeOf(T)) {
+                32 => @bitCast(u32, a),
+                64 => @bitCast(u64, a),
+                128 => @bitCast(u128, a),
+                else => unreachable,
+            };
+            var n: T = @bitSizeOf(T);
+            // Count first bit set using binary search, from Hacker's Delight
+            var y: @TypeOf(x) = 0;
+            comptime var shift: u8 = @bitSizeOf(T);
+            inline while (shift > 0) {
+                shift = shift >> 1;
+                y = x >> shift;
+                if (y != 0) {
+                    n = n - shift;
+                    x = y;
+                }
+            }
+            return @intCast(i32, n - @bitCast(T, x));
         }
-    }
-
-    return n - @bitCast(i32, x);
+    }.f;
 }
 
 fn __clzsi2_thumb1() callconv(.Naked) void {
@@ -111,16 +125,36 @@ pub const __clzsi2 = impl: {
                 std.Target.arm.featureSetHas(std.Target.current.cpu.features, .noarm)) and
                 !std.Target.arm.featureSetHas(std.Target.current.cpu.features, .thumb2);
 
-            if (use_thumb1) break :impl __clzsi2_thumb1
+            if (use_thumb1) {
+                break :impl __clzsi2_thumb1;
+            }
             // From here on we're either targeting Thumb2 or ARM.
-            else if (!std.Target.current.cpu.arch.isThumb()) break :impl __clzsi2_arm32
+            else if (!std.Target.current.cpu.arch.isThumb()) {
+                break :impl __clzsi2_arm32;
+            }
             // Use the generic implementation otherwise.
-            else break :impl __clzsi2_generic;
+            else break :impl clzXi2_generic(i32);
         },
-        else => break :impl __clzsi2_generic,
+        else => break :impl clzXi2_generic(i32),
     }
 };
 
-test "test clzsi2" {
+pub const __clzdi2 = impl: {
+    switch (std.Target.current.cpu.arch) {
+        // TODO architecture optimised versions
+        else => break :impl clzXi2_generic(i64),
+    }
+};
+
+pub const __clzti2 = impl: {
+    switch (std.Target.current.cpu.arch) {
+        // TODO architecture optimised versions
+        else => break :impl clzXi2_generic(i128),
+    }
+};
+
+test {
     _ = @import("clzsi2_test.zig");
+    _ = @import("clzdi2_test.zig");
+    _ = @import("clzti2_test.zig");
 }
