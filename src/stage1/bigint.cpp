@@ -468,6 +468,54 @@ void bigint_min(BigInt* dest, const BigInt *op1, const BigInt *op2) {
     }
 }
 
+// TODO: audit leaks 
+// TODO: is there a better way to do this?
+void bigint_saturate(BigInt* dest, uint32_t bit_count, bool is_signed) {
+    BigInt max; 
+    if(is_signed) {
+        BigInt min;
+        bit_count -= 1;
+        bigint_init_signed(&min, -(1 << bit_count));
+        bigint_init_signed(&max,  (1 << bit_count) - 1);
+        if (bigint_cmp(dest, &min) ==  CmpLT){
+            *dest = min;
+        } else if (bigint_cmp(dest, &max) ==  CmpGT){
+            *dest = max;
+        }
+        bigint_deinit(&min);
+        bigint_deinit(&max);
+    } else {
+        bigint_init_unsigned(&max, (1 << bit_count) - 1);
+        if (bigint_cmp(dest, &max) ==  CmpGT){
+            *dest = max;
+        }
+        if (bigint_cmp_zero(dest) ==  CmpLT){
+            bigint_init_unsigned(dest, 0);
+        }
+        bigint_deinit(&max);
+    }
+}
+
+void bigint_add_sat(BigInt* dest, const BigInt *op1, const BigInt *op2, uint32_t bit_count, bool is_signed) {
+    bigint_add(dest, op1, op2);
+    bigint_saturate(dest, bit_count, is_signed);
+}
+
+void bigint_sub_sat(BigInt* dest, const BigInt *op1, const BigInt *op2, uint32_t bit_count, bool is_signed) {
+    bigint_sub(dest, op1, op2);
+    bigint_saturate(dest, bit_count, is_signed);
+}
+
+void bigint_mul_sat(BigInt* dest, const BigInt *op1, const BigInt *op2, uint32_t bit_count, bool is_signed) {
+    bigint_mul(dest, op1, op2);
+    bigint_saturate(dest, bit_count, is_signed);
+}
+
+void bigint_shl_sat(BigInt* dest, const BigInt *op1, const BigInt *op2, uint32_t bit_count, bool is_signed) {
+    bigint_shl(dest, op1, op2);
+    bigint_saturate(dest, bit_count, is_signed);
+}
+
 void bigint_add(BigInt *dest, const BigInt *op1, const BigInt *op2) {
     if (op1->digit_count == 0) {
         return bigint_init_bigint(dest, op2);

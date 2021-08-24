@@ -105,4 +105,8 @@ bool mul_u64_overflow(uint64_t op1, uint64_t op2, uint64_t *result);
 uint32_t bigint_hash(BigInt const *x);
 bool bigint_eql(BigInt const *a, BigInt const *b);
 
+void bigint_add_sat(BigInt* dest, const BigInt *op1, const BigInt *op2, uint32_t bit_count, bool is_signed);
+void bigint_sub_sat(BigInt* dest, const BigInt *op1, const BigInt *op2, uint32_t bit_count, bool is_signed);
+void bigint_mul_sat(BigInt* dest, const BigInt *op1, const BigInt *op2, uint32_t bit_count, bool is_signed);
+void bigint_shl_sat(BigInt* dest, const BigInt *op1, const BigInt *op2, uint32_t bit_count, bool is_signed);
 #endif

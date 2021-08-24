@@ -3335,6 +3335,46 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, Stage1Air *executable,
             } else {
                 zig_unreachable();
             }
+        case IrBinOpSatAdd:
+            if (scalar_type->id == ZigTypeIdInt) {
+                if (scalar_type->data.integral.is_signed) {
+                    return ZigLLVMBuildSAddSat(g->builder, op1_value, op2_value, "");
+                } else {
+                    return ZigLLVMBuildUAddSat(g->builder, op1_value, op2_value, "");
+                }
+            } else {
+                zig_unreachable();
+            }
+        case IrBinOpSatSub:
+            if (scalar_type->id == ZigTypeIdInt) {
+                if (scalar_type->data.integral.is_signed) {
+                    return ZigLLVMBuildSSubSat(g->builder, op1_value, op2_value, "");
+                } else {
+                    return ZigLLVMBuildUSubSat(g->builder, op1_value, op2_value, "");
+                }
+            } else {
+                zig_unreachable();
+            }
+        case IrBinOpSatMul:
+            if (scalar_type->id == ZigTypeIdInt) {
+                if (scalar_type->data.integral.is_signed) {
+                    return ZigLLVMBuildSMulFixSat(g->builder, op1_value, op2_value, "");
+                } else {
+                    return ZigLLVMBuildUMulFixSat(g->builder, op1_value, op2_value, "");
+                }
+            } else {
+                zig_unreachable();
+            }
+        case IrBinOpSatShl:
+            if (scalar_type->id == ZigTypeIdInt) {
+                if (scalar_type->data.integral.is_signed) {
+                    return ZigLLVMBuildSShlSat(g->builder, op1_value, op2_value, "");
+                } else {
+                    return ZigLLVMBuildUShlSat(g->builder, op1_value, op2_value, "");
+                }
+            } else {
+                zig_unreachable();
+            }
     }
     zig_unreachable();
 }
@@ -9096,6 +9136,10 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdReduce, "reduce", 2);
     create_builtin_fn(g, BuiltinFnIdMaximum, "maximum", 2);
     create_builtin_fn(g, BuiltinFnIdMinimum, "minimum", 2);
+    create_builtin_fn(g, BuiltinFnIdSatAdd, "addWithSaturation", 2);
+    create_builtin_fn(g, BuiltinFnIdSatSub, "subWithSaturation", 2);
+    create_builtin_fn(g, BuiltinFnIdSatMul, "mulWithSaturation", 2);
+    create_builtin_fn(g, BuiltinFnIdSatShl, "shlWithSaturation", 2);
 }
 
 static const char *bool_to_str(bool b) {

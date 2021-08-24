@@ -488,6 +488,48 @@ LLVMValueRef ZigLLVMBuildSMin(LLVMBuilderRef B, LLVMValueRef LHS, LLVMValueRef R
     return wrap(call_inst);
 }
 
+LLVMValueRef ZigLLVMBuildSAddSat(LLVMBuilderRef B, LLVMValueRef LHS, LLVMValueRef RHS, const char *name) {
+    CallInst *call_inst = unwrap(B)->CreateBinaryIntrinsic(Intrinsic::sadd_sat, unwrap(LHS), unwrap(RHS), nullptr, name);
+    return wrap(call_inst);
+}
+
+LLVMValueRef ZigLLVMBuildUAddSat(LLVMBuilderRef B, LLVMValueRef LHS, LLVMValueRef RHS, const char *name) {
+    CallInst *call_inst = unwrap(B)->CreateBinaryIntrinsic(Intrinsic::uadd_sat, unwrap(LHS), unwrap(RHS), nullptr, name);
+    return wrap(call_inst);
+}
+
+LLVMValueRef ZigLLVMBuildSSubSat(LLVMBuilderRef B, LLVMValueRef LHS, LLVMValueRef RHS, const char *name) {
+    CallInst *call_inst = unwrap(B)->CreateBinaryIntrinsic(Intrinsic::ssub_sat, unwrap(LHS), unwrap(RHS), nullptr, name);
+    return wrap(call_inst);
+}
+
+LLVMValueRef ZigLLVMBuildUSubSat(LLVMBuilderRef B, LLVMValueRef LHS, LLVMValueRef RHS, const char *name) {
+    CallInst *call_inst = unwrap(B)->CreateBinaryIntrinsic(Intrinsic::usub_sat, unwrap(LHS), unwrap(RHS), nullptr, name);
+    return wrap(call_inst);
+}
+
+LLVMValueRef ZigLLVMBuildSMulFixSat(LLVMBuilderRef B, LLVMValueRef LHS, LLVMValueRef RHS, const char *name) {
+    CallInst *call_inst = unwrap(B)->CreateBinaryIntrinsic(Intrinsic::smul_fix_sat, unwrap(LHS), unwrap(RHS), nullptr, name);
+    return wrap(call_inst);
+}
+
+LLVMValueRef ZigLLVMBuildUMulFixSat(LLVMBuilderRef B, LLVMValueRef LHS, LLVMValueRef RHS, const char *name) {
+    CallInst *call_inst = unwrap(B)->CreateBinaryIntrinsic(Intrinsic::umul_fix_sat, unwrap(LHS), unwrap(RHS), nullptr, name);
+    return wrap(call_inst);
+}
+
+LLVMValueRef ZigLLVMBuildSShlSat(LLVMBuilderRef B, LLVMValueRef LHS, LLVMValueRef RHS, const char *name) {
+    // TODO: explicitly pass scale = 0. this seems to happen by default?
+    CallInst *call_inst = unwrap(B)->CreateBinaryIntrinsic(Intrinsic::sshl_sat, unwrap(LHS), unwrap(RHS), nullptr, name);
+    return wrap(call_inst);
+}
+
+LLVMValueRef ZigLLVMBuildUShlSat(LLVMBuilderRef B, LLVMValueRef LHS, LLVMValueRef RHS, const char *name) {
+    // TODO: explicitly pass scale = 0. this seems to happen by default?
+    CallInst *call_inst = unwrap(B)->CreateBinaryIntrinsic(Intrinsic::ushl_sat, unwrap(LHS), unwrap(RHS), nullptr, name);
+    return wrap(call_inst);
+}
+
 void ZigLLVMFnSetSubprogram(LLVMValueRef fn, ZigLLVMDISubprogram *subprogram) {
     assert( isa<Function>(unwrap(fn)) );
     Function *unwrapped_function = reinterpret_cast<Function*>(unwrap(fn));
