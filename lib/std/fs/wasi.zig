@@ -121,13 +121,13 @@ pub const PreopenList = struct {
         while (true) {
             var buf: prestat_t = undefined;
             switch (fd_prestat_get(fd, &buf)) {
-                ESUCCESS => {},
-                ENOTSUP => {
+                .SUCCESS => {},
+                .OPNOTSUPP => {
                     // not a preopen, so keep going
                     fd = try math.add(fd_t, fd, 1);
                     continue;
                 },
-                EBADF => {
+                .BADF => {
                     // OK, no more fds available
                     break;
                 },
@@ -137,7 +137,7 @@ pub const PreopenList = struct {
             const path_buf = try self.buffer.allocator.alloc(u8, preopen_len);
             mem.set(u8, path_buf, 0);
             switch (fd_prestat_dir_name(fd, path_buf.ptr, preopen_len)) {
-                ESUCCESS => {},
+                .SUCCESS => {},
                 else => |err| return os.unexpectedErrno(err),
             }
             const preopen = Preopen.new(fd, PreopenType{ .Dir = path_buf });

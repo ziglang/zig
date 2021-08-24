@@ -92,7 +92,7 @@ pub fn nanoTimestamp() i128 {
     if (builtin.os.tag == .wasi and !builtin.link_libc) {
         var ns: os.wasi.timestamp_t = undefined;
         const err = os.wasi.clock_time_get(os.wasi.CLOCK_REALTIME, 1, &ns);
-        assert(err == os.wasi.ESUCCESS);
+        assert(err == .SUCCESS);
         return ns;
     }
     var ts: os.timespec = undefined;

@@ -201,7 +201,7 @@ const current_thread_storage = struct {
 
     /// Initialize pthread_key_t.
     fn init() void {
-        if (std.c.pthread_key_create(&current_thread_storage.key, current_thread_storage.deinit) != 0) {
+        if (std.c.pthread_key_create(&current_thread_storage.key, current_thread_storage.deinit) != .SUCCESS) {
             abort();
         }
     }
@@ -248,14 +248,14 @@ const emutls_control = extern struct {
 
     /// Simple wrapper for global lock.
     fn lock() void {
-        if (std.c.pthread_mutex_lock(&emutls_control.mutex) != 0) {
+        if (std.c.pthread_mutex_lock(&emutls_control.mutex) != .SUCCESS) {
             abort();
         }
     }
 
     /// Simple wrapper for global unlock.
     fn unlock() void {
-        if (std.c.pthread_mutex_unlock(&emutls_control.mutex) != 0) {
+        if (std.c.pthread_mutex_unlock(&emutls_control.mutex) != .SUCCESS) {
             abort();
         }
     }

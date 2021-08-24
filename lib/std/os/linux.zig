@@ -91,9 +91,10 @@ fn splitValue64(val: i64) [2]u32 {
 }
 
 /// Get the errno from a syscall return value, or 0 for no error.
-pub fn getErrno(r: usize) u12 {
+pub fn getErrno(r: usize) E {
     const signed_r = @bitCast(isize, r);
-    return if (signed_r > -4096 and signed_r < 0) @intCast(u12, -signed_r) else 0;
+    const int = if (signed_r > -4096 and signed_r < 0) -signed_r else 0;
+    return @intToEnum(E, int);
 }
 
 pub fn dup(old: i32) usize {
@@ -281,7 +282,7 @@ pub fn mmap(address: ?[*]u8, length: usize, prot: usize, flags: u32, fd: i32, of
     if (@hasField(SYS, "mmap2")) {
         // Make sure the offset is also specified in multiples of page size
         if ((offset & (MMAP2_UNIT - 1)) != 0)
-            return @bitCast(usize, @as(isize, -EINVAL));
+            return @bitCast(usize, -@as(isize, @enumToInt(E.INVAL)));
 
         return syscall6(
             .mmap2,
@@ -746,7 +747,7 @@ pub fn clock_gettime(clk_id: i32, tp: *timespec) usize {
             const f = @ptrCast(vdso_clock_gettime_ty, fn_ptr);
             const rc = f(clk_id, tp);
             switch (rc) {
-                0, @bitCast(usize, @as(isize, -EINVAL)) => return rc,
+                0, @bitCast(usize, -@as(isize, @enumToInt(E.INVAL))) => return rc,
                 else => {},
             }
         }
@@ -764,7 +765,7 @@ fn init_vdso_clock_gettime(clk: i32, ts: *timespec) callconv(.C) usize {
         const f = @ptrCast(vdso_clock_gettime_ty, fn_ptr);
         return f(clk, ts);
     }
-    return @bitCast(usize, @as(isize, -ENOSYS));
+    return @bitCast(usize, -@as(isize, @enumToInt(E.NOSYS)));
 }
 
 pub fn clock_getres(clk_id: i32, tp: *timespec) usize {
@@ -961,7 +962,7 @@ pub fn sigaction(sig: u6, noalias act: ?*const Sigaction, noalias oact: ?*Sigact
         .sparc, .sparcv9 => syscall5(.rt_sigaction, sig, ksa_arg, oldksa_arg, @ptrToInt(ksa.restorer), mask_size),
         else => syscall4(.rt_sigaction, sig, ksa_arg, oldksa_arg, mask_size),
     };
-    if (getErrno(result) != 0) return result;
+    if (getErrno(result) != .SUCCESS) return result;
 
     if (oact) |old| {
         old.handler.handler = oldksa.handler;
@@ -1202,7 +1203,7 @@ pub fn statx(dirfd: i32, path: [*]const u8, flags: u32, mask: u32, statx_buf: *S
             @ptrToInt(statx_buf),
         );
     }
-    return @bitCast(usize, @as(isize, -ENOSYS));
+    return @bitCast(usize, -@as(isize, @enumToInt(E.NOSYS)));
 }
 
 pub fn listxattr(path: [*:0]const u8, list: [*]u8, size: usize) usize {

@@ -13,7 +13,7 @@ impl: Impl,
 
 const RwLock = @This();
 const std = @import("../std.zig");
-const builtin = std.builtin;
+const builtin = @import("builtin");
 const assert = std.debug.assert;
 const Mutex = std.Thread.Mutex;
 const Semaphore = std.Semaphore;
@@ -165,43 +165,41 @@ pub const PthreadRwLock = struct {
     }
 
     pub fn deinit(rwl: *PthreadRwLock) void {
-        const safe_rc = switch (std.builtin.os.tag) {
-            .dragonfly, .netbsd => std.os.EAGAIN,
-            else => 0,
+        const safe_rc: std.os.E = switch (builtin.os.tag) {
+            .dragonfly, .netbsd => .AGAIN,
+            else => .SUCCESS,
         };
-
         const rc = std.c.pthread_rwlock_destroy(&rwl.rwlock);
-        assert(rc == 0 or rc == safe_rc);
-
+        assert(rc == .SUCCESS or rc == safe_rc);
         rwl.* = undefined;
     }
 
     pub fn tryLock(rwl: *PthreadRwLock) bool {
-        return pthread_rwlock_trywrlock(&rwl.rwlock) == 0;
+        return pthread_rwlock_trywrlock(&rwl.rwlock) == .SUCCESS;
     }
 
     pub fn lock(rwl: *PthreadRwLock) void {
         const rc = pthread_rwlock_wrlock(&rwl.rwlock);
-        assert(rc == 0);
+        assert(rc == .SUCCESS);
     }
 
     pub fn unlock(rwl: *PthreadRwLock) void {
         const rc = pthread_rwlock_unlock(&rwl.rwlock);
-        assert(rc == 0);
+        assert(rc == .SUCCESS);
     }
 
     pub fn tryLockShared(rwl: *PthreadRwLock) bool {
-        return pthread_rwlock_tryrdlock(&rwl.rwlock) == 0;
+        return pthread_rwlock_tryrdlock(&rwl.rwlock) == .SUCCESS;
     }
 
     pub fn lockShared(rwl: *PthreadRwLock) void {
         const rc = pthread_rwlock_rdlock(&rwl.rwlock);
-        assert(rc == 0);
+        assert(rc == .SUCCESS);
     }
 
     pub fn unlockShared(rwl: *PthreadRwLock) void {
         const rc = pthread_rwlock_unlock(&rwl.rwlock);
-        assert(rc == 0);
+        assert(rc == .SUCCESS);
     }
 };
 

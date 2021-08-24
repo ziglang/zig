@@ -83,6 +83,6 @@ pub extern "wasi_snapshot_preview1" fn sock_send(sock: fd_t, si_data: *const cio
 pub extern "wasi_snapshot_preview1" fn sock_shutdown(sock: fd_t, how: sdflags_t) errno_t;
 
 /// Get the errno from a syscall return value, or 0 for no error.
-pub fn getErrno(r: errno_t) usize {
+pub fn getErrno(r: errno_t) errno_t {
     return r;
 }
