@@ -112,6 +112,9 @@ pub fn restore_rt() callconv(.Naked) void {
 
 pub const mode_t = usize;
 pub const time_t = isize;
+pub const nlink_t = usize;
+pub const blksize_t = isize;
+pub const blkcnt_t = isize;
 
 pub const SYS = enum(usize) {
     read = 0,
@@ -664,7 +667,7 @@ pub const ino_t = u64;
 pub const dev_t = u64;
 
 // The `stat` definition used by the Linux kernel.
-pub const kernel_stat = extern struct {
+pub const Stat = extern struct {
     dev: dev_t,
     ino: ino_t,
     nlink: usize,
@@ -695,9 +698,6 @@ pub const kernel_stat = extern struct {
         return self.ctim;
     }
 };
-
-// The `stat64` definition used by the libc.
-pub const libc_stat = kernel_stat;
 
 pub const timespec = extern struct {
     tv_sec: isize,

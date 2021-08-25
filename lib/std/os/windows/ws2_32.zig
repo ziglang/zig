@@ -1,5 +1,4 @@
 const std = @import("../../std.zig");
-usingnamespace @import("bits.zig");
 
 pub const SOCKET = *opaque {};
 pub const INVALID_SOCKET = @intToPtr(SOCKET, ~@as(usize, 0));

@@ -1,10 +1,10 @@
-// This file provides the system interface functions for Linux matching those
-// that are provided by libc, whether or not libc is linked. The following
-// abstractions are made:
-// * Work around kernel bugs and limitations. For example, see sendmmsg.
-// * Implement all the syscalls in the same way that libc functions will
-//   provide `rename` when only the `renameat` syscall exists.
-// * Does not support POSIX thread cancellation.
+//! This file provides the system interface functions for Linux matching those
+//! that are provided by libc, whether or not libc is linked. The following
+//! abstractions are made:
+//! * Work around kernel bugs and limitations. For example, see sendmmsg.
+//! * Implement all the syscalls in the same way that libc functions will
+//!   provide `rename` when only the `renameat` syscall exists.
+//! * Does not support POSIX thread cancellation.
 const std = @import("../std.zig");
 const assert = std.debug.assert;
 const maxInt = std.math.maxInt;
@@ -63,8 +63,7 @@ pub const blkcnt_t = arch_bits.blkcnt_t;
 pub const blksize_t = arch_bits.blksize_t;
 pub const dev_t = arch_bits.dev_t;
 pub const ino_t = arch_bits.ino_t;
-pub const kernel_stat = arch_bits.kernel_stat;
-pub const libc_stat = arch_bits.libc_stat;
+pub const Stat = arch_bits.Stat;
 pub const mcontext_t = arch_bits.mcontext_t;
 pub const mode_t = arch_bits.mode_t;
 pub const msghdr = arch_bits.msghdr;
@@ -81,7 +80,30 @@ pub const user_desc = arch_bits.user_desc;
 pub const tls = @import("linux/tls.zig");
 pub const pie = @import("linux/start_pie.zig");
 pub const BPF = @import("linux/bpf.zig");
-pub usingnamespace @import("linux/io_uring.zig");
+
+const io_uring = @import("linux/io_uring.zig");
+pub const IO_Uring = io_uring.IO_Uring;
+pub const SubmissionQueue = io_uring.SubmissionQueue;
+pub const CompletionQueue = io_uring.CompletionQueue;
+pub const io_uring_prep_nop = io_uring.io_uring_prep_nop;
+pub const io_uring_prep_fsync = io_uring.io_uring_prep_fsync;
+pub const io_uring_prep_rw = io_uring.io_uring_prep_rw;
+pub const io_uring_prep_read = io_uring.io_uring_prep_read;
+pub const io_uring_prep_write = io_uring.io_uring_prep_write;
+pub const io_uring_prep_readv = io_uring.io_uring_prep_readv;
+pub const io_uring_prep_writev = io_uring.io_uring_prep_writev;
+pub const io_uring_prep_accept = io_uring.io_uring_prep_accept;
+pub const io_uring_prep_connect = io_uring.io_uring_prep_connect;
+pub const io_uring_prep_epoll_ctl = io_uring.io_uring_prep_epoll_ctl;
+pub const io_uring_prep_recv = io_uring.io_uring_prep_recv;
+pub const io_uring_prep_send = io_uring.io_uring_prep_send;
+pub const io_uring_prep_openat = io_uring.io_uring_prep_openat;
+pub const io_uring_prep_close = io_uring.io_uring_prep_close;
+pub const io_uring_prep_timeout = io_uring.io_uring_prep_timeout;
+pub const io_uring_prep_timeout_remove = io_uring.io_uring_prep_timeout_remove;
+pub const io_uring_prep_poll_add = io_uring.io_uring_prep_poll_add;
+pub const io_uring_prep_poll_remove = io_uring.io_uring_prep_poll_remove;
+pub const io_uring_prep_fallocate = io_uring.io_uring_prep_fallocate;
 
 /// Set by startup code, used by `getauxval`.
 pub var elf_aux_maybe: ?[*]std.elf.Auxv = null;
@@ -1205,7 +1227,7 @@ pub fn accept4(fd: i32, noalias addr: ?*sockaddr, noalias len: ?*socklen_t, flag
     return syscall4(.accept4, @bitCast(usize, @as(isize, fd)), @ptrToInt(addr), @ptrToInt(len), flags);
 }
 
-pub fn fstat(fd: i32, stat_buf: *kernel_stat) usize {
+pub fn fstat(fd: i32, stat_buf: *Stat) usize {
     if (@hasField(SYS, "fstat64")) {
         return syscall2(.fstat64, @bitCast(usize, @as(isize, fd)), @ptrToInt(stat_buf));
     } else {
@@ -1213,7 +1235,7 @@ pub fn fstat(fd: i32, stat_buf: *kernel_stat) usize {
     }
 }
 
-pub fn stat(pathname: [*:0]const u8, statbuf: *kernel_stat) usize {
+pub fn stat(pathname: [*:0]const u8, statbuf: *Stat) usize {
     if (@hasField(SYS, "stat64")) {
         return syscall2(.stat64, @ptrToInt(pathname), @ptrToInt(statbuf));
     } else {
@@ -1221,7 +1243,7 @@ pub fn stat(pathname: [*:0]const u8, statbuf: *kernel_stat) usize {
     }
 }
 
-pub fn lstat(pathname: [*:0]const u8, statbuf: *kernel_stat) usize {
+pub fn lstat(pathname: [*:0]const u8, statbuf: *Stat) usize {
     if (@hasField(SYS, "lstat64")) {
         return syscall2(.lstat64, @ptrToInt(pathname), @ptrToInt(statbuf));
     } else {
@@ -1229,7 +1251,7 @@ pub fn lstat(pathname: [*:0]const u8, statbuf: *kernel_stat) usize {
     }
 }
 
-pub fn fstatat(dirfd: i32, path: [*:0]const u8, stat_buf: *kernel_stat, flags: u32) usize {
+pub fn fstatat(dirfd: i32, path: [*:0]const u8, stat_buf: *Stat, flags: u32) usize {
     if (@hasField(SYS, "fstatat64")) {
         return syscall4(.fstatat64, @bitCast(usize, @as(isize, dirfd)), @ptrToInt(path), @ptrToInt(stat_buf), flags);
     } else {
