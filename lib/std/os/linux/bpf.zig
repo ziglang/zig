@@ -1,4 +1,3 @@
-usingnamespace std.os.linux;
 const std = @import("../../std.zig");
 const errno = getErrno;
 const unexpectedErrno = std.os.unexpectedErrno;

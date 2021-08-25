@@ -3,6 +3,7 @@ const Stat = std.c.Stat;
 const timespec = std.c.timespec;
 const Sigaction = std.c.Sigaction;
 const sigset_t = std.c.sigset_t;
+const rusage = std.c.rusage;
 
 pub extern "c" fn realpath(noalias file_name: [*:0]const u8, noalias resolved_name: [*]u8) ?[*:0]u8;
 pub extern "c" fn fstatat(dirfd: fd_t, path: [*:0]const u8, stat_buf: *Stat, flags: u32) c_int;
