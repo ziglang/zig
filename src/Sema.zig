@@ -8818,9 +8818,12 @@ fn analyzeRef(
 
     try sema.requireRuntimeBlock(block, src);
     const ptr_type = try Module.simplePtrType(sema.arena, operand_ty, false, .One);
-    const alloc = try block.addTy(.alloc, ptr_type);
+    const mut_ptr_type = try Module.simplePtrType(sema.arena, operand_ty, true, .One);
+    const alloc = try block.addTy(.alloc, mut_ptr_type);
     try sema.storePtr(block, src, alloc, operand);
-    return alloc;
+
+    // TODO: Replace with sema.coerce when that supports adding pointer constness.
+    return sema.bitcast(block, ptr_type, alloc, src);
 }
 
 fn analyzeLoad(
