@@ -2666,27 +2666,7 @@ pub const LibExeObjStep = struct {
             try self.makePackageCmd(pkg, &zig_args);
         }
 
-        for (self.include_dirs.items) |include_dir| {
-            switch (include_dir) {
-                .raw_path => |include_path| {
-                    try zig_args.append("-I");
-                    try zig_args.append(self.builder.pathFromRoot(include_path));
-                },
-                .raw_path_system => |include_path| {
-                    if (builder.sysroot != null) {
-                        try zig_args.append("-iwithsysroot");
-                    } else {
-                        try zig_args.append("-isystem");
-                    }
-                    try zig_args.append(self.builder.pathFromRoot(include_path));
-                },
-                .other_step => |other| if (other.emit_h) {
-                    const h_path = other.getOutputHSource().getPath(self.builder);
-                    try zig_args.append("-isystem");
-                    try zig_args.append(fs.path.dirname(h_path).?);
-                },
-            }
-        }
+        recursivelyAppendIncludeDirs(step, builder, &zig_args) catch unreachable;
 
         for (self.lib_paths.items) |lib_path| {
             try zig_args.append("-L");
@@ -2870,6 +2850,35 @@ pub const LibExeObjStep = struct {
 
         if (self.kind == .lib and self.linkage != null and self.linkage.? == .dynamic and self.version != null and self.target.wantSharedLibSymLinks()) {
             try doAtomicSymLinks(builder.allocator, self.getOutputSource().getPath(builder), self.major_only_filename.?, self.name_only_filename.?);
+        }
+    }
+
+    fn recursivelyAppendIncludeDirs(step: *Step, builder: *std.build.Builder, zig_args: *std.ArrayList([]const u8)) !void {
+        const self = @fieldParentPtr(LibExeObjStep, "step", step);
+        for (self.include_dirs.items) |include_dir| {
+            switch (include_dir) {
+                .raw_path => |include_path| {
+                    try zig_args.append("-I");
+                    try zig_args.append(self.builder.pathFromRoot(include_path));
+                },
+                .raw_path_system => |include_path| {
+                    if (builder.sysroot != null) {
+                        try zig_args.append("-iwithsysroot");
+                    } else {
+                        try zig_args.append("-isystem");
+                    }
+                    try zig_args.append(self.builder.pathFromRoot(include_path));
+                },
+                .other_step => |other| {
+                    if (other.emit_h) {
+                        const h_path = other.getOutputHSource().getPath(self.builder);
+                        try zig_args.append("-isystem");
+                        try zig_args.append(fs.path.dirname(h_path).?);
+                    }
+
+                    recursivelyAppendIncludeDirs(&other.step, builder, zig_args) catch unreachable;
+                },
+            }
         }
     }
 };
