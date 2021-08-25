@@ -4024,11 +4024,17 @@ pub fn populateMissingMetadata(self: *MachO) !void {
             .aarch64 => 2,
             else => unreachable, // unhandled architecture type
         };
-        const needed_size: u6 = switch (self.base.options.target.cpu.arch) {
+        const preamble_size: u6 = switch (self.base.options.target.cpu.arch) {
             .x86_64 => 15,
             .aarch64 => 6 * @sizeOf(u32),
             else => unreachable,
         };
+        const stub_size: u4 = switch (self.base.options.target.cpu.arch) {
+            .x86_64 => 10,
+            .aarch64 => 3 * @sizeOf(u32),
+            else => unreachable,
+        };
+        const needed_size = stub_size * self.base.options.symbol_count_hint + preamble_size;
         const off = text_segment.findFreeSpace(needed_size, @alignOf(u64), self.header_pad);
         assert(off + needed_size <= text_segment.inner.fileoff + text_segment.inner.filesize); // TODO Must expand __TEXT segment.
 
@@ -4420,7 +4426,7 @@ fn allocateTextBlock(self: *MachO, text_block: *TextBlock, new_block_size: u64, 
         .seg = self.text_segment_cmd_index.?,
         .sect = self.text_section_index.?,
     };
-    const text_block_free_list = self.block_free_lists.getPtr(match).?;
+    var text_block_free_list = self.block_free_lists.get(match).?;
     const new_block_ideal_capacity = padToIdeal(new_block_size);
 
     // We use these to indicate our intention to update metadata, placing the new block,
@@ -4489,7 +4495,7 @@ fn allocateTextBlock(self: *MachO, text_block: *TextBlock, new_block_size: u64, 
         const needed_size = (vaddr + new_block_size) - text_section.addr;
         assert(needed_size <= text_segment.inner.filesize); // TODO must move the entire text section.
 
-        _ = try self.blocks.getOrPutValue(self.base.allocator, match, text_block);
+        _ = try self.blocks.put(self.base.allocator, match, text_block);
         text_section.size = needed_size;
         self.load_commands_dirty = true; // TODO Make more granular.
 
