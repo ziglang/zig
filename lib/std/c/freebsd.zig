@@ -107,35 +107,28 @@ pub const EAI = enum(c_int) {
 
 pub const EAI_MAX = 15;
 
-/// get address to use bind()
-pub const AI_PASSIVE = 0x00000001;
-
-/// fill ai_canonname
-pub const AI_CANONNAME = 0x00000002;
-
-/// prevent host name resolution
-pub const AI_NUMERICHOST = 0x00000004;
-
-/// prevent service name resolution
-pub const AI_NUMERICSERV = 0x00000008;
-
-/// valid flags for addrinfo (not a standard def, apps should not use it)
-pub const AI_MASK = (AI_PASSIVE | AI_CANONNAME | AI_NUMERICHOST | AI_NUMERICSERV | AI_ADDRCONFIG | AI_ALL | AI_V4MAPPED);
-
-/// IPv6 and IPv4-mapped (with AI_V4MAPPED)
-pub const AI_ALL = 0x00000100;
-
-/// accept IPv4-mapped if kernel supports
-pub const AI_V4MAPPED_CFG = 0x00000200;
-
-/// only if any address is assigned
-pub const AI_ADDRCONFIG = 0x00000400;
-
-/// accept IPv4-mapped IPv6 address
-pub const AI_V4MAPPED = 0x00000800;
-
-/// special recommended flags for getipnodebyname
-pub const AI_DEFAULT = (AI_V4MAPPED_CFG | AI_ADDRCONFIG);
+pub const AI = struct {
+    /// get address to use bind()
+    pub const PASSIVE = 0x00000001;
+    /// fill ai_canonname
+    pub const CANONNAME = 0x00000002;
+    /// prevent host name resolution
+    pub const NUMERICHOST = 0x00000004;
+    /// prevent service name resolution
+    pub const NUMERICSERV = 0x00000008;
+    /// valid flags for addrinfo (not a standard def, apps should not use it)
+    pub const MASK = (PASSIVE | CANONNAME | NUMERICHOST | NUMERICSERV | ADDRCONFIG | ALL | V4MAPPED);
+    /// IPv6 and IPv4-mapped (with V4MAPPED)
+    pub const ALL = 0x00000100;
+    /// accept IPv4-mapped if kernel supports
+    pub const V4MAPPED_CFG = 0x00000200;
+    /// only if any address is assigned
+    pub const ADDRCONFIG = 0x00000400;
+    /// accept IPv4-mapped IPv6 address
+    pub const V4MAPPED = 0x00000800;
+    /// special recommended flags for getipnodebyname
+    pub const DEFAULT = (V4MAPPED_CFG | ADDRCONFIG);
+};
 
 pub const blksize_t = i32;
 pub const blkcnt_t = i64;
@@ -172,29 +165,23 @@ pub const Kevent = extern struct {
 // Modes and flags for dlopen()
 // include/dlfcn.h
 
-/// Bind function calls lazily.
-pub const RTLD_LAZY = 1;
-
-/// Bind function calls immediately.
-pub const RTLD_NOW = 2;
-
-pub const RTLD_MODEMASK = 0x3;
-
-/// Make symbols globally available.
-pub const RTLD_GLOBAL = 0x100;
-
-/// Opposite of RTLD_GLOBAL, and the default.
-pub const RTLD_LOCAL = 0;
-
-/// Trace loaded objects and exit.
-pub const RTLD_TRACE = 0x200;
-
-/// Do not remove members.
-pub const RTLD_NODELETE = 0x01000;
-
-/// Do not load if not already loaded.
-pub const RTLD_NOLOAD = 0x02000;
-
+pub const RTLD = struct {
+    /// Bind function calls lazily.
+    pub const LAZY = 1;
+    /// Bind function calls immediately.
+    pub const NOW = 2;
+    pub const MODEMASK = 0x3;
+    /// Make symbols globally available.
+    pub const GLOBAL = 0x100;
+    /// Opposite of GLOBAL, and the default.
+    pub const LOCAL = 0;
+    /// Trace loaded objects and exit.
+    pub const TRACE = 0x200;
+    /// Do not remove members.
+    pub const NODELETE = 0x01000;
+    /// Do not load if not already loaded.
+    pub const NOLOAD = 0x02000;
+};
 pub const dl_phdr_info = extern struct {
     dlpi_addr: usize,
     dlpi_name: ?[*:0]const u8,
@@ -328,37 +315,35 @@ pub const sa_family_t = u8;
 pub const sockaddr = extern struct {
     /// total length
     len: u8,
-
     /// address family
     family: sa_family_t,
-
     /// actually longer; address value
     data: [14]u8,
-};
 
-pub const sockaddr_storage = std.x.os.Socket.Address.Native.Storage;
+    pub const storage = std.x.os.Socket.Address.Native.Storage;
 
-pub const sockaddr_in = extern struct {
-    len: u8 = @sizeOf(sockaddr_in),
-    family: sa_family_t = AF_INET,
-    port: in_port_t,
-    addr: u32,
-    zero: [8]u8 = [8]u8{ 0, 0, 0, 0, 0, 0, 0, 0 },
-};
+    pub const in = extern struct {
+        len: u8 = @sizeOf(in),
+        family: sa_family_t = AF.INET,
+        port: in_port_t,
+        addr: u32,
+        zero: [8]u8 = [8]u8{ 0, 0, 0, 0, 0, 0, 0, 0 },
+    };
 
-pub const sockaddr_in6 = extern struct {
-    len: u8 = @sizeOf(sockaddr_in6),
-    family: sa_family_t = AF_INET6,
-    port: in_port_t,
-    flowinfo: u32,
-    addr: [16]u8,
-    scope_id: u32,
-};
+    pub const in6 = extern struct {
+        len: u8 = @sizeOf(in6),
+        family: sa_family_t = AF.INET6,
+        port: in_port_t,
+        flowinfo: u32,
+        addr: [16]u8,
+        scope_id: u32,
+    };
 
-pub const sockaddr_un = extern struct {
-    len: u8 = @sizeOf(sockaddr_un),
-    family: sa_family_t = AF_UNIX,
-    path: [104]u8,
+    pub const un = extern struct {
+        len: u8 = @sizeOf(un),
+        family: sa_family_t = AF.UNIX,
+        path: [104]u8,
+    };
 };
 
 pub const CTL_KERN = 1;
@@ -380,36 +365,40 @@ pub const PROT_READ = 1;
 pub const PROT_WRITE = 2;
 pub const PROT_EXEC = 4;
 
-pub const CLOCK_REALTIME = 0;
-pub const CLOCK_VIRTUAL = 1;
-pub const CLOCK_PROF = 2;
-pub const CLOCK_MONOTONIC = 4;
-pub const CLOCK_UPTIME = 5;
-pub const CLOCK_UPTIME_PRECISE = 7;
-pub const CLOCK_UPTIME_FAST = 8;
-pub const CLOCK_REALTIME_PRECISE = 9;
-pub const CLOCK_REALTIME_FAST = 10;
-pub const CLOCK_MONOTONIC_PRECISE = 11;
-pub const CLOCK_MONOTONIC_FAST = 12;
-pub const CLOCK_SECOND = 13;
-pub const CLOCK_THREAD_CPUTIME_ID = 14;
-pub const CLOCK_PROCESS_CPUTIME_ID = 15;
+pub const CLOCK = struct {
+    pub const REALTIME = 0;
+    pub const VIRTUAL = 1;
+    pub const PROF = 2;
+    pub const MONOTONIC = 4;
+    pub const UPTIME = 5;
+    pub const UPTIME_PRECISE = 7;
+    pub const UPTIME_FAST = 8;
+    pub const REALTIME_PRECISE = 9;
+    pub const REALTIME_FAST = 10;
+    pub const MONOTONIC_PRECISE = 11;
+    pub const MONOTONIC_FAST = 12;
+    pub const SECOND = 13;
+    pub const THREAD_CPUTIME_ID = 14;
+    pub const PROCESS_CPUTIME_ID = 15;
+};
 
-pub const MAP_FAILED = @intToPtr(*c_void, maxInt(usize));
-pub const MAP_SHARED = 0x0001;
-pub const MAP_PRIVATE = 0x0002;
-pub const MAP_FIXED = 0x0010;
-pub const MAP_STACK = 0x0400;
-pub const MAP_NOSYNC = 0x0800;
-pub const MAP_ANON = 0x1000;
-pub const MAP_ANONYMOUS = MAP_ANON;
-pub const MAP_FILE = 0;
+pub const MAP = struct {
+    pub const FAILED = @intToPtr(*c_void, maxInt(usize));
+    pub const SHARED = 0x0001;
+    pub const PRIVATE = 0x0002;
+    pub const FIXED = 0x0010;
+    pub const STACK = 0x0400;
+    pub const NOSYNC = 0x0800;
+    pub const ANON = 0x1000;
+    pub const ANONYMOUS = ANON;
+    pub const FILE = 0;
 
-pub const MAP_GUARD = 0x00002000;
-pub const MAP_EXCL = 0x00004000;
-pub const MAP_NOCORE = 0x00020000;
-pub const MAP_PREFAULT_READ = 0x00040000;
-pub const MAP_32BIT = 0x00080000;
+    pub const GUARD = 0x00002000;
+    pub const EXCL = 0x00004000;
+    pub const NOCORE = 0x00020000;
+    pub const PREFAULT_READ = 0x00040000;
+    pub const @"32BIT" = 0x00080000;
+};
 
 pub const WNOHANG = 1;
 pub const WUNTRACED = 2;
@@ -517,10 +506,12 @@ pub const F_RDLCK = 1;
 pub const F_WRLCK = 3;
 pub const F_UNLCK = 2;
 
-pub const LOCK_SH = 1;
-pub const LOCK_EX = 2;
-pub const LOCK_UN = 8;
-pub const LOCK_NB = 4;
+pub const LOCK = struct {
+    pub const SH = 1;
+    pub const EX = 2;
+    pub const UN = 8;
+    pub const NB = 4;
+};
 
 pub const F_SETOWN_EX = 15;
 pub const F_GETOWN_EX = 16;
@@ -537,143 +528,153 @@ pub const SIG_BLOCK = 1;
 pub const SIG_UNBLOCK = 2;
 pub const SIG_SETMASK = 3;
 
-pub const SOCK_STREAM = 1;
-pub const SOCK_DGRAM = 2;
-pub const SOCK_RAW = 3;
-pub const SOCK_RDM = 4;
-pub const SOCK_SEQPACKET = 5;
+pub const SOCK = struct {
+    pub const STREAM = 1;
+    pub const DGRAM = 2;
+    pub const RAW = 3;
+    pub const RDM = 4;
+    pub const SEQPACKET = 5;
 
-pub const SOCK_CLOEXEC = 0x10000000;
-pub const SOCK_NONBLOCK = 0x20000000;
+    pub const CLOEXEC = 0x10000000;
+    pub const NONBLOCK = 0x20000000;
+};
 
-pub const SO_DEBUG = 0x00000001;
-pub const SO_ACCEPTCONN = 0x00000002;
-pub const SO_REUSEADDR = 0x00000004;
-pub const SO_KEEPALIVE = 0x00000008;
-pub const SO_DONTROUTE = 0x00000010;
-pub const SO_BROADCAST = 0x00000020;
-pub const SO_USELOOPBACK = 0x00000040;
-pub const SO_LINGER = 0x00000080;
-pub const SO_OOBINLINE = 0x00000100;
-pub const SO_REUSEPORT = 0x00000200;
-pub const SO_TIMESTAMP = 0x00000400;
-pub const SO_NOSIGPIPE = 0x00000800;
-pub const SO_ACCEPTFILTER = 0x00001000;
-pub const SO_BINTIME = 0x00002000;
-pub const SO_NO_OFFLOAD = 0x00004000;
-pub const SO_NO_DDP = 0x00008000;
-pub const SO_REUSEPORT_LB = 0x00010000;
+pub const SO = struct {
+    pub const DEBUG = 0x00000001;
+    pub const ACCEPTCONN = 0x00000002;
+    pub const REUSEADDR = 0x00000004;
+    pub const KEEPALIVE = 0x00000008;
+    pub const DONTROUTE = 0x00000010;
+    pub const BROADCAST = 0x00000020;
+    pub const USELOOPBACK = 0x00000040;
+    pub const LINGER = 0x00000080;
+    pub const OOBINLINE = 0x00000100;
+    pub const REUSEPORT = 0x00000200;
+    pub const TIMESTAMP = 0x00000400;
+    pub const NOSIGPIPE = 0x00000800;
+    pub const ACCEPTFILTER = 0x00001000;
+    pub const BINTIME = 0x00002000;
+    pub const NO_OFFLOAD = 0x00004000;
+    pub const NO_DDP = 0x00008000;
+    pub const REUSEPORT_LB = 0x00010000;
 
-pub const SO_SNDBUF = 0x1001;
-pub const SO_RCVBUF = 0x1002;
-pub const SO_SNDLOWAT = 0x1003;
-pub const SO_RCVLOWAT = 0x1004;
-pub const SO_SNDTIMEO = 0x1005;
-pub const SO_RCVTIMEO = 0x1006;
-pub const SO_ERROR = 0x1007;
-pub const SO_TYPE = 0x1008;
-pub const SO_LABEL = 0x1009;
-pub const SO_PEERLABEL = 0x1010;
-pub const SO_LISTENQLIMIT = 0x1011;
-pub const SO_LISTENQLEN = 0x1012;
-pub const SO_LISTENINCQLEN = 0x1013;
-pub const SO_SETFIB = 0x1014;
-pub const SO_USER_COOKIE = 0x1015;
-pub const SO_PROTOCOL = 0x1016;
-pub const SO_PROTOTYPE = SO_PROTOCOL;
-pub const SO_TS_CLOCK = 0x1017;
-pub const SO_MAX_PACING_RATE = 0x1018;
-pub const SO_DOMAIN = 0x1019;
+    pub const SNDBUF = 0x1001;
+    pub const RCVBUF = 0x1002;
+    pub const SNDLOWAT = 0x1003;
+    pub const RCVLOWAT = 0x1004;
+    pub const SNDTIMEO = 0x1005;
+    pub const RCVTIMEO = 0x1006;
+    pub const ERROR = 0x1007;
+    pub const TYPE = 0x1008;
+    pub const LABEL = 0x1009;
+    pub const PEERLABEL = 0x1010;
+    pub const LISTENQLIMIT = 0x1011;
+    pub const LISTENQLEN = 0x1012;
+    pub const LISTENINCQLEN = 0x1013;
+    pub const SETFIB = 0x1014;
+    pub const USER_COOKIE = 0x1015;
+    pub const PROTOCOL = 0x1016;
+    pub const PROTOTYPE = PROTOCOL;
+    pub const TS_CLOCK = 0x1017;
+    pub const MAX_PACING_RATE = 0x1018;
+    pub const DOMAIN = 0x1019;
+};
 
-pub const SOL_SOCKET = 0xffff;
+pub const SOL = struct {
+    pub const SOCKET = 0xffff;
+};
 
-pub const PF_UNSPEC = AF_UNSPEC;
-pub const PF_LOCAL = AF_LOCAL;
-pub const PF_UNIX = PF_LOCAL;
-pub const PF_INET = AF_INET;
-pub const PF_IMPLINK = AF_IMPLINK;
-pub const PF_PUP = AF_PUP;
-pub const PF_CHAOS = AF_CHAOS;
-pub const PF_NETBIOS = AF_NETBIOS;
-pub const PF_ISO = AF_ISO;
-pub const PF_OSI = AF_ISO;
-pub const PF_ECMA = AF_ECMA;
-pub const PF_DATAKIT = AF_DATAKIT;
-pub const PF_CCITT = AF_CCITT;
-pub const PF_DECnet = AF_DECnet;
-pub const PF_DLI = AF_DLI;
-pub const PF_LAT = AF_LAT;
-pub const PF_HYLINK = AF_HYLINK;
-pub const PF_APPLETALK = AF_APPLETALK;
-pub const PF_ROUTE = AF_ROUTE;
-pub const PF_LINK = AF_LINK;
-pub const PF_XTP = pseudo_AF_XTP;
-pub const PF_COIP = AF_COIP;
-pub const PF_CNT = AF_CNT;
-pub const PF_SIP = AF_SIP;
-pub const PF_IPX = AF_IPX;
-pub const PF_RTIP = pseudo_AF_RTIP;
-pub const PF_PIP = psuedo_AF_PIP;
-pub const PF_ISDN = AF_ISDN;
-pub const PF_KEY = pseudo_AF_KEY;
-pub const PF_INET6 = pseudo_AF_INET6;
-pub const PF_NATM = AF_NATM;
-pub const PF_ATM = AF_ATM;
-pub const PF_NETGRAPH = AF_NETGRAPH;
-pub const PF_SLOW = AF_SLOW;
-pub const PF_SCLUSTER = AF_SCLUSTER;
-pub const PF_ARP = AF_ARP;
-pub const PF_BLUETOOTH = AF_BLUETOOTH;
-pub const PF_IEEE80211 = AF_IEEE80211;
-pub const PF_INET_SDP = AF_INET_SDP;
-pub const PF_INET6_SDP = AF_INET6_SDP;
-pub const PF_MAX = AF_MAX;
+pub const PF = struct {
+    pub const UNSPEC = AF.UNSPEC;
+    pub const LOCAL = AF.LOCAL;
+    pub const UNIX = PF.LOCAL;
+    pub const INET = AF.INET;
+    pub const IMPLINK = AF.IMPLINK;
+    pub const PUP = AF.PUP;
+    pub const CHAOS = AF.CHAOS;
+    pub const NETBIOS = AF.NETBIOS;
+    pub const ISO = AF.ISO;
+    pub const OSI = AF.ISO;
+    pub const ECMA = AF.ECMA;
+    pub const DATAKIT = AF.DATAKIT;
+    pub const CCITT = AF.CCITT;
+    pub const DECnet = AF.DECnet;
+    pub const DLI = AF.DLI;
+    pub const LAT = AF.LAT;
+    pub const HYLINK = AF.HYLINK;
+    pub const APPLETALK = AF.APPLETALK;
+    pub const ROUTE = AF.ROUTE;
+    pub const LINK = AF.LINK;
+    pub const XTP = AF.pseudo_XTP;
+    pub const COIP = AF.COIP;
+    pub const CNT = AF.CNT;
+    pub const SIP = AF.SIP;
+    pub const IPX = AF.IPX;
+    pub const RTIP = AF.pseudo_RTIP;
+    pub const PIP = AF.pseudo_PIP;
+    pub const ISDN = AF.ISDN;
+    pub const KEY = AF.pseudo_KEY;
+    pub const INET6 = AF.pseudo_INET6;
+    pub const NATM = AF.NATM;
+    pub const ATM = AF.ATM;
+    pub const NETGRAPH = AF.NETGRAPH;
+    pub const SLOW = AF.SLOW;
+    pub const SCLUSTER = AF.SCLUSTER;
+    pub const ARP = AF.ARP;
+    pub const BLUETOOTH = AF.BLUETOOTH;
+    pub const IEEE80211 = AF.IEEE80211;
+    pub const INET_SDP = AF.INET_SDP;
+    pub const INET6_SDP = AF.INET6_SDP;
+    pub const MAX = AF.MAX;
+};
 
-pub const AF_UNSPEC = 0;
-pub const AF_UNIX = 1;
-pub const AF_LOCAL = AF_UNIX;
-pub const AF_FILE = AF_LOCAL;
-pub const AF_INET = 2;
-pub const AF_IMPLINK = 3;
-pub const AF_PUP = 4;
-pub const AF_CHAOS = 5;
-pub const AF_NETBIOS = 6;
-pub const AF_ISO = 7;
-pub const AF_OSI = AF_ISO;
-pub const AF_ECMA = 8;
-pub const AF_DATAKIT = 9;
-pub const AF_CCITT = 10;
-pub const AF_SNA = 11;
-pub const AF_DECnet = 12;
-pub const AF_DLI = 13;
-pub const AF_LAT = 14;
-pub const AF_HYLINK = 15;
-pub const AF_APPLETALK = 16;
-pub const AF_ROUTE = 17;
-pub const AF_LINK = 18;
-pub const pseudo_AF_XTP = 19;
-pub const AF_COIP = 20;
-pub const AF_CNT = 21;
-pub const pseudo_AF_RTIP = 22;
-pub const AF_IPX = 23;
-pub const AF_SIP = 24;
-pub const pseudo_AF_PIP = 25;
-pub const AF_ISDN = 26;
-pub const AF_E164 = AF_ISDN;
-pub const pseudo_AF_KEY = 27;
-pub const AF_INET6 = 28;
-pub const AF_NATM = 29;
-pub const AF_ATM = 30;
-pub const pseudo_AF_HDRCMPLT = 31;
-pub const AF_NETGRAPH = 32;
-pub const AF_SLOW = 33;
-pub const AF_SCLUSTER = 34;
-pub const AF_ARP = 35;
-pub const AF_BLUETOOTH = 36;
-pub const AF_IEEE80211 = 37;
-pub const AF_INET_SDP = 40;
-pub const AF_INET6_SDP = 42;
-pub const AF_MAX = 42;
+pub const AF = struct {
+    pub const UNSPEC = 0;
+    pub const UNIX = 1;
+    pub const LOCAL = UNIX;
+    pub const FILE = LOCAL;
+    pub const INET = 2;
+    pub const IMPLINK = 3;
+    pub const PUP = 4;
+    pub const CHAOS = 5;
+    pub const NETBIOS = 6;
+    pub const ISO = 7;
+    pub const OSI = ISO;
+    pub const ECMA = 8;
+    pub const DATAKIT = 9;
+    pub const CCITT = 10;
+    pub const SNA = 11;
+    pub const DECnet = 12;
+    pub const DLI = 13;
+    pub const LAT = 14;
+    pub const HYLINK = 15;
+    pub const APPLETALK = 16;
+    pub const ROUTE = 17;
+    pub const LINK = 18;
+    pub const pseudo_XTP = 19;
+    pub const COIP = 20;
+    pub const CNT = 21;
+    pub const pseudo_RTIP = 22;
+    pub const IPX = 23;
+    pub const SIP = 24;
+    pub const pseudo_PIP = 25;
+    pub const ISDN = 26;
+    pub const E164 = ISDN;
+    pub const pseudo_KEY = 27;
+    pub const INET6 = 28;
+    pub const NATM = 29;
+    pub const ATM = 30;
+    pub const pseudo_HDRCMPLT = 31;
+    pub const NETGRAPH = 32;
+    pub const SLOW = 33;
+    pub const SCLUSTER = 34;
+    pub const ARP = 35;
+    pub const BLUETOOTH = 36;
+    pub const IEEE80211 = 37;
+    pub const INET_SDP = 40;
+    pub const INET6_SDP = 42;
+    pub const MAX = 42;
+};
 
 pub const DT_UNKNOWN = 0;
 pub const DT_FIFO = 1;
@@ -1252,353 +1253,240 @@ pub const addrinfo = extern struct {
 /// Fail if not under dirfd
 pub const AT_BENEATH = 0x1000;
 
-/// dummy for IP
-pub const IPPROTO_IP = 0;
-
-/// control message protocol
-pub const IPPROTO_ICMP = 1;
-
-/// tcp
-pub const IPPROTO_TCP = 6;
-
-/// user datagram protocol
-pub const IPPROTO_UDP = 17;
-
-/// IP6 header
-pub const IPPROTO_IPV6 = 41;
-
-/// raw IP packet
-pub const IPPROTO_RAW = 255;
-
-/// IP6 hop-by-hop options
-pub const IPPROTO_HOPOPTS = 0;
-
-/// group mgmt protocol
-pub const IPPROTO_IGMP = 2;
-
-/// gateway^2 (deprecated)
-pub const IPPROTO_GGP = 3;
-
-/// IPv4 encapsulation
-pub const IPPROTO_IPV4 = 4;
-
-/// for compatibility
-pub const IPPROTO_IPIP = IPPROTO_IPV4;
-
-/// Stream protocol II
-pub const IPPROTO_ST = 7;
-
-/// exterior gateway protocol
-pub const IPPROTO_EGP = 8;
-
-/// private interior gateway
-pub const IPPROTO_PIGP = 9;
-
-/// BBN RCC Monitoring
-pub const IPPROTO_RCCMON = 10;
-
-/// network voice protocol
-pub const IPPROTO_NVPII = 11;
-
-/// pup
-pub const IPPROTO_PUP = 12;
-
-/// Argus
-pub const IPPROTO_ARGUS = 13;
-
-/// EMCON
-pub const IPPROTO_EMCON = 14;
-
-/// Cross Net Debugger
-pub const IPPROTO_XNET = 15;
-
-/// Chaos
-pub const IPPROTO_CHAOS = 16;
-
-/// Multiplexing
-pub const IPPROTO_MUX = 18;
-
-/// DCN Measurement Subsystems
-pub const IPPROTO_MEAS = 19;
-
-/// Host Monitoring
-pub const IPPROTO_HMP = 20;
-
-/// Packet Radio Measurement
-pub const IPPROTO_PRM = 21;
-
-/// xns idp
-pub const IPPROTO_IDP = 22;
-
-/// Trunk-1
-pub const IPPROTO_TRUNK1 = 23;
-
-/// Trunk-2
-pub const IPPROTO_TRUNK2 = 24;
-
-/// Leaf-1
-pub const IPPROTO_LEAF1 = 25;
-
-/// Leaf-2
-pub const IPPROTO_LEAF2 = 26;
-
-/// Reliable Data
-pub const IPPROTO_RDP = 27;
-
-/// Reliable Transaction
-pub const IPPROTO_IRTP = 28;
-
-/// tp-4 w/ class negotiation
-pub const IPPROTO_TP = 29;
-
-/// Bulk Data Transfer
-pub const IPPROTO_BLT = 30;
-
-/// Network Services
-pub const IPPROTO_NSP = 31;
-
-/// Merit Internodal
-pub const IPPROTO_INP = 32;
-
-/// Datagram Congestion Control Protocol
-pub const IPPROTO_DCCP = 33;
-
-/// Third Party Connect
-pub const IPPROTO_3PC = 34;
-
-/// InterDomain Policy Routing
-pub const IPPROTO_IDPR = 35;
-
-/// XTP
-pub const IPPROTO_XTP = 36;
-
-/// Datagram Delivery
-pub const IPPROTO_DDP = 37;
-
-/// Control Message Transport
-pub const IPPROTO_CMTP = 38;
-
-/// TP++ Transport
-pub const IPPROTO_TPXX = 39;
-
-/// IL transport protocol
-pub const IPPROTO_IL = 40;
-
-/// Source Demand Routing
-pub const IPPROTO_SDRP = 42;
-
-/// IP6 routing header
-pub const IPPROTO_ROUTING = 43;
-
-/// IP6 fragmentation header
-pub const IPPROTO_FRAGMENT = 44;
-
-/// InterDomain Routing
-pub const IPPROTO_IDRP = 45;
-
-/// resource reservation
-pub const IPPROTO_RSVP = 46;
-
-/// General Routing Encap.
-pub const IPPROTO_GRE = 47;
-
-/// Mobile Host Routing
-pub const IPPROTO_MHRP = 48;
-
-/// BHA
-pub const IPPROTO_BHA = 49;
-
-/// IP6 Encap Sec. Payload
-pub const IPPROTO_ESP = 50;
-
-/// IP6 Auth Header
-pub const IPPROTO_AH = 51;
-
-/// Integ. Net Layer Security
-pub const IPPROTO_INLSP = 52;
-
-/// IP with encryption
-pub const IPPROTO_SWIPE = 53;
-
-/// Next Hop Resolution
-pub const IPPROTO_NHRP = 54;
-
-/// IP Mobility
-pub const IPPROTO_MOBILE = 55;
-
-/// Transport Layer Security
-pub const IPPROTO_TLSP = 56;
-
-/// SKIP
-pub const IPPROTO_SKIP = 57;
-
-/// ICMP6
-pub const IPPROTO_ICMPV6 = 58;
-
-/// IP6 no next header
-pub const IPPROTO_NONE = 59;
-
-/// IP6 destination option
-pub const IPPROTO_DSTOPTS = 60;
-
-/// any host internal protocol
-pub const IPPROTO_AHIP = 61;
-
-/// CFTP
-pub const IPPROTO_CFTP = 62;
-
-/// "hello" routing protocol
-pub const IPPROTO_HELLO = 63;
-
-/// SATNET/Backroom EXPAK
-pub const IPPROTO_SATEXPAK = 64;
-
-/// Kryptolan
-pub const IPPROTO_KRYPTOLAN = 65;
-
-/// Remote Virtual Disk
-pub const IPPROTO_RVD = 66;
-
-/// Pluribus Packet Core
-pub const IPPROTO_IPPC = 67;
-
-/// Any distributed FS
-pub const IPPROTO_ADFS = 68;
-
-/// Satnet Monitoring
-pub const IPPROTO_SATMON = 69;
-
-/// VISA Protocol
-pub const IPPROTO_VISA = 70;
-
-/// Packet Core Utility
-pub const IPPROTO_IPCV = 71;
-
-/// Comp. Prot. Net. Executive
-pub const IPPROTO_CPNX = 72;
-
-/// Comp. Prot. HeartBeat
-pub const IPPROTO_CPHB = 73;
-
-/// Wang Span Network
-pub const IPPROTO_WSN = 74;
-
-/// Packet Video Protocol
-pub const IPPROTO_PVP = 75;
-
-/// BackRoom SATNET Monitoring
-pub const IPPROTO_BRSATMON = 76;
-
-/// Sun net disk proto (temp.)
-pub const IPPROTO_ND = 77;
-
-/// WIDEBAND Monitoring
-pub const IPPROTO_WBMON = 78;
-
-/// WIDEBAND EXPAK
-pub const IPPROTO_WBEXPAK = 79;
-
-/// ISO cnlp
-pub const IPPROTO_EON = 80;
-
-/// VMTP
-pub const IPPROTO_VMTP = 81;
-
-/// Secure VMTP
-pub const IPPROTO_SVMTP = 82;
-
-/// Banyon VINES
-pub const IPPROTO_VINES = 83;
-
-/// TTP
-pub const IPPROTO_TTP = 84;
-
-/// NSFNET-IGP
-pub const IPPROTO_IGP = 85;
-
-/// dissimilar gateway prot.
-pub const IPPROTO_DGP = 86;
-
-/// TCF
-pub const IPPROTO_TCF = 87;
-
-/// Cisco/GXS IGRP
-pub const IPPROTO_IGRP = 88;
-
-/// OSPFIGP
-pub const IPPROTO_OSPFIGP = 89;
-
-/// Strite RPC protocol
-pub const IPPROTO_SRPC = 90;
-
-/// Locus Address Resoloution
-pub const IPPROTO_LARP = 91;
-
-/// Multicast Transport
-pub const IPPROTO_MTP = 92;
-
-/// AX.25 Frames
-pub const IPPROTO_AX25 = 93;
-
-/// IP encapsulated in IP
-pub const IPPROTO_IPEIP = 94;
-
-/// Mobile Int.ing control
-pub const IPPROTO_MICP = 95;
-
-/// Semaphore Comm. security
-pub const IPPROTO_SCCSP = 96;
-
-/// Ethernet IP encapsulation
-pub const IPPROTO_ETHERIP = 97;
-
-/// encapsulation header
-pub const IPPROTO_ENCAP = 98;
-
-/// any private encr. scheme
-pub const IPPROTO_APES = 99;
-
-/// GMTP
-pub const IPPROTO_GMTP = 100;
-
-/// payload compression (IPComp)
-pub const IPPROTO_IPCOMP = 108;
-
-/// SCTP
-pub const IPPROTO_SCTP = 132;
-
-/// IPv6 Mobility Header
-pub const IPPROTO_MH = 135;
-
-/// UDP-Lite
-pub const IPPROTO_UDPLITE = 136;
-
-/// IP6 Host Identity Protocol
-pub const IPPROTO_HIP = 139;
-
-/// IP6 Shim6 Protocol
-pub const IPPROTO_SHIM6 = 140;
-
-/// Protocol Independent Mcast
-pub const IPPROTO_PIM = 103;
-
-/// CARP
-pub const IPPROTO_CARP = 112;
-
-/// PGM
-pub const IPPROTO_PGM = 113;
-
-/// MPLS-in-IP
-pub const IPPROTO_MPLS = 137;
-
-/// PFSYNC
-pub const IPPROTO_PFSYNC = 240;
-
-/// Reserved
-pub const IPPROTO_RESERVED_253 = 253;
-
-/// Reserved
-pub const IPPROTO_RESERVED_254 = 254;
+pub const IPPROTO = struct {
+    /// dummy for IP
+    pub const IP = 0;
+    /// control message protocol
+    pub const ICMP = 1;
+    /// tcp
+    pub const TCP = 6;
+    /// user datagram protocol
+    pub const UDP = 17;
+    /// IP6 header
+    pub const IPV6 = 41;
+    /// raw IP packet
+    pub const RAW = 255;
+    /// IP6 hop-by-hop options
+    pub const HOPOPTS = 0;
+    /// group mgmt protocol
+    pub const IGMP = 2;
+    /// gateway^2 (deprecated)
+    pub const GGP = 3;
+    /// IPv4 encapsulation
+    pub const IPV4 = 4;
+    /// for compatibility
+    pub const IPIP = IPV4;
+    /// Stream protocol II
+    pub const ST = 7;
+    /// exterior gateway protocol
+    pub const EGP = 8;
+    /// private interior gateway
+    pub const PIGP = 9;
+    /// BBN RCC Monitoring
+    pub const RCCMON = 10;
+    /// network voice protocol
+    pub const NVPII = 11;
+    /// pup
+    pub const PUP = 12;
+    /// Argus
+    pub const ARGUS = 13;
+    /// EMCON
+    pub const EMCON = 14;
+    /// Cross Net Debugger
+    pub const XNET = 15;
+    /// Chaos
+    pub const CHAOS = 16;
+    /// Multiplexing
+    pub const MUX = 18;
+    /// DCN Measurement Subsystems
+    pub const MEAS = 19;
+    /// Host Monitoring
+    pub const HMP = 20;
+    /// Packet Radio Measurement
+    pub const PRM = 21;
+    /// xns idp
+    pub const IDP = 22;
+    /// Trunk-1
+    pub const TRUNK1 = 23;
+    /// Trunk-2
+    pub const TRUNK2 = 24;
+    /// Leaf-1
+    pub const LEAF1 = 25;
+    /// Leaf-2
+    pub const LEAF2 = 26;
+    /// Reliable Data
+    pub const RDP = 27;
+    /// Reliable Transaction
+    pub const IRTP = 28;
+    /// tp-4 w/ class negotiation
+    pub const TP = 29;
+    /// Bulk Data Transfer
+    pub const BLT = 30;
+    /// Network Services
+    pub const NSP = 31;
+    /// Merit Internodal
+    pub const INP = 32;
+    /// Datagram Congestion Control Protocol
+    pub const DCCP = 33;
+    /// Third Party Connect
+    pub const @"3PC" = 34;
+    /// InterDomain Policy Routing
+    pub const IDPR = 35;
+    /// XTP
+    pub const XTP = 36;
+    /// Datagram Delivery
+    pub const DDP = 37;
+    /// Control Message Transport
+    pub const CMTP = 38;
+    /// TP++ Transport
+    pub const TPXX = 39;
+    /// IL transport protocol
+    pub const IL = 40;
+    /// Source Demand Routing
+    pub const SDRP = 42;
+    /// IP6 routing header
+    pub const ROUTING = 43;
+    /// IP6 fragmentation header
+    pub const FRAGMENT = 44;
+    /// InterDomain Routing
+    pub const IDRP = 45;
+    /// resource reservation
+    pub const RSVP = 46;
+    /// General Routing Encap.
+    pub const GRE = 47;
+    /// Mobile Host Routing
+    pub const MHRP = 48;
+    /// BHA
+    pub const BHA = 49;
+    /// IP6 Encap Sec. Payload
+    pub const ESP = 50;
+    /// IP6 Auth Header
+    pub const AH = 51;
+    /// Integ. Net Layer Security
+    pub const INLSP = 52;
+    /// IP with encryption
+    pub const SWIPE = 53;
+    /// Next Hop Resolution
+    pub const NHRP = 54;
+    /// IP Mobility
+    pub const MOBILE = 55;
+    /// Transport Layer Security
+    pub const TLSP = 56;
+    /// SKIP
+    pub const SKIP = 57;
+    /// ICMP6
+    pub const ICMPV6 = 58;
+    /// IP6 no next header
+    pub const NONE = 59;
+    /// IP6 destination option
+    pub const DSTOPTS = 60;
+    /// any host internal protocol
+    pub const AHIP = 61;
+    /// CFTP
+    pub const CFTP = 62;
+    /// "hello" routing protocol
+    pub const HELLO = 63;
+    /// SATNET/Backroom EXPAK
+    pub const SATEXPAK = 64;
+    /// Kryptolan
+    pub const KRYPTOLAN = 65;
+    /// Remote Virtual Disk
+    pub const RVD = 66;
+    /// Pluribus Packet Core
+    pub const IPPC = 67;
+    /// Any distributed FS
+    pub const ADFS = 68;
+    /// Satnet Monitoring
+    pub const SATMON = 69;
+    /// VISA Protocol
+    pub const VISA = 70;
+    /// Packet Core Utility
+    pub const IPCV = 71;
+    /// Comp. Prot. Net. Executive
+    pub const CPNX = 72;
+    /// Comp. Prot. HeartBeat
+    pub const CPHB = 73;
+    /// Wang Span Network
+    pub const WSN = 74;
+    /// Packet Video Protocol
+    pub const PVP = 75;
+    /// BackRoom SATNET Monitoring
+    pub const BRSATMON = 76;
+    /// Sun net disk proto (temp.)
+    pub const ND = 77;
+    /// WIDEBAND Monitoring
+    pub const WBMON = 78;
+    /// WIDEBAND EXPAK
+    pub const WBEXPAK = 79;
+    /// ISO cnlp
+    pub const EON = 80;
+    /// VMTP
+    pub const VMTP = 81;
+    /// Secure VMTP
+    pub const SVMTP = 82;
+    /// Banyon VINES
+    pub const VINES = 83;
+    /// TTP
+    pub const TTP = 84;
+    /// NSFNET-IGP
+    pub const IGP = 85;
+    /// dissimilar gateway prot.
+    pub const DGP = 86;
+    /// TCF
+    pub const TCF = 87;
+    /// Cisco/GXS IGRP
+    pub const IGRP = 88;
+    /// OSPFIGP
+    pub const OSPFIGP = 89;
+    /// Strite RPC protocol
+    pub const SRPC = 90;
+    /// Locus Address Resoloution
+    pub const LARP = 91;
+    /// Multicast Transport
+    pub const MTP = 92;
+    /// AX.25 Frames
+    pub const AX25 = 93;
+    /// IP encapsulated in IP
+    pub const IPEIP = 94;
+    /// Mobile Int.ing control
+    pub const MICP = 95;
+    /// Semaphore Comm. security
+    pub const SCCSP = 96;
+    /// Ethernet IP encapsulation
+    pub const ETHERIP = 97;
+    /// encapsulation header
+    pub const ENCAP = 98;
+    /// any private encr. scheme
+    pub const APES = 99;
+    /// GMTP
+    pub const GMTP = 100;
+    /// payload compression (IPComp)
+    pub const IPCOMP = 108;
+    /// SCTP
+    pub const SCTP = 132;
+    /// IPv6 Mobility Header
+    pub const MH = 135;
+    /// UDP-Lite
+    pub const UDPLITE = 136;
+    /// IP6 Host Identity Protocol
+    pub const HIP = 139;
+    /// IP6 Shim6 Protocol
+    pub const SHIM6 = 140;
+    /// Protocol Independent Mcast
+    pub const PIM = 103;
+    /// CARP
+    pub const CARP = 112;
+    /// PGM
+    pub const PGM = 113;
+    /// MPLS-in-IP
+    pub const MPLS = 137;
+    /// PFSYNC
+    pub const PFSYNC = 240;
+    /// Reserved
+    pub const RESERVED_253 = 253;
+    /// Reserved
+    pub const RESERVED_254 = 254;
+};
 
 pub const rlimit_resource = enum(c_int) {
     CPU = 0,
@@ -1623,11 +1511,13 @@ pub const rlimit_resource = enum(c_int) {
 
 pub const rlim_t = i64;
 
-/// No limit
-pub const RLIM_INFINITY: rlim_t = (1 << 63) - 1;
+pub const RLIM = struct {
+    /// No limit
+    pub const INFINITY: rlim_t = (1 << 63) - 1;
 
-pub const RLIM_SAVED_MAX = RLIM_INFINITY;
-pub const RLIM_SAVED_CUR = RLIM_INFINITY;
+    pub const SAVED_MAX = INFINITY;
+    pub const SAVED_CUR = INFINITY;
+};
 
 pub const rlimit = extern struct {
     /// Soft limit
@@ -1648,28 +1538,29 @@ pub const pollfd = extern struct {
     revents: i16,
 };
 
-/// any readable data available.
-pub const POLLIN = 0x0001;
-/// OOB/Urgent readable data.
-pub const POLLPRI = 0x0002;
-/// file descriptor is writeable.
-pub const POLLOUT = 0x0004;
-/// non-OOB/URG data available.
-pub const POLLRDNORM = 0x0040;
-/// no write type differentiation.
-pub const POLLWRNORM = POLLOUT;
-/// OOB/Urgent readable data.
-pub const POLLRDBAND = 0x0080;
-/// OOB/Urgent data can be written.
-pub const POLLWRBAND = 0x0100;
-/// like POLLIN, except ignore EOF.
-pub const POLLINIGNEOF = 0x2000;
-/// some poll error occurred.
-pub const POLLERR = 0x0008;
-/// file descriptor was "hung up".
-pub const POLLHUP = 0x0010;
-/// requested events "invalid".
-pub const POLLNVAL = 0x0020;
+pub const POLL = struct {
+    /// any readable data available.
+    pub const IN = 0x0001;
+    /// OOB/Urgent readable data.
+    pub const PRI = 0x0002;
+    /// file descriptor is writeable.
+    pub const OUT = 0x0004;
+    /// non-OOB/URG data available.
+    pub const RDNORM = 0x0040;
+    /// no write type differentiation.
+    pub const WRNORM = OUT;
+    /// OOB/Urgent readable data.
+    pub const RDBAND = 0x0080;
+    /// OOB/Urgent data can be written.
+    pub const WRBAND = 0x0100;
+    /// like IN, except ignore EOF.
+    pub const INIGNEOF = 0x2000;
+    /// some poll error occurred.
+    pub const ERR = 0x0008;
+    /// file descriptor was "hung up".
+    pub const HUP = 0x0010;
+    /// requested events "invalid".
+    pub const NVAL = 0x0020;
 
-pub const POLLSTANDARD = POLLIN | POLLPRI | POLLOUT | POLLRDNORM | POLLRDBAND |
-    POLLWRBAND | POLLERR | POLLHUP | POLLNVAL;
+    pub const STANDARD = IN | PRI | OUT | RDNORM | RDBAND | WRBAND | ERR | HUP | NVAL;
+};

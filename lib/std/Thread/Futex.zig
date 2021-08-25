@@ -142,7 +142,7 @@ const LinuxFutex = struct {
 
         switch (linux.getErrno(linux.futex_wait(
             @ptrCast(*const i32, ptr),
-            linux.FUTEX_PRIVATE_FLAG | linux.FUTEX_WAIT,
+            linux.FUTEX.PRIVATE_FLAG | linux.FUTEX.WAIT,
             @bitCast(i32, expect),
             ts_ptr,
         ))) {
@@ -159,7 +159,7 @@ const LinuxFutex = struct {
     fn wake(ptr: *const Atomic(u32), num_waiters: u32) void {
         switch (linux.getErrno(linux.futex_wake(
             @ptrCast(*const i32, ptr),
-            linux.FUTEX_PRIVATE_FLAG | linux.FUTEX_WAKE,
+            linux.FUTEX.PRIVATE_FLAG | linux.FUTEX.WAKE,
             std.math.cast(i32, num_waiters) catch std.math.maxInt(i32),
         ))) {
             .SUCCESS => {}, // successful wake up
@@ -352,7 +352,7 @@ const PosixFutex = struct {
             var ts_ptr: ?*const std.os.timespec = null;
             if (timeout) |timeout_ns| {
                 ts_ptr = &ts;
-                std.os.clock_gettime(std.os.CLOCK_REALTIME, &ts) catch unreachable;
+                std.os.clock_gettime(std.os.CLOCK.REALTIME, &ts) catch unreachable;
                 ts.tv_sec += @intCast(@TypeOf(ts.tv_sec), timeout_ns / std.time.ns_per_s);
                 ts.tv_nsec += @intCast(@TypeOf(ts.tv_nsec), timeout_ns % std.time.ns_per_s);
                 if (ts.tv_nsec >= std.time.ns_per_s) {

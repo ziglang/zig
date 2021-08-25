@@ -3836,7 +3836,7 @@ fn gimmeMoreOfThoseSweetSweetFileDescriptors() void {
         // On Darwin, `NOFILE` is bounded by a hardcoded value `OPEN_MAX`.
         // According to the man pages for setrlimit():
         //   setrlimit() now returns with errno set to EINVAL in places that historically succeeded.
-        //   It no longer accepts "rlim_cur = RLIM_INFINITY" for RLIM_NOFILE.
+        //   It no longer accepts "rlim_cur = RLIM.INFINITY" for RLIM.NOFILE.
         //   Use "rlim_cur = min(OPEN_MAX, rlim_max)".
         lim.max = std.math.min(std.os.darwin.OPEN_MAX, lim.max);
     }
@@ -3846,7 +3846,7 @@ fn gimmeMoreOfThoseSweetSweetFileDescriptors() void {
     var min: posix.rlim_t = lim.cur;
     var max: posix.rlim_t = 1 << 20;
     // But if there's a defined upper bound, don't search, just set it.
-    if (lim.max != posix.RLIM_INFINITY) {
+    if (lim.max != posix.RLIM.INFINITY) {
         min = lim.max;
         max = lim.max;
     }

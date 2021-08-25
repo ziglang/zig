@@ -500,13 +500,14 @@ pub const Dir = struct {
         },
         .linux => struct {
             dir: Dir,
-            // The if guard is solely there to prevent compile errors from missing `os.linux.dirent64`
+            // The if guard is solely there to prevent compile errors from missing `linux.dirent64`
             // definition when compiling for other OSes. It doesn't do anything when compiling for Linux.
-            buf: [8192]u8 align(if (builtin.os.tag != .linux) 1 else @alignOf(os.linux.dirent64)),
+            buf: [8192]u8 align(if (builtin.os.tag != .linux) 1 else @alignOf(linux.dirent64)),
             index: usize,
             end_index: usize,
 
             const Self = @This();
+            const linux = os.linux;
 
             pub const Error = IteratorError;
 
@@ -515,8 +516,8 @@ pub const Dir = struct {
             pub fn next(self: *Self) Error!?Entry {
                 start_over: while (true) {
                     if (self.index >= self.end_index) {
-                        const rc = os.linux.getdents64(self.dir.fd, &self.buf, self.buf.len);
-                        switch (os.linux.getErrno(rc)) {
+                        const rc = linux.getdents64(self.dir.fd, &self.buf, self.buf.len);
+                        switch (linux.getErrno(rc)) {
                             .SUCCESS => {},
                             .BADF => unreachable, // Dir is invalid or was opened without iteration ability
                             .FAULT => unreachable,
@@ -528,7 +529,7 @@ pub const Dir = struct {
                         self.index = 0;
                         self.end_index = rc;
                     }
-                    const linux_entry = @ptrCast(*align(1) os.dirent64, &self.buf[self.index]);
+                    const linux_entry = @ptrCast(*align(1) linux.dirent64, &self.buf[self.index]);
                     const next_index = self.index + linux_entry.reclen();
                     self.index = next_index;
 
@@ -540,13 +541,13 @@ pub const Dir = struct {
                     }
 
                     const entry_kind = switch (linux_entry.d_type) {
-                        os.DT_BLK => Entry.Kind.BlockDevice,
-                        os.DT_CHR => Entry.Kind.CharacterDevice,
-                        os.DT_DIR => Entry.Kind.Directory,
-                        os.DT_FIFO => Entry.Kind.NamedPipe,
-                        os.DT_LNK => Entry.Kind.SymLink,
-                        os.DT_REG => Entry.Kind.File,
-                        os.DT_SOCK => Entry.Kind.UnixDomainSocket,
+                        linux.DT.BLK => Entry.Kind.BlockDevice,
+                        linux.DT.CHR => Entry.Kind.CharacterDevice,
+                        linux.DT.DIR => Entry.Kind.Directory,
+                        linux.DT.FIFO => Entry.Kind.NamedPipe,
+                        linux.DT.LNK => Entry.Kind.SymLink,
+                        linux.DT.REG => Entry.Kind.File,
+                        linux.DT.SOCK => Entry.Kind.UnixDomainSocket,
                         else => Entry.Kind.Unknown,
                     };
                     return Entry{
@@ -1537,7 +1538,7 @@ pub const Dir = struct {
             return self.deleteFileW(sub_path_w.span());
         } else if (builtin.os.tag == .wasi and !builtin.link_libc) {
             os.unlinkatWasi(self.fd, sub_path, 0) catch |err| switch (err) {
-                error.DirNotEmpty => unreachable, // not passing AT_REMOVEDIR
+                error.DirNotEmpty => unreachable, // not passing AT.REMOVEDIR
                 else => |e| return e,
             };
         } else {
@@ -1551,13 +1552,13 @@ pub const Dir = struct {
     /// Same as `deleteFile` except the parameter is null-terminated.
     pub fn deleteFileZ(self: Dir, sub_path_c: [*:0]const u8) DeleteFileError!void {
         os.unlinkatZ(self.fd, sub_path_c, 0) catch |err| switch (err) {
-            error.DirNotEmpty => unreachable, // not passing AT_REMOVEDIR
+            error.DirNotEmpty => unreachable, // not passing AT.REMOVEDIR
             error.AccessDenied => |e| switch (builtin.os.tag) {
                 // non-Linux POSIX systems return EPERM when trying to delete a directory, so
                 // we need to handle that case specifically and translate the error
                 .macos, .ios, .freebsd, .netbsd, .dragonfly, .openbsd => {
                     // Don't follow symlinks to match unlinkat (which acts on symlinks rather than follows them)
-                    const fstat = os.fstatatZ(self.fd, sub_path_c, os.AT_SYMLINK_NOFOLLOW) catch return e;
+                    const fstat = os.fstatatZ(self.fd, sub_path_c, os.AT.SYMLINK_NOFOLLOW) catch return e;
                     const is_dir = fstat.mode & os.S_IFMT == os.S_IFDIR;
                     return if (is_dir) error.IsDir else e;
                 },
@@ -1570,7 +1571,7 @@ pub const Dir = struct {
     /// Same as `deleteFile` except the parameter is WTF-16 encoded.
     pub fn deleteFileW(self: Dir, sub_path_w: []const u16) DeleteFileError!void {
         os.unlinkatW(self.fd, sub_path_w, 0) catch |err| switch (err) {
-            error.DirNotEmpty => unreachable, // not passing AT_REMOVEDIR
+            error.DirNotEmpty => unreachable, // not passing AT.REMOVEDIR
             else => |e| return e,
         };
     }
@@ -1599,8 +1600,8 @@ pub const Dir = struct {
             const sub_path_w = try os.windows.sliceToPrefixedFileW(sub_path);
             return self.deleteDirW(sub_path_w.span());
         } else if (builtin.os.tag == .wasi and !builtin.link_libc) {
-            os.unlinkat(self.fd, sub_path, os.AT_REMOVEDIR) catch |err| switch (err) {
-                error.IsDir => unreachable, // not possible since we pass AT_REMOVEDIR
+            os.unlinkat(self.fd, sub_path, os.AT.REMOVEDIR) catch |err| switch (err) {
+                error.IsDir => unreachable, // not possible since we pass AT.REMOVEDIR
                 else => |e| return e,
             };
         } else {
@@ -1611,8 +1612,8 @@ pub const Dir = struct {
 
     /// Same as `deleteDir` except the parameter is null-terminated.
     pub fn deleteDirZ(self: Dir, sub_path_c: [*:0]const u8) DeleteDirError!void {
-        os.unlinkatZ(self.fd, sub_path_c, os.AT_REMOVEDIR) catch |err| switch (err) {
-            error.IsDir => unreachable, // not possible since we pass AT_REMOVEDIR
+        os.unlinkatZ(self.fd, sub_path_c, os.AT.REMOVEDIR) catch |err| switch (err) {
+            error.IsDir => unreachable, // not possible since we pass AT.REMOVEDIR
             else => |e| return e,
         };
     }
@@ -1620,8 +1621,8 @@ pub const Dir = struct {
     /// Same as `deleteDir` except the parameter is UTF16LE, NT prefixed.
     /// This function is Windows-only.
     pub fn deleteDirW(self: Dir, sub_path_w: []const u16) DeleteDirError!void {
-        os.unlinkatW(self.fd, sub_path_w, os.AT_REMOVEDIR) catch |err| switch (err) {
-            error.IsDir => unreachable, // not possible since we pass AT_REMOVEDIR
+        os.unlinkatW(self.fd, sub_path_w, os.AT.REMOVEDIR) catch |err| switch (err) {
+            error.IsDir => unreachable, // not possible since we pass AT.REMOVEDIR
             else => |e| return e,
         };
     }
