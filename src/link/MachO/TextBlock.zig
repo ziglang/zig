@@ -1,6 +1,7 @@
 const TextBlock = @This();
 
 const std = @import("std");
+const build_options = @import("build_options");
 const aarch64 = @import("../../codegen/aarch64.zig");
 const assert = std.debug.assert;
 const commands = @import("commands.zig");
@@ -830,9 +831,18 @@ pub fn parseRelocs(self: *TextBlock, relocs: []macho.relocation_info, context: R
             };
             if (context.macho_file.got_entries_map.contains(key)) break :blk;
 
-            const got_index = @intCast(u32, context.macho_file.got_entries.items.len);
-            try context.macho_file.got_entries.append(context.allocator, key);
-            try context.macho_file.got_entries_map.putNoClobber(context.allocator, key, got_index);
+            const atom = try context.macho_file.createGotAtom(key);
+            try context.macho_file.got_entries_map.putNoClobber(context.macho_file.base.allocator, key, atom);
+            const match = MachO.MatchingSection{
+                .seg = context.macho_file.data_const_segment_cmd_index.?,
+                .sect = context.macho_file.got_section_index.?,
+            };
+            if (!(build_options.is_stage1 and context.macho_file.base.options.use_stage1)) {
+                _ = try context.macho_file.allocateAtom(atom, match);
+                try context.macho_file.writeAtom(atom, match);
+            } else {
+                try context.macho_file.allocateAtomStage1(atom, match);
+            }
         } else if (parsed_rel.payload == .unsigned) {
             switch (parsed_rel.where) {
                 .undef => {
@@ -1082,9 +1092,7 @@ pub fn resolveRelocs(self: *TextBlock, macho_file: *MachO) !void {
             };
 
             if (is_via_got) {
-                const dc_seg = macho_file.load_commands.items[macho_file.data_const_segment_cmd_index.?].Segment;
-                const got = dc_seg.sections.items[macho_file.got_section_index.?];
-                const got_index = macho_file.got_entries_map.get(.{
+                const atom = macho_file.got_entries_map.get(.{
                     .where = switch (rel.where) {
                         .local => .local,
                         .undef => .undef,
@@ -1099,7 +1107,7 @@ pub fn resolveRelocs(self: *TextBlock, macho_file: *MachO) !void {
                     log.err("  this is an internal linker error", .{});
                     return error.FailedToResolveRelocationTarget;
                 };
-                break :blk got.addr + got_index * @sizeOf(u64);
+                break :blk macho_file.locals.items[atom.local_sym_index].n_value;
             }
 
             switch (rel.where) {

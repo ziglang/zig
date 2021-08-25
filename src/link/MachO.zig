@@ -154,17 +154,13 @@ stub_preamble_sym_index: ?u32 = null,
 strtab: std.ArrayListUnmanaged(u8) = .{},
 strtab_dir: std.HashMapUnmanaged(u32, u32, StringIndexContext, std.hash_map.default_max_load_percentage) = .{},
 
-got_entries: std.ArrayListUnmanaged(GotIndirectionKey) = .{},
-got_entries_map: std.AutoHashMapUnmanaged(GotIndirectionKey, u32) = .{},
-
-got_entries_free_list: std.ArrayListUnmanaged(u32) = .{},
+got_entries_map: std.AutoArrayHashMapUnmanaged(GotIndirectionKey, *TextBlock) = .{},
 
 stubs: std.ArrayListUnmanaged(u32) = .{},
 stubs_map: std.AutoHashMapUnmanaged(u32, u32) = .{},
 
 error_flags: File.ErrorFlags = File.ErrorFlags{},
 
-got_entries_count_dirty: bool = false,
 load_commands_dirty: bool = false,
 rebase_info_dirty: bool = false,
 binding_info_dirty: bool = false,
@@ -876,7 +872,6 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
         self.error_flags.no_entry_point_found = false;
     }
 
-    assert(!self.got_entries_count_dirty);
     assert(!self.load_commands_dirty);
     assert(!self.rebase_info_dirty);
     assert(!self.binding_info_dirty);
@@ -1731,16 +1726,9 @@ fn allocateTextSegment(self: *MachO) !void {
 
 fn allocateDataConstSegment(self: *MachO) !void {
     const seg = &self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
-    const nentries = @intCast(u32, self.got_entries.items.len);
-
     const text_seg = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
     seg.inner.fileoff = text_seg.inner.fileoff + text_seg.inner.filesize;
     seg.inner.vmaddr = text_seg.inner.vmaddr + text_seg.inner.vmsize;
-
-    // Set got size
-    const got = &seg.sections.items[self.got_section_index.?];
-    got.size += nentries * @sizeOf(u64);
-
     try self.allocateSegment(self.data_const_segment_cmd_index.?, 0);
 }
 
@@ -1927,7 +1915,7 @@ fn createEmptyAtom(self: *MachO, local_sym_index: u32, size: u64, alignment: u32
     return atom;
 }
 
-fn allocateAtom(self: *MachO, atom: *TextBlock, match: MatchingSection) !u64 {
+pub fn allocateAtom(self: *MachO, atom: *TextBlock, match: MatchingSection) !u64 {
     // TODO converge with `allocateTextBlock`
     const seg = self.load_commands.items[match.seg].Segment;
     const sect = seg.sections.items[match.sect];
@@ -1936,7 +1924,8 @@ fn allocateAtom(self: *MachO, atom: *TextBlock, match: MatchingSection) !u64 {
         const last_atom_sym = self.locals.items[last.local_sym_index];
         break :blk last_atom_sym.n_value + last.size;
     } else sect.addr;
-    const atom_alignment = try math.powi(u32, 2, atom.alignment);
+    // const atom_alignment = try math.powi(u32, 2, atom.alignment); TODO
+    const atom_alignment = math.powi(u32, 2, atom.alignment) catch unreachable;
     const vaddr = mem.alignForwardGeneric(u64, base_addr, atom_alignment);
     log.debug("allocating atom for symbol {s} at address 0x{x}", .{ self.getString(sym.n_strx), vaddr });
 
@@ -1956,7 +1945,7 @@ fn allocateAtom(self: *MachO, atom: *TextBlock, match: MatchingSection) !u64 {
     return vaddr;
 }
 
-fn writeAtom(self: *MachO, atom: *TextBlock, match: MatchingSection) !void {
+pub fn writeAtom(self: *MachO, atom: *TextBlock, match: MatchingSection) !void {
     const seg = self.load_commands.items[match.seg].Segment;
     const sect = seg.sections.items[match.sect];
     const sym = self.locals.items[atom.local_sym_index];
@@ -1967,7 +1956,7 @@ fn writeAtom(self: *MachO, atom: *TextBlock, match: MatchingSection) !void {
     try self.writeLocalSymbol(atom.local_sym_index);
 }
 
-fn allocateAtomStage1(self: *MachO, atom: *TextBlock, match: MatchingSection) !void {
+pub fn allocateAtomStage1(self: *MachO, atom: *TextBlock, match: MatchingSection) !void {
     // Update target section's metadata
     // TODO should we update segment's size here too?
     // How does it tie with incremental space allocs?
@@ -1988,7 +1977,7 @@ fn allocateAtomStage1(self: *MachO, atom: *TextBlock, match: MatchingSection) !v
     }
 }
 
-fn createGotAtom(self: *MachO, key: GotIndirectionKey) !*TextBlock {
+pub fn createGotAtom(self: *MachO, key: GotIndirectionKey) !*TextBlock {
     const local_sym_index = @intCast(u32, self.locals.items.len);
     try self.locals.append(self.base.allocator, .{
         .n_strx = try self.makeString("got_entry"),
@@ -2804,15 +2793,12 @@ fn resolveDyldStubBinder(self: *MachO) !void {
     }
 
     // Add dyld_stub_binder as the final GOT entry.
-    const got_index = @intCast(u32, self.got_entries.items.len);
     const got_entry = GotIndirectionKey{
         .where = .undef,
         .where_index = self.dyld_stub_binder_index.?,
     };
-    try self.got_entries.append(self.base.allocator, got_entry);
-    try self.got_entries_map.putNoClobber(self.base.allocator, got_entry, got_index);
-
     const atom = try self.createGotAtom(got_entry);
+    try self.got_entries_map.putNoClobber(self.base.allocator, got_entry, atom);
     const match = MatchingSection{
         .seg = self.data_const_segment_cmd_index.?,
         .sect = self.got_section_index.?,
@@ -2917,7 +2903,6 @@ fn flushZld(self: *MachO) !void {
         sect.offset = 0;
     }
 
-    try self.writeGotEntries();
     try self.setEntryPoint();
     try self.writeRebaseInfoTableZld();
     try self.writeBindInfoTableZld();
@@ -2950,29 +2935,6 @@ fn flushZld(self: *MachO) !void {
     if (self.requires_adhoc_codesig) {
         try self.writeCodeSignature();
     }
-}
-
-fn writeGotEntries(self: *MachO) !void {
-    const seg = self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
-    const sect = seg.sections.items[self.got_section_index.?];
-
-    var buffer = try self.base.allocator.alloc(u8, self.got_entries.items.len * @sizeOf(u64));
-    defer self.base.allocator.free(buffer);
-
-    var stream = std.io.fixedBufferStream(buffer);
-    var writer = stream.writer();
-
-    for (self.got_entries.items) |key| {
-        const address: u64 = switch (key.where) {
-            .local => self.locals.items[key.where_index].n_value,
-            .undef => 0,
-        };
-        try writer.writeIntLittle(u64, address);
-    }
-
-    log.debug("writing GOT pointers at 0x{x} to 0x{x}", .{ sect.offset, sect.offset + buffer.len });
-
-    try self.base.file.?.pwriteAll(buffer, sect.offset);
 }
 
 fn setEntryPoint(self: *MachO) !void {
@@ -3028,22 +2990,6 @@ fn writeRebaseInfoTableZld(self: *MachO) !void {
         }
     }
 
-    if (self.got_section_index) |idx| {
-        const seg = self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
-        const sect = seg.sections.items[idx];
-        const base_offset = sect.addr - seg.inner.vmaddr;
-        const segment_id = @intCast(u16, self.data_const_segment_cmd_index.?);
-
-        for (self.got_entries.items) |entry, i| {
-            if (entry.where == .undef) continue;
-
-            try pointers.append(.{
-                .offset = base_offset + i * @sizeOf(u64),
-                .segment_id = segment_id,
-            });
-        }
-    }
-
     std.sort.sort(bind.Pointer, pointers.items, {}, bind.pointerCmp);
 
     const size = try bind.rebaseInfoSize(pointers.items);
@@ -3067,25 +3013,6 @@ fn writeRebaseInfoTableZld(self: *MachO) !void {
 fn writeBindInfoTableZld(self: *MachO) !void {
     var pointers = std.ArrayList(bind.Pointer).init(self.base.allocator);
     defer pointers.deinit();
-
-    if (self.got_section_index) |idx| {
-        const seg = self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
-        const sect = seg.sections.items[idx];
-        const base_offset = sect.addr - seg.inner.vmaddr;
-        const segment_id = @intCast(u16, self.data_const_segment_cmd_index.?);
-
-        for (self.got_entries.items) |entry, i| {
-            if (entry.where == .local) continue;
-
-            const sym = self.undefs.items[entry.where_index];
-            try pointers.append(.{
-                .offset = base_offset + i * @sizeOf(u64),
-                .segment_id = segment_id,
-                .dylib_ordinal = @divExact(sym.n_desc, macho.N_SYMBOL_RESOLVER),
-                .name = self.getString(sym.n_strx),
-            });
-        }
-    }
 
     {
         var it = self.blocks.iterator();
@@ -3319,7 +3246,7 @@ fn writeSymbolTable(self: *MachO) !void {
     const la_symbol_ptr = &data_segment.sections.items[self.la_symbol_ptr_section_index.?];
 
     const nstubs = @intCast(u32, self.stubs.items.len);
-    const ngot_entries = @intCast(u32, self.got_entries.items.len);
+    const ngot_entries = @intCast(u32, self.got_entries_map.keys().len);
 
     dysymtab.indirectsymoff = @intCast(u32, seg.inner.fileoff + seg.inner.filesize);
     dysymtab.nindirectsyms = nstubs * 2 + ngot_entries;
@@ -3344,10 +3271,10 @@ fn writeSymbolTable(self: *MachO) !void {
     }
 
     got.reserved1 = nstubs;
-    for (self.got_entries.items) |entry| {
-        switch (entry.where) {
+    for (self.got_entries_map.keys()) |key| {
+        switch (key.where) {
             .undef => {
-                try writer.writeIntLittle(u32, dysymtab.iundefsym + entry.where_index);
+                try writer.writeIntLittle(u32, dysymtab.iundefsym + key.where_index);
             },
             .local => {
                 try writer.writeIntLittle(u32, macho.INDIRECT_SYMBOL_LOCAL);
@@ -3373,9 +3300,7 @@ pub fn deinit(self: *MachO) void {
     }
 
     self.section_ordinals.deinit(self.base.allocator);
-    self.got_entries.deinit(self.base.allocator);
     self.got_entries_map.deinit(self.base.allocator);
-    self.got_entries_free_list.deinit(self.base.allocator);
     self.stubs.deinit(self.base.allocator);
     self.stubs_map.deinit(self.base.allocator);
     self.strtab_dir.deinit(self.base.allocator);
@@ -3539,8 +3464,6 @@ pub fn allocateDeclIndexes(self: *MachO, decl: *Module.Decl) !void {
     if (decl.link.macho.local_sym_index != 0) return;
 
     try self.locals.ensureUnusedCapacity(self.base.allocator, 1);
-    try self.got_entries.ensureUnusedCapacity(self.base.allocator, 1);
-
     try self.decls.putNoClobber(self.base.allocator, decl, {});
 
     if (self.locals_free_list.popOrNull()) |i| {
@@ -3552,20 +3475,6 @@ pub fn allocateDeclIndexes(self: *MachO, decl: *Module.Decl) !void {
         _ = self.locals.addOneAssumeCapacity();
     }
 
-    const got_index: u32 = blk: {
-        if (self.got_entries_free_list.popOrNull()) |i| {
-            log.debug("reusing GOT entry index {d} for {s}", .{ i, decl.name });
-            break :blk i;
-        } else {
-            const got_index = @intCast(u32, self.got_entries.items.len);
-            log.debug("allocating GOT entry index {d} for {s}", .{ got_index, decl.name });
-            _ = self.got_entries.addOneAssumeCapacity();
-            self.got_entries_count_dirty = true;
-            self.rebase_info_dirty = true;
-            break :blk got_index;
-        }
-    };
-
     self.locals.items[decl.link.macho.local_sym_index] = .{
         .n_strx = 0,
         .n_type = 0,
@@ -3573,12 +3482,19 @@ pub fn allocateDeclIndexes(self: *MachO, decl: *Module.Decl) !void {
         .n_desc = 0,
         .n_value = 0,
     };
-    const got_entry = GotIndirectionKey{
+
+    // TODO try popping from free list first before allocating a new GOT atom.
+    const key = GotIndirectionKey{
         .where = .local,
         .where_index = decl.link.macho.local_sym_index,
     };
-    self.got_entries.items[got_index] = got_entry;
-    try self.got_entries_map.putNoClobber(self.base.allocator, got_entry, got_index);
+    const got_atom = try self.createGotAtom(key);
+    _ = try self.allocateAtom(got_atom, .{
+        .seg = self.data_const_segment_cmd_index.?,
+        .sect = self.got_section_index.?,
+    });
+    try self.got_entries_map.put(self.base.allocator, key, got_atom);
+    self.rebase_info_dirty = true;
 }
 
 pub fn updateFunc(self: *MachO, module: *Module, func: *Module.Fn, air: Air, liveness: Liveness) !void {
@@ -3760,11 +3676,16 @@ fn placeDecl(self: *MachO, decl: *Module.Decl, code_len: usize) !*macho.nlist_64
 
             if (vaddr != symbol.n_value) {
                 log.debug(" (writing new GOT entry)", .{});
-                const got_index = self.got_entries_map.get(.{
+                const match = MatchingSection{
+                    .seg = self.data_const_segment_cmd_index.?,
+                    .sect = self.got_section_index.?,
+                };
+                const got_atom = self.got_entries_map.get(.{
                     .where = .local,
                     .where_index = decl.link.macho.local_sym_index,
                 }) orelse unreachable;
-                try self.writeGotEntry(got_index);
+                // _ = try self.allocateAtom(got_atom, match);
+                try self.writeAtom(got_atom, match);
             }
 
             symbol.n_value = vaddr;
@@ -3802,11 +3723,16 @@ fn placeDecl(self: *MachO, decl: *Module.Decl, code_len: usize) !*macho.nlist_64
             .n_desc = 0,
             .n_value = addr,
         };
-        const got_index = self.got_entries_map.get(.{
+        const match = MatchingSection{
+            .seg = self.data_const_segment_cmd_index.?,
+            .sect = self.got_section_index.?,
+        };
+        const got_atom = self.got_entries_map.get(.{
             .where = .local,
             .where_index = decl.link.macho.local_sym_index,
         }) orelse unreachable;
-        try self.writeGotEntry(got_index);
+        // _ = try self.allocateAtom(got_atom, match);
+        try self.writeAtom(got_atom, match);
 
         try self.writeLocalSymbol(decl.link.macho.local_sym_index);
         if (self.d_sym) |*ds|
@@ -3955,13 +3881,7 @@ pub fn freeDecl(self: *MachO, decl: *Module.Decl) void {
     if (decl.link.macho.local_sym_index != 0) {
         self.locals_free_list.append(self.base.allocator, decl.link.macho.local_sym_index) catch {};
 
-        const got_key = GotIndirectionKey{
-            .where = .local,
-            .where_index = decl.link.macho.local_sym_index,
-        };
-        const got_index = self.got_entries_map.get(got_key) orelse unreachable;
-        _ = self.got_entries_map.remove(got_key);
-        self.got_entries_free_list.append(self.base.allocator, got_index) catch {};
+        // TODO free GOT atom here.
 
         self.locals.items[decl.link.macho.local_sym_index].n_type = 0;
         decl.link.macho.local_sym_index = 0;
@@ -4789,29 +4709,6 @@ fn findFreeSpaceLinkedit(self: *MachO, object_size: u64, min_alignment: u16, sta
     return st;
 }
 
-fn writeGotEntry(self: *MachO, index: usize) !void {
-    const seg = &self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
-    const sect = &seg.sections.items[self.got_section_index.?];
-    const off = sect.offset + @sizeOf(u64) * index;
-
-    if (self.got_entries_count_dirty) {
-        // TODO relocate.
-        self.got_entries_count_dirty = false;
-    }
-
-    const got_entry = self.got_entries.items[index];
-    const sym = switch (got_entry.where) {
-        .local => self.locals.items[got_entry.where_index],
-        .undef => self.undefs.items[got_entry.where_index],
-    };
-    log.debug("writing offset table entry [ 0x{x} => 0x{x} ({s}) ]", .{
-        off,
-        sym.n_value,
-        self.getString(sym.n_strx),
-    });
-    try self.base.file.?.pwriteAll(mem.asBytes(&sym.n_value), off);
-}
-
 fn relocateSymbolTable(self: *MachO) !void {
     const symtab = &self.load_commands.items[self.symtab_cmd_index.?].Symtab;
     const nlocals = self.locals.items.len;
@@ -4901,7 +4798,7 @@ fn writeIndirectSymbolTable(self: *MachO) !void {
     const dysymtab = &self.load_commands.items[self.dysymtab_cmd_index.?].Dysymtab;
 
     const nstubs = @intCast(u32, self.stubs.items.len);
-    const ngot_entries = @intCast(u32, self.got_entries.items.len);
+    const ngot_entries = @intCast(u32, self.got_entries_map.keys().len);
     const allocated_size = self.allocatedSizeLinkedit(dysymtab.indirectsymoff);
     const nindirectsyms = nstubs * 2 + ngot_entries;
     const needed_size = @intCast(u32, nindirectsyms * @sizeOf(u32));
@@ -4927,10 +4824,10 @@ fn writeIndirectSymbolTable(self: *MachO) !void {
     }
 
     got.reserved1 = nstubs;
-    for (self.got_entries.items) |entry| {
-        switch (entry.where) {
+    for (self.got_entries_map.keys()) |key| {
+        switch (key.where) {
             .undef => {
-                try writer.writeIntLittle(u32, dysymtab.iundefsym + entry.where_index);
+                try writer.writeIntLittle(u32, dysymtab.iundefsym + key.where_index);
             },
             .local => {
                 try writer.writeIntLittle(u32, macho.INDIRECT_SYMBOL_LOCAL);
@@ -5147,22 +5044,6 @@ fn writeRebaseInfoTable(self: *MachO) !void {
         }
     }
 
-    if (self.got_section_index) |idx| {
-        const seg = self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
-        const sect = seg.sections.items[idx];
-        const base_offset = sect.addr - seg.inner.vmaddr;
-        const segment_id = @intCast(u16, self.data_const_segment_cmd_index.?);
-
-        for (self.got_entries.items) |entry, i| {
-            if (entry.where == .undef) continue;
-
-            try pointers.append(.{
-                .offset = base_offset + i * @sizeOf(u64),
-                .segment_id = segment_id,
-            });
-        }
-    }
-
     std.sort.sort(bind.Pointer, pointers.items, {}, bind.pointerCmp);
 
     const size = try bind.rebaseInfoSize(pointers.items);
@@ -5198,25 +5079,6 @@ fn writeBindInfoTable(self: *MachO) !void {
 
     var pointers = std.ArrayList(bind.Pointer).init(self.base.allocator);
     defer pointers.deinit();
-
-    if (self.got_section_index) |idx| {
-        const seg = self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
-        const sect = seg.sections.items[idx];
-        const base_offset = sect.addr - seg.inner.vmaddr;
-        const segment_id = @intCast(u16, self.data_const_segment_cmd_index.?);
-
-        for (self.got_entries.items) |entry, i| {
-            if (entry.where == .local) continue;
-
-            const sym = self.undefs.items[entry.where_index];
-            try pointers.append(.{
-                .offset = base_offset + i * @sizeOf(u64),
-                .segment_id = segment_id,
-                .dylib_ordinal = @divExact(sym.n_desc, macho.N_SYMBOL_RESOLVER),
-                .name = self.getString(sym.n_strx),
-            });
-        }
-    }
 
     {
         var it = self.blocks.iterator();
