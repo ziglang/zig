@@ -1989,6 +1989,42 @@ fn allocateAtomStage1(self: *MachO, atom: *TextBlock, match: MatchingSection) !v
     }
 }
 
+fn createGotAtom(self: *MachO, key: GotIndirectionKey) !*TextBlock {
+    const local_sym_index = @intCast(u32, self.locals.items.len);
+    try self.locals.append(self.base.allocator, .{
+        .n_strx = try self.makeString("got_entry"),
+        .n_type = macho.N_SECT,
+        .n_sect = 0,
+        .n_desc = 0,
+        .n_value = 0,
+    });
+    const atom = try self.createEmptyAtom(local_sym_index, @sizeOf(u64), 3);
+    switch (key.where) {
+        .local => {
+            try atom.relocs.append(self.base.allocator, .{
+                .offset = 0,
+                .where = .local,
+                .where_index = key.where_index,
+                .payload = .{
+                    .unsigned = .{
+                        .subtractor = null,
+                        .addend = 0,
+                        .is_64bit = true,
+                    },
+                },
+            });
+            try atom.rebases.append(self.base.allocator, 0);
+        },
+        .undef => {
+            try atom.bindings.append(self.base.allocator, .{
+                .local_sym_index = key.where_index,
+                .offset = 0,
+            });
+        },
+    }
+    return atom;
+}
+
 fn createDyldPrivateAtom(self: *MachO) !*TextBlock {
     const local_sym_index = @intCast(u32, self.locals.items.len);
     try self.locals.append(self.base.allocator, .{
@@ -2777,13 +2813,19 @@ fn resolveDyldStubBinder(self: *MachO) !void {
     try self.got_entries.append(self.base.allocator, got_entry);
     try self.got_entries_map.putNoClobber(self.base.allocator, got_entry, got_index);
 
-    self.binding_info_dirty = true;
-    self.got_entries_count_dirty = true;
-
+    const atom = try self.createGotAtom(got_entry);
+    const match = MatchingSection{
+        .seg = self.data_const_segment_cmd_index.?,
+        .sect = self.got_section_index.?,
+    };
+    // TODO remove once we can incrementally update in stage1 too.
     if (!(build_options.is_stage1 and self.base.options.use_stage1)) {
-        // TODO remove once we can incrementally update in stage1 too.
-        try self.writeGotEntry(got_index);
+        _ = try self.allocateAtom(atom, match);
+        try self.writeAtom(atom, match);
+    } else {
+        try self.allocateAtomStage1(atom, match);
     }
+    self.binding_info_dirty = true;
 }
 
 fn parseTextBlocks(self: *MachO) !void {
