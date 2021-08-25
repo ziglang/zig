@@ -540,7 +540,7 @@ pub const dev_t = u64;
 pub const blkcnt_t = i64;
 
 // The `stat` definition used by the Linux kernel.
-pub const kernel_stat = extern struct {
+pub const Stat = extern struct {
     dev: u32,
     __pad0: [3]u32, // Reserved for st_dev expansion
     ino: ino_t,
@@ -558,38 +558,6 @@ pub const kernel_stat = extern struct {
     __pad3: u32,
     blocks: blkcnt_t,
     __pad4: [14]usize,
-
-    pub fn atime(self: @This()) timespec {
-        return self.atim;
-    }
-
-    pub fn mtime(self: @This()) timespec {
-        return self.mtim;
-    }
-
-    pub fn ctime(self: @This()) timespec {
-        return self.ctim;
-    }
-};
-
-pub const libc_stat = extern struct {
-    dev: dev_t,
-    __pad0: [2]u32,
-    ino: ino_t,
-    mode: mode_t,
-    nlink: nlink_t,
-    uid: uid_t,
-    gid: gid_t,
-    rdev: dev_t,
-    __pad1: [2]u32,
-    size: off_t,
-    atim: timespec,
-    mtim: timespec,
-    ctim: timespec,
-    blksize: blksize_t,
-    __pad3: u32,
-    blocks: blkcnt_t,
-    __pad4: [14]u32,
 
     pub fn atime(self: @This()) timespec {
         return self.atim;

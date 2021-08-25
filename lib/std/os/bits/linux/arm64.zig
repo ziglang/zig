@@ -424,7 +424,7 @@ pub const dev_t = usize;
 pub const blkcnt_t = isize;
 
 // The `stat` definition used by the Linux kernel.
-pub const kernel_stat = extern struct {
+pub const Stat = extern struct {
     dev: dev_t,
     ino: ino_t,
     mode: mode_t,
@@ -454,9 +454,6 @@ pub const kernel_stat = extern struct {
         return self.ctim;
     }
 };
-
-// The `stat64` definition used by the libc.
-pub const libc_stat = kernel_stat;
 
 pub const timespec = extern struct {
     tv_sec: time_t,
