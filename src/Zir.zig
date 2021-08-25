@@ -495,12 +495,15 @@ pub const Inst = struct {
         /// Uses the `ptr_type` union field.
         ptr_type,
         /// Slice operation `lhs[rhs..]`. No sentinel and no end offset.
+        /// Returns a pointer to the subslice.
         /// Uses the `pl_node` field. AST node is the slice syntax. Payload is `SliceStart`.
         slice_start,
         /// Slice operation `array_ptr[start..end]`. No sentinel.
+        /// Returns a pointer to the subslice.
         /// Uses the `pl_node` field. AST node is the slice syntax. Payload is `SliceEnd`.
         slice_end,
         /// Slice operation `array_ptr[start..end:sentinel]`.
+        /// Returns a pointer to the subslice.
         /// Uses the `pl_node` field. AST node is the slice syntax. Payload is `SliceSentinel`.
         slice_sentinel,
         /// Write a value to a pointer. For loading, see `load`.
