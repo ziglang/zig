@@ -109,7 +109,7 @@ pub fn build(b: *Builder) !void {
     b.default_step.dependOn(&exe.step);
     exe.single_threaded = single_threaded;
 
-    const exe_options = b.addOptions("build_options");
+    const exe_options = b.addOptions();
     exe.addOptions("build_options", exe_options);
 
     exe_options.addOption(u32, "mem_leak_frames", mem_leak_frames);
@@ -252,7 +252,7 @@ pub fn build(b: *Builder) !void {
     const is_darling_enabled = b.option(bool, "enable-darling", "[Experimental] Use Darling to run cross compiled macOS tests") orelse false;
     const glibc_multi_dir = b.option([]const u8, "enable-foreign-glibc", "Provide directory with glibc installations to run cross compiled tests that link glibc");
 
-    const test_stage2_options = b.addOptions("test_stage2_options");
+    const test_stage2_options = b.addOptions();
     test_stage2.addOptions("build_options", test_stage2_options);
 
     test_stage2_options.addOption(bool, "enable_logging", enable_logging);

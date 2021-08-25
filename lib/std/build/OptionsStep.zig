@@ -12,17 +12,15 @@ const OptionsStep = @This();
 step: Step,
 generated_file: GeneratedFile,
 builder: *Builder,
-name: []const u8,
 
 contents: std.ArrayList(u8),
 artifact_args: std.ArrayList(OptionArtifactArg),
 file_source_args: std.ArrayList(OptionFileSourceArg),
 
-pub fn create(builder: *Builder, name: []const u8) *OptionsStep {
+pub fn create(builder: *Builder) *OptionsStep {
     const self = builder.allocator.create(OptionsStep) catch unreachable;
     self.* = .{
         .builder = builder,
-        .name = builder.dupe(name),
         .step = Step.init(.options, "options", builder.allocator, make),
         .generated_file = undefined,
         .contents = std.ArrayList(u8).init(builder.allocator),
@@ -169,23 +167,41 @@ fn make(step: *Step) !void {
         );
     }
 
-    const build_options_directory = self.builder.pathFromRoot(
+    const options_directory = self.builder.pathFromRoot(
         try fs.path.join(
             self.builder.allocator,
-            &[_][]const u8{ self.builder.cache_root, "build_options" },
+            &[_][]const u8{ self.builder.cache_root, "options" },
         ),
     );
 
-    try fs.cwd().makePath(build_options_directory);
+    try fs.cwd().makePath(options_directory);
 
-    const build_options_file = try fs.path.join(
+    const options_file = try fs.path.join(
         self.builder.allocator,
-        &[_][]const u8{ build_options_directory, self.builder.fmt("{s}.zig", .{self.name}) },
+        &[_][]const u8{ options_directory, &self.hashContentsToFileName() },
     );
 
-    try fs.cwd().writeFile(build_options_file, self.contents.items);
+    try fs.cwd().writeFile(options_file, self.contents.items);
 
-    self.generated_file.path = build_options_file;
+    self.generated_file.path = options_file;
+}
+
+fn hashContentsToFileName(self: *OptionsStep) [64]u8 {
+    // This implementation is copied from `WriteFileStep.make`
+
+    var hash = std.crypto.hash.blake2.Blake2b384.init(.{});
+
+    // Random bytes to make OptionsStep unique. Refresh this with
+    // new random bytes when OptionsStep implementation is modified
+    // in a non-backwards-compatible way.
+    hash.update("yL0Ya4KkmcCjBlP8");
+    hash.update(self.contents.items);
+
+    var digest: [48]u8 = undefined;
+    hash.final(&digest);
+    var hash_basename: [64]u8 = undefined;
+    _ = fs.base64_encoder.encode(&hash_basename, &digest);
+    return hash_basename;
 }
 
 const OptionArtifactArg = struct {
@@ -199,7 +215,7 @@ const OptionFileSourceArg = struct {
 };
 
 test "OptionsStep" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+    if (std.builtin.os.tag == .wasi) return error.SkipZigTest;
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -212,7 +228,7 @@ test "OptionsStep" {
     );
     defer builder.destroy();
 
-    const options = builder.addOptions("test_build_options");
+    const options = builder.addOptions();
 
     options.addOption(usize, "option1", 1);
     options.addOption(?usize, "option2", null);

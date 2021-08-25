@@ -248,8 +248,8 @@ pub const Builder = struct {
         return LibExeObjStep.createExecutable(builder, name, root_src);
     }
 
-    pub fn addOptions(self: *Builder, name: []const u8) *OptionsStep {
-        return OptionsStep.create(self, name);
+    pub fn addOptions(self: *Builder) *OptionsStep {
+        return OptionsStep.create(self);
     }
 
     pub fn addObject(self: *Builder, name: []const u8, root_src: ?[]const u8) *LibExeObjStep {
@@ -2052,8 +2052,8 @@ pub const LibExeObjStep = struct {
         self.addRecursiveBuildDeps(package);
     }
 
-    pub fn addOptions(self: *LibExeObjStep, name: []const u8, options: *OptionsStep) void {
-        self.addPackage(.{ .name = name, .path = options.getSource() });
+    pub fn addOptions(self: *LibExeObjStep, package_name: []const u8, options: *OptionsStep) void {
+        self.addPackage(.{ .name = package_name, .path = options.getSource() });
     }
 
     fn addRecursiveBuildDeps(self: *LibExeObjStep, package: Pkg) void {
