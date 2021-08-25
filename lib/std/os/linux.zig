@@ -17,6 +17,8 @@ const is_mips = native_arch.isMIPS();
 const is_ppc = native_arch.isPPC();
 const is_ppc64 = native_arch.isPPC64();
 const is_sparc = native_arch.isSPARC();
+const iovec = std.os.iovec;
+const iovec_const = std.os.iovec_const;
 
 test {
     if (std.Target.current.os.tag == .linux) {
@@ -306,7 +308,7 @@ pub fn readlink(noalias path: [*:0]const u8, noalias buf_ptr: [*]u8, buf_len: us
     if (@hasField(SYS, "readlink")) {
         return syscall3(.readlink, @ptrToInt(path), @ptrToInt(buf_ptr), buf_len);
     } else {
-        return syscall4(.readlinkat, @bitCast(usize, @as(isize, AT_FDCWD)), @ptrToInt(path), @ptrToInt(buf_ptr), buf_len);
+        return syscall4(.readlinkat, @bitCast(usize, @as(isize, AT.FDCWD)), @ptrToInt(path), @ptrToInt(buf_ptr), buf_len);
     }
 }
 
@@ -318,7 +320,7 @@ pub fn mkdir(path: [*:0]const u8, mode: u32) usize {
     if (@hasField(SYS, "mkdir")) {
         return syscall2(.mkdir, @ptrToInt(path), mode);
     } else {
-        return syscall3(.mkdirat, @bitCast(usize, @as(isize, AT_FDCWD)), @ptrToInt(path), mode);
+        return syscall3(.mkdirat, @bitCast(usize, @as(isize, AT.FDCWD)), @ptrToInt(path), mode);
     }
 }
 
@@ -330,7 +332,7 @@ pub fn mknod(path: [*:0]const u8, mode: u32, dev: u32) usize {
     if (@hasField(SYS, "mknod")) {
         return syscall3(.mknod, @ptrToInt(path), mode, dev);
     } else {
-        return mknodat(AT_FDCWD, path, mode, dev);
+        return mknodat(AT.FDCWD, path, mode, dev);
     }
 }
 
@@ -477,7 +479,7 @@ pub fn rmdir(path: [*:0]const u8) usize {
     if (@hasField(SYS, "rmdir")) {
         return syscall1(.rmdir, @ptrToInt(path));
     } else {
-        return syscall3(.unlinkat, @bitCast(usize, @as(isize, AT_FDCWD)), @ptrToInt(path), AT_REMOVEDIR);
+        return syscall3(.unlinkat, @bitCast(usize, @as(isize, AT.FDCWD)), @ptrToInt(path), AT.REMOVEDIR);
     }
 }
 
@@ -485,7 +487,7 @@ pub fn symlink(existing: [*:0]const u8, new: [*:0]const u8) usize {
     if (@hasField(SYS, "symlink")) {
         return syscall2(.symlink, @ptrToInt(existing), @ptrToInt(new));
     } else {
-        return syscall3(.symlinkat, @ptrToInt(existing), @bitCast(usize, @as(isize, AT_FDCWD)), @ptrToInt(new));
+        return syscall3(.symlinkat, @ptrToInt(existing), @bitCast(usize, @as(isize, AT.FDCWD)), @ptrToInt(new));
     }
 }
 
@@ -518,9 +520,12 @@ pub fn pread(fd: i32, buf: [*]u8, count: usize, offset: i64) usize {
         }
     } else {
         // Some architectures (eg. 64bit SPARC) pread is called pread64.
-        const S = if (!@hasField(SYS, "pread") and @hasField(SYS, "pread64")) .pread64 else .pread;
+        const syscall_number = if (!@hasField(SYS, "pread") and @hasField(SYS, "pread64"))
+            .pread64
+        else
+            .pread;
         return syscall4(
-            S,
+            syscall_number,
             @bitCast(usize, @as(isize, fd)),
             @ptrToInt(buf),
             count,
@@ -533,7 +538,7 @@ pub fn access(path: [*:0]const u8, mode: u32) usize {
     if (@hasField(SYS, "access")) {
         return syscall2(.access, @ptrToInt(path), mode);
     } else {
-        return syscall4(.faccessat, @bitCast(usize, @as(isize, AT_FDCWD)), @ptrToInt(path), mode, 0);
+        return syscall4(.faccessat, @bitCast(usize, @as(isize, AT.FDCWD)), @ptrToInt(path), mode, 0);
     }
 }
 
@@ -613,9 +618,12 @@ pub fn pwrite(fd: i32, buf: [*]const u8, count: usize, offset: i64) usize {
         }
     } else {
         // Some architectures (eg. 64bit SPARC) pwrite is called pwrite64.
-        const S = if (!@hasField(SYS, "pwrite") and @hasField(SYS, "pwrite64")) .pwrite64 else .pwrite;
+        const syscall_number = if (!@hasField(SYS, "pwrite") and @hasField(SYS, "pwrite64"))
+            .pwrite64
+        else
+            .pwrite;
         return syscall4(
-            S,
+            syscall_number,
             @bitCast(usize, @as(isize, fd)),
             @ptrToInt(buf),
             count,
@@ -628,9 +636,9 @@ pub fn rename(old: [*:0]const u8, new: [*:0]const u8) usize {
     if (@hasField(SYS, "rename")) {
         return syscall2(.rename, @ptrToInt(old), @ptrToInt(new));
     } else if (@hasField(SYS, "renameat")) {
-        return syscall4(.renameat, @bitCast(usize, @as(isize, AT_FDCWD)), @ptrToInt(old), @bitCast(usize, @as(isize, AT_FDCWD)), @ptrToInt(new));
+        return syscall4(.renameat, @bitCast(usize, @as(isize, AT.FDCWD)), @ptrToInt(old), @bitCast(usize, @as(isize, AT.FDCWD)), @ptrToInt(new));
     } else {
-        return syscall5(.renameat2, @bitCast(usize, @as(isize, AT_FDCWD)), @ptrToInt(old), @bitCast(usize, @as(isize, AT_FDCWD)), @ptrToInt(new), 0);
+        return syscall5(.renameat2, @bitCast(usize, @as(isize, AT.FDCWD)), @ptrToInt(old), @bitCast(usize, @as(isize, AT.FDCWD)), @ptrToInt(new), 0);
     }
 }
 
@@ -672,7 +680,7 @@ pub fn open(path: [*:0]const u8, flags: u32, perm: mode_t) usize {
     } else {
         return syscall4(
             .openat,
-            @bitCast(usize, @as(isize, AT_FDCWD)),
+            @bitCast(usize, @as(isize, AT.FDCWD)),
             @ptrToInt(path),
             flags,
             perm,
@@ -685,7 +693,7 @@ pub fn create(path: [*:0]const u8, perm: mode_t) usize {
 }
 
 pub fn openat(dirfd: i32, path: [*:0]const u8, flags: u32, mode: mode_t) usize {
-    // dirfd could be negative, for example AT_FDCWD is -100
+    // dirfd could be negative, for example AT.FDCWD is -100
     return syscall4(.openat, @bitCast(usize, @as(isize, dirfd)), @ptrToInt(path), flags, mode);
 }
 
@@ -759,9 +767,9 @@ pub fn link(oldpath: [*:0]const u8, newpath: [*:0]const u8, flags: i32) usize {
     } else {
         return syscall5(
             .linkat,
-            @bitCast(usize, @as(isize, AT_FDCWD)),
+            @bitCast(usize, @as(isize, AT.FDCWD)),
             @ptrToInt(oldpath),
-            @bitCast(usize, @as(isize, AT_FDCWD)),
+            @bitCast(usize, @as(isize, AT.FDCWD)),
             @ptrToInt(newpath),
             @bitCast(usize, @as(isize, flags)),
         );
@@ -783,7 +791,7 @@ pub fn unlink(path: [*:0]const u8) usize {
     if (@hasField(SYS, "unlink")) {
         return syscall1(.unlink, @ptrToInt(path));
     } else {
-        return syscall3(.unlinkat, @bitCast(usize, @as(isize, AT_FDCWD)), @ptrToInt(path), 0);
+        return syscall3(.unlinkat, @bitCast(usize, @as(isize, AT.FDCWD)), @ptrToInt(path), 0);
     }
 }
 
@@ -1131,7 +1139,7 @@ pub fn sendmmsg(fd: i32, msgvec: [*]mmsghdr_const, vlen: u32, flags: u32) usize 
                 }
             }
         }
-        if (next_unsent < kvlen or next_unsent == 0) { // want to make sure at least one syscall occurs (e.g. to trigger MSG_EOR)
+        if (next_unsent < kvlen or next_unsent == 0) { // want to make sure at least one syscall occurs (e.g. to trigger MSG.EOR)
             const batch_size = kvlen - next_unsent;
             const r = syscall4(.sendmmsg, @bitCast(usize, @as(isize, fd)), @ptrToInt(&msgvec[next_unsent]), batch_size, flags);
             if (getErrno(r) != 0) return r;
@@ -1759,10 +1767,10 @@ pub const W = struct {
         return s & 0x7f;
     }
     pub fn STOPSIG(s: u32) u32 {
-        return WEXITSTATUS(s);
+        return EXITSTATUS(s);
     }
     pub fn IFEXITED(s: u32) bool {
-        return WTERMSIG(s) == 0;
+        return TERMSIG(s) == 0;
     }
     pub fn IFSTOPPED(s: u32) bool {
         return @intCast(u16, ((s & 0xffff) *% 0x10001) >> 8) > 0x7f00;
@@ -2886,31 +2894,51 @@ pub const socklen_t = u32;
 pub const sockaddr = extern struct {
     family: sa_family_t,
     data: [14]u8,
-};
 
-pub const sockaddr_storage = std.x.os.Socket.Address.Native.Storage;
+    pub const storage = std.x.os.Socket.Address.Native.Storage;
 
-/// IPv4 socket address
-pub const sockaddr_in = extern struct {
-    family: sa_family_t = AF_INET,
-    port: in_port_t,
-    addr: u32,
-    zero: [8]u8 = [8]u8{ 0, 0, 0, 0, 0, 0, 0, 0 },
-};
+    /// IPv4 socket address
+    pub const in = extern struct {
+        family: sa_family_t = AF.INET,
+        port: in_port_t,
+        addr: u32,
+        zero: [8]u8 = [8]u8{ 0, 0, 0, 0, 0, 0, 0, 0 },
+    };
 
-/// IPv6 socket address
-pub const sockaddr_in6 = extern struct {
-    family: sa_family_t = AF_INET6,
-    port: in_port_t,
-    flowinfo: u32,
-    addr: [16]u8,
-    scope_id: u32,
-};
+    /// IPv6 socket address
+    pub const in6 = extern struct {
+        family: sa_family_t = AF.INET6,
+        port: in_port_t,
+        flowinfo: u32,
+        addr: [16]u8,
+        scope_id: u32,
+    };
 
-/// UNIX domain socket address
-pub const sockaddr_un = extern struct {
-    family: sa_family_t = AF_UNIX,
-    path: [108]u8,
+    /// UNIX domain socket address
+    pub const un = extern struct {
+        family: sa_family_t = AF.UNIX,
+        path: [108]u8,
+    };
+
+    /// Netlink socket address
+    pub const nl = extern struct {
+        family: sa_family_t = AF.NETLINK,
+        __pad1: c_ushort = 0,
+
+        /// port ID
+        pid: u32,
+
+        /// multicast groups mask
+        groups: u32,
+    };
+
+    pub const xdp = extern struct {
+        family: u16 = AF.XDP,
+        flags: u16,
+        ifindex: u32,
+        queue_id: u32,
+        shared_umem_fd: u32,
+    };
 };
 
 pub const mmsghdr = extern struct {
@@ -3584,43 +3612,47 @@ pub const addrinfo = extern struct {
 
 pub const IPPORT_RESERVED = 1024;
 
-pub const IPPROTO_IP = 0;
-pub const IPPROTO_HOPOPTS = 0;
-pub const IPPROTO_ICMP = 1;
-pub const IPPROTO_IGMP = 2;
-pub const IPPROTO_IPIP = 4;
-pub const IPPROTO_TCP = 6;
-pub const IPPROTO_EGP = 8;
-pub const IPPROTO_PUP = 12;
-pub const IPPROTO_UDP = 17;
-pub const IPPROTO_IDP = 22;
-pub const IPPROTO_TP = 29;
-pub const IPPROTO_DCCP = 33;
-pub const IPPROTO_IPV6 = 41;
-pub const IPPROTO_ROUTING = 43;
-pub const IPPROTO_FRAGMENT = 44;
-pub const IPPROTO_RSVP = 46;
-pub const IPPROTO_GRE = 47;
-pub const IPPROTO_ESP = 50;
-pub const IPPROTO_AH = 51;
-pub const IPPROTO_ICMPV6 = 58;
-pub const IPPROTO_NONE = 59;
-pub const IPPROTO_DSTOPTS = 60;
-pub const IPPROTO_MTP = 92;
-pub const IPPROTO_BEETPH = 94;
-pub const IPPROTO_ENCAP = 98;
-pub const IPPROTO_PIM = 103;
-pub const IPPROTO_COMP = 108;
-pub const IPPROTO_SCTP = 132;
-pub const IPPROTO_MH = 135;
-pub const IPPROTO_UDPLITE = 136;
-pub const IPPROTO_MPLS = 137;
-pub const IPPROTO_RAW = 255;
-pub const IPPROTO_MAX = 256;
+pub const IPPROTO = struct {
+    pub const IP = 0;
+    pub const HOPOPTS = 0;
+    pub const ICMP = 1;
+    pub const IGMP = 2;
+    pub const IPIP = 4;
+    pub const TCP = 6;
+    pub const EGP = 8;
+    pub const PUP = 12;
+    pub const UDP = 17;
+    pub const IDP = 22;
+    pub const TP = 29;
+    pub const DCCP = 33;
+    pub const IPV6 = 41;
+    pub const ROUTING = 43;
+    pub const FRAGMENT = 44;
+    pub const RSVP = 46;
+    pub const GRE = 47;
+    pub const ESP = 50;
+    pub const AH = 51;
+    pub const ICMPV6 = 58;
+    pub const NONE = 59;
+    pub const DSTOPTS = 60;
+    pub const MTP = 92;
+    pub const BEETPH = 94;
+    pub const ENCAP = 98;
+    pub const PIM = 103;
+    pub const COMP = 108;
+    pub const SCTP = 132;
+    pub const MH = 135;
+    pub const UDPLITE = 136;
+    pub const MPLS = 137;
+    pub const RAW = 255;
+    pub const MAX = 256;
+};
 
-pub const RR_A = 1;
-pub const RR_CNAME = 5;
-pub const RR_AAAA = 28;
+pub const RR = struct {
+    pub const A = 1;
+    pub const CNAME = 5;
+    pub const AAAA = 28;
+};
 
 /// Turn off Nagle's algorithm
 pub const TCP_NODELAY = 1;
@@ -3746,14 +3778,16 @@ pub const pollfd = extern struct {
     revents: i16,
 };
 
-pub const POLLIN = 0x001;
-pub const POLLPRI = 0x002;
-pub const POLLOUT = 0x004;
-pub const POLLERR = 0x008;
-pub const POLLHUP = 0x010;
-pub const POLLNVAL = 0x020;
-pub const POLLRDNORM = 0x040;
-pub const POLLRDBAND = 0x080;
+pub const POLL = struct {
+    pub const IN = 0x001;
+    pub const PRI = 0x002;
+    pub const OUT = 0x004;
+    pub const ERR = 0x008;
+    pub const HUP = 0x010;
+    pub const NVAL = 0x020;
+    pub const RDNORM = 0x040;
+    pub const RDBAND = 0x080;
+};
 
 pub const MFD_CLOEXEC = 0x0001;
 pub const MFD_ALLOW_SEALING = 0x0002;
@@ -4097,11 +4131,13 @@ pub const rlimit_resource = enum(c_int) {
 
 pub const rlim_t = u64;
 
-/// No limit
-pub const RLIM_INFINITY = ~@as(rlim_t, 0);
+pub const RLIM = struct {
+    /// No limit
+    pub const INFINITY = ~@as(rlim_t, 0);
 
-pub const RLIM_SAVED_MAX = RLIM_INFINITY;
-pub const RLIM_SAVED_CUR = RLIM_INFINITY;
+    pub const SAVED_MAX = INFINITY;
+    pub const SAVED_CUR = INFINITY;
+};
 
 pub const rlimit = extern struct {
     /// Soft limit
@@ -4187,14 +4223,6 @@ pub const XDP = struct {
     pub const PGOFF_TX_RING = 0x80000000;
     pub const UMEM_PGOFF_FILL_RING = 0x100000000;
     pub const UMEM_PGOFF_COMPLETION_RING = 0x180000000;
-};
-
-pub const sockaddr_xdp = extern struct {
-    family: u16 = AF_XDP,
-    flags: u16,
-    ifindex: u32,
-    queue_id: u32,
-    shared_umem_fd: u32,
 };
 
 pub const xdp_ring_offset = extern struct {
@@ -4671,18 +4699,6 @@ pub const NetlinkMessageType = enum(u16) {
     RTM_GETNEXTHOP,
 
     _,
-};
-
-/// Netlink socket address
-pub const sockaddr_nl = extern struct {
-    family: sa_family_t = AF_NETLINK,
-    __pad1: c_ushort = 0,
-
-    /// port ID
-    pid: u32,
-
-    /// multicast groups mask
-    groups: u32,
 };
 
 /// Netlink message header

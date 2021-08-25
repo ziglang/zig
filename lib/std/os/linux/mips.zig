@@ -668,10 +668,12 @@ pub const F_RDLCK = 0;
 pub const F_WRLCK = 1;
 pub const F_UNLCK = 2;
 
-pub const LOCK_SH = 1;
-pub const LOCK_EX = 2;
-pub const LOCK_UN = 8;
-pub const LOCK_NB = 4;
+pub const LOCK = struct {
+    pub const SH = 1;
+    pub const EX = 2;
+    pub const UN = 8;
+    pub const NB = 4;
+};
 
 pub const F_SETOWN_EX = 15;
 pub const F_GETOWN_EX = 16;
@@ -680,40 +682,46 @@ pub const F_GETOWNER_UIDS = 17;
 
 pub const MMAP2_UNIT = 4096;
 
-pub const MAP_NORESERVE = 0x0400;
-pub const MAP_GROWSDOWN = 0x1000;
-pub const MAP_DENYWRITE = 0x2000;
-pub const MAP_EXECUTABLE = 0x4000;
-pub const MAP_LOCKED = 0x8000;
-pub const MAP_32BIT = 0x40;
+pub const MAP = struct {
+    pub const NORESERVE = 0x0400;
+    pub const GROWSDOWN = 0x1000;
+    pub const DENYWRITE = 0x2000;
+    pub const EXECUTABLE = 0x4000;
+    pub const LOCKED = 0x8000;
+    pub const @"32BIT" = 0x40;
+    /// Only used by libc to communicate failure.
+    pub const FAILED = @intToPtr(*c_void, maxInt(usize));
+};
 
-pub const SO_DEBUG = 1;
-pub const SO_REUSEADDR = 0x0004;
-pub const SO_KEEPALIVE = 0x0008;
-pub const SO_DONTROUTE = 0x0010;
-pub const SO_BROADCAST = 0x0020;
-pub const SO_LINGER = 0x0080;
-pub const SO_OOBINLINE = 0x0100;
-pub const SO_REUSEPORT = 0x0200;
-pub const SO_SNDBUF = 0x1001;
-pub const SO_RCVBUF = 0x1002;
-pub const SO_SNDLOWAT = 0x1003;
-pub const SO_RCVLOWAT = 0x1004;
-pub const SO_RCVTIMEO = 0x1006;
-pub const SO_SNDTIMEO = 0x1005;
-pub const SO_ERROR = 0x1007;
-pub const SO_TYPE = 0x1008;
-pub const SO_ACCEPTCONN = 0x1009;
-pub const SO_PROTOCOL = 0x1028;
-pub const SO_DOMAIN = 0x1029;
-pub const SO_NO_CHECK = 11;
-pub const SO_PRIORITY = 12;
-pub const SO_BSDCOMPAT = 14;
-pub const SO_PASSCRED = 17;
-pub const SO_PEERCRED = 18;
-pub const SO_PEERSEC = 30;
-pub const SO_SNDBUFFORCE = 31;
-pub const SO_RCVBUFFORCE = 33;
+pub const SO = struct {
+    pub const DEBUG = 1;
+    pub const REUSEADDR = 0x0004;
+    pub const KEEPALIVE = 0x0008;
+    pub const DONTROUTE = 0x0010;
+    pub const BROADCAST = 0x0020;
+    pub const LINGER = 0x0080;
+    pub const OOBINLINE = 0x0100;
+    pub const REUSEPORT = 0x0200;
+    pub const SNDBUF = 0x1001;
+    pub const RCVBUF = 0x1002;
+    pub const SNDLOWAT = 0x1003;
+    pub const RCVLOWAT = 0x1004;
+    pub const RCVTIMEO = 0x1006;
+    pub const SNDTIMEO = 0x1005;
+    pub const ERROR = 0x1007;
+    pub const TYPE = 0x1008;
+    pub const ACCEPTCONN = 0x1009;
+    pub const PROTOCOL = 0x1028;
+    pub const DOMAIN = 0x1029;
+    pub const NO_CHECK = 11;
+    pub const PRIORITY = 12;
+    pub const BSDCOMPAT = 14;
+    pub const PASSCRED = 17;
+    pub const PEERCRED = 18;
+    pub const PEERSEC = 30;
+    pub const SNDBUFFORCE = 31;
+    pub const RCVBUFFORCE = 33;
+};
 
 pub const VDSO_CGT_SYM = "__kernel_clock_gettime";
 pub const VDSO_CGT_VER = "LINUX_2.6.39";

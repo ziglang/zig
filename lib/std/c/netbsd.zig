@@ -135,16 +135,18 @@ pub const Kevent = extern struct {
     udata: usize,
 };
 
-pub const RTLD_LAZY = 1;
-pub const RTLD_NOW = 2;
-pub const RTLD_GLOBAL = 0x100;
-pub const RTLD_LOCAL = 0x200;
-pub const RTLD_NODELETE = 0x01000;
-pub const RTLD_NOLOAD = 0x02000;
+pub const RTLD = struct {
+    pub const LAZY = 1;
+    pub const NOW = 2;
+    pub const GLOBAL = 0x100;
+    pub const LOCAL = 0x200;
+    pub const NODELETE = 0x01000;
+    pub const NOLOAD = 0x02000;
 
-pub const RTLD_NEXT = @intToPtr(*c_void, @bitCast(usize, @as(isize, -1)));
-pub const RTLD_DEFAULT = @intToPtr(*c_void, @bitCast(usize, @as(isize, -2)));
-pub const RTLD_SELF = @intToPtr(*c_void, @bitCast(usize, @as(isize, -3)));
+    pub const NEXT = @intToPtr(*c_void, @bitCast(usize, @as(isize, -1)));
+    pub const DEFAULT = @intToPtr(*c_void, @bitCast(usize, @as(isize, -2)));
+    pub const SELF = @intToPtr(*c_void, @bitCast(usize, @as(isize, -3)));
+};
 
 pub const dl_phdr_info = extern struct {
     dlpi_addr: usize,
@@ -325,120 +327,130 @@ pub const dirent = extern struct {
     }
 };
 
-pub const SOCK_STREAM = 1;
-pub const SOCK_DGRAM = 2;
-pub const SOCK_RAW = 3;
-pub const SOCK_RDM = 4;
-pub const SOCK_SEQPACKET = 5;
-pub const SOCK_CONN_DGRAM = 6;
-pub const SOCK_DCCP = SOCK_CONN_DGRAM;
+pub const SOCK = struct {
+    pub const STREAM = 1;
+    pub const DGRAM = 2;
+    pub const RAW = 3;
+    pub const RDM = 4;
+    pub const SEQPACKET = 5;
+    pub const CONN_DGRAM = 6;
+    pub const DCCP = CONN_DGRAM;
 
-pub const SOCK_CLOEXEC = 0x10000000;
-pub const SOCK_NONBLOCK = 0x20000000;
-pub const SOCK_NOSIGPIPE = 0x40000000;
-pub const SOCK_FLAGS_MASK = 0xf0000000;
+    pub const CLOEXEC = 0x10000000;
+    pub const NONBLOCK = 0x20000000;
+    pub const NOSIGPIPE = 0x40000000;
+    pub const FLAGS_MASK = 0xf0000000;
+};
 
-pub const SO_DEBUG = 0x0001;
-pub const SO_ACCEPTCONN = 0x0002;
-pub const SO_REUSEADDR = 0x0004;
-pub const SO_KEEPALIVE = 0x0008;
-pub const SO_DONTROUTE = 0x0010;
-pub const SO_BROADCAST = 0x0020;
-pub const SO_USELOOPBACK = 0x0040;
-pub const SO_LINGER = 0x0080;
-pub const SO_OOBINLINE = 0x0100;
-pub const SO_REUSEPORT = 0x0200;
-pub const SO_NOSIGPIPE = 0x0800;
-pub const SO_ACCEPTFILTER = 0x1000;
-pub const SO_TIMESTAMP = 0x2000;
-pub const SO_RERROR = 0x4000;
+pub const SO = struct {
+    pub const DEBUG = 0x0001;
+    pub const ACCEPTCONN = 0x0002;
+    pub const REUSEADDR = 0x0004;
+    pub const KEEPALIVE = 0x0008;
+    pub const DONTROUTE = 0x0010;
+    pub const BROADCAST = 0x0020;
+    pub const USELOOPBACK = 0x0040;
+    pub const LINGER = 0x0080;
+    pub const OOBINLINE = 0x0100;
+    pub const REUSEPORT = 0x0200;
+    pub const NOSIGPIPE = 0x0800;
+    pub const ACCEPTFILTER = 0x1000;
+    pub const TIMESTAMP = 0x2000;
+    pub const RERROR = 0x4000;
 
-pub const SO_SNDBUF = 0x1001;
-pub const SO_RCVBUF = 0x1002;
-pub const SO_SNDLOWAT = 0x1003;
-pub const SO_RCVLOWAT = 0x1004;
-pub const SO_ERROR = 0x1007;
-pub const SO_TYPE = 0x1008;
-pub const SO_OVERFLOWED = 0x1009;
+    pub const SNDBUF = 0x1001;
+    pub const RCVBUF = 0x1002;
+    pub const SNDLOWAT = 0x1003;
+    pub const RCVLOWAT = 0x1004;
+    pub const ERROR = 0x1007;
+    pub const TYPE = 0x1008;
+    pub const OVERFLOWED = 0x1009;
 
-pub const SO_NOHEADER = 0x100a;
-pub const SO_SNDTIMEO = 0x100b;
-pub const SO_RCVTIMEO = 0x100c;
+    pub const NOHEADER = 0x100a;
+    pub const SNDTIMEO = 0x100b;
+    pub const RCVTIMEO = 0x100c;
+};
 
-pub const SOL_SOCKET = 0xffff;
+pub const SOL = struct {
+    pub const SOCKET = 0xffff;
+};
 
-pub const PF_UNSPEC = AF_UNSPEC;
-pub const PF_LOCAL = AF_LOCAL;
-pub const PF_UNIX = PF_LOCAL;
-pub const PF_INET = AF_INET;
-pub const PF_IMPLINK = AF_IMPLINK;
-pub const PF_PUP = AF_PUP;
-pub const PF_CHAOS = AF_CHAOS;
-pub const PF_NS = AF_NS;
-pub const PF_ISO = AF_ISO;
-pub const PF_OSI = AF_ISO;
-pub const PF_ECMA = AF_ECMA;
-pub const PF_DATAKIT = AF_DATAKIT;
-pub const PF_CCITT = AF_CCITT;
-pub const PF_SNA = AF_SNA;
-pub const PF_DECnet = AF_DECnet;
-pub const PF_DLI = AF_DLI;
-pub const PF_LAT = AF_LAT;
-pub const PF_HYLINK = AF_HYLINK;
-pub const PF_APPLETALK = AF_APPLETALK;
-pub const PF_OROUTE = AF_OROUTE;
-pub const PF_LINK = AF_LINK;
-pub const PF_COIP = AF_COIP;
-pub const PF_CNT = AF_CNT;
-pub const PF_INET6 = AF_INET6;
-pub const PF_IPX = AF_IPX;
-pub const PF_ISDN = AF_ISDN;
-pub const PF_E164 = AF_E164;
-pub const PF_NATM = AF_NATM;
-pub const PF_ARP = AF_ARP;
-pub const PF_BLUETOOTH = AF_BLUETOOTH;
-pub const PF_MPLS = AF_MPLS;
-pub const PF_ROUTE = AF_ROUTE;
-pub const PF_CAN = AF_CAN;
-pub const PF_ETHER = AF_ETHER;
-pub const PF_MAX = AF_MAX;
+pub const PF = struct {
+    pub const UNSPEC = AF.UNSPEC;
+    pub const LOCAL = AF.LOCAL;
+    pub const UNIX = PF.LOCAL;
+    pub const INET = AF.INET;
+    pub const IMPLINK = AF.IMPLINK;
+    pub const PUP = AF.PUP;
+    pub const CHAOS = AF.CHAOS;
+    pub const NS = AF.NS;
+    pub const ISO = AF.ISO;
+    pub const OSI = AF.ISO;
+    pub const ECMA = AF.ECMA;
+    pub const DATAKIT = AF.DATAKIT;
+    pub const CCITT = AF.CCITT;
+    pub const SNA = AF.SNA;
+    pub const DECnet = AF.DECnet;
+    pub const DLI = AF.DLI;
+    pub const LAT = AF.LAT;
+    pub const HYLINK = AF.HYLINK;
+    pub const APPLETALK = AF.APPLETALK;
+    pub const OROUTE = AF.OROUTE;
+    pub const LINK = AF.LINK;
+    pub const COIP = AF.COIP;
+    pub const CNT = AF.CNT;
+    pub const INET6 = AF.INET6;
+    pub const IPX = AF.IPX;
+    pub const ISDN = AF.ISDN;
+    pub const E164 = AF.E164;
+    pub const NATM = AF.NATM;
+    pub const ARP = AF.ARP;
+    pub const BLUETOOTH = AF.BLUETOOTH;
+    pub const MPLS = AF.MPLS;
+    pub const ROUTE = AF.ROUTE;
+    pub const CAN = AF.CAN;
+    pub const ETHER = AF.ETHER;
+    pub const MAX = AF.MAX;
+};
 
-pub const AF_UNSPEC = 0;
-pub const AF_LOCAL = 1;
-pub const AF_UNIX = AF_LOCAL;
-pub const AF_INET = 2;
-pub const AF_IMPLINK = 3;
-pub const AF_PUP = 4;
-pub const AF_CHAOS = 5;
-pub const AF_NS = 6;
-pub const AF_ISO = 7;
-pub const AF_OSI = AF_ISO;
-pub const AF_ECMA = 8;
-pub const AF_DATAKIT = 9;
-pub const AF_CCITT = 10;
-pub const AF_SNA = 11;
-pub const AF_DECnet = 12;
-pub const AF_DLI = 13;
-pub const AF_LAT = 14;
-pub const AF_HYLINK = 15;
-pub const AF_APPLETALK = 16;
-pub const AF_OROUTE = 17;
-pub const AF_LINK = 18;
-pub const AF_COIP = 20;
-pub const AF_CNT = 21;
-pub const AF_IPX = 23;
-pub const AF_INET6 = 24;
-pub const AF_ISDN = 26;
-pub const AF_E164 = AF_ISDN;
-pub const AF_NATM = 27;
-pub const AF_ARP = 28;
-pub const AF_BLUETOOTH = 31;
-pub const AF_IEEE80211 = 32;
-pub const AF_MPLS = 33;
-pub const AF_ROUTE = 34;
-pub const AF_CAN = 35;
-pub const AF_ETHER = 36;
-pub const AF_MAX = 37;
+pub const AF = struct {
+    pub const UNSPEC = 0;
+    pub const LOCAL = 1;
+    pub const UNIX = LOCAL;
+    pub const INET = 2;
+    pub const IMPLINK = 3;
+    pub const PUP = 4;
+    pub const CHAOS = 5;
+    pub const NS = 6;
+    pub const ISO = 7;
+    pub const OSI = ISO;
+    pub const ECMA = 8;
+    pub const DATAKIT = 9;
+    pub const CCITT = 10;
+    pub const SNA = 11;
+    pub const DECnet = 12;
+    pub const DLI = 13;
+    pub const LAT = 14;
+    pub const HYLINK = 15;
+    pub const APPLETALK = 16;
+    pub const OROUTE = 17;
+    pub const LINK = 18;
+    pub const COIP = 20;
+    pub const CNT = 21;
+    pub const IPX = 23;
+    pub const INET6 = 24;
+    pub const ISDN = 26;
+    pub const E164 = ISDN;
+    pub const NATM = 27;
+    pub const ARP = 28;
+    pub const BLUETOOTH = 31;
+    pub const IEEE80211 = 32;
+    pub const MPLS = 33;
+    pub const ROUTE = 34;
+    pub const CAN = 35;
+    pub const ETHER = 36;
+    pub const MAX = 37;
+};
 
 pub const in_port_t = u16;
 pub const sa_family_t = u8;
@@ -446,59 +458,54 @@ pub const sa_family_t = u8;
 pub const sockaddr = extern struct {
     /// total length
     len: u8,
-
     /// address family
     family: sa_family_t,
-
     /// actually longer; address value
     data: [14]u8,
+
+    pub const storage = std.x.os.Socket.Address.Native.Storage;
+
+    pub const in = extern struct {
+        len: u8 = @sizeOf(in),
+        family: sa_family_t = AF.INET,
+        port: in_port_t,
+        addr: u32,
+        zero: [8]u8 = [8]u8{ 0, 0, 0, 0, 0, 0, 0, 0 },
+    };
+
+    pub const in6 = extern struct {
+        len: u8 = @sizeOf(in6),
+        family: sa_family_t = AF.INET6,
+        port: in_port_t,
+        flowinfo: u32,
+        addr: [16]u8,
+        scope_id: u32,
+    };
+
+    /// Definitions for UNIX IPC domain.
+    pub const un = extern struct {
+        /// total sockaddr length
+        len: u8 = @sizeOf(un),
+
+        family: sa_family_t = AF.LOCAL,
+
+        /// path name
+        path: [104]u8,
+    };
 };
 
-pub const sockaddr_storage = std.x.os.Socket.Address.Native.Storage;
-
-pub const sockaddr_in = extern struct {
-    len: u8 = @sizeOf(sockaddr_in),
-    family: sa_family_t = AF_INET,
-    port: in_port_t,
-    addr: u32,
-    zero: [8]u8 = [8]u8{ 0, 0, 0, 0, 0, 0, 0, 0 },
+pub const AI = struct {
+    /// get address to use bind()
+    pub const PASSIVE = 0x00000001;
+    /// fill ai_canonname
+    pub const CANONNAME = 0x00000002;
+    /// prevent host name resolution
+    pub const NUMERICHOST = 0x00000004;
+    /// prevent service name resolution
+    pub const NUMERICSERV = 0x00000008;
+    /// only if any address is assigned
+    pub const ADDRCONFIG = 0x00000400;
 };
-
-pub const sockaddr_in6 = extern struct {
-    len: u8 = @sizeOf(sockaddr_in6),
-    family: sa_family_t = AF_INET6,
-    port: in_port_t,
-    flowinfo: u32,
-    addr: [16]u8,
-    scope_id: u32,
-};
-
-/// Definitions for UNIX IPC domain.
-pub const sockaddr_un = extern struct {
-    /// total sockaddr length
-    len: u8 = @sizeOf(sockaddr_un),
-
-    /// AF_LOCAL
-    family: sa_family_t = AF_LOCAL,
-
-    /// path name
-    path: [104]u8,
-};
-
-/// get address to use bind()
-pub const AI_PASSIVE = 0x00000001;
-
-/// fill ai_canonname
-pub const AI_CANONNAME = 0x00000002;
-
-/// prevent host name resolution
-pub const AI_NUMERICHOST = 0x00000004;
-
-/// prevent service name resolution
-pub const AI_NUMERICSERV = 0x00000008;
-
-/// only if any address is assigned
-pub const AI_ADDRCONFIG = 0x00000400;
 
 pub const CTL_KERN = 1;
 pub const CTL_DEBUG = 5;
@@ -519,31 +526,34 @@ pub const PROT_READ = 1;
 pub const PROT_WRITE = 2;
 pub const PROT_EXEC = 4;
 
-pub const CLOCK_REALTIME = 0;
-pub const CLOCK_VIRTUAL = 1;
-pub const CLOCK_PROF = 2;
-pub const CLOCK_MONOTONIC = 3;
-pub const CLOCK_THREAD_CPUTIME_ID = 0x20000000;
-pub const CLOCK_PROCESS_CPUTIME_ID = 0x40000000;
+pub const CLOCK = struct {
+    pub const REALTIME = 0;
+    pub const VIRTUAL = 1;
+    pub const PROF = 2;
+    pub const MONOTONIC = 3;
+    pub const THREAD_CPUTIME_ID = 0x20000000;
+    pub const PROCESS_CPUTIME_ID = 0x40000000;
+};
 
-pub const MAP_FAILED = @intToPtr(*c_void, maxInt(usize));
-pub const MAP_SHARED = 0x0001;
-pub const MAP_PRIVATE = 0x0002;
-pub const MAP_REMAPDUP = 0x0004;
-pub const MAP_FIXED = 0x0010;
-pub const MAP_RENAME = 0x0020;
-pub const MAP_NORESERVE = 0x0040;
-pub const MAP_INHERIT = 0x0080;
-pub const MAP_HASSEMAPHORE = 0x0200;
-pub const MAP_TRYFIXED = 0x0400;
-pub const MAP_WIRED = 0x0800;
+pub const MAP = struct {
+    pub const FAILED = @intToPtr(*c_void, maxInt(usize));
+    pub const SHARED = 0x0001;
+    pub const PRIVATE = 0x0002;
+    pub const REMAPDUP = 0x0004;
+    pub const FIXED = 0x0010;
+    pub const RENAME = 0x0020;
+    pub const NORESERVE = 0x0040;
+    pub const INHERIT = 0x0080;
+    pub const HASSEMAPHORE = 0x0200;
+    pub const TRYFIXED = 0x0400;
+    pub const WIRED = 0x0800;
 
-pub const MAP_FILE = 0x0000;
-pub const MAP_NOSYNC = 0x0800;
-pub const MAP_ANON = 0x1000;
-pub const MAP_ANONYMOUS = MAP_ANON;
-pub const MAP_STACK = 0x2000;
-
+    pub const FILE = 0x0000;
+    pub const NOSYNC = 0x0800;
+    pub const ANON = 0x1000;
+    pub const ANONYMOUS = ANON;
+    pub const STACK = 0x2000;
+};
 pub const WNOHANG = 0x00000001;
 pub const WUNTRACED = 0x00000002;
 pub const WSTOPPED = WUNTRACED;
@@ -686,10 +696,12 @@ pub const F_RDLCK = 1;
 pub const F_WRLCK = 3;
 pub const F_UNLCK = 2;
 
-pub const LOCK_SH = 1;
-pub const LOCK_EX = 2;
-pub const LOCK_UN = 8;
-pub const LOCK_NB = 4;
+pub const LOCK = struct {
+    pub const SH = 1;
+    pub const EX = 2;
+    pub const UN = 8;
+    pub const NB = 4;
+};
 
 pub const FD_CLOEXEC = 1;
 
@@ -1262,116 +1274,82 @@ pub const AT_REMOVEDIR = 0x0800;
 
 pub const HOST_NAME_MAX = 255;
 
-/// dummy for IP
-pub const IPPROTO_IP = 0;
-
-/// IP6 hop-by-hop options
-pub const IPPROTO_HOPOPTS = 0;
-
-/// control message protocol
-pub const IPPROTO_ICMP = 1;
-
-/// group mgmt protocol
-pub const IPPROTO_IGMP = 2;
-
-/// gateway^2 (deprecated)
-pub const IPPROTO_GGP = 3;
-
-/// IP header
-pub const IPPROTO_IPV4 = 4;
-
-/// IP inside IP
-pub const IPPROTO_IPIP = 4;
-
-/// tcp
-pub const IPPROTO_TCP = 6;
-
-/// exterior gateway protocol
-pub const IPPROTO_EGP = 8;
-
-/// pup
-pub const IPPROTO_PUP = 12;
-
-/// user datagram protocol
-pub const IPPROTO_UDP = 17;
-
-/// xns idp
-pub const IPPROTO_IDP = 22;
-
-/// tp-4 w/ class negotiation
-pub const IPPROTO_TP = 29;
-
-/// DCCP
-pub const IPPROTO_DCCP = 33;
-
-/// IP6 header
-pub const IPPROTO_IPV6 = 41;
-
-/// IP6 routing header
-pub const IPPROTO_ROUTING = 43;
-
-/// IP6 fragmentation header
-pub const IPPROTO_FRAGMENT = 44;
-
-/// resource reservation
-pub const IPPROTO_RSVP = 46;
-
-/// GRE encaps RFC 1701
-pub const IPPROTO_GRE = 47;
-
-/// encap. security payload
-pub const IPPROTO_ESP = 50;
-
-/// authentication header
-pub const IPPROTO_AH = 51;
-
-/// IP Mobility RFC 2004
-pub const IPPROTO_MOBILE = 55;
-
-/// IPv6 ICMP
-pub const IPPROTO_IPV6_ICMP = 58;
-
-/// ICMP6
-pub const IPPROTO_ICMPV6 = 58;
-
-/// IP6 no next header
-pub const IPPROTO_NONE = 59;
-
-/// IP6 destination option
-pub const IPPROTO_DSTOPTS = 60;
-
-/// ISO cnlp
-pub const IPPROTO_EON = 80;
-
-/// Ethernet-in-IP
-pub const IPPROTO_ETHERIP = 97;
-
-/// encapsulation header
-pub const IPPROTO_ENCAP = 98;
-
-/// Protocol indep. multicast
-pub const IPPROTO_PIM = 103;
-
-/// IP Payload Comp. Protocol
-pub const IPPROTO_IPCOMP = 108;
-
-/// VRRP RFC 2338
-pub const IPPROTO_VRRP = 112;
-
-/// Common Address Resolution Protocol
-pub const IPPROTO_CARP = 112;
-
-/// L2TPv3
-pub const IPPROTO_L2TP = 115;
-
-/// SCTP
-pub const IPPROTO_SCTP = 132;
-
-/// PFSYNC
-pub const IPPROTO_PFSYNC = 240;
-
-/// raw IP packet
-pub const IPPROTO_RAW = 255;
+pub const IPPROTO = struct {
+    /// dummy for IP
+    pub const IP = 0;
+    /// IP6 hop-by-hop options
+    pub const HOPOPTS = 0;
+    /// control message protocol
+    pub const ICMP = 1;
+    /// group mgmt protocol
+    pub const IGMP = 2;
+    /// gateway^2 (deprecated)
+    pub const GGP = 3;
+    /// IP header
+    pub const IPV4 = 4;
+    /// IP inside IP
+    pub const IPIP = 4;
+    /// tcp
+    pub const TCP = 6;
+    /// exterior gateway protocol
+    pub const EGP = 8;
+    /// pup
+    pub const PUP = 12;
+    /// user datagram protocol
+    pub const UDP = 17;
+    /// xns idp
+    pub const IDP = 22;
+    /// tp-4 w/ class negotiation
+    pub const TP = 29;
+    /// DCCP
+    pub const DCCP = 33;
+    /// IP6 header
+    pub const IPV6 = 41;
+    /// IP6 routing header
+    pub const ROUTING = 43;
+    /// IP6 fragmentation header
+    pub const FRAGMENT = 44;
+    /// resource reservation
+    pub const RSVP = 46;
+    /// GRE encaps RFC 1701
+    pub const GRE = 47;
+    /// encap. security payload
+    pub const ESP = 50;
+    /// authentication header
+    pub const AH = 51;
+    /// IP Mobility RFC 2004
+    pub const MOBILE = 55;
+    /// IPv6 ICMP
+    pub const IPV6_ICMP = 58;
+    /// ICMP6
+    pub const ICMPV6 = 58;
+    /// IP6 no next header
+    pub const NONE = 59;
+    /// IP6 destination option
+    pub const DSTOPTS = 60;
+    /// ISO cnlp
+    pub const EON = 80;
+    /// Ethernet-in-IP
+    pub const ETHERIP = 97;
+    /// encapsulation header
+    pub const ENCAP = 98;
+    /// Protocol indep. multicast
+    pub const PIM = 103;
+    /// IP Payload Comp. Protocol
+    pub const IPCOMP = 108;
+    /// VRRP RFC 2338
+    pub const VRRP = 112;
+    /// Common Address Resolution Protocol
+    pub const CARP = 112;
+    /// L2TPv3
+    pub const L2TP = 115;
+    /// SCTP
+    pub const SCTP = 132;
+    /// PFSYNC
+    pub const PFSYNC = 240;
+    /// raw IP packet
+    pub const RAW = 255;
+};
 
 pub const rlimit_resource = enum(c_int) {
     CPU = 0,
@@ -1393,11 +1371,13 @@ pub const rlimit_resource = enum(c_int) {
 
 pub const rlim_t = u64;
 
-/// No limit
-pub const RLIM_INFINITY: rlim_t = (1 << 63) - 1;
+pub const RLIM = struct {
+    /// No limit
+    pub const INFINITY: rlim_t = (1 << 63) - 1;
 
-pub const RLIM_SAVED_MAX = RLIM_INFINITY;
-pub const RLIM_SAVED_CUR = RLIM_INFINITY;
+    pub const SAVED_MAX = INFINITY;
+    pub const SAVED_CUR = INFINITY;
+};
 
 pub const rlimit = extern struct {
     /// Soft limit
@@ -1418,16 +1398,18 @@ pub const pollfd = extern struct {
     revents: i16,
 };
 
-/// Testable events (may be specified in events field).
-pub const POLLIN = 0x0001;
-pub const POLLPRI = 0x0002;
-pub const POLLOUT = 0x0004;
-pub const POLLRDNORM = 0x0040;
-pub const POLLWRNORM = POLLOUT;
-pub const POLLRDBAND = 0x0080;
-pub const POLLWRBAND = 0x0100;
+pub const POLL = struct {
+    /// Testable events (may be specified in events field).
+    pub const IN = 0x0001;
+    pub const PRI = 0x0002;
+    pub const OUT = 0x0004;
+    pub const RDNORM = 0x0040;
+    pub const WRNORM = OUT;
+    pub const RDBAND = 0x0080;
+    pub const WRBAND = 0x0100;
 
-/// Non-testable events (may not be specified in events field).
-pub const POLLERR = 0x0008;
-pub const POLLHUP = 0x0010;
-pub const POLLNVAL = 0x0020;
+    /// Non-testable events (may not be specified in events field).
+    pub const ERR = 0x0008;
+    pub const HUP = 0x0010;
+    pub const NVAL = 0x0020;
+};

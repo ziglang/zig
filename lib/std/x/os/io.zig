@@ -4,6 +4,7 @@ const os = std.os;
 const mem = std.mem;
 const testing = std.testing;
 const native_os = std.Target.current.os;
+const linux = std.os.linux;
 
 /// POSIX `iovec`, or Windows `WSABUF`. The difference between the two are the ordering
 /// of fields, alongside the length being represented as either a ULONG or a size_t.
@@ -67,7 +68,7 @@ pub const Reactor = struct {
     pub fn init(flags: std.enums.EnumFieldStruct(Reactor.InitFlags, bool, false)) !Reactor {
         var raw_flags: u32 = 0;
         const set = std.EnumSet(Reactor.InitFlags).init(flags);
-        if (set.contains(.close_on_exec)) raw_flags |= os.EPOLL_CLOEXEC;
+        if (set.contains(.close_on_exec)) raw_flags |= linux.EPOLL.CLOEXEC;
         return Reactor{ .fd = try os.epoll_create1(raw_flags) };
     }
 
@@ -77,31 +78,31 @@ pub const Reactor = struct {
 
     pub fn update(self: Reactor, fd: os.fd_t, identifier: usize, interest: Reactor.Interest) !void {
         var flags: u32 = 0;
-        flags |= if (interest.oneshot) os.EPOLLONESHOT else os.EPOLLET;
-        if (interest.hup) flags |= os.EPOLLRDHUP;
-        if (interest.readable) flags |= os.EPOLLIN;
-        if (interest.writable) flags |= os.EPOLLOUT;
+        flags |= if (interest.oneshot) linux.EPOLL.ONESHOT else linux.EPOLL.ET;
+        if (interest.hup) flags |= linux.EPOLL.RDHUP;
+        if (interest.readable) flags |= linux.EPOLL.IN;
+        if (interest.writable) flags |= linux.EPOLL.OUT;
 
-        const event = &os.epoll_event{
+        const event = &linux.epoll_event{
             .events = flags,
             .data = .{ .ptr = identifier },
         };
 
-        os.epoll_ctl(self.fd, os.EPOLL_CTL_MOD, fd, event) catch |err| switch (err) {
-            error.FileDescriptorNotRegistered => try os.epoll_ctl(self.fd, os.EPOLL_CTL_ADD, fd, event),
+        os.epoll_ctl(self.fd, linux.EPOLL.CTL_MOD, fd, event) catch |err| switch (err) {
+            error.FileDescriptorNotRegistered => try os.epoll_ctl(self.fd, linux.EPOLL.CTL_ADD, fd, event),
             else => return err,
         };
     }
 
     pub fn poll(self: Reactor, comptime max_num_events: comptime_int, closure: anytype, timeout_milliseconds: ?u64) !void {
-        var events: [max_num_events]os.epoll_event = undefined;
+        var events: [max_num_events]linux.epoll_event = undefined;
 
         const num_events = os.epoll_wait(self.fd, &events, if (timeout_milliseconds) |ms| @intCast(i32, ms) else -1);
         for (events[0..num_events]) |ev| {
-            const is_error = ev.events & os.EPOLLERR != 0;
-            const is_hup = ev.events & (os.EPOLLHUP | os.EPOLLRDHUP) != 0;
-            const is_readable = ev.events & os.EPOLLIN != 0;
-            const is_writable = ev.events & os.EPOLLOUT != 0;
+            const is_error = ev.events & linux.EPOLL.ERR != 0;
+            const is_hup = ev.events & (linux.EPOLL.HUP | linux.EPOLL.RDHUP) != 0;
+            const is_readable = ev.events & linux.EPOLL.IN != 0;
+            const is_writable = ev.events & linux.EPOLL.OUT != 0;
 
             try closure.call(Reactor.Event{
                 .data = ev.data.ptr,

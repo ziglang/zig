@@ -1,4 +1,5 @@
 const std = @import("../../std.zig");
+const maxInt = std.math.maxInt;
 const linux = std.os.linux;
 const iovec = std.os.iovec;
 const iovec_const = std.os.iovec_const;
@@ -527,59 +528,44 @@ pub const F = struct {
 pub const MAP = struct {
     /// Share changes
     pub const SHARED = 0x01;
-
     /// Changes are private
     pub const PRIVATE = 0x02;
-
     /// share + validate extension flags
     pub const SHARED_VALIDATE = 0x03;
-
     /// Mask for type of mapping
     pub const TYPE = 0x0f;
-
     /// Interpret addr exactly
     pub const FIXED = 0x10;
-
     /// don't use a file
     pub const ANONYMOUS = 0x20;
-
     /// populate (prefault) pagetables
     pub const POPULATE = 0x8000;
-
     /// do not block on IO
     pub const NONBLOCK = 0x10000;
-
     /// give out an address that is best suited for process/thread stacks
     pub const STACK = 0x20000;
-
     /// create a huge page mapping
     pub const HUGETLB = 0x40000;
-
     /// perform synchronous page faults for the mapping
     pub const SYNC = 0x80000;
-
     /// FIXED which doesn't unmap underlying mapping
     pub const FIXED_NOREPLACE = 0x100000;
-
     /// For anonymous mmap, memory could be uninitialized
     pub const UNINITIALIZED = 0x4000000;
     /// only give out 32bit addresses
     pub const @"32BIT" = 0x40;
-
     /// stack-like segment
     pub const GROWSDOWN = 0x0100;
-
     /// ETXTBSY
     pub const DENYWRITE = 0x0800;
-
     /// mark it as an executable
     pub const EXECUTABLE = 0x1000;
-
     /// pages are locked
     pub const LOCKED = 0x2000;
-
     /// don't check for reservations
     pub const NORESERVE = 0x4000;
+    /// Only used by libc to communicate failure.
+    pub const FAILED = @intToPtr(*c_void, maxInt(usize));
 };
 
 pub const VDSO = struct {

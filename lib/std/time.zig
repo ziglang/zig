@@ -86,12 +86,12 @@ pub fn nanoTimestamp() i128 {
     }
     if (builtin.os.tag == .wasi and !builtin.link_libc) {
         var ns: os.wasi.timestamp_t = undefined;
-        const err = os.wasi.clock_time_get(os.wasi.CLOCK_REALTIME, 1, &ns);
+        const err = os.wasi.clock_time_get(os.wasi.CLOCK.REALTIME, 1, &ns);
         assert(err == .SUCCESS);
         return ns;
     }
     var ts: os.timespec = undefined;
-    os.clock_gettime(os.CLOCK_REALTIME, &ts) catch |err| switch (err) {
+    os.clock_gettime(os.CLOCK.REALTIME, &ts) catch |err| switch (err) {
         error.UnsupportedClock, error.Unexpected => return 0, // "Precision of timing depends on hardware and OS".
     };
     return (@as(i128, ts.tv_sec) * ns_per_s) + ts.tv_nsec;

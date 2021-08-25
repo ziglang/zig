@@ -109,17 +109,16 @@ pub fn sigaddset(set: *sigset_t, signo: u5) void {
 
 pub extern "c" fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
 
-/// get address to use bind()
-pub const AI_PASSIVE = 0x00000001;
-
-/// fill ai_canonname
-pub const AI_CANONNAME = 0x00000002;
-
-/// prevent host name resolution
-pub const AI_NUMERICHOST = 0x00000004;
-
-/// prevent service name resolution
-pub const AI_NUMERICSERV = 0x00001000;
+pub const AI = struct {
+    /// get address to use bind()
+    pub const PASSIVE = 0x00000001;
+    /// fill ai_canonname
+    pub const CANONNAME = 0x00000002;
+    /// prevent host name resolution
+    pub const NUMERICHOST = 0x00000004;
+    /// prevent service name resolution
+    pub const NUMERICSERV = 0x00001000;
+};
 
 pub const EAI = enum(c_int) {
     /// address family for hostname not supported
@@ -292,31 +291,31 @@ pub const sockaddr = extern struct {
     len: u8,
     family: sa_family_t,
     data: [14]u8,
-};
-pub const sockaddr_storage = std.x.os.Socket.Address.Native.Storage;
-pub const sockaddr_in = extern struct {
-    len: u8 = @sizeOf(sockaddr_in),
-    family: sa_family_t = AF_INET,
-    port: in_port_t,
-    addr: u32,
-    zero: [8]u8 = [8]u8{ 0, 0, 0, 0, 0, 0, 0, 0 },
-};
-pub const sockaddr_in6 = extern struct {
-    len: u8 = @sizeOf(sockaddr_in6),
-    family: sa_family_t = AF_INET6,
-    port: in_port_t,
-    flowinfo: u32,
-    addr: [16]u8,
-    scope_id: u32,
-};
 
-/// UNIX domain socket
-pub const sockaddr_un = extern struct {
-    len: u8 = @sizeOf(sockaddr_un),
-    family: sa_family_t = AF_UNIX,
-    path: [104]u8,
-};
+    pub const storage = std.x.os.Socket.Address.Native.Storage;
+    pub const in = extern struct {
+        len: u8 = @sizeOf(in),
+        family: sa_family_t = AF.INET,
+        port: in_port_t,
+        addr: u32,
+        zero: [8]u8 = [8]u8{ 0, 0, 0, 0, 0, 0, 0, 0 },
+    };
+    pub const in6 = extern struct {
+        len: u8 = @sizeOf(in6),
+        family: sa_family_t = AF.INET6,
+        port: in_port_t,
+        flowinfo: u32,
+        addr: [16]u8,
+        scope_id: u32,
+    };
 
+    /// UNIX domain socket
+    pub const un = extern struct {
+        len: u8 = @sizeOf(un),
+        family: sa_family_t = AF.UNIX,
+        path: [104]u8,
+    };
+};
 pub const timeval = extern struct {
     tv_sec: c_long,
     tv_usec: i32,
@@ -521,30 +520,25 @@ pub const PROT_WRITE = 0x02;
 /// [MC2] pages can be executed
 pub const PROT_EXEC = 0x04;
 
-/// allocated from memory, swap space
-pub const MAP_ANONYMOUS = 0x1000;
-
-/// map from file (default)
-pub const MAP_FILE = 0x0000;
-
-/// interpret addr exactly
-pub const MAP_FIXED = 0x0010;
-
-/// region may contain semaphores
-pub const MAP_HASSEMAPHORE = 0x0200;
-
-/// changes are private
-pub const MAP_PRIVATE = 0x0002;
-
-/// share changes
-pub const MAP_SHARED = 0x0001;
-
-/// don't cache pages for this mapping
-pub const MAP_NOCACHE = 0x0400;
-
-/// don't reserve needed swap area
-pub const MAP_NORESERVE = 0x0040;
-pub const MAP_FAILED = @intToPtr(*c_void, maxInt(usize));
+pub const MAP = struct {
+    /// allocated from memory, swap space
+    pub const ANONYMOUS = 0x1000;
+    /// map from file (default)
+    pub const FILE = 0x0000;
+    /// interpret addr exactly
+    pub const FIXED = 0x0010;
+    /// region may contain semaphores
+    pub const HASSEMAPHORE = 0x0200;
+    /// changes are private
+    pub const PRIVATE = 0x0002;
+    /// share changes
+    pub const SHARED = 0x0001;
+    /// don't cache pages for this mapping
+    pub const NOCACHE = 0x0400;
+    /// don't reserve needed swap area
+    pub const NORESERVE = 0x0040;
+    pub const FAILED = @intToPtr(*c_void, maxInt(usize));
+};
 
 /// [XSI] no hang in wait/no child to reap
 pub const WNOHANG = 0x00000001;
@@ -980,136 +974,148 @@ pub const NOTE_MACH_CONTINUOUS_TIME = 0x00000080;
 /// data is mach absolute time units
 pub const NOTE_MACHTIME = 0x00000100;
 
-pub const AF_UNSPEC = 0;
-pub const AF_LOCAL = 1;
-pub const AF_UNIX = AF_LOCAL;
-pub const AF_INET = 2;
-pub const AF_SYS_CONTROL = 2;
-pub const AF_IMPLINK = 3;
-pub const AF_PUP = 4;
-pub const AF_CHAOS = 5;
-pub const AF_NS = 6;
-pub const AF_ISO = 7;
-pub const AF_OSI = AF_ISO;
-pub const AF_ECMA = 8;
-pub const AF_DATAKIT = 9;
-pub const AF_CCITT = 10;
-pub const AF_SNA = 11;
-pub const AF_DECnet = 12;
-pub const AF_DLI = 13;
-pub const AF_LAT = 14;
-pub const AF_HYLINK = 15;
-pub const AF_APPLETALK = 16;
-pub const AF_ROUTE = 17;
-pub const AF_LINK = 18;
-pub const AF_XTP = 19;
-pub const AF_COIP = 20;
-pub const AF_CNT = 21;
-pub const AF_RTIP = 22;
-pub const AF_IPX = 23;
-pub const AF_SIP = 24;
-pub const AF_PIP = 25;
-pub const AF_ISDN = 28;
-pub const AF_E164 = AF_ISDN;
-pub const AF_KEY = 29;
-pub const AF_INET6 = 30;
-pub const AF_NATM = 31;
-pub const AF_SYSTEM = 32;
-pub const AF_NETBIOS = 33;
-pub const AF_PPP = 34;
-pub const AF_MAX = 40;
+pub const AF = struct {
+    pub const UNSPEC = 0;
+    pub const LOCAL = 1;
+    pub const UNIX = LOCAL;
+    pub const INET = 2;
+    pub const SYS_CONTROL = 2;
+    pub const IMPLINK = 3;
+    pub const PUP = 4;
+    pub const CHAOS = 5;
+    pub const NS = 6;
+    pub const ISO = 7;
+    pub const OSI = ISO;
+    pub const ECMA = 8;
+    pub const DATAKIT = 9;
+    pub const CCITT = 10;
+    pub const SNA = 11;
+    pub const DECnet = 12;
+    pub const DLI = 13;
+    pub const LAT = 14;
+    pub const HYLINK = 15;
+    pub const APPLETALK = 16;
+    pub const ROUTE = 17;
+    pub const LINK = 18;
+    pub const XTP = 19;
+    pub const COIP = 20;
+    pub const CNT = 21;
+    pub const RTIP = 22;
+    pub const IPX = 23;
+    pub const SIP = 24;
+    pub const PIP = 25;
+    pub const ISDN = 28;
+    pub const E164 = ISDN;
+    pub const KEY = 29;
+    pub const INET6 = 30;
+    pub const NATM = 31;
+    pub const SYSTEM = 32;
+    pub const NETBIOS = 33;
+    pub const PPP = 34;
+    pub const MAX = 40;
+};
 
-pub const PF_UNSPEC = AF_UNSPEC;
-pub const PF_LOCAL = AF_LOCAL;
-pub const PF_UNIX = PF_LOCAL;
-pub const PF_INET = AF_INET;
-pub const PF_IMPLINK = AF_IMPLINK;
-pub const PF_PUP = AF_PUP;
-pub const PF_CHAOS = AF_CHAOS;
-pub const PF_NS = AF_NS;
-pub const PF_ISO = AF_ISO;
-pub const PF_OSI = AF_ISO;
-pub const PF_ECMA = AF_ECMA;
-pub const PF_DATAKIT = AF_DATAKIT;
-pub const PF_CCITT = AF_CCITT;
-pub const PF_SNA = AF_SNA;
-pub const PF_DECnet = AF_DECnet;
-pub const PF_DLI = AF_DLI;
-pub const PF_LAT = AF_LAT;
-pub const PF_HYLINK = AF_HYLINK;
-pub const PF_APPLETALK = AF_APPLETALK;
-pub const PF_ROUTE = AF_ROUTE;
-pub const PF_LINK = AF_LINK;
-pub const PF_XTP = AF_XTP;
-pub const PF_COIP = AF_COIP;
-pub const PF_CNT = AF_CNT;
-pub const PF_SIP = AF_SIP;
-pub const PF_IPX = AF_IPX;
-pub const PF_RTIP = AF_RTIP;
-pub const PF_PIP = AF_PIP;
-pub const PF_ISDN = AF_ISDN;
-pub const PF_KEY = AF_KEY;
-pub const PF_INET6 = AF_INET6;
-pub const PF_NATM = AF_NATM;
-pub const PF_SYSTEM = AF_SYSTEM;
-pub const PF_NETBIOS = AF_NETBIOS;
-pub const PF_PPP = AF_PPP;
-pub const PF_MAX = AF_MAX;
+pub const PF = struct {
+    pub const UNSPEC = AF.UNSPEC;
+    pub const LOCAL = AF.LOCAL;
+    pub const UNIX = PF.LOCAL;
+    pub const INET = AF.INET;
+    pub const IMPLINK = AF.IMPLINK;
+    pub const PUP = AF.PUP;
+    pub const CHAOS = AF.CHAOS;
+    pub const NS = AF.NS;
+    pub const ISO = AF.ISO;
+    pub const OSI = AF.ISO;
+    pub const ECMA = AF.ECMA;
+    pub const DATAKIT = AF.DATAKIT;
+    pub const CCITT = AF.CCITT;
+    pub const SNA = AF.SNA;
+    pub const DECnet = AF.DECnet;
+    pub const DLI = AF.DLI;
+    pub const LAT = AF.LAT;
+    pub const HYLINK = AF.HYLINK;
+    pub const APPLETALK = AF.APPLETALK;
+    pub const ROUTE = AF.ROUTE;
+    pub const LINK = AF.LINK;
+    pub const XTP = AF.XTP;
+    pub const COIP = AF.COIP;
+    pub const CNT = AF.CNT;
+    pub const SIP = AF.SIP;
+    pub const IPX = AF.IPX;
+    pub const RTIP = AF.RTIP;
+    pub const PIP = AF.PIP;
+    pub const ISDN = AF.ISDN;
+    pub const KEY = AF.KEY;
+    pub const INET6 = AF.INET6;
+    pub const NATM = AF.NATM;
+    pub const SYSTEM = AF.SYSTEM;
+    pub const NETBIOS = AF.NETBIOS;
+    pub const PPP = AF.PPP;
+    pub const MAX = AF.MAX;
+};
 
 pub const SYSPROTO_EVENT = 1;
 pub const SYSPROTO_CONTROL = 2;
 
-pub const SOCK_STREAM = 1;
-pub const SOCK_DGRAM = 2;
-pub const SOCK_RAW = 3;
-pub const SOCK_RDM = 4;
-pub const SOCK_SEQPACKET = 5;
-pub const SOCK_MAXADDRLEN = 255;
+pub const SOCK = struct {
+    pub const STREAM = 1;
+    pub const DGRAM = 2;
+    pub const RAW = 3;
+    pub const RDM = 4;
+    pub const SEQPACKET = 5;
+    pub const MAXADDRLEN = 255;
 
-/// Not actually supported by Darwin, but Zig supplies a shim.
-/// This numerical value is not ABI-stable. It need only not conflict
-/// with any other "SOCK_" bits.
-pub const SOCK_CLOEXEC = 1 << 15;
-/// Not actually supported by Darwin, but Zig supplies a shim.
-/// This numerical value is not ABI-stable. It need only not conflict
-/// with any other "SOCK_" bits.
-pub const SOCK_NONBLOCK = 1 << 16;
+    /// Not actually supported by Darwin, but Zig supplies a shim.
+    /// This numerical value is not ABI-stable. It need only not conflict
+    /// with any other `SOCK` bits.
+    pub const CLOEXEC = 1 << 15;
+    /// Not actually supported by Darwin, but Zig supplies a shim.
+    /// This numerical value is not ABI-stable. It need only not conflict
+    /// with any other `SOCK` bits.
+    pub const NONBLOCK = 1 << 16;
+};
 
-pub const IPPROTO_ICMP = 1;
-pub const IPPROTO_ICMPV6 = 58;
-pub const IPPROTO_TCP = 6;
-pub const IPPROTO_UDP = 17;
-pub const IPPROTO_IP = 0;
-pub const IPPROTO_IPV6 = 41;
+pub const IPPROTO = struct {
+    pub const ICMP = 1;
+    pub const ICMPV6 = 58;
+    pub const TCP = 6;
+    pub const UDP = 17;
+    pub const IP = 0;
+    pub const IPV6 = 41;
+};
 
-pub const SOL_SOCKET = 0xffff;
+pub const SOL = struct {
+    pub const SOCKET = 0xffff;
+};
 
-pub const SO_DEBUG = 0x0001;
-pub const SO_ACCEPTCONN = 0x0002;
-pub const SO_REUSEADDR = 0x0004;
-pub const SO_KEEPALIVE = 0x0008;
-pub const SO_DONTROUTE = 0x0010;
-pub const SO_BROADCAST = 0x0020;
-pub const SO_USELOOPBACK = 0x0040;
-pub const SO_LINGER = 0x1080;
-pub const SO_OOBINLINE = 0x0100;
-pub const SO_REUSEPORT = 0x0200;
-pub const SO_ACCEPTFILTER = 0x1000;
-pub const SO_SNDBUF = 0x1001;
-pub const SO_RCVBUF = 0x1002;
-pub const SO_SNDLOWAT = 0x1003;
-pub const SO_RCVLOWAT = 0x1004;
-pub const SO_SNDTIMEO = 0x1005;
-pub const SO_RCVTIMEO = 0x1006;
-pub const SO_ERROR = 0x1007;
-pub const SO_TYPE = 0x1008;
+pub const SO = struct {
+    pub const DEBUG = 0x0001;
+    pub const ACCEPTCONN = 0x0002;
+    pub const REUSEADDR = 0x0004;
+    pub const KEEPALIVE = 0x0008;
+    pub const DONTROUTE = 0x0010;
+    pub const BROADCAST = 0x0020;
+    pub const USELOOPBACK = 0x0040;
+    pub const LINGER = 0x1080;
+    pub const OOBINLINE = 0x0100;
+    pub const REUSEPORT = 0x0200;
+    pub const ACCEPTFILTER = 0x1000;
+    pub const SNDBUF = 0x1001;
+    pub const RCVBUF = 0x1002;
+    pub const SNDLOWAT = 0x1003;
+    pub const RCVLOWAT = 0x1004;
+    pub const SNDTIMEO = 0x1005;
+    pub const RCVTIMEO = 0x1006;
+    pub const ERROR = 0x1007;
+    pub const TYPE = 0x1008;
 
-pub const SO_NREAD = 0x1020;
-pub const SO_NKE = 0x1021;
-pub const SO_NOSIGPIPE = 0x1022;
-pub const SO_NOADDRERR = 0x1023;
-pub const SO_NWRITE = 0x1024;
-pub const SO_REUSESHAREUID = 0x1025;
+    pub const NREAD = 0x1020;
+    pub const NKE = 0x1021;
+    pub const NOSIGPIPE = 0x1022;
+    pub const NOADDRERR = 0x1023;
+    pub const NWRITE = 0x1024;
+    pub const REUSESHAREUID = 0x1025;
+};
 
 fn wstatus(x: u32) u32 {
     return x & 0o177;
@@ -1569,18 +1575,20 @@ pub const addrinfo = extern struct {
     next: ?*addrinfo,
 };
 
-pub const RTLD_LAZY = 0x1;
-pub const RTLD_NOW = 0x2;
-pub const RTLD_LOCAL = 0x4;
-pub const RTLD_GLOBAL = 0x8;
-pub const RTLD_NOLOAD = 0x10;
-pub const RTLD_NODELETE = 0x80;
-pub const RTLD_FIRST = 0x100;
+pub const RTLD = struct {
+    pub const LAZY = 0x1;
+    pub const NOW = 0x2;
+    pub const LOCAL = 0x4;
+    pub const GLOBAL = 0x8;
+    pub const NOLOAD = 0x10;
+    pub const NODELETE = 0x80;
+    pub const FIRST = 0x100;
 
-pub const RTLD_NEXT = @intToPtr(*c_void, @bitCast(usize, @as(isize, -1)));
-pub const RTLD_DEFAULT = @intToPtr(*c_void, @bitCast(usize, @as(isize, -2)));
-pub const RTLD_SELF = @intToPtr(*c_void, @bitCast(usize, @as(isize, -3)));
-pub const RTLD_MAIN_ONLY = @intToPtr(*c_void, @bitCast(usize, @as(isize, -5)));
+    pub const NEXT = @intToPtr(*c_void, @bitCast(usize, @as(isize, -1)));
+    pub const DEFAULT = @intToPtr(*c_void, @bitCast(usize, @as(isize, -2)));
+    pub const SELF = @intToPtr(*c_void, @bitCast(usize, @as(isize, -3)));
+    pub const MAIN_ONLY = @intToPtr(*c_void, @bitCast(usize, @as(isize, -5)));
+};
 
 /// duplicate file descriptor
 pub const F_DUPFD = 0;
@@ -1740,10 +1748,12 @@ pub const F_UNLCK = 2;
 /// exclusive or write lock
 pub const F_WRLCK = 3;
 
-pub const LOCK_SH = 1;
-pub const LOCK_EX = 2;
-pub const LOCK_UN = 8;
-pub const LOCK_NB = 4;
+pub const LOCK = struct {
+    pub const SH = 1;
+    pub const EX = 2;
+    pub const UN = 8;
+    pub const NB = 4;
+};
 
 pub const nfds_t = u32;
 pub const pollfd = extern struct {
@@ -1752,33 +1762,37 @@ pub const pollfd = extern struct {
     revents: i16,
 };
 
-pub const POLLIN = 0x001;
-pub const POLLPRI = 0x002;
-pub const POLLOUT = 0x004;
-pub const POLLRDNORM = 0x040;
-pub const POLLWRNORM = POLLOUT;
-pub const POLLRDBAND = 0x080;
-pub const POLLWRBAND = 0x100;
+pub const POLL = struct {
+    pub const IN = 0x001;
+    pub const PRI = 0x002;
+    pub const OUT = 0x004;
+    pub const RDNORM = 0x040;
+    pub const WRNORM = OUT;
+    pub const RDBAND = 0x080;
+    pub const WRBAND = 0x100;
 
-pub const POLLEXTEND = 0x0200;
-pub const POLLATTRIB = 0x0400;
-pub const POLLNLINK = 0x0800;
-pub const POLLWRITE = 0x1000;
+    pub const EXTEND = 0x0200;
+    pub const ATTRIB = 0x0400;
+    pub const NLINK = 0x0800;
+    pub const WRITE = 0x1000;
 
-pub const POLLERR = 0x008;
-pub const POLLHUP = 0x010;
-pub const POLLNVAL = 0x020;
+    pub const ERR = 0x008;
+    pub const HUP = 0x010;
+    pub const NVAL = 0x020;
 
-pub const POLLSTANDARD = POLLIN | POLLPRI | POLLOUT | POLLRDNORM | POLLRDBAND | POLLWRBAND | POLLERR | POLLHUP | POLLNVAL;
+    pub const STANDARD = IN | PRI | OUT | RDNORM | RDBAND | WRBAND | ERR | HUP | NVAL;
+};
 
-pub const CLOCK_REALTIME = 0;
-pub const CLOCK_MONOTONIC = 6;
-pub const CLOCK_MONOTONIC_RAW = 4;
-pub const CLOCK_MONOTONIC_RAW_APPROX = 5;
-pub const CLOCK_UPTIME_RAW = 8;
-pub const CLOCK_UPTIME_RAW_APPROX = 9;
-pub const CLOCK_PROCESS_CPUTIME_ID = 12;
-pub const CLOCK_THREAD_CPUTIME_ID = 16;
+pub const CLOCK = struct {
+    pub const REALTIME = 0;
+    pub const MONOTONIC = 6;
+    pub const MONOTONIC_RAW = 4;
+    pub const MONOTONIC_RAW_APPROX = 5;
+    pub const UPTIME_RAW = 8;
+    pub const UPTIME_RAW_APPROX = 9;
+    pub const PROCESS_CPUTIME_ID = 12;
+    pub const THREAD_CPUTIME_ID = 16;
+};
 
 /// Max open files per process
 /// https://opensource.apple.com/source/xnu/xnu-4903.221.2/bsd/sys/syslimits.h.auto.html
@@ -1822,11 +1836,13 @@ pub const rlimit_resource = enum(c_int) {
 
 pub const rlim_t = u64;
 
-/// No limit
-pub const RLIM_INFINITY: rlim_t = (1 << 63) - 1;
+pub const RLIM = struct {
+    /// No limit
+    pub const INFINITY: rlim_t = (1 << 63) - 1;
 
-pub const RLIM_SAVED_MAX = RLIM_INFINITY;
-pub const RLIM_SAVED_CUR = RLIM_INFINITY;
+    pub const SAVED_MAX = INFINITY;
+    pub const SAVED_CUR = INFINITY;
+};
 
 pub const rlimit = extern struct {
     /// Soft limit
