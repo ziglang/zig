@@ -24,6 +24,11 @@ test {
     }
 }
 
+const syscall_bits = switch (native_arch) {
+    .thumb => @import("linux/thumb.zig"),
+    else => arch_bits,
+};
+
 const arch_bits = switch (native_arch) {
     .i386 => @import("linux/i386.zig"),
     .x86_64 => @import("linux/x86_64.zig"),
@@ -36,17 +41,17 @@ const arch_bits = switch (native_arch) {
     .powerpc64, .powerpc64le => @import("linux/powerpc64.zig"),
     else => struct {},
 };
-pub const syscall0 = arch_bits.syscall0;
-pub const syscall1 = arch_bits.syscall1;
-pub const syscall2 = arch_bits.syscall2;
-pub const syscall3 = arch_bits.syscall3;
-pub const syscall4 = arch_bits.syscall4;
-pub const syscall5 = arch_bits.syscall5;
-pub const syscall6 = arch_bits.syscall6;
-pub const clone = arch_bits.clone;
-pub const restore = arch_bits.restore;
-pub const restore_rt = arch_bits.restore_rt;
+pub const syscall0 = syscall_bits.syscall0;
+pub const syscall1 = syscall_bits.syscall1;
+pub const syscall2 = syscall_bits.syscall2;
+pub const syscall3 = syscall_bits.syscall3;
+pub const syscall4 = syscall_bits.syscall4;
+pub const syscall5 = syscall_bits.syscall5;
+pub const syscall6 = syscall_bits.syscall6;
+pub const restore = syscall_bits.restore;
+pub const restore_rt = syscall_bits.restore_rt;
 
+pub const clone = arch_bits.clone;
 pub const ARCH = arch_bits.ARCH;
 pub const Elf_Symndx = arch_bits.Elf_Symndx;
 pub const F = arch_bits.F;
