@@ -2244,16 +2244,23 @@ pub const LibExeObjStep = struct {
         self.include_dirs.append(.{ .other_step = other }) catch unreachable;
     }
 
-    fn makePackageCmd(self: *LibExeObjStep, pkg: Pkg, zig_args: *ArrayList([]const u8)) error{OutOfMemory}!void {
+    fn makePackageCmd(self: *LibExeObjStep, pkg: Pkg, zig_args: *ArrayList([]const u8), build_options_path: ?[]const u8) error{OutOfMemory}!void {
         const builder = self.builder;
 
         try zig_args.append("--pkg-begin");
         try zig_args.append(pkg.name);
         try zig_args.append(builder.pathFromRoot(pkg.path.getPath(self.builder)));
 
+        if (build_options_path) |build_options| {
+            try zig_args.append("--pkg-begin");
+            try zig_args.append("build_options");
+            try zig_args.append(build_options);
+            try zig_args.append("--pkg-end");
+        }
+
         if (pkg.dependencies) |dependencies| {
             for (dependencies) |sub_pkg| {
-                try self.makePackageCmd(sub_pkg, zig_args);
+                try self.makePackageCmd(sub_pkg, zig_args, build_options_path);
             }
         }
 
@@ -2393,6 +2400,8 @@ pub const LibExeObjStep = struct {
             }
         }
 
+        var build_options_path_from_root: ?[]const u8 = null;
+
         if (self.build_options_contents.items.len > 0 or
             self.build_options_artifact_args.items.len > 0 or
             self.build_options_file_source_args.items.len > 0)
@@ -2426,6 +2435,8 @@ pub const LibExeObjStep = struct {
             try zig_args.append("build_options");
             try zig_args.append(path_from_root);
             try zig_args.append("--pkg-end");
+
+            build_options_path_from_root = path_from_root;
         }
 
         if (self.image_base) |image_base| {
@@ -2663,7 +2674,7 @@ pub const LibExeObjStep = struct {
         }
 
         for (self.packages.items) |pkg| {
-            try self.makePackageCmd(pkg, &zig_args);
+            try self.makePackageCmd(pkg, &zig_args, build_options_path_from_root);
         }
 
         for (self.include_dirs.items) |include_dir| {
