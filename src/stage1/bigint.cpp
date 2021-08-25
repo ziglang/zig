@@ -470,27 +470,22 @@ void bigint_min(BigInt* dest, const BigInt *op1, const BigInt *op2) {
 
 /// clamps op within bit_count/signedness boundaries
 void bigint_clamp_by_bitcount(BigInt* op, uint32_t bit_count, bool is_signed) {
-    // save is_negative and set false so that bigint_bits_needed() won't report 64+ for negative numbers
+    // save is_negative and set to false so that bigint_bits_needed() won't report 64+ for negative numbers
     bool is_negative = op->is_negative;
     op->is_negative = false;
-    bool is_saturated = (bigint_bits_needed(op) + is_negative) > (bit_count - is_signed);
-    if(is_saturated) {
-        if(is_signed) {
-            bit_count -= 1;
-            if(is_negative) {
-                bigint_init_signed(op,  -(((int64_t) 1) << bit_count));
-            } else {
-                bigint_init_signed(op,   (((int64_t) 1) << bit_count) - 1);
-            }
+    size_t bits_needed = bigint_bits_needed(op) + is_negative;
+    bit_count -= is_signed;
+    bool is_over_saturated = bits_needed > bit_count;
+    if(is_over_saturated) {
+        // shift the least significant digit right by the number of 'extra' bits
+        uint64_t *op_digits;
+        if (op->digit_count == 1) {
+            op_digits = &op->data.digit;
         } else {
-            if(is_negative) {
-                bigint_init_unsigned(op, 0);
-            } else {
-                bigint_init_unsigned(op, (((uint64_t) 1) << bit_count) - 1);
-            }
+            op_digits = op->data.digits;
         }
-    } else 
-
+        op_digits[0] >>= (bit_count - bits_needed);
+    } 
     op->is_negative = is_negative;
 }
 
