@@ -2666,7 +2666,7 @@ pub const LibExeObjStep = struct {
             try self.makePackageCmd(pkg, &zig_args);
         }
 
-        recursivelyAppendIncludeDirs(step, builder, &zig_args) catch unreachable;
+        try recursivelyAppendIncludeDirs(step, builder, &zig_args);
 
         for (self.lib_paths.items) |lib_path| {
             try zig_args.append("-L");
