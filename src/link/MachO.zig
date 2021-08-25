@@ -194,10 +194,10 @@ section_ordinals: std.AutoArrayHashMapUnmanaged(MatchingSection, void) = .{},
 /// overcapacity can be negative. A simple way to have negative overcapacity is to
 /// allocate a fresh text block, which will have ideal capacity, and then grow it
 /// by 1 byte. It will then have -1 overcapacity.
-text_block_free_list: std.ArrayListUnmanaged(*TextBlock) = .{},
+block_free_lists: std.AutoHashMapUnmanaged(MatchingSection, std.ArrayListUnmanaged(*TextBlock)) = .{},
 
 /// Pointer to the last allocated text block
-last_text_block: ?*TextBlock = null,
+blocks: std.AutoHashMapUnmanaged(MatchingSection, *TextBlock) = .{},
 
 /// List of TextBlocks that are owned directly by the linker.
 /// Currently these are only TextBlocks that are the result of linking
@@ -205,8 +205,6 @@ last_text_block: ?*TextBlock = null,
 /// at present owned by Module.Decl.
 /// TODO consolidate this.
 managed_blocks: std.ArrayListUnmanaged(*TextBlock) = .{},
-
-blocks: std.AutoHashMapUnmanaged(MatchingSection, *TextBlock) = .{},
 
 /// Table of Decls that are currently alive.
 /// We store them here so that we can properly dispose of any allocated
@@ -1535,6 +1533,7 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
 
     if (res) |match| {
         _ = try self.section_ordinals.getOrPut(self.base.allocator, match);
+        _ = try self.block_free_lists.getOrPutValue(self.base.allocator, match, .{});
     }
 
     return res;
@@ -3417,8 +3416,13 @@ pub fn deinit(self: *MachO) void {
     }
     self.managed_blocks.deinit(self.base.allocator);
     self.blocks.deinit(self.base.allocator);
-    self.text_block_free_list.deinit(self.base.allocator);
-
+    {
+        var it = self.block_free_lists.valueIterator();
+        while (it.next()) |free_list| {
+            free_list.deinit(self.base.allocator);
+        }
+        self.block_free_lists.deinit(self.base.allocator);
+    }
     for (self.decls.keys()) |decl| {
         decl.link.macho.deinit(self.base.allocator);
     }
@@ -3441,16 +3445,21 @@ fn freeTextBlock(self: *MachO, text_block: *TextBlock) void {
     log.debug("freeTextBlock {*}", .{text_block});
     text_block.deinit(self.base.allocator);
 
+    const match = MatchingSection{
+        .seg = self.text_segment_cmd_index.?,
+        .sect = self.text_section_index.?,
+    };
+    const text_block_free_list = self.block_free_lists.getPtr(match).?;
     var already_have_free_list_node = false;
     {
         var i: usize = 0;
         // TODO turn text_block_free_list into a hash map
-        while (i < self.text_block_free_list.items.len) {
-            if (self.text_block_free_list.items[i] == text_block) {
-                _ = self.text_block_free_list.swapRemove(i);
+        while (i < text_block_free_list.items.len) {
+            if (text_block_free_list.items[i] == text_block) {
+                _ = text_block_free_list.swapRemove(i);
                 continue;
             }
-            if (self.text_block_free_list.items[i] == text_block.prev) {
+            if (text_block_free_list.items[i] == text_block.prev) {
                 already_have_free_list_node = true;
             }
             i += 1;
@@ -3458,10 +3467,15 @@ fn freeTextBlock(self: *MachO, text_block: *TextBlock) void {
     }
     // TODO process free list for dbg info just like we do above for vaddrs
 
-    if (self.last_text_block == text_block) {
-        // TODO shrink the __text section size here
-        self.last_text_block = text_block.prev;
+    if (self.blocks.getPtr(match)) |last_text_block| {
+        if (last_text_block.* == text_block) {
+            if (text_block.prev) |prev| {
+                // TODO shrink the __text section size here
+                last_text_block.* = prev;
+            }
+        }
     }
+
     if (self.d_sym) |*ds| {
         if (ds.dbg_info_decl_first == text_block) {
             ds.dbg_info_decl_first = text_block.dbg_info_next;
@@ -3478,7 +3492,7 @@ fn freeTextBlock(self: *MachO, text_block: *TextBlock) void {
         if (!already_have_free_list_node and prev.freeListEligible(self.*)) {
             // The free list is heuristics, it doesn't have to be perfect, so we can ignore
             // the OOM here.
-            self.text_block_free_list.append(self.base.allocator, prev) catch {};
+            text_block_free_list.append(self.base.allocator, prev) catch {};
         }
     } else {
         text_block.prev = null;
@@ -4035,10 +4049,12 @@ pub fn populateMissingMetadata(self: *MachO) !void {
             .@"align" = alignment,
             .flags = macho.S_REGULAR | macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS,
         });
-        _ = try self.section_ordinals.getOrPut(self.base.allocator, .{
+        const match = MatchingSection{
             .seg = self.text_segment_cmd_index.?,
             .sect = self.text_section_index.?,
-        });
+        };
+        _ = try self.section_ordinals.getOrPut(self.base.allocator, match);
+        try self.block_free_lists.putNoClobber(self.base.allocator, match, .{});
         self.load_commands_dirty = true;
     }
 
@@ -4070,10 +4086,12 @@ pub fn populateMissingMetadata(self: *MachO) !void {
             .flags = macho.S_SYMBOL_STUBS | macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS,
             .reserved2 = stub_size,
         });
-        _ = try self.section_ordinals.getOrPut(self.base.allocator, .{
+        const match = MatchingSection{
             .seg = self.text_segment_cmd_index.?,
             .sect = self.stubs_section_index.?,
-        });
+        };
+        _ = try self.section_ordinals.getOrPut(self.base.allocator, match);
+        try self.block_free_lists.putNoClobber(self.base.allocator, match, .{});
         self.load_commands_dirty = true;
     }
 
@@ -4103,10 +4121,12 @@ pub fn populateMissingMetadata(self: *MachO) !void {
             .@"align" = alignment,
             .flags = macho.S_REGULAR | macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS,
         });
-        _ = try self.section_ordinals.getOrPut(self.base.allocator, .{
+        const match = MatchingSection{
             .seg = self.text_segment_cmd_index.?,
             .sect = self.stub_helper_section_index.?,
-        });
+        };
+        _ = try self.section_ordinals.getOrPut(self.base.allocator, match);
+        try self.block_free_lists.putNoClobber(self.base.allocator, match, .{});
         self.load_commands_dirty = true;
     }
 
@@ -4148,10 +4168,12 @@ pub fn populateMissingMetadata(self: *MachO) !void {
             .@"align" = 3, // 2^3 = @sizeOf(u64)
             .flags = macho.S_NON_LAZY_SYMBOL_POINTERS,
         });
-        _ = try self.section_ordinals.getOrPut(self.base.allocator, .{
+        const match = MatchingSection{
             .seg = self.data_const_segment_cmd_index.?,
             .sect = self.got_section_index.?,
-        });
+        };
+        _ = try self.section_ordinals.getOrPut(self.base.allocator, match);
+        try self.block_free_lists.putNoClobber(self.base.allocator, match, .{});
         self.load_commands_dirty = true;
     }
 
@@ -4193,10 +4215,12 @@ pub fn populateMissingMetadata(self: *MachO) !void {
             .@"align" = 3, // 2^3 = @sizeOf(u64)
             .flags = macho.S_LAZY_SYMBOL_POINTERS,
         });
-        _ = try self.section_ordinals.getOrPut(self.base.allocator, .{
+        const match = MatchingSection{
             .seg = self.data_segment_cmd_index.?,
             .sect = self.la_symbol_ptr_section_index.?,
-        });
+        };
+        _ = try self.section_ordinals.getOrPut(self.base.allocator, match);
+        try self.block_free_lists.putNoClobber(self.base.allocator, match, .{});
         self.load_commands_dirty = true;
     }
 
@@ -4216,10 +4240,12 @@ pub fn populateMissingMetadata(self: *MachO) !void {
             .offset = @intCast(u32, off),
             .@"align" = 3, // 2^3 = @sizeOf(u64)
         });
-        _ = try self.section_ordinals.getOrPut(self.base.allocator, .{
+        const match = MatchingSection{
             .seg = self.data_segment_cmd_index.?,
             .sect = self.data_section_index.?,
-        });
+        };
+        _ = try self.section_ordinals.getOrPut(self.base.allocator, match);
+        try self.block_free_lists.putNoClobber(self.base.allocator, match, .{});
         self.load_commands_dirty = true;
     }
 
@@ -4470,6 +4496,11 @@ pub fn populateMissingMetadata(self: *MachO) !void {
 fn allocateTextBlock(self: *MachO, text_block: *TextBlock, new_block_size: u64, alignment: u64) !u64 {
     const text_segment = &self.load_commands.items[self.text_segment_cmd_index.?].Segment;
     const text_section = &text_segment.sections.items[self.text_section_index.?];
+    const match = MatchingSection{
+        .seg = self.text_segment_cmd_index.?,
+        .sect = self.text_section_index.?,
+    };
+    const text_block_free_list = self.block_free_lists.getPtr(match).?;
     const new_block_ideal_capacity = padToIdeal(new_block_size);
 
     // We use these to indicate our intention to update metadata, placing the new block,
@@ -4484,8 +4515,8 @@ fn allocateTextBlock(self: *MachO, text_block: *TextBlock, new_block_size: u64, 
     // The list is unordered. We'll just take the first thing that works.
     const vaddr = blk: {
         var i: usize = 0;
-        while (i < self.text_block_free_list.items.len) {
-            const big_block = self.text_block_free_list.items[i];
+        while (i < text_block_free_list.items.len) {
+            const big_block = text_block_free_list.items[i];
             // We now have a pointer to a live text block that has too much capacity.
             // Is it enough that we could fit this new text block?
             const sym = self.locals.items[big_block.local_sym_index];
@@ -4500,7 +4531,7 @@ fn allocateTextBlock(self: *MachO, text_block: *TextBlock, new_block_size: u64, 
                 // should be deleted because the block that it points to has grown to take up
                 // more of the extra capacity.
                 if (!big_block.freeListEligible(self.*)) {
-                    const bl = self.text_block_free_list.swapRemove(i);
+                    const bl = text_block_free_list.swapRemove(i);
                     bl.deinit(self.base.allocator);
                 } else {
                     i += 1;
@@ -4519,7 +4550,7 @@ fn allocateTextBlock(self: *MachO, text_block: *TextBlock, new_block_size: u64, 
                 free_list_removal = i;
             }
             break :blk new_start_vaddr;
-        } else if (self.last_text_block) |last| {
+        } else if (self.blocks.get(match)) |last| {
             const last_symbol = self.locals.items[last.local_sym_index];
             // TODO We should pad out the excess capacity with NOPs. For executables,
             // no padding seems to be OK, but it will probably not be for objects.
@@ -4538,7 +4569,7 @@ fn allocateTextBlock(self: *MachO, text_block: *TextBlock, new_block_size: u64, 
         const needed_size = (vaddr + new_block_size) - text_section.addr;
         assert(needed_size <= text_segment.inner.filesize); // TODO must move the entire text section.
 
-        self.last_text_block = text_block;
+        _ = try self.blocks.getOrPutValue(self.base.allocator, match, text_block);
         text_section.size = needed_size;
         self.load_commands_dirty = true; // TODO Make more granular.
 
@@ -4567,7 +4598,7 @@ fn allocateTextBlock(self: *MachO, text_block: *TextBlock, new_block_size: u64, 
         text_block.next = null;
     }
     if (free_list_removal) |i| {
-        _ = self.text_block_free_list.swapRemove(i);
+        _ = text_block_free_list.swapRemove(i);
     }
 
     return vaddr;
