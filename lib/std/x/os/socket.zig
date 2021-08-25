@@ -35,7 +35,7 @@ pub const Socket = struct {
 
             pub const Family = if (requires_prepended_length) u8 else c_ushort;
 
-            /// POSIX `sockaddr_storage`. The expected size and alignment is specified in IETF RFC 2553.
+            /// POSIX `sockaddr.storage`. The expected size and alignment is specified in IETF RFC 2553.
             pub const Storage = extern struct {
                 pub const expected_size = 128;
                 pub const expected_alignment = 8;
@@ -71,14 +71,14 @@ pub const Socket = struct {
         /// Parses a `sockaddr` into a generic socket address.
         pub fn fromNative(address: *align(4) const os.sockaddr) Socket.Address {
             switch (address.family) {
-                os.AF_INET => {
-                    const info = @ptrCast(*const os.sockaddr_in, address);
+                os.AF.INET => {
+                    const info = @ptrCast(*const os.sockaddr.in, address);
                     const host = net.IPv4{ .octets = @bitCast([4]u8, info.addr) };
                     const port = mem.bigToNative(u16, info.port);
                     return Socket.Address.initIPv4(host, port);
                 },
-                os.AF_INET6 => {
-                    const info = @ptrCast(*const os.sockaddr_in6, address);
+                os.AF.INET6 => {
+                    const info = @ptrCast(*const os.sockaddr.in6, address);
                     const host = net.IPv6{ .octets = info.addr, .scope_id = info.scope_id };
                     const port = mem.bigToNative(u16, info.port);
                     return Socket.Address.initIPv6(host, port);
@@ -90,8 +90,8 @@ pub const Socket = struct {
         /// Encodes a generic socket address into an extern union that may be reliably
         /// casted into a `sockaddr` which may be passed into socket syscalls.
         pub fn toNative(self: Socket.Address) extern union {
-            ipv4: os.sockaddr_in,
-            ipv6: os.sockaddr_in6,
+            ipv4: os.sockaddr.in,
+            ipv6: os.sockaddr.in6,
         } {
             return switch (self) {
                 .ipv4 => |address| .{
@@ -114,8 +114,8 @@ pub const Socket = struct {
         /// Returns the number of bytes that make up the `sockaddr` equivalent to the address.
         pub fn getNativeSize(self: Socket.Address) u32 {
             return switch (self) {
-                .ipv4 => @sizeOf(os.sockaddr_in),
-                .ipv6 => @sizeOf(os.sockaddr_in6),
+                .ipv4 => @sizeOf(os.sockaddr.in),
+                .ipv6 => @sizeOf(os.sockaddr.in6),
             };
         }
 

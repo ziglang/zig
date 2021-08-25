@@ -575,30 +575,32 @@ pub const F_RDLCK = 0;
 pub const F_WRLCK = 1;
 pub const F_UNLCK = 2;
 
-pub const LOCK_SH = 1;
-pub const LOCK_EX = 2;
-pub const LOCK_UN = 8;
-pub const LOCK_NB = 4;
+pub const LOCK = struct {
+    pub const SH = 1;
+    pub const EX = 2;
+    pub const UN = 8;
+    pub const NB = 4;
+};
 
 pub const F_SETOWN_EX = 15;
 pub const F_GETOWN_EX = 16;
 
 pub const F_GETOWNER_UIDS = 17;
 
-/// stack-like segment
-pub const MAP_GROWSDOWN = 0x0100;
-
-/// ETXTBSY
-pub const MAP_DENYWRITE = 0x0800;
-
-/// mark it as an executable
-pub const MAP_EXECUTABLE = 0x1000;
-
-/// pages are locked
-pub const MAP_LOCKED = 0x0080;
-
-/// don't check for reservations
-pub const MAP_NORESERVE = 0x0040;
+pub const MAP = struct {
+    /// stack-like segment
+    pub const GROWSDOWN = 0x0100;
+    /// ETXTBSY
+    pub const DENYWRITE = 0x0800;
+    /// mark it as an executable
+    pub const EXECUTABLE = 0x1000;
+    /// pages are locked
+    pub const LOCKED = 0x0080;
+    /// don't check for reservations
+    pub const NORESERVE = 0x0040;
+    /// Only used by libc to communicate failure.
+    pub const FAILED = @intToPtr(*c_void, maxInt(usize));
+};
 
 pub const VDSO_CGT_SYM = "__kernel_clock_gettime";
 pub const VDSO_CGT_VER = "LINUX_2.6.15";

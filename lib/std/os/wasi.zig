@@ -382,8 +382,14 @@ pub const prestat_u_t = extern union {
 };
 
 pub const riflags_t = u16;
-pub const SOCK_RECV_PEEK: riflags_t = 0x0001;
-pub const SOCK_RECV_WAITALL: riflags_t = 0x0002;
+pub const roflags_t = u16;
+
+pub const SOCK = struct {
+    pub const RECV_PEEK: riflags_t = 0x0001;
+    pub const RECV_WAITALL: riflags_t = 0x0002;
+
+    pub const RECV_DATA_TRUNCATED: roflags_t = 0x0001;
+};
 
 pub const rights_t = u64;
 pub const RIGHT_FD_DATASYNC: rights_t = 0x0000000000000001;
@@ -444,9 +450,6 @@ pub const RIGHT_ALL: rights_t = RIGHT_FD_DATASYNC |
     RIGHT_PATH_UNLINK_FILE |
     RIGHT_POLL_FD_READWRITE |
     RIGHT_SOCK_SHUTDOWN;
-
-pub const roflags_t = u16;
-pub const SOCK_RECV_DATA_TRUNCATED: roflags_t = 0x0001;
 
 pub const sdflags_t = u8;
 pub const SHUT_RD: sdflags_t = 0x01;
@@ -541,7 +544,9 @@ pub const SEEK_SET = WHENCE_SET;
 pub const SEEK_CUR = WHENCE_CUR;
 pub const SEEK_END = WHENCE_END;
 
-pub const LOCK_SH = 0x1;
-pub const LOCK_EX = 0x2;
-pub const LOCK_NB = 0x4;
-pub const LOCK_UN = 0x8;
+pub const LOCK = struct {
+    pub const SH = 0x1;
+    pub const EX = 0x2;
+    pub const NB = 0x4;
+    pub const UN = 0x8;
+};

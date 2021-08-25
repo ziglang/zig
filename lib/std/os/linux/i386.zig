@@ -671,6 +671,9 @@ pub const MAP = struct {
     pub const EXECUTABLE = 0x1000;
     pub const LOCKED = 0x2000;
     pub const @"32BIT" = 0x40;
+
+    /// Only used by libc to communicate failure.
+    pub const FAILED = @intToPtr(*c_void, maxInt(usize));
 };
 
 pub const MMAP2_UNIT = 4096;

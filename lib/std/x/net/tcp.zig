@@ -46,8 +46,8 @@ pub const Connection = struct {
 
 /// Possible domains that a TCP client/listener may operate over.
 pub const Domain = enum(u16) {
-    ip = os.AF_INET,
-    ipv6 = os.AF_INET6,
+    ip = os.AF.INET,
+    ipv6 = os.AF.INET6,
 };
 
 /// A TCP client.
@@ -81,8 +81,8 @@ pub const Client = struct {
         return Client{
             .socket = try Socket.init(
                 @enumToInt(domain),
-                os.SOCK_STREAM,
-                os.IPPROTO_TCP,
+                os.SOCK.STREAM,
+                os.IPPROTO.TCP,
                 flags,
             ),
         };
@@ -195,7 +195,7 @@ pub const Client = struct {
     pub fn setNoDelay(self: Client, enabled: bool) !void {
         if (comptime @hasDecl(os, "TCP_NODELAY")) {
             const bytes = mem.asBytes(&@as(usize, @boolToInt(enabled)));
-            return self.socket.setOption(os.IPPROTO_TCP, os.TCP_NODELAY, bytes);
+            return self.socket.setOption(os.IPPROTO.TCP, os.TCP_NODELAY, bytes);
         }
         return error.UnsupportedSocketOption;
     }
@@ -204,7 +204,7 @@ pub const Client = struct {
     /// `error.UnsupportedSocketOption` if the host does not support TCP Quick ACK.
     pub fn setQuickACK(self: Client, enabled: bool) !void {
         if (comptime @hasDecl(os, "TCP_QUICKACK")) {
-            return self.socket.setOption(os.IPPROTO_TCP, os.TCP_QUICKACK, mem.asBytes(&@as(u32, @boolToInt(enabled))));
+            return self.socket.setOption(os.IPPROTO.TCP, os.TCP_QUICKACK, mem.asBytes(&@as(u32, @boolToInt(enabled))));
         }
         return error.UnsupportedSocketOption;
     }
@@ -244,8 +244,8 @@ pub const Listener = struct {
         return Listener{
             .socket = try Socket.init(
                 @enumToInt(domain),
-                os.SOCK_STREAM,
-                os.IPPROTO_TCP,
+                os.SOCK.STREAM,
+                os.IPPROTO.TCP,
                 flags,
             ),
         };
@@ -305,7 +305,7 @@ pub const Listener = struct {
     /// support TCP Fast Open.
     pub fn setFastOpen(self: Listener, enabled: bool) !void {
         if (comptime @hasDecl(os, "TCP_FASTOPEN")) {
-            return self.socket.setOption(os.IPPROTO_TCP, os.TCP_FASTOPEN, mem.asBytes(&@as(u32, @boolToInt(enabled))));
+            return self.socket.setOption(os.IPPROTO.TCP, os.TCP_FASTOPEN, mem.asBytes(&@as(u32, @boolToInt(enabled))));
         }
         return error.UnsupportedSocketOption;
     }

@@ -883,9 +883,9 @@ pub const File = struct {
             };
         } else {
             return os.flock(file.handle, switch (l) {
-                .None => os.LOCK_UN,
-                .Shared => os.LOCK_SH,
-                .Exclusive => os.LOCK_EX,
+                .None => os.LOCK.UN,
+                .Shared => os.LOCK.SH,
+                .Exclusive => os.LOCK.EX,
             }) catch |err| switch (err) {
                 error.WouldBlock => unreachable, // non-blocking=false
                 else => |e| return e,
@@ -908,7 +908,7 @@ pub const File = struct {
                 error.Unexpected => unreachable, // Resource deallocation must succeed.
             };
         } else {
-            return os.flock(file.handle, os.LOCK_UN) catch |err| switch (err) {
+            return os.flock(file.handle, os.LOCK.UN) catch |err| switch (err) {
                 error.WouldBlock => unreachable, // unlocking can't block
                 error.SystemResources => unreachable, // We are deallocating resources.
                 error.Unexpected => unreachable, // Resource deallocation must succeed.
@@ -949,9 +949,9 @@ pub const File = struct {
             };
         } else {
             os.flock(file.handle, switch (l) {
-                .None => os.LOCK_UN,
-                .Shared => os.LOCK_SH | os.LOCK_NB,
-                .Exclusive => os.LOCK_EX | os.LOCK_NB,
+                .None => os.LOCK.UN,
+                .Shared => os.LOCK.SH | os.LOCK.NB,
+                .Exclusive => os.LOCK.EX | os.LOCK.NB,
             }) catch |err| switch (err) {
                 error.WouldBlock => return false,
                 else => |e| return e,
@@ -998,7 +998,7 @@ pub const File = struct {
                 error.Unexpected => unreachable, // Resource deallocation must succeed.
             };
         } else {
-            return os.flock(file.handle, os.LOCK_SH | os.LOCK_NB) catch |err| switch (err) {
+            return os.flock(file.handle, os.LOCK.SH | os.LOCK.NB) catch |err| switch (err) {
                 error.WouldBlock => unreachable, // File was not locked in exclusive mode.
                 else => |e| return e,
             };

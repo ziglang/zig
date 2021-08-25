@@ -74,8 +74,8 @@ fn tlsCsprngFill(_: *const std.rand.Random, buffer: []u8) void {
             wipe_mem = os.mmap(
                 null,
                 @sizeOf(Context),
-                os.PROT_READ | os.PROT_WRITE,
-                os.MAP_PRIVATE | os.MAP_ANONYMOUS,
+                os.PROT.READ | os.PROT.WRITE,
+                os.MAP.PRIVATE | os.MAP.ANONYMOUS,
                 -1,
                 0,
             ) catch {
@@ -111,7 +111,7 @@ fn tlsCsprngFill(_: *const std.rand.Random, buffer: []u8) void {
                     break :wof;
                 } else |_| {}
 
-                if (os.madvise(wipe_mem.ptr, wipe_mem.len, os.MADV_WIPEONFORK)) |_| {
+                if (os.madvise(wipe_mem.ptr, wipe_mem.len, os.MADV.WIPEONFORK)) |_| {
                     return initAndFill(buffer);
                 } else |_| {}
             }

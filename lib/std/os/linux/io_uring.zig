@@ -535,7 +535,7 @@ pub const IO_Uring = struct {
     /// `0` if the timeout completed after the specified number of events, or `-ECANCELED` if the
     /// timeout was removed before it expired.
     ///
-    /// io_uring timeouts use the `CLOCK_MONOTONIC` clock source.
+    /// io_uring timeouts use the `CLOCK.MONOTONIC` clock source.
     pub fn timeout(
         self: *IO_Uring,
         user_data: u64,
@@ -736,8 +736,8 @@ pub const SubmissionQueue = struct {
         const mmap = try os.mmap(
             null,
             size,
-            os.PROT_READ | os.PROT_WRITE,
-            os.MAP_SHARED | os.MAP_POPULATE,
+            os.PROT.READ | os.PROT.WRITE,
+            os.MAP.SHARED | os.MAP.POPULATE,
             fd,
             linux.IORING_OFF_SQ_RING,
         );
@@ -750,8 +750,8 @@ pub const SubmissionQueue = struct {
         const mmap_sqes = try os.mmap(
             null,
             size_sqes,
-            os.PROT_READ | os.PROT_WRITE,
-            os.MAP_SHARED | os.MAP_POPULATE,
+            os.PROT.READ | os.PROT.WRITE,
+            os.MAP.SHARED | os.MAP.POPULATE,
             fd,
             linux.IORING_OFF_SQES,
         );
@@ -1372,9 +1372,9 @@ test "accept/connect/send/recv" {
 
     const address = try net.Address.parseIp4("127.0.0.1", 3131);
     const kernel_backlog = 1;
-    const server = try os.socket(address.any.family, os.SOCK_STREAM | os.SOCK_CLOEXEC, 0);
+    const server = try os.socket(address.any.family, os.SOCK.STREAM | os.SOCK.CLOEXEC, 0);
     defer os.close(server);
-    try os.setsockopt(server, os.SOL_SOCKET, os.SO_REUSEADDR, &mem.toBytes(@as(c_int, 1)));
+    try os.setsockopt(server, os.SOL.SOCKET, os.SO.REUSEADDR, &mem.toBytes(@as(c_int, 1)));
     try os.bind(server, &address.any, address.getOsSockLen());
     try os.listen(server, kernel_backlog);
 
@@ -1386,7 +1386,7 @@ test "accept/connect/send/recv" {
     _ = try ring.accept(0xaaaaaaaa, server, &accept_addr, &accept_addr_len, 0);
     try testing.expectEqual(@as(u32, 1), try ring.submit());
 
-    const client = try os.socket(address.any.family, os.SOCK_STREAM | os.SOCK_CLOEXEC, 0);
+    const client = try os.socket(address.any.family, os.SOCK.STREAM | os.SOCK.CLOEXEC, 0);
     defer os.close(client);
     _ = try ring.connect(0xcccccccc, client, &address.any, address.getOsSockLen());
     try testing.expectEqual(@as(u32, 1), try ring.submit());

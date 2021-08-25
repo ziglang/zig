@@ -399,39 +399,39 @@ pub fn Mixin(comptime Socket: type) type {
         /// seconds.
         pub fn setLinger(self: Socket, timeout_seconds: ?u16) !void {
             const settings = Socket.Linger.init(timeout_seconds);
-            return self.setOption(ws2_32.SOL_SOCKET, ws2_32.SO_LINGER, mem.asBytes(&settings));
+            return self.setOption(ws2_32.SOL.SOCKET, ws2_32.SO.LINGER, mem.asBytes(&settings));
         }
 
         /// On connection-oriented sockets, have keep-alive messages be sent periodically. The timing in which keep-alive
         /// messages are sent are dependant on operating system settings. It returns `error.UnsupportedSocketOption` if
         /// the host does not support periodically sending keep-alive messages on connection-oriented sockets.
         pub fn setKeepAlive(self: Socket, enabled: bool) !void {
-            return self.setOption(ws2_32.SOL_SOCKET, ws2_32.SO_KEEPALIVE, mem.asBytes(&@as(u32, @boolToInt(enabled))));
+            return self.setOption(ws2_32.SOL.SOCKET, ws2_32.SO.KEEPALIVE, mem.asBytes(&@as(u32, @boolToInt(enabled))));
         }
 
         /// Allow multiple sockets on the same host to listen on the same address. It returns `error.UnsupportedSocketOption` if
         /// the host does not support sockets listening the same address.
         pub fn setReuseAddress(self: Socket, enabled: bool) !void {
-            return self.setOption(ws2_32.SOL_SOCKET, ws2_32.SO_REUSEADDR, mem.asBytes(&@as(u32, @boolToInt(enabled))));
+            return self.setOption(ws2_32.SOL.SOCKET, ws2_32.SO.REUSEADDR, mem.asBytes(&@as(u32, @boolToInt(enabled))));
         }
 
         /// Allow multiple sockets on the same host to listen on the same port. It returns `error.UnsupportedSocketOption` if
         /// the host does not supports sockets listening on the same port.
         ///
-        /// TODO: verify if this truly mimicks SO_REUSEPORT behavior, or if SO_REUSE_UNICASTPORT provides the correct behavior
+        /// TODO: verify if this truly mimicks SO.REUSEPORT behavior, or if SO.REUSE_UNICASTPORT provides the correct behavior
         pub fn setReusePort(self: Socket, enabled: bool) !void {
-            try self.setOption(ws2_32.SOL_SOCKET, ws2_32.SO_BROADCAST, mem.asBytes(&@as(u32, @boolToInt(enabled))));
+            try self.setOption(ws2_32.SOL.SOCKET, ws2_32.SO.BROADCAST, mem.asBytes(&@as(u32, @boolToInt(enabled))));
             try self.setReuseAddress(enabled);
         }
 
         /// Set the write buffer size of the socket.
         pub fn setWriteBufferSize(self: Socket, size: u32) !void {
-            return self.setOption(ws2_32.SOL_SOCKET, ws2_32.SO_SNDBUF, mem.asBytes(&size));
+            return self.setOption(ws2_32.SOL.SOCKET, ws2_32.SO.SNDBUF, mem.asBytes(&size));
         }
 
         /// Set the read buffer size of the socket.
         pub fn setReadBufferSize(self: Socket, size: u32) !void {
-            return self.setOption(ws2_32.SOL_SOCKET, ws2_32.SO_RCVBUF, mem.asBytes(&size));
+            return self.setOption(ws2_32.SOL.SOCKET, ws2_32.SO.RCVBUF, mem.asBytes(&size));
         }
 
         /// WARNING: Timeouts only affect blocking sockets. It is undefined behavior if a timeout is
@@ -441,7 +441,7 @@ pub fn Mixin(comptime Socket: type) type {
         /// to its bound destination after a specified number of milliseconds. A subsequent write
         /// to the socket will thereafter return `error.WouldBlock` should the timeout be exceeded.
         pub fn setWriteTimeout(self: Socket, milliseconds: u32) !void {
-            return self.setOption(ws2_32.SOL_SOCKET, ws2_32.SO_SNDTIMEO, mem.asBytes(&milliseconds));
+            return self.setOption(ws2_32.SOL.SOCKET, ws2_32.SO.SNDTIMEO, mem.asBytes(&milliseconds));
         }
 
         /// WARNING: Timeouts only affect blocking sockets. It is undefined behavior if a timeout is
@@ -452,7 +452,7 @@ pub fn Mixin(comptime Socket: type) type {
         /// read from the socket will thereafter return `error.WouldBlock` should the timeout be
         /// exceeded.
         pub fn setReadTimeout(self: Socket, milliseconds: u32) !void {
-            return self.setOption(ws2_32.SOL_SOCKET, ws2_32.SO_RCVTIMEO, mem.asBytes(&milliseconds));
+            return self.setOption(ws2_32.SOL.SOCKET, ws2_32.SO.RCVTIMEO, mem.asBytes(&milliseconds));
         }
     };
 }
