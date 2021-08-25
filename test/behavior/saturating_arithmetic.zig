@@ -12,16 +12,23 @@ test "@addWithSaturation" {
                 // { a, b, expected a+b }
                 [_]i8{ -3, 10, 7 },
                 [_]i8{ -128, -128, -128 },
+                [_]i2{ 1, 1, 1 },
+                [_]i64{ std.math.maxInt(i64), 1, std.math.maxInt(i64) },
+                // TODO: support for integers larger than 64 bits
+                // [_]i128{ std.math.maxInt(i128), 1, std.math.maxInt(i128) }, // this fails at runtime and comptime
                 [_]i8{ 127, 127, 127 },
                 [_]u8{ 3, 10, 13 },
                 [_]u8{ 255, 255, 255 },
+                [_]u2{ 3, 2, 3 },
+                [_]u3{ 7, 1, 7 },
             };
 
             inline for (test_data) |array| {
                 const a = array[0];
                 const b = array[1];
                 const expected = array[2];
-                try expectEqual(expected, @addWithSaturation(a, b));
+                const actual = @addWithSaturation(a, b);
+                try expectEqual(expected, actual);
             }
 
             const u8x3 = std.meta.Vector(3, u8);
@@ -47,9 +54,11 @@ test "@subWithSaturation" {
                 // { a, b, expected a-b }
                 [_]i8{ -3, 10, -13 },
                 [_]i8{ -128, -128, 0 },
-                [_]i8{ 0, 127, -127 },
+                [_]i8{ -1, 127, -128 },
+                [_]i64{ std.math.minInt(i64), 1, std.math.minInt(i64) },
                 [_]u8{ 10, 3, 7 },
                 [_]u8{ 0, 255, 0 },
+                [_]u5{ 0, 31, 0 },
             };
 
             inline for (test_data) |array| {

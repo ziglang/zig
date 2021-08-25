@@ -468,52 +468,50 @@ void bigint_min(BigInt* dest, const BigInt *op1, const BigInt *op2) {
     }
 }
 
-// TODO: audit leaks 
-// TODO: is there a better way to do this?
-void bigint_saturate(BigInt* dest, uint32_t bit_count, bool is_signed) {
-    BigInt max; 
-    if(is_signed) {
-        BigInt min;
-        bit_count -= 1;
-        bigint_init_signed(&min, -(1 << bit_count));
-        bigint_init_signed(&max,  (1 << bit_count) - 1);
-        if (bigint_cmp(dest, &min) ==  CmpLT){
-            *dest = min;
-        } else if (bigint_cmp(dest, &max) ==  CmpGT){
-            *dest = max;
+/// clamps op within bit_count/signedness boundaries
+void bigint_clamp_by_bitcount(BigInt* op, uint32_t bit_count, bool is_signed) {
+    // save is_negative and set false so that bigint_bits_needed() won't report 64+ for negative numbers
+    bool is_negative = op->is_negative;
+    op->is_negative = false;
+    bool is_saturated = (bigint_bits_needed(op) + is_negative) > (bit_count - is_signed);
+    if(is_saturated) {
+        if(is_signed) {
+            bit_count -= 1;
+            if(is_negative) {
+                bigint_init_signed(op,  -(((int64_t) 1) << bit_count));
+            } else {
+                bigint_init_signed(op,   (((int64_t) 1) << bit_count) - 1);
+            }
+        } else {
+            if(is_negative) {
+                bigint_init_unsigned(op, 0);
+            } else {
+                bigint_init_unsigned(op, (((uint64_t) 1) << bit_count) - 1);
+            }
         }
-        bigint_deinit(&min);
-        bigint_deinit(&max);
-    } else {
-        bigint_init_unsigned(&max, (1 << bit_count) - 1);
-        if (bigint_cmp(dest, &max) ==  CmpGT){
-            *dest = max;
-        }
-        if (bigint_cmp_zero(dest) ==  CmpLT){
-            bigint_init_unsigned(dest, 0);
-        }
-        bigint_deinit(&max);
-    }
+    } else 
+
+    op->is_negative = is_negative;
 }
 
 void bigint_add_sat(BigInt* dest, const BigInt *op1, const BigInt *op2, uint32_t bit_count, bool is_signed) {
     bigint_add(dest, op1, op2);
-    bigint_saturate(dest, bit_count, is_signed);
+    bigint_clamp_by_bitcount(dest, bit_count, is_signed);
 }
 
 void bigint_sub_sat(BigInt* dest, const BigInt *op1, const BigInt *op2, uint32_t bit_count, bool is_signed) {
     bigint_sub(dest, op1, op2);
-    bigint_saturate(dest, bit_count, is_signed);
+    bigint_clamp_by_bitcount(dest, bit_count, is_signed);
 }
 
 void bigint_mul_sat(BigInt* dest, const BigInt *op1, const BigInt *op2, uint32_t bit_count, bool is_signed) {
     bigint_mul(dest, op1, op2);
-    bigint_saturate(dest, bit_count, is_signed);
+    bigint_clamp_by_bitcount(dest, bit_count, is_signed);
 }
 
 void bigint_shl_sat(BigInt* dest, const BigInt *op1, const BigInt *op2, uint32_t bit_count, bool is_signed) {
     bigint_shl(dest, op1, op2);
-    bigint_saturate(dest, bit_count, is_signed);
+    bigint_clamp_by_bitcount(dest, bit_count, is_signed);
 }
 
 void bigint_add(BigInt *dest, const BigInt *op1, const BigInt *op2) {

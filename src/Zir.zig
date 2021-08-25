@@ -1629,19 +1629,19 @@ pub const Inst = struct {
         wasm_memory_size,
         /// `operand` is payload index to `BinNode`.
         wasm_memory_grow,
-        /// Implements the `@addWithOverflow` builtin.
+        /// Implements the `@addWithSaturation` builtin.
         /// `operand` is payload index to `SaturatingArithmetic`.
         /// `small` is unused.
         add_with_saturation,
-        /// Implements the `@subWithOverflow` builtin.
+        /// Implements the `@subWithSaturation` builtin.
         /// `operand` is payload index to `SaturatingArithmetic`.
         /// `small` is unused.
         sub_with_saturation,
-        /// Implements the `@mulWithOverflow` builtin.
+        /// Implements the `@mulWithSaturation` builtin.
         /// `operand` is payload index to `SaturatingArithmetic`.
         /// `small` is unused.
         mul_with_saturation,
-        /// Implements the `@shlWithOverflow` builtin.
+        /// Implements the `@shlWithSaturation` builtin.
         /// `operand` is payload index to `SaturatingArithmetic`.
         /// `small` is unused.
         shl_with_saturation,
