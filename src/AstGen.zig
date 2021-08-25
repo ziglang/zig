@@ -5418,12 +5418,19 @@ fn forExpr(
     if (for_full.label_token) |label_token| {
         try astgen.checkLabelRedefinition(scope, label_token);
     }
+
     // Set up variables and constants.
     const is_inline = parent_gz.force_comptime or for_full.inline_token != null;
     const tree = astgen.tree;
     const token_tags = tree.tokens.items(.tag);
 
-    const array_ptr = try expr(parent_gz, scope, .none_or_ref, for_full.ast.cond_expr);
+    const payload_is_ref = if (for_full.payload_token) |payload_token|
+        token_tags[payload_token] == .asterisk
+    else
+        false;
+
+    const cond_rl: ResultLoc = if (payload_is_ref) .ref else .none;
+    const array_ptr = try expr(parent_gz, scope, cond_rl, for_full.ast.cond_expr);
     const len = try parent_gz.addUnNode(.indexable_ptr_len, array_ptr, for_full.ast.cond_expr);
 
     const index_ptr = blk: {
