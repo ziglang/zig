@@ -3200,23 +3200,6 @@ ZigVar *create_local_var(CodeGen *codegen, AstNode *node, Scope *parent_scope,
                     add_node_error(codegen, node,
                             buf_sprintf("variable shadows primitive type '%s'", buf_ptr(name)));
                     variable_entry->var_type = codegen->builtin_types.entry_invalid;
-                } else {
-                    Tld *tld = find_decl(codegen, parent_scope, name);
-                    if (tld != nullptr) {
-                        bool want_err_msg = true;
-                        if (tld->id == TldIdVar) {
-                            ZigVar *var = reinterpret_cast<TldVar *>(tld)->var;
-                            if (var != nullptr && var->var_type != nullptr && type_is_invalid(var->var_type)) {
-                                want_err_msg = false;
-                            }
-                        }
-                        if (want_err_msg) {
-                            ErrorMsg *msg = add_node_error(codegen, node,
-                                    buf_sprintf("redefinition of '%s'", buf_ptr(name)));
-                            add_error_note(codegen, msg, tld->source_node, buf_sprintf("previous definition here"));
-                        }
-                        variable_entry->var_type = codegen->builtin_types.entry_invalid;
-                    }
                 }
             }
         }
@@ -3875,7 +3858,31 @@ static Stage1ZirInst *astgen_identifier(Stage1AstGen *ag, Scope *scope, AstNode 
         }
     }
 
-    Tld *tld = find_decl(ag->codegen, scope, variable_name);
+    Tld *tld = nullptr;
+    {
+        Scope *s = scope;
+        while (s) {
+            if (s->id == ScopeIdDecls) {
+                ScopeDecls *decls_scope = (ScopeDecls *)s;
+
+                Tld *result = find_container_decl(ag->codegen, decls_scope, variable_name);
+                if (result != nullptr) {
+                    if (tld != nullptr && tld != result) {
+                        ErrorMsg *msg = add_node_error(ag->codegen, node,
+                                buf_sprintf("ambiguous reference"));
+                        add_error_note(ag->codegen, msg, tld->source_node,
+                                buf_sprintf("declared here"));
+                        add_error_note(ag->codegen, msg, result->source_node,
+                                buf_sprintf("also declared here"));
+                        return ag->codegen->invalid_inst_src;
+                    }
+                    tld = result;
+                }
+            }
+            s = s->parent;
+        }
+    }
+
     if (tld) {
         Stage1ZirInst *decl_ref = ir_build_decl_ref(ag, scope, node, tld, lval);
         if (lval == LValPtr || lval == LValAssign) {
