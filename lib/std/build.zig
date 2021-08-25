@@ -247,6 +247,10 @@ pub const Builder = struct {
         return LibExeObjStep.createExecutable(builder, name, root_src);
     }
 
+    pub fn addBuildOptions(self: *Builder, name: []const u8) *BuildOptions {
+        return BuildOptions.create(self, name);
+    }
+
     pub fn addObject(self: *Builder, name: []const u8, root_src: ?[]const u8) *LibExeObjStep {
         return addObjectSource(self, name, convertOptionalPathToFileSource(root_src));
     }
@@ -1434,9 +1438,6 @@ pub const LibExeObjStep = struct {
     out_lib_filename: []const u8,
     out_pdb_filename: []const u8,
     packages: ArrayList(Pkg),
-    build_options_contents: std.ArrayList(u8),
-    build_options_artifact_args: std.ArrayList(BuildOptionArtifactArg),
-    build_options_file_source_args: std.ArrayList(BuildOptionFileSourceArg),
 
     object_src: []const u8,
 
@@ -1603,9 +1604,6 @@ pub const LibExeObjStep = struct {
             .rpaths = ArrayList([]const u8).init(builder.allocator),
             .framework_dirs = ArrayList([]const u8).init(builder.allocator),
             .object_src = undefined,
-            .build_options_contents = std.ArrayList(u8).init(builder.allocator),
-            .build_options_artifact_args = std.ArrayList(BuildOptionArtifactArg).init(builder.allocator),
-            .build_options_file_source_args = std.ArrayList(BuildOptionFileSourceArg).init(builder.allocator),
             .c_std = Builder.CStd.C99,
             .override_lib_dir = null,
             .main_pkg_path = null,
@@ -2038,119 +2036,6 @@ pub const LibExeObjStep = struct {
         self.linkLibraryOrObject(obj);
     }
 
-    pub fn addBuildOption(self: *LibExeObjStep, comptime T: type, name: []const u8, value: T) void {
-        const out = self.build_options_contents.writer();
-        switch (T) {
-            []const []const u8 => {
-                out.print("pub const {}: []const []const u8 = &[_][]const u8{{\n", .{std.zig.fmtId(name)}) catch unreachable;
-                for (value) |slice| {
-                    out.print("    \"{}\",\n", .{std.zig.fmtEscapes(slice)}) catch unreachable;
-                }
-                out.writeAll("};\n") catch unreachable;
-                return;
-            },
-            [:0]const u8 => {
-                out.print("pub const {}: [:0]const u8 = \"{}\";\n", .{ std.zig.fmtId(name), std.zig.fmtEscapes(value) }) catch unreachable;
-                return;
-            },
-            []const u8 => {
-                out.print("pub const {}: []const u8 = \"{}\";\n", .{ std.zig.fmtId(name), std.zig.fmtEscapes(value) }) catch unreachable;
-                return;
-            },
-            ?[:0]const u8 => {
-                out.print("pub const {}: ?[:0]const u8 = ", .{std.zig.fmtId(name)}) catch unreachable;
-                if (value) |payload| {
-                    out.print("\"{}\";\n", .{std.zig.fmtEscapes(payload)}) catch unreachable;
-                } else {
-                    out.writeAll("null;\n") catch unreachable;
-                }
-                return;
-            },
-            ?[]const u8 => {
-                out.print("pub const {}: ?[]const u8 = ", .{std.zig.fmtId(name)}) catch unreachable;
-                if (value) |payload| {
-                    out.print("\"{}\";\n", .{std.zig.fmtEscapes(payload)}) catch unreachable;
-                } else {
-                    out.writeAll("null;\n") catch unreachable;
-                }
-                return;
-            },
-            std.builtin.Version => {
-                out.print(
-                    \\pub const {}: @import("std").builtin.Version = .{{
-                    \\    .major = {d},
-                    \\    .minor = {d},
-                    \\    .patch = {d},
-                    \\}};
-                    \\
-                , .{
-                    std.zig.fmtId(name),
-
-                    value.major,
-                    value.minor,
-                    value.patch,
-                }) catch unreachable;
-            },
-            std.SemanticVersion => {
-                out.print(
-                    \\pub const {}: @import("std").SemanticVersion = .{{
-                    \\    .major = {d},
-                    \\    .minor = {d},
-                    \\    .patch = {d},
-                    \\
-                , .{
-                    std.zig.fmtId(name),
-
-                    value.major,
-                    value.minor,
-                    value.patch,
-                }) catch unreachable;
-                if (value.pre) |some| {
-                    out.print("    .pre = \"{}\",\n", .{std.zig.fmtEscapes(some)}) catch unreachable;
-                }
-                if (value.build) |some| {
-                    out.print("    .build = \"{}\",\n", .{std.zig.fmtEscapes(some)}) catch unreachable;
-                }
-                out.writeAll("};\n") catch unreachable;
-                return;
-            },
-            else => {},
-        }
-        switch (@typeInfo(T)) {
-            .Enum => |enum_info| {
-                out.print("pub const {} = enum {{\n", .{std.zig.fmtId(@typeName(T))}) catch unreachable;
-                inline for (enum_info.fields) |field| {
-                    out.print("    {},\n", .{std.zig.fmtId(field.name)}) catch unreachable;
-                }
-                out.writeAll("};\n") catch unreachable;
-            },
-            else => {},
-        }
-        out.print("pub const {}: {s} = {};\n", .{ std.zig.fmtId(name), @typeName(T), value }) catch unreachable;
-    }
-
-    /// The value is the path in the cache dir.
-    /// Adds a dependency automatically.
-    pub fn addBuildOptionArtifact(self: *LibExeObjStep, name: []const u8, artifact: *LibExeObjStep) void {
-        self.build_options_artifact_args.append(.{ .name = self.builder.dupe(name), .artifact = artifact }) catch unreachable;
-        self.step.dependOn(&artifact.step);
-    }
-
-    /// The value is the path in the cache dir.
-    /// Adds a dependency automatically.
-    /// basename refers to the basename of the WriteFileStep
-    pub fn addBuildOptionFileSource(
-        self: *LibExeObjStep,
-        name: []const u8,
-        source: FileSource,
-    ) void {
-        self.build_options_file_source_args.append(.{
-            .name = name,
-            .source = source.dupe(self.builder),
-        }) catch unreachable;
-        source.addStepDependencies(&self.step);
-    }
-
     pub fn addSystemIncludeDir(self: *LibExeObjStep, path: []const u8) void {
         self.include_dirs.append(IncludeDir{ .raw_path_system = self.builder.dupe(path) }) catch unreachable;
     }
@@ -2244,23 +2129,16 @@ pub const LibExeObjStep = struct {
         self.include_dirs.append(.{ .other_step = other }) catch unreachable;
     }
 
-    fn makePackageCmd(self: *LibExeObjStep, pkg: Pkg, zig_args: *ArrayList([]const u8), build_options_path: ?[]const u8) error{OutOfMemory}!void {
+    fn makePackageCmd(self: *LibExeObjStep, pkg: Pkg, zig_args: *ArrayList([]const u8)) error{OutOfMemory}!void {
         const builder = self.builder;
 
         try zig_args.append("--pkg-begin");
         try zig_args.append(pkg.name);
         try zig_args.append(builder.pathFromRoot(pkg.path.getPath(self.builder)));
 
-        if (build_options_path) |build_options| {
-            try zig_args.append("--pkg-begin");
-            try zig_args.append("build_options");
-            try zig_args.append(build_options);
-            try zig_args.append("--pkg-end");
-        }
-
         if (pkg.dependencies) |dependencies| {
             for (dependencies) |sub_pkg| {
-                try self.makePackageCmd(sub_pkg, zig_args, build_options_path);
+                try self.makePackageCmd(sub_pkg, zig_args);
             }
         }
 
@@ -2398,45 +2276,6 @@ pub const LibExeObjStep = struct {
                     }
                 },
             }
-        }
-
-        var build_options_path_from_root: ?[]const u8 = null;
-
-        if (self.build_options_contents.items.len > 0 or
-            self.build_options_artifact_args.items.len > 0 or
-            self.build_options_file_source_args.items.len > 0)
-        {
-            // Render build artifact and write file options at the last minute, now that the path is known.
-            //
-            // Note that pathFromRoot uses resolve path, so this will have
-            // correct behavior even if getOutputPath is already absolute.
-            for (self.build_options_artifact_args.items) |item| {
-                self.addBuildOption(
-                    []const u8,
-                    item.name,
-                    self.builder.pathFromRoot(item.artifact.getOutputSource().getPath(self.builder)),
-                );
-            }
-            for (self.build_options_file_source_args.items) |item| {
-                self.addBuildOption(
-                    []const u8,
-                    item.name,
-                    item.source.getPath(self.builder),
-                );
-            }
-
-            const build_options_file = try fs.path.join(
-                builder.allocator,
-                &[_][]const u8{ builder.cache_root, builder.fmt("{s}_build_options.zig", .{self.name}) },
-            );
-            const path_from_root = builder.pathFromRoot(build_options_file);
-            try fs.cwd().writeFile(path_from_root, self.build_options_contents.items);
-            try zig_args.append("--pkg-begin");
-            try zig_args.append("build_options");
-            try zig_args.append(path_from_root);
-            try zig_args.append("--pkg-end");
-
-            build_options_path_from_root = path_from_root;
         }
 
         if (self.image_base) |image_base| {
@@ -2674,7 +2513,7 @@ pub const LibExeObjStep = struct {
         }
 
         for (self.packages.items) |pkg| {
-            try self.makePackageCmd(pkg, &zig_args, build_options_path_from_root);
+            try self.makePackageCmd(pkg, &zig_args);
         }
 
         for (self.include_dirs.items) |include_dir| {
@@ -2882,6 +2721,189 @@ pub const LibExeObjStep = struct {
         if (self.kind == .lib and self.linkage != null and self.linkage.? == .dynamic and self.version != null and self.target.wantSharedLibSymLinks()) {
             try doAtomicSymLinks(builder.allocator, self.getOutputSource().getPath(builder), self.major_only_filename.?, self.name_only_filename.?);
         }
+    }
+};
+
+pub const BuildOptions = struct {
+    step: Step,
+    generated_file: GeneratedFile,
+    builder: *Builder,
+    name: []const u8,
+
+    contents: std.ArrayList(u8),
+    artifact_args: std.ArrayList(BuildOptionArtifactArg),
+    file_source_args: std.ArrayList(BuildOptionFileSourceArg),
+
+    pub fn create(builder: *Builder, name: []const u8) *BuildOptions {
+        const self = builder.allocator.create(BuildOptions) catch unreachable;
+        self.* = .{
+            .builder = builder,
+            .name = builder.dupe(name),
+            .step = Step.init(.build_option, "build_options", builder.allocator, make),
+            .generated_file = undefined,
+            .contents = std.ArrayList(u8).init(builder.allocator),
+            .artifact_args = std.ArrayList(BuildOptionArtifactArg).init(builder.allocator),
+            .file_source_args = std.ArrayList(BuildOptionFileSourceArg).init(builder.allocator),
+        };
+        self.generated_file = .{ .step = &self.step };
+
+        return self;
+    }
+
+    pub fn addBuildOption(self: *BuildOptions, comptime T: type, name: []const u8, value: T) void {
+        const out = self.contents.writer();
+        switch (T) {
+            []const []const u8 => {
+                out.print("pub const {}: []const []const u8 = &[_][]const u8{{\n", .{std.zig.fmtId(name)}) catch unreachable;
+                for (value) |slice| {
+                    out.print("    \"{}\",\n", .{std.zig.fmtEscapes(slice)}) catch unreachable;
+                }
+                out.writeAll("};\n") catch unreachable;
+                return;
+            },
+            [:0]const u8 => {
+                out.print("pub const {}: [:0]const u8 = \"{}\";\n", .{ std.zig.fmtId(name), std.zig.fmtEscapes(value) }) catch unreachable;
+                return;
+            },
+            []const u8 => {
+                out.print("pub const {}: []const u8 = \"{}\";\n", .{ std.zig.fmtId(name), std.zig.fmtEscapes(value) }) catch unreachable;
+                return;
+            },
+            ?[:0]const u8 => {
+                out.print("pub const {}: ?[:0]const u8 = ", .{std.zig.fmtId(name)}) catch unreachable;
+                if (value) |payload| {
+                    out.print("\"{}\";\n", .{std.zig.fmtEscapes(payload)}) catch unreachable;
+                } else {
+                    out.writeAll("null;\n") catch unreachable;
+                }
+                return;
+            },
+            ?[]const u8 => {
+                out.print("pub const {}: ?[]const u8 = ", .{std.zig.fmtId(name)}) catch unreachable;
+                if (value) |payload| {
+                    out.print("\"{}\";\n", .{std.zig.fmtEscapes(payload)}) catch unreachable;
+                } else {
+                    out.writeAll("null;\n") catch unreachable;
+                }
+                return;
+            },
+            std.builtin.Version => {
+                out.print(
+                    \\pub const {}: @import("std").builtin.Version = .{{
+                    \\    .major = {d},
+                    \\    .minor = {d},
+                    \\    .patch = {d},
+                    \\}};
+                    \\
+                , .{
+                    std.zig.fmtId(name),
+
+                    value.major,
+                    value.minor,
+                    value.patch,
+                }) catch unreachable;
+            },
+            std.SemanticVersion => {
+                out.print(
+                    \\pub const {}: @import("std").SemanticVersion = .{{
+                    \\    .major = {d},
+                    \\    .minor = {d},
+                    \\    .patch = {d},
+                    \\
+                , .{
+                    std.zig.fmtId(name),
+
+                    value.major,
+                    value.minor,
+                    value.patch,
+                }) catch unreachable;
+                if (value.pre) |some| {
+                    out.print("    .pre = \"{}\",\n", .{std.zig.fmtEscapes(some)}) catch unreachable;
+                }
+                if (value.build) |some| {
+                    out.print("    .build = \"{}\",\n", .{std.zig.fmtEscapes(some)}) catch unreachable;
+                }
+                out.writeAll("};\n") catch unreachable;
+                return;
+            },
+            else => {},
+        }
+        switch (@typeInfo(T)) {
+            .Enum => |enum_info| {
+                out.print("pub const {} = enum {{\n", .{std.zig.fmtId(@typeName(T))}) catch unreachable;
+                inline for (enum_info.fields) |field| {
+                    out.print("    {},\n", .{std.zig.fmtId(field.name)}) catch unreachable;
+                }
+                out.writeAll("};\n") catch unreachable;
+            },
+            else => {},
+        }
+        out.print("pub const {}: {s} = {};\n", .{ std.zig.fmtId(name), @typeName(T), value }) catch unreachable;
+    }
+
+    /// The value is the path in the cache dir.
+    /// Adds a dependency automatically.
+    pub fn addBuildOptionFileSource(
+        self: *BuildOptions,
+        name: []const u8,
+        source: FileSource,
+    ) void {
+        self.file_source_args.append(.{
+            .name = name,
+            .source = source.dupe(self.builder),
+        }) catch unreachable;
+        source.addStepDependencies(&self.step);
+    }
+
+    /// The value is the path in the cache dir.
+    /// Adds a dependency automatically.
+    pub fn addBuildOptionArtifact(self: *BuildOptions, name: []const u8, artifact: *LibExeObjStep) void {
+        self.artifact_args.append(.{ .name = self.builder.dupe(name), .artifact = artifact }) catch unreachable;
+        self.step.dependOn(&artifact.step);
+    }
+
+    pub fn getSource(self: BuildOptions) FileSource {
+        return .{ .generated = &self.generated_file };
+    }
+
+    fn make(step: *Step) !void {
+        const self = @fieldParentPtr(BuildOptions, "step", step);
+
+        for (self.artifact_args.items) |item| {
+            self.addBuildOption(
+                []const u8,
+                item.name,
+                self.builder.pathFromRoot(item.artifact.getOutputSource().getPath(self.builder)),
+            );
+        }
+
+        for (self.file_source_args.items) |item| {
+            self.addBuildOption(
+                []const u8,
+                item.name,
+                item.source.getPath(self.builder),
+            );
+        }
+
+        const build_options_directory = try fs.path.join(
+            self.builder.allocator,
+            &[_][]const u8{ self.builder.cache_root, "build_options" },
+        );
+        const build_options_directory_from_root = self.builder.pathFromRoot(build_options_directory);
+
+        fs.cwd().makeDir(build_options_directory_from_root) catch |err| switch (err) {
+            error.PathAlreadyExists => {},
+            else => return err,
+        };
+
+        const build_options_file = try fs.path.join(
+            self.builder.allocator,
+            &[_][]const u8{ build_options_directory, self.builder.fmt("{s}.zig", .{self.name}) },
+        );
+
+        try fs.cwd().writeFile(build_options_file, self.contents.items);
+
+        self.generated_file.path = build_options_file;
     }
 };
 
@@ -3152,6 +3174,7 @@ pub const Step = struct {
         run,
         check_file,
         install_raw,
+        build_option,
         custom,
     };
 
