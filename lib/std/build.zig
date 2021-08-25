@@ -23,6 +23,7 @@ pub const WriteFileStep = @import("build/WriteFileStep.zig");
 pub const RunStep = @import("build/RunStep.zig");
 pub const CheckFileStep = @import("build/CheckFileStep.zig");
 pub const InstallRawStep = @import("build/InstallRawStep.zig");
+pub const OptionsStep = @import("build/OptionsStep.zig");
 
 pub const Builder = struct {
     install_tls: TopLevelStep,
@@ -247,8 +248,8 @@ pub const Builder = struct {
         return LibExeObjStep.createExecutable(builder, name, root_src);
     }
 
-    pub fn addBuildOptions(self: *Builder, name: []const u8) *BuildOptions {
-        return BuildOptions.create(self, name);
+    pub fn addOptions(self: *Builder, name: []const u8) *OptionsStep {
+        return OptionsStep.create(self, name);
     }
 
     pub fn addObject(self: *Builder, name: []const u8, root_src: ?[]const u8) *LibExeObjStep {
@@ -1379,16 +1380,6 @@ pub const FileSource = union(enum) {
     }
 };
 
-const BuildOptionArtifactArg = struct {
-    name: []const u8,
-    artifact: *LibExeObjStep,
-};
-
-const BuildOptionFileSourceArg = struct {
-    name: []const u8,
-    source: FileSource,
-};
-
 pub const LibExeObjStep = struct {
     pub const base_id = .lib_exe_obj;
 
@@ -2061,6 +2052,10 @@ pub const LibExeObjStep = struct {
         self.addRecursiveBuildDeps(package);
     }
 
+    pub fn addOptions(self: *LibExeObjStep, name: []const u8, options: *OptionsStep) void {
+        self.addPackage(.{ .name = name, .path = options.getSource() });
+    }
+
     fn addRecursiveBuildDeps(self: *LibExeObjStep, package: Pkg) void {
         package.path.addStepDependencies(&self.step);
         if (package.dependencies) |deps| {
@@ -2724,187 +2719,6 @@ pub const LibExeObjStep = struct {
     }
 };
 
-pub const BuildOptions = struct {
-    step: Step,
-    generated_file: GeneratedFile,
-    builder: *Builder,
-    name: []const u8,
-
-    contents: std.ArrayList(u8),
-    artifact_args: std.ArrayList(BuildOptionArtifactArg),
-    file_source_args: std.ArrayList(BuildOptionFileSourceArg),
-
-    pub fn create(builder: *Builder, name: []const u8) *BuildOptions {
-        const self = builder.allocator.create(BuildOptions) catch unreachable;
-        self.* = .{
-            .builder = builder,
-            .name = builder.dupe(name),
-            .step = Step.init(.build_option, "build_options", builder.allocator, make),
-            .generated_file = undefined,
-            .contents = std.ArrayList(u8).init(builder.allocator),
-            .artifact_args = std.ArrayList(BuildOptionArtifactArg).init(builder.allocator),
-            .file_source_args = std.ArrayList(BuildOptionFileSourceArg).init(builder.allocator),
-        };
-        self.generated_file = .{ .step = &self.step };
-
-        return self;
-    }
-
-    pub fn addBuildOption(self: *BuildOptions, comptime T: type, name: []const u8, value: T) void {
-        const out = self.contents.writer();
-        switch (T) {
-            []const []const u8 => {
-                out.print("pub const {}: []const []const u8 = &[_][]const u8{{\n", .{std.zig.fmtId(name)}) catch unreachable;
-                for (value) |slice| {
-                    out.print("    \"{}\",\n", .{std.zig.fmtEscapes(slice)}) catch unreachable;
-                }
-                out.writeAll("};\n") catch unreachable;
-                return;
-            },
-            [:0]const u8 => {
-                out.print("pub const {}: [:0]const u8 = \"{}\";\n", .{ std.zig.fmtId(name), std.zig.fmtEscapes(value) }) catch unreachable;
-                return;
-            },
-            []const u8 => {
-                out.print("pub const {}: []const u8 = \"{}\";\n", .{ std.zig.fmtId(name), std.zig.fmtEscapes(value) }) catch unreachable;
-                return;
-            },
-            ?[:0]const u8 => {
-                out.print("pub const {}: ?[:0]const u8 = ", .{std.zig.fmtId(name)}) catch unreachable;
-                if (value) |payload| {
-                    out.print("\"{}\";\n", .{std.zig.fmtEscapes(payload)}) catch unreachable;
-                } else {
-                    out.writeAll("null;\n") catch unreachable;
-                }
-                return;
-            },
-            ?[]const u8 => {
-                out.print("pub const {}: ?[]const u8 = ", .{std.zig.fmtId(name)}) catch unreachable;
-                if (value) |payload| {
-                    out.print("\"{}\";\n", .{std.zig.fmtEscapes(payload)}) catch unreachable;
-                } else {
-                    out.writeAll("null;\n") catch unreachable;
-                }
-                return;
-            },
-            std.builtin.Version => {
-                out.print(
-                    \\pub const {}: @import("std").builtin.Version = .{{
-                    \\    .major = {d},
-                    \\    .minor = {d},
-                    \\    .patch = {d},
-                    \\}};
-                    \\
-                , .{
-                    std.zig.fmtId(name),
-
-                    value.major,
-                    value.minor,
-                    value.patch,
-                }) catch unreachable;
-            },
-            std.SemanticVersion => {
-                out.print(
-                    \\pub const {}: @import("std").SemanticVersion = .{{
-                    \\    .major = {d},
-                    \\    .minor = {d},
-                    \\    .patch = {d},
-                    \\
-                , .{
-                    std.zig.fmtId(name),
-
-                    value.major,
-                    value.minor,
-                    value.patch,
-                }) catch unreachable;
-                if (value.pre) |some| {
-                    out.print("    .pre = \"{}\",\n", .{std.zig.fmtEscapes(some)}) catch unreachable;
-                }
-                if (value.build) |some| {
-                    out.print("    .build = \"{}\",\n", .{std.zig.fmtEscapes(some)}) catch unreachable;
-                }
-                out.writeAll("};\n") catch unreachable;
-                return;
-            },
-            else => {},
-        }
-        switch (@typeInfo(T)) {
-            .Enum => |enum_info| {
-                out.print("pub const {} = enum {{\n", .{std.zig.fmtId(@typeName(T))}) catch unreachable;
-                inline for (enum_info.fields) |field| {
-                    out.print("    {},\n", .{std.zig.fmtId(field.name)}) catch unreachable;
-                }
-                out.writeAll("};\n") catch unreachable;
-            },
-            else => {},
-        }
-        out.print("pub const {}: {s} = {};\n", .{ std.zig.fmtId(name), @typeName(T), value }) catch unreachable;
-    }
-
-    /// The value is the path in the cache dir.
-    /// Adds a dependency automatically.
-    pub fn addBuildOptionFileSource(
-        self: *BuildOptions,
-        name: []const u8,
-        source: FileSource,
-    ) void {
-        self.file_source_args.append(.{
-            .name = name,
-            .source = source.dupe(self.builder),
-        }) catch unreachable;
-        source.addStepDependencies(&self.step);
-    }
-
-    /// The value is the path in the cache dir.
-    /// Adds a dependency automatically.
-    pub fn addBuildOptionArtifact(self: *BuildOptions, name: []const u8, artifact: *LibExeObjStep) void {
-        self.artifact_args.append(.{ .name = self.builder.dupe(name), .artifact = artifact }) catch unreachable;
-        self.step.dependOn(&artifact.step);
-    }
-
-    pub fn getSource(self: BuildOptions) FileSource {
-        return .{ .generated = &self.generated_file };
-    }
-
-    fn make(step: *Step) !void {
-        const self = @fieldParentPtr(BuildOptions, "step", step);
-
-        for (self.artifact_args.items) |item| {
-            self.addBuildOption(
-                []const u8,
-                item.name,
-                self.builder.pathFromRoot(item.artifact.getOutputSource().getPath(self.builder)),
-            );
-        }
-
-        for (self.file_source_args.items) |item| {
-            self.addBuildOption(
-                []const u8,
-                item.name,
-                item.source.getPath(self.builder),
-            );
-        }
-
-        const build_options_directory = self.builder.pathFromRoot(
-            try fs.path.join(
-                self.builder.allocator,
-                &[_][]const u8{ self.builder.cache_root, "build_options" },
-            ),
-        );
-
-        try fs.cwd().makePath(build_options_directory);
-
-        const build_options_file = try fs.path.join(
-            self.builder.allocator,
-            &[_][]const u8{ build_options_directory, self.builder.fmt("{s}.zig", .{self.name}) },
-        );
-
-        try fs.cwd().writeFile(build_options_file, self.contents.items);
-
-        self.generated_file.path = build_options_file;
-    }
-};
-
 pub const InstallArtifactStep = struct {
     pub const base_id = .install_artifact;
 
@@ -3172,7 +2986,7 @@ pub const Step = struct {
         run,
         check_file,
         install_raw,
-        build_option,
+        options,
         custom,
     };
 
@@ -3342,44 +3156,6 @@ test "Builder.dupePkg()" {
     try std.testing.expect(dupe.path.path.ptr != pkg_top.path.path.ptr);
     try std.testing.expect(dupe_deps[0].name.ptr != pkg_dep.name.ptr);
     try std.testing.expect(dupe_deps[0].path.path.ptr != pkg_dep.path.path.ptr);
-}
-
-test "Builder.addBuildOption" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
-
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    var builder = try Builder.create(
-        &arena.allocator,
-        "test",
-        "test",
-        "test",
-        "test",
-    );
-    defer builder.destroy();
-
-    const build_options = builder.addBuildOptions("test_build_options");
-
-    build_options.addBuildOption(usize, "option1", 1);
-    build_options.addBuildOption(?usize, "option2", null);
-    build_options.addBuildOption([]const u8, "string", "zigisthebest");
-    build_options.addBuildOption(?[]const u8, "optional_string", null);
-    build_options.addBuildOption(std.SemanticVersion, "semantic_version", try std.SemanticVersion.parse("0.1.2-foo+bar"));
-
-    try std.testing.expectEqualStrings(
-        \\pub const option1: usize = 1;
-        \\pub const option2: ?usize = null;
-        \\pub const string: []const u8 = "zigisthebest";
-        \\pub const optional_string: ?[]const u8 = null;
-        \\pub const semantic_version: @import("std").SemanticVersion = .{
-        \\    .major = 0,
-        \\    .minor = 1,
-        \\    .patch = 2,
-        \\    .pre = "foo",
-        \\    .build = "bar",
-        \\};
-        \\
-    , build_options.contents.items);
 }
 
 test "LibExeObjStep.addPackage" {
