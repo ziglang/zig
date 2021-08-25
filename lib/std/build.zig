@@ -2885,16 +2885,14 @@ pub const BuildOptions = struct {
             );
         }
 
-        const build_options_directory = try fs.path.join(
-            self.builder.allocator,
-            &[_][]const u8{ self.builder.cache_root, "build_options" },
+        const build_options_directory = self.builder.pathFromRoot(
+            try fs.path.join(
+                self.builder.allocator,
+                &[_][]const u8{ self.builder.cache_root, "build_options" },
+            ),
         );
-        const build_options_directory_from_root = self.builder.pathFromRoot(build_options_directory);
 
-        fs.cwd().makeDir(build_options_directory_from_root) catch |err| switch (err) {
-            error.PathAlreadyExists => {},
-            else => return err,
-        };
+        try fs.cwd().makePath(build_options_directory);
 
         const build_options_file = try fs.path.join(
             self.builder.allocator,
@@ -3346,7 +3344,7 @@ test "Builder.dupePkg()" {
     try std.testing.expect(dupe_deps[0].path.path.ptr != pkg_dep.path.path.ptr);
 }
 
-test "LibExeObjStep.addBuildOption" {
+test "Builder.addBuildOption" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -3360,12 +3358,13 @@ test "LibExeObjStep.addBuildOption" {
     );
     defer builder.destroy();
 
-    var exe = builder.addExecutable("not_an_executable", "/not/an/executable.zig");
-    exe.addBuildOption(usize, "option1", 1);
-    exe.addBuildOption(?usize, "option2", null);
-    exe.addBuildOption([]const u8, "string", "zigisthebest");
-    exe.addBuildOption(?[]const u8, "optional_string", null);
-    exe.addBuildOption(std.SemanticVersion, "semantic_version", try std.SemanticVersion.parse("0.1.2-foo+bar"));
+    const build_options = builder.addBuildOptions("test_build_options");
+
+    build_options.addBuildOption(usize, "option1", 1);
+    build_options.addBuildOption(?usize, "option2", null);
+    build_options.addBuildOption([]const u8, "string", "zigisthebest");
+    build_options.addBuildOption(?[]const u8, "optional_string", null);
+    build_options.addBuildOption(std.SemanticVersion, "semantic_version", try std.SemanticVersion.parse("0.1.2-foo+bar"));
 
     try std.testing.expectEqualStrings(
         \\pub const option1: usize = 1;
@@ -3380,7 +3379,7 @@ test "LibExeObjStep.addBuildOption" {
         \\    .build = "bar",
         \\};
         \\
-    , exe.build_options_contents.items);
+    , build_options.contents.items);
 }
 
 test "LibExeObjStep.addPackage" {
