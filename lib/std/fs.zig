@@ -471,7 +471,7 @@ pub const Dir = struct {
                         continue :start_over;
                     }
 
-                    var stat_info: os.libc_stat = undefined;
+                    var stat_info: os.Stat = undefined;
                     _ = os.system._kern_read_stat(
                         self.dir.fd,
                         &haiku_entry.d_name,

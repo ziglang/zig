@@ -551,7 +551,7 @@ pub const dev_t = u64;
 pub const blkcnt_t = i64;
 
 // The `stat` definition used by the Linux kernel.
-pub const kernel_stat = extern struct {
+pub const Stat = extern struct {
     dev: dev_t,
     __dev_padding: u32,
     __ino_truncated: u32,
@@ -581,9 +581,6 @@ pub const kernel_stat = extern struct {
         return self.ctim;
     }
 };
-
-// The `stat64` definition used by the libc.
-pub const libc_stat = kernel_stat;
 
 pub const timespec = extern struct {
     tv_sec: i32,

@@ -10,7 +10,8 @@ test {
     _ = tokenizer;
 }
 
-pub usingnamespace switch (std.Target.current.os.tag) {
+const generic = @import("c/generic.zig");
+const system = switch (builtin.os.tag) {
     .linux => @import("c/linux.zig"),
     .windows => @import("c/windows.zig"),
     .macos, .ios, .tvos, .watchos => @import("c/darwin.zig"),
@@ -27,6 +28,109 @@ pub usingnamespace switch (std.Target.current.os.tag) {
     .wasi => @import("c/wasi.zig"),
     else => struct {},
 };
+pub const E = system.E;
+pub const _errno = system._errno;
+pub const MAP_FAILED = system.MAP_FAILED;
+pub const AI = system.AI;
+pub const NI = system.NI;
+pub const EAI = system.EAI;
+pub const timespec = system.timespec;
+pub const Sigaction = system.Sigaction;
+pub const fallocate64 = system.fallocate64;
+pub const fopen64 = system.fopen64;
+pub const fstat64 = system.fstat64;
+pub const fstatat64 = system.fstatat64;
+pub const ftruncate64 = system.ftruncate64;
+pub const getrlimit64 = system.getrlimit64;
+pub const lseek64 = system.lseek64;
+pub const mmap64 = system.mmap64;
+pub const open64 = system.open64;
+pub const openat64 = system.openat64;
+pub const pread64 = system.pread64;
+pub const preadv64 = system.preadv64;
+pub const pwrite64 = system.pwrite64;
+pub const pwritev64 = system.pwritev64;
+pub const sendfile64 = system.sendfile64;
+pub const setrlimit64 = system.setrlimit64;
+
+pub const AT = system.AT;
+pub const CLOCK = system.CLOCK;
+pub const IOV_MAX = system.IOV_MAX;
+pub const NAME_MAX = system.NAME_MAX;
+pub const PATH_MAX = system.PATH_MAX;
+pub const PROT = system.PROT;
+pub const RTLD = system.RTLD;
+pub const S = system.S;
+pub const SA = system.SA;
+pub const SIG = system.SIG;
+pub const STDERR_FILENO = system.STDIN_FILENO;
+pub const STDIN_FILENO = system.STDIN_FILENO;
+pub const STDOUT_FILENO = system.STDIN_FILENO;
+pub const Stat = system.Stat;
+pub const copy_file_range = system.copy_file_range;
+pub const dl_iterate_phdr_callback = system.dl_iterate_phdr_callback;
+pub const dl_phdr_info = system.dl_phdr_info;
+pub const empty_sigset = system.empty_sigset;
+pub const epoll_create1 = system.epoll_create1;
+pub const epoll_ctl = system.epoll_ctl;
+pub const epoll_pwait = system.epoll_pwait;
+pub const epoll_wait = system.epoll_wait;
+pub const eventfd = system.eventfd;
+pub const fallocate = system.fallocate;
+pub const fd_t = system.fd_t;
+pub const getauxval = system.getauxval;
+pub const getdents = system.getdents;
+pub const getrandom = system.getrandom;
+pub const inotify_add_watch = system.inotify_add_watch;
+pub const inotify_init1 = system.inotify_init1;
+pub const inotify_rm_watch = system.inotify_rm_watch;
+pub const madvise = system.madvise;
+pub const malloc_usable_size = system.malloc_usable_size;
+pub const memfd_create = system.memfd_create;
+pub const pipe2 = system.pipe2;
+pub const pollfd = system.pollfd;
+pub const posix_memalign = system.posix_memalign;
+pub const prlimit = system.prlimit;
+pub const pthread_attr_t = system.pthread_attr_t;
+pub const pthread_cond_t = system.pthread_cond_t;
+pub const pthread_getname_np = system.pthread_getname_np;
+pub const pthread_mutex_t = system.pthread_mutex_t;
+pub const pthread_rwlock_t = system.pthread_rwlock_t;
+pub const pthread_setname_np = system.pthread_setname_np;
+pub const rlimit = system.rlimit;
+pub const rlimit_resource = system.rlimit_resource;
+pub const sched_getaffinity = system.sched_getaffinity;
+pub const sem_t = system.sem_t;
+pub const sendfile = system.sendfile;
+pub const sigaltstack = system.sigaltstack;
+pub const siginfo_t = system.siginfo_t;
+pub const signalfd = system.signalfd;
+pub const sigset_t = system.sigset_t;
+pub const MAP = system.MAP;
+pub const LOCK = system.LOCK;
+pub const REG = system.REG;
+pub const dl_iterate_phdr = system.dl_iterate_phdr;
+pub const ino_t = system.ino_t;
+pub const mode_t = system.mode_t;
+pub const ucontext_t = system.ucontext_t;
+pub const O = system.O;
+
+pub const alarm = if (@hasDecl(system, "alarm")) system.alarm else generic.alarm;
+pub const clock_getres = if (@hasDecl(system, "clock_getres")) system.clock_getres else generic.clock_getres;
+pub const clock_gettime = if (@hasDecl(system, "clock_gettime")) system.clock_gettime else generic.clock_gettime;
+pub const fstat = if (@hasDecl(system, "fstat")) system.fstat else generic.fstat;
+pub const fstatat = if (@hasDecl(system, "fstatat")) system.fstatat else generic.fstatat;
+pub const getrusage = if (@hasDecl(system, "getrusage")) system.getrusage else generic.getrusage;
+pub const gettimeofday = if (@hasDecl(system, "gettimeofday")) system.gettimeofday else generic.gettimeofday;
+pub const nanosleep = if (@hasDecl(system, "nanosleep")) system.nanosleep else generic.nanosleep;
+pub const realpath = if (@hasDecl(system, "realpath")) system.realpath else generic.realpath;
+pub const sched_yield = if (@hasDecl(system, "sched_yield")) system.sched_yield else generic.sched_yield;
+pub const sigaction = if (@hasDecl(system, "sigaction")) system.sigaction else generic.sigaction;
+pub const sigfillset = if (@hasDecl(system, "sigfillset")) system.sigfillset else generic.sigfillset;
+pub const sigprocmask = if (@hasDecl(system, "sigprocmask")) system.sigprocmask else generic.sigprocmask;
+pub const sigwait = if (@hasDecl(system, "sigwait")) system.sigwait else generic.sigwait;
+pub const socket = if (@hasDecl(system, "socket")) system.socket else generic.socket;
+pub const stat = if (@hasDecl(system, "stat")) system.stat else generic.stat;
 
 pub fn getErrno(rc: anytype) E {
     if (rc == -1) {
@@ -47,9 +151,9 @@ pub fn versionCheck(glibc_version: builtin.Version) type {
     return struct {
         pub const ok = blk: {
             if (!builtin.link_libc) break :blk false;
-            if (std.Target.current.abi.isMusl()) break :blk true;
-            if (std.Target.current.isGnuLibC()) {
-                const ver = std.Target.current.os.version_range.linux.glibc;
+            if (builtin.abi.isMusl()) break :blk true;
+            if (builtin.target.isGnuLibC()) {
+                const ver = builtin.os.version_range.linux.glibc;
                 const order = ver.order(glibc_version);
                 break :blk switch (order) {
                     .gt, .eq => true,
@@ -115,17 +219,6 @@ pub extern "c" fn dup2(old_fd: fd_t, new_fd: fd_t) c_int;
 pub extern "c" fn readlink(noalias path: [*:0]const u8, noalias buf: [*]u8, bufsize: usize) isize;
 pub extern "c" fn readlinkat(dirfd: fd_t, noalias path: [*:0]const u8, noalias buf: [*]u8, bufsize: usize) isize;
 
-pub usingnamespace switch (builtin.os.tag) {
-    .macos, .ios, .watchos, .tvos => struct {
-        pub const realpath = @"realpath$DARWIN_EXTSN";
-        pub const fstatat = _fstatat;
-    },
-    else => struct {
-        pub extern "c" fn realpath(noalias file_name: [*:0]const u8, noalias resolved_name: [*]u8) ?[*:0]u8;
-        pub extern "c" fn fstatat(dirfd: fd_t, path: [*:0]const u8, stat_buf: *libc_stat, flags: u32) c_int;
-    },
-};
-
 pub extern "c" fn rmdir(path: [*:0]const u8) c_int;
 pub extern "c" fn getenv(name: [*:0]const u8) ?[*:0]u8;
 pub extern "c" fn sysctl(name: [*]const c_int, namelen: c_uint, oldp: ?*c_void, oldlenp: ?*usize, newp: ?*c_void, newlen: usize) c_int;
@@ -171,75 +264,6 @@ pub extern "c" fn recvfrom(
     noalias addrlen: ?*socklen_t,
 ) isize;
 pub extern "c" fn recvmsg(sockfd: fd_t, msg: *std.x.os.Socket.Message, flags: c_int) isize;
-
-pub usingnamespace switch (builtin.os.tag) {
-    .netbsd => struct {
-        pub const clock_getres = __clock_getres50;
-        pub const clock_gettime = __clock_gettime50;
-        pub const fstat = __fstat50;
-        pub const getdents = __getdents30;
-        pub const getrusage = __getrusage50;
-        pub const gettimeofday = __gettimeofday50;
-        pub const nanosleep = __nanosleep50;
-        pub const sched_yield = __libc_thr_yield;
-        pub const sigaction = __sigaction14;
-        pub const sigaltstack = __sigaltstack14;
-        pub const sigprocmask = __sigprocmask14;
-        pub const socket = __socket30;
-        pub const stat = __stat50;
-    },
-    .macos, .ios, .watchos, .tvos => struct {
-        // XXX: close -> close$NOCANCEL
-        // XXX: getdirentries -> _getdirentries64
-        pub extern "c" fn clock_getres(clk_id: c_int, tp: *timespec) c_int;
-        pub extern "c" fn clock_gettime(clk_id: c_int, tp: *timespec) c_int;
-        pub const fstat = _fstat;
-        pub extern "c" fn getrusage(who: c_int, usage: *rusage) c_int;
-        pub extern "c" fn gettimeofday(noalias tv: ?*timeval, noalias tz: ?*timezone) c_int;
-        pub extern "c" fn nanosleep(rqtp: *const timespec, rmtp: ?*timespec) c_int;
-        pub extern "c" fn sched_yield() c_int;
-        pub extern "c" fn sigaction(sig: c_int, noalias act: ?*const Sigaction, noalias oact: ?*Sigaction) c_int;
-        pub extern "c" fn sigprocmask(how: c_int, noalias set: ?*const sigset_t, noalias oset: ?*sigset_t) c_int;
-        pub extern "c" fn socket(domain: c_uint, sock_type: c_uint, protocol: c_uint) c_int;
-        pub extern "c" fn stat(noalias path: [*:0]const u8, noalias buf: *libc_stat) c_int;
-        pub extern "c" fn sigfillset(set: ?*sigset_t) void;
-        pub extern "c" fn alarm(seconds: c_uint) c_uint;
-        pub extern "c" fn sigwait(set: ?*sigset_t, sig: ?*c_int) c_int;
-    },
-    .windows => struct {
-        // TODO: copied the else case and removed the socket function (because its in ws2_32)
-        //       need to verify which of these is actually supported on windows
-        pub extern "c" fn clock_getres(clk_id: c_int, tp: *timespec) c_int;
-        pub extern "c" fn clock_gettime(clk_id: c_int, tp: *timespec) c_int;
-        pub extern "c" fn fstat(fd: fd_t, buf: *libc_stat) c_int;
-        pub extern "c" fn getrusage(who: c_int, usage: *rusage) c_int;
-        pub extern "c" fn gettimeofday(noalias tv: ?*timeval, noalias tz: ?*timezone) c_int;
-        pub extern "c" fn nanosleep(rqtp: *const timespec, rmtp: ?*timespec) c_int;
-        pub extern "c" fn sched_yield() c_int;
-        pub extern "c" fn sigaction(sig: c_int, noalias act: ?*const Sigaction, noalias oact: ?*Sigaction) c_int;
-        pub extern "c" fn sigprocmask(how: c_int, noalias set: ?*const sigset_t, noalias oset: ?*sigset_t) c_int;
-        pub extern "c" fn stat(noalias path: [*:0]const u8, noalias buf: *libc_stat) c_int;
-        pub extern "c" fn sigfillset(set: ?*sigset_t) void;
-        pub extern "c" fn alarm(seconds: c_uint) c_uint;
-        pub extern "c" fn sigwait(set: ?*sigset_t, sig: ?*c_int) c_int;
-    },
-    else => struct {
-        pub extern "c" fn clock_getres(clk_id: c_int, tp: *timespec) c_int;
-        pub extern "c" fn clock_gettime(clk_id: c_int, tp: *timespec) c_int;
-        pub extern "c" fn fstat(fd: fd_t, buf: *libc_stat) c_int;
-        pub extern "c" fn getrusage(who: c_int, usage: *rusage) c_int;
-        pub extern "c" fn gettimeofday(noalias tv: ?*timeval, noalias tz: ?*timezone) c_int;
-        pub extern "c" fn nanosleep(rqtp: *const timespec, rmtp: ?*timespec) c_int;
-        pub extern "c" fn sched_yield() c_int;
-        pub extern "c" fn sigaction(sig: c_int, noalias act: ?*const Sigaction, noalias oact: ?*Sigaction) c_int;
-        pub extern "c" fn sigprocmask(how: c_int, noalias set: ?*const sigset_t, noalias oset: ?*sigset_t) c_int;
-        pub extern "c" fn socket(domain: c_uint, sock_type: c_uint, protocol: c_uint) c_int;
-        pub extern "c" fn stat(noalias path: [*:0]const u8, noalias buf: *libc_stat) c_int;
-        pub extern "c" fn sigfillset(set: ?*sigset_t) void;
-        pub extern "c" fn alarm(seconds: c_uint) c_uint;
-        pub extern "c" fn sigwait(set: ?*sigset_t, sig: ?*c_int) c_int;
-    },
-};
 
 pub extern "c" fn kill(pid: pid_t, sig: c_int) c_int;
 pub extern "c" fn getdirentries(fd: fd_t, buf_ptr: [*]u8, nbytes: usize, basep: *i64) isize;
@@ -375,9 +399,9 @@ pub extern "c" fn openlog(ident: [*:0]const u8, logopt: c_int, facility: c_int) 
 pub extern "c" fn closelog() void;
 pub extern "c" fn setlogmask(maskpri: c_int) c_int;
 
-pub const max_align_t = if (std.Target.current.abi == .msvc)
+pub const max_align_t = if (builtin.abi == .msvc)
     f64
-else if (std.Target.current.isDarwin())
+else if (builtin.target.isDarwin())
     c_longdouble
 else
     extern struct {

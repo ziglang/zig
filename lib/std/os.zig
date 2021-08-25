@@ -40,15 +40,10 @@ comptime {
 }
 
 test {
-    _ = darwin;
-    _ = freebsd;
     _ = linux;
-    _ = netbsd;
-    _ = openbsd;
     _ = uefi;
     _ = wasi;
     _ = windows;
-    _ = haiku;
 
     _ = @import("os/test.zig");
 }
@@ -61,85 +56,68 @@ pub const system = if (@hasDecl(root, "os") and root.os != @This())
 else if (builtin.link_libc)
     std.c
 else switch (builtin.os.tag) {
-    .macos, .ios, .watchos, .tvos => darwin,
-    .freebsd => freebsd,
-    .haiku => haiku,
     .linux => linux,
-    .netbsd => netbsd,
-    .openbsd => openbsd,
-    .dragonfly => dragonfly,
     .wasi => wasi,
     .windows => windows,
+    .uefi => uefi,
     else => struct {},
 };
-
-const bits = switch (builtin.os.tag) {
-    .macos, .ios, .tvos, .watchos => std.c,
-    .dragonfly => @import("os/bits/dragonfly.zig"),
-    .freebsd => @import("os/bits/freebsd.zig"),
-    .haiku => @import("os/bits/haiku.zig"),
-    .linux => linux,
-    .netbsd => @import("os/bits/netbsd.zig"),
-    .openbsd => @import("os/bits/openbsd.zig"),
-    .wasi => @import("os/bits/wasi.zig"),
-    .windows => @import("os/bits/windows.zig"),
-    else => struct {},
-};
-pub const E = bits.E;
-pub const ARCH = bits.ARCH;
-pub const Elf_Symndx = bits.Elf_Symndx;
-pub const F = bits.F;
-pub const Flock = bits.Flock;
-pub const LOCK = bits.LOCK;
-pub const MAP = bits.MAP;
-pub const MMAP2_UNIT = bits.MMAP2_UNIT;
-pub const O = bits.O;
-pub const REG = bits.REG;
-pub const SC = bits.SC;
-pub const SYS = bits.SYS;
-pub const VDSO = bits.VDSO;
-pub const blkcnt_t = bits.blkcnt_t;
-pub const blksize_t = bits.blksize_t;
-pub const dev_t = bits.dev_t;
-pub const ino_t = bits.ino_t;
-pub const kernel_stat = bits.kernel_stat;
-pub const libc_stat = bits.libc_stat;
-pub const mcontext_t = bits.mcontext_t;
-pub const mode_t = bits.mode_t;
-pub const msghdr = bits.msghdr;
-pub const msghdr_const = bits.msghdr_const;
-pub const nlink_t = bits.nlink_t;
-pub const off_t = bits.off_t;
-pub const time_t = bits.time_t;
-pub const timespec = bits.timespec;
-pub const timeval = bits.timeval;
-pub const timezone = bits.timezone;
-pub const ucontext_t = bits.ucontext_t;
-pub const user_desc = bits.user_desc;
-pub const pid_t = bits.pid_t;
-pub const fd_t = bits.fd_t;
-pub const uid_t = bits.uid_t;
-pub const gid_t = bits.gid_t;
-pub const clock_t = bits.clock_t;
-pub const NAME_MAX = bits.NAME_MAX;
-pub const PATH_MAX = bits.PATH_MAX;
-pub const IOV_MAX = bits.IOV_MAX;
-pub const MAX_ADDR_LEN = bits.MAX_ADDR_LEN;
-pub const STDIN_FILENO = bits.STDIN_FILENO;
-pub const STDOUT_FILENO = bits.STDIN_FILENO;
-pub const STDERR_FILENO = bits.STDIN_FILENO;
-pub const AT = bits.AT;
-pub const PROT = bits.PROT;
-pub const CLOCK = bits.CLOCK;
-pub const dl_phdr_info = bits.dl_phdr_info;
-pub const Sigaction = bits.Sigaction;
-pub const rlimit_resource = bits.rlimit_resource;
-pub const SIG = bits.SIG;
-pub const rlimit = bits.rlimit;
-pub const empty_sigset = bits.empty_sigset;
-pub const S = bits.S;
-pub const siginfo_t = bits.siginfo_t;
-pub const SA = bits.SA;
+pub const ARCH = system.ARCH;
+pub const AT = system.AT;
+pub const CLOCK = system.CLOCK;
+pub const E = system.E;
+pub const Elf_Symndx = system.Elf_Symndx;
+pub const F = system.F;
+pub const Flock = system.Flock;
+pub const IOV_MAX = system.IOV_MAX;
+pub const LOCK = system.LOCK;
+pub const MAP = system.MAP;
+pub const MAX_ADDR_LEN = system.MAX_ADDR_LEN;
+pub const MMAP2_UNIT = system.MMAP2_UNIT;
+pub const NAME_MAX = system.NAME_MAX;
+pub const O = system.O;
+pub const PATH_MAX = system.PATH_MAX;
+pub const PROT = system.PROT;
+pub const REG = system.REG;
+pub const S = system.S;
+pub const SA = system.SA;
+pub const SC = system.SC;
+pub const SIG = system.SIG;
+pub const STDERR_FILENO = system.STDIN_FILENO;
+pub const STDIN_FILENO = system.STDIN_FILENO;
+pub const STDOUT_FILENO = system.STDIN_FILENO;
+pub const SYS = system.SYS;
+pub const Sigaction = system.Sigaction;
+pub const Stat = system.Stat;
+pub const VDSO = system.VDSO;
+pub const blkcnt_t = system.blkcnt_t;
+pub const blksize_t = system.blksize_t;
+pub const clock_t = system.clock_t;
+pub const dev_t = system.dev_t;
+pub const dl_phdr_info = system.dl_phdr_info;
+pub const empty_sigset = system.empty_sigset;
+pub const fd_t = system.fd_t;
+pub const gid_t = system.gid_t;
+pub const ino_t = system.ino_t;
+pub const mcontext_t = system.mcontext_t;
+pub const mode_t = system.mode_t;
+pub const msghdr = system.msghdr;
+pub const msghdr_const = system.msghdr_const;
+pub const nlink_t = system.nlink_t;
+pub const off_t = system.off_t;
+pub const pid_t = system.pid_t;
+pub const pollfd = system.pollfd;
+pub const rlimit = system.rlimit;
+pub const rlimit_resource = system.rlimit_resource;
+pub const siginfo_t = system.siginfo_t;
+pub const sigset_t = system.sigset_t;
+pub const time_t = system.time_t;
+pub const timespec = system.timespec;
+pub const timeval = system.timeval;
+pub const timezone = system.timezone;
+pub const ucontext_t = system.ucontext_t;
+pub const uid_t = system.uid_t;
+pub const user_desc = system.user_desc;
 
 pub const iovec = extern struct {
     iov_base: [*]u8,
@@ -334,7 +312,7 @@ pub fn raise(sig: u8) RaiseError!void {
     }
 
     if (builtin.os.tag == .linux) {
-        var set: bits.sigset_t = undefined;
+        var set: sigset_t = undefined;
         // block application signals
         _ = linux.sigprocmask(SIG.BLOCK, &linux.app_mask, &set);
 
@@ -3557,11 +3535,6 @@ pub fn waitpid(pid: pid_t, flags: u32) WaitPidResult {
         }
     }
 }
-
-pub const Stat = if (builtin.link_libc)
-    system.libc_stat
-else
-    system.kernel_stat;
 
 pub const FStatError = error{
     SystemResources,

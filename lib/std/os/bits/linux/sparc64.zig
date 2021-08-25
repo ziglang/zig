@@ -489,42 +489,8 @@ pub const off_t = i64;
 pub const ino_t = u64;
 pub const mode_t = u32;
 
-// The `stat64` definition used by the libc.
-pub const libc_stat = extern struct {
-    dev: u64,
-    ino: ino_t,
-    mode: u32,
-    nlink: usize,
-
-    uid: u32,
-    gid: u32,
-    rdev: u64,
-    __pad0: u32,
-
-    size: off_t,
-    blksize: isize,
-    blocks: i64,
-
-    atim: timespec,
-    mtim: timespec,
-    ctim: timespec,
-    __unused: [2]isize,
-
-    pub fn atime(self: libc_stat) timespec {
-        return self.atim;
-    }
-
-    pub fn mtime(self: libc_stat) timespec {
-        return self.mtim;
-    }
-
-    pub fn ctime(self: libc_stat) timespec {
-        return self.ctim;
-    }
-};
-
 // The `stat64` definition used by the kernel.
-pub const kernel_stat = extern struct {
+pub const Stat = extern struct {
     dev: u64,
     ino: u64,
     nlink: u64,
