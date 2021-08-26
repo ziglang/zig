@@ -50,6 +50,9 @@ rebases: std.ArrayListUnmanaged(u64) = .{},
 /// symbols (aka proxies aka imports)
 bindings: std.ArrayListUnmanaged(SymbolAtOffset) = .{},
 
+/// List of lazy bindings
+lazy_bindings: std.ArrayListUnmanaged(SymbolAtOffset) = .{},
+
 /// List of data-in-code entries. This is currently specific to x86_64 only.
 dices: std.ArrayListUnmanaged(macho.data_in_code_entry) = .{},
 
@@ -570,6 +573,7 @@ pub const empty = TextBlock{
 
 pub fn deinit(self: *TextBlock, allocator: *Allocator) void {
     self.dices.deinit(allocator);
+    self.lazy_bindings.deinit(allocator);
     self.bindings.deinit(allocator);
     self.rebases.deinit(allocator);
     self.relocs.deinit(allocator);
@@ -898,9 +902,53 @@ pub fn parseRelocs(self: *TextBlock, relocs: []macho.relocation_info, context: R
             if (parsed_rel.where != .undef) break :blk;
             if (context.macho_file.stubs_map.contains(parsed_rel.where_index)) break :blk;
 
-            const stubs_index = @intCast(u32, context.macho_file.stubs.items.len);
-            try context.macho_file.stubs.append(context.allocator, parsed_rel.where_index);
-            try context.macho_file.stubs_map.putNoClobber(context.allocator, parsed_rel.where_index, stubs_index);
+            const stub_helper_atom = try context.macho_file.createStubHelperAtom();
+            const laptr_atom = try context.macho_file.createLazyPointerAtom(
+                stub_helper_atom.local_sym_index,
+                parsed_rel.where_index,
+            );
+            const stub_atom = try context.macho_file.createStubAtom(laptr_atom.local_sym_index);
+            try context.macho_file.stubs_map.putNoClobber(context.allocator, parsed_rel.where_index, stub_atom);
+
+            if (build_options.is_stage1 and context.macho_file.base.options.use_stage1) {
+                try context.macho_file.allocateAtomStage1(stub_helper_atom, .{
+                    .seg = context.macho_file.text_segment_cmd_index.?,
+                    .sect = context.macho_file.stub_helper_section_index.?,
+                });
+                try context.macho_file.allocateAtomStage1(laptr_atom, .{
+                    .seg = context.macho_file.data_segment_cmd_index.?,
+                    .sect = context.macho_file.la_symbol_ptr_section_index.?,
+                });
+                try context.macho_file.allocateAtomStage1(stub_atom, .{
+                    .seg = context.macho_file.text_segment_cmd_index.?,
+                    .sect = context.macho_file.stubs_section_index.?,
+                });
+            } else {
+                {
+                    const match = MachO.MatchingSection{
+                        .seg = context.macho_file.text_segment_cmd_index.?,
+                        .sect = context.macho_file.stub_helper_section_index.?,
+                    };
+                    _ = try context.macho_file.allocateAtom(stub_helper_atom, match);
+                    try context.macho_file.writeAtom(stub_helper_atom, match);
+                }
+                {
+                    const match = MachO.MatchingSection{
+                        .seg = context.macho_file.data_segment_cmd_index.?,
+                        .sect = context.macho_file.la_symbol_ptr_section_index.?,
+                    };
+                    _ = try context.macho_file.allocateAtom(laptr_atom, match);
+                    try context.macho_file.writeAtom(laptr_atom, match);
+                }
+                {
+                    const match = MachO.MatchingSection{
+                        .seg = context.macho_file.text_segment_cmd_index.?,
+                        .sect = context.macho_file.stubs_section_index.?,
+                    };
+                    _ = try context.macho_file.allocateAtom(stub_atom, match);
+                    try context.macho_file.writeAtom(stub_atom, match);
+                }
+            }
         }
     }
 }
@@ -1145,13 +1193,11 @@ pub fn resolveRelocs(self: *TextBlock, macho_file: *MachO) !void {
                     break :blk sym.n_value;
                 },
                 .undef => {
-                    const stubs_index = macho_file.stubs_map.get(rel.where_index) orelse {
+                    const atom = macho_file.stubs_map.get(rel.where_index) orelse {
                         // TODO verify in TextBlock that the symbol is indeed dynamically bound.
                         break :blk 0; // Dynamically bound by dyld.
                     };
-                    const segment = macho_file.load_commands.items[macho_file.text_segment_cmd_index.?].Segment;
-                    const stubs = segment.sections.items[macho_file.stubs_section_index.?];
-                    break :blk stubs.addr + stubs_index * stubs.reserved2;
+                    break :blk macho_file.locals.items[atom.local_sym_index].n_value;
                 },
             }
         };

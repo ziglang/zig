@@ -155,9 +155,7 @@ strtab: std.ArrayListUnmanaged(u8) = .{},
 strtab_dir: std.HashMapUnmanaged(u32, u32, StringIndexContext, std.hash_map.default_max_load_percentage) = .{},
 
 got_entries_map: std.AutoArrayHashMapUnmanaged(GotIndirectionKey, *TextBlock) = .{},
-
-stubs: std.ArrayListUnmanaged(u32) = .{},
-stubs_map: std.AutoHashMapUnmanaged(u32, u32) = .{},
+stubs_map: std.AutoArrayHashMapUnmanaged(u32, *TextBlock) = .{},
 
 error_flags: File.ErrorFlags = File.ErrorFlags{},
 
@@ -783,27 +781,6 @@ pub fn flush(self: *MachO, comp: *Compilation) !void {
 
             try self.parseTextBlocks();
             try self.sortSections();
-
-            for (self.stubs.items) |_| {
-                const stub_helper_atom = try self.createStubHelperAtom();
-                try self.allocateAtomStage1(stub_helper_atom, .{
-                    .seg = self.text_segment_cmd_index.?,
-                    .sect = self.stub_helper_section_index.?,
-                });
-
-                const laptr_atom = try self.createLazyPointerAtom(stub_helper_atom.local_sym_index);
-                try self.allocateAtomStage1(laptr_atom, .{
-                    .seg = self.data_segment_cmd_index.?,
-                    .sect = self.la_symbol_ptr_section_index.?,
-                });
-
-                const stub_atom = try self.createStubAtom(laptr_atom.local_sym_index);
-                try self.allocateAtomStage1(stub_atom, .{
-                    .seg = self.text_segment_cmd_index.?,
-                    .sect = self.stubs_section_index.?,
-                });
-            }
-
             try self.allocateTextSegment();
             try self.allocateDataConstSegment();
             try self.allocateDataSegment();
@@ -2159,7 +2136,7 @@ fn createStubHelperPreambleAtom(self: *MachO) !*TextBlock {
     return atom;
 }
 
-fn createStubHelperAtom(self: *MachO) !*TextBlock {
+pub fn createStubHelperAtom(self: *MachO) !*TextBlock {
     const arch = self.base.options.target.cpu.arch;
     const stub_size: u4 = switch (arch) {
         .x86_64 => 10,
@@ -2225,7 +2202,7 @@ fn createStubHelperAtom(self: *MachO) !*TextBlock {
     return atom;
 }
 
-fn createLazyPointerAtom(self: *MachO, stub_sym_index: u32) !*TextBlock {
+pub fn createLazyPointerAtom(self: *MachO, stub_sym_index: u32, lazy_binding_sym_index: u32) !*TextBlock {
     const local_sym_index = @intCast(u32, self.locals.items.len);
     try self.locals.append(self.base.allocator, .{
         .n_strx = try self.makeString("lazy_ptr"),
@@ -2248,11 +2225,15 @@ fn createLazyPointerAtom(self: *MachO, stub_sym_index: u32) !*TextBlock {
         },
     });
     try atom.rebases.append(self.base.allocator, 0);
+    try atom.lazy_bindings.append(self.base.allocator, .{
+        .local_sym_index = lazy_binding_sym_index,
+        .offset = 0,
+    });
     self.lazy_binding_info_dirty = true;
     return atom;
 }
 
-fn createStubAtom(self: *MachO, laptr_sym_index: u32) !*TextBlock {
+pub fn createStubAtom(self: *MachO, laptr_sym_index: u32) !*TextBlock {
     const arch = self.base.options.target.cpu.arch;
     const alignment: u2 = switch (arch) {
         .x86_64 => 0,
@@ -2661,7 +2642,10 @@ fn resolveSymbols(self: *MachO) !void {
                             break :blk atom;
                         };
                         const laptr_atom = blk: {
-                            const atom = try self.createLazyPointerAtom(stub_helper_atom.local_sym_index);
+                            const atom = try self.createLazyPointerAtom(
+                                stub_helper_atom.local_sym_index,
+                                resolv.where_index,
+                            );
                             const match = MatchingSection{
                                 .seg = self.data_segment_cmd_index.?,
                                 .sect = self.la_symbol_ptr_section_index.?,
@@ -2990,8 +2974,6 @@ fn writeRebaseInfoTableZld(self: *MachO) !void {
         }
     }
 
-    std.sort.sort(bind.Pointer, pointers.items, {}, bind.pointerCmp);
-
     const size = try bind.rebaseInfoSize(pointers.items);
     var buffer = try self.base.allocator.alloc(u8, @intCast(usize, size));
     defer self.base.allocator.free(buffer);
@@ -3067,22 +3049,29 @@ fn writeLazyBindInfoTableZld(self: *MachO) !void {
     var pointers = std.ArrayList(bind.Pointer).init(self.base.allocator);
     defer pointers.deinit();
 
-    if (self.la_symbol_ptr_section_index) |idx| {
+    if (self.la_symbol_ptr_section_index) |sect| blk: {
+        var atom = self.blocks.get(.{
+            .seg = self.data_segment_cmd_index.?,
+            .sect = sect,
+        }) orelse break :blk;
         const seg = self.load_commands.items[self.data_segment_cmd_index.?].Segment;
-        const sect = seg.sections.items[idx];
-        const base_offset = sect.addr - seg.inner.vmaddr;
-        const segment_id = @intCast(u16, self.data_segment_cmd_index.?);
 
-        try pointers.ensureUnusedCapacity(self.stubs.items.len);
+        while (true) {
+            const sym = self.locals.items[atom.local_sym_index];
+            const base_offset = sym.n_value - seg.inner.vmaddr;
 
-        for (self.stubs.items) |import_id, i| {
-            const sym = self.undefs.items[import_id];
-            pointers.appendAssumeCapacity(.{
-                .offset = base_offset + i * @sizeOf(u64),
-                .segment_id = segment_id,
-                .dylib_ordinal = @divExact(sym.n_desc, macho.N_SYMBOL_RESOLVER),
-                .name = self.getString(sym.n_strx),
-            });
+            for (atom.lazy_bindings.items) |binding| {
+                const bind_sym = self.undefs.items[binding.local_sym_index];
+                try pointers.append(.{
+                    .offset = binding.offset + base_offset,
+                    .segment_id = self.data_segment_cmd_index.?,
+                    .dylib_ordinal = @divExact(bind_sym.n_desc, macho.N_SYMBOL_RESOLVER),
+                    .name = self.getString(bind_sym.n_strx),
+                });
+            }
+            if (atom.prev) |prev| {
+                atom = prev;
+            } else break;
         }
     }
 
@@ -3245,7 +3234,7 @@ fn writeSymbolTable(self: *MachO) !void {
     const data_segment = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
     const la_symbol_ptr = &data_segment.sections.items[self.la_symbol_ptr_section_index.?];
 
-    const nstubs = @intCast(u32, self.stubs.items.len);
+    const nstubs = @intCast(u32, self.stubs_map.keys().len);
     const ngot_entries = @intCast(u32, self.got_entries_map.keys().len);
 
     dysymtab.indirectsymoff = @intCast(u32, seg.inner.fileoff + seg.inner.filesize);
@@ -3266,8 +3255,8 @@ fn writeSymbolTable(self: *MachO) !void {
     var writer = stream.writer();
 
     stubs.reserved1 = 0;
-    for (self.stubs.items) |id| {
-        try writer.writeIntLittle(u32, dysymtab.iundefsym + id);
+    for (self.stubs_map.keys()) |key| {
+        try writer.writeIntLittle(u32, dysymtab.iundefsym + key);
     }
 
     got.reserved1 = nstubs;
@@ -3283,8 +3272,8 @@ fn writeSymbolTable(self: *MachO) !void {
     }
 
     la_symbol_ptr.reserved1 = got.reserved1 + ngot_entries;
-    for (self.stubs.items) |id| {
-        try writer.writeIntLittle(u32, dysymtab.iundefsym + id);
+    for (self.stubs_map.keys()) |key| {
+        try writer.writeIntLittle(u32, dysymtab.iundefsym + key);
     }
 
     try self.base.file.?.pwriteAll(buf, dysymtab.indirectsymoff);
@@ -3301,7 +3290,6 @@ pub fn deinit(self: *MachO) void {
 
     self.section_ordinals.deinit(self.base.allocator);
     self.got_entries_map.deinit(self.base.allocator);
-    self.stubs.deinit(self.base.allocator);
     self.stubs_map.deinit(self.base.allocator);
     self.strtab_dir.deinit(self.base.allocator);
     self.strtab.deinit(self.base.allocator);
@@ -4557,10 +4545,6 @@ pub fn addExternFn(self: *MachO, name: []const u8) !u32 {
     });
     try self.unresolved.putNoClobber(self.base.allocator, sym_index, .stub);
 
-    const stubs_index = @intCast(u32, self.stubs.items.len);
-    try self.stubs.append(self.base.allocator, sym_index);
-    try self.stubs_map.putNoClobber(self.base.allocator, sym_index, stubs_index);
-
     return sym_index;
 }
 
@@ -4803,7 +4787,7 @@ fn writeIndirectSymbolTable(self: *MachO) !void {
     const la_symbol_ptr = &data_segment.sections.items[self.la_symbol_ptr_section_index.?];
     const dysymtab = &self.load_commands.items[self.dysymtab_cmd_index.?].Dysymtab;
 
-    const nstubs = @intCast(u32, self.stubs.items.len);
+    const nstubs = @intCast(u32, self.stubs_map.keys().len);
     const ngot_entries = @intCast(u32, self.got_entries_map.keys().len);
     const allocated_size = self.allocatedSizeLinkedit(dysymtab.indirectsymoff);
     const nindirectsyms = nstubs * 2 + ngot_entries;
@@ -4825,8 +4809,8 @@ fn writeIndirectSymbolTable(self: *MachO) !void {
     var writer = stream.writer();
 
     stubs.reserved1 = 0;
-    for (self.stubs.items) |id| {
-        try writer.writeIntLittle(u32, dysymtab.iundefsym + id);
+    for (self.stubs_map.keys()) |key| {
+        try writer.writeIntLittle(u32, dysymtab.iundefsym + key);
     }
 
     got.reserved1 = nstubs;
@@ -4842,8 +4826,8 @@ fn writeIndirectSymbolTable(self: *MachO) !void {
     }
 
     la_symbol_ptr.reserved1 = got.reserved1 + ngot_entries;
-    for (self.stubs.items) |id| {
-        try writer.writeIntLittle(u32, dysymtab.iundefsym + id);
+    for (self.stubs_map.keys()) |key| {
+        try writer.writeIntLittle(u32, dysymtab.iundefsym + key);
     }
 
     try self.base.file.?.pwriteAll(buf, dysymtab.indirectsymoff);
@@ -5050,8 +5034,6 @@ fn writeRebaseInfoTable(self: *MachO) !void {
         }
     }
 
-    std.sort.sort(bind.Pointer, pointers.items, {}, bind.pointerCmp);
-
     const size = try bind.rebaseInfoSize(pointers.items);
     var buffer = try self.base.allocator.alloc(u8, @intCast(usize, size));
     defer self.base.allocator.free(buffer);
@@ -5151,22 +5133,29 @@ fn writeLazyBindInfoTable(self: *MachO) !void {
     var pointers = std.ArrayList(bind.Pointer).init(self.base.allocator);
     defer pointers.deinit();
 
-    if (self.la_symbol_ptr_section_index) |idx| {
+    if (self.la_symbol_ptr_section_index) |sect| blk: {
+        var atom = self.blocks.get(.{
+            .seg = self.data_segment_cmd_index.?,
+            .sect = sect,
+        }) orelse break :blk;
         const seg = self.load_commands.items[self.data_segment_cmd_index.?].Segment;
-        const sect = seg.sections.items[idx];
-        const base_offset = sect.addr - seg.inner.vmaddr;
-        const segment_id = @intCast(u16, self.data_segment_cmd_index.?);
 
-        try pointers.ensureUnusedCapacity(self.stubs.items.len);
+        while (true) {
+            const sym = self.locals.items[atom.local_sym_index];
+            const base_offset = sym.n_value - seg.inner.vmaddr;
 
-        for (self.stubs.items) |import_id, i| {
-            const sym = self.undefs.items[import_id];
-            pointers.appendAssumeCapacity(.{
-                .offset = base_offset + i * @sizeOf(u64),
-                .segment_id = segment_id,
-                .dylib_ordinal = @divExact(sym.n_desc, macho.N_SYMBOL_RESOLVER),
-                .name = self.getString(sym.n_strx),
-            });
+            for (atom.lazy_bindings.items) |binding| {
+                const bind_sym = self.undefs.items[binding.local_sym_index];
+                try pointers.append(.{
+                    .offset = binding.offset + base_offset,
+                    .segment_id = self.data_segment_cmd_index.?,
+                    .dylib_ordinal = @divExact(bind_sym.n_desc, macho.N_SYMBOL_RESOLVER),
+                    .name = self.getString(bind_sym.n_strx),
+                });
+            }
+            if (atom.prev) |prev| {
+                atom = prev;
+            } else break;
         }
     }
 
@@ -5202,6 +5191,15 @@ fn populateLazyBindOffsetsInStubHelper(self: *MachO, buffer: []const u8) !void {
         .sect = self.stub_helper_section_index.?,
     }) orelse return;
     if (last_atom.local_sym_index == self.stub_preamble_sym_index.?) return;
+
+    // Because we insert lazy binding opcodes in reverse order (from last to the first atom),
+    // we need reverse the order of atom traversal here as well.
+    // TODO figure out a less error prone mechanims for this!
+    var atom = last_atom;
+    while (atom.prev) |prev| {
+        atom = prev;
+    }
+    atom = atom.next.?;
 
     var stream = std.io.fixedBufferStream(buffer);
     var reader = stream.reader();
@@ -5255,7 +5253,6 @@ fn populateLazyBindOffsetsInStubHelper(self: *MachO, buffer: []const u8) !void {
         else => unreachable,
     };
     var buf: [@sizeOf(u32)]u8 = undefined;
-    var atom = last_atom;
     _ = offsets.pop();
     while (offsets.popOrNull()) |bind_offset| {
         const sym = self.locals.items[atom.local_sym_index];
@@ -5268,8 +5265,8 @@ fn populateLazyBindOffsetsInStubHelper(self: *MachO, buffer: []const u8) !void {
         });
         try self.base.file.?.pwriteAll(&buf, file_offset);
 
-        if (atom.prev) |prev| {
-            atom = prev;
+        if (atom.next) |next| {
+            atom = next;
         } else break;
     }
 }
