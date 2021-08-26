@@ -206,9 +206,7 @@ pub const Clock = struct {
         process_cputime,
     };
 
-    pub const Error = error{
-        UnsupportedClock
-    } || os.UnexpectedError;
+    pub const Error = error{UnsupportedClock} || os.UnexpectedError;
 
     /// Reads the current value of the clock source represented by the `id`.
     pub fn read(id: Id) Error!u64 {
@@ -287,7 +285,7 @@ pub const Clock = struct {
         /// Could be replaced with QueryInterruptTimePrecise() (only on Windows 10+)
         fn getInterruptTime() u64 {
             const counter = os.windows.QueryPerformanceCounter();
-            const qpc = getDeltaTime(struct{}, counter);
+            const qpc = getDeltaTime(struct {}, counter);
             return getQPCInterruptTime(qpc) * 100;
         }
 
@@ -308,8 +306,8 @@ pub const Clock = struct {
                     continue;
                 }
 
-                const qpc = getDeltaTime(struct{}, counter);
-                const qpc_bias = getDeltaTime(struct{}, bias);
+                const qpc = getDeltaTime(struct {}, counter);
+                const qpc_bias = getDeltaTime(struct {}, bias);
                 return (getQPCInterruptTime(qpc) - qpc_bias) * 100;
             }
         }
@@ -320,8 +318,8 @@ pub const Clock = struct {
             // https://www.geoffchappell.com/studies/windows/km/ntoskrnl/inc/api/ntexapi_x/kuser_shared_data/index.htm
             const frequency = os.windows.QueryPerformanceFrequency();
 
-            // Interrupt time in units of 100ns 
-            const scale = ns_per_s / 100; 
+            // Interrupt time in units of 100ns
+            const scale = ns_per_s / 100;
 
             // Try to do qpc * scale / frequency
             var qpc_scaled: u64 = undefined;
@@ -376,7 +374,7 @@ pub const Clock = struct {
                 }
 
                 // 64bit atomics aren't supported. Use INIT_ONCE instead
-                var init_with = current; 
+                var init_with = current;
                 os.windows.InitOnceExecuteOnce(
                     &Static.delta_once,
                     Static.initDeltaOnce,
@@ -422,7 +420,7 @@ test "Clock" {
     comptime var clock_ids: []const Clock.Id = &[_]Clock.Id{};
     inline for (std.meta.fields(Clock.Id)) |field| {
         const clock_id = @field(Clock.Id, field.name);
-        clock_ids = clock_ids ++ [_]Clock.Id{ clock_id };
+        clock_ids = clock_ids ++ [_]Clock.Id{clock_id};
     }
 
     for (clock_ids) |clock_id| {
