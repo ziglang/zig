@@ -260,7 +260,7 @@ pub const Clock = struct {
                 .monotonic => getInterruptTime(),
                 .uptime => getUnbiasedInterruptTime(),
                 .thread_cputime => getCpuTime("GetThreadTimes", "GetCurrentThread"),
-                .thread_cputime => getCpuTime("GetProcessTimes", "GetCurrentProcess"),
+                .process_cputime => getCpuTime("GetProcessTimes", "GetCurrentProcess"),
             };
         }
 
@@ -353,8 +353,8 @@ pub const Clock = struct {
 
                 fn initDeltaOnce(once: *os.windows.INIT_ONCE, param: ?*c_void, ctx: ?*c_void) callconv(.C) void {
                     _ = .{ once, ctx };
-                    const current = @ptrCast(*u64, @alignCast(@alignOf(u64), param)).*;
-                    delta.storeUnchecked(current);
+                    const current_ptr = @ptrCast(*u64, @alignCast(@alignOf(u64), param));
+                    delta.storeUnchecked(current_ptr.*);
                 }
             };
 
