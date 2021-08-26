@@ -2,8 +2,6 @@ const std = @import("../std.zig");
 const builtin = @import("builtin");
 const maxInt = std.math.maxInt;
 
-usingnamespace std.c;
-
 extern "c" fn __errno() *c_int;
 pub const _errno = __errno;
 

@@ -676,7 +676,7 @@ test "fsync" {
 }
 
 test "getrlimit and setrlimit" {
-    if (!@hasDecl(os, "rlimit")) {
+    if (native_os == .windows) {
         return error.SkipZigTest;
     }
 

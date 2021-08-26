@@ -12,20 +12,23 @@ const is_windows = std.Target.current.os.tag == .windows;
 
 pub const File = struct {
     /// The OS-specific file descriptor or file handle.
-    handle: os.fd_t,
+    handle: Handle,
 
-    /// On some systems, such as Linux, file system file descriptors are incapable of non-blocking I/O.
-    /// This forces us to perform asynchronous I/O on a dedicated thread, to achieve non-blocking
-    /// file-system I/O. To do this, `File` must be aware of whether it is a file system file descriptor,
-    /// or, more specifically, whether the I/O is always blocking.
+    /// On some systems, such as Linux, file system file descriptors are incapable
+    /// of non-blocking I/O. This forces us to perform asynchronous I/O on a dedicated thread,
+    /// to achieve non-blocking file-system I/O. To do this, `File` must be aware of whether
+    /// it is a file system file descriptor, or, more specifically, whether the I/O is always
+    /// blocking.
     capable_io_mode: io.ModeOverride = io.default_mode,
 
-    /// Furthermore, even when `std.io.mode` is async, it is still sometimes desirable to perform blocking I/O,
-    /// although not by default. For example, when printing a stack trace to stderr.
-    /// This field tracks both by acting as an overriding I/O mode. When not building in async I/O mode,
-    /// the type only has the `.blocking` tag, making it a zero-bit type.
+    /// Furthermore, even when `std.io.mode` is async, it is still sometimes desirable
+    /// to perform blocking I/O, although not by default. For example, when printing a
+    /// stack trace to stderr. This field tracks both by acting as an overriding I/O mode.
+    /// When not building in async I/O mode, the type only has the `.blocking` tag, making
+    /// it a zero-bit type.
     intended_io_mode: io.ModeOverride = io.default_mode,
 
+    pub const Handle = os.fd_t;
     pub const Mode = os.mode_t;
     pub const INode = os.ino_t;
 
