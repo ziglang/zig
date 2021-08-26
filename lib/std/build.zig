@@ -23,6 +23,7 @@ pub const WriteFileStep = @import("build/WriteFileStep.zig");
 pub const RunStep = @import("build/RunStep.zig");
 pub const CheckFileStep = @import("build/CheckFileStep.zig");
 pub const InstallRawStep = @import("build/InstallRawStep.zig");
+pub const OptionsStep = @import("build/OptionsStep.zig");
 
 pub const Builder = struct {
     install_tls: TopLevelStep,
@@ -245,6 +246,10 @@ pub const Builder = struct {
 
     pub fn addExecutableSource(builder: *Builder, name: []const u8, root_src: ?FileSource) *LibExeObjStep {
         return LibExeObjStep.createExecutable(builder, name, root_src);
+    }
+
+    pub fn addOptions(self: *Builder) *OptionsStep {
+        return OptionsStep.create(self);
     }
 
     pub fn addObject(self: *Builder, name: []const u8, root_src: ?[]const u8) *LibExeObjStep {
@@ -1375,16 +1380,6 @@ pub const FileSource = union(enum) {
     }
 };
 
-const BuildOptionArtifactArg = struct {
-    name: []const u8,
-    artifact: *LibExeObjStep,
-};
-
-const BuildOptionFileSourceArg = struct {
-    name: []const u8,
-    source: FileSource,
-};
-
 pub const LibExeObjStep = struct {
     pub const base_id = .lib_exe_obj;
 
@@ -1434,9 +1429,6 @@ pub const LibExeObjStep = struct {
     out_lib_filename: []const u8,
     out_pdb_filename: []const u8,
     packages: ArrayList(Pkg),
-    build_options_contents: std.ArrayList(u8),
-    build_options_artifact_args: std.ArrayList(BuildOptionArtifactArg),
-    build_options_file_source_args: std.ArrayList(BuildOptionFileSourceArg),
 
     object_src: []const u8,
 
@@ -1603,9 +1595,6 @@ pub const LibExeObjStep = struct {
             .rpaths = ArrayList([]const u8).init(builder.allocator),
             .framework_dirs = ArrayList([]const u8).init(builder.allocator),
             .object_src = undefined,
-            .build_options_contents = std.ArrayList(u8).init(builder.allocator),
-            .build_options_artifact_args = std.ArrayList(BuildOptionArtifactArg).init(builder.allocator),
-            .build_options_file_source_args = std.ArrayList(BuildOptionFileSourceArg).init(builder.allocator),
             .c_std = Builder.CStd.C99,
             .override_lib_dir = null,
             .main_pkg_path = null,
@@ -2038,119 +2027,6 @@ pub const LibExeObjStep = struct {
         self.linkLibraryOrObject(obj);
     }
 
-    pub fn addBuildOption(self: *LibExeObjStep, comptime T: type, name: []const u8, value: T) void {
-        const out = self.build_options_contents.writer();
-        switch (T) {
-            []const []const u8 => {
-                out.print("pub const {}: []const []const u8 = &[_][]const u8{{\n", .{std.zig.fmtId(name)}) catch unreachable;
-                for (value) |slice| {
-                    out.print("    \"{}\",\n", .{std.zig.fmtEscapes(slice)}) catch unreachable;
-                }
-                out.writeAll("};\n") catch unreachable;
-                return;
-            },
-            [:0]const u8 => {
-                out.print("pub const {}: [:0]const u8 = \"{}\";\n", .{ std.zig.fmtId(name), std.zig.fmtEscapes(value) }) catch unreachable;
-                return;
-            },
-            []const u8 => {
-                out.print("pub const {}: []const u8 = \"{}\";\n", .{ std.zig.fmtId(name), std.zig.fmtEscapes(value) }) catch unreachable;
-                return;
-            },
-            ?[:0]const u8 => {
-                out.print("pub const {}: ?[:0]const u8 = ", .{std.zig.fmtId(name)}) catch unreachable;
-                if (value) |payload| {
-                    out.print("\"{}\";\n", .{std.zig.fmtEscapes(payload)}) catch unreachable;
-                } else {
-                    out.writeAll("null;\n") catch unreachable;
-                }
-                return;
-            },
-            ?[]const u8 => {
-                out.print("pub const {}: ?[]const u8 = ", .{std.zig.fmtId(name)}) catch unreachable;
-                if (value) |payload| {
-                    out.print("\"{}\";\n", .{std.zig.fmtEscapes(payload)}) catch unreachable;
-                } else {
-                    out.writeAll("null;\n") catch unreachable;
-                }
-                return;
-            },
-            std.builtin.Version => {
-                out.print(
-                    \\pub const {}: @import("std").builtin.Version = .{{
-                    \\    .major = {d},
-                    \\    .minor = {d},
-                    \\    .patch = {d},
-                    \\}};
-                    \\
-                , .{
-                    std.zig.fmtId(name),
-
-                    value.major,
-                    value.minor,
-                    value.patch,
-                }) catch unreachable;
-            },
-            std.SemanticVersion => {
-                out.print(
-                    \\pub const {}: @import("std").SemanticVersion = .{{
-                    \\    .major = {d},
-                    \\    .minor = {d},
-                    \\    .patch = {d},
-                    \\
-                , .{
-                    std.zig.fmtId(name),
-
-                    value.major,
-                    value.minor,
-                    value.patch,
-                }) catch unreachable;
-                if (value.pre) |some| {
-                    out.print("    .pre = \"{}\",\n", .{std.zig.fmtEscapes(some)}) catch unreachable;
-                }
-                if (value.build) |some| {
-                    out.print("    .build = \"{}\",\n", .{std.zig.fmtEscapes(some)}) catch unreachable;
-                }
-                out.writeAll("};\n") catch unreachable;
-                return;
-            },
-            else => {},
-        }
-        switch (@typeInfo(T)) {
-            .Enum => |enum_info| {
-                out.print("pub const {} = enum {{\n", .{std.zig.fmtId(@typeName(T))}) catch unreachable;
-                inline for (enum_info.fields) |field| {
-                    out.print("    {},\n", .{std.zig.fmtId(field.name)}) catch unreachable;
-                }
-                out.writeAll("};\n") catch unreachable;
-            },
-            else => {},
-        }
-        out.print("pub const {}: {s} = {};\n", .{ std.zig.fmtId(name), @typeName(T), value }) catch unreachable;
-    }
-
-    /// The value is the path in the cache dir.
-    /// Adds a dependency automatically.
-    pub fn addBuildOptionArtifact(self: *LibExeObjStep, name: []const u8, artifact: *LibExeObjStep) void {
-        self.build_options_artifact_args.append(.{ .name = self.builder.dupe(name), .artifact = artifact }) catch unreachable;
-        self.step.dependOn(&artifact.step);
-    }
-
-    /// The value is the path in the cache dir.
-    /// Adds a dependency automatically.
-    /// basename refers to the basename of the WriteFileStep
-    pub fn addBuildOptionFileSource(
-        self: *LibExeObjStep,
-        name: []const u8,
-        source: FileSource,
-    ) void {
-        self.build_options_file_source_args.append(.{
-            .name = name,
-            .source = source.dupe(self.builder),
-        }) catch unreachable;
-        source.addStepDependencies(&self.step);
-    }
-
     pub fn addSystemIncludeDir(self: *LibExeObjStep, path: []const u8) void {
         self.include_dirs.append(IncludeDir{ .raw_path_system = self.builder.dupe(path) }) catch unreachable;
     }
@@ -2174,6 +2050,10 @@ pub const LibExeObjStep = struct {
     pub fn addPackage(self: *LibExeObjStep, package: Pkg) void {
         self.packages.append(self.builder.dupePkg(package)) catch unreachable;
         self.addRecursiveBuildDeps(package);
+    }
+
+    pub fn addOptions(self: *LibExeObjStep, package_name: []const u8, options: *OptionsStep) void {
+        self.addPackage(options.getPackage(package_name));
     }
 
     fn addRecursiveBuildDeps(self: *LibExeObjStep, package: Pkg) void {
@@ -2391,41 +2271,6 @@ pub const LibExeObjStep = struct {
                     }
                 },
             }
-        }
-
-        if (self.build_options_contents.items.len > 0 or
-            self.build_options_artifact_args.items.len > 0 or
-            self.build_options_file_source_args.items.len > 0)
-        {
-            // Render build artifact and write file options at the last minute, now that the path is known.
-            //
-            // Note that pathFromRoot uses resolve path, so this will have
-            // correct behavior even if getOutputPath is already absolute.
-            for (self.build_options_artifact_args.items) |item| {
-                self.addBuildOption(
-                    []const u8,
-                    item.name,
-                    self.builder.pathFromRoot(item.artifact.getOutputSource().getPath(self.builder)),
-                );
-            }
-            for (self.build_options_file_source_args.items) |item| {
-                self.addBuildOption(
-                    []const u8,
-                    item.name,
-                    item.source.getPath(self.builder),
-                );
-            }
-
-            const build_options_file = try fs.path.join(
-                builder.allocator,
-                &[_][]const u8{ builder.cache_root, builder.fmt("{s}_build_options.zig", .{self.name}) },
-            );
-            const path_from_root = builder.pathFromRoot(build_options_file);
-            try fs.cwd().writeFile(path_from_root, self.build_options_contents.items);
-            try zig_args.append("--pkg-begin");
-            try zig_args.append("build_options");
-            try zig_args.append(path_from_root);
-            try zig_args.append("--pkg-end");
         }
 
         if (self.image_base) |image_base| {
@@ -3141,6 +2986,7 @@ pub const Step = struct {
         run,
         check_file,
         install_raw,
+        options,
         custom,
     };
 
@@ -3310,43 +3156,6 @@ test "Builder.dupePkg()" {
     try std.testing.expect(dupe.path.path.ptr != pkg_top.path.path.ptr);
     try std.testing.expect(dupe_deps[0].name.ptr != pkg_dep.name.ptr);
     try std.testing.expect(dupe_deps[0].path.path.ptr != pkg_dep.path.path.ptr);
-}
-
-test "LibExeObjStep.addBuildOption" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
-
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    var builder = try Builder.create(
-        &arena.allocator,
-        "test",
-        "test",
-        "test",
-        "test",
-    );
-    defer builder.destroy();
-
-    var exe = builder.addExecutable("not_an_executable", "/not/an/executable.zig");
-    exe.addBuildOption(usize, "option1", 1);
-    exe.addBuildOption(?usize, "option2", null);
-    exe.addBuildOption([]const u8, "string", "zigisthebest");
-    exe.addBuildOption(?[]const u8, "optional_string", null);
-    exe.addBuildOption(std.SemanticVersion, "semantic_version", try std.SemanticVersion.parse("0.1.2-foo+bar"));
-
-    try std.testing.expectEqualStrings(
-        \\pub const option1: usize = 1;
-        \\pub const option2: ?usize = null;
-        \\pub const string: []const u8 = "zigisthebest";
-        \\pub const optional_string: ?[]const u8 = null;
-        \\pub const semantic_version: @import("std").SemanticVersion = .{
-        \\    .major = 0,
-        \\    .minor = 1,
-        \\    .patch = 2,
-        \\    .pre = "foo",
-        \\    .build = "bar",
-        \\};
-        \\
-    , exe.build_options_contents.items);
 }
 
 test "LibExeObjStep.addPackage" {

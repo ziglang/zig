@@ -109,9 +109,13 @@ pub fn build(b: *Builder) !void {
     b.default_step.dependOn(&exe.step);
     exe.single_threaded = single_threaded;
 
-    exe.addBuildOption(u32, "mem_leak_frames", mem_leak_frames);
-    exe.addBuildOption(bool, "skip_non_native", skip_non_native);
-    exe.addBuildOption(bool, "have_llvm", enable_llvm);
+    const exe_options = b.addOptions();
+    exe.addOptions("build_options", exe_options);
+
+    exe_options.addOption(u32, "mem_leak_frames", mem_leak_frames);
+    exe_options.addOption(bool, "skip_non_native", skip_non_native);
+    exe_options.addOption(bool, "have_llvm", enable_llvm);
+
     if (enable_llvm) {
         const cmake_cfg = if (static_llvm) null else findAndParseConfigH(b, config_h_path_option);
 
@@ -218,15 +222,15 @@ pub fn build(b: *Builder) !void {
             },
         }
     };
-    exe.addBuildOption([:0]const u8, "version", try b.allocator.dupeZ(u8, version));
+    exe_options.addOption([:0]const u8, "version", try b.allocator.dupeZ(u8, version));
 
     const semver = try std.SemanticVersion.parse(version);
-    exe.addBuildOption(std.SemanticVersion, "semver", semver);
+    exe_options.addOption(std.SemanticVersion, "semver", semver);
 
-    exe.addBuildOption(bool, "enable_logging", enable_logging);
-    exe.addBuildOption(bool, "enable_tracy", tracy != null);
-    exe.addBuildOption(bool, "is_stage1", is_stage1);
-    exe.addBuildOption(bool, "omit_stage2", omit_stage2);
+    exe_options.addOption(bool, "enable_logging", enable_logging);
+    exe_options.addOption(bool, "enable_tracy", tracy != null);
+    exe_options.addOption(bool, "is_stage1", is_stage1);
+    exe_options.addOption(bool, "omit_stage2", omit_stage2);
     if (tracy) |tracy_path| {
         const client_cpp = fs.path.join(
             b.allocator,
@@ -248,20 +252,23 @@ pub fn build(b: *Builder) !void {
     const is_darling_enabled = b.option(bool, "enable-darling", "[Experimental] Use Darling to run cross compiled macOS tests") orelse false;
     const glibc_multi_dir = b.option([]const u8, "enable-foreign-glibc", "Provide directory with glibc installations to run cross compiled tests that link glibc");
 
-    test_stage2.addBuildOption(bool, "enable_logging", enable_logging);
-    test_stage2.addBuildOption(bool, "skip_non_native", skip_non_native);
-    test_stage2.addBuildOption(bool, "skip_compile_errors", skip_compile_errors);
-    test_stage2.addBuildOption(bool, "is_stage1", is_stage1);
-    test_stage2.addBuildOption(bool, "omit_stage2", omit_stage2);
-    test_stage2.addBuildOption(bool, "have_llvm", enable_llvm);
-    test_stage2.addBuildOption(bool, "enable_qemu", is_qemu_enabled);
-    test_stage2.addBuildOption(bool, "enable_wine", is_wine_enabled);
-    test_stage2.addBuildOption(bool, "enable_wasmtime", is_wasmtime_enabled);
-    test_stage2.addBuildOption(u32, "mem_leak_frames", mem_leak_frames * 2);
-    test_stage2.addBuildOption(bool, "enable_darling", is_darling_enabled);
-    test_stage2.addBuildOption(?[]const u8, "glibc_multi_install_dir", glibc_multi_dir);
-    test_stage2.addBuildOption([:0]const u8, "version", try b.allocator.dupeZ(u8, version));
-    test_stage2.addBuildOption(std.SemanticVersion, "semver", semver);
+    const test_stage2_options = b.addOptions();
+    test_stage2.addOptions("build_options", test_stage2_options);
+
+    test_stage2_options.addOption(bool, "enable_logging", enable_logging);
+    test_stage2_options.addOption(bool, "skip_non_native", skip_non_native);
+    test_stage2_options.addOption(bool, "skip_compile_errors", skip_compile_errors);
+    test_stage2_options.addOption(bool, "is_stage1", is_stage1);
+    test_stage2_options.addOption(bool, "omit_stage2", omit_stage2);
+    test_stage2_options.addOption(bool, "have_llvm", enable_llvm);
+    test_stage2_options.addOption(bool, "enable_qemu", is_qemu_enabled);
+    test_stage2_options.addOption(bool, "enable_wine", is_wine_enabled);
+    test_stage2_options.addOption(bool, "enable_wasmtime", is_wasmtime_enabled);
+    test_stage2_options.addOption(u32, "mem_leak_frames", mem_leak_frames * 2);
+    test_stage2_options.addOption(bool, "enable_darling", is_darling_enabled);
+    test_stage2_options.addOption(?[]const u8, "glibc_multi_install_dir", glibc_multi_dir);
+    test_stage2_options.addOption([:0]const u8, "version", try b.allocator.dupeZ(u8, version));
+    test_stage2_options.addOption(std.SemanticVersion, "semver", semver);
 
     const test_stage2_step = b.step("test-stage2", "Run the stage2 compiler tests");
     test_stage2_step.dependOn(&test_stage2.step);
