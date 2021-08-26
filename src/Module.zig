@@ -4204,6 +4204,9 @@ pub fn createAnonymousDeclFromDeclNamed(
     new_decl.src_line = owner_decl.src_line;
     new_decl.ty = typed_value.ty;
     new_decl.val = typed_value.val;
+    new_decl.align_val = Value.initTag(.null_value);
+    new_decl.linksection_val = Value.initTag(.null_value);
+    new_decl.@"addrspace" = .generic; // default global addrspace
     new_decl.has_tv = true;
     new_decl.analysis = .complete;
     new_decl.generation = mod.generation;
