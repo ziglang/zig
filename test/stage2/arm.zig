@@ -204,6 +204,48 @@ pub fn addCases(ctx: *TestContext) !void {
         ,
             "123456",
         );
+
+        // Bit Shift Left
+        case.addCompareOutput(
+            \\pub fn main() void {
+            \\    var x: u32 = 1;
+            \\    assert(x << 1 == 2);
+            \\
+            \\    x <<= 1;
+            \\    assert(x << 2 == 8);
+            \\    assert(x << 3 == 16);
+            \\}
+            \\
+            \\pub fn assert(ok: bool) void {
+            \\    if (!ok) unreachable; // assertion failure
+            \\}
+        ,
+            "",
+        );
+
+        // Bit Shift Right
+        case.addCompareOutput(
+            \\pub fn main() void {
+            \\    var a: u32 = 1024;
+            \\    assert(a >> 1 == 512);
+            \\
+            \\    a >>= 1;
+            \\    assert(a >> 2 == 128);
+            \\    assert(a >> 3 == 64);
+            \\    assert(a >> 4 == 32);
+            \\    assert(a >> 5 == 16);
+            \\    assert(a >> 6 == 8);
+            \\    assert(a >> 7 == 4);
+            \\    assert(a >> 8 == 2);
+            \\    assert(a >> 9 == 1);
+            \\}
+            \\
+            \\pub fn assert(ok: bool) void {
+            \\    if (!ok) unreachable; // assertion failure
+            \\}
+        ,
+            "",
+        );
     }
 
     {
@@ -311,6 +353,22 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    assert(@enumToInt(x) == 0);
             \\    assert(@enumToInt(y) == 1);
             \\    assert(@enumToInt(z) == 2);
+            \\}
+            \\
+            \\fn assert(ok: bool) void {
+            \\    if (!ok) unreachable; // assertion failure
+            \\}
+        ,
+            "",
+        );
+
+        case.addCompareOutput(
+            \\const Number = enum { one, two, three };
+            \\
+            \\pub fn main() void {
+            \\    var x: Number = .one;
+            \\    var y = Number.two;
+            \\    assert(@enumToInt(x) < @enumToInt(y));
             \\}
             \\
             \\fn assert(ok: bool) void {
@@ -427,6 +485,50 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
         ,
             "",
+        );
+    }
+
+    {
+        var case = ctx.exe("print u32s", linux_arm);
+        case.addCompareOutput(
+            \\pub fn main() void {
+            \\    printNumberHex(0x00000000);
+            \\    printNumberHex(0xaaaaaaaa);
+            \\    printNumberHex(0xdeadbeef);
+            \\    printNumberHex(0x31415926);
+            \\}
+            \\
+            \\fn printNumberHex(x: u32) void {
+            \\    var i: u5 = 28;
+            \\    while (true) : (i -= 4) {
+            \\        const digit = (x >> i) & 0xf;
+            \\        asm volatile ("svc #0"
+            \\            :
+            \\            : [number] "{r7}" (4),
+            \\              [arg1] "{r0}" (1),
+            \\              [arg2] "{r1}" (@ptrToInt("0123456789abcdef") + digit),
+            \\              [arg3] "{r2}" (1)
+            \\            : "memory"
+            \\        );
+            \\
+            \\        if (i == 0) break;
+            \\    }
+            \\    asm volatile ("svc #0"
+            \\        :
+            \\        : [number] "{r7}" (4),
+            \\          [arg1] "{r0}" (1),
+            \\          [arg2] "{r1}" (@ptrToInt("\n")),
+            \\          [arg3] "{r2}" (1)
+            \\        : "memory"
+            \\    );
+            \\}
+        ,
+            \\00000000
+            \\aaaaaaaa
+            \\deadbeef
+            \\31415926
+            \\
+            ,
         );
     }
 }

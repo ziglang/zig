@@ -1,9 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
-
 /// Authenticated Encryption with Associated Data
 pub const aead = struct {
     pub const aegis = struct {
@@ -110,7 +104,16 @@ pub const onetimeauth = struct {
 ///
 /// Password hashing functions must be used whenever sensitive data has to be directly derived from a password.
 pub const pwhash = struct {
+    pub const Encoding = enum {
+        phc,
+        crypt,
+    };
+    pub const KdfError = errors.Error || std.mem.Allocator.Error;
+    pub const HasherError = KdfError || @import("crypto/phc_encoding.zig").Error;
+    pub const Error = HasherError || error{AllocatorRequired};
+
     pub const bcrypt = @import("crypto/bcrypt.zig");
+    pub const scrypt = @import("crypto/scrypt.zig");
     pub const pbkdf2 = @import("crypto/pbkdf2.zig").pbkdf2;
 };
 

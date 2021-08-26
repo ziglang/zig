@@ -919,7 +919,7 @@ bool target_has_valgrind_support(const ZigTarget *target) {
         case ZigLLVM_UnknownArch:
             zig_unreachable();
         case ZigLLVM_x86_64:
-            return (target->os == OsLinux || target_os_is_darwin(target->os) || target->os == OsSolaris ||
+            return (target->os == OsLinux || target->os == OsSolaris ||
                 (target->os == OsWindows && target->abi != ZigLLVM_MSVC));
         default:
             return false;

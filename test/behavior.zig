@@ -9,12 +9,13 @@ test {
     _ = @import("behavior/pointers.zig");
     _ = @import("behavior/if.zig");
     _ = @import("behavior/cast.zig");
+    _ = @import("behavior/array.zig");
 
     if (!builtin.zig_is_stage2) {
         // Tests that only pass for stage1.
         _ = @import("behavior/align.zig");
         _ = @import("behavior/alignof.zig");
-        _ = @import("behavior/array.zig");
+        _ = @import("behavior/array_stage1.zig");
         if (builtin.os.tag != .wasi) {
             _ = @import("behavior/asm.zig");
             _ = @import("behavior/async_fn.zig");
@@ -71,6 +72,7 @@ test {
         _ = @import("behavior/bugs/7047.zig");
         _ = @import("behavior/bugs/7003.zig");
         _ = @import("behavior/bugs/7250.zig");
+        _ = @import("behavior/bugs/9584.zig");
         _ = @import("behavior/bugs/394.zig");
         _ = @import("behavior/bugs/421.zig");
         _ = @import("behavior/bugs/529.zig");

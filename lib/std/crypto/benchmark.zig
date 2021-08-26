@@ -1,8 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
 // zig run benchmark.zig --release-fast --zig-lib-dir ..
 
 const std = @import("../std.zig");
@@ -300,6 +295,43 @@ pub fn benchmarkAes8(comptime Aes: anytype, comptime count: comptime_int) !u64 {
     return throughput;
 }
 
+const CryptoPwhash = struct {
+    hashFn: anytype,
+    params: anytype,
+    name: []const u8,
+};
+const bcrypt_params = bcrypt.Params{ .rounds_log = 5 };
+const pwhashes = [_]CryptoPwhash{
+    CryptoPwhash{ .hashFn = bcrypt.strHash, .params = bcrypt_params, .name = "bcrypt" },
+    CryptoPwhash{ .hashFn = scrypt.strHash, .params = scrypt.Params.interactive, .name = "scrypt" },
+};
+
+fn benchmarkPwhash(
+    comptime hashFn: anytype,
+    comptime params: anytype,
+    comptime count: comptime_int,
+) !u64 {
+    const password = "testpass" ** 2;
+    const opts = .{ .allocator = std.testing.allocator, .params = params, .encoding = .phc };
+    var buf: [256]u8 = undefined;
+
+    var timer = try Timer.start();
+    const start = timer.lap();
+    {
+        var i: usize = 0;
+        while (i < count) : (i += 1) {
+            _ = try hashFn(password, opts, &buf);
+            mem.doNotOptimizeAway(&buf);
+        }
+    }
+    const end = timer.read();
+
+    const elapsed_s = @intToFloat(f64, end - start) / time.ns_per_s;
+    const throughput = @floatToInt(u64, count / elapsed_s);
+
+    return throughput;
+}
+
 fn usage() void {
     std.debug.warn(
         \\throughput_test [options]
@@ -416,6 +448,13 @@ pub fn main() !void {
         if (filter == null or std.mem.indexOf(u8, E.name, filter.?) != null) {
             const throughput = try benchmarkAes8(E.ty, mode(10000000));
             try stdout.print("{s:>17}: {:10} ops/s\n", .{ E.name, throughput });
+        }
+    }
+
+    inline for (pwhashes) |H| {
+        if (filter == null or std.mem.indexOf(u8, H.name, filter.?) != null) {
+            const throughput = try benchmarkPwhash(H.hashFn, H.params, mode(64));
+            try stdout.print("{s:>17}: {:10} ops/s\n", .{ H.name, throughput });
         }
     }
 }

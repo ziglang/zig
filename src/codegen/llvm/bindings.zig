@@ -290,6 +290,14 @@ pub const Builder = opaque {
     pub const getInsertBlock = LLVMGetInsertBlock;
     extern fn LLVMGetInsertBlock(Builder: *const Builder) *const BasicBlock;
 
+    pub const buildZExt = LLVMBuildZExt;
+    extern fn LLVMBuildZExt(
+        *const Builder,
+        Value: *const Value,
+        DestTy: *const Type,
+        Name: [*:0]const u8,
+    ) *const Value;
+
     pub const buildCall = LLVMBuildCall;
     extern fn LLVMBuildCall(
         *const Builder,
@@ -380,6 +388,15 @@ pub const Builder = opaque {
 
     pub const buildAnd = LLVMBuildAnd;
     extern fn LLVMBuildAnd(*const Builder, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;
+
+    pub const buildLShr = LLVMBuildLShr;
+    extern fn LLVMBuildLShr(*const Builder, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;
+
+    pub const buildAShr = LLVMBuildAShr;
+    extern fn LLVMBuildAShr(*const Builder, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;
+
+    pub const buildShl = LLVMBuildShl;
+    extern fn LLVMBuildShl(*const Builder, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;
 
     pub const buildOr = LLVMBuildOr;
     extern fn LLVMBuildOr(*const Builder, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;

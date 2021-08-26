@@ -1,9 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
-
 //! Similar to `StaticResetEvent` but on `set()` it also (atomically) does `reset()`.
 //! Unlike StaticResetEvent, `wait()` can only be called by one thread (MPSC-like).
 //!

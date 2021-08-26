@@ -17,8 +17,10 @@ pub fn build(b: *Builder) !void {
     b.setPreferredReleaseMode(.ReleaseFast);
     const mode = b.standardReleaseOptions();
     const target = b.standardTargetOptions(.{});
+    const single_threaded = b.option(bool, "single-threaded", "Build artifacts that run in single threaded mode") orelse false;
 
     var docgen_exe = b.addExecutable("docgen", "doc/docgen.zig");
+    docgen_exe.single_threaded = single_threaded;
 
     const rel_zig_exe = try fs.path.relative(b.allocator, b.build_root, b.zig_exe);
     const langref_out_path = fs.path.join(
@@ -41,6 +43,7 @@ pub fn build(b: *Builder) !void {
     var test_stage2 = b.addTest("src/test.zig");
     test_stage2.setBuildMode(mode);
     test_stage2.addPackagePath("test_cases", "test/cases.zig");
+    test_stage2.single_threaded = single_threaded;
 
     const fmt_build_zig = b.addFmt(&[_][]const u8{"build.zig"});
 
@@ -104,6 +107,7 @@ pub fn build(b: *Builder) !void {
     exe.setTarget(target);
     toolchain_step.dependOn(&exe.step);
     b.default_step.dependOn(&exe.step);
+    exe.single_threaded = single_threaded;
 
     exe.addBuildOption(u32, "mem_leak_frames", mem_leak_frames);
     exe.addBuildOption(bool, "skip_non_native", skip_non_native);
@@ -131,6 +135,7 @@ pub fn build(b: *Builder) !void {
             softfloat.addIncludeDir("deps/SoftFloat-3e/source/8086");
             softfloat.addIncludeDir("deps/SoftFloat-3e/source/include");
             softfloat.addCSourceFiles(&softfloat_sources, &[_][]const u8{ "-std=c99", "-O3" });
+            softfloat.single_threaded = single_threaded;
 
             exe.linkLibrary(softfloat);
             test_stage2.linkLibrary(softfloat);
@@ -296,7 +301,7 @@ pub fn build(b: *Builder) !void {
         "behavior",
         "Run the behavior tests",
         modes,
-        false,
+        false, // skip_single_threaded
         skip_non_native,
         skip_libc,
         is_wine_enabled,
@@ -313,9 +318,9 @@ pub fn build(b: *Builder) !void {
         "compiler-rt",
         "Run the compiler_rt tests",
         modes,
-        true,
+        true, // skip_single_threaded
         skip_non_native,
-        true,
+        true, // skip_libc
         is_wine_enabled,
         is_qemu_enabled,
         is_wasmtime_enabled,
@@ -330,9 +335,9 @@ pub fn build(b: *Builder) !void {
         "minilibc",
         "Run the mini libc tests",
         modes,
-        true,
+        true, // skip_single_threaded
         skip_non_native,
-        true,
+        true, // skip_libc
         is_wine_enabled,
         is_qemu_enabled,
         is_wasmtime_enabled,

@@ -1,8 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
 const std = @import("../../std.zig");
 const builtin = std.builtin;
 const linux = std.os.linux;
@@ -22,9 +17,9 @@ test "fallocate" {
 
     const len: i64 = 65536;
     switch (linux.getErrno(linux.fallocate(file.handle, 0, 0, len))) {
-        0 => {},
-        linux.ENOSYS => return error.SkipZigTest,
-        linux.EOPNOTSUPP => return error.SkipZigTest,
+        .SUCCESS => {},
+        .NOSYS => return error.SkipZigTest,
+        .OPNOTSUPP => return error.SkipZigTest,
         else => |errno| std.debug.panic("unhandled errno: {}", .{errno}),
     }
 
@@ -37,11 +32,11 @@ test "getpid" {
 
 test "timer" {
     const epoll_fd = linux.epoll_create();
-    var err: usize = linux.getErrno(epoll_fd);
-    try expect(err == 0);
+    var err: linux.E = linux.getErrno(epoll_fd);
+    try expect(err == .SUCCESS);
 
     const timer_fd = linux.timerfd_create(linux.CLOCK_MONOTONIC, 0);
-    try expect(linux.getErrno(timer_fd) == 0);
+    try expect(linux.getErrno(timer_fd) == .SUCCESS);
 
     const time_interval = linux.timespec{
         .tv_sec = 0,
@@ -53,22 +48,22 @@ test "timer" {
         .it_value = time_interval,
     };
 
-    err = linux.timerfd_settime(@intCast(i32, timer_fd), 0, &new_time, null);
-    try expect(err == 0);
+    err = linux.getErrno(linux.timerfd_settime(@intCast(i32, timer_fd), 0, &new_time, null));
+    try expect(err == .SUCCESS);
 
     var event = linux.epoll_event{
         .events = linux.EPOLLIN | linux.EPOLLOUT | linux.EPOLLET,
         .data = linux.epoll_data{ .ptr = 0 },
     };
 
-    err = linux.epoll_ctl(@intCast(i32, epoll_fd), linux.EPOLL_CTL_ADD, @intCast(i32, timer_fd), &event);
-    try expect(err == 0);
+    err = linux.getErrno(linux.epoll_ctl(@intCast(i32, epoll_fd), linux.EPOLL_CTL_ADD, @intCast(i32, timer_fd), &event));
+    try expect(err == .SUCCESS);
 
     const events_one: linux.epoll_event = undefined;
     var events = [_]linux.epoll_event{events_one} ** 8;
 
-    // TODO implicit cast from *[N]T to [*]T
-    err = linux.epoll_wait(@intCast(i32, epoll_fd), @ptrCast([*]linux.epoll_event, &events), 8, -1);
+    err = linux.getErrno(linux.epoll_wait(@intCast(i32, epoll_fd), &events, 8, -1));
+    try expect(err == .SUCCESS);
 }
 
 test "statx" {
@@ -81,15 +76,15 @@ test "statx" {
 
     var statx_buf: linux.Statx = undefined;
     switch (linux.getErrno(linux.statx(file.handle, "", linux.AT_EMPTY_PATH, linux.STATX_BASIC_STATS, &statx_buf))) {
-        0 => {},
+        .SUCCESS => {},
         // The statx syscall was only introduced in linux 4.11
-        linux.ENOSYS => return error.SkipZigTest,
+        .NOSYS => return error.SkipZigTest,
         else => unreachable,
     }
 
     var stat_buf: linux.kernel_stat = undefined;
     switch (linux.getErrno(linux.fstatat(file.handle, "", &stat_buf, linux.AT_EMPTY_PATH))) {
-        0 => {},
+        .SUCCESS => {},
         else => unreachable,
     }
 

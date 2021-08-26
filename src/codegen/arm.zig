@@ -1142,6 +1142,79 @@ pub const Instruction = union(enum) {
             return stmdb(cond, .sp, true, @bitCast(RegisterList, register_list));
         }
     }
+
+    pub const ShiftAmount = union(enum) {
+        immediate: u5,
+        register: Register,
+
+        pub fn imm(immediate: u5) ShiftAmount {
+            return .{
+                .immediate = immediate,
+            };
+        }
+
+        pub fn reg(register: Register) ShiftAmount {
+            return .{
+                .register = register,
+            };
+        }
+    };
+
+    pub fn lsl(cond: Condition, rd: Register, rm: Register, shift: ShiftAmount) Instruction {
+        return switch (shift) {
+            .immediate => |imm| mov(cond, rd, Operand.reg(rm, Operand.Shift.imm(imm, .logical_left))),
+            .register => |reg| mov(cond, rd, Operand.reg(rm, Operand.Shift.reg(reg, .logical_left))),
+        };
+    }
+
+    pub fn lsr(cond: Condition, rd: Register, rm: Register, shift: ShiftAmount) Instruction {
+        return switch (shift) {
+            .immediate => |imm| mov(cond, rd, Operand.reg(rm, Operand.Shift.imm(imm, .logical_right))),
+            .register => |reg| mov(cond, rd, Operand.reg(rm, Operand.Shift.reg(reg, .logical_right))),
+        };
+    }
+
+    pub fn asr(cond: Condition, rd: Register, rm: Register, shift: ShiftAmount) Instruction {
+        return switch (shift) {
+            .immediate => |imm| mov(cond, rd, Operand.reg(rm, Operand.Shift.imm(imm, .arithmetic_right))),
+            .register => |reg| mov(cond, rd, Operand.reg(rm, Operand.Shift.reg(reg, .arithmetic_right))),
+        };
+    }
+
+    pub fn ror(cond: Condition, rd: Register, rm: Register, shift: ShiftAmount) Instruction {
+        return switch (shift) {
+            .immediate => |imm| mov(cond, rd, Operand.reg(rm, Operand.Shift.imm(imm, .rotate_right))),
+            .register => |reg| mov(cond, rd, Operand.reg(rm, Operand.Shift.reg(reg, .rotate_right))),
+        };
+    }
+
+    pub fn lsls(cond: Condition, rd: Register, rm: Register, shift: ShiftAmount) Instruction {
+        return switch (shift) {
+            .immediate => |imm| movs(cond, rd, Operand.reg(rm, Operand.Shift.imm(imm, .logical_left))),
+            .register => |reg| movs(cond, rd, Operand.reg(rm, Operand.Shift.reg(reg, .logical_left))),
+        };
+    }
+
+    pub fn lsrs(cond: Condition, rd: Register, rm: Register, shift: ShiftAmount) Instruction {
+        return switch (shift) {
+            .immediate => |imm| movs(cond, rd, Operand.reg(rm, Operand.Shift.imm(imm, .logical_right))),
+            .register => |reg| movs(cond, rd, Operand.reg(rm, Operand.Shift.reg(reg, .logical_right))),
+        };
+    }
+
+    pub fn asrs(cond: Condition, rd: Register, rm: Register, shift: ShiftAmount) Instruction {
+        return switch (shift) {
+            .immediate => |imm| movs(cond, rd, Operand.reg(rm, Operand.Shift.imm(imm, .arithmetic_right))),
+            .register => |reg| movs(cond, rd, Operand.reg(rm, Operand.Shift.reg(reg, .arithmetic_right))),
+        };
+    }
+
+    pub fn rors(cond: Condition, rd: Register, rm: Register, shift: ShiftAmount) Instruction {
+        return switch (shift) {
+            .immediate => |imm| movs(cond, rd, Operand.reg(rm, Operand.Shift.imm(imm, .rotate_right))),
+            .register => |reg| movs(cond, rd, Operand.reg(rm, Operand.Shift.reg(reg, .rotate_right))),
+        };
+    }
 };
 
 test "serialize instructions" {
@@ -1261,6 +1334,20 @@ test "aliases" {
         .{ // push { r0, r2 }
             .actual = Instruction.push(.al, .{ .r0, .r2 }),
             .expected = Instruction.stmdb(.al, .sp, true, .{ .r0 = true, .r2 = true }),
+        },
+        .{ // lsl r4, r5, #5
+            .actual = Instruction.lsl(.al, .r4, .r5, Instruction.ShiftAmount.imm(5)),
+            .expected = Instruction.mov(.al, .r4, Instruction.Operand.reg(
+                .r5,
+                Instruction.Operand.Shift.imm(5, .logical_left),
+            )),
+        },
+        .{ // asrs r1, r1, r3
+            .actual = Instruction.asrs(.al, .r1, .r1, Instruction.ShiftAmount.reg(.r3)),
+            .expected = Instruction.movs(.al, .r1, Instruction.Operand.reg(
+                .r1,
+                Instruction.Operand.Shift.reg(.r3, .arithmetic_right),
+            )),
         },
     };
 

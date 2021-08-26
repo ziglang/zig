@@ -1,9 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
-
 //! The engines provided here should be initialized from an external source.
 //! For a thread-local cryptographically secure pseudo random number generator,
 //! use `std.crypto.random`.
@@ -45,6 +39,19 @@ pub const Random = struct {
 
     pub fn boolean(r: *Random) bool {
         return r.int(u1) != 0;
+    }
+
+    /// Returns a random value from an enum, evenly distributed.
+    pub fn enumValue(r: *Random, comptime EnumType: type) EnumType {
+        if (comptime !std.meta.trait.is(.Enum)(EnumType)) {
+            @compileError("Random.enumValue requires an enum type, not a " ++ @typeName(EnumType));
+        }
+
+        // We won't use int -> enum casting because enum elements can have
+        //  arbitrary values.  Instead we'll randomly pick one of the type's values.
+        const values = std.enums.values(EnumType);
+        const index = r.uintLessThan(usize, values.len);
+        return values[index];
     }
 
     /// Returns a random int `i` such that `0 <= i <= maxInt(T)`.
@@ -375,6 +382,23 @@ fn testRandomBoolean() !void {
     try expect(r.random.boolean() == true);
     try expect(r.random.boolean() == false);
     try expect(r.random.boolean() == true);
+}
+
+test "Random enum" {
+    try testRandomEnumValue();
+    comptime try testRandomEnumValue();
+}
+fn testRandomEnumValue() !void {
+    const TestEnum = enum {
+        First,
+        Second,
+        Third,
+    };
+    var r = SequentialPrng.init();
+    r.next_value = 0;
+    try expect(r.random.enumValue(TestEnum) == TestEnum.First);
+    try expect(r.random.enumValue(TestEnum) == TestEnum.First);
+    try expect(r.random.enumValue(TestEnum) == TestEnum.First);
 }
 
 test "Random intLessThan" {

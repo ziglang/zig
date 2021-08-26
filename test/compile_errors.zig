@@ -6969,29 +6969,24 @@ pub fn addCases(ctx: *TestContext) !void {
         "tmp.zig:2:30: error: cannot set section of local variable 'foo'",
     });
 
-    ctx.objErrStage1("inner struct member shadowing outer struct member",
-        \\fn A() type {
-        \\    return struct {
-        \\        b: B(),
-        \\
-        \\        const Self = @This();
-        \\
-        \\        fn B() type {
-        \\            return struct {
-        \\                const Self = @This();
-        \\            };
+    ctx.objErrStage1("ambiguous decl reference",
+        \\fn foo() void {}
+        \\fn bar() void {
+        \\    const S = struct {
+        \\        fn baz() void {
+        \\            foo();
         \\        }
+        \\        fn foo() void {}
         \\    };
+        \\    S.baz();
         \\}
-        \\comptime {
-        \\    assert(A().B().Self != A().Self);
-        \\}
-        \\fn assert(ok: bool) void {
-        \\    if (!ok) unreachable;
+        \\export fn entry() void {
+        \\    bar();
         \\}
     , &[_][]const u8{
-        "tmp.zig:9:17: error: redefinition of 'Self'",
-        "tmp.zig:5:9: note: previous definition here",
+        "tmp.zig:5:13: error: ambiguous reference",
+        "tmp.zig:7:9: note: declared here",
+        "tmp.zig:1:1: note: also declared here",
     });
 
     ctx.objErrStage1("while expected bool, got optional",
@@ -7691,12 +7686,12 @@ pub fn addCases(ctx: *TestContext) !void {
         \\};
         \\
         \\export fn entry() void {
-        \\    var y = @as(u3, 3);
+        \\    var y = @as(f32, 3);
         \\    var x = @intToEnum(Small, y);
         \\    _ = x;
         \\}
     , &[_][]const u8{
-        "tmp.zig:10:31: error: expected type 'u2', found 'u3'",
+        "tmp.zig:10:31: error: expected integer type, found 'f32'",
     });
 
     ctx.objErrStage1("union fields with value assignments",

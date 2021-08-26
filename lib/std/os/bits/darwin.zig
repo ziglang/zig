@@ -1,8 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
 const std = @import("../../std.zig");
 const assert = std.debug.assert;
 const maxInt = std.math.maxInt;
@@ -235,6 +230,7 @@ pub const host_t = mach_port_t;
 pub const CALENDAR_CLOCK = 1;
 
 pub const PATH_MAX = 1024;
+pub const IOV_MAX = 16;
 
 pub const STDIN_FILENO = 0;
 pub const STDOUT_FILENO = 1;
@@ -865,337 +861,342 @@ pub fn WIFSIGNALED(x: u32) bool {
     return wstatus(x) != wstopped and wstatus(x) != 0;
 }
 
-/// Operation not permitted
-pub const EPERM = 1;
+pub const E = enum(u16) {
+    /// No error occurred.
+    SUCCESS = 0,
 
-/// No such file or directory
-pub const ENOENT = 2;
+    /// Operation not permitted
+    PERM = 1,
 
-/// No such process
-pub const ESRCH = 3;
+    /// No such file or directory
+    NOENT = 2,
 
-/// Interrupted system call
-pub const EINTR = 4;
+    /// No such process
+    SRCH = 3,
 
-/// Input/output error
-pub const EIO = 5;
+    /// Interrupted system call
+    INTR = 4,
 
-/// Device not configured
-pub const ENXIO = 6;
+    /// Input/output error
+    IO = 5,
 
-/// Argument list too long
-pub const E2BIG = 7;
+    /// Device not configured
+    NXIO = 6,
 
-/// Exec format error
-pub const ENOEXEC = 8;
+    /// Argument list too long
+    @"2BIG" = 7,
 
-/// Bad file descriptor
-pub const EBADF = 9;
+    /// Exec format error
+    NOEXEC = 8,
 
-/// No child processes
-pub const ECHILD = 10;
+    /// Bad file descriptor
+    BADF = 9,
 
-/// Resource deadlock avoided
-pub const EDEADLK = 11;
+    /// No child processes
+    CHILD = 10,
 
-/// Cannot allocate memory
-pub const ENOMEM = 12;
+    /// Resource deadlock avoided
+    DEADLK = 11,
 
-/// Permission denied
-pub const EACCES = 13;
+    /// Cannot allocate memory
+    NOMEM = 12,
 
-/// Bad address
-pub const EFAULT = 14;
+    /// Permission denied
+    ACCES = 13,
 
-/// Block device required
-pub const ENOTBLK = 15;
+    /// Bad address
+    FAULT = 14,
 
-/// Device / Resource busy
-pub const EBUSY = 16;
+    /// Block device required
+    NOTBLK = 15,
 
-/// File exists
-pub const EEXIST = 17;
+    /// Device / Resource busy
+    BUSY = 16,
 
-/// Cross-device link
-pub const EXDEV = 18;
+    /// File exists
+    EXIST = 17,
 
-/// Operation not supported by device
-pub const ENODEV = 19;
+    /// Cross-device link
+    XDEV = 18,
 
-/// Not a directory
-pub const ENOTDIR = 20;
+    /// Operation not supported by device
+    NODEV = 19,
 
-/// Is a directory
-pub const EISDIR = 21;
+    /// Not a directory
+    NOTDIR = 20,
 
-/// Invalid argument
-pub const EINVAL = 22;
+    /// Is a directory
+    ISDIR = 21,
 
-/// Too many open files in system
-pub const ENFILE = 23;
+    /// Invalid argument
+    INVAL = 22,
 
-/// Too many open files
-pub const EMFILE = 24;
+    /// Too many open files in system
+    NFILE = 23,
 
-/// Inappropriate ioctl for device
-pub const ENOTTY = 25;
+    /// Too many open files
+    MFILE = 24,
 
-/// Text file busy
-pub const ETXTBSY = 26;
+    /// Inappropriate ioctl for device
+    NOTTY = 25,
 
-/// File too large
-pub const EFBIG = 27;
+    /// Text file busy
+    TXTBSY = 26,
 
-/// No space left on device
-pub const ENOSPC = 28;
+    /// File too large
+    FBIG = 27,
 
-/// Illegal seek
-pub const ESPIPE = 29;
+    /// No space left on device
+    NOSPC = 28,
 
-/// Read-only file system
-pub const EROFS = 30;
+    /// Illegal seek
+    SPIPE = 29,
 
-/// Too many links
-pub const EMLINK = 31;
-/// Broken pipe
+    /// Read-only file system
+    ROFS = 30,
 
-// math software
-pub const EPIPE = 32;
+    /// Too many links
+    MLINK = 31,
 
-/// Numerical argument out of domain
-pub const EDOM = 33;
-/// Result too large
+    /// Broken pipe
+    PIPE = 32,
 
-// non-blocking and interrupt i/o
-pub const ERANGE = 34;
+    // math software
 
-/// Resource temporarily unavailable
-pub const EAGAIN = 35;
+    /// Numerical argument out of domain
+    DOM = 33,
 
-/// Operation would block
-pub const EWOULDBLOCK = EAGAIN;
+    /// Result too large
+    RANGE = 34,
 
-/// Operation now in progress
-pub const EINPROGRESS = 36;
-/// Operation already in progress
+    // non-blocking and interrupt i/o
 
-// ipc/network software -- argument errors
-pub const EALREADY = 37;
+    /// Resource temporarily unavailable
+    /// This is the same code used for `WOULDBLOCK`.
+    AGAIN = 35,
 
-/// Socket operation on non-socket
-pub const ENOTSOCK = 38;
+    /// Operation now in progress
+    INPROGRESS = 36,
 
-/// Destination address required
-pub const EDESTADDRREQ = 39;
+    /// Operation already in progress
+    ALREADY = 37,
 
-/// Message too long
-pub const EMSGSIZE = 40;
+    // ipc/network software -- argument errors
 
-/// Protocol wrong type for socket
-pub const EPROTOTYPE = 41;
+    /// Socket operation on non-socket
+    NOTSOCK = 38,
 
-/// Protocol not available
-pub const ENOPROTOOPT = 42;
+    /// Destination address required
+    DESTADDRREQ = 39,
 
-/// Protocol not supported
-pub const EPROTONOSUPPORT = 43;
+    /// Message too long
+    MSGSIZE = 40,
 
-/// Socket type not supported
-pub const ESOCKTNOSUPPORT = 44;
+    /// Protocol wrong type for socket
+    PROTOTYPE = 41,
 
-/// Operation not supported
-pub const ENOTSUP = 45;
+    /// Protocol not available
+    NOPROTOOPT = 42,
 
-/// Operation not supported. Alias of `ENOTSUP`.
-pub const EOPNOTSUPP = ENOTSUP;
+    /// Protocol not supported
+    PROTONOSUPPORT = 43,
 
-/// Protocol family not supported
-pub const EPFNOSUPPORT = 46;
+    /// Socket type not supported
+    SOCKTNOSUPPORT = 44,
 
-/// Address family not supported by protocol family
-pub const EAFNOSUPPORT = 47;
+    /// Operation not supported
+    /// The same code is used for `NOTSUP`.
+    OPNOTSUPP = 45,
 
-/// Address already in use
-pub const EADDRINUSE = 48;
-/// Can't assign requested address
+    /// Protocol family not supported
+    PFNOSUPPORT = 46,
 
-// ipc/network software -- operational errors
-pub const EADDRNOTAVAIL = 49;
+    /// Address family not supported by protocol family
+    AFNOSUPPORT = 47,
 
-/// Network is down
-pub const ENETDOWN = 50;
+    /// Address already in use
+    ADDRINUSE = 48,
+    /// Can't assign requested address
 
-/// Network is unreachable
-pub const ENETUNREACH = 51;
+    // ipc/network software -- operational errors
+    ADDRNOTAVAIL = 49,
 
-/// Network dropped connection on reset
-pub const ENETRESET = 52;
+    /// Network is down
+    NETDOWN = 50,
 
-/// Software caused connection abort
-pub const ECONNABORTED = 53;
+    /// Network is unreachable
+    NETUNREACH = 51,
 
-/// Connection reset by peer
-pub const ECONNRESET = 54;
+    /// Network dropped connection on reset
+    NETRESET = 52,
 
-/// No buffer space available
-pub const ENOBUFS = 55;
+    /// Software caused connection abort
+    CONNABORTED = 53,
 
-/// Socket is already connected
-pub const EISCONN = 56;
+    /// Connection reset by peer
+    CONNRESET = 54,
 
-/// Socket is not connected
-pub const ENOTCONN = 57;
+    /// No buffer space available
+    NOBUFS = 55,
 
-/// Can't send after socket shutdown
-pub const ESHUTDOWN = 58;
+    /// Socket is already connected
+    ISCONN = 56,
 
-/// Too many references: can't splice
-pub const ETOOMANYREFS = 59;
+    /// Socket is not connected
+    NOTCONN = 57,
 
-/// Operation timed out
-pub const ETIMEDOUT = 60;
+    /// Can't send after socket shutdown
+    SHUTDOWN = 58,
 
-/// Connection refused
-pub const ECONNREFUSED = 61;
+    /// Too many references: can't splice
+    TOOMANYREFS = 59,
 
-/// Too many levels of symbolic links
-pub const ELOOP = 62;
+    /// Operation timed out
+    TIMEDOUT = 60,
 
-/// File name too long
-pub const ENAMETOOLONG = 63;
+    /// Connection refused
+    CONNREFUSED = 61,
 
-/// Host is down
-pub const EHOSTDOWN = 64;
+    /// Too many levels of symbolic links
+    LOOP = 62,
 
-/// No route to host
-pub const EHOSTUNREACH = 65;
-/// Directory not empty
+    /// File name too long
+    NAMETOOLONG = 63,
 
-// quotas & mush
-pub const ENOTEMPTY = 66;
+    /// Host is down
+    HOSTDOWN = 64,
 
-/// Too many processes
-pub const EPROCLIM = 67;
+    /// No route to host
+    HOSTUNREACH = 65,
+    /// Directory not empty
 
-/// Too many users
-pub const EUSERS = 68;
-/// Disc quota exceeded
+    // quotas & mush
+    NOTEMPTY = 66,
 
-// Network File System
-pub const EDQUOT = 69;
+    /// Too many processes
+    PROCLIM = 67,
 
-/// Stale NFS file handle
-pub const ESTALE = 70;
+    /// Too many users
+    USERS = 68,
+    /// Disc quota exceeded
 
-/// Too many levels of remote in path
-pub const EREMOTE = 71;
+    // Network File System
+    DQUOT = 69,
 
-/// RPC struct is bad
-pub const EBADRPC = 72;
+    /// Stale NFS file handle
+    STALE = 70,
 
-/// RPC version wrong
-pub const ERPCMISMATCH = 73;
+    /// Too many levels of remote in path
+    REMOTE = 71,
 
-/// RPC prog. not avail
-pub const EPROGUNAVAIL = 74;
+    /// RPC struct is bad
+    BADRPC = 72,
 
-/// Program version wrong
-pub const EPROGMISMATCH = 75;
+    /// RPC version wrong
+    RPCMISMATCH = 73,
 
-/// Bad procedure for program
-pub const EPROCUNAVAIL = 76;
+    /// RPC prog. not avail
+    PROGUNAVAIL = 74,
 
-/// No locks available
-pub const ENOLCK = 77;
+    /// Program version wrong
+    PROGMISMATCH = 75,
 
-/// Function not implemented
-pub const ENOSYS = 78;
+    /// Bad procedure for program
+    PROCUNAVAIL = 76,
 
-/// Inappropriate file type or format
-pub const EFTYPE = 79;
+    /// No locks available
+    NOLCK = 77,
 
-/// Authentication error
-pub const EAUTH = 80;
-/// Need authenticator
+    /// Function not implemented
+    NOSYS = 78,
 
-// Intelligent device errors
-pub const ENEEDAUTH = 81;
+    /// Inappropriate file type or format
+    FTYPE = 79,
 
-/// Device power is off
-pub const EPWROFF = 82;
+    /// Authentication error
+    AUTH = 80,
 
-/// Device error, e.g. paper out
-pub const EDEVERR = 83;
-/// Value too large to be stored in data type
+    /// Need authenticator
+    NEEDAUTH = 81,
 
-// Program loading errors
-pub const EOVERFLOW = 84;
+    // Intelligent device errors
 
-/// Bad executable
-pub const EBADEXEC = 85;
+    /// Device power is off
+    PWROFF = 82,
 
-/// Bad CPU type in executable
-pub const EBADARCH = 86;
+    /// Device error, e.g. paper out
+    DEVERR = 83,
 
-/// Shared library version mismatch
-pub const ESHLIBVERS = 87;
+    /// Value too large to be stored in data type
+    OVERFLOW = 84,
 
-/// Malformed Macho file
-pub const EBADMACHO = 88;
+    // Program loading errors
 
-/// Operation canceled
-pub const ECANCELED = 89;
+    /// Bad executable
+    BADEXEC = 85,
 
-/// Identifier removed
-pub const EIDRM = 90;
+    /// Bad CPU type in executable
+    BADARCH = 86,
 
-/// No message of desired type
-pub const ENOMSG = 91;
+    /// Shared library version mismatch
+    SHLIBVERS = 87,
 
-/// Illegal byte sequence
-pub const EILSEQ = 92;
+    /// Malformed Macho file
+    BADMACHO = 88,
 
-/// Attribute not found
-pub const ENOATTR = 93;
+    /// Operation canceled
+    CANCELED = 89,
 
-/// Bad message
-pub const EBADMSG = 94;
+    /// Identifier removed
+    IDRM = 90,
 
-/// Reserved
-pub const EMULTIHOP = 95;
+    /// No message of desired type
+    NOMSG = 91,
 
-/// No message available on STREAM
-pub const ENODATA = 96;
+    /// Illegal byte sequence
+    ILSEQ = 92,
 
-/// Reserved
-pub const ENOLINK = 97;
+    /// Attribute not found
+    NOATTR = 93,
 
-/// No STREAM resources
-pub const ENOSR = 98;
+    /// Bad message
+    BADMSG = 94,
 
-/// Not a STREAM
-pub const ENOSTR = 99;
+    /// Reserved
+    MULTIHOP = 95,
 
-/// Protocol error
-pub const EPROTO = 100;
+    /// No message available on STREAM
+    NODATA = 96,
 
-/// STREAM ioctl timeout
-pub const ETIME = 101;
+    /// Reserved
+    NOLINK = 97,
 
-/// No such policy registered
-pub const ENOPOLICY = 103;
+    /// No STREAM resources
+    NOSR = 98,
 
-/// State not recoverable
-pub const ENOTRECOVERABLE = 104;
+    /// Not a STREAM
+    NOSTR = 99,
 
-/// Previous owner died
-pub const EOWNERDEAD = 105;
+    /// Protocol error
+    PROTO = 100,
 
-/// Interface output queue is full
-pub const EQFULL = 106;
+    /// STREAM ioctl timeout
+    TIME = 101,
 
-/// Must be equal largest errno
-pub const ELAST = 106;
+    /// No such policy registered
+    NOPOLICY = 103,
+
+    /// State not recoverable
+    NOTRECOVERABLE = 104,
+
+    /// Previous owner died
+    OWNERDEAD = 105,
+
+    /// Interface output queue is full
+    QFULL = 106,
+
+    _,
+};
 
 pub const SIGSTKSZ = 131072;
 pub const MINSIGSTKSZ = 32768;

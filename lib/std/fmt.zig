@@ -1,8 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
 const std = @import("std.zig");
 const math = std.math;
 const assert = std.debug.assert;
@@ -543,6 +538,13 @@ pub fn formatType(
                         if (comptime mem.indexOfScalar(u8, "sxXeE", actual_fmt[0]) != null) {
                             return formatText(value, actual_fmt, options, writer);
                         }
+                    }
+                    if (comptime std.meta.trait.isZigString(info.child)) {
+                        for (value) |item, i| {
+                            if (i != 0) try formatText(", ", actual_fmt, options, writer);
+                            try formatText(item, actual_fmt, options, writer);
+                        }
+                        return;
                     }
                     @compileError("Unknown format string: '" ++ actual_fmt ++ "' for type '" ++ @typeName(T) ++ "'");
                 },
@@ -1750,6 +1752,7 @@ test "parseUnsigned" {
 }
 
 pub const parseFloat = @import("fmt/parse_float.zig").parseFloat;
+pub const ParseFloatError = @import("fmt/parse_float.zig").ParseFloatError;
 pub const parseHexFloat = @import("fmt/parse_hex_float.zig").parseHexFloat;
 
 test {

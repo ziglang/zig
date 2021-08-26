@@ -1,8 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
 const std = @import("../std.zig");
 const builtin = std.builtin;
 const math = std.math;
@@ -141,6 +136,23 @@ pub fn Reader(
             defer array_list.deinit();
             try self.readUntilDelimiterArrayList(&array_list, delimiter, max_size);
             return array_list.toOwnedSlice();
+        }
+
+        /// Reads from the stream until specified byte is found. If the buffer is not
+        /// large enough to hold the entire contents, `error.StreamTooLong` is returned.
+        /// Returns a slice of the stream data, with ptr equal to `buf.ptr`. The
+        /// delimiter byte is not included in the returned slice.
+        pub fn readUntilDelimiter(self: Self, buf: []u8, delimiter: u8) ![]u8 {
+            var index: usize = 0;
+            while (true) {
+                const byte = try self.readByte();
+
+                if (byte == delimiter) return buf[0..index];
+                if (index >= buf.len) return error.StreamTooLong;
+
+                buf[index] = byte;
+                index += 1;
+            }
         }
 
         /// Allocates enough memory to read until `delimiter` or end-of-stream.

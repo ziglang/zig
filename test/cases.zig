@@ -26,7 +26,7 @@ pub fn addCases(ctx: *TestContext) !void {
         var case = ctx.exe("hello world with updates", linux_x64);
 
         case.addError("", &[_][]const u8{
-            ":95:9: error: struct 'tmp.tmp' has no member named 'main'",
+            ":90:9: error: struct 'tmp.tmp' has no member named 'main'",
         });
 
         // Incorrect return type
@@ -1536,6 +1536,48 @@ pub fn addCases(ctx: *TestContext) !void {
         , "");
     }
     {
+        var case = ctx.exe("runtime bitwise and", linux_x64);
+
+        case.addCompareOutput(
+            \\pub fn main() void {
+            \\    var i: u32 = 10;
+            \\    var j: u32 = 11;
+            \\    assert(i & 1 == 0);
+            \\    assert(j & 1 == 1);
+            \\    var m1: u32 = 0b1111;
+            \\    var m2: u32 = 0b0000;
+            \\    assert(m1 & 0b1010 == 0b1010);
+            \\    assert(m2 & 0b1010 == 0b0000);
+            \\}
+            \\fn assert(b: bool) void {
+            \\    if (!b) unreachable;
+            \\}
+        ,
+            "",
+        );
+    }
+    {
+        var case = ctx.exe("runtime bitwise or", linux_x64);
+
+        case.addCompareOutput(
+            \\pub fn main() void {
+            \\    var i: u32 = 10;
+            \\    var j: u32 = 11;
+            \\    assert(i | 1 == 11);
+            \\    assert(j | 1 == 11);
+            \\    var m1: u32 = 0b1111;
+            \\    var m2: u32 = 0b0000;
+            \\    assert(m1 | 0b1010 == 0b1111);
+            \\    assert(m2 | 0b1010 == 0b1010);
+            \\}
+            \\fn assert(b: bool) void {
+            \\    if (!b) unreachable;
+            \\}
+        ,
+            "",
+        );
+    }
+    {
         var case = ctx.exe("merge error sets", linux_x64);
 
         case.addCompareOutput(
@@ -1566,6 +1608,24 @@ pub fn addCases(ctx: *TestContext) !void {
             ":2:15: error: expected error set type, found 'bool'",
             ":2:20: note: '||' merges error sets; 'or' performs boolean OR",
         });
+    }
+    {
+        var case = ctx.exe("error set equality", linux_x64);
+
+        case.addCompareOutput(
+            \\pub fn main() void {
+            \\    assert(@TypeOf(error.Foo) == @TypeOf(error.Foo));
+            \\    assert(@TypeOf(error.Bar) != @TypeOf(error.Foo));
+            \\    assert(anyerror == anyerror);
+            \\    assert(error{Foo} != error{Foo});
+            \\    // TODO put inferred error sets here when @typeInfo works
+            \\}
+            \\fn assert(b: bool) void {
+            \\    if (!b) unreachable;
+            \\}
+        ,
+            "",
+        );
     }
     {
         var case = ctx.exe("inline assembly", linux_x64);

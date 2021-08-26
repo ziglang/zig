@@ -1,8 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
 usingnamespace std.os.linux;
 const std = @import("../../std.zig");
 const errno = getErrno;
@@ -1508,13 +1503,13 @@ pub fn map_create(map_type: MapType, key_size: u32, value_size: u32, max_entries
     attr.map_create.max_entries = max_entries;
 
     const rc = bpf(.map_create, &attr, @sizeOf(MapCreateAttr));
-    return switch (errno(rc)) {
-        0 => @intCast(fd_t, rc),
-        EINVAL => error.MapTypeOrAttrInvalid,
-        ENOMEM => error.SystemResources,
-        EPERM => error.AccessDenied,
-        else => |err| unexpectedErrno(err),
-    };
+    switch (errno(rc)) {
+        .SUCCESS => return @intCast(fd_t, rc),
+        .INVAL => return error.MapTypeOrAttrInvalid,
+        .NOMEM => return error.SystemResources,
+        .PERM => return error.AccessDenied,
+        else => |err| return unexpectedErrno(err),
+    }
 }
 
 test "map_create" {
@@ -1533,12 +1528,12 @@ pub fn map_lookup_elem(fd: fd_t, key: []const u8, value: []u8) !void {
 
     const rc = bpf(.map_lookup_elem, &attr, @sizeOf(MapElemAttr));
     switch (errno(rc)) {
-        0 => return,
-        EBADF => return error.BadFd,
-        EFAULT => unreachable,
-        EINVAL => return error.FieldInAttrNeedsZeroing,
-        ENOENT => return error.NotFound,
-        EPERM => return error.AccessDenied,
+        .SUCCESS => return,
+        .BADF => return error.BadFd,
+        .FAULT => unreachable,
+        .INVAL => return error.FieldInAttrNeedsZeroing,
+        .NOENT => return error.NotFound,
+        .PERM => return error.AccessDenied,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -1555,13 +1550,13 @@ pub fn map_update_elem(fd: fd_t, key: []const u8, value: []const u8, flags: u64)
 
     const rc = bpf(.map_update_elem, &attr, @sizeOf(MapElemAttr));
     switch (errno(rc)) {
-        0 => return,
-        E2BIG => return error.ReachedMaxEntries,
-        EBADF => return error.BadFd,
-        EFAULT => unreachable,
-        EINVAL => return error.FieldInAttrNeedsZeroing,
-        ENOMEM => return error.SystemResources,
-        EPERM => return error.AccessDenied,
+        .SUCCESS => return,
+        .@"2BIG" => return error.ReachedMaxEntries,
+        .BADF => return error.BadFd,
+        .FAULT => unreachable,
+        .INVAL => return error.FieldInAttrNeedsZeroing,
+        .NOMEM => return error.SystemResources,
+        .PERM => return error.AccessDenied,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -1576,12 +1571,12 @@ pub fn map_delete_elem(fd: fd_t, key: []const u8) !void {
 
     const rc = bpf(.map_delete_elem, &attr, @sizeOf(MapElemAttr));
     switch (errno(rc)) {
-        0 => return,
-        EBADF => return error.BadFd,
-        EFAULT => unreachable,
-        EINVAL => return error.FieldInAttrNeedsZeroing,
-        ENOENT => return error.NotFound,
-        EPERM => return error.AccessDenied,
+        .SUCCESS => return,
+        .BADF => return error.BadFd,
+        .FAULT => unreachable,
+        .INVAL => return error.FieldInAttrNeedsZeroing,
+        .NOENT => return error.NotFound,
+        .PERM => return error.AccessDenied,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -1639,11 +1634,11 @@ pub fn prog_load(
 
     const rc = bpf(.prog_load, &attr, @sizeOf(ProgLoadAttr));
     return switch (errno(rc)) {
-        0 => @intCast(fd_t, rc),
-        EACCES => error.UnsafeProgram,
-        EFAULT => unreachable,
-        EINVAL => error.InvalidProgram,
-        EPERM => error.AccessDenied,
+        .SUCCESS => @intCast(fd_t, rc),
+        .ACCES => error.UnsafeProgram,
+        .FAULT => unreachable,
+        .INVAL => error.InvalidProgram,
+        .PERM => error.AccessDenied,
         else => |err| unexpectedErrno(err),
     };
 }

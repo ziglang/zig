@@ -555,6 +555,19 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    return p.y - p.x - p.x;
             \\}
         , "");
+        case.addCompareOutput(
+            \\const Point = struct { x: i32, y: i32, z: i32, a: i32, b: i32 };
+            \\pub export fn main() c_int {
+            \\    var p: Point = .{
+            \\        .x = 18,
+            \\        .y = 24,
+            \\        .z = 1,
+            \\        .a = 2,
+            \\        .b = 3,
+            \\    };
+            \\    return p.y - p.x - p.z - p.a - p.b;
+            \\}
+        , "");
     }
 
     {
@@ -806,6 +819,31 @@ pub fn addCases(ctx: *TestContext) !void {
             ":3:17: error: enum 'tmp.E' has no field named 'd'",
             ":1:11: note: enum declared here",
         });
+    }
+
+    {
+        var case = ctx.exeFromCompiledC("shift right + left", .{});
+        case.addCompareOutput(
+            \\pub export fn main() c_int {
+            \\    var i: u32 = 16;
+            \\    assert(i >> 1, 8);
+            \\    return 0;
+            \\}
+            \\fn assert(a: u32, b: u32) void {
+            \\    if (a != b) unreachable;
+            \\}
+        , "");
+
+        case.addCompareOutput(
+            \\pub export fn main() c_int {
+            \\    var i: u32 = 16;
+            \\    assert(i << 1, 32);
+            \\    return 0;
+            \\}
+            \\fn assert(a: u32, b: u32) void {
+            \\    if (a != b) unreachable;
+            \\}
+        , "");
     }
 
     {

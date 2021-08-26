@@ -432,6 +432,8 @@ pub const Object = struct {
             },
             else => |e| return e,
         };
+        const decl_exports = module.decl_exports.get(decl) orelse &[0]*Module.Export{};
+        try self.updateDeclExports(module, decl, decl_exports);
     }
 
     pub fn updateDeclExports(
@@ -440,7 +442,9 @@ pub const Object = struct {
         decl: *const Module.Decl,
         exports: []const *Module.Export,
     ) !void {
-        const llvm_fn = self.llvm_module.getNamedFunction(decl.name).?;
+        // If the module does not already have the function, we ignore this function call
+        // because we call `updateDeclExports` at the end of `updateFunc` and `updateDecl`.
+        const llvm_fn = self.llvm_module.getNamedFunction(decl.name) orelse return;
         const is_extern = decl.val.tag() == .extern_fn;
         if (is_extern or exports.len != 0) {
             llvm_fn.setLinkage(.External);
@@ -806,27 +810,22 @@ pub const DeclGen = struct {
                 return self.todo("handle more array values", .{});
             },
             .Optional => {
-                if (!tv.ty.isPtrLikeOptional()) {
-                    var buf: Type.Payload.ElemType = undefined;
-                    const child_type = tv.ty.optionalChild(&buf);
-                    const llvm_child_type = try self.llvmType(child_type);
-
-                    if (tv.val.tag() == .null_value) {
-                        var optional_values: [2]*const llvm.Value = .{
-                            llvm_child_type.constNull(),
-                            self.context.intType(1).constNull(),
-                        };
-                        return self.context.constStruct(&optional_values, optional_values.len, .False);
-                    } else {
-                        var optional_values: [2]*const llvm.Value = .{
-                            try self.genTypedValue(.{ .ty = child_type, .val = tv.val }),
-                            self.context.intType(1).constAllOnes(),
-                        };
-                        return self.context.constStruct(&optional_values, optional_values.len, .False);
-                    }
-                } else {
+                if (tv.ty.isPtrLikeOptional()) {
                     return self.todo("implement const of optional pointer", .{});
                 }
+                var buf: Type.Payload.ElemType = undefined;
+                const payload_type = tv.ty.optionalChild(&buf);
+                const is_pl = !tv.val.isNull();
+                const llvm_i1 = self.context.intType(1);
+
+                const fields: [2]*const llvm.Value = .{
+                    try self.genTypedValue(.{
+                        .ty = payload_type,
+                        .val = if (tv.val.castTag(.opt_payload)) |pl| pl.data else Value.initTag(.undef),
+                    }),
+                    if (is_pl) llvm_i1.constAllOnes() else llvm_i1.constNull(),
+                };
+                return self.context.constStruct(&fields, fields.len, .False);
             },
             .Fn => {
                 const fn_decl = switch (tv.val.tag()) {
@@ -993,6 +992,9 @@ pub const FuncGen = struct {
                 .bit_or, .bool_or   => try self.airOr(inst),
                 .xor                => try self.airXor(inst),
 
+                .shl                => try self.airShl(inst),
+                .shr                => try self.airShr(inst),
+
                 .cmp_eq  => try self.airCmp(inst, .eq),
                 .cmp_gt  => try self.airCmp(inst, .gt),
                 .cmp_gte => try self.airCmp(inst, .gte),
@@ -1035,9 +1037,15 @@ pub const FuncGen = struct {
                 .struct_field_ptr => try self.airStructFieldPtr(inst),
                 .struct_field_val => try self.airStructFieldVal(inst),
 
+                .struct_field_ptr_index_0 => try self.airStructFieldPtrIndex(inst, 0),
+                .struct_field_ptr_index_1 => try self.airStructFieldPtrIndex(inst, 1),
+                .struct_field_ptr_index_2 => try self.airStructFieldPtrIndex(inst, 2),
+                .struct_field_ptr_index_3 => try self.airStructFieldPtrIndex(inst, 3),
+
                 .slice_elem_val     => try self.airSliceElemVal(inst),
                 .ptr_slice_elem_val => try self.airPtrSliceElemVal(inst),
                 .ptr_elem_val       => try self.airPtrElemVal(inst),
+                .ptr_elem_ptr       => try self.airPtrElemPtr(inst),
                 .ptr_ptr_elem_val   => try self.airPtrPtrElemVal(inst),
 
                 .optional_payload     => try self.airOptionalPayload(inst, false),
@@ -1293,9 +1301,33 @@ pub const FuncGen = struct {
         const bin_op = self.air.instructions.items(.data)[inst].bin_op;
         const base_ptr = try self.resolveInst(bin_op.lhs);
         const rhs = try self.resolveInst(bin_op.rhs);
-        const indices: [1]*const llvm.Value = .{rhs};
-        const ptr = self.builder.buildInBoundsGEP(base_ptr, &indices, indices.len, "");
+        const ptr = if (self.air.typeOf(bin_op.lhs).isSinglePointer()) ptr: {
+            // If this is a single-item pointer to an array, we need another index in the GEP.
+            const indices: [2]*const llvm.Value = .{ self.context.intType(32).constNull(), rhs };
+            break :ptr self.builder.buildInBoundsGEP(base_ptr, &indices, indices.len, "");
+        } else ptr: {
+            const indices: [1]*const llvm.Value = .{rhs};
+            break :ptr self.builder.buildInBoundsGEP(base_ptr, &indices, indices.len, "");
+        };
         return self.builder.buildLoad(ptr, "");
+    }
+
+    fn airPtrElemPtr(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst))
+            return null;
+
+        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+        const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
+        const base_ptr = try self.resolveInst(bin_op.lhs);
+        const rhs = try self.resolveInst(bin_op.rhs);
+        if (self.air.typeOf(bin_op.lhs).isSinglePointer()) {
+            // If this is a single-item pointer to an array, we need another index in the GEP.
+            const indices: [2]*const llvm.Value = .{ self.context.intType(32).constNull(), rhs };
+            return self.builder.buildInBoundsGEP(base_ptr, &indices, indices.len, "");
+        } else {
+            const indices: [1]*const llvm.Value = .{rhs};
+            return self.builder.buildInBoundsGEP(base_ptr, &indices, indices.len, "");
+        }
     }
 
     fn airPtrPtrElemVal(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
@@ -1320,6 +1352,15 @@ pub const FuncGen = struct {
         const struct_field = self.air.extraData(Air.StructField, ty_pl.payload).data;
         const struct_ptr = try self.resolveInst(struct_field.struct_operand);
         const field_index = @intCast(c_uint, struct_field.field_index);
+        return self.builder.buildStructGEP(struct_ptr, field_index, "");
+    }
+
+    fn airStructFieldPtrIndex(self: *FuncGen, inst: Air.Inst.Index, field_index: c_uint) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst))
+            return null;
+
+        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const struct_ptr = try self.resolveInst(ty_op.operand);
         return self.builder.buildStructGEP(struct_ptr, field_index, "");
     }
 
@@ -1734,6 +1775,41 @@ pub const FuncGen = struct {
         const lhs = try self.resolveInst(bin_op.lhs);
         const rhs = try self.resolveInst(bin_op.rhs);
         return self.builder.buildXor(lhs, rhs, "");
+    }
+
+    fn airShl(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst))
+            return null;
+        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const lhs = try self.resolveInst(bin_op.lhs);
+        const rhs = try self.resolveInst(bin_op.rhs);
+        const lhs_type = self.air.typeOf(bin_op.lhs);
+        const tg = self.dg.module.getTarget();
+        const casted_rhs = if (self.air.typeOf(bin_op.rhs).bitSize(tg) < lhs_type.bitSize(tg))
+            self.builder.buildZExt(rhs, try self.dg.llvmType(lhs_type), "")
+        else
+            rhs;
+        return self.builder.buildShl(lhs, casted_rhs, "");
+    }
+
+    fn airShr(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst))
+            return null;
+        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const lhs = try self.resolveInst(bin_op.lhs);
+        const rhs = try self.resolveInst(bin_op.rhs);
+        const lhs_type = self.air.typeOf(bin_op.lhs);
+        const tg = self.dg.module.getTarget();
+        const casted_rhs = if (self.air.typeOf(bin_op.rhs).bitSize(tg) < lhs_type.bitSize(tg))
+            self.builder.buildZExt(rhs, try self.dg.llvmType(lhs_type), "")
+        else
+            rhs;
+
+        if (self.air.typeOfIndex(inst).isSignedInt()) {
+            return self.builder.buildAShr(lhs, casted_rhs, "");
+        } else {
+            return self.builder.buildLShr(lhs, casted_rhs, "");
+        }
     }
 
     fn airIntCast(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {

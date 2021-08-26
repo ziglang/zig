@@ -719,6 +719,30 @@ fn transQualTypeMaybeInitialized(c: *Context, scope: *Scope, qt: clang.QualType,
         transQualType(c, scope, qt, loc);
 }
 
+/// This is used in global scope to convert a string literal `S` to [*c]u8:
+/// &(struct {
+///     var static = S.*;
+/// }).static;
+fn stringLiteralToCharStar(c: *Context, str: Node) Error!Node {
+    const var_name = Scope.Block.StaticInnerName;
+
+    const variables = try c.arena.alloc(Node, 1);
+    variables[0] = try Tag.mut_str.create(c.arena, .{ .name = var_name, .init = str });
+
+    const anon_struct = try Tag.@"struct".create(c.arena, .{
+        .layout = .none,
+        .fields = &.{},
+        .functions = &.{},
+        .variables = variables,
+    });
+
+    const member_access = try Tag.field_access.create(c.arena, .{
+        .lhs = anon_struct,
+        .field_name = var_name,
+    });
+    return Tag.address_of.create(c.arena, member_access);
+}
+
 /// if mangled_name is not null, this var decl was declared in a block scope.
 fn visitVarDecl(c: *Context, var_decl: *const clang.VarDecl, mangled_name: ?[]const u8) Error!void {
     const var_name = mangled_name orelse try c.str(@ptrCast(*const clang.NamedDecl, var_decl).getName_bytes_begin());
@@ -779,6 +803,8 @@ fn visitVarDecl(c: *Context, var_decl: *const clang.VarDecl, mangled_name: ?[]co
             };
             if (!qualTypeIsBoolean(qual_type) and isBoolRes(init_node.?)) {
                 init_node = try Tag.bool_to_int.create(c.arena, init_node.?);
+            } else if (init_node.?.tag() == .string_literal and qualTypeIsCharStar(qual_type)) {
+                init_node = try stringLiteralToCharStar(c, init_node.?);
             }
         } else {
             init_node = Tag.undefined_literal.init();
@@ -1101,9 +1127,10 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
         record_payload.* = .{
             .base = .{ .tag = ([2]Tag{ .@"struct", .@"union" })[@boolToInt(is_union)] },
             .data = .{
-                .is_packed = is_packed,
+                .layout = if (is_packed) .@"packed" else .@"extern",
                 .fields = try c.arena.dupe(ast.Payload.Record.Field, fields.items),
                 .functions = try c.arena.dupe(Node, functions.items),
+                .variables = &.{},
             },
         };
         break :blk Node.initPayload(&record_payload.base);
@@ -1805,6 +1832,9 @@ fn transDeclStmtOne(
                 Tag.undefined_literal.init();
             if (!qualTypeIsBoolean(qual_type) and isBoolRes(init_node)) {
                 init_node = try Tag.bool_to_int.create(c.arena, init_node);
+            } else if (init_node.tag() == .string_literal and qualTypeIsCharStar(qual_type)) {
+                const dst_type_node = try transQualType(c, scope, qual_type, loc);
+                init_node = try removeCVQualifiers(c, dst_type_node, init_node);
             }
 
             const var_name: []const u8 = if (is_static_local) Scope.Block.StaticInnerName else mangled_name;
@@ -2522,9 +2552,19 @@ fn transInitListExprRecord(
             raw_name = try mem.dupe(c.arena, u8, name);
         }
 
+        var init_expr = try transExpr(c, scope, elem_expr, .used);
+        const field_qt = field_decl.getType();
+        if (init_expr.tag() == .string_literal and qualTypeIsCharStar(field_qt)) {
+            if (scope.id == .root) {
+                init_expr = try stringLiteralToCharStar(c, init_expr);
+            } else {
+                const dst_type_node = try transQualType(c, scope, field_qt, loc);
+                init_expr = try removeCVQualifiers(c, dst_type_node, init_expr);
+            }
+        }
         try field_inits.append(.{
             .name = raw_name,
-            .value = try transExpr(c, scope, elem_expr, .used),
+            .value = init_expr,
         });
     }
     if (ty_node.castTag(.identifier)) |ident_node| {
@@ -3459,6 +3499,10 @@ fn transCallExpr(c: *Context, scope: *Scope, stmt: *const clang.CallExpr, result
                         const param_qt = fn_proto.getParamType(@intCast(c_uint, i));
                         if (isBoolRes(arg) and cIsNativeInt(param_qt)) {
                             arg = try Tag.bool_to_int.create(c.arena, arg);
+                        } else if (arg.tag() == .string_literal and qualTypeIsCharStar(param_qt)) {
+                            const loc = @ptrCast(*const clang.Stmt, stmt).getBeginLoc();
+                            const dst_type_node = try transQualType(c, scope, param_qt, loc);
+                            arg = try removeCVQualifiers(c, dst_type_node, arg);
                         }
                     }
                 },
@@ -3835,6 +3879,12 @@ fn transCreateCompoundAssign(
     return block_scope.complete(c);
 }
 
+// Casting away const or volatile requires us to use @intToPtr
+fn removeCVQualifiers(c: *Context, dst_type_node: Node, expr: Node) Error!Node {
+    const ptr_to_int = try Tag.ptr_to_int.create(c.arena, expr);
+    return Tag.int_to_ptr.create(c.arena, .{ .lhs = dst_type_node, .rhs = ptr_to_int });
+}
+
 fn transCPtrCast(
     c: *Context,
     scope: *Scope,
@@ -3854,10 +3904,7 @@ fn transCPtrCast(
         (src_child_type.isVolatileQualified() and
         !child_type.isVolatileQualified())))
     {
-        // Casting away const or volatile requires us to use @intToPtr
-        const ptr_to_int = try Tag.ptr_to_int.create(c.arena, expr);
-        const int_to_ptr = try Tag.int_to_ptr.create(c.arena, .{ .lhs = dst_type_node, .rhs = ptr_to_int });
-        return int_to_ptr;
+        return removeCVQualifiers(c, dst_type_node, expr);
     } else {
         // Implicit downcasting from higher to lower alignment values is forbidden,
         // use @alignCast to side-step this problem
@@ -4215,6 +4262,26 @@ fn typeIsOpaque(c: *Context, ty: *const clang.Type, loc: clang.SourceLocation) b
         },
         else => return false,
     }
+}
+
+/// plain `char *` (not const; not explicitly signed or unsigned)
+fn qualTypeIsCharStar(qt: clang.QualType) bool {
+    if (qualTypeIsPtr(qt)) {
+        const child_qt = qualTypeCanon(qt).getPointeeType();
+        return cIsUnqualifiedChar(child_qt) and !child_qt.isConstQualified();
+    }
+    return false;
+}
+
+/// C `char` without explicit signed or unsigned qualifier
+fn cIsUnqualifiedChar(qt: clang.QualType) bool {
+    const c_type = qualTypeCanon(qt);
+    if (c_type.getTypeClass() != .Builtin) return false;
+    const builtin_ty = @ptrCast(*const clang.BuiltinType, c_type);
+    return switch (builtin_ty.getKind()) {
+        .Char_S, .Char_U => true,
+        else => false,
+    };
 }
 
 fn cIsInteger(qt: clang.QualType) bool {

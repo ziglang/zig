@@ -1,9 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
-
 //! A thread-safe resource which supports blocking until signaled.
 //! This API is for kernel threads, not evented I/O.
 //! This API is statically initializable. It cannot fail to be initialized
@@ -201,7 +195,7 @@ pub const AtomicEvent = struct {
             const waiting = std.math.maxInt(i32); // wake_count
             const ptr = @ptrCast(*const i32, waiters);
             const rc = linux.futex_wake(ptr, linux.FUTEX_WAKE | linux.FUTEX_PRIVATE_FLAG, waiting);
-            assert(linux.getErrno(rc) == 0);
+            assert(linux.getErrno(rc) == .SUCCESS);
         }
 
         fn wait(waiters: *u32, timeout: ?u64) !void {
@@ -221,10 +215,10 @@ pub const AtomicEvent = struct {
                 const ptr = @ptrCast(*const i32, waiters);
                 const rc = linux.futex_wait(ptr, linux.FUTEX_WAIT | linux.FUTEX_PRIVATE_FLAG, expected, ts_ptr);
                 switch (linux.getErrno(rc)) {
-                    0 => continue,
-                    os.ETIMEDOUT => return error.TimedOut,
-                    os.EINTR => continue,
-                    os.EAGAIN => return,
+                    .SUCCESS => continue,
+                    .TIMEDOUT => return error.TimedOut,
+                    .INTR => continue,
+                    .AGAIN => return,
                     else => unreachable,
                 }
             }

@@ -66,6 +66,10 @@ import_table: std.StringArrayHashMapUnmanaged(*Scope.File) = .{},
 /// to the same function.
 monomorphed_funcs: MonomorphedFuncsSet = .{},
 
+/// The set of all comptime function calls that have been cached so that future calls
+/// with the same parameters will get the same return value.
+memoized_calls: MemoizedCallSet = .{},
+
 /// We optimize memory usage for a compilation with no compile errors by storing the
 /// error messages and mapping outside of `Decl`.
 /// The ErrorMsg memory is owned by the decl, using Module's general purpose allocator.
@@ -151,6 +155,60 @@ const MonomorphedFuncsContext = struct {
             if (generic_ty_info.paramIsComptime(i) and param_ty.tag() != .generic_poison) {
                 comptime_args[i].val.hash(param_ty, &hasher);
             }
+        }
+
+        return hasher.final();
+    }
+};
+
+pub const MemoizedCallSet = std.HashMapUnmanaged(
+    MemoizedCall.Key,
+    MemoizedCall.Result,
+    MemoizedCall,
+    std.hash_map.default_max_load_percentage,
+);
+
+pub const MemoizedCall = struct {
+    pub const Key = struct {
+        func: *Fn,
+        args: []TypedValue,
+    };
+
+    pub const Result = struct {
+        val: Value,
+        arena: std.heap.ArenaAllocator.State,
+    };
+
+    pub fn eql(ctx: @This(), a: Key, b: Key) bool {
+        _ = ctx;
+
+        if (a.func != b.func) return false;
+
+        assert(a.args.len == b.args.len);
+        for (a.args) |a_arg, arg_i| {
+            const b_arg = b.args[arg_i];
+            if (!a_arg.eql(b_arg)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// Must match `Sema.GenericCallAdapter.hash`.
+    pub fn hash(ctx: @This(), key: Key) u64 {
+        _ = ctx;
+
+        var hasher = std.hash.Wyhash.init(0);
+
+        // The generic function Decl is guaranteed to be the first dependency
+        // of each of its instantiations.
+        std.hash.autoHash(&hasher, @ptrToInt(key.func));
+
+        // This logic must be kept in sync with the logic in `analyzeCall` that
+        // computes the hash.
+        for (key.args) |arg| {
+            arg.hash(&hasher);
         }
 
         return hasher.final();
@@ -554,8 +612,8 @@ pub const Decl = struct {
                 assert(struct_obj.owner_decl == decl);
                 return &struct_obj.namespace;
             },
-            .enum_full => {
-                const enum_obj = ty.castTag(.enum_full).?.data;
+            .enum_full, .enum_nonexhaustive => {
+                const enum_obj = ty.cast(Type.Payload.EnumFull).?.data;
                 assert(enum_obj.owner_decl == decl);
                 return &enum_obj.namespace;
             },
@@ -660,6 +718,7 @@ pub const Struct = struct {
     /// is necessary to determine whether it has bits at runtime.
     known_has_bits: bool,
 
+    /// The `Type` and `Value` memory is owned by the arena of the Struct's owner_decl.
     pub const Field = struct {
         /// Uses `noreturn` to indicate `anytype`.
         /// undefined until `status` is `have_field_types` or `have_layout`.
@@ -2254,15 +2313,26 @@ pub fn deinit(mod: *Module) void {
     }
     mod.export_owners.deinit(gpa);
 
-    var it = mod.global_error_set.keyIterator();
-    while (it.next()) |key| {
-        gpa.free(key.*);
+    {
+        var it = mod.global_error_set.keyIterator();
+        while (it.next()) |key| {
+            gpa.free(key.*);
+        }
+        mod.global_error_set.deinit(gpa);
     }
-    mod.global_error_set.deinit(gpa);
 
     mod.error_name_list.deinit(gpa);
     mod.test_functions.deinit(gpa);
     mod.monomorphed_funcs.deinit(gpa);
+
+    {
+        var it = mod.memoized_calls.iterator();
+        while (it.next()) |entry| {
+            gpa.free(entry.key_ptr.args);
+            entry.value_ptr.arena.promote(gpa).deinit();
+        }
+        mod.memoized_calls.deinit(gpa);
+    }
 }
 
 fn freeExportList(gpa: *Allocator, export_list: []*Export) void {
@@ -3091,6 +3161,9 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
         if (linksection_ref == .none) break :blk Value.initTag(.null_value);
         break :blk (try sema.resolveInstConst(&block_scope, src, linksection_ref)).val;
     };
+    // Note this resolves the type of the Decl, not the value; if this Decl
+    // is a struct, for example, this resolves `type` (which needs no resolution),
+    // not the struct itself.
     try sema.resolveTypeLayout(&block_scope, src, decl_tv.ty);
 
     // We need the memory for the Type to go into the arena for the Decl
@@ -3193,6 +3266,15 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
         if (type_changed and mod.emit_h != null) {
             try mod.comp.work_queue.writeItem(.{ .emit_h_decl = decl });
         }
+    } else if (decl_tv.ty.zigTypeTag() == .Type) {
+        // In case this Decl is a struct or union, we need to resolve the fields
+        // while we still have the `Sema` in scope, so that the field type expressions
+        // can use the resolved AIR instructions that they possibly reference.
+        // We do this after the decl is populated and set to `complete` so that a `Decl`
+        // may reference itself.
+        var buffer: Value.ToTypeBuffer = undefined;
+        const ty = decl.val.toType(&buffer);
+        try sema.resolveDeclFields(&block_scope, src, ty);
     }
 
     if (decl.is_exported) {
@@ -4024,7 +4106,6 @@ pub fn createAnonymousDeclFromDeclNamed(
     new_decl.ty = typed_value.ty;
     new_decl.val = typed_value.val;
     new_decl.has_tv = true;
-    new_decl.owns_tv = true;
     new_decl.analysis = .complete;
     new_decl.generation = mod.generation;
 
@@ -4449,309 +4530,6 @@ pub const PeerTypeCandidateSrc = union(enum) {
         }
     }
 };
-
-pub fn analyzeStructFields(mod: *Module, struct_obj: *Struct) CompileError!void {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const gpa = mod.gpa;
-    const zir = struct_obj.owner_decl.namespace.file_scope.zir;
-    const extended = zir.instructions.items(.data)[struct_obj.zir_index].extended;
-    assert(extended.opcode == .struct_decl);
-    const small = @bitCast(Zir.Inst.StructDecl.Small, extended.small);
-    var extra_index: usize = extended.operand;
-
-    const src: LazySrcLoc = .{ .node_offset = struct_obj.node_offset };
-    extra_index += @boolToInt(small.has_src_node);
-
-    const body_len = if (small.has_body_len) blk: {
-        const body_len = zir.extra[extra_index];
-        extra_index += 1;
-        break :blk body_len;
-    } else 0;
-
-    const fields_len = if (small.has_fields_len) blk: {
-        const fields_len = zir.extra[extra_index];
-        extra_index += 1;
-        break :blk fields_len;
-    } else 0;
-
-    const decls_len = if (small.has_decls_len) decls_len: {
-        const decls_len = zir.extra[extra_index];
-        extra_index += 1;
-        break :decls_len decls_len;
-    } else 0;
-
-    // Skip over decls.
-    var decls_it = zir.declIteratorInner(extra_index, decls_len);
-    while (decls_it.next()) |_| {}
-    extra_index = decls_it.extra_index;
-
-    const body = zir.extra[extra_index..][0..body_len];
-    if (fields_len == 0) {
-        assert(body.len == 0);
-        return;
-    }
-    extra_index += body.len;
-
-    var decl_arena = struct_obj.owner_decl.value_arena.?.promote(gpa);
-    defer struct_obj.owner_decl.value_arena.?.* = decl_arena.state;
-
-    try struct_obj.fields.ensureCapacity(&decl_arena.allocator, fields_len);
-
-    // We create a block for the field type instructions because they
-    // may need to reference Decls from inside the struct namespace.
-    // Within the field type, default value, and alignment expressions, the "owner decl"
-    // should be the struct itself. Thus we need a new Sema.
-    var sema: Sema = .{
-        .mod = mod,
-        .gpa = gpa,
-        .arena = &decl_arena.allocator,
-        .code = zir,
-        .owner_decl = struct_obj.owner_decl,
-        .namespace = &struct_obj.namespace,
-        .owner_func = null,
-        .func = null,
-        .fn_ret_ty = Type.initTag(.void),
-    };
-    defer sema.deinit();
-
-    var block: Scope.Block = .{
-        .parent = null,
-        .sema = &sema,
-        .src_decl = struct_obj.owner_decl,
-        .instructions = .{},
-        .inlining = null,
-        .is_comptime = true,
-    };
-    defer assert(block.instructions.items.len == 0); // should all be comptime instructions
-
-    if (body.len != 0) {
-        _ = try sema.analyzeBody(&block, body);
-    }
-
-    const bits_per_field = 4;
-    const fields_per_u32 = 32 / bits_per_field;
-    const bit_bags_count = std.math.divCeil(usize, fields_len, fields_per_u32) catch unreachable;
-    var bit_bag_index: usize = extra_index;
-    extra_index += bit_bags_count;
-    var cur_bit_bag: u32 = undefined;
-    var field_i: u32 = 0;
-    while (field_i < fields_len) : (field_i += 1) {
-        if (field_i % fields_per_u32 == 0) {
-            cur_bit_bag = zir.extra[bit_bag_index];
-            bit_bag_index += 1;
-        }
-        const has_align = @truncate(u1, cur_bit_bag) != 0;
-        cur_bit_bag >>= 1;
-        const has_default = @truncate(u1, cur_bit_bag) != 0;
-        cur_bit_bag >>= 1;
-        const is_comptime = @truncate(u1, cur_bit_bag) != 0;
-        cur_bit_bag >>= 1;
-        const unused = @truncate(u1, cur_bit_bag) != 0;
-        cur_bit_bag >>= 1;
-
-        _ = unused;
-
-        const field_name_zir = zir.nullTerminatedString(zir.extra[extra_index]);
-        extra_index += 1;
-        const field_type_ref = @intToEnum(Zir.Inst.Ref, zir.extra[extra_index]);
-        extra_index += 1;
-
-        // This string needs to outlive the ZIR code.
-        const field_name = try decl_arena.allocator.dupe(u8, field_name_zir);
-        if (field_type_ref == .none) {
-            return mod.fail(&block.base, src, "TODO: implement anytype struct field", .{});
-        }
-        const field_ty: Type = if (field_type_ref == .none)
-            Type.initTag(.noreturn)
-        else
-            // TODO: if we need to report an error here, use a source location
-            // that points to this type expression rather than the struct.
-            // But only resolve the source location if we need to emit a compile error.
-            try sema.resolveType(&block, src, field_type_ref);
-
-        const gop = struct_obj.fields.getOrPutAssumeCapacity(field_name);
-        assert(!gop.found_existing);
-        gop.value_ptr.* = .{
-            .ty = field_ty,
-            .abi_align = Value.initTag(.abi_align_default),
-            .default_val = Value.initTag(.unreachable_value),
-            .is_comptime = is_comptime,
-            .offset = undefined,
-        };
-
-        if (has_align) {
-            const align_ref = @intToEnum(Zir.Inst.Ref, zir.extra[extra_index]);
-            extra_index += 1;
-            // TODO: if we need to report an error here, use a source location
-            // that points to this alignment expression rather than the struct.
-            // But only resolve the source location if we need to emit a compile error.
-            gop.value_ptr.abi_align = (try sema.resolveInstConst(&block, src, align_ref)).val;
-        }
-        if (has_default) {
-            const default_ref = @intToEnum(Zir.Inst.Ref, zir.extra[extra_index]);
-            extra_index += 1;
-            // TODO: if we need to report an error here, use a source location
-            // that points to this default value expression rather than the struct.
-            // But only resolve the source location if we need to emit a compile error.
-            gop.value_ptr.default_val = (try sema.resolveInstConst(&block, src, default_ref)).val;
-        }
-    }
-}
-
-pub fn analyzeUnionFields(mod: *Module, union_obj: *Union) CompileError!void {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const gpa = mod.gpa;
-    const zir = union_obj.owner_decl.namespace.file_scope.zir;
-    const extended = zir.instructions.items(.data)[union_obj.zir_index].extended;
-    assert(extended.opcode == .union_decl);
-    const small = @bitCast(Zir.Inst.UnionDecl.Small, extended.small);
-    var extra_index: usize = extended.operand;
-
-    const src: LazySrcLoc = .{ .node_offset = union_obj.node_offset };
-    extra_index += @boolToInt(small.has_src_node);
-
-    if (small.has_tag_type) {
-        extra_index += 1;
-    }
-
-    const body_len = if (small.has_body_len) blk: {
-        const body_len = zir.extra[extra_index];
-        extra_index += 1;
-        break :blk body_len;
-    } else 0;
-
-    const fields_len = if (small.has_fields_len) blk: {
-        const fields_len = zir.extra[extra_index];
-        extra_index += 1;
-        break :blk fields_len;
-    } else 0;
-
-    const decls_len = if (small.has_decls_len) decls_len: {
-        const decls_len = zir.extra[extra_index];
-        extra_index += 1;
-        break :decls_len decls_len;
-    } else 0;
-
-    // Skip over decls.
-    var decls_it = zir.declIteratorInner(extra_index, decls_len);
-    while (decls_it.next()) |_| {}
-    extra_index = decls_it.extra_index;
-
-    const body = zir.extra[extra_index..][0..body_len];
-    if (fields_len == 0) {
-        assert(body.len == 0);
-        return;
-    }
-    extra_index += body.len;
-
-    var decl_arena = union_obj.owner_decl.value_arena.?.promote(gpa);
-    defer union_obj.owner_decl.value_arena.?.* = decl_arena.state;
-
-    try union_obj.fields.ensureCapacity(&decl_arena.allocator, fields_len);
-
-    // We create a block for the field type instructions because they
-    // may need to reference Decls from inside the struct namespace.
-    // Within the field type, default value, and alignment expressions, the "owner decl"
-    // should be the struct itself. Thus we need a new Sema.
-    var sema: Sema = .{
-        .mod = mod,
-        .gpa = gpa,
-        .arena = &decl_arena.allocator,
-        .code = zir,
-        .owner_decl = union_obj.owner_decl,
-        .namespace = &union_obj.namespace,
-        .owner_func = null,
-        .func = null,
-        .fn_ret_ty = Type.initTag(.void),
-    };
-    defer sema.deinit();
-
-    var block: Scope.Block = .{
-        .parent = null,
-        .sema = &sema,
-        .src_decl = union_obj.owner_decl,
-        .instructions = .{},
-        .inlining = null,
-        .is_comptime = true,
-    };
-    defer assert(block.instructions.items.len == 0); // should all be comptime instructions
-
-    if (body.len != 0) {
-        _ = try sema.analyzeBody(&block, body);
-    }
-
-    const bits_per_field = 4;
-    const fields_per_u32 = 32 / bits_per_field;
-    const bit_bags_count = std.math.divCeil(usize, fields_len, fields_per_u32) catch unreachable;
-    var bit_bag_index: usize = extra_index;
-    extra_index += bit_bags_count;
-    var cur_bit_bag: u32 = undefined;
-    var field_i: u32 = 0;
-    while (field_i < fields_len) : (field_i += 1) {
-        if (field_i % fields_per_u32 == 0) {
-            cur_bit_bag = zir.extra[bit_bag_index];
-            bit_bag_index += 1;
-        }
-        const has_type = @truncate(u1, cur_bit_bag) != 0;
-        cur_bit_bag >>= 1;
-        const has_align = @truncate(u1, cur_bit_bag) != 0;
-        cur_bit_bag >>= 1;
-        const has_tag = @truncate(u1, cur_bit_bag) != 0;
-        cur_bit_bag >>= 1;
-        const unused = @truncate(u1, cur_bit_bag) != 0;
-        cur_bit_bag >>= 1;
-        _ = unused;
-
-        const field_name_zir = zir.nullTerminatedString(zir.extra[extra_index]);
-        extra_index += 1;
-
-        const field_type_ref: Zir.Inst.Ref = if (has_type) blk: {
-            const field_type_ref = @intToEnum(Zir.Inst.Ref, zir.extra[extra_index]);
-            extra_index += 1;
-            break :blk field_type_ref;
-        } else .none;
-
-        const align_ref: Zir.Inst.Ref = if (has_align) blk: {
-            const align_ref = @intToEnum(Zir.Inst.Ref, zir.extra[extra_index]);
-            extra_index += 1;
-            break :blk align_ref;
-        } else .none;
-
-        if (has_tag) {
-            extra_index += 1;
-        }
-
-        // This string needs to outlive the ZIR code.
-        const field_name = try decl_arena.allocator.dupe(u8, field_name_zir);
-        const field_ty: Type = if (field_type_ref == .none)
-            Type.initTag(.void)
-        else
-            // TODO: if we need to report an error here, use a source location
-            // that points to this type expression rather than the union.
-            // But only resolve the source location if we need to emit a compile error.
-            try sema.resolveType(&block, src, field_type_ref);
-
-        const gop = union_obj.fields.getOrPutAssumeCapacity(field_name);
-        assert(!gop.found_existing);
-        gop.value_ptr.* = .{
-            .ty = field_ty,
-            .abi_align = Value.initTag(.abi_align_default),
-        };
-
-        if (align_ref != .none) {
-            // TODO: if we need to report an error here, use a source location
-            // that points to this alignment expression rather than the struct.
-            // But only resolve the source location if we need to emit a compile error.
-            gop.value_ptr.abi_align = (try sema.resolveInstConst(&block, src, align_ref)).val;
-        }
-    }
-
-    // TODO resolve the union tag_type_ref
-}
 
 /// Called from `performAllTheWork`, after all AstGen workers have finished,
 /// and before the main semantic analysis loop begins.

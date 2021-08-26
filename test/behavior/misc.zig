@@ -505,3 +505,20 @@ test "lazy typeInfo value as generic parameter" {
     };
     S.foo(@typeInfo(@TypeOf(.{})));
 }
+
+fn A() type {
+    return struct {
+        b: B(),
+
+        const Self = @This();
+
+        fn B() type {
+            return struct {
+                const Self = @This();
+            };
+        }
+    };
+}
+test "non-ambiguous reference of shadowed decls" {
+    try expect(A().B().Self != A().Self);
+}

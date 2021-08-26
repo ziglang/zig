@@ -1,9 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
-
 //! A thread-safe resource which supports blocking until signaled.
 //! This API is for kernel threads, not evented I/O.
 //! This API requires being initialized at runtime, and initialization
@@ -130,7 +124,7 @@ pub const PosixEvent = struct {
 
     pub fn init(ev: *PosixEvent) !void {
         switch (c.getErrno(c.sem_init(&ev.sem, 0, 0))) {
-            0 => return,
+            .SUCCESS => return,
             else => return error.SystemResources,
         }
     }
@@ -147,9 +141,9 @@ pub const PosixEvent = struct {
     pub fn wait(ev: *PosixEvent) void {
         while (true) {
             switch (c.getErrno(c.sem_wait(&ev.sem))) {
-                0 => return,
-                c.EINTR => continue,
-                c.EINVAL => unreachable,
+                .SUCCESS => return,
+                .INTR => continue,
+                .INVAL => unreachable,
                 else => unreachable,
             }
         }
@@ -165,10 +159,10 @@ pub const PosixEvent = struct {
         ts.tv_nsec = @intCast(@TypeOf(ts.tv_nsec), @mod(timeout_abs, time.ns_per_s));
         while (true) {
             switch (c.getErrno(c.sem_timedwait(&ev.sem, &ts))) {
-                0 => return .event_set,
-                c.EINTR => continue,
-                c.EINVAL => unreachable,
-                c.ETIMEDOUT => return .timed_out,
+                .SUCCESS => return .event_set,
+                .INTR => continue,
+                .INVAL => unreachable,
+                .TIMEDOUT => return .timed_out,
                 else => unreachable,
             }
         }
@@ -177,10 +171,10 @@ pub const PosixEvent = struct {
     pub fn reset(ev: *PosixEvent) void {
         while (true) {
             switch (c.getErrno(c.sem_trywait(&ev.sem))) {
-                0 => continue, // Need to make it go to zero.
-                c.EINTR => continue,
-                c.EINVAL => unreachable,
-                c.EAGAIN => return, // The semaphore currently has the value zero.
+                .SUCCESS => continue, // Need to make it go to zero.
+                .INTR => continue,
+                .INVAL => unreachable,
+                .AGAIN => return, // The semaphore currently has the value zero.
                 else => unreachable,
             }
         }

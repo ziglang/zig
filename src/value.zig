@@ -68,6 +68,7 @@ pub const Value = extern union {
         call_options_type,
         export_options_type,
         extern_options_type,
+        type_info_type,
         manyptr_u8_type,
         manyptr_const_u8_type,
         fn_noreturn_no_args_type,
@@ -132,12 +133,21 @@ pub const Value = extern union {
         /// When the type is error union:
         /// * If the tag is `.@"error"`, the error union is an error.
         /// * If the tag is `.eu_payload`, the error union is a payload.
-        /// * A nested error such as `((anyerror!T1)!T2)` in which the the outer error union
+        /// * A nested error such as `anyerror!(anyerror!T)` in which the the outer error union
         ///   is non-error, but the inner error union is an error, is represented as
         ///   a tag of `.eu_payload`, with a sub-tag of `.@"error"`.
         eu_payload,
         /// A pointer to the payload of an error union, based on a pointer to an error union.
         eu_payload_ptr,
+        /// When the type is optional:
+        /// * If the tag is `.null_value`, the optional is null.
+        /// * If the tag is `.opt_payload`, the optional is a payload.
+        /// * A nested optional such as `??T` in which the the outer optional
+        ///   is non-null, but the inner optional is null, is represented as
+        ///   a tag of `.opt_payload`, with a sub-tag of `.null_value`.
+        opt_payload,
+        /// A pointer to the payload of an optional, based on a pointer to an optional.
+        opt_payload_ptr,
         /// An instance of a struct.
         @"struct",
         /// An instance of a union.
@@ -221,6 +231,7 @@ pub const Value = extern union {
                 .call_options_type,
                 .export_options_type,
                 .extern_options_type,
+                .type_info_type,
                 .generic_poison,
                 => @compileError("Value Tag " ++ @tagName(t) ++ " has no payload"),
 
@@ -236,6 +247,8 @@ pub const Value = extern union {
                 .repeated,
                 .eu_payload,
                 .eu_payload_ptr,
+                .opt_payload,
+                .opt_payload_ptr,
                 => Payload.SubValue,
 
                 .bytes,
@@ -402,6 +415,7 @@ pub const Value = extern union {
             .call_options_type,
             .export_options_type,
             .extern_options_type,
+            .type_info_type,
             .generic_poison,
             => unreachable,
 
@@ -456,7 +470,12 @@ pub const Value = extern union {
                 return Value{ .ptr_otherwise = &new_payload.base };
             },
             .bytes => return self.copyPayloadShallow(allocator, Payload.Bytes),
-            .repeated, .eu_payload, .eu_payload_ptr => {
+            .repeated,
+            .eu_payload,
+            .eu_payload_ptr,
+            .opt_payload,
+            .opt_payload_ptr,
+            => {
                 const payload = self.cast(Payload.SubValue).?;
                 const new_payload = try allocator.create(Payload.SubValue);
                 new_payload.* = .{
@@ -585,6 +604,7 @@ pub const Value = extern union {
             .call_options_type => return out_stream.writeAll("std.builtin.CallOptions"),
             .export_options_type => return out_stream.writeAll("std.builtin.ExportOptions"),
             .extern_options_type => return out_stream.writeAll("std.builtin.ExternOptions"),
+            .type_info_type => return out_stream.writeAll("std.builtin.TypeInfo"),
             .abi_align_default => return out_stream.writeAll("(default ABI alignment)"),
 
             .empty_struct_value => return out_stream.writeAll("struct {}{}"),
@@ -652,11 +672,19 @@ pub const Value = extern union {
                 try out_stream.writeAll("(eu_payload) ");
                 val = val.castTag(.eu_payload).?.data;
             },
+            .opt_payload => {
+                try out_stream.writeAll("(opt_payload) ");
+                val = val.castTag(.opt_payload).?.data;
+            },
             .inferred_alloc => return out_stream.writeAll("(inferred allocation value)"),
             .inferred_alloc_comptime => return out_stream.writeAll("(inferred comptime allocation value)"),
             .eu_payload_ptr => {
                 try out_stream.writeAll("(eu_payload_ptr)");
                 val = val.castTag(.eu_payload_ptr).?.data;
+            },
+            .opt_payload_ptr => {
+                try out_stream.writeAll("(opt_payload_ptr)");
+                val = val.castTag(.opt_payload_ptr).?.data;
             },
         };
     }
@@ -743,6 +771,7 @@ pub const Value = extern union {
             .call_options_type => Type.initTag(.call_options),
             .export_options_type => Type.initTag(.export_options),
             .extern_options_type => Type.initTag(.extern_options),
+            .type_info_type => Type.initTag(.type_info),
 
             .int_type => {
                 const payload = self.castTag(.int_type).?.data;
@@ -769,6 +798,38 @@ pub const Value = extern union {
             },
             else => unreachable,
         }
+    }
+
+    pub fn enumToInt(val: Value, ty: Type, buffer: *Payload.U64) Value {
+        if (val.castTag(.enum_field_index)) |enum_field_payload| {
+            const field_index = enum_field_payload.data;
+            switch (ty.tag()) {
+                .enum_full, .enum_nonexhaustive => {
+                    const enum_full = ty.cast(Type.Payload.EnumFull).?.data;
+                    if (enum_full.values.count() != 0) {
+                        return enum_full.values.keys()[field_index];
+                    } else {
+                        // Field index and integer values are the same.
+                        buffer.* = .{
+                            .base = .{ .tag = .int_u64 },
+                            .data = field_index,
+                        };
+                        return Value.initPayload(&buffer.base);
+                    }
+                },
+                .enum_simple => {
+                    // Field index and integer values are the same.
+                    buffer.* = .{
+                        .base = .{ .tag = .int_u64 },
+                        .data = field_index,
+                    };
+                    return Value.initPayload(&buffer.base);
+                },
+                else => unreachable,
+            }
+        }
+        // Assume it is already an integer and return it directly.
+        return val;
     }
 
     /// Asserts the value is an integer.
@@ -1127,7 +1188,10 @@ pub const Value = extern union {
     }
 
     pub fn hash(val: Value, ty: Type, hasher: *std.hash.Wyhash) void {
-        switch (ty.zigTypeTag()) {
+        const zig_ty_tag = ty.zigTypeTag();
+        std.hash.autoHash(hasher, zig_ty_tag);
+
+        switch (zig_ty_tag) {
             .BoundFn => unreachable, // TODO remove this from the language
 
             .Void,
@@ -1152,7 +1216,10 @@ pub const Value = extern union {
                 }
             },
             .Float, .ComptimeFloat => {
-                @panic("TODO implement hashing float values");
+                // TODO double check the lang spec. should we to bitwise hashing here,
+                // or a hash that normalizes the float value?
+                const float = val.toFloat(f128);
+                std.hash.autoHash(hasher, @bitCast(u128, float));
             },
             .Pointer => {
                 @panic("TODO implement hashing pointer values");
@@ -1164,7 +1231,15 @@ pub const Value = extern union {
                 @panic("TODO implement hashing struct values");
             },
             .Optional => {
-                @panic("TODO implement hashing optional values");
+                if (val.castTag(.opt_payload)) |payload| {
+                    std.hash.autoHash(hasher, true); // non-null
+                    const sub_val = payload.data;
+                    var buffer: Type.Payload.ElemType = undefined;
+                    const sub_ty = ty.optionalChild(&buffer);
+                    sub_val.hash(sub_ty, hasher);
+                } else {
+                    std.hash.autoHash(hasher, false); // non-null
+                }
             },
             .ErrorUnion => {
                 @panic("TODO implement hashing error union values");
@@ -1173,7 +1248,16 @@ pub const Value = extern union {
                 @panic("TODO implement hashing error set values");
             },
             .Enum => {
-                @panic("TODO implement hashing enum values");
+                var enum_space: Payload.U64 = undefined;
+                const int_val = val.enumToInt(ty, &enum_space);
+
+                var space: BigIntSpace = undefined;
+                const big = int_val.toBigInt(&space);
+
+                std.hash.autoHash(hasher, big.positive);
+                for (big.limbs) |limb| {
+                    std.hash.autoHash(hasher, limb);
+                }
             },
             .Union => {
                 @panic("TODO implement hashing union values");
@@ -1251,6 +1335,11 @@ pub const Value = extern union {
                 const err_union_ptr = self.castTag(.eu_payload_ptr).?.data;
                 const err_union_val = (try err_union_ptr.pointerDeref(allocator)) orelse return null;
                 break :blk err_union_val.castTag(.eu_payload).?.data;
+            },
+            .opt_payload_ptr => blk: {
+                const opt_ptr = self.castTag(.opt_payload_ptr).?.data;
+                const opt_val = (try opt_ptr.pointerDeref(allocator)) orelse return null;
+                break :blk opt_val.castTag(.opt_payload).?.data;
             },
 
             .zero,
@@ -1349,13 +1438,14 @@ pub const Value = extern union {
     /// Valid for all types. Asserts the value is not undefined and not unreachable.
     pub fn isNull(self: Value) bool {
         return switch (self.tag()) {
+            .null_value => true,
+            .opt_payload => false,
+
             .undef => unreachable,
             .unreachable_value => unreachable,
             .inferred_alloc => unreachable,
             .inferred_alloc_comptime => unreachable,
-            .null_value => true,
-
-            else => false,
+            else => unreachable,
         };
     }
 
@@ -1385,6 +1475,10 @@ pub const Value = extern union {
         return switch (val.tag()) {
             .eu_payload => true,
             else => false,
+
+            .undef => unreachable,
+            .inferred_alloc => unreachable,
+            .inferred_alloc_comptime => unreachable,
         };
     }
 
@@ -1512,6 +1606,31 @@ pub const Value = extern union {
         const mask = (@as(u64, 1) << @intCast(u6, bits)) - 1;
         const truncated = x & mask;
         return Tag.int_u64.create(arena, truncated);
+    }
+
+    pub fn shr(lhs: Value, rhs: Value, allocator: *Allocator) !Value {
+        // TODO is this a performance issue? maybe we should try the operation without
+        // resorting to BigInt first.
+        var lhs_space: Value.BigIntSpace = undefined;
+        const lhs_bigint = lhs.toBigInt(&lhs_space);
+        const shift = rhs.toUnsignedInt();
+        const limbs = try allocator.alloc(
+            std.math.big.Limb,
+            lhs_bigint.limbs.len - (shift / (@sizeOf(std.math.big.Limb) * 8)),
+        );
+        var result_bigint = BigIntMutable{
+            .limbs = limbs,
+            .positive = undefined,
+            .len = undefined,
+        };
+        result_bigint.shiftRight(lhs_bigint, shift);
+        const result_limbs = result_bigint.limbs[0..result_bigint.len];
+
+        if (result_bigint.positive) {
+            return Value.Tag.int_big_positive.create(allocator, result_limbs);
+        } else {
+            return Value.Tag.int_big_negative.create(allocator, result_limbs);
+        }
     }
 
     pub fn floatAdd(

@@ -62,6 +62,8 @@ pub const Node = extern union {
         var_decl,
         /// const name = struct { init }
         static_local_var,
+        /// var name = init.*
+        mut_str,
         func,
         warning,
         @"struct",
@@ -361,7 +363,7 @@ pub const Node = extern union {
                 .array_type, .null_sentinel_array_type => Payload.Array,
                 .arg_redecl, .alias, .fail_decl => Payload.ArgRedecl,
                 .log2_int_type => Payload.Log2IntType,
-                .var_simple, .pub_var_simple, .static_local_var => Payload.SimpleVarDecl,
+                .var_simple, .pub_var_simple, .static_local_var, .mut_str => Payload.SimpleVarDecl,
                 .enum_constant => Payload.EnumConstant,
                 .array_filler => Payload.ArrayFiller,
                 .pub_inline_fn => Payload.PubInlineFn,
@@ -558,9 +560,10 @@ pub const Payload = struct {
     pub const Record = struct {
         base: Payload,
         data: struct {
-            is_packed: bool,
+            layout: enum { @"packed", @"extern", none },
             fields: []Field,
             functions: []Node,
+            variables: []Node,
         },
 
         pub const Field = struct {
@@ -1229,6 +1232,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 },
             });
             _ = try c.addToken(.r_brace, "}");
+            _ = try c.addToken(.semicolon, ";");
 
             return c.addNode(.{
                 .tag = .simple_var_decl,
@@ -1237,6 +1241,29 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                     .lhs = 0,
                     .rhs = container_def,
                 },
+            });
+        },
+        .mut_str => {
+            const payload = node.castTag(.mut_str).?.data;
+
+            const var_tok = try c.addToken(.keyword_var, "var");
+            _ = try c.addIdentifier(payload.name);
+            _ = try c.addToken(.equal, "=");
+
+            const deref = try c.addNode(.{
+                .tag = .deref,
+                .data = .{
+                    .lhs = try renderNodeGrouped(c, payload.init),
+                    .rhs = undefined,
+                },
+                .main_token = try c.addToken(.period_asterisk, ".*"),
+            });
+            _ = try c.addToken(.semicolon, ";");
+
+            return c.addNode(.{
+                .tag = .simple_var_decl,
+                .main_token = var_tok,
+                .data = .{ .lhs = 0, .rhs = deref },
             });
         },
         .var_decl => return renderVar(c, node),
@@ -1952,9 +1979,9 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
 
 fn renderRecord(c: *Context, node: Node) !NodeIndex {
     const payload = @fieldParentPtr(Payload.Record, "base", node.ptr_otherwise).data;
-    if (payload.is_packed)
+    if (payload.layout == .@"packed")
         _ = try c.addToken(.keyword_packed, "packed")
-    else
+    else if (payload.layout == .@"extern")
         _ = try c.addToken(.keyword_extern, "extern");
     const kind_tok = if (node.tag() == .@"struct")
         try c.addToken(.keyword_struct, "struct")
@@ -1963,8 +1990,9 @@ fn renderRecord(c: *Context, node: Node) !NodeIndex {
 
     _ = try c.addToken(.l_brace, "{");
 
+    const num_vars = payload.variables.len;
     const num_funcs = payload.functions.len;
-    const total_members = payload.fields.len + num_funcs;
+    const total_members = payload.fields.len + num_vars + num_funcs;
     const members = try c.gpa.alloc(NodeIndex, std.math.max(total_members, 2));
     defer c.gpa.free(members);
     members[0] = 0;
@@ -2006,8 +2034,11 @@ fn renderRecord(c: *Context, node: Node) !NodeIndex {
         });
         _ = try c.addToken(.comma, ",");
     }
+    for (payload.variables) |variable, i| {
+        members[payload.fields.len + i] = try renderNode(c, variable);
+    }
     for (payload.functions) |function, i| {
-        members[payload.fields.len + i] = try renderNode(c, function);
+        members[payload.fields.len + num_vars + i] = try renderNode(c, function);
     }
     _ = try c.addToken(.r_brace, "}");
 
@@ -2140,7 +2171,7 @@ fn renderNullSentinelArrayType(c: *Context, len: usize, elem_type: Node) !NodeIn
 fn addSemicolonIfNeeded(c: *Context, node: Node) !void {
     switch (node.tag()) {
         .warning => unreachable,
-        .var_decl, .var_simple, .arg_redecl, .alias, .block, .empty_block, .block_single, .@"switch" => {},
+        .var_decl, .var_simple, .arg_redecl, .alias, .block, .empty_block, .block_single, .@"switch", .static_local_var, .mut_str => {},
         .while_true => {
             const payload = node.castTag(.while_true).?.data;
             return addSemicolonIfNotBlock(c, payload);
@@ -2235,6 +2266,7 @@ fn renderNodeGrouped(c: *Context, node: Node) !NodeIndex {
         .offset_of,
         .shuffle,
         .static_local_var,
+        .mut_str,
         => {
             // no grouping needed
             return renderNode(c, node);

@@ -29,6 +29,31 @@ pub fn addCases(ctx: *TestContext) !void {
     }
 
     {
+        var case = ctx.exeUsingLlvmBackend("shift right + left", linux_x64);
+
+        case.addCompareOutput(
+            \\pub export fn main() c_int {
+            \\    var i: u32 = 16;
+            \\    assert(i >> 1, 8);
+            \\    return 0;
+            \\}
+            \\fn assert(a: u32, b: u32) void {
+            \\    if (a != b) unreachable;
+            \\}
+        , "");
+        case.addCompareOutput(
+            \\pub export fn main() c_int {
+            \\    var i: u32 = 16;
+            \\    assert(i << 1, 32);
+            \\    return 0;
+            \\}
+            \\fn assert(a: u32, b: u32) void {
+            \\    if (a != b) unreachable;
+            \\}
+        , "");
+    }
+
+    {
         var case = ctx.exeUsingLlvmBackend("llvm hello world", linux_x64);
 
         case.addCompareOutput(
