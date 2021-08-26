@@ -8424,21 +8424,32 @@ fn fieldVal(
                 }
             },
             .One => {
-                const elem_ty = object_ty.elemType();
-                if (elem_ty.zigTypeTag() == .Array) {
-                    if (mem.eql(u8, field_name, "len")) {
-                        return sema.addConstant(
-                            Type.initTag(.comptime_int),
-                            try Value.Tag.int_u64.create(arena, elem_ty.arrayLen()),
-                        );
-                    } else {
-                        return mod.fail(
-                            &block.base,
-                            field_name_src,
-                            "no member named '{s}' in '{}'",
-                            .{ field_name, object_ty },
-                        );
-                    }
+                const ptr_child = object_ty.elemType();
+                switch (ptr_child.zigTypeTag()) {
+                    .Array => {
+                        if (mem.eql(u8, field_name, "len")) {
+                            return sema.addConstant(
+                                Type.initTag(.comptime_int),
+                                try Value.Tag.int_u64.create(arena, ptr_child.arrayLen()),
+                            );
+                        } else {
+                            return mod.fail(
+                                &block.base,
+                                field_name_src,
+                                "no member named '{s}' in '{}'",
+                                .{ field_name, object_ty },
+                            );
+                        }
+                    },
+                    .Struct => {
+                        const struct_ptr_deref = try sema.analyzeLoad(block, src, object, object_src);
+                        return sema.unionFieldVal(block, src, struct_ptr_deref, field_name, field_name_src, ptr_child);
+                    },
+                    .Union => {
+                        const union_ptr_deref = try sema.analyzeLoad(block, src, object, object_src);
+                        return sema.unionFieldVal(block, src, union_ptr_deref, field_name, field_name_src, ptr_child);
+                    },
+                    else => {},
                 }
             },
             .Many, .C => {},
@@ -8562,9 +8573,8 @@ fn fieldPtr(
                 );
             }
         },
-        .Pointer => {
-            const ptr_child = object_ty.elemType();
-            if (ptr_child.isSlice()) {
+        .Pointer => switch (object_ty.ptrSize()) {
+            .Slice => {
                 // Here for the ptr and len fields what we need to do is the situation
                 // when a temporary has its address taken, e.g. `&a[c..d].len`.
                 // This value may be known at compile-time or runtime. In the former
@@ -8594,26 +8604,39 @@ fn fieldPtr(
                         .{ field_name, object_ty },
                     );
                 }
-            } else switch (ptr_child.zigTypeTag()) {
-                .Array => {
-                    if (mem.eql(u8, field_name, "len")) {
-                        var anon_decl = try block.startAnonDecl();
-                        defer anon_decl.deinit();
-                        return sema.analyzeDeclRef(try anon_decl.finish(
-                            Type.initTag(.comptime_int),
-                            try Value.Tag.int_u64.create(anon_decl.arena(), ptr_child.arrayLen()),
-                        ));
-                    } else {
-                        return mod.fail(
-                            &block.base,
-                            field_name_src,
-                            "no member named '{s}' in '{}'",
-                            .{ field_name, object_ty },
-                        );
-                    }
-                },
-                else => {},
-            }
+            },
+            .One => {
+                const ptr_child = object_ty.elemType();
+                switch (ptr_child.zigTypeTag()) {
+                    .Array => {
+                        if (mem.eql(u8, field_name, "len")) {
+                            var anon_decl = try block.startAnonDecl();
+                            defer anon_decl.deinit();
+                            return sema.analyzeDeclRef(try anon_decl.finish(
+                                Type.initTag(.comptime_int),
+                                try Value.Tag.int_u64.create(anon_decl.arena(), ptr_child.arrayLen()),
+                            ));
+                        } else {
+                            return mod.fail(
+                                &block.base,
+                                field_name_src,
+                                "no member named '{s}' in '{}'",
+                                .{ field_name, object_ty },
+                            );
+                        }
+                    },
+                    .Struct => {
+                        const struct_ptr_deref = try sema.analyzeLoad(block, src, object_ptr, object_ptr_src);
+                        return sema.structFieldPtr(block, src, struct_ptr_deref, field_name, field_name_src, ptr_child);
+                    },
+                    .Union => {
+                        const union_ptr_deref = try sema.analyzeLoad(block, src, object_ptr, object_ptr_src);
+                        return sema.unionFieldPtr(block, src, union_ptr_deref, field_name, field_name_src, ptr_child);
+                    },
+                    else => {},
+                }
+            },
+            .Many, .C => {},
         },
         .Type => {
             _ = try sema.resolveConstValue(block, object_ptr_src, object_ptr);
