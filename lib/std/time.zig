@@ -187,6 +187,8 @@ test "Timer" {
 }
 
 pub const Clock = struct {
+    /// Id represents the type of clock source to interact with.
+    /// Each clock sources may start, tick, and change in different ways.
     pub const Id = enum {
         /// Returns nanoseconds since Unix Epoch (Jan 1 1970)
         realtime,
@@ -204,6 +206,7 @@ pub const Clock = struct {
         UnsupportedClock
     } || os.UnexpectedError;
 
+    /// Reads the current value of the clock source represented by the `id`.
     pub fn read(id: Id) Error!u64 {
         return Impl.read(id);
     }
@@ -266,6 +269,8 @@ pub const Clock = struct {
             os.windows.kernel32.GetSystemTimePreciseAsFileTime(&ft);
             var system_time = (@as(u64, ft.dwHighDateTime) << 32) | ft.dwLowDateTime;
 
+            // Returns 0 if the current time is before the Unix Epoch (Jan 1 1970).
+            // This can happen since windows' starting epoch is Jan 01, 1601.
             const utc_epoch = -(epoch.windows * (ns_per_s / 100));
             if (system_time <= utc_epoch) {
                 return 0;
@@ -275,15 +280,18 @@ pub const Clock = struct {
             return utc_now * 100;
         }
 
+        /// Could be replaced with QueryInterruptTimePrecise() (only on Windows 10+)
         fn getInterruptTime() u64 {
             const counter = os.windows.QueryPerformanceCounter();
             const qpc = getDeltaTime(struct{}, counter);
             return getQPCInterruptTime(qpc) * 100;
         }
 
+        /// Could be replaced with kernel32.QueryUnbiasedInterruptTimePrecise() (only on Windows 10+)
         fn getUnbiasedInterruptTime() u64 {
             // Compute the unbiased (without suspend) time by sampling the current interrupt time
-            // then subtracting the InterruptTimeBias while accounting for racy updates.
+            // then subtracting the InterruptTimeBias while accounting for possibly suspending mid-sample.
+            //
             // https://stackoverflow.com/questions/24330496/how-do-i-create-monotonic-clock-on-windows-which-doesnt-tick-during-suspend
             // https://www.geoffchappell.com/studies/windows/km/ntoskrnl/inc/api/ntexapi_x/kuser_shared_data/index.htm
             const KUSER_SHARED_DATA = 0x7ffe0000;
@@ -304,6 +312,7 @@ pub const Clock = struct {
 
         fn getQPCInterruptTime(qpc: u64) u64 {
             // doesn't need to be cached. It just reads from KUSER_SHARED_DATA:
+            // See the QpcFrequency offset in:
             // https://www.geoffchappell.com/studies/windows/km/ntoskrnl/inc/api/ntexapi_x/kuser_shared_data/index.htm
             const frequency = os.windows.QueryPerformanceFrequency();
 
@@ -322,13 +331,31 @@ pub const Clock = struct {
             return (div * scale) + (rem * scale) / frequency;
         }
 
+        /// Globally caches the first `current` supplied using `UniqueType` as a key.
+        /// Future calls with the same `UniqueType` return the saturating difference 
+        /// between their given `current` and the first cached `current`.
+        ///
+        /// ```
+        /// cached = globals[UniqueType]
+        /// if cached == 0:
+        ///     cached = globals[UniqueType] = current
+        /// if current < cached:
+        ///     return 0
+        /// return current - cached
+        /// ```
         fn getDeltaTime(comptime UniqueType: type, current: u64) u64 {
             _ = UniqueType;
 
             const Atomic = std.atomic.Atomic;
             const Static = struct {
                 var delta = Atomic(u64).init(0);
-                var delta_sync = Atomic(u64).init(0);
+                var delta_once = os.windows.INIT_ONCE_STATIC_INIT;
+
+                fn initDeltaOnce(once: *os.windows.INIT_ONCE, param: ?*c_void, ctx: ?*c_void) callconv(.C) void {
+                    _ = .{ once, ctx };
+                    const current = @ptrCast(*u64, @alignCast(@alignOf(u64), param)).*;
+                    delta.storeUnchecked(current);
+                }
             };
 
             const delta = blk: {
@@ -344,32 +371,23 @@ pub const Clock = struct {
                     ) orelse current;
                 }
 
-                // 64-bit atomics aren't available so we need to use mutual exclusion.
-                // It's relatively OK to spin here since windows employ dynamic priority boosting
-                // to avoid priority inversion so the owning thread will eventually get scheduled.
-                // https://docs.microsoft.com/en-us/windows/win32/procthread/priority-inversion
-                var delta_sync = Static.delta_sync.load(.Acquire);
-                while (true) {
-                    delta_sync = switch (delta_sync) {
-                        0 => Static.delta_sync(0, 1, .Acquire, .Acquire) orelse {
-                            Static.delta.storeUnchecked(current);
-                            Static.delta_sync.store(2, .Release);
-                            break :blk current;
-                        },
-                        1 => sync: {
-                            std.atomic.spinLoopHint();
-                            break :sync Static.delta_sync.load(.Acquire);
-                        },
-                        2 => break :blk Static.delta.loadUnchecked(),
-                        else => unreachable,
-                    };
-                }
+                // 64bit atomics aren't supported. Use INIT_ONCE instead
+                var init_with = current; 
+                os.windows.InitOnceExecuteOnce(
+                    &Static.delta_once,
+                    Static.initDeltaOnce,
+                    @ptrCast(*c_void, &init_with),
+                    null,
+                );
+                break :blk Static.delta.loadUnchecked();
             };
 
             if (current < delta) return 0;
             return current - delta;
         }
 
+        /// Calls either GetThreadTimes or GetProcessTimes and returns
+        /// the amount of nanoseconds spent in userspace and the the kernel.
         fn getCpuTime(comptime GetTimesFn: []const u8, comptime GetCurrentFn: []const u8) !u64 {
             var creation_time: os.windows.FILETIME = undefined;
             var exit_time: os.windows.FILETIME = undefined;
