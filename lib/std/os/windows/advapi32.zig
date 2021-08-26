@@ -1,4 +1,14 @@
-usingnamespace @import("bits.zig");
+const std = @import("../../std.zig");
+const windows = std.os.windows;
+const BOOL = windows.BOOL;
+const DWORD = windows.DWORD;
+const HKEY = windows.HKEY;
+const BYTE = windows.BYTE;
+const LPCWSTR = windows.LPCWSTR;
+const LSTATUS = windows.LSTATUS;
+const REGSAM = windows.REGSAM;
+const ULONG = windows.ULONG;
+const WINAPI = windows.WINAPI;
 
 pub extern "advapi32" fn RegOpenKeyExW(
     hKey: HKEY,
@@ -11,10 +21,10 @@ pub extern "advapi32" fn RegOpenKeyExW(
 pub extern "advapi32" fn RegQueryValueExW(
     hKey: HKEY,
     lpValueName: LPCWSTR,
-    lpReserved: LPDWORD,
-    lpType: LPDWORD,
-    lpData: LPBYTE,
-    lpcbData: LPDWORD,
+    lpReserved: *DWORD,
+    lpType: *DWORD,
+    lpData: *BYTE,
+    lpcbData: *DWORD,
 ) callconv(WINAPI) LSTATUS;
 
 // RtlGenRandom is known as SystemFunction036 under advapi32

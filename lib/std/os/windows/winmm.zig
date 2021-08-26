@@ -1,4 +1,9 @@
-usingnamespace @import("bits.zig");
+const std = @import("../../std.zig");
+const windows = std.os.windows;
+const WINAPI = windows.WINAPI;
+const UINT = windows.UINT;
+const BYTE = windows.BYTE;
+const DWORD = windows.DWORD;
 
 pub const MMRESULT = UINT;
 pub const MMSYSERR_BASE = 0;

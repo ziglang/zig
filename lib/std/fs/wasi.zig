@@ -3,8 +3,7 @@ const os = std.os;
 const mem = std.mem;
 const math = std.math;
 const Allocator = mem.Allocator;
-
-usingnamespace std.os.wasi;
+const wasi = std.os.wasi;
 
 /// Type-tag of WASI preopen.
 ///

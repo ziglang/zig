@@ -969,7 +969,7 @@ pub const sigset_t = extern struct {
 
 pub const empty_sigset = sigset_t{ .__bits = [_]u32{0} ** _SIG_WORDS };
 
-pub usingnamespace switch (builtin.cpu.arch) {
+const arch_bits = switch (builtin.cpu.arch) {
     .x86_64 => struct {
         pub const ucontext_t = extern struct {
             sigmask: sigset_t,
@@ -1015,6 +1015,8 @@ pub usingnamespace switch (builtin.cpu.arch) {
     },
     else => struct {},
 };
+pub const ucontext_t = arch_bits.ucontext_t;
+pub const mcontext_t = arch_bits.mcontext_t;
 
 pub const E = enum(u16) {
     /// No error occurred.

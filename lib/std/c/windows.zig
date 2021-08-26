@@ -1,6 +1,8 @@
 //! The reference for these types and values is Microsoft Windows's ucrt (Universal C RunTime).
+const std = @import("../std.zig");
+const ws2_32 = std.os.windows.ws2_32;
 
-const ws2_32 = @import("../os/windows/ws2_32.zig");
+const windows = std.os.windows;
 
 pub extern "c" fn _errno() *c_int;
 
@@ -22,9 +24,9 @@ pub extern "c" fn sigfillset(set: ?*sigset_t) void;
 pub extern "c" fn alarm(seconds: c_uint) c_uint;
 pub extern "c" fn sigwait(set: ?*sigset_t, sig: ?*c_int) c_int;
 
-pub const fd_t = HANDLE;
-pub const ino_t = LARGE_INTEGER;
-pub const pid_t = HANDLE;
+pub const fd_t = windows.HANDLE;
+pub const ino_t = windows.LARGE_INTEGER;
+pub const pid_t = windows.HANDLE;
 pub const mode_t = u0;
 
 pub const PATH_MAX = 260;
@@ -191,7 +193,9 @@ pub const STRUNCATE = 80;
 pub const F_OK = 0;
 
 /// Remove directory instead of unlinking file
-pub const AT_REMOVEDIR = 0x200;
+pub const AT = struct {
+    pub const REMOVEDIR = 0x200;
+};
 
 pub const in_port_t = u16;
 pub const sa_family_t = ws2_32.ADDRESS_FAMILY;
@@ -205,7 +209,7 @@ pub const in_addr = u32;
 pub const addrinfo = ws2_32.addrinfo;
 pub const AF = ws2_32.AF;
 pub const SOCK = ws2_32.SOCK;
-pub const IPPROTO = ws2_32.IPPROTOP;
+pub const IPPROTO = ws2_32.IPPROTO;
 pub const BTHPROTO_RFCOMM = ws2_32.BTHPROTO_RFCOMM;
 
 pub const nfds_t = c_ulong;
@@ -216,29 +220,31 @@ pub const SO = ws2_32.SO;
 pub const PVD_CONFIG = ws2_32.PVD_CONFIG;
 pub const TCP_NODELAY = ws2_32.TCP_NODELAY;
 
-pub const O_RDONLY = 0o0;
-pub const O_WRONLY = 0o1;
-pub const O_RDWR = 0o2;
+pub const O = struct {
+    pub const RDONLY = 0o0;
+    pub const WRONLY = 0o1;
+    pub const RDWR = 0o2;
 
-pub const O_CREAT = 0o100;
-pub const O_EXCL = 0o200;
-pub const O_NOCTTY = 0o400;
-pub const O_TRUNC = 0o1000;
-pub const O_APPEND = 0o2000;
-pub const O_NONBLOCK = 0o4000;
-pub const O_DSYNC = 0o10000;
-pub const O_SYNC = 0o4010000;
-pub const O_RSYNC = 0o4010000;
-pub const O_DIRECTORY = 0o200000;
-pub const O_NOFOLLOW = 0o400000;
-pub const O_CLOEXEC = 0o2000000;
+    pub const CREAT = 0o100;
+    pub const EXCL = 0o200;
+    pub const NOCTTY = 0o400;
+    pub const TRUNC = 0o1000;
+    pub const APPEND = 0o2000;
+    pub const NONBLOCK = 0o4000;
+    pub const DSYNC = 0o10000;
+    pub const SYNC = 0o4010000;
+    pub const RSYNC = 0o4010000;
+    pub const DIRECTORY = 0o200000;
+    pub const NOFOLLOW = 0o400000;
+    pub const CLOEXEC = 0o2000000;
 
-pub const O_ASYNC = 0o20000;
-pub const O_DIRECT = 0o40000;
-pub const O_LARGEFILE = 0;
-pub const O_NOATIME = 0o1000000;
-pub const O_PATH = 0o10000000;
-pub const O_TMPFILE = 0o20200000;
-pub const O_NDELAY = O_NONBLOCK;
+    pub const ASYNC = 0o20000;
+    pub const DIRECT = 0o40000;
+    pub const LARGEFILE = 0;
+    pub const NOATIME = 0o1000000;
+    pub const PATH = 0o10000000;
+    pub const TMPFILE = 0o20200000;
+    pub const NDELAY = NONBLOCK;
+};
 
 pub const IFNAMESIZE = 30;
