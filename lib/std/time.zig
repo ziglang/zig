@@ -353,10 +353,12 @@ pub const Clock = struct {
                 var delta = Atomic(u64).init(0);
                 var delta_once = os.windows.INIT_ONCE_STATIC_INIT;
 
-                fn initDeltaOnce(once: *os.windows.INIT_ONCE, param: ?*c_void, ctx: ?*c_void) callconv(.C) void {
-                    _ = .{ once, ctx };
+                fn initDeltaOnce(once: *os.windows.INIT_ONCE, param: ?*c_void, ctx: ?*c_void) callconv(.C) os.windows.BOOL {
+                    _ = once;
+                    _ = ctx;
                     const current_ptr = @ptrCast(*u64, @alignCast(@alignOf(u64), param));
                     delta.storeUnchecked(current_ptr.*);
+                    return os.windows.TRUE;
                 }
             };
 
