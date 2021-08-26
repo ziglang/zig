@@ -470,22 +470,47 @@ void bigint_min(BigInt* dest, const BigInt *op1, const BigInt *op2) {
 
 /// clamps op within bit_count/signedness boundaries
 void bigint_clamp_by_bitcount(BigInt* op, uint32_t bit_count, bool is_signed) {
-    // save is_negative and set to false so that bigint_bits_needed() won't report 64+ for negative numbers
     bool is_negative = op->is_negative;
+    // set to false so that bigint_bits_needed() won't report 64+ bits needed for small negative numbers
     op->is_negative = false;
+    
+    // compute the number of bits required to store the value, and use that 
+    // to decide whether to clamp the result
     size_t bits_needed = bigint_bits_needed(op) + is_negative;
     bit_count -= is_signed;
-    bool is_over_saturated = bits_needed > bit_count;
-    if(is_over_saturated) {
-        // shift the least significant digit right by the number of 'extra' bits
-        uint64_t *op_digits;
-        if (op->digit_count == 1) {
-            op_digits = &op->data.digit;
+
+    if(bits_needed > bit_count) {
+        BigInt one;
+        bigint_init_unsigned(&one, 1);
+        BigInt bit_count_big;
+        bigint_init_unsigned(&bit_count_big, bit_count);
+        BigInt bound;
+        bigint_shl(&bound, &one, &bit_count_big); // 1 << bit_count
+        if(is_signed) {
+            if(!is_negative) {
+                BigInt bound_sub_one;
+                bigint_sub(&bound_sub_one, &bound, &one);
+                bigint_deinit(op);
+                bigint_deinit(&bound);
+                *op = bound_sub_one;
+            } else {
+                bigint_deinit(op);
+                *op = bound;
+            }
         } else {
-            op_digits = op->data.digits;
+            if(is_negative) {
+                bigint_init_unsigned(op, 0);
+                bigint_deinit(&bound);
+                return; // skips setting is_negative which would be invalid
+            } else {
+                BigInt bound_sub_one;
+                bigint_sub(&bound_sub_one, &bound, &one);
+                bigint_deinit(op);
+                bigint_deinit(&bound);
+                *op = bound_sub_one;
+            }
         }
-        op_digits[0] >>= (bit_count - bits_needed);
-    } 
+    }
     op->is_negative = is_negative;
 }
 
