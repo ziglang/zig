@@ -8778,13 +8778,20 @@ fn structFieldPtr(
     const arena = sema.arena;
     assert(unresolved_struct_ty.zigTypeTag() == .Struct);
 
+    const struct_ptr_ty = sema.typeOf(struct_ptr);
     const struct_ty = try sema.resolveTypeFields(block, src, unresolved_struct_ty);
     const struct_obj = struct_ty.castTag(.@"struct").?.data;
 
     const field_index = struct_obj.fields.getIndex(field_name) orelse
         return sema.failWithBadFieldAccess(block, struct_obj, field_name_src, field_name);
     const field = struct_obj.fields.values()[field_index];
-    const ptr_field_ty = try Module.simplePtrType(arena, field.ty, true, .One);
+    const ptr_field_ty = try Module.simplePtrTypeWithAddressSpace(
+        arena,
+        field.ty,
+        struct_ptr_ty.ptrIsMutable(),
+        .One,
+        struct_ptr_ty.ptrAddressSpace(),
+    );
 
     if (try sema.resolveDefinedValue(block, src, struct_ptr)) |struct_ptr_val| {
         return sema.addConstant(
@@ -8875,6 +8882,7 @@ fn unionFieldPtr(
     const arena = sema.arena;
     assert(unresolved_union_ty.zigTypeTag() == .Union);
 
+    const union_ptr_ty = sema.typeOf(union_ptr);
     const union_ty = try sema.resolveTypeFields(block, src, unresolved_union_ty);
     const union_obj = union_ty.cast(Type.Payload.Union).?.data;
 
@@ -8882,7 +8890,13 @@ fn unionFieldPtr(
         return sema.failWithBadUnionFieldAccess(block, union_obj, field_name_src, field_name);
 
     const field = union_obj.fields.values()[field_index];
-    const ptr_field_ty = try Module.simplePtrType(arena, field.ty, true, .One);
+    const ptr_field_ty = try Module.simplePtrTypeWithAddressSpace(
+        arena,
+        field.ty,
+        union_ptr_ty.ptrIsMutable(),
+        .One,
+        union_ptr_ty.ptrAddressSpace(),
+    );
 
     if (try sema.resolveDefinedValue(block, src, union_ptr)) |union_ptr_val| {
         // TODO detect inactive union field and emit compile error
