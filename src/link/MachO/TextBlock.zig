@@ -75,6 +75,8 @@ dbg_info_off: u32,
 /// Size of the .debug_info tag for this Decl, not including padding.
 dbg_info_len: u32,
 
+dirty: bool = true,
+
 pub const SymbolAtOffset = struct {
     local_sym_index: u32,
     offset: u64,
@@ -843,7 +845,6 @@ pub fn parseRelocs(self: *TextBlock, relocs: []macho.relocation_info, context: R
             };
             if (!(build_options.is_stage1 and context.macho_file.base.options.use_stage1)) {
                 _ = try context.macho_file.allocateAtom(atom, match);
-                try context.macho_file.writeAtom(atom, match);
             } else {
                 try context.macho_file.allocateAtomStage1(atom, match);
             }
@@ -924,30 +925,18 @@ pub fn parseRelocs(self: *TextBlock, relocs: []macho.relocation_info, context: R
                     .sect = context.macho_file.stubs_section_index.?,
                 });
             } else {
-                {
-                    const match = MachO.MatchingSection{
-                        .seg = context.macho_file.text_segment_cmd_index.?,
-                        .sect = context.macho_file.stub_helper_section_index.?,
-                    };
-                    _ = try context.macho_file.allocateAtom(stub_helper_atom, match);
-                    try context.macho_file.writeAtom(stub_helper_atom, match);
-                }
-                {
-                    const match = MachO.MatchingSection{
-                        .seg = context.macho_file.data_segment_cmd_index.?,
-                        .sect = context.macho_file.la_symbol_ptr_section_index.?,
-                    };
-                    _ = try context.macho_file.allocateAtom(laptr_atom, match);
-                    try context.macho_file.writeAtom(laptr_atom, match);
-                }
-                {
-                    const match = MachO.MatchingSection{
-                        .seg = context.macho_file.text_segment_cmd_index.?,
-                        .sect = context.macho_file.stubs_section_index.?,
-                    };
-                    _ = try context.macho_file.allocateAtom(stub_atom, match);
-                    try context.macho_file.writeAtom(stub_atom, match);
-                }
+                _ = try context.macho_file.allocateAtom(stub_helper_atom, .{
+                    .seg = context.macho_file.text_segment_cmd_index.?,
+                    .sect = context.macho_file.stub_helper_section_index.?,
+                });
+                _ = try context.macho_file.allocateAtom(laptr_atom, .{
+                    .seg = context.macho_file.data_segment_cmd_index.?,
+                    .sect = context.macho_file.la_symbol_ptr_section_index.?,
+                });
+                _ = try context.macho_file.allocateAtom(stub_atom, .{
+                    .seg = context.macho_file.text_segment_cmd_index.?,
+                    .sect = context.macho_file.stubs_section_index.?,
+                });
             }
         }
     }
