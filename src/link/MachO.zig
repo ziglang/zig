@@ -2626,11 +2626,12 @@ fn resolveSymbols(self: *MachO) !void {
             undef.n_type |= macho.N_EXT;
             undef.n_desc = @intCast(u16, ordinal + 1) * macho.N_SYMBOL_RESOLVER;
 
-            if (self.unresolved.fetchSwapRemove(resolv.where_index)) |entry| {
+            if (self.unresolved.fetchSwapRemove(resolv.where_index)) |entry| outer_blk: {
                 switch (entry.value) {
                     .none => {},
                     .got => return error.TODOGotHint,
                     .stub => {
+                        if (self.stubs_map.contains(resolv.where_index)) break :outer_blk;
                         const stub_helper_atom = blk: {
                             const atom = try self.createStubHelperAtom();
                             const match = MatchingSection{
@@ -2654,7 +2655,7 @@ fn resolveSymbols(self: *MachO) !void {
                             try self.writeAtom(atom, match);
                             break :blk atom;
                         };
-                        {
+                        const stub_atom = blk: {
                             const atom = try self.createStubAtom(laptr_atom.local_sym_index);
                             const match = MatchingSection{
                                 .seg = self.text_segment_cmd_index.?,
@@ -2662,7 +2663,9 @@ fn resolveSymbols(self: *MachO) !void {
                             };
                             _ = try self.allocateAtom(atom, match);
                             try self.writeAtom(atom, match);
-                        }
+                            break :blk atom;
+                        };
+                        try self.stubs_map.putNoClobber(self.base.allocator, resolv.where_index, stub_atom);
                     },
                 }
             }
