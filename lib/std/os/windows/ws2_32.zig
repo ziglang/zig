@@ -1,4 +1,13 @@
 const std = @import("../../std.zig");
+const windows = std.os.windows;
+
+const WINAPI = windows.WINAPI;
+const OVERLAPPED = windows.OVERLAPPED;
+const WORD = windows.WORD;
+const DWORD = windows.DWORD;
+const GUID = windows.GUID;
+const USHORT = windows.USHORT;
+const WCHAR = windows.WCHAR;
 
 pub const SOCKET = *opaque {};
 pub const INVALID_SOCKET = @intToPtr(SOCKET, ~@as(usize, 0));

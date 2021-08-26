@@ -23,6 +23,7 @@ const mem = std.mem;
 const elf = std.elf;
 const dl = @import("dynamic_library.zig");
 const MAX_PATH_BYTES = std.fs.MAX_PATH_BYTES;
+const is_windows = builtin.os.tag == .windows;
 
 pub const darwin = std.c;
 pub const dragonfly = std.c;
@@ -53,12 +54,11 @@ test {
 /// When not linking libc, it is the OS-specific system interface.
 pub const system = if (@hasDecl(root, "os") and root.os != @This())
     root.os.system
-else if (builtin.link_libc)
+else if (builtin.link_libc or is_windows)
     std.c
 else switch (builtin.os.tag) {
     .linux => linux,
     .wasi => wasi,
-    .windows => windows,
     .uefi => uefi,
     else => struct {},
 };
@@ -1949,7 +1949,7 @@ pub fn unlinkW(file_path_w: []const u16) UnlinkError!void {
 }
 
 pub const UnlinkatError = UnlinkError || error{
-    /// When passing `AT_REMOVEDIR`, this error occurs when the named directory is not empty.
+    /// When passing `AT.REMOVEDIR`, this error occurs when the named directory is not empty.
     DirNotEmpty,
 };
 
@@ -1972,7 +1972,7 @@ pub const unlinkatC = @compileError("deprecated: renamed to unlinkatZ");
 /// WASI-only. Same as `unlinkat` but targeting WASI.
 /// See also `unlinkat`.
 pub fn unlinkatWasi(dirfd: fd_t, file_path: []const u8, flags: u32) UnlinkatError!void {
-    const remove_dir = (flags & AT_REMOVEDIR) != 0;
+    const remove_dir = (flags & AT.REMOVEDIR) != 0;
     const res = if (remove_dir)
         wasi.path_remove_directory(dirfd, file_path.ptr, file_path.len)
     else
@@ -2032,7 +2032,7 @@ pub fn unlinkatZ(dirfd: fd_t, file_path_c: [*:0]const u8, flags: u32) UnlinkatEr
 
 /// Same as `unlinkat` but `sub_path_w` is UTF16LE, NT prefixed. Windows only.
 pub fn unlinkatW(dirfd: fd_t, sub_path_w: []const u16, flags: u32) UnlinkatError!void {
-    const remove_dir = (flags & AT_REMOVEDIR) != 0;
+    const remove_dir = (flags & AT.REMOVEDIR) != 0;
     return windows.DeleteFile(sub_path_w, .{ .dir = dirfd, .remove_dir = remove_dir });
 }
 

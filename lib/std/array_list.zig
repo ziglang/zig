@@ -236,21 +236,23 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             mem.copy(T, self.items[old_len..], items);
         }
 
-        pub usingnamespace if (T != u8) struct {} else struct {
-            pub const Writer = std.io.Writer(*Self, error{OutOfMemory}, appendWrite);
+        pub const Writer = if (T != u8)
+            @compileError("The Writer interface is only defined for ArrayList(u8) " ++
+                "but the given type is ArrayList(" ++ @typeName(T) ++ ")")
+        else
+            std.io.Writer(*Self, error{OutOfMemory}, appendWrite);
 
-            /// Initializes a Writer which will append to the list.
-            pub fn writer(self: *Self) Writer {
-                return .{ .context = self };
-            }
+        /// Initializes a Writer which will append to the list.
+        pub fn writer(self: *Self) Writer {
+            return .{ .context = self };
+        }
 
-            /// Same as `append` except it returns the number of bytes written, which is always the same
-            /// as `m.len`. The purpose of this function existing is to match `std.io.Writer` API.
-            fn appendWrite(self: *Self, m: []const u8) !usize {
-                try self.appendSlice(m);
-                return m.len;
-            }
-        };
+        /// Same as `append` except it returns the number of bytes written, which is always the same
+        /// as `m.len`. The purpose of this function existing is to match `std.io.Writer` API.
+        fn appendWrite(self: *Self, m: []const u8) !usize {
+            try self.appendSlice(m);
+            return m.len;
+        }
 
         /// Append a value to the list `n` times.
         /// Allocates more memory as necessary.

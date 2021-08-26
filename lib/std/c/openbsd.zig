@@ -810,7 +810,7 @@ comptime {
         std.debug.assert(@sizeOf(siginfo_t) == 136);
 }
 
-pub usingnamespace switch (builtin.cpu.arch) {
+const arch_bits = switch (builtin.cpu.arch) {
     .x86_64 => struct {
         pub const ucontext_t = extern struct {
             sc_rdi: c_long,
@@ -863,6 +863,8 @@ pub usingnamespace switch (builtin.cpu.arch) {
     },
     else => struct {},
 };
+pub const ucontext_t = arch_bits.ucontext_t;
+pub const fxsave64 = arch_bits.fxsave64;
 
 pub const sigset_t = c_uint;
 pub const empty_sigset: sigset_t = 0;

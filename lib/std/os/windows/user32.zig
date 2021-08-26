@@ -1,8 +1,6 @@
-usingnamespace @import("bits.zig");
-const std = @import("std");
-const builtin = std.builtin;
+const std = @import("../../std.zig");
 const assert = std.debug.assert;
-const windows = @import("../windows.zig");
+const windows = std.os.windows;
 const unexpectedError = windows.unexpectedError;
 const GetLastError = windows.kernel32.GetLastError;
 const SetLastError = windows.kernel32.SetLastError;
