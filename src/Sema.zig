@@ -9132,6 +9132,7 @@ fn coerce(
                 const dest_is_mut = !dest_type.isConstPtr();
                 if (inst_ty.isConstPtr() and dest_is_mut) break :src_array_ptr;
                 if (inst_ty.isVolatilePtr() and !dest_type.isVolatilePtr()) break :src_array_ptr;
+                if (inst_ty.ptrAddressSpace() != dest_type.ptrAddressSpace()) break :src_array_ptr;
 
                 const dst_elem_type = dest_type.elemType();
                 switch (coerceInMemoryAllowed(dst_elem_type, array_elem_type, dest_is_mut)) {
