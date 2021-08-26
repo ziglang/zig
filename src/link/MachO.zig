@@ -1908,8 +1908,23 @@ pub fn allocateAtom(self: *MachO, atom: *TextBlock, match: MatchingSection) !u64
 
     // TODO we should check if we need to expand the section or not like we
     // do in `allocateTextBlock`.
+    const n_sect = @intCast(u8, self.section_ordinals.getIndex(match).? + 1);
     sym.n_value = vaddr;
-    sym.n_sect = @intCast(u8, self.section_ordinals.getIndex(match).? + 1);
+    sym.n_sect = n_sect;
+
+    // Update each alias (if any)
+    for (atom.aliases.items) |index| {
+        const alias_sym = &self.locals.items[index];
+        alias_sym.n_value = vaddr;
+        alias_sym.n_sect = n_sect;
+    }
+
+    // Update each symbol contained within the TextBlock
+    for (atom.contained.items) |sym_at_off| {
+        const contained_sym = &self.locals.items[sym_at_off.local_sym_index];
+        contained_sym.n_value = vaddr + sym_at_off.offset;
+        contained_sym.n_sect = n_sect;
+    }
 
     if (self.blocks.getPtr(match)) |last| {
         last.*.next = atom;
