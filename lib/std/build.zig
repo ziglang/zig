@@ -2053,7 +2053,7 @@ pub const LibExeObjStep = struct {
     }
 
     pub fn addOptions(self: *LibExeObjStep, package_name: []const u8, options: *OptionsStep) void {
-        self.addPackage(.{ .name = package_name, .path = options.getSource() });
+        self.addPackage(options.getPackage(package_name));
     }
 
     fn addRecursiveBuildDeps(self: *LibExeObjStep, package: Pkg) void {
