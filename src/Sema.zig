@@ -9035,10 +9035,13 @@ fn elemPtrArray(
 ) CompileError!Air.Inst.Ref {
     const array_ptr_ty = sema.typeOf(array_ptr);
     const pointee_type = array_ptr_ty.elemType().elemType();
-    const result_ty = if (array_ptr_ty.ptrIsMutable())
-        try Type.Tag.single_mut_pointer.create(sema.arena, pointee_type)
-    else
-        try Type.Tag.single_const_pointer.create(sema.arena, pointee_type);
+    const result_ty = try Module.simplePtrTypeWithAddressSpace(
+        sema.arena,
+        pointee_type,
+        array_ptr_ty.ptrIsMutable(),
+        .One,
+        array_ptr_ty.ptrAddressSpace(),
+    );
 
     if (try sema.resolveDefinedValue(block, src, array_ptr)) |array_ptr_val| {
         if (try sema.resolveDefinedValue(block, elem_index_src, elem_index)) |index_val| {
