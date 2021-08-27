@@ -1,190 +1,76 @@
-//! Lock may be held only once. If the same thread tries to acquire
-//! the same mutex twice, it deadlocks.  This type supports static
-//! initialization and is at most `@sizeOf(usize)` in size.  When an
-//! application is built in single threaded release mode, all the
-//! functions are no-ops. In single threaded debug mode, there is
-//! deadlock detection.
-//!
-//! Example usage:
-//! var m = Mutex{};
-//!
-//! m.lock();
-//! defer m.release();
-//! ... critical code
-//!
-//! Non-blocking:
-//! if (m.tryLock()) {
-//!     defer m.unlock();
-//!     // ... critical section
-//! } else {
-//!     // ... lock not acquired
-//! }
+const std = @import("../std.zig");
+const target = std.Target.current;
+const assert = std.debug.assert;
+const os = std.os;
+
+const Spin = @import("Spin.zig");
+const Atomic = std.atomic.Atomic;
+const Futex = std.Thread.Futex;
+const Mutex = @This();
 
 impl: Impl = .{},
 
-const Mutex = @This();
-const std = @import("../std.zig");
-const builtin = @import("builtin");
-const os = std.os;
-const assert = std.debug.assert;
-const windows = os.windows;
-const linux = os.linux;
-const testing = std.testing;
-const StaticResetEvent = std.thread.StaticResetEvent;
-
-/// Try to acquire the mutex without blocking. Returns `false` if the mutex is
-/// unavailable. Otherwise returns `true`. Call `unlock` on the mutex to release.
-pub fn tryLock(m: *Mutex) bool {
-    return m.impl.tryLock();
+pub fn tryAcquire(self: *Mutex) ?Held {
+    if (self.impl.tryAcquire()) return Held{ .lock = self };
+    return null;
 }
 
-/// Acquire the mutex. Deadlocks if the mutex is already
-/// held by the calling thread.
-pub fn lock(m: *Mutex) void {
-    m.impl.lock();
+pub fn acquire(self: *Mutex) Held {
+    self.impl.acquire();
+    return Held{ .lock = self };
 }
 
-pub fn unlock(m: *Mutex) void {
-    m.impl.unlock();
-}
+pub const Held = struct {
+    lock: *Mutex,
 
-const Impl = if (builtin.single_threaded)
-    Dummy
-else if (builtin.os.tag == .windows)
-    WindowsMutex
-else if (std.Thread.use_pthreads)
-    PthreadMutex
-else
-    AtomicMutex;
-
-pub const AtomicMutex = struct {
-    state: State = .unlocked,
-
-    const State = enum(i32) {
-        unlocked,
-        locked,
-        waiting,
-    };
-
-    pub fn tryLock(m: *AtomicMutex) bool {
-        return @cmpxchgStrong(
-            State,
-            &m.state,
-            .unlocked,
-            .locked,
-            .Acquire,
-            .Monotonic,
-        ) == null;
-    }
-
-    pub fn lock(m: *AtomicMutex) void {
-        switch (@atomicRmw(State, &m.state, .Xchg, .locked, .Acquire)) {
-            .unlocked => {},
-            else => |s| m.lockSlow(s),
-        }
-    }
-
-    pub fn unlock(m: *AtomicMutex) void {
-        switch (@atomicRmw(State, &m.state, .Xchg, .unlocked, .Release)) {
-            .unlocked => unreachable,
-            .locked => {},
-            .waiting => m.unlockSlow(),
-        }
-    }
-
-    fn lockSlow(m: *AtomicMutex, current_state: State) void {
-        @setCold(true);
-        var new_state = current_state;
-
-        var spin: u8 = 0;
-        while (spin < 100) : (spin += 1) {
-            const state = @cmpxchgWeak(
-                State,
-                &m.state,
-                .unlocked,
-                new_state,
-                .Acquire,
-                .Monotonic,
-            ) orelse return;
-
-            switch (state) {
-                .unlocked => {},
-                .locked => {},
-                .waiting => break,
-            }
-
-            var iter = std.math.min(32, spin + 1);
-            while (iter > 0) : (iter -= 1)
-                std.atomic.spinLoopHint();
-        }
-
-        new_state = .waiting;
-        while (true) {
-            switch (@atomicRmw(State, &m.state, .Xchg, new_state, .Acquire)) {
-                .unlocked => return,
-                else => {},
-            }
-            switch (builtin.os.tag) {
-                .linux => {
-                    switch (linux.getErrno(linux.futex_wait(
-                        @ptrCast(*const i32, &m.state),
-                        linux.FUTEX.PRIVATE_FLAG | linux.FUTEX.WAIT,
-                        @enumToInt(new_state),
-                        null,
-                    ))) {
-                        .SUCCESS => {},
-                        .INTR => {},
-                        .AGAIN => {},
-                        else => unreachable,
-                    }
-                },
-                else => std.atomic.spinLoopHint(),
-            }
-        }
-    }
-
-    fn unlockSlow(m: *AtomicMutex) void {
-        @setCold(true);
-
-        switch (builtin.os.tag) {
-            .linux => {
-                switch (linux.getErrno(linux.futex_wake(
-                    @ptrCast(*const i32, &m.state),
-                    linux.FUTEX.PRIVATE_FLAG | linux.FUTEX.WAKE,
-                    1,
-                ))) {
-                    .SUCCESS => {},
-                    .FAULT => unreachable, // invalid pointer passed to futex_wake
-                    else => unreachable,
-                }
-            },
-            else => {},
-        }
+    pub fn release(self: Held) void {
+        self.lock.impl.release();
     }
 };
 
-pub const PthreadMutex = struct {
-    pthread_mutex: std.c.pthread_mutex_t = .{},
+pub const Impl = if (std.builtin.single_threaded)
+    SerialImpl
+else if (target.os.tag == .windows)
+    WindowsImpl
+else if (target.os.tag.isDarwin())
+    DarwinImpl
+else
+    FutexImpl;
 
-    /// Try to acquire the mutex without blocking. Returns true if
-    /// the mutex is unavailable. Otherwise returns false. Call
-    /// release when done.
-    pub fn tryLock(m: *PthreadMutex) bool {
-        return std.c.pthread_mutex_trylock(&m.pthread_mutex) == .SUCCESS;
+const SerialImpl = struct {
+    is_locked: bool = false,
+
+    pub fn tryAcquire(self: *Impl) bool {
+        if (self.is_locked) return false;
+        self.is_locked = true;
+        return true;
+    }  
+    
+    pub fn acquire(self: *Impl) void {
+        if (self.is_locked) unreachable; // deadlock detected
+        self.is_locked = true;
     }
 
-    /// Acquire the mutex. Will deadlock if the mutex is already
-    /// held by the calling thread.
-    pub fn lock(m: *PthreadMutex) void {
-        switch (std.c.pthread_mutex_lock(&m.pthread_mutex)) {
-            .SUCCESS => {},
-            .INVAL => unreachable,
-            .BUSY => unreachable,
-            .AGAIN => unreachable,
-            .DEADLK => unreachable,
-            .PERM => unreachable,
-            else => unreachable,
-        }
+    pub fn release(self: *Impl) void {
+        if (!self.is_locked) unreachable; // released when not acquired
+        self.is_locked = false;
+    }
+};
+
+const WindowsImpl = struct {
+    srwlock: os.windows.SWRLOCK = os.windows.SRWLOCK_INIT,
+
+    pub fn tryAcquire(self: *Impl) bool {
+        const rc = os.windows.kernel32.TryAcquireSRWLockExclusive(&self.srwlock);
+        return rc != os.windows.FALSE;
+    }  
+    
+    pub fn acquire(self: *Impl) void {
+        os.windows.kernel32.AcquireSRWLockExclusive(&self.srwlock);
+    }
+
+    pub fn release(self: *Impl) void {
+        os.windows.kernel32.ReleaseSRWLockExclusive(&self.srwlock);
     }
 
     pub fn unlock(m: *PthreadMutex) void {
@@ -198,91 +84,74 @@ pub const PthreadMutex = struct {
     }
 };
 
-/// This has the sematics as `Mutex`, however it does not actually do any
-/// synchronization. Operations are safety-checked no-ops.
-pub const Dummy = struct {
-    locked: @TypeOf(lock_init) = lock_init,
+const DarwinImpl = struct {
+    oul: os.darwin.os_unfair_lock = .{},
 
-    const lock_init = if (std.debug.runtime_safety) false else {};
-
-    /// Try to acquire the mutex without blocking. Returns false if
-    /// the mutex is unavailable. Otherwise returns true.
-    pub fn tryLock(m: *Dummy) bool {
-        if (std.debug.runtime_safety) {
-            if (m.locked) return false;
-            m.locked = true;
-        }
-        return true;
+    pub fn tryAcquire(self: *Impl) bool {
+        return os.darwin.os_unfair_lock_trylock(&self.oul);
+    }  
+    
+    pub fn acquire(self: *Impl) void {
+        return os.darwin.os_unfair_lock_lock(&self.oul);
     }
 
-    /// Acquire the mutex. Will deadlock if the mutex is already
-    /// held by the calling thread.
-    pub fn lock(m: *Dummy) void {
-        if (!m.tryLock()) {
-            @panic("deadlock detected");
-        }
-    }
-
-    pub fn unlock(m: *Dummy) void {
-        if (std.debug.runtime_safety) {
-            m.locked = false;
-        }
+    pub fn release(self: *Impl) void {
+        return os.darwin.os_unfair_lock_unlock(&self.oul);
     }
 };
 
-pub const WindowsMutex = struct {
-    srwlock: windows.SRWLOCK = windows.SRWLOCK_INIT,
+const FutexImpl = struct {
+    state: Atomic(u32) = Atomic(u32).init(UNLOCKED),
 
-    pub fn tryLock(m: *WindowsMutex) bool {
-        return windows.kernel32.TryAcquireSRWLockExclusive(&m.srwlock) != windows.FALSE;
-    }
+    const UNLOCKED = 0;
+    const LOCKED = 0b01;
+    const CONTENDED = 0b11;
 
-    pub fn lock(m: *WindowsMutex) void {
-        windows.kernel32.AcquireSRWLockExclusive(&m.srwlock);
-    }
-
-    pub fn unlock(m: *WindowsMutex) void {
-        windows.kernel32.ReleaseSRWLockExclusive(&m.srwlock);
-    }
-};
-
-const TestContext = struct {
-    mutex: *Mutex,
-    data: i128,
-
-    const incr_count = 10000;
-};
-
-test "basic usage" {
-    var mutex = Mutex{};
-
-    var context = TestContext{
-        .mutex = &mutex,
-        .data = 0,
-    };
-
-    if (builtin.single_threaded) {
-        worker(&context);
-        try testing.expect(context.data == TestContext.incr_count);
-    } else {
-        const thread_count = 10;
-        var threads: [thread_count]std.Thread = undefined;
-        for (threads) |*t| {
-            t.* = try std.Thread.spawn(.{}, worker, .{&context});
+    pub fn tryAcquire(self: *Impl) bool {
+        if (comptime target.cpu.arch.isX86()) {
+            return self.state.bitSet(@ctz(u32, LOCKED), .Acquire) == 0;
         }
-        for (threads) |t|
-            t.join();
 
-        try testing.expect(context.data == thread_count * TestContext.incr_count);
+        return self.state.compareAndSwap(
+            UNLOCKED,
+            LOCKED,
+            .Acquire,
+            .Monotonic,
+        ) == null;
+    }  
+    
+    pub fn acquire(self: *Impl) void {
+        if (self.tryAcquire()) {
+            return;
+        }
+
+        var spin: u8 = 100;
+        while (spin > 0) : (spin -= 1) {
+            std.atomic.spinLoopHint();
+
+            switch (self.state.load(.Monotonic)) {
+                UNLOCKED => if (self.acquireFast()) return,
+                LOCKED => continue,
+                CONTENDED => break,
+                else => unreachable, // invalid Mutex state
+            }
+        }
+
+        while (true) : (Futex.wait(&self.state, CONTENDED, null) catch unreachable) {
+            switch (self.state.swap(CONTENDED, .Acquire)) {
+                UNLOCKED => return,
+                LOCKED, CONTENDED => continue,
+                else => unreachable, // invalid Mutex state
+            }
+        }
     }
-}
 
-fn worker(ctx: *TestContext) void {
-    var i: usize = 0;
-    while (i != TestContext.incr_count) : (i += 1) {
-        ctx.mutex.lock();
-        defer ctx.mutex.unlock();
-
-        ctx.data += 1;
+    pub fn release(self: *Impl) void {
+        switch (self.state.swap(UNLOCKED, .Release)) {
+            UNLOCKED => unreachable, // released without being acquired
+            LOCKED => {},
+            CONTENDED => Futex.wake(&self.state, 1),
+            else => unreachable, // invalid Mutex state
+        }
     }
-}
+};
