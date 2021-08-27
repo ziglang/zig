@@ -127,7 +127,6 @@ tlv_bss_section_index: ?u16 = null,
 la_symbol_ptr_section_index: ?u16 = null,
 data_section_index: ?u16 = null,
 bss_section_index: ?u16 = null,
-common_section_index: ?u16 = null,
 
 objc_const_section_index: ?u16 = null,
 objc_selrefs_section_index: ?u16 = null,
@@ -1222,31 +1221,17 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
                 };
             },
             macho.S_ZEROFILL => {
-                if (mem.eql(u8, sectname, "__common")) {
-                    if (self.common_section_index == null) {
-                        self.common_section_index = @intCast(u16, data_seg.sections.items.len);
-                        try data_seg.addSection(self.base.allocator, "__common", .{
-                            .flags = macho.S_ZEROFILL,
-                        });
-                    }
-
-                    break :blk .{
-                        .seg = self.data_segment_cmd_index.?,
-                        .sect = self.common_section_index.?,
-                    };
-                } else {
-                    if (self.bss_section_index == null) {
-                        self.bss_section_index = @intCast(u16, data_seg.sections.items.len);
-                        try data_seg.addSection(self.base.allocator, "__bss", .{
-                            .flags = macho.S_ZEROFILL,
-                        });
-                    }
-
-                    break :blk .{
-                        .seg = self.data_segment_cmd_index.?,
-                        .sect = self.bss_section_index.?,
-                    };
+                if (self.bss_section_index == null) {
+                    self.bss_section_index = @intCast(u16, data_seg.sections.items.len);
+                    try data_seg.addSection(self.base.allocator, "__bss", .{
+                        .flags = macho.S_ZEROFILL,
+                    });
                 }
+
+                break :blk .{
+                    .seg = self.data_segment_cmd_index.?,
+                    .sect = self.bss_section_index.?,
+                };
             },
             macho.S_THREAD_LOCAL_VARIABLES => {
                 if (self.tlv_section_index == null) {
@@ -1598,7 +1583,6 @@ fn sortSections(self: *MachO) !void {
             &self.tlv_data_section_index,
             &self.tlv_bss_section_index,
             &self.bss_section_index,
-            &self.common_section_index,
         };
         for (indices) |maybe_index| {
             const new_index: u16 = if (maybe_index.*) |index| blk: {
@@ -2578,16 +2562,16 @@ fn resolveSymbols(self: *MachO) !void {
     while (tentatives.popOrNull()) |entry| {
         const sym = &self.globals.items[entry.key];
         const match: MatchingSection = blk: {
-            if (self.common_section_index == null) {
+            if (self.bss_section_index == null) {
                 const data_seg = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
-                self.common_section_index = @intCast(u16, data_seg.sections.items.len);
-                try data_seg.addSection(self.base.allocator, "__common", .{
+                self.bss_section_index = @intCast(u16, data_seg.sections.items.len);
+                try data_seg.addSection(self.base.allocator, "__bss", .{
                     .flags = macho.S_ZEROFILL,
                 });
             }
             break :blk .{
                 .seg = self.data_segment_cmd_index.?,
-                .sect = self.common_section_index.?,
+                .sect = self.bss_section_index.?,
             };
         };
         _ = try self.section_ordinals.getOrPut(self.base.allocator, match);
@@ -2890,23 +2874,17 @@ fn addLoadDylibLCs(self: *MachO) !void {
 fn flushZld(self: *MachO) !void {
     try self.writeTextBlocks();
 
-    if (self.common_section_index) |index| {
-        const seg = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
-        const sect = &seg.sections.items[index];
-        sect.offset = 0;
-    }
+    // if (self.bss_section_index) |index| {
+    //     const seg = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
+    //     const sect = &seg.sections.items[index];
+    //     sect.offset = 0;
+    // }
 
-    if (self.bss_section_index) |index| {
-        const seg = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
-        const sect = &seg.sections.items[index];
-        sect.offset = 0;
-    }
-
-    if (self.tlv_bss_section_index) |index| {
-        const seg = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
-        const sect = &seg.sections.items[index];
-        sect.offset = 0;
-    }
+    // if (self.tlv_bss_section_index) |index| {
+    //     const seg = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
+    //     const sect = &seg.sections.items[index];
+    //     sect.offset = 0;
+    // }
 
     try self.setEntryPoint();
     try self.writeRebaseInfoTableZld();
