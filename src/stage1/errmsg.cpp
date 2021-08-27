@@ -83,9 +83,12 @@ static void print_err_msg_type(ErrorMsg *err, ErrColor color, ErrType err_type) 
         fprintf(stderr, "\n");
     }
 
-    for (size_t i = 0; i < err->notes.length; i += 1) {
+    for (size_t i = 0; i < err->notes.length && i < 3; i += 1) {
         ErrorMsg *note = err->notes.at(i);
         print_err_msg_type(note, color, ErrTypeNote);
+    }
+    if (err->notes.length > 3) {
+        fprintf(stderr, "and %ld more...\n", err->notes.length - 3);
     }
 }
 
