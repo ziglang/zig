@@ -9767,9 +9767,7 @@ fn analyzeSlice(
         return_elem_type,
         if (end_opt == .none) slice_sentinel else null,
         0, // TODO alignment
-        // TODO(Snektron) address space, should be inferred from the pointer type.
-        // TODO(Snektron) address space for slicing a local, should compute address space from context and architecture.
-        .generic,
+        if (ptr_child.zigTypeTag() == .Pointer) ptr_child.ptrAddressSpace() else .generic,
         0,
         0,
         !ptr_child.isConstPtr(),
