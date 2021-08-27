@@ -469,14 +469,14 @@ void bigint_min(BigInt* dest, const BigInt *op1, const BigInt *op2) {
 }
 
 /// clamps op within bit_count/signedness boundaries
-void bigint_clamp_by_bitcount(BigInt* op, uint32_t bit_count, bool is_signed) {
-    bool is_negative = op->is_negative;
+void bigint_clamp_by_bitcount(BigInt* dest, uint32_t bit_count, bool is_signed) {
+    bool is_negative = dest->is_negative;
     // set to false so that bigint_bits_needed() won't report 64+ bits needed for small negative numbers
-    op->is_negative = false;
+    dest->is_negative = false;
     
     // compute the number of bits required to store the value, and use that 
     // to decide whether to clamp the result
-    size_t bits_needed = bigint_bits_needed(op) + is_negative;
+    size_t bits_needed = bigint_bits_needed(dest) + is_negative;
     bit_count -= is_signed;
 
     if(bits_needed > bit_count) {
@@ -484,34 +484,38 @@ void bigint_clamp_by_bitcount(BigInt* op, uint32_t bit_count, bool is_signed) {
         bigint_init_unsigned(&one, 1);
         BigInt bit_count_big;
         bigint_init_unsigned(&bit_count_big, bit_count);
-        BigInt bound;
-        bigint_shl(&bound, &one, &bit_count_big); // 1 << bit_count
+        
         if(is_signed) {
-            if(!is_negative) {
+            if(is_negative) {
+                BigInt bound;
+                bigint_shl(&bound, &one, &bit_count_big);
+                bigint_deinit(dest);
+                *dest = bound;
+            } else {
+                BigInt bound;
+                bigint_shl(&bound, &one, &bit_count_big);
                 BigInt bound_sub_one;
                 bigint_sub(&bound_sub_one, &bound, &one);
-                bigint_deinit(op);
                 bigint_deinit(&bound);
-                *op = bound_sub_one;
-            } else {
-                bigint_deinit(op);
-                *op = bound;
+                bigint_deinit(dest);
+                *dest = bound_sub_one;
             }
         } else {
             if(is_negative) {
-                bigint_init_unsigned(op, 0);
-                bigint_deinit(&bound);
+                bigint_init_unsigned(dest, 0);
                 return; // skips setting is_negative which would be invalid
             } else {
+                BigInt bound;
+                bigint_shl(&bound, &one, &bit_count_big);
                 BigInt bound_sub_one;
                 bigint_sub(&bound_sub_one, &bound, &one);
-                bigint_deinit(op);
                 bigint_deinit(&bound);
-                *op = bound_sub_one;
+                bigint_deinit(dest);
+                *dest = bound_sub_one;
             }
         }
     }
-    op->is_negative = is_negative;
+    dest->is_negative = is_negative;
 }
 
 void bigint_add_sat(BigInt* dest, const BigInt *op1, const BigInt *op2, uint32_t bit_count, bool is_signed) {
