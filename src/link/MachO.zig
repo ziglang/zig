@@ -133,6 +133,9 @@ objc_selrefs_section_index: ?u16 = null,
 objc_classrefs_section_index: ?u16 = null,
 objc_data_section_index: ?u16 = null,
 
+bss_file_offset: ?u64 = null,
+tlv_bss_file_offset: ?u64 = null,
+
 locals: std.ArrayListUnmanaged(macho.nlist_64) = .{},
 globals: std.ArrayListUnmanaged(macho.nlist_64) = .{},
 undefs: std.ArrayListUnmanaged(macho.nlist_64) = .{},
@@ -1714,11 +1717,30 @@ fn allocateSegment(self: *MachO, index: u16, offset: u64) !void {
 
     // Allocate the sections according to their alignment at the beginning of the segment.
     var start: u64 = offset;
-    for (seg.sections.items) |*sect| {
+    for (seg.sections.items) |*sect, sect_id| {
         const alignment = try math.powi(u32, 2, sect.@"align");
         const start_aligned = mem.alignForwardGeneric(u64, start, alignment);
         const end_aligned = mem.alignForwardGeneric(u64, start_aligned + sect.size, alignment);
-        sect.offset = @intCast(u32, seg.inner.fileoff + start_aligned);
+        const file_offset = @intCast(u32, seg.inner.fileoff + start_aligned);
+
+        blk: {
+            if (index == self.data_segment_cmd_index.?) {
+                if (self.bss_section_index) |idx| {
+                    if (sect_id == idx) {
+                        self.bss_file_offset = file_offset;
+                        break :blk;
+                    }
+                }
+                if (self.tlv_bss_section_index) |idx| {
+                    if (sect_id == idx) {
+                        self.tlv_bss_file_offset = file_offset;
+                        break :blk;
+                    }
+                }
+            }
+            sect.offset = @intCast(u32, seg.inner.fileoff + start_aligned);
+        }
+
         sect.addr = seg.inner.vmaddr + start_aligned;
         start = end_aligned;
     }
@@ -1821,6 +1843,18 @@ fn writeTextBlocks(self: *MachO) !void {
         var code = try self.base.allocator.alloc(u8, sect.size);
         defer self.base.allocator.free(code);
 
+        const file_offset: u64 = blk: {
+            if (self.data_segment_cmd_index.? == match.seg) {
+                if (self.bss_section_index) |idx| {
+                    if (idx == match.sect) break :blk self.bss_file_offset.?;
+                }
+                if (self.tlv_bss_section_index) |idx| {
+                    if (idx == match.sect) break :blk self.tlv_bss_file_offset.?;
+                }
+            }
+            break :blk sect.offset;
+        };
+
         if (sect_type == macho.S_ZEROFILL or sect_type == macho.S_THREAD_LOCAL_ZEROFILL) {
             mem.set(u8, code, 0);
         } else {
@@ -1856,7 +1890,7 @@ fn writeTextBlocks(self: *MachO) !void {
             mem.set(u8, code[base_off..], 0);
         }
 
-        try self.base.file.?.pwriteAll(code, sect.offset);
+        try self.base.file.?.pwriteAll(code, file_offset);
     }
 }
 
@@ -1925,7 +1959,18 @@ pub fn writeAtom(self: *MachO, atom: *TextBlock, match: MatchingSection) !void {
     const seg = self.load_commands.items[match.seg].Segment;
     const sect = seg.sections.items[match.sect];
     const sym = self.locals.items[atom.local_sym_index];
-    const file_offset = sect.offset + sym.n_value - sect.addr;
+    const sect_offset: u64 = blk: {
+        if (self.data_segment_cmd_index.? == match.seg) {
+            if (self.bss_section_index) |idx| {
+                if (idx == match.sect) break :blk self.bss_file_offset.?;
+            }
+            if (self.tlv_bss_section_index) |idx| {
+                if (idx == match.sect) break :blk self.tlv_bss_file_offset.?;
+            }
+        }
+        break :blk sect.offset;
+    };
+    const file_offset = sect_offset + sym.n_value - sect.addr;
     try atom.resolveRelocs(self);
     log.debug("writing atom for symbol {s} at file offset 0x{x}", .{ self.getString(sym.n_strx), file_offset });
     try self.base.file.?.pwriteAll(atom.code.items, file_offset);
@@ -2873,19 +2918,6 @@ fn addLoadDylibLCs(self: *MachO) !void {
 
 fn flushZld(self: *MachO) !void {
     try self.writeTextBlocks();
-
-    // if (self.bss_section_index) |index| {
-    //     const seg = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
-    //     const sect = &seg.sections.items[index];
-    //     sect.offset = 0;
-    // }
-
-    // if (self.tlv_bss_section_index) |index| {
-    //     const seg = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
-    //     const sect = &seg.sections.items[index];
-    //     sect.offset = 0;
-    // }
-
     try self.setEntryPoint();
     try self.writeRebaseInfoTableZld();
     try self.writeBindInfoTableZld();
@@ -4203,10 +4235,12 @@ pub fn populateMissingMetadata(self: *MachO) !void {
 
         log.debug("found __thread_bss section free space 0x{x} to 0x{x}", .{ off, off + needed_size });
 
+        // We keep offset to the section in a separate variable as the actual section is usually pointing at the
+        // beginning of the file.
+        self.tlv_bss_file_offset = off;
         try data_segment.addSection(self.base.allocator, "__thread_bss", .{
             .addr = data_segment.inner.vmaddr + off - data_segment.inner.fileoff,
             .size = needed_size,
-            .offset = @intCast(u32, off),
             .@"align" = 3, // 2^3 = @sizeOf(u64)
             .flags = macho.S_THREAD_LOCAL_ZEROFILL,
         });
@@ -4229,10 +4263,12 @@ pub fn populateMissingMetadata(self: *MachO) !void {
 
         log.debug("found __bss section free space 0x{x} to 0x{x}", .{ off, off + needed_size });
 
+        // We keep offset to the section in a separate variable as the actual section is usually pointing at the
+        // beginning of the file.
+        self.bss_file_offset = off;
         try data_segment.addSection(self.base.allocator, "__bss", .{
             .addr = data_segment.inner.vmaddr + off - data_segment.inner.fileoff,
             .size = 0,
-            .offset = @intCast(u32, off),
             .@"align" = 3, // 2^3 = @sizeOf(u64)
             .flags = macho.S_ZEROFILL,
         });
