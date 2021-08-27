@@ -347,6 +347,7 @@ artifact: *LibExeObjStep,
 dest_dir: InstallDir,
 dest_filename: []const u8,
 format: RawFormat,
+output_file: std.build.GeneratedFile,
 
 fn detectFormat(filename: []const u8) RawFormat {
     if (std.mem.endsWith(u8, filename, ".hex") or std.mem.endsWith(u8, filename, ".ihex")) {
@@ -369,11 +370,16 @@ pub fn create(builder: *Builder, artifact: *LibExeObjStep, dest_filename: []cons
         },
         .dest_filename = dest_filename,
         .format = format orelse detectFormat(dest_filename),
+        .output_file = std.build.GeneratedFile{ .step = &self.step },
     };
     self.step.dependOn(&artifact.step);
 
     builder.pushInstalledFile(self.dest_dir, dest_filename);
     return self;
+}
+
+pub fn getOutputSource(self: *const InstallRawStep) std.build.FileSource {
+    return std.build.FileSource{ .generated = &self.output_file };
 }
 
 fn make(step: *Step) !void {
@@ -390,6 +396,7 @@ fn make(step: *Step) !void {
 
     fs.cwd().makePath(builder.getInstallPath(self.dest_dir, "")) catch unreachable;
     try emitRaw(builder.allocator, full_src_path, full_dest_path, self.format);
+    self.output_file.path = full_dest_path;
 }
 
 test {
