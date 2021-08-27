@@ -861,7 +861,7 @@ pub fn addCases(ctx: *TestContext) !void {
             "Hello, World!\n",
         );
         try case.files.append(.{
-            .src = 
+            .src =
             \\pub fn print() void {
             \\    asm volatile ("syscall"
             \\        :
@@ -924,7 +924,7 @@ pub fn addCases(ctx: *TestContext) !void {
             },
         );
         try case.files.append(.{
-            .src = 
+            .src =
             \\// dummy comment to make print be on line 2
             \\fn print() void {
             \\    asm volatile ("syscall"
@@ -1817,6 +1817,45 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
         , &[_][]const u8{
             ":2:28: error: cannot set address space of local variable 'foo'",
+        });
+    }
+
+    {
+        var case = ctx.exe("address space pointer coercions", linux_x64);
+        case.addError(
+            \\fn entry(a: *addrspace(.gs) i32) *i32 {
+            \\    return a;
+            \\}
+            \\pub fn main() void { _ = entry; }
+        , &[_][]const u8{
+            ":2:12: error: expected *i32, found *addrspace(.gs) i32",
+        });
+
+        case.addError(
+            \\fn entry(a: *addrspace(.gs) i32) *addrspace(.fs) i32 {
+            \\    return a;
+            \\}
+            \\pub fn main() void { _ = entry; }
+        , &[_][]const u8{
+            ":2:12: error: expected *addrspace(.fs) i32, found *addrspace(.gs) i32",
+        });
+
+        case.addError(
+            \\fn entry(a: ?*addrspace(.gs) i32) *i32 {
+            \\    return a.?;
+            \\}
+            \\pub fn main() void { _ = entry; }
+        , &[_][]const u8{
+            ":2:13: error: expected *i32, found *addrspace(.gs) i32",
+        });
+
+        case.addError(
+            \\fn entry(a: *addrspace(.gs) i32) *i32 {
+            \\    return &a.*;
+            \\}
+            \\pub fn main() void { _ = entry; }
+        , &[_][]const u8{
+            ":2:12: error: expected *i32, found *addrspace(.gs) i32",
         });
     }
 }
