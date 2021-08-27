@@ -41,7 +41,8 @@ static void print_err_msg_type(ErrorMsg *err, ErrColor color, ErrType err_type) 
 
         const size_t line = err->line_start + 1;
         const size_t col = err->column_start + 1;
-        if (use_colors) os_stderr_set_color(TermColorBold);
+        if (use_colors && !is_note) os_stderr_set_color(TermColorBold);
+        if (use_colors && is_note) os_stderr_set_color(TermColorFaint);
 
         // Strip cwd from path
         if (memStartsWith(pathslice, cwd))
@@ -65,7 +66,8 @@ static void print_err_msg_type(ErrorMsg *err, ErrColor color, ErrType err_type) 
     }
 
     // Write out the error message
-    if (use_colors) os_stderr_set_color(TermColorBold);
+    if (use_colors && !is_note) os_stderr_set_color(TermColorBold);
+    if (use_colors) os_stderr_set_color(TermColorWhite);
     fputs(buf_ptr(err->msg), stderr);
     if (use_colors) os_stderr_set_color(TermColorReset);
     fputc('\n', stderr);
@@ -88,7 +90,9 @@ static void print_err_msg_type(ErrorMsg *err, ErrColor color, ErrType err_type) 
         print_err_msg_type(note, color, ErrTypeNote);
     }
     if (err->notes.length > 3) {
+        if (use_colors) os_stderr_set_color(TermColorFaint);
         fprintf(stderr, "and %ld more...\n", err->notes.length - 3);
+        if (use_colors) os_stderr_set_color(TermColorReset);
     }
 }
 

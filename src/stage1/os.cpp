@@ -970,6 +970,7 @@ int os_init(void) {
 #define VT_CYAN "\x1b[36;1m"
 #define VT_WHITE "\x1b[37;1m"
 #define VT_BOLD "\x1b[0;1m"
+#define VT_FAINT "\x1b[0;2m"
 #define VT_RESET "\x1b[0m"
 
 static void set_color_posix(TermColor color) {
@@ -988,6 +989,9 @@ static void set_color_posix(TermColor color) {
             break;
         case TermColorBold:
             fprintf(stderr, VT_BOLD);
+            break;
+        case TermColorFaint:
+            fprintf(stderr, VT_FAINT);
             break;
         case TermColorReset:
             fprintf(stderr, VT_RESET);

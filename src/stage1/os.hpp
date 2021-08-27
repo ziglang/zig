@@ -71,6 +71,7 @@ enum TermColor {
     TermColorCyan,
     TermColorWhite,
     TermColorBold,
+    TermColorFaint,
     TermColorReset,
 };
 
