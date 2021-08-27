@@ -1,6 +1,7 @@
 const Object = @This();
 
 const std = @import("std");
+const build_options = @import("build_options");
 const assert = std.debug.assert;
 const dwarf = std.dwarf;
 const fs = std.fs;
@@ -405,15 +406,9 @@ const TextBlockParser = struct {
             break :blk .static;
         } else null;
 
-        const block = try context.allocator.create(TextBlock);
-        block.* = TextBlock.empty;
-        block.local_sym_index = senior_nlist.index;
+        const block = try context.macho_file.createEmptyAtom(senior_nlist.index, size, actual_align);
         block.stab = stab;
-        block.size = size;
-        block.alignment = actual_align;
-        try context.macho_file.managed_blocks.append(context.allocator, block);
-
-        try block.code.appendSlice(context.allocator, code);
+        mem.copy(u8, block.code.items, code);
 
         try block.aliases.ensureTotalCapacity(context.allocator, aliases.items.len);
         for (aliases.items) |alias| {
@@ -458,6 +453,7 @@ pub fn parseTextBlocks(
     object_id: u16,
     macho_file: *MachO,
 ) !void {
+    const use_stage1 = build_options.is_stage1 and macho_file.base.options.use_stage1;
     const seg = self.load_commands.items[self.segment_cmd_index.?].Segment;
 
     log.debug("analysing {s}", .{self.name});
@@ -508,6 +504,7 @@ pub fn parseTextBlocks(
             log.debug("unhandled section", .{});
             continue;
         };
+        // TODO allocate section here.
 
         // Read section's code
         var code = try allocator.alloc(u8, @intCast(usize, sect.size));
@@ -568,18 +565,17 @@ pub fn parseTextBlocks(
                         try self.sections_as_symbols.putNoClobber(allocator, sect_id, block_local_sym_index);
                         break :blk block_local_sym_index;
                     };
-
                     const block_code = code[0 .. first_nlist.n_value - sect.addr];
                     const block_size = block_code.len;
+                    const block = try macho_file.createEmptyAtom(block_local_sym_index, block_size, sect.@"align");
 
-                    const block = try allocator.create(TextBlock);
-                    block.* = TextBlock.empty;
-                    block.local_sym_index = block_local_sym_index;
-                    block.size = block_size;
-                    block.alignment = sect.@"align";
-                    try macho_file.managed_blocks.append(allocator, block);
+                    if (use_stage1) {
+                        try macho_file.allocateAtomStage1(block, match);
+                    } else {
+                        _ = try macho_file.allocateAtom(block, match);
+                    }
 
-                    try block.code.appendSlice(allocator, block_code);
+                    mem.copy(u8, block.code.items, block_code);
 
                     try block.parseRelocs(relocs, .{
                         .base_addr = 0,
@@ -599,25 +595,6 @@ pub fn parseTextBlocks(
                                 .kind = dice.kind,
                             });
                         }
-                    }
-
-                    // Update target section's metadata
-                    // TODO should we update segment's size here too?
-                    // How does it tie with incremental space allocs?
-                    const tseg = &macho_file.load_commands.items[match.seg].Segment;
-                    const tsect = &tseg.sections.items[match.sect];
-                    const new_alignment = math.max(tsect.@"align", block.alignment);
-                    const new_alignment_pow_2 = try math.powi(u32, 2, new_alignment);
-                    const new_size = mem.alignForwardGeneric(u64, tsect.size, new_alignment_pow_2) + block.size;
-                    tsect.size = new_size;
-                    tsect.@"align" = new_alignment;
-
-                    if (macho_file.blocks.getPtr(match)) |last| {
-                        last.*.next = block;
-                        block.prev = last.*;
-                        last.* = block;
-                    } else {
-                        try macho_file.blocks.putNoClobber(allocator, match, block);
                     }
 
                     try self.text_blocks.append(allocator, block);
@@ -666,23 +643,10 @@ pub fn parseTextBlocks(
                         }
                     }
 
-                    // Update target section's metadata
-                    // TODO should we update segment's size here too?
-                    // How does it tie with incremental space allocs?
-                    const tseg = &macho_file.load_commands.items[match.seg].Segment;
-                    const tsect = &tseg.sections.items[match.sect];
-                    const new_alignment = math.max(tsect.@"align", block.alignment);
-                    const new_alignment_pow_2 = try math.powi(u32, 2, new_alignment);
-                    const new_size = mem.alignForwardGeneric(u64, tsect.size, new_alignment_pow_2) + block.size;
-                    tsect.size = new_size;
-                    tsect.@"align" = new_alignment;
-
-                    if (macho_file.blocks.getPtr(match)) |last| {
-                        last.*.next = block;
-                        block.prev = last.*;
-                        last.* = block;
+                    if (use_stage1) {
+                        try macho_file.allocateAtomStage1(block, match);
                     } else {
-                        try macho_file.blocks.putNoClobber(allocator, match, block);
+                        _ = try macho_file.allocateAtom(block, match);
                     }
 
                     try self.text_blocks.append(allocator, block);
@@ -713,15 +677,15 @@ pub fn parseTextBlocks(
                 try self.sections_as_symbols.putNoClobber(allocator, sect_id, block_local_sym_index);
                 break :blk block_local_sym_index;
             };
+            const block = try macho_file.createEmptyAtom(block_local_sym_index, sect.size, sect.@"align");
 
-            const block = try allocator.create(TextBlock);
-            block.* = TextBlock.empty;
-            block.local_sym_index = block_local_sym_index;
-            block.size = sect.size;
-            block.alignment = sect.@"align";
-            try macho_file.managed_blocks.append(allocator, block);
+            if (use_stage1) {
+                try macho_file.allocateAtomStage1(block, match);
+            } else {
+                _ = try macho_file.allocateAtom(block, match);
+            }
 
-            try block.code.appendSlice(allocator, code);
+            mem.copy(u8, block.code.items, code);
 
             try block.parseRelocs(relocs, .{
                 .base_addr = 0,
@@ -777,25 +741,6 @@ pub fn parseTextBlocks(
                     .offset = nlist.n_value - sect.addr,
                     .stab = stab,
                 });
-            }
-
-            // Update target section's metadata
-            // TODO should we update segment's size here too?
-            // How does it tie with incremental space allocs?
-            const tseg = &macho_file.load_commands.items[match.seg].Segment;
-            const tsect = &tseg.sections.items[match.sect];
-            const new_alignment = math.max(tsect.@"align", block.alignment);
-            const new_alignment_pow_2 = try math.powi(u32, 2, new_alignment);
-            const new_size = mem.alignForwardGeneric(u64, tsect.size, new_alignment_pow_2) + block.size;
-            tsect.size = new_size;
-            tsect.@"align" = new_alignment;
-
-            if (macho_file.blocks.getPtr(match)) |last| {
-                last.*.next = block;
-                block.prev = last.*;
-                last.* = block;
-            } else {
-                try macho_file.blocks.putNoClobber(allocator, match, block);
             }
 
             try self.text_blocks.append(allocator, block);

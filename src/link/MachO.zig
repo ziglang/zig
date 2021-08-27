@@ -782,7 +782,6 @@ pub fn flush(self: *MachO, comp: *Compilation) !void {
             }
 
             try self.parseTextBlocks();
-            // try self.sortSections();
             try self.allocateTextSegment();
             try self.allocateDataConstSegment();
             try self.allocateDataSegment();
@@ -1500,158 +1499,6 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
     return res;
 }
 
-fn sortSections(self: *MachO) !void {
-    var text_index_mapping = std.AutoHashMap(u16, u16).init(self.base.allocator);
-    defer text_index_mapping.deinit();
-    var data_const_index_mapping = std.AutoHashMap(u16, u16).init(self.base.allocator);
-    defer data_const_index_mapping.deinit();
-    var data_index_mapping = std.AutoHashMap(u16, u16).init(self.base.allocator);
-    defer data_index_mapping.deinit();
-
-    {
-        // __TEXT segment
-        const seg = &self.load_commands.items[self.text_segment_cmd_index.?].Segment;
-        var sections = seg.sections.toOwnedSlice(self.base.allocator);
-        defer self.base.allocator.free(sections);
-        try seg.sections.ensureCapacity(self.base.allocator, sections.len);
-
-        const indices = &[_]*?u16{
-            &self.text_section_index,
-            &self.stubs_section_index,
-            &self.stub_helper_section_index,
-            &self.gcc_except_tab_section_index,
-            &self.cstring_section_index,
-            &self.ustring_section_index,
-            &self.text_const_section_index,
-            &self.objc_methlist_section_index,
-            &self.objc_methname_section_index,
-            &self.objc_methtype_section_index,
-            &self.objc_classname_section_index,
-            &self.eh_frame_section_index,
-        };
-        for (indices) |maybe_index| {
-            const new_index: u16 = if (maybe_index.*) |index| blk: {
-                const idx = @intCast(u16, seg.sections.items.len);
-                seg.sections.appendAssumeCapacity(sections[index]);
-                try text_index_mapping.putNoClobber(index, idx);
-                break :blk idx;
-            } else continue;
-            maybe_index.* = new_index;
-        }
-    }
-
-    {
-        // __DATA_CONST segment
-        const seg = &self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
-        var sections = seg.sections.toOwnedSlice(self.base.allocator);
-        defer self.base.allocator.free(sections);
-        try seg.sections.ensureCapacity(self.base.allocator, sections.len);
-
-        const indices = &[_]*?u16{
-            &self.got_section_index,
-            &self.mod_init_func_section_index,
-            &self.mod_term_func_section_index,
-            &self.data_const_section_index,
-            &self.objc_cfstring_section_index,
-            &self.objc_classlist_section_index,
-            &self.objc_imageinfo_section_index,
-        };
-        for (indices) |maybe_index| {
-            const new_index: u16 = if (maybe_index.*) |index| blk: {
-                const idx = @intCast(u16, seg.sections.items.len);
-                seg.sections.appendAssumeCapacity(sections[index]);
-                try data_const_index_mapping.putNoClobber(index, idx);
-                break :blk idx;
-            } else continue;
-            maybe_index.* = new_index;
-        }
-    }
-
-    {
-        // __DATA segment
-        const seg = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
-        var sections = seg.sections.toOwnedSlice(self.base.allocator);
-        defer self.base.allocator.free(sections);
-        try seg.sections.ensureCapacity(self.base.allocator, sections.len);
-
-        // __DATA segment
-        const indices = &[_]*?u16{
-            &self.la_symbol_ptr_section_index,
-            &self.objc_const_section_index,
-            &self.objc_selrefs_section_index,
-            &self.objc_classrefs_section_index,
-            &self.objc_data_section_index,
-            &self.data_section_index,
-            &self.tlv_section_index,
-            &self.tlv_data_section_index,
-            &self.tlv_bss_section_index,
-            &self.bss_section_index,
-        };
-        for (indices) |maybe_index| {
-            const new_index: u16 = if (maybe_index.*) |index| blk: {
-                const idx = @intCast(u16, seg.sections.items.len);
-                seg.sections.appendAssumeCapacity(sections[index]);
-                try data_index_mapping.putNoClobber(index, idx);
-                break :blk idx;
-            } else continue;
-            maybe_index.* = new_index;
-        }
-    }
-
-    {
-        var transient: std.AutoHashMapUnmanaged(MatchingSection, *TextBlock) = .{};
-        try transient.ensureCapacity(self.base.allocator, self.blocks.count());
-
-        var it = self.blocks.iterator();
-        while (it.next()) |entry| {
-            const old = entry.key_ptr.*;
-            const sect = if (old.seg == self.text_segment_cmd_index.?)
-                text_index_mapping.get(old.sect).?
-            else if (old.seg == self.data_const_segment_cmd_index.?)
-                data_const_index_mapping.get(old.sect).?
-            else
-                data_index_mapping.get(old.sect).?;
-            transient.putAssumeCapacityNoClobber(.{
-                .seg = old.seg,
-                .sect = sect,
-            }, entry.value_ptr.*);
-        }
-
-        self.blocks.clearAndFree(self.base.allocator);
-        self.blocks.deinit(self.base.allocator);
-        self.blocks = transient;
-    }
-
-    {
-        // Create new section ordinals.
-        self.section_ordinals.clearRetainingCapacity();
-        const text_seg = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
-        for (text_seg.sections.items) |_, sect_id| {
-            const res = self.section_ordinals.getOrPutAssumeCapacity(.{
-                .seg = self.text_segment_cmd_index.?,
-                .sect = @intCast(u16, sect_id),
-            });
-            assert(!res.found_existing);
-        }
-        const data_const_seg = self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
-        for (data_const_seg.sections.items) |_, sect_id| {
-            const res = self.section_ordinals.getOrPutAssumeCapacity(.{
-                .seg = self.data_const_segment_cmd_index.?,
-                .sect = @intCast(u16, sect_id),
-            });
-            assert(!res.found_existing);
-        }
-        const data_seg = self.load_commands.items[self.data_segment_cmd_index.?].Segment;
-        for (data_seg.sections.items) |_, sect_id| {
-            const res = self.section_ordinals.getOrPutAssumeCapacity(.{
-                .seg = self.data_segment_cmd_index.?,
-                .sect = @intCast(u16, sect_id),
-            });
-            assert(!res.found_existing);
-        }
-    }
-}
-
 fn allocateTextSegment(self: *MachO) !void {
     const seg = &self.load_commands.items[self.text_segment_cmd_index.?].Segment;
     const base_vmaddr = self.load_commands.items[self.pagezero_segment_cmd_index.?].Segment.inner.vmsize;
@@ -1894,7 +1741,7 @@ fn writeTextBlocks(self: *MachO) !void {
     }
 }
 
-fn createEmptyAtom(self: *MachO, local_sym_index: u32, size: u64, alignment: u32) !*TextBlock {
+pub fn createEmptyAtom(self: *MachO, local_sym_index: u32, size: u64, alignment: u32) !*TextBlock {
     const code = try self.base.allocator.alloc(u8, size);
     defer self.base.allocator.free(code);
     mem.set(u8, code, 0);
@@ -1924,8 +1771,12 @@ pub fn allocateAtom(self: *MachO, atom: *TextBlock, match: MatchingSection) !u64
     const vaddr = mem.alignForwardGeneric(u64, base_addr, atom_alignment);
     log.debug("allocating atom for symbol {s} at address 0x{x}", .{ self.getString(sym.n_strx), vaddr });
 
-    // TODO we should check if we need to expand the section or not like we
-    // do in `allocateTextBlock`.
+    const expand_section = true;
+    if (expand_section) {
+        // Expand the section, possibly shifting all the atoms for the sections following it.
+        // It might also be needed to shift entire segments too if there is not enough
+        // padding left.
+    }
     const n_sect = @intCast(u8, self.section_ordinals.getIndex(match).? + 1);
     sym.n_value = vaddr;
     sym.n_sect = n_sect;
