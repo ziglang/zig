@@ -780,7 +780,7 @@ pub fn flush(self: *MachO, comp: *Compilation) !void {
             }
 
             try self.parseTextBlocks();
-            try self.sortSections();
+            // try self.sortSections();
             try self.allocateTextSegment();
             try self.allocateDataConstSegment();
             try self.allocateDataSegment();
@@ -4157,6 +4157,110 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         const match = MatchingSection{
             .seg = self.data_segment_cmd_index.?,
             .sect = self.data_section_index.?,
+        };
+        _ = try self.section_ordinals.getOrPut(self.base.allocator, match);
+        try self.block_free_lists.putNoClobber(self.base.allocator, match, .{});
+        self.load_commands_dirty = true;
+    }
+
+    if (self.tlv_section_index == null) {
+        const data_segment = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
+        self.tlv_section_index = @intCast(u16, data_segment.sections.items.len);
+
+        const needed_size = @sizeOf(u64) * self.base.options.symbol_count_hint;
+        const off = data_segment.findFreeSpace(needed_size, @alignOf(u64), null);
+        assert(off + needed_size <= data_segment.inner.fileoff + data_segment.inner.filesize); // TODO Must expand __DATA segment.
+
+        log.debug("found __thread_vars section free space 0x{x} to 0x{x}", .{ off, off + needed_size });
+
+        try data_segment.addSection(self.base.allocator, "__thread_vars", .{
+            .addr = data_segment.inner.vmaddr + off - data_segment.inner.fileoff,
+            .size = needed_size,
+            .offset = @intCast(u32, off),
+            .@"align" = 3, // 2^3 = @sizeOf(u64)
+            .flags = macho.S_THREAD_LOCAL_VARIABLES,
+        });
+        const match = MatchingSection{
+            .seg = self.data_segment_cmd_index.?,
+            .sect = self.tlv_section_index.?,
+        };
+        _ = try self.section_ordinals.getOrPut(self.base.allocator, match);
+        try self.block_free_lists.putNoClobber(self.base.allocator, match, .{});
+        self.load_commands_dirty = true;
+    }
+
+    if (self.tlv_data_section_index == null) {
+        const data_segment = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
+        self.tlv_data_section_index = @intCast(u16, data_segment.sections.items.len);
+
+        const needed_size = @sizeOf(u64) * self.base.options.symbol_count_hint;
+        const off = data_segment.findFreeSpace(needed_size, @alignOf(u64), null);
+        assert(off + needed_size <= data_segment.inner.fileoff + data_segment.inner.filesize); // TODO Must expand __DATA segment.
+
+        log.debug("found __thread_data section free space 0x{x} to 0x{x}", .{ off, off + needed_size });
+
+        try data_segment.addSection(self.base.allocator, "__thread_data", .{
+            .addr = data_segment.inner.vmaddr + off - data_segment.inner.fileoff,
+            .size = needed_size,
+            .offset = @intCast(u32, off),
+            .@"align" = 3, // 2^3 = @sizeOf(u64)
+            .flags = macho.S_THREAD_LOCAL_REGULAR,
+        });
+        const match = MatchingSection{
+            .seg = self.data_segment_cmd_index.?,
+            .sect = self.tlv_data_section_index.?,
+        };
+        _ = try self.section_ordinals.getOrPut(self.base.allocator, match);
+        try self.block_free_lists.putNoClobber(self.base.allocator, match, .{});
+        self.load_commands_dirty = true;
+    }
+
+    if (self.tlv_bss_section_index == null) {
+        const data_segment = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
+        self.tlv_bss_section_index = @intCast(u16, data_segment.sections.items.len);
+
+        const needed_size = @sizeOf(u64) * self.base.options.symbol_count_hint;
+        const off = data_segment.findFreeSpace(needed_size, @alignOf(u64), null);
+        assert(off + needed_size <= data_segment.inner.fileoff + data_segment.inner.filesize); // TODO Must expand __DATA segment.
+
+        log.debug("found __thread_bss section free space 0x{x} to 0x{x}", .{ off, off + needed_size });
+
+        try data_segment.addSection(self.base.allocator, "__thread_bss", .{
+            .addr = data_segment.inner.vmaddr + off - data_segment.inner.fileoff,
+            .size = needed_size,
+            .offset = @intCast(u32, off),
+            .@"align" = 3, // 2^3 = @sizeOf(u64)
+            .flags = macho.S_THREAD_LOCAL_ZEROFILL,
+        });
+        const match = MatchingSection{
+            .seg = self.data_segment_cmd_index.?,
+            .sect = self.tlv_bss_section_index.?,
+        };
+        _ = try self.section_ordinals.getOrPut(self.base.allocator, match);
+        try self.block_free_lists.putNoClobber(self.base.allocator, match, .{});
+        self.load_commands_dirty = true;
+    }
+
+    if (self.bss_section_index == null) {
+        const data_segment = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
+        self.bss_section_index = @intCast(u16, data_segment.sections.items.len);
+
+        const needed_size = @sizeOf(u64) * self.base.options.symbol_count_hint;
+        const off = data_segment.findFreeSpace(needed_size, @alignOf(u64), null);
+        assert(off + needed_size <= data_segment.inner.fileoff + data_segment.inner.filesize); // TODO Must expand __DATA segment.
+
+        log.debug("found __bss section free space 0x{x} to 0x{x}", .{ off, off + needed_size });
+
+        try data_segment.addSection(self.base.allocator, "__bss", .{
+            .addr = data_segment.inner.vmaddr + off - data_segment.inner.fileoff,
+            .size = 0,
+            .offset = @intCast(u32, off),
+            .@"align" = 3, // 2^3 = @sizeOf(u64)
+            .flags = macho.S_ZEROFILL,
+        });
+        const match = MatchingSection{
+            .seg = self.data_segment_cmd_index.?,
+            .sect = self.bss_section_index.?,
         };
         _ = try self.section_ordinals.getOrPut(self.base.allocator, match);
         try self.block_free_lists.putNoClobber(self.base.allocator, match, .{});
