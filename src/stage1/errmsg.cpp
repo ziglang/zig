@@ -18,6 +18,7 @@ enum ErrType {
 static void print_err_msg_type(ErrorMsg *err, ErrColor color, ErrType err_type) {
     bool supports_color = os_stderr_supports_color();
     bool use_colors = color == ErrColorOn || (color == ErrColorAuto && supports_color);
+    bool is_note = err_type == ErrTypeNote;
 
     // Show the error location, if available
     if (err->path != nullptr) {
@@ -69,7 +70,7 @@ static void print_err_msg_type(ErrorMsg *err, ErrColor color, ErrType err_type) 
     if (use_colors) os_stderr_set_color(TermColorReset);
     fputc('\n', stderr);
 
-    if (buf_len(&err->line_buf) != 0){
+    if (buf_len(&err->line_buf) != 0 && !is_note){
         // Show the referenced line
         fprintf(stderr, "%s\n", buf_ptr(&err->line_buf));
         for (size_t i = 0; i < err->column_start; i += 1) {
@@ -90,6 +91,7 @@ static void print_err_msg_type(ErrorMsg *err, ErrColor color, ErrType err_type) 
 
 void print_err_msg(ErrorMsg *err, ErrColor color) {
     print_err_msg_type(err, color, ErrTypeError);
+    fprintf(stderr, "\n");
 }
 
 void err_msg_add_note(ErrorMsg *parent, ErrorMsg *note) {
