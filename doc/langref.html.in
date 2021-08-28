@@ -7035,6 +7035,8 @@ fn readFile(allocator: *Allocator, filename: []const u8) ![]u8 {
       <pre>{#syntax#}@addWithSaturation(a: T, b: T) T{#endsyntax#}</pre>
       <p>
       Returns {#syntax#}a + b{#endsyntax#}. The result will be clamped between the type maximum and minimum.
+      Once <a href="https://github.com/ziglang/zig/issues/1284">Saturating arithmetic</a>.
+      is completed, the syntax {#syntax#}a +| b{#endsyntax#} will be equivalent to calling @addWithSaturation.
       </p>
       {#header_close#}
       {#header_open|@alignCast#}
@@ -8154,6 +8156,8 @@ test "@wasmMemoryGrow" {
       <pre>{#syntax#}@mulWithSaturation(a: T, b: T) T{#endsyntax#}</pre>
       <p>
       Returns {#syntax#}a * b{#endsyntax#}. The result will be clamped between the type maximum and minimum.
+      Once <a href="https://github.com/ziglang/zig/issues/1284">Saturating arithmetic</a>.
+      is completed, the syntax {#syntax#}a *| b{#endsyntax#} will be equivalent to calling @mulWithSaturation.
       </p>
       {#header_close#}
 
@@ -8402,6 +8406,8 @@ test "@setRuntimeSafety" {
       <pre>{#syntax#}@shlWithSaturation(a: T, shift_amt: T) T{#endsyntax#}</pre>
       <p>
       Returns {#syntax#}a << b{#endsyntax#}. The result will be clamped between type minimum and maximum.  
+      Once <a href="https://github.com/ziglang/zig/issues/1284">Saturating arithmetic</a>.
+      is completed, the syntax {#syntax#}a <<| b{#endsyntax#} will be equivalent to calling @shlWithSaturation.
       </p>
       <p>
       Unlike other @shl builtins, shift_amt doesn't need to be a Log2T as saturated overshifting is well defined.  
@@ -8722,7 +8728,9 @@ fn doTheTest() !void {
       {#header_open|@subWithSaturation#}
       <pre>{#syntax#}@subWithSaturation(a: T, b: T) T{#endsyntax#}</pre>
       <p>
-      Returns {#syntax#}a - b{#endsyntax#}. The result will be clamped between the type maximum and minimum.
+      Returns {#syntax#}a - b{#endsyntax#}. The result will be clamped between the type maximum and minimum.  
+      Once <a href="https://github.com/ziglang/zig/issues/1284">Saturating arithmetic</a>.
+      is completed, the syntax {#syntax#}a -| b{#endsyntax#} will be equivalent to calling @subWithSaturation.
       </p>
       {#header_close#}
 

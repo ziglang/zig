@@ -509,12 +509,10 @@ LLVMValueRef ZigLLVMBuildUSubSat(LLVMBuilderRef B, LLVMValueRef LHS, LLVMValueRe
 }
 
 LLVMValueRef ZigLLVMBuildSMulFixSat(LLVMBuilderRef B, LLVMValueRef LHS, LLVMValueRef RHS, const char *name) {
-    // pass scale = 0 as third argument
-    llvm::Type* types[3] = {
+    llvm::Type* types[1] = {
         unwrap(LHS)->getType(), 
-        unwrap(RHS)->getType(), 
-        llvm::Type::getInt32PtrTy(unwrap(LHS)->getContext())
     };
+    // pass scale = 0 as third argument
     llvm::Value* values[3] = {unwrap(LHS), unwrap(RHS), unwrap(B)->getInt32(0)};
     
     CallInst *call_inst = unwrap(B)->CreateIntrinsic(Intrinsic::smul_fix_sat, types, values, nullptr, name);
@@ -522,12 +520,10 @@ LLVMValueRef ZigLLVMBuildSMulFixSat(LLVMBuilderRef B, LLVMValueRef LHS, LLVMValu
 }
 
 LLVMValueRef ZigLLVMBuildUMulFixSat(LLVMBuilderRef B, LLVMValueRef LHS, LLVMValueRef RHS, const char *name) {
-    // pass scale = 0 as third argument
-    llvm::Type* types[3] = {
+    llvm::Type* types[1] = {
         unwrap(LHS)->getType(), 
-        unwrap(RHS)->getType(), 
-        llvm::Type::getInt32PtrTy(unwrap(LHS)->getContext())
     };
+    // pass scale = 0 as third argument
     llvm::Value* values[3] = {unwrap(LHS), unwrap(RHS), unwrap(B)->getInt32(0)};
     
     CallInst *call_inst = unwrap(B)->CreateIntrinsic(Intrinsic::umul_fix_sat, types, values, nullptr, name);

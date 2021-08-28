@@ -9824,32 +9824,28 @@ static ErrorMsg *ir_eval_math_op_scalar(IrAnalyze *ira, Scope *scope, AstNode *s
             if (is_int) {
                 bigint_add_sat(&out_val->data.x_bigint, &op1_val->data.x_bigint, &op2_val->data.x_bigint, type_entry->data.integral.bit_count, type_entry->data.integral.is_signed);
             } else {
-                // TODO: support floats?
-                zig_panic("float types not supported by @addWithSaturation");
+                zig_unreachable();
             }
             break;
         case IrBinOpSatSub:
             if (is_int) {
                 bigint_sub_sat(&out_val->data.x_bigint, &op1_val->data.x_bigint, &op2_val->data.x_bigint, type_entry->data.integral.bit_count, type_entry->data.integral.is_signed);
             } else {
-                // TODO: support floats?
-                zig_panic("float types not supported by @subWithSaturation");
+                zig_unreachable();
             }
             break;
         case IrBinOpSatMul:
             if (is_int) {
                 bigint_mul_sat(&out_val->data.x_bigint, &op1_val->data.x_bigint, &op2_val->data.x_bigint, type_entry->data.integral.bit_count, type_entry->data.integral.is_signed);
             } else {
-                // TODO: support floats?
-                zig_panic("float types not supported by @mulWithSaturation");
+                zig_unreachable();
             }
             break;
         case IrBinOpSatShl:
             if (is_int) {
                 bigint_shl_sat(&out_val->data.x_bigint, &op1_val->data.x_bigint, &op2_val->data.x_bigint, type_entry->data.integral.bit_count, type_entry->data.integral.is_signed);
             } else {
-                // TODO: support floats?
-                zig_panic("float types not supported by @shlWithSaturation");
+                zig_unreachable();
             }
             break;
     }

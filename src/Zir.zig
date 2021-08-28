@@ -3619,7 +3619,7 @@ const Writer = struct {
         try stream.writeAll(", ");
         try self.writeInstRef(stream, extra.rhs);
         try stream.writeAll(", ");
-        try stream.writeAll(")) ");
+        try stream.writeAll(") ");
         try self.writeSrc(stream, src);
     }
 
