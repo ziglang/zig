@@ -1200,8 +1200,6 @@ pub fn formatFloatDecimal(
                 while (i < precision) : (i += 1) {
                     try writer.writeAll("0");
                 }
-            } else {
-                try writer.writeAll(".0");
             }
         }
 
