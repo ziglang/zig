@@ -469,17 +469,23 @@ void bigint_min(BigInt* dest, const BigInt *op1, const BigInt *op2) {
 }
 
 /// clamps op within bit_count/signedness boundaries
+/// signed bounds are  [-2^(bit_count-1)..2^(bit_count-1)-1] 
+/// unsigned bounds are  [0..2^bit_count-1] 
 void bigint_clamp_by_bitcount(BigInt* dest, uint32_t bit_count, bool is_signed) {
-    bool is_negative = dest->is_negative;
-    // set to false so that bigint_bits_needed() won't report 64+ bits needed for small negative numbers
-    dest->is_negative = false;
-    
     // compute the number of bits required to store the value, and use that 
     // to decide whether to clamp the result
-    size_t bits_needed = bigint_bits_needed(dest) + is_negative;
+    bool is_negative = dest->is_negative;
+    // to workaround the fact that bigint_bits_needed() returns 65 or more for 
+    // all negative numbers, set is_negative to false.  this is a cheap way to find 
+    // bits_needed(abs(dest)).  
+    dest->is_negative = false;
+    // because we've set is_negative to false, we have to account for the extra bit here
+    size_t bits_needed = bigint_bits_needed(dest) + is_negative; 
     bit_count -= is_signed;
 
     if(bits_needed > bit_count) {
+        // these 2 bigints won't do heap allocation as they never require more than 64 bits.
+        // thus, they don't need to be deinit.
         BigInt one;
         bigint_init_unsigned(&one, 1);
         BigInt bit_count_big;
