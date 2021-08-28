@@ -526,7 +526,9 @@ fn renderExpression(gpa: *Allocator, ais: *Ais, tree: ast.Tree, node: ast.Node.I
 
         .@"return" => {
             if (datas[node].lhs != 0) {
-                try renderToken(ais, tree, main_tokens[node], .space);
+                if (node_tags[datas[node].lhs] != .@"return") {
+                    try renderToken(ais, tree, main_tokens[node], .space);
+                }
                 try renderExpression(gpa, ais, tree, datas[node].lhs, space);
             } else {
                 try renderToken(ais, tree, main_tokens[node], space);
