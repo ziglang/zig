@@ -836,8 +836,8 @@ pub fn parseDebugInfo(self: *Object, allocator: *Allocator) !void {
         },
         else => |e| return e,
     };
-    const name = try compile_unit.die.getAttrString(&debug_info.inner, dwarf.AT_name);
-    const comp_dir = try compile_unit.die.getAttrString(&debug_info.inner, dwarf.AT_comp_dir);
+    const name = try compile_unit.die.getAttrString(&debug_info.inner, dwarf.AT.name);
+    const comp_dir = try compile_unit.die.getAttrString(&debug_info.inner, dwarf.AT.comp_dir);
 
     self.debug_info = debug_info;
     self.tu_name = try allocator.dupe(u8, name);

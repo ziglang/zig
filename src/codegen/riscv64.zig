@@ -390,7 +390,7 @@ pub const RawRegister = enum(u5) {
     x24, x25, x26, x27, x28, x29, x30, x31,
 
     pub fn dwarfLocOp(reg: RawRegister) u8 {
-        return @enumToInt(reg) + DW.OP_reg0;
+        return @enumToInt(reg) + DW.OP.reg0;
     }
 };
 
@@ -424,7 +424,7 @@ pub const Register = enum(u5) {
     }
 
     pub fn dwarfLocOp(reg: Register) u8 {
-        return @as(u8, @enumToInt(reg)) + DW.OP_reg0;
+        return @as(u8, @enumToInt(reg)) + DW.OP.reg0;
     }
 };
 

@@ -899,7 +899,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         fn dbgSetPrologueEnd(self: *Self) InnerError!void {
             switch (self.debug_output) {
                 .dwarf => |dbg_out| {
-                    try dbg_out.dbg_line.append(DW.LNS_set_prologue_end);
+                    try dbg_out.dbg_line.append(DW.LNS.set_prologue_end);
                     try self.dbgAdvancePCAndLine(self.prev_di_line, self.prev_di_column);
                 },
                 .none => {},
@@ -909,7 +909,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         fn dbgSetEpilogueBegin(self: *Self) InnerError!void {
             switch (self.debug_output) {
                 .dwarf => |dbg_out| {
-                    try dbg_out.dbg_line.append(DW.LNS_set_epilogue_begin);
+                    try dbg_out.dbg_line.append(DW.LNS.set_epilogue_begin);
                     try self.dbgAdvancePCAndLine(self.prev_di_line, self.prev_di_column);
                 },
                 .none => {},
@@ -925,13 +925,13 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     // It lets you emit single-byte opcodes that add different numbers to
                     // both the PC and the line number at the same time.
                     try dbg_out.dbg_line.ensureUnusedCapacity(11);
-                    dbg_out.dbg_line.appendAssumeCapacity(DW.LNS_advance_pc);
+                    dbg_out.dbg_line.appendAssumeCapacity(DW.LNS.advance_pc);
                     leb128.writeULEB128(dbg_out.dbg_line.writer(), delta_pc) catch unreachable;
                     if (delta_line != 0) {
-                        dbg_out.dbg_line.appendAssumeCapacity(DW.LNS_advance_line);
+                        dbg_out.dbg_line.appendAssumeCapacity(DW.LNS.advance_line);
                         leb128.writeILEB128(dbg_out.dbg_line.writer(), delta_line) catch unreachable;
                     }
-                    dbg_out.dbg_line.appendAssumeCapacity(DW.LNS_copy);
+                    dbg_out.dbg_line.appendAssumeCapacity(DW.LNS.copy);
                 },
                 .none => {},
             }
@@ -1010,7 +1010,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .dwarf => |dbg_out| {
                     assert(ty.hasCodeGenBits());
                     const index = dbg_out.dbg_info.items.len;
-                    try dbg_out.dbg_info.resize(index + 4); // DW.AT_type,  DW.FORM_ref4
+                    try dbg_out.dbg_info.resize(index + 4); // DW.AT.type,  DW.FORM.ref4
 
                     const gop = try dbg_out.dbg_info_type_relocs.getOrPut(self.gpa, ty);
                     if (!gop.found_existing) {
@@ -2438,13 +2438,13 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         .dwarf => |dbg_out| {
                             try dbg_out.dbg_info.ensureCapacity(dbg_out.dbg_info.items.len + 3);
                             dbg_out.dbg_info.appendAssumeCapacity(link.File.Elf.abbrev_parameter);
-                            dbg_out.dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT_location, DW.FORM_exprloc
+                            dbg_out.dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
                                 1, // ULEB128 dwarf expression length
                                 reg.dwarfLocOp(),
                             });
                             try dbg_out.dbg_info.ensureCapacity(dbg_out.dbg_info.items.len + 5 + name_with_null.len);
-                            try self.addDbgInfoTypeReloc(ty); // DW.AT_type,  DW.FORM_ref4
-                            dbg_out.dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT_name, DW.FORM_string
+                            try self.addDbgInfoTypeReloc(ty); // DW.AT.type,  DW.FORM.ref4
+                            dbg_out.dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT.name, DW.FORM.string
                         },
                         .none => {},
                     }
@@ -2467,15 +2467,15 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                     var counting_writer = std.io.countingWriter(std.io.null_writer);
                                     leb128.writeILEB128(counting_writer.writer(), adjusted_stack_offset) catch unreachable;
 
-                                    // DW.AT_location, DW.FORM_exprloc
+                                    // DW.AT.location, DW.FORM.exprloc
                                     // ULEB128 dwarf expression length
                                     try leb128.writeULEB128(dbg_out.dbg_info.writer(), counting_writer.bytes_written + 1);
-                                    try dbg_out.dbg_info.append(DW.OP_breg11);
+                                    try dbg_out.dbg_info.append(DW.OP.breg11);
                                     try leb128.writeILEB128(dbg_out.dbg_info.writer(), adjusted_stack_offset);
 
                                     try dbg_out.dbg_info.ensureCapacity(dbg_out.dbg_info.items.len + 5 + name_with_null.len);
-                                    try self.addDbgInfoTypeReloc(ty); // DW.AT_type,  DW.FORM_ref4
-                                    dbg_out.dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT_name, DW.FORM_string
+                                    try self.addDbgInfoTypeReloc(ty); // DW.AT.type,  DW.FORM.ref4
+                                    dbg_out.dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT.name, DW.FORM.string
                                 },
                                 else => {},
                             }
