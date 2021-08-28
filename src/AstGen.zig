@@ -8403,7 +8403,7 @@ fn nodeImpliesRuntimeBits(tree: *const ast.Tree, start_node: ast.Node.Index) boo
     }
 }
 
-/// Applies `rl` semantics to `inst`. Expressions which do not do their own handling of
+/// Applies `rl` semantics to `result`. Expressions which do not do their own handling of
 /// result locations must call this function on their result.
 /// As an example, if the `ResultLoc` is `ptr`, it will write the result to the pointer.
 /// If the `ResultLoc` is `ty`, it will coerce the result to the type.
@@ -8413,6 +8413,7 @@ fn rvalue(
     result: Zir.Inst.Ref,
     src_node: ast.Node.Index,
 ) InnerError!Zir.Inst.Ref {
+    if (gz.endsWithNoReturn()) return result;
     switch (rl) {
         .none, .none_or_ref, .coerced_ty => return result,
         .discard => {
