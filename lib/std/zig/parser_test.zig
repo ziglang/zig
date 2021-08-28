@@ -2711,6 +2711,28 @@ test "zig fmt: return" {
     );
 }
 
+test "zig fmt: nested return" {
+    try testTransform(
+        \\fn foo(x: u8) bool {
+        \\    return return return return return x % 2 == 0;
+        \\}
+        \\
+        \\fn bar() void {
+        \\    return return return;
+        \\}
+        \\
+    ,
+        \\fn foo(x: u8) bool {
+        \\    return x % 2 == 0;
+        \\}
+        \\
+        \\fn bar() void {
+        \\    return;
+        \\}
+        \\
+    );
+}
+
 test "zig fmt: function attributes" {
     try testCanonical(
         \\export fn foo() void {}
