@@ -522,6 +522,7 @@ basic_string<char32_t> operator "" s( const char32_t *str, size_t len ); // C++1
 #include <algorithm>
 #include <compare>
 #include <cstdio>  // EOF
+#include <cstdlib>
 #include <cstring>
 #include <cwchar>
 #include <initializer_list>
@@ -1712,6 +1713,24 @@ private:
     bool __addr_in_range(_Tp&& __t) const {
         const volatile void *__p = _VSTD::addressof(__t);
         return data() <= __p && __p <= data() + size();
+    }
+
+    _LIBCPP_NORETURN _LIBCPP_HIDE_FROM_ABI
+    void __throw_length_error() const {
+#ifndef _LIBCPP_NO_EXCEPTIONS
+        __basic_string_common<true>::__throw_length_error();
+#else
+        _VSTD::abort();
+#endif
+    }
+
+    _LIBCPP_NORETURN _LIBCPP_HIDE_FROM_ABI
+    void __throw_out_of_range() const {
+#ifndef _LIBCPP_NO_EXCEPTIONS
+        __basic_string_common<true>::__throw_out_of_range();
+#else
+        _VSTD::abort();
+#endif
     }
 
     friend basic_string operator+<>(const basic_string&, const basic_string&);

@@ -10,7 +10,7 @@
 #ifndef __CLANG_HIP_CMATH_H__
 #define __CLANG_HIP_CMATH_H__
 
-#if !defined(__HIP__)
+#if !defined(__HIP__) && !defined(__OPENMP_AMDGCN__)
 #error "This file is for HIP and OpenMP AMDGCN device compilation only."
 #endif
 
@@ -25,31 +25,43 @@
 #endif // !defined(__HIPCC_RTC__)
 
 #pragma push_macro("__DEVICE__")
+#pragma push_macro("__CONSTEXPR__")
+#ifdef __OPENMP_AMDGCN__
+#define __DEVICE__ static __attribute__((always_inline, nothrow))
+#define __CONSTEXPR__ constexpr
+#else
 #define __DEVICE__ static __device__ inline __attribute__((always_inline))
+#define __CONSTEXPR__
+#endif // __OPENMP_AMDGCN__
 
 // Start with functions that cannot be defined by DEF macros below.
 #if defined(__cplusplus)
-__DEVICE__ double abs(double __x) { return ::fabs(__x); }
-__DEVICE__ float abs(float __x) { return ::fabsf(__x); }
-__DEVICE__ long long abs(long long __n) { return ::llabs(__n); }
-__DEVICE__ long abs(long __n) { return ::labs(__n); }
-__DEVICE__ float fma(float __x, float __y, float __z) {
+#if defined __OPENMP_AMDGCN__
+__DEVICE__ __CONSTEXPR__ float fabs(float __x) { return ::fabsf(__x); }
+__DEVICE__ __CONSTEXPR__ float sin(float __x) { return ::sinf(__x); }
+__DEVICE__ __CONSTEXPR__ float cos(float __x) { return ::cosf(__x); }
+#endif
+__DEVICE__ __CONSTEXPR__ double abs(double __x) { return ::fabs(__x); }
+__DEVICE__ __CONSTEXPR__ float abs(float __x) { return ::fabsf(__x); }
+__DEVICE__ __CONSTEXPR__ long long abs(long long __n) { return ::llabs(__n); }
+__DEVICE__ __CONSTEXPR__ long abs(long __n) { return ::labs(__n); }
+__DEVICE__ __CONSTEXPR__ float fma(float __x, float __y, float __z) {
   return ::fmaf(__x, __y, __z);
 }
 #if !defined(__HIPCC_RTC__)
 // The value returned by fpclassify is platform dependent, therefore it is not
 // supported by hipRTC.
-__DEVICE__ int fpclassify(float __x) {
+__DEVICE__ __CONSTEXPR__ int fpclassify(float __x) {
   return __builtin_fpclassify(FP_NAN, FP_INFINITE, FP_NORMAL, FP_SUBNORMAL,
                               FP_ZERO, __x);
 }
-__DEVICE__ int fpclassify(double __x) {
+__DEVICE__ __CONSTEXPR__ int fpclassify(double __x) {
   return __builtin_fpclassify(FP_NAN, FP_INFINITE, FP_NORMAL, FP_SUBNORMAL,
                               FP_ZERO, __x);
 }
 #endif // !defined(__HIPCC_RTC__)
 
-__DEVICE__ float frexp(float __arg, int *__exp) {
+__DEVICE__ __CONSTEXPR__ float frexp(float __arg, int *__exp) {
   return ::frexpf(__arg, __exp);
 }
 
@@ -71,93 +83,101 @@ __DEVICE__ float frexp(float __arg, int *__exp) {
 //        of the variants inside the inner region and avoid the clash.
 #pragma omp begin declare variant match(implementation = {vendor(llvm)})
 
-__DEVICE__ int isinf(float __x) { return ::__isinff(__x); }
-__DEVICE__ int isinf(double __x) { return ::__isinf(__x); }
-__DEVICE__ int isfinite(float __x) { return ::__finitef(__x); }
-__DEVICE__ int isfinite(double __x) { return ::__finite(__x); }
-__DEVICE__ int isnan(float __x) { return ::__isnanf(__x); }
-__DEVICE__ int isnan(double __x) { return ::__isnan(__x); }
+__DEVICE__ __CONSTEXPR__ int isinf(float __x) { return ::__isinff(__x); }
+__DEVICE__ __CONSTEXPR__ int isinf(double __x) { return ::__isinf(__x); }
+__DEVICE__ __CONSTEXPR__ int isfinite(float __x) { return ::__finitef(__x); }
+__DEVICE__ __CONSTEXPR__ int isfinite(double __x) { return ::__finite(__x); }
+__DEVICE__ __CONSTEXPR__ int isnan(float __x) { return ::__isnanf(__x); }
+__DEVICE__ __CONSTEXPR__ int isnan(double __x) { return ::__isnan(__x); }
 
 #pragma omp end declare variant
 #endif // defined(__OPENMP_AMDGCN__)
 
-__DEVICE__ bool isinf(float __x) { return ::__isinff(__x); }
-__DEVICE__ bool isinf(double __x) { return ::__isinf(__x); }
-__DEVICE__ bool isfinite(float __x) { return ::__finitef(__x); }
-__DEVICE__ bool isfinite(double __x) { return ::__finite(__x); }
-__DEVICE__ bool isnan(float __x) { return ::__isnanf(__x); }
-__DEVICE__ bool isnan(double __x) { return ::__isnan(__x); }
+__DEVICE__ __CONSTEXPR__ bool isinf(float __x) { return ::__isinff(__x); }
+__DEVICE__ __CONSTEXPR__ bool isinf(double __x) { return ::__isinf(__x); }
+__DEVICE__ __CONSTEXPR__ bool isfinite(float __x) { return ::__finitef(__x); }
+__DEVICE__ __CONSTEXPR__ bool isfinite(double __x) { return ::__finite(__x); }
+__DEVICE__ __CONSTEXPR__ bool isnan(float __x) { return ::__isnanf(__x); }
+__DEVICE__ __CONSTEXPR__ bool isnan(double __x) { return ::__isnan(__x); }
 
 #if defined(__OPENMP_AMDGCN__)
 #pragma omp end declare variant
 #endif // defined(__OPENMP_AMDGCN__)
 
-__DEVICE__ bool isgreater(float __x, float __y) {
+__DEVICE__ __CONSTEXPR__ bool isgreater(float __x, float __y) {
   return __builtin_isgreater(__x, __y);
 }
-__DEVICE__ bool isgreater(double __x, double __y) {
+__DEVICE__ __CONSTEXPR__ bool isgreater(double __x, double __y) {
   return __builtin_isgreater(__x, __y);
 }
-__DEVICE__ bool isgreaterequal(float __x, float __y) {
+__DEVICE__ __CONSTEXPR__ bool isgreaterequal(float __x, float __y) {
   return __builtin_isgreaterequal(__x, __y);
 }
-__DEVICE__ bool isgreaterequal(double __x, double __y) {
+__DEVICE__ __CONSTEXPR__ bool isgreaterequal(double __x, double __y) {
   return __builtin_isgreaterequal(__x, __y);
 }
-__DEVICE__ bool isless(float __x, float __y) {
+__DEVICE__ __CONSTEXPR__ bool isless(float __x, float __y) {
   return __builtin_isless(__x, __y);
 }
-__DEVICE__ bool isless(double __x, double __y) {
+__DEVICE__ __CONSTEXPR__ bool isless(double __x, double __y) {
   return __builtin_isless(__x, __y);
 }
-__DEVICE__ bool islessequal(float __x, float __y) {
+__DEVICE__ __CONSTEXPR__ bool islessequal(float __x, float __y) {
   return __builtin_islessequal(__x, __y);
 }
-__DEVICE__ bool islessequal(double __x, double __y) {
+__DEVICE__ __CONSTEXPR__ bool islessequal(double __x, double __y) {
   return __builtin_islessequal(__x, __y);
 }
-__DEVICE__ bool islessgreater(float __x, float __y) {
+__DEVICE__ __CONSTEXPR__ bool islessgreater(float __x, float __y) {
   return __builtin_islessgreater(__x, __y);
 }
-__DEVICE__ bool islessgreater(double __x, double __y) {
+__DEVICE__ __CONSTEXPR__ bool islessgreater(double __x, double __y) {
   return __builtin_islessgreater(__x, __y);
 }
-__DEVICE__ bool isnormal(float __x) { return __builtin_isnormal(__x); }
-__DEVICE__ bool isnormal(double __x) { return __builtin_isnormal(__x); }
-__DEVICE__ bool isunordered(float __x, float __y) {
+__DEVICE__ __CONSTEXPR__ bool isnormal(float __x) {
+  return __builtin_isnormal(__x);
+}
+__DEVICE__ __CONSTEXPR__ bool isnormal(double __x) {
+  return __builtin_isnormal(__x);
+}
+__DEVICE__ __CONSTEXPR__ bool isunordered(float __x, float __y) {
   return __builtin_isunordered(__x, __y);
 }
-__DEVICE__ bool isunordered(double __x, double __y) {
+__DEVICE__ __CONSTEXPR__ bool isunordered(double __x, double __y) {
   return __builtin_isunordered(__x, __y);
 }
-__DEVICE__ float modf(float __x, float *__iptr) { return ::modff(__x, __iptr); }
-__DEVICE__ float pow(float __base, int __iexp) {
+__DEVICE__ __CONSTEXPR__ float modf(float __x, float *__iptr) {
+  return ::modff(__x, __iptr);
+}
+__DEVICE__ __CONSTEXPR__ float pow(float __base, int __iexp) {
   return ::powif(__base, __iexp);
 }
-__DEVICE__ double pow(double __base, int __iexp) {
+__DEVICE__ __CONSTEXPR__ double pow(double __base, int __iexp) {
   return ::powi(__base, __iexp);
 }
-__DEVICE__ float remquo(float __x, float __y, int *__quo) {
+__DEVICE__ __CONSTEXPR__ float remquo(float __x, float __y, int *__quo) {
   return ::remquof(__x, __y, __quo);
 }
-__DEVICE__ float scalbln(float __x, long int __n) {
+__DEVICE__ __CONSTEXPR__ float scalbln(float __x, long int __n) {
   return ::scalblnf(__x, __n);
 }
-__DEVICE__ bool signbit(float __x) { return ::__signbitf(__x); }
-__DEVICE__ bool signbit(double __x) { return ::__signbit(__x); }
+__DEVICE__ __CONSTEXPR__ bool signbit(float __x) { return ::__signbitf(__x); }
+__DEVICE__ __CONSTEXPR__ bool signbit(double __x) { return ::__signbit(__x); }
 
 // Notably missing above is nexttoward.  We omit it because
 // ocml doesn't provide an implementation, and we don't want to be in the
 // business of implementing tricky libm functions in this header.
 
 // Other functions.
-__DEVICE__ _Float16 fma(_Float16 __x, _Float16 __y, _Float16 __z) {
+__DEVICE__ __CONSTEXPR__ _Float16 fma(_Float16 __x, _Float16 __y,
+                                      _Float16 __z) {
   return __ocml_fma_f16(__x, __y, __z);
 }
-__DEVICE__ _Float16 pow(_Float16 __base, int __iexp) {
+__DEVICE__ __CONSTEXPR__ _Float16 pow(_Float16 __base, int __iexp) {
   return __ocml_pown_f16(__base, __iexp);
 }
 
+#ifndef __OPENMP_AMDGCN__
 // BEGIN DEF_FUN and HIP_OVERLOAD
 
 // BEGIN DEF_FUN
@@ -168,18 +188,19 @@ __DEVICE__ _Float16 pow(_Float16 __base, int __iexp) {
 
 // Define cmath functions with float argument and returns __retty.
 #define __DEF_FUN1(__retty, __func)                                            \
-  __DEVICE__                                                                   \
-  __retty __func(float __x) { return __func##f(__x); }
+  __DEVICE__ __CONSTEXPR__ __retty __func(float __x) { return __func##f(__x); }
 
 // Define cmath functions with two float arguments and returns __retty.
 #define __DEF_FUN2(__retty, __func)                                            \
-  __DEVICE__                                                                   \
-  __retty __func(float __x, float __y) { return __func##f(__x, __y); }
+  __DEVICE__ __CONSTEXPR__ __retty __func(float __x, float __y) {              \
+    return __func##f(__x, __y);                                                \
+  }
 
 // Define cmath functions with a float and an int argument and returns __retty.
 #define __DEF_FUN2_FI(__retty, __func)                                         \
-  __DEVICE__                                                                   \
-  __retty __func(float __x, int __y) { return __func##f(__x, __y); }
+  __DEVICE__ __CONSTEXPR__ __retty __func(float __x, int __y) {                \
+    return __func##f(__x, __y);                                                \
+  }
 
 __DEF_FUN1(float, acos)
 __DEF_FUN1(float, acosh)
@@ -426,7 +447,7 @@ class __promote : public __promote_imp<_A1, _A2, _A3> {};
 // floor(double).
 #define __HIP_OVERLOAD1(__retty, __fn)                                         \
   template <typename __T>                                                      \
-  __DEVICE__                                                                   \
+  __DEVICE__ __CONSTEXPR__                                                     \
       typename __hip_enable_if<__hip::is_integral<__T>::value, __retty>::type  \
       __fn(__T __x) {                                                          \
     return ::__fn((double)__x);                                                \
@@ -438,7 +459,7 @@ class __promote : public __promote_imp<_A1, _A2, _A3> {};
 #if __cplusplus >= 201103L
 #define __HIP_OVERLOAD2(__retty, __fn)                                         \
   template <typename __T1, typename __T2>                                      \
-  __DEVICE__ typename __hip_enable_if<                                         \
+  __DEVICE__ __CONSTEXPR__ typename __hip_enable_if<                           \
       __hip::is_arithmetic<__T1>::value && __hip::is_arithmetic<__T2>::value,  \
       typename __hip::__promote<__T1, __T2>::type>::type                       \
   __fn(__T1 __x, __T2 __y) {                                                   \
@@ -448,10 +469,11 @@ class __promote : public __promote_imp<_A1, _A2, _A3> {};
 #else
 #define __HIP_OVERLOAD2(__retty, __fn)                                         \
   template <typename __T1, typename __T2>                                      \
-  __DEVICE__ typename __hip_enable_if<__hip::is_arithmetic<__T1>::value &&     \
-                                          __hip::is_arithmetic<__T2>::value,   \
-                                      __retty>::type                           \
-  __fn(__T1 __x, __T2 __y) {                                                   \
+  __DEVICE__ __CONSTEXPR__                                                     \
+      typename __hip_enable_if<__hip::is_arithmetic<__T1>::value &&            \
+                                   __hip::is_arithmetic<__T2>::value,          \
+                               __retty>::type                                  \
+      __fn(__T1 __x, __T2 __y) {                                               \
     return __fn((double)__x, (double)__y);                                     \
   }
 #endif
@@ -526,7 +548,7 @@ __HIP_OVERLOAD2(double, min)
 // Additional Overloads that don't quite match HIP_OVERLOAD.
 #if __cplusplus >= 201103L
 template <typename __T1, typename __T2, typename __T3>
-__DEVICE__ typename __hip_enable_if<
+__DEVICE__ __CONSTEXPR__ typename __hip_enable_if<
     __hip::is_arithmetic<__T1>::value && __hip::is_arithmetic<__T2>::value &&
         __hip::is_arithmetic<__T3>::value,
     typename __hip::__promote<__T1, __T2, __T3>::type>::type
@@ -536,31 +558,32 @@ fma(__T1 __x, __T2 __y, __T3 __z) {
 }
 #else
 template <typename __T1, typename __T2, typename __T3>
-__DEVICE__ typename __hip_enable_if<__hip::is_arithmetic<__T1>::value &&
-                                        __hip::is_arithmetic<__T2>::value &&
-                                        __hip::is_arithmetic<__T3>::value,
-                                    double>::type
-fma(__T1 __x, __T2 __y, __T3 __z) {
+__DEVICE__ __CONSTEXPR__
+    typename __hip_enable_if<__hip::is_arithmetic<__T1>::value &&
+                                 __hip::is_arithmetic<__T2>::value &&
+                                 __hip::is_arithmetic<__T3>::value,
+                             double>::type
+    fma(__T1 __x, __T2 __y, __T3 __z) {
   return ::fma((double)__x, (double)__y, (double)__z);
 }
 #endif
 
 template <typename __T>
-__DEVICE__
+__DEVICE__ __CONSTEXPR__
     typename __hip_enable_if<__hip::is_integral<__T>::value, double>::type
     frexp(__T __x, int *__exp) {
   return ::frexp((double)__x, __exp);
 }
 
 template <typename __T>
-__DEVICE__
+__DEVICE__ __CONSTEXPR__
     typename __hip_enable_if<__hip::is_integral<__T>::value, double>::type
     ldexp(__T __x, int __exp) {
   return ::ldexp((double)__x, __exp);
 }
 
 template <typename __T>
-__DEVICE__
+__DEVICE__ __CONSTEXPR__
     typename __hip_enable_if<__hip::is_integral<__T>::value, double>::type
     modf(__T __x, double *__exp) {
   return ::modf((double)__x, __exp);
@@ -568,7 +591,7 @@ __DEVICE__
 
 #if __cplusplus >= 201103L
 template <typename __T1, typename __T2>
-__DEVICE__
+__DEVICE__ __CONSTEXPR__
     typename __hip_enable_if<__hip::is_arithmetic<__T1>::value &&
                                  __hip::is_arithmetic<__T2>::value,
                              typename __hip::__promote<__T1, __T2>::type>::type
@@ -578,23 +601,24 @@ __DEVICE__
 }
 #else
 template <typename __T1, typename __T2>
-__DEVICE__ typename __hip_enable_if<__hip::is_arithmetic<__T1>::value &&
-                                        __hip::is_arithmetic<__T2>::value,
-                                    double>::type
-remquo(__T1 __x, __T2 __y, int *__quo) {
+__DEVICE__ __CONSTEXPR__
+    typename __hip_enable_if<__hip::is_arithmetic<__T1>::value &&
+                                 __hip::is_arithmetic<__T2>::value,
+                             double>::type
+    remquo(__T1 __x, __T2 __y, int *__quo) {
   return ::remquo((double)__x, (double)__y, __quo);
 }
 #endif
 
 template <typename __T>
-__DEVICE__
+__DEVICE__ __CONSTEXPR__
     typename __hip_enable_if<__hip::is_integral<__T>::value, double>::type
     scalbln(__T __x, long int __exp) {
   return ::scalbln((double)__x, __exp);
 }
 
 template <typename __T>
-__DEVICE__
+__DEVICE__ __CONSTEXPR__
     typename __hip_enable_if<__hip::is_integral<__T>::value, double>::type
     scalbn(__T __x, int __exp) {
   return ::scalbn((double)__x, __exp);
@@ -607,8 +631,10 @@ __DEVICE__
 
 // END DEF_FUN and HIP_OVERLOAD
 
+#endif // ifndef __OPENMP_AMDGCN__
 #endif // defined(__cplusplus)
 
+#ifndef __OPENMP_AMDGCN__
 // Define these overloads inside the namespace our standard library uses.
 #if !defined(__HIPCC_RTC__)
 #ifdef _LIBCPP_BEGIN_NAMESPACE_STD
@@ -781,22 +807,26 @@ _GLIBCXX_END_NAMESPACE_VERSION
 #if defined(__cplusplus)
 extern "C" {
 #endif // defined(__cplusplus)
-__DEVICE__ __attribute__((overloadable)) double _Cosh(double x, double y) {
+__DEVICE__ __CONSTEXPR__ __attribute__((overloadable)) double _Cosh(double x,
+                                                                    double y) {
   return cosh(x) * y;
 }
-__DEVICE__ __attribute__((overloadable)) float _FCosh(float x, float y) {
+__DEVICE__ __CONSTEXPR__ __attribute__((overloadable)) float _FCosh(float x,
+                                                                    float y) {
   return coshf(x) * y;
 }
-__DEVICE__ __attribute__((overloadable)) short _Dtest(double *p) {
+__DEVICE__ __CONSTEXPR__ __attribute__((overloadable)) short _Dtest(double *p) {
   return fpclassify(*p);
 }
-__DEVICE__ __attribute__((overloadable)) short _FDtest(float *p) {
+__DEVICE__ __CONSTEXPR__ __attribute__((overloadable)) short _FDtest(float *p) {
   return fpclassify(*p);
 }
-__DEVICE__ __attribute__((overloadable)) double _Sinh(double x, double y) {
+__DEVICE__ __CONSTEXPR__ __attribute__((overloadable)) double _Sinh(double x,
+                                                                    double y) {
   return sinh(x) * y;
 }
-__DEVICE__ __attribute__((overloadable)) float _FSinh(float x, float y) {
+__DEVICE__ __CONSTEXPR__ __attribute__((overloadable)) float _FSinh(float x,
+                                                                    float y) {
   return sinhf(x) * y;
 }
 #if defined(__cplusplus)
@@ -804,7 +834,9 @@ __DEVICE__ __attribute__((overloadable)) float _FSinh(float x, float y) {
 #endif // defined(__cplusplus)
 #endif // defined(_MSC_VER)
 #endif // !defined(__HIPCC_RTC__)
+#endif // ifndef __OPENMP_AMDGCN__
 
 #pragma pop_macro("__DEVICE__")
+#pragma pop_macro("__CONSTEXPR__")
 
 #endif // __CLANG_HIP_CMATH_H__

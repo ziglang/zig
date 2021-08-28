@@ -50,8 +50,18 @@ wctrans_t wctrans(const char* property);
 #pragma GCC system_header
 #endif
 
+// TODO:
+// In the future, we should unconditionally include_next <wctype.h> here and instead
+// have a mode under which the library does not need libc++'s <wctype.h> or <cwctype>
+// at all (i.e. a mode without wchar_t). As it stands, we need to do that to completely
+// bypass the using declarations in <cwctype> when we did not include <wctype.h>.
+// Otherwise, a using declaration like `using ::wint_t` in <cwctype> will refer to
+// nothing (with using_if_exists), and if we include another header that defines one
+// of these declarations (e.g. <wchar.h>), the second `using ::wint_t` with using_if_exists
+// will fail because it does not refer to the same declaration.
 #if __has_include_next(<wctype.h>)
 #   include_next <wctype.h>
+#   define _LIBCPP_INCLUDED_C_LIBRARY_WCTYPE_H
 #endif
 
 #ifdef __cplusplus

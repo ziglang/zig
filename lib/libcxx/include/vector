@@ -281,6 +281,7 @@ erase_if(vector<T, Allocator>& c, Predicate pred);    // C++20
 #include <algorithm>
 #include <climits>
 #include <compare>
+#include <cstdlib>
 #include <cstring>
 #include <initializer_list>
 #include <iosfwd> // for forward declaration of vector
@@ -390,6 +391,25 @@ protected:
             is_nothrow_move_assignable<allocator_type>::value)
         {__move_assign_alloc(__c, integral_constant<bool,
                       __alloc_traits::propagate_on_container_move_assignment::value>());}
+
+    _LIBCPP_NORETURN _LIBCPP_HIDE_FROM_ABI
+    void __throw_length_error() const {
+#ifndef _LIBCPP_NO_EXCEPTIONS
+        __vector_base_common<true>::__throw_length_error();
+#else
+        _VSTD::abort();
+#endif
+    }
+
+    _LIBCPP_NORETURN _LIBCPP_HIDE_FROM_ABI
+    void __throw_out_of_range() const {
+#ifndef _LIBCPP_NO_EXCEPTIONS
+        __vector_base_common<true>::__throw_out_of_range();
+#else
+        _VSTD::abort();
+#endif
+    }
+
 private:
     _LIBCPP_INLINE_VISIBILITY
     void __copy_assign_alloc(const __vector_base& __c, true_type)

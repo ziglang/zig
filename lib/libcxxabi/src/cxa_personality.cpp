@@ -702,10 +702,10 @@ static void scan_eh_tab(scan_results &results, _Unwind_Action actions,
                 return;
             }
             landingPad = (uintptr_t)lpStart + landingPad;
-            results.landingPad = landingPad;
 #else  // __USING_SJLJ_EXCEPTIONS__
             ++landingPad;
 #endif // __USING_SJLJ_EXCEPTIONS__
+            results.landingPad = landingPad;
             if (actionEntry == 0)
             {
                 // Found a cleanup

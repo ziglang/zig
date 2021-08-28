@@ -14,12 +14,12 @@
 #error "This file is for OpenMP compilation only."
 #endif
 
-#pragma omp begin declare variant match(                                       \
-    device = {arch(nvptx, nvptx64)}, implementation = {extension(match_any)})
-
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+#pragma omp begin declare variant match(                                       \
+    device = {arch(nvptx, nvptx64)}, implementation = {extension(match_any)})
 
 #define __CUDA__
 #define __OPENMP_NVPTX__
@@ -33,11 +33,33 @@ extern "C" {
 #undef __OPENMP_NVPTX__
 #undef __CUDA__
 
+#pragma omp end declare variant
+
+#ifdef __AMDGCN__
+#pragma omp begin declare variant match(device = {arch(amdgcn)})
+
+// Import types which will be used by __clang_hip_libdevice_declares.h
+#ifndef __cplusplus
+#include <stdbool.h>
+#include <stdint.h>
+#endif
+
+#define __OPENMP_AMDGCN__
+#pragma push_macro("__device__")
+#define __device__
+
+/// Include declarations for libdevice functions.
+#include <__clang_hip_libdevice_declares.h>
+
+#pragma pop_macro("__device__")
+#undef __OPENMP_AMDGCN__
+
+#pragma omp end declare variant
+#endif
+
 #ifdef __cplusplus
 } // extern "C"
 #endif
-
-#pragma omp end declare variant
 
 // Ensure we make `_ZdlPv`, aka. `operator delete(void*)` available without the
 // need to `include <new>` in C++ mode.
