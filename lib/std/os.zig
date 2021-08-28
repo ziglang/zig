@@ -78,6 +78,7 @@ pub const HOST_NAME_MAX = system.HOST_NAME_MAX;
 pub const IFNAMESIZE = system.IFNAMESIZE;
 pub const IOV_MAX = system.IOV_MAX;
 pub const IPPROTO = system.IPPROTO;
+pub const Kevent = system.Kevent;
 pub const LOCK = system.LOCK;
 pub const MADV = system.MADV;
 pub const MAP = system.MAP;
@@ -89,8 +90,10 @@ pub const O = system.O;
 pub const PATH_MAX = system.PATH_MAX;
 pub const POLL = system.POLL;
 pub const POSIX_FADV = system.POSIX_FADV;
+pub const PR = system.PR;
 pub const PROT = system.PROT;
 pub const REG = system.REG;
+pub const RIGHT = system.RIGHT;
 pub const RLIM = system.RLIM;
 pub const RR = system.RR;
 pub const R_OK = system.R_OK;
@@ -110,6 +113,7 @@ pub const STDOUT_FILENO = system.STDOUT_FILENO;
 pub const SYS = system.SYS;
 pub const Sigaction = system.Sigaction;
 pub const Stat = system.Stat;
+pub const TCSA = system.TCSA;
 pub const VDSO = system.VDSO;
 pub const W = system.W;
 pub const W_OK = system.W_OK;
@@ -123,9 +127,12 @@ pub const dev_t = system.dev_t;
 pub const dl_phdr_info = system.dl_phdr_info;
 pub const empty_sigset = system.empty_sigset;
 pub const fd_t = system.fd_t;
+pub const fdflags_t = system.fdflags_t;
+pub const fdstat_t = system.fdstat_t;
 pub const gid_t = system.gid_t;
 pub const ifreq = system.ifreq;
 pub const ino_t = system.ino_t;
+pub const lookupflags_t = system.lookupflags_t;
 pub const mcontext_t = system.mcontext_t;
 pub const mode_t = system.mode_t;
 pub const msghdr = system.msghdr;
@@ -133,19 +140,24 @@ pub const msghdr_const = system.msghdr_const;
 pub const nfds_t = system.nfds_t;
 pub const nlink_t = system.nlink_t;
 pub const off_t = system.off_t;
+pub const oflags_t = system.oflags_t;
 pub const pid_t = system.pid_t;
 pub const pollfd = system.pollfd;
+pub const rights_t = system.rights_t;
 pub const rlim_t = system.rlim_t;
 pub const rlimit = system.rlimit;
 pub const rlimit_resource = system.rlimit_resource;
+pub const rusage = system.rusage;
 pub const sa_family_t = system.sa_family_t;
 pub const siginfo_t = system.siginfo_t;
 pub const sigset_t = system.sigset_t;
 pub const sockaddr = system.sockaddr;
 pub const socklen_t = system.socklen_t;
 pub const stack_t = system.stack_t;
+pub const termios = system.termios;
 pub const time_t = system.time_t;
 pub const timespec = system.timespec;
+pub const timestamp_t = system.timestamp_t;
 pub const timeval = system.timeval;
 pub const timezone = system.timezone;
 pub const ucontext_t = system.ucontext_t;
@@ -2770,8 +2782,8 @@ pub fn isatty(handle: fd_t) bool {
         }
 
         // A tty is a character device that we can't seek or tell on.
-        if (statbuf.fs_filetype != FILETYPE_CHARACTER_DEVICE or
-            (statbuf.fs_rights_base & (RIGHT_FD_SEEK | RIGHT_FD_TELL)) != 0)
+        if (statbuf.fs_filetype != .CHARACTER_DEVICE or
+            (statbuf.fs_rights_base & (RIGHT.FD_SEEK | RIGHT.FD_TELL)) != 0)
         {
             // errno = ENOTTY;
             return false;
@@ -3933,7 +3945,7 @@ pub const AccessError = error{
 } || UnexpectedError;
 
 /// check user's permissions for a file
-/// TODO currently this assumes `mode` is `F_OK` on Windows.
+/// TODO currently this assumes `mode` is `F.OK` on Windows.
 pub fn access(path: []const u8, mode: u32) AccessError!void {
     if (builtin.os.tag == .windows) {
         const path_w = try windows.sliceToPrefixedFileW(path);
@@ -4104,10 +4116,10 @@ pub fn pipe2(flags: u32) PipeError![2]fd_t {
         return fds;
 
     // O.CLOEXEC is special, it's a file descriptor flag and must be set using
-    // F_SETFD.
+    // F.SETFD.
     if (flags & O.CLOEXEC != 0) {
         for (fds) |fd| {
-            switch (errno(system.fcntl(fd, F_SETFD, @as(u32, FD_CLOEXEC)))) {
+            switch (errno(system.fcntl(fd, F.SETFD, @as(u32, FD_CLOEXEC)))) {
                 .SUCCESS => {},
                 .INVAL => unreachable, // Invalid flags
                 .BADF => unreachable, // Always a race condition
@@ -4117,10 +4129,10 @@ pub fn pipe2(flags: u32) PipeError![2]fd_t {
     }
 
     const new_flags = flags & ~@as(u32, O.CLOEXEC);
-    // Set every other flag affecting the file status using F_SETFL.
+    // Set every other flag affecting the file status using F.SETFL.
     if (new_flags != 0) {
         for (fds) |fd| {
-            switch (errno(system.fcntl(fd, F_SETFL, new_flags))) {
+            switch (errno(system.fcntl(fd, F.SETFL, new_flags))) {
                 .SUCCESS => {},
                 .INVAL => unreachable, // Invalid flags
                 .BADF => unreachable, // Always a race condition
@@ -4425,14 +4437,14 @@ fn setSockFlags(sock: socket_t, flags: u32) !void {
         if (builtin.os.tag == .windows) {
             // TODO: Find out if this is supported for sockets
         } else {
-            var fd_flags = fcntl(sock, F_GETFD, 0) catch |err| switch (err) {
+            var fd_flags = fcntl(sock, F.GETFD, 0) catch |err| switch (err) {
                 error.FileBusy => unreachable,
                 error.Locked => unreachable,
                 error.PermissionDenied => unreachable,
                 else => |e| return e,
             };
             fd_flags |= FD_CLOEXEC;
-            _ = fcntl(sock, F_SETFD, fd_flags) catch |err| switch (err) {
+            _ = fcntl(sock, F.SETFD, fd_flags) catch |err| switch (err) {
                 error.FileBusy => unreachable,
                 error.Locked => unreachable,
                 error.PermissionDenied => unreachable,
@@ -4453,14 +4465,14 @@ fn setSockFlags(sock: socket_t, flags: u32) !void {
                 }
             }
         } else {
-            var fl_flags = fcntl(sock, F_GETFL, 0) catch |err| switch (err) {
+            var fl_flags = fcntl(sock, F.GETFL, 0) catch |err| switch (err) {
                 error.FileBusy => unreachable,
                 error.Locked => unreachable,
                 error.PermissionDenied => unreachable,
                 else => |e| return e,
             };
             fl_flags |= O.NONBLOCK;
-            _ = fcntl(sock, F_SETFL, fl_flags) catch |err| switch (err) {
+            _ = fcntl(sock, F.SETFL, fl_flags) catch |err| switch (err) {
                 error.FileBusy => unreachable,
                 error.Locked => unreachable,
                 error.PermissionDenied => unreachable,
@@ -4625,14 +4637,14 @@ pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
             return out_buffer[0..end_index];
         },
         .macos, .ios, .watchos, .tvos => {
-            // On macOS, we can use F_GETPATH fcntl command to query the OS for
+            // On macOS, we can use F.GETPATH fcntl command to query the OS for
             // the path to the file descriptor.
             @memset(out_buffer, 0, MAX_PATH_BYTES);
-            switch (errno(system.fcntl(fd, F_GETPATH, out_buffer))) {
+            switch (errno(system.fcntl(fd, F.GETPATH, out_buffer))) {
                 .SUCCESS => {},
                 .BADF => return error.FileNotFound,
                 // TODO man pages for fcntl on macOS don't really tell you what
-                // errno values to expect when command is F_GETPATH...
+                // errno values to expect when command is F.GETPATH...
                 else => |err| return unexpectedErrno(err),
             }
             const len = mem.indexOfScalar(u8, out_buffer[0..], @as(u8, 0)) orelse MAX_PATH_BYTES;

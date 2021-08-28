@@ -5,6 +5,8 @@ const DWORD = windows.DWORD;
 const WINAPI = windows.WINAPI;
 const HDC = windows.HDC;
 const HGLRC = windows.HGLRC;
+const WORD = windows.WORD;
+const BYTE = windows.BYTE;
 
 pub const PIXELFORMATDESCRIPTOR = extern struct {
     nSize: WORD = @sizeOf(PIXELFORMATDESCRIPTOR),

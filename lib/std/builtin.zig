@@ -27,7 +27,7 @@ pub const code_model = builtin.code_model;
 /// used rather than `explicit_subsystem`.
 /// On non-Windows targets, this is `null`.
 pub const subsystem: ?std.Target.SubSystem = blk: {
-    if (@hasDecl(builtin, "explicit_subsystem")) break :blk explicit_subsystem;
+    if (@hasDecl(builtin, "explicit_subsystem")) break :blk builtin.explicit_subsystem;
     switch (os.tag) {
         .windows => {
             if (is_test) {

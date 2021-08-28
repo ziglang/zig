@@ -880,20 +880,20 @@ pub const Dir = struct {
         var fdflags: w.fdflags_t = 0x0;
         var base: w.rights_t = 0x0;
         if (flags.read) {
-            base |= w.RIGHT_FD_READ | w.RIGHT_FD_TELL | w.RIGHT_FD_SEEK | w.RIGHT_FD_FILESTAT_GET;
+            base |= w.RIGHT.FD_READ | w.RIGHT.FD_TELL | w.RIGHT.FD_SEEK | w.RIGHT.FD_FILESTAT_GET;
         }
         if (flags.write) {
-            fdflags |= w.FDFLAG_APPEND;
-            base |= w.RIGHT_FD_WRITE |
-                w.RIGHT_FD_TELL |
-                w.RIGHT_FD_SEEK |
-                w.RIGHT_FD_DATASYNC |
-                w.RIGHT_FD_FDSTAT_SET_FLAGS |
-                w.RIGHT_FD_SYNC |
-                w.RIGHT_FD_ALLOCATE |
-                w.RIGHT_FD_ADVISE |
-                w.RIGHT_FD_FILESTAT_SET_TIMES |
-                w.RIGHT_FD_FILESTAT_SET_SIZE;
+            fdflags |= w.FDFLAG.APPEND;
+            base |= w.RIGHT.FD_WRITE |
+                w.RIGHT.FD_TELL |
+                w.RIGHT.FD_SEEK |
+                w.RIGHT.FD_DATASYNC |
+                w.RIGHT.FD_FDSTAT_SET_FLAGS |
+                w.RIGHT.FD_SYNC |
+                w.RIGHT.FD_ALLOCATE |
+                w.RIGHT.FD_ADVISE |
+                w.RIGHT.FD_FILESTAT_SET_TIMES |
+                w.RIGHT.FD_FILESTAT_SET_SIZE;
         }
         const fd = try os.openatWasi(self.fd, sub_path, 0x0, 0x0, fdflags, base, 0x0);
         return File{ .handle = fd };
@@ -958,14 +958,14 @@ pub const Dir = struct {
         }
 
         if (has_flock_open_flags and flags.lock_nonblocking) {
-            var fl_flags = os.fcntl(fd, os.F_GETFL, 0) catch |err| switch (err) {
+            var fl_flags = os.fcntl(fd, os.F.GETFL, 0) catch |err| switch (err) {
                 error.FileBusy => unreachable,
                 error.Locked => unreachable,
                 error.PermissionDenied => unreachable,
                 else => |e| return e,
             };
             fl_flags &= ~@as(usize, os.O.NONBLOCK);
-            _ = os.fcntl(fd, os.F_SETFL, fl_flags) catch |err| switch (err) {
+            _ = os.fcntl(fd, os.F.SETFL, fl_flags) catch |err| switch (err) {
                 error.FileBusy => unreachable,
                 error.Locked => unreachable,
                 error.PermissionDenied => unreachable,
@@ -1040,19 +1040,19 @@ pub const Dir = struct {
     pub fn createFileWasi(self: Dir, sub_path: []const u8, flags: File.CreateFlags) File.OpenError!File {
         const w = os.wasi;
         var oflags = w.O.CREAT;
-        var base: w.rights_t = w.RIGHT_FD_WRITE |
-            w.RIGHT_FD_DATASYNC |
-            w.RIGHT_FD_SEEK |
-            w.RIGHT_FD_TELL |
-            w.RIGHT_FD_FDSTAT_SET_FLAGS |
-            w.RIGHT_FD_SYNC |
-            w.RIGHT_FD_ALLOCATE |
-            w.RIGHT_FD_ADVISE |
-            w.RIGHT_FD_FILESTAT_SET_TIMES |
-            w.RIGHT_FD_FILESTAT_SET_SIZE |
-            w.RIGHT_FD_FILESTAT_GET;
+        var base: w.rights_t = w.RIGHT.FD_WRITE |
+            w.RIGHT.FD_DATASYNC |
+            w.RIGHT.FD_SEEK |
+            w.RIGHT.FD_TELL |
+            w.RIGHT.FD_FDSTAT_SET_FLAGS |
+            w.RIGHT.FD_SYNC |
+            w.RIGHT.FD_ALLOCATE |
+            w.RIGHT.FD_ADVISE |
+            w.RIGHT.FD_FILESTAT_SET_TIMES |
+            w.RIGHT.FD_FILESTAT_SET_SIZE |
+            w.RIGHT.FD_FILESTAT_GET;
         if (flags.read) {
-            base |= w.RIGHT_FD_READ;
+            base |= w.RIGHT.FD_READ;
         }
         if (flags.truncate) {
             oflags |= w.O.TRUNC;
@@ -1112,14 +1112,14 @@ pub const Dir = struct {
         }
 
         if (has_flock_open_flags and flags.lock_nonblocking) {
-            var fl_flags = os.fcntl(fd, os.F_GETFL, 0) catch |err| switch (err) {
+            var fl_flags = os.fcntl(fd, os.F.GETFL, 0) catch |err| switch (err) {
                 error.FileBusy => unreachable,
                 error.Locked => unreachable,
                 error.PermissionDenied => unreachable,
                 else => |e| return e,
             };
             fl_flags &= ~@as(usize, os.O.NONBLOCK);
-            _ = os.fcntl(fd, os.F_SETFL, fl_flags) catch |err| switch (err) {
+            _ = os.fcntl(fd, os.F.SETFL, fl_flags) catch |err| switch (err) {
                 error.FileBusy => unreachable,
                 error.Locked => unreachable,
                 error.PermissionDenied => unreachable,
@@ -1402,27 +1402,27 @@ pub const Dir = struct {
     /// Same as `openDir` except only WASI.
     pub fn openDirWasi(self: Dir, sub_path: []const u8, args: OpenDirOptions) OpenError!Dir {
         const w = os.wasi;
-        var base: w.rights_t = w.RIGHT_FD_FILESTAT_GET | w.RIGHT_FD_FDSTAT_SET_FLAGS | w.RIGHT_FD_FILESTAT_SET_TIMES;
+        var base: w.rights_t = w.RIGHT.FD_FILESTAT_GET | w.RIGHT.FD_FDSTAT_SET_FLAGS | w.RIGHT.FD_FILESTAT_SET_TIMES;
         if (args.access_sub_paths) {
-            base |= w.RIGHT_FD_READDIR |
-                w.RIGHT_PATH_CREATE_DIRECTORY |
-                w.RIGHT_PATH_CREATE_FILE |
-                w.RIGHT_PATH_LINK_SOURCE |
-                w.RIGHT_PATH_LINK_TARGET |
-                w.RIGHT_PATH_OPEN |
-                w.RIGHT_PATH_READLINK |
-                w.RIGHT_PATH_RENAME_SOURCE |
-                w.RIGHT_PATH_RENAME_TARGET |
-                w.RIGHT_PATH_FILESTAT_GET |
-                w.RIGHT_PATH_FILESTAT_SET_SIZE |
-                w.RIGHT_PATH_FILESTAT_SET_TIMES |
-                w.RIGHT_PATH_SYMLINK |
-                w.RIGHT_PATH_REMOVE_DIRECTORY |
-                w.RIGHT_PATH_UNLINK_FILE;
+            base |= w.RIGHT.FD_READDIR |
+                w.RIGHT.PATH_CREATE_DIRECTORY |
+                w.RIGHT.PATH_CREATE_FILE |
+                w.RIGHT.PATH_LINK_SOURCE |
+                w.RIGHT.PATH_LINK_TARGET |
+                w.RIGHT.PATH_OPEN |
+                w.RIGHT.PATH_READLINK |
+                w.RIGHT.PATH_RENAME_SOURCE |
+                w.RIGHT.PATH_RENAME_TARGET |
+                w.RIGHT.PATH_FILESTAT_GET |
+                w.RIGHT.PATH_FILESTAT_SET_SIZE |
+                w.RIGHT.PATH_FILESTAT_SET_TIMES |
+                w.RIGHT.PATH_SYMLINK |
+                w.RIGHT.PATH_REMOVE_DIRECTORY |
+                w.RIGHT.PATH_UNLINK_FILE;
         }
         const symlink_flags: w.lookupflags_t = if (args.no_follow) 0x0 else w.LOOKUP_SYMLINK_FOLLOW;
         // TODO do we really need all the rights here?
-        const inheriting: w.rights_t = w.RIGHT_ALL ^ w.RIGHT_SOCK_SHUTDOWN;
+        const inheriting: w.rights_t = w.RIGHT.ALL ^ w.RIGHT.SOCK_SHUTDOWN;
 
         const result = os.openatWasi(self.fd, sub_path, symlink_flags, w.O.DIRECTORY, 0x0, base, inheriting);
         const fd = result catch |err| switch (err) {

@@ -21,6 +21,7 @@ const UNICODE_STRING = windows.UNICODE_STRING;
 const RTL_OSVERSIONINFOW = windows.RTL_OSVERSIONINFOW;
 const FILE_BASIC_INFORMATION = windows.FILE_BASIC_INFORMATION;
 const SIZE_T = windows.SIZE_T;
+const CURDIR = windows.CURDIR;
 
 pub extern "NtDll" fn RtlGetVersion(
     lpVersionInformation: *RTL_OSVERSIONINFOW,

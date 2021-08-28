@@ -2,6 +2,7 @@ const std = @import("../std.zig");
 const builtin = std.builtin;
 const io = std.io;
 const testing = std.testing;
+const os = std.os;
 
 pub const CWriter = io.Writer(*std.c.FILE, std.fs.File.WriteError, cWriterWrite);
 

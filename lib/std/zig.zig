@@ -157,7 +157,6 @@ pub fn binNameAlloc(allocator: *std.mem.Allocator, options: BinNameOptions) erro
                         }
                     },
                 }
-                return std.fmt.allocPrint(allocator, "{s}{s}{s}", .{ target.libPrefix(), root_name, suffix });
             },
             .Obj => return std.fmt.allocPrint(allocator, "{s}.o", .{root_name}),
         },

@@ -1,5 +1,6 @@
 const std = @import("../std.zig");
 const maxInt = std.math.maxInt;
+const iovec = std.os.iovec;
 
 extern "c" threadlocal var errno: c_int;
 pub fn _errno() *c_int {
@@ -353,18 +354,39 @@ pub const SEEK_END = 2;
 pub const SEEK_DATA = 3;
 pub const SEEK_HOLE = 4;
 
-pub const F_ULOCK = 0;
-pub const F_LOCK = 1;
-pub const F_TLOCK = 2;
-pub const F_TEST = 3;
+pub const F = struct {
+    pub const ULOCK = 0;
+    pub const LOCK = 1;
+    pub const TLOCK = 2;
+    pub const TEST = 3;
+
+    pub const DUPFD = 0;
+    pub const GETFD = 1;
+    pub const RDLCK = 1;
+    pub const SETFD = 2;
+    pub const UNLCK = 2;
+    pub const WRLCK = 3;
+    pub const GETFL = 3;
+    pub const SETFL = 4;
+    pub const GETOWN = 5;
+    pub const SETOWN = 6;
+    pub const GETLK = 7;
+    pub const SETLK = 8;
+    pub const SETLKW = 9;
+    pub const DUP2FD = 10;
+    pub const DUPFD_CLOEXEC = 17;
+    pub const DUP2FD_CLOEXEC = 18;
+};
 
 pub const FD_CLOEXEC = 1;
 
-pub const AT_FDCWD = -328243;
-pub const AT_SYMLINK_NOFOLLOW = 1;
-pub const AT_REMOVEDIR = 2;
-pub const AT_EACCESS = 4;
-pub const AT_SYMLINK_FOLLOW = 8;
+pub const AT = struct {
+    pub const FDCWD = -328243;
+    pub const SYMLINK_NOFOLLOW = 1;
+    pub const REMOVEDIR = 2;
+    pub const EACCESS = 4;
+    pub const SYMLINK_FOLLOW = 8;
+};
 
 pub fn WEXITSTATUS(s: u32) u8 {
     return @intCast(u8, (s & 0xff00) >> 8);
@@ -715,7 +737,7 @@ pub const PF = struct {
     pub const ISDN = AF.ISDN;
     pub const RTIP = AF.pseudo_RTIP;
     pub const LAT = AF.LAT;
-    pub const UNIX = PF_LOCAL;
+    pub const UNIX = PF.LOCAL;
     pub const XTP = AF.pseudo_XTP;
     pub const DECnet = AF.DECnet;
 };
@@ -867,23 +889,6 @@ pub const MADV = struct {
     pub const INVAL = 10;
     pub const SETMAP = 11;
 };
-
-pub const F_DUPFD = 0;
-pub const F_GETFD = 1;
-pub const F_RDLCK = 1;
-pub const F_SETFD = 2;
-pub const F_UNLCK = 2;
-pub const F_WRLCK = 3;
-pub const F_GETFL = 3;
-pub const F_SETFL = 4;
-pub const F_GETOWN = 5;
-pub const F_SETOWN = 6;
-pub const F_GETLK = 7;
-pub const F_SETLK = 8;
-pub const F_SETLKW = 9;
-pub const F_DUP2FD = 10;
-pub const F_DUPFD_CLOEXEC = 17;
-pub const F_DUP2FD_CLOEXEC = 18;
 
 pub const LOCK = struct {
     pub const SH = 1;
