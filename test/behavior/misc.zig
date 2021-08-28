@@ -533,4 +533,8 @@ test "use of declaration with same name as primitive" {
 
     const b: S.alias = 300;
     try expect(b == 300);
+
+    const @"u8" = u16;
+    const c: @"u8" = 300;
+    try expect(c == 300);
 }

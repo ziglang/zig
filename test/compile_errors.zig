@@ -7264,14 +7264,9 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    const a: u8 = 300;
         \\    _ = a;
         \\}
-        \\export fn bar() void {
-        \\    const @"u8" = u16;
-        \\    const a: @"u8" = 300;
-        \\    _ = a;
-        \\}
     , &[_][]const u8{
-        "tmp.zig:2:11: error: local shadows primitive 'u8'",
-        "tmp.zig:7:11: error: local shadows primitive 'u8'",
+        "tmp.zig:2:11: error: name shadows primitive 'u8'",
+        "tmp.zig:2:11: note: consider using @\"u8\" to disambiguate",
     });
 
     ctx.objErrStage1("primitives take precedence over declarations",
