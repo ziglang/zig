@@ -370,10 +370,6 @@ fn lvalExpr(gz: *GenZir, scope: *Scope, node: ast.Node.Index) InnerError!Zir.Ins
         .bool_not,
         .address_of,
         .float_literal,
-        .undefined_literal,
-        .true_literal,
-        .false_literal,
-        .null_literal,
         .optional_type,
         .block,
         .block_semicolon,
@@ -698,7 +694,13 @@ fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) InnerEr
                 .lhs = lhs,
                 .start = start,
             });
-            return rvalue(gz, rl, result, node);
+            switch (rl) {
+                .ref, .none_or_ref => return result,
+                else => {
+                    const dereffed = try gz.addUnNode(.load, result, node);
+                    return rvalue(gz, rl, dereffed, node);
+                },
+            }
         },
         .slice => {
             const lhs = try expr(gz, scope, .ref, node_datas[node].lhs);
@@ -710,7 +712,13 @@ fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) InnerEr
                 .start = start,
                 .end = end,
             });
-            return rvalue(gz, rl, result, node);
+            switch (rl) {
+                .ref, .none_or_ref => return result,
+                else => {
+                    const dereffed = try gz.addUnNode(.load, result, node);
+                    return rvalue(gz, rl, dereffed, node);
+                },
+            }
         },
         .slice_sentinel => {
             const lhs = try expr(gz, scope, .ref, node_datas[node].lhs);
@@ -724,7 +732,13 @@ fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) InnerEr
                 .end = end,
                 .sentinel = sentinel,
             });
-            return rvalue(gz, rl, result, node);
+            switch (rl) {
+                .ref, .none_or_ref => return result,
+                else => {
+                    const dereffed = try gz.addUnNode(.load, result, node);
+                    return rvalue(gz, rl, dereffed, node);
+                },
+            }
         },
 
         .deref => {
@@ -741,10 +755,6 @@ fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) InnerEr
             const result = try expr(gz, scope, .ref, node_datas[node].lhs);
             return rvalue(gz, rl, result, node);
         },
-        .undefined_literal => return rvalue(gz, rl, .undef, node),
-        .true_literal => return rvalue(gz, rl, .bool_true, node),
-        .false_literal => return rvalue(gz, rl, .bool_false, node),
-        .null_literal => return rvalue(gz, rl, .null_value, node),
         .optional_type => {
             const operand = try typeExpr(gz, scope, node_datas[node].lhs);
             const result = try gz.addUnNode(.optional_type, operand, node);
@@ -2367,7 +2377,7 @@ fn varDecl(
     }
     const ident_name = try astgen.identAsString(name_token);
 
-    try astgen.detectLocalShadowing(scope, ident_name, name_token);
+    try astgen.detectLocalShadowing(scope, ident_name, name_token, ident_name_raw);
 
     if (var_decl.ast.init_node == 0) {
         return astgen.failNode(node, "variables must be initialized", .{});
@@ -2873,7 +2883,7 @@ fn fnDecl(
     };
     const fn_name_str_index = try astgen.identAsString(fn_name_token);
 
-    try astgen.declareNewName(scope, fn_name_str_index, decl_node);
+    try astgen.declareNewName(scope, fn_name_str_index, decl_node, fn_name_token);
 
     // We insert this at the beginning so that its instruction index marks the
     // start of the top level declaration.
@@ -2934,12 +2944,13 @@ fn fnDecl(
             } else false;
 
             const param_name: u32 = if (param.name_token) |name_token| blk: {
-                if (mem.eql(u8, "_", tree.tokenSlice(name_token)))
+                const name_bytes = tree.tokenSlice(name_token);
+                if (mem.eql(u8, "_", name_bytes))
                     break :blk 0;
 
                 const param_name = try astgen.identAsString(name_token);
                 if (!is_extern) {
-                    try astgen.detectLocalShadowing(params_scope, param_name, name_token);
+                    try astgen.detectLocalShadowing(params_scope, param_name, name_token, name_bytes);
                 }
                 break :blk param_name;
             } else if (!is_extern) {
@@ -3142,7 +3153,7 @@ fn globalVarDecl(
     const name_token = var_decl.ast.mut_token + 1;
     const name_str_index = try astgen.identAsString(name_token);
 
-    try astgen.declareNewName(scope, name_str_index, node);
+    try astgen.declareNewName(scope, name_str_index, node, name_token);
 
     var block_scope: GenZir = .{
         .parent = scope,
@@ -5017,7 +5028,7 @@ fn ifExpr(
                 const token_name_str = tree.tokenSlice(token_name_index);
                 if (mem.eql(u8, "_", token_name_str))
                     break :s &then_scope.base;
-                try astgen.detectLocalShadowing(&then_scope.base, ident_name, token_name_index);
+                try astgen.detectLocalShadowing(&then_scope.base, ident_name, token_name_index, token_name_str);
                 payload_val_scope = .{
                     .parent = &then_scope.base,
                     .gen_zir = &then_scope,
@@ -5036,11 +5047,12 @@ fn ifExpr(
                 .optional_payload_unsafe_ptr
             else
                 .optional_payload_unsafe;
-            if (mem.eql(u8, "_", tree.tokenSlice(ident_token)))
+            const ident_bytes = tree.tokenSlice(ident_token);
+            if (mem.eql(u8, "_", ident_bytes))
                 break :s &then_scope.base;
             const payload_inst = try then_scope.addUnNode(tag, cond.inst, node);
             const ident_name = try astgen.identAsString(ident_token);
-            try astgen.detectLocalShadowing(&then_scope.base, ident_name, ident_token);
+            try astgen.detectLocalShadowing(&then_scope.base, ident_name, ident_token, ident_bytes);
             payload_val_scope = .{
                 .parent = &then_scope.base,
                 .gen_zir = &then_scope,
@@ -5082,7 +5094,7 @@ fn ifExpr(
                 const error_token_str = tree.tokenSlice(error_token);
                 if (mem.eql(u8, "_", error_token_str))
                     break :s &else_scope.base;
-                try astgen.detectLocalShadowing(&else_scope.base, ident_name, error_token);
+                try astgen.detectLocalShadowing(&else_scope.base, ident_name, error_token, error_token_str);
                 payload_val_scope = .{
                     .parent = &else_scope.base,
                     .gen_zir = &else_scope,
@@ -5273,11 +5285,12 @@ fn whileExpr(
                     .err_union_payload_unsafe;
                 const payload_inst = try then_scope.addUnNode(tag, cond.inst, node);
                 const ident_token = if (payload_is_ref) payload_token + 1 else payload_token;
-                if (mem.eql(u8, "_", tree.tokenSlice(ident_token)))
+                const ident_bytes = tree.tokenSlice(ident_token);
+                if (mem.eql(u8, "_", ident_bytes))
                     break :s &then_scope.base;
                 const payload_name_loc = payload_token + @boolToInt(payload_is_ref);
                 const ident_name = try astgen.identAsString(payload_name_loc);
-                try astgen.detectLocalShadowing(&then_scope.base, ident_name, payload_name_loc);
+                try astgen.detectLocalShadowing(&then_scope.base, ident_name, payload_name_loc, ident_bytes);
                 payload_val_scope = .{
                     .parent = &then_scope.base,
                     .gen_zir = &then_scope,
@@ -5298,9 +5311,10 @@ fn whileExpr(
                 .optional_payload_unsafe;
             const payload_inst = try then_scope.addUnNode(tag, cond.inst, node);
             const ident_name = try astgen.identAsString(ident_token);
-            if (mem.eql(u8, "_", tree.tokenSlice(ident_token)))
+            const ident_bytes = tree.tokenSlice(ident_token);
+            if (mem.eql(u8, "_", ident_bytes))
                 break :s &then_scope.base;
-            try astgen.detectLocalShadowing(&then_scope.base, ident_name, ident_token);
+            try astgen.detectLocalShadowing(&then_scope.base, ident_name, ident_token, ident_bytes);
             payload_val_scope = .{
                 .parent = &then_scope.base,
                 .gen_zir = &then_scope,
@@ -5356,9 +5370,10 @@ fn whileExpr(
                     .err_union_code;
                 const payload_inst = try else_scope.addUnNode(tag, cond.inst, node);
                 const ident_name = try astgen.identAsString(error_token);
-                if (mem.eql(u8, tree.tokenSlice(error_token), "_"))
+                const ident_bytes = tree.tokenSlice(error_token);
+                if (mem.eql(u8, ident_bytes, "_"))
                     break :s &else_scope.base;
-                try astgen.detectLocalShadowing(&else_scope.base, ident_name, error_token);
+                try astgen.detectLocalShadowing(&else_scope.base, ident_name, error_token, ident_bytes);
                 payload_val_scope = .{
                     .parent = &else_scope.base,
                     .gen_zir = &else_scope,
@@ -5418,12 +5433,19 @@ fn forExpr(
     if (for_full.label_token) |label_token| {
         try astgen.checkLabelRedefinition(scope, label_token);
     }
+
     // Set up variables and constants.
     const is_inline = parent_gz.force_comptime or for_full.inline_token != null;
     const tree = astgen.tree;
     const token_tags = tree.tokens.items(.tag);
 
-    const array_ptr = try expr(parent_gz, scope, .none_or_ref, for_full.ast.cond_expr);
+    const payload_is_ref = if (for_full.payload_token) |payload_token|
+        token_tags[payload_token] == .asterisk
+    else
+        false;
+
+    const cond_rl: ResultLoc = if (payload_is_ref) .ref else .none;
+    const array_ptr = try expr(parent_gz, scope, cond_rl, for_full.ast.cond_expr);
     const len = try parent_gz.addUnNode(.indexable_ptr_len, array_ptr, for_full.ast.cond_expr);
 
     const index_ptr = blk: {
@@ -5498,7 +5520,7 @@ fn forExpr(
             const name_str_index = try astgen.identAsString(ident);
             const tag: Zir.Inst.Tag = if (is_ptr) .elem_ptr else .elem_val;
             const payload_inst = try then_scope.addBin(tag, array_ptr, index);
-            try astgen.detectLocalShadowing(&then_scope.base, name_str_index, ident);
+            try astgen.detectLocalShadowing(&then_scope.base, name_str_index, ident, value_name);
             payload_val_scope = .{
                 .parent = &then_scope.base,
                 .gen_zir = &then_scope,
@@ -5518,11 +5540,12 @@ fn forExpr(
             ident + 2
         else
             break :blk payload_sub_scope;
-        if (mem.eql(u8, tree.tokenSlice(index_token), "_")) {
+        const token_bytes = tree.tokenSlice(index_token);
+        if (mem.eql(u8, token_bytes, "_")) {
             return astgen.failTok(index_token, "discard of index capture; omit it instead", .{});
         }
         const index_name = try astgen.identAsString(index_token);
-        try astgen.detectLocalShadowing(payload_sub_scope, index_name, index_token);
+        try astgen.detectLocalShadowing(payload_sub_scope, index_name, index_token, token_bytes);
         index_scope = .{
             .parent = payload_sub_scope,
             .gen_zir = &then_scope,
@@ -6294,34 +6317,36 @@ fn identifier(
     }
     const ident_name = try astgen.identifierTokenString(ident_token);
 
-    if (simple_types.get(ident_name)) |zir_const_ref| {
-        return rvalue(gz, rl, zir_const_ref, ident);
-    }
+    if (ident_name_raw[0] != '@') {
+        if (simple_types.get(ident_name)) |zir_const_ref| {
+            return rvalue(gz, rl, zir_const_ref, ident);
+        }
 
-    if (ident_name.len >= 2) integer: {
-        const first_c = ident_name[0];
-        if (first_c == 'i' or first_c == 'u') {
-            const signedness: std.builtin.Signedness = switch (first_c == 'i') {
-                true => .signed,
-                false => .unsigned,
-            };
-            const bit_count = std.fmt.parseInt(u16, ident_name[1..], 10) catch |err| switch (err) {
-                error.Overflow => return astgen.failNode(
-                    ident,
-                    "primitive integer type '{s}' exceeds maximum bit width of 65535",
-                    .{ident_name},
-                ),
-                error.InvalidCharacter => break :integer,
-            };
-            const result = try gz.add(.{
-                .tag = .int_type,
-                .data = .{ .int_type = .{
-                    .src_node = gz.nodeIndexToRelative(ident),
-                    .signedness = signedness,
-                    .bit_count = bit_count,
-                } },
-            });
-            return rvalue(gz, rl, result, ident);
+        if (ident_name.len >= 2) integer: {
+            const first_c = ident_name[0];
+            if (first_c == 'i' or first_c == 'u') {
+                const signedness: std.builtin.Signedness = switch (first_c == 'i') {
+                    true => .signed,
+                    false => .unsigned,
+                };
+                const bit_count = std.fmt.parseInt(u16, ident_name[1..], 10) catch |err| switch (err) {
+                    error.Overflow => return astgen.failNode(
+                        ident,
+                        "primitive integer type '{s}' exceeds maximum bit width of 65535",
+                        .{ident_name},
+                    ),
+                    error.InvalidCharacter => break :integer,
+                };
+                const result = try gz.add(.{
+                    .tag = .int_type,
+                    .data = .{ .int_type = .{
+                        .src_node = gz.nodeIndexToRelative(ident),
+                        .signedness = signedness,
+                        .bit_count = bit_count,
+                    } },
+                });
+                return rvalue(gz, rl, result, ident);
+            }
         }
     }
 
@@ -7102,38 +7127,38 @@ fn builtinCall(
         .bit_size_of => return simpleUnOpType(gz, scope, rl, node, params[0], .bit_size_of),
         .align_of    => return simpleUnOpType(gz, scope, rl, node, params[0], .align_of),
 
-        .ptr_to_int            => return simpleUnOp(gz, scope, rl, node, .none,                           params[0], .ptr_to_int),
-        .error_to_int          => return simpleUnOp(gz, scope, rl, node, .none,                           params[0], .error_to_int),
-        .int_to_error          => return simpleUnOp(gz, scope, rl, node, .{ .ty = .u16_type },            params[0], .int_to_error),
-        .compile_error         => return simpleUnOp(gz, scope, rl, node, .{ .ty = .const_slice_u8_type }, params[0], .compile_error),
-        .set_eval_branch_quota => return simpleUnOp(gz, scope, rl, node, .{ .ty = .u32_type },            params[0], .set_eval_branch_quota),
-        .enum_to_int           => return simpleUnOp(gz, scope, rl, node, .none,                           params[0], .enum_to_int),
-        .bool_to_int           => return simpleUnOp(gz, scope, rl, node, bool_rl,                         params[0], .bool_to_int),
-        .embed_file            => return simpleUnOp(gz, scope, rl, node, .{ .ty = .const_slice_u8_type }, params[0], .embed_file),
-        .error_name            => return simpleUnOp(gz, scope, rl, node, .{ .ty = .anyerror_type },       params[0], .error_name),
-        .panic                 => return simpleUnOp(gz, scope, rl, node, .{ .ty = .const_slice_u8_type }, params[0], .panic),
-        .set_align_stack       => return simpleUnOp(gz, scope, rl, node, align_rl,                        params[0], .set_align_stack),
-        .set_cold              => return simpleUnOp(gz, scope, rl, node, bool_rl,                         params[0], .set_cold),
-        .set_float_mode        => return simpleUnOp(gz, scope, rl, node, .{ .ty = .float_mode_type },     params[0], .set_float_mode),
-        .set_runtime_safety    => return simpleUnOp(gz, scope, rl, node, bool_rl,                         params[0], .set_runtime_safety),
-        .sqrt                  => return simpleUnOp(gz, scope, rl, node, .none,                           params[0], .sqrt),
-        .sin                   => return simpleUnOp(gz, scope, rl, node, .none,                           params[0], .sin),
-        .cos                   => return simpleUnOp(gz, scope, rl, node, .none,                           params[0], .cos),
-        .exp                   => return simpleUnOp(gz, scope, rl, node, .none,                           params[0], .exp),
-        .exp2                  => return simpleUnOp(gz, scope, rl, node, .none,                           params[0], .exp2),
-        .log                   => return simpleUnOp(gz, scope, rl, node, .none,                           params[0], .log),
-        .log2                  => return simpleUnOp(gz, scope, rl, node, .none,                           params[0], .log2),
-        .log10                 => return simpleUnOp(gz, scope, rl, node, .none,                           params[0], .log10),
-        .fabs                  => return simpleUnOp(gz, scope, rl, node, .none,                           params[0], .fabs),
-        .floor                 => return simpleUnOp(gz, scope, rl, node, .none,                           params[0], .floor),
-        .ceil                  => return simpleUnOp(gz, scope, rl, node, .none,                           params[0], .ceil),
-        .trunc                 => return simpleUnOp(gz, scope, rl, node, .none,                           params[0], .trunc),
-        .round                 => return simpleUnOp(gz, scope, rl, node, .none,                           params[0], .round),
-        .tag_name              => return simpleUnOp(gz, scope, rl, node, .none,                           params[0], .tag_name),
-        .Type                  => return simpleUnOp(gz, scope, rl, node, .none,                           params[0], .reify),
-        .type_name             => return simpleUnOp(gz, scope, rl, node, .none,                           params[0], .type_name),
-        .Frame                 => return simpleUnOp(gz, scope, rl, node, .none,                           params[0], .frame_type),
-        .frame_size            => return simpleUnOp(gz, scope, rl, node, .none,                           params[0], .frame_size),
+        .ptr_to_int            => return simpleUnOp(gz, scope, rl, node, .none,                               params[0], .ptr_to_int),
+        .error_to_int          => return simpleUnOp(gz, scope, rl, node, .none,                               params[0], .error_to_int),
+        .int_to_error          => return simpleUnOp(gz, scope, rl, node, .{ .ty = .u16_type },                params[0], .int_to_error),
+        .compile_error         => return simpleUnOp(gz, scope, rl, node, .{ .ty = .const_slice_u8_type },     params[0], .compile_error),
+        .set_eval_branch_quota => return simpleUnOp(gz, scope, rl, node, .{ .ty = .u32_type },                params[0], .set_eval_branch_quota),
+        .enum_to_int           => return simpleUnOp(gz, scope, rl, node, .none,                               params[0], .enum_to_int),
+        .bool_to_int           => return simpleUnOp(gz, scope, rl, node, bool_rl,                             params[0], .bool_to_int),
+        .embed_file            => return simpleUnOp(gz, scope, rl, node, .{ .ty = .const_slice_u8_type },     params[0], .embed_file),
+        .error_name            => return simpleUnOp(gz, scope, rl, node, .{ .ty = .anyerror_type },           params[0], .error_name),
+        .panic                 => return simpleUnOp(gz, scope, rl, node, .{ .ty = .const_slice_u8_type },     params[0], .panic),
+        .set_align_stack       => return simpleUnOp(gz, scope, rl, node, align_rl,                            params[0], .set_align_stack),
+        .set_cold              => return simpleUnOp(gz, scope, rl, node, bool_rl,                             params[0], .set_cold),
+        .set_float_mode        => return simpleUnOp(gz, scope, rl, node, .{ .coerced_ty = .float_mode_type }, params[0], .set_float_mode),
+        .set_runtime_safety    => return simpleUnOp(gz, scope, rl, node, bool_rl,                             params[0], .set_runtime_safety),
+        .sqrt                  => return simpleUnOp(gz, scope, rl, node, .none,                               params[0], .sqrt),
+        .sin                   => return simpleUnOp(gz, scope, rl, node, .none,                               params[0], .sin),
+        .cos                   => return simpleUnOp(gz, scope, rl, node, .none,                               params[0], .cos),
+        .exp                   => return simpleUnOp(gz, scope, rl, node, .none,                               params[0], .exp),
+        .exp2                  => return simpleUnOp(gz, scope, rl, node, .none,                               params[0], .exp2),
+        .log                   => return simpleUnOp(gz, scope, rl, node, .none,                               params[0], .log),
+        .log2                  => return simpleUnOp(gz, scope, rl, node, .none,                               params[0], .log2),
+        .log10                 => return simpleUnOp(gz, scope, rl, node, .none,                               params[0], .log10),
+        .fabs                  => return simpleUnOp(gz, scope, rl, node, .none,                               params[0], .fabs),
+        .floor                 => return simpleUnOp(gz, scope, rl, node, .none,                               params[0], .floor),
+        .ceil                  => return simpleUnOp(gz, scope, rl, node, .none,                               params[0], .ceil),
+        .trunc                 => return simpleUnOp(gz, scope, rl, node, .none,                               params[0], .trunc),
+        .round                 => return simpleUnOp(gz, scope, rl, node, .none,                               params[0], .round),
+        .tag_name              => return simpleUnOp(gz, scope, rl, node, .none,                               params[0], .tag_name),
+        .Type                  => return simpleUnOp(gz, scope, rl, node, .{ .coerced_ty = .type_info_type },  params[0], .reify),
+        .type_name             => return simpleUnOp(gz, scope, rl, node, .none,                               params[0], .type_name),
+        .Frame                 => return simpleUnOp(gz, scope, rl, node, .none,                               params[0], .frame_type),
+        .frame_size            => return simpleUnOp(gz, scope, rl, node, .none,                               params[0], .frame_size),
 
         .float_to_int => return typeCast(gz, scope, rl, node, params[0], params[1], .float_to_int),
         .int_to_float => return typeCast(gz, scope, rl, node, params[0], params[1], .int_to_float),
@@ -7819,10 +7844,6 @@ fn nodeMayNeedMemoryLocation(tree: *const ast.Tree, start_node: ast.Node.Index) 
             .string_literal,
             .multiline_string_literal,
             .char_literal,
-            .true_literal,
-            .false_literal,
-            .null_literal,
-            .undefined_literal,
             .unreachable_literal,
             .identifier,
             .error_set_decl,
@@ -8059,10 +8080,6 @@ fn nodeMayEvalToError(tree: *const ast.Tree, start_node: ast.Node.Index) enum { 
             .string_literal,
             .multiline_string_literal,
             .char_literal,
-            .true_literal,
-            .false_literal,
-            .null_literal,
-            .undefined_literal,
             .unreachable_literal,
             .error_set_decl,
             .container_decl,
@@ -8232,10 +8249,6 @@ fn nodeImpliesRuntimeBits(tree: *const ast.Tree, start_node: ast.Node.Index) boo
             .string_literal,
             .multiline_string_literal,
             .char_literal,
-            .true_literal,
-            .false_literal,
-            .null_literal,
-            .undefined_literal,
             .unreachable_literal,
             .identifier,
             .error_set_decl,
@@ -10006,8 +10019,21 @@ fn declareNewName(
     start_scope: *Scope,
     name_index: u32,
     node: ast.Node.Index,
+    name_token: ast.TokenIndex,
 ) !void {
     const gpa = astgen.gpa;
+
+    const token_bytes = astgen.tree.tokenSlice(name_token);
+    if (token_bytes[0] != '@' and isPrimitive(token_bytes)) {
+        return astgen.failTokNotes(name_token, "name shadows primitive '{s}'", .{
+            token_bytes,
+        }, &[_]u32{
+            try astgen.errNoteTok(name_token, "consider using @\"{s}\" to disambiguate", .{
+                token_bytes,
+            }),
+        });
+    }
+
     var scope = start_scope;
     while (true) {
         switch (scope.tag) {
@@ -10019,7 +10045,7 @@ fn declareNewName(
                 const ns = scope.cast(Scope.Namespace).?;
                 const gop = try ns.decls.getOrPut(gpa, name_index);
                 if (gop.found_existing) {
-                    const name = try gpa.dupe(u8, mem.spanZ(astgen.nullTerminatedString(name_index)));
+                    const name = try gpa.dupe(u8, mem.span(astgen.nullTerminatedString(name_index)));
                     defer gpa.free(name);
                     return astgen.failNodeNotes(node, "redeclaration of '{s}'", .{
                         name,
@@ -10035,21 +10061,45 @@ fn declareNewName(
     }
 }
 
-/// Local variables shadowing detection, including function parameters.
+fn isPrimitive(name: []const u8) bool {
+    if (simple_types.get(name) != null) return true;
+    if (name.len < 2) return false;
+    const first_c = name[0];
+    if (first_c != 'i' and first_c != 'u') return false;
+    if (std.fmt.parseInt(u16, name[1..], 10)) |_| {
+        return true;
+    } else |err| switch (err) {
+        error.Overflow => return true,
+        error.InvalidCharacter => return false,
+    }
+}
+
+/// Local variables shadowing detection, including function parameters and primitives.
 fn detectLocalShadowing(
     astgen: *AstGen,
     scope: *Scope,
     ident_name: u32,
     name_token: ast.TokenIndex,
+    token_bytes: []const u8,
 ) !void {
     const gpa = astgen.gpa;
+    if (token_bytes[0] != '@' and isPrimitive(token_bytes)) {
+        return astgen.failTokNotes(name_token, "name shadows primitive '{s}'", .{
+            token_bytes,
+        }, &[_]u32{
+            try astgen.errNoteTok(name_token, "consider using @\"{s}\" to disambiguate", .{
+                token_bytes,
+            }),
+        });
+    }
 
     var s = scope;
     while (true) switch (s.tag) {
         .local_val => {
             const local_val = s.cast(Scope.LocalVal).?;
             if (local_val.name == ident_name) {
-                const name = try gpa.dupe(u8, mem.spanZ(astgen.nullTerminatedString(ident_name)));
+                const name_slice = mem.span(astgen.nullTerminatedString(ident_name));
+                const name = try gpa.dupe(u8, name_slice);
                 defer gpa.free(name);
                 return astgen.failTokNotes(name_token, "redeclaration of {s} '{s}'", .{
                     @tagName(local_val.id_cat), name,
@@ -10066,7 +10116,8 @@ fn detectLocalShadowing(
         .local_ptr => {
             const local_ptr = s.cast(Scope.LocalPtr).?;
             if (local_ptr.name == ident_name) {
-                const name = try gpa.dupe(u8, mem.spanZ(astgen.nullTerminatedString(ident_name)));
+                const name_slice = mem.span(astgen.nullTerminatedString(ident_name));
+                const name = try gpa.dupe(u8, name_slice);
                 defer gpa.free(name);
                 return astgen.failTokNotes(name_token, "redeclaration of {s} '{s}'", .{
                     @tagName(local_ptr.id_cat), name,
@@ -10086,7 +10137,8 @@ fn detectLocalShadowing(
                 s = ns.parent;
                 continue;
             };
-            const name = try gpa.dupe(u8, mem.spanZ(astgen.nullTerminatedString(ident_name)));
+            const name_slice = mem.span(astgen.nullTerminatedString(ident_name));
+            const name = try gpa.dupe(u8, name_slice);
             defer gpa.free(name);
             return astgen.failTokNotes(name_token, "local shadows declaration of '{s}'", .{
                 name,

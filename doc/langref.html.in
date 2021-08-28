@@ -38,15 +38,20 @@
       .file {
         text-decoration: underline;
       }
-      pre,code {
-        font-size: 12pt;
-      }
       pre > code {
         display: block;
         overflow: auto;
         padding: 0.5em;
         color: #333;
         background: #f8f8f8;
+        border: 1px dotted silver;
+        line-height: normal;
+      }
+      code {
+        background-color: #f8f8f8;
+        border: 1px dotted silver;
+        padding-left: 0.3em;
+        padding-right: 0.3em;
       }
       .table-wrapper {
         width: 100%;
@@ -95,6 +100,7 @@
       #contents {
         max-width: 60em;
         margin: auto;
+        line-height: 1.5;
       }
 
       #toc {
@@ -153,6 +159,11 @@
         pre > code {
             color: #ccc;
             background: #222;
+            border-color: #444;
+        }
+        code {
+          background-color: #222;
+          border-color: #444;
         }
         .tok-kw {
             color: #eee;
@@ -3152,7 +3163,9 @@ test "switch using enum literals" {
       It  must specify a tag type and cannot consume every enumeration value.
       </p>
       <p>
-      {#link|@intToEnum#} on a non-exhaustive enum cannot fail.
+      {#link|@intToEnum#} on a non-exhaustive enum involves the safety semantics
+      of {#link|@intCast#} to the integer tag type, but beyond that always results in
+      a well-defined enum value.
       </p>
       <p>
       A switch on a non-exhaustive enum can include a '_' prong as an alternative to an {#syntax#}else{#endsyntax#} prong
@@ -6634,12 +6647,19 @@ test "global assembly" {
       <p>
       When a function is called, a frame is pushed to the stack,
       the function runs until it reaches a return statement, and then the frame is popped from the stack.
-      At the callsite, the following code does not run until the function returns.
+      The code following the callsite does not run until the function returns.
       </p>
       <p>
-      An async function is a function whose callsite is split into an {#syntax#}async{#endsyntax#} initiation,
+      An async function is a function whose execution is split into an {#syntax#}async{#endsyntax#} initiation,
       followed by an {#syntax#}await{#endsyntax#} completion. Its frame is
       provided explicitly by the caller, and it can be suspended and resumed any number of times.
+      </p>
+      <p>
+      The code following the {#syntax#}async{#endsyntax#} callsite runs immediately after the async 
+      function first suspends. When the return value of the async function is needed, 
+      the calling code can {#syntax#}await{#endsyntax#} on the async function frame. 
+      This will suspend the calling code until the async function completes, at which point 
+      execution resumes just after the {#syntax#}await{#endsyntax#} callsite.
       </p>
       <p>
       Zig infers that a function is {#syntax#}async{#endsyntax#} when it observes that the function contains
@@ -6744,7 +6764,14 @@ fn testResumeFromSuspend(my_result: *i32) void {
       {#header_open|Async and Await#}
       <p>
       In the same way that every {#syntax#}suspend{#endsyntax#} has a matching
-      {#syntax#}resume{#endsyntax#}, every {#syntax#}async{#endsyntax#} has a matching {#syntax#}await{#endsyntax#}.
+      {#syntax#}resume{#endsyntax#}, every {#syntax#}async{#endsyntax#} has a matching {#syntax#}await{#endsyntax#}
+      in standard code.
+      </p>
+      <p>
+      However, it is possible to have an {#syntax#}async{#endsyntax#} call 
+      without a matching {#syntax#}await{#endsyntax#}. Upon completion of the async function, 
+      execution would continue at the most recent {#syntax#}async{#endsyntax#} callsite or {#syntax#}resume{#endsyntax#} callsite,
+      and the return value of the async function would be lost.
       </p>
       {#code_begin|test#}
 const std = @import("std");
@@ -6779,7 +6806,9 @@ fn func() void {
       </p>
       <p>
       {#syntax#}await{#endsyntax#} is a suspend point, and takes as an operand anything that
-      coerces to {#syntax#}anyframe->T{#endsyntax#}.
+      coerces to {#syntax#}anyframe->T{#endsyntax#}. Calling {#syntax#}await{#endsyntax#} on 
+      the frame of an async function will cause execution to continue at the 
+      {#syntax#}await{#endsyntax#} callsite once the target function completes.
       </p>
       <p>
       There is a common misconception that {#syntax#}await{#endsyntax#} resumes the target function.
@@ -7945,7 +7974,7 @@ test "@hasDecl" {
       {#header_close#}
 
       {#header_open|@intToEnum#}
-      <pre>{#syntax#}@intToEnum(comptime DestType: type, int_value: std.meta.Tag(DestType)) DestType{#endsyntax#}</pre>
+      <pre>{#syntax#}@intToEnum(comptime DestType: type, integer: anytype) DestType{#endsyntax#}</pre>
       <p>
       Converts an integer into an {#link|enum#} value.
       </p>
@@ -11535,11 +11564,7 @@ PrimaryTypeExpr
      / INTEGER
      / KEYWORD_comptime TypeExpr
      / KEYWORD_error DOT IDENTIFIER
-     / KEYWORD_false
-     / KEYWORD_null
      / KEYWORD_anyframe
-     / KEYWORD_true
-     / KEYWORD_undefined
      / KEYWORD_unreachable
      / STRINGLITERAL
      / SwitchExpr
@@ -11908,7 +11933,6 @@ KEYWORD_errdefer    &lt;- 'errdefer'    end_of_word
 KEYWORD_error       &lt;- 'error'       end_of_word
 KEYWORD_export      &lt;- 'export'      end_of_word
 KEYWORD_extern      &lt;- 'extern'      end_of_word
-KEYWORD_false       &lt;- 'false'       end_of_word
 KEYWORD_fn          &lt;- 'fn'          end_of_word
 KEYWORD_for         &lt;- 'for'         end_of_word
 KEYWORD_if          &lt;- 'if'          end_of_word
@@ -11916,7 +11940,6 @@ KEYWORD_inline      &lt;- 'inline'      end_of_word
 KEYWORD_noalias     &lt;- 'noalias'     end_of_word
 KEYWORD_nosuspend   &lt;- 'nosuspend'   end_of_word
 KEYWORD_noinline    &lt;- 'noinline'    end_of_word
-KEYWORD_null        &lt;- 'null'        end_of_word
 KEYWORD_opaque      &lt;- 'opaque'      end_of_word
 KEYWORD_or          &lt;- 'or'          end_of_word
 KEYWORD_orelse      &lt;- 'orelse'      end_of_word
@@ -11930,9 +11953,7 @@ KEYWORD_suspend     &lt;- 'suspend'     end_of_word
 KEYWORD_switch      &lt;- 'switch'      end_of_word
 KEYWORD_test        &lt;- 'test'        end_of_word
 KEYWORD_threadlocal &lt;- 'threadlocal' end_of_word
-KEYWORD_true        &lt;- 'true'        end_of_word
 KEYWORD_try         &lt;- 'try'         end_of_word
-KEYWORD_undefined   &lt;- 'undefined'   end_of_word
 KEYWORD_union       &lt;- 'union'       end_of_word
 KEYWORD_unreachable &lt;- 'unreachable' end_of_word
 KEYWORD_usingnamespace &lt;- 'usingnamespace' end_of_word
@@ -11945,13 +11966,13 @@ keyword &lt;- KEYWORD_align / KEYWORD_allowzero / KEYWORD_and / KEYWORD_anyframe
          / KEYWORD_break / KEYWORD_callconv / KEYWORD_catch / KEYWORD_comptime
          / KEYWORD_const / KEYWORD_continue / KEYWORD_defer / KEYWORD_else
          / KEYWORD_enum / KEYWORD_errdefer / KEYWORD_error / KEYWORD_export
-         / KEYWORD_extern / KEYWORD_false / KEYWORD_fn / KEYWORD_for / KEYWORD_if
+         / KEYWORD_extern / KEYWORD_fn / KEYWORD_for / KEYWORD_if
          / KEYWORD_inline / KEYWORD_noalias / KEYWORD_nosuspend / KEYWORD_noinline
-         / KEYWORD_null / KEYWORD_opaque / KEYWORD_or / KEYWORD_orelse / KEYWORD_packed
+         / KEYWORD_opaque / KEYWORD_or / KEYWORD_orelse / KEYWORD_packed
          / KEYWORD_pub / KEYWORD_resume / KEYWORD_return / KEYWORD_linksection
          / KEYWORD_struct / KEYWORD_suspend / KEYWORD_switch
-         / KEYWORD_test / KEYWORD_threadlocal / KEYWORD_true / KEYWORD_try
-         / KEYWORD_undefined / KEYWORD_union / KEYWORD_unreachable
+         / KEYWORD_test / KEYWORD_threadlocal / KEYWORD_try
+         / KEYWORD_union / KEYWORD_unreachable
          / KEYWORD_usingnamespace / KEYWORD_var / KEYWORD_volatile / KEYWORD_while
 </code></pre>
       {#header_close#}

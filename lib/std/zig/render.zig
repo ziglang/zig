@@ -1,8 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
 const std = @import("../std.zig");
 const assert = std.debug.assert;
 const mem = std.mem;
@@ -192,11 +187,7 @@ fn renderExpression(gpa: *Allocator, ais: *Ais, tree: ast.Tree, node: ast.Node.I
         .integer_literal,
         .float_literal,
         .char_literal,
-        .true_literal,
-        .false_literal,
-        .null_literal,
         .unreachable_literal,
-        .undefined_literal,
         .anyframe_literal,
         .string_literal,
         => return renderToken(ais, tree, main_tokens[node], space),

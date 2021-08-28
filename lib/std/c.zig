@@ -1,8 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
 const std = @import("std");
 const builtin = std.builtin;
 const page_size = std.mem.page_size;
@@ -35,11 +30,11 @@ pub usingnamespace switch (std.Target.current.os.tag) {
     else => struct {},
 };
 
-pub fn getErrno(rc: anytype) c_int {
+pub fn getErrno(rc: anytype) E {
     if (rc == -1) {
-        return _errno().*;
+        return @intToEnum(E, _errno().*);
     } else {
-        return 0;
+        return .SUCCESS;
     }
 }
 
@@ -270,22 +265,22 @@ pub extern "c" fn utimes(path: [*:0]const u8, times: *[2]timeval) c_int;
 pub extern "c" fn utimensat(dirfd: fd_t, pathname: [*:0]const u8, times: *[2]timespec, flags: u32) c_int;
 pub extern "c" fn futimens(fd: fd_t, times: *const [2]timespec) c_int;
 
-pub extern "c" fn pthread_create(noalias newthread: *pthread_t, noalias attr: ?*const pthread_attr_t, start_routine: fn (?*c_void) callconv(.C) ?*c_void, noalias arg: ?*c_void) c_int;
-pub extern "c" fn pthread_attr_init(attr: *pthread_attr_t) c_int;
-pub extern "c" fn pthread_attr_setstack(attr: *pthread_attr_t, stackaddr: *c_void, stacksize: usize) c_int;
-pub extern "c" fn pthread_attr_setstacksize(attr: *pthread_attr_t, stacksize: usize) c_int;
-pub extern "c" fn pthread_attr_setguardsize(attr: *pthread_attr_t, guardsize: usize) c_int;
-pub extern "c" fn pthread_attr_destroy(attr: *pthread_attr_t) c_int;
+pub extern "c" fn pthread_create(noalias newthread: *pthread_t, noalias attr: ?*const pthread_attr_t, start_routine: fn (?*c_void) callconv(.C) ?*c_void, noalias arg: ?*c_void) E;
+pub extern "c" fn pthread_attr_init(attr: *pthread_attr_t) E;
+pub extern "c" fn pthread_attr_setstack(attr: *pthread_attr_t, stackaddr: *c_void, stacksize: usize) E;
+pub extern "c" fn pthread_attr_setstacksize(attr: *pthread_attr_t, stacksize: usize) E;
+pub extern "c" fn pthread_attr_setguardsize(attr: *pthread_attr_t, guardsize: usize) E;
+pub extern "c" fn pthread_attr_destroy(attr: *pthread_attr_t) E;
 pub extern "c" fn pthread_self() pthread_t;
-pub extern "c" fn pthread_join(thread: pthread_t, arg_return: ?*?*c_void) c_int;
-pub extern "c" fn pthread_detach(thread: pthread_t) c_int;
+pub extern "c" fn pthread_join(thread: pthread_t, arg_return: ?*?*c_void) E;
+pub extern "c" fn pthread_detach(thread: pthread_t) E;
 pub extern "c" fn pthread_atfork(
     prepare: ?fn () callconv(.C) void,
     parent: ?fn () callconv(.C) void,
     child: ?fn () callconv(.C) void,
 ) c_int;
-pub extern "c" fn pthread_key_create(key: *pthread_key_t, destructor: ?fn (value: *c_void) callconv(.C) void) c_int;
-pub extern "c" fn pthread_key_delete(key: pthread_key_t) c_int;
+pub extern "c" fn pthread_key_create(key: *pthread_key_t, destructor: ?fn (value: *c_void) callconv(.C) void) E;
+pub extern "c" fn pthread_key_delete(key: pthread_key_t) E;
 pub extern "c" fn pthread_getspecific(key: pthread_key_t) ?*c_void;
 pub extern "c" fn pthread_setspecific(key: pthread_key_t, value: ?*c_void) c_int;
 pub extern "c" fn sem_init(sem: *sem_t, pshared: c_int, value: c_uint) c_int;
@@ -339,24 +334,24 @@ pub extern "c" fn dn_expand(
 ) c_int;
 
 pub const PTHREAD_MUTEX_INITIALIZER = pthread_mutex_t{};
-pub extern "c" fn pthread_mutex_lock(mutex: *pthread_mutex_t) c_int;
-pub extern "c" fn pthread_mutex_unlock(mutex: *pthread_mutex_t) c_int;
-pub extern "c" fn pthread_mutex_trylock(mutex: *pthread_mutex_t) c_int;
-pub extern "c" fn pthread_mutex_destroy(mutex: *pthread_mutex_t) c_int;
+pub extern "c" fn pthread_mutex_lock(mutex: *pthread_mutex_t) E;
+pub extern "c" fn pthread_mutex_unlock(mutex: *pthread_mutex_t) E;
+pub extern "c" fn pthread_mutex_trylock(mutex: *pthread_mutex_t) E;
+pub extern "c" fn pthread_mutex_destroy(mutex: *pthread_mutex_t) E;
 
 pub const PTHREAD_COND_INITIALIZER = pthread_cond_t{};
-pub extern "c" fn pthread_cond_wait(noalias cond: *pthread_cond_t, noalias mutex: *pthread_mutex_t) c_int;
-pub extern "c" fn pthread_cond_timedwait(noalias cond: *pthread_cond_t, noalias mutex: *pthread_mutex_t, noalias abstime: *const timespec) c_int;
-pub extern "c" fn pthread_cond_signal(cond: *pthread_cond_t) c_int;
-pub extern "c" fn pthread_cond_broadcast(cond: *pthread_cond_t) c_int;
-pub extern "c" fn pthread_cond_destroy(cond: *pthread_cond_t) c_int;
+pub extern "c" fn pthread_cond_wait(noalias cond: *pthread_cond_t, noalias mutex: *pthread_mutex_t) E;
+pub extern "c" fn pthread_cond_timedwait(noalias cond: *pthread_cond_t, noalias mutex: *pthread_mutex_t, noalias abstime: *const timespec) E;
+pub extern "c" fn pthread_cond_signal(cond: *pthread_cond_t) E;
+pub extern "c" fn pthread_cond_broadcast(cond: *pthread_cond_t) E;
+pub extern "c" fn pthread_cond_destroy(cond: *pthread_cond_t) E;
 
-pub extern "c" fn pthread_rwlock_destroy(rwl: *pthread_rwlock_t) callconv(.C) c_int;
-pub extern "c" fn pthread_rwlock_rdlock(rwl: *pthread_rwlock_t) callconv(.C) c_int;
-pub extern "c" fn pthread_rwlock_wrlock(rwl: *pthread_rwlock_t) callconv(.C) c_int;
-pub extern "c" fn pthread_rwlock_tryrdlock(rwl: *pthread_rwlock_t) callconv(.C) c_int;
-pub extern "c" fn pthread_rwlock_trywrlock(rwl: *pthread_rwlock_t) callconv(.C) c_int;
-pub extern "c" fn pthread_rwlock_unlock(rwl: *pthread_rwlock_t) callconv(.C) c_int;
+pub extern "c" fn pthread_rwlock_destroy(rwl: *pthread_rwlock_t) callconv(.C) E;
+pub extern "c" fn pthread_rwlock_rdlock(rwl: *pthread_rwlock_t) callconv(.C) E;
+pub extern "c" fn pthread_rwlock_wrlock(rwl: *pthread_rwlock_t) callconv(.C) E;
+pub extern "c" fn pthread_rwlock_tryrdlock(rwl: *pthread_rwlock_t) callconv(.C) E;
+pub extern "c" fn pthread_rwlock_trywrlock(rwl: *pthread_rwlock_t) callconv(.C) E;
+pub extern "c" fn pthread_rwlock_unlock(rwl: *pthread_rwlock_t) callconv(.C) E;
 
 pub const pthread_t = *opaque {};
 pub const FILE = opaque {};

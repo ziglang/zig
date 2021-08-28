@@ -1,8 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
 const builtin = @import("builtin");
 
 // These are all deprecated.
@@ -237,7 +232,7 @@ pub const TypeInfo = union(enum) {
         /// This field is an optional type.
         /// The type of the sentinel is the element type of the pointer, which is
         /// the value of the `child` field in this struct. However there is no way
-        /// to refer to that type here, so we use `var`.
+        /// to refer to that type here, so we use `anytype`.
         sentinel: anytype,
 
         /// This data structure is used by the Zig language code generation and
@@ -259,7 +254,7 @@ pub const TypeInfo = union(enum) {
         /// This field is an optional type.
         /// The type of the sentinel is the element type of the array, which is
         /// the value of the `child` field in this struct. However there is no way
-        /// to refer to that type here, so we use `var`.
+        /// to refer to that type here, so we use `anytype`.
         sentinel: anytype,
     };
 
@@ -671,7 +666,12 @@ pub const PanicFn = fn ([]const u8, ?*StackTrace) noreturn;
 
 /// This function is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
-pub const panic: PanicFn = if (@hasDecl(root, "panic")) root.panic else default_panic;
+pub const panic: PanicFn = if (@hasDecl(root, "panic"))
+    root.panic
+else if (@hasDecl(root, "os") and @hasDecl(root.os, "panic"))
+    root.os.panic
+else
+    default_panic;
 
 /// This function is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
@@ -683,10 +683,6 @@ pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace) noreturn
         while (true) {
             @breakpoint();
         }
-    }
-    if (@hasDecl(root, "os") and @hasDecl(root.os, "panic")) {
-        root.os.panic(msg, error_return_trace);
-        unreachable;
     }
     switch (os.tag) {
         .freestanding => {

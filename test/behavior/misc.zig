@@ -505,3 +505,36 @@ test "lazy typeInfo value as generic parameter" {
     };
     S.foo(@typeInfo(@TypeOf(.{})));
 }
+
+fn A() type {
+    return struct {
+        b: B(),
+
+        const Self = @This();
+
+        fn B() type {
+            return struct {
+                const Self = @This();
+            };
+        }
+    };
+}
+test "non-ambiguous reference of shadowed decls" {
+    try expect(A().B().Self != A().Self);
+}
+
+test "use of declaration with same name as primitive" {
+    const S = struct {
+        const @"u8" = u16;
+        const alias = @"u8";
+    };
+    const a: S.u8 = 300;
+    try expect(a == 300);
+
+    const b: S.alias = 300;
+    try expect(b == 300);
+
+    const @"u8" = u16;
+    const c: @"u8" = 300;
+    try expect(c == 300);
+}

@@ -78,3 +78,42 @@ fn max_i32(a: i32, b: i32) i32 {
 fn max_f64(a: f64, b: f64) f64 {
     return max_anytype(a, b);
 }
+
+test "type constructed by comptime function call" {
+    var l: SimpleList(10) = undefined;
+    l.array[0] = 10;
+    l.array[1] = 11;
+    l.array[2] = 12;
+    const ptr = @ptrCast([*]u8, &l.array);
+    try expect(ptr[0] == 10);
+    try expect(ptr[1] == 11);
+    try expect(ptr[2] == 12);
+}
+
+fn SimpleList(comptime L: usize) type {
+    var T = u8;
+    return struct {
+        array: [L]T,
+    };
+}
+
+test "function with return type type" {
+    var list: List(i32) = undefined;
+    var list2: List(i32) = undefined;
+    list.length = 10;
+    list2.length = 10;
+    try expect(list.prealloc_items.len == 8);
+    try expect(list2.prealloc_items.len == 8);
+}
+
+pub fn List(comptime T: type) type {
+    return SmallList(T, 8);
+}
+
+pub fn SmallList(comptime T: type, comptime STATIC_SIZE: usize) type {
+    return struct {
+        items: []T,
+        length: usize,
+        prealloc_items: [STATIC_SIZE]T,
+    };
+}

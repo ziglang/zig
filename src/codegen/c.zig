@@ -319,18 +319,20 @@ pub const DeclGen = struct {
             .Bool => return writer.print("{}", .{val.toBool()}),
             .Optional => {
                 var opt_buf: Type.Payload.ElemType = undefined;
-                const child_type = t.optionalChild(&opt_buf);
+                const payload_type = t.optionalChild(&opt_buf);
                 if (t.isPtrLikeOptional()) {
-                    return dg.renderValue(writer, child_type, val);
+                    return dg.renderValue(writer, payload_type, val);
                 }
                 try writer.writeByte('(');
                 try dg.renderType(writer, t);
-                if (val.tag() == .null_value) {
-                    try writer.writeAll("){ .is_null = true }");
-                } else {
-                    try writer.writeAll("){ .is_null = false, .payload = ");
-                    try dg.renderValue(writer, child_type, val);
+                try writer.writeAll("){");
+                if (val.castTag(.opt_payload)) |pl| {
+                    const payload_val = pl.data;
+                    try writer.writeAll(" .is_null = false, .payload = ");
+                    try dg.renderValue(writer, payload_type, payload_val);
                     try writer.writeAll(" }");
+                } else {
+                    try writer.writeAll(" .is_null = true }");
                 }
             },
             .ErrorSet => {
@@ -871,6 +873,9 @@ fn genBody(o: *Object, body: []const Air.Inst.Index) error{ AnalysisFail, OutOfM
             .bit_or     => try airBinOp(o, inst, " | "),
             .xor        => try airBinOp(o, inst, " ^ "),
 
+            .shr        => try airBinOp(o, inst, " >> "),
+            .shl        => try airBinOp(o, inst, " << "),
+
             .not        => try airNot(  o, inst),
 
             .optional_payload     => try airOptionalPayload(o, inst),
@@ -904,12 +909,19 @@ fn genBody(o: *Object, body: []const Air.Inst.Index) error{ AnalysisFail, OutOfM
             .switch_br        => try airSwitchBr(o, inst),
             .wrap_optional    => try airWrapOptional(o, inst),
             .struct_field_ptr => try airStructFieldPtr(o, inst),
+
+            .struct_field_ptr_index_0 => try airStructFieldPtrIndex(o, inst, 0),
+            .struct_field_ptr_index_1 => try airStructFieldPtrIndex(o, inst, 1),
+            .struct_field_ptr_index_2 => try airStructFieldPtrIndex(o, inst, 2),
+            .struct_field_ptr_index_3 => try airStructFieldPtrIndex(o, inst, 3),
+
             .struct_field_val => try airStructFieldVal(o, inst),
             .slice_ptr        => try airSliceField(o, inst, ".ptr;\n"),
             .slice_len        => try airSliceField(o, inst, ".len;\n"),
 
             .ptr_elem_val       => try airPtrElemVal(o, inst, "["),
             .ptr_ptr_elem_val   => try airPtrElemVal(o, inst, "[0]["),
+            .ptr_elem_ptr       => try airPtrElemPtr(o, inst),
             .slice_elem_val     => try airSliceElemVal(o, inst, "["),
             .ptr_slice_elem_val => try airSliceElemVal(o, inst, "[0]["),
 
@@ -955,6 +967,13 @@ fn airPtrElemVal(o: *Object, inst: Air.Inst.Index, prefix: []const u8) !CValue {
 
     _ = prefix;
     return o.dg.fail("TODO: C backend: airPtrElemVal", .{});
+}
+
+fn airPtrElemPtr(o: *Object, inst: Air.Inst.Index) !CValue {
+    if (o.liveness.isUnused(inst))
+        return CValue.none;
+
+    return o.dg.fail("TODO: C backend: airPtrElemPtr", .{});
 }
 
 fn airSliceElemVal(o: *Object, inst: Air.Inst.Index, prefix: []const u8) !CValue {
@@ -1638,15 +1657,31 @@ fn airOptionalPayload(o: *Object, inst: Air.Inst.Index) !CValue {
 
 fn airStructFieldPtr(o: *Object, inst: Air.Inst.Index) !CValue {
     if (o.liveness.isUnused(inst))
-        return CValue.none;
+        // TODO this @as is needed because of a stage1 bug
+        return @as(CValue, CValue.none);
 
     const ty_pl = o.air.instructions.items(.data)[inst].ty_pl;
     const extra = o.air.extraData(Air.StructField, ty_pl.payload).data;
-    const writer = o.writer();
     const struct_ptr = try o.resolveInst(extra.struct_operand);
     const struct_ptr_ty = o.air.typeOf(extra.struct_operand);
+    return structFieldPtr(o, inst, struct_ptr_ty, struct_ptr, extra.field_index);
+}
+
+fn airStructFieldPtrIndex(o: *Object, inst: Air.Inst.Index, index: u8) !CValue {
+    if (o.liveness.isUnused(inst))
+        // TODO this @as is needed because of a stage1 bug
+        return @as(CValue, CValue.none);
+
+    const ty_op = o.air.instructions.items(.data)[inst].ty_op;
+    const struct_ptr = try o.resolveInst(ty_op.operand);
+    const struct_ptr_ty = o.air.typeOf(ty_op.operand);
+    return structFieldPtr(o, inst, struct_ptr_ty, struct_ptr, index);
+}
+
+fn structFieldPtr(o: *Object, inst: Air.Inst.Index, struct_ptr_ty: Type, struct_ptr: CValue, index: u32) !CValue {
+    const writer = o.writer();
     const struct_obj = struct_ptr_ty.elemType().castTag(.@"struct").?.data;
-    const field_name = struct_obj.fields.keys()[extra.field_index];
+    const field_name = struct_obj.fields.keys()[index];
 
     const inst_ty = o.air.typeOfIndex(inst);
     const local = try o.allocLocal(inst_ty, .Const);

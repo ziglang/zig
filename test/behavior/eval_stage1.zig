@@ -356,19 +356,6 @@ test "binary math operator in partially inlined function" {
     try expect(s[3] == 0xd0e0f10);
 }
 
-test "comptime function with the same args is memoized" {
-    comptime {
-        try expect(MakeType(i32) == MakeType(i32));
-        try expect(MakeType(i32) != MakeType(f64));
-    }
-}
-
-fn MakeType(comptime T: type) type {
-    return struct {
-        field: T,
-    };
-}
-
 test "comptime function with mutable pointer is not memoized" {
     comptime {
         var x: i32 = 1;

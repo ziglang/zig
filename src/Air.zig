@@ -94,6 +94,12 @@ pub const Inst = struct {
         /// Result type is the same as both operands.
         /// Uses the `bin_op` field.
         bit_or,
+        /// Shift right. `>>`
+        /// Uses the `bin_op` field.
+        shr,
+        /// Shift left. `<<`
+        /// Uses the `bin_op` field.
+        shl,
         /// Bitwise XOR. `^`
         /// Uses the `bin_op` field.
         xor,
@@ -258,6 +264,13 @@ pub const Inst = struct {
         /// Given a pointer to a struct and a field index, returns a pointer to the field.
         /// Uses the `ty_pl` field, payload is `StructField`.
         struct_field_ptr,
+        /// Given a pointer to a struct, returns a pointer to the field.
+        /// The field index is the number at the end of the name.
+        /// Uses `ty_op` field.
+        struct_field_ptr_index_0,
+        struct_field_ptr_index_1,
+        struct_field_ptr_index_2,
+        struct_field_ptr_index_3,
         /// Given a byval struct and a field index, returns the field byval.
         /// Uses the `ty_pl` field, payload is `StructField`.
         struct_field_val,
@@ -280,6 +293,10 @@ pub const Inst = struct {
         /// Result type is the element type of the pointer operand.
         /// Uses the `bin_op` field.
         ptr_elem_val,
+        /// Given a pointer value, and element index, return the element pointer at that index.
+        /// Result type is pointer to the element type of the pointer operand.
+        /// Uses the `ty_pl` field with payload `Bin`.
+        ptr_elem_ptr,
         /// Given a pointer to a pointer, and element index, return the element value of the inner
         /// pointer at that index.
         /// Result type is the element type of the inner pointer operand.
@@ -404,6 +421,11 @@ pub const StructField = struct {
     field_index: u32,
 };
 
+pub const Bin = struct {
+    lhs: Inst.Ref,
+    rhs: Inst.Ref,
+};
+
 /// Trailing:
 /// 0. `Inst.Ref` for every outputs_len
 /// 1. `Inst.Ref` for every inputs_len
@@ -445,6 +467,8 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .xor,
         .ptr_add,
         .ptr_sub,
+        .shr,
+        .shl,
         => return air.typeOf(datas[inst].bin_op.lhs),
 
         .cmp_lt,
@@ -474,6 +498,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .constant,
         .struct_field_ptr,
         .struct_field_val,
+        .ptr_elem_ptr,
         => return air.getRefType(datas[inst].ty_pl.ty),
 
         .not,
@@ -492,6 +517,10 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .wrap_errunion_payload,
         .wrap_errunion_err,
         .slice_ptr,
+        .struct_field_ptr_index_0,
+        .struct_field_ptr_index_1,
+        .struct_field_ptr_index_2,
+        .struct_field_ptr_index_3,
         => return air.getRefType(datas[inst].ty_op.ty),
 
         .loop,
@@ -519,8 +548,8 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         },
 
         .slice_elem_val, .ptr_elem_val => {
-            const slice_ty = air.typeOf(datas[inst].bin_op.lhs);
-            return slice_ty.elemType();
+            const ptr_ty = air.typeOf(datas[inst].bin_op.lhs);
+            return ptr_ty.elemType();
         },
         .ptr_slice_elem_val, .ptr_ptr_elem_val => {
             const outer_ptr_ty = air.typeOf(datas[inst].bin_op.lhs);

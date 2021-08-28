@@ -1,17 +1,12 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
 const std = @import("../../std.zig");
 const maxInt = std.math.maxInt;
 const arch = @import("builtin").target.cpu.arch;
 pub usingnamespace @import("posix.zig");
 
-pub usingnamespace switch (arch) {
-    .mips, .mipsel => @import("linux/errno-mips.zig"),
-    .sparc, .sparcel, .sparcv9 => @import("linux/errno-sparc.zig"),
-    else => @import("linux/errno-generic.zig"),
+pub const E = switch (arch) {
+    .mips, .mipsel => @import("linux/errno/mips.zig").E,
+    .sparc, .sparcel, .sparcv9 => @import("linux/errno/sparc.zig").E,
+    else => @import("linux/errno/generic.zig").E,
 };
 
 pub usingnamespace switch (arch) {
@@ -887,6 +882,7 @@ pub const CLONE_VM = 0x00000100;
 pub const CLONE_FS = 0x00000200;
 pub const CLONE_FILES = 0x00000400;
 pub const CLONE_SIGHAND = 0x00000800;
+pub const CLONE_PIDFD = 0x00001000;
 pub const CLONE_PTRACE = 0x00002000;
 pub const CLONE_VFORK = 0x00004000;
 pub const CLONE_PARENT = 0x00008000;
@@ -911,6 +907,8 @@ pub const CLONE_IO = 0x80000000;
 
 /// Clear any signal handler and reset to SIG_DFL.
 pub const CLONE_CLEAR_SIGHAND = 0x100000000;
+/// Clone into a specific cgroup given the right permissions.
+pub const CLONE_INTO_CGROUP = 0x200000000;
 
 // cloning flags intersect with CSIGNAL so can be used with unshare and clone3 syscalls only.
 
@@ -1130,6 +1128,9 @@ pub const SIG_DFL = @intToPtr(?Sigaction.sigaction_fn, 0);
 pub const SIG_IGN = @intToPtr(?Sigaction.sigaction_fn, 1);
 
 pub const empty_sigset = [_]u32{0} ** @typeInfo(sigset_t).Array.len;
+
+pub const SFD_CLOEXEC = O_CLOEXEC;
+pub const SFD_NONBLOCK = O_NONBLOCK;
 
 pub const signalfd_siginfo = extern struct {
     signo: u32,
@@ -1659,6 +1660,13 @@ pub const io_uring_cqe = extern struct {
     /// result code for this event
     res: i32,
     flags: u32,
+
+    pub fn err(self: io_uring_cqe) E {
+        if (self.res > -4096 and self.res < 0) {
+            return @intToEnum(E, -self.res);
+        }
+        return .SUCCESS;
+    }
 };
 
 // io_uring_cqe.flags

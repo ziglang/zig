@@ -1,8 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
 const std = @import("../std.zig");
 const assert = std.debug.assert;
 const testing = std.testing;
@@ -351,10 +346,6 @@ pub const Tree = struct {
             .char_literal,
             .integer_literal,
             .float_literal,
-            .false_literal,
-            .true_literal,
-            .null_literal,
-            .undefined_literal,
             .unreachable_literal,
             .string_literal,
             .multiline_string_literal,
@@ -716,10 +707,6 @@ pub const Tree = struct {
             .char_literal,
             .integer_literal,
             .float_literal,
-            .false_literal,
-            .true_literal,
-            .null_literal,
-            .undefined_literal,
             .unreachable_literal,
             .identifier,
             .deref,
@@ -2761,14 +2748,6 @@ pub const Node = struct {
         integer_literal,
         /// Both lhs and rhs unused.
         float_literal,
-        /// Both lhs and rhs unused.
-        false_literal,
-        /// Both lhs and rhs unused.
-        true_literal,
-        /// Both lhs and rhs unused.
-        null_literal,
-        /// Both lhs and rhs unused.
-        undefined_literal,
         /// Both lhs and rhs unused.
         unreachable_literal,
         /// Both lhs and rhs unused.

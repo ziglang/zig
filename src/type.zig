@@ -133,6 +133,7 @@ pub const Type = extern union {
 
             .@"union",
             .union_tagged,
+            .type_info,
             => return .Union,
 
             .var_args_param => unreachable, // can be any type
@@ -245,6 +246,30 @@ pub const Type = extern union {
             .inferred_alloc_mut => unreachable,
 
             else => null,
+        };
+    }
+
+    pub fn ptrIsMutable(ty: Type) bool {
+        return switch (ty.tag()) {
+            .single_const_pointer_to_comptime_int,
+            .const_slice_u8,
+            .single_const_pointer,
+            .many_const_pointer,
+            .manyptr_const_u8,
+            .c_const_pointer,
+            .const_slice,
+            => false,
+
+            .single_mut_pointer,
+            .many_mut_pointer,
+            .manyptr_u8,
+            .c_mut_pointer,
+            .mut_slice,
+            => true,
+
+            .pointer => ty.castTag(.pointer).?.data.mutable,
+
+            else => unreachable,
         };
     }
 
@@ -717,6 +742,7 @@ pub const Type = extern union {
             .call_options,
             .export_options,
             .extern_options,
+            .type_info,
             .@"anyframe",
             .generic_poison,
             => unreachable,
@@ -928,6 +954,7 @@ pub const Type = extern union {
                 .call_options => return writer.writeAll("std.builtin.CallOptions"),
                 .export_options => return writer.writeAll("std.builtin.ExportOptions"),
                 .extern_options => return writer.writeAll("std.builtin.ExternOptions"),
+                .type_info => return writer.writeAll("std.builtin.TypeInfo"),
                 .function => {
                     const payload = ty.castTag(.function).?.data;
                     try writer.writeAll("fn(");
@@ -1178,6 +1205,7 @@ pub const Type = extern union {
             .comptime_int,
             .comptime_float,
             .enum_literal,
+            .type_info,
             => true,
 
             .var_args_param => unreachable,
@@ -1269,6 +1297,7 @@ pub const Type = extern union {
             .call_options => return Value.initTag(.call_options_type),
             .export_options => return Value.initTag(.export_options_type),
             .extern_options => return Value.initTag(.extern_options_type),
+            .type_info => return Value.initTag(.type_info_type),
             .inferred_alloc_const => unreachable,
             .inferred_alloc_mut => unreachable,
             else => return Value.Tag.ty.create(allocator, self),
@@ -1409,6 +1438,7 @@ pub const Type = extern union {
             .empty_struct,
             .empty_struct_literal,
             .@"opaque",
+            .type_info,
             => false,
 
             .inferred_alloc_const => unreachable,
@@ -1636,6 +1666,7 @@ pub const Type = extern union {
             .inferred_alloc_mut,
             .@"opaque",
             .var_args_param,
+            .type_info,
             => unreachable,
 
             .generic_poison => unreachable,
@@ -1667,6 +1698,7 @@ pub const Type = extern union {
             .@"opaque" => unreachable,
             .var_args_param => unreachable,
             .generic_poison => unreachable,
+            .type_info => unreachable,
 
             .@"struct" => {
                 const s = self.castTag(.@"struct").?.data;
@@ -1978,6 +2010,7 @@ pub const Type = extern union {
             .call_options,
             .export_options,
             .extern_options,
+            .type_info,
             => @panic("TODO at some point we gotta resolve builtin types"),
         };
     }
@@ -2691,6 +2724,7 @@ pub const Type = extern union {
             .call_options,
             .export_options,
             .extern_options,
+            .type_info,
             .@"anyframe",
             .anyframe_T,
             .many_const_pointer,
@@ -2778,6 +2812,7 @@ pub const Type = extern union {
         return switch (self.tag()) {
             .@"struct" => &self.castTag(.@"struct").?.data.namespace,
             .enum_full => &self.castTag(.enum_full).?.data.namespace,
+            .enum_nonexhaustive => &self.castTag(.enum_nonexhaustive).?.data.namespace,
             .empty_struct => self.castTag(.empty_struct).?.data,
             .@"opaque" => &self.castTag(.@"opaque").?.data,
             .@"union" => &self.castTag(.@"union").?.data.namespace,
@@ -3022,6 +3057,7 @@ pub const Type = extern union {
             .call_options,
             .export_options,
             .extern_options,
+            .type_info,
             => @panic("TODO resolve std.builtin types"),
             else => unreachable,
         }
@@ -3058,6 +3094,7 @@ pub const Type = extern union {
             .call_options,
             .export_options,
             .extern_options,
+            .type_info,
             => @panic("TODO resolve std.builtin types"),
             else => unreachable,
         }
@@ -3167,6 +3204,7 @@ pub const Type = extern union {
         call_options,
         export_options,
         extern_options,
+        type_info,
         manyptr_u8,
         manyptr_const_u8,
         fn_noreturn_no_args,
@@ -3289,6 +3327,7 @@ pub const Type = extern union {
                 .call_options,
                 .export_options,
                 .extern_options,
+                .type_info,
                 .@"anyframe",
                 => @compileError("Type Tag " ++ @tagName(t) ++ " has no payload"),
 

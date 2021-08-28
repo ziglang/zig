@@ -1,8 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
 const std = @import("../std.zig");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
@@ -2231,11 +2226,7 @@ const Parser = struct {
     ///      / INTEGER
     ///      / KEYWORD_comptime TypeExpr
     ///      / KEYWORD_error DOT IDENTIFIER
-    ///      / KEYWORD_false
-    ///      / KEYWORD_null
     ///      / KEYWORD_anyframe
-    ///      / KEYWORD_true
-    ///      / KEYWORD_undefined
     ///      / KEYWORD_unreachable
     ///      / STRINGLITERAL
     ///      / SwitchExpr
@@ -2272,38 +2263,6 @@ const Parser = struct {
             }),
             .float_literal => return p.addNode(.{
                 .tag = .float_literal,
-                .main_token = p.nextToken(),
-                .data = .{
-                    .lhs = undefined,
-                    .rhs = undefined,
-                },
-            }),
-            .keyword_false => return p.addNode(.{
-                .tag = .false_literal,
-                .main_token = p.nextToken(),
-                .data = .{
-                    .lhs = undefined,
-                    .rhs = undefined,
-                },
-            }),
-            .keyword_true => return p.addNode(.{
-                .tag = .true_literal,
-                .main_token = p.nextToken(),
-                .data = .{
-                    .lhs = undefined,
-                    .rhs = undefined,
-                },
-            }),
-            .keyword_null => return p.addNode(.{
-                .tag = .null_literal,
-                .main_token = p.nextToken(),
-                .data = .{
-                    .lhs = undefined,
-                    .rhs = undefined,
-                },
-            }),
-            .keyword_undefined => return p.addNode(.{
-                .tag = .undefined_literal,
                 .main_token = p.nextToken(),
                 .data = .{
                     .lhs = undefined,

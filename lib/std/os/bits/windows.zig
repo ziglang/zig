@@ -1,8 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
 // The reference for these types and values is Microsoft Windows's ucrt (Universal C RunTime).
 
 usingnamespace @import("../windows/bits.zig");
@@ -87,93 +82,97 @@ pub const SEEK_SET = 0;
 pub const SEEK_CUR = 1;
 pub const SEEK_END = 2;
 
-pub const EPERM = 1;
-pub const ENOENT = 2;
-pub const ESRCH = 3;
-pub const EINTR = 4;
-pub const EIO = 5;
-pub const ENXIO = 6;
-pub const E2BIG = 7;
-pub const ENOEXEC = 8;
-pub const EBADF = 9;
-pub const ECHILD = 10;
-pub const EAGAIN = 11;
-pub const ENOMEM = 12;
-pub const EACCES = 13;
-pub const EFAULT = 14;
-pub const EBUSY = 16;
-pub const EEXIST = 17;
-pub const EXDEV = 18;
-pub const ENODEV = 19;
-pub const ENOTDIR = 20;
-pub const EISDIR = 21;
-pub const ENFILE = 23;
-pub const EMFILE = 24;
-pub const ENOTTY = 25;
-pub const EFBIG = 27;
-pub const ENOSPC = 28;
-pub const ESPIPE = 29;
-pub const EROFS = 30;
-pub const EMLINK = 31;
-pub const EPIPE = 32;
-pub const EDOM = 33;
-pub const EDEADLK = 36;
-pub const ENAMETOOLONG = 38;
-pub const ENOLCK = 39;
-pub const ENOSYS = 40;
-pub const ENOTEMPTY = 41;
+pub const E = enum(u16) {
+    /// No error occurred.
+    SUCCESS = 0,
+    PERM = 1,
+    NOENT = 2,
+    SRCH = 3,
+    INTR = 4,
+    IO = 5,
+    NXIO = 6,
+    @"2BIG" = 7,
+    NOEXEC = 8,
+    BADF = 9,
+    CHILD = 10,
+    AGAIN = 11,
+    NOMEM = 12,
+    ACCES = 13,
+    FAULT = 14,
+    BUSY = 16,
+    EXIST = 17,
+    XDEV = 18,
+    NODEV = 19,
+    NOTDIR = 20,
+    ISDIR = 21,
+    NFILE = 23,
+    MFILE = 24,
+    NOTTY = 25,
+    FBIG = 27,
+    NOSPC = 28,
+    SPIPE = 29,
+    ROFS = 30,
+    MLINK = 31,
+    PIPE = 32,
+    DOM = 33,
+    /// Also means `DEADLOCK`.
+    DEADLK = 36,
+    NAMETOOLONG = 38,
+    NOLCK = 39,
+    NOSYS = 40,
+    NOTEMPTY = 41,
 
-pub const EINVAL = 22;
-pub const ERANGE = 34;
-pub const EILSEQ = 42;
+    INVAL = 22,
+    RANGE = 34,
+    ILSEQ = 42,
+
+    // POSIX Supplement
+    ADDRINUSE = 100,
+    ADDRNOTAVAIL = 101,
+    AFNOSUPPORT = 102,
+    ALREADY = 103,
+    BADMSG = 104,
+    CANCELED = 105,
+    CONNABORTED = 106,
+    CONNREFUSED = 107,
+    CONNRESET = 108,
+    DESTADDRREQ = 109,
+    HOSTUNREACH = 110,
+    IDRM = 111,
+    INPROGRESS = 112,
+    ISCONN = 113,
+    LOOP = 114,
+    MSGSIZE = 115,
+    NETDOWN = 116,
+    NETRESET = 117,
+    NETUNREACH = 118,
+    NOBUFS = 119,
+    NODATA = 120,
+    NOLINK = 121,
+    NOMSG = 122,
+    NOPROTOOPT = 123,
+    NOSR = 124,
+    NOSTR = 125,
+    NOTCONN = 126,
+    NOTRECOVERABLE = 127,
+    NOTSOCK = 128,
+    NOTSUP = 129,
+    OPNOTSUPP = 130,
+    OTHER = 131,
+    OVERFLOW = 132,
+    OWNERDEAD = 133,
+    PROTO = 134,
+    PROTONOSUPPORT = 135,
+    PROTOTYPE = 136,
+    TIME = 137,
+    TIMEDOUT = 138,
+    TXTBSY = 139,
+    WOULDBLOCK = 140,
+    DQUOT = 10069,
+    _,
+};
+
 pub const STRUNCATE = 80;
-
-// Support EDEADLOCK for compatibility with older Microsoft C versions
-pub const EDEADLOCK = EDEADLK;
-
-// POSIX Supplement
-pub const EADDRINUSE = 100;
-pub const EADDRNOTAVAIL = 101;
-pub const EAFNOSUPPORT = 102;
-pub const EALREADY = 103;
-pub const EBADMSG = 104;
-pub const ECANCELED = 105;
-pub const ECONNABORTED = 106;
-pub const ECONNREFUSED = 107;
-pub const ECONNRESET = 108;
-pub const EDESTADDRREQ = 109;
-pub const EHOSTUNREACH = 110;
-pub const EIDRM = 111;
-pub const EINPROGRESS = 112;
-pub const EISCONN = 113;
-pub const ELOOP = 114;
-pub const EMSGSIZE = 115;
-pub const ENETDOWN = 116;
-pub const ENETRESET = 117;
-pub const ENETUNREACH = 118;
-pub const ENOBUFS = 119;
-pub const ENODATA = 120;
-pub const ENOLINK = 121;
-pub const ENOMSG = 122;
-pub const ENOPROTOOPT = 123;
-pub const ENOSR = 124;
-pub const ENOSTR = 125;
-pub const ENOTCONN = 126;
-pub const ENOTRECOVERABLE = 127;
-pub const ENOTSOCK = 128;
-pub const ENOTSUP = 129;
-pub const EOPNOTSUPP = 130;
-pub const EOTHER = 131;
-pub const EOVERFLOW = 132;
-pub const EOWNERDEAD = 133;
-pub const EPROTO = 134;
-pub const EPROTONOSUPPORT = 135;
-pub const EPROTOTYPE = 136;
-pub const ETIME = 137;
-pub const ETIMEDOUT = 138;
-pub const ETXTBSY = 139;
-pub const EWOULDBLOCK = 140;
-pub const EDQUOT = 10069;
 
 pub const F_OK = 0;
 

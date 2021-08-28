@@ -1,8 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
 const std = @import("../std.zig");
 const maxInt = std.math.maxInt;
 const abi = std.Target.current.abi;
@@ -186,8 +181,8 @@ const __SIZEOF_PTHREAD_MUTEX_T = if (os_tag == .fuchsia) 40 else switch (abi) {
 };
 const __SIZEOF_SEM_T = 4 * @sizeOf(usize);
 
-pub extern "c" fn pthread_setname_np(thread: std.c.pthread_t, name: [*:0]const u8) c_int;
-pub extern "c" fn pthread_getname_np(thread: std.c.pthread_t, name: [*:0]u8, len: usize) c_int;
+pub extern "c" fn pthread_setname_np(thread: std.c.pthread_t, name: [*:0]const u8) E;
+pub extern "c" fn pthread_getname_np(thread: std.c.pthread_t, name: [*:0]u8, len: usize) E;
 
 pub const RTLD_LAZY = 1;
 pub const RTLD_NOW = 2;

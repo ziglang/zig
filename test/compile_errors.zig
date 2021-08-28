@@ -6969,29 +6969,24 @@ pub fn addCases(ctx: *TestContext) !void {
         "tmp.zig:2:30: error: cannot set section of local variable 'foo'",
     });
 
-    ctx.objErrStage1("inner struct member shadowing outer struct member",
-        \\fn A() type {
-        \\    return struct {
-        \\        b: B(),
-        \\
-        \\        const Self = @This();
-        \\
-        \\        fn B() type {
-        \\            return struct {
-        \\                const Self = @This();
-        \\            };
+    ctx.objErrStage1("ambiguous decl reference",
+        \\fn foo() void {}
+        \\fn bar() void {
+        \\    const S = struct {
+        \\        fn baz() void {
+        \\            foo();
         \\        }
+        \\        fn foo() void {}
         \\    };
+        \\    S.baz();
         \\}
-        \\comptime {
-        \\    assert(A().B().Self != A().Self);
-        \\}
-        \\fn assert(ok: bool) void {
-        \\    if (!ok) unreachable;
+        \\export fn entry() void {
+        \\    bar();
         \\}
     , &[_][]const u8{
-        "tmp.zig:9:17: error: redefinition of 'Self'",
-        "tmp.zig:5:9: note: previous definition here",
+        "tmp.zig:5:13: error: ambiguous reference",
+        "tmp.zig:7:9: note: declared here",
+        "tmp.zig:1:1: note: also declared here",
     });
 
     ctx.objErrStage1("while expected bool, got optional",
@@ -7263,14 +7258,36 @@ pub fn addCases(ctx: *TestContext) !void {
         "tmp.zig:2:17: error: expected type 'u3', found 'u8'",
     });
 
-    ctx.objErrStage1("globally shadowing a primitive type",
-        \\const u16 = u8;
-        \\export fn entry() void {
-        \\    const a: u16 = 300;
+    ctx.objErrStage1("locally shadowing a primitive type",
+        \\export fn foo() void {
+        \\    const u8 = u16;
+        \\    const a: u8 = 300;
         \\    _ = a;
         \\}
     , &[_][]const u8{
-        "tmp.zig:1:1: error: declaration shadows primitive type 'u16'",
+        "tmp.zig:2:11: error: name shadows primitive 'u8'",
+        "tmp.zig:2:11: note: consider using @\"u8\" to disambiguate",
+    });
+
+    ctx.objErrStage1("primitives take precedence over declarations",
+        \\const @"u8" = u16;
+        \\export fn entry() void {
+        \\    const a: u8 = 300;
+        \\    _ = a;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:3:19: error: integer value 300 cannot be coerced to type 'u8'",
+    });
+
+    ctx.objErrStage1("declaration with same name as primitive must use special syntax",
+        \\const u8 = u16;
+        \\export fn entry() void {
+        \\    const a: u8 = 300;
+        \\    _ = a;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:1:7: error: name shadows primitive 'u8'",
+        "tmp.zig:1:7: note: consider using @\"u8\" to disambiguate",
     });
 
     ctx.objErrStage1("implicitly increasing pointer alignment",
@@ -7691,12 +7708,12 @@ pub fn addCases(ctx: *TestContext) !void {
         \\};
         \\
         \\export fn entry() void {
-        \\    var y = @as(u3, 3);
+        \\    var y = @as(f32, 3);
         \\    var x = @intToEnum(Small, y);
         \\    _ = x;
         \\}
     , &[_][]const u8{
-        "tmp.zig:10:31: error: expected type 'u2', found 'u3'",
+        "tmp.zig:10:31: error: expected integer type, found 'f32'",
     });
 
     ctx.objErrStage1("union fields with value assignments",

@@ -1,9 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2018 LLVM Compiler Infrastructure
-// Copyright (c) 2020 Sebastien Marie <semarie@online.fr>
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
 // __emutls_get_address specific builtin
 //
 // derived work from LLVM Compiler Infrastructure - release 8.0 (MIT)
@@ -201,7 +195,7 @@ const current_thread_storage = struct {
 
     /// Initialize pthread_key_t.
     fn init() void {
-        if (std.c.pthread_key_create(&current_thread_storage.key, current_thread_storage.deinit) != 0) {
+        if (std.c.pthread_key_create(&current_thread_storage.key, current_thread_storage.deinit) != .SUCCESS) {
             abort();
         }
     }
@@ -248,14 +242,14 @@ const emutls_control = extern struct {
 
     /// Simple wrapper for global lock.
     fn lock() void {
-        if (std.c.pthread_mutex_lock(&emutls_control.mutex) != 0) {
+        if (std.c.pthread_mutex_lock(&emutls_control.mutex) != .SUCCESS) {
             abort();
         }
     }
 
     /// Simple wrapper for global unlock.
     fn unlock() void {
-        if (std.c.pthread_mutex_unlock(&emutls_control.mutex) != 0) {
+        if (std.c.pthread_mutex_unlock(&emutls_control.mutex) != .SUCCESS) {
             abort();
         }
     }

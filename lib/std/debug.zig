@@ -1,8 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
 const std = @import("std.zig");
 const builtin = std.builtin;
 const math = std.math;
@@ -36,7 +31,7 @@ pub const LineInfo = struct {
     file_name: []const u8,
     allocator: ?*mem.Allocator,
 
-    fn deinit(self: LineInfo) void {
+    pub fn deinit(self: LineInfo) void {
         const allocator = self.allocator orelse return;
         allocator.free(self.file_name);
     }
@@ -47,7 +42,7 @@ pub const SymbolInfo = struct {
     compile_unit_name: []const u8 = "???",
     line_info: ?LineInfo = null,
 
-    fn deinit(self: @This()) void {
+    pub fn deinit(self: @This()) void {
         if (self.line_info) |li| {
             li.deinit();
         }

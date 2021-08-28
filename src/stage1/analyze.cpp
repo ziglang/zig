@@ -3918,12 +3918,6 @@ static void add_top_level_decl(CodeGen *g, ScopeDecls *decls_scope, Tld *tld) {
             add_error_note(g, msg, other_tld->source_node, buf_sprintf("previous definition here"));
             return;
         }
-
-        ZigType *type;
-        if (get_primitive_type(g, tld->name, &type) != ErrorPrimitiveTypeNotFound) {
-            add_node_error(g, tld->source_node,
-                buf_sprintf("declaration shadows primitive type '%s'", buf_ptr(tld->name)));
-        }
     }
 }
 
@@ -4170,48 +4164,6 @@ ZigVar *add_variable(CodeGen *g, AstNode *source_node, Scope *parent_scope, Buf 
         variable_entry->var_type = g->builtin_types.entry_invalid;
     } else {
         variable_entry->align_bytes = get_abi_alignment(g, var_type);
-
-        ZigVar *existing_var = find_variable(g, parent_scope, name, nullptr);
-        if (existing_var && !existing_var->shadowable) {
-            if (existing_var->var_type == nullptr || !type_is_invalid(existing_var->var_type)) {
-                ErrorMsg *msg = add_node_error(g, source_node,
-                        buf_sprintf("redeclaration of variable '%s'", buf_ptr(name)));
-                add_error_note(g, msg, existing_var->decl_node, buf_sprintf("previous declaration here"));
-            }
-            variable_entry->var_type = g->builtin_types.entry_invalid;
-        } else {
-            ZigType *type;
-            if (get_primitive_type(g, name, &type) != ErrorPrimitiveTypeNotFound) {
-                add_node_error(g, source_node,
-                        buf_sprintf("variable shadows primitive type '%s'", buf_ptr(name)));
-                variable_entry->var_type = g->builtin_types.entry_invalid;
-            } else {
-                Scope *search_scope = nullptr;
-                if (src_tld == nullptr) {
-                    search_scope = parent_scope;
-                } else if (src_tld->parent_scope != nullptr && src_tld->parent_scope->parent != nullptr) {
-                    search_scope = src_tld->parent_scope->parent;
-                }
-                if (search_scope != nullptr) {
-                    Tld *tld = find_decl(g, search_scope, name);
-                    if (tld != nullptr && tld != src_tld) {
-                        bool want_err_msg = true;
-                        if (tld->id == TldIdVar) {
-                            ZigVar *var = reinterpret_cast<TldVar *>(tld)->var;
-                            if (var != nullptr && var->var_type != nullptr && type_is_invalid(var->var_type)) {
-                                want_err_msg = false;
-                            }
-                        }
-                        if (want_err_msg) {
-                            ErrorMsg *msg = add_node_error(g, source_node,
-                                    buf_sprintf("redefinition of '%s'", buf_ptr(name)));
-                            add_error_note(g, msg, tld->source_node, buf_sprintf("previous definition here"));
-                        }
-                        variable_entry->var_type = g->builtin_types.entry_invalid;
-                    }
-                }
-            }
-        }
     }
 
     Scope *child_scope;

@@ -2557,6 +2557,7 @@ pub fn cImport(comp: *Compilation, c_src: []const u8) !CImportResult {
         var argv = std.ArrayList([]const u8).init(comp.gpa);
         defer argv.deinit();
 
+        try argv.append(""); // argv[0] is program name, actual args start at [1]
         try comp.addTranslateCCArgs(arena, &argv, .c, out_dep_path);
 
         try argv.append(out_h_path);

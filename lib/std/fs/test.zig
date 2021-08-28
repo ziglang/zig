@@ -1,8 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
 const std = @import("../std.zig");
 const testing = std.testing;
 const builtin = std.builtin;
@@ -909,11 +904,7 @@ test "open file with exclusive nonblocking lock twice (absolute paths)" {
 test "walker" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
-    var arena = ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    var allocator = &arena.allocator;
-
-    var tmp = tmpDir(.{});
+    var tmp = tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
     // iteration order of walker is undefined, so need lookup maps to check against
@@ -942,10 +933,7 @@ test "walker" {
         try tmp.dir.makePath(kv.key);
     }
 
-    const tmp_path = try fs.path.join(allocator, &[_][]const u8{ "zig-cache", "tmp", tmp.sub_path[0..] });
-    const tmp_dir = try fs.cwd().openDir(tmp_path, .{ .iterate = true });
-
-    var walker = try tmp_dir.walk(testing.allocator);
+    var walker = try tmp.dir.walk(testing.allocator);
     defer walker.deinit();
 
     var num_walked: usize = 0;

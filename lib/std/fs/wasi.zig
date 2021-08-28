@@ -1,8 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
 const std = @import("std");
 const os = std.os;
 const mem = std.mem;
@@ -121,13 +116,13 @@ pub const PreopenList = struct {
         while (true) {
             var buf: prestat_t = undefined;
             switch (fd_prestat_get(fd, &buf)) {
-                ESUCCESS => {},
-                ENOTSUP => {
+                .SUCCESS => {},
+                .OPNOTSUPP => {
                     // not a preopen, so keep going
                     fd = try math.add(fd_t, fd, 1);
                     continue;
                 },
-                EBADF => {
+                .BADF => {
                     // OK, no more fds available
                     break;
                 },
@@ -137,7 +132,7 @@ pub const PreopenList = struct {
             const path_buf = try self.buffer.allocator.alloc(u8, preopen_len);
             mem.set(u8, path_buf, 0);
             switch (fd_prestat_dir_name(fd, path_buf.ptr, preopen_len)) {
-                ESUCCESS => {},
+                .SUCCESS => {},
                 else => |err| return os.unexpectedErrno(err),
             }
             const preopen = Preopen.new(fd, PreopenType{ .Dir = path_buf });

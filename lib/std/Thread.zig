@@ -1,17 +1,12 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
-
 //! This struct represents a kernel thread, and acts as a namespace for concurrency
 //! primitives that operate on kernel threads. For concurrency primitives that support
 //! both evented I/O and async I/O, see the respective names in the top level std namespace.
 
 const std = @import("std.zig");
+const builtin = @import("builtin");
 const os = std.os;
 const assert = std.debug.assert;
-const target = std.Target.current;
+const target = builtin.target;
 const Atomic = std.atomic.Atomic;
 
 pub const AutoResetEvent = @import("Thread/AutoResetEvent.zig");
@@ -24,7 +19,8 @@ pub const Condition = @import("Thread/Condition.zig");
 
 pub const spinLoopHint = @compileError("deprecated: use std.atomic.spinLoopHint");
 
-pub const use_pthreads = target.os.tag != .windows and std.Target.current.os.tag != .wasi and std.builtin.link_libc;
+pub const use_pthreads = target.os.tag != .windows and target.os.tag != .wasi and builtin.link_libc;
+const is_gnu = target.abi.isGnu();
 
 const Thread = @This();
 const Impl = if (target.os.tag == .windows)
@@ -38,7 +34,7 @@ else
 
 impl: Impl,
 
-pub const max_name_len = switch (std.Target.current.os.tag) {
+pub const max_name_len = switch (target.os.tag) {
     .linux => 15,
     .windows => 31,
     .macos, .ios, .watchos, .tvos => 63,
@@ -64,20 +60,21 @@ pub fn setName(self: Thread, name: []const u8) SetNameError!void {
         break :blk name_buf[0..name.len :0];
     };
 
-    switch (std.Target.current.os.tag) {
+    switch (target.os.tag) {
         .linux => if (use_pthreads) {
             const err = std.c.pthread_setname_np(self.getHandle(), name_with_terminator.ptr);
-            return switch (err) {
-                0 => {},
-                os.ERANGE => unreachable,
-                else => return os.unexpectedErrno(err),
-            };
+            switch (err) {
+                .SUCCESS => return,
+                .RANGE => unreachable,
+                else => |e| return os.unexpectedErrno(e),
+            }
         } else if (use_pthreads and self.getHandle() == std.c.pthread_self()) {
+            // TODO: this is dead code. what did the author of this code intend to happen here?
             const err = try os.prctl(.SET_NAME, .{@ptrToInt(name_with_terminator.ptr)});
-            return switch (err) {
-                0 => {},
-                else => return os.unexpectedErrno(err),
-            };
+            switch (@intToEnum(os.E, err)) {
+                .SUCCESS => return,
+                else => |e| return os.unexpectedErrno(e),
+            }
         } else {
             var buf: [32]u8 = undefined;
             const path = try std.fmt.bufPrint(&buf, "/proc/self/task/{d}/comm", .{self.getHandle()});
@@ -87,7 +84,7 @@ pub fn setName(self: Thread, name: []const u8) SetNameError!void {
 
             try file.writer().writeAll(name);
         },
-        .windows => if (std.Target.current.os.isAtLeast(.windows, .win10_rs1)) |res| {
+        .windows => if (target.os.isAtLeast(.windows, .win10_rs1)) |res| {
             // SetThreadDescription is only available since version 1607, which is 10.0.14393.795
             // See https://en.wikipedia.org/wiki/Microsoft_Windows_SDK
             if (!res) {
@@ -110,24 +107,25 @@ pub fn setName(self: Thread, name: []const u8) SetNameError!void {
             if (self.getHandle() != std.c.pthread_self()) return error.Unsupported;
 
             const err = std.c.pthread_setname_np(name_with_terminator.ptr);
-            return switch (err) {
-                0 => {},
-                else => return os.unexpectedErrno(err),
-            };
+            switch (err) {
+                .SUCCESS => return,
+                else => |e| return os.unexpectedErrno(e),
+            }
         },
         .netbsd => if (use_pthreads) {
             const err = std.c.pthread_setname_np(self.getHandle(), name_with_terminator.ptr, null);
-            return switch (err) {
-                0 => {},
-                os.EINVAL => unreachable,
-                os.ESRCH => unreachable,
-                os.ENOMEM => unreachable,
-                else => return os.unexpectedErrno(err),
-            };
+            switch (err) {
+                .SUCCESS => return,
+                .INVAL => unreachable,
+                .SRCH => unreachable,
+                .NOMEM => unreachable,
+                else => |e| return os.unexpectedErrno(e),
+            }
         },
         .freebsd, .openbsd => if (use_pthreads) {
             // Use pthread_set_name_np for FreeBSD because pthread_setname_np is FreeBSD 12.2+ only.
-            // TODO maybe revisit this if depending on FreeBSD 12.2+ is acceptable because pthread_setname_np can return an error.
+            // TODO maybe revisit this if depending on FreeBSD 12.2+ is acceptable because
+            // pthread_setname_np can return an error.
 
             std.c.pthread_set_name_np(self.getHandle(), name_with_terminator.ptr);
         },
@@ -151,20 +149,20 @@ pub fn getName(self: Thread, buffer_ptr: *[max_name_len:0]u8) GetNameError!?[]co
     buffer_ptr[max_name_len] = 0;
     var buffer = std.mem.span(buffer_ptr);
 
-    switch (std.Target.current.os.tag) {
-        .linux => if (use_pthreads and comptime std.Target.current.abi.isGnu()) {
+    switch (target.os.tag) {
+        .linux => if (use_pthreads and is_gnu) {
             const err = std.c.pthread_getname_np(self.getHandle(), buffer.ptr, max_name_len + 1);
-            return switch (err) {
-                0 => std.mem.sliceTo(buffer, 0),
-                os.ERANGE => unreachable,
-                else => return os.unexpectedErrno(err),
-            };
+            switch (err) {
+                .SUCCESS => return std.mem.sliceTo(buffer, 0),
+                .RANGE => unreachable,
+                else => |e| return os.unexpectedErrno(e),
+            }
         } else if (use_pthreads and self.getHandle() == std.c.pthread_self()) {
             const err = try os.prctl(.GET_NAME, .{@ptrToInt(buffer.ptr)});
-            return switch (err) {
-                0 => std.mem.sliceTo(buffer, 0),
-                else => return os.unexpectedErrno(err),
-            };
+            switch (@intToEnum(os.E, err)) {
+                .SUCCESS => return std.mem.sliceTo(buffer, 0),
+                else => |e| return os.unexpectedErrno(e),
+            }
         } else if (!use_pthreads) {
             var buf: [32]u8 = undefined;
             const path = try std.fmt.bufPrint(&buf, "/proc/self/task/{d}/comm", .{self.getHandle()});
@@ -179,7 +177,7 @@ pub fn getName(self: Thread, buffer_ptr: *[max_name_len:0]u8) GetNameError!?[]co
             // musl doesn't provide pthread_getname_np and there's no way to retrieve the thread id of an arbitrary thread.
             return error.Unsupported;
         },
-        .windows => if (std.Target.current.os.isAtLeast(.windows, .win10_rs1)) |res| {
+        .windows => if (target.os.isAtLeast(.windows, .win10_rs1)) |res| {
             // GetThreadDescription is only available since version 1607, which is 10.0.14393.795
             // See https://en.wikipedia.org/wiki/Microsoft_Windows_SDK
             if (!res) {
@@ -198,20 +196,20 @@ pub fn getName(self: Thread, buffer_ptr: *[max_name_len:0]u8) GetNameError!?[]co
         },
         .macos, .ios, .watchos, .tvos => if (use_pthreads) {
             const err = std.c.pthread_getname_np(self.getHandle(), buffer.ptr, max_name_len + 1);
-            return switch (err) {
-                0 => std.mem.sliceTo(buffer, 0),
-                os.ESRCH => unreachable,
-                else => return os.unexpectedErrno(err),
-            };
+            switch (err) {
+                .SUCCESS => return std.mem.sliceTo(buffer, 0),
+                .SRCH => unreachable,
+                else => |e| return os.unexpectedErrno(e),
+            }
         },
         .netbsd => if (use_pthreads) {
             const err = std.c.pthread_getname_np(self.getHandle(), buffer.ptr, max_name_len + 1);
-            return switch (err) {
-                0 => std.mem.sliceTo(buffer, 0),
-                os.EINVAL => unreachable,
-                os.ESRCH => unreachable,
-                else => return os.unexpectedErrno(err),
-            };
+            switch (err) {
+                .SUCCESS => return std.mem.sliceTo(buffer, 0),
+                .INVAL => unreachable,
+                .SRCH => unreachable,
+                else => |e| return os.unexpectedErrno(e),
+            }
         },
         .freebsd, .openbsd => if (use_pthreads) {
             // Use pthread_get_name_np for FreeBSD because pthread_getname_np is FreeBSD 12.2+ only.
@@ -288,7 +286,7 @@ pub const SpawnError = error{
 /// The caller must eventually either call `join()` to wait for the thread to finish and free its resources
 /// or call `detach()` to excuse the caller from calling `join()` and have the thread clean up its resources on completion`.
 pub fn spawn(config: SpawnConfig, comptime function: anytype, args: anytype) SpawnError!Thread {
-    if (std.builtin.single_threaded) {
+    if (builtin.single_threaded) {
         @compileError("Cannot spawn thread when building in single-threaded mode");
     }
 
@@ -611,13 +609,13 @@ const PosixThreadImpl = struct {
         errdefer allocator.destroy(args_ptr);
 
         var attr: c.pthread_attr_t = undefined;
-        if (c.pthread_attr_init(&attr) != 0) return error.SystemResources;
-        defer assert(c.pthread_attr_destroy(&attr) == 0);
+        if (c.pthread_attr_init(&attr) != .SUCCESS) return error.SystemResources;
+        defer assert(c.pthread_attr_destroy(&attr) == .SUCCESS);
 
         // Use the same set of parameters used by the libc-less impl.
         const stack_size = std.math.max(config.stack_size, 16 * 1024);
-        assert(c.pthread_attr_setstacksize(&attr, stack_size) == 0);
-        assert(c.pthread_attr_setguardsize(&attr, std.mem.page_size) == 0);
+        assert(c.pthread_attr_setstacksize(&attr, stack_size) == .SUCCESS);
+        assert(c.pthread_attr_setguardsize(&attr, std.mem.page_size) == .SUCCESS);
 
         var handle: c.pthread_t = undefined;
         switch (c.pthread_create(
@@ -626,10 +624,10 @@ const PosixThreadImpl = struct {
             Instance.entryFn,
             if (@sizeOf(Args) > 1) @ptrCast(*c_void, args_ptr) else undefined,
         )) {
-            0 => return Impl{ .handle = handle },
-            os.EAGAIN => return error.SystemResources,
-            os.EPERM => unreachable,
-            os.EINVAL => unreachable,
+            .SUCCESS => return Impl{ .handle = handle },
+            .AGAIN => return error.SystemResources,
+            .PERM => unreachable,
+            .INVAL => unreachable,
             else => |err| return os.unexpectedErrno(err),
         }
     }
@@ -640,19 +638,19 @@ const PosixThreadImpl = struct {
 
     fn detach(self: Impl) void {
         switch (c.pthread_detach(self.handle)) {
-            0 => {},
-            os.EINVAL => unreachable, // thread handle is not joinable
-            os.ESRCH => unreachable, // thread handle is invalid
+            .SUCCESS => {},
+            .INVAL => unreachable, // thread handle is not joinable
+            .SRCH => unreachable, // thread handle is invalid
             else => unreachable,
         }
     }
 
     fn join(self: Impl) void {
         switch (c.pthread_join(self.handle, null)) {
-            0 => {},
-            os.EINVAL => unreachable, // thread handle is not joinable (or another thread is already joining in)
-            os.ESRCH => unreachable, // thread handle is invalid
-            os.EDEADLK => unreachable, // two threads tried to join each other
+            .SUCCESS => {},
+            .INVAL => unreachable, // thread handle is not joinable (or another thread is already joining in)
+            .SRCH => unreachable, // thread handle is invalid
+            .DEADLK => unreachable, // two threads tried to join each other
             else => unreachable,
         }
     }
@@ -806,8 +804,10 @@ const LinuxThreadImpl = struct {
                     \\  1:
                     \\  cmp %%sp, 0
                     \\  beq 2f
+                    \\  nop
                     \\  restore
                     \\  ba 1f
+                    \\  nop
                     \\  2:
                     \\  mov 73, %%g1
                     \\  mov %[ptr], %%o0
@@ -937,13 +937,13 @@ const LinuxThreadImpl = struct {
             tls_ptr,
             &instance.thread.child_tid.value,
         ))) {
-            0 => return Impl{ .thread = &instance.thread },
-            os.EAGAIN => return error.ThreadQuotaExceeded,
-            os.EINVAL => unreachable,
-            os.ENOMEM => return error.SystemResources,
-            os.ENOSPC => unreachable,
-            os.EPERM => unreachable,
-            os.EUSERS => unreachable,
+            .SUCCESS => return Impl{ .thread = &instance.thread },
+            .AGAIN => return error.ThreadQuotaExceeded,
+            .INVAL => unreachable,
+            .NOMEM => return error.SystemResources,
+            .NOSPC => unreachable,
+            .PERM => unreachable,
+            .USERS => unreachable,
             else => |err| return os.unexpectedErrno(err),
         }
     }
@@ -982,9 +982,9 @@ const LinuxThreadImpl = struct {
                 tid,
                 null,
             ))) {
-                0 => continue,
-                os.EINTR => continue,
-                os.EAGAIN => continue,
+                .SUCCESS => continue,
+                .INTR => continue,
+                .AGAIN => continue,
                 else => unreachable,
             }
         }
@@ -1011,7 +1011,7 @@ fn testThreadName(thread: *Thread) !void {
 }
 
 test "setName, getName" {
-    if (std.builtin.single_threaded) return error.SkipZigTest;
+    if (builtin.single_threaded) return error.SkipZigTest;
 
     const Context = struct {
         start_wait_event: ResetEvent = undefined,
@@ -1029,7 +1029,7 @@ test "setName, getName" {
             // Wait for the main thread to have set the thread field in the context.
             ctx.start_wait_event.wait();
 
-            switch (std.Target.current.os.tag) {
+            switch (target.os.tag) {
                 .windows => testThreadName(&ctx.thread) catch |err| switch (err) {
                     error.Unsupported => return error.SkipZigTest,
                     else => return err,
@@ -1054,7 +1054,7 @@ test "setName, getName" {
     context.start_wait_event.set();
     context.test_done_event.wait();
 
-    switch (std.Target.current.os.tag) {
+    switch (target.os.tag) {
         .macos, .ios, .watchos, .tvos => {
             const res = thread.setName("foobar");
             try std.testing.expectError(error.Unsupported, res);
@@ -1063,7 +1063,7 @@ test "setName, getName" {
             error.Unsupported => return error.SkipZigTest,
             else => return err,
         },
-        else => |tag| if (tag == .linux and use_pthreads and comptime std.Target.current.abi.isMusl()) {
+        else => |tag| if (tag == .linux and use_pthreads and comptime target.abi.isMusl()) {
             try thread.setName("foobar");
 
             var name_buffer: [max_name_len:0]u8 = undefined;
@@ -1096,7 +1096,7 @@ fn testIncrementNotify(value: *usize, event: *ResetEvent) void {
 }
 
 test "Thread.join" {
-    if (std.builtin.single_threaded) return error.SkipZigTest;
+    if (builtin.single_threaded) return error.SkipZigTest;
 
     var value: usize = 0;
     var event: ResetEvent = undefined;
@@ -1110,7 +1110,7 @@ test "Thread.join" {
 }
 
 test "Thread.detach" {
-    if (std.builtin.single_threaded) return error.SkipZigTest;
+    if (builtin.single_threaded) return error.SkipZigTest;
 
     var value: usize = 0;
     var event: ResetEvent = undefined;

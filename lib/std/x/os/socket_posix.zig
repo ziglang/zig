@@ -1,9 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
-
 const std = @import("../../std.zig");
 
 const os = std.os;
@@ -82,32 +76,32 @@ pub fn Mixin(comptime Socket: type) type {
             while (true) {
                 const rc = os.system.sendmsg(self.fd, &msg, @intCast(c_int, flags));
                 return switch (os.errno(rc)) {
-                    0 => return @intCast(usize, rc),
-                    os.EACCES => error.AccessDenied,
-                    os.EAGAIN => error.WouldBlock,
-                    os.EALREADY => error.FastOpenAlreadyInProgress,
-                    os.EBADF => unreachable, // always a race condition
-                    os.ECONNRESET => error.ConnectionResetByPeer,
-                    os.EDESTADDRREQ => unreachable, // The socket is not connection-mode, and no peer address is set.
-                    os.EFAULT => unreachable, // An invalid user space address was specified for an argument.
-                    os.EINTR => continue,
-                    os.EINVAL => unreachable, // Invalid argument passed.
-                    os.EISCONN => unreachable, // connection-mode socket was connected already but a recipient was specified
-                    os.EMSGSIZE => error.MessageTooBig,
-                    os.ENOBUFS => error.SystemResources,
-                    os.ENOMEM => error.SystemResources,
-                    os.ENOTSOCK => unreachable, // The file descriptor sockfd does not refer to a socket.
-                    os.EOPNOTSUPP => unreachable, // Some bit in the flags argument is inappropriate for the socket type.
-                    os.EPIPE => error.BrokenPipe,
-                    os.EAFNOSUPPORT => error.AddressFamilyNotSupported,
-                    os.ELOOP => error.SymLinkLoop,
-                    os.ENAMETOOLONG => error.NameTooLong,
-                    os.ENOENT => error.FileNotFound,
-                    os.ENOTDIR => error.NotDir,
-                    os.EHOSTUNREACH => error.NetworkUnreachable,
-                    os.ENETUNREACH => error.NetworkUnreachable,
-                    os.ENOTCONN => error.SocketNotConnected,
-                    os.ENETDOWN => error.NetworkSubsystemFailed,
+                    .SUCCESS => return @intCast(usize, rc),
+                    .ACCES => error.AccessDenied,
+                    .AGAIN => error.WouldBlock,
+                    .ALREADY => error.FastOpenAlreadyInProgress,
+                    .BADF => unreachable, // always a race condition
+                    .CONNRESET => error.ConnectionResetByPeer,
+                    .DESTADDRREQ => unreachable, // The socket is not connection-mode, and no peer address is set.
+                    .FAULT => unreachable, // An invalid user space address was specified for an argument.
+                    .INTR => continue,
+                    .INVAL => unreachable, // Invalid argument passed.
+                    .ISCONN => unreachable, // connection-mode socket was connected already but a recipient was specified
+                    .MSGSIZE => error.MessageTooBig,
+                    .NOBUFS => error.SystemResources,
+                    .NOMEM => error.SystemResources,
+                    .NOTSOCK => unreachable, // The file descriptor sockfd does not refer to a socket.
+                    .OPNOTSUPP => unreachable, // Some bit in the flags argument is inappropriate for the socket type.
+                    .PIPE => error.BrokenPipe,
+                    .AFNOSUPPORT => error.AddressFamilyNotSupported,
+                    .LOOP => error.SymLinkLoop,
+                    .NAMETOOLONG => error.NameTooLong,
+                    .NOENT => error.FileNotFound,
+                    .NOTDIR => error.NotDir,
+                    .HOSTUNREACH => error.NetworkUnreachable,
+                    .NETUNREACH => error.NetworkUnreachable,
+                    .NOTCONN => error.SocketNotConnected,
+                    .NETDOWN => error.NetworkSubsystemFailed,
                     else => |err| os.unexpectedErrno(err),
                 };
             }
@@ -120,17 +114,17 @@ pub fn Mixin(comptime Socket: type) type {
             while (true) {
                 const rc = os.system.recvmsg(self.fd, msg, @intCast(c_int, flags));
                 return switch (os.errno(rc)) {
-                    0 => @intCast(usize, rc),
-                    os.EBADF => unreachable, // always a race condition
-                    os.EFAULT => unreachable,
-                    os.EINVAL => unreachable,
-                    os.ENOTCONN => unreachable,
-                    os.ENOTSOCK => unreachable,
-                    os.EINTR => continue,
-                    os.EAGAIN => error.WouldBlock,
-                    os.ENOMEM => error.SystemResources,
-                    os.ECONNREFUSED => error.ConnectionRefused,
-                    os.ECONNRESET => error.ConnectionResetByPeer,
+                    .SUCCESS => @intCast(usize, rc),
+                    .BADF => unreachable, // always a race condition
+                    .FAULT => unreachable,
+                    .INVAL => unreachable,
+                    .NOTCONN => unreachable,
+                    .NOTSOCK => unreachable,
+                    .INTR => continue,
+                    .AGAIN => error.WouldBlock,
+                    .NOMEM => error.SystemResources,
+                    .CONNREFUSED => error.ConnectionRefused,
+                    .CONNRESET => error.ConnectionResetByPeer,
                     else => |err| os.unexpectedErrno(err),
                 };
             }
@@ -164,12 +158,12 @@ pub fn Mixin(comptime Socket: type) type {
 
             const rc = os.system.getsockopt(self.fd, os.SOL_SOCKET, os.SO_RCVBUF, mem.asBytes(&value), &value_len);
             return switch (os.errno(rc)) {
-                0 => value,
-                os.EBADF => error.BadFileDescriptor,
-                os.EFAULT => error.InvalidAddressSpace,
-                os.EINVAL => error.InvalidSocketOption,
-                os.ENOPROTOOPT => error.UnknownSocketOption,
-                os.ENOTSOCK => error.NotASocket,
+                .SUCCESS => value,
+                .BADF => error.BadFileDescriptor,
+                .FAULT => error.InvalidAddressSpace,
+                .INVAL => error.InvalidSocketOption,
+                .NOPROTOOPT => error.UnknownSocketOption,
+                .NOTSOCK => error.NotASocket,
                 else => |err| os.unexpectedErrno(err),
             };
         }
@@ -181,12 +175,12 @@ pub fn Mixin(comptime Socket: type) type {
 
             const rc = os.system.getsockopt(self.fd, os.SOL_SOCKET, os.SO_SNDBUF, mem.asBytes(&value), &value_len);
             return switch (os.errno(rc)) {
-                0 => value,
-                os.EBADF => error.BadFileDescriptor,
-                os.EFAULT => error.InvalidAddressSpace,
-                os.EINVAL => error.InvalidSocketOption,
-                os.ENOPROTOOPT => error.UnknownSocketOption,
-                os.ENOTSOCK => error.NotASocket,
+                .SUCCESS => value,
+                .BADF => error.BadFileDescriptor,
+                .FAULT => error.InvalidAddressSpace,
+                .INVAL => error.InvalidSocketOption,
+                .NOPROTOOPT => error.UnknownSocketOption,
+                .NOTSOCK => error.NotASocket,
                 else => |err| os.unexpectedErrno(err),
             };
         }

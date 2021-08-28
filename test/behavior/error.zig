@@ -412,19 +412,19 @@ test "function pointer with return type that is error union with payload which i
 test "return result loc as peer result loc in inferred error set function" {
     const S = struct {
         fn doTheTest() !void {
-            if (foo(2)) |x| {
+            if (quux(2)) |x| {
                 try expect(x.Two);
             } else |e| switch (e) {
                 error.Whatever => @panic("fail"),
             }
-            try expectError(error.Whatever, foo(99));
+            try expectError(error.Whatever, quux(99));
         }
         const FormValue = union(enum) {
             One: void,
             Two: bool,
         };
 
-        fn foo(id: u64) !FormValue {
+        fn quux(id: u64) !FormValue {
             return switch (id) {
                 2 => FormValue{ .Two = true },
                 1 => FormValue{ .One = {} },
@@ -452,11 +452,11 @@ test "error payload type is correctly resolved" {
 
 test "error union comptime caching" {
     const S = struct {
-        fn foo(comptime arg: anytype) void {
+        fn quux(comptime arg: anytype) void {
             arg catch {};
         }
     };
 
-    S.foo(@as(anyerror!void, {}));
-    S.foo(@as(anyerror!void, {}));
+    S.quux(@as(anyerror!void, {}));
+    S.quux(@as(anyerror!void, {}));
 }

@@ -887,16 +887,6 @@ fn tokenizeAndPrintRaw(
                 next_tok_is_fn = true;
             },
 
-            .keyword_undefined,
-            .keyword_null,
-            .keyword_true,
-            .keyword_false,
-            => {
-                try out.writeAll("<span class=\"tok-null\">");
-                try writeEscaped(out, src[token.loc.start..token.loc.end]);
-                try out.writeAll("</span>");
-            },
-
             .string_literal,
             .multiline_string_literal_line,
             .char_literal,
@@ -921,9 +911,18 @@ fn tokenizeAndPrintRaw(
             },
 
             .identifier => {
-                if (prev_tok_was_fn) {
+                const tok_bytes = src[token.loc.start..token.loc.end];
+                if (mem.eql(u8, tok_bytes, "undefined") or
+                    mem.eql(u8, tok_bytes, "null") or
+                    mem.eql(u8, tok_bytes, "true") or
+                    mem.eql(u8, tok_bytes, "false"))
+                {
+                    try out.writeAll("<span class=\"tok-null\">");
+                    try writeEscaped(out, tok_bytes);
+                    try out.writeAll("</span>");
+                } else if (prev_tok_was_fn) {
                     try out.writeAll("<span class=\"tok-fn\">");
-                    try writeEscaped(out, src[token.loc.start..token.loc.end]);
+                    try writeEscaped(out, tok_bytes);
                     try out.writeAll("</span>");
                 } else {
                     const is_int = blk: {
@@ -938,12 +937,12 @@ fn tokenizeAndPrintRaw(
                         }
                         break :blk true;
                     };
-                    if (is_int or isType(src[token.loc.start..token.loc.end])) {
+                    if (is_int or isType(tok_bytes)) {
                         try out.writeAll("<span class=\"tok-type\">");
-                        try writeEscaped(out, src[token.loc.start..token.loc.end]);
+                        try writeEscaped(out, tok_bytes);
                         try out.writeAll("</span>");
                     } else {
-                        try writeEscaped(out, src[token.loc.start..token.loc.end]);
+                        try writeEscaped(out, tok_bytes);
                     }
                 }
             },

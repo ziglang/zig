@@ -1,8 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
 pub const ArrayHashMap = array_hash_map.ArrayHashMap;
 pub const ArrayHashMapUnmanaged = array_hash_map.ArrayHashMapUnmanaged;
 pub const ArrayList = @import("array_list.zig").ArrayList;
@@ -13,6 +8,7 @@ pub const AutoArrayHashMap = array_hash_map.AutoArrayHashMap;
 pub const AutoArrayHashMapUnmanaged = array_hash_map.AutoArrayHashMapUnmanaged;
 pub const AutoHashMap = hash_map.AutoHashMap;
 pub const AutoHashMapUnmanaged = hash_map.AutoHashMapUnmanaged;
+pub const BoundedArray = @import("bounded_array.zig").BoundedArray;
 pub const BufMap = @import("buf_map.zig").BufMap;
 pub const BufSet = @import("buf_set.zig").BufSet;
 pub const ChildProcess = @import("child_process.zig").ChildProcess;
