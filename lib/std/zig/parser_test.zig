@@ -5,7 +5,7 @@
 // and substantial portions of the software.
 
 test "zig fmt: preserves clobbers in inline asm with stray comma" {
-    try testTransform(
+    try testCanonical(
         \\fn foo() void {
         \\    asm volatile (""
         \\        : [_] "" (-> type),
@@ -15,20 +15,6 @@ test "zig fmt: preserves clobbers in inline asm with stray comma" {
         \\    asm volatile (""
         \\        :
         \\        : [_] "" (type),
-        \\        : "clobber"
-        \\    );
-        \\}
-        \\
-    ,
-        \\fn foo() void {
-        \\    asm volatile (""
-        \\        : [_] "" (-> type)
-        \\        :
-        \\        : "clobber"
-        \\    );
-        \\    asm volatile (""
-        \\        :
-        \\        : [_] "" (type)
         \\        : "clobber"
         \\    );
         \\}
@@ -514,15 +500,15 @@ test "zig fmt: asm expression with comptime content" {
         \\pub fn main() void {
         \\    asm volatile ("foo" ++ "bar");
         \\    asm volatile ("foo" ++ "bar"
-        \\        : [_] "" (x)
+        \\        : [_] "" (x),
         \\    );
         \\    asm volatile ("foo" ++ "bar"
-        \\        : [_] "" (x)
-        \\        : [_] "" (y)
+        \\        : [_] "" (x),
+        \\        : [_] "" (y),
         \\    );
         \\    asm volatile ("foo" ++ "bar"
-        \\        : [_] "" (x)
-        \\        : [_] "" (y)
+        \\        : [_] "" (x),
+        \\        : [_] "" (y),
         \\        : "h", "e", "l", "l", "o"
         \\    );
         \\}
@@ -2064,11 +2050,11 @@ test "zig fmt: simple asm" {
         \\    );
         \\
         \\    asm ("not real assembly"
-        \\        : [a] "x" (x)
+        \\        : [a] "x" (x),
         \\    );
         \\    asm ("not real assembly"
-        \\        : [a] "x" (-> i32)
-        \\        : [a] "x" (1)
+        \\        : [a] "x" (-> i32),
+        \\        : [a] "x" (1),
         \\    );
         \\    asm ("still not real assembly" ::: "a", "b");
         \\}
@@ -3718,9 +3704,9 @@ test "zig fmt: inline asm" {
     try testCanonical(
         \\pub fn syscall1(number: usize, arg1: usize) usize {
         \\    return asm volatile ("syscall"
-        \\        : [ret] "={rax}" (-> usize)
+        \\        : [ret] "={rax}" (-> usize),
         \\        : [number] "{rax}" (number),
-        \\          [arg1] "{rdi}" (arg1)
+        \\          [arg1] "{rdi}" (arg1),
         \\        : "rcx", "r11"
         \\    );
         \\}
@@ -3823,14 +3809,14 @@ test "zig fmt: inline asm parameter alignment" {
         \\        \\ foo
         \\        \\ bar
         \\        : [_] "" (-> usize),
-        \\          [_] "" (-> usize)
+        \\          [_] "" (-> usize),
         \\    );
         \\    asm volatile (
         \\        \\ foo
         \\        \\ bar
         \\        :
         \\        : [_] "" (0),
-        \\          [_] "" (0)
+        \\          [_] "" (0),
         \\    );
         \\    asm volatile (
         \\        \\ foo
@@ -3840,9 +3826,9 @@ test "zig fmt: inline asm parameter alignment" {
         \\        \\ foo
         \\        \\ bar
         \\        : [_] "" (-> usize),
-        \\          [_] "" (-> usize)
+        \\          [_] "" (-> usize),
         \\        : [_] "" (0),
-        \\          [_] "" (0)
+        \\          [_] "" (0),
         \\        : "", ""
         \\    );
         \\}
