@@ -5342,6 +5342,17 @@ pub fn addCases(ctx: *TestContext) !void {
         "tmp.zig:2:1: note: declared here",
     });
 
+    ctx.objErrStage1("local shadows global that occurs later",
+        \\pub fn main() void {
+        \\    var foo = true;
+        \\    _ = foo;
+        \\}
+        \\fn foo() void {}
+    , &[_][]const u8{
+        "tmp.zig:2:9: error: local shadows declaration of 'foo'",
+        "tmp.zig:5:1: note: declared here",
+    });
+
     ctx.objErrStage1("switch expression - missing enumeration prong",
         \\const Number = enum {
         \\    One,
@@ -8813,5 +8824,18 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
     , &[_][]const u8{
         "error: Unsupported OS",
+    });
+
+    ctx.objErrStage1("attempt to close over comptime variable from outer scope",
+        \\fn SimpleList(comptime L: usize) type {
+        \\    var T = u8;
+        \\    return struct {
+        \\        array: [L]T,
+        \\    };
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:4:19: error: mutable 'T' not accessible from here",
+        "tmp.zig:2:9: note: declared mutable here",
+        "tmp.zig:3:12: note: crosses namespace boundary here",
     });
 }
