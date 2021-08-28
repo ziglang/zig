@@ -556,24 +556,31 @@ pub const O_PATH = 0o10000000;
 pub const O_TMPFILE = 0o20200000;
 pub const O_NDELAY = O_NONBLOCK;
 
-pub const F_DUPFD = 0;
-pub const F_GETFD = 1;
-pub const F_SETFD = 2;
-pub const F_GETFL = 3;
-pub const F_SETFL = 4;
+pub const F = struct {
+    pub const DUPFD = 0;
+    pub const GETFD = 1;
+    pub const SETFD = 2;
+    pub const GETFL = 3;
+    pub const SETFL = 4;
 
-pub const F_SETOWN = 8;
-pub const F_GETOWN = 9;
-pub const F_SETSIG = 10;
-pub const F_GETSIG = 11;
+    pub const SETOWN = 8;
+    pub const GETOWN = 9;
+    pub const SETSIG = 10;
+    pub const GETSIG = 11;
 
-pub const F_GETLK = 5;
-pub const F_SETLK = 6;
-pub const F_SETLKW = 7;
+    pub const GETLK = 5;
+    pub const SETLK = 6;
+    pub const SETLKW = 7;
 
-pub const F_RDLCK = 0;
-pub const F_WRLCK = 1;
-pub const F_UNLCK = 2;
+    pub const RDLCK = 0;
+    pub const WRLCK = 1;
+    pub const UNLCK = 2;
+
+    pub const SETOWN_EX = 15;
+    pub const GETOWN_EX = 16;
+
+    pub const GETOWNER_UIDS = 17;
+};
 
 pub const LOCK = struct {
     pub const SH = 1;
@@ -581,11 +588,6 @@ pub const LOCK = struct {
     pub const UN = 8;
     pub const NB = 4;
 };
-
-pub const F_SETOWN_EX = 15;
-pub const F_GETOWN_EX = 16;
-
-pub const F_GETOWNER_UIDS = 17;
 
 pub const MAP = struct {
     /// stack-like segment

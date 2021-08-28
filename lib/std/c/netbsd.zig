@@ -1,6 +1,10 @@
 const std = @import("../std.zig");
 const builtin = @import("builtin");
 const maxInt = std.math.maxInt;
+const iovec = std.os.iovec;
+const iovec_const = std.os.iovec_const;
+const timezone = std.c.timezone;
+const rusage = std.c.rusage;
 
 extern "c" fn __errno() *c_int;
 pub const _errno = __errno;
@@ -12,56 +16,81 @@ pub extern "c" fn _lwp_self() lwpid_t;
 
 pub extern "c" fn pipe2(fds: *[2]fd_t, flags: u32) c_int;
 pub extern "c" fn arc4random_buf(buf: [*]u8, len: usize) void;
+
 pub extern "c" fn __fstat50(fd: fd_t, buf: *Stat) c_int;
+pub const fstat = __fstat50;
+
 pub extern "c" fn __stat50(path: [*:0]const u8, buf: *Stat) c_int;
+pub const stat = __stat50;
+
 pub extern "c" fn __clock_gettime50(clk_id: c_int, tp: *timespec) c_int;
+pub const clock_gettime = __clock_gettime50;
+
 pub extern "c" fn __clock_getres50(clk_id: c_int, tp: *timespec) c_int;
+pub const clock_getres = __clock_getres50;
+
 pub extern "c" fn __getdents30(fd: c_int, buf_ptr: [*]u8, nbytes: usize) c_int;
+pub const getdents = __getdents30;
+
 pub extern "c" fn __sigaltstack14(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
+pub const sigaltstack = __sigaltstack14;
+
 pub extern "c" fn __nanosleep50(rqtp: *const timespec, rmtp: ?*timespec) c_int;
+pub const nanosleep = __nanosleep50;
+
 pub extern "c" fn __sigaction14(sig: c_int, noalias act: ?*const Sigaction, noalias oact: ?*Sigaction) c_int;
+pub const sigaction = __sigaction14;
+
 pub extern "c" fn __sigprocmask14(how: c_int, noalias set: ?*const sigset_t, noalias oset: ?*sigset_t) c_int;
+pub const sigprocmask = __sigaction14;
+
 pub extern "c" fn __socket30(domain: c_uint, sock_type: c_uint, protocol: c_uint) c_int;
+pub const socket = __socket30;
+
 pub extern "c" fn __gettimeofday50(noalias tv: ?*timeval, noalias tz: ?*timezone) c_int;
+pub const gettimeofday = __gettimeofday50;
+
 pub extern "c" fn __getrusage50(who: c_int, usage: *rusage) c_int;
-// libc aliases this as sched_yield
+pub const getrusage = __getrusage50;
+
 pub extern "c" fn __libc_thr_yield() c_int;
+pub const sched_yield = __libc_thr_yield;
 
 pub extern "c" fn posix_memalign(memptr: *?*c_void, alignment: usize, size: usize) c_int;
 
 pub const pthread_mutex_t = extern struct {
-    ptm_magic: u32 = 0x33330003,
-    ptm_errorcheck: padded_pthread_spin_t = 0,
-    ptm_ceiling: padded_pthread_spin_t = 0,
-    ptm_owner: usize = 0,
-    ptm_waiters: ?*u8 = null,
-    ptm_recursed: u32 = 0,
-    ptm_spare2: ?*c_void = null,
+    magic: u32 = 0x33330003,
+    errorcheck: padded_pthread_spin_t = 0,
+    ceiling: padded_pthread_spin_t = 0,
+    owner: usize = 0,
+    waiters: ?*u8 = null,
+    recursed: u32 = 0,
+    spare2: ?*c_void = null,
 };
 
 pub const pthread_cond_t = extern struct {
-    ptc_magic: u32 = 0x55550005,
-    ptc_lock: pthread_spin_t = 0,
-    ptc_waiters_first: ?*u8 = null,
-    ptc_waiters_last: ?*u8 = null,
-    ptc_mutex: ?*pthread_mutex_t = null,
-    ptc_private: ?*c_void = null,
+    magic: u32 = 0x55550005,
+    lock: pthread_spin_t = 0,
+    waiters_first: ?*u8 = null,
+    waiters_last: ?*u8 = null,
+    mutex: ?*pthread_mutex_t = null,
+    private: ?*c_void = null,
 };
 
 pub const pthread_rwlock_t = extern struct {
-    ptr_magic: c_uint = 0x99990009,
-    ptr_interlock: switch (builtin.cpu.arch) {
+    magic: c_uint = 0x99990009,
+    interlock: switch (builtin.cpu.arch) {
         .aarch64, .sparc, .x86_64, .i386 => u8,
         .arm, .powerpc => c_int,
         else => unreachable,
     } = 0,
-    ptr_rblocked_first: ?*u8 = null,
-    ptr_rblocked_last: ?*u8 = null,
-    ptr_wblocked_first: ?*u8 = null,
-    ptr_wblocked_last: ?*u8 = null,
-    ptr_nreaders: c_uint = 0,
-    ptr_owner: std.c.pthread_t = null,
-    ptr_private: ?*c_void = null,
+    rblocked_first: ?*u8 = null,
+    rblocked_last: ?*u8 = null,
+    wblocked_first: ?*u8 = null,
+    wblocked_last: ?*u8 = null,
+    nreaders: c_uint = 0,
+    owner: std.c.pthread_t = null,
+    private: ?*c_void = null,
 };
 
 const pthread_spin_t = switch (builtin.cpu.arch) {
@@ -91,20 +120,6 @@ pub const sem_t = ?*opaque {};
 
 pub extern "c" fn pthread_setname_np(thread: std.c.pthread_t, name: [*:0]const u8, arg: ?*c_void) E;
 pub extern "c" fn pthread_getname_np(thread: std.c.pthread_t, name: [*:0]u8, len: usize) E;
-
-pub const clock_getres = __clock_getres50;
-pub const clock_gettime = __clock_gettime50;
-pub const fstat = __fstat50;
-pub const getdents = __getdents30;
-pub const getrusage = __getrusage50;
-pub const gettimeofday = __gettimeofday50;
-pub const nanosleep = __nanosleep50;
-pub const sched_yield = __libc_thr_yield;
-pub const sigaction = __sigaction14;
-pub const sigaltstack = __sigaltstack14;
-pub const sigprocmask = __sigprocmask14;
-pub const socket = __socket30;
-pub const stat = __stat50;
 
 pub const blkcnt_t = i64;
 pub const blksize_t = i32;
@@ -568,43 +583,6 @@ pub const SA_NODEFER = 0x0010;
 pub const SA_NOCLDWAIT = 0x0020;
 pub const SA_SIGINFO = 0x0040;
 
-pub const SIGHUP = 1;
-pub const SIGINT = 2;
-pub const SIGQUIT = 3;
-pub const SIGILL = 4;
-pub const SIGTRAP = 5;
-pub const SIGABRT = 6;
-pub const SIGIOT = SIGABRT;
-pub const SIGEMT = 7;
-pub const SIGFPE = 8;
-pub const SIGKILL = 9;
-pub const SIGBUS = 10;
-pub const SIGSEGV = 11;
-pub const SIGSYS = 12;
-pub const SIGPIPE = 13;
-pub const SIGALRM = 14;
-pub const SIGTERM = 15;
-pub const SIGURG = 16;
-pub const SIGSTOP = 17;
-pub const SIGTSTP = 18;
-pub const SIGCONT = 19;
-pub const SIGCHLD = 20;
-pub const SIGTTIN = 21;
-pub const SIGTTOU = 22;
-pub const SIGIO = 23;
-pub const SIGXCPU = 24;
-pub const SIGXFSZ = 25;
-pub const SIGVTALRM = 26;
-pub const SIGPROF = 27;
-pub const SIGWINCH = 28;
-pub const SIGINFO = 29;
-pub const SIGUSR1 = 30;
-pub const SIGUSR2 = 31;
-pub const SIGPWR = 32;
-
-pub const SIGRTMIN = 33;
-pub const SIGRTMAX = 63;
-
 // access function
 pub const F_OK = 0; // test for existence of file
 pub const X_OK = 1; // test for execute or search permission
@@ -677,22 +655,24 @@ pub const O_CLOEXEC = 0x00400000;
 /// skip search permission checks
 pub const O_SEARCH = 0x00800000;
 
-pub const F_DUPFD = 0;
-pub const F_GETFD = 1;
-pub const F_SETFD = 2;
-pub const F_GETFL = 3;
-pub const F_SETFL = 4;
+pub const F = struct {
+    pub const DUPFD = 0;
+    pub const GETFD = 1;
+    pub const SETFD = 2;
+    pub const GETFL = 3;
+    pub const SETFL = 4;
 
-pub const F_GETOWN = 5;
-pub const F_SETOWN = 6;
+    pub const GETOWN = 5;
+    pub const SETOWN = 6;
 
-pub const F_GETLK = 7;
-pub const F_SETLK = 8;
-pub const F_SETLKW = 9;
+    pub const GETLK = 7;
+    pub const SETLK = 8;
+    pub const SETLKW = 9;
 
-pub const F_RDLCK = 1;
-pub const F_WRLCK = 3;
-pub const F_UNLCK = 2;
+    pub const RDLCK = 1;
+    pub const WRLCK = 3;
+    pub const UNLCK = 2;
+};
 
 pub const LOCK = struct {
     pub const SH = 1;
@@ -918,9 +898,64 @@ pub const winsize = extern struct {
 
 const NSIG = 32;
 
-pub const SIG_DFL = @intToPtr(?Sigaction.sigaction_fn, 0);
-pub const SIG_IGN = @intToPtr(?Sigaction.sigaction_fn, 1);
-pub const SIG_ERR = @intToPtr(?Sigaction.sigaction_fn, maxInt(usize));
+pub const SIG = struct {
+    pub const DFL = @intToPtr(?Sigaction.sigaction_fn, 0);
+    pub const IGN = @intToPtr(?Sigaction.sigaction_fn, 1);
+    pub const ERR = @intToPtr(?Sigaction.sigaction_fn, maxInt(usize));
+
+    pub const WORDS = 4;
+    pub const MAXSIG = 128;
+
+    pub const HUP = 1;
+    pub const INT = 2;
+    pub const QUIT = 3;
+    pub const ILL = 4;
+    pub const TRAP = 5;
+    pub const ABRT = 6;
+    pub const IOT = ABRT;
+    pub const EMT = 7;
+    pub const FPE = 8;
+    pub const KILL = 9;
+    pub const BUS = 10;
+    pub const SEGV = 11;
+    pub const SYS = 12;
+    pub const PIPE = 13;
+    pub const ALRM = 14;
+    pub const TERM = 15;
+    pub const URG = 16;
+    pub const STOP = 17;
+    pub const TSTP = 18;
+    pub const CONT = 19;
+    pub const CHLD = 20;
+    pub const TTIN = 21;
+    pub const TTOU = 22;
+    pub const IO = 23;
+    pub const XCPU = 24;
+    pub const XFSZ = 25;
+    pub const VTALRM = 26;
+    pub const PROF = 27;
+    pub const WINCH = 28;
+    pub const INFO = 29;
+    pub const USR1 = 30;
+    pub const USR2 = 31;
+    pub const PWR = 32;
+
+    pub const RTMIN = 33;
+    pub const RTMAX = 63;
+
+    pub inline fn IDX(sig: usize) usize {
+        return sig - 1;
+    }
+    pub inline fn WORD(sig: usize) usize {
+        return IDX(sig) >> 5;
+    }
+    pub inline fn BIT(sig: usize) usize {
+        return 1 << (IDX(sig) & 31);
+    }
+    pub inline fn VALID(sig: usize) usize {
+        return sig <= MAXSIG and sig > 0;
+    }
+};
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
 pub const Sigaction = extern struct {
@@ -993,27 +1028,11 @@ pub const _ksiginfo = extern struct {
     } align(@sizeOf(usize)),
 };
 
-pub const _SIG_WORDS = 4;
-pub const _SIG_MAXSIG = 128;
-
-pub inline fn _SIG_IDX(sig: usize) usize {
-    return sig - 1;
-}
-pub inline fn _SIG_WORD(sig: usize) usize {
-    return_SIG_IDX(sig) >> 5;
-}
-pub inline fn _SIG_BIT(sig: usize) usize {
-    return 1 << (_SIG_IDX(sig) & 31);
-}
-pub inline fn _SIG_VALID(sig: usize) usize {
-    return sig <= _SIG_MAXSIG and sig > 0;
-}
-
 pub const sigset_t = extern struct {
-    __bits: [_SIG_WORDS]u32,
+    __bits: [SIG.WORDS]u32,
 };
 
-pub const empty_sigset = sigset_t{ .__bits = [_]u32{0} ** _SIG_WORDS };
+pub const empty_sigset = sigset_t{ .__bits = [_]u32{0} ** SIG.WORDS };
 
 // XXX x86_64 specific
 pub const mcontext_t = extern struct {
@@ -1253,22 +1272,20 @@ pub fn S_IWHT(m: u32) bool {
     return m & S_IFMT == S_IFWHT;
 }
 
-/// Magic value that specify the use of the current working directory
-/// to determine the target of relative file paths in the openat() and
-/// similar syscalls.
-pub const AT_FDCWD = -100;
-
-/// Check access using effective user and group ID
-pub const AT_EACCESS = 0x0100;
-
-/// Do not follow symbolic links
-pub const AT_SYMLINK_NOFOLLOW = 0x0200;
-
-/// Follow symbolic link
-pub const AT_SYMLINK_FOLLOW = 0x0400;
-
-/// Remove directory instead of file
-pub const AT_REMOVEDIR = 0x0800;
+pub const AT = struct {
+    /// Magic value that specify the use of the current working directory
+    /// to determine the target of relative file paths in the openat() and
+    /// similar syscalls.
+    pub const FDCWD = -100;
+    /// Check access using effective user and group ID
+    pub const EACCESS = 0x0100;
+    /// Do not follow symbolic links
+    pub const SYMLINK_NOFOLLOW = 0x0200;
+    /// Follow symbolic link
+    pub const SYMLINK_FOLLOW = 0x0400;
+    /// Remove directory instead of file
+    pub const REMOVEDIR = 0x0800;
+};
 
 pub const HOST_NAME_MAX = 255;
 

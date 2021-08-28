@@ -200,8 +200,6 @@ pub const Timer = struct {
                 .frequency = {},
             };
         }
-
-        return self;
     }
 
     /// Reads the timer value since start or the last reset in nanoseconds

@@ -149,8 +149,10 @@ pub const Stat = struct {
 
 pub const IOV_MAX = 1024;
 
-pub const AT_REMOVEDIR: u32 = 0x4;
-pub const AT_FDCWD: fd_t = -2;
+pub const AT = struct {
+    pub const REMOVEDIR: u32 = 0x4;
+    pub const FDCWD: fd_t = -2;
+};
 
 // As defined in the wasi_snapshot_preview1 spec file:
 // https://github.com/WebAssembly/WASI/blob/master/phases/snapshot/witx/typenames.witx
@@ -293,11 +295,13 @@ pub const exitcode_t = u32;
 pub const fd_t = u32;
 
 pub const fdflags_t = u16;
-pub const FDFLAG_APPEND: fdflags_t = 0x0001;
-pub const FDFLAG_DSYNC: fdflags_t = 0x0002;
-pub const FDFLAG_NONBLOCK: fdflags_t = 0x0004;
-pub const FDFLAG_RSYNC: fdflags_t = 0x0008;
-pub const FDFLAG_SYNC: fdflags_t = 0x0010;
+pub const FDFLAG = struct {
+    pub const APPEND: fdflags_t = 0x0001;
+    pub const DSYNC: fdflags_t = 0x0002;
+    pub const NONBLOCK: fdflags_t = 0x0004;
+    pub const RSYNC: fdflags_t = 0x0008;
+    pub const SYNC: fdflags_t = 0x0010;
+};
 
 pub const fdstat_t = extern struct {
     fs_filetype: filetype_t,
@@ -333,15 +337,17 @@ pub const filestat_t = extern struct {
     }
 };
 
-pub const filetype_t = u8;
-pub const FILETYPE_UNKNOWN: filetype_t = 0;
-pub const FILETYPE_BLOCK_DEVICE: filetype_t = 1;
-pub const FILETYPE_CHARACTER_DEVICE: filetype_t = 2;
-pub const FILETYPE_DIRECTORY: filetype_t = 3;
-pub const FILETYPE_REGULAR_FILE: filetype_t = 4;
-pub const FILETYPE_SOCKET_DGRAM: filetype_t = 5;
-pub const FILETYPE_SOCKET_STREAM: filetype_t = 6;
-pub const FILETYPE_SYMBOLIC_LINK: filetype_t = 7;
+pub const filetype_t = enum(u8) {
+    UNKNOWN,
+    BLOCK_DEVICE,
+    CHARACTER_DEVICE,
+    DIRECTORY,
+    REGULAR_FILE,
+    SOCKET_DGRAM,
+    SOCKET_STREAM,
+    SYMBOLIC_LINK,
+    _,
+};
 
 pub const fstflags_t = u16;
 pub const FILESTAT_SET_ATIM: fstflags_t = 0x0001;
@@ -392,64 +398,66 @@ pub const SOCK = struct {
 };
 
 pub const rights_t = u64;
-pub const RIGHT_FD_DATASYNC: rights_t = 0x0000000000000001;
-pub const RIGHT_FD_READ: rights_t = 0x0000000000000002;
-pub const RIGHT_FD_SEEK: rights_t = 0x0000000000000004;
-pub const RIGHT_FD_FDSTAT_SET_FLAGS: rights_t = 0x0000000000000008;
-pub const RIGHT_FD_SYNC: rights_t = 0x0000000000000010;
-pub const RIGHT_FD_TELL: rights_t = 0x0000000000000020;
-pub const RIGHT_FD_WRITE: rights_t = 0x0000000000000040;
-pub const RIGHT_FD_ADVISE: rights_t = 0x0000000000000080;
-pub const RIGHT_FD_ALLOCATE: rights_t = 0x0000000000000100;
-pub const RIGHT_PATH_CREATE_DIRECTORY: rights_t = 0x0000000000000200;
-pub const RIGHT_PATH_CREATE_FILE: rights_t = 0x0000000000000400;
-pub const RIGHT_PATH_LINK_SOURCE: rights_t = 0x0000000000000800;
-pub const RIGHT_PATH_LINK_TARGET: rights_t = 0x0000000000001000;
-pub const RIGHT_PATH_OPEN: rights_t = 0x0000000000002000;
-pub const RIGHT_FD_READDIR: rights_t = 0x0000000000004000;
-pub const RIGHT_PATH_READLINK: rights_t = 0x0000000000008000;
-pub const RIGHT_PATH_RENAME_SOURCE: rights_t = 0x0000000000010000;
-pub const RIGHT_PATH_RENAME_TARGET: rights_t = 0x0000000000020000;
-pub const RIGHT_PATH_FILESTAT_GET: rights_t = 0x0000000000040000;
-pub const RIGHT_PATH_FILESTAT_SET_SIZE: rights_t = 0x0000000000080000;
-pub const RIGHT_PATH_FILESTAT_SET_TIMES: rights_t = 0x0000000000100000;
-pub const RIGHT_FD_FILESTAT_GET: rights_t = 0x0000000000200000;
-pub const RIGHT_FD_FILESTAT_SET_SIZE: rights_t = 0x0000000000400000;
-pub const RIGHT_FD_FILESTAT_SET_TIMES: rights_t = 0x0000000000800000;
-pub const RIGHT_PATH_SYMLINK: rights_t = 0x0000000001000000;
-pub const RIGHT_PATH_REMOVE_DIRECTORY: rights_t = 0x0000000002000000;
-pub const RIGHT_PATH_UNLINK_FILE: rights_t = 0x0000000004000000;
-pub const RIGHT_POLL_FD_READWRITE: rights_t = 0x0000000008000000;
-pub const RIGHT_SOCK_SHUTDOWN: rights_t = 0x0000000010000000;
-pub const RIGHT_ALL: rights_t = RIGHT_FD_DATASYNC |
-    RIGHT_FD_READ |
-    RIGHT_FD_SEEK |
-    RIGHT_FD_FDSTAT_SET_FLAGS |
-    RIGHT_FD_SYNC |
-    RIGHT_FD_TELL |
-    RIGHT_FD_WRITE |
-    RIGHT_FD_ADVISE |
-    RIGHT_FD_ALLOCATE |
-    RIGHT_PATH_CREATE_DIRECTORY |
-    RIGHT_PATH_CREATE_FILE |
-    RIGHT_PATH_LINK_SOURCE |
-    RIGHT_PATH_LINK_TARGET |
-    RIGHT_PATH_OPEN |
-    RIGHT_FD_READDIR |
-    RIGHT_PATH_READLINK |
-    RIGHT_PATH_RENAME_SOURCE |
-    RIGHT_PATH_RENAME_TARGET |
-    RIGHT_PATH_FILESTAT_GET |
-    RIGHT_PATH_FILESTAT_SET_SIZE |
-    RIGHT_PATH_FILESTAT_SET_TIMES |
-    RIGHT_FD_FILESTAT_GET |
-    RIGHT_FD_FILESTAT_SET_SIZE |
-    RIGHT_FD_FILESTAT_SET_TIMES |
-    RIGHT_PATH_SYMLINK |
-    RIGHT_PATH_REMOVE_DIRECTORY |
-    RIGHT_PATH_UNLINK_FILE |
-    RIGHT_POLL_FD_READWRITE |
-    RIGHT_SOCK_SHUTDOWN;
+pub const RIGHT = struct {
+    pub const FD_DATASYNC: rights_t = 0x0000000000000001;
+    pub const FD_READ: rights_t = 0x0000000000000002;
+    pub const FD_SEEK: rights_t = 0x0000000000000004;
+    pub const FD_FDSTAT_SET_FLAGS: rights_t = 0x0000000000000008;
+    pub const FD_SYNC: rights_t = 0x0000000000000010;
+    pub const FD_TELL: rights_t = 0x0000000000000020;
+    pub const FD_WRITE: rights_t = 0x0000000000000040;
+    pub const FD_ADVISE: rights_t = 0x0000000000000080;
+    pub const FD_ALLOCATE: rights_t = 0x0000000000000100;
+    pub const PATH_CREATE_DIRECTORY: rights_t = 0x0000000000000200;
+    pub const PATH_CREATE_FILE: rights_t = 0x0000000000000400;
+    pub const PATH_LINK_SOURCE: rights_t = 0x0000000000000800;
+    pub const PATH_LINK_TARGET: rights_t = 0x0000000000001000;
+    pub const PATH_OPEN: rights_t = 0x0000000000002000;
+    pub const FD_READDIR: rights_t = 0x0000000000004000;
+    pub const PATH_READLINK: rights_t = 0x0000000000008000;
+    pub const PATH_RENAME_SOURCE: rights_t = 0x0000000000010000;
+    pub const PATH_RENAME_TARGET: rights_t = 0x0000000000020000;
+    pub const PATH_FILESTAT_GET: rights_t = 0x0000000000040000;
+    pub const PATH_FILESTAT_SET_SIZE: rights_t = 0x0000000000080000;
+    pub const PATH_FILESTAT_SET_TIMES: rights_t = 0x0000000000100000;
+    pub const FD_FILESTAT_GET: rights_t = 0x0000000000200000;
+    pub const FD_FILESTAT_SET_SIZE: rights_t = 0x0000000000400000;
+    pub const FD_FILESTAT_SET_TIMES: rights_t = 0x0000000000800000;
+    pub const PATH_SYMLINK: rights_t = 0x0000000001000000;
+    pub const PATH_REMOVE_DIRECTORY: rights_t = 0x0000000002000000;
+    pub const PATH_UNLINK_FILE: rights_t = 0x0000000004000000;
+    pub const POLL_FD_READWRITE: rights_t = 0x0000000008000000;
+    pub const SOCK_SHUTDOWN: rights_t = 0x0000000010000000;
+    pub const ALL: rights_t = FD_DATASYNC |
+        FD_READ |
+        FD_SEEK |
+        FD_FDSTAT_SET_FLAGS |
+        FD_SYNC |
+        FD_TELL |
+        FD_WRITE |
+        FD_ADVISE |
+        FD_ALLOCATE |
+        PATH_CREATE_DIRECTORY |
+        PATH_CREATE_FILE |
+        PATH_LINK_SOURCE |
+        PATH_LINK_TARGET |
+        PATH_OPEN |
+        FD_READDIR |
+        PATH_READLINK |
+        PATH_RENAME_SOURCE |
+        PATH_RENAME_TARGET |
+        PATH_FILESTAT_GET |
+        PATH_FILESTAT_SET_SIZE |
+        PATH_FILESTAT_SET_TIMES |
+        FD_FILESTAT_GET |
+        FD_FILESTAT_SET_SIZE |
+        FD_FILESTAT_SET_TIMES |
+        PATH_SYMLINK |
+        PATH_REMOVE_DIRECTORY |
+        PATH_UNLINK_FILE |
+        POLL_FD_READWRITE |
+        SOCK_SHUTDOWN;
+};
 
 pub const sdflags_t = u8;
 pub const SHUT_RD: sdflags_t = 0x01;
@@ -524,25 +532,20 @@ pub const timestamp_t = u64;
 
 pub const userdata_t = u64;
 
-pub const whence_t = u8;
-pub const WHENCE_SET: whence_t = 0;
-pub const WHENCE_CUR: whence_t = 1;
-pub const WHENCE_END: whence_t = 2;
+pub const whence_t = enum(u8) { SET, CUR, END };
 
-pub const S_IEXEC = S_IXUSR;
-pub const S_IFBLK = 0x6000;
-pub const S_IFCHR = 0x2000;
-pub const S_IFDIR = 0x4000;
-pub const S_IFIFO = 0xc000;
-pub const S_IFLNK = 0xa000;
-pub const S_IFMT = S_IFBLK | S_IFCHR | S_IFDIR | S_IFIFO | S_IFLNK | S_IFREG | S_IFSOCK;
-pub const S_IFREG = 0x8000;
-// There's no concept of UNIX domain socket but we define this value here in order to line with other OSes.
-pub const S_IFSOCK = 0x1;
-
-pub const SEEK_SET = WHENCE_SET;
-pub const SEEK_CUR = WHENCE_CUR;
-pub const SEEK_END = WHENCE_END;
+pub const S = struct {
+    pub const IEXEC = @compileError("TODO audit this");
+    pub const IFBLK = 0x6000;
+    pub const IFCHR = 0x2000;
+    pub const IFDIR = 0x4000;
+    pub const IFIFO = 0xc000;
+    pub const IFLNK = 0xa000;
+    pub const IFMT = IFBLK | IFCHR | IFDIR | IFIFO | IFLNK | IFREG | IFSOCK;
+    pub const IFREG = 0x8000;
+    // There's no concept of UNIX domain socket but we define this value here in order to line with other OSes.
+    pub const IFSOCK = 0x1;
+};
 
 pub const LOCK = struct {
     pub const SH = 0x1;

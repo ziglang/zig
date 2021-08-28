@@ -622,8 +622,12 @@ pub fn HashMap(
             return other.promoteContext(self.allocator, new_ctx);
         }
 
-        /// Creates a copy of this map, using a specified allocator and context
-        pub fn cloneWithAllocatorAndContext(new_allocator: *Allocator, new_ctx: anytype) !HashMap(K, V, @TypeOf(new_ctx), max_load_percentage) {
+        /// Creates a copy of this map, using a specified allocator and context.
+        pub fn cloneWithAllocatorAndContext(
+            self: Self,
+            new_allocator: *Allocator,
+            new_ctx: anytype,
+        ) !HashMap(K, V, @TypeOf(new_ctx), max_load_percentage) {
             var other = try self.unmanaged.cloneContext(new_allocator, new_ctx);
             return other.promoteContext(new_allocator, new_ctx);
         }

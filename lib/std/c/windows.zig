@@ -1,7 +1,6 @@
 //! The reference for these types and values is Microsoft Windows's ucrt (Universal C RunTime).
 const std = @import("../std.zig");
 const ws2_32 = std.os.windows.ws2_32;
-
 const windows = std.os.windows;
 
 pub extern "c" fn _errno() *c_int;
@@ -43,56 +42,51 @@ pub const timeval = extern struct {
     tv_usec: c_long,
 };
 
+pub const Stat = @compileError("TODO windows Stat definition");
+
 pub const sig_atomic_t = c_int;
+
+pub const sigset_t = @compileError("TODO windows sigset_t definition");
+pub const Sigaction = @compileError("TODO windows Sigaction definition");
+pub const timezone = @compileError("TODO windows timezone definition");
+pub const rusage = @compileError("TODO windows rusage definition");
 
 /// maximum signal number + 1
 pub const NSIG = 23;
 
-// Signal types
+/// Signal types
+pub const SIG = struct {
+    /// interrupt
+    pub const INT = 2;
+    /// illegal instruction - invalid function image
+    pub const ILL = 4;
+    /// floating point exception
+    pub const FPE = 8;
+    /// segment violation
+    pub const SEGV = 11;
+    /// Software termination signal from kill
+    pub const TERM = 15;
+    /// Ctrl-Break sequence
+    pub const BREAK = 21;
+    /// abnormal termination triggered by abort call
+    pub const ABRT = 22;
+    /// SIGABRT compatible with other platforms, same as SIGABRT
+    pub const ABRT_COMPAT = 6;
 
-/// interrupt
-pub const SIGINT = 2;
-
-/// illegal instruction - invalid function image
-pub const SIGILL = 4;
-
-/// floating point exception
-pub const SIGFPE = 8;
-
-/// segment violation
-pub const SIGSEGV = 11;
-
-/// Software termination signal from kill
-pub const SIGTERM = 15;
-
-/// Ctrl-Break sequence
-pub const SIGBREAK = 21;
-
-/// abnormal termination triggered by abort call
-pub const SIGABRT = 22;
-
-/// SIGABRT compatible with other platforms, same as SIGABRT
-pub const SIGABRT_COMPAT = 6;
-
-// Signal action codes
-
-/// default signal action
-pub const SIG_DFL = 0;
-
-/// ignore signal
-pub const SIG_IGN = 1;
-
-/// return current value
-pub const SIG_GET = 2;
-
-/// signal gets error
-pub const SIG_SGE = 3;
-
-/// acknowledge
-pub const SIG_ACK = 4;
-
-/// Signal error value (returned by signal call on error)
-pub const SIG_ERR = -1;
+    // Signal action codes
+    /// default signal action
+    pub const DFL = 0;
+    /// ignore signal
+    pub const IGN = 1;
+    /// return current value
+    pub const GET = 2;
+    /// signal gets error
+    pub const SGE = 3;
+    /// acknowledge
+    pub const ACK = 4;
+    /// Signal error value (returned by signal call on error)
+    pub const ERR = -1;
+};
 
 pub const SEEK_SET = 0;
 pub const SEEK_CUR = 1;

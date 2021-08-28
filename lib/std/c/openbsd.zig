@@ -1,6 +1,8 @@
 const std = @import("../std.zig");
 const maxInt = std.math.maxInt;
 const builtin = @import("builtin");
+const iovec = std.os.iovec;
+const iovec_const = std.os.iovec_const;
 
 extern "c" fn __errno() *c_int;
 pub const _errno = __errno;
@@ -466,22 +468,24 @@ pub const O_DIRECTORY = 0x20000;
 /// set close on exec
 pub const O_CLOEXEC = 0x10000;
 
-pub const F_DUPFD = 0;
-pub const F_GETFD = 1;
-pub const F_SETFD = 2;
-pub const F_GETFL = 3;
-pub const F_SETFL = 4;
+pub const F = struct {
+    pub const DUPFD = 0;
+    pub const GETFD = 1;
+    pub const SETFD = 2;
+    pub const GETFL = 3;
+    pub const SETFL = 4;
 
-pub const F_GETOWN = 5;
-pub const F_SETOWN = 6;
+    pub const GETOWN = 5;
+    pub const SETOWN = 6;
 
-pub const F_GETLK = 7;
-pub const F_SETLK = 8;
-pub const F_SETLKW = 9;
+    pub const GETLK = 7;
+    pub const SETLK = 8;
+    pub const SETLKW = 9;
 
-pub const F_RDLCK = 1;
-pub const F_UNLCK = 2;
-pub const F_WRLCK = 3;
+    pub const RDLCK = 1;
+    pub const UNLCK = 2;
+    pub const WRLCK = 3;
+};
 
 pub const LOCK = struct {
     pub const SH = 0x01;
@@ -840,7 +844,7 @@ const arch_bits = switch (builtin.cpu.arch) {
             sc_rsp: c_long,
             sc_ss: c_long,
 
-            sc_fpstate: fxsave64,
+            sc_fpstate: arch_bits.fxsave64,
             __sc_unused: c_int,
             sc_mask: c_int,
             sc_cookie: c_long,
@@ -1063,22 +1067,20 @@ pub fn S_ISSOCK(m: u32) bool {
     return m & S_IFMT == S_IFSOCK;
 }
 
-/// Magic value that specify the use of the current working directory
-/// to determine the target of relative file paths in the openat() and
-/// similar syscalls.
-pub const AT_FDCWD = -100;
-
-/// Check access using effective user and group ID
-pub const AT_EACCESS = 0x01;
-
-/// Do not follow symbolic links
-pub const AT_SYMLINK_NOFOLLOW = 0x02;
-
-/// Follow symbolic link
-pub const AT_SYMLINK_FOLLOW = 0x04;
-
-/// Remove directory instead of file
-pub const AT_REMOVEDIR = 0x08;
+pub const AT = struct {
+    /// Magic value that specify the use of the current working directory
+    /// to determine the target of relative file paths in the openat() and
+    /// similar syscalls.
+    pub const FDCWD = -100;
+    /// Check access using effective user and group ID
+    pub const EACCESS = 0x01;
+    /// Do not follow symbolic links
+    pub const SYMLINK_NOFOLLOW = 0x02;
+    /// Follow symbolic link
+    pub const SYMLINK_FOLLOW = 0x04;
+    /// Remove directory instead of file
+    pub const REMOVEDIR = 0x08;
+};
 
 pub const HOST_NAME_MAX = 255;
 

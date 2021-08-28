@@ -8,6 +8,16 @@ const DWORD = windows.DWORD;
 const GUID = windows.GUID;
 const USHORT = windows.USHORT;
 const WCHAR = windows.WCHAR;
+const BOOL = windows.BOOL;
+const HANDLE = windows.HANDLE;
+const timeval = windows.timeval;
+const HWND = windows.HWND;
+const INT = windows.INT;
+const SHORT = windows.SHORT;
+const CHAR = windows.CHAR;
+const ULONG = windows.ULONG;
+const LPARAM = windows.LPARAM;
+const FARPROC = windows.FARPROC;
 
 pub const SOCKET = *opaque {};
 pub const INVALID_SOCKET = @intToPtr(SOCKET, ~@as(usize, 0));
