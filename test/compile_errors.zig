@@ -8838,4 +8838,14 @@ pub fn addCases(ctx: *TestContext) !void {
         "tmp.zig:2:9: note: declared mutable here",
         "tmp.zig:3:12: note: crosses namespace boundary here",
     });
+
+    ctx.objErrStage1("undeclared identifier in unanalyzed branch",
+        \\export fn a() void {
+        \\    if (false) {
+        \\        lol_this_doesnt_exist = nonsense;
+        \\    }
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:3:9: error: use of undeclared identifier 'lol_this_doesnt_exist'",
+    });
 }

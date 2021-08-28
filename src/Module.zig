@@ -365,6 +365,8 @@ pub const Decl = struct {
     /// Decl is marked alive, then it sends the Decl to the linker. Otherwise it
     /// deletes the Decl on the spot.
     alive: bool,
+    /// Whether the Decl is a `usingnamespace` declaration.
+    is_usingnamespace: bool,
 
     /// Represents the position of the code in the output file.
     /// This is populated regardless of semantic analysis and code generation.
@@ -1007,6 +1009,11 @@ pub const Scope = struct {
         decls: std.StringArrayHashMapUnmanaged(*Decl) = .{},
 
         anon_decls: std.AutoArrayHashMapUnmanaged(*Decl, void) = .{},
+
+        /// Key is usingnamespace Decl itself. To find the namespace being included,
+        /// the Decl Value has to be resolved as a Type which has a Namespace.
+        /// Value is whether the usingnamespace decl is marked `pub`.
+        usingnamespace_set: std.AutoHashMapUnmanaged(*Decl, bool) = .{},
 
         pub fn deinit(ns: *Namespace, mod: *Module) void {
             ns.destroyDecls(mod);
@@ -3174,6 +3181,31 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
     errdefer decl_arena.deinit();
     const decl_arena_state = try decl_arena.allocator.create(std.heap.ArenaAllocator.State);
 
+    if (decl.is_usingnamespace) {
+        const ty_ty = Type.initTag(.type);
+        if (!decl_tv.ty.eql(ty_ty)) {
+            return mod.fail(&block_scope.base, src, "expected type, found {}", .{decl_tv.ty});
+        }
+        var buffer: Value.ToTypeBuffer = undefined;
+        const ty = decl_tv.val.toType(&buffer);
+        if (ty.getNamespace() == null) {
+            return mod.fail(&block_scope.base, src, "type {} has no namespace", .{ty});
+        }
+
+        decl.ty = ty_ty;
+        decl.val = try Value.Tag.ty.create(&decl_arena.allocator, ty);
+        decl.align_val = Value.initTag(.null_value);
+        decl.linksection_val = Value.initTag(.null_value);
+        decl.has_tv = true;
+        decl.owns_tv = false;
+        decl_arena_state.* = decl_arena.state;
+        decl.value_arena = decl_arena_state;
+        decl.analysis = .complete;
+        decl.generation = mod.generation;
+
+        return true;
+    }
+
     if (decl_tv.val.castTag(.function)) |fn_payload| {
         const func = fn_payload.data;
         const owns_tv = func.owner_decl == decl;
@@ -3269,16 +3301,13 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
         if (type_changed and mod.emit_h != null) {
             try mod.comp.work_queue.writeItem(.{ .emit_h_decl = decl });
         }
-    } else if (decl_tv.ty.zigTypeTag() == .Type) {
-        // In case this Decl is a struct or union, we need to resolve the fields
-        // while we still have the `Sema` in scope, so that the field type expressions
-        // can use the resolved AIR instructions that they possibly reference.
-        // We do this after the decl is populated and set to `complete` so that a `Decl`
-        // may reference itself.
-        var buffer: Value.ToTypeBuffer = undefined;
-        const ty = decl.val.toType(&buffer);
-        try sema.resolveDeclFields(&block_scope, src, ty);
     }
+    // In case this Decl is a struct or union, we need to resolve the fields
+    // while we still have the `Sema` in scope, so that the field type expressions
+    // can use the resolved AIR instructions that they possibly reference.
+    // We do this after the decl is populated and set to `complete` so that a `Decl`
+    // may reference itself.
+    try sema.resolvePendingTypes(&block_scope);
 
     if (decl.is_exported) {
         const export_src = src; // TODO point to the export token
@@ -3494,7 +3523,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) SemaError!voi
 
     // zig fmt: off
     const is_pub          = (flags & 0b0001) != 0;
-    const is_exported     = (flags & 0b0010) != 0;
+    const export_bit      = (flags & 0b0010) != 0;
     const has_align       = (flags & 0b0100) != 0;
     const has_linksection = (flags & 0b1000) != 0;
     // zig fmt: on
@@ -3509,7 +3538,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) SemaError!voi
     var is_named_test = false;
     const decl_name: [:0]const u8 = switch (decl_name_index) {
         0 => name: {
-            if (is_exported) {
+            if (export_bit) {
                 const i = iter.usingnamespace_index;
                 iter.usingnamespace_index += 1;
                 break :name try std.fmt.allocPrintZ(gpa, "usingnamespace_{d}", .{i});
@@ -3535,11 +3564,17 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) SemaError!voi
             }
         },
     };
+    const is_exported = export_bit and decl_name_index != 0;
+    const is_usingnamespace = export_bit and decl_name_index == 0;
+    if (is_usingnamespace) try namespace.usingnamespace_set.ensureUnusedCapacity(gpa, 1);
 
     // We create a Decl for it regardless of analysis status.
     const gop = try namespace.decls.getOrPut(gpa, decl_name);
     if (!gop.found_existing) {
         const new_decl = try mod.allocateNewDecl(namespace, decl_node);
+        if (is_usingnamespace) {
+            namespace.usingnamespace_set.putAssumeCapacity(new_decl, is_pub);
+        }
         log.debug("scan new {*} ({s}) into {*}", .{ new_decl, decl_name, namespace });
         new_decl.src_line = line;
         new_decl.name = decl_name;
@@ -3548,7 +3583,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) SemaError!voi
         // test decls if in test mode, get analyzed.
         const decl_pkg = namespace.file_scope.pkg;
         const want_analysis = is_exported or switch (decl_name_index) {
-            0 => true, // comptime decl
+            0 => true, // comptime or usingnamespace decl
             1 => blk: {
                 // test decl with no name. Skip the part where we check against
                 // the test name filter.
@@ -3571,6 +3606,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) SemaError!voi
         }
         new_decl.is_pub = is_pub;
         new_decl.is_exported = is_exported;
+        new_decl.is_usingnamespace = is_usingnamespace;
         new_decl.has_align = has_align;
         new_decl.has_linksection = has_linksection;
         new_decl.zir_decl_index = @intCast(u32, decl_sub_index);
@@ -3587,6 +3623,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) SemaError!voi
 
     decl.is_pub = is_pub;
     decl.is_exported = is_exported;
+    decl.is_usingnamespace = is_usingnamespace;
     decl.has_align = has_align;
     decl.has_linksection = has_linksection;
     decl.zir_decl_index = @intCast(u32, decl_sub_index);
@@ -3979,6 +4016,7 @@ pub fn allocateNewDecl(mod: *Module, namespace: *Scope.Namespace, src_node: ast.
         .has_linksection = false,
         .has_align = false,
         .alive = false,
+        .is_usingnamespace = false,
     };
     return new_decl;
 }
