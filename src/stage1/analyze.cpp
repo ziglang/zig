@@ -3918,12 +3918,6 @@ static void add_top_level_decl(CodeGen *g, ScopeDecls *decls_scope, Tld *tld) {
             add_error_note(g, msg, other_tld->source_node, buf_sprintf("previous definition here"));
             return;
         }
-
-        ZigType *type;
-        if (get_primitive_type(g, tld->name, &type) != ErrorPrimitiveTypeNotFound) {
-            add_node_error(g, tld->source_node,
-                buf_sprintf("declaration shadows primitive type '%s'", buf_ptr(tld->name)));
-        }
     }
 }
 
@@ -4170,13 +4164,6 @@ ZigVar *add_variable(CodeGen *g, AstNode *source_node, Scope *parent_scope, Buf 
         variable_entry->var_type = g->builtin_types.entry_invalid;
     } else {
         variable_entry->align_bytes = get_abi_alignment(g, var_type);
-
-        ZigType *type;
-        if (get_primitive_type(g, name, &type) != ErrorPrimitiveTypeNotFound) {
-            add_node_error(g, source_node,
-                    buf_sprintf("variable shadows primitive type '%s'", buf_ptr(name)));
-            variable_entry->var_type = g->builtin_types.entry_invalid;
-        }
     }
 
     Scope *child_scope;

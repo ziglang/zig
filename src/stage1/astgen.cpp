@@ -3194,13 +3194,6 @@ ZigVar *create_local_var(CodeGen *codegen, AstNode *node, Scope *parent_scope,
                     add_error_note(codegen, msg, existing_var->decl_node, buf_sprintf("previous declaration here"));
                 }
                 variable_entry->var_type = codegen->builtin_types.entry_invalid;
-            } else {
-                ZigType *type;
-                if (get_primitive_type(codegen, name, &type) != ErrorPrimitiveTypeNotFound) {
-                    add_node_error(codegen, node,
-                            buf_sprintf("variable shadows primitive type '%s'", buf_ptr(name)));
-                    variable_entry->var_type = codegen->builtin_types.entry_invalid;
-                }
             }
         }
     } else {
@@ -3815,35 +3808,38 @@ static Stage1ZirInst *astgen_identifier(Stage1AstGen *ag, Scope *scope, AstNode 
     Error err;
     assert(node->type == NodeTypeIdentifier);
 
-    Buf *variable_name = node_identifier_buf(node);
+    bool is_at_syntax;
+    Buf *variable_name = node_identifier_buf2(node, &is_at_syntax);
 
-    if (buf_eql_str(variable_name, "_")) {
-        if (lval == LValAssign) {
-            Stage1ZirInstConst *const_instruction = ir_build_instruction<Stage1ZirInstConst>(ag, scope, node);
-            const_instruction->value = ag->codegen->pass1_arena->create<ZigValue>();
-            const_instruction->value->type = get_pointer_to_type(ag->codegen,
-                    ag->codegen->builtin_types.entry_void, false);
-            const_instruction->value->special = ConstValSpecialStatic;
-            const_instruction->value->data.x_ptr.special = ConstPtrSpecialDiscard;
-            return &const_instruction->base;
+    if (!is_at_syntax) {
+        if (buf_eql_str(variable_name, "_")) {
+            if (lval == LValAssign) {
+                Stage1ZirInstConst *const_instruction = ir_build_instruction<Stage1ZirInstConst>(ag, scope, node);
+                const_instruction->value = ag->codegen->pass1_arena->create<ZigValue>();
+                const_instruction->value->type = get_pointer_to_type(ag->codegen,
+                        ag->codegen->builtin_types.entry_void, false);
+                const_instruction->value->special = ConstValSpecialStatic;
+                const_instruction->value->data.x_ptr.special = ConstPtrSpecialDiscard;
+                return &const_instruction->base;
+            }
         }
-    }
 
-    ZigType *primitive_type;
-    if ((err = get_primitive_type(ag->codegen, variable_name, &primitive_type))) {
-        if (err == ErrorOverflow) {
-            add_node_error(ag->codegen, node,
-                buf_sprintf("primitive integer type '%s' exceeds maximum bit width of 65535",
-                    buf_ptr(variable_name)));
-            return ag->codegen->invalid_inst_src;
-        }
-        assert(err == ErrorPrimitiveTypeNotFound);
-    } else {
-        Stage1ZirInst *value = ir_build_const_type(ag, scope, node, primitive_type);
-        if (lval == LValPtr || lval == LValAssign) {
-            return ir_build_ref_src(ag, scope, node, value);
+        ZigType *primitive_type;
+        if ((err = get_primitive_type(ag->codegen, variable_name, &primitive_type))) {
+            if (err == ErrorOverflow) {
+                add_node_error(ag->codegen, node,
+                    buf_sprintf("primitive integer type '%s' exceeds maximum bit width of 65535",
+                        buf_ptr(variable_name)));
+                return ag->codegen->invalid_inst_src;
+            }
+            assert(err == ErrorPrimitiveTypeNotFound);
         } else {
-            return ir_expr_wrap(ag, scope, value, result_loc);
+            Stage1ZirInst *value = ir_build_const_type(ag, scope, node, primitive_type);
+            if (lval == LValPtr || lval == LValAssign) {
+                return ir_build_ref_src(ag, scope, node, value);
+            } else {
+                return ir_expr_wrap(ag, scope, value, result_loc);
+            }
         }
     }
 

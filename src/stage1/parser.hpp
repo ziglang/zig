@@ -19,6 +19,7 @@ void ast_print(AstNode *node, int indent);
 void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *context), void *context);
 
 Buf *node_identifier_buf(AstNode *node);
+Buf *node_identifier_buf2(AstNode *node, bool *is_at_syntax);
 
 Buf *token_identifier_buf(RootStruct *root_struct, TokenIndex token);
 

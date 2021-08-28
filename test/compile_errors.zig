@@ -7258,14 +7258,41 @@ pub fn addCases(ctx: *TestContext) !void {
         "tmp.zig:2:17: error: expected type 'u3', found 'u8'",
     });
 
-    ctx.objErrStage1("globally shadowing a primitive type",
-        \\const u16 = u8;
-        \\export fn entry() void {
-        \\    const a: u16 = 300;
+    ctx.objErrStage1("locally shadowing a primitive type",
+        \\export fn foo() void {
+        \\    const u8 = u16;
+        \\    const a: u8 = 300;
+        \\    _ = a;
+        \\}
+        \\export fn bar() void {
+        \\    const @"u8" = u16;
+        \\    const a: @"u8" = 300;
         \\    _ = a;
         \\}
     , &[_][]const u8{
-        "tmp.zig:1:1: error: declaration shadows primitive type 'u16'",
+        "tmp.zig:2:11: error: local shadows primitive 'u8'",
+        "tmp.zig:7:11: error: local shadows primitive 'u8'",
+    });
+
+    ctx.objErrStage1("primitives take precedence over declarations",
+        \\const @"u8" = u16;
+        \\export fn entry() void {
+        \\    const a: u8 = 300;
+        \\    _ = a;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:3:19: error: integer value 300 cannot be coerced to type 'u8'",
+    });
+
+    ctx.objErrStage1("declaration with same name as primitive must use special syntax",
+        \\const u8 = u16;
+        \\export fn entry() void {
+        \\    const a: u8 = 300;
+        \\    _ = a;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:1:7: error: name shadows primitive 'u8'",
+        "tmp.zig:1:7: note: consider using @\"u8\" to disambiguate",
     });
 
     ctx.objErrStage1("implicitly increasing pointer alignment",

@@ -2891,7 +2891,7 @@ fn fnDecl(
     };
     const fn_name_str_index = try astgen.identAsString(fn_name_token);
 
-    try astgen.declareNewName(scope, fn_name_str_index, decl_node);
+    try astgen.declareNewName(scope, fn_name_str_index, decl_node, fn_name_token);
 
     // We insert this at the beginning so that its instruction index marks the
     // start of the top level declaration.
@@ -3160,7 +3160,7 @@ fn globalVarDecl(
     const name_token = var_decl.ast.mut_token + 1;
     const name_str_index = try astgen.identAsString(name_token);
 
-    try astgen.declareNewName(scope, name_str_index, node);
+    try astgen.declareNewName(scope, name_str_index, node, name_token);
 
     var block_scope: GenZir = .{
         .parent = scope,
@@ -6319,34 +6319,36 @@ fn identifier(
     }
     const ident_name = try astgen.identifierTokenString(ident_token);
 
-    if (simple_types.get(ident_name)) |zir_const_ref| {
-        return rvalue(gz, rl, zir_const_ref, ident);
-    }
+    if (ident_name_raw[0] != '@') {
+        if (simple_types.get(ident_name)) |zir_const_ref| {
+            return rvalue(gz, rl, zir_const_ref, ident);
+        }
 
-    if (ident_name.len >= 2) integer: {
-        const first_c = ident_name[0];
-        if (first_c == 'i' or first_c == 'u') {
-            const signedness: std.builtin.Signedness = switch (first_c == 'i') {
-                true => .signed,
-                false => .unsigned,
-            };
-            const bit_count = std.fmt.parseInt(u16, ident_name[1..], 10) catch |err| switch (err) {
-                error.Overflow => return astgen.failNode(
-                    ident,
-                    "primitive integer type '{s}' exceeds maximum bit width of 65535",
-                    .{ident_name},
-                ),
-                error.InvalidCharacter => break :integer,
-            };
-            const result = try gz.add(.{
-                .tag = .int_type,
-                .data = .{ .int_type = .{
-                    .src_node = gz.nodeIndexToRelative(ident),
-                    .signedness = signedness,
-                    .bit_count = bit_count,
-                } },
-            });
-            return rvalue(gz, rl, result, ident);
+        if (ident_name.len >= 2) integer: {
+            const first_c = ident_name[0];
+            if (first_c == 'i' or first_c == 'u') {
+                const signedness: std.builtin.Signedness = switch (first_c == 'i') {
+                    true => .signed,
+                    false => .unsigned,
+                };
+                const bit_count = std.fmt.parseInt(u16, ident_name[1..], 10) catch |err| switch (err) {
+                    error.Overflow => return astgen.failNode(
+                        ident,
+                        "primitive integer type '{s}' exceeds maximum bit width of 65535",
+                        .{ident_name},
+                    ),
+                    error.InvalidCharacter => break :integer,
+                };
+                const result = try gz.add(.{
+                    .tag = .int_type,
+                    .data = .{ .int_type = .{
+                        .src_node = gz.nodeIndexToRelative(ident),
+                        .signedness = signedness,
+                        .bit_count = bit_count,
+                    } },
+                });
+                return rvalue(gz, rl, result, ident);
+            }
         }
     }
 
@@ -10031,8 +10033,21 @@ fn declareNewName(
     start_scope: *Scope,
     name_index: u32,
     node: ast.Node.Index,
+    name_token: ast.TokenIndex,
 ) !void {
     const gpa = astgen.gpa;
+
+    const token_bytes = astgen.tree.tokenSlice(name_token);
+    if (token_bytes[0] != '@' and isPrimitive(token_bytes)) {
+        return astgen.failTokNotes(name_token, "name shadows primitive '{s}'", .{
+            token_bytes,
+        }, &[_]u32{
+            try astgen.errNoteTok(name_token, "consider using @\"{s}\" to disambiguate", .{
+                token_bytes,
+            }),
+        });
+    }
+
     var scope = start_scope;
     while (true) {
         switch (scope.tag) {
@@ -10060,7 +10075,20 @@ fn declareNewName(
     }
 }
 
-/// Local variables shadowing detection, including function parameters.
+fn isPrimitive(name: []const u8) bool {
+    if (simple_types.get(name) != null) return true;
+    if (name.len < 2) return false;
+    const first_c = name[0];
+    if (first_c != 'i' and first_c != 'u') return false;
+    if (std.fmt.parseInt(u16, name[1..], 10)) |_| {
+        return true;
+    } else |err| switch (err) {
+        error.Overflow => return true,
+        error.InvalidCharacter => return false,
+    }
+}
+
+/// Local variables shadowing detection, including function parameters and primitives.
 fn detectLocalShadowing(
     astgen: *AstGen,
     scope: *Scope,
@@ -10068,13 +10096,19 @@ fn detectLocalShadowing(
     name_token: ast.TokenIndex,
 ) !void {
     const gpa = astgen.gpa;
+    const name_slice = mem.spanZ(astgen.nullTerminatedString(ident_name));
+    if (isPrimitive(name_slice)) {
+        const name = try gpa.dupe(u8, name_slice);
+        defer gpa.free(name);
+        return astgen.failTok(name_token, "local shadows primitive '{s}'", .{name});
+    }
 
     var s = scope;
     while (true) switch (s.tag) {
         .local_val => {
             const local_val = s.cast(Scope.LocalVal).?;
             if (local_val.name == ident_name) {
-                const name = try gpa.dupe(u8, mem.spanZ(astgen.nullTerminatedString(ident_name)));
+                const name = try gpa.dupe(u8, name_slice);
                 defer gpa.free(name);
                 return astgen.failTokNotes(name_token, "redeclaration of {s} '{s}'", .{
                     @tagName(local_val.id_cat), name,
@@ -10091,7 +10125,7 @@ fn detectLocalShadowing(
         .local_ptr => {
             const local_ptr = s.cast(Scope.LocalPtr).?;
             if (local_ptr.name == ident_name) {
-                const name = try gpa.dupe(u8, mem.spanZ(astgen.nullTerminatedString(ident_name)));
+                const name = try gpa.dupe(u8, name_slice);
                 defer gpa.free(name);
                 return astgen.failTokNotes(name_token, "redeclaration of {s} '{s}'", .{
                     @tagName(local_ptr.id_cat), name,
@@ -10111,7 +10145,7 @@ fn detectLocalShadowing(
                 s = ns.parent;
                 continue;
             };
-            const name = try gpa.dupe(u8, mem.spanZ(astgen.nullTerminatedString(ident_name)));
+            const name = try gpa.dupe(u8, name_slice);
             defer gpa.free(name);
             return astgen.failTokNotes(name_token, "local shadows declaration of '{s}'", .{
                 name,

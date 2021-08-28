@@ -522,3 +522,15 @@ fn A() type {
 test "non-ambiguous reference of shadowed decls" {
     try expect(A().B().Self != A().Self);
 }
+
+test "use of declaration with same name as primitive" {
+    const S = struct {
+        const @"u8" = u16;
+        const alias = @"u8";
+    };
+    const a: S.u8 = 300;
+    try expect(a == 300);
+
+    const b: S.alias = 300;
+    try expect(b == 300);
+}

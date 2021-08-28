@@ -3482,8 +3482,7 @@ Error source_char_literal(const char *source, uint32_t *result, size_t *bad_inde
     }
 }
 
-
-Buf *token_identifier_buf(RootStruct *root_struct, TokenIndex token) {
+static Buf *token_identifier_buf2(RootStruct *root_struct, TokenIndex token, bool *is_at_syntax) {
     Error err;
     const char *source = buf_ptr(root_struct->source_code);
     size_t byte_offset = root_struct->token_locs[token].offset;
@@ -3495,6 +3494,7 @@ Buf *token_identifier_buf(RootStruct *root_struct, TokenIndex token) {
     assert(source[byte_offset] != '.'); // wrong token index
 
     if (source[byte_offset] == '@') {
+        *is_at_syntax = true;
         size_t bad_index;
         Buf *str = buf_alloc();
         if ((err = source_string_literal_buf(source + byte_offset + 1, str, &bad_index))) {
@@ -3503,6 +3503,7 @@ Buf *token_identifier_buf(RootStruct *root_struct, TokenIndex token) {
         }
         return str;
     } else {
+        *is_at_syntax = false;
         size_t start = byte_offset;
         for (;; byte_offset += 1) {
             if (source[byte_offset] == 0) break;
@@ -3519,7 +3520,17 @@ Buf *token_identifier_buf(RootStruct *root_struct, TokenIndex token) {
     }
 }
 
+Buf *token_identifier_buf(RootStruct *root_struct, TokenIndex token) {
+    bool trash;
+    return token_identifier_buf2(root_struct, token, &trash);
+}
+
 Buf *node_identifier_buf(AstNode *node) {
+    bool trash;
+    return node_identifier_buf2(node, &trash);
+}
+
+Buf *node_identifier_buf2(AstNode *node, bool *is_at_syntax) {
     assert(node->type == NodeTypeIdentifier);
     // Currently, stage1 runs astgen for every comptime function call,
     // resulting the allocation here wasting memory. As a workaround until
@@ -3527,8 +3538,10 @@ Buf *node_identifier_buf(AstNode *node) {
     // we memoize the result into the AST here.
     if (node->data.identifier.name == nullptr) {
         RootStruct *root_struct = node->owner->data.structure.root_struct;
-        node->data.identifier.name = token_identifier_buf(root_struct, node->main_token);
+        node->data.identifier.name = token_identifier_buf2(root_struct, node->main_token,
+                &node->data.identifier.is_at_syntax);
     }
+    *is_at_syntax = node->data.identifier.is_at_syntax;
     return node->data.identifier.name;
 }
 

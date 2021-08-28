@@ -1125,6 +1125,7 @@ struct AstNodeContainerInitExpr {
 
 struct AstNodeIdentifier {
     Buf *name;
+    bool is_at_syntax;
 };
 
 struct AstNodeEnumLiteral {
