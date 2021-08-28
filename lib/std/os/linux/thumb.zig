@@ -3,6 +3,9 @@
 //! reserved for the frame pointer.
 //! Save and restore r7 around the syscall without touching the stack pointer not
 //! to break the frame chain.
+const std = @import("../../std.zig");
+const linux = std.os.linux;
+const SYS = linux.SYS;
 
 pub fn syscall0(number: SYS) usize {
     @setRuntimeSafety(false);

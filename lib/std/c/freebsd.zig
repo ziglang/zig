@@ -1,5 +1,8 @@
 const std = @import("../std.zig");
+const builtin = @import("builtin");
 const maxInt = std.math.maxInt;
+const iovec = std.os.iovec;
+const iovec_const = std.os.iovec_const;
 
 extern "c" fn __error() *c_int;
 pub const _errno = __error;
@@ -400,60 +403,100 @@ pub const MAP = struct {
     pub const @"32BIT" = 0x00080000;
 };
 
-pub const WNOHANG = 1;
-pub const WUNTRACED = 2;
-pub const WSTOPPED = WUNTRACED;
-pub const WCONTINUED = 4;
-pub const WNOWAIT = 8;
-pub const WEXITED = 16;
-pub const WTRAPPED = 32;
+pub const W = struct {
+    pub const NOHANG = 1;
+    pub const UNTRACED = 2;
+    pub const STOPPED = UNTRACED;
+    pub const CONTINUED = 4;
+    pub const NOWAIT = 8;
+    pub const EXITED = 16;
+    pub const TRAPPED = 32;
+};
 
-pub const SA_ONSTACK = 0x0001;
-pub const SA_RESTART = 0x0002;
-pub const SA_RESETHAND = 0x0004;
-pub const SA_NOCLDSTOP = 0x0008;
-pub const SA_NODEFER = 0x0010;
-pub const SA_NOCLDWAIT = 0x0020;
-pub const SA_SIGINFO = 0x0040;
+pub const SA = struct {
+    pub const ONSTACK = 0x0001;
+    pub const RESTART = 0x0002;
+    pub const RESETHAND = 0x0004;
+    pub const NOCLDSTOP = 0x0008;
+    pub const NODEFER = 0x0010;
+    pub const NOCLDWAIT = 0x0020;
+    pub const SIGINFO = 0x0040;
+};
 
-pub const SIGHUP = 1;
-pub const SIGINT = 2;
-pub const SIGQUIT = 3;
-pub const SIGILL = 4;
-pub const SIGTRAP = 5;
-pub const SIGABRT = 6;
-pub const SIGIOT = SIGABRT;
-pub const SIGEMT = 7;
-pub const SIGFPE = 8;
-pub const SIGKILL = 9;
-pub const SIGBUS = 10;
-pub const SIGSEGV = 11;
-pub const SIGSYS = 12;
-pub const SIGPIPE = 13;
-pub const SIGALRM = 14;
-pub const SIGTERM = 15;
-pub const SIGURG = 16;
-pub const SIGSTOP = 17;
-pub const SIGTSTP = 18;
-pub const SIGCONT = 19;
-pub const SIGCHLD = 20;
-pub const SIGTTIN = 21;
-pub const SIGTTOU = 22;
-pub const SIGIO = 23;
-pub const SIGXCPU = 24;
-pub const SIGXFSZ = 25;
-pub const SIGVTALRM = 26;
-pub const SIGPROF = 27;
-pub const SIGWINCH = 28;
-pub const SIGINFO = 29;
-pub const SIGUSR1 = 30;
-pub const SIGUSR2 = 31;
-pub const SIGTHR = 32;
-pub const SIGLWP = SIGTHR;
-pub const SIGLIBRT = 33;
+pub const SIG = struct {
+    pub const HUP = 1;
+    pub const INT = 2;
+    pub const QUIT = 3;
+    pub const ILL = 4;
+    pub const TRAP = 5;
+    pub const ABRT = 6;
+    pub const IOT = ABRT;
+    pub const EMT = 7;
+    pub const FPE = 8;
+    pub const KILL = 9;
+    pub const BUS = 10;
+    pub const SEGV = 11;
+    pub const SYS = 12;
+    pub const PIPE = 13;
+    pub const ALRM = 14;
+    pub const TERM = 15;
+    pub const URG = 16;
+    pub const STOP = 17;
+    pub const TSTP = 18;
+    pub const CONT = 19;
+    pub const CHLD = 20;
+    pub const TTIN = 21;
+    pub const TTOU = 22;
+    pub const IO = 23;
+    pub const XCPU = 24;
+    pub const XFSZ = 25;
+    pub const VTALRM = 26;
+    pub const PROF = 27;
+    pub const WINCH = 28;
+    pub const INFO = 29;
+    pub const USR1 = 30;
+    pub const USR2 = 31;
+    pub const THR = 32;
+    pub const LWP = THR;
+    pub const LIBRT = 33;
 
-pub const SIGRTMIN = 65;
-pub const SIGRTMAX = 126;
+    pub const RTMIN = 65;
+    pub const RTMAX = 126;
+
+    pub const BLOCK = 1;
+    pub const UNBLOCK = 2;
+    pub const SETMASK = 3;
+
+    pub const DFL = @intToPtr(?Sigaction.sigaction_fn, 0);
+    pub const IGN = @intToPtr(?Sigaction.sigaction_fn, 1);
+    pub const ERR = @intToPtr(?Sigaction.sigaction_fn, maxInt(usize));
+
+    pub const WORDS = 4;
+    pub const MAXSIG = 128;
+
+    pub inline fn IDX(sig: usize) usize {
+        return sig - 1;
+    }
+    pub inline fn WORD(sig: usize) usize {
+        return IDX(sig) >> 5;
+    }
+    pub inline fn BIT(sig: usize) usize {
+        return 1 << (IDX(sig) & 31);
+    }
+    pub inline fn VALID(sig: usize) usize {
+        return sig <= MAXSIG and sig > 0;
+    }
+};
+pub const sigval = extern union {
+    int: c_int,
+    ptr: ?*c_void,
+};
+
+pub const sigset_t = extern struct {
+    __bits: [SIG.WORDS]u32,
+};
+
+pub const empty_sigset = sigset_t{ .__bits = [_]u32{0} ** SIG.WORDS };
 
 // access function
 pub const F_OK = 0; // test for existence of file
@@ -489,22 +532,29 @@ pub const O_PATH = 0o10000000;
 pub const O_TMPFILE = 0o20200000;
 pub const O_NDELAY = O_NONBLOCK;
 
-pub const F_DUPFD = 0;
-pub const F_GETFD = 1;
-pub const F_SETFD = 2;
-pub const F_GETFL = 3;
-pub const F_SETFL = 4;
+pub const F = struct {
+    pub const DUPFD = 0;
+    pub const GETFD = 1;
+    pub const SETFD = 2;
+    pub const GETFL = 3;
+    pub const SETFL = 4;
 
-pub const F_GETOWN = 5;
-pub const F_SETOWN = 6;
+    pub const GETOWN = 5;
+    pub const SETOWN = 6;
 
-pub const F_GETLK = 11;
-pub const F_SETLK = 12;
-pub const F_SETLKW = 13;
+    pub const GETLK = 11;
+    pub const SETLK = 12;
+    pub const SETLKW = 13;
 
-pub const F_RDLCK = 1;
-pub const F_WRLCK = 3;
-pub const F_UNLCK = 2;
+    pub const RDLCK = 1;
+    pub const WRLCK = 3;
+    pub const UNLCK = 2;
+
+    pub const SETOWN_EX = 15;
+    pub const GETOWN_EX = 16;
+
+    pub const GETOWNER_UIDS = 17;
+};
 
 pub const LOCK = struct {
     pub const SH = 1;
@@ -513,20 +563,11 @@ pub const LOCK = struct {
     pub const NB = 4;
 };
 
-pub const F_SETOWN_EX = 15;
-pub const F_GETOWN_EX = 16;
-
-pub const F_GETOWNER_UIDS = 17;
-
 pub const FD_CLOEXEC = 1;
 
 pub const SEEK_SET = 0;
 pub const SEEK_CUR = 1;
 pub const SEEK_END = 2;
-
-pub const SIG_BLOCK = 1;
-pub const SIG_UNBLOCK = 2;
-pub const SIG_SETMASK = 3;
 
 pub const SOCK = struct {
     pub const STREAM = 1;
@@ -890,10 +931,6 @@ pub const winsize = extern struct {
 
 const NSIG = 32;
 
-pub const SIG_DFL = @intToPtr(?Sigaction.sigaction_fn, 0);
-pub const SIG_IGN = @intToPtr(?Sigaction.sigaction_fn, 1);
-pub const SIG_ERR = @intToPtr(?Sigaction.sigaction_fn, maxInt(usize));
-
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
 pub const Sigaction = extern struct {
     pub const handler_fn = fn (c_int) callconv(.C) void;
@@ -942,34 +979,7 @@ pub const siginfo_t = extern struct {
     },
 };
 
-pub const sigval = extern union {
-    int: c_int,
-    ptr: ?*c_void,
-};
-
-pub const _SIG_WORDS = 4;
-pub const _SIG_MAXSIG = 128;
-
-pub inline fn _SIG_IDX(sig: usize) usize {
-    return sig - 1;
-}
-pub inline fn _SIG_WORD(sig: usize) usize {
-    return_SIG_IDX(sig) >> 5;
-}
-pub inline fn _SIG_BIT(sig: usize) usize {
-    return 1 << (_SIG_IDX(sig) & 31);
-}
-pub inline fn _SIG_VALID(sig: usize) usize {
-    return sig <= _SIG_MAXSIG and sig > 0;
-}
-
-pub const sigset_t = extern struct {
-    __bits: [_SIG_WORDS]u32,
-};
-
-pub const empty_sigset = sigset_t{ .__bits = [_]u32{0} ** _SIG_WORDS };
-
-const arch_bits = switch (builtin.cpu.arch) {
+pub usingnamespace switch (builtin.cpu.arch) {
     .x86_64 => struct {
         pub const ucontext_t = extern struct {
             sigmask: sigset_t,
@@ -1015,8 +1025,6 @@ const arch_bits = switch (builtin.cpu.arch) {
     },
     else => struct {},
 };
-pub const ucontext_t = arch_bits.ucontext_t;
-pub const mcontext_t = arch_bits.mcontext_t;
 
 pub const E = enum(u16) {
     /// No error occurred.
@@ -1224,22 +1232,22 @@ pub fn S_IWHT(m: u32) bool {
 
 pub const HOST_NAME_MAX = 255;
 
-/// Magic value that specify the use of the current working directory
-/// to determine the target of relative file paths in the openat() and
-/// similar syscalls.
-pub const AT_FDCWD = -100;
-
-/// Check access using effective user and group ID
-pub const AT_EACCESS = 0x0100;
-
-/// Do not follow symbolic links
-pub const AT_SYMLINK_NOFOLLOW = 0x0200;
-
-/// Follow symbolic link
-pub const AT_SYMLINK_FOLLOW = 0x0400;
-
-/// Remove directory instead of file
-pub const AT_REMOVEDIR = 0x0800;
+pub const AT = struct {
+    /// Magic value that specify the use of the current working directory
+    /// to determine the target of relative file paths in the openat() and
+    /// similar syscalls.
+    pub const FDCWD = -100;
+    /// Check access using effective user and group ID
+    pub const EACCESS = 0x0100;
+    /// Do not follow symbolic links
+    pub const SYMLINK_NOFOLLOW = 0x0200;
+    /// Follow symbolic link
+    pub const SYMLINK_FOLLOW = 0x0400;
+    /// Remove directory instead of file
+    pub const REMOVEDIR = 0x0800;
+    /// Fail if not under dirfd
+    pub const BENEATH = 0x1000;
+};
 
 pub const addrinfo = extern struct {
     flags: i32,
@@ -1251,9 +1259,6 @@ pub const addrinfo = extern struct {
     addr: ?*sockaddr,
     next: ?*addrinfo,
 };
-
-/// Fail if not under dirfd
-pub const AT_BENEATH = 0x1000;
 
 pub const IPPROTO = struct {
     /// dummy for IP

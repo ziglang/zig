@@ -902,7 +902,7 @@ pub fn formatText(
     } else if (comptime std.mem.eql(u8, fmt, "Z")) {
         @compileError("specifier 'Z' has been deprecated, wrap your argument in std.zig.fmtEscapes instead");
     } else {
-        @compileError("Unsupported format string '" ++ fmt ++ "' for type '" ++ @typeName(@TypeOf(value)) ++ "'");
+        @compileError("Unsupported format string '" ++ fmt ++ "' when formatting text");
     }
 }
 

@@ -1,5 +1,8 @@
 const std = @import("../std.zig");
+const builtin = @import("builtin");
 const maxInt = std.math.maxInt;
+const iovec = std.os.iovec;
+const iovec_const = std.os.iovec_const;
 
 extern "c" fn _errnop() *c_int;
 
@@ -421,43 +424,64 @@ pub const SA_NOMASK = SA_NODEFER;
 pub const SA_STACK = SA_ONSTACK;
 pub const SA_ONESHOT = SA_RESETHAND;
 
-pub const SIGHUP = 1;
-pub const SIGINT = 2;
-pub const SIGQUIT = 3;
-pub const SIGILL = 4;
-pub const SIGCHLD = 5;
-pub const SIGABRT = 6;
-pub const SIGIOT = SIGABRT;
-pub const SIGPIPE = 7;
-pub const SIGFPE = 8;
-pub const SIGKILL = 9;
-pub const SIGSTOP = 10;
-pub const SIGSEGV = 11;
-pub const SIGCONT = 12;
-pub const SIGTSTP = 13;
-pub const SIGALRM = 14;
-pub const SIGTERM = 15;
-pub const SIGTTIN = 16;
-pub const SIGTTOU = 17;
-pub const SIGUSR1 = 18;
-pub const SIGUSR2 = 19;
-pub const SIGWINCH = 20;
-pub const SIGKILLTHR = 21;
-pub const SIGTRAP = 22;
-pub const SIGPOLL = 23;
-pub const SIGPROF = 24;
-pub const SIGSYS = 25;
-pub const SIGURG = 26;
-pub const SIGVTALRM = 27;
-pub const SIGXCPU = 28;
-pub const SIGXFSZ = 29;
-pub const SIGBUS = 30;
-pub const SIGRESERVED1 = 31;
-pub const SIGRESERVED2 = 32;
+pub const SIG = struct {
+    pub const HUP = 1;
+    pub const INT = 2;
+    pub const QUIT = 3;
+    pub const ILL = 4;
+    pub const CHLD = 5;
+    pub const ABRT = 6;
+    pub const IOT = ABRT;
+    pub const PIPE = 7;
+    pub const FPE = 8;
+    pub const KILL = 9;
+    pub const STOP = 10;
+    pub const SEGV = 11;
+    pub const CONT = 12;
+    pub const TSTP = 13;
+    pub const ALRM = 14;
+    pub const TERM = 15;
+    pub const TTIN = 16;
+    pub const TTOU = 17;
+    pub const USR1 = 18;
+    pub const USR2 = 19;
+    pub const WINCH = 20;
+    pub const KILLTHR = 21;
+    pub const TRAP = 22;
+    pub const POLL = 23;
+    pub const PROF = 24;
+    pub const SYS = 25;
+    pub const URG = 26;
+    pub const VTALRM = 27;
+    pub const XCPU = 28;
+    pub const XFSZ = 29;
+    pub const BUS = 30;
+    pub const RESERVED1 = 31;
+    pub const RESERVED2 = 32;
 
-// TODO: check
-pub const SIGRTMIN = 65;
-pub const SIGRTMAX = 126;
+    // TODO: check
+    pub const RTMIN = 65;
+    pub const RTMAX = 126;
+
+    pub const BLOCK = 1;
+    pub const UNBLOCK = 2;
+    pub const SETMASK = 3;
+
+    pub const WORDS = 4;
+    pub const MAXSIG = 128;
+    pub inline fn IDX(sig: usize) usize {
+        return sig - 1;
+    }
+    pub inline fn WORD(sig: usize) usize {
+        return IDX(sig) >> 5;
+    }
+    pub inline fn BIT(sig: usize) usize {
+        return 1 << (IDX(sig) & 31);
+    }
+    pub inline fn VALID(sig: usize) usize {
+        return sig <= MAXSIG and sig > 0;
+    }
+};
 
 // access function
 pub const F_OK = 0; // test for existence of file
@@ -493,22 +517,29 @@ pub const O_PATH = 0o10000000;
 pub const O_TMPFILE = 0o20200000;
 pub const O_NDELAY = O_NONBLOCK;
 
-pub const F_DUPFD = 0;
-pub const F_GETFD = 1;
-pub const F_SETFD = 2;
-pub const F_GETFL = 3;
-pub const F_SETFL = 4;
+pub const F = struct {
+    pub const DUPFD = 0;
+    pub const GETFD = 1;
+    pub const SETFD = 2;
+    pub const GETFL = 3;
+    pub const SETFL = 4;
 
-pub const F_GETOWN = 5;
-pub const F_SETOWN = 6;
+    pub const GETOWN = 5;
+    pub const SETOWN = 6;
 
-pub const F_GETLK = 11;
-pub const F_SETLK = 12;
-pub const F_SETLKW = 13;
+    pub const GETLK = 11;
+    pub const SETLK = 12;
+    pub const SETLKW = 13;
 
-pub const F_RDLCK = 1;
-pub const F_WRLCK = 3;
-pub const F_UNLCK = 2;
+    pub const RDLCK = 1;
+    pub const WRLCK = 3;
+    pub const UNLCK = 2;
+
+    pub const SETOWN_EX = 15;
+    pub const GETOWN_EX = 16;
+
+    pub const GETOWNER_UIDS = 17;
+};
 
 pub const LOCK = struct {
     pub const SH = 1;
@@ -517,20 +548,11 @@ pub const LOCK = struct {
     pub const NB = 4;
 };
 
-pub const F_SETOWN_EX = 15;
-pub const F_GETOWN_EX = 16;
-
-pub const F_GETOWNER_UIDS = 17;
-
 pub const FD_CLOEXEC = 1;
 
 pub const SEEK_SET = 0;
 pub const SEEK_CUR = 1;
 pub const SEEK_END = 2;
-
-pub const SIG_BLOCK = 1;
-pub const SIG_UNBLOCK = 2;
-pub const SIG_SETMASK = 3;
 
 pub const SOCK = struct {
     pub const STREAM = 1;
@@ -615,7 +637,7 @@ pub const PF = struct {
     pub const SIP = AF.SIP;
     pub const IPX = AF.IPX;
     pub const RTIP = AF.pseudo_RTIP;
-    pub const PIP = psuedo_AF.PIP;
+    pub const PIP = AF.pseudo_PIP;
     pub const ISDN = AF.ISDN;
     pub const KEY = AF.pseudo_KEY;
     pub const INET6 = AF.pseudo_INET6;
@@ -816,7 +838,6 @@ pub const Sigaction = extern struct {
     /// signal handler
     __sigaction_u: extern union {
         __sa_handler: fn (i32) callconv(.C) void,
-        __sa_sigaction: fn (i32, *__siginfo, usize) callconv(.C) void,
     },
 
     /// see signal options
@@ -826,23 +847,8 @@ pub const Sigaction = extern struct {
     sa_mask: sigset_t,
 };
 
-pub const _SIG_WORDS = 4;
-pub const _SIG_MAXSIG = 128;
-pub inline fn _SIG_IDX(sig: usize) usize {
-    return sig - 1;
-}
-pub inline fn _SIG_WORD(sig: usize) usize {
-    return_SIG_IDX(sig) >> 5;
-}
-pub inline fn _SIG_BIT(sig: usize) usize {
-    return 1 << (_SIG_IDX(sig) & 31);
-}
-pub inline fn _SIG_VALID(sig: usize) usize {
-    return sig <= _SIG_MAXSIG and sig > 0;
-}
-
 pub const sigset_t = extern struct {
-    __bits: [_SIG_WORDS]u32,
+    __bits: [SIG.WORDS]u32,
 };
 
 pub const E = enum(i32) {
@@ -1047,22 +1053,22 @@ pub fn S_IWHT(m: u32) bool {
 
 pub const HOST_NAME_MAX = 255;
 
-/// Magic value that specify the use of the current working directory
-/// to determine the target of relative file paths in the openat() and
-/// similar syscalls.
-pub const AT_FDCWD = -100;
-
-/// Check access using effective user and group ID
-pub const AT_EACCESS = 0x0100;
-
-/// Do not follow symbolic links
-pub const AT_SYMLINK_NOFOLLOW = 0x0200;
-
-/// Follow symbolic link
-pub const AT_SYMLINK_FOLLOW = 0x0400;
-
-/// Remove directory instead of file
-pub const AT_REMOVEDIR = 0x0800;
+pub const AT = struct {
+    /// Magic value that specify the use of the current working directory
+    /// to determine the target of relative file paths in the openat() and
+    /// similar syscalls.
+    pub const FDCWD = -100;
+    /// Check access using effective user and group ID
+    pub const EACCESS = 0x0100;
+    /// Do not follow symbolic links
+    pub const SYMLINK_NOFOLLOW = 0x0200;
+    /// Follow symbolic link
+    pub const SYMLINK_FOLLOW = 0x0400;
+    /// Remove directory instead of file
+    pub const REMOVEDIR = 0x0800;
+    /// Fail if not under dirfd
+    pub const BENEATH = 0x1000;
+};
 
 pub const addrinfo = extern struct {
     flags: i32,
@@ -1074,9 +1080,6 @@ pub const addrinfo = extern struct {
     addr: ?*sockaddr,
     next: ?*addrinfo,
 };
-
-/// Fail if not under dirfd
-pub const AT_BENEATH = 0x1000;
 
 pub const IPPROTO = struct {
     /// dummy for IP

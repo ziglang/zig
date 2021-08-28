@@ -4,6 +4,7 @@ const assert = std.debug.assert;
 const testing = std.testing;
 const mem = std.mem;
 const Loop = std.event.Loop;
+const Allocator = std.mem.Allocator;
 
 /// Thread-safe async/await lock.
 /// Functions which are waiting for the lock are suspended, and

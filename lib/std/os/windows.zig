@@ -2971,7 +2971,7 @@ pub const EXCEPTION_RECORD = extern struct {
     ExceptionInformation: [15]usize,
 };
 
-const arch_bits = switch (native_arch) {
+pub usingnamespace switch (native_arch) {
     .i386 => struct {
         pub const FLOATING_SAVE_AREA = extern struct {
             ControlWord: DWORD,
@@ -3037,8 +3037,8 @@ const arch_bits = switch (native_arch) {
             Reserved3: WORD,
             MxCsr: DWORD,
             MxCsr_Mask: DWORD,
-            FloatRegisters: [8]arch_bits.M128A,
-            XmmRegisters: [16]arch_bits.M128A,
+            FloatRegisters: [8]M128A,
+            XmmRegisters: [16]M128A,
             Reserved4: [96]BYTE,
         };
 
@@ -3082,8 +3082,8 @@ const arch_bits = switch (native_arch) {
             R15: DWORD64,
             Rip: DWORD64,
             DUMMYUNIONNAME: extern union {
-                FltSave: arch_bits.XMM_SAVE_AREA32,
-                FloatSave: arch_bits.XMM_SAVE_AREA32,
+                FltSave: XMM_SAVE_AREA32,
+                FloatSave: XMM_SAVE_AREA32,
                 DUMMYSTRUCTNAME: extern struct {
                     Header: [2]M128A,
                     Legacy: [8]M128A,
@@ -3189,15 +3189,10 @@ const arch_bits = switch (native_arch) {
     },
     else => struct {},
 };
-pub const M128A = arch_bits.M128A;
-pub const XMM_SAVE_AREA32 = arch_bits.XMM_SAVE_AREA32;
-pub const CONTEXT = arch_bits.CONTEXT;
-pub const FLOATING_SAVE_AREA = arch_bits.FLOATING_SAVE_AREA;
-pub const NEON128 = arch_bits.NEON128;
 
 pub const EXCEPTION_POINTERS = extern struct {
     ExceptionRecord: *EXCEPTION_RECORD,
-    ContextRecord: *CONTEXT,
+    ContextRecord: *@This().CONTEXT,
 };
 
 pub const VECTORED_EXCEPTION_HANDLER = fn (ExceptionInfo: *EXCEPTION_POINTERS) callconv(WINAPI) c_long;

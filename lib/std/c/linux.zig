@@ -6,6 +6,7 @@ const native_arch = builtin.cpu.arch;
 const linux = std.os.linux;
 const iovec = std.os.iovec;
 const iovec_const = std.os.iovec_const;
+const FILE = std.c.FILE;
 
 pub const AF = linux.AF;
 pub const ARCH = linux.ARCH;

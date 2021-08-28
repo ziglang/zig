@@ -50,8 +50,12 @@ pub const syscall3 = syscall_bits.syscall3;
 pub const syscall4 = syscall_bits.syscall4;
 pub const syscall5 = syscall_bits.syscall5;
 pub const syscall6 = syscall_bits.syscall6;
+pub const syscall7 = syscall_bits.syscall7;
 pub const restore = syscall_bits.restore;
 pub const restore_rt = syscall_bits.restore_rt;
+pub const socketcall = syscall_bits.socketcall;
+pub const syscall_pipe = syscall_bits.syscall_pipe;
+pub const syscall_fork = syscall_bits.syscall_fork;
 
 pub const clone = arch_bits.clone;
 pub const ARCH = arch_bits.ARCH;
@@ -181,7 +185,7 @@ pub fn dup2(old: i32, new: i32) usize {
     } else {
         if (old == new) {
             if (std.debug.runtime_safety) {
-                const rc = syscall2(.fcntl, @bitCast(usize, @as(isize, old)), F_GETFD);
+                const rc = syscall2(.fcntl, @bitCast(usize, @as(isize, old)), F.GETFD);
                 if (@bitCast(isize, rc) < 0) return rc;
             }
             return @intCast(usize, old);
@@ -217,7 +221,7 @@ pub fn fork() usize {
     } else if (@hasField(SYS, "fork")) {
         return syscall0(.fork);
     } else {
-        return syscall2(.clone, SIGCHLD, 0);
+        return syscall2(.clone, SIG.CHLD, 0);
     }
 }
 
@@ -821,7 +825,7 @@ var vdso_clock_gettime = @ptrCast(?*const c_void, init_vdso_clock_gettime);
 const vdso_clock_gettime_ty = fn (i32, *timespec) callconv(.C) usize;
 
 pub fn clock_gettime(clk_id: i32, tp: *timespec) usize {
-    if (@hasDecl(@This(), "VDSO_CGT_SYM")) {
+    if (@hasDecl(VDSO, "CGT_SYM")) {
         const ptr = @atomicLoad(?*const c_void, &vdso_clock_gettime, .Unordered);
         if (ptr) |fn_ptr| {
             const f = @ptrCast(vdso_clock_gettime_ty, fn_ptr);
@@ -836,7 +840,7 @@ pub fn clock_gettime(clk_id: i32, tp: *timespec) usize {
 }
 
 fn init_vdso_clock_gettime(clk: i32, ts: *timespec) callconv(.C) usize {
-    const ptr = @intToPtr(?*const c_void, vdso.lookup(VDSO_CGT_VER, VDSO_CGT_SYM));
+    const ptr = @intToPtr(?*const c_void, vdso.lookup(VDSO.CGT_VER, VDSO.CGT_SYM));
     // Note that we may not have a VDSO at all, update the stub address anyway
     // so that clock_gettime will fall back on the good old (and slow) syscall
     @atomicStore(?*const c_void, &vdso_clock_gettime, ptr, .Monotonic);
@@ -1070,42 +1074,42 @@ pub fn sigismember(set: *const sigset_t, sig: u6) bool {
 
 pub fn getsockname(fd: i32, noalias addr: *sockaddr, noalias len: *socklen_t) usize {
     if (native_arch == .i386) {
-        return socketcall(SC_getsockname, &[3]usize{ @bitCast(usize, @as(isize, fd)), @ptrToInt(addr), @ptrToInt(len) });
+        return socketcall(SC.getsockname, &[3]usize{ @bitCast(usize, @as(isize, fd)), @ptrToInt(addr), @ptrToInt(len) });
     }
     return syscall3(.getsockname, @bitCast(usize, @as(isize, fd)), @ptrToInt(addr), @ptrToInt(len));
 }
 
 pub fn getpeername(fd: i32, noalias addr: *sockaddr, noalias len: *socklen_t) usize {
     if (native_arch == .i386) {
-        return socketcall(SC_getpeername, &[3]usize{ @bitCast(usize, @as(isize, fd)), @ptrToInt(addr), @ptrToInt(len) });
+        return socketcall(SC.getpeername, &[3]usize{ @bitCast(usize, @as(isize, fd)), @ptrToInt(addr), @ptrToInt(len) });
     }
     return syscall3(.getpeername, @bitCast(usize, @as(isize, fd)), @ptrToInt(addr), @ptrToInt(len));
 }
 
 pub fn socket(domain: u32, socket_type: u32, protocol: u32) usize {
     if (native_arch == .i386) {
-        return socketcall(SC_socket, &[3]usize{ domain, socket_type, protocol });
+        return socketcall(SC.socket, &[3]usize{ domain, socket_type, protocol });
     }
     return syscall3(.socket, domain, socket_type, protocol);
 }
 
 pub fn setsockopt(fd: i32, level: u32, optname: u32, optval: [*]const u8, optlen: socklen_t) usize {
     if (native_arch == .i386) {
-        return socketcall(SC_setsockopt, &[5]usize{ @bitCast(usize, @as(isize, fd)), level, optname, @ptrToInt(optval), @intCast(usize, optlen) });
+        return socketcall(SC.setsockopt, &[5]usize{ @bitCast(usize, @as(isize, fd)), level, optname, @ptrToInt(optval), @intCast(usize, optlen) });
     }
     return syscall5(.setsockopt, @bitCast(usize, @as(isize, fd)), level, optname, @ptrToInt(optval), @intCast(usize, optlen));
 }
 
 pub fn getsockopt(fd: i32, level: u32, optname: u32, noalias optval: [*]u8, noalias optlen: *socklen_t) usize {
     if (native_arch == .i386) {
-        return socketcall(SC_getsockopt, &[5]usize{ @bitCast(usize, @as(isize, fd)), level, optname, @ptrToInt(optval), @ptrToInt(optlen) });
+        return socketcall(SC.getsockopt, &[5]usize{ @bitCast(usize, @as(isize, fd)), level, optname, @ptrToInt(optval), @ptrToInt(optlen) });
     }
     return syscall5(.getsockopt, @bitCast(usize, @as(isize, fd)), level, optname, @ptrToInt(optval), @ptrToInt(optlen));
 }
 
 pub fn sendmsg(fd: i32, msg: *const std.x.os.Socket.Message, flags: c_int) usize {
     if (native_arch == .i386) {
-        return socketcall(SC_sendmsg, &[3]usize{ @bitCast(usize, @as(isize, fd)), @ptrToInt(msg), @bitCast(usize, @as(isize, flags)) });
+        return socketcall(SC.sendmsg, &[3]usize{ @bitCast(usize, @as(isize, fd)), @ptrToInt(msg), @bitCast(usize, @as(isize, flags)) });
     }
     return syscall3(.sendmsg, @bitCast(usize, @as(isize, fd)), @ptrToInt(msg), @bitCast(usize, @as(isize, flags)));
 }
@@ -1152,49 +1156,49 @@ pub fn sendmmsg(fd: i32, msgvec: [*]mmsghdr_const, vlen: u32, flags: u32) usize 
 
 pub fn connect(fd: i32, addr: *const c_void, len: socklen_t) usize {
     if (native_arch == .i386) {
-        return socketcall(SC_connect, &[3]usize{ @bitCast(usize, @as(isize, fd)), @ptrToInt(addr), len });
+        return socketcall(SC.connect, &[3]usize{ @bitCast(usize, @as(isize, fd)), @ptrToInt(addr), len });
     }
     return syscall3(.connect, @bitCast(usize, @as(isize, fd)), @ptrToInt(addr), len);
 }
 
 pub fn recvmsg(fd: i32, msg: *std.x.os.Socket.Message, flags: c_int) usize {
     if (native_arch == .i386) {
-        return socketcall(SC_recvmsg, &[3]usize{ @bitCast(usize, @as(isize, fd)), @ptrToInt(msg), @bitCast(usize, @as(isize, flags)) });
+        return socketcall(SC.recvmsg, &[3]usize{ @bitCast(usize, @as(isize, fd)), @ptrToInt(msg), @bitCast(usize, @as(isize, flags)) });
     }
     return syscall3(.recvmsg, @bitCast(usize, @as(isize, fd)), @ptrToInt(msg), @bitCast(usize, @as(isize, flags)));
 }
 
 pub fn recvfrom(fd: i32, noalias buf: [*]u8, len: usize, flags: u32, noalias addr: ?*sockaddr, noalias alen: ?*socklen_t) usize {
     if (native_arch == .i386) {
-        return socketcall(SC_recvfrom, &[6]usize{ @bitCast(usize, @as(isize, fd)), @ptrToInt(buf), len, flags, @ptrToInt(addr), @ptrToInt(alen) });
+        return socketcall(SC.recvfrom, &[6]usize{ @bitCast(usize, @as(isize, fd)), @ptrToInt(buf), len, flags, @ptrToInt(addr), @ptrToInt(alen) });
     }
     return syscall6(.recvfrom, @bitCast(usize, @as(isize, fd)), @ptrToInt(buf), len, flags, @ptrToInt(addr), @ptrToInt(alen));
 }
 
 pub fn shutdown(fd: i32, how: i32) usize {
     if (native_arch == .i386) {
-        return socketcall(SC_shutdown, &[2]usize{ @bitCast(usize, @as(isize, fd)), @bitCast(usize, @as(isize, how)) });
+        return socketcall(SC.shutdown, &[2]usize{ @bitCast(usize, @as(isize, fd)), @bitCast(usize, @as(isize, how)) });
     }
     return syscall2(.shutdown, @bitCast(usize, @as(isize, fd)), @bitCast(usize, @as(isize, how)));
 }
 
 pub fn bind(fd: i32, addr: *const sockaddr, len: socklen_t) usize {
     if (native_arch == .i386) {
-        return socketcall(SC_bind, &[3]usize{ @bitCast(usize, @as(isize, fd)), @ptrToInt(addr), @intCast(usize, len) });
+        return socketcall(SC.bind, &[3]usize{ @bitCast(usize, @as(isize, fd)), @ptrToInt(addr), @intCast(usize, len) });
     }
     return syscall3(.bind, @bitCast(usize, @as(isize, fd)), @ptrToInt(addr), @intCast(usize, len));
 }
 
 pub fn listen(fd: i32, backlog: u32) usize {
     if (native_arch == .i386) {
-        return socketcall(SC_listen, &[2]usize{ @bitCast(usize, @as(isize, fd)), backlog });
+        return socketcall(SC.listen, &[2]usize{ @bitCast(usize, @as(isize, fd)), backlog });
     }
     return syscall2(.listen, @bitCast(usize, @as(isize, fd)), backlog);
 }
 
 pub fn sendto(fd: i32, buf: [*]const u8, len: usize, flags: u32, addr: ?*const sockaddr, alen: socklen_t) usize {
     if (native_arch == .i386) {
-        return socketcall(SC_sendto, &[6]usize{ @bitCast(usize, @as(isize, fd)), @ptrToInt(buf), len, flags, @ptrToInt(addr), @intCast(usize, alen) });
+        return socketcall(SC.sendto, &[6]usize{ @bitCast(usize, @as(isize, fd)), @ptrToInt(buf), len, flags, @ptrToInt(addr), @intCast(usize, alen) });
     }
     return syscall6(.sendto, @bitCast(usize, @as(isize, fd)), @ptrToInt(buf), len, flags, @ptrToInt(addr), @intCast(usize, alen));
 }
@@ -1221,21 +1225,21 @@ pub fn sendfile(outfd: i32, infd: i32, offset: ?*i64, count: usize) usize {
 
 pub fn socketpair(domain: i32, socket_type: i32, protocol: i32, fd: [2]i32) usize {
     if (native_arch == .i386) {
-        return socketcall(SC_socketpair, &[4]usize{ @intCast(usize, domain), @intCast(usize, socket_type), @intCast(usize, protocol), @ptrToInt(&fd[0]) });
+        return socketcall(SC.socketpair, &[4]usize{ @intCast(usize, domain), @intCast(usize, socket_type), @intCast(usize, protocol), @ptrToInt(&fd[0]) });
     }
     return syscall4(.socketpair, @intCast(usize, domain), @intCast(usize, socket_type), @intCast(usize, protocol), @ptrToInt(&fd[0]));
 }
 
 pub fn accept(fd: i32, noalias addr: ?*sockaddr, noalias len: ?*socklen_t) usize {
     if (native_arch == .i386) {
-        return socketcall(SC_accept, &[4]usize{ fd, addr, len, 0 });
+        return socketcall(SC.accept, &[4]usize{ fd, addr, len, 0 });
     }
     return accept4(fd, addr, len, 0);
 }
 
 pub fn accept4(fd: i32, noalias addr: ?*sockaddr, noalias len: ?*socklen_t, flags: u32) usize {
     if (native_arch == .i386) {
-        return socketcall(SC_accept4, &[4]usize{ @bitCast(usize, @as(isize, fd)), @ptrToInt(addr), @ptrToInt(len), flags });
+        return socketcall(SC.accept4, &[4]usize{ @bitCast(usize, @as(isize, fd)), @ptrToInt(addr), @ptrToInt(len), flags });
     }
     return syscall4(.accept4, @bitCast(usize, @as(isize, fd)), @ptrToInt(addr), @ptrToInt(len), flags);
 }
@@ -1435,11 +1439,11 @@ pub fn getrusage(who: i32, usage: *rusage) usize {
 }
 
 pub fn tcgetattr(fd: fd_t, termios_p: *termios) usize {
-    return syscall3(.ioctl, @bitCast(usize, @as(isize, fd)), TCGETS, @ptrToInt(termios_p));
+    return syscall3(.ioctl, @bitCast(usize, @as(isize, fd)), T.CGETS, @ptrToInt(termios_p));
 }
 
 pub fn tcsetattr(fd: fd_t, optional_action: TCSA, termios_p: *const termios) usize {
-    return syscall3(.ioctl, @bitCast(usize, @as(isize, fd)), TCSETS + @enumToInt(optional_action), @ptrToInt(termios_p));
+    return syscall3(.ioctl, @bitCast(usize, @as(isize, fd)), T.CSETS + @enumToInt(optional_action), @ptrToInt(termios_p));
 }
 
 pub fn ioctl(fd: fd_t, request: u32, arg: usize) usize {
@@ -1900,7 +1904,7 @@ pub const SIG = if (is_mips) struct {
     pub const IOT = ABRT;
     pub const CLD = CHLD;
     pub const PWR = LOST;
-    pub const IO = POLL;
+    pub const IO = SIG.POLL;
 
     pub const ERR = @intToPtr(?Sigaction.sigaction_fn, maxInt(usize));
     pub const DFL = @intToPtr(?Sigaction.sigaction_fn, 0);
@@ -1996,8 +2000,8 @@ pub const SOCK = struct {
 pub const PF = struct {
     pub const UNSPEC = 0;
     pub const LOCAL = 1;
-    pub const UNIX = PF_LOCAL;
-    pub const FILE = PF_LOCAL;
+    pub const UNIX = LOCAL;
+    pub const FILE = LOCAL;
     pub const INET = 2;
     pub const AX25 = 3;
     pub const IPX = 4;
@@ -2013,7 +2017,7 @@ pub const PF = struct {
     pub const SECURITY = 14;
     pub const KEY = 15;
     pub const NETLINK = 16;
-    pub const ROUTE = PF_NETLINK;
+    pub const ROUTE = PF.NETLINK;
     pub const PACKET = 17;
     pub const ASH = 18;
     pub const ECONET = 19;
@@ -2357,7 +2361,7 @@ pub const IP = struct {
     pub const PASSSEC = 18;
     pub const TRANSPARENT = 19;
     pub const ORIGDSTADDR = 20;
-    pub const RECVORIGDSTADDR = IP_ORIGDSTADDR;
+    pub const RECVORIGDSTADDR = IP.ORIGDSTADDR;
     pub const MINTTL = 21;
     pub const NODEFRAG = 22;
     pub const CHECKSUM = 23;
@@ -2376,7 +2380,7 @@ pub const IP = struct {
     pub const MULTICAST_ALL = 49;
     pub const UNICAST_IF = 50;
 
-    pub const RECVRETOPTS = IP_RETOPTS;
+    pub const RECVRETOPTS = IP.RETOPTS;
 
     pub const PMTUDISC_DONT = 0;
     pub const PMTUDISC_WANT = 1;
@@ -2418,7 +2422,7 @@ pub const IPV6 = struct {
     pub const JOIN_ANYCAST = 27;
     pub const LEAVE_ANYCAST = 28;
 
-    // IPV6_MTU_DISCOVER values
+    // IPV6.MTU_DISCOVER values
     pub const PMTUDISC_DONT = 0;
     pub const PMTUDISC_WANT = 1;
     pub const PMTUDISC_DO = 2;
@@ -2470,7 +2474,7 @@ pub const IPV6 = struct {
     pub const MINHOPCOUNT = 73;
 
     pub const ORIGDSTADDR = 74;
-    pub const RECVORIGDSTADDR = IPV6_ORIGDSTADDR;
+    pub const RECVORIGDSTADDR = IPV6.ORIGDSTADDR;
     pub const TRANSPARENT = 75;
     pub const UNICAST_IF = 76;
     pub const RECVFRAGSIZE = 77;
@@ -3924,8 +3928,8 @@ pub const V = switch (native_arch) {
         pub const DISCARD = 13;
         pub const WERASE = 14;
         pub const LNEXT = 15;
-        pub const MIN = VEOF;
-        pub const TIME = VEOL;
+        pub const MIN = EOF;
+        pub const TIME = EOL;
     },
     .mips, .mipsel, .mips64, .mips64el => struct {
         pub const INTR = 0;

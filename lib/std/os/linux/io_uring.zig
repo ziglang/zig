@@ -1297,12 +1297,12 @@ test "openat" {
 
     const flags: u32 = os.O_CLOEXEC | os.O_RDWR | os.O_CREAT;
     const mode: os.mode_t = 0o666;
-    const sqe_openat = try ring.openat(0x33333333, linux.AT_FDCWD, path, flags, mode);
+    const sqe_openat = try ring.openat(0x33333333, linux.AT.FDCWD, path, flags, mode);
     try testing.expectEqual(io_uring_sqe{
         .opcode = .OPENAT,
         .flags = 0,
         .ioprio = 0,
-        .fd = linux.AT_FDCWD,
+        .fd = linux.AT.FDCWD,
         .off = 0,
         .addr = @ptrToInt(path),
         .len = mode,
@@ -1318,7 +1318,7 @@ test "openat" {
     const cqe_openat = try ring.copy_cqe();
     try testing.expectEqual(@as(u64, 0x33333333), cqe_openat.user_data);
     if (cqe_openat.err() == .INVAL) return error.SkipZigTest;
-    // AT_FDCWD is not fully supported before kernel 5.6:
+    // AT.FDCWD is not fully supported before kernel 5.6:
     // See https://lore.kernel.org/io-uring/20200207155039.12819-1-axboe@kernel.dk/T/
     // We use IORING_FEAT_RW_CUR_POS to know if we are pre-5.6 since that feature was added in 5.6.
     if (cqe_openat.err() == .BADF and (ring.features & linux.IORING_FEAT_RW_CUR_POS) == 0) {
