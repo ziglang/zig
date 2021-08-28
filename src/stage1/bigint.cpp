@@ -508,6 +508,7 @@ void bigint_clamp_by_bitcount(BigInt* dest, uint32_t bit_count, bool is_signed) 
             }
         } else {
             if(is_negative) {
+                bigint_deinit(dest);
                 bigint_init_unsigned(dest, 0);
                 return; // skips setting is_negative which would be invalid
             } else {
