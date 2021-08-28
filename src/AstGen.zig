@@ -6417,6 +6417,9 @@ fn identifier(
         },
         .top => break,
     };
+    if (found_already == null) {
+        return astgen.failNode(ident, "use of undeclared identifier '{s}'", .{ident_name});
+    }
 
     // Decl references happen by name rather than ZIR index so that when unrelated
     // decls are modified, ZIR code containing references to them can be unmodified.
@@ -10030,7 +10033,7 @@ fn isPrimitive(name: []const u8) bool {
     }
 }
 
-/// Local variables shadowing detection, including function parameters and primitives.
+/// Local variables shadowing detection, including function parameters.
 fn detectLocalShadowing(
     astgen: *AstGen,
     scope: *Scope,
