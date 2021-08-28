@@ -928,23 +928,23 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             return renderCall(c, lhs, payload.args);
         },
         .null_literal => return c.addNode(.{
-            .tag = .null_literal,
-            .main_token = try c.addToken(.keyword_null, "null"),
+            .tag = .identifier,
+            .main_token = try c.addToken(.identifier, "null"),
             .data = undefined,
         }),
         .undefined_literal => return c.addNode(.{
-            .tag = .undefined_literal,
-            .main_token = try c.addToken(.keyword_undefined, "undefined"),
+            .tag = .identifier,
+            .main_token = try c.addToken(.identifier, "undefined"),
             .data = undefined,
         }),
         .true_literal => return c.addNode(.{
-            .tag = .true_literal,
-            .main_token = try c.addToken(.keyword_true, "true"),
+            .tag = .identifier,
+            .main_token = try c.addToken(.identifier, "true"),
             .data = undefined,
         }),
         .false_literal => return c.addNode(.{
-            .tag = .false_literal,
-            .main_token = try c.addToken(.keyword_false, "false"),
+            .tag = .identifier,
+            .main_token = try c.addToken(.identifier, "false"),
             .data = undefined,
         }),
         .zero_literal => return c.addNode(.{
@@ -1599,8 +1599,8 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             const while_tok = try c.addToken(.keyword_while, "while");
             _ = try c.addToken(.l_paren, "(");
             const cond = try c.addNode(.{
-                .tag = .true_literal,
-                .main_token = try c.addToken(.keyword_true, "true"),
+                .tag = .identifier,
+                .main_token = try c.addToken(.identifier, "true"),
                 .data = undefined,
             });
             _ = try c.addToken(.r_paren, ")");

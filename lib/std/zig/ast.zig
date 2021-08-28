@@ -346,10 +346,6 @@ pub const Tree = struct {
             .char_literal,
             .integer_literal,
             .float_literal,
-            .false_literal,
-            .true_literal,
-            .null_literal,
-            .undefined_literal,
             .unreachable_literal,
             .string_literal,
             .multiline_string_literal,
@@ -711,10 +707,6 @@ pub const Tree = struct {
             .char_literal,
             .integer_literal,
             .float_literal,
-            .false_literal,
-            .true_literal,
-            .null_literal,
-            .undefined_literal,
             .unreachable_literal,
             .identifier,
             .deref,
@@ -2756,14 +2748,6 @@ pub const Node = struct {
         integer_literal,
         /// Both lhs and rhs unused.
         float_literal,
-        /// Both lhs and rhs unused.
-        false_literal,
-        /// Both lhs and rhs unused.
-        true_literal,
-        /// Both lhs and rhs unused.
-        null_literal,
-        /// Both lhs and rhs unused.
-        undefined_literal,
         /// Both lhs and rhs unused.
         unreachable_literal,
         /// Both lhs and rhs unused.

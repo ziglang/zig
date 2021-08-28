@@ -11564,11 +11564,7 @@ PrimaryTypeExpr
      / INTEGER
      / KEYWORD_comptime TypeExpr
      / KEYWORD_error DOT IDENTIFIER
-     / KEYWORD_false
-     / KEYWORD_null
      / KEYWORD_anyframe
-     / KEYWORD_true
-     / KEYWORD_undefined
      / KEYWORD_unreachable
      / STRINGLITERAL
      / SwitchExpr
@@ -11937,7 +11933,6 @@ KEYWORD_errdefer    &lt;- 'errdefer'    end_of_word
 KEYWORD_error       &lt;- 'error'       end_of_word
 KEYWORD_export      &lt;- 'export'      end_of_word
 KEYWORD_extern      &lt;- 'extern'      end_of_word
-KEYWORD_false       &lt;- 'false'       end_of_word
 KEYWORD_fn          &lt;- 'fn'          end_of_word
 KEYWORD_for         &lt;- 'for'         end_of_word
 KEYWORD_if          &lt;- 'if'          end_of_word
@@ -11945,7 +11940,6 @@ KEYWORD_inline      &lt;- 'inline'      end_of_word
 KEYWORD_noalias     &lt;- 'noalias'     end_of_word
 KEYWORD_nosuspend   &lt;- 'nosuspend'   end_of_word
 KEYWORD_noinline    &lt;- 'noinline'    end_of_word
-KEYWORD_null        &lt;- 'null'        end_of_word
 KEYWORD_opaque      &lt;- 'opaque'      end_of_word
 KEYWORD_or          &lt;- 'or'          end_of_word
 KEYWORD_orelse      &lt;- 'orelse'      end_of_word
@@ -11959,9 +11953,7 @@ KEYWORD_suspend     &lt;- 'suspend'     end_of_word
 KEYWORD_switch      &lt;- 'switch'      end_of_word
 KEYWORD_test        &lt;- 'test'        end_of_word
 KEYWORD_threadlocal &lt;- 'threadlocal' end_of_word
-KEYWORD_true        &lt;- 'true'        end_of_word
 KEYWORD_try         &lt;- 'try'         end_of_word
-KEYWORD_undefined   &lt;- 'undefined'   end_of_word
 KEYWORD_union       &lt;- 'union'       end_of_word
 KEYWORD_unreachable &lt;- 'unreachable' end_of_word
 KEYWORD_usingnamespace &lt;- 'usingnamespace' end_of_word
@@ -11974,13 +11966,13 @@ keyword &lt;- KEYWORD_align / KEYWORD_allowzero / KEYWORD_and / KEYWORD_anyframe
          / KEYWORD_break / KEYWORD_callconv / KEYWORD_catch / KEYWORD_comptime
          / KEYWORD_const / KEYWORD_continue / KEYWORD_defer / KEYWORD_else
          / KEYWORD_enum / KEYWORD_errdefer / KEYWORD_error / KEYWORD_export
-         / KEYWORD_extern / KEYWORD_false / KEYWORD_fn / KEYWORD_for / KEYWORD_if
+         / KEYWORD_extern / KEYWORD_fn / KEYWORD_for / KEYWORD_if
          / KEYWORD_inline / KEYWORD_noalias / KEYWORD_nosuspend / KEYWORD_noinline
-         / KEYWORD_null / KEYWORD_opaque / KEYWORD_or / KEYWORD_orelse / KEYWORD_packed
+         / KEYWORD_opaque / KEYWORD_or / KEYWORD_orelse / KEYWORD_packed
          / KEYWORD_pub / KEYWORD_resume / KEYWORD_return / KEYWORD_linksection
          / KEYWORD_struct / KEYWORD_suspend / KEYWORD_switch
-         / KEYWORD_test / KEYWORD_threadlocal / KEYWORD_true / KEYWORD_try
-         / KEYWORD_undefined / KEYWORD_union / KEYWORD_unreachable
+         / KEYWORD_test / KEYWORD_threadlocal / KEYWORD_try
+         / KEYWORD_union / KEYWORD_unreachable
          / KEYWORD_usingnamespace / KEYWORD_var / KEYWORD_volatile / KEYWORD_while
 </code></pre>
       {#header_close#}
