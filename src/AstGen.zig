@@ -6372,11 +6372,9 @@ fn identifier(
 
             if (local_val.name == name_str_index) {
                 local_val.used = true;
-                // Captures of non-locals need to be emitted as decl_val or decl_ref.
-                // This *might* be capturable depending on if it is comptime known.
-                if (hit_namespace == 0) {
-                    return rvalue(gz, rl, local_val.inst, ident);
-                }
+                // Locals cannot shadow anything, so we do not need to look for ambiguous
+                // references in this case.
+                return rvalue(gz, rl, local_val.inst, ident);
             }
             s = local_val.parent;
         },
@@ -6384,14 +6382,11 @@ fn identifier(
             const local_ptr = s.cast(Scope.LocalPtr).?;
             if (local_ptr.name == name_str_index) {
                 local_ptr.used = true;
-                if (hit_namespace != 0) {
-                    if (local_ptr.maybe_comptime)
-                        break
-                    else
-                        return astgen.failNodeNotes(ident, "mutable '{s}' not accessible from here", .{ident_name}, &.{
-                            try astgen.errNoteTok(local_ptr.token_src, "declared mutable here", .{}),
-                            try astgen.errNoteNode(hit_namespace, "crosses namespace boundary here", .{}),
-                        });
+                if (hit_namespace != 0 and !local_ptr.maybe_comptime) {
+                    return astgen.failNodeNotes(ident, "mutable '{s}' not accessible from here", .{ident_name}, &.{
+                        try astgen.errNoteTok(local_ptr.token_src, "declared mutable here", .{}),
+                        try astgen.errNoteNode(hit_namespace, "crosses namespace boundary here", .{}),
+                    });
                 }
                 switch (rl) {
                     .ref, .none_or_ref => return local_ptr.ptr,
