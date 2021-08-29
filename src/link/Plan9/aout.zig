@@ -34,6 +34,12 @@ pub const Sym = struct {
     type: Type,
     name: []const u8,
 
+    pub const undefined_symbol: Sym = .{
+        .value = undefined,
+        .type = .bad,
+        .name = "undefined_symbol",
+    };
+
     /// The type field is one of the following characters with the
     /// high bit set:
     /// T    text segment symbol
@@ -65,6 +71,8 @@ pub const Sym = struct {
         z = 0x80 | 'z',
         Z = 0x80 | 'Z',
         m = 0x80 | 'm',
+        /// represents an undefined symbol, to be removed in flush
+        bad = 0,
 
         pub fn toGlobal(self: Type) Type {
             return switch (self) {

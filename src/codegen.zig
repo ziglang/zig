@@ -52,16 +52,23 @@ pub const DebugInfoOutput = union(enum) {
     /// assume all numbers/variables are bytes
     /// 0 w x y z -> interpret w x y z as a big-endian i32, and add it to the line offset
     /// x when x < 65 -> add x to line offset
-    /// x when x < 129 -> subtract 64 from x and add it to the line offset
+    /// x when x < 129 -> subtract 64 from x and subtract it from the line offset
     /// x -> subtract 129 from x, multiply it by the quanta of the instruction size
     /// (1 on x86_64), and add it to the pc
     /// after every opcode, add the quanta of the instruction size to the pc
     plan9: struct {
         /// the actual opcodes
         dbg_line: *std.ArrayList(u8),
+        /// what line the debuginfo starts on
+        /// this helps because the linker might have to insert some opcodes to make sure that the line count starts at the right amount for the next decl
+        start_line: *?u32,
         /// what the line count ends on after codegen
         /// this helps because the linker might have to insert some opcodes to make sure that the line count starts at the right amount for the next decl
         end_line: *u32,
+        /// the last pc change op
+        /// This is very useful for adding quanta
+        /// to it if its not actually the last one.
+        pcop_change_index: *?u32,
     },
     none,
 };
@@ -946,7 +953,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
         fn dbgAdvancePCAndLine(self: *Self, line: u32, column: u32) InnerError!void {
             const delta_line = @intCast(i32, line) - @intCast(i32, self.prev_di_line);
-            const delta_pc = self.code.items.len - self.prev_di_pc;
+            const delta_pc: usize = self.code.items.len - self.prev_di_pc;
             switch (self.debug_output) {
                 .dwarf => |dbg_out| {
                     // TODO Look into using the DWARF special opcodes to compress this data.
@@ -960,30 +967,39 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         leb128.writeILEB128(dbg_out.dbg_line.writer(), delta_line) catch unreachable;
                     }
                     dbg_out.dbg_line.appendAssumeCapacity(DW.LNS.copy);
+                    self.prev_di_pc = self.code.items.len;
+                    self.prev_di_line = line;
+                    self.prev_di_column = column;
+                    self.prev_di_pc = self.code.items.len;
                 },
                 .plan9 => |dbg_out| {
+                    if (delta_pc <= 0) return; // only do this when the pc changes
                     // we have already checked the target in the linker to make sure it is compatable
                     const quant = @import("link/Plan9/aout.zig").getPCQuant(self.target.cpu.arch) catch unreachable;
 
                     // increasing the line number
-                    if (delta_line > 0 and delta_line < 65) {
-                        try dbg_out.dbg_line.append(@intCast(u8, delta_line));
-                    } else if (delta_line < 0 and delta_line > -65) {
-                        try dbg_out.dbg_line.append(@intCast(u8, -delta_line + 64));
-                    } else if (delta_line != 0) {
-                        try dbg_out.dbg_line.writer().writeIntBig(i32, delta_line);
-                    }
+                    try @import("link/Plan9.zig").changeLine(dbg_out.dbg_line, delta_line);
                     // increasing the pc
-                    if (delta_pc - quant != 0) {
-                        try dbg_out.dbg_line.append(@intCast(u8, delta_pc - quant + 129));
-                    }
+                    const d_pc_p9 = @intCast(i64, delta_pc) - quant;
+                    if (d_pc_p9 > 0) {
+                        // minus one becaue if its the last one, we want to leave space to change the line which is one quanta
+                        try dbg_out.dbg_line.append(@intCast(u8, @divExact(d_pc_p9, quant) + 128) - quant);
+                        if (dbg_out.pcop_change_index.*) |pci|
+                            dbg_out.dbg_line.items[pci] += 1;
+                        dbg_out.pcop_change_index.* = @intCast(u32, dbg_out.dbg_line.items.len - 1);
+                    } else if (d_pc_p9 == 0) {
+                        // we don't need to do anything, because adding the quant does it for us
+                    } else unreachable;
+                    if (dbg_out.start_line.* == null)
+                        dbg_out.start_line.* = self.prev_di_line;
                     dbg_out.end_line.* = line;
+                    // only do this if the pc changed
+                    self.prev_di_line = line;
+                    self.prev_di_column = column;
+                    self.prev_di_pc = self.code.items.len;
                 },
                 .none => {},
             }
-            self.prev_di_line = line;
-            self.prev_di_column = column;
-            self.prev_di_pc = self.code.items.len;
         }
 
         /// Asserts there is already capacity to insert into top branch inst_table.
