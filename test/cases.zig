@@ -1831,6 +1831,20 @@ pub fn addCases(ctx: *TestContext) !void {
             ":2:12: error: expected *i32, found *addrspace(.gs) i32",
         });
 
+        case.compiles(
+            \\fn entry(a: *addrspace(.gs) i32) *addrspace(.gs) i32 {
+            \\    return a;
+            \\}
+            \\pub fn main() void { _ = entry; }
+        );
+
+        case.compiles(
+            \\fn entry(a: *addrspace(.generic) i32) *i32 {
+            \\    return a;
+            \\}
+            \\pub fn main() void { _ = entry; }
+        );
+
         case.addError(
             \\fn entry(a: *addrspace(.gs) i32) *addrspace(.fs) i32 {
             \\    return a;
@@ -1857,5 +1871,12 @@ pub fn addCases(ctx: *TestContext) !void {
         , &[_][]const u8{
             ":2:12: error: expected *i32, found *addrspace(.gs) i32",
         });
+
+        case.compiles(
+            \\fn entry(a: *addrspace(.gs) i32) *addrspace(.gs) i32 {
+            \\    return &a.*;
+            \\}
+            \\pub fn main() void { _ = entry; }
+        );
     }
 }
