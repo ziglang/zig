@@ -2883,7 +2883,6 @@ fn fnDecl(
     };
     const fn_name_str_index = try astgen.identAsString(fn_name_token);
 
-
     // We insert this at the beginning so that its instruction index marks the
     // start of the top level declaration.
     const block_inst = try gz.addBlock(.block_inline, fn_proto.ast.proto_node);
@@ -3151,8 +3150,6 @@ fn globalVarDecl(
 
     const name_token = var_decl.ast.mut_token + 1;
     const name_str_index = try astgen.identAsString(name_token);
-
-    try astgen.declareNewName(scope, name_str_index, node, name_token);
 
     var block_scope: GenZir = .{
         .parent = scope,
@@ -3553,8 +3550,24 @@ fn structDeclInner(
                     return astgen.failTok(fn_proto.ast.fn_token, "missing function name", .{});
                 };
                 const fn_name_str_index = try astgen.identAsString(fn_name_token);
-
                 try astgen.declareNewName(&namespace.base, fn_name_str_index, member_node, fn_name_token);
+            },
+
+            .global_var_decl,
+            .local_var_decl,
+            .simple_var_decl,
+            .aligned_var_decl,
+            => |v| {
+                const var_decl = switch (v) {
+                    .global_var_decl => tree.globalVarDecl(member_node),
+                    .local_var_decl => tree.localVarDecl(member_node),
+                    .simple_var_decl => tree.simpleVarDecl(member_node),
+                    .aligned_var_decl => tree.alignedVarDecl(member_node),
+                    else => unreachable,
+                };
+                const name_token = var_decl.ast.mut_token + 1;
+                const name_str_index = try astgen.identAsString(name_token);
+                try astgen.declareNewName(&namespace.base, name_str_index, member_node, name_token);
             },
 
             else => {},
