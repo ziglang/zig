@@ -2172,17 +2172,21 @@ pub const Type = extern union {
 
             .const_slice => {
                 const elem_type = self.castTag(.const_slice).?.data;
-                buffer.elem_type = .{
-                    .base = .{ .tag = .many_const_pointer },
-                    .data = elem_type,
+                buffer.* = .{
+                    .elem_type = .{
+                        .base = .{ .tag = .many_const_pointer },
+                        .data = elem_type,
+                    },
                 };
                 return Type.initPayload(&buffer.elem_type.base);
             },
             .mut_slice => {
                 const elem_type = self.castTag(.mut_slice).?.data;
-                buffer.elem_type = .{
-                    .base = .{ .tag = .many_mut_pointer },
-                    .data = elem_type,
+                buffer.* = .{
+                    .elem_type = .{
+                        .base = .{ .tag = .many_mut_pointer },
+                        .data = elem_type,
+                    },
                 };
                 return Type.initPayload(&buffer.elem_type.base);
             },
@@ -2199,31 +2203,37 @@ pub const Type = extern union {
                     payload.@"allowzero" or
                     payload.@"volatile")
                 {
-                    buffer.pointer = .{
-                        .data = .{
-                            .pointee_type = payload.pointee_type,
-                            .sentinel = payload.sentinel,
-                            .@"align" = payload.@"align",
-                            .@"addrspace" = payload.@"addrspace",
-                            .bit_offset = payload.bit_offset,
-                            .host_size = payload.host_size,
-                            .@"allowzero" = payload.@"allowzero",
-                            .mutable = payload.mutable,
-                            .@"volatile" = payload.@"volatile",
-                            .size = .Many,
+                    buffer.* = .{
+                        .pointer = .{
+                            .data = .{
+                                .pointee_type = payload.pointee_type,
+                                .sentinel = payload.sentinel,
+                                .@"align" = payload.@"align",
+                                .@"addrspace" = payload.@"addrspace",
+                                .bit_offset = payload.bit_offset,
+                                .host_size = payload.host_size,
+                                .@"allowzero" = payload.@"allowzero",
+                                .mutable = payload.mutable,
+                                .@"volatile" = payload.@"volatile",
+                                .size = .Many,
+                            },
                         },
                     };
                     return Type.initPayload(&buffer.pointer.base);
                 } else if (payload.mutable) {
-                    buffer.elem_type = .{
-                        .base = .{ .tag = .many_mut_pointer },
-                        .data = payload.pointee_type,
+                    buffer.* = .{
+                        .elem_type = .{
+                            .base = .{ .tag = .many_mut_pointer },
+                            .data = payload.pointee_type,
+                        },
                     };
                     return Type.initPayload(&buffer.elem_type.base);
                 } else {
-                    buffer.elem_type = .{
-                        .base = .{ .tag = .many_const_pointer },
-                        .data = payload.pointee_type,
+                    buffer.* = .{
+                        .elem_type = .{
+                            .base = .{ .tag = .many_const_pointer },
+                            .data = payload.pointee_type,
+                        },
                     };
                     return Type.initPayload(&buffer.elem_type.base);
                 }
