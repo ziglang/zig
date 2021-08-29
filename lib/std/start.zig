@@ -98,7 +98,7 @@ fn exit2(code: usize) noreturn {
                 asm volatile ("syscall"
                     :
                     : [number] "{rax}" (231),
-                      [arg1] "{rdi}" (code)
+                      [arg1] "{rdi}" (code),
                     : "rcx", "r11", "memory"
                 );
             },
@@ -106,7 +106,7 @@ fn exit2(code: usize) noreturn {
                 asm volatile ("svc #0"
                     :
                     : [number] "{r7}" (1),
-                      [arg1] "{r0}" (code)
+                      [arg1] "{r0}" (code),
                     : "memory"
                 );
             },
@@ -114,7 +114,7 @@ fn exit2(code: usize) noreturn {
                 asm volatile ("svc #0"
                     :
                     : [number] "{x8}" (93),
-                      [arg1] "{x0}" (code)
+                      [arg1] "{x0}" (code),
                     : "memory", "cc"
                 );
             },
@@ -128,7 +128,7 @@ fn exit2(code: usize) noreturn {
                     \\push $0
                     \\syscall
                     :
-                    : [syscall_number] "{rbp}" (8)
+                    : [syscall_number] "{rbp}" (8),
                     : "rcx", "r11", "memory"
                 );
             },
@@ -137,7 +137,7 @@ fn exit2(code: usize) noreturn {
             .aarch64 => {
                 asm volatile ("svc #0"
                     :
-                    : [exit] "{x0}" (0x08)
+                    : [exit] "{x0}" (0x08),
                     : "memory", "cc"
                 );
             },
@@ -208,34 +208,34 @@ fn _start() callconv(.Naked) noreturn {
         .x86_64 => {
             argc_argv_ptr = asm volatile (
                 \\ xor %%rbp, %%rbp
-                : [argc] "={rsp}" (-> [*]usize)
+                : [argc] "={rsp}" (-> [*]usize),
             );
         },
         .i386 => {
             argc_argv_ptr = asm volatile (
                 \\ xor %%ebp, %%ebp
-                : [argc] "={esp}" (-> [*]usize)
+                : [argc] "={esp}" (-> [*]usize),
             );
         },
         .aarch64, .aarch64_be, .arm, .armeb, .thumb => {
             argc_argv_ptr = asm volatile (
                 \\ mov fp, #0
                 \\ mov lr, #0
-                : [argc] "={sp}" (-> [*]usize)
+                : [argc] "={sp}" (-> [*]usize),
             );
         },
         .riscv64 => {
             argc_argv_ptr = asm volatile (
                 \\ li s0, 0
                 \\ li ra, 0
-                : [argc] "={sp}" (-> [*]usize)
+                : [argc] "={sp}" (-> [*]usize),
             );
         },
         .mips, .mipsel => {
             // The lr is already zeroed on entry, as specified by the ABI.
             argc_argv_ptr = asm volatile (
                 \\ move $fp, $0
-                : [argc] "={sp}" (-> [*]usize)
+                : [argc] "={sp}" (-> [*]usize),
             );
         },
         .powerpc => {
@@ -246,7 +246,7 @@ fn _start() callconv(.Naked) noreturn {
                 \\ stwu 1,-16(1)
                 \\ stw 0, 0(1)
                 \\ mtlr 0
-                : [argc] "={r4}" (-> [*]usize)
+                : [argc] "={r4}" (-> [*]usize),
                 :
                 : "r0"
             );
@@ -259,7 +259,7 @@ fn _start() callconv(.Naked) noreturn {
                 \\ li 0, 0
                 \\ stdu 0, -32(1)
                 \\ mtlr 0
-                : [argc] "={r4}" (-> [*]usize)
+                : [argc] "={r4}" (-> [*]usize),
                 :
                 : "r0"
             );
@@ -269,7 +269,7 @@ fn _start() callconv(.Naked) noreturn {
             argc_argv_ptr = asm (
                 \\ mov %%g0, %%i6
                 \\ add %%o6, 2175, %[argc]
-                : [argc] "=r" (-> [*]usize)
+                : [argc] "=r" (-> [*]usize),
             );
         },
         else => @compileError("unsupported arch"),

@@ -30,13 +30,13 @@ fn getDynamicSymbol() [*]elf.Dyn {
             \\ call 1f
             \\ 1: pop %[ret]
             \\ lea _DYNAMIC-1b(%[ret]), %[ret]
-            : [ret] "=r" (-> [*]elf.Dyn)
+            : [ret] "=r" (-> [*]elf.Dyn),
         ),
         .x86_64 => asm volatile (
             \\ .weak _DYNAMIC
             \\ .hidden _DYNAMIC
             \\ lea _DYNAMIC(%%rip), %[ret]
-            : [ret] "=r" (-> [*]elf.Dyn)
+            : [ret] "=r" (-> [*]elf.Dyn),
         ),
         // Work around the limited offset range of `ldr`
         .arm => asm volatile (
@@ -47,7 +47,7 @@ fn getDynamicSymbol() [*]elf.Dyn {
             \\ b 2f
             \\ 1: .word _DYNAMIC-1b
             \\ 2:
-            : [ret] "=r" (-> [*]elf.Dyn)
+            : [ret] "=r" (-> [*]elf.Dyn),
         ),
         // A simple `adr` is not enough as it has a limited offset range
         .aarch64 => asm volatile (
@@ -55,13 +55,13 @@ fn getDynamicSymbol() [*]elf.Dyn {
             \\ .hidden _DYNAMIC
             \\ adrp %[ret], _DYNAMIC
             \\ add %[ret], %[ret], #:lo12:_DYNAMIC
-            : [ret] "=r" (-> [*]elf.Dyn)
+            : [ret] "=r" (-> [*]elf.Dyn),
         ),
         .riscv64 => asm volatile (
             \\ .weak _DYNAMIC
             \\ .hidden _DYNAMIC
             \\ lla %[ret], _DYNAMIC
-            : [ret] "=r" (-> [*]elf.Dyn)
+            : [ret] "=r" (-> [*]elf.Dyn),
         ),
         else => {
             @compileError("PIE startup is not yet supported for this target!");

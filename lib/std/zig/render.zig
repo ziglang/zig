@@ -1944,13 +1944,13 @@ fn renderAsm(
                 try renderToken(ais, tree, comma, .newline); // ,
                 try renderExtraNewlineToken(ais, tree, tree.firstToken(next_asm_output));
             } else if (asm_node.inputs.len == 0 and asm_node.first_clobber == null) {
-                try renderAsmOutput(gpa, ais, tree, asm_output, .newline);
+                try renderAsmOutput(gpa, ais, tree, asm_output, .comma);
                 ais.popIndent();
                 ais.setIndentDelta(indent_delta);
                 ais.popIndent();
                 return renderToken(ais, tree, asm_node.ast.rparen, space); // rparen
             } else {
-                try renderAsmOutput(gpa, ais, tree, asm_output, .newline);
+                try renderAsmOutput(gpa, ais, tree, asm_output, .comma);
                 const comma_or_colon = tree.lastToken(asm_output) + 1;
                 ais.popIndent();
                 break :colon2 switch (token_tags[comma_or_colon]) {
@@ -1976,13 +1976,13 @@ fn renderAsm(
                 try renderToken(ais, tree, first_token - 1, .newline); // ,
                 try renderExtraNewlineToken(ais, tree, first_token);
             } else if (asm_node.first_clobber == null) {
-                try renderAsmInput(gpa, ais, tree, asm_input, .newline);
+                try renderAsmInput(gpa, ais, tree, asm_input, .comma);
                 ais.popIndent();
                 ais.setIndentDelta(indent_delta);
                 ais.popIndent();
                 return renderToken(ais, tree, asm_node.ast.rparen, space); // rparen
             } else {
-                try renderAsmInput(gpa, ais, tree, asm_input, .newline);
+                try renderAsmInput(gpa, ais, tree, asm_input, .comma);
                 const comma_or_colon = tree.lastToken(asm_input) + 1;
                 ais.popIndent();
                 break :colon3 switch (token_tags[comma_or_colon]) {

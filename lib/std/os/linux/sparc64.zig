@@ -14,9 +14,9 @@ pub fn syscall_pipe(fd: *[2]i32) usize {
         \\ st %%o1, [%%g3+4]
         \\ clr %%o0
         \\2:
-        : [ret] "={o0}" (-> usize)
+        : [ret] "={o0}" (-> usize),
         : [number] "{g1}" (@enumToInt(SYS.pipe)),
-          [arg] "r" (fd)
+          [arg] "r" (fd),
         : "memory", "g3"
     );
 }
@@ -38,8 +38,8 @@ pub fn syscall_fork() usize {
         \\ dec %%o1
         \\ and %%o1, %%o0, %%o0
         \\ 2:
-        : [ret] "={o0}" (-> usize)
-        : [number] "{g1}" (@enumToInt(SYS.fork))
+        : [ret] "={o0}" (-> usize),
+        : [number] "{g1}" (@enumToInt(SYS.fork)),
         : "memory", "xcc", "o1", "o2", "o3", "o4", "o5", "o7"
     );
 }
@@ -51,8 +51,8 @@ pub fn syscall0(number: SYS) usize {
         \\ nop
         \\ neg %%o0
         \\ 1:
-        : [ret] "={o0}" (-> usize)
-        : [number] "{g1}" (@enumToInt(number))
+        : [ret] "={o0}" (-> usize),
+        : [number] "{g1}" (@enumToInt(number)),
         : "memory", "xcc", "o1", "o2", "o3", "o4", "o5", "o7"
     );
 }
@@ -64,9 +64,9 @@ pub fn syscall1(number: SYS, arg1: usize) usize {
         \\ nop
         \\ neg %%o0
         \\ 1:
-        : [ret] "={o0}" (-> usize)
+        : [ret] "={o0}" (-> usize),
         : [number] "{g1}" (@enumToInt(number)),
-          [arg1] "{o0}" (arg1)
+          [arg1] "{o0}" (arg1),
         : "memory", "xcc", "o1", "o2", "o3", "o4", "o5", "o7"
     );
 }
@@ -78,10 +78,10 @@ pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
         \\ nop
         \\ neg %%o0
         \\ 1:
-        : [ret] "={o0}" (-> usize)
+        : [ret] "={o0}" (-> usize),
         : [number] "{g1}" (@enumToInt(number)),
           [arg1] "{o0}" (arg1),
-          [arg2] "{o1}" (arg2)
+          [arg2] "{o1}" (arg2),
         : "memory", "xcc", "o1", "o2", "o3", "o4", "o5", "o7"
     );
 }
@@ -93,11 +93,11 @@ pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
         \\ nop
         \\ neg %%o0
         \\ 1:
-        : [ret] "={o0}" (-> usize)
+        : [ret] "={o0}" (-> usize),
         : [number] "{g1}" (@enumToInt(number)),
           [arg1] "{o0}" (arg1),
           [arg2] "{o1}" (arg2),
-          [arg3] "{o2}" (arg3)
+          [arg3] "{o2}" (arg3),
         : "memory", "xcc", "o1", "o2", "o3", "o4", "o5", "o7"
     );
 }
@@ -109,12 +109,12 @@ pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize)
         \\ nop
         \\ neg %%o0
         \\ 1:
-        : [ret] "={o0}" (-> usize)
+        : [ret] "={o0}" (-> usize),
         : [number] "{g1}" (@enumToInt(number)),
           [arg1] "{o0}" (arg1),
           [arg2] "{o1}" (arg2),
           [arg3] "{o2}" (arg3),
-          [arg4] "{o3}" (arg4)
+          [arg4] "{o3}" (arg4),
         : "memory", "xcc", "o1", "o2", "o3", "o4", "o5", "o7"
     );
 }
@@ -126,13 +126,13 @@ pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize,
         \\ nop
         \\ neg %%o0
         \\ 1:
-        : [ret] "={o0}" (-> usize)
+        : [ret] "={o0}" (-> usize),
         : [number] "{g1}" (@enumToInt(number)),
           [arg1] "{o0}" (arg1),
           [arg2] "{o1}" (arg2),
           [arg3] "{o2}" (arg3),
           [arg4] "{o3}" (arg4),
-          [arg5] "{o4}" (arg5)
+          [arg5] "{o4}" (arg5),
         : "memory", "xcc", "o1", "o2", "o3", "o4", "o5", "o7"
     );
 }
@@ -152,14 +152,14 @@ pub fn syscall6(
         \\ nop
         \\ neg %%o0
         \\ 1:
-        : [ret] "={o0}" (-> usize)
+        : [ret] "={o0}" (-> usize),
         : [number] "{g1}" (@enumToInt(number)),
           [arg1] "{o0}" (arg1),
           [arg2] "{o1}" (arg2),
           [arg3] "{o2}" (arg3),
           [arg4] "{o3}" (arg4),
           [arg5] "{o4}" (arg5),
-          [arg6] "{o5}" (arg6)
+          [arg6] "{o5}" (arg6),
         : "memory", "xcc", "o1", "o2", "o3", "o4", "o5", "o7"
     );
 }
@@ -174,7 +174,7 @@ pub const restore = restore_rt;
 pub fn restore_rt() callconv(.C) void {
     return asm volatile ("t 0x6d"
         :
-        : [number] "{g1}" (@enumToInt(SYS.rt_sigreturn))
+        : [number] "{g1}" (@enumToInt(SYS.rt_sigreturn)),
         : "memory", "xcc", "o0", "o1", "o2", "o3", "o4", "o5", "o7"
     );
 }

@@ -23,12 +23,12 @@ test "output constraint modifiers" {
     // This is only testing compilation.
     var a: u32 = 3;
     asm volatile (""
-        : [_] "=m,r" (a)
+        : [_] "=m,r" (a),
         :
         : ""
     );
     asm volatile (""
-        : [_] "=r,m" (a)
+        : [_] "=r,m" (a),
         :
         : ""
     );
@@ -38,8 +38,8 @@ test "alternative constraints" {
     // Make sure we allow commas as a separator for alternative constraints.
     var a: u32 = 3;
     asm volatile (""
-        : [_] "=r,m" (a)
-        : [_] "r,m" (a)
+        : [_] "=r,m" (a),
+        : [_] "r,m" (a),
         : ""
     );
 }
@@ -47,42 +47,42 @@ test "alternative constraints" {
 test "sized integer/float in asm input" {
     asm volatile (""
         :
-        : [_] "m" (@as(usize, 3))
+        : [_] "m" (@as(usize, 3)),
         : ""
     );
     asm volatile (""
         :
-        : [_] "m" (@as(i15, -3))
+        : [_] "m" (@as(i15, -3)),
         : ""
     );
     asm volatile (""
         :
-        : [_] "m" (@as(u3, 3))
+        : [_] "m" (@as(u3, 3)),
         : ""
     );
     asm volatile (""
         :
-        : [_] "m" (@as(i3, 3))
+        : [_] "m" (@as(i3, 3)),
         : ""
     );
     asm volatile (""
         :
-        : [_] "m" (@as(u121, 3))
+        : [_] "m" (@as(u121, 3)),
         : ""
     );
     asm volatile (""
         :
-        : [_] "m" (@as(i121, 3))
+        : [_] "m" (@as(i121, 3)),
         : ""
     );
     asm volatile (""
         :
-        : [_] "m" (@as(f32, 3.17))
+        : [_] "m" (@as(f32, 3.17)),
         : ""
     );
     asm volatile (""
         :
-        : [_] "m" (@as(f64, 3.17))
+        : [_] "m" (@as(f64, 3.17)),
         : ""
     );
 }
@@ -90,15 +90,15 @@ test "sized integer/float in asm input" {
 test "struct/array/union types as input values" {
     asm volatile (""
         :
-        : [_] "m" (@as([1]u32, undefined))
+        : [_] "m" (@as([1]u32, undefined)),
     ); // fails
     asm volatile (""
         :
-        : [_] "m" (@as(struct { x: u32, y: u8 }, undefined))
+        : [_] "m" (@as(struct { x: u32, y: u8 }, undefined)),
     ); // fails
     asm volatile (""
         :
-        : [_] "m" (@as(union { x: u32, y: u8 }, undefined))
+        : [_] "m" (@as(union { x: u32, y: u8 }, undefined)),
     ); // fails
 }
 
