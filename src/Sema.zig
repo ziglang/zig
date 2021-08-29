@@ -8390,7 +8390,7 @@ fn fieldVal(
         .Pointer => switch (object_ty.ptrSize()) {
             .Slice => {
                 if (mem.eql(u8, field_name, "ptr")) {
-                    const buf = try arena.create(Type.Payload.ElemType);
+                    const buf = try arena.create(Type.SlicePtrFieldTypeBuffer);
                     const result_ty = object_ty.slicePtrFieldType(buf);
                     if (try sema.resolveMaybeUndefVal(block, object_src, object)) |val| {
                         if (val.isUndef()) return sema.addConstUndef(result_ty);

@@ -4873,7 +4873,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             switch (typed_value.ty.zigTypeTag()) {
                 .Pointer => switch (typed_value.ty.ptrSize()) {
                     .Slice => {
-                        var buf: Type.Payload.ElemType = undefined;
+                        var buf: Type.SlicePtrFieldTypeBuffer = undefined;
                         const ptr_type = typed_value.ty.slicePtrFieldType(&buf);
                         const ptr_mcv = try self.genTypedValue(.{ .ty = ptr_type, .val = typed_value.val });
                         const slice_len = typed_value.val.sliceLen();

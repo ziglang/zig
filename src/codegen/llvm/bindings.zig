@@ -197,6 +197,9 @@ pub const Module = opaque {
     pub const addFunction = LLVMAddFunction;
     extern fn LLVMAddFunction(*const Module, Name: [*:0]const u8, FunctionTy: *const Type) *const Value;
 
+    pub const addFunctionInAddressSpace = ZigLLVMAddFunctionInAddressSpace;
+    extern fn ZigLLVMAddFunctionInAddressSpace(*const Module, Name: [*:0]const u8, FunctionTy: *const Type, AddressSpace: c_uint) *const Value;
+
     pub const getNamedFunction = LLVMGetNamedFunction;
     extern fn LLVMGetNamedFunction(*const Module, Name: [*:0]const u8) ?*const Value;
 
@@ -208,6 +211,9 @@ pub const Module = opaque {
 
     pub const addGlobal = LLVMAddGlobal;
     extern fn LLVMAddGlobal(M: *const Module, Ty: *const Type, Name: [*:0]const u8) *const Value;
+
+    pub const addGlobalInAddressSpace = LLVMAddGlobalInAddressSpace;
+    extern fn LLVMAddGlobalInAddressSpace(M: *const Module, Ty: *const Type, Name: [*:0]const u8, AddressSpace: c_uint) *const Value;
 
     pub const getNamedGlobal = LLVMGetNamedGlobal;
     extern fn LLVMGetNamedGlobal(M: *const Module, Name: [*:0]const u8) ?*const Value;
@@ -975,6 +981,8 @@ pub const TypeKind = enum(c_int) {
 };
 
 pub const address_space = struct {
+    pub const default = 0;
+
     // See llvm/lib/Target/X86/X86.h
     pub const x86_64 = x86;
     pub const x86 = struct {

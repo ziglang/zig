@@ -4761,7 +4761,7 @@ pub fn populateTestFunctions(mod: *Module) !void {
     const builtin_file = (mod.importPkg(builtin_pkg) catch unreachable).file;
     const builtin_namespace = builtin_file.root_decl.?.namespace;
     const decl = builtin_namespace.decls.get("test_functions").?;
-    var buf: Type.Payload.ElemType = undefined;
+    var buf: Type.SlicePtrFieldTypeBuffer = undefined;
     const tmp_test_fn_ty = decl.ty.slicePtrFieldType(&buf).elemType();
 
     const array_decl = d: {

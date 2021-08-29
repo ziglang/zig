@@ -251,7 +251,7 @@ pub const DeclGen = struct {
                     try writer.writeByte('(');
                     try dg.renderType(writer, t);
                     try writer.writeAll("){");
-                    var buf: Type.Payload.ElemType = undefined;
+                    var buf: Type.SlicePtrFieldTypeBuffer = undefined;
                     try dg.renderValue(writer, t.slicePtrFieldType(&buf), val);
                     try writer.writeAll(", ");
                     try writer.print("{d}", .{val.sliceLen()});
