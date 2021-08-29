@@ -3674,7 +3674,9 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) SemaError!voi
                 mod.comp.work_queue.writeItemAssumeCapacity(.{ .update_line_number = decl });
             },
             .plan9 => {
-                // TODO implement for plan9
+                // TODO Look into detecting when this would be unnecessary by storing enough state
+                // in `Decl` to notice that the line number did not change.
+                mod.comp.work_queue.writeItemAssumeCapacity(.{ .update_line_number = decl });
             },
             .c, .wasm, .spirv => {},
         }

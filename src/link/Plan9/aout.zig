@@ -112,3 +112,12 @@ pub fn magicFromArch(arch: std.Target.Cpu.Arch) !u32 {
         else => error.ArchNotSupportedByPlan9,
     };
 }
+
+/// gets the quantization of pc for the arch
+pub fn getPCQuant(arch: std.Target.Cpu.Arch) !u8 {
+    return switch (arch) {
+        .i386, .x86_64 => 1,
+        .powerpc, .powerpc64, .mips, .sparc, .arm, .aarch64 => 4,
+        else => error.ArchNotSupportedByPlan9,
+    };
+}

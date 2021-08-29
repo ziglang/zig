@@ -48,6 +48,21 @@ pub const DebugInfoOutput = union(enum) {
         dbg_info: *std.ArrayList(u8),
         dbg_info_type_relocs: *link.File.DbgInfoTypeRelocsTable,
     },
+    /// the plan9 debuginfo output is a bytecode with 4 opcodes
+    /// assume all numbers/variables are bytes
+    /// 0 w x y z -> interpret w x y z as a big-endian i32, and add it to the line offset
+    /// x when x < 65 -> add x to line offset
+    /// x when x < 129 -> subtract 64 from x and add it to the line offset
+    /// x -> subtract 129 from x, multiply it by the quanta of the instruction size
+    /// (1 on x86_64), and add it to the pc
+    /// after every opcode, add the quanta of the instruction size to the pc
+    plan9: struct {
+        /// the actual opcodes
+        dbg_line: *std.ArrayList(u8),
+        /// what the line count ends on after codegen
+        /// this helps because the linker might have to insert some opcodes to make sure that the line count starts at the right amount for the next decl
+        end_line: *u32,
+    },
     none,
 };
 
@@ -913,6 +928,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     try dbg_out.dbg_line.append(DW.LNS.set_prologue_end);
                     try self.dbgAdvancePCAndLine(self.prev_di_line, self.prev_di_column);
                 },
+                .plan9 => {},
                 .none => {},
             }
         }
@@ -923,15 +939,16 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     try dbg_out.dbg_line.append(DW.LNS.set_epilogue_begin);
                     try self.dbgAdvancePCAndLine(self.prev_di_line, self.prev_di_column);
                 },
+                .plan9 => {},
                 .none => {},
             }
         }
 
         fn dbgAdvancePCAndLine(self: *Self, line: u32, column: u32) InnerError!void {
+            const delta_line = @intCast(i32, line) - @intCast(i32, self.prev_di_line);
+            const delta_pc = self.code.items.len - self.prev_di_pc;
             switch (self.debug_output) {
                 .dwarf => |dbg_out| {
-                    const delta_line = @intCast(i32, line) - @intCast(i32, self.prev_di_line);
-                    const delta_pc = self.code.items.len - self.prev_di_pc;
                     // TODO Look into using the DWARF special opcodes to compress this data.
                     // It lets you emit single-byte opcodes that add different numbers to
                     // both the PC and the line number at the same time.
@@ -943,6 +960,24 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         leb128.writeILEB128(dbg_out.dbg_line.writer(), delta_line) catch unreachable;
                     }
                     dbg_out.dbg_line.appendAssumeCapacity(DW.LNS.copy);
+                },
+                .plan9 => |dbg_out| {
+                    // we have already checked the target in the linker to make sure it is compatable
+                    const quant = @import("link/Plan9/aout.zig").getPCQuant(self.target.cpu.arch) catch unreachable;
+
+                    // increasing the line number
+                    if (delta_line > 0 and delta_line < 65) {
+                        try dbg_out.dbg_line.append(@intCast(u8, delta_line));
+                    } else if (delta_line < 0 and delta_line > -65) {
+                        try dbg_out.dbg_line.append(@intCast(u8, -delta_line + 64));
+                    } else if (delta_line != 0) {
+                        try dbg_out.dbg_line.writer().writeIntBig(i32, delta_line);
+                    }
+                    // increasing the pc
+                    if (delta_pc - quant != 0) {
+                        try dbg_out.dbg_line.append(@intCast(u8, delta_pc - quant + 129));
+                    }
+                    dbg_out.end_line.* = line;
                 },
                 .none => {},
             }
@@ -1032,6 +1067,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     }
                     try gop.value_ptr.relocs.append(self.gpa, @intCast(u32, index));
                 },
+                .plan9 => {},
                 .none => {},
             }
         }
@@ -2457,6 +2493,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             try self.addDbgInfoTypeReloc(ty); // DW.AT.type,  DW.FORM.ref4
                             dbg_out.dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT.name, DW.FORM.string
                         },
+                        .plan9 => {},
                         .none => {},
                     }
                 },
@@ -2491,6 +2528,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 else => {},
                             }
                         },
+                        .plan9 => {},
                         .none => {},
                     }
                 },

@@ -34,6 +34,8 @@ data_decl_table: std.AutoArrayHashMapUnmanaged(*Module.Decl, []const u8) = .{},
 
 hdr: aout.ExecHdr = undefined,
 
+magic: u32,
+
 entry_val: ?u64 = null,
 
 got_len: usize = 0,
@@ -113,6 +115,7 @@ pub fn createEmpty(gpa: *Allocator, options: link.Options) !*Plan9 {
         },
         .sixtyfour_bit = sixtyfour_bit,
         .bases = undefined,
+        .magic = try aout.magicFromArch(self.base.options.target.cpu.arch),
     };
     return self;
 }
@@ -127,7 +130,24 @@ pub fn updateFunc(self: *Plan9, module: *Module, func: *Module.Fn, air: Air, liv
 
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
-    const res = try codegen.generateFunction(&self.base, decl.srcLoc(), func, air, liveness, &code_buffer, .{ .none = .{} });
+    var dbg_line_buffer = std.ArrayList(u8).init(self.base.allocator);
+    defer dbg_line_buffer.deinit();
+    var end_line: u32 = 0;
+
+    const res = try codegen.generateFunction(
+        &self.base,
+        decl.srcLoc(),
+        func,
+        air,
+        liveness,
+        &code_buffer,
+        .{
+            .plan9 = .{
+                .dbg_line = &dbg_line_buffer,
+                .end_line = &end_line,
+            },
+        },
+    );
     const code = switch (res) {
         .appended => code_buffer.toOwnedSlice(),
         .fail => |em| {
@@ -313,7 +333,7 @@ pub fn flushModule(self: *Plan9, comp: *Compilation) !void {
     iovecs_i += 1;
     // generate the header
     self.hdr = .{
-        .magic = try aout.magicFromArch(self.base.options.target.cpu.arch),
+        .magic = self.magic,
         .text = @intCast(u32, text_i),
         .data = @intCast(u32, data_i),
         .syms = @intCast(u32, sym_buf.items.len),
