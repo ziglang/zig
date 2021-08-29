@@ -958,7 +958,8 @@ fn renderVarDecl(gpa: *Allocator, ais: *Ais, tree: Ast, var_decl: Ast.full.VarDe
         try renderToken(ais, tree, lparen, Space.none); // (
         try renderExpression(gpa, ais, tree, var_decl.ast.align_node, Space.none);
         if (var_decl.ast.addrspace_node != 0 or var_decl.ast.section_node != 0 or
-            var_decl.ast.init_node != 0) {
+            var_decl.ast.init_node != 0)
+        {
             try renderToken(ais, tree, rparen, .space); // )
         } else {
             try renderToken(ais, tree, rparen, .none); // )

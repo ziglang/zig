@@ -4029,7 +4029,7 @@ const Writer = struct {
             };
             const addrspace_inst: Inst.Ref = if (!has_section_or_addrspace) .none else inst: {
                 const inst = @intToEnum(Inst.Ref, self.code.extra[extra_index]);
-                extra_index +=1;
+                extra_index += 1;
                 break :inst inst;
             };
             const pub_str = if (is_pub) "pub " else "";

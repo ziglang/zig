@@ -2393,11 +2393,11 @@ fn varDecl(
     }
 
     if (var_decl.ast.addrspace_node != 0) {
-        return astgen.failTok(main_tokens[var_decl.ast.addrspace_node], "cannot set address space of local variable '{s}'", .{ ident_name_raw });
+        return astgen.failTok(main_tokens[var_decl.ast.addrspace_node], "cannot set address space of local variable '{s}'", .{ident_name_raw});
     }
 
     if (var_decl.ast.section_node != 0) {
-        return astgen.failTok(main_tokens[var_decl.ast.section_node], "cannot set section of local variable '{s}'", .{ ident_name_raw });
+        return astgen.failTok(main_tokens[var_decl.ast.section_node], "cannot set section of local variable '{s}'", .{ident_name_raw});
     }
 
     const align_inst: Zir.Inst.Ref = if (var_decl.ast.align_node != 0)

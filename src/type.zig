@@ -1002,7 +1002,7 @@ pub const Type = extern union {
                     try writer.writeAll(@tagName(payload.cc));
                     try writer.writeAll(") ");
                     if (payload.@"addrspace" != .generic) {
-                        try writer.print("addrspace(.{s}) ", .{ @tagName(payload.@"addrspace") });
+                        try writer.print("addrspace(.{s}) ", .{@tagName(payload.@"addrspace")});
                     }
                     ty = payload.return_type;
                     continue;
@@ -1136,7 +1136,7 @@ pub const Type = extern union {
                         try writer.writeAll(") ");
                     }
                     if (payload.@"addrspace" != .generic) {
-                        try writer.print("addrspace(.{s}) ", .{ @tagName(payload.@"addrspace") });
+                        try writer.print("addrspace(.{s}) ", .{@tagName(payload.@"addrspace")});
                     }
                     if (!payload.mutable) try writer.writeAll("const ");
                     if (payload.@"volatile") try writer.writeAll("volatile ");
@@ -2197,8 +2197,8 @@ pub const Type = extern union {
                     payload.bit_offset != 0 or
                     payload.host_size != 0 or
                     payload.@"allowzero" or
-                    payload.@"volatile"
-                ) {
+                    payload.@"volatile")
+                {
                     buffer.pointer = .{
                         .data = .{
                             .pointee_type = payload.pointee_type,
@@ -2210,7 +2210,7 @@ pub const Type = extern union {
                             .@"allowzero" = payload.@"allowzero",
                             .mutable = payload.mutable,
                             .@"volatile" = payload.@"volatile",
-                            .size = .Many
+                            .size = .Many,
                         },
                     };
                     return Type.initPayload(&buffer.pointer.base);

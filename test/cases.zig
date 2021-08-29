@@ -861,7 +861,7 @@ pub fn addCases(ctx: *TestContext) !void {
             "Hello, World!\n",
         );
         try case.files.append(.{
-            .src =
+            .src = 
             \\pub fn print() void {
             \\    asm volatile ("syscall"
             \\        :
@@ -924,7 +924,7 @@ pub fn addCases(ctx: *TestContext) !void {
             },
         );
         try case.files.append(.{
-            .src =
+            .src = 
             \\// dummy comment to make print be on line 2
             \\fn print() void {
             \\    asm volatile ("syscall"
