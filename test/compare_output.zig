@@ -291,7 +291,9 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    stdout.print("before\n", .{}) catch unreachable;
         \\    defer stdout.print("defer1\n", .{}) catch unreachable;
         \\    defer stdout.print("defer2\n", .{}) catch unreachable;
-        \\    var args_it = @import("std").process.args();
+        \\    var arena = @import("std").heap.ArenaAllocator.init(@import("std").testing.allocator);
+        \\    defer arena.deinit();
+        \\    var args_it = @import("std").process.argsWithAllocator(arena.allocator()) catch unreachable;
         \\    if (args_it.skip() and !args_it.skip()) return;
         \\    defer stdout.print("defer3\n", .{}) catch unreachable;
         \\    stdout.print("after\n", .{}) catch unreachable;
@@ -358,11 +360,13 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
             \\const allocator = std.testing.allocator;
             \\
             \\pub fn main() !void {
-            \\    var args_it = std.process.args();
+            \\    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+            \\    defer arena.deinit();
+            \\    var args_it = try std.process.argsWithAllocator(arena.allocator());
             \\    const stdout = io.getStdOut().writer();
             \\    var index: usize = 0;
             \\    _ = args_it.skip();
-            \\    while (try args_it.next(allocator)) |arg| : (index += 1) {
+            \\    while (args_it.next()) |arg| : (index += 1) {
             \\        try stdout.print("{}: {s}\n", .{index, arg});
             \\    }
             \\}
@@ -396,11 +400,13 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
             \\const allocator = std.testing.allocator;
             \\
             \\pub fn main() !void {
-            \\    var args_it = std.process.args();
+            \\    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+            \\    defer arena.deinit();
+            \\    var args_it = try std.process.argsWithAllocator(arena.allocator());
             \\    const stdout = io.getStdOut().writer();
             \\    var index: usize = 0;
             \\    _ = args_it.skip();
-            \\    while (try args_it.next(allocator)) |arg| : (index += 1) {
+            \\    while (args_it.next()) |arg| : (index += 1) {
             \\        try stdout.print("{}: {s}\n", .{index, arg});
             \\    }
             \\}
