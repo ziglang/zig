@@ -93,7 +93,7 @@ pub fn clear_cache(start: usize, end: usize) callconv(.C) void {
         asm volatile (
             \\mrs %[x], ctr_el0
             \\
-            : [x] "=r" (ctr_el0)
+            : [x] "=r" (ctr_el0),
         );
         // The DC and IC instructions must use 64-bit registers so we don't use
         // uintptr_t in case this runs in an IPL32 environment.
@@ -106,7 +106,7 @@ pub fn clear_cache(start: usize, end: usize) callconv(.C) void {
             while (addr < end) : (addr += dcache_line_size) {
                 asm volatile ("dc cvau, %[addr]"
                     :
-                    : [addr] "r" (addr)
+                    : [addr] "r" (addr),
                 );
             }
         }
@@ -119,7 +119,7 @@ pub fn clear_cache(start: usize, end: usize) callconv(.C) void {
             while (addr < end) : (addr += icache_line_size) {
                 asm volatile ("ic ivau, %[addr]"
                     :
-                    : [addr] "r" (addr)
+                    : [addr] "r" (addr),
                 );
             }
         }

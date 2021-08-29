@@ -2865,7 +2865,7 @@ pub fn alignForwardGeneric(comptime T: type, addr: T, alignment: T) T {
 pub fn doNotOptimizeAway(val: anytype) void {
     asm volatile (""
         :
-        : [val] "rm" (val)
+        : [val] "rm" (val),
         : "memory"
     );
 }
