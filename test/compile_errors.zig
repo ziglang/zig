@@ -5329,6 +5329,17 @@ pub fn addCases(ctx: *TestContext) !void {
         "tmp.zig:1:1: note: declared here",
     });
 
+    ctx.objErrStage1("local variable shadowing global defined later",
+        \\pub fn main() void {
+        \\    var foo = true;
+        \\    _ = foo;
+        \\}
+        \\fn foo() void {}
+    , &.{
+        "tmp.zig:2:9: error: local shadows declaration of 'foo'",
+        "tmp.zig:5:1: note: declared here",
+    });
+
     ctx.objErrStage1("local variable shadowing global",
         \\const Foo = struct {};
         \\const Bar = struct {};

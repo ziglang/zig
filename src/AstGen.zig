@@ -2883,7 +2883,6 @@ fn fnDecl(
     };
     const fn_name_str_index = try astgen.identAsString(fn_name_token);
 
-    try astgen.declareNewName(scope, fn_name_str_index, decl_node, fn_name_token);
 
     // We insert this at the beginning so that its instruction index marks the
     // start of the top level declaration.
@@ -3526,6 +3525,27 @@ fn structDeclInner(
     var bit_bag = ArrayListUnmanaged(u32){};
     defer bit_bag.deinit(gpa);
 
+    for (container_decl.ast.members) |member_node| {
+        switch (node_tags[member_node]) {
+            .fn_decl,
+            .fn_proto_simple,
+            .fn_proto_multi,
+            .fn_proto_one,
+            .fn_proto,
+            => {
+                var params: [1]ast.Node.Index = undefined;
+                const fn_proto = tree.fnProtoSimple(&params, node_datas[member_node].lhs);
+                const fn_name_token = fn_proto.name_token orelse {
+                    return astgen.failTok(fn_proto.ast.fn_token, "missing function name", .{});
+                };
+                const fn_name_str_index = try astgen.identAsString(fn_name_token);
+
+                try astgen.declareNewName(&namespace.base, fn_name_str_index, member_node, fn_name_token);
+            },
+
+            else => {},
+        }
+    }
     var known_has_bits = false;
     var cur_bit_bag: u32 = 0;
     var field_index: usize = 0;
