@@ -203,9 +203,7 @@ const Scope = struct {
         /// Check if the global scope contains this name, without looking into the "future", e.g.
         /// ignore the preprocessed decl and macro names.
         fn containsNow(scope: *Root, name: []const u8) bool {
-            return isZigPrimitiveType(name) or
-                scope.sym_table.contains(name) or
-                scope.macro_table.contains(name);
+            return scope.sym_table.contains(name) or scope.macro_table.contains(name);
         }
 
         /// Check if the global scope contains the name, includes all decls that haven't been translated yet.
@@ -495,19 +493,17 @@ fn declVisitorNamesOnly(c: *Context, decl: *const clang.Decl) Error!void {
                 },
                 else => return,
             } else unreachable;
-            // TODO https://github.com/ziglang/zig/issues/3756
-            // TODO https://github.com/ziglang/zig/issues/1802
-            const name = if (isZigPrimitiveType(decl_name)) try std.fmt.allocPrint(c.arena, "{s}_{d}", .{ decl_name, c.getMangle() }) else decl_name;
+
             const result = try c.unnamed_typedefs.getOrPut(c.gpa, addr);
             if (result.found_existing) {
                 // One typedef can declare multiple names.
                 // Don't put this one in `decl_table` so it's processed later.
                 return;
             }
-            result.value_ptr.* = name;
+            result.value_ptr.* = decl_name;
             // Put this typedef in the decl_table to avoid redefinitions.
-            try c.decl_table.putNoClobber(c.gpa, @ptrToInt(typedef_decl.getCanonicalDecl()), name);
-            try c.typedefs.put(c.gpa, name, {});
+            try c.decl_table.putNoClobber(c.gpa, @ptrToInt(typedef_decl.getCanonicalDecl()), decl_name);
+            try c.typedefs.put(c.gpa, decl_name, {});
         }
     }
 }
@@ -752,10 +748,6 @@ fn visitVarDecl(c: *Context, var_decl: *const clang.VarDecl, mangled_name: ?[]co
     const is_pub = mangled_name == null;
     const is_threadlocal = var_decl.getTLSKind() != .None;
     const scope = &c.global_scope.base;
-
-    // TODO https://github.com/ziglang/zig/issues/3756
-    // TODO https://github.com/ziglang/zig/issues/1802
-    const checked_name = if (isZigPrimitiveType(var_name)) try std.fmt.allocPrint(c.arena, "{s}_{d}", .{ var_name, c.getMangle() }) else var_name;
     const var_decl_loc = var_decl.getLocation();
 
     const qual_type = var_decl.getTypeSourceInfo_getType();
@@ -774,7 +766,7 @@ fn visitVarDecl(c: *Context, var_decl: *const clang.VarDecl, mangled_name: ?[]co
 
     const type_node = transQualTypeMaybeInitialized(c, scope, qual_type, decl_init, var_decl_loc) catch |err| switch (err) {
         error.UnsupportedTranslation, error.UnsupportedType => {
-            return failDecl(c, var_decl_loc, checked_name, "unable to resolve variable type", .{});
+            return failDecl(c, var_decl_loc, var_name, "unable to resolve variable type", .{});
         },
         error.OutOfMemory => |e| return e,
     };
@@ -833,11 +825,11 @@ fn visitVarDecl(c: *Context, var_decl: *const clang.VarDecl, mangled_name: ?[]co
         .is_threadlocal = is_threadlocal,
         .linksection_string = linksection_string,
         .alignment = zigAlignment(var_decl.getAlignedAttribute(c.clang_context)),
-        .name = checked_name,
+        .name = var_name,
         .type = type_node,
         .init = init_node,
     });
-    return addTopLevelDecl(c, checked_name, node);
+    return addTopLevelDecl(c, var_name, node);
 }
 
 const builtin_typedef_map = std.ComptimeStringMap([]const u8, .{
@@ -861,11 +853,7 @@ fn transTypeDef(c: *Context, scope: *Scope, typedef_decl: *const clang.TypedefNa
     const toplevel = scope.id == .root;
     const bs: *Scope.Block = if (!toplevel) try scope.findBlockScope(c) else undefined;
 
-    const bare_name = try c.str(@ptrCast(*const clang.NamedDecl, typedef_decl).getName_bytes_begin());
-
-    // TODO https://github.com/ziglang/zig/issues/3756
-    // TODO https://github.com/ziglang/zig/issues/1802
-    var name: []const u8 = if (isZigPrimitiveType(bare_name)) try std.fmt.allocPrint(c.arena, "{s}_{d}", .{ bare_name, c.getMangle() }) else bare_name;
+    var name: []const u8 = try c.str(@ptrCast(*const clang.NamedDecl, typedef_decl).getName_bytes_begin());
     try c.typedefs.put(c.gpa, name, {});
 
     if (builtin_typedef_map.get(name)) |builtin| {
@@ -1535,12 +1523,12 @@ fn transOffsetOfExpr(
 /// node -> @bitCast(usize, @intCast(isize, node))
 fn usizeCastForWrappingPtrArithmetic(gpa: *mem.Allocator, node: Node) TransError!Node {
     const intcast_node = try Tag.int_cast.create(gpa, .{
-        .lhs = try Tag.identifier.create(gpa, "isize"),
+        .lhs = try Tag.type.create(gpa, "isize"),
         .rhs = node,
     });
 
     return Tag.bit_cast.create(gpa, .{
-        .lhs = try Tag.identifier.create(gpa, "usize"),
+        .lhs = try Tag.type.create(gpa, "usize"),
         .rhs = intcast_node,
     });
 }
@@ -3345,7 +3333,7 @@ fn transSignedArrayAccess(
     const then_value = try Tag.add.create(c.arena, .{
         .lhs = container_node,
         .rhs = try Tag.int_cast.create(c.arena, .{
-            .lhs = try Tag.identifier.create(c.arena, "usize"),
+            .lhs = try Tag.type.create(c.arena, "usize"),
             .rhs = tmp_ref,
         }),
     });
@@ -3357,7 +3345,7 @@ fn transSignedArrayAccess(
 
     const minuend = container_node;
     const signed_size = try Tag.int_cast.create(c.arena, .{
-        .lhs = try Tag.identifier.create(c.arena, "isize"),
+        .lhs = try Tag.type.create(c.arena, "isize"),
         .rhs = tmp_ref,
     });
     const to_cast = try Tag.add_wrap.create(c.arena, .{
@@ -3365,7 +3353,7 @@ fn transSignedArrayAccess(
         .rhs = try Tag.negate.create(c.arena, Tag.one_literal.init()),
     });
     const bitcast_node = try Tag.bit_cast.create(c.arena, .{
-        .lhs = try Tag.identifier.create(c.arena, "usize"),
+        .lhs = try Tag.type.create(c.arena, "usize"),
         .rhs = to_cast,
     });
     const subtrahend = try Tag.bit_not.create(c.arena, bitcast_node);
@@ -3421,7 +3409,7 @@ fn transArrayAccess(c: *Context, scope: *Scope, stmt: *const clang.ArraySubscrip
     const container_node = try transExpr(c, scope, unwrapped_base, .used);
     const rhs = if (is_longlong or is_signed) blk: {
         // check if long long first so that signed long long doesn't just become unsigned long long
-        const typeid_node = if (is_longlong) try Tag.identifier.create(c.arena, "usize") else try transQualTypeIntWidthOf(c, subscr_qt, false);
+        const typeid_node = if (is_longlong) try Tag.type.create(c.arena, "usize") else try transQualTypeIntWidthOf(c, subscr_qt, false);
         break :blk try Tag.int_cast.create(c.arena, .{ .lhs = typeid_node, .rhs = try transExpr(c, scope, subscr_expr, .used) });
     } else try transExpr(c, scope, subscr_expr, .used);
 
@@ -3953,7 +3941,7 @@ fn transFloatingLiteral(c: *Context, scope: *Scope, expr: *const clang.FloatingL
 
 fn transBinaryConditionalOperator(c: *Context, scope: *Scope, stmt: *const clang.BinaryConditionalOperator, used: ResultUsed) TransError!Node {
     // GNU extension of the ternary operator where the middle expression is
-    // omitted, the conditition itself is returned if it evaluates to true
+    // omitted, the condition itself is returned if it evaluates to true
     const qt = @ptrCast(*const clang.Expr, stmt).getType();
     const res_is_bool = qualTypeIsBoolean(qt);
     const casted_stmt = @ptrCast(*const clang.AbstractConditionalOperator, stmt);
@@ -4040,7 +4028,7 @@ fn transConditionalOperator(c: *Context, scope: *Scope, stmt: *const clang.Condi
         .then = then_body,
         .@"else" = else_body,
     });
-    // Clang inserts ImplicitCast(ToVoid)'s to both rhs and lhs so we don't need to supress the result here.
+    // Clang inserts ImplicitCast(ToVoid)'s to both rhs and lhs so we don't need to suppress the result here.
     return if_node;
 }
 
@@ -4671,6 +4659,7 @@ fn transType(c: *Context, scope: *Scope, ty: *const clang.Type, source_loc: clan
             if (@ptrCast(*const clang.Decl, typedef_decl).castToNamedDecl()) |named_decl| {
                 const decl_name = try c.str(named_decl.getName_bytes_begin());
                 if (c.global_names.get(decl_name)) |_| trans_scope = &c.global_scope.base;
+                if (builtin_typedef_map.get(decl_name)) |builtin| return Tag.type.create(c.arena, builtin);
             }
             try transTypeDef(c, trans_scope, typedef_decl);
             const name = c.decl_table.get(@ptrToInt(typedef_decl.getCanonicalDecl())).?;
@@ -4994,19 +4983,6 @@ pub fn freeErrors(errors: []ClangErrMsg) void {
     errors.ptr.delete(errors.len);
 }
 
-fn isZigPrimitiveType(name: []const u8) bool {
-    if (name.len > 1 and (name[0] == 'u' or name[0] == 'i')) {
-        for (name[1..]) |c| {
-            switch (c) {
-                '0'...'9' => {},
-                else => return false,
-            }
-        }
-        return true;
-    }
-    return @import("AstGen.zig").simple_types.has(name);
-}
-
 const PatternList = struct {
     patterns: []Pattern,
 
@@ -5311,10 +5287,7 @@ fn transPreprocessorEntities(c: *Context, unit: *clang.ASTUnit) Error!void {
                 const end_loc = clang.Lexer.getLocForEndOfToken(macro.getSourceRange_getEnd(), c.source_manager, unit);
 
                 const name = try c.str(raw_name);
-                // TODO https://github.com/ziglang/zig/issues/3756
-                // TODO https://github.com/ziglang/zig/issues/1802
-                const mangled_name = if (isZigPrimitiveType(name)) try std.fmt.allocPrint(c.arena, "{s}_{d}", .{ name, c.getMangle() }) else name;
-                if (scope.containsNow(mangled_name)) {
+                if (scope.containsNow(name)) {
                     continue;
                 }
 
@@ -5328,7 +5301,7 @@ fn transPreprocessorEntities(c: *Context, unit: *clang.ASTUnit) Error!void {
                 var macro_ctx = MacroCtx{
                     .source = slice,
                     .list = tok_list.items,
-                    .name = mangled_name,
+                    .name = name,
                     .loc = begin_loc,
                 };
                 assert(mem.eql(u8, macro_ctx.slice(), name));
@@ -5766,7 +5739,8 @@ fn parseCPrimaryExprInner(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!N
                 try m.fail(c, "TODO implement function '{s}' in std.zig.c_builtins", .{mangled_name});
                 return error.ParseError;
             }
-            const identifier = try Tag.identifier.create(c.arena, builtin_typedef_map.get(mangled_name) orelse mangled_name);
+            if (builtin_typedef_map.get(mangled_name)) |ty| return Tag.type.create(c.arena, ty);
+            const identifier = try Tag.identifier.create(c.arena, mangled_name);
             scope.skipVariableDiscard(identifier.castTag(.identifier).?.data);
             return identifier;
         },
@@ -6055,7 +6029,8 @@ fn parseCSpecifierQualifierList(c: *Context, m: *MacroCtx, scope: *Scope, allow_
         .Identifier => {
             const mangled_name = scope.getAlias(m.slice());
             if (!allow_fail or c.typedefs.contains(mangled_name)) {
-                return try Tag.identifier.create(c.arena, builtin_typedef_map.get(mangled_name) orelse mangled_name);
+                if (builtin_typedef_map.get(mangled_name)) |ty| return try Tag.type.create(c.arena, ty);
+                return try Tag.identifier.create(c.arena, mangled_name);
             }
         },
         .Keyword_void => return try Tag.type.create(c.arena, "c_void"),

@@ -318,8 +318,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\};
         \\pub const Color = struct_Color;
         ,
-        \\pub inline fn CLITERAL(type_1: anytype) @TypeOf(type_1) {
-        \\    return type_1;
+        \\pub inline fn CLITERAL(@"type": anytype) @TypeOf(@"type") {
+        \\    return @"type";
         \\}
         ,
         \\pub const LIGHTGRAY = @import("std").mem.zeroInit(CLITERAL(Color), .{ @as(c_int, 200), @as(c_int, 200), @as(c_int, 200), @as(c_int, 255) });
@@ -2031,10 +2031,18 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     cases.add("shadowing primitive types",
         \\unsigned anyerror = 2;
         \\#define noreturn _Noreturn
+        \\typedef enum {
+        \\    f32,
+        \\    u32,
+        \\} BadEnum;
     , &[_][]const u8{
-        \\pub export var anyerror_1: c_uint = 2;
+        \\pub export var @"anyerror": c_uint = 2;
         ,
-        \\pub const noreturn_2 = @compileError("unable to translate C expr: unexpected token .Keyword_noreturn");
+        \\pub const @"noreturn" = @compileError("unable to translate C expr: unexpected token .Keyword_noreturn");
+        ,
+        \\pub const @"f32": c_int = 0;
+        \\pub const @"u32": c_int = 1;
+        \\pub const BadEnum = c_uint;
     });
 
     cases.add("floats",

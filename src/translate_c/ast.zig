@@ -801,11 +801,26 @@ const Context = struct {
     }
 
     fn addToken(c: *Context, tag: TokenTag, bytes: []const u8) Allocator.Error!TokenIndex {
-        return addTokenFmt(c, tag, "{s}", .{bytes});
+        return c.addTokenFmt(tag, "{s}", .{bytes});
+    }
+
+    fn isZigPrimitiveType(name: []const u8) bool {
+        if (name.len > 1 and (name[0] == 'u' or name[0] == 'i')) {
+            for (name[1..]) |c| {
+                switch (c) {
+                    '0'...'9' => {},
+                    else => return false,
+                }
+            }
+            return true;
+        }
+        return @import("../AstGen.zig").simple_types.has(name);
     }
 
     fn addIdentifier(c: *Context, bytes: []const u8) Allocator.Error!TokenIndex {
-        return addTokenFmt(c, .identifier, "{s}", .{std.zig.fmtId(bytes)});
+        if (isZigPrimitiveType(bytes))
+            return c.addTokenFmt(.identifier, "@\"{s}\"", .{bytes});
+        return c.addTokenFmt(.identifier, "{s}", .{std.zig.fmtId(bytes)});
     }
 
     fn listToSpan(c: *Context, list: []const NodeIndex) Allocator.Error!NodeSubRange {
@@ -1999,7 +2014,7 @@ fn renderRecord(c: *Context, node: Node) !NodeIndex {
     members[1] = 0;
 
     for (payload.fields) |field, i| {
-        const name_tok = try c.addIdentifier(field.name);
+        const name_tok = try c.addTokenFmt(.identifier, "{s}", .{std.zig.fmtId(field.name)});
         _ = try c.addToken(.colon, ":");
         const type_expr = try renderNode(c, field.type);
 
@@ -2079,7 +2094,7 @@ fn renderFieldAccess(c: *Context, lhs: NodeIndex, field_name: []const u8) !NodeI
         .main_token = try c.addToken(.period, "."),
         .data = .{
             .lhs = lhs,
-            .rhs = try c.addIdentifier(field_name),
+            .rhs = try c.addTokenFmt(.identifier, "{s}", .{std.zig.fmtId(field_name)}),
         },
     });
 }
