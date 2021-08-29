@@ -39,6 +39,11 @@ magic: u32,
 entry_val: ?u64 = null,
 
 got_len: usize = 0,
+// A list of all the free got indexes, so when making a new decl
+// don't make a new one, just use one from here.
+got_index_free_list: std.ArrayListUnmanaged(u64) = .{},
+
+syms_index_free_list: std.ArrayListUnmanaged(u64) = .{},
 
 const Bases = struct {
     text: u64,
@@ -212,8 +217,12 @@ fn updateFinish(self: *Plan9, decl: *Module.Decl) !void {
     if (decl.link.plan9.sym_index) |s| {
         self.syms.items[s] = sym;
     } else {
-        try self.syms.append(self.base.allocator, sym);
-        decl.link.plan9.sym_index = self.syms.items.len - 1;
+        if (self.syms_index_free_list.popOrNull()) |i| {
+            decl.link.plan9.sym_index = i;
+        } else {
+            try self.syms.append(self.base.allocator, sym);
+            decl.link.plan9.sym_index = self.syms.items.len - 1;
+        }
     }
 }
 
@@ -244,14 +253,12 @@ pub fn flushModule(self: *Plan9, comp: *Compilation) !void {
 
     const mod = self.base.options.module orelse return error.LinkingWithoutZigSourceUnimplemented;
 
-    // TODO I changed this assert from == to >= but this code all needs to be audited; see
-    // the comment in `freeDecl`.
-    assert(self.got_len >= self.fn_decl_table.count() + self.data_decl_table.count());
+    assert(self.got_len == self.fn_decl_table.count() + self.data_decl_table.count() + self.got_index_free_list.items.len);
     const got_size = self.got_len * if (!self.sixtyfour_bit) @as(u32, 4) else 8;
     var got_table = try self.base.allocator.alloc(u8, got_size);
     defer self.base.allocator.free(got_table);
 
-    // + 2 for header, got, symbols
+    // + 3 for header, got, symbols
     var iovecs = try self.base.allocator.alloc(std.os.iovec_const, self.fn_decl_table.count() + self.data_decl_table.count() + 3);
     defer self.base.allocator.free(iovecs);
 
@@ -380,17 +387,23 @@ fn addDeclExports(
 }
 
 pub fn freeDecl(self: *Plan9, decl: *Module.Decl) void {
-    // TODO this is not the correct check for being function body,
-    // it could just be a function pointer.
     // TODO audit the lifetimes of decls table entries. It's possible to get
     // allocateDeclIndexes and then freeDecl without any updateDecl in between.
     // However that is planned to change, see the TODO comment in Module.zig
     // in the deleteUnusedDecl function.
-    const is_fn = (decl.ty.zigTypeTag() == .Fn);
+    const is_fn = (decl.val.tag() == .function);
     if (is_fn) {
         _ = self.fn_decl_table.swapRemove(decl);
     } else {
         _ = self.data_decl_table.swapRemove(decl);
+    }
+    if (decl.link.plan9.got_index) |i| {
+        // TODO: if this catch {} is triggered, an assertion in flushModule will be triggered, because got_index_free_list will have the wrong length
+        self.got_index_free_list.append(self.base.allocator, i) catch {};
+    }
+    if (decl.link.plan9.sym_index) |i| {
+        self.syms_index_free_list.append(self.base.allocator, i) catch {};
+        self.syms.items[i] = undefined;
     }
 }
 
@@ -418,6 +431,8 @@ pub fn deinit(self: *Plan9) void {
     }
     self.data_decl_table.deinit(self.base.allocator);
     self.syms.deinit(self.base.allocator);
+    self.got_index_free_list.deinit(self.base.allocator);
+    self.syms_index_free_list.deinit(self.base.allocator);
 }
 
 pub const Export = ?usize;
@@ -481,7 +496,11 @@ pub fn writeSyms(self: *Plan9, buf: *std.ArrayList(u8)) !void {
 
 pub fn allocateDeclIndexes(self: *Plan9, decl: *Module.Decl) !void {
     if (decl.link.plan9.got_index == null) {
-        self.got_len += 1;
-        decl.link.plan9.got_index = self.got_len - 1;
+        if (self.got_index_free_list.popOrNull()) |i| {
+            decl.link.plan9.got_index = i;
+        } else {
+            self.got_len += 1;
+            decl.link.plan9.got_index = self.got_len - 1;
+        }
     }
 }
