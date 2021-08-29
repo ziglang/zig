@@ -5210,23 +5210,57 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             return error.CodegenFail;
         }
 
-        usingnamespace switch (arch) {
-            .i386 => @import("codegen/x86.zig"),
-            .x86_64 => @import("codegen/x86_64.zig"),
-            .riscv64 => @import("codegen/riscv64.zig"),
-            .arm, .armeb => @import("codegen/arm.zig"),
-            .aarch64, .aarch64_be, .aarch64_32 => @import("codegen/aarch64.zig"),
-            else => struct {
-                pub const Register = enum {
-                    dummy,
+        const Register = switch (arch) {
+            .i386 => @import("codegen/x86.zig").Register,
+            .x86_64 => @import("codegen/x86_64.zig").Register,
+            .riscv64 => @import("codegen/riscv64.zig").Register,
+            .arm, .armeb => @import("codegen/arm.zig").Register,
+            .aarch64, .aarch64_be, .aarch64_32 => @import("codegen/aarch64.zig").Register,
+            else => enum {
+                dummy,
 
-                    pub fn allocIndex(self: Register) ?u4 {
-                        _ = self;
-                        return null;
-                    }
-                };
-                pub const callee_preserved_regs = [_]Register{};
+                pub fn allocIndex(self: Register) ?u4 {
+                    _ = self;
+                    return null;
+                }
             },
+        };
+
+        const Instruction = switch (arch) {
+            .riscv64 => @import("codegen/riscv64.zig").Instruction,
+            .arm, .armeb => @import("codegen/arm.zig").Instruction,
+            .aarch64, .aarch64_be, .aarch64_32 => @import("codegen/aarch64.zig").Instruction,
+            else => void,
+        };
+
+        const Condition = switch (arch) {
+            .arm, .armeb => @import("codegen/arm.zig").Condition,
+            else => void,
+        };
+
+        const callee_preserved_regs = switch (arch) {
+            .i386 => @import("codegen/x86.zig").callee_preserved_regs,
+            .x86_64 => @import("codegen/x86_64.zig").callee_preserved_regs,
+            .riscv64 => @import("codegen/riscv64.zig").callee_preserved_regs,
+            .arm, .armeb => @import("codegen/arm.zig").callee_preserved_regs,
+            .aarch64, .aarch64_be, .aarch64_32 => @import("codegen/aarch64.zig").callee_preserved_regs,
+            else => [_]Register{},
+        };
+
+        const c_abi_int_param_regs = switch (arch) {
+            .i386 => @import("codegen/x86.zig").c_abi_int_param_regs,
+            .x86_64 => @import("codegen/x86_64.zig").c_abi_int_param_regs,
+            .arm, .armeb => @import("codegen/arm.zig").c_abi_int_param_regs,
+            .aarch64, .aarch64_be, .aarch64_32 => @import("codegen/aarch64.zig").c_abi_int_param_regs,
+            else => [_]Register{},
+        };
+
+        const c_abi_int_return_regs = switch (arch) {
+            .i386 => @import("codegen/x86.zig").c_abi_int_return_regs,
+            .x86_64 => @import("codegen/x86_64.zig").c_abi_int_return_regs,
+            .arm, .armeb => @import("codegen/arm.zig").c_abi_int_return_regs,
+            .aarch64, .aarch64_be, .aarch64_32 => @import("codegen/aarch64.zig").c_abi_int_return_regs,
+            else => [_]Register{},
         };
 
         fn parseRegName(name: []const u8) ?Register {
