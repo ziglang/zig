@@ -3532,9 +3532,23 @@ fn structDeclInner(
             .fn_proto_multi,
             .fn_proto_one,
             .fn_proto,
-            => {
+            => |v| {
                 var params: [1]ast.Node.Index = undefined;
-                const fn_proto = tree.fnProtoSimple(&params, node_datas[member_node].lhs);
+                const pre_fn_proto = node_datas[member_node].lhs;
+                const fn_proto = switch (v) {
+                    .fn_decl => switch (node_tags[pre_fn_proto]) {
+                        .fn_proto_simple => tree.fnProtoSimple(&params, pre_fn_proto),
+                        .fn_proto_multi => tree.fnProtoMulti(pre_fn_proto),
+                        .fn_proto_one => tree.fnProtoOne(&params, pre_fn_proto),
+                        .fn_proto => tree.fnProto(pre_fn_proto),
+                        else => unreachable,
+                    },
+                    .fn_proto_simple => tree.fnProtoSimple(&params, member_node),
+                    .fn_proto_multi => tree.fnProtoMulti(member_node),
+                    .fn_proto_one => tree.fnProtoOne(&params, member_node),
+                    .fn_proto => tree.fnProto(member_node),
+                    else => unreachable,
+                };
                 const fn_name_token = fn_proto.name_token orelse {
                     return astgen.failTok(fn_proto.ast.fn_token, "missing function name", .{});
                 };
