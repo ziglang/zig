@@ -302,4 +302,56 @@ pub fn addCases(ctx: *TestContext) !void {
             \\pub export fn main() void { _ = entry; }
         );
     }
+
+    {
+        var case = ctx.exeUsingLlvmBackend("address spaces pointer access chaining: array pointer", linux_x64);
+        case.compiles(
+            \\fn entry(a: *addrspace(.gs) [1]i32) *addrspace(.gs) i32 {
+            \\    return &a[0];
+            \\}
+            \\pub export fn main() void { _ = entry; }
+        );
+    }
+
+    {
+        var case = ctx.exeUsingLlvmBackend("address spaces pointer access chaining: pointer to optional array", linux_x64);
+        case.compiles(
+            \\fn entry(a: *addrspace(.gs) ?[1]i32) *addrspace(.gs) i32 {
+            \\    return &a.*.?[0];
+            \\}
+            \\pub export fn main() void { _ = entry; }
+        );
+    }
+
+    {
+        var case = ctx.exeUsingLlvmBackend("address spaces pointer access chaining: struct pointer", linux_x64);
+        case.compiles(
+            \\const A = struct{ a: i32 };
+            \\fn entry(a: *addrspace(.gs) A) *addrspace(.gs) i32 {
+            \\    return &a.a;
+            \\}
+            \\pub export fn main() void { _ = entry; }
+        );
+    }
+
+    {
+        var case = ctx.exeUsingLlvmBackend("address spaces pointer access chaining: complex", linux_x64);
+        case.compiles(
+            \\const A = struct{ a: ?[1]i32 };
+            \\fn entry(a: *addrspace(.gs) [1]A) *addrspace(.gs) i32 {
+            \\    return &a[0].a.?[0];
+            \\}
+            \\pub export fn main() void { _ = entry; }
+        );
+    }
+
+    {
+        var case = ctx.exeUsingLlvmBackend("dereferencing through multiple pointers with address spaces", linux_x64);
+        case.compiles(
+            \\fn entry(a: *addrspace(.fs) *addrspace(.gs) *i32) *i32 {
+            \\    return a.*.*;
+            \\}
+            \\pub export fn main() void { _ = entry; }
+        );
+    }
 }

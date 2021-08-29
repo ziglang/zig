@@ -973,3 +973,62 @@ pub const TypeKind = enum(c_int) {
     BFloat,
     X86_AMX,
 };
+
+pub const address_space = struct {
+    // See llvm/lib/Target/X86/X86.h
+    pub const x86_64 = x86;
+    pub const x86 = struct {
+        pub const gs = 256;
+        pub const fs = 257;
+        pub const ss = 258;
+
+        pub const ptr32_sptr = 270;
+        pub const ptr32_uptr = 271;
+        pub const ptr64 = 272;
+    };
+
+    // See llvm/lib/Target/AVR/AVR.h
+    pub const avr = struct {
+        pub const data_memory = 0;
+        pub const program_memory = 1;
+    };
+
+    // See llvm/lib/Target/NVPTX/NVPTX.h
+    pub const nvptx = struct {
+        pub const generic = 0;
+        pub const global = 1;
+        pub const constant = 2;
+        pub const shared = 3;
+        pub const param = 4;
+        pub const local = 5;
+    };
+
+    // See llvm/lib/Target/AMDGPU/AMDGPU.h
+    pub const amdgpu = struct {
+        pub const flat = 0;
+        pub const global = 1;
+        pub const region = 2;
+        pub const local = 3;
+        pub const constant = 4;
+        pub const constant_32bit = 6;
+        pub const buffer_fat_pointer = 7;
+        pub const param_d = 6;
+        pub const param_i = 7;
+        pub const constant_buffer_0 = 8;
+        pub const constant_buffer_1 = 9;
+        pub const constant_buffer_2 = 10;
+        pub const constant_buffer_3 = 11;
+        pub const constant_buffer_4 = 12;
+        pub const constant_buffer_5 = 13;
+        pub const constant_buffer_6 = 14;
+        pub const constant_buffer_7 = 15;
+        pub const constant_buffer_8 = 16;
+        pub const constant_buffer_9 = 17;
+        pub const constant_buffer_10 = 18;
+        pub const constant_buffer_11 = 19;
+        pub const constant_buffer_12 = 20;
+        pub const constant_buffer_13 = 21;
+        pub const constant_buffer_14 = 22;
+        pub const constant_buffer_15 = 23;
+    };
+};
