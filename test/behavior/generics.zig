@@ -91,8 +91,7 @@ test "type constructed by comptime function call" {
 }
 
 fn SimpleList(comptime L: usize) type {
-    var mutable_T = u8;
-    const T = mutable_T;
+    var T = u8;
     return struct {
         array: [L]T,
     };

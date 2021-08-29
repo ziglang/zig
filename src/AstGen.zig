@@ -2883,6 +2883,8 @@ fn fnDecl(
     };
     const fn_name_str_index = try astgen.identAsString(fn_name_token);
 
+    try astgen.declareNewName(scope, fn_name_str_index, decl_node, fn_name_token);
+
     // We insert this at the beginning so that its instruction index marks the
     // start of the top level declaration.
     const block_inst = try gz.addBlock(.block_inline, fn_proto.ast.proto_node);
@@ -3150,6 +3152,8 @@ fn globalVarDecl(
 
     const name_token = var_decl.ast.mut_token + 1;
     const name_str_index = try astgen.identAsString(name_token);
+
+    try astgen.declareNewName(scope, name_str_index, node, name_token);
 
     var block_scope: GenZir = .{
         .parent = scope,
@@ -3505,10 +3509,8 @@ fn structDeclInner(
     };
     defer block_scope.instructions.deinit(gpa);
 
-    var namespace: Scope.Namespace = .{ .parent = scope, .node = node };
+    var namespace: Scope.Namespace = .{ .parent = scope };
     defer namespace.decls.deinit(gpa);
-
-    try astgen.scanDecls(&namespace, container_decl.ast.members);
 
     var wip_decls: WipDecls = .{};
     defer wip_decls.deinit(gpa);
@@ -3669,7 +3671,7 @@ fn structDeclInner(
         const field_type: Zir.Inst.Ref = if (node_tags[member.ast.type_expr] == .@"anytype")
             .none
         else
-            try typeExpr(&block_scope, &namespace.base, member.ast.type_expr);
+            try typeExpr(&block_scope, &block_scope.base, member.ast.type_expr);
         fields_data.appendAssumeCapacity(@enumToInt(field_type));
 
         known_has_bits = known_has_bits or nodeImpliesRuntimeBits(tree, member.ast.type_expr);
@@ -3685,13 +3687,13 @@ fn structDeclInner(
             (@as(u32, @boolToInt(unused)) << 31);
 
         if (have_align) {
-            const align_inst = try expr(&block_scope, &namespace.base, align_rl, member.ast.align_expr);
+            const align_inst = try expr(&block_scope, &block_scope.base, align_rl, member.ast.align_expr);
             fields_data.appendAssumeCapacity(@enumToInt(align_inst));
         }
         if (have_value) {
             const rl: ResultLoc = if (field_type == .none) .none else .{ .ty = field_type };
 
-            const default_inst = try expr(&block_scope, &namespace.base, rl, member.ast.value_expr);
+            const default_inst = try expr(&block_scope, &block_scope.base, rl, member.ast.value_expr);
             fields_data.appendAssumeCapacity(@enumToInt(default_inst));
         } else if (member.comptime_token) |comptime_token| {
             return astgen.failTok(comptime_token, "comptime field without default initialization value", .{});
@@ -3754,7 +3756,7 @@ fn unionDeclInner(
     node: ast.Node.Index,
     members: []const ast.Node.Index,
     layout: std.builtin.TypeInfo.ContainerLayout,
-    arg_node: ast.Node.Index,
+    arg_inst: Zir.Inst.Ref,
     have_auto_enum: bool,
 ) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
@@ -3776,15 +3778,8 @@ fn unionDeclInner(
     };
     defer block_scope.instructions.deinit(gpa);
 
-    var namespace: Scope.Namespace = .{ .parent = scope, .node = node };
+    var namespace: Scope.Namespace = .{ .parent = scope };
     defer namespace.decls.deinit(gpa);
-
-    try astgen.scanDecls(&namespace, members);
-
-    const arg_inst: Zir.Inst.Ref = if (arg_node != 0)
-        try typeExpr(gz, &namespace.base, arg_node)
-    else
-        .none;
 
     var wip_decls: WipDecls = .{};
     defer wip_decls.deinit(gpa);
@@ -3951,7 +3946,7 @@ fn unionDeclInner(
             (@as(u32, @boolToInt(unused)) << 31);
 
         if (have_type and node_tags[member.ast.type_expr] != .@"anytype") {
-            const field_type = try typeExpr(&block_scope, &namespace.base, member.ast.type_expr);
+            const field_type = try typeExpr(&block_scope, &block_scope.base, member.ast.type_expr);
             fields_data.appendAssumeCapacity(@enumToInt(field_type));
         }
         if (have_align) {
@@ -4051,6 +4046,11 @@ fn containerDecl(
     // We must not create any types until Sema. Here the goal is only to generate
     // ZIR for all the field types, alignments, and default value expressions.
 
+    const arg_inst: Zir.Inst.Ref = if (container_decl.ast.arg != 0)
+        try comptimeExpr(gz, scope, .{ .ty = .type_type }, container_decl.ast.arg)
+    else
+        .none;
+
     switch (token_tags[container_decl.ast.main_token]) {
         .keyword_struct => {
             const layout = if (container_decl.layout_token) |t| switch (token_tags[t]) {
@@ -4059,7 +4059,7 @@ fn containerDecl(
                 else => unreachable,
             } else std.builtin.TypeInfo.ContainerLayout.Auto;
 
-            assert(container_decl.ast.arg == 0);
+            assert(arg_inst == .none);
 
             const result = try structDeclInner(gz, scope, node, container_decl, layout);
             return rvalue(gz, rl, result, node);
@@ -4073,7 +4073,7 @@ fn containerDecl(
 
             const have_auto_enum = container_decl.ast.enum_token != null;
 
-            const result = try unionDeclInner(gz, scope, node, container_decl.ast.members, layout, container_decl.ast.arg, have_auto_enum);
+            const result = try unionDeclInner(gz, scope, node, container_decl.ast.members, layout, arg_inst, have_auto_enum);
             return rvalue(gz, rl, result, node);
         },
         .keyword_enum => {
@@ -4140,7 +4140,7 @@ fn containerDecl(
                     }
                     total_fields += 1;
                     if (member.ast.value_expr != 0) {
-                        if (container_decl.ast.arg == 0) {
+                        if (arg_inst == .none) {
                             return astgen.failNode(member.ast.value_expr, "value assigned to enum tag with inferred tag type", .{});
                         }
                         values += 1;
@@ -4159,7 +4159,7 @@ fn containerDecl(
                 // must be at least one tag.
                 return astgen.failNode(node, "enum declarations must have at least one tag", .{});
             }
-            if (counts.nonexhaustive_node != 0 and container_decl.ast.arg == 0) {
+            if (counts.nonexhaustive_node != 0 and arg_inst == .none) {
                 return astgen.failNodeNotes(
                     node,
                     "non-exhaustive enum missing integer tag type",
@@ -4189,15 +4189,8 @@ fn containerDecl(
             };
             defer block_scope.instructions.deinit(gpa);
 
-            var namespace: Scope.Namespace = .{ .parent = scope, .node = node };
+            var namespace: Scope.Namespace = .{ .parent = scope };
             defer namespace.decls.deinit(gpa);
-
-            try astgen.scanDecls(&namespace, container_decl.ast.members);
-
-            const arg_inst: Zir.Inst.Ref = if (container_decl.ast.arg != 0)
-                try comptimeExpr(gz, &namespace.base, .{ .ty = .type_type }, container_decl.ast.arg)
-            else
-                .none;
 
             var wip_decls: WipDecls = .{};
             defer wip_decls.deinit(gpa);
@@ -4371,7 +4364,7 @@ fn containerDecl(
                             },
                         );
                     }
-                    const tag_value_inst = try expr(&block_scope, &namespace.base, .{ .ty = arg_inst }, member.ast.value_expr);
+                    const tag_value_inst = try expr(&block_scope, &block_scope.base, .{ .ty = arg_inst }, member.ast.value_expr);
                     fields_data.appendAssumeCapacity(@enumToInt(tag_value_inst));
                 }
 
@@ -4423,12 +4416,8 @@ fn containerDecl(
             return rvalue(gz, rl, indexToRef(decl_inst), node);
         },
         .keyword_opaque => {
-            assert(container_decl.ast.arg == 0);
-
-            var namespace: Scope.Namespace = .{ .parent = scope, .node = node };
+            var namespace: Scope.Namespace = .{ .parent = scope };
             defer namespace.decls.deinit(gpa);
-
-            try astgen.scanDecls(&namespace, container_decl.ast.members);
 
             var wip_decls: WipDecls = .{};
             defer wip_decls.deinit(gpa);
@@ -6363,68 +6352,73 @@ fn identifier(
 
     // Local variables, including function parameters.
     const name_str_index = try astgen.identAsString(ident_token);
-    var s = scope;
-    var found_already: ?ast.Node.Index = null; // we have found a decl with the same name already
-    var hit_namespace: ast.Node.Index = 0;
-    while (true) switch (s.tag) {
-        .local_val => {
-            const local_val = s.cast(Scope.LocalVal).?;
+    {
+        var s = scope;
+        var found_already: ?ast.Node.Index = null; // we have found a decl with the same name already
+        var hit_namespace = false;
+        while (true) switch (s.tag) {
+            .local_val => {
+                const local_val = s.cast(Scope.LocalVal).?;
 
-            if (local_val.name == name_str_index) {
-                local_val.used = true;
-                // Captures of non-locals need to be emitted as decl_val or decl_ref.
-                // This *might* be capturable depending on if it is comptime known.
-                if (hit_namespace == 0) {
-                    return rvalue(gz, rl, local_val.inst, ident);
+                if (local_val.name == name_str_index) {
+                    local_val.used = true;
+                    // Captures of non-locals need to be emitted as decl_val or decl_ref.
+                    // This *might* be capturable depending on if it is comptime known.
+                    if (!hit_namespace) {
+                        return rvalue(gz, rl, local_val.inst, ident);
+                    }
                 }
-            }
-            s = local_val.parent;
-        },
-        .local_ptr => {
-            const local_ptr = s.cast(Scope.LocalPtr).?;
-            if (local_ptr.name == name_str_index) {
-                local_ptr.used = true;
-                if (hit_namespace != 0) {
-                    if (local_ptr.maybe_comptime)
-                        break
+                s = local_val.parent;
+            },
+            .local_ptr => {
+                const local_ptr = s.cast(Scope.LocalPtr).?;
+                if (local_ptr.name == name_str_index) {
+                    local_ptr.used = true;
+                    if (hit_namespace) {
+                        if (local_ptr.maybe_comptime)
+                            break
+                        else
+                            return astgen.failNodeNotes(ident, "'{s}' not accessible from inner function", .{ident_name}, &.{
+                                try astgen.errNoteTok(local_ptr.token_src, "declared here", .{}),
+                                // TODO add crossed function definition here note.
+                                // Maybe add a note to the error about it being because of the var,
+                                // maybe recommend copying it into a const variable. -SpexGuy
+                            });
+                    }
+                    switch (rl) {
+                        .ref, .none_or_ref => return local_ptr.ptr,
+                        else => {
+                            const loaded = try gz.addUnNode(.load, local_ptr.ptr, ident);
+                            return rvalue(gz, rl, loaded, ident);
+                        },
+                    }
+                }
+                s = local_ptr.parent;
+            },
+            .gen_zir => s = s.cast(GenZir).?.parent,
+            .defer_normal, .defer_error => s = s.cast(Scope.Defer).?.parent,
+            // look for ambiguous references to decls
+            .namespace => {
+                const ns = s.cast(Scope.Namespace).?;
+                if (ns.decls.get(name_str_index)) |i| {
+                    if (found_already) |f|
+                        return astgen.failNodeNotes(ident, "ambiguous reference", .{}, &.{
+                            try astgen.errNoteNode(i, "declared here", .{}),
+                            try astgen.errNoteNode(f, "also declared here", .{}),
+                        })
                     else
-                        return astgen.failNodeNotes(ident, "mutable '{s}' not accessible from here", .{ident_name}, &.{
-                            try astgen.errNoteTok(local_ptr.token_src, "declared mutable here", .{}),
-                            try astgen.errNoteNode(hit_namespace, "crosses namespace boundary here", .{}),
-                        });
+                        found_already = i;
                 }
-                switch (rl) {
-                    .ref, .none_or_ref => return local_ptr.ptr,
-                    else => {
-                        const loaded = try gz.addUnNode(.load, local_ptr.ptr, ident);
-                        return rvalue(gz, rl, loaded, ident);
-                    },
-                }
-            }
-            s = local_ptr.parent;
-        },
-        .gen_zir => s = s.cast(GenZir).?.parent,
-        .defer_normal, .defer_error => s = s.cast(Scope.Defer).?.parent,
-        .namespace => {
-            const ns = s.cast(Scope.Namespace).?;
-            if (ns.decls.get(name_str_index)) |i| {
-                if (found_already) |f| {
-                    return astgen.failNodeNotes(ident, "ambiguous reference", .{}, &.{
-                        try astgen.errNoteNode(f, "declared here", .{}),
-                        try astgen.errNoteNode(i, "also declared here", .{}),
-                    });
-                }
-                // We found a match but must continue looking for ambiguous references to decls.
-                found_already = i;
-            }
-            hit_namespace = ns.node;
-            s = ns.parent;
-        },
-        .top => break,
-    };
+                hit_namespace = true;
+                s = ns.parent;
+            },
+            .top => break,
+        };
+    }
 
-    // Decl references happen by name rather than ZIR index so that when unrelated
-    // decls are modified, ZIR code containing references to them can be unmodified.
+    // We can't look up Decls until Sema because the same ZIR code is supposed to be
+    // used for multiple generic instantiations, and this may refer to a different Decl
+    // depending on the scope, determined by the generic instantiation.
     switch (rl) {
         .ref, .none_or_ref => return gz.addStrTok(.decl_ref, name_str_index, ident_token),
         else => {
@@ -8947,7 +8941,6 @@ const Scope = struct {
         /// Maps string table index to the source location of declaration,
         /// for the purposes of reporting name shadowing compile errors.
         decls: std.AutoHashMapUnmanaged(u32, ast.Node.Index) = .{},
-        node: ast.Node.Index,
     };
 
     const Top = struct {
@@ -10021,6 +10014,53 @@ fn nullTerminatedString(astgen: AstGen, index: usize) [*:0]const u8 {
     return @ptrCast([*:0]const u8, astgen.string_bytes.items.ptr) + index;
 }
 
+fn declareNewName(
+    astgen: *AstGen,
+    start_scope: *Scope,
+    name_index: u32,
+    node: ast.Node.Index,
+    name_token: ast.TokenIndex,
+) !void {
+    const gpa = astgen.gpa;
+
+    const token_bytes = astgen.tree.tokenSlice(name_token);
+    if (token_bytes[0] != '@' and isPrimitive(token_bytes)) {
+        return astgen.failTokNotes(name_token, "name shadows primitive '{s}'", .{
+            token_bytes,
+        }, &[_]u32{
+            try astgen.errNoteTok(name_token, "consider using @\"{s}\" to disambiguate", .{
+                token_bytes,
+            }),
+        });
+    }
+
+    var scope = start_scope;
+    while (true) {
+        switch (scope.tag) {
+            .gen_zir => scope = scope.cast(GenZir).?.parent,
+            .local_val => scope = scope.cast(Scope.LocalVal).?.parent,
+            .local_ptr => scope = scope.cast(Scope.LocalPtr).?.parent,
+            .defer_normal, .defer_error => scope = scope.cast(Scope.Defer).?.parent,
+            .namespace => {
+                const ns = scope.cast(Scope.Namespace).?;
+                const gop = try ns.decls.getOrPut(gpa, name_index);
+                if (gop.found_existing) {
+                    const name = try gpa.dupe(u8, mem.span(astgen.nullTerminatedString(name_index)));
+                    defer gpa.free(name);
+                    return astgen.failNodeNotes(node, "redeclaration of '{s}'", .{
+                        name,
+                    }, &[_]u32{
+                        try astgen.errNoteNode(gop.value_ptr.*, "other declaration here", .{}),
+                    });
+                }
+                gop.value_ptr.* = node;
+                break;
+            },
+            .top => break,
+        }
+    }
+}
+
 fn isPrimitive(name: []const u8) bool {
     if (simple_types.get(name) != null) return true;
     if (name.len < 2) return false;
@@ -10141,58 +10181,5 @@ fn refToIndex(inst: Zir.Inst.Ref) ?Zir.Inst.Index {
         return ref_int - ref_start_index;
     } else {
         return null;
-    }
-}
-
-fn scanDecls(astgen: *AstGen, namespace: *Scope.Namespace, members: []const ast.Node.Index) !void {
-    const gpa = astgen.gpa;
-    const tree = astgen.tree;
-    const node_tags = tree.nodes.items(.tag);
-    const main_tokens = tree.nodes.items(.main_token);
-    for (members) |member_node| {
-        const name_token = switch (node_tags[member_node]) {
-            .fn_decl,
-            .fn_proto_simple,
-            .fn_proto_multi,
-            .fn_proto_one,
-            .fn_proto,
-            .global_var_decl,
-            .local_var_decl,
-            .simple_var_decl,
-            .aligned_var_decl,
-            => main_tokens[member_node] + 1,
-
-            else => continue,
-        };
-
-        const token_bytes = astgen.tree.tokenSlice(name_token);
-        if (token_bytes[0] != '@' and isPrimitive(token_bytes)) {
-            switch (astgen.failTokNotes(name_token, "name shadows primitive '{s}'", .{
-                token_bytes,
-            }, &[_]u32{
-                try astgen.errNoteTok(name_token, "consider using @\"{s}\" to disambiguate", .{
-                    token_bytes,
-                }),
-            })) {
-                error.AnalysisFail => continue,
-                error.OutOfMemory => return error.OutOfMemory,
-            }
-        }
-
-        const name_str_index = try astgen.identAsString(name_token);
-        const gop = try namespace.decls.getOrPut(gpa, name_str_index);
-        if (gop.found_existing) {
-            const name = try gpa.dupe(u8, mem.span(astgen.nullTerminatedString(name_str_index)));
-            defer gpa.free(name);
-            switch (astgen.failNodeNotes(member_node, "redeclaration of '{s}'", .{
-                name,
-            }, &[_]u32{
-                try astgen.errNoteNode(gop.value_ptr.*, "other declaration here", .{}),
-            })) {
-                error.AnalysisFail => continue,
-                error.OutOfMemory => return error.OutOfMemory,
-            }
-        }
-        gop.value_ptr.* = member_node;
     }
 }

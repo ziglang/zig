@@ -506,7 +506,7 @@ test "lazy typeInfo value as generic parameter" {
     S.foo(@typeInfo(@TypeOf(.{})));
 }
 
-fn ZA() type {
+fn A() type {
     return struct {
         b: B(),
 
@@ -520,7 +520,7 @@ fn ZA() type {
     };
 }
 test "non-ambiguous reference of shadowed decls" {
-    try expect(ZA().B().Self != ZA().Self);
+    try expect(A().B().Self != A().Self);
 }
 
 test "use of declaration with same name as primitive" {
