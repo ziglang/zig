@@ -5701,7 +5701,7 @@ fn analyzeArithmetic(
                         try lhs_val.floatMul(rhs_val, scalar_type, sema.arena);
                     break :blk val;
                 },
-                else => return sema.mod.fail(&block.base, src, "TODO Implement arithmetic operand '{s}'", .{@tagName(zir_tag)}),
+                else => return sema.mod.fail(&block.base, src, "TODO implement comptime arithmetic for operand '{s}'", .{@tagName(zir_tag)}),
             };
 
             log.debug("{s}({}, {}) result: {}", .{ @tagName(zir_tag), lhs_val, rhs_val, value });
@@ -5722,7 +5722,7 @@ fn analyzeArithmetic(
         .mul => .mul,
         .mulwrap => .mulwrap,
         .div => .div,
-        else => return sema.mod.fail(&block.base, src, "TODO implement arithmetic for operand '{s}''", .{@tagName(zir_tag)}),
+        else => return sema.mod.fail(&block.base, src, "TODO implement arithmetic for operand '{s}'", .{@tagName(zir_tag)}),
     };
 
     return block.addBinOp(air_tag, casted_lhs, casted_rhs);
