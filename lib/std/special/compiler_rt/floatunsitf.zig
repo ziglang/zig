@@ -24,6 +24,6 @@ pub fn __floatunsitf(a: u32) callconv(.C) f128 {
     return @bitCast(f128, result);
 }
 
-test "import floatunsitf" {
+test {
     _ = @import("floatunsitf_test.zig");
 }

@@ -200,6 +200,6 @@ pub fn __aeabi_fdiv(a: f32, b: f32) callconv(.AAPCS) f32 {
     return @call(.{ .modifier = .always_inline }, __divsf3, .{ a, b });
 }
 
-test "import divsf3" {
+test {
     _ = @import("divsf3_test.zig");
 }

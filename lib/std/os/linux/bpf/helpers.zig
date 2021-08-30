@@ -1,4 +1,9 @@
+const std = @import("../../../std.zig");
 const kern = @import("kern.zig");
+
+const PtRegs = @compileError("TODO missing os bits: PtRegs");
+const TcpHdr = @compileError("TODO missing os bits: TcpHdr");
+const SkFullSock = @compileError("TODO missing os bits: SkFullSock");
 
 // in BPF, all the helper calls
 // TODO: when https://github.com/ziglang/zig/issues/1717 is here, make a nice

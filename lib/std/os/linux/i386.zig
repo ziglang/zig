@@ -1,4 +1,5 @@
 const std = @import("../../std.zig");
+const maxInt = std.math.maxInt;
 const linux = std.os.linux;
 const socklen_t = linux.socklen_t;
 const iovec = linux.iovec;
@@ -8,6 +9,7 @@ const gid_t = linux.gid_t;
 const pid_t = linux.pid_t;
 const stack_t = linux.stack_t;
 const sigset_t = linux.sigset_t;
+const sockaddr = linux.sockaddr;
 
 pub fn syscall0(number: SYS) usize {
     return asm volatile ("int $0x80"
@@ -628,40 +630,28 @@ pub const LOCK = struct {
 pub const MAP = struct {
     /// Share changes
     pub const SHARED = 0x01;
-
     /// Changes are private
     pub const PRIVATE = 0x02;
-
     /// share + validate extension flags
     pub const SHARED_VALIDATE = 0x03;
-
     /// Mask for type of mapping
     pub const TYPE = 0x0f;
-
     /// Interpret addr exactly
     pub const FIXED = 0x10;
-
     /// don't use a file
-    pub const ANONYMOUS = if (is_mips) 0x800 else 0x20;
-
+    pub const ANONYMOUS = 0x20;
     /// populate (prefault) pagetables
-    pub const POPULATE = if (is_mips) 0x10000 else 0x8000;
-
+    pub const POPULATE = 0x8000;
     /// do not block on IO
-    pub const NONBLOCK = if (is_mips) 0x20000 else 0x10000;
-
+    pub const NONBLOCK = 0x10000;
     /// give out an address that is best suited for process/thread stacks
-    pub const STACK = if (is_mips) 0x40000 else 0x20000;
-
+    pub const STACK = 0x20000;
     /// create a huge page mapping
-    pub const HUGETLB = if (is_mips) 0x80000 else 0x40000;
-
+    pub const HUGETLB = 0x40000;
     /// perform synchronous page faults for the mapping
     pub const SYNC = 0x80000;
-
     /// FIXED which doesn't unmap underlying mapping
     pub const FIXED_NOREPLACE = 0x100000;
-
     /// For anonymous mmap, memory could be uninitialized
     pub const UNINITIALIZED = 0x4000000;
 

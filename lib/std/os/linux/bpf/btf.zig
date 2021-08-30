@@ -1,3 +1,5 @@
+const std = @import("../../../std.zig");
+
 const magic = 0xeb9f;
 const version = 1;
 

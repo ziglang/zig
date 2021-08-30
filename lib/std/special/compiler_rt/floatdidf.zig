@@ -22,6 +22,6 @@ pub fn __aeabi_l2d(arg: i64) callconv(.AAPCS) f64 {
     return @call(.{ .modifier = .always_inline }, __floatdidf, .{arg});
 }
 
-test "import floatdidf" {
+test {
     _ = @import("floatdidf_test.zig");
 }

@@ -44,6 +44,6 @@ pub fn __muloti4(a: i128, b: i128, overflow: *c_int) callconv(.C) i128 {
     return r;
 }
 
-test "import muloti4" {
+test {
     _ = @import("muloti4_test.zig");
 }

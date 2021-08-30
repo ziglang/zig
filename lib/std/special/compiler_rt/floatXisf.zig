@@ -85,9 +85,9 @@ pub fn __aeabi_l2f(arg: i64) callconv(.AAPCS) f32 {
     return @call(.{ .modifier = .always_inline }, __floatdisf, .{arg});
 }
 
-test "import floattisf" {
+test {
     _ = @import("floattisf_test.zig");
 }
-test "import floatdisf" {
+test {
     _ = @import("floattisf_test.zig");
 }
