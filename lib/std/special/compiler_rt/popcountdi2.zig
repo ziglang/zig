@@ -19,6 +19,6 @@ pub fn __popcountdi2(a: i64) callconv(.C) i32 {
     return @bitCast(i32, (x + (x >> 8)) & 0x0000007F); // (7 significant bits)
 }
 
-test "import popcountdi2" {
+test {
     _ = @import("popcountdi2_test.zig");
 }

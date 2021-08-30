@@ -13,6 +13,6 @@ pub fn __udivmodti4_windows_x86_64(a: v128, b: v128, maybe_rem: ?*u128) callconv
     return @bitCast(v128, udivmod(u128, @bitCast(u128, a), @bitCast(u128, b), maybe_rem));
 }
 
-test "import udivmodti4" {
+test {
     _ = @import("udivmodti4_test.zig");
 }

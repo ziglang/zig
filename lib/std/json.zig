@@ -2657,7 +2657,7 @@ test "json.parser.dynamic" {
     try testing.expect(mem.eql(u8, large_int.NumberString, "18446744073709551615"));
 }
 
-test "import more json tests" {
+test {
     _ = @import("json/test.zig");
     _ = @import("json/write_stream.zig");
 }

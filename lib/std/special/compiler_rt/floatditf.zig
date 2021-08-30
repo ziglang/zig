@@ -33,6 +33,6 @@ pub fn __floatditf(arg: i64) callconv(.C) f128 {
     return @bitCast(f128, result | sign);
 }
 
-test "import floatditf" {
+test {
     _ = @import("floatditf_test.zig");
 }
