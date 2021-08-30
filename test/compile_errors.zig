@@ -7662,6 +7662,45 @@ pub fn addCases(ctx: *TestContext) !void {
         "tmp.zig:12:9: error: unused local variable",
     });
 
+    ctx.objErrStage1("multiple return",
+        \\export fn foo(x: u8) u8 {
+        \\    return return x;
+        \\}
+    , &.{
+        "tmp.zig:2:12: error: unreachable code",
+    });
+
+    ctx.objErrStage1("use return unreachable in expression",
+        \\export fn foo() void {
+        \\    bar(1 + return);
+        \\}
+        \\fn bar(x: u8) u8 {
+        \\    _ = x;
+        \\}
+    , &.{
+        "tmp.zig:2:13: error: unreachable code",
+    });
+
+    ctx.objErrStage1("use unreachable in rvalue",
+        \\export fn foo() void {
+        \\    bar(@panic("") - 342);
+        \\}
+        \\fn bar(x: u8) u8 {
+        \\    _ = x;
+        \\}
+    , &.{
+        "tmp.zig:2:9: error: unreachable code",
+    });
+
+    ctx.objErrStage1("assign unreachable to variable",
+        \\export fn foo() void {
+        \\    const x = unreachable;
+        \\    _ = x;
+        \\}
+    , &.{
+        "tmp.zig:2:15: error: unreachable code",
+    });
+
     ctx.objErrStage1("specify enum tag type that is too small",
         \\const Small = enum (u2) {
         \\    One,
