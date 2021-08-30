@@ -1,5 +1,6 @@
 //! We do this instead of @cImport because the self-hosted compiler is easier
 //! to bootstrap if it does not depend on translate-c.
+const std = @import("std");
 
 /// Do not compare directly to .True, use toBool() instead.
 pub const Bool = enum(c_int) {
@@ -613,6 +614,7 @@ extern fn LLVMInitializeSystemZTargetInfo() void;
 extern fn LLVMInitializeWebAssemblyTargetInfo() void;
 extern fn LLVMInitializeX86TargetInfo() void;
 extern fn LLVMInitializeXCoreTargetInfo() void;
+
 extern fn LLVMInitializeAArch64Target() void;
 extern fn LLVMInitializeAMDGPUTarget() void;
 extern fn LLVMInitializeARMTarget() void;
@@ -630,6 +632,7 @@ extern fn LLVMInitializeSystemZTarget() void;
 extern fn LLVMInitializeWebAssemblyTarget() void;
 extern fn LLVMInitializeX86Target() void;
 extern fn LLVMInitializeXCoreTarget() void;
+
 extern fn LLVMInitializeAArch64TargetMC() void;
 extern fn LLVMInitializeAMDGPUTargetMC() void;
 extern fn LLVMInitializeARMTargetMC() void;
@@ -647,6 +650,7 @@ extern fn LLVMInitializeSystemZTargetMC() void;
 extern fn LLVMInitializeWebAssemblyTargetMC() void;
 extern fn LLVMInitializeX86TargetMC() void;
 extern fn LLVMInitializeXCoreTargetMC() void;
+
 extern fn LLVMInitializeAArch64AsmPrinter() void;
 extern fn LLVMInitializeAMDGPUAsmPrinter() void;
 extern fn LLVMInitializeARMAsmPrinter() void;
@@ -664,6 +668,7 @@ extern fn LLVMInitializeSystemZAsmPrinter() void;
 extern fn LLVMInitializeWebAssemblyAsmPrinter() void;
 extern fn LLVMInitializeX86AsmPrinter() void;
 extern fn LLVMInitializeXCoreAsmPrinter() void;
+
 extern fn LLVMInitializeAArch64AsmParser() void;
 extern fn LLVMInitializeAMDGPUAsmParser() void;
 extern fn LLVMInitializeARMAsmParser() void;
@@ -680,103 +685,108 @@ extern fn LLVMInitializeSystemZAsmParser() void;
 extern fn LLVMInitializeWebAssemblyAsmParser() void;
 extern fn LLVMInitializeX86AsmParser() void;
 
-pub const initializeAllTargetInfos = LLVMInitializeAllTargetInfos;
-fn LLVMInitializeAllTargetInfos() callconv(.C) void {
-    LLVMInitializeAArch64TargetInfo();
-    LLVMInitializeAMDGPUTargetInfo();
-    LLVMInitializeARMTargetInfo();
-    LLVMInitializeAVRTargetInfo();
-    LLVMInitializeBPFTargetInfo();
-    LLVMInitializeHexagonTargetInfo();
-    LLVMInitializeLanaiTargetInfo();
-    LLVMInitializeMipsTargetInfo();
-    LLVMInitializeMSP430TargetInfo();
-    LLVMInitializeNVPTXTargetInfo();
-    LLVMInitializePowerPCTargetInfo();
-    LLVMInitializeRISCVTargetInfo();
-    LLVMInitializeSparcTargetInfo();
-    LLVMInitializeSystemZTargetInfo();
-    LLVMInitializeWebAssemblyTargetInfo();
-    LLVMInitializeX86TargetInfo();
-    LLVMInitializeXCoreTargetInfo();
-}
-pub const initializeAllTargets = LLVMInitializeAllTargets;
-fn LLVMInitializeAllTargets() callconv(.C) void {
-    LLVMInitializeAArch64Target();
-    LLVMInitializeAMDGPUTarget();
-    LLVMInitializeARMTarget();
-    LLVMInitializeAVRTarget();
-    LLVMInitializeBPFTarget();
-    LLVMInitializeHexagonTarget();
-    LLVMInitializeLanaiTarget();
-    LLVMInitializeMipsTarget();
-    LLVMInitializeMSP430Target();
-    LLVMInitializeNVPTXTarget();
-    LLVMInitializePowerPCTarget();
-    LLVMInitializeRISCVTarget();
-    LLVMInitializeSparcTarget();
-    LLVMInitializeSystemZTarget();
-    LLVMInitializeWebAssemblyTarget();
-    LLVMInitializeX86Target();
-    LLVMInitializeXCoreTarget();
-}
-pub const initializeAllTargetMCs = LLVMInitializeAllTargetMCs;
-fn LLVMInitializeAllTargetMCs() callconv(.C) void {
-    LLVMInitializeAArch64TargetMC();
-    LLVMInitializeAMDGPUTargetMC();
-    LLVMInitializeARMTargetMC();
-    LLVMInitializeAVRTargetMC();
-    LLVMInitializeBPFTargetMC();
-    LLVMInitializeHexagonTargetMC();
-    LLVMInitializeLanaiTargetMC();
-    LLVMInitializeMipsTargetMC();
-    LLVMInitializeMSP430TargetMC();
-    LLVMInitializeNVPTXTargetMC();
-    LLVMInitializePowerPCTargetMC();
-    LLVMInitializeRISCVTargetMC();
-    LLVMInitializeSparcTargetMC();
-    LLVMInitializeSystemZTargetMC();
-    LLVMInitializeWebAssemblyTargetMC();
-    LLVMInitializeX86TargetMC();
-    LLVMInitializeXCoreTargetMC();
-}
-pub const initializeAllAsmPrinters = LLVMInitializeAllAsmPrinters;
-fn LLVMInitializeAllAsmPrinters() callconv(.C) void {
-    LLVMInitializeAArch64AsmPrinter();
-    LLVMInitializeAMDGPUAsmPrinter();
-    LLVMInitializeARMAsmPrinter();
-    LLVMInitializeAVRAsmPrinter();
-    LLVMInitializeBPFAsmPrinter();
-    LLVMInitializeHexagonAsmPrinter();
-    LLVMInitializeLanaiAsmPrinter();
-    LLVMInitializeMipsAsmPrinter();
-    LLVMInitializeMSP430AsmPrinter();
-    LLVMInitializeNVPTXAsmPrinter();
-    LLVMInitializePowerPCAsmPrinter();
-    LLVMInitializeRISCVAsmPrinter();
-    LLVMInitializeSparcAsmPrinter();
-    LLVMInitializeSystemZAsmPrinter();
-    LLVMInitializeWebAssemblyAsmPrinter();
-    LLVMInitializeX86AsmPrinter();
-    LLVMInitializeXCoreAsmPrinter();
-}
-pub const initializeAllAsmParsers = LLVMInitializeAllAsmParsers;
-fn LLVMInitializeAllAsmParsers() callconv(.C) void {
-    LLVMInitializeAArch64AsmParser();
-    LLVMInitializeAMDGPUAsmParser();
-    LLVMInitializeARMAsmParser();
-    LLVMInitializeAVRAsmParser();
-    LLVMInitializeBPFAsmParser();
-    LLVMInitializeHexagonAsmParser();
-    LLVMInitializeLanaiAsmParser();
-    LLVMInitializeMipsAsmParser();
-    LLVMInitializeMSP430AsmParser();
-    LLVMInitializePowerPCAsmParser();
-    LLVMInitializeRISCVAsmParser();
-    LLVMInitializeSparcAsmParser();
-    LLVMInitializeSystemZAsmParser();
-    LLVMInitializeWebAssemblyAsmParser();
-    LLVMInitializeX86AsmParser();
+pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
+    switch (arch) {
+        .aarch64 => {
+            LLVMInitializeAArch64Target();
+            LLVMInitializeAArch64TargetInfo();
+            LLVMInitializeAArch64TargetMC();
+            LLVMInitializeAArch64AsmPrinter();
+            LLVMInitializeAArch64AsmParser();
+        },
+        .amdgcn => {
+            LLVMInitializeAMDGPUTarget();
+            LLVMInitializeAMDGPUTargetInfo();
+            LLVMInitializeAMDGPUTargetMC();
+            LLVMInitializeAMDGPUAsmPrinter();
+            LLVMInitializeAMDGPUAsmParser();
+        },
+        .arm => {
+            LLVMInitializeARMTarget();
+            LLVMInitializeARMTargetInfo();
+            LLVMInitializeARMTargetMC();
+            LLVMInitializeARMAsmPrinter();
+            LLVMInitializeARMAsmParser();
+        },
+        .avr => {
+            LLVMInitializeAVRTarget();
+            LLVMInitializeAVRTargetInfo();
+            LLVMInitializeAVRTargetMC();
+            LLVMInitializeAVRAsmPrinter();
+            LLVMInitializeAVRAsmParser();
+        },
+        .bpfel, .bpfeb => {
+            LLVMInitializeBPFTarget();
+            LLVMInitializeBPFTargetInfo();
+            LLVMInitializeBPFTargetMC();
+            LLVMInitializeBPFAsmPrinter();
+            LLVMInitializeBPFAsmParser();
+        },
+        .hexagon => {
+            LLVMInitializeHexagonTarget();
+            LLVMInitializeHexagonTargetInfo();
+            LLVMInitializeHexagonTargetMC();
+            LLVMInitializeHexagonAsmPrinter();
+            LLVMInitializeHexagonAsmParser();
+        },
+        .lanai => {
+            LLVMInitializeLanaiTarget();
+            LLVMInitializeLanaiTargetInfo();
+            LLVMInitializeLanaiTargetMC();
+            LLVMInitializeLanaiAsmPrinter();
+            LLVMInitializeLanaiAsmParser();
+        },
+        .mips => {
+            LLVMInitializeMipsTarget();
+            LLVMInitializeMipsTargetInfo();
+            LLVMInitializeMipsTargetMC();
+            LLVMInitializeMipsAsmPrinter();
+            LLVMInitializeMipsAsmParser();
+        },
+        .msp430 => {
+            LLVMInitializeMSP430Target();
+            LLVMInitializeMSP430TargetInfo();
+            LLVMInitializeMSP430TargetMC();
+            LLVMInitializeMSP430AsmPrinter();
+            LLVMInitializeMSP430AsmParser();
+        },
+        .powerpc => {
+            LLVMInitializePowerPCTarget();
+            LLVMInitializePowerPCTargetInfo();
+            LLVMInitializePowerPCTargetMC();
+            LLVMInitializePowerPCAsmPrinter();
+            LLVMInitializePowerPCAsmParser();
+        },
+        .riscv32, .riscv64 => {
+            LLVMInitializeRISCVTarget();
+            LLVMInitializeRISCVTargetInfo();
+            LLVMInitializeRISCVTargetMC();
+            LLVMInitializeRISCVAsmPrinter();
+            LLVMInitializeRISCVAsmParser();
+        },
+        .sparc => {
+            LLVMInitializeSparcTarget();
+            LLVMInitializeSparcTargetInfo();
+            LLVMInitializeSparcTargetMC();
+            LLVMInitializeSparcAsmPrinter();
+            LLVMInitializeSparcAsmParser();
+        },
+        .s390x => {
+            LLVMInitializeSystemZTarget();
+            LLVMInitializeSystemZTargetInfo();
+            LLVMInitializeSystemZTargetMC();
+            LLVMInitializeSystemZAsmPrinter();
+            LLVMInitializeSystemZAsmParser();
+        },
+        .i386, .x86_64 => {
+            LLVMInitializeX86Target();
+            LLVMInitializeX86TargetInfo();
+            LLVMInitializeX86TargetMC();
+            LLVMInitializeX86AsmPrinter();
+            LLVMInitializeX86AsmParser();
+        },
+        else => {},
+    }
 }
 
 extern fn ZigLLDLinkCOFF(argc: c_int, argv: [*:null]const ?[*:0]const u8, can_exit_early: bool) c_int;

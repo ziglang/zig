@@ -167,7 +167,7 @@ pub const Object = struct {
         const context = llvm.Context.create();
         errdefer context.dispose();
 
-        initializeLLVMTargets();
+        llvm.initializeLLVMTarget(options.target.cpu.arch);
 
         const root_nameZ = try gpa.dupeZ(u8, options.root_name);
         defer gpa.free(root_nameZ);
@@ -254,14 +254,6 @@ pub const Object = struct {
     pub fn destroy(self: *Object, gpa: *Allocator) void {
         self.deinit();
         gpa.destroy(self);
-    }
-
-    fn initializeLLVMTargets() void {
-        llvm.initializeAllTargets();
-        llvm.initializeAllTargetInfos();
-        llvm.initializeAllTargetMCs();
-        llvm.initializeAllAsmPrinters();
-        llvm.initializeAllAsmParsers();
     }
 
     fn locPath(
