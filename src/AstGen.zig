@@ -10144,6 +10144,7 @@ fn scanDecls(astgen: *AstGen, namespace: *Scope.Namespace, members: []const ast.
     const tree = astgen.tree;
     const node_tags = tree.nodes.items(.tag);
     const main_tokens = tree.nodes.items(.main_token);
+    const token_tags = tree.tokens.items(.tag);
     for (members) |member_node| {
         const name_token = switch (node_tags[member_node]) {
             .fn_decl,
@@ -10174,6 +10175,7 @@ fn scanDecls(astgen: *AstGen, namespace: *Scope.Namespace, members: []const ast.
             }
         }
 
+        if (token_tags[name_token] != .identifier) return astgen.failNode(member_node, "missing function name", .{});
         const name_str_index = try astgen.identAsString(name_token);
         const gop = try namespace.decls.getOrPut(gpa, name_str_index);
         if (gop.found_existing) {

@@ -4975,7 +4975,6 @@ pub fn addCases(ctx: *TestContext) !void {
         \\fn b() void {}
     , &[_][]const u8{
         "tmp.zig:3:6: error: unreachable code",
-        "tmp.zig:2:5: note: control flow is diverted here",
     });
 
     ctx.objErrStage1("bad import",
@@ -5045,8 +5044,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    const a = return;
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:5: error: unreachable code",
-        "tmp.zig:2:15: note: control flow is diverted here",
+        "tmp.zig:2:15: error: unreachable code",
     });
 
     ctx.objErrStage1("unreachable variable",
@@ -5281,8 +5279,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
         \\export fn entry() void { _ = f(); }
     , &[_][]const u8{
-        "tmp.zig:2:12: error: unreachable code",
-        "tmp.zig:2:21: note: control flow is diverted here",
+        "tmp.zig:2:21: error: unreachable code",
     });
 
     ctx.objErrStage1("invalid builtin fn",
@@ -7458,8 +7455,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    var z: noreturn = return;
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:5: error: unreachable code",
-        "tmp.zig:2:23: note: control flow is diverted here",
+        "tmp.zig:2:23: error: unreachable code",
     });
 
     ctx.objErrStage1("wrong types given to atomic order args in cmpxchg",
@@ -7657,8 +7653,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    var allocator: ContextAllocator = undefined;
         \\}
     , &[_][]const u8{
-        "tmp.zig:4:5: error: unreachable code",
-        "tmp.zig:4:25: note: control flow is diverted here",
+        "tmp.zig:4:25: error: unreachable code",
         "tmp.zig:12:9: error: unused local variable",
     });
 
