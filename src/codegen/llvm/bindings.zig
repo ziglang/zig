@@ -597,197 +597,93 @@ pub const Target = opaque {
     extern fn LLVMGetTargetFromTriple(Triple: [*:0]const u8, T: **const Target, ErrorMessage: *[*:0]const u8) Bool;
 };
 
-extern fn LLVMInitializeAArch64TargetInfo() void;
-extern fn LLVMInitializeAMDGPUTargetInfo() void;
-extern fn LLVMInitializeARMTargetInfo() void;
-extern fn LLVMInitializeAVRTargetInfo() void;
-extern fn LLVMInitializeBPFTargetInfo() void;
-extern fn LLVMInitializeHexagonTargetInfo() void;
-extern fn LLVMInitializeLanaiTargetInfo() void;
-extern fn LLVMInitializeMipsTargetInfo() void;
-extern fn LLVMInitializeMSP430TargetInfo() void;
-extern fn LLVMInitializeNVPTXTargetInfo() void;
-extern fn LLVMInitializePowerPCTargetInfo() void;
-extern fn LLVMInitializeRISCVTargetInfo() void;
-extern fn LLVMInitializeSparcTargetInfo() void;
-extern fn LLVMInitializeSystemZTargetInfo() void;
-extern fn LLVMInitializeWebAssemblyTargetInfo() void;
-extern fn LLVMInitializeX86TargetInfo() void;
-extern fn LLVMInitializeXCoreTargetInfo() void;
+pub extern fn LLVMInitializeAArch64TargetInfo() void;
+pub extern fn LLVMInitializeAMDGPUTargetInfo() void;
+pub extern fn LLVMInitializeARMTargetInfo() void;
+pub extern fn LLVMInitializeAVRTargetInfo() void;
+pub extern fn LLVMInitializeBPFTargetInfo() void;
+pub extern fn LLVMInitializeHexagonTargetInfo() void;
+pub extern fn LLVMInitializeLanaiTargetInfo() void;
+pub extern fn LLVMInitializeMipsTargetInfo() void;
+pub extern fn LLVMInitializeMSP430TargetInfo() void;
+pub extern fn LLVMInitializeNVPTXTargetInfo() void;
+pub extern fn LLVMInitializePowerPCTargetInfo() void;
+pub extern fn LLVMInitializeRISCVTargetInfo() void;
+pub extern fn LLVMInitializeSparcTargetInfo() void;
+pub extern fn LLVMInitializeSystemZTargetInfo() void;
+pub extern fn LLVMInitializeWebAssemblyTargetInfo() void;
+pub extern fn LLVMInitializeX86TargetInfo() void;
+pub extern fn LLVMInitializeXCoreTargetInfo() void;
 
-extern fn LLVMInitializeAArch64Target() void;
-extern fn LLVMInitializeAMDGPUTarget() void;
-extern fn LLVMInitializeARMTarget() void;
-extern fn LLVMInitializeAVRTarget() void;
-extern fn LLVMInitializeBPFTarget() void;
-extern fn LLVMInitializeHexagonTarget() void;
-extern fn LLVMInitializeLanaiTarget() void;
-extern fn LLVMInitializeMipsTarget() void;
-extern fn LLVMInitializeMSP430Target() void;
-extern fn LLVMInitializeNVPTXTarget() void;
-extern fn LLVMInitializePowerPCTarget() void;
-extern fn LLVMInitializeRISCVTarget() void;
-extern fn LLVMInitializeSparcTarget() void;
-extern fn LLVMInitializeSystemZTarget() void;
-extern fn LLVMInitializeWebAssemblyTarget() void;
-extern fn LLVMInitializeX86Target() void;
-extern fn LLVMInitializeXCoreTarget() void;
+pub extern fn LLVMInitializeAArch64Target() void;
+pub extern fn LLVMInitializeAMDGPUTarget() void;
+pub extern fn LLVMInitializeARMTarget() void;
+pub extern fn LLVMInitializeAVRTarget() void;
+pub extern fn LLVMInitializeBPFTarget() void;
+pub extern fn LLVMInitializeHexagonTarget() void;
+pub extern fn LLVMInitializeLanaiTarget() void;
+pub extern fn LLVMInitializeMipsTarget() void;
+pub extern fn LLVMInitializeMSP430Target() void;
+pub extern fn LLVMInitializeNVPTXTarget() void;
+pub extern fn LLVMInitializePowerPCTarget() void;
+pub extern fn LLVMInitializeRISCVTarget() void;
+pub extern fn LLVMInitializeSparcTarget() void;
+pub extern fn LLVMInitializeSystemZTarget() void;
+pub extern fn LLVMInitializeWebAssemblyTarget() void;
+pub extern fn LLVMInitializeX86Target() void;
+pub extern fn LLVMInitializeXCoreTarget() void;
 
-extern fn LLVMInitializeAArch64TargetMC() void;
-extern fn LLVMInitializeAMDGPUTargetMC() void;
-extern fn LLVMInitializeARMTargetMC() void;
-extern fn LLVMInitializeAVRTargetMC() void;
-extern fn LLVMInitializeBPFTargetMC() void;
-extern fn LLVMInitializeHexagonTargetMC() void;
-extern fn LLVMInitializeLanaiTargetMC() void;
-extern fn LLVMInitializeMipsTargetMC() void;
-extern fn LLVMInitializeMSP430TargetMC() void;
-extern fn LLVMInitializeNVPTXTargetMC() void;
-extern fn LLVMInitializePowerPCTargetMC() void;
-extern fn LLVMInitializeRISCVTargetMC() void;
-extern fn LLVMInitializeSparcTargetMC() void;
-extern fn LLVMInitializeSystemZTargetMC() void;
-extern fn LLVMInitializeWebAssemblyTargetMC() void;
-extern fn LLVMInitializeX86TargetMC() void;
-extern fn LLVMInitializeXCoreTargetMC() void;
+pub extern fn LLVMInitializeAArch64TargetMC() void;
+pub extern fn LLVMInitializeAMDGPUTargetMC() void;
+pub extern fn LLVMInitializeARMTargetMC() void;
+pub extern fn LLVMInitializeAVRTargetMC() void;
+pub extern fn LLVMInitializeBPFTargetMC() void;
+pub extern fn LLVMInitializeHexagonTargetMC() void;
+pub extern fn LLVMInitializeLanaiTargetMC() void;
+pub extern fn LLVMInitializeMipsTargetMC() void;
+pub extern fn LLVMInitializeMSP430TargetMC() void;
+pub extern fn LLVMInitializeNVPTXTargetMC() void;
+pub extern fn LLVMInitializePowerPCTargetMC() void;
+pub extern fn LLVMInitializeRISCVTargetMC() void;
+pub extern fn LLVMInitializeSparcTargetMC() void;
+pub extern fn LLVMInitializeSystemZTargetMC() void;
+pub extern fn LLVMInitializeWebAssemblyTargetMC() void;
+pub extern fn LLVMInitializeX86TargetMC() void;
+pub extern fn LLVMInitializeXCoreTargetMC() void;
 
-extern fn LLVMInitializeAArch64AsmPrinter() void;
-extern fn LLVMInitializeAMDGPUAsmPrinter() void;
-extern fn LLVMInitializeARMAsmPrinter() void;
-extern fn LLVMInitializeAVRAsmPrinter() void;
-extern fn LLVMInitializeBPFAsmPrinter() void;
-extern fn LLVMInitializeHexagonAsmPrinter() void;
-extern fn LLVMInitializeLanaiAsmPrinter() void;
-extern fn LLVMInitializeMipsAsmPrinter() void;
-extern fn LLVMInitializeMSP430AsmPrinter() void;
-extern fn LLVMInitializeNVPTXAsmPrinter() void;
-extern fn LLVMInitializePowerPCAsmPrinter() void;
-extern fn LLVMInitializeRISCVAsmPrinter() void;
-extern fn LLVMInitializeSparcAsmPrinter() void;
-extern fn LLVMInitializeSystemZAsmPrinter() void;
-extern fn LLVMInitializeWebAssemblyAsmPrinter() void;
-extern fn LLVMInitializeX86AsmPrinter() void;
-extern fn LLVMInitializeXCoreAsmPrinter() void;
+pub extern fn LLVMInitializeAArch64AsmPrinter() void;
+pub extern fn LLVMInitializeAMDGPUAsmPrinter() void;
+pub extern fn LLVMInitializeARMAsmPrinter() void;
+pub extern fn LLVMInitializeAVRAsmPrinter() void;
+pub extern fn LLVMInitializeBPFAsmPrinter() void;
+pub extern fn LLVMInitializeHexagonAsmPrinter() void;
+pub extern fn LLVMInitializeLanaiAsmPrinter() void;
+pub extern fn LLVMInitializeMipsAsmPrinter() void;
+pub extern fn LLVMInitializeMSP430AsmPrinter() void;
+pub extern fn LLVMInitializeNVPTXAsmPrinter() void;
+pub extern fn LLVMInitializePowerPCAsmPrinter() void;
+pub extern fn LLVMInitializeRISCVAsmPrinter() void;
+pub extern fn LLVMInitializeSparcAsmPrinter() void;
+pub extern fn LLVMInitializeSystemZAsmPrinter() void;
+pub extern fn LLVMInitializeWebAssemblyAsmPrinter() void;
+pub extern fn LLVMInitializeX86AsmPrinter() void;
+pub extern fn LLVMInitializeXCoreAsmPrinter() void;
 
-extern fn LLVMInitializeAArch64AsmParser() void;
-extern fn LLVMInitializeAMDGPUAsmParser() void;
-extern fn LLVMInitializeARMAsmParser() void;
-extern fn LLVMInitializeAVRAsmParser() void;
-extern fn LLVMInitializeBPFAsmParser() void;
-extern fn LLVMInitializeHexagonAsmParser() void;
-extern fn LLVMInitializeLanaiAsmParser() void;
-extern fn LLVMInitializeMipsAsmParser() void;
-extern fn LLVMInitializeMSP430AsmParser() void;
-extern fn LLVMInitializePowerPCAsmParser() void;
-extern fn LLVMInitializeRISCVAsmParser() void;
-extern fn LLVMInitializeSparcAsmParser() void;
-extern fn LLVMInitializeSystemZAsmParser() void;
-extern fn LLVMInitializeWebAssemblyAsmParser() void;
-extern fn LLVMInitializeX86AsmParser() void;
-
-pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
-    switch (arch) {
-        .aarch64 => {
-            LLVMInitializeAArch64Target();
-            LLVMInitializeAArch64TargetInfo();
-            LLVMInitializeAArch64TargetMC();
-            LLVMInitializeAArch64AsmPrinter();
-            LLVMInitializeAArch64AsmParser();
-        },
-        .amdgcn => {
-            LLVMInitializeAMDGPUTarget();
-            LLVMInitializeAMDGPUTargetInfo();
-            LLVMInitializeAMDGPUTargetMC();
-            LLVMInitializeAMDGPUAsmPrinter();
-            LLVMInitializeAMDGPUAsmParser();
-        },
-        .arm => {
-            LLVMInitializeARMTarget();
-            LLVMInitializeARMTargetInfo();
-            LLVMInitializeARMTargetMC();
-            LLVMInitializeARMAsmPrinter();
-            LLVMInitializeARMAsmParser();
-        },
-        .avr => {
-            LLVMInitializeAVRTarget();
-            LLVMInitializeAVRTargetInfo();
-            LLVMInitializeAVRTargetMC();
-            LLVMInitializeAVRAsmPrinter();
-            LLVMInitializeAVRAsmParser();
-        },
-        .bpfel, .bpfeb => {
-            LLVMInitializeBPFTarget();
-            LLVMInitializeBPFTargetInfo();
-            LLVMInitializeBPFTargetMC();
-            LLVMInitializeBPFAsmPrinter();
-            LLVMInitializeBPFAsmParser();
-        },
-        .hexagon => {
-            LLVMInitializeHexagonTarget();
-            LLVMInitializeHexagonTargetInfo();
-            LLVMInitializeHexagonTargetMC();
-            LLVMInitializeHexagonAsmPrinter();
-            LLVMInitializeHexagonAsmParser();
-        },
-        .lanai => {
-            LLVMInitializeLanaiTarget();
-            LLVMInitializeLanaiTargetInfo();
-            LLVMInitializeLanaiTargetMC();
-            LLVMInitializeLanaiAsmPrinter();
-            LLVMInitializeLanaiAsmParser();
-        },
-        .mips => {
-            LLVMInitializeMipsTarget();
-            LLVMInitializeMipsTargetInfo();
-            LLVMInitializeMipsTargetMC();
-            LLVMInitializeMipsAsmPrinter();
-            LLVMInitializeMipsAsmParser();
-        },
-        .msp430 => {
-            LLVMInitializeMSP430Target();
-            LLVMInitializeMSP430TargetInfo();
-            LLVMInitializeMSP430TargetMC();
-            LLVMInitializeMSP430AsmPrinter();
-            LLVMInitializeMSP430AsmParser();
-        },
-        .powerpc => {
-            LLVMInitializePowerPCTarget();
-            LLVMInitializePowerPCTargetInfo();
-            LLVMInitializePowerPCTargetMC();
-            LLVMInitializePowerPCAsmPrinter();
-            LLVMInitializePowerPCAsmParser();
-        },
-        .riscv32, .riscv64 => {
-            LLVMInitializeRISCVTarget();
-            LLVMInitializeRISCVTargetInfo();
-            LLVMInitializeRISCVTargetMC();
-            LLVMInitializeRISCVAsmPrinter();
-            LLVMInitializeRISCVAsmParser();
-        },
-        .sparc => {
-            LLVMInitializeSparcTarget();
-            LLVMInitializeSparcTargetInfo();
-            LLVMInitializeSparcTargetMC();
-            LLVMInitializeSparcAsmPrinter();
-            LLVMInitializeSparcAsmParser();
-        },
-        .s390x => {
-            LLVMInitializeSystemZTarget();
-            LLVMInitializeSystemZTargetInfo();
-            LLVMInitializeSystemZTargetMC();
-            LLVMInitializeSystemZAsmPrinter();
-            LLVMInitializeSystemZAsmParser();
-        },
-        .i386, .x86_64 => {
-            LLVMInitializeX86Target();
-            LLVMInitializeX86TargetInfo();
-            LLVMInitializeX86TargetMC();
-            LLVMInitializeX86AsmPrinter();
-            LLVMInitializeX86AsmParser();
-        },
-        else => {},
-    }
-}
+pub extern fn LLVMInitializeAArch64AsmParser() void;
+pub extern fn LLVMInitializeAMDGPUAsmParser() void;
+pub extern fn LLVMInitializeARMAsmParser() void;
+pub extern fn LLVMInitializeAVRAsmParser() void;
+pub extern fn LLVMInitializeBPFAsmParser() void;
+pub extern fn LLVMInitializeHexagonAsmParser() void;
+pub extern fn LLVMInitializeLanaiAsmParser() void;
+pub extern fn LLVMInitializeMipsAsmParser() void;
+pub extern fn LLVMInitializeMSP430AsmParser() void;
+pub extern fn LLVMInitializePowerPCAsmParser() void;
+pub extern fn LLVMInitializeRISCVAsmParser() void;
+pub extern fn LLVMInitializeSparcAsmParser() void;
+pub extern fn LLVMInitializeSystemZAsmParser() void;
+pub extern fn LLVMInitializeWebAssemblyAsmParser() void;
+pub extern fn LLVMInitializeX86AsmParser() void;
 
 extern fn ZigLLDLinkCOFF(argc: c_int, argv: [*:null]const ?[*:0]const u8, can_exit_early: bool) c_int;
 extern fn ZigLLDLinkELF(argc: c_int, argv: [*:null]const ?[*:0]const u8, can_exit_early: bool) c_int;
