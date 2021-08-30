@@ -1019,6 +1019,16 @@ bool calling_convention_allows_zig_types(CallingConvention cc) {
     zig_unreachable();
 }
 
+const char *address_space_name(AddressSpace as) {
+    switch (as) {
+        case AddressSpaceGeneric: return "generic";
+        case AddressSpaceGS: return "gs";
+        case AddressSpaceFS: return "fs";
+        case AddressSpaceSS: return "ss";
+    }
+    zig_unreachable();
+}
+
 ZigType *get_stack_trace_type(CodeGen *g) {
     if (g->stack_trace_type == nullptr) {
         g->stack_trace_type = get_builtin_type(g, "StackTrace");

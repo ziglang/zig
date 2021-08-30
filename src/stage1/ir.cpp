@@ -16124,7 +16124,7 @@ static Stage1AirInst *ir_analyze_instruction_optional_unwrap_ptr(IrAnalyze *ira,
 
 static Stage1AirInst *ir_analyze_instruction_ctz(IrAnalyze *ira, Stage1ZirInstCtz *instruction) {
     Error err;
-    
+
     ZigType *int_type = ir_resolve_int_type(ira, instruction->type->child);
     if (type_is_invalid(int_type))
         return ira->codegen->invalid_inst_gen;
@@ -16166,7 +16166,7 @@ static Stage1AirInst *ir_analyze_instruction_ctz(IrAnalyze *ira, Stage1ZirInstCt
             return ira->codegen->invalid_inst_gen;
         if (val->special == ConstValSpecialUndef)
             return ir_const_undef(ira, instruction->base.scope, instruction->base.source_node, ira->codegen->builtin_types.entry_num_lit_int);
-        
+
         if (is_vector) {
             ZigType *smallest_vec_type = get_vector_type(ira->codegen, vector_len, smallest_type);
             Stage1AirInst *result = ir_const(ira, instruction->base.scope, instruction->base.source_node, smallest_vec_type);
@@ -16200,7 +16200,7 @@ static Stage1AirInst *ir_analyze_instruction_ctz(IrAnalyze *ira, Stage1ZirInstCt
 
 static Stage1AirInst *ir_analyze_instruction_clz(IrAnalyze *ira, Stage1ZirInstClz *instruction) {
     Error err;
-    
+
     ZigType *int_type = ir_resolve_int_type(ira, instruction->type->child);
     if (type_is_invalid(int_type))
         return ira->codegen->invalid_inst_gen;
@@ -16242,7 +16242,7 @@ static Stage1AirInst *ir_analyze_instruction_clz(IrAnalyze *ira, Stage1ZirInstCl
             return ira->codegen->invalid_inst_gen;
         if (val->special == ConstValSpecialUndef)
             return ir_const_undef(ira, instruction->base.scope, instruction->base.source_node, ira->codegen->builtin_types.entry_num_lit_int);
-        
+
         if (is_vector) {
             ZigType *smallest_vec_type = get_vector_type(ira->codegen, vector_len, smallest_type);
             Stage1AirInst *result = ir_const(ira, instruction->base.scope, instruction->base.source_node, smallest_vec_type);
@@ -16276,7 +16276,7 @@ static Stage1AirInst *ir_analyze_instruction_clz(IrAnalyze *ira, Stage1ZirInstCl
 
 static Stage1AirInst *ir_analyze_instruction_pop_count(IrAnalyze *ira, Stage1ZirInstPopCount *instruction) {
     Error err;
-    
+
     ZigType *int_type = ir_resolve_int_type(ira, instruction->type->child);
     if (type_is_invalid(int_type))
         return ira->codegen->invalid_inst_gen;
@@ -16318,7 +16318,7 @@ static Stage1AirInst *ir_analyze_instruction_pop_count(IrAnalyze *ira, Stage1Zir
             return ira->codegen->invalid_inst_gen;
         if (val->special == ConstValSpecialUndef)
             return ir_const_undef(ira, instruction->base.scope, instruction->base.source_node, ira->codegen->builtin_types.entry_num_lit_int);
-        
+
         if (is_vector) {
             ZigType *smallest_vec_type = get_vector_type(ira->codegen, vector_len, smallest_type);
             Stage1AirInst *result = ir_const(ira, instruction->base.scope, instruction->base.source_node, smallest_vec_type);
@@ -17904,7 +17904,7 @@ static ZigValue *create_ptr_like_type_info(IrAnalyze *ira, Scope *scope, AstNode
     result->special = ConstValSpecialStatic;
     result->type = type_info_pointer_type;
 
-    ZigValue **fields = alloc_const_vals_ptrs(ira->codegen, 7);
+    ZigValue **fields = alloc_const_vals_ptrs(ira->codegen, 8);
     result->data.x_struct.fields = fields;
 
     // size: Size
@@ -17939,24 +17939,29 @@ static ZigValue *create_ptr_like_type_info(IrAnalyze *ira, Scope *scope, AstNode
         lazy_align_of->base.id = LazyValueIdAlignOf;
         lazy_align_of->target_type = ir_const_type(ira, scope, source_node, attrs_type->data.pointer.child_type);
     }
-    // child: type
-    ensure_field_index(result->type, "child", 4);
+    // address_space: AddressSpace,
+    ensure_field_index(result->type, "address_space", 4);
     fields[4]->special = ConstValSpecialStatic;
-    fields[4]->type = ira->codegen->builtin_types.entry_type;
-    fields[4]->data.x_type = attrs_type->data.pointer.child_type;
-    // is_allowzero: bool
-    ensure_field_index(result->type, "is_allowzero", 5);
+    fields[4]->type = get_builtin_type(ira->codegen, "AddressSpace");
+    bigint_init_unsigned(&fields[4]->data.x_enum_tag, AddressSpaceGeneric);
+    // child: type
+    ensure_field_index(result->type, "child", 5);
     fields[5]->special = ConstValSpecialStatic;
-    fields[5]->type = ira->codegen->builtin_types.entry_bool;
-    fields[5]->data.x_bool = attrs_type->data.pointer.allow_zero;
-    // sentinel: anytype
-    ensure_field_index(result->type, "sentinel", 6);
+    fields[5]->type = ira->codegen->builtin_types.entry_type;
+    fields[5]->data.x_type = attrs_type->data.pointer.child_type;
+    // is_allowzero: bool
+    ensure_field_index(result->type, "is_allowzero", 6);
     fields[6]->special = ConstValSpecialStatic;
+    fields[6]->type = ira->codegen->builtin_types.entry_bool;
+    fields[6]->data.x_bool = attrs_type->data.pointer.allow_zero;
+    // sentinel: anytype
+    ensure_field_index(result->type, "sentinel", 7);
+    fields[7]->special = ConstValSpecialStatic;
     if (attrs_type->data.pointer.sentinel != nullptr) {
-        fields[6]->type = get_optional_type(ira->codegen, attrs_type->data.pointer.child_type);
-        set_optional_payload(fields[6], attrs_type->data.pointer.sentinel);
+        fields[7]->type = get_optional_type(ira->codegen, attrs_type->data.pointer.child_type);
+        set_optional_payload(fields[7], attrs_type->data.pointer.sentinel);
     } else {
-        fields[6]->type = ira->codegen->builtin_types.entry_null;
+        fields[7]->type = ira->codegen->builtin_types.entry_null;
     }
 
     return result;
@@ -18465,7 +18470,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, Scope *scope, AstNode *sour
                 result->special = ConstValSpecialStatic;
                 result->type = ir_type_info_get_type(ira, "Fn", nullptr);
 
-                ZigValue **fields = alloc_const_vals_ptrs(ira->codegen, 6);
+                ZigValue **fields = alloc_const_vals_ptrs(ira->codegen, 7);
                 result->data.x_struct.fields = fields;
 
                 // calling_convention: TypeInfo.CallingConvention
@@ -18478,30 +18483,35 @@ static Error ir_make_type_info_value(IrAnalyze *ira, Scope *scope, AstNode *sour
                 fields[1]->special = ConstValSpecialStatic;
                 fields[1]->type = ira->codegen->builtin_types.entry_num_lit_int;
                 bigint_init_unsigned(&fields[1]->data.x_bigint, get_ptr_align(ira->codegen, type_entry));
-                // is_generic: bool
-                ensure_field_index(result->type, "is_generic", 2);
-                bool is_generic = type_entry->data.fn.is_generic;
+                // address_space: AddressSpace
+                ensure_field_index(result->type, "address_space", 2);
                 fields[2]->special = ConstValSpecialStatic;
-                fields[2]->type = ira->codegen->builtin_types.entry_bool;
-                fields[2]->data.x_bool = is_generic;
-                // is_varargs: bool
-                ensure_field_index(result->type, "is_var_args", 3);
-                bool is_varargs = type_entry->data.fn.fn_type_id.is_var_args;
+                fields[2]->type = get_builtin_type(ira->codegen, "AddressSpace");
+                bigint_init_unsigned(&fields[2]->data.x_enum_tag, AddressSpaceGeneric);
+                // is_generic: bool
+                ensure_field_index(result->type, "is_generic", 3);
+                bool is_generic = type_entry->data.fn.is_generic;
                 fields[3]->special = ConstValSpecialStatic;
                 fields[3]->type = ira->codegen->builtin_types.entry_bool;
-                fields[3]->data.x_bool = is_varargs;
-                // return_type: ?type
-                ensure_field_index(result->type, "return_type", 4);
+                fields[3]->data.x_bool = is_generic;
+                // is_varargs: bool
+                ensure_field_index(result->type, "is_var_args", 4);
+                bool is_varargs = type_entry->data.fn.fn_type_id.is_var_args;
                 fields[4]->special = ConstValSpecialStatic;
-                fields[4]->type = get_optional_type(ira->codegen, ira->codegen->builtin_types.entry_type);
+                fields[4]->type = ira->codegen->builtin_types.entry_bool;
+                fields[4]->data.x_bool = is_varargs;
+                // return_type: ?type
+                ensure_field_index(result->type, "return_type", 5);
+                fields[5]->special = ConstValSpecialStatic;
+                fields[5]->type = get_optional_type(ira->codegen, ira->codegen->builtin_types.entry_type);
                 if (type_entry->data.fn.fn_type_id.return_type == nullptr)
-                    fields[4]->data.x_optional = nullptr;
+                    fields[5]->data.x_optional = nullptr;
                 else {
                     ZigValue *return_type = ira->codegen->pass1_arena->create<ZigValue>();
                     return_type->special = ConstValSpecialStatic;
                     return_type->type = ira->codegen->builtin_types.entry_type;
                     return_type->data.x_type = type_entry->data.fn.fn_type_id.return_type;
-                    fields[4]->data.x_optional = return_type;
+                    fields[5]->data.x_optional = return_type;
                 }
                 // args: []TypeInfo.FnArg
                 ZigType *type_info_fn_arg_type = ir_type_info_get_type(ira, "FnArg", nullptr);
@@ -18516,7 +18526,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, Scope *scope, AstNode *sour
                 fn_arg_array->data.x_array.special = ConstArraySpecialNone;
                 fn_arg_array->data.x_array.data.s_none.elements = ira->codegen->pass1_arena->allocate<ZigValue>(fn_arg_count);
 
-                init_const_slice(ira->codegen, fields[5], fn_arg_array, 0, fn_arg_count, false, nullptr);
+                init_const_slice(ira->codegen, fields[6], fn_arg_array, 0, fn_arg_count, false, nullptr);
 
                 for (size_t fn_arg_index = 0; fn_arg_index < fn_arg_count; fn_arg_index++) {
                     FnTypeParamInfo *fn_param_info = &type_entry->data.fn.fn_type_id.param_info[fn_arg_index];
@@ -18826,11 +18836,11 @@ static ZigType *type_info_to_type(IrAnalyze *ira, Scope *scope, AstNode *source_
                 assert(size_value->type == ir_type_info_get_type(ira, "Size", type_info_pointer_type));
                 BuiltinPtrSize size_enum_index = (BuiltinPtrSize)bigint_as_u32(&size_value->data.x_enum_tag);
                 PtrLen ptr_len = size_enum_index_to_ptr_len(size_enum_index);
-                ZigType *elem_type = get_const_field_meta_type(ira, source_node, payload, "child", 4);
+                ZigType *elem_type = get_const_field_meta_type(ira, source_node, payload, "child", 5);
                 if (type_is_invalid(elem_type))
                     return ira->codegen->invalid_inst_gen->value->type;
                 ZigValue *sentinel;
-                if ((err = get_const_field_sentinel(ira, scope, source_node, payload, "sentinel", 6,
+                if ((err = get_const_field_sentinel(ira, scope, source_node, payload, "sentinel", 7,
                                 elem_type, &sentinel)))
                 {
                     return ira->codegen->invalid_inst_gen->value->type;
@@ -18845,6 +18855,19 @@ static ZigType *type_info_to_type(IrAnalyze *ira, Scope *scope, AstNode *source_
                 if (alignment == nullptr)
                     return ira->codegen->invalid_inst_gen->value->type;
 
+                ZigValue *as_value = get_const_field(ira, source_node, payload, "address_space", 4);
+                if (as_value == nullptr)
+                    return ira->codegen->invalid_inst_gen->value->type;
+                assert(as_value->special == ConstValSpecialStatic);
+                assert(as_value->type == get_builtin_type(ira->codegen, "AddressSpace"));
+                AddressSpace as = (AddressSpace)bigint_as_u32(&as_value->data.x_enum_tag);
+                if (as != AddressSpaceGeneric) {
+                    ir_add_error_node(ira, source_node, buf_sprintf(
+                        "address space '%s' not available in stage 1 compiler, must be .generic",
+                        address_space_name(as)));
+                    return ira->codegen->invalid_inst_gen->value->type;
+                }
+
                 bool is_const;
                 if ((err = get_const_field_bool(ira, source_node, payload, "is_const", 1, &is_const)))
                     return ira->codegen->invalid_inst_gen->value->type;
@@ -18857,12 +18880,11 @@ static ZigType *type_info_to_type(IrAnalyze *ira, Scope *scope, AstNode *source_
                 }
 
                 bool is_allowzero;
-                if ((err = get_const_field_bool(ira, source_node, payload, "is_allowzero", 5,
+                if ((err = get_const_field_bool(ira, source_node, payload, "is_allowzero", 6,
                                 &is_allowzero)))
                 {
                     return ira->codegen->invalid_inst_gen->value->type;
                 }
-
 
                 ZigType *ptr_type = get_pointer_to_type_extra2(ira->codegen,
                     elem_type,
@@ -19308,9 +19330,22 @@ static ZigType *type_info_to_type(IrAnalyze *ira, Scope *scope, AstNode *source_
             if (alignment == nullptr)
                 return ira->codegen->invalid_inst_gen->value->type;
 
+            ZigValue *as_value = get_const_field(ira, source_node, payload, "address_space", 2);
+            if (as_value == nullptr)
+                return ira->codegen->invalid_inst_gen->value->type;
+            assert(as_value->special == ConstValSpecialStatic);
+            assert(as_value->type == get_builtin_type(ira->codegen, "AddressSpace"));
+            AddressSpace as = (AddressSpace)bigint_as_u32(&as_value->data.x_enum_tag);
+            if (as != AddressSpaceGeneric) {
+                ir_add_error_node(ira, source_node, buf_sprintf(
+                    "address space '%s' not available in stage 1 compiler, must be .generic",
+                    address_space_name(as)));
+                return ira->codegen->invalid_inst_gen->value->type;
+            }
+
             Error err;
             bool is_generic;
-            if ((err = get_const_field_bool(ira, source_node, payload, "is_generic", 2, &is_generic)))
+            if ((err = get_const_field_bool(ira, source_node, payload, "is_generic", 3, &is_generic)))
                 return ira->codegen->invalid_inst_gen->value->type;
             if (is_generic) {
                 ir_add_error_node(ira, source_node, buf_sprintf("TypeInfo.Fn.is_generic must be false for @Type"));
@@ -19318,20 +19353,20 @@ static ZigType *type_info_to_type(IrAnalyze *ira, Scope *scope, AstNode *source_
             }
 
             bool is_var_args;
-            if ((err = get_const_field_bool(ira, source_node, payload, "is_var_args", 3, &is_var_args)))
+            if ((err = get_const_field_bool(ira, source_node, payload, "is_var_args", 4, &is_var_args)))
                 return ira->codegen->invalid_inst_gen->value->type;
             if (is_var_args && cc != CallingConventionC) {
                 ir_add_error_node(ira, source_node, buf_sprintf("varargs functions must have C calling convention"));
                 return ira->codegen->invalid_inst_gen->value->type;
             }
 
-            ZigType *return_type = get_const_field_meta_type_optional(ira, source_node, payload, "return_type", 4);
+            ZigType *return_type = get_const_field_meta_type_optional(ira, source_node, payload, "return_type", 5);
             if (return_type == nullptr) {
                 ir_add_error_node(ira, source_node, buf_sprintf("TypeInfo.Fn.return_type must be non-null for @Type"));
                 return ira->codegen->invalid_inst_gen->value->type;
             }
 
-            ZigValue *args_value = get_const_field(ira, source_node, payload, "args", 5);
+            ZigValue *args_value = get_const_field(ira, source_node, payload, "args", 6);
             if (args_value == nullptr)
                 return ira->codegen->invalid_inst_gen->value->type;
             assert(args_value->special == ConstValSpecialStatic);

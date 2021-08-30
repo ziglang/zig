@@ -137,6 +137,7 @@ test "@Type create slice with null sentinel" {
             .is_volatile = false,
             .is_allowzero = false,
             .alignment = 8,
+            .address_space = .generic,
             .child = *i32,
             .sentinel = null,
         },

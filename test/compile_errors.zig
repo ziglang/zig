@@ -410,6 +410,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    .Fn = .{
         \\        .calling_convention = .Unspecified,
         \\        .alignment = 0,
+        \\        .address_space = 0,
         \\        .is_generic = true,
         \\        .is_var_args = false,
         \\        .return_type = u0,
@@ -426,6 +427,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    .Fn = .{
         \\        .calling_convention = .Unspecified,
         \\        .alignment = 0,
+        \\        .address_space = 0,
         \\        .is_generic = false,
         \\        .is_var_args = true,
         \\        .return_type = u0,
@@ -442,6 +444,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    .Fn = .{
         \\        .calling_convention = .Unspecified,
         \\        .alignment = 0,
+        \\        .address_space = 0,
         \\        .is_generic = false,
         \\        .is_var_args = false,
         \\        .return_type = null,
@@ -711,6 +714,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\        .is_const = false,
         \\        .is_volatile = false,
         \\        .alignment = 1,
+        \\        .address_space = .generic,
         \\        .child = u8,
         \\        .is_allowzero = false,
         \\        .sentinel = 0,

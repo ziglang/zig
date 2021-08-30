@@ -235,6 +235,7 @@ pub const TypeInfo = union(enum) {
         is_const: bool,
         is_volatile: bool,
         alignment: comptime_int,
+        address_space: AddressSpace,
         child: type,
         is_allowzero: bool,
 
@@ -364,6 +365,7 @@ pub const TypeInfo = union(enum) {
     pub const Fn = struct {
         calling_convention: CallingConvention,
         alignment: comptime_int,
+        address_space: AddressSpace,
         is_generic: bool,
         is_var_args: bool,
         return_type: ?type,

@@ -325,6 +325,7 @@ pub fn FlexibleArrayType(comptime SelfType: type, ElementType: type) type {
                 .is_const = ptr.is_const,
                 .is_volatile = ptr.is_volatile,
                 .alignment = @alignOf(ElementType),
+                .address_space = .generic,
                 .child = ElementType,
                 .is_allowzero = true,
                 .sentinel = null,

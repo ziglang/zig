@@ -6413,7 +6413,7 @@ fn zirTypeInfo(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileEr
 
     switch (ty.zigTypeTag()) {
         .Fn => {
-            const field_values = try sema.arena.alloc(Value, 6);
+            const field_values = try sema.arena.alloc(Value, 7);
             // calling_convention: CallingConvention,
             field_values[0] = try Value.Tag.enum_field_index.create(
                 sema.arena,
@@ -6421,14 +6421,19 @@ fn zirTypeInfo(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileEr
             );
             // alignment: comptime_int,
             field_values[1] = try Value.Tag.int_u64.create(sema.arena, ty.abiAlignment(target));
+            // address_space: AddressSpace,
+            field_values[2] = try Value.Tag.enum_field_index.create(
+                sema.arena,
+                @enumToInt(ty.fnAddressSpace()),
+            );
             // is_generic: bool,
-            field_values[2] = Value.initTag(.bool_false); // TODO
-            // is_var_args: bool,
             field_values[3] = Value.initTag(.bool_false); // TODO
+            // is_var_args: bool,
+            field_values[4] = Value.initTag(.bool_false); // TODO
             // return_type: ?type,
-            field_values[4] = try Value.Tag.ty.create(sema.arena, ty.fnReturnType());
+            field_values[5] = try Value.Tag.ty.create(sema.arena, ty.fnReturnType());
             // args: []const FnArg,
-            field_values[5] = Value.initTag(.null_value); // TODO
+            field_values[6] = Value.initTag(.null_value); // TODO
 
             return sema.addConstant(
                 type_info_ty,

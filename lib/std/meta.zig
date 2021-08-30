@@ -235,6 +235,7 @@ pub fn Sentinel(comptime T: type, comptime sentinel_val: Elem(T)) type {
                         .is_const = info.is_const,
                         .is_volatile = info.is_volatile,
                         .alignment = info.alignment,
+                        .address_space = info.address_space,
                         .child = @Type(.{
                             .Array = .{
                                 .len = array_info.len,
@@ -254,6 +255,7 @@ pub fn Sentinel(comptime T: type, comptime sentinel_val: Elem(T)) type {
                     .is_const = info.is_const,
                     .is_volatile = info.is_volatile,
                     .alignment = info.alignment,
+                    .address_space = info.address_space,
                     .child = info.child,
                     .is_allowzero = info.is_allowzero,
                     .sentinel = sentinel_val,
@@ -271,6 +273,7 @@ pub fn Sentinel(comptime T: type, comptime sentinel_val: Elem(T)) type {
                                 .is_const = ptr_info.is_const,
                                 .is_volatile = ptr_info.is_volatile,
                                 .alignment = ptr_info.alignment,
+                                .address_space = ptr_info.address_space,
                                 .child = ptr_info.child,
                                 .is_allowzero = ptr_info.is_allowzero,
                                 .sentinel = sentinel_val,
