@@ -51,11 +51,11 @@ pub const epoch_year = 1970;
 pub const secs_per_day: u17 = 24 * 60 * 60;
 
 pub fn isLeapYear(year: Year) bool {
-    if (math.comptimeMod(year, 4) != 0)
+    if (@mod(year, 4) != 0)
         return false;
-    if (math.comptimeMod(year, 100) != 0)
+    if (@mod(year, 100) != 0)
         return true;
-    return (0 == math.comptimeMod(year, 400));
+    return (0 == @mod(year, 400));
 }
 
 test "isLeapYear" {
@@ -165,7 +165,7 @@ pub const DaySeconds = struct {
     }
     /// the number of minutes past the hour (0 to 59)
     pub fn getMinutesIntoHour(self: DaySeconds) u6 {
-        return @intCast(u6, @divTrunc(math.comptimeMod(self.secs, 3600), 60));
+        return @intCast(u6, @divTrunc(@mod(self.secs, 3600), 60));
     }
     /// the number of seconds past the start of the minute (0 to 59)
     pub fn getSecondsIntoMinute(self: DaySeconds) u6 {
