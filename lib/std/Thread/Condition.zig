@@ -27,7 +27,7 @@ pub const Impl = if (std.builtin.single_threaded)
 else if (target.os.tag == .windows)
     WindowsImpl
 else if (target.cpu.arch.ptrBitWidth() >= 64)
-    Futex64Impl;
+    Futex64Impl
 else
     Futex32Impl;
 
@@ -74,7 +74,7 @@ const Futex64Impl = struct {
         var cond = self.cond.qword.fetchAdd(one_waiter, .Monotonic);
 
         var state = @bitCast(State, cond);
-        const wait_seq = state.seq;
+        const wait_seq = state.seq.loadUnchecked();
         assert(state.waiters != std.math.maxInt(u16));
 
         defer {
@@ -141,18 +141,13 @@ const Futex32Impl = struct {
     waiters: Atomic(u32) = Atomic(u32).init(0),
 
     fn wait(self: *Impl, held: Mutex.Held, timeout: ?u64) error{TimedOut}!void {
-        var waiters = self.waiters.fetchAdd(1, .SeqCst);
+        var waiters = self.waiters.fetchAdd(1, .Monotonic);
         assert(waiters != std.math.maxInt(u32));
 
-        defer {
-            waiters = self.waiters.fetchSub(1, .Monotonic);
-            assert(waiters != 0);
-        }
-
-        const epoch = 
+        
     }
 
     fn wake(self: *Impl, notify_all: bool) void {
-
+        
     }
 };

@@ -60,8 +60,7 @@ const WindowsImpl = struct {
     srwlock: os.windows.SWRLOCK = os.windows.SRWLOCK_INIT,
 
     pub fn tryAcquire(self: *Impl) bool {
-        const rc = os.windows.kernel32.TryAcquireSRWLockExclusive(&self.srwlock);
-        return rc != os.windows.FALSE;
+        return os.windows.kernel32.TryAcquireSRWLockExclusive(&self.srwlock) != os.windows.FALSE;
     }  
     
     pub fn acquire(self: *Impl) void {
@@ -105,36 +104,56 @@ const FutexImpl = struct {
     const UNLOCKED = 0;
     const LOCKED = 0b01;
     const CONTENDED = 0b11;
+    const is_x86 = target.cpu.arch.isX86();
 
     pub fn tryAcquire(self: *Impl) bool {
+        return self.acquireFast(true);
+    }  
+    
+    pub fn acquire(self: *Impl) void {
+        if (!self.acquireFast(false)) {
+            self.acquireSlow();
+        }
+    }
+
+    inline fn acquireFast(self: *Impl, comptime strong: bool) bool {
         // On x86, "lock bts" uses less i-cache & can be faster than "lock cmpxchg" below.
-        if (comptime target.cpu.arch.isX86()) {
+        if (is_x86) {
             return self.state.bitSet(@ctz(u32, LOCKED), .Acquire) == UNLOCKED;
         }
 
-        return self.state.compareAndSwap(
+        const cas_fn = switch (strong) {
+            true => "compareAndSwap",
+            else => "tryCompareAndSwap",
+        };
+
+        return @field(self.state, cas_fn)(
             UNLOCKED,
             LOCKED,
             .Acquire,
             .Monotonic,
         ) == null;  
-    }  
-    
-    pub fn acquire(self: *Impl) void {
-        if (self.tryAcquire()) {
-            return;
-        }
+    }
 
+    noinline fn acquireSlow(self: *Impl) void {
         /// Spin a little bit on the Mutex state in the hopes that
         /// we can acquire it without having to call Futex.wait().
+        /// Give up spinning if the Mutex is contended.
         /// This helps acquire() latency under micro-contention.
-        /// This also gives up spinning if the Mutex is contended.
-        var spin: u8 = 100;
+        ///
+        /// Only spin on x86 as other platforms are assumed to
+        /// prioritize power efficiency over strict performance.
+        var spin: u8 = if (is_x86) 100 else 0;
         while (spin > 0) : (spin -= 1) {
             std.atomic.spinLoopHint();
 
             switch (self.state.load(.Monotonic)) {
-                UNLOCKED => if (self.tryAcquire()) return,
+                UNLOCKED => _ = self.state.tryCompareAndSwap(
+                    UNLOCKED,
+                    LOCKED,
+                    .Acquire,
+                    .Monotonic,
+                ) orelse return,
                 LOCKED => continue,
                 CONTENDED => break,
                 else => unreachable, // invalid Mutex state
@@ -148,10 +167,23 @@ const FutexImpl = struct {
         // sleeping on the Futex having seen CONTENDED before are eventually woken up by release().
         // This unfortunately ends up in an extra Futex.wake() for the last thread but that's ok.
         while (true) : (Futex.wait(&self.state, CONTENDED, null) catch unreachable) {
-            switch (self.state.swap(CONTENDED, .Acquire)) {
-                UNLOCKED => return,
-                LOCKED, CONTENDED => continue,
-                else => unreachable, // invalid Mutex state
+            // On x86, "xchg" can be faster than "lock cmpxchg" below.
+            if (is_x86) {
+                switch (self.state.swap(CONTENDED, .Acquire)) {
+                    UNLOCKED => return,
+                    LOCKED, CONTENDED => continue,
+                    else => unreachable, // invalid Mutex state
+                }
+            }
+
+            var state = self.state.load(.Monotonic);
+            while (state != CONTENDED) {
+                state = switch (state) {
+                    UNLOCKED => self.state.tryCompareAndSwap(state, CONTENDED, .Acquire, .Monotonic) orelse return,
+                    LOCKED => self.state.tryCompareAndSwap(state, CONTENDED, .Monotonic, .Monotonic) orelse break,
+                    CONTENDED => unreachable, // checked above
+                    else => unreachable, // invalid Mutex state
+                };
             }
         }
     }
