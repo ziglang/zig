@@ -3,7 +3,6 @@ const target = std.Target.current;
 const assert = std.debug.assert;
 const os = std.os;
 
-const Spin = @import("Spin.zig");
 const Atomic = std.atomic.Atomic;
 const Futex = std.Thread.Futex;
 const Mutex = @This();
@@ -108,8 +107,9 @@ const FutexImpl = struct {
     const CONTENDED = 0b11;
 
     pub fn tryAcquire(self: *Impl) bool {
+        // On x86, "lock bts" uses less i-cache & can be faster than "lock cmpxchg" below.
         if (comptime target.cpu.arch.isX86()) {
-            return self.state.bitSet(@ctz(u32, LOCKED), .Acquire) == 0;
+            return self.state.bitSet(@ctz(u32, LOCKED), .Acquire) == UNLOCKED;
         }
 
         return self.state.compareAndSwap(
@@ -117,7 +117,7 @@ const FutexImpl = struct {
             LOCKED,
             .Acquire,
             .Monotonic,
-        ) == null;
+        ) == null;  
     }  
     
     pub fn acquire(self: *Impl) void {
@@ -125,18 +125,28 @@ const FutexImpl = struct {
             return;
         }
 
+        /// Spin a little bit on the Mutex state in the hopes that
+        /// we can acquire it without having to call Futex.wait().
+        /// This helps acquire() latency under micro-contention.
+        /// This also gives up spinning if the Mutex is contended.
         var spin: u8 = 100;
         while (spin > 0) : (spin -= 1) {
             std.atomic.spinLoopHint();
 
             switch (self.state.load(.Monotonic)) {
-                UNLOCKED => if (self.acquireFast()) return,
+                UNLOCKED => if (self.tryAcquire()) return,
                 LOCKED => continue,
                 CONTENDED => break,
                 else => unreachable, // invalid Mutex state
             }
         }
 
+        // Make sure the state is CONTENDED before sleeping with Futex so release() can wake us up.
+        // Transitioning to CONTENDED may also acquire the mutex in the process.
+        //
+        // If we sleep, we must acquire the Mutex with CONTENDED to ensure that other threads
+        // sleeping on the Futex having seen CONTENDED before are eventually woken up by release().
+        // This unfortunately ends up in an extra Futex.wake() for the last thread but that's ok.
         while (true) : (Futex.wait(&self.state, CONTENDED, null) catch unreachable) {
             switch (self.state.swap(CONTENDED, .Acquire)) {
                 UNLOCKED => return,

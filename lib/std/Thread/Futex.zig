@@ -25,8 +25,43 @@ const spinLoopHint = std.atomic.spinLoopHint;
 ///
 /// The checking of `ptr` and `expect`, along with blocking the caller, is done atomically
 /// and totally ordered (sequentially consistent) with respect to other wait()/wake() calls on the same `ptr`.
-pub fn wait(ptr: *const Atomic(u32), expect: u32, timeout: ?u64) error{TimedOut}!void {
-    if (single_threaded) {
+pub noinline fn wait(ptr: *const Atomic(u32), expect: u32, timeout: ?u64) error{TimedOut}!void {
+    // Avoid calling into the OS for no-op waits()
+    if (timeout) |timeout_ns| {
+        if (timeout_ns == 0) {
+            if (ptr.load(.SeqCst) != expect) return;
+            return error.TimedOut;
+        }
+    }
+
+    return Impl.wait(ptr, expect, timeout);
+}
+
+/// Unblocks at most `num_waiters` callers blocked in a `wait()` call on `ptr`.
+/// `num_waiters` of 1 unblocks at most one `wait(ptr, ...)` and `maxInt(u32)` unblocks effectively all `wait(ptr, ...)`.
+pub noinline fn wake(ptr: *const Atomic(u32), num_waiters: u32) void {
+    if (num_waiters == 0) {
+        return;
+    }
+
+    return Impl.wake(ptr, num_waiters);
+}
+
+const Impl = if (std.builtin.single_threaded)
+    SerialImpl
+else if (target.os.tag == .windows)
+    WindowsImpl
+else if (target.os.tag == .linux)
+    LinuxImpl
+else if (target.isDarwin())
+    DarwinImpl
+else if (std.Thread.use_pthreads)
+    PosixImpl
+else
+    @compileLog("Futex implementation not supported for", target.os.tag);
+
+const SerialImpl = struct {
+    fn wait(ptr: *const Atomic(u32), expect: u32, timeout: ?u64) error{TimedOut}!void {
         // check whether the caller should block
         if (ptr.loadUnchecked() != expect) {
             return;
@@ -35,7 +70,7 @@ pub fn wait(ptr: *const Atomic(u32), expect: u32, timeout: ?u64) error{TimedOut}
         // There are no other threads which could notify the caller on single_threaded.
         // Therefor a wait() without a timeout would block indefinitely.
         const timeout_ns = timeout orelse {
-            @panic("deadlock");
+            unreachable; // deadlock detected
         };
 
         // Simulate blocking with the timeout knowing that:
@@ -45,54 +80,14 @@ pub fn wait(ptr: *const Atomic(u32), expect: u32, timeout: ?u64) error{TimedOut}
         return error.TimedOut;
     }
 
-    // Avoid calling into the OS for no-op waits()
-    if (timeout) |timeout_ns| {
-        if (timeout_ns == 0) {
-            if (ptr.load(.SeqCst) != expect) return;
-            return error.TimedOut;
-        }
-    }
-
-    return OsFutex.wait(ptr, expect, timeout);
-}
-
-/// Unblocks at most `num_waiters` callers blocked in a `wait()` call on `ptr`.
-/// `num_waiters` of 1 unblocks at most one `wait(ptr, ...)` and `maxInt(u32)` unblocks effectively all `wait(ptr, ...)`.
-pub fn wake(ptr: *const Atomic(u32), num_waiters: u32) void {
-    if (single_threaded) return;
-    if (num_waiters == 0) return;
-
-    return OsFutex.wake(ptr, num_waiters);
-}
-
-const OsFutex = if (target.os.tag == .windows)
-    WindowsFutex
-else if (target.os.tag == .linux)
-    LinuxFutex
-else if (target.isDarwin())
-    DarwinFutex
-else if (builtin.link_libc)
-    PosixFutex
-else
-    UnsupportedFutex;
-
-const UnsupportedFutex = struct {
-    fn wait(ptr: *const Atomic(u32), expect: u32, timeout: ?u64) error{TimedOut}!void {
-        return unsupported(.{ ptr, expect, timeout });
-    }
-
     fn wake(ptr: *const Atomic(u32), num_waiters: u32) void {
-        return unsupported(.{ ptr, num_waiters });
-    }
-
-    fn unsupported(unused: anytype) noreturn {
-        @compileLog("Unsupported operating system", target.os.tag);
-        _ = unused;
-        unreachable;
+        _ = ptr;
+        _ = num_waiters;
+        // no other thread to wake up
     }
 };
 
-const WindowsFutex = struct {
+const WindowsImpl = struct {
     const windows = std.os.windows;
 
     fn wait(ptr: *const Atomic(u32), expect: u32, timeout: ?u64) error{TimedOut}!void {
@@ -127,7 +122,7 @@ const WindowsFutex = struct {
     }
 };
 
-const LinuxFutex = struct {
+const LinuxImpl = struct {
     const linux = std.os.linux;
 
     fn wait(ptr: *const Atomic(u32), expect: u32, timeout: ?u64) error{TimedOut}!void {
@@ -171,7 +166,7 @@ const LinuxFutex = struct {
     }
 };
 
-const DarwinFutex = struct {
+const DarwinImpl = struct {
     const darwin = std.os.darwin;
 
     fn wait(ptr: *const Atomic(u32), expect: u32, timeout: ?u64) error{TimedOut}!void {
@@ -243,7 +238,7 @@ const DarwinFutex = struct {
     }
 };
 
-const PosixFutex = struct {
+const PosixImpl = struct {
     fn wait(ptr: *const Atomic(u32), expect: u32, timeout: ?u64) error{TimedOut}!void {
         const address = @ptrToInt(ptr);
         const bucket = Bucket.from(address);
@@ -352,10 +347,12 @@ const PosixFutex = struct {
             var ts: std.os.timespec = undefined;
             var ts_ptr: ?*const std.os.timespec = null;
             if (timeout) |timeout_ns| {
-                ts_ptr = &ts;
                 std.os.clock_gettime(std.os.CLOCK.REALTIME, &ts) catch unreachable;
+
+                ts_ptr = &ts;
                 ts.tv_sec += @intCast(@TypeOf(ts.tv_sec), timeout_ns / std.time.ns_per_s);
                 ts.tv_nsec += @intCast(@TypeOf(ts.tv_nsec), timeout_ns % std.time.ns_per_s);
+
                 if (ts.tv_nsec >= std.time.ns_per_s) {
                     ts.tv_sec += 1;
                     ts.tv_nsec -= std.time.ns_per_s;
