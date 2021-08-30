@@ -131,6 +131,8 @@ pub fn updateFunc(self: *Plan9, module: *Module, func: *Module.Fn, air: Air, liv
     }
 
     const decl = func.owner_decl;
+
+    try self.seeDecl(decl);
     log.debug("codegen decl {*} ({s})", .{ decl, decl.name });
 
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
@@ -175,6 +177,8 @@ pub fn updateDecl(self: *Plan9, module: *Module, decl: *Module.Decl) !void {
             return; // TODO Should we do more when front-end analyzed extern decl?
         }
     }
+
+    try self.seeDecl(decl);
 
     log.debug("codegen decl {*} ({s})", .{ decl, decl.name });
 
@@ -407,12 +411,24 @@ pub fn freeDecl(self: *Plan9, decl: *Module.Decl) void {
     }
 }
 
+pub fn seeDecl(self: *Plan9, decl: *Module.Decl) !void {
+    if (decl.link.plan9.got_index == null) {
+        if (self.got_index_free_list.popOrNull()) |i| {
+            decl.link.plan9.got_index = i;
+        } else {
+            self.got_len += 1;
+            decl.link.plan9.got_index = self.got_len - 1;
+        }
+    }
+}
+
 pub fn updateDeclExports(
     self: *Plan9,
     module: *Module,
     decl: *Module.Decl,
     exports: []const *Module.Export,
 ) !void {
+    try self.seeDecl(decl);
     // we do all the things in flush
     _ = self;
     _ = module;
@@ -494,13 +510,8 @@ pub fn writeSyms(self: *Plan9, buf: *std.ArrayList(u8)) !void {
     }
 }
 
+/// this will be removed, moved to updateFinish
 pub fn allocateDeclIndexes(self: *Plan9, decl: *Module.Decl) !void {
-    if (decl.link.plan9.got_index == null) {
-        if (self.got_index_free_list.popOrNull()) |i| {
-            decl.link.plan9.got_index = i;
-        } else {
-            self.got_len += 1;
-            decl.link.plan9.got_index = self.got_len - 1;
-        }
-    }
+    _ = self;
+    _ = decl;
 }

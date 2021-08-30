@@ -2965,6 +2965,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         }
                         if (self.air.value(callee)) |func_value| {
                             if (func_value.castTag(.function)) |func_payload| {
+                                try p9.seeDecl(func_payload.data.owner_decl);
                                 const ptr_bits = self.target.cpu.arch.ptrBitWidth();
                                 const ptr_bytes: u64 = @divExact(ptr_bits, 8);
                                 const got_addr = p9.bases.data;
@@ -3012,6 +3013,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         }
                         if (self.air.value(callee)) |func_value| {
                             if (func_value.castTag(.function)) |func_payload| {
+                                try p9.seeDecl(func_payload.data.owner_decl);
                                 const ptr_bits = self.target.cpu.arch.ptrBitWidth();
                                 const ptr_bytes: u64 = @divExact(ptr_bits, 8);
                                 const got_addr = p9.bases.data;
@@ -4939,6 +4941,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 const got_addr = coff_file.offset_table_virtual_address + decl.link.coff.offset_table_index * ptr_bytes;
                                 return MCValue{ .memory = got_addr };
                             } else if (self.bin_file.cast(link.File.Plan9)) |p9| {
+                                try p9.seeDecl(decl);
                                 const got_addr = p9.bases.data + decl.link.plan9.got_index.? * ptr_bytes;
                                 return MCValue{ .memory = got_addr };
                             } else {
