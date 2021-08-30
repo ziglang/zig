@@ -2,63 +2,63 @@ usingnamespace @import("../bits/linux.zig");
 
 pub fn syscall0(number: SYS) usize {
     return asm volatile ("ecall"
-        : [ret] "={x10}" (-> usize)
-        : [number] "{x17}" (@enumToInt(number))
+        : [ret] "={x10}" (-> usize),
+        : [number] "{x17}" (@enumToInt(number)),
         : "memory"
     );
 }
 
 pub fn syscall1(number: SYS, arg1: usize) usize {
     return asm volatile ("ecall"
-        : [ret] "={x10}" (-> usize)
+        : [ret] "={x10}" (-> usize),
         : [number] "{x17}" (@enumToInt(number)),
-          [arg1] "{x10}" (arg1)
+          [arg1] "{x10}" (arg1),
         : "memory"
     );
 }
 
 pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
     return asm volatile ("ecall"
-        : [ret] "={x10}" (-> usize)
+        : [ret] "={x10}" (-> usize),
         : [number] "{x17}" (@enumToInt(number)),
           [arg1] "{x10}" (arg1),
-          [arg2] "{x11}" (arg2)
+          [arg2] "{x11}" (arg2),
         : "memory"
     );
 }
 
 pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
     return asm volatile ("ecall"
-        : [ret] "={x10}" (-> usize)
+        : [ret] "={x10}" (-> usize),
         : [number] "{x17}" (@enumToInt(number)),
           [arg1] "{x10}" (arg1),
           [arg2] "{x11}" (arg2),
-          [arg3] "{x12}" (arg3)
+          [arg3] "{x12}" (arg3),
         : "memory"
     );
 }
 
 pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize) usize {
     return asm volatile ("ecall"
-        : [ret] "={x10}" (-> usize)
+        : [ret] "={x10}" (-> usize),
         : [number] "{x17}" (@enumToInt(number)),
           [arg1] "{x10}" (arg1),
           [arg2] "{x11}" (arg2),
           [arg3] "{x12}" (arg3),
-          [arg4] "{x13}" (arg4)
+          [arg4] "{x13}" (arg4),
         : "memory"
     );
 }
 
 pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize, arg5: usize) usize {
     return asm volatile ("ecall"
-        : [ret] "={x10}" (-> usize)
+        : [ret] "={x10}" (-> usize),
         : [number] "{x17}" (@enumToInt(number)),
           [arg1] "{x10}" (arg1),
           [arg2] "{x11}" (arg2),
           [arg3] "{x12}" (arg3),
           [arg4] "{x13}" (arg4),
-          [arg5] "{x14}" (arg5)
+          [arg5] "{x14}" (arg5),
         : "memory"
     );
 }
@@ -73,14 +73,14 @@ pub fn syscall6(
     arg6: usize,
 ) usize {
     return asm volatile ("ecall"
-        : [ret] "={x10}" (-> usize)
+        : [ret] "={x10}" (-> usize),
         : [number] "{x17}" (@enumToInt(number)),
           [arg1] "{x10}" (arg1),
           [arg2] "{x11}" (arg2),
           [arg3] "{x12}" (arg3),
           [arg4] "{x13}" (arg4),
           [arg5] "{x14}" (arg5),
-          [arg6] "{x15}" (arg6)
+          [arg6] "{x15}" (arg6),
         : "memory"
     );
 }
@@ -92,7 +92,7 @@ pub const restore = restore_rt;
 pub fn restore_rt() callconv(.Naked) void {
     return asm volatile ("ecall"
         :
-        : [number] "{x17}" (@enumToInt(SYS.rt_sigreturn))
+        : [number] "{x17}" (@enumToInt(SYS.rt_sigreturn)),
         : "memory"
     );
 }

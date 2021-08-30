@@ -34,9 +34,9 @@ pub const Block = struct {
         return Block{
             .repr = asm (
                 \\ vaesenc %[rk], %[in], %[out]
-                : [out] "=x" (-> BlockVec)
+                : [out] "=x" (-> BlockVec),
                 : [in] "x" (block.repr),
-                  [rk] "x" (round_key.repr)
+                  [rk] "x" (round_key.repr),
             ),
         };
     }
@@ -46,9 +46,9 @@ pub const Block = struct {
         return Block{
             .repr = asm (
                 \\ vaesenclast %[rk], %[in], %[out]
-                : [out] "=x" (-> BlockVec)
+                : [out] "=x" (-> BlockVec),
                 : [in] "x" (block.repr),
-                  [rk] "x" (round_key.repr)
+                  [rk] "x" (round_key.repr),
             ),
         };
     }
@@ -58,9 +58,9 @@ pub const Block = struct {
         return Block{
             .repr = asm (
                 \\ vaesdec %[rk], %[in], %[out]
-                : [out] "=x" (-> BlockVec)
+                : [out] "=x" (-> BlockVec),
                 : [in] "x" (block.repr),
-                  [rk] "x" (inv_round_key.repr)
+                  [rk] "x" (inv_round_key.repr),
             ),
         };
     }
@@ -70,9 +70,9 @@ pub const Block = struct {
         return Block{
             .repr = asm (
                 \\ vaesdeclast %[rk], %[in], %[out]
-                : [out] "=x" (-> BlockVec)
+                : [out] "=x" (-> BlockVec),
                 : [in] "x" (block.repr),
-                  [rk] "x" (inv_round_key.repr)
+                  [rk] "x" (inv_round_key.repr),
             ),
         };
     }
@@ -190,11 +190,11 @@ fn KeySchedule(comptime Aes: type) type {
                 \\ vpxor   %[ts], %[r], %[r]
                 : [r] "=&x" (-> BlockVec),
                   [s] "=&x" (s),
-                  [ts] "=&x" (ts)
+                  [ts] "=&x" (ts),
                 : [rc] "n" (rc),
                   [t] "x" (t),
                   [tx] "x" (tx),
-                  [mask] "n" (@as(u8, if (second) 0xaa else 0xff))
+                  [mask] "n" (@as(u8, if (second) 0xaa else 0xff)),
             );
         }
 
@@ -235,8 +235,8 @@ fn KeySchedule(comptime Aes: type) type {
                 inv_round_keys[i] = Block{
                     .repr = asm (
                         \\ vaesimc %[rk], %[inv_rk]
-                        : [inv_rk] "=x" (-> BlockVec)
-                        : [rk] "x" (round_keys[rounds - i].repr)
+                        : [inv_rk] "=x" (-> BlockVec),
+                        : [rk] "x" (round_keys[rounds - i].repr),
                     ),
                 };
             }
