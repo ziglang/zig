@@ -1200,8 +1200,6 @@ pub fn formatFloatDecimal(
                 while (i < precision) : (i += 1) {
                     try writer.writeAll("0");
                 }
-            } else {
-                try writer.writeAll(".0");
             }
         }
 
@@ -2198,6 +2196,7 @@ test "float.hexadecimal.precision" {
 test "float.decimal" {
     try expectFmt("f64: 152314000000000000000000000000", "f64: {d}", .{@as(f64, 1.52314e+29)});
     try expectFmt("f32: 0", "f32: {d}", .{@as(f32, 0.0)});
+    try expectFmt("f32: 0", "f32: {d:.0}", .{@as(f32, 0.0)});
     try expectFmt("f32: 1.1", "f32: {d:.1}", .{@as(f32, 1.1234)});
     try expectFmt("f32: 1234.57", "f32: {d:.2}", .{@as(f32, 1234.567)});
     // -11.1234 is converted to f64 -11.12339... internally (errol3() function takes f64).
