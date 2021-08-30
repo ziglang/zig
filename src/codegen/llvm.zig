@@ -985,6 +985,7 @@ pub const FuncGen = struct {
                 .mul     => try self.airMul(inst, false),
                 .mulwrap => try self.airMul(inst, true),
                 .div     => try self.airDiv(inst),
+                .rem     => try self.airRem(inst),
                 .ptr_add => try self.airPtrAdd(inst),
                 .ptr_sub => try self.airPtrSub(inst),
 
@@ -1725,6 +1726,19 @@ pub const FuncGen = struct {
         if (inst_ty.isFloat()) return self.builder.buildFDiv(lhs, rhs, "");
         if (inst_ty.isSignedInt()) return self.builder.buildSDiv(lhs, rhs, "");
         return self.builder.buildUDiv(lhs, rhs, "");
+    }
+
+    fn airRem(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const lhs = try self.resolveInst(bin_op.lhs);
+        const rhs = try self.resolveInst(bin_op.rhs);
+        const inst_ty = self.air.typeOfIndex(inst);
+
+        if (inst_ty.isFloat()) return self.builder.buildFRem(lhs, rhs, "");
+        if (inst_ty.isSignedInt()) return self.builder.buildSRem(lhs, rhs, "");
+        return self.builder.buildURem(lhs, rhs, "");
     }
 
     fn airPtrAdd(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {

@@ -69,6 +69,10 @@ pub const Inst = struct {
         /// is the same as both operands.
         /// Uses the `bin_op` field.
         div,
+        /// Integer or float remainder.
+        /// Both operands are guaranteed to be the same type, and the result type is the same as both operands.
+        /// Uses the `bin_op` field.
+        rem,
         /// Add an offset to a pointer, returning a new pointer.
         /// The offset is in element type units, not bytes.
         /// Wrapping is undefined behavior.
@@ -462,6 +466,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .mul,
         .mulwrap,
         .div,
+        .rem,
         .bit_and,
         .bit_or,
         .xor,
