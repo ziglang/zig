@@ -475,17 +475,18 @@ void bigint_clamp_by_bitcount(BigInt* dest, uint32_t bit_count, bool is_signed) 
     // compute the number of bits required to store the value, and use that 
     // to decide whether to clamp the result
     bool is_negative = dest->is_negative;
-    // to workaround the fact that bigint_bits_needed() returns 65 or more for 
+    // to workaround the fact this bits_needed calculation would yield 65 or more for 
     // all negative numbers, set is_negative to false.  this is a cheap way to find 
     // bits_needed(abs(dest)).  
     dest->is_negative = false;
     // because we've set is_negative to false, we have to account for the extra bit here
-    size_t bits_needed = bigint_bits_needed(dest) + is_negative; 
-    bit_count -= is_signed;
+    // by adding 1 additional bit_needed when (is_negative && !is_signed).  
+    size_t full_bits = dest->digit_count * 64;
+    size_t leading_zero_count = bigint_clz(dest, full_bits);
+    size_t bits_needed = full_bits - leading_zero_count + (is_negative && !is_signed);
 
+    bit_count -= is_signed;
     if(bits_needed > bit_count) {
-        // these 2 bigints won't do heap allocation as they never require more than 64 bits.
-        // thus, they don't need to be deinit.
         BigInt one;
         bigint_init_unsigned(&one, 1);
         BigInt bit_count_big;

@@ -7035,6 +7035,8 @@ fn readFile(allocator: *Allocator, filename: []const u8) ![]u8 {
       <pre>{#syntax#}@addWithSaturation(a: T, b: T) T{#endsyntax#}</pre>
       <p>
       Returns {#syntax#}a + b{#endsyntax#}. The result will be clamped between the type maximum and minimum.
+      </p>
+      <p>
       Once <a href="https://github.com/ziglang/zig/issues/1284">Saturating arithmetic</a>.
       is completed, the syntax {#syntax#}a +| b{#endsyntax#} will be equivalent to calling {#syntax#}@addWithSaturation(a, b){#endsyntax#}.
       </p>
@@ -8156,8 +8158,15 @@ test "@wasmMemoryGrow" {
       <pre>{#syntax#}@mulWithSaturation(a: T, b: T) T{#endsyntax#}</pre>
       <p>
       Returns {#syntax#}a * b{#endsyntax#}. The result will be clamped between the type maximum and minimum.
+      </p>
+      <p>
       Once <a href="https://github.com/ziglang/zig/issues/1284">Saturating arithmetic</a>.
       is completed, the syntax {#syntax#}a *| b{#endsyntax#} will be equivalent to calling {#syntax#}@mulWithSaturation(a, b){#endsyntax#}.
+      </p>
+      <p>
+      NOTE: Currently there is a bug in the llvm.smul.fix.sat intrinsic which affects {#syntax#}@mulWithSaturation{#endsyntax#} of signed integers.  
+      This may result in an incorrect sign bit when there is overflow.  This will be fixed in zig's 0.9.0 release.  
+      Check <a href="https://github.com/ziglang/zig/issues/9643">this issue</a> for more information.
       </p>
       {#header_close#}
 
@@ -8406,6 +8415,8 @@ test "@setRuntimeSafety" {
       <pre>{#syntax#}@shlWithSaturation(a: T, shift_amt: T) T{#endsyntax#}</pre>
       <p>
       Returns {#syntax#}a << b{#endsyntax#}. The result will be clamped between type minimum and maximum.  
+      </p>
+      <p>
       Once <a href="https://github.com/ziglang/zig/issues/1284">Saturating arithmetic</a>.
       is completed, the syntax {#syntax#}a <<| b{#endsyntax#} will be equivalent to calling {#syntax#}@shlWithSaturation(a, b){#endsyntax#}.
       </p>
@@ -8729,6 +8740,8 @@ fn doTheTest() !void {
       <pre>{#syntax#}@subWithSaturation(a: T, b: T) T{#endsyntax#}</pre>
       <p>
       Returns {#syntax#}a - b{#endsyntax#}. The result will be clamped between the type maximum and minimum.  
+      </p>
+      <p>
       Once <a href="https://github.com/ziglang/zig/issues/1284">Saturating arithmetic</a>.
       is completed, the syntax {#syntax#}a -| b{#endsyntax#} will be equivalent to calling {#syntax#}@subWithSaturation(a, b){#endsyntax#}.
       </p>

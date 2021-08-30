@@ -85,11 +85,12 @@ test "@mulWithSaturation" {
             //                             .{a, b, expected a*b}
             try testSaturatingOp(.mul, i8, .{ -3, 10, -30 });
             try testSaturatingOp(.mul, i4, .{ 2, 4, 7 });
-            // TODO: add these tests cases back after implementing workaround for #9643
-            // try testSaturatingOp(.mul, i8, .{ -128, -128, 127 });
             try testSaturatingOp(.mul, i8, .{ 2, 127, 127 });
-            // try testSaturatingOp(.mul, i128, .{ maxInt(i128), maxInt(i128), maxInt(i128) });
-            // try testSaturatingOp(.mul, i128, .{ maxInt(i128), -1, minInt(i128) });
+            // TODO: uncomment these after #9643 has been solved - this should happen at 0.9.0/llvm-13 release
+            // try testSaturatingOp(.mul, i8, .{ -128, -128, 127 });
+            // try testSaturatingOp(.mul, i8, .{ maxInt(i8), maxInt(i8), maxInt(i8) });
+            try testSaturatingOp(.mul, i16, .{ maxInt(i16), -1, minInt(i16) + 1 });
+            try testSaturatingOp(.mul, i128, .{ maxInt(i128), -1, minInt(i128) + 1 });
             try testSaturatingOp(.mul, i128, .{ minInt(i128), -1, maxInt(i128) });
             try testSaturatingOp(.mul, u8, .{ 10, 3, 30 });
             try testSaturatingOp(.mul, u8, .{ 2, 255, 255 });
