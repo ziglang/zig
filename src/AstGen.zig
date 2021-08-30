@@ -273,19 +273,20 @@ fn typeExpr(gz: *GenZir, scope: *Scope, type_node: ast.Node.Index) InnerError!Zi
     return expr(gz, scope, coerced_type_rl, type_node);
 }
 
-/// Same as `expr` but fails with a compile error if the result type is `noreturn`.
-fn reachableExpr(
+/// Turn Zig AST into untyped ZIR istructions.
+/// When `rl` is discard, ptr, inferred_ptr, or inferred_ptr, the
+/// result instruction can be used to inspect whether it is isNoReturn() but that is it,
+/// it must otherwise not be used. Fails with a compile error if the result type
+// is `noreturn`. Otherwise, use `exprMaybeNoReturn`.
+fn expr(
     gz: *GenZir,
     scope: *Scope,
     rl: ResultLoc,
     node: ast.Node.Index,
-    src_node: ast.Node.Index,
 ) InnerError!Zir.Inst.Ref {
-    const result_inst = try expr(gz, scope, rl, node);
-    if (gz.refIsNoReturn(result_inst)) {
-        return gz.astgen.failNodeNotes(src_node, "unreachable code", .{}, &[_]u32{
-            try gz.astgen.errNoteNode(node, "control flow is diverted here", .{}),
-        });
+    const result_inst = try exprMaybeNoReturn(gz, scope, rl, node);
+    if (gz.endsWithNoReturn()) {
+        return gz.astgen.failNode(node, "unreachable code", .{});
     }
     return result_inst;
 }
@@ -477,11 +478,8 @@ fn lvalExpr(gz: *GenZir, scope: *Scope, node: ast.Node.Index) InnerError!Zir.Ins
     return expr(gz, scope, .ref, node);
 }
 
-/// Turn Zig AST into untyped ZIR istructions.
-/// When `rl` is discard, ptr, inferred_ptr, or inferred_ptr, the
-/// result instruction can be used to inspect whether it is isNoReturn() but that is it,
-/// it must otherwise not be used.
-fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) InnerError!Zir.Inst.Ref {
+/// Same as `expr` but allows the result to be possibly be of type `noreturn`.
+fn exprMaybeNoReturn(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
     const tree = astgen.tree;
     const main_tokens = tree.nodes.items(.main_token);
@@ -963,7 +961,7 @@ fn nosuspendExpr(
         });
     }
     gz.nosuspend_node = node;
-    const result = try expr(gz, scope, rl, body_node);
+    const result = try exprMaybeNoReturn(gz, scope, rl, body_node);
     gz.nosuspend_node = 0;
     return rvalue(gz, rl, result, node);
 }
@@ -1556,7 +1554,7 @@ fn comptimeExprAst(
     const node_datas = tree.nodes.items(.data);
     const body_node = node_datas[node].lhs;
     gz.force_comptime = true;
-    const result = try expr(gz, scope, rl, body_node);
+    const result = try exprMaybeNoReturn(gz, scope, rl, body_node);
     gz.force_comptime = false;
     return result;
 }
@@ -1896,7 +1894,7 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: ast.Node.Index) Inner
     try emitDbgNode(gz, statement);
     // We need to emit an error if the result is not `noreturn` or `void`, but
     // we want to avoid adding the ZIR instruction if possible for performance.
-    const maybe_unused_result = try expr(gz, scope, .none, statement);
+    const maybe_unused_result = try exprMaybeNoReturn(gz, scope, .none, statement);
     var noreturn_src_node: ast.Node.Index = 0;
     const elide_check = if (refToIndex(maybe_unused_result)) |inst| b: {
         // Note that this array becomes invalid after appending more items to it
@@ -2401,7 +2399,7 @@ fn varDecl(
                 const result_loc: ResultLoc = if (var_decl.ast.type_node != 0) .{
                     .ty = try typeExpr(gz, scope, var_decl.ast.type_node),
                 } else .none;
-                const init_inst = try reachableExpr(gz, scope, result_loc, var_decl.ast.init_node, node);
+                const init_inst = try expr(gz, scope, result_loc, var_decl.ast.init_node);
 
                 const sub_scope = try block_arena.create(Scope.LocalVal);
                 sub_scope.* = .{
@@ -2452,7 +2450,7 @@ fn varDecl(
                 init_scope.rl_ptr = alloc;
             }
             const init_result_loc: ResultLoc = .{ .block_ptr = &init_scope };
-            const init_inst = try reachableExpr(&init_scope, &init_scope.base, init_result_loc, var_decl.ast.init_node, node);
+            const init_inst = try expr(&init_scope, &init_scope.base, init_result_loc, var_decl.ast.init_node);
 
             const zir_tags = astgen.instructions.items(.tag);
             const zir_datas = astgen.instructions.items(.data);
@@ -2554,7 +2552,7 @@ fn varDecl(
                 resolve_inferred_alloc = alloc;
                 break :a .{ .alloc = alloc, .result_loc = .{ .inferred_ptr = alloc } };
             };
-            _ = try reachableExpr(gz, scope, var_data.result_loc, var_decl.ast.init_node, node);
+            _ = try expr(gz, scope, var_data.result_loc, var_decl.ast.init_node);
             if (resolve_inferred_alloc != .none) {
                 _ = try gz.addUnNode(.resolve_inferred_alloc, resolve_inferred_alloc, node);
             }
@@ -3074,7 +3072,7 @@ fn fnDecl(
         astgen.fn_block = &fn_gz;
         defer astgen.fn_block = prev_fn_block;
 
-        _ = try expr(&fn_gz, params_scope, .none, body_node);
+        _ = try exprMaybeNoReturn(&fn_gz, params_scope, .none, body_node);
         try checkUsed(gz, &fn_gz.base, params_scope);
 
         const need_implicit_ret = blk: {
@@ -3212,7 +3210,7 @@ fn globalVarDecl(
         else
             .none;
 
-        const init_inst = try expr(
+        const init_inst = try exprMaybeNoReturn(
             &block_scope,
             &block_scope.base,
             if (type_inst != .none) .{ .ty = type_inst } else .none,
@@ -3427,7 +3425,7 @@ fn testDecl(
     astgen.fn_block = &fn_block;
     defer astgen.fn_block = prev_fn_block;
 
-    const block_result = try expr(&fn_block, &fn_block.base, .none, body_node);
+    const block_result = try exprMaybeNoReturn(&fn_block, &fn_block.base, .none, body_node);
     if (fn_block.instructions.items.len == 0 or !fn_block.refIsNoReturn(block_result)) {
         // Since we are adding the return instruction here, we must handle the coercion.
         // We do this by using the `ret_coerce` instruction.
@@ -4770,7 +4768,7 @@ fn orelseCatchExpr(
     };
 
     block_scope.break_count += 1;
-    const else_result = try expr(&else_scope, else_sub_scope, block_scope.break_result_loc, rhs);
+    const else_result = try exprMaybeNoReturn(&else_scope, else_sub_scope, block_scope.break_result_loc, rhs);
     try checkUsed(parent_gz, &else_scope.base, else_sub_scope);
 
     // We hold off on the break instructions as well as copying the then/else
@@ -5079,7 +5077,7 @@ fn ifExpr(
     };
 
     block_scope.break_count += 1;
-    const then_result = try expr(&then_scope, then_sub_scope, block_scope.break_result_loc, if_full.ast.then_expr);
+    const then_result = try exprMaybeNoReturn(&then_scope, then_sub_scope, block_scope.break_result_loc, if_full.ast.then_expr);
     try checkUsed(parent_gz, &then_scope.base, then_sub_scope);
     // We hold off on the break instructions as well as copying the then/else
     // instructions into place until we know whether to keep store_to_block_ptr
@@ -5119,7 +5117,7 @@ fn ifExpr(
                 break :s &else_scope.base;
             }
         };
-        const e = try expr(&else_scope, sub_scope, block_scope.break_result_loc, else_node);
+        const e = try exprMaybeNoReturn(&else_scope, sub_scope, block_scope.break_result_loc, else_node);
         try checkUsed(parent_gz, &else_scope.base, sub_scope);
         break :blk .{
             .src = else_node,
@@ -5361,7 +5359,7 @@ fn whileExpr(
     }
 
     loop_scope.break_count += 1;
-    const then_result = try expr(&then_scope, then_sub_scope, loop_scope.break_result_loc, while_full.ast.then_expr);
+    const then_result = try exprMaybeNoReturn(&then_scope, then_sub_scope, loop_scope.break_result_loc, while_full.ast.then_expr);
     try checkUsed(parent_gz, &then_scope.base, then_sub_scope);
 
     var else_scope = parent_gz.makeSubBlock(&continue_scope.base);
@@ -5398,7 +5396,7 @@ fn whileExpr(
                 break :s &else_scope.base;
             }
         };
-        const e = try expr(&else_scope, sub_scope, loop_scope.break_result_loc, else_node);
+        const e = try exprMaybeNoReturn(&else_scope, sub_scope, loop_scope.break_result_loc, else_node);
         try checkUsed(parent_gz, &else_scope.base, sub_scope);
         break :blk .{
             .src = else_node,
@@ -5570,7 +5568,7 @@ fn forExpr(
     };
 
     loop_scope.break_count += 1;
-    const then_result = try expr(&then_scope, then_sub_scope, loop_scope.break_result_loc, for_full.ast.then_expr);
+    const then_result = try exprMaybeNoReturn(&then_scope, then_sub_scope, loop_scope.break_result_loc, for_full.ast.then_expr);
     try checkUsed(parent_gz, &then_scope.base, then_sub_scope);
 
     var else_scope = parent_gz.makeSubBlock(&cond_scope.base);
@@ -5585,7 +5583,7 @@ fn forExpr(
         const sub_scope = &else_scope.base;
         break :blk .{
             .src = else_node,
-            .result = try expr(&else_scope, sub_scope, loop_scope.break_result_loc, else_node),
+            .result = try exprMaybeNoReturn(&else_scope, sub_scope, loop_scope.break_result_loc, else_node),
         };
     } else .{
         .src = for_full.ast.then_expr,
@@ -5813,7 +5811,7 @@ fn switchExpr(
             };
             break :blk &capture_val_scope.base;
         };
-        const case_result = try expr(&case_scope, sub_scope, block_scope.break_result_loc, case.ast.target_expr);
+        const case_result = try exprMaybeNoReturn(&case_scope, sub_scope, block_scope.break_result_loc, case.ast.target_expr);
         try checkUsed(parent_gz, &case_scope.base, sub_scope);
         if (!parent_gz.refIsNoReturn(case_result)) {
             block_scope.break_count += 1;
@@ -5937,7 +5935,7 @@ fn switchExpr(
                 });
             }
 
-            const case_result = try expr(&case_scope, sub_scope, block_scope.break_result_loc, case.ast.target_expr);
+            const case_result = try exprMaybeNoReturn(&case_scope, sub_scope, block_scope.break_result_loc, case.ast.target_expr);
             try checkUsed(parent_gz, &case_scope.base, sub_scope);
             if (!parent_gz.refIsNoReturn(case_result)) {
                 block_scope.break_count += 1;
@@ -5951,7 +5949,7 @@ fn switchExpr(
         } else {
             const item_node = case.ast.values[0];
             const item_inst = try comptimeExpr(parent_gz, scope, item_rl, item_node);
-            const case_result = try expr(&case_scope, sub_scope, block_scope.break_result_loc, case.ast.target_expr);
+            const case_result = try exprMaybeNoReturn(&case_scope, sub_scope, block_scope.break_result_loc, case.ast.target_expr);
             try checkUsed(parent_gz, &case_scope.base, sub_scope);
             if (!parent_gz.refIsNoReturn(case_result)) {
                 block_scope.break_count += 1;
@@ -6796,7 +6794,7 @@ fn as(
     const dest_type = try typeExpr(gz, scope, lhs);
     switch (rl) {
         .none, .none_or_ref, .discard, .ref, .ty, .coerced_ty => {
-            const result = try reachableExpr(gz, scope, .{ .ty = dest_type }, rhs, node);
+            const result = try expr(gz, scope, .{ .ty = dest_type }, rhs);
             return rvalue(gz, rl, result, node);
         },
         .ptr, .inferred_ptr => |result_ptr| {
@@ -6862,6 +6860,7 @@ fn asRlPtr(
     operand_node: ast.Node.Index,
     dest_type: Zir.Inst.Ref,
 ) InnerError!Zir.Inst.Ref {
+    _ = src_node;
     // Detect whether this expr() call goes into rvalue() to store the result into the
     // result location. If it does, elide the coerce_result_ptr instruction
     // as well as the store instruction, instead passing the result as an rvalue.
@@ -6871,7 +6870,7 @@ fn asRlPtr(
     defer as_scope.instructions.deinit(astgen.gpa);
 
     as_scope.rl_ptr = try as_scope.addBin(.coerce_result_ptr, dest_type, result_ptr);
-    const result = try reachableExpr(&as_scope, &as_scope.base, .{ .block_ptr = &as_scope }, operand_node, src_node);
+    const result = try expr(&as_scope, &as_scope.base, .{ .block_ptr = &as_scope }, operand_node);
     const parent_zir = &parent_gz.instructions;
     if (as_scope.rvalue_rl_count == 1) {
         // Busted! This expression didn't actually need a pointer.
@@ -6950,14 +6949,14 @@ fn typeOf(
         return gz.astgen.failNode(node, "expected at least 1 argument, found 0", .{});
     }
     if (params.len == 1) {
-        const expr_result = try reachableExpr(gz, scope, .none, params[0], node);
+        const expr_result = try expr(gz, scope, .none, params[0]);
         const result = try gz.addUnNode(.typeof, expr_result, node);
         return rvalue(gz, rl, result, node);
     }
     const arena = gz.astgen.arena;
     var items = try arena.alloc(Zir.Inst.Ref, params.len);
     for (params) |param, param_i| {
-        items[param_i] = try reachableExpr(gz, scope, .none, param, node);
+        items[param_i] = try expr(gz, scope, .none, param);
     }
 
     const result = try gz.addExtendedMultiOp(.typeof_peer, node, items);
@@ -7519,7 +7518,7 @@ fn simpleUnOp(
     operand_node: ast.Node.Index,
     tag: Zir.Inst.Tag,
 ) InnerError!Zir.Inst.Ref {
-    const operand = try expr(gz, scope, operand_rl, operand_node);
+    const operand = try exprMaybeNoReturn(gz, scope, operand_rl, operand_node);
     const result = try gz.addUnNode(tag, operand, node);
     return rvalue(gz, rl, result, node);
 }
