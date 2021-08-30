@@ -1183,9 +1183,22 @@ pub fn resolveRelocs(self: *TextBlock, macho_file: *MachO) !void {
                 },
                 .undef => {
                     const atom = macho_file.stubs_map.get(rel.where_index) orelse {
+                        // TODO this is required for incremental when we don't have every symbol
+                        // resolved when creating relocations. In this case, we will insert a branch
+                        // reloc to an undef symbol which may happen to be defined within the binary.
+                        // Then, the undef we point at will be a null symbol (free symbol) which we
+                        // should remove/repurpose. To circumvent this (for now), we check if the symbol
+                        // we point to is garbage, and if so we fall back to symbol resolver to find by name.
+                        const n_strx = macho_file.undefs.items[rel.where_index].n_strx;
+                        if (macho_file.symbol_resolver.get(n_strx)) |resolv| inner: {
+                            if (resolv.where != .global) break :inner;
+                            break :blk macho_file.globals.items[resolv.where_index].n_value;
+                        }
+
                         // TODO verify in TextBlock that the symbol is indeed dynamically bound.
                         break :blk 0; // Dynamically bound by dyld.
                     };
+
                     break :blk macho_file.locals.items[atom.local_sym_index].n_value;
                 },
             }

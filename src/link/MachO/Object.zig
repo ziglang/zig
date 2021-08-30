@@ -504,7 +504,6 @@ pub fn parseTextBlocks(
             log.debug("unhandled section", .{});
             continue;
         };
-        // TODO allocate section here.
 
         // Read section's code
         var code = try allocator.alloc(u8, @intCast(usize, sect.size));
@@ -569,12 +568,6 @@ pub fn parseTextBlocks(
                     const block_size = block_code.len;
                     const block = try macho_file.createEmptyAtom(block_local_sym_index, block_size, sect.@"align");
 
-                    if (use_stage1) {
-                        try macho_file.allocateAtomStage1(block, match);
-                    } else {
-                        _ = try macho_file.allocateAtom(block, match);
-                    }
-
                     mem.copy(u8, block.code.items, block_code);
 
                     try block.parseRelocs(relocs, .{
@@ -597,6 +590,11 @@ pub fn parseTextBlocks(
                         }
                     }
 
+                    if (use_stage1) {
+                        try macho_file.allocateAtomStage1(block, match);
+                    } else {
+                        _ = try macho_file.allocateAtom(block, match);
+                    }
                     try self.text_blocks.append(allocator, block);
                 }
 
@@ -648,7 +646,6 @@ pub fn parseTextBlocks(
                     } else {
                         _ = try macho_file.allocateAtom(block, match);
                     }
-
                     try self.text_blocks.append(allocator, block);
                 }
 
@@ -678,12 +675,6 @@ pub fn parseTextBlocks(
                 break :blk block_local_sym_index;
             };
             const block = try macho_file.createEmptyAtom(block_local_sym_index, sect.size, sect.@"align");
-
-            if (use_stage1) {
-                try macho_file.allocateAtomStage1(block, match);
-            } else {
-                _ = try macho_file.allocateAtom(block, match);
-            }
 
             mem.copy(u8, block.code.items, code);
 
@@ -743,6 +734,11 @@ pub fn parseTextBlocks(
                 });
             }
 
+            if (use_stage1) {
+                try macho_file.allocateAtomStage1(block, match);
+            } else {
+                _ = try macho_file.allocateAtom(block, match);
+            }
             try self.text_blocks.append(allocator, block);
         }
     }

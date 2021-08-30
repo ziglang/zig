@@ -789,6 +789,31 @@ pub fn flush(self: *MachO, comp: *Compilation) !void {
             try self.allocateTextBlocks();
             try self.flushZld();
         } else {
+            try self.parseTextBlocks();
+            try self.allocateGlobalSymbols();
+            {
+                log.debug("locals:", .{});
+                for (self.locals.items) |sym| {
+                    log.debug("  {s}: {}", .{ self.getString(sym.n_strx), sym });
+                }
+                log.debug("globals:", .{});
+                for (self.globals.items) |sym| {
+                    log.debug("  {s}: {}", .{ self.getString(sym.n_strx), sym });
+                }
+                log.debug("undefs:", .{});
+                for (self.undefs.items) |sym| {
+                    log.debug("  {s}: {}", .{ self.getString(sym.n_strx), sym });
+                }
+                log.debug("unresolved:", .{});
+                for (self.unresolved.keys()) |key| {
+                    log.debug("  {d} => {s}", .{ key, self.unresolved.get(key).? });
+                }
+                log.debug("resolved:", .{});
+                var it = self.symbol_resolver.iterator();
+                while (it.next()) |entry| {
+                    log.debug("  {s} => {}", .{ self.getString(entry.key_ptr.*), entry.value_ptr.* });
+                }
+            }
             try self.writeAtoms();
             try self.flushModule(comp);
         }
@@ -1114,12 +1139,14 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
     const segname = commands.segmentName(sect);
     const sectname = commands.sectionName(sect);
 
+    var needs_allocation = false;
     const res: ?MatchingSection = blk: {
         switch (commands.sectionType(sect)) {
             macho.S_4BYTE_LITERALS, macho.S_8BYTE_LITERALS, macho.S_16BYTE_LITERALS => {
                 if (self.text_const_section_index == null) {
                     self.text_const_section_index = @intCast(u16, text_seg.sections.items.len);
                     try text_seg.addSection(self.base.allocator, "__const", .{});
+                    needs_allocation = true;
                 }
 
                 break :blk .{
@@ -1136,6 +1163,7 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
                         try text_seg.addSection(self.base.allocator, "__objc_methname", .{
                             .flags = macho.S_CSTRING_LITERALS,
                         });
+                        needs_allocation = true;
                     }
 
                     break :blk .{
@@ -1148,6 +1176,7 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
                         try text_seg.addSection(self.base.allocator, "__objc_methtype", .{
                             .flags = macho.S_CSTRING_LITERALS,
                         });
+                        needs_allocation = true;
                     }
 
                     break :blk .{
@@ -1158,6 +1187,7 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
                     if (self.objc_classname_section_index == null) {
                         self.objc_classname_section_index = @intCast(u16, text_seg.sections.items.len);
                         try text_seg.addSection(self.base.allocator, "__objc_classname", .{});
+                        needs_allocation = true;
                     }
 
                     break :blk .{
@@ -1171,6 +1201,7 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
                     try text_seg.addSection(self.base.allocator, "__cstring", .{
                         .flags = macho.S_CSTRING_LITERALS,
                     });
+                    needs_allocation = true;
                 }
 
                 break :blk .{
@@ -1185,6 +1216,7 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
                         try data_seg.addSection(self.base.allocator, "__objc_selrefs", .{
                             .flags = macho.S_LITERAL_POINTERS,
                         });
+                        needs_allocation = true;
                     }
 
                     break :blk .{
@@ -1202,6 +1234,7 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
                     try data_const_seg.addSection(self.base.allocator, "__mod_init_func", .{
                         .flags = macho.S_MOD_INIT_FUNC_POINTERS,
                     });
+                    needs_allocation = true;
                 }
 
                 break :blk .{
@@ -1215,6 +1248,7 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
                     try data_const_seg.addSection(self.base.allocator, "__mod_term_func", .{
                         .flags = macho.S_MOD_TERM_FUNC_POINTERS,
                     });
+                    needs_allocation = true;
                 }
 
                 break :blk .{
@@ -1228,6 +1262,7 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
                     try data_seg.addSection(self.base.allocator, "__bss", .{
                         .flags = macho.S_ZEROFILL,
                     });
+                    needs_allocation = true;
                 }
 
                 break :blk .{
@@ -1241,6 +1276,7 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
                     try data_seg.addSection(self.base.allocator, "__thread_vars", .{
                         .flags = macho.S_THREAD_LOCAL_VARIABLES,
                     });
+                    needs_allocation = true;
                 }
 
                 break :blk .{
@@ -1254,6 +1290,7 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
                     try data_seg.addSection(self.base.allocator, "__thread_data", .{
                         .flags = macho.S_THREAD_LOCAL_REGULAR,
                     });
+                    needs_allocation = true;
                 }
 
                 break :blk .{
@@ -1267,6 +1304,7 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
                     try data_seg.addSection(self.base.allocator, "__thread_bss", .{
                         .flags = macho.S_THREAD_LOCAL_ZEROFILL,
                     });
+                    needs_allocation = true;
                 }
 
                 break :blk .{
@@ -1281,6 +1319,7 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
                     if (self.eh_frame_section_index == null) {
                         self.eh_frame_section_index = @intCast(u16, text_seg.sections.items.len);
                         try text_seg.addSection(self.base.allocator, "__eh_frame", .{});
+                        needs_allocation = true;
                     }
 
                     break :blk .{
@@ -1293,6 +1332,7 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
                 if (self.data_const_section_index == null) {
                     self.data_const_section_index = @intCast(u16, data_const_seg.sections.items.len);
                     try data_const_seg.addSection(self.base.allocator, "__const", .{});
+                    needs_allocation = true;
                 }
 
                 break :blk .{
@@ -1307,6 +1347,7 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
                         try text_seg.addSection(self.base.allocator, "__text", .{
                             .flags = macho.S_REGULAR | macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS,
                         });
+                        needs_allocation = true;
                     }
 
                     break :blk .{
@@ -1329,6 +1370,7 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
                         if (self.ustring_section_index == null) {
                             self.ustring_section_index = @intCast(u16, text_seg.sections.items.len);
                             try text_seg.addSection(self.base.allocator, "__ustring", .{});
+                            needs_allocation = true;
                         }
 
                         break :blk .{
@@ -1339,6 +1381,7 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
                         if (self.gcc_except_tab_section_index == null) {
                             self.gcc_except_tab_section_index = @intCast(u16, text_seg.sections.items.len);
                             try text_seg.addSection(self.base.allocator, "__gcc_except_tab", .{});
+                            needs_allocation = true;
                         }
 
                         break :blk .{
@@ -1349,6 +1392,7 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
                         if (self.objc_methlist_section_index == null) {
                             self.objc_methlist_section_index = @intCast(u16, text_seg.sections.items.len);
                             try text_seg.addSection(self.base.allocator, "__objc_methlist", .{});
+                            needs_allocation = true;
                         }
 
                         break :blk .{
@@ -1364,6 +1408,7 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
                         if (self.data_const_section_index == null) {
                             self.data_const_section_index = @intCast(u16, data_const_seg.sections.items.len);
                             try data_const_seg.addSection(self.base.allocator, "__const", .{});
+                            needs_allocation = true;
                         }
 
                         break :blk .{
@@ -1374,6 +1419,7 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
                         if (self.text_const_section_index == null) {
                             self.text_const_section_index = @intCast(u16, text_seg.sections.items.len);
                             try text_seg.addSection(self.base.allocator, "__const", .{});
+                            needs_allocation = true;
                         }
 
                         break :blk .{
@@ -1387,6 +1433,7 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
                     if (self.data_const_section_index == null) {
                         self.data_const_section_index = @intCast(u16, data_const_seg.sections.items.len);
                         try data_const_seg.addSection(self.base.allocator, "__const", .{});
+                        needs_allocation = true;
                     }
 
                     break :blk .{
@@ -1400,6 +1447,7 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
                         if (self.data_const_section_index == null) {
                             self.data_const_section_index = @intCast(u16, data_const_seg.sections.items.len);
                             try data_const_seg.addSection(self.base.allocator, "__const", .{});
+                            needs_allocation = true;
                         }
 
                         break :blk .{
@@ -1410,6 +1458,7 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
                         if (self.objc_cfstring_section_index == null) {
                             self.objc_cfstring_section_index = @intCast(u16, data_const_seg.sections.items.len);
                             try data_const_seg.addSection(self.base.allocator, "__cfstring", .{});
+                            needs_allocation = true;
                         }
 
                         break :blk .{
@@ -1420,6 +1469,7 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
                         if (self.objc_classlist_section_index == null) {
                             self.objc_classlist_section_index = @intCast(u16, data_const_seg.sections.items.len);
                             try data_const_seg.addSection(self.base.allocator, "__objc_classlist", .{});
+                            needs_allocation = true;
                         }
 
                         break :blk .{
@@ -1430,6 +1480,7 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
                         if (self.objc_imageinfo_section_index == null) {
                             self.objc_imageinfo_section_index = @intCast(u16, data_const_seg.sections.items.len);
                             try data_const_seg.addSection(self.base.allocator, "__objc_imageinfo", .{});
+                            needs_allocation = true;
                         }
 
                         break :blk .{
@@ -1440,6 +1491,7 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
                         if (self.objc_const_section_index == null) {
                             self.objc_const_section_index = @intCast(u16, data_seg.sections.items.len);
                             try data_seg.addSection(self.base.allocator, "__objc_const", .{});
+                            needs_allocation = true;
                         }
 
                         break :blk .{
@@ -1450,6 +1502,7 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
                         if (self.objc_classrefs_section_index == null) {
                             self.objc_classrefs_section_index = @intCast(u16, data_seg.sections.items.len);
                             try data_seg.addSection(self.base.allocator, "__objc_classrefs", .{});
+                            needs_allocation = true;
                         }
 
                         break :blk .{
@@ -1460,6 +1513,7 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
                         if (self.objc_data_section_index == null) {
                             self.objc_data_section_index = @intCast(u16, data_seg.sections.items.len);
                             try data_seg.addSection(self.base.allocator, "__objc_data", .{});
+                            needs_allocation = true;
                         }
 
                         break :blk .{
@@ -1470,6 +1524,7 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
                         if (self.data_section_index == null) {
                             self.data_section_index = @intCast(u16, data_seg.sections.items.len);
                             try data_seg.addSection(self.base.allocator, "__data", .{});
+                            needs_allocation = true;
                         }
 
                         break :blk .{
@@ -1494,6 +1549,36 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
     if (res) |match| {
         _ = try self.section_ordinals.getOrPut(self.base.allocator, match);
         _ = try self.block_free_lists.getOrPutValue(self.base.allocator, match, .{});
+
+        const use_stage1 = build_options.is_stage1 and self.base.options.use_stage1;
+        if (!use_stage1) {
+            const target_seg = &self.load_commands.items[match.seg].Segment;
+            const target_sect = &target_seg.sections.items[match.sect];
+
+            // Update section's alignment
+            // TODO if sect.@"align" > target_sect.@"align", should we move the entire
+            // section to match the required alignment?
+            target_sect.@"align" = math.max(target_sect.@"align", sect.@"align");
+
+            if (needs_allocation) {
+                const alignment = try math.powi(u32, 2, target_sect.@"align");
+                const needed_size = sect.size;
+                const off = target_seg.findFreeSpace(needed_size, alignment, self.header_pad);
+                assert(off + needed_size <= target_seg.inner.fileoff + target_seg.inner.filesize); // TODO expand
+
+                log.debug("found {s},{s} section free space 0x{x} to 0x{x}", .{
+                    segname,
+                    sectname,
+                    off,
+                    off + needed_size,
+                });
+
+                target_sect.addr = target_seg.inner.vmaddr + off;
+                target_sect.size = needed_size;
+                target_sect.offset = @intCast(u32, off);
+                self.load_commands_dirty = true;
+            }
+        }
     }
 
     return res;
@@ -1759,23 +1844,41 @@ pub fn createEmptyAtom(self: *MachO, local_sym_index: u32, size: u64, alignment:
 }
 
 pub fn allocateAtom(self: *MachO, atom: *TextBlock, match: MatchingSection) !u64 {
-    // TODO converge with `allocateTextBlock`
-    const seg = self.load_commands.items[match.seg].Segment;
-    const sect = seg.sections.items[match.sect];
+    const seg = &self.load_commands.items[match.seg].Segment;
+    const sect = &seg.sections.items[match.sect];
     const sym = &self.locals.items[atom.local_sym_index];
-    const base_addr = if (self.blocks.get(match)) |last| blk: {
+
+    var atom_placement: ?*TextBlock = null;
+
+    // TODO converge with `allocateTextBlock` and handle free list
+    const vaddr = if (self.blocks.get(match)) |last| blk: {
         const last_atom_sym = self.locals.items[last.local_sym_index];
-        break :blk last_atom_sym.n_value + last.size;
+        const ideal_capacity = padToIdeal(last.size);
+        const ideal_capacity_end_vaddr = last_atom_sym.n_value + ideal_capacity;
+        const last_atom_alignment = try math.powi(u32, 2, atom.alignment);
+        const new_start_vaddr = mem.alignForwardGeneric(u64, ideal_capacity_end_vaddr, last_atom_alignment);
+        atom_placement = last;
+        break :blk new_start_vaddr;
     } else sect.addr;
-    const atom_alignment = try math.powi(u32, 2, atom.alignment);
-    const vaddr = mem.alignForwardGeneric(u64, base_addr, atom_alignment);
+
     log.debug("allocating atom for symbol {s} at address 0x{x}", .{ self.getString(sym.n_strx), vaddr });
 
-    const expand_section = true;
+    const expand_section = atom_placement == null or atom_placement.?.next == null;
     if (expand_section) {
-        // Expand the section, possibly shifting all the atoms for the sections following it.
-        // It might also be needed to shift entire segments too if there is not enough
-        // padding left.
+        const needed_size = (vaddr + atom.size) - sect.addr;
+        const end_addr = blk: {
+            const next_ordinal = self.section_ordinals.getIndex(match).?; // Ordinals are +1 to begin with.
+            const end_addr = if (self.section_ordinals.keys().len > next_ordinal) inner: {
+                const next_match = self.section_ordinals.keys()[next_ordinal];
+                const next_seg = self.load_commands.items[next_match.seg].Segment;
+                const next_sect = next_seg.sections.items[next_match.sect];
+                break :inner next_sect.addr;
+            } else seg.inner.filesize;
+            break :blk end_addr;
+        };
+        assert(needed_size <= end_addr); // TODO must expand the section
+        sect.size = needed_size;
+        self.load_commands_dirty = true;
     }
     const n_sect = @intCast(u8, self.section_ordinals.getIndex(match).? + 1);
     sym.n_value = vaddr;
@@ -1826,6 +1929,21 @@ pub fn writeAtom(self: *MachO, atom: *TextBlock, match: MatchingSection) !void {
     log.debug("writing atom for symbol {s} at file offset 0x{x}", .{ self.getString(sym.n_strx), file_offset });
     try self.base.file.?.pwriteAll(atom.code.items, file_offset);
     try self.writeLocalSymbol(atom.local_sym_index);
+}
+
+fn allocateGlobalSymbols(self: *MachO) !void {
+    // TODO should we do this in `allocateAtom` (or similar)? Then, we would need to
+    // store the link atom -> globals somewhere.
+    var sym_it = self.symbol_resolver.valueIterator();
+    while (sym_it.next()) |resolv| {
+        if (resolv.where != .global) continue;
+
+        assert(resolv.local_sym_index != 0);
+        const local_sym = self.locals.items[resolv.local_sym_index];
+        const sym = &self.globals.items[resolv.where_index];
+        sym.n_value = local_sym.n_value;
+        sym.n_sect = local_sym.n_sect;
+    }
 }
 
 pub fn allocateAtomStage1(self: *MachO, atom: *TextBlock, match: MatchingSection) !void {
@@ -2313,14 +2431,14 @@ fn resolveSymbolsInObject(
                     continue;
                 },
                 .undef => {
-                    const undef = &self.undefs.items[resolv.where_index];
-                    undef.* = .{
-                        .n_strx = 0,
-                        .n_type = macho.N_UNDF,
-                        .n_sect = 0,
-                        .n_desc = 0,
-                        .n_value = 0,
-                    };
+                    // const undef = &self.undefs.items[resolv.where_index];
+                    // undef.* = .{
+                    //     .n_strx = 0,
+                    //     .n_type = macho.N_UNDF,
+                    //     .n_sect = 0,
+                    //     .n_desc = 0,
+                    //     .n_value = 0,
+                    // };
                     _ = self.unresolved.fetchSwapRemove(resolv.where_index);
                 },
             }
@@ -2457,18 +2575,9 @@ fn resolveSymbols(self: *MachO) !void {
     // text blocks for each tentative defintion.
     while (tentatives.popOrNull()) |entry| {
         const sym = &self.globals.items[entry.key];
-        const match: MatchingSection = blk: {
-            if (self.bss_section_index == null) {
-                const data_seg = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
-                self.bss_section_index = @intCast(u16, data_seg.sections.items.len);
-                try data_seg.addSection(self.base.allocator, "__bss", .{
-                    .flags = macho.S_ZEROFILL,
-                });
-            }
-            break :blk .{
-                .seg = self.data_segment_cmd_index.?,
-                .sect = self.bss_section_index.?,
-            };
+        const match = MatchingSection{
+            .seg = self.data_segment_cmd_index.?,
+            .sect = self.bss_section_index.?,
         };
         _ = try self.section_ordinals.getOrPut(self.base.allocator, match);
 
