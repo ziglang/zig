@@ -95,7 +95,7 @@ pub const Builder = struct {
         type_id: TypeId,
         description: []const u8,
         /// If the `type_id` is `enum` this provides the list of enum options
-        enum_options: ?[][]const u8,
+        enum_options: ?[]const []const u8,
     };
 
     const UserInputOption = struct {
