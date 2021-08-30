@@ -996,7 +996,7 @@ fn suspendExpr(
     suspend_scope.suspend_node = node;
     defer suspend_scope.instructions.deinit(gpa);
 
-    const body_result = try expr(&suspend_scope, &suspend_scope.base, .none, body_node);
+    const body_result = try exprMaybeNoReturn(&suspend_scope, &suspend_scope.base, .none, body_node);
     if (!gz.refIsNoReturn(body_result)) {
         _ = try suspend_scope.addBreak(.break_inline, suspend_inst, .void_value);
     }
