@@ -23,6 +23,6 @@ pub fn __floatunditf(a: u64) callconv(.C) f128 {
     return @bitCast(f128, result);
 }
 
-test "import floatunditf" {
+test {
     _ = @import("floatunditf_test.zig");
 }

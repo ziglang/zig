@@ -11,6 +11,6 @@ pub fn __aeabi_d2iz(a: f64) callconv(.AAPCS) i32 {
     return @call(.{ .modifier = .always_inline }, __fixdfsi, .{a});
 }
 
-test "import fixdfsi" {
+test {
     _ = @import("fixdfsi_test.zig");
 }

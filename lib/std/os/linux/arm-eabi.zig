@@ -1,4 +1,5 @@
 const std = @import("../../std.zig");
+const maxInt = std.math.maxInt;
 const linux = std.os.linux;
 const iovec = std.os.iovec;
 const iovec_const = std.os.iovec_const;
@@ -8,6 +9,7 @@ const sigset_t = linux.sigset_t;
 const uid_t = linux.uid_t;
 const gid_t = linux.gid_t;
 const pid_t = linux.pid_t;
+const sockaddr = linux.sockaddr;
 
 pub fn syscall0(number: SYS) usize {
     return asm volatile ("svc #0"

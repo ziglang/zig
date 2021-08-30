@@ -138,6 +138,6 @@ fn truncXfYf2(comptime dst_t: type, comptime src_t: type, a: src_t) dst_t {
     return @bitCast(dst_t, result);
 }
 
-test "import truncXfYf2" {
+test {
     _ = @import("truncXfYf2_test.zig");
 }

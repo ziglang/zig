@@ -225,6 +225,6 @@ fn addXf3(comptime T: type, a: T, b: T) T {
     return @bitCast(T, result);
 }
 
-test "import addXf3" {
+test {
     _ = @import("addXf3_test.zig");
 }

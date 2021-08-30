@@ -221,6 +221,6 @@ pub fn __divtf3(a: f128, b: f128) callconv(.C) f128 {
     }
 }
 
-test "import divtf3" {
+test {
     _ = @import("divtf3_test.zig");
 }

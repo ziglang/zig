@@ -70,6 +70,6 @@ pub fn fixint(comptime fp_t: type, comptime fixint_t: type, a: fp_t) fixint_t {
     }
 }
 
-test "import fixint" {
+test {
     _ = @import("fixint_test.zig");
 }
