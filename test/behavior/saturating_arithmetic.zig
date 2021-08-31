@@ -103,6 +103,8 @@ test "@mulWithSaturation" {
             ));
         }
     };
+    if (std.builtin.target.cpu.arch != .wasm32)
+        return error.SkipZigTest;
     try S.doTheTest();
     comptime try S.doTheTest();
 }
