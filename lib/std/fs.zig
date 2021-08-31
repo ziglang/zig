@@ -479,15 +479,15 @@ pub const Dir = struct {
                         &stat_info,
                         0,
                     );
-                    const statmode = stat_info.mode & os.S_IFMT;
+                    const statmode = stat_info.mode & os.S.IFMT;
 
                     const entry_kind = switch (statmode) {
-                        os.S_IFDIR => Entry.Kind.Directory,
-                        os.S_IFBLK => Entry.Kind.BlockDevice,
-                        os.S_IFCHR => Entry.Kind.CharacterDevice,
-                        os.S_IFLNK => Entry.Kind.SymLink,
-                        os.S_IFREG => Entry.Kind.File,
-                        os.S_IFIFO => Entry.Kind.NamedPipe,
+                        os.S.IFDIR => Entry.Kind.Directory,
+                        os.S.IFBLK => Entry.Kind.BlockDevice,
+                        os.S.IFCHR => Entry.Kind.CharacterDevice,
+                        os.S.IFLNK => Entry.Kind.SymLink,
+                        os.S.IFREG => Entry.Kind.File,
+                        os.S.IFIFO => Entry.Kind.NamedPipe,
                         else => Entry.Kind.Unknown,
                     };
 
@@ -678,12 +678,12 @@ pub const Dir = struct {
                     }
 
                     const entry_kind = switch (entry.d_type) {
-                        w.FILETYPE_BLOCK_DEVICE => Entry.Kind.BlockDevice,
-                        w.FILETYPE_CHARACTER_DEVICE => Entry.Kind.CharacterDevice,
-                        w.FILETYPE_DIRECTORY => Entry.Kind.Directory,
-                        w.FILETYPE_SYMBOLIC_LINK => Entry.Kind.SymLink,
-                        w.FILETYPE_REGULAR_FILE => Entry.Kind.File,
-                        w.FILETYPE_SOCKET_STREAM, wasi.FILETYPE_SOCKET_DGRAM => Entry.Kind.UnixDomainSocket,
+                        .BLOCK_DEVICE => Entry.Kind.BlockDevice,
+                        .CHARACTER_DEVICE => Entry.Kind.CharacterDevice,
+                        .DIRECTORY => Entry.Kind.Directory,
+                        .SYMBOLIC_LINK => Entry.Kind.SymLink,
+                        .REGULAR_FILE => Entry.Kind.File,
+                        .SOCKET_STREAM, .SOCKET_DGRAM => Entry.Kind.UnixDomainSocket,
                         else => Entry.Kind.Unknown,
                     };
                     return Entry{
@@ -909,11 +909,11 @@ pub const Dir = struct {
         }
 
         var os_flags: u32 = os.O.CLOEXEC;
-        // Use the O_ locking flags if the os supports them to acquire the lock
+        // Use the O locking flags if the os supports them to acquire the lock
         // atomically.
         const has_flock_open_flags = @hasDecl(os.O, "EXLOCK");
         if (has_flock_open_flags) {
-            // Note that the O_NONBLOCK flag is removed after the openat() call
+            // Note that the O.NONBLOCK flag is removed after the openat() call
             // is successful.
             const nonblocking_lock_flag: u32 = if (flags.lock_nonblocking)
                 os.O.NONBLOCK
@@ -1071,10 +1071,10 @@ pub const Dir = struct {
             return self.createFileW(path_w.span(), flags);
         }
 
-        // Use the O_ locking flags if the os supports them to acquire the lock
+        // Use the O locking flags if the os supports them to acquire the lock
         // atomically.
         const has_flock_open_flags = @hasDecl(os.O, "EXLOCK");
-        // Note that the O_NONBLOCK flag is removed after the openat() call
+        // Note that the O.NONBLOCK flag is removed after the openat() call
         // is successful.
         const nonblocking_lock_flag: u32 = if (has_flock_open_flags and flags.lock_nonblocking)
             os.O.NONBLOCK
@@ -1427,9 +1427,9 @@ pub const Dir = struct {
         const result = os.openatWasi(self.fd, sub_path, symlink_flags, w.O.DIRECTORY, 0x0, base, inheriting);
         const fd = result catch |err| switch (err) {
             error.FileTooBig => unreachable, // can't happen for directories
-            error.IsDir => unreachable, // we're providing O_DIRECTORY
-            error.NoSpaceLeft => unreachable, // not providing O_CREAT
-            error.PathAlreadyExists => unreachable, // not providing O_CREAT
+            error.IsDir => unreachable, // we're providing O.DIRECTORY
+            error.NoSpaceLeft => unreachable, // not providing O.CREAT
+            error.PathAlreadyExists => unreachable, // not providing O.CREAT
             error.FileLocksNotSupported => unreachable, // locking folders is not supported
             error.WouldBlock => unreachable, // can't happen for directories
             else => |e| return e,
@@ -1463,7 +1463,7 @@ pub const Dir = struct {
         return self.openDirAccessMaskW(sub_path_w, flags, args.no_follow);
     }
 
-    /// `flags` must contain `os.O_DIRECTORY`.
+    /// `flags` must contain `os.O.DIRECTORY`.
     fn openDirFlagsZ(self: Dir, sub_path_c: [*:0]const u8, flags: u32) OpenError!Dir {
         const result = if (need_async_thread)
             std.event.Loop.instance.?.openatZ(self.fd, sub_path_c, flags, 0)
@@ -1471,9 +1471,9 @@ pub const Dir = struct {
             os.openatZ(self.fd, sub_path_c, flags, 0);
         const fd = result catch |err| switch (err) {
             error.FileTooBig => unreachable, // can't happen for directories
-            error.IsDir => unreachable, // we're providing O_DIRECTORY
-            error.NoSpaceLeft => unreachable, // not providing O_CREAT
-            error.PathAlreadyExists => unreachable, // not providing O_CREAT
+            error.IsDir => unreachable, // we're providing O.DIRECTORY
+            error.NoSpaceLeft => unreachable, // not providing O.CREAT
+            error.PathAlreadyExists => unreachable, // not providing O.CREAT
             error.FileLocksNotSupported => unreachable, // locking folders is not supported
             error.WouldBlock => unreachable, // can't happen for directories
             else => |e| return e,
@@ -1559,7 +1559,7 @@ pub const Dir = struct {
                 .macos, .ios, .freebsd, .netbsd, .dragonfly, .openbsd => {
                     // Don't follow symlinks to match unlinkat (which acts on symlinks rather than follows them)
                     const fstat = os.fstatatZ(self.fd, sub_path_c, os.AT.SYMLINK_NOFOLLOW) catch return e;
-                    const is_dir = fstat.mode & os.S_IFMT == os.S_IFDIR;
+                    const is_dir = fstat.mode & os.S.IFMT == os.S.IFDIR;
                     return if (is_dir) error.IsDir else e;
                 },
                 else => return e,

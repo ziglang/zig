@@ -395,10 +395,85 @@ pub const timespec = extern struct {
 pub const sigset_t = u32;
 pub const empty_sigset: sigset_t = 0;
 
-pub const SIG_ERR = @intToPtr(?Sigaction.sigaction_fn, maxInt(usize));
-pub const SIG_DFL = @intToPtr(?Sigaction.sigaction_fn, 0);
-pub const SIG_IGN = @intToPtr(?Sigaction.sigaction_fn, 1);
-pub const SIG_HOLD = @intToPtr(?Sigaction.sigaction_fn, 5);
+pub const SIG = struct {
+    pub const ERR = @intToPtr(?Sigaction.sigaction_fn, maxInt(usize));
+    pub const DFL = @intToPtr(?Sigaction.sigaction_fn, 0);
+    pub const IGN = @intToPtr(?Sigaction.sigaction_fn, 1);
+    pub const HOLD = @intToPtr(?Sigaction.sigaction_fn, 5);
+
+    /// block specified signal set
+    pub const _BLOCK = 1;
+    /// unblock specified signal set
+    pub const _UNBLOCK = 2;
+    /// set specified signal set
+    pub const _SETMASK = 3;
+    /// hangup
+    pub const HUP = 1;
+    /// interrupt
+    pub const INT = 2;
+    /// quit
+    pub const QUIT = 3;
+    /// illegal instruction (not reset when caught)
+    pub const ILL = 4;
+    /// trace trap (not reset when caught)
+    pub const TRAP = 5;
+    /// abort()
+    pub const ABRT = 6;
+    /// pollable event ([XSR] generated, not supported)
+    pub const POLL = 7;
+    /// compatibility
+    pub const IOT = ABRT;
+    /// EMT instruction
+    pub const EMT = 7;
+    /// floating point exception
+    pub const FPE = 8;
+    /// kill (cannot be caught or ignored)
+    pub const KILL = 9;
+    /// bus error
+    pub const BUS = 10;
+    /// segmentation violation
+    pub const SEGV = 11;
+    /// bad argument to system call
+    pub const SYS = 12;
+    /// write on a pipe with no one to read it
+    pub const PIPE = 13;
+    /// alarm clock
+    pub const ALRM = 14;
+    /// software termination signal from kill
+    pub const TERM = 15;
+    /// urgent condition on IO channel
+    pub const URG = 16;
+    /// sendable stop signal not from tty
+    pub const STOP = 17;
+    /// stop signal from tty
+    pub const TSTP = 18;
+    /// continue a stopped process
+    pub const CONT = 19;
+    /// to parent on child stop or exit
+    pub const CHLD = 20;
+    /// to readers pgrp upon background tty read
+    pub const TTIN = 21;
+    /// like TTIN for output if (tp->t_local&LTOSTOP)
+    pub const TTOU = 22;
+    /// input/output possible signal
+    pub const IO = 23;
+    /// exceeded CPU time limit
+    pub const XCPU = 24;
+    /// exceeded file size limit
+    pub const XFSZ = 25;
+    /// virtual time alarm
+    pub const VTALRM = 26;
+    /// profiling time alarm
+    pub const PROF = 27;
+    /// window size changes
+    pub const WINCH = 28;
+    /// information request
+    pub const INFO = 29;
+    /// user defined signal 1
+    pub const USR1 = 30;
+    /// user defined signal 2
+    pub const USR2 = 31;
+};
 
 pub const siginfo_t = extern struct {
     signo: c_int,
@@ -507,17 +582,16 @@ pub const STDIN_FILENO = 0;
 pub const STDOUT_FILENO = 1;
 pub const STDERR_FILENO = 2;
 
-/// [MC2] no permissions
-pub const PROT_NONE = 0x00;
-
-/// [MC2] pages can be read
-pub const PROT_READ = 0x01;
-
-/// [MC2] pages can be written
-pub const PROT_WRITE = 0x02;
-
-/// [MC2] pages can be executed
-pub const PROT_EXEC = 0x04;
+pub const PROT = struct {
+    /// [MC2] no permissions
+    pub const NONE = 0x00;
+    /// [MC2] pages can be read
+    pub const READ = 0x01;
+    /// [MC2] pages can be written
+    pub const WRITE = 0x02;
+    /// [MC2] pages can be executed
+    pub const EXEC = 0x04;
+};
 
 pub const MAP = struct {
     /// allocated from memory, swap space
@@ -551,10 +625,10 @@ pub const SA_ONSTACK = 0x0001;
 /// restart system on signal return
 pub const SA_RESTART = 0x0002;
 
-/// reset to SIG_DFL when taking signal
+/// reset to SIG.DFL when taking signal
 pub const SA_RESETHAND = 0x0004;
 
-/// do not generate SIGCHLD on child stop
+/// do not generate SIG.CHLD on child stop
 pub const SA_NOCLDSTOP = 0x0008;
 
 /// don't mask the signal we're delivering
@@ -572,66 +646,53 @@ pub const SA_USERTRAMP = 0x0100;
 /// signal handler with SA_SIGINFO args with 64bit   regs information
 pub const SA_64REGSET = 0x0200;
 
-pub const O_PATH = 0x0000;
-
 pub const F_OK = 0;
 pub const X_OK = 1;
 pub const W_OK = 2;
 pub const R_OK = 4;
 
-/// open for reading only
-pub const O_RDONLY = 0x0000;
-
-/// open for writing only
-pub const O_WRONLY = 0x0001;
-
-/// open for reading and writing
-pub const O_RDWR = 0x0002;
-
-/// do not block on open or for data to become available
-pub const O_NONBLOCK = 0x0004;
-
-/// append on each write
-pub const O_APPEND = 0x0008;
-
-/// create file if it does not exist
-pub const O_CREAT = 0x0200;
-
-/// truncate size to 0
-pub const O_TRUNC = 0x0400;
-
-/// error if O_CREAT and the file exists
-pub const O_EXCL = 0x0800;
-
-/// atomically obtain a shared lock
-pub const O_SHLOCK = 0x0010;
-
-/// atomically obtain an exclusive lock
-pub const O_EXLOCK = 0x0020;
-
-/// do not follow symlinks
-pub const O_NOFOLLOW = 0x0100;
-
-/// allow open of symlinks
-pub const O_SYMLINK = 0x200000;
-
-/// descriptor requested for event notifications only
-pub const O_EVTONLY = 0x8000;
-
-/// mark as close-on-exec
-pub const O_CLOEXEC = 0x1000000;
-
-pub const O_ACCMODE = 3;
-pub const O_ALERT = 536870912;
-pub const O_ASYNC = 64;
-pub const O_DIRECTORY = 1048576;
-pub const O_DP_GETRAWENCRYPTED = 1;
-pub const O_DP_GETRAWUNENCRYPTED = 2;
-pub const O_DSYNC = 4194304;
-pub const O_FSYNC = O_SYNC;
-pub const O_NOCTTY = 131072;
-pub const O_POPUP = 2147483648;
-pub const O_SYNC = 128;
+pub const O = struct {
+    pub const PATH = 0x0000;
+    /// open for reading only
+    pub const RDONLY = 0x0000;
+    /// open for writing only
+    pub const WRONLY = 0x0001;
+    /// open for reading and writing
+    pub const RDWR = 0x0002;
+    /// do not block on open or for data to become available
+    pub const NONBLOCK = 0x0004;
+    /// append on each write
+    pub const APPEND = 0x0008;
+    /// create file if it does not exist
+    pub const CREAT = 0x0200;
+    /// truncate size to 0
+    pub const TRUNC = 0x0400;
+    /// error if CREAT and the file exists
+    pub const EXCL = 0x0800;
+    /// atomically obtain a shared lock
+    pub const SHLOCK = 0x0010;
+    /// atomically obtain an exclusive lock
+    pub const EXLOCK = 0x0020;
+    /// do not follow symlinks
+    pub const NOFOLLOW = 0x0100;
+    /// allow open of symlinks
+    pub const SYMLINK = 0x200000;
+    /// descriptor requested for event notifications only
+    pub const EVTONLY = 0x8000;
+    /// mark as close-on-exec
+    pub const CLOEXEC = 0x1000000;
+    pub const ACCMODE = 3;
+    pub const ALERT = 536870912;
+    pub const ASYNC = 64;
+    pub const DIRECTORY = 1048576;
+    pub const DP_GETRAWENCRYPTED = 1;
+    pub const DP_GETRAWUNENCRYPTED = 2;
+    pub const DSYNC = 4194304;
+    pub const FSYNC = SYNC;
+    pub const NOCTTY = 131072;
+    pub const POPUP = 2147483648;
+    pub const SYNC = 128;
+};
 
 pub const SEEK_SET = 0x0;
 pub const SEEK_CUR = 0x1;
@@ -646,114 +707,6 @@ pub const DT_REG = 8;
 pub const DT_LNK = 10;
 pub const DT_SOCK = 12;
 pub const DT_WHT = 14;
-
-/// block specified signal set
-pub const SIG_BLOCK = 1;
-
-/// unblock specified signal set
-pub const SIG_UNBLOCK = 2;
-
-/// set specified signal set
-pub const SIG_SETMASK = 3;
-
-/// hangup
-pub const SIGHUP = 1;
-
-/// interrupt
-pub const SIGINT = 2;
-
-/// quit
-pub const SIGQUIT = 3;
-
-/// illegal instruction (not reset when caught)
-pub const SIGILL = 4;
-
-/// trace trap (not reset when caught)
-pub const SIGTRAP = 5;
-
-/// abort()
-pub const SIGABRT = 6;
-
-/// pollable event ([XSR] generated, not supported)
-pub const SIGPOLL = 7;
-
-/// compatibility
-pub const SIGIOT = SIGABRT;
-
-/// EMT instruction
-pub const SIGEMT = 7;
-
-/// floating point exception
-pub const SIGFPE = 8;
-
-/// kill (cannot be caught or ignored)
-pub const SIGKILL = 9;
-
-/// bus error
-pub const SIGBUS = 10;
-
-/// segmentation violation
-pub const SIGSEGV = 11;
-
-/// bad argument to system call
-pub const SIGSYS = 12;
-
-/// write on a pipe with no one to read it
-pub const SIGPIPE = 13;
-
-/// alarm clock
-pub const SIGALRM = 14;
-
-/// software termination signal from kill
-pub const SIGTERM = 15;
-
-/// urgent condition on IO channel
-pub const SIGURG = 16;
-
-/// sendable stop signal not from tty
-pub const SIGSTOP = 17;
-
-/// stop signal from tty
-pub const SIGTSTP = 18;
-
-/// continue a stopped process
-pub const SIGCONT = 19;
-
-/// to parent on child stop or exit
-pub const SIGCHLD = 20;
-
-/// to readers pgrp upon background tty read
-pub const SIGTTIN = 21;
-
-/// like TTIN for output if (tp->t_local&LTOSTOP)
-pub const SIGTTOU = 22;
-
-/// input/output possible signal
-pub const SIGIO = 23;
-
-/// exceeded CPU time limit
-pub const SIGXCPU = 24;
-
-/// exceeded file size limit
-pub const SIGXFSZ = 25;
-
-/// virtual time alarm
-pub const SIGVTALRM = 26;
-
-/// profiling time alarm
-pub const SIGPROF = 27;
-
-/// window size changes
-pub const SIGWINCH = 28;
-
-/// information request
-pub const SIGINFO = 29;
-
-/// user defined signal 1
-pub const SIGUSR1 = 30;
-
-/// user defined signal 2
-pub const SIGUSR2 = 31;
 
 /// no flag value
 pub const KEVENT_FLAG_NONE = 0x000;
@@ -1116,28 +1069,31 @@ pub const SO = struct {
     pub const REUSESHAREUID = 0x1025;
 };
 
-fn wstatus(x: u32) u32 {
-    return x & 0o177;
-}
-const wstopped = 0o177;
-pub fn WEXITSTATUS(x: u32) u8 {
-    return @intCast(u8, x >> 8);
-}
-pub fn WTERMSIG(x: u32) u32 {
-    return wstatus(x);
-}
-pub fn WSTOPSIG(x: u32) u32 {
-    return x >> 8;
-}
-pub fn WIFEXITED(x: u32) bool {
-    return wstatus(x) == 0;
-}
-pub fn WIFSTOPPED(x: u32) bool {
-    return wstatus(x) == wstopped and WSTOPSIG(x) != 0x13;
-}
-pub fn WIFSIGNALED(x: u32) bool {
-    return wstatus(x) != wstopped and wstatus(x) != 0;
-}
+pub const W = struct {
+    pub fn EXITSTATUS(x: u32) u8 {
+        return @intCast(u8, x >> 8);
+    }
+    pub fn TERMSIG(x: u32) u32 {
+        return status(x);
+    }
+    pub fn STOPSIG(x: u32) u32 {
+        return x >> 8;
+    }
+    pub fn IFEXITED(x: u32) bool {
+        return status(x) == 0;
+    }
+    pub fn IFSTOPPED(x: u32) bool {
+        return status(x) == stopped and STOPSIG(x) != 0x13;
+    }
+    pub fn IFSIGNALED(x: u32) bool {
+        return status(x) != stopped and status(x) != 0;
+    }
+
+    fn status(x: u32) u32 {
+        return x & 0o177;
+    }
+    const stopped = 0o177;
+};
 
 pub const E = enum(u16) {
     /// No error occurred.
@@ -1488,64 +1444,66 @@ pub const stack_t = extern struct {
     ss_flags: i32,
 };
 
-pub const S_IFMT = 0o170000;
+pub const S = struct {
+    pub const IFMT = 0o170000;
 
-pub const S_IFIFO = 0o010000;
-pub const S_IFCHR = 0o020000;
-pub const S_IFDIR = 0o040000;
-pub const S_IFBLK = 0o060000;
-pub const S_IFREG = 0o100000;
-pub const S_IFLNK = 0o120000;
-pub const S_IFSOCK = 0o140000;
-pub const S_IFWHT = 0o160000;
+    pub const IFIFO = 0o010000;
+    pub const IFCHR = 0o020000;
+    pub const IFDIR = 0o040000;
+    pub const IFBLK = 0o060000;
+    pub const IFREG = 0o100000;
+    pub const IFLNK = 0o120000;
+    pub const IFSOCK = 0o140000;
+    pub const IFWHT = 0o160000;
 
-pub const S_ISUID = 0o4000;
-pub const S_ISGID = 0o2000;
-pub const S_ISVTX = 0o1000;
-pub const S_IRWXU = 0o700;
-pub const S_IRUSR = 0o400;
-pub const S_IWUSR = 0o200;
-pub const S_IXUSR = 0o100;
-pub const S_IRWXG = 0o070;
-pub const S_IRGRP = 0o040;
-pub const S_IWGRP = 0o020;
-pub const S_IXGRP = 0o010;
-pub const S_IRWXO = 0o007;
-pub const S_IROTH = 0o004;
-pub const S_IWOTH = 0o002;
-pub const S_IXOTH = 0o001;
+    pub const ISUID = 0o4000;
+    pub const ISGID = 0o2000;
+    pub const ISVTX = 0o1000;
+    pub const IRWXU = 0o700;
+    pub const IRUSR = 0o400;
+    pub const IWUSR = 0o200;
+    pub const IXUSR = 0o100;
+    pub const IRWXG = 0o070;
+    pub const IRGRP = 0o040;
+    pub const IWGRP = 0o020;
+    pub const IXGRP = 0o010;
+    pub const IRWXO = 0o007;
+    pub const IROTH = 0o004;
+    pub const IWOTH = 0o002;
+    pub const IXOTH = 0o001;
 
-pub fn S_ISFIFO(m: u32) bool {
-    return m & S_IFMT == S_IFIFO;
-}
+    pub fn ISFIFO(m: u32) bool {
+        return m & IFMT == IFIFO;
+    }
 
-pub fn S_ISCHR(m: u32) bool {
-    return m & S_IFMT == S_IFCHR;
-}
+    pub fn ISCHR(m: u32) bool {
+        return m & IFMT == IFCHR;
+    }
 
-pub fn S_ISDIR(m: u32) bool {
-    return m & S_IFMT == S_IFDIR;
-}
+    pub fn ISDIR(m: u32) bool {
+        return m & IFMT == IFDIR;
+    }
 
-pub fn S_ISBLK(m: u32) bool {
-    return m & S_IFMT == S_IFBLK;
-}
+    pub fn ISBLK(m: u32) bool {
+        return m & IFMT == IFBLK;
+    }
 
-pub fn S_ISREG(m: u32) bool {
-    return m & S_IFMT == S_IFREG;
-}
+    pub fn ISREG(m: u32) bool {
+        return m & IFMT == IFREG;
+    }
 
-pub fn S_ISLNK(m: u32) bool {
-    return m & S_IFMT == S_IFLNK;
-}
+    pub fn ISLNK(m: u32) bool {
+        return m & IFMT == IFLNK;
+    }
 
-pub fn S_ISSOCK(m: u32) bool {
-    return m & S_IFMT == S_IFSOCK;
-}
+    pub fn ISSOCK(m: u32) bool {
+        return m & IFMT == IFSOCK;
+    }
 
-pub fn S_IWHT(m: u32) bool {
-    return m & S_IFMT == S_IFWHT;
-}
+    pub fn IWHT(m: u32) bool {
+        return m & IFMT == IFWHT;
+    }
+};
 
 pub const HOST_NAME_MAX = 72;
 
@@ -1981,7 +1939,9 @@ pub const winsize = extern struct {
     ws_ypixel: u16,
 };
 
-pub const TIOCGWINSZ = ior(0x40000000, 't', 104, @sizeOf(winsize));
+pub const T = struct {
+    pub const IOCGWINSZ = ior(0x40000000, 't', 104, @sizeOf(winsize));
+};
 pub const IOCPARM_MASK = 0x1fff;
 
 fn ior(inout: u32, group: usize, num: usize, len: usize) usize {

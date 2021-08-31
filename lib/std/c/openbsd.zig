@@ -330,10 +330,12 @@ pub const STDIN_FILENO = 0;
 pub const STDOUT_FILENO = 1;
 pub const STDERR_FILENO = 2;
 
-pub const PROT_NONE = 0;
-pub const PROT_READ = 1;
-pub const PROT_WRITE = 2;
-pub const PROT_EXEC = 4;
+pub const PROT = struct {
+    pub const NONE = 0;
+    pub const READ = 1;
+    pub const WRITE = 2;
+    pub const EXEC = 4;
+};
 
 pub const CLOCK = struct {
     pub const REALTIME = 0;
@@ -371,102 +373,52 @@ pub const SA_NODEFER = 0x0010;
 pub const SA_NOCLDWAIT = 0x0020;
 pub const SA_SIGINFO = 0x0040;
 
-pub const SIGHUP = 1;
-pub const SIGINT = 2;
-pub const SIGQUIT = 3;
-pub const SIGILL = 4;
-pub const SIGTRAP = 5;
-pub const SIGABRT = 6;
-pub const SIGIOT = SIGABRT;
-pub const SIGEMT = 7;
-pub const SIGFPE = 8;
-pub const SIGKILL = 9;
-pub const SIGBUS = 10;
-pub const SIGSEGV = 11;
-pub const SIGSYS = 12;
-pub const SIGPIPE = 13;
-pub const SIGALRM = 14;
-pub const SIGTERM = 15;
-pub const SIGURG = 16;
-pub const SIGSTOP = 17;
-pub const SIGTSTP = 18;
-pub const SIGCONT = 19;
-pub const SIGCHLD = 20;
-pub const SIGTTIN = 21;
-pub const SIGTTOU = 22;
-pub const SIGIO = 23;
-pub const SIGXCPU = 24;
-pub const SIGXFSZ = 25;
-pub const SIGVTALRM = 26;
-pub const SIGPROF = 27;
-pub const SIGWINCH = 28;
-pub const SIGINFO = 29;
-pub const SIGUSR1 = 30;
-pub const SIGUSR2 = 31;
-pub const SIGPWR = 32;
-
 // access function
 pub const F_OK = 0; // test for existence of file
 pub const X_OK = 1; // test for execute or search permission
 pub const W_OK = 2; // test for write permission
 pub const R_OK = 4; // test for read permission
 
-/// open for reading only
-pub const O_RDONLY = 0x00000000;
-
-/// open for writing only
-pub const O_WRONLY = 0x00000001;
-
-/// open for reading and writing
-pub const O_RDWR = 0x00000002;
-
-/// mask for above modes
-pub const O_ACCMODE = 0x00000003;
-
-/// no delay
-pub const O_NONBLOCK = 0x00000004;
-
-/// set append mode
-pub const O_APPEND = 0x00000008;
-
-/// open with shared file lock
-pub const O_SHLOCK = 0x00000010;
-
-/// open with exclusive file lock
-pub const O_EXLOCK = 0x00000020;
-
-/// signal pgrp when data ready
-pub const O_ASYNC = 0x00000040;
-
-/// synchronous writes
-pub const O_SYNC = 0x00000080;
-
-/// don't follow symlinks on the last
-pub const O_NOFOLLOW = 0x00000100;
-
-/// create if nonexistent
-pub const O_CREAT = 0x00000200;
-
-/// truncate to zero length
-pub const O_TRUNC = 0x00000400;
-
-/// error if already exists
-pub const O_EXCL = 0x00000800;
-
-/// don't assign controlling terminal
-pub const O_NOCTTY = 0x00008000;
-
-/// write: I/O data completion
-pub const O_DSYNC = O_SYNC;
-
-/// read: I/O completion as for write
-pub const O_RSYNC = O_SYNC;
-
-/// fail if not a directory
-pub const O_DIRECTORY = 0x20000;
-
-/// set close on exec
-pub const O_CLOEXEC = 0x10000;
+pub const O = struct {
+    /// open for reading only
+    pub const RDONLY = 0x00000000;
+    /// open for writing only
+    pub const WRONLY = 0x00000001;
+    /// open for reading and writing
+    pub const RDWR = 0x00000002;
+    /// mask for above modes
+    pub const ACCMODE = 0x00000003;
+    /// no delay
+    pub const NONBLOCK = 0x00000004;
+    /// set append mode
+    pub const APPEND = 0x00000008;
+    /// open with shared file lock
+    pub const SHLOCK = 0x00000010;
+    /// open with exclusive file lock
+    pub const EXLOCK = 0x00000020;
+    /// signal pgrp when data ready
+    pub const ASYNC = 0x00000040;
+    /// synchronous writes
+    pub const SYNC = 0x00000080;
+    /// don't follow symlinks on the last
+    pub const NOFOLLOW = 0x00000100;
+    /// create if nonexistent
+    pub const CREAT = 0x00000200;
+    /// truncate to zero length
+    pub const TRUNC = 0x00000400;
+    /// error if already exists
+    pub const EXCL = 0x00000800;
+    /// don't assign controlling terminal
+    pub const NOCTTY = 0x00008000;
+    /// write: I/O data completion
+    pub const DSYNC = SYNC;
+    /// read: I/O completion as for write
+    pub const RSYNC = SYNC;
+    /// fail if not a directory
+    pub const DIRECTORY = 0x20000;
+    /// set close on exec
+    pub const CLOEXEC = 0x10000;
+};
 
 pub const F = struct {
     pub const DUPFD = 0;
@@ -499,10 +451,6 @@ pub const FD_CLOEXEC = 1;
 pub const SEEK_SET = 0;
 pub const SEEK_CUR = 1;
 pub const SEEK_END = 2;
-
-pub const SIG_BLOCK = 1;
-pub const SIG_UNBLOCK = 2;
-pub const SIG_SETMASK = 3;
 
 pub const SOCK = struct {
     pub const STREAM = 1;
@@ -643,80 +591,82 @@ pub const NOTE_CHILD = 0x00000004;
 // data/hint flags for EVFILT_DEVICE
 pub const NOTE_CHANGE = 0x00000001;
 
-pub const TIOCCBRK = 0x2000747a;
-pub const TIOCCDTR = 0x20007478;
-pub const TIOCCONS = 0x80047462;
-pub const TIOCDCDTIMESTAMP = 0x40107458;
-pub const TIOCDRAIN = 0x2000745e;
-pub const TIOCEXCL = 0x2000740d;
-pub const TIOCEXT = 0x80047460;
-pub const TIOCFLAG_CDTRCTS = 0x10;
-pub const TIOCFLAG_CLOCAL = 0x2;
-pub const TIOCFLAG_CRTSCTS = 0x4;
-pub const TIOCFLAG_MDMBUF = 0x8;
-pub const TIOCFLAG_SOFTCAR = 0x1;
-pub const TIOCFLUSH = 0x80047410;
-pub const TIOCGETA = 0x402c7413;
-pub const TIOCGETD = 0x4004741a;
-pub const TIOCGFLAGS = 0x4004745d;
-pub const TIOCGLINED = 0x40207442;
-pub const TIOCGPGRP = 0x40047477;
-pub const TIOCGQSIZE = 0x40047481;
-pub const TIOCGRANTPT = 0x20007447;
-pub const TIOCGSID = 0x40047463;
-pub const TIOCGSIZE = 0x40087468;
-pub const TIOCGWINSZ = 0x40087468;
-pub const TIOCMBIC = 0x8004746b;
-pub const TIOCMBIS = 0x8004746c;
-pub const TIOCMGET = 0x4004746a;
-pub const TIOCMSET = 0x8004746d;
-pub const TIOCM_CAR = 0x40;
-pub const TIOCM_CD = 0x40;
-pub const TIOCM_CTS = 0x20;
-pub const TIOCM_DSR = 0x100;
-pub const TIOCM_DTR = 0x2;
-pub const TIOCM_LE = 0x1;
-pub const TIOCM_RI = 0x80;
-pub const TIOCM_RNG = 0x80;
-pub const TIOCM_RTS = 0x4;
-pub const TIOCM_SR = 0x10;
-pub const TIOCM_ST = 0x8;
-pub const TIOCNOTTY = 0x20007471;
-pub const TIOCNXCL = 0x2000740e;
-pub const TIOCOUTQ = 0x40047473;
-pub const TIOCPKT = 0x80047470;
-pub const TIOCPKT_DATA = 0x0;
-pub const TIOCPKT_DOSTOP = 0x20;
-pub const TIOCPKT_FLUSHREAD = 0x1;
-pub const TIOCPKT_FLUSHWRITE = 0x2;
-pub const TIOCPKT_IOCTL = 0x40;
-pub const TIOCPKT_NOSTOP = 0x10;
-pub const TIOCPKT_START = 0x8;
-pub const TIOCPKT_STOP = 0x4;
-pub const TIOCPTMGET = 0x40287446;
-pub const TIOCPTSNAME = 0x40287448;
-pub const TIOCRCVFRAME = 0x80087445;
-pub const TIOCREMOTE = 0x80047469;
-pub const TIOCSBRK = 0x2000747b;
-pub const TIOCSCTTY = 0x20007461;
-pub const TIOCSDTR = 0x20007479;
-pub const TIOCSETA = 0x802c7414;
-pub const TIOCSETAF = 0x802c7416;
-pub const TIOCSETAW = 0x802c7415;
-pub const TIOCSETD = 0x8004741b;
-pub const TIOCSFLAGS = 0x8004745c;
-pub const TIOCSIG = 0x2000745f;
-pub const TIOCSLINED = 0x80207443;
-pub const TIOCSPGRP = 0x80047476;
-pub const TIOCSQSIZE = 0x80047480;
-pub const TIOCSSIZE = 0x80087467;
-pub const TIOCSTART = 0x2000746e;
-pub const TIOCSTAT = 0x80047465;
-pub const TIOCSTI = 0x80017472;
-pub const TIOCSTOP = 0x2000746f;
-pub const TIOCSWINSZ = 0x80087467;
-pub const TIOCUCNTL = 0x80047466;
-pub const TIOCXMTFRAME = 0x80087444;
+pub const T = struct {
+    pub const IOCCBRK = 0x2000747a;
+    pub const IOCCDTR = 0x20007478;
+    pub const IOCCONS = 0x80047462;
+    pub const IOCDCDTIMESTAMP = 0x40107458;
+    pub const IOCDRAIN = 0x2000745e;
+    pub const IOCEXCL = 0x2000740d;
+    pub const IOCEXT = 0x80047460;
+    pub const IOCFLAG_CDTRCTS = 0x10;
+    pub const IOCFLAG_CLOCAL = 0x2;
+    pub const IOCFLAG_CRTSCTS = 0x4;
+    pub const IOCFLAG_MDMBUF = 0x8;
+    pub const IOCFLAG_SOFTCAR = 0x1;
+    pub const IOCFLUSH = 0x80047410;
+    pub const IOCGETA = 0x402c7413;
+    pub const IOCGETD = 0x4004741a;
+    pub const IOCGFLAGS = 0x4004745d;
+    pub const IOCGLINED = 0x40207442;
+    pub const IOCGPGRP = 0x40047477;
+    pub const IOCGQSIZE = 0x40047481;
+    pub const IOCGRANTPT = 0x20007447;
+    pub const IOCGSID = 0x40047463;
+    pub const IOCGSIZE = 0x40087468;
+    pub const IOCGWINSZ = 0x40087468;
+    pub const IOCMBIC = 0x8004746b;
+    pub const IOCMBIS = 0x8004746c;
+    pub const IOCMGET = 0x4004746a;
+    pub const IOCMSET = 0x8004746d;
+    pub const IOCM_CAR = 0x40;
+    pub const IOCM_CD = 0x40;
+    pub const IOCM_CTS = 0x20;
+    pub const IOCM_DSR = 0x100;
+    pub const IOCM_DTR = 0x2;
+    pub const IOCM_LE = 0x1;
+    pub const IOCM_RI = 0x80;
+    pub const IOCM_RNG = 0x80;
+    pub const IOCM_RTS = 0x4;
+    pub const IOCM_SR = 0x10;
+    pub const IOCM_ST = 0x8;
+    pub const IOCNOTTY = 0x20007471;
+    pub const IOCNXCL = 0x2000740e;
+    pub const IOCOUTQ = 0x40047473;
+    pub const IOCPKT = 0x80047470;
+    pub const IOCPKT_DATA = 0x0;
+    pub const IOCPKT_DOSTOP = 0x20;
+    pub const IOCPKT_FLUSHREAD = 0x1;
+    pub const IOCPKT_FLUSHWRITE = 0x2;
+    pub const IOCPKT_IOCTL = 0x40;
+    pub const IOCPKT_NOSTOP = 0x10;
+    pub const IOCPKT_START = 0x8;
+    pub const IOCPKT_STOP = 0x4;
+    pub const IOCPTMGET = 0x40287446;
+    pub const IOCPTSNAME = 0x40287448;
+    pub const IOCRCVFRAME = 0x80087445;
+    pub const IOCREMOTE = 0x80047469;
+    pub const IOCSBRK = 0x2000747b;
+    pub const IOCSCTTY = 0x20007461;
+    pub const IOCSDTR = 0x20007479;
+    pub const IOCSETA = 0x802c7414;
+    pub const IOCSETAF = 0x802c7416;
+    pub const IOCSETAW = 0x802c7415;
+    pub const IOCSETD = 0x8004741b;
+    pub const IOCSFLAGS = 0x8004745c;
+    pub const IOCSIG = 0x2000745f;
+    pub const IOCSLINED = 0x80207443;
+    pub const IOCSPGRP = 0x80047476;
+    pub const IOCSQSIZE = 0x80047480;
+    pub const IOCSSIZE = 0x80087467;
+    pub const IOCSTART = 0x2000746e;
+    pub const IOCSTAT = 0x80047465;
+    pub const IOCSTI = 0x80017472;
+    pub const IOCSTOP = 0x2000746f;
+    pub const IOCSWINSZ = 0x80087467;
+    pub const IOCUCNTL = 0x80047466;
+    pub const IOCXMTFRAME = 0x80087444;
+};
 
 pub fn WEXITSTATUS(s: u32) u8 {
     return @intCast(u8, (s >> 8) & 0xff);
@@ -752,11 +702,51 @@ pub const winsize = extern struct {
 
 const NSIG = 33;
 
-pub const SIG_DFL = @intToPtr(?Sigaction.sigaction_fn, 0);
-pub const SIG_IGN = @intToPtr(?Sigaction.sigaction_fn, 1);
-pub const SIG_ERR = @intToPtr(?Sigaction.sigaction_fn, maxInt(usize));
-pub const SIG_CATCH = @intToPtr(?Sigaction.sigaction_fn, 2);
-pub const SIG_HOLD = @intToPtr(?Sigaction.sigaction_fn, 3);
+pub const SIG = struct {
+    pub const DFL = @intToPtr(?Sigaction.sigaction_fn, 0);
+    pub const IGN = @intToPtr(?Sigaction.sigaction_fn, 1);
+    pub const ERR = @intToPtr(?Sigaction.sigaction_fn, maxInt(usize));
+    pub const CATCH = @intToPtr(?Sigaction.sigaction_fn, 2);
+    pub const HOLD = @intToPtr(?Sigaction.sigaction_fn, 3);
+
+    pub const HUP = 1;
+    pub const INT = 2;
+    pub const QUIT = 3;
+    pub const ILL = 4;
+    pub const TRAP = 5;
+    pub const ABRT = 6;
+    pub const IOT = ABRT;
+    pub const EMT = 7;
+    pub const FPE = 8;
+    pub const KILL = 9;
+    pub const BUS = 10;
+    pub const SEGV = 11;
+    pub const SYS = 12;
+    pub const PIPE = 13;
+    pub const ALRM = 14;
+    pub const TERM = 15;
+    pub const URG = 16;
+    pub const STOP = 17;
+    pub const TSTP = 18;
+    pub const CONT = 19;
+    pub const CHLD = 20;
+    pub const TTIN = 21;
+    pub const TTOU = 22;
+    pub const IO = 23;
+    pub const XCPU = 24;
+    pub const XFSZ = 25;
+    pub const VTALRM = 26;
+    pub const PROF = 27;
+    pub const WINCH = 28;
+    pub const INFO = 29;
+    pub const USR1 = 30;
+    pub const USR2 = 31;
+    pub const PWR = 32;
+
+    pub const BLOCK = 1;
+    pub const UNBLOCK = 2;
+    pub const SETMASK = 3;
+};
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
 pub const Sigaction = extern struct {
@@ -1013,59 +1003,61 @@ pub const stack_t = extern struct {
     ss_flags: c_int,
 };
 
-pub const S_IFMT = 0o170000;
+pub const S = struct {
+    pub const IFMT = 0o170000;
 
-pub const S_IFIFO = 0o010000;
-pub const S_IFCHR = 0o020000;
-pub const S_IFDIR = 0o040000;
-pub const S_IFBLK = 0o060000;
-pub const S_IFREG = 0o100000;
-pub const S_IFLNK = 0o120000;
-pub const S_IFSOCK = 0o140000;
+    pub const IFIFO = 0o010000;
+    pub const IFCHR = 0o020000;
+    pub const IFDIR = 0o040000;
+    pub const IFBLK = 0o060000;
+    pub const IFREG = 0o100000;
+    pub const IFLNK = 0o120000;
+    pub const IFSOCK = 0o140000;
 
-pub const S_ISUID = 0o4000;
-pub const S_ISGID = 0o2000;
-pub const S_ISVTX = 0o1000;
-pub const S_IRWXU = 0o700;
-pub const S_IRUSR = 0o400;
-pub const S_IWUSR = 0o200;
-pub const S_IXUSR = 0o100;
-pub const S_IRWXG = 0o070;
-pub const S_IRGRP = 0o040;
-pub const S_IWGRP = 0o020;
-pub const S_IXGRP = 0o010;
-pub const S_IRWXO = 0o007;
-pub const S_IROTH = 0o004;
-pub const S_IWOTH = 0o002;
-pub const S_IXOTH = 0o001;
+    pub const ISUID = 0o4000;
+    pub const ISGID = 0o2000;
+    pub const ISVTX = 0o1000;
+    pub const IRWXU = 0o700;
+    pub const IRUSR = 0o400;
+    pub const IWUSR = 0o200;
+    pub const IXUSR = 0o100;
+    pub const IRWXG = 0o070;
+    pub const IRGRP = 0o040;
+    pub const IWGRP = 0o020;
+    pub const IXGRP = 0o010;
+    pub const IRWXO = 0o007;
+    pub const IROTH = 0o004;
+    pub const IWOTH = 0o002;
+    pub const IXOTH = 0o001;
 
-pub fn S_ISFIFO(m: u32) bool {
-    return m & S_IFMT == S_IFIFO;
-}
+    pub fn ISFIFO(m: u32) bool {
+        return m & IFMT == IFIFO;
+    }
 
-pub fn S_ISCHR(m: u32) bool {
-    return m & S_IFMT == S_IFCHR;
-}
+    pub fn ISCHR(m: u32) bool {
+        return m & IFMT == IFCHR;
+    }
 
-pub fn S_ISDIR(m: u32) bool {
-    return m & S_IFMT == S_IFDIR;
-}
+    pub fn ISDIR(m: u32) bool {
+        return m & IFMT == IFDIR;
+    }
 
-pub fn S_ISBLK(m: u32) bool {
-    return m & S_IFMT == S_IFBLK;
-}
+    pub fn ISBLK(m: u32) bool {
+        return m & IFMT == IFBLK;
+    }
 
-pub fn S_ISREG(m: u32) bool {
-    return m & S_IFMT == S_IFREG;
-}
+    pub fn ISREG(m: u32) bool {
+        return m & IFMT == IFREG;
+    }
 
-pub fn S_ISLNK(m: u32) bool {
-    return m & S_IFMT == S_IFLNK;
-}
+    pub fn ISLNK(m: u32) bool {
+        return m & IFMT == IFLNK;
+    }
 
-pub fn S_ISSOCK(m: u32) bool {
-    return m & S_IFMT == S_IFSOCK;
-}
+    pub fn ISSOCK(m: u32) bool {
+        return m & IFMT == IFSOCK;
+    }
+};
 
 pub const AT = struct {
     /// Magic value that specify the use of the current working directory

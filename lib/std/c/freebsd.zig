@@ -363,10 +363,12 @@ pub const STDIN_FILENO = 0;
 pub const STDOUT_FILENO = 1;
 pub const STDERR_FILENO = 2;
 
-pub const PROT_NONE = 0;
-pub const PROT_READ = 1;
-pub const PROT_WRITE = 2;
-pub const PROT_EXEC = 4;
+pub const PROT = struct {
+    pub const NONE = 0;
+    pub const READ = 1;
+    pub const WRITE = 2;
+    pub const EXEC = 4;
+};
 
 pub const CLOCK = struct {
     pub const REALTIME = 0;
@@ -504,33 +506,35 @@ pub const X_OK = 1; // test for execute or search permission
 pub const W_OK = 2; // test for write permission
 pub const R_OK = 4; // test for read permission
 
-pub const O_RDONLY = 0x0000;
-pub const O_WRONLY = 0x0001;
-pub const O_RDWR = 0x0002;
-pub const O_ACCMODE = 0x0003;
+pub const O = struct {
+    pub const RDONLY = 0x0000;
+    pub const WRONLY = 0x0001;
+    pub const RDWR = 0x0002;
+    pub const ACCMODE = 0x0003;
 
-pub const O_SHLOCK = 0x0010;
-pub const O_EXLOCK = 0x0020;
+    pub const SHLOCK = 0x0010;
+    pub const EXLOCK = 0x0020;
 
-pub const O_CREAT = 0x0200;
-pub const O_EXCL = 0x0800;
-pub const O_NOCTTY = 0x8000;
-pub const O_TRUNC = 0x0400;
-pub const O_APPEND = 0x0008;
-pub const O_NONBLOCK = 0x0004;
-pub const O_DSYNC = 0o10000;
-pub const O_SYNC = 0x0080;
-pub const O_RSYNC = 0o4010000;
-pub const O_DIRECTORY = 0x20000;
-pub const O_NOFOLLOW = 0x0100;
-pub const O_CLOEXEC = 0x00100000;
+    pub const CREAT = 0x0200;
+    pub const EXCL = 0x0800;
+    pub const NOCTTY = 0x8000;
+    pub const TRUNC = 0x0400;
+    pub const APPEND = 0x0008;
+    pub const NONBLOCK = 0x0004;
+    pub const DSYNC = 0o10000;
+    pub const SYNC = 0x0080;
+    pub const RSYNC = 0o4010000;
+    pub const DIRECTORY = 0x20000;
+    pub const NOFOLLOW = 0x0100;
+    pub const CLOEXEC = 0x00100000;
 
-pub const O_ASYNC = 0x0040;
-pub const O_DIRECT = 0x00010000;
-pub const O_NOATIME = 0o1000000;
-pub const O_PATH = 0o10000000;
-pub const O_TMPFILE = 0o20200000;
-pub const O_NDELAY = O_NONBLOCK;
+    pub const ASYNC = 0x0040;
+    pub const DIRECT = 0x00010000;
+    pub const NOATIME = 0o1000000;
+    pub const PATH = 0o10000000;
+    pub const TMPFILE = 0o20200000;
+    pub const NDELAY = NONBLOCK;
+};
 
 pub const F = struct {
     pub const DUPFD = 0;
@@ -877,31 +881,33 @@ pub const NOTE_NSECONDS = 0x00000008;
 /// timeout is absolute
 pub const NOTE_ABSTIME = 0x00000010;
 
-pub const TIOCEXCL = 0x2000740d;
-pub const TIOCNXCL = 0x2000740e;
-pub const TIOCSCTTY = 0x20007461;
-pub const TIOCGPGRP = 0x40047477;
-pub const TIOCSPGRP = 0x80047476;
-pub const TIOCOUTQ = 0x40047473;
-pub const TIOCSTI = 0x80017472;
-pub const TIOCGWINSZ = 0x40087468;
-pub const TIOCSWINSZ = 0x80087467;
-pub const TIOCMGET = 0x4004746a;
-pub const TIOCMBIS = 0x8004746c;
-pub const TIOCMBIC = 0x8004746b;
-pub const TIOCMSET = 0x8004746d;
-pub const FIONREAD = 0x4004667f;
-pub const TIOCCONS = 0x80047462;
-pub const TIOCPKT = 0x80047470;
-pub const FIONBIO = 0x8004667e;
-pub const TIOCNOTTY = 0x20007471;
-pub const TIOCSETD = 0x8004741b;
-pub const TIOCGETD = 0x4004741a;
-pub const TIOCSBRK = 0x2000747b;
-pub const TIOCCBRK = 0x2000747a;
-pub const TIOCGSID = 0x40047463;
-pub const TIOCGPTN = 0x4004740f;
-pub const TIOCSIG = 0x2004745f;
+pub const T = struct {
+    pub const IOCEXCL = 0x2000740d;
+    pub const IOCNXCL = 0x2000740e;
+    pub const IOCSCTTY = 0x20007461;
+    pub const IOCGPGRP = 0x40047477;
+    pub const IOCSPGRP = 0x80047476;
+    pub const IOCOUTQ = 0x40047473;
+    pub const IOCSTI = 0x80017472;
+    pub const IOCGWINSZ = 0x40087468;
+    pub const IOCSWINSZ = 0x80087467;
+    pub const IOCMGET = 0x4004746a;
+    pub const IOCMBIS = 0x8004746c;
+    pub const IOCMBIC = 0x8004746b;
+    pub const IOCMSET = 0x8004746d;
+    pub const FIONREAD = 0x4004667f;
+    pub const IOCCONS = 0x80047462;
+    pub const IOCPKT = 0x80047470;
+    pub const FIONBIO = 0x8004667e;
+    pub const IOCNOTTY = 0x20007471;
+    pub const IOCSETD = 0x8004741b;
+    pub const IOCGETD = 0x4004741a;
+    pub const IOCSBRK = 0x2000747b;
+    pub const IOCCBRK = 0x2000747a;
+    pub const IOCGSID = 0x40047463;
+    pub const IOCGPTN = 0x4004740f;
+    pub const IOCSIG = 0x2004745f;
+};
 
 pub fn WEXITSTATUS(s: u32) u8 {
     return @intCast(u8, (s & 0xff00) >> 8);
@@ -1166,69 +1172,71 @@ pub const SS_ONSTACK = 1;
 pub const SS_DISABLE = 4;
 
 pub const stack_t = extern struct {
-    ss_sp: [*]u8,
-    ss_size: isize,
-    ss_flags: i32,
+    sp: [*]u8,
+    size: isize,
+    flags: i32,
 };
 
-pub const S_IFMT = 0o170000;
+pub const S = struct {
+    pub const IFMT = 0o170000;
 
-pub const S_IFIFO = 0o010000;
-pub const S_IFCHR = 0o020000;
-pub const S_IFDIR = 0o040000;
-pub const S_IFBLK = 0o060000;
-pub const S_IFREG = 0o100000;
-pub const S_IFLNK = 0o120000;
-pub const S_IFSOCK = 0o140000;
-pub const S_IFWHT = 0o160000;
+    pub const IFIFO = 0o010000;
+    pub const IFCHR = 0o020000;
+    pub const IFDIR = 0o040000;
+    pub const IFBLK = 0o060000;
+    pub const IFREG = 0o100000;
+    pub const IFLNK = 0o120000;
+    pub const IFSOCK = 0o140000;
+    pub const IFWHT = 0o160000;
 
-pub const S_ISUID = 0o4000;
-pub const S_ISGID = 0o2000;
-pub const S_ISVTX = 0o1000;
-pub const S_IRWXU = 0o700;
-pub const S_IRUSR = 0o400;
-pub const S_IWUSR = 0o200;
-pub const S_IXUSR = 0o100;
-pub const S_IRWXG = 0o070;
-pub const S_IRGRP = 0o040;
-pub const S_IWGRP = 0o020;
-pub const S_IXGRP = 0o010;
-pub const S_IRWXO = 0o007;
-pub const S_IROTH = 0o004;
-pub const S_IWOTH = 0o002;
-pub const S_IXOTH = 0o001;
+    pub const ISUID = 0o4000;
+    pub const ISGID = 0o2000;
+    pub const ISVTX = 0o1000;
+    pub const IRWXU = 0o700;
+    pub const IRUSR = 0o400;
+    pub const IWUSR = 0o200;
+    pub const IXUSR = 0o100;
+    pub const IRWXG = 0o070;
+    pub const IRGRP = 0o040;
+    pub const IWGRP = 0o020;
+    pub const IXGRP = 0o010;
+    pub const IRWXO = 0o007;
+    pub const IROTH = 0o004;
+    pub const IWOTH = 0o002;
+    pub const IXOTH = 0o001;
 
-pub fn S_ISFIFO(m: u32) bool {
-    return m & S_IFMT == S_IFIFO;
-}
+    pub fn ISFIFO(m: u32) bool {
+        return m & IFMT == IFIFO;
+    }
 
-pub fn S_ISCHR(m: u32) bool {
-    return m & S_IFMT == S_IFCHR;
-}
+    pub fn ISCHR(m: u32) bool {
+        return m & IFMT == IFCHR;
+    }
 
-pub fn S_ISDIR(m: u32) bool {
-    return m & S_IFMT == S_IFDIR;
-}
+    pub fn ISDIR(m: u32) bool {
+        return m & IFMT == IFDIR;
+    }
 
-pub fn S_ISBLK(m: u32) bool {
-    return m & S_IFMT == S_IFBLK;
-}
+    pub fn ISBLK(m: u32) bool {
+        return m & IFMT == IFBLK;
+    }
 
-pub fn S_ISREG(m: u32) bool {
-    return m & S_IFMT == S_IFREG;
-}
+    pub fn ISREG(m: u32) bool {
+        return m & IFMT == IFREG;
+    }
 
-pub fn S_ISLNK(m: u32) bool {
-    return m & S_IFMT == S_IFLNK;
-}
+    pub fn ISLNK(m: u32) bool {
+        return m & IFMT == IFLNK;
+    }
 
-pub fn S_ISSOCK(m: u32) bool {
-    return m & S_IFMT == S_IFSOCK;
-}
+    pub fn ISSOCK(m: u32) bool {
+        return m & IFMT == IFSOCK;
+    }
 
-pub fn S_IWHT(m: u32) bool {
-    return m & S_IFMT == S_IFWHT;
-}
+    pub fn IWHT(m: u32) bool {
+        return m & IFMT == IFWHT;
+    }
+};
 
 pub const HOST_NAME_MAX = 255;
 

@@ -57,24 +57,23 @@ pub const socketcall = syscall_bits.socketcall;
 pub const syscall_pipe = syscall_bits.syscall_pipe;
 pub const syscall_fork = syscall_bits.syscall_fork;
 
-pub const clone = arch_bits.clone;
 pub const ARCH = arch_bits.ARCH;
 pub const Elf_Symndx = arch_bits.Elf_Symndx;
 pub const F = arch_bits.F;
 pub const Flock = arch_bits.Flock;
+pub const HWCAP = arch_bits.HWCAP;
 pub const LOCK = arch_bits.LOCK;
-pub const MAP = arch_bits.MAP;
 pub const MMAP2_UNIT = arch_bits.MMAP2_UNIT;
-pub const O = arch_bits.O;
 pub const REG = arch_bits.REG;
 pub const SC = arch_bits.SC;
 pub const SYS = arch_bits.SYS;
+pub const Stat = arch_bits.Stat;
 pub const VDSO = arch_bits.VDSO;
 pub const blkcnt_t = arch_bits.blkcnt_t;
 pub const blksize_t = arch_bits.blksize_t;
+pub const clone = arch_bits.clone;
 pub const dev_t = arch_bits.dev_t;
 pub const ino_t = arch_bits.ino_t;
-pub const Stat = arch_bits.Stat;
 pub const mcontext_t = arch_bits.mcontext_t;
 pub const mode_t = arch_bits.mode_t;
 pub const msghdr = arch_bits.msghdr;
@@ -92,29 +91,46 @@ pub const tls = @import("linux/tls.zig");
 pub const pie = @import("linux/start_pie.zig");
 pub const BPF = @import("linux/bpf.zig");
 
-const io_uring = @import("linux/io_uring.zig");
-pub const IO_Uring = io_uring.IO_Uring;
-pub const SubmissionQueue = io_uring.SubmissionQueue;
-pub const CompletionQueue = io_uring.CompletionQueue;
-pub const io_uring_prep_nop = io_uring.io_uring_prep_nop;
-pub const io_uring_prep_fsync = io_uring.io_uring_prep_fsync;
-pub const io_uring_prep_rw = io_uring.io_uring_prep_rw;
-pub const io_uring_prep_read = io_uring.io_uring_prep_read;
-pub const io_uring_prep_write = io_uring.io_uring_prep_write;
-pub const io_uring_prep_readv = io_uring.io_uring_prep_readv;
-pub const io_uring_prep_writev = io_uring.io_uring_prep_writev;
-pub const io_uring_prep_accept = io_uring.io_uring_prep_accept;
-pub const io_uring_prep_connect = io_uring.io_uring_prep_connect;
-pub const io_uring_prep_epoll_ctl = io_uring.io_uring_prep_epoll_ctl;
-pub const io_uring_prep_recv = io_uring.io_uring_prep_recv;
-pub const io_uring_prep_send = io_uring.io_uring_prep_send;
-pub const io_uring_prep_openat = io_uring.io_uring_prep_openat;
-pub const io_uring_prep_close = io_uring.io_uring_prep_close;
-pub const io_uring_prep_timeout = io_uring.io_uring_prep_timeout;
-pub const io_uring_prep_timeout_remove = io_uring.io_uring_prep_timeout_remove;
-pub const io_uring_prep_poll_add = io_uring.io_uring_prep_poll_add;
-pub const io_uring_prep_poll_remove = io_uring.io_uring_prep_poll_remove;
-pub const io_uring_prep_fallocate = io_uring.io_uring_prep_fallocate;
+pub const MAP = struct {
+    pub usingnamespace arch_bits.MAP;
+
+    /// Share changes
+    pub const SHARED = 0x01;
+    /// Changes are private
+    pub const PRIVATE = 0x02;
+    /// share + validate extension flags
+    pub const SHARED_VALIDATE = 0x03;
+    /// Mask for type of mapping
+    pub const TYPE = 0x0f;
+    /// Interpret addr exactly
+    pub const FIXED = 0x10;
+    /// don't use a file
+    pub const ANONYMOUS = 0x20;
+    /// populate (prefault) pagetables
+    pub const POPULATE = 0x8000;
+    /// do not block on IO
+    pub const NONBLOCK = 0x10000;
+    /// give out an address that is best suited for process/thread stacks
+    pub const STACK = 0x20000;
+    /// create a huge page mapping
+    pub const HUGETLB = 0x40000;
+    /// perform synchronous page faults for the mapping
+    pub const SYNC = 0x80000;
+    /// FIXED which doesn't unmap underlying mapping
+    pub const FIXED_NOREPLACE = 0x100000;
+    /// For anonymous mmap, memory could be uninitialized
+    pub const UNINITIALIZED = 0x4000000;
+};
+
+pub const O = struct {
+    pub usingnamespace arch_bits.O;
+
+    pub const RDONLY = 0o0;
+    pub const WRONLY = 0o1;
+    pub const RDWR = 0o2;
+};
+
+pub usingnamespace @import("linux/io_uring.zig");
 
 /// Set by startup code, used by `getauxval`.
 pub var elf_aux_maybe: ?[*]std.elf.Auxv = null;
@@ -1725,26 +1741,20 @@ pub const FUTEX = struct {
 pub const PROT = struct {
     /// page can not be accessed
     pub const NONE = 0x0;
-
     /// page can be read
     pub const READ = 0x1;
-
     /// page can be written
     pub const WRITE = 0x2;
-
     /// page can be executed
     pub const EXEC = 0x4;
-
     /// page may be used for atomic ops
     pub const SEM = switch (native_arch) {
         // TODO: also xtensa
         .mips, .mipsel, .mips64, .mips64el => 0x10,
         else => 0x8,
     };
-
     /// mprotect flag: extend change to start of growsdown vma
     pub const GROWSDOWN = 0x01000000;
-
     /// mprotect flag: extend change to end of growsup vma
     pub const GROWSUP = 0x02000000;
 };
@@ -1960,16 +1970,16 @@ pub const RWF = struct {
     /// high priority request, poll if possible
     pub const HIPRI: kernel_rwf = 0x00000001;
 
-    /// per-IO O_DSYNC
+    /// per-IO O.DSYNC
     pub const DSYNC: kernel_rwf = 0x00000002;
 
-    /// per-IO O_SYNC
+    /// per-IO O.SYNC
     pub const SYNC: kernel_rwf = 0x00000004;
 
     /// per-IO, return -EAGAIN if operation would block
     pub const NOWAIT: kernel_rwf = 0x00000008;
 
-    /// per-IO O_APPEND
+    /// per-IO O.APPEND
     pub const APPEND: kernel_rwf = 0x00000010;
 };
 

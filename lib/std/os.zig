@@ -72,7 +72,6 @@ pub const E = system.E;
 pub const Elf_Symndx = system.Elf_Symndx;
 pub const F = system.F;
 pub const FD_CLOEXEC = system.FD_CLOEXEC;
-pub const F_OK = system.F_OK;
 pub const Flock = system.Flock;
 pub const HOST_NAME_MAX = system.HOST_NAME_MAX;
 pub const IFNAMESIZE = system.IFNAMESIZE;
@@ -96,7 +95,6 @@ pub const REG = system.REG;
 pub const RIGHT = system.RIGHT;
 pub const RLIM = system.RLIM;
 pub const RR = system.RR;
-pub const R_OK = system.R_OK;
 pub const S = system.S;
 pub const SA = system.SA;
 pub const SC = system.SC;
@@ -116,8 +114,6 @@ pub const Stat = system.Stat;
 pub const TCSA = system.TCSA;
 pub const VDSO = system.VDSO;
 pub const W = system.W;
-pub const W_OK = system.W_OK;
-pub const X_OK = system.X_OK;
 pub const addrinfo = system.addrinfo;
 pub const blkcnt_t = system.blkcnt_t;
 pub const blksize_t = system.blksize_t;
@@ -164,6 +160,11 @@ pub const ucontext_t = system.ucontext_t;
 pub const uid_t = system.uid_t;
 pub const user_desc = system.user_desc;
 pub const utsname = system.utsname;
+
+pub const F_OK = system.F_OK;
+pub const R_OK = system.R_OK;
+pub const W_OK = system.W_OK;
+pub const X_OK = system.X_OK;
 
 pub const iovec = extern struct {
     iov_base: [*]u8,
@@ -4237,7 +4238,7 @@ pub fn lseek_SET(fd: fd_t, offset: u64) SeekError!void {
     }
     if (builtin.os.tag == .wasi and !builtin.link_libc) {
         var new_offset: wasi.filesize_t = undefined;
-        switch (wasi.fd_seek(fd, @bitCast(wasi.filedelta_t, offset), wasi.WHENCE_SET, &new_offset)) {
+        switch (wasi.fd_seek(fd, @bitCast(wasi.filedelta_t, offset), .SET, &new_offset)) {
             .SUCCESS => return,
             .BADF => unreachable, // always a race condition
             .INVAL => return error.Unseekable,
@@ -4285,7 +4286,7 @@ pub fn lseek_CUR(fd: fd_t, offset: i64) SeekError!void {
     }
     if (builtin.os.tag == .wasi and !builtin.link_libc) {
         var new_offset: wasi.filesize_t = undefined;
-        switch (wasi.fd_seek(fd, offset, wasi.WHENCE_CUR, &new_offset)) {
+        switch (wasi.fd_seek(fd, offset, .CUR, &new_offset)) {
             .SUCCESS => return,
             .BADF => unreachable, // always a race condition
             .INVAL => return error.Unseekable,
@@ -4332,7 +4333,7 @@ pub fn lseek_END(fd: fd_t, offset: i64) SeekError!void {
     }
     if (builtin.os.tag == .wasi and !builtin.link_libc) {
         var new_offset: wasi.filesize_t = undefined;
-        switch (wasi.fd_seek(fd, offset, wasi.WHENCE_END, &new_offset)) {
+        switch (wasi.fd_seek(fd, offset, .END, &new_offset)) {
             .SUCCESS => return,
             .BADF => unreachable, // always a race condition
             .INVAL => return error.Unseekable,
@@ -4379,7 +4380,7 @@ pub fn lseek_CUR_get(fd: fd_t) SeekError!u64 {
     }
     if (builtin.os.tag == .wasi and !builtin.link_libc) {
         var new_offset: wasi.filesize_t = undefined;
-        switch (wasi.fd_seek(fd, 0, wasi.WHENCE_CUR, &new_offset)) {
+        switch (wasi.fd_seek(fd, 0, .CUR, &new_offset)) {
             .SUCCESS => return new_offset,
             .BADF => unreachable, // always a race condition
             .INVAL => return error.Unseekable,

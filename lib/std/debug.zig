@@ -1470,7 +1470,7 @@ fn getDebugInfoAllocator() *mem.Allocator {
 pub const have_segfault_handling_support = switch (native_os) {
     .linux, .netbsd => true,
     .windows => true,
-    .freebsd, .openbsd => @hasDecl(os, "ucontext_t"),
+    .freebsd, .openbsd => @hasDecl(os.system, "ucontext_t"),
     else => false,
 };
 pub const enable_segfault_handler: bool = if (@hasDecl(root, "enable_segfault_handler"))

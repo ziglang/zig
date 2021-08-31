@@ -1073,27 +1073,17 @@ pub fn addCases(ctx: *TestContext) !void {
         case.addError(
             \\pub fn main() void {
             \\    var i = 0;
-            \\    for (n) |_, i| {
+            \\    for ("n") |_, i| {
             \\    }
             \\}
         , &[_][]const u8{
-            ":3:17: error: redeclaration of local variable 'i'",
+            ":3:19: error: redeclaration of local variable 'i'",
             ":2:9: note: previous declaration here",
         });
         case.addError(
             \\pub fn main() void {
             \\    var i = 0;
-            \\    for (n) |i| {
-            \\    }
-            \\}
-        , &[_][]const u8{
-            ":3:14: error: redeclaration of local variable 'i'",
-            ":2:9: note: previous declaration here",
-        });
-        case.addError(
-            \\pub fn main() void {
-            \\    var i = 0;
-            \\    while (n) |i| {
+            \\    for ("n") |i| {
             \\    }
             \\}
         , &[_][]const u8{
@@ -1103,7 +1093,17 @@ pub fn addCases(ctx: *TestContext) !void {
         case.addError(
             \\pub fn main() void {
             \\    var i = 0;
-            \\    while (n) |bruh| {
+            \\    while ("n") |i| {
+            \\    }
+            \\}
+        , &[_][]const u8{
+            ":3:18: error: redeclaration of local variable 'i'",
+            ":2:9: note: previous declaration here",
+        });
+        case.addError(
+            \\pub fn main() void {
+            \\    var i = 0;
+            \\    while ("n") |bruh| {
             \\        _ = bruh;
             \\    } else |i| {
             \\

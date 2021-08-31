@@ -629,26 +629,28 @@ pub const SYS = enum(usize) {
     _,
 };
 
-pub const O_CREAT = 0o0400;
-pub const O_EXCL = 0o02000;
-pub const O_NOCTTY = 0o04000;
-pub const O_TRUNC = 0o01000;
-pub const O_APPEND = 0o0010;
-pub const O_NONBLOCK = 0o0200;
-pub const O_DSYNC = 0o0020;
-pub const O_SYNC = 0o040020;
-pub const O_RSYNC = 0o040020;
-pub const O_DIRECTORY = 0o0200000;
-pub const O_NOFOLLOW = 0o0400000;
-pub const O_CLOEXEC = 0o02000000;
+pub const O = struct {
+    pub const CREAT = 0o0400;
+    pub const EXCL = 0o02000;
+    pub const NOCTTY = 0o04000;
+    pub const TRUNC = 0o01000;
+    pub const APPEND = 0o0010;
+    pub const NONBLOCK = 0o0200;
+    pub const DSYNC = 0o0020;
+    pub const SYNC = 0o040020;
+    pub const RSYNC = 0o040020;
+    pub const DIRECTORY = 0o0200000;
+    pub const NOFOLLOW = 0o0400000;
+    pub const CLOEXEC = 0o02000000;
 
-pub const O_ASYNC = 0o010000;
-pub const O_DIRECT = 0o0100000;
-pub const O_LARGEFILE = 0o020000;
-pub const O_NOATIME = 0o01000000;
-pub const O_PATH = 0o010000000;
-pub const O_TMPFILE = 0o020200000;
-pub const O_NDELAY = O_NONBLOCK;
+    pub const ASYNC = 0o010000;
+    pub const DIRECT = 0o0100000;
+    pub const LARGEFILE = 0o020000;
+    pub const NOATIME = 0o01000000;
+    pub const PATH = 0o010000000;
+    pub const TMPFILE = 0o020200000;
+    pub const NDELAY = NONBLOCK;
+};
 
 pub const F = struct {
     pub const DUPFD = 0;
@@ -692,8 +694,6 @@ pub const MAP = struct {
     pub const EXECUTABLE = 0x4000;
     pub const LOCKED = 0x8000;
     pub const @"32BIT" = 0x40;
-    /// Only used by libc to communicate failure.
-    pub const FAILED = @intToPtr(*c_void, maxInt(usize));
 };
 
 pub const SO = struct {
@@ -726,8 +726,10 @@ pub const SO = struct {
     pub const RCVBUFFORCE = 33;
 };
 
-pub const VDSO_CGT_SYM = "__kernel_clock_gettime";
-pub const VDSO_CGT_VER = "LINUX_2.6.39";
+pub const VDSO = struct {
+    pub const CGT_SYM = "__kernel_clock_gettime";
+    pub const CGT_VER = "LINUX_2.6.39";
+};
 
 pub const Flock = extern struct {
     l_type: i16,

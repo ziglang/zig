@@ -406,26 +406,28 @@ pub const SYS = enum(usize) {
     _,
 };
 
-pub const O_CREAT = 0o100;
-pub const O_EXCL = 0o200;
-pub const O_NOCTTY = 0o400;
-pub const O_TRUNC = 0o1000;
-pub const O_APPEND = 0o2000;
-pub const O_NONBLOCK = 0o4000;
-pub const O_DSYNC = 0o10000;
-pub const O_SYNC = 0o4010000;
-pub const O_RSYNC = 0o4010000;
-pub const O_DIRECTORY = 0o200000;
-pub const O_NOFOLLOW = 0o400000;
-pub const O_CLOEXEC = 0o2000000;
+pub const O = struct {
+    pub const CREAT = 0o100;
+    pub const EXCL = 0o200;
+    pub const NOCTTY = 0o400;
+    pub const TRUNC = 0o1000;
+    pub const APPEND = 0o2000;
+    pub const NONBLOCK = 0o4000;
+    pub const DSYNC = 0o10000;
+    pub const SYNC = 0o4010000;
+    pub const RSYNC = 0o4010000;
+    pub const DIRECTORY = 0o200000;
+    pub const NOFOLLOW = 0o400000;
+    pub const CLOEXEC = 0o2000000;
 
-pub const O_ASYNC = 0o20000;
-pub const O_DIRECT = 0o40000;
-pub const O_LARGEFILE = 0o100000;
-pub const O_NOATIME = 0o1000000;
-pub const O_PATH = 0o10000000;
-pub const O_TMPFILE = 0o20200000;
-pub const O_NDELAY = O_NONBLOCK;
+    pub const ASYNC = 0o20000;
+    pub const DIRECT = 0o40000;
+    pub const LARGEFILE = 0o100000;
+    pub const NOATIME = 0o1000000;
+    pub const PATH = 0o10000000;
+    pub const TMPFILE = 0o20200000;
+    pub const NDELAY = NONBLOCK;
+};
 
 pub const F = struct {
     pub const DUPFD = 0;
@@ -518,3 +520,6 @@ pub const Stat = extern struct {
 };
 
 pub const Elf_Symndx = u32;
+
+pub const VDSO = struct {};
+pub const MAP = struct {};

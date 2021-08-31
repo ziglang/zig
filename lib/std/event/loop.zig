@@ -904,7 +904,7 @@ pub const Loop = struct {
         addr_size: *os.socklen_t,
         /// The following values can be bitwise ORed in flags to obtain different behavior:
         /// * `SOCK.CLOEXEC`  - Set the close-on-exec (`FD_CLOEXEC`) flag on the new file descriptor.   See  the
-        ///   description  of the `O_CLOEXEC` flag in `open` for reasons why this may be useful.
+        ///   description  of the `O.CLOEXEC` flag in `open` for reasons why this may be useful.
         flags: u32,
     ) os.AcceptError!os.socket_t {
         while (true) {
