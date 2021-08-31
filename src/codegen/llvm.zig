@@ -2064,12 +2064,18 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
             llvm.LLVMInitializeX86AsmPrinter();
             llvm.LLVMInitializeX86AsmParser();
         },
+        .xcore => {
+            llvm.LLVMInitializeXCoreTarget();
+            llvm.LLVMInitializeXCoreTargetInfo();
+            llvm.LLVMInitializeXCoreTargetMC();
+            llvm.LLVMInitializeXCoreAsmPrinter();
+            // llvm.LLVMInitializeXCoreAsmParser();
+        },
         .arc => {},
         .csky => {},
         .r600 => {},
         .tce, .tcele => {},
         .thumb, .thumbeb => {},
-        .xcore => {},
         .le32, .le64 => {},
         .amdil, .amdil64 => {},
         .hsail, .hsail64 => {},
