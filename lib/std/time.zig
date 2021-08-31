@@ -58,26 +58,32 @@ test "sleep" {
 
 /// Get a calendar timestamp, in seconds, relative to UTC 1970-01-01.
 /// Precision of timing depends on the hardware and operating system.
+/// The return value is signed because it is possible to have a date that is
+/// before the epoch.
 /// See `std.os.clock_gettime` for a POSIX timestamp.
-pub fn timestamp() u64 {
+pub fn timestamp() i64 {
     return @divFloor(milliTimestamp(), ms_per_s);
 }
 
 /// Get a calendar timestamp, in milliseconds, relative to UTC 1970-01-01.
 /// Precision of timing depends on the hardware and operating system.
+/// The return value is signed because it is possible to have a date that is
+/// before the epoch.
 /// See `std.os.clock_gettime` for a POSIX timestamp.
-pub fn milliTimestamp() u64 {
-    return @divFloor(nanoTimestamp(), ns_per_ms);
+pub fn milliTimestamp() i64 {
+    return @intCast(i64, @divFloor(nanoTimestamp(), ns_per_ms));
 }
 
 /// Get a calendar timestamp, in nanoseconds, relative to UTC 1970-01-01.
 /// Precision of timing depends on the hardware and operating system.
+/// The return value is signed because it is possible to have a date that is
+/// before the epoch.
 /// On Windows this has a maximum granularity of 100 nanoseconds.
 /// See `std.os.clock_gettime` for a POSIX timestamp.
-pub fn nanoTimestamp() u64 {
-    return Clock.read(.realtime) catch {
+pub fn nanoTimestamp() i128 {
+    return Clock.read(.realtime) catch |err| switch (err) {
         // "Precision of timing depends on hardware and OS".
-        return 0;
+        error.UnsupportedClock, error.Unexpected => 0,
     };
 }
 
@@ -125,47 +131,57 @@ pub const s_per_week = s_per_day * 7;
 
 /// A high-performance timer that tries to be monotonically increasing.
 /// Timer.start() must be called to initialize the struct, which gives 
-/// the user an opportunity to check for the existnece of monotonic clocks 
-/// without forcing them to check for error on each read.
+/// the user an opportunity to check for the existence of such timers 
+/// without forcing them to check for an error on each read.
 pub const Timer = struct {
-    start_time: u64,
+    start_time: i128,
 
     pub const Error = error{TimerUnsupported};
 
-    /// At some point we may change our minds, but for now we're
-    /// sticking with posix standard MONOTONIC.
-    /// For more information, see: https://github.com/ziglang/zig/pull/933
+    // This is a clock source which is supported on most platforms and is mostly monotonic.
     const clock_id = Clock.Id.monotonic;
 
     /// Initialize the timer structure.
     pub fn start() Error!Timer {
-        // We assume that if the system is blocking us from using clock_gettime
+        // We assume that if the system is blocking us from using the Clock
         // (i.e. with use of linux seccomp), it should at least block us consistently.
-        const start_time = Clock.read(clock_id) catch return error.TimerUnsupported;
-        return Timer{ .start_time = start_time };
+        return Timer{
+            .start_time = Clock.read(clock_id) catch return error.TimerUnsupported,
+        };
     }
 
     /// Reads the timer value since start or the last reset in nanoseconds
     pub fn read(self: Timer) u64 {
-        const current = Clock.read(clock_id) catch 0;
-        if (current < self.start_time) return 0;
-        return current - self.start_time;
+        const current = clockNative();
+        return self.toDurationNanos(current);
     }
 
     /// Resets the timer value to 0/now.
     pub fn reset(self: *Timer) void {
-        self.start_time = Clock.read(clock_id) catch 0;
+        self.start_time = clockNative();
     }
 
     /// Returns the current value of the timer in nanoseconds, then resets it
     pub fn lap(self: *Timer) u64 {
-        const current = Clock.read(clock_id) catch 0;
-        defer if (current > self.start_time) {
-            self.start_time = current;
-        };
+        const current = clockNative();
+        defer self.start_time = current;
+        return self.toDurationNanos(current);
+    }
 
+    /// Returns the current value of the Timer's clock.
+    /// Should not error out since the existence of the clock was checked at start().
+    fn clockNative() i128 {
+        return Clock.read(clock_id) catch unreachable;
+    }
+
+    /// Converts a reading from the Timer's clock to nanoseconds since the start_time.
+    fn toDurationNanos(self: Timer, current: i128) u64 {
+        // Handle cases where the clock goes backwards
         if (current < self.start_time) return 0;
-        return current - self.start_time;
+
+        // Saturating subtraction from the current time to handle overflows.
+        const duration = current - self.start_time;
+        return std.math.cast(u64, duration) catch std.math.maxInt(u64);
     }
 };
 
@@ -209,7 +225,7 @@ pub const Clock = struct {
     pub const Error = error{UnsupportedClock} || os.UnexpectedError;
 
     /// Reads the current value of the clock source represented by the `id`.
-    pub fn read(id: Id) Error!u64 {
+    pub fn read(id: Id) Error!i128 {
         return Impl.read(id);
     }
 
@@ -219,11 +235,11 @@ pub const Clock = struct {
     };
 
     const PosixImpl = struct {
-        pub fn read(id: Id) Error!u64 {
+        pub fn read(id: Id) Error!i128 {
             const clock_id = toOsClockId(id) orelse return error.UnsupportedClock;
             var ts: os.timespec = undefined;
             try os.clock_gettime(clock_id, &ts);
-            return @intCast(u64, ts.tv_sec) * ns_per_s + @intCast(u64, ts.tv_nsec);
+            return (@as(i128, ts.tv_sec) * ns_per_s) + ts.tv_nsec;
         }
 
         // https://github.com/polazarus/oclock-testing/blob/master/docs/clock_gettime.md
@@ -239,15 +255,23 @@ pub const Clock = struct {
             return switch (id) {
                 .realtime => os.CLOCK_REALTIME,
                 .monotonic => switch (target.os.tag) {
-                    .macos, .tvos, .ios, .watchos => os.CLOCK_MONOTONIC_RAW, // mach_continuous_time
-                    .linux => os.CLOCK_BOOTTIME, // actually counts time suspended
+                    // Calls mach_continuous_time() internally
+                    .macos, .tvos, .ios, .watchos => os.CLOCK_MONOTONIC_RAW,
+                    // Unlike CLOCK_MONOTONIC, this actually counts time suspended (true POSIX MONOTONIC)
+                    .linux => os.CLOCK_BOOTTIME,
                     else => os.CLOCK_MONOTONIC,
                 },
                 .uptime => switch (target.os.tag) {
                     .openbsd, .freebsd, .kfreebsd, .dragonfly => os.CLOCK_UPTIME,
-                    .macos, .tvos, .ios, .watchos => os.CLOCK_UPTIME_RAW, // mach_absolute_time
+                    // Calls mach_absolute_time() internally
+                    .macos, .tvos, .ios, .watchos => os.CLOCK_UPTIME_RAW,
+                    // CLOCK_MONOTONIC on linux actually doesn't count time suspended (not POSIX compliant).
+                    // At some point we may change our minds on CLOCK_MONOTONIC_RAW.
+                    // but for now we're sticking with CLOCK_MONOTONIC standard.
+                    // For more information, see: https://github.com/ziglang/zig/pull/933
                     .linux => os.CLOCK_MONOTONIC, // doesn't count time suspended
-                    else => null,
+                    // wasi and netbsd don't support getting time without suspend
+                    else => null, 
                 },
                 .thread_cputime => os.CLOCK_THREAD_CPUTIME_ID,
                 .process_cputime => os.CLOCK_PROCESS_CPUTIME_ID,
@@ -256,7 +280,9 @@ pub const Clock = struct {
     };
 
     const WindowsImpl = struct {
-        pub fn read(id: Id) Error!u64 {
+        const is_windows_10 = target.os.isAtLeast(.windows, .win10) orelse false;
+
+        pub fn read(id: Id) Error!i128 {
             return switch (id) {
                 .realtime => getSystemTime(),
                 .monotonic => getInterruptTime(),
@@ -266,34 +292,47 @@ pub const Clock = struct {
             };
         }
 
-        fn getSystemTime() u64 {
+        fn getSystemTime() i128 {
             var ft: os.windows.FILETIME = undefined;
             os.windows.kernel32.GetSystemTimePreciseAsFileTime(&ft);
-            var system_time = (@as(u64, ft.dwHighDateTime) << 32) | ft.dwLowDateTime;
+            const ft64 = (@as(u64, ft.dwHighDateTime) << 32) | ft.dwLowDateTime;
 
-            // Returns 0 if the current time is before the Unix Epoch (Jan 1 1970).
-            // This can happen since windows' starting epoch is Jan 01, 1601.
-            const utc_epoch = -(epoch.windows * (ns_per_s / 100));
-            if (system_time <= utc_epoch) {
-                return 0;
+            // FileTime has a granularity of 100ns and uses the NTFS/Windows epoch
+            // which is 1601-01-01
+            const epoch_adj = epoch.windows * (ns_per_s / 100);
+            return @as(i128, @bitCast(i64, ft64) + epoch_adj) * 100;
+        }
+
+        fn getInterruptTime() i128 {
+            // TODO: Disabled for now as lld-link fails to find the symbol
+            //
+            // Use the QueryInterruptTimePrecise() function when available.
+            // Don't use the non-Precise variant as it's less granular (0.5ms-16ms) than QPC (<=1us)
+            // https://docs.microsoft.com/en-us/windows/win32/api/realtimeapiset/nf-realtimeapiset-queryinterrupttimeprecise#remarks
+            if (false and is_windows_10) {
+                var interrupt_time: os.windows.ULONGLONG = undefined;
+                os.windows.kernel32.QueryInterruptTimePrecise(&interrupt_time);
+                return interrupt_time * 100;
             }
 
-            const utc_now = system_time - utc_epoch;
-            return utc_now * 100;
-        }
-
-        /// Could be replaced with QueryInterruptTimePrecise() (only on Windows 10+)
-        fn getInterruptTime() u64 {
             const counter = os.windows.QueryPerformanceCounter();
-            const qpc = getDeltaTime(struct {}, counter);
-            return getQPCInterruptTime(qpc) * 100;
+            return getQPCInterruptTime(counter, 0);
         }
 
-        /// Could be replaced with kernel32.QueryUnbiasedInterruptTimePrecise() (only on Windows 10+)
-        fn getUnbiasedInterruptTime() u64 {
+        fn getUnbiasedInterruptTime() i128 {
+            // TODO: Disabled for now as lld-link fails to find the symbol
+            //
+            // Use the QueryUnbiasedInterruptTimePrecise() functions when available.
+            // Don't use the non-Precise variant as it's less granular (0.5ms-16ms) than QPC (<=1us)
+            // https://docs.microsoft.com/en-us/windows/win32/api/realtimeapiset/nf-realtimeapiset-queryinterrupttimeprecise#remarks
+            if (false and is_windows_10) {
+                var interrupt_time: os.windows.ULONGLONG = undefined;
+                os.windows.kernel32.QueryUnbiasedInterruptTimePrecise(&interrupt_time);
+                return interrupt_time * 100;
+            }
+
             // Compute the unbiased (without suspend) time by sampling the current interrupt time
             // then subtracting the InterruptTimeBias while accounting for possibly suspending mid-sample.
-            //
             // https://stackoverflow.com/questions/24330496/how-do-i-create-monotonic-clock-on-windows-which-doesnt-tick-during-suspend
             // https://www.geoffchappell.com/studies/windows/km/ntoskrnl/inc/api/ntexapi_x/kuser_shared_data/index.htm
             const KUSER_SHARED_DATA = 0x7ffe0000;
@@ -302,97 +341,45 @@ pub const Clock = struct {
             while (true) {
                 const bias = InterruptTimeBias.*;
                 const counter = os.windows.QueryPerformanceCounter();
-                if (bias != InterruptTimeBias.*) {
-                    continue;
+                if (bias == InterruptTimeBias.*) {
+                    return getQPCInterruptTime(counter, bias);
                 }
-
-                const qpc = getDeltaTime(struct {}, counter);
-                const qpc_bias = getDeltaTime(struct {}, bias);
-                return (getQPCInterruptTime(qpc) - qpc_bias) * 100;
             }
         }
 
-        fn getQPCInterruptTime(qpc: u64) u64 {
-            // doesn't need to be cached. It just reads from KUSER_SHARED_DATA:
+        fn getQPCInterruptTime(qpc: u64, bias: u64) i128 {
+            // QueryPerofrmanceFrequency() doesn't need to be cached. 
+            // It just reads from KUSER_SHARED_DATA.
             // See the QpcFrequency offset in:
             // https://www.geoffchappell.com/studies/windows/km/ntoskrnl/inc/api/ntexapi_x/kuser_shared_data/index.htm
             const frequency = os.windows.QueryPerformanceFrequency();
 
-            // Interrupt time in units of 100ns
+            // Convert QPC in units of 100ns since this is the granularity of InterruptTimeBias.
             const scale = ns_per_s / 100;
 
-            // Try to do qpc * scale / frequency
-            var qpc_scaled: u64 = undefined;
-            if (!@mulWithOverflow(u64, qpc, scale, &qpc_scaled)) {
-                return qpc_scaled / frequency;
-            }
-
-            // Does qpc * scale / frequency without overflowing too early
-            const div = qpc / frequency;
-            const rem = qpc % frequency;
-            return (div * scale) + (rem * scale) / frequency;
-        }
-
-        /// Globally caches the first `current` supplied using `UniqueType` as a key.
-        /// Future calls with the same `UniqueType` return the saturating difference 
-        /// between their given `current` and the first cached `current`.
-        ///
-        /// ```
-        /// cached = globals[UniqueType]
-        /// if cached == 0:
-        ///     cached = globals[UniqueType] = current
-        /// if current < cached:
-        ///     return 0
-        /// return current - cached
-        /// ```
-        fn getDeltaTime(comptime UniqueType: type, current: u64) u64 {
-            _ = UniqueType;
-
-            const Atomic = std.atomic.Atomic;
-            const Static = struct {
-                var delta = Atomic(u64).init(0);
-                var delta_once = os.windows.INIT_ONCE_STATIC_INIT;
-
-                fn initDeltaOnce(once: *os.windows.INIT_ONCE, param: ?*c_void, ctx: ?*c_void) callconv(.C) os.windows.BOOL {
-                    _ = once;
-                    _ = ctx;
-                    const current_ptr = @ptrCast(*u64, @alignCast(@alignOf(u64), param));
-                    delta.storeUnchecked(current_ptr.*);
-                    return os.windows.TRUE;
-                }
-            };
-
-            const delta = blk: {
-                // Use 64bit atomics when available to set delta if it hasn't been already
-                if (@sizeOf(usize) >= @sizeOf(u64)) {
-                    const delta = Static.delta.load(.Monotonic);
-                    if (delta != 0) break :blk delta;
-                    break :blk Static.delta.compareAndSwap(
-                        delta,
-                        current,
-                        .Monotonic,
-                        .Monotonic,
-                    ) orelse current;
+            // Performs (qpc * scale) / frequency without overflow.
+            var interrupt_time = blk: {
+                const overflow_limit = @divFloor(std.math.maxInt(u64), scale);
+                if (qpc <= overflow_limit) {
+                    break :blk (qpc * scale) / frequency;
                 }
 
-                // 64bit atomics aren't supported. Use INIT_ONCE instead
-                var init_with = current;
-                os.windows.InitOnceExecuteOnce(
-                    &Static.delta_once,
-                    Static.initDeltaOnce,
-                    @ptrCast(*c_void, &init_with),
-                    null,
-                );
-                break :blk Static.delta.loadUnchecked();
+                // Computes (qpc * scale) / frequency without overflow
+                // as long as both (scale * frequency) and the final result fit into an i64
+                // which should be the case for time conversions with QPC.
+                const quotient = qpc / frequency;
+                const remainder = qpc % frequency;
+                break :blk (quotient * scale) + (remainder * scale) / frequency;
             };
 
-            if (current < delta) return 0;
-            return current - delta;
+            // Finally subtract the bias (zero for .monotonic) and scale back up to nanoseconds
+            interrupt_time -= bias;
+            return interrupt_time * 100;
         }
 
         /// Calls either GetThreadTimes or GetProcessTimes and returns
         /// the amount of nanoseconds spent in userspace and the the kernel.
-        fn getCpuTime(comptime GetTimesFn: []const u8, comptime GetCurrentFn: []const u8) !u64 {
+        fn getCpuTime(comptime GetTimesFn: []const u8, comptime GetCurrentFn: []const u8) !i128 {
             var creation_time: os.windows.FILETIME = undefined;
             var exit_time: os.windows.FILETIME = undefined;
             var kernel_time: os.windows.FILETIME = undefined;
@@ -411,7 +398,7 @@ pub const Clock = struct {
                 return os.windows.unexpectedError(err);
             }
 
-            var cpu_time = (@as(u64, kernel_time.dwHighDateTime) << 32) | kernel_time.dwLowDateTime;
+            var cpu_time: i128 = (@as(u64, kernel_time.dwHighDateTime) << 32) | kernel_time.dwLowDateTime;
             cpu_time += (@as(u64, user_time.dwHighDateTime) << 32) | user_time.dwLowDateTime;
             return cpu_time * 100;
         }
@@ -419,20 +406,14 @@ pub const Clock = struct {
 };
 
 test "Clock" {
-    comptime var clock_ids: []const Clock.Id = &[_]Clock.Id{};
     inline for (std.meta.fields(Clock.Id)) |field| {
         const clock_id = @field(Clock.Id, field.name);
-        clock_ids = clock_ids ++ [_]Clock.Id{clock_id};
-    }
 
-    for (clock_ids) |clock_id| {
-        _ = Clock.read(clock_id) catch |err| {
-            // Only return errors for clock sources that we use personally.
-            // The rest are just tested for their code paths
-            switch (clock_id) {
-                .realtime, .monotonic => return err,
-                else => continue,
-            }
+        // Only return errors for clock sources that we use personally.
+        // The rest are just tested for their code paths
+        _ = switch (clock_id) {
+            .realtime, .monotonic => try Clock.read(clock_id),
+            else => Clock.read(clock_id) catch undefined,
         };
     }
 }
