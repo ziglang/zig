@@ -271,7 +271,7 @@ pub const Clock = struct {
                     // For more information, see: https://github.com/ziglang/zig/pull/933
                     .linux => os.CLOCK_MONOTONIC, // doesn't count time suspended
                     // wasi and netbsd don't support getting time without suspend
-                    else => null, 
+                    else => null,
                 },
                 .thread_cputime => os.CLOCK_THREAD_CPUTIME_ID,
                 .process_cputime => os.CLOCK_PROCESS_CPUTIME_ID,
@@ -348,7 +348,7 @@ pub const Clock = struct {
         }
 
         fn getQPCInterruptTime(qpc: u64, bias: u64) i128 {
-            // QueryPerofrmanceFrequency() doesn't need to be cached. 
+            // QueryPerofrmanceFrequency() doesn't need to be cached.
             // It just reads from KUSER_SHARED_DATA.
             // See the QpcFrequency offset in:
             // https://www.geoffchappell.com/studies/windows/km/ntoskrnl/inc/api/ntexapi_x/kuser_shared_data/index.htm
