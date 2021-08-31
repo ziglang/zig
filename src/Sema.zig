@@ -10177,7 +10177,7 @@ fn typeHasOnePossibleValue(
     };
 }
 
-fn getAstTree(sema: *Sema, block: *Scope.Block) CompileError!*const std.zig.ast.Tree {
+fn getAstTree(sema: *Sema, block: *Scope.Block) CompileError!*const std.zig.Ast {
     return block.src_decl.namespace.file_scope.getTree(sema.gpa) catch |err| {
         log.err("unable to load AST to report compile error: {s}", .{@errorName(err)});
         return error.AnalysisFail;
@@ -10186,14 +10186,14 @@ fn getAstTree(sema: *Sema, block: *Scope.Block) CompileError!*const std.zig.ast.
 
 fn enumFieldSrcLoc(
     decl: *Decl,
-    tree: std.zig.ast.Tree,
+    tree: std.zig.Ast,
     node_offset: i32,
     field_index: usize,
 ) LazySrcLoc {
     @setCold(true);
     const enum_node = decl.relativeToNodeIndex(node_offset);
     const node_tags = tree.nodes.items(.tag);
-    var buffer: [2]std.zig.ast.Node.Index = undefined;
+    var buffer: [2]std.zig.Ast.Node.Index = undefined;
     const container_decl = switch (node_tags[enum_node]) {
         .container_decl,
         .container_decl_trailing,

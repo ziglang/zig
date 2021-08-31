@@ -6,7 +6,7 @@ const mem = std.mem;
 const process = std.process;
 const Allocator = mem.Allocator;
 const ArrayList = std.ArrayList;
-const ast = std.zig.ast;
+const Ast = std.zig.Ast;
 const warn = std.log.warn;
 
 const Compilation = @import("Compilation.zig");
@@ -3423,8 +3423,8 @@ fn fmtPathFile(
 fn printErrMsgToStdErr(
     gpa: *mem.Allocator,
     arena: *mem.Allocator,
-    parse_error: ast.Error,
-    tree: ast.Tree,
+    parse_error: Ast.Error,
+    tree: Ast,
     path: []const u8,
     color: Color,
 ) !void {
@@ -4029,12 +4029,12 @@ pub fn cmdAstCheck(
     }
 
     {
-        const token_bytes = @sizeOf(std.zig.ast.TokenList) +
-            file.tree.tokens.len * (@sizeOf(std.zig.Token.Tag) + @sizeOf(std.zig.ast.ByteOffset));
-        const tree_bytes = @sizeOf(std.zig.ast.Tree) + file.tree.nodes.len *
-            (@sizeOf(std.zig.ast.Node.Tag) +
-            @sizeOf(std.zig.ast.Node.Data) +
-            @sizeOf(std.zig.ast.TokenIndex));
+        const token_bytes = @sizeOf(Ast.TokenList) +
+            file.tree.tokens.len * (@sizeOf(std.zig.Token.Tag) + @sizeOf(Ast.ByteOffset));
+        const tree_bytes = @sizeOf(Ast) + file.tree.nodes.len *
+            (@sizeOf(Ast.Node.Tag) +
+            @sizeOf(Ast.Node.Data) +
+            @sizeOf(Ast.TokenIndex));
         const instruction_bytes = file.zir.instructions.len *
             // Here we don't use @sizeOf(Zir.Inst.Data) because it would include
             // the debug safety tag but we want to measure release size.

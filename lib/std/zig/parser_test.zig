@@ -5308,7 +5308,7 @@ fn testCanonical(source: [:0]const u8) !void {
     return testTransform(source, source);
 }
 
-const Error = std.zig.ast.Error.Tag;
+const Error = std.zig.Ast.Error.Tag;
 
 fn testError(source: [:0]const u8, expected_errors: []const Error) !void {
     var tree = try std.zig.parse(std.testing.allocator, source);

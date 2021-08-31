@@ -356,7 +356,7 @@ pub fn translate(
     args_end: [*]?[*]const u8,
     errors: *[]ClangErrMsg,
     resources_path: [*:0]const u8,
-) !std.zig.ast.Tree {
+) !std.zig.Ast {
     const ast_unit = clang.LoadFromCommandLine(
         args_begin,
         args_end,
@@ -369,7 +369,7 @@ pub fn translate(
     };
     defer ast_unit.delete();
 
-    // For memory that has the same lifetime as the Tree that we return
+    // For memory that has the same lifetime as the Ast that we return
     // from this function.
     var arena = std.heap.ArenaAllocator.init(gpa);
     errdefer arena.deinit();
