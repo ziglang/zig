@@ -886,11 +886,11 @@ pub const Instruction = union(enum) {
         return dataProcessing(cond, .mov, 1, rd, .r0, op2);
     }
 
-    pub fn bic(cond: Condition, rd: Register, op2: Operand) Instruction {
+    pub fn bic(cond: Condition, rd: Register, rn: Register, op2: Operand) Instruction {
         return dataProcessing(cond, .bic, 0, rd, rn, op2);
     }
 
-    pub fn bics(cond: Condition, rd: Register, op2: Operand) Instruction {
+    pub fn bics(cond: Condition, rd: Register, rn: Register, op2: Operand) Instruction {
         return dataProcessing(cond, .bic, 1, rd, rn, op2);
     }
 
