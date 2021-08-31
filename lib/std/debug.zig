@@ -654,6 +654,7 @@ pub fn openSelfDebugInfo(allocator: *mem.Allocator) anyerror!DebugInfo {
             .openbsd,
             .macos,
             .windows,
+            .solaris,
             => return DebugInfo.init(allocator),
             else => return error.UnsupportedDebugInfo,
         }
@@ -1420,7 +1421,7 @@ pub const ModuleDebugInfo = switch (native_os) {
             };
         }
     },
-    .linux, .netbsd, .freebsd, .dragonfly, .openbsd, .haiku => struct {
+    .linux, .netbsd, .freebsd, .dragonfly, .openbsd, .haiku, .solaris => struct {
         base_address: usize,
         dwarf: DW.DwarfInfo,
         mapped_memory: []const u8,
@@ -1468,7 +1469,7 @@ fn getDebugInfoAllocator() *mem.Allocator {
 
 /// Whether or not the current target can print useful debug information when a segfault occurs.
 pub const have_segfault_handling_support = switch (native_os) {
-    .linux, .netbsd => true,
+    .linux, .netbsd, .solaris => true,
     .windows => true,
     .freebsd, .openbsd => @hasDecl(os.system, "ucontext_t"),
     else => false,
@@ -1535,6 +1536,7 @@ fn handleSegfaultLinux(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const c_v
         .freebsd => @ptrToInt(info.addr),
         .netbsd => @ptrToInt(info.info.reason.fault.addr),
         .openbsd => @ptrToInt(info.data.fault.addr),
+        .solaris => @ptrToInt(info.reason.fault.addr),
         else => unreachable,
     };
 
@@ -1559,13 +1561,13 @@ fn handleSegfaultLinux(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const c_v
         .x86_64 => {
             const ctx = @ptrCast(*const os.ucontext_t, @alignCast(@alignOf(os.ucontext_t), ctx_ptr));
             const ip = switch (native_os) {
-                .linux, .netbsd => @intCast(usize, ctx.mcontext.gregs[os.REG.RIP]),
+                .linux, .netbsd, .solaris => @intCast(usize, ctx.mcontext.gregs[os.REG.RIP]),
                 .freebsd => @intCast(usize, ctx.mcontext.rip),
                 .openbsd => @intCast(usize, ctx.sc_rip),
                 else => unreachable,
             };
             const bp = switch (native_os) {
-                .linux, .netbsd => @intCast(usize, ctx.mcontext.gregs[os.REG.RBP]),
+                .linux, .netbsd, .solaris => @intCast(usize, ctx.mcontext.gregs[os.REG.RBP]),
                 .openbsd => @intCast(usize, ctx.sc_rbp),
                 .freebsd => @intCast(usize, ctx.mcontext.rbp),
                 else => unreachable,

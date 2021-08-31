@@ -433,6 +433,13 @@ pub fn libcFullLinkFlags(target: std.Target) []const []const u8 {
             "-lc",
             "-lutil",
         },
+        .solaris => &[_][]const u8{
+            "-lm",
+            "-lsocket",
+            "-lnsl",
+            // Solaris releases after 10 merged the threading libraries into libc.
+            "-lc",
+        },
         .haiku => &[_][]const u8{
             "-lm",
             "-lroot",

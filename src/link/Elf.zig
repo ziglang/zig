@@ -3446,6 +3446,15 @@ const CsuObjects = struct {
                     .static_pie  => result.set( "start_dyn.o", "crti.o", "crtbeginS.o", "crtendS.o", "crtn.o" ),
                     // zig fmt: on
                 },
+                .solaris => switch (mode) {
+                    // zig fmt: off
+                    .dynamic_lib => result.set( null,     "crti.o", null, null, "crtn.o" ),
+                    .dynamic_exe,
+                    .dynamic_pie => result.set( "crt1.o", "crti.o", null, null, "crtn.o" ),
+                    .static_exe,
+                    .static_pie  => result.set( null,     null,     null, null, null     ),
+                    // zig fmt: on
+                },
                 else => {},
             }
         }
