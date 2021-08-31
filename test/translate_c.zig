@@ -3672,4 +3672,10 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub const FOO = __builtin_popcount;
     });
+
+    cases.add("Only consider public decls in `isBuiltinDefined`",
+        \\#define FOO std
+    , &[_][]const u8{
+        \\pub const FOO = @compileError("unable to translate macro: undefined identifier `std`");
+    });
 }
