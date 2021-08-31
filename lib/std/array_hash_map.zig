@@ -293,6 +293,22 @@ pub fn ArrayHashMap(
             return self.unmanaged.getPtrAdapted(key, ctx);
         }
 
+        /// Find the actual key associated with an adapted key
+        pub fn getKey(self: Self, key: K) ?K {
+            return self.unmanaged.getKeyContext(key, self.ctx);
+        }
+        pub fn getKeyAdapted(self: Self, key: anytype, ctx: anytype) ?K {
+            return self.unmanaged.getKeyAdapted(key, ctx);
+        }
+
+        /// Find a pointer to the actual key associated with an adapted key
+        pub fn getKeyPtr(self: Self, key: K) ?*K {
+            return self.unmanaged.getKeyPtrContext(key, self.ctx);
+        }
+        pub fn getKeyPtrAdapted(self: Self, key: anytype, ctx: anytype) ?*K {
+            return self.unmanaged.getKeyPtrAdapted(key, ctx);
+        }
+
         /// Check whether a key is stored in the map
         pub fn contains(self: Self, key: K) bool {
             return self.unmanaged.containsContext(key, self.ctx);
@@ -965,6 +981,34 @@ pub fn ArrayHashMapUnmanaged(
             const index = self.getIndexAdapted(key, ctx) orelse return null;
             // workaround for #6974
             return if (@sizeOf(*V) == 0) @as(*V, undefined) else &self.values()[index];
+        }
+
+        /// Find the actual key associated with an adapted key
+        pub fn getKey(self: Self, key: K) ?K {
+            if (@sizeOf(Context) != 0)
+                @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call getKeyContext instead.");
+            return self.getKeyContext(key, undefined);
+        }
+        pub fn getKeyContext(self: Self, key: K, ctx: Context) ?K {
+            return self.getKeyAdapted(key, ctx);
+        }
+        pub fn getKeyAdapted(self: Self, key: anytype, ctx: anytype) ?K {
+            const index = self.getIndexAdapted(key, ctx) orelse return null;
+            return self.keys()[index];
+        }
+
+        /// Find a pointer to the actual key associated with an adapted key
+        pub fn getKeyPtr(self: Self, key: K) ?*K {
+            if (@sizeOf(Context) != 0)
+                @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call getKeyPtrContext instead.");
+            return self.getKeyPtrContext(key, undefined);
+        }
+        pub fn getKeyPtrContext(self: Self, key: K, ctx: Context) ?*K {
+            return self.getKeyPtrAdapted(key, ctx);
+        }
+        pub fn getKeyPtrAdapted(self: Self, key: anytype, ctx: anytype) ?*K {
+            const index = self.getIndexAdapted(key, ctx) orelse return null;
+            return &self.keys()[index];
         }
 
         /// Check whether a key is stored in the map
