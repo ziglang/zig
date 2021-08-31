@@ -167,7 +167,7 @@ pub const Object = struct {
         const context = llvm.Context.create();
         errdefer context.dispose();
 
-        llvm.initializeLLVMTarget(options.target.cpu.arch);
+        initializeLLVMTarget(options.target.cpu.arch);
 
         const root_nameZ = try gpa.dupeZ(u8, options.root_name);
         defer gpa.free(root_nameZ);
@@ -2073,8 +2073,9 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
         .renderscript32 => {},
         .renderscript64 => {},
         .ve => {},
-        .spu_2 => return error.@"LLVM backend does not support SPU Mark II",
-        .spirv32 => return error.@"LLVM backend does not support SPIR-V",
-        .spirv64 => return error.@"LLVM backend does not support SPIR-V",
+        //
+        .spu_2 => {},
+        .spirv32 => {},
+        .spirv64 => {},
     }
 }
