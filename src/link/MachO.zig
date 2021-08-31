@@ -1950,8 +1950,6 @@ pub fn allocateAtom(self: *MachO, atom: *TextBlock, match: MatchingSection) !u64
             break :blk end_addr;
         };
         assert(needed_size <= end_addr); // TODO must expand the section
-        sect.size = needed_size;
-        self.load_commands_dirty = true;
     }
     const n_sect = @intCast(u8, self.section_ordinals.getIndex(match).? + 1);
     sym.n_value = vaddr;
@@ -4599,17 +4597,7 @@ fn allocateTextBlock(self: *MachO, text_block: *TextBlock, new_block_size: u64, 
     if (expand_text_section) {
         const needed_size = (vaddr + new_block_size) - text_section.addr;
         assert(needed_size <= text_segment.inner.filesize); // TODO must move the entire text section.
-
         _ = try self.blocks.put(self.base.allocator, match, text_block);
-        text_section.size = needed_size;
-        self.load_commands_dirty = true; // TODO Make more granular.
-
-        if (self.d_sym) |*ds| {
-            const debug_text_seg = &ds.load_commands.items[ds.text_segment_cmd_index.?].Segment;
-            const debug_text_sect = &debug_text_seg.sections.items[ds.text_section_index.?];
-            debug_text_sect.size = needed_size;
-            ds.load_commands_dirty = true;
-        }
     }
     text_block.size = new_block_size;
 

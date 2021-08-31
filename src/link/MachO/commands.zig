@@ -270,11 +270,11 @@ pub const SegmentCommand = struct {
     }
 
     pub fn findFreeSpace(self: SegmentCommand, object_size: u64, min_alignment: u32, start: ?u64) u64 {
-        var st: u64 = if (start) |v| v else self.inner.fileoff;
-        while (self.detectAllocCollision(st, object_size)) |item_end| {
-            st = mem.alignForwardGeneric(u64, item_end, min_alignment);
+        var offset: u64 = if (start) |v| v else self.inner.fileoff;
+        while (self.detectAllocCollision(offset, object_size)) |item_end| {
+            offset = mem.alignForwardGeneric(u64, item_end, min_alignment);
         }
-        return st;
+        return offset;
     }
 
     fn eql(self: SegmentCommand, other: SegmentCommand) bool {
