@@ -2015,6 +2015,13 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
             llvm.LLVMInitializeMSP430AsmPrinter();
             llvm.LLVMInitializeMSP430AsmParser();
         },
+        .nvptx, .nvptx64 => {
+            llvm.LLVMInitializeNVPTXTarget();
+            llvm.LLVMInitializeNVPTXTargetInfo();
+            llvm.LLVMInitializeNVPTXTargetMC();
+            llvm.LLVMInitializeNVPTXAsmPrinter();
+            // llvm.LLVMInitializeNVPTXAsmParser();
+        },
         .powerpc, .powerpcle, .powerpc64, .powerpc64le => {
             llvm.LLVMInitializePowerPCTarget();
             llvm.LLVMInitializePowerPCTargetInfo();
@@ -2063,7 +2070,6 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
         .tce, .tcele => {},
         .thumb, .thumbeb => {},
         .xcore => {},
-        .nvptx, .nvptx64 => {},
         .le32, .le64 => {},
         .amdil, .amdil64 => {},
         .hsail, .hsail64 => {},
