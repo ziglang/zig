@@ -1,6 +1,5 @@
 const std = @import("../std.zig");
 const assert = std.debug.assert;
-const builtin = @import("builtin");
 const macho = std.macho;
 const native_arch = builtin.target.cpu.arch;
 const maxInt = std.math.maxInt;
@@ -44,7 +43,8 @@ pub const fstat = if (native_arch == .aarch64) private.fstat else private.@"fsta
 pub const fstatat = if (native_arch == .aarch64) private.fstatat else private.@"fstatat$INODE64";
 
 pub extern "c" fn mach_absolute_time() u64;
-pub extern "c" fn mach_timebase_info(tinfo: ?*mach_timebase_info_data) void;
+pub extern "c" fn mach_continuous_time() u64;
+pub extern "c" fn mach_timebase_info(tinfo: ?*mach_timebase_info_data) kern_return_t;
 
 pub extern "c" fn malloc_size(?*const c_void) usize;
 pub extern "c" fn posix_memalign(memptr: *?*c_void, alignment: usize, size: usize) c_int;
@@ -206,6 +206,7 @@ pub extern "c" fn dispatch_semaphore_signal(dsema: dispatch_semaphore_t) isize;
 pub const dispatch_time_t = u64;
 pub const DISPATCH_TIME_NOW = @as(dispatch_time_t, 0);
 pub const DISPATCH_TIME_FOREVER = ~@as(dispatch_time_t, 0);
+pub const DISPATCH_MONOTONICTIME_NOW = @as(dispatch_time_t, 1 << 63); // available(macos=10.14, ios=12.0, tvos=12.0, watchos=5.00)
 pub extern "c" fn dispatch_time(when: dispatch_time_t, delta: i64) dispatch_time_t;
 
 const dispatch_once_t = usize;
