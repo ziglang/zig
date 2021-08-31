@@ -118,10 +118,14 @@ test "@shlWithSaturation" {
             try testSaturatingOp(.shl, i8, .{ 1, 2, 4 });
             try testSaturatingOp(.shl, i8, .{ 127, 1, 127 });
             try testSaturatingOp(.shl, i8, .{ -128, 1, -128 });
-            try testSaturatingOp(.shl, i128, .{ maxInt(i128), 64, maxInt(i128) });
+            // TODO: remove this check once #9668 is completed
+            if (std.builtin.target.cpu.arch != .wasm32) {
+                // skip testing ints > 64 bits on wasm due to miscompilation / wasmtime ci error
+                try testSaturatingOp(.shl, i128, .{ maxInt(i128), 64, maxInt(i128) });
+                try testSaturatingOp(.shl, u128, .{ maxInt(u128), 64, maxInt(u128) });
+            }
             try testSaturatingOp(.shl, u8, .{ 1, 2, 4 });
             try testSaturatingOp(.shl, u8, .{ 255, 1, 255 });
-            try testSaturatingOp(.shl, u128, .{ maxInt(u128), 64, maxInt(u128) });
 
             const u8x3 = std.meta.Vector(3, u8);
             try expectEqual(u8x3{ 255, 255, 255 }, @shlWithSaturation(
