@@ -1950,7 +1950,7 @@ pub const FuncGen = struct {
     }
 };
 
-pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
+fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
     switch (arch) {
         .aarch64, .aarch64_be, .aarch64_32 => {
             llvm.LLVMInitializeAArch64Target();
@@ -2020,7 +2020,7 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
             llvm.LLVMInitializeNVPTXTargetInfo();
             llvm.LLVMInitializeNVPTXTargetMC();
             llvm.LLVMInitializeNVPTXAsmPrinter();
-            // llvm.LLVMInitializeNVPTXAsmParser();
+            // There is no LLVMInitializeNVPTXAsmParser function available.
         },
         .powerpc, .powerpcle, .powerpc64, .powerpc64le => {
             llvm.LLVMInitializePowerPCTarget();
@@ -2069,7 +2069,7 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
             llvm.LLVMInitializeXCoreTargetInfo();
             llvm.LLVMInitializeXCoreTargetMC();
             llvm.LLVMInitializeXCoreAsmPrinter();
-            // llvm.LLVMInitializeXCoreAsmParser();
+            // There is no LLVMInitializeXCoreAsmParser function available.
         },
         .arc => {},
         .csky => {},
@@ -2085,7 +2085,6 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
         .renderscript32 => {},
         .renderscript64 => {},
         .ve => {},
-        //
         .spu_2 => {},
         .spirv32 => {},
         .spirv64 => {},
