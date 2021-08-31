@@ -228,6 +228,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     });
 
     cases.add("macro expressions respect C operator precedence",
+        \\int *foo = 0;
         \\#define FOO *((foo) + 2)
         \\#define VALUE  (1 + 2 * 3 + 4 * 5 + 6 << 7 | 8 == 9)
         \\#define _AL_READ3BYTES(p)   ((*(unsigned char *)(p))            \
@@ -459,6 +460,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     });
 
     cases.add("macro line continuation",
+        \\int BAR = 0;
         \\#define FOO -\
         \\BAR
     , &[_][]const u8{
@@ -1833,6 +1835,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     });
 
     cases.add("macro pointer cast",
+        \\#define NRF_GPIO_BASE 0
         \\typedef struct { int dummy; } NRF_GPIO_Type;
         \\#define NRF_GPIO ((NRF_GPIO_Type *) NRF_GPIO_BASE)
     , &[_][]const u8{
@@ -1873,6 +1876,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     });
 
     cases.add("macro add",
+        \\#define D3_AHB1PERIPH_BASE 0
         \\#define PERIPH_BASE               (0x40000000UL) /*!< Base address of : AHB/APB Peripherals                                                   */
         \\#define D3_APB1PERIPH_BASE       (PERIPH_BASE + 0x18000000UL)
         \\#define RCC_BASE              (D3_AHB1PERIPH_BASE + 0x4400UL)
@@ -3138,6 +3142,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\#define FOO(bar) baz((void *)(baz))
         \\#define BAR (void*) a
         \\#define BAZ (uint32_t)(2)
+        \\#define a 2
     , &[_][]const u8{
         \\pub inline fn FOO(bar: anytype) @TypeOf(baz(@import("std").zig.c_translation.cast(?*c_void, baz))) {
         \\    _ = bar;
@@ -3160,6 +3165,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     });
 
     cases.add("macro conditional operator",
+        \\ int a, b, c;
         \\#define FOO a ? b : c
     , &[_][]const u8{
         \\pub const FOO = if (a) b else c;
@@ -3648,5 +3654,11 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\_ = p[@intCast(c_uint, @as(c_int, 0))];
         ,
         \\_ = p[@intCast(c_uint, @as(c_int, 1))];
+    });
+
+    cases.add("Undefined macro identifier",
+        \\#define FOO BAR
+    , &[_][]const u8{
+        \\pub const FOO = @compileError("unable to translate macro: undefined identifier `BAR`");
     });
 }
