@@ -1133,20 +1133,19 @@ pub const MatchingSection = struct {
 };
 
 pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSection {
-    const text_seg = &self.load_commands.items[self.text_segment_cmd_index.?].Segment;
-    const data_const_seg = &self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
-    const data_seg = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
     const segname = commands.segmentName(sect);
     const sectname = commands.sectionName(sect);
-
-    var needs_allocation = false;
     const res: ?MatchingSection = blk: {
         switch (commands.sectionType(sect)) {
             macho.S_4BYTE_LITERALS, macho.S_8BYTE_LITERALS, macho.S_16BYTE_LITERALS => {
                 if (self.text_const_section_index == null) {
-                    self.text_const_section_index = @intCast(u16, text_seg.sections.items.len);
-                    try text_seg.addSection(self.base.allocator, "__const", .{});
-                    needs_allocation = true;
+                    self.text_const_section_index = try self.allocateSection(
+                        self.text_segment_cmd_index.?,
+                        "__const",
+                        sect.size,
+                        sect.@"align",
+                        .{},
+                    );
                 }
 
                 break :blk .{
@@ -1159,11 +1158,13 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
                     // TODO it seems the common values within the sections in objects are deduplicated/merged
                     // on merging the sections' contents.
                     if (self.objc_methname_section_index == null) {
-                        self.objc_methname_section_index = @intCast(u16, text_seg.sections.items.len);
-                        try text_seg.addSection(self.base.allocator, "__objc_methname", .{
-                            .flags = macho.S_CSTRING_LITERALS,
-                        });
-                        needs_allocation = true;
+                        self.objc_methname_section_index = try self.allocateSection(
+                            self.text_segment_cmd_index.?,
+                            "__objc_methname",
+                            sect.size,
+                            sect.@"align",
+                            .{},
+                        );
                     }
 
                     break :blk .{
@@ -1172,11 +1173,13 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
                     };
                 } else if (mem.eql(u8, sectname, "__objc_methtype")) {
                     if (self.objc_methtype_section_index == null) {
-                        self.objc_methtype_section_index = @intCast(u16, text_seg.sections.items.len);
-                        try text_seg.addSection(self.base.allocator, "__objc_methtype", .{
-                            .flags = macho.S_CSTRING_LITERALS,
-                        });
-                        needs_allocation = true;
+                        self.objc_methtype_section_index = try self.allocateSection(
+                            self.text_segment_cmd_index.?,
+                            "__objc_methtype",
+                            sect.size,
+                            sect.@"align",
+                            .{},
+                        );
                     }
 
                     break :blk .{
@@ -1185,9 +1188,13 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
                     };
                 } else if (mem.eql(u8, sectname, "__objc_classname")) {
                     if (self.objc_classname_section_index == null) {
-                        self.objc_classname_section_index = @intCast(u16, text_seg.sections.items.len);
-                        try text_seg.addSection(self.base.allocator, "__objc_classname", .{});
-                        needs_allocation = true;
+                        self.objc_classname_section_index = try self.allocateSection(
+                            self.text_segment_cmd_index.?,
+                            "__objc_classname",
+                            sect.size,
+                            sect.@"align",
+                            .{},
+                        );
                     }
 
                     break :blk .{
@@ -1197,11 +1204,15 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
                 }
 
                 if (self.cstring_section_index == null) {
-                    self.cstring_section_index = @intCast(u16, text_seg.sections.items.len);
-                    try text_seg.addSection(self.base.allocator, "__cstring", .{
-                        .flags = macho.S_CSTRING_LITERALS,
-                    });
-                    needs_allocation = true;
+                    self.cstring_section_index = try self.allocateSection(
+                        self.text_segment_cmd_index.?,
+                        "__cstring",
+                        sect.size,
+                        sect.@"align",
+                        .{
+                            .flags = macho.S_CSTRING_LITERALS,
+                        },
+                    );
                 }
 
                 break :blk .{
@@ -1212,29 +1223,37 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
             macho.S_LITERAL_POINTERS => {
                 if (mem.eql(u8, segname, "__DATA") and mem.eql(u8, sectname, "__objc_selrefs")) {
                     if (self.objc_selrefs_section_index == null) {
-                        self.objc_selrefs_section_index = @intCast(u16, data_seg.sections.items.len);
-                        try data_seg.addSection(self.base.allocator, "__objc_selrefs", .{
-                            .flags = macho.S_LITERAL_POINTERS,
-                        });
-                        needs_allocation = true;
+                        self.objc_selrefs_section_index = try self.allocateSection(
+                            self.data_segment_cmd_index.?,
+                            "__objc_selrefs",
+                            sect.size,
+                            sect.@"align",
+                            .{
+                                .flags = macho.S_LITERAL_POINTERS,
+                            },
+                        );
                     }
 
                     break :blk .{
                         .seg = self.data_segment_cmd_index.?,
                         .sect = self.objc_selrefs_section_index.?,
                     };
+                } else {
+                    // TODO investigate
+                    break :blk null;
                 }
-
-                // TODO investigate
-                break :blk null;
             },
             macho.S_MOD_INIT_FUNC_POINTERS => {
                 if (self.mod_init_func_section_index == null) {
-                    self.mod_init_func_section_index = @intCast(u16, data_const_seg.sections.items.len);
-                    try data_const_seg.addSection(self.base.allocator, "__mod_init_func", .{
-                        .flags = macho.S_MOD_INIT_FUNC_POINTERS,
-                    });
-                    needs_allocation = true;
+                    self.mod_init_func_section_index = try self.allocateSection(
+                        self.data_const_segment_cmd_index.?,
+                        "__mod_init_func",
+                        sect.size,
+                        sect.@"align",
+                        .{
+                            .flags = macho.S_MOD_INIT_FUNC_POINTERS,
+                        },
+                    );
                 }
 
                 break :blk .{
@@ -1244,11 +1263,15 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
             },
             macho.S_MOD_TERM_FUNC_POINTERS => {
                 if (self.mod_term_func_section_index == null) {
-                    self.mod_term_func_section_index = @intCast(u16, data_const_seg.sections.items.len);
-                    try data_const_seg.addSection(self.base.allocator, "__mod_term_func", .{
-                        .flags = macho.S_MOD_TERM_FUNC_POINTERS,
-                    });
-                    needs_allocation = true;
+                    self.mod_term_func_section_index = try self.allocateSection(
+                        self.data_const_segment_cmd_index.?,
+                        "__mod_term_func",
+                        sect.size,
+                        sect.@"align",
+                        .{
+                            .flags = macho.S_MOD_TERM_FUNC_POINTERS,
+                        },
+                    );
                 }
 
                 break :blk .{
@@ -1258,11 +1281,15 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
             },
             macho.S_ZEROFILL => {
                 if (self.bss_section_index == null) {
-                    self.bss_section_index = @intCast(u16, data_seg.sections.items.len);
-                    try data_seg.addSection(self.base.allocator, "__bss", .{
-                        .flags = macho.S_ZEROFILL,
-                    });
-                    needs_allocation = true;
+                    self.bss_section_index = try self.allocateSection(
+                        self.data_segment_cmd_index.?,
+                        "__bss",
+                        sect.size,
+                        sect.@"align",
+                        .{
+                            .flags = macho.S_ZEROFILL,
+                        },
+                    );
                 }
 
                 break :blk .{
@@ -1272,11 +1299,15 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
             },
             macho.S_THREAD_LOCAL_VARIABLES => {
                 if (self.tlv_section_index == null) {
-                    self.tlv_section_index = @intCast(u16, data_seg.sections.items.len);
-                    try data_seg.addSection(self.base.allocator, "__thread_vars", .{
-                        .flags = macho.S_THREAD_LOCAL_VARIABLES,
-                    });
-                    needs_allocation = true;
+                    self.tlv_section_index = try self.allocateSection(
+                        self.data_segment_cmd_index.?,
+                        "__thread_vars",
+                        sect.size,
+                        sect.@"align",
+                        .{
+                            .flags = macho.S_THREAD_LOCAL_VARIABLES,
+                        },
+                    );
                 }
 
                 break :blk .{
@@ -1286,11 +1317,15 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
             },
             macho.S_THREAD_LOCAL_REGULAR => {
                 if (self.tlv_data_section_index == null) {
-                    self.tlv_data_section_index = @intCast(u16, data_seg.sections.items.len);
-                    try data_seg.addSection(self.base.allocator, "__thread_data", .{
-                        .flags = macho.S_THREAD_LOCAL_REGULAR,
-                    });
-                    needs_allocation = true;
+                    self.tlv_data_section_index = try self.allocateSection(
+                        self.data_segment_cmd_index.?,
+                        "__thread_data",
+                        sect.size,
+                        sect.@"align",
+                        .{
+                            .flags = macho.S_THREAD_LOCAL_REGULAR,
+                        },
+                    );
                 }
 
                 break :blk .{
@@ -1300,11 +1335,15 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
             },
             macho.S_THREAD_LOCAL_ZEROFILL => {
                 if (self.tlv_bss_section_index == null) {
-                    self.tlv_bss_section_index = @intCast(u16, data_seg.sections.items.len);
-                    try data_seg.addSection(self.base.allocator, "__thread_bss", .{
-                        .flags = macho.S_THREAD_LOCAL_ZEROFILL,
-                    });
-                    needs_allocation = true;
+                    self.tlv_bss_section_index = try self.allocateSection(
+                        self.data_segment_cmd_index.?,
+                        "__thread_bss",
+                        sect.size,
+                        sect.@"align",
+                        .{
+                            .flags = macho.S_THREAD_LOCAL_ZEROFILL,
+                        },
+                    );
                 }
 
                 break :blk .{
@@ -1317,9 +1356,13 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
                     // TODO I believe __eh_frame is currently part of __unwind_info section
                     // in the latest ld64 output.
                     if (self.eh_frame_section_index == null) {
-                        self.eh_frame_section_index = @intCast(u16, text_seg.sections.items.len);
-                        try text_seg.addSection(self.base.allocator, "__eh_frame", .{});
-                        needs_allocation = true;
+                        self.eh_frame_section_index = try self.allocateSection(
+                            self.text_segment_cmd_index.?,
+                            "__eh_frame",
+                            sect.size,
+                            sect.@"align",
+                            .{},
+                        );
                     }
 
                     break :blk .{
@@ -1330,9 +1373,13 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
 
                 // TODO audit this: is this the right mapping?
                 if (self.data_const_section_index == null) {
-                    self.data_const_section_index = @intCast(u16, data_const_seg.sections.items.len);
-                    try data_const_seg.addSection(self.base.allocator, "__const", .{});
-                    needs_allocation = true;
+                    self.data_const_section_index = try self.allocateSection(
+                        self.data_const_segment_cmd_index.?,
+                        "__const",
+                        sect.size,
+                        sect.@"align",
+                        .{},
+                    );
                 }
 
                 break :blk .{
@@ -1343,11 +1390,17 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
             macho.S_REGULAR => {
                 if (commands.sectionIsCode(sect)) {
                     if (self.text_section_index == null) {
-                        self.text_section_index = @intCast(u16, text_seg.sections.items.len);
-                        try text_seg.addSection(self.base.allocator, "__text", .{
-                            .flags = macho.S_REGULAR | macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS,
-                        });
-                        needs_allocation = true;
+                        self.text_section_index = try self.allocateSection(
+                            self.text_segment_cmd_index.?,
+                            "__text",
+                            sect.size,
+                            sect.@"align",
+                            .{
+                                .flags = macho.S_REGULAR |
+                                    macho.S_ATTR_PURE_INSTRUCTIONS |
+                                    macho.S_ATTR_SOME_INSTRUCTIONS,
+                            },
+                        );
                     }
 
                     break :blk .{
@@ -1368,9 +1421,13 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
                 if (mem.eql(u8, segname, "__TEXT")) {
                     if (mem.eql(u8, sectname, "__ustring")) {
                         if (self.ustring_section_index == null) {
-                            self.ustring_section_index = @intCast(u16, text_seg.sections.items.len);
-                            try text_seg.addSection(self.base.allocator, "__ustring", .{});
-                            needs_allocation = true;
+                            self.ustring_section_index = try self.allocateSection(
+                                self.text_segment_cmd_index.?,
+                                "__ustring",
+                                sect.size,
+                                sect.@"align",
+                                .{},
+                            );
                         }
 
                         break :blk .{
@@ -1379,9 +1436,13 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
                         };
                     } else if (mem.eql(u8, sectname, "__gcc_except_tab")) {
                         if (self.gcc_except_tab_section_index == null) {
-                            self.gcc_except_tab_section_index = @intCast(u16, text_seg.sections.items.len);
-                            try text_seg.addSection(self.base.allocator, "__gcc_except_tab", .{});
-                            needs_allocation = true;
+                            self.gcc_except_tab_section_index = try self.allocateSection(
+                                self.text_segment_cmd_index.?,
+                                "__gcc_except_tab",
+                                sect.size,
+                                sect.@"align",
+                                .{},
+                            );
                         }
 
                         break :blk .{
@@ -1390,9 +1451,13 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
                         };
                     } else if (mem.eql(u8, sectname, "__objc_methlist")) {
                         if (self.objc_methlist_section_index == null) {
-                            self.objc_methlist_section_index = @intCast(u16, text_seg.sections.items.len);
-                            try text_seg.addSection(self.base.allocator, "__objc_methlist", .{});
-                            needs_allocation = true;
+                            self.objc_methlist_section_index = try self.allocateSection(
+                                self.text_segment_cmd_index.?,
+                                "__objc_methlist",
+                                sect.size,
+                                sect.@"align",
+                                .{},
+                            );
                         }
 
                         break :blk .{
@@ -1406,9 +1471,13 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
                         mem.eql(u8, sectname, "__gopclntab"))
                     {
                         if (self.data_const_section_index == null) {
-                            self.data_const_section_index = @intCast(u16, data_const_seg.sections.items.len);
-                            try data_const_seg.addSection(self.base.allocator, "__const", .{});
-                            needs_allocation = true;
+                            self.data_const_section_index = try self.allocateSection(
+                                self.data_const_segment_cmd_index.?,
+                                "__const",
+                                sect.size,
+                                sect.@"align",
+                                .{},
+                            );
                         }
 
                         break :blk .{
@@ -1417,9 +1486,13 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
                         };
                     } else {
                         if (self.text_const_section_index == null) {
-                            self.text_const_section_index = @intCast(u16, text_seg.sections.items.len);
-                            try text_seg.addSection(self.base.allocator, "__const", .{});
-                            needs_allocation = true;
+                            self.text_const_section_index = try self.allocateSection(
+                                self.text_segment_cmd_index.?,
+                                "__const",
+                                sect.size,
+                                sect.@"align",
+                                .{},
+                            );
                         }
 
                         break :blk .{
@@ -1431,9 +1504,13 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
 
                 if (mem.eql(u8, segname, "__DATA_CONST")) {
                     if (self.data_const_section_index == null) {
-                        self.data_const_section_index = @intCast(u16, data_const_seg.sections.items.len);
-                        try data_const_seg.addSection(self.base.allocator, "__const", .{});
-                        needs_allocation = true;
+                        self.data_const_section_index = try self.allocateSection(
+                            self.data_const_segment_cmd_index.?,
+                            "__const",
+                            sect.size,
+                            sect.@"align",
+                            .{},
+                        );
                     }
 
                     break :blk .{
@@ -1445,9 +1522,13 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
                 if (mem.eql(u8, segname, "__DATA")) {
                     if (mem.eql(u8, sectname, "__const")) {
                         if (self.data_const_section_index == null) {
-                            self.data_const_section_index = @intCast(u16, data_const_seg.sections.items.len);
-                            try data_const_seg.addSection(self.base.allocator, "__const", .{});
-                            needs_allocation = true;
+                            self.data_const_section_index = try self.allocateSection(
+                                self.data_const_segment_cmd_index.?,
+                                "__const",
+                                sect.size,
+                                sect.@"align",
+                                .{},
+                            );
                         }
 
                         break :blk .{
@@ -1456,9 +1537,13 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
                         };
                     } else if (mem.eql(u8, sectname, "__cfstring")) {
                         if (self.objc_cfstring_section_index == null) {
-                            self.objc_cfstring_section_index = @intCast(u16, data_const_seg.sections.items.len);
-                            try data_const_seg.addSection(self.base.allocator, "__cfstring", .{});
-                            needs_allocation = true;
+                            self.objc_cfstring_section_index = try self.allocateSection(
+                                self.data_const_segment_cmd_index.?,
+                                "__cfstring",
+                                sect.size,
+                                sect.@"align",
+                                .{},
+                            );
                         }
 
                         break :blk .{
@@ -1467,9 +1552,13 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
                         };
                     } else if (mem.eql(u8, sectname, "__objc_classlist")) {
                         if (self.objc_classlist_section_index == null) {
-                            self.objc_classlist_section_index = @intCast(u16, data_const_seg.sections.items.len);
-                            try data_const_seg.addSection(self.base.allocator, "__objc_classlist", .{});
-                            needs_allocation = true;
+                            self.objc_classlist_section_index = try self.allocateSection(
+                                self.data_const_segment_cmd_index.?,
+                                "__objc_classlist",
+                                sect.size,
+                                sect.@"align",
+                                .{},
+                            );
                         }
 
                         break :blk .{
@@ -1478,9 +1567,13 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
                         };
                     } else if (mem.eql(u8, sectname, "__objc_imageinfo")) {
                         if (self.objc_imageinfo_section_index == null) {
-                            self.objc_imageinfo_section_index = @intCast(u16, data_const_seg.sections.items.len);
-                            try data_const_seg.addSection(self.base.allocator, "__objc_imageinfo", .{});
-                            needs_allocation = true;
+                            self.objc_imageinfo_section_index = try self.allocateSection(
+                                self.data_const_segment_cmd_index.?,
+                                "__objc_imageinfo",
+                                sect.size,
+                                sect.@"align",
+                                .{},
+                            );
                         }
 
                         break :blk .{
@@ -1489,9 +1582,13 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
                         };
                     } else if (mem.eql(u8, sectname, "__objc_const")) {
                         if (self.objc_const_section_index == null) {
-                            self.objc_const_section_index = @intCast(u16, data_seg.sections.items.len);
-                            try data_seg.addSection(self.base.allocator, "__objc_const", .{});
-                            needs_allocation = true;
+                            self.objc_const_section_index = try self.allocateSection(
+                                self.data_segment_cmd_index.?,
+                                "__objc_const",
+                                sect.size,
+                                sect.@"align",
+                                .{},
+                            );
                         }
 
                         break :blk .{
@@ -1500,9 +1597,13 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
                         };
                     } else if (mem.eql(u8, sectname, "__objc_classrefs")) {
                         if (self.objc_classrefs_section_index == null) {
-                            self.objc_classrefs_section_index = @intCast(u16, data_seg.sections.items.len);
-                            try data_seg.addSection(self.base.allocator, "__objc_classrefs", .{});
-                            needs_allocation = true;
+                            self.objc_classrefs_section_index = try self.allocateSection(
+                                self.data_segment_cmd_index.?,
+                                "__objc_classrefs",
+                                sect.size,
+                                sect.@"align",
+                                .{},
+                            );
                         }
 
                         break :blk .{
@@ -1511,9 +1612,13 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
                         };
                     } else if (mem.eql(u8, sectname, "__objc_data")) {
                         if (self.objc_data_section_index == null) {
-                            self.objc_data_section_index = @intCast(u16, data_seg.sections.items.len);
-                            try data_seg.addSection(self.base.allocator, "__objc_data", .{});
-                            needs_allocation = true;
+                            self.objc_data_section_index = try self.allocateSection(
+                                self.data_segment_cmd_index.?,
+                                "__objc_data",
+                                sect.size,
+                                sect.@"align",
+                                .{},
+                            );
                         }
 
                         break :blk .{
@@ -1522,9 +1627,13 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
                         };
                     } else {
                         if (self.data_section_index == null) {
-                            self.data_section_index = @intCast(u16, data_seg.sections.items.len);
-                            try data_seg.addSection(self.base.allocator, "__data", .{});
-                            needs_allocation = true;
+                            self.data_section_index = try self.allocateSection(
+                                self.data_segment_cmd_index.?,
+                                "__data",
+                                sect.size,
+                                sect.@"align",
+                                .{},
+                            );
                         }
 
                         break :blk .{
@@ -1545,42 +1654,6 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
             else => break :blk null,
         }
     };
-
-    if (res) |match| {
-        _ = try self.section_ordinals.getOrPut(self.base.allocator, match);
-        _ = try self.block_free_lists.getOrPutValue(self.base.allocator, match, .{});
-
-        const use_stage1 = build_options.is_stage1 and self.base.options.use_stage1;
-        if (!use_stage1) {
-            const target_seg = &self.load_commands.items[match.seg].Segment;
-            const target_sect = &target_seg.sections.items[match.sect];
-
-            // Update section's alignment
-            // TODO if sect.@"align" > target_sect.@"align", should we move the entire
-            // section to match the required alignment?
-            target_sect.@"align" = math.max(target_sect.@"align", sect.@"align");
-
-            if (needs_allocation) {
-                const alignment = try math.powi(u32, 2, target_sect.@"align");
-                const needed_size = sect.size;
-                const off = target_seg.findFreeSpace(needed_size, alignment, self.header_pad);
-                assert(off + needed_size <= target_seg.inner.fileoff + target_seg.inner.filesize); // TODO expand
-
-                log.debug("found {s},{s} section free space 0x{x} to 0x{x}", .{
-                    segname,
-                    sectname,
-                    off,
-                    off + needed_size,
-                });
-
-                target_sect.addr = target_seg.inner.vmaddr + off;
-                target_sect.size = needed_size;
-                target_sect.offset = @intCast(u32, off);
-                self.load_commands_dirty = true;
-            }
-        }
-    }
-
     return res;
 }
 
@@ -3878,9 +3951,12 @@ pub fn populateMissingMetadata(self: *MachO) !void {
     if (self.pagezero_segment_cmd_index == null) {
         self.pagezero_segment_cmd_index = @intCast(u16, self.load_commands.items.len);
         try self.load_commands.append(self.base.allocator, .{
-            .Segment = SegmentCommand.empty("__PAGEZERO", .{
-                .vmsize = 0x100000000, // size always set to 4GB
-            }),
+            .Segment = .{
+                .inner = .{
+                    .segname = makeStaticString("__PAGEZERO"),
+                    .vmsize = 0x100000000, // size always set to 4GB
+                },
+            },
         });
         self.load_commands_dirty = true;
     }
@@ -3895,51 +3971,39 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         log.debug("found __TEXT segment free space 0x{x} to 0x{x}", .{ 0, needed_size });
 
         try self.load_commands.append(self.base.allocator, .{
-            .Segment = SegmentCommand.empty("__TEXT", .{
-                .vmaddr = 0x100000000, // always starts at 4GB
-                .vmsize = needed_size,
-                .filesize = needed_size,
-                .maxprot = macho.VM_PROT_READ | macho.VM_PROT_EXECUTE,
-                .initprot = macho.VM_PROT_READ | macho.VM_PROT_EXECUTE,
-            }),
+            .Segment = .{
+                .inner = .{
+                    .segname = makeStaticString("__TEXT"),
+                    .vmaddr = 0x100000000, // always starts at 4GB
+                    .vmsize = needed_size,
+                    .filesize = needed_size,
+                    .maxprot = macho.VM_PROT_READ | macho.VM_PROT_EXECUTE,
+                    .initprot = macho.VM_PROT_READ | macho.VM_PROT_EXECUTE,
+                },
+            },
         });
         self.load_commands_dirty = true;
     }
 
     if (self.text_section_index == null) {
-        const text_segment = &self.load_commands.items[self.text_segment_cmd_index.?].Segment;
-        self.text_section_index = @intCast(u16, text_segment.sections.items.len);
-
         const alignment: u2 = switch (self.base.options.target.cpu.arch) {
             .x86_64 => 0,
             .aarch64 => 2,
             else => unreachable, // unhandled architecture type
         };
         const needed_size = self.base.options.program_code_size_hint;
-        const off = text_segment.findFreeSpace(needed_size, @as(u16, 1) << alignment, self.header_pad);
-
-        log.debug("found __text section free space 0x{x} to 0x{x}", .{ off, off + needed_size });
-
-        try text_segment.addSection(self.base.allocator, "__text", .{
-            .addr = text_segment.inner.vmaddr + off,
-            .size = @intCast(u32, needed_size),
-            .offset = @intCast(u32, off),
-            .@"align" = alignment,
-            .flags = macho.S_REGULAR | macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS,
-        });
-        const match = MatchingSection{
-            .seg = self.text_segment_cmd_index.?,
-            .sect = self.text_section_index.?,
-        };
-        _ = try self.section_ordinals.getOrPut(self.base.allocator, match);
-        try self.block_free_lists.putNoClobber(self.base.allocator, match, .{});
-        self.load_commands_dirty = true;
+        self.text_section_index = try self.allocateSection(
+            self.text_segment_cmd_index.?,
+            "__text",
+            needed_size,
+            alignment,
+            .{
+                .flags = macho.S_REGULAR | macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS,
+            },
+        );
     }
 
     if (self.stubs_section_index == null) {
-        const text_segment = &self.load_commands.items[self.text_segment_cmd_index.?].Segment;
-        self.stubs_section_index = @intCast(u16, text_segment.sections.items.len);
-
         const alignment: u2 = switch (self.base.options.target.cpu.arch) {
             .x86_64 => 0,
             .aarch64 => 2,
@@ -3951,32 +4015,19 @@ pub fn populateMissingMetadata(self: *MachO) !void {
             else => unreachable, // unhandled architecture type
         };
         const needed_size = stub_size * self.base.options.symbol_count_hint;
-        const off = text_segment.findFreeSpace(needed_size, @alignOf(u64), self.header_pad);
-        assert(off + needed_size <= text_segment.inner.fileoff + text_segment.inner.filesize); // TODO Must expand __TEXT segment.
-
-        log.debug("found __stubs section free space 0x{x} to 0x{x}", .{ off, off + needed_size });
-
-        try text_segment.addSection(self.base.allocator, "__stubs", .{
-            .addr = text_segment.inner.vmaddr + off,
-            .size = needed_size,
-            .offset = @intCast(u32, off),
-            .@"align" = alignment,
-            .flags = macho.S_SYMBOL_STUBS | macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS,
-            .reserved2 = stub_size,
-        });
-        const match = MatchingSection{
-            .seg = self.text_segment_cmd_index.?,
-            .sect = self.stubs_section_index.?,
-        };
-        _ = try self.section_ordinals.getOrPut(self.base.allocator, match);
-        try self.block_free_lists.putNoClobber(self.base.allocator, match, .{});
-        self.load_commands_dirty = true;
+        self.stubs_section_index = try self.allocateSection(
+            self.text_segment_cmd_index.?,
+            "__stubs",
+            needed_size,
+            alignment,
+            .{
+                .flags = macho.S_SYMBOL_STUBS | macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS,
+                .reserved2 = stub_size,
+            },
+        );
     }
 
     if (self.stub_helper_section_index == null) {
-        const text_segment = &self.load_commands.items[self.text_segment_cmd_index.?].Segment;
-        self.stub_helper_section_index = @intCast(u16, text_segment.sections.items.len);
-
         const alignment: u2 = switch (self.base.options.target.cpu.arch) {
             .x86_64 => 0,
             .aarch64 => 2,
@@ -3993,25 +4044,15 @@ pub fn populateMissingMetadata(self: *MachO) !void {
             else => unreachable,
         };
         const needed_size = stub_size * self.base.options.symbol_count_hint + preamble_size;
-        const off = text_segment.findFreeSpace(needed_size, @alignOf(u64), self.header_pad);
-        assert(off + needed_size <= text_segment.inner.fileoff + text_segment.inner.filesize); // TODO Must expand __TEXT segment.
-
-        log.debug("found __stub_helper section free space 0x{x} to 0x{x}", .{ off, off + needed_size });
-
-        try text_segment.addSection(self.base.allocator, "__stub_helper", .{
-            .addr = text_segment.inner.vmaddr + off,
-            .size = needed_size,
-            .offset = @intCast(u32, off),
-            .@"align" = alignment,
-            .flags = macho.S_REGULAR | macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS,
-        });
-        const match = MatchingSection{
-            .seg = self.text_segment_cmd_index.?,
-            .sect = self.stub_helper_section_index.?,
-        };
-        _ = try self.section_ordinals.getOrPut(self.base.allocator, match);
-        try self.block_free_lists.putNoClobber(self.base.allocator, match, .{});
-        self.load_commands_dirty = true;
+        self.stub_helper_section_index = try self.allocateSection(
+            self.text_segment_cmd_index.?,
+            "__stub_helper",
+            needed_size,
+            alignment,
+            .{
+                .flags = macho.S_REGULAR | macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS,
+            },
+        );
     }
 
     if (self.data_const_segment_cmd_index == null) {
@@ -4020,45 +4061,39 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         const ideal_size = @sizeOf(u64) * self.base.options.symbol_count_hint;
         const needed_size = mem.alignForwardGeneric(u64, padToIdeal(ideal_size), self.page_size);
 
-        log.debug("found __DATA_CONST segment free space 0x{x} to 0x{x}", .{ address_and_offset.offset, address_and_offset.offset + needed_size });
+        log.debug("found __DATA_CONST segment free space 0x{x} to 0x{x}", .{
+            address_and_offset.offset,
+            address_and_offset.offset + needed_size,
+        });
 
         try self.load_commands.append(self.base.allocator, .{
-            .Segment = SegmentCommand.empty("__DATA_CONST", .{
-                .vmaddr = address_and_offset.address,
-                .vmsize = needed_size,
-                .fileoff = address_and_offset.offset,
-                .filesize = needed_size,
-                .maxprot = macho.VM_PROT_READ | macho.VM_PROT_WRITE,
-                .initprot = macho.VM_PROT_READ | macho.VM_PROT_WRITE,
-            }),
+            .Segment = .{
+                .inner = .{
+                    .segname = makeStaticString("__DATA_CONST"),
+                    .vmaddr = address_and_offset.address,
+                    .vmsize = needed_size,
+                    .fileoff = address_and_offset.offset,
+                    .filesize = needed_size,
+                    .maxprot = macho.VM_PROT_READ | macho.VM_PROT_WRITE,
+                    .initprot = macho.VM_PROT_READ | macho.VM_PROT_WRITE,
+                },
+            },
         });
         self.load_commands_dirty = true;
     }
 
     if (self.got_section_index == null) {
-        const dc_segment = &self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
-        self.got_section_index = @intCast(u16, dc_segment.sections.items.len);
-
         const needed_size = @sizeOf(u64) * self.base.options.symbol_count_hint;
-        const off = dc_segment.findFreeSpace(needed_size, @alignOf(u64), null);
-        assert(off + needed_size <= dc_segment.inner.fileoff + dc_segment.inner.filesize); // TODO Must expand __DATA_CONST segment.
-
-        log.debug("found __got section free space 0x{x} to 0x{x}", .{ off, off + needed_size });
-
-        try dc_segment.addSection(self.base.allocator, "__got", .{
-            .addr = dc_segment.inner.vmaddr + off - dc_segment.inner.fileoff,
-            .size = needed_size,
-            .offset = @intCast(u32, off),
-            .@"align" = 3, // 2^3 = @sizeOf(u64)
-            .flags = macho.S_NON_LAZY_SYMBOL_POINTERS,
-        });
-        const match = MatchingSection{
-            .seg = self.data_const_segment_cmd_index.?,
-            .sect = self.got_section_index.?,
-        };
-        _ = try self.section_ordinals.getOrPut(self.base.allocator, match);
-        try self.block_free_lists.putNoClobber(self.base.allocator, match, .{});
-        self.load_commands_dirty = true;
+        const alignment: u16 = 3; // 2^3 = @sizeOf(u64)
+        self.got_section_index = try self.allocateSection(
+            self.data_const_segment_cmd_index.?,
+            "__got",
+            needed_size,
+            alignment,
+            .{
+                .flags = macho.S_NON_LAZY_SYMBOL_POINTERS,
+            },
+        );
     }
 
     if (self.data_segment_cmd_index == null) {
@@ -4070,175 +4105,115 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         log.debug("found __DATA segment free space 0x{x} to 0x{x}", .{ address_and_offset.offset, address_and_offset.offset + needed_size });
 
         try self.load_commands.append(self.base.allocator, .{
-            .Segment = SegmentCommand.empty("__DATA", .{
-                .vmaddr = address_and_offset.address,
-                .vmsize = needed_size,
-                .fileoff = address_and_offset.offset,
-                .filesize = needed_size,
-                .maxprot = macho.VM_PROT_READ | macho.VM_PROT_WRITE,
-                .initprot = macho.VM_PROT_READ | macho.VM_PROT_WRITE,
-            }),
+            .Segment = .{
+                .inner = .{
+                    .segname = makeStaticString("__DATA"),
+                    .vmaddr = address_and_offset.address,
+                    .vmsize = needed_size,
+                    .fileoff = address_and_offset.offset,
+                    .filesize = needed_size,
+                    .maxprot = macho.VM_PROT_READ | macho.VM_PROT_WRITE,
+                    .initprot = macho.VM_PROT_READ | macho.VM_PROT_WRITE,
+                },
+            },
         });
         self.load_commands_dirty = true;
     }
 
     if (self.la_symbol_ptr_section_index == null) {
-        const data_segment = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
-        self.la_symbol_ptr_section_index = @intCast(u16, data_segment.sections.items.len);
-
         const needed_size = @sizeOf(u64) * self.base.options.symbol_count_hint;
-        const off = data_segment.findFreeSpace(needed_size, @alignOf(u64), null);
-        assert(off + needed_size <= data_segment.inner.fileoff + data_segment.inner.filesize); // TODO Must expand __DATA segment.
-
-        log.debug("found __la_symbol_ptr section free space 0x{x} to 0x{x}", .{ off, off + needed_size });
-
-        try data_segment.addSection(self.base.allocator, "__la_symbol_ptr", .{
-            .addr = data_segment.inner.vmaddr + off - data_segment.inner.fileoff,
-            .size = needed_size,
-            .offset = @intCast(u32, off),
-            .@"align" = 3, // 2^3 = @sizeOf(u64)
-            .flags = macho.S_LAZY_SYMBOL_POINTERS,
-        });
-        const match = MatchingSection{
-            .seg = self.data_segment_cmd_index.?,
-            .sect = self.la_symbol_ptr_section_index.?,
-        };
-        _ = try self.section_ordinals.getOrPut(self.base.allocator, match);
-        try self.block_free_lists.putNoClobber(self.base.allocator, match, .{});
-        self.load_commands_dirty = true;
+        const alignment: u16 = 3; // 2^3 = @sizeOf(u64)
+        self.la_symbol_ptr_section_index = try self.allocateSection(
+            self.data_segment_cmd_index.?,
+            "__la_symbol_ptr",
+            needed_size,
+            alignment,
+            .{
+                .flags = macho.S_LAZY_SYMBOL_POINTERS,
+            },
+        );
     }
 
     if (self.data_section_index == null) {
-        const data_segment = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
-        self.data_section_index = @intCast(u16, data_segment.sections.items.len);
-
         const needed_size = @sizeOf(u64) * self.base.options.symbol_count_hint;
-        const off = data_segment.findFreeSpace(needed_size, @alignOf(u64), null);
-        assert(off + needed_size <= data_segment.inner.fileoff + data_segment.inner.filesize); // TODO Must expand __DATA segment.
-
-        log.debug("found __data section free space 0x{x} to 0x{x}", .{ off, off + needed_size });
-
-        try data_segment.addSection(self.base.allocator, "__data", .{
-            .addr = data_segment.inner.vmaddr + off - data_segment.inner.fileoff,
-            .size = needed_size,
-            .offset = @intCast(u32, off),
-            .@"align" = 3, // 2^3 = @sizeOf(u64)
-        });
-        const match = MatchingSection{
-            .seg = self.data_segment_cmd_index.?,
-            .sect = self.data_section_index.?,
-        };
-        _ = try self.section_ordinals.getOrPut(self.base.allocator, match);
-        try self.block_free_lists.putNoClobber(self.base.allocator, match, .{});
-        self.load_commands_dirty = true;
+        const alignment: u16 = 3; // 2^3 = @sizeOf(u64)
+        self.data_section_index = try self.allocateSection(
+            self.data_segment_cmd_index.?,
+            "__data",
+            needed_size,
+            alignment,
+            .{},
+        );
     }
 
     if (self.tlv_section_index == null) {
-        const data_segment = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
-        self.tlv_section_index = @intCast(u16, data_segment.sections.items.len);
-
         const needed_size = @sizeOf(u64) * self.base.options.symbol_count_hint;
-        const off = data_segment.findFreeSpace(needed_size, @alignOf(u64), null);
-        assert(off + needed_size <= data_segment.inner.fileoff + data_segment.inner.filesize); // TODO Must expand __DATA segment.
-
-        log.debug("found __thread_vars section free space 0x{x} to 0x{x}", .{ off, off + needed_size });
-
-        try data_segment.addSection(self.base.allocator, "__thread_vars", .{
-            .addr = data_segment.inner.vmaddr + off - data_segment.inner.fileoff,
-            .size = needed_size,
-            .offset = @intCast(u32, off),
-            .@"align" = 3, // 2^3 = @sizeOf(u64)
-            .flags = macho.S_THREAD_LOCAL_VARIABLES,
-        });
-        const match = MatchingSection{
-            .seg = self.data_segment_cmd_index.?,
-            .sect = self.tlv_section_index.?,
-        };
-        _ = try self.section_ordinals.getOrPut(self.base.allocator, match);
-        try self.block_free_lists.putNoClobber(self.base.allocator, match, .{});
-        self.load_commands_dirty = true;
+        const alignment: u16 = 3; // 2^3 = @sizeOf(u64)
+        self.tlv_section_index = try self.allocateSection(
+            self.data_segment_cmd_index.?,
+            "__thread_vars",
+            needed_size,
+            alignment,
+            .{
+                .flags = macho.S_THREAD_LOCAL_VARIABLES,
+            },
+        );
     }
 
     if (self.tlv_data_section_index == null) {
-        const data_segment = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
-        self.tlv_data_section_index = @intCast(u16, data_segment.sections.items.len);
-
         const needed_size = @sizeOf(u64) * self.base.options.symbol_count_hint;
-        const off = data_segment.findFreeSpace(needed_size, @alignOf(u64), null);
-        assert(off + needed_size <= data_segment.inner.fileoff + data_segment.inner.filesize); // TODO Must expand __DATA segment.
-
-        log.debug("found __thread_data section free space 0x{x} to 0x{x}", .{ off, off + needed_size });
-
-        try data_segment.addSection(self.base.allocator, "__thread_data", .{
-            .addr = data_segment.inner.vmaddr + off - data_segment.inner.fileoff,
-            .size = needed_size,
-            .offset = @intCast(u32, off),
-            .@"align" = 3, // 2^3 = @sizeOf(u64)
-            .flags = macho.S_THREAD_LOCAL_REGULAR,
-        });
-        const match = MatchingSection{
-            .seg = self.data_segment_cmd_index.?,
-            .sect = self.tlv_data_section_index.?,
-        };
-        _ = try self.section_ordinals.getOrPut(self.base.allocator, match);
-        try self.block_free_lists.putNoClobber(self.base.allocator, match, .{});
-        self.load_commands_dirty = true;
+        const alignment: u16 = 3; // 2^3 = @sizeOf(u64)
+        self.tlv_data_section_index = try self.allocateSection(
+            self.data_segment_cmd_index.?,
+            "__thread_data",
+            needed_size,
+            alignment,
+            .{
+                .flags = macho.S_THREAD_LOCAL_REGULAR,
+            },
+        );
     }
 
     if (self.tlv_bss_section_index == null) {
-        const data_segment = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
-        self.tlv_bss_section_index = @intCast(u16, data_segment.sections.items.len);
-
         const needed_size = @sizeOf(u64) * self.base.options.symbol_count_hint;
-        const off = data_segment.findFreeSpace(needed_size, @alignOf(u64), null);
-        assert(off + needed_size <= data_segment.inner.fileoff + data_segment.inner.filesize); // TODO Must expand __DATA segment.
-
-        log.debug("found __thread_bss section free space 0x{x} to 0x{x}", .{ off, off + needed_size });
+        const alignment: u16 = 3; // 2^3 = @sizeOf(u64)
+        self.tlv_bss_section_index = try self.allocateSection(
+            self.data_segment_cmd_index.?,
+            "__thread_bss",
+            needed_size,
+            alignment,
+            .{
+                .flags = macho.S_THREAD_LOCAL_ZEROFILL,
+            },
+        );
 
         // We keep offset to the section in a separate variable as the actual section is usually pointing at the
         // beginning of the file.
-        self.tlv_bss_file_offset = off;
-        try data_segment.addSection(self.base.allocator, "__thread_bss", .{
-            .addr = data_segment.inner.vmaddr + off - data_segment.inner.fileoff,
-            .size = needed_size,
-            .@"align" = 3, // 2^3 = @sizeOf(u64)
-            .flags = macho.S_THREAD_LOCAL_ZEROFILL,
-        });
-        const match = MatchingSection{
-            .seg = self.data_segment_cmd_index.?,
-            .sect = self.tlv_bss_section_index.?,
-        };
-        _ = try self.section_ordinals.getOrPut(self.base.allocator, match);
-        try self.block_free_lists.putNoClobber(self.base.allocator, match, .{});
-        self.load_commands_dirty = true;
+        const seg = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
+        const out_sect = &seg.sections.items[self.tlv_bss_section_index.?];
+        self.tlv_bss_file_offset = out_sect.offset;
+        out_sect.offset = 0;
     }
 
     if (self.bss_section_index == null) {
-        const data_segment = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
-        self.bss_section_index = @intCast(u16, data_segment.sections.items.len);
-
         const needed_size = @sizeOf(u64) * self.base.options.symbol_count_hint;
-        const off = data_segment.findFreeSpace(needed_size, @alignOf(u64), null);
-        assert(off + needed_size <= data_segment.inner.fileoff + data_segment.inner.filesize); // TODO Must expand __DATA segment.
-
-        log.debug("found __bss section free space 0x{x} to 0x{x}", .{ off, off + needed_size });
+        const alignment: u16 = 3; // 2^3 = @sizeOf(u64)
+        self.bss_section_index = try self.allocateSection(
+            self.data_segment_cmd_index.?,
+            "__bss",
+            needed_size,
+            alignment,
+            .{
+                .flags = macho.S_ZEROFILL,
+            },
+        );
 
         // We keep offset to the section in a separate variable as the actual section is usually pointing at the
         // beginning of the file.
-        self.bss_file_offset = off;
-        try data_segment.addSection(self.base.allocator, "__bss", .{
-            .addr = data_segment.inner.vmaddr + off - data_segment.inner.fileoff,
-            .size = 0,
-            .@"align" = 3, // 2^3 = @sizeOf(u64)
-            .flags = macho.S_ZEROFILL,
-        });
-        const match = MatchingSection{
-            .seg = self.data_segment_cmd_index.?,
-            .sect = self.bss_section_index.?,
-        };
-        _ = try self.section_ordinals.getOrPut(self.base.allocator, match);
-        try self.block_free_lists.putNoClobber(self.base.allocator, match, .{});
-        self.load_commands_dirty = true;
+        const seg = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
+        const out_sect = &seg.sections.items[self.bss_section_index.?];
+        self.bss_file_offset = out_sect.offset;
+        out_sect.offset = 0;
     }
 
     if (self.linkedit_segment_cmd_index == null) {
@@ -4248,12 +4223,15 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         log.debug("found __LINKEDIT segment free space at 0x{x}", .{address_and_offset.offset});
 
         try self.load_commands.append(self.base.allocator, .{
-            .Segment = SegmentCommand.empty("__LINKEDIT", .{
-                .vmaddr = address_and_offset.address,
-                .fileoff = address_and_offset.offset,
-                .maxprot = macho.VM_PROT_READ,
-                .initprot = macho.VM_PROT_READ,
-            }),
+            .Segment = .{
+                .inner = .{
+                    .segname = makeStaticString("__LINKEDIT"),
+                    .vmaddr = address_and_offset.address,
+                    .fileoff = address_and_offset.offset,
+                    .maxprot = macho.VM_PROT_READ,
+                    .initprot = macho.VM_PROT_READ,
+                },
+            },
         });
         self.load_commands_dirty = true;
     }
@@ -4483,6 +4461,67 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         try self.load_commands.append(self.base.allocator, .{ .Uuid = uuid_cmd });
         self.load_commands_dirty = true;
     }
+}
+
+const AllocateSectionOpts = struct {
+    flags: u32 = macho.S_REGULAR,
+    reserved1: u32 = 0,
+    reserved2: u32 = 0,
+};
+
+fn allocateSection(
+    self: *MachO,
+    segment_id: u16,
+    sectname: []const u8,
+    size: u64,
+    alignment: u32,
+    opts: AllocateSectionOpts,
+) !u16 {
+    const seg = &self.load_commands.items[segment_id].Segment;
+    var sect = macho.section_64{
+        .sectname = makeStaticString(sectname),
+        .segname = seg.inner.segname,
+        .size = @intCast(u32, size),
+        .@"align" = alignment,
+        .flags = opts.flags,
+        .reserved1 = opts.reserved1,
+        .reserved2 = opts.reserved2,
+    };
+
+    const use_stage1 = build_options.is_stage1 and self.base.options.use_stage1;
+    if (!use_stage1) {
+        const alignment_pow_2 = try math.powi(u32, 2, alignment);
+        const padding: ?u64 = if (segment_id == self.text_segment_cmd_index.?) self.header_pad else null;
+        const off = seg.findFreeSpace(size, alignment_pow_2, padding);
+
+        assert(off + size <= seg.inner.fileoff + seg.inner.filesize); // TODO expand
+
+        log.debug("found {s},{s} section free space 0x{x} to 0x{x}", .{
+            commands.segmentName(sect),
+            commands.sectionName(sect),
+            off,
+            off + size,
+        });
+
+        sect.addr = seg.inner.vmaddr + off - seg.inner.fileoff;
+        sect.offset = @intCast(u32, off);
+    }
+
+    const index = @intCast(u16, seg.sections.items.len);
+    try seg.sections.append(self.base.allocator, sect);
+    seg.inner.cmdsize += @sizeOf(macho.section_64);
+    seg.inner.nsects += 1;
+
+    const match = MatchingSection{
+        .seg = segment_id,
+        .sect = index,
+    };
+    _ = try self.section_ordinals.getOrPut(self.base.allocator, match);
+    try self.block_free_lists.putNoClobber(self.base.allocator, match, .{});
+
+    self.load_commands_dirty = true;
+
+    return index;
 }
 
 fn allocateTextBlock(self: *MachO, text_block: *TextBlock, new_block_size: u64, alignment: u64) !u64 {
@@ -5511,6 +5550,13 @@ pub fn padToIdeal(actual_size: anytype) @TypeOf(actual_size) {
     // TODO https://github.com/ziglang/zig/issues/1284
     return std.math.add(@TypeOf(actual_size), actual_size, actual_size / ideal_factor) catch
         std.math.maxInt(@TypeOf(actual_size));
+}
+
+pub fn makeStaticString(bytes: []const u8) [16]u8 {
+    var buf = [_]u8{0} ** 16;
+    assert(bytes.len <= buf.len);
+    mem.copy(u8, &buf, bytes);
+    return buf;
 }
 
 pub fn makeString(self: *MachO, string: []const u8) !u32 {
