@@ -7,7 +7,7 @@ const minInt = std.math.minInt;
 const maxInt = std.math.maxInt;
 
 const Op = enum { add, sub, mul, shl };
-fn testSaturatingOp(op: Op, comptime T: type, test_data: [3]T) !void {
+fn testSaturatingOp(comptime op: Op, comptime T: type, test_data: [3]T) !void {
     const a = test_data[0];
     const b = test_data[1];
     const expected = test_data[2];
@@ -80,6 +80,9 @@ test "@subWithSaturation" {
 }
 
 test "@mulWithSaturation" {
+    // TODO: once #9660 has been solved, remove this line
+    if (std.builtin.target.cpu.arch == .wasm32) return error.SkipZigTest;
+
     const S = struct {
         fn doTheTest() !void {
             //                             .{a, b, expected a*b}
@@ -103,8 +106,7 @@ test "@mulWithSaturation" {
             ));
         }
     };
-    if (std.builtin.target.cpu.arch != .wasm32)
-        return error.SkipZigTest;
+
     try S.doTheTest();
     comptime try S.doTheTest();
 }
