@@ -41,6 +41,7 @@ pub const max_name_len = switch (target.os.tag) {
     .netbsd => 31,
     .freebsd => 15,
     .openbsd => 31,
+    .solaris => 31,
     else => 0,
 };
 
@@ -112,7 +113,7 @@ pub fn setName(self: Thread, name: []const u8) SetNameError!void {
                 else => |e| return os.unexpectedErrno(e),
             }
         },
-        .netbsd => if (use_pthreads) {
+        .netbsd, .solaris => if (use_pthreads) {
             const err = std.c.pthread_setname_np(self.getHandle(), name_with_terminator.ptr, null);
             switch (err) {
                 .SUCCESS => return,
@@ -202,7 +203,7 @@ pub fn getName(self: Thread, buffer_ptr: *[max_name_len:0]u8) GetNameError!?[]co
                 else => |e| return os.unexpectedErrno(e),
             }
         },
-        .netbsd => if (use_pthreads) {
+        .netbsd, .solaris => if (use_pthreads) {
             const err = std.c.pthread_getname_np(self.getHandle(), buffer.ptr, max_name_len + 1);
             switch (err) {
                 .SUCCESS => return std.mem.sliceTo(buffer, 0),
@@ -564,6 +565,16 @@ const PosixThreadImpl = struct {
                     else => |e| return e,
                 };
                 return @intCast(usize, count);
+            },
+            .solaris => {
+                // The "proper" way to get the cpu count would be to query
+                // /dev/kstat via ioctls, and traverse a linked list for each
+                // cpu.
+                const rc = c.sysconf(os._SC.NPROCESSORS_ONLN);
+                return switch (os.errno(rc)) {
+                    .SUCCESS => @intCast(usize, rc),
+                    else => |err| os.unexpectedErrno(err),
+                };
             },
             .haiku => {
                 var count: u32 = undefined;

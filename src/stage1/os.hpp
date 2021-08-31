@@ -33,6 +33,8 @@
 #define ZIG_OS_OPENBSD
 #elif defined(__HAIKU__)
 #define ZIG_OS_HAIKU
+#elif defined(__sun)
+#define ZIG_OS_SOLARIS
 #else
 #define ZIG_OS_UNKNOWN
 #endif

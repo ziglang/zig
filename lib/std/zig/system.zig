@@ -101,6 +101,17 @@ pub const NativePaths = struct {
             return self;
         }
 
+        if (comptime native_target.os.tag == .solaris) {
+            try self.addLibDir("/usr/lib/64");
+            try self.addLibDir("/usr/local/lib/64");
+            try self.addLibDir("/lib/64");
+
+            try self.addIncludeDir("/usr/include");
+            try self.addIncludeDir("/usr/local/include");
+
+            return self;
+        }
+
         if (native_target.os.tag != .windows) {
             const triple = try native_target.linuxTriple(allocator);
             const qual = native_target.cpu.arch.ptrBitWidth();
@@ -237,6 +248,18 @@ pub const NativeTargetInfo = struct {
                     if (std.builtin.Version.parse(release)) |ver| {
                         os.version_range.linux.range.min = ver;
                         os.version_range.linux.range.max = ver;
+                    } else |err| switch (err) {
+                        error.Overflow => {},
+                        error.InvalidCharacter => {},
+                        error.InvalidVersion => {},
+                    }
+                },
+                .solaris => {
+                    const uts = std.os.uname();
+                    const release = mem.spanZ(&uts.release);
+                    if (std.builtin.Version.parse(release)) |ver| {
+                        os.version_range.semver.min = ver;
+                        os.version_range.semver.max = ver;
                     } else |err| switch (err) {
                         error.Overflow => {},
                         error.InvalidCharacter => {},

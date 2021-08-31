@@ -221,6 +221,7 @@ pub const LibCInstallation = struct {
                 batch.add(&async self.findNativeIncludeDirPosix(args));
                 switch (Target.current.os.tag) {
                     .freebsd, .netbsd, .openbsd, .dragonfly => self.crt_dir = try std.mem.dupeZ(args.allocator, u8, "/usr/lib"),
+                    .solaris => self.crt_dir = try std.mem.dupeZ(args.allocator, u8, "/usr/lib/64"),
                     .linux => batch.add(&async self.findNativeCrtDirPosix(args)),
                     else => {},
                 }

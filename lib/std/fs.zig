@@ -35,7 +35,7 @@ pub const Watch = @import("fs/watch.zig").Watch;
 /// fit into a UTF-8 encoded array of this length.
 /// The byte count includes room for a null sentinel byte.
 pub const MAX_PATH_BYTES = switch (builtin.os.tag) {
-    .linux, .macos, .ios, .freebsd, .netbsd, .dragonfly, .openbsd, .haiku => os.PATH_MAX,
+    .linux, .macos, .ios, .freebsd, .netbsd, .dragonfly, .openbsd, .haiku, .solaris => os.PATH_MAX,
     // Each UTF-16LE character may be expanded to 3 UTF-8 bytes.
     // If it would require 4 UTF-8 bytes, then there would be a surrogate
     // pair in the UTF-16LE, and we (over)account 3 bytes for it that way.
@@ -298,10 +298,10 @@ pub const Dir = struct {
         pub const Kind = File.Kind;
     };
 
-    const IteratorError = error{AccessDenied} || os.UnexpectedError;
+    const IteratorError = error{ AccessDenied, SystemResources } || os.UnexpectedError;
 
     pub const Iterator = switch (builtin.os.tag) {
-        .macos, .ios, .freebsd, .netbsd, .dragonfly, .openbsd => struct {
+        .macos, .ios, .freebsd, .netbsd, .dragonfly, .openbsd, .solaris => struct {
             dir: Dir,
             seek: i64,
             buf: [8192]u8, // TODO align(@alignOf(os.system.dirent)),
@@ -318,6 +318,7 @@ pub const Dir = struct {
                 switch (builtin.os.tag) {
                     .macos, .ios => return self.nextDarwin(),
                     .freebsd, .netbsd, .dragonfly, .openbsd => return self.nextBsd(),
+                    .solaris => return self.nextSolaris(),
                     else => @compileError("unimplemented"),
                 }
             }
@@ -363,6 +364,60 @@ pub const Dir = struct {
                         os.DT.REG => Entry.Kind.File,
                         os.DT.SOCK => Entry.Kind.UnixDomainSocket,
                         os.DT.WHT => Entry.Kind.Whiteout,
+                        else => Entry.Kind.Unknown,
+                    };
+                    return Entry{
+                        .name = name,
+                        .kind = entry_kind,
+                    };
+                }
+            }
+
+            fn nextSolaris(self: *Self) !?Entry {
+                start_over: while (true) {
+                    if (self.index >= self.end_index) {
+                        const rc = os.system.getdents(self.dir.fd, &self.buf, self.buf.len);
+                        switch (os.errno(rc)) {
+                            .SUCCESS => {},
+                            .BADF => unreachable, // Dir is invalid or was opened without iteration ability
+                            .FAULT => unreachable,
+                            .NOTDIR => unreachable,
+                            .INVAL => unreachable,
+                            else => |err| return os.unexpectedErrno(err),
+                        }
+                        if (rc == 0) return null;
+                        self.index = 0;
+                        self.end_index = @intCast(usize, rc);
+                    }
+                    const entry = @ptrCast(*align(1) os.system.dirent, &self.buf[self.index]);
+                    const next_index = self.index + entry.reclen();
+                    self.index = next_index;
+
+                    const name = mem.spanZ(@ptrCast([*:0]u8, &entry.d_name));
+                    if (mem.eql(u8, name, ".") or mem.eql(u8, name, ".."))
+                        continue :start_over;
+
+                    // Solaris dirent doesn't expose d_type, so we have to call stat to get it.
+                    const stat_info = os.fstatat(
+                        self.dir.fd,
+                        name,
+                        os.AT.SYMLINK_NOFOLLOW,
+                    ) catch |err| switch (err) {
+                        error.NameTooLong => unreachable,
+                        error.SymLinkLoop => unreachable,
+                        error.FileNotFound => unreachable, // lost the race
+                        else => |e| return e,
+                    };
+                    const entry_kind = switch (stat_info.mode & os.S.IFMT) {
+                        os.S.IFIFO => Entry.Kind.NamedPipe,
+                        os.S.IFCHR => Entry.Kind.CharacterDevice,
+                        os.S.IFDIR => Entry.Kind.Directory,
+                        os.S.IFBLK => Entry.Kind.BlockDevice,
+                        os.S.IFREG => Entry.Kind.File,
+                        os.S.IFLNK => Entry.Kind.SymLink,
+                        os.S.IFSOCK => Entry.Kind.UnixDomainSocket,
+                        os.S.IFDOOR => Entry.Kind.Door,
+                        os.S.IFPORT => Entry.Kind.EventPort,
                         else => Entry.Kind.Unknown,
                     };
                     return Entry{
@@ -704,6 +759,7 @@ pub const Dir = struct {
             .netbsd,
             .dragonfly,
             .openbsd,
+            .solaris,
             => return Iterator{
                 .dir = self,
                 .seek = 0,
@@ -1556,7 +1612,7 @@ pub const Dir = struct {
             error.AccessDenied => |e| switch (builtin.os.tag) {
                 // non-Linux POSIX systems return EPERM when trying to delete a directory, so
                 // we need to handle that case specifically and translate the error
-                .macos, .ios, .freebsd, .netbsd, .dragonfly, .openbsd => {
+                .macos, .ios, .freebsd, .netbsd, .dragonfly, .openbsd, .solaris => {
                     // Don't follow symlinks to match unlinkat (which acts on symlinks rather than follows them)
                     const fstat = os.fstatatZ(self.fd, sub_path_c, os.AT.SYMLINK_NOFOLLOW) catch return e;
                     const is_dir = fstat.mode & os.S.IFMT == os.S.IFDIR;
@@ -2441,6 +2497,7 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
     }
     switch (builtin.os.tag) {
         .linux => return os.readlinkZ("/proc/self/exe", out_buffer),
+        .solaris => return os.readlinkZ("/proc/self/path/a.out", out_buffer),
         .freebsd, .dragonfly => {
             var mib = [4]c_int{ os.CTL.KERN, os.KERN.PROC, os.KERN.PROC_PATHNAME, -1 };
             var out_len: usize = out_buffer.len;

@@ -235,7 +235,6 @@ pub const Target = struct {
                     .fuchsia,
                     .kfreebsd,
                     .lv2,
-                    .solaris,
                     .zos,
                     .haiku,
                     .minix,
@@ -310,6 +309,12 @@ pub const Target = struct {
                             .max = .{ .major = 6, .minor = 0 },
                         },
                     },
+                    .solaris => return .{
+                        .semver = .{
+                            .min = .{ .major = 5, .minor = 11 },
+                            .max = .{ .major = 5, .minor = 11 },
+                        },
+                    },
 
                     .linux => return .{
                         .linux = .{
@@ -353,6 +358,7 @@ pub const Target = struct {
                 .netbsd,
                 .openbsd,
                 .dragonfly,
+                .solaris,
                 => return TaggedVersionRange{ .semver = self.version_range.semver },
 
                 else => return .none,
@@ -385,6 +391,7 @@ pub const Target = struct {
                 .dragonfly,
                 .openbsd,
                 .haiku,
+                .solaris,
                 => true,
 
                 .linux,
@@ -395,7 +402,6 @@ pub const Target = struct {
                 .fuchsia,
                 .kfreebsd,
                 .lv2,
-                .solaris,
                 .zos,
                 .minix,
                 .rtems,
@@ -1516,6 +1522,7 @@ pub const Target = struct {
             .netbsd => return copy(&result, "/libexec/ld.elf_so"),
             .openbsd => return copy(&result, "/usr/libexec/ld.so"),
             .dragonfly => return copy(&result, "/libexec/ld-elf.so.2"),
+            .solaris => return copy(&result, "/lib/64/ld.so.1"),
             .linux => switch (self.cpu.arch) {
                 .i386,
                 .sparc,
@@ -1634,7 +1641,6 @@ pub const Target = struct {
             .fuchsia,
             .kfreebsd,
             .lv2,
-            .solaris,
             .zos,
             .minix,
             .rtems,

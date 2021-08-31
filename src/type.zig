@@ -3680,6 +3680,7 @@ pub const CType = enum {
             .wasi,
             .emscripten,
             .plan9,
+            .solaris,
             => switch (self) {
                 .short,
                 .ushort,
@@ -3731,7 +3732,6 @@ pub const CType = enum {
             .fuchsia,
             .kfreebsd,
             .lv2,
-            .solaris,
             .zos,
             .haiku,
             .minix,

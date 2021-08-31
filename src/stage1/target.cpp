@@ -399,6 +399,9 @@ Error target_parse_os(Os *out_os, const char *os_ptr, size_t os_len) {
 #elif defined(ZIG_OS_HAIKU)
         *out_os = OsHaiku;
         return ErrorNone;
+#elif defined(ZIG_OS_SOLARIS)
+        *out_os = OsSolaris;
+        return ErrorNone;
 #else
         zig_panic("stage1 is unable to detect native target for this OS");
 #endif
@@ -670,6 +673,7 @@ uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
         case OsOpenBSD:
         case OsWASI:
         case OsHaiku:
+        case OsSolaris:
         case OsEmscripten:
         case OsPlan9:
             switch (id) {
@@ -728,7 +732,6 @@ uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
         case OsCloudABI:
         case OsKFreeBSD:
         case OsLv2:
-        case OsSolaris:
         case OsZOS:
         case OsMinix:
         case OsRTEMS:
