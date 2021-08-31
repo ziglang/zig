@@ -476,10 +476,6 @@ pub const SYS = enum(usize) {
 };
 
 pub const O = struct {
-    pub const RDONLY = 0o0;
-    pub const WRONLY = 0o1;
-    pub const RDWR = 0o2;
-
     pub const CREAT = 0o100;
     pub const EXCL = 0o200;
     pub const NOCTTY = 0o400;
@@ -526,32 +522,6 @@ pub const F = struct {
 };
 
 pub const MAP = struct {
-    /// Share changes
-    pub const SHARED = 0x01;
-    /// Changes are private
-    pub const PRIVATE = 0x02;
-    /// share + validate extension flags
-    pub const SHARED_VALIDATE = 0x03;
-    /// Mask for type of mapping
-    pub const TYPE = 0x0f;
-    /// Interpret addr exactly
-    pub const FIXED = 0x10;
-    /// don't use a file
-    pub const ANONYMOUS = 0x20;
-    /// populate (prefault) pagetables
-    pub const POPULATE = 0x8000;
-    /// do not block on IO
-    pub const NONBLOCK = 0x10000;
-    /// give out an address that is best suited for process/thread stacks
-    pub const STACK = 0x20000;
-    /// create a huge page mapping
-    pub const HUGETLB = 0x40000;
-    /// perform synchronous page faults for the mapping
-    pub const SYNC = 0x80000;
-    /// FIXED which doesn't unmap underlying mapping
-    pub const FIXED_NOREPLACE = 0x100000;
-    /// For anonymous mmap, memory could be uninitialized
-    pub const UNINITIALIZED = 0x4000000;
     /// only give out 32bit addresses
     pub const @"32BIT" = 0x40;
     /// stack-like segment
@@ -564,8 +534,6 @@ pub const MAP = struct {
     pub const LOCKED = 0x2000;
     /// don't check for reservations
     pub const NORESERVE = 0x4000;
-    /// Only used by libc to communicate failure.
-    pub const FAILED = @intToPtr(*c_void, maxInt(usize));
 };
 
 pub const VDSO = struct {

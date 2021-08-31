@@ -33,10 +33,6 @@ pub const pthread_attr_t = extern struct { // copied from freebsd
 
 pub const sem_t = ?*opaque {};
 
-pub fn S_ISCHR(m: u32) bool {
-    return m & S_IFMT == S_IFCHR;
-}
-
 // See:
 // - https://gitweb.dragonflybsd.org/dragonfly.git/blob/HEAD:/include/unistd.h
 // - https://gitweb.dragonflybsd.org/dragonfly.git/blob/HEAD:/sys/sys/types.h
@@ -157,10 +153,12 @@ pub const STDIN_FILENO = 0;
 pub const STDOUT_FILENO = 1;
 pub const STDERR_FILENO = 2;
 
-pub const PROT_NONE = 0;
-pub const PROT_READ = 1;
-pub const PROT_WRITE = 2;
-pub const PROT_EXEC = 4;
+pub const PROT = struct {
+    pub const NONE = 0;
+    pub const READ = 1;
+    pub const WRITE = 2;
+    pub const EXEC = 4;
+};
 
 pub const MAP = struct {
     pub const FILE = 0;
@@ -321,32 +319,34 @@ pub const X_OK = 1; // test for execute or search permission
 pub const W_OK = 2; // test for write permission
 pub const R_OK = 4; // test for read permission
 
-pub const O_RDONLY = 0;
-pub const O_NDELAY = O_NONBLOCK;
-pub const O_WRONLY = 1;
-pub const O_RDWR = 2;
-pub const O_ACCMODE = 3;
-pub const O_NONBLOCK = 4;
-pub const O_APPEND = 8;
-pub const O_SHLOCK = 16;
-pub const O_EXLOCK = 32;
-pub const O_ASYNC = 64;
-pub const O_FSYNC = 128;
-pub const O_SYNC = 128;
-pub const O_NOFOLLOW = 256;
-pub const O_CREAT = 512;
-pub const O_TRUNC = 1024;
-pub const O_EXCL = 2048;
-pub const O_NOCTTY = 32768;
-pub const O_DIRECT = 65536;
-pub const O_CLOEXEC = 131072;
-pub const O_FBLOCKING = 262144;
-pub const O_FNONBLOCKING = 524288;
-pub const O_FAPPEND = 1048576;
-pub const O_FOFFSET = 2097152;
-pub const O_FSYNCWRITE = 4194304;
-pub const O_FASYNCWRITE = 8388608;
-pub const O_DIRECTORY = 134217728;
+pub const O = struct {
+    pub const RDONLY = 0;
+    pub const NDELAY = NONBLOCK;
+    pub const WRONLY = 1;
+    pub const RDWR = 2;
+    pub const ACCMODE = 3;
+    pub const NONBLOCK = 4;
+    pub const APPEND = 8;
+    pub const SHLOCK = 16;
+    pub const EXLOCK = 32;
+    pub const ASYNC = 64;
+    pub const FSYNC = 128;
+    pub const SYNC = 128;
+    pub const NOFOLLOW = 256;
+    pub const CREAT = 512;
+    pub const TRUNC = 1024;
+    pub const EXCL = 2048;
+    pub const NOCTTY = 32768;
+    pub const DIRECT = 65536;
+    pub const CLOEXEC = 131072;
+    pub const FBLOCKING = 262144;
+    pub const FNONBLOCKING = 524288;
+    pub const FAPPEND = 1048576;
+    pub const FOFFSET = 2097152;
+    pub const FSYNCWRITE = 4194304;
+    pub const FASYNCWRITE = 8388608;
+    pub const DIRECTORY = 134217728;
+};
 
 pub const SEEK_SET = 0;
 pub const SEEK_CUR = 1;
@@ -540,81 +540,90 @@ pub const stack_t = extern struct {
     ss_flags: i32,
 };
 
-pub const S_IREAD = S_IRUSR;
-pub const S_IEXEC = S_IXUSR;
-pub const S_IWRITE = S_IWUSR;
-pub const S_IXOTH = 1;
-pub const S_IWOTH = 2;
-pub const S_IROTH = 4;
-pub const S_IRWXO = 7;
-pub const S_IXGRP = 8;
-pub const S_IWGRP = 16;
-pub const S_IRGRP = 32;
-pub const S_IRWXG = 56;
-pub const S_IXUSR = 64;
-pub const S_IWUSR = 128;
-pub const S_IRUSR = 256;
-pub const S_IRWXU = 448;
-pub const S_ISTXT = 512;
-pub const S_BLKSIZE = 512;
-pub const S_ISVTX = 512;
-pub const S_ISGID = 1024;
-pub const S_ISUID = 2048;
-pub const S_IFIFO = 4096;
-pub const S_IFCHR = 8192;
-pub const S_IFDIR = 16384;
-pub const S_IFBLK = 24576;
-pub const S_IFREG = 32768;
-pub const S_IFDB = 36864;
-pub const S_IFLNK = 40960;
-pub const S_IFSOCK = 49152;
-pub const S_IFWHT = 57344;
-pub const S_IFMT = 61440;
+pub const S = struct {
+    pub const IREAD = IRUSR;
+    pub const IEXEC = IXUSR;
+    pub const IWRITE = IWUSR;
+    pub const IXOTH = 1;
+    pub const IWOTH = 2;
+    pub const IROTH = 4;
+    pub const IRWXO = 7;
+    pub const IXGRP = 8;
+    pub const IWGRP = 16;
+    pub const IRGRP = 32;
+    pub const IRWXG = 56;
+    pub const IXUSR = 64;
+    pub const IWUSR = 128;
+    pub const IRUSR = 256;
+    pub const IRWXU = 448;
+    pub const ISTXT = 512;
+    pub const BLKSIZE = 512;
+    pub const ISVTX = 512;
+    pub const ISGID = 1024;
+    pub const ISUID = 2048;
+    pub const IFIFO = 4096;
+    pub const IFCHR = 8192;
+    pub const IFDIR = 16384;
+    pub const IFBLK = 24576;
+    pub const IFREG = 32768;
+    pub const IFDB = 36864;
+    pub const IFLNK = 40960;
+    pub const IFSOCK = 49152;
+    pub const IFWHT = 57344;
+    pub const IFMT = 61440;
 
-pub const SIG_DFL = @intToPtr(?Sigaction.sigaction_fn, 0);
-pub const SIG_IGN = @intToPtr(?Sigaction.sigaction_fn, 1);
-pub const SIG_ERR = @intToPtr(?Sigaction.sigaction_fn, maxInt(usize));
-pub const BADSIG = SIG_ERR;
+    pub fn ISCHR(m: u32) bool {
+        return m & IFMT == IFCHR;
+    }
+};
 
-pub const SIG_BLOCK = 1;
-pub const SIG_UNBLOCK = 2;
-pub const SIG_SETMASK = 3;
+pub const BADSIG = SIG.ERR;
 
-pub const SIGIOT = SIGABRT;
-pub const SIGHUP = 1;
-pub const SIGINT = 2;
-pub const SIGQUIT = 3;
-pub const SIGILL = 4;
-pub const SIGTRAP = 5;
-pub const SIGABRT = 6;
-pub const SIGEMT = 7;
-pub const SIGFPE = 8;
-pub const SIGKILL = 9;
-pub const SIGBUS = 10;
-pub const SIGSEGV = 11;
-pub const SIGSYS = 12;
-pub const SIGPIPE = 13;
-pub const SIGALRM = 14;
-pub const SIGTERM = 15;
-pub const SIGURG = 16;
-pub const SIGSTOP = 17;
-pub const SIGTSTP = 18;
-pub const SIGCONT = 19;
-pub const SIGCHLD = 20;
-pub const SIGTTIN = 21;
-pub const SIGTTOU = 22;
-pub const SIGIO = 23;
-pub const SIGXCPU = 24;
-pub const SIGXFSZ = 25;
-pub const SIGVTALRM = 26;
-pub const SIGPROF = 27;
-pub const SIGWINCH = 28;
-pub const SIGINFO = 29;
-pub const SIGUSR1 = 30;
-pub const SIGUSR2 = 31;
-pub const SIGTHR = 32;
-pub const SIGCKPT = 33;
-pub const SIGCKPTEXIT = 34;
+pub const SIG = struct {
+    pub const DFL = @intToPtr(?Sigaction.sigaction_fn, 0);
+    pub const IGN = @intToPtr(?Sigaction.sigaction_fn, 1);
+    pub const ERR = @intToPtr(?Sigaction.sigaction_fn, maxInt(usize));
+
+    pub const BLOCK = 1;
+    pub const UNBLOCK = 2;
+    pub const SETMASK = 3;
+
+    pub const IOT = ABRT;
+    pub const HUP = 1;
+    pub const INT = 2;
+    pub const QUIT = 3;
+    pub const ILL = 4;
+    pub const TRAP = 5;
+    pub const ABRT = 6;
+    pub const EMT = 7;
+    pub const FPE = 8;
+    pub const KILL = 9;
+    pub const BUS = 10;
+    pub const SEGV = 11;
+    pub const SYS = 12;
+    pub const PIPE = 13;
+    pub const ALRM = 14;
+    pub const TERM = 15;
+    pub const URG = 16;
+    pub const STOP = 17;
+    pub const TSTP = 18;
+    pub const CONT = 19;
+    pub const CHLD = 20;
+    pub const TTIN = 21;
+    pub const TTOU = 22;
+    pub const IO = 23;
+    pub const XCPU = 24;
+    pub const XFSZ = 25;
+    pub const VTALRM = 26;
+    pub const PROF = 27;
+    pub const WINCH = 28;
+    pub const INFO = 29;
+    pub const USR1 = 30;
+    pub const USR2 = 31;
+    pub const THR = 32;
+    pub const CKPT = 33;
+    pub const CKPTEXIT = 34;
+};
 
 pub const siginfo_t = extern struct {
     signo: c_int,

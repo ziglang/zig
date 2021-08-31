@@ -401,7 +401,7 @@ test "sigaltstack" {
 
 // If the type is not available use void to avoid erroring out when `iter_fn` is
 // analyzed
-const dl_phdr_info = if (@hasDecl(os, "dl_phdr_info")) os.dl_phdr_info else c_void;
+const dl_phdr_info = if (@hasDecl(os.system, "dl_phdr_info")) os.dl_phdr_info else c_void;
 
 const IterFnError = error{
     MissingPtLoadSegment,
@@ -676,7 +676,7 @@ test "fsync" {
 }
 
 test "getrlimit and setrlimit" {
-    if (native_os == .windows) {
+    if (!@hasDecl(os.system, "rlimit")) {
         return error.SkipZigTest;
     }
 

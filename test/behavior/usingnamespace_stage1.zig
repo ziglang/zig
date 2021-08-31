@@ -1,4 +1,5 @@
 const std = @import("std");
+const expect = std.testing.expect;
 
 fn Foo(comptime T: type) type {
     return struct {
@@ -19,4 +20,22 @@ usingnamespace struct {
 
 test "usingnamespace does not redeclare an imported variable" {
     comptime try std.testing.expect(@This().foo == 42);
+}
+
+usingnamespace @import("usingnamespace/foo.zig");
+test "usingnamespace omits mixing in private functions" {
+    try expect(@This().privateFunction());
+    try expect(!@This().printText());
+}
+fn privateFunction() bool {
+    return true;
+}
+
+test {
+    _ = @import("usingnamespace/import_segregation.zig");
+}
+
+usingnamespace @import("usingnamespace/a.zig");
+test "two files usingnamespace import each other" {
+    try expect(@This().ok());
 }

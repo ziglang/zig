@@ -532,26 +532,28 @@ pub const SYS = enum(usize) {
 
 pub const MMAP2_UNIT = 4096;
 
-pub const O_CREAT = 0o100;
-pub const O_EXCL = 0o200;
-pub const O_NOCTTY = 0o400;
-pub const O_TRUNC = 0o1000;
-pub const O_APPEND = 0o2000;
-pub const O_NONBLOCK = 0o4000;
-pub const O_DSYNC = 0o10000;
-pub const O_SYNC = 0o4010000;
-pub const O_RSYNC = 0o4010000;
-pub const O_DIRECTORY = 0o40000;
-pub const O_NOFOLLOW = 0o100000;
-pub const O_CLOEXEC = 0o2000000;
+pub const O = struct {
+    pub const CREAT = 0o100;
+    pub const EXCL = 0o200;
+    pub const NOCTTY = 0o400;
+    pub const TRUNC = 0o1000;
+    pub const APPEND = 0o2000;
+    pub const NONBLOCK = 0o4000;
+    pub const DSYNC = 0o10000;
+    pub const SYNC = 0o4010000;
+    pub const RSYNC = 0o4010000;
+    pub const DIRECTORY = 0o40000;
+    pub const NOFOLLOW = 0o100000;
+    pub const CLOEXEC = 0o2000000;
 
-pub const O_ASYNC = 0o20000;
-pub const O_DIRECT = 0o200000;
-pub const O_LARGEFILE = 0o400000;
-pub const O_NOATIME = 0o1000000;
-pub const O_PATH = 0o10000000;
-pub const O_TMPFILE = 0o20040000;
-pub const O_NDELAY = O_NONBLOCK;
+    pub const ASYNC = 0o20000;
+    pub const DIRECT = 0o200000;
+    pub const LARGEFILE = 0o400000;
+    pub const NOATIME = 0o1000000;
+    pub const PATH = 0o10000000;
+    pub const TMPFILE = 0o20040000;
+    pub const NDELAY = NONBLOCK;
+};
 
 pub const F = struct {
     pub const DUPFD = 0;
@@ -597,35 +599,38 @@ pub const MAP = struct {
     pub const LOCKED = 0x2000;
     /// don't check for reservations
     pub const NORESERVE = 0x4000;
-    /// Only used by libc to communicate failure.
-    pub const FAILED = @intToPtr(*c_void, maxInt(usize));
 };
-pub const VDSO_CGT_SYM = "__vdso_clock_gettime";
-pub const VDSO_CGT_VER = "LINUX_2.6";
 
-pub const HWCAP_SWP = 1 << 0;
-pub const HWCAP_HALF = 1 << 1;
-pub const HWCAP_THUMB = 1 << 2;
-pub const HWCAP_26BIT = 1 << 3;
-pub const HWCAP_FAST_MULT = 1 << 4;
-pub const HWCAP_FPA = 1 << 5;
-pub const HWCAP_VFP = 1 << 6;
-pub const HWCAP_EDSP = 1 << 7;
-pub const HWCAP_JAVA = 1 << 8;
-pub const HWCAP_IWMMXT = 1 << 9;
-pub const HWCAP_CRUNCH = 1 << 10;
-pub const HWCAP_THUMBEE = 1 << 11;
-pub const HWCAP_NEON = 1 << 12;
-pub const HWCAP_VFPv3 = 1 << 13;
-pub const HWCAP_VFPv3D16 = 1 << 14;
-pub const HWCAP_TLS = 1 << 15;
-pub const HWCAP_VFPv4 = 1 << 16;
-pub const HWCAP_IDIVA = 1 << 17;
-pub const HWCAP_IDIVT = 1 << 18;
-pub const HWCAP_VFPD32 = 1 << 19;
-pub const HWCAP_IDIV = HWCAP_IDIVA | HWCAP_IDIVT;
-pub const HWCAP_LPAE = 1 << 20;
-pub const HWCAP_EVTSTRM = 1 << 21;
+pub const VDSO = struct {
+    pub const CGT_SYM = "__vdso_clock_gettime";
+    pub const CGT_VER = "LINUX_2.6";
+};
+
+pub const HWCAP = struct {
+    pub const SWP = 1 << 0;
+    pub const HALF = 1 << 1;
+    pub const THUMB = 1 << 2;
+    pub const @"26BIT" = 1 << 3;
+    pub const FAST_MULT = 1 << 4;
+    pub const FPA = 1 << 5;
+    pub const VFP = 1 << 6;
+    pub const EDSP = 1 << 7;
+    pub const JAVA = 1 << 8;
+    pub const IWMMXT = 1 << 9;
+    pub const CRUNCH = 1 << 10;
+    pub const THUMBEE = 1 << 11;
+    pub const NEON = 1 << 12;
+    pub const VFPv3 = 1 << 13;
+    pub const VFPv3D16 = 1 << 14;
+    pub const TLS = 1 << 15;
+    pub const VFPv4 = 1 << 16;
+    pub const IDIVA = 1 << 17;
+    pub const IDIVT = 1 << 18;
+    pub const VFPD32 = 1 << 19;
+    pub const IDIV = IDIVA | IDIVT;
+    pub const LPAE = 1 << 20;
+    pub const EVTSTRM = 1 << 21;
+};
 
 pub const Flock = extern struct {
     l_type: i16,

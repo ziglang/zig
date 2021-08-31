@@ -193,7 +193,7 @@ pub const Client = struct {
     /// Disable Nagle's algorithm on a TCP socket. It returns `error.UnsupportedSocketOption` if
     /// the host does not support sockets disabling Nagle's algorithm.
     pub fn setNoDelay(self: Client, enabled: bool) !void {
-        if (comptime @hasDecl(os, "TCP_NODELAY")) {
+        if (@hasDecl(os.TCP, "NODELAY")) {
             const bytes = mem.asBytes(&@as(usize, @boolToInt(enabled)));
             return self.socket.setOption(os.IPPROTO.TCP, os.TCP_NODELAY, bytes);
         }
@@ -203,7 +203,7 @@ pub const Client = struct {
     /// Enables TCP Quick ACK on a TCP socket to immediately send rather than delay ACKs when necessary. It returns
     /// `error.UnsupportedSocketOption` if the host does not support TCP Quick ACK.
     pub fn setQuickACK(self: Client, enabled: bool) !void {
-        if (comptime @hasDecl(os, "TCP_QUICKACK")) {
+        if (@hasDecl(os.TCP, "QUICKACK")) {
             return self.socket.setOption(os.IPPROTO.TCP, os.TCP_QUICKACK, mem.asBytes(&@as(u32, @boolToInt(enabled))));
         }
         return error.UnsupportedSocketOption;
@@ -304,7 +304,7 @@ pub const Listener = struct {
     /// Enables TCP Fast Open (RFC 7413) on a TCP socket. It returns `error.UnsupportedSocketOption` if the host does not
     /// support TCP Fast Open.
     pub fn setFastOpen(self: Listener, enabled: bool) !void {
-        if (comptime @hasDecl(os, "TCP_FASTOPEN")) {
+        if (@hasDecl(os.TCP, "FASTOPEN")) {
             return self.socket.setOption(os.IPPROTO.TCP, os.TCP_FASTOPEN, mem.asBytes(&@as(u32, @boolToInt(enabled))));
         }
         return error.UnsupportedSocketOption;

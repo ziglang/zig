@@ -106,7 +106,7 @@ pub const File = struct {
         /// and `false` means `error.WouldBlock` is handled by the event loop.
         lock_nonblocking: bool = false,
 
-        /// Setting this to `.blocking` prevents `O_NONBLOCK` from being passed even
+        /// Setting this to `.blocking` prevents `O.NONBLOCK` from being passed even
         /// if `std.io.is_async`. It allows the use of `nosuspend` when calling functions
         /// related to opening the file, reading, writing, and locking.
         intended_io_mode: io.ModeOverride = io.default_mode,
@@ -167,7 +167,7 @@ pub const File = struct {
         /// be created with.
         mode: Mode = default_mode,
 
-        /// Setting this to `.blocking` prevents `O_NONBLOCK` from being passed even
+        /// Setting this to `.blocking` prevents `O.NONBLOCK` from being passed even
         /// if `std.io.is_async`. It allows the use of `nosuspend` when calling functions
         /// related to opening the file, reading, writing, and locking.
         intended_io_mode: io.ModeOverride = io.default_mode,
@@ -325,12 +325,12 @@ pub const File = struct {
             .size = @bitCast(u64, st.size),
             .mode = st.mode,
             .kind = if (builtin.os.tag == .wasi and !builtin.link_libc) switch (st.filetype) {
-                os.FILETYPE_BLOCK_DEVICE => Kind.BlockDevice,
-                os.FILETYPE_CHARACTER_DEVICE => Kind.CharacterDevice,
-                os.FILETYPE_DIRECTORY => Kind.Directory,
-                os.FILETYPE_SYMBOLIC_LINK => Kind.SymLink,
-                os.FILETYPE_REGULAR_FILE => Kind.File,
-                os.FILETYPE_SOCKET_STREAM, os.FILETYPE_SOCKET_DGRAM => Kind.UnixDomainSocket,
+                .BLOCK_DEVICE => Kind.BlockDevice,
+                .CHARACTER_DEVICE => Kind.CharacterDevice,
+                .DIRECTORY => Kind.Directory,
+                .SYMBOLIC_LINK => Kind.SymLink,
+                .REGULAR_FILE => Kind.File,
+                .SOCKET_STREAM, .SOCKET_DGRAM => Kind.UnixDomainSocket,
                 else => Kind.Unknown,
             } else switch (st.mode & os.S.IFMT) {
                 os.S.IFBLK => Kind.BlockDevice,

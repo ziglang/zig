@@ -17,6 +17,11 @@ pub const ino_t = wasi.ino_t;
 pub const mode_t = wasi.mode_t;
 pub const time_t = wasi.time_t;
 pub const timespec = wasi.timespec;
+pub const STDERR_FILENO = wasi.STDERR_FILENO;
+pub const STDIN_FILENO = wasi.STDIN_FILENO;
+pub const STDOUT_FILENO = wasi.STDOUT_FILENO;
+pub const E = wasi.E;
+pub const CLOCK = wasi.CLOCK;
 
 pub const Stat = extern struct {
     dev: i32,

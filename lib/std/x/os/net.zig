@@ -6,12 +6,13 @@ const mem = std.mem;
 const math = std.math;
 const testing = std.testing;
 const native_os = std.Target.current.os;
+const have_ifnamesize = @hasDecl(os.system, "IFNAMESIZE");
 
 /// Resolves a network interface name into a scope/zone ID. It returns
 /// an error if either resolution fails, or if the interface name is
 /// too long.
 pub fn resolveScopeID(name: []const u8) !u32 {
-    if (@hasDecl(os, "IFNAMESIZE")) {
+    if (have_ifnamesize) {
         if (name.len >= os.IFNAMESIZE - 1) return error.NameTooLong;
 
         if (native_os.tag == .windows) {
@@ -556,7 +557,7 @@ test "ipv6: parse & format" {
 }
 
 test "ipv6: parse & format addresses with scope ids" {
-    if (!@hasDecl(os, "IFNAMESIZE")) return error.SkipZigTest;
+    if (!have_ifnamesize) return error.SkipZigTest;
 
     const inputs = [_][]const u8{
         "FF01::FB%lo",

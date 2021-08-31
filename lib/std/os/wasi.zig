@@ -337,6 +337,7 @@ pub const filestat_t = extern struct {
     }
 };
 
+/// Also known as `FILETYPE`.
 pub const filetype_t = enum(u8) {
     UNKNOWN,
     BLOCK_DEVICE,
@@ -532,6 +533,7 @@ pub const timestamp_t = u64;
 
 pub const userdata_t = u64;
 
+/// Also known as `WHENCE`.
 pub const whence_t = enum(u8) { SET, CUR, END };
 
 pub const S = struct {

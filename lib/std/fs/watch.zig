@@ -250,7 +250,7 @@ pub fn Watch(comptime V: type) type {
             };
 
             // @TODO Can I close this fd and get an error from bsdWaitKev?
-            const flags = if (comptime std.Target.current.isDarwin()) os.O_SYMLINK | os.O_EVTONLY else 0;
+            const flags = if (comptime std.Target.current.isDarwin()) os.O.SYMLINK | os.O.EVTONLY else 0;
             const fd = try os.open(realpath, flags, 0);
             gop.value_ptr.putter_frame = async self.kqPutEvents(fd, gop.key_ptr.*, gop.value_ptr.*);
             return null;

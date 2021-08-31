@@ -3192,7 +3192,7 @@ pub usingnamespace switch (native_arch) {
 
 pub const EXCEPTION_POINTERS = extern struct {
     ExceptionRecord: *EXCEPTION_RECORD,
-    ContextRecord: *@This().CONTEXT,
+    ContextRecord: *std.os.windows.CONTEXT,
 };
 
 pub const VECTORED_EXCEPTION_HANDLER = fn (ExceptionInfo: *EXCEPTION_POINTERS) callconv(WINAPI) c_long;
