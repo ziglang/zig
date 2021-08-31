@@ -31,8 +31,6 @@ pub const Node = extern union {
         @"anytype",
         @"continue",
         @"break",
-        /// pub usingnamespace @import("std").zig.c_builtins
-        usingnamespace_builtins,
         // After this, the tag requires a payload.
 
         integer_literal,
@@ -119,6 +117,8 @@ pub const Node = extern union {
         ellipsis3,
         assign,
 
+        /// @import("std").zig.c_builtins.<name>
+        import_builtin,
         log2_int_type,
         /// @import("std").math.Log2Int(operand)
         std_math_Log2Int,
@@ -224,7 +224,7 @@ pub const Node = extern union {
         /// [1]type{val} ** count
         array_filler,
 
-        pub const last_no_payload_tag = Tag.usingnamespace_builtins;
+        pub const last_no_payload_tag = Tag.@"break";
         pub const no_payload_count = @enumToInt(last_no_payload_tag) + 1;
 
         pub fn Type(comptime t: Tag) type {
@@ -236,7 +236,6 @@ pub const Node = extern union {
                 .true_literal,
                 .false_literal,
                 .empty_block,
-                .usingnamespace_builtins,
                 .return_void,
                 .zero_literal,
                 .one_literal,
@@ -344,6 +343,7 @@ pub const Node = extern union {
                 .warning,
                 .type,
                 .helpers_macro,
+                .import_builtin,
                 => Payload.Value,
                 .discard => Payload.Discard,
                 .@"if" => Payload.If,
@@ -871,22 +871,6 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             try c.buf.append('\n');
             return @as(NodeIndex, 0); // error: integer value 0 cannot be coerced to type 'std.mem.Allocator.Error!u32'
         },
-        .usingnamespace_builtins => {
-            // pub usingnamespace @import("std").c.builtins;
-            _ = try c.addToken(.keyword_pub, "pub");
-            const usingnamespace_token = try c.addToken(.keyword_usingnamespace, "usingnamespace");
-            const import_node = try renderStdImport(c, &.{ "zig", "c_builtins" });
-            _ = try c.addToken(.semicolon, ";");
-
-            return c.addNode(.{
-                .tag = .@"usingnamespace",
-                .main_token = usingnamespace_token,
-                .data = .{
-                    .lhs = import_node,
-                    .rhs = undefined,
-                },
-            });
-        },
         .std_math_Log2Int => {
             const payload = node.castTag(.std_math_Log2Int).?.data;
             const import_node = try renderStdImport(c, &.{ "math", "Log2Int" });
@@ -1139,6 +1123,15 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 "zig",
                 "c_translation",
                 "Macros",
+                payload,
+            };
+            return renderStdImport(c, &chain);
+        },
+        .import_builtin => {
+            const payload = node.castTag(.import_builtin).?.data;
+            const chain = [_][]const u8{
+                "zig",
+                "c_builtins",
                 payload,
             };
             return renderStdImport(c, &chain);
@@ -2352,7 +2345,6 @@ fn renderNodeGrouped(c: *Context, node: Node) !NodeIndex {
         .@"comptime",
         .@"defer",
         .asm_simple,
-        .usingnamespace_builtins,
         .while_true,
         .if_not_break,
         .switch_else,
@@ -2371,6 +2363,7 @@ fn renderNodeGrouped(c: *Context, node: Node) !NodeIndex {
         .bit_xor_assign,
         .assign,
         .helpers_macro,
+        .import_builtin,
         => {
             // these should never appear in places where grouping might be needed.
             unreachable;
