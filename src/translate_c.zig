@@ -5248,6 +5248,23 @@ const MacroCtx = struct {
     fn makeSlicer(self: *const MacroCtx) MacroSlicer {
         return MacroSlicer{ .source = self.source, .tokens = self.list };
     }
+
+    fn containsUndefinedIdentifier(self: *MacroCtx, scope: *Scope) ?[]const u8 {
+        const slicer = self.makeSlicer();
+        var i: usize = 1; // index 0 is the macro name
+        while (i < self.list.len) : (i += 1) {
+            const token = self.list[i];
+            switch (token.id) {
+                .Period => i += 1, // skip next token since field identifiers can be unknown
+                .Identifier => {
+                    const identifier = slicer.slice(token);
+                    if (!scope.contains(identifier)) return identifier;
+                },
+                else => {},
+            }
+        }
+        return null;
+    }
 };
 
 fn tokenizeMacro(source: []const u8, tok_list: *std.ArrayList(CToken)) Error!void {
@@ -5343,6 +5360,9 @@ fn transPreprocessorEntities(c: *Context, unit: *clang.ASTUnit) Error!void {
 
 fn transMacroDefine(c: *Context, m: *MacroCtx) ParseError!void {
     const scope = &c.global_scope.base;
+
+    if (m.containsUndefinedIdentifier(scope)) |ident|
+        return m.fail(c, "unable to translate macro: undefined identifier `{s}`", .{ident});
 
     const init_node = try parseCExpr(c, m, scope);
     const last = m.next().?;
