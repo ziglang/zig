@@ -195,6 +195,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
 
     cases.add("use cast param as macro fn return type",
         \\#include <stdint.h>
+        \\#define SYS_BASE_CACHED 0
         \\#define MEM_PHYSICAL_TO_K0(x) (void*)((uint32_t)(x) + SYS_BASE_CACHED)
     , &[_][]const u8{
         \\pub inline fn MEM_PHYSICAL_TO_K0(x: anytype) ?*c_void {
@@ -364,6 +365,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     });
 
     cases.add("correct semicolon after infixop",
+        \\#define _IO_ERR_SEEN 0
         \\#define __ferror_unlocked_body(_fp) (((_fp)->_flags & _IO_ERR_SEEN) != 0)
     , &[_][]const u8{
         \\pub inline fn __ferror_unlocked_body(_fp: anytype) @TypeOf((_fp.*._flags & _IO_ERR_SEEN) != @as(c_int, 0)) {
@@ -430,6 +432,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
 
     cases.add("macro comma operator",
         \\#define foo (foo, bar)
+        \\int baz(int x, int y) { return 0; }
         \\#define bar(x) (&x, +3, 4 == 4, 5 * 6, baz(1, 2), 2 % 2, baz(1,2))
     , &[_][]const u8{
         \\pub const foo = blk: {
@@ -2573,6 +2576,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
 
     cases.add("macro call",
         \\#define CALL(arg) bar(arg)
+        \\int bar(int x) { return x; }
     , &[_][]const u8{
         \\pub inline fn CALL(arg: anytype) @TypeOf(bar(arg)) {
         \\    return bar(arg);
@@ -2581,6 +2585,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
 
     cases.add("macro call with no args",
         \\#define CALL(arg) bar()
+        \\int bar(void) { return 0; }
     , &[_][]const u8{
         \\pub inline fn CALL(arg: anytype) @TypeOf(bar()) {
         \\    _ = arg;
@@ -3139,6 +3144,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
 
     cases.add("macro cast",
         \\#include <stdint.h>
+        \\int baz(void *arg) { return 0; }
         \\#define FOO(bar) baz((void *)(baz))
         \\#define BAR (void*) a
         \\#define BAZ (uint32_t)(2)
@@ -3475,11 +3481,10 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const MAY_NEED_PROMOTION_OCT = @import("std").zig.c_translation.promoteIntLiteral(c_int, 0o20000000000, .octal);
     });
 
-    // See __builtin_alloca_with_align comment in std.zig.c_builtins
     cases.add("demote un-implemented builtins",
         \\#define FOO(X) __builtin_alloca_with_align((X), 8)
     , &[_][]const u8{
-        \\pub const FOO = @compileError("TODO implement function '__builtin_alloca_with_align' in std.zig.c_builtins");
+        \\pub const FOO = @compileError("unable to translate macro: undefined identifier `__builtin_alloca_with_align`");
     });
 
     cases.add("null sentinel arrays when initialized from string literal. Issue #8256",
@@ -3660,5 +3665,11 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\#define FOO BAR
     , &[_][]const u8{
         \\pub const FOO = @compileError("unable to translate macro: undefined identifier `BAR`");
+    });
+
+    cases.add("Macro redefines builtin",
+        \\#define FOO __builtin_popcount
+    , &[_][]const u8{
+        \\pub const FOO = __builtin_popcount;
     });
 }
