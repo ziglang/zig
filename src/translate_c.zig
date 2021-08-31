@@ -1990,6 +1990,7 @@ fn transImplicitCastExpr(
 
 fn isBuiltinDefined(name: []const u8) bool {
     inline for (meta.declarations(std.zig.c_builtins)) |decl| {
+        if (!decl.is_pub) continue;
         if (std.mem.eql(u8, name, decl.name)) return true;
     }
     return false;
