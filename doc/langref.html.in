@@ -783,7 +783,7 @@ pub fn main() void {
       Because Zig source code is {#link|UTF-8 encoded|Source Encoding#}, any non-ASCII bytes appearing within a string literal
       in source code carry their UTF-8 meaning into the content of the string in the Zig program;
       the bytes are not modified by the compiler.
-      However, it is possible to embbed non-UTF-8 bytes into a string literal using <code>\xNN</code> notation.
+      However, it is possible to embed non-UTF-8 bytes into a string literal using <code>\xNN</code> notation.
       </p>
       <p>
       Unicode code point literals have type {#syntax#}comptime_int{#endsyntax#}, the same as
