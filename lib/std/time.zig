@@ -266,11 +266,11 @@ pub const Clock = struct {
                     // Calls mach_absolute_time() internally
                     .macos, .tvos, .ios, .watchos => os.CLOCK_UPTIME_RAW,
                     // CLOCK_MONOTONIC on linux actually doesn't count time suspended (not POSIX compliant).
-                    // At some point we may change our minds on CLOCK_MONOTONIC_RAW.
+                    // At some point we may change our minds on CLOCK_MONOTONIC_RAW,
                     // but for now we're sticking with CLOCK_MONOTONIC standard.
                     // For more information, see: https://github.com/ziglang/zig/pull/933
                     .linux => os.CLOCK_MONOTONIC, // doesn't count time suspended
-                    // wasi and netbsd don't support getting time without suspend
+                    // Platforms like wasi and netbsd don't support getting time without suspend
                     else => null,
                 },
                 .thread_cputime => os.CLOCK_THREAD_CPUTIME_ID,
