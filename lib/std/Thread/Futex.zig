@@ -25,7 +25,9 @@ const spinLoopHint = std.atomic.spinLoopHint;
 ///
 /// The checking of `ptr` and `expect`, along with blocking the caller, is done atomically
 /// and totally ordered (sequentially consistent) with respect to other wait()/wake() calls on the same `ptr`.
-pub noinline fn wait(ptr: *const Atomic(u32), expect: u32, timeout: ?u64) error{TimedOut}!void {
+pub fn wait(ptr: *const Atomic(u32), expect: u32, timeout: ?u64) error{TimedOut}!void {
+    @setCold(true);
+
     // Avoid calling into the OS for no-op waits()
     if (timeout) |timeout_ns| {
         if (timeout_ns == 0) {
@@ -39,7 +41,10 @@ pub noinline fn wait(ptr: *const Atomic(u32), expect: u32, timeout: ?u64) error{
 
 /// Unblocks at most `num_waiters` callers blocked in a `wait()` call on `ptr`.
 /// `num_waiters` of 1 unblocks at most one `wait(ptr, ...)` and `maxInt(u32)` unblocks effectively all `wait(ptr, ...)`.
-pub noinline fn wake(ptr: *const Atomic(u32), num_waiters: u32) void {
+pub fn wake(ptr: *const Atomic(u32), num_waiters: u32) void {
+    @setCold(true);
+
+    // No-op if there's nothing to wake
     if (num_waiters == 0) {
         return;
     }

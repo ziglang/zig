@@ -3,7 +3,6 @@ const target = std.Target.current;
 const assert = std.debug.assert;
 const os = std.os;
 
-const NtKeyedEvent = @import("KeyedEvent.zig");
 const Atomic = std.atomic.Atomic;
 const Futex = std.Thread.Futex;
 const Semaphore = @This();
@@ -86,17 +85,19 @@ const WindowsImpl = struct {
 
     pub fn wait(self: *Impl, timeout: ?u64) error{TimedOut}!void {
         // Fast path: preemptively consume 1 from the semaphore value.
-        var value = self.value.fetchSub(1, .Acquire);
+        const value = self.value.fetchSub(1, .Acquire);
         assert(value > std.math.minInt(i32));
-        if (value > 0) {
-            return;
+        if (value <= 0) {
+            return self.waitSlow(timeout);
         }
+    }
 
+    noinline fn waitSlow(self: *Impl, timeout: ?u64) error{TimedOut}!void {
         // If there was nothing to consume, wait on the semaphore.
         // A post() will see the negative value and wake us up.
-        NtKeyedEvent.waitFor(&self.value, tiemout) catch {
+        NtKeyedEvent.waitFor(&self.value, timeout) catch {
             // If we time out, try to reverse what we did in the fast path.
-            value = self.value.load(.Monotonic);
+            var value = self.value.load(.Monotonic);
             while (value < 0) {
                 value = self.value.tryCompareAndSwap(
                     value,
@@ -116,23 +117,26 @@ const WindowsImpl = struct {
         // Fast path: bump the semaphore value by the count.
         const value = self.value.fetchAdd(count, .Release);
         assert(value <= std.math.maxInt(i32) - count);
-        if (value >= 0) {
-            return;
+        if (value < 0) {
+            self.postSlow(count, value);
         }
-        
+    }
+
+    noinline fn postSlow(self: *Impl, count: u31, value: i32) void {
         // Wake up some waiters that we posted to (doesn't touch the semaphore memory). 
-        var waiters = std.math.min(@as(u32, count), -value);
+        var waiters = std.math.min(@as(i32, count), -value);
+        assert(waiters > 0);
         while (waiters > 0) : (waiters -= 1) {
             NtKeyedEvent.release(&self.value);
         }
     }
 
     const NtKeyedEvent = struct {
-        noinline fn waitFor(key: anytype, timeout: ?u64) error{TimedOut}!void {
+        fn waitFor(key: anytype, timeout: ?u64) error{TimedOut}!void {
             return self.call("NtWaitForKeyedEvent", key, timeout);
         }
 
-        noinline fn release(key: anytype) void {
+        fn release(key: anytype) void {
             self.call("NtReleaseKeyedEvent", key, timeout) catch unreachable;
         }
 
@@ -199,83 +203,114 @@ const WindowsImpl = struct {
 };
 
 const Futex64Impl = struct {
-    /// [waiters:u32, count:i32] : LSB
-    state: Atomic(u64),
+    sema: extern union {
+        qword: Atomic(u64),
+        dword: State,
+    },
 
-    /// Get the address of [state:count].
-    /// Its the LSB for little endian and MSB for big endian.
-    fn getCountPtr(self: *const Impl) *const Atomic(i32) {
-        const big_endian = @boolToInt(target.cpu.arch.endian() == .Big);
-        const dwords = @ptrCast(*const Atomic(i32), &self.state);
-        return &dwords[big_engian];
-    }
+    const State = extern struct {
+        // The classic semaphore count (despite being signed, it doesn't become negative) 
+        count: Atomic(i32) = Atomic(i32).init(0),
+        // The number of threads waiting on the semaphore
+        waiters: u32 = 0,
+    };
 
     pub fn init(count: u31) Impl {
-        return .{ .state = Atomic(u64).init(count) };
+        return .{ .sema = .{ .dword = .{ .count = Atomic(i32).init(count) } } };
     }
 
-    /// Try to consume 1 from [state:count]
     pub fn tryWait(self: *Impl) bool {
-        var state = self.state.load(.Monotonic);
-        while (@truncate(i32, state) > 0) {
-            state = self.state.tryCompareAndSwap(
-                state,
-                state - 1,
-                .Acquire,
-                .Monotonic,
-            ) orelse return true;
-        }
-        return false;
+        return self.waitFast(true);
     }
 
     pub fn wait(self: *Impl, timeout: ?u64) error{TimedOut}!void {
-        // fast path
-        if (self.tryWait()) {
-            return;
+        if (!self.waitFast(false)) {
+            return self.waitSlow(timeout);
         }
+    }
 
-        // Prepare an absolute timeout to wait on since Futex allows spurious wake ups. 
-        var deadline = try FutexDeadline.init(timeout);
+    /// Tries to acquire the semaphore count.
+    /// If `strong`, then retries when it fails spuriously.
+    inline fn waitFast(self: *Impl, comptime strong: bool) bool {
+        var sema = self.sema.qword.load(.Monotonic);
+        while (true) {
+            var state = @bitCast(State, sema);
+            if (state.count.value == 0) {
+                return false;
+            }
 
-        // Mark that we're waiting on the state.
-        var state = self.state.fetchAdd(1 << 32, .Monotonic);
-        assert(state >> 32 != std.math.maxInt(u32));
+            state.count.value -= 1;
+            sema = self.sema.qword.tryCompareAndSwap(
+                sema,
+                @bitCast(u64, state),
+                .Acquire,
+                .Monotonic,
+            ) orelse return true;
 
-        // If we fail to consume 1 from [state:count], then mark that we're no longer waiting.
+            if (!strong) {
+                return false;
+            }
+        }
+    }
+
+    noinline fn waitSlow(self: *Impl, timeout: ?u64) error{TimedOut}!void {
+        const deadline = try FutexDeadline.init(timeout);
+
+        // Register ourselves as a waiter on the semaphore
+        const one_waiter = @bitCast(u64, State{ .waiters = 1 });
+        var sema = self.sema.qword.fetchAdd(one_waiter, .Monotonic);
+        assert(@bitCast(State, sema).waiters != std.math.maxInt(u32));
+
+        // If we timed out and failed to acquire a semaphore value
+        // then remove our waiter from the semaphore
         errdefer {
-            state = self.state.fetchSub(1 << 32, .Monotonic);
-            assert(state >> 32 != 0);
+            sema = self.seam.qword.fetchSub(one_waiter, .Monotonic);
+            assert(@bitCast(State, sema).waiters != 0);
         }
 
         while (true) {
-            // Try to consume 1 from [state:count], same as `tryWait()`
-            // but when we do, we also unmark our waiter at the same time.
-            while (@truncate(i32, state) > 0) {
-                state = self.state.tryCompareAndSwap(
-                    state,
-                    state - 1 - (1 << 32),
-                    .Acquire,
-                    .Monotonic,
-                ) orelse return;
+            var state = @bitCast(State, sema);
+            assert(state.waiters > 0);
+
+            // No values to acquire, sleep on the semaphore value futex
+            if (state.count.value == 0) {
+                try deadline.wait(&self.sema.dword.count, 0);
+                sema = self.sema.qword.load(.Monotonic);
+                continue;
             }
 
-            // Wait for the [state:count] to be non-zero by a post() and try again.
-            try deadline.wait(self.getCountPtr(), 0);
-            state = self.state.load(.Monotonic);
+            // Acquire a semaphore value by decrementing it
+            // but also removing our waiter we registered before in the process.
+            state.waiters -= 1;
+            state.count.value -= 1;
+            sema = self.sema.qword.tryCompareAndSwap(
+                sema,
+                @bitCast(u64, state),
+                .Acquire,
+                .Monotonic,
+            ) orelse return;
         }
     }
 
     pub fn post(self: *Impl, count: u31) void {
-        // Bump [state:count] atomically without touching the semaphore memory after
-        const state = self.state.fetchAdd(count, .Release);
+        // Post the count to the semaphore value
+        const count_state = @bitCast(u64, State{ .count = Atomic(i32).init(count) });
+        const sema = self.sema.qword.fetchAdd(count_state, .Release);
 
-        const value = @truncate(i32, state);
-        assert(value <= std.math.maxInt(i32) - count);
-
-        const waiters = @truncate(u32, state >> 32);
-        if (waiters > 0) {
-            Futex.wake(self.getCountPtr(), count);
+        const state = @bitCast(State, sema);
+        assert(state.count.value <= std.math.maxInt(i32) - count);
+        
+        // If there's waiters, wake some up to consume the posted count
+        if (state.waiters > 0) {
+            self.postSlow(count, state);
         }
+    }
+
+    noinline fn postSlow(self: *Impl, count: u31, state: State) void {
+        return Futex.wake(
+            @ptrCast(*const Atomic(u32), &self.sema.dword.count),
+            std.math.min(state.waiters, count), // could just be count but this is more accurate
+        );
     }
 };
 
@@ -289,20 +324,37 @@ const Futex32Impl = struct {
 
     /// Try to consume 1 from value
     pub fn tryWait(self: *Impl) bool {
+        return self.waitFast(true);
+    }
+
+    pub fn wait(self: *Impl, timeout: ?u64) error{TimedOut}!void {
+        if (!self.waitFast(false)) {
+            return self.waitSlow(timeout);
+        }
+    }
+
+    inline fn waitFast(self: *Impl, comptime strong: bool) bool {
         var value = self.value.load(.Monotonic);
-        while (value > 0) {
+        while (true) {
+            if (value <= 0) {
+                return false;
+            }
+
             value = self.value.tryCompareAndSwap(
                 value,
                 value - 1,
                 .Acquire,
                 .Monotonic,
             ) orelse return true;
+
+            if (!strong) {
+                return false;
+            }
         }
-        return false;
     }
 
-    pub fn wait(self: *Impl, timeout: ?u64) error{TimedOut}!void {
-        // fast path
+    noinline fn waitSlow(self: *Impl, timeout: ?u64) error{TimedOut}!void {
+        // Ensure that there's nothing to consume from the semaphore before waiting below.
         if (self.tryWait()) {
             return;
         }

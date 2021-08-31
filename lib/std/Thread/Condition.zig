@@ -64,19 +64,26 @@ const Futex64Impl = struct {
     } = .{ .qword = Atomic(u64).init(0) },
 
     const State = extern struct {
+        /// Sequence futex that a waiter waits on
         seq: Atomic(u32),
+        /// The number of waiters on the Condition.
+        /// Incremented and decremented by themselves.
         waiters: u16,
+        /// Claims by `wake()` threads to notify each `waiters`.
         signals: u16,
     };
 
     fn wait(self: *Impl, held: Mutex.Held, timeout: ?u64) error{TimedOut}!void {
+        // Add a waiter atomically
         const one_waiter = 1 << @bitOffsetOf(State, "waiters");
         var cond = self.cond.qword.fetchAdd(one_waiter, .Monotonic);
 
+        // Record the sequence to wait on
         var state = @bitCast(State, cond);
         const wait_seq = state.seq.loadUnchecked();
         assert(state.waiters != std.math.maxInt(u16));
 
+        // After we wake up, remove our waiter and consume a signal atomically.
         defer {
             cond = self.cond.qword.load(.Monotonic);
             while (true) {
@@ -106,16 +113,21 @@ const Futex64Impl = struct {
     fn wake(self: *Impl, notify_all: bool) void {
         var cond = self.cond.qword.load(.Monotonic);
         while (true) {
+            // Bail if there's no one to wake up
             const old_state = @bitCast(State, cond);
             if (old_state.waiters == 0) {
                 return;
             }
 
+            // Bail if other wake() threads have already committed
+            // to waking up the waiters on the Condition.
             assert(old_state.signals <= old_state.waiters);
             if (old_state.signals == old_state.waiters) {
                 return;
             }
 
+            // Claim to wake up either all waiters or one waiter.
+            // A claim also bumps the sequence to actually wake on the Futex.
             var new_state = old_state;
             new_state.seq +%= 1;
             new_state.signals = switch (notify_all) {
@@ -130,7 +142,7 @@ const Futex64Impl = struct {
                 .Monotonic,
             ) orelse return Futex.wake(
                 &self.cond.state.seq,
-                new_state.signals - old_state.signals,
+                new_state.signals - old_state.signals, // the number of waiters we claimed to wake up
             );
         }
     }
