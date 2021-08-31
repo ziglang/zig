@@ -529,7 +529,7 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/lib/std/time.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/unicode.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/zig.zig"
-    "${CMAKE_SOURCE_DIR}/lib/std/zig/ast.zig"
+    "${CMAKE_SOURCE_DIR}/lib/std/zig/Ast.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/zig/cross_target.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/zig/parse.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/zig/render.zig"

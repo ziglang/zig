@@ -16,7 +16,7 @@ const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const BigIntConst = std.math.big.int.Const;
 const BigIntMutable = std.math.big.int.Mutable;
-const ast = std.zig.ast;
+const Ast = std.zig.Ast;
 
 const Zir = @This();
 const Type = @import("type.zig").Type;
@@ -2076,7 +2076,7 @@ pub const Inst = struct {
         /// Used for unary operators, with a token source location.
         un_tok: struct {
             /// Offset from Decl AST token index.
-            src_tok: ast.TokenIndex,
+            src_tok: Ast.TokenIndex,
             /// The meaning of this operand depends on the corresponding `Tag`.
             operand: Ref,
 
@@ -2098,7 +2098,7 @@ pub const Inst = struct {
         },
         pl_tok: struct {
             /// Offset from Decl AST token index.
-            src_tok: ast.TokenIndex,
+            src_tok: Ast.TokenIndex,
             /// index into extra.
             /// `Tag` determines what lives there.
             payload_index: u32,
@@ -2134,7 +2134,7 @@ pub const Inst = struct {
             }
         },
         /// Offset from Decl AST token index.
-        tok: ast.TokenIndex,
+        tok: Ast.TokenIndex,
         /// Offset from Decl AST node index.
         node: i32,
         int: u64,
@@ -2856,9 +2856,9 @@ pub const Inst = struct {
         pub const Item = struct {
             /// null terminated string index
             msg: u32,
-            node: ast.Node.Index,
+            node: Ast.Node.Index,
             /// If node is 0 then this will be populated.
-            token: ast.TokenIndex,
+            token: Ast.TokenIndex,
             /// Can be used in combination with `token`.
             byte_offset: u32,
             /// 0 or a payload index of a `Block`, each is a payload
@@ -2875,7 +2875,7 @@ pub const Inst = struct {
             /// null terminated string index
             name: u32,
             /// points to the import name
-            token: ast.TokenIndex,
+            token: Ast.TokenIndex,
         };
     };
 };
@@ -2890,8 +2890,8 @@ const Writer = struct {
     indent: u32,
     parent_decl_node: u32,
 
-    fn relativeToNodeIndex(self: *Writer, offset: i32) ast.Node.Index {
-        return @bitCast(ast.Node.Index, offset + @bitCast(i32, self.parent_decl_node));
+    fn relativeToNodeIndex(self: *Writer, offset: i32) Ast.Node.Index {
+        return @bitCast(Ast.Node.Index, offset + @bitCast(i32, self.parent_decl_node));
     }
 
     fn writeInstToStream(

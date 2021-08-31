@@ -11,7 +11,7 @@ const log = std.log.scoped(.module);
 const BigIntConst = std.math.big.int.Const;
 const BigIntMutable = std.math.big.int.Mutable;
 const Target = std.Target;
-const ast = std.zig.ast;
+const Ast = std.zig.Ast;
 
 const Module = @This();
 const Compilation = @import("Compilation.zig");
@@ -291,7 +291,7 @@ pub const Decl = struct {
     generation: u32,
     /// The AST node index of this declaration.
     /// Must be recomputed when the corresponding source file is modified.
-    src_node: ast.Node.Index,
+    src_node: Ast.Node.Index,
     /// Line number corresponding to `src_node`. Stored separately so that source files
     /// do not need to be loaded into memory in order to compute debug line numbers.
     src_line: u32,
@@ -499,19 +499,19 @@ pub const Decl = struct {
         return decl.src_line + offset;
     }
 
-    pub fn relativeToNodeIndex(decl: Decl, offset: i32) ast.Node.Index {
-        return @bitCast(ast.Node.Index, offset + @bitCast(i32, decl.src_node));
+    pub fn relativeToNodeIndex(decl: Decl, offset: i32) Ast.Node.Index {
+        return @bitCast(Ast.Node.Index, offset + @bitCast(i32, decl.src_node));
     }
 
-    pub fn nodeIndexToRelative(decl: Decl, node_index: ast.Node.Index) i32 {
+    pub fn nodeIndexToRelative(decl: Decl, node_index: Ast.Node.Index) i32 {
         return @bitCast(i32, node_index) - @bitCast(i32, decl.src_node);
     }
 
-    pub fn tokSrcLoc(decl: Decl, token_index: ast.TokenIndex) LazySrcLoc {
+    pub fn tokSrcLoc(decl: Decl, token_index: Ast.TokenIndex) LazySrcLoc {
         return .{ .token_offset = token_index - decl.srcToken() };
     }
 
-    pub fn nodeSrcLoc(decl: Decl, node_index: ast.Node.Index) LazySrcLoc {
+    pub fn nodeSrcLoc(decl: Decl, node_index: Ast.Node.Index) LazySrcLoc {
         return .{ .node_offset = decl.nodeIndexToRelative(node_index) };
     }
 
@@ -527,7 +527,7 @@ pub const Decl = struct {
         };
     }
 
-    pub fn srcToken(decl: Decl) ast.TokenIndex {
+    pub fn srcToken(decl: Decl) Ast.TokenIndex {
         const tree = &decl.namespace.file_scope.tree;
         return tree.firstToken(decl.src_node);
     }
@@ -1121,7 +1121,7 @@ pub const Scope = struct {
         /// Whether this is populated depends on `status`.
         stat_mtime: i128,
         /// Whether this is populated or not depends on `tree_loaded`.
-        tree: ast.Tree,
+        tree: Ast,
         /// Whether this is populated or not depends on `zir_loaded`.
         zir: Zir,
         /// Package that this file is a part of, managed externally.
@@ -1220,7 +1220,7 @@ pub const Scope = struct {
             return source;
         }
 
-        pub fn getTree(file: *File, gpa: *Allocator) !*const ast.Tree {
+        pub fn getTree(file: *File, gpa: *Allocator) !*const Ast {
             if (file.tree_loaded) return &file.tree;
 
             const source = try file.getSource(gpa);
@@ -1565,17 +1565,17 @@ pub const ErrorMsg = struct {
 pub const SrcLoc = struct {
     file_scope: *Scope.File,
     /// Might be 0 depending on tag of `lazy`.
-    parent_decl_node: ast.Node.Index,
+    parent_decl_node: Ast.Node.Index,
     /// Relative to `parent_decl_node`.
     lazy: LazySrcLoc,
 
-    pub fn declSrcToken(src_loc: SrcLoc) ast.TokenIndex {
+    pub fn declSrcToken(src_loc: SrcLoc) Ast.TokenIndex {
         const tree = src_loc.file_scope.tree;
         return tree.firstToken(src_loc.parent_decl_node);
     }
 
-    pub fn declRelativeToNodeIndex(src_loc: SrcLoc, offset: i32) ast.TokenIndex {
-        return @bitCast(ast.Node.Index, offset + @bitCast(i32, src_loc.parent_decl_node));
+    pub fn declRelativeToNodeIndex(src_loc: SrcLoc, offset: i32) Ast.TokenIndex {
+        return @bitCast(Ast.Node.Index, offset + @bitCast(i32, src_loc.parent_decl_node));
     }
 
     pub fn byteOffset(src_loc: SrcLoc, gpa: *Allocator) !u32 {
@@ -1701,7 +1701,7 @@ pub const SrcLoc = struct {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node_tags = tree.nodes.items(.tag);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
-                var params: [1]ast.Node.Index = undefined;
+                var params: [1]Ast.Node.Index = undefined;
                 const full = switch (node_tags[node]) {
                     .call_one,
                     .call_one_comma,
@@ -1831,7 +1831,7 @@ pub const SrcLoc = struct {
                 const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
                 const main_tokens = tree.nodes.items(.main_token);
-                const extra = tree.extraData(node_datas[switch_node].rhs, ast.Node.SubRange);
+                const extra = tree.extraData(node_datas[switch_node].rhs, Ast.Node.SubRange);
                 const case_nodes = tree.extra_data[extra.start..extra.end];
                 for (case_nodes) |case_node| {
                     const case = switch (node_tags[case_node]) {
@@ -1857,7 +1857,7 @@ pub const SrcLoc = struct {
                 const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
                 const main_tokens = tree.nodes.items(.main_token);
-                const extra = tree.extraData(node_datas[switch_node].rhs, ast.Node.SubRange);
+                const extra = tree.extraData(node_datas[switch_node].rhs, Ast.Node.SubRange);
                 const case_nodes = tree.extra_data[extra.start..extra.end];
                 for (case_nodes) |case_node| {
                     const case = switch (node_tags[case_node]) {
@@ -1886,7 +1886,7 @@ pub const SrcLoc = struct {
                 const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
-                var params: [1]ast.Node.Index = undefined;
+                var params: [1]Ast.Node.Index = undefined;
                 const full = switch (node_tags[node]) {
                     .fn_proto_simple => tree.fnProtoSimple(&params, node),
                     .fn_proto_multi => tree.fnProtoMulti(node),
@@ -1911,7 +1911,7 @@ pub const SrcLoc = struct {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node_tags = tree.nodes.items(.tag);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
-                var params: [1]ast.Node.Index = undefined;
+                var params: [1]Ast.Node.Index = undefined;
                 const full = switch (node_tags[node]) {
                     .fn_proto_simple => tree.fnProtoSimple(&params, node),
                     .fn_proto_multi => tree.fnProtoMulti(node),
@@ -1941,7 +1941,7 @@ pub const SrcLoc = struct {
                 const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
                 const parent_node = src_loc.declRelativeToNodeIndex(node_off);
-                var params: [1]ast.Node.Index = undefined;
+                var params: [1]Ast.Node.Index = undefined;
                 const full = switch (node_tags[parent_node]) {
                     .fn_proto_simple => tree.fnProtoSimple(&params, parent_node),
                     .fn_proto_multi => tree.fnProtoMulti(parent_node),
@@ -3967,7 +3967,7 @@ fn markOutdatedDecl(mod: *Module, decl: *Decl) !void {
     decl.analysis = .outdated;
 }
 
-pub fn allocateNewDecl(mod: *Module, namespace: *Scope.Namespace, src_node: ast.Node.Index) !*Decl {
+pub fn allocateNewDecl(mod: *Module, namespace: *Scope.Namespace, src_node: Ast.Node.Index) !*Decl {
     // If we have emit-h then we must allocate a bigger structure to store the emit-h state.
     const new_decl: *Decl = if (mod.emit_h != null) blk: {
         const parent_struct = try mod.gpa.create(DeclPlusEmitH);
@@ -4237,7 +4237,7 @@ pub fn fail(
 pub fn failTok(
     mod: *Module,
     scope: *Scope,
-    token_index: ast.TokenIndex,
+    token_index: Ast.TokenIndex,
     comptime format: []const u8,
     args: anytype,
 ) CompileError {
@@ -4250,7 +4250,7 @@ pub fn failTok(
 pub fn failNode(
     mod: *Module,
     scope: *Scope,
-    node_index: ast.Node.Index,
+    node_index: Ast.Node.Index,
     comptime format: []const u8,
     args: anytype,
 ) CompileError {
@@ -4455,7 +4455,7 @@ pub const SwitchProngSrc = union(enum) {
         const main_tokens = tree.nodes.items(.main_token);
         const node_datas = tree.nodes.items(.data);
         const node_tags = tree.nodes.items(.tag);
-        const extra = tree.extraData(node_datas[switch_node].rhs, ast.Node.SubRange);
+        const extra = tree.extraData(node_datas[switch_node].rhs, Ast.Node.SubRange);
         const case_nodes = tree.extra_data[extra.start..extra.end];
 
         var multi_i: u32 = 0;
