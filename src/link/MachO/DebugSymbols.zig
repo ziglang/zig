@@ -20,7 +20,10 @@ const SrcFn = MachO.SrcFn;
 const TextBlock = MachO.TextBlock;
 const padToIdeal = MachO.padToIdeal;
 
-usingnamespace @import("commands.zig");
+const commands = @import("commands.zig");
+const emptyHeader = commands.emptyHeader;
+const LoadCommand = commands.LoadCommand;
+const SegmentCommand = commands.SegmentCommand;
 
 const page_size: u16 = 0x1000;
 

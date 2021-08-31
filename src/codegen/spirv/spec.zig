@@ -582,8 +582,8 @@ pub const Opcode = enum(u16) {
     OpSpecConstantCompositeContinuedINTEL = 6092,
     _,
 
-    const OpReportIntersectionKHR = OpReportIntersectionNV;
-    const OpTypeAccelerationStructureKHR = OpTypeAccelerationStructureNV;
+    const OpReportIntersectionKHR: Opcode = .OpReportIntersectionNV;
+    const OpTypeAccelerationStructureKHR: Opcode = .OpTypeAccelerationStructureNV;
 };
 pub const ImageOperands = packed struct {
     Bias: bool align(@alignOf(u32)) = false,

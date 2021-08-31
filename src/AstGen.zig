@@ -9072,14 +9072,6 @@ const GenZir = struct {
         return @intCast(u32, gz.decl_line + astgen.source_line);
     }
 
-    fn tokSrcLoc(gz: GenZir, token_index: ast.TokenIndex) LazySrcLoc {
-        return .{ .token_offset = token_index - gz.srcToken() };
-    }
-
-    fn nodeSrcLoc(gz: GenZir, node_index: ast.Node.Index) LazySrcLoc {
-        return .{ .node_offset = gz.nodeIndexToRelative(node_index) };
-    }
-
     fn nodeIndexToRelative(gz: GenZir, node_index: ast.Node.Index) i32 {
         return @bitCast(i32, node_index) - @bitCast(i32, gz.decl_node_index);
     }

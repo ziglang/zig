@@ -1,8 +1,8 @@
 const std = @import("std");
 const mem = std.mem;
 const testing = std.testing;
-
-usingnamespace @import("../parse.zig");
+const Tree = @import("../parse.zig").Tree;
+const Node = @import("../parse.zig").Node;
 
 test "explicit doc" {
     const source =
