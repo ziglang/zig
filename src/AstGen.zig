@@ -2878,9 +2878,8 @@ fn fnDecl(
     const tree = astgen.tree;
     const token_tags = tree.tokens.items(.tag);
 
-    const fn_name_token = fn_proto.name_token orelse {
-        return astgen.failTok(fn_proto.ast.fn_token, "missing function name", .{});
-    };
+    // missing function name already happened in scanDecls()
+    const fn_name_token = fn_proto.name_token orelse return error.AnalysisFail;
     const fn_name_str_index = try astgen.identAsString(fn_name_token);
 
     // We insert this at the beginning so that its instruction index marks the
@@ -10168,9 +10167,9 @@ fn scanDecls(astgen: *AstGen, namespace: *Scope.Namespace, members: []const ast.
     const tree = astgen.tree;
     const node_tags = tree.nodes.items(.tag);
     const main_tokens = tree.nodes.items(.main_token);
+    const token_tags = tree.tokens.items(.tag);
     for (members) |member_node| {
         const name_token = switch (node_tags[member_node]) {
-            .fn_decl,
             .fn_proto_simple,
             .fn_proto_multi,
             .fn_proto_one,
@@ -10180,6 +10179,17 @@ fn scanDecls(astgen: *AstGen, namespace: *Scope.Namespace, members: []const ast.
             .simple_var_decl,
             .aligned_var_decl,
             => main_tokens[member_node] + 1,
+
+            .fn_decl => blk: {
+                const ident = main_tokens[member_node] + 1;
+                if (token_tags[ident] != .identifier) {
+                    switch (astgen.failNode(member_node, "missing function name", .{})) {
+                        error.AnalysisFail => continue,
+                        error.OutOfMemory => return error.OutOfMemory,
+                    }
+                }
+                break :blk ident;
+            },
 
             else => continue,
         };
