@@ -118,7 +118,7 @@ pub const Node = extern union {
         assign,
 
         /// @import("std").zig.c_builtins.<name>
-        import_builtin,
+        import_c_builtin,
         log2_int_type,
         /// @import("std").math.Log2Int(operand)
         std_math_Log2Int,
@@ -343,7 +343,7 @@ pub const Node = extern union {
                 .warning,
                 .type,
                 .helpers_macro,
-                .import_builtin,
+                .import_c_builtin,
                 => Payload.Value,
                 .discard => Payload.Discard,
                 .@"if" => Payload.If,
@@ -1127,8 +1127,8 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             };
             return renderStdImport(c, &chain);
         },
-        .import_builtin => {
-            const payload = node.castTag(.import_builtin).?.data;
+        .import_c_builtin => {
+            const payload = node.castTag(.import_c_builtin).?.data;
             const chain = [_][]const u8{
                 "zig",
                 "c_builtins",
@@ -2363,7 +2363,7 @@ fn renderNodeGrouped(c: *Context, node: Node) !NodeIndex {
         .bit_xor_assign,
         .assign,
         .helpers_macro,
-        .import_builtin,
+        .import_c_builtin,
         => {
             // these should never appear in places where grouping might be needed.
             unreachable;
