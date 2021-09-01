@@ -1929,7 +1929,19 @@ pub fn allocateAtom(self: *MachO, atom: *TextBlock, match: MatchingSection) !u64
 
             const expand_section = atom_placement == null or atom_placement.?.next == null;
             if (expand_section) {
-                const max_size = seg.allocatedSize(vaddr - pagezero_vmsize);
+                const sect_offset: u64 = blk: {
+                    if (self.data_segment_cmd_index.? == match.seg) {
+                        if (self.bss_section_index) |idx| {
+                            if (idx == match.sect) break :blk self.bss_file_offset.?;
+                        }
+                        if (self.tlv_bss_section_index) |idx| {
+                            if (idx == match.sect) break :blk self.tlv_bss_file_offset.?;
+                        }
+                    }
+                    break :blk sect.offset;
+                };
+                const file_offset = sect_offset + vaddr - sect.addr;
+                const max_size = seg.allocatedSize(file_offset);
                 log.debug("  (atom size 0x{x}, max available size 0x{x})", .{ atom.size, max_size });
                 assert(atom.size <= max_size); // TODO must expand the section
             }
