@@ -1905,11 +1905,21 @@ pub fn allocateAtom(self: *MachO, atom: *TextBlock, match: MatchingSection) !u64
     const vaddr = outer: {
         if (!use_stage1) {
             const sym = &self.locals.items[atom.local_sym_index];
-            const needs_padding = blk: {
-                // TODO is __text the only section that benefits from padding?
-                if (match.seg == self.text_segment_cmd_index.? and
-                    match.sect == self.text_section_index.?) break :blk true;
-                break :blk false;
+            // Padding is not required for pointer-type sections and any synthetic sections such as
+            // stubs or stub_helper.
+            // TODO audit this.
+            const needs_padding = switch (commands.sectionType(sect.*)) {
+                macho.S_SYMBOL_STUBS,
+                macho.S_NON_LAZY_SYMBOL_POINTERS,
+                macho.S_LAZY_SYMBOL_POINTERS,
+                macho.S_LITERAL_POINTERS,
+                macho.S_THREAD_LOCAL_VARIABLES,
+                => false,
+                else => blk: {
+                    if (match.seg == self.text_segment_cmd_index.? and
+                        match.sect == self.stub_helper_section_index.?) break :blk false;
+                    break :blk true;
+                },
             };
 
             var atom_placement: ?*TextBlock = null;
