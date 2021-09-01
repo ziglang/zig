@@ -344,7 +344,7 @@ pub const Dir = struct {
                         self.index = 0;
                         self.end_index = @intCast(usize, rc);
                     }
-                    const darwin_entry = @ptrCast(*align(1) os.darwin.dirent, &self.buf[self.index]);
+                    const darwin_entry = @ptrCast(*align(1) os.dirent, &self.buf[self.index]);
                     const next_index = self.index + darwin_entry.reclen();
                     self.index = next_index;
 
@@ -2442,14 +2442,14 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
     switch (builtin.os.tag) {
         .linux => return os.readlinkZ("/proc/self/exe", out_buffer),
         .freebsd, .dragonfly => {
-            var mib = [4]c_int{ os.CTL_KERN, os.KERN_PROC, os.KERN_PROC_PATHNAME, -1 };
+            var mib = [4]c_int{ os.CTL.KERN, os.KERN.PROC, os.KERN.PROC_PATHNAME, -1 };
             var out_len: usize = out_buffer.len;
             try os.sysctl(&mib, out_buffer.ptr, &out_len, null, 0);
             // TODO could this slice from 0 to out_len instead?
             return mem.spanZ(std.meta.assumeSentinel(out_buffer.ptr, 0));
         },
         .netbsd => {
-            var mib = [4]c_int{ os.CTL_KERN, os.KERN_PROC_ARGS, -1, os.KERN_PROC_PATHNAME };
+            var mib = [4]c_int{ os.CTL.KERN, os.KERN.PROC_ARGS, -1, os.KERN.PROC_PATHNAME };
             var out_len: usize = out_buffer.len;
             try os.sysctl(&mib, out_buffer.ptr, &out_len, null, 0);
             // TODO could this slice from 0 to out_len instead?

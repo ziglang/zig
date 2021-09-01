@@ -349,15 +349,19 @@ pub const sockaddr = extern struct {
     };
 };
 
-pub const CTL_KERN = 1;
-pub const CTL_DEBUG = 5;
+pub const CTL = struct {
+    pub const KERN = 1;
+    pub const DEBUG = 5;
+};
 
-pub const KERN_PROC = 14; // struct: process entries
-pub const KERN_PROC_PATHNAME = 12; // path to executable
-pub const KERN_IOV_MAX = 35;
+pub const KERN = struct {
+    pub const PROC = 14; // struct: process entries
+    pub const PROC_PATHNAME = 12; // path to executable
+    pub const IOV_MAX = 35;
+};
 
 pub const PATH_MAX = 1024;
-pub const IOV_MAX = KERN_IOV_MAX;
+pub const IOV_MAX = KERN.IOV_MAX;
 
 pub const STDIN_FILENO = 0;
 pub const STDOUT_FILENO = 1;
@@ -413,6 +417,25 @@ pub const W = struct {
     pub const NOWAIT = 8;
     pub const EXITED = 16;
     pub const TRAPPED = 32;
+
+    pub fn EXITSTATUS(s: u32) u8 {
+        return @intCast(u8, (s & 0xff00) >> 8);
+    }
+    pub fn TERMSIG(s: u32) u32 {
+        return s & 0x7f;
+    }
+    pub fn STOPSIG(s: u32) u32 {
+        return EXITSTATUS(s);
+    }
+    pub fn IFEXITED(s: u32) bool {
+        return TERMSIG(s) == 0;
+    }
+    pub fn IFSTOPPED(s: u32) bool {
+        return @intCast(u16, (((s & 0xffff) *% 0x10001) >> 8)) > 0x7f00;
+    }
+    pub fn IFSIGNALED(s: u32) bool {
+        return (s & 0xffff) -% 1 < 0xff;
+    }
 };
 
 pub const SA = struct {
@@ -912,25 +935,6 @@ pub const T = struct {
     pub const IOCGPTN = 0x4004740f;
     pub const IOCSIG = 0x2004745f;
 };
-
-pub fn WEXITSTATUS(s: u32) u8 {
-    return @intCast(u8, (s & 0xff00) >> 8);
-}
-pub fn WTERMSIG(s: u32) u32 {
-    return s & 0x7f;
-}
-pub fn WSTOPSIG(s: u32) u32 {
-    return WEXITSTATUS(s);
-}
-pub fn WIFEXITED(s: u32) bool {
-    return WTERMSIG(s) == 0;
-}
-pub fn WIFSTOPPED(s: u32) bool {
-    return @intCast(u16, (((s & 0xffff) *% 0x10001) >> 8)) > 0x7f00;
-}
-pub fn WIFSIGNALED(s: u32) bool {
-    return (s & 0xffff) -% 1 < 0xff;
-}
 
 pub const winsize = extern struct {
     ws_row: u16,

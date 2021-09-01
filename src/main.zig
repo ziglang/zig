@@ -3828,7 +3828,7 @@ fn parseCodeModel(arg: []const u8) std.builtin.CodeModel {
 /// garbage collector to run concurrently to zig processes, and to allow multiple
 /// zig processes to run concurrently with each other, without clobbering each other.
 fn gimmeMoreOfThoseSweetSweetFileDescriptors() void {
-    if (!@hasDecl(std.os, "rlimit")) return;
+    if (!@hasDecl(std.os.system, "rlimit")) return;
     const posix = std.os;
 
     var lim = posix.getrlimit(.NOFILE) catch return; // Oh well; we tried.
