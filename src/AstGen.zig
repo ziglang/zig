@@ -7704,8 +7704,8 @@ fn saturatingArithmetic(
     gz: *GenZir,
     scope: *Scope,
     rl: ResultLoc,
-    node: ast.Node.Index,
-    params: []const ast.Node.Index,
+    node: Ast.Node.Index,
+    params: []const Ast.Node.Index,
     tag: Zir.Inst.Extended,
 ) InnerError!Zir.Inst.Ref {
     const lhs = try expr(gz, scope, .none, params[0]);
