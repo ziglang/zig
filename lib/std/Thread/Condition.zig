@@ -1,6 +1,7 @@
 const std = @import("../std.zig");
 const target = std.Target.current;
 const assert = std.debug.assert;
+const testing = std.testing;
 const os = std.os;
 
 const Atomic = std.atomic.Atomic;
@@ -264,3 +265,102 @@ const Futex32Impl = struct {
         }
     }
 };
+
+test "Condition - basic" {
+    var mutex: Mutex = .{};
+    var cond: Condition = .{};
+
+    // Test that mutex is exclusive
+    var held = mutex.acquire();
+    try testing.expectEqual(mutex.tryAcquire(), null);
+
+    // Test conditional wait + that the mutex is still locked after
+    try testing.expectError(error.TimedOut, cond.wait(held, 1));
+    try testing.expectEqual(mutex.tryAcquire(), null);
+
+    // Same thing but for a larger timeout (we can't test null timeout given nothing to wake us up).
+    try testing.expectError(error.TimedOut, cond.wait(held, 10 * std.time.ns_per_ms));
+    try testing.expectEqual(mutex.tryAcquire(), null);
+
+    // Test again that the mutex can still be acquired after releasing following a wait
+    held.release();
+    held = mutex.tryAcquire() orelse return error.MutexTryAcquire;
+    held.release();
+}
+
+const TestEvent = struct {
+    lock: Mutex = .{},
+    cond: Condition = .{},
+    signaled: bool = false,
+
+    fn doWait(self: *TestEvent) void {
+        const held = self.lock.acquire();
+        defer held.release();
+
+        while (!self.signaled) {
+            self.cond.wait(held, null) catch unreachable;
+        }
+    }
+
+    fn doSignal(self: *TestEvent, do_broadcast: bool) void {
+        const held = self.lock.acquire();
+        defer held.release();
+
+        self.signaled = true;
+        switch (do_broadcast) {
+            true => self.cond.signal(),
+            else => self.cond.broadcast(),
+        }
+    }
+};
+
+test "Condition - wait/signal" {
+    if (std.builtin.single_threaded) return error.SkipZigTest;
+
+    for ([_]bool{ false, true }) |do_broadcast| {
+        var event = TestEvent{};
+        var wait_thread = try std.Thread.spawn(.{}, TestEvent.doWait, .{&event});
+
+        event.doSignal(do_broadcast);
+        wait_thread.join();
+    }
+}
+
+test "Condition - chain signal" {
+    if (std.builtin.single_threaded) return error.SkipZigTest;
+
+    const num_threads = 4;
+    const Context = struct {
+        runners: [num_threads]Runner = undefined,
+
+        const Runner = struct {
+            event: TestEvent = .{},
+            thread: std.Thread = undefined,
+        };
+
+        fn run(self: *@This(), index: usize, do_broadcast: bool) void {
+            self.runners[index].event.doWait();
+            
+            const next = index + 1;
+            if (next == self.runners.len) return;
+            self.runners[next].event.doSignal(do_broadcast);
+        }
+    };
+
+    for ([_]bool{ true, false }) |do_broadcast| {
+        var context = Context{};
+        for (context.runners) |*r, i| {
+            r.* = .{};
+            r.thread = try std.Thread.spawn(.{}, Context.run, .{&context, i, do_broadcast});
+        }
+
+        context.runners[0].event.doSignal(do_broadcast);
+        for (context.runners) |r| {
+            r.thread.join();
+        }
+    }
+}
+
+test "Condition - join broadcast" {
+
+}

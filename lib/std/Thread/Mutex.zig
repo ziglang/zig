@@ -12,20 +12,20 @@ const Mutex = @This();
 impl: Impl = .{},
 
 pub fn tryAcquire(self: *Mutex) ?Held {
-    if (self.impl.tryAcquire()) return Held{ .lock = self };
+    if (self.impl.tryAcquire()) return Held{ .mutex = self };
     return null;
 }
 
 pub fn acquire(self: *Mutex) Held {
     self.impl.acquire();
-    return Held{ .lock = self };
+    return Held{ .mutex = self };
 }
 
 pub const Held = struct {
-    lock: *Mutex,
+    mutex: *Mutex,
 
     pub fn release(self: Held) void {
-        self.lock.impl.release();
+        self.mutex.impl.release();
     }
 };
 
@@ -198,20 +198,24 @@ const FutexImpl = struct {
     }
 };
 
-test "Mutex - tryAcquire/release" {
+test "Mutex - basic" {
     var mutex = Mutex{};
     
+    // Test that tryAcquire() is mutually exclusive
     var held = mutex.tryAcquire() orelse return error.MutexTryAcquire;
     try testing.expectEqual(mutex.tryAcquire(), null);
     try testing.expectEqual(mutex.tryAcquire(), null);
     held.release();
 
-    held = mutex.tryAcquire() orelse return error.MutexTryAcquire;
+    // Also test with acquire()
+    held = mutex.acquire();
     try testing.expectEqual(mutex.tryAcquire(), null);
     held.release();
 }
 
 test "Mutex - racy" {
+    if (std.builtin.single_threaded) return error.SkipZigTest;
+
     const num_threads = 4;
     const num_iters_per_thread = 100;
 
