@@ -3424,7 +3424,7 @@ const Writer = struct {
         try self.writeBody(stream, body);
         self.indent -= 2;
         try stream.writeByteNTimes(' ', self.indent);
-        try stream.writeAll(") ");
+        try stream.writeAll("}) ");
         try self.writeSrc(stream, inst_data.src());
     }
 
