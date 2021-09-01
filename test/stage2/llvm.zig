@@ -242,4 +242,64 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
         , "");
     }
+
+    {
+        var case = ctx.exeUsingLlvmBackend("address space pointer coercions", linux_x64);
+        case.addError(
+            \\fn entry(a: *addrspace(.gs) i32) *i32 {
+            \\    return a;
+            \\}
+            \\pub export fn main() void { _ = entry; }
+        , &[_][]const u8{
+            ":2:12: error: expected *i32, found *addrspace(.gs) i32",
+        });
+
+        case.compiles(
+            \\fn entry(a: *addrspace(.gs) i32) *addrspace(.gs) i32 {
+            \\    return a;
+            \\}
+            \\pub export fn main() void { _ = entry; }
+        );
+
+        case.compiles(
+            \\fn entry(a: *addrspace(.generic) i32) *i32 {
+            \\    return a;
+            \\}
+            \\pub export fn main() void { _ = entry; }
+        );
+
+        case.addError(
+            \\fn entry(a: *addrspace(.gs) i32) *addrspace(.fs) i32 {
+            \\    return a;
+            \\}
+            \\pub export fn main() void { _ = entry; }
+        , &[_][]const u8{
+            ":2:12: error: expected *addrspace(.fs) i32, found *addrspace(.gs) i32",
+        });
+
+        case.addError(
+            \\fn entry(a: ?*addrspace(.gs) i32) *i32 {
+            \\    return a.?;
+            \\}
+            \\pub export fn main() void { _ = entry; }
+        , &[_][]const u8{
+            ":2:13: error: expected *i32, found *addrspace(.gs) i32",
+        });
+
+        case.addError(
+            \\fn entry(a: *addrspace(.gs) i32) *i32 {
+            \\    return &a.*;
+            \\}
+            \\pub export fn main() void { _ = entry; }
+        , &[_][]const u8{
+            ":2:12: error: expected *i32, found *addrspace(.gs) i32",
+        });
+
+        case.compiles(
+            \\fn entry(a: *addrspace(.gs) i32) *addrspace(.gs) i32 {
+            \\    return &a.*;
+            \\}
+            \\pub export fn main() void { _ = entry; }
+        );
+    }
 }
