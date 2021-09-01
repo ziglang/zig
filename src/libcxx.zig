@@ -121,10 +121,12 @@ pub fn buildLibCXX(comp: *Compilation) !void {
                 continue;
         }
 
-        if (target.os.tag != .windows) {
-            if (std.mem.startsWith(u8, cxx_src, "src/support/win32/"))
-                continue;
-        }
+        if (std.mem.startsWith(u8, cxx_src, "src/support/win32/") and target.os.tag != .windows)
+            continue;
+        if (std.mem.startsWith(u8, cxx_src, "src/support/solaris/") and target.os.tag != .solaris)
+            continue;
+        if (std.mem.startsWith(u8, cxx_src, "src/support/ibm/") and target.os.tag != .zos)
+            continue;
 
         try cflags.append("-DNDEBUG");
         try cflags.append("-D_LIBCPP_BUILDING_LIBRARY");
