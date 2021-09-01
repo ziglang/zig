@@ -3080,15 +3080,15 @@ pub const SS_AUTODISARM = 1 << 31;
 pub const stack_t = if (is_mips)
     // IRIX compatible stack_t
     extern struct {
-        ss_sp: [*]u8,
-        ss_size: usize,
-        ss_flags: i32,
+        sp: [*]u8,
+        size: usize,
+        flags: i32,
     }
 else
     extern struct {
-        ss_sp: [*]u8,
-        ss_flags: i32,
-        ss_size: usize,
+        sp: [*]u8,
+        flags: i32,
+        size: usize,
     };
 
 pub const sigval = extern union {

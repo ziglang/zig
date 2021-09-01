@@ -547,9 +547,9 @@ pub const NOTE_FFCOPY = 3221225472;
 pub const NOTE_PCTRLMASK = 4026531840;
 
 pub const stack_t = extern struct {
-    ss_sp: [*]u8,
-    ss_size: isize,
-    ss_flags: i32,
+    sp: [*]u8,
+    size: isize,
+    flags: i32,
 };
 
 pub const S = struct {

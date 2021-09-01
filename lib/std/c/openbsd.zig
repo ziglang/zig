@@ -1007,9 +1007,9 @@ pub const SS_ONSTACK = 0x0001;
 pub const SS_DISABLE = 0x0004;
 
 pub const stack_t = extern struct {
-    ss_sp: [*]u8,
-    ss_size: usize,
-    ss_flags: c_int,
+    sp: [*]u8,
+    size: usize,
+    flags: c_int,
 };
 
 pub const S = struct {
