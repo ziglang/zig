@@ -1039,9 +1039,11 @@ pub const mcontext_t = extern struct {
     fpregs: [512]u8 align(8),
 };
 
-pub const REG_RBP = 12;
-pub const REG_RIP = 21;
-pub const REG_RSP = 24;
+pub const REG = struct {
+    pub const RBP = 12;
+    pub const RIP = 21;
+    pub const RSP = 24;
+};
 
 pub const ucontext_t = extern struct {
     flags: u32,
@@ -1206,9 +1208,9 @@ pub const SS_ONSTACK = 1;
 pub const SS_DISABLE = 4;
 
 pub const stack_t = extern struct {
-    ss_sp: [*]u8,
-    ss_size: isize,
-    ss_flags: i32,
+    sp: [*]u8,
+    size: isize,
+    flags: i32,
 };
 
 pub const S = struct {

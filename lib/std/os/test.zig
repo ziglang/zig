@@ -394,8 +394,8 @@ test "sigaltstack" {
     var st: os.stack_t = undefined;
     try os.sigaltstack(null, &st);
     // Setting a stack size less than MINSIGSTKSZ returns ENOMEM
-    st.ss_flags = 0;
-    st.ss_size = 1;
+    st.flags = 0;
+    st.size = 1;
     try testing.expectError(error.SizeTooSmall, os.sigaltstack(&st, null));
 }
 
