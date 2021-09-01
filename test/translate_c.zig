@@ -3678,4 +3678,10 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub const FOO = @compileError("unable to translate macro: undefined identifier `std`");
     });
+
+    cases.add("Macro without a value",
+        \\#define FOO
+    , &[_][]const u8{
+        \\pub const FOO = "";
+    });
 }
