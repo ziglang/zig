@@ -5812,32 +5812,20 @@ test "@intToPtr for pointer to zero bit type" {
 
       {#header_open|usingnamespace#}
       <p>
-      {#syntax#}usingnamespace{#endsyntax#} is a declaration that imports all the public declarations of
-      the operand, which must be a {#link|struct#}, {#link|union#}, or {#link|enum#}, into the current scope:
+      {#syntax#}usingnamespace{#endsyntax#} is a declaration that mixes all the public
+      declarations of the operand, which must be a {#link|struct#}, {#link|union#}, {#link|enum#},
+      or {#link|opaque#}, into the namespace:
       </p>
       {#code_begin|test|usingnamespace#}
-usingnamespace @import("std");
-
 test "using std namespace" {
-    try testing.expect(true);
-}
-      {#code_end#}
-      <p>
-      {#syntax#}usingnamespace{#endsyntax#} can also be used in containers:
-      </p>
-      {#code_begin|test|usingnamespace_inside_struct#}
-test "using namespace inside struct" {
-    const L = struct {
-        usingnamespace struct {
-            pub fn f() void {}
-        };
+    const S = struct {
+        usingnamespace @import("std");
     };
-    L.f();
+    try S.testing.expect(true);
 }
       {#code_end#}
       <p>
-      Instead of the above pattern, it is generally recommended to explicitly alias individual declarations.
-      However, {#syntax#}usingnamespace{#endsyntax#} has an important use case when organizing the public
+      {#syntax#}usingnamespace{#endsyntax#} has an important use case when organizing the public
       API of a file or package. For example, one might have <code>c.zig</code> with all of the
       {#link|C imports|Import from C Header File#}:
       </p>
@@ -5857,6 +5845,7 @@ pub usingnamespace @cImport({
       over what declarations a given file exposes.
       </p>
       {#header_close#}
+
 
       {#header_open|comptime#}
       <p>
