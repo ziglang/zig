@@ -271,9 +271,7 @@ pub const GotIndirectionKey = struct {
 const ideal_factor = 2;
 
 /// Default path to dyld
-/// TODO instead of hardcoding it, we should probably look through some env vars and search paths
-/// instead but this will do for now.
-const DEFAULT_DYLD_PATH: [*:0]const u8 = "/usr/lib/dyld";
+const default_dyld_path: [*:0]const u8 = "/usr/lib/dyld";
 
 /// In order for a slice of bytes to be considered eligible to keep metadata pointing at
 /// it as a possible place to put new symbols, it must have enough room for this many bytes
@@ -4315,7 +4313,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         self.dylinker_cmd_index = @intCast(u16, self.load_commands.items.len);
         const cmdsize = @intCast(u32, mem.alignForwardGeneric(
             u64,
-            @sizeOf(macho.dylinker_command) + mem.lenZ(DEFAULT_DYLD_PATH),
+            @sizeOf(macho.dylinker_command) + mem.lenZ(default_dyld_path),
             @sizeOf(u64),
         ));
         var dylinker_cmd = commands.emptyGenericCommandWithData(macho.dylinker_command{
@@ -4325,7 +4323,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         });
         dylinker_cmd.data = try self.base.allocator.alloc(u8, cmdsize - dylinker_cmd.inner.name);
         mem.set(u8, dylinker_cmd.data, 0);
-        mem.copy(u8, dylinker_cmd.data, mem.spanZ(DEFAULT_DYLD_PATH));
+        mem.copy(u8, dylinker_cmd.data, mem.spanZ(default_dyld_path));
         try self.load_commands.append(self.base.allocator, .{ .Dylinker = dylinker_cmd });
         self.load_commands_dirty = true;
     }
