@@ -98,6 +98,9 @@ const DarwinImpl = struct {
     }
 };
 
+/// Modified implementation of glibc's LL_LOCK:
+/// https://github.com/bminor/glibc/blob/master/sysdeps/nptl/lowlevellock.h
+/// https://github.com/bminor/glibc/blob/master/nptl/lowlevellock.c
 const FutexImpl = struct {
     state: Atomic(u32) = Atomic(u32).init(UNLOCKED),
 

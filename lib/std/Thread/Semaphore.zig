@@ -62,6 +62,8 @@ const SerialImpl = struct {
     }
 };
 
+/// Modified implementation of dispatch_semaphore_t but for Windows.
+/// https://github.com/apple/swift-corelibs-libdispatch/blob/main/src/semaphore.c 
 const WindowsImpl = struct {
     value: Atomic(i32),
 
@@ -202,6 +204,9 @@ const WindowsImpl = struct {
     };
 };
 
+/// Slightly modified implementation of glibc's 64bit sem_t:
+/// https://code.woboq.org/userspace/glibc/nptl/sem_post.c.html
+/// https://code.woboq.org/userspace/glibc/nptl/sem_waitcommon.c.html
 const Futex64Impl = struct {
     sema: extern union {
         qword: Atomic(u64),
@@ -314,6 +319,8 @@ const Futex64Impl = struct {
     }
 };
 
+/// Slightly modified semaphore implementation from here:
+/// https://softwareengineering.stackexchange.com/a/362533
 const Futex32Impl = struct {
     value: Atomic(i32),
     waiters: Atomic(u32) = Atomic(u32).init(0),

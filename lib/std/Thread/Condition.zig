@@ -57,6 +57,8 @@ const WindowsImpl = struct {
     }
 };
 
+/// Simplified implementation of pthread_cond_t ulock variant from darwin libpthread:
+/// https://github.com/apple/darwin-libpthread/blob/main/src/pthread_cond.c
 const Futex64Impl = struct {
     cond: extern union {
         qword: Atomic(u64),
@@ -148,18 +150,90 @@ const Futex64Impl = struct {
     }
 };
 
+/// 32 bit implementation of Futex64Impl
 const Futex32Impl = struct {
     seq: Atomic(u32) = Atomic(u32).init(0),
-    waiters: Atomic(u32) = Atomic(u32).init(0),
+    sync: Atomic(u32) = Atomic(u32).init(0),
+
+    const State = extern struct {
+        waiters: u16 = 0,
+        signals: u16 = 0,
+    };
 
     fn wait(self: *Impl, held: Mutex.Held, timeout: ?u64) error{TimedOut}!void {
-        var waiters = self.waiters.fetchAdd(1, .Monotonic);
-        assert(waiters != std.math.maxInt(u32));
+        const one_waiter = @bitCast(u32, State{ .waiters = 1 });
+        var sync = self.sync.fetchAdd(one_waiter, .Monotonic);
 
-        
+        var state = @bitCast(State, sync);
+        assert(state.waiters != std.math.maxInt(u16));
+
+        // After waiting, unregister the waiter and consume a signal if there is any.
+        // Acquire barrier to ensure wake() happens before wait() w.r.t to signaling.
+        defer {
+            sync = self.sync.load(.Monotonic);
+            while (true) {
+                state = @bitCast(State, sync);
+                assert(state.waiters > 0);
+
+                state.waiters -= 1;
+                state.signals = std.math.sub(u16, state.signals, 1) catch 0;
+                sync = self.sync.tryCompareAndSwap(
+                    sync,
+                    @bitCast(u32, state),
+                    .Acquire,
+                    .Monotonic,
+                ) orelse break;
+            }
+        }
+
+        // Load the sequence and wait on it
+        // "atomically with respect to access by another thread to the mutex and then the condition variable".
+        // This means that it's ok if a wake() (sequence increment) is missed while the mutex is still held.
+        const sequence = self.seq.load(.Monotonic);
+        held.impl.mutex.release();
+        defer held.impl.mutex.acquire();
+
+        return Futex.wait(
+            &self.seq,
+            sequence,
+            timeout,
+        );
     }
 
     fn wake(self: *Impl, notify_all: bool) void {
-        
+        var sync = self.sync.load(.Monotonic);
+        while (true) {
+            // Bail if there's nothing to wake up
+            var state = @bitCast(State, sync);
+            if (state.waiters == 0) {
+                return;
+            }
+
+            // Bail if there's wake() threads that have already
+            // reserved the intention to wake up the current waiters.
+            assert(state.signals <= state.waiters);
+            if (state.signals == state.waiters) {
+                return;
+            }
+
+            // Bump the signals count to reserve waking up the waiters.
+            const old_signals = state.signals;
+            state.signals = switch (notify_all) {
+                true => state.waiters,
+                else => state.signals + 1,
+            };
+
+            // Release meomry ordering to synchronize with the end of wait().
+            sync = self.sync.tryCompareAndSwap(
+                sync,
+                @bitCast(u32, state),
+                .Release,
+                .Monotonic,
+            ) orelse {
+                const notified = state.signals - old_signals;
+                _ = self.seq.fetchAdd(1, .Monotonic);
+                return Futex.wake(&self.seq, notified);
+            };
+        }
     }
 };
