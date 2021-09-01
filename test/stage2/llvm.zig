@@ -225,4 +225,21 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
         , "");
     }
+
+    {
+        var case = ctx.exeUsingLlvmBackend("@rem", linux_x64);
+        case.addCompareOutput(
+            \\fn assert(ok: bool) void {
+            \\    if (!ok) unreachable;
+            \\}
+            \\fn rem(lhs: i32, rhs: i32, expected: i32) bool {
+            \\    return @rem(lhs, rhs) == expected;
+            \\}
+            \\pub export fn main() c_int {
+            \\    assert(rem(-5, 3, -2));
+            \\    assert(rem(5, 3, 2));
+            \\    return 0;
+            \\}
+        , "");
+    }
 }

@@ -5819,7 +5819,7 @@ fn analyzeArithmetic(
                         try lhs_val.floatMul(rhs_val, scalar_type, sema.arena);
                     break :blk val;
                 },
-                else => return sema.mod.fail(&block.base, src, "TODO Implement arithmetic operand '{s}'", .{@tagName(zir_tag)}),
+                else => return sema.mod.fail(&block.base, src, "TODO implement comptime arithmetic for operand '{s}'", .{@tagName(zir_tag)}),
             };
 
             log.debug("{s}({}, {}) result: {}", .{ @tagName(zir_tag), lhs_val, rhs_val, value });
@@ -5832,6 +5832,14 @@ fn analyzeArithmetic(
         try sema.requireRuntimeBlock(block, lhs_src);
     }
 
+    if (zir_tag == .mod_rem) {
+        const dirty_lhs = lhs_ty.isSignedInt() or lhs_ty.isFloat();
+        const dirty_rhs = rhs_ty.isSignedInt() or rhs_ty.isFloat();
+        if (dirty_lhs or dirty_rhs) {
+            return sema.mod.fail(&block.base, src, "remainder division with '{}' and '{}': signed integers and floats must use @rem or @mod", .{ lhs_ty, rhs_ty });
+        }
+    }
+
     const air_tag: Air.Inst.Tag = switch (zir_tag) {
         .add => .add,
         .addwrap => .addwrap,
@@ -5840,7 +5848,9 @@ fn analyzeArithmetic(
         .mul => .mul,
         .mulwrap => .mulwrap,
         .div => .div,
-        else => return sema.mod.fail(&block.base, src, "TODO implement arithmetic for operand '{s}''", .{@tagName(zir_tag)}),
+        .mod_rem => .rem,
+        .rem => .rem,
+        else => return sema.mod.fail(&block.base, src, "TODO implement arithmetic for operand '{s}'", .{@tagName(zir_tag)}),
     };
 
     return block.addBinOp(air_tag, casted_lhs, casted_rhs);
@@ -7302,9 +7312,7 @@ fn zirMod(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!A
 }
 
 fn zirRem(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    const src = inst_data.src();
-    return sema.mod.fail(&block.base, src, "TODO: Sema.zirRem", .{});
+    return sema.zirArithmetic(block, inst);
 }
 
 fn zirShlExact(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
