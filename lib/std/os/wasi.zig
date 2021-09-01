@@ -292,7 +292,7 @@ pub const EVENTTYPE_FD_WRITE: eventtype_t = 2;
 
 pub const exitcode_t = u32;
 
-pub const fd_t = u32;
+pub const fd_t = i32;
 
 pub const fdflags_t = u16;
 pub const FDFLAG = struct {
@@ -461,8 +461,10 @@ pub const RIGHT = struct {
 };
 
 pub const sdflags_t = u8;
-pub const SHUT_RD: sdflags_t = 0x01;
-pub const SHUT_WR: sdflags_t = 0x02;
+pub const SHUT = struct {
+    pub const RD: sdflags_t = 0x01;
+    pub const WR: sdflags_t = 0x02;
+};
 
 pub const siflags_t = u16;
 

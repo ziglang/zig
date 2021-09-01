@@ -57,6 +57,8 @@ pub usingnamespace switch (builtin.os.tag) {
     else => struct {},
 };
 
+pub const whence_t = if (builtin.os.tag == .wasi) std.os.wasi.whence_t else c_int;
+
 pub usingnamespace switch (builtin.os.tag) {
     .netbsd, .macos, .ios, .watchos, .tvos, .windows => struct {},
     else => struct {
@@ -106,7 +108,7 @@ pub extern "c" fn exit(code: c_int) noreturn;
 pub extern "c" fn _exit(code: c_int) noreturn;
 pub extern "c" fn isatty(fd: c.fd_t) c_int;
 pub extern "c" fn close(fd: c.fd_t) c_int;
-pub extern "c" fn lseek(fd: c.fd_t, offset: c.off_t, whence: c_int) c.off_t;
+pub extern "c" fn lseek(fd: c.fd_t, offset: c.off_t, whence: whence_t) c.off_t;
 pub extern "c" fn open(path: [*:0]const u8, oflag: c_uint, ...) c_int;
 pub extern "c" fn openat(fd: c_int, path: [*:0]const u8, oflag: c_uint, ...) c_int;
 pub extern "c" fn ftruncate(fd: c_int, length: c.off_t) c_int;

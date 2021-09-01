@@ -569,9 +569,11 @@ pub const LOCK = struct {
 
 pub const FD_CLOEXEC = 1;
 
-pub const SEEK_SET = 0;
-pub const SEEK_CUR = 1;
-pub const SEEK_END = 2;
+pub const SEEK = struct {
+    pub const SET = 0;
+    pub const CUR = 1;
+    pub const END = 2;
+};
 
 pub const SOCK = struct {
     pub const STREAM = 1;
@@ -721,15 +723,17 @@ pub const AF = struct {
     pub const MAX = 42;
 };
 
-pub const DT_UNKNOWN = 0;
-pub const DT_FIFO = 1;
-pub const DT_CHR = 2;
-pub const DT_DIR = 4;
-pub const DT_BLK = 6;
-pub const DT_REG = 8;
-pub const DT_LNK = 10;
-pub const DT_SOCK = 12;
-pub const DT_WHT = 14;
+pub const DT = struct {
+    pub const UNKNOWN = 0;
+    pub const FIFO = 1;
+    pub const CHR = 2;
+    pub const DIR = 4;
+    pub const BLK = 6;
+    pub const REG = 8;
+    pub const LNK = 10;
+    pub const SOCK = 12;
+    pub const WHT = 14;
+};
 
 /// add event to kq (implies enable)
 pub const EV_ADD = 0x0001;
@@ -1541,9 +1545,11 @@ pub const rlimit = extern struct {
     max: rlim_t,
 };
 
-pub const SHUT_RD = 0;
-pub const SHUT_WR = 1;
-pub const SHUT_RDWR = 2;
+pub const SHUT = struct {
+    pub const RD = 0;
+    pub const WR = 1;
+    pub const RDWR = 2;
+};
 
 pub const nfds_t = u32;
 

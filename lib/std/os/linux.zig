@@ -105,18 +105,19 @@ pub const MAP = struct {
     /// Interpret addr exactly
     pub const FIXED = 0x10;
     /// don't use a file
-    pub const ANONYMOUS = 0x20;
+    pub const ANONYMOUS = if (is_mips) 0x800 else 0x20;
+    // MAP_ 0x0100 - 0x4000 flags are per architecture
     /// populate (prefault) pagetables
-    pub const POPULATE = 0x8000;
+    pub const POPULATE = if (is_mips) 0x10000 else 0x8000;
     /// do not block on IO
-    pub const NONBLOCK = 0x10000;
+    pub const NONBLOCK = if (is_mips) 0x20000 else 0x10000;
     /// give out an address that is best suited for process/thread stacks
-    pub const STACK = 0x20000;
+    pub const STACK = if (is_mips) 0x40000 else 0x20000;
     /// create a huge page mapping
-    pub const HUGETLB = 0x40000;
+    pub const HUGETLB = if (is_mips) 0x80000 else 0x40000;
     /// perform synchronous page faults for the mapping
     pub const SYNC = 0x80000;
-    /// FIXED which doesn't unmap underlying mapping
+    /// MAP_FIXED which doesn't unmap underlying mapping
     pub const FIXED_NOREPLACE = 0x100000;
     /// For anonymous mmap, memory could be uninitialized
     pub const UNINITIALIZED = 0x4000000;
@@ -2111,154 +2112,92 @@ pub const AF = struct {
     pub const MAX = PF.MAX;
 };
 
-pub const SO = if (is_mips) struct {
-    pub const SECURITY_AUTHENTICATION = 22;
-    pub const SECURITY_ENCRYPTION_TRANSPORT = 23;
-    pub const SECURITY_ENCRYPTION_NETWORK = 24;
-
-    pub const BINDTODEVICE = 25;
-
-    pub const ATTACH_FILTER = 26;
-    pub const DETACH_FILTER = 27;
-    pub const GET_FILTER = ATTACH_FILTER;
-
-    pub const PEERNAME = 28;
-    pub const TIMESTAMP_OLD = 29;
-    pub const PASSSEC = 34;
-    pub const TIMESTAMPNS_OLD = 35;
-    pub const MARK = 36;
-    pub const TIMESTAMPING_OLD = 37;
-
-    pub const RXQ_OVFL = 40;
-    pub const WIFI_STATUS = 41;
-    pub const PEEK_OFF = 42;
-    pub const NOFCS = 43;
-    pub const LOCK_FILTER = 44;
-    pub const SELECT_ERR_QUEUE = 45;
-    pub const BUSY_POLL = 46;
-    pub const MAX_PACING_RATE = 47;
-    pub const BPF_EXTENSIONS = 48;
-    pub const INCOMING_CPU = 49;
-    pub const ATTACH_BPF = 50;
-    pub const DETACH_BPF = DETACH_FILTER;
-    pub const ATTACH_REUSEPORT_CBPF = 51;
-    pub const ATTACH_REUSEPORT_EBPF = 52;
-    pub const CNX_ADVICE = 53;
-    pub const MEMINFO = 55;
-    pub const INCOMING_NAPI_ID = 56;
-    pub const COOKIE = 57;
-    pub const PEERGROUPS = 59;
-    pub const ZEROCOPY = 60;
-    pub const TXTIME = 61;
-    pub const BINDTOIFINDEX = 62;
-    pub const TIMESTAMP_NEW = 63;
-    pub const TIMESTAMPNS_NEW = 64;
-    pub const TIMESTAMPING_NEW = 65;
-    pub const RCVTIMEO_NEW = 66;
-    pub const SNDTIMEO_NEW = 67;
-    pub const DETACH_REUSEPORT_BPF = 68;
-} else if (is_ppc or is_ppc64) struct {
-    pub const DEBUG = 1;
-    pub const REUSEADDR = 2;
-    pub const TYPE = 3;
-    pub const ERROR = 4;
-    pub const DONTROUTE = 5;
-    pub const BROADCAST = 6;
-    pub const SNDBUF = 7;
-    pub const RCVBUF = 8;
-    pub const KEEPALIVE = 9;
-    pub const OOBINLINE = 10;
-    pub const NO_CHECK = 11;
-    pub const PRIORITY = 12;
-    pub const LINGER = 13;
-    pub const BSDCOMPAT = 14;
-    pub const REUSEPORT = 15;
-    pub const RCVLOWAT = 16;
-    pub const SNDLOWAT = 17;
-    pub const RCVTIMEO = 18;
-    pub const SNDTIMEO = 19;
-    pub const PASSCRED = 20;
-    pub const PEERCRED = 21;
-    pub const ACCEPTCONN = 30;
-    pub const PEERSEC = 31;
-    pub const SNDBUFFORCE = 32;
-    pub const RCVBUFFORCE = 33;
-    pub const PROTOCOL = 38;
-    pub const DOMAIN = 39;
-
-    pub const SECURITY_AUTHENTICATION = 22;
-    pub const SECURITY_ENCRYPTION_TRANSPORT = 23;
-    pub const SECURITY_ENCRYPTION_NETWORK = 24;
-
-    pub const BINDTODEVICE = 25;
-
-    pub const ATTACH_FILTER = 26;
-    pub const DETACH_FILTER = 27;
-    pub const GET_FILTER = ATTACH_FILTER;
-
-    pub const PEERNAME = 28;
-    pub const TIMESTAMP_OLD = 29;
-    pub const PASSSEC = 34;
-    pub const TIMESTAMPNS_OLD = 35;
-    pub const MARK = 36;
-    pub const TIMESTAMPING_OLD = 37;
-
-    pub const RXQ_OVFL = 40;
-    pub const WIFI_STATUS = 41;
-    pub const PEEK_OFF = 42;
-    pub const NOFCS = 43;
-    pub const LOCK_FILTER = 44;
-    pub const SELECT_ERR_QUEUE = 45;
-    pub const BUSY_POLL = 46;
-    pub const MAX_PACING_RATE = 47;
-    pub const BPF_EXTENSIONS = 48;
-    pub const INCOMING_CPU = 49;
-    pub const ATTACH_BPF = 50;
-    pub const DETACH_BPF = DETACH_FILTER;
-    pub const ATTACH_REUSEPORT_CBPF = 51;
-    pub const ATTACH_REUSEPORT_EBPF = 52;
-    pub const CNX_ADVICE = 53;
-    pub const MEMINFO = 55;
-    pub const INCOMING_NAPI_ID = 56;
-    pub const COOKIE = 57;
-    pub const PEERGROUPS = 59;
-    pub const ZEROCOPY = 60;
-    pub const TXTIME = 61;
-    pub const BINDTOIFINDEX = 62;
-    pub const TIMESTAMP_NEW = 63;
-    pub const TIMESTAMPNS_NEW = 64;
-    pub const TIMESTAMPING_NEW = 65;
-    pub const RCVTIMEO_NEW = 66;
-    pub const SNDTIMEO_NEW = 67;
-    pub const DETACH_REUSEPORT_BPF = 68;
-} else struct {
-    pub const DEBUG = 1;
-    pub const REUSEADDR = 2;
-    pub const TYPE = 3;
-    pub const ERROR = 4;
-    pub const DONTROUTE = 5;
-    pub const BROADCAST = 6;
-    pub const SNDBUF = 7;
-    pub const RCVBUF = 8;
-    pub const KEEPALIVE = 9;
-    pub const OOBINLINE = 10;
-    pub const NO_CHECK = 11;
-    pub const PRIORITY = 12;
-    pub const LINGER = 13;
-    pub const BSDCOMPAT = 14;
-    pub const REUSEPORT = 15;
-    pub const PASSCRED = 16;
-    pub const PEERCRED = 17;
-    pub const RCVLOWAT = 18;
-    pub const SNDLOWAT = 19;
-    pub const RCVTIMEO = 20;
-    pub const SNDTIMEO = 21;
-    pub const ACCEPTCONN = 30;
-    pub const PEERSEC = 31;
-    pub const SNDBUFFORCE = 32;
-    pub const RCVBUFFORCE = 33;
-    pub const PROTOCOL = 38;
-    pub const DOMAIN = 39;
+pub const SO = struct {
+    pub usingnamespace if (is_mips) struct {
+        pub const DEBUG = 1;
+        pub const REUSEADDR = 0x0004;
+        pub const KEEPALIVE = 0x0008;
+        pub const DONTROUTE = 0x0010;
+        pub const BROADCAST = 0x0020;
+        pub const LINGER = 0x0080;
+        pub const OOBINLINE = 0x0100;
+        pub const REUSEPORT = 0x0200;
+        pub const SNDBUF = 0x1001;
+        pub const RCVBUF = 0x1002;
+        pub const SNDLOWAT = 0x1003;
+        pub const RCVLOWAT = 0x1004;
+        pub const RCVTIMEO = 0x1006;
+        pub const SNDTIMEO = 0x1005;
+        pub const ERROR = 0x1007;
+        pub const TYPE = 0x1008;
+        pub const ACCEPTCONN = 0x1009;
+        pub const PROTOCOL = 0x1028;
+        pub const DOMAIN = 0x1029;
+        pub const NO_CHECK = 11;
+        pub const PRIORITY = 12;
+        pub const BSDCOMPAT = 14;
+        pub const PASSCRED = 17;
+        pub const PEERCRED = 18;
+        pub const PEERSEC = 30;
+        pub const SNDBUFFORCE = 31;
+        pub const RCVBUFFORCE = 33;
+    } else if (is_ppc or is_ppc64) struct {
+        pub const DEBUG = 1;
+        pub const REUSEADDR = 2;
+        pub const TYPE = 3;
+        pub const ERROR = 4;
+        pub const DONTROUTE = 5;
+        pub const BROADCAST = 6;
+        pub const SNDBUF = 7;
+        pub const RCVBUF = 8;
+        pub const KEEPALIVE = 9;
+        pub const OOBINLINE = 10;
+        pub const NO_CHECK = 11;
+        pub const PRIORITY = 12;
+        pub const LINGER = 13;
+        pub const BSDCOMPAT = 14;
+        pub const REUSEPORT = 15;
+        pub const RCVLOWAT = 16;
+        pub const SNDLOWAT = 17;
+        pub const RCVTIMEO = 18;
+        pub const SNDTIMEO = 19;
+        pub const PASSCRED = 20;
+        pub const PEERCRED = 21;
+        pub const ACCEPTCONN = 30;
+        pub const PEERSEC = 31;
+        pub const SNDBUFFORCE = 32;
+        pub const RCVBUFFORCE = 33;
+        pub const PROTOCOL = 38;
+        pub const DOMAIN = 39;
+    } else struct {
+        pub const DEBUG = 1;
+        pub const REUSEADDR = 2;
+        pub const TYPE = 3;
+        pub const ERROR = 4;
+        pub const DONTROUTE = 5;
+        pub const BROADCAST = 6;
+        pub const SNDBUF = 7;
+        pub const RCVBUF = 8;
+        pub const KEEPALIVE = 9;
+        pub const OOBINLINE = 10;
+        pub const NO_CHECK = 11;
+        pub const PRIORITY = 12;
+        pub const LINGER = 13;
+        pub const BSDCOMPAT = 14;
+        pub const REUSEPORT = 15;
+        pub const PASSCRED = 16;
+        pub const PEERCRED = 17;
+        pub const RCVLOWAT = 18;
+        pub const SNDLOWAT = 19;
+        pub const RCVTIMEO = 20;
+        pub const SNDTIMEO = 21;
+        pub const ACCEPTCONN = 30;
+        pub const PEERSEC = 31;
+        pub const SNDBUFFORCE = 32;
+        pub const RCVBUFFORCE = 33;
+        pub const PROTOCOL = 38;
+        pub const DOMAIN = 39;
+    };
 
     pub const SECURITY_AUTHENTICATION = 22;
     pub const SECURITY_ENCRYPTION_TRANSPORT = 23;

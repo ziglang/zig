@@ -344,7 +344,7 @@ pub const Dir = struct {
                         self.index = 0;
                         self.end_index = @intCast(usize, rc);
                     }
-                    const darwin_entry = @ptrCast(*align(1) os.dirent, &self.buf[self.index]);
+                    const darwin_entry = @ptrCast(*align(1) os.darwin.dirent, &self.buf[self.index]);
                     const next_index = self.index + darwin_entry.reclen();
                     self.index = next_index;
 
@@ -355,14 +355,14 @@ pub const Dir = struct {
                     }
 
                     const entry_kind = switch (darwin_entry.d_type) {
-                        os.DT_BLK => Entry.Kind.BlockDevice,
-                        os.DT_CHR => Entry.Kind.CharacterDevice,
-                        os.DT_DIR => Entry.Kind.Directory,
-                        os.DT_FIFO => Entry.Kind.NamedPipe,
-                        os.DT_LNK => Entry.Kind.SymLink,
-                        os.DT_REG => Entry.Kind.File,
-                        os.DT_SOCK => Entry.Kind.UnixDomainSocket,
-                        os.DT_WHT => Entry.Kind.Whiteout,
+                        os.DT.BLK => Entry.Kind.BlockDevice,
+                        os.DT.CHR => Entry.Kind.CharacterDevice,
+                        os.DT.DIR => Entry.Kind.Directory,
+                        os.DT.FIFO => Entry.Kind.NamedPipe,
+                        os.DT.LNK => Entry.Kind.SymLink,
+                        os.DT.REG => Entry.Kind.File,
+                        os.DT.SOCK => Entry.Kind.UnixDomainSocket,
+                        os.DT.WHT => Entry.Kind.Whiteout,
                         else => Entry.Kind.Unknown,
                     };
                     return Entry{
@@ -409,14 +409,14 @@ pub const Dir = struct {
                     }
 
                     const entry_kind = switch (bsd_entry.d_type) {
-                        os.DT_BLK => Entry.Kind.BlockDevice,
-                        os.DT_CHR => Entry.Kind.CharacterDevice,
-                        os.DT_DIR => Entry.Kind.Directory,
-                        os.DT_FIFO => Entry.Kind.NamedPipe,
-                        os.DT_LNK => Entry.Kind.SymLink,
-                        os.DT_REG => Entry.Kind.File,
-                        os.DT_SOCK => Entry.Kind.UnixDomainSocket,
-                        os.DT_WHT => Entry.Kind.Whiteout,
+                        os.DT.BLK => Entry.Kind.BlockDevice,
+                        os.DT.CHR => Entry.Kind.CharacterDevice,
+                        os.DT.DIR => Entry.Kind.Directory,
+                        os.DT.FIFO => Entry.Kind.NamedPipe,
+                        os.DT.LNK => Entry.Kind.SymLink,
+                        os.DT.REG => Entry.Kind.File,
+                        os.DT.SOCK => Entry.Kind.UnixDomainSocket,
+                        os.DT.WHT => Entry.Kind.Whiteout,
                         else => Entry.Kind.Unknown,
                     };
                     return Entry{

@@ -569,21 +569,51 @@ pub const MAP = struct {
     pub const ANONYMOUS = ANON;
     pub const STACK = 0x2000;
 };
-pub const WNOHANG = 0x00000001;
-pub const WUNTRACED = 0x00000002;
-pub const WSTOPPED = WUNTRACED;
-pub const WCONTINUED = 0x00000010;
-pub const WNOWAIT = 0x00010000;
-pub const WEXITED = 0x00000020;
-pub const WTRAPPED = 0x00000040;
 
-pub const SA_ONSTACK = 0x0001;
-pub const SA_RESTART = 0x0002;
-pub const SA_RESETHAND = 0x0004;
-pub const SA_NOCLDSTOP = 0x0008;
-pub const SA_NODEFER = 0x0010;
-pub const SA_NOCLDWAIT = 0x0020;
-pub const SA_SIGINFO = 0x0040;
+pub const W = struct {
+    pub const NOHANG = 0x00000001;
+    pub const UNTRACED = 0x00000002;
+    pub const STOPPED = UNTRACED;
+    pub const CONTINUED = 0x00000010;
+    pub const NOWAIT = 0x00010000;
+    pub const EXITED = 0x00000020;
+    pub const TRAPPED = 0x00000040;
+
+    pub fn EXITSTATUS(s: u32) u8 {
+        return @intCast(u8, (s >> 8) & 0xff);
+    }
+    pub fn TERMSIG(s: u32) u32 {
+        return s & 0x7f;
+    }
+    pub fn STOPSIG(s: u32) u32 {
+        return EXITSTATUS(s);
+    }
+    pub fn IFEXITED(s: u32) bool {
+        return TERMSIG(s) == 0;
+    }
+
+    pub fn IFCONTINUED(s: u32) bool {
+        return ((s & 0x7f) == 0xffff);
+    }
+
+    pub fn IFSTOPPED(s: u32) bool {
+        return ((s & 0x7f != 0x7f) and !IFCONTINUED(s));
+    }
+
+    pub fn IFSIGNALED(s: u32) bool {
+        return !IFSTOPPED(s) and !IFCONTINUED(s) and !IFEXITED(s);
+    }
+};
+
+pub const SA = struct {
+    pub const ONSTACK = 0x0001;
+    pub const RESTART = 0x0002;
+    pub const RESETHAND = 0x0004;
+    pub const NOCLDSTOP = 0x0008;
+    pub const NODEFER = 0x0010;
+    pub const NOCLDWAIT = 0x0020;
+    pub const SIGINFO = 0x0040;
+};
 
 // access function
 pub const F_OK = 0; // test for existence of file
@@ -666,19 +696,23 @@ pub const LOCK = struct {
 
 pub const FD_CLOEXEC = 1;
 
-pub const SEEK_SET = 0;
-pub const SEEK_CUR = 1;
-pub const SEEK_END = 2;
+pub const SEEK = struct {
+    pub const SET = 0;
+    pub const CUR = 1;
+    pub const END = 2;
+};
 
-pub const DT_UNKNOWN = 0;
-pub const DT_FIFO = 1;
-pub const DT_CHR = 2;
-pub const DT_DIR = 4;
-pub const DT_BLK = 6;
-pub const DT_REG = 8;
-pub const DT_LNK = 10;
-pub const DT_SOCK = 12;
-pub const DT_WHT = 14;
+pub const DT = struct {
+    pub const UNKNOWN = 0;
+    pub const FIFO = 1;
+    pub const CHR = 2;
+    pub const DIR = 4;
+    pub const BLK = 6;
+    pub const REG = 8;
+    pub const LNK = 10;
+    pub const SOCK = 12;
+    pub const WHT = 14;
+};
 
 /// add event to kq (implies enable)
 pub const EV_ADD = 0x0001;
@@ -844,31 +878,6 @@ pub const T = struct {
     pub const IOCUCNTL = 0x80047466;
     pub const IOCXMTFRAME = 0x80087444;
 };
-
-pub fn WEXITSTATUS(s: u32) u8 {
-    return @intCast(u8, (s >> 8) & 0xff);
-}
-pub fn WTERMSIG(s: u32) u32 {
-    return s & 0x7f;
-}
-pub fn WSTOPSIG(s: u32) u32 {
-    return WEXITSTATUS(s);
-}
-pub fn WIFEXITED(s: u32) bool {
-    return WTERMSIG(s) == 0;
-}
-
-pub fn WIFCONTINUED(s: u32) bool {
-    return ((s & 0x7f) == 0xffff);
-}
-
-pub fn WIFSTOPPED(s: u32) bool {
-    return ((s & 0x7f != 0x7f) and !WIFCONTINUED(s));
-}
-
-pub fn WIFSIGNALED(s: u32) bool {
-    return !WIFSTOPPED(s) and !WIFCONTINUED(s) and !WIFEXITED(s);
-}
 
 pub const winsize = extern struct {
     ws_row: u16,
@@ -1388,9 +1397,11 @@ pub const rlimit = extern struct {
     max: rlim_t,
 };
 
-pub const SHUT_RD = 0;
-pub const SHUT_WR = 1;
-pub const SHUT_RDWR = 2;
+pub const SHUT = struct {
+    pub const RD = 0;
+    pub const WR = 1;
+    pub const RDWR = 2;
+};
 
 pub const nfds_t = u32;
 
