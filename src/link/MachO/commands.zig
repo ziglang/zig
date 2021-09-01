@@ -246,10 +246,8 @@ pub const SegmentCommand = struct {
     }
 
     pub fn allocatedSize(self: SegmentCommand, start: u64) u64 {
-        assert(start > 0);
-        if (start == self.inner.fileoff)
-            return 0;
-        var min_pos: u64 = std.math.maxInt(u64);
+        assert(start >= self.inner.fileoff);
+        var min_pos: u64 = self.inner.fileoff + self.inner.filesize;
         for (self.sections.items) |section| {
             if (section.offset <= start) continue;
             if (section.offset < min_pos) min_pos = section.offset;

@@ -281,6 +281,10 @@ const DEFAULT_DYLD_PATH: [*:0]const u8 = "/usr/lib/dyld";
 const minimum_text_block_size = 64;
 pub const min_text_capacity = padToIdeal(minimum_text_block_size);
 
+/// Virtual memory offset corresponds to the size of __PAGEZERO segment and start of
+/// __TEXT segment.
+const pagezero_vmsize: u64 = 0x100000000;
+
 pub const Export = struct {
     sym_index: ?u32 = null,
 };
@@ -1903,13 +1907,19 @@ pub fn allocateAtom(self: *MachO, atom: *TextBlock, match: MatchingSection) !u64
     const vaddr = outer: {
         if (!use_stage1) {
             const sym = &self.locals.items[atom.local_sym_index];
+            const needs_padding = blk: {
+                // TODO is __text the only section that benefits from padding?
+                if (match.seg == self.text_segment_cmd_index.? and
+                    match.sect == self.text_section_index.?) break :blk true;
+                break :blk false;
+            };
 
             var atom_placement: ?*TextBlock = null;
 
             // TODO converge with `allocateTextBlock` and handle free list
             const vaddr = if (self.blocks.get(match)) |last| blk: {
                 const last_atom_sym = self.locals.items[last.local_sym_index];
-                const ideal_capacity = padToIdeal(last.size);
+                const ideal_capacity = if (needs_padding) padToIdeal(last.size) else last.size;
                 const ideal_capacity_end_vaddr = last_atom_sym.n_value + ideal_capacity;
                 const last_atom_alignment = try math.powi(u32, 2, atom.alignment);
                 const new_start_vaddr = mem.alignForwardGeneric(u64, ideal_capacity_end_vaddr, last_atom_alignment);
@@ -1921,18 +1931,9 @@ pub fn allocateAtom(self: *MachO, atom: *TextBlock, match: MatchingSection) !u64
 
             const expand_section = atom_placement == null or atom_placement.?.next == null;
             if (expand_section) {
-                const needed_size = (vaddr + atom.size) - sect.addr;
-                const end_addr = blk: {
-                    const next_ordinal = self.section_ordinals.getIndex(match).?; // Ordinals are +1 to begin with.
-                    const end_addr = if (self.section_ordinals.keys().len > next_ordinal) inner: {
-                        const next_match = self.section_ordinals.keys()[next_ordinal];
-                        const next_seg = self.load_commands.items[next_match.seg].Segment;
-                        const next_sect = next_seg.sections.items[next_match.sect];
-                        break :inner next_sect.addr;
-                    } else seg.inner.filesize;
-                    break :blk end_addr;
-                };
-                assert(needed_size <= end_addr); // TODO must expand the section
+                const max_size = seg.allocatedSize(vaddr - pagezero_vmsize);
+                log.debug("  (atom size 0x{x}, max available size 0x{x})", .{ atom.size, max_size });
+                assert(atom.size <= max_size); // TODO must expand the section
             }
             const n_sect = @intCast(u8, self.section_ordinals.getIndex(match).? + 1);
             sym.n_value = vaddr;
@@ -3912,7 +3913,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
             .Segment = .{
                 .inner = .{
                     .segname = makeStaticString("__PAGEZERO"),
-                    .vmsize = 0x100000000, // size always set to 4GB
+                    .vmsize = pagezero_vmsize,
                 },
             },
         });
@@ -3932,7 +3933,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
             .Segment = .{
                 .inner = .{
                     .segname = makeStaticString("__TEXT"),
-                    .vmaddr = 0x100000000, // always starts at 4GB
+                    .vmaddr = pagezero_vmsize,
                     .vmsize = needed_size,
                     .filesize = needed_size,
                     .maxprot = macho.VM_PROT_READ | macho.VM_PROT_EXECUTE,
@@ -4452,8 +4453,6 @@ fn allocateSection(
         const padding: ?u64 = if (segment_id == self.text_segment_cmd_index.?) self.header_pad else null;
         const off = seg.findFreeSpace(size, alignment_pow_2, padding);
 
-        assert(off + size <= seg.inner.fileoff + seg.inner.filesize); // TODO expand
-
         log.debug("found {s},{s} section free space 0x{x} to 0x{x}", .{
             commands.segmentName(sect),
             commands.sectionName(sect),
@@ -4556,7 +4555,9 @@ fn allocateTextBlock(self: *MachO, text_block: *TextBlock, new_block_size: u64, 
     const expand_text_section = block_placement == null or block_placement.?.next == null;
     if (expand_text_section) {
         const needed_size = (vaddr + new_block_size) - text_section.addr;
-        assert(needed_size <= text_segment.inner.filesize); // TODO must move the entire text section.
+        const max_size = text_segment.allocatedSize(vaddr - pagezero_vmsize);
+        log.debug("  (atom needed size 0x{x}, max available size 0x{x})", .{ needed_size, max_size });
+        assert(needed_size <= max_size); // TODO must expand the section
         _ = try self.blocks.put(self.base.allocator, match, text_block);
     }
     text_block.size = new_block_size;
