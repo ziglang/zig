@@ -6932,8 +6932,7 @@ fn zirPtrType(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileErr
     const address_space = if (inst_data.flags.has_addrspace) blk: {
         const ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_i]);
         extra_i += 1;
-        const addrspace_tv = try sema.resolveInstConst(block, .unneeded, ref);
-        break :blk addrspace_tv.val.toEnum(std.builtin.AddressSpace);
+        break :blk try sema.analyzeAddrspace(block, .unneeded, ref, .pointer);
     } else .generic;
 
     const bit_start = if (inst_data.flags.has_bit_range) blk: {
@@ -8092,8 +8091,7 @@ fn zirFuncExtended(
     const address_space: std.builtin.AddressSpace = if (small.has_addrspace) blk: {
         const addrspace_ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_index]);
         extra_index += 1;
-        const addrspace_tv = try sema.resolveInstConst(block, addrspace_src, addrspace_ref);
-        break :blk addrspace_tv.val.toEnum(std.builtin.AddressSpace);
+        break :blk try sema.analyzeAddrspace(block, addrspace_src, addrspace_ref, .function);
     } else .generic;
 
     const ret_ty_body = sema.code.extra[extra_index..][0..extra.data.ret_body_len];
@@ -10972,4 +10970,59 @@ fn analyzeComptimeAlloc(
         .runtime_index = block.runtime_index,
         .decl = decl,
     }));
+}
+
+/// The places where a user can specify an address space attribute
+pub const AddressSpaceContext = enum {
+    /// A function is specificed to be placed in a certain address space.
+    function,
+
+    /// A (global) variable is specified to be placed in a certain address space.
+    /// In contrast to .constant, these values (and thus the address space they will be
+    /// placed in) are required to be mutable.
+    variable,
+
+    /// A (global) constant value is specified to be placed in a certain address space.
+    /// In contrast to .variable, values placed in this address space are not required to be mutable.
+    constant,
+
+    /// A pointer is ascripted to point into a certian address space.
+    pointer,
+};
+
+pub fn analyzeAddrspace(
+    sema: *Sema,
+    block: *Scope.Block,
+    src: LazySrcLoc,
+    zir_ref: Zir.Inst.Ref,
+    ctx: AddressSpaceContext,
+) !std.builtin.AddressSpace {
+    const addrspace_tv = try sema.resolveInstConst(block, src, zir_ref);
+    const address_space = addrspace_tv.val.toEnum(std.builtin.AddressSpace);
+    const target = sema.mod.getTarget();
+    const arch = target.cpu.arch;
+
+    const supported = switch (address_space) {
+        .generic => true,
+        .gs, .fs, .ss => (arch == .i386 or arch == .x86_64) and ctx == .pointer,
+    };
+
+    if (!supported) {
+        // TODO error messages could be made more elaborate here
+        const entity = switch (ctx) {
+            .function => "functions",
+            .variable => "mutable values",
+            .constant => "constant values",
+            .pointer => "pointers",
+        };
+
+        return sema.mod.fail(
+            &block.base,
+            src,
+            "{s} with address space '{s}' are not supported on {s}",
+            .{ entity, @tagName(address_space), arch.genericName() },
+        );
+    }
+
+    return address_space;
 }

@@ -3213,11 +3213,18 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
         break :blk (try sema.resolveInstConst(&block_scope, src, linksection_ref)).val;
     };
     const address_space = blk: {
-        const addrspace_ref = decl.zirAddrspaceRef();
-        if (addrspace_ref == .none) break :blk .generic;
-        const addrspace_tv = try sema.resolveInstConst(&block_scope, src, addrspace_ref);
-        break :blk addrspace_tv.val.toEnum(std.builtin.AddressSpace);
+        const addrspace_ctx: Sema.AddressSpaceContext = switch (decl_tv.val.tag()) {
+            .function, .extern_fn => .function,
+            .variable => .variable,
+            else => .constant,
+        };
+
+        break :blk switch (decl.zirAddrspaceRef()) {
+            .none => .generic,
+            else => |addrspace_ref| try sema.analyzeAddrspace(&block_scope, src, addrspace_ref, addrspace_ctx),
+        };
     };
+
     // Note this resolves the type of the Decl, not the value; if this Decl
     // is a struct, for example, this resolves `type` (which needs no resolution),
     // not the struct itself.
