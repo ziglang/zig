@@ -399,7 +399,7 @@ pub fn translate(
         if (decl.is_pub) {
             const builtin = try Tag.pub_var_simple.create(context.arena, .{
                 .name = decl.name,
-                .init = try Tag.import_builtin.create(context.arena, decl.name),
+                .init = try Tag.import_c_builtin.create(context.arena, decl.name),
             });
             try addTopLevelDecl(&context, decl.name, builtin);
         }
