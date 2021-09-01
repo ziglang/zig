@@ -123,7 +123,6 @@ pub const blksize_t = system.blksize_t;
 pub const clock_t = system.clock_t;
 pub const cpu_set_t = system.cpu_set_t;
 pub const dev_t = system.dev_t;
-pub const dirent = system.dirent;
 pub const dl_phdr_info = system.dl_phdr_info;
 pub const empty_sigset = system.empty_sigset;
 pub const fd_t = system.fd_t;

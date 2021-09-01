@@ -304,7 +304,7 @@ pub const Dir = struct {
         .macos, .ios, .freebsd, .netbsd, .dragonfly, .openbsd => struct {
             dir: Dir,
             seek: i64,
-            buf: [8192]u8, // TODO align(@alignOf(os.dirent)),
+            buf: [8192]u8, // TODO align(@alignOf(os.system.dirent)),
             index: usize,
             end_index: usize,
 
@@ -344,7 +344,7 @@ pub const Dir = struct {
                         self.index = 0;
                         self.end_index = @intCast(usize, rc);
                     }
-                    const darwin_entry = @ptrCast(*align(1) os.dirent, &self.buf[self.index]);
+                    const darwin_entry = @ptrCast(*align(1) os.system.dirent, &self.buf[self.index]);
                     const next_index = self.index + darwin_entry.reclen();
                     self.index = next_index;
 
@@ -391,7 +391,7 @@ pub const Dir = struct {
                         self.index = 0;
                         self.end_index = @intCast(usize, rc);
                     }
-                    const bsd_entry = @ptrCast(*align(1) os.dirent, &self.buf[self.index]);
+                    const bsd_entry = @ptrCast(*align(1) os.system.dirent, &self.buf[self.index]);
                     const next_index = self.index + bsd_entry.reclen();
                     self.index = next_index;
 
@@ -462,7 +462,7 @@ pub const Dir = struct {
                         self.index = 0;
                         self.end_index = @intCast(usize, rc);
                     }
-                    const haiku_entry = @ptrCast(*align(1) os.dirent, &self.buf[self.index]);
+                    const haiku_entry = @ptrCast(*align(1) os.system.dirent, &self.buf[self.index]);
                     const next_index = self.index + haiku_entry.reclen();
                     self.index = next_index;
                     const name = mem.spanZ(@ptrCast([*:0]u8, &haiku_entry.d_name));
