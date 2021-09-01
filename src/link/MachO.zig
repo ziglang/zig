@@ -148,7 +148,7 @@ globals_free_list: std.ArrayListUnmanaged(u32) = .{},
 stub_helper_stubs_start_off: ?u64 = null,
 
 strtab: std.ArrayListUnmanaged(u8) = .{},
-strtab_dir: std.HashMapUnmanaged(u32, u32, StringIndexContext, std.hash_map.default_max_load_percentage) = .{},
+strtab_dir: std.HashMapUnmanaged(u32, void, StringIndexContext, std.hash_map.default_max_load_percentage) = .{},
 
 got_entries: std.ArrayListUnmanaged(GotIndirectionKey) = .{},
 got_entries_map: std.AutoHashMapUnmanaged(GotIndirectionKey, u32) = .{},
@@ -938,7 +938,7 @@ fn linkWithZld(self: *MachO, comp: *Compilation) !void {
 
         {
             // Add dyld_stub_binder as the final GOT entry.
-            const n_strx = self.strtab_dir.getAdapted(@as([]const u8, "dyld_stub_binder"), StringSliceAdapter{
+            const n_strx = self.strtab_dir.getKeyAdapted(@as([]const u8, "dyld_stub_binder"), StringSliceAdapter{
                 .strtab = &self.strtab,
             }) orelse unreachable;
             const resolv = self.symbol_resolver.get(n_strx) orelse unreachable;
@@ -1966,7 +1966,7 @@ fn writeStubHelperCommon(self: *MachO) !void {
                 code[9] = 0xff;
                 code[10] = 0x25;
                 {
-                    const n_strx = self.strtab_dir.getAdapted(@as([]const u8, "dyld_stub_binder"), StringSliceAdapter{
+                    const n_strx = self.strtab_dir.getKeyAdapted(@as([]const u8, "dyld_stub_binder"), StringSliceAdapter{
                         .strtab = &self.strtab,
                     }) orelse unreachable;
                     const resolv = self.symbol_resolver.get(n_strx) orelse unreachable;
@@ -2017,7 +2017,7 @@ fn writeStubHelperCommon(self: *MachO) !void {
                 code[10] = 0xbf;
                 code[11] = 0xa9;
                 binder_blk_outer: {
-                    const n_strx = self.strtab_dir.getAdapted(@as([]const u8, "dyld_stub_binder"), StringSliceAdapter{
+                    const n_strx = self.strtab_dir.getKeyAdapted(@as([]const u8, "dyld_stub_binder"), StringSliceAdapter{
                         .strtab = &self.strtab,
                     }) orelse unreachable;
                     const resolv = self.symbol_resolver.get(n_strx) orelse unreachable;
@@ -2435,7 +2435,7 @@ fn resolveSymbols(self: *MachO) !void {
     }
 
     // Fourth pass, handle synthetic symbols and flag any undefined references.
-    if (self.strtab_dir.getAdapted(@as([]const u8, "___dso_handle"), StringSliceAdapter{
+    if (self.strtab_dir.getKeyAdapted(@as([]const u8, "___dso_handle"), StringSliceAdapter{
         .strtab = &self.strtab,
     })) |n_strx| blk: {
         const resolv = self.symbol_resolver.getPtr(n_strx) orelse break :blk;
@@ -2985,7 +2985,7 @@ fn setEntryPoint(self: *MachO) !void {
     // TODO we should respect the -entry flag passed in by the user to set a custom
     // entrypoint. For now, assume default of `_main`.
     const seg = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
-    const n_strx = self.strtab_dir.getAdapted(@as([]const u8, "_main"), StringSliceAdapter{
+    const n_strx = self.strtab_dir.getKeyAdapted(@as([]const u8, "_main"), StringSliceAdapter{
         .strtab = &self.strtab,
     }) orelse {
         log.err("'_main' export not found", .{});
@@ -4616,7 +4616,7 @@ pub fn addExternFn(self: *MachO, name: []const u8) !u32 {
     const sym_name = try std.fmt.allocPrint(self.base.allocator, "_{s}", .{name});
     defer self.base.allocator.free(sym_name);
 
-    if (self.strtab_dir.getAdapted(@as([]const u8, sym_name), StringSliceAdapter{
+    if (self.strtab_dir.getKeyAdapted(@as([]const u8, sym_name), StringSliceAdapter{
         .strtab = &self.strtab,
     })) |n_strx| {
         const resolv = self.symbol_resolver.get(n_strx) orelse unreachable;
@@ -5858,7 +5858,13 @@ pub fn padToIdeal(actual_size: anytype) @TypeOf(actual_size) {
 }
 
 pub fn makeString(self: *MachO, string: []const u8) !u32 {
-    if (self.strtab_dir.getAdapted(@as([]const u8, string), StringSliceAdapter{ .strtab = &self.strtab })) |off| {
+    const gop = try self.strtab_dir.getOrPutContextAdapted(self.base.allocator, @as([]const u8, string), StringSliceAdapter{
+        .strtab = &self.strtab,
+    }, StringIndexContext{
+        .strtab = &self.strtab,
+    });
+    if (gop.found_existing) {
+        const off = gop.key_ptr.*;
         log.debug("reusing string '{s}' at offset 0x{x}", .{ string, off });
         return off;
     }
@@ -5871,9 +5877,7 @@ pub fn makeString(self: *MachO, string: []const u8) !u32 {
     self.strtab.appendSliceAssumeCapacity(string);
     self.strtab.appendAssumeCapacity(0);
 
-    try self.strtab_dir.putContext(self.base.allocator, new_off, new_off, StringIndexContext{
-        .strtab = &self.strtab,
-    });
+    gop.key_ptr.* = new_off;
 
     return new_off;
 }

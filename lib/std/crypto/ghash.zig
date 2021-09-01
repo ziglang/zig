@@ -94,9 +94,9 @@ pub const Ghash = struct {
         const Vector = std.meta.Vector;
         const product = asm (
             \\ vpclmulqdq $0x00, %[x], %[y], %[out]
-            : [out] "=x" (-> Vector(2, u64))
+            : [out] "=x" (-> Vector(2, u64)),
             : [x] "x" (@bitCast(Vector(2, u64), @as(u128, x))),
-              [y] "x" (@bitCast(Vector(2, u64), @as(u128, y)))
+              [y] "x" (@bitCast(Vector(2, u64), @as(u128, y))),
         );
         return product[0];
     }
@@ -105,9 +105,9 @@ pub const Ghash = struct {
         const Vector = std.meta.Vector;
         const product = asm (
             \\ pmull %[out].1q, %[x].1d, %[y].1d
-            : [out] "=w" (-> Vector(2, u64))
+            : [out] "=w" (-> Vector(2, u64)),
             : [x] "w" (@bitCast(Vector(2, u64), @as(u128, x))),
-              [y] "w" (@bitCast(Vector(2, u64), @as(u128, y)))
+              [y] "w" (@bitCast(Vector(2, u64), @as(u128, y))),
         );
         return product[0];
     }

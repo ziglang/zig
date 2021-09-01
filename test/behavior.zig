@@ -89,6 +89,8 @@ test {
         _ = @import("behavior/byval_arg_var.zig");
         _ = @import("behavior/call.zig");
         _ = @import("behavior/cast_stage1.zig");
+        // When these tests pass, #9646 can be closed.
+        // _ = @import("behavior/comptime_memory.zig");
         _ = @import("behavior/const_slice_child.zig");
         _ = @import("behavior/defer.zig");
         _ = @import("behavior/enum.zig");

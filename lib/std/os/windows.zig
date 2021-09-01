@@ -1723,15 +1723,15 @@ pub fn teb() *TEB {
     return switch (builtin.target.cpu.arch) {
         .i386 => asm volatile (
             \\ movl %%fs:0x18, %[ptr]
-            : [ptr] "=r" (-> *TEB)
+            : [ptr] "=r" (-> *TEB),
         ),
         .x86_64 => asm volatile (
             \\ movq %%gs:0x30, %[ptr]
-            : [ptr] "=r" (-> *TEB)
+            : [ptr] "=r" (-> *TEB),
         ),
         .aarch64 => asm volatile (
             \\ mov %[ptr], x18
-            : [ptr] "=r" (-> *TEB)
+            : [ptr] "=r" (-> *TEB),
         ),
         else => @compileError("unsupported arch"),
     };

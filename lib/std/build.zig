@@ -94,6 +94,8 @@ pub const Builder = struct {
         name: []const u8,
         type_id: TypeId,
         description: []const u8,
+        /// If the `type_id` is `enum` this provides the list of enum options
+        enum_options: ?[]const []const u8,
     };
 
     const UserInputOption = struct {
@@ -482,10 +484,21 @@ pub const Builder = struct {
         const name = self.dupe(name_raw);
         const description = self.dupe(description_raw);
         const type_id = comptime typeToEnum(T);
+        const enum_options = if (type_id == .@"enum") blk: {
+            const fields = comptime std.meta.fields(T);
+            var options = ArrayList([]const u8).initCapacity(self.allocator, fields.len) catch unreachable;
+
+            inline for (fields) |field| {
+                options.appendAssumeCapacity(field.name);
+            }
+
+            break :blk options.toOwnedSlice();
+        } else null;
         const available_option = AvailableOption{
             .name = name,
             .type_id = type_id,
             .description = description,
+            .enum_options = enum_options,
         };
         if ((self.available_options_map.fetchPut(name, available_option) catch unreachable) != null) {
             panic("Option '{s}' declared twice", .{name});

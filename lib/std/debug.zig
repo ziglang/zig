@@ -1634,7 +1634,7 @@ fn handleSegfaultWindowsExtra(info: *windows.EXCEPTION_POINTERS, comptime msg: u
 
 pub fn dumpStackPointerAddr(prefix: []const u8) void {
     const sp = asm (""
-        : [argc] "={rsp}" (-> usize)
+        : [argc] "={rsp}" (-> usize),
     );
     std.debug.warn("{} sp = 0x{x}\n", .{ prefix, sp });
 }

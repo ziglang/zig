@@ -2648,7 +2648,10 @@ pub fn astGenFile(mod: *Module, file: *Scope.File) !void {
         undefined;
     defer if (data_has_safety_tag) gpa.free(safety_buffer);
     const data_ptr = if (data_has_safety_tag)
-        @ptrCast([*]const u8, safety_buffer.ptr)
+        if (file.zir.instructions.len == 0)
+            @as([*]const u8, undefined)
+        else
+            @ptrCast([*]const u8, safety_buffer.ptr)
     else
         @ptrCast([*]const u8, file.zir.instructions.items(.data).ptr);
     if (data_has_safety_tag) {

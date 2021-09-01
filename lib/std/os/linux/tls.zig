@@ -131,7 +131,7 @@ pub fn setThreadPointer(addr: usize) void {
             // Update the %gs selector
             asm volatile ("movl %[gs_val], %%gs"
                 :
-                : [gs_val] "r" (gdt_entry_number << 3 | 3)
+                : [gs_val] "r" (gdt_entry_number << 3 | 3),
             );
         },
         .x86_64 => {
@@ -142,7 +142,7 @@ pub fn setThreadPointer(addr: usize) void {
             asm volatile (
                 \\ msr tpidr_el0, %[addr]
                 :
-                : [addr] "r" (addr)
+                : [addr] "r" (addr),
             );
         },
         .arm, .thumb => {
@@ -153,7 +153,7 @@ pub fn setThreadPointer(addr: usize) void {
             asm volatile (
                 \\ mv tp, %[addr]
                 :
-                : [addr] "r" (addr)
+                : [addr] "r" (addr),
             );
         },
         .mips, .mipsel => {
@@ -164,21 +164,21 @@ pub fn setThreadPointer(addr: usize) void {
             asm volatile (
                 \\ mr 2, %[addr]
                 :
-                : [addr] "r" (addr)
+                : [addr] "r" (addr),
             );
         },
         .powerpc64, .powerpc64le => {
             asm volatile (
                 \\ mr 13, %[addr]
                 :
-                : [addr] "r" (addr)
+                : [addr] "r" (addr),
             );
         },
         .sparcv9 => {
             asm volatile (
                 \\ mov %[addr], %%g7
                 :
-                : [addr] "r" (addr)
+                : [addr] "r" (addr),
             );
         },
         else => @compileError("Unsupported architecture"),
