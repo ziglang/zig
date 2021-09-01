@@ -9,10 +9,9 @@ const assert = std.debug.assert;
 const target = builtin.target;
 const Atomic = std.atomic.Atomic;
 
-pub const AutoResetEvent = @import("Thread/AutoResetEvent.zig");
 pub const Futex = @import("Thread/Futex.zig");
-pub const ResetEvent = @import("Thread/ResetEvent.zig");
-pub const StaticResetEvent = @import("Thread/StaticResetEvent.zig");
+pub const Once = @import("Thread/Once.zig");
+pub const RwLock = @import("Thread/RwLock.zig");
 pub const Mutex = @import("Thread/Mutex.zig");
 pub const Semaphore = @import("Thread/Semaphore.zig");
 pub const Condition = @import("Thread/Condition.zig");
@@ -1024,20 +1023,13 @@ test "setName, getName" {
     if (builtin.single_threaded) return error.SkipZigTest;
 
     const Context = struct {
-        start_wait_event: ResetEvent = undefined,
-        test_done_event: ResetEvent = undefined,
-
-        done: std.atomic.Atomic(bool) = std.atomic.Atomic(bool).init(false),
+        start_wait_sema: Semaphore = .{},
+        test_done_sema: Semaphore = .{},
         thread: Thread = undefined,
 
-        fn init(self: *@This()) !void {
-            try self.start_wait_event.init();
-            try self.test_done_event.init();
-        }
-
         pub fn run(ctx: *@This()) !void {
-            // Wait for the main thread to have set the thread field in the context.
-            ctx.start_wait_event.wait();
+            // Wait for the main thread to post the thread field in the context.
+            ctx.start_wait_sema.wait();
 
             switch (target.os.tag) {
                 .windows => testThreadName(&ctx.thread) catch |err| switch (err) {
@@ -1048,21 +1040,17 @@ test "setName, getName" {
             }
 
             // Signal our test is done
-            ctx.test_done_event.set();
-
-            while (!ctx.done.load(.SeqCst)) {
-                std.time.sleep(5 * std.time.ns_per_ms);
-            }
+            ctx.test_done_sema.post(1);
         }
     };
 
     var context = Context{};
-    try context.init();
-
     var thread = try spawn(.{}, Context.run, .{&context});
+    defer thread.join();
+
     context.thread = thread;
-    context.start_wait_event.set();
-    context.test_done_event.wait();
+    context.start_wait_sema.set();
+    context.test_done_sema.wait();
 
     switch (target.os.tag) {
         .macos, .ios, .watchos, .tvos => {
@@ -1084,36 +1072,30 @@ test "setName, getName" {
             try testThreadName(&thread);
         },
     }
-
-    context.done.store(true, .SeqCst);
-    thread.join();
 }
 
 test "std.Thread" {
     // Doesn't use testing.refAllDecls() since that would pull in the compileError spinLoopHint.
-    _ = AutoResetEvent;
     _ = Futex;
-    _ = ResetEvent;
-    _ = StaticResetEvent;
+    _ = Once;
+    _ = RwLock;
     _ = Mutex;
     _ = Semaphore;
     _ = Condition;
 }
 
-fn testIncrementNotify(value: *usize, event: *ResetEvent) void {
+fn testIncrementNotify(value: *usize, semaphore: *Semaphore) void {
     value.* += 1;
-    event.set();
+    semaphore.post(1);
 }
 
 test "Thread.join" {
     if (builtin.single_threaded) return error.SkipZigTest;
 
     var value: usize = 0;
-    var event: ResetEvent = undefined;
-    try event.init();
-    defer event.deinit();
+    var semaphore = Semaphore{};
 
-    const thread = try Thread.spawn(.{}, testIncrementNotify, .{ &value, &event });
+    const thread = try Thread.spawn(.{}, testIncrementNotify, .{ &value, &semaphore });
     thread.join();
 
     try std.testing.expectEqual(value, 1);
@@ -1123,13 +1105,11 @@ test "Thread.detach" {
     if (builtin.single_threaded) return error.SkipZigTest;
 
     var value: usize = 0;
-    var event: ResetEvent = undefined;
-    try event.init();
-    defer event.deinit();
+    var semaphore = Semaphore{};
 
-    const thread = try Thread.spawn(.{}, testIncrementNotify, .{ &value, &event });
+    const thread = try Thread.spawn(.{}, testIncrementNotify, .{ &value, &semaphore });
     thread.detach();
 
-    event.wait();
+    semaphore.wait(null) catch unreachable;
     try std.testing.expectEqual(value, 1);
 }

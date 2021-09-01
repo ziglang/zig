@@ -2,6 +2,7 @@ const std = @import("../std.zig");
 const target = std.Target.current;
 const assert = std.debug.assert;
 const os = std.os;
+const c = std.c;
 
 const SpinWait = @import("SpinWait.zig");
 const Atomic = std.atomic.Atomic;

@@ -6,23 +6,9 @@
 const std = @import("std");
 const WaitGroup = @This();
 
-mutex: std.Thread.Mutex = .{},
+lock: std.Thread.Mutex = .{},
+cond: std.Thread.Condition = .{},
 counter: usize = 0,
-event: std.Thread.ResetEvent,
-
-pub fn init(self: *WaitGroup) !void {
-    self.* = .{
-        .mutex = .{},
-        .counter = 0,
-        .event = undefined,
-    };
-    try self.event.init();
-}
-
-pub fn deinit(self: *WaitGroup) void {
-    self.event.deinit();
-    self.* = undefined;
-}
 
 pub fn start(self: *WaitGroup) void {
     self.mutex.lock();
@@ -38,24 +24,19 @@ pub fn finish(self: *WaitGroup) void {
     self.counter -= 1;
 
     if (self.counter == 0) {
-        self.event.set();
+        self.cond.broadcast();
     }
 }
 
 pub fn wait(self: *WaitGroup) void {
-    while (true) {
-        self.mutex.lock();
+    const held = self.lock.acquire();
+    defer held.release();
 
-        if (self.counter == 0) {
-            self.mutex.unlock();
-            return;
-        }
-
-        self.mutex.unlock();
-        self.event.wait();
+    while (self.counter == 0) {
+        self.cond.wait(held, null) catch unreachable;
     }
 }
 
 pub fn reset(self: *WaitGroup) void {
-    self.event.reset();
+    self.* = .{};
 }

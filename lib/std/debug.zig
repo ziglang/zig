@@ -308,9 +308,7 @@ pub fn panicImpl(trace: ?*const std.builtin.StackTrace, first_trace_addr: ?usize
                 // and call abort()
 
                 // Sleep forever without hammering the CPU
-                var event: std.Thread.StaticResetEvent = .{};
-                event.wait();
-                unreachable;
+                while (true) std.time.sleep(std.math.maxInt(u64));
             }
         },
         1 => {

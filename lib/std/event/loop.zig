@@ -24,7 +24,7 @@ pub const Loop = struct {
     fs_thread: Thread,
     fs_queue: std.atomic.Queue(Request),
     fs_end_request: Request.Node,
-    fs_thread_wakeup: std.Thread.ResetEvent,
+    fs_thread_wakeup: std.Thread.Semaphore,
 
     /// For resources that have the same lifetime as the `Loop`.
     /// This is only used by `Loop` for the thread pool and associated resources.
@@ -163,11 +163,9 @@ pub const Loop = struct {
             .fs_end_request = .{ .data = .{ .msg = .end, .finish = .NoAction } },
             .fs_queue = std.atomic.Queue(Request).init(),
             .fs_thread = undefined,
-            .fs_thread_wakeup = undefined,
+            .fs_thread_wakeup = .{},
             .delay_queue = undefined,
         };
-        try self.fs_thread_wakeup.init();
-        errdefer self.fs_thread_wakeup.deinit();
         errdefer self.arena.deinit();
 
         // We need at least one of these in case the fs thread wants to use onNextTick
@@ -197,7 +195,6 @@ pub const Loop = struct {
 
     pub fn deinit(self: *Loop) void {
         self.deinitOsData();
-        self.fs_thread_wakeup.deinit();
         self.arena.deinit();
         self.* = undefined;
     }
@@ -718,8 +715,14 @@ pub const Loop = struct {
             extra_thread.join();
         }
 
-        @atomicStore(bool, &self.delay_queue.is_running, false, .SeqCst);
-        self.delay_queue.event.set();
+        {
+            const held = self.delay_queue.lock.acquire();
+            defer held.release();
+
+            self.delay_queue.is_running = false;
+            self.delay_queue.cond.signal();
+        }
+
         self.delay_queue.thread.join();
     }
 
@@ -833,32 +836,36 @@ pub const Loop = struct {
 
             var entry: DelayQueue.Waiters.Entry = undefined;
             entry.init(@frame(), now + nanoseconds);
-            self.delay_queue.waiters.insert(&entry);
+
+            const held = self.delay_queue.lock.acquire();
+            defer held.release();
 
             // Speculatively wake up the timer thread when we add a new entry.
             // If the timer thread is sleeping on a longer entry, we need to
             // interrupt it so that our entry can be expired in time.
-            self.delay_queue.event.set();
+            self.delay_queue.waiters.insert(&entry);
+            self.delay_queue.cond.signal();
         }
     }
 
     const DelayQueue = struct {
+        lock: std.Thread.Mutex,
+        cond: std.Thread.Condition,
+        is_running: bool,
         timer: std.time.Timer,
         waiters: Waiters,
         thread: std.Thread,
-        event: std.Thread.AutoResetEvent,
-        is_running: bool,
+        
 
         /// Initialize the delay queue by spawning the timer thread
         /// and starting any timer resources.
         fn init(self: *DelayQueue) !void {
             self.* = DelayQueue{
-                .timer = try std.time.Timer.start(),
-                .waiters = DelayQueue.Waiters{
-                    .entries = std.atomic.Queue(anyframe).init(),
-                },
-                .event = std.Thread.AutoResetEvent{},
+                .lock = .{},
+                .cond = .{},
                 .is_running = true,
+                .waiters = .{},
+                .timer = try std.time.Timer.start(),
                 // Must be last so that it can read the other state, such as `is_running`.
                 .thread = try std.Thread.spawn(.{}, DelayQueue.run, .{self}),
             };
@@ -868,29 +875,34 @@ pub const Loop = struct {
         /// which waits for timer entries to expire and reschedules them.
         fn run(self: *DelayQueue) void {
             const loop = @fieldParentPtr(Loop, "delay_queue", self);
+            
+            var held = self.lock.acquire();
+            defer held.release();
 
-            while (@atomicLoad(bool, &self.is_running, .SeqCst)) {
+            while (self.is_running) {
                 const now = self.timer.read();
+                
+                const entry = self.waiters.popExpired(now) orelse {
+                    var timeout: ?u64 = null;
+                    if (self.waiters.nextExpire()) |expires| {
+                        timeout = expires - now;
+                    }
 
-                if (self.waiters.popExpired(now)) |entry| {
-                    loop.onNextTick(&entry.node);
+                    self.cond.wait(timeout) catch {};
                     continue;
-                }
+                };
 
-                if (self.waiters.nextExpire()) |expires| {
-                    if (now >= expires)
-                        continue;
-                    self.event.timedWait(expires - now) catch {};
-                } else {
-                    self.event.wait();
-                }
+                held.release();
+                defer held = self.lock.acquire();
+
+                loop.onNextTick(&entry.node);
             }
         }
 
         // TODO: use a tickless heirarchical timer wheel:
         // https://github.com/wahern/timeout/
         const Waiters = struct {
-            entries: std.atomic.Queue(anyframe),
+            entries: std.TailQueue(anyframe) = .{},
 
             const Entry = struct {
                 node: NextTickNode,
@@ -904,7 +916,7 @@ pub const Loop = struct {
 
             /// Registers the entry into the queue of waiting frames
             fn insert(self: *Waiters, entry: *Entry) void {
-                self.entries.put(&entry.node);
+                self.entries.append(&entry.node);
             }
 
             /// Dequeues one expired event relative to `now`
@@ -913,7 +925,7 @@ pub const Loop = struct {
                 if (entry.expires > now)
                     return null;
 
-                assert(self.entries.remove(&entry.node));
+                self.entries.remove(&entry.node);
                 return entry;
             }
 
@@ -925,11 +937,8 @@ pub const Loop = struct {
             }
 
             fn peekExpiringEntry(self: *Waiters) ?*Entry {
-                self.entries.mutex.lock();
-                defer self.entries.mutex.unlock();
-
                 // starting from the head
-                var head = self.entries.head orelse return null;
+                var head = self.entries.first orelse return null;
 
                 // traverse the list of waiting entires to
                 // find the Node with the smallest `expires` field
@@ -1480,7 +1489,7 @@ pub const Loop = struct {
     fn posixFsRequest(self: *Loop, request_node: *Request.Node) void {
         self.beginOneEvent(); // finished in posixFsRun after processing the msg
         self.fs_queue.put(request_node);
-        self.fs_thread_wakeup.set();
+        self.fs_thread_wakeup.post(1);
     }
 
     fn posixFsCancel(self: *Loop, request_node: *Request.Node) void {
@@ -1491,54 +1500,52 @@ pub const Loop = struct {
 
     fn posixFsRun(self: *Loop) void {
         nosuspend while (true) {
-            self.fs_thread_wakeup.reset();
-            while (self.fs_queue.get()) |node| {
-                switch (node.data.msg) {
-                    .end => return,
-                    .read => |*msg| {
-                        msg.result = os.read(msg.fd, msg.buf);
-                    },
-                    .readv => |*msg| {
-                        msg.result = os.readv(msg.fd, msg.iov);
-                    },
-                    .write => |*msg| {
-                        msg.result = os.write(msg.fd, msg.bytes);
-                    },
-                    .writev => |*msg| {
-                        msg.result = os.writev(msg.fd, msg.iov);
-                    },
-                    .pwrite => |*msg| {
-                        msg.result = os.pwrite(msg.fd, msg.bytes, msg.offset);
-                    },
-                    .pwritev => |*msg| {
-                        msg.result = os.pwritev(msg.fd, msg.iov, msg.offset);
-                    },
-                    .pread => |*msg| {
-                        msg.result = os.pread(msg.fd, msg.buf, msg.offset);
-                    },
-                    .preadv => |*msg| {
-                        msg.result = os.preadv(msg.fd, msg.iov, msg.offset);
-                    },
-                    .open => |*msg| {
-                        if (is_windows) unreachable; // TODO
-                        msg.result = os.openZ(msg.path, msg.flags, msg.mode);
-                    },
-                    .openat => |*msg| {
-                        if (is_windows) unreachable; // TODO
-                        msg.result = os.openatZ(msg.fd, msg.path, msg.flags, msg.mode);
-                    },
-                    .faccessat => |*msg| {
-                        msg.result = os.faccessatZ(msg.dirfd, msg.path, msg.mode, msg.flags);
-                    },
-                    .close => |*msg| os.close(msg.fd),
-                }
-                switch (node.data.finish) {
-                    .TickNode => |*tick_node| self.onNextTick(tick_node),
-                    .NoAction => {},
-                }
-                self.finishOneEvent();
+            self.fs_thread_wakeup.wait(null) catch unreachable;
+            const node = self.fs_queue.get() orelse continue;
+            switch (node.data.msg) {
+                .end => return,
+                .read => |*msg| {
+                    msg.result = os.read(msg.fd, msg.buf);
+                },
+                .readv => |*msg| {
+                    msg.result = os.readv(msg.fd, msg.iov);
+                },
+                .write => |*msg| {
+                    msg.result = os.write(msg.fd, msg.bytes);
+                },
+                .writev => |*msg| {
+                    msg.result = os.writev(msg.fd, msg.iov);
+                },
+                .pwrite => |*msg| {
+                    msg.result = os.pwrite(msg.fd, msg.bytes, msg.offset);
+                },
+                .pwritev => |*msg| {
+                    msg.result = os.pwritev(msg.fd, msg.iov, msg.offset);
+                },
+                .pread => |*msg| {
+                    msg.result = os.pread(msg.fd, msg.buf, msg.offset);
+                },
+                .preadv => |*msg| {
+                    msg.result = os.preadv(msg.fd, msg.iov, msg.offset);
+                },
+                .open => |*msg| {
+                    if (is_windows) unreachable; // TODO
+                    msg.result = os.openZ(msg.path, msg.flags, msg.mode);
+                },
+                .openat => |*msg| {
+                    if (is_windows) unreachable; // TODO
+                    msg.result = os.openatZ(msg.fd, msg.path, msg.flags, msg.mode);
+                },
+                .faccessat => |*msg| {
+                    msg.result = os.faccessatZ(msg.dirfd, msg.path, msg.mode, msg.flags);
+                },
+                .close => |*msg| os.close(msg.fd),
             }
-            self.fs_thread_wakeup.wait();
+            switch (node.data.finish) {
+                .TickNode => |*tick_node| self.onNextTick(tick_node),
+                .NoAction => {},
+            }
+            self.finishOneEvent();
         };
     }
 

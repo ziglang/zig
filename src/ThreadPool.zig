@@ -7,99 +7,73 @@ const std = @import("std");
 const builtin = @import("builtin");
 const ThreadPool = @This();
 
-mutex: std.Thread.Mutex = .{},
+lock: std.Thread.Mutex = .{},
+cond: std.Thread.Condition = .{},
 is_running: bool = true,
 allocator: *std.mem.Allocator,
-workers: []Worker,
+threads: []std.Thread,
 run_queue: RunQueue = .{},
-idle_queue: IdleQueue = .{},
 
-const IdleQueue = std.SinglyLinkedList(std.Thread.ResetEvent);
 const RunQueue = std.SinglyLinkedList(Runnable);
 const Runnable = struct {
     runFn: fn (*Runnable) void,
 };
 
-const Worker = struct {
-    pool: *ThreadPool,
-    thread: std.Thread,
-    /// The node is for this worker only and must have an already initialized event
-    /// when the thread is spawned.
-    idle_node: IdleQueue.Node,
-
-    fn run(worker: *Worker) void {
-        const pool = worker.pool;
-
-        while (true) {
-            pool.mutex.lock();
-
-            if (pool.run_queue.popFirst()) |run_node| {
-                pool.mutex.unlock();
-                (run_node.data.runFn)(&run_node.data);
-                continue;
-            }
-
-            if (pool.is_running) {
-                worker.idle_node.data.reset();
-
-                pool.idle_queue.prepend(&worker.idle_node);
-                pool.mutex.unlock();
-
-                worker.idle_node.data.wait();
-                continue;
-            }
-
-            pool.mutex.unlock();
-            return;
-        }
-    }
-};
-
 pub fn init(self: *ThreadPool, allocator: *std.mem.Allocator) !void {
     self.* = .{
         .allocator = allocator,
-        .workers = &[_]Worker{},
+        .threads = &[_]std.Thread{},
     };
-    if (builtin.single_threaded)
+
+    if (std.builtin.single_threaded)
         return;
 
-    const worker_count = std.math.max(1, std.Thread.getCpuCount() catch 1);
-    self.workers = try allocator.alloc(Worker, worker_count);
-    errdefer allocator.free(self.workers);
+    const thread_count = std.math.max(1, std.Thread.getCpuCount() catch 1);
+    self.threads = try allocator.alloc(std.Thread, thread_count);
+    
+    var spawned: usize = 0;
+    errdefer self.join(spawned);
 
-    var worker_index: usize = 0;
-    errdefer self.destroyWorkers(worker_index);
-    while (worker_index < worker_count) : (worker_index += 1) {
-        const worker = &self.workers[worker_index];
-        worker.pool = self;
-
-        // Each worker requires its ResetEvent to be pre-initialized.
-        try worker.idle_node.data.init();
-        errdefer worker.idle_node.data.deinit();
-
-        worker.thread = try std.Thread.spawn(.{}, Worker.run, .{worker});
+    for (self.threads) |*thread| {
+        thread.* = try std.Thread.spawn(.{}, runWorker, .{self});
+        spawned += 1;
     }
 }
 
-fn destroyWorkers(self: *ThreadPool, spawned: usize) void {
-    for (self.workers[0..spawned]) |*worker| {
-        worker.thread.join();
-        worker.idle_node.data.deinit();
+fn runWorker(self: *ThreadPool) void {
+    var held = self.lock.acquire();
+    defer held.release();
+
+    while (self.is_running) {
+        const run_node = self.run_queue.popFirst() orelse {
+            self.cond.wait(held, null) catch unreachable;
+            continue;
+        };
+
+        held.release();
+        defer held = self.lock.acquire();
+        
+        (run_node.data.runFn)(&run_node.data);
     }
 }
 
-pub fn deinit(self: *ThreadPool) void {
+fn join(self: *ThreadPool, spawned: usize) void {
     {
         self.mutex.lock();
         defer self.mutex.unlock();
 
         self.is_running = false;
-        while (self.idle_queue.popFirst()) |idle_node|
-            idle_node.data.set();
+        self.cond.broadcast();
     }
 
-    self.destroyWorkers(self.workers.len);
-    self.allocator.free(self.workers);
+    for (self.threads[0..spawned]) |thread| thread.join();
+    self.allocator.free(self.threads);
+    self.* = undefined;
+}
+
+pub fn deinit(self: *ThreadPool) void {
+    const thread_count = self.threads.len;
+    self.join(thread_count);
 }
 
 pub fn spawn(self: *ThreadPool, comptime func: anytype, args: anytype) !void {
@@ -136,7 +110,5 @@ pub fn spawn(self: *ThreadPool, comptime func: anytype, args: anytype) !void {
     };
 
     self.run_queue.prepend(&closure.run_node);
-
-    if (self.idle_queue.popFirst()) |idle_node|
-        idle_node.data.set();
+    self.cond.signal();
 }
