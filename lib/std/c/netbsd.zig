@@ -520,15 +520,19 @@ pub const AI = struct {
     pub const ADDRCONFIG = 0x00000400;
 };
 
-pub const CTL_KERN = 1;
-pub const CTL_DEBUG = 5;
+pub const CTL = struct {
+    pub const KERN = 1;
+    pub const DEBUG = 5;
+};
 
-pub const KERN_PROC_ARGS = 48; // struct: process argv/env
-pub const KERN_PROC_PATHNAME = 5; // path to executable
-pub const KERN_IOV_MAX = 38;
+pub const KERN = struct {
+    pub const PROC_ARGS = 48; // struct: process argv/env
+    pub const PROC_PATHNAME = 5; // path to executable
+    pub const IOV_MAX = 38;
+};
 
 pub const PATH_MAX = 1024;
-pub const IOV_MAX = KERN_IOV_MAX;
+pub const IOV_MAX = KERN.IOV_MAX;
 
 pub const STDIN_FILENO = 0;
 pub const STDOUT_FILENO = 1;

@@ -365,11 +365,15 @@ pub const sockaddr = extern struct {
     };
 };
 
-pub const CTL_KERN = 1;
-pub const CTL_DEBUG = 5;
+pub const CTL = struct {
+    pub const KERN = 1;
+    pub const DEBUG = 5;
+};
 
-pub const KERN_PROC = 14; // struct: process entries
-pub const KERN_PROC_PATHNAME = 12; // path to executable
+pub const KERN = struct {
+    pub const PROC = 14; // struct: process entries
+    pub const PROC_PATHNAME = 12; // path to executable
+};
 
 pub const PATH_MAX = 1024;
 

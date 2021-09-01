@@ -404,8 +404,8 @@ fn testVersionEquality(expected: std.builtin.Version, got: std.builtin.Version) 
 }
 
 pub fn detectNativeCpuAndFeatures() ?Target.Cpu {
-    var cpu_family: os.CPUFAMILY = undefined;
-    var len: usize = @sizeOf(os.CPUFAMILY);
+    var cpu_family: std.c.CPUFAMILY = undefined;
+    var len: usize = @sizeOf(std.c.CPUFAMILY);
     os.sysctlbynameZ("hw.cpufamily", &cpu_family, &len, null, 0) catch |err| switch (err) {
         error.NameTooLong => unreachable, // constant, known good value
         error.PermissionDenied => unreachable, // only when setting values,
