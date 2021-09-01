@@ -5512,16 +5512,134 @@ fn zirArrayCat(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileEr
     const tracy = trace(@src());
     defer tracy.end();
 
-    _ = inst;
-    return sema.mod.fail(&block.base, sema.src, "TODO implement zirArrayCat", .{});
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
+    const lhs = sema.resolveInst(extra.lhs);
+    const rhs = sema.resolveInst(extra.rhs);
+    const lhs_ty = sema.typeOf(lhs);
+    const rhs_ty = sema.typeOf(rhs);
+    const lhs_src: LazySrcLoc = .{ .node_offset_bin_lhs = inst_data.src_node };
+    const rhs_src: LazySrcLoc = .{ .node_offset_bin_rhs = inst_data.src_node };
+
+    const lhs_info = getArrayCatInfo(lhs_ty) orelse
+        return sema.mod.fail(&block.base, lhs_src, "expected array, found '{}'", .{lhs_ty});
+    const rhs_info = getArrayCatInfo(rhs_ty) orelse
+        return sema.mod.fail(&block.base, rhs_src, "expected array, found '{}'", .{rhs_ty});
+    if (!lhs_info.elem_type.eql(rhs_info.elem_type)) {
+        return sema.mod.fail(&block.base, rhs_src, "expected array of type '{}', found '{}'", .{ lhs_info.elem_type, rhs_ty });
+    }
+
+    // When there is a sentinel mismatch, no sentinel on the result. The type system
+    // will catch this if it is a problem.
+    var res_sent: ?Value = null;
+    if (rhs_info.sentinel != null and lhs_info.sentinel != null) {
+        if (rhs_info.sentinel.?.eql(lhs_info.sentinel.?, lhs_info.elem_type)) {
+            res_sent = lhs_info.sentinel.?;
+        }
+    }
+
+    if (try sema.resolveDefinedValue(block, lhs_src, lhs)) |lhs_val| {
+        if (try sema.resolveDefinedValue(block, rhs_src, rhs)) |rhs_val| {
+            const final_len = lhs_info.len + rhs_info.len;
+            if (lhs_ty.zigTypeTag() == .Pointer) {
+                var anon_decl = try block.startAnonDecl();
+                defer anon_decl.deinit();
+
+                const lhs_sub_val = (try lhs_val.pointerDeref(anon_decl.arena())).?;
+                const rhs_sub_val = (try rhs_val.pointerDeref(anon_decl.arena())).?;
+                const buf = try anon_decl.arena().alloc(Value, final_len);
+                {
+                    var i: u64 = 0;
+                    while (i < lhs_info.len) : (i += 1) {
+                        const val = try lhs_sub_val.elemValue(sema.arena, i);
+                        buf[i] = try val.copy(anon_decl.arena());
+                    }
+                }
+                {
+                    var i: u64 = 0;
+                    while (i < rhs_info.len) : (i += 1) {
+                        const val = try rhs_sub_val.elemValue(sema.arena, i);
+                        buf[lhs_info.len + i] = try val.copy(anon_decl.arena());
+                    }
+                }
+                const ty = if (res_sent) |rs|
+                    try Type.Tag.array_sentinel.create(anon_decl.arena(), .{ .len = final_len, .elem_type = lhs_info.elem_type, .sentinel = rs })
+                else
+                    try Type.Tag.array.create(anon_decl.arena(), .{ .len = final_len, .elem_type = lhs_info.elem_type });
+                const val = try Value.Tag.array.create(anon_decl.arena(), buf);
+                return sema.analyzeDeclRef(try anon_decl.finish(
+                    ty,
+                    val,
+                ));
+            }
+            return sema.mod.fail(&block.base, lhs_src, "TODO array_cat more types of Values", .{});
+        } else {
+            return sema.mod.fail(&block.base, lhs_src, "TODO runtime array_cat", .{});
+        }
+    } else {
+        return sema.mod.fail(&block.base, lhs_src, "TODO runtime array_cat", .{});
+    }
+}
+
+fn getArrayCatInfo(t: Type) ?Type.ArrayInfo {
+    return switch (t.zigTypeTag()) {
+        .Array => t.arrayInfo(),
+        .Pointer => blk: {
+            const ptrinfo = t.ptrInfo().data;
+            if (ptrinfo.pointee_type.zigTypeTag() != .Array) return null;
+            if (ptrinfo.size != .One) return null;
+            break :blk ptrinfo.pointee_type.arrayInfo();
+        },
+        else => null,
+    };
 }
 
 fn zirArrayMul(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
 
-    _ = inst;
-    return sema.mod.fail(&block.base, sema.src, "TODO implement zirArrayMul", .{});
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
+    const lhs = sema.resolveInst(extra.lhs);
+    const lhs_ty = sema.typeOf(lhs);
+    const lhs_src: LazySrcLoc = .{ .node_offset_bin_lhs = inst_data.src_node };
+    const rhs_src: LazySrcLoc = .{ .node_offset_bin_rhs = inst_data.src_node };
+
+    // In `**` rhs has to be comptime-known, but lhs can be runtime-known
+    const tomulby = try sema.resolveInt(block, rhs_src, extra.rhs, Type.initTag(.usize));
+    const mulinfo = getArrayCatInfo(lhs_ty) orelse
+        return sema.mod.fail(&block.base, lhs_src, "expected array, found '{}'", .{lhs_ty});
+
+    const final_len = std.math.mul(u64, mulinfo.len, tomulby) catch return sema.mod.fail(&block.base, rhs_src, "operation results in overflow", .{});
+    if (try sema.resolveDefinedValue(block, lhs_src, lhs)) |lhs_val| {
+        if (lhs_ty.zigTypeTag() == .Pointer) {
+            var anon_decl = try block.startAnonDecl();
+            defer anon_decl.deinit();
+            const lhs_sub_val = (try lhs_val.pointerDeref(anon_decl.arena())).?;
+
+            const final_ty = if (mulinfo.sentinel) |sent|
+                try Type.Tag.array_sentinel.create(anon_decl.arena(), .{ .len = final_len, .elem_type = mulinfo.elem_type, .sentinel = sent })
+            else
+                try Type.Tag.array.create(anon_decl.arena(), .{ .len = final_len, .elem_type = mulinfo.elem_type });
+
+            const buf = try anon_decl.arena().alloc(Value, final_len);
+            var i: u64 = 0;
+            while (i < tomulby) : (i += 1) {
+                var j: u64 = 0;
+                while (j < mulinfo.len) : (j += 1) {
+                    const val = try lhs_sub_val.elemValue(sema.arena, j);
+                    buf[mulinfo.len * i + j] = try val.copy(anon_decl.arena());
+                }
+            }
+            const val = try Value.Tag.array.create(anon_decl.arena(), buf);
+            return sema.analyzeDeclRef(try anon_decl.finish(
+                final_ty,
+                val,
+            ));
+        }
+        return sema.mod.fail(&block.base, lhs_src, "TODO array_mul more types of Values", .{});
+    }
+    return sema.mod.fail(&block.base, lhs_src, "TODO runtime array_mul", .{});
 }
 
 fn zirNegate(

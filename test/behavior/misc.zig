@@ -40,14 +40,6 @@ test "constant equal function pointers" {
 
 fn emptyFn() void {}
 
-test "string concatenation" {
-    try expect(mem.eql(u8, "OK" ++ " IT " ++ "WORKED", "OK IT WORKED"));
-}
-
-test "array mult operator" {
-    try expect(mem.eql(u8, "ab" ** 5, "ababababab"));
-}
-
 test "string escapes" {
     try expectEqualStrings("\"", "\x22");
     try expectEqualStrings("\'", "\x27");
