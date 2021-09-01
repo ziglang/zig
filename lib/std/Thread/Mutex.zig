@@ -1,6 +1,7 @@
 const std = @import("../std.zig");
 const target = std.Target.current;
 const assert = std.debug.assert;
+const testing = std.testing;
 const os = std.os;
 
 const SpinWait = @import("SpinWait.zig");
@@ -58,7 +59,7 @@ const SerialImpl = struct {
 };
 
 const WindowsImpl = struct {
-    srwlock: os.windows.SWRLOCK = os.windows.SRWLOCK_INIT,
+    srwlock: os.windows.SRWLOCK = os.windows.SRWLOCK_INIT,
 
     pub fn tryAcquire(self: *Impl) bool {
         return os.windows.kernel32.TryAcquireSRWLockExclusive(&self.srwlock) != os.windows.FALSE;
@@ -196,3 +197,46 @@ const FutexImpl = struct {
         }
     }
 };
+
+test "Mutex - tryAcquire/release" {
+    var mutex = Mutex{};
+    
+    var held = mutex.tryAcquire() orelse return error.MutexTryAcquire;
+    try testing.expectEqual(mutex.tryAcquire(), null);
+    try testing.expectEqual(mutex.tryAcquire(), null);
+    held.release();
+
+    held = mutex.tryAcquire() orelse return error.MutexTryAcquire;
+    try testing.expectEqual(mutex.tryAcquire(), null);
+    held.release();
+}
+
+test "Mutex - racy" {
+    const num_threads = 4;
+    const num_iters_per_thread = 100;
+
+    const Context = struct {
+        mutex: Mutex = .{},
+        value: u128 = 0, // u128 to hint at disabling atomic updates
+
+        fn run(self: *@This()) void {
+            var i: usize = 0;
+            while (i < num_iters_per_thread) : (i += 1) {
+                const held = self.mutex.acquire();
+                defer held.release();
+
+                const value = self.value;
+                std.os.sched_yield() catch {}; // hint to increase chance of thread interleaving
+                self.value = std.math.add(u128, value, 1) catch return;
+            }
+        }
+    };
+
+    var context = Context{};
+
+    var threads: [4]std.Thread = undefined;
+    for (threads) |*t| t.* = try std.Thread.spawn(.{}, Context.run, .{&context});
+    for (threads) |t| t.join();
+
+    try testing.expect(context.value == num_iters_per_thread * num_threads);
+}

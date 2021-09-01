@@ -128,7 +128,7 @@ const FutexImpl = extern struct {
                 WAITING => blk: {
                     // Wait on the state for the CALLING thread to finish and wake us up.
                     Futex.wait(&self.state, WAITING, null) catch unreachable;
-                    break :Blk self.state.load(.Acquire);
+                    break :blk self.state.load(.Acquire);
                 },
                 CALLED => {
                     // The function has finally been called

@@ -189,11 +189,16 @@ const WindowsImpl = struct {
                 var event_handle: ?os.windows.HANDLE = null;
 
                 fn init(once: *os.windows.INIT_ONCE, param: ?*c_void, ctx: ?*c_void) callconv(.C) os.windows.BOOL {
+                    _ = once;
+                    _ = param;
+                    _ = ctx;
+                    
                     var handle: os.windows.HANDLE = undefined;
                     const access_mask = os.windows.GENERIC_READ | os.windows.GENERIC_WRITE;
                     if (os.windows.ntdll.NtCreateKeyedEvent(&handle, access_mask, null, 0) == .SUCCESS) {
                         event_handle = handle;
                     }
+
                     return os.windows.TRUE;
                 }
             };

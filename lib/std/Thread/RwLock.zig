@@ -188,8 +188,8 @@ const FutexImpl = struct {
             pub fn tryAcquireWith(impl: *Impl) ?usize {
                 var spin = SpinWait{};
                 while (true) {
-                    const state = self.state.load(.Monotonic);
-                    const result = self.tryAcquireReaderWith(state) catch |err| switch (err) {
+                    const state = impl.state.load(.Monotonic);
+                    const result = impl.tryAcquireReaderWith(state) catch |err| switch (err) {
                         error.Writer => return state,
                         error.Overflow => unreachable, // RwLock reader count overflowed
                     };
