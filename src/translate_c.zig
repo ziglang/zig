@@ -401,7 +401,7 @@ pub fn translate(
                 .name = decl.name,
                 .init = try Tag.import_builtin.create(context.arena, decl.name),
             });
-            try context.global_scope.nodes.append(builtin);
+            try addTopLevelDecl(&context, decl.name, builtin);
         }
     }
 
@@ -5347,7 +5347,10 @@ fn transPreprocessorEntities(c: *Context, unit: *clang.ASTUnit) Error!void {
                     },
                     .Nl, .Eof => {
                         // this means it is a macro without a value
-                        // we don't care about such things
+                        // We define it as an empty string so that it can still be used with ++
+                        const str_node = try Tag.string_literal.create(c.arena, "\"\"");
+                        const var_decl = try Tag.pub_var_simple.create(c.arena, .{ .name = name, .init = str_node });
+                        try c.global_scope.macro_table.put(name, var_decl);
                         continue;
                     },
                     .LParen => {
