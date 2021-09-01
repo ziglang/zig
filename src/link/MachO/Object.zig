@@ -453,7 +453,6 @@ pub fn parseTextBlocks(
     object_id: u16,
     macho_file: *MachO,
 ) !void {
-    const use_stage1 = build_options.is_stage1 and macho_file.base.options.use_stage1;
     const seg = self.load_commands.items[self.segment_cmd_index.?].Segment;
 
     log.debug("analysing {s}", .{self.name});
@@ -590,11 +589,7 @@ pub fn parseTextBlocks(
                         }
                     }
 
-                    if (use_stage1) {
-                        try macho_file.allocateAtomStage1(block, match);
-                    } else {
-                        _ = try macho_file.allocateAtom(block, match);
-                    }
+                    _ = try macho_file.allocateAtom(block, match);
                     try self.text_blocks.append(allocator, block);
                 }
 
@@ -641,11 +636,7 @@ pub fn parseTextBlocks(
                         }
                     }
 
-                    if (use_stage1) {
-                        try macho_file.allocateAtomStage1(block, match);
-                    } else {
-                        _ = try macho_file.allocateAtom(block, match);
-                    }
+                    _ = try macho_file.allocateAtom(block, match);
                     try self.text_blocks.append(allocator, block);
                 }
 
@@ -734,11 +725,7 @@ pub fn parseTextBlocks(
                 });
             }
 
-            if (use_stage1) {
-                try macho_file.allocateAtomStage1(block, match);
-            } else {
-                _ = try macho_file.allocateAtom(block, match);
-            }
+            _ = try macho_file.allocateAtom(block, match);
             try self.text_blocks.append(allocator, block);
         }
     }

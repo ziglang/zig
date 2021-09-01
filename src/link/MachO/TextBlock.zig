@@ -843,11 +843,7 @@ pub fn parseRelocs(self: *TextBlock, relocs: []macho.relocation_info, context: R
                 .seg = context.macho_file.data_const_segment_cmd_index.?,
                 .sect = context.macho_file.got_section_index.?,
             };
-            if (!(build_options.is_stage1 and context.macho_file.base.options.use_stage1)) {
-                _ = try context.macho_file.allocateAtom(atom, match);
-            } else {
-                try context.macho_file.allocateAtomStage1(atom, match);
-            }
+            _ = try context.macho_file.allocateAtom(atom, match);
         } else if (parsed_rel.payload == .unsigned) {
             switch (parsed_rel.where) {
                 .undef => {
@@ -910,34 +906,18 @@ pub fn parseRelocs(self: *TextBlock, relocs: []macho.relocation_info, context: R
             );
             const stub_atom = try context.macho_file.createStubAtom(laptr_atom.local_sym_index);
             try context.macho_file.stubs_map.putNoClobber(context.allocator, parsed_rel.where_index, stub_atom);
-
-            if (build_options.is_stage1 and context.macho_file.base.options.use_stage1) {
-                try context.macho_file.allocateAtomStage1(stub_helper_atom, .{
-                    .seg = context.macho_file.text_segment_cmd_index.?,
-                    .sect = context.macho_file.stub_helper_section_index.?,
-                });
-                try context.macho_file.allocateAtomStage1(laptr_atom, .{
-                    .seg = context.macho_file.data_segment_cmd_index.?,
-                    .sect = context.macho_file.la_symbol_ptr_section_index.?,
-                });
-                try context.macho_file.allocateAtomStage1(stub_atom, .{
-                    .seg = context.macho_file.text_segment_cmd_index.?,
-                    .sect = context.macho_file.stubs_section_index.?,
-                });
-            } else {
-                _ = try context.macho_file.allocateAtom(stub_helper_atom, .{
-                    .seg = context.macho_file.text_segment_cmd_index.?,
-                    .sect = context.macho_file.stub_helper_section_index.?,
-                });
-                _ = try context.macho_file.allocateAtom(laptr_atom, .{
-                    .seg = context.macho_file.data_segment_cmd_index.?,
-                    .sect = context.macho_file.la_symbol_ptr_section_index.?,
-                });
-                _ = try context.macho_file.allocateAtom(stub_atom, .{
-                    .seg = context.macho_file.text_segment_cmd_index.?,
-                    .sect = context.macho_file.stubs_section_index.?,
-                });
-            }
+            _ = try context.macho_file.allocateAtom(stub_helper_atom, .{
+                .seg = context.macho_file.text_segment_cmd_index.?,
+                .sect = context.macho_file.stub_helper_section_index.?,
+            });
+            _ = try context.macho_file.allocateAtom(laptr_atom, .{
+                .seg = context.macho_file.data_segment_cmd_index.?,
+                .sect = context.macho_file.la_symbol_ptr_section_index.?,
+            });
+            _ = try context.macho_file.allocateAtom(stub_atom, .{
+                .seg = context.macho_file.text_segment_cmd_index.?,
+                .sect = context.macho_file.stubs_section_index.?,
+            });
         }
     }
 }

@@ -760,27 +760,6 @@ pub fn flush(self: *MachO, comp: *Compilation) !void {
         try self.addCodeSignatureLC();
 
         if (use_stage1) {
-            {
-                const atom = try self.createDyldPrivateAtom();
-                try self.allocateAtomStage1(atom, .{
-                    .seg = self.data_segment_cmd_index.?,
-                    .sect = self.data_section_index.?,
-                });
-            }
-            {
-                const atom = try self.createStubHelperPreambleAtom();
-                try self.allocateAtomStage1(atom, .{
-                    .seg = self.text_segment_cmd_index.?,
-                    .sect = self.stub_helper_section_index.?,
-                });
-                // TODO this is just a temp
-                // We already prealloc stub helper size in populateMissingMetadata(), but
-                // perhaps it's not needed after all?
-                const seg = &self.load_commands.items[self.text_segment_cmd_index.?].Segment;
-                const sect = &seg.sections.items[self.stub_helper_section_index.?];
-                sect.size -= atom.size;
-            }
-
             try self.parseTextBlocks();
             try self.allocateTextSegment();
             try self.allocateDataConstSegment();
@@ -1919,55 +1898,70 @@ pub fn createEmptyAtom(self: *MachO, local_sym_index: u32, size: u64, alignment:
 pub fn allocateAtom(self: *MachO, atom: *TextBlock, match: MatchingSection) !u64 {
     const seg = &self.load_commands.items[match.seg].Segment;
     const sect = &seg.sections.items[match.sect];
-    const sym = &self.locals.items[atom.local_sym_index];
+    const use_stage1 = build_options.is_stage1 and self.base.options.use_stage1;
 
-    var atom_placement: ?*TextBlock = null;
+    const vaddr = outer: {
+        if (!use_stage1) {
+            const sym = &self.locals.items[atom.local_sym_index];
 
-    // TODO converge with `allocateTextBlock` and handle free list
-    const vaddr = if (self.blocks.get(match)) |last| blk: {
-        const last_atom_sym = self.locals.items[last.local_sym_index];
-        const ideal_capacity = padToIdeal(last.size);
-        const ideal_capacity_end_vaddr = last_atom_sym.n_value + ideal_capacity;
-        const last_atom_alignment = try math.powi(u32, 2, atom.alignment);
-        const new_start_vaddr = mem.alignForwardGeneric(u64, ideal_capacity_end_vaddr, last_atom_alignment);
-        atom_placement = last;
-        break :blk new_start_vaddr;
-    } else sect.addr;
+            var atom_placement: ?*TextBlock = null;
 
-    log.debug("allocating atom for symbol {s} at address 0x{x}", .{ self.getString(sym.n_strx), vaddr });
+            // TODO converge with `allocateTextBlock` and handle free list
+            const vaddr = if (self.blocks.get(match)) |last| blk: {
+                const last_atom_sym = self.locals.items[last.local_sym_index];
+                const ideal_capacity = padToIdeal(last.size);
+                const ideal_capacity_end_vaddr = last_atom_sym.n_value + ideal_capacity;
+                const last_atom_alignment = try math.powi(u32, 2, atom.alignment);
+                const new_start_vaddr = mem.alignForwardGeneric(u64, ideal_capacity_end_vaddr, last_atom_alignment);
+                atom_placement = last;
+                break :blk new_start_vaddr;
+            } else sect.addr;
 
-    const expand_section = atom_placement == null or atom_placement.?.next == null;
-    if (expand_section) {
-        const needed_size = (vaddr + atom.size) - sect.addr;
-        const end_addr = blk: {
-            const next_ordinal = self.section_ordinals.getIndex(match).?; // Ordinals are +1 to begin with.
-            const end_addr = if (self.section_ordinals.keys().len > next_ordinal) inner: {
-                const next_match = self.section_ordinals.keys()[next_ordinal];
-                const next_seg = self.load_commands.items[next_match.seg].Segment;
-                const next_sect = next_seg.sections.items[next_match.sect];
-                break :inner next_sect.addr;
-            } else seg.inner.filesize;
-            break :blk end_addr;
-        };
-        assert(needed_size <= end_addr); // TODO must expand the section
-    }
-    const n_sect = @intCast(u8, self.section_ordinals.getIndex(match).? + 1);
-    sym.n_value = vaddr;
-    sym.n_sect = n_sect;
+            log.debug("allocating atom for symbol {s} at address 0x{x}", .{ self.getString(sym.n_strx), vaddr });
 
-    // Update each alias (if any)
-    for (atom.aliases.items) |index| {
-        const alias_sym = &self.locals.items[index];
-        alias_sym.n_value = vaddr;
-        alias_sym.n_sect = n_sect;
-    }
+            const expand_section = atom_placement == null or atom_placement.?.next == null;
+            if (expand_section) {
+                const needed_size = (vaddr + atom.size) - sect.addr;
+                const end_addr = blk: {
+                    const next_ordinal = self.section_ordinals.getIndex(match).?; // Ordinals are +1 to begin with.
+                    const end_addr = if (self.section_ordinals.keys().len > next_ordinal) inner: {
+                        const next_match = self.section_ordinals.keys()[next_ordinal];
+                        const next_seg = self.load_commands.items[next_match.seg].Segment;
+                        const next_sect = next_seg.sections.items[next_match.sect];
+                        break :inner next_sect.addr;
+                    } else seg.inner.filesize;
+                    break :blk end_addr;
+                };
+                assert(needed_size <= end_addr); // TODO must expand the section
+            }
+            const n_sect = @intCast(u8, self.section_ordinals.getIndex(match).? + 1);
+            sym.n_value = vaddr;
+            sym.n_sect = n_sect;
 
-    // Update each symbol contained within the TextBlock
-    for (atom.contained.items) |sym_at_off| {
-        const contained_sym = &self.locals.items[sym_at_off.local_sym_index];
-        contained_sym.n_value = vaddr + sym_at_off.offset;
-        contained_sym.n_sect = n_sect;
-    }
+            // Update each alias (if any)
+            for (atom.aliases.items) |index| {
+                const alias_sym = &self.locals.items[index];
+                alias_sym.n_value = vaddr;
+                alias_sym.n_sect = n_sect;
+            }
+
+            // Update each symbol contained within the TextBlock
+            for (atom.contained.items) |sym_at_off| {
+                const contained_sym = &self.locals.items[sym_at_off.local_sym_index];
+                contained_sym.n_value = vaddr + sym_at_off.offset;
+                contained_sym.n_sect = n_sect;
+            }
+
+            break :outer vaddr;
+        } else {
+            const new_alignment = math.max(sect.@"align", atom.alignment);
+            const new_alignment_pow_2 = try math.powi(u32, 2, new_alignment);
+            const new_size = mem.alignForwardGeneric(u64, sect.size, new_alignment_pow_2) + atom.size;
+            sect.size = new_size;
+            sect.@"align" = new_alignment;
+            break :outer 0;
+        }
+    };
 
     if (self.blocks.getPtr(match)) |last| {
         last.*.next = atom;
@@ -2014,27 +2008,6 @@ fn allocateGlobalSymbols(self: *MachO) !void {
         const sym = &self.globals.items[resolv.where_index];
         sym.n_value = local_sym.n_value;
         sym.n_sect = local_sym.n_sect;
-    }
-}
-
-pub fn allocateAtomStage1(self: *MachO, atom: *TextBlock, match: MatchingSection) !void {
-    // Update target section's metadata
-    // TODO should we update segment's size here too?
-    // How does it tie with incremental space allocs?
-    const tseg = &self.load_commands.items[match.seg].Segment;
-    const tsect = &tseg.sections.items[match.sect];
-    const new_alignment = math.max(tsect.@"align", atom.alignment);
-    const new_alignment_pow_2 = try math.powi(u32, 2, new_alignment);
-    const new_size = mem.alignForwardGeneric(u64, tsect.size, new_alignment_pow_2) + atom.size;
-    tsect.size = new_size;
-    tsect.@"align" = new_alignment;
-
-    if (self.blocks.getPtr(match)) |last| {
-        last.*.next = atom;
-        atom.prev = last.*;
-        last.* = atom;
-    } else {
-        try self.blocks.putNoClobber(self.base.allocator, match, atom);
     }
 }
 
@@ -2607,8 +2580,6 @@ fn resolveSymbolsInObject(
 }
 
 fn resolveSymbols(self: *MachO) !void {
-    const use_stage1 = build_options.is_stage1 and self.base.options.use_stage1;
-
     var tentatives = std.AutoArrayHashMap(u32, void).init(self.base.allocator);
     defer tentatives.deinit();
 
@@ -2668,27 +2639,23 @@ fn resolveSymbols(self: *MachO) !void {
         resolv.local_sym_index = local_sym_index;
 
         const atom = try self.createEmptyAtom(local_sym_index, size, alignment);
-        if (use_stage1) {
-            try self.allocateAtomStage1(atom, match);
-        }
+        _ = try self.allocateAtom(atom, match);
     }
 
     try self.resolveDyldStubBinder();
-    if (!use_stage1) {
-        {
-            const atom = try self.createDyldPrivateAtom();
-            _ = try self.allocateAtom(atom, .{
-                .seg = self.data_segment_cmd_index.?,
-                .sect = self.data_section_index.?,
-            });
-        }
-        {
-            const atom = try self.createStubHelperPreambleAtom();
-            _ = try self.allocateAtom(atom, .{
-                .seg = self.text_segment_cmd_index.?,
-                .sect = self.stub_helper_section_index.?,
-            });
-        }
+    {
+        const atom = try self.createDyldPrivateAtom();
+        _ = try self.allocateAtom(atom, .{
+            .seg = self.data_segment_cmd_index.?,
+            .sect = self.data_section_index.?,
+        });
+    }
+    {
+        const atom = try self.createStubHelperPreambleAtom();
+        _ = try self.allocateAtom(atom, .{
+            .seg = self.text_segment_cmd_index.?,
+            .sect = self.stub_helper_section_index.?,
+        });
     }
 
     // Third pass, resolve symbols in dynamic libraries.
@@ -2800,9 +2767,7 @@ fn resolveSymbols(self: *MachO) !void {
         // TODO perhaps we should special-case special symbols? Create a separate
         // linked list of atoms?
         const atom = try self.createEmptyAtom(local_sym_index, 0, 0);
-        if (use_stage1) {
-            try self.allocateAtomStage1(atom, match);
-        }
+        _ = try self.allocateAtom(atom, match);
     }
 
     for (self.unresolved.keys()) |index| {
@@ -2869,12 +2834,7 @@ fn resolveDyldStubBinder(self: *MachO) !void {
         .seg = self.data_const_segment_cmd_index.?,
         .sect = self.got_section_index.?,
     };
-    // TODO remove once we can incrementally update in stage1 too.
-    if (!(build_options.is_stage1 and self.base.options.use_stage1)) {
-        _ = try self.allocateAtom(atom, match);
-    } else {
-        try self.allocateAtomStage1(atom, match);
-    }
+    _ = try self.allocateAtom(atom, match);
     self.binding_info_dirty = true;
 }
 
