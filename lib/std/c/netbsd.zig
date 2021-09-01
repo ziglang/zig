@@ -93,6 +93,11 @@ pub const pthread_rwlock_t = extern struct {
     private: ?*c_void = null,
 };
 
+pub const pthread_once_t = extern struct {
+    pto_mutex: pthread_mutex_t = .{},
+    pto_done: c_int = 0,
+};
+
 const pthread_spin_t = switch (builtin.cpu.arch) {
     .aarch64, .aarch64_be, .aarch64_32 => u8,
     .mips, .mipsel, .mips64, .mips64el => u32,

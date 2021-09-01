@@ -3,6 +3,7 @@ const target = std.Target.current;
 const assert = std.debug.assert;
 const os = std.os;
 
+const SpinWait = @import("SpinWait.zig");
 const Atomic = std.atomic.Atomic;
 const Futex = std.Thread.Futex;
 const Mutex = @This();
@@ -143,13 +144,8 @@ const FutexImpl = struct {
         /// we can acquire it without having to call Futex.wait().
         /// Give up spinning if the Mutex is contended.
         /// This helps acquire() latency under micro-contention.
-        ///
-        /// Only spin on x86 as other platforms are assumed to
-        /// prioritize power efficiency over strict performance.
-        var spin: u8 = if (is_x86) 100 else 0;
-        while (spin > 0) : (spin -= 1) {
-            std.atomic.spinLoopHint();
-
+        var spin = SpinWait{};
+        while (spin.yield()) {
             switch (self.state.load(.Monotonic)) {
                 UNLOCKED => _ = self.state.tryCompareAndSwap(
                     UNLOCKED,

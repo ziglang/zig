@@ -3,6 +3,7 @@ const target = std.Target.current;
 const assert = std.debug.assert;
 const os = std.os;
 
+const SpinWait = @import("SpinWait.zig");
 const Atomic = std.atomic.Atomic;
 const Futex = std.Thread.Futex;
 const RwLock = @This();
@@ -592,24 +593,4 @@ const FutexImpl = struct {
             else => unreachable, // invalid MutexPtr state
         }
     }
-
-    const SpinWait = struct {
-        // Spin for a longer period of time on x86 since throughput is more important there.
-        // Still spin a little bit for AARCH64 machines given they're also becoming throughput 
-        // oriented while stil favoring power efficiency.
-        // Finally, don't spin for other platforms with the assumption that scalability
-        // is more important and throughput gains are unknown.
-        count: u8 = switch (target.cpu.arch) {
-            .i386, .x86_64 => 100,
-            .aarch64 => 10,
-            else => 0,
-        },
-
-        pub fn yield(self: *Spin) bool {
-            if (self.count == 0) return false;
-            self.count -= 1;
-            std.atomic.spinLoopHint();
-            return true;
-        }
-    };
 };

@@ -63,6 +63,9 @@ pub const pthread_rwlock_t = extern struct {
     writer_count: i32 = 0,
     waiters: [2]?*c_void = [_]?*c_void{ null, null },
 };
+pub const pthread_once_t = extern struct {
+    x: i32 = -1
+};
 
 pub const EAI = enum(c_int) {
     /// address family for hostname not supported

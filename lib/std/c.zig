@@ -333,6 +333,9 @@ pub extern "c" fn pthread_rwlock_tryrdlock(rwl: *c.pthread_rwlock_t) callconv(.C
 pub extern "c" fn pthread_rwlock_trywrlock(rwl: *c.pthread_rwlock_t) callconv(.C) c.E;
 pub extern "c" fn pthread_rwlock_unlock(rwl: *c.pthread_rwlock_t) callconv(.C) c.E;
 
+pub const PTHREAD_ONCE_INIT = pthread_once_t{};
+pub extern "c" fn pthread_once(once: *pthread_once_t, init_routine: fn() callconv(.C) void) callconv(.C) c_int;
+
 pub const pthread_t = *opaque {};
 pub const FILE = opaque {};
 

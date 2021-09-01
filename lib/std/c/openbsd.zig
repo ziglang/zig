@@ -27,6 +27,10 @@ pub const pthread_cond_t = extern struct {
 pub const pthread_rwlock_t = extern struct {
     ptr: ?*c_void = null,
 };
+pub const pthread_once_t = extern struct {
+    state: c_int = 0,
+    mutex: pthread_mutex_t = .{},
+};
 pub const pthread_spinlock_t = extern struct {
     inner: ?*c_void = null,
 };
