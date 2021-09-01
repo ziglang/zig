@@ -244,7 +244,7 @@ pub fn addCases(ctx: *TestContext) !void {
     }
 
     {
-        var case = ctx.exeUsingLlvmBackend("address space pointer coercions", linux_x64);
+        var case = ctx.exeUsingLlvmBackend("invalid address space coercion", linux_x64);
         case.addError(
             \\fn entry(a: *addrspace(.gs) i32) *i32 {
             \\    return a;
@@ -253,21 +253,30 @@ pub fn addCases(ctx: *TestContext) !void {
         , &[_][]const u8{
             ":2:12: error: expected *i32, found *addrspace(.gs) i32",
         });
+    }
 
+    {
+        var case = ctx.exeUsingLlvmBackend("pointer keeps address space", linux_x64);
         case.compiles(
             \\fn entry(a: *addrspace(.gs) i32) *addrspace(.gs) i32 {
             \\    return a;
             \\}
             \\pub export fn main() void { _ = entry; }
         );
+    }
 
+    {
+        var case = ctx.exeUsingLlvmBackend("pointer to explicit generic address space coerces to implicit pointer", linux_x64);
         case.compiles(
             \\fn entry(a: *addrspace(.generic) i32) *i32 {
             \\    return a;
             \\}
             \\pub export fn main() void { _ = entry; }
         );
+    }
 
+    {
+        var case = ctx.exeUsingLlvmBackend("pointers with different address spaces", linux_x64);
         case.addError(
             \\fn entry(a: *addrspace(.gs) i32) *addrspace(.fs) i32 {
             \\    return a;
@@ -276,7 +285,10 @@ pub fn addCases(ctx: *TestContext) !void {
         , &[_][]const u8{
             ":2:12: error: expected *addrspace(.fs) i32, found *addrspace(.gs) i32",
         });
+    }
 
+    {
+        var case = ctx.exeUsingLlvmBackend("pointers with different address spaces", linux_x64);
         case.addError(
             \\fn entry(a: ?*addrspace(.gs) i32) *i32 {
             \\    return a.?;
@@ -285,7 +297,10 @@ pub fn addCases(ctx: *TestContext) !void {
         , &[_][]const u8{
             ":2:13: error: expected *i32, found *addrspace(.gs) i32",
         });
+    }
 
+    {
+        var case = ctx.exeUsingLlvmBackend("invalid pointer keeps address space when taking address of dereference", linux_x64);
         case.addError(
             \\fn entry(a: *addrspace(.gs) i32) *i32 {
             \\    return &a.*;
@@ -294,7 +309,10 @@ pub fn addCases(ctx: *TestContext) !void {
         , &[_][]const u8{
             ":2:12: error: expected *i32, found *addrspace(.gs) i32",
         });
+    }
 
+    {
+        var case = ctx.exeUsingLlvmBackend("pointer keeps address space when taking address of dereference", linux_x64);
         case.compiles(
             \\fn entry(a: *addrspace(.gs) i32) *addrspace(.gs) i32 {
             \\    return &a.*;
