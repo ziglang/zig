@@ -48,12 +48,39 @@ const SerialImpl = struct {
 };
 
 const WindowsImpl = struct {
+    cond: os.windows.CONDITION_VARIABLE = os.windows.CONDITION_VARIABLE_INIT,
+
     fn wait(self: *Impl, held: Mutex.Held, timeout: ?u64) error{TimedOut}!void {
-        @compileError("TODO: SleepConditionVariableSRW");
+        var timeout_ms: os.windows.DWORD = os.windows.INFINITE;
+        var timeout_overflow = false;
+
+        if (timeout) |timeout_ns| {
+            timeout_ms = std.math.cast(os.windows.DWORD, timeout_ns / std.time.ns_per_ms) catch timeout_ms;
+            timeout_overflow = timeout_ms == os.windows.INFINITE;
+        }
+
+        const rc = os.windows.kernel32.SleepConditionVariableSRW(
+            &self.cond,
+            &held.mutex.impl.srwlock,
+            timeout_ms,
+            0, // Mutex acquires the SRWLOCK exclusively
+        );
+
+        if (rc == os.windows.FALSE) {
+            const err = os.windows.kernel32.GetLastError();
+            assert(err == .TIMEOUT);
+
+            if (!timeout_overflow) {
+                return error.TimedOut;
+            }
+        }
     }
 
     fn wake(self: *Impl, notify_all: bool) void {
-        @compileError("TODO: Wake[All]ConditionVariable");
+        switch (notify_all) {
+            true => os.windows.kernel32.WakeAllConditionVariable(&self.cond),
+            else => os.windows.kernel32.WakeConditionVariable(&self.cond),
+        }
     }
 };
 

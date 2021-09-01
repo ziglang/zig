@@ -154,7 +154,7 @@ const ObjectArray = struct {
 // It provides thread-safety for on-demand storage of Thread Objects.
 const current_thread_storage = struct {
     var key: std.c.pthread_key_t = undefined;
-    var init_once = std.once(current_thread_storage.init);
+    var init_once = std.Thread.Once{};
 
     /// Return a per thread ObjectArray with at least the expected index.
     pub fn getArray(index: usize) *ObjectArray {
@@ -299,7 +299,7 @@ const emutls_control = extern struct {
     /// Get the pointer on allocated storage for emutls variable.
     pub fn getPointer(self: *emutls_control) *c_void {
         // ensure current_thread_storage initialization is done
-        current_thread_storage.init_once.call();
+        current_thread_storage.init_once.call(current_thread_storage.init);
 
         const index = self.getIndex();
         var array = current_thread_storage.getArray(index);
