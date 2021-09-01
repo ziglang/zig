@@ -408,23 +408,52 @@ pub const MAP = struct {
     pub const PREFAULT_READ = 0x00040000;
     pub const @"32BIT" = 0x00080000;
 };
-pub const WNOHANG = 0x1;
-pub const WUNTRACED = 0x2;
-pub const WSTOPPED = 0x10;
-pub const WCONTINUED = 0x4;
-pub const WNOWAIT = 0x20;
-pub const WEXITED = 0x08;
 
-pub const SA_ONSTACK = 0x20;
-pub const SA_RESTART = 0x10;
-pub const SA_RESETHAND = 0x04;
-pub const SA_NOCLDSTOP = 0x01;
-pub const SA_NODEFER = 0x08;
-pub const SA_NOCLDWAIT = 0x02;
-pub const SA_SIGINFO = 0x40;
-pub const SA_NOMASK = SA_NODEFER;
-pub const SA_STACK = SA_ONSTACK;
-pub const SA_ONESHOT = SA_RESETHAND;
+pub const W = struct {
+    pub const NOHANG = 0x1;
+    pub const UNTRACED = 0x2;
+    pub const STOPPED = 0x10;
+    pub const CONTINUED = 0x4;
+    pub const NOWAIT = 0x20;
+    pub const EXITED = 0x08;
+
+    pub fn EXITSTATUS(s: u32) u8 {
+        return @intCast(u8, s & 0xff);
+    }
+
+    pub fn TERMSIG(s: u32) u32 {
+        return (s >> 8) & 0xff;
+    }
+
+    pub fn STOPSIG(s: u32) u32 {
+        return EXITSTATUS(s);
+    }
+
+    pub fn IFEXITED(s: u32) bool {
+        return TERMSIG(s) == 0;
+    }
+
+    pub fn IFSTOPPED(s: u32) bool {
+        return ((s >> 16) & 0xff) != 0;
+    }
+
+    pub fn IFSIGNALED(s: u32) bool {
+        return ((s >> 8) & 0xff) != 0;
+    }
+};
+
+pub const SA = struct {
+    pub const ONSTACK = 0x20;
+    pub const RESTART = 0x10;
+    pub const RESETHAND = 0x04;
+    pub const NOCLDSTOP = 0x01;
+    pub const NODEFER = 0x08;
+    pub const NOCLDWAIT = 0x02;
+    pub const SIGINFO = 0x40;
+    pub const NOMASK = NODEFER;
+    pub const STACK = ONSTACK;
+    pub const ONESHOT = RESETHAND;
+};
 
 pub const SIG = struct {
     pub const ERR = @intToPtr(fn (i32) callconv(.C) void, maxInt(usize));
@@ -558,9 +587,11 @@ pub const LOCK = struct {
 
 pub const FD_CLOEXEC = 1;
 
-pub const SEEK_SET = 0;
-pub const SEEK_CUR = 1;
-pub const SEEK_END = 2;
+pub const SEEK = struct {
+    pub const SET = 0;
+    pub const CUR = 1;
+    pub const END = 2;
+};
 
 pub const SOCK = struct {
     pub const STREAM = 1;
@@ -710,15 +741,17 @@ pub const AF = struct {
     pub const MAX = 42;
 };
 
-pub const DT_UNKNOWN = 0;
-pub const DT_FIFO = 1;
-pub const DT_CHR = 2;
-pub const DT_DIR = 4;
-pub const DT_BLK = 6;
-pub const DT_REG = 8;
-pub const DT_LNK = 10;
-pub const DT_SOCK = 12;
-pub const DT_WHT = 14;
+pub const DT = struct {
+    pub const UNKNOWN = 0;
+    pub const FIFO = 1;
+    pub const CHR = 2;
+    pub const DIR = 4;
+    pub const BLK = 6;
+    pub const REG = 8;
+    pub const LNK = 10;
+    pub const SOCK = 12;
+    pub const WHT = 14;
+};
 
 /// add event to kq (implies enable)
 pub const EV_ADD = 0x0001;
@@ -804,32 +837,6 @@ pub const T = struct {
     pub const IOCSBRK = 0x8020;
     pub const IOCCBRK = 0x8021;
     pub const IOCGSID = 0x8024;
-};
-
-pub const W = struct {
-    pub fn EXITSTATUS(s: u32) u8 {
-        return @intCast(u8, s & 0xff);
-    }
-
-    pub fn TERMSIG(s: u32) u32 {
-        return (s >> 8) & 0xff;
-    }
-
-    pub fn STOPSIG(s: u32) u32 {
-        return EXITSTATUS(s);
-    }
-
-    pub fn IFEXITED(s: u32) bool {
-        return TERMSIG(s) == 0;
-    }
-
-    pub fn IFSTOPPED(s: u32) bool {
-        return ((s >> 16) & 0xff) != 0;
-    }
-
-    pub fn IFSIGNALED(s: u32) bool {
-        return ((s >> 8) & 0xff) != 0;
-    }
 };
 
 pub const winsize = extern struct {
@@ -1364,9 +1371,11 @@ pub const rlimit = extern struct {
     max: rlim_t,
 };
 
-pub const SHUT_RD = 0;
-pub const SHUT_WR = 1;
-pub const SHUT_RDWR = 2;
+pub const SHUT = struct {
+    pub const RD = 0;
+    pub const WR = 1;
+    pub const RDWR = 2;
+};
 
 // TODO fill out if needed
 pub const directory_which = enum(c_int) {

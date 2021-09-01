@@ -696,36 +696,6 @@ pub const MAP = struct {
     pub const @"32BIT" = 0x40;
 };
 
-pub const SO = struct {
-    pub const DEBUG = 1;
-    pub const REUSEADDR = 0x0004;
-    pub const KEEPALIVE = 0x0008;
-    pub const DONTROUTE = 0x0010;
-    pub const BROADCAST = 0x0020;
-    pub const LINGER = 0x0080;
-    pub const OOBINLINE = 0x0100;
-    pub const REUSEPORT = 0x0200;
-    pub const SNDBUF = 0x1001;
-    pub const RCVBUF = 0x1002;
-    pub const SNDLOWAT = 0x1003;
-    pub const RCVLOWAT = 0x1004;
-    pub const RCVTIMEO = 0x1006;
-    pub const SNDTIMEO = 0x1005;
-    pub const ERROR = 0x1007;
-    pub const TYPE = 0x1008;
-    pub const ACCEPTCONN = 0x1009;
-    pub const PROTOCOL = 0x1028;
-    pub const DOMAIN = 0x1029;
-    pub const NO_CHECK = 11;
-    pub const PRIORITY = 12;
-    pub const BSDCOMPAT = 14;
-    pub const PASSCRED = 17;
-    pub const PEERCRED = 18;
-    pub const PEERSEC = 30;
-    pub const SNDBUFFORCE = 31;
-    pub const RCVBUFFORCE = 33;
-};
-
 pub const VDSO = struct {
     pub const CGT_SYM = "__kernel_clock_gettime";
     pub const CGT_VER = "LINUX_2.6.39";

@@ -88,9 +88,11 @@ pub const SIG = struct {
     pub const ERR = -1;
 };
 
-pub const SEEK_SET = 0;
-pub const SEEK_CUR = 1;
-pub const SEEK_END = 2;
+pub const SEEK = struct {
+    pub const SET = 0;
+    pub const CUR = 1;
+    pub const END = 2;
+};
 
 pub const E = enum(u16) {
     /// No error occurred.

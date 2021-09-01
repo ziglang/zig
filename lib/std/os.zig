@@ -68,6 +68,7 @@ pub const ARCH = system.ARCH;
 pub const AT = system.AT;
 pub const CLOCK = system.CLOCK;
 pub const CPU_COUNT = system.CPU_COUNT;
+pub const DT = system.DT;
 pub const E = system.E;
 pub const Elf_Symndx = system.Elf_Symndx;
 pub const F = system.F;

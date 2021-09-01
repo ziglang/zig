@@ -8,7 +8,7 @@ pub fn _errno() *c_int {
     return &errno;
 }
 
-pub const fd_t = c_int;
+pub const fd_t = wasi.fd_t;
 pub const pid_t = c_int;
 pub const uid_t = u32;
 pub const gid_t = u32;
@@ -22,6 +22,9 @@ pub const STDIN_FILENO = wasi.STDIN_FILENO;
 pub const STDOUT_FILENO = wasi.STDOUT_FILENO;
 pub const E = wasi.E;
 pub const CLOCK = wasi.CLOCK;
+pub const S = wasi.S;
+pub const IOV_MAX = wasi.IOV_MAX;
+pub const AT = wasi.AT;
 
 pub const Stat = extern struct {
     dev: i32,

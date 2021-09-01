@@ -182,20 +182,43 @@ pub const MAP = struct {
     pub const SIZEALIGN = 262144;
 };
 
-pub const WNOHANG = 0x0001;
-pub const WUNTRACED = 0x0002;
-pub const WCONTINUED = 0x0004;
-pub const WSTOPPED = WUNTRACED;
-pub const WNOWAIT = 0x0008;
-pub const WEXITED = 0x0010;
-pub const WTRAPPED = 0x0020;
+pub const W = struct {
+    pub const NOHANG = 0x0001;
+    pub const UNTRACED = 0x0002;
+    pub const CONTINUED = 0x0004;
+    pub const STOPPED = UNTRACED;
+    pub const NOWAIT = 0x0008;
+    pub const EXITED = 0x0010;
+    pub const TRAPPED = 0x0020;
 
-pub const SA_ONSTACK = 0x0001;
-pub const SA_RESTART = 0x0002;
-pub const SA_RESETHAND = 0x0004;
-pub const SA_NODEFER = 0x0010;
-pub const SA_NOCLDWAIT = 0x0020;
-pub const SA_SIGINFO = 0x0040;
+    pub fn EXITSTATUS(s: u32) u8 {
+        return @intCast(u8, (s & 0xff00) >> 8);
+    }
+    pub fn TERMSIG(s: u32) u32 {
+        return s & 0x7f;
+    }
+    pub fn STOPSIG(s: u32) u32 {
+        return EXITSTATUS(s);
+    }
+    pub fn IFEXITED(s: u32) bool {
+        return TERMSIG(s) == 0;
+    }
+    pub fn IFSTOPPED(s: u32) bool {
+        return @intCast(u16, (((s & 0xffff) *% 0x10001) >> 8)) > 0x7f00;
+    }
+    pub fn IFSIGNALED(s: u32) bool {
+        return (s & 0xffff) -% 1 < 0xff;
+    }
+};
+
+pub const SA = struct {
+    pub const ONSTACK = 0x0001;
+    pub const RESTART = 0x0002;
+    pub const RESETHAND = 0x0004;
+    pub const NODEFER = 0x0010;
+    pub const NOCLDWAIT = 0x0020;
+    pub const SIGINFO = 0x0040;
+};
 
 pub const PATH_MAX = 1024;
 pub const IOV_MAX = KERN_IOV_MAX;
@@ -348,11 +371,13 @@ pub const O = struct {
     pub const DIRECTORY = 134217728;
 };
 
-pub const SEEK_SET = 0;
-pub const SEEK_CUR = 1;
-pub const SEEK_END = 2;
-pub const SEEK_DATA = 3;
-pub const SEEK_HOLE = 4;
+pub const SEEK = struct {
+    pub const SET = 0;
+    pub const CUR = 1;
+    pub const END = 2;
+    pub const DATA = 3;
+    pub const HOLE = 4;
+};
 
 pub const F = struct {
     pub const ULOCK = 0;
@@ -388,25 +413,6 @@ pub const AT = struct {
     pub const SYMLINK_FOLLOW = 8;
 };
 
-pub fn WEXITSTATUS(s: u32) u8 {
-    return @intCast(u8, (s & 0xff00) >> 8);
-}
-pub fn WTERMSIG(s: u32) u32 {
-    return s & 0x7f;
-}
-pub fn WSTOPSIG(s: u32) u32 {
-    return WEXITSTATUS(s);
-}
-pub fn WIFEXITED(s: u32) bool {
-    return WTERMSIG(s) == 0;
-}
-pub fn WIFSTOPPED(s: u32) bool {
-    return @intCast(u16, (((s & 0xffff) *% 0x10001) >> 8)) > 0x7f00;
-}
-pub fn WIFSIGNALED(s: u32) bool {
-    return (s & 0xffff) -% 1 < 0xff;
-}
-
 pub const dirent = extern struct {
     d_fileno: c_ulong,
     d_namlen: u16,
@@ -420,16 +426,18 @@ pub const dirent = extern struct {
     }
 };
 
-pub const DT_UNKNOWN = 0;
-pub const DT_FIFO = 1;
-pub const DT_CHR = 2;
-pub const DT_DIR = 4;
-pub const DT_BLK = 6;
-pub const DT_REG = 8;
-pub const DT_LNK = 10;
-pub const DT_SOCK = 12;
-pub const DT_WHT = 14;
-pub const DT_DBF = 15;
+pub const DT = struct {
+    pub const UNKNOWN = 0;
+    pub const FIFO = 1;
+    pub const CHR = 2;
+    pub const DIR = 4;
+    pub const BLK = 6;
+    pub const REG = 8;
+    pub const LNK = 10;
+    pub const SOCK = 12;
+    pub const WHT = 14;
+    pub const DBF = 15;
+};
 
 pub const CLOCK = struct {
     pub const REALTIME = 0;
@@ -1075,9 +1083,11 @@ pub const rlimit = extern struct {
     max: rlim_t,
 };
 
-pub const SHUT_RD = 0;
-pub const SHUT_WR = 1;
-pub const SHUT_RDWR = 2;
+pub const SHUT = struct {
+    pub const RD = 0;
+    pub const WR = 1;
+    pub const RDWR = 2;
+};
 
 pub const nfds_t = u32;
 

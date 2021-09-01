@@ -613,38 +613,26 @@ pub const MAP = struct {
     pub const FAILED = @intToPtr(*c_void, maxInt(usize));
 };
 
-/// [XSI] no hang in wait/no child to reap
-pub const WNOHANG = 0x00000001;
-
-/// [XSI] notify on stop, untraced child
-pub const WUNTRACED = 0x00000002;
-
-/// take signal on signal stack
-pub const SA_ONSTACK = 0x0001;
-
-/// restart system on signal return
-pub const SA_RESTART = 0x0002;
-
-/// reset to SIG.DFL when taking signal
-pub const SA_RESETHAND = 0x0004;
-
-/// do not generate SIG.CHLD on child stop
-pub const SA_NOCLDSTOP = 0x0008;
-
-/// don't mask the signal we're delivering
-pub const SA_NODEFER = 0x0010;
-
-/// don't keep zombies around
-pub const SA_NOCLDWAIT = 0x0020;
-
-/// signal handler with SA_SIGINFO args
-pub const SA_SIGINFO = 0x0040;
-
-/// do not bounce off kernel's sigtramp
-pub const SA_USERTRAMP = 0x0100;
-
-/// signal handler with SA_SIGINFO args with 64bit   regs information
-pub const SA_64REGSET = 0x0200;
+pub const SA = struct {
+    /// take signal on signal stack
+    pub const ONSTACK = 0x0001;
+    /// restart system on signal return
+    pub const RESTART = 0x0002;
+    /// reset to SIG.DFL when taking signal
+    pub const RESETHAND = 0x0004;
+    /// do not generate SIG.CHLD on child stop
+    pub const NOCLDSTOP = 0x0008;
+    /// don't mask the signal we're delivering
+    pub const NODEFER = 0x0010;
+    /// don't keep zombies around
+    pub const NOCLDWAIT = 0x0020;
+    /// signal handler with SIGINFO args
+    pub const SIGINFO = 0x0040;
+    /// do not bounce off kernel's sigtramp
+    pub const USERTRAMP = 0x0100;
+    /// signal handler with SIGINFO args with 64bit regs information
+    pub const @"64REGSET" = 0x0200;
+};
 
 pub const F_OK = 0;
 pub const X_OK = 1;
@@ -694,19 +682,23 @@ pub const O = struct {
     pub const SYNC = 128;
 };
 
-pub const SEEK_SET = 0x0;
-pub const SEEK_CUR = 0x1;
-pub const SEEK_END = 0x2;
+pub const SEEK = struct {
+    pub const SET = 0x0;
+    pub const CUR = 0x1;
+    pub const END = 0x2;
+};
 
-pub const DT_UNKNOWN = 0;
-pub const DT_FIFO = 1;
-pub const DT_CHR = 2;
-pub const DT_DIR = 4;
-pub const DT_BLK = 6;
-pub const DT_REG = 8;
-pub const DT_LNK = 10;
-pub const DT_SOCK = 12;
-pub const DT_WHT = 14;
+pub const DT = struct {
+    pub const UNKNOWN = 0;
+    pub const FIFO = 1;
+    pub const CHR = 2;
+    pub const DIR = 4;
+    pub const BLK = 6;
+    pub const REG = 8;
+    pub const LNK = 10;
+    pub const SOCK = 12;
+    pub const WHT = 14;
+};
 
 /// no flag value
 pub const KEVENT_FLAG_NONE = 0x000;
@@ -1070,6 +1062,11 @@ pub const SO = struct {
 };
 
 pub const W = struct {
+    /// [XSI] no hang in wait/no child to reap
+    pub const NOHANG = 0x00000001;
+    /// [XSI] notify on stop, untraced child
+    pub const UNTRACED = 0x00000002;
+
     pub fn EXITSTATUS(x: u32) u8 {
         return @intCast(u8, x >> 8);
     }
@@ -1759,9 +1756,11 @@ pub const rlimit = extern struct {
     max: rlim_t,
 };
 
-pub const SHUT_RD = 0;
-pub const SHUT_WR = 1;
-pub const SHUT_RDWR = 2;
+pub const SHUT = struct {
+    pub const RD = 0;
+    pub const WR = 1;
+    pub const RDWR = 2;
+};
 
 // Term
 pub const VEOF = 0;
