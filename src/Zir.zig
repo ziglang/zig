@@ -1629,6 +1629,22 @@ pub const Inst = struct {
         wasm_memory_size,
         /// `operand` is payload index to `BinNode`.
         wasm_memory_grow,
+        /// Implements the `@addWithSaturation` builtin.
+        /// `operand` is payload index to `SaturatingArithmetic`.
+        /// `small` is unused.
+        add_with_saturation,
+        /// Implements the `@subWithSaturation` builtin.
+        /// `operand` is payload index to `SaturatingArithmetic`.
+        /// `small` is unused.
+        sub_with_saturation,
+        /// Implements the `@mulWithSaturation` builtin.
+        /// `operand` is payload index to `SaturatingArithmetic`.
+        /// `small` is unused.
+        mul_with_saturation,
+        /// Implements the `@shlWithSaturation` builtin.
+        /// `operand` is payload index to `SaturatingArithmetic`.
+        /// `small` is unused.
+        shl_with_saturation,
 
         pub const InstData = struct {
             opcode: Extended,
@@ -2751,6 +2767,12 @@ pub const Inst = struct {
         ptr: Ref,
     };
 
+    pub const SaturatingArithmetic = struct {
+        node: i32,
+        lhs: Ref,
+        rhs: Ref,
+    };
+
     pub const Cmpxchg = struct {
         ptr: Ref,
         expected_value: Ref,
@@ -3231,6 +3253,11 @@ const Writer = struct {
             .shl_with_overflow,
             => try self.writeOverflowArithmetic(stream, extended),
 
+            .add_with_saturation,
+            .sub_with_saturation,
+            .mul_with_saturation,
+            .shl_with_saturation,
+            => try self.writeSaturatingArithmetic(stream, extended),
             .struct_decl => try self.writeStructDecl(stream, extended),
             .union_decl => try self.writeUnionDecl(stream, extended),
             .enum_decl => try self.writeEnumDecl(stream, extended),
@@ -3581,6 +3608,18 @@ const Writer = struct {
         try stream.writeAll(", ");
         try self.writeInstRef(stream, extra.ptr);
         try stream.writeAll(")) ");
+        try self.writeSrc(stream, src);
+    }
+
+    fn writeSaturatingArithmetic(self: *Writer, stream: anytype, extended: Inst.Extended.InstData) !void {
+        const extra = self.code.extraData(Zir.Inst.SaturatingArithmetic, extended.operand).data;
+        const src: LazySrcLoc = .{ .node_offset = extra.node };
+
+        try self.writeInstRef(stream, extra.lhs);
+        try stream.writeAll(", ");
+        try self.writeInstRef(stream, extra.rhs);
+        try stream.writeAll(", ");
+        try stream.writeAll(") ");
         try self.writeSrc(stream, src);
     }
 

@@ -9820,6 +9820,34 @@ static ErrorMsg *ir_eval_math_op_scalar(IrAnalyze *ira, Scope *scope, AstNode *s
                 float_min(out_val, op1_val, op2_val);
             }
             break;
+        case IrBinOpSatAdd:
+            if (is_int) {
+                bigint_add_sat(&out_val->data.x_bigint, &op1_val->data.x_bigint, &op2_val->data.x_bigint, type_entry->data.integral.bit_count, type_entry->data.integral.is_signed);
+            } else {
+                zig_unreachable();
+            }
+            break;
+        case IrBinOpSatSub:
+            if (is_int) {
+                bigint_sub_sat(&out_val->data.x_bigint, &op1_val->data.x_bigint, &op2_val->data.x_bigint, type_entry->data.integral.bit_count, type_entry->data.integral.is_signed);
+            } else {
+                zig_unreachable();
+            }
+            break;
+        case IrBinOpSatMul:
+            if (is_int) {
+                bigint_mul_sat(&out_val->data.x_bigint, &op1_val->data.x_bigint, &op2_val->data.x_bigint, type_entry->data.integral.bit_count, type_entry->data.integral.is_signed);
+            } else {
+                zig_unreachable();
+            }
+            break;
+        case IrBinOpSatShl:
+            if (is_int) {
+                bigint_shl_sat(&out_val->data.x_bigint, &op1_val->data.x_bigint, &op2_val->data.x_bigint, type_entry->data.integral.bit_count, type_entry->data.integral.is_signed);
+            } else {
+                zig_unreachable();
+            }
+            break;
     }
 
     if (type_entry->id == ZigTypeIdInt) {
@@ -10041,6 +10069,10 @@ static bool ok_float_op(IrBinOp op) {
         case IrBinOpBitShiftRightExact:
         case IrBinOpAddWrap:
         case IrBinOpSubWrap:
+        case IrBinOpSatAdd:
+        case IrBinOpSatSub:
+        case IrBinOpSatMul:
+        case IrBinOpSatShl:
         case IrBinOpMultWrap:
         case IrBinOpArrayCat:
         case IrBinOpArrayMult:
@@ -11014,6 +11046,10 @@ static Stage1AirInst *ir_analyze_instruction_bin_op(IrAnalyze *ira, Stage1ZirIns
         case IrBinOpRemMod:
         case IrBinOpMaximum:
         case IrBinOpMinimum:
+        case IrBinOpSatAdd:
+        case IrBinOpSatSub:
+        case IrBinOpSatMul:
+        case IrBinOpSatShl:
             return ir_analyze_bin_op_math(ira, bin_op_instruction);
         case IrBinOpArrayCat:
             return ir_analyze_array_cat(ira, bin_op_instruction);

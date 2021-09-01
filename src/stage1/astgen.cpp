@@ -4704,6 +4704,66 @@ static Stage1ZirInst *astgen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, Ast
                 Stage1ZirInst *bin_op = ir_build_bin_op(ag, scope, node, IrBinOpMaximum, arg0_value, arg1_value, true);
                 return ir_lval_wrap(ag, scope, bin_op, lval, result_loc);
             }
+        case BuiltinFnIdSatAdd:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
+                if (arg0_value == ag->codegen->invalid_inst_src)
+                    return arg0_value;
+
+                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
+                Stage1ZirInst *arg1_value = astgen_node(ag, arg1_node, scope);
+                if (arg1_value == ag->codegen->invalid_inst_src)
+                    return arg1_value;
+
+                Stage1ZirInst *bin_op = ir_build_bin_op(ag, scope, node, IrBinOpSatAdd, arg0_value, arg1_value, true);
+                return ir_lval_wrap(ag, scope, bin_op, lval, result_loc);
+            }
+        case BuiltinFnIdSatSub:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
+                if (arg0_value == ag->codegen->invalid_inst_src)
+                    return arg0_value;
+
+                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
+                Stage1ZirInst *arg1_value = astgen_node(ag, arg1_node, scope);
+                if (arg1_value == ag->codegen->invalid_inst_src)
+                    return arg1_value;
+
+                Stage1ZirInst *bin_op = ir_build_bin_op(ag, scope, node, IrBinOpSatSub, arg0_value, arg1_value, true);
+                return ir_lval_wrap(ag, scope, bin_op, lval, result_loc);
+            }
+        case BuiltinFnIdSatMul:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
+                if (arg0_value == ag->codegen->invalid_inst_src)
+                    return arg0_value;
+
+                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
+                Stage1ZirInst *arg1_value = astgen_node(ag, arg1_node, scope);
+                if (arg1_value == ag->codegen->invalid_inst_src)
+                    return arg1_value;
+
+                Stage1ZirInst *bin_op = ir_build_bin_op(ag, scope, node, IrBinOpSatMul, arg0_value, arg1_value, true);
+                return ir_lval_wrap(ag, scope, bin_op, lval, result_loc);
+            }
+        case BuiltinFnIdSatShl:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
+                if (arg0_value == ag->codegen->invalid_inst_src)
+                    return arg0_value;
+
+                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
+                Stage1ZirInst *arg1_value = astgen_node(ag, arg1_node, scope);
+                if (arg1_value == ag->codegen->invalid_inst_src)
+                    return arg1_value;
+
+                Stage1ZirInst *bin_op = ir_build_bin_op(ag, scope, node, IrBinOpSatShl, arg0_value, arg1_value, true);
+                return ir_lval_wrap(ag, scope, bin_op, lval, result_loc);
+            }
         case BuiltinFnIdMemcpy:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);

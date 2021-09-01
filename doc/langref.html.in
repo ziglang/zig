@@ -7031,6 +7031,16 @@ fn readFile(allocator: *Allocator, filename: []const u8) ![]u8 {
                   If no overflow or underflow occurs, returns {#syntax#}false{#endsyntax#}.
       </p>
       {#header_close#}
+      {#header_open|@addWithSaturation#}
+      <pre>{#syntax#}@addWithSaturation(a: T, b: T) T{#endsyntax#}</pre>
+      <p>
+      Returns {#syntax#}a + b{#endsyntax#}. The result will be clamped between the type maximum and minimum.
+      </p>
+      <p>
+      Once <a href="https://github.com/ziglang/zig/issues/1284">Saturating arithmetic</a>.
+      is completed, the syntax {#syntax#}a +| b{#endsyntax#} will be equivalent to calling {#syntax#}@addWithSaturation(a, b){#endsyntax#}.
+      </p>
+      {#header_close#}
       {#header_open|@alignCast#}
       <pre>{#syntax#}@alignCast(comptime alignment: u29, ptr: anytype) anytype{#endsyntax#}</pre>
       <p>
@@ -8143,6 +8153,22 @@ test "@wasmMemoryGrow" {
                   If no overflow or underflow occurs, returns {#syntax#}false{#endsyntax#}.
       </p>
       {#header_close#}
+      
+      {#header_open|@mulWithSaturation#}
+      <pre>{#syntax#}@mulWithSaturation(a: T, b: T) T{#endsyntax#}</pre>
+      <p>
+      Returns {#syntax#}a * b{#endsyntax#}. The result will be clamped between the type maximum and minimum.
+      </p>
+      <p>
+      Once <a href="https://github.com/ziglang/zig/issues/1284">Saturating arithmetic</a>.
+      is completed, the syntax {#syntax#}a *| b{#endsyntax#} will be equivalent to calling {#syntax#}@mulWithSaturation(a, b){#endsyntax#}.
+      </p>
+      <p>
+      NOTE: Currently there is a bug in the llvm.smul.fix.sat intrinsic which affects {#syntax#}@mulWithSaturation{#endsyntax#} of signed integers.  
+      This may result in an incorrect sign bit when there is overflow.  This will be fixed in zig's 0.9.0 release.  
+      Check <a href="https://github.com/ziglang/zig/issues/9643">this issue</a> for more information.
+      </p>
+      {#header_close#}
 
       {#header_open|@panic#}
       <pre>{#syntax#}@panic(message: []const u8) noreturn{#endsyntax#}</pre>
@@ -8368,7 +8394,7 @@ test "@setRuntimeSafety" {
       The type of {#syntax#}shift_amt{#endsyntax#} is an unsigned integer with {#syntax#}log2(T.bit_count){#endsyntax#} bits.
               This is because {#syntax#}shift_amt >= T.bit_count{#endsyntax#} is undefined behavior.
       </p>
-      {#see_also|@shrExact|@shlWithOverflow#}
+      {#see_also|@shrExact|@shlWithOverflow|@shlWithSaturation#}
       {#header_close#}
 
       {#header_open|@shlWithOverflow#}
@@ -8382,7 +8408,22 @@ test "@setRuntimeSafety" {
       The type of {#syntax#}shift_amt{#endsyntax#} is an unsigned integer with {#syntax#}log2(T.bit_count){#endsyntax#} bits.
               This is because {#syntax#}shift_amt >= T.bit_count{#endsyntax#} is undefined behavior.
       </p>
-      {#see_also|@shlExact|@shrExact#}
+      {#see_also|@shlExact|@shrExact|@shlWithSaturation#}
+      {#header_close#}
+      
+      {#header_open|@shlWithSaturation#}
+      <pre>{#syntax#}@shlWithSaturation(a: T, shift_amt: T) T{#endsyntax#}</pre>
+      <p>
+      Returns {#syntax#}a << b{#endsyntax#}. The result will be clamped between type minimum and maximum.  
+      </p>
+      <p>
+      Once <a href="https://github.com/ziglang/zig/issues/1284">Saturating arithmetic</a>.
+      is completed, the syntax {#syntax#}a <<| b{#endsyntax#} will be equivalent to calling {#syntax#}@shlWithSaturation(a, b){#endsyntax#}.
+      </p>
+      <p>
+      Unlike other @shl builtins, shift_amt doesn't need to be a Log2T as saturated overshifting is well defined.  
+      </p>
+      {#see_also|@shlExact|@shrExact|@shlWithOverflow#}
       {#header_close#}
 
       {#header_open|@shrExact#}
@@ -8395,7 +8436,7 @@ test "@setRuntimeSafety" {
       The type of {#syntax#}shift_amt{#endsyntax#} is an unsigned integer with {#syntax#}log2(T.bit_count){#endsyntax#} bits.
               This is because {#syntax#}shift_amt >= T.bit_count{#endsyntax#} is undefined behavior.
       </p>
-      {#see_also|@shlExact|@shlWithOverflow#}
+      {#see_also|@shlExact|@shlWithOverflow|@shlWithSaturation#}
       {#header_close#}
 
       {#header_open|@shuffle#}
@@ -8692,6 +8733,17 @@ fn doTheTest() !void {
       Performs {#syntax#}result.* = a - b{#endsyntax#}. If overflow or underflow occurs,
           stores the overflowed bits in {#syntax#}result{#endsyntax#} and returns {#syntax#}true{#endsyntax#}.
                   If no overflow or underflow occurs, returns {#syntax#}false{#endsyntax#}.
+      </p>
+      {#header_close#}
+      
+      {#header_open|@subWithSaturation#}
+      <pre>{#syntax#}@subWithSaturation(a: T, b: T) T{#endsyntax#}</pre>
+      <p>
+      Returns {#syntax#}a - b{#endsyntax#}. The result will be clamped between the type maximum and minimum.  
+      </p>
+      <p>
+      Once <a href="https://github.com/ziglang/zig/issues/1284">Saturating arithmetic</a>.
+      is completed, the syntax {#syntax#}a -| b{#endsyntax#} will be equivalent to calling {#syntax#}@subWithSaturation(a, b){#endsyntax#}.
       </p>
       {#header_close#}
 

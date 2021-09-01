@@ -7301,6 +7301,11 @@ fn builtinCall(
             return rvalue(gz, rl, result, node);
         },
 
+        .add_with_saturation => return saturatingArithmetic(gz, scope, rl, node, params, .add_with_saturation),
+        .sub_with_saturation => return saturatingArithmetic(gz, scope, rl, node, params, .sub_with_saturation),
+        .mul_with_saturation => return saturatingArithmetic(gz, scope, rl, node, params, .mul_with_saturation),
+        .shl_with_saturation => return saturatingArithmetic(gz, scope, rl, node, params, .shl_with_saturation),
+        
         .atomic_load => {
             const int_type = try typeExpr(gz, scope, params[0]);
             const ptr_type = try gz.add(.{ .tag = .ptr_type_simple, .data = .{
@@ -7689,6 +7694,24 @@ fn overflowArithmetic(
         .lhs = lhs,
         .rhs = rhs,
         .ptr = ptr,
+    });
+    return rvalue(gz, rl, result, node);
+}
+
+fn saturatingArithmetic(
+    gz: *GenZir,
+    scope: *Scope,
+    rl: ResultLoc,
+    node: ast.Node.Index,
+    params: []const ast.Node.Index,
+    tag: Zir.Inst.Extended,
+) InnerError!Zir.Inst.Ref {
+    const lhs = try expr(gz, scope, .none, params[0]);
+    const rhs = try expr(gz, scope, .none, params[1]);
+    const result = try gz.addExtendedPayload(tag, Zir.Inst.SaturatingArithmetic{
+        .node = gz.nodeIndexToRelative(node),
+        .lhs = lhs,
+        .rhs = rhs,
     });
     return rvalue(gz, rl, result, node);
 }

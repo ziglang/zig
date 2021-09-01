@@ -125,6 +125,7 @@ test {
         _ = @import("behavior/pub_enum.zig");
         _ = @import("behavior/ref_var_in_if_after_if_2nd_switch_prong.zig");
         _ = @import("behavior/reflection.zig");
+        _ = @import("behavior/saturating_arithmetic.zig");
         _ = @import("behavior/shuffle.zig");
         _ = @import("behavior/select.zig");
         _ = @import("behavior/sizeof_and_typeof.zig");

@@ -570,6 +570,10 @@ fn zirExtended(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileEr
         .c_define           => return sema.zirCDefine(           block, extended),
         .wasm_memory_size   => return sema.zirWasmMemorySize(    block, extended),
         .wasm_memory_grow   => return sema.zirWasmMemoryGrow(    block, extended),
+        .add_with_saturation=> return sema.zirSatArithmetic(     block, extended),
+        .sub_with_saturation=> return sema.zirSatArithmetic(     block, extended),
+        .mul_with_saturation=> return sema.zirSatArithmetic(     block, extended),
+        .shl_with_saturation=> return sema.zirSatArithmetic(     block, extended),
         // zig fmt: on
     }
 }
@@ -5689,6 +5693,19 @@ fn zirOverflowArithmetic(
     const src: LazySrcLoc = .{ .node_offset = extra.node };
 
     return sema.mod.fail(&block.base, src, "TODO implement Sema.zirOverflowArithmetic", .{});
+}
+
+fn zirSatArithmetic(
+    sema: *Sema,
+    block: *Scope.Block,
+    extended: Zir.Inst.Extended.InstData,
+) CompileError!Air.Inst.Ref {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const extra = sema.code.extraData(Zir.Inst.SaturatingArithmetic, extended.operand).data;
+    const src: LazySrcLoc = .{ .node_offset = extra.node };
+    return sema.mod.fail(&block.base, src, "TODO implement Sema.zirSatArithmetic", .{});
 }
 
 fn analyzeArithmetic(
