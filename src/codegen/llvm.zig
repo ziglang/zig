@@ -7,6 +7,7 @@ const link = @import("../link.zig");
 const log = std.log.scoped(.codegen);
 const math = std.math;
 
+const build_options = @import("build_options");
 const Module = @import("../Module.zig");
 const TypedValue = @import("../TypedValue.zig");
 const Zir = @import("../Zir.zig");
@@ -1969,7 +1970,7 @@ fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
             llvm.LLVMInitializeAMDGPUAsmPrinter();
             llvm.LLVMInitializeAMDGPUAsmParser();
         },
-        .arm, .armeb => {
+        .thumb, .thumbeb, .arm, .armeb => {
             llvm.LLVMInitializeARMTarget();
             llvm.LLVMInitializeARMTargetInfo();
             llvm.LLVMInitializeARMTargetMC();
@@ -2072,24 +2073,65 @@ fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
             llvm.LLVMInitializeXCoreTargetInfo();
             llvm.LLVMInitializeXCoreTargetMC();
             llvm.LLVMInitializeXCoreAsmPrinter();
-            // There is no LLVMInitializeXCoreAsmParser function available.
+            // There is no LLVMInitializeXCoreAsmParser function.
         },
-        .arc => {},
-        .csky => {},
-        .r600 => {},
-        .tce, .tcele => {},
-        .thumb, .thumbeb => {},
-        .le32, .le64 => {},
-        .amdil, .amdil64 => {},
-        .hsail, .hsail64 => {},
-        .spir, .spir64 => {},
-        .kalimba => {},
-        .shave => {},
-        .renderscript32 => {},
-        .renderscript64 => {},
-        .ve => {},
-        .spu_2 => {},
-        .spirv32 => {},
-        .spirv64 => {},
+        .m68k => {
+            if (build_options.llvm_has_m68k) {
+                llvm.LLVMInitializeM68kTarget();
+                llvm.LLVMInitializeM68kTargetInfo();
+                llvm.LLVMInitializeM68kTargetMC();
+                llvm.LLVMInitializeM68kAsmPrinter();
+                llvm.LLVMInitializeM68kAsmParser();
+            }
+        },
+        .csky => {
+            if (build_options.llvm_has_csky) {
+                llvm.LLVMInitializeCSKYTarget();
+                llvm.LLVMInitializeCSKYTargetInfo();
+                llvm.LLVMInitializeCSKYTargetMC();
+                // There is no LLVMInitializeCSKYAsmPrinter function.
+                llvm.LLVMInitializeCSKYAsmParser();
+            }
+        },
+        .ve => {
+            if (build_options.llvm_has_ve) {
+                llvm.LLVMInitializeVETarget();
+                llvm.LLVMInitializeVETargetInfo();
+                llvm.LLVMInitializeVETargetMC();
+                llvm.LLVMInitializeVEAsmPrinter();
+                llvm.LLVMInitializeVEAsmParser();
+            }
+        },
+        .arc => {
+            if (build_options.llvm_has_arc) {
+                llvm.LLVMInitializeARCTarget();
+                llvm.LLVMInitializeARCTargetInfo();
+                llvm.LLVMInitializeARCTargetMC();
+                llvm.LLVMInitializeARCAsmPrinter();
+                // There is no LLVMInitializeARCAsmParser function.
+            }
+        },
+
+        // LLVM backends that have no initialization functions.
+        .tce,
+        .tcele,
+        .r600,
+        .le32,
+        .le64,
+        .amdil,
+        .amdil64,
+        .hsail,
+        .hsail64,
+        .shave,
+        .spir,
+        .spir64,
+        .kalimba,
+        .renderscript32,
+        .renderscript64,
+        => {},
+
+        .spu_2 => unreachable, // LLVM does not support this backend
+        .spirv32 => unreachable, // LLVM does not support this backend
+        .spirv64 => unreachable, // LLVM does not support this backend
     }
 }

@@ -614,6 +614,10 @@ pub extern fn LLVMInitializeSystemZTargetInfo() void;
 pub extern fn LLVMInitializeWebAssemblyTargetInfo() void;
 pub extern fn LLVMInitializeX86TargetInfo() void;
 pub extern fn LLVMInitializeXCoreTargetInfo() void;
+pub extern fn LLVMInitializeM68kTargetInfo() void;
+pub extern fn LLVMInitializeCSKYTargetInfo() void;
+pub extern fn LLVMInitializeVETargetInfo() void;
+pub extern fn LLVMInitializeARCTargetInfo() void;
 
 pub extern fn LLVMInitializeAArch64Target() void;
 pub extern fn LLVMInitializeAMDGPUTarget() void;
@@ -632,6 +636,10 @@ pub extern fn LLVMInitializeSystemZTarget() void;
 pub extern fn LLVMInitializeWebAssemblyTarget() void;
 pub extern fn LLVMInitializeX86Target() void;
 pub extern fn LLVMInitializeXCoreTarget() void;
+pub extern fn LLVMInitializeM68kTarget() void;
+pub extern fn LLVMInitializeVETarget() void;
+pub extern fn LLVMInitializeCSKYTarget() void;
+pub extern fn LLVMInitializeARCTarget() void;
 
 pub extern fn LLVMInitializeAArch64TargetMC() void;
 pub extern fn LLVMInitializeAMDGPUTargetMC() void;
@@ -650,6 +658,10 @@ pub extern fn LLVMInitializeSystemZTargetMC() void;
 pub extern fn LLVMInitializeWebAssemblyTargetMC() void;
 pub extern fn LLVMInitializeX86TargetMC() void;
 pub extern fn LLVMInitializeXCoreTargetMC() void;
+pub extern fn LLVMInitializeM68kTargetMC() void;
+pub extern fn LLVMInitializeCSKYTargetMC() void;
+pub extern fn LLVMInitializeVETargetMC() void;
+pub extern fn LLVMInitializeARCTargetMC() void;
 
 pub extern fn LLVMInitializeAArch64AsmPrinter() void;
 pub extern fn LLVMInitializeAMDGPUAsmPrinter() void;
@@ -668,6 +680,9 @@ pub extern fn LLVMInitializeSystemZAsmPrinter() void;
 pub extern fn LLVMInitializeWebAssemblyAsmPrinter() void;
 pub extern fn LLVMInitializeX86AsmPrinter() void;
 pub extern fn LLVMInitializeXCoreAsmPrinter() void;
+pub extern fn LLVMInitializeM68kAsmPrinter() void;
+pub extern fn LLVMInitializeVEAsmPrinter() void;
+pub extern fn LLVMInitializeARCAsmPrinter() void;
 
 pub extern fn LLVMInitializeAArch64AsmParser() void;
 pub extern fn LLVMInitializeAMDGPUAsmParser() void;
@@ -684,6 +699,9 @@ pub extern fn LLVMInitializeSparcAsmParser() void;
 pub extern fn LLVMInitializeSystemZAsmParser() void;
 pub extern fn LLVMInitializeWebAssemblyAsmParser() void;
 pub extern fn LLVMInitializeX86AsmParser() void;
+pub extern fn LLVMInitializeM68kAsmParser() void;
+pub extern fn LLVMInitializeCSKYAsmParser() void;
+pub extern fn LLVMInitializeVEAsmParser() void;
 
 extern fn ZigLLDLinkCOFF(argc: c_int, argv: [*:null]const ?[*:0]const u8, can_exit_early: bool) c_int;
 extern fn ZigLLDLinkELF(argc: c_int, argv: [*:null]const ?[*:0]const u8, can_exit_early: bool) c_int;
