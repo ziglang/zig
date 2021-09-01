@@ -11,7 +11,7 @@ const Once = @This();
 
 impl: Impl = .{},
 
-pub fn call(self: *Once, comptime f: fn() void) void {
+pub fn call(self: *Once, comptime f: fn () void) void {
     self.impl.call(f);
 }
 
@@ -29,7 +29,7 @@ else
 const SerialImpl = struct {
     was_called: bool = false,
 
-    fn call(self: *Impl, comptime f: fn() void) void {
+    fn call(self: *Impl, comptime f: fn () void) void {
         if (self.was_called) return;
         f();
         self.was_called = true;
@@ -39,7 +39,7 @@ const SerialImpl = struct {
 const DarwinImpl = struct {
     once: os.darwin.dispatch_once_t = 0,
 
-    fn call(self: *Impl, comptime f: fn() void) void {
+    fn call(self: *Impl, comptime f: fn () void) void {
         const InitFn = struct {
             fn init(ctx: ?*c_void) callconv(.C) void {
                 _ = ctx;
@@ -53,7 +53,7 @@ const DarwinImpl = struct {
 const WindowsImpl = struct {
     once: os.windows.INIT_ONCE = os.windows.INIT_ONCE_STATIC_INIT,
 
-    fn call(self: *Impl, comptime f: fn() void) void {
+    fn call(self: *Impl, comptime f: fn () void) void {
         const InitFn = struct {
             fn init(once: *os.windows.INIT_ONCE, param: ?*c_void, ctx: ?*c_void) callconv(.C) os.windows.BOOL {
                 _ = once;
@@ -70,7 +70,7 @@ const WindowsImpl = struct {
 const PosixImpl = extern struct {
     once: c.pthread_once_t = .{},
 
-    fn call(self: *Impl, comptime f: fn() void) void {
+    fn call(self: *Impl, comptime f: fn () void) void {
         const InitFn = struct {
             fn init() callconv(.C) void {
                 f();
@@ -88,12 +88,12 @@ const FutexImpl = extern struct {
     const WAITING = 2;
     const CALLED = 3;
 
-    fn call(self: *Impl, comptime f: fn() void) void {
+    fn call(self: *Impl, comptime f: fn () void) void {
         if (self.state.load(.Acquire) == CALLED) return;
         self.callSlow(f);
     }
 
-    noinline fn callSlow(self: *Impl, comptime f: fn() void) void {
+    noinline fn callSlow(self: *Impl, comptime f: fn () void) void {
         @setCold(true);
 
         var spin = SpinWait{};

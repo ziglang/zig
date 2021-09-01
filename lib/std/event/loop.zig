@@ -855,7 +855,6 @@ pub const Loop = struct {
         timer: std.time.Timer,
         waiters: Waiters,
         thread: std.Thread,
-        
 
         /// Initialize the delay queue by spawning the timer thread
         /// and starting any timer resources.
@@ -875,13 +874,13 @@ pub const Loop = struct {
         /// which waits for timer entries to expire and reschedules them.
         fn run(self: *DelayQueue) void {
             const loop = @fieldParentPtr(Loop, "delay_queue", self);
-            
+
             var held = self.lock.acquire();
             defer held.release();
 
             while (self.is_running) {
                 const now = self.timer.read();
-                
+
                 const entry = self.waiters.popExpired(now) orelse {
                     var timeout: ?u64 = null;
                     if (self.waiters.nextExpire()) |expires| {

@@ -44,8 +44,8 @@ const SerialImpl = struct {
         if (self.is_locked) return false;
         self.is_locked = true;
         return true;
-    }  
-    
+    }
+
     pub fn acquire(self: *Impl) void {
         if (self.is_locked) unreachable; // deadlock detected
         self.is_locked = true;
@@ -62,8 +62,8 @@ const WindowsImpl = struct {
 
     pub fn tryAcquire(self: *Impl) bool {
         return os.windows.kernel32.TryAcquireSRWLockExclusive(&self.srwlock) != os.windows.FALSE;
-    }  
-    
+    }
+
     pub fn acquire(self: *Impl) void {
         os.windows.kernel32.AcquireSRWLockExclusive(&self.srwlock);
     }
@@ -88,8 +88,8 @@ const DarwinImpl = struct {
 
     pub fn tryAcquire(self: *Impl) bool {
         return os.darwin.os_unfair_lock_trylock(&self.oul);
-    }  
-    
+    }
+
     pub fn acquire(self: *Impl) void {
         return os.darwin.os_unfair_lock_lock(&self.oul);
     }
@@ -112,8 +112,8 @@ const FutexImpl = struct {
 
     pub fn tryAcquire(self: *Impl) bool {
         return self.acquireFast(true);
-    }  
-    
+    }
+
     pub fn acquire(self: *Impl) void {
         if (!self.acquireFast(false)) {
             self.acquireSlow();
@@ -136,14 +136,14 @@ const FutexImpl = struct {
             LOCKED,
             .Acquire,
             .Monotonic,
-        ) == null;  
+        ) == null;
     }
 
     noinline fn acquireSlow(self: *Impl) void {
-        /// Spin a little bit on the Mutex state in the hopes that
-        /// we can acquire it without having to call Futex.wait().
-        /// Give up spinning if the Mutex is contended.
-        /// This helps acquire() latency under micro-contention.
+        // Spin a little bit on the Mutex state in the hopes that
+        // we can acquire it without having to call Futex.wait().
+        // Give up spinning if the Mutex is contended.
+        // This helps acquire() latency under micro-contention.
         var spin = SpinWait{};
         while (spin.yield()) {
             switch (self.state.load(.Monotonic)) {

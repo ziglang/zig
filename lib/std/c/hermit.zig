@@ -14,5 +14,5 @@ pub const pthread_once_t = extern struct {
     state: c_int = 0,
     semaphore: ?*c_void = null,
     numSemaphoreUsers: c_int = 0,
-    done: c_int = 0,  
+    done: c_int = 0,
 };

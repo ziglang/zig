@@ -64,7 +64,7 @@ pub const pthread_rwlock_t = extern struct {
     waiters: [2]?*c_void = [_]?*c_void{ null, null },
 };
 pub const pthread_once_t = extern struct {
-    x: i32 = -1
+    x: i32 = -1,
 };
 
 pub const EAI = enum(c_int) {

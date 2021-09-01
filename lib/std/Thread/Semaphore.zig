@@ -125,7 +125,7 @@ const WindowsImpl = struct {
     }
 
     noinline fn postSlow(self: *Impl, count: u31, value: i32) void {
-        // Wake up some waiters that we posted to (doesn't touch the semaphore memory). 
+        // Wake up some waiters that we posted to (doesn't touch the semaphore memory).
         var waiters = std.math.min(@as(i32, count), -value);
         assert(waiters > 0);
         while (waiters > 0) : (waiters -= 1) {
@@ -156,7 +156,7 @@ const WindowsImpl = struct {
             // NtKeyedEvent uses timeout units of 100ns
             // where positive is absolute timeout and negative is relative.
             var timeout_value: os.windows.LARGE_INTEGER = undefined;
-            var timeout_ptr = ?*const os.windows.LARGE_INTEGER = null;
+            var timeout_ptr: ?*const os.windows.LARGE_INTEGER = null;
             if (timeout) |timeout_ns| {
                 timeout_ptr = &timeout_value;
                 timeout_value = -@intCast(os.windows.LARGE_INTEGER, timeout_ns / 100);
@@ -170,7 +170,7 @@ const WindowsImpl = struct {
             )) {
                 .SUCCESS => {},
                 .TIMEOUT => error.TimedOut,
-                else => |status| std.debug.panic("{s} => {}", .{keyed_event_fn, status}),
+                else => |status| std.debug.panic("{s} => {}", .{ keyed_event_fn, status }),
             };
         }
 
@@ -187,7 +187,7 @@ const WindowsImpl = struct {
             const Static = struct {
                 var init_once = os.windows.INIT_ONCE_STATIC_INIT;
                 var event_handle: ?os.windows.HANDLE = null;
-                
+
                 fn init(once: *os.windows.INIT_ONCE, param: ?*c_void, ctx: ?*c_void) callconv(.C) os.windows.BOOL {
                     var handle: os.windows.HANDLE = undefined;
                     const access_mask = os.windows.GENERIC_READ | os.windows.GENERIC_WRITE;
@@ -214,7 +214,7 @@ const Futex64Impl = struct {
     },
 
     const State = extern struct {
-        // The classic semaphore count (despite being signed, it doesn't become negative) 
+        // The classic semaphore count (despite being signed, it doesn't become negative)
         count: Atomic(i32) = Atomic(i32).init(0),
         // The number of threads waiting on the semaphore
         waiters: u32 = 0,
@@ -304,7 +304,7 @@ const Futex64Impl = struct {
 
         const state = @bitCast(State, sema);
         assert(state.count.value <= std.math.maxInt(i32) - count);
-        
+
         // If there's waiters, wake some up to consume the posted count
         if (state.waiters > 0) {
             self.postSlow(count, state);
@@ -366,7 +366,7 @@ const Futex32Impl = struct {
             return;
         }
 
-        // Prepare an absolute timeout to wait on since Futex allows spurious wake ups. 
+        // Prepare an absolute timeout to wait on since Futex allows spurious wake ups.
         const deadline = try FutexDeadline.init(timeout);
 
         // Mark that we're waiting so a post() can do a Futex.wake()
@@ -403,7 +403,7 @@ const Futex32Impl = struct {
     pub fn post(self: *Impl, count: u31) void {
         var value = self.value.load(.Monotonic);
         while (true) {
-            // Read the waiters before updating the value as 
+            // Read the waiters before updating the value as
             // we're not allowed to touch the Semaphore after a post()
             // in case it deallocates itself.
             const waiters = self.waiters.load(.Monotonic);
@@ -424,7 +424,7 @@ const Futex32Impl = struct {
                 // when the first post() sees value as waiting (-1) but the second post()
                 // doesn't even though there's threads waiting on the Futex from previously observing -1.
                 if ((waiters | waiting) != 0) {
-                    const value_ptr = @ptrCast(*const Atomic(u32) &self.value);
+                    const value_ptr = @ptrCast(*const Atomic(u32), &self.value);
                     Futex.wait(value_ptr, count);
                 }
                 return;

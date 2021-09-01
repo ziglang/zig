@@ -44,7 +44,7 @@ pub const Held = struct {
     pub fn release(self: Held) void {
         const is_shared = self.ptr & 1 != 0;
         const rwlock = @intToPtr(*RwLock, self.ptr & ~@as(usize, 1));
-        
+
         switch (is_shared) {
             true => rwlock.impl.releaseReader(),
             else => rwlock.impl.releaseWriter(),
@@ -68,13 +68,13 @@ const SerialImpl = struct {
         if (self.readers == MAX_READERS) return false; // writer locked
         if (self.readers == MAX_READERS - 1) return false; // reader count would overflow
         self.readers += 1;
-        return true;   
+        return true;
     }
-    
+
     fn acquireReader(self: *Impl) void {
-       if (!self.tryAcquireReader()) {
-           unreachable; // deadlock detected
-       }
+        if (!self.tryAcquireReader()) {
+            unreachable; // deadlock detected
+        }
     }
 
     fn releaseReader(self: *Impl) void {
@@ -88,8 +88,8 @@ const SerialImpl = struct {
         if (self.readers != 0) return false; // pending readers
         self.readers = MAX_READERS;
         return true;
-    }  
-    
+    }
+
     fn acquireWriter(self: *Impl) void {
         if (!self.tryAcquireWriter()) {
             unreachable; // deadlock detected
@@ -108,10 +108,10 @@ const WindowsImpl = struct {
 
     fn tryAcquireReader(self: *Impl) bool {
         return os.windows.kernel32.TryAcquireSRWLockShared(&self.srwlock) != os.windows.FALSE;
-    }  
-    
+    }
+
     fn acquireReader(self: *Impl) void {
-       os.windows.kernel32.AcquireSRWLockShared(&self.srwlock);
+        os.windows.kernel32.AcquireSRWLockShared(&self.srwlock);
     }
 
     fn releaseReader(self: *Impl) void {
@@ -120,8 +120,8 @@ const WindowsImpl = struct {
 
     fn tryAcquireWriter(self: *Impl) bool {
         return os.windows.kernel32.TryAcquireSRWLockExclusive(&self.srwlock) != os.windows.FALSE;
-    }  
-    
+    }
+
     fn acquireWriter(self: *Impl) void {
         os.windows.kernel32.AcquireSRWLockExclusive(&self.srwlock);
     }
@@ -136,13 +136,13 @@ const WindowsImpl = struct {
 const FutexImpl = struct {
     state: Atomic(usize) = Atomic(usize).init(UNLOCKED),
     queue: Atomic(usize) = Atomic(usize).init(UNLOCKED),
-    
-    const UNLOCKED      = 0b0000;
-    const WRITER        = 0b0001;
-    const PARKED        = 0b0010;
+
+    const UNLOCKED = 0b0000;
+    const WRITER = 0b0001;
+    const PARKED = 0b0010;
     const WRITER_PARKED = 0b0100;
-    const READER        = 0b1000;
-    const READER_MASK   = ~@as(usize, READER - 1);
+    const READER = 0b1000;
+    const READER_MASK = ~@as(usize, READER - 1);
 
     fn tryAcquireReader(self: *Impl) bool {
         var state = self.state.load(.Monotonic);
@@ -152,7 +152,7 @@ const FutexImpl = struct {
         }
     }
 
-    inline fn tryAcquireReaderWith(self: *Impl, state: usize) error{Writer, Overflow}!?usize {
+    inline fn tryAcquireReaderWith(self: *Impl, state: usize) error{ Writer, Overflow }!?usize {
         if (state & WRITER != 0) {
             return error.Writer;
         }
@@ -169,7 +169,7 @@ const FutexImpl = struct {
             .Monotonic,
         );
     }
-    
+
     fn acquireReader(self: *Impl) void {
         if (!self.acquireReaderFast()) {
             self.acquireReaderSlow();
@@ -193,7 +193,7 @@ const FutexImpl = struct {
                         error.Writer => return state,
                         error.Overflow => unreachable, // RwLock reader count overflowed
                     };
-                
+
                     _ = result orelse return null;
 
                     // Always yield in some form after a failed tryAcquireReaderWith()
@@ -216,7 +216,7 @@ const FutexImpl = struct {
     fn releaseReader(self: *Impl) void {
         // Remove one reader from the RwLock.
         // Release barrier to ensure all the reads on the protected state
-        // happen before the RwLock relenquishes it's READER and synchronizes 
+        // happen before the RwLock relenquishes it's READER and synchronizes
         // with the Acquire in acquireWriterSlow() waiting for readers to exit.
         const state = self.state.fetchSub(READER, .Release);
         assert(state >= READER);
@@ -233,7 +233,7 @@ const FutexImpl = struct {
         assert(old_state & WRITER_PARKED != 0);
 
         self.wake(WRITER_PARKED, struct {
-            pub fn onWake(impl: *Impl, has_more: bool) {
+            pub fn onWake(impl: *Impl, has_more: bool) void {
                 _ = impl;
                 assert(!has_more); // there should be no more than one WRITER_PARKED
             }
@@ -247,8 +247,8 @@ const FutexImpl = struct {
             .Acquire,
             .Monotonic,
         ) == null;
-    }  
-    
+    }
+
     fn acquireWriter(self: *Impl) void {
         _ = self.state.tryCompareAndSwap(
             UNLOCKED,
@@ -330,7 +330,7 @@ const FutexImpl = struct {
                     const old_state = impl.state.load(.Unordered);
                     assert(old_state == WRITER or old_state == WRITER | PARKED);
                 }
-                
+
                 // Remove the WRITER bit and also remove the PARKED bit if
                 // there's no more waiters on the PARKED bit.
                 const new_state = if (has_more) PARKED else UNLOCKED;
@@ -350,7 +350,7 @@ const FutexImpl = struct {
         var spin = SpinWait{};
         assert(access == READER or access == WRITER);
         assert(parked == PARKED or parked == WRITER_PARKED);
-        
+
         while (true) {
             const state = AcquireWithImpl.tryAcquireWith(self) orelse return;
 
@@ -395,7 +395,7 @@ const FutexImpl = struct {
         /// The next waiter in the this wait queue
         next: ?*Waiter,
         /// If this waiter is it's wait queue head, points to the tail of the wait queue
-        tail: *Waiter
+        tail: *Waiter,
         /// What the waiter uses wait on for a direct notification
         futex: Atomic(u32),
     };
@@ -408,7 +408,7 @@ const FutexImpl = struct {
             var queue = self.acquireWaitQueue();
             defer self.releaseWaitQueue(queue);
 
-            // Check the validation condition for if the waiter 
+            // Check the validation condition for if the waiter
             // should actually wait after acquiring the queue lock.
             // If it should wait, it returns the tag it will use to do so.
             const tag = WaitImpl.shouldWait(self) orelse return;
@@ -433,7 +433,7 @@ const FutexImpl = struct {
                 waiter.addr_prev = h;
                 head = h.addr_next;
             }
-            
+
             // Insert our node into either an existing wait queue
             // or create a new wait queue for our address.
             if (head) |h| {
@@ -518,10 +518,10 @@ const FutexImpl = struct {
             }
         }
     }
-    
+
     const STATE_MASK = (WRITER | PARKED);
     const PTR_MASK = ~@as(usize, STATE_MASK);
-    
+
     /// Grab exclusive ownership of the Waiter queues for the RwLock.
     /// Blocks the caller until it can acquire ownership.
     fn acquireWaitQueue(noalias self: *Impl) ?*Waiter {

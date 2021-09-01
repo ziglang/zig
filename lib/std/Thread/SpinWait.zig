@@ -3,7 +3,7 @@ const target = std.Target.current;
 const SpinWait = @This();
 
 // Spin for a longer period of time on x86 since throughput is more important there.
-// Still spin a little bit for AARCH64 machines given they're also becoming throughput 
+// Still spin a little bit for AARCH64 machines given they're also becoming throughput
 // oriented while stil favoring power efficiency.
 // Finally, don't spin for other platforms with the assumption that scalability
 // is more important and throughput gains are unknown.
