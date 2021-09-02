@@ -2614,6 +2614,7 @@ fn renderVar(c: *Context, node: Node) !NodeIndex {
                     .type_node = type_node,
                     .align_node = align_node,
                     .section_node = section_node,
+                    .addrspace_node = 0,
                 }),
                 .rhs = init_node,
             },
