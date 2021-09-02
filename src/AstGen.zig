@@ -2582,11 +2582,10 @@ fn emitDbgNode(gz: *GenZir, node: ast.Node.Index) !void {
 
     const astgen = gz.astgen;
     const tree = astgen.tree;
-    const source = tree.source;
     const token_starts = tree.tokens.items(.start);
     const node_start = token_starts[tree.firstToken(node)];
 
-    astgen.advanceSourceCursor(source, node_start);
+    astgen.advanceSourceCursor(node_start);
     const line = @intCast(u32, astgen.source_line);
     const column = @intCast(u32, astgen.source_column);
 
@@ -9060,11 +9059,10 @@ const GenZir = struct {
     fn calcLine(gz: GenZir, node: ast.Node.Index) u32 {
         const astgen = gz.astgen;
         const tree = astgen.tree;
-        const source = tree.source;
         const token_starts = tree.tokens.items(.start);
         const node_start = token_starts[tree.firstToken(node)];
 
-        astgen.advanceSourceCursor(source, node_start);
+        astgen.advanceSourceCursor(node_start);
 
         return @intCast(u32, gz.decl_line + astgen.source_line);
     }
@@ -9203,11 +9201,11 @@ const GenZir = struct {
             const lbrace_start = token_starts[tree.firstToken(block)];
             const rbrace_start = token_starts[tree.lastToken(block)];
 
-            astgen.advanceSourceCursor(tree.source, lbrace_start);
+            astgen.advanceSourceCursor(lbrace_start);
             const lbrace_line = @intCast(u32, astgen.source_line);
             const lbrace_column = @intCast(u32, astgen.source_column);
 
-            astgen.advanceSourceCursor(tree.source, rbrace_start);
+            astgen.advanceSourceCursor(rbrace_start);
             const rbrace_line = @intCast(u32, astgen.source_line);
             const rbrace_column = @intCast(u32, astgen.source_column);
 
@@ -10130,12 +10128,12 @@ fn detectLocalShadowing(
     };
 }
 
-fn advanceSourceCursor(astgen: *AstGen, source: []const u8, end: ast.ByteOffset) void {
+fn advanceSourceCursor(astgen: *AstGen, end: ast.ByteOffset) void {
     var i = astgen.source_offset;
     var line = astgen.source_line;
     var column = astgen.source_column;
     while (i < end) : (i += 1) {
-        if (source[i] == '\n') {
+        if (astgen.tree.source[i] == '\n') {
             line += 1;
             column = 0;
         } else {
