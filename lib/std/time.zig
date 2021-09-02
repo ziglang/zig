@@ -276,8 +276,6 @@ pub const Clock = struct {
     };
 
     const WindowsImpl = struct {
-        const is_windows_10 = target.os.isAtLeast(.windows, .win10) orelse false;
-
         pub fn read(id: Id) Error!i128 {
             return switch (id) {
                 .realtime => getSystemTime(),
@@ -299,34 +297,14 @@ pub const Clock = struct {
             return @as(i128, @bitCast(i64, ft64) + epoch_adj) * 100;
         }
 
+        /// TODO: Replace with QueryInterruptTimePrecise() once available
         fn getInterruptTime() i128 {
-            // TODO: Disabled for now as lld-link fails to find the symbol
-            //
-            // Use the QueryInterruptTimePrecise() function when available.
-            // Don't use the non-Precise variant as it's less granular (0.5ms-16ms) than QPC (<=1us)
-            // https://docs.microsoft.com/en-us/windows/win32/api/realtimeapiset/nf-realtimeapiset-queryinterrupttimeprecise#remarks
-            if (false and is_windows_10) {
-                var interrupt_time: os.windows.ULONGLONG = undefined;
-                os.windows.kernel32.QueryInterruptTimePrecise(&interrupt_time);
-                return interrupt_time * 100;
-            }
-
             const counter = os.windows.QueryPerformanceCounter();
             return getQPCInterruptTime(counter, 0);
         }
 
+        /// TODO: Replace with QueryUnbiasedInterruptTimePrecise() once available
         fn getUnbiasedInterruptTime() i128 {
-            // TODO: Disabled for now as lld-link fails to find the symbol
-            //
-            // Use the QueryUnbiasedInterruptTimePrecise() functions when available.
-            // Don't use the non-Precise variant as it's less granular (0.5ms-16ms) than QPC (<=1us)
-            // https://docs.microsoft.com/en-us/windows/win32/api/realtimeapiset/nf-realtimeapiset-queryinterrupttimeprecise#remarks
-            if (false and is_windows_10) {
-                var interrupt_time: os.windows.ULONGLONG = undefined;
-                os.windows.kernel32.QueryUnbiasedInterruptTimePrecise(&interrupt_time);
-                return interrupt_time * 100;
-            }
-
             // Compute the unbiased (without suspend) time by sampling the current interrupt time
             // then subtracting the InterruptTimeBias while accounting for possibly suspending mid-sample.
             // https://stackoverflow.com/questions/24330496/how-do-i-create-monotonic-clock-on-windows-which-doesnt-tick-during-suspend
@@ -343,6 +321,7 @@ pub const Clock = struct {
             }
         }
 
+        /// Converts a QueryPerformanceCounter() reading + a possible InterruptTimeBias reading into nanoseconds.
         fn getQPCInterruptTime(qpc: u64, bias: u64) i128 {
             // QueryPerofrmanceFrequency() doesn't need to be cached.
             // It just reads from KUSER_SHARED_DATA.
@@ -354,7 +333,7 @@ pub const Clock = struct {
             const scale = ns_per_s / 100;
 
             // Performs (qpc * scale) / frequency without overflow.
-            var interrupt_time = blk: {
+            var interrupt_time: u64 = blk: {
                 const overflow_limit = @divFloor(std.math.maxInt(u64), scale);
                 if (qpc <= overflow_limit) {
                     break :blk (qpc * scale) / frequency;

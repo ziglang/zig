@@ -42,6 +42,7 @@ const ULONG_PTR = windows.ULONG_PTR;
 const FILE_NOTIFY_INFORMATION = windows.FILE_NOTIFY_INFORMATION;
 const HANDLER_ROUTINE = windows.HANDLER_ROUTINE;
 const ULONG = windows.ULONG;
+const ULONGLONG = windows.ULONGLONG;
 const PVOID = windows.PVOID;
 const LPSTR = windows.LPSTR;
 const PENUM_PAGE_FILE_CALLBACKA = windows.PENUM_PAGE_FILE_CALLBACKA;
