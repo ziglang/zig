@@ -10132,6 +10132,13 @@ fn advanceSourceCursor(astgen: *AstGen, end: ast.ByteOffset) void {
     var i = astgen.source_offset;
     var line = astgen.source_line;
     var column = astgen.source_column;
+    if (end < i) {
+        // there are some cases where this function is not monotonically through the source
+        // in those cases, reset i back to the beginning to ensure we get a correct result
+        i = 0;
+        line = 1;
+        column = 1;
+    }
     while (i < end) : (i += 1) {
         if (astgen.tree.source[i] == '\n') {
             line += 1;
