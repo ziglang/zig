@@ -2,6 +2,7 @@ const std = @import("../../std.zig");
 const uid_t = std.os.linux.uid_t;
 const gid_t = std.os.linux.gid_t;
 const pid_t = std.os.linux.pid_t;
+const timespec = std.os.linux.timespec;
 
 pub fn syscall0(number: SYS) usize {
     return asm volatile ("ecall"
@@ -468,10 +469,6 @@ pub const off_t = isize;
 pub const ino_t = usize;
 pub const dev_t = usize;
 pub const blkcnt_t = isize;
-pub const timespec = extern struct {
-    tv_sec: time_t,
-    tv_nsec: isize,
-};
 
 pub const timeval = extern struct {
     tv_sec: time_t,

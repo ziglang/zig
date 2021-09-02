@@ -10,6 +10,7 @@ const uid_t = linux.uid_t;
 const gid_t = linux.gid_t;
 const pid_t = linux.pid_t;
 const sockaddr = linux.sockaddr;
+const timespec = linux.timespec;
 
 pub fn syscall0(number: SYS) usize {
     return asm volatile ("svc #0"
@@ -701,11 +702,6 @@ pub const Stat = extern struct {
     pub fn ctime(self: @This()) timespec {
         return self.ctim;
     }
-};
-
-pub const timespec = extern struct {
-    tv_sec: i32,
-    tv_nsec: i32,
 };
 
 pub const timeval = extern struct {

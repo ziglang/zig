@@ -81,7 +81,6 @@ pub const msghdr_const = arch_bits.msghdr_const;
 pub const nlink_t = arch_bits.nlink_t;
 pub const off_t = arch_bits.off_t;
 pub const time_t = arch_bits.time_t;
-pub const timespec = arch_bits.timespec;
 pub const timeval = arch_bits.timeval;
 pub const timezone = arch_bits.timezone;
 pub const ucontext_t = arch_bits.ucontext_t;
@@ -4149,9 +4148,15 @@ pub const POSIX_FADV = switch (native_arch) {
     },
 };
 
-pub const __kernel_timespec = extern struct {
+/// The timespec struct used by the kernel.
+pub const kernel_timespec = if (@sizeOf(usize) >= 8) timespec else extern struct {
     tv_sec: i64,
     tv_nsec: i64,
+};
+
+pub const timespec = extern struct {
+    tv_sec: isize,
+    tv_nsec: isize,
 };
 
 pub const XDP = struct {

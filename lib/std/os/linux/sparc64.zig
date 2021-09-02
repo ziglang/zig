@@ -11,6 +11,7 @@ const sockaddr = linux.sockaddr;
 const socklen_t = linux.socklen_t;
 const iovec = linux.iovec;
 const iovec_const = linux.iovec_const;
+const timespec = linux.timespec;
 
 pub fn syscall_pipe(fd: *[2]i32) usize {
     return asm volatile (
@@ -706,11 +707,6 @@ pub const Stat = extern struct {
     pub fn ctime(self: @This()) timespec {
         return self.ctim;
     }
-};
-
-pub const timespec = extern struct {
-    tv_sec: isize,
-    tv_nsec: isize,
 };
 
 pub const timeval = extern struct {
