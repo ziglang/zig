@@ -10130,7 +10130,7 @@ fn detectLocalShadowing(
     };
 }
 
-fn advanceSourceCursor(astgen: *AstGen, source: []const u8, end: usize) void {
+fn advanceSourceCursor(astgen: *AstGen, source: []const u8, end: ast.ByteOffset) void {
     var i = astgen.source_offset;
     var line = astgen.source_line;
     var column = astgen.source_column;
