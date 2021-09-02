@@ -177,7 +177,6 @@ comptime {
                     .linkage = linkage,
                 });
             },
-
             else => {},
         }
 
@@ -334,8 +333,12 @@ comptime {
 
         const __udivmoddi4 = @import("compiler_rt/int.zig").__udivmoddi4;
         @export(__udivmoddi4, .{ .name = "__udivmoddi4", .linkage = linkage });
-        const __popcountdi2 = @import("compiler_rt/popcountdi2.zig").__popcountdi2;
+        const __popcountsi2 = @import("compiler_rt/popcount.zig").__popcountsi2;
+        @export(__popcountsi2, .{ .name = "__popcountsi2", .linkage = linkage });
+        const __popcountdi2 = @import("compiler_rt/popcount.zig").__popcountdi2;
         @export(__popcountdi2, .{ .name = "__popcountdi2", .linkage = linkage });
+        const __popcountti2 = @import("compiler_rt/popcount.zig").__popcountti2;
+        @export(__popcountti2, .{ .name = "__popcountti2", .linkage = linkage });
 
         if (is_darwin) {
             const __isPlatformVersionAtLeast = @import("compiler_rt/os_version_check.zig").__isPlatformVersionAtLeast;
