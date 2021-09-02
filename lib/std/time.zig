@@ -253,28 +253,28 @@ pub const Clock = struct {
         // https://www.freebsd.org/cgi/man.cgi?query=clock_gettime
         fn toOsClockId(id: Id) ?i32 {
             return switch (id) {
-                .realtime => os.CLOCK_REALTIME,
+                .realtime => os.CLOCK.REALTIME,
                 .monotonic => switch (target.os.tag) {
                     // Calls mach_continuous_time() internally
-                    .macos, .tvos, .ios, .watchos => os.CLOCK_MONOTONIC_RAW,
-                    // Unlike CLOCK_MONOTONIC, this actually counts time suspended (true POSIX MONOTONIC)
-                    .linux => os.CLOCK_BOOTTIME,
-                    else => os.CLOCK_MONOTONIC,
+                    .macos, .tvos, .ios, .watchos => os.CLOCK.MONOTONIC_RAW,
+                    // Unlike CLOCK.MONOTONIC, this actually counts time suspended (true POSIX MONOTONIC)
+                    .linux => os.CLOCK.BOOTTIME,
+                    else => os.CLOCK.MONOTONIC,
                 },
                 .uptime => switch (target.os.tag) {
-                    .openbsd, .freebsd, .kfreebsd, .dragonfly => os.CLOCK_UPTIME,
+                    .openbsd, .freebsd, .kfreebsd, .dragonfly => os.CLOCK.UPTIME,
                     // Calls mach_absolute_time() internally
-                    .macos, .tvos, .ios, .watchos => os.CLOCK_UPTIME_RAW,
-                    // CLOCK_MONOTONIC on linux actually doesn't count time suspended (not POSIX compliant).
-                    // At some point we may change our minds on CLOCK_MONOTONIC_RAW,
-                    // but for now we're sticking with CLOCK_MONOTONIC standard.
+                    .macos, .tvos, .ios, .watchos => os.CLOCK.UPTIME_RAW,
+                    // CLOCK.MONOTONIC on linux actually doesn't count time suspended (not POSIX compliant).
+                    // At some point we may change our minds on CLOCK.MONOTONIC_RAW,
+                    // but for now we're sticking with CLOCK.MONOTONIC standard.
                     // For more information, see: https://github.com/ziglang/zig/pull/933
-                    .linux => os.CLOCK_MONOTONIC, // doesn't count time suspended
+                    .linux => os.CLOCK.MONOTONIC, // doesn't count time suspended
                     // Platforms like wasi and netbsd don't support getting time without suspend
                     else => null,
                 },
-                .thread_cputime => os.CLOCK_THREAD_CPUTIME_ID,
-                .process_cputime => os.CLOCK_PROCESS_CPUTIME_ID,
+                .thread_cputime => os.CLOCK.THREAD_CPUTIME_ID,
+                .process_cputime => os.CLOCK.PROCESS_CPUTIME_ID,
             };
         }
     };
