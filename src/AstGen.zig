@@ -3134,7 +3134,7 @@ fn fnDecl(
     _ = try decl_gz.addBreak(.break_inline, block_inst, func_inst);
     try decl_gz.setBlockBody(block_inst);
 
-    try wip_decls.payload.ensureUnusedCapacity(gpa, 9);
+    try wip_decls.payload.ensureUnusedCapacity(gpa, 10);
     {
         const contents_hash = std.zig.hashSrc(tree.getNodeSource(decl_node));
         const casted = @bitCast([4]u32, contents_hash);
@@ -3284,7 +3284,7 @@ fn globalVarDecl(
     _ = try block_scope.addBreak(.break_inline, block_inst, var_inst);
     try block_scope.setBlockBody(block_inst);
 
-    try wip_decls.payload.ensureUnusedCapacity(gpa, 9);
+    try wip_decls.payload.ensureUnusedCapacity(gpa, 10);
     {
         const contents_hash = std.zig.hashSrc(tree.getNodeSource(node));
         const casted = @bitCast([4]u32, contents_hash);

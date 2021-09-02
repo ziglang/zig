@@ -288,6 +288,8 @@ pub const Decl = struct {
     align_val: Value,
     /// Populated when `has_tv`.
     linksection_val: Value,
+    /// Populated when `has_tv`.
+    @"addrspace": std.builtin.AddressSpace,
     /// The memory for ty, val, align_val, linksection_val.
     /// If this is `null` then there is no memory management needed.
     value_arena: ?*std.heap.ArenaAllocator.State = null,
@@ -351,7 +353,7 @@ pub const Decl = struct {
         /// to require re-analysis.
         outdated,
     },
-    /// Whether `typed_value`, `align_val`, and `linksection_val` are populated.
+    /// Whether `typed_value`, `align_val`, `linksection_val` and `has_addrspace` are populated.
     has_tv: bool,
     /// If `true` it means the `Decl` is the resource owner of the type/value associated
     /// with it. That means when `Decl` is destroyed, the cleanup code should additionally
@@ -366,8 +368,8 @@ pub const Decl = struct {
     is_exported: bool,
     /// Whether the ZIR code provides an align instruction.
     has_align: bool,
-    /// Whether the ZIR code provides a linksection instruction.
-    has_linksection: bool,
+    /// Whether the ZIR code provides a linksection and address space instruction.
+    has_linksection_or_addrspace: bool,
     /// Flag used by garbage collection to mark and sweep.
     /// Decls which correspond to an AST node always have this field set to `true`.
     /// Anonymous Decls are initialized with this field set to `false` and then it
@@ -489,14 +491,22 @@ pub const Decl = struct {
         if (!decl.has_align) return .none;
         assert(decl.zir_decl_index != 0);
         const zir = decl.namespace.file_scope.zir;
-        return @intToEnum(Zir.Inst.Ref, zir.extra[decl.zir_decl_index + 6]);
+        return @intToEnum(Zir.Inst.Ref, zir.extra[decl.zir_decl_index + 7]);
     }
 
     pub fn zirLinksectionRef(decl: Decl) Zir.Inst.Ref {
-        if (!decl.has_linksection) return .none;
+        if (!decl.has_linksection_or_addrspace) return .none;
         assert(decl.zir_decl_index != 0);
         const zir = decl.namespace.file_scope.zir;
-        const extra_index = decl.zir_decl_index + 6 + @boolToInt(decl.has_align);
+        const extra_index = decl.zir_decl_index + 7 + @boolToInt(decl.has_align);
+        return @intToEnum(Zir.Inst.Ref, zir.extra[extra_index]);
+    }
+
+    pub fn zirAddrspaceRef(decl: Decl) Zir.Inst.Ref {
+        if (!decl.has_linksection_or_addrspace) return .none;
+        assert(decl.zir_decl_index != 0);
+        const zir = decl.namespace.file_scope.zir;
+        const extra_index = decl.zir_decl_index + 7 + @boolToInt(decl.has_align) + 1;
         return @intToEnum(Zir.Inst.Ref, zir.extra[extra_index]);
     }
 
@@ -3072,7 +3082,7 @@ pub fn semaFile(mod: *Module, file: *Scope.File) SemaError!void {
     new_decl.is_pub = true;
     new_decl.is_exported = false;
     new_decl.has_align = false;
-    new_decl.has_linksection = false;
+    new_decl.has_linksection_or_addrspace = false;
     new_decl.ty = struct_ty;
     new_decl.val = struct_val;
     new_decl.has_tv = true;
@@ -3202,6 +3212,12 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
         if (linksection_ref == .none) break :blk Value.initTag(.null_value);
         break :blk (try sema.resolveInstConst(&block_scope, src, linksection_ref)).val;
     };
+    const address_space = blk: {
+        const addrspace_ref = decl.zirAddrspaceRef();
+        if (addrspace_ref == .none) break :blk .generic;
+        const addrspace_tv = try sema.resolveInstConst(&block_scope, src, addrspace_ref);
+        break :blk addrspace_tv.val.toEnum(std.builtin.AddressSpace);
+    };
     // Note this resolves the type of the Decl, not the value; if this Decl
     // is a struct, for example, this resolves `type` (which needs no resolution),
     // not the struct itself.
@@ -3258,6 +3274,7 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
             decl.val = try decl_tv.val.copy(&decl_arena.allocator);
             decl.align_val = try align_val.copy(&decl_arena.allocator);
             decl.linksection_val = try linksection_val.copy(&decl_arena.allocator);
+            decl.@"addrspace" = address_space;
             decl.has_tv = true;
             decl.owns_tv = owns_tv;
             decl_arena_state.* = decl_arena.state;
@@ -3319,6 +3336,7 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
     decl.val = try decl_tv.val.copy(&decl_arena.allocator);
     decl.align_val = try align_val.copy(&decl_arena.allocator);
     decl.linksection_val = try linksection_val.copy(&decl_arena.allocator);
+    decl.@"addrspace" = address_space;
     decl.has_tv = true;
     decl_arena_state.* = decl_arena.state;
     decl.value_arena = decl_arena_state;
@@ -3526,8 +3544,8 @@ pub fn scanNamespace(
 
         const decl_sub_index = extra_index;
         extra_index += 7; // src_hash(4) + line(1) + name(1) + value(1)
-        extra_index += @truncate(u1, flags >> 2);
-        extra_index += @truncate(u1, flags >> 3);
+        extra_index += @truncate(u1, flags >> 2); // Align
+        extra_index += @as(u2, @truncate(u1, flags >> 3)) * 2; // Link section or address space, consists of 2 Refs
 
         try scanDecl(&scan_decl_iter, decl_sub_index, flags);
     }
@@ -3553,10 +3571,10 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) SemaError!voi
     const zir = namespace.file_scope.zir;
 
     // zig fmt: off
-    const is_pub          = (flags & 0b0001) != 0;
-    const export_bit      = (flags & 0b0010) != 0;
-    const has_align       = (flags & 0b0100) != 0;
-    const has_linksection = (flags & 0b1000) != 0;
+    const is_pub                       = (flags & 0b0001) != 0;
+    const export_bit                   = (flags & 0b0010) != 0;
+    const has_align                    = (flags & 0b0100) != 0;
+    const has_linksection_or_addrspace = (flags & 0b1000) != 0;
     // zig fmt: on
 
     const line = iter.parent_decl.relativeToLine(zir.extra[decl_sub_index + 4]);
@@ -3639,7 +3657,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) SemaError!voi
         new_decl.is_exported = is_exported;
         new_decl.is_usingnamespace = is_usingnamespace;
         new_decl.has_align = has_align;
-        new_decl.has_linksection = has_linksection;
+        new_decl.has_linksection_or_addrspace = has_linksection_or_addrspace;
         new_decl.zir_decl_index = @intCast(u32, decl_sub_index);
         new_decl.alive = true; // This Decl corresponds to an AST node and therefore always alive.
         return;
@@ -3656,7 +3674,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) SemaError!voi
     decl.is_exported = is_exported;
     decl.is_usingnamespace = is_usingnamespace;
     decl.has_align = has_align;
-    decl.has_linksection = has_linksection;
+    decl.has_linksection_or_addrspace = has_linksection_or_addrspace;
     decl.zir_decl_index = @intCast(u32, decl_sub_index);
     if (decl.getFunction()) |_| {
         switch (mod.comp.bin_file.tag) {
@@ -4028,6 +4046,7 @@ pub fn allocateNewDecl(mod: *Module, namespace: *Scope.Namespace, src_node: Ast.
         .val = undefined,
         .align_val = undefined,
         .linksection_val = undefined,
+        .@"addrspace" = undefined,
         .analysis = .unreferenced,
         .deletion_flag = false,
         .zir_decl_index = 0,
@@ -4052,7 +4071,7 @@ pub fn allocateNewDecl(mod: *Module, namespace: *Scope.Namespace, src_node: Ast.
         .generation = 0,
         .is_pub = false,
         .is_exported = false,
-        .has_linksection = false,
+        .has_linksection_or_addrspace = false,
         .has_align = false,
         .alive = false,
         .is_usingnamespace = false,
@@ -4357,6 +4376,7 @@ pub fn ptrType(
     elem_ty: Type,
     sentinel: ?Value,
     @"align": u32,
+    @"addrspace": std.builtin.AddressSpace,
     bit_offset: u16,
     host_size: u16,
     mutable: bool,
@@ -4371,6 +4391,7 @@ pub fn ptrType(
         .pointee_type = elem_ty,
         .sentinel = sentinel,
         .@"align" = @"align",
+        .@"addrspace" = @"addrspace",
         .bit_offset = bit_offset,
         .host_size = host_size,
         .@"allowzero" = @"allowzero",

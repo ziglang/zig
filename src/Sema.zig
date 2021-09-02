@@ -3004,7 +3004,7 @@ fn analyzeCall(
             new_decl.is_pub = module_fn.owner_decl.is_pub;
             new_decl.is_exported = module_fn.owner_decl.is_exported;
             new_decl.has_align = module_fn.owner_decl.has_align;
-            new_decl.has_linksection = module_fn.owner_decl.has_linksection;
+            new_decl.has_linksection_or_addrspace = module_fn.owner_decl.has_linksection_or_addrspace;
             new_decl.zir_decl_index = module_fn.owner_decl.zir_decl_index;
             new_decl.alive = true; // This Decl is called at runtime.
             new_decl.has_tv = true;
@@ -3895,6 +3895,7 @@ fn zirFunc(
         ret_ty_body,
         cc,
         Value.initTag(.null_value),
+        .generic,
         false,
         inferred_error_set,
         false,
@@ -3911,6 +3912,7 @@ fn funcCommon(
     ret_ty_body: []const Zir.Inst.Index,
     cc: std.builtin.CallingConvention,
     align_val: Value,
+    address_space: std.builtin.AddressSpace,
     var_args: bool,
     inferred_error_set: bool,
     is_extern: bool,
@@ -3968,7 +3970,7 @@ fn funcCommon(
         // Hot path for some common function types.
         // TODO can we eliminate some of these Type tag values? seems unnecessarily complicated.
         if (!is_generic and block.params.items.len == 0 and !var_args and
-            align_val.tag() == .null_value and !inferred_error_set)
+            align_val.tag() == .null_value and !inferred_error_set and address_space == .generic)
         {
             if (bare_return_type.zigTypeTag() == .NoReturn and cc == .Unspecified) {
                 break :fn_ty Type.initTag(.fn_noreturn_no_args);
@@ -4020,6 +4022,7 @@ fn funcCommon(
             .comptime_params = comptime_params.ptr,
             .return_type = return_type,
             .cc = cc,
+            .@"addrspace" = address_space,
             .is_var_args = var_args,
             .is_generic = is_generic,
         });
@@ -6876,6 +6879,7 @@ fn zirPtrTypeSimple(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) Comp
         elem_type,
         null,
         0,
+        .generic,
         0,
         0,
         inst_data.is_mutable,
@@ -6908,6 +6912,13 @@ fn zirPtrType(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileErr
         break :blk try sema.resolveAlreadyCoercedInt(block, .unneeded, ref, u32);
     } else 0;
 
+    const address_space = if (inst_data.flags.has_addrspace) blk: {
+        const ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_i]);
+        extra_i += 1;
+        const addrspace_tv = try sema.resolveInstConst(block, .unneeded, ref);
+        break :blk addrspace_tv.val.toEnum(std.builtin.AddressSpace);
+    } else .generic;
+
     const bit_start = if (inst_data.flags.has_bit_range) blk: {
         const ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_i]);
         extra_i += 1;
@@ -6930,6 +6941,7 @@ fn zirPtrType(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileErr
         elem_type,
         sentinel,
         abi_align,
+        address_space,
         bit_start,
         bit_end,
         inst_data.flags.is_mutable,
@@ -8035,6 +8047,7 @@ fn zirFuncExtended(
     const src: LazySrcLoc = .{ .node_offset = extra.data.src_node };
     const cc_src: LazySrcLoc = .{ .node_offset_fn_type_cc = extra.data.src_node };
     const align_src: LazySrcLoc = src; // TODO add a LazySrcLoc that points at align
+    const addrspace_src: LazySrcLoc = src; // TODO(Snektron) add a LazySrcLoc that points at addrspace
     const small = @bitCast(Zir.Inst.ExtendedFunc.Small, extended.small);
 
     var extra_index: usize = extra.end;
@@ -8059,6 +8072,13 @@ fn zirFuncExtended(
         break :blk align_tv.val;
     } else Value.initTag(.null_value);
 
+    const address_space: std.builtin.AddressSpace = if (small.has_addrspace) blk: {
+        const addrspace_ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_index]);
+        extra_index += 1;
+        const addrspace_tv = try sema.resolveInstConst(block, addrspace_src, addrspace_ref);
+        break :blk addrspace_tv.val.toEnum(std.builtin.AddressSpace);
+    } else .generic;
+
     const ret_ty_body = sema.code.extra[extra_index..][0..extra.data.ret_body_len];
     extra_index += ret_ty_body.len;
 
@@ -8081,6 +8101,7 @@ fn zirFuncExtended(
         ret_ty_body,
         cc,
         align_val,
+        address_space,
         is_var_args,
         is_inferred_error,
         is_extern,
@@ -9693,6 +9714,9 @@ fn analyzeSlice(
         return_elem_type,
         if (end_opt == .none) slice_sentinel else null,
         0, // TODO alignment
+        // TODO(Snektron) address space, should be inferred from the pointer type.
+        // TODO(Snektron) address space for slicing a local, should compute address space from context and architecture.
+        .generic,
         0,
         0,
         !ptr_child.isConstPtr(),

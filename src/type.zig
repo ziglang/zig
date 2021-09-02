@@ -289,6 +289,7 @@ pub const Type = extern union {
                 .pointee_type = Type.initTag(.comptime_int),
                 .sentinel = null,
                 .@"align" = 0,
+                .@"addrspace" = .generic,
                 .bit_offset = 0,
                 .host_size = 0,
                 .@"allowzero" = false,
@@ -300,6 +301,7 @@ pub const Type = extern union {
                 .pointee_type = Type.initTag(.u8),
                 .sentinel = null,
                 .@"align" = 0,
+                .@"addrspace" = .generic,
                 .bit_offset = 0,
                 .host_size = 0,
                 .@"allowzero" = false,
@@ -311,6 +313,7 @@ pub const Type = extern union {
                 .pointee_type = self.castPointer().?.data,
                 .sentinel = null,
                 .@"align" = 0,
+                .@"addrspace" = .generic,
                 .bit_offset = 0,
                 .host_size = 0,
                 .@"allowzero" = false,
@@ -322,6 +325,7 @@ pub const Type = extern union {
                 .pointee_type = self.castPointer().?.data,
                 .sentinel = null,
                 .@"align" = 0,
+                .@"addrspace" = .generic,
                 .bit_offset = 0,
                 .host_size = 0,
                 .@"allowzero" = false,
@@ -333,6 +337,7 @@ pub const Type = extern union {
                 .pointee_type = self.castPointer().?.data,
                 .sentinel = null,
                 .@"align" = 0,
+                .@"addrspace" = .generic,
                 .bit_offset = 0,
                 .host_size = 0,
                 .@"allowzero" = false,
@@ -344,6 +349,7 @@ pub const Type = extern union {
                 .pointee_type = Type.initTag(.u8),
                 .sentinel = null,
                 .@"align" = 0,
+                .@"addrspace" = .generic,
                 .bit_offset = 0,
                 .host_size = 0,
                 .@"allowzero" = false,
@@ -355,6 +361,7 @@ pub const Type = extern union {
                 .pointee_type = self.castPointer().?.data,
                 .sentinel = null,
                 .@"align" = 0,
+                .@"addrspace" = .generic,
                 .bit_offset = 0,
                 .host_size = 0,
                 .@"allowzero" = false,
@@ -366,6 +373,7 @@ pub const Type = extern union {
                 .pointee_type = Type.initTag(.u8),
                 .sentinel = null,
                 .@"align" = 0,
+                .@"addrspace" = .generic,
                 .bit_offset = 0,
                 .host_size = 0,
                 .@"allowzero" = false,
@@ -377,6 +385,7 @@ pub const Type = extern union {
                 .pointee_type = self.castPointer().?.data,
                 .sentinel = null,
                 .@"align" = 0,
+                .@"addrspace" = .generic,
                 .bit_offset = 0,
                 .host_size = 0,
                 .@"allowzero" = false,
@@ -388,6 +397,7 @@ pub const Type = extern union {
                 .pointee_type = self.castPointer().?.data,
                 .sentinel = null,
                 .@"align" = 0,
+                .@"addrspace" = .generic,
                 .bit_offset = 0,
                 .host_size = 0,
                 .@"allowzero" = false,
@@ -399,6 +409,7 @@ pub const Type = extern union {
                 .pointee_type = self.castPointer().?.data,
                 .sentinel = null,
                 .@"align" = 0,
+                .@"addrspace" = .generic,
                 .bit_offset = 0,
                 .host_size = 0,
                 .@"allowzero" = false,
@@ -410,6 +421,7 @@ pub const Type = extern union {
                 .pointee_type = self.castPointer().?.data,
                 .sentinel = null,
                 .@"align" = 0,
+                .@"addrspace" = .generic,
                 .bit_offset = 0,
                 .host_size = 0,
                 .@"allowzero" = false,
@@ -461,6 +473,8 @@ pub const Type = extern union {
                 if (info_a.bit_offset != info_b.bit_offset)
                     return false;
                 if (info_a.host_size != info_b.host_size)
+                    return false;
+                if (info_a.@"addrspace" != info_b.@"addrspace")
                     return false;
 
                 const sentinel_a = info_a.sentinel;
@@ -515,6 +529,8 @@ pub const Type = extern union {
                 if (!a.fnReturnType().eql(b.fnReturnType()))
                     return false;
                 if (a.fnCallingConvention() != b.fnCallingConvention())
+                    return false;
+                if (a.fnAddressSpace() != b.fnAddressSpace())
                     return false;
                 const a_param_len = a.fnParamLen();
                 const b_param_len = b.fnParamLen();
@@ -822,6 +838,7 @@ pub const Type = extern union {
                     .return_type = try payload.return_type.copy(allocator),
                     .param_types = param_types,
                     .cc = payload.cc,
+                    .@"addrspace" = payload.@"addrspace",
                     .is_var_args = payload.is_var_args,
                     .is_generic = payload.is_generic,
                     .comptime_params = comptime_params.ptr,
@@ -837,6 +854,7 @@ pub const Type = extern union {
                     .pointee_type = try payload.pointee_type.copy(allocator),
                     .sentinel = sent,
                     .@"align" = payload.@"align",
+                    .@"addrspace" = payload.@"addrspace",
                     .bit_offset = payload.bit_offset,
                     .host_size = payload.host_size,
                     .@"allowzero" = payload.@"allowzero",
@@ -983,6 +1001,9 @@ pub const Type = extern union {
                     try writer.writeAll(") callconv(.");
                     try writer.writeAll(@tagName(payload.cc));
                     try writer.writeAll(") ");
+                    if (payload.@"addrspace" != .generic) {
+                        try writer.print("addrspace(.{s}) ", .{ @tagName(payload.@"addrspace") });
+                    }
                     ty = payload.return_type;
                     continue;
                 },
@@ -1113,6 +1134,9 @@ pub const Type = extern union {
                             try writer.print(":{d}:{d}", .{ payload.bit_offset, payload.host_size });
                         }
                         try writer.writeAll(") ");
+                    }
+                    if (payload.@"addrspace" != .generic) {
+                        try writer.print("addrspace(.{s}) ", .{ @tagName(payload.@"addrspace") });
                     }
                     if (!payload.mutable) try writer.writeAll("const ");
                     if (payload.@"volatile") try writer.writeAll("volatile ");
@@ -2642,6 +2666,18 @@ pub const Type = extern union {
         };
     }
 
+    pub fn fnAddressSpace(self: Type) std.builtin.AddressSpace {
+        return switch (self.tag()) {
+            .fn_noreturn_no_args => .generic,
+            .fn_void_no_args => .generic,
+            .fn_naked_noreturn_no_args => .generic,
+            .fn_ccc_void_no_args => .generic,
+            .function => self.castTag(.function).?.data.@"addrspace",
+
+            else => unreachable,
+        };
+    }
+
     pub fn fnInfo(ty: Type) Payload.Function.Data {
         return switch (ty.tag()) {
             .fn_noreturn_no_args => .{
@@ -2649,6 +2685,7 @@ pub const Type = extern union {
                 .comptime_params = undefined,
                 .return_type = initTag(.noreturn),
                 .cc = .Unspecified,
+                .@"addrspace" = .generic,
                 .is_var_args = false,
                 .is_generic = false,
             },
@@ -2657,6 +2694,7 @@ pub const Type = extern union {
                 .comptime_params = undefined,
                 .return_type = initTag(.void),
                 .cc = .Unspecified,
+                .@"addrspace" = .generic,
                 .is_var_args = false,
                 .is_generic = false,
             },
@@ -2665,6 +2703,7 @@ pub const Type = extern union {
                 .comptime_params = undefined,
                 .return_type = initTag(.noreturn),
                 .cc = .Naked,
+                .@"addrspace" = .generic,
                 .is_var_args = false,
                 .is_generic = false,
             },
@@ -2673,6 +2712,7 @@ pub const Type = extern union {
                 .comptime_params = undefined,
                 .return_type = initTag(.void),
                 .cc = .C,
+                .@"addrspace" = .generic,
                 .is_var_args = false,
                 .is_generic = false,
             },
@@ -3544,6 +3584,7 @@ pub const Type = extern union {
                 comptime_params: [*]bool,
                 return_type: Type,
                 cc: std.builtin.CallingConvention,
+                @"addrspace": std.builtin.AddressSpace,
                 is_var_args: bool,
                 is_generic: bool,
 
@@ -3581,6 +3622,7 @@ pub const Type = extern union {
                 sentinel: ?Value,
                 /// If zero use pointee_type.AbiAlign()
                 @"align": u32,
+                @"addrspace": std.builtin.AddressSpace,
                 bit_offset: u16,
                 host_size: u16,
                 @"allowzero": bool,
