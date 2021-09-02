@@ -2377,6 +2377,7 @@ fn varDecl(
     const gpa = astgen.gpa;
     const tree = astgen.tree;
     const token_tags = tree.tokens.items(.tag);
+    const main_tokens = tree.nodes.items(.main_token);
 
     const name_token = var_decl.ast.mut_token + 1;
     const ident_name_raw = tree.tokenSlice(name_token);
@@ -2389,6 +2390,14 @@ fn varDecl(
 
     if (var_decl.ast.init_node == 0) {
         return astgen.failNode(node, "variables must be initialized", .{});
+    }
+
+    if (var_decl.ast.addrspace_node != 0) {
+        return astgen.failTok(main_tokens[var_decl.ast.addrspace_node], "cannot set address space of local variable '{s}'", .{ ident_name_raw });
+    }
+
+    if (var_decl.ast.section_node != 0) {
+        return astgen.failTok(main_tokens[var_decl.ast.section_node], "cannot set section of local variable '{s}'", .{ ident_name_raw });
     }
 
     const align_inst: Zir.Inst.Ref = if (var_decl.ast.align_node != 0)
