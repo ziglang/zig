@@ -638,10 +638,10 @@ test "mask parameter of @shuffle is comptime scope" {
     var v4_a = __v4hi{ 0, 0, 0, 0 };
     var v4_b = __v4hi{ 0, 0, 0, 0 };
     var shuffled: __v4hi = @shuffle(i16, v4_a, v4_b, std.meta.Vector(4, i32){
-        std.zig.c_translation.shuffleVectorIndex(0, @typeInfo(@TypeOf(v4_a)).Vector.len),
-        std.zig.c_translation.shuffleVectorIndex(0, @typeInfo(@TypeOf(v4_a)).Vector.len),
-        std.zig.c_translation.shuffleVectorIndex(0, @typeInfo(@TypeOf(v4_a)).Vector.len),
-        std.zig.c_translation.shuffleVectorIndex(0, @typeInfo(@TypeOf(v4_a)).Vector.len),
+        std.meta.shuffleVectorIndex(0, @typeInfo(@TypeOf(v4_a)).Vector.len),
+        std.meta.shuffleVectorIndex(0, @typeInfo(@TypeOf(v4_a)).Vector.len),
+        std.meta.shuffleVectorIndex(0, @typeInfo(@TypeOf(v4_a)).Vector.len),
+        std.meta.shuffleVectorIndex(0, @typeInfo(@TypeOf(v4_a)).Vector.len),
     });
     _ = shuffled;
 }
