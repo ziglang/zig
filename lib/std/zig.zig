@@ -176,9 +176,11 @@ pub fn binNameAlloc(allocator: *std.mem.Allocator, options: BinNameOptions) erro
         .spirv => return std.fmt.allocPrint(allocator, "{s}.spv", .{root_name}),
         .hex => return std.fmt.allocPrint(allocator, "{s}.ihex", .{root_name}),
         .raw => return std.fmt.allocPrint(allocator, "{s}.bin", .{root_name}),
-        .plan9 => return std.fmt.allocPrint(allocator, "{s}{s}", .{
-            root_name, ofmt.fileExt(target.cpu.arch),
-        }),
+        .plan9 => switch (options.output_mode) {
+            .Exe => return allocator.dupe(u8, root_name),
+            .Obj => return std.fmt.allocPrint(allocator, "{s}{s}", .{ root_name, ofmt.fileExt(target.cpu.arch) }),
+            .Lib => return std.fmt.allocPrint(allocator, "{s}{s}.a", .{ target.libPrefix(), root_name }),
+        },
     }
 }
 
