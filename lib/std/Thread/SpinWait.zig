@@ -16,7 +16,7 @@ count: u8 = switch (target.cpu.arch) {
 /// Tries to spin for a bounded amount of time.
 /// Returns true if the caller can invoke yield() again.
 /// Returns false if the caller should stop spinning and actually block.
-pub fn yield(self: *Spin) bool {
+pub fn yield(self: *SpinWait) bool {
     if (self.count == 0) return false;
     self.count -= 1;
     std.atomic.spinLoopHint();

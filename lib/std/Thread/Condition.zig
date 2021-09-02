@@ -159,7 +159,7 @@ const Futex64Impl = struct {
             // Claim to wake up either all waiters or one waiter.
             // A claim also bumps the sequence to actually wake on the Futex.
             var new_state = old_state;
-            new_state.seq +%= 1;
+            new_state.seq.value +%= 1;
             new_state.signals = switch (notify_all) {
                 true => old_state.waiters,
                 else => old_state.signals + 1,
@@ -361,6 +361,62 @@ test "Condition - chain signal" {
     }
 }
 
-test "Condition - join broadcast" {
+test "Condition - producer / consumer" {
+    if (std.builtin.single_threaded) return error.SkipZigTest;
 
+    const num_threads = 4;
+    const Context = struct {
+        lock: Mutex = .{},
+        send: Condition = .{},
+        recv: Condition = .{},
+        value: usize = 0,
+
+        fn doSend(self: *@This(), do_broadcast: bool) void {
+            const held = self.lock.acquire();
+            defer held.release();
+
+            assert(self.value == 0);
+            self.value = 1;
+            switch (do_broadcast) {
+                true => self.recv.broadcast(),
+                else => self.recv.signal(),
+            }
+
+            while (self.value != 0) {
+                self.send.wait(held, null) catch unreachable;
+            }
+        }
+
+        fn doRecv(self: *@This(), do_broadcast: bool) void {
+            const held = self.lock.acquire();
+            defer held.release();
+
+            while (self.value == 0) {
+                self.recv.wait(held, null) catch unreachable;
+            }
+
+            self.value -= 1;
+            switch (do_broadcast) {
+                true => self.send.broadcast(),
+                else => self.send.signal(),
+            }
+        }
+    };
+
+    for ([_]bool{ true, false }) |do_broadcast| {
+        var context = Context{};
+        var threads: [num_threads]std.Thread = undefined;
+        for (threads) |*t| {
+            t.* = try std.Thread.spawn(.{}, Context.doRecv, .{&context, do_broadcast});
+        }
+
+        var i: usize = num_threads;
+        while (i > 0) : (i -= 1) {
+            context.doSend(do_broadcast);
+        }
+
+        for (threads) |t| {
+            t.join();
+        }
+    }
 }
