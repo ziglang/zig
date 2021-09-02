@@ -24,9 +24,9 @@ string_bytes: ArrayListUnmanaged(u8) = .{},
 /// would be O(N^2).
 source_offset: u32 = 0,
 /// Tracks the current line of `source_offset`.
-source_line: u32 = 0,
+source_line: u32 = 1,
 /// Tracks the current column of `source_offset`.
-source_column: u32 = 0,
+source_column: u32 = 1,
 /// Used for temporary allocations; freed after AstGen is complete.
 /// The resulting ZIR code has no references to anything in this arena.
 arena: *Allocator,
@@ -10135,7 +10135,7 @@ fn advanceSourceCursor(astgen: *AstGen, end: ast.ByteOffset) void {
     while (i < end) : (i += 1) {
         if (astgen.tree.source[i] == '\n') {
             line += 1;
-            column = 0;
+            column = 1;
         } else {
             column += 1;
         }
