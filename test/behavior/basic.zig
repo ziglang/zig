@@ -170,3 +170,6 @@ test "string concatenation" {
 test "array mult operator" {
     try expect(mem.eql(u8, "ab" ** 5, "ababababab"));
 }
+test "errorName at comptime" {
+    try expect(mem.eql(u8, @errorName(error.EName), "EName"));
+}

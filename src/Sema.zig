@@ -7095,7 +7095,6 @@ fn zirErrorName(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileE
 
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
-    _ = src;
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const op = sema.resolveInst(inst_data.operand);
     const op_coerced = try sema.coerce(block, Type.initTag(.anyerror), op, operand_src);
@@ -7104,9 +7103,9 @@ fn zirErrorName(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileE
         var anon = try block.startAnonDecl();
         errdefer anon.deinit();
 
-        const bytes = try anon.new_decl_arena.allocator.dupe(u8, val.castTag(.@"error").?.data.name);
-        const decl_ty = try Type.Tag.array_u8_sentinel_0.create(&anon.new_decl_arena.allocator, bytes.len);
-        const decl_val = try Value.Tag.bytes.create(&anon.new_decl_arena.allocator, bytes);
+        const bytes = try anon.arena().dupe(u8, val.castTag(.@"error").?.data.name);
+        const decl_ty = try Type.Tag.array_u8_sentinel_0.create(anon.arena(), bytes.len);
+        const decl_val = try Value.Tag.bytes.create(anon.arena(), bytes);
 
         return sema.analyzeDeclRef(try anon.finish(decl_ty, decl_val));
     }
@@ -8639,6 +8638,108 @@ fn elemPtrArray(
         } },
     });
 }
+// this needs to be in Sema.zig because it can return an error
+pub fn isGlobalErrorSet(ty: Type) !bool {
+    return switch (ty.tag()) {
+        .anyerror => true,
+        // TODO inferred error sets can be global too
+        // once we have the code for resolving them, do it here
+        .error_set_inferred => false,
+        .u1,
+        .u8,
+        .i8,
+        .u16,
+        .i16,
+        .u32,
+        .i32,
+        .u64,
+        .i64,
+        .u128,
+        .i128,
+        .usize,
+        .isize,
+        .c_short,
+        .c_ushort,
+        .c_int,
+        .c_uint,
+        .c_long,
+        .c_ulong,
+        .c_longlong,
+        .c_ulonglong,
+        .c_longdouble,
+        .f16,
+        .f32,
+        .f64,
+        .f128,
+        .c_void,
+        .bool,
+        .void,
+        .noreturn,
+        .@"anyframe",
+        .@"null",
+        .@"undefined",
+        .atomic_ordering,
+        .atomic_rmw_op,
+        .calling_convention,
+        .float_mode,
+        .reduce_op,
+        .call_options,
+        .export_options,
+        .extern_options,
+        .manyptr_u8,
+        .manyptr_const_u8,
+        .fn_noreturn_no_args,
+        .fn_void_no_args,
+        .fn_naked_noreturn_no_args,
+        .fn_ccc_void_no_args,
+        .single_const_pointer_to_comptime_int,
+        .const_slice_u8,
+        .anyerror_void_error_union,
+        .empty_struct_literal,
+        .function,
+        .empty_struct,
+        .error_set,
+        .error_set_single,
+        .@"opaque",
+        .generic_poison,
+        .type,
+        .comptime_int,
+        .comptime_float,
+        .enum_literal,
+        .type_info,
+        .var_args_param,
+        .inferred_alloc_mut,
+        .inferred_alloc_const,
+        .array_u8,
+        .array_u8_sentinel_0,
+        .array,
+        .array_sentinel,
+        .vector,
+        .pointer,
+        .single_const_pointer,
+        .single_mut_pointer,
+        .many_const_pointer,
+        .many_mut_pointer,
+        .c_const_pointer,
+        .c_mut_pointer,
+        .const_slice,
+        .mut_slice,
+        .int_signed,
+        .int_unsigned,
+        .optional,
+        .optional_single_mut_pointer,
+        .optional_single_const_pointer,
+        .error_union,
+        .anyframe_T,
+        .@"struct",
+        .@"union",
+        .union_tagged,
+        .enum_simple,
+        .enum_full,
+        .enum_nonexhaustive,
+        => false,
+    };
+}
 
 fn coerce(
     sema: *Sema,
@@ -8803,10 +8904,12 @@ fn coerce(
             return sema.wrapErrorUnion(block, dest_type, inst, inst_src);
         },
         .ErrorSet => {
-            // error.Joe to anyerror
-            if (dest_type.tag() == .anyerror and inst_ty.tag() == .error_set_single) {
-                if (try sema.resolveDefinedValue(block, inst_src, inst)) |val| {
+            // anything to anyerror
+            if ((try isGlobalErrorSet(dest_type)) and inst_ty.zigTypeTag() == .ErrorSet) {
+                if (try sema.resolveMaybeUndefVal(block, inst_src, inst)) |val| {
                     return sema.addConstant(dest_type, val);
+                } else {
+                    return mod.fail(&block.base, inst_src, "TODO: runtime error set _ > anyerror coercion", .{});
                 }
             }
         },
