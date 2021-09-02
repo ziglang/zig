@@ -885,14 +885,17 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             // that wrapping is UB.
             .add, .ptr_add => try airBinOp( f, inst, " + "),
             .addwrap       => try airWrapOp(f, inst, " + ", "addw_"),
+            .addsat        => return o.dg.fail("TODO: C backend: implement codegen for addsat", .{}),
             // TODO use a different strategy for sub that communicates to the optimizer
             // that wrapping is UB.
             .sub, .ptr_sub => try airBinOp( f, inst, " - "),
             .subwrap       => try airWrapOp(f, inst, " - ", "subw_"),
+            .subsat        => return o.dg.fail("TODO: C backend: implement codegen for subsat", .{}),
             // TODO use a different strategy for mul that communicates to the optimizer
             // that wrapping is UB.
             .mul           => try airBinOp( f, inst, " * "),
             .mulwrap       => try airWrapOp(f, inst, " * ", "mulw_"),
+            .mulsat        => return o.dg.fail("TODO: C backend: implement codegen for mulsat", .{}),
             // TODO use a different strategy for div that communicates to the optimizer
             // that wrapping is UB.
             .div           => try airBinOp( f, inst, " / "),

@@ -1236,12 +1236,15 @@ pub const FuncGen = struct {
         for (body) |inst| {
             const opt_value: ?*const llvm.Value = switch (air_tags[inst]) {
                 // zig fmt: off
-                .add     => try self.airAdd(inst, false),
-                .addwrap => try self.airAdd(inst, true),
-                .sub     => try self.airSub(inst, false),
-                .subwrap => try self.airSub(inst, true),
-                .mul     => try self.airMul(inst, false),
-                .mulwrap => try self.airMul(inst, true),
+                .add     => try self.airAdd(inst, .standard),
+                .addwrap => try self.airAdd(inst, .wrapping),
+                .addsat  => try self.airAdd(inst, .saturated),
+                .sub     => try self.airSub(inst, .standard),
+                .subwrap => try self.airSub(inst, .wrapping),
+                .subsat  => try self.airSub(inst, .saturated),
+                .mul     => try self.airMul(inst, .standard),
+                .mulwrap => try self.airMul(inst, .wrapping),
+                .mulsat  => try self.airMul(inst, .saturated),
                 .div     => try self.airDiv(inst),
                 .rem     => try self.airRem(inst),
                 .mod     => try self.airMod(inst),
@@ -1252,7 +1255,8 @@ pub const FuncGen = struct {
                 .bit_or, .bool_or   => try self.airOr(inst),
                 .xor                => try self.airXor(inst),
 
-                .shl                => try self.airShl(inst),
+                .shl                => try self.airShl(inst, false),
+                .shl_sat             => try self.airShl(inst, true),
                 .shr                => try self.airShr(inst),
 
                 .cmp_eq  => try self.airCmp(inst, .eq),
@@ -2024,7 +2028,8 @@ pub const FuncGen = struct {
         return self.todo("implement llvm codegen for 'airWrapErrUnionErr'", .{});
     }
 
-    fn airAdd(self: *FuncGen, inst: Air.Inst.Index, wrap: bool) !?*const llvm.Value {
+    const ArithmeticType = enum { standard, wrapping, saturated };
+    fn airAdd(self: *FuncGen, inst: Air.Inst.Index, ty: ArithmeticType) !?*const llvm.Value {
         if (self.liveness.isUnused(inst))
             return null;
 
@@ -2033,13 +2038,20 @@ pub const FuncGen = struct {
         const rhs = try self.resolveInst(bin_op.rhs);
         const inst_ty = self.air.typeOfIndex(inst);
 
-        if (inst_ty.isRuntimeFloat()) return self.builder.buildFAdd(lhs, rhs, "");
-        if (wrap) return self.builder.buildAdd(lhs, rhs, "");
+        if (inst_ty.isFloat()) return self.builder.buildFAdd(lhs, rhs, "");
+        if (ty == .wrapping)
+            return self.builder.buildAdd(lhs, rhs, "")
+        else if (ty == .saturated) {
+            if (inst_ty.isSignedInt())
+                return self.builder.buildSAddSat(lhs, rhs, "")
+            else
+                return self.builder.buildUAddSat(lhs, rhs, "");
+        }
         if (inst_ty.isSignedInt()) return self.builder.buildNSWAdd(lhs, rhs, "");
         return self.builder.buildNUWAdd(lhs, rhs, "");
     }
 
-    fn airSub(self: *FuncGen, inst: Air.Inst.Index, wrap: bool) !?*const llvm.Value {
+    fn airSub(self: *FuncGen, inst: Air.Inst.Index, ty: ArithmeticType) !?*const llvm.Value {
         if (self.liveness.isUnused(inst))
             return null;
 
@@ -2048,13 +2060,20 @@ pub const FuncGen = struct {
         const rhs = try self.resolveInst(bin_op.rhs);
         const inst_ty = self.air.typeOfIndex(inst);
 
-        if (inst_ty.isRuntimeFloat()) return self.builder.buildFSub(lhs, rhs, "");
-        if (wrap) return self.builder.buildSub(lhs, rhs, "");
+        if (inst_ty.isFloat()) return self.builder.buildFSub(lhs, rhs, "");
+        if (ty == .wrapping)
+            return self.builder.buildSub(lhs, rhs, "")
+        else if (ty == .saturated) {
+            if (inst_ty.isSignedInt())
+                return self.builder.buildSSubSat(lhs, rhs, "")
+            else
+                return self.builder.buildUSubSat(lhs, rhs, "");
+        }
         if (inst_ty.isSignedInt()) return self.builder.buildNSWSub(lhs, rhs, "");
         return self.builder.buildNUWSub(lhs, rhs, "");
     }
 
-    fn airMul(self: *FuncGen, inst: Air.Inst.Index, wrap: bool) !?*const llvm.Value {
+    fn airMul(self: *FuncGen, inst: Air.Inst.Index, ty: ArithmeticType) !?*const llvm.Value {
         if (self.liveness.isUnused(inst))
             return null;
 
@@ -2063,8 +2082,15 @@ pub const FuncGen = struct {
         const rhs = try self.resolveInst(bin_op.rhs);
         const inst_ty = self.air.typeOfIndex(inst);
 
-        if (inst_ty.isRuntimeFloat()) return self.builder.buildFMul(lhs, rhs, "");
-        if (wrap) return self.builder.buildMul(lhs, rhs, "");
+        if (inst_ty.isFloat()) return self.builder.buildFMul(lhs, rhs, "");
+        if (ty == .wrapping)
+            return self.builder.buildMul(lhs, rhs, "")
+        else if (ty == .saturated) {
+            if (inst_ty.isSignedInt())
+                return self.builder.buildSMulFixSat(lhs, rhs, "")
+            else
+                return self.builder.buildUMulFixSat(lhs, rhs, "");
+        }
         if (inst_ty.isSignedInt()) return self.builder.buildNSWMul(lhs, rhs, "");
         return self.builder.buildNUWMul(lhs, rhs, "");
     }
@@ -2174,7 +2200,7 @@ pub const FuncGen = struct {
         return self.builder.buildXor(lhs, rhs, "");
     }
 
-    fn airShl(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+    fn airShl(self: *FuncGen, inst: Air.Inst.Index, sat: bool) !?*const llvm.Value {
         if (self.liveness.isUnused(inst))
             return null;
         const bin_op = self.air.instructions.items(.data)[inst].bin_op;
@@ -2186,6 +2212,12 @@ pub const FuncGen = struct {
             self.builder.buildZExt(rhs, try self.dg.llvmType(lhs_type), "")
         else
             rhs;
+        if (sat) {
+            return if (lhs_type.isSignedInt())
+                self.builder.buildSShlSat(lhs, casted_rhs, "")
+            else
+                self.builder.buildUShlSat(lhs, casted_rhs, "");
+        }
         return self.builder.buildShl(lhs, casted_rhs, "");
     }
 

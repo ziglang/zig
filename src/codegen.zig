@@ -826,10 +826,13 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     // zig fmt: off
                     .add, .ptr_add => try self.airAdd(inst),
                     .addwrap       => try self.airAddWrap(inst),
+                    .addsat        => try self.airArithmeticOpSat(inst, "addsat"),
                     .sub, .ptr_sub => try self.airSub(inst),
                     .subwrap       => try self.airSubWrap(inst),
+                    .subsat        => try self.airArithmeticOpSat(inst, "subsat"),
                     .mul           => try self.airMul(inst),
                     .mulwrap       => try self.airMulWrap(inst),
+                    .mulsat        => try self.airArithmeticOpSat(inst, "mulsat"),
                     .div           => try self.airDiv(inst),
                     .rem           => try self.airRem(inst),
                     .mod           => try self.airMod(inst),
@@ -848,6 +851,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     .xor      => try self.airXor(inst),
                     .shr      => try self.airShr(inst),
                     .shl      => try self.airShl(inst),
+                    .shl_sat  => try self.airArithmeticOpSat(inst, "shl_sat"),
 
                     .alloc           => try self.airAlloc(inst),
                     .arg             => try self.airArg(inst),
@@ -1316,6 +1320,14 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             const bin_op = self.air.instructions.items(.data)[inst].bin_op;
             const result: MCValue = if (self.liveness.isUnused(inst)) .dead else switch (arch) {
                 else => return self.fail("TODO implement subwrap for {}", .{self.target.cpu.arch}),
+            };
+            return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
+        }
+
+        fn airArithmeticOpSat(self: *Self, inst: Air.Inst.Index, comptime name: []const u8) !void {
+            const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+            const result: MCValue = if (self.liveness.isUnused(inst)) .dead else switch (arch) {
+                else => return self.fail("TODO implement " ++ name ++ " for {}", .{self.target.cpu.arch}),
             };
             return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
         }

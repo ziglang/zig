@@ -1269,6 +1269,7 @@ const Parser = struct {
             .plus_equal => .assign_add,
             .minus_equal => .assign_sub,
             .angle_bracket_angle_bracket_left_equal => .assign_bit_shift_left,
+            .angle_bracket_angle_bracket_left_pipe_equal => .assign_bit_shift_left_sat,
             .angle_bracket_angle_bracket_right_equal => .assign_bit_shift_right,
             .ampersand_equal => .assign_bit_and,
             .caret_equal => .assign_bit_xor,
@@ -1276,6 +1277,9 @@ const Parser = struct {
             .asterisk_percent_equal => .assign_mul_wrap,
             .plus_percent_equal => .assign_add_wrap,
             .minus_percent_equal => .assign_sub_wrap,
+            .asterisk_pipe_equal => .assign_mul_sat,
+            .plus_pipe_equal => .assign_add_sat,
+            .minus_pipe_equal => .assign_sub_sat,
             .equal => .assign,
             else => return expr,
         };
@@ -1343,6 +1347,7 @@ const Parser = struct {
         .keyword_catch = .{ .prec = 40, .tag = .@"catch" },
 
         .angle_bracket_angle_bracket_left = .{ .prec = 50, .tag = .bit_shift_left },
+        .angle_bracket_angle_bracket_left_pipe = .{ .prec = 50, .tag = .bit_shift_left_sat },
         .angle_bracket_angle_bracket_right = .{ .prec = 50, .tag = .bit_shift_right },
 
         .plus = .{ .prec = 60, .tag = .add },
@@ -1350,6 +1355,8 @@ const Parser = struct {
         .plus_plus = .{ .prec = 60, .tag = .array_cat },
         .plus_percent = .{ .prec = 60, .tag = .add_wrap },
         .minus_percent = .{ .prec = 60, .tag = .sub_wrap },
+        .plus_pipe = .{ .prec = 60, .tag = .add_sat },
+        .minus_pipe = .{ .prec = 60, .tag = .sub_sat },
 
         .pipe_pipe = .{ .prec = 70, .tag = .merge_error_sets },
         .asterisk = .{ .prec = 70, .tag = .mul },
@@ -1357,6 +1364,7 @@ const Parser = struct {
         .percent = .{ .prec = 70, .tag = .mod },
         .asterisk_asterisk = .{ .prec = 70, .tag = .array_mult },
         .asterisk_percent = .{ .prec = 70, .tag = .mul_wrap },
+        .asterisk_pipe = .{ .prec = 70, .tag = .mul_sat },
     });
 
     fn parseExprPrecedence(p: *Parser, min_prec: i32) Error!Node.Index {

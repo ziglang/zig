@@ -397,6 +397,12 @@ pub const Builder = opaque {
     pub const buildNUWAdd = LLVMBuildNUWAdd;
     extern fn LLVMBuildNUWAdd(*const Builder, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;
 
+    pub const buildSAddSat = ZigLLVMBuildSAddSat;
+    extern fn ZigLLVMBuildSAddSat(*const Builder, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;
+
+    pub const buildUAddSat = ZigLLVMBuildUAddSat;
+    extern fn ZigLLVMBuildUAddSat(*const Builder, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;
+
     pub const buildFSub = LLVMBuildFSub;
     extern fn LLVMBuildFSub(*const Builder, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;
 
@@ -409,6 +415,12 @@ pub const Builder = opaque {
     pub const buildNUWSub = LLVMBuildNUWSub;
     extern fn LLVMBuildNUWSub(*const Builder, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;
 
+    pub const buildSSubSat = ZigLLVMBuildSSubSat;
+    extern fn ZigLLVMBuildSSubSat(*const Builder, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;
+
+    pub const buildUSubSat = ZigLLVMBuildUSubSat;
+    extern fn ZigLLVMBuildUSubSat(*const Builder, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;
+
     pub const buildFMul = LLVMBuildFMul;
     extern fn LLVMBuildFMul(*const Builder, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;
 
@@ -420,6 +432,12 @@ pub const Builder = opaque {
 
     pub const buildNUWMul = LLVMBuildNUWMul;
     extern fn LLVMBuildNUWMul(*const Builder, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;
+
+    pub const buildSMulFixSat = ZigLLVMBuildSMulFixSat;
+    extern fn ZigLLVMBuildSMulFixSat(*const Builder, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;
+
+    pub const buildUMulFixSat = ZigLLVMBuildUMulFixSat;
+    extern fn ZigLLVMBuildUMulFixSat(*const Builder, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;
 
     pub const buildUDiv = LLVMBuildUDiv;
     extern fn LLVMBuildUDiv(*const Builder, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;
@@ -450,6 +468,12 @@ pub const Builder = opaque {
 
     pub const buildShl = LLVMBuildShl;
     extern fn LLVMBuildShl(*const Builder, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;
+
+    pub const buildSShlSat = ZigLLVMBuildSShlSat;
+    extern fn ZigLLVMBuildSShlSat(*const Builder, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;
+
+    pub const buildUShlSat = ZigLLVMBuildUShlSat;
+    extern fn ZigLLVMBuildUShlSat(*const Builder, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;
 
     pub const buildOr = LLVMBuildOr;
     extern fn LLVMBuildOr(*const Builder, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;

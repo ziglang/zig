@@ -44,6 +44,11 @@ pub const Inst = struct {
         /// is the same as both operands.
         /// Uses the `bin_op` field.
         addwrap,
+        /// Saturating integer addition. 
+        /// Both operands are guaranteed to be the same type, and the result type
+        /// is the same as both operands.
+        /// Uses the `bin_op` field.
+        addsat,
         /// Float or integer subtraction. For integers, wrapping is undefined behavior.
         /// Both operands are guaranteed to be the same type, and the result type
         /// is the same as both operands.
@@ -54,6 +59,11 @@ pub const Inst = struct {
         /// is the same as both operands.
         /// Uses the `bin_op` field.
         subwrap,
+        /// Saturating integer subtraction. 
+        /// Both operands are guaranteed to be the same type, and the result type
+        /// is the same as both operands.
+        /// Uses the `bin_op` field.
+        subsat,
         /// Float or integer multiplication. For integers, wrapping is undefined behavior.
         /// Both operands are guaranteed to be the same type, and the result type
         /// is the same as both operands.
@@ -64,6 +74,11 @@ pub const Inst = struct {
         /// is the same as both operands.
         /// Uses the `bin_op` field.
         mulwrap,
+        /// Saturating integer multiplication. 
+        /// Both operands are guaranteed to be the same type, and the result type
+        /// is the same as both operands.
+        /// Uses the `bin_op` field.
+        mulsat,
         /// Integer or float division. For integers, wrapping is undefined behavior.
         /// Both operands are guaranteed to be the same type, and the result type
         /// is the same as both operands.
@@ -110,6 +125,9 @@ pub const Inst = struct {
         /// Shift left. `<<`
         /// Uses the `bin_op` field.
         shl,
+        /// Shift left saturating. `<<|`
+        /// Uses the `bin_op` field.
+        shl_sat,
         /// Bitwise XOR. `^`
         /// Uses the `bin_op` field.
         xor,
@@ -568,10 +586,13 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
 
         .add,
         .addwrap,
+        .addsat,
         .sub,
         .subwrap,
+        .subsat,
         .mul,
         .mulwrap,
+        .mulsat,
         .div,
         .rem,
         .mod,
@@ -582,6 +603,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .ptr_sub,
         .shr,
         .shl,
+        .shl_sat,
         => return air.typeOf(datas[inst].bin_op.lhs),
 
         .cmp_lt,

@@ -396,6 +396,7 @@ pub fn firstToken(tree: Tree, node: Node.Index) TokenIndex {
         .assign_add,
         .assign_sub,
         .assign_bit_shift_left,
+        .assign_bit_shift_left_sat,
         .assign_bit_shift_right,
         .assign_bit_and,
         .assign_bit_xor,
@@ -403,6 +404,9 @@ pub fn firstToken(tree: Tree, node: Node.Index) TokenIndex {
         .assign_mul_wrap,
         .assign_add_wrap,
         .assign_sub_wrap,
+        .assign_mul_sat,
+        .assign_add_sat,
+        .assign_sub_sat,
         .assign,
         .merge_error_sets,
         .mul,
@@ -410,12 +414,16 @@ pub fn firstToken(tree: Tree, node: Node.Index) TokenIndex {
         .mod,
         .array_mult,
         .mul_wrap,
+        .mul_sat,
         .add,
         .sub,
         .array_cat,
         .add_wrap,
         .sub_wrap,
+        .add_sat,
+        .sub_sat,
         .bit_shift_left,
+        .bit_shift_left_sat,
         .bit_shift_right,
         .bit_and,
         .bit_xor,
@@ -652,6 +660,7 @@ pub fn lastToken(tree: Tree, node: Node.Index) TokenIndex {
         .assign_add,
         .assign_sub,
         .assign_bit_shift_left,
+        .assign_bit_shift_left_sat,
         .assign_bit_shift_right,
         .assign_bit_and,
         .assign_bit_xor,
@@ -659,6 +668,9 @@ pub fn lastToken(tree: Tree, node: Node.Index) TokenIndex {
         .assign_mul_wrap,
         .assign_add_wrap,
         .assign_sub_wrap,
+        .assign_mul_sat,
+        .assign_add_sat,
+        .assign_sub_sat,
         .assign,
         .merge_error_sets,
         .mul,
@@ -666,12 +678,16 @@ pub fn lastToken(tree: Tree, node: Node.Index) TokenIndex {
         .mod,
         .array_mult,
         .mul_wrap,
+        .mul_sat,
         .add,
         .sub,
         .array_cat,
         .add_wrap,
         .sub_wrap,
+        .add_sat,
+        .sub_sat,
         .bit_shift_left,
+        .bit_shift_left_sat,
         .bit_shift_right,
         .bit_and,
         .bit_xor,
@@ -2525,6 +2541,8 @@ pub const Node = struct {
         assign_sub,
         /// `lhs <<= rhs`. main_token is op.
         assign_bit_shift_left,
+        /// `lhs <<|= rhs`. main_token is op.
+        assign_bit_shift_left_sat,
         /// `lhs >>= rhs`. main_token is op.
         assign_bit_shift_right,
         /// `lhs &= rhs`. main_token is op.
@@ -2539,6 +2557,12 @@ pub const Node = struct {
         assign_add_wrap,
         /// `lhs -%= rhs`. main_token is op.
         assign_sub_wrap,
+        /// `lhs *|= rhs`. main_token is op.
+        assign_mul_sat,
+        /// `lhs +|= rhs`. main_token is op.
+        assign_add_sat,
+        /// `lhs -|= rhs`. main_token is op.
+        assign_sub_sat,
         /// `lhs = rhs`. main_token is op.
         assign,
         /// `lhs || rhs`. main_token is the `||`.
@@ -2553,6 +2577,8 @@ pub const Node = struct {
         array_mult,
         /// `lhs *% rhs`. main_token is the `*%`.
         mul_wrap,
+        /// `lhs *| rhs`. main_token is the `*%`.
+        mul_sat,
         /// `lhs + rhs`. main_token is the `+`.
         add,
         /// `lhs - rhs`. main_token is the `-`.
@@ -2563,8 +2589,14 @@ pub const Node = struct {
         add_wrap,
         /// `lhs -% rhs`. main_token is the `-%`.
         sub_wrap,
+        /// `lhs +| rhs`. main_token is the `+|`.
+        add_sat,
+        /// `lhs -| rhs`. main_token is the `-|`.
+        sub_sat,
         /// `lhs << rhs`. main_token is the `<<`.
         bit_shift_left,
+        /// `lhs <<| rhs`. main_token is the `<<|`.
+        bit_shift_left_sat,
         /// `lhs >> rhs`. main_token is the `>>`.
         bit_shift_right,
         /// `lhs & rhs`. main_token is the `&`.

@@ -11,13 +11,34 @@ fn testSaturatingOp(comptime op: Op, comptime T: type, test_data: [3]T) !void {
     const a = test_data[0];
     const b = test_data[1];
     const expected = test_data[2];
-    const actual = switch (op) {
-        .add => @addWithSaturation(a, b),
-        .sub => @subWithSaturation(a, b),
-        .mul => @mulWithSaturation(a, b),
-        .shl => @shlWithSaturation(a, b),
-    };
-    try expectEqual(expected, actual);
+    {
+        const actual = switch (op) {
+            .add => @addWithSaturation(a, b),
+            .sub => @subWithSaturation(a, b),
+            .mul => @mulWithSaturation(a, b),
+            .shl => @shlWithSaturation(a, b),
+        };
+        try expectEqual(expected, actual);
+    }
+    {
+        const actual = switch (op) {
+            .add => a +| b,
+            .sub => a -| b,
+            .mul => a *| b,
+            .shl => a <<| b,
+        };
+        try expectEqual(expected, actual);
+    }
+    {
+        var actual = a;
+        switch (op) {
+            .add => actual +|= b,
+            .sub => actual -|= b,
+            .mul => actual *|= b,
+            .shl => actual <<|= b,
+        }
+        try expectEqual(expected, actual);
+    }
 }
 
 test "@addWithSaturation" {
