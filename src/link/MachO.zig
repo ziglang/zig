@@ -1925,7 +1925,7 @@ pub fn allocateAtom(self: *MachO, atom: *TextBlock, match: MatchingSection) !u64
             var atom_placement: ?*TextBlock = null;
 
             // TODO converge with `allocateTextBlock` and handle free list
-            const vaddr = if (self.blocks.get(match)) |last| blk: {
+            var vaddr = if (self.blocks.get(match)) |last| blk: {
                 const last_atom_sym = self.locals.items[last.local_sym_index];
                 const ideal_capacity = if (needs_padding) padToIdeal(last.size) else last.size;
                 const ideal_capacity_end_vaddr = last_atom_sym.n_value + ideal_capacity;
@@ -1939,6 +1939,7 @@ pub fn allocateAtom(self: *MachO, atom: *TextBlock, match: MatchingSection) !u64
 
             const expand_section = atom_placement == null or atom_placement.?.next == null;
             if (expand_section) {
+                const needed_size = (vaddr + atom.size) - sect.addr;
                 const sect_offset: u64 = blk: {
                     if (self.data_segment_cmd_index.? == match.seg) {
                         if (self.bss_section_index) |idx| {
@@ -1952,8 +1953,35 @@ pub fn allocateAtom(self: *MachO, atom: *TextBlock, match: MatchingSection) !u64
                 };
                 const file_offset = sect_offset + vaddr - sect.addr;
                 const max_size = seg.allocatedSize(file_offset);
-                log.debug("  (atom size 0x{x}, max available size 0x{x})", .{ atom.size, max_size });
-                assert(atom.size <= max_size); // TODO must expand the section
+                log.debug("  (section {s},{s} needed size 0x{x}, max available size 0x{x})", .{
+                    commands.segmentName(sect.*),
+                    commands.sectionName(sect.*),
+                    needed_size,
+                    max_size,
+                });
+
+                if (needed_size > max_size) {
+                    const old_base_addr = sect.addr;
+                    sect.size = 0;
+                    const padding: ?u64 = if (match.seg == self.text_segment_cmd_index.?) self.header_pad else null;
+                    const new_offset = @intCast(u32, seg.findFreeSpace(needed_size, atom.alignment, padding));
+                    sect.offset = new_offset;
+                    sect.addr = seg.inner.vmaddr + sect.offset - seg.inner.fileoff;
+                    log.debug("  (found new {s},{s} free space from 0x{x} to 0x{x})", .{
+                        commands.segmentName(sect.*),
+                        commands.sectionName(sect.*),
+                        new_offset,
+                        new_offset + needed_size,
+                    });
+                    try self.allocateLocalSymbols(match, old_base_addr);
+                    vaddr = @intCast(
+                        u64,
+                        @intCast(i64, vaddr) + @intCast(i64, sect.addr) - @intCast(i64, old_base_addr),
+                    );
+                }
+
+                sect.size = needed_size;
+                self.load_commands_dirty = true;
             }
             const n_sect = @intCast(u8, self.section_ordinals.getIndex(match).? + 1);
             sym.n_value = vaddr;
@@ -2015,6 +2043,32 @@ pub fn writeAtom(self: *MachO, atom: *TextBlock, match: MatchingSection) !void {
     log.debug("writing atom for symbol {s} at file offset 0x{x}", .{ self.getString(sym.n_strx), file_offset });
     try self.base.file.?.pwriteAll(atom.code.items, file_offset);
     try self.writeLocalSymbol(atom.local_sym_index);
+}
+
+fn allocateLocalSymbols(self: *MachO, match: MatchingSection, old_base_addr: u64) !void {
+    var atom = self.blocks.get(match) orelse return;
+    const seg = self.load_commands.items[match.seg].Segment;
+    const sect = seg.sections.items[match.sect];
+    const offset = @intCast(i64, sect.addr) - @intCast(i64, old_base_addr);
+
+    while (true) {
+        const atom_sym = &self.locals.items[atom.local_sym_index];
+        atom_sym.n_value = @intCast(u64, @intCast(i64, atom_sym.n_value) + offset);
+
+        for (atom.aliases.items) |index| {
+            const alias_sym = &self.locals.items[index];
+            alias_sym.n_value = @intCast(u64, @intCast(i64, alias_sym.n_value) + offset);
+        }
+
+        for (atom.contained.items) |sym_at_off| {
+            const contained_sym = &self.locals.items[sym_at_off.local_sym_index];
+            contained_sym.n_value = @intCast(u64, @intCast(i64, contained_sym.n_value) + offset);
+        }
+
+        if (atom.prev) |prev| {
+            atom = prev;
+        } else break;
+    }
 }
 
 fn allocateGlobalSymbols(self: *MachO) !void {
@@ -3943,8 +3997,9 @@ pub fn populateMissingMetadata(self: *MachO) !void {
     if (self.text_segment_cmd_index == null) {
         self.text_segment_cmd_index = @intCast(u16, self.load_commands.items.len);
         const program_code_size_hint = self.base.options.program_code_size_hint;
+        // const program_code_size_hint = 10;
         const got_size_hint = @sizeOf(u64) * self.base.options.symbol_count_hint;
-        const ideal_size = self.header_pad + program_code_size_hint + 3 * got_size_hint;
+        const ideal_size = self.header_pad + program_code_size_hint + got_size_hint;
         const needed_size = mem.alignForwardGeneric(u64, padToIdeal(ideal_size), self.page_size);
 
         log.debug("found __TEXT segment free space 0x{x} to 0x{x}", .{ 0, needed_size });
@@ -3971,6 +4026,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
             else => unreachable, // unhandled architecture type
         };
         const needed_size = self.base.options.program_code_size_hint;
+        // const needed_size = 10;
         self.text_section_index = try self.allocateSection(
             self.text_segment_cmd_index.?,
             "__text",
@@ -4521,7 +4577,7 @@ fn allocateTextBlock(self: *MachO, text_block: *TextBlock, new_block_size: u64, 
 
     // First we look for an appropriately sized free list node.
     // The list is unordered. We'll just take the first thing that works.
-    const vaddr = blk: {
+    var vaddr = blk: {
         var i: usize = 0;
         while (i < text_block_free_list.items.len) {
             const big_block = text_block_free_list.items[i];
@@ -4576,8 +4632,31 @@ fn allocateTextBlock(self: *MachO, text_block: *TextBlock, new_block_size: u64, 
     if (expand_text_section) {
         const needed_size = (vaddr + new_block_size) - text_section.addr;
         const max_size = text_segment.allocatedSize(vaddr - pagezero_vmsize);
-        log.debug("  (atom needed size 0x{x}, max available size 0x{x})", .{ needed_size, max_size });
-        assert(needed_size <= max_size); // TODO must expand the section
+        log.debug("  (section __TEXT,__text needed size 0x{x}, max available size 0x{x})", .{ needed_size, max_size });
+
+        if (needed_size > max_size) {
+            const old_base_addr = text_section.addr;
+            text_section.size = 0;
+            const new_offset = @intCast(u32, text_segment.findFreeSpace(needed_size, alignment, self.header_pad));
+            text_section.offset = new_offset;
+            text_section.addr = text_segment.inner.vmaddr + text_section.offset - text_segment.inner.fileoff;
+            log.debug("  (found new __TEXT,__text free space from 0x{x} to 0x{x})", .{
+                new_offset,
+                new_offset + needed_size,
+            });
+            try self.allocateLocalSymbols(.{
+                .seg = self.text_segment_cmd_index.?,
+                .sect = self.text_section_index.?,
+            }, old_base_addr);
+            vaddr = @intCast(
+                u64,
+                @intCast(i64, vaddr) + @intCast(i64, text_section.addr) - @intCast(i64, old_base_addr),
+            );
+        }
+
+        text_section.size = needed_size;
+        self.load_commands_dirty = true;
+
         _ = try self.blocks.put(self.base.allocator, match, text_block);
     }
     text_block.size = new_block_size;
