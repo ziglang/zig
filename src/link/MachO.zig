@@ -1649,117 +1649,103 @@ pub fn createEmptyAtom(self: *MachO, local_sym_index: u32, size: u64, alignment:
 pub fn allocateAtom(self: *MachO, atom: *TextBlock, match: MatchingSection) !u64 {
     const seg = &self.load_commands.items[match.seg].Segment;
     const sect = &seg.sections.items[match.sect];
-    const use_stage1 = build_options.is_stage1 and self.base.options.use_stage1;
 
-    const vaddr = outer: {
-        if (!use_stage1) {
-            const sym = &self.locals.items[atom.local_sym_index];
-            // Padding is not required for pointer-type sections and any synthetic sections such as
-            // stubs or stub_helper.
-            // TODO audit this.
-            const needs_padding = switch (commands.sectionType(sect.*)) {
-                macho.S_SYMBOL_STUBS,
-                macho.S_NON_LAZY_SYMBOL_POINTERS,
-                macho.S_LAZY_SYMBOL_POINTERS,
-                macho.S_LITERAL_POINTERS,
-                macho.S_THREAD_LOCAL_VARIABLES,
-                => false,
-                else => blk: {
-                    if (match.seg == self.text_segment_cmd_index.? and
-                        match.sect == self.stub_helper_section_index.?) break :blk false;
-                    break :blk true;
-                },
-            };
-
-            var atom_placement: ?*TextBlock = null;
-
-            // TODO converge with `allocateTextBlock` and handle free list
-            var vaddr = if (self.blocks.get(match)) |last| blk: {
-                const last_atom_sym = self.locals.items[last.local_sym_index];
-                const ideal_capacity = if (needs_padding) padToIdeal(last.size) else last.size;
-                const ideal_capacity_end_vaddr = last_atom_sym.n_value + ideal_capacity;
-                const last_atom_alignment = try math.powi(u32, 2, atom.alignment);
-                const new_start_vaddr = mem.alignForwardGeneric(u64, ideal_capacity_end_vaddr, last_atom_alignment);
-                atom_placement = last;
-                break :blk new_start_vaddr;
-            } else sect.addr;
-
-            log.debug("allocating atom for symbol {s} at address 0x{x}", .{ self.getString(sym.n_strx), vaddr });
-
-            const expand_section = atom_placement == null or atom_placement.?.next == null;
-            if (expand_section) {
-                const needed_size = (vaddr + atom.size) - sect.addr;
-                const sect_offset: u64 = blk: {
-                    if (self.data_segment_cmd_index.? == match.seg) {
-                        if (self.bss_section_index) |idx| {
-                            if (idx == match.sect) break :blk self.bss_file_offset.?;
-                        }
-                        if (self.tlv_bss_section_index) |idx| {
-                            if (idx == match.sect) break :blk self.tlv_bss_file_offset.?;
-                        }
-                    }
-                    break :blk sect.offset;
-                };
-                const file_offset = sect_offset + vaddr - sect.addr;
-                const max_size = seg.allocatedSize(file_offset);
-                log.debug("  (section {s},{s} needed size 0x{x}, max available size 0x{x})", .{
-                    commands.segmentName(sect.*),
-                    commands.sectionName(sect.*),
-                    needed_size,
-                    max_size,
-                });
-
-                if (needed_size > max_size) {
-                    const old_base_addr = sect.addr;
-                    sect.size = 0;
-                    const padding: ?u64 = if (match.seg == self.text_segment_cmd_index.?) self.header_pad else null;
-                    const new_offset = @intCast(u32, seg.findFreeSpace(needed_size, atom.alignment, padding));
-                    sect.offset = new_offset;
-                    sect.addr = seg.inner.vmaddr + sect.offset - seg.inner.fileoff;
-                    log.debug("  (found new {s},{s} free space from 0x{x} to 0x{x})", .{
-                        commands.segmentName(sect.*),
-                        commands.sectionName(sect.*),
-                        new_offset,
-                        new_offset + needed_size,
-                    });
-                    try self.allocateLocalSymbols(match, old_base_addr);
-                    vaddr = @intCast(
-                        u64,
-                        @intCast(i64, vaddr) + @intCast(i64, sect.addr) - @intCast(i64, old_base_addr),
-                    );
-                }
-
-                sect.size = needed_size;
-                self.load_commands_dirty = true;
-            }
-            const n_sect = @intCast(u8, self.section_ordinals.getIndex(match).? + 1);
-            sym.n_value = vaddr;
-            sym.n_sect = n_sect;
-
-            // Update each alias (if any)
-            for (atom.aliases.items) |index| {
-                const alias_sym = &self.locals.items[index];
-                alias_sym.n_value = vaddr;
-                alias_sym.n_sect = n_sect;
-            }
-
-            // Update each symbol contained within the TextBlock
-            for (atom.contained.items) |sym_at_off| {
-                const contained_sym = &self.locals.items[sym_at_off.local_sym_index];
-                contained_sym.n_value = vaddr + sym_at_off.offset;
-                contained_sym.n_sect = n_sect;
-            }
-
-            break :outer vaddr;
-        } else {
-            const new_alignment = math.max(sect.@"align", atom.alignment);
-            const new_alignment_pow_2 = try math.powi(u32, 2, new_alignment);
-            const new_size = mem.alignForwardGeneric(u64, sect.size, new_alignment_pow_2) + atom.size;
-            sect.size = new_size;
-            sect.@"align" = new_alignment;
-            break :outer 0;
-        }
+    const sym = &self.locals.items[atom.local_sym_index];
+    // Padding is not required for pointer-type sections and any synthetic sections such as
+    // stubs or stub_helper.
+    // TODO audit this.
+    const needs_padding = switch (commands.sectionType(sect.*)) {
+        macho.S_SYMBOL_STUBS,
+        macho.S_NON_LAZY_SYMBOL_POINTERS,
+        macho.S_LAZY_SYMBOL_POINTERS,
+        macho.S_LITERAL_POINTERS,
+        macho.S_THREAD_LOCAL_VARIABLES,
+        => false,
+        else => blk: {
+            if (match.seg == self.text_segment_cmd_index.? and
+                match.sect == self.stub_helper_section_index.?) break :blk false;
+            break :blk true;
+        },
     };
+
+    var atom_placement: ?*TextBlock = null;
+
+    // TODO converge with `allocateTextBlock` and handle free list
+    var vaddr = if (self.blocks.get(match)) |last| blk: {
+        const last_atom_sym = self.locals.items[last.local_sym_index];
+        const ideal_capacity = if (needs_padding) padToIdeal(last.size) else last.size;
+        const ideal_capacity_end_vaddr = last_atom_sym.n_value + ideal_capacity;
+        const last_atom_alignment = try math.powi(u32, 2, atom.alignment);
+        const new_start_vaddr = mem.alignForwardGeneric(u64, ideal_capacity_end_vaddr, last_atom_alignment);
+        atom_placement = last;
+        break :blk new_start_vaddr;
+    } else sect.addr;
+
+    log.debug("allocating atom for symbol {s} at address 0x{x}", .{ self.getString(sym.n_strx), vaddr });
+
+    const expand_section = atom_placement == null or atom_placement.?.next == null;
+    if (expand_section) {
+        const needed_size = (vaddr + atom.size) - sect.addr;
+        const sect_offset: u64 = blk: {
+            if (self.data_segment_cmd_index.? == match.seg) {
+                if (self.bss_section_index) |idx| {
+                    if (idx == match.sect) break :blk self.bss_file_offset.?;
+                }
+                if (self.tlv_bss_section_index) |idx| {
+                    if (idx == match.sect) break :blk self.tlv_bss_file_offset.?;
+                }
+            }
+            break :blk sect.offset;
+        };
+        const file_offset = sect_offset + vaddr - sect.addr;
+        const max_size = seg.allocatedSize(file_offset);
+        log.debug("  (section {s},{s} needed size 0x{x}, max available size 0x{x})", .{
+            commands.segmentName(sect.*),
+            commands.sectionName(sect.*),
+            needed_size,
+            max_size,
+        });
+
+        if (needed_size > max_size) {
+            const old_base_addr = sect.addr;
+            sect.size = 0;
+            const padding: ?u64 = if (match.seg == self.text_segment_cmd_index.?) self.header_pad else null;
+            const new_offset = @intCast(u32, seg.findFreeSpace(needed_size, atom.alignment, padding));
+            sect.offset = new_offset;
+            sect.addr = seg.inner.vmaddr + sect.offset - seg.inner.fileoff;
+            log.debug("  (found new {s},{s} free space from 0x{x} to 0x{x})", .{
+                commands.segmentName(sect.*),
+                commands.sectionName(sect.*),
+                new_offset,
+                new_offset + needed_size,
+            });
+            try self.allocateLocalSymbols(match, old_base_addr);
+            vaddr = @intCast(
+                u64,
+                @intCast(i64, vaddr) + @intCast(i64, sect.addr) - @intCast(i64, old_base_addr),
+            );
+        }
+
+        sect.size = needed_size;
+        self.load_commands_dirty = true;
+    }
+    const n_sect = @intCast(u8, self.section_ordinals.getIndex(match).? + 1);
+    sym.n_value = vaddr;
+    sym.n_sect = n_sect;
+
+    // Update each alias (if any)
+    for (atom.aliases.items) |index| {
+        const alias_sym = &self.locals.items[index];
+        alias_sym.n_value = vaddr;
+        alias_sym.n_sect = n_sect;
+    }
+
+    // Update each symbol contained within the TextBlock
+    for (atom.contained.items) |sym_at_off| {
+        const contained_sym = &self.locals.items[sym_at_off.local_sym_index];
+        contained_sym.n_value = vaddr + sym_at_off.offset;
+        contained_sym.n_sect = n_sect;
+    }
 
     if (self.blocks.getPtr(match)) |last| {
         last.*.next = atom;
@@ -3899,22 +3885,19 @@ fn allocateSection(
         .reserved2 = opts.reserved2,
     };
 
-    const use_stage1 = build_options.is_stage1 and self.base.options.use_stage1;
-    if (!use_stage1) {
-        const alignment_pow_2 = try math.powi(u32, 2, alignment);
-        const padding: ?u64 = if (segment_id == self.text_segment_cmd_index.?) self.header_pad else null;
-        const off = seg.findFreeSpace(size, alignment_pow_2, padding);
+    const alignment_pow_2 = try math.powi(u32, 2, alignment);
+    const padding: ?u64 = if (segment_id == self.text_segment_cmd_index.?) self.header_pad else null;
+    const off = seg.findFreeSpace(size, alignment_pow_2, padding);
 
-        log.debug("found {s},{s} section free space 0x{x} to 0x{x}", .{
-            commands.segmentName(sect),
-            commands.sectionName(sect),
-            off,
-            off + size,
-        });
+    log.debug("found {s},{s} section free space 0x{x} to 0x{x}", .{
+        commands.segmentName(sect),
+        commands.sectionName(sect),
+        off,
+        off + size,
+    });
 
-        sect.addr = seg.inner.vmaddr + off - seg.inner.fileoff;
-        sect.offset = @intCast(u32, off);
-    }
+    sect.addr = seg.inner.vmaddr + off - seg.inner.fileoff;
+    sect.offset = @intCast(u32, off);
 
     const index = @intCast(u16, seg.sections.items.len);
     try seg.sections.append(self.base.allocator, sect);
