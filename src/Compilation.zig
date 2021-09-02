@@ -2408,7 +2408,7 @@ const AstGenSrc = union(enum) {
     root,
     import: struct {
         importing_file: *Module.Scope.File,
-        import_tok: std.zig.ast.TokenIndex,
+        import_tok: std.zig.Ast.TokenIndex,
     },
 };
 

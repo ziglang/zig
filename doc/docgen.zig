@@ -1100,7 +1100,7 @@ fn genHtml(
                 try tokenizeAndPrint(allocator, tokenizer, out, code.source_token);
                 try out.writeAll("</pre>");
 
-                if (!do_code_tests) {
+                if (!do_code_tests or code.is_inline) {
                     continue;
                 }
 

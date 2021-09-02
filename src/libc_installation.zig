@@ -12,7 +12,7 @@ const is_haiku = Target.current.os.tag == .haiku;
 
 const log = std.log.scoped(.libc_installation);
 
-usingnamespace @import("windows_sdk.zig");
+const ZigWindowsSDK = @import("windows_sdk.zig").ZigWindowsSDK;
 
 /// See the render function implementation for documentation of the fields.
 pub const LibCInstallation = struct {
@@ -183,9 +183,9 @@ pub const LibCInstallation = struct {
             if (!build_options.have_llvm)
                 return error.WindowsSdkNotFound;
             var sdk: *ZigWindowsSDK = undefined;
-            switch (zig_find_windows_sdk(&sdk)) {
+            switch (ZigWindowsSDK.find(&sdk)) {
                 .None => {
-                    defer zig_free_windows_sdk(sdk);
+                    defer sdk.free();
 
                     var batch = Batch(FindError!void, 5, .auto_async).init();
                     batch.add(&async self.findNativeMsvcIncludeDir(args, sdk));

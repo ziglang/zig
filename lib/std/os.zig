@@ -16,20 +16,21 @@
 
 const root = @import("root");
 const std = @import("std.zig");
-const builtin = std.builtin;
+const builtin = @import("builtin");
 const assert = std.debug.assert;
 const math = std.math;
 const mem = std.mem;
 const elf = std.elf;
 const dl = @import("dynamic_library.zig");
 const MAX_PATH_BYTES = std.fs.MAX_PATH_BYTES;
+const is_windows = builtin.os.tag == .windows;
 
-pub const darwin = @import("os/darwin.zig");
-pub const dragonfly = @import("os/dragonfly.zig");
-pub const freebsd = @import("os/freebsd.zig");
-pub const haiku = @import("os/haiku.zig");
-pub const netbsd = @import("os/netbsd.zig");
-pub const openbsd = @import("os/openbsd.zig");
+pub const darwin = std.c;
+pub const dragonfly = std.c;
+pub const freebsd = std.c;
+pub const haiku = std.c;
+pub const netbsd = std.c;
+pub const openbsd = std.c;
 pub const linux = @import("os/linux.zig");
 pub const uefi = @import("os/uefi.zig");
 pub const wasi = @import("os/wasi.zig");
@@ -40,15 +41,10 @@ comptime {
 }
 
 test {
-    _ = darwin;
-    _ = freebsd;
     _ = linux;
-    _ = netbsd;
-    _ = openbsd;
     _ = uefi;
     _ = wasi;
     _ = windows;
-    _ = haiku;
 
     _ = @import("os/test.zig");
 }
@@ -58,22 +54,149 @@ test {
 /// When not linking libc, it is the OS-specific system interface.
 pub const system = if (@hasDecl(root, "os") and root.os != @This())
     root.os.system
-else if (builtin.link_libc)
+else if (builtin.link_libc or is_windows)
     std.c
 else switch (builtin.os.tag) {
-    .macos, .ios, .watchos, .tvos => darwin,
-    .freebsd => freebsd,
-    .haiku => haiku,
     .linux => linux,
-    .netbsd => netbsd,
-    .openbsd => openbsd,
-    .dragonfly => dragonfly,
     .wasi => wasi,
-    .windows => windows,
+    .uefi => uefi,
     else => struct {},
 };
 
-pub usingnamespace @import("os/bits.zig");
+pub const AF = system.AF;
+pub const ARCH = system.ARCH;
+pub const AT = system.AT;
+pub const CLOCK = system.CLOCK;
+pub const CPU_COUNT = system.CPU_COUNT;
+pub const CTL = system.CTL;
+pub const DT = system.DT;
+pub const E = system.E;
+pub const Elf_Symndx = system.Elf_Symndx;
+pub const F = system.F;
+pub const FD_CLOEXEC = system.FD_CLOEXEC;
+pub const Flock = system.Flock;
+pub const HOST_NAME_MAX = system.HOST_NAME_MAX;
+pub const IFNAMESIZE = system.IFNAMESIZE;
+pub const IOV_MAX = system.IOV_MAX;
+pub const IPPROTO = system.IPPROTO;
+pub const KERN = system.KERN;
+pub const Kevent = system.Kevent;
+pub const LOCK = system.LOCK;
+pub const MADV = system.MADV;
+pub const MAP = system.MAP;
+pub const MAX_ADDR_LEN = system.MAX_ADDR_LEN;
+pub const MMAP2_UNIT = system.MMAP2_UNIT;
+pub const MSG = system.MSG;
+pub const NAME_MAX = system.NAME_MAX;
+pub const O = system.O;
+pub const PATH_MAX = system.PATH_MAX;
+pub const POLL = system.POLL;
+pub const POSIX_FADV = system.POSIX_FADV;
+pub const PR = system.PR;
+pub const PROT = system.PROT;
+pub const REG = system.REG;
+pub const RIGHT = system.RIGHT;
+pub const RLIM = system.RLIM;
+pub const RR = system.RR;
+pub const S = system.S;
+pub const SA = system.SA;
+pub const SC = system.SC;
+pub const SEEK = system.SEEK;
+pub const SHUT = system.SHUT;
+pub const SIG = system.SIG;
+pub const SIOCGIFINDEX = system.SIOCGIFINDEX;
+pub const SO = system.SO;
+pub const SOCK = system.SOCK;
+pub const SOL = system.SOL;
+pub const STDERR_FILENO = system.STDERR_FILENO;
+pub const STDIN_FILENO = system.STDIN_FILENO;
+pub const STDOUT_FILENO = system.STDOUT_FILENO;
+pub const SYS = system.SYS;
+pub const Sigaction = system.Sigaction;
+pub const Stat = system.Stat;
+pub const TCSA = system.TCSA;
+pub const VDSO = system.VDSO;
+pub const W = system.W;
+pub const addrinfo = system.addrinfo;
+pub const blkcnt_t = system.blkcnt_t;
+pub const blksize_t = system.blksize_t;
+pub const clock_t = system.clock_t;
+pub const cpu_set_t = system.cpu_set_t;
+pub const dev_t = system.dev_t;
+pub const dl_phdr_info = system.dl_phdr_info;
+pub const empty_sigset = system.empty_sigset;
+pub const fd_t = system.fd_t;
+pub const fdflags_t = system.fdflags_t;
+pub const fdstat_t = system.fdstat_t;
+pub const gid_t = system.gid_t;
+pub const ifreq = system.ifreq;
+pub const ino_t = system.ino_t;
+pub const lookupflags_t = system.lookupflags_t;
+pub const mcontext_t = system.mcontext_t;
+pub const mode_t = system.mode_t;
+pub const msghdr = system.msghdr;
+pub const msghdr_const = system.msghdr_const;
+pub const nfds_t = system.nfds_t;
+pub const nlink_t = system.nlink_t;
+pub const off_t = system.off_t;
+pub const oflags_t = system.oflags_t;
+pub const pid_t = system.pid_t;
+pub const pollfd = system.pollfd;
+pub const rights_t = system.rights_t;
+pub const rlim_t = system.rlim_t;
+pub const rlimit = system.rlimit;
+pub const rlimit_resource = system.rlimit_resource;
+pub const rusage = system.rusage;
+pub const sa_family_t = system.sa_family_t;
+pub const siginfo_t = system.siginfo_t;
+pub const sigset_t = system.sigset_t;
+pub const sockaddr = system.sockaddr;
+pub const socklen_t = system.socklen_t;
+pub const stack_t = system.stack_t;
+pub const termios = system.termios;
+pub const time_t = system.time_t;
+pub const timespec = system.timespec;
+pub const timestamp_t = system.timestamp_t;
+pub const timeval = system.timeval;
+pub const timezone = system.timezone;
+pub const ucontext_t = system.ucontext_t;
+pub const uid_t = system.uid_t;
+pub const user_desc = system.user_desc;
+pub const utsname = system.utsname;
+
+pub const F_OK = system.F_OK;
+pub const R_OK = system.R_OK;
+pub const W_OK = system.W_OK;
+pub const X_OK = system.X_OK;
+
+pub const iovec = extern struct {
+    iov_base: [*]u8,
+    iov_len: usize,
+};
+
+pub const iovec_const = extern struct {
+    iov_base: [*]const u8,
+    iov_len: usize,
+};
+
+pub const LOG = struct {
+    /// system is unusable
+    pub const EMERG = 0;
+    /// action must be taken immediately
+    pub const ALERT = 1;
+    /// critical conditions
+    pub const CRIT = 2;
+    /// error conditions
+    pub const ERR = 3;
+    /// warning conditions
+    pub const WARNING = 4;
+    /// normal but significant condition
+    pub const NOTICE = 5;
+    /// informational
+    pub const INFO = 6;
+    /// debug-level messages
+    pub const DEBUG = 7;
+};
 
 pub const socket_t = if (builtin.os.tag == .windows) windows.ws2_32.SOCKET else fd_t;
 
@@ -136,7 +259,7 @@ pub fn getrandom(buffer: []u8) GetRandomError!void {
     if (builtin.os.tag == .linux or builtin.os.tag == .freebsd) {
         var buf = buffer;
         const use_c = builtin.os.tag != .linux or
-            std.c.versionCheck(builtin.Version{ .major = 2, .minor = 25, .patch = 0 }).ok;
+            std.c.versionCheck(std.builtin.Version{ .major = 2, .minor = 25, .patch = 0 }).ok;
 
         while (buf.len != 0) {
             const res = if (use_c) blk: {
@@ -178,11 +301,11 @@ pub fn getrandom(buffer: []u8) GetRandomError!void {
 }
 
 fn getRandomBytesDevURandom(buf: []u8) !void {
-    const fd = try openZ("/dev/urandom", O_RDONLY | O_CLOEXEC, 0);
+    const fd = try openZ("/dev/urandom", O.RDONLY | O.CLOEXEC, 0);
     defer close(fd);
 
     const st = try fstat(fd);
-    if (!S_ISCHR(st.mode)) {
+    if (!S.ISCHR(st.mode)) {
         return error.NoDevice;
     }
 
@@ -210,11 +333,11 @@ pub fn abort() noreturn {
         windows.kernel32.ExitProcess(3);
     }
     if (!builtin.link_libc and builtin.os.tag == .linux) {
-        raise(SIGABRT) catch {};
+        raise(SIG.ABRT) catch {};
 
         // TODO the rest of the implementation of abort() from musl libc here
 
-        raise(SIGKILL) catch {};
+        raise(SIG.KILL) catch {};
         exit(127);
     }
     if (builtin.os.tag == .uefi) {
@@ -239,15 +362,15 @@ pub fn raise(sig: u8) RaiseError!void {
     }
 
     if (builtin.os.tag == .linux) {
-        var set: linux.sigset_t = undefined;
+        var set: sigset_t = undefined;
         // block application signals
-        _ = linux.sigprocmask(SIG_BLOCK, &linux.app_mask, &set);
+        _ = linux.sigprocmask(SIG.BLOCK, &linux.app_mask, &set);
 
         const tid = linux.gettid();
         const rc = linux.tkill(tid, sig);
 
         // restore signal mask
-        _ = linux.sigprocmask(SIG_SETMASK, &set, null);
+        _ = linux.sigprocmask(SIG.SETMASK, &set, null);
 
         switch (errno(rc)) {
             .SUCCESS => return,
@@ -1040,18 +1163,18 @@ pub const OpenError = error{
     /// for 64-bit targets, as well as when opening directories.
     FileTooBig,
 
-    /// The path refers to directory but the `O_DIRECTORY` flag was not provided.
+    /// The path refers to directory but the `O.DIRECTORY` flag was not provided.
     IsDir,
 
     /// A new path cannot be created because the device has no room for the new file.
-    /// This error is only reachable when the `O_CREAT` flag is provided.
+    /// This error is only reachable when the `O.CREAT` flag is provided.
     NoSpaceLeft,
 
     /// A component used as a directory in the path was not, in fact, a directory, or
-    /// `O_DIRECTORY` was specified and the path was not a directory.
+    /// `O.DIRECTORY` was specified and the path was not a directory.
     NotDir,
 
-    /// The path already exists and the `O_CREAT` and `O_EXCL` flags were provided.
+    /// The path already exists and the `O.CREAT` and `O.EXCL` flags were provided.
     PathAlreadyExists,
     DeviceBusy,
 
@@ -1123,20 +1246,20 @@ fn openOptionsFromFlags(flags: u32) windows.OpenFileOptions {
     const w = windows;
 
     var access_mask: w.ULONG = w.READ_CONTROL | w.FILE_WRITE_ATTRIBUTES | w.SYNCHRONIZE;
-    if (flags & O_RDWR != 0) {
+    if (flags & O.RDWR != 0) {
         access_mask |= w.GENERIC_READ | w.GENERIC_WRITE;
-    } else if (flags & O_WRONLY != 0) {
+    } else if (flags & O.WRONLY != 0) {
         access_mask |= w.GENERIC_WRITE;
     } else {
         access_mask |= w.GENERIC_READ | w.GENERIC_WRITE;
     }
 
-    const open_dir: bool = flags & O_DIRECTORY != 0;
-    const follow_symlinks: bool = flags & O_NOFOLLOW == 0;
+    const open_dir: bool = flags & O.DIRECTORY != 0;
+    const follow_symlinks: bool = flags & O.NOFOLLOW == 0;
 
     const creation: w.ULONG = blk: {
-        if (flags & O_CREAT != 0) {
-            if (flags & O_EXCL != 0) {
+        if (flags & O.CREAT != 0) {
+            if (flags & O.EXCL != 0) {
                 break :blk w.FILE_CREATE;
             }
         }
@@ -1842,7 +1965,7 @@ pub fn unlinkW(file_path_w: []const u16) UnlinkError!void {
 }
 
 pub const UnlinkatError = UnlinkError || error{
-    /// When passing `AT_REMOVEDIR`, this error occurs when the named directory is not empty.
+    /// When passing `AT.REMOVEDIR`, this error occurs when the named directory is not empty.
     DirNotEmpty,
 };
 
@@ -1865,7 +1988,7 @@ pub const unlinkatC = @compileError("deprecated: renamed to unlinkatZ");
 /// WASI-only. Same as `unlinkat` but targeting WASI.
 /// See also `unlinkat`.
 pub fn unlinkatWasi(dirfd: fd_t, file_path: []const u8, flags: u32) UnlinkatError!void {
-    const remove_dir = (flags & AT_REMOVEDIR) != 0;
+    const remove_dir = (flags & AT.REMOVEDIR) != 0;
     const res = if (remove_dir)
         wasi.path_remove_directory(dirfd, file_path.ptr, file_path.len)
     else
@@ -1925,7 +2048,7 @@ pub fn unlinkatZ(dirfd: fd_t, file_path_c: [*:0]const u8, flags: u32) UnlinkatEr
 
 /// Same as `unlinkat` but `sub_path_w` is UTF16LE, NT prefixed. Windows only.
 pub fn unlinkatW(dirfd: fd_t, sub_path_w: []const u16, flags: u32) UnlinkatError!void {
-    const remove_dir = (flags & AT_REMOVEDIR) != 0;
+    const remove_dir = (flags & AT.REMOVEDIR) != 0;
     return windows.DeleteFile(sub_path_w, .{ .dir = dirfd, .remove_dir = remove_dir });
 }
 
@@ -2663,8 +2786,8 @@ pub fn isatty(handle: fd_t) bool {
         }
 
         // A tty is a character device that we can't seek or tell on.
-        if (statbuf.fs_filetype != FILETYPE_CHARACTER_DEVICE or
-            (statbuf.fs_rights_base & (RIGHT_FD_SEEK | RIGHT_FD_TELL)) != 0)
+        if (statbuf.fs_filetype != .CHARACTER_DEVICE or
+            (statbuf.fs_rights_base & (RIGHT.FD_SEEK | RIGHT.FD_TELL)) != 0)
         {
             // errno = ENOTTY;
             return false;
@@ -2676,7 +2799,7 @@ pub fn isatty(handle: fd_t) bool {
         while (true) {
             var wsz: linux.winsize = undefined;
             const fd = @bitCast(usize, @as(isize, handle));
-            const rc = linux.syscall3(.ioctl, fd, linux.TIOCGWINSZ, @ptrToInt(&wsz));
+            const rc = linux.syscall3(.ioctl, fd, linux.T.IOCGWINSZ, @ptrToInt(&wsz));
             switch (linux.getErrno(rc)) {
                 .SUCCESS => return true,
                 .INTR => continue,
@@ -2739,10 +2862,10 @@ pub const SocketError = error{
 
 pub fn socket(domain: u32, socket_type: u32, protocol: u32) SocketError!socket_t {
     if (builtin.os.tag == .windows) {
-        // NOTE: windows translates the SOCK_NONBLOCK/SOCK_CLOEXEC flags into
+        // NOTE: windows translates the SOCK.NONBLOCK/SOCK.CLOEXEC flags into
         // windows-analagous operations
-        const filtered_sock_type = socket_type & ~@as(u32, SOCK_NONBLOCK | SOCK_CLOEXEC);
-        const flags: u32 = if ((socket_type & SOCK_CLOEXEC) != 0)
+        const filtered_sock_type = socket_type & ~@as(u32, SOCK.NONBLOCK | SOCK.CLOEXEC);
+        const flags: u32 = if ((socket_type & SOCK.CLOEXEC) != 0)
             windows.ws2_32.WSA_FLAG_NO_HANDLE_INHERIT
         else
             0;
@@ -2755,7 +2878,7 @@ pub fn socket(domain: u32, socket_type: u32, protocol: u32) SocketError!socket_t
             flags,
         );
         errdefer windows.closesocket(rc) catch unreachable;
-        if ((socket_type & SOCK_NONBLOCK) != 0) {
+        if ((socket_type & SOCK.NONBLOCK) != 0) {
             var mode: c_ulong = 1; // nonblocking
             if (windows.ws2_32.SOCKET_ERROR == windows.ws2_32.ioctlsocket(rc, windows.ws2_32.FIONBIO, &mode)) {
                 switch (windows.ws2_32.WSAGetLastError()) {
@@ -2769,7 +2892,7 @@ pub fn socket(domain: u32, socket_type: u32, protocol: u32) SocketError!socket_t
 
     const have_sock_flags = comptime !std.Target.current.isDarwin();
     const filtered_sock_type = if (!have_sock_flags)
-        socket_type & ~@as(u32, SOCK_NONBLOCK | SOCK_CLOEXEC)
+        socket_type & ~@as(u32, SOCK.NONBLOCK | SOCK.CLOEXEC)
     else
         socket_type;
     const rc = system.socket(domain, filtered_sock_type, protocol);
@@ -2832,9 +2955,9 @@ pub fn shutdown(sock: socket_t, how: ShutdownHow) ShutdownError!void {
         };
     } else {
         const rc = system.shutdown(sock, switch (how) {
-            .recv => SHUT_RD,
-            .send => SHUT_WR,
-            .both => SHUT_RDWR,
+            .recv => SHUT.RD,
+            .send => SHUT.WR,
+            .both => SHUT.RDWR,
         });
         switch (errno(rc)) {
             .SUCCESS => return,
@@ -3059,15 +3182,15 @@ pub fn accept(
     /// will return a value greater than was supplied to the call.
     addr_size: ?*socklen_t,
     /// The following values can be bitwise ORed in flags to obtain different behavior:
-    /// * `SOCK_NONBLOCK` - Set the `O_NONBLOCK` file status flag on the open file description (see `open`)
+    /// * `SOCK.NONBLOCK` - Set the `O.NONBLOCK` file status flag on the open file description (see `open`)
     ///   referred  to by the new file descriptor.  Using this flag saves extra calls to `fcntl` to achieve
     ///   the same result.
-    /// * `SOCK_CLOEXEC`  - Set the close-on-exec (`FD_CLOEXEC`) flag on the new file descriptor.   See  the
-    ///   description  of the `O_CLOEXEC` flag in `open` for reasons why this may be useful.
+    /// * `SOCK.CLOEXEC`  - Set the close-on-exec (`FD_CLOEXEC`) flag on the new file descriptor.   See  the
+    ///   description  of the `O.CLOEXEC` flag in `open` for reasons why this may be useful.
     flags: u32,
 ) AcceptError!socket_t {
     const have_accept4 = comptime !(std.Target.current.isDarwin() or builtin.os.tag == .windows);
-    assert(0 == (flags & ~@as(u32, SOCK_NONBLOCK | SOCK_CLOEXEC))); // Unsupported flag(s)
+    assert(0 == (flags & ~@as(u32, SOCK.NONBLOCK | SOCK.CLOEXEC))); // Unsupported flag(s)
 
     const accepted_sock = while (true) {
         const rc = if (have_accept4)
@@ -3177,7 +3300,7 @@ pub const EpollCtlError = error{
     FileDescriptorIncompatibleWithEpoll,
 } || UnexpectedError;
 
-pub fn epoll_ctl(epfd: i32, op: u32, fd: i32, event: ?*epoll_event) EpollCtlError!void {
+pub fn epoll_ctl(epfd: i32, op: u32, fd: i32, event: ?*linux.epoll_event) EpollCtlError!void {
     const rc = system.epoll_ctl(epfd, op, fd, event);
     switch (errno(rc)) {
         .SUCCESS => return,
@@ -3197,7 +3320,7 @@ pub fn epoll_ctl(epfd: i32, op: u32, fd: i32, event: ?*epoll_event) EpollCtlErro
 /// Waits for an I/O event on an epoll file descriptor.
 /// Returns the number of file descriptors ready for the requested I/O,
 /// or zero if no file descriptor became ready during the requested timeout milliseconds.
-pub fn epoll_wait(epfd: i32, events: []epoll_event, timeout: i32) usize {
+pub fn epoll_wait(epfd: i32, events: []linux.epoll_event, timeout: i32) usize {
     while (true) {
         // TODO get rid of the @intCast
         const rc = system.epoll_wait(epfd, events.ptr, @intCast(u32, events.len), timeout);
@@ -3399,7 +3522,7 @@ pub fn connect(sock: socket_t, sock_addr: *const sockaddr, len: socklen_t) Conne
             .NOTSOCK => unreachable, // The file descriptor sockfd does not refer to a socket.
             .PROTOTYPE => unreachable, // The socket type does not support the requested communications protocol.
             .TIMEDOUT => return error.ConnectionTimedOut,
-            .NOENT => return error.FileNotFound, // Returned when socket is AF_UNIX and the given path does not exist.
+            .NOENT => return error.FileNotFound, // Returned when socket is AF.UNIX and the given path does not exist.
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -3408,7 +3531,7 @@ pub fn connect(sock: socket_t, sock_addr: *const sockaddr, len: socklen_t) Conne
 pub fn getsockoptError(sockfd: fd_t) ConnectError!void {
     var err_code: i32 = undefined;
     var size: u32 = @sizeOf(u32);
-    const rc = system.getsockopt(sockfd, SOL_SOCKET, SO_ERROR, @ptrCast([*]u8, &err_code), &size);
+    const rc = system.getsockopt(sockfd, SOL.SOCKET, SO.ERROR, @ptrCast([*]u8, &err_code), &size);
     assert(size == 4);
     switch (errno(rc)) {
         .SUCCESS => switch (@intToEnum(E, err_code)) {
@@ -3462,11 +3585,6 @@ pub fn waitpid(pid: pid_t, flags: u32) WaitPidResult {
         }
     }
 }
-
-pub const Stat = if (builtin.link_libc)
-    system.libc_stat
-else
-    system.kernel_stat;
 
 pub const FStatError = error{
     SystemResources,
@@ -3745,8 +3863,8 @@ pub const MMapError = error{
     MemoryMappingNotSupported,
 
     /// A file descriptor refers to a non-regular file. Or a file mapping was requested,
-    /// but the file descriptor is not open for reading. Or `MAP_SHARED` was requested
-    /// and `PROT_WRITE` is set, but the file descriptor is not open in `O_RDWR` mode.
+    /// but the file descriptor is not open for reading. Or `MAP.SHARED` was requested
+    /// and `PROT_WRITE` is set, but the file descriptor is not open in `O.RDWR` mode.
     /// Or `PROT_WRITE` is set, but the file is append-only.
     AccessDenied,
 
@@ -3778,7 +3896,7 @@ pub fn mmap(
     const ioffset = @bitCast(i64, offset); // the OS treats this as unsigned
     const rc = mmap_sym(ptr, length, prot, flags, fd, ioffset);
     const err = if (builtin.link_libc) blk: {
-        if (rc != std.c.MAP_FAILED) return @ptrCast([*]align(mem.page_size) u8, @alignCast(mem.page_size, rc))[0..length];
+        if (rc != std.c.MAP.FAILED) return @ptrCast([*]align(mem.page_size) u8, @alignCast(mem.page_size, rc))[0..length];
         break :blk @intToEnum(E, system._errno().*);
     } else blk: {
         const err = errno(rc);
@@ -3831,7 +3949,7 @@ pub const AccessError = error{
 } || UnexpectedError;
 
 /// check user's permissions for a file
-/// TODO currently this assumes `mode` is `F_OK` on Windows.
+/// TODO currently this assumes `mode` is `F.OK` on Windows.
 pub fn access(path: []const u8, mode: u32) AccessError!void {
     if (builtin.os.tag == .windows) {
         const path_w = try windows.sliceToPrefixedFileW(path);
@@ -4001,11 +4119,11 @@ pub fn pipe2(flags: u32) PipeError![2]fd_t {
     if (flags == 0)
         return fds;
 
-    // O_CLOEXEC is special, it's a file descriptor flag and must be set using
-    // F_SETFD.
-    if (flags & O_CLOEXEC != 0) {
+    // O.CLOEXEC is special, it's a file descriptor flag and must be set using
+    // F.SETFD.
+    if (flags & O.CLOEXEC != 0) {
         for (fds) |fd| {
-            switch (errno(system.fcntl(fd, F_SETFD, @as(u32, FD_CLOEXEC)))) {
+            switch (errno(system.fcntl(fd, F.SETFD, @as(u32, FD_CLOEXEC)))) {
                 .SUCCESS => {},
                 .INVAL => unreachable, // Invalid flags
                 .BADF => unreachable, // Always a race condition
@@ -4014,11 +4132,11 @@ pub fn pipe2(flags: u32) PipeError![2]fd_t {
         }
     }
 
-    const new_flags = flags & ~@as(u32, O_CLOEXEC);
-    // Set every other flag affecting the file status using F_SETFL.
+    const new_flags = flags & ~@as(u32, O.CLOEXEC);
+    // Set every other flag affecting the file status using F.SETFL.
     if (new_flags != 0) {
         for (fds) |fd| {
-            switch (errno(system.fcntl(fd, F_SETFL, new_flags))) {
+            switch (errno(system.fcntl(fd, F.SETFL, new_flags))) {
                 .SUCCESS => {},
                 .INVAL => unreachable, // Invalid flags
                 .BADF => unreachable, // Always a race condition
@@ -4108,7 +4226,7 @@ pub const SeekError = error{
 pub fn lseek_SET(fd: fd_t, offset: u64) SeekError!void {
     if (builtin.os.tag == .linux and !builtin.link_libc and @sizeOf(usize) == 4) {
         var result: u64 = undefined;
-        switch (errno(system.llseek(fd, offset, &result, SEEK_SET))) {
+        switch (errno(system.llseek(fd, offset, &result, SEEK.SET))) {
             .SUCCESS => return,
             .BADF => unreachable, // always a race condition
             .INVAL => return error.Unseekable,
@@ -4123,7 +4241,7 @@ pub fn lseek_SET(fd: fd_t, offset: u64) SeekError!void {
     }
     if (builtin.os.tag == .wasi and !builtin.link_libc) {
         var new_offset: wasi.filesize_t = undefined;
-        switch (wasi.fd_seek(fd, @bitCast(wasi.filedelta_t, offset), wasi.WHENCE_SET, &new_offset)) {
+        switch (wasi.fd_seek(fd, @bitCast(wasi.filedelta_t, offset), .SET, &new_offset)) {
             .SUCCESS => return,
             .BADF => unreachable, // always a race condition
             .INVAL => return error.Unseekable,
@@ -4141,7 +4259,7 @@ pub fn lseek_SET(fd: fd_t, offset: u64) SeekError!void {
         system.lseek;
 
     const ioffset = @bitCast(i64, offset); // the OS treats this as unsigned
-    switch (errno(lseek_sym(fd, ioffset, SEEK_SET))) {
+    switch (errno(lseek_sym(fd, ioffset, SEEK.SET))) {
         .SUCCESS => return,
         .BADF => unreachable, // always a race condition
         .INVAL => return error.Unseekable,
@@ -4156,7 +4274,7 @@ pub fn lseek_SET(fd: fd_t, offset: u64) SeekError!void {
 pub fn lseek_CUR(fd: fd_t, offset: i64) SeekError!void {
     if (builtin.os.tag == .linux and !builtin.link_libc and @sizeOf(usize) == 4) {
         var result: u64 = undefined;
-        switch (errno(system.llseek(fd, @bitCast(u64, offset), &result, SEEK_CUR))) {
+        switch (errno(system.llseek(fd, @bitCast(u64, offset), &result, SEEK.CUR))) {
             .SUCCESS => return,
             .BADF => unreachable, // always a race condition
             .INVAL => return error.Unseekable,
@@ -4171,7 +4289,7 @@ pub fn lseek_CUR(fd: fd_t, offset: i64) SeekError!void {
     }
     if (builtin.os.tag == .wasi and !builtin.link_libc) {
         var new_offset: wasi.filesize_t = undefined;
-        switch (wasi.fd_seek(fd, offset, wasi.WHENCE_CUR, &new_offset)) {
+        switch (wasi.fd_seek(fd, offset, .CUR, &new_offset)) {
             .SUCCESS => return,
             .BADF => unreachable, // always a race condition
             .INVAL => return error.Unseekable,
@@ -4188,7 +4306,7 @@ pub fn lseek_CUR(fd: fd_t, offset: i64) SeekError!void {
         system.lseek;
 
     const ioffset = @bitCast(i64, offset); // the OS treats this as unsigned
-    switch (errno(lseek_sym(fd, ioffset, SEEK_CUR))) {
+    switch (errno(lseek_sym(fd, ioffset, SEEK.CUR))) {
         .SUCCESS => return,
         .BADF => unreachable, // always a race condition
         .INVAL => return error.Unseekable,
@@ -4203,7 +4321,7 @@ pub fn lseek_CUR(fd: fd_t, offset: i64) SeekError!void {
 pub fn lseek_END(fd: fd_t, offset: i64) SeekError!void {
     if (builtin.os.tag == .linux and !builtin.link_libc and @sizeOf(usize) == 4) {
         var result: u64 = undefined;
-        switch (errno(system.llseek(fd, @bitCast(u64, offset), &result, SEEK_END))) {
+        switch (errno(system.llseek(fd, @bitCast(u64, offset), &result, SEEK.END))) {
             .SUCCESS => return,
             .BADF => unreachable, // always a race condition
             .INVAL => return error.Unseekable,
@@ -4218,7 +4336,7 @@ pub fn lseek_END(fd: fd_t, offset: i64) SeekError!void {
     }
     if (builtin.os.tag == .wasi and !builtin.link_libc) {
         var new_offset: wasi.filesize_t = undefined;
-        switch (wasi.fd_seek(fd, offset, wasi.WHENCE_END, &new_offset)) {
+        switch (wasi.fd_seek(fd, offset, .END, &new_offset)) {
             .SUCCESS => return,
             .BADF => unreachable, // always a race condition
             .INVAL => return error.Unseekable,
@@ -4235,7 +4353,7 @@ pub fn lseek_END(fd: fd_t, offset: i64) SeekError!void {
         system.lseek;
 
     const ioffset = @bitCast(i64, offset); // the OS treats this as unsigned
-    switch (errno(lseek_sym(fd, ioffset, SEEK_END))) {
+    switch (errno(lseek_sym(fd, ioffset, SEEK.END))) {
         .SUCCESS => return,
         .BADF => unreachable, // always a race condition
         .INVAL => return error.Unseekable,
@@ -4250,7 +4368,7 @@ pub fn lseek_END(fd: fd_t, offset: i64) SeekError!void {
 pub fn lseek_CUR_get(fd: fd_t) SeekError!u64 {
     if (builtin.os.tag == .linux and !builtin.link_libc and @sizeOf(usize) == 4) {
         var result: u64 = undefined;
-        switch (errno(system.llseek(fd, 0, &result, SEEK_CUR))) {
+        switch (errno(system.llseek(fd, 0, &result, SEEK.CUR))) {
             .SUCCESS => return result,
             .BADF => unreachable, // always a race condition
             .INVAL => return error.Unseekable,
@@ -4265,7 +4383,7 @@ pub fn lseek_CUR_get(fd: fd_t) SeekError!u64 {
     }
     if (builtin.os.tag == .wasi and !builtin.link_libc) {
         var new_offset: wasi.filesize_t = undefined;
-        switch (wasi.fd_seek(fd, 0, wasi.WHENCE_CUR, &new_offset)) {
+        switch (wasi.fd_seek(fd, 0, .CUR, &new_offset)) {
             .SUCCESS => return new_offset,
             .BADF => unreachable, // always a race condition
             .INVAL => return error.Unseekable,
@@ -4281,7 +4399,7 @@ pub fn lseek_CUR_get(fd: fd_t) SeekError!u64 {
     else
         system.lseek;
 
-    const rc = lseek_sym(fd, 0, SEEK_CUR);
+    const rc = lseek_sym(fd, 0, SEEK.CUR);
     switch (errno(rc)) {
         .SUCCESS => return @bitCast(u64, rc),
         .BADF => unreachable, // always a race condition
@@ -4319,18 +4437,18 @@ pub fn fcntl(fd: fd_t, cmd: i32, arg: usize) FcntlError!usize {
 }
 
 fn setSockFlags(sock: socket_t, flags: u32) !void {
-    if ((flags & SOCK_CLOEXEC) != 0) {
+    if ((flags & SOCK.CLOEXEC) != 0) {
         if (builtin.os.tag == .windows) {
             // TODO: Find out if this is supported for sockets
         } else {
-            var fd_flags = fcntl(sock, F_GETFD, 0) catch |err| switch (err) {
+            var fd_flags = fcntl(sock, F.GETFD, 0) catch |err| switch (err) {
                 error.FileBusy => unreachable,
                 error.Locked => unreachable,
                 error.PermissionDenied => unreachable,
                 else => |e| return e,
             };
             fd_flags |= FD_CLOEXEC;
-            _ = fcntl(sock, F_SETFD, fd_flags) catch |err| switch (err) {
+            _ = fcntl(sock, F.SETFD, fd_flags) catch |err| switch (err) {
                 error.FileBusy => unreachable,
                 error.Locked => unreachable,
                 error.PermissionDenied => unreachable,
@@ -4338,7 +4456,7 @@ fn setSockFlags(sock: socket_t, flags: u32) !void {
             };
         }
     }
-    if ((flags & SOCK_NONBLOCK) != 0) {
+    if ((flags & SOCK.NONBLOCK) != 0) {
         if (builtin.os.tag == .windows) {
             var mode: c_ulong = 1;
             if (windows.ws2_32.ioctlsocket(sock, windows.ws2_32.FIONBIO, &mode) == windows.ws2_32.SOCKET_ERROR) {
@@ -4351,14 +4469,14 @@ fn setSockFlags(sock: socket_t, flags: u32) !void {
                 }
             }
         } else {
-            var fl_flags = fcntl(sock, F_GETFL, 0) catch |err| switch (err) {
+            var fl_flags = fcntl(sock, F.GETFL, 0) catch |err| switch (err) {
                 error.FileBusy => unreachable,
                 error.Locked => unreachable,
                 error.PermissionDenied => unreachable,
                 else => |e| return e,
             };
-            fl_flags |= O_NONBLOCK;
-            _ = fcntl(sock, F_SETFL, fl_flags) catch |err| switch (err) {
+            fl_flags |= O.NONBLOCK;
+            _ = fcntl(sock, F.SETFL, fl_flags) catch |err| switch (err) {
                 error.FileBusy => unreachable,
                 error.Locked => unreachable,
                 error.PermissionDenied => unreachable,
@@ -4444,7 +4562,7 @@ pub fn realpathZ(pathname: [*:0]const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealP
         return realpathW(pathname_w.span(), out_buffer);
     }
     if (!builtin.link_libc) {
-        const flags = if (builtin.os.tag == .linux) O_PATH | O_NONBLOCK | O_CLOEXEC else O_NONBLOCK | O_CLOEXEC;
+        const flags = if (builtin.os.tag == .linux) O.PATH | O.NONBLOCK | O.CLOEXEC else O.NONBLOCK | O.CLOEXEC;
         const fd = openZ(pathname, flags, 0) catch |err| switch (err) {
             error.FileLocksNotSupported => unreachable,
             error.WouldBlock => unreachable,
@@ -4523,14 +4641,14 @@ pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
             return out_buffer[0..end_index];
         },
         .macos, .ios, .watchos, .tvos => {
-            // On macOS, we can use F_GETPATH fcntl command to query the OS for
+            // On macOS, we can use F.GETPATH fcntl command to query the OS for
             // the path to the file descriptor.
             @memset(out_buffer, 0, MAX_PATH_BYTES);
-            switch (errno(system.fcntl(fd, F_GETPATH, out_buffer))) {
+            switch (errno(system.fcntl(fd, F.GETPATH, out_buffer))) {
                 .SUCCESS => {},
                 .BADF => return error.FileNotFound,
                 // TODO man pages for fcntl on macOS don't really tell you what
-                // errno values to expect when command is F_GETPATH...
+                // errno values to expect when command is F.GETPATH...
                 else => |err| return unexpectedErrno(err),
             }
             const len = mem.indexOfScalar(u8, out_buffer[0..], @as(u8, 0)) orelse MAX_PATH_BYTES;
@@ -4679,7 +4797,7 @@ pub fn clock_gettime(clk_id: i32, tp: *timespec) ClockGetTimeError!void {
         return;
     }
     if (std.Target.current.os.tag == .windows) {
-        if (clk_id == CLOCK_REALTIME) {
+        if (clk_id == CLOCK.REALTIME) {
             var ft: windows.FILETIME = undefined;
             windows.kernel32.GetSystemTimeAsFileTime(&ft);
             // FileTime has a granularity of 100 nanoseconds and uses the NTFS/Windows epoch.
@@ -4691,7 +4809,7 @@ pub fn clock_gettime(clk_id: i32, tp: *timespec) ClockGetTimeError!void {
             };
             return;
         } else {
-            // TODO POSIX implementation of CLOCK_MONOTONIC on Windows.
+            // TODO POSIX implementation of CLOCK.MONOTONIC on Windows.
             return error.UnsupportedClock;
         }
     }
@@ -4929,7 +5047,7 @@ pub fn res_mkquery(
 
     // Make a reasonably unpredictable id
     var ts: timespec = undefined;
-    clock_gettime(CLOCK_REALTIME, &ts) catch {};
+    clock_gettime(CLOCK.REALTIME, &ts) catch {};
     const UInt = std.meta.Int(.unsigned, std.meta.bitCount(@TypeOf(ts.tv_nsec)));
     const unsec = @bitCast(UInt, ts.tv_nsec);
     const id = @truncate(u32, unsec + unsec / 65536);
@@ -4975,7 +5093,7 @@ pub const SendError = error{
     SystemResources,
 
     /// The  local  end  has been shut down on a connection oriented socket.  In this case, the
-    /// process will also receive a SIGPIPE unless MSG_NOSIGNAL is set.
+    /// process will also receive a SIGPIPE unless MSG.NOSIGNAL is set.
     BrokenPipe,
 
     FileDescriptorNotASocket,
@@ -4991,13 +5109,13 @@ pub const SendMsgError = SendError || error{
     /// The passed address didn't have the correct address family in its sa_family field.
     AddressFamilyNotSupported,
 
-    /// Returned when socket is AF_UNIX and the given path has a symlink loop.
+    /// Returned when socket is AF.UNIX and the given path has a symlink loop.
     SymLinkLoop,
 
-    /// Returned when socket is AF_UNIX and the given path length exceeds `MAX_PATH_BYTES` bytes.
+    /// Returned when socket is AF.UNIX and the given path length exceeds `MAX_PATH_BYTES` bytes.
     NameTooLong,
 
-    /// Returned when socket is AF_UNIX and the given path does not point to an existing file.
+    /// Returned when socket is AF.UNIX and the given path does not point to an existing file.
     FileNotFound,
     NotDir,
 
@@ -5090,7 +5208,7 @@ pub const SendToError = SendMsgError;
 ///
 ///     sendto(sockfd, buf, len, flags, NULL, 0);
 ///
-/// If  sendto()  is used on a connection-mode (`SOCK_STREAM`, `SOCK_SEQPACKET`) socket, the arguments
+/// If  sendto()  is used on a connection-mode (`SOCK.STREAM`, `SOCK.SEQPACKET`) socket, the arguments
 /// `dest_addr` and `addrlen` are asserted to be `null` and `0` respectively, and asserted
 /// that the socket was actually connected.
 /// Otherwise, the address of the target is given by `dest_addr` with `addrlen` specifying  its  size.
@@ -5330,7 +5448,7 @@ pub fn sendfile(
                         // * Descriptor is not valid or locked
                         // * an mmap(2)-like operation is  not  available  for in_fd
                         // * count is negative
-                        // * out_fd has the O_APPEND flag set
+                        // * out_fd has the O.APPEND flag set
                         // Because of the "mmap(2)-like operation" possibility, we fall back to doing read/write
                         // manually, the same as ENOSYS.
                         break :sf;
@@ -5396,7 +5514,7 @@ pub fn sendfile(
                     .INVAL, .OPNOTSUPP, .NOTSOCK, .NOSYS => {
                         // EINVAL could be any of the following situations:
                         // * The fd argument is not a regular file.
-                        // * The s argument is not a SOCK_STREAM type socket.
+                        // * The s argument is not a SOCK.STREAM type socket.
                         // * The offset argument is negative.
                         // Because of some of these possibilities, we fall back to doing read/write
                         // manually, the same as ENOSYS.
@@ -5538,7 +5656,7 @@ pub const CopyFileRangeError = error{
     FileTooBig,
     InputOutput,
     /// `fd_in` is not open for reading; or `fd_out` is not open  for  writing;
-    /// or the  `O_APPEND`  flag  is  set  for `fd_out`.
+    /// or the  `O.APPEND`  flag  is  set  for `fd_out`.
     FilesOpenedWithWrongFlags,
     IsDir,
     OutOfMemory,
@@ -6154,27 +6272,27 @@ pub fn setrlimit(resource: rlimit_resource, limits: rlimit) SetrlimitError!void 
 }
 
 pub const MadviseError = error{
-    /// advice is MADV_REMOVE, but the specified address range is not a shared writable mapping.
+    /// advice is MADV.REMOVE, but the specified address range is not a shared writable mapping.
     AccessDenied,
-    /// advice is MADV_HWPOISON, but the caller does not have the CAP_SYS_ADMIN capability.
+    /// advice is MADV.HWPOISON, but the caller does not have the CAP_SYS_ADMIN capability.
     PermissionDenied,
     /// A kernel resource was temporarily unavailable.
     SystemResources,
     /// One of the following:
     /// * addr is not page-aligned or length is negative
     /// * advice is not valid
-    /// * advice is MADV_DONTNEED or MADV_REMOVE and the specified address range
+    /// * advice is MADV.DONTNEED or MADV.REMOVE and the specified address range
     ///   includes locked, Huge TLB pages, or VM_PFNMAP pages.
-    /// * advice is MADV_MERGEABLE or MADV_UNMERGEABLE, but the kernel was not
+    /// * advice is MADV.MERGEABLE or MADV.UNMERGEABLE, but the kernel was not
     ///   configured with CONFIG_KSM.
-    /// * advice is MADV_FREE or MADV_WIPEONFORK but the specified address range
-    ///   includes file, Huge TLB, MAP_SHARED, or VM_PFNMAP ranges.
+    /// * advice is MADV.FREE or MADV.WIPEONFORK but the specified address range
+    ///   includes file, Huge TLB, MAP.SHARED, or VM_PFNMAP ranges.
     InvalidSyscall,
-    /// (for MADV_WILLNEED) Paging in this area would exceed the process's
+    /// (for MADV.WILLNEED) Paging in this area would exceed the process's
     /// maximum resident set size.
     WouldExceedMaximumResidentSetSize,
     /// One of the following:
-    /// * (for MADV_WILLNEED) Not enough memory: paging in failed.
+    /// * (for MADV.WILLNEED) Not enough memory: paging in failed.
     /// * Addresses in the specified range are not currently mapped, or
     ///   are outside the address space of the process.
     OutOfMemory,

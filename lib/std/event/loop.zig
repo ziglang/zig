@@ -457,8 +457,8 @@ pub const Loop = struct {
                     // Fall back to a blocking poll(). Ideally this codepath is never hit, since
                     // epoll should be just fine. But this is better than incorrect behavior.
                     var poll_flags: i16 = 0;
-                    if ((flags & os.EPOLLIN) != 0) poll_flags |= os.POLLIN;
-                    if ((flags & os.EPOLLOUT) != 0) poll_flags |= os.POLLOUT;
+                    if ((flags & os.EPOLLIN) != 0) poll_flags |= os.POLL.IN;
+                    if ((flags & os.EPOLLOUT) != 0) poll_flags |= os.POLL.OUT;
                     var pfd = [1]os.pollfd{os.pollfd{
                         .fd = fd,
                         .events = poll_flags,
@@ -903,12 +903,12 @@ pub const Loop = struct {
         /// will return a value greater than was supplied to the call.
         addr_size: *os.socklen_t,
         /// The following values can be bitwise ORed in flags to obtain different behavior:
-        /// * `SOCK_CLOEXEC`  - Set the close-on-exec (`FD_CLOEXEC`) flag on the new file descriptor.   See  the
-        ///   description  of the `O_CLOEXEC` flag in `open` for reasons why this may be useful.
+        /// * `SOCK.CLOEXEC`  - Set the close-on-exec (`FD_CLOEXEC`) flag on the new file descriptor.   See  the
+        ///   description  of the `O.CLOEXEC` flag in `open` for reasons why this may be useful.
         flags: u32,
     ) os.AcceptError!os.socket_t {
         while (true) {
-            return os.accept(sockfd, addr, addr_size, flags | os.SOCK_NONBLOCK) catch |err| switch (err) {
+            return os.accept(sockfd, addr, addr_size, flags | os.SOCK.NONBLOCK) catch |err| switch (err) {
                 error.WouldBlock => {
                     self.waitUntilFdReadable(sockfd);
                     continue;

@@ -6,7 +6,7 @@ const mem = std.mem;
 const process = std.process;
 const Allocator = mem.Allocator;
 const ArrayList = std.ArrayList;
-const ast = std.zig.ast;
+const Ast = std.zig.Ast;
 const warn = std.log.warn;
 
 const Compilation = @import("Compilation.zig");
@@ -3423,8 +3423,8 @@ fn fmtPathFile(
 fn printErrMsgToStdErr(
     gpa: *mem.Allocator,
     arena: *mem.Allocator,
-    parse_error: ast.Error,
-    tree: ast.Tree,
+    parse_error: Ast.Error,
+    tree: Ast,
     path: []const u8,
     color: Color,
 ) !void {
@@ -3828,7 +3828,7 @@ fn parseCodeModel(arg: []const u8) std.builtin.CodeModel {
 /// garbage collector to run concurrently to zig processes, and to allow multiple
 /// zig processes to run concurrently with each other, without clobbering each other.
 fn gimmeMoreOfThoseSweetSweetFileDescriptors() void {
-    if (!@hasDecl(std.os, "rlimit")) return;
+    if (!@hasDecl(std.os.system, "rlimit")) return;
     const posix = std.os;
 
     var lim = posix.getrlimit(.NOFILE) catch return; // Oh well; we tried.
@@ -3836,7 +3836,7 @@ fn gimmeMoreOfThoseSweetSweetFileDescriptors() void {
         // On Darwin, `NOFILE` is bounded by a hardcoded value `OPEN_MAX`.
         // According to the man pages for setrlimit():
         //   setrlimit() now returns with errno set to EINVAL in places that historically succeeded.
-        //   It no longer accepts "rlim_cur = RLIM_INFINITY" for RLIM_NOFILE.
+        //   It no longer accepts "rlim_cur = RLIM.INFINITY" for RLIM.NOFILE.
         //   Use "rlim_cur = min(OPEN_MAX, rlim_max)".
         lim.max = std.math.min(std.os.darwin.OPEN_MAX, lim.max);
     }
@@ -3846,7 +3846,7 @@ fn gimmeMoreOfThoseSweetSweetFileDescriptors() void {
     var min: posix.rlim_t = lim.cur;
     var max: posix.rlim_t = 1 << 20;
     // But if there's a defined upper bound, don't search, just set it.
-    if (lim.max != posix.RLIM_INFINITY) {
+    if (lim.max != posix.RLIM.INFINITY) {
         min = lim.max;
         max = lim.max;
     }
@@ -4029,12 +4029,12 @@ pub fn cmdAstCheck(
     }
 
     {
-        const token_bytes = @sizeOf(std.zig.ast.TokenList) +
-            file.tree.tokens.len * (@sizeOf(std.zig.Token.Tag) + @sizeOf(std.zig.ast.ByteOffset));
-        const tree_bytes = @sizeOf(std.zig.ast.Tree) + file.tree.nodes.len *
-            (@sizeOf(std.zig.ast.Node.Tag) +
-            @sizeOf(std.zig.ast.Node.Data) +
-            @sizeOf(std.zig.ast.TokenIndex));
+        const token_bytes = @sizeOf(Ast.TokenList) +
+            file.tree.tokens.len * (@sizeOf(std.zig.Token.Tag) + @sizeOf(Ast.ByteOffset));
+        const tree_bytes = @sizeOf(Ast) + file.tree.nodes.len *
+            (@sizeOf(Ast.Node.Tag) +
+            @sizeOf(Ast.Node.Data) +
+            @sizeOf(Ast.TokenIndex));
         const instruction_bytes = file.zir.instructions.len *
             // Here we don't use @sizeOf(Zir.Inst.Data) because it would include
             // the debug safety tag but we want to measure release size.

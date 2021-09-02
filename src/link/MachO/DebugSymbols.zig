@@ -20,7 +20,10 @@ const SrcFn = MachO.SrcFn;
 const TextBlock = MachO.TextBlock;
 const padToIdeal = MachO.padToIdeal;
 
-usingnamespace @import("commands.zig");
+const commands = @import("commands.zig");
+const emptyHeader = commands.emptyHeader;
+const LoadCommand = commands.LoadCommand;
+const SegmentCommand = commands.SegmentCommand;
 
 const page_size: u16 = 0x1000;
 
@@ -93,7 +96,7 @@ const abbrev_parameter = 6;
 /// The reloc offset for the virtual address of a function in its Line Number Program.
 /// Size is a virtual address integer.
 const dbg_line_vaddr_reloc_index = 3;
-/// The reloc offset for the virtual address of a function in its .debug_info TAG_subprogram.
+/// The reloc offset for the virtual address of a function in its .debug_info TAG.subprogram.
 /// Size is a virtual address integer.
 const dbg_info_low_pc_reloc_index = 1;
 
@@ -299,40 +302,40 @@ pub fn flushModule(self: *DebugSymbols, allocator: *Allocator, options: link.Opt
         // These are LEB encoded but since the values are all less than 127
         // we can simply append these bytes.
         const abbrev_buf = [_]u8{
-            abbrev_compile_unit, DW.TAG_compile_unit, DW.CHILDREN_yes, // header
-            DW.AT_stmt_list, DW.FORM_sec_offset, // offset
-            DW.AT_low_pc,    DW.FORM_addr,
-            DW.AT_high_pc,   DW.FORM_addr,
-            DW.AT_name,      DW.FORM_strp,
-            DW.AT_comp_dir,  DW.FORM_strp,
-            DW.AT_producer,  DW.FORM_strp,
-            DW.AT_language,  DW.FORM_data2,
+            abbrev_compile_unit, DW.TAG.compile_unit, DW.CHILDREN.yes, // header
+            DW.AT.stmt_list, DW.FORM.sec_offset, // offset
+            DW.AT.low_pc,    DW.FORM.addr,
+            DW.AT.high_pc,   DW.FORM.addr,
+            DW.AT.name,      DW.FORM.strp,
+            DW.AT.comp_dir,  DW.FORM.strp,
+            DW.AT.producer,  DW.FORM.strp,
+            DW.AT.language,  DW.FORM.data2,
             0, 0, // table sentinel
-            abbrev_subprogram, DW.TAG_subprogram, DW.CHILDREN_yes, // header
-            DW.AT_low_pc,    DW.FORM_addr, // start VM address
-            DW.AT_high_pc,   DW.FORM_data4,
-            DW.AT_type,      DW.FORM_ref4,
-            DW.AT_name,      DW.FORM_string,
-            DW.AT_decl_line, DW.FORM_data4,
-            DW.AT_decl_file, DW.FORM_data1,
+            abbrev_subprogram, DW.TAG.subprogram, DW.CHILDREN.yes, // header
+            DW.AT.low_pc,    DW.FORM.addr, // start VM address
+            DW.AT.high_pc,   DW.FORM.data4,
+            DW.AT.type,      DW.FORM.ref4,
+            DW.AT.name,      DW.FORM.string,
+            DW.AT.decl_line, DW.FORM.data4,
+            DW.AT.decl_file, DW.FORM.data1,
             0,                         0, // table sentinel
             abbrev_subprogram_retvoid,
-            DW.TAG_subprogram, DW.CHILDREN_yes, // header
-            DW.AT_low_pc,      DW.FORM_addr,
-            DW.AT_high_pc,     DW.FORM_data4,
-            DW.AT_name,        DW.FORM_string,
-            DW.AT_decl_line,   DW.FORM_data4,
-            DW.AT_decl_file,   DW.FORM_data1,
+            DW.TAG.subprogram, DW.CHILDREN.yes, // header
+            DW.AT.low_pc,      DW.FORM.addr,
+            DW.AT.high_pc,     DW.FORM.data4,
+            DW.AT.name,        DW.FORM.string,
+            DW.AT.decl_line,   DW.FORM.data4,
+            DW.AT.decl_file,   DW.FORM.data1,
             0, 0, // table sentinel
-            abbrev_base_type, DW.TAG_base_type, DW.CHILDREN_no, // header
-            DW.AT_encoding,   DW.FORM_data1,    DW.AT_byte_size,
-            DW.FORM_data1,    DW.AT_name,       DW.FORM_string,
+            abbrev_base_type, DW.TAG.base_type, DW.CHILDREN.no, // header
+            DW.AT.encoding,   DW.FORM.data1,    DW.AT.byte_size,
+            DW.FORM.data1,    DW.AT.name,       DW.FORM.string,
             0, 0, // table sentinel
-            abbrev_pad1, DW.TAG_unspecified_type, DW.CHILDREN_no, // header
+            abbrev_pad1, DW.TAG.unspecified_type, DW.CHILDREN.no, // header
             0, 0, // table sentinel
-            abbrev_parameter, DW.TAG_formal_parameter, DW.CHILDREN_no, // header
-            DW.AT_location,   DW.FORM_exprloc,         DW.AT_type,
-            DW.FORM_ref4,     DW.AT_name,              DW.FORM_string,
+            abbrev_parameter, DW.TAG.formal_parameter, DW.CHILDREN.no, // header
+            DW.AT.location,   DW.FORM.exprloc,         DW.AT.type,
+            DW.FORM.ref4,     DW.AT.name,              DW.FORM.string,
             0, 0, // table sentinel
             0, 0, 0, // section sentinel
         };
@@ -397,7 +400,7 @@ pub fn flushModule(self: *DebugSymbols, allocator: *Allocator, options: link.Opt
         const high_pc = text_section.addr + text_section.size;
 
         di_buf.appendAssumeCapacity(abbrev_compile_unit);
-        mem.writeIntLittle(u32, di_buf.addManyAsArrayAssumeCapacity(4), 0); // DW.AT_stmt_list, DW.FORM_sec_offset
+        mem.writeIntLittle(u32, di_buf.addManyAsArrayAssumeCapacity(4), 0); // DW.AT.stmt_list, DW.FORM.sec_offset
         mem.writeIntLittle(u64, di_buf.addManyAsArrayAssumeCapacity(8), low_pc);
         mem.writeIntLittle(u64, di_buf.addManyAsArrayAssumeCapacity(8), high_pc);
         mem.writeIntLittle(u32, di_buf.addManyAsArrayAssumeCapacity(4), @intCast(u32, name_strp));
@@ -406,7 +409,7 @@ pub fn flushModule(self: *DebugSymbols, allocator: *Allocator, options: link.Opt
         // We are still waiting on dwarf-std.org to assign DW_LANG_Zig a number:
         // http://dwarfstd.org/ShowIssue.php?issue=171115.1
         // Until then we say it is C99.
-        mem.writeIntLittle(u16, di_buf.addManyAsArrayAssumeCapacity(2), DW.LANG_C99);
+        mem.writeIntLittle(u16, di_buf.addManyAsArrayAssumeCapacity(2), DW.LANG.C99);
 
         if (di_buf.items.len > first_dbg_info_decl.dbg_info_off) {
             // Move the first N decls to the end to make more padding for the header.
@@ -514,7 +517,7 @@ pub fn flushModule(self: *DebugSymbols, allocator: *Allocator, options: link.Opt
         di_buf.items.len += @sizeOf(u32); // We will come back and write this.
         const after_header_len = di_buf.items.len;
 
-        const opcode_base = DW.LNS_set_isa + 1;
+        const opcode_base = DW.LNS.set_isa + 1;
         di_buf.appendSliceAssumeCapacity(&[_]u8{
             1, // minimum_instruction_length
             1, // maximum_operations_per_instruction
@@ -525,18 +528,18 @@ pub fn flushModule(self: *DebugSymbols, allocator: *Allocator, options: link.Opt
 
             // Standard opcode lengths. The number of items here is based on `opcode_base`.
             // The value is the number of LEB128 operands the instruction takes.
-            0, // `DW.LNS_copy`
-            1, // `DW.LNS_advance_pc`
-            1, // `DW.LNS_advance_line`
-            1, // `DW.LNS_set_file`
-            1, // `DW.LNS_set_column`
-            0, // `DW.LNS_negate_stmt`
-            0, // `DW.LNS_set_basic_block`
-            0, // `DW.LNS_const_add_pc`
-            1, // `DW.LNS_fixed_advance_pc`
-            0, // `DW.LNS_set_prologue_end`
-            0, // `DW.LNS_set_epilogue_begin`
-            1, // `DW.LNS_set_isa`
+            0, // `DW.LNS.copy`
+            1, // `DW.LNS.advance_pc`
+            1, // `DW.LNS.advance_line`
+            1, // `DW.LNS.set_file`
+            1, // `DW.LNS.set_column`
+            0, // `DW.LNS.negate_stmt`
+            0, // `DW.LNS.set_basic_block`
+            0, // `DW.LNS.const_add_pc`
+            1, // `DW.LNS.fixed_advance_pc`
+            0, // `DW.LNS.set_prologue_end`
+            0, // `DW.LNS.set_epilogue_begin`
+            1, // `DW.LNS.set_isa`
             0, // include_directories (none except the compilation unit cwd)
         });
         // file_names[0]
@@ -876,22 +879,22 @@ pub fn initDeclDebugBuffers(
             const line_off = @intCast(u28, decl.src_line + func.lbrace_line);
 
             dbg_line_buffer.appendSliceAssumeCapacity(&[_]u8{
-                DW.LNS_extended_op,
+                DW.LNS.extended_op,
                 @sizeOf(u64) + 1,
-                DW.LNE_set_address,
+                DW.LNE.set_address,
             });
             // This is the "relocatable" vaddr, corresponding to `code_buffer` index `0`.
             assert(dbg_line_vaddr_reloc_index == dbg_line_buffer.items.len);
             dbg_line_buffer.items.len += @sizeOf(u64);
 
-            dbg_line_buffer.appendAssumeCapacity(DW.LNS_advance_line);
+            dbg_line_buffer.appendAssumeCapacity(DW.LNS.advance_line);
             // This is the "relocatable" relative line offset from the previous function's end curly
             // to this function's begin curly.
             assert(getRelocDbgLineOff() == dbg_line_buffer.items.len);
             // Here we use a ULEB128-fixed-4 to make sure this field can be overwritten later.
             leb.writeUnsignedFixed(4, dbg_line_buffer.addManyAsArrayAssumeCapacity(4), line_off);
 
-            dbg_line_buffer.appendAssumeCapacity(DW.LNS_set_file);
+            dbg_line_buffer.appendAssumeCapacity(DW.LNS.set_file);
             assert(getRelocDbgFileIndex() == dbg_line_buffer.items.len);
             // Once we support more than one source file, this will have the ability to be more
             // than one possible value.
@@ -900,7 +903,7 @@ pub fn initDeclDebugBuffers(
 
             // Emit a line for the begin curly with prologue_end=false. The codegen will
             // do the work of setting prologue_end=true and epilogue_begin=true.
-            dbg_line_buffer.appendAssumeCapacity(DW.LNS_copy);
+            dbg_line_buffer.appendAssumeCapacity(DW.LNS.copy);
 
             // .debug_info subprogram
             const decl_name_with_null = decl.name[0 .. mem.lenZ(decl.name) + 1];
@@ -917,9 +920,9 @@ pub fn initDeclDebugBuffers(
             // "relocations" and have to be in this fixed place so that functions can be
             // moved in virtual address space.
             assert(dbg_info_low_pc_reloc_index == dbg_info_buffer.items.len);
-            dbg_info_buffer.items.len += @sizeOf(u64); // DW.AT_low_pc,  DW.FORM_addr
+            dbg_info_buffer.items.len += @sizeOf(u64); // DW.AT.low_pc,  DW.FORM.addr
             assert(getRelocDbgInfoSubprogramHighPC() == dbg_info_buffer.items.len);
-            dbg_info_buffer.items.len += 4; // DW.AT_high_pc,  DW.FORM_data4
+            dbg_info_buffer.items.len += 4; // DW.AT.high_pc,  DW.FORM.data4
             if (fn_ret_has_bits) {
                 const gop = try dbg_info_type_relocs.getOrPut(allocator, fn_ret_type);
                 if (!gop.found_existing) {
@@ -929,11 +932,11 @@ pub fn initDeclDebugBuffers(
                     };
                 }
                 try gop.value_ptr.relocs.append(allocator, @intCast(u32, dbg_info_buffer.items.len));
-                dbg_info_buffer.items.len += 4; // DW.AT_type,  DW.FORM_ref4
+                dbg_info_buffer.items.len += 4; // DW.AT.type,  DW.FORM.ref4
             }
-            dbg_info_buffer.appendSliceAssumeCapacity(decl_name_with_null); // DW.AT_name, DW.FORM_string
-            mem.writeIntLittle(u32, dbg_info_buffer.addManyAsArrayAssumeCapacity(4), line_off + 1); // DW.AT_decl_line, DW.FORM_data4
-            dbg_info_buffer.appendAssumeCapacity(file_index); // DW.AT_decl_file, DW.FORM_data1
+            dbg_info_buffer.appendSliceAssumeCapacity(decl_name_with_null); // DW.AT.name, DW.FORM.string
+            mem.writeIntLittle(u32, dbg_info_buffer.addManyAsArrayAssumeCapacity(4), line_off + 1); // DW.AT.decl_line, DW.FORM.data4
+            dbg_info_buffer.appendAssumeCapacity(file_index); // DW.AT.decl_file, DW.FORM.data1
         },
         else => {
             // TODO implement .debug_info for global variables
@@ -985,16 +988,16 @@ pub fn commitDeclDebugInfo(
             {
                 // Advance line and PC.
                 // TODO encapsulate logic in a helper function.
-                try dbg_line_buffer.append(DW.LNS_advance_pc);
+                try dbg_line_buffer.append(DW.LNS.advance_pc);
                 try leb.writeULEB128(dbg_line_buffer.writer(), text_block.size);
 
-                try dbg_line_buffer.append(DW.LNS_advance_line);
+                try dbg_line_buffer.append(DW.LNS.advance_line);
                 const func = decl.val.castTag(.function).?.data;
                 const line_off = @intCast(u28, func.rbrace_line - func.lbrace_line);
                 try leb.writeULEB128(dbg_line_buffer.writer(), line_off);
             }
 
-            try dbg_line_buffer.appendSlice(&[_]u8{ DW.LNS_extended_op, 1, DW.LNE_end_sequence });
+            try dbg_line_buffer.appendSlice(&[_]u8{ DW.LNS.extended_op, 1, DW.LNE.end_sequence });
 
             // Now we have the full contents and may allocate a region to store it.
 
@@ -1075,7 +1078,7 @@ pub fn commitDeclDebugInfo(
             const file_pos = debug_line_sect.offset + src_fn.off;
             try self.pwriteDbgLineNops(prev_padding_size, dbg_line_buffer.items, next_padding_size, file_pos);
 
-            // .debug_info - End the TAG_subprogram children.
+            // .debug_info - End the TAG.subprogram children.
             try dbg_info_buffer.append(0);
         },
         else => {},
@@ -1128,27 +1131,27 @@ fn addDbgInfoType(
         .Bool => {
             try dbg_info_buffer.appendSlice(&[_]u8{
                 abbrev_base_type,
-                DW.ATE_boolean, // DW.AT_encoding ,  DW.FORM_data1
-                1, // DW.AT_byte_size,  DW.FORM_data1
+                DW.ATE.boolean, // DW.AT.encoding ,  DW.FORM.data1
+                1, // DW.AT.byte_size,  DW.FORM.data1
                 'b',
                 'o',
                 'o',
                 'l',
-                0, // DW.AT_name,  DW.FORM_string
+                0, // DW.AT.name,  DW.FORM.string
             });
         },
         .Int => {
             const info = ty.intInfo(target);
             try dbg_info_buffer.ensureCapacity(dbg_info_buffer.items.len + 12);
             dbg_info_buffer.appendAssumeCapacity(abbrev_base_type);
-            // DW.AT_encoding, DW.FORM_data1
+            // DW.AT.encoding, DW.FORM.data1
             dbg_info_buffer.appendAssumeCapacity(switch (info.signedness) {
-                .signed => DW.ATE_signed,
-                .unsigned => DW.ATE_unsigned,
+                .signed => DW.ATE.signed,
+                .unsigned => DW.ATE.unsigned,
             });
-            // DW.AT_byte_size,  DW.FORM_data1
+            // DW.AT.byte_size,  DW.FORM.data1
             dbg_info_buffer.appendAssumeCapacity(@intCast(u8, ty.abiSize(target)));
-            // DW.AT_name,  DW.FORM_string
+            // DW.AT.name,  DW.FORM.string
             try dbg_info_buffer.writer().print("{}\x00", .{ty});
         },
         else => {
@@ -1306,7 +1309,7 @@ fn dbgLineNeededHeaderBytes(self: DebugSymbols, module: *Module) u32 {
     const root_src_dir_path_len = if (module.root_pkg.root_src_directory.path) |p| p.len else 1; // "."
     return @intCast(u32, 53 + directory_entry_format_count * 2 + file_name_entry_format_count * 2 +
         directory_count * 8 + file_name_count * 8 +
-        // These are encoded as DW.FORM_string rather than DW.FORM_strp as we would like
+        // These are encoded as DW.FORM.string rather than DW.FORM.strp as we would like
         // because of a workaround for readelf and gdb failing to understand DWARFv5 correctly.
         root_src_dir_path_len +
         module.root_pkg.root_src_path.len);
@@ -1332,8 +1335,8 @@ fn pwriteDbgLineNops(
     const tracy = trace(@src());
     defer tracy.end();
 
-    const page_of_nops = [1]u8{DW.LNS_negate_stmt} ** 4096;
-    const three_byte_nop = [3]u8{ DW.LNS_advance_pc, 0b1000_0000, 0 };
+    const page_of_nops = [1]u8{DW.LNS.negate_stmt} ** 4096;
+    const three_byte_nop = [3]u8{ DW.LNS.advance_pc, 0b1000_0000, 0 };
     var vecs: [32]std.os.iovec_const = undefined;
     var vec_index: usize = 0;
     {

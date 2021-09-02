@@ -294,6 +294,6 @@ fn wideRightShiftWithSticky(comptime Z: type, hi: *Z, lo: *Z, count: u32) void {
     }
 }
 
-test "import mulXf3" {
+test {
     _ = @import("mulXf3_test.zig");
 }

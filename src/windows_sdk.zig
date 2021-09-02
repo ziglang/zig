@@ -11,12 +11,17 @@ pub const ZigWindowsSDK = extern struct {
     version81_len: usize,
     msvc_lib_dir_ptr: ?[*]const u8,
     msvc_lib_dir_len: usize,
+
+    pub const find = zig_find_windows_sdk;
+    pub const free = zig_free_windows_sdk;
+
+    pub const FindError = enum(c_int) {
+        None,
+        OutOfMemory,
+        NotFound,
+        PathTooLong,
+    };
+
+    extern fn zig_find_windows_sdk(out_sdk: **ZigWindowsSDK) FindError;
+    extern fn zig_free_windows_sdk(sdk: *ZigWindowsSDK) void;
 };
-pub const ZigFindWindowsSdkError = enum(c_int) {
-    None,
-    OutOfMemory,
-    NotFound,
-    PathTooLong,
-};
-pub extern fn zig_find_windows_sdk(out_sdk: **ZigWindowsSDK) ZigFindWindowsSdkError;
-pub extern fn zig_free_windows_sdk(sdk: *ZigWindowsSDK) void;

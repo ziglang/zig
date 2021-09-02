@@ -6,6 +6,6 @@ pub fn __fixunstfdi(a: f128) callconv(.C) u64 {
     return fixuint(f128, u64, a);
 }
 
-test "import fixunstfdi" {
+test {
     _ = @import("fixunstfdi_test.zig");
 }

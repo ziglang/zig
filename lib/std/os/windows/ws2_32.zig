@@ -1,5 +1,23 @@
 const std = @import("../../std.zig");
-usingnamespace @import("bits.zig");
+const windows = std.os.windows;
+
+const WINAPI = windows.WINAPI;
+const OVERLAPPED = windows.OVERLAPPED;
+const WORD = windows.WORD;
+const DWORD = windows.DWORD;
+const GUID = windows.GUID;
+const USHORT = windows.USHORT;
+const WCHAR = windows.WCHAR;
+const BOOL = windows.BOOL;
+const HANDLE = windows.HANDLE;
+const timeval = windows.timeval;
+const HWND = windows.HWND;
+const INT = windows.INT;
+const SHORT = windows.SHORT;
+const CHAR = windows.CHAR;
+const ULONG = windows.ULONG;
+const LPARAM = windows.LPARAM;
+const FARPROC = windows.FARPROC;
 
 pub const SOCKET = *opaque {};
 pub const INVALID_SOCKET = @intToPtr(SOCKET, ~@as(usize, 0));
@@ -179,7 +197,6 @@ pub const RIO_CORRUPT_CQ = 4294967295;
 pub const WINDOWS_AF_IRDA = 26;
 pub const WCE_AF_IRDA = 22;
 pub const IRDA_PROTO_SOCK_STREAM = 1;
-pub const SOL_IRLMP = 255;
 pub const IRLMP_ENUMDEVICES = 16;
 pub const IRLMP_IAS_SET = 17;
 pub const IRLMP_IAS_QUERY = 18;
@@ -238,7 +255,6 @@ pub const IPX_MAX_ADAPTER_NUM = 16397;
 pub const IPX_RERIPNETNUMBER = 16398;
 pub const IPX_RECEIVE_BROADCAST = 16399;
 pub const IPX_IMMEDIATESPXACK = 16400;
-pub const IPPROTO_RM = 113;
 pub const MAX_MCAST_TTL = 255;
 pub const RM_OPTIONSBASE = 1000;
 pub const RM_RATE_WINDOW_SIZE = 1001;
@@ -450,75 +466,117 @@ pub const TCP_ICMP_ERROR_INFO = 19;
 pub const UDP_SEND_MSG_SIZE = 2;
 pub const UDP_RECV_MAX_COALESCED_SIZE = 3;
 pub const UDP_COALESCED_INFO = 3;
-pub const AF_UNSPEC = 0;
-pub const AF_UNIX = 1;
-pub const AF_INET = 2;
-pub const AF_IMPLINK = 3;
-pub const AF_PUP = 4;
-pub const AF_CHAOS = 5;
-pub const AF_NS = 6;
-pub const AF_ISO = 7;
-pub const AF_ECMA = 8;
-pub const AF_DATAKIT = 9;
-pub const AF_CCITT = 10;
-pub const AF_SNA = 11;
-pub const AF_DECnet = 12;
-pub const AF_DLI = 13;
-pub const AF_LAT = 14;
-pub const AF_HYLINK = 15;
-pub const AF_APPLETALK = 16;
-pub const AF_NETBIOS = 17;
-pub const AF_VOICEVIEW = 18;
-pub const AF_FIREFOX = 19;
-pub const AF_UNKNOWN1 = 20;
-pub const AF_BAN = 21;
-pub const AF_ATM = 22;
-pub const AF_INET6 = 23;
-pub const AF_CLUSTER = 24;
-pub const AF_12844 = 25;
-pub const AF_IRDA = 26;
-pub const AF_NETDES = 28;
-pub const AF_MAX = 29;
-pub const AF_TCNPROCESS = 29;
-pub const AF_TCNMESSAGE = 30;
-pub const AF_ICLFXBM = 31;
-pub const AF_LINK = 33;
-pub const AF_HYPERV = 34;
-pub const SOCK_STREAM = 1;
-pub const SOCK_DGRAM = 2;
-pub const SOCK_RAW = 3;
-pub const SOCK_RDM = 4;
-pub const SOCK_SEQPACKET = 5;
-pub const SOL_SOCKET = 65535;
-pub const SO_DEBUG = 1;
-pub const SO_ACCEPTCONN = 2;
-pub const SO_REUSEADDR = 4;
-pub const SO_KEEPALIVE = 8;
-pub const SO_DONTROUTE = 16;
-pub const SO_BROADCAST = 32;
-pub const SO_USELOOPBACK = 64;
-pub const SO_LINGER = 128;
-pub const SO_OOBINLINE = 256;
-pub const SO_SNDBUF = 4097;
-pub const SO_RCVBUF = 4098;
-pub const SO_SNDLOWAT = 4099;
-pub const SO_RCVLOWAT = 4100;
-pub const SO_SNDTIMEO = 4101;
-pub const SO_RCVTIMEO = 4102;
-pub const SO_ERROR = 4103;
-pub const SO_TYPE = 4104;
-pub const SO_BSP_STATE = 4105;
-pub const SO_GROUP_ID = 8193;
-pub const SO_GROUP_PRIORITY = 8194;
-pub const SO_MAX_MSG_SIZE = 8195;
-pub const SO_CONDITIONAL_ACCEPT = 12290;
-pub const SO_PAUSE_ACCEPT = 12291;
-pub const SO_COMPARTMENT_ID = 12292;
-pub const SO_RANDOMIZE_PORT = 12293;
-pub const SO_PORT_SCALABILITY = 12294;
-pub const SO_REUSE_UNICASTPORT = 12295;
-pub const SO_REUSE_MULTICASTPORT = 12296;
-pub const SO_ORIGINAL_DST = 12303;
+
+pub const AF = struct {
+    pub const UNSPEC = 0;
+    pub const UNIX = 1;
+    pub const INET = 2;
+    pub const IMPLINK = 3;
+    pub const PUP = 4;
+    pub const CHAOS = 5;
+    pub const NS = 6;
+    pub const IPX = 6;
+    pub const ISO = 7;
+    pub const ECMA = 8;
+    pub const DATAKIT = 9;
+    pub const CCITT = 10;
+    pub const SNA = 11;
+    pub const DECnet = 12;
+    pub const DLI = 13;
+    pub const LAT = 14;
+    pub const HYLINK = 15;
+    pub const APPLETALK = 16;
+    pub const NETBIOS = 17;
+    pub const VOICEVIEW = 18;
+    pub const FIREFOX = 19;
+    pub const UNKNOWN1 = 20;
+    pub const BAN = 21;
+    pub const ATM = 22;
+    pub const INET6 = 23;
+    pub const CLUSTER = 24;
+    pub const @"12844" = 25;
+    pub const IRDA = 26;
+    pub const NETDES = 28;
+    pub const MAX = 29;
+    pub const TCNPROCESS = 29;
+    pub const TCNMESSAGE = 30;
+    pub const ICLFXBM = 31;
+    pub const LINK = 33;
+    pub const HYPERV = 34;
+};
+
+pub const SOCK = struct {
+    pub const STREAM = 1;
+    pub const DGRAM = 2;
+    pub const RAW = 3;
+    pub const RDM = 4;
+    pub const SEQPACKET = 5;
+
+    /// WARNING: this flag is not supported by windows socket functions directly,
+    ///          it is only supported by std.os.socket. Be sure that this value does
+    ///          not share any bits with any of the `SOCK` values.
+    pub const CLOEXEC = 0x10000;
+    /// WARNING: this flag is not supported by windows socket functions directly,
+    ///          it is only supported by std.os.socket. Be sure that this value does
+    ///          not share any bits with any of the `SOCK` values.
+    pub const NONBLOCK = 0x20000;
+};
+
+pub const SOL = struct {
+    pub const IRLMP = 255;
+    pub const SOCKET = 65535;
+};
+
+pub const SO = struct {
+    pub const DEBUG = 1;
+    pub const ACCEPTCONN = 2;
+    pub const REUSEADDR = 4;
+    pub const KEEPALIVE = 8;
+    pub const DONTROUTE = 16;
+    pub const BROADCAST = 32;
+    pub const USELOOPBACK = 64;
+    pub const LINGER = 128;
+    pub const OOBINLINE = 256;
+    pub const SNDBUF = 4097;
+    pub const RCVBUF = 4098;
+    pub const SNDLOWAT = 4099;
+    pub const RCVLOWAT = 4100;
+    pub const SNDTIMEO = 4101;
+    pub const RCVTIMEO = 4102;
+    pub const ERROR = 4103;
+    pub const TYPE = 4104;
+    pub const BSP_STATE = 4105;
+    pub const GROUP_ID = 8193;
+    pub const GROUP_PRIORITY = 8194;
+    pub const MAX_MSG_SIZE = 8195;
+    pub const CONDITIONAL_ACCEPT = 12290;
+    pub const PAUSE_ACCEPT = 12291;
+    pub const COMPARTMENT_ID = 12292;
+    pub const RANDOMIZE_PORT = 12293;
+    pub const PORT_SCALABILITY = 12294;
+    pub const REUSE_UNICASTPORT = 12295;
+    pub const REUSE_MULTICASTPORT = 12296;
+    pub const ORIGINAL_DST = 12303;
+    pub const PROTOCOL_INFOA = 8196;
+    pub const PROTOCOL_INFOW = 8197;
+    pub const CONNDATA = 28672;
+    pub const CONNOPT = 28673;
+    pub const DISCDATA = 28674;
+    pub const DISCOPT = 28675;
+    pub const CONNDATALEN = 28676;
+    pub const CONNOPTLEN = 28677;
+    pub const DISCDATALEN = 28678;
+    pub const DISCOPTLEN = 28679;
+    pub const OPENTYPE = 28680;
+    pub const SYNCHRONOUS_ALERT = 16;
+    pub const SYNCHRONOUS_NONALERT = 32;
+    pub const MAXDG = 28681;
+    pub const MAXPATHDG = 28682;
+    pub const UPDATE_ACCEPT_CONTEXT = 28683;
+    pub const CONNECT_TIME = 28684;
+    pub const UPDATE_CONNECT_CONTEXT = 28688;
+};
+
 pub const WSK_SO_BASE = 16384;
 pub const TCP_NODELAY = 1;
 pub const IOC_UNIX = 0;
@@ -530,7 +588,6 @@ pub const SIO_BSP_HANDLE = IOC_OUT | IOC_WS2 | 27;
 pub const SIO_BSP_HANDLE_SELECT = IOC_OUT | IOC_WS2 | 28;
 pub const SIO_BSP_HANDLE_POLL = IOC_OUT | IOC_WS2 | 29;
 pub const SIO_BASE_HANDLE = IOC_OUT | IOC_WS2 | 34;
-pub const IPPROTO_IP = 0;
 pub const IPPORT_TCPMUX = 1;
 pub const IPPORT_ECHO = 7;
 pub const IPPORT_DISCARD = 9;
@@ -597,27 +654,41 @@ pub const IOCPARM_MASK = 127;
 pub const IOC_VOID = 536870912;
 pub const IOC_OUT = 1073741824;
 pub const IOC_IN = 2147483648;
-pub const MSG_TRUNC = 256;
-pub const MSG_CTRUNC = 512;
-pub const MSG_BCAST = 1024;
-pub const MSG_MCAST = 2048;
-pub const MSG_ERRQUEUE = 4096;
-pub const AI_PASSIVE = 1;
-pub const AI_CANONNAME = 2;
-pub const AI_NUMERICHOST = 4;
-pub const AI_NUMERICSERV = 8;
-pub const AI_DNS_ONLY = 16;
-pub const AI_ALL = 256;
-pub const AI_ADDRCONFIG = 1024;
-pub const AI_V4MAPPED = 2048;
-pub const AI_NON_AUTHORITATIVE = 16384;
-pub const AI_SECURE = 32768;
-pub const AI_RETURN_PREFERRED_NAMES = 65536;
-pub const AI_FQDN = 131072;
-pub const AI_FILESERVER = 262144;
-pub const AI_DISABLE_IDN_ENCODING = 524288;
-pub const AI_EXTENDED = 2147483648;
-pub const AI_RESOLUTION_HANDLE = 1073741824;
+
+pub const MSG = struct {
+    pub const TRUNC = 256;
+    pub const CTRUNC = 512;
+    pub const BCAST = 1024;
+    pub const MCAST = 2048;
+    pub const ERRQUEUE = 4096;
+
+    pub const PEEK = 2;
+    pub const WAITALL = 8;
+    pub const PUSH_IMMEDIATE = 32;
+    pub const PARTIAL = 32768;
+    pub const INTERRUPT = 16;
+    pub const MAXIOVLEN = 16;
+};
+
+pub const AI = struct {
+    pub const PASSIVE = 1;
+    pub const CANONNAME = 2;
+    pub const NUMERICHOST = 4;
+    pub const NUMERICSERV = 8;
+    pub const DNS_ONLY = 16;
+    pub const ALL = 256;
+    pub const ADDRCONFIG = 1024;
+    pub const V4MAPPED = 2048;
+    pub const NON_AUTHORITATIVE = 16384;
+    pub const SECURE = 32768;
+    pub const RETURN_PREFERRED_NAMES = 65536;
+    pub const FQDN = 131072;
+    pub const FILESERVER = 262144;
+    pub const DISABLE_IDN_ENCODING = 524288;
+    pub const EXTENDED = 2147483648;
+    pub const RESOLUTION_HANDLE = 1073741824;
+};
+
 pub const FIONBIO = -2147195266;
 pub const ADDRINFOEX_VERSION_2 = 2;
 pub const ADDRINFOEX_VERSION_3 = 3;
@@ -661,16 +732,8 @@ pub const WSADESCRIPTION_LEN = 256;
 pub const WSASYS_STATUS_LEN = 128;
 pub const SOCKET_ERROR = -1;
 pub const FROM_PROTOCOL_INFO = -1;
-pub const SO_PROTOCOL_INFOA = 8196;
-pub const SO_PROTOCOL_INFOW = 8197;
 pub const PVD_CONFIG = 12289;
 pub const SOMAXCONN = 2147483647;
-pub const MSG_PEEK = 2;
-pub const MSG_WAITALL = 8;
-pub const MSG_PUSH_IMMEDIATE = 32;
-pub const MSG_PARTIAL = 32768;
-pub const MSG_INTERRUPT = 16;
-pub const MSG_MAXIOVLEN = 16;
 pub const MAXGETHOSTSTRUCT = 1024;
 pub const FD_READ_BIT = 0;
 pub const FD_WRITE_BIT = 1;
@@ -771,30 +834,18 @@ pub const RESULT_IS_ALIAS = 1;
 pub const RESULT_IS_ADDED = 16;
 pub const RESULT_IS_CHANGED = 32;
 pub const RESULT_IS_DELETED = 64;
-pub const POLLRDNORM = 256;
-pub const POLLRDBAND = 512;
-pub const POLLPRI = 1024;
-pub const POLLWRNORM = 16;
-pub const POLLWRBAND = 32;
-pub const POLLERR = 1;
-pub const POLLHUP = 2;
-pub const POLLNVAL = 4;
-pub const SO_CONNDATA = 28672;
-pub const SO_CONNOPT = 28673;
-pub const SO_DISCDATA = 28674;
-pub const SO_DISCOPT = 28675;
-pub const SO_CONNDATALEN = 28676;
-pub const SO_CONNOPTLEN = 28677;
-pub const SO_DISCDATALEN = 28678;
-pub const SO_DISCOPTLEN = 28679;
-pub const SO_OPENTYPE = 28680;
-pub const SO_SYNCHRONOUS_ALERT = 16;
-pub const SO_SYNCHRONOUS_NONALERT = 32;
-pub const SO_MAXDG = 28681;
-pub const SO_MAXPATHDG = 28682;
-pub const SO_UPDATE_ACCEPT_CONTEXT = 28683;
-pub const SO_CONNECT_TIME = 28684;
-pub const SO_UPDATE_CONNECT_CONTEXT = 28688;
+
+pub const POLL = struct {
+    pub const RDNORM = 256;
+    pub const RDBAND = 512;
+    pub const PRI = 1024;
+    pub const WRNORM = 16;
+    pub const WRBAND = 32;
+    pub const ERR = 1;
+    pub const HUP = 2;
+    pub const NVAL = 4;
+};
+
 pub const TCP_BSDURGENT = 28672;
 pub const TF_DISCONNECT = 1;
 pub const TF_REUSE_SOCKET = 2;
@@ -818,20 +869,25 @@ pub const LSP_INBOUND_MODIFY = 16;
 pub const LSP_OUTBOUND_MODIFY = 32;
 pub const LSP_CRYPTO_COMPRESS = 64;
 pub const LSP_LOCAL_CACHE = 128;
-pub const IPPROTO_ICMP = 1;
-pub const IPPROTO_IGMP = 2;
-pub const IPPROTO_GGP = 3;
-pub const IPPROTO_TCP = 6;
-pub const IPPROTO_PUP = 12;
-pub const IPPROTO_UDP = 17;
-pub const IPPROTO_IDP = 22;
-pub const IPPROTO_ND = 77;
-pub const IPPROTO_RAW = 255;
-pub const IPPROTO_MAX = 256;
+
+pub const IPPROTO = struct {
+    pub const IP = 0;
+    pub const ICMP = 1;
+    pub const IGMP = 2;
+    pub const GGP = 3;
+    pub const TCP = 6;
+    pub const PUP = 12;
+    pub const UDP = 17;
+    pub const IDP = 22;
+    pub const ND = 77;
+    pub const RM = 113;
+    pub const RAW = 255;
+    pub const MAX = 256;
+};
+
 pub const IP_DEFAULT_MULTICAST_TTL = 1;
 pub const IP_DEFAULT_MULTICAST_LOOP = 1;
 pub const IP_MAX_MEMBERSHIPS = 20;
-pub const AF_IPX = 6;
 pub const FD_READ = 1;
 pub const FD_WRITE = 2;
 pub const FD_OOB = 4;
@@ -1052,31 +1108,31 @@ pub const addrinfoexA = extern struct {
 pub const sockaddr = extern struct {
     family: ADDRESS_FAMILY,
     data: [14]u8,
-};
 
-pub const sockaddr_storage = std.x.os.Socket.Address.Native.Storage;
+    pub const storage = std.x.os.Socket.Address.Native.Storage;
 
-/// IPv4 socket address
-pub const sockaddr_in = extern struct {
-    family: ADDRESS_FAMILY = AF_INET,
-    port: USHORT,
-    addr: u32,
-    zero: [8]u8 = [8]u8{ 0, 0, 0, 0, 0, 0, 0, 0 },
-};
+    /// IPv4 socket address
+    pub const in = extern struct {
+        family: ADDRESS_FAMILY = AF.INET,
+        port: USHORT,
+        addr: u32,
+        zero: [8]u8 = [8]u8{ 0, 0, 0, 0, 0, 0, 0, 0 },
+    };
 
-/// IPv6 socket address
-pub const sockaddr_in6 = extern struct {
-    family: ADDRESS_FAMILY = AF_INET6,
-    port: USHORT,
-    flowinfo: u32,
-    addr: [16]u8,
-    scope_id: u32,
-};
+    /// IPv6 socket address
+    pub const in6 = extern struct {
+        family: ADDRESS_FAMILY = AF.INET6,
+        port: USHORT,
+        flowinfo: u32,
+        addr: [16]u8,
+        scope_id: u32,
+    };
 
-/// UNIX domain socket address
-pub const sockaddr_un = extern struct {
-    family: ADDRESS_FAMILY = AF_UNIX,
-    path: [108]u8,
+    /// UNIX domain socket address
+    pub const un = extern struct {
+        family: ADDRESS_FAMILY = AF.UNIX,
+        path: [108]u8,
+    };
 };
 
 pub const WSABUF = extern struct {
@@ -1238,9 +1294,9 @@ pub const WinsockError = enum(u16) {
 
     /// Permission denied.
     /// An attempt was made to access a socket in a way forbidden by its access permissions.
-    /// An example is using a broadcast address for sendto without broadcast permission being set using setsockopt(SO_BROADCAST).
+    /// An example is using a broadcast address for sendto without broadcast permission being set using setsockopt(SO.BROADCAST).
     /// Another possible reason for the WSAEACCES error is that when the bind function is called (on Windows NT 4.0 with SP4 and later), another application, service, or kernel mode driver is bound to the same address with exclusive access.
-    /// Such exclusive access is a new feature of Windows NT 4.0 with SP4 and later, and is implemented by using the SO_EXCLUSIVEADDRUSE option.
+    /// Such exclusive access is a new feature of Windows NT 4.0 with SP4 and later, and is implemented by using the SO.EXCLUSIVEADDRUSE option.
     WSAEACCES = 10013,
 
     /// Bad address.
@@ -1261,7 +1317,7 @@ pub const WinsockError = enum(u16) {
     /// Resource temporarily unavailable.
     /// This error is returned from operations on nonblocking sockets that cannot be completed immediately, for example recv when no data is queued to be read from the socket.
     /// It is a nonfatal error, and the operation should be retried later.
-    /// It is normal for WSAEWOULDBLOCK to be reported as the result from calling connect on a nonblocking SOCK_STREAM socket, since some time must elapse for the connection to be established.
+    /// It is normal for WSAEWOULDBLOCK to be reported as the result from calling connect on a nonblocking SOCK.STREAM socket, since some time must elapse for the connection to be established.
     WSAEWOULDBLOCK = 10035,
 
     /// Operation now in progress.
@@ -1289,7 +1345,7 @@ pub const WinsockError = enum(u16) {
 
     /// Protocol wrong type for socket.
     /// A protocol was specified in the socket function call that does not support the semantics of the socket type requested.
-    /// For example, the ARPA Internet UDP protocol cannot be specified with a socket type of SOCK_STREAM.
+    /// For example, the ARPA Internet UDP protocol cannot be specified with a socket type of SOCK.STREAM.
     WSAEPROTOTYPE = 10041,
 
     /// Bad protocol option.
@@ -1298,12 +1354,12 @@ pub const WinsockError = enum(u16) {
 
     /// Protocol not supported.
     /// The requested protocol has not been configured into the system, or no implementation for it exists.
-    /// For example, a socket call requests a SOCK_DGRAM socket, but specifies a stream protocol.
+    /// For example, a socket call requests a SOCK.DGRAM socket, but specifies a stream protocol.
     WSAEPROTONOSUPPORT = 10043,
 
     /// Socket type not supported.
     /// The support for the specified socket type does not exist in this address family.
-    /// For example, the optional type SOCK_RAW might be selected in a socket call, and the implementation does not support SOCK_RAW sockets at all.
+    /// For example, the optional type SOCK.RAW might be selected in a socket call, and the implementation does not support SOCK.RAW sockets at all.
     WSAESOCKTNOSUPPORT = 10044,
 
     /// Operation not supported.
@@ -1319,14 +1375,14 @@ pub const WinsockError = enum(u16) {
 
     /// Address family not supported by protocol family.
     /// An address incompatible with the requested protocol was used.
-    /// All sockets are created with an associated address family (that is, AF_INET for Internet Protocols) and a generic protocol type (that is, SOCK_STREAM).
+    /// All sockets are created with an associated address family (that is, AF.INET for Internet Protocols) and a generic protocol type (that is, SOCK.STREAM).
     /// This error is returned if an incorrect protocol is explicitly requested in the socket call, or if an address of the wrong family is used for a socket, for example, in sendto.
     WSAEAFNOSUPPORT = 10047,
 
     /// Address already in use.
     /// Typically, only one usage of each socket address (protocol/IP address/port) is permitted.
     /// This error occurs if an application attempts to bind a socket to an IP address/port that has already been used for an existing socket, or a socket that was not closed properly, or one that is still in the process of closing.
-    /// For server applications that need to bind multiple sockets to the same port number, consider using setsockopt (SO_REUSEADDR).
+    /// For server applications that need to bind multiple sockets to the same port number, consider using setsockopt (SO.REUSEADDR).
     /// Client applications usually need not call bind at all—connect chooses an unused port automatically.
     /// When bind is called with a wildcard address (involving ADDR_ANY), a WSAEADDRINUSE error could be delayed until the specific address is committed.
     /// This could happen with a call to another function later, including connect, listen, WSAConnect, or WSAJoinLeaf.
@@ -1350,7 +1406,7 @@ pub const WinsockError = enum(u16) {
 
     /// Network dropped connection on reset.
     /// The connection has been broken due to keep-alive activity detecting a failure while the operation was in progress.
-    /// It can also be returned by setsockopt if an attempt is made to set SO_KEEPALIVE on a connection that has already failed.
+    /// It can also be returned by setsockopt if an attempt is made to set SO.KEEPALIVE on a connection that has already failed.
     WSAENETRESET = 10052,
 
     /// Software caused connection abort.
@@ -1359,7 +1415,7 @@ pub const WinsockError = enum(u16) {
 
     /// Connection reset by peer.
     /// An existing connection was forcibly closed by the remote host.
-    /// This normally results if the peer application on the remote host is suddenly stopped, the host is rebooted, the host or remote network interface is disabled, or the remote host uses a hard close (see setsockopt for more information on the SO_LINGER option on the remote socket).
+    /// This normally results if the peer application on the remote host is suddenly stopped, the host is rebooted, the host or remote network interface is disabled, or the remote host uses a hard close (see setsockopt for more information on the SO.LINGER option on the remote socket).
     /// This error may also result if a connection was broken due to keep-alive activity detecting a failure while one or more operations are in progress.
     /// Operations that were in progress fail with WSAENETRESET. Subsequent operations fail with WSAECONNRESET.
     WSAECONNRESET = 10054,
@@ -1370,12 +1426,12 @@ pub const WinsockError = enum(u16) {
 
     /// Socket is already connected.
     /// A connect request was made on an already-connected socket.
-    /// Some implementations also return this error if sendto is called on a connected SOCK_DGRAM socket (for SOCK_STREAM sockets, the to parameter in sendto is ignored) although other implementations treat this as a legal occurrence.
+    /// Some implementations also return this error if sendto is called on a connected SOCK.DGRAM socket (for SOCK.STREAM sockets, the to parameter in sendto is ignored) although other implementations treat this as a legal occurrence.
     WSAEISCONN = 10056,
 
     /// Socket is not connected.
     /// A request to send or receive data was disallowed because the socket is not connected and (when sending on a datagram socket using sendto) no address was supplied.
-    /// Any other type of operation might also return this error—for example, setsockopt setting SO_KEEPALIVE if the connection has been reset.
+    /// Any other type of operation might also return this error—for example, setsockopt setting SO.KEEPALIVE if the connection has been reset.
     WSAENOTCONN = 10057,
 
     /// Cannot send after socket shutdown.

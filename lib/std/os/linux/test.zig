@@ -35,7 +35,7 @@ test "timer" {
     var err: linux.E = linux.getErrno(epoll_fd);
     try expect(err == .SUCCESS);
 
-    const timer_fd = linux.timerfd_create(linux.CLOCK_MONOTONIC, 0);
+    const timer_fd = linux.timerfd_create(linux.CLOCK.MONOTONIC, 0);
     try expect(linux.getErrno(timer_fd) == .SUCCESS);
 
     const time_interval = linux.timespec{
@@ -52,11 +52,11 @@ test "timer" {
     try expect(err == .SUCCESS);
 
     var event = linux.epoll_event{
-        .events = linux.EPOLLIN | linux.EPOLLOUT | linux.EPOLLET,
+        .events = linux.EPOLL.IN | linux.EPOLL.OUT | linux.EPOLL.ET,
         .data = linux.epoll_data{ .ptr = 0 },
     };
 
-    err = linux.getErrno(linux.epoll_ctl(@intCast(i32, epoll_fd), linux.EPOLL_CTL_ADD, @intCast(i32, timer_fd), &event));
+    err = linux.getErrno(linux.epoll_ctl(@intCast(i32, epoll_fd), linux.EPOLL.CTL_ADD, @intCast(i32, timer_fd), &event));
     try expect(err == .SUCCESS);
 
     const events_one: linux.epoll_event = undefined;
@@ -75,15 +75,15 @@ test "statx" {
     }
 
     var statx_buf: linux.Statx = undefined;
-    switch (linux.getErrno(linux.statx(file.handle, "", linux.AT_EMPTY_PATH, linux.STATX_BASIC_STATS, &statx_buf))) {
+    switch (linux.getErrno(linux.statx(file.handle, "", linux.AT.EMPTY_PATH, linux.STATX_BASIC_STATS, &statx_buf))) {
         .SUCCESS => {},
         // The statx syscall was only introduced in linux 4.11
         .NOSYS => return error.SkipZigTest,
         else => unreachable,
     }
 
-    var stat_buf: linux.kernel_stat = undefined;
-    switch (linux.getErrno(linux.fstatat(file.handle, "", &stat_buf, linux.AT_EMPTY_PATH))) {
+    var stat_buf: linux.Stat = undefined;
+    switch (linux.getErrno(linux.fstatat(file.handle, "", &stat_buf, linux.AT.EMPTY_PATH))) {
         .SUCCESS => {},
         else => unreachable,
     }
@@ -119,7 +119,7 @@ test "fadvise" {
         file.handle,
         0,
         0,
-        linux.POSIX_FADV_SEQUENTIAL,
+        linux.POSIX_FADV.SEQUENTIAL,
     );
     try expectEqual(@as(usize, 0), ret);
 }

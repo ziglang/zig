@@ -10,7 +10,7 @@ pub const fmtEscapes = fmt.fmtEscapes;
 pub const isValidId = fmt.isValidId;
 pub const parse = @import("zig/parse.zig").parse;
 pub const string_literal = @import("zig/string_literal.zig");
-pub const ast = @import("zig/ast.zig");
+pub const Ast = @import("zig/Ast.zig");
 pub const system = @import("zig/system.zig");
 pub const CrossTarget = @import("zig/cross_target.zig").CrossTarget;
 
@@ -157,7 +157,6 @@ pub fn binNameAlloc(allocator: *std.mem.Allocator, options: BinNameOptions) erro
                         }
                     },
                 }
-                return std.fmt.allocPrint(allocator, "{s}{s}{s}", .{ target.libPrefix(), root_name, suffix });
             },
             .Obj => return std.fmt.allocPrint(allocator, "{s}.o", .{root_name}),
         },

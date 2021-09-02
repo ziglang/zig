@@ -356,7 +356,7 @@ pub fn translate(
     args_end: [*]?[*]const u8,
     errors: *[]ClangErrMsg,
     resources_path: [*:0]const u8,
-) !std.zig.ast.Tree {
+) !std.zig.Ast {
     const ast_unit = clang.LoadFromCommandLine(
         args_begin,
         args_end,
@@ -369,7 +369,7 @@ pub fn translate(
     };
     defer ast_unit.delete();
 
-    // For memory that has the same lifetime as the Tree that we return
+    // For memory that has the same lifetime as the Ast that we return
     // from this function.
     var arena = std.heap.ArenaAllocator.init(gpa);
     errdefer arena.deinit();
@@ -395,7 +395,15 @@ pub fn translate(
         context.pattern_list.deinit(gpa);
     }
 
-    try context.global_scope.nodes.append(Tag.usingnamespace_builtins.init());
+    inline for (meta.declarations(std.zig.c_builtins)) |decl| {
+        if (decl.is_pub) {
+            const builtin = try Tag.pub_var_simple.create(context.arena, .{
+                .name = decl.name,
+                .init = try Tag.import_c_builtin.create(context.arena, decl.name),
+            });
+            try addTopLevelDecl(&context, decl.name, builtin);
+        }
+    }
 
     try prepopulateGlobalNameTable(ast_unit, &context);
 
@@ -1982,6 +1990,7 @@ fn transImplicitCastExpr(
 
 fn isBuiltinDefined(name: []const u8) bool {
     inline for (meta.declarations(std.zig.c_builtins)) |decl| {
+        if (!decl.is_pub) continue;
         if (std.mem.eql(u8, name, decl.name)) return true;
     }
     return false;
@@ -5248,6 +5257,26 @@ const MacroCtx = struct {
     fn makeSlicer(self: *const MacroCtx) MacroSlicer {
         return MacroSlicer{ .source = self.source, .tokens = self.list };
     }
+
+    fn containsUndefinedIdentifier(self: *MacroCtx, scope: *Scope, params: []const ast.Payload.Param) ?[]const u8 {
+        const slicer = self.makeSlicer();
+        var i: usize = 1; // index 0 is the macro name
+        while (i < self.list.len) : (i += 1) {
+            const token = self.list[i];
+            switch (token.id) {
+                .Period, .Arrow => i += 1, // skip next token since field identifiers can be unknown
+                .Identifier => {
+                    const identifier = slicer.slice(token);
+                    const is_param = for (params) |param| {
+                        if (param.name != null and mem.eql(u8, identifier, param.name.?)) break true;
+                    } else false;
+                    if (!scope.contains(identifier) and !isBuiltinDefined(identifier) and !is_param) return identifier;
+                },
+                else => {},
+            }
+        }
+        return null;
+    }
 };
 
 fn tokenizeMacro(source: []const u8, tok_list: *std.ArrayList(CToken)) Error!void {
@@ -5318,7 +5347,10 @@ fn transPreprocessorEntities(c: *Context, unit: *clang.ASTUnit) Error!void {
                     },
                     .Nl, .Eof => {
                         // this means it is a macro without a value
-                        // we don't care about such things
+                        // We define it as an empty string so that it can still be used with ++
+                        const str_node = try Tag.string_literal.create(c.arena, "\"\"");
+                        const var_decl = try Tag.pub_var_simple.create(c.arena, .{ .name = name, .init = str_node });
+                        try c.global_scope.macro_table.put(name, var_decl);
                         continue;
                     },
                     .LParen => {
@@ -5343,6 +5375,9 @@ fn transPreprocessorEntities(c: *Context, unit: *clang.ASTUnit) Error!void {
 
 fn transMacroDefine(c: *Context, m: *MacroCtx) ParseError!void {
     const scope = &c.global_scope.base;
+
+    if (m.containsUndefinedIdentifier(scope, &.{})) |ident|
+        return m.fail(c, "unable to translate macro: undefined identifier `{s}`", .{ident});
 
     const init_node = try parseCExpr(c, m, scope);
     const last = m.next().?;
@@ -5393,6 +5428,9 @@ fn transMacroFnDefine(c: *Context, m: *MacroCtx) ParseError!void {
     if (m.next().? != .RParen) {
         return m.fail(c, "unable to translate C expr: expected ')'", .{});
     }
+
+    if (m.containsUndefinedIdentifier(scope, fn_params.items)) |ident|
+        return m.fail(c, "unable to translate macro: undefined identifier `{s}`", .{ident});
 
     const expr = try parseCExpr(c, m, scope);
     const last = m.next().?;
@@ -5735,10 +5773,6 @@ fn parseCPrimaryExprInner(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!N
         },
         .Identifier => {
             const mangled_name = scope.getAlias(slice);
-            if (mem.startsWith(u8, mangled_name, "__builtin_") and !isBuiltinDefined(mangled_name)) {
-                try m.fail(c, "TODO implement function '{s}' in std.zig.c_builtins", .{mangled_name});
-                return error.ParseError;
-            }
             if (builtin_typedef_map.get(mangled_name)) |ty| return Tag.type.create(c.arena, ty);
             const identifier = try Tag.identifier.create(c.arena, mangled_name);
             scope.skipVariableDiscard(identifier.castTag(.identifier).?.data);

@@ -170,7 +170,7 @@ pub const Register = enum(u5) {
     }
 
     pub fn dwarfLocOp(self: Register) u8 {
-        return @as(u8, self.id()) + DW.OP_reg0;
+        return @as(u8, self.id()) + DW.OP.reg0;
     }
 };
 

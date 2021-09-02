@@ -1405,7 +1405,7 @@ fn parsedEqual(a: anytype, b: @TypeOf(a)) bool {
             if (a == null or b == null) return false;
             return parsedEqual(a.?, b.?);
         },
-        .Union => {
+        .Union => |info| {
             if (info.tag_type) |UnionTag| {
                 const tag_a = std.meta.activeTag(a);
                 const tag_b = std.meta.activeTag(b);
@@ -2657,7 +2657,7 @@ test "json.parser.dynamic" {
     try testing.expect(mem.eql(u8, large_int.NumberString, "18446744073709551615"));
 }
 
-test "import more json tests" {
+test {
     _ = @import("json/test.zig");
     _ = @import("json/write_stream.zig");
 }

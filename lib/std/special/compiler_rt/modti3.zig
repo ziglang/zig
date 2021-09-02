@@ -28,6 +28,6 @@ pub fn __modti3_windows_x86_64(a: v128, b: v128) callconv(.C) v128 {
     }));
 }
 
-test "import modti3" {
+test {
     _ = @import("modti3_test.zig");
 }

@@ -152,7 +152,7 @@ pub const PosixEvent = struct {
     pub fn timedWait(ev: *PosixEvent, timeout_ns: u64) TimedWaitResult {
         var ts: os.timespec = undefined;
         var timeout_abs = timeout_ns;
-        os.clock_gettime(os.CLOCK_REALTIME, &ts) catch return .timed_out;
+        os.clock_gettime(os.CLOCK.REALTIME, &ts) catch return .timed_out;
         timeout_abs += @intCast(u64, ts.tv_sec) * time.ns_per_s;
         timeout_abs += @intCast(u64, ts.tv_nsec);
         ts.tv_sec = @intCast(@TypeOf(ts.tv_sec), @divFloor(timeout_abs, time.ns_per_s));

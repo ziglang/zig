@@ -1,22 +1,13 @@
 const std = @import("std");
 
-fn Foo(comptime T: type) type {
-    return struct {
-        usingnamespace T;
-    };
-}
-
-test "usingnamespace inside a generic struct" {
-    const std2 = Foo(std);
-    const testing2 = Foo(std.testing);
-    try std2.testing.expect(true);
-    try testing2.expect(true);
-}
-
-usingnamespace struct {
-    pub const foo = 42;
+const A = struct {
+    pub const B = bool;
 };
 
-test "usingnamespace does not redeclare an imported variable" {
-    comptime try std.testing.expect(foo == 42);
+const C = struct {
+    usingnamespace A;
+};
+
+test "basic usingnamespace" {
+    try std.testing.expect(C.B == bool);
 }

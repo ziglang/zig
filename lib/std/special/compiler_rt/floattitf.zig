@@ -66,6 +66,6 @@ pub fn __floattitf(arg: i128) callconv(.C) f128 {
     return @bitCast(f128, low | (high << 64));
 }
 
-test "import floattitf" {
+test {
     _ = @import("floattitf_test.zig");
 }
