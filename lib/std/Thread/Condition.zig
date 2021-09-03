@@ -218,8 +218,8 @@ const Futex32Impl = struct {
         // "atomically with respect to access by another thread to the mutex and then the condition variable".
         // This means that it's ok if a wake() (sequence increment) is missed while the mutex is still held.
         const sequence = self.seq.load(.Monotonic);
-        held.impl.mutex.release();
-        defer held.impl.mutex.acquire();
+        held.mutex.impl.release();
+        defer held.mutex.impl.acquire();
 
         return Futex.wait(
             &self.seq,

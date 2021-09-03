@@ -271,11 +271,12 @@ const Futex64Impl = struct {
         const one_waiter = @bitCast(u64, State{ .waiters = 1 });
         var sema = self.sema.qword.fetchAdd(one_waiter, .Monotonic);
         assert(@bitCast(State, sema).waiters != std.math.maxInt(u32));
+        sema += one_waiter;
 
         // If we timed out and failed to acquire a semaphore value
         // then remove our waiter from the semaphore
         errdefer {
-            sema = self.seam.qword.fetchSub(one_waiter, .Monotonic);
+            sema = self.sema.qword.fetchSub(one_waiter, .Monotonic);
             assert(@bitCast(State, sema).waiters != 0);
         }
 
@@ -431,7 +432,7 @@ const Futex32Impl = struct {
                 // doesn't even though there's threads waiting on the Futex from previously observing -1.
                 if ((waiters | waiting) != 0) {
                     const value_ptr = @ptrCast(*const Atomic(u32), &self.value);
-                    Futex.wait(value_ptr, count);
+                    Futex.wake(value_ptr, count);
                 }
                 return;
             };

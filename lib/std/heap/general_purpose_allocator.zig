@@ -194,10 +194,8 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
 
         const mutex_init = if (config.MutexType) |T|
             T{}
-        else if (config.thread_safe)
-            std.Thread.Mutex{}
         else
-            std.Thread.Mutex.Dummy{};
+            std.Thread.Mutex{};
 
         const stack_n = config.stack_trace_frames;
         const one_trace_size = @sizeOf(usize) * stack_n;
