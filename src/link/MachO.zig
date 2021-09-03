@@ -2312,6 +2312,7 @@ fn resolveSymbolsInObject(
                 .local_sym_index = local_sym_index,
                 .file = object_id,
             };
+            self.export_info_dirty = true;
         } else if (symbolIsTentative(sym)) {
             // Symbol is a tentative definition.
             const resolv = self.symbol_resolver.getPtr(n_strx) orelse {
