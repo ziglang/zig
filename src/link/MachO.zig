@@ -37,6 +37,8 @@ const LlvmObject = @import("../codegen/llvm.zig").Object;
 const LoadCommand = commands.LoadCommand;
 const Module = @import("../Module.zig");
 const SegmentCommand = commands.SegmentCommand;
+const StringIndexAdapter = std.hash_map.StringIndexAdapter;
+const StringIndexContext = std.hash_map.StringIndexContext;
 pub const TextBlock = @import("MachO/TextBlock.zig");
 const Trie = @import("MachO/Trie.zig");
 
@@ -223,33 +225,6 @@ decls: std.AutoArrayHashMapUnmanaged(*Module.Decl, void) = .{},
 /// to codegen.genSetReg() or alterntively move PIE displacement for MCValue{ .memory = x }
 /// somewhere else in the codegen.
 active_decl: ?*Module.Decl = null,
-
-const StringIndexContext = struct {
-    strtab: *std.ArrayListUnmanaged(u8),
-
-    pub fn eql(_: StringIndexContext, a: u32, b: u32) bool {
-        return a == b;
-    }
-
-    pub fn hash(self: StringIndexContext, x: u32) u64 {
-        const x_slice = mem.spanZ(@ptrCast([*:0]const u8, self.strtab.items.ptr) + x);
-        return std.hash_map.hashString(x_slice);
-    }
-};
-
-pub const StringSliceAdapter = struct {
-    strtab: *std.ArrayListUnmanaged(u8),
-
-    pub fn eql(self: StringSliceAdapter, a_slice: []const u8, b: u32) bool {
-        const b_slice = mem.spanZ(@ptrCast([*:0]const u8, self.strtab.items.ptr) + b);
-        return mem.eql(u8, a_slice, b_slice);
-    }
-
-    pub fn hash(self: StringSliceAdapter, adapted_key: []const u8) u64 {
-        _ = self;
-        return std.hash_map.hashString(adapted_key);
-    }
-};
 
 const SymbolWithLoc = struct {
     // Table where the symbol can be found.
@@ -938,8 +913,8 @@ fn linkWithZld(self: *MachO, comp: *Compilation) !void {
 
         {
             // Add dyld_stub_binder as the final GOT entry.
-            const n_strx = self.strtab_dir.getKeyAdapted(@as([]const u8, "dyld_stub_binder"), StringSliceAdapter{
-                .strtab = &self.strtab,
+            const n_strx = self.strtab_dir.getKeyAdapted(@as([]const u8, "dyld_stub_binder"), StringIndexAdapter{
+                .bytes = &self.strtab,
             }) orelse unreachable;
             const resolv = self.symbol_resolver.get(n_strx) orelse unreachable;
             const got_index = @intCast(u32, self.got_entries.items.len);
@@ -1966,8 +1941,8 @@ fn writeStubHelperCommon(self: *MachO) !void {
                 code[9] = 0xff;
                 code[10] = 0x25;
                 {
-                    const n_strx = self.strtab_dir.getKeyAdapted(@as([]const u8, "dyld_stub_binder"), StringSliceAdapter{
-                        .strtab = &self.strtab,
+                    const n_strx = self.strtab_dir.getKeyAdapted(@as([]const u8, "dyld_stub_binder"), StringIndexAdapter{
+                        .bytes = &self.strtab,
                     }) orelse unreachable;
                     const resolv = self.symbol_resolver.get(n_strx) orelse unreachable;
                     const got_index = self.got_entries_map.get(.{
@@ -2017,8 +1992,8 @@ fn writeStubHelperCommon(self: *MachO) !void {
                 code[10] = 0xbf;
                 code[11] = 0xa9;
                 binder_blk_outer: {
-                    const n_strx = self.strtab_dir.getKeyAdapted(@as([]const u8, "dyld_stub_binder"), StringSliceAdapter{
-                        .strtab = &self.strtab,
+                    const n_strx = self.strtab_dir.getKeyAdapted(@as([]const u8, "dyld_stub_binder"), StringIndexAdapter{
+                        .bytes = &self.strtab,
                     }) orelse unreachable;
                     const resolv = self.symbol_resolver.get(n_strx) orelse unreachable;
                     const got_index = self.got_entries_map.get(.{
@@ -2435,8 +2410,8 @@ fn resolveSymbols(self: *MachO) !void {
     }
 
     // Fourth pass, handle synthetic symbols and flag any undefined references.
-    if (self.strtab_dir.getKeyAdapted(@as([]const u8, "___dso_handle"), StringSliceAdapter{
-        .strtab = &self.strtab,
+    if (self.strtab_dir.getKeyAdapted(@as([]const u8, "___dso_handle"), StringIndexAdapter{
+        .bytes = &self.strtab,
     })) |n_strx| blk: {
         const resolv = self.symbol_resolver.getPtr(n_strx) orelse break :blk;
         if (resolv.where != .undef) break :blk;
@@ -2985,8 +2960,8 @@ fn setEntryPoint(self: *MachO) !void {
     // TODO we should respect the -entry flag passed in by the user to set a custom
     // entrypoint. For now, assume default of `_main`.
     const seg = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
-    const n_strx = self.strtab_dir.getKeyAdapted(@as([]const u8, "_main"), StringSliceAdapter{
-        .strtab = &self.strtab,
+    const n_strx = self.strtab_dir.getKeyAdapted(@as([]const u8, "_main"), StringIndexAdapter{
+        .bytes = &self.strtab,
     }) orelse {
         log.err("'_main' export not found", .{});
         return error.MissingMainEntrypoint;
@@ -4475,8 +4450,8 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         });
         self.load_commands_dirty = true;
     }
-    if (!self.strtab_dir.containsAdapted(@as([]const u8, "dyld_stub_binder"), StringSliceAdapter{
-        .strtab = &self.strtab,
+    if (!self.strtab_dir.containsAdapted(@as([]const u8, "dyld_stub_binder"), StringIndexAdapter{
+        .bytes = &self.strtab,
     })) {
         const import_sym_index = @intCast(u32, self.undefs.items.len);
         const n_strx = try self.makeString("dyld_stub_binder");
@@ -4616,8 +4591,8 @@ pub fn addExternFn(self: *MachO, name: []const u8) !u32 {
     const sym_name = try std.fmt.allocPrint(self.base.allocator, "_{s}", .{name});
     defer self.base.allocator.free(sym_name);
 
-    if (self.strtab_dir.getKeyAdapted(@as([]const u8, sym_name), StringSliceAdapter{
-        .strtab = &self.strtab,
+    if (self.strtab_dir.getKeyAdapted(@as([]const u8, sym_name), StringIndexAdapter{
+        .bytes = &self.strtab,
     })) |n_strx| {
         const resolv = self.symbol_resolver.get(n_strx) orelse unreachable;
         return resolv.where_index;
@@ -5858,10 +5833,10 @@ pub fn padToIdeal(actual_size: anytype) @TypeOf(actual_size) {
 }
 
 pub fn makeString(self: *MachO, string: []const u8) !u32 {
-    const gop = try self.strtab_dir.getOrPutContextAdapted(self.base.allocator, @as([]const u8, string), StringSliceAdapter{
-        .strtab = &self.strtab,
+    const gop = try self.strtab_dir.getOrPutContextAdapted(self.base.allocator, @as([]const u8, string), StringIndexAdapter{
+        .bytes = &self.strtab,
     }, StringIndexContext{
-        .strtab = &self.strtab,
+        .bytes = &self.strtab,
     });
     if (gop.found_existing) {
         const off = gop.key_ptr.*;
