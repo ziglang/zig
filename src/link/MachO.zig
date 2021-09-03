@@ -162,10 +162,7 @@ stubs_map: std.AutoArrayHashMapUnmanaged(u32, *TextBlock) = .{},
 error_flags: File.ErrorFlags = File.ErrorFlags{},
 
 load_commands_dirty: bool = false,
-rebase_info_dirty: bool = false,
-binding_info_dirty: bool = false,
-lazy_binding_info_dirty: bool = false,
-export_info_dirty: bool = false,
+dyld_info_dirty: bool = false,
 
 strtab_dirty: bool = false,
 strtab_needs_relocation: bool = false,
@@ -814,10 +811,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
     defer tracy.end();
 
     try self.setEntryPoint();
-    try self.writeRebaseInfoTable();
-    try self.writeBindInfoTable();
-    try self.writeLazyBindInfoTable();
-    try self.writeExportInfo();
+    try self.writeDyldInfoData();
     try self.writeAllGlobalAndUndefSymbols();
     try self.writeIndirectSymbolTable();
     try self.writeStringTable();
@@ -849,10 +843,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
     }
 
     assert(!self.load_commands_dirty);
-    assert(!self.rebase_info_dirty);
-    assert(!self.binding_info_dirty);
-    assert(!self.lazy_binding_info_dirty);
-    assert(!self.export_info_dirty);
+    assert(!self.dyld_info_dirty);
     assert(!self.strtab_dirty);
     assert(!self.strtab_needs_relocation);
 
@@ -2111,7 +2102,7 @@ pub fn createLazyPointerAtom(self: *MachO, stub_sym_index: u32, lazy_binding_sym
         .local_sym_index = lazy_binding_sym_index,
         .offset = 0,
     });
-    self.lazy_binding_info_dirty = true;
+    self.dyld_info_dirty = true;
     return atom;
 }
 
@@ -2312,7 +2303,7 @@ fn resolveSymbolsInObject(
                 .local_sym_index = local_sym_index,
                 .file = object_id,
             };
-            self.export_info_dirty = true;
+            self.dyld_info_dirty = true;
         } else if (symbolIsTentative(sym)) {
             // Symbol is a tentative definition.
             const resolv = self.symbol_resolver.getPtr(n_strx) orelse {
@@ -2647,7 +2638,7 @@ fn resolveDyldStubBinder(self: *MachO) !void {
         .sect = self.got_section_index.?,
     };
     _ = try self.allocateAtom(atom, match);
-    self.binding_info_dirty = true;
+    self.dyld_info_dirty = true;
 }
 
 fn parseTextBlocks(self: *MachO) !void {
@@ -2946,7 +2937,7 @@ pub fn allocateDeclIndexes(self: *MachO, decl: *Module.Decl) !void {
     };
     const got_atom = try self.createGotAtom(key);
     try self.got_entries_map.put(self.base.allocator, key, got_atom);
-    self.rebase_info_dirty = true;
+    self.dyld_info_dirty = true;
 }
 
 pub fn updateFunc(self: *MachO, module: *Module, func: *Module.Fn, air: Air, liveness: Liveness) !void {
@@ -3266,7 +3257,7 @@ pub fn updateDeclExports(
             const name_str_index = try self.makeString(exp_name);
             const i = if (self.globals_free_list.popOrNull()) |i| i else blk: {
                 _ = self.globals.addOneAssumeCapacity();
-                self.export_info_dirty = true;
+                self.dyld_info_dirty = true;
                 break :blk @intCast(u32, self.globals.items.len - 1);
             };
             self.globals.items[i] = .{
@@ -3648,29 +3639,34 @@ pub fn populateMissingMetadata(self: *MachO) !void {
             },
         });
 
-        const dyld = &self.load_commands.items[self.dyld_info_cmd_index.?].DyldInfoOnly;
-
         // Preallocate rebase, binding, lazy binding info, and export info.
-        const expected_size = 48; // TODO This is totally random.
-        const rebase_off = self.findFreeSpaceLinkedit(expected_size, 1, null);
-        log.debug("found rebase info free space 0x{x} to 0x{x}", .{ rebase_off, rebase_off + expected_size });
-        dyld.rebase_off = @intCast(u32, rebase_off);
-        dyld.rebase_size = expected_size;
+        const dyld = &self.load_commands.items[self.dyld_info_cmd_index.?].DyldInfoOnly;
+        const subsection_size = 128; // TODO this is totally random
+        const needed_size = 4 * subsection_size;
+        const offset = self.findFreeSpaceLinkedit(needed_size, 1, null);
 
-        const bind_off = self.findFreeSpaceLinkedit(expected_size, 1, null);
-        log.debug("found binding info free space 0x{x} to 0x{x}", .{ bind_off, bind_off + expected_size });
-        dyld.bind_off = @intCast(u32, bind_off);
-        dyld.bind_size = expected_size;
+        const rebase_off = @intCast(u32, offset);
+        log.debug("found rebase info free space 0x{x} to 0x{x}", .{ rebase_off, rebase_off + subsection_size });
+        dyld.rebase_off = rebase_off;
+        dyld.rebase_size = subsection_size;
 
-        const lazy_bind_off = self.findFreeSpaceLinkedit(expected_size, 1, null);
-        log.debug("found lazy binding info free space 0x{x} to 0x{x}", .{ lazy_bind_off, lazy_bind_off + expected_size });
-        dyld.lazy_bind_off = @intCast(u32, lazy_bind_off);
-        dyld.lazy_bind_size = expected_size;
+        const bind_off = rebase_off + subsection_size;
+        log.debug("found binding info free space 0x{x} to 0x{x}", .{ bind_off, bind_off + subsection_size });
+        dyld.bind_off = bind_off;
+        dyld.bind_size = subsection_size;
 
-        const export_off = self.findFreeSpaceLinkedit(expected_size, 1, null);
-        log.debug("found export info free space 0x{x} to 0x{x}", .{ export_off, export_off + expected_size });
-        dyld.export_off = @intCast(u32, export_off);
-        dyld.export_size = expected_size;
+        const lazy_bind_off = bind_off + subsection_size;
+        log.debug("found lazy binding info free space 0x{x} to 0x{x}", .{
+            lazy_bind_off,
+            lazy_bind_off + subsection_size,
+        });
+        dyld.lazy_bind_off = lazy_bind_off;
+        dyld.lazy_bind_size = subsection_size;
+
+        const export_off = lazy_bind_off + subsection_size;
+        log.debug("found export info free space 0x{x} to 0x{x}", .{ export_off, export_off + subsection_size });
+        dyld.export_off = export_off;
+        dyld.export_size = subsection_size;
 
         self.load_commands_dirty = true;
     }
@@ -4097,10 +4093,6 @@ fn allocatedSizeLinkedit(self: *MachO, start: u64) u64 {
     if (self.dyld_info_cmd_index) |idx| {
         const dyld_info = self.load_commands.items[idx].DyldInfoOnly;
         if (dyld_info.rebase_off > start and dyld_info.rebase_off < min_pos) min_pos = dyld_info.rebase_off;
-        if (dyld_info.bind_off > start and dyld_info.bind_off < min_pos) min_pos = dyld_info.bind_off;
-        if (dyld_info.weak_bind_off > start and dyld_info.weak_bind_off < min_pos) min_pos = dyld_info.weak_bind_off;
-        if (dyld_info.lazy_bind_off > start and dyld_info.lazy_bind_off < min_pos) min_pos = dyld_info.lazy_bind_off;
-        if (dyld_info.export_off > start and dyld_info.export_off < min_pos) min_pos = dyld_info.export_off;
     }
 
     if (self.function_starts_cmd_index) |idx| {
@@ -4141,27 +4133,14 @@ fn detectAllocCollisionLinkedit(self: *MachO, start: u64, size: u64) ?u64 {
 
     // __LINKEDIT is a weird segment where sections get their own load commands so we
     // special-case it.
-    if (self.dyld_info_cmd_index) |idx| outer: {
-        if (self.load_commands.items.len == idx) break :outer;
+    if (self.dyld_info_cmd_index) |idx| {
         const dyld_info = self.load_commands.items[idx].DyldInfoOnly;
-        if (checkForCollision(start, end, dyld_info.rebase_off, dyld_info.rebase_size)) |pos| {
-            return pos;
-        }
-        // Binding info
-        if (checkForCollision(start, end, dyld_info.bind_off, dyld_info.bind_size)) |pos| {
-            return pos;
-        }
-        // Weak binding info
-        if (checkForCollision(start, end, dyld_info.weak_bind_off, dyld_info.weak_bind_size)) |pos| {
-            return pos;
-        }
-        // Lazy binding info
-        if (checkForCollision(start, end, dyld_info.lazy_bind_off, dyld_info.lazy_bind_size)) |pos| {
-            return pos;
-        }
-        // Export info
-        if (checkForCollision(start, end, dyld_info.export_off, dyld_info.export_size)) |pos| {
-            return pos;
+        const offset = dyld_info.rebase_off;
+        const actual_size = dyld_info.export_off + dyld_info.export_size - offset;
+        const increased_size = padToIdeal(actual_size);
+        const test_end = offset + increased_size;
+        if (end > offset and start < test_end) {
+            return test_end;
         }
     }
 
@@ -4483,145 +4462,43 @@ fn writeCodeSignature(self: *MachO) !void {
     try self.base.file.?.pwriteAll(buffer, code_sig_cmd.dataoff);
 }
 
-fn writeExportInfo(self: *MachO) !void {
-    if (!self.export_info_dirty) return;
-    if (self.globals.items.len == 0) return;
+fn writeDyldInfoData(self: *MachO) !void {
+    if (!self.dyld_info_dirty) return;
 
     const tracy = trace(@src());
     defer tracy.end();
 
-    var trie: Trie = .{};
-    defer trie.deinit(self.base.allocator);
-
-    const text_segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
-    const base_address = text_segment.inner.vmaddr;
-
-    // TODO handle macho.EXPORT_SYMBOL_FLAGS_REEXPORT and macho.EXPORT_SYMBOL_FLAGS_STUB_AND_RESOLVER.
-    log.debug("writing export trie", .{});
-
-    for (self.globals.items) |sym| {
-        const sym_name = self.getString(sym.n_strx);
-        log.debug("  (putting '{s}' defined at 0x{x})", .{ sym_name, sym.n_value });
-
-        try trie.put(self.base.allocator, .{
-            .name = sym_name,
-            .vmaddr_offset = sym.n_value - base_address,
-            .export_flags = macho.EXPORT_SYMBOL_FLAGS_KIND_REGULAR,
-        });
-    }
-    try trie.finalize(self.base.allocator);
-
-    var buffer = try self.base.allocator.alloc(u8, @intCast(usize, trie.size));
-    defer self.base.allocator.free(buffer);
-    var stream = std.io.fixedBufferStream(buffer);
-    const nwritten = try trie.write(stream.writer());
-    assert(nwritten == trie.size);
-
-    const dyld_info = &self.load_commands.items[self.dyld_info_cmd_index.?].DyldInfoOnly;
-    const allocated_size = self.allocatedSizeLinkedit(dyld_info.export_off);
-    const needed_size = mem.alignForwardGeneric(u64, buffer.len, @alignOf(u64));
-
-    if (needed_size > allocated_size) {
-        dyld_info.export_off = 0;
-        dyld_info.export_off = @intCast(u32, self.findFreeSpaceLinkedit(needed_size, 1, null));
-        // TODO this might require relocating all following LC_DYLD_INFO_ONLY sections too.
-    }
-    dyld_info.export_size = @intCast(u32, needed_size);
-    log.debug("writing export info from 0x{x} to 0x{x}", .{ dyld_info.export_off, dyld_info.export_off + dyld_info.export_size });
-
-    try self.base.file.?.pwriteAll(buffer, dyld_info.export_off);
-    self.load_commands_dirty = true;
-    self.export_info_dirty = false;
-}
-
-fn writeRebaseInfoTable(self: *MachO) !void {
-    if (!self.rebase_info_dirty) return;
-
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    var pointers = std.ArrayList(bind.Pointer).init(self.base.allocator);
-    defer pointers.deinit();
+    var rebase_pointers = std.ArrayList(bind.Pointer).init(self.base.allocator);
+    defer rebase_pointers.deinit();
+    var bind_pointers = std.ArrayList(bind.Pointer).init(self.base.allocator);
+    defer bind_pointers.deinit();
+    var lazy_bind_pointers = std.ArrayList(bind.Pointer).init(self.base.allocator);
+    defer lazy_bind_pointers.deinit();
 
     {
         var it = self.blocks.iterator();
         while (it.next()) |entry| {
             const match = entry.key_ptr.*;
-            var block: *TextBlock = entry.value_ptr.*;
+            var atom: *TextBlock = entry.value_ptr.*;
 
             if (match.seg == self.text_segment_cmd_index.?) continue; // __TEXT is non-writable
 
             const seg = self.load_commands.items[match.seg].Segment;
 
             while (true) {
-                const sym = self.locals.items[block.local_sym_index];
+                const sym = self.locals.items[atom.local_sym_index];
                 const base_offset = sym.n_value - seg.inner.vmaddr;
 
-                for (block.rebases.items) |offset| {
-                    try pointers.append(.{
+                for (atom.rebases.items) |offset| {
+                    try rebase_pointers.append(.{
                         .offset = base_offset + offset,
                         .segment_id = match.seg,
                     });
                 }
 
-                if (block.prev) |prev| {
-                    block = prev;
-                } else break;
-            }
-        }
-    }
-
-    const size = try bind.rebaseInfoSize(pointers.items);
-    var buffer = try self.base.allocator.alloc(u8, @intCast(usize, size));
-    defer self.base.allocator.free(buffer);
-
-    var stream = std.io.fixedBufferStream(buffer);
-    try bind.writeRebaseInfo(pointers.items, stream.writer());
-
-    const dyld_info = &self.load_commands.items[self.dyld_info_cmd_index.?].DyldInfoOnly;
-    const allocated_size = self.allocatedSizeLinkedit(dyld_info.rebase_off);
-    const needed_size = mem.alignForwardGeneric(u64, buffer.len, @alignOf(u64));
-
-    if (needed_size > allocated_size) {
-        dyld_info.rebase_off = 0;
-        dyld_info.rebase_off = @intCast(u32, self.findFreeSpaceLinkedit(needed_size, 1, null));
-        // TODO this might require relocating all following LC_DYLD_INFO_ONLY sections too.
-    }
-
-    dyld_info.rebase_size = @intCast(u32, needed_size);
-    log.debug("writing rebase info from 0x{x} to 0x{x}", .{ dyld_info.rebase_off, dyld_info.rebase_off + dyld_info.rebase_size });
-
-    try self.base.file.?.pwriteAll(buffer, dyld_info.rebase_off);
-    self.load_commands_dirty = true;
-    self.rebase_info_dirty = false;
-}
-
-fn writeBindInfoTable(self: *MachO) !void {
-    if (!self.binding_info_dirty) return;
-
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    var pointers = std.ArrayList(bind.Pointer).init(self.base.allocator);
-    defer pointers.deinit();
-
-    {
-        var it = self.blocks.iterator();
-        while (it.next()) |entry| {
-            const match = entry.key_ptr.*;
-            var block: *TextBlock = entry.value_ptr.*;
-
-            if (match.seg == self.text_segment_cmd_index.?) continue; // __TEXT is non-writable
-
-            const seg = self.load_commands.items[match.seg].Segment;
-
-            while (true) {
-                const sym = self.locals.items[block.local_sym_index];
-                const base_offset = sym.n_value - seg.inner.vmaddr;
-
-                for (block.bindings.items) |binding| {
+                for (atom.bindings.items) |binding| {
                     const bind_sym = self.undefs.items[binding.local_sym_index];
-                    try pointers.append(.{
+                    try bind_pointers.append(.{
                         .offset = binding.offset + base_offset,
                         .segment_id = match.seg,
                         .dylib_ordinal = @divExact(bind_sym.n_desc, macho.N_SYMBOL_RESOLVER),
@@ -4629,97 +4506,86 @@ fn writeBindInfoTable(self: *MachO) !void {
                     });
                 }
 
-                if (block.prev) |prev| {
-                    block = prev;
+                for (atom.lazy_bindings.items) |binding| {
+                    const bind_sym = self.undefs.items[binding.local_sym_index];
+                    try lazy_bind_pointers.append(.{
+                        .offset = binding.offset + base_offset,
+                        .segment_id = match.seg,
+                        .dylib_ordinal = @divExact(bind_sym.n_desc, macho.N_SYMBOL_RESOLVER),
+                        .name = self.getString(bind_sym.n_strx),
+                    });
+                }
+
+                if (atom.prev) |prev| {
+                    atom = prev;
                 } else break;
             }
         }
     }
 
-    const size = try bind.bindInfoSize(pointers.items);
-    var buffer = try self.base.allocator.alloc(u8, @intCast(usize, size));
-    defer self.base.allocator.free(buffer);
+    var trie: Trie = .{};
+    defer trie.deinit(self.base.allocator);
 
-    var stream = std.io.fixedBufferStream(buffer);
-    try bind.writeBindInfo(pointers.items, stream.writer());
+    {
+        // TODO handle macho.EXPORT_SYMBOL_FLAGS_REEXPORT and macho.EXPORT_SYMBOL_FLAGS_STUB_AND_RESOLVER.
+        log.debug("writing export trie", .{});
+        const text_segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
+        const base_address = text_segment.inner.vmaddr;
 
-    const dyld_info = &self.load_commands.items[self.dyld_info_cmd_index.?].DyldInfoOnly;
-    const allocated_size = self.allocatedSizeLinkedit(dyld_info.bind_off);
-    const needed_size = mem.alignForwardGeneric(u64, buffer.len, @alignOf(u64));
+        for (self.globals.items) |sym| {
+            const sym_name = self.getString(sym.n_strx);
+            log.debug("  (putting '{s}' defined at 0x{x})", .{ sym_name, sym.n_value });
 
-    if (needed_size > allocated_size) {
-        dyld_info.bind_off = 0;
-        dyld_info.bind_off = @intCast(u32, self.findFreeSpaceLinkedit(needed_size, 1, null));
-        // TODO this might require relocating all following LC_DYLD_INFO_ONLY sections too.
-    }
-
-    dyld_info.bind_size = @intCast(u32, needed_size);
-    log.debug("writing binding info from 0x{x} to 0x{x}", .{ dyld_info.bind_off, dyld_info.bind_off + dyld_info.bind_size });
-
-    try self.base.file.?.pwriteAll(buffer, dyld_info.bind_off);
-    self.load_commands_dirty = true;
-    self.binding_info_dirty = false;
-}
-
-fn writeLazyBindInfoTable(self: *MachO) !void {
-    if (!self.lazy_binding_info_dirty) return;
-
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    var pointers = std.ArrayList(bind.Pointer).init(self.base.allocator);
-    defer pointers.deinit();
-
-    if (self.la_symbol_ptr_section_index) |sect| blk: {
-        var atom = self.blocks.get(.{
-            .seg = self.data_segment_cmd_index.?,
-            .sect = sect,
-        }) orelse break :blk;
-        const seg = self.load_commands.items[self.data_segment_cmd_index.?].Segment;
-
-        while (true) {
-            const sym = self.locals.items[atom.local_sym_index];
-            const base_offset = sym.n_value - seg.inner.vmaddr;
-
-            for (atom.lazy_bindings.items) |binding| {
-                const bind_sym = self.undefs.items[binding.local_sym_index];
-                try pointers.append(.{
-                    .offset = binding.offset + base_offset,
-                    .segment_id = self.data_segment_cmd_index.?,
-                    .dylib_ordinal = @divExact(bind_sym.n_desc, macho.N_SYMBOL_RESOLVER),
-                    .name = self.getString(bind_sym.n_strx),
-                });
-            }
-            if (atom.prev) |prev| {
-                atom = prev;
-            } else break;
+            try trie.put(self.base.allocator, .{
+                .name = sym_name,
+                .vmaddr_offset = sym.n_value - base_address,
+                .export_flags = macho.EXPORT_SYMBOL_FLAGS_KIND_REGULAR,
+            });
         }
+
+        try trie.finalize(self.base.allocator);
     }
-
-    const size = try bind.lazyBindInfoSize(pointers.items);
-    var buffer = try self.base.allocator.alloc(u8, @intCast(usize, size));
-    defer self.base.allocator.free(buffer);
-
-    var stream = std.io.fixedBufferStream(buffer);
-    try bind.writeLazyBindInfo(pointers.items, stream.writer());
 
     const dyld_info = &self.load_commands.items[self.dyld_info_cmd_index.?].DyldInfoOnly;
-    const allocated_size = self.allocatedSizeLinkedit(dyld_info.lazy_bind_off);
-    const needed_size = mem.alignForwardGeneric(u64, buffer.len, @alignOf(u64));
+    const allocated_size = self.allocatedSizeLinkedit(dyld_info.rebase_off);
+    const rebase_size = @intCast(u32, try bind.rebaseInfoSize(rebase_pointers.items));
+    const bind_size = @intCast(u32, try bind.bindInfoSize(bind_pointers.items));
+    const lazy_bind_size = @intCast(u32, try bind.lazyBindInfoSize(lazy_bind_pointers.items));
+    const export_size = @intCast(u32, trie.size);
+    const total_size = rebase_size + bind_size + lazy_bind_size + export_size;
+    const needed_size = mem.alignForwardGeneric(u64, total_size, @alignOf(u64));
 
     if (needed_size > allocated_size) {
-        dyld_info.lazy_bind_off = 0;
-        dyld_info.lazy_bind_off = @intCast(u32, self.findFreeSpaceLinkedit(needed_size, 1, null));
-        // TODO this might require relocating all following LC_DYLD_INFO_ONLY sections too.
+        dyld_info.rebase_off = 0;
+        dyld_info.rebase_off = @intCast(u32, self.findFreeSpaceLinkedit(needed_size, 1, null));
     }
 
-    dyld_info.lazy_bind_size = @intCast(u32, needed_size);
-    log.debug("writing lazy binding info from 0x{x} to 0x{x}", .{ dyld_info.lazy_bind_off, dyld_info.lazy_bind_off + dyld_info.lazy_bind_size });
+    dyld_info.rebase_size = rebase_size;
+    dyld_info.bind_off = dyld_info.rebase_off + dyld_info.rebase_size;
+    dyld_info.bind_size = bind_size;
+    dyld_info.lazy_bind_off = dyld_info.bind_off + dyld_info.bind_size;
+    dyld_info.lazy_bind_size = lazy_bind_size;
+    dyld_info.export_off = dyld_info.lazy_bind_off + dyld_info.lazy_bind_size;
+    dyld_info.export_size = export_size;
 
-    try self.base.file.?.pwriteAll(buffer, dyld_info.lazy_bind_off);
-    try self.populateLazyBindOffsetsInStubHelper(buffer);
+    var buffer = try self.base.allocator.alloc(u8, needed_size);
+    defer self.base.allocator.free(buffer);
+    mem.set(u8, buffer, 0);
+
+    var stream = std.io.fixedBufferStream(buffer);
+    const writer = stream.writer();
+
+    try bind.writeRebaseInfo(rebase_pointers.items, writer);
+    try bind.writeBindInfo(bind_pointers.items, writer);
+    try bind.writeLazyBindInfo(lazy_bind_pointers.items, writer);
+    _ = try trie.write(writer);
+
+    log.debug("writing dyld info from 0x{x} to 0x{x}", .{ dyld_info.rebase_off, dyld_info.rebase_off + needed_size });
+
+    try self.base.file.?.pwriteAll(buffer, dyld_info.rebase_off);
+    try self.populateLazyBindOffsetsInStubHelper(buffer[rebase_size + bind_size ..][0..lazy_bind_size]);
     self.load_commands_dirty = true;
-    self.lazy_binding_info_dirty = false;
+    self.dyld_info_dirty = false;
 }
 
 fn populateLazyBindOffsetsInStubHelper(self: *MachO, buffer: []const u8) !void {
