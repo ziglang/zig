@@ -103,7 +103,7 @@ pub const LibCInstallation = struct {
             log.err("crt_dir may not be empty for {s}\n", .{@tagName(os_tag)});
             return error.ParseError;
         }
-        
+
         const abi = target.getAbi();
         if (self.msvc_lib_dir == null and target.isWindows() and abi == .msvc) {
             log.err("msvc_lib_dir may not be empty for {s}-{s}\n", .{

@@ -2627,7 +2627,6 @@ pub const usage_libc =
     \\    -h, --help             Print this help and exit
     \\    -target [name]         <arch><sub>-<os>-<abi> see the targets command
     \\
-
 ;
 
 pub fn cmdLibC(gpa: *Allocator, args: []const []const u8) !void {
