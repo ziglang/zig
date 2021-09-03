@@ -583,18 +583,15 @@ pub const DeclGen = struct {
 
     fn llvmAddressSpace(self: DeclGen, address_space: std.builtin.AddressSpace) c_uint {
         const target = self.module.getTarget();
-        return switch (address_space) {
-            .generic => llvm.address_space.default,
-            .gs => switch (target.cpu.arch) {
-                .i386, .x86_64 => llvm.address_space.x86.gs,
-                else => unreachable,
+        return switch (target.cpu.arch) {
+            .i386, .x86_64 => switch (address_space) {
+                .generic => llvm.address_space.default,
+                .gs => llvm.address_space.x86.gs,
+                .fs => llvm.address_space.x86.fs,
+                .ss => llvm.address_space.x86.ss,
             },
-            .fs => switch (target.cpu.arch) {
-                .i386, .x86_64 => llvm.address_space.x86.fs,
-                else => unreachable,
-            },
-            .ss => switch (target.cpu.arch) {
-                .i386, .x86_64 => llvm.address_space.x86.ss,
+            else => switch (address_space) {
+                .generic => llvm.address_space.default,
                 else => unreachable,
             },
         };
