@@ -1710,7 +1710,8 @@ pub fn allocateAtom(self: *MachO, atom: *TextBlock, match: MatchingSection) !u64
             const old_base_addr = sect.addr;
             sect.size = 0;
             const padding: ?u64 = if (match.seg == self.text_segment_cmd_index.?) self.header_pad else null;
-            const new_offset = @intCast(u32, seg.findFreeSpace(needed_size, atom.alignment, padding));
+            const atom_alignment = try math.powi(u64, 2, atom.alignment);
+            const new_offset = @intCast(u32, seg.findFreeSpace(needed_size, atom_alignment, padding));
             sect.offset = new_offset;
             sect.addr = seg.inner.vmaddr + sect.offset - seg.inner.fileoff;
             log.debug("  (found new {s},{s} free space from 0x{x} to 0x{x})", .{
@@ -2741,6 +2742,7 @@ fn setEntryPoint(self: *MachO) !void {
     const ec = &self.load_commands.items[self.main_cmd_index.?].Main;
     ec.entryoff = @intCast(u32, sym.n_value - seg.inner.vmaddr);
     ec.stacksize = self.base.options.stack_size_override orelse 0;
+    self.entry_addr = sym.n_value;
     self.load_commands_dirty = true;
 }
 
@@ -3234,15 +3236,7 @@ pub fn updateDeclExports(
                 n_type |= macho.N_PEXT;
                 n_desc |= macho.N_WEAK_DEF;
             },
-            .Strong => {
-                // Check if the export is _main, and note if os.
-                // Otherwise, don't do anything since we already have all the flags
-                // set that we need for global (strong) linkage.
-                // n_type == N_SECT | N_EXT
-                if (mem.eql(u8, exp_name, "_main")) {
-                    self.entry_addr = decl_sym.n_value;
-                }
-            },
+            .Strong => {},
             .Weak => {
                 // Weak linkage is specified as part of n_desc field.
                 // Symbol's n_type is like for a symbol with strong linkage.
@@ -4244,7 +4238,14 @@ fn relocateSymbolTable(self: *MachO) !void {
                 new_symoff + existing_size,
             });
 
-            const amt = try self.base.file.?.copyRangeAll(symtab.symoff, self.base.file.?, new_symoff, existing_size);
+            // TODO copyRangeAll doesn't seem to extend the file beyond its allocated size
+            try self.base.file.?.pwriteAll(&[_]u8{0}, new_symoff + existing_size - 1);
+            const amt = try self.base.file.?.copyRangeAll(
+                symtab.symoff,
+                self.base.file.?,
+                new_symoff,
+                existing_size,
+            );
             if (amt != existing_size) return error.InputOutput;
             symtab.symoff = @intCast(u32, new_symoff);
             self.strtab_needs_relocation = true;
