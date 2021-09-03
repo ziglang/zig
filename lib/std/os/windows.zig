@@ -3645,10 +3645,17 @@ pub const OBJECT_NAME_INFORMATION = extern struct {
     Name: UNICODE_STRING,
 };
 
-pub const SRWLOCK = usize;
-pub const SRWLOCK_INIT: SRWLOCK = 0;
-pub const CONDITION_VARIABLE = usize;
-pub const CONDITION_VARIABLE_INIT: CONDITION_VARIABLE = 0;
+pub const SRWLOCK = RTL_SRWLOCK;
+pub const SRWLOCK_INIT = SRWLOCK{ .Ptr = null };
+pub const RTL_SRWLOCK = extern struct {
+    Ptr: ?*c_void,
+};
+
+pub const CONDITION_VARIABLE = RTL_CONDITION_VARIABLE;
+pub const CONDITION_VARIABLE_INIT = CONDITION_VARIABLE{ .Ptr = null };
+pub const RTL_CONDITION_VARIABLE = extern struct {
+    Ptr: ?*c_void,
+};
 
 pub const FILE_SKIP_COMPLETION_PORT_ON_SUCCESS = 0x1;
 pub const FILE_SKIP_SET_EVENT_ON_HANDLE = 0x2;

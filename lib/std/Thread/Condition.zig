@@ -288,76 +288,41 @@ test "Condition - basic" {
     held.release();
 }
 
-const TestEvent = struct {
-    lock: Mutex = .{},
-    cond: Condition = .{},
-    signaled: bool = false,
-
-    fn doWait(self: *TestEvent) void {
-        const held = self.lock.acquire();
-        defer held.release();
-
-        while (!self.signaled) {
-            self.cond.wait(held, null) catch unreachable;
-        }
-    }
-
-    fn doSignal(self: *TestEvent, do_broadcast: bool) void {
-        const held = self.lock.acquire();
-        defer held.release();
-
-        self.signaled = true;
-        switch (do_broadcast) {
-            true => self.cond.signal(),
-            else => self.cond.broadcast(),
-        }
-    }
-};
-
 test "Condition - wait/signal" {
     if (std.builtin.single_threaded) return error.SkipZigTest;
 
-    for ([_]bool{ false, true }) |do_broadcast| {
-        var event = TestEvent{};
-        var wait_thread = try std.Thread.spawn(.{}, TestEvent.doWait, .{&event});
-
-        event.doSignal(do_broadcast);
-        wait_thread.join();
-    }
-}
-
-test "Condition - chain signal" {
-    if (std.builtin.single_threaded) return error.SkipZigTest;
-
-    const num_threads = 4;
     const Context = struct {
-        runners: [num_threads]Runner = undefined,
+        lock: Mutex = .{},
+        cond: Condition = .{},
+        signaled: bool = false,
 
-        const Runner = struct {
-            event: TestEvent = .{},
-            thread: std.Thread = undefined,
-        };
+        fn doWait(self: *@This()) void {
+            const held = self.lock.acquire();
+            defer held.release();
 
-        fn run(self: *@This(), index: usize, do_broadcast: bool) void {
-            self.runners[index].event.doWait();
-            
-            const next = index + 1;
-            if (next == self.runners.len) return;
-            self.runners[next].event.doSignal(do_broadcast);
+            while (!self.signaled) {
+                self.cond.wait(held, null) catch unreachable;
+            }
+        }
+
+        fn doSignal(self: *@This(), do_broadcast: bool) void {
+            const held = self.lock.acquire();
+            defer held.release();
+
+            self.signaled = true;
+            switch (do_broadcast) {
+                true => self.cond.signal(),
+                else => self.cond.broadcast(),
+            }
         }
     };
 
-    for ([_]bool{ true, false }) |do_broadcast| {
+    for ([_]bool{ false, true }) |do_broadcast| {
         var context = Context{};
-        for (context.runners) |*r, i| {
-            r.* = .{};
-            r.thread = try std.Thread.spawn(.{}, Context.run, .{&context, i, do_broadcast});
-        }
+        const wait_signal = try std.Thread.spawn(.{}, Context.doWait, .{&context});
 
-        context.runners[0].event.doSignal(do_broadcast);
-        for (context.runners) |r| {
-            r.thread.join();
-        }
+        context.doSignal(do_broadcast);
+        wait_signal.join();
     }
 }
 
@@ -406,17 +371,12 @@ test "Condition - producer / consumer" {
     for ([_]bool{ true, false }) |do_broadcast| {
         var context = Context{};
         var threads: [num_threads]std.Thread = undefined;
-        for (threads) |*t| {
-            t.* = try std.Thread.spawn(.{}, Context.doRecv, .{&context, do_broadcast});
-        }
+        for (threads) |*t| t.* = try std.Thread.spawn(.{}, Context.doRecv, .{&context, do_broadcast});
+        defer for (threads) |t| t.join();
 
         var i: usize = num_threads;
         while (i > 0) : (i -= 1) {
             context.doSend(do_broadcast);
-        }
-
-        for (threads) |t| {
-            t.join();
         }
     }
 }

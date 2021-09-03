@@ -104,7 +104,7 @@ const SerialImpl = struct {
 };
 
 const WindowsImpl = struct {
-    srwlock: os.windows.SWRLOCK = os.windows.SRWLOCK_INIT,
+    srwlock: os.windows.SRWLOCK = os.windows.SRWLOCK_INIT,
 
     fn tryAcquireReader(self: *Impl) bool {
         return os.windows.kernel32.TryAcquireSRWLockShared(&self.srwlock) != os.windows.FALSE;
@@ -137,11 +137,11 @@ const FutexImpl = struct {
     state: Atomic(usize) = Atomic(usize).init(UNLOCKED),
     queue: Atomic(usize) = Atomic(usize).init(UNLOCKED),
 
-    const UNLOCKED = 0b0000;
-    const WRITER = 0b0001;
-    const PARKED = 0b0010;
-    const WRITER_PARKED = 0b0100;
-    const READER = 0b1000;
+    const UNLOCKED = 0;
+    const WRITER = 1 << 0;
+    const PARKED = 1 << 1;
+    const WRITER_PARKED = 1 << 2;
+    const READER = 1 << 3;
     const READER_MASK = ~@as(usize, READER - 1);
 
     fn tryAcquireReader(self: *Impl) bool {

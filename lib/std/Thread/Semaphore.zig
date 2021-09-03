@@ -1,6 +1,7 @@
 const std = @import("../std.zig");
 const target = std.Target.current;
 const assert = std.debug.assert;
+const testing = std.testing;
 const os = std.os;
 
 const Atomic = std.atomic.Atomic;
@@ -17,7 +18,7 @@ pub fn tryWait(self: *Semaphore) bool {
     return self.impl.tryWait();
 }
 
-pub fn wait(self: *Mutex, timeout: ?u64) error{TimedOut}!void {
+pub fn wait(self: *Semaphore, timeout: ?u64) error{TimedOut}!void {
     return self.impl.wait(timeout);
 }
 
@@ -134,24 +135,24 @@ const WindowsImpl = struct {
     }
 
     const NtKeyedEvent = struct {
-        fn waitFor(key: anytype, timeout: ?u64) error{TimedOut}!void {
-            return self.call("NtWaitForKeyedEvent", key, timeout);
+        fn waitFor(key: *const c_void, timeout: ?u64) error{TimedOut}!void {
+            return call("NtWaitForKeyedEvent", key, timeout);
         }
 
-        fn release(key: anytype) void {
-            self.call("NtReleaseKeyedEvent", key, timeout) catch unreachable;
+        fn release(key: *const c_void) void {
+            call("NtReleaseKeyedEvent", key, null) catch unreachable;
         }
 
         /// Calls an NtKeyedEvent function with the given relative timeout.
         /// Unlike Futex, NtKeyedEvent doesn't have spurious wake ups or require pointer comparisons.
         fn call(
             comptime keyed_event_fn: []const u8,
-            key_ptr: anytype,
+            key_ptr: *const c_void,
             timeout: ?u64,
         ) error{TimedOut}!void {
-            const key = std.mem.alignPointer(key_ptr, 4) orelse {
-                unreachable; // NtKeyedEvent requires 4-byte aligned pointer keys
-            };
+            // NtKeyedEvent requires 4-byte aligned pointer keys
+            const key_addr = @ptrToInt(key_ptr);
+            assert(std.mem.alignForward(key_addr, 4) == key_addr);
 
             // NtKeyedEvent uses timeout units of 100ns
             // where positive is absolute timeout and negative is relative.
@@ -164,7 +165,7 @@ const WindowsImpl = struct {
 
             return switch (@field(os.windows.ntdll, keyed_event_fn)(
                 getKeyedEventHandle(), // should not fail as null is a valid handle
-                @ptrCast(*const c_void, key),
+                key_ptr,
                 os.windows.FALSE, // non-alertable wait
                 timeout_ptr,
             )) {
@@ -484,3 +485,83 @@ const FutexDeadline = struct {
         };
     }
 };
+
+test "Semaphore - basic" {
+    var sema = Semaphore{};
+    try testing.expectEqual(sema.tryWait(), false);
+
+    sema.post(1);
+    try testing.expectEqual(sema.tryWait(), true);
+    try testing.expectEqual(sema.tryWait(), false);
+
+    sema = Semaphore.init(1);
+    try testing.expectEqual(sema.tryWait(), true);
+    try testing.expectEqual(sema.tryWait(), false);
+
+    sema.post(3);
+    try sema.wait(null);
+    try testing.expectEqual(sema.tryWait(), true);
+    try sema.wait(std.math.maxInt(u64));
+
+    try testing.expectError(error.TimedOut, sema.wait(1));
+    try testing.expectError(error.TimedOut, sema.wait(10 * std.time.ns_per_ms));
+}
+
+test "Semaphore - barrier/broadcast" {
+    if (std.builtin.single_threaded) return error.SkipZigTest;
+
+    const num_threads = 4;
+    const Context = struct {
+        count: Atomic(usize) = Atomic(usize).init(num_threads + 1),
+        sema: Semaphore = .{},
+
+        fn wait(self: *@This()) void {
+            switch (self.count.fetchSub(1, .SeqCst)) {
+                0 => unreachable,
+                1 => self.sema.post(num_threads),
+                else => self.sema.wait(null) catch unreachable,
+            }
+        }
+    };
+
+    var context = Context{};
+    var threads: [num_threads]std.Thread = undefined;
+    for (threads) |*t| t.* = try std.Thread.spawn(.{}, Context.wait, .{&context});
+    defer for (threads) |t| t.join();
+
+    context.wait();
+}
+
+test "Semaphore - producer/consumer" {
+    if (std.builtin.single_threaded) return error.SkipZigTest;
+
+    const num_threads = 4;
+    const Context = struct {
+        send_sema: Semaphore = .{},
+        recv_sema: Semaphore = .{},
+
+        fn producer(self: *@This()) void {
+            var i: usize = 0;
+            while (i < num_threads) : (i += 1) {
+                self.recv_sema.post(1);
+                self.send_sema.wait(null) catch unreachable;
+            }
+        }
+
+        fn consumer(self: *@This(), index: usize) void {
+            var rng = std.rand.DefaultPrng.init(0xdeadbeef + index);
+            while (true) {
+                const rand_timeout = rng.random.uintLessThanBiased(u64, 1 * std.time.ns_per_ms);
+                self.recv_sema.wait(rand_timeout) catch continue;
+                return self.send_sema.post(1);
+            }
+        }
+    };
+
+    var context = Context{};
+    var threads: [num_threads]std.Thread = undefined;
+    for (threads) |*t, i| t.* = try std.Thread.spawn(.{}, Context.consumer, .{&context, i});
+    defer for (threads) |t| t.join();
+
+    context.producer();
+}

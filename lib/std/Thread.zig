@@ -1029,7 +1029,7 @@ test "setName, getName" {
 
         pub fn run(ctx: *@This()) !void {
             // Wait for the main thread to post the thread field in the context.
-            ctx.start_wait_sema.wait();
+            ctx.start_wait_sema.wait(null) catch unreachable;
 
             switch (target.os.tag) {
                 .windows => testThreadName(&ctx.thread) catch |err| switch (err) {
@@ -1049,8 +1049,8 @@ test "setName, getName" {
     defer thread.join();
 
     context.thread = thread;
-    context.start_wait_sema.set();
-    context.test_done_sema.wait();
+    context.start_wait_sema.post(1);
+    context.test_done_sema.wait(null) catch unreachable;
 
     switch (target.os.tag) {
         .macos, .ios, .watchos, .tvos => {
