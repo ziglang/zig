@@ -844,7 +844,6 @@ pub fn parseRelocs(self: *TextBlock, relocs: []macho.relocation_info, context: R
                 .sect = context.macho_file.got_section_index.?,
             };
             _ = try context.macho_file.allocateAtom(atom, match);
-            context.macho_file.dyld_info_dirty = true;
         } else if (parsed_rel.payload == .unsigned) {
             switch (parsed_rel.where) {
                 .undef => {
