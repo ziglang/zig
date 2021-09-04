@@ -162,6 +162,7 @@ stubs_map: std.AutoArrayHashMapUnmanaged(u32, *TextBlock) = .{},
 error_flags: File.ErrorFlags = File.ErrorFlags{},
 
 load_commands_dirty: bool = false,
+sections_order_dirty: bool = false,
 
 has_dices: bool = false,
 has_stabs: bool = false,
@@ -806,6 +807,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
     defer tracy.end();
 
     try self.setEntryPoint();
+    try self.updateSectionOrdinals();
     try self.writeLinkeditSegment();
 
     if (self.d_sym) |*ds| {
@@ -3817,6 +3819,7 @@ fn allocateSection(
     try self.block_free_lists.putNoClobber(self.base.allocator, match, .{});
 
     self.load_commands_dirty = true;
+    self.sections_order_dirty = true;
 
     return index;
 }
@@ -3996,6 +3999,44 @@ fn nextSegmentAddressAndOffset(self: *MachO) NextSegmentAddressAndOffset {
         .address = address,
         .offset = offset,
     };
+}
+
+fn updateSectionOrdinals(self: *MachO) !void {
+    if (!self.sections_order_dirty) return;
+
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    var ordinal_remap = std.AutoHashMap(u8, u8).init(self.base.allocator);
+    defer ordinal_remap.deinit();
+    var ordinals: std.AutoArrayHashMapUnmanaged(MatchingSection, void) = .{};
+
+    var new_ordinal: u8 = 0;
+    for (self.load_commands.items) |lc, lc_id| {
+        if (lc != .Segment) break;
+
+        for (lc.Segment.sections.items) |_, sect_id| {
+            const match = MatchingSection{
+                .seg = @intCast(u16, lc_id),
+                .sect = @intCast(u16, sect_id),
+            };
+            const old_ordinal = @intCast(u8, self.section_ordinals.getIndex(match).? + 1);
+            new_ordinal += 1;
+            try ordinal_remap.putNoClobber(old_ordinal, new_ordinal);
+            try ordinals.putNoClobber(self.base.allocator, match, {});
+        }
+    }
+
+    for (self.locals.items) |*sym| {
+        if (sym.n_sect == 0) continue;
+        sym.n_sect = ordinal_remap.get(sym.n_sect).?;
+    }
+    for (self.globals.items) |*sym| {
+        sym.n_sect = ordinal_remap.get(sym.n_sect).?;
+    }
+
+    self.section_ordinals.deinit(self.base.allocator);
+    self.section_ordinals = ordinals;
 }
 
 fn writeDyldInfoData(self: *MachO) !void {
