@@ -1667,18 +1667,8 @@ pub fn allocateAtom(self: *MachO, atom: *TextBlock, match: MatchingSection) !u64
     const expand_section = atom_placement == null or atom_placement.?.next == null;
     if (expand_section) {
         const needed_size = (vaddr + atom.size) - sect.addr;
-        const sect_offset: u64 = blk: {
-            if (self.data_segment_cmd_index.? == match.seg) {
-                if (self.bss_section_index) |idx| {
-                    if (idx == match.sect) break :blk self.bss_file_offset.?;
-                }
-                if (self.tlv_bss_section_index) |idx| {
-                    if (idx == match.sect) break :blk self.tlv_bss_file_offset.?;
-                }
-            }
-            break :blk sect.offset;
-        };
-        const file_offset = sect_offset + vaddr - sect.addr;
+        const sect_offset = self.getPtrToSectionOffset(match);
+        const file_offset = sect_offset.* + vaddr - sect.addr;
         const max_size = seg.allocatedSize(file_offset);
         log.debug("  (section {s},{s} needed size 0x{x}, max available size 0x{x})", .{
             commands.segmentName(sect.*),
@@ -1741,38 +1731,28 @@ pub fn allocateAtom(self: *MachO, atom: *TextBlock, match: MatchingSection) !u64
                     });
 
                     for (next_seg.sections.items) |*moved_sect, moved_sect_id| {
-                        // TODO put below snippet in a function.
-                        const moved_sect_offset = blk: {
-                            if (self.data_segment_cmd_index.? == next) {
-                                if (self.bss_section_index) |idx| {
-                                    if (idx == moved_sect_id) break :blk &self.bss_file_offset.?;
-                                }
-                                if (self.tlv_bss_section_index) |idx| {
-                                    if (idx == moved_sect_id) break :blk &self.tlv_bss_file_offset.?;
-                                }
-                            }
-                            break :blk &moved_sect.offset;
+                        const moved_match = MatchingSection{
+                            .seg = @intCast(u16, next),
+                            .sect = @intCast(u16, moved_sect_id),
                         };
-                        moved_sect_offset.* += offset_amt;
+                        const ptr_sect_offset = self.getPtrToSectionOffset(moved_match);
+                        ptr_sect_offset.* += offset_amt;
                         moved_sect.addr += offset_amt;
                         log.debug("  (new {s},{s} file offsets from 0x{x} to 0x{x} (in memory 0x{x} to 0x{x}))", .{
                             commands.segmentName(moved_sect.*),
                             commands.sectionName(moved_sect.*),
-                            moved_sect_offset.*,
-                            moved_sect_offset.* + moved_sect.size,
+                            ptr_sect_offset.*,
+                            ptr_sect_offset.* + moved_sect.size,
                             moved_sect.addr,
                             moved_sect.addr + moved_sect.size,
                         });
 
-                        try self.allocateLocalSymbols(.{
-                            .seg = @intCast(u16, next),
-                            .sect = @intCast(u16, moved_sect_id),
-                        }, offset_amt);
+                        try self.allocateLocalSymbols(moved_match, offset_amt);
                     }
                 }
             }
-            sect.offset = new_offset;
-            sect.addr = seg.inner.vmaddr + sect.offset - seg.inner.fileoff;
+            sect_offset.* = new_offset;
+            sect.addr = seg.inner.vmaddr + sect_offset.* - seg.inner.fileoff;
             log.debug("  (found new {s},{s} free space from 0x{x} to 0x{x})", .{
                 commands.segmentName(sect.*),
                 commands.sectionName(sect.*),
@@ -1820,17 +1800,7 @@ pub fn writeAtom(self: *MachO, atom: *TextBlock, match: MatchingSection) !void {
     const seg = self.load_commands.items[match.seg].Segment;
     const sect = seg.sections.items[match.sect];
     const sym = self.locals.items[atom.local_sym_index];
-    const sect_offset: u64 = blk: {
-        if (self.data_segment_cmd_index.? == match.seg) {
-            if (self.bss_section_index) |idx| {
-                if (idx == match.sect) break :blk self.bss_file_offset.?;
-            }
-            if (self.tlv_bss_section_index) |idx| {
-                if (idx == match.sect) break :blk self.tlv_bss_file_offset.?;
-            }
-        }
-        break :blk sect.offset;
-    };
+    const sect_offset = self.getPtrToSectionOffset(match).*;
     const file_offset = sect_offset + sym.n_value - sect.addr;
     try atom.resolveRelocs(self);
     log.debug("writing atom for symbol {s} at file offset 0x{x}", .{ self.getString(sym.n_strx), file_offset });
@@ -3896,6 +3866,25 @@ fn allocateSection(
     return index;
 }
 
+fn getPtrToSectionOffset(self: *MachO, match: MatchingSection) *u32 {
+    if (self.data_segment_cmd_index.? == match.seg) {
+        if (self.bss_section_index) |idx| {
+            if (idx == match.sect) {
+                return &self.bss_file_offset.?;
+            }
+        }
+        if (self.tlv_bss_section_index) |idx| {
+            if (idx == match.sect) {
+                return &self.tlv_bss_file_offset.?;
+            }
+        }
+    }
+
+    const seg = &self.load_commands.items[match.seg].Segment;
+    const sect = &seg.sections.items[match.sect];
+    return &sect.offset;
+}
+
 fn allocateTextBlock(self: *MachO, text_block: *TextBlock, new_block_size: u64, alignment: u64) !u64 {
     const text_segment = &self.load_commands.items[self.text_segment_cmd_index.?].Segment;
     const text_section = &text_segment.sections.items[self.text_section_index.?];
@@ -4028,32 +4017,23 @@ fn allocateTextBlock(self: *MachO, text_block: *TextBlock, new_block_size: u64, 
 
                     for (next_seg.sections.items) |*moved_sect, moved_sect_id| {
                         // TODO put below snippet in a function.
-                        const moved_sect_offset = blk: {
-                            if (self.data_segment_cmd_index.? == next) {
-                                if (self.bss_section_index) |idx| {
-                                    if (idx == moved_sect_id) break :blk &self.bss_file_offset.?;
-                                }
-                                if (self.tlv_bss_section_index) |idx| {
-                                    if (idx == moved_sect_id) break :blk &self.tlv_bss_file_offset.?;
-                                }
-                            }
-                            break :blk &moved_sect.offset;
+                        const moved_match = MatchingSection{
+                            .seg = @intCast(u16, next),
+                            .sect = @intCast(u16, moved_sect_id),
                         };
-                        moved_sect_offset.* += offset_amt;
+                        const ptr_sect_offset = self.getPtrToSectionOffset(moved_match);
+                        ptr_sect_offset.* += offset_amt;
                         moved_sect.addr += offset_amt;
                         log.debug("  (new {s},{s} file offsets from 0x{x} to 0x{x} (in memory 0x{x} to 0x{x}))", .{
                             commands.segmentName(moved_sect.*),
                             commands.sectionName(moved_sect.*),
-                            moved_sect_offset.*,
-                            moved_sect_offset.* + moved_sect.size,
+                            ptr_sect_offset.*,
+                            ptr_sect_offset.* + moved_sect.size,
                             moved_sect.addr,
                             moved_sect.addr + moved_sect.size,
                         });
 
-                        try self.allocateLocalSymbols(.{
-                            .seg = @intCast(u16, next),
-                            .sect = @intCast(u16, moved_sect_id),
-                        }, offset_amt);
+                        try self.allocateLocalSymbols(moved_match, offset_amt);
                     }
                 }
             }
