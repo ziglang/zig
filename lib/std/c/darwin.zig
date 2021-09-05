@@ -208,8 +208,8 @@ pub const DISPATCH_TIME_NOW = @as(dispatch_time_t, 0);
 pub const DISPATCH_TIME_FOREVER = ~@as(dispatch_time_t, 0);
 pub extern "c" fn dispatch_time(when: dispatch_time_t, delta: i64) dispatch_time_t;
 
-const dispatch_once_t = usize;
-const dispatch_function_t = fn (?*c_void) callconv(.C) void;
+pub const dispatch_once_t = usize;
+pub const dispatch_function_t = fn (?*c_void) callconv(.C) void;
 pub extern fn dispatch_once_f(
     predicate: *dispatch_once_t,
     context: ?*c_void,
