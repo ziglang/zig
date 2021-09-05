@@ -3220,7 +3220,12 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
         };
 
         break :blk switch (decl.zirAddrspaceRef()) {
-            .none => .generic,
+            .none => switch (addrspace_ctx) {
+                .function => target_util.defaultAddressSpace(sema.mod.getTarget(), .function),
+                .variable => target_util.defaultAddressSpace(sema.mod.getTarget(), .global_mutable),
+                .constant => target_util.defaultAddressSpace(sema.mod.getTarget(), .global_constant),
+                else => unreachable,
+            },
             else => |addrspace_ref| try sema.analyzeAddrspace(&block_scope, src, addrspace_ref, addrspace_ctx),
         };
     };
@@ -4359,26 +4364,21 @@ pub fn simplePtrType(
     elem_ty: Type,
     mutable: bool,
     size: std.builtin.TypeInfo.Pointer.Size,
+    @"addrspace": std.builtin.AddressSpace,
 ) Allocator.Error!Type {
-    if (!mutable and size == .Slice and elem_ty.eql(Type.initTag(.u8))) {
-        return Type.initTag(.const_slice_u8);
-    }
-    // TODO stage1 type inference bug
-    const T = Type.Tag;
-
-    const type_payload = try arena.create(Type.Payload.ElemType);
-    type_payload.* = .{
-        .base = .{
-            .tag = switch (size) {
-                .One => if (mutable) T.single_mut_pointer else T.single_const_pointer,
-                .Many => if (mutable) T.many_mut_pointer else T.many_const_pointer,
-                .C => if (mutable) T.c_mut_pointer else T.c_const_pointer,
-                .Slice => if (mutable) T.mut_slice else T.const_slice,
-            },
-        },
-        .data = elem_ty,
-    };
-    return Type.initPayload(&type_payload.base);
+    return ptrType(
+        arena,
+        elem_ty,
+        null,
+        0,
+        @"addrspace",
+        0,
+        0,
+        mutable,
+        false,
+        false,
+        size,
+    );
 }
 
 pub fn ptrType(
@@ -4396,47 +4396,43 @@ pub fn ptrType(
 ) Allocator.Error!Type {
     assert(host_size == 0 or bit_offset < host_size * 8);
 
-    // TODO check if type can be represented by simplePtrType
-    return Type.Tag.pointer.create(arena, .{
-        .pointee_type = elem_ty,
-        .sentinel = sentinel,
-        .@"align" = @"align",
-        .@"addrspace" = @"addrspace",
-        .bit_offset = bit_offset,
-        .host_size = host_size,
-        .@"allowzero" = @"allowzero",
-        .mutable = mutable,
-        .@"volatile" = @"volatile",
-        .size = size,
-    });
-}
-
-/// Create a pointer type with an explicit address space. This function might return results
-/// of either simplePtrType or ptrType, depending on the address space.
-/// TODO(Snektron) unify ptrType functions.
-pub fn simplePtrTypeWithAddressSpace(
-    arena: *Allocator,
-    elem_ty: Type,
-    mutable: bool,
-    size: std.builtin.TypeInfo.Pointer.Size,
-    address_space: std.builtin.AddressSpace,
-) Allocator.Error!Type {
-    switch (address_space) {
-        .generic => return simplePtrType(arena, elem_ty, mutable, size),
-        else => return ptrType(
-            arena,
-            elem_ty,
-            null,
-            0,
-            address_space,
-            0,
-            0,
-            mutable,
-            false,
-            false,
-            size,
-        ),
+    if (sentinel != null or @"align" != 0 or @"addrspace" != .generic or
+        bit_offset != 0 or host_size != 0 or @"allowzero" or @"volatile")
+    {
+        return Type.Tag.pointer.create(arena, .{
+            .pointee_type = elem_ty,
+            .sentinel = sentinel,
+            .@"align" = @"align",
+            .@"addrspace" = @"addrspace",
+            .bit_offset = bit_offset,
+            .host_size = host_size,
+            .@"allowzero" = @"allowzero",
+            .mutable = mutable,
+            .@"volatile" = @"volatile",
+            .size = size,
+        });
     }
+
+    if (!mutable and size == .Slice and elem_ty.eql(Type.initTag(.u8))) {
+        return Type.initTag(.const_slice_u8);
+    }
+
+    // TODO stage1 type inference bug
+    const T = Type.Tag;
+
+    const type_payload = try arena.create(Type.Payload.ElemType);
+    type_payload.* = .{
+        .base = .{
+            .tag = switch (size) {
+                .One => if (mutable) T.single_mut_pointer else T.single_const_pointer,
+                .Many => if (mutable) T.many_mut_pointer else T.many_const_pointer,
+                .C => if (mutable) T.c_mut_pointer else T.c_const_pointer,
+                .Slice => if (mutable) T.mut_slice else T.const_slice,
+            },
+        },
+        .data = elem_ty,
+    };
+    return Type.initPayload(&type_payload.base);
 }
 
 pub fn optionalType(arena: *Allocator, child_type: Type) Allocator.Error!Type {

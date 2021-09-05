@@ -2309,7 +2309,6 @@ pub const Inst = struct {
     /// 0. lib_name: u32, // null terminated string index, if has_lib_name is set
     /// 1. cc: Ref, // if has_cc is set
     /// 2. align: Ref, // if has_align is set
-    /// 3. addrspace: Ref, // if has_addrspace is set
     /// 3. return_type: Index // for each ret_body_len
     /// 4. body: Index // for each body_len
     /// 5. src_locs: Func.SrcLocs // if body_len != 0
@@ -2327,10 +2326,9 @@ pub const Inst = struct {
             has_lib_name: bool,
             has_cc: bool,
             has_align: bool,
-            has_addrspace: bool,
             is_test: bool,
             is_extern: bool,
-            _: u8 = undefined,
+            _: u9 = undefined,
         };
     };
 
@@ -4483,7 +4481,6 @@ const Writer = struct {
             false,
             .none,
             .none,
-            .none,
             body,
             src,
             src_locs,
@@ -4512,11 +4509,6 @@ const Writer = struct {
             extra_index += 1;
             break :blk align_inst;
         };
-        const addrspace_inst: Inst.Ref = if (!small.has_addrspace) .none else blk: {
-            const addrspace_inst = @intToEnum(Zir.Inst.Ref, self.code.extra[extra_index]);
-            extra_index += 1;
-            break :blk addrspace_inst;
-        };
 
         const ret_ty_body = self.code.extra[extra_index..][0..extra.data.ret_body_len];
         extra_index += ret_ty_body.len;
@@ -4536,7 +4528,6 @@ const Writer = struct {
             small.is_extern,
             cc,
             align_inst,
-            addrspace_inst,
             body,
             src,
             src_locs,
@@ -4619,7 +4610,6 @@ const Writer = struct {
         is_extern: bool,
         cc: Inst.Ref,
         align_inst: Inst.Ref,
-        addrspace_inst: Inst.Ref,
         body: []const Inst.Index,
         src: LazySrcLoc,
         src_locs: Zir.Inst.Func.SrcLocs,
@@ -4637,7 +4627,6 @@ const Writer = struct {
 
         try self.writeOptionalInstRef(stream, ", cc=", cc);
         try self.writeOptionalInstRef(stream, ", align=", align_inst);
-        try self.writeOptionalInstRef(stream, ", addrspace=", addrspace_inst);
         try self.writeFlag(stream, ", vargs", var_args);
         try self.writeFlag(stream, ", extern", is_extern);
         try self.writeFlag(stream, ", inferror", inferred_error_set);
@@ -4915,7 +4904,6 @@ fn findDeclsInner(
                     extra_index += @boolToInt(small.has_lib_name);
                     extra_index += @boolToInt(small.has_cc);
                     extra_index += @boolToInt(small.has_align);
-                    extra_index += @boolToInt(small.has_addrspace);
                     const body = zir.extra[extra_index..][0..extra.data.body_len];
                     return zir.findDeclsBody(list, body);
                 },
@@ -5119,7 +5107,6 @@ pub fn getFnInfo(zir: Zir, fn_inst: Inst.Index) FnInfo {
             extra_index += @boolToInt(small.has_lib_name);
             extra_index += @boolToInt(small.has_cc);
             extra_index += @boolToInt(small.has_align);
-            extra_index += @boolToInt(small.has_addrspace);
             const ret_ty_body = zir.extra[extra_index..][0..extra.data.ret_body_len];
             extra_index += ret_ty_body.len;
             const body = zir.extra[extra_index..][0..extra.data.body_len];

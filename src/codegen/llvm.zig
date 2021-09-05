@@ -700,7 +700,8 @@ pub const DeclGen = struct {
                     @intCast(c_uint, llvm_params.len),
                     llvm.Bool.fromBool(is_var_args),
                 );
-                const llvm_addrspace = self.llvmAddressSpace(t.fnAddressSpace());
+                // TODO make .Fn not both a pointer type and a prototype
+                const llvm_addrspace = self.llvmAddressSpace(.generic);
                 return llvm_fn_ty.pointerType(llvm_addrspace);
             },
             .ComptimeInt => unreachable,

@@ -530,8 +530,6 @@ pub const Type = extern union {
                     return false;
                 if (a.fnCallingConvention() != b.fnCallingConvention())
                     return false;
-                if (a.fnAddressSpace() != b.fnAddressSpace())
-                    return false;
                 const a_param_len = a.fnParamLen();
                 const b_param_len = b.fnParamLen();
                 if (a_param_len != b_param_len)
@@ -838,7 +836,6 @@ pub const Type = extern union {
                     .return_type = try payload.return_type.copy(allocator),
                     .param_types = param_types,
                     .cc = payload.cc,
-                    .@"addrspace" = payload.@"addrspace",
                     .is_var_args = payload.is_var_args,
                     .is_generic = payload.is_generic,
                     .comptime_params = comptime_params.ptr,
@@ -1001,9 +998,6 @@ pub const Type = extern union {
                     try writer.writeAll(") callconv(.");
                     try writer.writeAll(@tagName(payload.cc));
                     try writer.writeAll(") ");
-                    if (payload.@"addrspace" != .generic) {
-                        try writer.print("addrspace(.{s}) ", .{@tagName(payload.@"addrspace")});
-                    }
                     ty = payload.return_type;
                     continue;
                 },
@@ -2730,18 +2724,6 @@ pub const Type = extern union {
         };
     }
 
-    pub fn fnAddressSpace(self: Type) std.builtin.AddressSpace {
-        return switch (self.tag()) {
-            .fn_noreturn_no_args => .generic,
-            .fn_void_no_args => .generic,
-            .fn_naked_noreturn_no_args => .generic,
-            .fn_ccc_void_no_args => .generic,
-            .function => self.castTag(.function).?.data.@"addrspace",
-
-            else => unreachable,
-        };
-    }
-
     pub fn fnInfo(ty: Type) Payload.Function.Data {
         return switch (ty.tag()) {
             .fn_noreturn_no_args => .{
@@ -2749,7 +2731,6 @@ pub const Type = extern union {
                 .comptime_params = undefined,
                 .return_type = initTag(.noreturn),
                 .cc = .Unspecified,
-                .@"addrspace" = .generic,
                 .is_var_args = false,
                 .is_generic = false,
             },
@@ -2758,7 +2739,6 @@ pub const Type = extern union {
                 .comptime_params = undefined,
                 .return_type = initTag(.void),
                 .cc = .Unspecified,
-                .@"addrspace" = .generic,
                 .is_var_args = false,
                 .is_generic = false,
             },
@@ -2767,7 +2747,6 @@ pub const Type = extern union {
                 .comptime_params = undefined,
                 .return_type = initTag(.noreturn),
                 .cc = .Naked,
-                .@"addrspace" = .generic,
                 .is_var_args = false,
                 .is_generic = false,
             },
@@ -2776,7 +2755,6 @@ pub const Type = extern union {
                 .comptime_params = undefined,
                 .return_type = initTag(.void),
                 .cc = .C,
-                .@"addrspace" = .generic,
                 .is_var_args = false,
                 .is_generic = false,
             },
@@ -3648,7 +3626,6 @@ pub const Type = extern union {
                 comptime_params: [*]bool,
                 return_type: Type,
                 cc: std.builtin.CallingConvention,
-                @"addrspace": std.builtin.AddressSpace,
                 is_var_args: bool,
                 is_generic: bool,
 

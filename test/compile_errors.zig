@@ -410,7 +410,6 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    .Fn = .{
         \\        .calling_convention = .Unspecified,
         \\        .alignment = 0,
-        \\        .address_space = .generic,
         \\        .is_generic = true,
         \\        .is_var_args = false,
         \\        .return_type = u0,
@@ -427,7 +426,6 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    .Fn = .{
         \\        .calling_convention = .Unspecified,
         \\        .alignment = 0,
-        \\        .address_space = .generic,
         \\        .is_generic = false,
         \\        .is_var_args = true,
         \\        .return_type = u0,
@@ -444,7 +442,6 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    .Fn = .{
         \\        .calling_convention = .Unspecified,
         \\        .alignment = 0,
-        \\        .address_space = .generic,
         \\        .is_generic = false,
         \\        .is_var_args = false,
         \\        .return_type = null,
@@ -454,23 +451,6 @@ pub fn addCases(ctx: *TestContext) !void {
         \\comptime { _ = Foo; }
     , &[_][]const u8{
         "tmp.zig:1:20: error: TypeInfo.Fn.return_type must be non-null for @Type",
-    });
-
-    ctx.objErrStage1("@Type(.Fn) with invalid address space ",
-        \\const Foo = @Type(.{
-        \\    .Fn = .{
-        \\        .calling_convention = .Unspecified,
-        \\        .alignment = 0,
-        \\        .address_space = .fs,
-        \\        .is_generic = false,
-        \\        .is_var_args = false,
-        \\        .return_type = u0,
-        \\        .args = &[_]@import("std").builtin.TypeInfo.FnArg{},
-        \\    },
-        \\});
-        \\comptime { _ = Foo; }
-    , &[_][]const u8{
-        "tmp.zig:1:20: error: address space 'fs' not available in stage 1 compiler, must be .generic",
     });
 
     ctx.objErrStage1("@Type for union with opaque field",
