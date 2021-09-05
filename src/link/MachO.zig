@@ -133,8 +133,8 @@ objc_selrefs_section_index: ?u16 = null,
 objc_classrefs_section_index: ?u16 = null,
 objc_data_section_index: ?u16 = null,
 
-bss_file_offset: ?u64 = null,
-tlv_bss_file_offset: ?u64 = null,
+bss_file_offset: ?u32 = null,
+tlv_bss_file_offset: ?u32 = null,
 
 locals: std.ArrayListUnmanaged(macho.nlist_64) = .{},
 globals: std.ArrayListUnmanaged(macho.nlist_64) = .{},
@@ -1693,6 +1693,84 @@ pub fn allocateAtom(self: *MachO, atom: *TextBlock, match: MatchingSection) !u64
             const padding: ?u64 = if (match.seg == self.text_segment_cmd_index.?) self.header_pad else null;
             const atom_alignment = try math.powi(u64, 2, atom.alignment);
             const new_offset = @intCast(u32, seg.findFreeSpace(needed_size, atom_alignment, padding));
+
+            if (new_offset + needed_size >= seg.inner.fileoff + seg.inner.filesize) {
+                // Bummer, need to move all segments below down...
+                // TODO is this the right estimate?
+                const new_seg_size = mem.alignForwardGeneric(
+                    u64,
+                    padToIdeal(seg.inner.filesize + needed_size),
+                    self.page_size,
+                );
+                // TODO actually, we're always required to move in a number of pages so I guess all we need
+                // to know here is the number of pages to shift downwards.
+                const offset_amt = @intCast(u32, @intCast(i64, new_seg_size) - @intCast(i64, seg.inner.filesize));
+                seg.inner.filesize = new_seg_size;
+                seg.inner.vmsize = new_seg_size;
+                log.debug("  (new {s} segment file offsets from 0x{x} to 0x{x} (in memory 0x{x} to 0x{x}))", .{
+                    seg.inner.segname,
+                    seg.inner.fileoff,
+                    seg.inner.fileoff + seg.inner.filesize,
+                    seg.inner.vmaddr,
+                    seg.inner.vmaddr + seg.inner.vmsize,
+                });
+                // TODO We should probably nop the expanded by distance, or put 0s.
+
+                // TODO copyRangeAll doesn't automatically extend the file on macOS.
+                const ledit_seg = &self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
+                const new_filesize = offset_amt + ledit_seg.inner.fileoff + ledit_seg.inner.filesize;
+                try self.base.file.?.pwriteAll(&[_]u8{0}, new_filesize - 1);
+
+                var next: usize = match.seg + 1;
+                while (next < self.linkedit_segment_cmd_index.? + 1) : (next += 1) {
+                    const next_seg = &self.load_commands.items[next].Segment;
+                    _ = try self.base.file.?.copyRangeAll(
+                        next_seg.inner.fileoff,
+                        self.base.file.?,
+                        next_seg.inner.fileoff + offset_amt,
+                        next_seg.inner.filesize,
+                    );
+                    next_seg.inner.fileoff += offset_amt;
+                    next_seg.inner.vmaddr += offset_amt;
+                    log.debug("  (new {s} segment file offsets from 0x{x} to 0x{x} (in memory 0x{x} to 0x{x}))", .{
+                        next_seg.inner.segname,
+                        next_seg.inner.fileoff,
+                        next_seg.inner.fileoff + next_seg.inner.filesize,
+                        next_seg.inner.vmaddr,
+                        next_seg.inner.vmaddr + next_seg.inner.vmsize,
+                    });
+
+                    for (next_seg.sections.items) |*moved_sect, moved_sect_id| {
+                        // TODO put below snippet in a function.
+                        const moved_sect_offset = blk: {
+                            if (self.data_segment_cmd_index.? == next) {
+                                if (self.bss_section_index) |idx| {
+                                    if (idx == moved_sect_id) break :blk &self.bss_file_offset.?;
+                                }
+                                if (self.tlv_bss_section_index) |idx| {
+                                    if (idx == moved_sect_id) break :blk &self.tlv_bss_file_offset.?;
+                                }
+                            }
+                            break :blk &moved_sect.offset;
+                        };
+                        moved_sect_offset.* += offset_amt;
+                        moved_sect.addr += offset_amt;
+                        log.debug("  (new {s},{s} file offsets from 0x{x} to 0x{x} (in memory 0x{x} to 0x{x}))", .{
+                            commands.segmentName(moved_sect.*),
+                            commands.sectionName(moved_sect.*),
+                            moved_sect_offset.*,
+                            moved_sect_offset.* + moved_sect.size,
+                            moved_sect.addr,
+                            moved_sect.addr + moved_sect.size,
+                        });
+
+                        try self.allocateLocalSymbols(.{
+                            .seg = @intCast(u16, next),
+                            .sect = @intCast(u16, moved_sect_id),
+                        }, offset_amt);
+                    }
+                }
+            }
             sect.offset = new_offset;
             sect.addr = seg.inner.vmaddr + sect.offset - seg.inner.fileoff;
             log.debug("  (found new {s},{s} free space from 0x{x} to 0x{x})", .{
@@ -1701,11 +1779,9 @@ pub fn allocateAtom(self: *MachO, atom: *TextBlock, match: MatchingSection) !u64
                 new_offset,
                 new_offset + needed_size,
             });
-            try self.allocateLocalSymbols(match, old_base_addr);
-            vaddr = @intCast(
-                u64,
-                @intCast(i64, vaddr) + @intCast(i64, sect.addr) - @intCast(i64, old_base_addr),
-            );
+            const offset_amt = @intCast(i64, sect.addr) - @intCast(i64, old_base_addr);
+            try self.allocateLocalSymbols(match, offset_amt);
+            vaddr = @intCast(u64, @intCast(i64, vaddr) + offset_amt);
         }
 
         sect.size = needed_size;
@@ -1761,11 +1837,8 @@ pub fn writeAtom(self: *MachO, atom: *TextBlock, match: MatchingSection) !void {
     try self.base.file.?.pwriteAll(atom.code.items, file_offset);
 }
 
-fn allocateLocalSymbols(self: *MachO, match: MatchingSection, old_base_addr: u64) !void {
+fn allocateLocalSymbols(self: *MachO, match: MatchingSection, offset: i64) !void {
     var atom = self.blocks.get(match) orelse return;
-    const seg = self.load_commands.items[match.seg].Segment;
-    const sect = seg.sections.items[match.sect];
-    const offset = @intCast(i64, sect.addr) - @intCast(i64, old_base_addr);
 
     while (true) {
         const atom_sym = &self.locals.items[atom.local_sym_index];
@@ -3317,9 +3390,8 @@ pub fn populateMissingMetadata(self: *MachO) !void {
     if (self.text_segment_cmd_index == null) {
         self.text_segment_cmd_index = @intCast(u16, self.load_commands.items.len);
         const program_code_size_hint = self.base.options.program_code_size_hint;
-        // const program_code_size_hint = 10;
         const got_size_hint = @sizeOf(u64) * self.base.options.symbol_count_hint;
-        const ideal_size = self.header_pad + (program_code_size_hint + got_size_hint) * 5;
+        const ideal_size = self.header_pad + program_code_size_hint + got_size_hint;
         const needed_size = mem.alignForwardGeneric(u64, padToIdeal(ideal_size), self.page_size);
 
         log.debug("found __TEXT segment free space 0x{x} to 0x{x}", .{ 0, needed_size });
@@ -3413,7 +3485,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
     if (self.data_const_segment_cmd_index == null) {
         self.data_const_segment_cmd_index = @intCast(u16, self.load_commands.items.len);
         const address_and_offset = self.nextSegmentAddressAndOffset();
-        const ideal_size = @sizeOf(u64) * self.base.options.symbol_count_hint * 1000;
+        const ideal_size = @sizeOf(u64) * self.base.options.symbol_count_hint;
         const needed_size = mem.alignForwardGeneric(u64, padToIdeal(ideal_size), self.page_size);
 
         log.debug("found __DATA_CONST segment free space 0x{x} to 0x{x}", .{
@@ -3454,7 +3526,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
     if (self.data_segment_cmd_index == null) {
         self.data_segment_cmd_index = @intCast(u16, self.load_commands.items.len);
         const address_and_offset = self.nextSegmentAddressAndOffset();
-        const ideal_size = 2 * @sizeOf(u64) * self.base.options.symbol_count_hint * 1000;
+        const ideal_size = 2 * @sizeOf(u64) * self.base.options.symbol_count_hint;
         const needed_size = mem.alignForwardGeneric(u64, padToIdeal(ideal_size), self.page_size);
 
         log.debug("found __DATA segment free space 0x{x} to 0x{x}", .{ address_and_offset.offset, address_and_offset.offset + needed_size });
@@ -3905,20 +3977,99 @@ fn allocateTextBlock(self: *MachO, text_block: *TextBlock, new_block_size: u64, 
             const old_base_addr = text_section.addr;
             text_section.size = 0;
             const new_offset = @intCast(u32, text_segment.findFreeSpace(needed_size, alignment, self.header_pad));
+
+            if (new_offset + needed_size >= text_segment.inner.fileoff + text_segment.inner.filesize) {
+                // Bummer, need to move all segments below down...
+                // TODO is this the right estimate?
+                const new_seg_size = mem.alignForwardGeneric(
+                    u64,
+                    padToIdeal(text_segment.inner.filesize + needed_size),
+                    self.page_size,
+                );
+                // TODO actually, we're always required to move in a number of pages so I guess all we need
+                // to know here is the number of pages to shift downwards.
+                const offset_amt = @intCast(
+                    u32,
+                    @intCast(i64, new_seg_size) - @intCast(i64, text_segment.inner.filesize),
+                );
+                text_segment.inner.filesize = new_seg_size;
+                text_segment.inner.vmsize = new_seg_size;
+                log.debug("  (new __TEXT segment file offsets from 0x{x} to 0x{x} (in memory 0x{x} to 0x{x}))", .{
+                    text_segment.inner.fileoff,
+                    text_segment.inner.fileoff + text_segment.inner.filesize,
+                    text_segment.inner.vmaddr,
+                    text_segment.inner.vmaddr + text_segment.inner.vmsize,
+                });
+                // TODO We should probably nop the expanded by distance, or put 0s.
+
+                // TODO copyRangeAll doesn't automatically extend the file on macOS.
+                const ledit_seg = &self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
+                const new_filesize = offset_amt + ledit_seg.inner.fileoff + ledit_seg.inner.filesize;
+                try self.base.file.?.pwriteAll(&[_]u8{0}, new_filesize - 1);
+
+                var next: usize = match.seg + 1;
+                while (next < self.linkedit_segment_cmd_index.? + 1) : (next += 1) {
+                    const next_seg = &self.load_commands.items[next].Segment;
+                    _ = try self.base.file.?.copyRangeAll(
+                        next_seg.inner.fileoff,
+                        self.base.file.?,
+                        next_seg.inner.fileoff + offset_amt,
+                        next_seg.inner.filesize,
+                    );
+                    next_seg.inner.fileoff += offset_amt;
+                    next_seg.inner.vmaddr += offset_amt;
+                    log.debug("  (new {s} segment file offsets from 0x{x} to 0x{x} (in memory 0x{x} to 0x{x}))", .{
+                        next_seg.inner.segname,
+                        next_seg.inner.fileoff,
+                        next_seg.inner.fileoff + next_seg.inner.filesize,
+                        next_seg.inner.vmaddr,
+                        next_seg.inner.vmaddr + next_seg.inner.vmsize,
+                    });
+
+                    for (next_seg.sections.items) |*moved_sect, moved_sect_id| {
+                        // TODO put below snippet in a function.
+                        const moved_sect_offset = blk: {
+                            if (self.data_segment_cmd_index.? == next) {
+                                if (self.bss_section_index) |idx| {
+                                    if (idx == moved_sect_id) break :blk &self.bss_file_offset.?;
+                                }
+                                if (self.tlv_bss_section_index) |idx| {
+                                    if (idx == moved_sect_id) break :blk &self.tlv_bss_file_offset.?;
+                                }
+                            }
+                            break :blk &moved_sect.offset;
+                        };
+                        moved_sect_offset.* += offset_amt;
+                        moved_sect.addr += offset_amt;
+                        log.debug("  (new {s},{s} file offsets from 0x{x} to 0x{x} (in memory 0x{x} to 0x{x}))", .{
+                            commands.segmentName(moved_sect.*),
+                            commands.sectionName(moved_sect.*),
+                            moved_sect_offset.*,
+                            moved_sect_offset.* + moved_sect.size,
+                            moved_sect.addr,
+                            moved_sect.addr + moved_sect.size,
+                        });
+
+                        try self.allocateLocalSymbols(.{
+                            .seg = @intCast(u16, next),
+                            .sect = @intCast(u16, moved_sect_id),
+                        }, offset_amt);
+                    }
+                }
+            }
+
             text_section.offset = new_offset;
             text_section.addr = text_segment.inner.vmaddr + text_section.offset - text_segment.inner.fileoff;
             log.debug("  (found new __TEXT,__text free space from 0x{x} to 0x{x})", .{
                 new_offset,
                 new_offset + needed_size,
             });
+            const offset_amt = @intCast(i64, text_section.addr) - @intCast(i64, old_base_addr);
             try self.allocateLocalSymbols(.{
                 .seg = self.text_segment_cmd_index.?,
                 .sect = self.text_section_index.?,
-            }, old_base_addr);
-            vaddr = @intCast(
-                u64,
-                @intCast(i64, vaddr) + @intCast(i64, text_section.addr) - @intCast(i64, old_base_addr),
-            );
+            }, offset_amt);
+            vaddr = @intCast(u64, @intCast(i64, vaddr) + offset_amt);
         }
 
         text_section.size = needed_size;
