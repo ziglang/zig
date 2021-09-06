@@ -5,6 +5,7 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
     cases.add("test/standalone/hello_world/hello.zig");
     cases.addC("test/standalone/hello_world/hello_libc.zig");
     cases.add("test/standalone/cat/main.zig");
+    cases.add("test/standalone/issue_9693/main.zig");
     cases.add("test/standalone/guess_number/main.zig");
     cases.add("test/standalone/main_return_error/error_u8.zig");
     cases.add("test/standalone/main_return_error/error_u8_non_zero.zig");
