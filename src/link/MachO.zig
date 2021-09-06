@@ -133,8 +133,8 @@ objc_selrefs_section_index: ?u16 = null,
 objc_classrefs_section_index: ?u16 = null,
 objc_data_section_index: ?u16 = null,
 
-bss_file_offset: ?u32 = null,
-tlv_bss_file_offset: ?u32 = null,
+bss_file_offset: u32 = 0,
+tlv_bss_file_offset: u32 = 0,
 
 locals: std.ArrayListUnmanaged(macho.nlist_64) = .{},
 globals: std.ArrayListUnmanaged(macho.nlist_64) = .{},
@@ -749,6 +749,17 @@ pub fn flush(self: *MachO, comp: *Compilation) !void {
         try self.parseInputFiles(positionals.items, self.base.options.sysroot);
         try self.parseLibs(libs.items, self.base.options.sysroot);
 
+        if (self.bss_section_index) |idx| {
+            const seg = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
+            const sect = &seg.sections.items[idx];
+            sect.offset = self.bss_file_offset;
+        }
+        if (self.tlv_bss_section_index) |idx| {
+            const seg = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
+            const sect = &seg.sections.items[idx];
+            sect.offset = self.tlv_bss_file_offset;
+        }
+
         try self.resolveSymbols();
         try self.addRpathLCs(rpath_table.keys());
         try self.addLoadDylibLCs();
@@ -781,6 +792,20 @@ pub fn flush(self: *MachO, comp: *Compilation) !void {
             }
         }
         try self.writeAtoms();
+
+        if (self.bss_section_index) |idx| {
+            const seg = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
+            const sect = &seg.sections.items[idx];
+            self.bss_file_offset = sect.offset;
+            sect.offset = 0;
+        }
+        if (self.tlv_bss_section_index) |idx| {
+            const seg = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
+            const sect = &seg.sections.items[idx];
+            self.tlv_bss_file_offset = sect.offset;
+            sect.offset = 0;
+        }
+
         try self.flushModule(comp);
     }
 
@@ -1687,8 +1712,7 @@ pub fn writeAtom(self: *MachO, atom: *TextBlock, match: MatchingSection) !void {
     const seg = self.load_commands.items[match.seg].Segment;
     const sect = seg.sections.items[match.sect];
     const sym = self.locals.items[atom.local_sym_index];
-    const sect_offset = self.getPtrToSectionOffset(match).*;
-    const file_offset = sect_offset + sym.n_value - sect.addr;
+    const file_offset = sect.offset + sym.n_value - sect.addr;
     try atom.resolveRelocs(self);
     log.debug("writing atom for symbol {s} at file offset 0x{x}", .{ self.getString(sym.n_strx), file_offset });
     try self.base.file.?.pwriteAll(atom.code.items, file_offset);
@@ -3469,13 +3493,9 @@ pub fn populateMissingMetadata(self: *MachO) !void {
                 .flags = macho.S_THREAD_LOCAL_ZEROFILL,
             },
         );
-
-        // We keep offset to the section in a separate variable as the actual section is usually pointing at the
-        // beginning of the file.
-        const seg = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
-        const out_sect = &seg.sections.items[self.tlv_bss_section_index.?];
-        self.tlv_bss_file_offset = out_sect.offset;
-        out_sect.offset = 0;
+        const seg = self.load_commands.items[self.data_segment_cmd_index.?].Segment;
+        const sect = seg.sections.items[self.tlv_bss_section_index.?];
+        self.tlv_bss_file_offset = sect.offset;
     }
 
     if (self.bss_section_index == null) {
@@ -3490,13 +3510,9 @@ pub fn populateMissingMetadata(self: *MachO) !void {
                 .flags = macho.S_ZEROFILL,
             },
         );
-
-        // We keep offset to the section in a separate variable as the actual section is usually pointing at the
-        // beginning of the file.
-        const seg = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
-        const out_sect = &seg.sections.items[self.bss_section_index.?];
-        self.bss_file_offset = out_sect.offset;
-        out_sect.offset = 0;
+        const seg = self.load_commands.items[self.data_segment_cmd_index.?].Segment;
+        const sect = seg.sections.items[self.bss_section_index.?];
+        self.bss_file_offset = sect.offset;
     }
 
     if (self.linkedit_segment_cmd_index == null) {
@@ -3767,8 +3783,7 @@ fn growSection(self: *MachO, match: MatchingSection, new_size: u32) !void {
     const sect = &seg.sections.items[match.sect];
 
     const alignment = try math.powi(u32, 2, sect.@"align");
-    const sect_offset = self.getPtrToSectionOffset(match);
-    const max_size = self.allocatedSize(match.seg, sect_offset.*);
+    const max_size = self.allocatedSize(match.seg, sect.offset);
     const ideal_size = padToIdeal(new_size);
     const needed_size = mem.alignForwardGeneric(u32, ideal_size, alignment);
 
@@ -3830,24 +3845,22 @@ fn growSection(self: *MachO, match: MatchingSection, new_size: u32) !void {
                 });
 
                 for (next_seg.sections.items) |*moved_sect, moved_sect_id| {
-                    const moved_match = MatchingSection{
-                        .seg = @intCast(u16, next),
-                        .sect = @intCast(u16, moved_sect_id),
-                    };
-                    const ptr_sect_offset = self.getPtrToSectionOffset(moved_match);
-                    ptr_sect_offset.* += @intCast(u32, seg_offset_amt);
+                    moved_sect.offset += @intCast(u32, seg_offset_amt);
                     moved_sect.addr += seg_offset_amt;
 
                     log.warn("  (new {s},{s} file offsets from 0x{x} to 0x{x} (in memory 0x{x} to 0x{x}))", .{
                         commands.segmentName(moved_sect.*),
                         commands.sectionName(moved_sect.*),
-                        ptr_sect_offset.*,
-                        ptr_sect_offset.* + moved_sect.size,
+                        moved_sect.offset,
+                        moved_sect.offset + moved_sect.size,
                         moved_sect.addr,
                         moved_sect.addr + moved_sect.size,
                     });
 
-                    try self.allocateLocalSymbols(moved_match, @intCast(i64, seg_offset_amt));
+                    try self.allocateLocalSymbols(.{
+                        .seg = @intCast(u16, next),
+                        .sect = @intCast(u16, moved_sect_id),
+                    }, @intCast(i64, seg_offset_amt));
                 }
             }
         }
@@ -3867,25 +3880,23 @@ fn growSection(self: *MachO, match: MatchingSection, new_size: u32) !void {
 
         var next = match.sect + 1;
         while (next < seg.sections.items.len) : (next += 1) {
-            const moved_match = MatchingSection{
-                .seg = match.seg,
-                .sect = next,
-            };
             const moved_sect = &seg.sections.items[next];
-            const ptr_sect_offset = self.getPtrToSectionOffset(moved_match);
-            ptr_sect_offset.* += @intCast(u32, offset_amt);
+            moved_sect.offset += @intCast(u32, offset_amt);
             moved_sect.addr += offset_amt;
 
             log.warn("  (new {s},{s} file offsets from 0x{x} to 0x{x} (in memory 0x{x} to 0x{x}))", .{
                 commands.segmentName(moved_sect.*),
                 commands.sectionName(moved_sect.*),
-                ptr_sect_offset.*,
-                ptr_sect_offset.* + moved_sect.size,
+                moved_sect.offset,
+                moved_sect.offset + moved_sect.size,
                 moved_sect.addr,
                 moved_sect.addr + moved_sect.size,
             });
 
-            try self.allocateLocalSymbols(moved_match, @intCast(i64, offset_amt));
+            try self.allocateLocalSymbols(.{
+                .seg = match.seg,
+                .sect = next,
+            }, @intCast(i64, offset_amt));
         }
     }
 
@@ -3914,25 +3925,6 @@ fn getSectionMaxAlignment(self: *MachO, segment_id: u16, start_sect_id: u16) !u3
         max_alignment = math.max(max_alignment, alignment);
     }
     return max_alignment;
-}
-
-fn getPtrToSectionOffset(self: *MachO, match: MatchingSection) *u32 {
-    if (self.data_segment_cmd_index.? == match.seg) {
-        if (self.bss_section_index) |idx| {
-            if (idx == match.sect) {
-                return &self.bss_file_offset.?;
-            }
-        }
-        if (self.tlv_bss_section_index) |idx| {
-            if (idx == match.sect) {
-                return &self.tlv_bss_file_offset.?;
-            }
-        }
-    }
-
-    const seg = &self.load_commands.items[match.seg].Segment;
-    const sect = &seg.sections.items[match.sect];
-    return &sect.offset;
 }
 
 fn allocateTextBlock(self: *MachO, text_block: *TextBlock, new_block_size: u64, alignment: u64) !u64 {
