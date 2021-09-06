@@ -161,7 +161,7 @@ pub const ChildProcess = struct {
             self.cleanupStreams();
             return term;
         }
-        try os.kill(self.pid, os.SIGTERM);
+        try os.kill(self.pid, os.SIG.TERM);
         self.waitUnwrapped();
         return self.term.?;
     }
