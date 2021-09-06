@@ -1672,7 +1672,7 @@ pub fn allocateAtom(self: *MachO, atom: *TextBlock, match: MatchingSection) !u64
         break :blk new_start_vaddr;
     } else sect.addr;
 
-    log.warn("allocating atom for symbol {s} at address 0x{x}", .{ self.getString(sym.n_strx), vaddr });
+    log.debug("allocating atom for symbol {s} at address 0x{x}", .{ self.getString(sym.n_strx), vaddr });
 
     const expand_section = atom_placement == null or atom_placement.?.next == null;
     if (expand_section) {
@@ -3803,13 +3803,13 @@ fn growSection(self: *MachO, match: MatchingSection, new_size: u32) !void {
 
         if (last_sect_off + offset_amt > seg_off) {
             // Need to grow segment first.
-            log.warn("  (need to grow segment first)", .{});
+            log.debug("  (need to grow segment first)", .{});
             const spill_size = (last_sect_off + offset_amt) - seg_off;
             const seg_offset_amt = mem.alignForwardGeneric(u64, spill_size, self.page_size);
             seg.inner.filesize += seg_offset_amt;
             seg.inner.vmsize += seg_offset_amt;
 
-            log.warn("  (new {s} segment file offsets from 0x{x} to 0x{x} (in memory 0x{x} to 0x{x}))", .{
+            log.debug("  (new {s} segment file offsets from 0x{x} to 0x{x} (in memory 0x{x} to 0x{x}))", .{
                 seg.inner.segname,
                 seg.inner.fileoff,
                 seg.inner.fileoff + seg.inner.filesize,
@@ -3836,7 +3836,7 @@ fn growSection(self: *MachO, match: MatchingSection, new_size: u32) !void {
                 next_seg.inner.fileoff += seg_offset_amt;
                 next_seg.inner.vmaddr += seg_offset_amt;
 
-                log.warn("  (new {s} segment file offsets from 0x{x} to 0x{x} (in memory 0x{x} to 0x{x}))", .{
+                log.debug("  (new {s} segment file offsets from 0x{x} to 0x{x} (in memory 0x{x} to 0x{x}))", .{
                     next_seg.inner.segname,
                     next_seg.inner.fileoff,
                     next_seg.inner.fileoff + next_seg.inner.filesize,
@@ -3848,7 +3848,7 @@ fn growSection(self: *MachO, match: MatchingSection, new_size: u32) !void {
                     moved_sect.offset += @intCast(u32, seg_offset_amt);
                     moved_sect.addr += seg_offset_amt;
 
-                    log.warn("  (new {s},{s} file offsets from 0x{x} to 0x{x} (in memory 0x{x} to 0x{x}))", .{
+                    log.debug("  (new {s},{s} file offsets from 0x{x} to 0x{x} (in memory 0x{x} to 0x{x}))", .{
                         commands.segmentName(moved_sect.*),
                         commands.sectionName(moved_sect.*),
                         moved_sect.offset,
@@ -3884,7 +3884,7 @@ fn growSection(self: *MachO, match: MatchingSection, new_size: u32) !void {
             moved_sect.offset += @intCast(u32, offset_amt);
             moved_sect.addr += offset_amt;
 
-            log.warn("  (new {s},{s} file offsets from 0x{x} to 0x{x} (in memory 0x{x} to 0x{x}))", .{
+            log.debug("  (new {s},{s} file offsets from 0x{x} to 0x{x} (in memory 0x{x} to 0x{x}))", .{
                 commands.segmentName(moved_sect.*),
                 commands.sectionName(moved_sect.*),
                 moved_sect.offset,

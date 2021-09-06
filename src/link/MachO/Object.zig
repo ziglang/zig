@@ -408,7 +408,14 @@ const TextBlockParser = struct {
 
         const block = try context.macho_file.createEmptyAtom(senior_nlist.index, size, actual_align);
         block.stab = stab;
-        mem.copy(u8, block.code.items, code);
+
+        const is_zerofill = blk: {
+            const section_type = commands.sectionType(self.section);
+            break :blk section_type == macho.S_ZEROFILL or section_type == macho.S_THREAD_LOCAL_ZEROFILL;
+        };
+        if (!is_zerofill) {
+            mem.copy(u8, block.code.items, code);
+        }
 
         try block.aliases.ensureTotalCapacity(context.allocator, aliases.items.len);
         for (aliases.items) |alias| {
@@ -567,7 +574,13 @@ pub fn parseTextBlocks(
                     const block_size = block_code.len;
                     const block = try macho_file.createEmptyAtom(block_local_sym_index, block_size, sect.@"align");
 
-                    mem.copy(u8, block.code.items, block_code);
+                    const is_zerofill = blk: {
+                        const section_type = commands.sectionType(sect);
+                        break :blk section_type == macho.S_ZEROFILL or section_type == macho.S_THREAD_LOCAL_ZEROFILL;
+                    };
+                    if (!is_zerofill) {
+                        mem.copy(u8, block.code.items, block_code);
+                    }
 
                     try block.parseRelocs(relocs, .{
                         .base_addr = 0,
@@ -667,7 +680,13 @@ pub fn parseTextBlocks(
             };
             const block = try macho_file.createEmptyAtom(block_local_sym_index, sect.size, sect.@"align");
 
-            mem.copy(u8, block.code.items, code);
+            const is_zerofill = blk: {
+                const section_type = commands.sectionType(sect);
+                break :blk section_type == macho.S_ZEROFILL or section_type == macho.S_THREAD_LOCAL_ZEROFILL;
+            };
+            if (!is_zerofill) {
+                mem.copy(u8, block.code.items, code);
+            }
 
             try block.parseRelocs(relocs, .{
                 .base_addr = 0,
