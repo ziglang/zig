@@ -525,7 +525,7 @@ pub fn parseTextBlocks(
             break :blk self.header.?.flags & macho.MH_SUBSECTIONS_VIA_SYMBOLS != 0;
         };
 
-        macho_file.has_dices = blk: {
+        macho_file.has_dices = macho_file.has_dices or blk: {
             if (self.text_section_index) |index| {
                 if (index != id) break :blk false;
                 if (self.data_in_code_entries.items.len == 0) break :blk false;
@@ -558,7 +558,7 @@ pub fn parseTextBlocks(
                             .n_type = macho.N_SECT,
                             .n_sect = @intCast(u8, macho_file.section_ordinals.getIndex(match).? + 1),
                             .n_desc = 0,
-                            .n_value = sect.addr,
+                            .n_value = 0,
                         });
                         try self.sections_as_symbols.putNoClobber(allocator, sect_id, block_local_sym_index);
                         break :blk block_local_sym_index;
@@ -660,7 +660,7 @@ pub fn parseTextBlocks(
                     .n_type = macho.N_SECT,
                     .n_sect = @intCast(u8, macho_file.section_ordinals.getIndex(match).? + 1),
                     .n_desc = 0,
-                    .n_value = sect.addr,
+                    .n_value = 0,
                 });
                 try self.sections_as_symbols.putNoClobber(allocator, sect_id, block_local_sym_index);
                 break :blk block_local_sym_index;

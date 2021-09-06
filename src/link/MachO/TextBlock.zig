@@ -646,7 +646,7 @@ fn initRelocFromObject(rel: macho.relocation_info, context: RelocContext) !Reloc
                 .n_type = macho.N_SECT,
                 .n_sect = @intCast(u8, context.macho_file.section_ordinals.getIndex(match).? + 1),
                 .n_desc = 0,
-                .n_value = sect.addr,
+                .n_value = 0,
             });
             try context.object.sections_as_symbols.putNoClobber(context.allocator, sect_id, local_sym_index);
             break :blk local_sym_index;
@@ -956,9 +956,9 @@ fn parseUnsigned(
         mem.readIntLittle(i32, self.code.items[out.offset..][0..4]);
 
     if (rel.r_extern == 0) {
-        assert(out.where == .local);
-        const target_sym = context.macho_file.locals.items[out.where_index];
-        addend -= @intCast(i64, target_sym.n_value);
+        const source_seg = context.object.load_commands.items[context.object.segment_cmd_index.?].Segment;
+        const source_sect_base_addr = source_seg.sections.items[rel.r_symbolnum - 1].addr;
+        addend -= @intCast(i64, source_sect_base_addr);
     }
 
     out.payload = .{
@@ -1053,12 +1053,9 @@ fn parseSigned(self: TextBlock, rel: macho.relocation_info, out: *Relocation, co
     var addend: i64 = mem.readIntLittle(i32, self.code.items[out.offset..][0..4]) + correction;
 
     if (rel.r_extern == 0) {
-        const source_sym = context.macho_file.locals.items[self.local_sym_index];
-        const target_sym = switch (out.where) {
-            .local => context.macho_file.locals.items[out.where_index],
-            .undef => context.macho_file.undefs.items[out.where_index],
-        };
-        addend = @intCast(i64, source_sym.n_value + out.offset + 4) + addend - @intCast(i64, target_sym.n_value);
+        const source_seg = context.object.load_commands.items[context.object.segment_cmd_index.?].Segment;
+        const source_sect_base_addr = source_seg.sections.items[rel.r_symbolnum - 1].addr;
+        addend = @intCast(i64, out.offset) + addend - @intCast(i64, source_sect_base_addr) + 4 + correction;
     }
 
     out.payload = .{
