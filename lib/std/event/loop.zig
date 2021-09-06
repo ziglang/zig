@@ -222,27 +222,27 @@ pub const Loop = struct {
                                 .handle = undefined,
                                 .overlapped = ResumeNode.overlapped_init,
                             },
-                            .eventfd = try os.eventfd(1, os.EFD_CLOEXEC | os.EFD_NONBLOCK),
-                            .epoll_op = os.EPOLL_CTL_ADD,
+                            .eventfd = try os.eventfd(1, os.linux.EFD.CLOEXEC | os.linux.EFD.NONBLOCK),
+                            .epoll_op = os.linux.EPOLL.CTL_ADD,
                         },
                         .next = undefined,
                     };
                     self.available_eventfd_resume_nodes.push(eventfd_node);
                 }
 
-                self.os_data.epollfd = try os.epoll_create1(os.EPOLL_CLOEXEC);
+                self.os_data.epollfd = try os.epoll_create1(os.linux.EPOLL.CLOEXEC);
                 errdefer os.close(self.os_data.epollfd);
 
-                self.os_data.final_eventfd = try os.eventfd(0, os.EFD_CLOEXEC | os.EFD_NONBLOCK);
+                self.os_data.final_eventfd = try os.eventfd(0, os.linux.EFD.CLOEXEC | os.linux.EFD.NONBLOCK);
                 errdefer os.close(self.os_data.final_eventfd);
 
-                self.os_data.final_eventfd_event = os.epoll_event{
-                    .events = os.EPOLLIN,
-                    .data = os.epoll_data{ .ptr = @ptrToInt(&self.final_resume_node) },
+                self.os_data.final_eventfd_event = os.linux.epoll_event{
+                    .events = os.linux.EPOLL.IN,
+                    .data = os.linux.epoll_data{ .ptr = @ptrToInt(&self.final_resume_node) },
                 };
                 try os.epoll_ctl(
                     self.os_data.epollfd,
-                    os.EPOLL_CTL_ADD,
+                    os.linux.EPOLL.CTL_ADD,
                     self.os_data.final_eventfd,
                     &self.os_data.final_eventfd_event,
                 );
@@ -283,8 +283,8 @@ pub const Loop = struct {
                             // this one is for sending events
                             .kevent = os.Kevent{
                                 .ident = i,
-                                .filter = os.EVFILT_USER,
-                                .flags = os.EV_CLEAR | os.EV_ADD | os.EV_DISABLE,
+                                .filter = os.system.EVFILT_USER,
+                                .flags = os.system.EV_CLEAR | os.system.EV_ADD | os.system.EV_DISABLE,
                                 .fflags = 0,
                                 .data = 0,
                                 .udata = @ptrToInt(&eventfd_node.data.base),
@@ -295,24 +295,24 @@ pub const Loop = struct {
                     self.available_eventfd_resume_nodes.push(eventfd_node);
                     const kevent_array = @as(*const [1]os.Kevent, &eventfd_node.data.kevent);
                     _ = try os.kevent(self.os_data.kqfd, kevent_array, empty_kevs, null);
-                    eventfd_node.data.kevent.flags = os.EV_CLEAR | os.EV_ENABLE;
-                    eventfd_node.data.kevent.fflags = os.NOTE_TRIGGER;
+                    eventfd_node.data.kevent.flags = os.system.EV_CLEAR | os.system.EV_ENABLE;
+                    eventfd_node.data.kevent.fflags = os.system.NOTE_TRIGGER;
                 }
 
                 // Pre-add so that we cannot get error.SystemResources
                 // later when we try to activate it.
                 self.os_data.final_kevent = os.Kevent{
                     .ident = extra_thread_count,
-                    .filter = os.EVFILT_USER,
-                    .flags = os.EV_ADD | os.EV_DISABLE,
+                    .filter = os.system.EVFILT_USER,
+                    .flags = os.system.EV_ADD | os.system.EV_DISABLE,
                     .fflags = 0,
                     .data = 0,
                     .udata = @ptrToInt(&self.final_resume_node),
                 };
                 const final_kev_arr = @as(*const [1]os.Kevent, &self.os_data.final_kevent);
                 _ = try os.kevent(self.os_data.kqfd, final_kev_arr, empty_kevs, null);
-                self.os_data.final_kevent.flags = os.EV_ENABLE;
-                self.os_data.final_kevent.fflags = os.NOTE_TRIGGER;
+                self.os_data.final_kevent.flags = os.system.EV_ENABLE;
+                self.os_data.final_kevent.fflags = os.system.NOTE_TRIGGER;
 
                 if (builtin.single_threaded) {
                     assert(extra_thread_count == 0);
@@ -404,19 +404,19 @@ pub const Loop = struct {
     /// resume_node must live longer than the anyframe that it holds a reference to.
     /// flags must contain EPOLLET
     pub fn linuxAddFd(self: *Loop, fd: i32, resume_node: *ResumeNode, flags: u32) !void {
-        assert(flags & os.EPOLLET == os.EPOLLET);
+        assert(flags & os.linux.EPOLL.ET == os.linux.EPOLL.ET);
         self.beginOneEvent();
         errdefer self.finishOneEvent();
         try self.linuxModFd(
             fd,
-            os.EPOLL_CTL_ADD,
+            os.linux.EPOLL.CTL_ADD,
             flags,
             resume_node,
         );
     }
 
     pub fn linuxModFd(self: *Loop, fd: i32, op: u32, flags: u32, resume_node: *ResumeNode) !void {
-        assert(flags & os.EPOLLET == os.EPOLLET);
+        assert(flags & os.linux.EPOLL.ET == os.linux.EPOLL.ET);
         var ev = os.linux.epoll_event{
             .events = flags,
             .data = os.linux.epoll_data{ .ptr = @ptrToInt(resume_node) },
@@ -425,13 +425,13 @@ pub const Loop = struct {
     }
 
     pub fn linuxRemoveFd(self: *Loop, fd: i32) void {
-        os.epoll_ctl(self.os_data.epollfd, os.linux.EPOLL_CTL_DEL, fd, null) catch {};
+        os.epoll_ctl(self.os_data.epollfd, os.linux.EPOLL.CTL_DEL, fd, null) catch {};
         self.finishOneEvent();
     }
 
     pub fn linuxWaitFd(self: *Loop, fd: i32, flags: u32) void {
-        assert(flags & os.EPOLLET == os.EPOLLET);
-        assert(flags & os.EPOLLONESHOT == os.EPOLLONESHOT);
+        assert(flags & os.linux.EPOLL.ET == os.linux.EPOLL.ET);
+        assert(flags & os.linux.EPOLL.ONESHOT == os.linux.EPOLL.ONESHOT);
         var resume_node = ResumeNode.Basic{
             .base = ResumeNode{
                 .id = .Basic,
@@ -457,8 +457,8 @@ pub const Loop = struct {
                     // Fall back to a blocking poll(). Ideally this codepath is never hit, since
                     // epoll should be just fine. But this is better than incorrect behavior.
                     var poll_flags: i16 = 0;
-                    if ((flags & os.EPOLLIN) != 0) poll_flags |= os.POLL.IN;
-                    if ((flags & os.EPOLLOUT) != 0) poll_flags |= os.POLL.OUT;
+                    if ((flags & os.linux.EPOLL.IN) != 0) poll_flags |= os.POLL.IN;
+                    if ((flags & os.linux.EPOLL.OUT) != 0) poll_flags |= os.POLL.OUT;
                     var pfd = [1]os.pollfd{os.pollfd{
                         .fd = fd,
                         .events = poll_flags,
@@ -484,10 +484,10 @@ pub const Loop = struct {
     pub fn waitUntilFdReadable(self: *Loop, fd: os.fd_t) void {
         switch (builtin.os.tag) {
             .linux => {
-                self.linuxWaitFd(fd, os.EPOLLET | os.EPOLLONESHOT | os.EPOLLIN);
+                self.linuxWaitFd(fd, os.linux.EPOLL.ET | os.linux.EPOLL.ONESHOT | os.linux.EPOLL.IN);
             },
             .macos, .freebsd, .netbsd, .dragonfly, .openbsd => {
-                self.bsdWaitKev(@intCast(usize, fd), os.EVFILT_READ, os.EV_ONESHOT);
+                self.bsdWaitKev(@intCast(usize, fd), os.system.EVFILT_READ, os.system.EV_ONESHOT);
             },
             else => @compileError("Unsupported OS"),
         }
@@ -496,10 +496,10 @@ pub const Loop = struct {
     pub fn waitUntilFdWritable(self: *Loop, fd: os.fd_t) void {
         switch (builtin.os.tag) {
             .linux => {
-                self.linuxWaitFd(fd, os.EPOLLET | os.EPOLLONESHOT | os.EPOLLOUT);
+                self.linuxWaitFd(fd, os.linux.EPOLL.ET | os.linux.EPOLL.ONESHOT | os.linux.EPOLL.OUT);
             },
             .macos, .freebsd, .netbsd, .dragonfly, .openbsd => {
-                self.bsdWaitKev(@intCast(usize, fd), os.EVFILT_WRITE, os.EV_ONESHOT);
+                self.bsdWaitKev(@intCast(usize, fd), os.system.EVFILT_WRITE, os.system.EV_ONESHOT);
             },
             else => @compileError("Unsupported OS"),
         }
@@ -508,11 +508,11 @@ pub const Loop = struct {
     pub fn waitUntilFdWritableOrReadable(self: *Loop, fd: os.fd_t) void {
         switch (builtin.os.tag) {
             .linux => {
-                self.linuxWaitFd(fd, os.EPOLLET | os.EPOLLONESHOT | os.EPOLLOUT | os.EPOLLIN);
+                self.linuxWaitFd(fd, os.linux.EPOLL.ET | os.linux.EPOLL.ONESHOT | os.linux.EPOLL.OUT | os.linux.EPOLL.IN);
             },
             .macos, .freebsd, .netbsd, .dragonfly, .openbsd => {
-                self.bsdWaitKev(@intCast(usize, fd), os.EVFILT_READ, os.EV_ONESHOT);
-                self.bsdWaitKev(@intCast(usize, fd), os.EVFILT_WRITE, os.EV_ONESHOT);
+                self.bsdWaitKev(@intCast(usize, fd), os.system.EVFILT_READ, os.system.EV_ONESHOT);
+                self.bsdWaitKev(@intCast(usize, fd), os.system.EVFILT_WRITE, os.system.EV_ONESHOT);
             },
             else => @compileError("Unsupported OS"),
         }
@@ -530,7 +530,7 @@ pub const Loop = struct {
 
         defer {
             // If the kevent was set to be ONESHOT, it doesn't need to be deleted manually.
-            if (flags & os.EV_ONESHOT != 0) {
+            if (flags & os.system.EV_ONESHOT != 0) {
                 self.bsdRemoveKev(ident, filter);
             }
         }
@@ -547,7 +547,7 @@ pub const Loop = struct {
         var kev = [1]os.Kevent{os.Kevent{
             .ident = ident,
             .filter = filter,
-            .flags = os.EV_ADD | os.EV_ENABLE | os.EV_CLEAR | flags,
+            .flags = os.system.EV_ADD | os.system.EV_ENABLE | os.system.EV_CLEAR | flags,
             .fflags = 0,
             .data = 0,
             .udata = @ptrToInt(&resume_node.base),
@@ -560,7 +560,7 @@ pub const Loop = struct {
         var kev = [1]os.Kevent{os.Kevent{
             .ident = ident,
             .filter = filter,
-            .flags = os.EV_DELETE,
+            .flags = os.system.EV_DELETE,
             .fflags = 0,
             .data = 0,
             .udata = 0,
@@ -590,8 +590,8 @@ pub const Loop = struct {
                 },
                 .linux => {
                     // the pending count is already accounted for
-                    const epoll_events = os.EPOLLONESHOT | os.linux.EPOLLIN | os.linux.EPOLLOUT |
-                        os.linux.EPOLLET;
+                    const epoll_events = os.linux.EPOLL.ONESHOT | os.linux.EPOLL.IN | os.linux.EPOLL.OUT |
+                        os.linux.EPOLL.ET;
                     self.linuxModFd(
                         eventfd_node.eventfd,
                         eventfd_node.epoll_op,
@@ -1344,7 +1344,7 @@ pub const Loop = struct {
                             .Stop => return,
                             .EventFd => {
                                 const event_fd_node = @fieldParentPtr(ResumeNode.EventFd, "base", resume_node);
-                                event_fd_node.epoll_op = os.EPOLL_CTL_MOD;
+                                event_fd_node.epoll_op = os.linux.EPOLL.CTL_MOD;
                                 const stack_node = @fieldParentPtr(std.atomic.Stack(ResumeNode.EventFd).Node, "data", event_fd_node);
                                 self.available_eventfd_resume_nodes.push(stack_node);
                             },
