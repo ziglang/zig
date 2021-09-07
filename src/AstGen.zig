@@ -7,6 +7,8 @@ const mem = std.mem;
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
+const StringIndexAdapter = std.hash_map.StringIndexAdapter;
+const StringIndexContext = std.hash_map.StringIndexContext;
 
 const Zir = @import("Zir.zig");
 const trace = @import("tracy.zig").trace;
@@ -30,7 +32,7 @@ source_column: u32 = 0,
 /// Used for temporary allocations; freed after AstGen is complete.
 /// The resulting ZIR code has no references to anything in this arena.
 arena: *Allocator,
-string_table: std.StringHashMapUnmanaged(u32) = .{},
+string_table: std.HashMapUnmanaged(u32, void, StringIndexContext, std.hash_map.default_max_load_percentage) = .{},
 compile_errors: ArrayListUnmanaged(Zir.Inst.CompileErrors.Item) = .{},
 /// The topmost block of the current function.
 fn_block: ?*GenZir = null,
@@ -8781,16 +8783,16 @@ fn identAsString(astgen: *AstGen, ident_token: Ast.TokenIndex) !u32 {
     const str_index = @intCast(u32, string_bytes.items.len);
     try astgen.appendIdentStr(ident_token, string_bytes);
     const key = string_bytes.items[str_index..];
-    const gop = try astgen.string_table.getOrPut(gpa, key);
+    const gop = try astgen.string_table.getOrPutContextAdapted(gpa, @as([]const u8, key), StringIndexAdapter{
+        .bytes = string_bytes,
+    }, StringIndexContext{
+        .bytes = string_bytes,
+    });
     if (gop.found_existing) {
         string_bytes.shrinkRetainingCapacity(str_index);
-        return gop.value_ptr.*;
+        return gop.key_ptr.*;
     } else {
-        // We have to dupe the key into the arena, otherwise the memory
-        // becomes invalidated when string_bytes gets data appended.
-        // TODO https://github.com/ziglang/zig/issues/8528
-        gop.key_ptr.* = try astgen.arena.dupe(u8, key);
-        gop.value_ptr.* = str_index;
+        gop.key_ptr.* = str_index;
         try string_bytes.append(gpa, 0);
         return str_index;
     }
@@ -8805,19 +8807,19 @@ fn strLitAsString(astgen: *AstGen, str_lit_token: Ast.TokenIndex) !IndexSlice {
     const token_bytes = astgen.tree.tokenSlice(str_lit_token);
     try astgen.parseStrLit(str_lit_token, string_bytes, token_bytes, 0);
     const key = string_bytes.items[str_index..];
-    const gop = try astgen.string_table.getOrPut(gpa, key);
+    const gop = try astgen.string_table.getOrPutContextAdapted(gpa, @as([]const u8, key), StringIndexAdapter{
+        .bytes = string_bytes,
+    }, StringIndexContext{
+        .bytes = string_bytes,
+    });
     if (gop.found_existing) {
         string_bytes.shrinkRetainingCapacity(str_index);
         return IndexSlice{
-            .index = gop.value_ptr.*,
+            .index = gop.key_ptr.*,
             .len = @intCast(u32, key.len),
         };
     } else {
-        // We have to dupe the key into the arena, otherwise the memory
-        // becomes invalidated when string_bytes gets data appended.
-        // TODO https://github.com/ziglang/zig/issues/8528
-        gop.key_ptr.* = try astgen.arena.dupe(u8, key);
-        gop.value_ptr.* = str_index;
+        gop.key_ptr.* = str_index;
         // Still need a null byte because we are using the same table
         // to lookup null terminated strings, so if we get a match, it has to
         // be null terminated for that to work.

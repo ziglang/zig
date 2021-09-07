@@ -92,6 +92,34 @@ pub fn hashString(s: []const u8) u64 {
     return std.hash.Wyhash.hash(0, s);
 }
 
+pub const StringIndexContext = struct {
+    bytes: *std.ArrayListUnmanaged(u8),
+
+    pub fn eql(self: @This(), a: u32, b: u32) bool {
+        _ = self;
+        return a == b;
+    }
+
+    pub fn hash(self: @This(), x: u32) u64 {
+        const x_slice = mem.spanZ(@ptrCast([*:0]const u8, self.bytes.items.ptr) + x);
+        return hashString(x_slice);
+    }
+};
+
+pub const StringIndexAdapter = struct {
+    bytes: *std.ArrayListUnmanaged(u8),
+
+    pub fn eql(self: @This(), a_slice: []const u8, b: u32) bool {
+        const b_slice = mem.spanZ(@ptrCast([*:0]const u8, self.bytes.items.ptr) + b);
+        return mem.eql(u8, a_slice, b_slice);
+    }
+
+    pub fn hash(self: @This(), adapted_key: []const u8) u64 {
+        _ = self;
+        return hashString(adapted_key);
+    }
+};
+
 /// Deprecated use `default_max_load_percentage`
 pub const DefaultMaxLoadPercentage = default_max_load_percentage;
 
