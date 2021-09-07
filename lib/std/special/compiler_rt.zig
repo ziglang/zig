@@ -263,6 +263,12 @@ comptime {
         @export(__popcountdi2, .{ .name = "__popcountdi2", .linkage = linkage });
         const __popcountti2 = @import("compiler_rt/popcount.zig").__popcountti2;
         @export(__popcountti2, .{ .name = "__popcountti2", .linkage = linkage });
+        const __bswapsi2 = @import("compiler_rt/bswap.zig").__bswapsi2;
+        @export(__bswapsi2, .{ .name = "__bswapsi2", .linkage = linkage });
+        const __bswapdi2 = @import("compiler_rt/bswap.zig").__bswapdi2;
+        @export(__bswapdi2, .{ .name = "__bswapdi2", .linkage = linkage });
+        const __bswapti2 = @import("compiler_rt/bswap.zig").__bswapti2;
+        @export(__bswapti2, .{ .name = "__bswapti2", .linkage = linkage });
 
         // Integral / floating point conversion (part 1/2)
         const __floatsidf = @import("compiler_rt/floatsiXf.zig").__floatsidf;
