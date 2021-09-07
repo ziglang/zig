@@ -1593,39 +1593,11 @@ fn buildOutputType(
         }
     };
 
-    var diags: std.zig.CrossTarget.ParseOptions.Diagnostics = .{};
-    const cross_target = std.zig.CrossTarget.parse(.{
+    const cross_target = try parseCrossTargetOrReportFatalError(arena, .{
         .arch_os_abi = target_arch_os_abi,
         .cpu_features = target_mcpu,
         .dynamic_linker = target_dynamic_linker,
-        .diagnostics = &diags,
-    }) catch |err| switch (err) {
-        error.UnknownCpuModel => {
-            help: {
-                var help_text = std.ArrayList(u8).init(arena);
-                for (diags.arch.?.allCpuModels()) |cpu| {
-                    help_text.writer().print(" {s}\n", .{cpu.name}) catch break :help;
-                }
-                std.log.info("Available CPUs for architecture '{s}':\n{s}", .{
-                    @tagName(diags.arch.?), help_text.items,
-                });
-            }
-            fatal("Unknown CPU: '{s}'", .{diags.cpu_name.?});
-        },
-        error.UnknownCpuFeature => {
-            help: {
-                var help_text = std.ArrayList(u8).init(arena);
-                for (diags.arch.?.allFeaturesList()) |feature| {
-                    help_text.writer().print(" {s}: {s}\n", .{ feature.name, feature.description }) catch break :help;
-                }
-                std.log.info("Available CPU features for architecture '{s}':\n{s}", .{
-                    @tagName(diags.arch.?), help_text.items,
-                });
-            }
-            fatal("Unknown CPU feature: '{s}'", .{diags.unknown_feature_name});
-        },
-        else => |e| return e,
-    };
+    });
 
     const target_info = try detectNativeTargetInfo(gpa, cross_target);
 
@@ -1972,7 +1944,7 @@ fn buildOutputType(
     defer if (libc_installation) |*l| l.deinit(gpa);
 
     if (libc_paths_file) |paths_file| {
-        libc_installation = LibCInstallation.parse(gpa, paths_file) catch |err| {
+        libc_installation = LibCInstallation.parse(gpa, paths_file, cross_target) catch |err| {
             fatal("unable to parse libc paths file at path {s}: {s}", .{ paths_file, @errorName(err) });
         };
     }
@@ -2287,6 +2259,43 @@ fn buildOutputType(
     }
     // Skip resource deallocation in release builds; let the OS do it.
     return cleanExit();
+}
+
+fn parseCrossTargetOrReportFatalError(allocator: *Allocator, opts: std.zig.CrossTarget.ParseOptions) !std.zig.CrossTarget {
+    var opts_with_diags = opts;
+    var diags: std.zig.CrossTarget.ParseOptions.Diagnostics = .{};
+    if (opts_with_diags.diagnostics == null) {
+        opts_with_diags.diagnostics = &diags;
+    }
+    return std.zig.CrossTarget.parse(opts_with_diags) catch |err| switch (err) {
+        error.UnknownCpuModel => {
+            help: {
+                var help_text = std.ArrayList(u8).init(allocator);
+                defer help_text.deinit();
+                for (diags.arch.?.allCpuModels()) |cpu| {
+                    help_text.writer().print(" {s}\n", .{cpu.name}) catch break :help;
+                }
+                std.log.info("Available CPUs for architecture '{s}':\n{s}", .{
+                    @tagName(diags.arch.?), help_text.items,
+                });
+            }
+            fatal("Unknown CPU: '{s}'", .{diags.cpu_name.?});
+        },
+        error.UnknownCpuFeature => {
+            help: {
+                var help_text = std.ArrayList(u8).init(allocator);
+                defer help_text.deinit();
+                for (diags.arch.?.allFeaturesList()) |feature| {
+                    help_text.writer().print(" {s}: {s}\n", .{ feature.name, feature.description }) catch break :help;
+                }
+                std.log.info("Available CPU features for architecture '{s}':\n{s}", .{
+                    @tagName(diags.arch.?), help_text.items,
+                });
+            }
+            fatal("Unknown CPU feature: '{s}'", .{diags.unknown_feature_name});
+        },
+        else => |e| return e,
+    };
 }
 
 fn runOrTest(
@@ -2630,10 +2639,15 @@ pub const usage_libc =
     \\
     \\    Parse a libc installation text file and validate it.
     \\
+    \\Options:
+    \\    -h, --help             Print this help and exit
+    \\    -target [name]         <arch><sub>-<os>-<abi> see the targets command
+    \\
 ;
 
 pub fn cmdLibC(gpa: *Allocator, args: []const []const u8) !void {
     var input_file: ?[]const u8 = null;
+    var target_arch_os_abi: []const u8 = "native";
     {
         var i: usize = 0;
         while (i < args.len) : (i += 1) {
@@ -2643,6 +2657,10 @@ pub fn cmdLibC(gpa: *Allocator, args: []const []const u8) !void {
                     const stdout = io.getStdOut().writer();
                     try stdout.writeAll(usage_libc);
                     return cleanExit();
+                } else if (mem.eql(u8, arg, "-target")) {
+                    if (i + 1 >= args.len) fatal("expected parameter after {s}", .{arg});
+                    i += 1;
+                    target_arch_os_abi = args[i];
                 } else {
                     fatal("unrecognized parameter: '{s}'", .{arg});
                 }
@@ -2653,12 +2671,21 @@ pub fn cmdLibC(gpa: *Allocator, args: []const []const u8) !void {
             }
         }
     }
+
+    const cross_target = try parseCrossTargetOrReportFatalError(gpa, .{
+        .arch_os_abi = target_arch_os_abi,
+    });
+
     if (input_file) |libc_file| {
-        var libc = LibCInstallation.parse(gpa, libc_file) catch |err| {
+        var libc = LibCInstallation.parse(gpa, libc_file, cross_target) catch |err| {
             fatal("unable to parse libc file at path {s}: {s}", .{ libc_file, @errorName(err) });
         };
         defer libc.deinit(gpa);
     } else {
+        if (!cross_target.isNative()) {
+            fatal("unable to detect libc for non-native target", .{});
+        }
+
         var libc = LibCInstallation.findNative(.{
             .allocator = gpa,
             .verbose = true,

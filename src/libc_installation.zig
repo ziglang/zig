@@ -41,6 +41,7 @@ pub const LibCInstallation = struct {
     pub fn parse(
         allocator: *Allocator,
         libc_file: []const u8,
+        target: std.zig.CrossTarget,
     ) !LibCInstallation {
         var self: LibCInstallation = .{};
 
@@ -96,26 +97,31 @@ pub const LibCInstallation = struct {
             log.err("sys_include_dir may not be empty\n", .{});
             return error.ParseError;
         }
-        if (self.crt_dir == null and !is_darwin) {
-            log.err("crt_dir may not be empty for {s}\n", .{@tagName(Target.current.os.tag)});
+
+        const os_tag = target.getOsTag();
+        if (self.crt_dir == null and !target.isDarwin()) {
+            log.err("crt_dir may not be empty for {s}\n", .{@tagName(os_tag)});
             return error.ParseError;
         }
-        if (self.msvc_lib_dir == null and is_windows) {
+
+        const abi = target.getAbi();
+        if (self.msvc_lib_dir == null and target.isWindows() and abi == .msvc) {
             log.err("msvc_lib_dir may not be empty for {s}-{s}\n", .{
-                @tagName(Target.current.os.tag),
-                @tagName(Target.current.abi),
+                @tagName(os_tag),
+                @tagName(abi),
             });
             return error.ParseError;
         }
-        if (self.kernel32_lib_dir == null and is_windows) {
+        if (self.kernel32_lib_dir == null and target.isWindows() and abi == .msvc) {
             log.err("kernel32_lib_dir may not be empty for {s}-{s}\n", .{
-                @tagName(Target.current.os.tag),
-                @tagName(Target.current.abi),
+                @tagName(os_tag),
+                @tagName(abi),
             });
             return error.ParseError;
         }
-        if (self.gcc_dir == null and is_haiku) {
-            log.err("gcc_dir may not be empty for {s}\n", .{@tagName(Target.current.os.tag)});
+
+        if (self.gcc_dir == null and os_tag == .haiku) {
+            log.err("gcc_dir may not be empty for {s}\n", .{@tagName(os_tag)});
             return error.ParseError;
         }
 
