@@ -989,8 +989,13 @@ pub const Builder = struct {
         self.getInstallStep().dependOn(&self.addInstallFileWithDir(.{ .path = src_path }, .lib, dest_rel_path).step);
     }
 
+    /// Output format (BIN vs Intel HEX) determined by filename
     pub fn installRaw(self: *Builder, artifact: *LibExeObjStep, dest_filename: []const u8) void {
         self.getInstallStep().dependOn(&self.addInstallRaw(artifact, dest_filename).step);
+    }
+
+    pub fn installRawWithFormat(self: *Builder, artifact: *LibExeObjStep, dest_filename: []const u8, format: InstallRawStep.RawFormat) void {
+        self.getInstallStep().dependOn(&self.addInstallRawWithFormat(artifact, dest_filename, format).step);
     }
 
     ///`dest_rel_path` is relative to install prefix path
@@ -1009,7 +1014,11 @@ pub const Builder = struct {
     }
 
     pub fn addInstallRaw(self: *Builder, artifact: *LibExeObjStep, dest_filename: []const u8) *InstallRawStep {
-        return InstallRawStep.create(self, artifact, dest_filename);
+        return InstallRawStep.create(self, artifact, dest_filename, null);
+    }
+
+    pub fn addInstallRawWithFormat(self: *Builder, artifact: *LibExeObjStep, dest_filename: []const u8, format: InstallRawStep.RawFormat) *InstallRawStep {
+        return InstallRawStep.create(self, artifact, dest_filename, format);
     }
 
     pub fn addInstallFileWithDir(
@@ -1707,6 +1716,10 @@ pub const LibExeObjStep = struct {
 
     pub fn installRaw(self: *LibExeObjStep, dest_filename: []const u8) void {
         self.builder.installRaw(self, dest_filename);
+    }
+
+    pub fn installRawWithFormat(self: *LibExeObjStep, dest_filename: []const u8, format: InstallRawStep.RawFormat) void {
+        self.builder.installRawWithFormat(self, dest_filename, format);
     }
 
     /// Creates a `RunStep` with an executable built with `addExecutable`.
