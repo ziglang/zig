@@ -576,6 +576,18 @@ comptime {
             },
             else => {},
         }
+        if (arch.isAARCH64()) {
+            const __chkstk = @import("compiler_rt/stack_probe.zig").__chkstk;
+            @export(__chkstk, .{ .name = "__chkstk", .linkage = strong_linkage });
+            const __divti3_windows = @import("compiler_rt/divti3.zig").__divti3;
+            @export(__divti3_windows, .{ .name = "__divti3", .linkage = linkage });
+            const __modti3 = @import("compiler_rt/modti3.zig").__modti3;
+            @export(__modti3, .{ .name = "__modti3", .linkage = linkage });
+            const __udivti3_windows = @import("compiler_rt/udivti3.zig").__udivti3;
+            @export(__udivti3_windows, .{ .name = "__udivti3", .linkage = linkage });
+            const __umodti3 = @import("compiler_rt/umodti3.zig").__umodti3;
+            @export(__umodti3, .{ .name = "__umodti3", .linkage = linkage });
+        }
     } else {
         const __divti3 = @import("compiler_rt/divti3.zig").__divti3;
         @export(__divti3, .{ .name = "__divti3", .linkage = linkage });
