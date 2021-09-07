@@ -436,7 +436,7 @@ test "read-write segment command" {
         0x00, 0x00, 0x00, 0x00, // reserved3
     };
     var cmd = SegmentCommand{
-        .inner = macho.segment_command_64.new(.{
+        .inner = .{
             .cmdsize = 152,
             .segname = makeStaticString("__TEXT"),
             .vmaddr = 4294967296,
@@ -445,9 +445,9 @@ test "read-write segment command" {
             .maxprot = macho.VM_PROT_READ | macho.VM_PROT_WRITE | macho.VM_PROT_EXECUTE,
             .initprot = macho.VM_PROT_EXECUTE | macho.VM_PROT_READ,
             .nsects = 1,
-        }),
+        },
     };
-    try cmd.sections.append(gpa, macho.section_64.new(.{
+    try cmd.sections.append(gpa, .{
         .sectname = makeStaticString("__text"),
         .segname = makeStaticString("__TEXT"),
         .addr = 4294983680,
@@ -455,7 +455,7 @@ test "read-write segment command" {
         .offset = 16384,
         .@"align" = 2,
         .flags = macho.S_REGULAR | macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS,
-    }));
+    });
     defer cmd.deinit(gpa);
     try testRead(gpa, in_buffer, LoadCommand{ .Segment = cmd });
 
