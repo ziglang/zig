@@ -1660,17 +1660,20 @@ pub fn allocateAtom(self: *MachO, atom: *TextBlock, match: MatchingSection) !u64
     const needs_padding = match.seg == self.text_segment_cmd_index.? and match.sect == self.text_section_index.?;
 
     var atom_placement: ?*TextBlock = null;
+    const atom_alignment = try math.powi(u32, 2, atom.alignment);
 
     // TODO converge with `allocateTextBlock` and handle free list
     var vaddr = if (self.blocks.get(match)) |last| blk: {
         const last_atom_sym = self.locals.items[last.local_sym_index];
         const ideal_capacity = if (needs_padding) padToIdeal(last.size) else last.size;
         const ideal_capacity_end_vaddr = last_atom_sym.n_value + ideal_capacity;
-        const last_atom_alignment = try math.powi(u32, 2, atom.alignment);
-        const new_start_vaddr = mem.alignForwardGeneric(u64, ideal_capacity_end_vaddr, last_atom_alignment);
+        const new_start_vaddr = mem.alignForwardGeneric(u64, ideal_capacity_end_vaddr, atom_alignment);
         atom_placement = last;
         break :blk new_start_vaddr;
-    } else sect.addr;
+    } else mem.alignForwardGeneric(u64, sect.addr, atom_alignment);
+
+    // TODO what if the section which was preallocated is not aligned to the maximum (section) alignment?
+    // Should we move the section?
 
     log.debug("allocating atom for symbol {s} at address 0x{x}", .{ self.getString(sym.n_strx), vaddr });
 
