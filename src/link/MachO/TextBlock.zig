@@ -479,13 +479,13 @@ pub const Relocation = struct {
 
     pub const Signed = struct {
         addend: i64,
-        correction: i4,
+        correction: u3,
 
         pub fn resolve(self: Signed, args: ResolveArgs) !void {
             const target_addr = @intCast(i64, args.target_addr) + self.addend;
             const displacement = try math.cast(
                 i32,
-                target_addr - @intCast(i64, args.source_addr) - self.correction - 4,
+                target_addr - @intCast(i64, args.source_addr + self.correction + 4),
             );
             mem.writeIntLittle(u32, args.block.code.items[args.offset..][0..4], @bitCast(u32, displacement));
         }
@@ -613,6 +613,7 @@ pub fn freeListEligible(self: TextBlock, macho_file: MachO) bool {
 
 const RelocContext = struct {
     base_addr: u64 = 0,
+    base_offset: u64 = 0,
     allocator: *Allocator,
     object: *Object,
     macho_file: *MachO,
@@ -620,7 +621,7 @@ const RelocContext = struct {
 
 fn initRelocFromObject(rel: macho.relocation_info, context: RelocContext) !Relocation {
     var parsed_rel = Relocation{
-        .offset = @intCast(u32, @intCast(u64, rel.r_address) - context.base_addr),
+        .offset = @intCast(u32, @intCast(u64, rel.r_address) - context.base_offset),
         .where = undefined,
         .where_index = undefined,
         .payload = undefined,
@@ -684,7 +685,7 @@ fn initRelocFromObject(rel: macho.relocation_info, context: RelocContext) !Reloc
 }
 
 pub fn parseRelocs(self: *TextBlock, relocs: []macho.relocation_info, context: RelocContext) !void {
-    const filtered_relocs = filterRelocs(relocs, context.base_addr, context.base_addr + self.size);
+    const filtered_relocs = filterRelocs(relocs, context.base_offset, context.base_offset + self.size);
     var it = RelocIterator{
         .buffer = filtered_relocs,
     };
@@ -956,9 +957,9 @@ fn parseUnsigned(
         mem.readIntLittle(i32, self.code.items[out.offset..][0..4]);
 
     if (rel.r_extern == 0) {
-        const source_seg = context.object.load_commands.items[context.object.segment_cmd_index.?].Segment;
-        const source_sect_base_addr = source_seg.sections.items[rel.r_symbolnum - 1].addr;
-        addend -= @intCast(i64, source_sect_base_addr);
+        const seg = context.object.load_commands.items[context.object.segment_cmd_index.?].Segment;
+        const target_sect_base_addr = seg.sections.items[rel.r_symbolnum - 1].addr;
+        addend -= @intCast(i64, target_sect_base_addr);
     }
 
     out.payload = .{
@@ -1043,7 +1044,7 @@ fn parseSigned(self: TextBlock, rel: macho.relocation_info, out: *Relocation, co
     assert(rel.r_length == 2);
 
     const rel_type = @intToEnum(macho.reloc_type_x86_64, rel.r_type);
-    const correction: i4 = switch (rel_type) {
+    const correction: u3 = switch (rel_type) {
         .X86_64_RELOC_SIGNED => 0,
         .X86_64_RELOC_SIGNED_1 => 1,
         .X86_64_RELOC_SIGNED_2 => 2,
@@ -1053,9 +1054,9 @@ fn parseSigned(self: TextBlock, rel: macho.relocation_info, out: *Relocation, co
     var addend: i64 = mem.readIntLittle(i32, self.code.items[out.offset..][0..4]) + correction;
 
     if (rel.r_extern == 0) {
-        const source_seg = context.object.load_commands.items[context.object.segment_cmd_index.?].Segment;
-        const source_sect_base_addr = source_seg.sections.items[rel.r_symbolnum - 1].addr;
-        addend = @intCast(i64, out.offset) + addend - @intCast(i64, source_sect_base_addr) + 4 + correction;
+        const seg = context.object.load_commands.items[context.object.segment_cmd_index.?].Segment;
+        const target_sect_base_addr = seg.sections.items[rel.r_symbolnum - 1].addr;
+        addend += @intCast(i64, context.base_addr + out.offset + correction + 4) - @intCast(i64, target_sect_base_addr);
     }
 
     out.payload = .{

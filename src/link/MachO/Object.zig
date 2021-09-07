@@ -425,7 +425,8 @@ const TextBlockParser = struct {
         }
 
         try block.parseRelocs(self.relocs, .{
-            .base_addr = start_addr,
+            .base_addr = self.section.addr,
+            .base_offset = start_addr,
             .allocator = context.allocator,
             .object = context.object,
             .macho_file = context.macho_file,
@@ -583,7 +584,8 @@ pub fn parseTextBlocks(
                     }
 
                     try block.parseRelocs(relocs, .{
-                        .base_addr = 0,
+                        .base_addr = sect.addr,
+                        .base_offset = 0,
                         .allocator = allocator,
                         .object = self,
                         .macho_file = macho_file,
@@ -689,7 +691,8 @@ pub fn parseTextBlocks(
             }
 
             try block.parseRelocs(relocs, .{
-                .base_addr = 0,
+                .base_addr = sect.addr,
+                .base_offset = 0,
                 .allocator = allocator,
                 .object = self,
                 .macho_file = macho_file,
