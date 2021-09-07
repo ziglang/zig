@@ -1678,7 +1678,11 @@ pub fn allocateAtom(self: *MachO, atom: *TextBlock, match: MatchingSection) !u64
     if (expand_section) {
         const needed_size = @intCast(u32, (vaddr + atom.size) - sect.addr);
         try self.growSection(match, needed_size);
+        sect.size = needed_size;
+        self.load_commands_dirty = true;
     }
+    sect.@"align" = math.max(sect.@"align", atom.alignment);
+
     const n_sect = @intCast(u8, self.section_ordinals.getIndex(match).? + 1);
     sym.n_value = vaddr;
     sym.n_sect = n_sect;
@@ -3899,15 +3903,13 @@ fn growSection(self: *MachO, match: MatchingSection, new_size: u32) !void {
             }, @intCast(i64, offset_amt));
         }
     }
-
-    sect.size = new_size;
-    self.load_commands_dirty = true;
 }
 
 fn allocatedSize(self: MachO, segment_id: u16, start: u64) u64 {
     const seg = self.load_commands.items[segment_id].Segment;
     assert(start >= seg.inner.fileoff);
     var min_pos: u64 = seg.inner.fileoff + seg.inner.filesize;
+    if (start > min_pos) return 0;
     for (seg.sections.items) |section| {
         if (section.offset <= start) continue;
         if (section.offset < min_pos) min_pos = section.offset;
@@ -4003,7 +4005,11 @@ fn allocateTextBlock(self: *MachO, text_block: *TextBlock, new_block_size: u64, 
         const needed_size = @intCast(u32, (vaddr + new_block_size) - text_section.addr);
         try self.growSection(match, needed_size);
         _ = try self.blocks.put(self.base.allocator, match, text_block);
+        text_section.size = needed_size;
+        self.load_commands_dirty = true;
     }
+    const align_pow = @intCast(u32, math.log2(alignment));
+    text_section.@"align" = math.max(text_section.@"align", align_pow);
     text_block.size = new_block_size;
 
     if (text_block.prev) |prev| {
