@@ -32,7 +32,7 @@ static const NativeArch native_arch = NativeArchArm;
 static const NativeArch native_arch = NativeArchi386;
 #elif defined(_M_X64) || defined(__x86_64__)
 static const NativeArch native_arch = NativeArchx86_64;
-#elif defined(__aarch64__)
+#elif defined(_M_ARM64) || defined(__aarch64__)
 static const NativeArch native_arch = NativeArchAarch64;
 #else
 #error unsupported architecture
@@ -120,8 +120,7 @@ static ZigFindWindowsSdkError find_msvc_lib_dir(ZigWindowsSDKPrivate *priv) {
                 out_append_ptr += sprintf(out_append_ptr, "arm\\");
                 break;
             case NativeArchAarch64:
-                // TODO: is this right?
-                out_append_ptr += sprintf(out_append_ptr, "aarch64\\");
+                out_append_ptr += sprintf(out_append_ptr, "arm64\\");
                 break;
             }
             sprintf(tmp_buf, "%s%s", output_path, "vcruntime.lib");
@@ -169,8 +168,7 @@ com_done:;
         tmp_buf_append_ptr += sprintf(tmp_buf_append_ptr, "arm\\");
         break;
     case NativeArchAarch64:
-        // TODO: is this right?
-        tmp_buf_append_ptr += sprintf(tmp_buf_append_ptr, "aarch64\\");
+        tmp_buf_append_ptr += sprintf(tmp_buf_append_ptr, "arm64\\");
         break;
     }
 
@@ -216,7 +214,6 @@ static ZigFindWindowsSdkError find_10_version(ZigWindowsSDKPrivate *priv) {
 		option_name = "OptionId.DesktopCPParm";
 		break;
 	case NativeArchAarch64:
-                // TODO: is this right?
 		option_name = "OptionId.DesktopCPParm64";
 		break;
 	case NativeArchx86_64:
