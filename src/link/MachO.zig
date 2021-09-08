@@ -2589,6 +2589,47 @@ fn resolveDyldStubBinder(self: *MachO) !void {
 }
 
 fn parseTextBlocks(self: *MachO) !void {
+    var section_metadata = std.AutoHashMap(MatchingSection, struct {
+        size: u64,
+        alignment: u32,
+    }).init(self.base.allocator);
+    defer section_metadata.deinit();
+
+    for (self.objects.items) |object| {
+        const seg = object.load_commands.items[object.segment_cmd_index.?].Segment;
+        for (seg.sections.items) |sect| {
+            const match = (try self.getMatchingSection(sect)) orelse {
+                log.debug("unhandled section", .{});
+                continue;
+            };
+            const res = try section_metadata.getOrPut(match);
+            if (!res.found_existing) {
+                res.value_ptr.* = .{
+                    .size = 0,
+                    .alignment = 0,
+                };
+            }
+            const alignment = try math.powi(u32, 2, sect.@"align");
+            res.value_ptr.size += mem.alignForwardGeneric(u64, sect.size, alignment);
+            res.value_ptr.alignment = math.max(res.value_ptr.alignment, sect.@"align");
+        }
+    }
+
+    var it = section_metadata.iterator();
+    while (it.next()) |entry| {
+        const match = entry.key_ptr.*;
+        const metadata = entry.value_ptr.*;
+        const seg = self.load_commands.items[match.seg].Segment;
+        const sect = seg.sections.items[match.sect];
+        log.debug("{s},{s} => size: 0x{x}, alignment: 0x{x}", .{
+            commands.segmentName(sect),
+            commands.sectionName(sect),
+            metadata.size,
+            metadata.alignment,
+        });
+        try self.growSection(match, @intCast(u32, metadata.size));
+    }
+
     for (self.objects.items) |*object, object_id| {
         try object.parseTextBlocks(self.base.allocator, @intCast(u16, object_id), self);
     }
