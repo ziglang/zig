@@ -44,7 +44,7 @@ pub const Inst = struct {
         /// is the same as both operands.
         /// Uses the `bin_op` field.
         addwrap,
-        /// Saturating integer addition. 
+        /// Saturating integer addition.
         /// Both operands are guaranteed to be the same type, and the result type
         /// is the same as both operands.
         /// Uses the `bin_op` field.
@@ -59,7 +59,7 @@ pub const Inst = struct {
         /// is the same as both operands.
         /// Uses the `bin_op` field.
         subwrap,
-        /// Saturating integer subtraction. 
+        /// Saturating integer subtraction.
         /// Both operands are guaranteed to be the same type, and the result type
         /// is the same as both operands.
         /// Uses the `bin_op` field.
@@ -74,7 +74,7 @@ pub const Inst = struct {
         /// is the same as both operands.
         /// Uses the `bin_op` field.
         mulwrap,
-        /// Saturating integer multiplication. 
+        /// Saturating integer multiplication.
         /// Both operands are guaranteed to be the same type, and the result type
         /// is the same as both operands.
         /// Uses the `bin_op` field.

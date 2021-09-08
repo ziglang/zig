@@ -995,7 +995,6 @@ void tokenize(const char *source, Tokenization *out) {
                         t.state = TokenizeState_start;
                         break;
                     case '|':
-                        // t.out->ids.last() = TokenIdBitShiftLeftPipe;
                         t.state = TokenizeState_angle_bracket_angle_bracket_left_pipe;
                         break;
                     default:
