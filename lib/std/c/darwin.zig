@@ -2,7 +2,7 @@ const std = @import("../std.zig");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
 const macho = std.macho;
-const native_arch = std.Target.current.cpu.arch;
+const native_arch = std.builtin.target.cpu.arch;
 const maxInt = std.math.maxInt;
 const iovec_const = std.os.iovec_const;
 
