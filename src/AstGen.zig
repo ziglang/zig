@@ -2786,7 +2786,7 @@ fn assignShift(
 fn assignShiftSat(
     gz: *GenZir,
     scope: *Scope,
-    infix_node: ast.Node.Index,
+    infix_node: Ast.Node.Index,
     op_inst_tag: Zir.Inst.Tag,
 ) InnerError!void {
     try emitDbgNode(gz, infix_node);

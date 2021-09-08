@@ -1317,7 +1317,6 @@ fn airWrapOp(
 fn airSatOp(
     o: *Object,
     inst: Air.Inst.Index,
-    str_op: [*:0]const u8,
     fn_op: [*:0]const u8,
 ) !CValue {
     if (o.liveness.isUnused(inst))
@@ -1328,12 +1327,12 @@ fn airSatOp(
     const int_info = inst_ty.intInfo(o.dg.module.getTarget());
     const bits = int_info.bits;
 
-    // if it's an unsigned int with non-arbitrary bit size then we can just add
-    const ok_bits = switch (bits) {
-        8, 16, 32, 64, 128 => true,
-        else => false,
-    };
+    switch (bits) {
+        8, 16, 32, 64, 128 => {},
+        else => return o.dg.fail("TODO: C backend: airSatOp for non power of 2 integers", .{}),
+    }
 
+    // if it's an unsigned int with non-arbitrary bit size then we can just add
     if (bits > 64) {
         return f.fail("TODO: C backend: airSatOp for large integers", .{});
     }
