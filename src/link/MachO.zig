@@ -262,7 +262,7 @@ pub const GotIndirectionKey = struct {
 
 /// When allocating, the ideal_capacity is calculated by
 /// actual_capacity + (actual_capacity / ideal_factor)
-const ideal_factor = 2;
+const ideal_factor = 4;
 
 /// Default path to dyld
 const default_dyld_path: [*:0]const u8 = "/usr/lib/dyld";

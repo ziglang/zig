@@ -243,10 +243,21 @@ pub const Relocation = struct {
         pub fn resolve(self: Branch, args: ResolveArgs) !void {
             switch (self.arch) {
                 .aarch64 => {
-                    const displacement = try math.cast(
+                    const displacement = math.cast(
                         i28,
                         @intCast(i64, args.target_addr) - @intCast(i64, args.source_addr),
-                    );
+                    ) catch |err| switch (err) {
+                        error.Overflow => {
+                            log.err("jump too big to encode as i28 displacement value", .{});
+                            log.err("  (target - source) = displacement => 0x{x} - 0x{x} = 0x{x}", .{
+                                args.target_addr,
+                                args.source_addr,
+                                @intCast(i64, args.target_addr) - @intCast(i64, args.source_addr),
+                            });
+                            log.err("  TODO implement branch islands to extend jump distance for arm64", .{});
+                            return error.TODOImplementBranchIslands;
+                        },
+                    };
                     const code = args.block.code.items[args.offset..][0..4];
                     var inst = aarch64.Instruction{
                         .unconditional_branch_immediate = mem.bytesToValue(meta.TagPayload(
