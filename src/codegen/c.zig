@@ -885,17 +885,17 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             // that wrapping is UB.
             .add, .ptr_add => try airBinOp( f, inst, " + "),
             .addwrap       => try airWrapOp(f, inst, " + ", "addw_"),
-            .addsat        => return o.dg.fail("TODO: C backend: implement codegen for addsat", .{}),
+            .addsat        => return f.fail("TODO: C backend: implement codegen for addsat", .{}),
             // TODO use a different strategy for sub that communicates to the optimizer
             // that wrapping is UB.
             .sub, .ptr_sub => try airBinOp( f, inst, " - "),
             .subwrap       => try airWrapOp(f, inst, " - ", "subw_"),
-            .subsat        => return o.dg.fail("TODO: C backend: implement codegen for subsat", .{}),
+            .subsat        => return f.fail("TODO: C backend: implement codegen for subsat", .{}),
             // TODO use a different strategy for mul that communicates to the optimizer
             // that wrapping is UB.
             .mul           => try airBinOp( f, inst, " * "),
             .mulwrap       => try airWrapOp(f, inst, " * ", "mulw_"),
-            .mulsat        => return o.dg.fail("TODO: C backend: implement codegen for mulsat", .{}),
+            .mulsat        => return f.fail("TODO: C backend: implement codegen for mulsat", .{}),
             // TODO use a different strategy for div that communicates to the optimizer
             // that wrapping is UB.
             .div           => try airBinOp( f, inst, " / "),
@@ -919,6 +919,8 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
 
             .shr        => try airBinOp(f, inst, " >> "),
             .shl        => try airBinOp(f, inst, " << "),
+            .shl_sat    => return f.fail("TODO: C backend: implement codegen for mulsat", .{}),
+            
 
             .not        => try airNot(  f, inst),
 
@@ -1308,6 +1310,118 @@ fn airWrapOp(
 
     try w.print(", {s});", .{max});
     try f.object.indent_writer.insertNewline();
+
+    return ret;
+}
+
+fn airSatOp(
+    o: *Object,
+    inst: Air.Inst.Index,
+    str_op: [*:0]const u8,
+    fn_op: [*:0]const u8,
+) !CValue {
+    if (o.liveness.isUnused(inst))
+        return CValue.none;
+
+    const bin_op = o.air.instructions.items(.data)[inst].bin_op;
+    const inst_ty = o.air.typeOfIndex(inst);
+    const int_info = inst_ty.intInfo(o.dg.module.getTarget());
+    const bits = int_info.bits;
+
+    // if it's an unsigned int with non-arbitrary bit size then we can just add
+    const ok_bits = switch (bits) {
+        8, 16, 32, 64, 128 => true,
+        else => false,
+    };
+
+    if (bits > 64) {
+        return f.fail("TODO: C backend: airSatOp for large integers", .{});
+    }
+
+    var min_buf: [80]u8 = undefined;
+    const min = switch (int_info.signedness) {
+        .unsigned => "0",
+        else => switch (inst_ty.tag()) {
+            .c_short => "SHRT_MIN",
+            .c_int => "INT_MIN",
+            .c_long => "LONG_MIN",
+            .c_longlong => "LLONG_MIN",
+            .isize => "INTPTR_MIN",
+            else => blk: {
+                const val = -1 * std.math.pow(i65, 2, @intCast(i65, bits - 1));
+                break :blk std.fmt.bufPrint(&min_buf, "{d}", .{val}) catch |err| switch (err) {
+                    error.NoSpaceLeft => unreachable,
+                    else => |e| return e,
+                };
+            },
+        },
+    };
+
+    var max_buf: [80]u8 = undefined;
+    const max = switch (inst_ty.tag()) {
+        .c_short => "SHRT_MAX",
+        .c_ushort => "USHRT_MAX",
+        .c_int => "INT_MAX",
+        .c_uint => "UINT_MAX",
+        .c_long => "LONG_MAX",
+        .c_ulong => "ULONG_MAX",
+        .c_longlong => "LLONG_MAX",
+        .c_ulonglong => "ULLONG_MAX",
+        .isize => "INTPTR_MAX",
+        .usize => "UINTPTR_MAX",
+        else => blk: {
+            const pow_bits = switch (int_info.signedness) {
+                .signed => bits - 1,
+                .unsigned => bits,
+            };
+            const val = std.math.pow(u65, 2, pow_bits) - 1;
+            break :blk std.fmt.bufPrint(&max_buf, "{}", .{val}) catch |err| switch (err) {
+                error.NoSpaceLeft => unreachable,
+                else => |e| return e,
+            };
+        },
+    };
+
+    const lhs = try o.resolveInst(bin_op.lhs);
+    const rhs = try o.resolveInst(bin_op.rhs);
+    const w = o.writer();
+
+    const ret = try o.allocLocal(inst_ty, .Mut);
+    try w.print(" = zig_{s}", .{fn_op});
+
+    switch (inst_ty.tag()) {
+        .isize => try w.writeAll("isize"),
+        .c_short => try w.writeAll("short"),
+        .c_int => try w.writeAll("int"),
+        .c_long => try w.writeAll("long"),
+        .c_longlong => try w.writeAll("longlong"),
+        else => {
+            const prefix_byte: u8 = switch (int_info.signedness) {
+                .signed => 'i',
+                .unsigned => 'u',
+            };
+            for ([_]u8{ 8, 16, 32, 64 }) |nbits| {
+                if (bits <= nbits) {
+                    try w.print("{c}{d}", .{ prefix_byte, nbits });
+                    break;
+                }
+            } else {
+                unreachable;
+            }
+        },
+    }
+
+    try w.writeByte('(');
+    try o.writeCValue(w, lhs);
+    try w.writeAll(", ");
+    try o.writeCValue(w, rhs);
+
+    if (int_info.signedness == .signed) {
+        try w.print(", {s}", .{min});
+    }
+
+    try w.print(", {s});", .{max});
+    try o.indent_writer.insertNewline();
 
     return ret;
 }

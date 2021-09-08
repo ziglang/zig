@@ -2038,7 +2038,7 @@ pub const FuncGen = struct {
         const rhs = try self.resolveInst(bin_op.rhs);
         const inst_ty = self.air.typeOfIndex(inst);
 
-        if (inst_ty.isFloat()) return self.builder.buildFAdd(lhs, rhs, "");
+        if (inst_ty.isAnyFloat()) return self.builder.buildFAdd(lhs, rhs, "");
         if (ty == .wrapping)
             return self.builder.buildAdd(lhs, rhs, "")
         else if (ty == .saturated) {
@@ -2060,7 +2060,7 @@ pub const FuncGen = struct {
         const rhs = try self.resolveInst(bin_op.rhs);
         const inst_ty = self.air.typeOfIndex(inst);
 
-        if (inst_ty.isFloat()) return self.builder.buildFSub(lhs, rhs, "");
+        if (inst_ty.isAnyFloat()) return self.builder.buildFSub(lhs, rhs, "");
         if (ty == .wrapping)
             return self.builder.buildSub(lhs, rhs, "")
         else if (ty == .saturated) {
@@ -2082,7 +2082,7 @@ pub const FuncGen = struct {
         const rhs = try self.resolveInst(bin_op.rhs);
         const inst_ty = self.air.typeOfIndex(inst);
 
-        if (inst_ty.isFloat()) return self.builder.buildFMul(lhs, rhs, "");
+        if (inst_ty.isAnyFloat()) return self.builder.buildFMul(lhs, rhs, "");
         if (ty == .wrapping)
             return self.builder.buildMul(lhs, rhs, "")
         else if (ty == .saturated) {

@@ -356,3 +356,96 @@ static inline long long zig_subw_longlong(long long lhs, long long rhs, long lon
     return (long long)(((unsigned long long)lhs) - ((unsigned long long)rhs));
 }
 
+/*
+ * Saturating aritmetic operations: add, sub, mul, shl
+ */
+#define zig_add_sat_u(ZT, T) static inline T zig_adds_##ZT(T x, T y, T max) { \
+    return (x > max - y) ? max : x + y; \
+}
+
+#define zig_add_sat_s(ZT, T, T2) static inline T zig_adds_##ZT(T2 x, T2 y, T2 min, T2 max) { \
+    T2 res = x + y; \
+    return (res < min) ? min : (res > max) ? max : res; \
+}
+
+zig_add_sat_u( u8,    uint8_t)
+zig_add_sat_s( i8,     int8_t,  int16_t)
+zig_add_sat_u(u16,   uint16_t)
+zig_add_sat_s(i16,    int16_t,  int32_t)
+zig_add_sat_u(u32,   uint32_t)
+zig_add_sat_s(i32,    int32_t,  int64_t)
+zig_add_sat_u(u64,   uint64_t)
+zig_add_sat_s(i64,    int64_t, int128_t)
+zig_add_sat_s(isize, intptr_t, int128_t)
+zig_add_sat_s(short,    short, int)
+zig_add_sat_s(int,        int, long)
+zig_add_sat_s(long,      long, long long)
+
+#define zig_sub_sat_u(ZT, T) static inline T zig_subs_##ZT(T x, T y, T max) { \
+    return (x > max + y) ? max : x - y; \
+}
+
+#define zig_sub_sat_s(ZT, T, T2) static inline T zig_subs_##ZT(T2 x, T2 y, T2 min, T2 max) { \
+    T2 res = x - y; \
+    return (res < min) ? min : (res > max) ? max : res; \
+}
+
+zig_sub_sat_u( u8,    uint8_t)
+zig_sub_sat_s( i8,     int8_t,  int16_t)
+zig_sub_sat_u(u16,   uint16_t)
+zig_sub_sat_s(i16,    int16_t,  int32_t)
+zig_sub_sat_u(u32,   uint32_t)
+zig_sub_sat_s(i32,    int32_t,  int64_t)
+zig_sub_sat_u(u64,   uint64_t)
+zig_sub_sat_s(i64,    int64_t, int128_t)
+zig_sub_sat_s(isize, intptr_t, int128_t)
+zig_sub_sat_s(short,    short, int)
+zig_sub_sat_s(int,        int, long)
+zig_sub_sat_s(long,      long, long long)
+
+
+#define zig_mul_sat_u(ZT, T, T2) static inline T zig_muls_##ZT(T2 x, T2 y, T2 max) { \
+    T2 res = x * y; \
+    return (res > max) ? max : res; \
+}
+
+#define zig_mul_sat_s(ZT, T, T2) static inline T zig_muls_##ZT(T2 x, T2 y, T2 min, T2 max) { \
+    T2 res = x * y; \
+    return (res < min) ? min : (res > max) ? max : res; \
+}
+
+zig_mul_sat_u(u8,    uint8_t,   uint16_t)
+zig_mul_sat_s(i8,     int8_t,    int16_t)
+zig_mul_sat_u(u16,   uint16_t,  uint32_t)
+zig_mul_sat_s(i16,    int16_t,   int32_t)
+zig_mul_sat_u(u32,   uint32_t,  uint64_t)
+zig_mul_sat_s(i32,    int32_t,   int64_t)
+zig_mul_sat_u(u64,   uint64_t, uint128_t)
+zig_mul_sat_s(i64,    int64_t,  int128_t)
+zig_mul_sat_s(isize, intptr_t, int128_t)
+zig_mul_sat_s(short,    short, int)
+zig_mul_sat_s(int,        int, long)
+zig_mul_sat_s(long,      long, long long)
+
+#define zig_shl_sat_u(ZT, T, bits) static inline T zig_shls_##ZT(T x, T y, T max) { \
+    T leading_zeros = __builtin_clz(x); \
+    return (leading_zeros + y > bits) ? max : x << y; \
+}
+
+#define zig_shl_sat_s(ZT, T, bits) static inline T zig_shls_##ZT(T x, T y, T min, T max) { \
+    T leading_zeros = __builtin_clz(x & ~max); \
+    return (leading_zeros + y > bits) ? max : x << y; \
+}
+
+zig_shl_sat_u(u8,    uint8_t,   8)
+zig_shl_sat_s(i8,     int8_t,   7)
+zig_shl_sat_u(u16,   uint16_t, 16)
+zig_shl_sat_s(i16,    int16_t, 15)
+zig_shl_sat_u(u32,   uint32_t, 32)
+zig_shl_sat_s(i32,    int32_t, 31)
+zig_shl_sat_u(u64,   uint64_t, 64)
+zig_shl_sat_s(i64,    int64_t, 63)
+zig_shl_sat_s(isize, intptr_t, 63)
+zig_shl_sat_s(short,    short, 15)
+zig_shl_sat_s(int,        int, 31)
+zig_shl_sat_s(long,      long, 63)

@@ -535,7 +535,7 @@ fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: Ast.Node.Index) InnerEr
             return rvalue(gz, rl, .void_value, node);
         },
         .assign_bit_shift_left_sat => {
-            try assignBinOpExt(gz, scope, node, .shl_with_saturation);
+            try assignBinOpExt(gz, scope, node, .shl_with_saturation, Zir.Inst.SaturatingArithmetic);
             return rvalue(gz, rl, .void_value, node);
         },
         .assign_bit_shift_right => {
@@ -568,7 +568,7 @@ fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: Ast.Node.Index) InnerEr
             return rvalue(gz, rl, .void_value, node);
         },
         .assign_sub_sat => {
-            try assignBinOpExt(gz, scope, node, .sub_with_saturation);
+            try assignBinOpExt(gz, scope, node, .sub_with_saturation, Zir.Inst.SaturatingArithmetic);
             return rvalue(gz, rl, .void_value, node);
         },
         .assign_mod => {
@@ -584,7 +584,7 @@ fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: Ast.Node.Index) InnerEr
             return rvalue(gz, rl, .void_value, node);
         },
         .assign_add_sat => {
-            try assignBinOpExt(gz, scope, node, .add_with_saturation);
+            try assignBinOpExt(gz, scope, node, .add_with_saturation, Zir.Inst.SaturatingArithmetic);
             return rvalue(gz, rl, .void_value, node);
         },
         .assign_mul => {
@@ -596,24 +596,24 @@ fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: Ast.Node.Index) InnerEr
             return rvalue(gz, rl, .void_value, node);
         },
         .assign_mul_sat => {
-            try assignBinOpExt(gz, scope, node, .mul_with_saturation);
+            try assignBinOpExt(gz, scope, node, .mul_with_saturation, Zir.Inst.SaturatingArithmetic);
             return rvalue(gz, rl, .void_value, node);
         },
 
         // zig fmt: off
         .bit_shift_left     => return shiftOp(gz, scope, rl, node, node_datas[node].lhs, node_datas[node].rhs, .shl),
-        .bit_shift_left_sat => return binOpExt(gz, scope, rl, node, node_datas[node].lhs, node_datas[node].rhs, .shl_with_saturation),
+        .bit_shift_left_sat => return binOpExt(gz, scope, rl, node, node_datas[node].lhs, node_datas[node].rhs, .shl_with_saturation, Zir.Inst.SaturatingArithmetic),
         .bit_shift_right    => return shiftOp(gz, scope, rl, node, node_datas[node].lhs, node_datas[node].rhs, .shr),
 
         .add      => return simpleBinOp(gz, scope, rl, node, .add),
         .add_wrap => return simpleBinOp(gz, scope, rl, node, .addwrap),
-        .add_sat  => return binOpExt(gz, scope, rl, node, node_datas[node].lhs, node_datas[node].rhs, .add_with_saturation),
+        .add_sat  => return binOpExt(gz, scope, rl, node, node_datas[node].lhs, node_datas[node].rhs, .add_with_saturation, Zir.Inst.SaturatingArithmetic),
         .sub      => return simpleBinOp(gz, scope, rl, node, .sub),
         .sub_wrap => return simpleBinOp(gz, scope, rl, node, .subwrap),
-        .sub_sat  => return binOpExt(gz, scope, rl, node, node_datas[node].lhs, node_datas[node].rhs, .sub_with_saturation),
+        .sub_sat  => return binOpExt(gz, scope, rl, node, node_datas[node].lhs, node_datas[node].rhs, .sub_with_saturation, Zir.Inst.SaturatingArithmetic),
         .mul      => return simpleBinOp(gz, scope, rl, node, .mul),
         .mul_wrap => return simpleBinOp(gz, scope, rl, node, .mulwrap),
-        .mul_sat  => return binOpExt(gz, scope, rl, node, node_datas[node].lhs, node_datas[node].rhs, .mul_with_saturation),
+        .mul_sat  => return binOpExt(gz, scope, rl, node, node_datas[node].lhs, node_datas[node].rhs, .mul_with_saturation, Zir.Inst.SaturatingArithmetic),
         .div      => return simpleBinOp(gz, scope, rl, node, .div),
         .mod      => return simpleBinOp(gz, scope, rl, node, .mod_rem),
         .bit_and  => {
@@ -2713,6 +2713,28 @@ fn assignOp(
     _ = try gz.addBin(.store, lhs_ptr, result);
 }
 
+// TODO: is there an existing way to do this?
+// TODO: likely rename this to reflect result_loc == .none or add more params to make it more general
+fn binOpExt(
+    gz: *GenZir,
+    scope: *Scope,
+    rl: ResultLoc,
+    infix_node: Ast.Node.Index,
+    lhs_node: Ast.Node.Index,
+    rhs_node: Ast.Node.Index,
+    tag: Zir.Inst.Extended,
+    comptime T: type,
+) InnerError!Zir.Inst.Ref {
+    const lhs = try expr(gz, scope, .none, lhs_node);
+    const rhs = try expr(gz, scope, .none, rhs_node);
+    const result = try gz.addExtendedPayload(tag, T{
+        .node = gz.nodeIndexToRelative(infix_node),
+        .lhs = lhs,
+        .rhs = rhs,
+    });
+    return rvalue(gz, rl, result, infix_node);
+}
+
 // TODO: is there an existing method to accomplish this?
 // TODO: likely rename this to indicate rhs type coercion or add more params to make it more general
 fn assignBinOpExt(
@@ -2720,8 +2742,8 @@ fn assignBinOpExt(
     scope: *Scope,
     infix_node: Ast.Node.Index,
     op_inst_tag: Zir.Inst.Extended,
+    comptime T: type,
 ) InnerError!void {
-    try emitDbgNode(gz, infix_node);
     const astgen = gz.astgen;
     const tree = astgen.tree;
     const node_datas = tree.nodes.items(.data);
@@ -2730,7 +2752,7 @@ fn assignBinOpExt(
     const lhs = try gz.addUnNode(.load, lhs_ptr, infix_node);
     const lhs_type = try gz.addUnNode(.typeof, lhs, infix_node);
     const rhs = try expr(gz, scope, .{ .coerced_ty = lhs_type }, node_datas[infix_node].rhs);
-    const result = try gz.addExtendedPayload(op_inst_tag, Zir.Inst.BinNode{
+    const result = try gz.addExtendedPayload(op_inst_tag, T{
         .node = gz.nodeIndexToRelative(infix_node),
         .lhs = lhs,
         .rhs = rhs,
@@ -7897,26 +7919,6 @@ fn shiftOp(
     const log2_int_type = try gz.addUnNode(.typeof_log2_int_type, lhs, lhs_node);
     const rhs = try expr(gz, scope, .{ .ty = log2_int_type }, rhs_node);
     const result = try gz.addPlNode(tag, node, Zir.Inst.Bin{
-        .lhs = lhs,
-        .rhs = rhs,
-    });
-    return rvalue(gz, rl, result, node);
-}
-
-// TODO: is there an existing way to do this?
-// TODO: likely rename this to reflect result_loc == .none or add more params to make it more general
-fn binOpExt(
-    gz: *GenZir,
-    scope: *Scope,
-    rl: ResultLoc,
-    node: Ast.Node.Index,
-    lhs_node: Ast.Node.Index,
-    rhs_node: Ast.Node.Index,
-    tag: Zir.Inst.Extended,
-) InnerError!Zir.Inst.Ref {
-    const lhs = try expr(gz, scope, .none, lhs_node);
-    const rhs = try expr(gz, scope, .none, rhs_node);
-    const result = try gz.addExtendedPayload(tag, Zir.Inst.Bin{
         .lhs = lhs,
         .rhs = rhs,
     });
