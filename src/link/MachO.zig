@@ -1769,11 +1769,16 @@ fn writeAtoms(self: *MachO) !void {
         const match = entry.key_ptr.*;
         var atom: *TextBlock = entry.value_ptr.*;
 
-        while (atom.prev) |prev| {
-            try self.writeAtom(atom, match);
-            atom = prev;
+        while (true) {
+            if (atom.dirty) {
+                try self.writeAtom(atom, match);
+                atom.dirty = false;
+            }
+
+            if (atom.prev) |prev| {
+                atom = prev;
+            } else break;
         }
-        try self.writeAtom(atom, match);
     }
 }
 
@@ -2609,8 +2614,9 @@ fn parseTextBlocks(self: *MachO) !void {
                     .alignment = 0,
                 };
             }
+            const size = padToIdeal(sect.size);
             const alignment = try math.powi(u32, 2, sect.@"align");
-            res.value_ptr.size += mem.alignForwardGeneric(u64, sect.size, alignment);
+            res.value_ptr.size += mem.alignForwardGeneric(u64, size, alignment);
             res.value_ptr.alignment = math.max(res.value_ptr.alignment, sect.@"align");
         }
     }
@@ -2633,6 +2639,49 @@ fn parseTextBlocks(self: *MachO) !void {
     for (self.objects.items) |*object, object_id| {
         try object.parseTextBlocks(self.base.allocator, @intCast(u16, object_id), self);
     }
+
+    //     it = section_metadata.iterator();
+    //     while (it.next()) |entry| {
+    //         const match = entry.key_ptr.*;
+    //         const metadata = entry.value_ptr.*;
+    //         const seg = self.load_commands.items[match.seg].Segment;
+    //         const sect = seg.sections.items[match.sect];
+
+    //         var buffer = try self.base.allocator.alloc(u8, metadata.size);
+    //         defer self.base.allocator.free(buffer);
+    //         log.warn("{s},{s} buffer size 0x{x}", .{
+    //             commands.segmentName(sect),
+    //             commands.sectionName(sect),
+    //             metadata.size,
+    //         });
+
+    //         var atom = self.blocks.get(match).?;
+
+    //         while (atom.prev) |prev| {
+    //             atom = prev;
+    //         }
+
+    //         const base = blk: {
+    //             const sym = self.locals.items[atom.local_sym_index];
+    //             break :blk sym.n_value;
+    //         };
+
+    //         while (true) {
+    //             const sym = self.locals.items[atom.local_sym_index];
+    //             const offset = sym.n_value - base;
+    //             try atom.resolveRelocs(self);
+    //             log.warn("writing atom for symbol {s} at buffer offset 0x{x}", .{
+    //                 self.getString(sym.n_strx),
+    //                 offset,
+    //             });
+    //             mem.copy(u8, buffer[offset..][0..atom.code.items.len], atom.code.items);
+    //             atom.dirty = false;
+
+    //             if (atom.next) |next| {
+    //                 atom = next;
+    //             } else break;
+    //         }
+    //     }
 }
 
 fn addDataInCodeLC(self: *MachO) !void {
@@ -3836,6 +3885,7 @@ fn growSection(self: *MachO, match: MatchingSection, new_size: u32) !void {
     const needed_size = mem.alignForwardGeneric(u32, ideal_size, alignment);
 
     if (needed_size > max_size) blk: {
+        log.debug("  (need to grow!)", .{});
         // Need to move all sections below in file and address spaces.
         const offset_amt = offset: {
             const max_alignment = try self.getSectionMaxAlignment(match.seg, match.sect + 1);
