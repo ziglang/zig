@@ -348,8 +348,8 @@ pub const Loop = struct {
                             // this one is for sending events
                             .kevent = os.Kevent{
                                 .ident = i,
-                                .filter = os.EVFILT_TIMER,
-                                .flags = os.EV_CLEAR | os.EV_ADD | os.EV_DISABLE | os.EV_ONESHOT,
+                                .filter = os.system.EVFILT_TIMER,
+                                .flags = os.system.EV_CLEAR | os.system.EV_ADD | os.system.EV_DISABLE | os.system.EV_ONESHOT,
                                 .fflags = 0,
                                 .data = 0,
                                 .udata = @ptrToInt(&eventfd_node.data.base),
@@ -360,22 +360,22 @@ pub const Loop = struct {
                     self.available_eventfd_resume_nodes.push(eventfd_node);
                     const kevent_array = @as(*const [1]os.Kevent, &eventfd_node.data.kevent);
                     _ = try os.kevent(self.os_data.kqfd, kevent_array, empty_kevs, null);
-                    eventfd_node.data.kevent.flags = os.EV_CLEAR | os.EV_ENABLE;
+                    eventfd_node.data.kevent.flags = os.system.EV_CLEAR | os.system.EV_ENABLE;
                 }
 
                 // Pre-add so that we cannot get error.SystemResources
                 // later when we try to activate it.
                 self.os_data.final_kevent = os.Kevent{
                     .ident = extra_thread_count,
-                    .filter = os.EVFILT_TIMER,
-                    .flags = os.EV_ADD | os.EV_ONESHOT | os.EV_DISABLE,
+                    .filter = os.system.EVFILT_TIMER,
+                    .flags = os.system.EV_ADD | os.system.EV_ONESHOT | os.system.EV_DISABLE,
                     .fflags = 0,
                     .data = 0,
                     .udata = @ptrToInt(&self.final_resume_node),
                 };
                 const final_kev_arr = @as(*const [1]os.Kevent, &self.os_data.final_kevent);
                 _ = try os.kevent(self.os_data.kqfd, final_kev_arr, empty_kevs, null);
-                self.os_data.final_kevent.flags = os.EV_ENABLE;
+                self.os_data.final_kevent.flags = os.system.EV_ENABLE;
 
                 if (builtin.single_threaded) {
                     assert(extra_thread_count == 0);
