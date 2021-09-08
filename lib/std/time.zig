@@ -4,7 +4,7 @@ const assert = std.debug.assert;
 const testing = std.testing;
 const os = std.os;
 const math = std.math;
-const target = std.Target.current;
+const target = builtin.target;
 
 pub const epoch = @import("time/epoch.zig");
 
@@ -169,8 +169,8 @@ pub const Timer = struct {
     }
 
     /// Returns the current value of the Timer's clock.
-    /// Should not error out since the existence of the clock was checked at start().
     fn clockNative() i128 {
+        // Must not fail since existence of the clock was checked at start().
         return Clock.read(clock_id) catch unreachable;
     }
 
@@ -265,7 +265,7 @@ pub const Clock = struct {
                     // At some point we may change our minds on CLOCK.MONOTONIC_RAW,
                     // but for now we're sticking with CLOCK.MONOTONIC standard.
                     // For more information, see: https://github.com/ziglang/zig/pull/933
-                    .linux => os.CLOCK.MONOTONIC, // doesn't count time suspended
+                    .linux => os.CLOCK.MONOTONIC,
                     // Platforms like wasi and netbsd don't support getting time without suspend
                     else => null,
                 },
