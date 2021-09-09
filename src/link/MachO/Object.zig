@@ -317,6 +317,7 @@ const Context = struct {
     object: *Object,
     macho_file: *MachO,
     match: MachO.MatchingSection,
+    parsed_atoms: *ParsedAtoms,
 };
 
 const TextBlockParser = struct {
@@ -430,6 +431,7 @@ const TextBlockParser = struct {
             .allocator = context.allocator,
             .object = context.object,
             .macho_file = context.macho_file,
+            .parsed_atoms = context.parsed_atoms,
         });
 
         if (context.macho_file.has_dices) {
@@ -455,12 +457,15 @@ const TextBlockParser = struct {
     }
 };
 
+pub const ParsedAtoms = std.AutoHashMap(MachO.MatchingSection, *TextBlock);
+
 pub fn parseTextBlocks(
     self: *Object,
     allocator: *Allocator,
     object_id: u16,
     macho_file: *MachO,
-) !void {
+) !ParsedAtoms {
+    var parsed_atoms = ParsedAtoms.init(allocator);
     const seg = self.load_commands.items[self.segment_cmd_index.?].Segment;
 
     log.debug("analysing {s}", .{self.name});
@@ -589,6 +594,7 @@ pub fn parseTextBlocks(
                         .allocator = allocator,
                         .object = self,
                         .macho_file = macho_file,
+                        .parsed_atoms = &parsed_atoms,
                     });
 
                     if (macho_file.has_dices) {
@@ -604,7 +610,13 @@ pub fn parseTextBlocks(
                         }
                     }
 
-                    _ = try macho_file.allocateAtom(block, match);
+                    if (parsed_atoms.getPtr(match)) |last| {
+                        last.*.next = block;
+                        block.prev = last.*;
+                        last.* = block;
+                    } else {
+                        try parsed_atoms.putNoClobber(match, block);
+                    }
                     try self.text_blocks.append(allocator, block);
                 }
 
@@ -620,6 +632,7 @@ pub fn parseTextBlocks(
                     .object = self,
                     .macho_file = macho_file,
                     .match = match,
+                    .parsed_atoms = &parsed_atoms,
                 })) |block| {
                     const sym = macho_file.locals.items[block.local_sym_index];
                     const is_ext = blk: {
@@ -651,7 +664,13 @@ pub fn parseTextBlocks(
                         }
                     }
 
-                    _ = try macho_file.allocateAtom(block, match);
+                    if (parsed_atoms.getPtr(match)) |last| {
+                        last.*.next = block;
+                        block.prev = last.*;
+                        last.* = block;
+                    } else {
+                        try parsed_atoms.putNoClobber(match, block);
+                    }
                     try self.text_blocks.append(allocator, block);
                 }
 
@@ -696,6 +715,7 @@ pub fn parseTextBlocks(
                 .allocator = allocator,
                 .object = self,
                 .macho_file = macho_file,
+                .parsed_atoms = &parsed_atoms,
             });
 
             if (macho_file.has_dices) {
@@ -747,10 +767,18 @@ pub fn parseTextBlocks(
                 });
             }
 
-            _ = try macho_file.allocateAtom(block, match);
+            if (parsed_atoms.getPtr(match)) |last| {
+                last.*.next = block;
+                block.prev = last.*;
+                last.* = block;
+            } else {
+                try parsed_atoms.putNoClobber(match, block);
+            }
             try self.text_blocks.append(allocator, block);
         }
     }
+
+    return parsed_atoms;
 }
 
 fn parseSymtab(self: *Object, allocator: *Allocator) !void {

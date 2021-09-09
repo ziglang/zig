@@ -628,6 +628,7 @@ const RelocContext = struct {
     allocator: *Allocator,
     object: *Object,
     macho_file: *MachO,
+    parsed_atoms: *Object.ParsedAtoms,
 };
 
 fn initRelocFromObject(rel: macho.relocation_info, context: RelocContext) !Relocation {
@@ -855,7 +856,14 @@ pub fn parseRelocs(self: *TextBlock, relocs: []macho.relocation_info, context: R
                 .seg = context.macho_file.data_const_segment_cmd_index.?,
                 .sect = context.macho_file.got_section_index.?,
             };
-            _ = try context.macho_file.allocateAtom(atom, match);
+
+            if (context.parsed_atoms.getPtr(match)) |last| {
+                last.*.next = atom;
+                atom.prev = last.*;
+                last.* = atom;
+            } else {
+                try context.parsed_atoms.putNoClobber(match, atom);
+            }
         } else if (parsed_rel.payload == .unsigned) {
             switch (parsed_rel.where) {
                 .undef => {
@@ -918,18 +926,46 @@ pub fn parseRelocs(self: *TextBlock, relocs: []macho.relocation_info, context: R
             );
             const stub_atom = try context.macho_file.createStubAtom(laptr_atom.local_sym_index);
             try context.macho_file.stubs_map.putNoClobber(context.allocator, parsed_rel.where_index, stub_atom);
-            _ = try context.macho_file.allocateAtom(stub_helper_atom, .{
+            // TODO clean this up!
+            if (context.parsed_atoms.getPtr(.{
                 .seg = context.macho_file.text_segment_cmd_index.?,
                 .sect = context.macho_file.stub_helper_section_index.?,
-            });
-            _ = try context.macho_file.allocateAtom(laptr_atom, .{
-                .seg = context.macho_file.data_segment_cmd_index.?,
-                .sect = context.macho_file.la_symbol_ptr_section_index.?,
-            });
-            _ = try context.macho_file.allocateAtom(stub_atom, .{
+            })) |last| {
+                last.*.next = stub_helper_atom;
+                stub_helper_atom.prev = last.*;
+                last.* = stub_helper_atom;
+            } else {
+                try context.parsed_atoms.putNoClobber(.{
+                    .seg = context.macho_file.text_segment_cmd_index.?,
+                    .sect = context.macho_file.stub_helper_section_index.?,
+                }, stub_helper_atom);
+            }
+            if (context.parsed_atoms.getPtr(.{
                 .seg = context.macho_file.text_segment_cmd_index.?,
                 .sect = context.macho_file.stubs_section_index.?,
-            });
+            })) |last| {
+                last.*.next = stub_atom;
+                stub_atom.prev = last.*;
+                last.* = stub_atom;
+            } else {
+                try context.parsed_atoms.putNoClobber(.{
+                    .seg = context.macho_file.text_segment_cmd_index.?,
+                    .sect = context.macho_file.stubs_section_index.?,
+                }, stub_atom);
+            }
+            if (context.parsed_atoms.getPtr(.{
+                .seg = context.macho_file.data_segment_cmd_index.?,
+                .sect = context.macho_file.la_symbol_ptr_section_index.?,
+            })) |last| {
+                last.*.next = laptr_atom;
+                laptr_atom.prev = last.*;
+                last.* = laptr_atom;
+            } else {
+                try context.parsed_atoms.putNoClobber(.{
+                    .seg = context.macho_file.data_segment_cmd_index.?,
+                    .sect = context.macho_file.la_symbol_ptr_section_index.?,
+                }, laptr_atom);
+            }
         }
     }
 }

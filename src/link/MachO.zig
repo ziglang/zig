@@ -2594,30 +2594,64 @@ fn resolveDyldStubBinder(self: *MachO) !void {
 }
 
 fn parseTextBlocks(self: *MachO) !void {
+    var parsed_atoms = Object.ParsedAtoms.init(self.base.allocator);
+    defer parsed_atoms.deinit();
+
+    var first_atoms = Object.ParsedAtoms.init(self.base.allocator);
+    defer first_atoms.deinit();
+
     var section_metadata = std.AutoHashMap(MatchingSection, struct {
         size: u64,
         alignment: u32,
     }).init(self.base.allocator);
     defer section_metadata.deinit();
 
-    for (self.objects.items) |object| {
-        const seg = object.load_commands.items[object.segment_cmd_index.?].Segment;
-        for (seg.sections.items) |sect| {
-            const match = (try self.getMatchingSection(sect)) orelse {
-                log.debug("unhandled section", .{});
-                continue;
-            };
-            const res = try section_metadata.getOrPut(match);
-            if (!res.found_existing) {
-                res.value_ptr.* = .{
+    for (self.objects.items) |*object, object_id| {
+        var atoms_in_objects = try object.parseTextBlocks(self.base.allocator, @intCast(u16, object_id), self);
+        defer atoms_in_objects.deinit();
+
+        var it = atoms_in_objects.iterator();
+        while (it.next()) |entry| {
+            const match = entry.key_ptr.*;
+            const last_atom = entry.value_ptr.*;
+            var atom = last_atom;
+
+            const metadata = try section_metadata.getOrPut(match);
+            if (!metadata.found_existing) {
+                metadata.value_ptr.* = .{
                     .size = 0,
                     .alignment = 0,
                 };
             }
-            const size = padToIdeal(sect.size);
-            const alignment = try math.powi(u32, 2, sect.@"align");
-            res.value_ptr.size += mem.alignForwardGeneric(u64, size, alignment);
-            res.value_ptr.alignment = math.max(res.value_ptr.alignment, sect.@"align");
+
+            while (true) {
+                const alignment = try math.powi(u32, 2, atom.alignment);
+                metadata.value_ptr.size += mem.alignForwardGeneric(u64, atom.size, alignment);
+                metadata.value_ptr.alignment = math.max(metadata.value_ptr.alignment, atom.alignment);
+
+                const sym = self.locals.items[atom.local_sym_index];
+                log.debug("  {s}: n_value=0x{x}, size=0x{x}, alignment=0x{x}", .{
+                    self.getString(sym.n_strx),
+                    sym.n_value,
+                    atom.size,
+                    atom.alignment,
+                });
+
+                if (atom.prev) |prev| {
+                    atom = prev;
+                } else break;
+            }
+
+            if (parsed_atoms.getPtr(match)) |last| {
+                last.*.next = atom;
+                atom.prev = last.*;
+                last.* = atom;
+            }
+            _ = try parsed_atoms.put(match, last_atom);
+
+            if (!first_atoms.contains(match)) {
+                try first_atoms.putNoClobber(match, atom);
+            }
         }
     }
 
@@ -2625,63 +2659,69 @@ fn parseTextBlocks(self: *MachO) !void {
     while (it.next()) |entry| {
         const match = entry.key_ptr.*;
         const metadata = entry.value_ptr.*;
-        const seg = self.load_commands.items[match.seg].Segment;
-        const sect = seg.sections.items[match.sect];
+        const seg = &self.load_commands.items[match.seg].Segment;
+        const sect = &seg.sections.items[match.sect];
         log.debug("{s},{s} => size: 0x{x}, alignment: 0x{x}", .{
-            commands.segmentName(sect),
-            commands.sectionName(sect),
+            commands.segmentName(sect.*),
+            commands.sectionName(sect.*),
             metadata.size,
             metadata.alignment,
         });
+        sect.@"align" = math.max(sect.@"align", metadata.alignment);
         try self.growSection(match, @intCast(u32, metadata.size));
+
+        var base_vaddr = if (self.blocks.get(match)) |last| blk: {
+            const last_atom_sym = self.locals.items[last.local_sym_index];
+            break :blk last_atom_sym.n_value + last.size;
+        } else sect.addr;
+        const n_sect = @intCast(u8, self.section_ordinals.getIndex(match).? + 1);
+
+        var atom = first_atoms.get(match).?;
+        while (true) {
+            const alignment = try math.powi(u32, 2, atom.alignment);
+            base_vaddr = mem.alignForwardGeneric(u64, base_vaddr, alignment);
+
+            const sym = &self.locals.items[atom.local_sym_index];
+            sym.n_value = base_vaddr;
+            sym.n_sect = n_sect;
+
+            log.debug("  {s}: start=0x{x}, end=0x{x}, size=0x{x}, alignment=0x{x}", .{
+                self.getString(sym.n_strx),
+                base_vaddr,
+                base_vaddr + atom.size,
+                atom.size,
+                atom.alignment,
+            });
+
+            // Update each alias (if any)
+            for (atom.aliases.items) |index| {
+                const alias_sym = &self.locals.items[index];
+                alias_sym.n_value = base_vaddr;
+                alias_sym.n_sect = n_sect;
+            }
+
+            // Update each symbol contained within the TextBlock
+            for (atom.contained.items) |sym_at_off| {
+                const contained_sym = &self.locals.items[sym_at_off.local_sym_index];
+                contained_sym.n_value = base_vaddr + sym_at_off.offset;
+                contained_sym.n_sect = n_sect;
+            }
+
+            base_vaddr += atom.size;
+
+            if (atom.next) |next| {
+                atom = next;
+            } else break;
+        }
+
+        if (self.blocks.getPtr(match)) |last| {
+            const first_atom = first_atoms.get(match).?;
+            last.*.next = first_atom;
+            first_atom.prev = last.*;
+            last.* = first_atom;
+        }
+        _ = try self.blocks.put(self.base.allocator, match, parsed_atoms.get(match).?);
     }
-
-    for (self.objects.items) |*object, object_id| {
-        try object.parseTextBlocks(self.base.allocator, @intCast(u16, object_id), self);
-    }
-
-    //     it = section_metadata.iterator();
-    //     while (it.next()) |entry| {
-    //         const match = entry.key_ptr.*;
-    //         const metadata = entry.value_ptr.*;
-    //         const seg = self.load_commands.items[match.seg].Segment;
-    //         const sect = seg.sections.items[match.sect];
-
-    //         var buffer = try self.base.allocator.alloc(u8, metadata.size);
-    //         defer self.base.allocator.free(buffer);
-    //         log.warn("{s},{s} buffer size 0x{x}", .{
-    //             commands.segmentName(sect),
-    //             commands.sectionName(sect),
-    //             metadata.size,
-    //         });
-
-    //         var atom = self.blocks.get(match).?;
-
-    //         while (atom.prev) |prev| {
-    //             atom = prev;
-    //         }
-
-    //         const base = blk: {
-    //             const sym = self.locals.items[atom.local_sym_index];
-    //             break :blk sym.n_value;
-    //         };
-
-    //         while (true) {
-    //             const sym = self.locals.items[atom.local_sym_index];
-    //             const offset = sym.n_value - base;
-    //             try atom.resolveRelocs(self);
-    //             log.warn("writing atom for symbol {s} at buffer offset 0x{x}", .{
-    //                 self.getString(sym.n_strx),
-    //                 offset,
-    //             });
-    //             mem.copy(u8, buffer[offset..][0..atom.code.items.len], atom.code.items);
-    //             atom.dirty = false;
-
-    //             if (atom.next) |next| {
-    //                 atom = next;
-    //             } else break;
-    //         }
-    //     }
 }
 
 fn addDataInCodeLC(self: *MachO) !void {
