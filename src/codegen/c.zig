@@ -1347,6 +1347,7 @@ fn airSatOp(
             .c_longlong => "LLONG_MIN",
             .isize => "INTPTR_MIN",
             else => blk: {
+                // compute the type minimum based on the bitcount (bits)
                 const val = -1 * std.math.pow(i65, 2, @intCast(i65, bits - 1));
                 break :blk std.fmt.bufPrint(&min_buf, "{d}", .{val}) catch |err| switch (err) {
                     error.NoSpaceLeft => unreachable,

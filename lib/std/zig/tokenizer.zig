@@ -2019,6 +2019,18 @@ test "tokenizer - saturating" {
     try testTokenize("<<", &.{.angle_bracket_angle_bracket_left});
     try testTokenize("<<|", &.{.angle_bracket_angle_bracket_left_pipe});
     try testTokenize("<<|=", &.{.angle_bracket_angle_bracket_left_pipe_equal});
+
+    try testTokenize("*", &.{.asterisk});
+    try testTokenize("*|", &.{.asterisk_pipe});
+    try testTokenize("*|=", &.{.asterisk_pipe_equal});
+
+    try testTokenize("+", &.{.plus});
+    try testTokenize("+|", &.{.plus_pipe});
+    try testTokenize("+|=", &.{.plus_pipe_equal});
+
+    try testTokenize("-", &.{.minus});
+    try testTokenize("-|", &.{.minus_pipe});
+    try testTokenize("-|=", &.{.minus_pipe_equal});
 }
 
 fn testTokenize(source: [:0]const u8, expected_tokens: []const Token.Tag) !void {
