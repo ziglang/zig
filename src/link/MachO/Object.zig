@@ -16,9 +16,11 @@ const segmentName = commands.segmentName;
 const sectionName = commands.sectionName;
 
 const Allocator = mem.Allocator;
+const Atom = @import("Atom.zig");
 const LoadCommand = commands.LoadCommand;
 const MachO = @import("../MachO.zig");
-const TextBlock = @import("TextBlock.zig");
+
+const TextBlock = Atom;
 
 file: fs.File,
 name: []const u8,

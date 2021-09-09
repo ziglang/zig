@@ -1,4 +1,4 @@
-const TextBlock = @This();
+const Atom = @This();
 
 const std = @import("std");
 const build_options = @import("build_options");
@@ -24,28 +24,32 @@ const Object = @import("Object.zig");
 /// offset table entry.
 local_sym_index: u32,
 
-/// List of symbol aliases pointing to the same block via different nlists
+/// List of symbol aliases pointing to the same atom via different nlists
 aliases: std.ArrayListUnmanaged(u32) = .{},
 
-/// List of symbols contained within this block
+/// List of symbols contained within this atom
 contained: std.ArrayListUnmanaged(SymbolAtOffset) = .{},
 
-/// Code (may be non-relocated) this block represents
+/// Code (may be non-relocated) this atom represents
 code: std.ArrayListUnmanaged(u8) = .{},
 
-/// Size and alignment of this text block
+/// Size and alignment of this atom
 /// Unlike in Elf, we need to store the size of this symbol as part of
-/// the TextBlock since macho.nlist_64 lacks this information.
+/// the atom since macho.nlist_64 lacks this information.
 size: u64,
+
+/// Alignment of this atom as a power of 2.
+/// For instance, aligmment of 0 should be read as 2^0 = 1 byte aligned.
 alignment: u32,
 
+/// List of relocations belonging to this atom.
 relocs: std.ArrayListUnmanaged(Relocation) = .{},
 
-/// List of offsets contained within this block that need rebasing by the dynamic
-/// loader in presence of ASLR
+/// List of offsets contained within this atom that need rebasing by the dynamic
+/// loader in presence of ASLR.
 rebases: std.ArrayListUnmanaged(u64) = .{},
 
-/// List of offsets contained within this block that will be dynamically bound
+/// List of offsets contained within this atom that will be dynamically bound
 /// by the dynamic loader and contain pointers to resolved (at load time) extern
 /// symbols (aka proxies aka imports)
 bindings: std.ArrayListUnmanaged(SymbolAtOffset) = .{},
@@ -56,20 +60,20 @@ lazy_bindings: std.ArrayListUnmanaged(SymbolAtOffset) = .{},
 /// List of data-in-code entries. This is currently specific to x86_64 only.
 dices: std.ArrayListUnmanaged(macho.data_in_code_entry) = .{},
 
-/// Stab entry for this block. This is currently specific to a binary created
+/// Stab entry for this atom. This is currently specific to a binary created
 /// by linking object files in a traditional sense - in incremental sense, we
 /// bypass stabs altogether to produce dSYM bundle directly with fully relocated
 /// DWARF sections.
 stab: ?Stab = null,
 
 /// Points to the previous and next neighbours
-next: ?*TextBlock,
-prev: ?*TextBlock,
+next: ?*Atom,
+prev: ?*Atom,
 
 /// Previous/next linked list pointers.
 /// This is the linked list node for this Decl's corresponding .debug_info tag.
-dbg_info_prev: ?*TextBlock,
-dbg_info_next: ?*TextBlock,
+dbg_info_prev: ?*Atom,
+dbg_info_next: ?*Atom,
 /// Offset into .debug_info pointing to the tag for this Decl.
 dbg_info_off: u32,
 /// Size of the .debug_info tag for this Decl, not including padding.
@@ -165,7 +169,7 @@ pub const Stab = union(enum) {
 };
 
 pub const Relocation = struct {
-    /// Offset within the `block`s code buffer.
+    /// Offset within the atom's code buffer.
     /// Note relocation size can be inferred by relocation's kind.
     offset: u32,
 
@@ -187,7 +191,7 @@ pub const Relocation = struct {
     },
 
     const ResolveArgs = struct {
-        block: *TextBlock,
+        block: *Atom,
         offset: u32,
         source_addr: u64,
         target_addr: u64,
@@ -572,7 +576,7 @@ pub const Relocation = struct {
     }
 };
 
-pub const empty = TextBlock{
+pub const empty = Atom{
     .local_sym_index = 0,
     .size = 0,
     .alignment = 0,
@@ -584,7 +588,7 @@ pub const empty = TextBlock{
     .dbg_info_len = undefined,
 };
 
-pub fn deinit(self: *TextBlock, allocator: *Allocator) void {
+pub fn deinit(self: *Atom, allocator: *Allocator) void {
     self.dices.deinit(allocator);
     self.lazy_bindings.deinit(allocator);
     self.bindings.deinit(allocator);
@@ -598,20 +602,20 @@ pub fn deinit(self: *TextBlock, allocator: *Allocator) void {
 /// Returns how much room there is to grow in virtual address space.
 /// File offset relocation happens transparently, so it is not included in
 /// this calculation.
-pub fn capacity(self: TextBlock, macho_file: MachO) u64 {
+pub fn capacity(self: Atom, macho_file: MachO) u64 {
     const self_sym = macho_file.locals.items[self.local_sym_index];
     if (self.next) |next| {
         const next_sym = macho_file.locals.items[next.local_sym_index];
         return next_sym.n_value - self_sym.n_value;
     } else {
-        // We are the last block.
+        // We are the last atom.
         // The capacity is limited only by virtual address space.
         return std.math.maxInt(u64) - self_sym.n_value;
     }
 }
 
-pub fn freeListEligible(self: TextBlock, macho_file: MachO) bool {
-    // No need to keep a free list node for the last block.
+pub fn freeListEligible(self: Atom, macho_file: MachO) bool {
+    // No need to keep a free list node for the last atom.
     const next = self.next orelse return false;
     const self_sym = macho_file.locals.items[self.local_sym_index];
     const next_sym = macho_file.locals.items[next.local_sym_index];
@@ -696,7 +700,7 @@ fn initRelocFromObject(rel: macho.relocation_info, context: RelocContext) !Reloc
     return parsed_rel;
 }
 
-pub fn parseRelocs(self: *TextBlock, relocs: []macho.relocation_info, context: RelocContext) !void {
+pub fn parseRelocs(self: *Atom, relocs: []macho.relocation_info, context: RelocContext) !void {
     const filtered_relocs = filterRelocs(relocs, context.base_offset, context.base_offset + self.size);
     var it = RelocIterator{
         .buffer = filtered_relocs,
@@ -984,7 +988,7 @@ fn isSubtractor(rel: macho.relocation_info, arch: Arch) bool {
 }
 
 fn parseUnsigned(
-    self: TextBlock,
+    self: Atom,
     rel: macho.relocation_info,
     out: *Relocation,
     subtractor: ?u32,
@@ -1018,7 +1022,7 @@ fn parseUnsigned(
     };
 }
 
-fn parseBranch(self: TextBlock, rel: macho.relocation_info, out: *Relocation, context: RelocContext) void {
+fn parseBranch(self: Atom, rel: macho.relocation_info, out: *Relocation, context: RelocContext) void {
     _ = self;
     assert(rel.r_pcrel == 1);
     assert(rel.r_length == 2);
@@ -1030,7 +1034,7 @@ fn parseBranch(self: TextBlock, rel: macho.relocation_info, out: *Relocation, co
     };
 }
 
-fn parsePage(self: TextBlock, rel: macho.relocation_info, out: *Relocation, addend: u32) void {
+fn parsePage(self: Atom, rel: macho.relocation_info, out: *Relocation, addend: u32) void {
     _ = self;
     assert(rel.r_pcrel == 1);
     assert(rel.r_length == 2);
@@ -1048,7 +1052,7 @@ fn parsePage(self: TextBlock, rel: macho.relocation_info, out: *Relocation, adde
     };
 }
 
-fn parsePageOff(self: TextBlock, rel: macho.relocation_info, out: *Relocation, addend: u32) void {
+fn parsePageOff(self: Atom, rel: macho.relocation_info, out: *Relocation, addend: u32) void {
     assert(rel.r_pcrel == 0);
     assert(rel.r_length == 2);
 
@@ -1076,7 +1080,7 @@ fn parsePageOff(self: TextBlock, rel: macho.relocation_info, out: *Relocation, a
     };
 }
 
-fn parsePointerToGot(self: TextBlock, rel: macho.relocation_info, out: *Relocation) void {
+fn parsePointerToGot(self: Atom, rel: macho.relocation_info, out: *Relocation) void {
     _ = self;
     assert(rel.r_pcrel == 1);
     assert(rel.r_length == 2);
@@ -1086,7 +1090,7 @@ fn parsePointerToGot(self: TextBlock, rel: macho.relocation_info, out: *Relocati
     };
 }
 
-fn parseSigned(self: TextBlock, rel: macho.relocation_info, out: *Relocation, context: RelocContext) void {
+fn parseSigned(self: Atom, rel: macho.relocation_info, out: *Relocation, context: RelocContext) void {
     assert(rel.r_pcrel == 1);
     assert(rel.r_length == 2);
 
@@ -1114,7 +1118,7 @@ fn parseSigned(self: TextBlock, rel: macho.relocation_info, out: *Relocation, co
     };
 }
 
-fn parseLoad(self: TextBlock, rel: macho.relocation_info, out: *Relocation) void {
+fn parseLoad(self: Atom, rel: macho.relocation_info, out: *Relocation) void {
     assert(rel.r_pcrel == 1);
     assert(rel.r_length == 2);
 
@@ -1136,7 +1140,7 @@ fn parseLoad(self: TextBlock, rel: macho.relocation_info, out: *Relocation) void
     };
 }
 
-pub fn resolveRelocs(self: *TextBlock, macho_file: *MachO) !void {
+pub fn resolveRelocs(self: *Atom, macho_file: *MachO) !void {
     for (self.relocs.items) |rel| {
         log.debug("relocating {}", .{rel});
 
@@ -1242,7 +1246,7 @@ pub fn resolveRelocs(self: *TextBlock, macho_file: *MachO) !void {
     }
 }
 
-pub fn format(self: TextBlock, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+pub fn format(self: Atom, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
     _ = fmt;
     _ = options;
     try std.fmt.format(writer, "TextBlock {{ ", .{});

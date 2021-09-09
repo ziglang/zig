@@ -24,6 +24,7 @@ const trace = @import("../tracy.zig").trace;
 const Air = @import("../Air.zig");
 const Allocator = mem.Allocator;
 const Archive = @import("MachO/Archive.zig");
+const Atom = @import("MachO/Atom.zig");
 const Cache = @import("../Cache.zig");
 const CodeSignature = @import("MachO/CodeSignature.zig");
 const Compilation = @import("../Compilation.zig");
@@ -37,8 +38,9 @@ const LlvmObject = @import("../codegen/llvm.zig").Object;
 const LoadCommand = commands.LoadCommand;
 const Module = @import("../Module.zig");
 const SegmentCommand = commands.SegmentCommand;
-pub const TextBlock = @import("MachO/TextBlock.zig");
 const Trie = @import("MachO/Trie.zig");
+
+pub const TextBlock = Atom;
 
 pub const base_tag: File.Tag = File.Tag.macho;
 
