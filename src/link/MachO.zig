@@ -2667,8 +2667,16 @@ fn parseTextBlocks(self: *MachO) !void {
             metadata.size,
             metadata.alignment,
         });
+
+        const sect_size = if (self.blocks.get(match)) |last| blk: {
+            const last_atom_sym = self.locals.items[last.local_sym_index];
+            break :blk last_atom_sym.n_value + last.size - sect.addr;
+        } else 0;
+
         sect.@"align" = math.max(sect.@"align", metadata.alignment);
-        try self.growSection(match, @intCast(u32, metadata.size));
+        const needed_size = @intCast(u32, metadata.size + sect_size);
+        try self.growSection(match, needed_size);
+        sect.size = needed_size;
 
         var base_vaddr = if (self.blocks.get(match)) |last| blk: {
             const last_atom_sym = self.locals.items[last.local_sym_index];
