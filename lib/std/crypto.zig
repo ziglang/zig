@@ -109,8 +109,10 @@ pub const pwhash = struct {
         crypt,
     };
     pub const KdfError = errors.Error || std.mem.Allocator.Error;
-    pub const HasherError = KdfError || @import("crypto/phc_encoding.zig").Error;
+    pub const HasherError = KdfError || phc_format.Error;
     pub const Error = HasherError || error{AllocatorRequired};
+
+    pub const phc_format = @import("crypto/phc_encoding.zig");
 
     pub const bcrypt = @import("crypto/bcrypt.zig");
     pub const scrypt = @import("crypto/scrypt.zig");
