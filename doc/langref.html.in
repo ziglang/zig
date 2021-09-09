@@ -1244,8 +1244,9 @@ fn divide(a: i32, b: i32) i32 {
       </p>
       <p>
       Operators such as {#syntax#}+{#endsyntax#} and {#syntax#}-{#endsyntax#} cause undefined behavior on
-              integer overflow. Also available are operations such as {#syntax#}+%{#endsyntax#} and
-                  {#syntax#}-%{#endsyntax#} which are defined to have wrapping arithmetic on all targets.
+      integer overflow. Alternative operators are provided for wrapping and saturating arithmetic on all targets.  
+      {#syntax#}+%{#endsyntax#} and {#syntax#}-%{#endsyntax#} perform wrapping arithmetic
+      while {#syntax#}+|{#endsyntax#} and {#syntax#}-|{#endsyntax#} perform saturating arithmetic.
       </p>
       <p>
       Zig supports arbitrary bit-width integers, referenced by using
@@ -1396,6 +1397,24 @@ a +%= b{#endsyntax#}</pre></th>
           </td>
         </tr>
         <tr>
+          <td><pre>{#syntax#}a +| b
+a +|= b{#endsyntax#}</pre></td>
+          <td>
+            <ul>
+              <li>{#link|Integers#}</li>
+            </ul>
+          </td>
+          <td>Saturating Addition.
+            <ul>
+              <li>Invokes {#link|Peer Type Resolution#} for the operands.</li>
+              <li>See also {#link|@addWithSaturation#}.</li>
+            </ul>
+          </td>
+          <td>
+            <pre>{#syntax#}@as(u32, std.math.maxInt(u32)) +| 1 == @as(u32, std.math.maxInt(u32)){#endsyntax#}</pre>
+          </td>
+        </tr>
+        <tr>
           <th scope="row"><pre>{#syntax#}a - b
 a -= b{#endsyntax#}</pre></th>
           <td>
@@ -1432,6 +1451,24 @@ a -%= b{#endsyntax#}</pre></th>
           </td>
           <td>
             <pre>{#syntax#}@as(u32, 0) -% 1 == std.math.maxInt(u32){#endsyntax#}</pre>
+          </td>
+        </tr>
+        <tr>
+          <td><pre>{#syntax#}a -| b
+a -|= b{#endsyntax#}</pre></td>
+          <td>
+            <ul>
+              <li>{#link|Integers#}</li>
+            </ul>
+          </td>
+          <td>Saturating Subtraction.
+            <ul>
+              <li>Invokes {#link|Peer Type Resolution#} for the operands.</li>
+              <li>See also {#link|@subWithSaturation#}.</li>
+            </ul>
+          </td>
+          <td>
+            <pre>{#syntax#}@as(u32, 0) -| 1 == 0{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
@@ -1509,6 +1546,24 @@ a *%= b{#endsyntax#}</pre></th>
           </td>
         </tr>
         <tr>
+          <td><pre>{#syntax#}a *| b
+a *|= b{#endsyntax#}</pre></td>
+          <td>
+            <ul>
+              <li>{#link|Integers#}</li>
+            </ul>
+          </td>
+          <td>Saturating Multiplication.
+            <ul>
+              <li>Invokes {#link|Peer Type Resolution#} for the operands.</li>
+              <li>See also {#link|@mulWithSaturation#}.</li>
+            </ul>
+          </td>
+          <td>
+            <pre>{#syntax#}@as(u8, 200) *| 2 == 255{#endsyntax#}</pre>
+          </td>
+        </tr>
+        <tr>
           <th scope="row"><pre>{#syntax#}a / b
 a /= b{#endsyntax#}</pre></th>
           <td>
@@ -1575,6 +1630,24 @@ a <<= b{#endsyntax#}</pre></th>
           </td>
           <td>
             <pre>{#syntax#}1 << 8 == 256{#endsyntax#}</pre>
+          </td>
+        </tr>
+        <tr>
+          <td><pre>{#syntax#}a <<| b
+a <<|= b{#endsyntax#}</pre></td>
+          <td>
+            <ul>
+              <li>{#link|Integers#}</li>
+            </ul>
+          </td>
+          <td>Saturating Bit Shift Left.
+            <ul>
+              <li>See also {#link|@shlExact#}.</li>
+              <li>See also {#link|@shlWithOverflow#}.</li>
+            </ul>
+          </td>
+          <td>
+            <pre>{#syntax#}@as(u8, 1) <<| 8 == 255{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
@@ -1968,14 +2041,14 @@ const B = error{Two};
 a!b
 x{}
 !x -x -%x ~x &x ?x
-* / % ** *% ||
-+ - ++ +% -%
-<< >>
+* / % ** *% *| ||
++ - ++ +% -% +| -|
+<< >> <<|
 & ^ | orelse catch
 == != < > <= >=
 and
 or
-= *= /= %= += -= <<= >>= &= ^= |={#endsyntax#}</pre>
+= *= *%= *|= /= %= += +%= +|= -= -%= -|= <<= <<|= >>= &= ^= |={#endsyntax#}</pre>
       {#header_close#}
       {#header_close#}
       {#header_open|Arrays#}
@@ -11839,6 +11912,7 @@ AssignOp
      / PLUSEQUAL
      / MINUSEQUAL
      / LARROW2EQUAL
+     / LARROW2PIPEEQUAL
      / RARROW2EQUAL
      / AMPERSANDEQUAL
      / CARETEQUAL
@@ -11873,6 +11947,8 @@ AdditionOp
      / PLUS2
      / PLUSPERCENT
      / MINUSPERCENT
+     / PLUSPIPE
+     / MINUSPIPE
 
 MultiplyOp
     &lt;- PIPE2
@@ -11881,6 +11957,7 @@ MultiplyOp
      / PERCENT
      / ASTERISK2
      / ASTERISKPERCENT
+     / ASTERISKPIPE
 
 PrefixOp
     &lt;- EXCLAMATIONMARK
@@ -12044,6 +12121,8 @@ ASTERISK2            &lt;- '**'               skip
 ASTERISKEQUAL        &lt;- '*='               skip
 ASTERISKPERCENT      &lt;- '*%'     ![=]      skip
 ASTERISKPERCENTEQUAL &lt;- '*%='              skip
+ASTERISKPIPE         &lt;- '*|'     ![=]      skip
+ASTERISKPIPEEQUAL    &lt;- '*|='              skip
 CARET                &lt;- '^'      ![=]      skip
 CARETEQUAL           &lt;- '^='               skip
 COLON                &lt;- ':'                skip
@@ -12060,6 +12139,8 @@ EXCLAMATIONMARK      &lt;- '!'      ![=]      skip
 EXCLAMATIONMARKEQUAL &lt;- '!='               skip
 LARROW               &lt;- '&lt;'      ![&lt;=]     skip
 LARROW2              &lt;- '&lt;&lt;'     ![=]      skip
+LARROW2PIPE          &lt;- '&lt;&lt;|'    ![=]      skip
+LARROW2PIPEEQUAL     &lt;- '&lt;&lt;|='   ![=]      skip
 LARROW2EQUAL         &lt;- '&lt;&lt;='              skip
 LARROWEQUAL          &lt;- '&lt;='               skip
 LBRACE               &lt;- '{'                skip
@@ -12069,6 +12150,8 @@ MINUS                &lt;- '-'      ![%=&gt;]    skip
 MINUSEQUAL           &lt;- '-='               skip
 MINUSPERCENT         &lt;- '-%'     ![=]      skip
 MINUSPERCENTEQUAL    &lt;- '-%='              skip
+MINUSPIPE            &lt;- '-|'     ![=]      skip
+MINUSPIPEEQUAL       &lt;- '-|='              skip
 MINUSRARROW          &lt;- '-&gt;'               skip
 PERCENT              &lt;- '%'      ![=]      skip
 PERCENTEQUAL         &lt;- '%='               skip
@@ -12080,6 +12163,8 @@ PLUS2                &lt;- '++'               skip
 PLUSEQUAL            &lt;- '+='               skip
 PLUSPERCENT          &lt;- '+%'     ![=]      skip
 PLUSPERCENTEQUAL     &lt;- '+%='              skip
+PLUSPIPE             &lt;- '+|'     ![=]      skip
+PLUSPIPEEQUAL        &lt;- '+|='              skip
 LETTERC              &lt;- 'c'                skip
 QUESTIONMARK         &lt;- '?'                skip
 RARROW               &lt;- '&gt;'      ![&gt;=]     skip
