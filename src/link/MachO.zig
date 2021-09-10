@@ -2649,7 +2649,7 @@ fn parseTextBlocks(self: *MachO) !void {
     defer section_metadata.deinit();
 
     for (self.objects.items) |*object, object_id| {
-        var atoms_in_objects = try object.parseTextBlocks(self.base.allocator, @intCast(u16, object_id), self);
+        var atoms_in_objects = try object.parseIntoAtoms(self.base.allocator, @intCast(u16, object_id), self);
         defer atoms_in_objects.deinit();
 
         var it = atoms_in_objects.iterator();
@@ -4628,13 +4628,13 @@ fn writeSymbolTable(self: *MachO) !void {
                 .n_value = object.mtime orelse 0,
             });
 
-            for (object.text_blocks.items) |block| {
-                if (block.stab) |stab| {
-                    const nlists = try stab.asNlists(block.local_sym_index, self);
+            for (object.atoms.items) |atom| {
+                if (atom.stab) |stab| {
+                    const nlists = try stab.asNlists(atom.local_sym_index, self);
                     defer self.base.allocator.free(nlists);
                     try locals.appendSlice(nlists);
                 } else {
-                    for (block.contained.items) |sym_at_off| {
+                    for (atom.contained.items) |sym_at_off| {
                         const stab = sym_at_off.stab orelse continue;
                         const nlists = try stab.asNlists(sym_at_off.local_sym_index, self);
                         defer self.base.allocator.free(nlists);

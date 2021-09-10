@@ -20,8 +20,6 @@ const Atom = @import("Atom.zig");
 const LoadCommand = commands.LoadCommand;
 const MachO = @import("../MachO.zig");
 
-const TextBlock = Atom;
-
 file: fs.File,
 name: []const u8,
 
@@ -57,7 +55,7 @@ tu_name: ?[]const u8 = null,
 tu_comp_dir: ?[]const u8 = null,
 mtime: ?u64 = null,
 
-text_blocks: std.ArrayListUnmanaged(*TextBlock) = .{},
+atoms: std.ArrayListUnmanaged(*Atom) = .{},
 sections_as_symbols: std.AutoHashMapUnmanaged(u16, u32) = .{},
 
 // TODO symbol mapping and its inverse can probably be simple arrays
@@ -137,7 +135,7 @@ pub fn deinit(self: *Object, allocator: *Allocator) void {
     self.data_in_code_entries.deinit(allocator);
     self.symtab.deinit(allocator);
     self.strtab.deinit(allocator);
-    self.text_blocks.deinit(allocator);
+    self.atoms.deinit(allocator);
     self.sections_as_symbols.deinit(allocator);
     self.symbol_mapping.deinit(allocator);
     self.reverse_symbol_mapping.deinit(allocator);
@@ -322,14 +320,14 @@ const Context = struct {
     parsed_atoms: *ParsedAtoms,
 };
 
-const TextBlockParser = struct {
+const AtomParser = struct {
     section: macho.section_64,
     code: []u8,
     relocs: []macho.relocation_info,
     nlists: []NlistWithIndex,
     index: u32 = 0,
 
-    fn peek(self: TextBlockParser) ?NlistWithIndex {
+    fn peek(self: AtomParser) ?NlistWithIndex {
         return if (self.index + 1 < self.nlists.len) self.nlists[self.index + 1] else null;
     }
 
@@ -343,7 +341,7 @@ const TextBlockParser = struct {
         }
     }
 
-    pub fn next(self: *TextBlockParser, context: Context) !?*TextBlock {
+    pub fn next(self: *AtomParser, context: Context) !?*Atom {
         if (self.index == self.nlists.len) return null;
 
         var aliases = std.ArrayList(NlistWithIndex).init(context.allocator);
@@ -368,12 +366,12 @@ const TextBlockParser = struct {
         }
 
         if (aliases.items.len > 1) {
-            // Bubble-up senior symbol as the main link to the text block.
+            // Bubble-up senior symbol as the main link to the atom.
             sort.sort(
                 NlistWithIndex,
                 aliases.items,
                 context,
-                TextBlockParser.lessThanBySeniority,
+                AtomParser.lessThanBySeniority,
             );
         }
 
@@ -393,12 +391,12 @@ const TextBlockParser = struct {
         else
             max_align;
 
-        const stab: ?TextBlock.Stab = if (context.object.debug_info) |di| blk: {
+        const stab: ?Atom.Stab = if (context.object.debug_info) |di| blk: {
             // TODO there has to be a better to handle this.
             for (di.inner.func_list.items) |func| {
                 if (func.pc_range) |range| {
                     if (senior_nlist.nlist.n_value >= range.start and senior_nlist.nlist.n_value < range.end) {
-                        break :blk TextBlock.Stab{
+                        break :blk Atom.Stab{
                             .function = range.end - range.start,
                         };
                     }
@@ -409,25 +407,25 @@ const TextBlockParser = struct {
             break :blk .static;
         } else null;
 
-        const block = try context.macho_file.createEmptyAtom(senior_nlist.index, size, actual_align);
-        block.stab = stab;
+        const atom = try context.macho_file.createEmptyAtom(senior_nlist.index, size, actual_align);
+        atom.stab = stab;
 
         const is_zerofill = blk: {
             const section_type = commands.sectionType(self.section);
             break :blk section_type == macho.S_ZEROFILL or section_type == macho.S_THREAD_LOCAL_ZEROFILL;
         };
         if (!is_zerofill) {
-            mem.copy(u8, block.code.items, code);
+            mem.copy(u8, atom.code.items, code);
         }
 
-        try block.aliases.ensureTotalCapacity(context.allocator, aliases.items.len);
+        try atom.aliases.ensureTotalCapacity(context.allocator, aliases.items.len);
         for (aliases.items) |alias| {
-            block.aliases.appendAssumeCapacity(alias.index);
+            atom.aliases.appendAssumeCapacity(alias.index);
             const sym = &context.macho_file.locals.items[alias.index];
             sym.n_sect = @intCast(u8, context.macho_file.section_ordinals.getIndex(context.match).? + 1);
         }
 
-        try block.parseRelocs(self.relocs, .{
+        try atom.parseRelocs(self.relocs, .{
             .base_addr = self.section.addr,
             .base_offset = start_addr,
             .allocator = context.allocator,
@@ -442,10 +440,10 @@ const TextBlockParser = struct {
                 senior_nlist.nlist.n_value,
                 senior_nlist.nlist.n_value + size,
             );
-            try block.dices.ensureTotalCapacity(context.allocator, dices.len);
+            try atom.dices.ensureTotalCapacity(context.allocator, dices.len);
 
             for (dices) |dice| {
-                block.dices.appendAssumeCapacity(.{
+                atom.dices.appendAssumeCapacity(.{
                     .offset = dice.offset - try math.cast(u32, senior_nlist.nlist.n_value),
                     .length = dice.length,
                     .kind = dice.kind,
@@ -455,13 +453,13 @@ const TextBlockParser = struct {
 
         self.index += 1;
 
-        return block;
+        return atom;
     }
 };
 
-pub const ParsedAtoms = std.AutoHashMap(MachO.MatchingSection, *TextBlock);
+pub const ParsedAtoms = std.AutoHashMap(MachO.MatchingSection, *Atom);
 
-pub fn parseTextBlocks(
+pub fn parseIntoAtoms(
     self: *Object,
     allocator: *Allocator,
     object_id: u16,
@@ -508,7 +506,7 @@ pub fn parseTextBlocks(
 
     for (seg.sections.items) |sect, id| {
         const sect_id = @intCast(u8, id);
-        log.debug("putting section '{s},{s}' as a TextBlock", .{
+        log.debug("putting section '{s},{s}' as an Atom", .{
             segmentName(sect),
             sectionName(sect),
         });
@@ -551,12 +549,12 @@ pub fn parseTextBlocks(
         macho_file.has_stabs = macho_file.has_stabs or self.debug_info != null;
 
         next: {
-            if (is_splittable) blocks: {
-                if (filtered_nlists.len == 0) break :blocks;
+            if (is_splittable) atoms: {
+                if (filtered_nlists.len == 0) break :atoms;
 
                 // If the first nlist does not match the start of the section,
                 // then we need to encapsulate the memory range [section start, first symbol)
-                // as a temporary symbol and insert the matching TextBlock.
+                // as a temporary symbol and insert the matching Atom.
                 const first_nlist = filtered_nlists[0].nlist;
                 if (first_nlist.n_value > sect.addr) {
                     const sym_name = try std.fmt.allocPrint(allocator, "l_{s}_{s}_{s}", .{
@@ -566,8 +564,8 @@ pub fn parseTextBlocks(
                     });
                     defer allocator.free(sym_name);
 
-                    const block_local_sym_index = self.sections_as_symbols.get(sect_id) orelse blk: {
-                        const block_local_sym_index = @intCast(u32, macho_file.locals.items.len);
+                    const atom_local_sym_index = self.sections_as_symbols.get(sect_id) orelse blk: {
+                        const atom_local_sym_index = @intCast(u32, macho_file.locals.items.len);
                         try macho_file.locals.append(allocator, .{
                             .n_strx = try macho_file.makeString(sym_name),
                             .n_type = macho.N_SECT,
@@ -575,22 +573,22 @@ pub fn parseTextBlocks(
                             .n_desc = 0,
                             .n_value = 0,
                         });
-                        try self.sections_as_symbols.putNoClobber(allocator, sect_id, block_local_sym_index);
-                        break :blk block_local_sym_index;
+                        try self.sections_as_symbols.putNoClobber(allocator, sect_id, atom_local_sym_index);
+                        break :blk atom_local_sym_index;
                     };
-                    const block_code = code[0 .. first_nlist.n_value - sect.addr];
-                    const block_size = block_code.len;
-                    const block = try macho_file.createEmptyAtom(block_local_sym_index, block_size, sect.@"align");
+                    const atom_code = code[0 .. first_nlist.n_value - sect.addr];
+                    const atom_size = atom_code.len;
+                    const atom = try macho_file.createEmptyAtom(atom_local_sym_index, atom_size, sect.@"align");
 
                     const is_zerofill = blk: {
                         const section_type = commands.sectionType(sect);
                         break :blk section_type == macho.S_ZEROFILL or section_type == macho.S_THREAD_LOCAL_ZEROFILL;
                     };
                     if (!is_zerofill) {
-                        mem.copy(u8, block.code.items, block_code);
+                        mem.copy(u8, atom.code.items, atom_code);
                     }
 
-                    try block.parseRelocs(relocs, .{
+                    try atom.parseRelocs(relocs, .{
                         .base_addr = sect.addr,
                         .base_offset = 0,
                         .allocator = allocator,
@@ -600,11 +598,11 @@ pub fn parseTextBlocks(
                     });
 
                     if (macho_file.has_dices) {
-                        const dices = filterDice(self.data_in_code_entries.items, sect.addr, sect.addr + block_size);
-                        try block.dices.ensureTotalCapacity(allocator, dices.len);
+                        const dices = filterDice(self.data_in_code_entries.items, sect.addr, sect.addr + atom_size);
+                        try atom.dices.ensureTotalCapacity(allocator, dices.len);
 
                         for (dices) |dice| {
-                            block.dices.appendAssumeCapacity(.{
+                            atom.dices.appendAssumeCapacity(.{
                                 .offset = dice.offset - try math.cast(u32, sect.addr),
                                 .length = dice.length,
                                 .kind = dice.kind,
@@ -613,16 +611,16 @@ pub fn parseTextBlocks(
                     }
 
                     if (parsed_atoms.getPtr(match)) |last| {
-                        last.*.next = block;
-                        block.prev = last.*;
-                        last.* = block;
+                        last.*.next = atom;
+                        atom.prev = last.*;
+                        last.* = atom;
                     } else {
-                        try parsed_atoms.putNoClobber(match, block);
+                        try parsed_atoms.putNoClobber(match, atom);
                     }
-                    try self.text_blocks.append(allocator, block);
+                    try self.atoms.append(allocator, atom);
                 }
 
-                var parser = TextBlockParser{
+                var parser = AtomParser{
                     .section = sect,
                     .code = code,
                     .relocs = relocs,
@@ -635,10 +633,10 @@ pub fn parseTextBlocks(
                     .macho_file = macho_file,
                     .match = match,
                     .parsed_atoms = &parsed_atoms,
-                })) |block| {
-                    const sym = macho_file.locals.items[block.local_sym_index];
+                })) |atom| {
+                    const sym = macho_file.locals.items[atom.local_sym_index];
                     const is_ext = blk: {
-                        const orig_sym_id = self.reverse_symbol_mapping.get(block.local_sym_index) orelse unreachable;
+                        const orig_sym_id = self.reverse_symbol_mapping.get(atom.local_sym_index) orelse unreachable;
                         break :blk MachO.symbolIsExt(self.symtab.items[orig_sym_id]);
                     };
                     if (is_ext) {
@@ -662,26 +660,26 @@ pub fn parseTextBlocks(
                             // In x86_64 relocs, it can so happen that the compiler refers to the same
                             // atom by both the actual assigned symbol and the start of the section. In this
                             // case, we need to link the two together so add an alias.
-                            try block.aliases.append(allocator, alias);
+                            try atom.aliases.append(allocator, alias);
                         }
                     }
 
                     if (parsed_atoms.getPtr(match)) |last| {
-                        last.*.next = block;
-                        block.prev = last.*;
-                        last.* = block;
+                        last.*.next = atom;
+                        atom.prev = last.*;
+                        last.* = atom;
                     } else {
-                        try parsed_atoms.putNoClobber(match, block);
+                        try parsed_atoms.putNoClobber(match, atom);
                     }
-                    try self.text_blocks.append(allocator, block);
+                    try self.atoms.append(allocator, atom);
                 }
 
                 break :next;
             }
 
-            // Since there is no symbol to refer to this block, we create
+            // Since there is no symbol to refer to this atom, we create
             // a temp one, unless we already did that when working out the relocations
-            // of other text blocks.
+            // of other atoms.
             const sym_name = try std.fmt.allocPrint(allocator, "l_{s}_{s}_{s}", .{
                 self.name,
                 segmentName(sect),
@@ -689,8 +687,8 @@ pub fn parseTextBlocks(
             });
             defer allocator.free(sym_name);
 
-            const block_local_sym_index = self.sections_as_symbols.get(sect_id) orelse blk: {
-                const block_local_sym_index = @intCast(u32, macho_file.locals.items.len);
+            const atom_local_sym_index = self.sections_as_symbols.get(sect_id) orelse blk: {
+                const atom_local_sym_index = @intCast(u32, macho_file.locals.items.len);
                 try macho_file.locals.append(allocator, .{
                     .n_strx = try macho_file.makeString(sym_name),
                     .n_type = macho.N_SECT,
@@ -698,20 +696,20 @@ pub fn parseTextBlocks(
                     .n_desc = 0,
                     .n_value = 0,
                 });
-                try self.sections_as_symbols.putNoClobber(allocator, sect_id, block_local_sym_index);
-                break :blk block_local_sym_index;
+                try self.sections_as_symbols.putNoClobber(allocator, sect_id, atom_local_sym_index);
+                break :blk atom_local_sym_index;
             };
-            const block = try macho_file.createEmptyAtom(block_local_sym_index, sect.size, sect.@"align");
+            const atom = try macho_file.createEmptyAtom(atom_local_sym_index, sect.size, sect.@"align");
 
             const is_zerofill = blk: {
                 const section_type = commands.sectionType(sect);
                 break :blk section_type == macho.S_ZEROFILL or section_type == macho.S_THREAD_LOCAL_ZEROFILL;
             };
             if (!is_zerofill) {
-                mem.copy(u8, block.code.items, code);
+                mem.copy(u8, atom.code.items, code);
             }
 
-            try block.parseRelocs(relocs, .{
+            try atom.parseRelocs(relocs, .{
                 .base_addr = sect.addr,
                 .base_offset = 0,
                 .allocator = allocator,
@@ -722,10 +720,10 @@ pub fn parseTextBlocks(
 
             if (macho_file.has_dices) {
                 const dices = filterDice(self.data_in_code_entries.items, sect.addr, sect.addr + sect.size);
-                try block.dices.ensureTotalCapacity(allocator, dices.len);
+                try atom.dices.ensureTotalCapacity(allocator, dices.len);
 
                 for (dices) |dice| {
-                    block.dices.appendAssumeCapacity(.{
+                    atom.dices.appendAssumeCapacity(.{
                         .offset = dice.offset - try math.cast(u32, sect.addr),
                         .length = dice.length,
                         .kind = dice.kind,
@@ -733,12 +731,12 @@ pub fn parseTextBlocks(
                 }
             }
 
-            // Since this is block gets a helper local temporary symbol that didn't exist
+            // Since this is atom gets a helper local temporary symbol that didn't exist
             // in the object file which encompasses the entire section, we need traverse
             // the filtered symbols and note which symbol is contained within so that
             // we can properly allocate addresses down the line.
             // While we're at it, we need to update segment,section mapping of each symbol too.
-            try block.contained.ensureTotalCapacity(allocator, filtered_nlists.len);
+            try atom.contained.ensureTotalCapacity(allocator, filtered_nlists.len);
 
             for (filtered_nlists) |nlist_with_index| {
                 const nlist = nlist_with_index.nlist;
@@ -746,12 +744,12 @@ pub fn parseTextBlocks(
                 const local = &macho_file.locals.items[local_sym_index];
                 local.n_sect = @intCast(u8, macho_file.section_ordinals.getIndex(match).? + 1);
 
-                const stab: ?TextBlock.Stab = if (self.debug_info) |di| blk: {
+                const stab: ?Atom.Stab = if (self.debug_info) |di| blk: {
                     // TODO there has to be a better to handle this.
                     for (di.inner.func_list.items) |func| {
                         if (func.pc_range) |range| {
                             if (nlist.n_value >= range.start and nlist.n_value < range.end) {
-                                break :blk TextBlock.Stab{
+                                break :blk Atom.Stab{
                                     .function = range.end - range.start,
                                 };
                             }
@@ -762,7 +760,7 @@ pub fn parseTextBlocks(
                     break :blk .static;
                 } else null;
 
-                block.contained.appendAssumeCapacity(.{
+                atom.contained.appendAssumeCapacity(.{
                     .local_sym_index = local_sym_index,
                     .offset = nlist.n_value - sect.addr,
                     .stab = stab,
@@ -770,13 +768,13 @@ pub fn parseTextBlocks(
             }
 
             if (parsed_atoms.getPtr(match)) |last| {
-                last.*.next = block;
-                block.prev = last.*;
-                last.* = block;
+                last.*.next = atom;
+                atom.prev = last.*;
+                last.* = atom;
             } else {
-                try parsed_atoms.putNoClobber(match, block);
+                try parsed_atoms.putNoClobber(match, atom);
             }
-            try self.text_blocks.append(allocator, block);
+            try self.atoms.append(allocator, atom);
         }
     }
 
