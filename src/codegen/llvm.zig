@@ -1256,7 +1256,7 @@ pub const FuncGen = struct {
                 .xor                => try self.airXor(inst),
 
                 .shl                => try self.airShl(inst, false),
-                .shl_sat             => try self.airShl(inst, true),
+                .shl_sat            => try self.airShl(inst, true),
                 .shr                => try self.airShr(inst),
 
                 .cmp_eq  => try self.airCmp(inst, .eq),

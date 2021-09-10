@@ -2577,7 +2577,7 @@ pub const Node = struct {
         array_mult,
         /// `lhs *% rhs`. main_token is the `*%`.
         mul_wrap,
-        /// `lhs *| rhs`. main_token is the `*%`.
+        /// `lhs *| rhs`. main_token is the `*|`.
         mul_sat,
         /// `lhs + rhs`. main_token is the `+`.
         add,
