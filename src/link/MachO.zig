@@ -1766,20 +1766,60 @@ fn allocateGlobalSymbols(self: *MachO) !void {
 }
 
 fn writeAtoms(self: *MachO) !void {
+    var buffer = std.ArrayList(u8).init(self.base.allocator);
+    defer buffer.deinit();
+    var file_offset: ?u64 = null;
+
     var it = self.blocks.iterator();
     while (it.next()) |entry| {
         const match = entry.key_ptr.*;
+        const seg = self.load_commands.items[match.seg].Segment;
+        const sect = seg.sections.items[match.sect];
         var atom: *TextBlock = entry.value_ptr.*;
+
+        while (atom.prev) |prev| {
+            atom = prev;
+        }
 
         while (true) {
             if (atom.dirty) {
-                try self.writeAtom(atom, match);
+                const atom_sym = self.locals.items[atom.local_sym_index];
+                const padding_size: u64 = if (atom.next) |next| blk: {
+                    const next_sym = self.locals.items[next.local_sym_index];
+                    break :blk next_sym.n_value - (atom_sym.n_value + atom.size);
+                } else 0;
+
+                try atom.resolveRelocs(self);
+                try buffer.appendSlice(atom.code.items);
+                try buffer.ensureUnusedCapacity(padding_size);
+
+                var i: usize = 0;
+                while (i < padding_size) : (i += 1) {
+                    buffer.appendAssumeCapacity(0);
+                }
+
+                if (file_offset == null) {
+                    file_offset = sect.offset + atom_sym.n_value - sect.addr;
+                }
                 atom.dirty = false;
+            } else {
+                if (file_offset) |off| {
+                    try self.base.file.?.pwriteAll(buffer.items, off);
+                }
+                file_offset = null;
+                buffer.clearRetainingCapacity();
             }
 
-            if (atom.prev) |prev| {
-                atom = prev;
-            } else break;
+            if (atom.next) |next| {
+                atom = next;
+            } else {
+                if (file_offset) |off| {
+                    try self.base.file.?.pwriteAll(buffer.items, off);
+                }
+                file_offset = null;
+                buffer.clearRetainingCapacity();
+                break;
+            }
         }
     }
 }
