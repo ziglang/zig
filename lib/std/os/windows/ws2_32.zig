@@ -1074,14 +1074,6 @@ pub const WSANETWORKEVENTS = extern struct {
     iErrorCode: [10]i32,
 };
 
-pub const WSAOVERLAPPED = extern struct {
-    Internal: DWORD,
-    InternalHigh: DWORD,
-    Offset: DWORD,
-    OffsetHigh: DWORD,
-    hEvent: ?WSAEVENT,
-};
-
 pub const addrinfo = addrinfoa;
 
 pub const addrinfoa = extern struct {

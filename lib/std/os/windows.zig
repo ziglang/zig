@@ -1421,8 +1421,8 @@ pub fn WSAIoctl(
     dwIoControlCode: DWORD,
     inBuffer: ?[]const u8,
     outBuffer: []u8,
-    overlapped: ?*ws2_32.WSAOVERLAPPED,
-    completionRoutine: ?ws2_32.WSAOVERLAPPED_COMPLETION_ROUTINE,
+    overlapped: ?*OVERLAPPED,
+    completionRoutine: ?ws2_32.LPWSAOVERLAPPED_COMPLETION_ROUTINE,
 ) !DWORD {
     var bytes: DWORD = undefined;
     switch (ws2_32.WSAIoctl(
