@@ -1397,8 +1397,8 @@ a +%= b{#endsyntax#}</pre></th>
           </td>
         </tr>
         <tr>
-          <td><pre>{#syntax#}a +| b
-a +|= b{#endsyntax#}</pre></td>
+          <th scope="row"><pre>{#syntax#}a +| b
+a +|= b{#endsyntax#}</pre></th>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
@@ -1454,8 +1454,8 @@ a -%= b{#endsyntax#}</pre></th>
           </td>
         </tr>
         <tr>
-          <td><pre>{#syntax#}a -| b
-a -|= b{#endsyntax#}</pre></td>
+          <th scope="row"><pre>{#syntax#}a -| b
+a -|= b{#endsyntax#}</pre></th>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
@@ -1546,8 +1546,8 @@ a *%= b{#endsyntax#}</pre></th>
           </td>
         </tr>
         <tr>
-          <td><pre>{#syntax#}a *| b
-a *|= b{#endsyntax#}</pre></td>
+          <th scope="row"><pre>{#syntax#}a *| b
+a *|= b{#endsyntax#}</pre></th>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
@@ -1633,8 +1633,8 @@ a <<= b{#endsyntax#}</pre></th>
           </td>
         </tr>
         <tr>
-          <td><pre>{#syntax#}a <<| b
-a <<|= b{#endsyntax#}</pre></td>
+          <th scope="row"><pre>{#syntax#}a <<| b
+a <<|= b{#endsyntax#}</pre></th>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
