@@ -743,7 +743,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
 
         /// For a nicer API, `items.len` is the length, not the capacity.
         /// This requires "unsafe" slicing.
-        fn allocatedSlice(self: Self) Slice {
+        pub fn allocatedSlice(self: Self) Slice {
             return self.items.ptr[0..self.capacity];
         }
     };
