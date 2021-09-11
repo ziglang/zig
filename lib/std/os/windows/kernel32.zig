@@ -152,6 +152,8 @@ pub extern "kernel32" fn GetCommandLineW() callconv(WINAPI) LPWSTR;
 
 pub extern "kernel32" fn GetConsoleMode(in_hConsoleHandle: HANDLE, out_lpMode: *DWORD) callconv(WINAPI) BOOL;
 
+pub extern "kernel32" fn GetConsoleOutputCP() callconv(WINAPI) UINT;
+
 pub extern "kernel32" fn GetConsoleScreenBufferInfo(hConsoleOutput: HANDLE, lpConsoleScreenBufferInfo: *CONSOLE_SCREEN_BUFFER_INFO) callconv(WINAPI) BOOL;
 pub extern "kernel32" fn FillConsoleOutputCharacterA(hConsoleOutput: HANDLE, cCharacter: CHAR, nLength: DWORD, dwWriteCoord: COORD, lpNumberOfCharsWritten: *DWORD) callconv(WINAPI) BOOL;
 pub extern "kernel32" fn FillConsoleOutputCharacterW(hConsoleOutput: HANDLE, cCharacter: WCHAR, nLength: DWORD, dwWriteCoord: COORD, lpNumberOfCharsWritten: *DWORD) callconv(WINAPI) BOOL;
@@ -285,6 +287,8 @@ pub extern "kernel32" fn SetConsoleCtrlHandler(
     HandlerRoutine: ?HANDLER_ROUTINE,
     Add: BOOL,
 ) callconv(WINAPI) BOOL;
+
+pub extern "kernel32" fn SetConsoleOutputCP(wCodePageID: UINT) callconv(WINAPI) BOOL;
 
 pub extern "kernel32" fn SetFileCompletionNotificationModes(
     FileHandle: HANDLE,
