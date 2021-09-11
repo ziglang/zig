@@ -115,6 +115,7 @@ pub const SYS = system.SYS;
 pub const Sigaction = system.Sigaction;
 pub const Stat = system.Stat;
 pub const TCSA = system.TCSA;
+pub const TCP = system.TCP;
 pub const VDSO = system.VDSO;
 pub const W = system.W;
 pub const addrinfo = system.addrinfo;

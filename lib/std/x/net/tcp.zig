@@ -195,7 +195,7 @@ pub const Client = struct {
     pub fn setNoDelay(self: Client, enabled: bool) !void {
         if (@hasDecl(os.TCP, "NODELAY")) {
             const bytes = mem.asBytes(&@as(usize, @boolToInt(enabled)));
-            return self.socket.setOption(os.IPPROTO.TCP, os.TCP_NODELAY, bytes);
+            return self.socket.setOption(os.IPPROTO.TCP, os.TCP.NODELAY, bytes);
         }
         return error.UnsupportedSocketOption;
     }
@@ -204,7 +204,7 @@ pub const Client = struct {
     /// `error.UnsupportedSocketOption` if the host does not support TCP Quick ACK.
     pub fn setQuickACK(self: Client, enabled: bool) !void {
         if (@hasDecl(os.TCP, "QUICKACK")) {
-            return self.socket.setOption(os.IPPROTO.TCP, os.TCP_QUICKACK, mem.asBytes(&@as(u32, @boolToInt(enabled))));
+            return self.socket.setOption(os.IPPROTO.TCP, os.TCP.QUICKACK, mem.asBytes(&@as(u32, @boolToInt(enabled))));
         }
         return error.UnsupportedSocketOption;
     }
@@ -305,7 +305,7 @@ pub const Listener = struct {
     /// support TCP Fast Open.
     pub fn setFastOpen(self: Listener, enabled: bool) !void {
         if (@hasDecl(os.TCP, "FASTOPEN")) {
-            return self.socket.setOption(os.IPPROTO.TCP, os.TCP_FASTOPEN, mem.asBytes(&@as(u32, @boolToInt(enabled))));
+            return self.socket.setOption(os.IPPROTO.TCP, os.TCP.FASTOPEN, mem.asBytes(&@as(u32, @boolToInt(enabled))));
         }
         return error.UnsupportedSocketOption;
     }

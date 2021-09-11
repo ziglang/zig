@@ -442,27 +442,33 @@ pub const PROTECTION_LEVEL_EDGERESTRICTED = 20;
 pub const PROTECTION_LEVEL_RESTRICTED = 30;
 pub const INET_ADDRSTRLEN = 22;
 pub const INET6_ADDRSTRLEN = 65;
-pub const TCP_OFFLOAD_NO_PREFERENCE = 0;
-pub const TCP_OFFLOAD_NOT_PREFERRED = 1;
-pub const TCP_OFFLOAD_PREFERRED = 2;
-pub const TCP_EXPEDITED_1122 = 2;
-pub const TCP_KEEPALIVE = 3;
-pub const TCP_MAXSEG = 4;
-pub const TCP_MAXRT = 5;
-pub const TCP_STDURG = 6;
-pub const TCP_NOURG = 7;
-pub const TCP_ATMARK = 8;
-pub const TCP_NOSYNRETRIES = 9;
-pub const TCP_TIMESTAMPS = 10;
-pub const TCP_OFFLOAD_PREFERENCE = 11;
-pub const TCP_CONGESTION_ALGORITHM = 12;
-pub const TCP_DELAY_FIN_ACK = 13;
-pub const TCP_MAXRTMS = 14;
-pub const TCP_FASTOPEN = 15;
-pub const TCP_KEEPCNT = 16;
-pub const TCP_KEEPINTVL = 17;
-pub const TCP_FAIL_CONNECT_ON_ICMP_ERROR = 18;
-pub const TCP_ICMP_ERROR_INFO = 19;
+
+pub const TCP = struct {
+    pub const NODELAY = 1;
+    pub const EXPEDITED_1122 = 2;
+    pub const OFFLOAD_NO_PREFERENCE = 0;
+    pub const OFFLOAD_NOT_PREFERRED = 1;
+    pub const OFFLOAD_PREFERRED = 2;
+    pub const KEEPALIVE = 3;
+    pub const MAXSEG = 4;
+    pub const MAXRT = 5;
+    pub const STDURG = 6;
+    pub const NOURG = 7;
+    pub const ATMARK = 8;
+    pub const NOSYNRETRIES = 9;
+    pub const TIMESTAMPS = 10;
+    pub const OFFLOAD_PREFERENCE = 11;
+    pub const CONGESTION_ALGORITHM = 12;
+    pub const DELAY_FIN_ACK = 13;
+    pub const MAXRTMS = 14;
+    pub const FASTOPEN = 15;
+    pub const KEEPCNT = 16;
+    pub const KEEPINTVL = 17;
+    pub const FAIL_CONNECT_ON_ICMP_ERROR = 18;
+    pub const ICMP_ERROR_INFO = 19;
+    pub const BSDURGENT = 28672;
+};
+
 pub const UDP_SEND_MSG_SIZE = 2;
 pub const UDP_RECV_MAX_COALESCED_SIZE = 3;
 pub const UDP_COALESCED_INFO = 3;
@@ -578,7 +584,6 @@ pub const SO = struct {
 };
 
 pub const WSK_SO_BASE = 16384;
-pub const TCP_NODELAY = 1;
 pub const IOC_UNIX = 0;
 pub const IOC_WS2 = 134217728;
 pub const IOC_PROTOCOL = 268435456;
@@ -846,7 +851,6 @@ pub const POLL = struct {
     pub const NVAL = 4;
 };
 
-pub const TCP_BSDURGENT = 28672;
 pub const TF_DISCONNECT = 1;
 pub const TF_REUSE_SOCKET = 2;
 pub const TF_WRITE_BEHIND = 4;

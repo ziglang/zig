@@ -31,6 +31,7 @@ pub const MAP = struct {
     pub const FAILED = @intToPtr(*c_void, maxInt(usize));
 };
 pub const MMAP2_UNIT = linux.MMAP2_UNIT;
+pub const MSG = linux.MSG;
 pub const NAME_MAX = linux.NAME_MAX;
 pub const O = linux.O;
 pub const PATH_MAX = linux.PATH_MAX;
@@ -54,6 +55,7 @@ pub const STDIN_FILENO = linux.STDIN_FILENO;
 pub const STDOUT_FILENO = linux.STDOUT_FILENO;
 pub const SYS = linux.SYS;
 pub const Sigaction = linux.Sigaction;
+pub const TCP = linux.TCP;
 pub const VDSO = linux.VDSO;
 pub const W = linux.W;
 pub const W_OK = linux.W_OK;
