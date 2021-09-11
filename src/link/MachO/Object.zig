@@ -14,6 +14,7 @@ const sort = std.sort;
 const commands = @import("commands.zig");
 const segmentName = commands.segmentName;
 const sectionName = commands.sectionName;
+const trace = @import("../../tracy.zig").trace;
 
 const Allocator = mem.Allocator;
 const Atom = @import("Atom.zig");
@@ -344,6 +345,9 @@ const AtomParser = struct {
     pub fn next(self: *AtomParser, context: Context) !?*Atom {
         if (self.index == self.nlists.len) return null;
 
+        const tracy = trace(@src());
+        defer tracy.end();
+
         var aliases = std.ArrayList(NlistWithIndex).init(context.allocator);
         defer aliases.deinit();
 
@@ -465,6 +469,9 @@ pub fn parseIntoAtoms(
     object_id: u16,
     macho_file: *MachO,
 ) !ParsedAtoms {
+    const tracy = trace(@src());
+    defer tracy.end();
+
     var parsed_atoms = ParsedAtoms.init(allocator);
     const seg = self.load_commands.items[self.segment_cmd_index.?].Segment;
 

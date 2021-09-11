@@ -2579,6 +2579,9 @@ fn resolveDyldStubBinder(self: *MachO) !void {
 }
 
 fn parseObjectsIntoAtoms(self: *MachO) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
     var parsed_atoms = Object.ParsedAtoms.init(self.base.allocator);
     defer parsed_atoms.deinit();
 
@@ -3933,6 +3936,9 @@ fn findFreeSpace(self: MachO, segment_id: u16, alignment: u64, start: ?u64) u64 
 }
 
 fn growSection(self: *MachO, match: MatchingSection, new_size: u32) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
     const seg = &self.load_commands.items[match.seg].Segment;
     const sect = &seg.sections.items[match.sect];
 
@@ -4081,6 +4087,9 @@ fn getSectionMaxAlignment(self: *MachO, segment_id: u16, start_sect_id: u16) !u3
 }
 
 fn allocateAtom(self: *MachO, atom: *Atom, new_atom_size: u64, alignment: u64, match: MatchingSection) !u64 {
+    const tracy = trace(@src());
+    defer tracy.end();
+
     const seg = &self.load_commands.items[match.seg].Segment;
     const sect = &seg.sections.items[match.sect];
     var free_list = self.atom_free_lists.get(match).?;

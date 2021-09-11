@@ -10,6 +10,7 @@ const macho = std.macho;
 const math = std.math;
 const mem = std.mem;
 const meta = std.meta;
+const trace = @import("../../tracy.zig").trace;
 
 const Allocator = mem.Allocator;
 const Arch = std.Target.Cpu.Arch;
@@ -701,6 +702,9 @@ fn initRelocFromObject(rel: macho.relocation_info, context: RelocContext) !Reloc
 }
 
 pub fn parseRelocs(self: *Atom, relocs: []macho.relocation_info, context: RelocContext) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
     const filtered_relocs = filterRelocs(relocs, context.base_offset, context.base_offset + self.size);
     var it = RelocIterator{
         .buffer = filtered_relocs,
@@ -1141,6 +1145,9 @@ fn parseLoad(self: Atom, rel: macho.relocation_info, out: *Relocation) void {
 }
 
 pub fn resolveRelocs(self: *Atom, macho_file: *MachO) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
     for (self.relocs.items) |rel| {
         log.debug("relocating {}", .{rel});
 
