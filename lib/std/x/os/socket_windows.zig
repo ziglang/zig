@@ -11,7 +11,7 @@ pub fn Mixin(comptime Socket: type) type {
     return struct {
         /// Open a new socket.
         pub fn init(domain: u32, socket_type: u32, protocol: u32, flags: std.enums.EnumFieldStruct(Socket.InitFlags, bool, false)) !Socket {
-            var raw_flags: u32 = 0;
+            var raw_flags: u32 = ws2_32.WSA_FLAG_OVERLAPPED;
             const set = std.EnumSet(Socket.InitFlags).init(flags);
             if (set.contains(.close_on_exec)) raw_flags |= ws2_32.WSA_FLAG_NO_HANDLE_INHERIT;
 

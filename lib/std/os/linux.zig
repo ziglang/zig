@@ -2007,6 +2007,82 @@ pub const SOCK = struct {
     pub const NONBLOCK = if (is_mips) 0o200 else 0o4000;
 };
 
+pub const TCP = struct {
+    /// Turn off Nagle's algorithm
+    pub const NODELAY = 1;
+    /// Limit MSS
+    pub const MAXSEG = 2;
+    /// Never send partially complete segments.
+    pub const CORK = 3;
+    /// Start keeplives after this period, in seconds
+    pub const KEEPIDLE = 4;
+    /// Interval between keepalives
+    pub const KEEPINTVL = 5;
+    /// Number of keepalives before death
+    pub const KEEPCNT = 6;
+    /// Number of SYN retransmits
+    pub const SYNCNT = 7;
+    /// Life time of orphaned FIN-WAIT-2 state
+    pub const LINGER2 = 8;
+    /// Wake up listener only when data arrive
+    pub const DEFER_ACCEPT = 9;
+    /// Bound advertised window
+    pub const WINDOW_CLAMP = 10;
+    /// Information about this connection.
+    pub const INFO = 11;
+    /// Block/reenable quick acks
+    pub const QUICKACK = 12;
+    /// Congestion control algorithm
+    pub const CONGESTION = 13;
+    /// TCP MD5 Signature (RFC2385)
+    pub const MD5SIG = 14;
+    /// Use linear timeouts for thin streams
+    pub const THIN_LINEAR_TIMEOUTS = 16;
+    /// Fast retrans. after 1 dupack
+    pub const THIN_DUPACK = 17;
+    /// How long for loss retry before timeout
+    pub const USER_TIMEOUT = 18;
+    /// TCP sock is under repair right now
+    pub const REPAIR = 19;
+    pub const REPAIR_QUEUE = 20;
+    pub const QUEUE_SEQ = 21;
+    pub const REPAIR_OPTIONS = 22;
+    /// Enable FastOpen on listeners
+    pub const FASTOPEN = 23;
+    pub const TIMESTAMP = 24;
+    /// limit number of unsent bytes in write queue
+    pub const NOTSENT_LOWAT = 25;
+    /// Get Congestion Control (optional) info
+    pub const CC_INFO = 26;
+    /// Record SYN headers for new connections
+    pub const SAVE_SYN = 27;
+    /// Get SYN headers recorded for connection
+    pub const SAVED_SYN = 28;
+    /// Get/set window parameters
+    pub const REPAIR_WINDOW = 29;
+    /// Attempt FastOpen with connect
+    pub const FASTOPEN_CONNECT = 30;
+    /// Attach a ULP to a TCP connection
+    pub const ULP = 31;
+    /// TCP MD5 Signature with extensions
+    pub const MD5SIG_EXT = 32;
+    /// Set the key for Fast Open (cookie)
+    pub const FASTOPEN_KEY = 33;
+    /// Enable TFO without a TFO cookie
+    pub const FASTOPEN_NO_COOKIE = 34;
+    pub const ZEROCOPY_RECEIVE = 35;
+    /// Notify bytes available to read as a cmsg on read
+    pub const INQ = 36;
+    pub const CM_INQ = INQ;
+    /// delay outgoing packets by XX usec
+    pub const TX_DELAY = 37;
+
+    pub const REPAIR_ON = 1;
+    pub const REPAIR_OFF = 0;
+    /// Turn off without window probes
+    pub const REPAIR_OFF_NO_WP = -1;
+};
+
 pub const PF = struct {
     pub const UNSPEC = 0;
     pub const LOCAL = 1;
@@ -3605,80 +3681,6 @@ pub const RR = struct {
     pub const CNAME = 5;
     pub const AAAA = 28;
 };
-
-/// Turn off Nagle's algorithm
-pub const TCP_NODELAY = 1;
-/// Limit MSS
-pub const TCP_MAXSEG = 2;
-/// Never send partially complete segments.
-pub const TCP_CORK = 3;
-/// Start keeplives after this period, in seconds
-pub const TCP_KEEPIDLE = 4;
-/// Interval between keepalives
-pub const TCP_KEEPINTVL = 5;
-/// Number of keepalives before death
-pub const TCP_KEEPCNT = 6;
-/// Number of SYN retransmits
-pub const TCP_SYNCNT = 7;
-/// Life time of orphaned FIN-WAIT-2 state
-pub const TCP_LINGER2 = 8;
-/// Wake up listener only when data arrive
-pub const TCP_DEFER_ACCEPT = 9;
-/// Bound advertised window
-pub const TCP_WINDOW_CLAMP = 10;
-/// Information about this connection.
-pub const TCP_INFO = 11;
-/// Block/reenable quick acks
-pub const TCP_QUICKACK = 12;
-/// Congestion control algorithm
-pub const TCP_CONGESTION = 13;
-/// TCP MD5 Signature (RFC2385)
-pub const TCP_MD5SIG = 14;
-/// Use linear timeouts for thin streams
-pub const TCP_THIN_LINEAR_TIMEOUTS = 16;
-/// Fast retrans. after 1 dupack
-pub const TCP_THIN_DUPACK = 17;
-/// How long for loss retry before timeout
-pub const TCP_USER_TIMEOUT = 18;
-/// TCP sock is under repair right now
-pub const TCP_REPAIR = 19;
-pub const TCP_REPAIR_QUEUE = 20;
-pub const TCP_QUEUE_SEQ = 21;
-pub const TCP_REPAIR_OPTIONS = 22;
-/// Enable FastOpen on listeners
-pub const TCP_FASTOPEN = 23;
-pub const TCP_TIMESTAMP = 24;
-/// limit number of unsent bytes in write queue
-pub const TCP_NOTSENT_LOWAT = 25;
-/// Get Congestion Control (optional) info
-pub const TCP_CC_INFO = 26;
-/// Record SYN headers for new connections
-pub const TCP_SAVE_SYN = 27;
-/// Get SYN headers recorded for connection
-pub const TCP_SAVED_SYN = 28;
-/// Get/set window parameters
-pub const TCP_REPAIR_WINDOW = 29;
-/// Attempt FastOpen with connect
-pub const TCP_FASTOPEN_CONNECT = 30;
-/// Attach a ULP to a TCP connection
-pub const TCP_ULP = 31;
-/// TCP MD5 Signature with extensions
-pub const TCP_MD5SIG_EXT = 32;
-/// Set the key for Fast Open (cookie)
-pub const TCP_FASTOPEN_KEY = 33;
-/// Enable TFO without a TFO cookie
-pub const TCP_FASTOPEN_NO_COOKIE = 34;
-pub const TCP_ZEROCOPY_RECEIVE = 35;
-/// Notify bytes available to read as a cmsg on read
-pub const TCP_INQ = 36;
-pub const TCP_CM_INQ = TCP_INQ;
-/// delay outgoing packets by XX usec
-pub const TCP_TX_DELAY = 37;
-
-pub const TCP_REPAIR_ON = 1;
-pub const TCP_REPAIR_OFF = 0;
-/// Turn off without window probes
-pub const TCP_REPAIR_OFF_NO_WP = -1;
 
 pub const tcp_repair_opt = extern struct {
     opt_code: u32,

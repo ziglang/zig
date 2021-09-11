@@ -204,7 +204,9 @@ pub const in_addr = u32;
 
 pub const addrinfo = ws2_32.addrinfo;
 pub const AF = ws2_32.AF;
+pub const MSG = ws2_32.MSG;
 pub const SOCK = ws2_32.SOCK;
+pub const TCP = ws2_32.TCP;
 pub const IPPROTO = ws2_32.IPPROTO;
 pub const BTHPROTO_RFCOMM = ws2_32.BTHPROTO_RFCOMM;
 
@@ -214,7 +216,6 @@ pub const POLL = ws2_32.POLL;
 pub const SOL = ws2_32.SOL;
 pub const SO = ws2_32.SO;
 pub const PVD_CONFIG = ws2_32.PVD_CONFIG;
-pub const TCP_NODELAY = ws2_32.TCP_NODELAY;
 
 pub const O = struct {
     pub const RDONLY = 0o0;
