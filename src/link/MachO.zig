@@ -688,7 +688,22 @@ pub fn flush(self: *MachO, comp: *Compilation) !void {
         var rpath_table = std.StringArrayHashMap(void).init(arena);
         for (self.base.options.rpath_list) |rpath| {
             if (rpath_table.contains(rpath)) continue;
+            const cmdsize = @intCast(u32, mem.alignForwardGeneric(
+                u64,
+                @sizeOf(macho.rpath_command) + rpath.len + 1,
+                @sizeOf(u64),
+            ));
+            var rpath_cmd = commands.emptyGenericCommandWithData(macho.rpath_command{
+                .cmd = macho.LC_RPATH,
+                .cmdsize = cmdsize,
+                .path = @sizeOf(macho.rpath_command),
+            });
+            rpath_cmd.data = try self.base.allocator.alloc(u8, cmdsize - rpath_cmd.inner.path);
+            mem.set(u8, rpath_cmd.data, 0);
+            mem.copy(u8, rpath_cmd.data, rpath);
+            try self.load_commands.append(self.base.allocator, .{ .Rpath = rpath_cmd });
             try rpath_table.putNoClobber(rpath, {});
+            self.load_commands_dirty = true;
         }
 
         if (self.base.options.verbose_link) {
@@ -763,9 +778,7 @@ pub fn flush(self: *MachO, comp: *Compilation) !void {
         }
 
         try self.resolveSymbols();
-        try self.addRpathLCs(rpath_table.keys());
         try self.addLoadDylibLCs();
-        try self.addDataInCodeLC();
         try self.addCodeSignatureLC();
 
         try self.parseObjectsIntoAtoms();
@@ -2720,20 +2733,6 @@ fn parseObjectsIntoAtoms(self: *MachO) !void {
     }
 }
 
-fn addDataInCodeLC(self: *MachO) !void {
-    if (self.data_in_code_cmd_index != null) return;
-    self.data_in_code_cmd_index = @intCast(u16, self.load_commands.items.len);
-    try self.load_commands.append(self.base.allocator, .{
-        .LinkeditData = .{
-            .cmd = macho.LC_DATA_IN_CODE,
-            .cmdsize = @sizeOf(macho.linkedit_data_command),
-            .dataoff = 0,
-            .datasize = 0,
-        },
-    });
-    self.load_commands_dirty = true;
-}
-
 fn addCodeSignatureLC(self: *MachO) !void {
     if (self.code_signature_cmd_index != null or !self.requires_adhoc_codesig) return;
     self.code_signature_cmd_index = @intCast(u16, self.load_commands.items.len);
@@ -2746,26 +2745,6 @@ fn addCodeSignatureLC(self: *MachO) !void {
         },
     });
     self.load_commands_dirty = true;
-}
-
-fn addRpathLCs(self: *MachO, rpaths: []const []const u8) !void {
-    for (rpaths) |rpath| {
-        const cmdsize = @intCast(u32, mem.alignForwardGeneric(
-            u64,
-            @sizeOf(macho.rpath_command) + rpath.len + 1,
-            @sizeOf(u64),
-        ));
-        var rpath_cmd = commands.emptyGenericCommandWithData(macho.rpath_command{
-            .cmd = macho.LC_RPATH,
-            .cmdsize = cmdsize,
-            .path = @sizeOf(macho.rpath_command),
-        });
-        rpath_cmd.data = try self.base.allocator.alloc(u8, cmdsize - rpath_cmd.inner.path);
-        mem.set(u8, rpath_cmd.data, 0);
-        mem.copy(u8, rpath_cmd.data, rpath);
-        try self.load_commands.append(self.base.allocator, .{ .Rpath = rpath_cmd });
-        self.load_commands_dirty = true;
-    }
 }
 
 fn addLoadDylibLCs(self: *MachO) !void {
@@ -3270,6 +3249,8 @@ pub fn updateDeclExports(
     decl: *Module.Decl,
     exports: []const *Module.Export,
 ) !void {
+    // TODO If we are exporting with global linkage, check for already defined globals and flag
+    // symbol duplicate/collision!
     if (build_options.skip_non_native and builtin.object_format != .macho) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
@@ -3864,6 +3845,19 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         };
         std.crypto.random.bytes(&uuid_cmd.uuid);
         try self.load_commands.append(self.base.allocator, .{ .Uuid = uuid_cmd });
+        self.load_commands_dirty = true;
+    }
+
+    if (self.data_in_code_cmd_index == null) {
+        self.data_in_code_cmd_index = @intCast(u16, self.load_commands.items.len);
+        try self.load_commands.append(self.base.allocator, .{
+            .LinkeditData = .{
+                .cmd = macho.LC_DATA_IN_CODE,
+                .cmdsize = @sizeOf(macho.linkedit_data_command),
+                .dataoff = 0,
+                .datasize = 0,
+            },
+        });
         self.load_commands_dirty = true;
     }
 }
