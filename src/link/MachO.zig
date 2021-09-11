@@ -491,7 +491,7 @@ fn resolveSearchDir(
 ) !?[]const u8 {
     var candidates = std.ArrayList([]const u8).init(arena);
 
-    if (fs.path.isAbsolute(dir)) {
+    if (!fs.path.isAbsolute(dir)) {
         if (syslibroot) |root| {
             const full_path = try fs.path.join(arena, &[_][]const u8{ root, dir });
             try candidates.append(full_path);
