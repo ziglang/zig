@@ -17,6 +17,7 @@
 
 #define WHITESPACE \
          ' ': \
+    case '\t': \
     case '\r': \
     case '\n'
 
