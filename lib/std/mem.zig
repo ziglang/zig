@@ -1439,9 +1439,13 @@ pub fn writeInt(comptime T: type, buffer: *[@divExact(@typeInfo(T).Int.bits, 8)]
 pub fn writeIntSliceLittle(comptime T: type, buffer: []u8, value: T) void {
     assert(buffer.len >= @divExact(@typeInfo(T).Int.bits, 8));
 
-    if (@typeInfo(T).Int.bits == 0)
+    if (@typeInfo(T).Int.bits == 0) {
         return set(u8, buffer, 0);
-
+    } else if (@typeInfo(T).Int.bits == 8) {
+        set(u8, buffer, 0);
+        buffer[0] = @bitCast(u8, value);
+        return;
+    }
     // TODO I want to call writeIntLittle here but comptime eval facilities aren't good enough
     const uint = std.meta.Int(.unsigned, @typeInfo(T).Int.bits);
     var bits = @bitCast(uint, value);
@@ -1459,8 +1463,13 @@ pub fn writeIntSliceLittle(comptime T: type, buffer: []u8, value: T) void {
 pub fn writeIntSliceBig(comptime T: type, buffer: []u8, value: T) void {
     assert(buffer.len >= @divExact(@typeInfo(T).Int.bits, 8));
 
-    if (@typeInfo(T).Int.bits == 0)
+    if (@typeInfo(T).Int.bits == 0) {
         return set(u8, buffer, 0);
+    } else if (@typeInfo(T).Int.bits == 8) {
+        set(u8, buffer, 0);
+        buffer[buffer.len - 1] = @bitCast(u8, value);
+        return;
+    }
 
     // TODO I want to call writeIntBig here but comptime eval facilities aren't good enough
     const uint = std.meta.Int(.unsigned, @typeInfo(T).Int.bits);
@@ -2127,6 +2136,30 @@ fn testWriteIntImpl() !void {
         0x00,
         0xAB,
         0xCD,
+    }));
+
+    writeIntSlice(u8, bytes[0..], 0x12, Endian.Big);
+    try testing.expect(eql(u8, &bytes, &[_]u8{
+        0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x12,
+    }));
+
+    writeIntSlice(u8, bytes[0..], 0x12, Endian.Little);
+    try testing.expect(eql(u8, &bytes, &[_]u8{
+        0x12, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00,
+    }));
+
+    writeIntSlice(i8, bytes[0..], -1, Endian.Big);
+    try testing.expect(eql(u8, &bytes, &[_]u8{
+        0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0xff,
+    }));
+
+    writeIntSlice(i8, bytes[0..], -1, Endian.Little);
+    try testing.expect(eql(u8, &bytes, &[_]u8{
+        0xff, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00,
     }));
 }
 
