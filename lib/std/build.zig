@@ -2549,7 +2549,22 @@ pub const LibExeObjStep = struct {
                     } else {
                         try zig_args.append("-isystem");
                     }
-                    try zig_args.append(self.builder.pathFromRoot(include_path));
+
+                    const resolved_include_path = self.builder.pathFromRoot(include_path);
+
+                    const common_include_path = if (std.Target.current.os.tag == .windows and builder.sysroot != null and fs.path.isAbsolute(resolved_include_path)) blk: {
+                        // We need to check for disk designator and strip it out from dir path so
+                        // that zig/clang can concat resolved_include_path with sysroot.
+                        const disk_designator = fs.path.diskDesignatorWindows(resolved_include_path);
+
+                        if (mem.indexOf(u8, resolved_include_path, disk_designator)) |where| {
+                            break :blk resolved_include_path[where + disk_designator.len ..];
+                        }
+
+                        break :blk resolved_include_path;
+                    } else resolved_include_path;
+
+                    try zig_args.append(common_include_path);
                 },
                 .other_step => |other| if (other.emit_h) {
                     const h_path = other.getOutputHSource().getPath(self.builder);
