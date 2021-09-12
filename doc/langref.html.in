@@ -4955,7 +4955,7 @@ test "merge error sets" {
       {#header_open|Inferred Error Sets#}
       <p>
       Because many functions in Zig return a possible error, Zig supports inferring the error set.
-      To infer the error set for a function, use this syntax:
+      To infer the error set for a function, prepend the {#syntax#}!{#endsyntax#} operator to the function’s return type, like {#syntax#}!T{#endsyntax#}:
       </p>
 {#code_begin|test|inferred_error_sets#}
 // With an inferred error set
