@@ -493,7 +493,19 @@ fn resolveSearchDir(
 
     if (fs.path.isAbsolute(dir)) {
         if (syslibroot) |root| {
-            const full_path = try fs.path.join(arena, &[_][]const u8{ root, dir });
+            const common_dir = if (std.Target.current.os.tag == .windows) blk: {
+                // We need to check for disk designator and strip it out from dir path so
+                // that we can concat dir with syslibroot.
+                // TODO we should backport this mechanism to 'MachO.Dylib.parseDependentLibs()'
+                const disk_designator = fs.path.diskDesignatorWindows(dir);
+
+                if (mem.indexOf(u8, dir, disk_designator)) |where| {
+                    break :blk dir[where + disk_designator.len ..];
+                }
+
+                break :blk dir;
+            } else dir;
+            const full_path = try fs.path.join(arena, &[_][]const u8{ root, common_dir });
             try candidates.append(full_path);
         }
     }
