@@ -147,13 +147,14 @@ unresolved: std.AutoArrayHashMapUnmanaged(u32, enum {
     stub,
     got,
 }) = .{},
+tentatives: std.AutoArrayHashMapUnmanaged(u32, void) = .{},
 
 locals_free_list: std.ArrayListUnmanaged(u32) = .{},
 globals_free_list: std.ArrayListUnmanaged(u32) = .{},
 
-dyld_private_sym_index: ?u32 = null,
 dyld_stub_binder_index: ?u32 = null,
-stub_preamble_sym_index: ?u32 = null,
+dyld_private_atom: ?*Atom = null,
+stub_helper_preamble_atom: ?*Atom = null,
 
 strtab: std.ArrayListUnmanaged(u8) = .{},
 strtab_dir: std.HashMapUnmanaged(u32, u32, StringIndexContext, std.hash_map.default_max_load_percentage) = .{},
@@ -777,10 +778,31 @@ pub fn flush(self: *MachO, comp: *Compilation) !void {
             sect.offset = self.tlv_bss_file_offset;
         }
 
-        try self.resolveSymbols();
-        try self.addLoadDylibLCs();
+        for (self.objects.items) |_, object_id| {
+            try self.resolveSymbolsInObject(@intCast(u16, object_id));
+        }
+
+        try self.resolveSymbolsInArchives();
+        try self.resolveDyldStubBinder();
+        try self.createDyldPrivateAtom();
+        try self.createStubHelperPreambleAtom();
+        try self.resolveSymbolsInDylibs();
+        try self.createDsoHandleAtom();
         try self.addCodeSignatureLC();
 
+        for (self.unresolved.keys()) |index| {
+            const sym = self.undefs.items[index];
+            const sym_name = self.getString(sym.n_strx);
+            const resolv = self.symbol_resolver.get(sym.n_strx) orelse unreachable;
+
+            log.err("undefined reference to symbol '{s}'", .{sym_name});
+            log.err("  first referenced in '{s}'", .{self.objects.items[resolv.file].name});
+        }
+        if (self.unresolved.count() > 0) {
+            return error.UndefinedSymbolReference;
+        }
+
+        try self.createTentativeDefAtoms();
         try self.parseObjectsIntoAtoms();
         try self.allocateGlobalSymbols();
         try self.writeAtoms();
@@ -1055,6 +1077,7 @@ pub fn parseDylib(self: *MachO, path: []const u8, opts: DylibCreateOpts) ParseDy
     try self.dylibs_map.putNoClobber(self.base.allocator, dylib.id.?.name, dylib_id);
 
     if (!(opts.is_dependent or self.referenced_dylibs.contains(dylib_id))) {
+        try self.addLoadDylibLC(dylib_id);
         try self.referenced_dylibs.putNoClobber(self.base.allocator, dylib_id, {});
     }
 
@@ -1789,20 +1812,31 @@ pub fn createGotAtom(self: *MachO, key: GotIndirectionKey) !*Atom {
     return atom;
 }
 
-fn createDyldPrivateAtom(self: *MachO) !*Atom {
+fn createDyldPrivateAtom(self: *MachO) !void {
+    if (self.dyld_private_atom != null) return;
     const local_sym_index = @intCast(u32, self.locals.items.len);
-    try self.locals.append(self.base.allocator, .{
+    const sym = try self.locals.addOne(self.base.allocator);
+    sym.* = .{
         .n_strx = try self.makeString("l_zld_dyld_private"),
         .n_type = macho.N_SECT,
         .n_sect = 0,
         .n_desc = 0,
         .n_value = 0,
-    });
-    self.dyld_private_sym_index = local_sym_index;
-    return self.createEmptyAtom(local_sym_index, @sizeOf(u64), 3);
+    };
+    const atom = try self.createEmptyAtom(local_sym_index, @sizeOf(u64), 3);
+    self.dyld_private_atom = atom;
+    const match = MatchingSection{
+        .seg = self.data_segment_cmd_index.?,
+        .sect = self.data_section_index.?,
+    };
+    const vaddr = try self.allocateAtom(atom, @sizeOf(u64), 8, match);
+    sym.n_value = vaddr;
+    sym.n_sect = @intCast(u8, self.section_ordinals.getIndex(match).? + 1);
+    log.debug("allocated {s} atom at 0x{x}", .{ self.getString(sym.n_strx), vaddr });
 }
 
-fn createStubHelperPreambleAtom(self: *MachO) !*Atom {
+fn createStubHelperPreambleAtom(self: *MachO) !void {
+    if (self.stub_helper_preamble_atom != null) return;
     const arch = self.base.options.target.cpu.arch;
     const size: u64 = switch (arch) {
         .x86_64 => 15,
@@ -1815,14 +1849,16 @@ fn createStubHelperPreambleAtom(self: *MachO) !*Atom {
         else => unreachable,
     };
     const local_sym_index = @intCast(u32, self.locals.items.len);
-    try self.locals.append(self.base.allocator, .{
+    const sym = try self.locals.addOne(self.base.allocator);
+    sym.* = .{
         .n_strx = try self.makeString("l_zld_stub_preamble"),
         .n_type = macho.N_SECT,
         .n_sect = 0,
         .n_desc = 0,
         .n_value = 0,
-    });
+    };
     const atom = try self.createEmptyAtom(local_sym_index, size, alignment);
+    const dyld_private_sym_index = self.dyld_private_atom.?.local_sym_index;
     switch (arch) {
         .x86_64 => {
             try atom.relocs.ensureUnusedCapacity(self.base.allocator, 2);
@@ -1833,7 +1869,7 @@ fn createStubHelperPreambleAtom(self: *MachO) !*Atom {
             atom.relocs.appendAssumeCapacity(.{
                 .offset = 3,
                 .where = .local,
-                .where_index = self.dyld_private_sym_index.?,
+                .where_index = dyld_private_sym_index,
                 .payload = .{
                     .signed = .{
                         .addend = 0,
@@ -1866,7 +1902,7 @@ fn createStubHelperPreambleAtom(self: *MachO) !*Atom {
             atom.relocs.appendAssumeCapacity(.{
                 .offset = 0,
                 .where = .local,
-                .where_index = self.dyld_private_sym_index.?,
+                .where_index = dyld_private_sym_index,
                 .payload = .{
                     .page = .{
                         .kind = .page,
@@ -1879,7 +1915,7 @@ fn createStubHelperPreambleAtom(self: *MachO) !*Atom {
             atom.relocs.appendAssumeCapacity(.{
                 .offset = 4,
                 .where = .local,
-                .where_index = self.dyld_private_sym_index.?,
+                .where_index = dyld_private_sym_index,
                 .payload = .{
                     .page_off = .{
                         .kind = .page,
@@ -1931,8 +1967,16 @@ fn createStubHelperPreambleAtom(self: *MachO) !*Atom {
         },
         else => unreachable,
     }
-    self.stub_preamble_sym_index = local_sym_index;
-    return atom;
+    self.stub_helper_preamble_atom = atom;
+    const match = MatchingSection{
+        .seg = self.text_segment_cmd_index.?,
+        .sect = self.stub_helper_section_index.?,
+    };
+    const alignment_pow_2 = try math.powi(u32, 2, atom.alignment);
+    const vaddr = try self.allocateAtom(atom, atom.size, alignment_pow_2, match);
+    sym.n_value = vaddr;
+    sym.n_sect = @intCast(u8, self.section_ordinals.getIndex(match).? + 1);
+    log.debug("allocated {s} atom at 0x{x}", .{ self.getString(sym.n_strx), vaddr });
 }
 
 pub fn createStubHelperAtom(self: *MachO) !*Atom {
@@ -1968,7 +2012,7 @@ pub fn createStubHelperAtom(self: *MachO) !*Atom {
             atom.relocs.appendAssumeCapacity(.{
                 .offset = 6,
                 .where = .local,
-                .where_index = self.stub_preamble_sym_index.?,
+                .where_index = self.stub_helper_preamble_atom.?.local_sym_index,
                 .payload = .{
                     .branch = .{ .arch = arch },
                 },
@@ -1988,7 +2032,7 @@ pub fn createStubHelperAtom(self: *MachO) !*Atom {
             atom.relocs.appendAssumeCapacity(.{
                 .offset = 4,
                 .where = .local,
-                .where_index = self.stub_preamble_sym_index.?,
+                .where_index = self.stub_helper_preamble_atom.?.local_sym_index,
                 .payload = .{
                     .branch = .{ .arch = arch },
                 },
@@ -2108,11 +2152,99 @@ pub fn createStubAtom(self: *MachO, laptr_sym_index: u32) !*Atom {
     return atom;
 }
 
-fn resolveSymbolsInObject(
-    self: *MachO,
-    object_id: u16,
-    tentatives: *std.AutoArrayHashMap(u32, void),
-) !void {
+fn createTentativeDefAtoms(self: *MachO) !void {
+    if (self.tentatives.count() == 0) return;
+    // Convert any tentative definition into a regular symbol and allocate
+    // text blocks for each tentative defintion.
+    while (self.tentatives.popOrNull()) |entry| {
+        const match = MatchingSection{
+            .seg = self.data_segment_cmd_index.?,
+            .sect = self.bss_section_index.?,
+        };
+        _ = try self.section_ordinals.getOrPut(self.base.allocator, match);
+
+        const global_sym = &self.globals.items[entry.key];
+        const size = global_sym.n_value;
+        const alignment = (global_sym.n_desc >> 8) & 0x0f;
+
+        global_sym.n_value = 0;
+        global_sym.n_desc = 0;
+        global_sym.n_sect = @intCast(u8, self.section_ordinals.getIndex(match).? + 1);
+
+        const local_sym_index = @intCast(u32, self.locals.items.len);
+        const local_sym = try self.locals.addOne(self.base.allocator);
+        local_sym.* = .{
+            .n_strx = global_sym.n_strx,
+            .n_type = macho.N_SECT,
+            .n_sect = global_sym.n_sect,
+            .n_desc = 0,
+            .n_value = 0,
+        };
+
+        const resolv = self.symbol_resolver.getPtr(local_sym.n_strx) orelse unreachable;
+        resolv.local_sym_index = local_sym_index;
+
+        const atom = try self.createEmptyAtom(local_sym_index, size, alignment);
+        const alignment_pow_2 = try math.powi(u32, 2, alignment);
+        const vaddr = try self.allocateAtom(atom, size, alignment_pow_2, match);
+        local_sym.n_value = vaddr;
+        global_sym.n_value = vaddr;
+    }
+}
+
+fn createDsoHandleAtom(self: *MachO) !void {
+    if (self.strtab_dir.getAdapted(@as([]const u8, "___dso_handle"), StringSliceAdapter{
+        .strtab = &self.strtab,
+    })) |n_strx| blk: {
+        const resolv = self.symbol_resolver.getPtr(n_strx) orelse break :blk;
+        if (resolv.where != .undef) break :blk;
+
+        const undef = &self.undefs.items[resolv.where_index];
+        const match: MatchingSection = .{
+            .seg = self.text_segment_cmd_index.?,
+            .sect = self.text_section_index.?,
+        };
+        const local_sym_index = @intCast(u32, self.locals.items.len);
+        var nlist = macho.nlist_64{
+            .n_strx = undef.n_strx,
+            .n_type = macho.N_SECT,
+            .n_sect = @intCast(u8, self.section_ordinals.getIndex(match).? + 1),
+            .n_desc = 0,
+            .n_value = 0,
+        };
+        try self.locals.append(self.base.allocator, nlist);
+        const global_sym_index = @intCast(u32, self.globals.items.len);
+        nlist.n_type |= macho.N_EXT;
+        nlist.n_desc = macho.N_WEAK_DEF;
+        try self.globals.append(self.base.allocator, nlist);
+
+        _ = self.unresolved.fetchSwapRemove(resolv.where_index);
+
+        undef.* = .{
+            .n_strx = 0,
+            .n_type = macho.N_UNDF,
+            .n_sect = 0,
+            .n_desc = 0,
+            .n_value = 0,
+        };
+        resolv.* = .{
+            .where = .global,
+            .where_index = global_sym_index,
+            .local_sym_index = local_sym_index,
+        };
+
+        // We create an empty atom for this symbol.
+        // TODO perhaps we should special-case special symbols? Create a separate
+        // linked list of atoms?
+        const atom = try self.createEmptyAtom(local_sym_index, 0, 0);
+        const sym = &self.locals.items[local_sym_index];
+        const vaddr = try self.allocateAtom(atom, 0, 1, match);
+        sym.n_value = vaddr;
+        atom.dirty = false; // We don't really want to write it to file.
+    }
+}
+
+fn resolveSymbolsInObject(self: *MachO, object_id: u16) !void {
     const object = &self.objects.items[object_id];
 
     log.debug("resolving symbols in '{s}'", .{object.name});
@@ -2184,7 +2316,7 @@ fn resolveSymbolsInObject(
                     const global = &self.globals.items[resolv.where_index];
 
                     if (symbolIsTentative(global.*)) {
-                        _ = tentatives.fetchSwapRemove(resolv.where_index);
+                        _ = self.tentatives.fetchSwapRemove(resolv.where_index);
                     } else if (!(symbolIsWeakDef(sym) or symbolIsPext(sym)) and
                         !(symbolIsWeakDef(global.*) or symbolIsPext(global.*)))
                     {
@@ -2236,7 +2368,7 @@ fn resolveSymbolsInObject(
                     .where_index = global_sym_index,
                     .file = object_id,
                 });
-                _ = try tentatives.getOrPut(global_sym_index);
+                _ = try self.tentatives.getOrPut(self.base.allocator, global_sym_index);
                 continue;
             };
 
@@ -2260,7 +2392,7 @@ fn resolveSymbolsInObject(
                         .n_desc = sym.n_desc,
                         .n_value = sym.n_value,
                     });
-                    _ = try tentatives.getOrPut(global_sym_index);
+                    _ = try self.tentatives.getOrPut(self.base.allocator, global_sym_index);
                     resolv.* = .{
                         .where = .global,
                         .where_index = global_sym_index,
@@ -2298,16 +2430,9 @@ fn resolveSymbolsInObject(
     }
 }
 
-fn resolveSymbols(self: *MachO) !void {
-    var tentatives = std.AutoArrayHashMap(u32, void).init(self.base.allocator);
-    defer tentatives.deinit();
+fn resolveSymbolsInArchives(self: *MachO) !void {
+    if (self.archives.items.len == 0) return;
 
-    // First pass, resolve symbols in provided objects.
-    for (self.objects.items) |_, object_id| {
-        try self.resolveSymbolsInObject(@intCast(u16, object_id), &tentatives);
-    }
-
-    // Second pass, resolve symbols in static libraries.
     var next_sym: usize = 0;
     loop: while (next_sym < self.unresolved.count()) {
         const sym = self.undefs.items[self.unresolved.keys()[next_sym]];
@@ -2324,74 +2449,19 @@ fn resolveSymbols(self: *MachO) !void {
             const object_id = @intCast(u16, self.objects.items.len);
             const object = try self.objects.addOne(self.base.allocator);
             object.* = try archive.parseObject(self.base.allocator, self.base.options.target, offsets.items[0]);
-            try self.resolveSymbolsInObject(object_id, &tentatives);
+            try self.resolveSymbolsInObject(object_id);
 
             continue :loop;
         }
 
         next_sym += 1;
     }
+}
 
-    // Convert any tentative definition into a regular symbol and allocate
-    // text blocks for each tentative defintion.
-    while (tentatives.popOrNull()) |entry| {
-        const sym = &self.globals.items[entry.key];
-        const match = MatchingSection{
-            .seg = self.data_segment_cmd_index.?,
-            .sect = self.bss_section_index.?,
-        };
-        _ = try self.section_ordinals.getOrPut(self.base.allocator, match);
+fn resolveSymbolsInDylibs(self: *MachO) !void {
+    if (self.dylibs.items.len == 0) return;
 
-        const size = sym.n_value;
-        const alignment = (sym.n_desc >> 8) & 0x0f;
-
-        sym.n_value = 0;
-        sym.n_desc = 0;
-        sym.n_sect = @intCast(u8, self.section_ordinals.getIndex(match).? + 1);
-        var local_sym = sym.*;
-        local_sym.n_type = macho.N_SECT;
-
-        const local_sym_index = @intCast(u32, self.locals.items.len);
-        try self.locals.append(self.base.allocator, local_sym);
-
-        const resolv = self.symbol_resolver.getPtr(sym.n_strx) orelse unreachable;
-        resolv.local_sym_index = local_sym_index;
-
-        const atom = try self.createEmptyAtom(local_sym_index, size, alignment);
-        const alignment_pow_2 = try math.powi(u32, 2, alignment);
-        const vaddr = try self.allocateAtom(atom, size, alignment_pow_2, match);
-        sym.n_value = vaddr;
-    }
-
-    try self.resolveDyldStubBinder();
-    {
-        const match = MatchingSection{
-            .seg = self.data_segment_cmd_index.?,
-            .sect = self.data_section_index.?,
-        };
-        const atom = try self.createDyldPrivateAtom();
-        const sym = &self.locals.items[atom.local_sym_index];
-        const vaddr = try self.allocateAtom(atom, @sizeOf(u64), 8, match);
-        sym.n_value = vaddr;
-        sym.n_sect = @intCast(u8, self.section_ordinals.getIndex(match).? + 1);
-        log.debug("allocated {s} atom at 0x{x}", .{ self.getString(sym.n_strx), vaddr });
-    }
-    {
-        const match = MatchingSection{
-            .seg = self.text_segment_cmd_index.?,
-            .sect = self.stub_helper_section_index.?,
-        };
-        const atom = try self.createStubHelperPreambleAtom();
-        const sym = &self.locals.items[atom.local_sym_index];
-        const alignment = try math.powi(u32, 2, atom.alignment);
-        const vaddr = try self.allocateAtom(atom, atom.size, alignment, match);
-        sym.n_value = vaddr;
-        sym.n_sect = @intCast(u8, self.section_ordinals.getIndex(match).? + 1);
-        log.debug("allocated {s} atom at 0x{x}", .{ self.getString(sym.n_strx), vaddr });
-    }
-
-    // Third pass, resolve symbols in dynamic libraries.
-    next_sym = 0;
+    var next_sym: usize = 0;
     loop: while (next_sym < self.unresolved.count()) {
         const sym = self.undefs.items[self.unresolved.keys()[next_sym]];
         const sym_name = self.getString(sym.n_strx);
@@ -2401,6 +2471,7 @@ fn resolveSymbols(self: *MachO) !void {
 
             const dylib_id = @intCast(u16, id);
             if (!self.referenced_dylibs.contains(dylib_id)) {
+                try self.addLoadDylibLC(dylib_id);
                 try self.referenced_dylibs.putNoClobber(self.base.allocator, dylib_id, {});
             }
 
@@ -2468,69 +2539,6 @@ fn resolveSymbols(self: *MachO) !void {
 
         next_sym += 1;
     }
-
-    // Fourth pass, handle synthetic symbols and flag any undefined references.
-    if (self.strtab_dir.getAdapted(@as([]const u8, "___dso_handle"), StringSliceAdapter{
-        .strtab = &self.strtab,
-    })) |n_strx| blk: {
-        const resolv = self.symbol_resolver.getPtr(n_strx) orelse break :blk;
-        if (resolv.where != .undef) break :blk;
-
-        const undef = &self.undefs.items[resolv.where_index];
-        const match: MatchingSection = .{
-            .seg = self.text_segment_cmd_index.?,
-            .sect = self.text_section_index.?,
-        };
-        const local_sym_index = @intCast(u32, self.locals.items.len);
-        var nlist = macho.nlist_64{
-            .n_strx = undef.n_strx,
-            .n_type = macho.N_SECT,
-            .n_sect = @intCast(u8, self.section_ordinals.getIndex(match).? + 1),
-            .n_desc = 0,
-            .n_value = 0,
-        };
-        try self.locals.append(self.base.allocator, nlist);
-        const global_sym_index = @intCast(u32, self.globals.items.len);
-        nlist.n_type |= macho.N_EXT;
-        nlist.n_desc = macho.N_WEAK_DEF;
-        try self.globals.append(self.base.allocator, nlist);
-
-        _ = self.unresolved.fetchSwapRemove(resolv.where_index);
-
-        undef.* = .{
-            .n_strx = 0,
-            .n_type = macho.N_UNDF,
-            .n_sect = 0,
-            .n_desc = 0,
-            .n_value = 0,
-        };
-        resolv.* = .{
-            .where = .global,
-            .where_index = global_sym_index,
-            .local_sym_index = local_sym_index,
-        };
-
-        // We create an empty atom for this symbol.
-        // TODO perhaps we should special-case special symbols? Create a separate
-        // linked list of atoms?
-        const atom = try self.createEmptyAtom(local_sym_index, 0, 0);
-        const sym = &self.locals.items[local_sym_index];
-        const vaddr = try self.allocateAtom(atom, 0, 1, match);
-        sym.n_value = vaddr;
-        atom.dirty = false; // We don't really want to write it to file.
-    }
-
-    for (self.unresolved.keys()) |index| {
-        const sym = self.undefs.items[index];
-        const sym_name = self.getString(sym.n_strx);
-        const resolv = self.symbol_resolver.get(sym.n_strx) orelse unreachable;
-
-        log.err("undefined reference to symbol '{s}'", .{sym_name});
-        log.err("  first referenced in '{s}'", .{self.objects.items[resolv.file].name});
-    }
-
-    if (self.unresolved.count() > 0)
-        return error.UndefinedSymbolReference;
 }
 
 fn resolveDyldStubBinder(self: *MachO) !void {
@@ -2557,6 +2565,7 @@ fn resolveDyldStubBinder(self: *MachO) !void {
 
         const dylib_id = @intCast(u16, id);
         if (!self.referenced_dylibs.contains(dylib_id)) {
+            try self.addLoadDylibLC(dylib_id);
             try self.referenced_dylibs.putNoClobber(self.base.allocator, dylib_id, {});
         }
 
@@ -2733,6 +2742,21 @@ fn parseObjectsIntoAtoms(self: *MachO) !void {
     }
 }
 
+fn addLoadDylibLC(self: *MachO, id: u16) !void {
+    const dylib = self.dylibs.items[id];
+    const dylib_id = dylib.id orelse unreachable;
+    var dylib_cmd = try commands.createLoadDylibCommand(
+        self.base.allocator,
+        dylib_id.name,
+        dylib_id.timestamp,
+        dylib_id.current_version,
+        dylib_id.compatibility_version,
+    );
+    errdefer dylib_cmd.deinit(self.base.allocator);
+    try self.load_commands.append(self.base.allocator, .{ .Dylib = dylib_cmd });
+    self.load_commands_dirty = true;
+}
+
 fn addCodeSignatureLC(self: *MachO) !void {
     if (self.code_signature_cmd_index != null or !self.requires_adhoc_codesig) return;
     self.code_signature_cmd_index = @intCast(u16, self.load_commands.items.len);
@@ -2745,23 +2769,6 @@ fn addCodeSignatureLC(self: *MachO) !void {
         },
     });
     self.load_commands_dirty = true;
-}
-
-fn addLoadDylibLCs(self: *MachO) !void {
-    for (self.referenced_dylibs.keys()) |id| {
-        const dylib = self.dylibs.items[id];
-        const dylib_id = dylib.id orelse unreachable;
-        var dylib_cmd = try commands.createLoadDylibCommand(
-            self.base.allocator,
-            dylib_id.name,
-            dylib_id.timestamp,
-            dylib_id.current_version,
-            dylib_id.compatibility_version,
-        );
-        errdefer dylib_cmd.deinit(self.base.allocator);
-        try self.load_commands.append(self.base.allocator, .{ .Dylib = dylib_cmd });
-        self.load_commands_dirty = true;
-    }
 }
 
 fn setEntryPoint(self: *MachO) !void {
@@ -2807,6 +2814,7 @@ pub fn deinit(self: *MachO) void {
     self.locals_free_list.deinit(self.base.allocator);
     self.symbol_resolver.deinit(self.base.allocator);
     self.unresolved.deinit(self.base.allocator);
+    self.tentatives.deinit(self.base.allocator);
 
     for (self.objects.items) |*object| {
         object.deinit(self.base.allocator);
@@ -4417,7 +4425,7 @@ fn populateLazyBindOffsetsInStubHelper(self: *MachO, buffer: []const u8) !void {
         .seg = self.text_segment_cmd_index.?,
         .sect = self.stub_helper_section_index.?,
     }) orelse return;
-    if (last_atom.local_sym_index == self.stub_preamble_sym_index.?) return;
+    if (last_atom == self.stub_helper_preamble_atom.?) return;
 
     // Because we insert lazy binding opcodes in reverse order (from last to the first atom),
     // we need reverse the order of atom traversal here as well.
