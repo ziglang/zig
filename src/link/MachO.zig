@@ -848,6 +848,22 @@ pub fn flush(self: *MachO, comp: *Compilation) !void {
         try self.allocateGlobalSymbols();
         try self.writeAtoms();
 
+        //         log.warn("Locals:", .{});
+        //         for (self.locals.items) |sym, i| {
+        //             log.warn("  => {d}: {s}, {}", .{ i, self.getString(sym.n_strx), sym });
+        //         }
+        //         log.warn("Globals:", .{});
+        //         for (self.globals.items) |sym, i| {
+        //             log.warn("  => {d}: {s} {}", .{ i, self.getString(sym.n_strx), sym });
+        //         }
+        //         {
+        //             log.warn("Resolver:", .{});
+        //             var it = self.symbol_resolver.iterator();
+        //             while (it.next()) |entry| {
+        //                 log.warn("  => {s}: {}", .{ self.getString(entry.key_ptr.*), entry.value_ptr.* });
+        //             }
+        //         }
+
         if (self.bss_section_index) |idx| {
             const seg = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
             const sect = &seg.sections.items[idx];
@@ -1751,6 +1767,7 @@ fn allocateGlobalSymbols(self: *MachO) !void {
         const sym = &self.globals.items[resolv.where_index];
         sym.n_value = local_sym.n_value;
         sym.n_sect = local_sym.n_sect;
+        log.debug("allocating global symbol {s} at 0x{x}", .{ self.getString(sym.n_strx), local_sym.n_value });
     }
 }
 
@@ -2941,6 +2958,8 @@ fn freeAtom(self: *MachO, atom: *Atom, match: MatchingSection) void {
             if (atom.prev) |prev| {
                 // TODO shrink the section size here
                 last_atom.* = prev;
+            } else {
+                _ = self.atoms.fetchRemove(match);
             }
         }
     }
@@ -3360,44 +3379,40 @@ pub fn updateDeclExports(
             },
         }
 
-        if (exp.link.macho.sym_index) |i| {
-            const sym = &self.globals.items[i];
-            sym.* = .{
-                .n_strx = sym.n_strx,
-                .n_type = n_type,
-                .n_sect = @intCast(u8, self.text_section_index.?) + 1,
-                .n_desc = n_desc,
-                .n_value = decl_sym.n_value,
-            };
-        } else {
-            const name_str_index = try self.makeString(exp_name);
-            const i = if (self.globals_free_list.popOrNull()) |i| i else blk: {
+        const global_sym_index = if (exp.link.macho.sym_index) |i| i else blk: {
+            const i = if (self.globals_free_list.popOrNull()) |i| i else inner: {
                 _ = self.globals.addOneAssumeCapacity();
-                break :blk @intCast(u32, self.globals.items.len - 1);
+                break :inner @intCast(u32, self.globals.items.len - 1);
             };
-            self.globals.items[i] = .{
-                .n_strx = name_str_index,
-                .n_type = n_type,
-                .n_sect = @intCast(u8, self.text_section_index.?) + 1,
-                .n_desc = n_desc,
-                .n_value = decl_sym.n_value,
-            };
-            const resolv = try self.symbol_resolver.getOrPut(self.base.allocator, name_str_index);
-            resolv.value_ptr.* = .{
-                .where = .global,
-                .where_index = i,
-                .local_sym_index = decl.link.macho.local_sym_index,
-            };
+            break :blk i;
+        };
 
-            exp.link.macho.sym_index = @intCast(u32, i);
-        }
+        const n_strx = try self.makeString(exp_name);
+        const sym = &self.globals.items[global_sym_index];
+        sym.* = .{
+            .n_strx = try self.makeString(exp_name),
+            .n_type = n_type,
+            .n_sect = @intCast(u8, self.text_section_index.?) + 1,
+            .n_desc = n_desc,
+            .n_value = decl_sym.n_value,
+        };
+        exp.link.macho.sym_index = global_sym_index;
+
+        const resolv = try self.symbol_resolver.getOrPut(self.base.allocator, n_strx);
+        resolv.value_ptr.* = .{
+            .where = .global,
+            .where_index = global_sym_index,
+            .local_sym_index = decl.link.macho.local_sym_index,
+        };
     }
 }
 
 pub fn deleteExport(self: *MachO, exp: Export) void {
     const sym_index = exp.sym_index orelse return;
     self.globals_free_list.append(self.base.allocator, sym_index) catch {};
-    self.globals.items[sym_index].n_type = 0;
+    const global = &self.globals.items[sym_index];
+    global.n_type = 0;
+    assert(self.symbol_resolver.remove(global.n_strx));
 }
 
 pub fn freeDecl(self: *MachO, decl: *Module.Decl) void {
