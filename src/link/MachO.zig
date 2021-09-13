@@ -170,6 +170,8 @@ sections_order_dirty: bool = false,
 has_dices: bool = false,
 has_stabs: bool = false,
 
+args_digest: [Cache.hex_digest_len]u8 = undefined,
+
 section_ordinals: std.AutoArrayHashMapUnmanaged(MatchingSection, void) = .{},
 
 /// A list of atoms that have surplus capacity. This list can have false
@@ -334,31 +336,31 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
         return self;
     }
 
-    if (!options.strip and options.module != null) {
-        // Create dSYM bundle.
-        const dir = options.module.?.zig_cache_artifact_directory;
-        log.debug("creating {s}.dSYM bundle in {s}", .{ sub_path, dir.path });
+    // if (!options.strip and options.module != null) {
+    //     // Create dSYM bundle.
+    //     const dir = options.module.?.zig_cache_artifact_directory;
+    //     log.debug("creating {s}.dSYM bundle in {s}", .{ sub_path, dir.path });
 
-        const d_sym_path = try fmt.allocPrint(
-            allocator,
-            "{s}.dSYM" ++ fs.path.sep_str ++ "Contents" ++ fs.path.sep_str ++ "Resources" ++ fs.path.sep_str ++ "DWARF",
-            .{sub_path},
-        );
-        defer allocator.free(d_sym_path);
+    //     const d_sym_path = try fmt.allocPrint(
+    //         allocator,
+    //         "{s}.dSYM" ++ fs.path.sep_str ++ "Contents" ++ fs.path.sep_str ++ "Resources" ++ fs.path.sep_str ++ "DWARF",
+    //         .{sub_path},
+    //     );
+    //     defer allocator.free(d_sym_path);
 
-        var d_sym_bundle = try dir.handle.makeOpenPath(d_sym_path, .{});
-        defer d_sym_bundle.close();
+    //     var d_sym_bundle = try dir.handle.makeOpenPath(d_sym_path, .{});
+    //     defer d_sym_bundle.close();
 
-        const d_sym_file = try d_sym_bundle.createFile(sub_path, .{
-            .truncate = false,
-            .read = true,
-        });
+    //     const d_sym_file = try d_sym_bundle.createFile(sub_path, .{
+    //         .truncate = false,
+    //         .read = true,
+    //     });
 
-        self.d_sym = .{
-            .base = self,
-            .file = d_sym_file,
-        };
-    }
+    //     self.d_sym = .{
+    //         .base = self,
+    //         .file = d_sym_file,
+    //     };
+    // }
 
     // Index 0 is always a null symbol.
     try self.locals.append(allocator, .{
@@ -555,217 +557,255 @@ pub fn flush(self: *MachO, comp: *Compilation) !void {
             try self.strtab.append(self.base.allocator, 0);
         }
 
-        // Positional arguments to the linker such as object files and static archives.
-        var positionals = std.ArrayList([]const u8).init(arena);
+        const needs_full_relink = blk: {
+            if (use_stage1) break :blk true;
 
-        try positionals.appendSlice(self.base.options.objects);
+            var hh: Cache.HashHelper = .{};
+            hh.addListOfBytes(self.base.options.objects);
+            for (comp.c_object_table.keys()) |key| {
+                hh.addBytes(key.status.success.object_path);
+            }
+            hh.addOptionalBytes(module_obj_path);
+            if (comp.compiler_rt_static_lib) |lib| {
+                hh.addBytes(lib.full_object_path);
+            }
+            if (self.base.options.link_libcpp) {
+                hh.addBytes(comp.libcxxabi_static_lib.?.full_object_path);
+                hh.addBytes(comp.libcxx_static_lib.?.full_object_path);
+            }
+            hh.addListOfBytes(self.base.options.lib_dirs);
+            hh.addListOfBytes(self.base.options.framework_dirs);
+            hh.addListOfBytes(self.base.options.frameworks);
+            hh.addListOfBytes(self.base.options.rpath_list);
+            hh.addStringSet(self.base.options.system_libs);
+            hh.addOptionalBytes(self.base.options.sysroot);
+            const new_digest = hh.final();
+            const needs_full_relink = !mem.eql(u8, &new_digest, &self.args_digest);
+            mem.copy(u8, &self.args_digest, &new_digest);
+            break :blk needs_full_relink;
+        };
 
-        for (comp.c_object_table.keys()) |key| {
-            try positionals.append(key.status.success.object_path);
-        }
+        if (needs_full_relink) {
+            self.objects.clearRetainingCapacity();
+            self.archives.clearRetainingCapacity();
+            self.dylibs.clearRetainingCapacity();
+            self.dylibs_map.clearRetainingCapacity();
+            self.referenced_dylibs.clearRetainingCapacity();
 
-        if (module_obj_path) |p| {
-            try positionals.append(p);
-        }
+            // TODO figure out how to clear atoms from objects, etc.
 
-        if (comp.compiler_rt_static_lib) |lib| {
-            try positionals.append(lib.full_object_path);
-        }
+            // Positional arguments to the linker such as object files and static archives.
+            var positionals = std.ArrayList([]const u8).init(arena);
 
-        // libc++ dep
-        if (self.base.options.link_libcpp) {
-            try positionals.append(comp.libcxxabi_static_lib.?.full_object_path);
-            try positionals.append(comp.libcxx_static_lib.?.full_object_path);
-        }
+            try positionals.appendSlice(self.base.options.objects);
 
-        // Shared and static libraries passed via `-l` flag.
-        var search_lib_names = std.ArrayList([]const u8).init(arena);
-
-        const system_libs = self.base.options.system_libs.keys();
-        for (system_libs) |link_lib| {
-            // By this time, we depend on these libs being dynamically linked libraries and not static libraries
-            // (the check for that needs to be earlier), but they could be full paths to .dylib files, in which
-            // case we want to avoid prepending "-l".
-            if (Compilation.classifyFileExt(link_lib) == .shared_library) {
-                try positionals.append(link_lib);
-                continue;
+            for (comp.c_object_table.keys()) |key| {
+                try positionals.append(key.status.success.object_path);
             }
 
-            try search_lib_names.append(link_lib);
-        }
-
-        var lib_dirs = std.ArrayList([]const u8).init(arena);
-        for (self.base.options.lib_dirs) |dir| {
-            if (try resolveSearchDir(arena, dir, self.base.options.sysroot)) |search_dir| {
-                try lib_dirs.append(search_dir);
-            } else {
-                log.warn("directory not found for '-L{s}'", .{dir});
+            if (module_obj_path) |p| {
+                try positionals.append(p);
             }
-        }
 
-        var libs = std.ArrayList([]const u8).init(arena);
-        var lib_not_found = false;
-        for (search_lib_names.items) |lib_name| {
-            // Assume ld64 default: -search_paths_first
-            // Look in each directory for a dylib (stub first), and then for archive
-            // TODO implement alternative: -search_dylibs_first
-            for (&[_][]const u8{ ".tbd", ".dylib", ".a" }) |ext| {
-                if (try resolveLib(arena, lib_dirs.items, lib_name, ext)) |full_path| {
-                    try libs.append(full_path);
-                    break;
+            if (comp.compiler_rt_static_lib) |lib| {
+                try positionals.append(lib.full_object_path);
+            }
+
+            // libc++ dep
+            if (self.base.options.link_libcpp) {
+                try positionals.append(comp.libcxxabi_static_lib.?.full_object_path);
+                try positionals.append(comp.libcxx_static_lib.?.full_object_path);
+            }
+
+            // Shared and static libraries passed via `-l` flag.
+            var search_lib_names = std.ArrayList([]const u8).init(arena);
+
+            const system_libs = self.base.options.system_libs.keys();
+            for (system_libs) |link_lib| {
+                // By this time, we depend on these libs being dynamically linked libraries and not static libraries
+                // (the check for that needs to be earlier), but they could be full paths to .dylib files, in which
+                // case we want to avoid prepending "-l".
+                if (Compilation.classifyFileExt(link_lib) == .shared_library) {
+                    try positionals.append(link_lib);
+                    continue;
                 }
-            } else {
-                log.warn("library not found for '-l{s}'", .{lib_name});
-                lib_not_found = true;
-            }
-        }
 
-        if (lib_not_found) {
-            log.warn("Library search paths:", .{});
-            for (lib_dirs.items) |dir| {
-                log.warn("  {s}", .{dir});
+                try search_lib_names.append(link_lib);
             }
-        }
 
-        // If we were given the sysroot, try to look there first for libSystem.B.{dylib, tbd}.
-        var libsystem_available = false;
-        if (self.base.options.sysroot != null) blk: {
-            // Try stub file first. If we hit it, then we're done as the stub file
-            // re-exports every single symbol definition.
-            if (try resolveLib(arena, lib_dirs.items, "System", ".tbd")) |full_path| {
-                try libs.append(full_path);
-                libsystem_available = true;
-                break :blk;
+            var lib_dirs = std.ArrayList([]const u8).init(arena);
+            for (self.base.options.lib_dirs) |dir| {
+                if (try resolveSearchDir(arena, dir, self.base.options.sysroot)) |search_dir| {
+                    try lib_dirs.append(search_dir);
+                } else {
+                    log.warn("directory not found for '-L{s}'", .{dir});
+                }
             }
-            // If we didn't hit the stub file, try .dylib next. However, libSystem.dylib
-            // doesn't export libc.dylib which we'll need to resolve subsequently also.
-            if (try resolveLib(arena, lib_dirs.items, "System", ".dylib")) |libsystem_path| {
-                if (try resolveLib(arena, lib_dirs.items, "c", ".dylib")) |libc_path| {
-                    try libs.append(libsystem_path);
-                    try libs.append(libc_path);
+
+            var libs = std.ArrayList([]const u8).init(arena);
+            var lib_not_found = false;
+            for (search_lib_names.items) |lib_name| {
+                // Assume ld64 default: -search_paths_first
+                // Look in each directory for a dylib (stub first), and then for archive
+                // TODO implement alternative: -search_dylibs_first
+                for (&[_][]const u8{ ".tbd", ".dylib", ".a" }) |ext| {
+                    if (try resolveLib(arena, lib_dirs.items, lib_name, ext)) |full_path| {
+                        try libs.append(full_path);
+                        break;
+                    }
+                } else {
+                    log.warn("library not found for '-l{s}'", .{lib_name});
+                    lib_not_found = true;
+                }
+            }
+
+            if (lib_not_found) {
+                log.warn("Library search paths:", .{});
+                for (lib_dirs.items) |dir| {
+                    log.warn("  {s}", .{dir});
+                }
+            }
+
+            // If we were given the sysroot, try to look there first for libSystem.B.{dylib, tbd}.
+            var libsystem_available = false;
+            if (self.base.options.sysroot != null) blk: {
+                // Try stub file first. If we hit it, then we're done as the stub file
+                // re-exports every single symbol definition.
+                if (try resolveLib(arena, lib_dirs.items, "System", ".tbd")) |full_path| {
+                    try libs.append(full_path);
                     libsystem_available = true;
                     break :blk;
                 }
-            }
-        }
-        if (!libsystem_available) {
-            const full_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
-                "libc", "darwin", "libSystem.B.tbd",
-            });
-            try libs.append(full_path);
-        }
-
-        // frameworks
-        var framework_dirs = std.ArrayList([]const u8).init(arena);
-        for (self.base.options.framework_dirs) |dir| {
-            if (try resolveSearchDir(arena, dir, self.base.options.sysroot)) |search_dir| {
-                try framework_dirs.append(search_dir);
-            } else {
-                log.warn("directory not found for '-F{s}'", .{dir});
-            }
-        }
-
-        var framework_not_found = false;
-        for (self.base.options.frameworks) |framework| {
-            for (&[_][]const u8{ ".tbd", ".dylib", "" }) |ext| {
-                if (try resolveFramework(arena, framework_dirs.items, framework, ext)) |full_path| {
-                    try libs.append(full_path);
-                    break;
+                // If we didn't hit the stub file, try .dylib next. However, libSystem.dylib
+                // doesn't export libc.dylib which we'll need to resolve subsequently also.
+                if (try resolveLib(arena, lib_dirs.items, "System", ".dylib")) |libsystem_path| {
+                    if (try resolveLib(arena, lib_dirs.items, "c", ".dylib")) |libc_path| {
+                        try libs.append(libsystem_path);
+                        try libs.append(libc_path);
+                        libsystem_available = true;
+                        break :blk;
+                    }
                 }
-            } else {
-                log.warn("framework not found for '-framework {s}'", .{framework});
-                framework_not_found = true;
             }
-        }
-
-        if (framework_not_found) {
-            log.warn("Framework search paths:", .{});
-            for (framework_dirs.items) |dir| {
-                log.warn("  {s}", .{dir});
-            }
-        }
-
-        // rpaths
-        var rpath_table = std.StringArrayHashMap(void).init(arena);
-        for (self.base.options.rpath_list) |rpath| {
-            if (rpath_table.contains(rpath)) continue;
-            const cmdsize = @intCast(u32, mem.alignForwardGeneric(
-                u64,
-                @sizeOf(macho.rpath_command) + rpath.len + 1,
-                @sizeOf(u64),
-            ));
-            var rpath_cmd = commands.emptyGenericCommandWithData(macho.rpath_command{
-                .cmd = macho.LC_RPATH,
-                .cmdsize = cmdsize,
-                .path = @sizeOf(macho.rpath_command),
-            });
-            rpath_cmd.data = try self.base.allocator.alloc(u8, cmdsize - rpath_cmd.inner.path);
-            mem.set(u8, rpath_cmd.data, 0);
-            mem.copy(u8, rpath_cmd.data, rpath);
-            try self.load_commands.append(self.base.allocator, .{ .Rpath = rpath_cmd });
-            try rpath_table.putNoClobber(rpath, {});
-            self.load_commands_dirty = true;
-        }
-
-        if (self.base.options.verbose_link) {
-            var argv = std.ArrayList([]const u8).init(arena);
-
-            try argv.append("zig");
-            try argv.append("ld");
-
-            if (is_exe_or_dyn_lib) {
-                try argv.append("-dynamic");
-            }
-
-            if (is_dyn_lib) {
-                try argv.append("-dylib");
-
-                const install_name = try std.fmt.allocPrint(arena, "@rpath/{s}", .{
-                    self.base.options.emit.?.sub_path,
+            if (!libsystem_available) {
+                const full_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+                    "libc", "darwin", "libSystem.B.tbd",
                 });
-                try argv.append("-install_name");
-                try argv.append(install_name);
+                try libs.append(full_path);
             }
 
-            if (self.base.options.sysroot) |syslibroot| {
-                try argv.append("-syslibroot");
-                try argv.append(syslibroot);
+            // frameworks
+            var framework_dirs = std.ArrayList([]const u8).init(arena);
+            for (self.base.options.framework_dirs) |dir| {
+                if (try resolveSearchDir(arena, dir, self.base.options.sysroot)) |search_dir| {
+                    try framework_dirs.append(search_dir);
+                } else {
+                    log.warn("directory not found for '-F{s}'", .{dir});
+                }
             }
 
-            for (rpath_table.keys()) |rpath| {
-                try argv.append("-rpath");
-                try argv.append(rpath);
-            }
-
-            try argv.appendSlice(positionals.items);
-
-            try argv.append("-o");
-            try argv.append(full_out_path);
-
-            try argv.append("-lSystem");
-            try argv.append("-lc");
-
-            for (search_lib_names.items) |l_name| {
-                try argv.append(try std.fmt.allocPrint(arena, "-l{s}", .{l_name}));
-            }
-
-            for (self.base.options.lib_dirs) |lib_dir| {
-                try argv.append(try std.fmt.allocPrint(arena, "-L{s}", .{lib_dir}));
-            }
-
+            var framework_not_found = false;
             for (self.base.options.frameworks) |framework| {
-                try argv.append(try std.fmt.allocPrint(arena, "-framework {s}", .{framework}));
+                for (&[_][]const u8{ ".tbd", ".dylib", "" }) |ext| {
+                    if (try resolveFramework(arena, framework_dirs.items, framework, ext)) |full_path| {
+                        try libs.append(full_path);
+                        break;
+                    }
+                } else {
+                    log.warn("framework not found for '-framework {s}'", .{framework});
+                    framework_not_found = true;
+                }
             }
 
-            for (self.base.options.framework_dirs) |framework_dir| {
-                try argv.append(try std.fmt.allocPrint(arena, "-F{s}", .{framework_dir}));
+            if (framework_not_found) {
+                log.warn("Framework search paths:", .{});
+                for (framework_dirs.items) |dir| {
+                    log.warn("  {s}", .{dir});
+                }
             }
 
-            Compilation.dump_argv(argv.items);
+            // rpaths
+            var rpath_table = std.StringArrayHashMap(void).init(arena);
+            for (self.base.options.rpath_list) |rpath| {
+                if (rpath_table.contains(rpath)) continue;
+                const cmdsize = @intCast(u32, mem.alignForwardGeneric(
+                    u64,
+                    @sizeOf(macho.rpath_command) + rpath.len + 1,
+                    @sizeOf(u64),
+                ));
+                var rpath_cmd = commands.emptyGenericCommandWithData(macho.rpath_command{
+                    .cmd = macho.LC_RPATH,
+                    .cmdsize = cmdsize,
+                    .path = @sizeOf(macho.rpath_command),
+                });
+                rpath_cmd.data = try self.base.allocator.alloc(u8, cmdsize - rpath_cmd.inner.path);
+                mem.set(u8, rpath_cmd.data, 0);
+                mem.copy(u8, rpath_cmd.data, rpath);
+                try self.load_commands.append(self.base.allocator, .{ .Rpath = rpath_cmd });
+                try rpath_table.putNoClobber(rpath, {});
+                self.load_commands_dirty = true;
+            }
+
+            if (self.base.options.verbose_link) {
+                var argv = std.ArrayList([]const u8).init(arena);
+
+                try argv.append("zig");
+                try argv.append("ld");
+
+                if (is_exe_or_dyn_lib) {
+                    try argv.append("-dynamic");
+                }
+
+                if (is_dyn_lib) {
+                    try argv.append("-dylib");
+
+                    const install_name = try std.fmt.allocPrint(arena, "@rpath/{s}", .{
+                        self.base.options.emit.?.sub_path,
+                    });
+                    try argv.append("-install_name");
+                    try argv.append(install_name);
+                }
+
+                if (self.base.options.sysroot) |syslibroot| {
+                    try argv.append("-syslibroot");
+                    try argv.append(syslibroot);
+                }
+
+                for (rpath_table.keys()) |rpath| {
+                    try argv.append("-rpath");
+                    try argv.append(rpath);
+                }
+
+                try argv.appendSlice(positionals.items);
+
+                try argv.append("-o");
+                try argv.append(full_out_path);
+
+                try argv.append("-lSystem");
+                try argv.append("-lc");
+
+                for (search_lib_names.items) |l_name| {
+                    try argv.append(try std.fmt.allocPrint(arena, "-l{s}", .{l_name}));
+                }
+
+                for (self.base.options.lib_dirs) |lib_dir| {
+                    try argv.append(try std.fmt.allocPrint(arena, "-L{s}", .{lib_dir}));
+                }
+
+                for (self.base.options.frameworks) |framework| {
+                    try argv.append(try std.fmt.allocPrint(arena, "-framework {s}", .{framework}));
+                }
+
+                for (self.base.options.framework_dirs) |framework_dir| {
+                    try argv.append(try std.fmt.allocPrint(arena, "-F{s}", .{framework_dir}));
+                }
+
+                Compilation.dump_argv(argv.items);
+            }
+
+            try self.parseInputFiles(positionals.items, self.base.options.sysroot);
+            try self.parseLibs(libs.items, self.base.options.sysroot);
         }
-
-        try self.parseInputFiles(positionals.items, self.base.options.sysroot);
-        try self.parseLibs(libs.items, self.base.options.sysroot);
 
         if (self.bss_section_index) |idx| {
             const seg = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
@@ -778,7 +818,8 @@ pub fn flush(self: *MachO, comp: *Compilation) !void {
             sect.offset = self.tlv_bss_file_offset;
         }
 
-        for (self.objects.items) |_, object_id| {
+        for (self.objects.items) |*object, object_id| {
+            if (object.analyzed) continue;
             try self.resolveSymbolsInObject(@intCast(u16, object_id));
         }
 
@@ -2617,6 +2658,8 @@ fn parseObjectsIntoAtoms(self: *MachO) !void {
     defer section_metadata.deinit();
 
     for (self.objects.items) |*object, object_id| {
+        if (object.analyzed) continue;
+
         var atoms_in_objects = try object.parseIntoAtoms(self.base.allocator, @intCast(u16, object_id), self);
         defer atoms_in_objects.deinit();
 
@@ -2663,6 +2706,8 @@ fn parseObjectsIntoAtoms(self: *MachO) !void {
                 try first_atoms.putNoClobber(match, atom);
             }
         }
+
+        object.analyzed = true;
     }
 
     var it = section_metadata.iterator();
@@ -3003,6 +3048,12 @@ pub fn updateFunc(self: *MachO, module: *Module, func: *Module.Fn, air: Air, liv
     defer tracy.end();
 
     const decl = func.owner_decl;
+    // TODO clearing the code and relocs buffer should probably be orchestrated
+    // in a different, smarter, more automatic way somewhere else, in a more centralised
+    // way than this.
+    // If we don't clear the buffers here, we are up for some nasty surprises when
+    // this atom is reused later on and was not freed by freeAtom().
+    decl.link.macho.clearRetainingCapacity();
 
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
@@ -3038,12 +3089,6 @@ pub fn updateFunc(self: *MachO, module: *Module, func: *Module.Fn, air: Air, liv
         try codegen.generateFunction(&self.base, decl.srcLoc(), func, air, liveness, &code_buffer, .none);
     switch (res) {
         .appended => {
-            // TODO clearing the code and relocs buffer should probably be orchestrated
-            // in a different, smarter, more automatic way somewhere else, in a more centralised
-            // way than this.
-            // If we don't clear the buffers here, we are up for some nasty surprises when
-            // this atom is reused later on and was not freed by freeAtom().
-            decl.link.macho.code.clearAndFree(self.base.allocator);
             try decl.link.macho.code.appendSlice(self.base.allocator, code_buffer.items);
         },
         .fail => |em| {
@@ -3194,6 +3239,7 @@ fn placeDecl(self: *MachO, decl: *Module.Decl, code_len: usize) !*macho.nlist_64
             });
         }
         decl.link.macho.size = code_len;
+        decl.link.macho.dirty = true;
 
         const new_name = try std.fmt.allocPrint(self.base.allocator, "_{s}", .{mem.spanZ(decl.name)});
         defer self.base.allocator.free(new_name);

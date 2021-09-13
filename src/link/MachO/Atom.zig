@@ -600,6 +600,17 @@ pub fn deinit(self: *Atom, allocator: *Allocator) void {
     self.code.deinit(allocator);
 }
 
+pub fn clearRetainingCapacity(self: *Atom) void {
+    self.dices.clearRetainingCapacity();
+    self.lazy_bindings.clearRetainingCapacity();
+    self.bindings.clearRetainingCapacity();
+    self.rebases.clearRetainingCapacity();
+    self.relocs.clearRetainingCapacity();
+    self.contained.clearRetainingCapacity();
+    self.aliases.clearRetainingCapacity();
+    self.code.clearRetainingCapacity();
+}
+
 /// Returns how much room there is to grow in virtual address space.
 /// File offset relocation happens transparently, so it is not included in
 /// this calculation.

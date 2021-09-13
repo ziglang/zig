@@ -64,6 +64,8 @@ sections_as_symbols: std.AutoHashMapUnmanaged(u16, u32) = .{},
 symbol_mapping: std.AutoHashMapUnmanaged(u32, u32) = .{},
 reverse_symbol_mapping: std.AutoHashMapUnmanaged(u32, u32) = .{},
 
+analyzed: bool = false,
+
 const DebugInfo = struct {
     inner: dwarf.DwarfInfo,
     debug_info: []u8,
