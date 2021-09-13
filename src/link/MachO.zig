@@ -166,11 +166,13 @@ error_flags: File.ErrorFlags = File.ErrorFlags{},
 
 load_commands_dirty: bool = false,
 sections_order_dirty: bool = false,
-
 has_dices: bool = false,
 has_stabs: bool = false,
-
-args_digest: [Cache.hex_digest_len]u8 = undefined,
+/// A helper var to indicate if we are at the start of the incremental updates, or
+/// already somewhere further along the update-and-run chain.
+/// TODO once we add opening a prelinked output binary from file, this will become
+/// obsolete as we will carry on where we left off.
+cold_start: bool = false,
 
 section_ordinals: std.AutoArrayHashMapUnmanaged(MatchingSection, void) = .{},
 
@@ -336,6 +338,7 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
         return self;
     }
 
+    // TODO Migrate DebugSymbols to the merged linker codepaths
     // if (!options.strip and options.module != null) {
     //     // Create dSYM bundle.
     //     const dir = options.module.?.zig_cache_artifact_directory;
@@ -456,8 +459,11 @@ pub fn flush(self: *MachO, comp: *Compilation) !void {
     defer if (!self.base.options.disable_lld_caching) man.deinit();
 
     var digest: [Cache.hex_digest_len]u8 = undefined;
+    var needs_full_relink = true;
 
-    if (!self.base.options.disable_lld_caching) {
+    cache: {
+        if (use_stage1 and self.base.options.disable_lld_caching) break :cache;
+
         man = comp.cache_parent.obtain();
 
         // We are about to obtain this lock, so here we give other processes a chance first.
@@ -491,17 +497,36 @@ pub fn flush(self: *MachO, comp: *Compilation) !void {
             id_symlink_basename,
             &prev_digest_buf,
         ) catch |err| blk: {
-            log.debug("MachO Zld new_digest={s} error: {s}", .{ std.fmt.fmtSliceHexLower(&digest), @errorName(err) });
+            log.debug("MachO Zld new_digest={s} error: {s}", .{
+                std.fmt.fmtSliceHexLower(&digest),
+                @errorName(err),
+            });
             // Handle this as a cache miss.
             break :blk prev_digest_buf[0..0];
         };
         if (mem.eql(u8, prev_digest, &digest)) {
-            log.debug("MachO Zld digest={s} match - skipping invocation", .{std.fmt.fmtSliceHexLower(&digest)});
             // Hot diggity dog! The output binary is already there.
-            self.base.lock = man.toOwnedLock();
-            return;
+
+            if (use_stage1) {
+                log.debug("MachO Zld digest={s} match - skipping invocation", .{std.fmt.fmtSliceHexLower(&digest)});
+                self.base.lock = man.toOwnedLock();
+                return;
+            } else {
+                log.debug("MachO Zld digest={s} match", .{std.fmt.fmtSliceHexLower(&digest)});
+                if (!self.cold_start) {
+                    log.debug("  no need to relink objects", .{});
+                    needs_full_relink = false;
+                } else {
+                    log.debug("  TODO parse prelinked binary and continue linking where we left off", .{});
+                    // TODO until such time however, perform a full relink of objects.
+                    needs_full_relink = true;
+                }
+            }
         }
-        log.debug("MachO Zld prev_digest={s} new_digest={s}", .{ std.fmt.fmtSliceHexLower(prev_digest), std.fmt.fmtSliceHexLower(&digest) });
+        log.debug("MachO Zld prev_digest={s} new_digest={s}", .{
+            std.fmt.fmtSliceHexLower(prev_digest),
+            std.fmt.fmtSliceHexLower(&digest),
+        });
 
         // We are about to change the output file to be different, so we invalidate the build hash now.
         directory.handle.deleteFile(id_symlink_basename) catch |err| switch (err) {
@@ -509,7 +534,6 @@ pub fn flush(self: *MachO, comp: *Compilation) !void {
             else => |e| return e,
         };
     }
-
     const full_out_path = try directory.join(arena, &[_][]const u8{self.base.options.emit.?.sub_path});
 
     if (self.base.options.output_mode == .Obj) {
@@ -556,34 +580,6 @@ pub fn flush(self: *MachO, comp: *Compilation) !void {
             });
             try self.strtab.append(self.base.allocator, 0);
         }
-
-        const needs_full_relink = blk: {
-            if (use_stage1) break :blk true;
-
-            var hh: Cache.HashHelper = .{};
-            hh.addListOfBytes(self.base.options.objects);
-            for (comp.c_object_table.keys()) |key| {
-                hh.addBytes(key.status.success.object_path);
-            }
-            hh.addOptionalBytes(module_obj_path);
-            if (comp.compiler_rt_static_lib) |lib| {
-                hh.addBytes(lib.full_object_path);
-            }
-            if (self.base.options.link_libcpp) {
-                hh.addBytes(comp.libcxxabi_static_lib.?.full_object_path);
-                hh.addBytes(comp.libcxx_static_lib.?.full_object_path);
-            }
-            hh.addListOfBytes(self.base.options.lib_dirs);
-            hh.addListOfBytes(self.base.options.framework_dirs);
-            hh.addListOfBytes(self.base.options.frameworks);
-            hh.addListOfBytes(self.base.options.rpath_list);
-            hh.addStringSet(self.base.options.system_libs);
-            hh.addOptionalBytes(self.base.options.sysroot);
-            const new_digest = hh.final();
-            const needs_full_relink = !mem.eql(u8, &new_digest, &self.args_digest);
-            mem.copy(u8, &self.args_digest, &new_digest);
-            break :blk needs_full_relink;
-        };
 
         if (needs_full_relink) {
             self.objects.clearRetainingCapacity();
@@ -848,22 +844,6 @@ pub fn flush(self: *MachO, comp: *Compilation) !void {
         try self.allocateGlobalSymbols();
         try self.writeAtoms();
 
-        //         log.warn("Locals:", .{});
-        //         for (self.locals.items) |sym, i| {
-        //             log.warn("  => {d}: {s}, {}", .{ i, self.getString(sym.n_strx), sym });
-        //         }
-        //         log.warn("Globals:", .{});
-        //         for (self.globals.items) |sym, i| {
-        //             log.warn("  => {d}: {s} {}", .{ i, self.getString(sym.n_strx), sym });
-        //         }
-        //         {
-        //             log.warn("Resolver:", .{});
-        //             var it = self.symbol_resolver.iterator();
-        //             while (it.next()) |entry| {
-        //                 log.warn("  => {s}: {}", .{ self.getString(entry.key_ptr.*), entry.value_ptr.* });
-        //             }
-        //         }
-
         if (self.bss_section_index) |idx| {
             const seg = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
             const sect = &seg.sections.items[idx];
@@ -880,7 +860,8 @@ pub fn flush(self: *MachO, comp: *Compilation) !void {
         try self.flushModule(comp);
     }
 
-    if (!self.base.options.disable_lld_caching) {
+    cache: {
+        if (use_stage1 and self.base.options.disable_lld_caching) break :cache;
         // Update the file with the digest. If it fails we can continue; it only
         // means that the next invocation will have an unnecessary cache miss.
         Cache.writeSmallFile(directory.handle, id_symlink_basename, &digest) catch |err| {
@@ -894,6 +875,8 @@ pub fn flush(self: *MachO, comp: *Compilation) !void {
         // other processes clobbering it.
         self.base.lock = man.toOwnedLock();
     }
+
+    self.cold_start = false;
 }
 
 pub fn flushModule(self: *MachO, comp: *Compilation) !void {
@@ -3929,6 +3912,8 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         });
         self.load_commands_dirty = true;
     }
+
+    self.cold_start = true;
 }
 
 const AllocateSectionOpts = struct {

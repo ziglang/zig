@@ -27,8 +27,8 @@ pub fn addCases(ctx: *TestContext) !void {
 
             // Regular old hello world
             case.addCompareOutput(
-                \\extern "c" fn write(usize, usize, usize) usize;
-                \\extern "c" fn exit(usize) noreturn;
+                \\extern fn write(usize, usize, usize) usize;
+                \\extern fn exit(usize) noreturn;
                 \\
                 \\pub export fn main() noreturn {
                 \\    print();
@@ -47,8 +47,8 @@ pub fn addCases(ctx: *TestContext) !void {
 
             // Print it 4 times and force growth and realloc.
             case.addCompareOutput(
-                \\extern "c" fn write(usize, usize, usize) usize;
-                \\extern "c" fn exit(usize) noreturn;
+                \\extern fn write(usize, usize, usize) usize;
+                \\extern fn exit(usize) noreturn;
                 \\
                 \\pub export fn main() noreturn {
                 \\    print();
@@ -74,8 +74,8 @@ pub fn addCases(ctx: *TestContext) !void {
 
             // Print it once, and change the message.
             case.addCompareOutput(
-                \\extern "c" fn write(usize, usize, usize) usize;
-                \\extern "c" fn exit(usize) noreturn;
+                \\extern fn write(usize, usize, usize) usize;
+                \\extern fn exit(usize) noreturn;
                 \\
                 \\pub export fn main() noreturn {
                 \\    print();
@@ -94,8 +94,8 @@ pub fn addCases(ctx: *TestContext) !void {
 
             // Now we print it twice.
             case.addCompareOutput(
-                \\extern "c" fn write(usize, usize, usize) usize;
-                \\extern "c" fn exit(usize) noreturn;
+                \\extern fn write(usize, usize, usize) usize;
+                \\extern fn exit(usize) noreturn;
                 \\
                 \\pub export fn main() noreturn {
                 \\    print();
@@ -121,7 +121,7 @@ pub fn addCases(ctx: *TestContext) !void {
             // This test case also covers an infrequent scenarion where the string table *may* be relocated
             // into the position preceeding the symbol table which results in a dyld error.
             case.addCompareOutput(
-                \\extern "c" fn exit(usize) noreturn;
+                \\extern fn exit(usize) noreturn;
                 \\
                 \\pub export fn main() noreturn {
                 \\    exit(0);
@@ -131,8 +131,8 @@ pub fn addCases(ctx: *TestContext) !void {
             );
 
             case.addCompareOutput(
-                \\extern "c" fn exit(usize) noreturn;
-                \\extern "c" fn write(usize, usize, usize) usize;
+                \\extern fn exit(usize) noreturn;
+                \\extern fn write(usize, usize, usize) usize;
                 \\
                 \\pub export fn main() noreturn {
                 \\    _ = write(1, @ptrToInt("Hey!\n"), 5);
