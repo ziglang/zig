@@ -167,7 +167,7 @@ pub const Object = struct {
         const context = llvm.Context.create();
         errdefer context.dispose();
 
-        initializeLLVMTargets();
+        initializeLLVMTarget(options.target.cpu.arch);
 
         const root_nameZ = try gpa.dupeZ(u8, options.root_name);
         defer gpa.free(root_nameZ);
@@ -254,14 +254,6 @@ pub const Object = struct {
     pub fn destroy(self: *Object, gpa: *Allocator) void {
         self.deinit();
         gpa.destroy(self);
-    }
-
-    fn initializeLLVMTargets() void {
-        llvm.initializeAllTargets();
-        llvm.initializeAllTargetInfos();
-        llvm.initializeAllTargetMCs();
-        llvm.initializeAllAsmPrinters();
-        llvm.initializeAllAsmParsers();
     }
 
     fn locPath(
@@ -796,11 +788,13 @@ pub const DeclGen = struct {
                     const gpa = self.gpa;
                     const elem_ty = tv.ty.elemType();
                     const elem_vals = payload.data;
-                    const llvm_elems = try gpa.alloc(*const llvm.Value, elem_vals.len);
+                    const sento = tv.ty.sentinel();
+                    const llvm_elems = try gpa.alloc(*const llvm.Value, elem_vals.len + @boolToInt(sento != null));
                     defer gpa.free(llvm_elems);
                     for (elem_vals) |elem_val, i| {
                         llvm_elems[i] = try self.genTypedValue(.{ .ty = elem_ty, .val = elem_val });
                     }
+                    if (sento) |sent| llvm_elems[elem_vals.len] = try self.genTypedValue(.{ .ty = elem_ty, .val = sent });
                     const llvm_elem_ty = try self.llvmType(elem_ty);
                     return llvm_elem_ty.constArray(
                         llvm_elems.ptr,
@@ -985,6 +979,7 @@ pub const FuncGen = struct {
                 .mul     => try self.airMul(inst, false),
                 .mulwrap => try self.airMul(inst, true),
                 .div     => try self.airDiv(inst),
+                .rem     => try self.airRem(inst),
                 .ptr_add => try self.airPtrAdd(inst),
                 .ptr_sub => try self.airPtrSub(inst),
 
@@ -1727,6 +1722,19 @@ pub const FuncGen = struct {
         return self.builder.buildUDiv(lhs, rhs, "");
     }
 
+    fn airRem(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const lhs = try self.resolveInst(bin_op.lhs);
+        const rhs = try self.resolveInst(bin_op.rhs);
+        const inst_ty = self.air.typeOfIndex(inst);
+
+        if (inst_ty.isFloat()) return self.builder.buildFRem(lhs, rhs, "");
+        if (inst_ty.isSignedInt()) return self.builder.buildSRem(lhs, rhs, "");
+        return self.builder.buildURem(lhs, rhs, "");
+    }
+
     fn airPtrAdd(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
         if (self.liveness.isUnused(inst))
             return null;
@@ -1957,3 +1965,144 @@ pub const FuncGen = struct {
         return self.llvmModule().getIntrinsicDeclaration(id, null, 0);
     }
 };
+
+fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
+    switch (arch) {
+        .aarch64, .aarch64_be, .aarch64_32 => {
+            llvm.LLVMInitializeAArch64Target();
+            llvm.LLVMInitializeAArch64TargetInfo();
+            llvm.LLVMInitializeAArch64TargetMC();
+            llvm.LLVMInitializeAArch64AsmPrinter();
+            llvm.LLVMInitializeAArch64AsmParser();
+        },
+        .amdgcn => {
+            llvm.LLVMInitializeAMDGPUTarget();
+            llvm.LLVMInitializeAMDGPUTargetInfo();
+            llvm.LLVMInitializeAMDGPUTargetMC();
+            llvm.LLVMInitializeAMDGPUAsmPrinter();
+            llvm.LLVMInitializeAMDGPUAsmParser();
+        },
+        .arm, .armeb => {
+            llvm.LLVMInitializeARMTarget();
+            llvm.LLVMInitializeARMTargetInfo();
+            llvm.LLVMInitializeARMTargetMC();
+            llvm.LLVMInitializeARMAsmPrinter();
+            llvm.LLVMInitializeARMAsmParser();
+        },
+        .avr => {
+            llvm.LLVMInitializeAVRTarget();
+            llvm.LLVMInitializeAVRTargetInfo();
+            llvm.LLVMInitializeAVRTargetMC();
+            llvm.LLVMInitializeAVRAsmPrinter();
+            llvm.LLVMInitializeAVRAsmParser();
+        },
+        .bpfel, .bpfeb => {
+            llvm.LLVMInitializeBPFTarget();
+            llvm.LLVMInitializeBPFTargetInfo();
+            llvm.LLVMInitializeBPFTargetMC();
+            llvm.LLVMInitializeBPFAsmPrinter();
+            llvm.LLVMInitializeBPFAsmParser();
+        },
+        .hexagon => {
+            llvm.LLVMInitializeHexagonTarget();
+            llvm.LLVMInitializeHexagonTargetInfo();
+            llvm.LLVMInitializeHexagonTargetMC();
+            llvm.LLVMInitializeHexagonAsmPrinter();
+            llvm.LLVMInitializeHexagonAsmParser();
+        },
+        .lanai => {
+            llvm.LLVMInitializeLanaiTarget();
+            llvm.LLVMInitializeLanaiTargetInfo();
+            llvm.LLVMInitializeLanaiTargetMC();
+            llvm.LLVMInitializeLanaiAsmPrinter();
+            llvm.LLVMInitializeLanaiAsmParser();
+        },
+        .mips, .mipsel, .mips64, .mips64el => {
+            llvm.LLVMInitializeMipsTarget();
+            llvm.LLVMInitializeMipsTargetInfo();
+            llvm.LLVMInitializeMipsTargetMC();
+            llvm.LLVMInitializeMipsAsmPrinter();
+            llvm.LLVMInitializeMipsAsmParser();
+        },
+        .msp430 => {
+            llvm.LLVMInitializeMSP430Target();
+            llvm.LLVMInitializeMSP430TargetInfo();
+            llvm.LLVMInitializeMSP430TargetMC();
+            llvm.LLVMInitializeMSP430AsmPrinter();
+            llvm.LLVMInitializeMSP430AsmParser();
+        },
+        .nvptx, .nvptx64 => {
+            llvm.LLVMInitializeNVPTXTarget();
+            llvm.LLVMInitializeNVPTXTargetInfo();
+            llvm.LLVMInitializeNVPTXTargetMC();
+            llvm.LLVMInitializeNVPTXAsmPrinter();
+            // There is no LLVMInitializeNVPTXAsmParser function available.
+        },
+        .powerpc, .powerpcle, .powerpc64, .powerpc64le => {
+            llvm.LLVMInitializePowerPCTarget();
+            llvm.LLVMInitializePowerPCTargetInfo();
+            llvm.LLVMInitializePowerPCTargetMC();
+            llvm.LLVMInitializePowerPCAsmPrinter();
+            llvm.LLVMInitializePowerPCAsmParser();
+        },
+        .riscv32, .riscv64 => {
+            llvm.LLVMInitializeRISCVTarget();
+            llvm.LLVMInitializeRISCVTargetInfo();
+            llvm.LLVMInitializeRISCVTargetMC();
+            llvm.LLVMInitializeRISCVAsmPrinter();
+            llvm.LLVMInitializeRISCVAsmParser();
+        },
+        .sparc, .sparcv9, .sparcel => {
+            llvm.LLVMInitializeSparcTarget();
+            llvm.LLVMInitializeSparcTargetInfo();
+            llvm.LLVMInitializeSparcTargetMC();
+            llvm.LLVMInitializeSparcAsmPrinter();
+            llvm.LLVMInitializeSparcAsmParser();
+        },
+        .s390x => {
+            llvm.LLVMInitializeSystemZTarget();
+            llvm.LLVMInitializeSystemZTargetInfo();
+            llvm.LLVMInitializeSystemZTargetMC();
+            llvm.LLVMInitializeSystemZAsmPrinter();
+            llvm.LLVMInitializeSystemZAsmParser();
+        },
+        .wasm32, .wasm64 => {
+            llvm.LLVMInitializeWebAssemblyTarget();
+            llvm.LLVMInitializeWebAssemblyTargetInfo();
+            llvm.LLVMInitializeWebAssemblyTargetMC();
+            llvm.LLVMInitializeWebAssemblyAsmPrinter();
+            llvm.LLVMInitializeWebAssemblyAsmParser();
+        },
+        .i386, .x86_64 => {
+            llvm.LLVMInitializeX86Target();
+            llvm.LLVMInitializeX86TargetInfo();
+            llvm.LLVMInitializeX86TargetMC();
+            llvm.LLVMInitializeX86AsmPrinter();
+            llvm.LLVMInitializeX86AsmParser();
+        },
+        .xcore => {
+            llvm.LLVMInitializeXCoreTarget();
+            llvm.LLVMInitializeXCoreTargetInfo();
+            llvm.LLVMInitializeXCoreTargetMC();
+            llvm.LLVMInitializeXCoreAsmPrinter();
+            // There is no LLVMInitializeXCoreAsmParser function available.
+        },
+        .arc => {},
+        .csky => {},
+        .r600 => {},
+        .tce, .tcele => {},
+        .thumb, .thumbeb => {},
+        .le32, .le64 => {},
+        .amdil, .amdil64 => {},
+        .hsail, .hsail64 => {},
+        .spir, .spir64 => {},
+        .kalimba => {},
+        .shave => {},
+        .renderscript32 => {},
+        .renderscript64 => {},
+        .ve => {},
+        .spu_2 => {},
+        .spirv32 => {},
+        .spirv64 => {},
+    }
+}

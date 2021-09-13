@@ -137,6 +137,14 @@ const test_targets = blk: {
             },
             .link_libc = true,
         },
+        TestTarget{
+            .target = .{
+                .cpu_arch = .aarch64,
+                .os_tag = .windows,
+                .abi = .gnu,
+            },
+            .link_libc = true,
+        },
 
         TestTarget{
             .target = CrossTarget.parse(.{
@@ -160,24 +168,22 @@ const test_targets = blk: {
         //    .link_libc = true,
         //},
 
-        // https://github.com/ziglang/zig/issues/8155
-        //TestTarget{
-        //    .target = .{
-        //        .cpu_arch = .mips,
-        //        .os_tag = .linux,
-        //        .abi = .none,
-        //    },
-        //},
+        TestTarget{
+            .target = .{
+                .cpu_arch = .mips,
+                .os_tag = .linux,
+                .abi = .none,
+            },
+        },
 
-        // https://github.com/ziglang/zig/issues/8155
-        //TestTarget{
-        //    .target = .{
-        //        .cpu_arch = .mips,
-        //        .os_tag = .linux,
-        //        .abi = .musl,
-        //    },
-        //    .link_libc = true,
-        //},
+        TestTarget{
+            .target = .{
+                .cpu_arch = .mips,
+                .os_tag = .linux,
+                .abi = .musl,
+            },
+            .link_libc = true,
+        },
 
         // https://github.com/ziglang/zig/issues/4927
         //TestTarget{
@@ -189,24 +195,22 @@ const test_targets = blk: {
         //    .link_libc = true,
         //},
 
-        // https://github.com/ziglang/zig/issues/8155
-        //TestTarget{
-        //    .target = .{
-        //        .cpu_arch = .mipsel,
-        //        .os_tag = .linux,
-        //        .abi = .none,
-        //    },
-        //},
+        TestTarget{
+            .target = .{
+                .cpu_arch = .mipsel,
+                .os_tag = .linux,
+                .abi = .none,
+            },
+        },
 
-        // https://github.com/ziglang/zig/issues/8155
-        //TestTarget{
-        //    .target = .{
-        //        .cpu_arch = .mipsel,
-        //        .os_tag = .linux,
-        //        .abi = .musl,
-        //    },
-        //    .link_libc = true,
-        //},
+        TestTarget{
+            .target = .{
+                .cpu_arch = .mipsel,
+                .os_tag = .linux,
+                .abi = .musl,
+            },
+            .link_libc = true,
+        },
 
         // https://github.com/ziglang/zig/issues/4927
         //TestTarget{

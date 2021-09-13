@@ -2,6 +2,7 @@ const std = @import("std");
 
 pub const Tag = enum {
     add_with_overflow,
+    add_with_saturation,
     align_cast,
     align_of,
     as,
@@ -65,6 +66,7 @@ pub const Tag = enum {
     wasm_memory_grow,
     mod,
     mul_with_overflow,
+    mul_with_saturation,
     panic,
     pop_count,
     ptr_cast,
@@ -79,10 +81,12 @@ pub const Tag = enum {
     set_runtime_safety,
     shl_exact,
     shl_with_overflow,
+    shl_with_saturation,
     shr_exact,
     shuffle,
     size_of,
     splat,
+    sub_with_saturation,
     reduce,
     src,
     sqrt,
@@ -524,6 +528,34 @@ pub const list = list: {
             "@maximum",
             .{
                 .tag = .maximum,
+                .param_count = 2,
+            },
+        },
+        .{
+            "@addWithSaturation",
+            .{
+                .tag = .add_with_saturation,
+                .param_count = 2,
+            },
+        },
+        .{
+            "@subWithSaturation",
+            .{
+                .tag = .sub_with_saturation,
+                .param_count = 2,
+            },
+        },
+        .{
+            "@mulWithSaturation",
+            .{
+                .tag = .mul_with_saturation,
+                .param_count = 2,
+            },
+        },
+        .{
+            "@shlWithSaturation",
+            .{
+                .tag = .shl_with_saturation,
                 .param_count = 2,
             },
         },

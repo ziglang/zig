@@ -10,6 +10,7 @@ test {
     _ = @import("behavior/if.zig");
     _ = @import("behavior/cast.zig");
     _ = @import("behavior/array.zig");
+    _ = @import("behavior/usingnamespace.zig");
 
     if (!builtin.zig_is_stage2) {
         // Tests that only pass for stage1.
@@ -89,6 +90,8 @@ test {
         _ = @import("behavior/byval_arg_var.zig");
         _ = @import("behavior/call.zig");
         _ = @import("behavior/cast_stage1.zig");
+        // When these tests pass, #9646 can be closed.
+        // _ = @import("behavior/comptime_memory.zig");
         _ = @import("behavior/const_slice_child.zig");
         _ = @import("behavior/defer.zig");
         _ = @import("behavior/enum.zig");
@@ -123,6 +126,7 @@ test {
         _ = @import("behavior/pub_enum.zig");
         _ = @import("behavior/ref_var_in_if_after_if_2nd_switch_prong.zig");
         _ = @import("behavior/reflection.zig");
+        _ = @import("behavior/saturating_arithmetic.zig");
         _ = @import("behavior/shuffle.zig");
         _ = @import("behavior/select.zig");
         _ = @import("behavior/sizeof_and_typeof.zig");
@@ -134,7 +138,6 @@ test {
         _ = @import("behavior/switch.zig");
         _ = @import("behavior/switch_prong_err_enum.zig");
         _ = @import("behavior/switch_prong_implicit_cast.zig");
-        _ = @import("behavior/syntax.zig");
         _ = @import("behavior/this.zig");
         _ = @import("behavior/truncate.zig");
         _ = @import("behavior/try.zig");
@@ -145,7 +148,7 @@ test {
         _ = @import("behavior/undefined.zig");
         _ = @import("behavior/underscore.zig");
         _ = @import("behavior/union.zig");
-        _ = @import("behavior/usingnamespace.zig");
+        _ = @import("behavior/usingnamespace_stage1.zig");
         _ = @import("behavior/var_args.zig");
         _ = @import("behavior/vector.zig");
         _ = @import("behavior/void.zig");

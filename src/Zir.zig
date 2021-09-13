@@ -16,7 +16,7 @@ const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const BigIntConst = std.math.big.int.Const;
 const BigIntMutable = std.math.big.int.Mutable;
-const ast = std.zig.ast;
+const Ast = std.zig.Ast;
 
 const Zir = @This();
 const Type = @import("type.zig").Type;
@@ -495,12 +495,15 @@ pub const Inst = struct {
         /// Uses the `ptr_type` union field.
         ptr_type,
         /// Slice operation `lhs[rhs..]`. No sentinel and no end offset.
+        /// Returns a pointer to the subslice.
         /// Uses the `pl_node` field. AST node is the slice syntax. Payload is `SliceStart`.
         slice_start,
         /// Slice operation `array_ptr[start..end]`. No sentinel.
+        /// Returns a pointer to the subslice.
         /// Uses the `pl_node` field. AST node is the slice syntax. Payload is `SliceEnd`.
         slice_end,
         /// Slice operation `array_ptr[start..end:sentinel]`.
+        /// Returns a pointer to the subslice.
         /// Uses the `pl_node` field. AST node is the slice syntax. Payload is `SliceSentinel`.
         slice_sentinel,
         /// Write a value to a pointer. For loading, see `load`.
@@ -1626,6 +1629,22 @@ pub const Inst = struct {
         wasm_memory_size,
         /// `operand` is payload index to `BinNode`.
         wasm_memory_grow,
+        /// Implements the `@addWithSaturation` builtin.
+        /// `operand` is payload index to `SaturatingArithmetic`.
+        /// `small` is unused.
+        add_with_saturation,
+        /// Implements the `@subWithSaturation` builtin.
+        /// `operand` is payload index to `SaturatingArithmetic`.
+        /// `small` is unused.
+        sub_with_saturation,
+        /// Implements the `@mulWithSaturation` builtin.
+        /// `operand` is payload index to `SaturatingArithmetic`.
+        /// `small` is unused.
+        mul_with_saturation,
+        /// Implements the `@shlWithSaturation` builtin.
+        /// `operand` is payload index to `SaturatingArithmetic`.
+        /// `small` is unused.
+        shl_with_saturation,
 
         pub const InstData = struct {
             opcode: Extended,
@@ -2073,7 +2092,7 @@ pub const Inst = struct {
         /// Used for unary operators, with a token source location.
         un_tok: struct {
             /// Offset from Decl AST token index.
-            src_tok: ast.TokenIndex,
+            src_tok: Ast.TokenIndex,
             /// The meaning of this operand depends on the corresponding `Tag`.
             operand: Ref,
 
@@ -2095,7 +2114,7 @@ pub const Inst = struct {
         },
         pl_tok: struct {
             /// Offset from Decl AST token index.
-            src_tok: ast.TokenIndex,
+            src_tok: Ast.TokenIndex,
             /// index into extra.
             /// `Tag` determines what lives there.
             payload_index: u32,
@@ -2131,7 +2150,7 @@ pub const Inst = struct {
             }
         },
         /// Offset from Decl AST token index.
-        tok: ast.TokenIndex,
+        tok: Ast.TokenIndex,
         /// Offset from Decl AST node index.
         node: i32,
         int: u64,
@@ -2748,6 +2767,12 @@ pub const Inst = struct {
         ptr: Ref,
     };
 
+    pub const SaturatingArithmetic = struct {
+        node: i32,
+        lhs: Ref,
+        rhs: Ref,
+    };
+
     pub const Cmpxchg = struct {
         ptr: Ref,
         expected_value: Ref,
@@ -2853,9 +2878,9 @@ pub const Inst = struct {
         pub const Item = struct {
             /// null terminated string index
             msg: u32,
-            node: ast.Node.Index,
+            node: Ast.Node.Index,
             /// If node is 0 then this will be populated.
-            token: ast.TokenIndex,
+            token: Ast.TokenIndex,
             /// Can be used in combination with `token`.
             byte_offset: u32,
             /// 0 or a payload index of a `Block`, each is a payload
@@ -2872,7 +2897,7 @@ pub const Inst = struct {
             /// null terminated string index
             name: u32,
             /// points to the import name
-            token: ast.TokenIndex,
+            token: Ast.TokenIndex,
         };
     };
 };
@@ -2887,8 +2912,8 @@ const Writer = struct {
     indent: u32,
     parent_decl_node: u32,
 
-    fn relativeToNodeIndex(self: *Writer, offset: i32) ast.Node.Index {
-        return @bitCast(ast.Node.Index, offset + @bitCast(i32, self.parent_decl_node));
+    fn relativeToNodeIndex(self: *Writer, offset: i32) Ast.Node.Index {
+        return @bitCast(Ast.Node.Index, offset + @bitCast(i32, self.parent_decl_node));
     }
 
     fn writeInstToStream(
@@ -3228,6 +3253,11 @@ const Writer = struct {
             .shl_with_overflow,
             => try self.writeOverflowArithmetic(stream, extended),
 
+            .add_with_saturation,
+            .sub_with_saturation,
+            .mul_with_saturation,
+            .shl_with_saturation,
+            => try self.writeSaturatingArithmetic(stream, extended),
             .struct_decl => try self.writeStructDecl(stream, extended),
             .union_decl => try self.writeUnionDecl(stream, extended),
             .enum_decl => try self.writeEnumDecl(stream, extended),
@@ -3394,7 +3424,7 @@ const Writer = struct {
         try self.writeBody(stream, body);
         self.indent -= 2;
         try stream.writeByteNTimes(' ', self.indent);
-        try stream.writeAll(") ");
+        try stream.writeAll("}) ");
         try self.writeSrc(stream, inst_data.src());
     }
 
@@ -3578,6 +3608,18 @@ const Writer = struct {
         try stream.writeAll(", ");
         try self.writeInstRef(stream, extra.ptr);
         try stream.writeAll(")) ");
+        try self.writeSrc(stream, src);
+    }
+
+    fn writeSaturatingArithmetic(self: *Writer, stream: anytype, extended: Inst.Extended.InstData) !void {
+        const extra = self.code.extraData(Zir.Inst.SaturatingArithmetic, extended.operand).data;
+        const src: LazySrcLoc = .{ .node_offset = extra.node };
+
+        try self.writeInstRef(stream, extra.lhs);
+        try stream.writeAll(", ");
+        try self.writeInstRef(stream, extra.rhs);
+        try stream.writeAll(", ");
+        try stream.writeAll(") ");
         try self.writeSrc(stream, src);
     }
 

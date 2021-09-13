@@ -858,6 +858,7 @@ fn genBody(o: *Object, body: []const Air.Inst.Index) error{ AnalysisFail, OutOfM
             // TODO use a different strategy for div that communicates to the optimizer
             // that wrapping is UB.
             .div           => try airBinOp( o, inst, " / "),
+            .rem           => try airBinOp( o, inst, " % "),
 
             .cmp_eq  => try airBinOp(o, inst, " == "),
             .cmp_gt  => try airBinOp(o, inst, " > "),

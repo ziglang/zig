@@ -6,6 +6,6 @@ pub fn __fixsfti(a: f32) callconv(.C) i128 {
     return fixint(f32, i128, a);
 }
 
-test "import fixsfti" {
+test {
     _ = @import("fixsfti_test.zig");
 }

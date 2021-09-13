@@ -59,6 +59,6 @@ const twords = extern union {
         };
 };
 
-test "import multi3" {
+test {
     _ = @import("multi3_test.zig");
 }

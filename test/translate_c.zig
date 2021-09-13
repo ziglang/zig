@@ -195,6 +195,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
 
     cases.add("use cast param as macro fn return type",
         \\#include <stdint.h>
+        \\#define SYS_BASE_CACHED 0
         \\#define MEM_PHYSICAL_TO_K0(x) (void*)((uint32_t)(x) + SYS_BASE_CACHED)
     , &[_][]const u8{
         \\pub inline fn MEM_PHYSICAL_TO_K0(x: anytype) ?*c_void {
@@ -228,6 +229,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     });
 
     cases.add("macro expressions respect C operator precedence",
+        \\int *foo = 0;
         \\#define FOO *((foo) + 2)
         \\#define VALUE  (1 + 2 * 3 + 4 * 5 + 6 << 7 | 8 == 9)
         \\#define _AL_READ3BYTES(p)   ((*(unsigned char *)(p))            \
@@ -318,8 +320,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\};
         \\pub const Color = struct_Color;
         ,
-        \\pub inline fn CLITERAL(type_1: anytype) @TypeOf(type_1) {
-        \\    return type_1;
+        \\pub inline fn CLITERAL(@"type": anytype) @TypeOf(@"type") {
+        \\    return @"type";
         \\}
         ,
         \\pub const LIGHTGRAY = @import("std").mem.zeroInit(CLITERAL(Color), .{ @as(c_int, 200), @as(c_int, 200), @as(c_int, 200), @as(c_int, 255) });
@@ -363,6 +365,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     });
 
     cases.add("correct semicolon after infixop",
+        \\#define _IO_ERR_SEEN 0
         \\#define __ferror_unlocked_body(_fp) (((_fp)->_flags & _IO_ERR_SEEN) != 0)
     , &[_][]const u8{
         \\pub inline fn __ferror_unlocked_body(_fp: anytype) @TypeOf((_fp.*._flags & _IO_ERR_SEEN) != @as(c_int, 0)) {
@@ -429,6 +432,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
 
     cases.add("macro comma operator",
         \\#define foo (foo, bar)
+        \\int baz(int x, int y) { return 0; }
         \\#define bar(x) (&x, +3, 4 == 4, 5 * 6, baz(1, 2), 2 % 2, baz(1,2))
     , &[_][]const u8{
         \\pub const foo = blk: {
@@ -459,6 +463,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     });
 
     cases.add("macro line continuation",
+        \\int BAR = 0;
         \\#define FOO -\
         \\BAR
     , &[_][]const u8{
@@ -1833,6 +1838,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     });
 
     cases.add("macro pointer cast",
+        \\#define NRF_GPIO_BASE 0
         \\typedef struct { int dummy; } NRF_GPIO_Type;
         \\#define NRF_GPIO ((NRF_GPIO_Type *) NRF_GPIO_BASE)
     , &[_][]const u8{
@@ -1873,6 +1879,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     });
 
     cases.add("macro add",
+        \\#define D3_AHB1PERIPH_BASE 0
         \\#define PERIPH_BASE               (0x40000000UL) /*!< Base address of : AHB/APB Peripherals                                                   */
         \\#define D3_APB1PERIPH_BASE       (PERIPH_BASE + 0x18000000UL)
         \\#define RCC_BASE              (D3_AHB1PERIPH_BASE + 0x4400UL)
@@ -2031,10 +2038,18 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     cases.add("shadowing primitive types",
         \\unsigned anyerror = 2;
         \\#define noreturn _Noreturn
+        \\typedef enum {
+        \\    f32,
+        \\    u32,
+        \\} BadEnum;
     , &[_][]const u8{
-        \\pub export var anyerror_1: c_uint = 2;
+        \\pub export var @"anyerror": c_uint = 2;
         ,
-        \\pub const noreturn_2 = @compileError("unable to translate C expr: unexpected token .Keyword_noreturn");
+        \\pub const @"noreturn" = @compileError("unable to translate C expr: unexpected token .Keyword_noreturn");
+        ,
+        \\pub const @"f32": c_int = 0;
+        \\pub const @"u32": c_int = 1;
+        \\pub const BadEnum = c_uint;
     });
 
     cases.add("floats",
@@ -2561,6 +2576,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
 
     cases.add("macro call",
         \\#define CALL(arg) bar(arg)
+        \\int bar(int x) { return x; }
     , &[_][]const u8{
         \\pub inline fn CALL(arg: anytype) @TypeOf(bar(arg)) {
         \\    return bar(arg);
@@ -2569,6 +2585,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
 
     cases.add("macro call with no args",
         \\#define CALL(arg) bar()
+        \\int bar(void) { return 0; }
     , &[_][]const u8{
         \\pub inline fn CALL(arg: anytype) @TypeOf(bar()) {
         \\    _ = arg;
@@ -3127,9 +3144,11 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
 
     cases.add("macro cast",
         \\#include <stdint.h>
+        \\int baz(void *arg) { return 0; }
         \\#define FOO(bar) baz((void *)(baz))
         \\#define BAR (void*) a
         \\#define BAZ (uint32_t)(2)
+        \\#define a 2
     , &[_][]const u8{
         \\pub inline fn FOO(bar: anytype) @TypeOf(baz(@import("std").zig.c_translation.cast(?*c_void, baz))) {
         \\    _ = bar;
@@ -3152,6 +3171,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     });
 
     cases.add("macro conditional operator",
+        \\ int a, b, c;
         \\#define FOO a ? b : c
     , &[_][]const u8{
         \\pub const FOO = if (a) b else c;
@@ -3461,11 +3481,10 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const MAY_NEED_PROMOTION_OCT = @import("std").zig.c_translation.promoteIntLiteral(c_int, 0o20000000000, .octal);
     });
 
-    // See __builtin_alloca_with_align comment in std.zig.c_builtins
     cases.add("demote un-implemented builtins",
         \\#define FOO(X) __builtin_alloca_with_align((X), 8)
     , &[_][]const u8{
-        \\pub const FOO = @compileError("TODO implement function '__builtin_alloca_with_align' in std.zig.c_builtins");
+        \\pub const FOO = @compileError("unable to translate macro: undefined identifier `__builtin_alloca_with_align`");
     });
 
     cases.add("null sentinel arrays when initialized from string literal. Issue #8256",
@@ -3640,5 +3659,29 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\_ = p[@intCast(c_uint, @as(c_int, 0))];
         ,
         \\_ = p[@intCast(c_uint, @as(c_int, 1))];
+    });
+
+    cases.add("Undefined macro identifier",
+        \\#define FOO BAR
+    , &[_][]const u8{
+        \\pub const FOO = @compileError("unable to translate macro: undefined identifier `BAR`");
+    });
+
+    cases.add("Macro redefines builtin",
+        \\#define FOO __builtin_popcount
+    , &[_][]const u8{
+        \\pub const FOO = __builtin_popcount;
+    });
+
+    cases.add("Only consider public decls in `isBuiltinDefined`",
+        \\#define FOO std
+    , &[_][]const u8{
+        \\pub const FOO = @compileError("unable to translate macro: undefined identifier `std`");
+    });
+
+    cases.add("Macro without a value",
+        \\#define FOO
+    , &[_][]const u8{
+        \\pub const FOO = "";
     });
 }

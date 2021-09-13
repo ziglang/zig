@@ -197,7 +197,7 @@ pub const Type = extern union {
     /// Prefer `castTag` to this.
     pub fn cast(self: Type, comptime T: type) ?*T {
         if (@hasField(T, "base_tag")) {
-            return base.castTag(T.base_tag);
+            return self.castTag(T.base_tag);
         }
         if (self.tag_if_small_enough < Tag.no_payload_count) {
             return null;
@@ -270,6 +270,15 @@ pub const Type = extern union {
             .pointer => ty.castTag(.pointer).?.data.mutable,
 
             else => unreachable,
+        };
+    }
+
+    pub const ArrayInfo = struct { elem_type: Type, sentinel: ?Value = null, len: u64 };
+    pub fn arrayInfo(self: Type) ArrayInfo {
+        return .{
+            .len = self.arrayLen(),
+            .sentinel = self.sentinel(),
+            .elem_type = self.elemType(),
         };
     }
 

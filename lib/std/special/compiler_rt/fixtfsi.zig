@@ -6,6 +6,6 @@ pub fn __fixtfsi(a: f128) callconv(.C) i32 {
     return fixint(f128, i32, a);
 }
 
-test "import fixtfsi" {
+test {
     _ = @import("fixtfsi_test.zig");
 }

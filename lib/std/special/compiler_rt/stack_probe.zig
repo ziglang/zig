@@ -53,6 +53,19 @@ pub fn zig_probe_stack() callconv(.Naked) void {
         },
         else => {},
     }
+    if (comptime native_arch.isAARCH64()) {
+        asm volatile (
+            \\        lsl    x16, x15, #4
+            \\        mov    x17, sp
+            \\1:
+            \\        sub    x17, x17, #PAGE_SIZE
+            \\        subs   x16, x16, #PAGE_SIZE
+            \\        ldr    xzr, [x17]
+            \\        b.gt   1b
+            \\
+            \\        ret
+        );
+    }
 
     unreachable;
 }

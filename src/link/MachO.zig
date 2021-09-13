@@ -38,6 +38,8 @@ const LlvmObject = @import("../codegen/llvm.zig").Object;
 const LoadCommand = commands.LoadCommand;
 const Module = @import("../Module.zig");
 const SegmentCommand = commands.SegmentCommand;
+const StringIndexAdapter = std.hash_map.StringIndexAdapter;
+const StringIndexContext = std.hash_map.StringIndexContext;
 const Trie = @import("MachO/Trie.zig");
 
 pub const TextBlock = Atom;
@@ -157,7 +159,7 @@ dyld_private_atom: ?*Atom = null,
 stub_helper_preamble_atom: ?*Atom = null,
 
 strtab: std.ArrayListUnmanaged(u8) = .{},
-strtab_dir: std.HashMapUnmanaged(u32, u32, StringIndexContext, std.hash_map.default_max_load_percentage) = .{},
+strtab_dir: std.HashMapUnmanaged(u32, void, StringIndexContext, std.hash_map.default_max_load_percentage) = .{},
 
 got_entries_map: std.AutoArrayHashMapUnmanaged(GotIndirectionKey, *Atom) = .{},
 stubs_map: std.AutoArrayHashMapUnmanaged(u32, *Atom) = .{},
@@ -219,33 +221,6 @@ const PendingUpdate = union(enum) {
     resolve_undef: u32,
     add_stub_entry: u32,
     add_got_entry: u32,
-};
-
-const StringIndexContext = struct {
-    strtab: *std.ArrayListUnmanaged(u8),
-
-    pub fn eql(_: StringIndexContext, a: u32, b: u32) bool {
-        return a == b;
-    }
-
-    pub fn hash(self: StringIndexContext, x: u32) u64 {
-        const x_slice = mem.spanZ(@ptrCast([*:0]const u8, self.strtab.items.ptr) + x);
-        return std.hash_map.hashString(x_slice);
-    }
-};
-
-pub const StringSliceAdapter = struct {
-    strtab: *std.ArrayListUnmanaged(u8),
-
-    pub fn eql(self: StringSliceAdapter, a_slice: []const u8, b: u32) bool {
-        const b_slice = mem.spanZ(@ptrCast([*:0]const u8, self.strtab.items.ptr) + b);
-        return mem.eql(u8, a_slice, b_slice);
-    }
-
-    pub fn hash(self: StringSliceAdapter, adapted_key: []const u8) u64 {
-        _ = self;
-        return std.hash_map.hashString(adapted_key);
-    }
 };
 
 const SymbolWithLoc = struct {
@@ -930,7 +905,19 @@ fn resolveSearchDir(
 
     if (fs.path.isAbsolute(dir)) {
         if (syslibroot) |root| {
-            const full_path = try fs.path.join(arena, &[_][]const u8{ root, dir });
+            const common_dir = if (std.Target.current.os.tag == .windows) blk: {
+                // We need to check for disk designator and strip it out from dir path so
+                // that we can concat dir with syslibroot.
+                // TODO we should backport this mechanism to 'MachO.Dylib.parseDependentLibs()'
+                const disk_designator = fs.path.diskDesignatorWindows(dir);
+
+                if (mem.indexOf(u8, dir, disk_designator)) |where| {
+                    break :blk dir[where + disk_designator.len ..];
+                }
+
+                break :blk dir;
+            } else dir;
+            const full_path = try fs.path.join(arena, &[_][]const u8{ root, common_dir });
             try candidates.append(full_path);
         }
     }
@@ -2234,8 +2221,8 @@ fn createTentativeDefAtoms(self: *MachO) !void {
 }
 
 fn createDsoHandleAtom(self: *MachO) !void {
-    if (self.strtab_dir.getAdapted(@as([]const u8, "___dso_handle"), StringSliceAdapter{
-        .strtab = &self.strtab,
+    if (self.strtab_dir.getKeyAdapted(@as([]const u8, "___dso_handle"), StringIndexAdapter{
+        .bytes = &self.strtab,
     })) |n_strx| blk: {
         const resolv = self.symbol_resolver.getPtr(n_strx) orelse break :blk;
         if (resolv.where != .undef) break :blk;
@@ -2822,8 +2809,8 @@ fn setEntryPoint(self: *MachO) !void {
     // TODO we should respect the -entry flag passed in by the user to set a custom
     // entrypoint. For now, assume default of `_main`.
     const seg = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
-    const n_strx = self.strtab_dir.getAdapted(@as([]const u8, "_main"), StringSliceAdapter{
-        .strtab = &self.strtab,
+    const n_strx = self.strtab_dir.getKeyAdapted(@as([]const u8, "_main"), StringIndexAdapter{
+        .bytes = &self.strtab,
     }) orelse {
         log.err("'_main' export not found", .{});
         return error.MissingMainEntrypoint;
@@ -4245,8 +4232,8 @@ pub fn addExternFn(self: *MachO, name: []const u8) !u32 {
     const sym_name = try std.fmt.allocPrint(self.base.allocator, "_{s}", .{name});
     defer self.base.allocator.free(sym_name);
 
-    if (self.strtab_dir.getAdapted(@as([]const u8, sym_name), StringSliceAdapter{
-        .strtab = &self.strtab,
+    if (self.strtab_dir.getKeyAdapted(@as([]const u8, sym_name), StringIndexAdapter{
+        .bytes = &self.strtab,
     })) |n_strx| {
         const resolv = self.symbol_resolver.get(n_strx) orelse unreachable;
         return resolv.where_index;
@@ -4937,7 +4924,13 @@ pub fn makeStaticString(bytes: []const u8) [16]u8 {
 }
 
 pub fn makeString(self: *MachO, string: []const u8) !u32 {
-    if (self.strtab_dir.getAdapted(@as([]const u8, string), StringSliceAdapter{ .strtab = &self.strtab })) |off| {
+    const gop = try self.strtab_dir.getOrPutContextAdapted(self.base.allocator, @as([]const u8, string), StringIndexAdapter{
+        .bytes = &self.strtab,
+    }, StringIndexContext{
+        .bytes = &self.strtab,
+    });
+    if (gop.found_existing) {
+        const off = gop.key_ptr.*;
         log.debug("reusing string '{s}' at offset 0x{x}", .{ string, off });
         return off;
     }
@@ -4950,9 +4943,7 @@ pub fn makeString(self: *MachO, string: []const u8) !u32 {
     self.strtab.appendSliceAssumeCapacity(string);
     self.strtab.appendAssumeCapacity(0);
 
-    try self.strtab_dir.putContext(self.base.allocator, new_off, new_off, StringIndexContext{
-        .strtab = &self.strtab,
-    });
+    gop.key_ptr.* = new_off;
 
     return new_off;
 }

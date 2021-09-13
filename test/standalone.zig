@@ -5,6 +5,7 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
     cases.add("test/standalone/hello_world/hello.zig");
     cases.addC("test/standalone/hello_world/hello_libc.zig");
     cases.add("test/standalone/cat/main.zig");
+    cases.add("test/standalone/issue_9693/main.zig");
     cases.add("test/standalone/guess_number/main.zig");
     cases.add("test/standalone/main_return_error/error_u8.zig");
     cases.add("test/standalone/main_return_error/error_u8_non_zero.zig");
@@ -26,6 +27,7 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
     cases.addBuildFile("test/standalone/brace_expansion/build.zig", .{});
     cases.addBuildFile("test/standalone/empty_env/build.zig", .{});
     cases.addBuildFile("test/standalone/issue_7030/build.zig", .{});
+    cases.addBuildFile("test/standalone/install_raw_hex/build.zig", .{});
     if (std.Target.current.os.tag != .wasi) {
         cases.addBuildFile("test/standalone/load_dynamic_library/build.zig", .{});
     }

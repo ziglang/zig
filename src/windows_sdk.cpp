@@ -23,16 +23,19 @@ enum NativeArch {
     NativeArchArm,
     NativeArchi386,
     NativeArchx86_64,
+    NativeArchAarch64,
 };
 
 #if defined(_M_ARM) || defined(__arm_)
 static const NativeArch native_arch = NativeArchArm;
-#endif
-#if defined(_M_IX86) || defined(__i386__)
+#elif defined(_M_IX86) || defined(__i386__)
 static const NativeArch native_arch = NativeArchi386;
-#endif
-#if defined(_M_X64) || defined(__x86_64__)
+#elif defined(_M_X64) || defined(__x86_64__)
 static const NativeArch native_arch = NativeArchx86_64;
+#elif defined(_M_ARM64) || defined(__aarch64__)
+static const NativeArch native_arch = NativeArchAarch64;
+#else
+#error unsupported architecture
 #endif
 
 void zig_free_windows_sdk(struct ZigWindowsSDK *sdk) {
@@ -116,6 +119,9 @@ static ZigFindWindowsSdkError find_msvc_lib_dir(ZigWindowsSDKPrivate *priv) {
             case NativeArchArm:
                 out_append_ptr += sprintf(out_append_ptr, "arm\\");
                 break;
+            case NativeArchAarch64:
+                out_append_ptr += sprintf(out_append_ptr, "arm64\\");
+                break;
             }
             sprintf(tmp_buf, "%s%s", output_path, "vcruntime.lib");
 
@@ -161,6 +167,9 @@ com_done:;
     case NativeArchArm:
         tmp_buf_append_ptr += sprintf(tmp_buf_append_ptr, "arm\\");
         break;
+    case NativeArchAarch64:
+        tmp_buf_append_ptr += sprintf(tmp_buf_append_ptr, "arm64\\");
+        break;
     }
 
     char *output_path = strdup(tmp_buf);
@@ -203,6 +212,9 @@ static ZigFindWindowsSdkError find_10_version(ZigWindowsSDKPrivate *priv) {
 	switch (native_arch) {
 	case NativeArchArm:
 		option_name = "OptionId.DesktopCPParm";
+		break;
+	case NativeArchAarch64:
+		option_name = "OptionId.DesktopCPParm64";
 		break;
 	case NativeArchx86_64:
 		option_name = "OptionId.DesktopCPPx64";

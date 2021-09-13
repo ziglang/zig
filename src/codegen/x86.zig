@@ -59,14 +59,14 @@ pub const Register = enum(u8) {
 
     pub fn dwarfLocOp(reg: Register) u8 {
         return switch (reg.to32()) {
-            .eax => DW.OP_reg0,
-            .ecx => DW.OP_reg1,
-            .edx => DW.OP_reg2,
-            .ebx => DW.OP_reg3,
-            .esp => DW.OP_reg4,
-            .ebp => DW.OP_reg5,
-            .esi => DW.OP_reg6,
-            .edi => DW.OP_reg7,
+            .eax => DW.OP.reg0,
+            .ecx => DW.OP.reg1,
+            .edx => DW.OP.reg2,
+            .ebx => DW.OP.reg3,
+            .esp => DW.OP.reg4,
+            .ebp => DW.OP.reg5,
+            .esi => DW.OP.reg6,
+            .edi => DW.OP.reg7,
             else => unreachable,
         };
     }

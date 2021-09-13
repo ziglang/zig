@@ -1,7 +1,30 @@
-usingnamespace @import("bits.zig");
+const std = @import("../../std.zig");
+const windows = std.os.windows;
+
+const BOOL = windows.BOOL;
+const DWORD = windows.DWORD;
+const ULONG = windows.ULONG;
+const WINAPI = windows.WINAPI;
+const NTSTATUS = windows.NTSTATUS;
+const WORD = windows.WORD;
+const HANDLE = windows.HANDLE;
+const ACCESS_MASK = windows.ACCESS_MASK;
+const IO_APC_ROUTINE = windows.IO_APC_ROUTINE;
+const BOOLEAN = windows.BOOLEAN;
+const OBJECT_ATTRIBUTES = windows.OBJECT_ATTRIBUTES;
+const PVOID = windows.PVOID;
+const IO_STATUS_BLOCK = windows.IO_STATUS_BLOCK;
+const LARGE_INTEGER = windows.LARGE_INTEGER;
+const OBJECT_INFORMATION_CLASS = windows.OBJECT_INFORMATION_CLASS;
+const FILE_INFORMATION_CLASS = windows.FILE_INFORMATION_CLASS;
+const UNICODE_STRING = windows.UNICODE_STRING;
+const RTL_OSVERSIONINFOW = windows.RTL_OSVERSIONINFOW;
+const FILE_BASIC_INFORMATION = windows.FILE_BASIC_INFORMATION;
+const SIZE_T = windows.SIZE_T;
+const CURDIR = windows.CURDIR;
 
 pub extern "NtDll" fn RtlGetVersion(
-    lpVersionInformation: PRTL_OSVERSIONINFOW,
+    lpVersionInformation: *RTL_OSVERSIONINFOW,
 ) callconv(WINAPI) NTSTATUS;
 pub extern "NtDll" fn RtlCaptureStackBackTrace(
     FramesToSkip: DWORD,

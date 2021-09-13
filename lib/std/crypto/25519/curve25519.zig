@@ -40,9 +40,7 @@ pub const Curve25519 = struct {
     }
 
     /// Multiply a point by the cofactor
-    pub fn clearCofactor(p: Edwards25519) Edwards25519 {
-        return p.dbl().dbl().dbl();
-    }
+    pub const clearCofactor = @compileError("TODO what was this function supposed to do? it didn't compile successfully");
 
     fn ladder(p: Curve25519, s: [32]u8, comptime bits: usize) IdentityElementError!Curve25519 {
         var x1 = p.x;

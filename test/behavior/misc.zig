@@ -40,14 +40,6 @@ test "constant equal function pointers" {
 
 fn emptyFn() void {}
 
-test "string concatenation" {
-    try expect(mem.eql(u8, "OK" ++ " IT " ++ "WORKED", "OK IT WORKED"));
-}
-
-test "array mult operator" {
-    try expect(mem.eql(u8, "ab" ** 5, "ababababab"));
-}
-
 test "string escapes" {
     try expectEqualStrings("\"", "\x22");
     try expectEqualStrings("\'", "\x27");
@@ -506,7 +498,7 @@ test "lazy typeInfo value as generic parameter" {
     S.foo(@typeInfo(@TypeOf(.{})));
 }
 
-fn A() type {
+fn ZA() type {
     return struct {
         b: B(),
 
@@ -520,5 +512,21 @@ fn A() type {
     };
 }
 test "non-ambiguous reference of shadowed decls" {
-    try expect(A().B().Self != A().Self);
+    try expect(ZA().B().Self != ZA().Self);
+}
+
+test "use of declaration with same name as primitive" {
+    const S = struct {
+        const @"u8" = u16;
+        const alias = @"u8";
+    };
+    const a: S.u8 = 300;
+    try expect(a == 300);
+
+    const b: S.alias = 300;
+    try expect(b == 300);
+
+    const @"u8" = u16;
+    const c: @"u8" = 300;
+    try expect(c == 300);
 }

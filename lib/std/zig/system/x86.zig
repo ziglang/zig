@@ -543,7 +543,7 @@ fn cpuid(leaf_id: u32, subid: u32) CpuidLeaf {
         :
         : [leaf_id] "{eax}" (leaf_id),
           [subid] "{ecx}" (subid),
-          [leaf_ptr] "r" (&cpuid_leaf)
+          [leaf_ptr] "r" (&cpuid_leaf),
         : "eax", "ebx", "ecx", "edx"
     );
 
@@ -555,7 +555,7 @@ fn getXCR0() u32 {
     return asm volatile (
         \\ xor %%ecx, %%ecx
         \\ xgetbv
-        : [ret] "={eax}" (-> u32)
+        : [ret] "={eax}" (-> u32),
         :
         : "eax", "edx", "ecx"
     );

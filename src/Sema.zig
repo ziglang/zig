@@ -58,6 +58,9 @@ comptime_args_fn_inst: Zir.Inst.Index = 0,
 /// extra hash table lookup in the `monomorphed_funcs` set.
 /// Sema will set this to null when it takes ownership.
 preallocated_new_func: ?*Module.Fn = null,
+/// Collects struct, union, enum, and opaque decls which need to have their
+/// fields resolved before this Sema is deinitialized.
+types_pending_resolution: std.ArrayListUnmanaged(Type) = .{},
 
 const std = @import("std");
 const mem = std.mem;
@@ -90,6 +93,7 @@ pub fn deinit(sema: *Sema) void {
     sema.air_values.deinit(gpa);
     sema.inst_map.deinit(gpa);
     sema.decl_val_table.deinit(gpa);
+    sema.types_pending_resolution.deinit(gpa);
     sema.* = undefined;
 }
 
@@ -570,6 +574,10 @@ fn zirExtended(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileEr
         .c_define           => return sema.zirCDefine(           block, extended),
         .wasm_memory_size   => return sema.zirWasmMemorySize(    block, extended),
         .wasm_memory_grow   => return sema.zirWasmMemoryGrow(    block, extended),
+        .add_with_saturation=> return sema.zirSatArithmetic(     block, extended),
+        .sub_with_saturation=> return sema.zirSatArithmetic(     block, extended),
+        .mul_with_saturation=> return sema.zirSatArithmetic(     block, extended),
+        .shl_with_saturation=> return sema.zirSatArithmetic(     block, extended),
         // zig fmt: on
     }
 }
@@ -904,7 +912,9 @@ fn zirStructDecl(
         &struct_obj.namespace, new_decl, new_decl.name,
     });
     try sema.analyzeStructDecl(new_decl, inst, struct_obj);
+    try sema.types_pending_resolution.ensureUnusedCapacity(sema.gpa, 1);
     try new_decl.finalizeNewArena(&new_decl_arena);
+    sema.types_pending_resolution.appendAssumeCapacity(struct_ty);
     return sema.analyzeDeclVal(block, src, new_decl);
 }
 
@@ -1194,7 +1204,9 @@ fn zirUnionDecl(
 
     _ = try sema.mod.scanNamespace(&union_obj.namespace, extra_index, decls_len, new_decl);
 
+    try sema.types_pending_resolution.ensureUnusedCapacity(sema.gpa, 1);
     try new_decl.finalizeNewArena(&new_decl_arena);
+    sema.types_pending_resolution.appendAssumeCapacity(union_ty);
     return sema.analyzeDeclVal(block, src, new_decl);
 }
 
@@ -2320,42 +2332,105 @@ fn zirDeclVal(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileErr
 }
 
 fn lookupIdentifier(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, name: []const u8) !*Decl {
-    // TODO emit a compile error if more than one decl would be matched.
     var namespace = sema.namespace;
     while (true) {
-        if (try sema.lookupInNamespace(namespace, name)) |decl| {
+        if (try sema.lookupInNamespace(block, src, namespace, name, false)) |decl| {
             return decl;
         }
         namespace = namespace.parent orelse break;
     }
-    return sema.mod.fail(&block.base, src, "use of undeclared identifier '{s}'", .{name});
+    unreachable; // AstGen detects use of undeclared identifier errors.
 }
 
 /// This looks up a member of a specific namespace. It is affected by `usingnamespace` but
 /// only for ones in the specified namespace.
 fn lookupInNamespace(
     sema: *Sema,
+    block: *Scope.Block,
+    src: LazySrcLoc,
     namespace: *Scope.Namespace,
     ident_name: []const u8,
+    observe_usingnamespace: bool,
 ) CompileError!?*Decl {
+    const mod = sema.mod;
+
     const namespace_decl = namespace.getDecl();
     if (namespace_decl.analysis == .file_failure) {
-        try sema.mod.declareDeclDependency(sema.owner_decl, namespace_decl);
+        try mod.declareDeclDependency(sema.owner_decl, namespace_decl);
         return error.AnalysisFail;
     }
 
-    // TODO implement usingnamespace
-    if (namespace.decls.get(ident_name)) |decl| {
-        try sema.mod.declareDeclDependency(sema.owner_decl, decl);
+    if (observe_usingnamespace and namespace.usingnamespace_set.count() != 0) {
+        const src_file = block.src_decl.namespace.file_scope;
+
+        const gpa = sema.gpa;
+        var checked_namespaces: std.AutoArrayHashMapUnmanaged(*Scope.Namespace, void) = .{};
+        defer checked_namespaces.deinit(gpa);
+
+        // Keep track of name conflicts for error notes.
+        var candidates: std.ArrayListUnmanaged(*Decl) = .{};
+        defer candidates.deinit(gpa);
+
+        try checked_namespaces.put(gpa, namespace, {});
+        var check_i: usize = 0;
+
+        while (check_i < checked_namespaces.count()) : (check_i += 1) {
+            const check_ns = checked_namespaces.keys()[check_i];
+            if (check_ns.decls.get(ident_name)) |decl| {
+                // Skip decls which are not marked pub, which are in a different
+                // file than the `a.b`/`@hasDecl` syntax.
+                if (decl.is_pub or src_file == decl.namespace.file_scope) {
+                    try candidates.append(gpa, decl);
+                }
+            }
+            var it = check_ns.usingnamespace_set.iterator();
+            while (it.next()) |entry| {
+                const sub_usingnamespace_decl = entry.key_ptr.*;
+                const sub_is_pub = entry.value_ptr.*;
+                if (!sub_is_pub and src_file != sub_usingnamespace_decl.namespace.file_scope) {
+                    // Skip usingnamespace decls which are not marked pub, which are in
+                    // a different file than the `a.b`/`@hasDecl` syntax.
+                    continue;
+                }
+                try sema.ensureDeclAnalyzed(sub_usingnamespace_decl);
+                const ns_ty = sub_usingnamespace_decl.val.castTag(.ty).?.data;
+                const sub_ns = ns_ty.getNamespace().?;
+                try checked_namespaces.put(gpa, sub_ns, {});
+            }
+        }
+
+        switch (candidates.items.len) {
+            0 => {},
+            1 => {
+                const decl = candidates.items[0];
+                try mod.declareDeclDependency(sema.owner_decl, decl);
+                return decl;
+            },
+            else => {
+                const msg = msg: {
+                    const msg = try mod.errMsg(&block.base, src, "ambiguous reference", .{});
+                    errdefer msg.destroy(gpa);
+                    for (candidates.items) |candidate| {
+                        const src_loc = candidate.srcLoc();
+                        try mod.errNoteNonLazy(src_loc, msg, "declared here", .{});
+                    }
+                    break :msg msg;
+                };
+                return mod.failWithOwnedErrorMsg(&block.base, msg);
+            },
+        }
+    } else if (namespace.decls.get(ident_name)) |decl| {
+        try mod.declareDeclDependency(sema.owner_decl, decl);
         return decl;
     }
+
     log.debug("{*} ({s}) depends on non-existence of '{s}' in {*} ({s})", .{
         sema.owner_decl, sema.owner_decl.name, ident_name, namespace_decl, namespace_decl.name,
     });
     // TODO This dependency is too strong. Really, it should only be a dependency
     // on the non-existence of `ident_name` in the namespace. We can lessen the number of
     // outdated declarations by making this dependency more sophisticated.
-    try sema.mod.declareDeclDependency(sema.owner_decl, namespace_decl);
+    try mod.declareDeclDependency(sema.owner_decl, namespace_decl);
     return null;
 }
 
@@ -2723,10 +2798,7 @@ fn analyzeCall(
                 // we need to resolve the field type expressions right here, right now, while
                 // the child `Sema` is still available, with the AIR instruction map intact,
                 // because the field type expressions may reference into it.
-                if (sema.typeOf(result).zigTypeTag() == .Type) {
-                    const ty = try sema.analyzeAsType(&child_block, call_src, result);
-                    try sema.resolveDeclFields(&child_block, call_src, ty);
-                }
+                try sema.resolvePendingTypes(&child_block);
             }
 
             break :res2 result;
@@ -5328,6 +5400,7 @@ fn zirHasField(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileEr
 fn zirHasDecl(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
+    const src = inst_data.src();
     const lhs_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const rhs_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
     const container_type = try sema.resolveType(block, lhs_src, extra.lhs);
@@ -5340,7 +5413,7 @@ fn zirHasDecl(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileErr
         "expected struct, enum, union, or opaque, found '{}'",
         .{container_type},
     );
-    if (try sema.lookupInNamespace(namespace, decl_name)) |decl| {
+    if (try sema.lookupInNamespace(block, src, namespace, decl_name, true)) |decl| {
         if (decl.is_pub or decl.namespace.file_scope == block.base.namespace().file_scope) {
             return Air.Inst.Ref.bool_true;
         }
@@ -5512,16 +5585,134 @@ fn zirArrayCat(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileEr
     const tracy = trace(@src());
     defer tracy.end();
 
-    _ = inst;
-    return sema.mod.fail(&block.base, sema.src, "TODO implement zirArrayCat", .{});
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
+    const lhs = sema.resolveInst(extra.lhs);
+    const rhs = sema.resolveInst(extra.rhs);
+    const lhs_ty = sema.typeOf(lhs);
+    const rhs_ty = sema.typeOf(rhs);
+    const lhs_src: LazySrcLoc = .{ .node_offset_bin_lhs = inst_data.src_node };
+    const rhs_src: LazySrcLoc = .{ .node_offset_bin_rhs = inst_data.src_node };
+
+    const lhs_info = getArrayCatInfo(lhs_ty) orelse
+        return sema.mod.fail(&block.base, lhs_src, "expected array, found '{}'", .{lhs_ty});
+    const rhs_info = getArrayCatInfo(rhs_ty) orelse
+        return sema.mod.fail(&block.base, rhs_src, "expected array, found '{}'", .{rhs_ty});
+    if (!lhs_info.elem_type.eql(rhs_info.elem_type)) {
+        return sema.mod.fail(&block.base, rhs_src, "expected array of type '{}', found '{}'", .{ lhs_info.elem_type, rhs_ty });
+    }
+
+    // When there is a sentinel mismatch, no sentinel on the result. The type system
+    // will catch this if it is a problem.
+    var res_sent: ?Value = null;
+    if (rhs_info.sentinel != null and lhs_info.sentinel != null) {
+        if (rhs_info.sentinel.?.eql(lhs_info.sentinel.?, lhs_info.elem_type)) {
+            res_sent = lhs_info.sentinel.?;
+        }
+    }
+
+    if (try sema.resolveDefinedValue(block, lhs_src, lhs)) |lhs_val| {
+        if (try sema.resolveDefinedValue(block, rhs_src, rhs)) |rhs_val| {
+            const final_len = lhs_info.len + rhs_info.len;
+            if (lhs_ty.zigTypeTag() == .Pointer) {
+                var anon_decl = try block.startAnonDecl();
+                defer anon_decl.deinit();
+
+                const lhs_sub_val = (try lhs_val.pointerDeref(anon_decl.arena())).?;
+                const rhs_sub_val = (try rhs_val.pointerDeref(anon_decl.arena())).?;
+                const buf = try anon_decl.arena().alloc(Value, final_len);
+                {
+                    var i: u64 = 0;
+                    while (i < lhs_info.len) : (i += 1) {
+                        const val = try lhs_sub_val.elemValue(sema.arena, i);
+                        buf[i] = try val.copy(anon_decl.arena());
+                    }
+                }
+                {
+                    var i: u64 = 0;
+                    while (i < rhs_info.len) : (i += 1) {
+                        const val = try rhs_sub_val.elemValue(sema.arena, i);
+                        buf[lhs_info.len + i] = try val.copy(anon_decl.arena());
+                    }
+                }
+                const ty = if (res_sent) |rs|
+                    try Type.Tag.array_sentinel.create(anon_decl.arena(), .{ .len = final_len, .elem_type = lhs_info.elem_type, .sentinel = rs })
+                else
+                    try Type.Tag.array.create(anon_decl.arena(), .{ .len = final_len, .elem_type = lhs_info.elem_type });
+                const val = try Value.Tag.array.create(anon_decl.arena(), buf);
+                return sema.analyzeDeclRef(try anon_decl.finish(
+                    ty,
+                    val,
+                ));
+            }
+            return sema.mod.fail(&block.base, lhs_src, "TODO array_cat more types of Values", .{});
+        } else {
+            return sema.mod.fail(&block.base, lhs_src, "TODO runtime array_cat", .{});
+        }
+    } else {
+        return sema.mod.fail(&block.base, lhs_src, "TODO runtime array_cat", .{});
+    }
+}
+
+fn getArrayCatInfo(t: Type) ?Type.ArrayInfo {
+    return switch (t.zigTypeTag()) {
+        .Array => t.arrayInfo(),
+        .Pointer => blk: {
+            const ptrinfo = t.ptrInfo().data;
+            if (ptrinfo.pointee_type.zigTypeTag() != .Array) return null;
+            if (ptrinfo.size != .One) return null;
+            break :blk ptrinfo.pointee_type.arrayInfo();
+        },
+        else => null,
+    };
 }
 
 fn zirArrayMul(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
 
-    _ = inst;
-    return sema.mod.fail(&block.base, sema.src, "TODO implement zirArrayMul", .{});
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
+    const lhs = sema.resolveInst(extra.lhs);
+    const lhs_ty = sema.typeOf(lhs);
+    const lhs_src: LazySrcLoc = .{ .node_offset_bin_lhs = inst_data.src_node };
+    const rhs_src: LazySrcLoc = .{ .node_offset_bin_rhs = inst_data.src_node };
+
+    // In `**` rhs has to be comptime-known, but lhs can be runtime-known
+    const tomulby = try sema.resolveInt(block, rhs_src, extra.rhs, Type.initTag(.usize));
+    const mulinfo = getArrayCatInfo(lhs_ty) orelse
+        return sema.mod.fail(&block.base, lhs_src, "expected array, found '{}'", .{lhs_ty});
+
+    const final_len = std.math.mul(u64, mulinfo.len, tomulby) catch return sema.mod.fail(&block.base, rhs_src, "operation results in overflow", .{});
+    if (try sema.resolveDefinedValue(block, lhs_src, lhs)) |lhs_val| {
+        if (lhs_ty.zigTypeTag() == .Pointer) {
+            var anon_decl = try block.startAnonDecl();
+            defer anon_decl.deinit();
+            const lhs_sub_val = (try lhs_val.pointerDeref(anon_decl.arena())).?;
+
+            const final_ty = if (mulinfo.sentinel) |sent|
+                try Type.Tag.array_sentinel.create(anon_decl.arena(), .{ .len = final_len, .elem_type = mulinfo.elem_type, .sentinel = sent })
+            else
+                try Type.Tag.array.create(anon_decl.arena(), .{ .len = final_len, .elem_type = mulinfo.elem_type });
+
+            const buf = try anon_decl.arena().alloc(Value, final_len);
+            var i: u64 = 0;
+            while (i < tomulby) : (i += 1) {
+                var j: u64 = 0;
+                while (j < mulinfo.len) : (j += 1) {
+                    const val = try lhs_sub_val.elemValue(sema.arena, j);
+                    buf[mulinfo.len * i + j] = try val.copy(anon_decl.arena());
+                }
+            }
+            const val = try Value.Tag.array.create(anon_decl.arena(), buf);
+            return sema.analyzeDeclRef(try anon_decl.finish(
+                final_ty,
+                val,
+            ));
+        }
+        return sema.mod.fail(&block.base, lhs_src, "TODO array_mul more types of Values", .{});
+    }
+    return sema.mod.fail(&block.base, lhs_src, "TODO runtime array_mul", .{});
 }
 
 fn zirNegate(
@@ -5571,6 +5762,19 @@ fn zirOverflowArithmetic(
     const src: LazySrcLoc = .{ .node_offset = extra.node };
 
     return sema.mod.fail(&block.base, src, "TODO implement Sema.zirOverflowArithmetic", .{});
+}
+
+fn zirSatArithmetic(
+    sema: *Sema,
+    block: *Scope.Block,
+    extended: Zir.Inst.Extended.InstData,
+) CompileError!Air.Inst.Ref {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const extra = sema.code.extraData(Zir.Inst.SaturatingArithmetic, extended.operand).data;
+    const src: LazySrcLoc = .{ .node_offset = extra.node };
+    return sema.mod.fail(&block.base, src, "TODO implement Sema.zirSatArithmetic", .{});
 }
 
 fn analyzeArithmetic(
@@ -5701,7 +5905,7 @@ fn analyzeArithmetic(
                         try lhs_val.floatMul(rhs_val, scalar_type, sema.arena);
                     break :blk val;
                 },
-                else => return sema.mod.fail(&block.base, src, "TODO Implement arithmetic operand '{s}'", .{@tagName(zir_tag)}),
+                else => return sema.mod.fail(&block.base, src, "TODO implement comptime arithmetic for operand '{s}'", .{@tagName(zir_tag)}),
             };
 
             log.debug("{s}({}, {}) result: {}", .{ @tagName(zir_tag), lhs_val, rhs_val, value });
@@ -5714,6 +5918,14 @@ fn analyzeArithmetic(
         try sema.requireRuntimeBlock(block, lhs_src);
     }
 
+    if (zir_tag == .mod_rem) {
+        const dirty_lhs = lhs_ty.isSignedInt() or lhs_ty.isFloat();
+        const dirty_rhs = rhs_ty.isSignedInt() or rhs_ty.isFloat();
+        if (dirty_lhs or dirty_rhs) {
+            return sema.mod.fail(&block.base, src, "remainder division with '{}' and '{}': signed integers and floats must use @rem or @mod", .{ lhs_ty, rhs_ty });
+        }
+    }
+
     const air_tag: Air.Inst.Tag = switch (zir_tag) {
         .add => .add,
         .addwrap => .addwrap,
@@ -5722,7 +5934,9 @@ fn analyzeArithmetic(
         .mul => .mul,
         .mulwrap => .mulwrap,
         .div => .div,
-        else => return sema.mod.fail(&block.base, src, "TODO implement arithmetic for operand '{s}''", .{@tagName(zir_tag)}),
+        .mod_rem => .rem,
+        .rem => .rem,
+        else => return sema.mod.fail(&block.base, src, "TODO implement arithmetic for operand '{s}'", .{@tagName(zir_tag)}),
     };
 
     return block.addBinOp(air_tag, casted_lhs, casted_rhs);
@@ -7184,9 +7398,7 @@ fn zirMod(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!A
 }
 
 fn zirRem(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    const src = inst_data.src();
-    return sema.mod.fail(&block.base, src, "TODO: Sema.zirRem", .{});
+    return sema.zirArithmetic(block, inst);
 }
 
 fn zirShlExact(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -8060,7 +8272,7 @@ fn namespaceLookup(
 ) CompileError!?*Decl {
     const mod = sema.mod;
     const gpa = sema.gpa;
-    if (try sema.lookupInNamespace(namespace, decl_name)) |decl| {
+    if (try sema.lookupInNamespace(block, src, namespace, decl_name, true)) |decl| {
         if (!decl.is_pub and decl.namespace.file_scope != block.getFileScope()) {
             const msg = msg: {
                 const msg = try mod.errMsg(&block.base, src, "'{s}' is not marked 'pub'", .{
@@ -8776,8 +8988,7 @@ fn analyzeDeclVal(
     return result;
 }
 
-fn analyzeDeclRef(sema: *Sema, decl: *Decl) CompileError!Air.Inst.Ref {
-    try sema.mod.declareDeclDependency(sema.owner_decl, decl);
+fn ensureDeclAnalyzed(sema: *Sema, decl: *Decl) CompileError!void {
     sema.mod.ensureDeclAnalyzed(decl) catch |err| {
         if (sema.owner_func) |owner_func| {
             owner_func.state = .dependency_failure;
@@ -8786,6 +8997,11 @@ fn analyzeDeclRef(sema: *Sema, decl: *Decl) CompileError!Air.Inst.Ref {
         }
         return err;
     };
+}
+
+fn analyzeDeclRef(sema: *Sema, decl: *Decl) CompileError!Air.Inst.Ref {
+    try sema.mod.declareDeclDependency(sema.owner_decl, decl);
+    try sema.ensureDeclAnalyzed(decl);
 
     const decl_tv = try decl.typedValue();
     if (decl_tv.val.castTag(.variable)) |payload| {
@@ -8818,9 +9034,12 @@ fn analyzeRef(
 
     try sema.requireRuntimeBlock(block, src);
     const ptr_type = try Module.simplePtrType(sema.arena, operand_ty, false, .One);
-    const alloc = try block.addTy(.alloc, ptr_type);
+    const mut_ptr_type = try Module.simplePtrType(sema.arena, operand_ty, true, .One);
+    const alloc = try block.addTy(.alloc, mut_ptr_type);
     try sema.storePtr(block, src, alloc, operand);
-    return alloc;
+
+    // TODO: Replace with sema.coerce when that supports adding pointer constness.
+    return sema.bitcast(block, ptr_type, alloc, src);
 }
 
 fn analyzeLoad(
@@ -9414,6 +9633,16 @@ pub fn resolveTypeLayout(
     }
 }
 
+pub fn resolvePendingTypes(sema: *Sema, block: *Scope.Block) !void {
+    for (sema.types_pending_resolution.items) |ty| {
+        // If an error happens resolving the fields of a struct, it will be marked
+        // invalid and a proper compile error set up. But we should still look at the
+        // other types pending resolution.
+        const src: LazySrcLoc = .{ .node_offset = 0 };
+        sema.resolveDeclFields(block, src, ty) catch continue;
+    }
+}
+
 /// `sema` and `block` are expected to be the same ones used for the `Decl`.
 pub fn resolveDeclFields(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, ty: Type) !void {
     switch (ty.tag()) {
@@ -9948,7 +10177,7 @@ fn typeHasOnePossibleValue(
     };
 }
 
-fn getAstTree(sema: *Sema, block: *Scope.Block) CompileError!*const std.zig.ast.Tree {
+fn getAstTree(sema: *Sema, block: *Scope.Block) CompileError!*const std.zig.Ast {
     return block.src_decl.namespace.file_scope.getTree(sema.gpa) catch |err| {
         log.err("unable to load AST to report compile error: {s}", .{@errorName(err)});
         return error.AnalysisFail;
@@ -9957,14 +10186,14 @@ fn getAstTree(sema: *Sema, block: *Scope.Block) CompileError!*const std.zig.ast.
 
 fn enumFieldSrcLoc(
     decl: *Decl,
-    tree: std.zig.ast.Tree,
+    tree: std.zig.Ast,
     node_offset: i32,
     field_index: usize,
 ) LazySrcLoc {
     @setCold(true);
     const enum_node = decl.relativeToNodeIndex(node_offset);
     const node_tags = tree.nodes.items(.tag);
-    var buffer: [2]std.zig.ast.Node.Index = undefined;
+    var buffer: [2]std.zig.Ast.Node.Index = undefined;
     const container_decl = switch (node_tags[enum_node]) {
         .container_decl,
         .container_decl_trailing,

@@ -984,8 +984,8 @@ pub fn addCases(ctx: *TestContext) !void {
         \\};
     , &.{
         ":4:17: error: ambiguous reference",
-        ":1:1: note: declared here",
-        ":2:5: note: also declared here",
+        ":2:5: note: declared here",
+        ":1:1: note: also declared here",
     });
 
     ctx.compileError("inner func accessing outer var", linux_x64,
@@ -999,8 +999,9 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = S;
         \\}
     , &.{
-        ":5:20: error: 'bar' not accessible from inner function",
-        ":2:9: note: declared here",
+        ":5:20: error: mutable 'bar' not accessible from here",
+        ":2:9: note: declared mutable here",
+        ":3:15: note: crosses namespace boundary here",
     });
 
     ctx.compileError("global variable redeclaration", linux_x64,
@@ -1072,27 +1073,17 @@ pub fn addCases(ctx: *TestContext) !void {
         case.addError(
             \\pub fn main() void {
             \\    var i = 0;
-            \\    for (n) |_, i| {
+            \\    for ("n") |_, i| {
             \\    }
             \\}
         , &[_][]const u8{
-            ":3:17: error: redeclaration of local variable 'i'",
+            ":3:19: error: redeclaration of local variable 'i'",
             ":2:9: note: previous declaration here",
         });
         case.addError(
             \\pub fn main() void {
             \\    var i = 0;
-            \\    for (n) |i| {
-            \\    }
-            \\}
-        , &[_][]const u8{
-            ":3:14: error: redeclaration of local variable 'i'",
-            ":2:9: note: previous declaration here",
-        });
-        case.addError(
-            \\pub fn main() void {
-            \\    var i = 0;
-            \\    while (n) |i| {
+            \\    for ("n") |i| {
             \\    }
             \\}
         , &[_][]const u8{
@@ -1102,7 +1093,17 @@ pub fn addCases(ctx: *TestContext) !void {
         case.addError(
             \\pub fn main() void {
             \\    var i = 0;
-            \\    while (n) |bruh| {
+            \\    while ("n") |i| {
+            \\    }
+            \\}
+        , &[_][]const u8{
+            ":3:18: error: redeclaration of local variable 'i'",
+            ":2:9: note: previous declaration here",
+        });
+        case.addError(
+            \\pub fn main() void {
+            \\    var i = 0;
+            \\    while ("n") |bruh| {
             \\        _ = bruh;
             \\    } else |i| {
             \\

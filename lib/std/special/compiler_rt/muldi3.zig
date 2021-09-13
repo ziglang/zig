@@ -51,6 +51,6 @@ pub fn __muldi3(a: i64, b: i64) callconv(.C) i64 {
     return r.all;
 }
 
-test "import muldi3" {
+test {
     _ = @import("muldi3_test.zig");
 }

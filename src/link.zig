@@ -73,6 +73,10 @@ pub const Options = struct {
     rdynamic: bool,
     z_nodelete: bool,
     z_defs: bool,
+    z_origin: bool,
+    z_noexecstack: bool,
+    z_now: bool,
+    z_relro: bool,
     tsaware: bool,
     nxcompat: bool,
     dynamicbase: bool,
@@ -179,7 +183,7 @@ pub const File = struct {
         /// This is where the .debug_info tag for the type is.
         off: u32,
         /// Offset from `TextBlock.dbg_info_off` (the buffer that is local to a Decl).
-        /// List of DW.AT_type / DW.FORM_ref4 that points to the type.
+        /// List of DW.AT.type / DW.FORM.ref4 that points to the type.
         relocs: std.ArrayListUnmanaged(u32),
     };
 

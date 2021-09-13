@@ -109,6 +109,7 @@ const Writer = struct {
             .mul,
             .mulwrap,
             .div,
+            .rem,
             .ptr_add,
             .ptr_sub,
             .bit_and,

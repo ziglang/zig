@@ -13,9 +13,9 @@ pub fn doClientRequest(default: usize, request: usize, a1: usize, a2: usize, a3:
                 \\ roll $3,  %%edi ; roll $13, %%edi
                 \\ roll $29, %%edi ; roll $19, %%edi
                 \\ xchgl %%ebx,%%ebx
-                : [_] "={edx}" (-> usize)
+                : [_] "={edx}" (-> usize),
                 : [_] "{eax}" (&[_]usize{ request, a1, a2, a3, a4, a5 }),
-                  [_] "0" (default)
+                  [_] "0" (default),
                 : "cc", "memory"
             );
         },
@@ -24,9 +24,9 @@ pub fn doClientRequest(default: usize, request: usize, a1: usize, a2: usize, a3:
                 \\ rolq $3,  %%rdi ; rolq $13, %%rdi
                 \\ rolq $61, %%rdi ; rolq $51, %%rdi
                 \\ xchgq %%rbx,%%rbx
-                : [_] "={rdx}" (-> usize)
+                : [_] "={rdx}" (-> usize),
                 : [_] "{rax}" (&[_]usize{ request, a1, a2, a3, a4, a5 }),
-                  [_] "0" (default)
+                  [_] "0" (default),
                 : "cc", "memory"
             );
         },
