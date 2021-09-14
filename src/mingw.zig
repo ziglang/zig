@@ -857,6 +857,7 @@ const mingwex_generic_src = [_][]const u8{
     "stdio" ++ path.sep_str ++ "fopen64.c",
     "stdio" ++ path.sep_str ++ "fseeko32.c",
     "stdio" ++ path.sep_str ++ "fseeko64.c",
+    "stdio" ++ path.sep_str ++ "fseeki64.c",
     "stdio" ++ path.sep_str ++ "fsetpos64.c",
     "stdio" ++ path.sep_str ++ "ftello.c",
     "stdio" ++ path.sep_str ++ "ftello64.c",
