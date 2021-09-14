@@ -6313,7 +6313,7 @@ fn zirTypeInfo(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileEr
                         sema.arena,
                         @enumToInt(@typeInfo(std.builtin.TypeInfo).Union.tag_type.?.Fn),
                     ),
-                    .val = try Value.Tag.@"struct".create(sema.arena, field_values.ptr),
+                    .val = try Value.Tag.@"struct".create(sema.arena, field_values),
                 }),
             );
         },
@@ -6335,7 +6335,7 @@ fn zirTypeInfo(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileEr
                         sema.arena,
                         @enumToInt(@typeInfo(std.builtin.TypeInfo).Union.tag_type.?.Int),
                     ),
-                    .val = try Value.Tag.@"struct".create(sema.arena, field_values.ptr),
+                    .val = try Value.Tag.@"struct".create(sema.arena, field_values),
                 }),
             );
         },
@@ -6943,7 +6943,7 @@ fn zirStructInit(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index, is_ref:
             for (field_inits) |field_init, i| {
                 values[i] = (sema.resolveMaybeUndefVal(block, src, field_init) catch unreachable).?;
             }
-            return sema.addConstant(resolved_ty, try Value.Tag.@"struct".create(sema.arena, values.ptr));
+            return sema.addConstant(resolved_ty, try Value.Tag.@"struct".create(sema.arena, values));
         }
 
         return mod.fail(&block.base, src, "TODO: Sema.zirStructInit for runtime-known struct values", .{});

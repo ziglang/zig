@@ -344,7 +344,9 @@ pub const Value = extern union {
         return null;
     }
 
-    pub fn copy(self: Value, allocator: *Allocator) error{OutOfMemory}!Value {
+    /// It's intentional that this function is not passed a corresponding Type, so that
+    /// a Value can be copied from a Sema to a Decl prior to resolving struct/union field types.
+    pub fn copy(self: Value, arena: *Allocator) error{OutOfMemory}!Value {
         if (self.tag_if_small_enough < Tag.no_payload_count) {
             return Value{ .tag_if_small_enough = self.tag_if_small_enough };
         } else switch (self.ptr_otherwise.tag) {
@@ -421,37 +423,37 @@ pub const Value = extern union {
 
             .ty => {
                 const payload = self.castTag(.ty).?;
-                const new_payload = try allocator.create(Payload.Ty);
+                const new_payload = try arena.create(Payload.Ty);
                 new_payload.* = .{
                     .base = payload.base,
-                    .data = try payload.data.copy(allocator),
+                    .data = try payload.data.copy(arena),
                 };
                 return Value{ .ptr_otherwise = &new_payload.base };
             },
-            .int_type => return self.copyPayloadShallow(allocator, Payload.IntType),
-            .int_u64 => return self.copyPayloadShallow(allocator, Payload.U64),
-            .int_i64 => return self.copyPayloadShallow(allocator, Payload.I64),
+            .int_type => return self.copyPayloadShallow(arena, Payload.IntType),
+            .int_u64 => return self.copyPayloadShallow(arena, Payload.U64),
+            .int_i64 => return self.copyPayloadShallow(arena, Payload.I64),
             .int_big_positive, .int_big_negative => {
                 const old_payload = self.cast(Payload.BigInt).?;
-                const new_payload = try allocator.create(Payload.BigInt);
+                const new_payload = try arena.create(Payload.BigInt);
                 new_payload.* = .{
                     .base = .{ .tag = self.ptr_otherwise.tag },
-                    .data = try allocator.dupe(std.math.big.Limb, old_payload.data),
+                    .data = try arena.dupe(std.math.big.Limb, old_payload.data),
                 };
                 return Value{ .ptr_otherwise = &new_payload.base };
             },
-            .function => return self.copyPayloadShallow(allocator, Payload.Function),
-            .extern_fn => return self.copyPayloadShallow(allocator, Payload.Decl),
-            .variable => return self.copyPayloadShallow(allocator, Payload.Variable),
-            .decl_ref => return self.copyPayloadShallow(allocator, Payload.Decl),
-            .decl_ref_mut => return self.copyPayloadShallow(allocator, Payload.DeclRefMut),
+            .function => return self.copyPayloadShallow(arena, Payload.Function),
+            .extern_fn => return self.copyPayloadShallow(arena, Payload.Decl),
+            .variable => return self.copyPayloadShallow(arena, Payload.Variable),
+            .decl_ref => return self.copyPayloadShallow(arena, Payload.Decl),
+            .decl_ref_mut => return self.copyPayloadShallow(arena, Payload.DeclRefMut),
             .elem_ptr => {
                 const payload = self.castTag(.elem_ptr).?;
-                const new_payload = try allocator.create(Payload.ElemPtr);
+                const new_payload = try arena.create(Payload.ElemPtr);
                 new_payload.* = .{
                     .base = payload.base,
                     .data = .{
-                        .array_ptr = try payload.data.array_ptr.copy(allocator),
+                        .array_ptr = try payload.data.array_ptr.copy(arena),
                         .index = payload.data.index,
                     },
                 };
@@ -459,17 +461,17 @@ pub const Value = extern union {
             },
             .field_ptr => {
                 const payload = self.castTag(.field_ptr).?;
-                const new_payload = try allocator.create(Payload.FieldPtr);
+                const new_payload = try arena.create(Payload.FieldPtr);
                 new_payload.* = .{
                     .base = payload.base,
                     .data = .{
-                        .container_ptr = try payload.data.container_ptr.copy(allocator),
+                        .container_ptr = try payload.data.container_ptr.copy(arena),
                         .field_index = payload.data.field_index,
                     },
                 };
                 return Value{ .ptr_otherwise = &new_payload.base };
             },
-            .bytes => return self.copyPayloadShallow(allocator, Payload.Bytes),
+            .bytes => return self.copyPayloadShallow(arena, Payload.Bytes),
             .repeated,
             .eu_payload,
             .eu_payload_ptr,
@@ -477,61 +479,85 @@ pub const Value = extern union {
             .opt_payload_ptr,
             => {
                 const payload = self.cast(Payload.SubValue).?;
-                const new_payload = try allocator.create(Payload.SubValue);
+                const new_payload = try arena.create(Payload.SubValue);
                 new_payload.* = .{
                     .base = payload.base,
-                    .data = try payload.data.copy(allocator),
+                    .data = try payload.data.copy(arena),
                 };
                 return Value{ .ptr_otherwise = &new_payload.base };
             },
             .array => {
                 const payload = self.castTag(.array).?;
-                const new_payload = try allocator.create(Payload.Array);
+                const new_payload = try arena.create(Payload.Array);
                 new_payload.* = .{
                     .base = payload.base,
-                    .data = try allocator.alloc(Value, payload.data.len),
+                    .data = try arena.alloc(Value, payload.data.len),
                 };
                 std.mem.copy(Value, new_payload.data, payload.data);
                 return Value{ .ptr_otherwise = &new_payload.base };
             },
             .slice => {
                 const payload = self.castTag(.slice).?;
-                const new_payload = try allocator.create(Payload.Slice);
+                const new_payload = try arena.create(Payload.Slice);
                 new_payload.* = .{
                     .base = payload.base,
                     .data = .{
-                        .ptr = try payload.data.ptr.copy(allocator),
-                        .len = try payload.data.len.copy(allocator),
+                        .ptr = try payload.data.ptr.copy(arena),
+                        .len = try payload.data.len.copy(arena),
                     },
                 };
                 return Value{ .ptr_otherwise = &new_payload.base };
             },
-            .float_16 => return self.copyPayloadShallow(allocator, Payload.Float_16),
-            .float_32 => return self.copyPayloadShallow(allocator, Payload.Float_32),
-            .float_64 => return self.copyPayloadShallow(allocator, Payload.Float_64),
-            .float_128 => return self.copyPayloadShallow(allocator, Payload.Float_128),
+            .float_16 => return self.copyPayloadShallow(arena, Payload.Float_16),
+            .float_32 => return self.copyPayloadShallow(arena, Payload.Float_32),
+            .float_64 => return self.copyPayloadShallow(arena, Payload.Float_64),
+            .float_128 => return self.copyPayloadShallow(arena, Payload.Float_128),
             .enum_literal => {
                 const payload = self.castTag(.enum_literal).?;
-                const new_payload = try allocator.create(Payload.Bytes);
+                const new_payload = try arena.create(Payload.Bytes);
                 new_payload.* = .{
                     .base = payload.base,
-                    .data = try allocator.dupe(u8, payload.data),
+                    .data = try arena.dupe(u8, payload.data),
                 };
                 return Value{ .ptr_otherwise = &new_payload.base };
             },
-            .enum_field_index => return self.copyPayloadShallow(allocator, Payload.U32),
-            .@"error" => return self.copyPayloadShallow(allocator, Payload.Error),
-            .@"struct" => @panic("TODO can't copy struct value without knowing the type"),
-            .@"union" => @panic("TODO can't copy union value without knowing the type"),
+            .enum_field_index => return self.copyPayloadShallow(arena, Payload.U32),
+            .@"error" => return self.copyPayloadShallow(arena, Payload.Error),
+
+            .@"struct" => {
+                const old_field_values = self.castTag(.@"struct").?.data;
+                const new_payload = try arena.create(Payload.Struct);
+                new_payload.* = .{
+                    .base = .{ .tag = .@"struct" },
+                    .data = try arena.alloc(Value, old_field_values.len),
+                };
+                for (old_field_values) |old_field_val, i| {
+                    new_payload.data[i] = try old_field_val.copy(arena);
+                }
+                return Value{ .ptr_otherwise = &new_payload.base };
+            },
+
+            .@"union" => {
+                const tag_and_val = self.castTag(.@"union").?.data;
+                const new_payload = try arena.create(Payload.Union);
+                new_payload.* = .{
+                    .base = .{ .tag = .@"union" },
+                    .data = .{
+                        .tag = try tag_and_val.tag.copy(arena),
+                        .val = try tag_and_val.val.copy(arena),
+                    },
+                };
+                return Value{ .ptr_otherwise = &new_payload.base };
+            },
 
             .inferred_alloc => unreachable,
             .inferred_alloc_comptime => unreachable,
         }
     }
 
-    fn copyPayloadShallow(self: Value, allocator: *Allocator, comptime T: type) error{OutOfMemory}!Value {
+    fn copyPayloadShallow(self: Value, arena: *Allocator, comptime T: type) error{OutOfMemory}!Value {
         const payload = self.cast(T).?;
-        const new_payload = try allocator.create(T);
+        const new_payload = try arena.create(T);
         new_payload.* = payload.*;
         return Value{ .ptr_otherwise = &new_payload.base };
     }
@@ -1932,8 +1958,9 @@ pub const Value = extern union {
             pub const base_tag = Tag.@"struct";
 
             base: Payload = .{ .tag = base_tag },
-            /// Field values. The number and type are according to the struct type.
-            data: [*]Value,
+            /// Field values. The types are according to the struct type.
+            /// The length is provided here so that copying a Value does not depend on the Type.
+            data: []Value,
         };
 
         pub const Union = struct {
