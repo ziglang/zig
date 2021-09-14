@@ -1417,9 +1417,9 @@ fn renderFnProto(gpa: *Allocator, ais: *Ais, tree: Ast, fn_proto: Ast.full.FnPro
         try renderToken(ais, tree, section_rparen, .space); // )
     }
 
-    if (fn_proto.ast.callconv_expr != 0 and
-        !mem.eql(u8, "Inline", tree.tokenSlice(tree.nodes.items(.main_token)[fn_proto.ast.callconv_expr])))
-    {
+    const is_callconv_inline = mem.eql(u8, "Inline", tree.tokenSlice(tree.nodes.items(.main_token)[fn_proto.ast.callconv_expr]));
+    const is_declaration = fn_proto.name_token != null;
+    if (fn_proto.ast.callconv_expr != 0 and !(is_declaration and is_callconv_inline)) {
         const callconv_lparen = tree.firstToken(fn_proto.ast.callconv_expr) - 1;
         const callconv_rparen = tree.lastToken(fn_proto.ast.callconv_expr) + 1;
 

@@ -2879,6 +2879,9 @@ test "zig fmt: functions" {
         \\pub export fn puts(s: *const u8) align(2 + 2) c_int;
         \\pub inline fn puts(s: *const u8) align(2 + 2) c_int;
         \\pub noinline fn puts(s: *const u8) align(2 + 2) c_int;
+        \\pub fn callInlineFn(func: fn () callconv(.Inline) void) void {
+        \\    func();
+        \\}
         \\
     );
 }
