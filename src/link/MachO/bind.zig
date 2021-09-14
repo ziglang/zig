@@ -9,15 +9,6 @@ pub const Pointer = struct {
     name: ?[]const u8 = null,
 };
 
-pub fn pointerCmp(context: void, a: Pointer, b: Pointer) bool {
-    _ = context;
-    if (a.segment_id < b.segment_id) return true;
-    if (a.segment_id == b.segment_id) {
-        return a.offset < b.offset;
-    }
-    return false;
-}
-
 pub fn rebaseInfoSize(pointers: []const Pointer) !u64 {
     var stream = std.io.countingWriter(std.io.null_writer);
     var writer = stream.writer();

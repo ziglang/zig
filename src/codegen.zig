@@ -2816,24 +2816,21 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 if (self.air.value(callee)) |func_value| {
                     if (func_value.castTag(.function)) |func_payload| {
                         const func = func_payload.data;
-                        const got_addr = blk: {
-                            const seg = macho_file.load_commands.items[macho_file.data_const_segment_cmd_index.?].Segment;
-                            const got = seg.sections.items[macho_file.got_section_index.?];
-                            const got_index = macho_file.got_entries_map.get(.{
-                                .where = .local,
-                                .where_index = func.owner_decl.link.macho.local_sym_index,
-                            }) orelse unreachable;
-                            break :blk got.addr + got_index * @sizeOf(u64);
-                        };
+                        // TODO I'm hacking my way through here by repurposing .memory for storing
+                        // index to the GOT target symbol index.
                         switch (arch) {
                             .x86_64 => {
-                                try self.genSetReg(Type.initTag(.u64), .rax, .{ .memory = got_addr });
+                                try self.genSetReg(Type.initTag(.u64), .rax, .{
+                                    .memory = func.owner_decl.link.macho.local_sym_index,
+                                });
                                 // callq *%rax
                                 try self.code.ensureCapacity(self.code.items.len + 2);
                                 self.code.appendSliceAssumeCapacity(&[2]u8{ 0xff, 0xd0 });
                             },
                             .aarch64 => {
-                                try self.genSetReg(Type.initTag(.u64), .x30, .{ .memory = got_addr });
+                                try self.genSetReg(Type.initTag(.u64), .x30, .{
+                                    .memory = func.owner_decl.link.macho.local_sym_index,
+                                });
                                 // blr x30
                                 writeInt(u32, try self.code.addManyAsArray(4), Instruction.blr(.x30).toU32());
                             },
@@ -4345,29 +4342,20 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             }).toU32());
 
                             if (self.bin_file.cast(link.File.MachO)) |macho_file| {
-                                // TODO this is super awkward. We are reversing the address of the GOT entry here.
-                                // We should probably have it cached or move the reloc adding somewhere else.
-                                const got_addr = blk: {
-                                    const seg = macho_file.load_commands.items[macho_file.data_const_segment_cmd_index.?].Segment;
-                                    const got = seg.sections.items[macho_file.got_section_index.?];
-                                    break :blk got.addr;
-                                };
-                                const where_index = blk: for (macho_file.got_entries.items) |key, id| {
-                                    if (got_addr + id * @sizeOf(u64) == addr) break :blk key.where_index;
-                                } else unreachable;
+                                // TODO I think the reloc might be in the wrong place.
                                 const decl = macho_file.active_decl.?;
                                 // Page reloc for adrp instruction.
                                 try decl.link.macho.relocs.append(self.bin_file.allocator, .{
                                     .offset = offset,
                                     .where = .local,
-                                    .where_index = where_index,
+                                    .where_index = @intCast(u32, addr),
                                     .payload = .{ .page = .{ .kind = .got } },
                                 });
                                 // Pageoff reloc for adrp instruction.
                                 try decl.link.macho.relocs.append(self.bin_file.allocator, .{
                                     .offset = offset + 4,
                                     .where = .local,
-                                    .where_index = where_index,
+                                    .where_index = @intCast(u32, addr),
                                     .payload = .{ .page_off = .{ .kind = .got } },
                                 });
                             } else {
@@ -4628,22 +4616,13 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             const offset = @intCast(u32, self.code.items.len);
 
                             if (self.bin_file.cast(link.File.MachO)) |macho_file| {
-                                // TODO this is super awkward. We are reversing the address of the GOT entry here.
-                                // We should probably have it cached or move the reloc adding somewhere else.
-                                const got_addr = blk: {
-                                    const seg = macho_file.load_commands.items[macho_file.data_const_segment_cmd_index.?].Segment;
-                                    const got = seg.sections.items[macho_file.got_section_index.?];
-                                    break :blk got.addr;
-                                };
-                                const where_index = blk: for (macho_file.got_entries.items) |key, id| {
-                                    if (got_addr + id * @sizeOf(u64) == x) break :blk key.where_index;
-                                } else unreachable;
+                                // TODO I think the reloc might be in the wrong place.
                                 const decl = macho_file.active_decl.?;
                                 // Load reloc for LEA instruction.
                                 try decl.link.macho.relocs.append(self.bin_file.allocator, .{
                                     .offset = offset - 4,
                                     .where = .local,
-                                    .where_index = where_index,
+                                    .where_index = @intCast(u32, x),
                                     .payload = .{ .load = .{ .kind = .got } },
                                 });
                             } else {
@@ -4869,17 +4848,10 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 const got = &elf_file.program_headers.items[elf_file.phdr_got_index.?];
                                 const got_addr = got.p_vaddr + decl.link.elf.offset_table_index * ptr_bytes;
                                 return MCValue{ .memory = got_addr };
-                            } else if (self.bin_file.cast(link.File.MachO)) |macho_file| {
-                                const got_addr = blk: {
-                                    const seg = macho_file.load_commands.items[macho_file.data_const_segment_cmd_index.?].Segment;
-                                    const got = seg.sections.items[macho_file.got_section_index.?];
-                                    const got_index = macho_file.got_entries_map.get(.{
-                                        .where = .local,
-                                        .where_index = decl.link.macho.local_sym_index,
-                                    }) orelse unreachable;
-                                    break :blk got.addr + got_index * ptr_bytes;
-                                };
-                                return MCValue{ .memory = got_addr };
+                            } else if (self.bin_file.cast(link.File.MachO)) |_| {
+                                // TODO I'm hacking my way through here by repurposing .memory for storing
+                                // index to the GOT target symbol index.
+                                return MCValue{ .memory = decl.link.macho.local_sym_index };
                             } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
                                 const got_addr = coff_file.offset_table_virtual_address + decl.link.coff.offset_table_index * ptr_bytes;
                                 return MCValue{ .memory = got_addr };

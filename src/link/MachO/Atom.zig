@@ -1,6 +1,7 @@
-const TextBlock = @This();
+const Atom = @This();
 
 const std = @import("std");
+const build_options = @import("build_options");
 const aarch64 = @import("../../codegen/aarch64.zig");
 const assert = std.debug.assert;
 const commands = @import("commands.zig");
@@ -9,6 +10,7 @@ const macho = std.macho;
 const math = std.math;
 const mem = std.mem;
 const meta = std.meta;
+const trace = @import("../../tracy.zig").trace;
 
 const Allocator = mem.Allocator;
 const Arch = std.Target.Cpu.Arch;
@@ -24,53 +26,62 @@ const StringIndexAdapter = std.hash_map.StringIndexAdapter;
 /// offset table entry.
 local_sym_index: u32,
 
-/// List of symbol aliases pointing to the same block via different nlists
+/// List of symbol aliases pointing to the same atom via different nlists
 aliases: std.ArrayListUnmanaged(u32) = .{},
 
-/// List of symbols contained within this block
+/// List of symbols contained within this atom
 contained: std.ArrayListUnmanaged(SymbolAtOffset) = .{},
 
-/// Code (may be non-relocated) this block represents
+/// Code (may be non-relocated) this atom represents
 code: std.ArrayListUnmanaged(u8) = .{},
 
-/// Size and alignment of this text block
+/// Size and alignment of this atom
 /// Unlike in Elf, we need to store the size of this symbol as part of
-/// the TextBlock since macho.nlist_64 lacks this information.
+/// the atom since macho.nlist_64 lacks this information.
 size: u64,
+
+/// Alignment of this atom as a power of 2.
+/// For instance, aligmment of 0 should be read as 2^0 = 1 byte aligned.
 alignment: u32,
 
+/// List of relocations belonging to this atom.
 relocs: std.ArrayListUnmanaged(Relocation) = .{},
 
-/// List of offsets contained within this block that need rebasing by the dynamic
-/// loader in presence of ASLR
+/// List of offsets contained within this atom that need rebasing by the dynamic
+/// loader in presence of ASLR.
 rebases: std.ArrayListUnmanaged(u64) = .{},
 
-/// List of offsets contained within this block that will be dynamically bound
+/// List of offsets contained within this atom that will be dynamically bound
 /// by the dynamic loader and contain pointers to resolved (at load time) extern
 /// symbols (aka proxies aka imports)
 bindings: std.ArrayListUnmanaged(SymbolAtOffset) = .{},
 
+/// List of lazy bindings
+lazy_bindings: std.ArrayListUnmanaged(SymbolAtOffset) = .{},
+
 /// List of data-in-code entries. This is currently specific to x86_64 only.
 dices: std.ArrayListUnmanaged(macho.data_in_code_entry) = .{},
 
-/// Stab entry for this block. This is currently specific to a binary created
+/// Stab entry for this atom. This is currently specific to a binary created
 /// by linking object files in a traditional sense - in incremental sense, we
 /// bypass stabs altogether to produce dSYM bundle directly with fully relocated
 /// DWARF sections.
 stab: ?Stab = null,
 
 /// Points to the previous and next neighbours
-next: ?*TextBlock,
-prev: ?*TextBlock,
+next: ?*Atom,
+prev: ?*Atom,
 
 /// Previous/next linked list pointers.
 /// This is the linked list node for this Decl's corresponding .debug_info tag.
-dbg_info_prev: ?*TextBlock,
-dbg_info_next: ?*TextBlock,
+dbg_info_prev: ?*Atom,
+dbg_info_next: ?*Atom,
 /// Offset into .debug_info pointing to the tag for this Decl.
 dbg_info_off: u32,
 /// Size of the .debug_info tag for this Decl, not including padding.
 dbg_info_len: u32,
+
+dirty: bool = true,
 
 pub const SymbolAtOffset = struct {
     local_sym_index: u32,
@@ -160,7 +171,7 @@ pub const Stab = union(enum) {
 };
 
 pub const Relocation = struct {
-    /// Offset within the `block`s code buffer.
+    /// Offset within the atom's code buffer.
     /// Note relocation size can be inferred by relocation's kind.
     offset: u32,
 
@@ -182,7 +193,7 @@ pub const Relocation = struct {
     },
 
     const ResolveArgs = struct {
-        block: *TextBlock,
+        block: *Atom,
         offset: u32,
         source_addr: u64,
         target_addr: u64,
@@ -238,10 +249,21 @@ pub const Relocation = struct {
         pub fn resolve(self: Branch, args: ResolveArgs) !void {
             switch (self.arch) {
                 .aarch64 => {
-                    const displacement = try math.cast(
+                    const displacement = math.cast(
                         i28,
                         @intCast(i64, args.target_addr) - @intCast(i64, args.source_addr),
-                    );
+                    ) catch |err| switch (err) {
+                        error.Overflow => {
+                            log.err("jump too big to encode as i28 displacement value", .{});
+                            log.err("  (target - source) = displacement => 0x{x} - 0x{x} = 0x{x}", .{
+                                args.target_addr,
+                                args.source_addr,
+                                @intCast(i64, args.target_addr) - @intCast(i64, args.source_addr),
+                            });
+                            log.err("  TODO implement branch islands to extend jump distance for arm64", .{});
+                            return error.TODOImplementBranchIslands;
+                        },
+                    };
                     const code = args.block.code.items[args.offset..][0..4];
                     var inst = aarch64.Instruction{
                         .unconditional_branch_immediate = mem.bytesToValue(meta.TagPayload(
@@ -474,13 +496,13 @@ pub const Relocation = struct {
 
     pub const Signed = struct {
         addend: i64,
-        correction: i4,
+        correction: u3,
 
         pub fn resolve(self: Signed, args: ResolveArgs) !void {
             const target_addr = @intCast(i64, args.target_addr) + self.addend;
             const displacement = try math.cast(
                 i32,
-                target_addr - @intCast(i64, args.source_addr) - self.correction - 4,
+                target_addr - @intCast(i64, args.source_addr + self.correction + 4),
             );
             mem.writeIntLittle(u32, args.block.code.items[args.offset..][0..4], @bitCast(u32, displacement));
         }
@@ -556,7 +578,7 @@ pub const Relocation = struct {
     }
 };
 
-pub const empty = TextBlock{
+pub const empty = Atom{
     .local_sym_index = 0,
     .size = 0,
     .alignment = 0,
@@ -568,8 +590,9 @@ pub const empty = TextBlock{
     .dbg_info_len = undefined,
 };
 
-pub fn deinit(self: *TextBlock, allocator: *Allocator) void {
+pub fn deinit(self: *Atom, allocator: *Allocator) void {
     self.dices.deinit(allocator);
+    self.lazy_bindings.deinit(allocator);
     self.bindings.deinit(allocator);
     self.rebases.deinit(allocator);
     self.relocs.deinit(allocator);
@@ -578,23 +601,34 @@ pub fn deinit(self: *TextBlock, allocator: *Allocator) void {
     self.code.deinit(allocator);
 }
 
+pub fn clearRetainingCapacity(self: *Atom) void {
+    self.dices.clearRetainingCapacity();
+    self.lazy_bindings.clearRetainingCapacity();
+    self.bindings.clearRetainingCapacity();
+    self.rebases.clearRetainingCapacity();
+    self.relocs.clearRetainingCapacity();
+    self.contained.clearRetainingCapacity();
+    self.aliases.clearRetainingCapacity();
+    self.code.clearRetainingCapacity();
+}
+
 /// Returns how much room there is to grow in virtual address space.
 /// File offset relocation happens transparently, so it is not included in
 /// this calculation.
-pub fn capacity(self: TextBlock, macho_file: MachO) u64 {
+pub fn capacity(self: Atom, macho_file: MachO) u64 {
     const self_sym = macho_file.locals.items[self.local_sym_index];
     if (self.next) |next| {
         const next_sym = macho_file.locals.items[next.local_sym_index];
         return next_sym.n_value - self_sym.n_value;
     } else {
-        // We are the last block.
+        // We are the last atom.
         // The capacity is limited only by virtual address space.
         return std.math.maxInt(u64) - self_sym.n_value;
     }
 }
 
-pub fn freeListEligible(self: TextBlock, macho_file: MachO) bool {
-    // No need to keep a free list node for the last block.
+pub fn freeListEligible(self: Atom, macho_file: MachO) bool {
+    // No need to keep a free list node for the last atom.
     const next = self.next orelse return false;
     const self_sym = macho_file.locals.items[self.local_sym_index];
     const next_sym = macho_file.locals.items[next.local_sym_index];
@@ -607,14 +641,16 @@ pub fn freeListEligible(self: TextBlock, macho_file: MachO) bool {
 
 const RelocContext = struct {
     base_addr: u64 = 0,
+    base_offset: u64 = 0,
     allocator: *Allocator,
     object: *Object,
     macho_file: *MachO,
+    parsed_atoms: *Object.ParsedAtoms,
 };
 
 fn initRelocFromObject(rel: macho.relocation_info, context: RelocContext) !Relocation {
     var parsed_rel = Relocation{
-        .offset = @intCast(u32, @intCast(u64, rel.r_address) - context.base_addr),
+        .offset = @intCast(u32, @intCast(u64, rel.r_address) - context.base_offset),
         .where = undefined,
         .where_index = undefined,
         .payload = undefined,
@@ -640,7 +676,7 @@ fn initRelocFromObject(rel: macho.relocation_info, context: RelocContext) !Reloc
                 .n_type = macho.N_SECT,
                 .n_sect = @intCast(u8, context.macho_file.section_ordinals.getIndex(match).? + 1),
                 .n_desc = 0,
-                .n_value = sect.addr,
+                .n_value = 0,
             });
             try context.object.sections_as_symbols.putNoClobber(context.allocator, sect_id, local_sym_index);
             break :blk local_sym_index;
@@ -677,8 +713,11 @@ fn initRelocFromObject(rel: macho.relocation_info, context: RelocContext) !Reloc
     return parsed_rel;
 }
 
-pub fn parseRelocs(self: *TextBlock, relocs: []macho.relocation_info, context: RelocContext) !void {
-    const filtered_relocs = filterRelocs(relocs, context.base_addr, context.base_addr + self.size);
+pub fn parseRelocs(self: *Atom, relocs: []macho.relocation_info, context: RelocContext) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const filtered_relocs = filterRelocs(relocs, context.base_offset, context.base_offset + self.size);
     var it = RelocIterator{
         .buffer = filtered_relocs,
     };
@@ -831,9 +870,20 @@ pub fn parseRelocs(self: *TextBlock, relocs: []macho.relocation_info, context: R
             };
             if (context.macho_file.got_entries_map.contains(key)) break :blk;
 
-            const got_index = @intCast(u32, context.macho_file.got_entries.items.len);
-            try context.macho_file.got_entries.append(context.allocator, key);
-            try context.macho_file.got_entries_map.putNoClobber(context.allocator, key, got_index);
+            const atom = try context.macho_file.createGotAtom(key);
+            try context.macho_file.got_entries_map.putNoClobber(context.macho_file.base.allocator, key, atom);
+            const match = MachO.MatchingSection{
+                .seg = context.macho_file.data_const_segment_cmd_index.?,
+                .sect = context.macho_file.got_section_index.?,
+            };
+
+            if (context.parsed_atoms.getPtr(match)) |last| {
+                last.*.next = atom;
+                atom.prev = last.*;
+                last.* = atom;
+            } else {
+                try context.parsed_atoms.putNoClobber(match, atom);
+            }
         } else if (parsed_rel.payload == .unsigned) {
             switch (parsed_rel.where) {
                 .undef => {
@@ -889,9 +939,53 @@ pub fn parseRelocs(self: *TextBlock, relocs: []macho.relocation_info, context: R
             if (parsed_rel.where != .undef) break :blk;
             if (context.macho_file.stubs_map.contains(parsed_rel.where_index)) break :blk;
 
-            const stubs_index = @intCast(u32, context.macho_file.stubs.items.len);
-            try context.macho_file.stubs.append(context.allocator, parsed_rel.where_index);
-            try context.macho_file.stubs_map.putNoClobber(context.allocator, parsed_rel.where_index, stubs_index);
+            const stub_helper_atom = try context.macho_file.createStubHelperAtom();
+            const laptr_atom = try context.macho_file.createLazyPointerAtom(
+                stub_helper_atom.local_sym_index,
+                parsed_rel.where_index,
+            );
+            const stub_atom = try context.macho_file.createStubAtom(laptr_atom.local_sym_index);
+            try context.macho_file.stubs_map.putNoClobber(context.allocator, parsed_rel.where_index, stub_atom);
+            // TODO clean this up!
+            if (context.parsed_atoms.getPtr(.{
+                .seg = context.macho_file.text_segment_cmd_index.?,
+                .sect = context.macho_file.stub_helper_section_index.?,
+            })) |last| {
+                last.*.next = stub_helper_atom;
+                stub_helper_atom.prev = last.*;
+                last.* = stub_helper_atom;
+            } else {
+                try context.parsed_atoms.putNoClobber(.{
+                    .seg = context.macho_file.text_segment_cmd_index.?,
+                    .sect = context.macho_file.stub_helper_section_index.?,
+                }, stub_helper_atom);
+            }
+            if (context.parsed_atoms.getPtr(.{
+                .seg = context.macho_file.text_segment_cmd_index.?,
+                .sect = context.macho_file.stubs_section_index.?,
+            })) |last| {
+                last.*.next = stub_atom;
+                stub_atom.prev = last.*;
+                last.* = stub_atom;
+            } else {
+                try context.parsed_atoms.putNoClobber(.{
+                    .seg = context.macho_file.text_segment_cmd_index.?,
+                    .sect = context.macho_file.stubs_section_index.?,
+                }, stub_atom);
+            }
+            if (context.parsed_atoms.getPtr(.{
+                .seg = context.macho_file.data_segment_cmd_index.?,
+                .sect = context.macho_file.la_symbol_ptr_section_index.?,
+            })) |last| {
+                last.*.next = laptr_atom;
+                laptr_atom.prev = last.*;
+                last.* = laptr_atom;
+            } else {
+                try context.parsed_atoms.putNoClobber(.{
+                    .seg = context.macho_file.data_segment_cmd_index.?,
+                    .sect = context.macho_file.la_symbol_ptr_section_index.?,
+                }, laptr_atom);
+            }
         }
     }
 }
@@ -910,7 +1004,7 @@ fn isSubtractor(rel: macho.relocation_info, arch: Arch) bool {
 }
 
 fn parseUnsigned(
-    self: TextBlock,
+    self: Atom,
     rel: macho.relocation_info,
     out: *Relocation,
     subtractor: ?u32,
@@ -930,9 +1024,9 @@ fn parseUnsigned(
         mem.readIntLittle(i32, self.code.items[out.offset..][0..4]);
 
     if (rel.r_extern == 0) {
-        assert(out.where == .local);
-        const target_sym = context.macho_file.locals.items[out.where_index];
-        addend -= @intCast(i64, target_sym.n_value);
+        const seg = context.object.load_commands.items[context.object.segment_cmd_index.?].Segment;
+        const target_sect_base_addr = seg.sections.items[rel.r_symbolnum - 1].addr;
+        addend -= @intCast(i64, target_sect_base_addr);
     }
 
     out.payload = .{
@@ -944,7 +1038,7 @@ fn parseUnsigned(
     };
 }
 
-fn parseBranch(self: TextBlock, rel: macho.relocation_info, out: *Relocation, context: RelocContext) void {
+fn parseBranch(self: Atom, rel: macho.relocation_info, out: *Relocation, context: RelocContext) void {
     _ = self;
     assert(rel.r_pcrel == 1);
     assert(rel.r_length == 2);
@@ -956,7 +1050,7 @@ fn parseBranch(self: TextBlock, rel: macho.relocation_info, out: *Relocation, co
     };
 }
 
-fn parsePage(self: TextBlock, rel: macho.relocation_info, out: *Relocation, addend: u32) void {
+fn parsePage(self: Atom, rel: macho.relocation_info, out: *Relocation, addend: u32) void {
     _ = self;
     assert(rel.r_pcrel == 1);
     assert(rel.r_length == 2);
@@ -974,7 +1068,7 @@ fn parsePage(self: TextBlock, rel: macho.relocation_info, out: *Relocation, adde
     };
 }
 
-fn parsePageOff(self: TextBlock, rel: macho.relocation_info, out: *Relocation, addend: u32) void {
+fn parsePageOff(self: Atom, rel: macho.relocation_info, out: *Relocation, addend: u32) void {
     assert(rel.r_pcrel == 0);
     assert(rel.r_length == 2);
 
@@ -1002,7 +1096,7 @@ fn parsePageOff(self: TextBlock, rel: macho.relocation_info, out: *Relocation, a
     };
 }
 
-fn parsePointerToGot(self: TextBlock, rel: macho.relocation_info, out: *Relocation) void {
+fn parsePointerToGot(self: Atom, rel: macho.relocation_info, out: *Relocation) void {
     _ = self;
     assert(rel.r_pcrel == 1);
     assert(rel.r_length == 2);
@@ -1012,12 +1106,12 @@ fn parsePointerToGot(self: TextBlock, rel: macho.relocation_info, out: *Relocati
     };
 }
 
-fn parseSigned(self: TextBlock, rel: macho.relocation_info, out: *Relocation, context: RelocContext) void {
+fn parseSigned(self: Atom, rel: macho.relocation_info, out: *Relocation, context: RelocContext) void {
     assert(rel.r_pcrel == 1);
     assert(rel.r_length == 2);
 
     const rel_type = @intToEnum(macho.reloc_type_x86_64, rel.r_type);
-    const correction: i4 = switch (rel_type) {
+    const correction: u3 = switch (rel_type) {
         .X86_64_RELOC_SIGNED => 0,
         .X86_64_RELOC_SIGNED_1 => 1,
         .X86_64_RELOC_SIGNED_2 => 2,
@@ -1027,12 +1121,9 @@ fn parseSigned(self: TextBlock, rel: macho.relocation_info, out: *Relocation, co
     var addend: i64 = mem.readIntLittle(i32, self.code.items[out.offset..][0..4]) + correction;
 
     if (rel.r_extern == 0) {
-        const source_sym = context.macho_file.locals.items[self.local_sym_index];
-        const target_sym = switch (out.where) {
-            .local => context.macho_file.locals.items[out.where_index],
-            .undef => context.macho_file.undefs.items[out.where_index],
-        };
-        addend = @intCast(i64, source_sym.n_value + out.offset + 4) + addend - @intCast(i64, target_sym.n_value);
+        const seg = context.object.load_commands.items[context.object.segment_cmd_index.?].Segment;
+        const target_sect_base_addr = seg.sections.items[rel.r_symbolnum - 1].addr;
+        addend += @intCast(i64, context.base_addr + out.offset + correction + 4) - @intCast(i64, target_sect_base_addr);
     }
 
     out.payload = .{
@@ -1043,7 +1134,7 @@ fn parseSigned(self: TextBlock, rel: macho.relocation_info, out: *Relocation, co
     };
 }
 
-fn parseLoad(self: TextBlock, rel: macho.relocation_info, out: *Relocation) void {
+fn parseLoad(self: Atom, rel: macho.relocation_info, out: *Relocation) void {
     assert(rel.r_pcrel == 1);
     assert(rel.r_length == 2);
 
@@ -1065,7 +1156,10 @@ fn parseLoad(self: TextBlock, rel: macho.relocation_info, out: *Relocation) void
     };
 }
 
-pub fn resolveRelocs(self: *TextBlock, macho_file: *MachO) !void {
+pub fn resolveRelocs(self: *Atom, macho_file: *MachO) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
     for (self.relocs.items) |rel| {
         log.debug("relocating {}", .{rel});
 
@@ -1083,9 +1177,7 @@ pub fn resolveRelocs(self: *TextBlock, macho_file: *MachO) !void {
             };
 
             if (is_via_got) {
-                const dc_seg = macho_file.load_commands.items[macho_file.data_const_segment_cmd_index.?].Segment;
-                const got = dc_seg.sections.items[macho_file.got_section_index.?];
-                const got_index = macho_file.got_entries_map.get(.{
+                const atom = macho_file.got_entries_map.get(.{
                     .where = switch (rel.where) {
                         .local => .local,
                         .undef => .undef,
@@ -1100,7 +1192,7 @@ pub fn resolveRelocs(self: *TextBlock, macho_file: *MachO) !void {
                     log.err("  this is an internal linker error", .{});
                     return error.FailedToResolveRelocationTarget;
                 };
-                break :blk got.addr + got_index * @sizeOf(u64);
+                break :blk macho_file.locals.items[atom.local_sym_index].n_value;
             }
 
             switch (rel.where) {
@@ -1138,13 +1230,24 @@ pub fn resolveRelocs(self: *TextBlock, macho_file: *MachO) !void {
                     break :blk sym.n_value;
                 },
                 .undef => {
-                    const stubs_index = macho_file.stubs_map.get(rel.where_index) orelse {
+                    const atom = macho_file.stubs_map.get(rel.where_index) orelse {
+                        // TODO this is required for incremental when we don't have every symbol
+                        // resolved when creating relocations. In this case, we will insert a branch
+                        // reloc to an undef symbol which may happen to be defined within the binary.
+                        // Then, the undef we point at will be a null symbol (free symbol) which we
+                        // should remove/repurpose. To circumvent this (for now), we check if the symbol
+                        // we point to is garbage, and if so we fall back to symbol resolver to find by name.
+                        const n_strx = macho_file.undefs.items[rel.where_index].n_strx;
+                        if (macho_file.symbol_resolver.get(n_strx)) |resolv| inner: {
+                            if (resolv.where != .global) break :inner;
+                            break :blk macho_file.globals.items[resolv.where_index].n_value;
+                        }
+
                         // TODO verify in TextBlock that the symbol is indeed dynamically bound.
                         break :blk 0; // Dynamically bound by dyld.
                     };
-                    const segment = macho_file.load_commands.items[macho_file.text_segment_cmd_index.?].Segment;
-                    const stubs = segment.sections.items[macho_file.stubs_section_index.?];
-                    break :blk stubs.addr + stubs_index * stubs.reserved2;
+
+                    break :blk macho_file.locals.items[atom.local_sym_index].n_value;
                 },
             }
         };
@@ -1162,7 +1265,7 @@ pub fn resolveRelocs(self: *TextBlock, macho_file: *MachO) !void {
     }
 }
 
-pub fn format(self: TextBlock, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+pub fn format(self: Atom, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
     _ = fmt;
     _ = options;
     try std.fmt.format(writer, "TextBlock {{ ", .{});
