@@ -53,19 +53,6 @@ pub fn zig_probe_stack() callconv(.Naked) void {
         },
         else => {},
     }
-    if (comptime native_arch.isAARCH64()) {
-        asm volatile (
-            \\        lsl    x16, x15, #4
-            \\        mov    x17, sp
-            \\1:
-            \\        sub    x17, x17, #PAGE_SIZE
-            \\        subs   x16, x16, #PAGE_SIZE
-            \\        ldr    xzr, [x17]
-            \\        b.gt   1b
-            \\
-            \\        ret
-        );
-    }
 
     unreachable;
 }
@@ -117,6 +104,21 @@ fn win_probe_stack_only() void {
             );
         },
         else => {},
+    }
+    if (comptime native_arch.isAARCH64()) {
+        // NOTE: page size hardcoded to 4096 for now
+        asm volatile (
+            \\        lsl    x16, x15, #4
+            \\        mov    x17, sp
+            \\1:
+            \\
+            \\        sub    x17, x17, 4096
+            \\        subs   x16, x16, 4096
+            \\        ldr    xzr, [x17]
+            \\        b.gt   1b
+            \\
+            \\        ret
+        );
     }
 
     unreachable;
@@ -199,7 +201,9 @@ pub fn _chkstk() callconv(.Naked) void {
 }
 pub fn __chkstk() callconv(.Naked) void {
     @setRuntimeSafety(false);
-    switch (native_arch) {
+    if (comptime native_arch.isAARCH64()) {
+        @call(.{ .modifier = .always_inline }, win_probe_stack_only, .{});
+    } else switch (native_arch) {
         .i386 => @call(.{ .modifier = .always_inline }, win_probe_stack_adjust_sp, .{}),
         .x86_64 => @call(.{ .modifier = .always_inline }, win_probe_stack_only, .{}),
         else => unreachable,
