@@ -1714,7 +1714,7 @@ pub const Inst = struct {
         null_type,
         undefined_type,
         enum_literal_type,
-        atomic_ordering_type,
+        atomic_order_type,
         atomic_rmw_op_type,
         calling_convention_type,
         float_mode_type,
@@ -1961,9 +1961,9 @@ pub const Inst = struct {
                 .ty = Type.initTag(.type),
                 .val = Value.initTag(.manyptr_const_u8_type),
             },
-            .atomic_ordering_type = .{
+            .atomic_order_type = .{
                 .ty = Type.initTag(.type),
-                .val = Value.initTag(.atomic_ordering_type),
+                .val = Value.initTag(.atomic_order_type),
             },
             .atomic_rmw_op_type = .{
                 .ty = Type.initTag(.type),

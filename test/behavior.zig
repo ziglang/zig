@@ -11,6 +11,7 @@ test {
     _ = @import("behavior/cast.zig");
     _ = @import("behavior/array.zig");
     _ = @import("behavior/usingnamespace.zig");
+    _ = @import("behavior/atomics.zig");
 
     if (!builtin.zig_is_stage2) {
         // Tests that only pass for stage1.
@@ -21,7 +22,7 @@ test {
             _ = @import("behavior/asm.zig");
             _ = @import("behavior/async_fn.zig");
         }
-        _ = @import("behavior/atomics.zig");
+        _ = @import("behavior/atomics_stage1.zig");
         _ = @import("behavior/await_struct.zig");
         _ = @import("behavior/bit_shifting.zig");
         _ = @import("behavior/bitcast.zig");

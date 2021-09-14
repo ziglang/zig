@@ -7322,7 +7322,7 @@ fn builtinCall(
                 },
             } });
             const ptr = try expr(gz, scope, .{ .ty = ptr_type }, params[1]);
-            const ordering = try expr(gz, scope, .{ .ty = .atomic_ordering_type }, params[2]);
+            const ordering = try expr(gz, scope, .{ .ty = .atomic_order_type }, params[2]);
             const result = try gz.addPlNode(.atomic_load, node, Zir.Inst.Bin{
                 .lhs = ptr,
                 .rhs = ordering,
@@ -7343,7 +7343,7 @@ fn builtinCall(
             const ptr = try expr(gz, scope, .{ .ty = ptr_type }, params[1]);
             const operation = try expr(gz, scope, .{ .ty = .atomic_rmw_op_type }, params[2]);
             const operand = try expr(gz, scope, .{ .ty = int_type }, params[3]);
-            const ordering = try expr(gz, scope, .{ .ty = .atomic_ordering_type }, params[4]);
+            const ordering = try expr(gz, scope, .{ .ty = .atomic_order_type }, params[4]);
             const result = try gz.addPlNode(.atomic_rmw, node, Zir.Inst.AtomicRmw{
                 .ptr = ptr,
                 .operation = operation,
@@ -7365,7 +7365,7 @@ fn builtinCall(
             } });
             const ptr = try expr(gz, scope, .{ .ty = ptr_type }, params[1]);
             const operand = try expr(gz, scope, .{ .ty = int_type }, params[2]);
-            const ordering = try expr(gz, scope, .{ .ty = .atomic_ordering_type }, params[3]);
+            const ordering = try expr(gz, scope, .{ .ty = .atomic_order_type }, params[3]);
             const result = try gz.addPlNode(.atomic_store, node, Zir.Inst.AtomicStore{
                 .ptr = ptr,
                 .operand = operand,
@@ -7553,11 +7553,11 @@ fn cmpxchg(
     } });
     const result = try gz.addPlNode(tag, node, Zir.Inst.Cmpxchg{
         // zig fmt: off
-        .ptr            = try expr(gz, scope, .{ .ty = ptr_type },              params[1]),
-        .expected_value = try expr(gz, scope, .{ .ty = int_type },              params[2]),
-        .new_value      = try expr(gz, scope, .{ .ty = int_type },              params[3]),
-        .success_order  = try expr(gz, scope, .{ .ty = .atomic_ordering_type }, params[4]),
-        .fail_order     = try expr(gz, scope, .{ .ty = .atomic_ordering_type }, params[5]),
+        .ptr            = try expr(gz, scope, .{ .ty = ptr_type },           params[1]),
+        .expected_value = try expr(gz, scope, .{ .ty = int_type },           params[2]),
+        .new_value      = try expr(gz, scope, .{ .ty = int_type },           params[3]),
+        .success_order  = try expr(gz, scope, .{ .ty = .atomic_order_type }, params[4]),
+        .fail_order     = try expr(gz, scope, .{ .ty = .atomic_order_type }, params[5]),
         // zig fmt: on
     });
     return rvalue(gz, rl, result, node);

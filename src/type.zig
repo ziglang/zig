@@ -124,7 +124,7 @@ pub const Type = extern union {
             .enum_full,
             .enum_nonexhaustive,
             .enum_simple,
-            .atomic_ordering,
+            .atomic_order,
             .atomic_rmw_op,
             .calling_convention,
             .float_mode,
@@ -743,7 +743,7 @@ pub const Type = extern union {
             .empty_struct_literal,
             .manyptr_u8,
             .manyptr_const_u8,
-            .atomic_ordering,
+            .atomic_order,
             .atomic_rmw_op,
             .calling_convention,
             .float_mode,
@@ -955,7 +955,7 @@ pub const Type = extern union {
                 .single_const_pointer_to_comptime_int => return writer.writeAll("*const comptime_int"),
                 .manyptr_u8 => return writer.writeAll("[*]u8"),
                 .manyptr_const_u8 => return writer.writeAll("[*]const u8"),
-                .atomic_ordering => return writer.writeAll("std.builtin.AtomicOrdering"),
+                .atomic_order => return writer.writeAll("std.builtin.AtomicOrder"),
                 .atomic_rmw_op => return writer.writeAll("std.builtin.AtomicRmwOp"),
                 .calling_convention => return writer.writeAll("std.builtin.CallingConvention"),
                 .float_mode => return writer.writeAll("std.builtin.FloatMode"),
@@ -1183,7 +1183,7 @@ pub const Type = extern union {
             .@"anyframe",
             .@"null",
             .@"undefined",
-            .atomic_ordering,
+            .atomic_order,
             .atomic_rmw_op,
             .calling_convention,
             .float_mode,
@@ -1298,7 +1298,7 @@ pub const Type = extern union {
             .enum_literal => return Value.initTag(.enum_literal_type),
             .manyptr_u8 => return Value.initTag(.manyptr_u8_type),
             .manyptr_const_u8 => return Value.initTag(.manyptr_const_u8_type),
-            .atomic_ordering => return Value.initTag(.atomic_ordering_type),
+            .atomic_order => return Value.initTag(.atomic_order_type),
             .atomic_rmw_op => return Value.initTag(.atomic_rmw_op_type),
             .calling_convention => return Value.initTag(.calling_convention_type),
             .float_mode => return Value.initTag(.float_mode_type),
@@ -1359,7 +1359,7 @@ pub const Type = extern union {
             .error_set_inferred,
             .manyptr_u8,
             .manyptr_const_u8,
-            .atomic_ordering,
+            .atomic_order,
             .atomic_rmw_op,
             .calling_convention,
             .float_mode,
@@ -1505,7 +1505,7 @@ pub const Type = extern union {
             .bool,
             .array_u8_sentinel_0,
             .array_u8,
-            .atomic_ordering,
+            .atomic_order,
             .atomic_rmw_op,
             .calling_convention,
             .float_mode,
@@ -1727,7 +1727,7 @@ pub const Type = extern union {
             .u8,
             .i8,
             .bool,
-            .atomic_ordering,
+            .atomic_order,
             .atomic_rmw_op,
             .calling_convention,
             .float_mode,
@@ -2011,7 +2011,7 @@ pub const Type = extern union {
                 @panic("TODO bitSize error union");
             },
 
-            .atomic_ordering,
+            .atomic_order,
             .atomic_rmw_op,
             .calling_convention,
             .float_mode,
@@ -2725,7 +2725,7 @@ pub const Type = extern union {
             .var_args_param,
             .manyptr_u8,
             .manyptr_const_u8,
-            .atomic_ordering,
+            .atomic_order,
             .atomic_rmw_op,
             .calling_convention,
             .float_mode,
@@ -2903,7 +2903,7 @@ pub const Type = extern union {
                 const enum_simple = ty.castTag(.enum_simple).?.data;
                 return enum_simple.fields.count();
             },
-            .atomic_ordering,
+            .atomic_order,
             .atomic_rmw_op,
             .calling_convention,
             .float_mode,
@@ -2927,7 +2927,7 @@ pub const Type = extern union {
                 const enum_simple = ty.castTag(.enum_simple).?.data;
                 return enum_simple.fields.keys()[field_index];
             },
-            .atomic_ordering,
+            .atomic_order,
             .atomic_rmw_op,
             .calling_convention,
             .float_mode,
@@ -2950,7 +2950,7 @@ pub const Type = extern union {
                 const enum_simple = ty.castTag(.enum_simple).?.data;
                 return enum_simple.fields.getIndex(field_name);
             },
-            .atomic_ordering,
+            .atomic_order,
             .atomic_rmw_op,
             .calling_convention,
             .float_mode,
@@ -3003,7 +3003,7 @@ pub const Type = extern union {
                 const tag_ty = Type.initPayload(&buffer.base);
                 return S.fieldWithRange(tag_ty, enum_tag, fields_len);
             },
-            .atomic_ordering,
+            .atomic_order,
             .atomic_rmw_op,
             .calling_convention,
             .float_mode,
@@ -3058,7 +3058,7 @@ pub const Type = extern union {
                 const union_obj = ty.cast(Payload.Union).?.data;
                 return union_obj.srcLoc();
             },
-            .atomic_ordering,
+            .atomic_order,
             .atomic_rmw_op,
             .calling_convention,
             .float_mode,
@@ -3095,7 +3095,7 @@ pub const Type = extern union {
                 return union_obj.owner_decl;
             },
             .@"opaque" => @panic("TODO"),
-            .atomic_ordering,
+            .atomic_order,
             .atomic_rmw_op,
             .calling_convention,
             .float_mode,
@@ -3145,7 +3145,7 @@ pub const Type = extern union {
                 const tag_ty = Type.initPayload(&buffer.base);
                 return S.intInRange(tag_ty, int, fields_len);
             },
-            .atomic_ordering,
+            .atomic_order,
             .atomic_rmw_op,
             .calling_convention,
             .float_mode,
@@ -3205,7 +3205,7 @@ pub const Type = extern union {
         @"null",
         @"undefined",
         enum_literal,
-        atomic_ordering,
+        atomic_order,
         atomic_rmw_op,
         calling_convention,
         float_mode,
@@ -3328,7 +3328,7 @@ pub const Type = extern union {
                 .empty_struct_literal,
                 .manyptr_u8,
                 .manyptr_const_u8,
-                .atomic_ordering,
+                .atomic_order,
                 .atomic_rmw_op,
                 .calling_convention,
                 .float_mode,
