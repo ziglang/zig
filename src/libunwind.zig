@@ -71,6 +71,8 @@ pub fn buildStaticLib(comp: *Compilation) !void {
         try cflags.append("-Wa,--noexecstack");
         try cflags.append("-fvisibility=hidden");
         try cflags.append("-fvisibility-inlines-hidden");
+        // necessary so that libunwind can unwind through its own stack frames
+        try cflags.append("-funwind-tables");
 
         // This is intentionally always defined because the macro definition means, should it only
         // build for the target specified by compiler defines. Since we pass -target the compiler
@@ -101,7 +103,7 @@ pub fn buildStaticLib(comp: *Compilation) !void {
         .zig_lib_directory = comp.zig_lib_directory,
         .target = target,
         .root_name = root_name,
-        .root_pkg = null,
+        .main_pkg = null,
         .output_mode = output_mode,
         .thread_pool = comp.thread_pool,
         .libc_installation = comp.bin_file.options.libc_installation,

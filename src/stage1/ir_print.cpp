@@ -93,6 +93,8 @@ const char* ir_inst_src_type_str(Stage1ZirInstId id) {
             return "SrcInvalid";
         case Stage1ZirInstIdShuffleVector:
             return "SrcShuffle";
+        case Stage1ZirInstIdSelect:
+            return "SrcSelect";
         case Stage1ZirInstIdSplat:
             return "SrcSplat";
         case Stage1ZirInstIdDeclVar:
@@ -379,6 +381,8 @@ const char* ir_inst_gen_type_str(Stage1AirInstId id) {
             return "GenInvalid";
         case Stage1AirInstIdShuffleVector:
             return "GenShuffle";
+        case Stage1AirInstIdSelect:
+            return "GenSelect";
         case Stage1AirInstIdSplat:
             return "GenSplat";
         case Stage1AirInstIdDeclVar:
@@ -729,6 +733,18 @@ static const char *ir_bin_op_id_str(IrBinOp op_id) {
             return "++";
         case IrBinOpArrayMult:
             return "**";
+        case IrBinOpMaximum:
+            return "@maximum";
+        case IrBinOpMinimum:
+            return "@minimum";
+        case IrBinOpSatAdd:
+            return "@addWithSaturation";
+        case IrBinOpSatSub:
+            return "@subWithSaturation";
+        case IrBinOpSatMul:
+            return "@mulWithSaturation";
+        case IrBinOpSatShl:
+            return "@shlWithSaturation";
     }
     zig_unreachable();
 }
@@ -1719,6 +1735,28 @@ static void ir_print_shuffle_vector(IrPrintGen *irp, Stage1AirInstShuffleVector 
     ir_print_other_inst_gen(irp, instruction->b);
     fprintf(irp->f, ", ");
     ir_print_other_inst_gen(irp, instruction->mask);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_select(IrPrintSrc *irp, Stage1ZirInstSelect *instruction) {
+    fprintf(irp->f, "@select(");
+    ir_print_other_inst_src(irp, instruction->scalar_type);
+    fprintf(irp->f, ", ");
+    ir_print_other_inst_src(irp, instruction->pred);
+    fprintf(irp->f, ", ");
+    ir_print_other_inst_src(irp, instruction->a);
+    fprintf(irp->f, ", ");
+    ir_print_other_inst_src(irp, instruction->b);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_select(IrPrintGen *irp, Stage1AirInstSelect *instruction) {
+    fprintf(irp->f, "@select(");
+    ir_print_other_inst_gen(irp, instruction->pred);
+    fprintf(irp->f, ", ");
+    ir_print_other_inst_gen(irp, instruction->a);
+    fprintf(irp->f, ", ");
+    ir_print_other_inst_gen(irp, instruction->b);
     fprintf(irp->f, ")");
 }
 
@@ -2836,6 +2874,9 @@ static void ir_print_inst_src(IrPrintSrc *irp, Stage1ZirInst *instruction, bool 
         case Stage1ZirInstIdShuffleVector:
             ir_print_shuffle_vector(irp, (Stage1ZirInstShuffleVector *)instruction);
             break;
+        case Stage1ZirInstIdSelect:
+            ir_print_select(irp, (Stage1ZirInstSelect *)instruction);
+            break;
         case Stage1ZirInstIdSplat:
             ir_print_splat_src(irp, (Stage1ZirInstSplat *)instruction);
             break;
@@ -3177,6 +3218,9 @@ static void ir_print_inst_gen(IrPrintGen *irp, Stage1AirInst *instruction, bool 
             break;
         case Stage1AirInstIdShuffleVector:
             ir_print_shuffle_vector(irp, (Stage1AirInstShuffleVector *)instruction);
+            break;
+        case Stage1AirInstIdSelect:
+            ir_print_select(irp, (Stage1AirInstSelect *)instruction);
             break;
         case Stage1AirInstIdSplat:
             ir_print_splat_gen(irp, (Stage1AirInstSplat *)instruction);

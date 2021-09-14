@@ -1,8 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
 const std = @import("../../std.zig");
 const assert = std.debug.assert;
 const builtin = std.builtin;
@@ -54,19 +49,19 @@ pub const IO_Uring = struct {
 
         const res = linux.io_uring_setup(entries, p);
         switch (linux.getErrno(res)) {
-            0 => {},
-            linux.EFAULT => return error.ParamsOutsideAccessibleAddressSpace,
+            .SUCCESS => {},
+            .FAULT => return error.ParamsOutsideAccessibleAddressSpace,
             // The resv array contains non-zero data, p.flags contains an unsupported flag,
             // entries out of bounds, IORING_SETUP_SQ_AFF was specified without IORING_SETUP_SQPOLL,
             // or IORING_SETUP_CQSIZE was specified but io_uring_params.cq_entries was invalid:
-            linux.EINVAL => return error.ArgumentsInvalid,
-            linux.EMFILE => return error.ProcessFdQuotaExceeded,
-            linux.ENFILE => return error.SystemFdQuotaExceeded,
-            linux.ENOMEM => return error.SystemResources,
+            .INVAL => return error.ArgumentsInvalid,
+            .MFILE => return error.ProcessFdQuotaExceeded,
+            .NFILE => return error.SystemFdQuotaExceeded,
+            .NOMEM => return error.SystemResources,
             // IORING_SETUP_SQPOLL was specified but effective user ID lacks sufficient privileges,
             // or a container seccomp policy prohibits io_uring syscalls:
-            linux.EPERM => return error.PermissionDenied,
-            linux.ENOSYS => return error.SystemOutdated,
+            .PERM => return error.PermissionDenied,
+            .NOSYS => return error.SystemOutdated,
             else => |errno| return os.unexpectedErrno(errno),
         }
         const fd = @intCast(os.fd_t, res);
@@ -180,31 +175,31 @@ pub const IO_Uring = struct {
         assert(self.fd >= 0);
         const res = linux.io_uring_enter(self.fd, to_submit, min_complete, flags, null);
         switch (linux.getErrno(res)) {
-            0 => {},
+            .SUCCESS => {},
             // The kernel was unable to allocate memory or ran out of resources for the request.
             // The application should wait for some completions and try again:
-            linux.EAGAIN => return error.SystemResources,
+            .AGAIN => return error.SystemResources,
             // The SQE `fd` is invalid, or IOSQE_FIXED_FILE was set but no files were registered:
-            linux.EBADF => return error.FileDescriptorInvalid,
+            .BADF => return error.FileDescriptorInvalid,
             // The file descriptor is valid, but the ring is not in the right state.
             // See io_uring_register(2) for how to enable the ring.
-            linux.EBADFD => return error.FileDescriptorInBadState,
+            .BADFD => return error.FileDescriptorInBadState,
             // The application attempted to overcommit the number of requests it can have pending.
             // The application should wait for some completions and try again:
-            linux.EBUSY => return error.CompletionQueueOvercommitted,
+            .BUSY => return error.CompletionQueueOvercommitted,
             // The SQE is invalid, or valid but the ring was setup with IORING_SETUP_IOPOLL:
-            linux.EINVAL => return error.SubmissionQueueEntryInvalid,
+            .INVAL => return error.SubmissionQueueEntryInvalid,
             // The buffer is outside the process' accessible address space, or IORING_OP_READ_FIXED
             // or IORING_OP_WRITE_FIXED was specified but no buffers were registered, or the range
             // described by `addr` and `len` is not within the buffer registered at `buf_index`:
-            linux.EFAULT => return error.BufferInvalid,
-            linux.ENXIO => return error.RingShuttingDown,
+            .FAULT => return error.BufferInvalid,
+            .NXIO => return error.RingShuttingDown,
             // The kernel believes our `self.fd` does not refer to an io_uring instance,
             // or the opcode is valid but not supported by this kernel (more likely):
-            linux.EOPNOTSUPP => return error.OpcodeNotSupported,
+            .OPNOTSUPP => return error.OpcodeNotSupported,
             // The operation was interrupted by a delivery of a signal before it could complete.
             // This can happen while waiting for events with IORING_ENTER_GETEVENTS:
-            linux.EINTR => return error.SignalInterrupt,
+            .INTR => return error.SignalInterrupt,
             else => |errno| return os.unexpectedErrno(errno),
         }
         return @intCast(u32, res);
@@ -540,11 +535,11 @@ pub const IO_Uring = struct {
     /// `0` if the timeout completed after the specified number of events, or `-ECANCELED` if the
     /// timeout was removed before it expired.
     ///
-    /// io_uring timeouts use the `CLOCK_MONOTONIC` clock source.
+    /// io_uring timeouts use the `CLOCK.MONOTONIC` clock source.
     pub fn timeout(
         self: *IO_Uring,
         user_data: u64,
-        ts: *const os.__kernel_timespec,
+        ts: *const os.linux.kernel_timespec,
         count: u32,
         flags: u32,
     ) !*io_uring_sqe {
@@ -629,30 +624,74 @@ pub const IO_Uring = struct {
     /// An application need unregister only if it wants to register a new array of file descriptors.
     pub fn register_files(self: *IO_Uring, fds: []const os.fd_t) !void {
         assert(self.fd >= 0);
-        comptime assert(@sizeOf(os.fd_t) == @sizeOf(c_int));
         const res = linux.io_uring_register(
             self.fd,
             .REGISTER_FILES,
             @ptrCast(*const c_void, fds.ptr),
             @intCast(u32, fds.len),
         );
+        try handle_registration_result(res);
+    }
+
+    /// Registers the file descriptor for an eventfd that will be notified of completion events on
+    ///  an io_uring instance.
+    /// Only a single a eventfd can be registered at any given point in time.
+    pub fn register_eventfd(self: *IO_Uring, fd: os.fd_t) !void {
+        assert(self.fd >= 0);
+        const res = linux.io_uring_register(
+            self.fd,
+            .REGISTER_EVENTFD,
+            @ptrCast(*const c_void, &fd),
+            1,
+        );
+        try handle_registration_result(res);
+    }
+
+    /// Registers the file descriptor for an eventfd that will be notified of completion events on
+    /// an io_uring instance. Notifications are only posted for events that complete in an async manner. 
+    /// This means that events that complete inline while being submitted do not trigger a notification event.
+    /// Only a single eventfd can be registered at any given point in time.
+    pub fn register_eventfd_async(self: *IO_Uring, fd: os.fd_t) !void {
+        assert(self.fd >= 0);
+        const res = linux.io_uring_register(
+            self.fd,
+            .REGISTER_EVENTFD_ASYNC,
+            @ptrCast(*const c_void, &fd),
+            1,
+        );
+        try handle_registration_result(res);
+    }
+
+    /// Unregister the registered eventfd file descriptor.
+    pub fn unregister_eventfd(self: *IO_Uring) !void {
+        assert(self.fd >= 0);
+        const res = linux.io_uring_register(
+            self.fd,
+            .UNREGISTER_EVENTFD,
+            null,
+            0,
+        );
+        try handle_registration_result(res);
+    }
+
+    fn handle_registration_result(res: usize) !void {
         switch (linux.getErrno(res)) {
-            0 => {},
+            .SUCCESS => {},
             // One or more fds in the array are invalid, or the kernel does not support sparse sets:
-            linux.EBADF => return error.FileDescriptorInvalid,
-            linux.EBUSY => return error.FilesAlreadyRegistered,
-            linux.EINVAL => return error.FilesEmpty,
+            .BADF => return error.FileDescriptorInvalid,
+            .BUSY => return error.FilesAlreadyRegistered,
+            .INVAL => return error.FilesEmpty,
             // Adding `nr_args` file references would exceed the maximum allowed number of files the
             // user is allowed to have according to the per-user RLIMIT_NOFILE resource limit and
             // the CAP_SYS_RESOURCE capability is not set, or `nr_args` exceeds the maximum allowed
             // for a fixed file set (older kernels have a limit of 1024 files vs 64K files):
-            linux.EMFILE => return error.UserFdQuotaExceeded,
+            .MFILE => return error.UserFdQuotaExceeded,
             // Insufficient kernel resources, or the caller had a non-zero RLIMIT_MEMLOCK soft
             // resource limit but tried to lock more memory than the limit permitted (not enforced
             // when the process is privileged with CAP_IPC_LOCK):
-            linux.ENOMEM => return error.SystemResources,
+            .NOMEM => return error.SystemResources,
             // Attempt to register files on a ring already registering files or being torn down:
-            linux.ENXIO => return error.RingShuttingDownOrAlreadyRegisteringFiles,
+            .NXIO => return error.RingShuttingDownOrAlreadyRegisteringFiles,
             else => |errno| return os.unexpectedErrno(errno),
         }
     }
@@ -662,8 +701,8 @@ pub const IO_Uring = struct {
         assert(self.fd >= 0);
         const res = linux.io_uring_register(self.fd, .UNREGISTER_FILES, null, 0);
         switch (linux.getErrno(res)) {
-            0 => {},
-            linux.ENXIO => return error.FilesNotRegistered,
+            .SUCCESS => {},
+            .NXIO => return error.FilesNotRegistered,
             else => |errno| return os.unexpectedErrno(errno),
         }
     }
@@ -697,8 +736,8 @@ pub const SubmissionQueue = struct {
         const mmap = try os.mmap(
             null,
             size,
-            os.PROT_READ | os.PROT_WRITE,
-            os.MAP_SHARED | os.MAP_POPULATE,
+            os.PROT.READ | os.PROT.WRITE,
+            os.MAP.SHARED | os.MAP.POPULATE,
             fd,
             linux.IORING_OFF_SQ_RING,
         );
@@ -711,8 +750,8 @@ pub const SubmissionQueue = struct {
         const mmap_sqes = try os.mmap(
             null,
             size_sqes,
-            os.PROT_READ | os.PROT_WRITE,
-            os.MAP_SHARED | os.MAP_POPULATE,
+            os.PROT.READ | os.PROT.WRITE,
+            os.MAP.SHARED | os.MAP.POPULATE,
             fd,
             linux.IORING_OFF_SQES,
         );
@@ -940,7 +979,7 @@ pub fn io_uring_prep_close(sqe: *io_uring_sqe, fd: os.fd_t) void {
 
 pub fn io_uring_prep_timeout(
     sqe: *io_uring_sqe,
-    ts: *const os.__kernel_timespec,
+    ts: *const os.linux.kernel_timespec,
     count: u32,
     flags: u32,
 ) void {
@@ -1097,7 +1136,7 @@ test "readv" {
     };
     defer ring.deinit();
 
-    const fd = try os.openZ("/dev/zero", os.O_RDONLY | os.O_CLOEXEC, 0);
+    const fd = try os.openZ("/dev/zero", os.O.RDONLY | os.O.CLOEXEC, 0);
     defer os.close(fd);
 
     // Linux Kernel 5.4 supports IORING_REGISTER_FILES but not sparse fd sets (i.e. an fd of -1).
@@ -1228,8 +1267,8 @@ test "write/read" {
     const cqe_read = try ring.copy_cqe();
     // Prior to Linux Kernel 5.6 this is the only way to test for read/write support:
     // https://lwn.net/Articles/809820/
-    if (cqe_write.res == -linux.EINVAL) return error.SkipZigTest;
-    if (cqe_read.res == -linux.EINVAL) return error.SkipZigTest;
+    if (cqe_write.err() == .INVAL) return error.SkipZigTest;
+    if (cqe_read.err() == .INVAL) return error.SkipZigTest;
     try testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0x11111111,
         .res = buffer_write.len,
@@ -1256,14 +1295,14 @@ test "openat" {
     const path = "test_io_uring_openat";
     defer std.fs.cwd().deleteFile(path) catch {};
 
-    const flags: u32 = os.O_CLOEXEC | os.O_RDWR | os.O_CREAT;
+    const flags: u32 = os.O.CLOEXEC | os.O.RDWR | os.O.CREAT;
     const mode: os.mode_t = 0o666;
-    const sqe_openat = try ring.openat(0x33333333, linux.AT_FDCWD, path, flags, mode);
+    const sqe_openat = try ring.openat(0x33333333, linux.AT.FDCWD, path, flags, mode);
     try testing.expectEqual(io_uring_sqe{
         .opcode = .OPENAT,
         .flags = 0,
         .ioprio = 0,
-        .fd = linux.AT_FDCWD,
+        .fd = linux.AT.FDCWD,
         .off = 0,
         .addr = @ptrToInt(path),
         .len = mode,
@@ -1278,11 +1317,11 @@ test "openat" {
 
     const cqe_openat = try ring.copy_cqe();
     try testing.expectEqual(@as(u64, 0x33333333), cqe_openat.user_data);
-    if (cqe_openat.res == -linux.EINVAL) return error.SkipZigTest;
-    // AT_FDCWD is not fully supported before kernel 5.6:
+    if (cqe_openat.err() == .INVAL) return error.SkipZigTest;
+    // AT.FDCWD is not fully supported before kernel 5.6:
     // See https://lore.kernel.org/io-uring/20200207155039.12819-1-axboe@kernel.dk/T/
     // We use IORING_FEAT_RW_CUR_POS to know if we are pre-5.6 since that feature was added in 5.6.
-    if (cqe_openat.res == -linux.EBADF and (ring.features & linux.IORING_FEAT_RW_CUR_POS) == 0) {
+    if (cqe_openat.err() == .BADF and (ring.features & linux.IORING_FEAT_RW_CUR_POS) == 0) {
         return error.SkipZigTest;
     }
     if (cqe_openat.res <= 0) std.debug.print("\ncqe_openat.res={}\n", .{cqe_openat.res});
@@ -1313,7 +1352,7 @@ test "close" {
     try testing.expectEqual(@as(u32, 1), try ring.submit());
 
     const cqe_close = try ring.copy_cqe();
-    if (cqe_close.res == -linux.EINVAL) return error.SkipZigTest;
+    if (cqe_close.err() == .INVAL) return error.SkipZigTest;
     try testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0x44444444,
         .res = 0,
@@ -1333,9 +1372,9 @@ test "accept/connect/send/recv" {
 
     const address = try net.Address.parseIp4("127.0.0.1", 3131);
     const kernel_backlog = 1;
-    const server = try os.socket(address.any.family, os.SOCK_STREAM | os.SOCK_CLOEXEC, 0);
+    const server = try os.socket(address.any.family, os.SOCK.STREAM | os.SOCK.CLOEXEC, 0);
     defer os.close(server);
-    try os.setsockopt(server, os.SOL_SOCKET, os.SO_REUSEADDR, &mem.toBytes(@as(c_int, 1)));
+    try os.setsockopt(server, os.SOL.SOCKET, os.SO.REUSEADDR, &mem.toBytes(@as(c_int, 1)));
     try os.bind(server, &address.any, address.getOsSockLen());
     try os.listen(server, kernel_backlog);
 
@@ -1347,15 +1386,15 @@ test "accept/connect/send/recv" {
     _ = try ring.accept(0xaaaaaaaa, server, &accept_addr, &accept_addr_len, 0);
     try testing.expectEqual(@as(u32, 1), try ring.submit());
 
-    const client = try os.socket(address.any.family, os.SOCK_STREAM | os.SOCK_CLOEXEC, 0);
+    const client = try os.socket(address.any.family, os.SOCK.STREAM | os.SOCK.CLOEXEC, 0);
     defer os.close(client);
     _ = try ring.connect(0xcccccccc, client, &address.any, address.getOsSockLen());
     try testing.expectEqual(@as(u32, 1), try ring.submit());
 
     var cqe_accept = try ring.copy_cqe();
-    if (cqe_accept.res == -linux.EINVAL) return error.SkipZigTest;
+    if (cqe_accept.err() == .INVAL) return error.SkipZigTest;
     var cqe_connect = try ring.copy_cqe();
-    if (cqe_connect.res == -linux.EINVAL) return error.SkipZigTest;
+    if (cqe_connect.err() == .INVAL) return error.SkipZigTest;
 
     // The accept/connect CQEs may arrive in any order, the connect CQE will sometimes come first:
     if (cqe_accept.user_data == 0xcccccccc and cqe_connect.user_data == 0xaaaaaaaa) {
@@ -1381,7 +1420,7 @@ test "accept/connect/send/recv" {
     try testing.expectEqual(@as(u32, 2), try ring.submit());
 
     const cqe_send = try ring.copy_cqe();
-    if (cqe_send.res == -linux.EINVAL) return error.SkipZigTest;
+    if (cqe_send.err() == .INVAL) return error.SkipZigTest;
     try testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0xeeeeeeee,
         .res = buffer_send.len,
@@ -1389,7 +1428,7 @@ test "accept/connect/send/recv" {
     }, cqe_send);
 
     const cqe_recv = try ring.copy_cqe();
-    if (cqe_recv.res == -linux.EINVAL) return error.SkipZigTest;
+    if (cqe_recv.err() == .INVAL) return error.SkipZigTest;
     try testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0xffffffff,
         .res = buffer_recv.len,
@@ -1411,7 +1450,7 @@ test "timeout (after a relative time)" {
 
     const ms = 10;
     const margin = 5;
-    const ts = os.__kernel_timespec{ .tv_sec = 0, .tv_nsec = ms * 1000000 };
+    const ts = os.linux.kernel_timespec{ .tv_sec = 0, .tv_nsec = ms * 1000000 };
 
     const started = std.time.milliTimestamp();
     const sqe = try ring.timeout(0x55555555, &ts, 0, 0);
@@ -1422,7 +1461,7 @@ test "timeout (after a relative time)" {
 
     try testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0x55555555,
-        .res = -linux.ETIME,
+        .res = -@as(i32, @enumToInt(linux.E.TIME)),
         .flags = 0,
     }, cqe);
 
@@ -1440,7 +1479,7 @@ test "timeout (after a number of completions)" {
     };
     defer ring.deinit();
 
-    const ts = os.__kernel_timespec{ .tv_sec = 3, .tv_nsec = 0 };
+    const ts = os.linux.kernel_timespec{ .tv_sec = 3, .tv_nsec = 0 };
     const count_completions: u64 = 1;
     const sqe_timeout = try ring.timeout(0x66666666, &ts, count_completions, 0);
     try testing.expectEqual(linux.IORING_OP.TIMEOUT, sqe_timeout.opcode);
@@ -1473,7 +1512,7 @@ test "timeout_remove" {
     };
     defer ring.deinit();
 
-    const ts = os.__kernel_timespec{ .tv_sec = 3, .tv_nsec = 0 };
+    const ts = os.linux.kernel_timespec{ .tv_sec = 3, .tv_nsec = 0 };
     const sqe_timeout = try ring.timeout(0x88888888, &ts, 0, 0);
     try testing.expectEqual(linux.IORING_OP.TIMEOUT, sqe_timeout.opcode);
     try testing.expectEqual(@as(u64, 0x88888888), sqe_timeout.user_data);
@@ -1491,14 +1530,14 @@ test "timeout_remove" {
     // We use IORING_FEAT_RW_CUR_POS as a safety check here to make sure we are at least pre-5.6.
     // We don't want to skip this test for newer kernels.
     if (cqe_timeout.user_data == 0x99999999 and
-        cqe_timeout.res == -linux.EBADF and
+        cqe_timeout.err() == .BADF and
         (ring.features & linux.IORING_FEAT_RW_CUR_POS) == 0)
     {
         return error.SkipZigTest;
     }
     try testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0x88888888,
-        .res = -linux.ECANCELED,
+        .res = -@as(i32, @enumToInt(linux.E.CANCELED)),
         .flags = 0,
     }, cqe_timeout);
 
@@ -1534,15 +1573,15 @@ test "fallocate" {
     try testing.expectEqual(@as(u32, 1), try ring.submit());
 
     const cqe = try ring.copy_cqe();
-    switch (-cqe.res) {
-        0 => {},
+    switch (cqe.err()) {
+        .SUCCESS => {},
         // This kernel's io_uring does not yet implement fallocate():
-        linux.EINVAL => return error.SkipZigTest,
+        .INVAL => return error.SkipZigTest,
         // This kernel does not implement fallocate():
-        linux.ENOSYS => return error.SkipZigTest,
+        .NOSYS => return error.SkipZigTest,
         // The filesystem containing the file referred to by fd does not support this operation;
         // or the mode is not supported by the filesystem containing the file referred to by fd:
-        linux.EOPNOTSUPP => return error.SkipZigTest,
+        .OPNOTSUPP => return error.SkipZigTest,
         else => |errno| std.debug.panic("unhandled errno: {}", .{errno}),
     }
     try testing.expectEqual(linux.io_uring_cqe{

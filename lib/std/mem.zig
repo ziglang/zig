@@ -1,8 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
 const std = @import("std.zig");
 const debug = std.debug;
 const assert = debug.assert;
@@ -1569,14 +1564,14 @@ test "bswapAllFields" {
 
 /// Returns an iterator that iterates over the slices of `buffer` that are not
 /// any of the bytes in `delimiter_bytes`.
-/// tokenize("   abc def    ghi  ", " ")
+/// tokenize(u8, "   abc def    ghi  ", " ")
 /// Will return slices for "abc", "def", "ghi", null, in that order.
 /// If `buffer` is empty, the iterator will return null.
 /// If `delimiter_bytes` does not exist in buffer,
 /// the iterator will return `buffer`, null, in that order.
 /// See also the related function `split`.
-pub fn tokenize(buffer: []const u8, delimiter_bytes: []const u8) TokenIterator {
-    return TokenIterator{
+pub fn tokenize(comptime T: type, buffer: []const T, delimiter_bytes: []const T) TokenIterator(T) {
+    return .{
         .index = 0,
         .buffer = buffer,
         .delimiter_bytes = delimiter_bytes,
@@ -1584,51 +1579,71 @@ pub fn tokenize(buffer: []const u8, delimiter_bytes: []const u8) TokenIterator {
 }
 
 test "mem.tokenize" {
-    var it = tokenize("   abc def   ghi  ", " ");
+    var it = tokenize(u8, "   abc def   ghi  ", " ");
     try testing.expect(eql(u8, it.next().?, "abc"));
     try testing.expect(eql(u8, it.next().?, "def"));
     try testing.expect(eql(u8, it.next().?, "ghi"));
     try testing.expect(it.next() == null);
 
-    it = tokenize("..\\bob", "\\");
+    it = tokenize(u8, "..\\bob", "\\");
     try testing.expect(eql(u8, it.next().?, ".."));
     try testing.expect(eql(u8, "..", "..\\bob"[0..it.index]));
     try testing.expect(eql(u8, it.next().?, "bob"));
     try testing.expect(it.next() == null);
 
-    it = tokenize("//a/b", "/");
+    it = tokenize(u8, "//a/b", "/");
     try testing.expect(eql(u8, it.next().?, "a"));
     try testing.expect(eql(u8, it.next().?, "b"));
     try testing.expect(eql(u8, "//a/b", "//a/b"[0..it.index]));
     try testing.expect(it.next() == null);
 
-    it = tokenize("|", "|");
+    it = tokenize(u8, "|", "|");
     try testing.expect(it.next() == null);
 
-    it = tokenize("", "|");
+    it = tokenize(u8, "", "|");
     try testing.expect(it.next() == null);
 
-    it = tokenize("hello", "");
+    it = tokenize(u8, "hello", "");
     try testing.expect(eql(u8, it.next().?, "hello"));
     try testing.expect(it.next() == null);
 
-    it = tokenize("hello", " ");
+    it = tokenize(u8, "hello", " ");
     try testing.expect(eql(u8, it.next().?, "hello"));
     try testing.expect(it.next() == null);
+
+    var it16 = tokenize(
+        u16,
+        std.unicode.utf8ToUtf16LeStringLiteral("hello"),
+        std.unicode.utf8ToUtf16LeStringLiteral(" "),
+    );
+    try testing.expect(eql(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("hello")));
+    try testing.expect(it16.next() == null);
 }
 
 test "mem.tokenize (multibyte)" {
-    var it = tokenize("a|b,c/d e", " /,|");
+    var it = tokenize(u8, "a|b,c/d e", " /,|");
     try testing.expect(eql(u8, it.next().?, "a"));
     try testing.expect(eql(u8, it.next().?, "b"));
     try testing.expect(eql(u8, it.next().?, "c"));
     try testing.expect(eql(u8, it.next().?, "d"));
     try testing.expect(eql(u8, it.next().?, "e"));
     try testing.expect(it.next() == null);
+
+    var it16 = tokenize(
+        u16,
+        std.unicode.utf8ToUtf16LeStringLiteral("a|b,c/d e"),
+        std.unicode.utf8ToUtf16LeStringLiteral(" /,|"),
+    );
+    try testing.expect(eql(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("a")));
+    try testing.expect(eql(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("b")));
+    try testing.expect(eql(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("c")));
+    try testing.expect(eql(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("d")));
+    try testing.expect(eql(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("e")));
+    try testing.expect(it16.next() == null);
 }
 
 test "mem.tokenize (reset)" {
-    var it = tokenize("   abc def   ghi  ", " ");
+    var it = tokenize(u8, "   abc def   ghi  ", " ");
     try testing.expect(eql(u8, it.next().?, "abc"));
     try testing.expect(eql(u8, it.next().?, "def"));
     try testing.expect(eql(u8, it.next().?, "ghi"));
@@ -1643,15 +1658,15 @@ test "mem.tokenize (reset)" {
 
 /// Returns an iterator that iterates over the slices of `buffer` that
 /// are separated by bytes in `delimiter`.
-/// split("abc|def||ghi", "|")
+/// split(u8, "abc|def||ghi", "|")
 /// will return slices for "abc", "def", "", "ghi", null, in that order.
 /// If `delimiter` does not exist in buffer,
 /// the iterator will return `buffer`, null, in that order.
 /// The delimiter length must not be zero.
 /// See also the related function `tokenize`.
-pub fn split(buffer: []const u8, delimiter: []const u8) SplitIterator {
+pub fn split(comptime T: type, buffer: []const T, delimiter: []const T) SplitIterator(T) {
     assert(delimiter.len != 0);
-    return SplitIterator{
+    return .{
         .index = 0,
         .buffer = buffer,
         .delimiter = delimiter,
@@ -1661,35 +1676,55 @@ pub fn split(buffer: []const u8, delimiter: []const u8) SplitIterator {
 pub const separate = @compileError("deprecated: renamed to split (behavior remains unchanged)");
 
 test "mem.split" {
-    var it = split("abc|def||ghi", "|");
+    var it = split(u8, "abc|def||ghi", "|");
     try testing.expect(eql(u8, it.next().?, "abc"));
     try testing.expect(eql(u8, it.next().?, "def"));
     try testing.expect(eql(u8, it.next().?, ""));
     try testing.expect(eql(u8, it.next().?, "ghi"));
     try testing.expect(it.next() == null);
 
-    it = split("", "|");
+    it = split(u8, "", "|");
     try testing.expect(eql(u8, it.next().?, ""));
     try testing.expect(it.next() == null);
 
-    it = split("|", "|");
+    it = split(u8, "|", "|");
     try testing.expect(eql(u8, it.next().?, ""));
     try testing.expect(eql(u8, it.next().?, ""));
     try testing.expect(it.next() == null);
 
-    it = split("hello", " ");
+    it = split(u8, "hello", " ");
     try testing.expect(eql(u8, it.next().?, "hello"));
     try testing.expect(it.next() == null);
+
+    var it16 = split(
+        u16,
+        std.unicode.utf8ToUtf16LeStringLiteral("hello"),
+        std.unicode.utf8ToUtf16LeStringLiteral(" "),
+    );
+    try testing.expect(eql(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("hello")));
+    try testing.expect(it16.next() == null);
 }
 
 test "mem.split (multibyte)" {
-    var it = split("a, b ,, c, d, e", ", ");
+    var it = split(u8, "a, b ,, c, d, e", ", ");
     try testing.expect(eql(u8, it.next().?, "a"));
     try testing.expect(eql(u8, it.next().?, "b ,"));
     try testing.expect(eql(u8, it.next().?, "c"));
     try testing.expect(eql(u8, it.next().?, "d"));
     try testing.expect(eql(u8, it.next().?, "e"));
     try testing.expect(it.next() == null);
+
+    var it16 = split(
+        u16,
+        std.unicode.utf8ToUtf16LeStringLiteral("a, b ,, c, d, e"),
+        std.unicode.utf8ToUtf16LeStringLiteral(", "),
+    );
+    try testing.expect(eql(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("a")));
+    try testing.expect(eql(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("b ,")));
+    try testing.expect(eql(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("c")));
+    try testing.expect(eql(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("d")));
+    try testing.expect(eql(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("e")));
+    try testing.expect(it16.next() == null);
 }
 
 pub fn startsWith(comptime T: type, haystack: []const T, needle: []const T) bool {
@@ -1710,75 +1745,83 @@ test "mem.endsWith" {
     try testing.expect(!endsWith(u8, "Bob", "Bo"));
 }
 
-pub const TokenIterator = struct {
-    buffer: []const u8,
-    delimiter_bytes: []const u8,
-    index: usize,
+pub fn TokenIterator(comptime T: type) type {
+    return struct {
+        buffer: []const T,
+        delimiter_bytes: []const T,
+        index: usize,
 
-    /// Returns a slice of the next token, or null if tokenization is complete.
-    pub fn next(self: *TokenIterator) ?[]const u8 {
-        // move to beginning of token
-        while (self.index < self.buffer.len and self.isSplitByte(self.buffer[self.index])) : (self.index += 1) {}
-        const start = self.index;
-        if (start == self.buffer.len) {
-            return null;
-        }
+        const Self = @This();
 
-        // move to end of token
-        while (self.index < self.buffer.len and !self.isSplitByte(self.buffer[self.index])) : (self.index += 1) {}
-        const end = self.index;
-
-        return self.buffer[start..end];
-    }
-
-    /// Returns a slice of the remaining bytes. Does not affect iterator state.
-    pub fn rest(self: TokenIterator) []const u8 {
-        // move to beginning of token
-        var index: usize = self.index;
-        while (index < self.buffer.len and self.isSplitByte(self.buffer[index])) : (index += 1) {}
-        return self.buffer[index..];
-    }
-
-    /// Resets the iterator to the initial token.
-    pub fn reset(self: *TokenIterator) void {
-        self.index = 0;
-    }
-
-    fn isSplitByte(self: TokenIterator, byte: u8) bool {
-        for (self.delimiter_bytes) |delimiter_byte| {
-            if (byte == delimiter_byte) {
-                return true;
+        /// Returns a slice of the next token, or null if tokenization is complete.
+        pub fn next(self: *Self) ?[]const T {
+            // move to beginning of token
+            while (self.index < self.buffer.len and self.isSplitByte(self.buffer[self.index])) : (self.index += 1) {}
+            const start = self.index;
+            if (start == self.buffer.len) {
+                return null;
             }
+
+            // move to end of token
+            while (self.index < self.buffer.len and !self.isSplitByte(self.buffer[self.index])) : (self.index += 1) {}
+            const end = self.index;
+
+            return self.buffer[start..end];
         }
-        return false;
-    }
-};
 
-pub const SplitIterator = struct {
-    buffer: []const u8,
-    index: ?usize,
-    delimiter: []const u8,
+        /// Returns a slice of the remaining bytes. Does not affect iterator state.
+        pub fn rest(self: Self) []const T {
+            // move to beginning of token
+            var index: usize = self.index;
+            while (index < self.buffer.len and self.isSplitByte(self.buffer[index])) : (index += 1) {}
+            return self.buffer[index..];
+        }
 
-    /// Returns a slice of the next field, or null if splitting is complete.
-    pub fn next(self: *SplitIterator) ?[]const u8 {
-        const start = self.index orelse return null;
-        const end = if (indexOfPos(u8, self.buffer, start, self.delimiter)) |delim_start| blk: {
-            self.index = delim_start + self.delimiter.len;
-            break :blk delim_start;
-        } else blk: {
-            self.index = null;
-            break :blk self.buffer.len;
-        };
-        return self.buffer[start..end];
-    }
+        /// Resets the iterator to the initial token.
+        pub fn reset(self: *Self) void {
+            self.index = 0;
+        }
 
-    /// Returns a slice of the remaining bytes. Does not affect iterator state.
-    pub fn rest(self: SplitIterator) []const u8 {
-        const end = self.buffer.len;
-        const start = self.index orelse end;
-        return self.buffer[start..end];
-    }
-};
+        fn isSplitByte(self: Self, byte: T) bool {
+            for (self.delimiter_bytes) |delimiter_byte| {
+                if (byte == delimiter_byte) {
+                    return true;
+                }
+            }
+            return false;
+        }
+    };
+}
+
+pub fn SplitIterator(comptime T: type) type {
+    return struct {
+        buffer: []const T,
+        index: ?usize,
+        delimiter: []const T,
+
+        const Self = @This();
+
+        /// Returns a slice of the next field, or null if splitting is complete.
+        pub fn next(self: *Self) ?[]const T {
+            const start = self.index orelse return null;
+            const end = if (indexOfPos(T, self.buffer, start, self.delimiter)) |delim_start| blk: {
+                self.index = delim_start + self.delimiter.len;
+                break :blk delim_start;
+            } else blk: {
+                self.index = null;
+                break :blk self.buffer.len;
+            };
+            return self.buffer[start..end];
+        }
+
+        /// Returns a slice of the remaining bytes. Does not affect iterator state.
+        pub fn rest(self: Self) []const T {
+            const end = self.buffer.len;
+            const start = self.index orelse end;
+            return self.buffer[start..end];
+        }
+    };
+}
 
 /// Naively combines a series of slices with a separator.
 /// Allocates memory for the result, which must be freed by the caller.
@@ -2817,7 +2860,7 @@ pub fn alignForwardGeneric(comptime T: type, addr: T, alignment: T) T {
 pub fn doNotOptimizeAway(val: anytype) void {
     asm volatile (""
         :
-        : [val] "rm" (val)
+        : [val] "rm" (val),
         : "memory"
     );
 }

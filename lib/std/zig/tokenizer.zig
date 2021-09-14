@@ -1,8 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
 const std = @import("../std.zig");
 const mem = std.mem;
 
@@ -37,7 +32,6 @@ pub const Token = struct {
         .{ "error", .keyword_error },
         .{ "export", .keyword_export },
         .{ "extern", .keyword_extern },
-        .{ "false", .keyword_false },
         .{ "fn", .keyword_fn },
         .{ "for", .keyword_for },
         .{ "if", .keyword_if },
@@ -45,7 +39,6 @@ pub const Token = struct {
         .{ "noalias", .keyword_noalias },
         .{ "noinline", .keyword_noinline },
         .{ "nosuspend", .keyword_nosuspend },
-        .{ "null", .keyword_null },
         .{ "opaque", .keyword_opaque },
         .{ "or", .keyword_or },
         .{ "orelse", .keyword_orelse },
@@ -59,9 +52,7 @@ pub const Token = struct {
         .{ "switch", .keyword_switch },
         .{ "test", .keyword_test },
         .{ "threadlocal", .keyword_threadlocal },
-        .{ "true", .keyword_true },
         .{ "try", .keyword_try },
-        .{ "undefined", .keyword_undefined },
         .{ "union", .keyword_union },
         .{ "unreachable", .keyword_unreachable },
         .{ "usingnamespace", .keyword_usingnamespace },
@@ -162,7 +153,6 @@ pub const Token = struct {
         keyword_error,
         keyword_export,
         keyword_extern,
-        keyword_false,
         keyword_fn,
         keyword_for,
         keyword_if,
@@ -170,7 +160,6 @@ pub const Token = struct {
         keyword_noalias,
         keyword_noinline,
         keyword_nosuspend,
-        keyword_null,
         keyword_opaque,
         keyword_or,
         keyword_orelse,
@@ -184,9 +173,7 @@ pub const Token = struct {
         keyword_switch,
         keyword_test,
         keyword_threadlocal,
-        keyword_true,
         keyword_try,
-        keyword_undefined,
         keyword_union,
         keyword_unreachable,
         keyword_usingnamespace,
@@ -285,7 +272,6 @@ pub const Token = struct {
                 .keyword_error => "error",
                 .keyword_export => "export",
                 .keyword_extern => "extern",
-                .keyword_false => "false",
                 .keyword_fn => "fn",
                 .keyword_for => "for",
                 .keyword_if => "if",
@@ -293,7 +279,6 @@ pub const Token = struct {
                 .keyword_noalias => "noalias",
                 .keyword_noinline => "noinline",
                 .keyword_nosuspend => "nosuspend",
-                .keyword_null => "null",
                 .keyword_opaque => "opaque",
                 .keyword_or => "or",
                 .keyword_orelse => "orelse",
@@ -307,9 +292,7 @@ pub const Token = struct {
                 .keyword_switch => "switch",
                 .keyword_test => "test",
                 .keyword_threadlocal => "threadlocal",
-                .keyword_true => "true",
                 .keyword_try => "try",
-                .keyword_undefined => "undefined",
                 .keyword_union => "union",
                 .keyword_unreachable => "unreachable",
                 .keyword_usingnamespace => "usingnamespace",

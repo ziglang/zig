@@ -1,9 +1,9 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
-usingnamespace @import("bits.zig");
+const std = @import("../../std.zig");
+const windows = std.os.windows;
+const WINAPI = windows.WINAPI;
+const LPVOID = windows.LPVOID;
+const DWORD = windows.DWORD;
+const HRESULT = windows.HRESULT;
 
 pub extern "ole32" fn CoTaskMemFree(pv: LPVOID) callconv(WINAPI) void;
 pub extern "ole32" fn CoUninitialize() callconv(WINAPI) void;

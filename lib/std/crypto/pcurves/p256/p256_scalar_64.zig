@@ -1766,7 +1766,7 @@ pub fn divstep(out1: *u64, out2: *[5]u64, out3: *[5]u64, out4: *[4]u64, out5: *[
     var x1: u64 = undefined;
     var x2: u1 = undefined;
     addcarryxU64(&x1, &x2, 0x0, (~arg1), @as(u64, 0x1));
-    const x3 = (@as(u1, (x1 >> 63)) & @as(u1, ((arg3[0]) & @as(u64, 0x1))));
+    const x3 = @truncate(u1, (x1 >> 63)) & @truncate(u1, ((arg3[0]) & @as(u64, 0x1)));
     var x4: u64 = undefined;
     var x5: u1 = undefined;
     addcarryxU64(&x4, &x5, 0x0, (~arg1), @as(u64, 0x1));
@@ -1880,7 +1880,7 @@ pub fn divstep(out1: *u64, out2: *[5]u64, out3: *[5]u64, out4: *[4]u64, out5: *[
     cmovznzU64(&x72, x3, (arg5[2]), x66);
     var x73: u64 = undefined;
     cmovznzU64(&x73, x3, (arg5[3]), x68);
-    const x74 = @as(u1, (x22 & @as(u64, 0x1)));
+    const x74 = @truncate(u1, (x22 & @as(u64, 0x1)));
     var x75: u64 = undefined;
     cmovznzU64(&x75, x74, @as(u64, 0x0), x7);
     var x76: u64 = undefined;

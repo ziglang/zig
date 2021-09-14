@@ -49,7 +49,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\export fn foo() callconv(y) c_int {
             \\    return 0;
             \\}
-            \\var y: i32 = 1234;
+            \\var y: @import("std").builtin.CallingConvention = .C;
         , &.{
             ":2:22: error: unable to resolve comptime value",
             ":5:26: error: unable to resolve comptime value",
@@ -240,6 +240,10 @@ pub fn addCases(ctx: *TestContext) !void {
     if (host_supports_custom_stack_size) {
         var case = ctx.exeFromCompiledC("@setEvalBranchQuota", .{});
 
+        // TODO when adding result location support to function calls, revisit this test
+        // case. It can go back to what it was before, with `y` being comptime known.
+        // Because the ret_ptr will passed in with the inline fn call, and there will
+        // only be 1 store to it, and it will be comptime known.
         case.addCompareOutput(
             \\pub export fn main() i32 {
             \\    @setEvalBranchQuota(1001);
@@ -247,7 +251,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    return y - 1;
             \\}
             \\
-            \\fn rec(n: usize) callconv(.Inline) usize {
+            \\inline fn rec(n: i32) i32 {
             \\    if (n <= 1) return n;
             \\    return rec(n - 1);
             \\}
@@ -551,6 +555,19 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    return p.y - p.x - p.x;
             \\}
         , "");
+        case.addCompareOutput(
+            \\const Point = struct { x: i32, y: i32, z: i32, a: i32, b: i32 };
+            \\pub export fn main() c_int {
+            \\    var p: Point = .{
+            \\        .x = 18,
+            \\        .y = 24,
+            \\        .z = 1,
+            \\        .a = 2,
+            \\        .b = 3,
+            \\    };
+            \\    return p.y - p.x - p.z - p.a - p.b;
+            \\}
+        , "");
     }
 
     {
@@ -805,6 +822,31 @@ pub fn addCases(ctx: *TestContext) !void {
     }
 
     {
+        var case = ctx.exeFromCompiledC("shift right + left", .{});
+        case.addCompareOutput(
+            \\pub export fn main() c_int {
+            \\    var i: u32 = 16;
+            \\    assert(i >> 1, 8);
+            \\    return 0;
+            \\}
+            \\fn assert(a: u32, b: u32) void {
+            \\    if (a != b) unreachable;
+            \\}
+        , "");
+
+        case.addCompareOutput(
+            \\pub export fn main() c_int {
+            \\    var i: u32 = 16;
+            \\    assert(i << 1, 32);
+            \\    return 0;
+            \\}
+            \\fn assert(a: u32, b: u32) void {
+            \\    if (a != b) unreachable;
+            \\}
+        , "");
+    }
+
+    {
         var case = ctx.exeFromCompiledC("inferred error sets", .{});
 
         case.addCompareOutput(
@@ -870,6 +912,23 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
             \\fn sub_c_int(lhs: c_int, rhs: c_int, expected: c_int) bool {
             \\    return expected == lhs -% rhs;
+            \\}
+        , "");
+    }
+
+    {
+        var case = ctx.exeFromCompiledC("@rem", linux_x64);
+        case.addCompareOutput(
+            \\fn assert(ok: bool) void {
+            \\    if (!ok) unreachable;
+            \\}
+            \\fn rem(lhs: i32, rhs: i32, expected: i32) bool {
+            \\    return @rem(lhs, rhs) == expected;
+            \\}
+            \\pub export fn main() c_int {
+            \\    assert(rem(-5, 3, -2));
+            \\    assert(rem(5, 3, 2));
+            \\    return 0;
             \\}
         , "");
     }

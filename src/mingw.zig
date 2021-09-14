@@ -187,27 +187,25 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                     };
                 }
             } else if (target.cpu.arch.isARM()) {
-                if (target.cpu.arch.ptrBitWidth() == 32) {
-                    for (mingwex_arm32_src) |dep| {
-                        (try c_source_files.addOne()).* = .{
-                            .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
-                                "libc", "mingw", dep,
-                            }),
-                            .extra_flags = extra_flags,
-                        };
-                    }
-                } else {
-                    for (mingwex_arm64_src) |dep| {
-                        (try c_source_files.addOne()).* = .{
-                            .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
-                                "libc", "mingw", dep,
-                            }),
-                            .extra_flags = extra_flags,
-                        };
-                    }
+                for (mingwex_arm32_src) |dep| {
+                    (try c_source_files.addOne()).* = .{
+                        .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+                            "libc", "mingw", dep,
+                        }),
+                        .extra_flags = extra_flags,
+                    };
+                }
+            } else if (target.cpu.arch.isAARCH64()) {
+                for (mingwex_arm64_src) |dep| {
+                    (try c_source_files.addOne()).* = .{
+                        .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+                            "libc", "mingw", dep,
+                        }),
+                        .extra_flags = extra_flags,
+                    };
                 }
             } else {
-                unreachable;
+                @panic("unsupported arch");
             }
             return comp.build_crt_file("mingwex", .Lib, c_source_files.items);
         },
@@ -1024,6 +1022,10 @@ const mingwex_arm32_src = [_][]const u8{
 };
 
 const mingwex_arm64_src = [_][]const u8{
+    "misc" ++ path.sep_str ++ "initenv.c",
+    "math" ++ path.sep_str ++ "arm-common" ++ path.sep_str ++ "log2.c",
+    "math" ++ path.sep_str ++ "arm-common" ++ path.sep_str ++ "pow.c",
+    "math" ++ path.sep_str ++ "arm-common" ++ path.sep_str ++ "scalbn.c",
     "math" ++ path.sep_str ++ "arm64" ++ path.sep_str ++ "_chgsignl.S",
     "math" ++ path.sep_str ++ "arm64" ++ path.sep_str ++ "rint.c",
     "math" ++ path.sep_str ++ "arm64" ++ path.sep_str ++ "rintf.c",

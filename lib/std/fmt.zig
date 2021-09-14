@@ -1,8 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
 const std = @import("std.zig");
 const math = std.math;
 const assert = std.debug.assert;
@@ -544,7 +539,14 @@ pub fn formatType(
                             return formatText(value, actual_fmt, options, writer);
                         }
                     }
-                    @compileError("Unknown format string: '" ++ actual_fmt ++ "'");
+                    if (comptime std.meta.trait.isZigString(info.child)) {
+                        for (value) |item, i| {
+                            if (i != 0) try formatText(", ", actual_fmt, options, writer);
+                            try formatText(item, actual_fmt, options, writer);
+                        }
+                        return;
+                    }
+                    @compileError("Unknown format string: '" ++ actual_fmt ++ "' for type '" ++ @typeName(T) ++ "'");
                 },
                 .Enum, .Union, .Struct => {
                     return formatType(value.*, actual_fmt, options, writer, max_depth);
@@ -562,7 +564,7 @@ pub fn formatType(
                         return formatText(mem.span(value), actual_fmt, options, writer);
                     }
                 }
-                @compileError("Unknown format string: '" ++ actual_fmt ++ "'");
+                @compileError("Unknown format string: '" ++ actual_fmt ++ "' for type '" ++ @typeName(T) ++ "'");
             },
             .Slice => {
                 if (actual_fmt.len == 0)
@@ -900,7 +902,7 @@ pub fn formatText(
     } else if (comptime std.mem.eql(u8, fmt, "Z")) {
         @compileError("specifier 'Z' has been deprecated, wrap your argument in std.zig.fmtEscapes instead");
     } else {
-        @compileError("Unsupported format string '" ++ fmt ++ "' for type '" ++ @typeName(@TypeOf(value)) ++ "'");
+        @compileError("Unsupported format string '" ++ fmt ++ "' when formatting text");
     }
 }
 
@@ -1198,8 +1200,6 @@ pub fn formatFloatDecimal(
                 while (i < precision) : (i += 1) {
                     try writer.writeAll("0");
                 }
-            } else {
-                try writer.writeAll(".0");
             }
         }
 
@@ -1750,6 +1750,7 @@ test "parseUnsigned" {
 }
 
 pub const parseFloat = @import("fmt/parse_float.zig").parseFloat;
+pub const ParseFloatError = @import("fmt/parse_float.zig").ParseFloatError;
 pub const parseHexFloat = @import("fmt/parse_hex_float.zig").parseHexFloat;
 
 test {
@@ -2195,6 +2196,7 @@ test "float.hexadecimal.precision" {
 test "float.decimal" {
     try expectFmt("f64: 152314000000000000000000000000", "f64: {d}", .{@as(f64, 1.52314e+29)});
     try expectFmt("f32: 0", "f32: {d}", .{@as(f32, 0.0)});
+    try expectFmt("f32: 0", "f32: {d:.0}", .{@as(f32, 0.0)});
     try expectFmt("f32: 1.1", "f32: {d:.1}", .{@as(f32, 1.1234)});
     try expectFmt("f32: 1234.57", "f32: {d:.2}", .{@as(f32, 1234.567)});
     // -11.1234 is converted to f64 -11.12339... internally (errol3() function takes f64).

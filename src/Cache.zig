@@ -356,7 +356,7 @@ pub const Manifest = struct {
 
         const input_file_count = self.files.items.len;
         var any_file_changed = false;
-        var line_iter = mem.tokenize(file_contents, "\n");
+        var line_iter = mem.tokenize(u8, file_contents, "\n");
         var idx: usize = 0;
         while (line_iter.next()) |line| {
             defer idx += 1;
@@ -373,7 +373,7 @@ pub const Manifest = struct {
                 break :blk new;
             };
 
-            var iter = mem.tokenize(line, " ");
+            var iter = mem.tokenize(u8, line, " ");
             const size = iter.next() orelse return error.InvalidFormat;
             const inode = iter.next() orelse return error.InvalidFormat;
             const mtime_nsec_str = iter.next() orelse return error.InvalidFormat;

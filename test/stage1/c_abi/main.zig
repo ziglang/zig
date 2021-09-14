@@ -1,4 +1,5 @@
 const std = @import("std");
+const print = std.debug.print;
 const expect = std.testing.expect;
 
 extern fn run_c_tests() void;
@@ -170,6 +171,34 @@ export fn zig_big_union(x: BigUnion) void {
     expect(x.a.e == 5) catch @panic("test failure");
 }
 
+const MedStructMixed = extern struct {
+    a: u32,
+    b: f32,
+    c: f32,
+    d: u32 = 0,
+};
+extern fn c_med_struct_mixed(MedStructMixed) void;
+extern fn c_ret_med_struct_mixed() MedStructMixed;
+
+test "C ABI medium struct of ints and floats" {
+    var s = MedStructMixed{
+        .a = 1234,
+        .b = 100.0,
+        .c = 1337.0,
+    };
+    c_med_struct_mixed(s);
+    var s2 = c_ret_med_struct_mixed();
+    expect(s2.a == 1234) catch @panic("test failure");
+    expect(s2.b == 100.0) catch @panic("test failure");
+    expect(s2.c == 1337.0) catch @panic("test failure");
+}
+
+export fn zig_med_struct_mixed(x: MedStructMixed) void {
+    expect(x.a == 1234) catch @panic("test failure");
+    expect(x.b == 100.0) catch @panic("test failure");
+    expect(x.c == 1337.0) catch @panic("test failure");
+}
+
 const SmallStructInts = extern struct {
     a: u8,
     b: u8,
@@ -177,6 +206,7 @@ const SmallStructInts = extern struct {
     d: u8,
 };
 extern fn c_small_struct_ints(SmallStructInts) void;
+extern fn c_ret_small_struct_ints() SmallStructInts;
 
 test "C ABI small struct of ints" {
     var s = SmallStructInts{
@@ -186,6 +216,11 @@ test "C ABI small struct of ints" {
         .d = 4,
     };
     c_small_struct_ints(s);
+    var s2 = c_ret_small_struct_ints();
+    expect(s2.a == 1) catch @panic("test failure");
+    expect(s2.b == 2) catch @panic("test failure");
+    expect(s2.c == 3) catch @panic("test failure");
+    expect(s2.d == 4) catch @panic("test failure");
 }
 
 export fn zig_small_struct_ints(x: SmallStructInts) void {
@@ -215,6 +250,33 @@ export fn zig_split_struct_ints(x: SplitStructInt) void {
     expect(x.a == 1234) catch @panic("test failure");
     expect(x.b == 100) catch @panic("test failure");
     expect(x.c == 1337) catch @panic("test failure");
+}
+
+const SplitStructMixed = extern struct {
+    a: u64,
+    b: u8,
+    c: f32,
+};
+extern fn c_split_struct_mixed(SplitStructMixed) void;
+extern fn c_ret_split_struct_mixed() SplitStructMixed;
+
+test "C ABI split struct of ints and floats" {
+    var s = SplitStructMixed{
+        .a = 1234,
+        .b = 100,
+        .c = 1337.0,
+    };
+    c_split_struct_mixed(s);
+    var s2 = c_ret_split_struct_mixed();
+    expect(s2.a == 1234) catch @panic("test failure");
+    expect(s2.b == 100) catch @panic("test failure");
+    expect(s2.c == 1337.0) catch @panic("test failure");
+}
+
+export fn zig_split_struct_mixed(x: SplitStructMixed) void {
+    expect(x.a == 1234) catch @panic("test failure");
+    expect(x.b == 100) catch @panic("test failure");
+    expect(x.c == 1337.0) catch @panic("test failure");
 }
 
 extern fn c_big_struct_both(BigStruct) BigStruct;
@@ -313,6 +375,31 @@ export fn zig_ret_i32() i32 {
 }
 export fn zig_ret_i64() i64 {
     return -1;
+}
+
+export fn zig_ret_small_struct_ints() SmallStructInts {
+    return .{
+        .a = 1,
+        .b = 2,
+        .c = 3,
+        .d = 4,
+    };
+}
+
+export fn zig_ret_med_struct_mixed() MedStructMixed {
+    return .{
+        .a = 1234,
+        .b = 100.0,
+        .c = 1337.0,
+    };
+}
+
+export fn zig_ret_split_struct_mixed() SplitStructMixed {
+    return .{
+        .a = 1234,
+        .b = 100,
+        .c = 1337.0,
+    };
 }
 
 extern fn c_ret_bool() bool;

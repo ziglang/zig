@@ -1,8 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
 const builtin = @import("builtin");
 const is_test = builtin.is_test;
 const std = @import("std");
@@ -61,6 +56,6 @@ pub fn __floatuntisf(arg: u128) callconv(.C) f32 {
     return @bitCast(f32, high | low);
 }
 
-test "import floatuntisf" {
+test {
     _ = @import("floatuntisf_test.zig");
 }

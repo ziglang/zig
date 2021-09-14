@@ -1,8 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
 const std = @import("std.zig");
 const builtin = std.builtin;
 const os = std.os;
@@ -88,12 +83,12 @@ pub fn getEnvMap(allocator: *Allocator) !BufMap {
             try result.putMove(key, value);
         }
         return result;
-    } else if (builtin.os.tag == .wasi) {
+    } else if (builtin.os.tag == .wasi and !builtin.link_libc) {
         var environ_count: usize = undefined;
         var environ_buf_size: usize = undefined;
 
         const environ_sizes_get_ret = os.wasi.environ_sizes_get(&environ_count, &environ_buf_size);
-        if (environ_sizes_get_ret != os.wasi.ESUCCESS) {
+        if (environ_sizes_get_ret != .SUCCESS) {
             return os.unexpectedErrno(environ_sizes_get_ret);
         }
 
@@ -103,13 +98,13 @@ pub fn getEnvMap(allocator: *Allocator) !BufMap {
         defer allocator.free(environ_buf);
 
         const environ_get_ret = os.wasi.environ_get(environ.ptr, environ_buf.ptr);
-        if (environ_get_ret != os.wasi.ESUCCESS) {
+        if (environ_get_ret != .SUCCESS) {
             return os.unexpectedErrno(environ_get_ret);
         }
 
         for (environ) |env| {
             const pair = mem.spanZ(env);
-            var parts = mem.split(pair, "=");
+            var parts = mem.split(u8, pair, "=");
             const key = parts.next().?;
             const value = parts.next().?;
             try result.put(key, value);
@@ -255,7 +250,7 @@ pub const ArgIteratorWasi = struct {
         var buf_size: usize = undefined;
 
         switch (w.args_sizes_get(&count, &buf_size)) {
-            w.ESUCCESS => {},
+            .SUCCESS => {},
             else => |err| return os.unexpectedErrno(err),
         }
 
@@ -265,7 +260,7 @@ pub const ArgIteratorWasi = struct {
         var argv_buf = try allocator.alloc(u8, buf_size);
 
         switch (w.args_get(argv.ptr, argv_buf.ptr)) {
-            w.ESUCCESS => {},
+            .SUCCESS => {},
             else => |err| return os.unexpectedErrno(err),
         }
 
@@ -450,7 +445,7 @@ pub const ArgIteratorWindows = struct {
 pub const ArgIterator = struct {
     const InnerType = switch (builtin.os.tag) {
         .windows => ArgIteratorWindows,
-        .wasi => ArgIteratorWasi,
+        .wasi => if (builtin.link_libc) ArgIteratorPosix else ArgIteratorWasi,
         else => ArgIteratorPosix,
     };
 
@@ -469,7 +464,7 @@ pub const ArgIterator = struct {
 
     /// You must deinitialize iterator's internal buffers by calling `deinit` when done.
     pub fn initWithAllocator(allocator: *mem.Allocator) InitError!ArgIterator {
-        if (builtin.os.tag == .wasi) {
+        if (builtin.os.tag == .wasi and !builtin.link_libc) {
             return ArgIterator{ .inner = try InnerType.init(allocator) };
         }
 
@@ -507,7 +502,7 @@ pub const ArgIterator = struct {
     /// was created with `initWithAllocator` function.
     pub fn deinit(self: *ArgIterator) void {
         // Unless we're targeting WASI, this is a no-op.
-        if (builtin.os.tag == .wasi) {
+        if (builtin.os.tag == .wasi and !builtin.link_libc) {
             self.inner.deinit();
         }
     }

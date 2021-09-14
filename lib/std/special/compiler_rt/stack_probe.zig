@@ -1,8 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
 const native_arch = @import("std").Target.current.cpu.arch;
 
 // Zig's own stack-probe routine (available only on x86 and x86_64)
@@ -57,6 +52,19 @@ pub fn zig_probe_stack() callconv(.Naked) void {
             );
         },
         else => {},
+    }
+    if (comptime native_arch.isAARCH64()) {
+        asm volatile (
+            \\        lsl    x16, x15, #4
+            \\        mov    x17, sp
+            \\1:
+            \\        sub    x17, x17, #PAGE_SIZE
+            \\        subs   x16, x16, #PAGE_SIZE
+            \\        ldr    xzr, [x17]
+            \\        b.gt   1b
+            \\
+            \\        ret
+        );
     }
 
     unreachable;

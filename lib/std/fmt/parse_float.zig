@@ -1,8 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
 // Adapted from https://github.com/grzegorz-kraszewski/stringtofloat.
 
 // MIT License
@@ -349,7 +344,9 @@ fn caseInEql(a: []const u8, b: []const u8) bool {
     return true;
 }
 
-pub fn parseFloat(comptime T: type, s: []const u8) !T {
+pub const ParseFloatError = error{InvalidCharacter};
+
+pub fn parseFloat(comptime T: type, s: []const u8) ParseFloatError!T {
     if (s.len == 0 or (s.len == 1 and (s[0] == '+' or s[0] == '-'))) {
         return error.InvalidCharacter;
     }

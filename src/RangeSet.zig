@@ -1,5 +1,6 @@
 const std = @import("std");
 const Order = std.math.Order;
+const Type = @import("type.zig").Type;
 const Value = @import("value.zig").Value;
 const RangeSet = @This();
 const SwitchProngSrc = @import("Module.zig").SwitchProngSrc;
@@ -22,9 +23,15 @@ pub fn deinit(self: *RangeSet) void {
     self.ranges.deinit();
 }
 
-pub fn add(self: *RangeSet, first: Value, last: Value, src: SwitchProngSrc) !?SwitchProngSrc {
+pub fn add(
+    self: *RangeSet,
+    first: Value,
+    last: Value,
+    ty: Type,
+    src: SwitchProngSrc,
+) !?SwitchProngSrc {
     for (self.ranges.items) |range| {
-        if (last.compare(.gte, range.first) and first.compare(.lte, range.last)) {
+        if (last.compare(.gte, range.first, ty) and first.compare(.lte, range.last, ty)) {
             return range.src; // They overlap.
         }
     }
@@ -37,18 +44,18 @@ pub fn add(self: *RangeSet, first: Value, last: Value, src: SwitchProngSrc) !?Sw
 }
 
 /// Assumes a and b do not overlap
-fn lessThan(_: void, a: Range, b: Range) bool {
-    return a.first.compare(.lt, b.first);
+fn lessThan(ty: Type, a: Range, b: Range) bool {
+    return a.first.compare(.lt, b.first, ty);
 }
 
-pub fn spans(self: *RangeSet, first: Value, last: Value) !bool {
+pub fn spans(self: *RangeSet, first: Value, last: Value, ty: Type) !bool {
     if (self.ranges.items.len == 0)
         return false;
 
-    std.sort.sort(Range, self.ranges.items, {}, lessThan);
+    std.sort.sort(Range, self.ranges.items, ty, lessThan);
 
-    if (!self.ranges.items[0].first.eql(first) or
-        !self.ranges.items[self.ranges.items.len - 1].last.eql(last))
+    if (!self.ranges.items[0].first.eql(first, ty) or
+        !self.ranges.items[self.ranges.items.len - 1].last.eql(last, ty))
     {
         return false;
     }

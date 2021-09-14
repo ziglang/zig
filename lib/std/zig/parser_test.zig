@@ -1,11 +1,5 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
-
 test "zig fmt: preserves clobbers in inline asm with stray comma" {
-    try testTransform(
+    try testCanonical(
         \\fn foo() void {
         \\    asm volatile (""
         \\        : [_] "" (-> type),
@@ -15,20 +9,6 @@ test "zig fmt: preserves clobbers in inline asm with stray comma" {
         \\    asm volatile (""
         \\        :
         \\        : [_] "" (type),
-        \\        : "clobber"
-        \\    );
-        \\}
-        \\
-    ,
-        \\fn foo() void {
-        \\    asm volatile (""
-        \\        : [_] "" (-> type)
-        \\        :
-        \\        : "clobber"
-        \\    );
-        \\    asm volatile (""
-        \\        :
-        \\        : [_] "" (type)
         \\        : "clobber"
         \\    );
         \\}
@@ -514,15 +494,15 @@ test "zig fmt: asm expression with comptime content" {
         \\pub fn main() void {
         \\    asm volatile ("foo" ++ "bar");
         \\    asm volatile ("foo" ++ "bar"
-        \\        : [_] "" (x)
+        \\        : [_] "" (x),
         \\    );
         \\    asm volatile ("foo" ++ "bar"
-        \\        : [_] "" (x)
-        \\        : [_] "" (y)
+        \\        : [_] "" (x),
+        \\        : [_] "" (y),
         \\    );
         \\    asm volatile ("foo" ++ "bar"
-        \\        : [_] "" (x)
-        \\        : [_] "" (y)
+        \\        : [_] "" (x),
+        \\        : [_] "" (y),
         \\        : "h", "e", "l", "l", "o"
         \\    );
         \\}
@@ -2064,11 +2044,11 @@ test "zig fmt: simple asm" {
         \\    );
         \\
         \\    asm ("not real assembly"
-        \\        : [a] "x" (x)
+        \\        : [a] "x" (x),
         \\    );
         \\    asm ("not real assembly"
-        \\        : [a] "x" (-> i32)
-        \\        : [a] "x" (1)
+        \\        : [a] "x" (-> i32),
+        \\        : [a] "x" (1),
         \\    );
         \\    asm ("still not real assembly" ::: "a", "b");
         \\}
@@ -2899,6 +2879,9 @@ test "zig fmt: functions" {
         \\pub export fn puts(s: *const u8) align(2 + 2) c_int;
         \\pub inline fn puts(s: *const u8) align(2 + 2) c_int;
         \\pub noinline fn puts(s: *const u8) align(2 + 2) c_int;
+        \\pub fn callInlineFn(func: fn () callconv(.Inline) void) void {
+        \\    func();
+        \\}
         \\
     );
 }
@@ -3718,9 +3701,9 @@ test "zig fmt: inline asm" {
     try testCanonical(
         \\pub fn syscall1(number: usize, arg1: usize) usize {
         \\    return asm volatile ("syscall"
-        \\        : [ret] "={rax}" (-> usize)
+        \\        : [ret] "={rax}" (-> usize),
         \\        : [number] "{rax}" (number),
-        \\          [arg1] "{rdi}" (arg1)
+        \\          [arg1] "{rdi}" (arg1),
         \\        : "rcx", "r11"
         \\    );
         \\}
@@ -3823,14 +3806,14 @@ test "zig fmt: inline asm parameter alignment" {
         \\        \\ foo
         \\        \\ bar
         \\        : [_] "" (-> usize),
-        \\          [_] "" (-> usize)
+        \\          [_] "" (-> usize),
         \\    );
         \\    asm volatile (
         \\        \\ foo
         \\        \\ bar
         \\        :
         \\        : [_] "" (0),
-        \\          [_] "" (0)
+        \\          [_] "" (0),
         \\    );
         \\    asm volatile (
         \\        \\ foo
@@ -3840,9 +3823,9 @@ test "zig fmt: inline asm parameter alignment" {
         \\        \\ foo
         \\        \\ bar
         \\        : [_] "" (-> usize),
-        \\          [_] "" (-> usize)
+        \\          [_] "" (-> usize),
         \\        : [_] "" (0),
-        \\          [_] "" (0)
+        \\          [_] "" (0),
         \\        : "", ""
         \\    );
         \\}
@@ -4857,6 +4840,77 @@ test "zig fmt: make single-line if no trailing comma" {
     );
 }
 
+test "zig fmt: make single-line if no trailing comma" {
+    try testCanonical(
+        \\// Test trailing comma syntax
+        \\// zig fmt: off
+        \\
+        \\extern var a: c_int;
+        \\extern "c" var b: c_int;
+        \\export var c: c_int = 0;
+        \\threadlocal var d: c_int = 0;
+        \\extern threadlocal var e: c_int;
+        \\extern "c" threadlocal var f: c_int;
+        \\export threadlocal var g: c_int = 0;
+        \\
+        \\const struct_trailing_comma = struct { x: i32, y: i32, };
+        \\const struct_no_comma = struct { x: i32, y: i32 };
+        \\const struct_fn_no_comma = struct { fn m() void {} y: i32 };
+        \\
+        \\const enum_no_comma = enum { A, B };
+        \\
+        \\fn container_init() void {
+        \\    const S = struct { x: i32, y: i32 };
+        \\    _ = S { .x = 1, .y = 2 };
+        \\    _ = S { .x = 1, .y = 2, };
+        \\}
+        \\
+        \\fn type_expr_return1() if (true) A {}
+        \\fn type_expr_return2() for (true) |_| A {}
+        \\fn type_expr_return3() while (true) A {}
+        \\
+        \\fn switch_cases(x: i32) void {
+        \\    switch (x) {
+        \\        1,2,3 => {},
+        \\        4,5, => {},
+        \\        6...8, => {},
+        \\        else => {},
+        \\    }
+        \\}
+        \\
+        \\fn switch_prongs(x: i32) void {
+        \\    switch (x) {
+        \\        0 => {},
+        \\        else => {},
+        \\    }
+        \\    switch (x) {
+        \\        0 => {},
+        \\        else => {}
+        \\    }
+        \\}
+        \\
+        \\const fn_no_comma = fn(i32, i32)void;
+        \\const fn_trailing_comma = fn(i32, i32,)void;
+        \\
+        \\fn fn_calls() void {
+        \\    fn add(x: i32, y: i32,) i32 { x + y };
+        \\    _ = add(1, 2);
+        \\    _ = add(1, 2,);
+        \\}
+        \\
+        \\fn asm_lists() void {
+        \\    if (false) { // Build AST but don't analyze
+        \\        asm ("not real assembly"
+        \\            :[a] "x" (x),);
+        \\        asm ("not real assembly"
+        \\            :[a] "x" (->i32),:[a] "x" (1),);
+        \\        asm volatile ("still not real assembly"
+        \\            :::"a","b",);
+        \\    }
+        \\}
+    );
+}
+
 test "zig fmt: error for invalid bit range" {
     try testError(
         \\var x: []align(0:0:0)u8 = bar;
@@ -5257,7 +5311,7 @@ fn testCanonical(source: [:0]const u8) !void {
     return testTransform(source, source);
 }
 
-const Error = std.zig.ast.Error.Tag;
+const Error = std.zig.Ast.Error.Tag;
 
 fn testError(source: [:0]const u8, expected_errors: []const Error) !void {
     var tree = try std.zig.parse(std.testing.allocator, source);

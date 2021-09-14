@@ -1243,7 +1243,7 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
         \\}
     , "");
 
-    // See __builtin_alloca_with_align comment in std.c.builtins
+    // See __builtin_alloca_with_align comment in std.zig.c_builtins
     cases.add("use of unimplemented builtin in unused function does not prevent compilation",
         \\#include <stdlib.h>
         \\void unused() {
@@ -1657,6 +1657,114 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
         \\    S foo = { ._ = _ };
         \\    if (foo._ != _) abort();
         \\    return 0;
+        \\}
+    , "");
+
+    cases.add("__builtin_choose_expr (unchosen expression is not evaluated)",
+        \\#include <stdlib.h>
+        \\int main(void) {
+        \\    int x = 0.0;
+        \\    int y = 0.0;
+        \\    int res;
+        \\    res = __builtin_choose_expr(1, 1, x / y);
+        \\    if (res != 1) abort();
+        \\    res = __builtin_choose_expr(0, x / y, 2);
+        \\    if (res != 2) abort();
+        \\    return 0;
+        \\}
+    , "");
+
+    // TODO: add isnan check for long double once bitfield support is added
+    //       (needed for x86_64-windows-gnu)
+    // TODO: add isinf check for long double once std.math.isInf supports c_longdouble
+    cases.add("NAN and INFINITY",
+        \\#include <math.h>
+        \\#include <stdint.h>
+        \\#include <stdlib.h>
+        \\union uf { uint32_t u; float f; };
+        \\#define CHECK_NAN(STR, VAL) { \
+        \\    union uf unpack = {.f = __builtin_nanf(STR)}; \
+        \\    if (!isnan(unpack.f)) abort(); \
+        \\    if (unpack.u != VAL) abort(); \
+        \\}
+        \\int main(void) {
+        \\    float f_nan = NAN;
+        \\    if (!isnan(f_nan)) abort();
+        \\    double d_nan = NAN;
+        \\    if (!isnan(d_nan)) abort();
+        \\    CHECK_NAN("0", 0x7FC00000);
+        \\    CHECK_NAN("", 0x7FC00000);
+        \\    CHECK_NAN("1", 0x7FC00001);
+        \\    CHECK_NAN("0x7FC00000", 0x7FC00000);
+        \\    CHECK_NAN("0x7FC0000F", 0x7FC0000F);
+        \\    CHECK_NAN("0x7FC000F0", 0x7FC000F0);
+        \\    CHECK_NAN("0x7FC00F00", 0x7FC00F00);
+        \\    CHECK_NAN("0x7FC0F000", 0x7FC0F000);
+        \\    CHECK_NAN("0x7FCF0000", 0x7FCF0000);
+        \\    CHECK_NAN("0xFFFFFFFF", 0x7FFFFFFF);
+        \\    float f_inf = INFINITY;
+        \\    if (!isinf(f_inf)) abort();
+        \\    double d_inf = INFINITY;
+        \\    if (!isinf(d_inf)) abort();
+        \\    return 0;
+        \\}
+    , "");
+
+    cases.add("signed array subscript. Issue #8556",
+        \\#include <stdint.h>
+        \\#include <stdlib.h>
+        \\#define TEST_NEGATIVE(type) { type x = -1; if (ptr[x] != 42) abort(); }
+        \\#define TEST_UNSIGNED(type) { type x = 2; if (arr[x] != 42) abort(); }
+        \\int main(void) {
+        \\    int arr[] = {40, 41, 42, 43};
+        \\    int *ptr = arr + 3;
+        \\    if (ptr[-1] != 42) abort();
+        \\    TEST_NEGATIVE(int);
+        \\    TEST_NEGATIVE(long);
+        \\    TEST_NEGATIVE(long long);
+        \\    TEST_NEGATIVE(int64_t);
+        \\    TEST_NEGATIVE(__int128);
+        \\    TEST_UNSIGNED(unsigned);
+        \\    TEST_UNSIGNED(unsigned long);
+        \\    TEST_UNSIGNED(unsigned long long);
+        \\    TEST_UNSIGNED(uint64_t);
+        \\    TEST_UNSIGNED(size_t);
+        \\    TEST_UNSIGNED(unsigned __int128);
+        \\    return 0;
+        \\}
+    , "");
+
+    cases.add("Ensure side-effects only evaluated once for signed array indices",
+        \\#include <stdlib.h>
+        \\int main(void) {
+        \\    int foo[] = {1, 2, 3, 4};
+        \\    int *p = foo;
+        \\    int idx = 1;
+        \\    if ((++p)[--idx] != 2) abort();
+        \\    if (p != foo + 1) abort();
+        \\    if (idx != 0) abort();
+        \\    if ((p++)[idx++] != 2) abort();
+        \\    if (p != foo + 2) abort();
+        \\    if (idx != 1) abort();
+        \\    return 0;
+        \\}
+    , "");
+
+    cases.add("Allow non-const char* string literals. Issue #9126",
+        \\#include <stdlib.h>
+        \\int func(char *x) { return x[0]; }
+        \\struct S { char *member; };
+        \\struct S global_struct = { .member = "global" };
+        \\char *g = "global";
+        \\int main(void) {
+        \\   if (g[0] != 'g') abort();
+        \\   if (global_struct.member[0] != 'g') abort();
+        \\   char *string = "hello";
+        \\   if (string[0] != 'h') abort();
+        \\   struct S s = {.member = "hello"};
+        \\   if (s.member[0] != 'h') abort();
+        \\   if (func("foo") != 'f') abort();
+        \\   return 0;
         \\}
     , "");
 }

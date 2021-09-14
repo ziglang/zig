@@ -1,8 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
 const std = @import("std.zig");
 const cstr = std.cstr;
 const unicode = std.unicode;
@@ -12,6 +7,7 @@ const os = std.os;
 const process = std.process;
 const File = std.fs.File;
 const windows = os.windows;
+const linux = os.linux;
 const mem = std.mem;
 const math = std.math;
 const debug = std.debug;
@@ -165,7 +161,7 @@ pub const ChildProcess = struct {
             self.cleanupStreams();
             return term;
         }
-        try os.kill(self.pid, os.SIGTERM);
+        try os.kill(self.pid, os.SIG.TERM);
         self.waitUnwrapped();
         return self.term.?;
     }
@@ -194,8 +190,8 @@ pub const ChildProcess = struct {
         max_output_bytes: usize,
     ) !void {
         var poll_fds = [_]os.pollfd{
-            .{ .fd = child.stdout.?.handle, .events = os.POLLIN, .revents = undefined },
-            .{ .fd = child.stderr.?.handle, .events = os.POLLIN, .revents = undefined },
+            .{ .fd = child.stdout.?.handle, .events = os.POLL.IN, .revents = undefined },
+            .{ .fd = child.stderr.?.handle, .events = os.POLL.IN, .revents = undefined },
         };
 
         var dead_fds: usize = 0;
@@ -204,7 +200,7 @@ pub const ChildProcess = struct {
         // of space an ArrayList will allocate grows exponentially.
         const bump_amt = 512;
 
-        const err_mask = os.POLLERR | os.POLLNVAL | os.POLLHUP;
+        const err_mask = os.POLL.ERR | os.POLL.NVAL | os.POLL.HUP;
 
         while (dead_fds < poll_fds.len) {
             const events = try os.poll(&poll_fds, std.math.maxInt(i32));
@@ -214,9 +210,9 @@ pub const ChildProcess = struct {
             var remove_stderr = false;
             // Try reading whatever is available before checking the error
             // conditions.
-            // It's still possible to read after a POLLHUP is received, always
+            // It's still possible to read after a POLL.HUP is received, always
             // check if there's some data waiting to be read first.
-            if (poll_fds[0].revents & os.POLLIN != 0) {
+            if (poll_fds[0].revents & os.POLL.IN != 0) {
                 // stdout is ready.
                 const new_capacity = std.math.min(stdout.items.len + bump_amt, max_output_bytes);
                 try stdout.ensureCapacity(new_capacity);
@@ -231,7 +227,7 @@ pub const ChildProcess = struct {
                 remove_stdout = poll_fds[0].revents & err_mask != 0;
             }
 
-            if (poll_fds[1].revents & os.POLLIN != 0) {
+            if (poll_fds[1].revents & os.POLL.IN != 0) {
                 // stderr is ready.
                 const new_capacity = std.math.min(stderr.items.len + bump_amt, max_output_bytes);
                 try stderr.ensureCapacity(new_capacity);
@@ -466,7 +462,7 @@ pub const ChildProcess = struct {
         if (builtin.os.tag == .linux) {
             var fd = [1]std.os.pollfd{std.os.pollfd{
                 .fd = self.err_pipe[0],
-                .events = std.os.POLLIN,
+                .events = std.os.POLL.IN,
                 .revents = undefined,
             }};
 
@@ -476,7 +472,7 @@ pub const ChildProcess = struct {
 
             // According to eventfd(2) the descriptro is readable if the counter
             // has a value greater than 0
-            if ((fd[0].revents & std.os.POLLIN) != 0) {
+            if ((fd[0].revents & std.os.POLL.IN) != 0) {
                 const err_int = try readIntFd(self.err_pipe[0]);
                 return @errSetCast(SpawnError, @intToError(err_int));
             }
@@ -499,18 +495,18 @@ pub const ChildProcess = struct {
     }
 
     fn statusToTerm(status: u32) Term {
-        return if (os.WIFEXITED(status))
-            Term{ .Exited = os.WEXITSTATUS(status) }
-        else if (os.WIFSIGNALED(status))
-            Term{ .Signal = os.WTERMSIG(status) }
-        else if (os.WIFSTOPPED(status))
-            Term{ .Stopped = os.WSTOPSIG(status) }
+        return if (os.W.IFEXITED(status))
+            Term{ .Exited = os.W.EXITSTATUS(status) }
+        else if (os.W.IFSIGNALED(status))
+            Term{ .Signal = os.W.TERMSIG(status) }
+        else if (os.W.IFSTOPPED(status))
+            Term{ .Stopped = os.W.STOPSIG(status) }
         else
             Term{ .Unknown = status };
     }
 
     fn spawnPosix(self: *ChildProcess) SpawnError!void {
-        const pipe_flags = if (io.is_async) os.O_NONBLOCK else 0;
+        const pipe_flags = if (io.is_async) os.O.NONBLOCK else 0;
         const stdin_pipe = if (self.stdin_behavior == StdIo.Pipe) try os.pipe2(pipe_flags) else undefined;
         errdefer if (self.stdin_behavior == StdIo.Pipe) {
             destroyPipe(stdin_pipe);
@@ -528,7 +524,7 @@ pub const ChildProcess = struct {
 
         const any_ignore = (self.stdin_behavior == StdIo.Ignore or self.stdout_behavior == StdIo.Ignore or self.stderr_behavior == StdIo.Ignore);
         const dev_null_fd = if (any_ignore)
-            os.openZ("/dev/null", os.O_RDWR, 0) catch |err| switch (err) {
+            os.openZ("/dev/null", os.O.RDWR, 0) catch |err| switch (err) {
                 error.PathAlreadyExists => unreachable,
                 error.NoSpaceLeft => unreachable,
                 error.FileTooBig => unreachable,
@@ -580,12 +576,12 @@ pub const ChildProcess = struct {
         // and execve from the child process to the parent process.
         const err_pipe = blk: {
             if (builtin.os.tag == .linux) {
-                const fd = try os.eventfd(0, os.EFD_CLOEXEC);
+                const fd = try os.eventfd(0, linux.EFD.CLOEXEC);
                 // There's no distinction between the readable and the writeable
                 // end with eventfd
                 break :blk [2]os.fd_t{ fd, fd };
             } else {
-                break :blk try os.pipe2(os.O_CLOEXEC);
+                break :blk try os.pipe2(os.O.CLOEXEC);
             }
         };
         errdefer destroyPipe(err_pipe);
@@ -836,12 +832,12 @@ pub const ChildProcess = struct {
 
             const app_name = self.argv[0];
 
-            var it = mem.tokenize(PATH, ";");
+            var it = mem.tokenize(u8, PATH, ";");
             retry: while (it.next()) |search_path| {
                 const path_no_ext = try fs.path.join(self.allocator, &[_][]const u8{ search_path, app_name });
                 defer self.allocator.free(path_no_ext);
 
-                var ext_it = mem.tokenize(PATHEXT, ";");
+                var ext_it = mem.tokenize(u8, PATHEXT, ";");
                 while (ext_it.next()) |app_ext| {
                     const joined_path = try mem.concat(self.allocator, u8, &[_][]const u8{ path_no_ext, app_ext });
                     defer self.allocator.free(joined_path);

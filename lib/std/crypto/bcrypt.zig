@@ -1,26 +1,27 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
-
 const std = @import("std");
 const crypto = std.crypto;
+const debug = std.debug;
 const fmt = std.fmt;
 const math = std.math;
 const mem = std.mem;
-const debug = std.debug;
+const pwhash = crypto.pwhash;
 const testing = std.testing;
 const utils = crypto.utils;
-const EncodingError = crypto.errors.EncodingError;
-const PasswordVerificationError = crypto.errors.PasswordVerificationError;
+
+const phc_format = @import("phc_encoding.zig");
+
+const KdfError = pwhash.KdfError;
+const HasherError = pwhash.HasherError;
+const EncodingError = phc_format.Error;
+const Error = pwhash.Error;
 
 const salt_length: usize = 16;
 const salt_str_length: usize = 22;
 const ct_str_length: usize = 31;
 const ct_length: usize = 24;
+const dk_length: usize = ct_length - 1;
 
-/// Length (in bytes) of a password hash
+/// Length (in bytes) of a password hash in crypt encoding
 pub const hash_length: usize = 60;
 
 const State = struct {
@@ -139,71 +140,15 @@ const State = struct {
     }
 };
 
-// bcrypt has its own variant of base64, with its own alphabet and no padding
-const Codec = struct {
-    const alphabet = "./ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-
-    fn encode(b64: []u8, bin: []const u8) void {
-        var i: usize = 0;
-        var j: usize = 0;
-        while (i < bin.len) {
-            var c1 = bin[i];
-            i += 1;
-            b64[j] = alphabet[c1 >> 2];
-            j += 1;
-            c1 = (c1 & 3) << 4;
-            if (i >= bin.len) {
-                b64[j] = alphabet[c1];
-                j += 1;
-                break;
-            }
-            var c2 = bin[i];
-            i += 1;
-            c1 |= (c2 >> 4) & 0x0f;
-            b64[j] = alphabet[c1];
-            j += 1;
-            c1 = (c2 & 0x0f) << 2;
-            if (i >= bin.len) {
-                b64[j] = alphabet[c1];
-                j += 1;
-                break;
-            }
-            c2 = bin[i];
-            i += 1;
-            c1 |= (c2 >> 6) & 3;
-            b64[j] = alphabet[c1];
-            b64[j + 1] = alphabet[c2 & 0x3f];
-            j += 2;
-        }
-        debug.assert(j == b64.len);
-    }
-
-    fn decode(bin: []u8, b64: []const u8) EncodingError!void {
-        var i: usize = 0;
-        var j: usize = 0;
-        while (j < bin.len) {
-            const c1 = @intCast(u8, mem.indexOfScalar(u8, alphabet, b64[i]) orelse return error.InvalidEncoding);
-            const c2 = @intCast(u8, mem.indexOfScalar(u8, alphabet, b64[i + 1]) orelse return error.InvalidEncoding);
-            bin[j] = (c1 << 2) | ((c2 & 0x30) >> 4);
-            j += 1;
-            if (j >= bin.len) {
-                break;
-            }
-            const c3 = @intCast(u8, mem.indexOfScalar(u8, alphabet, b64[i + 2]) orelse return error.InvalidEncoding);
-            bin[j] = ((c2 & 0x0f) << 4) | ((c3 & 0x3c) >> 2);
-            j += 1;
-            if (j >= bin.len) {
-                break;
-            }
-            const c4 = @intCast(u8, mem.indexOfScalar(u8, alphabet, b64[i + 3]) orelse return error.InvalidEncoding);
-            bin[j] = ((c3 & 0x03) << 6) | c4;
-            j += 1;
-            i += 4;
-        }
-    }
+pub const Params = struct {
+    rounds_log: u6,
 };
 
-fn strHashInternal(password: []const u8, rounds_log: u6, salt: [salt_length]u8) ![hash_length]u8 {
+pub fn bcrypt(
+    password: []const u8,
+    salt: [salt_length]u8,
+    params: Params,
+) [dk_length]u8 {
     var state = State{};
     var password_buf: [73]u8 = undefined;
     const trimmed_len = math.min(password.len, password_buf.len - 1);
@@ -212,7 +157,7 @@ fn strHashInternal(password: []const u8, rounds_log: u6, salt: [salt_length]u8) 
     var passwordZ = password_buf[0 .. trimmed_len + 1];
     state.expand(salt[0..], passwordZ);
 
-    const rounds: u64 = @as(u64, 1) << rounds_log;
+    const rounds: u64 = @as(u64, 1) << params.rounds_log;
     var k: u64 = 0;
     while (k < rounds) : (k += 1) {
         state.expand0(passwordZ);
@@ -230,18 +175,203 @@ fn strHashInternal(password: []const u8, rounds_log: u6, salt: [salt_length]u8) 
     for (cdata) |c, i| {
         mem.writeIntBig(u32, ct[i * 4 ..][0..4], c);
     }
-
-    var salt_str: [salt_str_length]u8 = undefined;
-    Codec.encode(salt_str[0..], salt[0..]);
-
-    var ct_str: [ct_str_length]u8 = undefined;
-    Codec.encode(ct_str[0..], ct[0 .. ct.len - 1]);
-
-    var s_buf: [hash_length]u8 = undefined;
-    const s = fmt.bufPrint(s_buf[0..], "$2b${d}{d}${s}{s}", .{ rounds_log / 10, rounds_log % 10, salt_str, ct_str }) catch unreachable;
-    debug.assert(s.len == s_buf.len);
-    return s_buf;
+    return ct[0..dk_length].*;
 }
+
+const crypt_format = struct {
+    /// String prefix for bcrypt
+    pub const prefix = "$2";
+
+    // bcrypt has its own variant of base64, with its own alphabet and no padding
+    const Codec = struct {
+        const alphabet = "./ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+
+        fn encode(b64: []u8, bin: []const u8) void {
+            var i: usize = 0;
+            var j: usize = 0;
+            while (i < bin.len) {
+                var c1 = bin[i];
+                i += 1;
+                b64[j] = alphabet[c1 >> 2];
+                j += 1;
+                c1 = (c1 & 3) << 4;
+                if (i >= bin.len) {
+                    b64[j] = alphabet[c1];
+                    j += 1;
+                    break;
+                }
+                var c2 = bin[i];
+                i += 1;
+                c1 |= (c2 >> 4) & 0x0f;
+                b64[j] = alphabet[c1];
+                j += 1;
+                c1 = (c2 & 0x0f) << 2;
+                if (i >= bin.len) {
+                    b64[j] = alphabet[c1];
+                    j += 1;
+                    break;
+                }
+                c2 = bin[i];
+                i += 1;
+                c1 |= (c2 >> 6) & 3;
+                b64[j] = alphabet[c1];
+                b64[j + 1] = alphabet[c2 & 0x3f];
+                j += 2;
+            }
+            debug.assert(j == b64.len);
+        }
+
+        fn decode(bin: []u8, b64: []const u8) EncodingError!void {
+            var i: usize = 0;
+            var j: usize = 0;
+            while (j < bin.len) {
+                const c1 = @intCast(u8, mem.indexOfScalar(u8, alphabet, b64[i]) orelse
+                    return EncodingError.InvalidEncoding);
+                const c2 = @intCast(u8, mem.indexOfScalar(u8, alphabet, b64[i + 1]) orelse
+                    return EncodingError.InvalidEncoding);
+                bin[j] = (c1 << 2) | ((c2 & 0x30) >> 4);
+                j += 1;
+                if (j >= bin.len) {
+                    break;
+                }
+                const c3 = @intCast(u8, mem.indexOfScalar(u8, alphabet, b64[i + 2]) orelse
+                    return EncodingError.InvalidEncoding);
+                bin[j] = ((c2 & 0x0f) << 4) | ((c3 & 0x3c) >> 2);
+                j += 1;
+                if (j >= bin.len) {
+                    break;
+                }
+                const c4 = @intCast(u8, mem.indexOfScalar(u8, alphabet, b64[i + 3]) orelse
+                    return EncodingError.InvalidEncoding);
+                bin[j] = ((c3 & 0x03) << 6) | c4;
+                j += 1;
+                i += 4;
+            }
+        }
+    };
+
+    fn strHashInternal(
+        password: []const u8,
+        salt: [salt_length]u8,
+        params: Params,
+    ) [hash_length]u8 {
+        var dk = bcrypt(password, salt, params);
+
+        var salt_str: [salt_str_length]u8 = undefined;
+        Codec.encode(salt_str[0..], salt[0..]);
+
+        var ct_str: [ct_str_length]u8 = undefined;
+        Codec.encode(ct_str[0..], dk[0..]);
+
+        var s_buf: [hash_length]u8 = undefined;
+        const s = fmt.bufPrint(
+            s_buf[0..],
+            "{s}b${d}{d}${s}{s}",
+            .{ prefix, params.rounds_log / 10, params.rounds_log % 10, salt_str, ct_str },
+        ) catch unreachable;
+        debug.assert(s.len == s_buf.len);
+        return s_buf;
+    }
+};
+
+/// Hash and verify passwords using the PHC format.
+const PhcFormatHasher = struct {
+    const alg_id = "bcrypt";
+    const BinValue = phc_format.BinValue;
+
+    const HashResult = struct {
+        alg_id: []const u8,
+        r: u6,
+        salt: BinValue(salt_length),
+        hash: BinValue(dk_length),
+    };
+
+    /// Return a non-deterministic hash of the password encoded as a PHC-format string
+    pub fn create(
+        password: []const u8,
+        params: Params,
+        buf: []u8,
+    ) HasherError![]const u8 {
+        var salt: [salt_length]u8 = undefined;
+        crypto.random.bytes(&salt);
+
+        const hash = bcrypt(password, salt, params);
+
+        return phc_format.serialize(HashResult{
+            .alg_id = alg_id,
+            .r = params.rounds_log,
+            .salt = try BinValue(salt_length).fromSlice(&salt),
+            .hash = try BinValue(dk_length).fromSlice(&hash),
+        }, buf);
+    }
+
+    /// Verify a password against a PHC-format encoded string
+    pub fn verify(
+        str: []const u8,
+        password: []const u8,
+    ) HasherError!void {
+        const hash_result = try phc_format.deserialize(HashResult, str);
+
+        if (!mem.eql(u8, hash_result.alg_id, alg_id)) return HasherError.PasswordVerificationFailed;
+        if (hash_result.salt.len != salt_length or hash_result.hash.len != dk_length)
+            return HasherError.InvalidEncoding;
+
+        const hash = bcrypt(password, hash_result.salt.buf, .{ .rounds_log = hash_result.r });
+        const expected_hash = hash_result.hash.constSlice();
+
+        if (!mem.eql(u8, &hash, expected_hash)) return HasherError.PasswordVerificationFailed;
+    }
+};
+
+/// Hash and verify passwords using the modular crypt format.
+const CryptFormatHasher = struct {
+    /// Length of a string returned by the create() function
+    pub const pwhash_str_length: usize = hash_length;
+
+    /// Return a non-deterministic hash of the password encoded into the modular crypt format
+    pub fn create(
+        password: []const u8,
+        params: Params,
+        buf: []u8,
+    ) HasherError![]const u8 {
+        if (buf.len < pwhash_str_length) return HasherError.NoSpaceLeft;
+
+        var salt: [salt_length]u8 = undefined;
+        crypto.random.bytes(&salt);
+
+        const hash = crypt_format.strHashInternal(password, salt, params);
+        mem.copy(u8, buf, &hash);
+
+        return buf[0..pwhash_str_length];
+    }
+
+    /// Verify a password against a string in modular crypt format
+    pub fn verify(
+        str: []const u8,
+        password: []const u8,
+    ) HasherError!void {
+        if (str.len != pwhash_str_length or str[3] != '$' or str[6] != '$')
+            return HasherError.InvalidEncoding;
+
+        const rounds_log_str = str[4..][0..2];
+        const rounds_log = fmt.parseInt(u6, rounds_log_str[0..], 10) catch
+            return HasherError.InvalidEncoding;
+
+        const salt_str = str[7..][0..salt_str_length];
+        var salt: [salt_length]u8 = undefined;
+        try crypt_format.Codec.decode(salt[0..], salt_str[0..]);
+
+        const wanted_s = crypt_format.strHashInternal(password, salt, .{ .rounds_log = rounds_log });
+        if (!mem.eql(u8, wanted_s[0..], str[0..])) return HasherError.PasswordVerificationFailed;
+    }
+};
+
+/// Options for hashing a password.
+pub const HashOptions = struct {
+    allocator: ?*mem.Allocator = null,
+    params: Params,
+    encoding: pwhash.Encoding,
+};
 
 /// Compute a hash of a password using 2^rounds_log rounds of the bcrypt key stretching function.
 /// bcrypt is a computationally expensive and cache-hard function, explicitly designed to slow down exhaustive searches.
@@ -251,24 +381,32 @@ fn strHashInternal(password: []const u8, rounds_log: u6, salt: [salt_length]u8) 
 /// IMPORTANT: by design, bcrypt silently truncates passwords to 72 bytes.
 /// If this is an issue for your application, hash the password first using a function such as SHA-512,
 /// and then use the resulting hash as the password parameter for bcrypt.
-pub fn strHash(password: []const u8, rounds_log: u6) ![hash_length]u8 {
-    var salt: [salt_length]u8 = undefined;
-    crypto.random.bytes(&salt);
-    return strHashInternal(password, rounds_log, salt);
+pub fn strHash(
+    password: []const u8,
+    options: HashOptions,
+    out: []u8,
+) Error![]const u8 {
+    switch (options.encoding) {
+        .phc => return PhcFormatHasher.create(password, options.params, out),
+        .crypt => return CryptFormatHasher.create(password, options.params, out),
+    }
 }
 
+/// Options for hash verification.
+pub const VerifyOptions = struct {
+    allocator: ?*mem.Allocator = null,
+};
+
 /// Verify that a previously computed hash is valid for a given password.
-pub fn strVerify(h: [hash_length]u8, password: []const u8) (EncodingError || PasswordVerificationError)!void {
-    if (!mem.eql(u8, "$2", h[0..2])) return error.InvalidEncoding;
-    if (h[3] != '$' or h[6] != '$') return error.InvalidEncoding;
-    const rounds_log_str = h[4..][0..2];
-    const salt_str = h[7..][0..salt_str_length];
-    var salt: [salt_length]u8 = undefined;
-    try Codec.decode(salt[0..], salt_str[0..]);
-    const rounds_log = fmt.parseInt(u6, rounds_log_str[0..], 10) catch return error.InvalidEncoding;
-    const wanted_s = try strHashInternal(password, rounds_log, salt);
-    if (!mem.eql(u8, wanted_s[0..], h[0..])) {
-        return error.PasswordVerificationFailed;
+pub fn strVerify(
+    str: []const u8,
+    password: []const u8,
+    _: VerifyOptions,
+) Error!void {
+    if (mem.startsWith(u8, str, crypt_format.prefix)) {
+        return CryptFormatHasher.verify(str, password);
+    } else {
+        return PhcFormatHasher.verify(str, password);
     }
 }
 
@@ -276,20 +414,71 @@ test "bcrypt codec" {
     var salt: [salt_length]u8 = undefined;
     crypto.random.bytes(&salt);
     var salt_str: [salt_str_length]u8 = undefined;
-    Codec.encode(salt_str[0..], salt[0..]);
+    crypt_format.Codec.encode(salt_str[0..], salt[0..]);
     var salt2: [salt_length]u8 = undefined;
-    try Codec.decode(salt2[0..], salt_str[0..]);
+    try crypt_format.Codec.decode(salt2[0..], salt_str[0..]);
     try testing.expectEqualSlices(u8, salt[0..], salt2[0..]);
 }
 
-test "bcrypt" {
-    const s = try strHash("password", 5);
-    try strVerify(s, "password");
-    try testing.expectError(error.PasswordVerificationFailed, strVerify(s, "invalid password"));
+test "bcrypt crypt format" {
+    const hash_options = HashOptions{
+        .params = .{ .rounds_log = 5 },
+        .encoding = .crypt,
+    };
+    const verify_options = VerifyOptions{};
 
-    const long_s = try strHash("password" ** 100, 5);
-    try strVerify(long_s, "password" ** 100);
-    try strVerify(long_s, "password" ** 101);
+    var buf: [hash_length]u8 = undefined;
+    const s = try strHash("password", hash_options, &buf);
 
-    try strVerify("$2b$08$WUQKyBCaKpziCwUXHiMVvu40dYVjkTxtWJlftl0PpjY2BxWSvFIEe".*, "The devil himself");
+    try testing.expect(mem.startsWith(u8, s, crypt_format.prefix));
+    try strVerify(s, "password", verify_options);
+    try testing.expectError(
+        error.PasswordVerificationFailed,
+        strVerify(s, "invalid password", verify_options),
+    );
+
+    var long_buf: [hash_length]u8 = undefined;
+    const long_s = try strHash("password" ** 100, hash_options, &long_buf);
+
+    try testing.expect(mem.startsWith(u8, long_s, crypt_format.prefix));
+    try strVerify(long_s, "password" ** 100, verify_options);
+    try strVerify(long_s, "password" ** 101, verify_options);
+
+    try strVerify(
+        "$2b$08$WUQKyBCaKpziCwUXHiMVvu40dYVjkTxtWJlftl0PpjY2BxWSvFIEe",
+        "The devil himself",
+        verify_options,
+    );
+}
+
+test "bcrypt phc format" {
+    const hash_options = HashOptions{
+        .params = .{ .rounds_log = 5 },
+        .encoding = .phc,
+    };
+    const verify_options = VerifyOptions{};
+    const prefix = "$bcrypt$";
+
+    var buf: [hash_length * 2]u8 = undefined;
+    const s = try strHash("password", hash_options, &buf);
+
+    try testing.expect(mem.startsWith(u8, s, prefix));
+    try strVerify(s, "password", verify_options);
+    try testing.expectError(
+        error.PasswordVerificationFailed,
+        strVerify(s, "invalid password", verify_options),
+    );
+
+    var long_buf: [hash_length * 2]u8 = undefined;
+    const long_s = try strHash("password" ** 100, hash_options, &long_buf);
+
+    try testing.expect(mem.startsWith(u8, long_s, prefix));
+    try strVerify(long_s, "password" ** 100, verify_options);
+    try strVerify(long_s, "password" ** 101, verify_options);
+
+    try strVerify(
+        "$bcrypt$r=5$2NopntlgE2lX3cTwr4qz8A$r3T7iKYQNnY4hAhGjk9RmuyvgrYJZwc",
+        "The devil himself",
+        verify_options,
+    );
 }

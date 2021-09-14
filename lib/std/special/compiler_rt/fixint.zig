@@ -1,8 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
 const is_test = @import("builtin").is_test;
 const std = @import("std");
 const math = std.math;
@@ -75,6 +70,6 @@ pub fn fixint(comptime fp_t: type, comptime fixint_t: type, a: fp_t) fixint_t {
     }
 }
 
-test "import fixint" {
+test {
     _ = @import("fixint_test.zig");
 }

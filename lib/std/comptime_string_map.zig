@@ -1,8 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
 const std = @import("std.zig");
 const mem = std.mem;
 
@@ -13,21 +8,21 @@ const mem = std.mem;
 /// `kvs` expects a list literal containing list literals or an array/slice of structs
 /// where `.@"0"` is the `[]const u8` key and `.@"1"` is the associated value of type `V`.
 /// TODO: https://github.com/ziglang/zig/issues/4335
-pub fn ComptimeStringMap(comptime V: type, comptime kvs: anytype) type {
+pub fn ComptimeStringMap(comptime V: type, comptime kvs_list: anytype) type {
     const precomputed = comptime blk: {
         @setEvalBranchQuota(2000);
         const KV = struct {
             key: []const u8,
             value: V,
         };
-        var sorted_kvs: [kvs.len]KV = undefined;
+        var sorted_kvs: [kvs_list.len]KV = undefined;
         const lenAsc = (struct {
             fn lenAsc(context: void, a: KV, b: KV) bool {
                 _ = context;
                 return a.key.len < b.key.len;
             }
         }).lenAsc;
-        for (kvs) |kv, i| {
+        for (kvs_list) |kv, i| {
             if (V != void) {
                 sorted_kvs[i] = .{ .key = kv.@"0", .value = kv.@"1" };
             } else {
@@ -56,6 +51,8 @@ pub fn ComptimeStringMap(comptime V: type, comptime kvs: anytype) type {
     };
 
     return struct {
+        pub const kvs = precomputed.sorted_kvs;
+
         pub fn has(str: []const u8) bool {
             return get(str) != null;
         }

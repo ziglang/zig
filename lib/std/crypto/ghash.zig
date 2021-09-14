@@ -1,8 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
 //
 // Adapted from BearSSL's ctmul64 implementation originally written by Thomas Pornin <pornin@bolet.org>
 
@@ -99,9 +94,9 @@ pub const Ghash = struct {
         const Vector = std.meta.Vector;
         const product = asm (
             \\ vpclmulqdq $0x00, %[x], %[y], %[out]
-            : [out] "=x" (-> Vector(2, u64))
+            : [out] "=x" (-> Vector(2, u64)),
             : [x] "x" (@bitCast(Vector(2, u64), @as(u128, x))),
-              [y] "x" (@bitCast(Vector(2, u64), @as(u128, y)))
+              [y] "x" (@bitCast(Vector(2, u64), @as(u128, y))),
         );
         return product[0];
     }
@@ -110,9 +105,9 @@ pub const Ghash = struct {
         const Vector = std.meta.Vector;
         const product = asm (
             \\ pmull %[out].1q, %[x].1d, %[y].1d
-            : [out] "=w" (-> Vector(2, u64))
+            : [out] "=w" (-> Vector(2, u64)),
             : [x] "w" (@bitCast(Vector(2, u64), @as(u128, x))),
-              [y] "w" (@bitCast(Vector(2, u64), @as(u128, y)))
+              [y] "w" (@bitCast(Vector(2, u64), @as(u128, y))),
         );
         return product[0];
     }

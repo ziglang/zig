@@ -171,7 +171,10 @@ pub const Feature = enum {
     zcz_gp,
 };
 
-pub usingnamespace CpuFeature.feature_set_fns(Feature);
+pub const featureSet = CpuFeature.feature_set_fns(Feature).featureSet;
+pub const featureSetHas = CpuFeature.feature_set_fns(Feature).featureSetHas;
+pub const featureSetHasAny = CpuFeature.feature_set_fns(Feature).featureSetHasAny;
+pub const featureSetHasAll = CpuFeature.feature_set_fns(Feature).featureSetHasAll;
 
 pub const all_features = blk: {
     @setEvalBranchQuota(2000);

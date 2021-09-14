@@ -49,7 +49,8 @@ ZIG_EXTERN_C char *ZigLLVMGetNativeFeatures(void);
 ZIG_EXTERN_C bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMModuleRef module_ref,
         char **error_message, bool is_debug,
         bool is_small, bool time_report, bool tsan, bool lto,
-        const char *asm_filename, const char *bin_filename, const char *llvm_ir_filename);
+        const char *asm_filename, const char *bin_filename,
+        const char *llvm_ir_filename, const char *bitcode_filename);
 
 
 enum ZigLLVMABIType {
@@ -128,6 +129,23 @@ ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildMemCpy(LLVMBuilderRef B, LLVMValueRef Dst,
 ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildMemSet(LLVMBuilderRef B, LLVMValueRef Ptr, LLVMValueRef Val, LLVMValueRef Size,
         unsigned Align, bool isVolatile);
 
+ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildMaxNum(LLVMBuilderRef builder, LLVMValueRef LHS, LLVMValueRef RHS, const char* name);
+ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildMinNum(LLVMBuilderRef builder, LLVMValueRef LHS, LLVMValueRef RHS, const char* name);
+
+ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildUMax(LLVMBuilderRef builder, LLVMValueRef LHS, LLVMValueRef RHS, const char* name);
+ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildUMin(LLVMBuilderRef builder, LLVMValueRef LHS, LLVMValueRef RHS, const char* name);
+ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildSMax(LLVMBuilderRef builder, LLVMValueRef LHS, LLVMValueRef RHS, const char* name);
+ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildSMin(LLVMBuilderRef builder, LLVMValueRef LHS, LLVMValueRef RHS, const char* name);
+ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildUAddSat(LLVMBuilderRef builder, LLVMValueRef LHS, LLVMValueRef RHS, const char* name);
+ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildSAddSat(LLVMBuilderRef builder, LLVMValueRef LHS, LLVMValueRef RHS, const char* name);
+ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildUSubSat(LLVMBuilderRef builder, LLVMValueRef LHS, LLVMValueRef RHS, const char* name);
+ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildSSubSat(LLVMBuilderRef builder, LLVMValueRef LHS, LLVMValueRef RHS, const char* name);
+ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildSMulFixSat(LLVMBuilderRef B, LLVMValueRef LHS, LLVMValueRef RHS, const char *name);
+ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildUMulFixSat(LLVMBuilderRef B, LLVMValueRef LHS, LLVMValueRef RHS, const char *name);
+ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildUShlSat(LLVMBuilderRef builder, LLVMValueRef LHS, LLVMValueRef RHS, const char* name);
+ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildSShlSat(LLVMBuilderRef builder, LLVMValueRef LHS, LLVMValueRef RHS, const char* name);
+
+
 ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildCmpXchg(LLVMBuilderRef builder, LLVMValueRef ptr, LLVMValueRef cmp,
         LLVMValueRef new_val, LLVMAtomicOrdering success_ordering,
         LLVMAtomicOrdering failure_ordering, bool is_weak);
@@ -140,6 +158,7 @@ ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildLShrExact(LLVMBuilderRef builder, LLVMValu
         const char *name);
 ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildAShrExact(LLVMBuilderRef builder, LLVMValueRef LHS, LLVMValueRef RHS,
         const char *name);
+
 
 ZIG_EXTERN_C struct ZigLLVMDIType *ZigLLVMCreateDebugPointerType(struct ZigLLVMDIBuilder *dibuilder,
         struct ZigLLVMDIType *pointee_type, uint64_t size_in_bits, uint64_t align_in_bits, const char *name);

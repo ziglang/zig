@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const mem = std.mem;
 const Allocator = std.mem.Allocator;
 const fs = std.fs;
@@ -14,8 +15,10 @@ const Cache = @import("Cache.zig");
 const build_options = @import("build_options");
 const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
 const wasi_libc = @import("wasi_libc.zig");
+const Air = @import("Air.zig");
+const Liveness = @import("Liveness.zig");
 
-pub const producer_string = if (std.builtin.is_test) "zig test" else "zig " ++ build_options.version;
+pub const producer_string = if (builtin.is_test) "zig test" else "zig " ++ build_options.version;
 
 pub const Emit = struct {
     /// Where the output will go.
@@ -70,6 +73,10 @@ pub const Options = struct {
     rdynamic: bool,
     z_nodelete: bool,
     z_defs: bool,
+    z_origin: bool,
+    z_noexecstack: bool,
+    z_now: bool,
+    z_relro: bool,
     tsaware: bool,
     nxcompat: bool,
     dynamicbase: bool,
@@ -176,7 +183,7 @@ pub const File = struct {
         /// This is where the .debug_info tag for the type is.
         off: u32,
         /// Offset from `TextBlock.dbg_info_off` (the buffer that is local to a Decl).
-        /// List of DW.AT_type / DW.FORM_ref4 that points to the type.
+        /// List of DW.AT.type / DW.FORM.ref4 that points to the type.
         relocs: std.ArrayListUnmanaged(u32),
     };
 
@@ -188,7 +195,7 @@ pub const File = struct {
         const use_stage1 = build_options.is_stage1 and options.use_stage1;
         if (use_stage1 or options.emit == null) {
             return switch (options.object_format) {
-                .coff, .pe => &(try Coff.createEmpty(allocator, options)).base,
+                .coff => &(try Coff.createEmpty(allocator, options)).base,
                 .elf => &(try Elf.createEmpty(allocator, options)).base,
                 .macho => &(try MachO.createEmpty(allocator, options)).base,
                 .wasm => &(try Wasm.createEmpty(allocator, options)).base,
@@ -203,9 +210,10 @@ pub const File = struct {
         const use_lld = build_options.have_llvm and options.use_lld; // comptime known false when !have_llvm
         const sub_path = if (use_lld) blk: {
             if (options.module == null) {
-                // No point in opening a file, we would not write anything to it. Initialize with empty.
+                // No point in opening a file, we would not write anything to it.
+                // Initialize with empty.
                 return switch (options.object_format) {
-                    .coff, .pe => &(try Coff.createEmpty(allocator, options)).base,
+                    .coff => &(try Coff.createEmpty(allocator, options)).base,
                     .elf => &(try Elf.createEmpty(allocator, options)).base,
                     .macho => &(try MachO.createEmpty(allocator, options)).base,
                     .plan9 => &(try Plan9.createEmpty(allocator, options)).base,
@@ -216,13 +224,16 @@ pub const File = struct {
                     .raw => return error.RawObjectFormatUnimplemented,
                 };
             }
-            // Open a temporary object file, not the final output file because we want to link with LLD.
-            break :blk try std.fmt.allocPrint(allocator, "{s}{s}", .{ emit.sub_path, options.target.oFileExt() });
+            // Open a temporary object file, not the final output file because we
+            // want to link with LLD.
+            break :blk try std.fmt.allocPrint(allocator, "{s}{s}", .{
+                emit.sub_path, options.object_format.fileExt(options.target.cpu.arch),
+            });
         } else emit.sub_path;
         errdefer if (use_lld) allocator.free(sub_path);
 
         const file: *File = switch (options.object_format) {
-            .coff, .pe => &(try Coff.openPath(allocator, sub_path, options)).base,
+            .coff => &(try Coff.openPath(allocator, sub_path, options)).base,
             .elf => &(try Elf.openPath(allocator, sub_path, options)).base,
             .macho => &(try MachO.openPath(allocator, sub_path, options)).base,
             .plan9 => &(try Plan9.openPath(allocator, sub_path, options)).base,
@@ -313,13 +324,34 @@ pub const File = struct {
         log.debug("updateDecl {*} ({s}), type={}", .{ decl, decl.name, decl.ty });
         assert(decl.has_tv);
         switch (base.tag) {
-            .coff => return @fieldParentPtr(Coff, "base", base).updateDecl(module, decl),
-            .elf => return @fieldParentPtr(Elf, "base", base).updateDecl(module, decl),
+            // zig fmt: off
+            .coff  => return @fieldParentPtr(Coff,  "base", base).updateDecl(module, decl),
+            .elf   => return @fieldParentPtr(Elf,   "base", base).updateDecl(module, decl),
             .macho => return @fieldParentPtr(MachO, "base", base).updateDecl(module, decl),
-            .c => return @fieldParentPtr(C, "base", base).updateDecl(module, decl),
-            .wasm => return @fieldParentPtr(Wasm, "base", base).updateDecl(module, decl),
+            .c     => return @fieldParentPtr(C,     "base", base).updateDecl(module, decl),
+            .wasm  => return @fieldParentPtr(Wasm,  "base", base).updateDecl(module, decl),
             .spirv => return @fieldParentPtr(SpirV, "base", base).updateDecl(module, decl),
             .plan9 => return @fieldParentPtr(Plan9, "base", base).updateDecl(module, decl),
+            // zig fmt: on
+        }
+    }
+
+    /// May be called before or after updateDeclExports but must be called
+    /// after allocateDeclIndexes for any given Decl.
+    pub fn updateFunc(base: *File, module: *Module, func: *Module.Fn, air: Air, liveness: Liveness) !void {
+        log.debug("updateFunc {*} ({s}), type={}", .{
+            func.owner_decl, func.owner_decl.name, func.owner_decl.ty,
+        });
+        switch (base.tag) {
+            // zig fmt: off
+            .coff  => return @fieldParentPtr(Coff,  "base", base).updateFunc(module, func, air, liveness),
+            .elf   => return @fieldParentPtr(Elf,   "base", base).updateFunc(module, func, air, liveness),
+            .macho => return @fieldParentPtr(MachO, "base", base).updateFunc(module, func, air, liveness),
+            .c     => return @fieldParentPtr(C,     "base", base).updateFunc(module, func, air, liveness),
+            .wasm  => return @fieldParentPtr(Wasm,  "base", base).updateFunc(module, func, air, liveness),
+            .spirv => return @fieldParentPtr(SpirV, "base", base).updateFunc(module, func, air, liveness),
+            .plan9 => return @fieldParentPtr(Plan9, "base", base).updateFunc(module, func, air, liveness),
+            // zig fmt: on
         }
     }
 
@@ -515,7 +547,7 @@ pub const File = struct {
         }
     }
 
-    fn linkAsArchive(base: *File, comp: *Compilation) !void {
+    pub fn linkAsArchive(base: *File, comp: *Compilation) !void {
         const tracy = trace(@src());
         defer tracy.end();
 

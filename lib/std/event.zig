@@ -1,8 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
 pub const Channel = @import("event/channel.zig").Channel;
 pub const Future = @import("event/future.zig").Future;
 pub const Group = @import("event/group.zig").Group;
@@ -14,7 +9,7 @@ pub const RwLocked = @import("event/rwlocked.zig").RwLocked;
 pub const Loop = @import("event/loop.zig").Loop;
 pub const WaitGroup = @import("event/wait_group.zig").WaitGroup;
 
-test "import event tests" {
+test {
     _ = @import("event/channel.zig");
     _ = @import("event/future.zig");
     _ = @import("event/group.zig");

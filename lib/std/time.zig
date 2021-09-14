@@ -1,8 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
 const std = @import("std.zig");
 const builtin = std.builtin;
 const assert = std.debug.assert;
@@ -29,7 +24,7 @@ pub fn sleep(nanoseconds: u64) void {
         const w = std.os.wasi;
         const userdata: w.userdata_t = 0x0123_45678;
         const clock = w.subscription_clock_t{
-            .id = w.CLOCK_MONOTONIC,
+            .id = w.CLOCK.MONOTONIC,
             .timeout = nanoseconds,
             .precision = 0,
             .flags = 0,
@@ -91,12 +86,12 @@ pub fn nanoTimestamp() i128 {
     }
     if (builtin.os.tag == .wasi and !builtin.link_libc) {
         var ns: os.wasi.timestamp_t = undefined;
-        const err = os.wasi.clock_time_get(os.wasi.CLOCK_REALTIME, 1, &ns);
-        assert(err == os.wasi.ESUCCESS);
+        const err = os.wasi.clock_time_get(os.wasi.CLOCK.REALTIME, 1, &ns);
+        assert(err == .SUCCESS);
         return ns;
     }
     var ts: os.timespec = undefined;
-    os.clock_gettime(os.CLOCK_REALTIME, &ts) catch |err| switch (err) {
+    os.clock_gettime(os.CLOCK.REALTIME, &ts) catch |err| switch (err) {
         error.UnsupportedClock, error.Unexpected => return 0, // "Precision of timing depends on hardware and OS".
     };
     return (@as(i128, ts.tv_sec) * ns_per_s) + ts.tv_nsec;
@@ -157,7 +152,7 @@ pub const Timer = struct {
     /// At some point we may change our minds on RAW, but for now we're
     /// sticking with posix standard MONOTONIC. For more information, see:
     /// https://github.com/ziglang/zig/pull/933
-    const monotonic_clock_id = os.CLOCK_MONOTONIC;
+    const monotonic_clock_id = os.CLOCK.MONOTONIC;
 
     /// Initialize the timer structure.
     /// Can only fail when running in a hostile environment that intentionally injects
@@ -166,7 +161,7 @@ pub const Timer = struct {
     pub fn start() Error!Timer {
         // This gives us an opportunity to grab the counter frequency in windows.
         // On Windows: QueryPerformanceCounter will succeed on anything >= XP/2000.
-        // On Posix: CLOCK_MONOTONIC will only fail if the monotonic counter is not
+        // On Posix: CLOCK.MONOTONIC will only fail if the monotonic counter is not
         // supported, or if the timespec pointer is out of bounds, which should be
         // impossible here barring cosmic rays or other such occurrences of
         // incredibly bad luck.
@@ -205,8 +200,6 @@ pub const Timer = struct {
                 .frequency = {},
             };
         }
-
-        return self;
     }
 
     /// Reads the timer value since start or the last reset in nanoseconds
@@ -291,4 +284,8 @@ test "Timer" {
 
     timer.reset();
     try testing.expect(timer.read() < time_1);
+}
+
+test {
+    _ = @import("time/epoch.zig");
 }

@@ -57,6 +57,14 @@ const test_targets = blk: {
             .link_libc = false,
             .single_threaded = true,
         },
+        TestTarget{
+            .target = .{
+                .cpu_arch = .wasm32,
+                .os_tag = .wasi,
+            },
+            .link_libc = true,
+            .single_threaded = true,
+        },
 
         TestTarget{
             .target = .{
@@ -125,6 +133,14 @@ const test_targets = blk: {
             .target = .{
                 .cpu_arch = .aarch64,
                 .os_tag = .linux,
+                .abi = .gnu,
+            },
+            .link_libc = true,
+        },
+        TestTarget{
+            .target = .{
+                .cpu_arch = .aarch64,
+                .os_tag = .windows,
                 .abi = .gnu,
             },
             .link_libc = true,
@@ -152,24 +168,22 @@ const test_targets = blk: {
         //    .link_libc = true,
         //},
 
-        // https://github.com/ziglang/zig/issues/8155
-        //TestTarget{
-        //    .target = .{
-        //        .cpu_arch = .mips,
-        //        .os_tag = .linux,
-        //        .abi = .none,
-        //    },
-        //},
+        TestTarget{
+            .target = .{
+                .cpu_arch = .mips,
+                .os_tag = .linux,
+                .abi = .none,
+            },
+        },
 
-        // https://github.com/ziglang/zig/issues/8155
-        //TestTarget{
-        //    .target = .{
-        //        .cpu_arch = .mips,
-        //        .os_tag = .linux,
-        //        .abi = .musl,
-        //    },
-        //    .link_libc = true,
-        //},
+        TestTarget{
+            .target = .{
+                .cpu_arch = .mips,
+                .os_tag = .linux,
+                .abi = .musl,
+            },
+            .link_libc = true,
+        },
 
         // https://github.com/ziglang/zig/issues/4927
         //TestTarget{
@@ -181,24 +195,22 @@ const test_targets = blk: {
         //    .link_libc = true,
         //},
 
-        // https://github.com/ziglang/zig/issues/8155
-        //TestTarget{
-        //    .target = .{
-        //        .cpu_arch = .mipsel,
-        //        .os_tag = .linux,
-        //        .abi = .none,
-        //    },
-        //},
+        TestTarget{
+            .target = .{
+                .cpu_arch = .mipsel,
+                .os_tag = .linux,
+                .abi = .none,
+            },
+        },
 
-        // https://github.com/ziglang/zig/issues/8155
-        //TestTarget{
-        //    .target = .{
-        //        .cpu_arch = .mipsel,
-        //        .os_tag = .linux,
-        //        .abi = .musl,
-        //    },
-        //    .link_libc = true,
-        //},
+        TestTarget{
+            .target = .{
+                .cpu_arch = .mipsel,
+                .os_tag = .linux,
+                .abi = .musl,
+            },
+            .link_libc = true,
+        },
 
         // https://github.com/ziglang/zig/issues/4927
         //TestTarget{
@@ -383,7 +395,14 @@ pub fn addRuntimeSafetyTests(b: *build.Builder, test_filter: ?[]const u8, modes:
     return cases.step;
 }
 
-pub fn addStandaloneTests(b: *build.Builder, test_filter: ?[]const u8, modes: []const Mode, skip_non_native: bool, target: std.zig.CrossTarget) *build.Step {
+pub fn addStandaloneTests(
+    b: *build.Builder,
+    test_filter: ?[]const u8,
+    modes: []const Mode,
+    skip_non_native: bool,
+    enable_macos_sdk: bool,
+    target: std.zig.CrossTarget,
+) *build.Step {
     const cases = b.allocator.create(StandaloneContext) catch unreachable;
     cases.* = StandaloneContext{
         .b = b,
@@ -392,6 +411,7 @@ pub fn addStandaloneTests(b: *build.Builder, test_filter: ?[]const u8, modes: []
         .test_filter = test_filter,
         .modes = modes,
         .skip_non_native = skip_non_native,
+        .enable_macos_sdk = enable_macos_sdk,
         .target = target,
     };
 
@@ -760,7 +780,7 @@ pub const StackTracesContext = struct {
                 var buf = ArrayList(u8).init(b.allocator);
                 defer buf.deinit();
                 if (stderr.len != 0 and stderr[stderr.len - 1] == '\n') stderr = stderr[0 .. stderr.len - 1];
-                var it = mem.split(stderr, "\n");
+                var it = mem.split(u8, stderr, "\n");
                 process_lines: while (it.next()) |line| {
                     if (line.len == 0) continue;
 
@@ -831,6 +851,7 @@ pub const StandaloneContext = struct {
     test_filter: ?[]const u8,
     modes: []const Mode,
     skip_non_native: bool,
+    enable_macos_sdk: bool,
     target: std.zig.CrossTarget,
 
     pub fn addC(self: *StandaloneContext, root_src: []const u8) void {
@@ -841,8 +862,14 @@ pub const StandaloneContext = struct {
         self.addAllArgs(root_src, false);
     }
 
-    pub fn addBuildFile(self: *StandaloneContext, build_file: []const u8, features: struct { build_modes: bool = false, cross_targets: bool = false }) void {
+    pub fn addBuildFile(self: *StandaloneContext, build_file: []const u8, features: struct {
+        build_modes: bool = false,
+        cross_targets: bool = false,
+        requires_macos_sdk: bool = false,
+    }) void {
         const b = self.b;
+
+        if (features.requires_macos_sdk and !self.enable_macos_sdk) return;
 
         const annotated_case_name = b.fmt("build {s}", .{build_file});
         if (self.test_filter) |filter| {

@@ -46,8 +46,6 @@ const CodeDirectory = struct {
     }
 };
 
-allocator: *Allocator,
-
 /// Code signature blob header.
 inner: macho.SuperBlob = .{
     .magic = macho.CSMAGIC_EMBEDDED_SIGNATURE,
@@ -58,24 +56,15 @@ inner: macho.SuperBlob = .{
 /// CodeDirectory header which holds the hash of the binary.
 cdir: ?CodeDirectory = null,
 
-/// Page size is dependent on the target cpu architecture.
-/// For x86_64 that's 4KB, whereas for aarch64, that's 16KB.
-page_size: u16,
-
-pub fn init(allocator: *Allocator, page_size: u16) CodeSignature {
-    return .{
-        .allocator = allocator,
-        .page_size = page_size,
-    };
-}
-
 pub fn calcAdhocSignature(
     self: *CodeSignature,
+    allocator: *Allocator,
     file: fs.File,
     id: []const u8,
     text_segment: macho.segment_command_64,
     code_sig_cmd: macho.linkedit_data_command,
     output_mode: std.builtin.OutputMode,
+    page_size: u16,
 ) !void {
     const execSegBase: u64 = text_segment.fileoff;
     const execSegLimit: u64 = text_segment.filesize;
@@ -95,7 +84,7 @@ pub fn calcAdhocSignature(
             .hashSize = hash_size,
             .hashType = macho.CS_HASHTYPE_SHA256,
             .platform = 0,
-            .pageSize = @truncate(u8, std.math.log2(self.page_size)),
+            .pageSize = @truncate(u8, std.math.log2(page_size)),
             .spare2 = 0,
             .scatterOffset = 0,
             .teamOffset = 0,
@@ -107,13 +96,13 @@ pub fn calcAdhocSignature(
         },
     };
 
-    const total_pages = mem.alignForward(file_size, self.page_size) / self.page_size;
+    const total_pages = mem.alignForward(file_size, page_size) / page_size;
 
     var hash: [hash_size]u8 = undefined;
-    var buffer = try self.allocator.alloc(u8, self.page_size);
-    defer self.allocator.free(buffer);
+    var buffer = try allocator.alloc(u8, page_size);
+    defer allocator.free(buffer);
 
-    try cdir.data.ensureCapacity(self.allocator, total_pages * hash_size + id.len + 1);
+    try cdir.data.ensureCapacity(allocator, total_pages * hash_size + id.len + 1);
 
     // 1. Save the identifier and update offsets
     cdir.inner.identOffset = cdir.inner.length;
@@ -126,8 +115,8 @@ pub fn calcAdhocSignature(
     cdir.inner.hashOffset = cdir.inner.identOffset + @intCast(u32, id.len) + 1;
     var i: usize = 0;
     while (i < total_pages) : (i += 1) {
-        const fstart = i * self.page_size;
-        const fsize = if (fstart + self.page_size > file_size) file_size - fstart else self.page_size;
+        const fstart = i * page_size;
+        const fsize = if (fstart + page_size > file_size) file_size - fstart else page_size;
         const len = try file.preadAll(buffer, fstart);
         assert(fsize <= len);
 
@@ -156,9 +145,9 @@ pub fn write(self: CodeSignature, writer: anytype) !void {
     try self.cdir.?.write(writer);
 }
 
-pub fn deinit(self: *CodeSignature) void {
+pub fn deinit(self: *CodeSignature, allocator: *Allocator) void {
     if (self.cdir) |*cdir| {
-        cdir.data.deinit(self.allocator);
+        cdir.data.deinit(allocator);
     }
 }
 
@@ -174,8 +163,8 @@ fn writeBlobIndex(tt: u32, offset: u32, writer: anytype) !void {
 }
 
 test "CodeSignature header" {
-    var code_sig = CodeSignature.init(testing.allocator, 0x1000);
-    defer code_sig.deinit();
+    var code_sig: CodeSignature = .{};
+    defer code_sig.deinit(testing.allocator);
 
     var buffer: [@sizeOf(macho.SuperBlob)]u8 = undefined;
     var stream = std.io.fixedBufferStream(&buffer);

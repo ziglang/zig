@@ -1,9 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
-
 const std = @import("../../std.zig");
 
 const os = std.os;
@@ -12,23 +6,28 @@ const mem = std.mem;
 const math = std.math;
 const testing = std.testing;
 const native_os = std.Target.current.os;
+const have_ifnamesize = @hasDecl(os.system, "IFNAMESIZE");
 
 /// Resolves a network interface name into a scope/zone ID. It returns
 /// an error if either resolution fails, or if the interface name is
 /// too long.
-pub fn resolveScopeID(name: []const u8) !u32 {
-    if (@hasDecl(os, "IFNAMESIZE")) {
-        if (name.len >= os.IFNAMESIZE - 1) return error.NameTooLong;
+pub fn resolveScopeId(name: []const u8) !u32 {
+    if (have_ifnamesize) {
+        if (name.len >= os.IFNAMESIZE) return error.NameTooLong;
 
         if (native_os.tag == .windows) {
-            var interface_name: [os.IFNAMESIZE]u8 = undefined;
+            var interface_name: [os.IFNAMESIZE:0]u8 = undefined;
             mem.copy(u8, &interface_name, name);
             interface_name[name.len] = 0;
 
-            return os.windows.ws2_32.if_nametoindex(@ptrCast([*:0]const u8, &interface_name));
+            const rc = os.windows.ws2_32.if_nametoindex(@ptrCast([*:0]const u8, &interface_name));
+            if (rc == 0) {
+                return error.InterfaceNotFound;
+            }
+            return rc;
         }
 
-        const fd = try os.socket(os.AF_UNIX, os.SOCK_DGRAM, 0);
+        const fd = try os.socket(os.AF.UNIX, os.SOCK.DGRAM, 0);
         defer os.closeSocket(fd);
 
         var f: os.ifreq = undefined;
@@ -40,7 +39,7 @@ pub fn resolveScopeID(name: []const u8) !u32 {
         return @bitCast(u32, f.ifru.ivalue);
     }
 
-    return error.Unsupported;
+    return error.InterfaceNotFound;
 }
 
 /// An IPv4 address comprised of 4 bytes.
@@ -408,7 +407,8 @@ pub const IPv6 = extern struct {
     /// address.
     pub const ParseError = error{
         MalformedV4Mapping,
-        BadScopeID,
+        InterfaceNotFound,
+        UnknownScopeId,
     } || IPv4.ParseError;
 
     /// Parses an arbitrary IPv6 address, including link-local addresses.
@@ -417,12 +417,15 @@ pub const IPv6 = extern struct {
             const ip_slice = buf[0..index];
             const scope_id_slice = buf[index + 1 ..];
 
-            if (scope_id_slice.len == 0) return error.BadScopeID;
+            if (scope_id_slice.len == 0) return error.UnknownScopeId;
 
             const scope_id: u32 = switch (scope_id_slice[0]) {
                 '0'...'9' => fmt.parseInt(u32, scope_id_slice, 10),
-                else => resolveScopeID(scope_id_slice),
-            } catch return error.BadScopeID;
+                else => resolveScopeId(scope_id_slice) catch |err| switch (err) {
+                    error.InterfaceNotFound => return error.InterfaceNotFound,
+                    else => err,
+                },
+            } catch return error.UnknownScopeId;
 
             return parseWithScopeID(ip_slice, scope_id);
         }
@@ -562,7 +565,7 @@ test "ipv6: parse & format" {
 }
 
 test "ipv6: parse & format addresses with scope ids" {
-    if (!@hasDecl(os, "IFNAMESIZE")) return error.SkipZigTest;
+    if (!have_ifnamesize) return error.SkipZigTest;
 
     const inputs = [_][]const u8{
         "FF01::FB%lo",
@@ -573,6 +576,11 @@ test "ipv6: parse & format addresses with scope ids" {
     };
 
     for (inputs) |input, i| {
-        try testing.expectFmt(outputs[i], "{}", .{try IPv6.parse(input)});
+        const parsed = IPv6.parse(input) catch |err| switch (err) {
+            error.InterfaceNotFound => continue,
+            else => return err,
+        };
+
+        try testing.expectFmt(outputs[i], "{}", .{parsed});
     }
 }

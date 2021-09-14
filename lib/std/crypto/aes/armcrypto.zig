@@ -1,9 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
-
 const std = @import("../../std.zig");
 const mem = std.mem;
 const debug = std.debug;
@@ -45,10 +39,10 @@ pub const Block = struct {
                 \\ aese  %[out].16b, %[zero].16b
                 \\ aesmc %[out].16b, %[out].16b
                 \\ eor   %[out].16b, %[out].16b, %[rk].16b
-                : [out] "=&x" (-> BlockVec)
+                : [out] "=&x" (-> BlockVec),
                 : [in] "x" (block.repr),
                   [rk] "x" (round_key.repr),
-                  [zero] "x" (zero)
+                  [zero] "x" (zero),
             ),
         };
     }
@@ -60,10 +54,10 @@ pub const Block = struct {
                 \\ mov   %[out].16b, %[in].16b
                 \\ aese  %[out].16b, %[zero].16b
                 \\ eor   %[out].16b, %[out].16b, %[rk].16b
-                : [out] "=&x" (-> BlockVec)
+                : [out] "=&x" (-> BlockVec),
                 : [in] "x" (block.repr),
                   [rk] "x" (round_key.repr),
-                  [zero] "x" (zero)
+                  [zero] "x" (zero),
             ),
         };
     }
@@ -76,10 +70,10 @@ pub const Block = struct {
                 \\ aesd  %[out].16b, %[zero].16b
                 \\ aesimc %[out].16b, %[out].16b
                 \\ eor   %[out].16b, %[out].16b, %[rk].16b
-                : [out] "=&x" (-> BlockVec)
+                : [out] "=&x" (-> BlockVec),
                 : [in] "x" (block.repr),
                   [rk] "x" (inv_round_key.repr),
-                  [zero] "x" (zero)
+                  [zero] "x" (zero),
             ),
         };
     }
@@ -91,10 +85,10 @@ pub const Block = struct {
                 \\ mov   %[out].16b, %[in].16b
                 \\ aesd  %[out].16b, %[zero].16b
                 \\ eor   %[out].16b, %[out].16b, %[rk].16b
-                : [out] "=&x" (-> BlockVec)
+                : [out] "=&x" (-> BlockVec),
                 : [in] "x" (block.repr),
                   [rk] "x" (inv_round_key.repr),
-                  [zero] "x" (zero)
+                  [zero] "x" (zero),
             ),
         };
     }
@@ -216,11 +210,11 @@ fn KeySchedule(comptime Aes: type) type {
                   [v1] "=&x" (v1),
                   [v2] "=&x" (v2),
                   [v3] "=&x" (v3),
-                  [v4] "=&x" (v4)
+                  [v4] "=&x" (v4),
                 : [rc] "N" (rc),
                   [t] "x" (t),
                   [zero] "x" (zero),
-                  [mask] "x" (mask1)
+                  [mask] "x" (mask1),
             );
         }
 
@@ -246,12 +240,12 @@ fn KeySchedule(comptime Aes: type) type {
                   [v1] "=&x" (v1),
                   [v2] "=&x" (v2),
                   [v3] "=&x" (v3),
-                  [v4] "=&x" (v4)
+                  [v4] "=&x" (v4),
                 : [rc] "N" (if (second) @as(u8, 0) else rc),
                   [t] "x" (t),
                   [tx] "x" (tx),
                   [zero] "x" (zero),
-                  [mask] "x" (if (second) mask2 else mask1)
+                  [mask] "x" (if (second) mask2 else mask1),
             );
         }
 
@@ -292,8 +286,8 @@ fn KeySchedule(comptime Aes: type) type {
                 inv_round_keys[i] = Block{
                     .repr = asm (
                         \\ aesimc %[inv_rk].16b, %[rk].16b
-                        : [inv_rk] "=x" (-> BlockVec)
-                        : [rk] "x" (round_keys[rounds - i].repr)
+                        : [inv_rk] "=x" (-> BlockVec),
+                        : [rk] "x" (round_keys[rounds - i].repr),
                     ),
                 };
             }

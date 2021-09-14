@@ -11,7 +11,7 @@ const log = std.log.scoped(.module);
 const BigIntConst = std.math.big.int.Const;
 const BigIntMutable = std.math.big.int.Mutable;
 const Target = std.Target;
-const ast = std.zig.ast;
+const Ast = std.zig.Ast;
 
 const Module = @This();
 const Compilation = @import("Compilation.zig");
@@ -21,7 +21,7 @@ const Type = @import("type.zig").Type;
 const TypedValue = @import("TypedValue.zig");
 const Package = @import("Package.zig");
 const link = @import("link.zig");
-const ir = @import("air.zig");
+const Air = @import("Air.zig");
 const Zir = @import("Zir.zig");
 const trace = @import("tracy.zig").trace;
 const AstGen = @import("AstGen.zig");
@@ -35,8 +35,11 @@ comp: *Compilation,
 
 /// Where our incremental compilation metadata serialization will go.
 zig_cache_artifact_directory: Compilation.Directory,
-/// Pointer to externally managed resource. `null` if there is no zig file being compiled.
+/// Pointer to externally managed resource.
 root_pkg: *Package,
+/// Normally, `main_pkg` and `root_pkg` are the same. The exception is `zig test`, in which
+/// `root_pkg` is the test runner, and `main_pkg` is the user's source file which has the tests.
+main_pkg: *Package,
 
 /// Used by AstGen worker to load and store ZIR cache.
 global_zir_cache: Compilation.Directory,
@@ -57,6 +60,15 @@ export_owners: std.AutoArrayHashMapUnmanaged(*Decl, []*Export) = .{},
 /// an update is requested, as well as to cache `@import` results.
 /// Keys are fully resolved file paths. This table owns the keys and values.
 import_table: std.StringArrayHashMapUnmanaged(*Scope.File) = .{},
+
+/// The set of all the generic function instantiations. This is used so that when a generic
+/// function is called twice with the same comptime parameter arguments, both calls dispatch
+/// to the same function.
+monomorphed_funcs: MonomorphedFuncsSet = .{},
+
+/// The set of all comptime function calls that have been cached so that future calls
+/// with the same parameters will get the same return value.
+memoized_calls: MemoizedCallSet = .{},
 
 /// We optimize memory usage for a compilation with no compile errors by storing the
 /// error messages and mapping outside of `Decl`.
@@ -108,6 +120,100 @@ job_queued_update_builtin_zig: bool = true,
 compile_log_text: ArrayListUnmanaged(u8) = .{},
 
 emit_h: ?*GlobalEmitH,
+
+test_functions: std.AutoArrayHashMapUnmanaged(*Decl, void) = .{},
+
+const MonomorphedFuncsSet = std.HashMapUnmanaged(
+    *Fn,
+    void,
+    MonomorphedFuncsContext,
+    std.hash_map.default_max_load_percentage,
+);
+
+const MonomorphedFuncsContext = struct {
+    pub fn eql(ctx: @This(), a: *Fn, b: *Fn) bool {
+        _ = ctx;
+        return a == b;
+    }
+
+    /// Must match `Sema.GenericCallAdapter.hash`.
+    pub fn hash(ctx: @This(), key: *Fn) u64 {
+        _ = ctx;
+        var hasher = std.hash.Wyhash.init(0);
+
+        // The generic function Decl is guaranteed to be the first dependency
+        // of each of its instantiations.
+        const generic_owner_decl = key.owner_decl.dependencies.keys()[0];
+        const generic_func = generic_owner_decl.val.castTag(.function).?.data;
+        std.hash.autoHash(&hasher, @ptrToInt(generic_func));
+
+        // This logic must be kept in sync with the logic in `analyzeCall` that
+        // computes the hash.
+        const comptime_args = key.comptime_args.?;
+        const generic_ty_info = generic_owner_decl.ty.fnInfo();
+        for (generic_ty_info.param_types) |param_ty, i| {
+            if (generic_ty_info.paramIsComptime(i) and param_ty.tag() != .generic_poison) {
+                comptime_args[i].val.hash(param_ty, &hasher);
+            }
+        }
+
+        return hasher.final();
+    }
+};
+
+pub const MemoizedCallSet = std.HashMapUnmanaged(
+    MemoizedCall.Key,
+    MemoizedCall.Result,
+    MemoizedCall,
+    std.hash_map.default_max_load_percentage,
+);
+
+pub const MemoizedCall = struct {
+    pub const Key = struct {
+        func: *Fn,
+        args: []TypedValue,
+    };
+
+    pub const Result = struct {
+        val: Value,
+        arena: std.heap.ArenaAllocator.State,
+    };
+
+    pub fn eql(ctx: @This(), a: Key, b: Key) bool {
+        _ = ctx;
+
+        if (a.func != b.func) return false;
+
+        assert(a.args.len == b.args.len);
+        for (a.args) |a_arg, arg_i| {
+            const b_arg = b.args[arg_i];
+            if (!a_arg.eql(b_arg)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// Must match `Sema.GenericCallAdapter.hash`.
+    pub fn hash(ctx: @This(), key: Key) u64 {
+        _ = ctx;
+
+        var hasher = std.hash.Wyhash.init(0);
+
+        // The generic function Decl is guaranteed to be the first dependency
+        // of each of its instantiations.
+        std.hash.autoHash(&hasher, @ptrToInt(key.func));
+
+        // This logic must be kept in sync with the logic in `analyzeCall` that
+        // computes the hash.
+        for (key.args) |arg| {
+            arg.hash(&hasher);
+        }
+
+        return hasher.final();
+    }
+};
 
 /// A `Module` has zero or one of these depending on whether `-femit-h` is enabled.
 pub const GlobalEmitH = struct {
@@ -185,7 +291,7 @@ pub const Decl = struct {
     generation: u32,
     /// The AST node index of this declaration.
     /// Must be recomputed when the corresponding source file is modified.
-    src_node: ast.Node.Index,
+    src_node: Ast.Node.Index,
     /// Line number corresponding to `src_node`. Stored separately so that source files
     /// do not need to be loaded into memory in order to compute debug line numbers.
     src_line: u32,
@@ -250,6 +356,17 @@ pub const Decl = struct {
     has_align: bool,
     /// Whether the ZIR code provides a linksection instruction.
     has_linksection: bool,
+    /// Flag used by garbage collection to mark and sweep.
+    /// Decls which correspond to an AST node always have this field set to `true`.
+    /// Anonymous Decls are initialized with this field set to `false` and then it
+    /// is the responsibility of machine code backends to mark it `true` whenever
+    /// a `decl_ref` Value is encountered that points to this Decl.
+    /// When the `codegen_decl` job is encountered in the main work queue, if the
+    /// Decl is marked alive, then it sends the Decl to the linker. Otherwise it
+    /// deletes the Decl on the spot.
+    alive: bool,
+    /// Whether the Decl is a `usingnamespace` declaration.
+    is_usingnamespace: bool,
 
     /// Represents the position of the code in the output file.
     /// This is populated regardless of semantic analysis and code generation.
@@ -279,6 +396,7 @@ pub const Decl = struct {
     pub fn destroy(decl: *Decl, module: *Module) void {
         const gpa = module.gpa;
         log.debug("destroy {*} ({s})", .{ decl, decl.name });
+        _ = module.test_functions.swapRemove(decl);
         if (decl.deletion_flag) {
             assert(module.deletion_set.swapRemove(decl));
         }
@@ -381,19 +499,19 @@ pub const Decl = struct {
         return decl.src_line + offset;
     }
 
-    pub fn relativeToNodeIndex(decl: Decl, offset: i32) ast.Node.Index {
-        return @bitCast(ast.Node.Index, offset + @bitCast(i32, decl.src_node));
+    pub fn relativeToNodeIndex(decl: Decl, offset: i32) Ast.Node.Index {
+        return @bitCast(Ast.Node.Index, offset + @bitCast(i32, decl.src_node));
     }
 
-    pub fn nodeIndexToRelative(decl: Decl, node_index: ast.Node.Index) i32 {
+    pub fn nodeIndexToRelative(decl: Decl, node_index: Ast.Node.Index) i32 {
         return @bitCast(i32, node_index) - @bitCast(i32, decl.src_node);
     }
 
-    pub fn tokSrcLoc(decl: Decl, token_index: ast.TokenIndex) LazySrcLoc {
+    pub fn tokSrcLoc(decl: Decl, token_index: Ast.TokenIndex) LazySrcLoc {
         return .{ .token_offset = token_index - decl.srcToken() };
     }
 
-    pub fn nodeSrcLoc(decl: Decl, node_index: ast.Node.Index) LazySrcLoc {
+    pub fn nodeSrcLoc(decl: Decl, node_index: Ast.Node.Index) LazySrcLoc {
         return .{ .node_offset = decl.nodeIndexToRelative(node_index) };
     }
 
@@ -409,7 +527,7 @@ pub const Decl = struct {
         };
     }
 
-    pub fn srcToken(decl: Decl) ast.TokenIndex {
+    pub fn srcToken(decl: Decl) Ast.TokenIndex {
         const tree = &decl.namespace.file_scope.tree;
         return tree.firstToken(decl.src_node);
     }
@@ -496,8 +614,8 @@ pub const Decl = struct {
                 assert(struct_obj.owner_decl == decl);
                 return &struct_obj.namespace;
             },
-            .enum_full => {
-                const enum_obj = ty.castTag(.enum_full).?.data;
+            .enum_full, .enum_nonexhaustive => {
+                const enum_obj = ty.cast(Type.Payload.EnumFull).?.data;
                 assert(enum_obj.owner_decl == decl);
                 return &enum_obj.namespace;
             },
@@ -598,7 +716,11 @@ pub const Struct = struct {
         layout_wip,
         have_layout,
     },
+    /// If true, definitely nonzero size at runtime. If false, resolving the fields
+    /// is necessary to determine whether it has bits at runtime.
+    known_has_bits: bool,
 
+    /// The `Type` and `Value` memory is owned by the arena of the Struct's owner_decl.
     pub const Field = struct {
         /// Uses `noreturn` to indicate `anytype`.
         /// undefined until `status` is `have_field_types` or `have_layout`.
@@ -739,8 +861,11 @@ pub const Union = struct {
 pub const Fn = struct {
     /// The Decl that corresponds to the function itself.
     owner_decl: *Decl,
-    /// undefined unless analysis state is `success`.
-    body: ir.Body,
+    /// If this is not null, this function is a generic function instantiation, and
+    /// there is a `TypedValue` here for each parameter of the function.
+    /// Non-comptime parameters are marked with a `generic_poison` for the value.
+    /// Non-anytype parameters are marked with a `generic_poison` for the type.
+    comptime_args: ?[*]TypedValue = null,
     /// The ZIR instruction that is a function instruction. Use this to find
     /// the body. We store this rather than the body directly so that when ZIR
     /// is regenerated on update(), we can map this to the new corresponding
@@ -771,11 +896,6 @@ pub const Fn = struct {
         success,
     };
 
-    /// For debugging purposes.
-    pub fn dump(func: *Fn, mod: Module) void {
-        ir.dumpFn(mod, func);
-    }
-
     pub fn deinit(func: *Fn, gpa: *Allocator) void {
         if (func.getInferredErrorSet()) |map| {
             map.deinit(gpa);
@@ -784,6 +904,9 @@ pub const Fn = struct {
 
     pub fn getInferredErrorSet(func: *Fn) ?*std.StringHashMapUnmanaged(void) {
         const ret_ty = func.owner_decl.ty.fnReturnType();
+        if (ret_ty.tag() == .generic_poison) {
+            return null;
+        }
         if (ret_ty.zigTypeTag() == .ErrorUnion) {
             if (ret_ty.errorUnionSet().castTag(.error_set_inferred)) |payload| {
                 return &payload.data.map;
@@ -886,6 +1009,11 @@ pub const Scope = struct {
         decls: std.StringArrayHashMapUnmanaged(*Decl) = .{},
 
         anon_decls: std.AutoArrayHashMapUnmanaged(*Decl, void) = .{},
+
+        /// Key is usingnamespace Decl itself. To find the namespace being included,
+        /// the Decl Value has to be resolved as a Type which has a Namespace.
+        /// Value is whether the usingnamespace decl is marked `pub`.
+        usingnamespace_set: std.AutoHashMapUnmanaged(*Decl, bool) = .{},
 
         pub fn deinit(ns: *Namespace, mod: *Module) void {
             ns.destroyDecls(mod);
@@ -993,7 +1121,7 @@ pub const Scope = struct {
         /// Whether this is populated depends on `status`.
         stat_mtime: i128,
         /// Whether this is populated or not depends on `tree_loaded`.
-        tree: ast.Tree,
+        tree: Ast,
         /// Whether this is populated or not depends on `zir_loaded`.
         zir: Zir,
         /// Package that this file is a part of, managed externally.
@@ -1092,7 +1220,7 @@ pub const Scope = struct {
             return source;
         }
 
-        pub fn getTree(file: *File, gpa: *Allocator) !*const ast.Tree {
+        pub fn getTree(file: *File, gpa: *Allocator) !*const Ast {
             if (file.tree_loaded) return &file.tree;
 
             const source = try file.getSource(gpa);
@@ -1157,7 +1285,9 @@ pub const Scope = struct {
         /// This can vary during inline or comptime function calls. See `Sema.owner_decl`
         /// for the one that will be the same for all Block instances.
         src_decl: *Decl,
-        instructions: ArrayListUnmanaged(*ir.Inst),
+        instructions: ArrayListUnmanaged(Air.Inst.Index),
+        // `param` instructions are collected here to be used by the `func` instruction.
+        params: std.ArrayListUnmanaged(Param) = .{},
         label: ?*Label = null,
         inlining: ?*Inlining,
         /// If runtime_index is not 0 then one of these is guaranteed to be non null.
@@ -1171,6 +1301,12 @@ pub const Scope = struct {
 
         /// when null, it is determined by build mode, changed by @setRuntimeSafety
         want_safety: ?bool = null,
+
+        const Param = struct {
+            /// `noreturn` means `anytype`.
+            ty: Type,
+            is_comptime: bool,
+        };
 
         /// This `Block` maps a block ZIR instruction to the corresponding
         /// AIR instruction for break instruction analysis.
@@ -1189,14 +1325,14 @@ pub const Scope = struct {
         };
 
         pub const Merges = struct {
-            block_inst: *ir.Inst.Block,
+            block_inst: Air.Inst.Index,
             /// Separate array list from break_inst_list so that it can be passed directly
             /// to resolvePeerTypes.
-            results: ArrayListUnmanaged(*ir.Inst),
+            results: ArrayListUnmanaged(Air.Inst.Ref),
             /// Keeps track of the break instructions so that the operand can be replaced
             /// if we need to add type coercion at the end of block analysis.
             /// Same indexes, capacity, length as `results`.
-            br_list: ArrayListUnmanaged(*ir.Inst.Br),
+            br_list: ArrayListUnmanaged(Air.Inst.Index),
         };
 
         /// For debugging purposes.
@@ -1233,186 +1369,141 @@ pub const Scope = struct {
             return block.src_decl.namespace.file_scope;
         }
 
-        pub fn addNoOp(
-            block: *Scope.Block,
-            src: LazySrcLoc,
+        pub fn addTy(
+            block: *Block,
+            tag: Air.Inst.Tag,
             ty: Type,
-            comptime tag: ir.Inst.Tag,
-        ) !*ir.Inst {
-            const inst = try block.sema.arena.create(tag.Type());
-            inst.* = .{
-                .base = .{
-                    .tag = tag,
-                    .ty = ty,
-                    .src = src,
-                },
-            };
-            try block.instructions.append(block.sema.gpa, &inst.base);
-            return &inst.base;
+        ) error{OutOfMemory}!Air.Inst.Ref {
+            return block.addInst(.{
+                .tag = tag,
+                .data = .{ .ty = ty },
+            });
+        }
+
+        pub fn addTyOp(
+            block: *Block,
+            tag: Air.Inst.Tag,
+            ty: Type,
+            operand: Air.Inst.Ref,
+        ) error{OutOfMemory}!Air.Inst.Ref {
+            return block.addInst(.{
+                .tag = tag,
+                .data = .{ .ty_op = .{
+                    .ty = try block.sema.addType(ty),
+                    .operand = operand,
+                } },
+            });
+        }
+
+        pub fn addNoOp(block: *Block, tag: Air.Inst.Tag) error{OutOfMemory}!Air.Inst.Ref {
+            return block.addInst(.{
+                .tag = tag,
+                .data = .{ .no_op = {} },
+            });
         }
 
         pub fn addUnOp(
-            block: *Scope.Block,
-            src: LazySrcLoc,
-            ty: Type,
-            tag: ir.Inst.Tag,
-            operand: *ir.Inst,
-        ) !*ir.Inst {
-            const inst = try block.sema.arena.create(ir.Inst.UnOp);
-            inst.* = .{
-                .base = .{
-                    .tag = tag,
-                    .ty = ty,
-                    .src = src,
-                },
-                .operand = operand,
-            };
-            try block.instructions.append(block.sema.gpa, &inst.base);
-            return &inst.base;
-        }
-
-        pub fn addBinOp(
-            block: *Scope.Block,
-            src: LazySrcLoc,
-            ty: Type,
-            tag: ir.Inst.Tag,
-            lhs: *ir.Inst,
-            rhs: *ir.Inst,
-        ) !*ir.Inst {
-            const inst = try block.sema.arena.create(ir.Inst.BinOp);
-            inst.* = .{
-                .base = .{
-                    .tag = tag,
-                    .ty = ty,
-                    .src = src,
-                },
-                .lhs = lhs,
-                .rhs = rhs,
-            };
-            try block.instructions.append(block.sema.gpa, &inst.base);
-            return &inst.base;
+            block: *Block,
+            tag: Air.Inst.Tag,
+            operand: Air.Inst.Ref,
+        ) error{OutOfMemory}!Air.Inst.Ref {
+            return block.addInst(.{
+                .tag = tag,
+                .data = .{ .un_op = operand },
+            });
         }
 
         pub fn addBr(
-            scope_block: *Scope.Block,
-            src: LazySrcLoc,
-            target_block: *ir.Inst.Block,
-            operand: *ir.Inst,
-        ) !*ir.Inst.Br {
-            const inst = try scope_block.sema.arena.create(ir.Inst.Br);
-            inst.* = .{
-                .base = .{
-                    .tag = .br,
-                    .ty = Type.initTag(.noreturn),
-                    .src = src,
-                },
-                .operand = operand,
-                .block = target_block,
-            };
-            try scope_block.instructions.append(scope_block.sema.gpa, &inst.base);
-            return inst;
+            block: *Block,
+            target_block: Air.Inst.Index,
+            operand: Air.Inst.Ref,
+        ) error{OutOfMemory}!Air.Inst.Ref {
+            return block.addInst(.{
+                .tag = .br,
+                .data = .{ .br = .{
+                    .block_inst = target_block,
+                    .operand = operand,
+                } },
+            });
         }
 
-        pub fn addCondBr(
-            block: *Scope.Block,
-            src: LazySrcLoc,
-            condition: *ir.Inst,
-            then_body: ir.Body,
-            else_body: ir.Body,
-        ) !*ir.Inst {
-            const inst = try block.sema.arena.create(ir.Inst.CondBr);
-            inst.* = .{
-                .base = .{
-                    .tag = .condbr,
-                    .ty = Type.initTag(.noreturn),
-                    .src = src,
-                },
-                .condition = condition,
-                .then_body = then_body,
-                .else_body = else_body,
-            };
-            try block.instructions.append(block.sema.gpa, &inst.base);
-            return &inst.base;
+        pub fn addBinOp(
+            block: *Block,
+            tag: Air.Inst.Tag,
+            lhs: Air.Inst.Ref,
+            rhs: Air.Inst.Ref,
+        ) error{OutOfMemory}!Air.Inst.Ref {
+            return block.addInst(.{
+                .tag = tag,
+                .data = .{ .bin_op = .{
+                    .lhs = lhs,
+                    .rhs = rhs,
+                } },
+            });
         }
 
-        pub fn addCall(
+        pub fn addArg(block: *Block, ty: Type, name: u32) error{OutOfMemory}!Air.Inst.Ref {
+            return block.addInst(.{
+                .tag = .arg,
+                .data = .{ .ty_str = .{
+                    .ty = try block.sema.addType(ty),
+                    .str = name,
+                } },
+            });
+        }
+
+        pub fn addInst(block: *Block, inst: Air.Inst) error{OutOfMemory}!Air.Inst.Ref {
+            return Air.indexToRef(try block.addInstAsIndex(inst));
+        }
+
+        pub fn addInstAsIndex(block: *Block, inst: Air.Inst) error{OutOfMemory}!Air.Inst.Index {
+            const sema = block.sema;
+            const gpa = sema.gpa;
+
+            try sema.air_instructions.ensureUnusedCapacity(gpa, 1);
+            try block.instructions.ensureUnusedCapacity(gpa, 1);
+
+            const result_index = @intCast(Air.Inst.Index, sema.air_instructions.len);
+            sema.air_instructions.appendAssumeCapacity(inst);
+            block.instructions.appendAssumeCapacity(result_index);
+            return result_index;
+        }
+
+        pub fn startAnonDecl(block: *Block) !WipAnonDecl {
+            return WipAnonDecl{
+                .block = block,
+                .new_decl_arena = std.heap.ArenaAllocator.init(block.sema.gpa),
+                .finished = false,
+            };
+        }
+
+        pub const WipAnonDecl = struct {
             block: *Scope.Block,
-            src: LazySrcLoc,
-            ty: Type,
-            func: *ir.Inst,
-            args: []const *ir.Inst,
-        ) !*ir.Inst {
-            const inst = try block.sema.arena.create(ir.Inst.Call);
-            inst.* = .{
-                .base = .{
-                    .tag = .call,
+            new_decl_arena: std.heap.ArenaAllocator,
+            finished: bool,
+
+            pub fn arena(wad: *WipAnonDecl) *Allocator {
+                return &wad.new_decl_arena.allocator;
+            }
+
+            pub fn deinit(wad: *WipAnonDecl) void {
+                if (!wad.finished) {
+                    wad.new_decl_arena.deinit();
+                }
+                wad.* = undefined;
+            }
+
+            pub fn finish(wad: *WipAnonDecl, ty: Type, val: Value) !*Decl {
+                const new_decl = try wad.block.sema.mod.createAnonymousDecl(&wad.block.base, .{
                     .ty = ty,
-                    .src = src,
-                },
-                .func = func,
-                .args = args,
-            };
-            try block.instructions.append(block.sema.gpa, &inst.base);
-            return &inst.base;
-        }
-
-        pub fn addSwitchBr(
-            block: *Scope.Block,
-            src: LazySrcLoc,
-            operand: *ir.Inst,
-            cases: []ir.Inst.SwitchBr.Case,
-            else_body: ir.Body,
-        ) !*ir.Inst {
-            const inst = try block.sema.arena.create(ir.Inst.SwitchBr);
-            inst.* = .{
-                .base = .{
-                    .tag = .switchbr,
-                    .ty = Type.initTag(.noreturn),
-                    .src = src,
-                },
-                .target = operand,
-                .cases = cases,
-                .else_body = else_body,
-            };
-            try block.instructions.append(block.sema.gpa, &inst.base);
-            return &inst.base;
-        }
-
-        pub fn addDbgStmt(block: *Scope.Block, src: LazySrcLoc, line: u32, column: u32) !*ir.Inst {
-            const inst = try block.sema.arena.create(ir.Inst.DbgStmt);
-            inst.* = .{
-                .base = .{
-                    .tag = .dbg_stmt,
-                    .ty = Type.initTag(.void),
-                    .src = src,
-                },
-                .line = line,
-                .column = column,
-            };
-            try block.instructions.append(block.sema.gpa, &inst.base);
-            return &inst.base;
-        }
-
-        pub fn addStructFieldPtr(
-            block: *Scope.Block,
-            src: LazySrcLoc,
-            ty: Type,
-            struct_ptr: *ir.Inst,
-            field_index: u32,
-        ) !*ir.Inst {
-            const inst = try block.sema.arena.create(ir.Inst.StructFieldPtr);
-            inst.* = .{
-                .base = .{
-                    .tag = .struct_field_ptr,
-                    .ty = ty,
-                    .src = src,
-                },
-                .struct_ptr = struct_ptr,
-                .field_index = field_index,
-            };
-            try block.instructions.append(block.sema.gpa, &inst.base);
-            return &inst.base;
-        }
+                    .val = val,
+                });
+                errdefer wad.block.sema.mod.deleteAnonDecl(&wad.block.base, new_decl);
+                try new_decl.finalizeNewArena(&wad.new_decl_arena);
+                wad.finished = true;
+                return new_decl;
+            }
+        };
     };
 };
 
@@ -1474,17 +1565,17 @@ pub const ErrorMsg = struct {
 pub const SrcLoc = struct {
     file_scope: *Scope.File,
     /// Might be 0 depending on tag of `lazy`.
-    parent_decl_node: ast.Node.Index,
+    parent_decl_node: Ast.Node.Index,
     /// Relative to `parent_decl_node`.
     lazy: LazySrcLoc,
 
-    pub fn declSrcToken(src_loc: SrcLoc) ast.TokenIndex {
+    pub fn declSrcToken(src_loc: SrcLoc) Ast.TokenIndex {
         const tree = src_loc.file_scope.tree;
         return tree.firstToken(src_loc.parent_decl_node);
     }
 
-    pub fn declRelativeToNodeIndex(src_loc: SrcLoc, offset: i32) ast.TokenIndex {
-        return @bitCast(ast.Node.Index, offset + @bitCast(i32, src_loc.parent_decl_node));
+    pub fn declRelativeToNodeIndex(src_loc: SrcLoc, offset: i32) Ast.TokenIndex {
+        return @bitCast(Ast.Node.Index, offset + @bitCast(i32, src_loc.parent_decl_node));
     }
 
     pub fn byteOffset(src_loc: SrcLoc, gpa: *Allocator) !u32 {
@@ -1610,7 +1701,7 @@ pub const SrcLoc = struct {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node_tags = tree.nodes.items(.tag);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
-                var params: [1]ast.Node.Index = undefined;
+                var params: [1]Ast.Node.Index = undefined;
                 const full = switch (node_tags[node]) {
                     .call_one,
                     .call_one_comma,
@@ -1674,8 +1765,11 @@ pub const SrcLoc = struct {
                     .@"asm" => tree.asmFull(node),
                     else => unreachable,
                 };
+                const asm_output = full.outputs[0];
+                const node_datas = tree.nodes.items(.data);
+                const ret_ty_node = node_datas[asm_output].lhs;
                 const main_tokens = tree.nodes.items(.main_token);
-                const tok_index = main_tokens[full.outputs[0]];
+                const tok_index = main_tokens[ret_ty_node];
                 const token_starts = tree.tokens.items(.start);
                 return token_starts[tok_index];
             },
@@ -1737,7 +1831,7 @@ pub const SrcLoc = struct {
                 const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
                 const main_tokens = tree.nodes.items(.main_token);
-                const extra = tree.extraData(node_datas[switch_node].rhs, ast.Node.SubRange);
+                const extra = tree.extraData(node_datas[switch_node].rhs, Ast.Node.SubRange);
                 const case_nodes = tree.extra_data[extra.start..extra.end];
                 for (case_nodes) |case_node| {
                     const case = switch (node_tags[case_node]) {
@@ -1763,7 +1857,7 @@ pub const SrcLoc = struct {
                 const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
                 const main_tokens = tree.nodes.items(.main_token);
-                const extra = tree.extraData(node_datas[switch_node].rhs, ast.Node.SubRange);
+                const extra = tree.extraData(node_datas[switch_node].rhs, Ast.Node.SubRange);
                 const case_nodes = tree.extra_data[extra.start..extra.end];
                 for (case_nodes) |case_node| {
                     const case = switch (node_tags[case_node]) {
@@ -1789,14 +1883,22 @@ pub const SrcLoc = struct {
 
             .node_offset_fn_type_cc => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
+                const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
-                var params: [1]ast.Node.Index = undefined;
+                var params: [1]Ast.Node.Index = undefined;
                 const full = switch (node_tags[node]) {
                     .fn_proto_simple => tree.fnProtoSimple(&params, node),
                     .fn_proto_multi => tree.fnProtoMulti(node),
                     .fn_proto_one => tree.fnProtoOne(&params, node),
                     .fn_proto => tree.fnProto(node),
+                    .fn_decl => switch (node_tags[node_datas[node].lhs]) {
+                        .fn_proto_simple => tree.fnProtoSimple(&params, node_datas[node].lhs),
+                        .fn_proto_multi => tree.fnProtoMulti(node_datas[node].lhs),
+                        .fn_proto_one => tree.fnProtoOne(&params, node_datas[node].lhs),
+                        .fn_proto => tree.fnProto(node_datas[node].lhs),
+                        else => unreachable,
+                    },
                     else => unreachable,
                 };
                 const main_tokens = tree.nodes.items(.main_token);
@@ -1809,7 +1911,7 @@ pub const SrcLoc = struct {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node_tags = tree.nodes.items(.tag);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
-                var params: [1]ast.Node.Index = undefined;
+                var params: [1]Ast.Node.Index = undefined;
                 const full = switch (node_tags[node]) {
                     .fn_proto_simple => tree.fnProtoSimple(&params, node),
                     .fn_proto_multi => tree.fnProtoMulti(node),
@@ -1839,7 +1941,7 @@ pub const SrcLoc = struct {
                 const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
                 const parent_node = src_loc.declRelativeToNodeIndex(node_off);
-                var params: [1]ast.Node.Index = undefined;
+                var params: [1]Ast.Node.Index = undefined;
                 const full = switch (node_tags[parent_node]) {
                     .fn_proto_simple => tree.fnProtoSimple(&params, parent_node),
                     .fn_proto_multi => tree.fnProtoMulti(parent_node),
@@ -2130,7 +2232,21 @@ pub const LazySrcLoc = union(enum) {
     }
 };
 
-pub const InnerError = error{ OutOfMemory, AnalysisFail };
+pub const SemaError = error{ OutOfMemory, AnalysisFail };
+pub const CompileError = error{
+    OutOfMemory,
+    /// When this is returned, the compile error for the failure has already been recorded.
+    AnalysisFail,
+    /// Returned when a compile error needed to be reported but a provided LazySrcLoc was set
+    /// to the `unneeded` tag. The source location was, in fact, needed. It is expected that
+    /// somewhere up the call stack, the operation will be retried after doing expensive work
+    /// to compute a source location.
+    NeededSourceLocation,
+    /// A Type or Value was needed to be used during semantic analysis, but it was not available
+    /// because the function is generic. This is only seen when analyzing the body of a param
+    /// instruction.
+    GenericPoison,
+};
 
 pub fn deinit(mod: *Module) void {
     const gpa = mod.gpa;
@@ -2145,18 +2261,21 @@ pub fn deinit(mod: *Module) void {
 
     mod.deletion_set.deinit(gpa);
 
-    // The callsite of `Compilation.create` owns the `root_pkg`, however
+    // The callsite of `Compilation.create` owns the `main_pkg`, however
     // Module owns the builtin and std packages that it adds.
-    if (mod.root_pkg.table.fetchRemove("builtin")) |kv| {
+    if (mod.main_pkg.table.fetchRemove("builtin")) |kv| {
         gpa.free(kv.key);
         kv.value.destroy(gpa);
     }
-    if (mod.root_pkg.table.fetchRemove("std")) |kv| {
+    if (mod.main_pkg.table.fetchRemove("std")) |kv| {
         gpa.free(kv.key);
         kv.value.destroy(gpa);
     }
-    if (mod.root_pkg.table.fetchRemove("root")) |kv| {
+    if (mod.main_pkg.table.fetchRemove("root")) |kv| {
         gpa.free(kv.key);
+    }
+    if (mod.root_pkg != mod.main_pkg) {
+        mod.root_pkg.destroy(gpa);
     }
 
     mod.compile_log_text.deinit(gpa);
@@ -2201,13 +2320,26 @@ pub fn deinit(mod: *Module) void {
     }
     mod.export_owners.deinit(gpa);
 
-    var it = mod.global_error_set.keyIterator();
-    while (it.next()) |key| {
-        gpa.free(key.*);
+    {
+        var it = mod.global_error_set.keyIterator();
+        while (it.next()) |key| {
+            gpa.free(key.*);
+        }
+        mod.global_error_set.deinit(gpa);
     }
-    mod.global_error_set.deinit(gpa);
 
     mod.error_name_list.deinit(gpa);
+    mod.test_functions.deinit(gpa);
+    mod.monomorphed_funcs.deinit(gpa);
+
+    {
+        var it = mod.memoized_calls.iterator();
+        while (it.next()) |entry| {
+            gpa.free(entry.key_ptr.args);
+            entry.value_ptr.arena.promote(gpa).deinit();
+        }
+        mod.memoized_calls.deinit(gpa);
+    }
 }
 
 fn freeExportList(gpa: *Allocator, export_list: []*Export) void {
@@ -2245,7 +2377,7 @@ pub fn astGenFile(mod: *Module, file: *Scope.File) !void {
 
     const stat = try source_file.stat();
 
-    const want_local_cache = file.pkg == mod.root_pkg;
+    const want_local_cache = file.pkg == mod.main_pkg;
     const digest = hash: {
         var path_hash: Cache.HashHelper = .{};
         path_hash.addBytes(build_options.version);
@@ -2523,7 +2655,10 @@ pub fn astGenFile(mod: *Module, file: *Scope.File) !void {
         undefined;
     defer if (data_has_safety_tag) gpa.free(safety_buffer);
     const data_ptr = if (data_has_safety_tag)
-        @ptrCast([*]const u8, safety_buffer.ptr)
+        if (file.zir.instructions.len == 0)
+            @as([*]const u8, undefined)
+        else
+            @ptrCast([*]const u8, safety_buffer.ptr)
     else
         @ptrCast([*]const u8, file.zir.instructions.items(.data).ptr);
     if (data_has_safety_tag) {
@@ -2769,7 +2904,7 @@ pub fn mapOldZirToNew(
     }
 }
 
-pub fn ensureDeclAnalyzed(mod: *Module, decl: *Decl) InnerError!void {
+pub fn ensureDeclAnalyzed(mod: *Module, decl: *Decl) SemaError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -2823,14 +2958,16 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl: *Decl) InnerError!void {
             }
             return error.AnalysisFail;
         },
-        else => {
+        error.NeededSourceLocation => unreachable,
+        error.GenericPoison => unreachable,
+        else => |e| {
             decl.analysis = .sema_failure_retryable;
             try mod.failed_decls.ensureUnusedCapacity(mod.gpa, 1);
             mod.failed_decls.putAssumeCapacityNoClobber(decl, try ErrorMsg.create(
                 mod.gpa,
                 decl.srcLoc(),
                 "unable to analyze: {s}",
-                .{@errorName(err)},
+                .{@errorName(e)},
             ));
             return error.AnalysisFail;
         },
@@ -2869,7 +3006,7 @@ pub fn semaPkg(mod: *Module, pkg: *Package) !void {
 
 /// Regardless of the file status, will create a `Decl` so that we
 /// can track dependencies and re-analyze when the file becomes outdated.
-pub fn semaFile(mod: *Module, file: *Scope.File) InnerError!void {
+pub fn semaFile(mod: *Module, file: *Scope.File) SemaError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -2889,6 +3026,7 @@ pub fn semaFile(mod: *Module, file: *Scope.File) InnerError!void {
         .zir_index = undefined, // set below
         .layout = .Auto,
         .status = .none,
+        .known_has_bits = undefined,
         .namespace = .{
             .parent = null,
             .ty = struct_ty,
@@ -2908,6 +3046,7 @@ pub fn semaFile(mod: *Module, file: *Scope.File) InnerError!void {
     new_decl.val = struct_val;
     new_decl.has_tv = true;
     new_decl.owns_tv = true;
+    new_decl.alive = true; // This Decl corresponds to a File and is therefore always alive.
     new_decl.analysis = .in_progress;
     new_decl.generation = mod.generation;
 
@@ -2927,8 +3066,8 @@ pub fn semaFile(mod: *Module, file: *Scope.File) InnerError!void {
             .owner_decl = new_decl,
             .namespace = &struct_obj.namespace,
             .func = null,
+            .fn_ret_ty = Type.initTag(.void),
             .owner_func = null,
-            .param_inst_list = &.{},
         };
         defer sema.deinit();
         var block_scope: Scope.Block = .{
@@ -2982,8 +3121,8 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
         .owner_decl = decl,
         .namespace = decl.namespace,
         .func = null,
+        .fn_ret_ty = Type.initTag(.void),
         .owner_func = null,
-        .param_inst_list = &.{},
     };
     defer sema.deinit();
 
@@ -2999,6 +3138,7 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
         decl.generation = mod.generation;
         return false;
     }
+    log.debug("semaDecl {*} ({s})", .{ decl, decl.name });
 
     var block_scope: Scope.Block = .{
         .parent = null,
@@ -3008,7 +3148,10 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
         .inlining = null,
         .is_comptime = true,
     };
-    defer block_scope.instructions.deinit(gpa);
+    defer {
+        block_scope.instructions.deinit(gpa);
+        block_scope.params.deinit(gpa);
+    }
 
     const zir_block_index = decl.zirBlockIndex();
     const inst_data = zir_datas[zir_block_index].pl_node;
@@ -3017,7 +3160,7 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
     const break_index = try sema.analyzeBody(&block_scope, body);
     const result_ref = zir_datas[break_index].@"break".operand;
     const src: LazySrcLoc = .{ .node_offset = 0 };
-    const decl_tv = try sema.resolveInstConst(&block_scope, src, result_ref);
+    const decl_tv = try sema.resolveInstValue(&block_scope, src, result_ref);
     const align_val = blk: {
         const align_ref = decl.zirAlignRef();
         if (align_ref == .none) break :blk Value.initTag(.null_value);
@@ -3028,113 +3171,151 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
         if (linksection_ref == .none) break :blk Value.initTag(.null_value);
         break :blk (try sema.resolveInstConst(&block_scope, src, linksection_ref)).val;
     };
+    // Note this resolves the type of the Decl, not the value; if this Decl
+    // is a struct, for example, this resolves `type` (which needs no resolution),
+    // not the struct itself.
+    try sema.resolveTypeLayout(&block_scope, src, decl_tv.ty);
 
     // We need the memory for the Type to go into the arena for the Decl
     var decl_arena = std.heap.ArenaAllocator.init(gpa);
     errdefer decl_arena.deinit();
     const decl_arena_state = try decl_arena.allocator.create(std.heap.ArenaAllocator.State);
 
-    if (decl_tv.val.castTag(.function)) |fn_payload| {
-        var prev_type_has_bits = false;
-        var prev_is_inline = false;
-        var type_changed = true;
-
-        if (decl.has_tv) {
-            prev_type_has_bits = decl.ty.hasCodeGenBits();
-            type_changed = !decl.ty.eql(decl_tv.ty);
-            if (decl.getFunction()) |prev_func| {
-                prev_is_inline = prev_func.state == .inline_only;
-            }
-            decl.clearValues(gpa);
+    if (decl.is_usingnamespace) {
+        const ty_ty = Type.initTag(.type);
+        if (!decl_tv.ty.eql(ty_ty)) {
+            return mod.fail(&block_scope.base, src, "expected type, found {}", .{decl_tv.ty});
+        }
+        var buffer: Value.ToTypeBuffer = undefined;
+        const ty = decl_tv.val.toType(&buffer);
+        if (ty.getNamespace() == null) {
+            return mod.fail(&block_scope.base, src, "type {} has no namespace", .{ty});
         }
 
-        decl.ty = try decl_tv.ty.copy(&decl_arena.allocator);
-        decl.val = try decl_tv.val.copy(&decl_arena.allocator);
-        decl.align_val = try align_val.copy(&decl_arena.allocator);
-        decl.linksection_val = try linksection_val.copy(&decl_arena.allocator);
+        decl.ty = ty_ty;
+        decl.val = try Value.Tag.ty.create(&decl_arena.allocator, ty);
+        decl.align_val = Value.initTag(.null_value);
+        decl.linksection_val = Value.initTag(.null_value);
         decl.has_tv = true;
-        decl.owns_tv = fn_payload.data.owner_decl == decl;
-        decl_arena_state.* = decl_arena.state;
-        decl.value_arena = decl_arena_state;
-        decl.analysis = .complete;
-        decl.generation = mod.generation;
-
-        const is_inline = decl_tv.ty.fnCallingConvention() == .Inline;
-        if (!is_inline and decl_tv.ty.hasCodeGenBits()) {
-            // We don't fully codegen the decl until later, but we do need to reserve a global
-            // offset table index for it. This allows us to codegen decls out of dependency order,
-            // increasing how many computations can be done in parallel.
-            try mod.comp.bin_file.allocateDeclIndexes(decl);
-            try mod.comp.work_queue.writeItem(.{ .codegen_decl = decl });
-            if (type_changed and mod.emit_h != null) {
-                try mod.comp.work_queue.writeItem(.{ .emit_h_decl = decl });
-            }
-        } else if (!prev_is_inline and prev_type_has_bits) {
-            mod.comp.bin_file.freeDecl(decl);
-        }
-
-        if (decl.is_exported) {
-            const export_src = src; // TODO make this point at `export` token
-            if (is_inline) {
-                return mod.fail(&block_scope.base, export_src, "export of inline function", .{});
-            }
-            // The scope needs to have the decl in it.
-            try mod.analyzeExport(&block_scope.base, export_src, mem.spanZ(decl.name), decl);
-        }
-        return type_changed or is_inline != prev_is_inline;
-    } else {
-        var type_changed = true;
-        if (decl.has_tv) {
-            type_changed = !decl.ty.eql(decl_tv.ty);
-            decl.clearValues(gpa);
-        }
-
         decl.owns_tv = false;
-        var queue_linker_work = false;
-        if (decl_tv.val.castTag(.variable)) |payload| {
-            const variable = payload.data;
-            if (variable.owner_decl == decl) {
-                decl.owns_tv = true;
-                queue_linker_work = true;
-
-                const copied_init = try variable.init.copy(&decl_arena.allocator);
-                variable.init = copied_init;
-            }
-        } else if (decl_tv.val.castTag(.extern_fn)) |payload| {
-            const owner_decl = payload.data;
-            if (decl == owner_decl) {
-                decl.owns_tv = true;
-                queue_linker_work = true;
-            }
-        }
-
-        decl.ty = try decl_tv.ty.copy(&decl_arena.allocator);
-        decl.val = try decl_tv.val.copy(&decl_arena.allocator);
-        decl.align_val = try align_val.copy(&decl_arena.allocator);
-        decl.linksection_val = try linksection_val.copy(&decl_arena.allocator);
-        decl.has_tv = true;
         decl_arena_state.* = decl_arena.state;
         decl.value_arena = decl_arena_state;
         decl.analysis = .complete;
         decl.generation = mod.generation;
 
-        if (queue_linker_work and decl.ty.hasCodeGenBits()) {
-            try mod.comp.bin_file.allocateDeclIndexes(decl);
-            try mod.comp.work_queue.writeItem(.{ .codegen_decl = decl });
-
-            if (type_changed and mod.emit_h != null) {
-                try mod.comp.work_queue.writeItem(.{ .emit_h_decl = decl });
-            }
-        }
-
-        if (decl.is_exported) {
-            const export_src = src; // TODO point to the export token
-            // The scope needs to have the decl in it.
-            try mod.analyzeExport(&block_scope.base, export_src, mem.spanZ(decl.name), decl);
-        }
-
-        return type_changed;
+        return true;
     }
+
+    if (decl_tv.val.castTag(.function)) |fn_payload| {
+        const func = fn_payload.data;
+        const owns_tv = func.owner_decl == decl;
+        if (owns_tv) {
+            var prev_type_has_bits = false;
+            var prev_is_inline = false;
+            var type_changed = true;
+
+            if (decl.has_tv) {
+                prev_type_has_bits = decl.ty.hasCodeGenBits();
+                type_changed = !decl.ty.eql(decl_tv.ty);
+                if (decl.getFunction()) |prev_func| {
+                    prev_is_inline = prev_func.state == .inline_only;
+                }
+                decl.clearValues(gpa);
+            }
+
+            decl.ty = try decl_tv.ty.copy(&decl_arena.allocator);
+            decl.val = try decl_tv.val.copy(&decl_arena.allocator);
+            decl.align_val = try align_val.copy(&decl_arena.allocator);
+            decl.linksection_val = try linksection_val.copy(&decl_arena.allocator);
+            decl.has_tv = true;
+            decl.owns_tv = owns_tv;
+            decl_arena_state.* = decl_arena.state;
+            decl.value_arena = decl_arena_state;
+            decl.analysis = .complete;
+            decl.generation = mod.generation;
+
+            const is_inline = decl_tv.ty.fnCallingConvention() == .Inline;
+            if (!is_inline and decl_tv.ty.hasCodeGenBits()) {
+                // We don't fully codegen the decl until later, but we do need to reserve a global
+                // offset table index for it. This allows us to codegen decls out of dependency
+                // order, increasing how many computations can be done in parallel.
+                try mod.comp.bin_file.allocateDeclIndexes(decl);
+                try mod.comp.work_queue.writeItem(.{ .codegen_func = func });
+                if (type_changed and mod.emit_h != null) {
+                    try mod.comp.work_queue.writeItem(.{ .emit_h_decl = decl });
+                }
+            } else if (!prev_is_inline and prev_type_has_bits) {
+                mod.comp.bin_file.freeDecl(decl);
+            }
+
+            if (decl.is_exported) {
+                const export_src = src; // TODO make this point at `export` token
+                if (is_inline) {
+                    return mod.fail(&block_scope.base, export_src, "export of inline function", .{});
+                }
+                // The scope needs to have the decl in it.
+                try mod.analyzeExport(&block_scope.base, export_src, mem.spanZ(decl.name), decl);
+            }
+            return type_changed or is_inline != prev_is_inline;
+        }
+    }
+    var type_changed = true;
+    if (decl.has_tv) {
+        type_changed = !decl.ty.eql(decl_tv.ty);
+        decl.clearValues(gpa);
+    }
+
+    decl.owns_tv = false;
+    var queue_linker_work = false;
+    if (decl_tv.val.castTag(.variable)) |payload| {
+        const variable = payload.data;
+        if (variable.owner_decl == decl) {
+            decl.owns_tv = true;
+            queue_linker_work = true;
+
+            const copied_init = try variable.init.copy(&decl_arena.allocator);
+            variable.init = copied_init;
+        }
+    } else if (decl_tv.val.castTag(.extern_fn)) |payload| {
+        const owner_decl = payload.data;
+        if (decl == owner_decl) {
+            decl.owns_tv = true;
+            queue_linker_work = true;
+        }
+    }
+
+    decl.ty = try decl_tv.ty.copy(&decl_arena.allocator);
+    decl.val = try decl_tv.val.copy(&decl_arena.allocator);
+    decl.align_val = try align_val.copy(&decl_arena.allocator);
+    decl.linksection_val = try linksection_val.copy(&decl_arena.allocator);
+    decl.has_tv = true;
+    decl_arena_state.* = decl_arena.state;
+    decl.value_arena = decl_arena_state;
+    decl.analysis = .complete;
+    decl.generation = mod.generation;
+
+    if (queue_linker_work and decl.ty.hasCodeGenBits()) {
+        try mod.comp.bin_file.allocateDeclIndexes(decl);
+        try mod.comp.work_queue.writeItem(.{ .codegen_decl = decl });
+
+        if (type_changed and mod.emit_h != null) {
+            try mod.comp.work_queue.writeItem(.{ .emit_h_decl = decl });
+        }
+    }
+    // In case this Decl is a struct or union, we need to resolve the fields
+    // while we still have the `Sema` in scope, so that the field type expressions
+    // can use the resolved AIR instructions that they possibly reference.
+    // We do this after the decl is populated and set to `complete` so that a `Decl`
+    // may reference itself.
+    try sema.resolvePendingTypes(&block_scope);
+
+    if (decl.is_exported) {
+        const export_src = src; // TODO point to the export token
+        // The scope needs to have the decl in it.
+        try mod.analyzeExport(&block_scope.base, export_src, mem.spanZ(decl.name), decl);
+    }
+
+    return type_changed;
 }
 
 /// Returns the depender's index of the dependee.
@@ -3284,7 +3465,7 @@ pub fn scanNamespace(
     extra_start: usize,
     decls_len: u32,
     parent_decl: *Decl,
-) InnerError!usize {
+) SemaError!usize {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -3331,7 +3512,7 @@ const ScanDeclIter = struct {
     unnamed_test_index: usize = 0,
 };
 
-fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) InnerError!void {
+fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) SemaError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -3342,7 +3523,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) InnerError!vo
 
     // zig fmt: off
     const is_pub          = (flags & 0b0001) != 0;
-    const is_exported     = (flags & 0b0010) != 0;
+    const export_bit      = (flags & 0b0010) != 0;
     const has_align       = (flags & 0b0100) != 0;
     const has_linksection = (flags & 0b1000) != 0;
     // zig fmt: on
@@ -3357,7 +3538,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) InnerError!vo
     var is_named_test = false;
     const decl_name: [:0]const u8 = switch (decl_name_index) {
         0 => name: {
-            if (is_exported) {
+            if (export_bit) {
                 const i = iter.usingnamespace_index;
                 iter.usingnamespace_index += 1;
                 break :name try std.fmt.allocPrintZ(gpa, "usingnamespace_{d}", .{i});
@@ -3383,30 +3564,53 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) InnerError!vo
             }
         },
     };
+    const is_exported = export_bit and decl_name_index != 0;
+    const is_usingnamespace = export_bit and decl_name_index == 0;
+    if (is_usingnamespace) try namespace.usingnamespace_set.ensureUnusedCapacity(gpa, 1);
 
     // We create a Decl for it regardless of analysis status.
     const gop = try namespace.decls.getOrPut(gpa, decl_name);
     if (!gop.found_existing) {
         const new_decl = try mod.allocateNewDecl(namespace, decl_node);
+        if (is_usingnamespace) {
+            namespace.usingnamespace_set.putAssumeCapacity(new_decl, is_pub);
+        }
         log.debug("scan new {*} ({s}) into {*}", .{ new_decl, decl_name, namespace });
         new_decl.src_line = line;
         new_decl.name = decl_name;
         gop.value_ptr.* = new_decl;
         // Exported decls, comptime decls, usingnamespace decls, and
         // test decls if in test mode, get analyzed.
+        const decl_pkg = namespace.file_scope.pkg;
         const want_analysis = is_exported or switch (decl_name_index) {
-            0 => true, // comptime decl
-            1 => mod.comp.bin_file.options.is_test, // test decl
-            else => is_named_test and mod.comp.bin_file.options.is_test,
+            0 => true, // comptime or usingnamespace decl
+            1 => blk: {
+                // test decl with no name. Skip the part where we check against
+                // the test name filter.
+                if (!mod.comp.bin_file.options.is_test) break :blk false;
+                if (decl_pkg != mod.main_pkg) break :blk false;
+                try mod.test_functions.put(gpa, new_decl, {});
+                break :blk true;
+            },
+            else => blk: {
+                if (!is_named_test) break :blk false;
+                if (!mod.comp.bin_file.options.is_test) break :blk false;
+                if (decl_pkg != mod.main_pkg) break :blk false;
+                // TODO check the name against --test-filter
+                try mod.test_functions.put(gpa, new_decl, {});
+                break :blk true;
+            },
         };
         if (want_analysis) {
             mod.comp.work_queue.writeItemAssumeCapacity(.{ .analyze_decl = new_decl });
         }
         new_decl.is_pub = is_pub;
         new_decl.is_exported = is_exported;
+        new_decl.is_usingnamespace = is_usingnamespace;
         new_decl.has_align = has_align;
         new_decl.has_linksection = has_linksection;
         new_decl.zir_decl_index = @intCast(u32, decl_sub_index);
+        new_decl.alive = true; // This Decl corresponds to an AST node and therefore always alive.
         return;
     }
     gpa.free(decl_name);
@@ -3419,6 +3623,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) InnerError!vo
 
     decl.is_pub = is_pub;
     decl.is_exported = is_exported;
+    decl.is_usingnamespace = is_usingnamespace;
     decl.has_align = has_align;
     decl.has_linksection = has_linksection;
     decl.zir_decl_index = @intCast(u32, decl_sub_index);
@@ -3546,6 +3751,43 @@ pub fn clearDecl(
     decl.analysis = .unreferenced;
 }
 
+pub fn deleteUnusedDecl(mod: *Module, decl: *Decl) void {
+    log.debug("deleteUnusedDecl {*} ({s})", .{ decl, decl.name });
+
+    // TODO: remove `allocateDeclIndexes` and make the API that the linker backends
+    // are required to notice the first time `updateDecl` happens and keep track
+    // of it themselves. However they can rely on getting a `freeDecl` call if any
+    // `updateDecl` or `updateFunc` calls happen. This will allow us to avoid any call
+    // into the linker backend here, since the linker backend will never have been told
+    // about the Decl in the first place.
+    // Until then, we did call `allocateDeclIndexes` on this anonymous Decl and so we
+    // must call `freeDecl` in the linker backend now.
+    if (decl.has_tv) {
+        if (decl.ty.hasCodeGenBits()) {
+            mod.comp.bin_file.freeDecl(decl);
+        }
+    }
+
+    const dependants = decl.dependants.keys();
+    assert(dependants[0].namespace.anon_decls.swapRemove(decl));
+
+    for (dependants) |dep| {
+        dep.removeDependency(decl);
+    }
+
+    for (decl.dependencies.keys()) |dep| {
+        dep.removeDependant(decl);
+    }
+    decl.destroy(mod);
+}
+
+pub fn deleteAnonDecl(mod: *Module, scope: *Scope, decl: *Decl) void {
+    log.debug("deleteAnonDecl {*} ({s})", .{ decl, decl.name });
+    const scope_decl = scope.ownerDecl().?;
+    assert(scope_decl.namespace.anon_decls.swapRemove(decl));
+    decl.destroy(mod);
+}
+
 /// Delete all the Export objects that are caused by this Decl. Re-analysis of
 /// this Decl will cause them to be re-created (or not).
 fn deleteDeclExports(mod: *Module, decl: *Decl) void {
@@ -3585,46 +3827,35 @@ fn deleteDeclExports(mod: *Module, decl: *Decl) void {
     mod.gpa.free(kv.value);
 }
 
-pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn) !void {
+pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn) SemaError!Air {
     const tracy = trace(@src());
     defer tracy.end();
 
+    const gpa = mod.gpa;
+
     // Use the Decl's arena for function memory.
-    var arena = decl.value_arena.?.promote(mod.gpa);
+    var arena = decl.value_arena.?.promote(gpa);
     defer decl.value_arena.?.* = arena.state;
 
     const fn_ty = decl.ty;
-    const param_inst_list = try mod.gpa.alloc(*ir.Inst, fn_ty.fnParamLen());
-    defer mod.gpa.free(param_inst_list);
-
-    for (param_inst_list) |*param_inst, param_index| {
-        const param_type = fn_ty.fnParamType(param_index);
-        const arg_inst = try arena.allocator.create(ir.Inst.Arg);
-        arg_inst.* = .{
-            .base = .{
-                .tag = .arg,
-                .ty = param_type,
-                .src = .unneeded,
-            },
-            .name = undefined, // Set in the semantic analysis of the arg instruction.
-        };
-        param_inst.* = &arg_inst.base;
-    }
-
-    const zir = decl.namespace.file_scope.zir;
 
     var sema: Sema = .{
         .mod = mod,
-        .gpa = mod.gpa,
+        .gpa = gpa,
         .arena = &arena.allocator,
-        .code = zir,
+        .code = decl.namespace.file_scope.zir,
         .owner_decl = decl,
         .namespace = decl.namespace,
         .func = func,
+        .fn_ret_ty = func.owner_decl.ty.fnReturnType(),
         .owner_func = func,
-        .param_inst_list = param_inst_list,
     };
     defer sema.deinit();
+
+    // First few indexes of extra are reserved and set at the end.
+    const reserved_count = @typeInfo(Air.ExtraIndex).Enum.fields.len;
+    try sema.air_extra.ensureTotalCapacity(gpa, reserved_count);
+    sema.air_extra.items.len += reserved_count;
 
     var inner_block: Scope.Block = .{
         .parent = null,
@@ -3634,20 +3865,91 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn) !void {
         .inlining = null,
         .is_comptime = false,
     };
-    defer inner_block.instructions.deinit(mod.gpa);
+    defer inner_block.instructions.deinit(gpa);
 
-    // AIR currently requires the arg parameters to be the first N instructions
-    try inner_block.instructions.appendSlice(mod.gpa, param_inst_list);
+    const fn_info = sema.code.getFnInfo(func.zir_body_inst);
+    const zir_tags = sema.code.instructions.items(.tag);
+
+    // Here we are performing "runtime semantic analysis" for a function body, which means
+    // we must map the parameter ZIR instructions to `arg` AIR instructions.
+    // AIR requires the `arg` parameters to be the first N instructions.
+    // This could be a generic function instantiation, however, in which case we need to
+    // map the comptime parameters to constant values and only emit arg AIR instructions
+    // for the runtime ones.
+    const runtime_params_len = @intCast(u32, fn_ty.fnParamLen());
+    try inner_block.instructions.ensureTotalCapacity(gpa, runtime_params_len);
+    try sema.air_instructions.ensureUnusedCapacity(gpa, fn_info.total_params_len * 2); // * 2 for the `addType`
+    try sema.inst_map.ensureUnusedCapacity(gpa, fn_info.total_params_len);
+
+    var runtime_param_index: usize = 0;
+    var total_param_index: usize = 0;
+    for (fn_info.param_body) |inst| {
+        const name = switch (zir_tags[inst]) {
+            .param, .param_comptime => blk: {
+                const inst_data = sema.code.instructions.items(.data)[inst].pl_tok;
+                const extra = sema.code.extraData(Zir.Inst.Param, inst_data.payload_index).data;
+                break :blk extra.name;
+            },
+
+            .param_anytype, .param_anytype_comptime => blk: {
+                const str_tok = sema.code.instructions.items(.data)[inst].str_tok;
+                break :blk str_tok.start;
+            },
+
+            else => continue,
+        };
+        if (func.comptime_args) |comptime_args| {
+            const arg_tv = comptime_args[total_param_index];
+            if (arg_tv.val.tag() != .generic_poison) {
+                // We have a comptime value for this parameter.
+                const arg = try sema.addConstant(arg_tv.ty, arg_tv.val);
+                sema.inst_map.putAssumeCapacityNoClobber(inst, arg);
+                total_param_index += 1;
+                continue;
+            }
+        }
+        const param_type = fn_ty.fnParamType(runtime_param_index);
+        const ty_ref = try sema.addType(param_type);
+        const arg_index = @intCast(u32, sema.air_instructions.len);
+        inner_block.instructions.appendAssumeCapacity(arg_index);
+        sema.air_instructions.appendAssumeCapacity(.{
+            .tag = .arg,
+            .data = .{ .ty_str = .{
+                .ty = ty_ref,
+                .str = name,
+            } },
+        });
+        sema.inst_map.putAssumeCapacityNoClobber(inst, Air.indexToRef(arg_index));
+        total_param_index += 1;
+        runtime_param_index += 1;
+    }
 
     func.state = .in_progress;
     log.debug("set {s} to in_progress", .{decl.name});
 
-    try sema.analyzeFnBody(&inner_block, func.zir_body_inst);
+    _ = sema.analyzeBody(&inner_block, fn_info.body) catch |err| switch (err) {
+        error.NeededSourceLocation => @panic("zig compiler bug: NeededSourceLocation"),
+        error.GenericPoison => @panic("zig compiler bug: GenericPoison"),
+        else => |e| return e,
+    };
 
-    const instructions = try arena.allocator.dupe(*ir.Inst, inner_block.instructions.items);
+    // Copy the block into place and mark that as the main block.
+    try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Block).Struct.fields.len +
+        inner_block.instructions.items.len);
+    const main_block_index = sema.addExtraAssumeCapacity(Air.Block{
+        .body_len = @intCast(u32, inner_block.instructions.items.len),
+    });
+    sema.air_extra.appendSliceAssumeCapacity(inner_block.instructions.items);
+    sema.air_extra.items[@enumToInt(Air.ExtraIndex.main_block)] = main_block_index;
+
     func.state = .success;
-    func.body = .{ .instructions = instructions };
     log.debug("set {s} to success", .{decl.name});
+
+    return Air{
+        .instructions = sema.air_instructions.toOwnedSlice(),
+        .extra = sema.air_extra.toOwnedSlice(gpa),
+        .values = sema.air_values.toOwnedSlice(gpa),
+    };
 }
 
 fn markOutdatedDecl(mod: *Module, decl: *Decl) !void {
@@ -3665,7 +3967,7 @@ fn markOutdatedDecl(mod: *Module, decl: *Decl) !void {
     decl.analysis = .outdated;
 }
 
-fn allocateNewDecl(mod: *Module, namespace: *Scope.Namespace, src_node: ast.Node.Index) !*Decl {
+pub fn allocateNewDecl(mod: *Module, namespace: *Scope.Namespace, src_node: Ast.Node.Index) !*Decl {
     // If we have emit-h then we must allocate a bigger structure to store the emit-h state.
     const new_decl: *Decl = if (mod.emit_h != null) blk: {
         const parent_struct = try mod.gpa.create(DeclPlusEmitH);
@@ -3713,6 +4015,8 @@ fn allocateNewDecl(mod: *Module, namespace: *Scope.Namespace, src_node: ast.Node
         .is_exported = false,
         .has_linksection = false,
         .has_align = false,
+        .alive = false,
+        .is_usingnamespace = false,
     };
     return new_decl;
 }
@@ -3751,8 +4055,8 @@ pub fn analyzeExport(
         else => return mod.fail(scope, src, "unable to export type '{}'", .{exported_decl.ty}),
     }
 
-    try mod.decl_exports.ensureCapacity(mod.gpa, mod.decl_exports.count() + 1);
-    try mod.export_owners.ensureCapacity(mod.gpa, mod.export_owners.count() + 1);
+    try mod.decl_exports.ensureUnusedCapacity(mod.gpa, 1);
+    try mod.export_owners.ensureUnusedCapacity(mod.gpa, 1);
 
     const new_export = try mod.gpa.create(Export);
     errdefer mod.gpa.destroy(new_export);
@@ -3801,100 +4105,6 @@ pub fn analyzeExport(
     de_gop.value_ptr.*[de_gop.value_ptr.len - 1] = new_export;
     errdefer de_gop.value_ptr.* = mod.gpa.shrink(de_gop.value_ptr.*, de_gop.value_ptr.len - 1);
 }
-pub fn constInst(mod: *Module, arena: *Allocator, src: LazySrcLoc, typed_value: TypedValue) !*ir.Inst {
-    _ = mod;
-    const const_inst = try arena.create(ir.Inst.Constant);
-    const_inst.* = .{
-        .base = .{
-            .tag = ir.Inst.Constant.base_tag,
-            .ty = typed_value.ty,
-            .src = src,
-        },
-        .val = typed_value.val,
-    };
-    return &const_inst.base;
-}
-
-pub fn constType(mod: *Module, arena: *Allocator, src: LazySrcLoc, ty: Type) !*ir.Inst {
-    return mod.constInst(arena, src, .{
-        .ty = Type.initTag(.type),
-        .val = try ty.toValue(arena),
-    });
-}
-
-pub fn constVoid(mod: *Module, arena: *Allocator, src: LazySrcLoc) !*ir.Inst {
-    return mod.constInst(arena, src, .{
-        .ty = Type.initTag(.void),
-        .val = Value.initTag(.void_value),
-    });
-}
-
-pub fn constNoReturn(mod: *Module, arena: *Allocator, src: LazySrcLoc) !*ir.Inst {
-    return mod.constInst(arena, src, .{
-        .ty = Type.initTag(.noreturn),
-        .val = Value.initTag(.unreachable_value),
-    });
-}
-
-pub fn constUndef(mod: *Module, arena: *Allocator, src: LazySrcLoc, ty: Type) !*ir.Inst {
-    return mod.constInst(arena, src, .{
-        .ty = ty,
-        .val = Value.initTag(.undef),
-    });
-}
-
-pub fn constBool(mod: *Module, arena: *Allocator, src: LazySrcLoc, v: bool) !*ir.Inst {
-    return mod.constInst(arena, src, .{
-        .ty = Type.initTag(.bool),
-        .val = ([2]Value{ Value.initTag(.bool_false), Value.initTag(.bool_true) })[@boolToInt(v)],
-    });
-}
-
-pub fn constIntUnsigned(mod: *Module, arena: *Allocator, src: LazySrcLoc, ty: Type, int: u64) !*ir.Inst {
-    return mod.constInst(arena, src, .{
-        .ty = ty,
-        .val = try Value.Tag.int_u64.create(arena, int),
-    });
-}
-
-pub fn constIntSigned(mod: *Module, arena: *Allocator, src: LazySrcLoc, ty: Type, int: i64) !*ir.Inst {
-    return mod.constInst(arena, src, .{
-        .ty = ty,
-        .val = try Value.Tag.int_i64.create(arena, int),
-    });
-}
-
-pub fn constIntBig(mod: *Module, arena: *Allocator, src: LazySrcLoc, ty: Type, big_int: BigIntConst) !*ir.Inst {
-    if (big_int.positive) {
-        if (big_int.to(u64)) |x| {
-            return mod.constIntUnsigned(arena, src, ty, x);
-        } else |err| switch (err) {
-            error.NegativeIntoUnsigned => unreachable,
-            error.TargetTooSmall => {}, // handled below
-        }
-        return mod.constInst(arena, src, .{
-            .ty = ty,
-            .val = try Value.Tag.int_big_positive.create(arena, big_int.limbs),
-        });
-    } else {
-        if (big_int.to(i64)) |x| {
-            return mod.constIntSigned(arena, src, ty, x);
-        } else |err| switch (err) {
-            error.NegativeIntoUnsigned => unreachable,
-            error.TargetTooSmall => {}, // handled below
-        }
-        return mod.constInst(arena, src, .{
-            .ty = ty,
-            .val = try Value.Tag.int_big_negative.create(arena, big_int.limbs),
-        });
-    }
-}
-
-pub fn deleteAnonDecl(mod: *Module, scope: *Scope, decl: *Decl) void {
-    const scope_decl = scope.ownerDecl().?;
-    assert(scope_decl.namespace.anon_decls.swapRemove(decl));
-    decl.destroy(mod);
-}
 
 /// Takes ownership of `name` even if it returns an error.
 pub fn createAnonymousDeclNamed(
@@ -3903,20 +4113,40 @@ pub fn createAnonymousDeclNamed(
     typed_value: TypedValue,
     name: [:0]u8,
 ) !*Decl {
+    return mod.createAnonymousDeclFromDeclNamed(scope.ownerDecl().?, typed_value, name);
+}
+
+pub fn createAnonymousDecl(mod: *Module, scope: *Scope, typed_value: TypedValue) !*Decl {
+    return mod.createAnonymousDeclFromDecl(scope.ownerDecl().?, typed_value);
+}
+
+pub fn createAnonymousDeclFromDecl(mod: *Module, owner_decl: *Decl, tv: TypedValue) !*Decl {
+    const name_index = mod.getNextAnonNameIndex();
+    const name = try std.fmt.allocPrintZ(mod.gpa, "{s}__anon_{d}", .{
+        owner_decl.name, name_index,
+    });
+    return mod.createAnonymousDeclFromDeclNamed(owner_decl, tv, name);
+}
+
+/// Takes ownership of `name` even if it returns an error.
+pub fn createAnonymousDeclFromDeclNamed(
+    mod: *Module,
+    owner_decl: *Decl,
+    typed_value: TypedValue,
+    name: [:0]u8,
+) !*Decl {
     errdefer mod.gpa.free(name);
 
-    const scope_decl = scope.ownerDecl().?;
-    const namespace = scope_decl.namespace;
+    const namespace = owner_decl.namespace;
     try namespace.anon_decls.ensureUnusedCapacity(mod.gpa, 1);
 
-    const new_decl = try mod.allocateNewDecl(namespace, scope_decl.src_node);
+    const new_decl = try mod.allocateNewDecl(namespace, owner_decl.src_node);
 
     new_decl.name = name;
-    new_decl.src_line = scope_decl.src_line;
+    new_decl.src_line = owner_decl.src_line;
     new_decl.ty = typed_value.ty;
     new_decl.val = typed_value.val;
     new_decl.has_tv = true;
-    new_decl.owns_tv = true;
     new_decl.analysis = .complete;
     new_decl.generation = mod.generation;
 
@@ -3931,15 +4161,6 @@ pub fn createAnonymousDeclNamed(
     }
 
     return new_decl;
-}
-
-pub fn createAnonymousDecl(mod: *Module, scope: *Scope, typed_value: TypedValue) !*Decl {
-    const scope_decl = scope.ownerDecl().?;
-    const name_index = mod.getNextAnonNameIndex();
-    const name = try std.fmt.allocPrintZ(mod.gpa, "{s}__anon_{d}", .{
-        scope_decl.name, name_index,
-    });
-    return mod.createAnonymousDeclNamed(scope, typed_value, name);
 }
 
 pub fn getNextAnonNameIndex(mod: *Module) usize {
@@ -4006,7 +4227,7 @@ pub fn fail(
     src: LazySrcLoc,
     comptime format: []const u8,
     args: anytype,
-) InnerError {
+) CompileError {
     const err_msg = try mod.errMsg(scope, src, format, args);
     return mod.failWithOwnedErrorMsg(scope, err_msg);
 }
@@ -4016,10 +4237,10 @@ pub fn fail(
 pub fn failTok(
     mod: *Module,
     scope: *Scope,
-    token_index: ast.TokenIndex,
+    token_index: Ast.TokenIndex,
     comptime format: []const u8,
     args: anytype,
-) InnerError {
+) CompileError {
     const src = scope.srcDecl().?.tokSrcLoc(token_index);
     return mod.fail(scope, src, format, args);
 }
@@ -4029,21 +4250,24 @@ pub fn failTok(
 pub fn failNode(
     mod: *Module,
     scope: *Scope,
-    node_index: ast.Node.Index,
+    node_index: Ast.Node.Index,
     comptime format: []const u8,
     args: anytype,
-) InnerError {
+) CompileError {
     const src = scope.srcDecl().?.nodeSrcLoc(node_index);
     return mod.fail(scope, src, format, args);
 }
 
-pub fn failWithOwnedErrorMsg(mod: *Module, scope: *Scope, err_msg: *ErrorMsg) InnerError {
+pub fn failWithOwnedErrorMsg(mod: *Module, scope: *Scope, err_msg: *ErrorMsg) CompileError {
     @setCold(true);
 
     {
         errdefer err_msg.destroy(mod.gpa);
-        try mod.failed_decls.ensureCapacity(mod.gpa, mod.failed_decls.count() + 1);
-        try mod.failed_files.ensureCapacity(mod.gpa, mod.failed_files.count() + 1);
+        if (err_msg.src_loc.lazy == .unneeded) {
+            return error.NeededSourceLocation;
+        }
+        try mod.failed_decls.ensureUnusedCapacity(mod.gpa, 1);
+        try mod.failed_files.ensureUnusedCapacity(mod.gpa, 1);
     }
     switch (scope.tag) {
         .block => {
@@ -4062,252 +4286,12 @@ pub fn failWithOwnedErrorMsg(mod: *Module, scope: *Scope, err_msg: *ErrorMsg) In
     return error.AnalysisFail;
 }
 
-pub fn intAdd(allocator: *Allocator, lhs: Value, rhs: Value) !Value {
-    // TODO is this a performance issue? maybe we should try the operation without
-    // resorting to BigInt first.
-    var lhs_space: Value.BigIntSpace = undefined;
-    var rhs_space: Value.BigIntSpace = undefined;
-    const lhs_bigint = lhs.toBigInt(&lhs_space);
-    const rhs_bigint = rhs.toBigInt(&rhs_space);
-    const limbs = try allocator.alloc(
-        std.math.big.Limb,
-        std.math.max(lhs_bigint.limbs.len, rhs_bigint.limbs.len) + 1,
-    );
-    var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
-    result_bigint.add(lhs_bigint, rhs_bigint);
-    const result_limbs = result_bigint.limbs[0..result_bigint.len];
-
-    if (result_bigint.positive) {
-        return Value.Tag.int_big_positive.create(allocator, result_limbs);
-    } else {
-        return Value.Tag.int_big_negative.create(allocator, result_limbs);
-    }
-}
-
-pub fn intSub(allocator: *Allocator, lhs: Value, rhs: Value) !Value {
-    // TODO is this a performance issue? maybe we should try the operation without
-    // resorting to BigInt first.
-    var lhs_space: Value.BigIntSpace = undefined;
-    var rhs_space: Value.BigIntSpace = undefined;
-    const lhs_bigint = lhs.toBigInt(&lhs_space);
-    const rhs_bigint = rhs.toBigInt(&rhs_space);
-    const limbs = try allocator.alloc(
-        std.math.big.Limb,
-        std.math.max(lhs_bigint.limbs.len, rhs_bigint.limbs.len) + 1,
-    );
-    var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
-    result_bigint.sub(lhs_bigint, rhs_bigint);
-    const result_limbs = result_bigint.limbs[0..result_bigint.len];
-
-    if (result_bigint.positive) {
-        return Value.Tag.int_big_positive.create(allocator, result_limbs);
-    } else {
-        return Value.Tag.int_big_negative.create(allocator, result_limbs);
-    }
-}
-
-pub fn intDiv(allocator: *Allocator, lhs: Value, rhs: Value) !Value {
-    // TODO is this a performance issue? maybe we should try the operation without
-    // resorting to BigInt first.
-    var lhs_space: Value.BigIntSpace = undefined;
-    var rhs_space: Value.BigIntSpace = undefined;
-    const lhs_bigint = lhs.toBigInt(&lhs_space);
-    const rhs_bigint = rhs.toBigInt(&rhs_space);
-    const limbs_q = try allocator.alloc(
-        std.math.big.Limb,
-        lhs_bigint.limbs.len + rhs_bigint.limbs.len + 1,
-    );
-    const limbs_r = try allocator.alloc(
-        std.math.big.Limb,
-        lhs_bigint.limbs.len,
-    );
-    const limbs_buffer = try allocator.alloc(
-        std.math.big.Limb,
-        std.math.big.int.calcDivLimbsBufferLen(lhs_bigint.limbs.len, rhs_bigint.limbs.len),
-    );
-    var result_q = BigIntMutable{ .limbs = limbs_q, .positive = undefined, .len = undefined };
-    var result_r = BigIntMutable{ .limbs = limbs_r, .positive = undefined, .len = undefined };
-    result_q.divTrunc(&result_r, lhs_bigint, rhs_bigint, limbs_buffer, null);
-    const result_limbs = result_q.limbs[0..result_q.len];
-
-    if (result_q.positive) {
-        return Value.Tag.int_big_positive.create(allocator, result_limbs);
-    } else {
-        return Value.Tag.int_big_negative.create(allocator, result_limbs);
-    }
-}
-
-pub fn intMul(allocator: *Allocator, lhs: Value, rhs: Value) !Value {
-    // TODO is this a performance issue? maybe we should try the operation without
-    // resorting to BigInt first.
-    var lhs_space: Value.BigIntSpace = undefined;
-    var rhs_space: Value.BigIntSpace = undefined;
-    const lhs_bigint = lhs.toBigInt(&lhs_space);
-    const rhs_bigint = rhs.toBigInt(&rhs_space);
-    const limbs = try allocator.alloc(
-        std.math.big.Limb,
-        lhs_bigint.limbs.len + rhs_bigint.limbs.len + 1,
-    );
-    var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
-    var limbs_buffer = try allocator.alloc(
-        std.math.big.Limb,
-        std.math.big.int.calcMulLimbsBufferLen(lhs_bigint.limbs.len, rhs_bigint.limbs.len, 1),
-    );
-    defer allocator.free(limbs_buffer);
-    result_bigint.mul(lhs_bigint, rhs_bigint, limbs_buffer, allocator);
-    const result_limbs = result_bigint.limbs[0..result_bigint.len];
-
-    if (result_bigint.positive) {
-        return Value.Tag.int_big_positive.create(allocator, result_limbs);
-    } else {
-        return Value.Tag.int_big_negative.create(allocator, result_limbs);
-    }
-}
-
-pub fn floatAdd(
-    arena: *Allocator,
-    float_type: Type,
-    src: LazySrcLoc,
-    lhs: Value,
-    rhs: Value,
-) !Value {
-    _ = src;
-    switch (float_type.tag()) {
-        .f16 => {
-            @panic("TODO add __trunctfhf2 to compiler-rt");
-            //const lhs_val = lhs.toFloat(f16);
-            //const rhs_val = rhs.toFloat(f16);
-            //return Value.Tag.float_16.create(arena, lhs_val + rhs_val);
-        },
-        .f32 => {
-            const lhs_val = lhs.toFloat(f32);
-            const rhs_val = rhs.toFloat(f32);
-            return Value.Tag.float_32.create(arena, lhs_val + rhs_val);
-        },
-        .f64 => {
-            const lhs_val = lhs.toFloat(f64);
-            const rhs_val = rhs.toFloat(f64);
-            return Value.Tag.float_64.create(arena, lhs_val + rhs_val);
-        },
-        .f128, .comptime_float, .c_longdouble => {
-            const lhs_val = lhs.toFloat(f128);
-            const rhs_val = rhs.toFloat(f128);
-            return Value.Tag.float_128.create(arena, lhs_val + rhs_val);
-        },
-        else => unreachable,
-    }
-}
-
-pub fn floatSub(
-    arena: *Allocator,
-    float_type: Type,
-    src: LazySrcLoc,
-    lhs: Value,
-    rhs: Value,
-) !Value {
-    _ = src;
-    switch (float_type.tag()) {
-        .f16 => {
-            @panic("TODO add __trunctfhf2 to compiler-rt");
-            //const lhs_val = lhs.toFloat(f16);
-            //const rhs_val = rhs.toFloat(f16);
-            //return Value.Tag.float_16.create(arena, lhs_val - rhs_val);
-        },
-        .f32 => {
-            const lhs_val = lhs.toFloat(f32);
-            const rhs_val = rhs.toFloat(f32);
-            return Value.Tag.float_32.create(arena, lhs_val - rhs_val);
-        },
-        .f64 => {
-            const lhs_val = lhs.toFloat(f64);
-            const rhs_val = rhs.toFloat(f64);
-            return Value.Tag.float_64.create(arena, lhs_val - rhs_val);
-        },
-        .f128, .comptime_float, .c_longdouble => {
-            const lhs_val = lhs.toFloat(f128);
-            const rhs_val = rhs.toFloat(f128);
-            return Value.Tag.float_128.create(arena, lhs_val - rhs_val);
-        },
-        else => unreachable,
-    }
-}
-
-pub fn floatDiv(
-    arena: *Allocator,
-    float_type: Type,
-    src: LazySrcLoc,
-    lhs: Value,
-    rhs: Value,
-) !Value {
-    _ = src;
-    switch (float_type.tag()) {
-        .f16 => {
-            @panic("TODO add __trunctfhf2 to compiler-rt");
-            //const lhs_val = lhs.toFloat(f16);
-            //const rhs_val = rhs.toFloat(f16);
-            //return Value.Tag.float_16.create(arena, lhs_val / rhs_val);
-        },
-        .f32 => {
-            const lhs_val = lhs.toFloat(f32);
-            const rhs_val = rhs.toFloat(f32);
-            return Value.Tag.float_32.create(arena, lhs_val / rhs_val);
-        },
-        .f64 => {
-            const lhs_val = lhs.toFloat(f64);
-            const rhs_val = rhs.toFloat(f64);
-            return Value.Tag.float_64.create(arena, lhs_val / rhs_val);
-        },
-        .f128, .comptime_float, .c_longdouble => {
-            const lhs_val = lhs.toFloat(f128);
-            const rhs_val = rhs.toFloat(f128);
-            return Value.Tag.float_128.create(arena, lhs_val / rhs_val);
-        },
-        else => unreachable,
-    }
-}
-
-pub fn floatMul(
-    arena: *Allocator,
-    float_type: Type,
-    src: LazySrcLoc,
-    lhs: Value,
-    rhs: Value,
-) !Value {
-    _ = src;
-    switch (float_type.tag()) {
-        .f16 => {
-            @panic("TODO add __trunctfhf2 to compiler-rt");
-            //const lhs_val = lhs.toFloat(f16);
-            //const rhs_val = rhs.toFloat(f16);
-            //return Value.Tag.float_16.create(arena, lhs_val * rhs_val);
-        },
-        .f32 => {
-            const lhs_val = lhs.toFloat(f32);
-            const rhs_val = rhs.toFloat(f32);
-            return Value.Tag.float_32.create(arena, lhs_val * rhs_val);
-        },
-        .f64 => {
-            const lhs_val = lhs.toFloat(f64);
-            const rhs_val = rhs.toFloat(f64);
-            return Value.Tag.float_64.create(arena, lhs_val * rhs_val);
-        },
-        .f128, .comptime_float, .c_longdouble => {
-            const lhs_val = lhs.toFloat(f128);
-            const rhs_val = rhs.toFloat(f128);
-            return Value.Tag.float_128.create(arena, lhs_val * rhs_val);
-        },
-        else => unreachable,
-    }
-}
-
 pub fn simplePtrType(
-    mod: *Module,
     arena: *Allocator,
     elem_ty: Type,
     mutable: bool,
     size: std.builtin.TypeInfo.Pointer.Size,
 ) Allocator.Error!Type {
-    _ = mod;
     if (!mutable and size == .Slice and elem_ty.eql(Type.initTag(.u8))) {
         return Type.initTag(.const_slice_u8);
     }
@@ -4330,7 +4314,6 @@ pub fn simplePtrType(
 }
 
 pub fn ptrType(
-    mod: *Module,
     arena: *Allocator,
     elem_ty: Type,
     sentinel: ?Value,
@@ -4342,7 +4325,6 @@ pub fn ptrType(
     @"volatile": bool,
     size: std.builtin.TypeInfo.Pointer.Size,
 ) Allocator.Error!Type {
-    _ = mod;
     assert(host_size == 0 or bit_offset < host_size * 8);
 
     // TODO check if type can be represented by simplePtrType
@@ -4359,8 +4341,7 @@ pub fn ptrType(
     });
 }
 
-pub fn optionalType(mod: *Module, arena: *Allocator, child_type: Type) Allocator.Error!Type {
-    _ = mod;
+pub fn optionalType(arena: *Allocator, child_type: Type) Allocator.Error!Type {
     switch (child_type.tag()) {
         .single_const_pointer => return Type.Tag.optional_single_const_pointer.create(
             arena,
@@ -4375,16 +4356,14 @@ pub fn optionalType(mod: *Module, arena: *Allocator, child_type: Type) Allocator
 }
 
 pub fn arrayType(
-    mod: *Module,
     arena: *Allocator,
     len: u64,
     sentinel: ?Value,
     elem_type: Type,
 ) Allocator.Error!Type {
-    _ = mod;
     if (elem_type.eql(Type.initTag(.u8))) {
         if (sentinel) |some| {
-            if (some.eql(Value.initTag(.zero))) {
+            if (some.eql(Value.initTag(.zero), elem_type)) {
                 return Type.Tag.array_u8_sentinel_0.create(arena, len);
             }
         } else {
@@ -4407,12 +4386,10 @@ pub fn arrayType(
 }
 
 pub fn errorUnionType(
-    mod: *Module,
     arena: *Allocator,
     error_set: Type,
     payload: Type,
 ) Allocator.Error!Type {
-    _ = mod;
     assert(error_set.zigTypeTag() == .ErrorSet);
     if (error_set.eql(Type.initTag(.anyerror)) and payload.eql(Type.initTag(.void))) {
         return Type.initTag(.anyerror_void_error_union);
@@ -4422,38 +4399,6 @@ pub fn errorUnionType(
         .error_set = error_set,
         .payload = payload,
     });
-}
-
-pub fn dumpInst(mod: *Module, scope: *Scope, inst: *ir.Inst) void {
-    const zir_module = scope.namespace();
-    const source = zir_module.getSource(mod) catch @panic("dumpInst failed to get source");
-    const loc = std.zig.findLineColumn(source, inst.src);
-    if (inst.tag == .constant) {
-        std.debug.print("constant ty={} val={} src={s}:{d}:{d}\n", .{
-            inst.ty,
-            inst.castTag(.constant).?.val,
-            zir_module.subFilePath(),
-            loc.line + 1,
-            loc.column + 1,
-        });
-    } else if (inst.deaths == 0) {
-        std.debug.print("{s} ty={} src={s}:{d}:{d}\n", .{
-            @tagName(inst.tag),
-            inst.ty,
-            zir_module.subFilePath(),
-            loc.line + 1,
-            loc.column + 1,
-        });
-    } else {
-        std.debug.print("{s} ty={} deaths={b} src={s}:{d}:{d}\n", .{
-            @tagName(inst.tag),
-            inst.ty,
-            inst.deaths,
-            zir_module.subFilePath(),
-            loc.line + 1,
-            loc.column + 1,
-        });
-    }
 }
 
 pub fn getTarget(mod: Module) Target {
@@ -4510,7 +4455,7 @@ pub const SwitchProngSrc = union(enum) {
         const main_tokens = tree.nodes.items(.main_token);
         const node_datas = tree.nodes.items(.data);
         const node_tags = tree.nodes.items(.tag);
-        const extra = tree.extraData(node_datas[switch_node].rhs, ast.Node.SubRange);
+        const extra = tree.extraData(node_datas[switch_node].rhs, Ast.Node.SubRange);
         const case_nodes = tree.extra_data[extra.start..extra.end];
 
         var multi_i: u32 = 0;
@@ -4576,308 +4521,56 @@ pub const SwitchProngSrc = union(enum) {
     }
 };
 
-pub fn analyzeStructFields(mod: *Module, struct_obj: *Struct) InnerError!void {
-    const tracy = trace(@src());
-    defer tracy.end();
+pub const PeerTypeCandidateSrc = union(enum) {
+    /// Do not print out error notes for candidate sources
+    none: void,
+    /// When we want to know the the src of candidate i, look up at
+    /// index i in this slice
+    override: []LazySrcLoc,
+    /// resolvePeerTypes originates from a @TypeOf(...) call
+    typeof_builtin_call_node_offset: i32,
 
-    const gpa = mod.gpa;
-    const zir = struct_obj.owner_decl.namespace.file_scope.zir;
-    const extended = zir.instructions.items(.data)[struct_obj.zir_index].extended;
-    assert(extended.opcode == .struct_decl);
-    const small = @bitCast(Zir.Inst.StructDecl.Small, extended.small);
-    var extra_index: usize = extended.operand;
+    pub fn resolve(
+        self: PeerTypeCandidateSrc,
+        gpa: *Allocator,
+        decl: *Decl,
+        candidates: usize,
+        candidate_i: usize,
+    ) ?LazySrcLoc {
+        @setCold(true);
 
-    const src: LazySrcLoc = .{ .node_offset = struct_obj.node_offset };
-    extra_index += @boolToInt(small.has_src_node);
+        switch (self) {
+            .none => {
+                return null;
+            },
+            .override => |candidate_srcs| {
+                return candidate_srcs[candidate_i];
+            },
+            .typeof_builtin_call_node_offset => |node_offset| {
+                if (candidates <= 2) {
+                    switch (candidate_i) {
+                        0 => return LazySrcLoc{ .node_offset_builtin_call_arg0 = node_offset },
+                        1 => return LazySrcLoc{ .node_offset_builtin_call_arg1 = node_offset },
+                        else => unreachable,
+                    }
+                }
 
-    const body_len = if (small.has_body_len) blk: {
-        const body_len = zir.extra[extra_index];
-        extra_index += 1;
-        break :blk body_len;
-    } else 0;
+                const tree = decl.namespace.file_scope.getTree(gpa) catch |err| {
+                    // In this case we emit a warning + a less precise source location.
+                    log.warn("unable to load {s}: {s}", .{
+                        decl.namespace.file_scope.sub_file_path, @errorName(err),
+                    });
+                    return LazySrcLoc{ .node_offset = 0 };
+                };
+                const node = decl.relativeToNodeIndex(node_offset);
+                const node_datas = tree.nodes.items(.data);
+                const params = tree.extra_data[node_datas[node].lhs..node_datas[node].rhs];
 
-    const fields_len = if (small.has_fields_len) blk: {
-        const fields_len = zir.extra[extra_index];
-        extra_index += 1;
-        break :blk fields_len;
-    } else 0;
-
-    const decls_len = if (small.has_decls_len) decls_len: {
-        const decls_len = zir.extra[extra_index];
-        extra_index += 1;
-        break :decls_len decls_len;
-    } else 0;
-
-    // Skip over decls.
-    var decls_it = zir.declIteratorInner(extra_index, decls_len);
-    while (decls_it.next()) |_| {}
-    extra_index = decls_it.extra_index;
-
-    const body = zir.extra[extra_index..][0..body_len];
-    if (fields_len == 0) {
-        assert(body.len == 0);
-        return;
-    }
-    extra_index += body.len;
-
-    var decl_arena = struct_obj.owner_decl.value_arena.?.promote(gpa);
-    defer struct_obj.owner_decl.value_arena.?.* = decl_arena.state;
-
-    try struct_obj.fields.ensureCapacity(&decl_arena.allocator, fields_len);
-
-    // We create a block for the field type instructions because they
-    // may need to reference Decls from inside the struct namespace.
-    // Within the field type, default value, and alignment expressions, the "owner decl"
-    // should be the struct itself. Thus we need a new Sema.
-    var sema: Sema = .{
-        .mod = mod,
-        .gpa = gpa,
-        .arena = &decl_arena.allocator,
-        .code = zir,
-        .owner_decl = struct_obj.owner_decl,
-        .namespace = &struct_obj.namespace,
-        .owner_func = null,
-        .func = null,
-        .param_inst_list = &.{},
-    };
-    defer sema.deinit();
-
-    var block: Scope.Block = .{
-        .parent = null,
-        .sema = &sema,
-        .src_decl = struct_obj.owner_decl,
-        .instructions = .{},
-        .inlining = null,
-        .is_comptime = true,
-    };
-    defer assert(block.instructions.items.len == 0); // should all be comptime instructions
-
-    if (body.len != 0) {
-        _ = try sema.analyzeBody(&block, body);
-    }
-
-    const bits_per_field = 4;
-    const fields_per_u32 = 32 / bits_per_field;
-    const bit_bags_count = std.math.divCeil(usize, fields_len, fields_per_u32) catch unreachable;
-    var bit_bag_index: usize = extra_index;
-    extra_index += bit_bags_count;
-    var cur_bit_bag: u32 = undefined;
-    var field_i: u32 = 0;
-    while (field_i < fields_len) : (field_i += 1) {
-        if (field_i % fields_per_u32 == 0) {
-            cur_bit_bag = zir.extra[bit_bag_index];
-            bit_bag_index += 1;
-        }
-        const has_align = @truncate(u1, cur_bit_bag) != 0;
-        cur_bit_bag >>= 1;
-        const has_default = @truncate(u1, cur_bit_bag) != 0;
-        cur_bit_bag >>= 1;
-        const is_comptime = @truncate(u1, cur_bit_bag) != 0;
-        cur_bit_bag >>= 1;
-        const unused = @truncate(u1, cur_bit_bag) != 0;
-        cur_bit_bag >>= 1;
-
-        _ = unused;
-
-        const field_name_zir = zir.nullTerminatedString(zir.extra[extra_index]);
-        extra_index += 1;
-        const field_type_ref = @intToEnum(Zir.Inst.Ref, zir.extra[extra_index]);
-        extra_index += 1;
-
-        // This string needs to outlive the ZIR code.
-        const field_name = try decl_arena.allocator.dupe(u8, field_name_zir);
-        if (field_type_ref == .none) {
-            return mod.fail(&block.base, src, "TODO: implement anytype struct field", .{});
-        }
-        const field_ty: Type = if (field_type_ref == .none)
-            Type.initTag(.noreturn)
-        else
-            // TODO: if we need to report an error here, use a source location
-            // that points to this type expression rather than the struct.
-            // But only resolve the source location if we need to emit a compile error.
-            try sema.resolveType(&block, src, field_type_ref);
-
-        const gop = struct_obj.fields.getOrPutAssumeCapacity(field_name);
-        assert(!gop.found_existing);
-        gop.value_ptr.* = .{
-            .ty = field_ty,
-            .abi_align = Value.initTag(.abi_align_default),
-            .default_val = Value.initTag(.unreachable_value),
-            .is_comptime = is_comptime,
-            .offset = undefined,
-        };
-
-        if (has_align) {
-            const align_ref = @intToEnum(Zir.Inst.Ref, zir.extra[extra_index]);
-            extra_index += 1;
-            // TODO: if we need to report an error here, use a source location
-            // that points to this alignment expression rather than the struct.
-            // But only resolve the source location if we need to emit a compile error.
-            gop.value_ptr.abi_align = (try sema.resolveInstConst(&block, src, align_ref)).val;
-        }
-        if (has_default) {
-            const default_ref = @intToEnum(Zir.Inst.Ref, zir.extra[extra_index]);
-            extra_index += 1;
-            // TODO: if we need to report an error here, use a source location
-            // that points to this default value expression rather than the struct.
-            // But only resolve the source location if we need to emit a compile error.
-            gop.value_ptr.default_val = (try sema.resolveInstConst(&block, src, default_ref)).val;
+                return LazySrcLoc{ .node_abs = params[candidate_i] };
+            },
         }
     }
-}
-
-pub fn analyzeUnionFields(mod: *Module, union_obj: *Union) InnerError!void {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const gpa = mod.gpa;
-    const zir = union_obj.owner_decl.namespace.file_scope.zir;
-    const extended = zir.instructions.items(.data)[union_obj.zir_index].extended;
-    assert(extended.opcode == .union_decl);
-    const small = @bitCast(Zir.Inst.UnionDecl.Small, extended.small);
-    var extra_index: usize = extended.operand;
-
-    const src: LazySrcLoc = .{ .node_offset = union_obj.node_offset };
-    extra_index += @boolToInt(small.has_src_node);
-
-    if (small.has_tag_type) {
-        extra_index += 1;
-    }
-
-    const body_len = if (small.has_body_len) blk: {
-        const body_len = zir.extra[extra_index];
-        extra_index += 1;
-        break :blk body_len;
-    } else 0;
-
-    const fields_len = if (small.has_fields_len) blk: {
-        const fields_len = zir.extra[extra_index];
-        extra_index += 1;
-        break :blk fields_len;
-    } else 0;
-
-    const decls_len = if (small.has_decls_len) decls_len: {
-        const decls_len = zir.extra[extra_index];
-        extra_index += 1;
-        break :decls_len decls_len;
-    } else 0;
-
-    // Skip over decls.
-    var decls_it = zir.declIteratorInner(extra_index, decls_len);
-    while (decls_it.next()) |_| {}
-    extra_index = decls_it.extra_index;
-
-    const body = zir.extra[extra_index..][0..body_len];
-    if (fields_len == 0) {
-        assert(body.len == 0);
-        return;
-    }
-    extra_index += body.len;
-
-    var decl_arena = union_obj.owner_decl.value_arena.?.promote(gpa);
-    defer union_obj.owner_decl.value_arena.?.* = decl_arena.state;
-
-    try union_obj.fields.ensureCapacity(&decl_arena.allocator, fields_len);
-
-    // We create a block for the field type instructions because they
-    // may need to reference Decls from inside the struct namespace.
-    // Within the field type, default value, and alignment expressions, the "owner decl"
-    // should be the struct itself. Thus we need a new Sema.
-    var sema: Sema = .{
-        .mod = mod,
-        .gpa = gpa,
-        .arena = &decl_arena.allocator,
-        .code = zir,
-        .owner_decl = union_obj.owner_decl,
-        .namespace = &union_obj.namespace,
-        .owner_func = null,
-        .func = null,
-        .param_inst_list = &.{},
-    };
-    defer sema.deinit();
-
-    var block: Scope.Block = .{
-        .parent = null,
-        .sema = &sema,
-        .src_decl = union_obj.owner_decl,
-        .instructions = .{},
-        .inlining = null,
-        .is_comptime = true,
-    };
-    defer assert(block.instructions.items.len == 0); // should all be comptime instructions
-
-    if (body.len != 0) {
-        _ = try sema.analyzeBody(&block, body);
-    }
-
-    const bits_per_field = 4;
-    const fields_per_u32 = 32 / bits_per_field;
-    const bit_bags_count = std.math.divCeil(usize, fields_len, fields_per_u32) catch unreachable;
-    var bit_bag_index: usize = extra_index;
-    extra_index += bit_bags_count;
-    var cur_bit_bag: u32 = undefined;
-    var field_i: u32 = 0;
-    while (field_i < fields_len) : (field_i += 1) {
-        if (field_i % fields_per_u32 == 0) {
-            cur_bit_bag = zir.extra[bit_bag_index];
-            bit_bag_index += 1;
-        }
-        const has_type = @truncate(u1, cur_bit_bag) != 0;
-        cur_bit_bag >>= 1;
-        const has_align = @truncate(u1, cur_bit_bag) != 0;
-        cur_bit_bag >>= 1;
-        const has_tag = @truncate(u1, cur_bit_bag) != 0;
-        cur_bit_bag >>= 1;
-        const unused = @truncate(u1, cur_bit_bag) != 0;
-        cur_bit_bag >>= 1;
-        _ = unused;
-
-        const field_name_zir = zir.nullTerminatedString(zir.extra[extra_index]);
-        extra_index += 1;
-
-        const field_type_ref: Zir.Inst.Ref = if (has_type) blk: {
-            const field_type_ref = @intToEnum(Zir.Inst.Ref, zir.extra[extra_index]);
-            extra_index += 1;
-            break :blk field_type_ref;
-        } else .none;
-
-        const align_ref: Zir.Inst.Ref = if (has_align) blk: {
-            const align_ref = @intToEnum(Zir.Inst.Ref, zir.extra[extra_index]);
-            extra_index += 1;
-            break :blk align_ref;
-        } else .none;
-
-        if (has_tag) {
-            extra_index += 1;
-        }
-
-        // This string needs to outlive the ZIR code.
-        const field_name = try decl_arena.allocator.dupe(u8, field_name_zir);
-        const field_ty: Type = if (field_type_ref == .none)
-            Type.initTag(.void)
-        else
-            // TODO: if we need to report an error here, use a source location
-            // that points to this type expression rather than the union.
-            // But only resolve the source location if we need to emit a compile error.
-            try sema.resolveType(&block, src, field_type_ref);
-
-        const gop = union_obj.fields.getOrPutAssumeCapacity(field_name);
-        assert(!gop.found_existing);
-        gop.value_ptr.* = .{
-            .ty = field_ty,
-            .abi_align = Value.initTag(.abi_align_default),
-        };
-
-        if (align_ref != .none) {
-            // TODO: if we need to report an error here, use a source location
-            // that points to this alignment expression rather than the struct.
-            // But only resolve the source location if we need to emit a compile error.
-            gop.value_ptr.abi_align = (try sema.resolveInstConst(&block, src, align_ref)).val;
-        }
-    }
-
-    // TODO resolve the union tag_type_ref
-}
+};
 
 /// Called from `performAllTheWork`, after all AstGen workers have finished,
 /// and before the main semantic analysis loop begins.
@@ -4968,4 +4661,96 @@ pub fn processExports(mod: *Module) !void {
             },
         };
     }
+}
+
+pub fn populateTestFunctions(mod: *Module) !void {
+    const gpa = mod.gpa;
+    const builtin_pkg = mod.main_pkg.table.get("builtin").?;
+    const builtin_file = (mod.importPkg(builtin_pkg) catch unreachable).file;
+    const builtin_namespace = builtin_file.root_decl.?.namespace;
+    const decl = builtin_namespace.decls.get("test_functions").?;
+    var buf: Type.Payload.ElemType = undefined;
+    const tmp_test_fn_ty = decl.ty.slicePtrFieldType(&buf).elemType();
+
+    const array_decl = d: {
+        // Add mod.test_functions to an array decl then make the test_functions
+        // decl reference it as a slice.
+        var new_decl_arena = std.heap.ArenaAllocator.init(gpa);
+        errdefer new_decl_arena.deinit();
+        const arena = &new_decl_arena.allocator;
+
+        const test_fn_vals = try arena.alloc(Value, mod.test_functions.count());
+        const array_decl = try mod.createAnonymousDeclFromDecl(decl, .{
+            .ty = try Type.Tag.array.create(arena, .{
+                .len = test_fn_vals.len,
+                .elem_type = try tmp_test_fn_ty.copy(arena),
+            }),
+            .val = try Value.Tag.array.create(arena, test_fn_vals),
+        });
+        for (mod.test_functions.keys()) |test_decl, i| {
+            const test_name_slice = mem.sliceTo(test_decl.name, 0);
+            const test_name_decl = n: {
+                var name_decl_arena = std.heap.ArenaAllocator.init(gpa);
+                errdefer name_decl_arena.deinit();
+                const bytes = try name_decl_arena.allocator.dupe(u8, test_name_slice);
+                const test_name_decl = try mod.createAnonymousDeclFromDecl(array_decl, .{
+                    .ty = try Type.Tag.array_u8.create(&name_decl_arena.allocator, bytes.len),
+                    .val = try Value.Tag.bytes.create(&name_decl_arena.allocator, bytes),
+                });
+                try test_name_decl.finalizeNewArena(&name_decl_arena);
+                break :n test_name_decl;
+            };
+            try mod.linkerUpdateDecl(test_name_decl);
+
+            const field_vals = try arena.create([3]Value);
+            field_vals.* = .{
+                try Value.Tag.slice.create(arena, .{
+                    .ptr = try Value.Tag.decl_ref.create(arena, test_name_decl),
+                    .len = try Value.Tag.int_u64.create(arena, test_name_slice.len),
+                }), // name
+                try Value.Tag.decl_ref.create(arena, test_decl), // func
+                Value.initTag(.null_value), // async_frame_size
+            };
+            test_fn_vals[i] = try Value.Tag.@"struct".create(arena, field_vals);
+        }
+
+        try array_decl.finalizeNewArena(&new_decl_arena);
+        break :d array_decl;
+    };
+    try mod.linkerUpdateDecl(array_decl);
+
+    {
+        var arena_instance = decl.value_arena.?.promote(gpa);
+        defer decl.value_arena.?.* = arena_instance.state;
+        const arena = &arena_instance.allocator;
+
+        decl.ty = try Type.Tag.const_slice.create(arena, try tmp_test_fn_ty.copy(arena));
+        decl.val = try Value.Tag.slice.create(arena, .{
+            .ptr = try Value.Tag.decl_ref.create(arena, array_decl),
+            .len = try Value.Tag.int_u64.create(arena, mod.test_functions.count()),
+        });
+    }
+    try mod.linkerUpdateDecl(decl);
+}
+
+pub fn linkerUpdateDecl(mod: *Module, decl: *Decl) !void {
+    mod.comp.bin_file.updateDecl(mod, decl) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        error.AnalysisFail => {
+            decl.analysis = .codegen_failure;
+            return;
+        },
+        else => {
+            const gpa = mod.gpa;
+            try mod.failed_decls.ensureUnusedCapacity(gpa, 1);
+            mod.failed_decls.putAssumeCapacityNoClobber(decl, try ErrorMsg.create(
+                gpa,
+                decl.srcLoc(),
+                "unable to codegen: {s}",
+                .{@errorName(err)},
+            ));
+            decl.analysis = .codegen_failure_retryable;
+            return;
+        },
+    };
 }

@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const link = @import("link.zig");
 const Compilation = @import("Compilation.zig");
 const Allocator = std.mem.Allocator;
@@ -227,7 +228,7 @@ pub const TestContext = struct {
                     continue;
                 }
                 // example: "file.zig:1:2: error: bad thing happened"
-                var it = std.mem.split(err_msg_line, ":");
+                var it = std.mem.split(u8, err_msg_line, ":");
                 const src_path = it.next() orelse @panic("missing colon");
                 const line_text = it.next() orelse @panic("missing line");
                 const col_text = it.next() orelse @panic("missing column");
@@ -610,7 +611,7 @@ pub const TestContext = struct {
 
     fn run(self: *TestContext) !void {
         var progress = std.Progress{};
-        const root_node = try progress.start("tests", self.cases.items.len);
+        const root_node = try progress.start("compiler", self.cases.items.len);
         defer root_node.end();
 
         var zig_lib_directory = try introspect.findZigLibDir(std.testing.allocator);
@@ -640,8 +641,12 @@ pub const TestContext = struct {
         var fail_count: usize = 0;
 
         for (self.cases.items) |case| {
-            if (build_options.skip_non_native and case.target.getCpuArch() != std.Target.current.cpu.arch)
-                continue;
+            if (build_options.skip_non_native) {
+                if (case.target.getCpuArch() != builtin.cpu.arch)
+                    continue;
+                if (case.target.getObjectFormat() != builtin.object_format)
+                    continue;
+            }
 
             // Skip tests that require LLVM backend when it is not available
             if (!build_options.have_llvm and case.backend == .llvm)
@@ -774,7 +779,7 @@ pub const TestContext = struct {
                     }
                     var ok = true;
                     if (case.expect_exact) {
-                        var err_iter = std.mem.split(result.stderr, "\n");
+                        var err_iter = std.mem.split(u8, result.stderr, "\n");
                         var i: usize = 0;
                         ok = while (err_iter.next()) |line| : (i += 1) {
                             if (i >= case_error_list.len) break false;
@@ -843,11 +848,11 @@ pub const TestContext = struct {
             .path = local_cache_path,
         };
 
-        var root_pkg: Package = .{
+        var main_pkg: Package = .{
             .root_src_directory = .{ .path = tmp_dir_path, .handle = tmp.dir },
             .root_src_path = tmp_src_path,
         };
-        defer root_pkg.table.deinit(allocator);
+        defer main_pkg.table.deinit(allocator);
 
         const bin_name = try std.zig.binNameAlloc(arena, .{
             .root_name = "test_case",
@@ -891,7 +896,7 @@ pub const TestContext = struct {
             .optimize_mode = case.optimize_mode,
             .emit_bin = emit_bin,
             .emit_h = emit_h,
-            .root_pkg = &root_pkg,
+            .main_pkg = &main_pkg,
             .keep_source_files_loaded = true,
             .object_format = case.object_format,
             .is_native_os = case.target.isNativeOs(),

@@ -1,8 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
 // Ported from:
 //
 // https://github.com/llvm/llvm-project/blob/02d85149a05cb1f6dc49f0ba7a2ceca53718ae17/compiler-rt/lib/builtins/fp_add_impl.inc
@@ -230,6 +225,6 @@ fn addXf3(comptime T: type, a: T, b: T) T {
     return @bitCast(T, result);
 }
 
-test "import addXf3" {
+test {
     _ = @import("addXf3_test.zig");
 }

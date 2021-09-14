@@ -36,6 +36,8 @@ const ResultId = codegen.ResultId;
 const trace = @import("../tracy.zig").trace;
 const build_options = @import("build_options");
 const spec = @import("../codegen/spirv/spec.zig");
+const Air = @import("../Air.zig");
+const Liveness = @import("../Liveness.zig");
 
 // TODO: Should this struct be used at all rather than just a hashmap of aux data for every decl?
 pub const FnData = struct {
@@ -49,7 +51,12 @@ base: link.File,
 /// This linker backend does not try to incrementally link output SPIR-V code.
 /// Instead, it tracks all declarations in this table, and iterates over it
 /// in the flush function.
-decl_table: std.AutoArrayHashMapUnmanaged(*Module.Decl, void) = .{},
+decl_table: std.AutoArrayHashMapUnmanaged(*Module.Decl, DeclGenContext) = .{},
+
+const DeclGenContext = struct {
+    air: Air,
+    liveness: Liveness,
+};
 
 pub fn createEmpty(gpa: *Allocator, options: link.Options) !*SpirV {
     const spirv = try gpa.create(SpirV);
@@ -101,7 +108,23 @@ pub fn deinit(self: *SpirV) void {
     self.decl_table.deinit(self.base.allocator);
 }
 
+pub fn updateFunc(self: *SpirV, module: *Module, func: *Module.Fn, air: Air, liveness: Liveness) !void {
+    if (build_options.skip_non_native) {
+        @panic("Attempted to compile for architecture that was disabled by build configuration");
+    }
+    _ = module;
+    // Keep track of all decls so we can iterate over them on flush().
+    _ = try self.decl_table.getOrPut(self.base.allocator, func.owner_decl);
+
+    _ = air;
+    _ = liveness;
+    @panic("TODO SPIR-V needs to keep track of Air and Liveness so it can use them later");
+}
+
 pub fn updateDecl(self: *SpirV, module: *Module, decl: *Module.Decl) !void {
+    if (build_options.skip_non_native) {
+        @panic("Attempted to compile for architecture that was disabled by build configuration");
+    }
     _ = module;
     // Keep track of all decls so we can iterate over them on flush().
     _ = try self.decl_table.getOrPut(self.base.allocator, decl);
@@ -132,6 +155,10 @@ pub fn flush(self: *SpirV, comp: *Compilation) !void {
 }
 
 pub fn flushModule(self: *SpirV, comp: *Compilation) !void {
+    if (build_options.skip_non_native) {
+        @panic("Attempted to compile for architecture that was disabled by build configuration");
+    }
+
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -159,10 +186,15 @@ pub fn flushModule(self: *SpirV, comp: *Compilation) !void {
         var decl_gen = codegen.DeclGen.init(&spv);
         defer decl_gen.deinit();
 
-        for (self.decl_table.keys()) |decl| {
+        var it = self.decl_table.iterator();
+        while (it.next()) |entry| {
+            const decl = entry.key_ptr.*;
             if (!decl.has_tv) continue;
 
-            if (try decl_gen.gen(decl)) |msg| {
+            const air = entry.value_ptr.air;
+            const liveness = entry.value_ptr.liveness;
+
+            if (try decl_gen.gen(decl, air, liveness)) |msg| {
                 try module.failed_decls.put(module.gpa, decl, msg);
                 return; // TODO: Attempt to generate more decls?
             }

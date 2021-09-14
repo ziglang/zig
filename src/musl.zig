@@ -197,7 +197,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                 .zig_lib_directory = comp.zig_lib_directory,
                 .target = comp.getTarget(),
                 .root_name = "c",
-                .root_pkg = null,
+                .main_pkg = null,
                 .output_mode = .Lib,
                 .link_mode = .Dynamic,
                 .thread_pool = comp.thread_pool,

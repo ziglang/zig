@@ -269,6 +269,11 @@ pub const CharacterLiteral = opaque {
     extern fn ZigClangCharacterLiteral_getValue(*const CharacterLiteral) c_uint;
 };
 
+pub const ChooseExpr = opaque {
+    pub const getChosenSubExpr = ZigClangChooseExpr_getChosenSubExpr;
+    extern fn ZigClangChooseExpr_getChosenSubExpr(*const ChooseExpr) *const Expr;
+};
+
 pub const CompoundAssignOperator = opaque {
     pub const getType = ZigClangCompoundAssignOperator_getType;
     extern fn ZigClangCompoundAssignOperator_getType(*const CompoundAssignOperator) QualType;
@@ -611,8 +616,8 @@ pub const IntegerLiteral = opaque {
     pub const getBeginLoc = ZigClangIntegerLiteral_getBeginLoc;
     extern fn ZigClangIntegerLiteral_getBeginLoc(*const IntegerLiteral) SourceLocation;
 
-    pub const isZero = ZigClangIntegerLiteral_isZero;
-    extern fn ZigClangIntegerLiteral_isZero(*const IntegerLiteral, *bool, *const ASTContext) bool;
+    pub const getSignum = ZigClangIntegerLiteral_getSignum;
+    extern fn ZigClangIntegerLiteral_getSignum(*const IntegerLiteral, *c_int, *const ASTContext) bool;
 };
 
 /// This is just used as a namespace for a static method on clang's Lexer class; we don't directly

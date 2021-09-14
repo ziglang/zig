@@ -1,8 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
 const builtin = @import("builtin");
 const compiler_rt = @import("../compiler_rt.zig");
 
@@ -24,6 +19,6 @@ pub fn __popcountdi2(a: i64) callconv(.C) i32 {
     return @bitCast(i32, (x + (x >> 8)) & 0x0000007F); // (7 significant bits)
 }
 
-test "import popcountdi2" {
+test {
     _ = @import("popcountdi2_test.zig");
 }

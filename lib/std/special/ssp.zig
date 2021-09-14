@@ -1,8 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
 //
 // Small Zig reimplementation of gcc's libssp.
 //
@@ -30,9 +25,7 @@ pub fn panic(msg: []const u8, error_return_trace: ?*builtin.StackTrace) noreturn
     _ = msg;
     _ = error_return_trace;
     @setCold(true);
-    if (@hasDecl(std.os, "abort"))
-        std.os.abort();
-    while (true) {}
+    std.os.abort();
 }
 
 export fn __stack_chk_fail() callconv(.C) noreturn {

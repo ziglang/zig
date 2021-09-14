@@ -1,8 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
 const builtin = std.builtin;
 
 const std = @import("std.zig");
@@ -120,7 +115,7 @@ pub const ElfDynLib = struct {
 
     /// Trusts the file. Malicious file will be able to execute arbitrary code.
     pub fn open(path: []const u8) !ElfDynLib {
-        const fd = try os.open(path, 0, os.O_RDONLY | os.O_CLOEXEC);
+        const fd = try os.open(path, 0, os.O.RDONLY | os.O.CLOEXEC);
         defer os.close(fd);
 
         const stat = try os.fstat(fd);
@@ -131,8 +126,8 @@ pub const ElfDynLib = struct {
         const file_bytes = try os.mmap(
             null,
             mem.alignForward(size, mem.page_size),
-            os.PROT_READ,
-            os.MAP_PRIVATE,
+            os.PROT.READ,
+            os.MAP.PRIVATE,
             fd,
             0,
         );
@@ -165,12 +160,12 @@ pub const ElfDynLib = struct {
         }
         const dynv = maybe_dynv orelse return error.MissingDynamicLinkingInformation;
 
-        // Reserve the entire range (with no permissions) so that we can do MAP_FIXED below.
+        // Reserve the entire range (with no permissions) so that we can do MAP.FIXED below.
         const all_loaded_mem = try os.mmap(
             null,
             virt_addr_end,
-            os.PROT_NONE,
-            os.MAP_PRIVATE | os.MAP_ANONYMOUS,
+            os.PROT.NONE,
+            os.MAP.PRIVATE | os.MAP.ANONYMOUS,
             -1,
             0,
         );
@@ -202,7 +197,7 @@ pub const ElfDynLib = struct {
                                 ptr,
                                 extended_memsz,
                                 prot,
-                                os.MAP_PRIVATE | os.MAP_FIXED,
+                                os.MAP.PRIVATE | os.MAP.FIXED,
                                 fd,
                                 ph.p_offset - extra_bytes,
                             );
@@ -211,7 +206,7 @@ pub const ElfDynLib = struct {
                                 ptr,
                                 extended_memsz,
                                 prot,
-                                os.MAP_PRIVATE | os.MAP_FIXED | os.MAP_ANONYMOUS,
+                                os.MAP.PRIVATE | os.MAP.FIXED | os.MAP.ANONYMOUS,
                                 -1,
                                 0,
                             );
@@ -299,10 +294,10 @@ pub const ElfDynLib = struct {
     }
 
     fn elfToMmapProt(elf_prot: u64) u32 {
-        var result: u32 = os.PROT_NONE;
-        if ((elf_prot & elf.PF_R) != 0) result |= os.PROT_READ;
-        if ((elf_prot & elf.PF_W) != 0) result |= os.PROT_WRITE;
-        if ((elf_prot & elf.PF_X) != 0) result |= os.PROT_EXEC;
+        var result: u32 = os.PROT.NONE;
+        if ((elf_prot & elf.PF_R) != 0) result |= os.PROT.READ;
+        if ((elf_prot & elf.PF_W) != 0) result |= os.PROT.WRITE;
+        if ((elf_prot & elf.PF_X) != 0) result |= os.PROT.EXEC;
         return result;
     }
 };
@@ -378,7 +373,7 @@ pub const DlDynlib = struct {
 
     pub fn openZ(path_c: [*:0]const u8) !DlDynlib {
         return DlDynlib{
-            .handle = system.dlopen(path_c, system.RTLD_LAZY) orelse {
+            .handle = system.dlopen(path_c, system.RTLD.LAZY) orelse {
                 return error.FileNotFound;
             },
         };

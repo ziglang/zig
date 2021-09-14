@@ -13,7 +13,7 @@ test "issue 6456" {
     comptime {
         var fields: []const StructField = &[0]StructField{};
 
-        var it = std.mem.tokenize(text, "\n");
+        var it = std.mem.tokenize(u8, text, "\n");
         while (it.next()) |name| {
             fields = fields ++ &[_]StructField{StructField{
                 .alignment = 0,

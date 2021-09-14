@@ -1,8 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
 const std = @import("../std.zig");
 const builtin = std.builtin;
 const build = std.build;
@@ -221,11 +216,19 @@ fn make(step: *Step) !void {
     switch (term) {
         .Exited => |code| {
             if (code != self.expected_exit_code) {
-                warn("The following command exited with error code {} (expected {}):\n", .{
-                    code,
-                    self.expected_exit_code,
-                });
-                printCmd(cwd, argv);
+                if (self.builder.prominent_compile_errors) {
+                    warn("Run step exited with error code {} (expected {})\n", .{
+                        code,
+                        self.expected_exit_code,
+                    });
+                } else {
+                    warn("The following command exited with error code {} (expected {}):\n", .{
+                        code,
+                        self.expected_exit_code,
+                    });
+                    printCmd(cwd, argv);
+                }
+
                 return error.UncleanExit;
             }
         },

@@ -1,9 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
-
 //! Thread-local cryptographically secure pseudo-random number generator.
 //! This file has public declarations that are intended to be used internally
 //! by the standard library; this namespace is not intended to be exposed
@@ -80,8 +74,8 @@ fn tlsCsprngFill(_: *const std.rand.Random, buffer: []u8) void {
             wipe_mem = os.mmap(
                 null,
                 @sizeOf(Context),
-                os.PROT_READ | os.PROT_WRITE,
-                os.MAP_PRIVATE | os.MAP_ANONYMOUS,
+                os.PROT.READ | os.PROT.WRITE,
+                os.MAP.PRIVATE | os.MAP.ANONYMOUS,
                 -1,
                 0,
             ) catch {
@@ -117,7 +111,7 @@ fn tlsCsprngFill(_: *const std.rand.Random, buffer: []u8) void {
                     break :wof;
                 } else |_| {}
 
-                if (os.madvise(wipe_mem.ptr, wipe_mem.len, os.MADV_WIPEONFORK)) |_| {
+                if (os.madvise(wipe_mem.ptr, wipe_mem.len, os.MADV.WIPEONFORK)) |_| {
                     return initAndFill(buffer);
                 } else |_| {}
             }

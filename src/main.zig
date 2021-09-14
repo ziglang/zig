@@ -6,7 +6,7 @@ const mem = std.mem;
 const process = std.process;
 const Allocator = mem.Allocator;
 const ArrayList = std.ArrayList;
-const ast = std.zig.ast;
+const Ast = std.zig.Ast;
 const warn = std.log.warn;
 
 const Compilation = @import("Compilation.zig");
@@ -263,12 +263,12 @@ pub fn mainArgs(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
 }
 
 const usage_build_generic =
-    \\Usage: zig build-exe   <options> [files]
-    \\       zig build-lib   <options> [files]
-    \\       zig build-obj   <options> [files]
-    \\       zig test        <options> [files]
-    \\       zig run         <options> [file] [-- [args]]
-    \\       zig translate-c <options> [file]
+    \\Usage: zig build-exe   [options] [files]
+    \\       zig build-lib   [options] [files]
+    \\       zig build-obj   [options] [files]
+    \\       zig test        [options] [files]
+    \\       zig run         [options] [files] [-- [args]]
+    \\       zig translate-c [options] [file]
     \\
     \\Supported file types:
     \\                    .zig    Zig source code
@@ -287,9 +287,9 @@ const usage_build_generic =
     \\                      .s    Target-specific assembly source code
     \\                      .S    Assembly with C preprocessor (requires LLVM extensions)
     \\                      .c    C source code (requires LLVM extensions)
-    \\                    .cpp    C++ source code (requires LLVM extensions)
-    \\                            Other C++ extensions: .C .cc .cxx
+    \\        .cxx .cc .C .cpp    C++ source code (requires LLVM extensions)
     \\                      .m    Objective-C source code (requires LLVM extensions)
+    \\                     .bc    LLVM IR Module (requires LLVM extensions)
     \\
     \\General Options:
     \\  -h, --help                Print this help and exit
@@ -301,6 +301,8 @@ const usage_build_generic =
     \\  -fno-emit-asm             (default) Do not output .s (assembly code)
     \\  -femit-llvm-ir[=path]     Produce a .ll file with LLVM IR (requires LLVM extensions)
     \\  -fno-emit-llvm-ir         (default) Do not produce a .ll file with LLVM IR
+    \\  -femit-llvm-bc[=path]     Produce a LLVM module as a .bc file (requires LLVM extensions)
+    \\  -fno-emit-llvm-bc         (default) Do not produce a LLVM module as a .bc file
     \\  -femit-h[=path]           Generate a C header file (.h)
     \\  -fno-emit-h               (default) Do not generate a C header file (.h)
     \\  -femit-docs[=path]        Create a docs/ dir with html documentation
@@ -359,14 +361,14 @@ const usage_build_generic =
     \\  --single-threaded         Code assumes it is only used single-threaded
     \\  -ofmt=[mode]              Override target object format
     \\    elf                     Executable and Linking Format
-    \\    c                       Compile to C source code
+    \\    c                       C source code
     \\    wasm                    WebAssembly
-    \\    pe                      Portable Executable (Windows)
     \\    coff                    Common Object File Format (Windows)
     \\    macho                   macOS relocatables
     \\    spirv                   Standard, Portable Intermediate Representation V (SPIR-V)
-    \\    hex    (planned)        Intel IHEX
-    \\    raw    (planned)        Dump machine code directly
+    \\    plan9                   Plan 9 from Bell Labs object format
+    \\    hex  (planned feature)  Intel IHEX
+    \\    raw  (planned feature)  Dump machine code directly
     \\  -dirafter [dir]           Add directory to AFTER include search path
     \\  -isystem  [dir]           Add directory to SYSTEM include search path
     \\  -I[dir]                   Add directory to include search path
@@ -383,8 +385,8 @@ const usage_build_generic =
     \\  --dynamic-linker [path]        Set the dynamic interpreter path (usually ld.so)
     \\  --sysroot [path]               Set the system root directory (usually /)
     \\  --version [ver]                Dynamic library semver
-    \\  -fsoname[=name]                (Linux) Override the default SONAME value
-    \\  -fno-soname                    (Linux) Disable emitting a SONAME
+    \\  -fsoname[=name]                Override the default SONAME value
+    \\  -fno-soname                    Disable emitting a SONAME
     \\  -fLLD                          Force using LLD as the linker
     \\  -fno-LLD                       Prevent using LLD as the linker
     \\  -fcompiler-rt                  Always include compiler-rt symbols in output
@@ -551,6 +553,7 @@ fn buildOutputType(
     var emit_bin: EmitBin = .yes_default_path;
     var emit_asm: Emit = .no;
     var emit_llvm_ir: Emit = .no;
+    var emit_llvm_bc: Emit = .no;
     var emit_docs: Emit = .no;
     var emit_analysis: Emit = .no;
     var target_arch_os_abi: []const u8 = "native";
@@ -586,6 +589,10 @@ fn buildOutputType(
     var linker_bind_global_refs_locally: ?bool = null;
     var linker_z_nodelete = false;
     var linker_z_defs = false;
+    var linker_z_origin = false;
+    var linker_z_noexecstack = false;
+    var linker_z_now = false;
+    var linker_z_relro = false;
     var linker_tsaware = false;
     var linker_nxcompat = false;
     var linker_dynamicbase = false;
@@ -827,7 +834,10 @@ fn buildOutputType(
                     } else if (mem.eql(u8, arg, "-D") or
                         mem.eql(u8, arg, "-isystem") or
                         mem.eql(u8, arg, "-I") or
-                        mem.eql(u8, arg, "-dirafter"))
+                        mem.eql(u8, arg, "-dirafter") or
+                        mem.eql(u8, arg, "-iwithsysroot") or
+                        mem.eql(u8, arg, "-iframework") or
+                        mem.eql(u8, arg, "-iframeworkwithsysroot"))
                     {
                         if (i + 1 >= args.len) fatal("expected parameter after {s}", .{arg});
                         i += 1;
@@ -870,6 +880,8 @@ fn buildOutputType(
                         if (i + 1 >= args.len) fatal("expected parameter after {s}", .{arg});
                         i += 1;
                         sysroot = args[i];
+                        try clang_argv.append("-isysroot");
+                        try clang_argv.append(args[i]);
                     } else if (mem.eql(u8, arg, "--libc")) {
                         if (i + 1 >= args.len) fatal("expected parameter after {s}", .{arg});
                         i += 1;
@@ -1010,6 +1022,12 @@ fn buildOutputType(
                         emit_llvm_ir = .{ .yes = arg["-femit-llvm-ir=".len..] };
                     } else if (mem.eql(u8, arg, "-fno-emit-llvm-ir")) {
                         emit_llvm_ir = .no;
+                    } else if (mem.eql(u8, arg, "-femit-llvm-bc")) {
+                        emit_llvm_bc = .yes_default_path;
+                    } else if (mem.startsWith(u8, arg, "-femit-llvm-bc=")) {
+                        emit_llvm_bc = .{ .yes = arg["-femit-llvm-bc=".len..] };
+                    } else if (mem.eql(u8, arg, "-fno-emit-llvm-bc")) {
+                        emit_llvm_bc = .no;
                     } else if (mem.eql(u8, arg, "-femit-docs")) {
                         emit_docs = .yes_default_path;
                     } else if (mem.startsWith(u8, arg, "-femit-docs=")) {
@@ -1191,7 +1209,7 @@ fn buildOutputType(
                     },
                     .rdynamic => rdynamic = true,
                     .wl => {
-                        var split_it = mem.split(it.only_arg, ",");
+                        var split_it = mem.split(u8, it.only_arg, ",");
                         while (split_it.next()) |linker_arg| {
                             // Handle nested-joined args like `-Wl,-rpath=foo`.
                             // Must be prefixed with 1 or 2 dashes.
@@ -1379,6 +1397,14 @@ fn buildOutputType(
                         linker_z_nodelete = true;
                     } else if (mem.eql(u8, z_arg, "defs")) {
                         linker_z_defs = true;
+                    } else if (mem.eql(u8, z_arg, "origin")) {
+                        linker_z_origin = true;
+                    } else if (mem.eql(u8, z_arg, "noexecstack")) {
+                        linker_z_noexecstack = true;
+                    } else if (mem.eql(u8, z_arg, "now")) {
+                        linker_z_now = true;
+                    } else if (mem.eql(u8, z_arg, "relro")) {
+                        linker_z_relro = true;
                     } else {
                         warn("unsupported linker arg: -z {s}", .{z_arg});
                     }
@@ -1567,39 +1593,11 @@ fn buildOutputType(
         }
     };
 
-    var diags: std.zig.CrossTarget.ParseOptions.Diagnostics = .{};
-    const cross_target = std.zig.CrossTarget.parse(.{
+    const cross_target = try parseCrossTargetOrReportFatalError(arena, .{
         .arch_os_abi = target_arch_os_abi,
         .cpu_features = target_mcpu,
         .dynamic_linker = target_dynamic_linker,
-        .diagnostics = &diags,
-    }) catch |err| switch (err) {
-        error.UnknownCpuModel => {
-            help: {
-                var help_text = std.ArrayList(u8).init(arena);
-                for (diags.arch.?.allCpuModels()) |cpu| {
-                    help_text.writer().print(" {s}\n", .{cpu.name}) catch break :help;
-                }
-                std.log.info("Available CPUs for architecture '{s}':\n{s}", .{
-                    @tagName(diags.arch.?), help_text.items,
-                });
-            }
-            fatal("Unknown CPU: '{s}'", .{diags.cpu_name.?});
-        },
-        error.UnknownCpuFeature => {
-            help: {
-                var help_text = std.ArrayList(u8).init(arena);
-                for (diags.arch.?.allFeaturesList()) |feature| {
-                    help_text.writer().print(" {s}: {s}\n", .{ feature.name, feature.description }) catch break :help;
-                }
-                std.log.info("Available CPU features for architecture '{s}':\n{s}", .{
-                    @tagName(diags.arch.?), help_text.items,
-                });
-            }
-            fatal("Unknown CPU feature: '{s}'", .{diags.unknown_feature_name});
-        },
-        else => |e| return e,
-    };
+    });
 
     const target_info = try detectNativeTargetInfo(gpa, cross_target);
 
@@ -1646,13 +1644,27 @@ fn buildOutputType(
         }
     }
 
+    if (use_lld) |opt| {
+        if (opt and cross_target.isDarwin()) {
+            fatal("LLD requested with Mach-O object format. Only the self-hosted linker is supported for this target.", .{});
+        }
+    }
+
+    if (want_lto) |opt| {
+        if (opt and cross_target.isDarwin()) {
+            fatal("LTO is not yet supported with the Mach-O object format. More details: https://github.com/ziglang/zig/issues/8680", .{});
+        }
+    }
+
     if (comptime std.Target.current.isDarwin()) {
         // If we want to link against frameworks, we need system headers.
         if (framework_dirs.items.len > 0 or frameworks.items.len > 0)
             want_native_include_dirs = true;
     }
 
-    if (sysroot == null and cross_target.isNativeOs() and
+    const is_darwin_on_darwin = (comptime std.Target.current.isDarwin()) and cross_target.isDarwin();
+
+    if (sysroot == null and (cross_target.isNativeOs() or is_darwin_on_darwin) and
         (system_libs.items.len != 0 or want_native_include_dirs))
     {
         const paths = std.zig.system.NativePaths.detect(arena, target_info) catch |err| {
@@ -1663,16 +1675,18 @@ fn buildOutputType(
         }
 
         const has_sysroot = if (comptime std.Target.current.isDarwin()) outer: {
-            const min = target_info.target.os.getVersionRange().semver.min;
-            const at_least_catalina = min.major >= 11 or (min.major >= 10 and min.minor >= 15);
-            if (at_least_catalina) {
-                const sdk_path = try std.zig.system.getSDKPath(arena);
+            const should_get_sdk_path = if (cross_target.isNativeOs() and target_info.target.os.tag == .macos) inner: {
+                const min = target_info.target.os.getVersionRange().semver.min;
+                const at_least_mojave = min.major >= 11 or (min.major >= 10 and min.minor >= 14);
+                break :inner at_least_mojave;
+            } else true;
+            if (!should_get_sdk_path) break :outer false;
+            if (try std.zig.system.darwin.getSDKPath(arena, target_info.target)) |sdk_path| {
                 try clang_argv.ensureCapacity(clang_argv.items.len + 2);
                 clang_argv.appendAssumeCapacity("-isysroot");
                 clang_argv.appendAssumeCapacity(sdk_path);
                 break :outer true;
-            }
-            break :outer false;
+            } else break :outer false;
         } else false;
 
         try clang_argv.ensureCapacity(clang_argv.items.len + paths.include_dirs.items.len * 2);
@@ -1707,8 +1721,6 @@ fn buildOutputType(
             break :blk .c;
         } else if (mem.eql(u8, ofmt, "coff")) {
             break :blk .coff;
-        } else if (mem.eql(u8, ofmt, "pe")) {
-            break :blk .pe;
         } else if (mem.eql(u8, ofmt, "macho")) {
             break :blk .macho;
         } else if (mem.eql(u8, ofmt, "wasm")) {
@@ -1752,7 +1764,7 @@ fn buildOutputType(
     };
 
     const a_out_basename = switch (object_format) {
-        .pe, .coff => "a.exe",
+        .coff => "a.exe",
         else => "a.out",
     };
 
@@ -1817,10 +1829,10 @@ fn buildOutputType(
     var emit_h_resolved = emit_h.resolve(default_h_basename) catch |err| {
         switch (emit_h) {
             .yes => {
-                fatal("unable to open directory from argument 'femit-h', '{s}': {s}", .{ emit_h.yes, @errorName(err) });
+                fatal("unable to open directory from argument '-femit-h', '{s}': {s}", .{ emit_h.yes, @errorName(err) });
             },
             .yes_default_path => {
-                fatal("unable to open directory from arguments 'name' or 'soname', '{s}': {s}", .{ default_h_basename, @errorName(err) });
+                fatal("unable to open directory from arguments '--name' or '-fsoname', '{s}': {s}", .{ default_h_basename, @errorName(err) });
             },
             .no => unreachable,
         }
@@ -1831,10 +1843,10 @@ fn buildOutputType(
     var emit_asm_resolved = emit_asm.resolve(default_asm_basename) catch |err| {
         switch (emit_asm) {
             .yes => {
-                fatal("unable to open directory from argument 'femit-asm', '{s}': {s}", .{ emit_asm.yes, @errorName(err) });
+                fatal("unable to open directory from argument '-femit-asm', '{s}': {s}", .{ emit_asm.yes, @errorName(err) });
             },
             .yes_default_path => {
-                fatal("unable to open directory from arguments 'name' or 'soname', '{s}': {s}", .{ default_asm_basename, @errorName(err) });
+                fatal("unable to open directory from arguments '--name' or '-fsoname', '{s}': {s}", .{ default_asm_basename, @errorName(err) });
             },
             .no => unreachable,
         }
@@ -1845,15 +1857,29 @@ fn buildOutputType(
     var emit_llvm_ir_resolved = emit_llvm_ir.resolve(default_llvm_ir_basename) catch |err| {
         switch (emit_llvm_ir) {
             .yes => {
-                fatal("unable to open directory from argument 'femit-llvm-ir', '{s}': {s}", .{ emit_llvm_ir.yes, @errorName(err) });
+                fatal("unable to open directory from argument '-femit-llvm-ir', '{s}': {s}", .{ emit_llvm_ir.yes, @errorName(err) });
             },
             .yes_default_path => {
-                fatal("unable to open directory from arguments 'name' or 'soname', '{s}': {s}", .{ default_llvm_ir_basename, @errorName(err) });
+                fatal("unable to open directory from arguments '--name' or '-fsoname', '{s}': {s}", .{ default_llvm_ir_basename, @errorName(err) });
             },
             .no => unreachable,
         }
     };
     defer emit_llvm_ir_resolved.deinit();
+
+    const default_llvm_bc_basename = try std.fmt.allocPrint(arena, "{s}.bc", .{root_name});
+    var emit_llvm_bc_resolved = emit_llvm_bc.resolve(default_llvm_bc_basename) catch |err| {
+        switch (emit_llvm_bc) {
+            .yes => {
+                fatal("unable to open directory from argument '-femit-llvm-bc', '{s}': {s}", .{ emit_llvm_bc.yes, @errorName(err) });
+            },
+            .yes_default_path => {
+                fatal("unable to open directory from arguments '--name' or '-fsoname', '{s}': {s}", .{ default_llvm_bc_basename, @errorName(err) });
+            },
+            .no => unreachable,
+        }
+    };
+    defer emit_llvm_bc_resolved.deinit();
 
     const default_analysis_basename = try std.fmt.allocPrint(arena, "{s}-analysis.json", .{root_name});
     var emit_analysis_resolved = emit_analysis.resolve(default_analysis_basename) catch |err| {
@@ -1882,7 +1908,7 @@ fn buildOutputType(
     };
     defer emit_docs_resolved.deinit();
 
-    const root_pkg: ?*Package = if (root_src_file) |src_path| blk: {
+    const main_pkg: ?*Package = if (root_src_file) |src_path| blk: {
         if (main_pkg_path) |p| {
             const rel_src_path = try fs.path.relative(gpa, p, src_path);
             defer gpa.free(rel_src_path);
@@ -1891,10 +1917,10 @@ fn buildOutputType(
             break :blk try Package.create(gpa, fs.path.dirname(src_path), fs.path.basename(src_path));
         }
     } else null;
-    defer if (root_pkg) |p| p.destroy(gpa);
+    defer if (main_pkg) |p| p.destroy(gpa);
 
     // Transfer packages added with --pkg-begin/--pkg-end to the root package
-    if (root_pkg) |pkg| {
+    if (main_pkg) |pkg| {
         pkg.table = pkg_tree_root.table;
         pkg_tree_root.table = .{};
     }
@@ -1918,7 +1944,7 @@ fn buildOutputType(
     defer if (libc_installation) |*l| l.deinit(gpa);
 
     if (libc_paths_file) |paths_file| {
-        libc_installation = LibCInstallation.parse(gpa, paths_file) catch |err| {
+        libc_installation = LibCInstallation.parse(gpa, paths_file, cross_target) catch |err| {
             fatal("unable to parse libc paths file at path {s}: {s}", .{ paths_file, @errorName(err) });
         };
     }
@@ -1947,7 +1973,7 @@ fn buildOutputType(
         if (arg_mode == .run) {
             break :l global_cache_directory;
         }
-        if (root_pkg) |pkg| {
+        if (main_pkg) |pkg| {
             const cache_dir_path = try pkg.root_src_directory.join(arena, &[_][]const u8{"zig-cache"});
             const dir = try pkg.root_src_directory.handle.makeOpenPath("zig-cache", .{});
             cleanup_local_cache_dir = dir;
@@ -1985,11 +2011,12 @@ fn buildOutputType(
         .dynamic_linker = target_info.dynamic_linker.get(),
         .sysroot = sysroot,
         .output_mode = output_mode,
-        .root_pkg = root_pkg,
+        .main_pkg = main_pkg,
         .emit_bin = emit_bin_loc,
         .emit_h = emit_h_resolved.data,
         .emit_asm = emit_asm_resolved.data,
         .emit_llvm_ir = emit_llvm_ir_resolved.data,
+        .emit_llvm_bc = emit_llvm_bc_resolved.data,
         .emit_docs = emit_docs_resolved.data,
         .emit_analysis = emit_analysis_resolved.data,
         .link_mode = link_mode,
@@ -2034,6 +2061,10 @@ fn buildOutputType(
         .linker_bind_global_refs_locally = linker_bind_global_refs_locally,
         .linker_z_nodelete = linker_z_nodelete,
         .linker_z_defs = linker_z_defs,
+        .linker_z_origin = linker_z_origin,
+        .linker_z_noexecstack = linker_z_noexecstack,
+        .linker_z_now = linker_z_now,
+        .linker_z_relro = linker_z_relro,
         .linker_tsaware = linker_tsaware,
         .linker_nxcompat = linker_nxcompat,
         .linker_dynamicbase = linker_dynamicbase,
@@ -2230,6 +2261,43 @@ fn buildOutputType(
     return cleanExit();
 }
 
+fn parseCrossTargetOrReportFatalError(allocator: *Allocator, opts: std.zig.CrossTarget.ParseOptions) !std.zig.CrossTarget {
+    var opts_with_diags = opts;
+    var diags: std.zig.CrossTarget.ParseOptions.Diagnostics = .{};
+    if (opts_with_diags.diagnostics == null) {
+        opts_with_diags.diagnostics = &diags;
+    }
+    return std.zig.CrossTarget.parse(opts_with_diags) catch |err| switch (err) {
+        error.UnknownCpuModel => {
+            help: {
+                var help_text = std.ArrayList(u8).init(allocator);
+                defer help_text.deinit();
+                for (diags.arch.?.allCpuModels()) |cpu| {
+                    help_text.writer().print(" {s}\n", .{cpu.name}) catch break :help;
+                }
+                std.log.info("Available CPUs for architecture '{s}':\n{s}", .{
+                    @tagName(diags.arch.?), help_text.items,
+                });
+            }
+            fatal("Unknown CPU: '{s}'", .{diags.cpu_name.?});
+        },
+        error.UnknownCpuFeature => {
+            help: {
+                var help_text = std.ArrayList(u8).init(allocator);
+                defer help_text.deinit();
+                for (diags.arch.?.allFeaturesList()) |feature| {
+                    help_text.writer().print(" {s}: {s}\n", .{ feature.name, feature.description }) catch break :help;
+                }
+                std.log.info("Available CPU features for architecture '{s}':\n{s}", .{
+                    @tagName(diags.arch.?), help_text.items,
+                });
+            }
+            fatal("Unknown CPU feature: '{s}'", .{diags.unknown_feature_name});
+        },
+        else => |e| return e,
+    };
+}
+
 fn runOrTest(
     comp: *Compilation,
     gpa: *Allocator,
@@ -2395,11 +2463,8 @@ fn updateModule(gpa: *Allocator, comp: *Compilation, hook: AfterUpdateHook) !voi
 
             // If a .pdb file is part of the expected output, we must also copy
             // it into place here.
-            const coff_or_pe = switch (comp.bin_file.options.object_format) {
-                .coff, .pe => true,
-                else => false,
-            };
-            const have_pdb = coff_or_pe and !comp.bin_file.options.strip;
+            const is_coff = comp.bin_file.options.object_format == .coff;
+            const have_pdb = is_coff and !comp.bin_file.options.strip;
             if (have_pdb) {
                 // Replace `.out` or `.exe` with `.pdb` on both the source and destination
                 const src_bin_ext = fs.path.extension(bin_sub_path);
@@ -2452,6 +2517,7 @@ fn cmdTranslateC(comp: *Compilation, arena: *Allocator, enable_cache: bool) !voi
 
     const digest = if (try man.hit()) man.final() else digest: {
         var argv = std.ArrayList([]const u8).init(arena);
+        try argv.append(""); // argv[0] is program name, actual args start at [1]
 
         var zig_cache_tmp_dir = try comp.local_cache_directory.handle.makeOpenPath("tmp", .{});
         defer zig_cache_tmp_dir.close();
@@ -2573,10 +2639,15 @@ pub const usage_libc =
     \\
     \\    Parse a libc installation text file and validate it.
     \\
+    \\Options:
+    \\    -h, --help             Print this help and exit
+    \\    -target [name]         <arch><sub>-<os>-<abi> see the targets command
+    \\
 ;
 
 pub fn cmdLibC(gpa: *Allocator, args: []const []const u8) !void {
     var input_file: ?[]const u8 = null;
+    var target_arch_os_abi: []const u8 = "native";
     {
         var i: usize = 0;
         while (i < args.len) : (i += 1) {
@@ -2586,6 +2657,10 @@ pub fn cmdLibC(gpa: *Allocator, args: []const []const u8) !void {
                     const stdout = io.getStdOut().writer();
                     try stdout.writeAll(usage_libc);
                     return cleanExit();
+                } else if (mem.eql(u8, arg, "-target")) {
+                    if (i + 1 >= args.len) fatal("expected parameter after {s}", .{arg});
+                    i += 1;
+                    target_arch_os_abi = args[i];
                 } else {
                     fatal("unrecognized parameter: '{s}'", .{arg});
                 }
@@ -2596,12 +2671,21 @@ pub fn cmdLibC(gpa: *Allocator, args: []const []const u8) !void {
             }
         }
     }
+
+    const cross_target = try parseCrossTargetOrReportFatalError(gpa, .{
+        .arch_os_abi = target_arch_os_abi,
+    });
+
     if (input_file) |libc_file| {
-        var libc = LibCInstallation.parse(gpa, libc_file) catch |err| {
+        var libc = LibCInstallation.parse(gpa, libc_file, cross_target) catch |err| {
             fatal("unable to parse libc file at path {s}: {s}", .{ libc_file, @errorName(err) });
         };
         defer libc.deinit(gpa);
     } else {
+        if (!cross_target.isNative()) {
+            fatal("unable to detect libc for non-native target", .{});
+        }
+
         var libc = LibCInstallation.findNative(.{
             .allocator = gpa,
             .verbose = true,
@@ -2722,6 +2806,8 @@ pub const usage_build =
 ;
 
 pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !void {
+    var prominent_compile_errors: bool = false;
+
     // We want to release all the locks before executing the child process, so we make a nice
     // big block here to ensure the cleanup gets run when we extract out our argv.
     const child_argv = argv: {
@@ -2773,6 +2859,8 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
                         i += 1;
                         override_global_cache_dir = args[i];
                         continue;
+                    } else if (mem.eql(u8, arg, "--prominent-compile-errors")) {
+                        prominent_compile_errors = true;
                     }
                 }
                 try child_argv.append(arg);
@@ -2792,7 +2880,7 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
         const std_special = "std" ++ fs.path.sep_str ++ "special";
         const special_dir_path = try zig_lib_directory.join(arena, &[_][]const u8{std_special});
 
-        var root_pkg: Package = .{
+        var main_pkg: Package = .{
             .root_src_directory = .{
                 .path = special_dir_path,
                 .handle = zig_lib_directory.handle.openDir(std_special, .{}) catch |err| {
@@ -2801,7 +2889,7 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
             },
             .root_src_path = "build_runner.zig",
         };
-        defer root_pkg.root_src_directory.handle.close();
+        defer main_pkg.root_src_directory.handle.close();
 
         var cleanup_build_dir: ?fs.Dir = null;
         defer if (cleanup_build_dir) |*dir| dir.close();
@@ -2850,7 +2938,7 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
             .root_src_directory = build_directory,
             .root_src_path = build_zig_basename,
         };
-        try root_pkg.addAndAdopt(arena, "@build", &build_pkg);
+        try main_pkg.addAndAdopt(arena, "@build", &build_pkg);
 
         var global_cache_directory: Compilation.Directory = l: {
             const p = override_global_cache_dir orelse try introspect.resolveGlobalCacheDir(arena);
@@ -2907,7 +2995,7 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
             .is_native_abi = cross_target.isNativeAbi(),
             .dynamic_linker = target_info.dynamic_linker.get(),
             .output_mode = .Exe,
-            .root_pkg = &root_pkg,
+            .main_pkg = &main_pkg,
             .emit_bin = emit_bin,
             .emit_h = null,
             .optimize_mode = .Debug,
@@ -2942,8 +3030,13 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
     switch (term) {
         .Exited => |code| {
             if (code == 0) return cleanExit();
-            const cmd = try argvCmd(arena, child_argv);
-            fatal("the following build command failed with exit code {d}:\n{s}", .{ code, cmd });
+
+            if (prominent_compile_errors) {
+                fatal("the build command failed with exit code {d}", .{code});
+            } else {
+                const cmd = try argvCmd(arena, child_argv);
+                fatal("the following build command failed with exit code {d}:\n{s}", .{ code, cmd });
+            }
         },
         else => {
             const cmd = try argvCmd(arena, child_argv);
@@ -3373,8 +3466,8 @@ fn fmtPathFile(
 fn printErrMsgToStdErr(
     gpa: *mem.Allocator,
     arena: *mem.Allocator,
-    parse_error: ast.Error,
-    tree: ast.Tree,
+    parse_error: Ast.Error,
+    tree: Ast,
     path: []const u8,
     color: Color,
 ) !void {
@@ -3615,7 +3708,7 @@ pub const ClangArgIterator = struct {
             defer allocator.free(resp_contents);
             // TODO is there a specification for this file format? Let's find it and make this parsing more robust
             // at the very least I'm guessing this needs to handle quotes and `#` comments.
-            var it = mem.tokenize(resp_contents, " \t\r\n");
+            var it = mem.tokenize(u8, resp_contents, " \t\r\n");
             var resp_arg_list = std.ArrayList([]const u8).init(allocator);
             defer resp_arg_list.deinit();
             {
@@ -3778,7 +3871,7 @@ fn parseCodeModel(arg: []const u8) std.builtin.CodeModel {
 /// garbage collector to run concurrently to zig processes, and to allow multiple
 /// zig processes to run concurrently with each other, without clobbering each other.
 fn gimmeMoreOfThoseSweetSweetFileDescriptors() void {
-    if (!@hasDecl(std.os, "rlimit")) return;
+    if (!@hasDecl(std.os.system, "rlimit")) return;
     const posix = std.os;
 
     var lim = posix.getrlimit(.NOFILE) catch return; // Oh well; we tried.
@@ -3786,7 +3879,7 @@ fn gimmeMoreOfThoseSweetSweetFileDescriptors() void {
         // On Darwin, `NOFILE` is bounded by a hardcoded value `OPEN_MAX`.
         // According to the man pages for setrlimit():
         //   setrlimit() now returns with errno set to EINVAL in places that historically succeeded.
-        //   It no longer accepts "rlim_cur = RLIM_INFINITY" for RLIM_NOFILE.
+        //   It no longer accepts "rlim_cur = RLIM.INFINITY" for RLIM.NOFILE.
         //   Use "rlim_cur = min(OPEN_MAX, rlim_max)".
         lim.max = std.math.min(std.os.darwin.OPEN_MAX, lim.max);
     }
@@ -3796,7 +3889,7 @@ fn gimmeMoreOfThoseSweetSweetFileDescriptors() void {
     var min: posix.rlim_t = lim.cur;
     var max: posix.rlim_t = 1 << 20;
     // But if there's a defined upper bound, don't search, just set it.
-    if (lim.max != posix.RLIM_INFINITY) {
+    if (lim.max != posix.RLIM.INFINITY) {
         min = lim.max;
         max = lim.max;
     }
@@ -3846,6 +3939,8 @@ const usage_ast_check =
     \\  -h, --help            Print this help and exit
     \\  --color [auto|off|on] Enable or disable colored error messages
     \\  -t                    (debug option) Output ZIR in text form to stdout
+    \\
+    \\
 ;
 
 pub fn cmdAstCheck(
@@ -3977,12 +4072,12 @@ pub fn cmdAstCheck(
     }
 
     {
-        const token_bytes = @sizeOf(std.zig.ast.TokenList) +
-            file.tree.tokens.len * (@sizeOf(std.zig.Token.Tag) + @sizeOf(std.zig.ast.ByteOffset));
-        const tree_bytes = @sizeOf(std.zig.ast.Tree) + file.tree.nodes.len *
-            (@sizeOf(std.zig.ast.Node.Tag) +
-            @sizeOf(std.zig.ast.Node.Data) +
-            @sizeOf(std.zig.ast.TokenIndex));
+        const token_bytes = @sizeOf(Ast.TokenList) +
+            file.tree.tokens.len * (@sizeOf(std.zig.Token.Tag) + @sizeOf(Ast.ByteOffset));
+        const tree_bytes = @sizeOf(Ast) + file.tree.nodes.len *
+            (@sizeOf(Ast.Node.Tag) +
+            @sizeOf(Ast.Node.Data) +
+            @sizeOf(Ast.TokenIndex));
         const instruction_bytes = file.zir.instructions.len *
             // Here we don't use @sizeOf(Zir.Inst.Data) because it would include
             // the debug safety tag but we want to measure release size.

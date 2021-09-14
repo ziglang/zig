@@ -1,8 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
 const udivmod = @import("udivmod.zig").udivmod;
 const builtin = @import("builtin");
 const compiler_rt = @import("../compiler_rt.zig");
@@ -18,6 +13,6 @@ pub fn __udivmodti4_windows_x86_64(a: v128, b: v128, maybe_rem: ?*u128) callconv
     return @bitCast(v128, udivmod(u128, @bitCast(u128, a), @bitCast(u128, b), maybe_rem));
 }
 
-test "import udivmodti4" {
+test {
     _ = @import("udivmodti4_test.zig");
 }

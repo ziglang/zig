@@ -1,16 +1,31 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
-usingnamespace @import("bits.zig");
-const std = @import("std");
-const builtin = std.builtin;
+const std = @import("../../std.zig");
 const assert = std.debug.assert;
-const windows = @import("../windows.zig");
-const unexpectedError = windows.unexpectedError;
+
+const windows = std.os.windows;
 const GetLastError = windows.kernel32.GetLastError;
 const SetLastError = windows.kernel32.SetLastError;
+const unexpectedError = windows.unexpectedError;
+const HWND = windows.HWND;
+const UINT = windows.UINT;
+const HDC = windows.HDC;
+const LONG = windows.LONG;
+const LONG_PTR = windows.LONG_PTR;
+const WINAPI = windows.WINAPI;
+const RECT = windows.RECT;
+const DWORD = windows.DWORD;
+const BOOL = windows.BOOL;
+const TRUE = windows.TRUE;
+const HMENU = windows.HMENU;
+const HINSTANCE = windows.HINSTANCE;
+const LPVOID = windows.LPVOID;
+const ATOM = windows.ATOM;
+const WPARAM = windows.WPARAM;
+const LRESULT = windows.LRESULT;
+const HICON = windows.HICON;
+const LPARAM = windows.LPARAM;
+const POINT = windows.POINT;
+const HCURSOR = windows.HCURSOR;
+const HBRUSH = windows.HBRUSH;
 
 fn selectSymbol(comptime function_static: anytype, function_dynamic: @TypeOf(function_static), comptime os: std.Target.Os.WindowsVersion) @TypeOf(function_static) {
     comptime {
@@ -1323,7 +1338,7 @@ pub fn showWindow(hWnd: HWND, nCmdShow: i32) bool {
 
 pub extern "user32" fn UpdateWindow(hWnd: HWND) callconv(WINAPI) BOOL;
 pub fn updateWindow(hWnd: HWND) !void {
-    if (ShowWindow(hWnd, nCmdShow) == 0) {
+    if (UpdateWindow(hWnd) == 0) {
         switch (GetLastError()) {
             .INVALID_WINDOW_HANDLE => unreachable,
             .INVALID_PARAMETER => unreachable,

@@ -1,8 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
 const std = @import("../std.zig");
 const builtin = std.builtin;
 const os = std.os;
@@ -17,20 +12,23 @@ const is_windows = std.Target.current.os.tag == .windows;
 
 pub const File = struct {
     /// The OS-specific file descriptor or file handle.
-    handle: os.fd_t,
+    handle: Handle,
 
-    /// On some systems, such as Linux, file system file descriptors are incapable of non-blocking I/O.
-    /// This forces us to perform asynchronous I/O on a dedicated thread, to achieve non-blocking
-    /// file-system I/O. To do this, `File` must be aware of whether it is a file system file descriptor,
-    /// or, more specifically, whether the I/O is always blocking.
+    /// On some systems, such as Linux, file system file descriptors are incapable
+    /// of non-blocking I/O. This forces us to perform asynchronous I/O on a dedicated thread,
+    /// to achieve non-blocking file-system I/O. To do this, `File` must be aware of whether
+    /// it is a file system file descriptor, or, more specifically, whether the I/O is always
+    /// blocking.
     capable_io_mode: io.ModeOverride = io.default_mode,
 
-    /// Furthermore, even when `std.io.mode` is async, it is still sometimes desirable to perform blocking I/O,
-    /// although not by default. For example, when printing a stack trace to stderr.
-    /// This field tracks both by acting as an overriding I/O mode. When not building in async I/O mode,
-    /// the type only has the `.blocking` tag, making it a zero-bit type.
+    /// Furthermore, even when `std.io.mode` is async, it is still sometimes desirable
+    /// to perform blocking I/O, although not by default. For example, when printing a
+    /// stack trace to stderr. This field tracks both by acting as an overriding I/O mode.
+    /// When not building in async I/O mode, the type only has the `.blocking` tag, making
+    /// it a zero-bit type.
     intended_io_mode: io.ModeOverride = io.default_mode,
 
+    pub const Handle = os.fd_t;
     pub const Mode = os.mode_t;
     pub const INode = os.ino_t;
 
@@ -108,7 +106,7 @@ pub const File = struct {
         /// and `false` means `error.WouldBlock` is handled by the event loop.
         lock_nonblocking: bool = false,
 
-        /// Setting this to `.blocking` prevents `O_NONBLOCK` from being passed even
+        /// Setting this to `.blocking` prevents `O.NONBLOCK` from being passed even
         /// if `std.io.is_async`. It allows the use of `nosuspend` when calling functions
         /// related to opening the file, reading, writing, and locking.
         intended_io_mode: io.ModeOverride = io.default_mode,
@@ -169,7 +167,7 @@ pub const File = struct {
         /// be created with.
         mode: Mode = default_mode,
 
-        /// Setting this to `.blocking` prevents `O_NONBLOCK` from being passed even
+        /// Setting this to `.blocking` prevents `O.NONBLOCK` from being passed even
         /// if `std.io.is_async`. It allows the use of `nosuspend` when calling functions
         /// related to opening the file, reading, writing, and locking.
         intended_io_mode: io.ModeOverride = io.default_mode,
@@ -326,26 +324,23 @@ pub const File = struct {
             .inode = st.ino,
             .size = @bitCast(u64, st.size),
             .mode = st.mode,
-            .kind = switch (builtin.os.tag) {
-                .wasi => switch (st.filetype) {
-                    os.FILETYPE_BLOCK_DEVICE => Kind.BlockDevice,
-                    os.FILETYPE_CHARACTER_DEVICE => Kind.CharacterDevice,
-                    os.FILETYPE_DIRECTORY => Kind.Directory,
-                    os.FILETYPE_SYMBOLIC_LINK => Kind.SymLink,
-                    os.FILETYPE_REGULAR_FILE => Kind.File,
-                    os.FILETYPE_SOCKET_STREAM, os.FILETYPE_SOCKET_DGRAM => Kind.UnixDomainSocket,
-                    else => Kind.Unknown,
-                },
-                else => switch (st.mode & os.S_IFMT) {
-                    os.S_IFBLK => Kind.BlockDevice,
-                    os.S_IFCHR => Kind.CharacterDevice,
-                    os.S_IFDIR => Kind.Directory,
-                    os.S_IFIFO => Kind.NamedPipe,
-                    os.S_IFLNK => Kind.SymLink,
-                    os.S_IFREG => Kind.File,
-                    os.S_IFSOCK => Kind.UnixDomainSocket,
-                    else => Kind.Unknown,
-                },
+            .kind = if (builtin.os.tag == .wasi and !builtin.link_libc) switch (st.filetype) {
+                .BLOCK_DEVICE => Kind.BlockDevice,
+                .CHARACTER_DEVICE => Kind.CharacterDevice,
+                .DIRECTORY => Kind.Directory,
+                .SYMBOLIC_LINK => Kind.SymLink,
+                .REGULAR_FILE => Kind.File,
+                .SOCKET_STREAM, .SOCKET_DGRAM => Kind.UnixDomainSocket,
+                else => Kind.Unknown,
+            } else switch (st.mode & os.S.IFMT) {
+                os.S.IFBLK => Kind.BlockDevice,
+                os.S.IFCHR => Kind.CharacterDevice,
+                os.S.IFDIR => Kind.Directory,
+                os.S.IFIFO => Kind.NamedPipe,
+                os.S.IFLNK => Kind.SymLink,
+                os.S.IFREG => Kind.File,
+                os.S.IFSOCK => Kind.UnixDomainSocket,
+                else => Kind.Unknown,
             },
             .atime = @as(i128, atime.tv_sec) * std.time.ns_per_s + atime.tv_nsec,
             .mtime = @as(i128, mtime.tv_sec) * std.time.ns_per_s + mtime.tv_nsec,
@@ -891,9 +886,9 @@ pub const File = struct {
             };
         } else {
             return os.flock(file.handle, switch (l) {
-                .None => os.LOCK_UN,
-                .Shared => os.LOCK_SH,
-                .Exclusive => os.LOCK_EX,
+                .None => os.LOCK.UN,
+                .Shared => os.LOCK.SH,
+                .Exclusive => os.LOCK.EX,
             }) catch |err| switch (err) {
                 error.WouldBlock => unreachable, // non-blocking=false
                 else => |e| return e,
@@ -916,7 +911,7 @@ pub const File = struct {
                 error.Unexpected => unreachable, // Resource deallocation must succeed.
             };
         } else {
-            return os.flock(file.handle, os.LOCK_UN) catch |err| switch (err) {
+            return os.flock(file.handle, os.LOCK.UN) catch |err| switch (err) {
                 error.WouldBlock => unreachable, // unlocking can't block
                 error.SystemResources => unreachable, // We are deallocating resources.
                 error.Unexpected => unreachable, // Resource deallocation must succeed.
@@ -957,9 +952,9 @@ pub const File = struct {
             };
         } else {
             os.flock(file.handle, switch (l) {
-                .None => os.LOCK_UN,
-                .Shared => os.LOCK_SH | os.LOCK_NB,
-                .Exclusive => os.LOCK_EX | os.LOCK_NB,
+                .None => os.LOCK.UN,
+                .Shared => os.LOCK.SH | os.LOCK.NB,
+                .Exclusive => os.LOCK.EX | os.LOCK.NB,
             }) catch |err| switch (err) {
                 error.WouldBlock => return false,
                 else => |e| return e,
@@ -1006,7 +1001,7 @@ pub const File = struct {
                 error.Unexpected => unreachable, // Resource deallocation must succeed.
             };
         } else {
-            return os.flock(file.handle, os.LOCK_SH | os.LOCK_NB) catch |err| switch (err) {
+            return os.flock(file.handle, os.LOCK.SH | os.LOCK.NB) catch |err| switch (err) {
                 error.WouldBlock => unreachable, // File was not locked in exclusive mode.
                 else => |e| return e,
             };

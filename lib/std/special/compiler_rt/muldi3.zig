@@ -1,8 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
 const std = @import("std");
 const is_test = std.builtin.is_test;
 const native_endian = std.Target.current.cpu.arch.endian();
@@ -56,6 +51,6 @@ pub fn __muldi3(a: i64, b: i64) callconv(.C) i64 {
     return r.all;
 }
 
-test "import muldi3" {
+test {
     _ = @import("muldi3_test.zig");
 }

@@ -1,9 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
-
 //! A condition provides a way for a kernel thread to block until it is signaled
 //! to wake up. Spurious wakeups are possible.
 //! This API supports static initialization and does not require deinitialization.
@@ -81,17 +75,17 @@ pub const PthreadCondition = struct {
 
     pub fn wait(cond: *PthreadCondition, mutex: *Mutex) void {
         const rc = std.c.pthread_cond_wait(&cond.cond, &mutex.impl.pthread_mutex);
-        assert(rc == 0);
+        assert(rc == .SUCCESS);
     }
 
     pub fn signal(cond: *PthreadCondition) void {
         const rc = std.c.pthread_cond_signal(&cond.cond);
-        assert(rc == 0);
+        assert(rc == .SUCCESS);
     }
 
     pub fn broadcast(cond: *PthreadCondition) void {
         const rc = std.c.pthread_cond_broadcast(&cond.cond);
-        assert(rc == 0);
+        assert(rc == .SUCCESS);
     }
 };
 
@@ -115,9 +109,9 @@ pub const AtomicCondition = struct {
                             0,
                             null,
                         ))) {
-                            0 => {},
-                            std.os.EINTR => {},
-                            std.os.EAGAIN => {},
+                            .SUCCESS => {},
+                            .INTR => {},
+                            .AGAIN => {},
                             else => unreachable,
                         }
                     },
@@ -136,8 +130,8 @@ pub const AtomicCondition = struct {
                         linux.FUTEX_PRIVATE_FLAG | linux.FUTEX_WAKE,
                         1,
                     ))) {
-                        0 => {},
-                        std.os.EFAULT => {},
+                        .SUCCESS => {},
+                        .FAULT => {},
                         else => unreachable,
                     }
                 },

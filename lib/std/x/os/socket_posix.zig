@@ -1,9 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
-
 const std = @import("../../std.zig");
 
 const os = std.os;
@@ -16,8 +10,8 @@ pub fn Mixin(comptime Socket: type) type {
         pub fn init(domain: u32, socket_type: u32, protocol: u32, flags: std.enums.EnumFieldStruct(Socket.InitFlags, bool, false)) !Socket {
             var raw_flags: u32 = socket_type;
             const set = std.EnumSet(Socket.InitFlags).init(flags);
-            if (set.contains(.close_on_exec)) raw_flags |= os.SOCK_CLOEXEC;
-            if (set.contains(.nonblocking)) raw_flags |= os.SOCK_NONBLOCK;
+            if (set.contains(.close_on_exec)) raw_flags |= os.SOCK.CLOEXEC;
+            if (set.contains(.nonblocking)) raw_flags |= os.SOCK.NONBLOCK;
             return Socket{ .fd = try os.socket(domain, raw_flags, protocol) };
         }
 
@@ -54,8 +48,8 @@ pub fn Mixin(comptime Socket: type) type {
 
             var raw_flags: u32 = 0;
             const set = std.EnumSet(Socket.InitFlags).init(flags);
-            if (set.contains(.close_on_exec)) raw_flags |= os.SOCK_CLOEXEC;
-            if (set.contains(.nonblocking)) raw_flags |= os.SOCK_NONBLOCK;
+            if (set.contains(.close_on_exec)) raw_flags |= os.SOCK.CLOEXEC;
+            if (set.contains(.nonblocking)) raw_flags |= os.SOCK.NONBLOCK;
 
             const socket = Socket{ .fd = try os.accept(self.fd, @ptrCast(*os.sockaddr, &address), &address_len, raw_flags) };
             const socket_address = Socket.Address.fromNative(@ptrCast(*os.sockaddr, &address));
@@ -82,32 +76,32 @@ pub fn Mixin(comptime Socket: type) type {
             while (true) {
                 const rc = os.system.sendmsg(self.fd, &msg, @intCast(c_int, flags));
                 return switch (os.errno(rc)) {
-                    0 => return @intCast(usize, rc),
-                    os.EACCES => error.AccessDenied,
-                    os.EAGAIN => error.WouldBlock,
-                    os.EALREADY => error.FastOpenAlreadyInProgress,
-                    os.EBADF => unreachable, // always a race condition
-                    os.ECONNRESET => error.ConnectionResetByPeer,
-                    os.EDESTADDRREQ => unreachable, // The socket is not connection-mode, and no peer address is set.
-                    os.EFAULT => unreachable, // An invalid user space address was specified for an argument.
-                    os.EINTR => continue,
-                    os.EINVAL => unreachable, // Invalid argument passed.
-                    os.EISCONN => unreachable, // connection-mode socket was connected already but a recipient was specified
-                    os.EMSGSIZE => error.MessageTooBig,
-                    os.ENOBUFS => error.SystemResources,
-                    os.ENOMEM => error.SystemResources,
-                    os.ENOTSOCK => unreachable, // The file descriptor sockfd does not refer to a socket.
-                    os.EOPNOTSUPP => unreachable, // Some bit in the flags argument is inappropriate for the socket type.
-                    os.EPIPE => error.BrokenPipe,
-                    os.EAFNOSUPPORT => error.AddressFamilyNotSupported,
-                    os.ELOOP => error.SymLinkLoop,
-                    os.ENAMETOOLONG => error.NameTooLong,
-                    os.ENOENT => error.FileNotFound,
-                    os.ENOTDIR => error.NotDir,
-                    os.EHOSTUNREACH => error.NetworkUnreachable,
-                    os.ENETUNREACH => error.NetworkUnreachable,
-                    os.ENOTCONN => error.SocketNotConnected,
-                    os.ENETDOWN => error.NetworkSubsystemFailed,
+                    .SUCCESS => return @intCast(usize, rc),
+                    .ACCES => error.AccessDenied,
+                    .AGAIN => error.WouldBlock,
+                    .ALREADY => error.FastOpenAlreadyInProgress,
+                    .BADF => unreachable, // always a race condition
+                    .CONNRESET => error.ConnectionResetByPeer,
+                    .DESTADDRREQ => unreachable, // The socket is not connection-mode, and no peer address is set.
+                    .FAULT => unreachable, // An invalid user space address was specified for an argument.
+                    .INTR => continue,
+                    .INVAL => unreachable, // Invalid argument passed.
+                    .ISCONN => unreachable, // connection-mode socket was connected already but a recipient was specified
+                    .MSGSIZE => error.MessageTooBig,
+                    .NOBUFS => error.SystemResources,
+                    .NOMEM => error.SystemResources,
+                    .NOTSOCK => unreachable, // The file descriptor sockfd does not refer to a socket.
+                    .OPNOTSUPP => unreachable, // Some bit in the flags argument is inappropriate for the socket type.
+                    .PIPE => error.BrokenPipe,
+                    .AFNOSUPPORT => error.AddressFamilyNotSupported,
+                    .LOOP => error.SymLinkLoop,
+                    .NAMETOOLONG => error.NameTooLong,
+                    .NOENT => error.FileNotFound,
+                    .NOTDIR => error.NotDir,
+                    .HOSTUNREACH => error.NetworkUnreachable,
+                    .NETUNREACH => error.NetworkUnreachable,
+                    .NOTCONN => error.SocketNotConnected,
+                    .NETDOWN => error.NetworkSubsystemFailed,
                     else => |err| os.unexpectedErrno(err),
                 };
             }
@@ -120,17 +114,17 @@ pub fn Mixin(comptime Socket: type) type {
             while (true) {
                 const rc = os.system.recvmsg(self.fd, msg, @intCast(c_int, flags));
                 return switch (os.errno(rc)) {
-                    0 => @intCast(usize, rc),
-                    os.EBADF => unreachable, // always a race condition
-                    os.EFAULT => unreachable,
-                    os.EINVAL => unreachable,
-                    os.ENOTCONN => unreachable,
-                    os.ENOTSOCK => unreachable,
-                    os.EINTR => continue,
-                    os.EAGAIN => error.WouldBlock,
-                    os.ENOMEM => error.SystemResources,
-                    os.ECONNREFUSED => error.ConnectionRefused,
-                    os.ECONNRESET => error.ConnectionResetByPeer,
+                    .SUCCESS => @intCast(usize, rc),
+                    .BADF => unreachable, // always a race condition
+                    .FAULT => unreachable,
+                    .INVAL => unreachable,
+                    .NOTCONN => unreachable,
+                    .NOTSOCK => unreachable,
+                    .INTR => continue,
+                    .AGAIN => error.WouldBlock,
+                    .NOMEM => error.SystemResources,
+                    .CONNREFUSED => error.ConnectionRefused,
+                    .CONNRESET => error.ConnectionResetByPeer,
                     else => |err| os.unexpectedErrno(err),
                 };
             }
@@ -162,14 +156,14 @@ pub fn Mixin(comptime Socket: type) type {
             var value: u32 = undefined;
             var value_len: u32 = @sizeOf(u32);
 
-            const rc = os.system.getsockopt(self.fd, os.SOL_SOCKET, os.SO_RCVBUF, mem.asBytes(&value), &value_len);
+            const rc = os.system.getsockopt(self.fd, os.SOL.SOCKET, os.SO.RCVBUF, mem.asBytes(&value), &value_len);
             return switch (os.errno(rc)) {
-                0 => value,
-                os.EBADF => error.BadFileDescriptor,
-                os.EFAULT => error.InvalidAddressSpace,
-                os.EINVAL => error.InvalidSocketOption,
-                os.ENOPROTOOPT => error.UnknownSocketOption,
-                os.ENOTSOCK => error.NotASocket,
+                .SUCCESS => value,
+                .BADF => error.BadFileDescriptor,
+                .FAULT => error.InvalidAddressSpace,
+                .INVAL => error.InvalidSocketOption,
+                .NOPROTOOPT => error.UnknownSocketOption,
+                .NOTSOCK => error.NotASocket,
                 else => |err| os.unexpectedErrno(err),
             };
         }
@@ -179,14 +173,14 @@ pub fn Mixin(comptime Socket: type) type {
             var value: u32 = undefined;
             var value_len: u32 = @sizeOf(u32);
 
-            const rc = os.system.getsockopt(self.fd, os.SOL_SOCKET, os.SO_SNDBUF, mem.asBytes(&value), &value_len);
+            const rc = os.system.getsockopt(self.fd, os.SOL.SOCKET, os.SO.SNDBUF, mem.asBytes(&value), &value_len);
             return switch (os.errno(rc)) {
-                0 => value,
-                os.EBADF => error.BadFileDescriptor,
-                os.EFAULT => error.InvalidAddressSpace,
-                os.EINVAL => error.InvalidSocketOption,
-                os.ENOPROTOOPT => error.UnknownSocketOption,
-                os.ENOTSOCK => error.NotASocket,
+                .SUCCESS => value,
+                .BADF => error.BadFileDescriptor,
+                .FAULT => error.InvalidAddressSpace,
+                .INVAL => error.InvalidSocketOption,
+                .NOPROTOOPT => error.UnknownSocketOption,
+                .NOTSOCK => error.NotASocket,
                 else => |err| os.unexpectedErrno(err),
             };
         }
@@ -201,9 +195,9 @@ pub fn Mixin(comptime Socket: type) type {
         /// if the host does not support the option for a socket to linger around up until a timeout specified in
         /// seconds.
         pub fn setLinger(self: Socket, timeout_seconds: ?u16) !void {
-            if (comptime @hasDecl(os, "SO_LINGER")) {
+            if (@hasDecl(os.SO, "LINGER")) {
                 const settings = Socket.Linger.init(timeout_seconds);
-                return self.setOption(os.SOL_SOCKET, os.SO_LINGER, mem.asBytes(&settings));
+                return self.setOption(os.SOL.SOCKET, os.SO.LINGER, mem.asBytes(&settings));
             }
 
             return error.UnsupportedSocketOption;
@@ -213,8 +207,8 @@ pub fn Mixin(comptime Socket: type) type {
         /// messages are sent are dependant on operating system settings. It returns `error.UnsupportedSocketOption` if
         /// the host does not support periodically sending keep-alive messages on connection-oriented sockets. 
         pub fn setKeepAlive(self: Socket, enabled: bool) !void {
-            if (comptime @hasDecl(os, "SO_KEEPALIVE")) {
-                return self.setOption(os.SOL_SOCKET, os.SO_KEEPALIVE, mem.asBytes(&@as(u32, @boolToInt(enabled))));
+            if (@hasDecl(os.SO, "KEEPALIVE")) {
+                return self.setOption(os.SOL.SOCKET, os.SO.KEEPALIVE, mem.asBytes(&@as(u32, @boolToInt(enabled))));
             }
             return error.UnsupportedSocketOption;
         }
@@ -222,8 +216,8 @@ pub fn Mixin(comptime Socket: type) type {
         /// Allow multiple sockets on the same host to listen on the same address. It returns `error.UnsupportedSocketOption` if
         /// the host does not support sockets listening the same address.
         pub fn setReuseAddress(self: Socket, enabled: bool) !void {
-            if (comptime @hasDecl(os, "SO_REUSEADDR")) {
-                return self.setOption(os.SOL_SOCKET, os.SO_REUSEADDR, mem.asBytes(&@as(u32, @boolToInt(enabled))));
+            if (@hasDecl(os.SO, "REUSEADDR")) {
+                return self.setOption(os.SOL.SOCKET, os.SO.REUSEADDR, mem.asBytes(&@as(u32, @boolToInt(enabled))));
             }
             return error.UnsupportedSocketOption;
         }
@@ -231,20 +225,20 @@ pub fn Mixin(comptime Socket: type) type {
         /// Allow multiple sockets on the same host to listen on the same port. It returns `error.UnsupportedSocketOption` if
         /// the host does not supports sockets listening on the same port.
         pub fn setReusePort(self: Socket, enabled: bool) !void {
-            if (comptime @hasDecl(os, "SO_REUSEPORT")) {
-                return self.setOption(os.SOL_SOCKET, os.SO_REUSEPORT, mem.asBytes(&@as(u32, @boolToInt(enabled))));
+            if (@hasDecl(os.SO, "REUSEPORT")) {
+                return self.setOption(os.SOL.SOCKET, os.SO.REUSEPORT, mem.asBytes(&@as(u32, @boolToInt(enabled))));
             }
             return error.UnsupportedSocketOption;
         }
 
         /// Set the write buffer size of the socket.
         pub fn setWriteBufferSize(self: Socket, size: u32) !void {
-            return self.setOption(os.SOL_SOCKET, os.SO_SNDBUF, mem.asBytes(&size));
+            return self.setOption(os.SOL.SOCKET, os.SO.SNDBUF, mem.asBytes(&size));
         }
 
         /// Set the read buffer size of the socket.
         pub fn setReadBufferSize(self: Socket, size: u32) !void {
-            return self.setOption(os.SOL_SOCKET, os.SO_RCVBUF, mem.asBytes(&size));
+            return self.setOption(os.SOL.SOCKET, os.SO.RCVBUF, mem.asBytes(&size));
         }
 
         /// WARNING: Timeouts only affect blocking sockets. It is undefined behavior if a timeout is
@@ -259,7 +253,7 @@ pub fn Mixin(comptime Socket: type) type {
                 .tv_usec = @intCast(i32, (milliseconds % time.ms_per_s) * time.us_per_ms),
             };
 
-            return self.setOption(os.SOL_SOCKET, os.SO_SNDTIMEO, mem.asBytes(&timeout));
+            return self.setOption(os.SOL.SOCKET, os.SO.SNDTIMEO, mem.asBytes(&timeout));
         }
 
         /// WARNING: Timeouts only affect blocking sockets. It is undefined behavior if a timeout is
@@ -275,7 +269,7 @@ pub fn Mixin(comptime Socket: type) type {
                 .tv_usec = @intCast(i32, (milliseconds % time.ms_per_s) * time.us_per_ms),
             };
 
-            return self.setOption(os.SOL_SOCKET, os.SO_RCVTIMEO, mem.asBytes(&timeout));
+            return self.setOption(os.SOL.SOCKET, os.SO.RCVTIMEO, mem.asBytes(&timeout));
         }
     };
 }

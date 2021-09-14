@@ -2,6 +2,7 @@
 //! and stage2.
 
 const std = @import("std");
+const testing = std.testing;
 const assert = std.debug.assert;
 const clang = @import("clang.zig");
 const ctok = std.c.tokenizer;
@@ -18,6 +19,7 @@ const CallingConvention = std.builtin.CallingConvention;
 pub const ClangErrMsg = clang.Stage2ErrorMsg;
 
 pub const Error = std.mem.Allocator.Error;
+const MacroProcessingError = Error || error{UnexpectedMacroToken};
 const TypeError = Error || error{UnsupportedType};
 const TransError = TypeError || error{UnsupportedTranslation};
 
@@ -26,6 +28,10 @@ const AliasList = std.ArrayList(struct {
     alias: []const u8,
     name: []const u8,
 });
+
+// Maps macro parameter names to token position, for determining if different
+// identifiers refer to the same positional argument in different macros.
+const ArgsPositionMap = std.StringArrayHashMapUnmanaged(usize);
 
 const Scope = struct {
     id: Id,
@@ -197,9 +203,7 @@ const Scope = struct {
         /// Check if the global scope contains this name, without looking into the "future", e.g.
         /// ignore the preprocessed decl and macro names.
         fn containsNow(scope: *Root, name: []const u8) bool {
-            return isZigPrimitiveType(name) or
-                scope.sym_table.contains(name) or
-                scope.macro_table.contains(name);
+            return scope.sym_table.contains(name) or scope.macro_table.contains(name);
         }
 
         /// Check if the global scope contains the name, includes all decls that haven't been translated yet.
@@ -322,6 +326,8 @@ pub const Context = struct {
     /// up front in a pre-processing step.
     global_names: std.StringArrayHashMapUnmanaged(void) = .{},
 
+    pattern_list: PatternList,
+
     fn getMangle(c: *Context) u32 {
         c.mangle_count += 1;
         return c.mangle_count;
@@ -350,7 +356,7 @@ pub fn translate(
     args_end: [*]?[*]const u8,
     errors: *[]ClangErrMsg,
     resources_path: [*:0]const u8,
-) !std.zig.ast.Tree {
+) !std.zig.Ast {
     const ast_unit = clang.LoadFromCommandLine(
         args_begin,
         args_end,
@@ -363,7 +369,7 @@ pub fn translate(
     };
     defer ast_unit.delete();
 
-    // For memory that has the same lifetime as the Tree that we return
+    // For memory that has the same lifetime as the Ast that we return
     // from this function.
     var arena = std.heap.ArenaAllocator.init(gpa);
     errdefer arena.deinit();
@@ -375,6 +381,7 @@ pub fn translate(
         .alias_list = AliasList.init(gpa),
         .global_scope = try arena.allocator.create(Scope.Root),
         .clang_context = ast_unit.getASTContext(),
+        .pattern_list = try PatternList.init(gpa),
     };
     context.global_scope.* = Scope.Root.init(&context);
     defer {
@@ -385,9 +392,18 @@ pub fn translate(
         context.unnamed_typedefs.deinit(gpa);
         context.typedefs.deinit(gpa);
         context.global_scope.deinit();
+        context.pattern_list.deinit(gpa);
     }
 
-    try context.global_scope.nodes.append(Tag.usingnamespace_builtins.init());
+    inline for (meta.declarations(std.zig.c_builtins)) |decl| {
+        if (decl.is_pub) {
+            const builtin = try Tag.pub_var_simple.create(context.arena, .{
+                .name = decl.name,
+                .init = try Tag.import_c_builtin.create(context.arena, decl.name),
+            });
+            try addTopLevelDecl(&context, decl.name, builtin);
+        }
+    }
 
     try prepopulateGlobalNameTable(ast_unit, &context);
 
@@ -485,19 +501,17 @@ fn declVisitorNamesOnly(c: *Context, decl: *const clang.Decl) Error!void {
                 },
                 else => return,
             } else unreachable;
-            // TODO https://github.com/ziglang/zig/issues/3756
-            // TODO https://github.com/ziglang/zig/issues/1802
-            const name = if (isZigPrimitiveType(decl_name)) try std.fmt.allocPrint(c.arena, "{s}_{d}", .{ decl_name, c.getMangle() }) else decl_name;
+
             const result = try c.unnamed_typedefs.getOrPut(c.gpa, addr);
             if (result.found_existing) {
                 // One typedef can declare multiple names.
                 // Don't put this one in `decl_table` so it's processed later.
                 return;
             }
-            result.value_ptr.* = name;
+            result.value_ptr.* = decl_name;
             // Put this typedef in the decl_table to avoid redefinitions.
-            try c.decl_table.putNoClobber(c.gpa, @ptrToInt(typedef_decl.getCanonicalDecl()), name);
-            try c.typedefs.put(c.gpa, name, {});
+            try c.decl_table.putNoClobber(c.gpa, @ptrToInt(typedef_decl.getCanonicalDecl()), decl_name);
+            try c.typedefs.put(c.gpa, decl_name, {});
         }
     }
 }
@@ -709,6 +723,30 @@ fn transQualTypeMaybeInitialized(c: *Context, scope: *Scope, qt: clang.QualType,
         transQualType(c, scope, qt, loc);
 }
 
+/// This is used in global scope to convert a string literal `S` to [*c]u8:
+/// &(struct {
+///     var static = S.*;
+/// }).static;
+fn stringLiteralToCharStar(c: *Context, str: Node) Error!Node {
+    const var_name = Scope.Block.StaticInnerName;
+
+    const variables = try c.arena.alloc(Node, 1);
+    variables[0] = try Tag.mut_str.create(c.arena, .{ .name = var_name, .init = str });
+
+    const anon_struct = try Tag.@"struct".create(c.arena, .{
+        .layout = .none,
+        .fields = &.{},
+        .functions = &.{},
+        .variables = variables,
+    });
+
+    const member_access = try Tag.field_access.create(c.arena, .{
+        .lhs = anon_struct,
+        .field_name = var_name,
+    });
+    return Tag.address_of.create(c.arena, member_access);
+}
+
 /// if mangled_name is not null, this var decl was declared in a block scope.
 fn visitVarDecl(c: *Context, var_decl: *const clang.VarDecl, mangled_name: ?[]const u8) Error!void {
     const var_name = mangled_name orelse try c.str(@ptrCast(*const clang.NamedDecl, var_decl).getName_bytes_begin());
@@ -718,10 +756,6 @@ fn visitVarDecl(c: *Context, var_decl: *const clang.VarDecl, mangled_name: ?[]co
     const is_pub = mangled_name == null;
     const is_threadlocal = var_decl.getTLSKind() != .None;
     const scope = &c.global_scope.base;
-
-    // TODO https://github.com/ziglang/zig/issues/3756
-    // TODO https://github.com/ziglang/zig/issues/1802
-    const checked_name = if (isZigPrimitiveType(var_name)) try std.fmt.allocPrint(c.arena, "{s}_{d}", .{ var_name, c.getMangle() }) else var_name;
     const var_decl_loc = var_decl.getLocation();
 
     const qual_type = var_decl.getTypeSourceInfo_getType();
@@ -740,7 +774,7 @@ fn visitVarDecl(c: *Context, var_decl: *const clang.VarDecl, mangled_name: ?[]co
 
     const type_node = transQualTypeMaybeInitialized(c, scope, qual_type, decl_init, var_decl_loc) catch |err| switch (err) {
         error.UnsupportedTranslation, error.UnsupportedType => {
-            return failDecl(c, var_decl_loc, checked_name, "unable to resolve variable type", .{});
+            return failDecl(c, var_decl_loc, var_name, "unable to resolve variable type", .{});
         },
         error.OutOfMemory => |e| return e,
     };
@@ -769,6 +803,8 @@ fn visitVarDecl(c: *Context, var_decl: *const clang.VarDecl, mangled_name: ?[]co
             };
             if (!qualTypeIsBoolean(qual_type) and isBoolRes(init_node.?)) {
                 init_node = try Tag.bool_to_int.create(c.arena, init_node.?);
+            } else if (init_node.?.tag() == .string_literal and qualTypeIsCharStar(qual_type)) {
+                init_node = try stringLiteralToCharStar(c, init_node.?);
             }
         } else {
             init_node = Tag.undefined_literal.init();
@@ -797,11 +833,11 @@ fn visitVarDecl(c: *Context, var_decl: *const clang.VarDecl, mangled_name: ?[]co
         .is_threadlocal = is_threadlocal,
         .linksection_string = linksection_string,
         .alignment = zigAlignment(var_decl.getAlignedAttribute(c.clang_context)),
-        .name = checked_name,
+        .name = var_name,
         .type = type_node,
         .init = init_node,
     });
-    return addTopLevelDecl(c, checked_name, node);
+    return addTopLevelDecl(c, var_name, node);
 }
 
 const builtin_typedef_map = std.ComptimeStringMap([]const u8, .{
@@ -825,11 +861,7 @@ fn transTypeDef(c: *Context, scope: *Scope, typedef_decl: *const clang.TypedefNa
     const toplevel = scope.id == .root;
     const bs: *Scope.Block = if (!toplevel) try scope.findBlockScope(c) else undefined;
 
-    const bare_name = try c.str(@ptrCast(*const clang.NamedDecl, typedef_decl).getName_bytes_begin());
-
-    // TODO https://github.com/ziglang/zig/issues/3756
-    // TODO https://github.com/ziglang/zig/issues/1802
-    var name: []const u8 = if (isZigPrimitiveType(bare_name)) try std.fmt.allocPrint(c.arena, "{s}_{d}", .{ bare_name, c.getMangle() }) else bare_name;
+    var name: []const u8 = try c.str(@ptrCast(*const clang.NamedDecl, typedef_decl).getName_bytes_begin());
     try c.typedefs.put(c.gpa, name, {});
 
     if (builtin_typedef_map.get(name)) |builtin| {
@@ -1091,9 +1123,10 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
         record_payload.* = .{
             .base = .{ .tag = ([2]Tag{ .@"struct", .@"union" })[@boolToInt(is_union)] },
             .data = .{
-                .is_packed = is_packed,
+                .layout = if (is_packed) .@"packed" else .@"extern",
                 .fields = try c.arena.dupe(ast.Payload.Record.Field, fields.items),
                 .functions = try c.arena.dupe(Node, functions.items),
+                .variables = &.{},
             },
         };
         break :blk Node.initPayload(&record_payload.base);
@@ -1298,6 +1331,10 @@ fn transStmt(
             const shuffle_vec_node = try transShuffleVectorExpr(c, scope, shuffle_vec_expr);
             return maybeSuppressResult(c, scope, result_used, shuffle_vec_node);
         },
+        .ChooseExprClass => {
+            const choose_expr = @ptrCast(*const clang.ChooseExpr, stmt);
+            return transExpr(c, scope, choose_expr.getChosenSubExpr(), result_used);
+        },
         // When adding new cases here, see comment for maybeBlockify()
         .GCCAsmStmtClass,
         .GotoStmtClass,
@@ -1494,12 +1531,12 @@ fn transOffsetOfExpr(
 /// node -> @bitCast(usize, @intCast(isize, node))
 fn usizeCastForWrappingPtrArithmetic(gpa: *mem.Allocator, node: Node) TransError!Node {
     const intcast_node = try Tag.int_cast.create(gpa, .{
-        .lhs = try Tag.identifier.create(gpa, "isize"),
+        .lhs = try Tag.type.create(gpa, "isize"),
         .rhs = node,
     });
 
     return Tag.bit_cast.create(gpa, .{
-        .lhs = try Tag.identifier.create(gpa, "usize"),
+        .lhs = try Tag.type.create(gpa, "usize"),
         .rhs = intcast_node,
     });
 }
@@ -1791,6 +1828,9 @@ fn transDeclStmtOne(
                 Tag.undefined_literal.init();
             if (!qualTypeIsBoolean(qual_type) and isBoolRes(init_node)) {
                 init_node = try Tag.bool_to_int.create(c.arena, init_node);
+            } else if (init_node.tag() == .string_literal and qualTypeIsCharStar(qual_type)) {
+                const dst_type_node = try transQualType(c, scope, qual_type, loc);
+                init_node = try removeCVQualifiers(c, dst_type_node, init_node);
             }
 
             const var_name: []const u8 = if (is_static_local) Scope.Block.StaticInnerName else mangled_name;
@@ -1950,6 +1990,7 @@ fn transImplicitCastExpr(
 
 fn isBuiltinDefined(name: []const u8) bool {
     inline for (meta.declarations(std.zig.c_builtins)) |decl| {
+        if (!decl.is_pub) continue;
         if (std.mem.eql(u8, name, decl.name)) return true;
     }
     return false;
@@ -1959,7 +2000,7 @@ fn transBuiltinFnExpr(c: *Context, scope: *Scope, expr: *const clang.Expr, used:
     const node = try transExpr(c, scope, expr, used);
     if (node.castTag(.identifier)) |ident| {
         const name = ident.data;
-        if (!isBuiltinDefined(name)) return fail(c, error.UnsupportedTranslation, expr.getBeginLoc(), "TODO implement function '{s}' in std.c.builtins", .{name});
+        if (!isBuiltinDefined(name)) return fail(c, error.UnsupportedTranslation, expr.getBeginLoc(), "TODO implement function '{s}' in std.zig.c_builtins", .{name});
     }
     return node;
 }
@@ -1971,10 +2012,11 @@ fn transBoolExpr(
     used: ResultUsed,
 ) TransError!Node {
     if (@ptrCast(*const clang.Stmt, expr).getStmtClass() == .IntegerLiteralClass) {
-        var is_zero: bool = undefined;
-        if (!(@ptrCast(*const clang.IntegerLiteral, expr).isZero(&is_zero, c.clang_context))) {
+        var signum: c_int = undefined;
+        if (!(@ptrCast(*const clang.IntegerLiteral, expr).getSignum(&signum, c.clang_context))) {
             return fail(c, error.UnsupportedTranslation, expr.getBeginLoc(), "invalid integer literal", .{});
         }
+        const is_zero = signum == 0;
         return Node{ .tag_if_small_enough = @enumToInt(([2]Tag{ .true_literal, .false_literal })[@boolToInt(is_zero)]) };
     }
 
@@ -2507,9 +2549,19 @@ fn transInitListExprRecord(
             raw_name = try mem.dupe(c.arena, u8, name);
         }
 
+        var init_expr = try transExpr(c, scope, elem_expr, .used);
+        const field_qt = field_decl.getType();
+        if (init_expr.tag() == .string_literal and qualTypeIsCharStar(field_qt)) {
+            if (scope.id == .root) {
+                init_expr = try stringLiteralToCharStar(c, init_expr);
+            } else {
+                const dst_type_node = try transQualType(c, scope, field_qt, loc);
+                init_expr = try removeCVQualifiers(c, dst_type_node, init_expr);
+            }
+        }
         try field_inits.append(.{
             .name = raw_name,
-            .value = try transExpr(c, scope, elem_expr, .used),
+            .value = init_expr,
         });
     }
     if (ty_node.castTag(.identifier)) |ident_node| {
@@ -3259,30 +3311,114 @@ fn transMemberExpr(c: *Context, scope: *Scope, stmt: *const clang.MemberExpr, re
     return maybeSuppressResult(c, scope, result_used, node);
 }
 
+/// ptr[subscr] (`subscr` is a signed integer expression, `ptr` a pointer) becomes:
+/// (blk: {
+///     const tmp = subscr;
+///     if (tmp >= 0) break :blk ptr + @intCast(usize, tmp) else break :blk ptr - ~@bitCast(usize, @intCast(isize, tmp) +% -1);
+/// }).*
+/// Todo: rip this out once `[*]T + isize` becomes valid.
+fn transSignedArrayAccess(
+    c: *Context,
+    scope: *Scope,
+    container_expr: *const clang.Expr,
+    subscr_expr: *const clang.Expr,
+    result_used: ResultUsed,
+) TransError!Node {
+    var block_scope = try Scope.Block.init(c, scope, true);
+    defer block_scope.deinit();
+
+    const tmp = try block_scope.makeMangledName(c, "tmp");
+
+    const subscr_node = try transExpr(c, &block_scope.base, subscr_expr, .used);
+    const subscr_decl = try Tag.var_simple.create(c.arena, .{ .name = tmp, .init = subscr_node });
+    try block_scope.statements.append(subscr_decl);
+
+    const tmp_ref = try Tag.identifier.create(c.arena, tmp);
+
+    const container_node = try transExpr(c, &block_scope.base, container_expr, .used);
+
+    const cond_node = try Tag.greater_than_equal.create(c.arena, .{ .lhs = tmp_ref, .rhs = Tag.zero_literal.init() });
+
+    const then_value = try Tag.add.create(c.arena, .{
+        .lhs = container_node,
+        .rhs = try Tag.int_cast.create(c.arena, .{
+            .lhs = try Tag.type.create(c.arena, "usize"),
+            .rhs = tmp_ref,
+        }),
+    });
+
+    const then_body = try Tag.break_val.create(c.arena, .{
+        .label = block_scope.label,
+        .val = then_value,
+    });
+
+    const minuend = container_node;
+    const signed_size = try Tag.int_cast.create(c.arena, .{
+        .lhs = try Tag.type.create(c.arena, "isize"),
+        .rhs = tmp_ref,
+    });
+    const to_cast = try Tag.add_wrap.create(c.arena, .{
+        .lhs = signed_size,
+        .rhs = try Tag.negate.create(c.arena, Tag.one_literal.init()),
+    });
+    const bitcast_node = try Tag.bit_cast.create(c.arena, .{
+        .lhs = try Tag.type.create(c.arena, "usize"),
+        .rhs = to_cast,
+    });
+    const subtrahend = try Tag.bit_not.create(c.arena, bitcast_node);
+    const difference = try Tag.sub.create(c.arena, .{
+        .lhs = minuend,
+        .rhs = subtrahend,
+    });
+    const else_body = try Tag.break_val.create(c.arena, .{
+        .label = block_scope.label,
+        .val = difference,
+    });
+
+    const if_node = try Tag.@"if".create(c.arena, .{
+        .cond = cond_node,
+        .then = then_body,
+        .@"else" = else_body,
+    });
+
+    try block_scope.statements.append(if_node);
+    const block_node = try block_scope.complete(c);
+
+    const derefed = try Tag.deref.create(c.arena, block_node);
+
+    return maybeSuppressResult(c, &block_scope.base, result_used, derefed);
+}
+
 fn transArrayAccess(c: *Context, scope: *Scope, stmt: *const clang.ArraySubscriptExpr, result_used: ResultUsed) TransError!Node {
-    var base_stmt = stmt.getBase();
+    const base_stmt = stmt.getBase();
+    const base_qt = getExprQualType(c, base_stmt);
+    const is_vector = cIsVector(base_qt);
+
+    const subscr_expr = stmt.getIdx();
+    const subscr_qt = getExprQualType(c, subscr_expr);
+    const is_longlong = cIsLongLongInteger(subscr_qt);
+    const is_signed = cIsSignedInteger(subscr_qt);
+    const is_nonnegative_int_literal = cIsNonNegativeIntLiteral(c, subscr_expr);
 
     // Unwrap the base statement if it's an array decayed to a bare pointer type
     // so that we index the array itself
+    var unwrapped_base = base_stmt;
     if (@ptrCast(*const clang.Stmt, base_stmt).getStmtClass() == .ImplicitCastExprClass) {
         const implicit_cast = @ptrCast(*const clang.ImplicitCastExpr, base_stmt);
 
         if (implicit_cast.getCastKind() == .ArrayToPointerDecay) {
-            base_stmt = implicit_cast.getSubExpr();
+            unwrapped_base = implicit_cast.getSubExpr();
         }
     }
 
-    const container_node = try transExpr(c, scope, base_stmt, .used);
+    // Special case: actual pointer (not decayed array) and signed integer subscript
+    // See discussion at https://github.com/ziglang/zig/pull/8589
+    if (is_signed and (base_stmt == unwrapped_base) and !is_vector and !is_nonnegative_int_literal) return transSignedArrayAccess(c, scope, base_stmt, subscr_expr, result_used);
 
-    // cast if the index is long long or signed
-    const subscr_expr = stmt.getIdx();
-    const qt = getExprQualType(c, subscr_expr);
-    const is_longlong = cIsLongLongInteger(qt);
-    const is_signed = cIsSignedInteger(qt);
-
+    const container_node = try transExpr(c, scope, unwrapped_base, .used);
     const rhs = if (is_longlong or is_signed) blk: {
         // check if long long first so that signed long long doesn't just become unsigned long long
-        var typeid_node = if (is_longlong) try Tag.identifier.create(c.arena, "usize") else try transQualTypeIntWidthOf(c, qt, false);
+        const typeid_node = if (is_longlong) try Tag.type.create(c.arena, "usize") else try transQualTypeIntWidthOf(c, subscr_qt, false);
         break :blk try Tag.int_cast.create(c.arena, .{ .lhs = typeid_node, .rhs = try transExpr(c, scope, subscr_expr, .used) });
     } else try transExpr(c, scope, subscr_expr, .used);
 
@@ -3360,6 +3496,10 @@ fn transCallExpr(c: *Context, scope: *Scope, stmt: *const clang.CallExpr, result
                         const param_qt = fn_proto.getParamType(@intCast(c_uint, i));
                         if (isBoolRes(arg) and cIsNativeInt(param_qt)) {
                             arg = try Tag.bool_to_int.create(c.arena, arg);
+                        } else if (arg.tag() == .string_literal and qualTypeIsCharStar(param_qt)) {
+                            const loc = @ptrCast(*const clang.Stmt, stmt).getBeginLoc();
+                            const dst_type_node = try transQualType(c, scope, param_qt, loc);
+                            arg = try removeCVQualifiers(c, dst_type_node, arg);
                         }
                     }
                 },
@@ -3736,6 +3876,12 @@ fn transCreateCompoundAssign(
     return block_scope.complete(c);
 }
 
+// Casting away const or volatile requires us to use @intToPtr
+fn removeCVQualifiers(c: *Context, dst_type_node: Node, expr: Node) Error!Node {
+    const ptr_to_int = try Tag.ptr_to_int.create(c.arena, expr);
+    return Tag.int_to_ptr.create(c.arena, .{ .lhs = dst_type_node, .rhs = ptr_to_int });
+}
+
 fn transCPtrCast(
     c: *Context,
     scope: *Scope,
@@ -3755,10 +3901,7 @@ fn transCPtrCast(
         (src_child_type.isVolatileQualified() and
         !child_type.isVolatileQualified())))
     {
-        // Casting away const or volatile requires us to use @intToPtr
-        const ptr_to_int = try Tag.ptr_to_int.create(c.arena, expr);
-        const int_to_ptr = try Tag.int_to_ptr.create(c.arena, .{ .lhs = dst_type_node, .rhs = ptr_to_int });
-        return int_to_ptr;
+        return removeCVQualifiers(c, dst_type_node, expr);
     } else {
         // Implicit downcasting from higher to lower alignment values is forbidden,
         // use @alignCast to side-step this problem
@@ -3807,7 +3950,7 @@ fn transFloatingLiteral(c: *Context, scope: *Scope, expr: *const clang.FloatingL
 
 fn transBinaryConditionalOperator(c: *Context, scope: *Scope, stmt: *const clang.BinaryConditionalOperator, used: ResultUsed) TransError!Node {
     // GNU extension of the ternary operator where the middle expression is
-    // omitted, the conditition itself is returned if it evaluates to true
+    // omitted, the condition itself is returned if it evaluates to true
     const qt = @ptrCast(*const clang.Expr, stmt).getType();
     const res_is_bool = qualTypeIsBoolean(qt);
     const casted_stmt = @ptrCast(*const clang.AbstractConditionalOperator, stmt);
@@ -3894,7 +4037,7 @@ fn transConditionalOperator(c: *Context, scope: *Scope, stmt: *const clang.Condi
         .then = then_body,
         .@"else" = else_body,
     });
-    // Clang inserts ImplicitCast(ToVoid)'s to both rhs and lhs so we don't need to supress the result here.
+    // Clang inserts ImplicitCast(ToVoid)'s to both rhs and lhs so we don't need to suppress the result here.
     return if_node;
 }
 
@@ -4118,6 +4261,26 @@ fn typeIsOpaque(c: *Context, ty: *const clang.Type, loc: clang.SourceLocation) b
     }
 }
 
+/// plain `char *` (not const; not explicitly signed or unsigned)
+fn qualTypeIsCharStar(qt: clang.QualType) bool {
+    if (qualTypeIsPtr(qt)) {
+        const child_qt = qualTypeCanon(qt).getPointeeType();
+        return cIsUnqualifiedChar(child_qt) and !child_qt.isConstQualified();
+    }
+    return false;
+}
+
+/// C `char` without explicit signed or unsigned qualifier
+fn cIsUnqualifiedChar(qt: clang.QualType) bool {
+    const c_type = qualTypeCanon(qt);
+    if (c_type.getTypeClass() != .Builtin) return false;
+    const builtin_ty = @ptrCast(*const clang.BuiltinType, c_type);
+    return switch (builtin_ty.getKind()) {
+        .Char_S, .Char_U => true,
+        else => false,
+    };
+}
+
 fn cIsInteger(qt: clang.QualType) bool {
     return cIsSignedInteger(qt) or cIsUnsignedInteger(qt);
 }
@@ -4161,6 +4324,18 @@ fn cIntTypeCmp(a: clang.QualType, b: clang.QualType) math.Order {
     const a_index = cIntTypeToIndex(a);
     const b_index = cIntTypeToIndex(b);
     return math.order(a_index, b_index);
+}
+
+/// Checks if expr is an integer literal >= 0
+fn cIsNonNegativeIntLiteral(c: *Context, expr: *const clang.Expr) bool {
+    if (@ptrCast(*const clang.Stmt, expr).getStmtClass() == .IntegerLiteralClass) {
+        var signum: c_int = undefined;
+        if (!(@ptrCast(*const clang.IntegerLiteral, expr).getSignum(&signum, c.clang_context))) {
+            return false;
+        }
+        return signum >= 0;
+    }
+    return false;
 }
 
 fn cIsSignedInteger(qt: clang.QualType) bool {
@@ -4493,6 +4668,7 @@ fn transType(c: *Context, scope: *Scope, ty: *const clang.Type, source_loc: clan
             if (@ptrCast(*const clang.Decl, typedef_decl).castToNamedDecl()) |named_decl| {
                 const decl_name = try c.str(named_decl.getName_bytes_begin());
                 if (c.global_names.get(decl_name)) |_| trans_scope = &c.global_scope.base;
+                if (builtin_typedef_map.get(decl_name)) |builtin| return Tag.type.create(c.arena, builtin);
             }
             try transTypeDef(c, trans_scope, typedef_decl);
             const name = c.decl_table.get(@ptrToInt(typedef_decl.getCanonicalDecl())).?;
@@ -4816,17 +4992,239 @@ pub fn freeErrors(errors: []ClangErrMsg) void {
     errors.ptr.delete(errors.len);
 }
 
-fn isZigPrimitiveType(name: []const u8) bool {
-    if (name.len > 1 and (name[0] == 'u' or name[0] == 'i')) {
-        for (name[1..]) |c| {
-            switch (c) {
-                '0'...'9' => {},
-                else => return false,
+const PatternList = struct {
+    patterns: []Pattern,
+
+    /// Templates must be function-like macros
+    /// first element is macro source, second element is the name of the function
+    /// in std.lib.zig.c_translation.Macros which implements it
+    const templates = [_][2][]const u8{
+        [2][]const u8{ "f_SUFFIX(X) (X ## f)", "F_SUFFIX" },
+        [2][]const u8{ "F_SUFFIX(X) (X ## F)", "F_SUFFIX" },
+
+        [2][]const u8{ "u_SUFFIX(X) (X ## u)", "U_SUFFIX" },
+        [2][]const u8{ "U_SUFFIX(X) (X ## U)", "U_SUFFIX" },
+
+        [2][]const u8{ "l_SUFFIX(X) (X ## l)", "L_SUFFIX" },
+        [2][]const u8{ "L_SUFFIX(X) (X ## L)", "L_SUFFIX" },
+
+        [2][]const u8{ "ul_SUFFIX(X) (X ## ul)", "UL_SUFFIX" },
+        [2][]const u8{ "uL_SUFFIX(X) (X ## uL)", "UL_SUFFIX" },
+        [2][]const u8{ "Ul_SUFFIX(X) (X ## Ul)", "UL_SUFFIX" },
+        [2][]const u8{ "UL_SUFFIX(X) (X ## UL)", "UL_SUFFIX" },
+
+        [2][]const u8{ "ll_SUFFIX(X) (X ## ll)", "LL_SUFFIX" },
+        [2][]const u8{ "LL_SUFFIX(X) (X ## LL)", "LL_SUFFIX" },
+
+        [2][]const u8{ "ull_SUFFIX(X) (X ## ull)", "ULL_SUFFIX" },
+        [2][]const u8{ "uLL_SUFFIX(X) (X ## uLL)", "ULL_SUFFIX" },
+        [2][]const u8{ "Ull_SUFFIX(X) (X ## Ull)", "ULL_SUFFIX" },
+        [2][]const u8{ "ULL_SUFFIX(X) (X ## ULL)", "ULL_SUFFIX" },
+
+        [2][]const u8{ "CAST_OR_CALL(X, Y) (X)(Y)", "CAST_OR_CALL" },
+
+        [2][]const u8{
+            \\wl_container_of(ptr, sample, member)                     \
+            \\(__typeof__(sample))((char *)(ptr) -                     \
+            \\     offsetof(__typeof__(*sample), member))
+            ,
+            "WL_CONTAINER_OF",
+        },
+
+        [2][]const u8{ "IGNORE_ME(X) ((void)(X))", "DISCARD" },
+        [2][]const u8{ "IGNORE_ME(X) (void)(X)", "DISCARD" },
+        [2][]const u8{ "IGNORE_ME(X) ((const void)(X))", "DISCARD" },
+        [2][]const u8{ "IGNORE_ME(X) (const void)(X)", "DISCARD" },
+        [2][]const u8{ "IGNORE_ME(X) ((volatile void)(X))", "DISCARD" },
+        [2][]const u8{ "IGNORE_ME(X) (volatile void)(X)", "DISCARD" },
+        [2][]const u8{ "IGNORE_ME(X) ((const volatile void)(X))", "DISCARD" },
+        [2][]const u8{ "IGNORE_ME(X) (const volatile void)(X)", "DISCARD" },
+        [2][]const u8{ "IGNORE_ME(X) ((volatile const void)(X))", "DISCARD" },
+        [2][]const u8{ "IGNORE_ME(X) (volatile const void)(X)", "DISCARD" },
+    };
+
+    /// Assumes that `ms` represents a tokenized function-like macro.
+    fn buildArgsHash(allocator: *mem.Allocator, ms: MacroSlicer, hash: *ArgsPositionMap) MacroProcessingError!void {
+        assert(ms.tokens.len > 2);
+        assert(ms.tokens[0].id == .Identifier);
+        assert(ms.tokens[1].id == .LParen);
+
+        var i: usize = 2;
+        while (true) : (i += 1) {
+            const token = ms.tokens[i];
+            switch (token.id) {
+                .RParen => break,
+                .Comma => continue,
+                .Identifier => {
+                    const identifier = ms.slice(token);
+                    try hash.put(allocator, identifier, i);
+                },
+                else => return error.UnexpectedMacroToken,
             }
         }
-        return true;
     }
-    return @import("AstGen.zig").simple_types.has(name);
+
+    const Pattern = struct {
+        tokens: []const CToken,
+        source: []const u8,
+        impl: []const u8,
+        args_hash: ArgsPositionMap,
+
+        fn init(self: *Pattern, allocator: *mem.Allocator, template: [2][]const u8) Error!void {
+            const source = template[0];
+            const impl = template[1];
+
+            var tok_list = std.ArrayList(CToken).init(allocator);
+            defer tok_list.deinit();
+            try tokenizeMacro(source, &tok_list);
+            const tokens = try allocator.dupe(CToken, tok_list.items);
+
+            self.* = .{
+                .tokens = tokens,
+                .source = source,
+                .impl = impl,
+                .args_hash = .{},
+            };
+            const ms = MacroSlicer{ .source = source, .tokens = tokens };
+            buildArgsHash(allocator, ms, &self.args_hash) catch |err| switch (err) {
+                error.UnexpectedMacroToken => unreachable,
+                else => |e| return e,
+            };
+        }
+
+        fn deinit(self: *Pattern, allocator: *mem.Allocator) void {
+            self.args_hash.deinit(allocator);
+            allocator.free(self.tokens);
+        }
+
+        /// This function assumes that `ms` has already been validated to contain a function-like
+        /// macro, and that the parsed template macro in `self` also contains a function-like
+        /// macro. Please review this logic carefully if changing that assumption. Two
+        /// function-like macros are considered equivalent if and only if they contain the same
+        /// list of tokens, modulo parameter names.
+        fn isEquivalent(self: Pattern, ms: MacroSlicer, args_hash: ArgsPositionMap) bool {
+            if (self.tokens.len != ms.tokens.len) return false;
+            if (args_hash.count() != self.args_hash.count()) return false;
+
+            var i: usize = 2;
+            while (self.tokens[i].id != .RParen) : (i += 1) {}
+
+            const pattern_slicer = MacroSlicer{ .source = self.source, .tokens = self.tokens };
+            while (i < self.tokens.len) : (i += 1) {
+                const pattern_token = self.tokens[i];
+                const macro_token = ms.tokens[i];
+                if (meta.activeTag(pattern_token.id) != meta.activeTag(macro_token.id)) return false;
+
+                const pattern_bytes = pattern_slicer.slice(pattern_token);
+                const macro_bytes = ms.slice(macro_token);
+                switch (pattern_token.id) {
+                    .Identifier => {
+                        const pattern_arg_index = self.args_hash.get(pattern_bytes);
+                        const macro_arg_index = args_hash.get(macro_bytes);
+
+                        if (pattern_arg_index == null and macro_arg_index == null) {
+                            if (!mem.eql(u8, pattern_bytes, macro_bytes)) return false;
+                        } else if (pattern_arg_index != null and macro_arg_index != null) {
+                            if (pattern_arg_index.? != macro_arg_index.?) return false;
+                        } else {
+                            return false;
+                        }
+                    },
+                    .MacroString, .StringLiteral, .CharLiteral, .IntegerLiteral, .FloatLiteral => {
+                        if (!mem.eql(u8, pattern_bytes, macro_bytes)) return false;
+                    },
+                    else => {
+                        // other tags correspond to keywords and operators that do not contain a "payload"
+                        // that can vary
+                    },
+                }
+            }
+            return true;
+        }
+    };
+
+    fn init(allocator: *mem.Allocator) Error!PatternList {
+        const patterns = try allocator.alloc(Pattern, templates.len);
+        for (templates) |template, i| {
+            try patterns[i].init(allocator, template);
+        }
+        return PatternList{ .patterns = patterns };
+    }
+
+    fn deinit(self: *PatternList, allocator: *mem.Allocator) void {
+        for (self.patterns) |*pattern| pattern.deinit(allocator);
+        allocator.free(self.patterns);
+    }
+
+    fn match(self: PatternList, allocator: *mem.Allocator, ms: MacroSlicer) Error!?Pattern {
+        var args_hash: ArgsPositionMap = .{};
+        defer args_hash.deinit(allocator);
+
+        buildArgsHash(allocator, ms, &args_hash) catch |err| switch (err) {
+            error.UnexpectedMacroToken => return null,
+            else => |e| return e,
+        };
+
+        for (self.patterns) |pattern| if (pattern.isEquivalent(ms, args_hash)) return pattern;
+        return null;
+    }
+};
+
+const MacroSlicer = struct {
+    source: []const u8,
+    tokens: []const CToken,
+    fn slice(self: MacroSlicer, token: CToken) []const u8 {
+        return self.source[token.start..token.end];
+    }
+};
+
+// Testing here instead of test/translate_c.zig allows us to also test that the
+// mapped function exists in `std.zig.c_translation.Macros`
+test "Macro matching" {
+    const helper = struct {
+        const MacroFunctions = @import("std").zig.c_translation.Macros;
+        fn checkMacro(allocator: *mem.Allocator, pattern_list: PatternList, source: []const u8, comptime expected_match: ?[]const u8) !void {
+            var tok_list = std.ArrayList(CToken).init(allocator);
+            defer tok_list.deinit();
+            try tokenizeMacro(source, &tok_list);
+            const macro_slicer = MacroSlicer{ .source = source, .tokens = tok_list.items };
+            const matched = try pattern_list.match(allocator, macro_slicer);
+            if (expected_match) |expected| {
+                try testing.expectEqualStrings(expected, matched.?.impl);
+                try testing.expect(@hasDecl(MacroFunctions, expected));
+            } else {
+                try testing.expectEqual(@as(@TypeOf(matched), null), matched);
+            }
+        }
+    };
+    const allocator = std.testing.allocator;
+    var pattern_list = try PatternList.init(allocator);
+    defer pattern_list.deinit(allocator);
+
+    try helper.checkMacro(allocator, pattern_list, "BAR(Z) (Z ## F)", "F_SUFFIX");
+    try helper.checkMacro(allocator, pattern_list, "BAR(Z) (Z ## U)", "U_SUFFIX");
+    try helper.checkMacro(allocator, pattern_list, "BAR(Z) (Z ## L)", "L_SUFFIX");
+    try helper.checkMacro(allocator, pattern_list, "BAR(Z) (Z ## LL)", "LL_SUFFIX");
+    try helper.checkMacro(allocator, pattern_list, "BAR(Z) (Z ## UL)", "UL_SUFFIX");
+    try helper.checkMacro(allocator, pattern_list, "BAR(Z) (Z ## ULL)", "ULL_SUFFIX");
+    try helper.checkMacro(allocator, pattern_list,
+        \\container_of(a, b, c)                             \
+        \\(__typeof__(b))((char *)(a) -                     \
+        \\     offsetof(__typeof__(*b), c))
+    , "WL_CONTAINER_OF");
+
+    try helper.checkMacro(allocator, pattern_list, "NO_MATCH(X, Y) (X + Y)", null);
+    try helper.checkMacro(allocator, pattern_list, "CAST_OR_CALL(X, Y) (X)(Y)", "CAST_OR_CALL");
+    try helper.checkMacro(allocator, pattern_list, "IGNORE_ME(X) (void)(X)", "DISCARD");
+    try helper.checkMacro(allocator, pattern_list, "IGNORE_ME(X) ((void)(X))", "DISCARD");
+    try helper.checkMacro(allocator, pattern_list, "IGNORE_ME(X) (const void)(X)", "DISCARD");
+    try helper.checkMacro(allocator, pattern_list, "IGNORE_ME(X) ((const void)(X))", "DISCARD");
+    try helper.checkMacro(allocator, pattern_list, "IGNORE_ME(X) (volatile void)(X)", "DISCARD");
+    try helper.checkMacro(allocator, pattern_list, "IGNORE_ME(X) ((volatile void)(X))", "DISCARD");
+    try helper.checkMacro(allocator, pattern_list, "IGNORE_ME(X) (const volatile void)(X)", "DISCARD");
+    try helper.checkMacro(allocator, pattern_list, "IGNORE_ME(X) ((const volatile void)(X))", "DISCARD");
+    try helper.checkMacro(allocator, pattern_list, "IGNORE_ME(X) (volatile const void)(X)", "DISCARD");
+    try helper.checkMacro(allocator, pattern_list, "IGNORE_ME(X) ((volatile const void)(X))", "DISCARD");
 }
 
 const MacroCtx = struct {
@@ -4855,7 +5253,49 @@ const MacroCtx = struct {
     fn fail(self: *MacroCtx, c: *Context, comptime fmt: []const u8, args: anytype) !void {
         return failDecl(c, self.loc, self.name, fmt, args);
     }
+
+    fn makeSlicer(self: *const MacroCtx) MacroSlicer {
+        return MacroSlicer{ .source = self.source, .tokens = self.list };
+    }
+
+    fn containsUndefinedIdentifier(self: *MacroCtx, scope: *Scope, params: []const ast.Payload.Param) ?[]const u8 {
+        const slicer = self.makeSlicer();
+        var i: usize = 1; // index 0 is the macro name
+        while (i < self.list.len) : (i += 1) {
+            const token = self.list[i];
+            switch (token.id) {
+                .Period, .Arrow => i += 1, // skip next token since field identifiers can be unknown
+                .Identifier => {
+                    const identifier = slicer.slice(token);
+                    const is_param = for (params) |param| {
+                        if (param.name != null and mem.eql(u8, identifier, param.name.?)) break true;
+                    } else false;
+                    if (!scope.contains(identifier) and !isBuiltinDefined(identifier) and !is_param) return identifier;
+                },
+                else => {},
+            }
+        }
+        return null;
+    }
 };
+
+fn tokenizeMacro(source: []const u8, tok_list: *std.ArrayList(CToken)) Error!void {
+    var tokenizer = std.c.Tokenizer{
+        .buffer = source,
+    };
+    while (true) {
+        const tok = tokenizer.next();
+        switch (tok.id) {
+            .Nl, .Eof => {
+                try tok_list.append(tok);
+                break;
+            },
+            .LineComment, .MultiLineComment => continue,
+            else => {},
+        }
+        try tok_list.append(tok);
+    }
+}
 
 fn transPreprocessorEntities(c: *Context, unit: *clang.ASTUnit) Error!void {
     // TODO if we see #undef, delete it from the table
@@ -4876,10 +5316,7 @@ fn transPreprocessorEntities(c: *Context, unit: *clang.ASTUnit) Error!void {
                 const end_loc = clang.Lexer.getLocForEndOfToken(macro.getSourceRange_getEnd(), c.source_manager, unit);
 
                 const name = try c.str(raw_name);
-                // TODO https://github.com/ziglang/zig/issues/3756
-                // TODO https://github.com/ziglang/zig/issues/1802
-                const mangled_name = if (isZigPrimitiveType(name)) try std.fmt.allocPrint(c.arena, "{s}_{d}", .{ name, c.getMangle() }) else name;
-                if (scope.containsNow(mangled_name)) {
+                if (scope.containsNow(name)) {
                     continue;
                 }
 
@@ -4888,26 +5325,12 @@ fn transPreprocessorEntities(c: *Context, unit: *clang.ASTUnit) Error!void {
                 const slice_len = @ptrToInt(end_c) - @ptrToInt(begin_c);
                 const slice = begin_c[0..slice_len];
 
-                var tokenizer = std.c.Tokenizer{
-                    .buffer = slice,
-                };
-                while (true) {
-                    const tok = tokenizer.next();
-                    switch (tok.id) {
-                        .Nl, .Eof => {
-                            try tok_list.append(tok);
-                            break;
-                        },
-                        .LineComment, .MultiLineComment => continue,
-                        else => {},
-                    }
-                    try tok_list.append(tok);
-                }
+                try tokenizeMacro(slice, &tok_list);
 
                 var macro_ctx = MacroCtx{
                     .source = slice,
                     .list = tok_list.items,
-                    .name = mangled_name,
+                    .name = name,
                     .loc = begin_loc,
                 };
                 assert(mem.eql(u8, macro_ctx.slice(), name));
@@ -4924,7 +5347,10 @@ fn transPreprocessorEntities(c: *Context, unit: *clang.ASTUnit) Error!void {
                     },
                     .Nl, .Eof => {
                         // this means it is a macro without a value
-                        // we don't care about such things
+                        // We define it as an empty string so that it can still be used with ++
+                        const str_node = try Tag.string_literal.create(c.arena, "\"\"");
+                        const var_decl = try Tag.pub_var_simple.create(c.arena, .{ .name = name, .init = str_node });
+                        try c.global_scope.macro_table.put(name, var_decl);
                         continue;
                     },
                     .LParen => {
@@ -4950,6 +5376,9 @@ fn transPreprocessorEntities(c: *Context, unit: *clang.ASTUnit) Error!void {
 fn transMacroDefine(c: *Context, m: *MacroCtx) ParseError!void {
     const scope = &c.global_scope.base;
 
+    if (m.containsUndefinedIdentifier(scope, &.{})) |ident|
+        return m.fail(c, "unable to translate macro: undefined identifier `{s}`", .{ident});
+
     const init_node = try parseCExpr(c, m, scope);
     const last = m.next().?;
     if (last != .Eof and last != .Nl)
@@ -4960,6 +5389,16 @@ fn transMacroDefine(c: *Context, m: *MacroCtx) ParseError!void {
 }
 
 fn transMacroFnDefine(c: *Context, m: *MacroCtx) ParseError!void {
+    const macro_slicer = m.makeSlicer();
+    if (try c.pattern_list.match(c.gpa, macro_slicer)) |pattern| {
+        const decl = try Tag.pub_var_simple.create(c.arena, .{
+            .name = m.name,
+            .init = try Tag.helpers_macro.create(c.arena, pattern.impl),
+        });
+        try c.global_scope.macro_table.put(m.name, decl);
+        return;
+    }
+
     var block_scope = try Scope.Block.init(c, &c.global_scope.base, false);
     defer block_scope.deinit();
     const scope = &block_scope.base;
@@ -4989,6 +5428,9 @@ fn transMacroFnDefine(c: *Context, m: *MacroCtx) ParseError!void {
     if (m.next().? != .RParen) {
         return m.fail(c, "unable to translate C expr: expected ')'", .{});
     }
+
+    if (m.containsUndefinedIdentifier(scope, fn_params.items)) |ident|
+        return m.fail(c, "unable to translate macro: undefined identifier `{s}`", .{ident});
 
     const expr = try parseCExpr(c, m, scope);
     const last = m.next().?;
@@ -5331,11 +5773,8 @@ fn parseCPrimaryExprInner(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!N
         },
         .Identifier => {
             const mangled_name = scope.getAlias(slice);
-            if (mem.startsWith(u8, mangled_name, "__builtin_") and !isBuiltinDefined(mangled_name)) {
-                try m.fail(c, "TODO implement function '{s}' in std.c.builtins", .{mangled_name});
-                return error.ParseError;
-            }
-            const identifier = try Tag.identifier.create(c.arena, builtin_typedef_map.get(mangled_name) orelse mangled_name);
+            if (builtin_typedef_map.get(mangled_name)) |ty| return Tag.type.create(c.arena, ty);
+            const identifier = try Tag.identifier.create(c.arena, mangled_name);
             scope.skipVariableDiscard(identifier.castTag(.identifier).?.data);
             return identifier;
         },
@@ -5624,7 +6063,8 @@ fn parseCSpecifierQualifierList(c: *Context, m: *MacroCtx, scope: *Scope, allow_
         .Identifier => {
             const mangled_name = scope.getAlias(m.slice());
             if (!allow_fail or c.typedefs.contains(mangled_name)) {
-                return try Tag.identifier.create(c.arena, builtin_typedef_map.get(mangled_name) orelse mangled_name);
+                if (builtin_typedef_map.get(mangled_name)) |ty| return try Tag.type.create(c.arena, ty);
+                return try Tag.identifier.create(c.arena, mangled_name);
             }
         },
         .Keyword_void => return try Tag.type.create(c.arena, "c_void"),

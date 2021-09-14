@@ -1,8 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
 // Ported from:
 //
 // https://github.com/llvm/llvm-project/commit/d674d96bc56c0f377879d01c9d8dfdaaa7859cdb/compiler-rt/lib/builtins/divsf3.c
@@ -205,6 +200,6 @@ pub fn __aeabi_fdiv(a: f32, b: f32) callconv(.AAPCS) f32 {
     return @call(.{ .modifier = .always_inline }, __divsf3, .{ a, b });
 }
 
-test "import divsf3" {
+test {
     _ = @import("divsf3_test.zig");
 }

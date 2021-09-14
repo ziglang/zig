@@ -1,8 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
 const std = @import("std");
 
 const Allocator = std.mem.Allocator;
@@ -164,7 +159,147 @@ fn writeBinaryElfSection(elf_file: File, out_file: File, section: *BinaryElfSect
     });
 }
 
-fn emitRaw(allocator: *Allocator, elf_path: []const u8, raw_path: []const u8) !void {
+const HexWriter = struct {
+    prev_addr: ?u32 = null,
+    out_file: File,
+
+    /// Max data bytes per line of output
+    const MAX_PAYLOAD_LEN: u8 = 16;
+
+    fn addressParts(address: u16) [2]u8 {
+        const msb = @truncate(u8, address >> 8);
+        const lsb = @truncate(u8, address);
+        return [2]u8{ msb, lsb };
+    }
+
+    const Record = struct {
+        const Type = enum(u8) {
+            Data = 0,
+            EOF = 1,
+            ExtendedSegmentAddress = 2,
+            ExtendedLinearAddress = 4,
+        };
+
+        address: u16,
+        payload: union(Type) {
+            Data: []const u8,
+            EOF: void,
+            ExtendedSegmentAddress: [2]u8,
+            ExtendedLinearAddress: [2]u8,
+        },
+
+        fn EOF() Record {
+            return Record{
+                .address = 0,
+                .payload = .EOF,
+            };
+        }
+
+        fn Data(address: u32, data: []const u8) Record {
+            return Record{
+                .address = @intCast(u16, address % 0x10000),
+                .payload = .{ .Data = data },
+            };
+        }
+
+        fn Address(address: u32) Record {
+            std.debug.assert(address > 0xFFFF);
+            const segment = @intCast(u16, address / 0x10000);
+            if (address > 0xFFFFF) {
+                return Record{
+                    .address = 0,
+                    .payload = .{ .ExtendedLinearAddress = addressParts(segment) },
+                };
+            } else {
+                return Record{
+                    .address = 0,
+                    .payload = .{ .ExtendedSegmentAddress = addressParts(segment << 12) },
+                };
+            }
+        }
+
+        fn getPayloadBytes(self: Record) []const u8 {
+            return switch (self.payload) {
+                .Data => |d| d,
+                .EOF => @as([]const u8, &.{}),
+                .ExtendedSegmentAddress, .ExtendedLinearAddress => |*seg| seg,
+            };
+        }
+
+        fn checksum(self: Record) u8 {
+            const payload_bytes = self.getPayloadBytes();
+
+            var sum: u8 = @intCast(u8, payload_bytes.len);
+            const parts = addressParts(self.address);
+            sum +%= parts[0];
+            sum +%= parts[1];
+            sum +%= @enumToInt(self.payload);
+            for (payload_bytes) |byte| {
+                sum +%= byte;
+            }
+            return (sum ^ 0xFF) +% 1;
+        }
+
+        fn write(self: Record, file: File) File.WriteError!void {
+            const linesep = "\r\n";
+            // colon, (length, address, type, payload, checksum) as hex, CRLF
+            const BUFSIZE = 1 + (1 + 2 + 1 + MAX_PAYLOAD_LEN + 1) * 2 + linesep.len;
+            var outbuf: [BUFSIZE]u8 = undefined;
+            const payload_bytes = self.getPayloadBytes();
+            std.debug.assert(payload_bytes.len <= MAX_PAYLOAD_LEN);
+
+            const line = try std.fmt.bufPrint(&outbuf, ":{0X:0>2}{1X:0>4}{2X:0>2}{3s}{4X:0>2}" ++ linesep, .{
+                @intCast(u8, payload_bytes.len),
+                self.address,
+                @enumToInt(self.payload),
+                std.fmt.fmtSliceHexUpper(payload_bytes),
+                self.checksum(),
+            });
+            try file.writeAll(line);
+        }
+    };
+
+    pub fn writeSegment(self: *HexWriter, segment: *const BinaryElfSegment, elf_file: File) !void {
+        var buf: [MAX_PAYLOAD_LEN]u8 = undefined;
+        var bytes_read: usize = 0;
+        while (bytes_read < segment.fileSize) {
+            const row_address = @intCast(u32, segment.physicalAddress + bytes_read);
+
+            const remaining = segment.fileSize - bytes_read;
+            const to_read = @minimum(remaining, MAX_PAYLOAD_LEN);
+            const did_read = try elf_file.preadAll(buf[0..to_read], segment.elfOffset + bytes_read);
+            if (did_read < to_read) return error.UnexpectedEOF;
+
+            try self.writeDataRow(row_address, buf[0..did_read]);
+
+            bytes_read += did_read;
+        }
+    }
+
+    fn writeDataRow(self: *HexWriter, address: u32, data: []const u8) File.WriteError!void {
+        const record = Record.Data(address, data);
+        if (address > 0xFFFF and (self.prev_addr == null or record.address != self.prev_addr.?)) {
+            try Record.Address(address).write(self.out_file);
+        }
+        try record.write(self.out_file);
+        self.prev_addr = @intCast(u32, record.address + data.len);
+    }
+
+    fn writeEOF(self: HexWriter) File.WriteError!void {
+        try Record.EOF().write(self.out_file);
+    }
+};
+
+fn containsValidAddressRange(segments: []*BinaryElfSegment) bool {
+    const max_address = std.math.maxInt(u32);
+    for (segments) |segment| {
+        if (segment.fileSize > max_address or
+            segment.physicalAddress > max_address - segment.fileSize) return false;
+    }
+    return true;
+}
+
+fn emitRaw(allocator: *Allocator, elf_path: []const u8, raw_path: []const u8, format: RawFormat) !void {
     var elf_file = try fs.cwd().openFile(elf_path, .{});
     defer elf_file.close();
 
@@ -174,8 +309,26 @@ fn emitRaw(allocator: *Allocator, elf_path: []const u8, raw_path: []const u8) !v
     var binary_elf_output = try BinaryElfOutput.parse(allocator, elf_file);
     defer binary_elf_output.deinit();
 
-    for (binary_elf_output.sections.items) |section| {
-        try writeBinaryElfSection(elf_file, out_file, section);
+    switch (format) {
+        .bin => {
+            for (binary_elf_output.sections.items) |section| {
+                try writeBinaryElfSection(elf_file, out_file, section);
+            }
+        },
+        .hex => {
+            if (binary_elf_output.segments.items.len == 0) return;
+            if (!containsValidAddressRange(binary_elf_output.segments.items)) {
+                return error.InvalidHexfileAddressRange;
+            }
+
+            var hex_writer = HexWriter{ .out_file = out_file };
+            for (binary_elf_output.sections.items) |section| {
+                if (section.segment) |segment| {
+                    try hex_writer.writeSegment(segment, elf_file);
+                }
+            }
+            try hex_writer.writeEOF();
+        },
     }
 }
 
@@ -183,13 +336,27 @@ const InstallRawStep = @This();
 
 pub const base_id = .install_raw;
 
+pub const RawFormat = enum {
+    bin,
+    hex,
+};
+
 step: Step,
 builder: *Builder,
 artifact: *LibExeObjStep,
 dest_dir: InstallDir,
 dest_filename: []const u8,
+format: RawFormat,
+output_file: std.build.GeneratedFile,
 
-pub fn create(builder: *Builder, artifact: *LibExeObjStep, dest_filename: []const u8) *InstallRawStep {
+fn detectFormat(filename: []const u8) RawFormat {
+    if (std.mem.endsWith(u8, filename, ".hex") or std.mem.endsWith(u8, filename, ".ihex")) {
+        return .hex;
+    }
+    return .bin;
+}
+
+pub fn create(builder: *Builder, artifact: *LibExeObjStep, dest_filename: []const u8, format: ?RawFormat) *InstallRawStep {
     const self = builder.allocator.create(InstallRawStep) catch unreachable;
     self.* = InstallRawStep{
         .step = Step.init(.install_raw, builder.fmt("install raw binary {s}", .{artifact.step.name}), builder.allocator, make),
@@ -202,11 +369,17 @@ pub fn create(builder: *Builder, artifact: *LibExeObjStep, dest_filename: []cons
             .lib => unreachable,
         },
         .dest_filename = dest_filename,
+        .format = format orelse detectFormat(dest_filename),
+        .output_file = std.build.GeneratedFile{ .step = &self.step },
     };
     self.step.dependOn(&artifact.step);
 
     builder.pushInstalledFile(self.dest_dir, dest_filename);
     return self;
+}
+
+pub fn getOutputSource(self: *const InstallRawStep) std.build.FileSource {
+    return std.build.FileSource{ .generated = &self.output_file };
 }
 
 fn make(step: *Step) !void {
@@ -222,9 +395,49 @@ fn make(step: *Step) !void {
     const full_dest_path = builder.getInstallPath(self.dest_dir, self.dest_filename);
 
     fs.cwd().makePath(builder.getInstallPath(self.dest_dir, "")) catch unreachable;
-    try emitRaw(builder.allocator, full_src_path, full_dest_path);
+    try emitRaw(builder.allocator, full_src_path, full_dest_path, self.format);
+    self.output_file.path = full_dest_path;
 }
 
 test {
     std.testing.refAllDecls(InstallRawStep);
+}
+
+test "Detect format from filename" {
+    try std.testing.expectEqual(RawFormat.hex, detectFormat("foo.hex"));
+    try std.testing.expectEqual(RawFormat.hex, detectFormat("foo.ihex"));
+    try std.testing.expectEqual(RawFormat.bin, detectFormat("foo.bin"));
+    try std.testing.expectEqual(RawFormat.bin, detectFormat("foo.bar"));
+    try std.testing.expectEqual(RawFormat.bin, detectFormat("a"));
+}
+
+test "containsValidAddressRange" {
+    var segment = BinaryElfSegment{
+        .physicalAddress = 0,
+        .virtualAddress = 0,
+        .elfOffset = 0,
+        .binaryOffset = 0,
+        .fileSize = 0,
+        .firstSection = null,
+    };
+    var buf: [1]*BinaryElfSegment = .{&segment};
+
+    // segment too big
+    segment.fileSize = std.math.maxInt(u32) + 1;
+    try std.testing.expect(!containsValidAddressRange(&buf));
+
+    // start address too big
+    segment.physicalAddress = std.math.maxInt(u32) + 1;
+    segment.fileSize = 2;
+    try std.testing.expect(!containsValidAddressRange(&buf));
+
+    // max address too big
+    segment.physicalAddress = std.math.maxInt(u32) - 1;
+    segment.fileSize = 2;
+    try std.testing.expect(!containsValidAddressRange(&buf));
+
+    // is ok
+    segment.physicalAddress = std.math.maxInt(u32) - 1;
+    segment.fileSize = 1;
+    try std.testing.expect(containsValidAddressRange(&buf));
 }

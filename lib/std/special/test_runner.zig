@@ -1,8 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
 const std = @import("std");
 const io = std.io;
 const builtin = @import("builtin");
@@ -21,9 +16,9 @@ fn processArgs() void {
     std.testing.zig_exe_path = args[1];
 }
 
-pub fn main() anyerror!void {
+pub fn main() void {
     if (builtin.zig_is_stage2) {
-        return main2();
+        return main2() catch @panic("test failure");
     }
     processArgs();
     const test_fn_list = builtin.test_functions;

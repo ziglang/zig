@@ -107,6 +107,7 @@ enum X64CABIClass {
     X64CABIClass_MEMORY_nobyval,
     X64CABIClass_INTEGER,
     X64CABIClass_SSE,
+    X64CABIClass_AGG,
 };
 
 struct Stage1Zir {
@@ -1124,6 +1125,7 @@ struct AstNodeContainerInitExpr {
 
 struct AstNodeIdentifier {
     Buf *name;
+    bool is_at_syntax;
 };
 
 struct AstNodeEnumLiteral {
@@ -1569,8 +1571,9 @@ struct ZigType {
 
     // These are not supposed to be accessed directly. They're
     // null during semantic analysis, memoized with get_llvm_type
-    // and get_llvm_di_type
+    // get_llvm_c_abi_type and get_llvm_di_type
     LLVMTypeRef llvm_type;
+    LLVMTypeRef llvm_c_abi_type;
     ZigLLVMDIType *llvm_di_type;
 
     union {
@@ -1624,6 +1627,7 @@ struct GlobalExport {
 
 struct ZigFn {
     LLVMValueRef llvm_value;
+    LLVMValueRef abi_return_value; // alloca used when converting at SysV ABI boundaries
     const char *llvm_name;
     AstNode *proto_node;
     AstNode *body_node;
@@ -1755,6 +1759,7 @@ enum BuiltinFnId {
     BuiltinFnIdIntToEnum,
     BuiltinFnIdVectorType,
     BuiltinFnIdShuffle,
+    BuiltinFnIdSelect,
     BuiltinFnIdSplat,
     BuiltinFnIdSetCold,
     BuiltinFnIdSetRuntimeSafety,
@@ -1795,6 +1800,12 @@ enum BuiltinFnId {
     BuiltinFnIdWasmMemoryGrow,
     BuiltinFnIdSrc,
     BuiltinFnIdReduce,
+    BuiltinFnIdMaximum,
+    BuiltinFnIdMinimum,
+    BuiltinFnIdSatAdd,
+    BuiltinFnIdSatSub,
+    BuiltinFnIdSatMul,
+    BuiltinFnIdSatShl,
 };
 
 struct BuiltinFnEntry {
@@ -1907,12 +1918,15 @@ struct ZigLLVMFnKey {
     union {
         struct {
             uint32_t bit_count;
+            uint32_t vector_len; // 0 means not a vector
         } ctz;
         struct {
             uint32_t bit_count;
+            uint32_t vector_len; // 0 means not a vector
         } clz;
         struct {
             uint32_t bit_count;
+            uint32_t vector_len; // 0 means not a vector
         } pop_count;
         struct {
             BuiltinFnId op;
@@ -2090,6 +2104,7 @@ struct CodeGen {
     Buf h_file_output_path;
     Buf asm_file_output_path;
     Buf llvm_ir_file_output_path;
+    Buf bitcode_file_output_path;
     Buf analysis_json_output_path;
     Buf docs_output_path;
 
@@ -2149,6 +2164,7 @@ struct CodeGen {
     bool have_stack_probing;
     bool red_zone;
     bool function_sections;
+    bool include_compiler_rt;
     bool test_is_evented;
     bool valgrind_enabled;
     bool tsan_enabled;
@@ -2539,6 +2555,7 @@ enum Stage1ZirInstId : uint8_t {
     Stage1ZirInstIdBoolToInt,
     Stage1ZirInstIdVectorType,
     Stage1ZirInstIdShuffleVector,
+    Stage1ZirInstIdSelect,
     Stage1ZirInstIdSplat,
     Stage1ZirInstIdBoolNot,
     Stage1ZirInstIdMemset,
@@ -2659,6 +2676,7 @@ enum Stage1AirInstId : uint8_t {
     Stage1AirInstIdReduce,
     Stage1AirInstIdTruncate,
     Stage1AirInstIdShuffleVector,
+    Stage1AirInstIdSelect,
     Stage1AirInstIdSplat,
     Stage1AirInstIdBoolNot,
     Stage1AirInstIdMemset,
@@ -2930,6 +2948,12 @@ enum IrBinOp {
     IrBinOpRemMod,
     IrBinOpArrayCat,
     IrBinOpArrayMult,
+    IrBinOpMaximum,
+    IrBinOpMinimum,
+    IrBinOpSatAdd,
+    IrBinOpSatSub,
+    IrBinOpSatMul,
+    IrBinOpSatShl,
 };
 
 struct Stage1ZirInstBinOp {
@@ -4288,6 +4312,23 @@ struct Stage1AirInstShuffleVector {
     Stage1AirInst *a;
     Stage1AirInst *b;
     Stage1AirInst *mask; // This is in zig-format, not llvm format
+};
+
+struct Stage1ZirInstSelect {
+    Stage1ZirInst base;
+
+    Stage1ZirInst *scalar_type;
+    Stage1ZirInst *pred; // This is in zig-format, not llvm format
+    Stage1ZirInst *a;
+    Stage1ZirInst *b;
+};
+
+struct Stage1AirInstSelect {
+    Stage1AirInst base;
+
+    Stage1AirInst *pred;  // This is in zig-format, not llvm format
+    Stage1AirInst *a;
+    Stage1AirInst *b;
 };
 
 struct Stage1ZirInstSplat {

@@ -1,9 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
-
 const std = @import("../../std.zig");
 
 const io = std.io;
@@ -52,8 +46,8 @@ pub const Connection = struct {
 
 /// Possible domains that a TCP client/listener may operate over.
 pub const Domain = enum(u16) {
-    ip = os.AF_INET,
-    ipv6 = os.AF_INET6,
+    ip = os.AF.INET,
+    ipv6 = os.AF.INET6,
 };
 
 /// A TCP client.
@@ -87,8 +81,8 @@ pub const Client = struct {
         return Client{
             .socket = try Socket.init(
                 @enumToInt(domain),
-                os.SOCK_STREAM,
-                os.IPPROTO_TCP,
+                os.SOCK.STREAM,
+                os.IPPROTO.TCP,
                 flags,
             ),
         };
@@ -199,9 +193,9 @@ pub const Client = struct {
     /// Disable Nagle's algorithm on a TCP socket. It returns `error.UnsupportedSocketOption` if
     /// the host does not support sockets disabling Nagle's algorithm.
     pub fn setNoDelay(self: Client, enabled: bool) !void {
-        if (comptime @hasDecl(os, "TCP_NODELAY")) {
+        if (@hasDecl(os.TCP, "NODELAY")) {
             const bytes = mem.asBytes(&@as(usize, @boolToInt(enabled)));
-            return self.socket.setOption(os.IPPROTO_TCP, os.TCP_NODELAY, bytes);
+            return self.socket.setOption(os.IPPROTO.TCP, os.TCP.NODELAY, bytes);
         }
         return error.UnsupportedSocketOption;
     }
@@ -209,8 +203,8 @@ pub const Client = struct {
     /// Enables TCP Quick ACK on a TCP socket to immediately send rather than delay ACKs when necessary. It returns
     /// `error.UnsupportedSocketOption` if the host does not support TCP Quick ACK.
     pub fn setQuickACK(self: Client, enabled: bool) !void {
-        if (comptime @hasDecl(os, "TCP_QUICKACK")) {
-            return self.socket.setOption(os.IPPROTO_TCP, os.TCP_QUICKACK, mem.asBytes(&@as(u32, @boolToInt(enabled))));
+        if (@hasDecl(os.TCP, "QUICKACK")) {
+            return self.socket.setOption(os.IPPROTO.TCP, os.TCP.QUICKACK, mem.asBytes(&@as(u32, @boolToInt(enabled))));
         }
         return error.UnsupportedSocketOption;
     }
@@ -250,8 +244,8 @@ pub const Listener = struct {
         return Listener{
             .socket = try Socket.init(
                 @enumToInt(domain),
-                os.SOCK_STREAM,
-                os.IPPROTO_TCP,
+                os.SOCK.STREAM,
+                os.IPPROTO.TCP,
                 flags,
             ),
         };
@@ -310,8 +304,8 @@ pub const Listener = struct {
     /// Enables TCP Fast Open (RFC 7413) on a TCP socket. It returns `error.UnsupportedSocketOption` if the host does not
     /// support TCP Fast Open.
     pub fn setFastOpen(self: Listener, enabled: bool) !void {
-        if (comptime @hasDecl(os, "TCP_FASTOPEN")) {
-            return self.socket.setOption(os.IPPROTO_TCP, os.TCP_FASTOPEN, mem.asBytes(&@as(u32, @boolToInt(enabled))));
+        if (@hasDecl(os.TCP, "FASTOPEN")) {
+            return self.socket.setOption(os.IPPROTO.TCP, os.TCP.FASTOPEN, mem.asBytes(&@as(u32, @boolToInt(enabled))));
         }
         return error.UnsupportedSocketOption;
     }

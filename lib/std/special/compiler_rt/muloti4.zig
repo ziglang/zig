@@ -1,8 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
 const builtin = @import("builtin");
 const compiler_rt = @import("../compiler_rt.zig");
 
@@ -49,6 +44,6 @@ pub fn __muloti4(a: i128, b: i128, overflow: *c_int) callconv(.C) i128 {
     return r;
 }
 
-test "import muloti4" {
+test {
     _ = @import("muloti4_test.zig");
 }

@@ -56,6 +56,8 @@ bool bigint_fits_in_bits(const BigInt *bn, size_t bit_count, bool is_signed);
 void bigint_write_twos_complement(const BigInt *big_int, uint8_t *buf, size_t bit_count, bool is_big_endian);
 void bigint_read_twos_complement(BigInt *dest, const uint8_t *buf, size_t bit_count, bool is_big_endian,
         bool is_signed);
+void bigint_max(BigInt* dest, const BigInt *op1, const BigInt *op2);
+void bigint_min(BigInt* dest, const BigInt *op1, const BigInt *op2);
 void bigint_add(BigInt *dest, const BigInt *op1, const BigInt *op2);
 void bigint_add_wrap(BigInt *dest, const BigInt *op1, const BigInt *op2, size_t bit_count, bool is_signed);
 void bigint_sub(BigInt *dest, const BigInt *op1, const BigInt *op2);
@@ -103,4 +105,8 @@ bool mul_u64_overflow(uint64_t op1, uint64_t op2, uint64_t *result);
 uint32_t bigint_hash(BigInt const *x);
 bool bigint_eql(BigInt const *a, BigInt const *b);
 
+void bigint_add_sat(BigInt* dest, const BigInt *op1, const BigInt *op2, uint32_t bit_count, bool is_signed);
+void bigint_sub_sat(BigInt* dest, const BigInt *op1, const BigInt *op2, uint32_t bit_count, bool is_signed);
+void bigint_mul_sat(BigInt* dest, const BigInt *op1, const BigInt *op2, uint32_t bit_count, bool is_signed);
+void bigint_shl_sat(BigInt* dest, const BigInt *op1, const BigInt *op2, uint32_t bit_count, bool is_signed);
 #endif

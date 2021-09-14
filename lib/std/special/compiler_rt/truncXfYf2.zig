@@ -1,8 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
 const std = @import("std");
 
 pub fn __truncsfhf2(a: f32) callconv(.C) u16 {
@@ -143,6 +138,6 @@ fn truncXfYf2(comptime dst_t: type, comptime src_t: type, a: src_t) dst_t {
     return @bitCast(dst_t, result);
 }
 
-test "import truncXfYf2" {
+test {
     _ = @import("truncXfYf2_test.zig");
 }

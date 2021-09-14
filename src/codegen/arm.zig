@@ -170,7 +170,7 @@ pub const Register = enum(u5) {
     }
 
     pub fn dwarfLocOp(self: Register) u8 {
-        return @as(u8, self.id()) + DW.OP_reg0;
+        return @as(u8, self.id()) + DW.OP.reg0;
     }
 };
 
@@ -192,7 +192,7 @@ pub const c_abi_int_return_regs = [_]Register{ .r0, .r1 };
 
 /// Represents an instruction in the ARM instruction set architecture
 pub const Instruction = union(enum) {
-    DataProcessing: packed struct {
+    data_processing: packed struct {
         // Note to self: The order of the fields top-to-bottom is
         // right-to-left in the actual 32-bit int representation
         op2: u12,
@@ -204,7 +204,7 @@ pub const Instruction = union(enum) {
         fixed: u2 = 0b00,
         cond: u4,
     },
-    Multiply: packed struct {
+    multiply: packed struct {
         rn: u4,
         fixed_1: u4 = 0b1001,
         rm: u4,
@@ -215,7 +215,7 @@ pub const Instruction = union(enum) {
         fixed_2: u6 = 0b000000,
         cond: u4,
     },
-    MultiplyLong: packed struct {
+    multiply_long: packed struct {
         rn: u4,
         fixed_1: u4 = 0b1001,
         rm: u4,
@@ -227,7 +227,17 @@ pub const Instruction = union(enum) {
         fixed_2: u5 = 0b00001,
         cond: u4,
     },
-    SingleDataTransfer: packed struct {
+    integer_saturating_arithmetic: packed struct {
+        rm: u4,
+        fixed_1: u8 = 0b0000_0101,
+        rd: u4,
+        rn: u4,
+        fixed_2: u1 = 0b0,
+        opc: u2,
+        fixed_3: u5 = 0b00010,
+        cond: u4,
+    },
+    single_data_transfer: packed struct {
         offset: u12,
         rd: u4,
         rn: u4,
@@ -240,7 +250,7 @@ pub const Instruction = union(enum) {
         fixed: u2 = 0b01,
         cond: u4,
     },
-    ExtraLoadStore: packed struct {
+    extra_load_store: packed struct {
         imm4l: u4,
         fixed_1: u1 = 0b1,
         op2: u2,
@@ -256,7 +266,7 @@ pub const Instruction = union(enum) {
         fixed_3: u3 = 0b000,
         cond: u4,
     },
-    BlockDataTransfer: packed struct {
+    block_data_transfer: packed struct {
         register_list: u16,
         rn: u4,
         load_store: u1,
@@ -267,25 +277,25 @@ pub const Instruction = union(enum) {
         fixed: u3 = 0b100,
         cond: u4,
     },
-    Branch: packed struct {
+    branch: packed struct {
         offset: u24,
         link: u1,
         fixed: u3 = 0b101,
         cond: u4,
     },
-    BranchExchange: packed struct {
+    branch_exchange: packed struct {
         rn: u4,
         fixed_1: u1 = 0b1,
         link: u1,
         fixed_2: u22 = 0b0001_0010_1111_1111_1111_00,
         cond: u4,
     },
-    SupervisorCall: packed struct {
+    supervisor_call: packed struct {
         comment: u24,
         fixed: u4 = 0b1111,
         cond: u4,
     },
-    Breakpoint: packed struct {
+    breakpoint: packed struct {
         imm4: u4,
         fixed_1: u4 = 0b0111,
         imm12: u12,
@@ -293,7 +303,7 @@ pub const Instruction = union(enum) {
     },
 
     /// Represents the possible operations which can be performed by a
-    /// DataProcessing instruction
+    /// Data Processing instruction
     const Opcode = enum(u4) {
         // Rd := Op1 AND Op2
         @"and",
@@ -530,16 +540,17 @@ pub const Instruction = union(enum) {
 
     pub fn toU32(self: Instruction) u32 {
         return switch (self) {
-            .DataProcessing => |v| @bitCast(u32, v),
-            .Multiply => |v| @bitCast(u32, v),
-            .MultiplyLong => |v| @bitCast(u32, v),
-            .SingleDataTransfer => |v| @bitCast(u32, v),
-            .ExtraLoadStore => |v| @bitCast(u32, v),
-            .BlockDataTransfer => |v| @bitCast(u32, v),
-            .Branch => |v| @bitCast(u32, v),
-            .BranchExchange => |v| @bitCast(u32, v),
-            .SupervisorCall => |v| @bitCast(u32, v),
-            .Breakpoint => |v| @intCast(u32, v.imm4) | (@intCast(u32, v.fixed_1) << 4) | (@intCast(u32, v.imm12) << 8) | (@intCast(u32, v.fixed_2_and_cond) << 20),
+            .data_processing => |v| @bitCast(u32, v),
+            .multiply => |v| @bitCast(u32, v),
+            .multiply_long => |v| @bitCast(u32, v),
+            .integer_saturating_arithmetic => |v| @bitCast(u32, v),
+            .single_data_transfer => |v| @bitCast(u32, v),
+            .extra_load_store => |v| @bitCast(u32, v),
+            .block_data_transfer => |v| @bitCast(u32, v),
+            .branch => |v| @bitCast(u32, v),
+            .branch_exchange => |v| @bitCast(u32, v),
+            .supervisor_call => |v| @bitCast(u32, v),
+            .breakpoint => |v| @intCast(u32, v.imm4) | (@intCast(u32, v.fixed_1) << 4) | (@intCast(u32, v.imm12) << 8) | (@intCast(u32, v.fixed_2_and_cond) << 20),
         };
     }
 
@@ -554,7 +565,7 @@ pub const Instruction = union(enum) {
         op2: Operand,
     ) Instruction {
         return Instruction{
-            .DataProcessing = .{
+            .data_processing = .{
                 .cond = @enumToInt(cond),
                 .i = @boolToInt(op2 == .Immediate),
                 .opcode = @enumToInt(opcode),
@@ -573,7 +584,7 @@ pub const Instruction = union(enum) {
         top: bool,
     ) Instruction {
         return Instruction{
-            .DataProcessing = .{
+            .data_processing = .{
                 .cond = @enumToInt(cond),
                 .i = 1,
                 .opcode = if (top) 0b1010 else 0b1000,
@@ -594,7 +605,7 @@ pub const Instruction = union(enum) {
         ra: ?Register,
     ) Instruction {
         return Instruction{
-            .Multiply = .{
+            .multiply = .{
                 .cond = @enumToInt(cond),
                 .accumulate = @boolToInt(ra != null),
                 .set_cond = set_cond,
@@ -617,7 +628,7 @@ pub const Instruction = union(enum) {
         rn: Register,
     ) Instruction {
         return Instruction{
-            .MultiplyLong = .{
+            .multiply_long = .{
                 .cond = @enumToInt(cond),
                 .unsigned = signed,
                 .accumulate = accumulate,
@@ -626,6 +637,24 @@ pub const Instruction = union(enum) {
                 .rdhi = rdhi.id(),
                 .rn = rn.id(),
                 .rm = rm.id(),
+            },
+        };
+    }
+
+    fn integerSaturationArithmetic(
+        cond: Condition,
+        rd: Register,
+        rm: Register,
+        rn: Register,
+        opc: u2,
+    ) Instruction {
+        return Instruction{
+            .integer_saturating_arithmetic = .{
+                .rm = rm.id(),
+                .rd = rd.id(),
+                .rn = rn.id(),
+                .opc = opc,
+                .cond = @enumToInt(cond),
             },
         };
     }
@@ -642,7 +671,7 @@ pub const Instruction = union(enum) {
         load_store: u1,
     ) Instruction {
         return Instruction{
-            .SingleDataTransfer = .{
+            .single_data_transfer = .{
                 .cond = @enumToInt(cond),
                 .rn = rn.id(),
                 .rd = rd.id(),
@@ -678,7 +707,7 @@ pub const Instruction = union(enum) {
         };
 
         return Instruction{
-            .ExtraLoadStore = .{
+            .extra_load_store = .{
                 .imm4l = imm4l,
                 .op2 = op2,
                 .imm4h = imm4h,
@@ -705,7 +734,7 @@ pub const Instruction = union(enum) {
         load_store: u1,
     ) Instruction {
         return Instruction{
-            .BlockDataTransfer = .{
+            .block_data_transfer = .{
                 .register_list = @bitCast(u16, reg_list),
                 .rn = rn.id(),
                 .load_store = load_store,
@@ -720,7 +749,7 @@ pub const Instruction = union(enum) {
 
     fn branch(cond: Condition, offset: i26, link: u1) Instruction {
         return Instruction{
-            .Branch = .{
+            .branch = .{
                 .cond = @enumToInt(cond),
                 .link = link,
                 .offset = @bitCast(u24, @intCast(i24, offset >> 2)),
@@ -730,7 +759,7 @@ pub const Instruction = union(enum) {
 
     fn branchExchange(cond: Condition, rn: Register, link: u1) Instruction {
         return Instruction{
-            .BranchExchange = .{
+            .branch_exchange = .{
                 .cond = @enumToInt(cond),
                 .link = link,
                 .rn = rn.id(),
@@ -740,7 +769,7 @@ pub const Instruction = union(enum) {
 
     fn supervisorCall(cond: Condition, comment: u24) Instruction {
         return Instruction{
-            .SupervisorCall = .{
+            .supervisor_call = .{
                 .cond = @enumToInt(cond),
                 .comment = comment,
             },
@@ -749,7 +778,7 @@ pub const Instruction = union(enum) {
 
     fn breakpoint(imm: u16) Instruction {
         return Instruction{
-            .Breakpoint = .{
+            .breakpoint = .{
                 .imm12 = @truncate(u12, imm >> 4),
                 .imm4 = @truncate(u4, imm),
             },
@@ -857,11 +886,11 @@ pub const Instruction = union(enum) {
         return dataProcessing(cond, .mov, 1, rd, .r0, op2);
     }
 
-    pub fn bic(cond: Condition, rd: Register, op2: Operand) Instruction {
+    pub fn bic(cond: Condition, rd: Register, rn: Register, op2: Operand) Instruction {
         return dataProcessing(cond, .bic, 0, rd, rn, op2);
     }
 
-    pub fn bics(cond: Condition, rd: Register, op2: Operand) Instruction {
+    pub fn bics(cond: Condition, rd: Register, rn: Register, op2: Operand) Instruction {
         return dataProcessing(cond, .bic, 1, rd, rn, op2);
     }
 
@@ -871,6 +900,24 @@ pub const Instruction = union(enum) {
 
     pub fn mvns(cond: Condition, rd: Register, op2: Operand) Instruction {
         return dataProcessing(cond, .mvn, 1, rd, .r0, op2);
+    }
+
+    // Integer Saturating Arithmetic
+
+    pub fn qadd(cond: Condition, rd: Register, rm: Register, rn: Register) Instruction {
+        return integerSaturationArithmetic(cond, rd, rm, rn, 0b00);
+    }
+
+    pub fn qsub(cond: Condition, rd: Register, rm: Register, rn: Register) Instruction {
+        return integerSaturationArithmetic(cond, rd, rm, rn, 0b01);
+    }
+
+    pub fn qdadd(cond: Condition, rd: Register, rm: Register, rn: Register) Instruction {
+        return integerSaturationArithmetic(cond, rd, rm, rn, 0b10);
+    }
+
+    pub fn qdsub(cond: Condition, rd: Register, rm: Register, rn: Register) Instruction {
+        return integerSaturationArithmetic(cond, rd, rm, rn, 0b11);
     }
 
     // movw and movt
@@ -887,7 +934,7 @@ pub const Instruction = union(enum) {
 
     pub fn mrs(cond: Condition, rd: Register, psr: Psr) Instruction {
         return Instruction{
-            .DataProcessing = .{
+            .data_processing = .{
                 .cond = @enumToInt(cond),
                 .i = 0,
                 .opcode = if (psr == .spsr) 0b1010 else 0b1000,
@@ -901,7 +948,7 @@ pub const Instruction = union(enum) {
 
     pub fn msr(cond: Condition, psr: Psr, op: Operand) Instruction {
         return Instruction{
-            .DataProcessing = .{
+            .data_processing = .{
                 .cond = @enumToInt(cond),
                 .i = 0,
                 .opcode = if (psr == .spsr) 0b1011 else 0b1001,
@@ -1142,6 +1189,79 @@ pub const Instruction = union(enum) {
             return stmdb(cond, .sp, true, @bitCast(RegisterList, register_list));
         }
     }
+
+    pub const ShiftAmount = union(enum) {
+        immediate: u5,
+        register: Register,
+
+        pub fn imm(immediate: u5) ShiftAmount {
+            return .{
+                .immediate = immediate,
+            };
+        }
+
+        pub fn reg(register: Register) ShiftAmount {
+            return .{
+                .register = register,
+            };
+        }
+    };
+
+    pub fn lsl(cond: Condition, rd: Register, rm: Register, shift: ShiftAmount) Instruction {
+        return switch (shift) {
+            .immediate => |imm| mov(cond, rd, Operand.reg(rm, Operand.Shift.imm(imm, .logical_left))),
+            .register => |reg| mov(cond, rd, Operand.reg(rm, Operand.Shift.reg(reg, .logical_left))),
+        };
+    }
+
+    pub fn lsr(cond: Condition, rd: Register, rm: Register, shift: ShiftAmount) Instruction {
+        return switch (shift) {
+            .immediate => |imm| mov(cond, rd, Operand.reg(rm, Operand.Shift.imm(imm, .logical_right))),
+            .register => |reg| mov(cond, rd, Operand.reg(rm, Operand.Shift.reg(reg, .logical_right))),
+        };
+    }
+
+    pub fn asr(cond: Condition, rd: Register, rm: Register, shift: ShiftAmount) Instruction {
+        return switch (shift) {
+            .immediate => |imm| mov(cond, rd, Operand.reg(rm, Operand.Shift.imm(imm, .arithmetic_right))),
+            .register => |reg| mov(cond, rd, Operand.reg(rm, Operand.Shift.reg(reg, .arithmetic_right))),
+        };
+    }
+
+    pub fn ror(cond: Condition, rd: Register, rm: Register, shift: ShiftAmount) Instruction {
+        return switch (shift) {
+            .immediate => |imm| mov(cond, rd, Operand.reg(rm, Operand.Shift.imm(imm, .rotate_right))),
+            .register => |reg| mov(cond, rd, Operand.reg(rm, Operand.Shift.reg(reg, .rotate_right))),
+        };
+    }
+
+    pub fn lsls(cond: Condition, rd: Register, rm: Register, shift: ShiftAmount) Instruction {
+        return switch (shift) {
+            .immediate => |imm| movs(cond, rd, Operand.reg(rm, Operand.Shift.imm(imm, .logical_left))),
+            .register => |reg| movs(cond, rd, Operand.reg(rm, Operand.Shift.reg(reg, .logical_left))),
+        };
+    }
+
+    pub fn lsrs(cond: Condition, rd: Register, rm: Register, shift: ShiftAmount) Instruction {
+        return switch (shift) {
+            .immediate => |imm| movs(cond, rd, Operand.reg(rm, Operand.Shift.imm(imm, .logical_right))),
+            .register => |reg| movs(cond, rd, Operand.reg(rm, Operand.Shift.reg(reg, .logical_right))),
+        };
+    }
+
+    pub fn asrs(cond: Condition, rd: Register, rm: Register, shift: ShiftAmount) Instruction {
+        return switch (shift) {
+            .immediate => |imm| movs(cond, rd, Operand.reg(rm, Operand.Shift.imm(imm, .arithmetic_right))),
+            .register => |reg| movs(cond, rd, Operand.reg(rm, Operand.Shift.reg(reg, .arithmetic_right))),
+        };
+    }
+
+    pub fn rors(cond: Condition, rd: Register, rm: Register, shift: ShiftAmount) Instruction {
+        return switch (shift) {
+            .immediate => |imm| movs(cond, rd, Operand.reg(rm, Operand.Shift.imm(imm, .rotate_right))),
+            .register => |reg| movs(cond, rd, Operand.reg(rm, Operand.Shift.reg(reg, .rotate_right))),
+        };
+    }
 };
 
 test "serialize instructions" {
@@ -1221,6 +1341,10 @@ test "serialize instructions" {
             .inst = Instruction.ldmea(.al, .r4, true, .{ .r2 = true, .r5 = true }),
             .expected = 0b1110_100_1_0_0_1_1_0100_0000000000100100,
         },
+        .{ // qadd r0, r7, r8
+            .inst = Instruction.qadd(.al, .r0, .r7, .r8),
+            .expected = 0b1110_00010_00_0_1000_0000_0000_0101_0111,
+        },
     };
 
     for (testcases) |case| {
@@ -1261,6 +1385,20 @@ test "aliases" {
         .{ // push { r0, r2 }
             .actual = Instruction.push(.al, .{ .r0, .r2 }),
             .expected = Instruction.stmdb(.al, .sp, true, .{ .r0 = true, .r2 = true }),
+        },
+        .{ // lsl r4, r5, #5
+            .actual = Instruction.lsl(.al, .r4, .r5, Instruction.ShiftAmount.imm(5)),
+            .expected = Instruction.mov(.al, .r4, Instruction.Operand.reg(
+                .r5,
+                Instruction.Operand.Shift.imm(5, .logical_left),
+            )),
+        },
+        .{ // asrs r1, r1, r3
+            .actual = Instruction.asrs(.al, .r1, .r1, Instruction.ShiftAmount.reg(.r3)),
+            .expected = Instruction.movs(.al, .r1, Instruction.Operand.reg(
+                .r1,
+                Instruction.Operand.Shift.reg(.r3, .arithmetic_right),
+            )),
         },
     };
 

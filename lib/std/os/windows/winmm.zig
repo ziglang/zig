@@ -1,9 +1,9 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
-usingnamespace @import("bits.zig");
+const std = @import("../../std.zig");
+const windows = std.os.windows;
+const WINAPI = windows.WINAPI;
+const UINT = windows.UINT;
+const BYTE = windows.BYTE;
+const DWORD = windows.DWORD;
 
 pub const MMRESULT = UINT;
 pub const MMSYSERR_BASE = 0;

@@ -1,6 +1,7 @@
 const Coff = @This();
 
 const std = @import("std");
+const builtin = @import("builtin");
 const log = std.log.scoped(.link);
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
@@ -16,7 +17,9 @@ const link = @import("../link.zig");
 const build_options = @import("build_options");
 const Cache = @import("../Cache.zig");
 const mingw = @import("../mingw.zig");
-const llvm_backend = @import("../codegen/llvm.zig");
+const Air = @import("../Air.zig");
+const Liveness = @import("../Liveness.zig");
+const LlvmObject = @import("../codegen/llvm.zig").Object;
 
 const allocation_padding = 4 / 3;
 const minimum_text_block_size = 64 * allocation_padding;
@@ -34,7 +37,7 @@ pub const base_tag: link.File.Tag = .coff;
 const msdos_stub = @embedFile("msdos-stub.bin");
 
 /// If this is not null, an object file is created by LLVM and linked with LLD afterwards.
-llvm_object: ?*llvm_backend.Object = null,
+llvm_object: ?*LlvmObject = null,
 
 base: link.File,
 ptr_width: PtrWidth,
@@ -129,7 +132,7 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
         const self = try createEmpty(allocator, options);
         errdefer self.base.destroy();
 
-        self.llvm_object = try llvm_backend.Object.create(allocator, sub_path, options);
+        self.llvm_object = try LlvmObject.create(allocator, options);
         return self;
     }
 
@@ -653,18 +656,59 @@ fn writeOffsetTableEntry(self: *Coff, index: usize) !void {
     }
 }
 
-pub fn updateDecl(self: *Coff, module: *Module, decl: *Module.Decl) !void {
-    // TODO COFF/PE debug information
-    // TODO Implement exports
+pub fn updateFunc(self: *Coff, module: *Module, func: *Module.Fn, air: Air, liveness: Liveness) !void {
+    if (build_options.skip_non_native and builtin.object_format != .coff) {
+        @panic("Attempted to compile for object format that was disabled by build configuration");
+    }
+    if (build_options.have_llvm) {
+        if (self.llvm_object) |llvm_object| {
+            return llvm_object.updateFunc(module, func, air, liveness);
+        }
+    }
     const tracy = trace(@src());
     defer tracy.end();
 
-    if (build_options.have_llvm)
-        if (self.llvm_object) |llvm_object| return try llvm_object.updateDecl(module, decl);
+    var code_buffer = std.ArrayList(u8).init(self.base.allocator);
+    defer code_buffer.deinit();
+
+    const decl = func.owner_decl;
+    const res = try codegen.generateFunction(
+        &self.base,
+        decl.srcLoc(),
+        func,
+        air,
+        liveness,
+        &code_buffer,
+        .none,
+    );
+    const code = switch (res) {
+        .appended => code_buffer.items,
+        .fail => |em| {
+            decl.analysis = .codegen_failure;
+            try module.failed_decls.put(module.gpa, decl, em);
+            return;
+        },
+    };
+
+    return self.finishUpdateDecl(module, func.owner_decl, code);
+}
+
+pub fn updateDecl(self: *Coff, module: *Module, decl: *Module.Decl) !void {
+    if (build_options.skip_non_native and builtin.object_format != .coff) {
+        @panic("Attempted to compile for object format that was disabled by build configuration");
+    }
+    if (build_options.have_llvm) {
+        if (self.llvm_object) |llvm_object| return llvm_object.updateDecl(module, decl);
+    }
+    const tracy = trace(@src());
+    defer tracy.end();
 
     if (decl.val.tag() == .extern_fn) {
         return; // TODO Should we do more when front-end analyzed extern decl?
     }
+
+    // TODO COFF/PE debug information
+    // TODO Implement exports
 
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
@@ -683,6 +727,10 @@ pub fn updateDecl(self: *Coff, module: *Module, decl: *Module.Decl) !void {
         },
     };
 
+    return self.finishUpdateDecl(module, decl, code);
+}
+
+fn finishUpdateDecl(self: *Coff, module: *Module, decl: *Module.Decl, code: []const u8) !void {
     const required_alignment = decl.ty.abiAlignment(self.base.options.target);
     const curr_size = decl.link.coff.size;
     if (curr_size != 0) {
@@ -729,8 +777,18 @@ pub fn freeDecl(self: *Coff, decl: *Module.Decl) void {
     self.offset_table_free_list.append(self.base.allocator, decl.link.coff.offset_table_index) catch {};
 }
 
-pub fn updateDeclExports(self: *Coff, module: *Module, decl: *Module.Decl, exports: []const *Module.Export) !void {
-    if (self.llvm_object) |_| return;
+pub fn updateDeclExports(
+    self: *Coff,
+    module: *Module,
+    decl: *Module.Decl,
+    exports: []const *Module.Export,
+) !void {
+    if (build_options.skip_non_native and builtin.object_format != .coff) {
+        @panic("Attempted to compile for object format that was disabled by build configuration");
+    }
+    if (build_options.have_llvm) {
+        if (self.llvm_object) |llvm_object| return llvm_object.updateDeclExports(module, decl, exports);
+    }
 
     for (exports) |exp| {
         if (exp.options.section) |section_name| {
@@ -772,8 +830,11 @@ pub fn flushModule(self: *Coff, comp: *Compilation) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    if (build_options.have_llvm)
-        if (self.llvm_object) |llvm_object| return try llvm_object.flushModule(comp);
+    if (build_options.have_llvm) {
+        if (self.llvm_object) |llvm_object| {
+            return try llvm_object.flushModule(comp);
+        }
+    }
 
     if (self.text_section_size_dirty) {
         // Write the new raw size in the .text header
@@ -824,7 +885,7 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
         // Both stage1 and stage2 LLVM backend put the object file in the cache directory.
         if (self.base.options.use_llvm) {
             // Stage2 has to call flushModule since that outputs the LLVM object file.
-            if (!build_options.is_stage1) try self.flushModule(comp);
+            if (!build_options.is_stage1 or !self.base.options.use_stage1) try self.flushModule(comp);
 
             const obj_basename = try std.zig.binNameAlloc(arena, .{
                 .root_name = self.base.options.root_name,
@@ -1208,7 +1269,10 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
 
         // TODO: remove when stage2 can build compiler_rt.zig, c.zig and ssp.zig
         // compiler-rt, libc and libssp
-        if (is_exe_or_dyn_lib and !self.base.options.skip_linker_dependencies and build_options.is_stage1) {
+        if (is_exe_or_dyn_lib and
+            !self.base.options.skip_linker_dependencies and
+            build_options.is_stage1 and self.base.options.use_stage1)
+        {
             if (!self.base.options.link_libc) {
                 try argv.append(comp.libc_static_lib.?.full_object_path);
             }
@@ -1347,8 +1411,9 @@ pub fn updateDeclLineNumber(self: *Coff, module: *Module, decl: *Module.Decl) !v
 }
 
 pub fn deinit(self: *Coff) void {
-    if (build_options.have_llvm)
-        if (self.llvm_object) |ir_module| ir_module.deinit(self.base.allocator);
+    if (build_options.have_llvm) {
+        if (self.llvm_object) |llvm_object| llvm_object.destroy(self.base.allocator);
+    }
 
     self.text_block_free_list.deinit(self.base.allocator);
     self.offset_table.deinit(self.base.allocator);

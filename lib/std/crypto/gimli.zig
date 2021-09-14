@@ -1,8 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
 // Gimli is a 384-bit permutation designed to achieve high security with high
 // performance across a broad range of platforms, including 64-bit Intel/AMD
 // server CPUs, 64-bit and 32-bit ARM smartphone CPUs, 32-bit ARM

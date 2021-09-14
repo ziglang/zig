@@ -1,17 +1,12 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
-
 //! This struct represents a kernel thread, and acts as a namespace for concurrency
 //! primitives that operate on kernel threads. For concurrency primitives that support
 //! both evented I/O and async I/O, see the respective names in the top level std namespace.
 
 const std = @import("std.zig");
+const builtin = @import("builtin");
 const os = std.os;
 const assert = std.debug.assert;
-const target = std.Target.current;
+const target = builtin.target;
 const Atomic = std.atomic.Atomic;
 
 pub const AutoResetEvent = @import("Thread/AutoResetEvent.zig");
@@ -24,7 +19,8 @@ pub const Condition = @import("Thread/Condition.zig");
 
 pub const spinLoopHint = @compileError("deprecated: use std.atomic.spinLoopHint");
 
-pub const use_pthreads = target.os.tag != .windows and std.builtin.link_libc;
+pub const use_pthreads = target.os.tag != .windows and target.os.tag != .wasi and builtin.link_libc;
+const is_gnu = target.abi.isGnu();
 
 const Thread = @This();
 const Impl = if (target.os.tag == .windows)
@@ -37,6 +33,194 @@ else
     UnsupportedImpl;
 
 impl: Impl,
+
+pub const max_name_len = switch (target.os.tag) {
+    .linux => 15,
+    .windows => 31,
+    .macos, .ios, .watchos, .tvos => 63,
+    .netbsd => 31,
+    .freebsd => 15,
+    .openbsd => 31,
+    else => 0,
+};
+
+pub const SetNameError = error{
+    NameTooLong,
+    Unsupported,
+    Unexpected,
+} || os.PrctlError || os.WriteError || std.fs.File.OpenError || std.fmt.BufPrintError;
+
+pub fn setName(self: Thread, name: []const u8) SetNameError!void {
+    if (name.len > max_name_len) return error.NameTooLong;
+
+    const name_with_terminator = blk: {
+        var name_buf: [max_name_len:0]u8 = undefined;
+        std.mem.copy(u8, &name_buf, name);
+        name_buf[name.len] = 0;
+        break :blk name_buf[0..name.len :0];
+    };
+
+    switch (target.os.tag) {
+        .linux => if (use_pthreads) {
+            const err = std.c.pthread_setname_np(self.getHandle(), name_with_terminator.ptr);
+            switch (err) {
+                .SUCCESS => return,
+                .RANGE => unreachable,
+                else => |e| return os.unexpectedErrno(e),
+            }
+        } else if (use_pthreads and self.getHandle() == std.c.pthread_self()) {
+            // TODO: this is dead code. what did the author of this code intend to happen here?
+            const err = try os.prctl(.SET_NAME, .{@ptrToInt(name_with_terminator.ptr)});
+            switch (@intToEnum(os.E, err)) {
+                .SUCCESS => return,
+                else => |e| return os.unexpectedErrno(e),
+            }
+        } else {
+            var buf: [32]u8 = undefined;
+            const path = try std.fmt.bufPrint(&buf, "/proc/self/task/{d}/comm", .{self.getHandle()});
+
+            const file = try std.fs.cwd().openFile(path, .{ .write = true });
+            defer file.close();
+
+            try file.writer().writeAll(name);
+        },
+        .windows => if (target.os.isAtLeast(.windows, .win10_rs1)) |res| {
+            // SetThreadDescription is only available since version 1607, which is 10.0.14393.795
+            // See https://en.wikipedia.org/wiki/Microsoft_Windows_SDK
+            if (!res) {
+                return error.Unsupported;
+            }
+
+            var name_buf_w: [max_name_len:0]u16 = undefined;
+            const length = try std.unicode.utf8ToUtf16Le(&name_buf_w, name);
+            name_buf_w[length] = 0;
+
+            try os.windows.SetThreadDescription(
+                self.getHandle(),
+                @ptrCast(os.windows.LPWSTR, &name_buf_w),
+            );
+        } else {
+            return error.Unsupported;
+        },
+        .macos, .ios, .watchos, .tvos => if (use_pthreads) {
+            // There doesn't seem to be a way to set the name for an arbitrary thread, only the current one.
+            if (self.getHandle() != std.c.pthread_self()) return error.Unsupported;
+
+            const err = std.c.pthread_setname_np(name_with_terminator.ptr);
+            switch (err) {
+                .SUCCESS => return,
+                else => |e| return os.unexpectedErrno(e),
+            }
+        },
+        .netbsd => if (use_pthreads) {
+            const err = std.c.pthread_setname_np(self.getHandle(), name_with_terminator.ptr, null);
+            switch (err) {
+                .SUCCESS => return,
+                .INVAL => unreachable,
+                .SRCH => unreachable,
+                .NOMEM => unreachable,
+                else => |e| return os.unexpectedErrno(e),
+            }
+        },
+        .freebsd, .openbsd => if (use_pthreads) {
+            // Use pthread_set_name_np for FreeBSD because pthread_setname_np is FreeBSD 12.2+ only.
+            // TODO maybe revisit this if depending on FreeBSD 12.2+ is acceptable because
+            // pthread_setname_np can return an error.
+
+            std.c.pthread_set_name_np(self.getHandle(), name_with_terminator.ptr);
+        },
+        else => return error.Unsupported,
+    }
+}
+
+pub const GetNameError = error{
+    // For Windows, the name is converted from UTF16 to UTF8
+    CodepointTooLarge,
+    Utf8CannotEncodeSurrogateHalf,
+    DanglingSurrogateHalf,
+    ExpectedSecondSurrogateHalf,
+    UnexpectedSecondSurrogateHalf,
+
+    Unsupported,
+    Unexpected,
+} || os.PrctlError || os.ReadError || std.fs.File.OpenError || std.fmt.BufPrintError;
+
+pub fn getName(self: Thread, buffer_ptr: *[max_name_len:0]u8) GetNameError!?[]const u8 {
+    buffer_ptr[max_name_len] = 0;
+    var buffer = std.mem.span(buffer_ptr);
+
+    switch (target.os.tag) {
+        .linux => if (use_pthreads and is_gnu) {
+            const err = std.c.pthread_getname_np(self.getHandle(), buffer.ptr, max_name_len + 1);
+            switch (err) {
+                .SUCCESS => return std.mem.sliceTo(buffer, 0),
+                .RANGE => unreachable,
+                else => |e| return os.unexpectedErrno(e),
+            }
+        } else if (use_pthreads and self.getHandle() == std.c.pthread_self()) {
+            const err = try os.prctl(.GET_NAME, .{@ptrToInt(buffer.ptr)});
+            switch (@intToEnum(os.E, err)) {
+                .SUCCESS => return std.mem.sliceTo(buffer, 0),
+                else => |e| return os.unexpectedErrno(e),
+            }
+        } else if (!use_pthreads) {
+            var buf: [32]u8 = undefined;
+            const path = try std.fmt.bufPrint(&buf, "/proc/self/task/{d}/comm", .{self.getHandle()});
+
+            const file = try std.fs.cwd().openFile(path, .{});
+            defer file.close();
+
+            const data_len = try file.reader().readAll(buffer_ptr[0 .. max_name_len + 1]);
+
+            return if (data_len >= 1) buffer[0 .. data_len - 1] else null;
+        } else {
+            // musl doesn't provide pthread_getname_np and there's no way to retrieve the thread id of an arbitrary thread.
+            return error.Unsupported;
+        },
+        .windows => if (target.os.isAtLeast(.windows, .win10_rs1)) |res| {
+            // GetThreadDescription is only available since version 1607, which is 10.0.14393.795
+            // See https://en.wikipedia.org/wiki/Microsoft_Windows_SDK
+            if (!res) {
+                return error.Unsupported;
+            }
+
+            var name_w: os.windows.LPWSTR = undefined;
+            try os.windows.GetThreadDescription(self.getHandle(), &name_w);
+            defer os.windows.LocalFree(name_w);
+
+            const data_len = try std.unicode.utf16leToUtf8(buffer, std.mem.sliceTo(name_w, 0));
+
+            return if (data_len >= 1) buffer[0..data_len] else null;
+        } else {
+            return error.Unsupported;
+        },
+        .macos, .ios, .watchos, .tvos => if (use_pthreads) {
+            const err = std.c.pthread_getname_np(self.getHandle(), buffer.ptr, max_name_len + 1);
+            switch (err) {
+                .SUCCESS => return std.mem.sliceTo(buffer, 0),
+                .SRCH => unreachable,
+                else => |e| return os.unexpectedErrno(e),
+            }
+        },
+        .netbsd => if (use_pthreads) {
+            const err = std.c.pthread_getname_np(self.getHandle(), buffer.ptr, max_name_len + 1);
+            switch (err) {
+                .SUCCESS => return std.mem.sliceTo(buffer, 0),
+                .INVAL => unreachable,
+                .SRCH => unreachable,
+                else => |e| return os.unexpectedErrno(e),
+            }
+        },
+        .freebsd, .openbsd => if (use_pthreads) {
+            // Use pthread_get_name_np for FreeBSD because pthread_getname_np is FreeBSD 12.2+ only.
+            // TODO maybe revisit this if depending on FreeBSD 12.2+ is acceptable because pthread_getname_np can return an error.
+
+            std.c.pthread_get_name_np(self.getHandle(), buffer.ptr, max_name_len + 1);
+            return std.mem.sliceTo(buffer, 0);
+        },
+        else => return error.Unsupported,
+    }
+}
 
 /// Represents a unique ID per thread.
 pub const Id = u64;
@@ -102,7 +286,7 @@ pub const SpawnError = error{
 /// The caller must eventually either call `join()` to wait for the thread to finish and free its resources
 /// or call `detach()` to excuse the caller from calling `join()` and have the thread clean up its resources on completion`.
 pub fn spawn(config: SpawnConfig, comptime function: anytype, args: anytype) SpawnError!Thread {
-    if (std.builtin.single_threaded) {
+    if (builtin.single_threaded) {
         @compileError("Cannot spawn thread when building in single-threaded mode");
     }
 
@@ -374,7 +558,7 @@ const PosixThreadImpl = struct {
             .openbsd => {
                 var count: c_int = undefined;
                 var count_size: usize = @sizeOf(c_int);
-                const mib = [_]c_int{ os.CTL_HW, os.HW_NCPUONLINE };
+                const mib = [_]c_int{ os.CTL.HW, os.system.HW_NCPUONLINE };
                 os.sysctl(&mib, &count, &count_size, null, 0) catch |err| switch (err) {
                     error.NameTooLong, error.UnknownName => unreachable,
                     else => |e| return e,
@@ -425,13 +609,13 @@ const PosixThreadImpl = struct {
         errdefer allocator.destroy(args_ptr);
 
         var attr: c.pthread_attr_t = undefined;
-        if (c.pthread_attr_init(&attr) != 0) return error.SystemResources;
-        defer assert(c.pthread_attr_destroy(&attr) == 0);
+        if (c.pthread_attr_init(&attr) != .SUCCESS) return error.SystemResources;
+        defer assert(c.pthread_attr_destroy(&attr) == .SUCCESS);
 
         // Use the same set of parameters used by the libc-less impl.
         const stack_size = std.math.max(config.stack_size, 16 * 1024);
-        assert(c.pthread_attr_setstacksize(&attr, stack_size) == 0);
-        assert(c.pthread_attr_setguardsize(&attr, std.mem.page_size) == 0);
+        assert(c.pthread_attr_setstacksize(&attr, stack_size) == .SUCCESS);
+        assert(c.pthread_attr_setguardsize(&attr, std.mem.page_size) == .SUCCESS);
 
         var handle: c.pthread_t = undefined;
         switch (c.pthread_create(
@@ -440,10 +624,10 @@ const PosixThreadImpl = struct {
             Instance.entryFn,
             if (@sizeOf(Args) > 1) @ptrCast(*c_void, args_ptr) else undefined,
         )) {
-            0 => return Impl{ .handle = handle },
-            os.EAGAIN => return error.SystemResources,
-            os.EPERM => unreachable,
-            os.EINVAL => unreachable,
+            .SUCCESS => return Impl{ .handle = handle },
+            .AGAIN => return error.SystemResources,
+            .PERM => unreachable,
+            .INVAL => unreachable,
             else => |err| return os.unexpectedErrno(err),
         }
     }
@@ -454,19 +638,19 @@ const PosixThreadImpl = struct {
 
     fn detach(self: Impl) void {
         switch (c.pthread_detach(self.handle)) {
-            0 => {},
-            os.EINVAL => unreachable, // thread handle is not joinable
-            os.ESRCH => unreachable, // thread handle is invalid
+            .SUCCESS => {},
+            .INVAL => unreachable, // thread handle is not joinable
+            .SRCH => unreachable, // thread handle is invalid
             else => unreachable,
         }
     }
 
     fn join(self: Impl) void {
         switch (c.pthread_join(self.handle, null)) {
-            0 => {},
-            os.EINVAL => unreachable, // thread handle is not joinable (or another thread is already joining in)
-            os.ESRCH => unreachable, // thread handle is invalid
-            os.EDEADLK => unreachable, // two threads tried to join each other
+            .SUCCESS => {},
+            .INVAL => unreachable, // thread handle is not joinable (or another thread is already joining in)
+            .SRCH => unreachable, // thread handle is invalid
+            .DEADLK => unreachable, // two threads tried to join each other
             else => unreachable,
         }
     }
@@ -505,8 +689,8 @@ const LinuxThreadImpl = struct {
         /// Ported over from musl libc's pthread detached implementation:
         /// https://github.com/ifduyue/musl/search?q=__unmapself
         fn freeAndExit(self: *ThreadCompletion) noreturn {
-            const unmap_and_exit: []const u8 = switch (target.cpu.arch) {
-                .i386 => (
+            switch (target.cpu.arch) {
+                .i386 => asm volatile (
                     \\  movl $91, %%eax
                     \\  movl %[ptr], %%ebx
                     \\  movl %[len], %%ecx
@@ -514,8 +698,12 @@ const LinuxThreadImpl = struct {
                     \\  movl $1, %%eax
                     \\  movl $0, %%ebx
                     \\  int $128
+                    :
+                    : [ptr] "r" (@ptrToInt(self.mapped.ptr)),
+                      [len] "r" (self.mapped.len),
+                    : "memory"
                 ),
-                .x86_64 => (
+                .x86_64 => asm volatile (
                     \\  movq $11, %%rax
                     \\  movq %[ptr], %%rbx
                     \\  movq %[len], %%rcx
@@ -523,8 +711,12 @@ const LinuxThreadImpl = struct {
                     \\  movq $60, %%rax
                     \\  movq $1, %%rdi
                     \\  syscall
+                    :
+                    : [ptr] "r" (@ptrToInt(self.mapped.ptr)),
+                      [len] "r" (self.mapped.len),
+                    : "memory"
                 ),
-                .arm, .armeb, .thumb, .thumbeb => (
+                .arm, .armeb, .thumb, .thumbeb => asm volatile (
                     \\  mov r7, #91
                     \\  mov r0, %[ptr]
                     \\  mov r1, %[len]
@@ -532,8 +724,12 @@ const LinuxThreadImpl = struct {
                     \\  mov r7, #1
                     \\  mov r0, #0
                     \\  svc 0
+                    :
+                    : [ptr] "r" (@ptrToInt(self.mapped.ptr)),
+                      [len] "r" (self.mapped.len),
+                    : "memory"
                 ),
-                .aarch64, .aarch64_be, .aarch64_32 => (
+                .aarch64, .aarch64_be, .aarch64_32 => asm volatile (
                     \\  mov x8, #215
                     \\  mov x0, %[ptr]
                     \\  mov x1, %[len]
@@ -541,8 +737,12 @@ const LinuxThreadImpl = struct {
                     \\  mov x8, #93
                     \\  mov x0, #0
                     \\  svc 0
+                    :
+                    : [ptr] "r" (@ptrToInt(self.mapped.ptr)),
+                      [len] "r" (self.mapped.len),
+                    : "memory"
                 ),
-                .mips, .mipsel => (
+                .mips, .mipsel => asm volatile (
                     \\  move $sp, $25
                     \\  li $2, 4091
                     \\  move $4, %[ptr]
@@ -551,8 +751,12 @@ const LinuxThreadImpl = struct {
                     \\  li $2, 4001
                     \\  li $4, 0
                     \\  syscall
+                    :
+                    : [ptr] "r" (@ptrToInt(self.mapped.ptr)),
+                      [len] "r" (self.mapped.len),
+                    : "memory"
                 ),
-                .mips64, .mips64el => (
+                .mips64, .mips64el => asm volatile (
                     \\  li $2, 4091
                     \\  move $4, %[ptr]
                     \\  move $5, %[len]
@@ -560,8 +764,12 @@ const LinuxThreadImpl = struct {
                     \\  li $2, 4001
                     \\  li $4, 0
                     \\  syscall
+                    :
+                    : [ptr] "r" (@ptrToInt(self.mapped.ptr)),
+                      [len] "r" (self.mapped.len),
+                    : "memory"
                 ),
-                .powerpc, .powerpcle, .powerpc64, .powerpc64le => (
+                .powerpc, .powerpcle, .powerpc64, .powerpc64le => asm volatile (
                     \\  li 0, 91
                     \\  mr %[ptr], 3
                     \\  mr %[len], 4
@@ -570,8 +778,12 @@ const LinuxThreadImpl = struct {
                     \\  li 3, 0
                     \\  sc
                     \\  blr
+                    :
+                    : [ptr] "r" (@ptrToInt(self.mapped.ptr)),
+                      [len] "r" (self.mapped.len),
+                    : "memory"
                 ),
-                .riscv64 => (
+                .riscv64 => asm volatile (
                     \\  li a7, 215
                     \\  mv a0, %[ptr]
                     \\  mv a1, %[len]
@@ -579,19 +791,41 @@ const LinuxThreadImpl = struct {
                     \\  li a7, 93
                     \\  mv a0, zero
                     \\  ecall
+                    :
+                    : [ptr] "r" (@ptrToInt(self.mapped.ptr)),
+                      [len] "r" (self.mapped.len),
+                    : "memory"
                 ),
-                else => |cpu_arch| {
-                    @compileLog("Unsupported linux arch ", cpu_arch);
-                },
-            };
-
-            asm volatile (unmap_and_exit
-                :
-                : [ptr] "r" (@ptrToInt(self.mapped.ptr)),
-                  [len] "r" (self.mapped.len)
-                : "memory"
-            );
-
+                .sparcv9 => asm volatile (
+                    \\ # SPARCs really don't like it when active stack frames
+                    \\ # is unmapped (it will result in a segfault), so we
+                    \\ # force-deactivate it by running `restore` until
+                    \\ # all frames are cleared.
+                    \\  1:
+                    \\  cmp %%sp, 0
+                    \\  beq 2f
+                    \\  nop
+                    \\  restore
+                    \\  ba 1f
+                    \\  nop
+                    \\  2:
+                    \\  mov 73, %%g1
+                    \\  mov %[ptr], %%o0
+                    \\  mov %[len], %%o1
+                    \\  # Flush register window contents to prevent background
+                    \\  # memory access before unmapping the stack.
+                    \\  flushw
+                    \\  t 0x6d
+                    \\  mov 1, %%g1
+                    \\  mov 1, %%o0
+                    \\  t 0x6d
+                    :
+                    : [ptr] "r" (@ptrToInt(self.mapped.ptr)),
+                      [len] "r" (self.mapped.len),
+                    : "memory"
+                ),
+                else => |cpu_arch| @compileError("Unsupported linux arch: " ++ @tagName(cpu_arch)),
+            }
             unreachable;
         }
     };
@@ -643,8 +877,8 @@ const LinuxThreadImpl = struct {
         const mapped = os.mmap(
             null,
             map_bytes,
-            os.PROT_NONE,
-            os.MAP_PRIVATE | os.MAP_ANONYMOUS,
+            os.PROT.NONE,
+            os.MAP.PRIVATE | os.MAP.ANONYMOUS,
             -1,
             0,
         ) catch |err| switch (err) {
@@ -659,7 +893,7 @@ const LinuxThreadImpl = struct {
         // map everything but the guard page as read/write
         os.mprotect(
             mapped[guard_offset..],
-            os.PROT_READ | os.PROT_WRITE,
+            os.PROT.READ | os.PROT.WRITE,
         ) catch |err| switch (err) {
             error.AccessDenied => unreachable,
             else => |e| return e,
@@ -689,10 +923,10 @@ const LinuxThreadImpl = struct {
             .thread = .{ .mapped = mapped },
         };
 
-        const flags: u32 = os.CLONE_THREAD | os.CLONE_DETACHED |
-            os.CLONE_VM | os.CLONE_FS | os.CLONE_FILES |
-            os.CLONE_PARENT_SETTID | os.CLONE_CHILD_CLEARTID |
-            os.CLONE_SIGHAND | os.CLONE_SYSVSEM | os.CLONE_SETTLS;
+        const flags: u32 = linux.CLONE.THREAD | linux.CLONE.DETACHED |
+            linux.CLONE.VM | linux.CLONE.FS | linux.CLONE.FILES |
+            linux.CLONE.PARENT_SETTID | linux.CLONE.CHILD_CLEARTID |
+            linux.CLONE.SIGHAND | linux.CLONE.SYSVSEM | linux.CLONE.SETTLS;
 
         switch (linux.getErrno(linux.clone(
             Instance.entryFn,
@@ -703,13 +937,13 @@ const LinuxThreadImpl = struct {
             tls_ptr,
             &instance.thread.child_tid.value,
         ))) {
-            0 => return Impl{ .thread = &instance.thread },
-            os.EAGAIN => return error.ThreadQuotaExceeded,
-            os.EINVAL => unreachable,
-            os.ENOMEM => return error.SystemResources,
-            os.ENOSPC => unreachable,
-            os.EPERM => unreachable,
-            os.EUSERS => unreachable,
+            .SUCCESS => return Impl{ .thread = &instance.thread },
+            .AGAIN => return error.ThreadQuotaExceeded,
+            .INVAL => unreachable,
+            .NOMEM => return error.SystemResources,
+            .NOSPC => unreachable,
+            .PERM => unreachable,
+            .USERS => unreachable,
             else => |err| return os.unexpectedErrno(err),
         }
     }
@@ -744,18 +978,106 @@ const LinuxThreadImpl = struct {
 
             switch (linux.getErrno(linux.futex_wait(
                 &self.thread.child_tid.value,
-                linux.FUTEX_WAIT,
+                linux.FUTEX.WAIT,
                 tid,
                 null,
             ))) {
-                0 => continue,
-                os.EINTR => continue,
-                os.EAGAIN => continue,
+                .SUCCESS => continue,
+                .INTR => continue,
+                .AGAIN => continue,
                 else => unreachable,
             }
         }
     }
 };
+
+fn testThreadName(thread: *Thread) !void {
+    const testCases = &[_][]const u8{
+        "mythread",
+        "b" ** max_name_len,
+    };
+
+    inline for (testCases) |tc| {
+        try thread.setName(tc);
+
+        var name_buffer: [max_name_len:0]u8 = undefined;
+
+        const name = try thread.getName(&name_buffer);
+        if (name) |value| {
+            try std.testing.expectEqual(tc.len, value.len);
+            try std.testing.expectEqualStrings(tc, value);
+        }
+    }
+}
+
+test "setName, getName" {
+    if (builtin.single_threaded) return error.SkipZigTest;
+
+    const Context = struct {
+        start_wait_event: ResetEvent = undefined,
+        test_done_event: ResetEvent = undefined,
+
+        done: std.atomic.Atomic(bool) = std.atomic.Atomic(bool).init(false),
+        thread: Thread = undefined,
+
+        fn init(self: *@This()) !void {
+            try self.start_wait_event.init();
+            try self.test_done_event.init();
+        }
+
+        pub fn run(ctx: *@This()) !void {
+            // Wait for the main thread to have set the thread field in the context.
+            ctx.start_wait_event.wait();
+
+            switch (target.os.tag) {
+                .windows => testThreadName(&ctx.thread) catch |err| switch (err) {
+                    error.Unsupported => return error.SkipZigTest,
+                    else => return err,
+                },
+                else => try testThreadName(&ctx.thread),
+            }
+
+            // Signal our test is done
+            ctx.test_done_event.set();
+
+            while (!ctx.done.load(.SeqCst)) {
+                std.time.sleep(5 * std.time.ns_per_ms);
+            }
+        }
+    };
+
+    var context = Context{};
+    try context.init();
+
+    var thread = try spawn(.{}, Context.run, .{&context});
+    context.thread = thread;
+    context.start_wait_event.set();
+    context.test_done_event.wait();
+
+    switch (target.os.tag) {
+        .macos, .ios, .watchos, .tvos => {
+            const res = thread.setName("foobar");
+            try std.testing.expectError(error.Unsupported, res);
+        },
+        .windows => testThreadName(&thread) catch |err| switch (err) {
+            error.Unsupported => return error.SkipZigTest,
+            else => return err,
+        },
+        else => |tag| if (tag == .linux and use_pthreads and comptime target.abi.isMusl()) {
+            try thread.setName("foobar");
+
+            var name_buffer: [max_name_len:0]u8 = undefined;
+            const res = thread.getName(&name_buffer);
+
+            try std.testing.expectError(error.Unsupported, res);
+        } else {
+            try testThreadName(&thread);
+        },
+    }
+
+    context.done.store(true, .SeqCst);
+    thread.join();
+}
 
 test "std.Thread" {
     // Doesn't use testing.refAllDecls() since that would pull in the compileError spinLoopHint.
@@ -774,7 +1096,7 @@ fn testIncrementNotify(value: *usize, event: *ResetEvent) void {
 }
 
 test "Thread.join" {
-    if (std.builtin.single_threaded) return error.SkipZigTest;
+    if (builtin.single_threaded) return error.SkipZigTest;
 
     var value: usize = 0;
     var event: ResetEvent = undefined;
@@ -788,7 +1110,7 @@ test "Thread.join" {
 }
 
 test "Thread.detach" {
-    if (std.builtin.single_threaded) return error.SkipZigTest;
+    if (builtin.single_threaded) return error.SkipZigTest;
 
     var value: usize = 0;
     var event: ResetEvent = undefined;

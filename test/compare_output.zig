@@ -17,111 +17,6 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\}
     , "Hello, world!" ++ std.cstr.line_sep);
 
-    cases.addCase(x: {
-        var tc = cases.create("multiple files with private function",
-            \\usingnamespace @import("std").io;
-            \\usingnamespace @import("foo.zig");
-            \\
-            \\pub fn main() void {
-            \\    privateFunction();
-            \\    const stdout = getStdOut().writer();
-            \\    stdout.print("OK 2\n", .{}) catch unreachable;
-            \\}
-            \\
-            \\fn privateFunction() void {
-            \\    printText();
-            \\}
-        , "OK 1\nOK 2\n");
-
-        tc.addSourceFile("foo.zig",
-            \\usingnamespace @import("std").io;
-            \\
-            \\// purposefully conflicting function with main.zig
-            \\// but it's private so it should be OK
-            \\fn privateFunction() void {
-            \\    const stdout = getStdOut().writer();
-            \\    stdout.print("OK 1\n", .{}) catch unreachable;
-            \\}
-            \\
-            \\pub fn printText() void {
-            \\    privateFunction();
-            \\}
-        );
-
-        break :x tc;
-    });
-
-    cases.addCase(x: {
-        var tc = cases.create("import segregation",
-            \\usingnamespace @import("foo.zig");
-            \\usingnamespace @import("bar.zig");
-            \\
-            \\pub fn main() void {
-            \\    foo_function();
-            \\    bar_function();
-            \\}
-        , "OK\nOK\n");
-
-        tc.addSourceFile("foo.zig",
-            \\usingnamespace @import("std").io;
-            \\pub fn foo_function() void {
-            \\    const stdout = getStdOut().writer();
-            \\    stdout.print("OK\n", .{}) catch unreachable;
-            \\}
-        );
-
-        tc.addSourceFile("bar.zig",
-            \\usingnamespace @import("other.zig");
-            \\usingnamespace @import("std").io;
-            \\
-            \\pub fn bar_function() void {
-            \\    if (foo_function()) {
-            \\        const stdout = getStdOut().writer();
-            \\        stdout.print("OK\n", .{}) catch unreachable;
-            \\    }
-            \\}
-        );
-
-        tc.addSourceFile("other.zig",
-            \\pub fn foo_function() bool {
-            \\    // this one conflicts with the one from foo
-            \\    return true;
-            \\}
-        );
-
-        break :x tc;
-    });
-
-    cases.addCase(x: {
-        var tc = cases.create("two files usingnamespace import each other",
-            \\usingnamespace @import("a.zig");
-            \\
-            \\pub fn main() void {
-            \\    ok();
-            \\}
-        , "OK\n");
-
-        tc.addSourceFile("a.zig",
-            \\usingnamespace @import("b.zig");
-            \\const io = @import("std").io;
-            \\
-            \\pub const a_text = "OK\n";
-            \\
-            \\pub fn ok() void {
-            \\    const stdout = io.getStdOut().writer();
-            \\    stdout.print(b_text, .{}) catch unreachable;
-            \\}
-        );
-
-        tc.addSourceFile("b.zig",
-            \\usingnamespace @import("a.zig");
-            \\
-            \\pub const b_text = a_text;
-        );
-
-        break :x tc;
-    });
-
     cases.add("hello world without libc",
         \\const io = @import("std").io;
         \\
@@ -585,16 +480,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    comptime format: []const u8,
         \\    args: anytype,
         \\) void {
-        \\    const level_txt = switch (level) {
-        \\        .emerg => "emergency",
-        \\        .alert => "alert",
-        \\        .crit => "critical",
-        \\        .err => "error",
-        \\        .warn => "warning",
-        \\        .notice => "notice",
-        \\        .info => "info",
-        \\        .debug => "debug",
-        \\    };
+        \\    const level_txt = comptime level.asText();
         \\    const prefix2 = if (scope == .default) ": " else "(" ++ @tagName(scope) ++ "): ";
         \\    const stdout = std.io.getStdOut().writer();
         \\    nosuspend stdout.print(level_txt ++ prefix2 ++ format ++ "\n", args) catch return;
@@ -638,16 +524,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    comptime format: []const u8,
         \\    args: anytype,
         \\) void {
-        \\    const level_txt = switch (level) {
-        \\        .emerg => "emergency",
-        \\        .alert => "alert",
-        \\        .crit => "critical",
-        \\        .err => "error",
-        \\        .warn => "warning",
-        \\        .notice => "notice",
-        \\        .info => "info",
-        \\        .debug => "debug",
-        \\    };
+        \\    const level_txt = comptime level.asText();
         \\    const prefix2 = if (scope == .default) ": " else "(" ++ @tagName(scope) ++ "): ";
         \\    const stdout = std.io.getStdOut().writer();
         \\    nosuspend stdout.print(level_txt ++ prefix2 ++ format ++ "\n", args) catch return;

@@ -1,9 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
-
 const std = @import("std.zig");
 const target = std.Target.current;
 
@@ -46,34 +40,38 @@ test "fence/compilerFence" {
 
 /// Signals to the processor that the caller is inside a busy-wait spin-loop.
 pub inline fn spinLoopHint() void {
-    const hint_instruction = switch (target.cpu.arch) {
-        // No-op instruction that can hint to save (or share with a hardware-thread) pipelining/power resources
+    switch (target.cpu.arch) {
+        // No-op instruction that can hint to save (or share with a hardware-thread)
+        // pipelining/power resources
         // https://software.intel.com/content/www/us/en/develop/articles/benefitting-power-and-performance-sleep-loops.html
-        .i386, .x86_64 => "pause",
+        .i386, .x86_64 => asm volatile ("pause" ::: "memory"),
 
         // No-op instruction that serves as a hardware-thread resource yield hint.
         // https://stackoverflow.com/a/7588941
-        .powerpc64, .powerpc64le => "or 27, 27, 27",
+        .powerpc64, .powerpc64le => asm volatile ("or 27, 27, 27" ::: "memory"),
 
-        // `isb` appears more reliable for releasing execution resources than `yield` on common aarch64 CPUs.
+        // `isb` appears more reliable for releasing execution resources than `yield`
+        // on common aarch64 CPUs.
         // https://bugs.java.com/bugdatabase/view_bug.do?bug_id=8258604
         // https://bugs.mysql.com/bug.php?id=100664
-        .aarch64, .aarch64_be, .aarch64_32 => "isb",
+        .aarch64, .aarch64_be, .aarch64_32 => asm volatile ("isb" ::: "memory"),
 
         // `yield` was introduced in v6k but is also available on v6m.
         // https://www.keil.com/support/man/docs/armasm/armasm_dom1361289926796.htm
-        .arm, .armeb, .thumb, .thumbeb => blk: {
-            const can_yield = comptime std.Target.arm.featureSetHasAny(target.cpu.features, .{ .has_v6k, .has_v6m });
-            const instruction = if (can_yield) "yield" else "";
-            break :blk instruction;
+        .arm, .armeb, .thumb, .thumbeb => {
+            const can_yield = comptime std.Target.arm.featureSetHasAny(target.cpu.features, .{
+                .has_v6k, .has_v6m,
+            });
+            if (can_yield) {
+                asm volatile ("yield" ::: "memory");
+            } else {
+                asm volatile ("" ::: "memory");
+            }
         },
-
-        else => "",
-    };
-
-    // Memory barrier to prevent the compiler from optimizing away the spin-loop
-    // even if no hint_instruction was provided.
-    asm volatile (hint_instruction ::: "memory");
+        // Memory barrier to prevent the compiler from optimizing away the spin-loop
+        // even if no hint_instruction was provided.
+        else => asm volatile ("" ::: "memory"),
+    }
 }
 
 test "spinLoopHint" {

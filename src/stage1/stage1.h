@@ -157,6 +157,9 @@ struct ZigStage1 {
     const char *emit_llvm_ir_ptr;
     size_t emit_llvm_ir_len;
 
+    const char *emit_bitcode_ptr;
+    size_t emit_bitcode_len;
+
     const char *emit_analysis_json_ptr;
     size_t emit_analysis_json_len;
 
@@ -173,7 +176,7 @@ struct ZigStage1 {
     size_t test_name_prefix_len;
 
     void *userdata;
-    struct ZigStage1Pkg *root_pkg;
+    struct ZigStage1Pkg *main_pkg;
     struct Stage2ProgressNode *main_progress_node;
 
     enum CodeModel code_model;
@@ -193,6 +196,7 @@ struct ZigStage1 {
     bool valgrind_enabled;
     bool tsan_enabled;
     bool function_sections;
+    bool include_compiler_rt;
     bool enable_stack_probing;
     bool red_zone;
     bool enable_time_report;

@@ -201,7 +201,7 @@ pub fn buildTsan(comp: *Compilation) !void {
         .zig_lib_directory = comp.zig_lib_directory,
         .target = target,
         .root_name = root_name,
-        .root_pkg = null,
+        .main_pkg = null,
         .output_mode = output_mode,
         .thread_pool = comp.thread_pool,
         .libc_installation = comp.bin_file.options.libc_installation,

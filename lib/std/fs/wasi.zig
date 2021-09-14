@@ -1,15 +1,11 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
 const std = @import("std");
 const os = std.os;
 const mem = std.mem;
 const math = std.math;
 const Allocator = mem.Allocator;
-
-usingnamespace std.os.wasi;
+const wasi = std.os.wasi;
+const fd_t = wasi.fd_t;
+const prestat_t = wasi.prestat_t;
 
 /// Type-tag of WASI preopen.
 ///
@@ -120,14 +116,14 @@ pub const PreopenList = struct {
 
         while (true) {
             var buf: prestat_t = undefined;
-            switch (fd_prestat_get(fd, &buf)) {
-                ESUCCESS => {},
-                ENOTSUP => {
+            switch (wasi.fd_prestat_get(fd, &buf)) {
+                .SUCCESS => {},
+                .OPNOTSUPP => {
                     // not a preopen, so keep going
                     fd = try math.add(fd_t, fd, 1);
                     continue;
                 },
-                EBADF => {
+                .BADF => {
                     // OK, no more fds available
                     break;
                 },
@@ -136,8 +132,8 @@ pub const PreopenList = struct {
             const preopen_len = buf.u.dir.pr_name_len;
             const path_buf = try self.buffer.allocator.alloc(u8, preopen_len);
             mem.set(u8, path_buf, 0);
-            switch (fd_prestat_dir_name(fd, path_buf.ptr, preopen_len)) {
-                ESUCCESS => {},
+            switch (wasi.fd_prestat_dir_name(fd, path_buf.ptr, preopen_len)) {
+                .SUCCESS => {},
                 else => |err| return os.unexpectedErrno(err),
             }
             const preopen = Preopen.new(fd, PreopenType{ .Dir = path_buf });
@@ -169,7 +165,7 @@ pub const PreopenList = struct {
 };
 
 test "extracting WASI preopens" {
-    if (std.builtin.os.tag != .wasi) return error.SkipZigTest;
+    if (std.builtin.os.tag != .wasi or std.builtin.link_libc) return error.SkipZigTest;
 
     var preopens = PreopenList.init(std.testing.allocator);
     defer preopens.deinit();
@@ -179,5 +175,5 @@ test "extracting WASI preopens" {
     try std.testing.expectEqual(@as(usize, 1), preopens.asSlice().len);
     const preopen = preopens.find(PreopenType{ .Dir = "." }) orelse unreachable;
     try std.testing.expect(preopen.@"type".eql(PreopenType{ .Dir = "." }));
-    try std.testing.expectEqual(@as(usize, 3), preopen.fd);
+    try std.testing.expectEqual(@as(i32, 3), preopen.fd);
 }

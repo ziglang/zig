@@ -38,6 +38,11 @@ cmake .. \
     -GNinja
 samu install
 
+# TODO ld.lld: error: undefined symbol: main
+# >>> referenced by crt1_c.c:75 (/usr/src/lib/csu/amd64/crt1_c.c:75)
+# >>>               /usr/lib/crt1.o:(_start)
+#release/bin/zig test ../test/behavior.zig -fno-stage1 -fLLVM -I ../test
+
 # Here we skip some tests to save time.
 release/bin/zig build test -Dskip-compile-errors -Dskip-non-native
 

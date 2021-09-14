@@ -229,12 +229,14 @@ struct TimeTracerRAII {
 bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMModuleRef module_ref,
         char **error_message, bool is_debug,
         bool is_small, bool time_report, bool tsan, bool lto,
-        const char *asm_filename, const char *bin_filename, const char *llvm_ir_filename)
+        const char *asm_filename, const char *bin_filename,
+        const char *llvm_ir_filename, const char *bitcode_filename)
 {
     TimePassesIsEnabled = time_report;
 
     raw_fd_ostream *dest_asm_ptr = nullptr;
     raw_fd_ostream *dest_bin_ptr = nullptr;
+    raw_fd_ostream *dest_bitcode_ptr = nullptr;
 
     if (asm_filename) {
         std::error_code EC;
@@ -252,9 +254,19 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
             return true;
         }
     }
+    if (bitcode_filename) {
+        std::error_code EC;
+        dest_bitcode_ptr = new(std::nothrow) raw_fd_ostream(bitcode_filename, EC, sys::fs::F_None);
+        if (EC) {
+            *error_message = strdup((const char *)StringRef(EC.message()).bytes_begin());
+            return true;
+        }
+    }
 
     std::unique_ptr<raw_fd_ostream> dest_asm(dest_asm_ptr),
-                                    dest_bin(dest_bin_ptr);
+                                    dest_bin(dest_bin_ptr),
+                                    dest_bitcode(dest_bitcode_ptr);
+
 
     auto PID = sys::Process::getProcessId();
     std::string ProcName = "zig-";
@@ -389,6 +401,9 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
     if (dest_bin && lto) {
         WriteBitcodeToFile(module, *dest_bin);
     }
+    if (dest_bitcode) {
+        WriteBitcodeToFile(module, *dest_bitcode);
+    }
 
     if (time_report) {
         TimerGroup::printAll(errs());
@@ -440,6 +455,88 @@ LLVMValueRef ZigLLVMBuildMemSet(LLVMBuilderRef B, LLVMValueRef Ptr, LLVMValueRef
 {
     CallInst *call_inst = unwrap(B)->CreateMemSet(unwrap(Ptr), unwrap(Val), unwrap(Size),
             MaybeAlign(Align), isVolatile);
+    return wrap(call_inst);
+}
+
+LLVMValueRef ZigLLVMBuildMaxNum(LLVMBuilderRef B, LLVMValueRef LHS, LLVMValueRef RHS, const char *name) {
+    CallInst *call_inst = unwrap(B)->CreateMaxNum(unwrap(LHS), unwrap(RHS), name);
+    return wrap(call_inst);
+}
+
+LLVMValueRef ZigLLVMBuildMinNum(LLVMBuilderRef B, LLVMValueRef LHS, LLVMValueRef RHS, const char *name) {
+    CallInst *call_inst = unwrap(B)->CreateMinNum(unwrap(LHS), unwrap(RHS), name);
+    return wrap(call_inst);
+}
+
+LLVMValueRef ZigLLVMBuildUMax(LLVMBuilderRef B, LLVMValueRef LHS, LLVMValueRef RHS, const char *name) {
+    CallInst *call_inst = unwrap(B)->CreateBinaryIntrinsic(Intrinsic::umax, unwrap(LHS), unwrap(RHS), nullptr, name);
+    return wrap(call_inst);
+}
+
+LLVMValueRef ZigLLVMBuildUMin(LLVMBuilderRef B, LLVMValueRef LHS, LLVMValueRef RHS, const char *name) {
+    CallInst *call_inst = unwrap(B)->CreateBinaryIntrinsic(Intrinsic::umin, unwrap(LHS), unwrap(RHS), nullptr, name);
+    return wrap(call_inst);
+}
+
+LLVMValueRef ZigLLVMBuildSMax(LLVMBuilderRef B, LLVMValueRef LHS, LLVMValueRef RHS, const char *name) {
+    CallInst *call_inst = unwrap(B)->CreateBinaryIntrinsic(Intrinsic::smax, unwrap(LHS), unwrap(RHS), nullptr, name);
+    return wrap(call_inst);
+}
+
+LLVMValueRef ZigLLVMBuildSMin(LLVMBuilderRef B, LLVMValueRef LHS, LLVMValueRef RHS, const char *name) {
+    CallInst *call_inst = unwrap(B)->CreateBinaryIntrinsic(Intrinsic::smin, unwrap(LHS), unwrap(RHS), nullptr, name);
+    return wrap(call_inst);
+}
+
+LLVMValueRef ZigLLVMBuildSAddSat(LLVMBuilderRef B, LLVMValueRef LHS, LLVMValueRef RHS, const char *name) {
+    CallInst *call_inst = unwrap(B)->CreateBinaryIntrinsic(Intrinsic::sadd_sat, unwrap(LHS), unwrap(RHS), nullptr, name);
+    return wrap(call_inst);
+}
+
+LLVMValueRef ZigLLVMBuildUAddSat(LLVMBuilderRef B, LLVMValueRef LHS, LLVMValueRef RHS, const char *name) {
+    CallInst *call_inst = unwrap(B)->CreateBinaryIntrinsic(Intrinsic::uadd_sat, unwrap(LHS), unwrap(RHS), nullptr, name);
+    return wrap(call_inst);
+}
+
+LLVMValueRef ZigLLVMBuildSSubSat(LLVMBuilderRef B, LLVMValueRef LHS, LLVMValueRef RHS, const char *name) {
+    CallInst *call_inst = unwrap(B)->CreateBinaryIntrinsic(Intrinsic::ssub_sat, unwrap(LHS), unwrap(RHS), nullptr, name);
+    return wrap(call_inst);
+}
+
+LLVMValueRef ZigLLVMBuildUSubSat(LLVMBuilderRef B, LLVMValueRef LHS, LLVMValueRef RHS, const char *name) {
+    CallInst *call_inst = unwrap(B)->CreateBinaryIntrinsic(Intrinsic::usub_sat, unwrap(LHS), unwrap(RHS), nullptr, name);
+    return wrap(call_inst);
+}
+
+LLVMValueRef ZigLLVMBuildSMulFixSat(LLVMBuilderRef B, LLVMValueRef LHS, LLVMValueRef RHS, const char *name) {
+    llvm::Type* types[1] = {
+        unwrap(LHS)->getType(), 
+    };
+    // pass scale = 0 as third argument
+    llvm::Value* values[3] = {unwrap(LHS), unwrap(RHS), unwrap(B)->getInt32(0)};
+    
+    CallInst *call_inst = unwrap(B)->CreateIntrinsic(Intrinsic::smul_fix_sat, types, values, nullptr, name);
+    return wrap(call_inst);
+}
+
+LLVMValueRef ZigLLVMBuildUMulFixSat(LLVMBuilderRef B, LLVMValueRef LHS, LLVMValueRef RHS, const char *name) {
+    llvm::Type* types[1] = {
+        unwrap(LHS)->getType(), 
+    };
+    // pass scale = 0 as third argument
+    llvm::Value* values[3] = {unwrap(LHS), unwrap(RHS), unwrap(B)->getInt32(0)};
+    
+    CallInst *call_inst = unwrap(B)->CreateIntrinsic(Intrinsic::umul_fix_sat, types, values, nullptr, name);
+    return wrap(call_inst);
+}
+
+LLVMValueRef ZigLLVMBuildSShlSat(LLVMBuilderRef B, LLVMValueRef LHS, LLVMValueRef RHS, const char *name) {
+    CallInst *call_inst = unwrap(B)->CreateBinaryIntrinsic(Intrinsic::sshl_sat, unwrap(LHS), unwrap(RHS), nullptr, name);
+    return wrap(call_inst);
+}
+
+LLVMValueRef ZigLLVMBuildUShlSat(LLVMBuilderRef B, LLVMValueRef LHS, LLVMValueRef RHS, const char *name) {
+    CallInst *call_inst = unwrap(B)->CreateBinaryIntrinsic(Intrinsic::ushl_sat, unwrap(LHS), unwrap(RHS), nullptr, name);
     return wrap(call_inst);
 }
 

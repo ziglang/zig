@@ -16,13 +16,12 @@ const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const BigIntConst = std.math.big.int.Const;
 const BigIntMutable = std.math.big.int.Mutable;
-const ast = std.zig.ast;
+const Ast = std.zig.Ast;
 
 const Zir = @This();
 const Type = @import("type.zig").Type;
 const Value = @import("value.zig").Value;
 const TypedValue = @import("TypedValue.zig");
-const ir = @import("air.zig");
 const Module = @import("Module.zig");
 const LazySrcLoc = Module.LazySrcLoc;
 
@@ -62,7 +61,7 @@ pub const ExtraIndex = enum(u32) {
     _,
 };
 
-pub fn getMainStruct(zir: Zir) Zir.Inst.Index {
+pub fn getMainStruct(zir: Zir) Inst.Index {
     return zir.extra[@enumToInt(ExtraIndex.main_struct)] -
         @intCast(u32, Inst.Ref.typed_value_map.len);
 }
@@ -174,11 +173,22 @@ pub const Inst = struct {
         /// Twos complement wrapping integer addition.
         /// Uses the `pl_node` union field. Payload is `Bin`.
         addwrap,
-        /// Declares a parameter of the current function. Used for debug info and
-        /// for checking shadowing against declarations in the current namespace.
-        /// Uses the `str_tok` field. Token is the parameter name, string is the
-        /// parameter name.
-        arg,
+        /// Declares a parameter of the current function. Used for:
+        /// * debug info
+        /// * checking shadowing against declarations in the current namespace
+        /// * parameter type expressions referencing other parameters
+        /// These occur in the block outside a function body (the same block as
+        /// contains the func instruction).
+        /// Uses the `pl_tok` field. Token is the parameter name, payload is a `Param`.
+        param,
+        /// Same as `param` except the parameter is marked comptime.
+        param_comptime,
+        /// Same as `param` except the parameter is marked anytype.
+        /// Uses the `str_tok` field. Token is the parameter name. String is the parameter name.
+        param_anytype,
+        /// Same as `param` except the parameter is marked both comptime and anytype.
+        /// Uses the `str_tok` field. Token is the parameter name. String is the parameter name.
+        param_anytype_comptime,
         /// Array concatenation. `a ++ b`
         /// Uses the `pl_node` union field. Payload is `Bin`.
         array_cat,
@@ -214,7 +224,7 @@ pub const Inst = struct {
         as_node,
         /// Bitwise AND. `&`
         bit_and,
-        /// Bitcast a value to a different type.
+        /// Reinterpret the memory representation of a value as a different type.
         /// Uses the pl_node field with payload `Bin`.
         bitcast,
         /// A typed result location pointer is bitcasted to a new result location pointer.
@@ -237,15 +247,9 @@ pub const Inst = struct {
         /// Implements `suspend {...}`.
         /// Uses the `pl_node` union field. Payload is `Block`.
         suspend_block,
-        /// Boolean AND. See also `bit_and`.
-        /// Uses the `pl_node` union field. Payload is `Bin`.
-        bool_and,
         /// Boolean NOT. See also `bit_not`.
         /// Uses the `un_node` field.
         bool_not,
-        /// Boolean OR. See also `bit_or`.
-        /// Uses the `pl_node` union field. Payload is `Bin`.
-        bool_or,
         /// Short-circuiting boolean `and`. `lhs` is a boolean `Ref` and the other operand
         /// is a block, which is evaluated if `lhs` is `true`.
         /// Uses the `bool_br` union field.
@@ -393,7 +397,7 @@ pub const Inst = struct {
         int,
         /// Arbitrary sized integer literal. Uses the `str` union field.
         int_big,
-        /// A float literal that fits in a f32. Uses the float union value.
+        /// A float literal that fits in a f64. Uses the float union value.
         float,
         /// A float literal that fits in a f128. Uses the `pl_node` union value.
         /// Payload is `Float128`.
@@ -461,6 +465,11 @@ pub const Inst = struct {
         /// Uses the `un_node` union field.
         ret_node,
         /// Sends control flow back to the function's callee.
+        /// The operand is a `ret_ptr` instruction, where the return value can be found.
+        /// Includes an AST node source location.
+        /// Uses the `un_node` union field.
+        ret_load,
+        /// Sends control flow back to the function's callee.
         /// Includes an operand as the return value.
         /// Includes a token source location.
         /// Uses the `un_tok` union field.
@@ -486,12 +495,15 @@ pub const Inst = struct {
         /// Uses the `ptr_type` union field.
         ptr_type,
         /// Slice operation `lhs[rhs..]`. No sentinel and no end offset.
+        /// Returns a pointer to the subslice.
         /// Uses the `pl_node` field. AST node is the slice syntax. Payload is `SliceStart`.
         slice_start,
         /// Slice operation `array_ptr[start..end]`. No sentinel.
+        /// Returns a pointer to the subslice.
         /// Uses the `pl_node` field. AST node is the slice syntax. Payload is `SliceEnd`.
         slice_end,
         /// Slice operation `array_ptr[start..end:sentinel]`.
+        /// Returns a pointer to the subslice.
         /// Uses the `pl_node` field. AST node is the slice syntax. Payload is `SliceSentinel`.
         slice_sentinel,
         /// Write a value to a pointer. For loading, see `load`.
@@ -678,14 +690,14 @@ pub const Inst = struct {
         /// A struct literal with a specified type, with no fields.
         /// Uses the `un_node` field.
         struct_init_empty,
-        /// Given a struct, union, or enum, and a field name as a string index,
+        /// Given a struct or union, and a field name as a string index,
         /// returns the field type. Uses the `pl_node` field. Payload is `FieldType`.
         field_type,
-        /// Given a struct, union, or enum, and a field name as a Ref,
+        /// Given a struct or union, and a field name as a Ref,
         /// returns the field type. Uses the `pl_node` field. Payload is `FieldTypeRef`.
         field_type_ref,
-        /// Finalizes a typed struct initialization, performs validation, and returns the
-        /// struct value.
+        /// Finalizes a typed struct or union initialization, performs validation, and returns the
+        /// struct or union value.
         /// Uses the `pl_node` field. Payload is `StructInit`.
         struct_init,
         /// Struct initialization syntax, make the result a pointer.
@@ -897,6 +909,9 @@ pub const Inst = struct {
         /// Implements the `@shuffle` builtin.
         /// Uses the `pl_node` union field with payload `Shuffle`.
         shuffle,
+        /// Implements the `@select` builtin.
+        /// Uses the `pl_node` union field with payload `Select`.
+        select,
         /// Implements the `@atomicLoad` builtin.
         /// Uses the `pl_node` union field with payload `Bin`.
         atomic_load,
@@ -919,12 +934,18 @@ pub const Inst = struct {
         /// Implements the `@fieldParentPtr` builtin.
         /// Uses the `pl_node` union field with payload `FieldParentPtr`.
         field_parent_ptr,
+        /// Implements the `@maximum` builtin.
+        /// Uses the `pl_node` union field with payload `Bin`
+        maximum,
         /// Implements the `@memcpy` builtin.
         /// Uses the `pl_node` union field with payload `Memcpy`.
         memcpy,
         /// Implements the `@memset` builtin.
         /// Uses the `pl_node` union field with payload `Memset`.
         memset,
+        /// Implements the `@minimum` builtin.
+        /// Uses the `pl_node` union field with payload `Bin`
+        minimum,
         /// Implements the `@asyncCall` builtin.
         /// Uses the `pl_node` union field with payload `AsyncCall`.
         builtin_async_call,
@@ -969,7 +990,10 @@ pub const Inst = struct {
         /// Function calls do not count.
         pub fn isNoReturn(tag: Tag) bool {
             return switch (tag) {
-                .arg,
+                .param,
+                .param_comptime,
+                .param_anytype,
+                .param_anytype_comptime,
                 .add,
                 .addwrap,
                 .alloc,
@@ -999,8 +1023,6 @@ pub const Inst = struct {
                 .bool_br_and,
                 .bool_br_or,
                 .bool_not,
-                .bool_and,
-                .bool_or,
                 .breakpoint,
                 .fence,
                 .call,
@@ -1190,6 +1212,7 @@ pub const Inst = struct {
                 .splat,
                 .reduce,
                 .shuffle,
+                .select,
                 .atomic_load,
                 .atomic_rmw,
                 .atomic_store,
@@ -1197,8 +1220,10 @@ pub const Inst = struct {
                 .builtin_call,
                 .field_ptr_type,
                 .field_parent_ptr,
+                .maximum,
                 .memcpy,
                 .memset,
+                .minimum,
                 .builtin_async_call,
                 .c_import,
                 .@"resume",
@@ -1214,6 +1239,7 @@ pub const Inst = struct {
                 .condbr_inline,
                 .compile_error,
                 .ret_node,
+                .ret_load,
                 .ret_coerce,
                 .ret_err_value,
                 .@"unreachable",
@@ -1230,7 +1256,10 @@ pub const Inst = struct {
             break :list std.enums.directEnumArray(Tag, Data.FieldEnum, 0, .{
                 .add = .pl_node,
                 .addwrap = .pl_node,
-                .arg = .str_tok,
+                .param = .pl_tok,
+                .param_comptime = .pl_tok,
+                .param_anytype = .str_tok,
+                .param_anytype_comptime = .str_tok,
                 .array_cat = .pl_node,
                 .array_mul = .pl_node,
                 .array_type = .bin,
@@ -1249,9 +1278,7 @@ pub const Inst = struct {
                 .block = .pl_node,
                 .block_inline = .pl_node,
                 .suspend_block = .pl_node,
-                .bool_and = .pl_node,
                 .bool_not = .un_node,
-                .bool_or = .pl_node,
                 .bool_br_and = .bool_br,
                 .bool_br_or = .bool_br,
                 .@"break" = .@"break",
@@ -1317,6 +1344,7 @@ pub const Inst = struct {
                 .param_type = .param_type,
                 .ref = .un_tok,
                 .ret_node = .un_node,
+                .ret_load = .un_node,
                 .ret_coerce = .un_tok,
                 .ret_err_value = .str_tok,
                 .ret_err_value_code = .str_tok,
@@ -1462,6 +1490,7 @@ pub const Inst = struct {
                 .splat = .pl_node,
                 .reduce = .pl_node,
                 .shuffle = .pl_node,
+                .select = .pl_node,
                 .atomic_load = .pl_node,
                 .atomic_rmw = .pl_node,
                 .atomic_store = .pl_node,
@@ -1469,8 +1498,10 @@ pub const Inst = struct {
                 .builtin_call = .pl_node,
                 .field_ptr_type = .bin,
                 .field_parent_ptr = .pl_node,
+                .maximum = .pl_node,
                 .memcpy = .pl_node,
                 .memset = .pl_node,
+                .minimum = .pl_node,
                 .builtin_async_call = .pl_node,
                 .c_import = .pl_node,
 
@@ -1598,6 +1629,22 @@ pub const Inst = struct {
         wasm_memory_size,
         /// `operand` is payload index to `BinNode`.
         wasm_memory_grow,
+        /// Implements the `@addWithSaturation` builtin.
+        /// `operand` is payload index to `SaturatingArithmetic`.
+        /// `small` is unused.
+        add_with_saturation,
+        /// Implements the `@subWithSaturation` builtin.
+        /// `operand` is payload index to `SaturatingArithmetic`.
+        /// `small` is unused.
+        sub_with_saturation,
+        /// Implements the `@mulWithSaturation` builtin.
+        /// `operand` is payload index to `SaturatingArithmetic`.
+        /// `small` is unused.
+        mul_with_saturation,
+        /// Implements the `@shlWithSaturation` builtin.
+        /// `operand` is payload index to `SaturatingArithmetic`.
+        /// `small` is unused.
+        shl_with_saturation,
 
         pub const InstData = struct {
             opcode: Extended,
@@ -1629,6 +1676,7 @@ pub const Inst = struct {
         /// value and may instead be used as a sentinel to indicate null.
         none,
 
+        u1_type,
         u8_type,
         i8_type,
         u16_type,
@@ -1666,7 +1714,7 @@ pub const Inst = struct {
         null_type,
         undefined_type,
         enum_literal_type,
-        atomic_ordering_type,
+        atomic_order_type,
         atomic_rmw_op_type,
         calling_convention_type,
         float_mode_type,
@@ -1674,6 +1722,7 @@ pub const Inst = struct {
         call_options_type,
         export_options_type,
         extern_options_type,
+        type_info_type,
         manyptr_u8_type,
         manyptr_const_u8_type,
         fn_noreturn_no_args_type,
@@ -1682,6 +1731,8 @@ pub const Inst = struct {
         fn_ccc_void_no_args_type,
         single_const_pointer_to_comptime_int_type,
         const_slice_u8_type,
+        anyerror_void_error_union_type,
+        generic_poison_type,
 
         /// `undefined` (untyped)
         undef,
@@ -1709,12 +1760,19 @@ pub const Inst = struct {
         calling_convention_c,
         /// `std.builtin.CallingConvention.Inline`
         calling_convention_inline,
+        /// Used for generic parameters where the type and value
+        /// is not known until generic function instantiation.
+        generic_poison,
 
         _,
 
         pub const typed_value_map = std.enums.directEnumArray(Ref, TypedValue, 0, .{
             .none = undefined,
 
+            .u1_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.u1_type),
+            },
             .u8_type = .{
                 .ty = Type.initTag(.type),
                 .val = Value.initTag(.u8_type),
@@ -1883,6 +1941,14 @@ pub const Inst = struct {
                 .ty = Type.initTag(.type),
                 .val = Value.initTag(.const_slice_u8_type),
             },
+            .anyerror_void_error_union_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.anyerror_void_error_union_type),
+            },
+            .generic_poison_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.generic_poison_type),
+            },
             .enum_literal_type = .{
                 .ty = Type.initTag(.type),
                 .val = Value.initTag(.enum_literal_type),
@@ -1895,9 +1961,9 @@ pub const Inst = struct {
                 .ty = Type.initTag(.type),
                 .val = Value.initTag(.manyptr_const_u8_type),
             },
-            .atomic_ordering_type = .{
+            .atomic_order_type = .{
                 .ty = Type.initTag(.type),
-                .val = Value.initTag(.atomic_ordering_type),
+                .val = Value.initTag(.atomic_order_type),
             },
             .atomic_rmw_op_type = .{
                 .ty = Type.initTag(.type),
@@ -1926,6 +1992,10 @@ pub const Inst = struct {
             .extern_options_type = .{
                 .ty = Type.initTag(.type),
                 .val = Value.initTag(.extern_options_type),
+            },
+            .type_info_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.type_info_type),
             },
 
             .undef = .{
@@ -1980,6 +2050,10 @@ pub const Inst = struct {
                 .ty = Type.initTag(.calling_convention),
                 .val = .{ .ptr_otherwise = &calling_convention_inline_payload.base },
             },
+            .generic_poison = .{
+                .ty = Type.initTag(.generic_poison),
+                .val = Value.initTag(.generic_poison),
+            },
         });
     };
 
@@ -2018,7 +2092,7 @@ pub const Inst = struct {
         /// Used for unary operators, with a token source location.
         un_tok: struct {
             /// Offset from Decl AST token index.
-            src_tok: ast.TokenIndex,
+            src_tok: Ast.TokenIndex,
             /// The meaning of this operand depends on the corresponding `Tag`.
             operand: Ref,
 
@@ -2036,6 +2110,17 @@ pub const Inst = struct {
 
             pub fn src(self: @This()) LazySrcLoc {
                 return .{ .node_offset = self.src_node };
+            }
+        },
+        pl_tok: struct {
+            /// Offset from Decl AST token index.
+            src_tok: Ast.TokenIndex,
+            /// index into extra.
+            /// `Tag` determines what lives there.
+            payload_index: u32,
+
+            pub fn src(self: @This()) LazySrcLoc {
+                return .{ .token_offset = self.src_tok };
             }
         },
         bin: Bin,
@@ -2065,20 +2150,11 @@ pub const Inst = struct {
             }
         },
         /// Offset from Decl AST token index.
-        tok: ast.TokenIndex,
+        tok: Ast.TokenIndex,
         /// Offset from Decl AST node index.
         node: i32,
         int: u64,
-        float: struct {
-            /// Offset from Decl AST node index.
-            /// `Tag` determines which kind of AST node this points to.
-            src_node: i32,
-            number: f32,
-
-            pub fn src(self: @This()) LazySrcLoc {
-                return .{ .node_offset = self.src_node };
-            }
-        },
+        float: f64,
         array_type_sentinel: struct {
             len: Ref,
             /// index into extra, points to an `ArrayTypeSentinel`
@@ -2170,6 +2246,7 @@ pub const Inst = struct {
             un_node,
             un_tok,
             pl_node,
+            pl_tok,
             bin,
             str,
             str_tok,
@@ -2196,7 +2273,8 @@ pub const Inst = struct {
     /// 2. clobber: u32 // index into string_bytes (null terminated) for every clobbers_len.
     pub const Asm = struct {
         src_node: i32,
-        asm_source: Ref,
+        // null-terminated string index
+        asm_source: u32,
         /// 1 bit for each outputs_len: whether it uses `-> T` or not.
         ///   0b0 - operand is a pointer to where to store the output.
         ///   0b1 - operand is a type; asm expression has the output as the result.
@@ -2225,13 +2303,15 @@ pub const Inst = struct {
     /// 0. lib_name: u32, // null terminated string index, if has_lib_name is set
     /// 1. cc: Ref, // if has_cc is set
     /// 2. align: Ref, // if has_align is set
-    /// 3. param_type: Ref // for each param_types_len
+    /// 3. return_type: Index // for each ret_body_len
     /// 4. body: Index // for each body_len
     /// 5. src_locs: Func.SrcLocs // if body_len != 0
     pub const ExtendedFunc = struct {
         src_node: i32,
-        return_type: Ref,
-        param_types_len: u32,
+        /// If this is 0 it means a void return type.
+        ret_body_len: u32,
+        /// Points to the block that contains the param instructions for this function.
+        param_block: Index,
         body_len: u32,
 
         pub const Small = packed struct {
@@ -2265,13 +2345,14 @@ pub const Inst = struct {
     };
 
     /// Trailing:
-    /// 0. param_type: Ref // for each param_types_len
-    ///    - `none` indicates that the param type is `anytype`.
+    /// 0. return_type: Index // for each ret_body_len
     /// 1. body: Index // for each body_len
     /// 2. src_locs: SrcLocs // if body_len != 0
     pub const Func = struct {
-        return_type: Ref,
-        param_types_len: u32,
+        /// If this is 0 it means a void return type.
+        ret_body_len: u32,
+        /// Points to the block that contains the param instructions for this function.
+        param_block: Index,
         body_len: u32,
 
         pub const SrcLocs = struct {
@@ -2481,9 +2562,10 @@ pub const Inst = struct {
             has_body_len: bool,
             has_fields_len: bool,
             has_decls_len: bool,
+            known_has_bits: bool,
             name_strategy: NameStrategy,
             layout: std.builtin.TypeInfo.ContainerLayout,
-            _: u8 = undefined,
+            _: u7 = undefined,
         };
     };
 
@@ -2685,6 +2767,12 @@ pub const Inst = struct {
         ptr: Ref,
     };
 
+    pub const SaturatingArithmetic = struct {
+        node: i32,
+        lhs: Ref,
+        rhs: Ref,
+    };
+
     pub const Cmpxchg = struct {
         ptr: Ref,
         expected_value: Ref,
@@ -2743,11 +2831,26 @@ pub const Inst = struct {
         mask: Ref,
     };
 
+    pub const Select = struct {
+        elem_type: Ref,
+        pred: Ref,
+        a: Ref,
+        b: Ref,
+    };
+
     pub const AsyncCall = struct {
         frame_buffer: Ref,
         result_ptr: Ref,
         fn_ptr: Ref,
         args: Ref,
+    };
+
+    /// Trailing: inst: Index // for every body_len
+    pub const Param = struct {
+        /// Null-terminated string index.
+        name: u32,
+        /// The body contains the type of the parameter.
+        body_len: u32,
     };
 
     /// Trailing:
@@ -2775,9 +2878,9 @@ pub const Inst = struct {
         pub const Item = struct {
             /// null terminated string index
             msg: u32,
-            node: ast.Node.Index,
+            node: Ast.Node.Index,
             /// If node is 0 then this will be populated.
-            token: ast.TokenIndex,
+            token: Ast.TokenIndex,
             /// Can be used in combination with `token`.
             byte_offset: u32,
             /// 0 or a payload index of a `Block`, each is a payload
@@ -2794,7 +2897,7 @@ pub const Inst = struct {
             /// null terminated string index
             name: u32,
             /// points to the import name
-            token: ast.TokenIndex,
+            token: Ast.TokenIndex,
         };
     };
 };
@@ -2809,8 +2912,8 @@ const Writer = struct {
     indent: u32,
     parent_decl_node: u32,
 
-    fn relativeToNodeIndex(self: *Writer, offset: i32) ast.Node.Index {
-        return @bitCast(ast.Node.Index, offset + @bitCast(i32, self.parent_decl_node));
+    fn relativeToNodeIndex(self: *Writer, offset: i32) Ast.Node.Index {
+        return @bitCast(Ast.Node.Index, offset + @bitCast(i32, self.parent_decl_node));
     }
 
     fn writeInstToStream(
@@ -2846,6 +2949,7 @@ const Writer = struct {
             .ensure_result_used,
             .ensure_result_non_error,
             .ret_node,
+            .ret_load,
             .resolve_inferred_alloc,
             .optional_type,
             .optional_payload_safe,
@@ -2953,6 +3057,7 @@ const Writer = struct {
             .cmpxchg_strong,
             .cmpxchg_weak,
             .shuffle,
+            .select,
             .atomic_rmw,
             .atomic_store,
             .mul_add,
@@ -2982,8 +3087,6 @@ const Writer = struct {
             .mulwrap,
             .sub,
             .subwrap,
-            .bool_and,
-            .bool_or,
             .cmp_lt,
             .cmp_lte,
             .cmp_eq,
@@ -3027,6 +3130,8 @@ const Writer = struct {
             .bitcast,
             .bitcast_result_ptr,
             .vector_type,
+            .maximum,
+            .minimum,
             => try self.writePlNodeBin(stream, inst),
 
             .@"export" => try self.writePlNodeExport(stream, inst),
@@ -3093,10 +3198,13 @@ const Writer = struct {
             .decl_ref,
             .decl_val,
             .import,
-            .arg,
             .ret_err_value,
             .ret_err_value_code,
+            .param_anytype,
+            .param_anytype_comptime,
             => try self.writeStrTok(stream, inst),
+
+            .param, .param_comptime => try self.writeParam(stream, inst),
 
             .func => try self.writeFunc(stream, inst, false),
             .func_inferred => try self.writeFunc(stream, inst, true),
@@ -3145,6 +3253,11 @@ const Writer = struct {
             .shl_with_overflow,
             => try self.writeOverflowArithmetic(stream, extended),
 
+            .add_with_saturation,
+            .sub_with_saturation,
+            .mul_with_saturation,
+            .shl_with_saturation,
+            => try self.writeSaturatingArithmetic(stream, extended),
             .struct_decl => try self.writeStructDecl(stream, extended),
             .union_decl => try self.writeUnionDecl(stream, extended),
             .enum_decl => try self.writeEnumDecl(stream, extended),
@@ -3269,10 +3382,8 @@ const Writer = struct {
     }
 
     fn writeFloat(self: *Writer, stream: anytype, inst: Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].float;
-        const src = inst_data.src();
-        try stream.print("{d}) ", .{inst_data.number});
-        try self.writeSrc(stream, src);
+        const number = self.code.instructions.items(.data)[inst].float;
+        try stream.print("{d})", .{number});
     }
 
     fn writeFloat128(self: *Writer, stream: anytype, inst: Inst.Index) !void {
@@ -3298,6 +3409,22 @@ const Writer = struct {
     fn writePlNode(self: *Writer, stream: anytype, inst: Inst.Index) !void {
         const inst_data = self.code.instructions.items(.data)[inst].pl_node;
         try stream.writeAll("TODO) ");
+        try self.writeSrc(stream, inst_data.src());
+    }
+
+    fn writeParam(self: *Writer, stream: anytype, inst: Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[inst].pl_tok;
+        const extra = self.code.extraData(Inst.Param, inst_data.payload_index);
+        const body = self.code.extra[extra.end..][0..extra.data.body_len];
+        try stream.print("\"{}\", ", .{
+            std.zig.fmtEscapes(self.code.nullTerminatedString(extra.data.name)),
+        });
+        try stream.writeAll("{\n");
+        self.indent += 2;
+        try self.writeBody(stream, body);
+        self.indent -= 2;
+        try stream.writeByteNTimes(' ', self.indent);
+        try stream.writeAll("}) ");
         try self.writeSrc(stream, inst_data.src());
     }
 
@@ -3407,9 +3534,10 @@ const Writer = struct {
         const inputs_len = @truncate(u5, extended.small >> 5);
         const clobbers_len = @truncate(u5, extended.small >> 10);
         const is_volatile = @truncate(u1, extended.small >> 15) != 0;
+        const asm_source = self.code.nullTerminatedString(extra.data.asm_source);
 
         try self.writeFlag(stream, "volatile, ", is_volatile);
-        try self.writeInstRef(stream, extra.data.asm_source);
+        try stream.print("\"{}\", ", .{std.zig.fmtEscapes(asm_source)});
         try stream.writeAll(", ");
 
         var extra_i: usize = extra.end;
@@ -3480,6 +3608,18 @@ const Writer = struct {
         try stream.writeAll(", ");
         try self.writeInstRef(stream, extra.ptr);
         try stream.writeAll(")) ");
+        try self.writeSrc(stream, src);
+    }
+
+    fn writeSaturatingArithmetic(self: *Writer, stream: anytype, extended: Inst.Extended.InstData) !void {
+        const extra = self.code.extraData(Zir.Inst.SaturatingArithmetic, extended.operand).data;
+        const src: LazySrcLoc = .{ .node_offset = extra.node };
+
+        try self.writeInstRef(stream, extra.lhs);
+        try stream.writeAll(", ");
+        try self.writeInstRef(stream, extra.rhs);
+        try stream.writeAll(", ");
+        try stream.writeAll(") ");
         try self.writeSrc(stream, src);
     }
 
@@ -3565,6 +3705,7 @@ const Writer = struct {
             break :blk decls_len;
         } else 0;
 
+        try self.writeFlag(stream, "known_has_bits, ", small.known_has_bits);
         try stream.print("{s}, {s}, ", .{
             @tagName(small.name_strategy), @tagName(small.layout),
         });
@@ -4262,17 +4403,21 @@ const Writer = struct {
         const inst_data = self.code.instructions.items(.data)[inst].pl_node;
         const src = inst_data.src();
         const extra = self.code.extraData(Inst.Func, inst_data.payload_index);
-        const param_types = self.code.refSlice(extra.end, extra.data.param_types_len);
-        const body = self.code.extra[extra.end + param_types.len ..][0..extra.data.body_len];
+        var extra_index = extra.end;
+
+        const ret_ty_body = self.code.extra[extra_index..][0..extra.data.ret_body_len];
+        extra_index += ret_ty_body.len;
+
+        const body = self.code.extra[extra_index..][0..extra.data.body_len];
+        extra_index += body.len;
+
         var src_locs: Zir.Inst.Func.SrcLocs = undefined;
         if (body.len != 0) {
-            const extra_index = extra.end + param_types.len + body.len;
             src_locs = self.code.extraData(Zir.Inst.Func.SrcLocs, extra_index).data;
         }
         return self.writeFuncCommon(
             stream,
-            param_types,
-            extra.data.return_type,
+            ret_ty_body,
             inferred_error_set,
             false,
             false,
@@ -4307,8 +4452,8 @@ const Writer = struct {
             break :blk align_inst;
         };
 
-        const param_types = self.code.refSlice(extra_index, extra.data.param_types_len);
-        extra_index += param_types.len;
+        const ret_ty_body = self.code.extra[extra_index..][0..extra.data.ret_body_len];
+        extra_index += ret_ty_body.len;
 
         const body = self.code.extra[extra_index..][0..extra.data.body_len];
         extra_index += body.len;
@@ -4319,8 +4464,7 @@ const Writer = struct {
         }
         return self.writeFuncCommon(
             stream,
-            param_types,
-            extra.data.return_type,
+            ret_ty_body,
             small.is_inferred_error,
             small.is_var_args,
             small.is_extern,
@@ -4402,8 +4546,7 @@ const Writer = struct {
     fn writeFuncCommon(
         self: *Writer,
         stream: anytype,
-        param_types: []const Inst.Ref,
-        ret_ty: Inst.Ref,
+        ret_ty_body: []const Inst.Index,
         inferred_error_set: bool,
         var_args: bool,
         is_extern: bool,
@@ -4413,13 +4556,17 @@ const Writer = struct {
         src: LazySrcLoc,
         src_locs: Zir.Inst.Func.SrcLocs,
     ) !void {
-        try stream.writeAll("[");
-        for (param_types) |param_type, i| {
-            if (i != 0) try stream.writeAll(", ");
-            try self.writeInstRef(stream, param_type);
+        if (ret_ty_body.len == 0) {
+            try stream.writeAll("ret_ty=void");
+        } else {
+            try stream.writeAll("ret_ty={\n");
+            self.indent += 2;
+            try self.writeBody(stream, ret_ty_body);
+            self.indent -= 2;
+            try stream.writeByteNTimes(' ', self.indent);
+            try stream.writeAll("}");
         }
-        try stream.writeAll("], ");
-        try self.writeInstRef(stream, ret_ty);
+
         try self.writeOptionalInstRef(stream, ", cc=", cc);
         try self.writeOptionalInstRef(stream, ", align=", align_inst);
         try self.writeFlag(stream, ", vargs", var_args);
@@ -4427,9 +4574,9 @@ const Writer = struct {
         try self.writeFlag(stream, ", inferror", inferred_error_set);
 
         if (body.len == 0) {
-            try stream.writeAll(", {}) ");
+            try stream.writeAll(", body={}) ");
         } else {
-            try stream.writeAll(", {\n");
+            try stream.writeAll(", body={\n");
             self.indent += 2;
             try self.writeBody(stream, body);
             self.indent -= 2;
@@ -4684,8 +4831,7 @@ fn findDeclsInner(
 
             const inst_data = datas[inst].pl_node;
             const extra = zir.extraData(Inst.Func, inst_data.payload_index);
-            const param_types_len = extra.data.param_types_len;
-            const body = zir.extra[extra.end + param_types_len ..][0..extra.data.body_len];
+            const body = zir.extra[extra.end..][0..extra.data.body_len];
             return zir.findDeclsBody(list, body);
         },
         .extended => {
@@ -4700,7 +4846,6 @@ fn findDeclsInner(
                     extra_index += @boolToInt(small.has_lib_name);
                     extra_index += @boolToInt(small.has_cc);
                     extra_index += @boolToInt(small.has_align);
-                    extra_index += extra.data.param_types_len;
                     const body = zir.extra[extra_index..][0..extra.data.body_len];
                     return zir.findDeclsBody(list, body);
                 },
@@ -4855,10 +5000,83 @@ fn findDeclsSwitchMulti(
 
 fn findDeclsBody(
     zir: Zir,
-    list: *std.ArrayList(Zir.Inst.Index),
-    body: []const Zir.Inst.Index,
+    list: *std.ArrayList(Inst.Index),
+    body: []const Inst.Index,
 ) Allocator.Error!void {
     for (body) |member| {
         try zir.findDeclsInner(list, member);
     }
+}
+
+pub const FnInfo = struct {
+    param_body: []const Inst.Index,
+    ret_ty_body: []const Inst.Index,
+    body: []const Inst.Index,
+    total_params_len: u32,
+};
+
+pub fn getFnInfo(zir: Zir, fn_inst: Inst.Index) FnInfo {
+    const tags = zir.instructions.items(.tag);
+    const datas = zir.instructions.items(.data);
+    const info: struct {
+        param_block: Inst.Index,
+        body: []const Inst.Index,
+        ret_ty_body: []const Inst.Index,
+    } = switch (tags[fn_inst]) {
+        .func, .func_inferred => blk: {
+            const inst_data = datas[fn_inst].pl_node;
+            const extra = zir.extraData(Inst.Func, inst_data.payload_index);
+            var extra_index: usize = extra.end;
+
+            const ret_ty_body = zir.extra[extra_index..][0..extra.data.ret_body_len];
+            extra_index += ret_ty_body.len;
+
+            const body = zir.extra[extra_index..][0..extra.data.body_len];
+            extra_index += body.len;
+
+            break :blk .{
+                .param_block = extra.data.param_block,
+                .ret_ty_body = ret_ty_body,
+                .body = body,
+            };
+        },
+        .extended => blk: {
+            const extended = datas[fn_inst].extended;
+            assert(extended.opcode == .func);
+            const extra = zir.extraData(Inst.ExtendedFunc, extended.operand);
+            const small = @bitCast(Inst.ExtendedFunc.Small, extended.small);
+            var extra_index: usize = extra.end;
+            extra_index += @boolToInt(small.has_lib_name);
+            extra_index += @boolToInt(small.has_cc);
+            extra_index += @boolToInt(small.has_align);
+            const ret_ty_body = zir.extra[extra_index..][0..extra.data.ret_body_len];
+            extra_index += ret_ty_body.len;
+            const body = zir.extra[extra_index..][0..extra.data.body_len];
+            extra_index += body.len;
+            break :blk .{
+                .param_block = extra.data.param_block,
+                .ret_ty_body = ret_ty_body,
+                .body = body,
+            };
+        },
+        else => unreachable,
+    };
+    assert(tags[info.param_block] == .block or tags[info.param_block] == .block_inline);
+    const param_block = zir.extraData(Inst.Block, datas[info.param_block].pl_node.payload_index);
+    const param_body = zir.extra[param_block.end..][0..param_block.data.body_len];
+    var total_params_len: u32 = 0;
+    for (param_body) |inst| {
+        switch (tags[inst]) {
+            .param, .param_comptime, .param_anytype, .param_anytype_comptime => {
+                total_params_len += 1;
+            },
+            else => continue,
+        }
+    }
+    return .{
+        .param_body = param_body,
+        .ret_ty_body = info.ret_ty_body,
+        .body = info.body,
+        .total_params_len = total_params_len,
+    };
 }

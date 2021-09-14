@@ -9,7 +9,7 @@ sudo apt-get install -y cmake s3cmd tidy
 ZIGDIR="$(pwd)"
 ARCH="$(uname -m)"
 TARGET="$ARCH-linux-musl"
-CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.8.0-dev.2703+c12704a33"
+CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.8.1-dev.94+535615117"
 PREFIX="$HOME/$CACHE_BASENAME"
 MCPU="baseline"
 JOBS="-j$(nproc)"
@@ -69,9 +69,11 @@ release/bin/zig fmt --check ..
 cmake .. -DZIG_EXECUTABLE="$(pwd)/release/bin/zig"
 make $JOBS install
 
-for step in test-toolchain test-std docs; do
-  release/bin/zig build $step -Denable-qemu -Denable-wasmtime
-done
+release/bin/zig test ../test/behavior.zig -fno-stage1 -fLLVM -I ../test
+
+release/bin/zig build test-toolchain -Denable-qemu -Denable-wasmtime
+release/bin/zig build test-std       -Denable-qemu -Denable-wasmtime
+release/bin/zig build docs           -Denable-qemu -Denable-wasmtime
 
 # Look for HTML errors.
 tidy -qe ../zig-cache/langref.html

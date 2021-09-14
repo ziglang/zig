@@ -1,8 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
 const std = @import("std.zig");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
@@ -15,7 +10,7 @@ const native_endian = builtin.target.cpu.arch.endian();
 
 // Windows 10 added support for unix sockets in build 17063, redstone 4 is the
 // first release to support them.
-pub const has_unix_sockets = @hasDecl(os, "sockaddr_un") and
+pub const has_unix_sockets = @hasDecl(os.sockaddr, "un") and
     (builtin.target.os.tag != .windows or
     std.Target.current.os.version_range.windows.isAtLeast(.win10_rs4) orelse false);
 
@@ -23,7 +18,7 @@ pub const Address = extern union {
     any: os.sockaddr,
     in: Ip4Address,
     in6: Ip6Address,
-    un: if (has_unix_sockets) os.sockaddr_un else void,
+    un: if (has_unix_sockets) os.sockaddr.un else void,
 
     /// Parse the given IP address string into an Address value.
     /// It is recommended to use `resolveIp` instead, to handle
@@ -34,6 +29,7 @@ pub const Address = extern union {
             error.InvalidEnd,
             error.InvalidCharacter,
             error.Incomplete,
+            error.NonCanonical,
             => {},
         }
 
@@ -55,6 +51,7 @@ pub const Address = extern union {
             error.InvalidEnd,
             error.InvalidCharacter,
             error.Incomplete,
+            error.NonCanonical,
             => {},
         }
 
@@ -73,9 +70,9 @@ pub const Address = extern union {
 
     pub fn parseExpectingFamily(name: []const u8, family: os.sa_family_t, port: u16) !Address {
         switch (family) {
-            os.AF_INET => return parseIp4(name, port),
-            os.AF_INET6 => return parseIp6(name, port),
-            os.AF_UNSPEC => return parseIp(name, port),
+            os.AF.INET => return parseIp4(name, port),
+            os.AF.INET6 => return parseIp6(name, port),
+            os.AF.UNSPEC => return parseIp(name, port),
             else => unreachable,
         }
     }
@@ -101,8 +98,8 @@ pub const Address = extern union {
     }
 
     pub fn initUnix(path: []const u8) !Address {
-        var sock_addr = os.sockaddr_un{
-            .family = os.AF_UNIX,
+        var sock_addr = os.sockaddr.un{
+            .family = os.AF.UNIX,
             .path = undefined,
         };
 
@@ -119,8 +116,8 @@ pub const Address = extern union {
     /// Asserts that the address is ip4 or ip6.
     pub fn getPort(self: Address) u16 {
         return switch (self.any.family) {
-            os.AF_INET => self.in.getPort(),
-            os.AF_INET6 => self.in6.getPort(),
+            os.AF.INET => self.in.getPort(),
+            os.AF.INET6 => self.in6.getPort(),
             else => unreachable,
         };
     }
@@ -129,8 +126,8 @@ pub const Address = extern union {
     /// Asserts that the address is ip4 or ip6.
     pub fn setPort(self: *Address, port: u16) void {
         switch (self.any.family) {
-            os.AF_INET => self.in.setPort(port),
-            os.AF_INET6 => self.in6.setPort(port),
+            os.AF.INET => self.in.setPort(port),
+            os.AF.INET6 => self.in6.setPort(port),
             else => unreachable,
         }
     }
@@ -140,8 +137,8 @@ pub const Address = extern union {
     /// on the address family.
     pub fn initPosix(addr: *align(4) const os.sockaddr) Address {
         switch (addr.family) {
-            os.AF_INET => return Address{ .in = Ip4Address{ .sa = @ptrCast(*const os.sockaddr_in, addr).* } },
-            os.AF_INET6 => return Address{ .in6 = Ip6Address{ .sa = @ptrCast(*const os.sockaddr_in6, addr).* } },
+            os.AF.INET => return Address{ .in = Ip4Address{ .sa = @ptrCast(*const os.sockaddr.in, addr).* } },
+            os.AF.INET6 => return Address{ .in6 = Ip6Address{ .sa = @ptrCast(*const os.sockaddr.in6, addr).* } },
             else => unreachable,
         }
     }
@@ -153,9 +150,9 @@ pub const Address = extern union {
         out_stream: anytype,
     ) !void {
         switch (self.any.family) {
-            os.AF_INET => try self.in.format(fmt, options, out_stream),
-            os.AF_INET6 => try self.in6.format(fmt, options, out_stream),
-            os.AF_UNIX => {
+            os.AF.INET => try self.in.format(fmt, options, out_stream),
+            os.AF.INET6 => try self.in6.format(fmt, options, out_stream),
+            os.AF.UNIX => {
                 if (!has_unix_sockets) {
                     unreachable;
                 }
@@ -174,15 +171,15 @@ pub const Address = extern union {
 
     pub fn getOsSockLen(self: Address) os.socklen_t {
         switch (self.any.family) {
-            os.AF_INET => return self.in.getOsSockLen(),
-            os.AF_INET6 => return self.in6.getOsSockLen(),
-            os.AF_UNIX => {
+            os.AF.INET => return self.in.getOsSockLen(),
+            os.AF.INET6 => return self.in6.getOsSockLen(),
+            os.AF.UNIX => {
                 if (!has_unix_sockets) {
                     unreachable;
                 }
 
                 const path_len = std.mem.len(std.meta.assumeSentinel(&self.un.path, 0));
-                return @intCast(os.socklen_t, @sizeOf(os.sockaddr_un) - self.un.path.len + path_len);
+                return @intCast(os.socklen_t, @sizeOf(os.sockaddr.un) - self.un.path.len + path_len);
             },
             else => unreachable,
         }
@@ -190,7 +187,7 @@ pub const Address = extern union {
 };
 
 pub const Ip4Address = extern struct {
-    sa: os.sockaddr_in,
+    sa: os.sockaddr.in,
 
     pub fn parse(buf: []const u8, port: u16) !Ip4Address {
         var result = Ip4Address{
@@ -204,6 +201,7 @@ pub const Ip4Address = extern struct {
         var x: u8 = 0;
         var index: u8 = 0;
         var saw_any_digits = false;
+        var has_zero_prefix = false;
         for (buf) |c| {
             if (c == '.') {
                 if (!saw_any_digits) {
@@ -216,7 +214,13 @@ pub const Ip4Address = extern struct {
                 index += 1;
                 x = 0;
                 saw_any_digits = false;
+                has_zero_prefix = false;
             } else if (c >= '0' and c <= '9') {
+                if (c == '0' and !saw_any_digits) {
+                    has_zero_prefix = true;
+                } else if (has_zero_prefix) {
+                    return error.NonCanonical;
+                }
                 saw_any_digits = true;
                 x = try std.math.mul(u8, x, 10);
                 x = try std.math.add(u8, x, c - '0');
@@ -245,7 +249,7 @@ pub const Ip4Address = extern struct {
 
     pub fn init(addr: [4]u8, port: u16) Ip4Address {
         return Ip4Address{
-            .sa = os.sockaddr_in{
+            .sa = os.sockaddr.in{
                 .port = mem.nativeToBig(u16, port),
                 .addr = @ptrCast(*align(1) const u32, &addr).*,
             },
@@ -284,19 +288,19 @@ pub const Ip4Address = extern struct {
 
     pub fn getOsSockLen(self: Ip4Address) os.socklen_t {
         _ = self;
-        return @sizeOf(os.sockaddr_in);
+        return @sizeOf(os.sockaddr.in);
     }
 };
 
 pub const Ip6Address = extern struct {
-    sa: os.sockaddr_in6,
+    sa: os.sockaddr.in6,
 
     /// Parse a given IPv6 address string into an Address.
     /// Assumes the Scope ID of the address is fully numeric.
     /// For non-numeric addresses, see `resolveIp6`.
     pub fn parse(buf: []const u8, port: u16) !Ip6Address {
         var result = Ip6Address{
-            .sa = os.sockaddr_in6{
+            .sa = os.sockaddr.in6{
                 .scope_id = 0,
                 .port = mem.nativeToBig(u16, port),
                 .flowinfo = 0,
@@ -403,7 +407,7 @@ pub const Ip6Address = extern struct {
     pub fn resolve(buf: []const u8, port: u16) !Ip6Address {
         // TODO: Unify the implementations of resolveIp6 and parseIp6.
         var result = Ip6Address{
-            .sa = os.sockaddr_in6{
+            .sa = os.sockaddr.in6{
                 .scope_id = 0,
                 .port = mem.nativeToBig(u16, port),
                 .flowinfo = 0,
@@ -532,7 +536,7 @@ pub const Ip6Address = extern struct {
 
     pub fn init(addr: [16]u8, port: u16, flowinfo: u32, scope_id: u32) Ip6Address {
         return Ip6Address{
-            .sa = os.sockaddr_in6{
+            .sa = os.sockaddr.in6{
                 .addr = addr,
                 .port = mem.nativeToBig(u16, port),
                 .flowinfo = flowinfo,
@@ -604,15 +608,15 @@ pub const Ip6Address = extern struct {
 
     pub fn getOsSockLen(self: Ip6Address) os.socklen_t {
         _ = self;
-        return @sizeOf(os.sockaddr_in6);
+        return @sizeOf(os.sockaddr.in6);
     }
 };
 
 pub fn connectUnixSocket(path: []const u8) !Stream {
-    const opt_non_block = if (std.io.is_async) os.SOCK_NONBLOCK else 0;
+    const opt_non_block = if (std.io.is_async) os.SOCK.NONBLOCK else 0;
     const sockfd = try os.socket(
-        os.AF_UNIX,
-        os.SOCK_STREAM | os.SOCK_CLOEXEC | opt_non_block,
+        os.AF.UNIX,
+        os.SOCK.STREAM | os.SOCK.CLOEXEC | opt_non_block,
         0,
     );
     errdefer os.closeSocket(sockfd);
@@ -633,7 +637,7 @@ pub fn connectUnixSocket(path: []const u8) !Stream {
 
 fn if_nametoindex(name: []const u8) !u32 {
     var ifr: os.ifreq = undefined;
-    var sockfd = try os.socket(os.AF_UNIX, os.SOCK_DGRAM | os.SOCK_CLOEXEC, 0);
+    var sockfd = try os.socket(os.AF.UNIX, os.SOCK.DGRAM | os.SOCK.CLOEXEC, 0);
     defer os.closeSocket(sockfd);
 
     std.mem.copy(u8, &ifr.ifrn.name, name);
@@ -678,10 +682,10 @@ pub fn tcpConnectToHost(allocator: *mem.Allocator, name: []const u8, port: u16) 
 }
 
 pub fn tcpConnectToAddress(address: Address) !Stream {
-    const nonblock = if (std.io.is_async) os.SOCK_NONBLOCK else 0;
-    const sock_flags = os.SOCK_STREAM | nonblock |
-        (if (builtin.target.os.tag == .windows) 0 else os.SOCK_CLOEXEC);
-    const sockfd = try os.socket(address.any.family, sock_flags, os.IPPROTO_TCP);
+    const nonblock = if (std.io.is_async) os.SOCK.NONBLOCK else 0;
+    const sock_flags = os.SOCK.STREAM | nonblock |
+        (if (builtin.target.os.tag == .windows) 0 else os.SOCK.CLOEXEC);
+    const sockfd = try os.socket(address.any.family, sock_flags, os.IPPROTO.TCP);
     errdefer os.closeSocket(sockfd);
 
     if (std.io.is_async) {
@@ -720,10 +724,10 @@ pub fn getAddressList(allocator: *mem.Allocator, name: []const u8, port: u16) !*
 
         const sys = if (builtin.target.os.tag == .windows) os.windows.ws2_32 else os.system;
         const hints = os.addrinfo{
-            .flags = sys.AI_NUMERICSERV,
-            .family = os.AF_UNSPEC,
-            .socktype = os.SOCK_STREAM,
-            .protocol = os.IPPROTO_TCP,
+            .flags = sys.AI.NUMERICSERV,
+            .family = os.AF.UNSPEC,
+            .socktype = os.SOCK.STREAM,
+            .protocol = os.IPPROTO.TCP,
             .canonname = null,
             .addr = null,
             .addrlen = 0,
@@ -790,8 +794,8 @@ pub fn getAddressList(allocator: *mem.Allocator, name: []const u8, port: u16) !*
         return result;
     }
     if (builtin.target.os.tag == .linux) {
-        const flags = std.c.AI_NUMERICSERV;
-        const family = os.AF_UNSPEC;
+        const flags = std.c.AI.NUMERICSERV;
+        const family = os.AF.UNSPEC;
         var lookup_addrs = std.ArrayList(LookupAddr).init(allocator);
         defer lookup_addrs.deinit();
 
@@ -842,7 +846,7 @@ fn linuxLookupName(
         try canon.appendSlice(name);
         if (Address.parseExpectingFamily(name, family, port)) |addr| {
             try addrs.append(LookupAddr{ .addr = addr });
-        } else |name_err| if ((flags & std.c.AI_NUMERICHOST) != 0) {
+        } else |name_err| if ((flags & std.c.AI.NUMERICHOST) != 0) {
             return name_err;
         } else {
             try linuxLookupNameFromHosts(addrs, canon, name, family, port);
@@ -872,9 +876,9 @@ fn linuxLookupName(
 
     // No further processing is needed if there are fewer than 2
     // results or if there are only IPv4 results.
-    if (addrs.items.len == 1 or family == os.AF_INET) return;
+    if (addrs.items.len == 1 or family == os.AF.INET) return;
     const all_ip4 = for (addrs.items) |addr| {
-        if (addr.addr.any.family != os.AF_INET) break false;
+        if (addr.addr.any.family != os.AF.INET) break false;
     } else true;
     if (all_ip4) return;
 
@@ -887,19 +891,19 @@ fn linuxLookupName(
     // A more idiomatic "ziggy" implementation would be welcome.
     for (addrs.items) |*addr, i| {
         var key: i32 = 0;
-        var sa6: os.sockaddr_in6 = undefined;
-        @memset(@ptrCast([*]u8, &sa6), 0, @sizeOf(os.sockaddr_in6));
-        var da6 = os.sockaddr_in6{
-            .family = os.AF_INET6,
+        var sa6: os.sockaddr.in6 = undefined;
+        @memset(@ptrCast([*]u8, &sa6), 0, @sizeOf(os.sockaddr.in6));
+        var da6 = os.sockaddr.in6{
+            .family = os.AF.INET6,
             .scope_id = addr.addr.in6.sa.scope_id,
             .port = 65535,
             .flowinfo = 0,
             .addr = [1]u8{0} ** 16,
         };
-        var sa4: os.sockaddr_in = undefined;
-        @memset(@ptrCast([*]u8, &sa4), 0, @sizeOf(os.sockaddr_in));
-        var da4 = os.sockaddr_in{
-            .family = os.AF_INET,
+        var sa4: os.sockaddr.in = undefined;
+        @memset(@ptrCast([*]u8, &sa4), 0, @sizeOf(os.sockaddr.in));
+        var da4 = os.sockaddr.in{
+            .family = os.AF.INET,
             .port = 65535,
             .addr = 0,
             .zero = [1]u8{0} ** 8,
@@ -908,21 +912,21 @@ fn linuxLookupName(
         var da: *align(4) os.sockaddr = undefined;
         var salen: os.socklen_t = undefined;
         var dalen: os.socklen_t = undefined;
-        if (addr.addr.any.family == os.AF_INET6) {
+        if (addr.addr.any.family == os.AF.INET6) {
             mem.copy(u8, &da6.addr, &addr.addr.in6.sa.addr);
             da = @ptrCast(*os.sockaddr, &da6);
-            dalen = @sizeOf(os.sockaddr_in6);
+            dalen = @sizeOf(os.sockaddr.in6);
             sa = @ptrCast(*os.sockaddr, &sa6);
-            salen = @sizeOf(os.sockaddr_in6);
+            salen = @sizeOf(os.sockaddr.in6);
         } else {
             mem.copy(u8, &sa6.addr, "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff");
             mem.copy(u8, &da6.addr, "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff");
             mem.writeIntNative(u32, da6.addr[12..], addr.addr.in.sa.addr);
             da4.addr = addr.addr.in.sa.addr;
             da = @ptrCast(*os.sockaddr, &da4);
-            dalen = @sizeOf(os.sockaddr_in);
+            dalen = @sizeOf(os.sockaddr.in);
             sa = @ptrCast(*os.sockaddr, &sa4);
-            salen = @sizeOf(os.sockaddr_in);
+            salen = @sizeOf(os.sockaddr.in);
         }
         const dpolicy = policyOf(da6.addr);
         const dscope: i32 = scopeOf(da6.addr);
@@ -930,13 +934,13 @@ fn linuxLookupName(
         const dprec: i32 = dpolicy.prec;
         const MAXADDRS = 3;
         var prefixlen: i32 = 0;
-        const sock_flags = os.SOCK_DGRAM | os.SOCK_CLOEXEC;
-        if (os.socket(addr.addr.any.family, sock_flags, os.IPPROTO_UDP)) |fd| syscalls: {
+        const sock_flags = os.SOCK.DGRAM | os.SOCK.CLOEXEC;
+        if (os.socket(addr.addr.any.family, sock_flags, os.IPPROTO.UDP)) |fd| syscalls: {
             defer os.closeSocket(fd);
             os.connect(fd, da, dalen) catch break :syscalls;
             key |= DAS_USABLE;
             os.getsockname(fd, sa, &salen) catch break :syscalls;
-            if (addr.addr.any.family == os.AF_INET) {
+            if (addr.addr.any.family == os.AF.INET) {
                 // TODO sa6.addr[12..16] should return *[4]u8, making this cast unnecessary.
                 mem.writeIntNative(u32, @ptrCast(*[4]u8, &sa6.addr[12]), sa4.addr);
             }
@@ -1078,24 +1082,24 @@ fn linuxLookupNameFromNull(
     flags: u32,
     port: u16,
 ) !void {
-    if ((flags & std.c.AI_PASSIVE) != 0) {
-        if (family != os.AF_INET6) {
+    if ((flags & std.c.AI.PASSIVE) != 0) {
+        if (family != os.AF.INET6) {
             (try addrs.addOne()).* = LookupAddr{
                 .addr = Address.initIp4([1]u8{0} ** 4, port),
             };
         }
-        if (family != os.AF_INET) {
+        if (family != os.AF.INET) {
             (try addrs.addOne()).* = LookupAddr{
                 .addr = Address.initIp6([1]u8{0} ** 16, port, 0, 0),
             };
         }
     } else {
-        if (family != os.AF_INET6) {
+        if (family != os.AF.INET6) {
             (try addrs.addOne()).* = LookupAddr{
                 .addr = Address.initIp4([4]u8{ 127, 0, 0, 1 }, port),
             };
         }
-        if (family != os.AF_INET) {
+        if (family != os.AF.INET) {
             (try addrs.addOne()).* = LookupAddr{
                 .addr = Address.initIp6(([1]u8{0} ** 15) ++ [1]u8{1}, port, 0, 0),
             };
@@ -1130,9 +1134,9 @@ fn linuxLookupNameFromHosts(
         },
         else => |e| return e,
     }) |line| {
-        const no_comment_line = mem.split(line, "#").next().?;
+        const no_comment_line = mem.split(u8, line, "#").next().?;
 
-        var line_it = mem.tokenize(no_comment_line, " \t");
+        var line_it = mem.tokenize(u8, no_comment_line, " \t");
         const ip_text = line_it.next() orelse continue;
         var first_name_text: ?[]const u8 = null;
         while (line_it.next()) |name_text| {
@@ -1149,6 +1153,7 @@ fn linuxLookupNameFromHosts(
             error.Incomplete,
             error.InvalidIPAddressFormat,
             error.InvalidIpv4Mapping,
+            error.NonCanonical,
             => continue,
         };
         try addrs.append(LookupAddr{ .addr = addr });
@@ -1211,7 +1216,7 @@ fn linuxLookupNameFromDnsSearch(
     mem.copy(u8, canon.items, canon_name);
     try canon.append('.');
 
-    var tok_it = mem.tokenize(search, " \t");
+    var tok_it = mem.tokenize(u8, search, " \t");
     while (tok_it.next()) |tok| {
         canon.shrinkRetainingCapacity(canon_name.len + 1);
         try canon.appendSlice(tok);
@@ -1247,8 +1252,8 @@ fn linuxLookupNameFromDns(
         rr: u8,
     };
     const afrrs = [_]AfRr{
-        AfRr{ .af = os.AF_INET6, .rr = os.RR_A },
-        AfRr{ .af = os.AF_INET, .rr = os.RR_AAAA },
+        AfRr{ .af = os.AF.INET6, .rr = os.RR.A },
+        AfRr{ .af = os.AF.INET, .rr = os.RR.AAAA },
     };
     var qbuf: [2][280]u8 = undefined;
     var abuf: [2][512]u8 = undefined;
@@ -1328,13 +1333,13 @@ fn getResolvConf(allocator: *mem.Allocator, rc: *ResolvConf) !void {
         },
         else => |e| return e,
     }) |line| {
-        const no_comment_line = mem.split(line, "#").next().?;
-        var line_it = mem.tokenize(no_comment_line, " \t");
+        const no_comment_line = mem.split(u8, line, "#").next().?;
+        var line_it = mem.tokenize(u8, no_comment_line, " \t");
 
         const token = line_it.next() orelse continue;
         if (mem.eql(u8, token, "options")) {
             while (line_it.next()) |sub_tok| {
-                var colon_it = mem.split(sub_tok, ":");
+                var colon_it = mem.split(u8, sub_tok, ":");
                 const name = colon_it.next().?;
                 const value_txt = colon_it.next() orelse continue;
                 const value = std.fmt.parseInt(u8, value_txt, 10) catch |err| switch (err) {
@@ -1381,8 +1386,8 @@ fn resMSendRc(
     const timeout = 1000 * rc.timeout;
     const attempts = rc.attempts;
 
-    var sl: os.socklen_t = @sizeOf(os.sockaddr_in);
-    var family: os.sa_family_t = os.AF_INET;
+    var sl: os.socklen_t = @sizeOf(os.sockaddr.in);
+    var family: os.sa_family_t = os.AF.INET;
 
     var ns_list = std.ArrayList(Address).init(rc.ns.allocator);
     defer ns_list.deinit();
@@ -1393,9 +1398,9 @@ fn resMSendRc(
     for (rc.ns.items) |iplit, i| {
         ns[i] = iplit.addr;
         assert(ns[i].getPort() == 53);
-        if (iplit.addr.any.family != os.AF_INET) {
-            sl = @sizeOf(os.sockaddr_in6);
-            family = os.AF_INET6;
+        if (iplit.addr.any.family != os.AF.INET) {
+            sl = @sizeOf(os.sockaddr.in6);
+            family = os.AF.INET6;
         }
     }
 
@@ -1403,13 +1408,13 @@ fn resMSendRc(
     var sa: Address = undefined;
     @memset(@ptrCast([*]u8, &sa), 0, @sizeOf(Address));
     sa.any.family = family;
-    const flags = os.SOCK_DGRAM | os.SOCK_CLOEXEC | os.SOCK_NONBLOCK;
+    const flags = os.SOCK.DGRAM | os.SOCK.CLOEXEC | os.SOCK.NONBLOCK;
     const fd = os.socket(family, flags, 0) catch |err| switch (err) {
         error.AddressFamilyNotSupported => blk: {
             // Handle case where system lacks IPv6 support
-            if (family == os.AF_INET6) {
-                family = os.AF_INET;
-                break :blk try os.socket(os.AF_INET, flags, 0);
+            if (family == os.AF.INET6) {
+                family = os.AF.INET;
+                break :blk try os.socket(os.AF.INET, flags, 0);
             }
             return err;
         },
@@ -1424,15 +1429,15 @@ fn resMSendRc(
 
     // Convert any IPv4 addresses in a mixed environment to v4-mapped
     // TODO
-    //if (family == AF_INET6) {
-    //    setsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY, &(int){0}, sizeof 0);
+    //if (family == AF.INET6) {
+    //    setsockopt(fd, IPPROTO.IPV6, IPV6_V6ONLY, &(int){0}, sizeof 0);
     //    for (i=0; i<nns; i++) {
-    //        if (ns[i].sin.sin_family != AF_INET) continue;
+    //        if (ns[i].sin.sin_family != AF.INET) continue;
     //        memcpy(ns[i].sin6.sin6_addr.s6_addr+12,
     //            &ns[i].sin.sin_addr, 4);
     //        memcpy(ns[i].sin6.sin6_addr.s6_addr,
     //            "\0\0\0\0\0\0\0\0\0\0\xff\xff", 12);
-    //        ns[i].sin6.sin6_family = AF_INET6;
+    //        ns[i].sin6.sin6_family = AF.INET6;
     //        ns[i].sin6.sin6_flowinfo = 0;
     //        ns[i].sin6.sin6_scope_id = 0;
     //    }
@@ -1440,7 +1445,7 @@ fn resMSendRc(
 
     var pfd = [1]os.pollfd{os.pollfd{
         .fd = fd,
-        .events = os.POLLIN,
+        .events = os.POLL.IN,
         .revents = undefined,
     }};
     const retry_interval = timeout / attempts;
@@ -1460,9 +1465,9 @@ fn resMSendRc(
                     var j: usize = 0;
                     while (j < ns.len) : (j += 1) {
                         if (std.io.is_async) {
-                            _ = std.event.Loop.instance.?.sendto(fd, queries[i], os.MSG_NOSIGNAL, &ns[j].any, sl) catch undefined;
+                            _ = std.event.Loop.instance.?.sendto(fd, queries[i], os.MSG.NOSIGNAL, &ns[j].any, sl) catch undefined;
                         } else {
-                            _ = os.sendto(fd, queries[i], os.MSG_NOSIGNAL, &ns[j].any, sl) catch undefined;
+                            _ = os.sendto(fd, queries[i], os.MSG.NOSIGNAL, &ns[j].any, sl) catch undefined;
                         }
                     }
                 }
@@ -1508,9 +1513,9 @@ fn resMSendRc(
                 2 => if (servfail_retry != 0) {
                     servfail_retry -= 1;
                     if (std.io.is_async) {
-                        _ = std.event.Loop.instance.?.sendto(fd, queries[i], os.MSG_NOSIGNAL, &ns[j].any, sl) catch undefined;
+                        _ = std.event.Loop.instance.?.sendto(fd, queries[i], os.MSG.NOSIGNAL, &ns[j].any, sl) catch undefined;
                     } else {
-                        _ = os.sendto(fd, queries[i], os.MSG_NOSIGNAL, &ns[j].any, sl) catch undefined;
+                        _ = os.sendto(fd, queries[i], os.MSG.NOSIGNAL, &ns[j].any, sl) catch undefined;
                     }
                 },
                 else => continue,
@@ -1565,21 +1570,21 @@ fn dnsParse(
 
 fn dnsParseCallback(ctx: dpc_ctx, rr: u8, data: []const u8, packet: []const u8) !void {
     switch (rr) {
-        os.RR_A => {
+        os.RR.A => {
             if (data.len != 4) return error.InvalidDnsARecord;
             const new_addr = try ctx.addrs.addOne();
             new_addr.* = LookupAddr{
                 .addr = Address.initIp4(data[0..4].*, ctx.port),
             };
         },
-        os.RR_AAAA => {
+        os.RR.AAAA => {
             if (data.len != 16) return error.InvalidDnsAAAARecord;
             const new_addr = try ctx.addrs.addOne();
             new_addr.* = LookupAddr{
                 .addr = Address.initIp6(data[0..16].*, ctx.port, 0, 0),
             };
         },
-        os.RR_CNAME => {
+        os.RR.CNAME => {
             var tmp: [256]u8 = undefined;
             // Returns len of compressed name. strlen to get canon name.
             _ = try os.dn_expand(packet, data, &tmp);
@@ -1695,7 +1700,7 @@ pub const StreamServer = struct {
         /// seeing "Connection refused".
         kernel_backlog: u31 = 128,
 
-        /// Enable SO_REUSEADDR on the socket.
+        /// Enable SO.REUSEADDR on the socket.
         reuse_address: bool = false,
     };
 
@@ -1717,9 +1722,9 @@ pub const StreamServer = struct {
     }
 
     pub fn listen(self: *StreamServer, address: Address) !void {
-        const nonblock = if (std.io.is_async) os.SOCK_NONBLOCK else 0;
-        const sock_flags = os.SOCK_STREAM | os.SOCK_CLOEXEC | nonblock;
-        const proto = if (address.any.family == os.AF_UNIX) @as(u32, 0) else os.IPPROTO_TCP;
+        const nonblock = if (std.io.is_async) os.SOCK.NONBLOCK else 0;
+        const sock_flags = os.SOCK.STREAM | os.SOCK.CLOEXEC | nonblock;
+        const proto = if (address.any.family == os.AF.UNIX) @as(u32, 0) else os.IPPROTO.TCP;
 
         const sockfd = try os.socket(address.any.family, sock_flags, proto);
         self.sockfd = sockfd;
@@ -1731,8 +1736,8 @@ pub const StreamServer = struct {
         if (self.reuse_address) {
             try os.setsockopt(
                 sockfd,
-                os.SOL_SOCKET,
-                os.SO_REUSEADDR,
+                os.SOL.SOCKET,
+                os.SO.REUSEADDR,
                 &mem.toBytes(@as(c_int, 1)),
             );
         }
@@ -1796,9 +1801,9 @@ pub const StreamServer = struct {
         const accept_result = blk: {
             if (std.io.is_async) {
                 const loop = std.event.Loop.instance orelse return error.UnexpectedError;
-                break :blk loop.accept(self.sockfd.?, &accepted_addr.any, &adr_len, os.SOCK_CLOEXEC);
+                break :blk loop.accept(self.sockfd.?, &accepted_addr.any, &adr_len, os.SOCK.CLOEXEC);
             } else {
-                break :blk os.accept(self.sockfd.?, &accepted_addr.any, &adr_len, os.SOCK_CLOEXEC);
+                break :blk os.accept(self.sockfd.?, &accepted_addr.any, &adr_len, os.SOCK.CLOEXEC);
             }
         };
 

@@ -12,7 +12,7 @@ const is_haiku = Target.current.os.tag == .haiku;
 
 const log = std.log.scoped(.libc_installation);
 
-usingnamespace @import("windows_sdk.zig");
+const ZigWindowsSDK = @import("windows_sdk.zig").ZigWindowsSDK;
 
 /// See the render function implementation for documentation of the fields.
 pub const LibCInstallation = struct {
@@ -41,6 +41,7 @@ pub const LibCInstallation = struct {
     pub fn parse(
         allocator: *Allocator,
         libc_file: []const u8,
+        target: std.zig.CrossTarget,
     ) !LibCInstallation {
         var self: LibCInstallation = .{};
 
@@ -60,10 +61,10 @@ pub const LibCInstallation = struct {
         const contents = try std.fs.cwd().readFileAlloc(allocator, libc_file, std.math.maxInt(usize));
         defer allocator.free(contents);
 
-        var it = std.mem.tokenize(contents, "\n");
+        var it = std.mem.tokenize(u8, contents, "\n");
         while (it.next()) |line| {
             if (line.len == 0 or line[0] == '#') continue;
-            var line_it = std.mem.split(line, "=");
+            var line_it = std.mem.split(u8, line, "=");
             const name = line_it.next() orelse {
                 log.err("missing equal sign after field name\n", .{});
                 return error.ParseError;
@@ -96,26 +97,31 @@ pub const LibCInstallation = struct {
             log.err("sys_include_dir may not be empty\n", .{});
             return error.ParseError;
         }
-        if (self.crt_dir == null and !is_darwin) {
-            log.err("crt_dir may not be empty for {s}\n", .{@tagName(Target.current.os.tag)});
+
+        const os_tag = target.getOsTag();
+        if (self.crt_dir == null and !target.isDarwin()) {
+            log.err("crt_dir may not be empty for {s}\n", .{@tagName(os_tag)});
             return error.ParseError;
         }
-        if (self.msvc_lib_dir == null and is_windows) {
+
+        const abi = target.getAbi();
+        if (self.msvc_lib_dir == null and target.isWindows() and abi == .msvc) {
             log.err("msvc_lib_dir may not be empty for {s}-{s}\n", .{
-                @tagName(Target.current.os.tag),
-                @tagName(Target.current.abi),
+                @tagName(os_tag),
+                @tagName(abi),
             });
             return error.ParseError;
         }
-        if (self.kernel32_lib_dir == null and is_windows) {
+        if (self.kernel32_lib_dir == null and target.isWindows() and abi == .msvc) {
             log.err("kernel32_lib_dir may not be empty for {s}-{s}\n", .{
-                @tagName(Target.current.os.tag),
-                @tagName(Target.current.abi),
+                @tagName(os_tag),
+                @tagName(abi),
             });
             return error.ParseError;
         }
-        if (self.gcc_dir == null and is_haiku) {
-            log.err("gcc_dir may not be empty for {s}\n", .{@tagName(Target.current.os.tag)});
+
+        if (self.gcc_dir == null and os_tag == .haiku) {
+            log.err("gcc_dir may not be empty for {s}\n", .{@tagName(os_tag)});
             return error.ParseError;
         }
 
@@ -183,9 +189,9 @@ pub const LibCInstallation = struct {
             if (!build_options.have_llvm)
                 return error.WindowsSdkNotFound;
             var sdk: *ZigWindowsSDK = undefined;
-            switch (zig_find_windows_sdk(&sdk)) {
+            switch (ZigWindowsSDK.find(&sdk)) {
                 .None => {
-                    defer zig_free_windows_sdk(sdk);
+                    defer sdk.free();
 
                     var batch = Batch(FindError!void, 5, .auto_async).init();
                     batch.add(&async self.findNativeMsvcIncludeDir(args, sdk));
@@ -298,7 +304,7 @@ pub const LibCInstallation = struct {
             },
         }
 
-        var it = std.mem.tokenize(exec_res.stderr, "\n\r");
+        var it = std.mem.tokenize(u8, exec_res.stderr, "\n\r");
         var search_paths = std.ArrayList([]const u8).init(allocator);
         defer search_paths.deinit();
         while (it.next()) |line| {
@@ -616,7 +622,7 @@ fn ccPrintFileName(args: CCPrintFileNameOptions) ![:0]u8 {
         },
     }
 
-    var it = std.mem.tokenize(exec_res.stdout, "\n\r");
+    var it = std.mem.tokenize(u8, exec_res.stdout, "\n\r");
     const line = it.next() orelse return error.LibCRuntimeNotFound;
     // When this command fails, it returns exit code 0 and duplicates the input file name.
     // So we detect failure by checking if the output matches exactly the input.
@@ -695,7 +701,7 @@ fn appendCcExe(args: *std.ArrayList([]const u8), skip_cc_env_var: bool) !void {
         return;
     };
     // Respect space-separated flags to the C compiler.
-    var it = std.mem.tokenize(cc_env_var, " ");
+    var it = std.mem.tokenize(u8, cc_env_var, " ");
     while (it.next()) |arg| {
         try args.append(arg);
     }

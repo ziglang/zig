@@ -1,9 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
-
 //! Futex is a mechanism used to block (`wait`) and unblock (`wake`) threads using a 32bit memory address as hints.
 //! Blocking a thread is acknowledged only if the 32bit memory address is equal to a given value.
 //! This check helps avoid block/unblock deadlocks which occur if a `wake()` happens before a `wait()`.
@@ -148,16 +142,16 @@ const LinuxFutex = struct {
 
         switch (linux.getErrno(linux.futex_wait(
             @ptrCast(*const i32, ptr),
-            linux.FUTEX_PRIVATE_FLAG | linux.FUTEX_WAIT,
+            linux.FUTEX.PRIVATE_FLAG | linux.FUTEX.WAIT,
             @bitCast(i32, expect),
             ts_ptr,
         ))) {
-            0 => {}, // notified by `wake()`
-            std.os.EINTR => {}, // spurious wakeup
-            std.os.EAGAIN => {}, // ptr.* != expect
-            std.os.ETIMEDOUT => return error.TimedOut,
-            std.os.EINVAL => {}, // possibly timeout overflow
-            std.os.EFAULT => unreachable,
+            .SUCCESS => {}, // notified by `wake()`
+            .INTR => {}, // spurious wakeup
+            .AGAIN => {}, // ptr.* != expect
+            .TIMEDOUT => return error.TimedOut,
+            .INVAL => {}, // possibly timeout overflow
+            .FAULT => unreachable,
             else => unreachable,
         }
     }
@@ -165,12 +159,12 @@ const LinuxFutex = struct {
     fn wake(ptr: *const Atomic(u32), num_waiters: u32) void {
         switch (linux.getErrno(linux.futex_wake(
             @ptrCast(*const i32, ptr),
-            linux.FUTEX_PRIVATE_FLAG | linux.FUTEX_WAKE,
+            linux.FUTEX.PRIVATE_FLAG | linux.FUTEX.WAKE,
             std.math.cast(i32, num_waiters) catch std.math.maxInt(i32),
         ))) {
-            0 => {}, // successful wake up
-            std.os.EINVAL => {}, // invalid futex_wait() on ptr done elsewhere
-            std.os.EFAULT => {}, // pointer became invalid while doing the wake
+            .SUCCESS => {}, // successful wake up
+            .INVAL => {}, // invalid futex_wait() on ptr done elsewhere
+            .FAULT => {}, // pointer became invalid while doing the wake
             else => unreachable,
         }
     }
@@ -180,32 +174,48 @@ const DarwinFutex = struct {
     const darwin = std.os.darwin;
 
     fn wait(ptr: *const Atomic(u32), expect: u32, timeout: ?u64) error{TimedOut}!void {
-        // ulock_wait() uses micro-second timeouts, where 0 = INIFITE or no-timeout
-        var timeout_us: u32 = 0;
-        if (timeout) |timeout_ns| {
-            timeout_us = @intCast(u32, timeout_ns / std.time.ns_per_us);
-        }
-
         // Darwin XNU 7195.50.7.100.1 introduced __ulock_wait2 and migrated code paths (notably pthread_cond_t) towards it:
         // https://github.com/apple/darwin-xnu/commit/d4061fb0260b3ed486147341b72468f836ed6c8f#diff-08f993cc40af475663274687b7c326cc6c3031e0db3ac8de7b24624610616be6
         //
         // This XNU version appears to correspond to 11.0.1:
         // https://kernelshaman.blogspot.com/2021/01/building-xnu-for-macos-big-sur-1101.html
+        //
+        // ulock_wait() uses 32-bit micro-second timeouts where 0 = INFINITE or no-timeout
+        // ulock_wait2() uses 64-bit nano-second timeouts (with the same convention)
+        var timeout_ns: u64 = 0;
+        if (timeout) |timeout_value| {
+            // This should be checked by the caller.
+            assert(timeout_value != 0);
+            timeout_ns = timeout_value;
+        }
         const addr = @ptrCast(*const c_void, ptr);
         const flags = darwin.UL_COMPARE_AND_WAIT | darwin.ULF_NO_ERRNO;
+        // If we're using `__ulock_wait` and `timeout` is too big to fit inside a `u32` count of
+        // micro-seconds (around 70min), we'll request a shorter timeout. This is fine (users
+        // should handle spurious wakeups), but we need to remember that we did so, so that
+        // we don't return `TimedOut` incorrectly. If that happens, we set this variable to
+        // true so that we we know to ignore the ETIMEDOUT result.
+        var timeout_overflowed = false;
         const status = blk: {
             if (target.os.version_range.semver.max.major >= 11) {
-                break :blk darwin.__ulock_wait2(flags, addr, expect, timeout_us, 0);
+                break :blk darwin.__ulock_wait2(flags, addr, expect, timeout_ns, 0);
             } else {
+                const timeout_us = std.math.cast(u32, timeout_ns / std.time.ns_per_us) catch overflow: {
+                    timeout_overflowed = true;
+                    break :overflow std.math.maxInt(u32);
+                };
                 break :blk darwin.__ulock_wait(flags, addr, expect, timeout_us);
             }
         };
 
         if (status >= 0) return;
-        switch (-status) {
-            darwin.EINTR => {},
-            darwin.EFAULT => unreachable,
-            darwin.ETIMEDOUT => return error.TimedOut,
+        switch (@intToEnum(std.os.E, -status)) {
+            .INTR => {},
+            // Address of the futex is paged out. This is unlikely, but possible in theory, and
+            // pthread/libdispatch on darwin bother to handle it. In this case we'll return
+            // without waiting, but the caller should retry anyway.
+            .FAULT => {},
+            .TIMEDOUT => if (!timeout_overflowed) return error.TimedOut,
             else => unreachable,
         }
     }
@@ -221,10 +231,11 @@ const DarwinFutex = struct {
             const status = darwin.__ulock_wake(flags, addr, 0);
 
             if (status >= 0) return;
-            switch (-status) {
-                darwin.EINTR => continue, // spurious wake()
-                darwin.ENOENT => return, // nothing was woken up
-                darwin.EALREADY => unreachable, // only for ULF_WAKE_THREAD
+            switch (@intToEnum(std.os.E, -status)) {
+                .INTR => continue, // spurious wake()
+                .FAULT => continue, // address of the lock was paged out
+                .NOENT => return, // nothing was woken up
+                .ALREADY => unreachable, // only for ULF_WAKE_THREAD
                 else => unreachable,
             }
         }
@@ -238,8 +249,8 @@ const PosixFutex = struct {
         var waiter: List.Node = undefined;
 
         {
-            assert(std.c.pthread_mutex_lock(&bucket.mutex) == 0);
-            defer assert(std.c.pthread_mutex_unlock(&bucket.mutex) == 0);
+            assert(std.c.pthread_mutex_lock(&bucket.mutex) == .SUCCESS);
+            defer assert(std.c.pthread_mutex_unlock(&bucket.mutex) == .SUCCESS);
 
             if (ptr.load(.SeqCst) != expect) {
                 return;
@@ -255,8 +266,8 @@ const PosixFutex = struct {
                 waiter.data.wait(null) catch unreachable;
             };
 
-            assert(std.c.pthread_mutex_lock(&bucket.mutex) == 0);
-            defer assert(std.c.pthread_mutex_unlock(&bucket.mutex) == 0);
+            assert(std.c.pthread_mutex_lock(&bucket.mutex) == .SUCCESS);
+            defer assert(std.c.pthread_mutex_unlock(&bucket.mutex) == .SUCCESS);
 
             if (waiter.data.address == address) {
                 timed_out = true;
@@ -280,8 +291,8 @@ const PosixFutex = struct {
             waiter.data.notify();
         };
 
-        assert(std.c.pthread_mutex_lock(&bucket.mutex) == 0);
-        defer assert(std.c.pthread_mutex_unlock(&bucket.mutex) == 0);
+        assert(std.c.pthread_mutex_lock(&bucket.mutex) == .SUCCESS);
+        defer assert(std.c.pthread_mutex_unlock(&bucket.mutex) == .SUCCESS);
 
         var waiters = bucket.list.first;
         while (waiters) |waiter| {
@@ -323,16 +334,13 @@ const PosixFutex = struct {
         };
 
         fn deinit(self: *Self) void {
-            const rc = std.c.pthread_cond_destroy(&self.cond);
-            assert(rc == 0 or rc == std.os.EINVAL);
-
-            const rm = std.c.pthread_mutex_destroy(&self.mutex);
-            assert(rm == 0 or rm == std.os.EINVAL);
+            _ = std.c.pthread_cond_destroy(&self.cond);
+            _ = std.c.pthread_mutex_destroy(&self.mutex);
         }
 
         fn wait(self: *Self, timeout: ?u64) error{TimedOut}!void {
-            assert(std.c.pthread_mutex_lock(&self.mutex) == 0);
-            defer assert(std.c.pthread_mutex_unlock(&self.mutex) == 0);
+            assert(std.c.pthread_mutex_lock(&self.mutex) == .SUCCESS);
+            defer assert(std.c.pthread_mutex_unlock(&self.mutex) == .SUCCESS);
 
             switch (self.state) {
                 .empty => self.state = .waiting,
@@ -344,7 +352,7 @@ const PosixFutex = struct {
             var ts_ptr: ?*const std.os.timespec = null;
             if (timeout) |timeout_ns| {
                 ts_ptr = &ts;
-                std.os.clock_gettime(std.os.CLOCK_REALTIME, &ts) catch unreachable;
+                std.os.clock_gettime(std.os.CLOCK.REALTIME, &ts) catch unreachable;
                 ts.tv_sec += @intCast(@TypeOf(ts.tv_sec), timeout_ns / std.time.ns_per_s);
                 ts.tv_nsec += @intCast(@TypeOf(ts.tv_nsec), timeout_ns % std.time.ns_per_s);
                 if (ts.tv_nsec >= std.time.ns_per_s) {
@@ -361,28 +369,31 @@ const PosixFutex = struct {
                 }
 
                 const ts_ref = ts_ptr orelse {
-                    assert(std.c.pthread_cond_wait(&self.cond, &self.mutex) == 0);
+                    assert(std.c.pthread_cond_wait(&self.cond, &self.mutex) == .SUCCESS);
                     continue;
                 };
 
                 const rc = std.c.pthread_cond_timedwait(&self.cond, &self.mutex, ts_ref);
-                assert(rc == 0 or rc == std.os.ETIMEDOUT);
-                if (rc == std.os.ETIMEDOUT) {
-                    self.state = .empty;
-                    return error.TimedOut;
+                switch (rc) {
+                    .SUCCESS => {},
+                    .TIMEDOUT => {
+                        self.state = .empty;
+                        return error.TimedOut;
+                    },
+                    else => unreachable,
                 }
             }
         }
 
         fn notify(self: *Self) void {
-            assert(std.c.pthread_mutex_lock(&self.mutex) == 0);
-            defer assert(std.c.pthread_mutex_unlock(&self.mutex) == 0);
+            assert(std.c.pthread_mutex_lock(&self.mutex) == .SUCCESS);
+            defer assert(std.c.pthread_mutex_unlock(&self.mutex) == .SUCCESS);
 
             switch (self.state) {
                 .empty => self.state = .notified,
                 .waiting => {
                     self.state = .notified;
-                    assert(std.c.pthread_cond_signal(&self.cond) == 0);
+                    assert(std.c.pthread_cond_signal(&self.cond) == .SUCCESS);
                 },
                 .notified => unreachable,
             }

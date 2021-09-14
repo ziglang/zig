@@ -818,15 +818,14 @@ pub fn main() anyerror!void {
     } else {
         var threads = try arena.alloc(std.Thread, llvm_targets.len);
         for (llvm_targets) |llvm_target, i| {
-            threads[i] = try std.Thread.spawn(.{}, processOneTarget, .{
-                Job{
-                    .llvm_tblgen_exe = llvm_tblgen_exe,
-                    .llvm_src_root = llvm_src_root,
-                    .zig_src_dir = zig_src_dir,
-                    .root_progress = root_progress,
-                    .llvm_target = llvm_target,
-                },
-            });
+            const job = Job{
+                .llvm_tblgen_exe = llvm_tblgen_exe,
+                .llvm_src_root = llvm_src_root,
+                .zig_src_dir = zig_src_dir,
+                .root_progress = root_progress,
+                .llvm_target = llvm_target,
+            };
+            threads[i] = try std.Thread.spawn(.{}, processOneTarget, .{job});
         }
         for (threads) |thread| {
             thread.join();
@@ -1066,7 +1065,10 @@ fn processOneTarget(job: Job) anyerror!void {
     try w.writeAll(
         \\};
         \\
-        \\pub usingnamespace CpuFeature.feature_set_fns(Feature);
+        \\pub const featureSet = CpuFeature.feature_set_fns(Feature).featureSet;
+        \\pub const featureSetHas = CpuFeature.feature_set_fns(Feature).featureSetHas;
+        \\pub const featureSetHasAny = CpuFeature.feature_set_fns(Feature).featureSetHasAny;
+        \\pub const featureSetHasAll = CpuFeature.feature_set_fns(Feature).featureSetHasAll;
         \\
         \\pub const all_features = blk: {
         \\

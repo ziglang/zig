@@ -1,24 +1,18 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
 const std = @import("../std.zig");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
-const ast = std.zig.ast;
-const Node = ast.Node;
-const Tree = ast.Tree;
-const AstError = ast.Error;
-const TokenIndex = ast.TokenIndex;
+const Ast = std.zig.Ast;
+const Node = Ast.Node;
+const AstError = Ast.Error;
+const TokenIndex = Ast.TokenIndex;
 const Token = std.zig.Token;
 
 pub const Error = error{ParseError} || Allocator.Error;
 
 /// Result should be freed with tree.deinit() when there are
 /// no more references to any of the tokens or nodes.
-pub fn parse(gpa: *Allocator, source: [:0]const u8) Allocator.Error!Tree {
-    var tokens = ast.TokenList{};
+pub fn parse(gpa: *Allocator, source: [:0]const u8) Allocator.Error!Ast {
+    var tokens = Ast.TokenList{};
     defer tokens.deinit(gpa);
 
     // Empirically, the zig std lib has an 8:1 ratio of source bytes to token count.
@@ -74,7 +68,7 @@ pub fn parse(gpa: *Allocator, source: [:0]const u8) Allocator.Error!Tree {
     };
 
     // TODO experiment with compacting the MultiArrayList slices here
-    return Tree{
+    return Ast{
         .source = source,
         .tokens = tokens.toOwnedSlice(),
         .nodes = parser.nodes.toOwnedSlice(),
@@ -85,15 +79,15 @@ pub fn parse(gpa: *Allocator, source: [:0]const u8) Allocator.Error!Tree {
 
 const null_node: Node.Index = 0;
 
-/// Represents in-progress parsing, will be converted to an ast.Tree after completion.
+/// Represents in-progress parsing, will be converted to an Ast after completion.
 const Parser = struct {
     gpa: *Allocator,
     source: []const u8,
     token_tags: []const Token.Tag,
-    token_starts: []const ast.ByteOffset,
+    token_starts: []const Ast.ByteOffset,
     tok_i: TokenIndex,
     errors: std.ArrayListUnmanaged(AstError),
-    nodes: ast.NodeList,
+    nodes: Ast.NodeList,
     extra_data: std.ArrayListUnmanaged(Node.Index),
     scratch: std.ArrayListUnmanaged(Node.Index),
 
@@ -126,13 +120,13 @@ const Parser = struct {
         };
     }
 
-    fn addNode(p: *Parser, elem: ast.NodeList.Elem) Allocator.Error!Node.Index {
+    fn addNode(p: *Parser, elem: Ast.NodeList.Elem) Allocator.Error!Node.Index {
         const result = @intCast(Node.Index, p.nodes.len);
         try p.nodes.append(p.gpa, elem);
         return result;
     }
 
-    fn setNode(p: *Parser, i: usize, elem: ast.NodeList.Elem) Node.Index {
+    fn setNode(p: *Parser, i: usize, elem: Ast.NodeList.Elem) Node.Index {
         p.nodes.set(i, elem);
         return @intCast(Node.Index, i);
     }
@@ -153,7 +147,7 @@ const Parser = struct {
         return result;
     }
 
-    fn warn(p: *Parser, tag: ast.Error.Tag) error{OutOfMemory}!void {
+    fn warn(p: *Parser, tag: Ast.Error.Tag) error{OutOfMemory}!void {
         @setCold(true);
         try p.warnMsg(.{ .tag = tag, .token = p.tok_i });
     }
@@ -166,12 +160,12 @@ const Parser = struct {
             .extra = .{ .expected_tag = expected_token },
         });
     }
-    fn warnMsg(p: *Parser, msg: ast.Error) error{OutOfMemory}!void {
+    fn warnMsg(p: *Parser, msg: Ast.Error) error{OutOfMemory}!void {
         @setCold(true);
         try p.errors.append(p.gpa, msg);
     }
 
-    fn fail(p: *Parser, tag: ast.Error.Tag) error{ ParseError, OutOfMemory } {
+    fn fail(p: *Parser, tag: Ast.Error.Tag) error{ ParseError, OutOfMemory } {
         @setCold(true);
         return p.failMsg(.{ .tag = tag, .token = p.tok_i });
     }
@@ -185,7 +179,7 @@ const Parser = struct {
         });
     }
 
-    fn failMsg(p: *Parser, msg: ast.Error) error{ ParseError, OutOfMemory } {
+    fn failMsg(p: *Parser, msg: Ast.Error) error{ ParseError, OutOfMemory } {
         @setCold(true);
         try p.warnMsg(msg);
         return error.ParseError;
@@ -2231,11 +2225,7 @@ const Parser = struct {
     ///      / INTEGER
     ///      / KEYWORD_comptime TypeExpr
     ///      / KEYWORD_error DOT IDENTIFIER
-    ///      / KEYWORD_false
-    ///      / KEYWORD_null
     ///      / KEYWORD_anyframe
-    ///      / KEYWORD_true
-    ///      / KEYWORD_undefined
     ///      / KEYWORD_unreachable
     ///      / STRINGLITERAL
     ///      / SwitchExpr
@@ -2272,38 +2262,6 @@ const Parser = struct {
             }),
             .float_literal => return p.addNode(.{
                 .tag = .float_literal,
-                .main_token = p.nextToken(),
-                .data = .{
-                    .lhs = undefined,
-                    .rhs = undefined,
-                },
-            }),
-            .keyword_false => return p.addNode(.{
-                .tag = .false_literal,
-                .main_token = p.nextToken(),
-                .data = .{
-                    .lhs = undefined,
-                    .rhs = undefined,
-                },
-            }),
-            .keyword_true => return p.addNode(.{
-                .tag = .true_literal,
-                .main_token = p.nextToken(),
-                .data = .{
-                    .lhs = undefined,
-                    .rhs = undefined,
-                },
-            }),
-            .keyword_null => return p.addNode(.{
-                .tag = .null_literal,
-                .main_token = p.nextToken(),
-                .data = .{
-                    .lhs = undefined,
-                    .rhs = undefined,
-                },
-            }),
-            .keyword_undefined => return p.addNode(.{
-                .tag = .undefined_literal,
                 .main_token = p.nextToken(),
                 .data = .{
                     .lhs = undefined,

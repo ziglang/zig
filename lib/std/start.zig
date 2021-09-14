@@ -1,8 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
 // This file is included in the compilation unit when exporting an executable.
 
 const root = @import("root");
@@ -46,7 +41,9 @@ comptime {
             }
         } else if (builtin.output_mode == .Exe or @hasDecl(root, "main")) {
             if (builtin.link_libc and @hasDecl(root, "main")) {
-                if (@typeInfo(@TypeOf(root.main)).Fn.calling_convention != .C) {
+                if (native_arch.isWasm()) {
+                    @export(mainWithoutEnv, .{ .name = "main" });
+                } else if (@typeInfo(@TypeOf(root.main)).Fn.calling_convention != .C) {
                     @export(main, .{ .name = "main" });
                 }
             } else if (native_os == .windows) {
@@ -95,13 +92,13 @@ fn _start2() callconv(.Naked) noreturn {
 }
 
 fn exit2(code: usize) noreturn {
-    switch (builtin.stage2_os) {
+    switch (native_os) {
         .linux => switch (builtin.stage2_arch) {
             .x86_64 => {
                 asm volatile ("syscall"
                     :
                     : [number] "{rax}" (231),
-                      [arg1] "{rdi}" (code)
+                      [arg1] "{rdi}" (code),
                     : "rcx", "r11", "memory"
                 );
             },
@@ -109,7 +106,7 @@ fn exit2(code: usize) noreturn {
                 asm volatile ("svc #0"
                     :
                     : [number] "{r7}" (1),
-                      [arg1] "{r0}" (code)
+                      [arg1] "{r0}" (code),
                     : "memory"
                 );
             },
@@ -117,7 +114,7 @@ fn exit2(code: usize) noreturn {
                 asm volatile ("svc #0"
                     :
                     : [number] "{x8}" (93),
-                      [arg1] "{x0}" (code)
+                      [arg1] "{x0}" (code),
                     : "memory", "cc"
                 );
             },
@@ -131,7 +128,7 @@ fn exit2(code: usize) noreturn {
                     \\push $0
                     \\syscall
                     :
-                    : [syscall_number] "{rbp}" (8)
+                    : [syscall_number] "{rbp}" (8),
                     : "rcx", "r11", "memory"
                 );
             },
@@ -140,7 +137,7 @@ fn exit2(code: usize) noreturn {
             .aarch64 => {
                 asm volatile ("svc #0"
                     :
-                    : [exit] "{x0}" (0x08)
+                    : [exit] "{x0}" (0x08),
                     : "memory", "cc"
                 );
             },
@@ -211,34 +208,34 @@ fn _start() callconv(.Naked) noreturn {
         .x86_64 => {
             argc_argv_ptr = asm volatile (
                 \\ xor %%rbp, %%rbp
-                : [argc] "={rsp}" (-> [*]usize)
+                : [argc] "={rsp}" (-> [*]usize),
             );
         },
         .i386 => {
             argc_argv_ptr = asm volatile (
                 \\ xor %%ebp, %%ebp
-                : [argc] "={esp}" (-> [*]usize)
+                : [argc] "={esp}" (-> [*]usize),
             );
         },
         .aarch64, .aarch64_be, .arm, .armeb, .thumb => {
             argc_argv_ptr = asm volatile (
                 \\ mov fp, #0
                 \\ mov lr, #0
-                : [argc] "={sp}" (-> [*]usize)
+                : [argc] "={sp}" (-> [*]usize),
             );
         },
         .riscv64 => {
             argc_argv_ptr = asm volatile (
                 \\ li s0, 0
                 \\ li ra, 0
-                : [argc] "={sp}" (-> [*]usize)
+                : [argc] "={sp}" (-> [*]usize),
             );
         },
         .mips, .mipsel => {
             // The lr is already zeroed on entry, as specified by the ABI.
             argc_argv_ptr = asm volatile (
                 \\ move $fp, $0
-                : [argc] "={sp}" (-> [*]usize)
+                : [argc] "={sp}" (-> [*]usize),
             );
         },
         .powerpc => {
@@ -249,7 +246,7 @@ fn _start() callconv(.Naked) noreturn {
                 \\ stwu 1,-16(1)
                 \\ stw 0, 0(1)
                 \\ mtlr 0
-                : [argc] "={r4}" (-> [*]usize)
+                : [argc] "={r4}" (-> [*]usize),
                 :
                 : "r0"
             );
@@ -262,7 +259,7 @@ fn _start() callconv(.Naked) noreturn {
                 \\ li 0, 0
                 \\ stdu 0, -32(1)
                 \\ mtlr 0
-                : [argc] "={r4}" (-> [*]usize)
+                : [argc] "={r4}" (-> [*]usize),
                 :
                 : "r0"
             );
@@ -272,7 +269,7 @@ fn _start() callconv(.Naked) noreturn {
             argc_argv_ptr = asm (
                 \\ mov %%g0, %%i6
                 \\ add %%o6, 2175, %[argc]
-                : [argc] "=r" (-> [*]usize)
+                : [argc] "=r" (-> [*]usize),
             );
         },
         else => @compileError("unsupported arch"),
@@ -348,7 +345,7 @@ fn posixCallMainAndExit() noreturn {
         // FIXME: Elide the check for targets >= ARMv7 when the target feature API
         // becomes less verbose (and more usable).
         if (comptime native_arch.isARM()) {
-            if (at_hwcap & std.os.linux.HWCAP_TLS == 0) {
+            if (at_hwcap & std.os.linux.HWCAP.TLS == 0) {
                 // FIXME: Make __aeabi_read_tp call the kernel helper kuser_get_tls
                 // For the time being use a simple abort instead of a @panic call to
                 // keep the binary bloat under control.
@@ -418,6 +415,11 @@ fn main(c_argc: i32, c_argv: [*][*:0]u8, c_envp: [*:null]?[*:0]u8) callconv(.C) 
     }
 
     return @call(.{ .modifier = .always_inline }, callMainWithArgs, .{ @intCast(usize, c_argc), c_argv, envp });
+}
+
+fn mainWithoutEnv(c_argc: i32, c_argv: [*][*:0]u8) callconv(.C) usize {
+    std.os.argv = c_argv[0..@intCast(usize, c_argc)];
+    return @call(.{ .modifier = .always_inline }, callMain, .{});
 }
 
 // General error message for a malformed return type

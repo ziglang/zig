@@ -1,8 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
 const testing = @import("std.zig").testing;
 
 // TODO: Add support for multi-byte ops (e.g. table operations)
@@ -162,8 +157,14 @@ pub const Opcode = enum(u8) {
     i32_wrap_i64 = 0xA7,
     i32_trunc_f32_s = 0xA8,
     i32_trunc_f32_u = 0xA9,
-    i32_trunc_f64_s = 0xB0,
-    i32_trunc_f64_u = 0xB1,
+    i32_trunc_f64_s = 0xAA,
+    i32_trunc_f64_u = 0xAB,
+    i64_extend_i32_s = 0xAC,
+    i64_extend_i32_u = 0xAD,
+    i64_trunc_f32_s = 0xAE,
+    i64_trunc_f32_u = 0xAF,
+    i64_trunc_f64_s = 0xB0,
+    i64_trunc_f64_u = 0xB1,
     f32_convert_i32_s = 0xB2,
     f32_convert_i32_u = 0xB3,
     f32_convert_i64_s = 0xB4,

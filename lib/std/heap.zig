@@ -1,8 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
 const std = @import("std.zig");
 const root = @import("root");
 const debug = std.debug;
@@ -93,12 +88,12 @@ const CAllocator = struct {
 
     fn alignedAllocSize(ptr: [*]u8) usize {
         if (supports_posix_memalign) {
-            return malloc_size(ptr);
+            return CAllocator.malloc_size(ptr);
         }
 
         const unaligned_ptr = getHeader(ptr).*;
         const delta = @ptrToInt(ptr) - @ptrToInt(unaligned_ptr);
-        return malloc_size(unaligned_ptr) - delta;
+        return CAllocator.malloc_size(unaligned_ptr) - delta;
     }
 
     fn alloc(
@@ -118,7 +113,7 @@ const CAllocator = struct {
             return ptr[0..len];
         }
         const full_len = init: {
-            if (supports_malloc_size) {
+            if (CAllocator.supports_malloc_size) {
                 const s = alignedAllocSize(ptr);
                 assert(s >= len);
                 break :init s;
@@ -146,7 +141,7 @@ const CAllocator = struct {
         if (new_len <= buf.len) {
             return mem.alignAllocLen(buf.len, new_len, len_align);
         }
-        if (supports_malloc_size) {
+        if (CAllocator.supports_malloc_size) {
             const full_len = alignedAllocSize(buf.ptr);
             if (new_len <= full_len) {
                 return mem.alignAllocLen(full_len, new_len, len_align);
@@ -309,8 +304,8 @@ const PageAllocator = struct {
         const slice = os.mmap(
             hint,
             alloc_len,
-            os.PROT_READ | os.PROT_WRITE,
-            os.MAP_PRIVATE | os.MAP_ANONYMOUS,
+            os.PROT.READ | os.PROT.WRITE,
+            os.MAP.PRIVATE | os.MAP.ANONYMOUS,
             -1,
             0,
         ) catch return error.OutOfMemory;

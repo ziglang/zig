@@ -1,8 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
 pub const mach_header = extern struct {
     magic: u32,
     cputype: cpu_type_t,
@@ -115,6 +110,21 @@ pub const build_tool_version = extern struct {
     /// version number of the tool
     version: u32,
 };
+
+pub const PLATFORM_MACOS: u32 = 0x1;
+pub const PLATFORM_IOS: u32 = 0x2;
+pub const PLATFORM_TVOS: u32 = 0x3;
+pub const PLATFORM_WATCHOS: u32 = 0x4;
+pub const PLATFORM_BRIDGEOS: u32 = 0x5;
+pub const PLATFORM_MACCATALYST: u32 = 0x6;
+pub const PLATFORM_IOSSIMULATOR: u32 = 0x7;
+pub const PLATFORM_TVOSSIMULATOR: u32 = 0x8;
+pub const PLATFORM_WATCHOSSIMULATOR: u32 = 0x9;
+pub const PLATFORM_DRIVERKIT: u32 = 0x10;
+
+pub const TOOL_CLANG: u32 = 0x1;
+pub const TOOL_SWIFT: u32 = 0x2;
+pub const TOOL_LD: u32 = 0x3;
 
 /// The entry_point_command is a replacement for thread_command.
 /// It is used for main executables to specify the location (file offset)
@@ -591,35 +601,35 @@ pub const segment_command = extern struct {
 /// command and their size is reflected in cmdsize.
 pub const segment_command_64 = extern struct {
     /// LC_SEGMENT_64
-    cmd: u32,
+    cmd: u32 = LC_SEGMENT_64,
 
     /// includes sizeof section_64 structs
-    cmdsize: u32,
+    cmdsize: u32 = @sizeOf(segment_command_64),
 
     /// segment name
     segname: [16]u8,
 
     /// memory address of this segment
-    vmaddr: u64,
+    vmaddr: u64 = 0,
 
     /// memory size of this segment
-    vmsize: u64,
+    vmsize: u64 = 0,
 
     /// file offset of this segment
-    fileoff: u64,
+    fileoff: u64 = 0,
 
     /// amount to map from the file
-    filesize: u64,
+    filesize: u64 = 0,
 
     /// maximum VM protection
-    maxprot: vm_prot_t,
+    maxprot: vm_prot_t = VM_PROT_NONE,
 
     /// initial VM protection
-    initprot: vm_prot_t,
+    initprot: vm_prot_t = VM_PROT_NONE,
 
     /// number of sections in segment
-    nsects: u32,
-    flags: u32,
+    nsects: u32 = 0,
+    flags: u32 = 0,
 };
 
 /// A segment is made up of zero or more sections.  Non-MH_OBJECT files have
@@ -690,34 +700,34 @@ pub const section_64 = extern struct {
     segname: [16]u8,
 
     /// memory address of this section
-    addr: u64,
+    addr: u64 = 0,
 
     /// size in bytes of this section
-    size: u64,
+    size: u64 = 0,
 
     /// file offset of this section
-    offset: u32,
+    offset: u32 = 0,
 
     /// section alignment (power of 2)
-    @"align": u32,
+    @"align": u32 = 0,
 
     /// file offset of relocation entries
-    reloff: u32,
+    reloff: u32 = 0,
 
     /// number of relocation entries
-    nreloc: u32,
+    nreloc: u32 = 0,
 
     /// flags (section type and attributes
-    flags: u32,
+    flags: u32 = S_REGULAR,
 
     /// reserved (for offset or index)
-    reserved1: u32,
+    reserved1: u32 = 0,
 
     /// reserved (for count or sizeof)
-    reserved2: u32,
+    reserved2: u32 = 0,
 
     /// reserved
-    reserved3: u32,
+    reserved3: u32 = 0,
 };
 
 pub const nlist = extern struct {

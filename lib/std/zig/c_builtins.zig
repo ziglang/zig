@@ -1,9 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
-
 const std = @import("std");
 
 pub inline fn __builtin_bswap16(val: u16) u16 {
@@ -189,6 +183,49 @@ pub inline fn __builtin_memcpy(
 pub inline fn __builtin_expect(expr: c_long, c: c_long) c_long {
     _ = c;
     return expr;
+}
+
+/// returns a quiet NaN. Quiet NaNs have many representations; tagp is used to select one in an
+/// implementation-defined way.
+/// This implementation is based on the description for __builtin_nan provided in the GCC docs at
+/// https://gcc.gnu.org/onlinedocs/gcc/Other-Builtins.html#index-_005f_005fbuiltin_005fnan
+/// Comment is reproduced below:
+/// Since ISO C99 defines this function in terms of strtod, which we do not implement, a description
+/// of the parsing is in order.
+/// The string is parsed as by strtol; that is, the base is recognized by leading ‘0’ or ‘0x’ prefixes.
+/// The number parsed is placed in the significand such that the least significant bit of the number is
+///    at the least significant bit of the significand.
+/// The number is truncated to fit the significand field provided.
+/// The significand is forced to be a quiet NaN.
+///
+/// If tagp contains any non-numeric characters, the function returns a NaN whose significand is zero.
+/// If tagp is empty, the function returns a NaN whose significand is zero.
+pub inline fn __builtin_nanf(tagp: []const u8) f32 {
+    const parsed = std.fmt.parseUnsigned(c_ulong, tagp, 0) catch 0;
+    const bits = @truncate(u23, parsed); // single-precision float trailing significand is 23 bits
+    return @bitCast(f32, @as(u32, bits) | std.math.qnan_u32);
+}
+
+pub inline fn __builtin_huge_valf() f32 {
+    return std.math.inf(f32);
+}
+
+pub inline fn __builtin_inff() f32 {
+    return std.math.inf(f32);
+}
+
+pub inline fn __builtin_isnan(x: anytype) c_int {
+    return @boolToInt(std.math.isNan(x));
+}
+
+pub inline fn __builtin_isinf(x: anytype) c_int {
+    return @boolToInt(std.math.isInf(x));
+}
+
+/// Similar to isinf, except the return value is -1 for an argument of -Inf and 1 for an argument of +Inf.
+pub inline fn __builtin_isinf_sign(x: anytype) c_int {
+    if (!std.math.isInf(x)) return 0;
+    return if (std.math.isPositiveInf(x)) 1 else -1;
 }
 
 // __builtin_alloca_with_align is not currently implemented.

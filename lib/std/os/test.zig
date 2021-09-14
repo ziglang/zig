@@ -1,8 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
 const std = @import("../std.zig");
 const os = std.os;
 const testing = std.testing;
@@ -75,21 +70,21 @@ test "open smoke test" {
 
     // Create some file using `open`.
     file_path = try fs.path.join(&arena.allocator, &[_][]const u8{ base_path, "some_file" });
-    fd = try os.open(file_path, os.O_RDWR | os.O_CREAT | os.O_EXCL, mode);
+    fd = try os.open(file_path, os.O.RDWR | os.O.CREAT | os.O.EXCL, mode);
     os.close(fd);
 
     // Try this again with the same flags. This op should fail with error.PathAlreadyExists.
     file_path = try fs.path.join(&arena.allocator, &[_][]const u8{ base_path, "some_file" });
-    try expectError(error.PathAlreadyExists, os.open(file_path, os.O_RDWR | os.O_CREAT | os.O_EXCL, mode));
+    try expectError(error.PathAlreadyExists, os.open(file_path, os.O.RDWR | os.O.CREAT | os.O.EXCL, mode));
 
-    // Try opening without `O_EXCL` flag.
+    // Try opening without `O.EXCL` flag.
     file_path = try fs.path.join(&arena.allocator, &[_][]const u8{ base_path, "some_file" });
-    fd = try os.open(file_path, os.O_RDWR | os.O_CREAT, mode);
+    fd = try os.open(file_path, os.O.RDWR | os.O.CREAT, mode);
     os.close(fd);
 
     // Try opening as a directory which should fail.
     file_path = try fs.path.join(&arena.allocator, &[_][]const u8{ base_path, "some_file" });
-    try expectError(error.NotDir, os.open(file_path, os.O_RDWR | os.O_DIRECTORY, mode));
+    try expectError(error.NotDir, os.open(file_path, os.O.RDWR | os.O.DIRECTORY, mode));
 
     // Create some directory
     file_path = try fs.path.join(&arena.allocator, &[_][]const u8{ base_path, "some_dir" });
@@ -97,12 +92,12 @@ test "open smoke test" {
 
     // Open dir using `open`
     file_path = try fs.path.join(&arena.allocator, &[_][]const u8{ base_path, "some_dir" });
-    fd = try os.open(file_path, os.O_RDONLY | os.O_DIRECTORY, mode);
+    fd = try os.open(file_path, os.O.RDONLY | os.O.DIRECTORY, mode);
     os.close(fd);
 
     // Try opening as file which should fail.
     file_path = try fs.path.join(&arena.allocator, &[_][]const u8{ base_path, "some_dir" });
-    try expectError(error.IsDir, os.open(file_path, os.O_RDWR, mode));
+    try expectError(error.IsDir, os.open(file_path, os.O.RDWR, mode));
 }
 
 test "openat smoke test" {
@@ -117,28 +112,28 @@ test "openat smoke test" {
     const mode: os.mode_t = if (native_os == .windows) 0 else 0o666;
 
     // Create some file using `openat`.
-    fd = try os.openat(tmp.dir.fd, "some_file", os.O_RDWR | os.O_CREAT | os.O_EXCL, mode);
+    fd = try os.openat(tmp.dir.fd, "some_file", os.O.RDWR | os.O.CREAT | os.O.EXCL, mode);
     os.close(fd);
 
     // Try this again with the same flags. This op should fail with error.PathAlreadyExists.
-    try expectError(error.PathAlreadyExists, os.openat(tmp.dir.fd, "some_file", os.O_RDWR | os.O_CREAT | os.O_EXCL, mode));
+    try expectError(error.PathAlreadyExists, os.openat(tmp.dir.fd, "some_file", os.O.RDWR | os.O.CREAT | os.O.EXCL, mode));
 
-    // Try opening without `O_EXCL` flag.
-    fd = try os.openat(tmp.dir.fd, "some_file", os.O_RDWR | os.O_CREAT, mode);
+    // Try opening without `O.EXCL` flag.
+    fd = try os.openat(tmp.dir.fd, "some_file", os.O.RDWR | os.O.CREAT, mode);
     os.close(fd);
 
     // Try opening as a directory which should fail.
-    try expectError(error.NotDir, os.openat(tmp.dir.fd, "some_file", os.O_RDWR | os.O_DIRECTORY, mode));
+    try expectError(error.NotDir, os.openat(tmp.dir.fd, "some_file", os.O.RDWR | os.O.DIRECTORY, mode));
 
     // Create some directory
     try os.mkdirat(tmp.dir.fd, "some_dir", mode);
 
     // Open dir using `open`
-    fd = try os.openat(tmp.dir.fd, "some_dir", os.O_RDONLY | os.O_DIRECTORY, mode);
+    fd = try os.openat(tmp.dir.fd, "some_dir", os.O.RDONLY | os.O.DIRECTORY, mode);
     os.close(fd);
 
     // Try opening as file which should fail.
-    try expectError(error.IsDir, os.openat(tmp.dir.fd, "some_dir", os.O_RDWR, mode));
+    try expectError(error.IsDir, os.openat(tmp.dir.fd, "some_dir", os.O.RDWR, mode));
 }
 
 test "symlink with relative paths" {
@@ -278,7 +273,7 @@ test "fstatat" {
     defer file.close();
 
     // now repeat but using `fstatat` instead
-    const flags = if (native_os == .wasi) 0x0 else os.AT_SYMLINK_NOFOLLOW;
+    const flags = if (native_os == .wasi) 0x0 else os.AT.SYMLINK_NOFOLLOW;
     const statat = try os.fstatat(tmp.dir.fd, "file.txt", flags);
     try expectEqual(stat, statat);
 }
@@ -399,14 +394,14 @@ test "sigaltstack" {
     var st: os.stack_t = undefined;
     try os.sigaltstack(null, &st);
     // Setting a stack size less than MINSIGSTKSZ returns ENOMEM
-    st.ss_flags = 0;
-    st.ss_size = 1;
+    st.flags = 0;
+    st.size = 1;
     try testing.expectError(error.SizeTooSmall, os.sigaltstack(&st, null));
 }
 
 // If the type is not available use void to avoid erroring out when `iter_fn` is
 // analyzed
-const dl_phdr_info = if (@hasDecl(os, "dl_phdr_info")) os.dl_phdr_info else c_void;
+const dl_phdr_info = if (@hasDecl(os.system, "dl_phdr_info")) os.dl_phdr_info else c_void;
 
 const IterFnError = error{
     MissingPtLoadSegment,
@@ -513,8 +508,8 @@ test "mmap" {
         const data = try os.mmap(
             null,
             1234,
-            os.PROT_READ | os.PROT_WRITE,
-            os.MAP_ANONYMOUS | os.MAP_PRIVATE,
+            os.PROT.READ | os.PROT.WRITE,
+            os.MAP.ANONYMOUS | os.MAP.PRIVATE,
             -1,
             0,
         );
@@ -555,8 +550,8 @@ test "mmap" {
         const data = try os.mmap(
             null,
             alloc_size,
-            os.PROT_READ,
-            os.MAP_PRIVATE,
+            os.PROT.READ,
+            os.MAP.PRIVATE,
             file.handle,
             0,
         );
@@ -579,8 +574,8 @@ test "mmap" {
         const data = try os.mmap(
             null,
             alloc_size / 2,
-            os.PROT_READ,
-            os.MAP_PRIVATE,
+            os.PROT.READ,
+            os.MAP.PRIVATE,
             file.handle,
             alloc_size / 2,
         );
@@ -621,19 +616,19 @@ test "fcntl" {
         tmp.dir.deleteFile(test_out_file) catch {};
     }
 
-    // Note: The test assumes createFile opens the file with O_CLOEXEC
+    // Note: The test assumes createFile opens the file with O.CLOEXEC
     {
-        const flags = try os.fcntl(file.handle, os.F_GETFD, 0);
+        const flags = try os.fcntl(file.handle, os.F.GETFD, 0);
         try expect((flags & os.FD_CLOEXEC) != 0);
     }
     {
-        _ = try os.fcntl(file.handle, os.F_SETFD, 0);
-        const flags = try os.fcntl(file.handle, os.F_GETFD, 0);
+        _ = try os.fcntl(file.handle, os.F.SETFD, 0);
+        const flags = try os.fcntl(file.handle, os.F.GETFD, 0);
         try expect((flags & os.FD_CLOEXEC) == 0);
     }
     {
-        _ = try os.fcntl(file.handle, os.F_SETFD, os.FD_CLOEXEC);
-        const flags = try os.fcntl(file.handle, os.F_GETFD, 0);
+        _ = try os.fcntl(file.handle, os.F.SETFD, os.FD_CLOEXEC);
+        const flags = try os.fcntl(file.handle, os.F.GETFD, 0);
         try expect((flags & os.FD_CLOEXEC) != 0);
     }
 }
@@ -681,7 +676,7 @@ test "fsync" {
 }
 
 test "getrlimit and setrlimit" {
-    if (!@hasDecl(os, "rlimit")) {
+    if (!@hasDecl(os.system, "rlimit")) {
         return error.SkipZigTest;
     }
 
@@ -703,7 +698,7 @@ test "shutdown socket" {
             std.os.windows.WSACleanup() catch unreachable;
         }
     }
-    const sock = try os.socket(os.AF_INET, os.SOCK_STREAM, 0);
+    const sock = try os.socket(os.AF.INET, os.SOCK.STREAM, 0);
     os.shutdown(sock, .both) catch |err| switch (err) {
         error.SocketNotConnected => {},
         else => |e| return e,
@@ -727,11 +722,11 @@ test "sigaction" {
             // Check that we received the correct signal.
             switch (native_os) {
                 .netbsd => {
-                    if (sig == os.SIGUSR1 and sig == info.info.signo)
+                    if (sig == os.SIG.USR1 and sig == info.info.signo)
                         signal_test_failed = false;
                 },
                 else => {
-                    if (sig == os.SIGUSR1 and sig == info.signo)
+                    if (sig == os.SIG.USR1 and sig == info.signo)
                         signal_test_failed = false;
                 },
             }
@@ -741,21 +736,21 @@ test "sigaction" {
     var sa = os.Sigaction{
         .handler = .{ .sigaction = S.handler },
         .mask = os.empty_sigset,
-        .flags = os.SA_SIGINFO | os.SA_RESETHAND,
+        .flags = os.SA.SIGINFO | os.SA.RESETHAND,
     };
     var old_sa: os.Sigaction = undefined;
     // Install the new signal handler.
-    os.sigaction(os.SIGUSR1, &sa, null);
+    os.sigaction(os.SIG.USR1, &sa, null);
     // Check that we can read it back correctly.
-    os.sigaction(os.SIGUSR1, null, &old_sa);
+    os.sigaction(os.SIG.USR1, null, &old_sa);
     try testing.expectEqual(S.handler, old_sa.handler.sigaction.?);
-    try testing.expect((old_sa.flags & os.SA_SIGINFO) != 0);
+    try testing.expect((old_sa.flags & os.SA.SIGINFO) != 0);
     // Invoke the handler.
-    try os.raise(os.SIGUSR1);
+    try os.raise(os.SIG.USR1);
     try testing.expect(signal_test_failed == false);
     // Check if the handler has been correctly reset to SIG_DFL
-    os.sigaction(os.SIGUSR1, null, &old_sa);
-    try testing.expectEqual(os.SIG_DFL, old_sa.handler.sigaction);
+    os.sigaction(os.SIG.USR1, null, &old_sa);
+    try testing.expectEqual(os.SIG.DFL, old_sa.handler.sigaction);
 }
 
 test "dup & dup2" {
@@ -785,4 +780,18 @@ test "dup & dup2" {
 
     var buf: [7]u8 = undefined;
     try testing.expectEqualStrings("dupdup2", buf[0..try file.readAll(&buf)]);
+}
+
+test "writev longer than IOV_MAX" {
+    if (native_os == .windows or native_os == .wasi) return error.SkipZigTest;
+
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    var file = try tmp.dir.createFile("pwritev", .{});
+    defer file.close();
+
+    const iovecs = [_]os.iovec_const{.{ .iov_base = "a", .iov_len = 1 }} ** (os.IOV_MAX + 1);
+    const amt = try file.writev(&iovecs);
+    try testing.expectEqual(@as(usize, os.IOV_MAX), amt);
 }

@@ -1,8 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
 const std = @import("std");
 const crypto = std.crypto;
 
@@ -45,9 +40,7 @@ pub const Curve25519 = struct {
     }
 
     /// Multiply a point by the cofactor
-    pub fn clearCofactor(p: Edwards25519) Edwards25519 {
-        return p.dbl().dbl().dbl();
-    }
+    pub const clearCofactor = @compileError("TODO what was this function supposed to do? it didn't compile successfully");
 
     fn ladder(p: Curve25519, s: [32]u8, comptime bits: usize) IdentityElementError!Curve25519 {
         var x1 = p.x;

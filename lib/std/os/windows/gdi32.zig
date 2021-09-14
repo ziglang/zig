@@ -1,9 +1,12 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
-usingnamespace @import("bits.zig");
+const std = @import("../../std.zig");
+const windows = std.os.windows;
+const BOOL = windows.BOOL;
+const DWORD = windows.DWORD;
+const WINAPI = windows.WINAPI;
+const HDC = windows.HDC;
+const HGLRC = windows.HGLRC;
+const WORD = windows.WORD;
+const BYTE = windows.BYTE;
 
 pub const PIXELFORMATDESCRIPTOR = extern struct {
     nSize: WORD = @sizeOf(PIXELFORMATDESCRIPTOR),

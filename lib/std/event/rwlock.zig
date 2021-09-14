@@ -1,14 +1,10 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
 const std = @import("../std.zig");
 const builtin = std.builtin;
 const assert = std.debug.assert;
 const testing = std.testing;
 const mem = std.mem;
 const Loop = std.event.Loop;
+const Allocator = std.mem.Allocator;
 
 /// Thread-safe async/await lock.
 /// Functions which are waiting for the lock are suspended, and

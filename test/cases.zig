@@ -26,7 +26,7 @@ pub fn addCases(ctx: *TestContext) !void {
         var case = ctx.exe("hello world with updates", linux_x64);
 
         case.addError("", &[_][]const u8{
-            ":93:9: error: struct 'tmp.tmp' has no member named 'main'",
+            ":90:9: error: struct 'tmp.tmp' has no member named 'main'",
         });
 
         // Incorrect return type
@@ -288,7 +288,11 @@ pub fn addCases(ctx: *TestContext) !void {
             \\pub fn main() void {
             \\    _ = @TypeOf(true, 1);
             \\}
-        , &[_][]const u8{":2:9: error: incompatible types: 'bool' and 'comptime_int'"});
+        , &[_][]const u8{
+            ":2:9: error: incompatible types: 'bool' and 'comptime_int'",
+            ":2:17: note: type 'bool' here",
+            ":2:23: note: type 'comptime_int' here",
+        });
     }
 
     {
@@ -980,8 +984,8 @@ pub fn addCases(ctx: *TestContext) !void {
         \\};
     , &.{
         ":4:17: error: ambiguous reference",
-        ":1:1: note: declared here",
-        ":2:5: note: also declared here",
+        ":2:5: note: declared here",
+        ":1:1: note: also declared here",
     });
 
     ctx.compileError("inner func accessing outer var", linux_x64,
@@ -995,8 +999,9 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = S;
         \\}
     , &.{
-        ":5:20: error: 'bar' not accessible from inner function",
-        ":2:9: note: declared here",
+        ":5:20: error: mutable 'bar' not accessible from here",
+        ":2:9: note: declared mutable here",
+        ":3:15: note: crosses namespace boundary here",
     });
 
     ctx.compileError("global variable redeclaration", linux_x64,
@@ -1065,6 +1070,76 @@ pub fn addCases(ctx: *TestContext) !void {
             ":5:19: error: redeclaration of local constant 'c'",
             ":4:19: note: previous declaration here",
         });
+        case.addError(
+            \\pub fn main() void {
+            \\    var i = 0;
+            \\    for ("n") |_, i| {
+            \\    }
+            \\}
+        , &[_][]const u8{
+            ":3:19: error: redeclaration of local variable 'i'",
+            ":2:9: note: previous declaration here",
+        });
+        case.addError(
+            \\pub fn main() void {
+            \\    var i = 0;
+            \\    for ("n") |i| {
+            \\    }
+            \\}
+        , &[_][]const u8{
+            ":3:16: error: redeclaration of local variable 'i'",
+            ":2:9: note: previous declaration here",
+        });
+        case.addError(
+            \\pub fn main() void {
+            \\    var i = 0;
+            \\    while ("n") |i| {
+            \\    }
+            \\}
+        , &[_][]const u8{
+            ":3:18: error: redeclaration of local variable 'i'",
+            ":2:9: note: previous declaration here",
+        });
+        case.addError(
+            \\pub fn main() void {
+            \\    var i = 0;
+            \\    while ("n") |bruh| {
+            \\        _ = bruh;
+            \\    } else |i| {
+            \\
+            \\    }
+            \\}
+        , &[_][]const u8{
+            ":5:13: error: redeclaration of local variable 'i'",
+            ":2:9: note: previous declaration here",
+        });
+        case.addError(
+            \\pub fn main() void {
+            \\    var i = 0;
+            \\    if (true) |i| {}
+            \\}
+        , &[_][]const u8{
+            ":3:16: error: redeclaration of local variable 'i'",
+            ":2:9: note: previous declaration here",
+        });
+        case.addError(
+            \\pub fn main() void {
+            \\    var i = 0;
+            \\    if (true) |i| {} else |e| {}
+            \\}
+        , &[_][]const u8{
+            ":3:16: error: redeclaration of local variable 'i'",
+            ":2:9: note: previous declaration here",
+        });
+        case.addError(
+            \\pub fn main() void {
+            \\    var i = 0;
+            \\    if (true) |_| {} else |i| {}
+            \\}
+        , &[_][]const u8{
+            ":3:28: error: redeclaration of local variable 'i'",
+            ":2:9: note: previous declaration here",
+        });
     }
 
     {
@@ -1112,10 +1187,11 @@ pub fn addCases(ctx: *TestContext) !void {
         var case = ctx.obj("extern variable has no type", linux_x64);
         case.addError(
             \\comptime {
-            \\    _ = foo;
+            \\    const x = foo + foo;
+            \\    _ = x;
             \\}
             \\extern var foo: i32;
-        , &[_][]const u8{":2:9: error: unable to resolve comptime value"});
+        , &[_][]const u8{":2:15: error: unable to resolve comptime value"});
         case.addError(
             \\export fn entry() void {
             \\    _ = foo;
@@ -1461,6 +1537,48 @@ pub fn addCases(ctx: *TestContext) !void {
         , "");
     }
     {
+        var case = ctx.exe("runtime bitwise and", linux_x64);
+
+        case.addCompareOutput(
+            \\pub fn main() void {
+            \\    var i: u32 = 10;
+            \\    var j: u32 = 11;
+            \\    assert(i & 1 == 0);
+            \\    assert(j & 1 == 1);
+            \\    var m1: u32 = 0b1111;
+            \\    var m2: u32 = 0b0000;
+            \\    assert(m1 & 0b1010 == 0b1010);
+            \\    assert(m2 & 0b1010 == 0b0000);
+            \\}
+            \\fn assert(b: bool) void {
+            \\    if (!b) unreachable;
+            \\}
+        ,
+            "",
+        );
+    }
+    {
+        var case = ctx.exe("runtime bitwise or", linux_x64);
+
+        case.addCompareOutput(
+            \\pub fn main() void {
+            \\    var i: u32 = 10;
+            \\    var j: u32 = 11;
+            \\    assert(i | 1 == 11);
+            \\    assert(j | 1 == 11);
+            \\    var m1: u32 = 0b1111;
+            \\    var m2: u32 = 0b0000;
+            \\    assert(m1 | 0b1010 == 0b1111);
+            \\    assert(m2 | 0b1010 == 0b1010);
+            \\}
+            \\fn assert(b: bool) void {
+            \\    if (!b) unreachable;
+            \\}
+        ,
+            "",
+        );
+    }
+    {
         var case = ctx.exe("merge error sets", linux_x64);
 
         case.addCompareOutput(
@@ -1493,6 +1611,24 @@ pub fn addCases(ctx: *TestContext) !void {
         });
     }
     {
+        var case = ctx.exe("error set equality", linux_x64);
+
+        case.addCompareOutput(
+            \\pub fn main() void {
+            \\    assert(@TypeOf(error.Foo) == @TypeOf(error.Foo));
+            \\    assert(@TypeOf(error.Bar) != @TypeOf(error.Foo));
+            \\    assert(anyerror == anyerror);
+            \\    assert(error{Foo} != error{Foo});
+            \\    // TODO put inferred error sets here when @typeInfo works
+            \\}
+            \\fn assert(b: bool) void {
+            \\    if (!b) unreachable;
+            \\}
+        ,
+            "",
+        );
+    }
+    {
         var case = ctx.exe("inline assembly", linux_x64);
 
         case.addError(
@@ -1501,7 +1637,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    const x = asm volatile ("syscall"
             \\        : [o] "{rax}" (-> number)
             \\        : [number] "{rax}" (231),
-            \\          [arg1] "{rdi}" (code)
+            \\          [arg1] "{rdi}" (60)
             \\        : "rcx", "r11", "memory"
             \\    );
             \\    _ = x;
@@ -1658,7 +1794,11 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    const b = false;
             \\    _ = a & &b;
             \\}
-        , &[_][]const u8{":4:11: error: incompatible types: 'bool' and '*const bool'"});
+        , &[_][]const u8{
+            ":4:11: error: incompatible types: 'bool' and '*const bool'",
+            ":4:9: note: type 'bool' here",
+            ":4:13: note: type '*const bool' here",
+        });
 
         case.addCompareOutput(
             \\pub fn main() void {

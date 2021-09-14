@@ -1,8 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
 const std = @import("../std.zig");
 const builtin = std.builtin;
 const mem = std.mem;
@@ -582,7 +577,7 @@ pub fn hasUniqueRepresentation(comptime T: type) bool {
             return @sizeOf(T) == sum_size;
         },
 
-        .Vector => |info| return comptime hasUniqueRepresentation(info.child),
+        .Vector => |info| return comptime hasUniqueRepresentation(info.child) and @sizeOf(T) == @sizeOf(info.child) * info.len,
     }
 }
 
@@ -653,4 +648,7 @@ test "std.meta.trait.hasUniqueRepresentation" {
 
     try testing.expect(!hasUniqueRepresentation([]u8));
     try testing.expect(!hasUniqueRepresentation([]const u8));
+
+    try testing.expect(hasUniqueRepresentation(@Vector(4, u16)));
+    try testing.expect(!hasUniqueRepresentation(@Vector(3, u16)));
 }

@@ -1,9 +1,5 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
 const std = @import("std.zig");
+
 const math = std.math;
 const print = std.debug.print;
 
@@ -326,7 +322,7 @@ pub const TmpDir = struct {
 };
 
 fn getCwdOrWasiPreopen() std.fs.Dir {
-    if (std.builtin.os.tag == .wasi) {
+    if (std.builtin.os.tag == .wasi and !std.builtin.link_libc) {
         var preopens = std.fs.wasi.PreopenList.init(allocator);
         defer preopens.deinit();
         preopens.populate() catch

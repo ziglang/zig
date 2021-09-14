@@ -1,8 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
 const std = @import("../std.zig");
 const assert = std.debug.assert;
 const Target = std.Target;
@@ -233,7 +228,7 @@ pub const CrossTarget = struct {
             .dynamic_linker = DynamicLinker.init(args.dynamic_linker),
         };
 
-        var it = mem.split(args.arch_os_abi, "-");
+        var it = mem.split(u8, args.arch_os_abi, "-");
         const arch_name = it.next().?;
         const arch_is_native = mem.eql(u8, arch_name, "native");
         if (!arch_is_native) {
@@ -251,7 +246,7 @@ pub const CrossTarget = struct {
 
         const opt_abi_text = it.next();
         if (opt_abi_text) |abi_text| {
-            var abi_it = mem.split(abi_text, ".");
+            var abi_it = mem.split(u8, abi_text, ".");
             const abi = std.meta.stringToEnum(Target.Abi, abi_it.next().?) orelse
                 return error.UnknownApplicationBinaryInterface;
             result.abi = abi;
@@ -471,10 +466,6 @@ pub const CrossTarget = struct {
 
     pub fn isWindows(self: CrossTarget) bool {
         return self.getOsTag() == .windows;
-    }
-
-    pub fn oFileExt(self: CrossTarget) [:0]const u8 {
-        return Target.oFileExt_os_abi(self.getOsTag(), self.getAbi());
     }
 
     pub fn exeFileExt(self: CrossTarget) [:0]const u8 {
@@ -703,7 +694,7 @@ pub const CrossTarget = struct {
     }
 
     fn parseOs(result: *CrossTarget, diags: *ParseOptions.Diagnostics, text: []const u8) !void {
-        var it = mem.split(text, ".");
+        var it = mem.split(u8, text, ".");
         const os_name = it.next().?;
         diags.os_name = os_name;
         const os_is_native = mem.eql(u8, os_name, "native");
@@ -761,7 +752,7 @@ pub const CrossTarget = struct {
             .linux,
             .dragonfly,
             => {
-                var range_it = mem.split(version_text, "...");
+                var range_it = mem.split(u8, version_text, "...");
 
                 const min_text = range_it.next().?;
                 const min_ver = SemVer.parse(min_text) catch |err| switch (err) {
@@ -781,7 +772,7 @@ pub const CrossTarget = struct {
             },
 
             .windows => {
-                var range_it = mem.split(version_text, "...");
+                var range_it = mem.split(u8, version_text, "...");
 
                 const min_text = range_it.next().?;
                 const min_ver = std.meta.stringToEnum(Target.Os.WindowsVersion, min_text) orelse

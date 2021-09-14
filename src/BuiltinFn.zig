@@ -2,6 +2,7 @@ const std = @import("std");
 
 pub const Tag = enum {
     add_with_overflow,
+    add_with_saturation,
     align_cast,
     align_of,
     as,
@@ -57,18 +58,22 @@ pub const Tag = enum {
     int_to_error,
     int_to_float,
     int_to_ptr,
+    maximum,
     memcpy,
     memset,
+    minimum,
     wasm_memory_size,
     wasm_memory_grow,
     mod,
     mul_with_overflow,
+    mul_with_saturation,
     panic,
     pop_count,
     ptr_cast,
     ptr_to_int,
     rem,
     return_address,
+    select,
     set_align_stack,
     set_cold,
     set_eval_branch_quota,
@@ -76,10 +81,12 @@ pub const Tag = enum {
     set_runtime_safety,
     shl_exact,
     shl_with_overflow,
+    shl_with_saturation,
     shr_exact,
     shuffle,
     size_of,
     splat,
+    sub_with_saturation,
     reduce,
     src,
     sqrt,
@@ -518,6 +525,41 @@ pub const list = list: {
             },
         },
         .{
+            "@maximum",
+            .{
+                .tag = .maximum,
+                .param_count = 2,
+            },
+        },
+        .{
+            "@addWithSaturation",
+            .{
+                .tag = .add_with_saturation,
+                .param_count = 2,
+            },
+        },
+        .{
+            "@subWithSaturation",
+            .{
+                .tag = .sub_with_saturation,
+                .param_count = 2,
+            },
+        },
+        .{
+            "@mulWithSaturation",
+            .{
+                .tag = .mul_with_saturation,
+                .param_count = 2,
+            },
+        },
+        .{
+            "@shlWithSaturation",
+            .{
+                .tag = .shl_with_saturation,
+                .param_count = 2,
+            },
+        },
+        .{
             "@memcpy",
             .{
                 .tag = .memcpy,
@@ -529,6 +571,13 @@ pub const list = list: {
             .{
                 .tag = .memset,
                 .param_count = 3,
+            },
+        },
+        .{
+            "@minimum",
+            .{
+                .tag = .minimum,
+                .param_count = 2,
             },
         },
         .{
@@ -599,6 +648,13 @@ pub const list = list: {
             .{
                 .tag = .return_address,
                 .param_count = 0,
+            },
+        },
+        .{
+            "@select",
+            .{
+                .tag = .select,
+                .param_count = 4,
             },
         },
         .{

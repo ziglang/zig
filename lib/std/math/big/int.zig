@@ -1,8 +1,3 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
 const std = @import("../../std.zig");
 const math = std.math;
 const Limb = std.math.big.Limb;
@@ -677,10 +672,9 @@ pub const Mutable = struct {
     ///
     /// `limbs_buffer` is used for temporary storage during the operation.
     pub fn gcdNoAlias(rma: *Mutable, x: Const, y: Const, limbs_buffer: *std.ArrayList(Limb)) !void {
-        _ = limbs_buffer;
         assert(rma.limbs.ptr != x.limbs.ptr); // illegal aliasing
         assert(rma.limbs.ptr != y.limbs.ptr); // illegal aliasing
-        return gcdLehmer(rma, x, y, allocator);
+        return gcdLehmer(rma, x, y, limbs_buffer);
     }
 
     fn gcdLehmer(result: *Mutable, xa: Const, ya: Const, limbs_buffer: *std.ArrayList(Limb)) !void {

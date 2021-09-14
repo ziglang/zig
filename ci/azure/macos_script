@@ -9,7 +9,7 @@ ZIGDIR="$(pwd)"
 ARCH="x86_64"
 TARGET="$ARCH-macos-gnu"
 MCPU="baseline"
-CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.8.0-dev.2703+c12704a33"
+CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.8.1-dev.94+535615117"
 PREFIX="$HOME/$CACHE_BASENAME"
 JOBS="-j2"
 
@@ -54,9 +54,12 @@ make $JOBS install
 cmake .. -DZIG_EXECUTABLE="$(pwd)/release/bin/zig"
 make $JOBS install
 
-for step in test-toolchain test-std docs; do
-  release/bin/zig build $step
-done
+# TODO figure out why this causes a segmentation fault
+# release/bin/zig test ../test/behavior.zig -fno-stage1 -fLLVM -I ../test
+
+release/bin/zig build test-toolchain -Denable-macos-sdk
+release/bin/zig build test-std
+release/bin/zig build docs
 
 if [ "${BUILD_REASON}" != "PullRequest" ]; then
   mv ../LICENSE release/
