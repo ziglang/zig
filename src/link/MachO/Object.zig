@@ -540,12 +540,15 @@ pub fn parseIntoAtoms(
         // Symbols within this section only.
         const filtered_nlists = NlistWithIndex.filterInSection(sorted_nlists, sect);
 
+        // TODO rewrite and re-enable dead-code stripping optimisation. I think it might make sense
+        // to do this in a standalone pass after we parse the sections as atoms.
         // In release mode, if the object file was generated with dead code stripping optimisations,
         // note it now and parse sections as atoms.
-        const is_splittable = blk: {
-            if (macho_file.base.options.optimize_mode == .Debug) break :blk false;
-            break :blk self.header.?.flags & macho.MH_SUBSECTIONS_VIA_SYMBOLS != 0;
-        };
+        // const is_splittable = blk: {
+        //     if (macho_file.base.options.optimize_mode == .Debug) break :blk false;
+        //     break :blk self.header.?.flags & macho.MH_SUBSECTIONS_VIA_SYMBOLS != 0;
+        // };
+        const is_splittable = false;
 
         macho_file.has_dices = macho_file.has_dices or blk: {
             if (self.text_section_index) |index| {
