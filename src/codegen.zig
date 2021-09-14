@@ -856,6 +856,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     .store           => try self.airStore(inst),
                     .struct_field_ptr=> try self.airStructFieldPtr(inst),
                     .struct_field_val=> try self.airStructFieldVal(inst),
+                    .array_to_slice  => try self.airArrayToSlice(inst),
 
                     .struct_field_ptr_index_0 => try self.airStructFieldPtrIndex(inst, 0),
                     .struct_field_ptr_index_1 => try self.airStructFieldPtrIndex(inst, 1),
@@ -4758,6 +4759,16 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         fn airBitCast(self: *Self, inst: Air.Inst.Index) !void {
             const ty_op = self.air.instructions.items(.data)[inst].ty_op;
             const result = try self.resolveInst(ty_op.operand);
+            return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+        }
+
+        fn airArrayToSlice(self: *Self, inst: Air.Inst.Index) !void {
+            const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+            const result: MCValue = if (self.liveness.isUnused(inst)) .dead else switch (arch) {
+                else => return self.fail("TODO implement airArrayToSlice for {}", .{
+                    self.target.cpu.arch,
+                }),
+            };
             return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
         }
 

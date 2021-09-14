@@ -1006,28 +1006,29 @@ pub const FuncGen = struct {
                 .is_err          => try self.airIsErr(inst, .NE, false),
                 .is_err_ptr      => try self.airIsErr(inst, .NE, true),
 
-                .alloc      => try self.airAlloc(inst),
-                .arg        => try self.airArg(inst),
-                .bitcast    => try self.airBitCast(inst),
-                .bool_to_int=> try self.airBoolToInt(inst),
-                .block      => try self.airBlock(inst),
-                .br         => try self.airBr(inst),
-                .switch_br  => try self.airSwitchBr(inst),
-                .breakpoint => try self.airBreakpoint(inst),
-                .call       => try self.airCall(inst),
-                .cond_br    => try self.airCondBr(inst),
-                .intcast    => try self.airIntCast(inst),
-                .trunc      => try self.airTrunc(inst),
-                .floatcast  => try self.airFloatCast(inst),
-                .ptrtoint   => try self.airPtrToInt(inst),
-                .load       => try self.airLoad(inst),
-                .loop       => try self.airLoop(inst),
-                .not        => try self.airNot(inst),
-                .ret        => try self.airRet(inst),
-                .store      => try self.airStore(inst),
-                .assembly   => try self.airAssembly(inst),
-                .slice_ptr  => try self.airSliceField(inst, 0),
-                .slice_len  => try self.airSliceField(inst, 1),
+                .alloc          => try self.airAlloc(inst),
+                .arg            => try self.airArg(inst),
+                .bitcast        => try self.airBitCast(inst),
+                .bool_to_int    => try self.airBoolToInt(inst),
+                .block          => try self.airBlock(inst),
+                .br             => try self.airBr(inst),
+                .switch_br      => try self.airSwitchBr(inst),
+                .breakpoint     => try self.airBreakpoint(inst),
+                .call           => try self.airCall(inst),
+                .cond_br        => try self.airCondBr(inst),
+                .intcast        => try self.airIntCast(inst),
+                .trunc          => try self.airTrunc(inst),
+                .floatcast      => try self.airFloatCast(inst),
+                .ptrtoint       => try self.airPtrToInt(inst),
+                .load           => try self.airLoad(inst),
+                .loop           => try self.airLoop(inst),
+                .not            => try self.airNot(inst),
+                .ret            => try self.airRet(inst),
+                .store          => try self.airStore(inst),
+                .assembly       => try self.airAssembly(inst),
+                .slice_ptr      => try self.airSliceField(inst, 0),
+                .slice_len      => try self.airSliceField(inst, 1),
+                .array_to_slice => try self.airArrayToSlice(inst),
 
                 .struct_field_ptr => try self.airStructFieldPtr(inst),
                 .struct_field_val => try self.airStructFieldVal(inst),
@@ -1244,6 +1245,24 @@ pub const FuncGen = struct {
 
         _ = self.builder.buildBr(loop_block);
         return null;
+    }
+
+    fn airArrayToSlice(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst))
+            return null;
+
+        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const operand = try self.resolveInst(ty_op.operand);
+        const array_len = self.air.typeOf(ty_op.operand).elemType().arrayLen();
+        const usize_llvm_ty = try self.dg.llvmType(Type.initTag(.usize));
+        const len = usize_llvm_ty.constInt(array_len, .False);
+        const slice_llvm_ty = try self.dg.llvmType(self.air.typeOfIndex(inst));
+        const indices: [2]*const llvm.Value = .{
+            usize_llvm_ty.constNull(), usize_llvm_ty.constNull(),
+        };
+        const ptr = self.builder.buildInBoundsGEP(operand, &indices, indices.len, "");
+        const partial = self.builder.buildInsertValue(slice_llvm_ty.getUndef(), ptr, 0, "");
+        return self.builder.buildInsertValue(partial, len, 1, "");
     }
 
     fn airSliceField(self: *FuncGen, inst: Air.Inst.Index, index: c_uint) !?*const llvm.Value {

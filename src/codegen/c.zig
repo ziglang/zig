@@ -910,6 +910,7 @@ fn genBody(o: *Object, body: []const Air.Inst.Index) error{ AnalysisFail, OutOfM
             .switch_br        => try airSwitchBr(o, inst),
             .wrap_optional    => try airWrapOptional(o, inst),
             .struct_field_ptr => try airStructFieldPtr(o, inst),
+            .array_to_slice   => try airArrayToSlice(o, inst),
 
             .struct_field_ptr_index_0 => try airStructFieldPtrIndex(o, inst, 0),
             .struct_field_ptr_index_1 => try airStructFieldPtrIndex(o, inst, 1),
@@ -1857,6 +1858,23 @@ fn airIsErr(
         try o.writeCValue(writer, operand);
         try writer.print("{s}error {s} 0;\n", .{ deref_suffix, op_str });
     }
+    return local;
+}
+
+fn airArrayToSlice(o: *Object, inst: Air.Inst.Index) !CValue {
+    if (o.liveness.isUnused(inst))
+        return CValue.none;
+
+    const inst_ty = o.air.typeOfIndex(inst);
+    const local = try o.allocLocal(inst_ty, .Const);
+    const ty_op = o.air.instructions.items(.data)[inst].ty_op;
+    const writer = o.writer();
+    const operand = try o.resolveInst(ty_op.operand);
+    const array_len = o.air.typeOf(ty_op.operand).elemType().arrayLen();
+
+    try writer.writeAll(" = { .ptr = ");
+    try o.writeCValue(writer, operand);
+    try writer.print(", .len = {d} }};\n", .{array_len});
     return local;
 }
 

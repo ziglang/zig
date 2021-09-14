@@ -8952,7 +8952,8 @@ fn coerceArrayPtrToSlice(
         // The comptime Value representation is compatible with both types.
         return sema.addConstant(dest_type, val);
     }
-    return sema.mod.fail(&block.base, inst_src, "TODO implement coerceArrayPtrToSlice runtime instruction", .{});
+    try sema.requireRuntimeBlock(block, inst_src);
+    return block.addTyOp(.array_to_slice, dest_type, inst);
 }
 
 fn coerceArrayPtrToMany(

@@ -306,6 +306,9 @@ pub const Inst = struct {
         /// Result type is the element type of the inner pointer operand.
         /// Uses the `bin_op` field.
         ptr_ptr_elem_val,
+        /// Given a pointer to an array, return a slice.
+        /// Uses the `ty_op` field.
+        array_to_slice,
 
         pub fn fromCmpOp(op: std.math.CompareOperator) Tag {
             return switch (op) {
@@ -526,6 +529,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .struct_field_ptr_index_1,
         .struct_field_ptr_index_2,
         .struct_field_ptr_index_3,
+        .array_to_slice,
         => return air.getRefType(datas[inst].ty_op.ty),
 
         .loop,

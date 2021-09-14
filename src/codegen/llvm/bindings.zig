@@ -484,6 +484,15 @@ pub const Builder = opaque {
         DestTy: *const Type,
         Name: [*:0]const u8,
     ) *const Value;
+
+    pub const buildInsertValue = LLVMBuildInsertValue;
+    extern fn LLVMBuildInsertValue(
+        *const Builder,
+        AggVal: *const Value,
+        EltVal: *const Value,
+        Index: c_uint,
+        Name: [*:0]const u8,
+    ) *const Value;
 };
 
 pub const IntPredicate = enum(c_uint) {
