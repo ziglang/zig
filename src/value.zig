@@ -17,10 +17,10 @@ const Air = @import("Air.zig");
 pub const Value = extern union {
     /// If the tag value is less than Tag.no_payload_count, then no pointer
     /// dereference is needed.
-    tag_if_small_enough: usize,
+    tag_if_small_enough: Tag,
     ptr_otherwise: *Payload,
 
-    pub const Tag = enum {
+    pub const Tag = enum(usize) {
         // The first section of this enum are tags that require no payload.
         u1_type,
         u8_type,
@@ -296,7 +296,7 @@ pub const Value = extern union {
 
     pub fn initTag(small_tag: Tag) Value {
         assert(@enumToInt(small_tag) < Tag.no_payload_count);
-        return .{ .tag_if_small_enough = @enumToInt(small_tag) };
+        return .{ .tag_if_small_enough = small_tag };
     }
 
     pub fn initPayload(payload: *Payload) Value {
@@ -305,8 +305,8 @@ pub const Value = extern union {
     }
 
     pub fn tag(self: Value) Tag {
-        if (self.tag_if_small_enough < Tag.no_payload_count) {
-            return @intToEnum(Tag, @intCast(std.meta.Tag(Tag), self.tag_if_small_enough));
+        if (@enumToInt(self.tag_if_small_enough) < Tag.no_payload_count) {
+            return self.tag_if_small_enough;
         } else {
             return self.ptr_otherwise.tag;
         }
@@ -317,7 +317,7 @@ pub const Value = extern union {
         if (@hasField(T, "base_tag")) {
             return self.castTag(T.base_tag);
         }
-        if (self.tag_if_small_enough < Tag.no_payload_count) {
+        if (@enumToInt(self.tag_if_small_enough) < Tag.no_payload_count) {
             return null;
         }
         inline for (@typeInfo(Tag).Enum.fields) |field| {
@@ -335,7 +335,7 @@ pub const Value = extern union {
     }
 
     pub fn castTag(self: Value, comptime t: Tag) ?*t.Type() {
-        if (self.tag_if_small_enough < Tag.no_payload_count)
+        if (@enumToInt(self.tag_if_small_enough) < Tag.no_payload_count)
             return null;
 
         if (self.ptr_otherwise.tag == t)
@@ -347,7 +347,7 @@ pub const Value = extern union {
     /// It's intentional that this function is not passed a corresponding Type, so that
     /// a Value can be copied from a Sema to a Decl prior to resolving struct/union field types.
     pub fn copy(self: Value, arena: *Allocator) error{OutOfMemory}!Value {
-        if (self.tag_if_small_enough < Tag.no_payload_count) {
+        if (@enumToInt(self.tag_if_small_enough) < Tag.no_payload_count) {
             return Value{ .tag_if_small_enough = self.tag_if_small_enough };
         } else switch (self.ptr_otherwise.tag) {
             .u1_type,
