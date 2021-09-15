@@ -2886,6 +2886,35 @@ pub const Type = extern union {
         }
     }
 
+    /// Returns the integer tag type of the enum.
+    pub fn enumTagType(ty: Type, buffer: *Payload.Bits) Type {
+        switch (ty.tag()) {
+            .enum_full, .enum_nonexhaustive => {
+                const enum_full = ty.cast(Payload.EnumFull).?.data;
+                return enum_full.tag_ty;
+            },
+            .enum_simple => {
+                const enum_simple = ty.castTag(.enum_simple).?.data;
+                buffer.* = .{
+                    .base = .{ .tag = .int_unsigned },
+                    .data = std.math.log2_int_ceil(usize, enum_simple.fields.count()),
+                };
+                return Type.initPayload(&buffer.base);
+            },
+            .atomic_order,
+            .atomic_rmw_op,
+            .calling_convention,
+            .float_mode,
+            .reduce_op,
+            .call_options,
+            .export_options,
+            .extern_options,
+            => @panic("TODO resolve std.builtin types"),
+
+            else => unreachable,
+        }
+    }
+
     pub fn isNonexhaustiveEnum(ty: Type) bool {
         return switch (ty.tag()) {
             .enum_nonexhaustive => true,

@@ -340,6 +340,10 @@ fn analyzeInst(
             const extra = a.air.extraData(Air.Bin, inst_datas[inst].ty_pl.payload).data;
             return trackOperands(a, new_set, inst, main_tomb, .{ extra.lhs, extra.rhs, .none });
         },
+        .cmpxchg_strong, .cmpxchg_weak => {
+            const extra = a.air.extraData(Air.Cmpxchg, inst_datas[inst].ty_pl.payload).data;
+            return trackOperands(a, new_set, inst, main_tomb, .{ extra.ptr, extra.expected_value, extra.new_value });
+        },
         .br => {
             const br = inst_datas[inst].br;
             return trackOperands(a, new_set, inst, main_tomb, .{ br.operand, .none, .none });

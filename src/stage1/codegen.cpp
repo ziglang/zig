@@ -5723,7 +5723,7 @@ static LLVMValueRef ir_render_cmpxchg(CodeGen *g, Stage1Air *executable, Stage1A
     LLVMAtomicOrdering failure_order = to_LLVMAtomicOrdering(instruction->failure_order);
 
     LLVMValueRef result_val = ZigLLVMBuildCmpXchg(g->builder, ptr_val, cmp_val, new_val,
-            success_order, failure_order, instruction->is_weak);
+            success_order, failure_order, instruction->is_weak, g->is_single_threaded);
 
     ZigType *optional_type = instruction->base.value->type;
     assert(optional_type->id == ZigTypeIdOptional);

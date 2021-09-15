@@ -1087,10 +1087,12 @@ static AtomicOrdering mapFromLLVMOrdering(LLVMAtomicOrdering Ordering) {
 
 LLVMValueRef ZigLLVMBuildCmpXchg(LLVMBuilderRef builder, LLVMValueRef ptr, LLVMValueRef cmp,
         LLVMValueRef new_val, LLVMAtomicOrdering success_ordering,
-        LLVMAtomicOrdering failure_ordering, bool is_weak)
+        LLVMAtomicOrdering failure_ordering, bool is_weak, bool is_single_threaded)
 {
-    AtomicCmpXchgInst *inst = unwrap(builder)->CreateAtomicCmpXchg(unwrap(ptr), unwrap(cmp),
-                unwrap(new_val), mapFromLLVMOrdering(success_ordering), mapFromLLVMOrdering(failure_ordering));
+    AtomicCmpXchgInst *inst = unwrap(builder)->CreateAtomicCmpXchg(unwrap(ptr),
+        unwrap(cmp), unwrap(new_val),
+        mapFromLLVMOrdering(success_ordering), mapFromLLVMOrdering(failure_ordering),
+        is_single_threaded ? SyncScope::SingleThread : SyncScope::System);
     inst->setWeak(is_weak);
     return wrap(inst);
 }
@@ -1308,19 +1310,6 @@ static AtomicRMWInst::BinOp toLLVMRMWBinOp(enum ZigLLVM_AtomicRMWBinOp BinOp) {
     }
 }
 
-static AtomicOrdering toLLVMOrdering(LLVMAtomicOrdering Ordering) {
-    switch (Ordering) {
-        default:
-        case LLVMAtomicOrderingNotAtomic: return AtomicOrdering::NotAtomic;
-        case LLVMAtomicOrderingUnordered: return AtomicOrdering::Unordered;
-        case LLVMAtomicOrderingMonotonic: return AtomicOrdering::Monotonic;
-        case LLVMAtomicOrderingAcquire: return AtomicOrdering::Acquire;
-        case LLVMAtomicOrderingRelease: return AtomicOrdering::Release;
-        case LLVMAtomicOrderingAcquireRelease: return AtomicOrdering::AcquireRelease;
-        case LLVMAtomicOrderingSequentiallyConsistent: return AtomicOrdering::SequentiallyConsistent;
-    }
-}
-
 inline LLVMAttributeRef wrap(Attribute Attr) {
     return reinterpret_cast<LLVMAttributeRef>(Attr.getRawPointer());
 }
@@ -1335,7 +1324,7 @@ LLVMValueRef ZigLLVMBuildAtomicRMW(LLVMBuilderRef B, enum ZigLLVM_AtomicRMWBinOp
 {
     AtomicRMWInst::BinOp intop = toLLVMRMWBinOp(op);
     return wrap(unwrap(B)->CreateAtomicRMW(intop, unwrap(PTR),
-        unwrap(Val), toLLVMOrdering(ordering), 
+        unwrap(Val), mapFromLLVMOrdering(ordering), 
         singleThread ? SyncScope::SingleThread : SyncScope::System));
 }
 

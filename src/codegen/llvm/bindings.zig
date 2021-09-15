@@ -298,6 +298,14 @@ pub const Builder = opaque {
         Name: [*:0]const u8,
     ) *const Value;
 
+    pub const buildSExt = LLVMBuildSExt;
+    extern fn LLVMBuildSExt(
+        *const Builder,
+        Val: *const Value,
+        DestTy: *const Type,
+        Name: [*:0]const u8,
+    ) *const Value;
+
     pub const buildCall = LLVMBuildCall;
     extern fn LLVMBuildCall(
         *const Builder,
@@ -491,6 +499,27 @@ pub const Builder = opaque {
         AggVal: *const Value,
         EltVal: *const Value,
         Index: c_uint,
+        Name: [*:0]const u8,
+    ) *const Value;
+
+    pub const buildCmpXchg = ZigLLVMBuildCmpXchg;
+    extern fn ZigLLVMBuildCmpXchg(
+        builder: *const Builder,
+        ptr: *const Value,
+        cmp: *const Value,
+        new_val: *const Value,
+        success_ordering: AtomicOrdering,
+        failure_ordering: AtomicOrdering,
+        is_weak: bool,
+        is_single_threaded: bool,
+    ) *const Value;
+
+    pub const buildSelect = LLVMBuildSelect;
+    extern fn LLVMBuildSelect(
+        *const Builder,
+        If: *const Value,
+        Then: *const Value,
+        Else: *const Value,
         Name: [*:0]const u8,
     ) *const Value;
 };
@@ -853,4 +882,14 @@ pub const Linkage = enum(c_uint) {
     Common,
     LinkerPrivate,
     LinkerPrivateWeak,
+};
+
+pub const AtomicOrdering = enum(c_uint) {
+    NotAtomic = 0,
+    Unordered = 1,
+    Monotonic = 2,
+    Acquire = 4,
+    Release = 5,
+    AcquireRelease = 6,
+    SequentiallyConsistent = 7,
 };

@@ -1321,6 +1321,7 @@ pub const Scope = struct {
         /// It is shared among all the blocks in an inline or comptime called
         /// function.
         pub const Inlining = struct {
+            comptime_result: Air.Inst.Ref,
             merges: Merges,
         };
 
@@ -1643,36 +1644,12 @@ pub const SrcLoc = struct {
                 const token_starts = tree.tokens.items(.start);
                 return token_starts[tok_index];
             },
-            .node_offset_builtin_call_arg0 => |node_off| {
-                const tree = try src_loc.file_scope.getTree(gpa);
-                const node_datas = tree.nodes.items(.data);
-                const node_tags = tree.nodes.items(.tag);
-                const node = src_loc.declRelativeToNodeIndex(node_off);
-                const param = switch (node_tags[node]) {
-                    .builtin_call_two, .builtin_call_two_comma => node_datas[node].lhs,
-                    .builtin_call, .builtin_call_comma => tree.extra_data[node_datas[node].lhs],
-                    else => unreachable,
-                };
-                const main_tokens = tree.nodes.items(.main_token);
-                const tok_index = main_tokens[param];
-                const token_starts = tree.tokens.items(.start);
-                return token_starts[tok_index];
-            },
-            .node_offset_builtin_call_arg1 => |node_off| {
-                const tree = try src_loc.file_scope.getTree(gpa);
-                const node_datas = tree.nodes.items(.data);
-                const node_tags = tree.nodes.items(.tag);
-                const node = src_loc.declRelativeToNodeIndex(node_off);
-                const param = switch (node_tags[node]) {
-                    .builtin_call_two, .builtin_call_two_comma => node_datas[node].rhs,
-                    .builtin_call, .builtin_call_comma => tree.extra_data[node_datas[node].lhs + 1],
-                    else => unreachable,
-                };
-                const main_tokens = tree.nodes.items(.main_token);
-                const tok_index = main_tokens[param];
-                const token_starts = tree.tokens.items(.start);
-                return token_starts[tok_index];
-            },
+            .node_offset_builtin_call_arg0 => |n| return src_loc.byteOffsetBuiltinCallArg(gpa, n, 0),
+            .node_offset_builtin_call_arg1 => |n| return src_loc.byteOffsetBuiltinCallArg(gpa, n, 1),
+            .node_offset_builtin_call_arg2 => |n| return src_loc.byteOffsetBuiltinCallArg(gpa, n, 2),
+            .node_offset_builtin_call_arg3 => |n| return src_loc.byteOffsetBuiltinCallArg(gpa, n, 3),
+            .node_offset_builtin_call_arg4 => |n| return src_loc.byteOffsetBuiltinCallArg(gpa, n, 4),
+            .node_offset_builtin_call_arg5 => |n| return src_loc.byteOffsetBuiltinCallArg(gpa, n, 5),
             .node_offset_array_access_index => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node_datas = tree.nodes.items(.data);
@@ -1965,6 +1942,31 @@ pub const SrcLoc = struct {
             },
         }
     }
+
+    pub fn byteOffsetBuiltinCallArg(
+        src_loc: SrcLoc,
+        gpa: *Allocator,
+        node_off: i32,
+        arg_index: u32,
+    ) !u32 {
+        const tree = try src_loc.file_scope.getTree(gpa);
+        const node_datas = tree.nodes.items(.data);
+        const node_tags = tree.nodes.items(.tag);
+        const node = src_loc.declRelativeToNodeIndex(node_off);
+        const param = switch (node_tags[node]) {
+            .builtin_call_two, .builtin_call_two_comma => switch (arg_index) {
+                0 => node_datas[node].lhs,
+                1 => node_datas[node].rhs,
+                else => unreachable,
+            },
+            .builtin_call, .builtin_call_comma => tree.extra_data[node_datas[node].lhs + arg_index],
+            else => unreachable,
+        };
+        const main_tokens = tree.nodes.items(.main_token);
+        const tok_index = main_tokens[param];
+        const token_starts = tree.tokens.items(.start);
+        return token_starts[tok_index];
+    }
 };
 
 /// Resolving a source location into a byte offset may require doing work
@@ -2032,6 +2034,10 @@ pub const LazySrcLoc = union(enum) {
     node_offset_builtin_call_arg0: i32,
     /// Same as `node_offset_builtin_call_arg0` except arg index 1.
     node_offset_builtin_call_arg1: i32,
+    node_offset_builtin_call_arg2: i32,
+    node_offset_builtin_call_arg3: i32,
+    node_offset_builtin_call_arg4: i32,
+    node_offset_builtin_call_arg5: i32,
     /// The source location points to the index expression of an array access
     /// expression, found by taking this AST node index offset from the containing
     /// Decl AST node, which points to an array access AST node. Next, navigate
@@ -2157,6 +2163,10 @@ pub const LazySrcLoc = union(enum) {
             .node_offset_for_cond,
             .node_offset_builtin_call_arg0,
             .node_offset_builtin_call_arg1,
+            .node_offset_builtin_call_arg2,
+            .node_offset_builtin_call_arg3,
+            .node_offset_builtin_call_arg4,
+            .node_offset_builtin_call_arg5,
             .node_offset_array_access_index,
             .node_offset_slice_sentinel,
             .node_offset_call_func,
@@ -2205,6 +2215,10 @@ pub const LazySrcLoc = union(enum) {
             .node_offset_for_cond,
             .node_offset_builtin_call_arg0,
             .node_offset_builtin_call_arg1,
+            .node_offset_builtin_call_arg2,
+            .node_offset_builtin_call_arg3,
+            .node_offset_builtin_call_arg4,
+            .node_offset_builtin_call_arg5,
             .node_offset_array_access_index,
             .node_offset_slice_sentinel,
             .node_offset_call_func,
@@ -2246,6 +2260,9 @@ pub const CompileError = error{
     /// because the function is generic. This is only seen when analyzing the body of a param
     /// instruction.
     GenericPoison,
+    /// In a comptime scope, a return instruction was encountered. This error is only seen when
+    /// doing a comptime function call.
+    ComptimeReturn,
 };
 
 pub fn deinit(mod: *Module) void {
@@ -3928,8 +3945,10 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn) SemaError!Air {
     log.debug("set {s} to in_progress", .{decl.name});
 
     _ = sema.analyzeBody(&inner_block, fn_info.body) catch |err| switch (err) {
+        // TODO make these unreachable instead of @panic
         error.NeededSourceLocation => @panic("zig compiler bug: NeededSourceLocation"),
         error.GenericPoison => @panic("zig compiler bug: GenericPoison"),
+        error.ComptimeReturn => @panic("zig compiler bug: ComptimeReturn"),
         else => |e| return e,
     };
 
@@ -4534,7 +4553,6 @@ pub const PeerTypeCandidateSrc = union(enum) {
         self: PeerTypeCandidateSrc,
         gpa: *Allocator,
         decl: *Decl,
-        candidates: usize,
         candidate_i: usize,
     ) ?LazySrcLoc {
         @setCold(true);
@@ -4547,12 +4565,14 @@ pub const PeerTypeCandidateSrc = union(enum) {
                 return candidate_srcs[candidate_i];
             },
             .typeof_builtin_call_node_offset => |node_offset| {
-                if (candidates <= 2) {
-                    switch (candidate_i) {
-                        0 => return LazySrcLoc{ .node_offset_builtin_call_arg0 = node_offset },
-                        1 => return LazySrcLoc{ .node_offset_builtin_call_arg1 = node_offset },
-                        else => unreachable,
-                    }
+                switch (candidate_i) {
+                    0 => return LazySrcLoc{ .node_offset_builtin_call_arg0 = node_offset },
+                    1 => return LazySrcLoc{ .node_offset_builtin_call_arg1 = node_offset },
+                    2 => return LazySrcLoc{ .node_offset_builtin_call_arg2 = node_offset },
+                    3 => return LazySrcLoc{ .node_offset_builtin_call_arg3 = node_offset },
+                    4 => return LazySrcLoc{ .node_offset_builtin_call_arg4 = node_offset },
+                    5 => return LazySrcLoc{ .node_offset_builtin_call_arg5 = node_offset },
+                    else => {},
                 }
 
                 const tree = decl.namespace.file_scope.getTree(gpa) catch |err| {

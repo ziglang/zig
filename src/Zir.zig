@@ -2778,7 +2778,7 @@ pub const Inst = struct {
         expected_value: Ref,
         new_value: Ref,
         success_order: Ref,
-        fail_order: Ref,
+        failure_order: Ref,
     };
 
     pub const AtomicRmw = struct {
@@ -3054,8 +3054,6 @@ const Writer = struct {
             .array_init_ref,
             .array_init_anon_ref,
             .union_init_ptr,
-            .cmpxchg_strong,
-            .cmpxchg_weak,
             .shuffle,
             .select,
             .atomic_rmw,
@@ -3071,6 +3069,10 @@ const Writer = struct {
             .struct_init,
             .struct_init_ref,
             => try self.writeStructInit(stream, inst),
+
+            .cmpxchg_strong,
+            .cmpxchg_weak,
+            => try self.writeCmpxchg(stream, inst),
 
             .struct_init_anon,
             .struct_init_anon_ref,
@@ -3470,6 +3472,23 @@ const Writer = struct {
             try self.writeInstRef(stream, item.data.init);
             try stream.writeAll("]");
         }
+        try stream.writeAll(") ");
+        try self.writeSrc(stream, inst_data.src());
+    }
+
+    fn writeCmpxchg(self: *Writer, stream: anytype, inst: Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const extra = self.code.extraData(Inst.Cmpxchg, inst_data.payload_index).data;
+
+        try self.writeInstRef(stream, extra.ptr);
+        try stream.writeAll(", ");
+        try self.writeInstRef(stream, extra.expected_value);
+        try stream.writeAll(", ");
+        try self.writeInstRef(stream, extra.new_value);
+        try stream.writeAll(", ");
+        try self.writeInstRef(stream, extra.success_order);
+        try stream.writeAll(", ");
+        try self.writeInstRef(stream, extra.failure_order);
         try stream.writeAll(") ");
         try self.writeSrc(stream, inst_data.src());
     }

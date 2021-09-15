@@ -191,6 +191,7 @@ const Writer = struct {
             .br => try w.writeBr(s, inst),
             .cond_br => try w.writeCondBr(s, inst),
             .switch_br => try w.writeSwitchBr(s, inst),
+            .cmpxchg_weak, .cmpxchg_strong => try w.writeCmpxchg(s, inst),
         }
     }
 
@@ -258,7 +259,21 @@ const Writer = struct {
 
         try w.writeOperand(s, inst, 0, extra.lhs);
         try s.writeAll(", ");
-        try w.writeOperand(s, inst, 0, extra.rhs);
+        try w.writeOperand(s, inst, 1, extra.rhs);
+    }
+
+    fn writeCmpxchg(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
+        const ty_pl = w.air.instructions.items(.data)[inst].ty_pl;
+        const extra = w.air.extraData(Air.Cmpxchg, ty_pl.payload).data;
+
+        try w.writeOperand(s, inst, 0, extra.ptr);
+        try s.writeAll(", ");
+        try w.writeOperand(s, inst, 1, extra.expected_value);
+        try s.writeAll(", ");
+        try w.writeOperand(s, inst, 2, extra.new_value);
+        try s.print(", {s}, {s}", .{
+            @tagName(extra.successOrder()), @tagName(extra.failureOrder()),
+        });
     }
 
     fn writeConstant(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {

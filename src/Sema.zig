@@ -159,7 +159,6 @@ pub fn analyzeBody(
             .bit_or                       => try sema.zirBitwise(block, inst, .bit_or),
             .bitcast                      => try sema.zirBitcast(block, inst),
             .bitcast_result_ptr           => try sema.zirBitcastResultPtr(block, inst),
-            .block                        => try sema.zirBlock(block, inst),
             .suspend_block                => try sema.zirSuspendBlock(block, inst),
             .bool_not                     => try sema.zirBoolNot(block, inst),
             .bool_br_and                  => try sema.zirBoolBr(block, inst, false),
@@ -215,7 +214,6 @@ pub fn analyzeBody(
             .is_non_err_ptr               => try sema.zirIsNonErrPtr(block, inst),
             .is_non_null                  => try sema.zirIsNonNull(block, inst),
             .is_non_null_ptr              => try sema.zirIsNonNullPtr(block, inst),
-            .loop                         => try sema.zirLoop(block, inst),
             .merge_error_sets             => try sema.zirMergeErrorSets(block, inst),
             .negate                       => try sema.zirNegate(block, inst, .sub),
             .negate_wrap                  => try sema.zirNegate(block, inst, .subwrap),
@@ -308,8 +306,8 @@ pub fn analyzeBody(
             .shr_exact                    => try sema.zirShrExact(block, inst),
             .bit_offset_of                => try sema.zirBitOffsetOf(block, inst),
             .offset_of                    => try sema.zirOffsetOf(block, inst),
-            .cmpxchg_strong               => try sema.zirCmpxchg(block, inst),
-            .cmpxchg_weak                 => try sema.zirCmpxchg(block, inst),
+            .cmpxchg_strong               => try sema.zirCmpxchg(block, inst, .cmpxchg_strong),
+            .cmpxchg_weak                 => try sema.zirCmpxchg(block, inst, .cmpxchg_weak),
             .splat                        => try sema.zirSplat(block, inst),
             .reduce                       => try sema.zirReduce(block, inst),
             .shuffle                      => try sema.zirShuffle(block, inst),
@@ -364,16 +362,12 @@ pub fn analyzeBody(
             // Instructions that we know to *always* be noreturn based solely on their tag.
             // These functions match the return type of analyzeBody so that we can
             // tail call them here.
-            .break_inline   => return inst,
-            .condbr         => return sema.zirCondbr(block, inst),
-            .@"break"       => return sema.zirBreak(block, inst),
             .compile_error  => return sema.zirCompileError(block, inst),
             .ret_coerce     => return sema.zirRetCoerce(block, inst),
             .ret_node       => return sema.zirRetNode(block, inst),
             .ret_load       => return sema.zirRetLoad(block, inst),
             .ret_err_value  => return sema.zirRetErrValue(block, inst),
             .@"unreachable" => return sema.zirUnreachable(block, inst),
-            .repeat         => return sema.zirRepeat(block, inst),
             .panic          => return sema.zirPanic(block, inst),
             // zig fmt: on
 
@@ -499,6 +493,28 @@ pub fn analyzeBody(
             },
 
             // Special case instructions to handle comptime control flow.
+            .@"break" => {
+                if (block.is_comptime) {
+                    return inst; // same as break_inline
+                } else {
+                    return sema.zirBreak(block, inst);
+                }
+            },
+            .break_inline => return inst,
+            .repeat => {
+                if (block.is_comptime) {
+                    // Send comptime control flow back to the beginning of this block.
+                    const src: LazySrcLoc = .{ .node_offset = datas[inst].node };
+                    try sema.emitBackwardBranch(block, src);
+                    i = 0;
+                    continue;
+                } else {
+                    const src_node = sema.code.instructions.items(.data)[inst].node;
+                    const src: LazySrcLoc = .{ .node_offset = src_node };
+                    try sema.requireRuntimeBlock(block, src);
+                    return always_noreturn;
+                }
+            },
             .repeat_inline => {
                 // Send comptime control flow back to the beginning of this block.
                 const src: LazySrcLoc = .{ .node_offset = datas[inst].node };
@@ -506,11 +522,57 @@ pub fn analyzeBody(
                 i = 0;
                 continue;
             },
+            .loop => blk: {
+                if (!block.is_comptime) break :blk try sema.zirLoop(block, inst);
+                // Same as `block_inline`. TODO https://github.com/ziglang/zig/issues/8220
+                const inst_data = datas[inst].pl_node;
+                const extra = sema.code.extraData(Zir.Inst.Block, inst_data.payload_index);
+                const inline_body = sema.code.extra[extra.end..][0..extra.data.body_len];
+                const break_inst = try sema.analyzeBody(block, inline_body);
+                const break_data = datas[break_inst].@"break";
+                if (inst == break_data.block_inst) {
+                    break :blk sema.resolveInst(break_data.operand);
+                } else {
+                    return break_inst;
+                }
+            },
+            .block => blk: {
+                if (!block.is_comptime) break :blk try sema.zirBlock(block, inst);
+                // Same as `block_inline`. TODO https://github.com/ziglang/zig/issues/8220
+                const inst_data = datas[inst].pl_node;
+                const extra = sema.code.extraData(Zir.Inst.Block, inst_data.payload_index);
+                const inline_body = sema.code.extra[extra.end..][0..extra.data.body_len];
+                const break_inst = try sema.analyzeBody(block, inline_body);
+                const break_data = datas[break_inst].@"break";
+                if (inst == break_data.block_inst) {
+                    break :blk sema.resolveInst(break_data.operand);
+                } else {
+                    return break_inst;
+                }
+            },
             .block_inline => blk: {
                 // Directly analyze the block body without introducing a new block.
                 const inst_data = datas[inst].pl_node;
                 const extra = sema.code.extraData(Zir.Inst.Block, inst_data.payload_index);
                 const inline_body = sema.code.extra[extra.end..][0..extra.data.body_len];
+                const break_inst = try sema.analyzeBody(block, inline_body);
+                const break_data = datas[break_inst].@"break";
+                if (inst == break_data.block_inst) {
+                    break :blk sema.resolveInst(break_data.operand);
+                } else {
+                    return break_inst;
+                }
+            },
+            .condbr => blk: {
+                if (!block.is_comptime) return sema.zirCondbr(block, inst);
+                // Same as condbr_inline. TODO https://github.com/ziglang/zig/issues/8220
+                const inst_data = datas[inst].pl_node;
+                const cond_src: LazySrcLoc = .{ .node_offset_if_cond = inst_data.src_node };
+                const extra = sema.code.extraData(Zir.Inst.CondBr, inst_data.payload_index);
+                const then_body = sema.code.extra[extra.end..][0..extra.data.then_body_len];
+                const else_body = sema.code.extra[extra.end + then_body.len ..][0..extra.data.else_body_len];
+                const cond = try sema.resolveInstConst(block, cond_src, extra.data.condition);
+                const inline_body = if (cond.val.toBool()) then_body else else_body;
                 const break_inst = try sema.analyzeBody(block, inline_body);
                 const break_data = datas[break_inst].@"break";
                 if (inst == break_data.block_inst) {
@@ -1933,16 +1995,6 @@ fn zirCompileLog(
     return Air.Inst.Ref.void_value;
 }
 
-fn zirRepeat(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Zir.Inst.Index {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const src_node = sema.code.instructions.items(.data)[inst].node;
-    const src: LazySrcLoc = .{ .node_offset = src_node };
-    try sema.requireRuntimeBlock(block, src);
-    return always_noreturn;
-}
-
 fn zirPanic(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Zir.Inst.Index {
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src: LazySrcLoc = inst_data.src();
@@ -2003,7 +2055,6 @@ fn zirLoop(sema: *Sema, parent_block: *Scope.Block, inst: Zir.Inst.Index) Compil
 
     _ = try sema.analyzeBody(&loop_block, body);
 
-    // Loop repetition is implied so the last instruction may or may not be a noreturn instruction.
     try child_block.instructions.append(gpa, loop_inst);
 
     try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Block).Struct.fields.len +
@@ -2615,6 +2666,7 @@ fn analyzeCall(
         // This one is shared among sub-blocks within the same callee, but not
         // shared among the entire inline/comptime call stack.
         var inlining: Scope.Block.Inlining = .{
+            .comptime_result = undefined,
             .merges = .{
                 .results = .{},
                 .br_list = .{},
@@ -2770,8 +2822,13 @@ fn analyzeCall(
                 }
             }
 
-            _ = try sema.analyzeBody(&child_block, fn_info.body);
-            const result = try sema.analyzeBlockBody(block, call_src, &child_block, merges);
+            const result = result: {
+                _ = sema.analyzeBody(&child_block, fn_info.body) catch |err| switch (err) {
+                    error.ComptimeReturn => break :result inlining.comptime_result,
+                    else => |e| return e,
+                };
+                break :result try sema.analyzeBlockBody(block, call_src, &child_block, merges);
+            };
 
             if (is_comptime_call) {
                 const result_val = try sema.resolveConstMaybeUndefVal(block, call_src, result);
@@ -6662,9 +6719,9 @@ fn zirRetErrValue(
     const src = inst_data.src();
 
     // Add the error tag to the inferred error set of the in-scope function.
-    if (sema.func) |func| {
-        if (func.getInferredErrorSet()) |map| {
-            _ = try map.getOrPut(sema.gpa, err_name);
+    if (sema.fn_ret_ty.zigTypeTag() == .ErrorUnion) {
+        if (sema.fn_ret_ty.errorUnionSet().castTag(.error_set_inferred)) |payload| {
+            _ = try payload.data.map.getOrPut(sema.gpa, err_name);
         }
     }
     // Return the error code from the function.
@@ -6699,6 +6756,10 @@ fn zirRetNode(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileErr
     const operand = sema.resolveInst(inst_data.operand);
     const src = inst_data.src();
 
+    // TODO: we pass false here for the `need_coercion` boolean, but I'm pretty sure we need
+    // to remove this parameter entirely. Observe the problem by looking at the incorrect compile
+    // error that occurs when a behavior test case being executed at comptime fails, e.g.
+    // `test { comptime foo(); } fn foo() { try expect(false); }`
     return sema.analyzeRet(block, operand, src, false);
 }
 
@@ -6730,6 +6791,10 @@ fn analyzeRet(
         try sema.coerce(block, sema.fn_ret_ty, uncasted_operand, src);
 
     if (block.inlining) |inlining| {
+        if (block.is_comptime) {
+            inlining.comptime_result = operand;
+            return error.ComptimeReturn;
+        }
         // We are inlining a function call; rewrite the `ret` as a `break`.
         try inlining.merges.results.append(sema.gpa, operand);
         _ = try block.addBr(inlining.merges.block_inst, operand);
@@ -7425,10 +7490,149 @@ fn zirOffsetOf(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileEr
     return sema.mod.fail(&block.base, src, "TODO: Sema.zirOffsetOf", .{});
 }
 
-fn zirCmpxchg(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+fn checkAtomicOperandType(
+    sema: *Sema,
+    block: *Scope.Block,
+    ty_src: LazySrcLoc,
+    ty: Type,
+) CompileError!void {
+    var buffer: Type.Payload.Bits = undefined;
+    const target = sema.mod.getTarget();
+    const max_atomic_bits = target_util.largestAtomicBits(target);
+    const int_ty = switch (ty.zigTypeTag()) {
+        .Int => ty,
+        .Enum => ty.enumTagType(&buffer),
+        .Float => {
+            const bit_count = ty.floatBits(target);
+            if (bit_count > max_atomic_bits) {
+                return sema.mod.fail(
+                    &block.base,
+                    ty_src,
+                    "expected {d}-bit float type or smaller; found {d}-bit float type",
+                    .{ max_atomic_bits, bit_count },
+                );
+            }
+            return;
+        },
+        .Bool => return, // Will be treated as `u8`.
+        else => return sema.mod.fail(
+            &block.base,
+            ty_src,
+            "expected bool, integer, float, enum, or pointer type; found {}",
+            .{ty},
+        ),
+    };
+    const bit_count = int_ty.intInfo(target).bits;
+    if (bit_count > max_atomic_bits) {
+        return sema.mod.fail(
+            &block.base,
+            ty_src,
+            "expected {d}-bit integer type or smaller; found {d}-bit integer type",
+            .{ max_atomic_bits, bit_count },
+        );
+    }
+}
+
+fn resolveAtomicOrder(
+    sema: *Sema,
+    block: *Scope.Block,
+    src: LazySrcLoc,
+    zir_ref: Zir.Inst.Ref,
+) CompileError!std.builtin.AtomicOrder {
+    const atomic_order_ty = try sema.getBuiltinType(block, src, "AtomicOrder");
+    const air_ref = sema.resolveInst(zir_ref);
+    const coerced = try sema.coerce(block, atomic_order_ty, air_ref, src);
+    const val = try sema.resolveConstValue(block, src, coerced);
+    return val.toEnum(std.builtin.AtomicOrder);
+}
+
+fn zirCmpxchg(
+    sema: *Sema,
+    block: *Scope.Block,
+    inst: Zir.Inst.Index,
+    air_tag: Air.Inst.Tag,
+) CompileError!Air.Inst.Ref {
+    const mod = sema.mod;
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const extra = sema.code.extraData(Zir.Inst.Cmpxchg, inst_data.payload_index).data;
     const src = inst_data.src();
-    return sema.mod.fail(&block.base, src, "TODO: Sema.zirCmpxchg", .{});
+    // zig fmt: off
+    const elem_ty_src      : LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
+    const ptr_src          : LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
+    const expected_src     : LazySrcLoc = .{ .node_offset_builtin_call_arg2 = inst_data.src_node };
+    const new_value_src    : LazySrcLoc = .{ .node_offset_builtin_call_arg3 = inst_data.src_node };
+    const success_order_src: LazySrcLoc = .{ .node_offset_builtin_call_arg4 = inst_data.src_node };
+    const failure_order_src: LazySrcLoc = .{ .node_offset_builtin_call_arg5 = inst_data.src_node };
+    // zig fmt: on
+    const ptr = sema.resolveInst(extra.ptr);
+    const elem_ty = sema.typeOf(ptr).elemType();
+    try sema.checkAtomicOperandType(block, elem_ty_src, elem_ty);
+    if (elem_ty.zigTypeTag() == .Float) {
+        return mod.fail(
+            &block.base,
+            elem_ty_src,
+            "expected bool, integer, enum, or pointer type; found '{}'",
+            .{elem_ty},
+        );
+    }
+    const expected_value = try sema.coerce(block, elem_ty, sema.resolveInst(extra.expected_value), expected_src);
+    const new_value = try sema.coerce(block, elem_ty, sema.resolveInst(extra.new_value), new_value_src);
+    const success_order = try sema.resolveAtomicOrder(block, success_order_src, extra.success_order);
+    const failure_order = try sema.resolveAtomicOrder(block, failure_order_src, extra.failure_order);
+
+    if (@enumToInt(success_order) < @enumToInt(std.builtin.AtomicOrder.Monotonic)) {
+        return mod.fail(&block.base, success_order_src, "success atomic ordering must be Monotonic or stricter", .{});
+    }
+    if (@enumToInt(failure_order) < @enumToInt(std.builtin.AtomicOrder.Monotonic)) {
+        return mod.fail(&block.base, failure_order_src, "failure atomic ordering must be Monotonic or stricter", .{});
+    }
+    if (@enumToInt(failure_order) > @enumToInt(success_order)) {
+        return mod.fail(&block.base, failure_order_src, "failure atomic ordering must be no stricter than success", .{});
+    }
+    if (failure_order == .Release or failure_order == .AcqRel) {
+        return mod.fail(&block.base, failure_order_src, "failure atomic ordering must not be Release or AcqRel", .{});
+    }
+
+    const result_ty = try Module.optionalType(sema.arena, elem_ty);
+
+    // special case zero bit types
+    if ((try sema.typeHasOnePossibleValue(block, elem_ty_src, elem_ty)) != null) {
+        return sema.addConstant(result_ty, Value.initTag(.null_value));
+    }
+
+    const runtime_src = if (try sema.resolveDefinedValue(block, ptr_src, ptr)) |ptr_val| rs: {
+        if (try sema.resolveMaybeUndefVal(block, expected_src, expected_value)) |expected_val| {
+            if (try sema.resolveMaybeUndefVal(block, new_value_src, new_value)) |new_val| {
+                if (expected_val.isUndef() or new_val.isUndef()) {
+                    return sema.addConstUndef(result_ty);
+                }
+                const stored_val = (try ptr_val.pointerDeref(sema.arena)) orelse break :rs ptr_src;
+                const result_val = if (stored_val.eql(expected_val, elem_ty)) blk: {
+                    try sema.storePtr(block, src, ptr, new_value);
+                    break :blk Value.initTag(.null_value);
+                } else try Value.Tag.opt_payload.create(sema.arena, stored_val);
+
+                return sema.addConstant(result_ty, result_val);
+            } else break :rs new_value_src;
+        } else break :rs expected_src;
+    } else ptr_src;
+
+    const flags: u32 = @as(u32, @enumToInt(success_order)) |
+        (@as(u32, @enumToInt(failure_order)) << 3);
+
+    try sema.requireRuntimeBlock(block, runtime_src);
+    return block.addInst(.{
+        .tag = air_tag,
+        .data = .{ .ty_pl = .{
+            .ty = try sema.addType(result_ty),
+            .payload = try sema.addExtra(Air.Cmpxchg{
+                .ptr = ptr,
+                .expected_value = expected_value,
+                .new_value = new_value,
+                .flags = flags,
+            }),
+        } },
+    });
 }
 
 fn zirSplat(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -9576,13 +9780,11 @@ fn resolvePeerTypes(
         const chosen_src = candidate_srcs.resolve(
             sema.gpa,
             block.src_decl,
-            instructions.len,
             chosen_i,
         );
         const candidate_src = candidate_srcs.resolve(
             sema.gpa,
             block.src_decl,
-            instructions.len,
             candidate_i + 1,
         );
 

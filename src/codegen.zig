@@ -857,6 +857,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     .struct_field_ptr=> try self.airStructFieldPtr(inst),
                     .struct_field_val=> try self.airStructFieldVal(inst),
                     .array_to_slice  => try self.airArrayToSlice(inst),
+                    .cmpxchg_strong  => try self.airCmpxchg(inst),
+                    .cmpxchg_weak    => try self.airCmpxchg(inst),
 
                     .struct_field_ptr_index_0 => try self.airStructFieldPtrIndex(inst, 0),
                     .struct_field_ptr_index_1 => try self.airStructFieldPtrIndex(inst, 1),
@@ -4749,6 +4751,17 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 }),
             };
             return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+        }
+
+        fn airCmpxchg(self: *Self, inst: Air.Inst.Index) !void {
+            const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+            const extra = self.air.extraData(Air.Block, ty_pl.payload);
+            const result: MCValue = switch (arch) {
+                else => return self.fail("TODO implement airCmpxchg for {}", .{
+                    self.target.cpu.arch,
+                }),
+            };
+            return self.finishAir(inst, result, .{ extra.ptr, extra.expected_value, extra.new_value });
         }
 
         fn resolveInst(self: *Self, inst: Air.Inst.Ref) InnerError!MCValue {

@@ -389,6 +389,7 @@ pub const Object = struct {
             .latest_alloca_inst = null,
             .llvm_func = llvm_func,
             .blocks = .{},
+            .single_threaded = module.comp.bin_file.options.single_threaded,
         };
         defer fg.deinit();
 
@@ -906,6 +907,31 @@ pub const DeclGen = struct {
         // TODO: improve this API, `addAttr(-1, attr_name)`
         self.addAttr(val, std.math.maxInt(llvm.AttributeIndex), attr_name);
     }
+
+    /// If the operand type of an atomic operation is not byte sized we need to
+    /// widen it before using it and then truncate the result.
+    /// RMW exchange of floating-point values is bitcasted to same-sized integer
+    /// types to work around a LLVM deficiency when targeting ARM/AArch64.
+    fn getAtomicAbiType(dg: *DeclGen, ty: Type, is_rmw_xchg: bool) ?*const llvm.Type {
+        const target = dg.module.getTarget();
+        var buffer: Type.Payload.Bits = undefined;
+        const int_ty = switch (ty.zigTypeTag()) {
+            .Int => ty,
+            .Enum => ty.enumTagType(&buffer),
+            .Float => {
+                if (!is_rmw_xchg) return null;
+                return dg.context.intType(@intCast(c_uint, ty.abiSize(target) * 8));
+            },
+            .Bool => return dg.context.intType(8),
+            else => return null,
+        };
+        const bit_count = int_ty.intInfo(target).bits;
+        if (!std.math.isPowerOfTwo(bit_count) or (bit_count % 8) != 0) {
+            return dg.context.intType(@intCast(c_uint, int_ty.abiSize(target) * 8));
+        } else {
+            return null;
+        }
+    }
 };
 
 pub const FuncGen = struct {
@@ -939,6 +965,8 @@ pub const FuncGen = struct {
         break_bbs: *BreakBasicBlocks,
         break_vals: *BreakValues,
     }),
+
+    single_threaded: bool,
 
     const BreakBasicBlocks = std.ArrayListUnmanaged(*const llvm.BasicBlock);
     const BreakValues = std.ArrayListUnmanaged(*const llvm.Value);
@@ -1029,6 +1057,8 @@ pub const FuncGen = struct {
                 .slice_ptr      => try self.airSliceField(inst, 0),
                 .slice_len      => try self.airSliceField(inst, 1),
                 .array_to_slice => try self.airArrayToSlice(inst),
+                .cmpxchg_weak   => try self.airCmpxchg(inst, true),
+                .cmpxchg_strong => try self.airCmpxchg(inst, false),
 
                 .struct_field_ptr => try self.airStructFieldPtr(inst),
                 .struct_field_val => try self.airStructFieldVal(inst),
@@ -1975,6 +2005,58 @@ pub const FuncGen = struct {
         return null;
     }
 
+    fn airCmpxchg(self: *FuncGen, inst: Air.Inst.Index, is_weak: bool) !?*const llvm.Value {
+        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+        const extra = self.air.extraData(Air.Cmpxchg, ty_pl.payload).data;
+        var ptr = try self.resolveInst(extra.ptr);
+        var expected_value = try self.resolveInst(extra.expected_value);
+        var new_value = try self.resolveInst(extra.new_value);
+        const operand_ty = self.air.typeOf(extra.ptr).elemType();
+        const opt_abi_ty = self.dg.getAtomicAbiType(operand_ty, false);
+        if (opt_abi_ty) |abi_ty| {
+            // operand needs widening and truncating
+            ptr = self.builder.buildBitCast(ptr, abi_ty.pointerType(0), "");
+            if (operand_ty.isSignedInt()) {
+                expected_value = self.builder.buildSExt(expected_value, abi_ty, "");
+                new_value = self.builder.buildSExt(new_value, abi_ty, "");
+            } else {
+                expected_value = self.builder.buildZExt(expected_value, abi_ty, "");
+                new_value = self.builder.buildZExt(new_value, abi_ty, "");
+            }
+        }
+        const success_order = toLlvmAtomicOrdering(extra.successOrder());
+        const failure_order = toLlvmAtomicOrdering(extra.failureOrder());
+        const result = self.builder.buildCmpXchg(
+            ptr,
+            expected_value,
+            new_value,
+            success_order,
+            failure_order,
+            is_weak,
+            self.single_threaded,
+        );
+
+        const optional_ty = self.air.typeOfIndex(inst);
+        var buffer: Type.Payload.ElemType = undefined;
+        const child_ty = optional_ty.optionalChild(&buffer);
+
+        var payload = self.builder.buildExtractValue(result, 0, "");
+        if (opt_abi_ty != null) {
+            payload = self.builder.buildTrunc(payload, try self.dg.llvmType(operand_ty), "");
+        }
+        const success_bit = self.builder.buildExtractValue(result, 1, "");
+
+        if (optional_ty.isPtrLikeOptional()) {
+            const child_llvm_ty = try self.dg.llvmType(child_ty);
+            return self.builder.buildSelect(success_bit, child_llvm_ty.constNull(), payload, "");
+        }
+
+        const optional_llvm_ty = try self.dg.llvmType(optional_ty);
+        const non_null_bit = self.builder.buildNot(success_bit, "");
+        const partial = self.builder.buildInsertValue(optional_llvm_ty.getUndef(), payload, 0, "");
+        return self.builder.buildInsertValue(partial, non_null_bit, 1, "");
+    }
+
     fn getIntrinsic(self: *FuncGen, name: []const u8) *const llvm.Value {
         const id = llvm.lookupIntrinsicID(name.ptr, name.len);
         assert(id != 0);
@@ -2124,4 +2206,15 @@ fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
         .spirv32 => {},
         .spirv64 => {},
     }
+}
+
+fn toLlvmAtomicOrdering(atomic_order: std.builtin.AtomicOrder) llvm.AtomicOrdering {
+    return switch (atomic_order) {
+        .Unordered => .Unordered,
+        .Monotonic => .Monotonic,
+        .Acquire => .Acquire,
+        .Release => .Release,
+        .AcqRel => .AcquireRelease,
+        .SeqCst => .SequentiallyConsistent,
+    };
 }

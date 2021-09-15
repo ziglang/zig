@@ -7542,6 +7542,7 @@ fn cmpxchg(
     tag: Zir.Inst.Tag,
 ) InnerError!Zir.Inst.Ref {
     const int_type = try typeExpr(gz, scope, params[0]);
+    // TODO: allow this to be volatile
     const ptr_type = try gz.add(.{ .tag = .ptr_type_simple, .data = .{
         .ptr_type_simple = .{
             .is_allowzero = false,
@@ -7553,11 +7554,11 @@ fn cmpxchg(
     } });
     const result = try gz.addPlNode(tag, node, Zir.Inst.Cmpxchg{
         // zig fmt: off
-        .ptr            = try expr(gz, scope, .{ .ty = ptr_type },           params[1]),
-        .expected_value = try expr(gz, scope, .{ .ty = int_type },           params[2]),
-        .new_value      = try expr(gz, scope, .{ .ty = int_type },           params[3]),
-        .success_order  = try expr(gz, scope, .{ .ty = .atomic_order_type }, params[4]),
-        .fail_order     = try expr(gz, scope, .{ .ty = .atomic_order_type }, params[5]),
+        .ptr            = try expr(gz, scope, .{ .coerced_ty = ptr_type },           params[1]),
+        .expected_value = try expr(gz, scope, .{ .coerced_ty = int_type },           params[2]),
+        .new_value      = try expr(gz, scope, .{ .coerced_ty = int_type },           params[3]),
+        .success_order  = try expr(gz, scope, .{ .coerced_ty = .atomic_order_type }, params[4]),
+        .failure_order  = try expr(gz, scope, .{ .coerced_ty = .atomic_order_type }, params[5]),
         // zig fmt: on
     });
     return rvalue(gz, rl, result, node);

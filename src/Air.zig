@@ -309,6 +309,10 @@ pub const Inst = struct {
         /// Given a pointer to an array, return a slice.
         /// Uses the `ty_op` field.
         array_to_slice,
+        /// Uses the `ty_pl` field with payload `Cmpxchg`.
+        cmpxchg_weak,
+        /// Uses the `ty_pl` field with payload `Cmpxchg`.
+        cmpxchg_strong,
 
         pub fn fromCmpOp(op: std.math.CompareOperator) Tag {
             return switch (op) {
@@ -443,6 +447,23 @@ pub const Asm = struct {
     zir_index: u32,
 };
 
+pub const Cmpxchg = struct {
+    ptr: Inst.Ref,
+    expected_value: Inst.Ref,
+    new_value: Inst.Ref,
+    /// 0b00000000000000000000000000000XXX - success_order
+    /// 0b00000000000000000000000000XXX000 - failure_order
+    flags: u32,
+
+    pub fn successOrder(self: Cmpxchg) std.builtin.AtomicOrder {
+        return @intToEnum(std.builtin.AtomicOrder, @truncate(u3, self.flags));
+    }
+
+    pub fn failureOrder(self: Cmpxchg) std.builtin.AtomicOrder {
+        return @intToEnum(std.builtin.AtomicOrder, @truncate(u3, self.flags >> 3));
+    }
+};
+
 pub fn getMainBody(air: Air) []const Air.Inst.Index {
     const body_index = air.extra[@enumToInt(ExtraIndex.main_block)];
     const extra = air.extraData(Block, body_index);
@@ -507,6 +528,8 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .struct_field_ptr,
         .struct_field_val,
         .ptr_elem_ptr,
+        .cmpxchg_weak,
+        .cmpxchg_strong,
         => return air.getRefType(datas[inst].ty_pl.ty),
 
         .not,
