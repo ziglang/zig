@@ -157,7 +157,7 @@ pub const Address = extern union {
                     unreachable;
                 }
 
-                try std.fmt.format(out_stream, "{s}", .{&self.un.path});
+                try std.fmt.format(out_stream, "{s}", .{std.mem.sliceTo(&self.un.path, 0)});
             },
             else => unreachable,
         }
