@@ -2840,7 +2840,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         }
                     } else if (func_value.castTag(.extern_fn)) |func_payload| {
                         const decl = func_payload.data;
-                        const where_index = try macho_file.addExternFn(mem.spanZ(decl.name));
+                        const resolv = try macho_file.addExternFn(mem.spanZ(decl.name));
                         const offset = blk: {
                             switch (arch) {
                                 .x86_64 => {
@@ -2861,8 +2861,11 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         // Add relocation to the decl.
                         try macho_file.active_decl.?.link.macho.relocs.append(self.bin_file.allocator, .{
                             .offset = offset,
-                            .where = .undef,
-                            .where_index = where_index,
+                            .where = switch (resolv.where) {
+                                .local => .local,
+                                .undef => .undef,
+                            },
+                            .where_index = resolv.where_index,
                             .payload = .{ .branch = .{
                                 .arch = arch,
                             } },

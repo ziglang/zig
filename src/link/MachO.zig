@@ -4228,20 +4228,34 @@ fn allocateAtom(self: *MachO, atom: *Atom, new_atom_size: u64, alignment: u64, m
     return vaddr;
 }
 
-pub fn addExternFn(self: *MachO, name: []const u8) !u32 {
+const AddExternFnRes = struct {
+    where: enum {
+        local,
+        undef,
+    },
+    where_index: u32,
+};
+
+pub fn addExternFn(self: *MachO, name: []const u8) !AddExternFnRes {
     const sym_name = try std.fmt.allocPrint(self.base.allocator, "_{s}", .{name});
     defer self.base.allocator.free(sym_name);
+    const n_strx = try self.makeString(sym_name);
 
-    if (self.strtab_dir.getKeyAdapted(@as([]const u8, sym_name), StringIndexAdapter{
-        .bytes = &self.strtab,
-    })) |n_strx| {
-        const resolv = self.symbol_resolver.get(n_strx) orelse unreachable;
-        return resolv.where_index;
+    if (self.symbol_resolver.get(n_strx)) |resolv| {
+        return switch (resolv.where) {
+            .global => AddExternFnRes{
+                .where = .local,
+                .where_index = resolv.local_sym_index,
+            },
+            .undef => AddExternFnRes{
+                .where = .undef,
+                .where_index = resolv.where_index,
+            },
+        };
     }
 
     log.debug("adding new extern function '{s}'", .{sym_name});
     const sym_index = @intCast(u32, self.undefs.items.len);
-    const n_strx = try self.makeString(sym_name);
     try self.undefs.append(self.base.allocator, .{
         .n_strx = n_strx,
         .n_type = macho.N_UNDF,
@@ -4255,7 +4269,10 @@ pub fn addExternFn(self: *MachO, name: []const u8) !u32 {
     });
     try self.unresolved.putNoClobber(self.base.allocator, sym_index, .stub);
 
-    return sym_index;
+    return AddExternFnRes{
+        .where = .undef,
+        .where_index = sym_index,
+    };
 }
 
 const NextSegmentAddressAndOffset = struct {
