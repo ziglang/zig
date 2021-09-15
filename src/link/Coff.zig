@@ -1297,8 +1297,13 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
                 continue;
             }
             if (target.abi.isGnu()) {
-                const fallback_name = try allocPrint(arena, "lib{s}.dll.a", .{key});
+                const fallback_name = try allocPrint(arena, "lib{s}.a", .{key});
                 if (try self.findLib(arena, fallback_name)) |full_path| {
+                    argv.appendAssumeCapacity(full_path);
+                    continue;
+                }
+                const fallback_implib_name = try allocPrint(arena, "lib{s}.dll.a", .{key});
+                if (try self.findLib(arena, fallback_implib_name)) |full_path| {
                     argv.appendAssumeCapacity(full_path);
                     continue;
                 }
