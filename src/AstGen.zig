@@ -535,7 +535,7 @@ fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: Ast.Node.Index) InnerEr
             return rvalue(gz, rl, .void_value, node);
         },
         .assign_bit_shift_left_sat => {
-            try assignBinOpExt(gz, scope, node, .shl_with_saturation, Zir.Inst.SaturatingArithmetic);
+            try assignOpExt(gz, scope, node, .shl_with_saturation, Zir.Inst.SaturatingArithmetic);
             return rvalue(gz, rl, .void_value, node);
         },
         .assign_bit_shift_right => {
@@ -568,7 +568,7 @@ fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: Ast.Node.Index) InnerEr
             return rvalue(gz, rl, .void_value, node);
         },
         .assign_sub_sat => {
-            try assignBinOpExt(gz, scope, node, .sub_with_saturation, Zir.Inst.SaturatingArithmetic);
+            try assignOpExt(gz, scope, node, .sub_with_saturation, Zir.Inst.SaturatingArithmetic);
             return rvalue(gz, rl, .void_value, node);
         },
         .assign_mod => {
@@ -584,7 +584,7 @@ fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: Ast.Node.Index) InnerEr
             return rvalue(gz, rl, .void_value, node);
         },
         .assign_add_sat => {
-            try assignBinOpExt(gz, scope, node, .add_with_saturation, Zir.Inst.SaturatingArithmetic);
+            try assignOpExt(gz, scope, node, .add_with_saturation, Zir.Inst.SaturatingArithmetic);
             return rvalue(gz, rl, .void_value, node);
         },
         .assign_mul => {
@@ -596,26 +596,28 @@ fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: Ast.Node.Index) InnerEr
             return rvalue(gz, rl, .void_value, node);
         },
         .assign_mul_sat => {
-            try assignBinOpExt(gz, scope, node, .mul_with_saturation, Zir.Inst.SaturatingArithmetic);
+            try assignOpExt(gz, scope, node, .mul_with_saturation, Zir.Inst.SaturatingArithmetic);
             return rvalue(gz, rl, .void_value, node);
         },
 
         // zig fmt: off
         .bit_shift_left     => return shiftOp(gz, scope, rl, node, node_datas[node].lhs, node_datas[node].rhs, .shl),
-        .bit_shift_left_sat => return binOpExt(gz, scope, rl, node, node_datas[node].lhs, node_datas[node].rhs, .shl_with_saturation, Zir.Inst.SaturatingArithmetic),
         .bit_shift_right    => return shiftOp(gz, scope, rl, node, node_datas[node].lhs, node_datas[node].rhs, .shr),
 
         .add      => return simpleBinOp(gz, scope, rl, node, .add),
         .add_wrap => return simpleBinOp(gz, scope, rl, node, .addwrap),
-        .add_sat  => return binOpExt(gz, scope, rl, node, node_datas[node].lhs, node_datas[node].rhs, .add_with_saturation, Zir.Inst.SaturatingArithmetic),
         .sub      => return simpleBinOp(gz, scope, rl, node, .sub),
         .sub_wrap => return simpleBinOp(gz, scope, rl, node, .subwrap),
-        .sub_sat  => return binOpExt(gz, scope, rl, node, node_datas[node].lhs, node_datas[node].rhs, .sub_with_saturation, Zir.Inst.SaturatingArithmetic),
         .mul      => return simpleBinOp(gz, scope, rl, node, .mul),
         .mul_wrap => return simpleBinOp(gz, scope, rl, node, .mulwrap),
-        .mul_sat  => return binOpExt(gz, scope, rl, node, node_datas[node].lhs, node_datas[node].rhs, .mul_with_saturation, Zir.Inst.SaturatingArithmetic),
         .div      => return simpleBinOp(gz, scope, rl, node, .div),
         .mod      => return simpleBinOp(gz, scope, rl, node, .mod_rem),
+
+        .add_sat            => return simpleBinOpExt(gz, scope, rl, node, node_datas[node].lhs, node_datas[node].rhs, .add_with_saturation, Zir.Inst.SaturatingArithmetic),
+        .sub_sat            => return simpleBinOpExt(gz, scope, rl, node, node_datas[node].lhs, node_datas[node].rhs, .sub_with_saturation, Zir.Inst.SaturatingArithmetic),
+        .mul_sat            => return simpleBinOpExt(gz, scope, rl, node, node_datas[node].lhs, node_datas[node].rhs, .mul_with_saturation, Zir.Inst.SaturatingArithmetic),
+        .bit_shift_left_sat => return simpleBinOpExt(gz, scope, rl, node, node_datas[node].lhs, node_datas[node].rhs, .shl_with_saturation, Zir.Inst.SaturatingArithmetic),
+        
         .bit_and  => {
             const current_ampersand_token = main_tokens[node];
             if (token_tags[current_ampersand_token + 1] == .ampersand) {
@@ -2713,9 +2715,7 @@ fn assignOp(
     _ = try gz.addBin(.store, lhs_ptr, result);
 }
 
-// TODO: is there an existing way to do this?
-// TODO: likely rename this to reflect result_loc == .none or add more params to make it more general
-fn binOpExt(
+fn simpleBinOpExt(
     gz: *GenZir,
     scope: *Scope,
     rl: ResultLoc,
@@ -2735,9 +2735,7 @@ fn binOpExt(
     return rvalue(gz, rl, result, infix_node);
 }
 
-// TODO: is there an existing method to accomplish this?
-// TODO: likely rename this to indicate rhs type coercion or add more params to make it more general
-fn assignBinOpExt(
+fn assignOpExt(
     gz: *GenZir,
     scope: *Scope,
     infix_node: Ast.Node.Index,
