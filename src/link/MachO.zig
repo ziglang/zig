@@ -231,7 +231,7 @@ const SymbolWithLoc = struct {
     },
     where_index: u32,
     local_sym_index: u32 = 0,
-    file: u16 = 0,
+    file: ?u16 = null, // null means Zig module
 };
 
 pub const GotIndirectionKey = struct {
@@ -543,9 +543,6 @@ pub fn flush(self: *MachO, comp: *Compilation) !void {
                 .mode = link.determineMode(self.base.options),
             });
             try self.populateMissingMetadata();
-
-            // TODO mimicking insertion of null symbol from incremental linker.
-            // This will need to moved.
             try self.locals.append(self.base.allocator, .{
                 .n_strx = 0,
                 .n_type = macho.N_UNDF,
@@ -557,13 +554,56 @@ pub fn flush(self: *MachO, comp: *Compilation) !void {
         }
 
         if (needs_full_relink) {
+            for (self.objects.items) |*object| {
+                object.free(self.base.allocator, self);
+                object.deinit(self.base.allocator);
+            }
             self.objects.clearRetainingCapacity();
+
+            for (self.archives.items) |*archive| {
+                archive.deinit(self.base.allocator);
+            }
             self.archives.clearRetainingCapacity();
+
+            for (self.dylibs.items) |*dylib| {
+                dylib.deinit(self.base.allocator);
+            }
             self.dylibs.clearRetainingCapacity();
             self.dylibs_map.clearRetainingCapacity();
             self.referenced_dylibs.clearRetainingCapacity();
 
-            // TODO figure out how to clear atoms from objects, etc.
+            {
+                var to_remove = std.ArrayList(u32).init(self.base.allocator);
+                defer to_remove.deinit();
+                var it = self.symbol_resolver.iterator();
+                while (it.next()) |entry| {
+                    const key = entry.key_ptr.*;
+                    const value = entry.value_ptr.*;
+                    if (value.file != null) {
+                        try to_remove.append(key);
+                    }
+                }
+
+                for (to_remove.items) |key| {
+                    if (self.symbol_resolver.fetchRemove(key)) |entry| {
+                        const resolv = entry.value;
+                        switch (resolv.where) {
+                            .global => {
+                                self.globals_free_list.append(self.base.allocator, resolv.where_index) catch {};
+                                const sym = &self.globals.items[resolv.where_index];
+                                sym.n_strx = 0;
+                                sym.n_type = 0;
+                                sym.n_value = 0;
+                            },
+                            .undef => {
+                                const sym = &self.undefs.items[resolv.where_index];
+                                sym.n_strx = 0;
+                                sym.n_desc = 0;
+                            },
+                        }
+                    }
+                }
+            }
 
             // Positional arguments to the linker such as object files and static archives.
             var positionals = std.ArrayList([]const u8).init(arena);
@@ -802,13 +842,35 @@ pub fn flush(self: *MachO, comp: *Compilation) !void {
         try self.createDsoHandleAtom();
         try self.addCodeSignatureLC();
 
+        // log.warn("locals:", .{});
+        // for (self.locals.items) |sym, id| {
+        //     log.warn("  {d}: {s}: {}", .{ id, self.getString(sym.n_strx), sym });
+        // }
+        // log.warn("globals:", .{});
+        // for (self.globals.items) |sym, id| {
+        //     log.warn("  {d}: {s}: {}", .{ id, self.getString(sym.n_strx), sym });
+        // }
+        // log.warn("undefs:", .{});
+        // for (self.undefs.items) |sym, id| {
+        //     log.warn("  {d}: {s}: {}", .{ id, self.getString(sym.n_strx), sym });
+        // }
+        // {
+        //     log.warn("resolver:", .{});
+        //     var it = self.symbol_resolver.iterator();
+        //     while (it.next()) |entry| {
+        //         log.warn("  {s} => {}", .{ self.getString(entry.key_ptr.*), entry.value_ptr.* });
+        //     }
+        // }
+
         for (self.unresolved.keys()) |index| {
             const sym = self.undefs.items[index];
             const sym_name = self.getString(sym.n_strx);
             const resolv = self.symbol_resolver.get(sym.n_strx) orelse unreachable;
 
             log.err("undefined reference to symbol '{s}'", .{sym_name});
-            log.err("  first referenced in '{s}'", .{self.objects.items[resolv.file].name});
+            if (resolv.file) |file| {
+                log.err("  first referenced in '{s}'", .{self.objects.items[file].name});
+            }
         }
         if (self.unresolved.count() > 0) {
             return error.UndefinedSymbolReference;
@@ -2349,7 +2411,9 @@ fn resolveSymbolsInObject(self: *MachO, object_id: u16) !void {
                         !(symbolIsWeakDef(global.*) or symbolIsPext(global.*)))
                     {
                         log.err("symbol '{s}' defined multiple times", .{sym_name});
-                        log.err("  first definition in '{s}'", .{self.objects.items[resolv.file].name});
+                        if (resolv.file) |file| {
+                            log.err("  first definition in '{s}'", .{self.objects.items[file].name});
+                        }
                         log.err("  next definition in '{s}'", .{object.name});
                         return error.MultipleSymbolDefinitions;
                     } else if (symbolIsWeakDef(sym) or symbolIsPext(sym)) continue; // Current symbol is weak, so skip it.
@@ -2632,10 +2696,10 @@ fn parseObjectsIntoAtoms(self: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    var parsed_atoms = Object.ParsedAtoms.init(self.base.allocator);
+    var parsed_atoms = std.AutoArrayHashMap(MatchingSection, *Atom).init(self.base.allocator);
     defer parsed_atoms.deinit();
 
-    var first_atoms = Object.ParsedAtoms.init(self.base.allocator);
+    var first_atoms = std.AutoArrayHashMap(MatchingSection, *Atom).init(self.base.allocator);
     defer first_atoms.deinit();
 
     var section_metadata = std.AutoHashMap(MatchingSection, struct {
@@ -2644,13 +2708,12 @@ fn parseObjectsIntoAtoms(self: *MachO) !void {
     }).init(self.base.allocator);
     defer section_metadata.deinit();
 
-    for (self.objects.items) |*object, object_id| {
+    for (self.objects.items) |*object| {
         if (object.analyzed) continue;
 
-        var atoms_in_objects = try object.parseIntoAtoms(self.base.allocator, @intCast(u16, object_id), self);
-        defer atoms_in_objects.deinit();
+        try object.parseIntoAtoms(self.base.allocator, self);
 
-        var it = atoms_in_objects.iterator();
+        var it = object.end_atoms.iterator();
         while (it.next()) |entry| {
             const match = entry.key_ptr.*;
             const last_atom = entry.value_ptr.*;
@@ -3292,8 +3355,6 @@ pub fn updateDeclExports(
     decl: *Module.Decl,
     exports: []const *Module.Export,
 ) !void {
-    // TODO If we are exporting with global linkage, check for already defined globals and flag
-    // symbol duplicate/collision!
     if (build_options.skip_non_native and builtin.object_format != .macho) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
@@ -3303,7 +3364,7 @@ pub fn updateDeclExports(
     const tracy = trace(@src());
     defer tracy.end();
 
-    try self.globals.ensureCapacity(self.base.allocator, self.globals.items.len + exports.len);
+    try self.globals.ensureUnusedCapacity(self.base.allocator, exports.len);
     if (decl.link.macho.local_sym_index == 0) return;
     const decl_sym = &self.locals.items[decl.link.macho.local_sym_index];
 
@@ -3313,12 +3374,73 @@ pub fn updateDeclExports(
 
         if (exp.options.section) |section_name| {
             if (!mem.eql(u8, section_name, "__text")) {
-                try module.failed_exports.ensureCapacity(module.gpa, module.failed_exports.count() + 1);
-                module.failed_exports.putAssumeCapacityNoClobber(
+                try module.failed_exports.putNoClobber(
+                    module.gpa,
                     exp,
-                    try Module.ErrorMsg.create(self.base.allocator, decl.srcLoc(), "Unimplemented: ExportOptions.section", .{}),
+                    try Module.ErrorMsg.create(
+                        self.base.allocator,
+                        decl.srcLoc(),
+                        "Unimplemented: ExportOptions.section",
+                        .{},
+                    ),
                 );
                 continue;
+            }
+        }
+
+        if (exp.options.linkage == .LinkOnce) {
+            try module.failed_exports.putNoClobber(
+                module.gpa,
+                exp,
+                try Module.ErrorMsg.create(
+                    self.base.allocator,
+                    decl.srcLoc(),
+                    "Unimplemented: GlobalLinkage.LinkOnce",
+                    .{},
+                ),
+            );
+            continue;
+        }
+
+        const is_weak = exp.options.linkage == .Internal or exp.options.linkage == .Weak;
+        const n_strx = try self.makeString(exp_name);
+        if (self.symbol_resolver.getPtr(n_strx)) |resolv| {
+            switch (resolv.where) {
+                .global => {
+                    if (resolv.local_sym_index == decl.link.macho.local_sym_index) continue;
+
+                    const sym = &self.globals.items[resolv.where_index];
+
+                    if (symbolIsTentative(sym.*)) {
+                        _ = self.tentatives.fetchSwapRemove(resolv.where_index);
+                    } else if (!is_weak and !(symbolIsWeakDef(sym.*) or symbolIsPext(sym.*))) {
+                        _ = try module.failed_exports.put(
+                            module.gpa,
+                            exp,
+                            try Module.ErrorMsg.create(
+                                self.base.allocator,
+                                decl.srcLoc(),
+                                \\LinkError: symbol '{s}' defined multiple times
+                                \\  first definition in '{s}'
+                            ,
+                                .{ exp_name, self.objects.items[resolv.file.?].name },
+                            ),
+                        );
+                        continue;
+                    } else if (is_weak) continue; // Current symbol is weak, so skip it.
+
+                    // Otherwise, update the resolver and the global symbol.
+                    sym.n_type = macho.N_SECT | macho.N_EXT;
+                    resolv.local_sym_index = decl.link.macho.local_sym_index;
+                    resolv.file = null;
+                    exp.link.macho.sym_index = resolv.where_index;
+
+                    continue;
+                },
+                .undef => {
+                    _ = self.unresolved.fetchSwapRemove(resolv.where_index);
+                    _ = self.symbol_resolver.remove(n_strx);
+                },
             }
         }
 
@@ -3339,14 +3461,7 @@ pub fn updateDeclExports(
                 // Symbol's n_type is like for a symbol with strong linkage.
                 n_desc |= macho.N_WEAK_DEF;
             },
-            .LinkOnce => {
-                try module.failed_exports.ensureCapacity(module.gpa, module.failed_exports.count() + 1);
-                module.failed_exports.putAssumeCapacityNoClobber(
-                    exp,
-                    try Module.ErrorMsg.create(self.base.allocator, decl.srcLoc(), "Unimplemented: GlobalLinkage.LinkOnce", .{}),
-                );
-                continue;
-            },
+            else => unreachable,
         }
 
         const global_sym_index = if (exp.link.macho.sym_index) |i| i else blk: {
@@ -3356,8 +3471,6 @@ pub fn updateDeclExports(
             };
             break :blk i;
         };
-
-        const n_strx = try self.makeString(exp_name);
         const sym = &self.globals.items[global_sym_index];
         sym.* = .{
             .n_strx = try self.makeString(exp_name),
@@ -3368,12 +3481,11 @@ pub fn updateDeclExports(
         };
         exp.link.macho.sym_index = global_sym_index;
 
-        const resolv = try self.symbol_resolver.getOrPut(self.base.allocator, n_strx);
-        resolv.value_ptr.* = .{
+        try self.symbol_resolver.putNoClobber(self.base.allocator, n_strx, .{
             .where = .global,
             .where_index = global_sym_index,
             .local_sym_index = decl.link.macho.local_sym_index,
-        };
+        });
     }
 }
 
@@ -3381,8 +3493,11 @@ pub fn deleteExport(self: *MachO, exp: Export) void {
     const sym_index = exp.sym_index orelse return;
     self.globals_free_list.append(self.base.allocator, sym_index) catch {};
     const global = &self.globals.items[sym_index];
-    global.n_type = 0;
+    log.debug("deleting export '{s}': {}", .{ self.getString(global.n_strx), global });
     assert(self.symbol_resolver.remove(global.n_strx));
+    global.n_type = 0;
+    global.n_strx = 0;
+    global.n_value = 0;
 }
 
 pub fn freeDecl(self: *MachO, decl: *Module.Decl) void {
@@ -4403,6 +4518,7 @@ fn writeDyldInfoData(self: *MachO) !void {
         const base_address = text_segment.inner.vmaddr;
 
         for (self.globals.items) |sym| {
+            if (sym.n_type == 0) continue;
             const sym_name = self.getString(sym.n_strx);
             log.debug("  (putting '{s}' defined at 0x{x})", .{ sym_name, sym.n_value });
 
@@ -4655,7 +4771,7 @@ fn writeSymbolTable(self: *MachO) !void {
                 .n_value = object.mtime orelse 0,
             });
 
-            for (object.atoms.items) |atom| {
+            for (object.contained_atoms.items) |atom| {
                 if (atom.stab) |stab| {
                     const nlists = try stab.asNlists(atom.local_sym_index, self);
                     defer self.base.allocator.free(nlists);
