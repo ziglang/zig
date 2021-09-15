@@ -428,17 +428,21 @@ zig_mul_sat_s(int,        int, long)
 zig_mul_sat_s(long,      long, long long)
 
 #define zig_shl_sat_u(ZT, T, bits) static inline T zig_shls_##ZT(T x, T y, T max) { \
-    T leading_zeros = __builtin_clz(x); \
-    return (leading_zeros + y > bits) ? max : x << y; \
+    if(x == 0) return 0; \
+    T bits_set = 64 - __builtin_clzll(x); \
+    return (bits_set + y > bits) ? max : x << y; \
 }
 
 #define zig_shl_sat_s(ZT, T, bits) static inline T zig_shls_##ZT(T x, T y, T min, T max) { \
-    T leading_zeros = __builtin_clz(x & ~max); \
-    return (leading_zeros + y > bits) ? max : x << y; \
+    if(x == 0) return 0; \
+    T x_twos_comp = x < 0 ? -x : x; \
+    T bits_set = 64 - __builtin_clzll(x_twos_comp); \
+    T min_or_max = (x < 0) ? min : max; \
+    return (y + bits_set > bits ) ?  min_or_max : x << y; \
 }
 
-zig_shl_sat_u(u8,    uint8_t,   8)
-zig_shl_sat_s(i8,     int8_t,   7)
+zig_shl_sat_u(u8,     uint8_t, 8)
+zig_shl_sat_s(i8,      int8_t, 7)
 zig_shl_sat_u(u16,   uint16_t, 16)
 zig_shl_sat_s(i16,    int16_t, 15)
 zig_shl_sat_u(u32,   uint32_t, 32)
