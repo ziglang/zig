@@ -1418,6 +1418,7 @@ pub const LibExeObjStep = struct {
     kind: Kind,
     major_only_filename: ?[]const u8,
     name_only_filename: ?[]const u8,
+    exact_install_filename: ?[]const u8 = null,
     strip: bool,
     lib_paths: ArrayList([]const u8),
     rpaths: ArrayList([]const u8),
@@ -2754,7 +2755,9 @@ pub const LibExeObjStep = struct {
             }
         }
 
-        if (self.kind == .lib and self.linkage != null and self.linkage.? == .dynamic and self.version != null and self.target.wantSharedLibSymLinks()) {
+        if (self.exact_install_filename == null and self.kind == .lib and self.linkage != null and
+            self.linkage.? == .dynamic and self.version != null and self.target.wantSharedLibSymLinks())
+        {
             try doAtomicSymLinks(builder.allocator, self.getOutputSource().getPath(builder), self.major_only_filename.?, self.name_only_filename.?);
         }
     }
@@ -2798,8 +2801,13 @@ pub const InstallArtifactStep = struct {
         self.step.dependOn(&artifact.step);
         artifact.install_step = self;
 
-        builder.pushInstalledFile(self.dest_dir, artifact.out_filename);
-        if (self.artifact.isDynamicLibrary()) {
+        const install_name = if (self.artifact.exact_install_filename) |name|
+            name
+        else
+            self.artifact.out_filename;
+
+        builder.pushInstalledFile(self.dest_dir, install_name);
+        if (self.artifact.exact_install_filename == null and self.artifact.isDynamicLibrary()) {
             if (artifact.major_only_filename) |name| {
                 builder.pushInstalledFile(.lib, name);
             }
@@ -2823,9 +2831,16 @@ pub const InstallArtifactStep = struct {
         const self = @fieldParentPtr(Self, "step", step);
         const builder = self.builder;
 
-        const full_dest_path = builder.getInstallPath(self.dest_dir, self.artifact.out_filename);
+        const install_name = if (self.artifact.exact_install_filename) |name|
+            name
+        else
+            self.artifact.out_filename;
+
+        const full_dest_path = builder.getInstallPath(self.dest_dir, install_name);
         try builder.updateFile(self.artifact.getOutputSource().getPath(builder), full_dest_path);
-        if (self.artifact.isDynamicLibrary() and self.artifact.version != null and self.artifact.target.wantSharedLibSymLinks()) {
+        if (self.artifact.exact_install_filename == null and self.artifact.isDynamicLibrary() and
+            self.artifact.version != null and self.artifact.target.wantSharedLibSymLinks())
+        {
             try doAtomicSymLinks(builder.allocator, full_dest_path, self.artifact.major_only_filename.?, self.artifact.name_only_filename.?);
         }
         if (self.pdb_dir) |pdb_dir| {
