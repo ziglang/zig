@@ -13,15 +13,6 @@ fn testSaturatingOp(comptime op: Op, comptime T: type, test_data: [3]T) !void {
     const expected = test_data[2];
     {
         const actual = switch (op) {
-            .add => @addWithSaturation(a, b),
-            .sub => @subWithSaturation(a, b),
-            .mul => @mulWithSaturation(a, b),
-            .shl => @shlWithSaturation(a, b),
-        };
-        try expectEqual(expected, actual);
-    }
-    {
-        const actual = switch (op) {
             .add => a +| b,
             .sub => a -| b,
             .mul => a *| b,
