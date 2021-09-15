@@ -14,6 +14,8 @@ find_path(LLVM_INCLUDE_DIRS NAMES llvm/IR/IRBuilder.h
     /usr/lib/llvm-13.0/include
     /usr/local/llvm13/include
     /usr/local/llvm130/include
+    /usr/local/opt/llvm@13/include
+    /opt/homebrew/opt/llvm@13/include
     /mingw64/include
 )
 
@@ -31,6 +33,8 @@ if(ZIG_PREFER_CLANG_CPP_DYLIB)
       /usr/lib/llvm-13/lib
       /usr/local/llvm13/lib
       /usr/local/llvm130/lib
+      /usr/local/opt/llvm@13/lib
+      /opt/homebrew/opt/llvm@13/lib
   )
 
   find_program(LLVM_CONFIG_EXE
@@ -185,6 +189,8 @@ else()
       /usr/lib/llvm-13.0/lib
       /usr/local/llvm130/lib
       /usr/local/llvm13/lib
+      /usr/local/opt/llvm@13/lib
+      /opt/homebrew/opt/llvm@13/lib
       /mingw64/lib
       /c/msys64/mingw64/lib
       c:\\msys64\\mingw64\\lib)

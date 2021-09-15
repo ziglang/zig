@@ -125,12 +125,6 @@ test "pointer to type" {
     }
 }
 
-test "no undeclared identifier error in unanalyzed branches" {
-    if (false) {
-        lol_this_doesnt_exist = nonsense;
-    }
-}
-
 test "a type constructed in a global expression" {
     var l: List = undefined;
     l.array[0] = 10;

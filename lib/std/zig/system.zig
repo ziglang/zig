@@ -309,8 +309,8 @@ pub const NativeTargetInfo = struct {
                 },
                 .openbsd => {
                     const mib: [2]c_int = [_]c_int{
-                        std.os.CTL_KERN,
-                        std.os.KERN_OSRELEASE,
+                        std.os.CTL.KERN,
+                        std.os.KERN.OSRELEASE,
                     };
                     var buf: [64]u8 = undefined;
                     var len: usize = buf.len;

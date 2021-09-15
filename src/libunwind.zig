@@ -71,6 +71,8 @@ pub fn buildStaticLib(comp: *Compilation) !void {
         try cflags.append("-Wa,--noexecstack");
         try cflags.append("-fvisibility=hidden");
         try cflags.append("-fvisibility-inlines-hidden");
+        // necessary so that libunwind can unwind through its own stack frames
+        try cflags.append("-funwind-tables");
 
         // This is intentionally always defined because the macro definition means, should it only
         // build for the target specified by compiler defines. Since we pass -target the compiler

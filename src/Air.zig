@@ -69,6 +69,10 @@ pub const Inst = struct {
         /// is the same as both operands.
         /// Uses the `bin_op` field.
         div,
+        /// Integer or float remainder.
+        /// Both operands are guaranteed to be the same type, and the result type is the same as both operands.
+        /// Uses the `bin_op` field.
+        rem,
         /// Add an offset to a pointer, returning a new pointer.
         /// The offset is in element type units, not bytes.
         /// Wrapping is undefined behavior.
@@ -302,6 +306,13 @@ pub const Inst = struct {
         /// Result type is the element type of the inner pointer operand.
         /// Uses the `bin_op` field.
         ptr_ptr_elem_val,
+        /// Given a pointer to an array, return a slice.
+        /// Uses the `ty_op` field.
+        array_to_slice,
+        /// Uses the `ty_pl` field with payload `Cmpxchg`.
+        cmpxchg_weak,
+        /// Uses the `ty_pl` field with payload `Cmpxchg`.
+        cmpxchg_strong,
 
         pub fn fromCmpOp(op: std.math.CompareOperator) Tag {
             return switch (op) {
@@ -436,6 +447,23 @@ pub const Asm = struct {
     zir_index: u32,
 };
 
+pub const Cmpxchg = struct {
+    ptr: Inst.Ref,
+    expected_value: Inst.Ref,
+    new_value: Inst.Ref,
+    /// 0b00000000000000000000000000000XXX - success_order
+    /// 0b00000000000000000000000000XXX000 - failure_order
+    flags: u32,
+
+    pub fn successOrder(self: Cmpxchg) std.builtin.AtomicOrder {
+        return @intToEnum(std.builtin.AtomicOrder, @truncate(u3, self.flags));
+    }
+
+    pub fn failureOrder(self: Cmpxchg) std.builtin.AtomicOrder {
+        return @intToEnum(std.builtin.AtomicOrder, @truncate(u3, self.flags >> 3));
+    }
+};
+
 pub fn getMainBody(air: Air) []const Air.Inst.Index {
     const body_index = air.extra[@enumToInt(ExtraIndex.main_block)];
     const extra = air.extraData(Block, body_index);
@@ -462,6 +490,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .mul,
         .mulwrap,
         .div,
+        .rem,
         .bit_and,
         .bit_or,
         .xor,
@@ -499,6 +528,8 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .struct_field_ptr,
         .struct_field_val,
         .ptr_elem_ptr,
+        .cmpxchg_weak,
+        .cmpxchg_strong,
         => return air.getRefType(datas[inst].ty_pl.ty),
 
         .not,
@@ -521,6 +552,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .struct_field_ptr_index_1,
         .struct_field_ptr_index_2,
         .struct_field_ptr_index_3,
+        .array_to_slice,
         => return air.getRefType(datas[inst].ty_op.ty),
 
         .loop,

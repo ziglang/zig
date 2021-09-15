@@ -4,30 +4,6 @@ const mem = std.mem;
 const expect = testing.expect;
 const expectEqual = testing.expectEqual;
 
-test "arrays" {
-    var array: [5]u32 = undefined;
-
-    var i: u32 = 0;
-    while (i < 5) {
-        array[i] = i + 1;
-        i = array[i];
-    }
-
-    i = 0;
-    var accumulator = @as(u32, 0);
-    while (i < 5) {
-        accumulator += array[i];
-
-        i += 1;
-    }
-
-    try expect(accumulator == 15);
-    try expect(getArrayLen(&array) == 5);
-}
-fn getArrayLen(a: []const u32) usize {
-    return a.len;
-}
-
 test "array with sentinels" {
     const S = struct {
         fn doTheTest(is_ct: bool) !void {
@@ -64,12 +40,7 @@ test "void arrays" {
 }
 
 test "array literal" {
-    const hex_mult = [_]u16{
-        4096,
-        256,
-        16,
-        1,
-    };
+    const hex_mult = [_]u16{ 4096, 256, 16, 1 };
 
     try expect(hex_mult.len == 4);
     try expect(hex_mult[1] == 256);
@@ -84,21 +55,10 @@ test "array dot len const expr" {
 const ArrayDotLenConstExpr = struct {
     y: [some_array.len]u8,
 };
-const some_array = [_]u8{
-    0,
-    1,
-    2,
-    3,
-};
+const some_array = [_]u8{ 0, 1, 2, 3 };
 
 test "nested arrays" {
-    const array_of_strings = [_][]const u8{
-        "hello",
-        "this",
-        "is",
-        "my",
-        "thing",
-    };
+    const array_of_strings = [_][]const u8{ "hello", "this", "is", "my", "thing" };
     for (array_of_strings) |s, i| {
         if (i == 0) try expect(mem.eql(u8, s, "hello"));
         if (i == 1) try expect(mem.eql(u8, s, "this"));
@@ -109,12 +69,8 @@ test "nested arrays" {
 }
 
 var s_array: [8]Sub = undefined;
-const Sub = struct {
-    b: u8,
-};
-const Str = struct {
-    a: []Sub,
-};
+const Sub = struct { b: u8 };
+const Str = struct { a: []Sub };
 test "set global var array via slice embedded in struct" {
     var s = Str{ .a = s_array[0..] };
 
@@ -208,26 +164,10 @@ test "runtime initialize array elem and then implicit cast to slice" {
 test "array literal as argument to function" {
     const S = struct {
         fn entry(two: i32) !void {
-            try foo(&[_]i32{
-                1,
-                2,
-                3,
-            });
-            try foo(&[_]i32{
-                1,
-                two,
-                3,
-            });
-            try foo2(true, &[_]i32{
-                1,
-                2,
-                3,
-            });
-            try foo2(true, &[_]i32{
-                1,
-                two,
-                3,
-            });
+            try foo(&[_]i32{ 1, 2, 3 });
+            try foo(&[_]i32{ 1, two, 3 });
+            try foo2(true, &[_]i32{ 1, 2, 3 });
+            try foo2(true, &[_]i32{ 1, two, 3 });
         }
         fn foo(x: []const i32) !void {
             try expect(x[0] == 1);

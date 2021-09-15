@@ -523,7 +523,12 @@ pub fn strVerify(
     }
 }
 
-test "scrypt kdf" {
+// These tests take way too long to run, so I have disabled them.
+const run_long_tests = false;
+
+test "kdf" {
+    if (!run_long_tests) return error.SkipZigTest;
+
     const password = "testpass";
     const salt = "saltsalt";
 
@@ -537,7 +542,9 @@ test "scrypt kdf" {
     try std.testing.expectEqualSlices(u8, &bytes, &dk);
 }
 
-test "scrypt kdf rfc 1" {
+test "kdf rfc 1" {
+    if (!run_long_tests) return error.SkipZigTest;
+
     const password = "";
     const salt = "";
 
@@ -551,7 +558,9 @@ test "scrypt kdf rfc 1" {
     try std.testing.expectEqualSlices(u8, &bytes, &dk);
 }
 
-test "scrypt kdf rfc 2" {
+test "kdf rfc 2" {
+    if (!run_long_tests) return error.SkipZigTest;
+
     const password = "password";
     const salt = "NaCl";
 
@@ -565,7 +574,9 @@ test "scrypt kdf rfc 2" {
     try std.testing.expectEqualSlices(u8, &bytes, &dk);
 }
 
-test "scrypt kdf rfc 3" {
+test "kdf rfc 3" {
+    if (!run_long_tests) return error.SkipZigTest;
+
     const password = "pleaseletmein";
     const salt = "SodiumChloride";
 
@@ -579,11 +590,8 @@ test "scrypt kdf rfc 3" {
     try std.testing.expectEqualSlices(u8, &bytes, &dk);
 }
 
-test "scrypt kdf rfc 4" {
-    // skip slow test
-    if (true) {
-        return error.SkipZigTest;
-    }
+test "kdf rfc 4" {
+    if (!run_long_tests) return error.SkipZigTest;
 
     const password = "pleaseletmein";
     const salt = "SodiumChloride";
@@ -598,7 +606,9 @@ test "scrypt kdf rfc 4" {
     try std.testing.expectEqualSlices(u8, &bytes, &dk);
 }
 
-test "scrypt password hashing (crypt format)" {
+test "password hashing (crypt format)" {
+    if (!run_long_tests) return error.SkipZigTest;
+
     const str = "$7$A6....1....TrXs5Zk6s8sWHpQgWDIXTR8kUU3s6Jc3s.DtdS8M2i4$a4ik5hGDN7foMuHOW.cp.CtX01UyCeO0.JAG.AHPpx5";
     const password = "Y0!?iQa9M%5ekffW(`";
     try CryptFormatHasher.verify(std.testing.allocator, str, password);
@@ -609,7 +619,9 @@ test "scrypt password hashing (crypt format)" {
     try CryptFormatHasher.verify(std.testing.allocator, str2, password);
 }
 
-test "scrypt strHash and strVerify" {
+test "strHash and strVerify" {
+    if (!run_long_tests) return error.SkipZigTest;
+
     const alloc = std.testing.allocator;
 
     const password = "testpass";
@@ -631,7 +643,9 @@ test "scrypt strHash and strVerify" {
     try strVerify(s1, password, verify_options);
 }
 
-test "scrypt unix-scrypt" {
+test "unix-scrypt" {
+    if (!run_long_tests) return error.SkipZigTest;
+
     const alloc = std.testing.allocator;
 
     // https://gitlab.com/jas/scrypt-unix-crypt/blob/master/unix-scrypt.txt
@@ -648,7 +662,7 @@ test "scrypt unix-scrypt" {
     }
 }
 
-test "scrypt crypt format" {
+test "crypt format" {
     const str = "$7$C6..../....SodiumChloride$kBGj9fHznVYFQMEn/qDCfrDevf9YDtcDdKvEqHJLV8D";
     const params = try crypt_format.deserialize(crypt_format.HashResult(32), str);
     var buf: [str.len]u8 = undefined;

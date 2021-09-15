@@ -18,7 +18,7 @@ const file_struct = @This();
 pub const Type = extern union {
     /// If the tag value is less than Tag.no_payload_count, then no pointer
     /// dereference is needed.
-    tag_if_small_enough: usize,
+    tag_if_small_enough: Tag,
     ptr_otherwise: *Payload,
 
     pub fn zigTypeTag(ty: Type) std.builtin.TypeId {
@@ -124,7 +124,7 @@ pub const Type = extern union {
             .enum_full,
             .enum_nonexhaustive,
             .enum_simple,
-            .atomic_ordering,
+            .atomic_order,
             .atomic_rmw_op,
             .calling_convention,
             .float_mode,
@@ -178,7 +178,7 @@ pub const Type = extern union {
 
     pub fn initTag(comptime small_tag: Tag) Type {
         comptime assert(@enumToInt(small_tag) < Tag.no_payload_count);
-        return .{ .tag_if_small_enough = @enumToInt(small_tag) };
+        return .{ .tag_if_small_enough = small_tag };
     }
 
     pub fn initPayload(payload: *Payload) Type {
@@ -187,8 +187,8 @@ pub const Type = extern union {
     }
 
     pub fn tag(self: Type) Tag {
-        if (self.tag_if_small_enough < Tag.no_payload_count) {
-            return @intToEnum(Tag, @intCast(std.meta.Tag(Tag), self.tag_if_small_enough));
+        if (@enumToInt(self.tag_if_small_enough) < Tag.no_payload_count) {
+            return self.tag_if_small_enough;
         } else {
             return self.ptr_otherwise.tag;
         }
@@ -197,9 +197,9 @@ pub const Type = extern union {
     /// Prefer `castTag` to this.
     pub fn cast(self: Type, comptime T: type) ?*T {
         if (@hasField(T, "base_tag")) {
-            return base.castTag(T.base_tag);
+            return self.castTag(T.base_tag);
         }
-        if (self.tag_if_small_enough < Tag.no_payload_count) {
+        if (@enumToInt(self.tag_if_small_enough) < Tag.no_payload_count) {
             return null;
         }
         inline for (@typeInfo(Tag).Enum.fields) |field| {
@@ -217,7 +217,7 @@ pub const Type = extern union {
     }
 
     pub fn castTag(self: Type, comptime t: Tag) ?*t.Type() {
-        if (self.tag_if_small_enough < Tag.no_payload_count)
+        if (@enumToInt(self.tag_if_small_enough) < Tag.no_payload_count)
             return null;
 
         if (self.ptr_otherwise.tag == t)
@@ -270,6 +270,15 @@ pub const Type = extern union {
             .pointer => ty.castTag(.pointer).?.data.mutable,
 
             else => unreachable,
+        };
+    }
+
+    pub const ArrayInfo = struct { elem_type: Type, sentinel: ?Value = null, len: u64 };
+    pub fn arrayInfo(self: Type) ArrayInfo {
+        return .{
+            .len = self.arrayLen(),
+            .sentinel = self.sentinel(),
+            .elem_type = self.elemType(),
         };
     }
 
@@ -681,7 +690,7 @@ pub const Type = extern union {
     };
 
     pub fn copy(self: Type, allocator: *Allocator) error{OutOfMemory}!Type {
-        if (self.tag_if_small_enough < Tag.no_payload_count) {
+        if (@enumToInt(self.tag_if_small_enough) < Tag.no_payload_count) {
             return Type{ .tag_if_small_enough = self.tag_if_small_enough };
         } else switch (self.ptr_otherwise.tag) {
             .u1,
@@ -734,7 +743,7 @@ pub const Type = extern union {
             .empty_struct_literal,
             .manyptr_u8,
             .manyptr_const_u8,
-            .atomic_ordering,
+            .atomic_order,
             .atomic_rmw_op,
             .calling_convention,
             .float_mode,
@@ -946,7 +955,7 @@ pub const Type = extern union {
                 .single_const_pointer_to_comptime_int => return writer.writeAll("*const comptime_int"),
                 .manyptr_u8 => return writer.writeAll("[*]u8"),
                 .manyptr_const_u8 => return writer.writeAll("[*]const u8"),
-                .atomic_ordering => return writer.writeAll("std.builtin.AtomicOrdering"),
+                .atomic_order => return writer.writeAll("std.builtin.AtomicOrder"),
                 .atomic_rmw_op => return writer.writeAll("std.builtin.AtomicRmwOp"),
                 .calling_convention => return writer.writeAll("std.builtin.CallingConvention"),
                 .float_mode => return writer.writeAll("std.builtin.FloatMode"),
@@ -1174,7 +1183,7 @@ pub const Type = extern union {
             .@"anyframe",
             .@"null",
             .@"undefined",
-            .atomic_ordering,
+            .atomic_order,
             .atomic_rmw_op,
             .calling_convention,
             .float_mode,
@@ -1289,7 +1298,7 @@ pub const Type = extern union {
             .enum_literal => return Value.initTag(.enum_literal_type),
             .manyptr_u8 => return Value.initTag(.manyptr_u8_type),
             .manyptr_const_u8 => return Value.initTag(.manyptr_const_u8_type),
-            .atomic_ordering => return Value.initTag(.atomic_ordering_type),
+            .atomic_order => return Value.initTag(.atomic_order_type),
             .atomic_rmw_op => return Value.initTag(.atomic_rmw_op_type),
             .calling_convention => return Value.initTag(.calling_convention_type),
             .float_mode => return Value.initTag(.float_mode_type),
@@ -1350,7 +1359,7 @@ pub const Type = extern union {
             .error_set_inferred,
             .manyptr_u8,
             .manyptr_const_u8,
-            .atomic_ordering,
+            .atomic_order,
             .atomic_rmw_op,
             .calling_convention,
             .float_mode,
@@ -1450,7 +1459,7 @@ pub const Type = extern union {
 
     pub fn isNoReturn(self: Type) bool {
         const definitely_correct_result = self.zigTypeTag() == .NoReturn;
-        const fast_result = self.tag_if_small_enough == @enumToInt(Tag.noreturn);
+        const fast_result = self.tag_if_small_enough == Tag.noreturn;
         assert(fast_result == definitely_correct_result);
         return fast_result;
     }
@@ -1496,7 +1505,7 @@ pub const Type = extern union {
             .bool,
             .array_u8_sentinel_0,
             .array_u8,
-            .atomic_ordering,
+            .atomic_order,
             .atomic_rmw_op,
             .calling_convention,
             .float_mode,
@@ -1718,7 +1727,7 @@ pub const Type = extern union {
             .u8,
             .i8,
             .bool,
-            .atomic_ordering,
+            .atomic_order,
             .atomic_rmw_op,
             .calling_convention,
             .float_mode,
@@ -2002,7 +2011,7 @@ pub const Type = extern union {
                 @panic("TODO bitSize error union");
             },
 
-            .atomic_ordering,
+            .atomic_order,
             .atomic_rmw_op,
             .calling_convention,
             .float_mode,
@@ -2716,7 +2725,7 @@ pub const Type = extern union {
             .var_args_param,
             .manyptr_u8,
             .manyptr_const_u8,
-            .atomic_ordering,
+            .atomic_order,
             .atomic_rmw_op,
             .calling_convention,
             .float_mode,
@@ -2877,6 +2886,35 @@ pub const Type = extern union {
         }
     }
 
+    /// Returns the integer tag type of the enum.
+    pub fn enumTagType(ty: Type, buffer: *Payload.Bits) Type {
+        switch (ty.tag()) {
+            .enum_full, .enum_nonexhaustive => {
+                const enum_full = ty.cast(Payload.EnumFull).?.data;
+                return enum_full.tag_ty;
+            },
+            .enum_simple => {
+                const enum_simple = ty.castTag(.enum_simple).?.data;
+                buffer.* = .{
+                    .base = .{ .tag = .int_unsigned },
+                    .data = std.math.log2_int_ceil(usize, enum_simple.fields.count()),
+                };
+                return Type.initPayload(&buffer.base);
+            },
+            .atomic_order,
+            .atomic_rmw_op,
+            .calling_convention,
+            .float_mode,
+            .reduce_op,
+            .call_options,
+            .export_options,
+            .extern_options,
+            => @panic("TODO resolve std.builtin types"),
+
+            else => unreachable,
+        }
+    }
+
     pub fn isNonexhaustiveEnum(ty: Type) bool {
         return switch (ty.tag()) {
             .enum_nonexhaustive => true,
@@ -2894,7 +2932,7 @@ pub const Type = extern union {
                 const enum_simple = ty.castTag(.enum_simple).?.data;
                 return enum_simple.fields.count();
             },
-            .atomic_ordering,
+            .atomic_order,
             .atomic_rmw_op,
             .calling_convention,
             .float_mode,
@@ -2918,7 +2956,7 @@ pub const Type = extern union {
                 const enum_simple = ty.castTag(.enum_simple).?.data;
                 return enum_simple.fields.keys()[field_index];
             },
-            .atomic_ordering,
+            .atomic_order,
             .atomic_rmw_op,
             .calling_convention,
             .float_mode,
@@ -2941,7 +2979,7 @@ pub const Type = extern union {
                 const enum_simple = ty.castTag(.enum_simple).?.data;
                 return enum_simple.fields.getIndex(field_name);
             },
-            .atomic_ordering,
+            .atomic_order,
             .atomic_rmw_op,
             .calling_convention,
             .float_mode,
@@ -2994,7 +3032,7 @@ pub const Type = extern union {
                 const tag_ty = Type.initPayload(&buffer.base);
                 return S.fieldWithRange(tag_ty, enum_tag, fields_len);
             },
-            .atomic_ordering,
+            .atomic_order,
             .atomic_rmw_op,
             .calling_convention,
             .float_mode,
@@ -3049,7 +3087,7 @@ pub const Type = extern union {
                 const union_obj = ty.cast(Payload.Union).?.data;
                 return union_obj.srcLoc();
             },
-            .atomic_ordering,
+            .atomic_order,
             .atomic_rmw_op,
             .calling_convention,
             .float_mode,
@@ -3086,7 +3124,7 @@ pub const Type = extern union {
                 return union_obj.owner_decl;
             },
             .@"opaque" => @panic("TODO"),
-            .atomic_ordering,
+            .atomic_order,
             .atomic_rmw_op,
             .calling_convention,
             .float_mode,
@@ -3136,7 +3174,7 @@ pub const Type = extern union {
                 const tag_ty = Type.initPayload(&buffer.base);
                 return S.intInRange(tag_ty, int, fields_len);
             },
-            .atomic_ordering,
+            .atomic_order,
             .atomic_rmw_op,
             .calling_convention,
             .float_mode,
@@ -3156,7 +3194,7 @@ pub const Type = extern union {
     /// but with different alignment values, in this data structure they are represented
     /// with different enum tags, because the the former requires more payload data than the latter.
     /// See `zigTypeTag` for the function that corresponds to `std.builtin.TypeId`.
-    pub const Tag = enum {
+    pub const Tag = enum(usize) {
         // The first section of this enum are tags that require no payload.
         u1,
         u8,
@@ -3196,7 +3234,7 @@ pub const Type = extern union {
         @"null",
         @"undefined",
         enum_literal,
-        atomic_ordering,
+        atomic_order,
         atomic_rmw_op,
         calling_convention,
         float_mode,
@@ -3319,7 +3357,7 @@ pub const Type = extern union {
                 .empty_struct_literal,
                 .manyptr_u8,
                 .manyptr_const_u8,
-                .atomic_ordering,
+                .atomic_order,
                 .atomic_rmw_op,
                 .calling_convention,
                 .float_mode,
@@ -3373,7 +3411,7 @@ pub const Type = extern union {
 
         pub fn init(comptime t: Tag) file_struct.Type {
             comptime std.debug.assert(@enumToInt(t) < Tag.no_payload_count);
-            return .{ .tag_if_small_enough = @enumToInt(t) };
+            return .{ .tag_if_small_enough = t };
         }
 
         pub fn create(comptime t: Tag, ally: *Allocator, data: Data(t)) error{OutOfMemory}!file_struct.Type {

@@ -11,6 +11,6 @@ pub fn __aeabi_f2ulz(a: f32) callconv(.AAPCS) u64 {
     return @call(.{ .modifier = .always_inline }, __fixunssfdi, .{a});
 }
 
-test "import fixunssfdi" {
+test {
     _ = @import("fixunssfdi_test.zig");
 }

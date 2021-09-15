@@ -269,8 +269,12 @@ comptime {
     const __negdf2 = @import("compiler_rt/negXf2.zig").__negdf2;
     @export(__negdf2, .{ .name = "__negdf2", .linkage = linkage });
 
-    const __clzsi2 = @import("compiler_rt/clzsi2.zig").__clzsi2;
+    const __clzsi2 = @import("compiler_rt/count0bits.zig").__clzsi2;
     @export(__clzsi2, .{ .name = "__clzsi2", .linkage = linkage });
+    const __clzdi2 = @import("compiler_rt/count0bits.zig").__clzdi2;
+    @export(__clzdi2, .{ .name = "__clzdi2", .linkage = linkage });
+    const __clzti2 = @import("compiler_rt/count0bits.zig").__clzti2;
+    @export(__clzti2, .{ .name = "__clzti2", .linkage = linkage });
 
     if (builtin.link_libc and os_tag == .openbsd) {
         const __emutls_get_address = @import("compiler_rt/emutls.zig").__emutls_get_address;
@@ -571,6 +575,18 @@ comptime {
                 @export(__umodti3_windows_x86_64, .{ .name = "__umodti3", .linkage = linkage });
             },
             else => {},
+        }
+        if (arch.isAARCH64()) {
+            const __chkstk = @import("compiler_rt/stack_probe.zig").__chkstk;
+            @export(__chkstk, .{ .name = "__chkstk", .linkage = strong_linkage });
+            const __divti3_windows = @import("compiler_rt/divti3.zig").__divti3;
+            @export(__divti3_windows, .{ .name = "__divti3", .linkage = linkage });
+            const __modti3 = @import("compiler_rt/modti3.zig").__modti3;
+            @export(__modti3, .{ .name = "__modti3", .linkage = linkage });
+            const __udivti3_windows = @import("compiler_rt/udivti3.zig").__udivti3;
+            @export(__udivti3_windows, .{ .name = "__udivti3", .linkage = linkage });
+            const __umodti3 = @import("compiler_rt/umodti3.zig").__umodti3;
+            @export(__umodti3, .{ .name = "__umodti3", .linkage = linkage });
         }
     } else {
         const __divti3 = @import("compiler_rt/divti3.zig").__divti3;

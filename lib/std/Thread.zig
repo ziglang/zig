@@ -558,7 +558,7 @@ const PosixThreadImpl = struct {
             .openbsd => {
                 var count: c_int = undefined;
                 var count_size: usize = @sizeOf(c_int);
-                const mib = [_]c_int{ os.CTL_HW, os.HW_NCPUONLINE };
+                const mib = [_]c_int{ os.CTL.HW, os.system.HW_NCPUONLINE };
                 os.sysctl(&mib, &count, &count_size, null, 0) catch |err| switch (err) {
                     error.NameTooLong, error.UnknownName => unreachable,
                     else => |e| return e,
@@ -877,8 +877,8 @@ const LinuxThreadImpl = struct {
         const mapped = os.mmap(
             null,
             map_bytes,
-            os.PROT_NONE,
-            os.MAP_PRIVATE | os.MAP_ANONYMOUS,
+            os.PROT.NONE,
+            os.MAP.PRIVATE | os.MAP.ANONYMOUS,
             -1,
             0,
         ) catch |err| switch (err) {
@@ -893,7 +893,7 @@ const LinuxThreadImpl = struct {
         // map everything but the guard page as read/write
         os.mprotect(
             mapped[guard_offset..],
-            os.PROT_READ | os.PROT_WRITE,
+            os.PROT.READ | os.PROT.WRITE,
         ) catch |err| switch (err) {
             error.AccessDenied => unreachable,
             else => |e| return e,
@@ -923,10 +923,10 @@ const LinuxThreadImpl = struct {
             .thread = .{ .mapped = mapped },
         };
 
-        const flags: u32 = os.CLONE_THREAD | os.CLONE_DETACHED |
-            os.CLONE_VM | os.CLONE_FS | os.CLONE_FILES |
-            os.CLONE_PARENT_SETTID | os.CLONE_CHILD_CLEARTID |
-            os.CLONE_SIGHAND | os.CLONE_SYSVSEM | os.CLONE_SETTLS;
+        const flags: u32 = linux.CLONE.THREAD | linux.CLONE.DETACHED |
+            linux.CLONE.VM | linux.CLONE.FS | linux.CLONE.FILES |
+            linux.CLONE.PARENT_SETTID | linux.CLONE.CHILD_CLEARTID |
+            linux.CLONE.SIGHAND | linux.CLONE.SYSVSEM | linux.CLONE.SETTLS;
 
         switch (linux.getErrno(linux.clone(
             Instance.entryFn,
@@ -978,7 +978,7 @@ const LinuxThreadImpl = struct {
 
             switch (linux.getErrno(linux.futex_wait(
                 &self.thread.child_tid.value,
-                linux.FUTEX_WAIT,
+                linux.FUTEX.WAIT,
                 tid,
                 null,
             ))) {

@@ -300,10 +300,14 @@ const CryptoPwhash = struct {
     params: anytype,
     name: []const u8,
 };
-const bcrypt_params = bcrypt.Params{ .rounds_log = 5 };
+const bcrypt_params = crypto.pwhash.bcrypt.Params{ .rounds_log = 12 };
 const pwhashes = [_]CryptoPwhash{
-    CryptoPwhash{ .hashFn = bcrypt.strHash, .params = bcrypt_params, .name = "bcrypt" },
-    CryptoPwhash{ .hashFn = scrypt.strHash, .params = scrypt.Params.interactive, .name = "scrypt" },
+    .{ .hashFn = crypto.pwhash.bcrypt.strHash, .params = bcrypt_params, .name = "bcrypt" },
+    .{
+        .hashFn = crypto.pwhash.scrypt.strHash,
+        .params = crypto.pwhash.scrypt.Params.interactive,
+        .name = "scrypt",
+    },
 };
 
 fn benchmarkPwhash(

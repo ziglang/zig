@@ -111,3 +111,16 @@ test "p256 double base multiplication" {
     const pr2 = (try p1.mul(s1, .Little)).add(try p2.mul(s2, .Little));
     try testing.expect(pr1.equivalent(pr2));
 }
+
+test "p256 scalar inverse" {
+    const expected = "3b549196a13c898a6f6e84dfb3a22c40a8b9b17fb88e408ea674e451cd01d0a6";
+    var out: [32]u8 = undefined;
+    _ = try std.fmt.hexToBytes(&out, expected);
+
+    const scalar = try P256.scalar.Scalar.fromBytes(.{
+        0x94, 0xa1, 0xbb, 0xb1, 0x4b, 0x90, 0x6a, 0x61, 0xa2, 0x80, 0xf2, 0x45, 0xf9, 0xe9, 0x3c, 0x7f,
+        0x3b, 0x4a, 0x62, 0x47, 0x82, 0x4f, 0x5d, 0x33, 0xb9, 0x67, 0x07, 0x87, 0x64, 0x2a, 0x68, 0xde,
+    }, .Big);
+    const inverse = scalar.invert();
+    try std.testing.expectEqualSlices(u8, &out, &inverse.toBytes(.Big));
+}

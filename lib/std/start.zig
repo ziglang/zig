@@ -92,7 +92,7 @@ fn _start2() callconv(.Naked) noreturn {
 }
 
 fn exit2(code: usize) noreturn {
-    switch (builtin.stage2_os) {
+    switch (native_os) {
         .linux => switch (builtin.stage2_arch) {
             .x86_64 => {
                 asm volatile ("syscall"
@@ -345,7 +345,7 @@ fn posixCallMainAndExit() noreturn {
         // FIXME: Elide the check for targets >= ARMv7 when the target feature API
         // becomes less verbose (and more usable).
         if (comptime native_arch.isARM()) {
-            if (at_hwcap & std.os.linux.HWCAP_TLS == 0) {
+            if (at_hwcap & std.os.linux.HWCAP.TLS == 0) {
                 // FIXME: Make __aeabi_read_tp call the kernel helper kuser_get_tls
                 // For the time being use a simple abort instead of a @panic call to
                 // keep the binary bloat under control.

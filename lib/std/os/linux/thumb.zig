@@ -1,10 +1,11 @@
-usingnamespace @import("../bits/linux.zig");
-
-// The syscall interface is identical to the ARM one but we're facing an extra
-// challenge: r7, the register where the syscall number is stored, may be
-// reserved for the frame pointer.
-// Save and restore r7 around the syscall without touching the stack pointer not
-// to break the frame chain.
+//! The syscall interface is identical to the ARM one but we're facing an extra
+//! challenge: r7, the register where the syscall number is stored, may be
+//! reserved for the frame pointer.
+//! Save and restore r7 around the syscall without touching the stack pointer not
+//! to break the frame chain.
+const std = @import("../../std.zig");
+const linux = std.os.linux;
+const SYS = linux.SYS;
 
 pub fn syscall0(number: SYS) usize {
     @setRuntimeSafety(false);
@@ -139,9 +140,6 @@ pub fn syscall6(
         : "memory"
     );
 }
-
-/// This matches the libc clone function.
-pub extern fn clone(func: fn (arg: usize) callconv(.C) u8, stack: usize, flags: u32, arg: usize, ptid: *i32, tls: usize, ctid: *i32) usize;
 
 pub fn restore() callconv(.Naked) void {
     return asm volatile (

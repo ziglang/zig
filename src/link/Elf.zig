@@ -772,48 +772,48 @@ pub fn flushModule(self: *Elf, comp: *Compilation) !void {
         // These are LEB encoded but since the values are all less than 127
         // we can simply append these bytes.
         const abbrev_buf = [_]u8{
-            abbrev_compile_unit, DW.TAG_compile_unit, DW.CHILDREN_yes, // header
-            DW.AT_stmt_list,     DW.FORM_sec_offset,  DW.AT_low_pc,
-            DW.FORM_addr,        DW.AT_high_pc,       DW.FORM_addr,
-            DW.AT_name,          DW.FORM_strp,        DW.AT_comp_dir,
-            DW.FORM_strp,        DW.AT_producer,      DW.FORM_strp,
-            DW.AT_language,      DW.FORM_data2,       0,
+            abbrev_compile_unit, DW.TAG.compile_unit, DW.CHILDREN.yes, // header
+            DW.AT.stmt_list,     DW.FORM.sec_offset,  DW.AT.low_pc,
+            DW.FORM.addr,        DW.AT.high_pc,       DW.FORM.addr,
+            DW.AT.name,          DW.FORM.strp,        DW.AT.comp_dir,
+            DW.FORM.strp,        DW.AT.producer,      DW.FORM.strp,
+            DW.AT.language,      DW.FORM.data2,       0,
             0, // table sentinel
             abbrev_subprogram,
-            DW.TAG_subprogram,
-            DW.CHILDREN_yes, // header
-            DW.AT_low_pc,
-            DW.FORM_addr,
-            DW.AT_high_pc,
-            DW.FORM_data4,
-            DW.AT_type,
-            DW.FORM_ref4,
-            DW.AT_name,
-            DW.FORM_string,
+            DW.TAG.subprogram,
+            DW.CHILDREN.yes, // header
+            DW.AT.low_pc,
+            DW.FORM.addr,
+            DW.AT.high_pc,
+            DW.FORM.data4,
+            DW.AT.type,
+            DW.FORM.ref4,
+            DW.AT.name,
+            DW.FORM.string,
             0,                         0, // table sentinel
             abbrev_subprogram_retvoid,
-            DW.TAG_subprogram, DW.CHILDREN_yes, // header
-            DW.AT_low_pc,      DW.FORM_addr,
-            DW.AT_high_pc,     DW.FORM_data4,
-            DW.AT_name,        DW.FORM_string,
+            DW.TAG.subprogram, DW.CHILDREN.yes, // header
+            DW.AT.low_pc,      DW.FORM.addr,
+            DW.AT.high_pc,     DW.FORM.data4,
+            DW.AT.name,        DW.FORM.string,
             0,
             0, // table sentinel
             abbrev_base_type,
-            DW.TAG_base_type,
-            DW.CHILDREN_no, // header
-            DW.AT_encoding,
-            DW.FORM_data1,
-            DW.AT_byte_size,
-            DW.FORM_data1,
-            DW.AT_name,
-            DW.FORM_string, 0, 0, // table sentinel
-            abbrev_pad1, DW.TAG_unspecified_type, DW.CHILDREN_no, // header
+            DW.TAG.base_type,
+            DW.CHILDREN.no, // header
+            DW.AT.encoding,
+            DW.FORM.data1,
+            DW.AT.byte_size,
+            DW.FORM.data1,
+            DW.AT.name,
+            DW.FORM.string, 0, 0, // table sentinel
+            abbrev_pad1, DW.TAG.unspecified_type, DW.CHILDREN.no, // header
             0,                0, // table sentinel
             abbrev_parameter,
-            DW.TAG_formal_parameter, DW.CHILDREN_no, // header
-            DW.AT_location,          DW.FORM_exprloc,
-            DW.AT_type,              DW.FORM_ref4,
-            DW.AT_name,              DW.FORM_string,
+            DW.TAG.formal_parameter, DW.CHILDREN.no, // header
+            DW.AT.location,          DW.FORM.exprloc,
+            DW.AT.type,              DW.FORM.ref4,
+            DW.AT.name,              DW.FORM.string,
             0,
             0, // table sentinel
             0,
@@ -897,7 +897,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation) !void {
         const high_pc = text_phdr.p_vaddr + text_phdr.p_memsz;
 
         di_buf.appendAssumeCapacity(abbrev_compile_unit);
-        self.writeDwarfAddrAssumeCapacity(&di_buf, 0); // DW.AT_stmt_list, DW.FORM_sec_offset
+        self.writeDwarfAddrAssumeCapacity(&di_buf, 0); // DW.AT.stmt_list, DW.FORM.sec_offset
         self.writeDwarfAddrAssumeCapacity(&di_buf, low_pc);
         self.writeDwarfAddrAssumeCapacity(&di_buf, high_pc);
         self.writeDwarfAddrAssumeCapacity(&di_buf, name_strp);
@@ -906,7 +906,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation) !void {
         // We are still waiting on dwarf-std.org to assign DW_LANG_Zig a number:
         // http://dwarfstd.org/ShowIssue.php?issue=171115.1
         // Until then we say it is C99.
-        mem.writeInt(u16, di_buf.addManyAsArrayAssumeCapacity(2), DW.LANG_C99, target_endian);
+        mem.writeInt(u16, di_buf.addManyAsArrayAssumeCapacity(2), DW.LANG.C99, target_endian);
 
         if (di_buf.items.len > first_dbg_info_decl.dbg_info_off) {
             // Move the first N decls to the end to make more padding for the header.
@@ -1030,7 +1030,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation) !void {
         di_buf.items.len += ptr_width_bytes; // We will come back and write this.
         const after_header_len = di_buf.items.len;
 
-        const opcode_base = DW.LNS_set_isa + 1;
+        const opcode_base = DW.LNS.set_isa + 1;
         di_buf.appendSliceAssumeCapacity(&[_]u8{
             1, // minimum_instruction_length
             1, // maximum_operations_per_instruction
@@ -1041,18 +1041,18 @@ pub fn flushModule(self: *Elf, comp: *Compilation) !void {
 
             // Standard opcode lengths. The number of items here is based on `opcode_base`.
             // The value is the number of LEB128 operands the instruction takes.
-            0, // `DW.LNS_copy`
-            1, // `DW.LNS_advance_pc`
-            1, // `DW.LNS_advance_line`
-            1, // `DW.LNS_set_file`
-            1, // `DW.LNS_set_column`
-            0, // `DW.LNS_negate_stmt`
-            0, // `DW.LNS_set_basic_block`
-            0, // `DW.LNS_const_add_pc`
-            1, // `DW.LNS_fixed_advance_pc`
-            0, // `DW.LNS_set_prologue_end`
-            0, // `DW.LNS_set_epilogue_begin`
-            1, // `DW.LNS_set_isa`
+            0, // `DW.LNS.copy`
+            1, // `DW.LNS.advance_pc`
+            1, // `DW.LNS.advance_line`
+            1, // `DW.LNS.set_file`
+            1, // `DW.LNS.set_column`
+            0, // `DW.LNS.negate_stmt`
+            0, // `DW.LNS.set_basic_block`
+            0, // `DW.LNS.const_add_pc`
+            1, // `DW.LNS.fixed_advance_pc`
+            0, // `DW.LNS.set_prologue_end`
+            0, // `DW.LNS.set_epilogue_begin`
+            1, // `DW.LNS.set_isa`
             0, // include_directories (none except the compilation unit cwd)
         });
         // file_names[0]
@@ -1345,6 +1345,10 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         man.hash.add(self.base.options.skip_linker_dependencies);
         man.hash.add(self.base.options.z_nodelete);
         man.hash.add(self.base.options.z_defs);
+        man.hash.add(self.base.options.z_origin);
+        man.hash.add(self.base.options.z_noexecstack);
+        man.hash.add(self.base.options.z_now);
+        man.hash.add(self.base.options.z_relro);
         if (self.base.options.link_libc) {
             man.hash.add(self.base.options.libc_installation != null);
             if (self.base.options.libc_installation) |libc_installation| {
@@ -1481,6 +1485,22 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         if (self.base.options.z_defs) {
             try argv.append("-z");
             try argv.append("defs");
+        }
+        if (self.base.options.z_origin) {
+            try argv.append("-z");
+            try argv.append("origin");
+        }
+        if (self.base.options.z_noexecstack) {
+            try argv.append("-z");
+            try argv.append("noexecstack");
+        }
+        if (self.base.options.z_now) {
+            try argv.append("-z");
+            try argv.append("now");
+        }
+        if (self.base.options.z_relro) {
+            try argv.append("-z");
+            try argv.append("relro");
         }
 
         if (getLDMOption(target)) |ldm| {
@@ -2053,7 +2073,7 @@ fn allocateTextBlock(self: *Elf, text_block: *TextBlock, new_block_size: u64, al
 
         // The .debug_info section has `low_pc` and `high_pc` values which is the virtual address
         // range of the compilation unit. When we expand the text section, this range changes,
-        // so the DW_TAG_compile_unit tag of the .debug_info section becomes dirty.
+        // so the DW_TAG.compile_unit tag of the .debug_info section becomes dirty.
         self.debug_info_header_dirty = true;
         // This becomes dirty for the same reason. We could potentially make this more
         // fine-grained with the addition of support for more compilation units. It is planned to
@@ -2303,22 +2323,22 @@ pub fn updateFunc(self: *Elf, module: *Module, func: *Module.Fn, air: Air, liven
 
     const ptr_width_bytes = self.ptrWidthBytes();
     dbg_line_buffer.appendSliceAssumeCapacity(&[_]u8{
-        DW.LNS_extended_op,
+        DW.LNS.extended_op,
         ptr_width_bytes + 1,
-        DW.LNE_set_address,
+        DW.LNE.set_address,
     });
     // This is the "relocatable" vaddr, corresponding to `code_buffer` index `0`.
     assert(dbg_line_vaddr_reloc_index == dbg_line_buffer.items.len);
     dbg_line_buffer.items.len += ptr_width_bytes;
 
-    dbg_line_buffer.appendAssumeCapacity(DW.LNS_advance_line);
+    dbg_line_buffer.appendAssumeCapacity(DW.LNS.advance_line);
     // This is the "relocatable" relative line offset from the previous function's end curly
     // to this function's begin curly.
     assert(self.getRelocDbgLineOff() == dbg_line_buffer.items.len);
     // Here we use a ULEB128-fixed-4 to make sure this field can be overwritten later.
     leb128.writeUnsignedFixed(4, dbg_line_buffer.addManyAsArrayAssumeCapacity(4), line_off);
 
-    dbg_line_buffer.appendAssumeCapacity(DW.LNS_set_file);
+    dbg_line_buffer.appendAssumeCapacity(DW.LNS.set_file);
     assert(self.getRelocDbgFileIndex() == dbg_line_buffer.items.len);
     // Once we support more than one source file, this will have the ability to be more
     // than one possible value.
@@ -2327,7 +2347,7 @@ pub fn updateFunc(self: *Elf, module: *Module, func: *Module.Fn, air: Air, liven
 
     // Emit a line for the begin curly with prologue_end=false. The codegen will
     // do the work of setting prologue_end=true and epilogue_begin=true.
-    dbg_line_buffer.appendAssumeCapacity(DW.LNS_copy);
+    dbg_line_buffer.appendAssumeCapacity(DW.LNS.copy);
 
     // .debug_info subprogram
     const decl_name_with_null = decl.name[0 .. mem.lenZ(decl.name) + 1];
@@ -2344,9 +2364,9 @@ pub fn updateFunc(self: *Elf, module: *Module, func: *Module.Fn, air: Air, liven
     // "relocations" and have to be in this fixed place so that functions can be
     // moved in virtual address space.
     assert(dbg_info_low_pc_reloc_index == dbg_info_buffer.items.len);
-    dbg_info_buffer.items.len += ptr_width_bytes; // DW.AT_low_pc,  DW.FORM_addr
+    dbg_info_buffer.items.len += ptr_width_bytes; // DW.AT.low_pc,  DW.FORM.addr
     assert(self.getRelocDbgInfoSubprogramHighPC() == dbg_info_buffer.items.len);
-    dbg_info_buffer.items.len += 4; // DW.AT_high_pc,  DW.FORM_data4
+    dbg_info_buffer.items.len += 4; // DW.AT.high_pc,  DW.FORM.data4
     if (fn_ret_has_bits) {
         const gop = try dbg_info_type_relocs.getOrPut(self.base.allocator, fn_ret_type);
         if (!gop.found_existing) {
@@ -2356,9 +2376,9 @@ pub fn updateFunc(self: *Elf, module: *Module, func: *Module.Fn, air: Air, liven
             };
         }
         try gop.value_ptr.relocs.append(self.base.allocator, @intCast(u32, dbg_info_buffer.items.len));
-        dbg_info_buffer.items.len += 4; // DW.AT_type,  DW.FORM_ref4
+        dbg_info_buffer.items.len += 4; // DW.AT.type,  DW.FORM.ref4
     }
-    dbg_info_buffer.appendSliceAssumeCapacity(decl_name_with_null); // DW.AT_name, DW.FORM_string
+    dbg_info_buffer.appendSliceAssumeCapacity(decl_name_with_null); // DW.AT.name, DW.FORM.string
 
     const res = try codegen.generateFunction(&self.base, decl.srcLoc(), func, air, liveness, &code_buffer, .{
         .dwarf = .{
@@ -2409,7 +2429,7 @@ pub fn updateFunc(self: *Elf, module: *Module, func: *Module.Fn, air: Air, liven
         mem.writeInt(u32, ptr, @intCast(u32, local_sym.st_size), target_endian);
     }
 
-    try dbg_line_buffer.appendSlice(&[_]u8{ DW.LNS_extended_op, 1, DW.LNE_end_sequence });
+    try dbg_line_buffer.appendSlice(&[_]u8{ DW.LNS.extended_op, 1, DW.LNE.end_sequence });
 
     // Now we have the full contents and may allocate a region to store it.
 
@@ -2493,7 +2513,7 @@ pub fn updateFunc(self: *Elf, module: *Module, func: *Module.Fn, air: Air, liven
     const file_pos = debug_line_sect.sh_offset + src_fn.off;
     try self.pwriteDbgLineNops(prev_padding_size, dbg_line_buffer.items, next_padding_size, file_pos);
 
-    // .debug_info - End the TAG_subprogram children.
+    // .debug_info - End the TAG.subprogram children.
     try dbg_info_buffer.append(0);
 
     return self.finishUpdateDecl(module, decl, &dbg_info_type_relocs, &dbg_info_buffer);
@@ -2566,34 +2586,34 @@ fn addDbgInfoType(self: *Elf, ty: Type, dbg_info_buffer: *std.ArrayList(u8)) !vo
         .Bool => {
             try dbg_info_buffer.appendSlice(&[_]u8{
                 abbrev_base_type,
-                DW.ATE_boolean, // DW.AT_encoding ,  DW.FORM_data1
-                1, // DW.AT_byte_size,  DW.FORM_data1
-                'b', 'o', 'o', 'l', 0, // DW.AT_name,  DW.FORM_string
+                DW.ATE.boolean, // DW.AT.encoding ,  DW.FORM.data1
+                1, // DW.AT.byte_size,  DW.FORM.data1
+                'b', 'o', 'o', 'l', 0, // DW.AT.name,  DW.FORM.string
             });
         },
         .Int => {
             const info = ty.intInfo(self.base.options.target);
             try dbg_info_buffer.ensureCapacity(dbg_info_buffer.items.len + 12);
             dbg_info_buffer.appendAssumeCapacity(abbrev_base_type);
-            // DW.AT_encoding, DW.FORM_data1
+            // DW.AT.encoding, DW.FORM.data1
             dbg_info_buffer.appendAssumeCapacity(switch (info.signedness) {
-                .signed => DW.ATE_signed,
-                .unsigned => DW.ATE_unsigned,
+                .signed => DW.ATE.signed,
+                .unsigned => DW.ATE.unsigned,
             });
-            // DW.AT_byte_size,  DW.FORM_data1
+            // DW.AT.byte_size,  DW.FORM.data1
             dbg_info_buffer.appendAssumeCapacity(@intCast(u8, ty.abiSize(self.base.options.target)));
-            // DW.AT_name,  DW.FORM_string
+            // DW.AT.name,  DW.FORM.string
             try dbg_info_buffer.writer().print("{}\x00", .{ty});
         },
         .Optional => {
             if (ty.isPtrLikeOptional()) {
                 try dbg_info_buffer.ensureCapacity(dbg_info_buffer.items.len + 12);
                 dbg_info_buffer.appendAssumeCapacity(abbrev_base_type);
-                // DW.AT_encoding, DW.FORM_data1
-                dbg_info_buffer.appendAssumeCapacity(DW.ATE_address);
-                // DW.AT_byte_size,  DW.FORM_data1
+                // DW.AT.encoding, DW.FORM.data1
+                dbg_info_buffer.appendAssumeCapacity(DW.ATE.address);
+                // DW.AT.byte_size,  DW.FORM.data1
                 dbg_info_buffer.appendAssumeCapacity(@intCast(u8, ty.abiSize(self.base.options.target)));
-                // DW.AT_name,  DW.FORM_string
+                // DW.AT.name,  DW.FORM.string
                 try dbg_info_buffer.writer().print("{}\x00", .{ty});
             } else {
                 log.err("TODO implement .debug_info for type '{}'", .{ty});
@@ -3034,7 +3054,7 @@ fn archPtrWidthBytes(self: Elf) u8 {
 /// The reloc offset for the virtual address of a function in its Line Number Program.
 /// Size is a virtual address integer.
 const dbg_line_vaddr_reloc_index = 3;
-/// The reloc offset for the virtual address of a function in its .debug_info TAG_subprogram.
+/// The reloc offset for the virtual address of a function in its .debug_info TAG.subprogram.
 /// Size is a virtual address integer.
 const dbg_info_low_pc_reloc_index = 1;
 
@@ -3060,7 +3080,7 @@ fn dbgLineNeededHeaderBytes(self: Elf) u32 {
     const root_src_dir_path_len = if (self.base.options.module.?.root_pkg.root_src_directory.path) |p| p.len else 1; // "."
     return @intCast(u32, 53 + directory_entry_format_count * 2 + file_name_entry_format_count * 2 +
         directory_count * 8 + file_name_count * 8 +
-        // These are encoded as DW.FORM_string rather than DW.FORM_strp as we would like
+        // These are encoded as DW.FORM.string rather than DW.FORM.strp as we would like
         // because of a workaround for readelf and gdb failing to understand DWARFv5 correctly.
         root_src_dir_path_len +
         self.base.options.module.?.root_pkg.root_src_path.len);
@@ -3088,8 +3108,8 @@ fn pwriteDbgLineNops(
     const tracy = trace(@src());
     defer tracy.end();
 
-    const page_of_nops = [1]u8{DW.LNS_negate_stmt} ** 4096;
-    const three_byte_nop = [3]u8{ DW.LNS_advance_pc, 0b1000_0000, 0 };
+    const page_of_nops = [1]u8{DW.LNS.negate_stmt} ** 4096;
+    const three_byte_nop = [3]u8{ DW.LNS.advance_pc, 0b1000_0000, 0 };
     var vecs: [512]std.os.iovec_const = undefined;
     var vec_index: usize = 0;
     {

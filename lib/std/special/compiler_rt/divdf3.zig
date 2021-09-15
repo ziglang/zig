@@ -327,6 +327,6 @@ pub fn __aeabi_ddiv(a: f64, b: f64) callconv(.AAPCS) f64 {
     return @call(.{ .modifier = .always_inline }, __divdf3, .{ a, b });
 }
 
-test "import divdf3" {
+test {
     _ = @import("divdf3_test.zig");
 }

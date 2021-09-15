@@ -1022,6 +1022,10 @@ const mingwex_arm32_src = [_][]const u8{
 };
 
 const mingwex_arm64_src = [_][]const u8{
+    "misc" ++ path.sep_str ++ "initenv.c",
+    "math" ++ path.sep_str ++ "arm-common" ++ path.sep_str ++ "log2.c",
+    "math" ++ path.sep_str ++ "arm-common" ++ path.sep_str ++ "pow.c",
+    "math" ++ path.sep_str ++ "arm-common" ++ path.sep_str ++ "scalbn.c",
     "math" ++ path.sep_str ++ "arm64" ++ path.sep_str ++ "_chgsignl.S",
     "math" ++ path.sep_str ++ "arm64" ++ path.sep_str ++ "rint.c",
     "math" ++ path.sep_str ++ "arm64" ++ path.sep_str ++ "rintf.c",

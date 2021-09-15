@@ -737,6 +737,14 @@ static const char *ir_bin_op_id_str(IrBinOp op_id) {
             return "@maximum";
         case IrBinOpMinimum:
             return "@minimum";
+        case IrBinOpSatAdd:
+            return "@addWithSaturation";
+        case IrBinOpSatSub:
+            return "@subWithSaturation";
+        case IrBinOpSatMul:
+            return "@mulWithSaturation";
+        case IrBinOpSatShl:
+            return "@shlWithSaturation";
     }
     zig_unreachable();
 }

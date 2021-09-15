@@ -137,6 +137,14 @@ const test_targets = blk: {
             },
             .link_libc = true,
         },
+        TestTarget{
+            .target = .{
+                .cpu_arch = .aarch64,
+                .os_tag = .windows,
+                .abi = .gnu,
+            },
+            .link_libc = true,
+        },
 
         TestTarget{
             .target = CrossTarget.parse(.{

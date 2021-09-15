@@ -133,6 +133,9 @@ pub const Value = opaque {
 
     pub const constIntToPtr = LLVMConstIntToPtr;
     extern fn LLVMConstIntToPtr(ConstantVal: *const Value, ToType: *const Type) *const Value;
+
+    pub const setWeak = LLVMSetWeak;
+    extern fn LLVMSetWeak(CmpXchgInst: *const Value, IsWeak: Bool) void;
 };
 
 pub const Type = opaque {
@@ -299,6 +302,14 @@ pub const Builder = opaque {
         Name: [*:0]const u8,
     ) *const Value;
 
+    pub const buildSExt = LLVMBuildSExt;
+    extern fn LLVMBuildSExt(
+        *const Builder,
+        Val: *const Value,
+        DestTy: *const Type,
+        Name: [*:0]const u8,
+    ) *const Value;
+
     pub const buildCall = LLVMBuildCall;
     extern fn LLVMBuildCall(
         *const Builder,
@@ -387,6 +398,15 @@ pub const Builder = opaque {
     pub const buildFDiv = LLVMBuildFDiv;
     extern fn LLVMBuildFDiv(*const Builder, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;
 
+    pub const buildURem = LLVMBuildURem;
+    extern fn LLVMBuildURem(*const Builder, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;
+
+    pub const buildSRem = LLVMBuildSRem;
+    extern fn LLVMBuildSRem(*const Builder, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;
+
+    pub const buildFRem = LLVMBuildFRem;
+    extern fn LLVMBuildFRem(*const Builder, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;
+
     pub const buildAnd = LLVMBuildAnd;
     extern fn LLVMBuildAnd(*const Builder, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;
 
@@ -474,6 +494,35 @@ pub const Builder = opaque {
         *const Builder,
         Val: *const Value,
         DestTy: *const Type,
+        Name: [*:0]const u8,
+    ) *const Value;
+
+    pub const buildInsertValue = LLVMBuildInsertValue;
+    extern fn LLVMBuildInsertValue(
+        *const Builder,
+        AggVal: *const Value,
+        EltVal: *const Value,
+        Index: c_uint,
+        Name: [*:0]const u8,
+    ) *const Value;
+
+    pub const buildAtomicCmpXchg = LLVMBuildAtomicCmpXchg;
+    extern fn LLVMBuildAtomicCmpXchg(
+        builder: *const Builder,
+        ptr: *const Value,
+        cmp: *const Value,
+        new_val: *const Value,
+        success_ordering: AtomicOrdering,
+        failure_ordering: AtomicOrdering,
+        is_single_threaded: Bool,
+    ) *const Value;
+
+    pub const buildSelect = LLVMBuildSelect;
+    extern fn LLVMBuildSelect(
+        *const Builder,
+        If: *const Value,
+        Then: *const Value,
+        Else: *const Value,
         Name: [*:0]const u8,
     ) *const Value;
 };
@@ -855,4 +904,14 @@ pub const Linkage = enum(c_uint) {
     Common,
     LinkerPrivate,
     LinkerPrivateWeak,
+};
+
+pub const AtomicOrdering = enum(c_uint) {
+    NotAtomic = 0,
+    Unordered = 1,
+    Monotonic = 2,
+    Acquire = 4,
+    Release = 5,
+    AcquireRelease = 6,
+    SequentiallyConsistent = 7,
 };

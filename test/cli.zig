@@ -45,13 +45,6 @@ pub fn main() !void {
     }
 }
 
-fn unwrapArg(arg: UnwrapArgError![]u8) UnwrapArgError![]u8 {
-    return arg catch |err| {
-        warn("Unable to parse command line: {}\n", .{err});
-        return err;
-    };
-}
-
 fn printCmd(cwd: []const u8, argv: []const []const u8) void {
     std.debug.warn("cd {s} && ", .{cwd});
     for (argv) |arg| {

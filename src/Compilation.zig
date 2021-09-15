@@ -708,6 +708,10 @@ pub const InitOptions = struct {
     disable_c_depfile: bool = false,
     linker_z_nodelete: bool = false,
     linker_z_defs: bool = false,
+    linker_z_origin: bool = false,
+    linker_z_noexecstack: bool = false,
+    linker_z_now: bool = false,
+    linker_z_relro: bool = false,
     linker_tsaware: bool = false,
     linker_nxcompat: bool = false,
     linker_dynamicbase: bool = false,
@@ -1382,6 +1386,10 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .bind_global_refs_locally = options.linker_bind_global_refs_locally orelse false,
             .z_nodelete = options.linker_z_nodelete,
             .z_defs = options.linker_z_defs,
+            .z_origin = options.linker_z_origin,
+            .z_noexecstack = options.linker_z_noexecstack,
+            .z_now = options.linker_z_now,
+            .z_relro = options.linker_z_relro,
             .tsaware = options.linker_tsaware,
             .nxcompat = options.linker_nxcompat,
             .dynamicbase = options.linker_dynamicbase,
@@ -2408,7 +2416,7 @@ const AstGenSrc = union(enum) {
     root,
     import: struct {
         importing_file: *Module.Scope.File,
-        import_tok: std.zig.ast.TokenIndex,
+        import_tok: std.zig.Ast.TokenIndex,
     },
 };
 
@@ -3665,8 +3673,6 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator) Alloc
         \\pub const zig_is_stage2 = {};
         \\/// Temporary until self-hosted supports the `cpu.arch` value.
         \\pub const stage2_arch: std.Target.Cpu.Arch = .{};
-        \\/// Temporary until self-hosted supports the `os.tag` value.
-        \\pub const stage2_os: std.Target.Os.Tag = .{};
         \\
         \\pub const output_mode = std.builtin.OutputMode.{};
         \\pub const link_mode = std.builtin.LinkMode.{};
@@ -3682,7 +3688,6 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator) Alloc
         build_options.version,
         !use_stage1,
         std.zig.fmtId(@tagName(target.cpu.arch)),
-        std.zig.fmtId(@tagName(target.os.tag)),
         std.zig.fmtId(@tagName(comp.bin_file.options.output_mode)),
         std.zig.fmtId(@tagName(comp.bin_file.options.link_mode)),
         comp.bin_file.options.is_test,

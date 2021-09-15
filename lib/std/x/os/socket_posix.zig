@@ -10,8 +10,8 @@ pub fn Mixin(comptime Socket: type) type {
         pub fn init(domain: u32, socket_type: u32, protocol: u32, flags: std.enums.EnumFieldStruct(Socket.InitFlags, bool, false)) !Socket {
             var raw_flags: u32 = socket_type;
             const set = std.EnumSet(Socket.InitFlags).init(flags);
-            if (set.contains(.close_on_exec)) raw_flags |= os.SOCK_CLOEXEC;
-            if (set.contains(.nonblocking)) raw_flags |= os.SOCK_NONBLOCK;
+            if (set.contains(.close_on_exec)) raw_flags |= os.SOCK.CLOEXEC;
+            if (set.contains(.nonblocking)) raw_flags |= os.SOCK.NONBLOCK;
             return Socket{ .fd = try os.socket(domain, raw_flags, protocol) };
         }
 
@@ -48,8 +48,8 @@ pub fn Mixin(comptime Socket: type) type {
 
             var raw_flags: u32 = 0;
             const set = std.EnumSet(Socket.InitFlags).init(flags);
-            if (set.contains(.close_on_exec)) raw_flags |= os.SOCK_CLOEXEC;
-            if (set.contains(.nonblocking)) raw_flags |= os.SOCK_NONBLOCK;
+            if (set.contains(.close_on_exec)) raw_flags |= os.SOCK.CLOEXEC;
+            if (set.contains(.nonblocking)) raw_flags |= os.SOCK.NONBLOCK;
 
             const socket = Socket{ .fd = try os.accept(self.fd, @ptrCast(*os.sockaddr, &address), &address_len, raw_flags) };
             const socket_address = Socket.Address.fromNative(@ptrCast(*os.sockaddr, &address));
@@ -156,7 +156,7 @@ pub fn Mixin(comptime Socket: type) type {
             var value: u32 = undefined;
             var value_len: u32 = @sizeOf(u32);
 
-            const rc = os.system.getsockopt(self.fd, os.SOL_SOCKET, os.SO_RCVBUF, mem.asBytes(&value), &value_len);
+            const rc = os.system.getsockopt(self.fd, os.SOL.SOCKET, os.SO.RCVBUF, mem.asBytes(&value), &value_len);
             return switch (os.errno(rc)) {
                 .SUCCESS => value,
                 .BADF => error.BadFileDescriptor,
@@ -173,7 +173,7 @@ pub fn Mixin(comptime Socket: type) type {
             var value: u32 = undefined;
             var value_len: u32 = @sizeOf(u32);
 
-            const rc = os.system.getsockopt(self.fd, os.SOL_SOCKET, os.SO_SNDBUF, mem.asBytes(&value), &value_len);
+            const rc = os.system.getsockopt(self.fd, os.SOL.SOCKET, os.SO.SNDBUF, mem.asBytes(&value), &value_len);
             return switch (os.errno(rc)) {
                 .SUCCESS => value,
                 .BADF => error.BadFileDescriptor,
@@ -195,9 +195,9 @@ pub fn Mixin(comptime Socket: type) type {
         /// if the host does not support the option for a socket to linger around up until a timeout specified in
         /// seconds.
         pub fn setLinger(self: Socket, timeout_seconds: ?u16) !void {
-            if (comptime @hasDecl(os, "SO_LINGER")) {
+            if (@hasDecl(os.SO, "LINGER")) {
                 const settings = Socket.Linger.init(timeout_seconds);
-                return self.setOption(os.SOL_SOCKET, os.SO_LINGER, mem.asBytes(&settings));
+                return self.setOption(os.SOL.SOCKET, os.SO.LINGER, mem.asBytes(&settings));
             }
 
             return error.UnsupportedSocketOption;
@@ -207,8 +207,8 @@ pub fn Mixin(comptime Socket: type) type {
         /// messages are sent are dependant on operating system settings. It returns `error.UnsupportedSocketOption` if
         /// the host does not support periodically sending keep-alive messages on connection-oriented sockets. 
         pub fn setKeepAlive(self: Socket, enabled: bool) !void {
-            if (comptime @hasDecl(os, "SO_KEEPALIVE")) {
-                return self.setOption(os.SOL_SOCKET, os.SO_KEEPALIVE, mem.asBytes(&@as(u32, @boolToInt(enabled))));
+            if (@hasDecl(os.SO, "KEEPALIVE")) {
+                return self.setOption(os.SOL.SOCKET, os.SO.KEEPALIVE, mem.asBytes(&@as(u32, @boolToInt(enabled))));
             }
             return error.UnsupportedSocketOption;
         }
@@ -216,8 +216,8 @@ pub fn Mixin(comptime Socket: type) type {
         /// Allow multiple sockets on the same host to listen on the same address. It returns `error.UnsupportedSocketOption` if
         /// the host does not support sockets listening the same address.
         pub fn setReuseAddress(self: Socket, enabled: bool) !void {
-            if (comptime @hasDecl(os, "SO_REUSEADDR")) {
-                return self.setOption(os.SOL_SOCKET, os.SO_REUSEADDR, mem.asBytes(&@as(u32, @boolToInt(enabled))));
+            if (@hasDecl(os.SO, "REUSEADDR")) {
+                return self.setOption(os.SOL.SOCKET, os.SO.REUSEADDR, mem.asBytes(&@as(u32, @boolToInt(enabled))));
             }
             return error.UnsupportedSocketOption;
         }
@@ -225,20 +225,20 @@ pub fn Mixin(comptime Socket: type) type {
         /// Allow multiple sockets on the same host to listen on the same port. It returns `error.UnsupportedSocketOption` if
         /// the host does not supports sockets listening on the same port.
         pub fn setReusePort(self: Socket, enabled: bool) !void {
-            if (comptime @hasDecl(os, "SO_REUSEPORT")) {
-                return self.setOption(os.SOL_SOCKET, os.SO_REUSEPORT, mem.asBytes(&@as(u32, @boolToInt(enabled))));
+            if (@hasDecl(os.SO, "REUSEPORT")) {
+                return self.setOption(os.SOL.SOCKET, os.SO.REUSEPORT, mem.asBytes(&@as(u32, @boolToInt(enabled))));
             }
             return error.UnsupportedSocketOption;
         }
 
         /// Set the write buffer size of the socket.
         pub fn setWriteBufferSize(self: Socket, size: u32) !void {
-            return self.setOption(os.SOL_SOCKET, os.SO_SNDBUF, mem.asBytes(&size));
+            return self.setOption(os.SOL.SOCKET, os.SO.SNDBUF, mem.asBytes(&size));
         }
 
         /// Set the read buffer size of the socket.
         pub fn setReadBufferSize(self: Socket, size: u32) !void {
-            return self.setOption(os.SOL_SOCKET, os.SO_RCVBUF, mem.asBytes(&size));
+            return self.setOption(os.SOL.SOCKET, os.SO.RCVBUF, mem.asBytes(&size));
         }
 
         /// WARNING: Timeouts only affect blocking sockets. It is undefined behavior if a timeout is
@@ -253,7 +253,7 @@ pub fn Mixin(comptime Socket: type) type {
                 .tv_usec = @intCast(i32, (milliseconds % time.ms_per_s) * time.us_per_ms),
             };
 
-            return self.setOption(os.SOL_SOCKET, os.SO_SNDTIMEO, mem.asBytes(&timeout));
+            return self.setOption(os.SOL.SOCKET, os.SO.SNDTIMEO, mem.asBytes(&timeout));
         }
 
         /// WARNING: Timeouts only affect blocking sockets. It is undefined behavior if a timeout is
@@ -269,7 +269,7 @@ pub fn Mixin(comptime Socket: type) type {
                 .tv_usec = @intCast(i32, (milliseconds % time.ms_per_s) * time.us_per_ms),
             };
 
-            return self.setOption(os.SOL_SOCKET, os.SO_RCVTIMEO, mem.asBytes(&timeout));
+            return self.setOption(os.SOL.SOCKET, os.SO.RCVTIMEO, mem.asBytes(&timeout));
         }
     };
 }

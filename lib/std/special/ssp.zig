@@ -25,9 +25,7 @@ pub fn panic(msg: []const u8, error_return_trace: ?*builtin.StackTrace) noreturn
     _ = msg;
     _ = error_return_trace;
     @setCold(true);
-    if (@hasDecl(std.os, "abort"))
-        std.os.abort();
-    while (true) {}
+    std.os.abort();
 }
 
 export fn __stack_chk_fail() callconv(.C) noreturn {

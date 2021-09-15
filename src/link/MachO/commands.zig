@@ -9,6 +9,7 @@ const assert = std.debug.assert;
 
 const Allocator = std.mem.Allocator;
 const MachO = @import("../MachO.zig");
+const makeStaticString = MachO.makeStaticString;
 const padToIdeal = MachO.padToIdeal;
 
 pub const HeaderArgs = struct {
@@ -217,75 +218,6 @@ pub const SegmentCommand = struct {
     inner: macho.segment_command_64,
     sections: std.ArrayListUnmanaged(macho.section_64) = .{},
 
-    const SegmentOptions = struct {
-        cmdsize: u32 = @sizeOf(macho.segment_command_64),
-        vmaddr: u64 = 0,
-        vmsize: u64 = 0,
-        fileoff: u64 = 0,
-        filesize: u64 = 0,
-        maxprot: macho.vm_prot_t = macho.VM_PROT_NONE,
-        initprot: macho.vm_prot_t = macho.VM_PROT_NONE,
-        nsects: u32 = 0,
-        flags: u32 = 0,
-    };
-
-    pub fn empty(comptime segname: []const u8, opts: SegmentOptions) SegmentCommand {
-        return .{
-            .inner = .{
-                .cmd = macho.LC_SEGMENT_64,
-                .cmdsize = opts.cmdsize,
-                .segname = makeStaticString(segname),
-                .vmaddr = opts.vmaddr,
-                .vmsize = opts.vmsize,
-                .fileoff = opts.fileoff,
-                .filesize = opts.filesize,
-                .maxprot = opts.maxprot,
-                .initprot = opts.initprot,
-                .nsects = opts.nsects,
-                .flags = opts.flags,
-            },
-        };
-    }
-
-    const SectionOptions = struct {
-        addr: u64 = 0,
-        size: u64 = 0,
-        offset: u32 = 0,
-        @"align": u32 = 0,
-        reloff: u32 = 0,
-        nreloc: u32 = 0,
-        flags: u32 = macho.S_REGULAR,
-        reserved1: u32 = 0,
-        reserved2: u32 = 0,
-        reserved3: u32 = 0,
-    };
-
-    pub fn addSection(
-        self: *SegmentCommand,
-        alloc: *Allocator,
-        comptime sectname: []const u8,
-        opts: SectionOptions,
-    ) !void {
-        var section = macho.section_64{
-            .sectname = makeStaticString(sectname),
-            .segname = undefined,
-            .addr = opts.addr,
-            .size = opts.size,
-            .offset = opts.offset,
-            .@"align" = opts.@"align",
-            .reloff = opts.reloff,
-            .nreloc = opts.nreloc,
-            .flags = opts.flags,
-            .reserved1 = opts.reserved1,
-            .reserved2 = opts.reserved2,
-            .reserved3 = opts.reserved3,
-        };
-        mem.copy(u8, &section.segname, &self.inner.segname);
-        try self.sections.append(alloc, section);
-        self.inner.cmdsize += @sizeOf(macho.section_64);
-        self.inner.nsects += 1;
-    }
-
     pub fn read(alloc: *Allocator, reader: anytype) !SegmentCommand {
         const inner = try reader.readStruct(macho.segment_command_64);
         var segment = SegmentCommand{
@@ -314,10 +246,8 @@ pub const SegmentCommand = struct {
     }
 
     pub fn allocatedSize(self: SegmentCommand, start: u64) u64 {
-        assert(start > 0);
-        if (start == self.inner.fileoff)
-            return 0;
-        var min_pos: u64 = std.math.maxInt(u64);
+        assert(start >= self.inner.fileoff);
+        var min_pos: u64 = self.inner.fileoff + self.inner.filesize;
         for (self.sections.items) |section| {
             if (section.offset <= start) continue;
             if (section.offset < min_pos) min_pos = section.offset;
@@ -337,12 +267,12 @@ pub const SegmentCommand = struct {
         return null;
     }
 
-    pub fn findFreeSpace(self: SegmentCommand, object_size: u64, min_alignment: u16, start: ?u64) u64 {
-        var st: u64 = if (start) |v| v else self.inner.fileoff;
-        while (self.detectAllocCollision(st, object_size)) |item_end| {
-            st = mem.alignForwardGeneric(u64, item_end, min_alignment);
+    pub fn findFreeSpace(self: SegmentCommand, object_size: u64, min_alignment: u64, start: ?u64) u64 {
+        var offset: u64 = if (start) |v| v else self.inner.fileoff;
+        while (self.detectAllocCollision(offset, object_size)) |item_end| {
+            offset = mem.alignForwardGeneric(u64, item_end, min_alignment);
         }
-        return st;
+        return offset;
     }
 
     fn eql(self: SegmentCommand, other: SegmentCommand) bool {
@@ -427,13 +357,6 @@ pub fn createLoadDylibCommand(
     return dylib_cmd;
 }
 
-fn makeStaticString(bytes: []const u8) [16]u8 {
-    var buf = [_]u8{0} ** 16;
-    assert(bytes.len <= buf.len);
-    mem.copy(u8, &buf, bytes);
-    return buf;
-}
-
 fn parseName(name: *const [16]u8) []const u8 {
     const len = mem.indexOfScalar(u8, name, @as(u8, 0)) orelse name.len;
     return name[0..len];
@@ -514,17 +437,14 @@ test "read-write segment command" {
     };
     var cmd = SegmentCommand{
         .inner = .{
-            .cmd = macho.LC_SEGMENT_64,
             .cmdsize = 152,
             .segname = makeStaticString("__TEXT"),
             .vmaddr = 4294967296,
             .vmsize = 294912,
-            .fileoff = 0,
             .filesize = 294912,
             .maxprot = macho.VM_PROT_READ | macho.VM_PROT_WRITE | macho.VM_PROT_EXECUTE,
             .initprot = macho.VM_PROT_EXECUTE | macho.VM_PROT_READ,
             .nsects = 1,
-            .flags = 0,
         },
     };
     try cmd.sections.append(gpa, .{
@@ -534,12 +454,7 @@ test "read-write segment command" {
         .size = 448,
         .offset = 16384,
         .@"align" = 2,
-        .reloff = 0,
-        .nreloc = 0,
         .flags = macho.S_REGULAR | macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS,
-        .reserved1 = 0,
-        .reserved2 = 0,
-        .reserved3 = 0,
     });
     defer cmd.deinit(gpa);
     try testRead(gpa, in_buffer, LoadCommand{ .Segment = cmd });

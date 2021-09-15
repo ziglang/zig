@@ -231,6 +231,7 @@ fn analyzeInst(
         .mul,
         .mulwrap,
         .div,
+        .rem,
         .ptr_add,
         .ptr_sub,
         .bit_and,
@@ -286,6 +287,7 @@ fn analyzeInst(
         .struct_field_ptr_index_1,
         .struct_field_ptr_index_2,
         .struct_field_ptr_index_3,
+        .array_to_slice,
         => {
             const o = inst_datas[inst].ty_op;
             return trackOperands(a, new_set, inst, main_tomb, .{ o.operand, .none, .none });
@@ -337,6 +339,10 @@ fn analyzeInst(
         .ptr_elem_ptr => {
             const extra = a.air.extraData(Air.Bin, inst_datas[inst].ty_pl.payload).data;
             return trackOperands(a, new_set, inst, main_tomb, .{ extra.lhs, extra.rhs, .none });
+        },
+        .cmpxchg_strong, .cmpxchg_weak => {
+            const extra = a.air.extraData(Air.Cmpxchg, inst_datas[inst].ty_pl.payload).data;
+            return trackOperands(a, new_set, inst, main_tomb, .{ extra.ptr, extra.expected_value, extra.new_value });
         },
         .br => {
             const br = inst_datas[inst].br;

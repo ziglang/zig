@@ -135,7 +135,7 @@ pub fn setThreadPointer(addr: usize) void {
             );
         },
         .x86_64 => {
-            const rc = std.os.linux.syscall2(.arch_prctl, std.os.linux.ARCH_SET_FS, addr);
+            const rc = std.os.linux.syscall2(.arch_prctl, std.os.linux.ARCH.SET_FS, addr);
             assert(rc == 0);
         },
         .aarch64 => {
@@ -319,8 +319,8 @@ pub fn initStaticTLS(phdrs: []elf.Phdr) void {
         const alloc_tls_area = os.mmap(
             null,
             tls_image.alloc_size + tls_image.alloc_align - 1,
-            os.PROT_READ | os.PROT_WRITE,
-            os.MAP_PRIVATE | os.MAP_ANONYMOUS,
+            os.PROT.READ | os.PROT.WRITE,
+            os.MAP.PRIVATE | os.MAP.ANONYMOUS,
             -1,
             0,
         ) catch os.abort();

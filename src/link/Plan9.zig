@@ -36,7 +36,7 @@ hdr: aout.ExecHdr = undefined,
 
 entry_val: ?u64 = null,
 
-got_len: u64 = 0,
+got_len: usize = 0,
 
 const Bases = struct {
     text: u64,
@@ -243,7 +243,7 @@ pub fn flushModule(self: *Plan9, comp: *Compilation) !void {
     const hdr_slice: []u8 = hdr_buf[0..hdr_size];
     var foff = hdr_size;
     iovecs[0] = .{ .iov_base = hdr_slice.ptr, .iov_len = hdr_slice.len };
-    var iovecs_i: u64 = 1;
+    var iovecs_i: usize = 1;
     var text_i: u64 = 0;
     // text
     {

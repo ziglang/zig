@@ -809,6 +809,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     .mul           => try self.airMul(inst),
                     .mulwrap       => try self.airMulWrap(inst),
                     .div           => try self.airDiv(inst),
+                    .rem           => try self.airRem(inst),
 
                     .cmp_lt  => try self.airCmp(inst, .lt),
                     .cmp_lte => try self.airCmp(inst, .lte),
@@ -855,6 +856,9 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     .store           => try self.airStore(inst),
                     .struct_field_ptr=> try self.airStructFieldPtr(inst),
                     .struct_field_val=> try self.airStructFieldVal(inst),
+                    .array_to_slice  => try self.airArrayToSlice(inst),
+                    .cmpxchg_strong  => try self.airCmpxchg(inst),
+                    .cmpxchg_weak    => try self.airCmpxchg(inst),
 
                     .struct_field_ptr_index_0 => try self.airStructFieldPtrIndex(inst, 0),
                     .struct_field_ptr_index_1 => try self.airStructFieldPtrIndex(inst, 1),
@@ -898,7 +902,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         fn dbgSetPrologueEnd(self: *Self) InnerError!void {
             switch (self.debug_output) {
                 .dwarf => |dbg_out| {
-                    try dbg_out.dbg_line.append(DW.LNS_set_prologue_end);
+                    try dbg_out.dbg_line.append(DW.LNS.set_prologue_end);
                     try self.dbgAdvancePCAndLine(self.prev_di_line, self.prev_di_column);
                 },
                 .none => {},
@@ -908,7 +912,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         fn dbgSetEpilogueBegin(self: *Self) InnerError!void {
             switch (self.debug_output) {
                 .dwarf => |dbg_out| {
-                    try dbg_out.dbg_line.append(DW.LNS_set_epilogue_begin);
+                    try dbg_out.dbg_line.append(DW.LNS.set_epilogue_begin);
                     try self.dbgAdvancePCAndLine(self.prev_di_line, self.prev_di_column);
                 },
                 .none => {},
@@ -924,13 +928,13 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     // It lets you emit single-byte opcodes that add different numbers to
                     // both the PC and the line number at the same time.
                     try dbg_out.dbg_line.ensureUnusedCapacity(11);
-                    dbg_out.dbg_line.appendAssumeCapacity(DW.LNS_advance_pc);
+                    dbg_out.dbg_line.appendAssumeCapacity(DW.LNS.advance_pc);
                     leb128.writeULEB128(dbg_out.dbg_line.writer(), delta_pc) catch unreachable;
                     if (delta_line != 0) {
-                        dbg_out.dbg_line.appendAssumeCapacity(DW.LNS_advance_line);
+                        dbg_out.dbg_line.appendAssumeCapacity(DW.LNS.advance_line);
                         leb128.writeILEB128(dbg_out.dbg_line.writer(), delta_line) catch unreachable;
                     }
-                    dbg_out.dbg_line.appendAssumeCapacity(DW.LNS_copy);
+                    dbg_out.dbg_line.appendAssumeCapacity(DW.LNS.copy);
                 },
                 .none => {},
             }
@@ -1009,7 +1013,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .dwarf => |dbg_out| {
                     assert(ty.hasCodeGenBits());
                     const index = dbg_out.dbg_info.items.len;
-                    try dbg_out.dbg_info.resize(index + 4); // DW.AT_type,  DW.FORM_ref4
+                    try dbg_out.dbg_info.resize(index + 4); // DW.AT.type,  DW.FORM.ref4
 
                     const gop = try dbg_out.dbg_info_type_relocs.getOrPut(self.gpa, ty);
                     if (!gop.found_existing) {
@@ -1262,6 +1266,14 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             const bin_op = self.air.instructions.items(.data)[inst].bin_op;
             const result: MCValue = if (self.liveness.isUnused(inst)) .dead else switch (arch) {
                 else => return self.fail("TODO implement div for {}", .{self.target.cpu.arch}),
+            };
+            return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
+        }
+
+        fn airRem(self: *Self, inst: Air.Inst.Index) !void {
+            const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+            const result: MCValue = if (self.liveness.isUnused(inst)) .dead else switch (arch) {
+                else => return self.fail("TODO implement rem for {}", .{self.target.cpu.arch}),
             };
             return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
         }
@@ -2429,13 +2441,13 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         .dwarf => |dbg_out| {
                             try dbg_out.dbg_info.ensureCapacity(dbg_out.dbg_info.items.len + 3);
                             dbg_out.dbg_info.appendAssumeCapacity(link.File.Elf.abbrev_parameter);
-                            dbg_out.dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT_location, DW.FORM_exprloc
+                            dbg_out.dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
                                 1, // ULEB128 dwarf expression length
                                 reg.dwarfLocOp(),
                             });
                             try dbg_out.dbg_info.ensureCapacity(dbg_out.dbg_info.items.len + 5 + name_with_null.len);
-                            try self.addDbgInfoTypeReloc(ty); // DW.AT_type,  DW.FORM_ref4
-                            dbg_out.dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT_name, DW.FORM_string
+                            try self.addDbgInfoTypeReloc(ty); // DW.AT.type,  DW.FORM.ref4
+                            dbg_out.dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT.name, DW.FORM.string
                         },
                         .none => {},
                     }
@@ -2458,15 +2470,15 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                     var counting_writer = std.io.countingWriter(std.io.null_writer);
                                     leb128.writeILEB128(counting_writer.writer(), adjusted_stack_offset) catch unreachable;
 
-                                    // DW.AT_location, DW.FORM_exprloc
+                                    // DW.AT.location, DW.FORM.exprloc
                                     // ULEB128 dwarf expression length
                                     try leb128.writeULEB128(dbg_out.dbg_info.writer(), counting_writer.bytes_written + 1);
-                                    try dbg_out.dbg_info.append(DW.OP_breg11);
+                                    try dbg_out.dbg_info.append(DW.OP.breg11);
                                     try leb128.writeILEB128(dbg_out.dbg_info.writer(), adjusted_stack_offset);
 
                                     try dbg_out.dbg_info.ensureCapacity(dbg_out.dbg_info.items.len + 5 + name_with_null.len);
-                                    try self.addDbgInfoTypeReloc(ty); // DW.AT_type,  DW.FORM_ref4
-                                    dbg_out.dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT_name, DW.FORM_string
+                                    try self.addDbgInfoTypeReloc(ty); // DW.AT.type,  DW.FORM.ref4
+                                    dbg_out.dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT.name, DW.FORM.string
                                 },
                                 else => {},
                             }
@@ -2806,24 +2818,21 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 if (self.air.value(callee)) |func_value| {
                     if (func_value.castTag(.function)) |func_payload| {
                         const func = func_payload.data;
-                        const got_addr = blk: {
-                            const seg = macho_file.load_commands.items[macho_file.data_const_segment_cmd_index.?].Segment;
-                            const got = seg.sections.items[macho_file.got_section_index.?];
-                            const got_index = macho_file.got_entries_map.get(.{
-                                .where = .local,
-                                .where_index = func.owner_decl.link.macho.local_sym_index,
-                            }) orelse unreachable;
-                            break :blk got.addr + got_index * @sizeOf(u64);
-                        };
+                        // TODO I'm hacking my way through here by repurposing .memory for storing
+                        // index to the GOT target symbol index.
                         switch (arch) {
                             .x86_64 => {
-                                try self.genSetReg(Type.initTag(.u64), .rax, .{ .memory = got_addr });
+                                try self.genSetReg(Type.initTag(.u64), .rax, .{
+                                    .memory = func.owner_decl.link.macho.local_sym_index,
+                                });
                                 // callq *%rax
                                 try self.code.ensureCapacity(self.code.items.len + 2);
                                 self.code.appendSliceAssumeCapacity(&[2]u8{ 0xff, 0xd0 });
                             },
                             .aarch64 => {
-                                try self.genSetReg(Type.initTag(.u64), .x30, .{ .memory = got_addr });
+                                try self.genSetReg(Type.initTag(.u64), .x30, .{
+                                    .memory = func.owner_decl.link.macho.local_sym_index,
+                                });
                                 // blr x30
                                 writeInt(u32, try self.code.addManyAsArray(4), Instruction.blr(.x30).toU32());
                             },
@@ -4335,29 +4344,20 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             }).toU32());
 
                             if (self.bin_file.cast(link.File.MachO)) |macho_file| {
-                                // TODO this is super awkward. We are reversing the address of the GOT entry here.
-                                // We should probably have it cached or move the reloc adding somewhere else.
-                                const got_addr = blk: {
-                                    const seg = macho_file.load_commands.items[macho_file.data_const_segment_cmd_index.?].Segment;
-                                    const got = seg.sections.items[macho_file.got_section_index.?];
-                                    break :blk got.addr;
-                                };
-                                const where_index = blk: for (macho_file.got_entries.items) |key, id| {
-                                    if (got_addr + id * @sizeOf(u64) == addr) break :blk key.where_index;
-                                } else unreachable;
+                                // TODO I think the reloc might be in the wrong place.
                                 const decl = macho_file.active_decl.?;
                                 // Page reloc for adrp instruction.
                                 try decl.link.macho.relocs.append(self.bin_file.allocator, .{
                                     .offset = offset,
                                     .where = .local,
-                                    .where_index = where_index,
+                                    .where_index = @intCast(u32, addr),
                                     .payload = .{ .page = .{ .kind = .got } },
                                 });
                                 // Pageoff reloc for adrp instruction.
                                 try decl.link.macho.relocs.append(self.bin_file.allocator, .{
                                     .offset = offset + 4,
                                     .where = .local,
-                                    .where_index = where_index,
+                                    .where_index = @intCast(u32, addr),
                                     .payload = .{ .page_off = .{ .kind = .got } },
                                 });
                             } else {
@@ -4618,22 +4618,13 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             const offset = @intCast(u32, self.code.items.len);
 
                             if (self.bin_file.cast(link.File.MachO)) |macho_file| {
-                                // TODO this is super awkward. We are reversing the address of the GOT entry here.
-                                // We should probably have it cached or move the reloc adding somewhere else.
-                                const got_addr = blk: {
-                                    const seg = macho_file.load_commands.items[macho_file.data_const_segment_cmd_index.?].Segment;
-                                    const got = seg.sections.items[macho_file.got_section_index.?];
-                                    break :blk got.addr;
-                                };
-                                const where_index = blk: for (macho_file.got_entries.items) |key, id| {
-                                    if (got_addr + id * @sizeOf(u64) == x) break :blk key.where_index;
-                                } else unreachable;
+                                // TODO I think the reloc might be in the wrong place.
                                 const decl = macho_file.active_decl.?;
                                 // Load reloc for LEA instruction.
                                 try decl.link.macho.relocs.append(self.bin_file.allocator, .{
                                     .offset = offset - 4,
                                     .where = .local,
-                                    .where_index = where_index,
+                                    .where_index = @intCast(u32, x),
                                     .payload = .{ .load = .{ .kind = .got } },
                                 });
                             } else {
@@ -4752,6 +4743,27 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
         }
 
+        fn airArrayToSlice(self: *Self, inst: Air.Inst.Index) !void {
+            const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+            const result: MCValue = if (self.liveness.isUnused(inst)) .dead else switch (arch) {
+                else => return self.fail("TODO implement airArrayToSlice for {}", .{
+                    self.target.cpu.arch,
+                }),
+            };
+            return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+        }
+
+        fn airCmpxchg(self: *Self, inst: Air.Inst.Index) !void {
+            const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+            const extra = self.air.extraData(Air.Block, ty_pl.payload);
+            const result: MCValue = switch (arch) {
+                else => return self.fail("TODO implement airCmpxchg for {}", .{
+                    self.target.cpu.arch,
+                }),
+            };
+            return self.finishAir(inst, result, .{ extra.ptr, extra.expected_value, extra.new_value });
+        }
+
         fn resolveInst(self: *Self, inst: Air.Inst.Ref) InnerError!MCValue {
             // First section of indexes correspond to a set number of constant values.
             const ref_int = @enumToInt(inst);
@@ -4849,17 +4861,10 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 const got = &elf_file.program_headers.items[elf_file.phdr_got_index.?];
                                 const got_addr = got.p_vaddr + decl.link.elf.offset_table_index * ptr_bytes;
                                 return MCValue{ .memory = got_addr };
-                            } else if (self.bin_file.cast(link.File.MachO)) |macho_file| {
-                                const got_addr = blk: {
-                                    const seg = macho_file.load_commands.items[macho_file.data_const_segment_cmd_index.?].Segment;
-                                    const got = seg.sections.items[macho_file.got_section_index.?];
-                                    const got_index = macho_file.got_entries_map.get(.{
-                                        .where = .local,
-                                        .where_index = decl.link.macho.local_sym_index,
-                                    }) orelse unreachable;
-                                    break :blk got.addr + got_index * ptr_bytes;
-                                };
-                                return MCValue{ .memory = got_addr };
+                            } else if (self.bin_file.cast(link.File.MachO)) |_| {
+                                // TODO I'm hacking my way through here by repurposing .memory for storing
+                                // index to the GOT target symbol index.
+                                return MCValue{ .memory = decl.link.macho.local_sym_index };
                             } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
                                 const got_addr = coff_file.offset_table_virtual_address + decl.link.coff.offset_table_index * ptr_bytes;
                                 return MCValue{ .memory = got_addr };

@@ -989,8 +989,13 @@ pub const Builder = struct {
         self.getInstallStep().dependOn(&self.addInstallFileWithDir(.{ .path = src_path }, .lib, dest_rel_path).step);
     }
 
+    /// Output format (BIN vs Intel HEX) determined by filename
     pub fn installRaw(self: *Builder, artifact: *LibExeObjStep, dest_filename: []const u8) void {
         self.getInstallStep().dependOn(&self.addInstallRaw(artifact, dest_filename).step);
+    }
+
+    pub fn installRawWithFormat(self: *Builder, artifact: *LibExeObjStep, dest_filename: []const u8, format: InstallRawStep.RawFormat) void {
+        self.getInstallStep().dependOn(&self.addInstallRawWithFormat(artifact, dest_filename, format).step);
     }
 
     ///`dest_rel_path` is relative to install prefix path
@@ -1009,7 +1014,11 @@ pub const Builder = struct {
     }
 
     pub fn addInstallRaw(self: *Builder, artifact: *LibExeObjStep, dest_filename: []const u8) *InstallRawStep {
-        return InstallRawStep.create(self, artifact, dest_filename);
+        return InstallRawStep.create(self, artifact, dest_filename, null);
+    }
+
+    pub fn addInstallRawWithFormat(self: *Builder, artifact: *LibExeObjStep, dest_filename: []const u8, format: InstallRawStep.RawFormat) *InstallRawStep {
+        return InstallRawStep.create(self, artifact, dest_filename, format);
     }
 
     pub fn addInstallFileWithDir(
@@ -1707,6 +1716,10 @@ pub const LibExeObjStep = struct {
 
     pub fn installRaw(self: *LibExeObjStep, dest_filename: []const u8) void {
         self.builder.installRaw(self, dest_filename);
+    }
+
+    pub fn installRawWithFormat(self: *LibExeObjStep, dest_filename: []const u8, format: InstallRawStep.RawFormat) void {
+        self.builder.installRawWithFormat(self, dest_filename, format);
     }
 
     /// Creates a `RunStep` with an executable built with `addExecutable`.
@@ -2536,7 +2549,22 @@ pub const LibExeObjStep = struct {
                     } else {
                         try zig_args.append("-isystem");
                     }
-                    try zig_args.append(self.builder.pathFromRoot(include_path));
+
+                    const resolved_include_path = self.builder.pathFromRoot(include_path);
+
+                    const common_include_path = if (std.Target.current.os.tag == .windows and builder.sysroot != null and fs.path.isAbsolute(resolved_include_path)) blk: {
+                        // We need to check for disk designator and strip it out from dir path so
+                        // that zig/clang can concat resolved_include_path with sysroot.
+                        const disk_designator = fs.path.diskDesignatorWindows(resolved_include_path);
+
+                        if (mem.indexOf(u8, resolved_include_path, disk_designator)) |where| {
+                            break :blk resolved_include_path[where + disk_designator.len ..];
+                        }
+
+                        break :blk resolved_include_path;
+                    } else resolved_include_path;
+
+                    try zig_args.append(common_include_path);
                 },
                 .other_step => |other| if (other.emit_h) {
                     const h_path = other.getOutputHSource().getPath(self.builder);

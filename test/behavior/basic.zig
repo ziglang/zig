@@ -162,3 +162,11 @@ fn fA() []const u8 {
 fn fB() []const u8 {
     return "b";
 }
+
+test "string concatenation" {
+    try expect(mem.eql(u8, "OK" ++ " IT " ++ "WORKED", "OK IT WORKED"));
+}
+
+test "array mult operator" {
+    try expect(mem.eql(u8, "ab" ** 5, "ababababab"));
+}

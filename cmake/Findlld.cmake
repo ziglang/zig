@@ -11,6 +11,8 @@ find_path(LLD_INCLUDE_DIRS NAMES lld/Common/Driver.h
         /usr/lib/llvm-13/include
         /usr/local/llvm130/include
         /usr/local/llvm13/include
+        /usr/local/opt/llvm@13/include
+        /opt/homebrew/opt/llvm@13/include
         /mingw64/include)
 
 find_library(LLD_LIBRARY NAMES lld-13.0 lld130 lld
@@ -18,6 +20,8 @@ find_library(LLD_LIBRARY NAMES lld-13.0 lld130 lld
         /usr/lib/llvm-13/lib
         /usr/local/llvm130/lib
         /usr/local/llvm13/lib
+        /usr/local/opt/llvm@13/lib
+        /opt/homebrew/opt/llvm@13/lib
 )
 if(EXISTS ${LLD_LIBRARY})
     set(LLD_LIBRARIES ${LLD_LIBRARY})
@@ -30,6 +34,8 @@ else()
                 /usr/lib/llvm-13/lib
                 /usr/local/llvm130/lib
                 /usr/local/llvm13/lib
+                /usr/local/opt/llvm@13/lib
+                /opt/homebrew/opt/llvm@13/lib
                 /mingw64/lib
                 /c/msys64/mingw64/lib
                 c:/msys64/mingw64/lib)

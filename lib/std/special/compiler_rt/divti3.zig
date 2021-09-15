@@ -23,6 +23,6 @@ pub fn __divti3_windows_x86_64(a: v128, b: v128) callconv(.C) v128 {
     }));
 }
 
-test "import divti3" {
+test {
     _ = @import("divti3_test.zig");
 }

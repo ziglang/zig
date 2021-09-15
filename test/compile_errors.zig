@@ -243,9 +243,9 @@ pub fn addCases(ctx: *TestContext) !void {
 
     ctx.objErrStage1("array in c exported function",
         \\export fn zig_array(x: [10]u8) void {
-        \\try expect(std.mem.eql(u8, &x, "1234567890"));
+        \\    try std.testing.expect(std.mem.eql(u8, &x, "1234567890"));
         \\}
-        \\
+        \\const std = @import("std");
         \\export fn zig_return_array() [10]u8 {
         \\    return "1234567890".*;
         \\}
@@ -2787,6 +2787,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = msg; _ = error_return_trace;
         \\    while (true) {}
         \\}
+        \\const builtin = @import("std").builtin;
     , &[_][]const u8{
         "error: expected type 'fn([]const u8, ?*std.builtin.StackTrace) noreturn', found 'fn([]const u8,anytype) anytype'",
         "note: only one of the functions is generic",
@@ -2832,6 +2833,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    var s: Foo = Foo.E;
         \\    _ = s;
         \\}
+        \\const D = 1;
     , &[_][]const u8{
         "tmp.zig:1:17: error: enum 'Foo' depends on itself",
     });
@@ -8837,5 +8839,23 @@ pub fn addCases(ctx: *TestContext) !void {
         "tmp.zig:4:19: error: mutable 'T' not accessible from here",
         "tmp.zig:2:9: note: declared mutable here",
         "tmp.zig:3:12: note: crosses namespace boundary here",
+    });
+
+    ctx.objErrStage1("Issue #9619: saturating arithmetic builtins should fail to compile when given floats",
+        \\pub fn main() !void {
+        \\    _ = @addWithSaturation(@as(f32, 1.0), @as(f32, 1.0));
+        \\}
+    , &[_][]const u8{
+        "error: invalid operands to binary expression: 'f32' and 'f32'",
+    });
+
+    ctx.objErrStage1("undeclared identifier in unanalyzed branch",
+        \\export fn a() void {
+        \\    if (false) {
+        \\        lol_this_doesnt_exist = nonsense;
+        \\    }
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:3:9: error: use of undeclared identifier 'lol_this_doesnt_exist'",
     });
 }

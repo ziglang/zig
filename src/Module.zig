@@ -11,7 +11,7 @@ const log = std.log.scoped(.module);
 const BigIntConst = std.math.big.int.Const;
 const BigIntMutable = std.math.big.int.Mutable;
 const Target = std.Target;
-const ast = std.zig.ast;
+const Ast = std.zig.Ast;
 
 const Module = @This();
 const Compilation = @import("Compilation.zig");
@@ -291,7 +291,7 @@ pub const Decl = struct {
     generation: u32,
     /// The AST node index of this declaration.
     /// Must be recomputed when the corresponding source file is modified.
-    src_node: ast.Node.Index,
+    src_node: Ast.Node.Index,
     /// Line number corresponding to `src_node`. Stored separately so that source files
     /// do not need to be loaded into memory in order to compute debug line numbers.
     src_line: u32,
@@ -365,6 +365,8 @@ pub const Decl = struct {
     /// Decl is marked alive, then it sends the Decl to the linker. Otherwise it
     /// deletes the Decl on the spot.
     alive: bool,
+    /// Whether the Decl is a `usingnamespace` declaration.
+    is_usingnamespace: bool,
 
     /// Represents the position of the code in the output file.
     /// This is populated regardless of semantic analysis and code generation.
@@ -497,19 +499,19 @@ pub const Decl = struct {
         return decl.src_line + offset;
     }
 
-    pub fn relativeToNodeIndex(decl: Decl, offset: i32) ast.Node.Index {
-        return @bitCast(ast.Node.Index, offset + @bitCast(i32, decl.src_node));
+    pub fn relativeToNodeIndex(decl: Decl, offset: i32) Ast.Node.Index {
+        return @bitCast(Ast.Node.Index, offset + @bitCast(i32, decl.src_node));
     }
 
-    pub fn nodeIndexToRelative(decl: Decl, node_index: ast.Node.Index) i32 {
+    pub fn nodeIndexToRelative(decl: Decl, node_index: Ast.Node.Index) i32 {
         return @bitCast(i32, node_index) - @bitCast(i32, decl.src_node);
     }
 
-    pub fn tokSrcLoc(decl: Decl, token_index: ast.TokenIndex) LazySrcLoc {
+    pub fn tokSrcLoc(decl: Decl, token_index: Ast.TokenIndex) LazySrcLoc {
         return .{ .token_offset = token_index - decl.srcToken() };
     }
 
-    pub fn nodeSrcLoc(decl: Decl, node_index: ast.Node.Index) LazySrcLoc {
+    pub fn nodeSrcLoc(decl: Decl, node_index: Ast.Node.Index) LazySrcLoc {
         return .{ .node_offset = decl.nodeIndexToRelative(node_index) };
     }
 
@@ -525,7 +527,7 @@ pub const Decl = struct {
         };
     }
 
-    pub fn srcToken(decl: Decl) ast.TokenIndex {
+    pub fn srcToken(decl: Decl) Ast.TokenIndex {
         const tree = &decl.namespace.file_scope.tree;
         return tree.firstToken(decl.src_node);
     }
@@ -1008,6 +1010,11 @@ pub const Scope = struct {
 
         anon_decls: std.AutoArrayHashMapUnmanaged(*Decl, void) = .{},
 
+        /// Key is usingnamespace Decl itself. To find the namespace being included,
+        /// the Decl Value has to be resolved as a Type which has a Namespace.
+        /// Value is whether the usingnamespace decl is marked `pub`.
+        usingnamespace_set: std.AutoHashMapUnmanaged(*Decl, bool) = .{},
+
         pub fn deinit(ns: *Namespace, mod: *Module) void {
             ns.destroyDecls(mod);
             ns.* = undefined;
@@ -1114,7 +1121,7 @@ pub const Scope = struct {
         /// Whether this is populated depends on `status`.
         stat_mtime: i128,
         /// Whether this is populated or not depends on `tree_loaded`.
-        tree: ast.Tree,
+        tree: Ast,
         /// Whether this is populated or not depends on `zir_loaded`.
         zir: Zir,
         /// Package that this file is a part of, managed externally.
@@ -1213,7 +1220,7 @@ pub const Scope = struct {
             return source;
         }
 
-        pub fn getTree(file: *File, gpa: *Allocator) !*const ast.Tree {
+        pub fn getTree(file: *File, gpa: *Allocator) !*const Ast {
             if (file.tree_loaded) return &file.tree;
 
             const source = try file.getSource(gpa);
@@ -1314,6 +1321,7 @@ pub const Scope = struct {
         /// It is shared among all the blocks in an inline or comptime called
         /// function.
         pub const Inlining = struct {
+            comptime_result: Air.Inst.Ref,
             merges: Merges,
         };
 
@@ -1558,17 +1566,17 @@ pub const ErrorMsg = struct {
 pub const SrcLoc = struct {
     file_scope: *Scope.File,
     /// Might be 0 depending on tag of `lazy`.
-    parent_decl_node: ast.Node.Index,
+    parent_decl_node: Ast.Node.Index,
     /// Relative to `parent_decl_node`.
     lazy: LazySrcLoc,
 
-    pub fn declSrcToken(src_loc: SrcLoc) ast.TokenIndex {
+    pub fn declSrcToken(src_loc: SrcLoc) Ast.TokenIndex {
         const tree = src_loc.file_scope.tree;
         return tree.firstToken(src_loc.parent_decl_node);
     }
 
-    pub fn declRelativeToNodeIndex(src_loc: SrcLoc, offset: i32) ast.TokenIndex {
-        return @bitCast(ast.Node.Index, offset + @bitCast(i32, src_loc.parent_decl_node));
+    pub fn declRelativeToNodeIndex(src_loc: SrcLoc, offset: i32) Ast.TokenIndex {
+        return @bitCast(Ast.Node.Index, offset + @bitCast(i32, src_loc.parent_decl_node));
     }
 
     pub fn byteOffset(src_loc: SrcLoc, gpa: *Allocator) !u32 {
@@ -1636,36 +1644,12 @@ pub const SrcLoc = struct {
                 const token_starts = tree.tokens.items(.start);
                 return token_starts[tok_index];
             },
-            .node_offset_builtin_call_arg0 => |node_off| {
-                const tree = try src_loc.file_scope.getTree(gpa);
-                const node_datas = tree.nodes.items(.data);
-                const node_tags = tree.nodes.items(.tag);
-                const node = src_loc.declRelativeToNodeIndex(node_off);
-                const param = switch (node_tags[node]) {
-                    .builtin_call_two, .builtin_call_two_comma => node_datas[node].lhs,
-                    .builtin_call, .builtin_call_comma => tree.extra_data[node_datas[node].lhs],
-                    else => unreachable,
-                };
-                const main_tokens = tree.nodes.items(.main_token);
-                const tok_index = main_tokens[param];
-                const token_starts = tree.tokens.items(.start);
-                return token_starts[tok_index];
-            },
-            .node_offset_builtin_call_arg1 => |node_off| {
-                const tree = try src_loc.file_scope.getTree(gpa);
-                const node_datas = tree.nodes.items(.data);
-                const node_tags = tree.nodes.items(.tag);
-                const node = src_loc.declRelativeToNodeIndex(node_off);
-                const param = switch (node_tags[node]) {
-                    .builtin_call_two, .builtin_call_two_comma => node_datas[node].rhs,
-                    .builtin_call, .builtin_call_comma => tree.extra_data[node_datas[node].lhs + 1],
-                    else => unreachable,
-                };
-                const main_tokens = tree.nodes.items(.main_token);
-                const tok_index = main_tokens[param];
-                const token_starts = tree.tokens.items(.start);
-                return token_starts[tok_index];
-            },
+            .node_offset_builtin_call_arg0 => |n| return src_loc.byteOffsetBuiltinCallArg(gpa, n, 0),
+            .node_offset_builtin_call_arg1 => |n| return src_loc.byteOffsetBuiltinCallArg(gpa, n, 1),
+            .node_offset_builtin_call_arg2 => |n| return src_loc.byteOffsetBuiltinCallArg(gpa, n, 2),
+            .node_offset_builtin_call_arg3 => |n| return src_loc.byteOffsetBuiltinCallArg(gpa, n, 3),
+            .node_offset_builtin_call_arg4 => |n| return src_loc.byteOffsetBuiltinCallArg(gpa, n, 4),
+            .node_offset_builtin_call_arg5 => |n| return src_loc.byteOffsetBuiltinCallArg(gpa, n, 5),
             .node_offset_array_access_index => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node_datas = tree.nodes.items(.data);
@@ -1694,7 +1678,7 @@ pub const SrcLoc = struct {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node_tags = tree.nodes.items(.tag);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
-                var params: [1]ast.Node.Index = undefined;
+                var params: [1]Ast.Node.Index = undefined;
                 const full = switch (node_tags[node]) {
                     .call_one,
                     .call_one_comma,
@@ -1824,7 +1808,7 @@ pub const SrcLoc = struct {
                 const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
                 const main_tokens = tree.nodes.items(.main_token);
-                const extra = tree.extraData(node_datas[switch_node].rhs, ast.Node.SubRange);
+                const extra = tree.extraData(node_datas[switch_node].rhs, Ast.Node.SubRange);
                 const case_nodes = tree.extra_data[extra.start..extra.end];
                 for (case_nodes) |case_node| {
                     const case = switch (node_tags[case_node]) {
@@ -1850,7 +1834,7 @@ pub const SrcLoc = struct {
                 const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
                 const main_tokens = tree.nodes.items(.main_token);
-                const extra = tree.extraData(node_datas[switch_node].rhs, ast.Node.SubRange);
+                const extra = tree.extraData(node_datas[switch_node].rhs, Ast.Node.SubRange);
                 const case_nodes = tree.extra_data[extra.start..extra.end];
                 for (case_nodes) |case_node| {
                     const case = switch (node_tags[case_node]) {
@@ -1879,7 +1863,7 @@ pub const SrcLoc = struct {
                 const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
-                var params: [1]ast.Node.Index = undefined;
+                var params: [1]Ast.Node.Index = undefined;
                 const full = switch (node_tags[node]) {
                     .fn_proto_simple => tree.fnProtoSimple(&params, node),
                     .fn_proto_multi => tree.fnProtoMulti(node),
@@ -1904,7 +1888,7 @@ pub const SrcLoc = struct {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node_tags = tree.nodes.items(.tag);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
-                var params: [1]ast.Node.Index = undefined;
+                var params: [1]Ast.Node.Index = undefined;
                 const full = switch (node_tags[node]) {
                     .fn_proto_simple => tree.fnProtoSimple(&params, node),
                     .fn_proto_multi => tree.fnProtoMulti(node),
@@ -1934,7 +1918,7 @@ pub const SrcLoc = struct {
                 const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
                 const parent_node = src_loc.declRelativeToNodeIndex(node_off);
-                var params: [1]ast.Node.Index = undefined;
+                var params: [1]Ast.Node.Index = undefined;
                 const full = switch (node_tags[parent_node]) {
                     .fn_proto_simple => tree.fnProtoSimple(&params, parent_node),
                     .fn_proto_multi => tree.fnProtoMulti(parent_node),
@@ -1957,6 +1941,31 @@ pub const SrcLoc = struct {
                 return token_starts[tok_index];
             },
         }
+    }
+
+    pub fn byteOffsetBuiltinCallArg(
+        src_loc: SrcLoc,
+        gpa: *Allocator,
+        node_off: i32,
+        arg_index: u32,
+    ) !u32 {
+        const tree = try src_loc.file_scope.getTree(gpa);
+        const node_datas = tree.nodes.items(.data);
+        const node_tags = tree.nodes.items(.tag);
+        const node = src_loc.declRelativeToNodeIndex(node_off);
+        const param = switch (node_tags[node]) {
+            .builtin_call_two, .builtin_call_two_comma => switch (arg_index) {
+                0 => node_datas[node].lhs,
+                1 => node_datas[node].rhs,
+                else => unreachable,
+            },
+            .builtin_call, .builtin_call_comma => tree.extra_data[node_datas[node].lhs + arg_index],
+            else => unreachable,
+        };
+        const main_tokens = tree.nodes.items(.main_token);
+        const tok_index = main_tokens[param];
+        const token_starts = tree.tokens.items(.start);
+        return token_starts[tok_index];
     }
 };
 
@@ -2025,6 +2034,10 @@ pub const LazySrcLoc = union(enum) {
     node_offset_builtin_call_arg0: i32,
     /// Same as `node_offset_builtin_call_arg0` except arg index 1.
     node_offset_builtin_call_arg1: i32,
+    node_offset_builtin_call_arg2: i32,
+    node_offset_builtin_call_arg3: i32,
+    node_offset_builtin_call_arg4: i32,
+    node_offset_builtin_call_arg5: i32,
     /// The source location points to the index expression of an array access
     /// expression, found by taking this AST node index offset from the containing
     /// Decl AST node, which points to an array access AST node. Next, navigate
@@ -2150,6 +2163,10 @@ pub const LazySrcLoc = union(enum) {
             .node_offset_for_cond,
             .node_offset_builtin_call_arg0,
             .node_offset_builtin_call_arg1,
+            .node_offset_builtin_call_arg2,
+            .node_offset_builtin_call_arg3,
+            .node_offset_builtin_call_arg4,
+            .node_offset_builtin_call_arg5,
             .node_offset_array_access_index,
             .node_offset_slice_sentinel,
             .node_offset_call_func,
@@ -2198,6 +2215,10 @@ pub const LazySrcLoc = union(enum) {
             .node_offset_for_cond,
             .node_offset_builtin_call_arg0,
             .node_offset_builtin_call_arg1,
+            .node_offset_builtin_call_arg2,
+            .node_offset_builtin_call_arg3,
+            .node_offset_builtin_call_arg4,
+            .node_offset_builtin_call_arg5,
             .node_offset_array_access_index,
             .node_offset_slice_sentinel,
             .node_offset_call_func,
@@ -2239,6 +2260,9 @@ pub const CompileError = error{
     /// because the function is generic. This is only seen when analyzing the body of a param
     /// instruction.
     GenericPoison,
+    /// In a comptime scope, a return instruction was encountered. This error is only seen when
+    /// doing a comptime function call.
+    ComptimeReturn,
 };
 
 pub fn deinit(mod: *Module) void {
@@ -3174,6 +3198,31 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
     errdefer decl_arena.deinit();
     const decl_arena_state = try decl_arena.allocator.create(std.heap.ArenaAllocator.State);
 
+    if (decl.is_usingnamespace) {
+        const ty_ty = Type.initTag(.type);
+        if (!decl_tv.ty.eql(ty_ty)) {
+            return mod.fail(&block_scope.base, src, "expected type, found {}", .{decl_tv.ty});
+        }
+        var buffer: Value.ToTypeBuffer = undefined;
+        const ty = decl_tv.val.toType(&buffer);
+        if (ty.getNamespace() == null) {
+            return mod.fail(&block_scope.base, src, "type {} has no namespace", .{ty});
+        }
+
+        decl.ty = ty_ty;
+        decl.val = try Value.Tag.ty.create(&decl_arena.allocator, ty);
+        decl.align_val = Value.initTag(.null_value);
+        decl.linksection_val = Value.initTag(.null_value);
+        decl.has_tv = true;
+        decl.owns_tv = false;
+        decl_arena_state.* = decl_arena.state;
+        decl.value_arena = decl_arena_state;
+        decl.analysis = .complete;
+        decl.generation = mod.generation;
+
+        return true;
+    }
+
     if (decl_tv.val.castTag(.function)) |fn_payload| {
         const func = fn_payload.data;
         const owns_tv = func.owner_decl == decl;
@@ -3269,16 +3318,13 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
         if (type_changed and mod.emit_h != null) {
             try mod.comp.work_queue.writeItem(.{ .emit_h_decl = decl });
         }
-    } else if (decl_tv.ty.zigTypeTag() == .Type) {
-        // In case this Decl is a struct or union, we need to resolve the fields
-        // while we still have the `Sema` in scope, so that the field type expressions
-        // can use the resolved AIR instructions that they possibly reference.
-        // We do this after the decl is populated and set to `complete` so that a `Decl`
-        // may reference itself.
-        var buffer: Value.ToTypeBuffer = undefined;
-        const ty = decl.val.toType(&buffer);
-        try sema.resolveDeclFields(&block_scope, src, ty);
     }
+    // In case this Decl is a struct or union, we need to resolve the fields
+    // while we still have the `Sema` in scope, so that the field type expressions
+    // can use the resolved AIR instructions that they possibly reference.
+    // We do this after the decl is populated and set to `complete` so that a `Decl`
+    // may reference itself.
+    try sema.resolvePendingTypes(&block_scope);
 
     if (decl.is_exported) {
         const export_src = src; // TODO point to the export token
@@ -3494,7 +3540,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) SemaError!voi
 
     // zig fmt: off
     const is_pub          = (flags & 0b0001) != 0;
-    const is_exported     = (flags & 0b0010) != 0;
+    const export_bit      = (flags & 0b0010) != 0;
     const has_align       = (flags & 0b0100) != 0;
     const has_linksection = (flags & 0b1000) != 0;
     // zig fmt: on
@@ -3509,7 +3555,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) SemaError!voi
     var is_named_test = false;
     const decl_name: [:0]const u8 = switch (decl_name_index) {
         0 => name: {
-            if (is_exported) {
+            if (export_bit) {
                 const i = iter.usingnamespace_index;
                 iter.usingnamespace_index += 1;
                 break :name try std.fmt.allocPrintZ(gpa, "usingnamespace_{d}", .{i});
@@ -3535,11 +3581,17 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) SemaError!voi
             }
         },
     };
+    const is_exported = export_bit and decl_name_index != 0;
+    const is_usingnamespace = export_bit and decl_name_index == 0;
+    if (is_usingnamespace) try namespace.usingnamespace_set.ensureUnusedCapacity(gpa, 1);
 
     // We create a Decl for it regardless of analysis status.
     const gop = try namespace.decls.getOrPut(gpa, decl_name);
     if (!gop.found_existing) {
         const new_decl = try mod.allocateNewDecl(namespace, decl_node);
+        if (is_usingnamespace) {
+            namespace.usingnamespace_set.putAssumeCapacity(new_decl, is_pub);
+        }
         log.debug("scan new {*} ({s}) into {*}", .{ new_decl, decl_name, namespace });
         new_decl.src_line = line;
         new_decl.name = decl_name;
@@ -3548,7 +3600,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) SemaError!voi
         // test decls if in test mode, get analyzed.
         const decl_pkg = namespace.file_scope.pkg;
         const want_analysis = is_exported or switch (decl_name_index) {
-            0 => true, // comptime decl
+            0 => true, // comptime or usingnamespace decl
             1 => blk: {
                 // test decl with no name. Skip the part where we check against
                 // the test name filter.
@@ -3571,6 +3623,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) SemaError!voi
         }
         new_decl.is_pub = is_pub;
         new_decl.is_exported = is_exported;
+        new_decl.is_usingnamespace = is_usingnamespace;
         new_decl.has_align = has_align;
         new_decl.has_linksection = has_linksection;
         new_decl.zir_decl_index = @intCast(u32, decl_sub_index);
@@ -3587,6 +3640,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) SemaError!voi
 
     decl.is_pub = is_pub;
     decl.is_exported = is_exported;
+    decl.is_usingnamespace = is_usingnamespace;
     decl.has_align = has_align;
     decl.has_linksection = has_linksection;
     decl.zir_decl_index = @intCast(u32, decl_sub_index);
@@ -3891,8 +3945,10 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn) SemaError!Air {
     log.debug("set {s} to in_progress", .{decl.name});
 
     _ = sema.analyzeBody(&inner_block, fn_info.body) catch |err| switch (err) {
+        // TODO make these unreachable instead of @panic
         error.NeededSourceLocation => @panic("zig compiler bug: NeededSourceLocation"),
         error.GenericPoison => @panic("zig compiler bug: GenericPoison"),
+        error.ComptimeReturn => @panic("zig compiler bug: ComptimeReturn"),
         else => |e| return e,
     };
 
@@ -3930,7 +3986,7 @@ fn markOutdatedDecl(mod: *Module, decl: *Decl) !void {
     decl.analysis = .outdated;
 }
 
-pub fn allocateNewDecl(mod: *Module, namespace: *Scope.Namespace, src_node: ast.Node.Index) !*Decl {
+pub fn allocateNewDecl(mod: *Module, namespace: *Scope.Namespace, src_node: Ast.Node.Index) !*Decl {
     // If we have emit-h then we must allocate a bigger structure to store the emit-h state.
     const new_decl: *Decl = if (mod.emit_h != null) blk: {
         const parent_struct = try mod.gpa.create(DeclPlusEmitH);
@@ -3979,6 +4035,7 @@ pub fn allocateNewDecl(mod: *Module, namespace: *Scope.Namespace, src_node: ast.
         .has_linksection = false,
         .has_align = false,
         .alive = false,
+        .is_usingnamespace = false,
     };
     return new_decl;
 }
@@ -4199,7 +4256,7 @@ pub fn fail(
 pub fn failTok(
     mod: *Module,
     scope: *Scope,
-    token_index: ast.TokenIndex,
+    token_index: Ast.TokenIndex,
     comptime format: []const u8,
     args: anytype,
 ) CompileError {
@@ -4212,7 +4269,7 @@ pub fn failTok(
 pub fn failNode(
     mod: *Module,
     scope: *Scope,
-    node_index: ast.Node.Index,
+    node_index: Ast.Node.Index,
     comptime format: []const u8,
     args: anytype,
 ) CompileError {
@@ -4417,7 +4474,7 @@ pub const SwitchProngSrc = union(enum) {
         const main_tokens = tree.nodes.items(.main_token);
         const node_datas = tree.nodes.items(.data);
         const node_tags = tree.nodes.items(.tag);
-        const extra = tree.extraData(node_datas[switch_node].rhs, ast.Node.SubRange);
+        const extra = tree.extraData(node_datas[switch_node].rhs, Ast.Node.SubRange);
         const case_nodes = tree.extra_data[extra.start..extra.end];
 
         var multi_i: u32 = 0;
@@ -4496,7 +4553,6 @@ pub const PeerTypeCandidateSrc = union(enum) {
         self: PeerTypeCandidateSrc,
         gpa: *Allocator,
         decl: *Decl,
-        candidates: usize,
         candidate_i: usize,
     ) ?LazySrcLoc {
         @setCold(true);
@@ -4509,12 +4565,14 @@ pub const PeerTypeCandidateSrc = union(enum) {
                 return candidate_srcs[candidate_i];
             },
             .typeof_builtin_call_node_offset => |node_offset| {
-                if (candidates <= 2) {
-                    switch (candidate_i) {
-                        0 => return LazySrcLoc{ .node_offset_builtin_call_arg0 = node_offset },
-                        1 => return LazySrcLoc{ .node_offset_builtin_call_arg1 = node_offset },
-                        else => unreachable,
-                    }
+                switch (candidate_i) {
+                    0 => return LazySrcLoc{ .node_offset_builtin_call_arg0 = node_offset },
+                    1 => return LazySrcLoc{ .node_offset_builtin_call_arg1 = node_offset },
+                    2 => return LazySrcLoc{ .node_offset_builtin_call_arg2 = node_offset },
+                    3 => return LazySrcLoc{ .node_offset_builtin_call_arg3 = node_offset },
+                    4 => return LazySrcLoc{ .node_offset_builtin_call_arg4 = node_offset },
+                    5 => return LazySrcLoc{ .node_offset_builtin_call_arg5 = node_offset },
+                    else => {},
                 }
 
                 const tree = decl.namespace.file_scope.getTree(gpa) catch |err| {

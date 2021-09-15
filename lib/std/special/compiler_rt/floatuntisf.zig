@@ -56,6 +56,6 @@ pub fn __floatuntisf(arg: u128) callconv(.C) f32 {
     return @bitCast(f32, high | low);
 }
 
-test "import floatuntisf" {
+test {
     _ = @import("floatuntisf_test.zig");
 }

@@ -858,6 +858,7 @@ fn genBody(o: *Object, body: []const Air.Inst.Index) error{ AnalysisFail, OutOfM
             // TODO use a different strategy for div that communicates to the optimizer
             // that wrapping is UB.
             .div           => try airBinOp( o, inst, " / "),
+            .rem           => try airBinOp( o, inst, " % "),
 
             .cmp_eq  => try airBinOp(o, inst, " == "),
             .cmp_gt  => try airBinOp(o, inst, " > "),
@@ -909,6 +910,9 @@ fn genBody(o: *Object, body: []const Air.Inst.Index) error{ AnalysisFail, OutOfM
             .switch_br        => try airSwitchBr(o, inst),
             .wrap_optional    => try airWrapOptional(o, inst),
             .struct_field_ptr => try airStructFieldPtr(o, inst),
+            .array_to_slice   => try airArrayToSlice(o, inst),
+            .cmpxchg_weak     => try airCmpxchg(o, inst, "weak"),
+            .cmpxchg_strong   => try airCmpxchg(o, inst, "strong"),
 
             .struct_field_ptr_index_0 => try airStructFieldPtrIndex(o, inst, 0),
             .struct_field_ptr_index_1 => try airStructFieldPtrIndex(o, inst, 1),
@@ -1857,6 +1861,60 @@ fn airIsErr(
         try writer.print("{s}error {s} 0;\n", .{ deref_suffix, op_str });
     }
     return local;
+}
+
+fn airArrayToSlice(o: *Object, inst: Air.Inst.Index) !CValue {
+    if (o.liveness.isUnused(inst))
+        return CValue.none;
+
+    const inst_ty = o.air.typeOfIndex(inst);
+    const local = try o.allocLocal(inst_ty, .Const);
+    const ty_op = o.air.instructions.items(.data)[inst].ty_op;
+    const writer = o.writer();
+    const operand = try o.resolveInst(ty_op.operand);
+    const array_len = o.air.typeOf(ty_op.operand).elemType().arrayLen();
+
+    try writer.writeAll(" = { .ptr = ");
+    try o.writeCValue(writer, operand);
+    try writer.print(", .len = {d} }};\n", .{array_len});
+    return local;
+}
+
+fn airCmpxchg(o: *Object, inst: Air.Inst.Index, flavor: [*:0]const u8) !CValue {
+    const ty_pl = o.air.instructions.items(.data)[inst].ty_pl;
+    const extra = o.air.extraData(Air.Cmpxchg, ty_pl.payload).data;
+    const inst_ty = o.air.typeOfIndex(inst);
+    const ptr = try o.resolveInst(extra.ptr);
+    const expected_value = try o.resolveInst(extra.expected_value);
+    const new_value = try o.resolveInst(extra.new_value);
+    const local = try o.allocLocal(inst_ty, .Const);
+    const writer = o.writer();
+
+    try writer.print(" = zig_cmpxchg_{s}(", .{flavor});
+    try o.writeCValue(writer, ptr);
+    try writer.writeAll(", ");
+    try o.writeCValue(writer, expected_value);
+    try writer.writeAll(", ");
+    try o.writeCValue(writer, new_value);
+    try writer.writeAll(", ");
+    try writeMemoryOrder(writer, extra.successOrder());
+    try writer.writeAll(", ");
+    try writeMemoryOrder(writer, extra.failureOrder());
+    try writer.writeAll(");\n");
+
+    return local;
+}
+
+fn writeMemoryOrder(w: anytype, order: std.builtin.AtomicOrder) !void {
+    const str = switch (order) {
+        .Unordered => "memory_order_relaxed",
+        .Monotonic => "memory_order_consume",
+        .Acquire => "memory_order_acquire",
+        .Release => "memory_order_release",
+        .AcqRel => "memory_order_acq_rel",
+        .SeqCst => "memory_order_seq_cst",
+    };
+    return w.writeAll(str);
 }
 
 fn IndentWriter(comptime UnderlyingWriter: type) type {

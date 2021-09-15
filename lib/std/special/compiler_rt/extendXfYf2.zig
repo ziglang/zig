@@ -104,6 +104,6 @@ fn extendXfYf2(comptime dst_t: type, comptime src_t: type, a: std.meta.Int(.unsi
     return @bitCast(dst_t, result);
 }
 
-test "import extendXfYf2" {
+test {
     _ = @import("extendXfYf2_test.zig");
 }
