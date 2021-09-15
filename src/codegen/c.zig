@@ -842,6 +842,7 @@ fn genBody(o: *Object, body: []const Air.Inst.Index) error{ AnalysisFail, OutOfM
 
             .breakpoint => try airBreakpoint(o),
             .unreach    => try airUnreach(o),
+            .fence      => try airFence(o, inst),
 
             // TODO use a different strategy for add that communicates to the optimizer
             // that wrapping is UB.
@@ -1436,6 +1437,17 @@ fn airBitcast(o: *Object, inst: Air.Inst.Index) !CValue {
 
 fn airBreakpoint(o: *Object) !CValue {
     try o.writer().writeAll("zig_breakpoint();\n");
+    return CValue.none;
+}
+
+fn airFence(o: *Object, inst: Air.Inst.Index) !CValue {
+    const atomic_order = o.air.instructions.items(.data)[inst].fence;
+    const writer = o.writer();
+
+    try writer.writeAll("zig_fence(");
+    try writeMemoryOrder(writer, atomic_order);
+    try writer.writeAll(");\n");
+
     return CValue.none;
 }
 

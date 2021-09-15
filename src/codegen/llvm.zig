@@ -1059,6 +1059,7 @@ pub const FuncGen = struct {
                 .array_to_slice => try self.airArrayToSlice(inst),
                 .cmpxchg_weak   => try self.airCmpxchg(inst, true),
                 .cmpxchg_strong => try self.airCmpxchg(inst, false),
+                .fence          => try self.airFence(inst),
 
                 .struct_field_ptr => try self.airStructFieldPtr(inst),
                 .struct_field_val => try self.airStructFieldVal(inst),
@@ -2002,6 +2003,14 @@ pub const FuncGen = struct {
         _ = inst;
         const llvm_fn = self.getIntrinsic("llvm.debugtrap");
         _ = self.builder.buildCall(llvm_fn, undefined, 0, "");
+        return null;
+    }
+
+    fn airFence(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        const atomic_order = self.air.instructions.items(.data)[inst].fence;
+        const llvm_memory_order = toLlvmAtomicOrdering(atomic_order);
+        const single_threaded = llvm.Bool.fromBool(self.single_threaded);
+        _ = self.builder.buildFence(llvm_memory_order, single_threaded, "");
         return null;
     }
 

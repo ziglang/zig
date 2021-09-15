@@ -731,7 +731,7 @@ pub const Inst = struct {
         size_of,
         /// Implements the `@bitSizeOf` builtin. Uses `un_node`.
         bit_size_of,
-        /// Implements the `@fence` builtin. Uses `node`.
+        /// Implements the `@fence` builtin. Uses `un_node`.
         fence,
 
         /// Implement builtin `@ptrToInt`. Uses `un_node`.
@@ -1416,7 +1416,7 @@ pub const Inst = struct {
                 .type_info = .un_node,
                 .size_of = .un_node,
                 .bit_size_of = .un_node,
-                .fence = .node,
+                .fence = .un_node,
 
                 .ptr_to_int = .un_node,
                 .error_to_int = .un_node,
@@ -3016,6 +3016,7 @@ const Writer = struct {
             .@"resume",
             .@"await",
             .await_nosuspend,
+            .fence,
             => try self.writeUnNode(stream, inst),
 
             .ref,
@@ -3187,7 +3188,6 @@ const Writer = struct {
             .as_node => try self.writeAs(stream, inst),
 
             .breakpoint,
-            .fence,
             .repeat,
             .repeat_inline,
             .alloc_inferred,

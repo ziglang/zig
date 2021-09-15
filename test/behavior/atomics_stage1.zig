@@ -3,12 +3,6 @@ const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 const builtin = @import("builtin");
 
-test "fence" {
-    var x: i32 = 1234;
-    @fence(.SeqCst);
-    x = 5678;
-}
-
 test "atomicrmw and atomicload" {
     var data: u8 = 200;
     try testAtomicRmw(&data);

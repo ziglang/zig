@@ -522,6 +522,14 @@ pub const Builder = opaque {
         Else: *const Value,
         Name: [*:0]const u8,
     ) *const Value;
+
+    pub const buildFence = LLVMBuildFence;
+    extern fn LLVMBuildFence(
+        B: *const Builder,
+        ordering: AtomicOrdering,
+        singleThread: Bool,
+        Name: [*:0]const u8,
+    ) *const Value;
 };
 
 pub const IntPredicate = enum(c_uint) {

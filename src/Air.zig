@@ -127,6 +127,10 @@ pub const Inst = struct {
         /// Lowers to a hardware trap instruction, or the next best thing.
         /// Result type is always void.
         breakpoint,
+        /// Lowers to a memory fence instruction.
+        /// Result type is always void.
+        /// Uses the `fence` field.
+        fence,
         /// Function call.
         /// Result type is the return type of the function being called.
         /// Uses the `pl_op` field with the `Call` payload. operand is the callee.
@@ -380,6 +384,7 @@ pub const Inst = struct {
             line: u32,
             column: u32,
         },
+        fence: std.builtin.AtomicOrder,
 
         // Make sure we don't accidentally add a field to make this union
         // bigger than expected. Note that in Debug builds, Zig is allowed
@@ -566,6 +571,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .breakpoint,
         .dbg_stmt,
         .store,
+        .fence,
         => return Type.initTag(.void),
 
         .ptrtoint,

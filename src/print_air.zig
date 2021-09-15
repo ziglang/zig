@@ -192,6 +192,7 @@ const Writer = struct {
             .cond_br => try w.writeCondBr(s, inst),
             .switch_br => try w.writeSwitchBr(s, inst),
             .cmpxchg_weak, .cmpxchg_strong => try w.writeCmpxchg(s, inst),
+            .fence => try w.writeFence(s, inst),
         }
     }
 
@@ -274,6 +275,12 @@ const Writer = struct {
         try s.print(", {s}, {s}", .{
             @tagName(extra.successOrder()), @tagName(extra.failureOrder()),
         });
+    }
+
+    fn writeFence(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
+        const atomic_order = w.air.instructions.items(.data)[inst].fence;
+
+        try s.print("{s}", .{@tagName(atomic_order)});
     }
 
     fn writeConstant(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {

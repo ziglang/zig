@@ -833,6 +833,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     .block           => try self.airBlock(inst),
                     .br              => try self.airBr(inst),
                     .breakpoint      => try self.airBreakpoint(),
+                    .fence           => try self.airFence(),
                     .call            => try self.airCall(inst),
                     .cond_br         => try self.airCondBr(inst),
                     .dbg_stmt        => try self.airDbgStmt(inst),
@@ -2547,6 +2548,11 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 else => return self.fail("TODO implement @breakpoint() for {}", .{self.target.cpu.arch}),
             }
             return self.finishAirBookkeeping();
+        }
+
+        fn airFence(self: *Self) !void {
+            return self.fail("TODO implement fence() for {}", .{self.target.cpu.arch});
+            //return self.finishAirBookkeeping();
         }
 
         fn airCall(self: *Self, inst: Air.Inst.Index) !void {

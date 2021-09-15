@@ -64,12 +64,15 @@
 #include <stdatomic.h>
 #define zig_cmpxchg_strong(obj, expected, desired, succ, fail) atomic_compare_exchange_strong_explicit(obj, expected, desired, succ, fail)
 #define zig_cmpxchg_weak(obj, expected, desired, succ, fail) atomic_compare_exchange_weak_explicit(obj, expected, desired, succ, fail)
+#define zig_fence(order) atomic_thread_fence(order)
 #elif __GNUC__
 #define zig_cmpxchg_strong(obj, expected, desired, succ, fail) __sync_val_compare_and_swap(obj, expected, desired)
 #define zig_cmpxchg_weak(obj, expected, desired, succ, fail) __sync_val_compare_and_swap(obj, expected, desired)
+#define zig_fence(order) __sync_synchronize(order)
 #else
 #define zig_cmpxchg_strong(obj, expected, desired, succ, fail) zig_unimplemented()
 #define zig_cmpxchg_weak(obj, expected, desired, succ, fail) zig_unimplemented()
+#define zig_fence(order) zig_unimplemented()
 #endif
 
 #include <stdint.h>

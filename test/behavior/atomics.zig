@@ -24,3 +24,9 @@ fn testCmpxchg() !void {
     try expect(@cmpxchgStrong(i32, &x, 5678, 42, .SeqCst, .SeqCst) == null);
     try expect(x == 42);
 }
+
+test "fence" {
+    var x: i32 = 1234;
+    @fence(.SeqCst);
+    x = 5678;
+}

@@ -7116,9 +7116,13 @@ fn builtinCall(
             });
             return rvalue(gz, rl, result, node);
         },
+        .fence => {
+            const order = try expr(gz, scope, .{ .coerced_ty = .atomic_order_type }, params[0]);
+            const result = try gz.addUnNode(.fence, order, node);
+            return rvalue(gz, rl, result, node);
+        },
 
         .breakpoint => return simpleNoOpVoid(gz, rl, node, .breakpoint),
-        .fence      => return simpleNoOpVoid(gz, rl, node, .fence),
 
         .This               => return rvalue(gz, rl, try gz.addNodeExtended(.this,               node), node),
         .return_address     => return rvalue(gz, rl, try gz.addNodeExtended(.ret_addr,           node), node),

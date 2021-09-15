@@ -377,7 +377,9 @@ pub fn analyzeBody(
             // We also know that they cannot be referenced later, so we avoid
             // putting them into the map.
             .breakpoint => {
-                try sema.zirBreakpoint(block, inst);
+                if (!block.is_comptime) {
+                    _ = try block.addNoOp(.breakpoint);
+                }
                 i += 1;
                 continue;
             },
@@ -2308,20 +2310,21 @@ fn zirSetRuntimeSafety(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) C
     block.want_safety = try sema.resolveConstBool(block, operand_src, inst_data.operand);
 }
 
-fn zirBreakpoint(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!void {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const src_node = sema.code.instructions.items(.data)[inst].node;
-    const src: LazySrcLoc = .{ .node_offset = src_node };
-    try sema.requireRuntimeBlock(block, src);
-    _ = try block.addNoOp(.breakpoint);
-}
-
 fn zirFence(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!void {
-    const src_node = sema.code.instructions.items(.data)[inst].node;
-    const src: LazySrcLoc = .{ .node_offset = src_node };
-    return sema.mod.fail(&block.base, src, "TODO: implement Sema.zirFence", .{});
+    if (block.is_comptime) return;
+
+    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const order_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
+    const order = try sema.resolveAtomicOrder(block, order_src, inst_data.operand);
+
+    if (@enumToInt(order) < @enumToInt(std.builtin.AtomicOrder.Acquire)) {
+        return sema.mod.fail(&block.base, order_src, "atomic ordering must be Acquire or stricter", .{});
+    }
+
+    _ = try block.addInst(.{
+        .tag = .fence,
+        .data = .{ .fence = order },
+    });
 }
 
 fn zirBreak(sema: *Sema, start_block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Zir.Inst.Index {

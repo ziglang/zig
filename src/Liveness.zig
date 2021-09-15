@@ -264,6 +264,7 @@ fn analyzeInst(
         .breakpoint,
         .dbg_stmt,
         .unreach,
+        .fence,
         => return trackOperands(a, new_set, inst, main_tomb, .{ .none, .none, .none }),
 
         .not,
