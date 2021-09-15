@@ -2372,7 +2372,7 @@ const data_has_safety_tag = @sizeOf(Zir.Inst.Data) != 8;
 // We need a better language feature for initializing a union with
 // a runtime known tag.
 const Stage1DataLayout = extern struct {
-    data: [8]u8 align(8),
+    data: [8]u8 align(@alignOf(Zir.Inst.Data)),
     safety_tag: u8,
 };
 comptime {
