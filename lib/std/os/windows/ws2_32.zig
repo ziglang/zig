@@ -1105,6 +1105,7 @@ pub const sockaddr = extern struct {
     family: ADDRESS_FAMILY,
     data: [14]u8,
 
+    pub const SS_MAXSIZE = 128;
     pub const storage = std.x.os.Socket.Address.Native.Storage;
 
     /// IPv4 socket address
