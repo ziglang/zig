@@ -849,10 +849,6 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             if (options.use_llvm) |explicit|
                 break :blk explicit;
 
-            // If we have no zig code to compile, no need for LLVM.
-            if (options.main_pkg == null)
-                break :blk false;
-
             // If we are outputting .c code we must use Zig backend.
             if (ofmt == .c)
                 break :blk false;
@@ -860,6 +856,10 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             // If emitting to LLVM bitcode object format, must use LLVM backend.
             if (options.emit_llvm_ir != null or options.emit_llvm_bc != null)
                 break :blk true;
+
+            // If we have no zig code to compile, no need for LLVM.
+            if (options.main_pkg == null)
+                break :blk false;
 
             // The stage1 compiler depends on the stage1 C++ LLVM backend
             // to compile zig code.
@@ -875,9 +875,6 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
         if (!use_llvm) {
             if (options.use_llvm == true) {
                 return error.ZigCompilerNotBuiltWithLLVMExtensions;
-            }
-            if (options.machine_code_model != .default) {
-                return error.MachineCodeModelNotSupportedWithoutLlvm;
             }
             if (options.emit_llvm_ir != null or options.emit_llvm_bc != null) {
                 return error.EmittingLlvmModuleRequiresUsingLlvmBackend;
@@ -1793,6 +1790,10 @@ pub fn update(self: *Compilation) !void {
         }
     }
 
+    // Flush takes care of -femit-bin, but we still have -femit-llvm-ir, -femit-llvm-bc, and
+    // -femit-asm to handle, in the case of C objects.
+    try self.emitOthers();
+
     // If there are any errors, we anticipate the source files being loaded
     // to report error messages. Otherwise we unload all source files to save memory.
     // The ZIR needs to stay loaded in memory because (1) Decl objects contain references
@@ -1803,6 +1804,37 @@ pub fn update(self: *Compilation) !void {
             for (module.import_table.values()) |file| {
                 file.unloadTree(self.gpa);
                 file.unloadSource(self.gpa);
+            }
+        }
+    }
+}
+
+fn emitOthers(comp: *Compilation) !void {
+    if (comp.bin_file.options.output_mode != .Obj or comp.bin_file.options.module != null or
+        comp.c_object_table.count() == 0)
+    {
+        return;
+    }
+    const obj_path = comp.c_object_table.keys()[0].status.success.object_path;
+    const cwd = std.fs.cwd();
+    const ext = std.fs.path.extension(obj_path);
+    const basename = obj_path[0 .. obj_path.len - ext.len];
+    // This obj path always ends with the object file extension, but if we change the
+    // extension to .ll, .bc, or .s, then it will be the path to those things.
+    const outs = [_]struct {
+        emit: ?EmitLoc,
+        ext: []const u8,
+    }{
+        .{ .emit = comp.emit_asm, .ext = ".s" },
+        .{ .emit = comp.emit_llvm_ir, .ext = ".ll" },
+        .{ .emit = comp.emit_llvm_bc, .ext = ".bc" },
+    };
+    for (outs) |out| {
+        if (out.emit) |loc| {
+            if (loc.directory) |directory| {
+                const src_path = try std.fmt.allocPrint(comp.gpa, "{s}{s}", .{ basename, out.ext });
+                defer comp.gpa.free(src_path);
+                try cwd.copyFile(src_path, directory.handle, loc.basename, .{});
             }
         }
     }
@@ -2764,6 +2796,9 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
     defer man.deinit();
 
     man.hash.add(comp.clang_preprocessor_mode);
+    man.hash.addOptionalEmitLoc(comp.emit_asm);
+    man.hash.addOptionalEmitLoc(comp.emit_llvm_ir);
+    man.hash.addOptionalEmitLoc(comp.emit_llvm_bc);
 
     try man.hashCSource(c_object.src);
 
@@ -2787,16 +2822,29 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
         comp.bin_file.options.root_name
     else
         c_source_basename[0 .. c_source_basename.len - std.fs.path.extension(c_source_basename).len];
-    const o_basename = try std.fmt.allocPrint(arena, "{s}{s}", .{
-        o_basename_noext,
-        comp.bin_file.options.object_format.fileExt(comp.bin_file.options.target.cpu.arch),
-    });
 
+    const o_ext = comp.bin_file.options.object_format.fileExt(comp.bin_file.options.target.cpu.arch);
     const digest = if (!comp.disable_c_depfile and try man.hit()) man.final() else blk: {
         var argv = std.ArrayList([]const u8).init(comp.gpa);
         defer argv.deinit();
 
-        // We can't know the digest until we do the C compiler invocation, so we need a temporary filename.
+        // In case we are doing passthrough mode, we need to detect -S and -emit-llvm.
+        const out_ext = e: {
+            if (!comp.clang_passthrough_mode)
+                break :e o_ext;
+            if (comp.emit_asm != null)
+                break :e ".s";
+            if (comp.emit_llvm_ir != null)
+                break :e ".ll";
+            if (comp.emit_llvm_bc != null)
+                break :e ".bc";
+
+            break :e o_ext;
+        };
+        const o_basename = try std.fmt.allocPrint(arena, "{s}{s}", .{ o_basename_noext, out_ext });
+
+        // We can't know the digest until we do the C compiler invocation,
+        // so we need a temporary filename.
         const out_obj_path = try comp.tmpFilePath(arena, o_basename);
         var zig_cache_tmp_dir = try comp.local_cache_directory.handle.makeOpenPath("tmp", .{});
         defer zig_cache_tmp_dir.close();
@@ -2810,15 +2858,23 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
             try std.fmt.allocPrint(arena, "{s}.d", .{out_obj_path});
         try comp.addCCArgs(arena, &argv, ext, out_dep_path);
 
-        try argv.ensureCapacity(argv.items.len + 3);
+        try argv.ensureUnusedCapacity(6 + c_object.src.extra_flags.len);
         switch (comp.clang_preprocessor_mode) {
             .no => argv.appendSliceAssumeCapacity(&[_][]const u8{ "-c", "-o", out_obj_path }),
             .yes => argv.appendSliceAssumeCapacity(&[_][]const u8{ "-E", "-o", out_obj_path }),
             .stdout => argv.appendAssumeCapacity("-E"),
         }
-
-        try argv.append(c_object.src.src_path);
-        try argv.appendSlice(c_object.src.extra_flags);
+        if (comp.clang_passthrough_mode) {
+            if (comp.emit_asm != null) {
+                argv.appendAssumeCapacity("-S");
+            } else if (comp.emit_llvm_ir != null) {
+                argv.appendSliceAssumeCapacity(&[_][]const u8{ "-emit-llvm", "-S" });
+            } else if (comp.emit_llvm_bc != null) {
+                argv.appendAssumeCapacity("-emit-llvm");
+            }
+        }
+        argv.appendAssumeCapacity(c_object.src.src_path);
+        argv.appendSliceAssumeCapacity(c_object.src.extra_flags);
 
         if (comp.verbose_cc) {
             dump_argv(argv.items);
@@ -2838,8 +2894,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
             switch (term) {
                 .Exited => |code| {
                     if (code != 0) {
-                        // TODO https://github.com/ziglang/zig/issues/6342
-                        std.process.exit(1);
+                        std.process.exit(code);
                     }
                     if (comp.clang_preprocessor_mode == .stdout)
                         std.process.exit(0);
@@ -2855,9 +2910,6 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
 
             const stderr_reader = child.stderr.?.reader();
 
-            // TODO https://github.com/ziglang/zig/issues/6343
-            // Please uncomment and use stdout once this issue is fixed
-            // const stdout = try stdout_reader.readAllAlloc(arena, std.math.maxInt(u32));
             const stderr = try stderr_reader.readAllAlloc(arena, 10 * 1024 * 1024);
 
             const term = child.wait() catch |err| {
@@ -2906,6 +2958,8 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
         };
         break :blk digest;
     };
+
+    const o_basename = try std.fmt.allocPrint(arena, "{s}{s}", .{ o_basename_noext, o_ext });
 
     c_object.status = .{
         .success = .{

@@ -1151,6 +1151,7 @@ fn buildOutputType(
             var is_shared_lib = false;
             var linker_args = std.ArrayList([]const u8).init(arena);
             var it = ClangArgIterator.init(arena, all_args);
+            var emit_llvm = false;
             while (it.has_next) {
                 it.next() catch |err| {
                     fatal("unable to parse command line parameters: {s}", .{@errorName(err)});
@@ -1161,6 +1162,7 @@ fn buildOutputType(
                     .c => c_out_mode = .object, // -c
                     .asm_only => c_out_mode = .assembly, // -S
                     .preprocess_only => c_out_mode = .preprocessor, // -E
+                    .emit_llvm => emit_llvm = true,
                     .other => {
                         try clang_argv.appendSlice(it.other_args);
                     },
@@ -1518,22 +1520,42 @@ fn buildOutputType(
                     output_mode = if (is_shared_lib) .Lib else .Exe;
                     emit_bin = if (out_path) |p| .{ .yes = p } else EmitBin.yes_a_out;
                     enable_cache = true;
+                    if (emit_llvm) {
+                        fatal("-emit-llvm cannot be used when linking", .{});
+                    }
                 },
                 .object => {
                     output_mode = .Obj;
-                    if (out_path) |p| {
-                        emit_bin = .{ .yes = p };
+                    if (emit_llvm) {
+                        emit_bin = .no;
+                        if (out_path) |p| {
+                            emit_llvm_bc = .{ .yes = p };
+                        } else {
+                            emit_llvm_bc = .yes_default_path;
+                        }
                     } else {
-                        emit_bin = .yes_default_path;
+                        if (out_path) |p| {
+                            emit_bin = .{ .yes = p };
+                        } else {
+                            emit_bin = .yes_default_path;
+                        }
                     }
                 },
                 .assembly => {
                     output_mode = .Obj;
                     emit_bin = .no;
-                    if (out_path) |p| {
-                        emit_asm = .{ .yes = p };
+                    if (emit_llvm) {
+                        if (out_path) |p| {
+                            emit_llvm_ir = .{ .yes = p };
+                        } else {
+                            emit_llvm_ir = .yes_default_path;
+                        }
                     } else {
-                        emit_asm = .yes_default_path;
+                        if (out_path) |p| {
+                            emit_asm = .{ .yes = p };
+                        } else {
+                            emit_asm = .yes_default_path;
+                        }
                     }
                 },
                 .preprocessor => {
@@ -3663,6 +3685,7 @@ pub const ClangArgIterator = struct {
         no_red_zone,
         strip,
         exec_model,
+        emit_llvm,
     };
 
     const Args = struct {

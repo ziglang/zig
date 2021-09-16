@@ -376,6 +376,10 @@ const known_options = [_]KnownOpt{
         .name = "mexec-model",
         .ident = "exec_model",
     },
+    .{
+        .name = "emit-llvm",
+        .ident = "emit_llvm",
+    },
 };
 
 const blacklisted_options = [_][]const u8{};
