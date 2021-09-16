@@ -305,9 +305,9 @@ pub const Ghash = struct {
     }
 
     pub fn create(out: *[mac_length]u8, msg: []const u8, key: *const [key_length]u8) void {
-        var st = Ghash.init(key);
-        st.update(msg);
-        st.final(out);
+        var self = Ghash.init(key);
+        self.update(msg);
+        self.final(out);
     }
 };
 
