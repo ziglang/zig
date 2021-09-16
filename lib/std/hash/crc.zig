@@ -90,9 +90,9 @@ pub fn Crc32WithPoly(comptime poly: Polynomial) type {
         }
 
         pub fn hash(input: []const u8) u32 {
-            var c = Self.init();
-            c.update(input);
-            return c.final();
+            var self = Self.init();
+            self.update(input);
+            return self.final();
         }
     };
 }
@@ -160,9 +160,9 @@ pub fn Crc32SmallWithPoly(comptime poly: Polynomial) type {
         }
 
         pub fn hash(input: []const u8) u32 {
-            var c = Self.init();
-            c.update(input);
-            return c.final();
+            var self = Self.init();
+            self.update(input);
+            return self.final();
         }
     };
 }
