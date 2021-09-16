@@ -50,75 +50,75 @@ pub const Sha1 = struct {
         };
     }
 
-    pub fn hash(b: []const u8, out: *[digest_length]u8, options: Options) void {
-        var d = Sha1.init(options);
-        d.update(b);
-        d.final(out);
+    pub fn hash(in: []const u8, out: *[digest_length]u8, options: Options) void {
+        var self = Sha1.init(options);
+        self.update(in);
+        self.final(out);
     }
 
-    pub fn update(d: *Self, b: []const u8) void {
+    pub fn update(self: *Self, in: []const u8) void {
         var off: usize = 0;
 
         // Partial buffer exists from previous update. Copy into buffer then hash.
-        if (d.buf_len != 0 and d.buf_len + b.len >= 64) {
-            off += 64 - d.buf_len;
-            mem.copy(u8, d.buf[d.buf_len..], b[0..off]);
+        if (self.buf_len != 0 and self.buf_len + in.len >= 64) {
+            off += 64 - self.buf_len;
+            mem.copy(u8, self.buf[self.buf_len..], in[0..off]);
 
-            d.round(d.buf[0..]);
-            d.buf_len = 0;
+            self.round(self.buf[0..]);
+            self.buf_len = 0;
         }
 
         // Full middle blocks.
-        while (off + 64 <= b.len) : (off += 64) {
-            d.round(b[off..][0..64]);
+        while (off + 64 <= in.len) : (off += 64) {
+            self.round(in[off..][0..64]);
         }
 
         // Copy any remainder for next pass.
-        mem.copy(u8, d.buf[d.buf_len..], b[off..]);
-        d.buf_len += @intCast(u8, b[off..].len);
+        mem.copy(u8, self.buf[self.buf_len..], in[off..]);
+        self.buf_len += @intCast(u8, in[off..].len);
 
-        d.total_len += b.len;
+        self.total_len += in.len;
     }
 
-    pub fn final(d: *Self, out: *[digest_length]u8) void {
+    pub fn final(self: *Self, out: *[digest_length]u8) void {
         // The buffer here will never be completely full.
-        mem.set(u8, d.buf[d.buf_len..], 0);
+        mem.set(u8, self.buf[self.buf_len..], 0);
 
         // Append padding bits.
-        d.buf[d.buf_len] = 0x80;
-        d.buf_len += 1;
+        self.buf[self.buf_len] = 0x80;
+        self.buf_len += 1;
 
         // > 448 mod 512 so need to add an extra round to wrap around.
-        if (64 - d.buf_len < 8) {
-            d.round(d.buf[0..]);
-            mem.set(u8, d.buf[0..], 0);
+        if (64 - self.buf_len < 8) {
+            self.round(self.buf[0..]);
+            mem.set(u8, self.buf[0..], 0);
         }
 
         // Append message length.
         var i: usize = 1;
-        var len = d.total_len >> 5;
-        d.buf[63] = @intCast(u8, d.total_len & 0x1f) << 3;
+        var len = self.total_len >> 5;
+        self.buf[63] = @intCast(u8, self.total_len & 0x1f) << 3;
         while (i < 8) : (i += 1) {
-            d.buf[63 - i] = @intCast(u8, len & 0xff);
+            self.buf[63 - i] = @intCast(u8, len & 0xff);
             len >>= 8;
         }
 
-        d.round(d.buf[0..]);
+        self.round(self.buf[0..]);
 
-        for (d.s) |s, j| {
+        for (self.s) |s, j| {
             mem.writeIntBig(u32, out[4 * j ..][0..4], s);
         }
     }
 
-    fn round(d: *Self, b: *const [64]u8) void {
+    fn round(self: *Self, in: *const [64]u8) void {
         var s: [16]u32 = undefined;
 
         var v: [5]u32 = [_]u32{
-            d.s[0],
-            d.s[1],
-            d.s[2],
-            d.s[3],
-            d.s[4],
+            self.s[0],
+            self.s[1],
+            self.s[2],
+            self.s[3],
+            self.s[4],
         };
 
         const round0a = comptime [_]RoundParam{
@@ -140,7 +140,7 @@ pub const Sha1 = struct {
             roundParam(0, 1, 2, 3, 4, 15),
         };
         inline for (round0a) |r| {
-            s[r.i] = (@as(u32, b[r.i * 4 + 0]) << 24) | (@as(u32, b[r.i * 4 + 1]) << 16) | (@as(u32, b[r.i * 4 + 2]) << 8) | (@as(u32, b[r.i * 4 + 3]) << 0);
+            s[r.i] = (@as(u32, in[r.i * 4 + 0]) << 24) | (@as(u32, in[r.i * 4 + 1]) << 16) | (@as(u32, in[r.i * 4 + 2]) << 8) | (@as(u32, in[r.i * 4 + 3]) << 0);
 
             v[r.e] = v[r.e] +% math.rotl(u32, v[r.a], @as(u32, 5)) +% 0x5A827999 +% s[r.i & 0xf] +% ((v[r.b] & v[r.c]) | (~v[r.b] & v[r.d]));
             v[r.b] = math.rotl(u32, v[r.b], @as(u32, 30));
@@ -250,11 +250,11 @@ pub const Sha1 = struct {
             v[r.b] = math.rotl(u32, v[r.b], @as(u32, 30));
         }
 
-        d.s[0] +%= v[0];
-        d.s[1] +%= v[1];
-        d.s[2] +%= v[2];
-        d.s[3] +%= v[3];
-        d.s[4] +%= v[4];
+        self.s[0] +%= v[0];
+        self.s[1] +%= v[1];
+        self.s[2] +%= v[2];
+        self.s[3] +%= v[3];
+        self.s[4] +%= v[4];
     }
 };
 
