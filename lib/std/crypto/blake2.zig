@@ -75,35 +75,35 @@ pub fn Blake2s(comptime out_bits: usize) type {
         pub fn init(options: Options) Self {
             comptime debug.assert(8 <= out_bits and out_bits <= 256);
 
-            var d: Self = undefined;
-            mem.copy(u32, d.h[0..], iv[0..]);
+            var self: Self = undefined;
+            mem.copy(u32, self.h[0..], iv[0..]);
 
             const key_len = if (options.key) |key| key.len else 0;
             // default parameters
-            d.h[0] ^= 0x01010000 ^ @truncate(u32, key_len << 8) ^ @intCast(u32, options.expected_out_bits >> 3);
-            d.t = 0;
-            d.buf_len = 0;
+            self.h[0] ^= 0x01010000 ^ @truncate(u32, key_len << 8) ^ @intCast(u32, options.expected_out_bits >> 3);
+            self.t = 0;
+            self.buf_len = 0;
 
             if (options.salt) |salt| {
-                d.h[4] ^= mem.readIntLittle(u32, salt[0..4]);
-                d.h[5] ^= mem.readIntLittle(u32, salt[4..8]);
+                self.h[4] ^= mem.readIntLittle(u32, salt[0..4]);
+                self.h[5] ^= mem.readIntLittle(u32, salt[4..8]);
             }
             if (options.context) |context| {
-                d.h[6] ^= mem.readIntLittle(u32, context[0..4]);
-                d.h[7] ^= mem.readIntLittle(u32, context[4..8]);
+                self.h[6] ^= mem.readIntLittle(u32, context[0..4]);
+                self.h[7] ^= mem.readIntLittle(u32, context[4..8]);
             }
             if (key_len > 0) {
-                mem.set(u8, d.buf[key_len..], 0);
-                d.update(options.key.?);
-                d.buf_len = 64;
+                mem.set(u8, self.buf[key_len..], 0);
+                self.update(options.key.?);
+                self.buf_len = 64;
             }
-            return d;
+            return self;
         }
 
-        pub fn hash(b: []const u8, out: *[digest_length]u8, options: Options) void {
-            var d = Self.init(options);
-            d.update(b);
-            d.final(out);
+        pub fn hash(in: []const u8, out: *[digest_length]u8, options: Options) void {
+            var self = Self.init(options);
+            self.update(in);
+            self.final(out);
         }
 
         pub fn update(d: *Self, b: []const u8) void {
