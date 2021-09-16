@@ -33,9 +33,9 @@ fn Fnv1a(comptime T: type, comptime prime: T, comptime offset: T) type {
         }
 
         pub fn hash(input: []const u8) T {
-            var c = Self.init();
-            c.update(input);
-            return c.final();
+            var self = Self.init();
+            self.update(input);
+            return self.final();
         }
     };
 }
