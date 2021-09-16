@@ -30,3 +30,26 @@ test "fence" {
     @fence(.SeqCst);
     x = 5678;
 }
+
+test "atomicrmw and atomicload" {
+    var data: u8 = 200;
+    try testAtomicRmw(&data);
+    try expect(data == 42);
+    try testAtomicLoad(&data);
+}
+
+fn testAtomicRmw(ptr: *u8) !void {
+    const prev_value = @atomicRmw(u8, ptr, .Xchg, 42, .SeqCst);
+    try expect(prev_value == 200);
+    comptime {
+        var x: i32 = 1234;
+        const y: i32 = 12345;
+        try expect(@atomicLoad(i32, &x, .SeqCst) == 1234);
+        try expect(@atomicLoad(i32, &y, .SeqCst) == 12345);
+    }
+}
+
+fn testAtomicLoad(ptr: *u8) !void {
+    const x = @atomicLoad(u8, ptr, .SeqCst);
+    try expect(x == 42);
+}

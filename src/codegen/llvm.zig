@@ -1060,6 +1060,13 @@ pub const FuncGen = struct {
                 .cmpxchg_weak   => try self.airCmpxchg(inst, true),
                 .cmpxchg_strong => try self.airCmpxchg(inst, false),
                 .fence          => try self.airFence(inst),
+                .atomic_rmw     => try self.airAtomicRmw(inst),
+                .atomic_load    => try self.airAtomicLoad(inst),
+
+                .atomic_store_unordered => try self.airAtomicStore(inst, .Unordered),
+                .atomic_store_monotonic => try self.airAtomicStore(inst, .Monotonic),
+                .atomic_store_release   => try self.airAtomicStore(inst, .Release),
+                .atomic_store_seq_cst   => try self.airAtomicStore(inst, .SequentiallyConsistent),
 
                 .struct_field_ptr => try self.airStructFieldPtr(inst),
                 .struct_field_val => try self.airStructFieldVal(inst),
@@ -1983,20 +1990,19 @@ pub const FuncGen = struct {
     fn airStore(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
         const bin_op = self.air.instructions.items(.data)[inst].bin_op;
         const dest_ptr = try self.resolveInst(bin_op.lhs);
+        const ptr_ty = self.air.typeOf(bin_op.lhs);
         const src_operand = try self.resolveInst(bin_op.rhs);
-        // TODO set volatile on this store properly
-        _ = self.builder.buildStore(src_operand, dest_ptr);
+        _ = self.store(dest_ptr, ptr_ty, src_operand);
         return null;
     }
 
     fn airLoad(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-        const is_volatile = self.air.typeOf(ty_op.operand).isVolatilePtr();
-        if (!is_volatile and self.liveness.isUnused(inst))
+        const ptr_ty = self.air.typeOf(ty_op.operand);
+        if (!ptr_ty.isVolatilePtr() and self.liveness.isUnused(inst))
             return null;
         const ptr = try self.resolveInst(ty_op.operand);
-        // TODO set volatile on this load properly
-        return self.builder.buildLoad(ptr, "");
+        return self.load(ptr, ptr_ty);
     }
 
     fn airBreakpoint(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
@@ -2033,14 +2039,12 @@ pub const FuncGen = struct {
                 new_value = self.builder.buildZExt(new_value, abi_ty, "");
             }
         }
-        const success_order = toLlvmAtomicOrdering(extra.successOrder());
-        const failure_order = toLlvmAtomicOrdering(extra.failureOrder());
         const result = self.builder.buildCmpXchg(
             ptr,
             expected_value,
             new_value,
-            success_order,
-            failure_order,
+            toLlvmAtomicOrdering(extra.successOrder()),
+            toLlvmAtomicOrdering(extra.failureOrder()),
             is_weak,
             self.single_threaded,
         );
@@ -2066,6 +2070,109 @@ pub const FuncGen = struct {
         return self.builder.buildInsertValue(partial, non_null_bit, 1, "");
     }
 
+    fn airAtomicRmw(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        const pl_op = self.air.instructions.items(.data)[inst].pl_op;
+        const extra = self.air.extraData(Air.AtomicRmw, pl_op.payload).data;
+        const ptr = try self.resolveInst(pl_op.operand);
+        const ptr_ty = self.air.typeOf(pl_op.operand);
+        const operand_ty = ptr_ty.elemType();
+        const operand = try self.resolveInst(extra.operand);
+        const is_signed_int = operand_ty.isSignedInt();
+        const is_float = operand_ty.isFloat();
+        const op = toLlvmAtomicRmwBinOp(extra.op(), is_signed_int, is_float);
+        const ordering = toLlvmAtomicOrdering(extra.ordering());
+        const single_threaded = llvm.Bool.fromBool(self.single_threaded);
+        const opt_abi_ty = self.dg.getAtomicAbiType(operand_ty, op == .Xchg);
+        if (opt_abi_ty) |abi_ty| {
+            // operand needs widening and truncating or bitcasting.
+            const casted_ptr = self.builder.buildBitCast(ptr, abi_ty.pointerType(0), "");
+            const casted_operand = if (is_float)
+                self.builder.buildBitCast(operand, abi_ty, "")
+            else if (is_signed_int)
+                self.builder.buildSExt(operand, abi_ty, "")
+            else
+                self.builder.buildZExt(operand, abi_ty, "");
+
+            const uncasted_result = self.builder.buildAtomicRmw(
+                op,
+                casted_ptr,
+                casted_operand,
+                ordering,
+                single_threaded,
+            );
+            const operand_llvm_ty = try self.dg.llvmType(operand_ty);
+            if (is_float) {
+                return self.builder.buildBitCast(uncasted_result, operand_llvm_ty, "");
+            } else {
+                return self.builder.buildTrunc(uncasted_result, operand_llvm_ty, "");
+            }
+        }
+
+        if (operand.typeOf().getTypeKind() != .Pointer) {
+            return self.builder.buildAtomicRmw(op, ptr, operand, ordering, single_threaded);
+        }
+
+        // It's a pointer but we need to treat it as an int.
+        const usize_llvm_ty = try self.dg.llvmType(Type.initTag(.usize));
+        const casted_ptr = self.builder.buildBitCast(ptr, usize_llvm_ty.pointerType(0), "");
+        const casted_operand = self.builder.buildPtrToInt(operand, usize_llvm_ty, "");
+        const uncasted_result = self.builder.buildAtomicRmw(
+            op,
+            casted_ptr,
+            casted_operand,
+            ordering,
+            single_threaded,
+        );
+        const operand_llvm_ty = try self.dg.llvmType(operand_ty);
+        return self.builder.buildIntToPtr(uncasted_result, operand_llvm_ty, "");
+    }
+
+    fn airAtomicLoad(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        const atomic_load = self.air.instructions.items(.data)[inst].atomic_load;
+        const ptr = try self.resolveInst(atomic_load.ptr);
+        const ptr_ty = self.air.typeOf(atomic_load.ptr);
+        const ordering = toLlvmAtomicOrdering(atomic_load.order);
+        const operand_ty = ptr_ty.elemType();
+        const opt_abi_ty = self.dg.getAtomicAbiType(operand_ty, false);
+
+        if (opt_abi_ty) |abi_ty| {
+            // operand needs widening and truncating
+            const casted_ptr = self.builder.buildBitCast(ptr, abi_ty.pointerType(0), "");
+            const load_inst = self.load(casted_ptr, ptr_ty);
+            load_inst.setOrdering(ordering);
+            return self.builder.buildTrunc(load_inst, try self.dg.llvmType(operand_ty), "");
+        }
+        const load_inst = self.load(ptr, ptr_ty);
+        load_inst.setOrdering(ordering);
+        return load_inst;
+    }
+
+    fn airAtomicStore(
+        self: *FuncGen,
+        inst: Air.Inst.Index,
+        ordering: llvm.AtomicOrdering,
+    ) !?*const llvm.Value {
+        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        var ptr = try self.resolveInst(bin_op.lhs);
+        const ptr_ty = self.air.typeOf(bin_op.lhs);
+        var element = try self.resolveInst(bin_op.rhs);
+        const operand_ty = ptr_ty.elemType();
+        const opt_abi_ty = self.dg.getAtomicAbiType(operand_ty, false);
+
+        if (opt_abi_ty) |abi_ty| {
+            // operand needs widening
+            ptr = self.builder.buildBitCast(ptr, abi_ty.pointerType(0), "");
+            if (operand_ty.isSignedInt()) {
+                element = self.builder.buildSExt(element, abi_ty, "");
+            } else {
+                element = self.builder.buildZExt(element, abi_ty, "");
+            }
+        }
+        const store_inst = self.store(ptr, ptr_ty, element);
+        store_inst.setOrdering(ordering);
+        return null;
+    }
+
     fn getIntrinsic(self: *FuncGen, name: []const u8) *const llvm.Value {
         const id = llvm.lookupIntrinsicID(name.ptr, name.len);
         assert(id != 0);
@@ -2073,6 +2180,21 @@ pub const FuncGen = struct {
         //       to `lookupIntrinsicID` and then passing the correct types to
         //       `getIntrinsicDeclaration`
         return self.llvmModule().getIntrinsicDeclaration(id, null, 0);
+    }
+
+    fn load(self: *FuncGen, ptr: *const llvm.Value, ptr_ty: Type) *const llvm.Value {
+        _ = ptr_ty; // TODO set volatile and alignment on this load properly
+        return self.builder.buildLoad(ptr, "");
+    }
+
+    fn store(
+        self: *FuncGen,
+        ptr: *const llvm.Value,
+        ptr_ty: Type,
+        elem: *const llvm.Value,
+    ) *const llvm.Value {
+        _ = ptr_ty; // TODO set volatile and alignment on this store properly
+        return self.builder.buildStore(elem, ptr);
     }
 };
 
@@ -2225,5 +2347,23 @@ fn toLlvmAtomicOrdering(atomic_order: std.builtin.AtomicOrder) llvm.AtomicOrderi
         .Release => .Release,
         .AcqRel => .AcquireRelease,
         .SeqCst => .SequentiallyConsistent,
+    };
+}
+
+fn toLlvmAtomicRmwBinOp(
+    op: std.builtin.AtomicRmwOp,
+    is_signed: bool,
+    is_float: bool,
+) llvm.AtomicRMWBinOp {
+    return switch (op) {
+        .Xchg => .Xchg,
+        .Add => if (is_float) llvm.AtomicRMWBinOp.FAdd else return .Add,
+        .Sub => if (is_float) llvm.AtomicRMWBinOp.FSub else return .Sub,
+        .And => .And,
+        .Nand => .Nand,
+        .Or => .Or,
+        .Xor => .Xor,
+        .Max => if (is_signed) llvm.AtomicRMWBinOp.Max else return .UMax,
+        .Min => if (is_signed) llvm.AtomicRMWBinOp.Min else return .UMin,
     };
 }

@@ -133,6 +133,9 @@ pub const Value = opaque {
 
     pub const constIntToPtr = LLVMConstIntToPtr;
     extern fn LLVMConstIntToPtr(ConstantVal: *const Value, ToType: *const Type) *const Value;
+
+    pub const setOrdering = LLVMSetOrdering;
+    extern fn LLVMSetOrdering(MemoryAccessInst: *const Value, Ordering: AtomicOrdering) void;
 };
 
 pub const Type = opaque {
@@ -167,6 +170,9 @@ pub const Type = opaque {
         ElementCount: c_uint,
         Packed: Bool,
     ) void;
+
+    pub const getTypeKind = LLVMGetTypeKind;
+    extern fn LLVMGetTypeKind(Ty: *const Type) TypeKind;
 };
 
 pub const Module = opaque {
@@ -477,6 +483,14 @@ pub const Builder = opaque {
         Name: [*:0]const u8,
     ) *const Value;
 
+    pub const buildIntToPtr = LLVMBuildIntToPtr;
+    extern fn LLVMBuildIntToPtr(
+        *const Builder,
+        Val: *const Value,
+        DestTy: *const Type,
+        Name: [*:0]const u8,
+    ) *const Value;
+
     pub const buildStructGEP = LLVMBuildStructGEP;
     extern fn LLVMBuildStructGEP(
         B: *const Builder,
@@ -529,6 +543,16 @@ pub const Builder = opaque {
         ordering: AtomicOrdering,
         singleThread: Bool,
         Name: [*:0]const u8,
+    ) *const Value;
+
+    pub const buildAtomicRmw = LLVMBuildAtomicRMW;
+    extern fn LLVMBuildAtomicRMW(
+        B: *const Builder,
+        op: AtomicRMWBinOp,
+        PTR: *const Value,
+        Val: *const Value,
+        ordering: AtomicOrdering,
+        singleThread: Bool,
     ) *const Value;
 };
 
@@ -900,4 +924,43 @@ pub const AtomicOrdering = enum(c_uint) {
     Release = 5,
     AcquireRelease = 6,
     SequentiallyConsistent = 7,
+};
+
+pub const AtomicRMWBinOp = enum(c_int) {
+    Xchg,
+    Add,
+    Sub,
+    And,
+    Nand,
+    Or,
+    Xor,
+    Max,
+    Min,
+    UMax,
+    UMin,
+    FAdd,
+    FSub,
+};
+
+pub const TypeKind = enum(c_int) {
+    Void,
+    Half,
+    Float,
+    Double,
+    X86_FP80,
+    FP128,
+    PPC_FP128,
+    Label,
+    Integer,
+    Function,
+    Struct,
+    Array,
+    Pointer,
+    Vector,
+    Metadata,
+    X86_MMX,
+    Token,
+    ScalableVector,
+    BFloat,
+    X86_AMX,
 };

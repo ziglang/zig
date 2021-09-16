@@ -193,6 +193,12 @@ const Writer = struct {
             .switch_br => try w.writeSwitchBr(s, inst),
             .cmpxchg_weak, .cmpxchg_strong => try w.writeCmpxchg(s, inst),
             .fence => try w.writeFence(s, inst),
+            .atomic_load => try w.writeAtomicLoad(s, inst),
+            .atomic_store_unordered => try w.writeAtomicStore(s, inst, .Unordered),
+            .atomic_store_monotonic => try w.writeAtomicStore(s, inst, .Monotonic),
+            .atomic_store_release => try w.writeAtomicStore(s, inst, .Release),
+            .atomic_store_seq_cst => try w.writeAtomicStore(s, inst, .SeqCst),
+            .atomic_rmw => try w.writeAtomicRmw(s, inst),
         }
     }
 
@@ -281,6 +287,36 @@ const Writer = struct {
         const atomic_order = w.air.instructions.items(.data)[inst].fence;
 
         try s.print("{s}", .{@tagName(atomic_order)});
+    }
+
+    fn writeAtomicLoad(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
+        const atomic_load = w.air.instructions.items(.data)[inst].atomic_load;
+
+        try w.writeOperand(s, inst, 0, atomic_load.ptr);
+        try s.print(", {s}", .{@tagName(atomic_load.order)});
+    }
+
+    fn writeAtomicStore(
+        w: *Writer,
+        s: anytype,
+        inst: Air.Inst.Index,
+        order: std.builtin.AtomicOrder,
+    ) @TypeOf(s).Error!void {
+        const bin_op = w.air.instructions.items(.data)[inst].bin_op;
+        try w.writeOperand(s, inst, 0, bin_op.lhs);
+        try s.writeAll(", ");
+        try w.writeOperand(s, inst, 1, bin_op.rhs);
+        try s.print(", {s}", .{@tagName(order)});
+    }
+
+    fn writeAtomicRmw(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
+        const pl_op = w.air.instructions.items(.data)[inst].pl_op;
+        const extra = w.air.extraData(Air.AtomicRmw, pl_op.payload).data;
+
+        try w.writeOperand(s, inst, 0, pl_op.operand);
+        try s.writeAll(", ");
+        try w.writeOperand(s, inst, 1, extra.operand);
+        try s.print(", {s}, {s}", .{ @tagName(extra.op()), @tagName(extra.ordering()) });
     }
 
     fn writeConstant(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {

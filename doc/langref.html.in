@@ -7216,7 +7216,9 @@ fn func(y: *i32) void {
       {#syntax#}T{#endsyntax#} must be a pointer, a {#syntax#}bool{#endsyntax#}, a float,
       an integer or an enum.
       </p>
+      {#see_also|@atomicStore|@atomicRmw|@fence|@cmpxchgWeak|@cmpxchgStrong#}
       {#header_close#}
+
       {#header_open|@atomicRmw#}
       <pre>{#syntax#}@atomicRmw(comptime T: type, ptr: *T, comptime op: builtin.AtomicRmwOp, operand: T, comptime ordering: builtin.AtomicOrder) T{#endsyntax#}</pre>
       <p>
@@ -7242,7 +7244,9 @@ fn func(y: *i32) void {
         <li>{#syntax#}.Max{#endsyntax#} - stores the operand if it is larger. Supports integers and floats.</li>
         <li>{#syntax#}.Min{#endsyntax#} - stores the operand if it is smaller. Supports integers and floats.</li>
       </ul>
+      {#see_also|@atomicStore|@atomicLoad|@fence|@cmpxchgWeak|@cmpxchgStrong#}
       {#header_close#}
+
       {#header_open|@atomicStore#}
       <pre>{#syntax#}@atomicStore(comptime T: type, ptr: *T, value: T, comptime ordering: builtin.AtomicOrder) void{#endsyntax#}</pre>
       <p>
@@ -7252,6 +7256,7 @@ fn func(y: *i32) void {
       {#syntax#}T{#endsyntax#} must be a pointer, a {#syntax#}bool{#endsyntax#}, a float,
       an integer or an enum.
       </p>
+      {#see_also|@atomicLoad|@atomicRmw|@fence|@cmpxchgWeak|@cmpxchgStrong#}
       {#header_close#}
 
       {#header_open|@bitCast#}
@@ -7540,8 +7545,9 @@ fn cmpxchgStrongButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_v
       an integer or an enum.
       </p>
       <p>{#syntax#}@typeInfo(@TypeOf(ptr)).Pointer.alignment{#endsyntax#} must be {#syntax#}>= @sizeOf(T).{#endsyntax#}</p>
-      {#see_also|Compile Variables|cmpxchgWeak#}
+      {#see_also|@atomicStore|@atomicLoad|@atomicRmw|@fence|@cmpxchgWeak#}
       {#header_close#}
+
       {#header_open|@cmpxchgWeak#}
       <pre>{#syntax#}@cmpxchgWeak(comptime T: type, ptr: *T, expected_value: T, new_value: T, success_order: AtomicOrder, fail_order: AtomicOrder) ?T{#endsyntax#}</pre>
       <p>
@@ -7569,7 +7575,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       an integer or an enum.
       </p>
       <p>{#syntax#}@typeInfo(@TypeOf(ptr)).Pointer.alignment{#endsyntax#} must be {#syntax#}>= @sizeOf(T).{#endsyntax#}</p>
-      {#see_also|Compile Variables|cmpxchgStrong#}
+      {#see_also|@atomicStore|@atomicLoad|@atomicRmw|@fence|@cmpxchgStrong#}
       {#header_close#}
 
       {#header_open|@compileError#}
@@ -7849,7 +7855,7 @@ export fn @"A function name that is a complete sentence."() void {}
       <p>
       {#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("std").builtin.AtomicOrder{#endsyntax#}.
       </p>
-      {#see_also|Compile Variables#}
+      {#see_also|@atomicStore|@atomicLoad|@atomicRmw|@cmpxchgWeak|@cmpxchgStrong#}
       {#header_close#}
 
       {#header_open|@field#}

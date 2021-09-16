@@ -252,6 +252,10 @@ fn analyzeInst(
         .ptr_ptr_elem_val,
         .shl,
         .shr,
+        .atomic_store_unordered,
+        .atomic_store_monotonic,
+        .atomic_store_release,
+        .atomic_store_seq_cst,
         => {
             const o = inst_datas[inst].bin_op;
             return trackOperands(a, new_set, inst, main_tomb, .{ o.lhs, o.rhs, .none });
@@ -344,6 +348,15 @@ fn analyzeInst(
         .cmpxchg_strong, .cmpxchg_weak => {
             const extra = a.air.extraData(Air.Cmpxchg, inst_datas[inst].ty_pl.payload).data;
             return trackOperands(a, new_set, inst, main_tomb, .{ extra.ptr, extra.expected_value, extra.new_value });
+        },
+        .atomic_load => {
+            const ptr = inst_datas[inst].atomic_load.ptr;
+            return trackOperands(a, new_set, inst, main_tomb, .{ ptr, .none, .none });
+        },
+        .atomic_rmw => {
+            const pl_op = inst_datas[inst].pl_op;
+            const extra = a.air.extraData(Air.AtomicRmw, pl_op.payload).data;
+            return trackOperands(a, new_set, inst, main_tomb, .{ pl_op.operand, extra.operand, .none });
         },
         .br => {
             const br = inst_datas[inst].br;

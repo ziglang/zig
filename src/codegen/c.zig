@@ -914,6 +914,13 @@ fn genBody(o: *Object, body: []const Air.Inst.Index) error{ AnalysisFail, OutOfM
             .array_to_slice   => try airArrayToSlice(o, inst),
             .cmpxchg_weak     => try airCmpxchg(o, inst, "weak"),
             .cmpxchg_strong   => try airCmpxchg(o, inst, "strong"),
+            .atomic_rmw       => try airAtomicRmw(o, inst),
+            .atomic_load      => try airAtomicLoad(o, inst),
+
+            .atomic_store_unordered => try airAtomicStore(o, inst, toMemoryOrder(.Unordered)),
+            .atomic_store_monotonic => try airAtomicStore(o, inst, toMemoryOrder(.Monotonic)),
+            .atomic_store_release   => try airAtomicStore(o, inst, toMemoryOrder(.Release)),
+            .atomic_store_seq_cst   => try airAtomicStore(o, inst, toMemoryOrder(.SeqCst)),
 
             .struct_field_ptr_index_0 => try airStructFieldPtrIndex(o, inst, 0),
             .struct_field_ptr_index_1 => try airStructFieldPtrIndex(o, inst, 1),
@@ -1917,8 +1924,61 @@ fn airCmpxchg(o: *Object, inst: Air.Inst.Index, flavor: [*:0]const u8) !CValue {
     return local;
 }
 
-fn writeMemoryOrder(w: anytype, order: std.builtin.AtomicOrder) !void {
-    const str = switch (order) {
+fn airAtomicRmw(o: *Object, inst: Air.Inst.Index) !CValue {
+    const pl_op = o.air.instructions.items(.data)[inst].pl_op;
+    const extra = o.air.extraData(Air.AtomicRmw, pl_op.payload).data;
+    const inst_ty = o.air.typeOfIndex(inst);
+    const ptr = try o.resolveInst(pl_op.operand);
+    const operand = try o.resolveInst(extra.operand);
+    const local = try o.allocLocal(inst_ty, .Const);
+    const writer = o.writer();
+
+    try writer.print(" = zig_atomicrmw_{s}(", .{toAtomicRmwSuffix(extra.op())});
+    try o.writeCValue(writer, ptr);
+    try writer.writeAll(", ");
+    try o.writeCValue(writer, operand);
+    try writer.writeAll(", ");
+    try writeMemoryOrder(writer, extra.ordering());
+    try writer.writeAll(");\n");
+
+    return local;
+}
+
+fn airAtomicLoad(o: *Object, inst: Air.Inst.Index) !CValue {
+    const atomic_load = o.air.instructions.items(.data)[inst].atomic_load;
+    const inst_ty = o.air.typeOfIndex(inst);
+    const ptr = try o.resolveInst(atomic_load.ptr);
+    const local = try o.allocLocal(inst_ty, .Const);
+    const writer = o.writer();
+
+    try writer.writeAll(" = zig_atomic_load(");
+    try o.writeCValue(writer, ptr);
+    try writer.writeAll(", ");
+    try writeMemoryOrder(writer, atomic_load.order);
+    try writer.writeAll(");\n");
+
+    return local;
+}
+
+fn airAtomicStore(o: *Object, inst: Air.Inst.Index, order: [*:0]const u8) !CValue {
+    const bin_op = o.air.instructions.items(.data)[inst].bin_op;
+    const ptr = try o.resolveInst(bin_op.lhs);
+    const element = try o.resolveInst(bin_op.rhs);
+    const inst_ty = o.air.typeOfIndex(inst);
+    const local = try o.allocLocal(inst_ty, .Const);
+    const writer = o.writer();
+
+    try writer.writeAll(" = zig_atomic_store(");
+    try o.writeCValue(writer, ptr);
+    try writer.writeAll(", ");
+    try o.writeCValue(writer, element);
+    try writer.print(", {s});\n", .{order});
+
+    return local;
+}
+
+fn toMemoryOrder(order: std.builtin.AtomicOrder) [:0]const u8 {
+    return switch (order) {
         .Unordered => "memory_order_relaxed",
         .Monotonic => "memory_order_consume",
         .Acquire => "memory_order_acquire",
@@ -1926,7 +1986,24 @@ fn writeMemoryOrder(w: anytype, order: std.builtin.AtomicOrder) !void {
         .AcqRel => "memory_order_acq_rel",
         .SeqCst => "memory_order_seq_cst",
     };
-    return w.writeAll(str);
+}
+
+fn writeMemoryOrder(w: anytype, order: std.builtin.AtomicOrder) !void {
+    return w.writeAll(toMemoryOrder(order));
+}
+
+fn toAtomicRmwSuffix(order: std.builtin.AtomicRmwOp) []const u8 {
+    return switch (order) {
+        .Xchg => "xchg",
+        .Add => "add",
+        .Sub => "sub",
+        .And => "and",
+        .Nand => "nand",
+        .Or => "or",
+        .Xor => "xor",
+        .Max => "max",
+        .Min => "min",
+    };
 }
 
 fn IndentWriter(comptime UnderlyingWriter: type) type {

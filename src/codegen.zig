@@ -860,6 +860,13 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     .array_to_slice  => try self.airArrayToSlice(inst),
                     .cmpxchg_strong  => try self.airCmpxchg(inst),
                     .cmpxchg_weak    => try self.airCmpxchg(inst),
+                    .atomic_rmw      => try self.airAtomicRmw(inst),
+                    .atomic_load     => try self.airAtomicLoad(inst),
+
+                    .atomic_store_unordered => try self.airAtomicStore(inst, .Unordered),
+                    .atomic_store_monotonic => try self.airAtomicStore(inst, .Monotonic),
+                    .atomic_store_release   => try self.airAtomicStore(inst, .Release),
+                    .atomic_store_seq_cst   => try self.airAtomicStore(inst, .SeqCst),
 
                     .struct_field_ptr_index_0 => try self.airStructFieldPtrIndex(inst, 0),
                     .struct_field_ptr_index_1 => try self.airStructFieldPtrIndex(inst, 1),
@@ -4771,6 +4778,22 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 }),
             };
             return self.finishAir(inst, result, .{ extra.ptr, extra.expected_value, extra.new_value });
+        }
+
+        fn airAtomicRmw(self: *Self, inst: Air.Inst.Index) !void {
+            _ = inst;
+            return self.fail("TODO implement airCmpxchg for {}", .{self.target.cpu.arch});
+        }
+
+        fn airAtomicLoad(self: *Self, inst: Air.Inst.Index) !void {
+            _ = inst;
+            return self.fail("TODO implement airAtomicLoad for {}", .{self.target.cpu.arch});
+        }
+
+        fn airAtomicStore(self: *Self, inst: Air.Inst.Index, order: std.builtin.AtomicOrder) !void {
+            _ = inst;
+            _ = order;
+            return self.fail("TODO implement airAtomicStore for {}", .{self.target.cpu.arch});
         }
 
         fn resolveInst(self: *Self, inst: Air.Inst.Ref) InnerError!MCValue {
