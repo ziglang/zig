@@ -195,9 +195,9 @@ pub const Poly1305 = struct {
     }
 
     pub fn create(out: *[mac_length]u8, msg: []const u8, key: *const [key_length]u8) void {
-        var st = Poly1305.init(key);
-        st.update(msg);
-        st.final(out);
+        var self = Poly1305.init(key);
+        self.update(msg);
+        self.final(out);
     }
 };
 
