@@ -87,9 +87,9 @@ pub const Adler32 = struct {
     }
 
     pub fn hash(input: []const u8) u32 {
-        var c = Adler32.init();
-        c.update(input);
-        return c.final();
+        var self = Adler32.init();
+        self.update(input);
+        return self.final();
     }
 };
 
