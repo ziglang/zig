@@ -25,9 +25,9 @@ pub fn Hmac(comptime Hash: type) type {
 
         // HMAC(k, m) = H(o_key_pad || H(i_key_pad || msg)) where || is concatenation
         pub fn create(out: *[mac_length]u8, msg: []const u8, key: []const u8) void {
-            var ctx = Self.init(key);
-            ctx.update(msg);
-            ctx.final(out);
+            var self = Self.init(key);
+            self.update(msg);
+            self.final(out);
         }
 
         pub fn init(key: []const u8) Self {
