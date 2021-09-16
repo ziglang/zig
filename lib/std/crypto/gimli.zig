@@ -259,9 +259,9 @@ pub const Hash = struct {
 };
 
 pub fn hash(out: []u8, in: []const u8, options: Hash.Options) void {
-    var st = Hash.init(options);
-    st.update(in);
-    st.final(out);
+    var self = Hash.init(options);
+    self.update(in);
+    self.final(out);
 }
 
 test "hash" {
