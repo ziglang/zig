@@ -56,7 +56,7 @@ pub fn main() void {
             .evented => blk: {
                 if (async_frame_buffer.len < size) {
                     std.heap.page_allocator.free(async_frame_buffer);
-                    async_frame_buffer = try std.heap.page_allocator.alignedAlloc(u8, std.Target.stack_align, size);
+                    async_frame_buffer = std.heap.page_allocator.alignedAlloc(u8, std.Target.stack_align, size) catch @panic("out of memory");
                 }
                 const casted_fn = @ptrCast(fn () callconv(.Async) anyerror!void, test_fn.func);
                 break :blk await @asyncCall(async_frame_buffer, {}, casted_fn, .{});
