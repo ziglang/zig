@@ -105,7 +105,9 @@ pub fn build(b: *Builder) !void {
     exe.install();
     exe.setBuildMode(mode);
     exe.setTarget(target);
-    toolchain_step.dependOn(&exe.step);
+    if (!skip_stage2_tests) {
+        toolchain_step.dependOn(&exe.step);
+    }
     b.default_step.dependOn(&exe.step);
     exe.single_threaded = single_threaded;
 
