@@ -7518,12 +7518,16 @@ fn checkAtomicOperandType(
             return;
         },
         .Bool => return, // Will be treated as `u8`.
-        else => return sema.mod.fail(
-            &block.base,
-            ty_src,
-            "expected bool, integer, float, enum, or pointer type; found {}",
-            .{ty},
-        ),
+        else => {
+            if (ty.isPtrAtRuntime()) return;
+
+            return sema.mod.fail(
+                &block.base,
+                ty_src,
+                "expected bool, integer, float, enum, or pointer type; found {}",
+                .{ty},
+            );
+        },
     };
     const bit_count = int_ty.intInfo(target).bits;
     if (bit_count > max_atomic_bits) {

@@ -602,18 +602,18 @@ pub const DeclGen = struct {
                 return elem_type.arrayType(@intCast(c_uint, total_len));
             },
             .Optional => {
-                if (!t.isPtrLikeOptional()) {
-                    var buf: Type.Payload.ElemType = undefined;
-                    const child_type = t.optionalChild(&buf);
+                var buf: Type.Payload.ElemType = undefined;
+                const child_type = t.optionalChild(&buf);
+                const payload_llvm_ty = try self.llvmType(child_type);
 
-                    const optional_types: [2]*const llvm.Type = .{
-                        try self.llvmType(child_type),
-                        self.context.intType(1),
-                    };
-                    return self.context.structType(&optional_types, 2, .False);
-                } else {
-                    return self.todo("implement optional pointers as actual pointers", .{});
+                if (t.isPtrLikeOptional()) {
+                    return payload_llvm_ty;
                 }
+
+                const fields: [2]*const llvm.Type = .{
+                    payload_llvm_ty, self.context.intType(1),
+                };
+                return self.context.structType(&fields, fields.len, .False);
             },
             .ErrorUnion => {
                 const error_type = t.errorUnionSet();
@@ -1573,6 +1573,13 @@ pub const FuncGen = struct {
         const operand = try self.resolveInst(un_op);
 
         if (operand_is_ptr) {
+            const operand_ty = self.air.typeOf(un_op).elemType();
+            if (operand_ty.isPtrLikeOptional()) {
+                const operand_llvm_ty = try self.dg.llvmType(operand_ty);
+                const loaded = self.builder.buildLoad(operand, "");
+                return self.builder.buildICmp(.NE, loaded, operand_llvm_ty.constNull(), "");
+            }
+
             const index_type = self.context.intType(32);
 
             var indices: [2]*const llvm.Value = .{
@@ -1581,9 +1588,15 @@ pub const FuncGen = struct {
             };
 
             return self.builder.buildLoad(self.builder.buildInBoundsGEP(operand, &indices, indices.len, ""), "");
-        } else {
-            return self.builder.buildExtractValue(operand, 1, "");
         }
+
+        const operand_ty = self.air.typeOf(un_op);
+        if (operand_ty.isPtrLikeOptional()) {
+            const operand_llvm_ty = try self.dg.llvmType(operand_ty);
+            return self.builder.buildICmp(.NE, operand, operand_llvm_ty.constNull(), "");
+        }
+
+        return self.builder.buildExtractValue(operand, 1, "");
     }
 
     fn airIsNull(self: *FuncGen, inst: Air.Inst.Index, operand_is_ptr: bool) !?*const llvm.Value {
@@ -1636,17 +1649,24 @@ pub const FuncGen = struct {
         const operand = try self.resolveInst(ty_op.operand);
 
         if (operand_is_ptr) {
+            const operand_ty = self.air.typeOf(ty_op.operand).elemType();
+            if (operand_ty.isPtrLikeOptional()) {
+                return self.builder.buildLoad(operand, "");
+            }
+
             const index_type = self.context.intType(32);
-
             var indices: [2]*const llvm.Value = .{
-                index_type.constNull(),
-                index_type.constNull(),
+                index_type.constNull(), index_type.constNull(),
             };
-
             return self.builder.buildInBoundsGEP(operand, &indices, 2, "");
-        } else {
-            return self.builder.buildExtractValue(operand, 0, "");
         }
+
+        const operand_ty = self.air.typeOf(ty_op.operand);
+        if (operand_ty.isPtrLikeOptional()) {
+            return operand;
+        }
+
+        return self.builder.buildExtractValue(operand, 0, "");
     }
 
     fn airErrUnionPayload(
@@ -2050,8 +2070,6 @@ pub const FuncGen = struct {
         );
 
         const optional_ty = self.air.typeOfIndex(inst);
-        var buffer: Type.Payload.ElemType = undefined;
-        const child_ty = optional_ty.optionalChild(&buffer);
 
         var payload = self.builder.buildExtractValue(result, 0, "");
         if (opt_abi_ty != null) {
@@ -2060,8 +2078,7 @@ pub const FuncGen = struct {
         const success_bit = self.builder.buildExtractValue(result, 1, "");
 
         if (optional_ty.isPtrLikeOptional()) {
-            const child_llvm_ty = try self.dg.llvmType(child_ty);
-            return self.builder.buildSelect(success_bit, child_llvm_ty.constNull(), payload, "");
+            return self.builder.buildSelect(success_bit, payload.typeOf().constNull(), payload, "");
         }
 
         const optional_llvm_ty = try self.dg.llvmType(optional_ty);
