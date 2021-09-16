@@ -54,85 +54,85 @@ pub const Md5 = struct {
         };
     }
 
-    pub fn hash(b: []const u8, out: *[digest_length]u8, options: Options) void {
-        var d = Md5.init(options);
-        d.update(b);
-        d.final(out);
+    pub fn hash(in: []const u8, out: *[digest_length]u8, options: Options) void {
+        var self = Md5.init(options);
+        self.update(in);
+        self.final(out);
     }
 
-    pub fn update(d: *Self, b: []const u8) void {
+    pub fn update(self: *Self, in: []const u8) void {
         var off: usize = 0;
 
         // Partial buffer exists from previous update. Copy into buffer then hash.
-        if (d.buf_len != 0 and d.buf_len + b.len >= 64) {
-            off += 64 - d.buf_len;
-            mem.copy(u8, d.buf[d.buf_len..], b[0..off]);
+        if (self.buf_len != 0 and self.buf_len + in.len >= 64) {
+            off += 64 - self.buf_len;
+            mem.copy(u8, self.buf[self.buf_len..], in[0..off]);
 
-            d.round(&d.buf);
-            d.buf_len = 0;
+            self.round(&self.buf);
+            self.buf_len = 0;
         }
 
         // Full middle blocks.
-        while (off + 64 <= b.len) : (off += 64) {
-            d.round(b[off..][0..64]);
+        while (off + 64 <= in.len) : (off += 64) {
+            self.round(in[off..][0..64]);
         }
 
         // Copy any remainder for next pass.
-        mem.copy(u8, d.buf[d.buf_len..], b[off..]);
-        d.buf_len += @intCast(u8, b[off..].len);
+        mem.copy(u8, self.buf[self.buf_len..], in[off..]);
+        self.buf_len += @intCast(u8, in[off..].len);
 
         // Md5 uses the bottom 64-bits for length padding
-        d.total_len +%= b.len;
+        self.total_len +%= in.len;
     }
 
-    pub fn final(d: *Self, out: *[digest_length]u8) void {
+    pub fn final(self: *Self, out: *[digest_length]u8) void {
         // The buffer here will never be completely full.
-        mem.set(u8, d.buf[d.buf_len..], 0);
+        mem.set(u8, self.buf[self.buf_len..], 0);
 
         // Append padding bits.
-        d.buf[d.buf_len] = 0x80;
-        d.buf_len += 1;
+        self.buf[self.buf_len] = 0x80;
+        self.buf_len += 1;
 
         // > 448 mod 512 so need to add an extra round to wrap around.
-        if (64 - d.buf_len < 8) {
-            d.round(d.buf[0..]);
-            mem.set(u8, d.buf[0..], 0);
+        if (64 - self.buf_len < 8) {
+            self.round(self.buf[0..]);
+            mem.set(u8, self.buf[0..], 0);
         }
 
         // Append message length.
         var i: usize = 1;
-        var len = d.total_len >> 5;
-        d.buf[56] = @intCast(u8, d.total_len & 0x1f) << 3;
+        var len = self.total_len >> 5;
+        self.buf[56] = @intCast(u8, self.total_len & 0x1f) << 3;
         while (i < 8) : (i += 1) {
-            d.buf[56 + i] = @intCast(u8, len & 0xff);
+            self.buf[56 + i] = @intCast(u8, len & 0xff);
             len >>= 8;
         }
 
-        d.round(d.buf[0..]);
+        self.round(self.buf[0..]);
 
-        for (d.s) |s, j| {
+        for (self.s) |s, j| {
             mem.writeIntLittle(u32, out[4 * j ..][0..4], s);
         }
     }
 
-    fn round(d: *Self, b: *const [64]u8) void {
+    fn round(self: *Self, in: *const [64]u8) void {
         var s: [16]u32 = undefined;
 
         var i: usize = 0;
         while (i < 16) : (i += 1) {
             // NOTE: Performing or's separately improves perf by ~10%
             s[i] = 0;
-            s[i] |= @as(u32, b[i * 4 + 0]);
-            s[i] |= @as(u32, b[i * 4 + 1]) << 8;
-            s[i] |= @as(u32, b[i * 4 + 2]) << 16;
-            s[i] |= @as(u32, b[i * 4 + 3]) << 24;
+            s[i] |= @as(u32, in[i * 4 + 0]);
+            s[i] |= @as(u32, in[i * 4 + 1]) << 8;
+            s[i] |= @as(u32, in[i * 4 + 2]) << 16;
+            s[i] |= @as(u32, in[i * 4 + 3]) << 24;
         }
 
         var v: [4]u32 = [_]u32{
-            d.s[0],
-            d.s[1],
-            d.s[2],
-            d.s[3],
+            self.s[0],
+            self.s[1],
+            self.s[2],
+            self.s[3],
         };
 
         const round0 = comptime [_]RoundParam{
@@ -227,10 +227,10 @@ pub const Md5 = struct {
             v[r.a] = v[r.b] +% math.rotl(u32, v[r.a], r.s);
         }
 
-        d.s[0] +%= v[0];
-        d.s[1] +%= v[1];
-        d.s[2] +%= v[2];
-        d.s[3] +%= v[3];
+        self.s[0] +%= v[0];
+        self.s[1] +%= v[1];
+        self.s[2] +%= v[2];
+        self.s[3] +%= v[3];
     }
 };
 
