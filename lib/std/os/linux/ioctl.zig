@@ -1,6 +1,6 @@
 const std = @import("../../std.zig");
 
-const bits = switch (std.Target.current.cpu.arch) {
+const bits = switch (@import("builtin").cpu.arch) {
     .mips,
     .mipsel,
     .mips64,
@@ -51,6 +51,6 @@ pub fn IOWR(io_type: u8, nr: u8, comptime T: type) u32 {
     return io_impl(bits.read | bits.write, io_type, nr, T);
 }
 
-test "ioctl request size" {
-    std.testing.expectEqual(32, @bitSizeOf(Request));
+comptime {
+    std.debug.assert(@bitSizeOf(Request) == 32);
 }
