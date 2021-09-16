@@ -59,16 +59,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         /// Deinitialize with `deinit` or use `toOwnedSlice`.
         pub fn initCapacity(allocator: *Allocator, num: usize) !Self {
             var self = Self.init(allocator);
-
-            if (@sizeOf(T) > 0) {
-                const new_memory = try self.allocator.allocAdvanced(T, alignment, num, .at_least);
-                self.items.ptr = new_memory.ptr;
-                self.capacity = new_memory.len;
-            } else {
-                // If `T` is a zero-sized type, then we do not need to allocate memory.
-                self.capacity = std.math.maxInt(usize);
-            }
-
+            try self.ensureTotalCapacity(num);
             return self;
         }
 
@@ -467,11 +458,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// Deinitialize with `deinit` or use `toOwnedSlice`.
         pub fn initCapacity(allocator: *Allocator, num: usize) !Self {
             var self = Self{};
-
-            const new_memory = try allocator.allocAdvanced(T, alignment, num, .at_least);
-            self.items.ptr = new_memory.ptr;
-            self.capacity = new_memory.len;
-
+            try self.ensureTotalCapacity(allocator, num);
             return self;
         }
 
