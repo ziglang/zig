@@ -105,93 +105,93 @@ fn Sha2x32(comptime params: Sha2Params32) type {
             };
         }
 
-        pub fn hash(b: []const u8, out: *[digest_length]u8, options: Options) void {
-            var d = Self.init(options);
-            d.update(b);
-            d.final(out);
+        pub fn hash(in: []const u8, out: *[digest_length]u8, options: Options) void {
+            var self = Self.init(options);
+            self.update(in);
+            self.final(out);
         }
 
-        pub fn update(d: *Self, b: []const u8) void {
+        pub fn update(self: *Self, in: []const u8) void {
             var off: usize = 0;
 
             // Partial buffer exists from previous update. Copy into buffer then hash.
-            if (d.buf_len != 0 and d.buf_len + b.len >= 64) {
-                off += 64 - d.buf_len;
-                mem.copy(u8, d.buf[d.buf_len..], b[0..off]);
+            if (self.buf_len != 0 and self.buf_len + in.len >= 64) {
+                off += 64 - self.buf_len;
+                mem.copy(u8, self.buf[self.buf_len..], in[0..off]);
 
-                d.round(&d.buf);
-                d.buf_len = 0;
+                self.round(&self.buf);
+                self.buf_len = 0;
             }
 
             // Full middle blocks.
-            while (off + 64 <= b.len) : (off += 64) {
-                d.round(b[off..][0..64]);
+            while (off + 64 <= in.len) : (off += 64) {
+                self.round(in[off..][0..64]);
             }
 
             // Copy any remainder for next pass.
-            mem.copy(u8, d.buf[d.buf_len..], b[off..]);
-            d.buf_len += @intCast(u8, b[off..].len);
+            mem.copy(u8, self.buf[self.buf_len..], in[off..]);
+            self.buf_len += @intCast(u8, in[off..].len);
 
-            d.total_len += b.len;
+            self.total_len += in.len;
         }
 
-        pub fn final(d: *Self, out: *[digest_length]u8) void {
+        pub fn final(self: *Self, out: *[digest_length]u8) void {
             // The buffer here will never be completely full.
-            mem.set(u8, d.buf[d.buf_len..], 0);
+            mem.set(u8, self.buf[self.buf_len..], 0);
 
             // Append padding bits.
-            d.buf[d.buf_len] = 0x80;
-            d.buf_len += 1;
+            self.buf[self.buf_len] = 0x80;
+            self.buf_len += 1;
 
             // > 448 mod 512 so need to add an extra round to wrap around.
-            if (64 - d.buf_len < 8) {
-                d.round(&d.buf);
-                mem.set(u8, d.buf[0..], 0);
+            if (64 - self.buf_len < 8) {
+                self.round(&self.buf);
+                mem.set(u8, self.buf[0..], 0);
             }
 
             // Append message length.
             var i: usize = 1;
-            var len = d.total_len >> 5;
-            d.buf[63] = @intCast(u8, d.total_len & 0x1f) << 3;
+            var len = self.total_len >> 5;
+            self.buf[63] = @intCast(u8, self.total_len & 0x1f) << 3;
             while (i < 8) : (i += 1) {
-                d.buf[63 - i] = @intCast(u8, len & 0xff);
+                self.buf[63 - i] = @intCast(u8, len & 0xff);
                 len >>= 8;
             }
 
-            d.round(&d.buf);
+            self.round(&self.buf);
 
             // May truncate for possible 224 output
-            const rr = d.s[0 .. params.digest_bits / 32];
+            const rr = self.s[0 .. params.digest_bits / 32];
 
             for (rr) |s, j| {
                 mem.writeIntBig(u32, out[4 * j ..][0..4], s);
             }
         }
 
-        fn round(d: *Self, b: *const [64]u8) void {
+        fn round(self: *Self, in: *const [64]u8) void {
             var s: [64]u32 = undefined;
 
             var i: usize = 0;
             while (i < 16) : (i += 1) {
                 s[i] = 0;
-                s[i] |= @as(u32, b[i * 4 + 0]) << 24;
-                s[i] |= @as(u32, b[i * 4 + 1]) << 16;
-                s[i] |= @as(u32, b[i * 4 + 2]) << 8;
-                s[i] |= @as(u32, b[i * 4 + 3]) << 0;
+                s[i] |= @as(u32, in[i * 4 + 0]) << 24;
+                s[i] |= @as(u32, in[i * 4 + 1]) << 16;
+                s[i] |= @as(u32, in[i * 4 + 2]) << 8;
+                s[i] |= @as(u32, in[i * 4 + 3]) << 0;
             }
             while (i < 64) : (i += 1) {
                 s[i] = s[i - 16] +% s[i - 7] +% (math.rotr(u32, s[i - 15], @as(u32, 7)) ^ math.rotr(u32, s[i - 15], @as(u32, 18)) ^ (s[i - 15] >> 3)) +% (math.rotr(u32, s[i - 2], @as(u32, 17)) ^ math.rotr(u32, s[i - 2], @as(u32, 19)) ^ (s[i - 2] >> 10));
             }
 
             var v: [8]u32 = [_]u32{
-                d.s[0],
-                d.s[1],
-                d.s[2],
-                d.s[3],
-                d.s[4],
-                d.s[5],
-                d.s[6],
-                d.s[7],
+                self.s[0],
+                self.s[1],
+                self.s[2],
+                self.s[3],
+                self.s[4],
+                self.s[5],
+                self.s[6],
+                self.s[7],
             };
 
             const round0 = comptime [_]RoundParam256{
@@ -268,14 +268,14 @@ fn Sha2x32(comptime params: Sha2Params32) type {
                 v[r.h] = v[r.h] +% (math.rotr(u32, v[r.a], @as(u32, 2)) ^ math.rotr(u32, v[r.a], @as(u32, 13)) ^ math.rotr(u32, v[r.a], @as(u32, 22))) +% ((v[r.a] & (v[r.b] | v[r.c])) | (v[r.b] & v[r.c]));
             }
 
-            d.s[0] +%= v[0];
-            d.s[1] +%= v[1];
-            d.s[2] +%= v[2];
-            d.s[3] +%= v[3];
-            d.s[4] +%= v[4];
-            d.s[5] +%= v[5];
-            d.s[6] +%= v[6];
-            d.s[7] +%= v[7];
+            self.s[0] +%= v[0];
+            self.s[1] +%= v[1];
+            self.s[2] +%= v[2];
+            self.s[3] +%= v[3];
+            self.s[4] +%= v[4];
+            self.s[5] +%= v[5];
+            self.s[6] +%= v[6];
+            self.s[7] +%= v[7];
         }
     };
 }
@@ -473,83 +473,83 @@ fn Sha2x64(comptime params: Sha2Params64) type {
             };
         }
 
-        pub fn hash(b: []const u8, out: *[digest_length]u8, options: Options) void {
-            var d = Self.init(options);
-            d.update(b);
-            d.final(out);
+        pub fn hash(in: []const u8, out: *[digest_length]u8, options: Options) void {
+            var self = Self.init(options);
+            self.update(in);
+            self.final(out);
         }
 
-        pub fn update(d: *Self, b: []const u8) void {
+        pub fn update(self: *Self, in: []const u8) void {
             var off: usize = 0;
 
             // Partial buffer exists from previous update. Copy into buffer then hash.
-            if (d.buf_len != 0 and d.buf_len + b.len >= 128) {
-                off += 128 - d.buf_len;
-                mem.copy(u8, d.buf[d.buf_len..], b[0..off]);
+            if (self.buf_len != 0 and self.buf_len + in.len >= 128) {
+                off += 128 - self.buf_len;
+                mem.copy(u8, self.buf[self.buf_len..], in[0..off]);
 
-                d.round(&d.buf);
-                d.buf_len = 0;
+                self.round(&self.buf);
+                self.buf_len = 0;
             }
 
             // Full middle blocks.
-            while (off + 128 <= b.len) : (off += 128) {
-                d.round(b[off..][0..128]);
+            while (off + 128 <= in.len) : (off += 128) {
+                self.round(in[off..][0..128]);
             }
 
             // Copy any remainder for next pass.
-            mem.copy(u8, d.buf[d.buf_len..], b[off..]);
-            d.buf_len += @intCast(u8, b[off..].len);
+            mem.copy(u8, self.buf[self.buf_len..], in[off..]);
+            self.buf_len += @intCast(u8, in[off..].len);
 
-            d.total_len += b.len;
+            self.total_len += in.len;
         }
 
-        pub fn final(d: *Self, out: *[digest_length]u8) void {
+        pub fn final(self: *Self, out: *[digest_length]u8) void {
             // The buffer here will never be completely full.
-            mem.set(u8, d.buf[d.buf_len..], 0);
+            mem.set(u8, self.buf[self.buf_len..], 0);
 
             // Append padding bits.
-            d.buf[d.buf_len] = 0x80;
-            d.buf_len += 1;
+            self.buf[self.buf_len] = 0x80;
+            self.buf_len += 1;
 
             // > 896 mod 1024 so need to add an extra round to wrap around.
-            if (128 - d.buf_len < 16) {
-                d.round(d.buf[0..]);
-                mem.set(u8, d.buf[0..], 0);
+            if (128 - self.buf_len < 16) {
+                self.round(self.buf[0..]);
+                mem.set(u8, self.buf[0..], 0);
             }
 
             // Append message length.
             var i: usize = 1;
-            var len = d.total_len >> 5;
-            d.buf[127] = @intCast(u8, d.total_len & 0x1f) << 3;
+            var len = self.total_len >> 5;
+            self.buf[127] = @intCast(u8, self.total_len & 0x1f) << 3;
             while (i < 16) : (i += 1) {
-                d.buf[127 - i] = @intCast(u8, len & 0xff);
+                self.buf[127 - i] = @intCast(u8, len & 0xff);
                 len >>= 8;
             }
 
-            d.round(d.buf[0..]);
+            self.round(self.buf[0..]);
 
             // May truncate for possible 384 output
-            const rr = d.s[0 .. params.digest_bits / 64];
+            const rr = self.s[0 .. params.digest_bits / 64];
 
             for (rr) |s, j| {
                 mem.writeIntBig(u64, out[8 * j ..][0..8], s);
             }
         }
 
-        fn round(d: *Self, b: *const [128]u8) void {
+        fn round(self: *Self, in: *const [128]u8) void {
             var s: [80]u64 = undefined;
 
             var i: usize = 0;
             while (i < 16) : (i += 1) {
                 s[i] = 0;
-                s[i] |= @as(u64, b[i * 8 + 0]) << 56;
-                s[i] |= @as(u64, b[i * 8 + 1]) << 48;
-                s[i] |= @as(u64, b[i * 8 + 2]) << 40;
-                s[i] |= @as(u64, b[i * 8 + 3]) << 32;
-                s[i] |= @as(u64, b[i * 8 + 4]) << 24;
-                s[i] |= @as(u64, b[i * 8 + 5]) << 16;
-                s[i] |= @as(u64, b[i * 8 + 6]) << 8;
-                s[i] |= @as(u64, b[i * 8 + 7]) << 0;
+                s[i] |= @as(u64, in[i * 8 + 0]) << 56;
+                s[i] |= @as(u64, in[i * 8 + 1]) << 48;
+                s[i] |= @as(u64, in[i * 8 + 2]) << 40;
+                s[i] |= @as(u64, in[i * 8 + 3]) << 32;
+                s[i] |= @as(u64, in[i * 8 + 4]) << 24;
+                s[i] |= @as(u64, in[i * 8 + 5]) << 16;
+                s[i] |= @as(u64, in[i * 8 + 6]) << 8;
+                s[i] |= @as(u64, in[i * 8 + 7]) << 0;
             }
             while (i < 80) : (i += 1) {
                 s[i] = s[i - 16] +% s[i - 7] +%
@@ -558,14 +558,14 @@ fn Sha2x64(comptime params: Sha2Params64) type {
             }
 
             var v: [8]u64 = [_]u64{
-                d.s[0],
-                d.s[1],
-                d.s[2],
-                d.s[3],
-                d.s[4],
-                d.s[5],
-                d.s[6],
-                d.s[7],
+                self.s[0],
+                self.s[1],
+                self.s[2],
+                self.s[3],
+                self.s[4],
+                self.s[5],
+                self.s[6],
+                self.s[7],
             };
 
             const round0 = comptime [_]RoundParam512{
@@ -658,14 +658,14 @@ fn Sha2x64(comptime params: Sha2Params64) type {
                 v[r.h] = v[r.h] +% (math.rotr(u64, v[r.a], @as(u64, 28)) ^ math.rotr(u64, v[r.a], @as(u64, 34)) ^ math.rotr(u64, v[r.a], @as(u64, 39))) +% ((v[r.a] & (v[r.b] | v[r.c])) | (v[r.b] & v[r.c]));
             }
 
-            d.s[0] +%= v[0];
-            d.s[1] +%= v[1];
-            d.s[2] +%= v[2];
-            d.s[3] +%= v[3];
-            d.s[4] +%= v[4];
-            d.s[5] +%= v[5];
-            d.s[6] +%= v[6];
-            d.s[7] +%= v[7];
+            self.s[0] +%= v[0];
+            self.s[1] +%= v[1];
+            self.s[2] +%= v[2];
+            self.s[3] +%= v[3];
+            self.s[4] +%= v[4];
+            self.s[5] +%= v[5];
+            self.s[6] +%= v[6];
+            self.s[7] +%= v[7];
         }
     };
 }
