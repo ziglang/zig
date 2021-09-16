@@ -28,14 +28,6 @@ fn test_u128_cmpxchg() !void {
     try expect(x == 42);
 }
 
-test "cmpxchg with ignored result" {
-    var x: i32 = 1234;
-
-    _ = @cmpxchgStrong(i32, &x, 1234, 5678, .Monotonic, .Monotonic);
-
-    try expectEqual(@as(i32, 5678), x);
-}
-
 var a_global_variable = @as(u32, 1234);
 
 test "cmpxchg on a global variable" {

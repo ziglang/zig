@@ -73,3 +73,11 @@ test "cmpxchg with ptr" {
     try expect(@cmpxchgStrong(*i32, &x, &data3, &data2, .SeqCst, .SeqCst) == null);
     try expect(x == &data2);
 }
+
+test "cmpxchg with ignored result" {
+    var x: i32 = 1234;
+
+    _ = @cmpxchgStrong(i32, &x, 1234, 5678, .Monotonic, .Monotonic);
+
+    try expect(5678 == x);
+}
