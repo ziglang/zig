@@ -27,56 +27,56 @@ fn Keccak(comptime bits: usize, comptime delim: u8) type {
             return Self{ .s = [_]u8{0} ** 200, .offset = 0, .rate = 200 - (bits / 4) };
         }
 
-        pub fn hash(b: []const u8, out: *[digest_length]u8, options: Options) void {
-            var d = Self.init(options);
-            d.update(b);
-            d.final(out);
+        pub fn hash(in: []const u8, out: *[digest_length]u8, options: Options) void {
+            var self = Self.init(options);
+            self.update(in);
+            self.final(out);
         }
 
-        pub fn update(d: *Self, b: []const u8) void {
+        pub fn update(self: *Self, in: []const u8) void {
             var ip: usize = 0;
-            var len = b.len;
-            var rate = d.rate - d.offset;
-            var offset = d.offset;
+            var len = in.len;
+            var rate = self.rate - self.offset;
+            var offset = self.offset;
 
             // absorb
             while (len >= rate) {
-                for (d.s[offset .. offset + rate]) |*r, i|
-                    r.* ^= b[ip..][i];
+                for (self.s[offset .. offset + rate]) |*r, i|
+                    r.* ^= in[ip..][i];
 
-                keccakF(1600, &d.s);
+                keccakF(1600, &self.s);
 
                 ip += rate;
                 len -= rate;
-                rate = d.rate;
+                rate = self.rate;
                 offset = 0;
             }
 
-            for (d.s[offset .. offset + len]) |*r, i|
-                r.* ^= b[ip..][i];
+            for (self.s[offset .. offset + len]) |*r, i|
+                r.* ^= in[ip..][i];
 
-            d.offset = offset + len;
+            self.offset = offset + len;
         }
 
-        pub fn final(d: *Self, out: *[digest_length]u8) void {
+        pub fn final(self: *Self, out: *[digest_length]u8) void {
             // padding
-            d.s[d.offset] ^= delim;
-            d.s[d.rate - 1] ^= 0x80;
+            self.s[self.offset] ^= delim;
+            self.s[self.rate - 1] ^= 0x80;
 
-            keccakF(1600, &d.s);
+            keccakF(1600, &self.s);
 
             // squeeze
             var op: usize = 0;
             var len: usize = bits / 8;
 
-            while (len >= d.rate) {
-                mem.copy(u8, out[op..], d.s[0..d.rate]);
-                keccakF(1600, &d.s);
-                op += d.rate;
-                len -= d.rate;
+            while (len >= self.rate) {
+                mem.copy(u8, out[op..], self.s[0..self.rate]);
+                keccakF(1600, &self.s);
+                op += self.rate;
+                len -= self.rate;
             }
 
-            mem.copy(u8, out[op..], d.s[0..len]);
+            mem.copy(u8, out[op..], self.s[0..len]);
         }
     };
 }
