@@ -71,7 +71,7 @@ make $JOBS install
 
 release/bin/zig test ../test/behavior.zig -fno-stage1 -fLLVM -I ../test
 
-release/bin/zig build test -Denable-qemu -Denable-wasmtime -Denable-llvm
+release/bin/zig build test -Denable-qemu -Denable-wasmtime -Denable-llvm -Duse-zig-libcxx
 
 # Look for HTML errors.
 tidy -qe ../zig-cache/langref.html

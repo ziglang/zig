@@ -18,6 +18,7 @@ pub fn build(b: *Builder) !void {
     const mode = b.standardReleaseOptions();
     const target = b.standardTargetOptions(.{});
     const single_threaded = b.option(bool, "single-threaded", "Build artifacts that run in single threaded mode") orelse false;
+    const use_zig_libcxx = b.option(bool, "use-zig-libcxx", "If libc++ is needed, use zig's bundled version, don't try to integrate with the system") orelse false;
 
     var docgen_exe = b.addExecutable("docgen", "doc/docgen.zig");
     docgen_exe.single_threaded = single_threaded;
@@ -160,8 +161,8 @@ pub fn build(b: *Builder) !void {
                 b.addSearchPrefix(cfg.cmake_prefix_path);
             }
 
-            try addCmakeCfgOptionsToExe(b, cfg, exe);
-            try addCmakeCfgOptionsToExe(b, cfg, test_stage2);
+            try addCmakeCfgOptionsToExe(b, cfg, exe, use_zig_libcxx);
+            try addCmakeCfgOptionsToExe(b, cfg, test_stage2, use_zig_libcxx);
         } else {
             // Here we are -Denable-llvm but no cmake integration.
             try addStaticLlvmOptionsToExe(exe);
@@ -408,6 +409,7 @@ fn addCmakeCfgOptionsToExe(
     b: *Builder,
     cfg: CMakeConfig,
     exe: *std.build.LibExeObjStep,
+    use_zig_libcxx: bool,
 ) !void {
     exe.addObjectFile(fs.path.join(b.allocator, &[_][]const u8{
         cfg.cmake_binary_dir,
@@ -420,28 +422,32 @@ fn addCmakeCfgOptionsToExe(
     addCMakeLibraryList(exe, cfg.lld_libraries);
     addCMakeLibraryList(exe, cfg.llvm_libraries);
 
-    const need_cpp_includes = true;
+    if (use_zig_libcxx) {
+        exe.linkLibCpp();
+    } else {
+        const need_cpp_includes = true;
 
-    // System -lc++ must be used because in this code path we are attempting to link
-    // against system-provided LLVM, Clang, LLD.
-    if (exe.target.getOsTag() == .linux) {
-        // First we try to static link against gcc libstdc++. If that doesn't work,
-        // we fall back to -lc++ and cross our fingers.
-        addCxxKnownPath(b, cfg, exe, "libstdc++.a", "", need_cpp_includes) catch |err| switch (err) {
-            error.RequiredLibraryNotFound => {
-                exe.linkSystemLibrary("c++");
-            },
-            else => |e| return e,
-        };
-        exe.linkSystemLibrary("unwind");
-    } else if (exe.target.isFreeBSD()) {
-        try addCxxKnownPath(b, cfg, exe, "libc++.a", null, need_cpp_includes);
-        exe.linkSystemLibrary("pthread");
-    } else if (exe.target.getOsTag() == .openbsd) {
-        try addCxxKnownPath(b, cfg, exe, "libc++.a", null, need_cpp_includes);
-        try addCxxKnownPath(b, cfg, exe, "libc++abi.a", null, need_cpp_includes);
-    } else if (exe.target.isDarwin()) {
-        exe.linkSystemLibrary("c++");
+        // System -lc++ must be used because in this code path we are attempting to link
+        // against system-provided LLVM, Clang, LLD.
+        if (exe.target.getOsTag() == .linux) {
+            // First we try to static link against gcc libstdc++. If that doesn't work,
+            // we fall back to -lc++ and cross our fingers.
+            addCxxKnownPath(b, cfg, exe, "libstdc++.a", "", need_cpp_includes) catch |err| switch (err) {
+                error.RequiredLibraryNotFound => {
+                    exe.linkSystemLibrary("c++");
+                },
+                else => |e| return e,
+            };
+            exe.linkSystemLibrary("unwind");
+        } else if (exe.target.isFreeBSD()) {
+            try addCxxKnownPath(b, cfg, exe, "libc++.a", null, need_cpp_includes);
+            exe.linkSystemLibrary("pthread");
+        } else if (exe.target.getOsTag() == .openbsd) {
+            try addCxxKnownPath(b, cfg, exe, "libc++.a", null, need_cpp_includes);
+            try addCxxKnownPath(b, cfg, exe, "libc++abi.a", null, need_cpp_includes);
+        } else if (exe.target.isDarwin()) {
+            exe.linkSystemLibrary("c++");
+        }
     }
 
     if (cfg.dia_guids_lib.len != 0) {
