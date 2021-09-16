@@ -112,6 +112,11 @@ pub fn build(b: *Builder) !void {
     b.default_step.dependOn(&exe.step);
     exe.single_threaded = single_threaded;
 
+    if (target.isWindows() and target.getAbi() == .gnu) {
+        // LTO is currently broken on mingw, this can be removed when it's fixed.
+        exe.want_lto = false;
+    }
+
     const exe_options = b.addOptions();
     exe.addOptions("build_options", exe_options);
 
@@ -239,12 +244,24 @@ pub fn build(b: *Builder) !void {
             b.allocator,
             &[_][]const u8{ tracy_path, "TracyClient.cpp" },
         ) catch unreachable;
+
+        // On mingw, we need to opt into windows 7+ to get some features required by tracy.
+        const tracy_c_flags: []const []const u8 = if (target.isWindows() and target.getAbi() == .gnu)
+            &[_][]const u8{ "-DTRACY_ENABLE=1", "-fno-sanitize=undefined", "-D_WIN32_WINNT=0x601" }
+        else
+            &[_][]const u8{ "-DTRACY_ENABLE=1", "-fno-sanitize=undefined" };
+
         exe.addIncludeDir(tracy_path);
-        exe.addCSourceFile(client_cpp, &[_][]const u8{ "-DTRACY_ENABLE=1", "-fno-sanitize=undefined" });
+        exe.addCSourceFile(client_cpp, tracy_c_flags);
         if (!enable_llvm) {
             exe.linkSystemLibraryName("c++");
         }
         exe.linkLibC();
+
+        if (target.isWindows()) {
+            exe.linkSystemLibrary("dbghelp");
+            exe.linkSystemLibrary("ws2_32");
+        }
     }
 
     const test_filter = b.option([]const u8, "test-filter", "Skip tests that do not match filter");
