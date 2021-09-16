@@ -60,7 +60,7 @@ fn SipHashStateless(comptime T: type, comptime c_rounds: usize, comptime d_round
             const k0 = mem.readIntLittle(u64, key[0..8]);
             const k1 = mem.readIntLittle(u64, key[8..16]);
 
-            var d = Self{
+            var self = Self{
                 .v0 = k0 ^ 0x736f6d6570736575,
                 .v1 = k1 ^ 0x646f72616e646f6d,
                 .v2 = k0 ^ 0x6c7967656e657261,
@@ -69,30 +69,30 @@ fn SipHashStateless(comptime T: type, comptime c_rounds: usize, comptime d_round
             };
 
             if (T == u128) {
-                d.v1 ^= 0xee;
+                self.v1 ^= 0xee;
             }
 
-            return d;
+            return self;
         }
 
-        pub fn update(self: *Self, b: []const u8) void {
-            std.debug.assert(b.len % 8 == 0);
+        pub fn update(self: *Self, in: []const u8) void {
+            std.debug.assert(in.len % 8 == 0);
 
             var off: usize = 0;
-            while (off < b.len) : (off += 8) {
-                @call(.{ .modifier = .always_inline }, self.round, .{b[off..][0..8].*});
+            while (off < in.len) : (off += 8) {
+                @call(.{ .modifier = .always_inline }, self.round, .{in[off..][0..8].*});
             }
 
-            self.msg_len +%= @truncate(u8, b.len);
+            self.msg_len +%= @truncate(u8, in.len);
         }
 
-        pub fn final(self: *Self, b: []const u8) T {
-            std.debug.assert(b.len < 8);
+        pub fn final(self: *Self, in: []const u8) T {
+            std.debug.assert(in.len < 8);
 
-            self.msg_len +%= @truncate(u8, b.len);
+            self.msg_len +%= @truncate(u8, in.len);
 
             var buf = [_]u8{0} ** 8;
-            mem.copy(u8, buf[0..], b[0..]);
+            mem.copy(u8, buf[0..], in[0..]);
             buf[7] = self.msg_len;
             self.round(buf);
 
@@ -126,8 +126,8 @@ fn SipHashStateless(comptime T: type, comptime c_rounds: usize, comptime d_round
             return (@as(u128, b2) << 64) | b1;
         }
 
-        fn round(self: *Self, b: [8]u8) void {
-            const m = mem.readIntLittle(u64, b[0..8]);
+        fn round(self: *Self, in: [8]u8) void {
+            const m = mem.readIntLittle(u64, in[0..8]);
             self.v3 ^= m;
 
             // TODO this is a workaround, should be able to supply the value without a separate variable
@@ -140,21 +140,21 @@ fn SipHashStateless(comptime T: type, comptime c_rounds: usize, comptime d_round
             self.v0 ^= m;
         }
 
-        fn sipRound(d: *Self) void {
-            d.v0 +%= d.v1;
-            d.v1 = math.rotl(u64, d.v1, @as(u64, 13));
-            d.v1 ^= d.v0;
-            d.v0 = math.rotl(u64, d.v0, @as(u64, 32));
-            d.v2 +%= d.v3;
-            d.v3 = math.rotl(u64, d.v3, @as(u64, 16));
-            d.v3 ^= d.v2;
-            d.v0 +%= d.v3;
-            d.v3 = math.rotl(u64, d.v3, @as(u64, 21));
-            d.v3 ^= d.v0;
-            d.v2 +%= d.v1;
-            d.v1 = math.rotl(u64, d.v1, @as(u64, 17));
-            d.v1 ^= d.v2;
-            d.v2 = math.rotl(u64, d.v2, @as(u64, 32));
+        fn sipRound(self: *Self) void {
+            self.v0 +%= self.v1;
+            self.v1 = math.rotl(u64, self.v1, @as(u64, 13));
+            self.v1 ^= self.v0;
+            self.v0 = math.rotl(u64, self.v0, @as(u64, 32));
+            self.v2 +%= self.v3;
+            self.v3 = math.rotl(u64, self.v3, @as(u64, 16));
+            self.v3 ^= self.v2;
+            self.v0 +%= self.v3;
+            self.v3 = math.rotl(u64, self.v3, @as(u64, 21));
+            self.v3 ^= self.v0;
+            self.v2 +%= self.v1;
+            self.v1 = math.rotl(u64, self.v1, @as(u64, 17));
+            self.v1 ^= self.v2;
+            self.v2 = math.rotl(u64, self.v2, @as(u64, 32));
         }
 
         pub fn hash(msg: []const u8, key: *const [key_length]u8) T {
@@ -191,22 +191,22 @@ fn SipHash(comptime T: type, comptime c_rounds: usize, comptime d_rounds: usize)
         }
 
         /// Add data to the state
-        pub fn update(self: *Self, b: []const u8) void {
+        pub fn update(self: *Self, in: []const u8) void {
             var off: usize = 0;
 
-            if (self.buf_len != 0 and self.buf_len + b.len >= 8) {
+            if (self.buf_len != 0 and self.buf_len + in.len >= 8) {
                 off += 8 - self.buf_len;
-                mem.copy(u8, self.buf[self.buf_len..], b[0..off]);
+                mem.copy(u8, self.buf[self.buf_len..], in[0..off]);
                 self.state.update(self.buf[0..]);
                 self.buf_len = 0;
             }
 
-            const remain_len = b.len - off;
+            const remain_len = in.len - off;
             const aligned_len = remain_len - (remain_len % 8);
-            self.state.update(b[off .. off + aligned_len]);
+            self.state.update(in[off .. off + aligned_len]);
 
-            mem.copy(u8, self.buf[self.buf_len..], b[off + aligned_len ..]);
-            self.buf_len += @intCast(u8, b[off + aligned_len ..].len);
+            mem.copy(u8, self.buf[self.buf_len..], in[off + aligned_len ..]);
+            self.buf_len += @intCast(u8, in[off + aligned_len ..].len);
         }
 
         /// Return an authentication tag for the current state
