@@ -588,6 +588,12 @@ pub const DeclGen = struct {
                 const info = t.intInfo(self.module.getTarget());
                 return self.context.intType(info.bits);
             },
+            .Enum => {
+                var buffer: Type.Payload.Bits = undefined;
+                const int_ty = t.enumTagType(&buffer);
+                const bit_count = int_ty.intInfo(self.module.getTarget()).bits;
+                return self.context.intType(bit_count);
+            },
             .Float => switch (t.floatBits(self.module.getTarget())) {
                 16 => return self.context.halfType(),
                 32 => return self.context.floatType(),
@@ -686,7 +692,6 @@ pub const DeclGen = struct {
 
             .BoundFn => @panic("TODO remove BoundFn from the language"),
 
-            .Enum,
             .Union,
             .Opaque,
             .Frame,
@@ -721,6 +726,17 @@ pub const DeclGen = struct {
                 if (!bigint.positive) {
                     return llvm.constNeg(llvm_int);
                 }
+                return llvm_int;
+            },
+            .Enum => {
+                const llvm_type = try self.llvmType(tv.ty);
+                const uint: u64 = uint: {
+                    if (tv.val.castTag(.enum_field_index)) |payload| {
+                        break :uint payload.data;
+                    }
+                    break :uint tv.val.toUnsignedInt();
+                };
+                const llvm_int = llvm_type.constInt(uint, .False);
                 return llvm_int;
             },
             .Float => {
@@ -907,7 +923,18 @@ pub const DeclGen = struct {
             .ComptimeFloat => unreachable,
             .Type => unreachable,
             .EnumLiteral => unreachable,
-            else => return self.todo("implement const of type '{}'", .{tv.ty}),
+            .Void => unreachable,
+            .NoReturn => unreachable,
+            .Undefined => unreachable,
+            .Null => unreachable,
+            .BoundFn => unreachable,
+            .Opaque => unreachable,
+
+            .Union,
+            .Frame,
+            .AnyFrame,
+            .Vector,
+            => return self.todo("implement const of type '{}'", .{tv.ty}),
         }
     }
 
@@ -1195,21 +1222,15 @@ pub const FuncGen = struct {
         const bin_op = self.air.instructions.items(.data)[inst].bin_op;
         const lhs = try self.resolveInst(bin_op.lhs);
         const rhs = try self.resolveInst(bin_op.rhs);
-        const inst_ty = self.air.typeOfIndex(inst);
+        const operand_ty = self.air.typeOf(bin_op.lhs);
 
-        switch (self.air.typeOf(bin_op.lhs).zigTypeTag()) {
-            .Int, .Bool, .Pointer, .ErrorSet => {
-                const is_signed = inst_ty.isSignedInt();
-                const operation = switch (op) {
-                    .eq => .EQ,
-                    .neq => .NE,
-                    .lt => @as(llvm.IntPredicate, if (is_signed) .SLT else .ULT),
-                    .lte => @as(llvm.IntPredicate, if (is_signed) .SLE else .ULE),
-                    .gt => @as(llvm.IntPredicate, if (is_signed) .SGT else .UGT),
-                    .gte => @as(llvm.IntPredicate, if (is_signed) .SGE else .UGE),
-                };
-                return self.builder.buildICmp(operation, lhs, rhs, "");
+        const int_ty = switch (operand_ty.zigTypeTag()) {
+            .Enum => blk: {
+                var buffer: Type.Payload.Bits = undefined;
+                const int_ty = operand_ty.enumTagType(&buffer);
+                break :blk int_ty;
             },
+            .Int, .Bool, .Pointer, .ErrorSet => operand_ty,
             .Float => {
                 const operation: llvm.RealPredicate = switch (op) {
                     .eq => .OEQ,
@@ -1222,7 +1243,17 @@ pub const FuncGen = struct {
                 return self.builder.buildFCmp(operation, lhs, rhs, "");
             },
             else => unreachable,
-        }
+        };
+        const is_signed = int_ty.isSignedInt();
+        const operation = switch (op) {
+            .eq => .EQ,
+            .neq => .NE,
+            .lt => @as(llvm.IntPredicate, if (is_signed) .SLT else .ULT),
+            .lte => @as(llvm.IntPredicate, if (is_signed) .SLE else .ULE),
+            .gt => @as(llvm.IntPredicate, if (is_signed) .SGT else .UGT),
+            .gte => @as(llvm.IntPredicate, if (is_signed) .SGE else .UGE),
+        };
+        return self.builder.buildICmp(operation, lhs, rhs, "");
     }
 
     fn airBlock(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {

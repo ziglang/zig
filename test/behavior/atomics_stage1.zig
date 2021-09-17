@@ -3,22 +3,6 @@ const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 const builtin = @import("builtin");
 
-test "atomic load and rmw with enum" {
-    const Value = enum(u8) {
-        a,
-        b,
-        c,
-    };
-    var x = Value.a;
-
-    try expect(@atomicLoad(Value, &x, .SeqCst) != .b);
-
-    _ = @atomicRmw(Value, &x, .Xchg, .c, .SeqCst);
-    try expect(@atomicLoad(Value, &x, .SeqCst) == .c);
-    try expect(@atomicLoad(Value, &x, .SeqCst) != .a);
-    try expect(@atomicLoad(Value, &x, .SeqCst) != .b);
-}
-
 test "atomic store" {
     var x: u32 = 0;
     @atomicStore(u32, &x, 1, .SeqCst);

@@ -118,3 +118,15 @@ test "cmpxchg on a global variable" {
     _ = @cmpxchgWeak(u32, &a_global_variable, 1234, 42, .Acquire, .Monotonic);
     try expect(a_global_variable == 42);
 }
+
+test "atomic load and rmw with enum" {
+    const Value = enum(u8) { a, b, c };
+    var x = Value.a;
+
+    try expect(@atomicLoad(Value, &x, .SeqCst) != .b);
+
+    _ = @atomicRmw(Value, &x, .Xchg, .c, .SeqCst);
+    try expect(@atomicLoad(Value, &x, .SeqCst) == .c);
+    try expect(@atomicLoad(Value, &x, .SeqCst) != .a);
+    try expect(@atomicLoad(Value, &x, .SeqCst) != .b);
+}
