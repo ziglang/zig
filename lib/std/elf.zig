@@ -1591,3 +1591,13 @@ pub const PF_MASKOS = 0x0ff00000;
 
 /// Bits for processor-specific semantics.
 pub const PF_MASKPROC = 0xf0000000;
+
+// Special section indexes used in Elf{32,64}_Sym.
+pub const SHN_UNDEF = 0;
+pub const SHN_LORESERVE = 0xff00;
+pub const SHN_LOPROC = 0xff00;
+pub const SHN_HIPROC = 0xff1f;
+pub const SHN_LIVEPATCH = 0xff20;
+pub const SHN_ABS = 0xfff1;
+pub const SHN_COMMON = 0xfff2;
+pub const SHN_HIRESERVE = 0xffff;
