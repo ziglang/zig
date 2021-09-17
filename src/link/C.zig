@@ -197,7 +197,7 @@ pub fn flushModule(self: *C, comp: *Compilation) !void {
     defer all_buffers.deinit();
 
     // This is at least enough until we get to the function bodies without error handling.
-    try all_buffers.ensureCapacity(self.decl_table.count() + 2);
+    try all_buffers.ensureTotalCapacity(self.decl_table.count() + 2);
 
     var file_size: u64 = zig_h.len;
     all_buffers.appendAssumeCapacity(.{
@@ -258,7 +258,7 @@ pub fn flushModule(self: *C, comp: *Compilation) !void {
     file_size += err_typedef_buf.items.len;
 
     // Now the function bodies.
-    try all_buffers.ensureCapacity(all_buffers.items.len + fn_count);
+    try all_buffers.ensureUnusedCapacity(fn_count);
     for (self.decl_table.keys()) |decl| {
         if (!decl.has_tv) continue;
         if (decl.val.castTag(.function)) |_| {
@@ -286,7 +286,7 @@ pub fn flushEmitH(module: *Module) !void {
     var all_buffers = std.ArrayList(std.os.iovec_const).init(module.gpa);
     defer all_buffers.deinit();
 
-    try all_buffers.ensureCapacity(emit_h.decl_table.count() + 1);
+    try all_buffers.ensureTotalCapacity(emit_h.decl_table.count() + 1);
 
     var file_size: u64 = zig_h.len;
     all_buffers.appendAssumeCapacity(.{

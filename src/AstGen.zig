@@ -3515,7 +3515,7 @@ fn structDeclInner(
     defer wip_decls.deinit(gpa);
 
     // We don't know which members are fields until we iterate, so cannot do
-    // an accurate ensureCapacity yet.
+    // an accurate ensureTotalCapacity yet.
     var fields_data = ArrayListUnmanaged(u32){};
     defer fields_data.deinit(gpa);
 
@@ -3791,7 +3791,7 @@ fn unionDeclInner(
     defer wip_decls.deinit(gpa);
 
     // We don't know which members are fields until we iterate, so cannot do
-    // an accurate ensureCapacity yet.
+    // an accurate ensureTotalCapacity yet.
     var fields_data = ArrayListUnmanaged(u32){};
     defer fields_data.deinit(gpa);
 

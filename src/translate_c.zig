@@ -4882,7 +4882,7 @@ fn finishTransFnProto(
     var fn_params = std.ArrayList(ast.Payload.Param).init(c.gpa);
     defer fn_params.deinit();
     const param_count: usize = if (fn_proto_ty != null) fn_proto_ty.?.getNumParams() else 0;
-    try fn_params.ensureCapacity(param_count);
+    try fn_params.ensureTotalCapacity(param_count);
 
     var i: usize = 0;
     while (i < param_count) : (i += 1) {

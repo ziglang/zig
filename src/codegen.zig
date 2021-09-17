@@ -141,7 +141,7 @@ pub fn generateSymbol(
             // TODO populate .debug_info for the array
             if (typed_value.val.castTag(.bytes)) |payload| {
                 if (typed_value.ty.sentinel()) |sentinel| {
-                    try code.ensureCapacity(code.items.len + payload.data.len + 1);
+                    try code.ensureUnusedCapacity(payload.data.len + 1);
                     code.appendSliceAssumeCapacity(payload.data);
                     switch (try generateSymbol(bin_file, src_loc, .{
                         .ty = typed_value.ty.elemType(),
@@ -568,7 +568,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         fn gen(self: *Self) !void {
             switch (arch) {
                 .x86_64 => {
-                    try self.code.ensureCapacity(self.code.items.len + 11);
+                    try self.code.ensureUnusedCapacity(11);
 
                     const cc = self.fn_type.fnCallingConvention();
                     if (cc != .Naked) {
@@ -607,7 +607,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         // Important to be after the possible self.code.items.len -= 5 above.
                         try self.dbgSetEpilogueBegin();
 
-                        try self.code.ensureCapacity(self.code.items.len + 9);
+                        try self.code.ensureUnusedCapacity(9);
                         // add rsp, x
                         if (aligned_stack_end > math.maxInt(i8)) {
                             // example: 48 81 c4 ff ff ff 7f  add    rsp,0x7fffffff
@@ -1960,7 +1960,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             //
             // TODO: make this algorithm less bad
 
-            try self.code.ensureCapacity(self.code.items.len + 8);
+            try self.code.ensureUnusedCapacity(8);
 
             const lhs = try self.resolveInst(op_lhs);
             const rhs = try self.resolveInst(op_rhs);
@@ -2447,13 +2447,13 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .register => |reg| {
                     switch (self.debug_output) {
                         .dwarf => |dbg_out| {
-                            try dbg_out.dbg_info.ensureCapacity(dbg_out.dbg_info.items.len + 3);
+                            try dbg_out.dbg_info.ensureUnusedCapacity(3);
                             dbg_out.dbg_info.appendAssumeCapacity(link.File.Elf.abbrev_parameter);
                             dbg_out.dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
                                 1, // ULEB128 dwarf expression length
                                 reg.dwarfLocOp(),
                             });
-                            try dbg_out.dbg_info.ensureCapacity(dbg_out.dbg_info.items.len + 5 + name_with_null.len);
+                            try dbg_out.dbg_info.ensureUnusedCapacity(5 + name_with_null.len);
                             try self.addDbgInfoTypeReloc(ty); // DW.AT.type,  DW.FORM.ref4
                             dbg_out.dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT.name, DW.FORM.string
                         },
@@ -2484,7 +2484,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                     try dbg_out.dbg_info.append(DW.OP.breg11);
                                     try leb128.writeILEB128(dbg_out.dbg_info.writer(), adjusted_stack_offset);
 
-                                    try dbg_out.dbg_info.ensureCapacity(dbg_out.dbg_info.items.len + 5 + name_with_null.len);
+                                    try dbg_out.dbg_info.ensureUnusedCapacity(5 + name_with_null.len);
                                     try self.addDbgInfoTypeReloc(ty); // DW.AT.type,  DW.FORM.ref4
                                     dbg_out.dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT.name, DW.FORM.string
                                 },
@@ -2626,7 +2626,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                     unreachable;
 
                                 // ff 14 25 xx xx xx xx    call [addr]
-                                try self.code.ensureCapacity(self.code.items.len + 7);
+                                try self.code.ensureUnusedCapacity(7);
                                 self.code.appendSliceAssumeCapacity(&[3]u8{ 0xff, 0x14, 0x25 });
                                 mem.writeIntLittle(u32, self.code.addManyAsArrayAssumeCapacity(4), got_addr);
                             } else if (func_value.castTag(.extern_fn)) |_| {
@@ -2839,7 +2839,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                     .memory = func.owner_decl.link.macho.local_sym_index,
                                 });
                                 // callq *%rax
-                                try self.code.ensureCapacity(self.code.items.len + 2);
+                                try self.code.ensureUnusedCapacity(2);
                                 self.code.appendSliceAssumeCapacity(&[2]u8{ 0xff, 0xd0 });
                             },
                             .aarch64 => {
@@ -2858,7 +2858,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             switch (arch) {
                                 .x86_64 => {
                                     // callq
-                                    try self.code.ensureCapacity(self.code.items.len + 5);
+                                    try self.code.ensureUnusedCapacity(5);
                                     self.code.appendSliceAssumeCapacity(&[5]u8{ 0xe8, 0x0, 0x0, 0x0, 0x0 });
                                     break :blk @intCast(u32, self.code.items.len) - 4;
                                 },
@@ -2932,7 +2932,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 const got_addr = p9.bases.data;
                                 const got_index = func_payload.data.owner_decl.link.plan9.got_index.?;
                                 // ff 14 25 xx xx xx xx    call [addr]
-                                try self.code.ensureCapacity(self.code.items.len + 7);
+                                try self.code.ensureUnusedCapacity(7);
                                 self.code.appendSliceAssumeCapacity(&[3]u8{ 0xff, 0x14, 0x25 });
                                 const fn_got_addr = got_addr + got_index * ptr_bytes;
                                 mem.writeIntLittle(u32, self.code.addManyAsArrayAssumeCapacity(4), @intCast(u32, fn_got_addr));
@@ -3075,7 +3075,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             const rhs = try self.resolveInst(bin_op.rhs);
             const result: MCValue = switch (arch) {
                 .x86_64 => result: {
-                    try self.code.ensureCapacity(self.code.items.len + 8);
+                    try self.code.ensureUnusedCapacity(8);
 
                     // There are 2 operands, destination and source.
                     // Either one, but not both, can be a memory operand.
@@ -3159,7 +3159,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
             const reloc: Reloc = switch (arch) {
                 .i386, .x86_64 => reloc: {
-                    try self.code.ensureCapacity(self.code.items.len + 6);
+                    try self.code.ensureUnusedCapacity(6);
 
                     const opcode: u8 = switch (cond) {
                         .compare_flags_signed => |cmp_op| blk: {
@@ -3519,7 +3519,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         fn jump(self: *Self, index: usize) !void {
             switch (arch) {
                 .i386, .x86_64 => {
-                    try self.code.ensureCapacity(self.code.items.len + 5);
+                    try self.code.ensureUnusedCapacity(5);
                     if (math.cast(i8, @intCast(i32, index) - (@intCast(i32, self.code.items.len + 2)))) |delta| {
                         self.code.appendAssumeCapacity(0xeb); // jmp rel8
                         self.code.appendAssumeCapacity(@bitCast(u8, delta));
@@ -3657,7 +3657,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             const block_data = self.blocks.getPtr(block).?;
 
             // Emit a jump with a relocation. It will be patched up after the block ends.
-            try block_data.relocs.ensureCapacity(self.gpa, block_data.relocs.items.len + 1);
+            try block_data.relocs.ensureUnusedCapacity(self.gpa, 1);
 
             switch (arch) {
                 .i386, .x86_64 => {
@@ -4041,7 +4041,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         if (adj_off > 128) {
                             return self.fail("TODO implement set stack variable with large stack offset", .{});
                         }
-                        try self.code.ensureCapacity(self.code.items.len + 8);
+                        try self.code.ensureUnusedCapacity(8);
                         switch (abi_size) {
                             1 => {
                                 return self.fail("TODO implement set abi_size=1 stack variable with immediate", .{});
@@ -4067,7 +4067,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
                                 // 64 bit write to memory would take two mov's anyways so we
                                 // insted just use two 32 bit writes to avoid register allocation
-                                try self.code.ensureCapacity(self.code.items.len + 14);
+                                try self.code.ensureUnusedCapacity(14);
                                 var buf: [8]u8 = undefined;
                                 mem.writeIntLittle(u64, &buf, x_big);
 

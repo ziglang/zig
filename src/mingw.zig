@@ -312,7 +312,7 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
     if (try man.hit()) {
         const digest = man.final();
 
-        try comp.crt_files.ensureCapacity(comp.gpa, comp.crt_files.count() + 1);
+        try comp.crt_files.ensureUnusedCapacity(comp.gpa, 1);
         comp.crt_files.putAssumeCapacityNoClobber(final_lib_basename, .{
             .full_object_path = try comp.global_cache_directory.join(comp.gpa, &[_][]const u8{
                 "o", &digest, final_lib_basename,

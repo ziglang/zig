@@ -61,7 +61,7 @@ pub fn Reader(
             array_list: *std.ArrayListAligned(u8, alignment),
             max_append_size: usize,
         ) !void {
-            try array_list.ensureCapacity(math.min(max_append_size, 4096));
+            try array_list.ensureTotalCapacity(math.min(max_append_size, 4096));
             const original_len = array_list.items.len;
             var start_index: usize = original_len;
             while (true) {
@@ -81,7 +81,7 @@ pub fn Reader(
                 }
 
                 // This will trigger ArrayList to expand superlinearly at whatever its growth rate is.
-                try array_list.ensureCapacity(start_index + 1);
+                try array_list.ensureTotalCapacity(start_index + 1);
             }
         }
 

@@ -112,7 +112,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
             var source_table = std.StringArrayHashMap(Ext).init(comp.gpa);
             defer source_table.deinit();
 
-            try source_table.ensureCapacity(compat_time32_files.len + src_files.len);
+            try source_table.ensureTotalCapacity(compat_time32_files.len + src_files.len);
 
             for (src_files) |src_file| {
                 try addSrcFile(arena, &source_table, src_file);
@@ -231,7 +231,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
 
             try sub_compilation.updateSubCompilation();
 
-            try comp.crt_files.ensureCapacity(comp.gpa, comp.crt_files.count() + 1);
+            try comp.crt_files.ensureUnusedCapacity(comp.gpa, 1);
 
             const basename = try comp.gpa.dupe(u8, "libc.so");
             errdefer comp.gpa.free(basename);

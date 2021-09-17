@@ -180,7 +180,7 @@ pub fn parse(self: *Dylib, allocator: *Allocator, target: std.Target) !void {
 fn readLoadCommands(self: *Dylib, allocator: *Allocator, reader: anytype) !void {
     const should_lookup_reexports = self.header.?.flags & macho.MH_NO_REEXPORTED_DYLIBS == 0;
 
-    try self.load_commands.ensureCapacity(allocator, self.header.?.ncmds);
+    try self.load_commands.ensureTotalCapacity(allocator, self.header.?.ncmds);
 
     var i: u16 = 0;
     while (i < self.header.?.ncmds) : (i += 1) {

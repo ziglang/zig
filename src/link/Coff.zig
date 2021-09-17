@@ -418,7 +418,7 @@ pub fn createEmpty(gpa: *Allocator, options: link.Options) !*Coff {
 pub fn allocateDeclIndexes(self: *Coff, decl: *Module.Decl) !void {
     if (self.llvm_object) |_| return;
 
-    try self.offset_table.ensureCapacity(self.base.allocator, self.offset_table.items.len + 1);
+    try self.offset_table.ensureUnusedCapacity(self.base.allocator, 1);
 
     if (self.offset_table_free_list.popOrNull()) |i| {
         decl.link.coff.offset_table_index = i;
@@ -793,7 +793,7 @@ pub fn updateDeclExports(
     for (exports) |exp| {
         if (exp.options.section) |section_name| {
             if (!mem.eql(u8, section_name, ".text")) {
-                try module.failed_exports.ensureCapacity(module.gpa, module.failed_exports.count() + 1);
+                try module.failed_exports.ensureUnusedCapacity(module.gpa, 1);
                 module.failed_exports.putAssumeCapacityNoClobber(
                     exp,
                     try Module.ErrorMsg.create(self.base.allocator, decl.srcLoc(), "Unimplemented: ExportOptions.section", .{}),
@@ -804,7 +804,7 @@ pub fn updateDeclExports(
         if (mem.eql(u8, exp.options.name, "_start")) {
             self.entry_addr = decl.link.coff.getVAddr(self.*) - default_image_base;
         } else {
-            try module.failed_exports.ensureCapacity(module.gpa, module.failed_exports.count() + 1);
+            try module.failed_exports.ensureUnusedCapacity(module.gpa, 1);
             module.failed_exports.putAssumeCapacityNoClobber(
                 exp,
                 try Module.ErrorMsg.create(self.base.allocator, decl.srcLoc(), "Unimplemented: Exports other than '_start'", .{}),

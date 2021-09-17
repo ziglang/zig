@@ -629,7 +629,7 @@ pub const DeclGen = struct {
             const params = decl.ty.fnParamLen();
             var i: usize = 0;
 
-            try self.args.ensureCapacity(params);
+            try self.args.ensureTotalCapacity(params);
             while (i < params) : (i += 1) {
                 const param_type_id = self.spv.types.get(decl.ty.fnParamType(i)).?;
                 const arg_result_id = self.spv.allocResultId();

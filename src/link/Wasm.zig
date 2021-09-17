@@ -172,8 +172,8 @@ pub fn deinit(self: *Wasm) void {
 pub fn allocateDeclIndexes(self: *Wasm, decl: *Module.Decl) !void {
     if (decl.link.wasm.init) return;
 
-    try self.offset_table.ensureCapacity(self.base.allocator, self.offset_table.items.len + 1);
-    try self.symbols.ensureCapacity(self.base.allocator, self.symbols.items.len + 1);
+    try self.offset_table.ensureUnusedCapacity(self.base.allocator, 1);
+    try self.symbols.ensureUnusedCapacity(self.base.allocator, 1);
 
     const block = &decl.link.wasm;
     block.init = true;

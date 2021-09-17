@@ -111,7 +111,7 @@ pub fn destroy(pkg: *Package, gpa: *Allocator) void {
 }
 
 pub fn add(pkg: *Package, gpa: *Allocator, name: []const u8, package: *Package) !void {
-    try pkg.table.ensureCapacity(gpa, pkg.table.count() + 1);
+    try pkg.table.ensureUnusedCapacity(gpa, 1);
     const name_dupe = try mem.dupe(gpa, u8, name);
     pkg.table.putAssumeCapacityNoClobber(name_dupe, package);
 }
