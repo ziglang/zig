@@ -276,7 +276,8 @@ pub const ChildProcess = struct {
 
         // Windows Async IO requires an initial call to ReadFile before waiting on the handle
         for ([_]u1{ 0, 1 }) |i| {
-            try outs[i].ensureTotalCapacity(bump_amt);
+            const new_capacity = std.math.min(outs[i].items.len + bump_amt, max_output_bytes);
+            try outs[i].ensureTotalCapacity(new_capacity);
             const buf = outs[i].unusedCapacitySlice();
             _ = windows.kernel32.ReadFile(handles[i], buf.ptr, math.cast(u32, buf.len) catch maxInt(u32), null, &overlapped[i]);
             wait_objects[wait_object_count] = handles[i];
