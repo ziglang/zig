@@ -85,6 +85,9 @@ pub const Value = opaque {
     pub const addAttributeAtIndex = LLVMAddAttributeAtIndex;
     extern fn LLVMAddAttributeAtIndex(*const Value, Idx: AttributeIndex, A: *const Attribute) void;
 
+    pub const removeEnumAttributeAtIndex = LLVMRemoveEnumAttributeAtIndex;
+    extern fn LLVMRemoveEnumAttributeAtIndex(F: *const Value, Idx: AttributeIndex, KindID: c_uint) void;
+
     pub const getFirstBasicBlock = LLVMGetFirstBasicBlock;
     extern fn LLVMGetFirstBasicBlock(Fn: *const Value) ?*const BasicBlock;
 
@@ -136,6 +139,12 @@ pub const Value = opaque {
 
     pub const setOrdering = LLVMSetOrdering;
     extern fn LLVMSetOrdering(MemoryAccessInst: *const Value, Ordering: AtomicOrdering) void;
+
+    pub const setVolatile = LLVMSetVolatile;
+    extern fn LLVMSetVolatile(MemoryAccessInst: *const Value, IsVolatile: Bool) void;
+
+    pub const setAlignment = LLVMSetAlignment;
+    extern fn LLVMSetAlignment(V: *const Value, Bytes: c_uint) void;
 };
 
 pub const Type = opaque {

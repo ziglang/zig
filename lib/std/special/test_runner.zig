@@ -123,8 +123,16 @@ pub fn log(
 }
 
 pub fn main2() anyerror!void {
+    var bad = false;
     // Simpler main(), exercising fewer language features, so that stage2 can handle it.
     for (builtin.test_functions) |test_fn| {
-        try test_fn.func();
+        test_fn.func() catch |err| {
+            if (err != error.SkipZigTest) {
+                bad = true;
+            }
+        };
+    }
+    if (bad) {
+        return error.TestsFailed;
     }
 }

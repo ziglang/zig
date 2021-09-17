@@ -87,6 +87,11 @@ fn main2() callconv(.C) c_int {
 }
 
 fn _start2() callconv(.Naked) noreturn {
+    callMain2();
+}
+
+fn callMain2() noreturn {
+    @setAlignStack(16);
     root.main();
     exit2(0);
 }

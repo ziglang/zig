@@ -1583,7 +1583,11 @@ pub const Type = extern union {
 
             .int_signed, .int_unsigned => {
                 const bits: u16 = self.cast(Payload.Bits).?.data;
-                return std.math.ceilPowerOfTwoPromote(u16, (bits + 7) / 8);
+                if (bits <= 8) return 1;
+                if (bits <= 16) return 2;
+                if (bits <= 32) return 4;
+                if (bits <= 64) return 8;
+                return 16;
             },
 
             .optional => {

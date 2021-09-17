@@ -355,6 +355,20 @@ pub const Object = struct {
 
         const llvm_func = try dg.resolveLlvmFunction(decl);
 
+        if (module.align_stack_fns.get(func)) |align_info| {
+            dg.addFnAttrInt(llvm_func, "alignstack", align_info.alignment);
+            dg.addFnAttr(llvm_func, "noinline");
+        } else {
+            DeclGen.removeFnAttr(llvm_func, "alignstack");
+            if (!func.is_noinline) DeclGen.removeFnAttr(llvm_func, "noinline");
+        }
+
+        if (func.is_cold) {
+            dg.addFnAttr(llvm_func, "cold");
+        } else {
+            DeclGen.removeFnAttr(llvm_func, "cold");
+        }
+
         // This gets the LLVM values from the function and stores them in `dg.args`.
         const fn_param_len = decl.ty.fnParamLen();
         var args = try dg.gpa.alloc(*const llvm.Value, fn_param_len);
@@ -512,7 +526,9 @@ pub const DeclGen = struct {
         }
     }
 
-    /// If the llvm function does not exist, create it
+    /// If the llvm function does not exist, create it.
+    /// Note that this can be called before the function's semantic analysis has
+    /// completed, so if any attributes rely on that, they must be done in updateFunc, not here.
     fn resolveLlvmFunction(self: *DeclGen, decl: *Module.Decl) !*const llvm.Value {
         if (self.llvmModule().getNamedFunction(decl.name)) |llvm_fn| return llvm_fn;
 
@@ -895,17 +911,39 @@ pub const DeclGen = struct {
         }
     }
 
-    // Helper functions
-    fn addAttr(self: *DeclGen, val: *const llvm.Value, index: llvm.AttributeIndex, name: []const u8) void {
+    fn addAttr(dg: *DeclGen, val: *const llvm.Value, index: llvm.AttributeIndex, name: []const u8) void {
+        return dg.addAttrInt(val, index, name, 0);
+    }
+
+    fn removeAttr(val: *const llvm.Value, index: llvm.AttributeIndex, name: []const u8) void {
         const kind_id = llvm.getEnumAttributeKindForName(name.ptr, name.len);
         assert(kind_id != 0);
-        const llvm_attr = self.context.createEnumAttribute(kind_id, 0);
+        val.removeEnumAttributeAtIndex(index, kind_id);
+    }
+
+    fn addAttrInt(
+        dg: *DeclGen,
+        val: *const llvm.Value,
+        index: llvm.AttributeIndex,
+        name: []const u8,
+        int: u64,
+    ) void {
+        const kind_id = llvm.getEnumAttributeKindForName(name.ptr, name.len);
+        assert(kind_id != 0);
+        const llvm_attr = dg.context.createEnumAttribute(kind_id, int);
         val.addAttributeAtIndex(index, llvm_attr);
     }
 
-    fn addFnAttr(self: *DeclGen, val: *const llvm.Value, attr_name: []const u8) void {
-        // TODO: improve this API, `addAttr(-1, attr_name)`
-        self.addAttr(val, std.math.maxInt(llvm.AttributeIndex), attr_name);
+    fn addFnAttr(dg: *DeclGen, val: *const llvm.Value, name: []const u8) void {
+        dg.addAttr(val, std.math.maxInt(llvm.AttributeIndex), name);
+    }
+
+    fn removeFnAttr(fn_val: *const llvm.Value, name: []const u8) void {
+        removeAttr(fn_val, std.math.maxInt(llvm.AttributeIndex), name);
+    }
+
+    fn addFnAttrInt(dg: *DeclGen, fn_val: *const llvm.Value, name: []const u8, int: u64) void {
+        return dg.addAttrInt(fn_val, std.math.maxInt(llvm.AttributeIndex), name, int);
     }
 
     /// If the operand type of an atomic operation is not byte sized we need to
@@ -1975,12 +2013,13 @@ pub const FuncGen = struct {
             return null;
         // buildAlloca expects the pointee type, not the pointer type, so assert that
         // a Payload.PointerSimple is passed to the alloc instruction.
-        const inst_ty = self.air.typeOfIndex(inst);
-        const pointee_type = inst_ty.castPointer().?.data;
-
-        // TODO: figure out a way to get the name of the var decl.
-        // TODO: set alignment and volatile
-        return self.buildAlloca(try self.dg.llvmType(pointee_type));
+        const ptr_ty = self.air.typeOfIndex(inst);
+        const pointee_type = ptr_ty.elemType();
+        const pointee_llvm_ty = try self.dg.llvmType(pointee_type);
+        const target = self.dg.module.getTarget();
+        const alloca_inst = self.buildAlloca(pointee_llvm_ty);
+        alloca_inst.setAlignment(ptr_ty.ptrAlignment(target));
+        return alloca_inst;
     }
 
     /// Use this instead of builder.buildAlloca, because this function makes sure to
@@ -2200,8 +2239,11 @@ pub const FuncGen = struct {
     }
 
     fn load(self: *FuncGen, ptr: *const llvm.Value, ptr_ty: Type) *const llvm.Value {
-        _ = ptr_ty; // TODO set volatile and alignment on this load properly
-        return self.builder.buildLoad(ptr, "");
+        const llvm_inst = self.builder.buildLoad(ptr, "");
+        const target = self.dg.module.getTarget();
+        llvm_inst.setAlignment(ptr_ty.ptrAlignment(target));
+        llvm_inst.setVolatile(llvm.Bool.fromBool(ptr_ty.isVolatilePtr()));
+        return llvm_inst;
     }
 
     fn store(
@@ -2210,8 +2252,11 @@ pub const FuncGen = struct {
         ptr_ty: Type,
         elem: *const llvm.Value,
     ) *const llvm.Value {
-        _ = ptr_ty; // TODO set volatile and alignment on this store properly
-        return self.builder.buildStore(elem, ptr);
+        const llvm_inst = self.builder.buildStore(elem, ptr);
+        const target = self.dg.module.getTarget();
+        llvm_inst.setAlignment(ptr_ty.ptrAlignment(target));
+        llvm_inst.setVolatile(llvm.Bool.fromBool(ptr_ty.isVolatilePtr()));
+        return llvm_inst;
     }
 };
 

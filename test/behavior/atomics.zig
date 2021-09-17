@@ -81,3 +81,33 @@ test "cmpxchg with ignored result" {
 
     try expect(5678 == x);
 }
+
+test "128-bit cmpxchg" {
+    try test_u128_cmpxchg();
+    comptime try test_u128_cmpxchg();
+}
+
+fn test_u128_cmpxchg() !void {
+    if (builtin.zig_is_stage2) {
+        if (builtin.stage2_arch != .x86_64) return error.SkipZigTest;
+        if (!builtin.stage2_x86_cx16) return error.SkipZigTest;
+    } else {
+        if (builtin.cpu.arch != .x86_64) return error.SkipZigTest;
+        if (comptime !std.Target.x86.featureSetHas(builtin.cpu.features, .cx16)) return error.SkipZigTest;
+    }
+
+    var x: u128 = 1234;
+    if (@cmpxchgWeak(u128, &x, 99, 5678, .SeqCst, .SeqCst)) |x1| {
+        try expect(x1 == 1234);
+    } else {
+        @panic("cmpxchg should have failed");
+    }
+
+    while (@cmpxchgWeak(u128, &x, 1234, 5678, .SeqCst, .SeqCst)) |x1| {
+        try expect(x1 == 1234);
+    }
+    try expect(x == 5678);
+
+    try expect(@cmpxchgStrong(u128, &x, 5678, 42, .SeqCst, .SeqCst) == null);
+    try expect(x == 42);
+}

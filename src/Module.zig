@@ -64,11 +64,16 @@ import_table: std.StringArrayHashMapUnmanaged(*Scope.File) = .{},
 /// The set of all the generic function instantiations. This is used so that when a generic
 /// function is called twice with the same comptime parameter arguments, both calls dispatch
 /// to the same function.
+/// TODO: remove functions from this set when they are destroyed.
 monomorphed_funcs: MonomorphedFuncsSet = .{},
-
 /// The set of all comptime function calls that have been cached so that future calls
 /// with the same parameters will get the same return value.
 memoized_calls: MemoizedCallSet = .{},
+/// Contains the values from `@setAlignStack`. A sparse table is used here
+/// instead of a field of `Fn` because usage of `@setAlignStack` is rare, while
+/// functions are many.
+/// TODO: remove functions from this set when they are destroyed.
+align_stack_fns: std.AutoHashMapUnmanaged(*const Fn, SetAlignStack) = .{},
 
 /// We optimize memory usage for a compilation with no compile errors by storing the
 /// error messages and mapping outside of `Decl`.
@@ -213,6 +218,13 @@ pub const MemoizedCall = struct {
 
         return hasher.final();
     }
+};
+
+pub const SetAlignStack = struct {
+    alignment: u32,
+    /// TODO: This needs to store a non-lazy source location for the case of an inline function
+    /// which does `@setAlignStack` (applying it to the caller).
+    src: LazySrcLoc,
 };
 
 /// A `Module` has zero or one of these depending on whether `-femit-h` is enabled.
@@ -881,6 +893,7 @@ pub const Fn = struct {
 
     state: Analysis,
     is_cold: bool = false,
+    is_noinline: bool = false,
 
     pub const Analysis = enum {
         queued,
@@ -2347,6 +2360,7 @@ pub fn deinit(mod: *Module) void {
 
     mod.error_name_list.deinit(gpa);
     mod.test_functions.deinit(gpa);
+    mod.align_stack_fns.deinit(gpa);
     mod.monomorphed_funcs.deinit(gpa);
 
     {
@@ -3976,6 +3990,12 @@ fn markOutdatedDecl(mod: *Module, decl: *Decl) !void {
     try mod.comp.work_queue.writeItem(.{ .analyze_decl = decl });
     if (mod.failed_decls.fetchSwapRemove(decl)) |kv| {
         kv.value.destroy(mod.gpa);
+    }
+    if (decl.has_tv and decl.owns_tv) {
+        if (decl.val.castTag(.function)) |payload| {
+            const func = payload.data;
+            _ = mod.align_stack_fns.remove(func);
+        }
     }
     if (mod.emit_h) |emit_h| {
         if (emit_h.failed_decls.fetchSwapRemove(decl)) |kv| {

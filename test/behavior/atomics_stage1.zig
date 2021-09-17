@@ -3,31 +3,6 @@ const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 const builtin = @import("builtin");
 
-test "128-bit cmpxchg" {
-    try test_u128_cmpxchg();
-    comptime try test_u128_cmpxchg();
-}
-
-fn test_u128_cmpxchg() !void {
-    if (std.Target.current.cpu.arch != .x86_64) return error.SkipZigTest;
-    if (comptime !std.Target.x86.featureSetHas(std.Target.current.cpu.features, .cx16)) return error.SkipZigTest;
-
-    var x: u128 = 1234;
-    if (@cmpxchgWeak(u128, &x, 99, 5678, .SeqCst, .SeqCst)) |x1| {
-        try expect(x1 == 1234);
-    } else {
-        @panic("cmpxchg should have failed");
-    }
-
-    while (@cmpxchgWeak(u128, &x, 1234, 5678, .SeqCst, .SeqCst)) |x1| {
-        try expect(x1 == 1234);
-    }
-    try expect(x == 5678);
-
-    try expect(@cmpxchgStrong(u128, &x, 5678, 42, .SeqCst, .SeqCst) == null);
-    try expect(x == 42);
-}
-
 var a_global_variable = @as(u32, 1234);
 
 test "cmpxchg on a global variable" {

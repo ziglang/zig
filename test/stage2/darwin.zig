@@ -12,9 +12,9 @@ pub fn addCases(ctx: *TestContext) !void {
             .os_tag = .macos,
         };
         {
-            var case = ctx.exe("hello world with updates", target);
+            var case = ctx.exe("darwin hello world with updates", target);
             case.addError("", &[_][]const u8{
-                ":90:9: error: struct 'tmp.tmp' has no member named 'main'",
+                ":95:9: error: struct 'tmp.tmp' has no member named 'main'",
             });
 
             // Incorrect return type

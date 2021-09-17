@@ -833,6 +833,7 @@ fn failWithUseOfUndef(sema: *Sema, block: *Scope.Block, src: LazySrcLoc) Compile
 /// Appropriate to call when the coercion has already been done by result
 /// location semantics. Asserts the value fits in the provided `Int` type.
 /// Only supports `Int` types 64 bits or less.
+/// TODO don't ever call this since we're migrating towards ResultLoc.coerced_ty.
 fn resolveAlreadyCoercedInt(
     sema: *Sema,
     block: *Scope.Block,
@@ -847,6 +848,23 @@ fn resolveAlreadyCoercedInt(
         .signed => return @intCast(Int, val.toSignedInt()),
         .unsigned => return @intCast(Int, val.toUnsignedInt()),
     }
+}
+
+fn resolveAlign(
+    sema: *Sema,
+    block: *Scope.Block,
+    src: LazySrcLoc,
+    zir_ref: Zir.Inst.Ref,
+) !u16 {
+    const alignment_big = try sema.resolveInt(block, src, zir_ref, Type.initTag(.u16));
+    const alignment = @intCast(u16, alignment_big); // We coerce to u16 in the prev line.
+    if (alignment == 0) return sema.mod.fail(&block.base, src, "alignment must be >= 1", .{});
+    if (!std.math.isPowerOfTwo(alignment)) {
+        return sema.mod.fail(&block.base, src, "alignment value {d} is not a power of two", .{
+            alignment,
+        });
+    }
+    return alignment;
 }
 
 fn resolveInt(
@@ -2285,9 +2303,36 @@ fn zirExport(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileErro
 }
 
 fn zirSetAlignStack(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!void {
+    const mod = sema.mod;
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const src: LazySrcLoc = inst_data.src();
-    return sema.mod.fail(&block.base, src, "TODO: implement Sema.zirSetAlignStack", .{});
+    const alignment = try sema.resolveAlign(block, operand_src, inst_data.operand);
+    if (alignment > 256) {
+        return mod.fail(&block.base, src, "attempt to @setAlignStack({d}); maximum is 256", .{
+            alignment,
+        });
+    }
+    const func = sema.owner_func orelse
+        return mod.fail(&block.base, src, "@setAlignStack outside function body", .{});
+
+    switch (func.owner_decl.ty.fnCallingConvention()) {
+        .Naked => return mod.fail(&block.base, src, "@setAlignStack in naked function", .{}),
+        .Inline => return mod.fail(&block.base, src, "@setAlignStack in inline function", .{}),
+        else => {},
+    }
+
+    const gop = try mod.align_stack_fns.getOrPut(mod.gpa, func);
+    if (gop.found_existing) {
+        const msg = msg: {
+            const msg = try mod.errMsg(&block.base, src, "multiple @setAlignStack in the same function body", .{});
+            errdefer msg.destroy(mod.gpa);
+            try mod.errNote(&block.base, src, msg, "other instance here", .{});
+            break :msg msg;
+        };
+        return mod.failWithOwnedErrorMsg(&block.base, msg);
+    }
+    gop.value_ptr.* = .{ .alignment = alignment, .src = src };
 }
 
 fn zirSetCold(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!void {
