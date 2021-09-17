@@ -398,10 +398,10 @@ pub const Blake3 = struct {
         return Blake3.init_internal(context_key_words, DERIVE_KEY_MATERIAL);
     }
 
-    pub fn hash(in: []const u8, out: []u8, options: Options) void {
-        var hasher = Blake3.init(options);
-        hasher.update(in);
-        hasher.final(out);
+    pub fn hash(b: []const u8, out: []u8, options: Options) void {
+        var d = Blake3.init(options);
+        d.update(b);
+        d.final(out);
     }
 
     fn pushCv(self: *Blake3, cv: [8]u32) void {
