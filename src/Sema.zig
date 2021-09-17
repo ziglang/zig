@@ -1130,7 +1130,7 @@ fn zirEnumDecl(
     const body_end = extra_index;
     extra_index += bit_bags_count;
 
-    try enum_obj.fields.ensureCapacity(&new_decl_arena.allocator, fields_len);
+    try enum_obj.fields.ensureTotalCapacity(&new_decl_arena.allocator, fields_len);
     const any_values = for (sema.code.extra[body_end..][0..bit_bags_count]) |bag| {
         if (bag != 0) break true;
     } else false;
@@ -3484,7 +3484,7 @@ fn zirMergeErrorSets(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) Com
         },
         .error_set => {
             const lhs_set = lhs_ty.castTag(.error_set).?.data;
-            try set.ensureCapacity(sema.gpa, set.count() + lhs_set.names_len);
+            try set.ensureUnusedCapacity(sema.gpa, lhs_set.names_len);
             for (lhs_set.names_ptr[0..lhs_set.names_len]) |name| {
                 set.putAssumeCapacityNoClobber(name, {});
             }
@@ -3498,7 +3498,7 @@ fn zirMergeErrorSets(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) Com
         },
         .error_set => {
             const rhs_set = rhs_ty.castTag(.error_set).?.data;
-            try set.ensureCapacity(sema.gpa, set.count() + rhs_set.names_len);
+            try set.ensureUnusedCapacity(sema.gpa, rhs_set.names_len);
             for (rhs_set.names_ptr[0..rhs_set.names_len]) |name| {
                 set.putAssumeCapacity(name, {});
             }
@@ -10361,7 +10361,7 @@ fn analyzeUnionFields(
     var decl_arena = union_obj.owner_decl.value_arena.?.promote(gpa);
     defer union_obj.owner_decl.value_arena.?.* = decl_arena.state;
 
-    try union_obj.fields.ensureCapacity(&decl_arena.allocator, fields_len);
+    try union_obj.fields.ensureTotalCapacity(&decl_arena.allocator, fields_len);
 
     if (body.len != 0) {
         _ = try sema.analyzeBody(block, body);

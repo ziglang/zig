@@ -668,7 +668,7 @@ pub fn utf8ToUtf16LeWithNull(allocator: *mem.Allocator, utf8: []const u8) ![:0]u
     var result = std.ArrayList(u16).init(allocator);
     errdefer result.deinit();
     // optimistically guess that it will not require surrogate pairs
-    try result.ensureCapacity(utf8.len + 1);
+    try result.ensureTotalCapacity(utf8.len + 1);
 
     const view = try Utf8View.init(utf8);
     var it = view.iterator();

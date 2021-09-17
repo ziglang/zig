@@ -17,7 +17,7 @@ pub fn parse(gpa: *Allocator, source: [:0]const u8) Allocator.Error!Ast {
 
     // Empirically, the zig std lib has an 8:1 ratio of source bytes to token count.
     const estimated_token_count = source.len / 8;
-    try tokens.ensureCapacity(gpa, estimated_token_count);
+    try tokens.ensureTotalCapacity(gpa, estimated_token_count);
 
     var tokenizer = std.zig.Tokenizer.init(source);
     while (true) {
@@ -48,7 +48,7 @@ pub fn parse(gpa: *Allocator, source: [:0]const u8) Allocator.Error!Ast {
     // Empirically, Zig source code has a 2:1 ratio of tokens to AST nodes.
     // Make sure at least 1 so we can use appendAssumeCapacity on the root node below.
     const estimated_node_count = (tokens.len + 2) / 2;
-    try parser.nodes.ensureCapacity(gpa, estimated_node_count);
+    try parser.nodes.ensureTotalCapacity(gpa, estimated_node_count);
 
     // Root node must be index 0.
     // Root <- skip ContainerMembers eof
@@ -138,7 +138,7 @@ const Parser = struct {
 
     fn addExtra(p: *Parser, extra: anytype) Allocator.Error!Node.Index {
         const fields = std.meta.fields(@TypeOf(extra));
-        try p.extra_data.ensureCapacity(p.gpa, p.extra_data.items.len + fields.len);
+        try p.extra_data.ensureUnusedCapacity(p.gpa, fields.len);
         const result = @intCast(u32, p.extra_data.items.len);
         inline for (fields) |field| {
             comptime assert(field.field_type == Node.Index);

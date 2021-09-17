@@ -1097,7 +1097,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
 
                 if (feature.llvm_name) |llvm_name| {
                     const plus_or_minus = "-+"[@boolToInt(is_enabled)];
-                    try buf.ensureCapacity(buf.items.len + 2 + llvm_name.len);
+                    try buf.ensureUnusedCapacity(2 + llvm_name.len);
                     buf.appendAssumeCapacity(plus_or_minus);
                     buf.appendSliceAssumeCapacity(llvm_name);
                     buf.appendSliceAssumeCapacity(",");
@@ -1347,7 +1347,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
 
         var system_libs: std.StringArrayHashMapUnmanaged(void) = .{};
         errdefer system_libs.deinit(gpa);
-        try system_libs.ensureCapacity(gpa, options.system_libs.len);
+        try system_libs.ensureTotalCapacity(gpa, options.system_libs.len);
         for (options.system_libs) |lib_name| {
             system_libs.putAssumeCapacity(lib_name, {});
         }
@@ -1483,7 +1483,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
     errdefer comp.astgen_wait_group.deinit();
 
     // Add a `CObject` for each `c_source_files`.
-    try comp.c_object_table.ensureCapacity(gpa, options.c_source_files.len);
+    try comp.c_object_table.ensureTotalCapacity(gpa, options.c_source_files.len);
     for (options.c_source_files) |c_source_file| {
         const c_object = try gpa.create(CObject);
         errdefer gpa.destroy(c_object);
@@ -3084,7 +3084,7 @@ pub fn addCCArgs(
 
             // It would be really nice if there was a more compact way to communicate this info to Clang.
             const all_features_list = target.cpu.arch.allFeaturesList();
-            try argv.ensureCapacity(argv.items.len + all_features_list.len * 4);
+            try argv.ensureUnusedCapacity(all_features_list.len * 4);
             for (all_features_list) |feature, index_usize| {
                 const index = @intCast(std.Target.Cpu.Feature.Set.Index, index_usize);
                 const is_enabled = target.cpu.features.isEnabled(index);
@@ -3334,7 +3334,7 @@ fn failCObjWithOwnedErrorMsg(
         defer lock.release();
         {
             errdefer err_msg.destroy(comp.gpa);
-            try comp.failed_c_objects.ensureCapacity(comp.gpa, comp.failed_c_objects.count() + 1);
+            try comp.failed_c_objects.ensureUnusedCapacity(comp.gpa, 1);
         }
         comp.failed_c_objects.putAssumeCapacityNoClobber(c_object, err_msg);
     }
@@ -3585,7 +3585,7 @@ fn detectLibCIncludeDirs(
 
 fn detectLibCFromLibCInstallation(arena: *Allocator, target: Target, lci: *const LibCInstallation) !LibCDirs {
     var list = std.ArrayList([]const u8).init(arena);
-    try list.ensureCapacity(4);
+    try list.ensureTotalCapacity(4);
 
     list.appendAssumeCapacity(lci.include_dir.?);
 
@@ -3692,7 +3692,7 @@ fn setMiscFailure(
     comptime format: []const u8,
     args: anytype,
 ) Allocator.Error!void {
-    try comp.misc_failures.ensureCapacity(comp.gpa, comp.misc_failures.count() + 1);
+    try comp.misc_failures.ensureUnusedCapacity(comp.gpa, 1);
     const msg = try std.fmt.allocPrint(comp.gpa, format, args);
     comp.misc_failures.putAssumeCapacityNoClobber(tag, .{ .msg = msg });
 }
@@ -4027,7 +4027,7 @@ fn buildOutputFromZig(
     defer if (!keep_errors) errors.deinit(sub_compilation.gpa);
 
     if (errors.list.len != 0) {
-        try comp.misc_failures.ensureCapacity(comp.gpa, comp.misc_failures.count() + 1);
+        try comp.misc_failures.ensureUnusedCapacity(comp.gpa, 1);
         comp.misc_failures.putAssumeCapacityNoClobber(misc_task_tag, .{
             .msg = try std.fmt.allocPrint(comp.gpa, "sub-compilation of {s} failed", .{
                 @tagName(misc_task_tag),
@@ -4459,7 +4459,7 @@ pub fn build_crt_file(
 
     try sub_compilation.updateSubCompilation();
 
-    try comp.crt_files.ensureCapacity(comp.gpa, comp.crt_files.count() + 1);
+    try comp.crt_files.ensureUnusedCapacity(comp.gpa, 1);
 
     comp.crt_files.putAssumeCapacityNoClobber(basename, .{
         .full_object_path = try sub_compilation.bin_file.options.emit.?.directory.join(comp.gpa, &[_][]const u8{

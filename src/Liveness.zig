@@ -454,7 +454,7 @@ fn analyzeInst(
             }
             // Now we have to correctly populate new_set.
             if (new_set) |ns| {
-                try ns.ensureCapacity(gpa, @intCast(u32, ns.count() + then_table.count() + else_table.count()));
+                try ns.ensureUnusedCapacity(gpa, @intCast(u32, then_table.count() + else_table.count()));
                 var it = then_table.keyIterator();
                 while (it.next()) |key| {
                     _ = ns.putAssumeCapacity(key.*, {});

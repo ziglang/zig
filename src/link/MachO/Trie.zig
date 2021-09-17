@@ -326,7 +326,7 @@ pub fn finalize(self: *Trie, allocator: *Allocator) !void {
     if (!self.trie_dirty) return;
 
     self.ordered_nodes.shrinkRetainingCapacity(0);
-    try self.ordered_nodes.ensureCapacity(allocator, self.node_count);
+    try self.ordered_nodes.ensureTotalCapacity(allocator, self.node_count);
 
     var fifo = std.fifo.LinearFifo(*Node, .Dynamic).init(allocator);
     defer fifo.deinit();

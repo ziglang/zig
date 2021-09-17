@@ -3504,7 +3504,7 @@ pub fn scanNamespace(
     const zir = namespace.file_scope.zir;
 
     try mod.comp.work_queue.ensureUnusedCapacity(decls_len);
-    try namespace.decls.ensureCapacity(gpa, decls_len);
+    try namespace.decls.ensureTotalCapacity(gpa, decls_len);
 
     const bit_bags_count = std.math.divCeil(usize, decls_len, 8) catch unreachable;
     var extra_index = extra_start + bit_bags_count;
@@ -4071,7 +4071,7 @@ pub fn getErrorValue(mod: *Module, name: []const u8) !std.StringHashMapUnmanaged
     }
 
     errdefer assert(mod.global_error_set.remove(name));
-    try mod.error_name_list.ensureCapacity(mod.gpa, mod.error_name_list.items.len + 1);
+    try mod.error_name_list.ensureUnusedCapacity(mod.gpa, 1);
     gop.key_ptr.* = try mod.gpa.dupe(u8, name);
     gop.value_ptr.* = @intCast(ErrorInt, mod.error_name_list.items.len);
     mod.error_name_list.appendAssumeCapacity(gop.key_ptr.*);

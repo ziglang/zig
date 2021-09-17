@@ -34,7 +34,7 @@ pub fn buildTsan(comp: *Compilation) !void {
     };
 
     var c_source_files = std.ArrayList(Compilation.CSourceFile).init(arena);
-    try c_source_files.ensureCapacity(c_source_files.items.len + tsan_sources.len);
+    try c_source_files.ensureUnusedCapacity(tsan_sources.len);
 
     const tsan_include_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{"tsan"});
     for (tsan_sources) |tsan_src| {
@@ -58,7 +58,7 @@ pub fn buildTsan(comp: *Compilation) !void {
         &darwin_tsan_sources
     else
         &unix_tsan_sources;
-    try c_source_files.ensureCapacity(c_source_files.items.len + platform_tsan_sources.len);
+    try c_source_files.ensureUnusedCapacity(platform_tsan_sources.len);
     for (platform_tsan_sources) |tsan_src| {
         var cflags = std.ArrayList([]const u8).init(arena);
 
@@ -96,7 +96,7 @@ pub fn buildTsan(comp: *Compilation) !void {
         });
     }
 
-    try c_source_files.ensureCapacity(c_source_files.items.len + sanitizer_common_sources.len);
+    try c_source_files.ensureUnusedCapacity(sanitizer_common_sources.len);
     const sanitizer_common_include_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
         "tsan", "sanitizer_common",
     });
@@ -123,7 +123,7 @@ pub fn buildTsan(comp: *Compilation) !void {
         &sanitizer_libcdep_sources
     else
         &sanitizer_nolibc_sources;
-    try c_source_files.ensureCapacity(c_source_files.items.len + to_c_or_not_to_c_sources.len);
+    try c_source_files.ensureUnusedCapacity(to_c_or_not_to_c_sources.len);
     for (to_c_or_not_to_c_sources) |c_src| {
         var cflags = std.ArrayList([]const u8).init(arena);
 
@@ -143,7 +143,7 @@ pub fn buildTsan(comp: *Compilation) !void {
         });
     }
 
-    try c_source_files.ensureCapacity(c_source_files.items.len + sanitizer_symbolizer_sources.len);
+    try c_source_files.ensureUnusedCapacity(sanitizer_symbolizer_sources.len);
     for (sanitizer_symbolizer_sources) |c_src| {
         var cflags = std.ArrayList([]const u8).init(arena);
 
@@ -168,7 +168,7 @@ pub fn buildTsan(comp: *Compilation) !void {
         &[_][]const u8{"interception"},
     );
 
-    try c_source_files.ensureCapacity(c_source_files.items.len + interception_sources.len);
+    try c_source_files.ensureUnusedCapacity(interception_sources.len);
     for (interception_sources) |c_src| {
         var cflags = std.ArrayList([]const u8).init(arena);
 

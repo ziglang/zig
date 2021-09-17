@@ -1568,11 +1568,11 @@ test "std.hash_map basic usage" {
     try expectEqual(total, sum);
 }
 
-test "std.hash_map ensureCapacity" {
+test "std.hash_map ensureTotalCapacity" {
     var map = AutoHashMap(i32, i32).init(std.testing.allocator);
     defer map.deinit();
 
-    try map.ensureCapacity(20);
+    try map.ensureTotalCapacity(20);
     const initial_capacity = map.capacity();
     try testing.expect(initial_capacity >= 20);
     var i: i32 = 0;
@@ -1583,13 +1583,13 @@ test "std.hash_map ensureCapacity" {
     try testing.expect(initial_capacity == map.capacity());
 }
 
-test "std.hash_map ensureCapacity with tombstones" {
+test "std.hash_map ensureUnusedCapacity with tombstones" {
     var map = AutoHashMap(i32, i32).init(std.testing.allocator);
     defer map.deinit();
 
     var i: i32 = 0;
     while (i < 100) : (i += 1) {
-        try map.ensureCapacity(@intCast(u32, map.count() + 1));
+        try map.ensureUnusedCapacity(1);
         map.putAssumeCapacity(i, i);
         // Remove to create tombstones that still count as load in the hashmap.
         _ = map.remove(i);
@@ -1669,7 +1669,7 @@ test "std.hash_map clone" {
     try expectEqual(b.get(3).?, 3);
 }
 
-test "std.hash_map ensureCapacity with existing elements" {
+test "std.hash_map ensureTotalCapacity with existing elements" {
     var map = AutoHashMap(u32, u32).init(std.testing.allocator);
     defer map.deinit();
 
@@ -1677,16 +1677,16 @@ test "std.hash_map ensureCapacity with existing elements" {
     try expectEqual(map.count(), 1);
     try expectEqual(map.capacity(), @TypeOf(map).Unmanaged.minimal_capacity);
 
-    try map.ensureCapacity(65);
+    try map.ensureTotalCapacity(65);
     try expectEqual(map.count(), 1);
     try expectEqual(map.capacity(), 128);
 }
 
-test "std.hash_map ensureCapacity satisfies max load factor" {
+test "std.hash_map ensureTotalCapacity satisfies max load factor" {
     var map = AutoHashMap(u32, u32).init(std.testing.allocator);
     defer map.deinit();
 
-    try map.ensureCapacity(127);
+    try map.ensureTotalCapacity(127);
     try expectEqual(map.capacity(), 256);
 }
 
@@ -1870,7 +1870,7 @@ test "std.hash_map putAssumeCapacity" {
     var map = AutoHashMap(u32, u32).init(std.testing.allocator);
     defer map.deinit();
 
-    try map.ensureCapacity(20);
+    try map.ensureTotalCapacity(20);
     var i: u32 = 0;
     while (i < 20) : (i += 1) {
         map.putAssumeCapacityNoClobber(i, i);

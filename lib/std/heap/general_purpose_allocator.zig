@@ -746,10 +746,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
 
             const new_aligned_size = math.max(len, ptr_align);
             if (new_aligned_size > largest_bucket_object_size) {
-                try self.large_allocations.ensureCapacity(
-                    self.backing_allocator,
-                    self.large_allocations.count() + 1,
-                );
+                try self.large_allocations.ensureUnusedCapacity(self.backing_allocator, 1);
 
                 const slice = try self.backing_allocator.allocFn(self.backing_allocator, len, ptr_align, len_align, ret_addr);
 

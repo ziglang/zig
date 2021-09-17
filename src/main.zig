@@ -1704,22 +1704,22 @@ fn buildOutputType(
             } else true;
             if (!should_get_sdk_path) break :outer false;
             if (try std.zig.system.darwin.getSDKPath(arena, target_info.target)) |sdk_path| {
-                try clang_argv.ensureCapacity(clang_argv.items.len + 2);
+                try clang_argv.ensureUnusedCapacity(2);
                 clang_argv.appendAssumeCapacity("-isysroot");
                 clang_argv.appendAssumeCapacity(sdk_path);
                 break :outer true;
             } else break :outer false;
         } else false;
 
-        try clang_argv.ensureCapacity(clang_argv.items.len + paths.include_dirs.items.len * 2);
+        try clang_argv.ensureUnusedCapacity(paths.include_dirs.items.len * 2);
         const isystem_flag = if (has_sysroot) "-iwithsysroot" else "-isystem";
         for (paths.include_dirs.items) |include_dir| {
             clang_argv.appendAssumeCapacity(isystem_flag);
             clang_argv.appendAssumeCapacity(include_dir);
         }
 
-        try clang_argv.ensureCapacity(clang_argv.items.len + paths.framework_dirs.items.len * 2);
-        try framework_dirs.ensureCapacity(framework_dirs.items.len + paths.framework_dirs.items.len);
+        try clang_argv.ensureUnusedCapacity(paths.framework_dirs.items.len * 2);
+        try framework_dirs.ensureUnusedCapacity(paths.framework_dirs.items.len);
         const iframework_flag = if (has_sysroot) "-iframeworkwithsysroot" else "-iframework";
         for (paths.framework_dirs.items) |framework_dir| {
             clang_argv.appendAssumeCapacity(iframework_flag);
@@ -2783,7 +2783,7 @@ pub fn cmdInit(
         fatal("unable to read template file 'build.zig': {s}", .{@errorName(err)});
     };
     var modified_build_zig_contents = std.ArrayList(u8).init(arena);
-    try modified_build_zig_contents.ensureCapacity(build_zig_contents.len);
+    try modified_build_zig_contents.ensureTotalCapacity(build_zig_contents.len);
     for (build_zig_contents) |c| {
         if (c == '$') {
             try modified_build_zig_contents.appendSlice(cwd_basename);
@@ -3464,7 +3464,7 @@ fn fmtPathFile(
 
     // As a heuristic, we make enough capacity for the same as the input source.
     fmt.out_buffer.shrinkRetainingCapacity(0);
-    try fmt.out_buffer.ensureCapacity(source_code.len);
+    try fmt.out_buffer.ensureTotalCapacity(source_code.len);
 
     try tree.renderToArrayList(&fmt.out_buffer);
     if (mem.eql(u8, fmt.out_buffer.items, source_code))

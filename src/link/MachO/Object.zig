@@ -261,7 +261,7 @@ pub fn readLoadCommands(self: *Object, allocator: *Allocator, reader: anytype) !
     const header = self.header orelse unreachable; // Unreachable here signifies a fatal unexplored condition.
     const offset = self.file_offset orelse 0;
 
-    try self.load_commands.ensureCapacity(allocator, header.ncmds);
+    try self.load_commands.ensureTotalCapacity(allocator, header.ncmds);
 
     var i: u16 = 0;
     while (i < header.ncmds) : (i += 1) {

@@ -102,7 +102,7 @@ pub fn calcAdhocSignature(
     var buffer = try allocator.alloc(u8, page_size);
     defer allocator.free(buffer);
 
-    try cdir.data.ensureCapacity(allocator, total_pages * hash_size + id.len + 1);
+    try cdir.data.ensureTotalCapacity(allocator, total_pages * hash_size + id.len + 1);
 
     // 1. Save the identifier and update offsets
     cdir.inner.identOffset = cdir.inner.length;
