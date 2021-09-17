@@ -1,7 +1,7 @@
 image: netbsd/latest
 secrets:
   - 51bfddf5-86a6-4e01-8576-358c72a4a0a4
-  - 5cfede76-914e-4071-893e-e5e2e6ae3cea
+  - 512ed797-0927-475a-83fd-bc997792860c
 sources:
   - https://github.com/ziglang/zig
 tasks:
