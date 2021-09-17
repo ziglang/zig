@@ -7920,7 +7920,6 @@ fn zirVarExtended(
     const mut_src: LazySrcLoc = src; // TODO add a LazySrcLoc that points at mut token
     const init_src: LazySrcLoc = src; // TODO add a LazySrcLoc that points at init expr
     const small = @bitCast(Zir.Inst.ExtendedVar.Small, extended.small);
-    const var_ty = try sema.resolveType(block, ty_src, extra.data.var_type);
 
     var extra_index: usize = extra.end;
 
@@ -7940,11 +7939,25 @@ fn zirVarExtended(
     //    break :blk align_tv.val;
     //} else Value.initTag(.null_value);
 
-    const init_val: Value = if (small.has_init) blk: {
+    const uncasted_init: Air.Inst.Ref = if (small.has_init) blk: {
         const init_ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_index]);
         extra_index += 1;
-        const init_air_inst = sema.resolveInst(init_ref);
-        break :blk (try sema.resolveMaybeUndefVal(block, init_src, init_air_inst)) orelse
+        break :blk sema.resolveInst(init_ref);
+    } else .none;
+
+    const have_ty = extra.data.var_type != .none;
+    const var_ty = if (have_ty)
+        try sema.resolveType(block, ty_src, extra.data.var_type)
+    else
+        sema.typeOf(uncasted_init);
+
+    const init_val = if (uncasted_init != .none) blk: {
+        const init = if (have_ty)
+            try sema.coerce(block, var_ty, uncasted_init, init_src)
+        else
+            uncasted_init;
+
+        break :blk (try sema.resolveMaybeUndefVal(block, init_src, init)) orelse
             return sema.failWithNeededComptime(block, init_src);
     } else Value.initTag(.unreachable_value);
 

@@ -3,13 +3,6 @@ const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 const builtin = @import("builtin");
 
-var a_global_variable = @as(u32, 1234);
-
-test "cmpxchg on a global variable" {
-    _ = @cmpxchgWeak(u32, &a_global_variable, 1234, 42, .Acquire, .Monotonic);
-    try expectEqual(@as(u32, 42), a_global_variable);
-}
-
 test "atomic load and rmw with enum" {
     const Value = enum(u8) {
         a,
