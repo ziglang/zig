@@ -27,7 +27,7 @@ pub fn resolveScopeId(name: []const u8) !u32 {
             return rc;
         }
 
-        const fd = try os.socket(os.AF.UNIX, os.SOCK.DGRAM, 0);
+        const fd = try os.socket(os.AF.INET, os.SOCK.DGRAM, 0);
         defer os.closeSocket(fd);
 
         var f: os.ifreq = undefined;
@@ -566,21 +566,17 @@ test "ipv6: parse & format" {
 
 test "ipv6: parse & format addresses with scope ids" {
     if (!have_ifnamesize) return error.SkipZigTest;
+    const iface = if (native_os.tag == .linux)
+        "lo"
+    else
+        "lo0";
+    const input = "FF01::FB%" ++ iface;
+    const output = "ff01::fb%1";
 
-    const inputs = [_][]const u8{
-        "FF01::FB%lo",
+    const parsed = IPv6.parse(input) catch |err| switch (err) {
+        error.InterfaceNotFound => return,
+        else => return err,
     };
 
-    const outputs = [_][]const u8{
-        "ff01::fb%1",
-    };
-
-    for (inputs) |input, i| {
-        const parsed = IPv6.parse(input) catch |err| switch (err) {
-            error.InterfaceNotFound => continue,
-            else => return err,
-        };
-
-        try testing.expectFmt(outputs[i], "{}", .{parsed});
-    }
+    try testing.expectFmt(output, "{}", .{parsed});
 }
