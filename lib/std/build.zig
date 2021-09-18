@@ -59,6 +59,7 @@ pub const Builder = struct {
     search_prefixes: ArrayList([]const u8),
     libc_file: ?[]const u8 = null,
     installed_files: ArrayList(InstalledFile),
+    configure_installed_files: ArrayList(*InstallArtifactStep),
     build_root: []const u8,
     cache_root: []const u8,
     global_cache_root: []const u8,
@@ -173,6 +174,7 @@ pub const Builder = struct {
             .h_dir = undefined,
             .dest_dir = env_map.get("DESTDIR"),
             .installed_files = ArrayList(InstalledFile).init(allocator),
+            .configure_installed_files = ArrayList(*InstallArtifactStep).init(allocator),
             .install_tls = TopLevelStep{
                 .step = Step.initNoOp(.top_level, "install", allocator),
                 .description = "Copy build artifacts to prefix path",
@@ -437,6 +439,10 @@ pub const Builder = struct {
     fn makeUninstall(uninstall_step: *Step) anyerror!void {
         const uninstall_tls = @fieldParentPtr(TopLevelStep, "step", uninstall_step);
         const self = @fieldParentPtr(Builder, "uninstall_tls", uninstall_tls);
+
+        for (self.configure_installed_files.items) |install_step| {
+            install_step.configure();
+        }
 
         for (self.installed_files.items) |installed_file| {
             const full_path = self.getInstallPath(installed_file.dir, installed_file.path);
@@ -1047,6 +1053,10 @@ pub const Builder = struct {
             .path = dest_rel_path,
         };
         self.installed_files.append(file.dupe(self)) catch unreachable;
+    }
+
+    pub fn pushInstallConfigure(self: *Builder, install_step: *InstallArtifactStep) void {
+        self.configure_installed_files.append(install_step) catch unreachable;
     }
 
     pub fn updateFile(self: *Builder, source_path: []const u8, dest_path: []const u8) !void {
@@ -2729,6 +2739,7 @@ pub const LibExeObjStep = struct {
 
         // This will ensure all output filenames will now have the output_dir available!
         self.computeOutFileNames();
+        if (self.install_step) |install_step| install_step.configure();
 
         // Update generated files
         if (self.output_dir != null) {
@@ -2769,20 +2780,25 @@ pub const InstallArtifactStep = struct {
     step: Step,
     builder: *Builder,
     artifact: *LibExeObjStep,
-    dest_dir: InstallDir,
-    pdb_dir: ?InstallDir,
-    h_dir: ?InstallDir,
+    state: ?ConfiguredState = null,
 
     const Self = @This();
 
-    pub fn create(builder: *Builder, artifact: *LibExeObjStep) *Self {
-        if (artifact.install_step) |s| return s;
+    const ConfiguredState = struct {
+        basename: []const u8,
+        dest_dir: InstallDir,
+        pdb_dir: ?InstallDir,
+        h_dir: ?InstallDir,
+    };
 
-        const self = builder.allocator.create(Self) catch unreachable;
-        self.* = Self{
-            .builder = builder,
-            .step = Step.init(.install_artifact, builder.fmt("install {s}", .{artifact.step.name}), builder.allocator, make),
-            .artifact = artifact,
+    /// must be called after all declarative setup of the artifact (i.e. by artifact.make() or makeUninstall())
+    fn configure(self: *InstallArtifactStep) void {
+        if (self.state != null) return;
+
+        const artifact = self.artifact;
+
+        const state = ConfiguredState{
+            .basename = artifact.exact_install_filename orelse artifact.out_filename,
             .dest_dir = artifact.override_dest_dir orelse switch (artifact.kind) {
                 .obj => unreachable,
                 .@"test" => unreachable,
@@ -2798,32 +2814,44 @@ pub const InstallArtifactStep = struct {
             } else null,
             .h_dir = if (artifact.kind == .lib and artifact.emit_h) .header else null,
         };
-        self.step.dependOn(&artifact.step);
-        artifact.install_step = self;
 
-        const install_name = if (self.artifact.exact_install_filename) |name|
-            name
-        else
-            self.artifact.out_filename;
+        self.state = state;
 
-        builder.pushInstalledFile(self.dest_dir, install_name);
-        if (self.artifact.exact_install_filename == null and self.artifact.isDynamicLibrary()) {
+        const builder = artifact.builder;
+        builder.pushInstalledFile(state.dest_dir, state.basename);
+        if (artifact.exact_install_filename == null and artifact.isDynamicLibrary()) {
             if (artifact.major_only_filename) |name| {
                 builder.pushInstalledFile(.lib, name);
             }
             if (artifact.name_only_filename) |name| {
                 builder.pushInstalledFile(.lib, name);
             }
-            if (self.artifact.target.isWindows()) {
+            if (artifact.target.isWindows()) {
                 builder.pushInstalledFile(.lib, artifact.out_lib_filename);
             }
         }
-        if (self.pdb_dir) |pdb_dir| {
+        if (state.pdb_dir) |pdb_dir| {
             builder.pushInstalledFile(pdb_dir, artifact.out_pdb_filename);
         }
-        if (self.h_dir) |h_dir| {
+        if (state.h_dir) |h_dir| {
             builder.pushInstalledFile(h_dir, artifact.out_h_filename);
         }
+    }
+
+    pub fn create(builder: *Builder, artifact: *LibExeObjStep) *Self {
+        if (artifact.install_step) |s| return s;
+
+        const self = builder.allocator.create(Self) catch unreachable;
+        self.* = Self{
+            .builder = builder,
+            .step = Step.init(.install_artifact, builder.fmt("install {s}", .{artifact.step.name}), builder.allocator, make),
+            .artifact = artifact,
+        };
+
+        self.step.dependOn(&artifact.step);
+        artifact.install_step = self;
+
+        builder.pushInstallConfigure(self);
         return self;
     }
 
@@ -2831,23 +2859,20 @@ pub const InstallArtifactStep = struct {
         const self = @fieldParentPtr(Self, "step", step);
         const builder = self.builder;
 
-        const install_name = if (self.artifact.exact_install_filename) |name|
-            name
-        else
-            self.artifact.out_filename;
+        const state = self.state orelse panic("Install state for {s} not configured.", .{self.artifact.name});
 
-        const full_dest_path = builder.getInstallPath(self.dest_dir, install_name);
+        const full_dest_path = builder.getInstallPath(state.dest_dir, state.basename);
         try builder.updateFile(self.artifact.getOutputSource().getPath(builder), full_dest_path);
         if (self.artifact.exact_install_filename == null and self.artifact.isDynamicLibrary() and
             self.artifact.version != null and self.artifact.target.wantSharedLibSymLinks())
         {
             try doAtomicSymLinks(builder.allocator, full_dest_path, self.artifact.major_only_filename.?, self.artifact.name_only_filename.?);
         }
-        if (self.pdb_dir) |pdb_dir| {
+        if (state.pdb_dir) |pdb_dir| {
             const full_pdb_path = builder.getInstallPath(pdb_dir, self.artifact.out_pdb_filename);
             try builder.updateFile(self.artifact.getOutputPdbSource().getPath(builder), full_pdb_path);
         }
-        if (self.h_dir) |h_dir| {
+        if (state.h_dir) |h_dir| {
             const full_pdb_path = builder.getInstallPath(h_dir, self.artifact.out_h_filename);
             try builder.updateFile(self.artifact.getOutputHSource().getPath(builder), full_pdb_path);
         }
