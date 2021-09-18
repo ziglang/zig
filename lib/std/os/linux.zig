@@ -89,6 +89,7 @@ pub const user_desc = arch_bits.user_desc;
 pub const tls = @import("linux/tls.zig");
 pub const pie = @import("linux/start_pie.zig");
 pub const BPF = @import("linux/bpf.zig");
+pub const IOCTL = @import("linux/ioctl.zig");
 
 pub const MAP = struct {
     pub usingnamespace arch_bits.MAP;
@@ -2585,18 +2586,18 @@ pub const T = struct {
     pub const IOCGSID = 0x5429;
     pub const IOCGRS485 = 0x542E;
     pub const IOCSRS485 = 0x542F;
-    pub const IOCGPTN = 0x80045430;
-    pub const IOCSPTLCK = 0x40045431;
-    pub const IOCGDEV = 0x80045432;
+    pub const IOCGPTN = IOCTL.IOR('T', 0x30, c_uint);
+    pub const IOCSPTLCK = IOCTL.IOW('T', 0x31, c_int);
+    pub const IOCGDEV = IOCTL.IOR('T', 0x32, c_uint);
     pub const CGETX = 0x5432;
     pub const CSETX = 0x5433;
     pub const CSETXF = 0x5434;
     pub const CSETXW = 0x5435;
-    pub const IOCSIG = 0x40045436;
+    pub const IOCSIG = IOCTL.IOW('T', 0x36, c_int);
     pub const IOCVHANGUP = 0x5437;
-    pub const IOCGPKT = 0x80045438;
-    pub const IOCGPTLCK = 0x80045439;
-    pub const IOCGEXCL = 0x80045440;
+    pub const IOCGPKT = IOCTL.IOR('T', 0x38, c_int);
+    pub const IOCGPTLCK = IOCTL.IOR('T', 0x39, c_int);
+    pub const IOCGEXCL = IOCTL.IOR('T', 0x40, c_int);
 };
 
 pub const EPOLL = struct {
