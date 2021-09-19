@@ -3058,7 +3058,6 @@ const Writer = struct {
             .shuffle,
             .select,
             .atomic_rmw,
-            .atomic_store,
             .mul_add,
             .builtin_call,
             .field_parent_ptr,
@@ -3071,9 +3070,8 @@ const Writer = struct {
             .struct_init_ref,
             => try self.writeStructInit(stream, inst),
 
-            .cmpxchg_strong,
-            .cmpxchg_weak,
-            => try self.writeCmpxchg(stream, inst),
+            .cmpxchg_strong, .cmpxchg_weak => try self.writeCmpxchg(stream, inst),
+            .atomic_store => try self.writeAtomicStore(stream, inst),
 
             .struct_init_anon,
             .struct_init_anon_ref,
@@ -3489,6 +3487,19 @@ const Writer = struct {
         try self.writeInstRef(stream, extra.success_order);
         try stream.writeAll(", ");
         try self.writeInstRef(stream, extra.failure_order);
+        try stream.writeAll(") ");
+        try self.writeSrc(stream, inst_data.src());
+    }
+
+    fn writeAtomicStore(self: *Writer, stream: anytype, inst: Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const extra = self.code.extraData(Inst.AtomicStore, inst_data.payload_index).data;
+
+        try self.writeInstRef(stream, extra.ptr);
+        try stream.writeAll(", ");
+        try self.writeInstRef(stream, extra.operand);
+        try stream.writeAll(", ");
+        try self.writeInstRef(stream, extra.ordering);
         try stream.writeAll(") ");
         try self.writeSrc(stream, inst_data.src());
     }

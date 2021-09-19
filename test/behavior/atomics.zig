@@ -130,3 +130,11 @@ test "atomic load and rmw with enum" {
     try expect(@atomicLoad(Value, &x, .SeqCst) != .a);
     try expect(@atomicLoad(Value, &x, .SeqCst) != .b);
 }
+
+test "atomic store" {
+    var x: u32 = 0;
+    @atomicStore(u32, &x, 1, .SeqCst);
+    try expect(@atomicLoad(u32, &x, .SeqCst) == 1);
+    @atomicStore(u32, &x, 12345678, .SeqCst);
+    try expect(@atomicLoad(u32, &x, .SeqCst) == 12345678);
+}

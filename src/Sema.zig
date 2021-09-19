@@ -314,7 +314,6 @@ pub fn analyzeBody(
             .select                       => try sema.zirSelect(block, inst),
             .atomic_load                  => try sema.zirAtomicLoad(block, inst),
             .atomic_rmw                   => try sema.zirAtomicRmw(block, inst),
-            .atomic_store                 => try sema.zirAtomicStore(block, inst),
             .mul_add                      => try sema.zirMulAdd(block, inst),
             .builtin_call                 => try sema.zirBuiltinCall(block, inst),
             .field_ptr_type               => try sema.zirFieldPtrType(block, inst),
@@ -410,6 +409,11 @@ pub fn analyzeBody(
             },
             .set_eval_branch_quota => {
                 try sema.zirSetEvalBranchQuota(block, inst);
+                i += 1;
+                continue;
+            },
+            .atomic_store => {
+                try sema.zirAtomicStore(block, inst);
                 i += 1;
                 continue;
             },
@@ -7669,6 +7673,8 @@ fn zirCmpxchg(
         if (try sema.resolveMaybeUndefVal(block, expected_src, expected_value)) |expected_val| {
             if (try sema.resolveMaybeUndefVal(block, new_value_src, new_value)) |new_val| {
                 if (expected_val.isUndef() or new_val.isUndef()) {
+                    // TODO: this should probably cause the memory stored at the pointer
+                    // to become undef as well
                     return sema.addConstUndef(result_ty);
                 }
                 const stored_val = (try ptr_val.pointerDeref(sema.arena)) orelse break :rs ptr_src;
@@ -7830,10 +7836,38 @@ fn zirAtomicRmw(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileE
     });
 }
 
-fn zirAtomicStore(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+fn zirAtomicStore(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!void {
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const extra = sema.code.extraData(Zir.Inst.AtomicStore, inst_data.payload_index).data;
     const src = inst_data.src();
-    return sema.mod.fail(&block.base, src, "TODO: Sema.zirAtomicStore", .{});
+    // zig fmt: off
+    const operand_ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
+    const ptr_src       : LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
+    const operand_src   : LazySrcLoc = .{ .node_offset_builtin_call_arg2 = inst_data.src_node };
+    const order_src     : LazySrcLoc = .{ .node_offset_builtin_call_arg3 = inst_data.src_node };
+    // zig fmt: on
+    const ptr = sema.resolveInst(extra.ptr);
+    const operand_ty = sema.typeOf(ptr).elemType();
+    try sema.checkAtomicOperandType(block, operand_ty_src, operand_ty);
+    const operand = try sema.coerce(block, operand_ty, sema.resolveInst(extra.operand), operand_src);
+    const order = try sema.resolveAtomicOrder(block, order_src, extra.ordering);
+
+    const air_tag: Air.Inst.Tag = switch (order) {
+        .Acquire, .AcqRel => {
+            return sema.mod.fail(
+                &block.base,
+                order_src,
+                "@atomicStore atomic ordering must not be Acquire or AcqRel",
+                .{},
+            );
+        },
+        .Unordered => .atomic_store_unordered,
+        .Monotonic => .atomic_store_monotonic,
+        .Release => .atomic_store_release,
+        .SeqCst => .atomic_store_seq_cst,
+    };
+
+    return sema.storePtr2(block, src, ptr, ptr_src, operand, operand_src, air_tag);
 }
 
 fn zirMulAdd(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -9310,25 +9344,39 @@ fn coerceVarArgParam(
     return inst;
 }
 
+// TODO migrate callsites to use storePtr2 instead.
 fn storePtr(
     sema: *Sema,
     block: *Scope.Block,
     src: LazySrcLoc,
     ptr: Air.Inst.Ref,
-    uncasted_value: Air.Inst.Ref,
+    uncasted_operand: Air.Inst.Ref,
+) !void {
+    return sema.storePtr2(block, src, ptr, src, uncasted_operand, src, .store);
+}
+
+fn storePtr2(
+    sema: *Sema,
+    block: *Scope.Block,
+    src: LazySrcLoc,
+    ptr: Air.Inst.Ref,
+    ptr_src: LazySrcLoc,
+    uncasted_operand: Air.Inst.Ref,
+    operand_src: LazySrcLoc,
+    air_tag: Air.Inst.Tag,
 ) !void {
     const ptr_ty = sema.typeOf(ptr);
     if (ptr_ty.isConstPtr())
         return sema.mod.fail(&block.base, src, "cannot assign to constant", .{});
 
     const elem_ty = ptr_ty.elemType();
-    const value = try sema.coerce(block, elem_ty, uncasted_value, src);
+    const operand = try sema.coerce(block, elem_ty, uncasted_operand, operand_src);
     if ((try sema.typeHasOnePossibleValue(block, src, elem_ty)) != null)
         return;
 
-    if (try sema.resolveDefinedValue(block, src, ptr)) |ptr_val| {
+    const runtime_src = if (try sema.resolveDefinedValue(block, ptr_src, ptr)) |ptr_val| rs: {
         if (ptr_val.castTag(.decl_ref_mut)) |decl_ref_mut| {
-            const const_val = (try sema.resolveMaybeUndefVal(block, src, value)) orelse
+            const const_val = (try sema.resolveMaybeUndefVal(block, operand_src, operand)) orelse
                 return sema.mod.fail(&block.base, src, "cannot store runtime value in compile time variable", .{});
 
             if (decl_ref_mut.data.runtime_index < block.runtime_index) {
@@ -9365,11 +9413,13 @@ fn storePtr(
             old_arena.deinit();
             return;
         }
-    }
+        break :rs operand_src;
+    } else ptr_src;
+
     // TODO handle if the element type requires comptime
 
-    try sema.requireRuntimeBlock(block, src);
-    _ = try block.addBinOp(.store, ptr, value);
+    try sema.requireRuntimeBlock(block, runtime_src);
+    _ = try block.addBinOp(air_tag, ptr, operand);
 }
 
 fn bitcast(
