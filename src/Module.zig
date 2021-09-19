@@ -1325,6 +1325,8 @@ pub const Scope = struct {
         /// when null, it is determined by build mode, changed by @setRuntimeSafety
         want_safety: ?bool = null,
 
+        c_import_buf: ?*std.ArrayList(u8) = null,
+
         const Param = struct {
             /// `noreturn` means `anytype`.
             ty: Type,
@@ -1377,6 +1379,7 @@ pub const Scope = struct {
                 .runtime_loop = parent.runtime_loop,
                 .runtime_index = parent.runtime_index,
                 .want_safety = parent.want_safety,
+                .c_import_buf = parent.c_import_buf,
             };
         }
 

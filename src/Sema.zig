@@ -2138,10 +2138,72 @@ fn zirCImport(sema: *Sema, parent_block: *Scope.Block, inst: Zir.Inst.Index) Com
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    const src = inst_data.src();
+    const pl_node = sema.code.instructions.items(.data)[inst].pl_node;
+    const src = pl_node.src();
+    const extra = sema.code.extraData(Zir.Inst.Block, pl_node.payload_index);
+    const body = sema.code.extra[extra.end..][0..extra.data.body_len];
 
-    return sema.mod.fail(&parent_block.base, src, "TODO: implement Sema.zirCImport", .{});
+    // we check this here to avoid undefined symbols
+    if (!@import("build_options").have_llvm)
+        return sema.mod.fail(&parent_block.base, src, "cannot do C import on Zig compiler not built with LLVM-extension", .{});
+
+    var c_import_buf = std.ArrayList(u8).init(sema.gpa);
+    defer c_import_buf.deinit();
+
+    var child_block: Scope.Block = .{
+        .parent = parent_block,
+        .sema = sema,
+        .src_decl = parent_block.src_decl,
+        .instructions = .{},
+        .inlining = parent_block.inlining,
+        .is_comptime = parent_block.is_comptime,
+        .c_import_buf = &c_import_buf,
+    };
+    defer child_block.instructions.deinit(sema.gpa);
+
+    _ = try sema.analyzeBody(&child_block, body);
+
+    const c_import_res = sema.mod.comp.cImport(c_import_buf.items) catch |err|
+        return sema.mod.fail(&child_block.base, src, "C import failed: {s}", .{@errorName(err)});
+
+    if (c_import_res.errors.len != 0) {
+        const msg = try sema.mod.errMsg(&child_block.base, src, "C import failed", .{});
+        errdefer msg.destroy(sema.gpa);
+
+        if (!sema.mod.comp.bin_file.options.link_libc)
+            try sema.mod.errNote(&child_block.base, src, msg, "libc headers not available; compilation does not link against libc", .{});
+
+        for (c_import_res.errors) |_| {
+            // TODO integrate with LazySrcLoc
+            // try sema.mod.errNoteNonLazy(.{}, msg, "{s}", .{clang_err.msg_ptr[0..clang_err.msg_len]});
+            // if (clang_err.filename_ptr) |p| p[0..clang_err.filename_len] else "(no file)",
+            // clang_err.line + 1,
+            // clang_err.column + 1,
+        }
+        @import("clang.zig").Stage2ErrorMsg.delete(c_import_res.errors.ptr, c_import_res.errors.len);
+        return sema.mod.failWithOwnedErrorMsg(&child_block.base, msg);
+    }
+    const c_import_pkg = @import("Package.zig").createWithDir(
+        sema.gpa,
+        sema.mod.comp.local_cache_directory,
+        null,
+        std.fs.path.basename(c_import_res.out_zig_path),
+    ) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => unreachable, // we pass null for root_src_dir_path
+    };
+    const std_pkg = sema.mod.main_pkg.table.get("std").?;
+    const builtin_pkg = sema.mod.main_pkg.table.get("builtin").?;
+    try c_import_pkg.add(sema.gpa, "builtin", builtin_pkg);
+    try c_import_pkg.add(sema.gpa, "std", std_pkg);
+
+    const result = sema.mod.importPkg(c_import_pkg) catch |err|
+        return sema.mod.fail(&child_block.base, src, "C import failed: {s}", .{@errorName(err)});
+
+    try sema.mod.semaFile(result.file);
+    const file_root_decl = result.file.root_decl.?;
+    try sema.mod.declareDeclDependency(sema.owner_decl, file_root_decl);
+    return sema.addType(file_root_decl.ty);
 }
 
 fn zirSuspendBlock(sema: *Sema, parent_block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -8226,7 +8288,10 @@ fn zirCUndef(
 ) CompileError!Air.Inst.Ref {
     const extra = sema.code.extraData(Zir.Inst.UnNode, extended.operand).data;
     const src: LazySrcLoc = .{ .node_offset = extra.node };
-    return sema.mod.fail(&block.base, src, "TODO: implement Sema.zirCUndef", .{});
+
+    const name = try sema.resolveConstString(block, src, extra.operand);
+    try block.c_import_buf.?.writer().print("#undefine {s}\n", .{name});
+    return Air.Inst.Ref.void_value;
 }
 
 fn zirCInclude(
@@ -8236,7 +8301,10 @@ fn zirCInclude(
 ) CompileError!Air.Inst.Ref {
     const extra = sema.code.extraData(Zir.Inst.UnNode, extended.operand).data;
     const src: LazySrcLoc = .{ .node_offset = extra.node };
-    return sema.mod.fail(&block.base, src, "TODO: implement Sema.zirCInclude", .{});
+
+    const name = try sema.resolveConstString(block, src, extra.operand);
+    try block.c_import_buf.?.writer().print("#include <{s}>\n", .{name});
+    return Air.Inst.Ref.void_value;
 }
 
 fn zirCDefine(
@@ -8246,7 +8314,15 @@ fn zirCDefine(
 ) CompileError!Air.Inst.Ref {
     const extra = sema.code.extraData(Zir.Inst.BinNode, extended.operand).data;
     const src: LazySrcLoc = .{ .node_offset = extra.node };
-    return sema.mod.fail(&block.base, src, "TODO: implement Sema.zirCDefine", .{});
+
+    const name = try sema.resolveConstString(block, src, extra.lhs);
+    if (sema.typeOf(extra.rhs).zigTypeTag() != .Void) {
+        const value = try sema.resolveConstString(block, src, extra.rhs);
+        try block.c_import_buf.?.writer().print("#define {s} {s}\n", .{ name, value });
+    } else {
+        try block.c_import_buf.?.writer().print("#define {s}\n", .{name});
+    }
+    return Air.Inst.Ref.void_value;
 }
 
 fn zirWasmMemorySize(
