@@ -6518,19 +6518,80 @@ fn zirTypeInfo(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileEr
     const target = sema.mod.getTarget();
 
     switch (ty.zigTypeTag()) {
+        .Type => return sema.addConstant(
+            type_info_ty,
+            try Value.Tag.@"union".create(sema.arena, .{
+                .tag = try Value.Tag.enum_field_index.create(sema.arena, @enumToInt(std.builtin.TypeId.Type)),
+                .val = Value.initTag(.unreachable_value),
+            }),
+        ),
+        .Void => return sema.addConstant(
+            type_info_ty,
+            try Value.Tag.@"union".create(sema.arena, .{
+                .tag = try Value.Tag.enum_field_index.create(sema.arena, @enumToInt(std.builtin.TypeId.Void)),
+                .val = Value.initTag(.unreachable_value),
+            }),
+        ),
+        .Bool => return sema.addConstant(
+            type_info_ty,
+            try Value.Tag.@"union".create(sema.arena, .{
+                .tag = try Value.Tag.enum_field_index.create(sema.arena, @enumToInt(std.builtin.TypeId.Bool)),
+                .val = Value.initTag(.unreachable_value),
+            }),
+        ),
+        .NoReturn => return sema.addConstant(
+            type_info_ty,
+            try Value.Tag.@"union".create(sema.arena, .{
+                .tag = try Value.Tag.enum_field_index.create(sema.arena, @enumToInt(std.builtin.TypeId.NoReturn)),
+                .val = Value.initTag(.unreachable_value),
+            }),
+        ),
+        .ComptimeFloat => return sema.addConstant(
+            type_info_ty,
+            try Value.Tag.@"union".create(sema.arena, .{
+                .tag = try Value.Tag.enum_field_index.create(sema.arena, @enumToInt(std.builtin.TypeId.ComptimeFloat)),
+                .val = Value.initTag(.unreachable_value),
+            }),
+        ),
+        .ComptimeInt => return sema.addConstant(
+            type_info_ty,
+            try Value.Tag.@"union".create(sema.arena, .{
+                .tag = try Value.Tag.enum_field_index.create(sema.arena, @enumToInt(std.builtin.TypeId.ComptimeInt)),
+                .val = Value.initTag(.unreachable_value),
+            }),
+        ),
+        .Undefined => return sema.addConstant(
+            type_info_ty,
+            try Value.Tag.@"union".create(sema.arena, .{
+                .tag = try Value.Tag.enum_field_index.create(sema.arena, @enumToInt(std.builtin.TypeId.Undefined)),
+                .val = Value.initTag(.unreachable_value),
+            }),
+        ),
+        .Null => return sema.addConstant(
+            type_info_ty,
+            try Value.Tag.@"union".create(sema.arena, .{
+                .tag = try Value.Tag.enum_field_index.create(sema.arena, @enumToInt(std.builtin.TypeId.Null)),
+                .val = Value.initTag(.unreachable_value),
+            }),
+        ),
+        .EnumLiteral => return sema.addConstant(
+            type_info_ty,
+            try Value.Tag.@"union".create(sema.arena, .{
+                .tag = try Value.Tag.enum_field_index.create(sema.arena, @enumToInt(std.builtin.TypeId.EnumLiteral)),
+                .val = Value.initTag(.unreachable_value),
+            }),
+        ),
         .Fn => {
+            const info = ty.fnInfo();
             const field_values = try sema.arena.alloc(Value, 6);
             // calling_convention: CallingConvention,
-            field_values[0] = try Value.Tag.enum_field_index.create(
-                sema.arena,
-                @enumToInt(ty.fnCallingConvention()),
-            );
+            field_values[0] = try Value.Tag.enum_field_index.create(sema.arena, @enumToInt(info.cc));
             // alignment: comptime_int,
             field_values[1] = try Value.Tag.int_u64.create(sema.arena, ty.abiAlignment(target));
             // is_generic: bool,
-            field_values[2] = Value.initTag(.bool_false); // TODO
+            field_values[2] = if (info.is_generic) Value.initTag(.bool_true) else Value.initTag(.bool_false);
             // is_var_args: bool,
-            field_values[3] = Value.initTag(.bool_false); // TODO
+            field_values[3] = if (info.is_var_args) Value.initTag(.bool_true) else Value.initTag(.bool_false);
             // return_type: ?type,
             field_values[4] = try Value.Tag.ty.create(sema.arena, ty.fnReturnType());
             // args: []const FnArg,
@@ -6539,10 +6600,7 @@ fn zirTypeInfo(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileEr
             return sema.addConstant(
                 type_info_ty,
                 try Value.Tag.@"union".create(sema.arena, .{
-                    .tag = try Value.Tag.enum_field_index.create(
-                        sema.arena,
-                        @enumToInt(@typeInfo(std.builtin.TypeInfo).Union.tag_type.?.Fn),
-                    ),
+                    .tag = try Value.Tag.enum_field_index.create(sema.arena, @enumToInt(std.builtin.TypeId.Fn)),
                     .val = try Value.Tag.@"struct".create(sema.arena, field_values),
                 }),
             );
@@ -6561,10 +6619,92 @@ fn zirTypeInfo(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileEr
             return sema.addConstant(
                 type_info_ty,
                 try Value.Tag.@"union".create(sema.arena, .{
-                    .tag = try Value.Tag.enum_field_index.create(
-                        sema.arena,
-                        @enumToInt(@typeInfo(std.builtin.TypeInfo).Union.tag_type.?.Int),
-                    ),
+                    .tag = try Value.Tag.enum_field_index.create(sema.arena, @enumToInt(std.builtin.TypeId.Int)),
+                    .val = try Value.Tag.@"struct".create(sema.arena, field_values),
+                }),
+            );
+        },
+        .Float => {
+            const field_values = try sema.arena.alloc(Value, 1);
+            // bits: comptime_int,
+            field_values[0] = try Value.Tag.int_u64.create(sema.arena, ty.bitSize(target));
+
+            return sema.addConstant(
+                type_info_ty,
+                try Value.Tag.@"union".create(sema.arena, .{
+                    .tag = try Value.Tag.enum_field_index.create(sema.arena, @enumToInt(std.builtin.TypeId.Float)),
+                    .val = try Value.Tag.@"struct".create(sema.arena, field_values),
+                }),
+            );
+        },
+        .Pointer => {
+            const info = ty.ptrInfo().data;
+            const field_values = try sema.arena.alloc(Value, 7);
+            // size: Size,
+            field_values[0] = try Value.Tag.enum_field_index.create(sema.arena, @enumToInt(info.size));
+            // is_const: bool,
+            field_values[1] = if (!info.mutable) Value.initTag(.bool_true) else Value.initTag(.bool_false);
+            // is_volatile: bool,
+            field_values[2] = if (info.@"volatile") Value.initTag(.bool_true) else Value.initTag(.bool_false);
+            // alignment: comptime_int,
+            field_values[3] = try Value.Tag.int_u64.create(sema.arena, info.@"align");
+            // child: type,
+            field_values[4] = try Value.Tag.ty.create(sema.arena, info.pointee_type);
+            // is_allowzero: bool,
+            field_values[5] = if (info.@"allowzero") Value.initTag(.bool_true) else Value.initTag(.bool_false);
+            // sentinel: anytype,
+            field_values[6] = if (info.sentinel) |some| try Value.Tag.opt_payload.create(sema.arena, some) else Value.initTag(.null_value);
+
+            return sema.addConstant(
+                type_info_ty,
+                try Value.Tag.@"union".create(sema.arena, .{
+                    .tag = try Value.Tag.enum_field_index.create(sema.arena, @enumToInt(std.builtin.TypeId.Pointer)),
+                    .val = try Value.Tag.@"struct".create(sema.arena, field_values),
+                }),
+            );
+        },
+        .Array => {
+            const info = ty.arrayInfo();
+            const field_values = try sema.arena.alloc(Value, 3);
+            // len: comptime_int,
+            field_values[0] = try Value.Tag.int_u64.create(sema.arena, info.len);
+            // child: type,
+            field_values[1] = try Value.Tag.ty.create(sema.arena, info.elem_type);
+            // sentinel: anytype,
+            field_values[2] = if (info.sentinel) |some| try Value.Tag.opt_payload.create(sema.arena, some) else Value.initTag(.null_value);
+
+            return sema.addConstant(
+                type_info_ty,
+                try Value.Tag.@"union".create(sema.arena, .{
+                    .tag = try Value.Tag.enum_field_index.create(sema.arena, @enumToInt(std.builtin.TypeId.Array)),
+                    .val = try Value.Tag.@"struct".create(sema.arena, field_values),
+                }),
+            );
+        },
+        .Optional => {
+            const field_values = try sema.arena.alloc(Value, 1);
+            // child: type,
+            field_values[0] = try Value.Tag.ty.create(sema.arena, try ty.optionalChildAlloc(sema.arena));
+
+            return sema.addConstant(
+                type_info_ty,
+                try Value.Tag.@"union".create(sema.arena, .{
+                    .tag = try Value.Tag.enum_field_index.create(sema.arena, @enumToInt(std.builtin.TypeId.Optional)),
+                    .val = try Value.Tag.@"struct".create(sema.arena, field_values),
+                }),
+            );
+        },
+        .ErrorUnion => {
+            const field_values = try sema.arena.alloc(Value, 2);
+            // error_set: type,
+            field_values[0] = try Value.Tag.ty.create(sema.arena, ty.errorUnionSet());
+            // payload: type,
+            field_values[1] = try Value.Tag.ty.create(sema.arena, ty.errorUnionPayload());
+
+            return sema.addConstant(
+                type_info_ty,
+                try Value.Tag.@"union".create(sema.arena, .{
+                    .tag = try Value.Tag.enum_field_index.create(sema.arena, @enumToInt(std.builtin.TypeId.ErrorUnion)),
                     .val = try Value.Tag.@"struct".create(sema.arena, field_values),
                 }),
             );
