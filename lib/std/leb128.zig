@@ -76,6 +76,14 @@ pub fn readILEB128(comptime T: type, reader: anytype) !T {
             const remaining_shift = @intCast(u3, @typeInfo(U).Int.bits - @as(u16, shift));
             const remaining_bits = @bitCast(i8, byte | 0x80) >> remaining_shift;
             if (remaining_bits != -1) return error.Overflow;
+        } else {
+            // If we don't overflow and this is the last byte and the number being decoded
+            // is negative, check that the remaining bits are 1
+            if ((byte & 0x80 == 0) and (@bitCast(S, temp) < 0)) {
+                const remaining_shift = @intCast(u3, @typeInfo(U).Int.bits - @as(u16, shift));
+                const remaining_bits = @bitCast(i8, byte | 0x80) >> remaining_shift;
+                if (remaining_bits != -1) return error.Overflow;
+            }
         }
 
         value |= temp;
@@ -215,6 +223,8 @@ test "deserialize signed LEB128" {
     try testing.expectError(error.Overflow, test_read_ileb128(i32, "\x80\x80\x80\x80\x40"));
     try testing.expectError(error.Overflow, test_read_ileb128(i64, "\x80\x80\x80\x80\x80\x80\x80\x80\x80\x40"));
     try testing.expectError(error.Overflow, test_read_ileb128(i8, "\xff\x7e"));
+    try testing.expectError(error.Overflow, test_read_ileb128(i32, "\x80\x80\x80\x80\x08"));
+    try testing.expectError(error.Overflow, test_read_ileb128(i64, "\x80\x80\x80\x80\x80\x80\x80\x80\x80\x01"));
 
     // Decode SLEB128
     try testing.expect((try test_read_ileb128(i64, "\x00")) == 0);
@@ -233,8 +243,8 @@ test "deserialize signed LEB128" {
     try testing.expect((try test_read_ileb128(i8, "\xff\x7f")) == -1);
     try testing.expect((try test_read_ileb128(i16, "\xff\xff\x7f")) == -1);
     try testing.expect((try test_read_ileb128(i32, "\xff\xff\xff\xff\x7f")) == -1);
-    try testing.expect((try test_read_ileb128(i32, "\x80\x80\x80\x80\x08")) == -0x80000000);
-    try testing.expect((try test_read_ileb128(i64, "\x80\x80\x80\x80\x80\x80\x80\x80\x80\x01")) == @bitCast(i64, @intCast(u64, 0x8000000000000000)));
+    try testing.expect((try test_read_ileb128(i32, "\x80\x80\x80\x80\x78")) == -0x80000000);
+    try testing.expect((try test_read_ileb128(i64, "\x80\x80\x80\x80\x80\x80\x80\x80\x80\x7f")) == @bitCast(i64, @intCast(u64, 0x8000000000000000)));
     try testing.expect((try test_read_ileb128(i64, "\x80\x80\x80\x80\x80\x80\x80\x80\x40")) == -0x4000000000000000);
     try testing.expect((try test_read_ileb128(i64, "\x80\x80\x80\x80\x80\x80\x80\x80\x80\x7f")) == -0x8000000000000000);
 
