@@ -1690,12 +1690,17 @@ pub const Value = extern union {
     }
 
     /// operands must be integers; handles undefined. 
-    pub fn bitwiseNand(lhs: Value, rhs: Value, ty: Type, arena: *Allocator) !Value {
+    pub fn bitwiseNand(lhs: Value, rhs: Value, ty: Type, arena: *Allocator, target: Target) !Value {
         if (lhs.isUndef() or rhs.isUndef()) return Value.initTag(.undef);
 
-        _ = ty;
-        _ = arena;
-        @panic("TODO comptime bitwise NAND");
+        const anded = try bitwiseAnd(lhs, rhs, arena);
+
+        const all_ones = if (ty.isSignedInt())
+            try Value.Tag.int_i64.create(arena, -1)
+        else
+            try ty.maxInt(arena, target);
+
+        return bitwiseXor(anded, all_ones, arena);
     }
 
     /// operands must be integers; handles undefined. 

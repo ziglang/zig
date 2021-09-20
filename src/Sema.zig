@@ -7871,7 +7871,7 @@ fn zirAtomicRmw(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileE
                 .Add  => try stored_val.numberAddWrap(operand_val, operand_ty, sema.arena, target),
                 .Sub  => try stored_val.numberSubWrap(operand_val, operand_ty, sema.arena, target),
                 .And  => try stored_val.bitwiseAnd   (operand_val,             sema.arena),
-                .Nand => try stored_val.bitwiseNand  (operand_val, operand_ty, sema.arena),
+                .Nand => try stored_val.bitwiseNand  (operand_val, operand_ty, sema.arena, target),
                 .Or   => try stored_val.bitwiseOr    (operand_val,             sema.arena),
                 .Xor  => try stored_val.bitwiseXor   (operand_val,             sema.arena),
                 .Max  => try stored_val.numberMax    (operand_val,             sema.arena),

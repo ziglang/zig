@@ -167,3 +167,31 @@ fn testAtomicRmwFloat() !void {
     _ = @atomicRmw(f32, &x, .Sub, 2, .SeqCst);
     try expect(x == 4);
 }
+
+test "atomicrmw with ints" {
+    try testAtomicRmwInt();
+    comptime try testAtomicRmwInt();
+}
+
+fn testAtomicRmwInt() !void {
+    var x: u8 = 1;
+    var res = @atomicRmw(u8, &x, .Xchg, 3, .SeqCst);
+    try expect(x == 3 and res == 1);
+    _ = @atomicRmw(u8, &x, .Add, 3, .SeqCst);
+    try expect(x == 6);
+    _ = @atomicRmw(u8, &x, .Sub, 1, .SeqCst);
+    try expect(x == 5);
+    _ = @atomicRmw(u8, &x, .And, 4, .SeqCst);
+    try expect(x == 4);
+    _ = @atomicRmw(u8, &x, .Nand, 4, .SeqCst);
+    try expect(x == 0xfb);
+    _ = @atomicRmw(u8, &x, .Or, 6, .SeqCst);
+    try expect(x == 0xff);
+    _ = @atomicRmw(u8, &x, .Xor, 2, .SeqCst);
+    try expect(x == 0xfd);
+
+    _ = @atomicRmw(u8, &x, .Max, 1, .SeqCst);
+    try expect(x == 0xfd);
+    _ = @atomicRmw(u8, &x, .Min, 1, .SeqCst);
+    try expect(x == 1);
+}

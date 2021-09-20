@@ -566,6 +566,7 @@ pub const Mutable = struct {
             llor(r.limbs[0..], b.limbs[0..b.limbs.len], a.limbs[0..a.limbs.len]);
             r.len = b.limbs.len;
         }
+        r.positive = a.positive or b.positive;
     }
 
     /// r = a & b
@@ -580,6 +581,7 @@ pub const Mutable = struct {
             lland(r.limbs[0..], b.limbs[0..b.limbs.len], a.limbs[0..a.limbs.len]);
             r.normalize(a.limbs.len);
         }
+        r.positive = a.positive and b.positive;
     }
 
     /// r = a ^ b
@@ -594,6 +596,7 @@ pub const Mutable = struct {
             llxor(r.limbs[0..], b.limbs[0..b.limbs.len], a.limbs[0..a.limbs.len]);
             r.normalize(b.limbs.len);
         }
+        r.positive = a.positive or b.positive;
     }
 
     /// rma may alias x or y.
