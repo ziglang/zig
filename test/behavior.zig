@@ -23,7 +23,6 @@ test {
             _ = @import("behavior/asm.zig");
             _ = @import("behavior/async_fn.zig");
         }
-        _ = @import("behavior/atomics_stage1.zig");
         _ = @import("behavior/await_struct.zig");
         _ = @import("behavior/bit_shifting.zig");
         _ = @import("behavior/bitcast.zig");

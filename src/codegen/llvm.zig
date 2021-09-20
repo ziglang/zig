@@ -541,17 +541,21 @@ pub const DeclGen = struct {
         defer self.gpa.free(fn_param_types);
         zig_fn_type.fnParamTypes(fn_param_types);
 
-        const llvm_param = try self.gpa.alloc(*const llvm.Type, fn_param_len);
-        defer self.gpa.free(llvm_param);
+        const llvm_param_buffer = try self.gpa.alloc(*const llvm.Type, fn_param_len);
+        defer self.gpa.free(llvm_param_buffer);
 
-        for (fn_param_types) |fn_param, i| {
-            llvm_param[i] = try self.llvmType(fn_param);
+        var llvm_params_len: c_uint = 0;
+        for (fn_param_types) |fn_param| {
+            if (fn_param.hasCodeGenBits()) {
+                llvm_param_buffer[llvm_params_len] = try self.llvmType(fn_param);
+                llvm_params_len += 1;
+            }
         }
 
         const fn_type = llvm.functionType(
             try self.llvmType(return_type),
-            llvm_param.ptr,
-            @intCast(c_uint, fn_param_len),
+            llvm_param_buffer.ptr,
+            llvm_params_len,
             .False,
         );
         const llvm_fn = self.llvmModule().addFunction(decl.name, fn_type);

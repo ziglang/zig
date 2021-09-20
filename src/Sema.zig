@@ -7803,6 +7803,10 @@ fn zirAtomicLoad(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) Compile
         else => {},
     }
 
+    if (try sema.typeHasOnePossibleValue(block, elem_ty_src, elem_ty)) |val| {
+        return sema.addConstant(elem_ty, val);
+    }
+
     if (try sema.resolveDefinedValue(block, ptr_src, ptr)) |ptr_val| {
         if (try ptr_val.pointerDeref(sema.arena)) |elem_val| {
             return sema.addConstant(elem_ty, elem_val);
