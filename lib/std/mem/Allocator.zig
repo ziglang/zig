@@ -313,7 +313,7 @@ pub fn resize(self: *Allocator, old_mem: anytype, new_n: usize) Error!@TypeOf(ol
     const new_byte_count = math.mul(usize, @sizeOf(T), new_n) catch return Error.OutOfMemory;
     const rc = try self.resizeFn(self, old_byte_slice, Slice.alignment, new_byte_count, 0, @returnAddress());
     assert(rc == new_byte_count);
-    const new_byte_slice = old_mem.ptr[0..new_byte_count];
+    const new_byte_slice = old_byte_slice.ptr[0..new_byte_count];
     return mem.bytesAsSlice(T, new_byte_slice);
 }
 
