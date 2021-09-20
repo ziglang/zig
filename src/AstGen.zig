@@ -7082,7 +7082,7 @@ fn builtinCall(
         .bit_cast   => return bitCast(  gz, scope, rl, node, params[0], params[1]),
         .TypeOf     => return typeOf(   gz, scope, rl, node, params),
         .union_init => return unionInit(gz, scope, rl, node, params),
-        .c_import   => return cImport(  gz, scope, rl, node, params[0]),
+        .c_import   => return cImport(  gz, scope,     node, params[0]),
 
         .@"export" => {
             const node_tags = tree.nodes.items(.tag);
@@ -7692,7 +7692,6 @@ fn shiftOp(
 fn cImport(
     gz: *GenZir,
     scope: *Scope,
-    rl: ResultLoc,
     node: Ast.Node.Index,
     body_node: Ast.Node.Index,
 ) InnerError!Zir.Inst.Ref {
@@ -7712,7 +7711,7 @@ fn cImport(
     try block_scope.setBlockBody(block_inst);
     try gz.instructions.append(gpa, block_inst);
 
-    return rvalue(gz, rl, .void_value, node);
+    return indexToRef(block_inst);
 }
 
 fn overflowArithmetic(

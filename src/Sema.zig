@@ -2183,11 +2183,10 @@ fn zirCImport(sema: *Sema, parent_block: *Scope.Block, inst: Zir.Inst.Index) Com
         @import("clang.zig").Stage2ErrorMsg.delete(c_import_res.errors.ptr, c_import_res.errors.len);
         return sema.mod.failWithOwnedErrorMsg(&child_block.base, msg);
     }
-    const c_import_pkg = @import("Package.zig").createWithDir(
+    const c_import_pkg = @import("Package.zig").create(
         sema.gpa,
-        sema.mod.comp.local_cache_directory,
         null,
-        std.fs.path.basename(c_import_res.out_zig_path),
+        c_import_res.out_zig_path,
     ) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         else => unreachable, // we pass null for root_src_dir_path
@@ -2198,6 +2197,9 @@ fn zirCImport(sema: *Sema, parent_block: *Scope.Block, inst: Zir.Inst.Index) Com
     try c_import_pkg.add(sema.gpa, "std", std_pkg);
 
     const result = sema.mod.importPkg(c_import_pkg) catch |err|
+        return sema.mod.fail(&child_block.base, src, "C import failed: {s}", .{@errorName(err)});
+
+    sema.mod.astGenFile(result.file) catch |err|
         return sema.mod.fail(&child_block.base, src, "C import failed: {s}", .{@errorName(err)});
 
     try sema.mod.semaFile(result.file);
@@ -6467,10 +6469,41 @@ fn runtimeBoolCmp(
 
 fn zirSizeOf(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const src = inst_data.src();
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const operand_ty = try sema.resolveType(block, operand_src, inst_data.operand);
     const target = sema.mod.getTarget();
-    const abi_size = operand_ty.abiSize(target);
+    const abi_size = switch (operand_ty.zigTypeTag()) {
+        .Fn => unreachable,
+        .NoReturn,
+        .Undefined,
+        .Null,
+        .BoundFn,
+        .Opaque,
+        => return sema.mod.fail(&block.base, src, "no size available for type '{}'", .{operand_ty}),
+        .Type,
+        .EnumLiteral,
+        .ComptimeFloat,
+        .ComptimeInt,
+        .Void,
+        => 0,
+
+        .Bool,
+        .Int,
+        .Float,
+        .Pointer,
+        .Array,
+        .Struct,
+        .Optional,
+        .ErrorUnion,
+        .ErrorSet,
+        .Enum,
+        .Union,
+        .Vector,
+        .Frame,
+        .AnyFrame,
+        => operand_ty.abiSize(target),
+    };
     return sema.addIntUnsigned(Type.initTag(.comptime_int), abi_size);
 }
 

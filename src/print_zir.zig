@@ -407,15 +407,27 @@ const Writer = struct {
             .mul_with_saturation,
             .shl_with_saturation,
             => try self.writeSaturatingArithmetic(stream, extended),
+
             .struct_decl => try self.writeStructDecl(stream, extended),
             .union_decl => try self.writeUnionDecl(stream, extended),
             .enum_decl => try self.writeEnumDecl(stream, extended),
 
+            .c_undef, .c_include => {
+                const inst_data = self.code.extraData(Zir.Inst.UnNode, extended.operand).data;
+                try self.writeInstRef(stream, inst_data.operand);
+                try stream.writeAll(") ");
+            },
+
+            .c_define => {
+                const inst_data = self.code.extraData(Zir.Inst.BinNode, extended.operand).data;
+                try self.writeInstRef(stream, inst_data.lhs);
+                try stream.writeAll(", ");
+                try self.writeInstRef(stream, inst_data.rhs);
+                try stream.writeByte(')');
+            },
+
             .alloc,
             .builtin_extern,
-            .c_undef,
-            .c_include,
-            .c_define,
             .wasm_memory_size,
             .wasm_memory_grow,
             => try stream.writeAll("TODO))"),
