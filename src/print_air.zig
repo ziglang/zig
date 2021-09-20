@@ -175,6 +175,8 @@ const Writer = struct {
             .struct_field_ptr_index_2,
             .struct_field_ptr_index_3,
             .array_to_slice,
+            .int_to_float,
+            .float_to_int,
             => try w.writeTyOp(s, inst),
 
             .block,

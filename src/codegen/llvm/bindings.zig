@@ -563,6 +563,38 @@ pub const Builder = opaque {
         ordering: AtomicOrdering,
         singleThread: Bool,
     ) *const Value;
+
+    pub const buildFPToUI = LLVMBuildFPToUI;
+    extern fn LLVMBuildFPToUI(
+        *const Builder,
+        Val: *const Value,
+        DestTy: *const Type,
+        Name: [*:0]const u8,
+    ) *const Value;
+
+    pub const buildFPToSI = LLVMBuildFPToSI;
+    extern fn LLVMBuildFPToSI(
+        *const Builder,
+        Val: *const Value,
+        DestTy: *const Type,
+        Name: [*:0]const u8,
+    ) *const Value;
+
+    pub const buildUIToFP = LLVMBuildUIToFP;
+    extern fn LLVMBuildUIToFP(
+        *const Builder,
+        Val: *const Value,
+        DestTy: *const Type,
+        Name: [*:0]const u8,
+    ) *const Value;
+
+    pub const buildSIToFP = LLVMBuildSIToFP;
+    extern fn LLVMBuildSIToFP(
+        *const Builder,
+        Val: *const Value,
+        DestTy: *const Type,
+        Name: [*:0]const u8,
+    ) *const Value;
 };
 
 pub const IntPredicate = enum(c_uint) {

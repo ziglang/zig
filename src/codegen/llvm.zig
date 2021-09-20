@@ -1122,6 +1122,8 @@ pub const FuncGen = struct {
                 .slice_ptr      => try self.airSliceField(inst, 0),
                 .slice_len      => try self.airSliceField(inst, 1),
                 .array_to_slice => try self.airArrayToSlice(inst),
+                .float_to_int   => try self.airFloatToInt(inst),
+                .int_to_float   => try self.airIntToFloat(inst),
                 .cmpxchg_weak   => try self.airCmpxchg(inst, true),
                 .cmpxchg_strong => try self.airCmpxchg(inst, false),
                 .fence          => try self.airFence(inst),
@@ -1370,6 +1372,40 @@ pub const FuncGen = struct {
         const ptr = self.builder.buildInBoundsGEP(operand, &indices, indices.len, "");
         const partial = self.builder.buildInsertValue(slice_llvm_ty.getUndef(), ptr, 0, "");
         return self.builder.buildInsertValue(partial, len, 1, "");
+    }
+
+    fn airIntToFloat(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst))
+            return null;
+
+        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const operand = try self.resolveInst(ty_op.operand);
+        const dest_ty = self.air.typeOfIndex(inst);
+        const dest_llvm_ty = try self.dg.llvmType(dest_ty);
+
+        if (dest_ty.isSignedInt()) {
+            return self.builder.buildSIToFP(operand, dest_llvm_ty, "");
+        } else {
+            return self.builder.buildUIToFP(operand, dest_llvm_ty, "");
+        }
+    }
+
+    fn airFloatToInt(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst))
+            return null;
+
+        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const operand = try self.resolveInst(ty_op.operand);
+        const dest_ty = self.air.typeOfIndex(inst);
+        const dest_llvm_ty = try self.dg.llvmType(dest_ty);
+
+        // TODO set fast math flag
+
+        if (dest_ty.isSignedInt()) {
+            return self.builder.buildFPToSI(operand, dest_llvm_ty, "");
+        } else {
+            return self.builder.buildFPToUI(operand, dest_llvm_ty, "");
+        }
     }
 
     fn airSliceField(self: *FuncGen, inst: Air.Inst.Index, index: c_uint) !?*const llvm.Value {
@@ -1818,7 +1854,7 @@ pub const FuncGen = struct {
         const rhs = try self.resolveInst(bin_op.rhs);
         const inst_ty = self.air.typeOfIndex(inst);
 
-        if (inst_ty.isFloat()) return self.builder.buildFAdd(lhs, rhs, "");
+        if (inst_ty.isRuntimeFloat()) return self.builder.buildFAdd(lhs, rhs, "");
         if (wrap) return self.builder.buildAdd(lhs, rhs, "");
         if (inst_ty.isSignedInt()) return self.builder.buildNSWAdd(lhs, rhs, "");
         return self.builder.buildNUWAdd(lhs, rhs, "");
@@ -1833,7 +1869,7 @@ pub const FuncGen = struct {
         const rhs = try self.resolveInst(bin_op.rhs);
         const inst_ty = self.air.typeOfIndex(inst);
 
-        if (inst_ty.isFloat()) return self.builder.buildFSub(lhs, rhs, "");
+        if (inst_ty.isRuntimeFloat()) return self.builder.buildFSub(lhs, rhs, "");
         if (wrap) return self.builder.buildSub(lhs, rhs, "");
         if (inst_ty.isSignedInt()) return self.builder.buildNSWSub(lhs, rhs, "");
         return self.builder.buildNUWSub(lhs, rhs, "");
@@ -1848,7 +1884,7 @@ pub const FuncGen = struct {
         const rhs = try self.resolveInst(bin_op.rhs);
         const inst_ty = self.air.typeOfIndex(inst);
 
-        if (inst_ty.isFloat()) return self.builder.buildFMul(lhs, rhs, "");
+        if (inst_ty.isRuntimeFloat()) return self.builder.buildFMul(lhs, rhs, "");
         if (wrap) return self.builder.buildMul(lhs, rhs, "");
         if (inst_ty.isSignedInt()) return self.builder.buildNSWMul(lhs, rhs, "");
         return self.builder.buildNUWMul(lhs, rhs, "");
@@ -1863,7 +1899,7 @@ pub const FuncGen = struct {
         const rhs = try self.resolveInst(bin_op.rhs);
         const inst_ty = self.air.typeOfIndex(inst);
 
-        if (inst_ty.isFloat()) return self.builder.buildFDiv(lhs, rhs, "");
+        if (inst_ty.isRuntimeFloat()) return self.builder.buildFDiv(lhs, rhs, "");
         if (inst_ty.isSignedInt()) return self.builder.buildSDiv(lhs, rhs, "");
         return self.builder.buildUDiv(lhs, rhs, "");
     }
@@ -1876,7 +1912,7 @@ pub const FuncGen = struct {
         const rhs = try self.resolveInst(bin_op.rhs);
         const inst_ty = self.air.typeOfIndex(inst);
 
-        if (inst_ty.isFloat()) return self.builder.buildFRem(lhs, rhs, "");
+        if (inst_ty.isRuntimeFloat()) return self.builder.buildFRem(lhs, rhs, "");
         if (inst_ty.isSignedInt()) return self.builder.buildSRem(lhs, rhs, "");
         return self.builder.buildURem(lhs, rhs, "");
     }
@@ -2165,7 +2201,7 @@ pub const FuncGen = struct {
         const operand_ty = ptr_ty.elemType();
         const operand = try self.resolveInst(extra.operand);
         const is_signed_int = operand_ty.isSignedInt();
-        const is_float = operand_ty.isFloat();
+        const is_float = operand_ty.isRuntimeFloat();
         const op = toLlvmAtomicRmwBinOp(extra.op(), is_signed_int, is_float);
         const ordering = toLlvmAtomicOrdering(extra.ordering());
         const single_threaded = llvm.Bool.fromBool(self.single_threaded);

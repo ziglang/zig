@@ -4830,8 +4830,8 @@ fn analyzeSwitch(
                     var arena = std.heap.ArenaAllocator.init(gpa);
                     defer arena.deinit();
 
-                    const min_int = try operand_ty.minInt(&arena, mod.getTarget());
-                    const max_int = try operand_ty.maxInt(&arena, mod.getTarget());
+                    const min_int = try operand_ty.minInt(&arena.allocator, mod.getTarget());
+                    const max_int = try operand_ty.maxInt(&arena.allocator, mod.getTarget());
                     if (try range_set.spans(min_int, max_int, operand_ty)) {
                         if (special_prong == .@"else") {
                             return mod.fail(
@@ -5671,10 +5671,13 @@ fn zirBitwise(
 
     if (try sema.resolveMaybeUndefVal(block, lhs_src, casted_lhs)) |lhs_val| {
         if (try sema.resolveMaybeUndefVal(block, rhs_src, casted_rhs)) |rhs_val| {
-            if (lhs_val.isUndef() or rhs_val.isUndef()) {
-                return sema.addConstUndef(resolved_type);
-            }
-            return sema.mod.fail(&block.base, src, "TODO implement comptime bitwise operations", .{});
+            const result_val = switch (air_tag) {
+                .bit_and => try lhs_val.bitwiseAnd(rhs_val, sema.arena),
+                .bit_or => try lhs_val.bitwiseOr(rhs_val, sema.arena),
+                .xor => try lhs_val.bitwiseXor(rhs_val, sema.arena),
+                else => unreachable,
+            };
+            return sema.addConstant(scalar_type, result_val);
         }
     }
 
@@ -6028,8 +6031,8 @@ fn analyzeArithmetic(
     }
 
     if (zir_tag == .mod_rem) {
-        const dirty_lhs = lhs_ty.isSignedInt() or lhs_ty.isFloat();
-        const dirty_rhs = rhs_ty.isSignedInt() or rhs_ty.isFloat();
+        const dirty_lhs = lhs_ty.isSignedInt() or lhs_ty.isRuntimeFloat();
+        const dirty_rhs = rhs_ty.isSignedInt() or rhs_ty.isRuntimeFloat();
         if (dirty_lhs or dirty_rhs) {
             return sema.mod.fail(&block.base, src, "remainder division with '{}' and '{}': signed integers and floats must use @rem or @mod", .{ lhs_ty, rhs_ty });
         }
@@ -7298,13 +7301,30 @@ fn zirFrameSize(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileE
 fn zirFloatToInt(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
+    // TODO don't forget the safety check!
     return sema.mod.fail(&block.base, src, "TODO: Sema.zirFloatToInt", .{});
 }
 
 fn zirIntToFloat(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    const src = inst_data.src();
-    return sema.mod.fail(&block.base, src, "TODO: Sema.zirIntToFloat", .{});
+    const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
+    const ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
+    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
+    const dest_ty = try sema.resolveType(block, ty_src, extra.lhs);
+    const operand = sema.resolveInst(extra.rhs);
+    const operand_ty = sema.typeOf(operand);
+
+    try sema.checkIntType(block, ty_src, dest_ty);
+    try sema.checkFloatType(block, operand_src, operand_ty);
+
+    if (try sema.resolveMaybeUndefVal(block, operand_src, operand)) |val| {
+        const target = sema.mod.getTarget();
+        const result_val = try val.intToFloat(sema.arena, dest_ty, target);
+        return sema.addConstant(dest_ty, result_val);
+    }
+
+    try sema.requireRuntimeBlock(block, operand_src);
+    return block.addTyOp(.int_to_float, dest_ty, operand);
 }
 
 fn zirIntToPtr(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -7540,6 +7560,34 @@ fn zirOffsetOf(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileEr
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
     return sema.mod.fail(&block.base, src, "TODO: Sema.zirOffsetOf", .{});
+}
+
+fn checkIntType(
+    sema: *Sema,
+    block: *Scope.Block,
+    ty_src: LazySrcLoc,
+    ty: Type,
+) CompileError!void {
+    switch (ty.zigTypeTag()) {
+        .ComptimeInt, .Int => {},
+        else => return sema.mod.fail(&block.base, ty_src, "expected integer type, found '{}'", .{
+            ty,
+        }),
+    }
+}
+
+fn checkFloatType(
+    sema: *Sema,
+    block: *Scope.Block,
+    ty_src: LazySrcLoc,
+    ty: Type,
+) CompileError!void {
+    switch (ty.zigTypeTag()) {
+        .ComptimeFloat, .Float => {},
+        else => return sema.mod.fail(&block.base, ty_src, "expected float type, found '{}'", .{
+            ty,
+        }),
+    }
 }
 
 fn checkAtomicOperandType(
@@ -7815,9 +7863,23 @@ fn zirAtomicRmw(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileE
 
     const runtime_src = if (try sema.resolveDefinedValue(block, ptr_src, ptr)) |ptr_val| rs: {
         if (try sema.resolveMaybeUndefVal(block, operand_src, operand)) |operand_val| {
-            _ = ptr_val;
-            _ = operand_val;
-            return mod.fail(&block.base, src, "TODO implement Sema for @atomicRmw at comptime", .{});
+            const target = sema.mod.getTarget();
+            const stored_val = (try ptr_val.pointerDeref(sema.arena)) orelse break :rs ptr_src;
+            const new_val = switch (op) {
+                // zig fmt: off
+                .Xchg => operand_val,
+                .Add  => try stored_val.numberAddWrap(operand_val, operand_ty, sema.arena, target),
+                .Sub  => try stored_val.numberSubWrap(operand_val, operand_ty, sema.arena, target),
+                .And  => try stored_val.bitwiseAnd   (operand_val,             sema.arena),
+                .Nand => try stored_val.bitwiseNand  (operand_val, operand_ty, sema.arena),
+                .Or   => try stored_val.bitwiseOr    (operand_val,             sema.arena),
+                .Xor  => try stored_val.bitwiseXor   (operand_val,             sema.arena),
+                .Max  => try stored_val.numberMax    (operand_val,             sema.arena),
+                .Min  => try stored_val.numberMin    (operand_val,             sema.arena),
+                // zig fmt: on
+            };
+            try sema.storePtrVal(block, src, ptr_val, new_val, operand_ty);
+            return sema.addConstant(operand_ty, stored_val);
         } else break :rs operand_src;
     } else ptr_src;
 
@@ -9298,33 +9360,38 @@ fn coerceNum(
 
     const target = sema.mod.getTarget();
 
-    if (dst_zig_tag == .ComptimeInt or dst_zig_tag == .Int) {
-        if (src_zig_tag == .Float or src_zig_tag == .ComptimeFloat) {
-            if (val.floatHasFraction()) {
-                return sema.mod.fail(&block.base, inst_src, "fractional component prevents float value {} from being casted to type '{}'", .{ val, inst_ty });
+    switch (dst_zig_tag) {
+        .ComptimeInt, .Int => {
+            if (src_zig_tag == .Float or src_zig_tag == .ComptimeFloat) {
+                if (val.floatHasFraction()) {
+                    return sema.mod.fail(&block.base, inst_src, "fractional component prevents float value {} from being casted to type '{}'", .{ val, inst_ty });
+                }
+                return sema.mod.fail(&block.base, inst_src, "TODO float to int", .{});
+            } else if (src_zig_tag == .Int or src_zig_tag == .ComptimeInt) {
+                if (!val.intFitsInType(dest_type, target)) {
+                    return sema.mod.fail(&block.base, inst_src, "type {} cannot represent integer value {}", .{ dest_type, val });
+                }
+                return try sema.addConstant(dest_type, val);
             }
-            return sema.mod.fail(&block.base, inst_src, "TODO float to int", .{});
-        } else if (src_zig_tag == .Int or src_zig_tag == .ComptimeInt) {
-            if (!val.intFitsInType(dest_type, target)) {
-                return sema.mod.fail(&block.base, inst_src, "type {} cannot represent integer value {}", .{ dest_type, val });
+        },
+        .ComptimeFloat, .Float => {
+            if (src_zig_tag == .Float or src_zig_tag == .ComptimeFloat) {
+                const res = val.floatCast(sema.arena, dest_type) catch |err| switch (err) {
+                    error.Overflow => return sema.mod.fail(
+                        &block.base,
+                        inst_src,
+                        "cast of value {} to type '{}' loses information",
+                        .{ val, dest_type },
+                    ),
+                    error.OutOfMemory => return error.OutOfMemory,
+                };
+                return try sema.addConstant(dest_type, res);
+            } else if (src_zig_tag == .Int or src_zig_tag == .ComptimeInt) {
+                const result_val = try val.intToFloat(sema.arena, dest_type, target);
+                return try sema.addConstant(dest_type, result_val);
             }
-            return try sema.addConstant(dest_type, val);
-        }
-    } else if (dst_zig_tag == .ComptimeFloat or dst_zig_tag == .Float) {
-        if (src_zig_tag == .Float or src_zig_tag == .ComptimeFloat) {
-            const res = val.floatCast(sema.arena, dest_type) catch |err| switch (err) {
-                error.Overflow => return sema.mod.fail(
-                    &block.base,
-                    inst_src,
-                    "cast of value {} to type '{}' loses information",
-                    .{ val, dest_type },
-                ),
-                error.OutOfMemory => return error.OutOfMemory,
-            };
-            return try sema.addConstant(dest_type, res);
-        } else if (src_zig_tag == .Int or src_zig_tag == .ComptimeInt) {
-            return sema.mod.fail(&block.base, inst_src, "TODO int to float", .{});
-        }
+        },
+        else => {},
     }
     return null;
 }
@@ -9375,42 +9442,10 @@ fn storePtr2(
         return;
 
     const runtime_src = if (try sema.resolveDefinedValue(block, ptr_src, ptr)) |ptr_val| rs: {
-        if (ptr_val.castTag(.decl_ref_mut)) |decl_ref_mut| {
-            const const_val = (try sema.resolveMaybeUndefVal(block, operand_src, operand)) orelse
-                return sema.mod.fail(&block.base, src, "cannot store runtime value in compile time variable", .{});
-
-            if (decl_ref_mut.data.runtime_index < block.runtime_index) {
-                if (block.runtime_cond) |cond_src| {
-                    const msg = msg: {
-                        const msg = try sema.mod.errMsg(&block.base, src, "store to comptime variable depends on runtime condition", .{});
-                        errdefer msg.destroy(sema.gpa);
-                        try sema.mod.errNote(&block.base, cond_src, msg, "runtime condition here", .{});
-                        break :msg msg;
-                    };
-                    return sema.mod.failWithOwnedErrorMsg(&block.base, msg);
-                }
-                if (block.runtime_loop) |loop_src| {
-                    const msg = msg: {
-                        const msg = try sema.mod.errMsg(&block.base, src, "cannot store to comptime variable in non-inline loop", .{});
-                        errdefer msg.destroy(sema.gpa);
-                        try sema.mod.errNote(&block.base, loop_src, msg, "non-inline loop here", .{});
-                        break :msg msg;
-                    };
-                    return sema.mod.failWithOwnedErrorMsg(&block.base, msg);
-                }
-                unreachable;
-            }
-            var new_arena = std.heap.ArenaAllocator.init(sema.gpa);
-            errdefer new_arena.deinit();
-            const new_ty = try elem_ty.copy(&new_arena.allocator);
-            const new_val = try const_val.copy(&new_arena.allocator);
-            const decl = decl_ref_mut.data.decl;
-            var old_arena = decl.value_arena.?.promote(sema.gpa);
-            decl.value_arena = null;
-            try decl.finalizeNewArena(&new_arena);
-            decl.ty = new_ty;
-            decl.val = new_val;
-            old_arena.deinit();
+        const operand_val = (try sema.resolveMaybeUndefVal(block, operand_src, operand)) orelse
+            return sema.mod.fail(&block.base, src, "cannot store runtime value in compile time variable", .{});
+        if (ptr_val.tag() == .decl_ref_mut) {
+            try sema.storePtrVal(block, src, ptr_val, operand_val, elem_ty);
             return;
         }
         break :rs operand_src;
@@ -9420,6 +9455,53 @@ fn storePtr2(
 
     try sema.requireRuntimeBlock(block, runtime_src);
     _ = try block.addBinOp(air_tag, ptr, operand);
+}
+
+/// Call when you have Value objects rather than Air instructions, and you want to
+/// assert the store must be done at comptime.
+fn storePtrVal(
+    sema: *Sema,
+    block: *Scope.Block,
+    src: LazySrcLoc,
+    ptr_val: Value,
+    operand_val: Value,
+    operand_ty: Type,
+) !void {
+    if (ptr_val.castTag(.decl_ref_mut)) |decl_ref_mut| {
+        if (decl_ref_mut.data.runtime_index < block.runtime_index) {
+            if (block.runtime_cond) |cond_src| {
+                const msg = msg: {
+                    const msg = try sema.mod.errMsg(&block.base, src, "store to comptime variable depends on runtime condition", .{});
+                    errdefer msg.destroy(sema.gpa);
+                    try sema.mod.errNote(&block.base, cond_src, msg, "runtime condition here", .{});
+                    break :msg msg;
+                };
+                return sema.mod.failWithOwnedErrorMsg(&block.base, msg);
+            }
+            if (block.runtime_loop) |loop_src| {
+                const msg = msg: {
+                    const msg = try sema.mod.errMsg(&block.base, src, "cannot store to comptime variable in non-inline loop", .{});
+                    errdefer msg.destroy(sema.gpa);
+                    try sema.mod.errNote(&block.base, loop_src, msg, "non-inline loop here", .{});
+                    break :msg msg;
+                };
+                return sema.mod.failWithOwnedErrorMsg(&block.base, msg);
+            }
+            unreachable;
+        }
+        var new_arena = std.heap.ArenaAllocator.init(sema.gpa);
+        errdefer new_arena.deinit();
+        const new_ty = try operand_ty.copy(&new_arena.allocator);
+        const new_val = try operand_val.copy(&new_arena.allocator);
+        const decl = decl_ref_mut.data.decl;
+        var old_arena = decl.value_arena.?.promote(sema.gpa);
+        decl.value_arena = null;
+        try decl.finalizeNewArena(&new_arena);
+        decl.ty = new_ty;
+        decl.val = new_val;
+        old_arena.deinit();
+        return;
+    }
 }
 
 fn bitcast(
@@ -9801,11 +9883,11 @@ fn cmpNumeric(
     const lhs_is_signed = if (try sema.resolveDefinedValue(block, lhs_src, lhs)) |lhs_val|
         lhs_val.compareWithZero(.lt)
     else
-        (lhs_ty.isFloat() or lhs_ty.isSignedInt());
+        (lhs_ty.isRuntimeFloat() or lhs_ty.isSignedInt());
     const rhs_is_signed = if (try sema.resolveDefinedValue(block, rhs_src, rhs)) |rhs_val|
         rhs_val.compareWithZero(.lt)
     else
-        (rhs_ty.isFloat() or rhs_ty.isSignedInt());
+        (rhs_ty.isRuntimeFloat() or rhs_ty.isSignedInt());
     const dest_int_is_signed = lhs_is_signed or rhs_is_signed;
 
     var dest_float_type: ?Type = null;
@@ -10031,7 +10113,7 @@ fn resolvePeerTypes(
             }
             continue;
         }
-        if (chosen_ty.isFloat() and candidate_ty.isFloat()) {
+        if (chosen_ty.isRuntimeFloat() and candidate_ty.isRuntimeFloat()) {
             if (chosen_ty.floatBits(target) < candidate_ty.floatBits(target)) {
                 chosen = candidate;
                 chosen_i = candidate_i + 1;
@@ -10049,13 +10131,13 @@ fn resolvePeerTypes(
             continue;
         }
 
-        if (chosen_ty.zigTypeTag() == .ComptimeFloat and candidate_ty.isFloat()) {
+        if (chosen_ty.zigTypeTag() == .ComptimeFloat and candidate_ty.isRuntimeFloat()) {
             chosen = candidate;
             chosen_i = candidate_i + 1;
             continue;
         }
 
-        if (chosen_ty.isFloat() and candidate_ty.zigTypeTag() == .ComptimeFloat) {
+        if (chosen_ty.isRuntimeFloat() and candidate_ty.zigTypeTag() == .ComptimeFloat) {
             continue;
         }
 

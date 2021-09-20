@@ -2523,7 +2523,8 @@ pub const Type = extern union {
         };
     }
 
-    pub fn isFloat(self: Type) bool {
+    /// Returns `false` for `comptime_float`.
+    pub fn isRuntimeFloat(self: Type) bool {
         return switch (self.tag()) {
             .f16,
             .f32,
@@ -2536,13 +2537,29 @@ pub const Type = extern union {
         };
     }
 
-    /// Asserts the type is a fixed-size float.
+    /// Returns `true` for `comptime_float`.
+    pub fn isAnyFloat(self: Type) bool {
+        return switch (self.tag()) {
+            .f16,
+            .f32,
+            .f64,
+            .f128,
+            .c_longdouble,
+            .comptime_float,
+            => true,
+
+            else => false,
+        };
+    }
+
+    /// Asserts the type is a fixed-size float or comptime_float.
+    /// Returns 128 for comptime_float types.
     pub fn floatBits(self: Type, target: Target) u16 {
         return switch (self.tag()) {
             .f16 => 16,
             .f32 => 32,
             .f64 => 64,
-            .f128 => 128,
+            .f128, .comptime_float => 128,
             .c_longdouble => CType.longdouble.sizeInBits(target),
 
             else => unreachable,
@@ -2879,7 +2896,7 @@ pub const Type = extern union {
     }
 
     /// Asserts that self.zigTypeTag() == .Int.
-    pub fn minInt(self: Type, arena: *std.heap.ArenaAllocator, target: Target) !Value {
+    pub fn minInt(self: Type, arena: *Allocator, target: Target) !Value {
         assert(self.zigTypeTag() == .Int);
         const info = self.intInfo(target);
 
@@ -2889,35 +2906,35 @@ pub const Type = extern union {
 
         if ((info.bits - 1) <= std.math.maxInt(u6)) {
             const n: i64 = -(@as(i64, 1) << @truncate(u6, info.bits - 1));
-            return Value.Tag.int_i64.create(&arena.allocator, n);
+            return Value.Tag.int_i64.create(arena, n);
         }
 
-        var res = try std.math.big.int.Managed.initSet(&arena.allocator, 1);
+        var res = try std.math.big.int.Managed.initSet(arena, 1);
         try res.shiftLeft(res, info.bits - 1);
         res.negate();
 
         const res_const = res.toConst();
         if (res_const.positive) {
-            return Value.Tag.int_big_positive.create(&arena.allocator, res_const.limbs);
+            return Value.Tag.int_big_positive.create(arena, res_const.limbs);
         } else {
-            return Value.Tag.int_big_negative.create(&arena.allocator, res_const.limbs);
+            return Value.Tag.int_big_negative.create(arena, res_const.limbs);
         }
     }
 
     /// Asserts that self.zigTypeTag() == .Int.
-    pub fn maxInt(self: Type, arena: *std.heap.ArenaAllocator, target: Target) !Value {
+    pub fn maxInt(self: Type, arena: *Allocator, target: Target) !Value {
         assert(self.zigTypeTag() == .Int);
         const info = self.intInfo(target);
 
         if (info.signedness == .signed and (info.bits - 1) <= std.math.maxInt(u6)) {
             const n: i64 = (@as(i64, 1) << @truncate(u6, info.bits - 1)) - 1;
-            return Value.Tag.int_i64.create(&arena.allocator, n);
+            return Value.Tag.int_i64.create(arena, n);
         } else if (info.signedness == .signed and info.bits <= std.math.maxInt(u6)) {
             const n: u64 = (@as(u64, 1) << @truncate(u6, info.bits)) - 1;
-            return Value.Tag.int_u64.create(&arena.allocator, n);
+            return Value.Tag.int_u64.create(arena, n);
         }
 
-        var res = try std.math.big.int.Managed.initSet(&arena.allocator, 1);
+        var res = try std.math.big.int.Managed.initSet(arena, 1);
         try res.shiftLeft(res, info.bits - @boolToInt(info.signedness == .signed));
         const one = std.math.big.int.Const{
             .limbs = &[_]std.math.big.Limb{1},
@@ -2927,9 +2944,9 @@ pub const Type = extern union {
 
         const res_const = res.toConst();
         if (res_const.positive) {
-            return Value.Tag.int_big_positive.create(&arena.allocator, res_const.limbs);
+            return Value.Tag.int_big_positive.create(arena, res_const.limbs);
         } else {
-            return Value.Tag.int_big_negative.create(&arena.allocator, res_const.limbs);
+            return Value.Tag.int_big_negative.create(arena, res_const.limbs);
         }
     }
 

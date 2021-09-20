@@ -293,6 +293,8 @@ fn analyzeInst(
         .struct_field_ptr_index_2,
         .struct_field_ptr_index_3,
         .array_to_slice,
+        .float_to_int,
+        .int_to_float,
         => {
             const o = inst_datas[inst].ty_op;
             return trackOperands(a, new_set, inst, main_tomb, .{ o.operand, .none, .none });

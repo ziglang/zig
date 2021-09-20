@@ -311,6 +311,12 @@ pub const Inst = struct {
         /// Given a pointer to an array, return a slice.
         /// Uses the `ty_op` field.
         array_to_slice,
+        /// Given a float operand, return the integer with the closest mathematical meaning.
+        /// Uses the `ty_op` field.
+        float_to_int,
+        /// Given an integer operand, return the float with the closest mathematical meaning.
+        /// Uses the `ty_op` field.
+        int_to_float,
 
         /// Uses the `ty_pl` field with payload `Cmpxchg`.
         cmpxchg_weak,
@@ -598,6 +604,8 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .struct_field_ptr_index_2,
         .struct_field_ptr_index_3,
         .array_to_slice,
+        .float_to_int,
+        .int_to_float,
         => return air.getRefType(datas[inst].ty_op.ty),
 
         .loop,

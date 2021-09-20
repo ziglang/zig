@@ -858,6 +858,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     .struct_field_ptr=> try self.airStructFieldPtr(inst),
                     .struct_field_val=> try self.airStructFieldVal(inst),
                     .array_to_slice  => try self.airArrayToSlice(inst),
+                    .int_to_float    => try self.airIntToFloat(inst),
+                    .float_to_int    => try self.airFloatToInt(inst),
                     .cmpxchg_strong  => try self.airCmpxchg(inst),
                     .cmpxchg_weak    => try self.airCmpxchg(inst),
                     .atomic_rmw      => try self.airAtomicRmw(inst),
@@ -4763,6 +4765,26 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             const ty_op = self.air.instructions.items(.data)[inst].ty_op;
             const result: MCValue = if (self.liveness.isUnused(inst)) .dead else switch (arch) {
                 else => return self.fail("TODO implement airArrayToSlice for {}", .{
+                    self.target.cpu.arch,
+                }),
+            };
+            return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+        }
+
+        fn airIntToFloat(self: *Self, inst: Air.Inst.Index) !void {
+            const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+            const result: MCValue = if (self.liveness.isUnused(inst)) .dead else switch (arch) {
+                else => return self.fail("TODO implement airIntToFloat for {}", .{
+                    self.target.cpu.arch,
+                }),
+            };
+            return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+        }
+
+        fn airFloatToInt(self: *Self, inst: Air.Inst.Index) !void {
+            const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+            const result: MCValue = if (self.liveness.isUnused(inst)) .dead else switch (arch) {
+                else => return self.fail("TODO implement airFloatToInt for {}", .{
                     self.target.cpu.arch,
                 }),
             };

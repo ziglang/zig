@@ -138,3 +138,32 @@ test "atomic store" {
     @atomicStore(u32, &x, 12345678, .SeqCst);
     try expect(@atomicLoad(u32, &x, .SeqCst) == 12345678);
 }
+
+test "atomic store comptime" {
+    comptime try testAtomicStore();
+    try testAtomicStore();
+}
+
+fn testAtomicStore() !void {
+    var x: u32 = 0;
+    @atomicStore(u32, &x, 1, .SeqCst);
+    try expect(@atomicLoad(u32, &x, .SeqCst) == 1);
+    @atomicStore(u32, &x, 12345678, .SeqCst);
+    try expect(@atomicLoad(u32, &x, .SeqCst) == 12345678);
+}
+
+test "atomicrmw with floats" {
+    try testAtomicRmwFloat();
+    comptime try testAtomicRmwFloat();
+}
+
+fn testAtomicRmwFloat() !void {
+    var x: f32 = 0;
+    try expect(x == 0);
+    _ = @atomicRmw(f32, &x, .Xchg, 1, .SeqCst);
+    try expect(x == 1);
+    _ = @atomicRmw(f32, &x, .Add, 5, .SeqCst);
+    try expect(x == 6);
+    _ = @atomicRmw(f32, &x, .Sub, 2, .SeqCst);
+    try expect(x == 4);
+}

@@ -1524,6 +1524,230 @@ pub const Value = extern union {
         };
     }
 
+    pub fn intToFloat(val: Value, allocator: *Allocator, dest_ty: Type, target: Target) !Value {
+        switch (val.tag()) {
+            .undef, .zero, .one => return val,
+            .int_u64 => {
+                return intToFloatInner(val.castTag(.int_u64).?.data, allocator, dest_ty, target);
+            },
+            .int_i64 => {
+                return intToFloatInner(val.castTag(.int_i64).?.data, allocator, dest_ty, target);
+            },
+            .int_big_positive, .int_big_negative => @panic("big int to float"),
+            else => unreachable,
+        }
+    }
+
+    fn intToFloatInner(x: anytype, arena: *Allocator, dest_ty: Type, target: Target) !Value {
+        switch (dest_ty.floatBits(target)) {
+            16 => return Value.Tag.float_16.create(arena, @intToFloat(f16, x)),
+            32 => return Value.Tag.float_32.create(arena, @intToFloat(f32, x)),
+            64 => return Value.Tag.float_64.create(arena, @intToFloat(f64, x)),
+            128 => return Value.Tag.float_128.create(arena, @intToFloat(f128, x)),
+            else => unreachable,
+        }
+    }
+
+    /// Supports both floats and ints; handles undefined.
+    pub fn numberAddWrap(
+        lhs: Value,
+        rhs: Value,
+        ty: Type,
+        arena: *Allocator,
+        target: Target,
+    ) !Value {
+        if (lhs.isUndef() or rhs.isUndef()) return Value.initTag(.undef);
+
+        if (ty.isAnyFloat()) {
+            return floatAdd(lhs, rhs, ty, arena);
+        }
+        const result = try intAdd(lhs, rhs, arena);
+
+        const max = try ty.maxInt(arena, target);
+        if (compare(result, .gt, max, ty)) {
+            @panic("TODO comptime wrapping integer addition");
+        }
+
+        const min = try ty.minInt(arena, target);
+        if (compare(result, .lt, min, ty)) {
+            @panic("TODO comptime wrapping integer addition");
+        }
+
+        return result;
+    }
+
+    /// Supports both floats and ints; handles undefined.
+    pub fn numberSubWrap(
+        lhs: Value,
+        rhs: Value,
+        ty: Type,
+        arena: *Allocator,
+        target: Target,
+    ) !Value {
+        if (lhs.isUndef() or rhs.isUndef()) return Value.initTag(.undef);
+
+        if (ty.isAnyFloat()) {
+            return floatSub(lhs, rhs, ty, arena);
+        }
+        const result = try intSub(lhs, rhs, arena);
+
+        const max = try ty.maxInt(arena, target);
+        if (compare(result, .gt, max, ty)) {
+            @panic("TODO comptime wrapping integer subtraction");
+        }
+
+        const min = try ty.minInt(arena, target);
+        if (compare(result, .lt, min, ty)) {
+            @panic("TODO comptime wrapping integer subtraction");
+        }
+
+        return result;
+    }
+
+    /// Supports both floats and ints; handles undefined.
+    pub fn numberMax(lhs: Value, rhs: Value, arena: *Allocator) !Value {
+        if (lhs.isUndef() or rhs.isUndef()) return Value.initTag(.undef);
+
+        // TODO is this a performance issue? maybe we should try the operation without
+        // resorting to BigInt first.
+        var lhs_space: Value.BigIntSpace = undefined;
+        var rhs_space: Value.BigIntSpace = undefined;
+        const lhs_bigint = lhs.toBigInt(&lhs_space);
+        const rhs_bigint = rhs.toBigInt(&rhs_space);
+        const limbs = try arena.alloc(
+            std.math.big.Limb,
+            std.math.max(lhs_bigint.limbs.len, rhs_bigint.limbs.len),
+        );
+        var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
+
+        switch (lhs_bigint.order(rhs_bigint)) {
+            .lt => result_bigint.copy(rhs_bigint),
+            .gt, .eq => result_bigint.copy(lhs_bigint),
+        }
+
+        const result_limbs = result_bigint.limbs[0..result_bigint.len];
+
+        if (result_bigint.positive) {
+            return Value.Tag.int_big_positive.create(arena, result_limbs);
+        } else {
+            return Value.Tag.int_big_negative.create(arena, result_limbs);
+        }
+    }
+
+    /// Supports both floats and ints; handles undefined.
+    pub fn numberMin(lhs: Value, rhs: Value, arena: *Allocator) !Value {
+        if (lhs.isUndef() or rhs.isUndef()) return Value.initTag(.undef);
+
+        // TODO is this a performance issue? maybe we should try the operation without
+        // resorting to BigInt first.
+        var lhs_space: Value.BigIntSpace = undefined;
+        var rhs_space: Value.BigIntSpace = undefined;
+        const lhs_bigint = lhs.toBigInt(&lhs_space);
+        const rhs_bigint = rhs.toBigInt(&rhs_space);
+        const limbs = try arena.alloc(
+            std.math.big.Limb,
+            std.math.max(lhs_bigint.limbs.len, rhs_bigint.limbs.len),
+        );
+        var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
+
+        switch (lhs_bigint.order(rhs_bigint)) {
+            .lt => result_bigint.copy(lhs_bigint),
+            .gt, .eq => result_bigint.copy(rhs_bigint),
+        }
+
+        const result_limbs = result_bigint.limbs[0..result_bigint.len];
+
+        if (result_bigint.positive) {
+            return Value.Tag.int_big_positive.create(arena, result_limbs);
+        } else {
+            return Value.Tag.int_big_negative.create(arena, result_limbs);
+        }
+    }
+
+    /// operands must be integers; handles undefined. 
+    pub fn bitwiseAnd(lhs: Value, rhs: Value, arena: *Allocator) !Value {
+        if (lhs.isUndef() or rhs.isUndef()) return Value.initTag(.undef);
+
+        // TODO is this a performance issue? maybe we should try the operation without
+        // resorting to BigInt first.
+        var lhs_space: Value.BigIntSpace = undefined;
+        var rhs_space: Value.BigIntSpace = undefined;
+        const lhs_bigint = lhs.toBigInt(&lhs_space);
+        const rhs_bigint = rhs.toBigInt(&rhs_space);
+        const limbs = try arena.alloc(
+            std.math.big.Limb,
+            std.math.max(lhs_bigint.limbs.len, rhs_bigint.limbs.len),
+        );
+        var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
+        result_bigint.bitAnd(lhs_bigint, rhs_bigint);
+        const result_limbs = result_bigint.limbs[0..result_bigint.len];
+
+        if (result_bigint.positive) {
+            return Value.Tag.int_big_positive.create(arena, result_limbs);
+        } else {
+            return Value.Tag.int_big_negative.create(arena, result_limbs);
+        }
+    }
+
+    /// operands must be integers; handles undefined. 
+    pub fn bitwiseNand(lhs: Value, rhs: Value, ty: Type, arena: *Allocator) !Value {
+        if (lhs.isUndef() or rhs.isUndef()) return Value.initTag(.undef);
+
+        _ = ty;
+        _ = arena;
+        @panic("TODO comptime bitwise NAND");
+    }
+
+    /// operands must be integers; handles undefined. 
+    pub fn bitwiseOr(lhs: Value, rhs: Value, arena: *Allocator) !Value {
+        if (lhs.isUndef() or rhs.isUndef()) return Value.initTag(.undef);
+
+        // TODO is this a performance issue? maybe we should try the operation without
+        // resorting to BigInt first.
+        var lhs_space: Value.BigIntSpace = undefined;
+        var rhs_space: Value.BigIntSpace = undefined;
+        const lhs_bigint = lhs.toBigInt(&lhs_space);
+        const rhs_bigint = rhs.toBigInt(&rhs_space);
+        const limbs = try arena.alloc(
+            std.math.big.Limb,
+            std.math.max(lhs_bigint.limbs.len, rhs_bigint.limbs.len),
+        );
+        var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
+        result_bigint.bitOr(lhs_bigint, rhs_bigint);
+        const result_limbs = result_bigint.limbs[0..result_bigint.len];
+
+        if (result_bigint.positive) {
+            return Value.Tag.int_big_positive.create(arena, result_limbs);
+        } else {
+            return Value.Tag.int_big_negative.create(arena, result_limbs);
+        }
+    }
+
+    /// operands must be integers; handles undefined. 
+    pub fn bitwiseXor(lhs: Value, rhs: Value, arena: *Allocator) !Value {
+        if (lhs.isUndef() or rhs.isUndef()) return Value.initTag(.undef);
+
+        // TODO is this a performance issue? maybe we should try the operation without
+        // resorting to BigInt first.
+        var lhs_space: Value.BigIntSpace = undefined;
+        var rhs_space: Value.BigIntSpace = undefined;
+        const lhs_bigint = lhs.toBigInt(&lhs_space);
+        const rhs_bigint = rhs.toBigInt(&rhs_space);
+        const limbs = try arena.alloc(
+            std.math.big.Limb,
+            std.math.max(lhs_bigint.limbs.len, rhs_bigint.limbs.len),
+        );
+        var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
+        result_bigint.bitXor(lhs_bigint, rhs_bigint);
+        const result_limbs = result_bigint.limbs[0..result_bigint.len];
+
+        if (result_bigint.positive) {
+            return Value.Tag.int_big_positive.create(arena, result_limbs);
+        } else {
+            return Value.Tag.int_big_negative.create(arena, result_limbs);
+        }
+    }
+
     pub fn intAdd(lhs: Value, rhs: Value, allocator: *Allocator) !Value {
         // TODO is this a performance issue? maybe we should try the operation without
         // resorting to BigInt first.

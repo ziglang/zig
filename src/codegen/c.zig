@@ -917,6 +917,8 @@ fn genBody(o: *Object, body: []const Air.Inst.Index) error{ AnalysisFail, OutOfM
             .atomic_rmw       => try airAtomicRmw(o, inst),
             .atomic_load      => try airAtomicLoad(o, inst),
 
+            .int_to_float, .float_to_int => try airSimpleCast(o, inst),
+
             .atomic_store_unordered => try airAtomicStore(o, inst, toMemoryOrder(.Unordered)),
             .atomic_store_monotonic => try airAtomicStore(o, inst, toMemoryOrder(.Monotonic)),
             .atomic_store_release   => try airAtomicStore(o, inst, toMemoryOrder(.Release)),
@@ -1896,6 +1898,24 @@ fn airArrayToSlice(o: *Object, inst: Air.Inst.Index) !CValue {
     try writer.writeAll(" = { .ptr = ");
     try o.writeCValue(writer, operand);
     try writer.print(", .len = {d} }};\n", .{array_len});
+    return local;
+}
+
+/// Emits a local variable with the result type and initializes it
+/// with the operand.
+fn airSimpleCast(o: *Object, inst: Air.Inst.Index) !CValue {
+    if (o.liveness.isUnused(inst))
+        return CValue.none;
+
+    const inst_ty = o.air.typeOfIndex(inst);
+    const local = try o.allocLocal(inst_ty, .Const);
+    const ty_op = o.air.instructions.items(.data)[inst].ty_op;
+    const writer = o.writer();
+    const operand = try o.resolveInst(ty_op.operand);
+
+    try writer.writeAll(" = ");
+    try o.writeCValue(writer, operand);
+    try writer.writeAll(";\n");
     return local;
 }
 
