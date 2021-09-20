@@ -2961,9 +2961,9 @@ pub const Node = struct {
         type_node: Index,
         /// Populated if align(A) is present.
         align_node: Index,
-        /// Populated if linksection(A) is present.
-        addrspace_node: Index,
         /// Populated if addrspace(A) is present.
+        addrspace_node: Index,
+        /// Populated if linksection(A) is present.
         section_node: Index,
     };
 
@@ -2995,9 +2995,9 @@ pub const Node = struct {
         param: Index,
         /// Populated if align(A) is present.
         align_expr: Index,
-        /// Populated if linksection(A) is present.
-        addrspace_expr: Index,
         /// Populated if addrspace(A) is present.
+        addrspace_expr: Index,
+        /// Populated if linksection(A) is present.
         section_expr: Index,
         /// Populated if callconv(A) is present.
         callconv_expr: Index,
