@@ -4132,7 +4132,7 @@ pub fn cmdAstCheck(
         // zig fmt: on
     }
 
-    return Zir.renderAsTextToFile(gpa, &file, io.getStdOut());
+    return @import("print_zir.zig").renderAsTextToFile(gpa, &file, io.getStdOut());
 }
 
 /// This is only enabled for debug builds.
