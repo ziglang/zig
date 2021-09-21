@@ -11,6 +11,7 @@ pub const Token = struct {
     };
 
     pub const keywords = std.ComptimeStringMap(Tag, .{
+        .{ "addrspace", .keyword_addrspace },
         .{ "align", .keyword_align },
         .{ "allowzero", .keyword_allowzero },
         .{ "and", .keyword_and },
@@ -132,6 +133,7 @@ pub const Token = struct {
         float_literal,
         doc_comment,
         container_doc_comment,
+        keyword_addrspace,
         keyword_align,
         keyword_allowzero,
         keyword_and,
@@ -251,6 +253,7 @@ pub const Token = struct {
                 .angle_bracket_angle_bracket_right => ">>",
                 .angle_bracket_angle_bracket_right_equal => ">>=",
                 .tilde => "~",
+                .keyword_addrspace => "addrspace",
                 .keyword_align => "align",
                 .keyword_allowzero => "allowzero",
                 .keyword_and => "and",

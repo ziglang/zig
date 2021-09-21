@@ -1147,7 +1147,7 @@ const Writer = struct {
             cur_bit_bag >>= 1;
             const has_align = @truncate(u1, cur_bit_bag) != 0;
             cur_bit_bag >>= 1;
-            const has_section = @truncate(u1, cur_bit_bag) != 0;
+            const has_section_or_addrspace = @truncate(u1, cur_bit_bag) != 0;
             cur_bit_bag >>= 1;
 
             const sub_index = extra_index;
@@ -1165,7 +1165,12 @@ const Writer = struct {
                 extra_index += 1;
                 break :inst inst;
             };
-            const section_inst: Zir.Inst.Ref = if (!has_section) .none else inst: {
+            const section_inst: Zir.Inst.Ref = if (!has_section_or_addrspace) .none else inst: {
+                const inst = @intToEnum(Zir.Inst.Ref, self.code.extra[extra_index]);
+                extra_index += 1;
+                break :inst inst;
+            };
+            const addrspace_inst: Zir.Inst.Ref = if (!has_section_or_addrspace) .none else inst: {
                 const inst = @intToEnum(Zir.Inst.Ref, self.code.extra[extra_index]);
                 extra_index += 1;
                 break :inst inst;
@@ -1194,6 +1199,11 @@ const Writer = struct {
                 if (align_inst != .none) {
                     try stream.writeAll(" align(");
                     try self.writeInstRef(stream, align_inst);
+                    try stream.writeAll(")");
+                }
+                if (addrspace_inst != .none) {
+                    try stream.writeAll(" addrspace(");
+                    try self.writeInstRef(stream, addrspace_inst);
                     try stream.writeAll(")");
                 }
                 if (section_inst != .none) {

@@ -416,6 +416,11 @@ ZIG_EXTERN_C LLVMTypeRef ZigLLVMTokenTypeInContext(LLVMContextRef context_ref) {
   return wrap(Type::getTokenTy(*unwrap(context_ref)));
 }
 
+LLVMValueRef ZigLLVMAddFunctionInAddressSpace(LLVMModuleRef M, const char *Name, LLVMTypeRef FunctionTy, unsigned AddressSpace) {
+    Function* func = Function::Create(unwrap<FunctionType>(FunctionTy), GlobalValue::ExternalLinkage, AddressSpace, Name, unwrap(M));
+    return wrap(func);
+}
+
 LLVMValueRef ZigLLVMBuildCall(LLVMBuilderRef B, LLVMValueRef Fn, LLVMValueRef *Args,
         unsigned NumArgs, ZigLLVM_CallingConv CC, ZigLLVM_CallAttr attr, const char *Name)
 {

@@ -629,7 +629,7 @@ const Parser = struct {
         };
     }
 
-    /// FnProto <- KEYWORD_fn IDENTIFIER? LPAREN ParamDeclList RPAREN ByteAlign? LinkSection? CallConv? EXCLAMATIONMARK? TypeExpr
+    /// FnProto <- KEYWORD_fn IDENTIFIER? LPAREN ParamDeclList RPAREN ByteAlign? AddrSpace? LinkSection? CallConv? EXCLAMATIONMARK? TypeExpr
     fn parseFnProto(p: *Parser) !Node.Index {
         const fn_token = p.eatToken(.keyword_fn) orelse return null_node;
 
@@ -639,6 +639,7 @@ const Parser = struct {
         _ = p.eatToken(.identifier);
         const params = try p.parseParamDeclList();
         const align_expr = try p.parseByteAlign();
+        const addrspace_expr = try p.parseAddrSpace();
         const section_expr = try p.parseLinkSection();
         const callconv_expr = try p.parseCallconv();
         _ = p.eatToken(.bang);
@@ -650,7 +651,7 @@ const Parser = struct {
             try p.warn(.expected_return_type);
         }
 
-        if (align_expr == 0 and section_expr == 0 and callconv_expr == 0) {
+        if (align_expr == 0 and section_expr == 0 and callconv_expr == 0 and addrspace_expr == 0) {
             switch (params) {
                 .zero_or_one => |param| return p.setNode(fn_proto_index, .{
                     .tag = .fn_proto_simple,
@@ -683,6 +684,7 @@ const Parser = struct {
                     .lhs = try p.addExtra(Node.FnProtoOne{
                         .param = param,
                         .align_expr = align_expr,
+                        .addrspace_expr = addrspace_expr,
                         .section_expr = section_expr,
                         .callconv_expr = callconv_expr,
                     }),
@@ -698,6 +700,7 @@ const Parser = struct {
                             .params_start = span.start,
                             .params_end = span.end,
                             .align_expr = align_expr,
+                            .addrspace_expr = addrspace_expr,
                             .section_expr = section_expr,
                             .callconv_expr = callconv_expr,
                         }),
@@ -708,7 +711,7 @@ const Parser = struct {
         }
     }
 
-    /// VarDecl <- (KEYWORD_const / KEYWORD_var) IDENTIFIER (COLON TypeExpr)? ByteAlign? LinkSection? (EQUAL Expr)? SEMICOLON
+    /// VarDecl <- (KEYWORD_const / KEYWORD_var) IDENTIFIER (COLON TypeExpr)? ByteAlign? AddrSpace? LinkSection? (EQUAL Expr)? SEMICOLON
     fn parseVarDecl(p: *Parser) !Node.Index {
         const mut_token = p.eatToken(.keyword_const) orelse
             p.eatToken(.keyword_var) orelse
@@ -717,9 +720,10 @@ const Parser = struct {
         _ = try p.expectToken(.identifier);
         const type_node: Node.Index = if (p.eatToken(.colon) == null) 0 else try p.expectTypeExpr();
         const align_node = try p.parseByteAlign();
+        const addrspace_node = try p.parseAddrSpace();
         const section_node = try p.parseLinkSection();
         const init_node: Node.Index = if (p.eatToken(.equal) == null) 0 else try p.expectExpr();
-        if (section_node == 0) {
+        if (section_node == 0 and addrspace_node == 0) {
             if (align_node == 0) {
                 return p.addNode(.{
                     .tag = .simple_var_decl,
@@ -759,6 +763,7 @@ const Parser = struct {
                     .lhs = try p.addExtra(Node.GlobalVarDecl{
                         .type_node = type_node,
                         .align_node = align_node,
+                        .addrspace_node = addrspace_node,
                         .section_node = section_node,
                     }),
                     .rhs = init_node,
@@ -1440,8 +1445,8 @@ const Parser = struct {
     /// PrefixTypeOp
     ///     <- QUESTIONMARK
     ///      / KEYWORD_anyframe MINUSRARROW
-    ///      / SliceTypeStart (ByteAlign / KEYWORD_const / KEYWORD_volatile / KEYWORD_allowzero)*
-    ///      / PtrTypeStart (KEYWORD_align LPAREN Expr (COLON INTEGER COLON INTEGER)? RPAREN / KEYWORD_const / KEYWORD_volatile / KEYWORD_allowzero)*
+    ///      / SliceTypeStart (ByteAlign / AddrSpace / KEYWORD_const / KEYWORD_volatile / KEYWORD_allowzero)*
+    ///      / PtrTypeStart (AddrSpace / KEYWORD_align LPAREN Expr (COLON INTEGER COLON INTEGER)? RPAREN / KEYWORD_const / KEYWORD_volatile / KEYWORD_allowzero)*
     ///      / ArrayTypeStart
     /// SliceTypeStart <- LBRACKET (COLON Expr)? RBRACKET
     /// PtrTypeStart
@@ -1474,16 +1479,7 @@ const Parser = struct {
                 const asterisk = p.nextToken();
                 const mods = try p.parsePtrModifiers();
                 const elem_type = try p.expectTypeExpr();
-                if (mods.bit_range_start == 0) {
-                    return p.addNode(.{
-                        .tag = .ptr_type_aligned,
-                        .main_token = asterisk,
-                        .data = .{
-                            .lhs = mods.align_node,
-                            .rhs = elem_type,
-                        },
-                    });
-                } else {
+                if (mods.bit_range_start != 0) {
                     return p.addNode(.{
                         .tag = .ptr_type_bit_range,
                         .main_token = asterisk,
@@ -1491,9 +1487,32 @@ const Parser = struct {
                             .lhs = try p.addExtra(Node.PtrTypeBitRange{
                                 .sentinel = 0,
                                 .align_node = mods.align_node,
+                                .addrspace_node = mods.addrspace_node,
                                 .bit_range_start = mods.bit_range_start,
                                 .bit_range_end = mods.bit_range_end,
                             }),
+                            .rhs = elem_type,
+                        },
+                    });
+                } else if (mods.addrspace_node != 0) {
+                    return p.addNode(.{
+                        .tag = .ptr_type,
+                        .main_token = asterisk,
+                        .data = .{
+                            .lhs = try p.addExtra(Node.PtrType{
+                                .sentinel = 0,
+                                .align_node = mods.align_node,
+                                .addrspace_node = mods.addrspace_node,
+                            }),
+                            .rhs = elem_type,
+                        },
+                    });
+                } else {
+                    return p.addNode(.{
+                        .tag = .ptr_type_aligned,
+                        .main_token = asterisk,
+                        .data = .{
+                            .lhs = mods.align_node,
                             .rhs = elem_type,
                         },
                     });
@@ -1504,16 +1523,7 @@ const Parser = struct {
                 const mods = try p.parsePtrModifiers();
                 const elem_type = try p.expectTypeExpr();
                 const inner: Node.Index = inner: {
-                    if (mods.bit_range_start == 0) {
-                        break :inner try p.addNode(.{
-                            .tag = .ptr_type_aligned,
-                            .main_token = asterisk,
-                            .data = .{
-                                .lhs = mods.align_node,
-                                .rhs = elem_type,
-                            },
-                        });
-                    } else {
+                    if (mods.bit_range_start != 0) {
                         break :inner try p.addNode(.{
                             .tag = .ptr_type_bit_range,
                             .main_token = asterisk,
@@ -1521,9 +1531,32 @@ const Parser = struct {
                                 .lhs = try p.addExtra(Node.PtrTypeBitRange{
                                     .sentinel = 0,
                                     .align_node = mods.align_node,
+                                    .addrspace_node = mods.addrspace_node,
                                     .bit_range_start = mods.bit_range_start,
                                     .bit_range_end = mods.bit_range_end,
                                 }),
+                                .rhs = elem_type,
+                            },
+                        });
+                    } else if (mods.addrspace_node != 0) {
+                        break :inner try p.addNode(.{
+                            .tag = .ptr_type,
+                            .main_token = asterisk,
+                            .data = .{
+                                .lhs = try p.addExtra(Node.PtrType{
+                                    .sentinel = 0,
+                                    .align_node = mods.align_node,
+                                    .addrspace_node = mods.addrspace_node,
+                                }),
+                                .rhs = elem_type,
+                            },
+                        });
+                    } else {
+                        break :inner try p.addNode(.{
+                            .tag = .ptr_type_aligned,
+                            .main_token = asterisk,
+                            .data = .{
+                                .lhs = mods.align_node,
                                 .rhs = elem_type,
                             },
                         });
@@ -1560,7 +1593,7 @@ const Parser = struct {
                     const mods = try p.parsePtrModifiers();
                     const elem_type = try p.expectTypeExpr();
                     if (mods.bit_range_start == 0) {
-                        if (sentinel == 0) {
+                        if (sentinel == 0 and mods.addrspace_node == 0) {
                             return p.addNode(.{
                                 .tag = .ptr_type_aligned,
                                 .main_token = asterisk,
@@ -1569,7 +1602,7 @@ const Parser = struct {
                                     .rhs = elem_type,
                                 },
                             });
-                        } else if (mods.align_node == 0) {
+                        } else if (mods.align_node == 0 and mods.addrspace_node == 0) {
                             return p.addNode(.{
                                 .tag = .ptr_type_sentinel,
                                 .main_token = asterisk,
@@ -1586,6 +1619,7 @@ const Parser = struct {
                                     .lhs = try p.addExtra(Node.PtrType{
                                         .sentinel = sentinel,
                                         .align_node = mods.align_node,
+                                        .addrspace_node = mods.addrspace_node,
                                     }),
                                     .rhs = elem_type,
                                 },
@@ -1599,6 +1633,7 @@ const Parser = struct {
                                 .lhs = try p.addExtra(Node.PtrTypeBitRange{
                                     .sentinel = sentinel,
                                     .align_node = mods.align_node,
+                                    .addrspace_node = mods.addrspace_node,
                                     .bit_range_start = mods.bit_range_start,
                                     .bit_range_end = mods.bit_range_end,
                                 }),
@@ -1624,7 +1659,7 @@ const Parser = struct {
                                 .token = p.nodes.items(.main_token)[mods.bit_range_start],
                             });
                         }
-                        if (sentinel == 0) {
+                        if (sentinel == 0 and mods.addrspace_node == 0) {
                             return p.addNode(.{
                                 .tag = .ptr_type_aligned,
                                 .main_token = lbracket,
@@ -1633,7 +1668,7 @@ const Parser = struct {
                                     .rhs = elem_type,
                                 },
                             });
-                        } else if (mods.align_node == 0) {
+                        } else if (mods.align_node == 0 and mods.addrspace_node == 0) {
                             return p.addNode(.{
                                 .tag = .ptr_type_sentinel,
                                 .main_token = lbracket,
@@ -1650,6 +1685,7 @@ const Parser = struct {
                                     .lhs = try p.addExtra(Node.PtrType{
                                         .sentinel = sentinel,
                                         .align_node = mods.align_node,
+                                        .addrspace_node = mods.addrspace_node,
                                     }),
                                     .rhs = elem_type,
                                 },
@@ -1661,6 +1697,7 @@ const Parser = struct {
                             .keyword_const,
                             .keyword_volatile,
                             .keyword_allowzero,
+                            .keyword_addrspace,
                             => return p.fail(.ptr_mod_on_array_child_type),
                             else => {},
                         }
@@ -2879,6 +2916,15 @@ const Parser = struct {
         return expr_node;
     }
 
+    /// AddrSpace <- KEYWORD_addrspace LPAREN Expr RPAREN
+    fn parseAddrSpace(p: *Parser) !Node.Index {
+        _ = p.eatToken(.keyword_addrspace) orelse return null_node;
+        _ = try p.expectToken(.l_paren);
+        const expr_node = try p.expectExpr();
+        _ = try p.expectToken(.r_paren);
+        return expr_node;
+    }
+
     /// ParamDecl
     ///     <- (KEYWORD_noalias / KEYWORD_comptime)? (IDENTIFIER COLON)? ParamType
     ///     / DOT3
@@ -3011,6 +3057,7 @@ const Parser = struct {
 
     const PtrModifiers = struct {
         align_node: Node.Index,
+        addrspace_node: Node.Index,
         bit_range_start: Node.Index,
         bit_range_end: Node.Index,
     };
@@ -3018,12 +3065,14 @@ const Parser = struct {
     fn parsePtrModifiers(p: *Parser) !PtrModifiers {
         var result: PtrModifiers = .{
             .align_node = 0,
+            .addrspace_node = 0,
             .bit_range_start = 0,
             .bit_range_end = 0,
         };
         var saw_const = false;
         var saw_volatile = false;
         var saw_allowzero = false;
+        var saw_addrspace = false;
         while (true) {
             switch (p.token_tags[p.tok_i]) {
                 .keyword_align => {
@@ -3062,6 +3111,12 @@ const Parser = struct {
                     }
                     p.tok_i += 1;
                     saw_allowzero = true;
+                },
+                .keyword_addrspace => {
+                    if (saw_addrspace) {
+                        try p.warn(.extra_addrspace_qualifier);
+                    }
+                    result.addrspace_node = try p.parseAddrSpace();
                 },
                 else => return result,
             }

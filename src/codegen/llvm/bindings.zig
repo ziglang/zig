@@ -197,6 +197,9 @@ pub const Module = opaque {
     pub const addFunction = LLVMAddFunction;
     extern fn LLVMAddFunction(*const Module, Name: [*:0]const u8, FunctionTy: *const Type) *const Value;
 
+    pub const addFunctionInAddressSpace = ZigLLVMAddFunctionInAddressSpace;
+    extern fn ZigLLVMAddFunctionInAddressSpace(*const Module, Name: [*:0]const u8, FunctionTy: *const Type, AddressSpace: c_uint) *const Value;
+
     pub const getNamedFunction = LLVMGetNamedFunction;
     extern fn LLVMGetNamedFunction(*const Module, Name: [*:0]const u8) ?*const Value;
 
@@ -208,6 +211,9 @@ pub const Module = opaque {
 
     pub const addGlobal = LLVMAddGlobal;
     extern fn LLVMAddGlobal(M: *const Module, Ty: *const Type, Name: [*:0]const u8) *const Value;
+
+    pub const addGlobalInAddressSpace = LLVMAddGlobalInAddressSpace;
+    extern fn LLVMAddGlobalInAddressSpace(M: *const Module, Ty: *const Type, Name: [*:0]const u8, AddressSpace: c_uint) *const Value;
 
     pub const getNamedGlobal = LLVMGetNamedGlobal;
     extern fn LLVMGetNamedGlobal(M: *const Module, Name: [*:0]const u8) ?*const Value;
@@ -1004,4 +1010,66 @@ pub const TypeKind = enum(c_int) {
     ScalableVector,
     BFloat,
     X86_AMX,
+};
+
+pub const address_space = struct {
+    pub const default: c_uint = 0;
+
+    // See llvm/lib/Target/X86/X86.h
+    pub const x86_64 = x86;
+    pub const x86 = struct {
+        pub const gs: c_uint = 256;
+        pub const fs: c_uint = 257;
+        pub const ss: c_uint = 258;
+
+        pub const ptr32_sptr: c_uint = 270;
+        pub const ptr32_uptr: c_uint = 271;
+        pub const ptr64: c_uint = 272;
+    };
+
+    // See llvm/lib/Target/AVR/AVR.h
+    pub const avr = struct {
+        pub const data_memory: c_uint = 0;
+        pub const program_memory: c_uint = 1;
+    };
+
+    // See llvm/lib/Target/NVPTX/NVPTX.h
+    pub const nvptx = struct {
+        pub const generic: c_uint = 0;
+        pub const global: c_uint = 1;
+        pub const constant: c_uint = 2;
+        pub const shared: c_uint = 3;
+        pub const param: c_uint = 4;
+        pub const local: c_uint = 5;
+    };
+
+    // See llvm/lib/Target/AMDGPU/AMDGPU.h
+    pub const amdgpu = struct {
+        pub const flat: c_uint = 0;
+        pub const global: c_uint = 1;
+        pub const region: c_uint = 2;
+        pub const local: c_uint = 3;
+        pub const constant: c_uint = 4;
+        pub const private: c_uint = 5;
+        pub const constant_32bit: c_uint = 6;
+        pub const buffer_fat_pointer: c_uint = 7;
+        pub const param_d: c_uint = 6;
+        pub const param_i: c_uint = 7;
+        pub const constant_buffer_0: c_uint = 8;
+        pub const constant_buffer_1: c_uint = 9;
+        pub const constant_buffer_2: c_uint = 10;
+        pub const constant_buffer_3: c_uint = 11;
+        pub const constant_buffer_4: c_uint = 12;
+        pub const constant_buffer_5: c_uint = 13;
+        pub const constant_buffer_6: c_uint = 14;
+        pub const constant_buffer_7: c_uint = 15;
+        pub const constant_buffer_8: c_uint = 16;
+        pub const constant_buffer_9: c_uint = 17;
+        pub const constant_buffer_10: c_uint = 18;
+        pub const constant_buffer_11: c_uint = 19;
+        pub const constant_buffer_12: c_uint = 20;
+        pub const constant_buffer_13: c_uint = 21;
+        pub const constant_buffer_14: c_uint = 22;
+        pub const constant_buffer_15: c_uint = 23;
+    };
 };

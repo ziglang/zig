@@ -558,7 +558,8 @@ pub const DeclGen = struct {
             llvm_params_len,
             .False,
         );
-        const llvm_fn = self.llvmModule().addFunction(decl.name, fn_type);
+        const llvm_addrspace = self.llvmAddressSpace(decl.@"addrspace");
+        const llvm_fn = self.llvmModule().addFunctionInAddressSpace(decl.name, fn_type, llvm_addrspace);
 
         const is_extern = decl.val.tag() == .extern_fn;
         if (!is_extern) {
@@ -580,7 +581,24 @@ pub const DeclGen = struct {
         if (llvm_module.getNamedGlobal(decl.name)) |val| return val;
         // TODO: remove this redundant `llvmType`, it is also called in `genTypedValue`.
         const llvm_type = try self.llvmType(decl.ty);
-        return llvm_module.addGlobal(llvm_type, decl.name);
+        const llvm_addrspace = self.llvmAddressSpace(decl.@"addrspace");
+        return llvm_module.addGlobalInAddressSpace(llvm_type, decl.name, llvm_addrspace);
+    }
+
+    fn llvmAddressSpace(self: DeclGen, address_space: std.builtin.AddressSpace) c_uint {
+        const target = self.module.getTarget();
+        return switch (target.cpu.arch) {
+            .i386, .x86_64 => switch (address_space) {
+                .generic => llvm.address_space.default,
+                .gs => llvm.address_space.x86.gs,
+                .fs => llvm.address_space.x86.fs,
+                .ss => llvm.address_space.x86.ss,
+            },
+            else => switch (address_space) {
+                .generic => llvm.address_space.default,
+                else => unreachable,
+            },
+        };
     }
 
     fn llvmType(self: *DeclGen, t: Type) error{ OutOfMemory, CodegenFail }!*const llvm.Type {
@@ -609,7 +627,7 @@ pub const DeclGen = struct {
             .Bool => return self.context.intType(1),
             .Pointer => {
                 if (t.isSlice()) {
-                    var buf: Type.Payload.ElemType = undefined;
+                    var buf: Type.SlicePtrFieldTypeBuffer = undefined;
                     const ptr_type = t.slicePtrFieldType(&buf);
 
                     const fields: [2]*const llvm.Type = .{
@@ -619,7 +637,8 @@ pub const DeclGen = struct {
                     return self.context.structType(&fields, fields.len, .False);
                 } else {
                     const elem_type = try self.llvmType(t.elemType());
-                    return elem_type.pointerType(0);
+                    const llvm_addrspace = self.llvmAddressSpace(t.ptrAddressSpace());
+                    return elem_type.pointerType(llvm_addrspace);
                 }
             },
             .Array => {
@@ -685,7 +704,9 @@ pub const DeclGen = struct {
                     @intCast(c_uint, llvm_params.len),
                     llvm.Bool.fromBool(is_var_args),
                 );
-                return llvm_fn_ty.pointerType(0);
+                // TODO make .Fn not both a pointer type and a prototype
+                const llvm_addrspace = self.llvmAddressSpace(.generic);
+                return llvm_fn_ty.pointerType(llvm_addrspace);
             },
             .ComptimeInt => unreachable,
             .ComptimeFloat => unreachable,
@@ -753,7 +774,7 @@ pub const DeclGen = struct {
             .Pointer => switch (tv.val.tag()) {
                 .decl_ref => {
                     if (tv.ty.isSlice()) {
-                        var buf: Type.Payload.ElemType = undefined;
+                        var buf: Type.SlicePtrFieldTypeBuffer = undefined;
                         const ptr_ty = tv.ty.slicePtrFieldType(&buf);
                         var slice_len: Value.Payload.U64 = .{
                             .base = .{ .tag = .int_u64 },
@@ -783,12 +804,13 @@ pub const DeclGen = struct {
                     decl.alive = true;
                     const val = try self.resolveGlobalDecl(decl);
                     const llvm_var_type = try self.llvmType(tv.ty);
-                    const llvm_type = llvm_var_type.pointerType(0);
+                    const llvm_addrspace = self.llvmAddressSpace(decl.@"addrspace");
+                    const llvm_type = llvm_var_type.pointerType(llvm_addrspace);
                     return val.constBitCast(llvm_type);
                 },
                 .slice => {
                     const slice = tv.val.castTag(.slice).?.data;
-                    var buf: Type.Payload.ElemType = undefined;
+                    var buf: Type.SlicePtrFieldTypeBuffer = undefined;
                     const fields: [2]*const llvm.Value = .{
                         try self.genTypedValue(.{
                             .ty = tv.ty.slicePtrFieldType(&buf),

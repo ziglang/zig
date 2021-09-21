@@ -443,10 +443,10 @@ pub const Inst = struct {
         /// this instruction; a following 'ret' instruction will do the diversion.
         /// Uses the `str_tok` union field.
         ret_err_value_code,
-        /// Create a pointer type that does not have a sentinel, alignment, or bit range specified.
+        /// Create a pointer type that does not have a sentinel, alignment, address space, or bit range specified.
         /// Uses the `ptr_type_simple` union field.
         ptr_type_simple,
-        /// Create a pointer type which can have a sentinel, alignment, and/or bit range.
+        /// Create a pointer type which can have a sentinel, alignment, address space, and/or bit range.
         /// Uses the `ptr_type` union field.
         ptr_type,
         /// Slice operation `lhs[rhs..]`. No sentinel and no end offset.
@@ -1672,6 +1672,7 @@ pub const Inst = struct {
         atomic_order_type,
         atomic_rmw_op_type,
         calling_convention_type,
+        address_space_type,
         float_mode_type,
         reduce_op_type,
         call_options_type,
@@ -1928,6 +1929,10 @@ pub const Inst = struct {
                 .ty = Type.initTag(.type),
                 .val = Value.initTag(.calling_convention_type),
             },
+            .address_space_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.address_space_type),
+            },
             .float_mode_type = .{
                 .ty = Type.initTag(.type),
                 .val = Value.initTag(.float_mode_type),
@@ -2129,8 +2134,9 @@ pub const Inst = struct {
                 is_volatile: bool,
                 has_sentinel: bool,
                 has_align: bool,
+                has_addrspace: bool,
                 has_bit_range: bool,
-                _: u2 = undefined,
+                _: u1 = undefined,
             },
             size: std.builtin.TypeInfo.Pointer.Size,
             /// Index into extra. See `PtrType`.
@@ -2360,12 +2366,13 @@ pub const Inst = struct {
         else_body_len: u32,
     };
 
-    /// Stored in extra. Depending on the flags in Data, there will be up to 4
+    /// Stored in extra. Depending on the flags in Data, there will be up to 5
     /// trailing Ref fields:
     /// 0. sentinel: Ref // if `has_sentinel` flag is set
     /// 1. align: Ref // if `has_align` flag is set
-    /// 2. bit_start: Ref // if `has_bit_range` flag is set
-    /// 3. bit_end: Ref // if `has_bit_range` flag is set
+    /// 2. address_space: Ref // if `has_addrspace` flag is set
+    /// 3. bit_start: Ref // if `has_bit_range` flag is set
+    /// 4. bit_end: Ref // if `has_bit_range` flag is set
     pub const PtrType = struct {
         elem_type: Ref,
     };
@@ -2483,7 +2490,7 @@ pub const Inst = struct {
     ///      0b000X: whether corresponding decl is pub
     ///      0b00X0: whether corresponding decl is exported
     ///      0b0X00: whether corresponding decl has an align expression
-    ///      0bX000: whether corresponding decl has a linksection expression
+    ///      0bX000: whether corresponding decl has a linksection or an address space expression
     /// 5. decl: { // for every decls_len
     ///        src_hash: [4]u32, // hash of source bytes
     ///        line: u32, // line number of decl, relative to parent
@@ -2495,7 +2502,10 @@ pub const Inst = struct {
     ///          this is a test decl, and the name starts at `name+1`.
     ///        value: Index,
     ///        align: Ref, // if corresponding bit is set
-    ///        link_section: Ref, // if corresponding bit is set
+    ///        link_section_or_address_space: { // if corresponding bit is set.
+    ///            link_section: Ref,
+    ///            address_space: Ref,
+    ///        }
     ///    }
     /// 6. inst: Index // for every body_len
     /// 7. flags: u32 // for every 8 fields
@@ -2547,7 +2557,7 @@ pub const Inst = struct {
     ///      0b000X: whether corresponding decl is pub
     ///      0b00X0: whether corresponding decl is exported
     ///      0b0X00: whether corresponding decl has an align expression
-    ///      0bX000: whether corresponding decl has a linksection expression
+    ///      0bX000: whether corresponding decl has a linksection or an address space expression
     /// 6. decl: { // for every decls_len
     ///        src_hash: [4]u32, // hash of source bytes
     ///        line: u32, // line number of decl, relative to parent
@@ -2559,7 +2569,10 @@ pub const Inst = struct {
     ///          this is a test decl, and the name starts at `name+1`.
     ///        value: Index,
     ///        align: Ref, // if corresponding bit is set
-    ///        link_section: Ref, // if corresponding bit is set
+    ///        link_section_or_address_space: { // if corresponding bit is set.
+    ///            link_section: Ref,
+    ///            address_space: Ref,
+    ///        }
     ///    }
     /// 7. inst: Index // for every body_len
     /// 8. has_bits: u32 // for every 32 fields
@@ -2592,7 +2605,7 @@ pub const Inst = struct {
     ///      0b000X: whether corresponding decl is pub
     ///      0b00X0: whether corresponding decl is exported
     ///      0b0X00: whether corresponding decl has an align expression
-    ///      0bX000: whether corresponding decl has a linksection expression
+    ///      0bX000: whether corresponding decl has a linksection or an address space expression
     /// 6. decl: { // for every decls_len
     ///        src_hash: [4]u32, // hash of source bytes
     ///        line: u32, // line number of decl, relative to parent
@@ -2604,7 +2617,10 @@ pub const Inst = struct {
     ///          this is a test decl, and the name starts at `name+1`.
     ///        value: Index,
     ///        align: Ref, // if corresponding bit is set
-    ///        link_section: Ref, // if corresponding bit is set
+    ///        link_section_or_address_space: { // if corresponding bit is set.
+    ///            link_section: Ref,
+    ///            address_space: Ref,
+    ///        }
     ///    }
     /// 7. inst: Index // for every body_len
     /// 8. has_bits: u32 // for every 8 fields
@@ -2641,7 +2657,7 @@ pub const Inst = struct {
     ///      0b000X: whether corresponding decl is pub
     ///      0b00X0: whether corresponding decl is exported
     ///      0b0X00: whether corresponding decl has an align expression
-    ///      0bX000: whether corresponding decl has a linksection expression
+    ///      0bX000: whether corresponding decl has a linksection or an address space expression
     /// 1. decl: { // for every decls_len
     ///        src_hash: [4]u32, // hash of source bytes
     ///        line: u32, // line number of decl, relative to parent
@@ -2653,7 +2669,10 @@ pub const Inst = struct {
     ///          this is a test decl, and the name starts at `name+1`.
     ///        value: Index,
     ///        align: Ref, // if corresponding bit is set
-    ///        link_section: Ref, // if corresponding bit is set
+    ///        link_section_or_address_space: { // if corresponding bit is set.
+    ///            link_section: Ref,
+    ///            address_space: Ref,
+    ///        }
     ///    }
     pub const OpaqueDecl = struct {
         decls_len: u32,

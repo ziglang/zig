@@ -711,6 +711,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\        .is_const = false,
         \\        .is_volatile = false,
         \\        .alignment = 1,
+        \\        .address_space = .generic,
         \\        .child = u8,
         \\        .is_allowzero = false,
         \\        .sentinel = 0,
@@ -718,6 +719,23 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
     , &[_][]const u8{
         "tmp.zig:2:16: error: sentinels are only allowed on slices and unknown-length pointers",
+    });
+
+    ctx.objErrStage1("@Type(.Pointer) with invalid address space ",
+        \\export fn entry() void {
+        \\    _ = @Type(.{ .Pointer = .{
+        \\        .size = .One,
+        \\        .is_const = false,
+        \\        .is_volatile = false,
+        \\        .alignment = 1,
+        \\        .address_space = .gs,
+        \\        .child = u8,
+        \\        .is_allowzero = false,
+        \\        .sentinel = null,
+        \\    }});
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:2:16: error: address space 'gs' not available in stage 1 compiler, must be .generic",
     });
 
     ctx.testErrStage1("helpful return type error message",
