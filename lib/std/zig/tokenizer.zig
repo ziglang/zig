@@ -700,7 +700,7 @@ pub const Tokenizer = struct {
                 },
 
                 .string_literal_backslash => switch (c) {
-                    '\n' => {
+                    0, '\n' => {
                         result.tag = .invalid;
                         break;
                     },
@@ -1917,6 +1917,10 @@ test "tokenizer - multi line string literal with only 1 backslash" {
 test "tokenizer - invalid builtin identifiers" {
     try testTokenize("@()", &.{ .invalid, .l_paren, .r_paren });
     try testTokenize("@0()", &.{ .invalid, .integer_literal, .l_paren, .r_paren });
+}
+
+test "tokenizer - backslash before eof in string literal" {
+    try testTokenize("\"\\", &.{.invalid});
 }
 
 fn testTokenize(source: [:0]const u8, expected_tokens: []const Token.Tag) !void {
