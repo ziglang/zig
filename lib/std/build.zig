@@ -684,7 +684,11 @@ pub const Builder = struct {
         );
         const mcpu = self.option([]const u8, "cpu", "Target CPU features to add or subtract");
 
-        const triple = maybe_triple orelse return args.default_target;
+        if (maybe_triple == null and mcpu == null) {
+            return args.default_target;
+        }
+
+        const triple = maybe_triple orelse "native";
 
         var diags: CrossTarget.ParseOptions.Diagnostics = .{};
         const selected_target = CrossTarget.parse(.{
@@ -2432,11 +2436,8 @@ pub const LibExeObjStep = struct {
 
             if (populated_cpu_features.eql(cross.cpu.features)) {
                 // The CPU name alone is sufficient.
-                // If it is the baseline CPU, no command line args are required.
-                if (cross.cpu.model != std.Target.Cpu.baseline(cross.cpu.arch).model) {
-                    try zig_args.append("-mcpu");
-                    try zig_args.append(cross.cpu.model.name);
-                }
+                try zig_args.append("-mcpu");
+                try zig_args.append(cross.cpu.model.name);
             } else {
                 var mcpu_buffer = std.ArrayList(u8).init(builder.allocator);
 
