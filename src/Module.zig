@@ -610,7 +610,7 @@ pub const Decl = struct {
 
     /// If the Decl has a value and it is a function, return it,
     /// otherwise null.
-    pub fn getFunction(decl: *Decl) ?*Fn {
+    pub fn getFunction(decl: *const Decl) ?*Fn {
         if (!decl.owns_tv) return null;
         const func = (decl.val.castTag(.function) orelse return null).data;
         assert(func.owner_decl == decl);
@@ -3789,7 +3789,7 @@ pub fn clearDecl(
                 .elf => .{ .elf = link.File.Elf.TextBlock.empty },
                 .macho => .{ .macho = link.File.MachO.TextBlock.empty },
                 .plan9 => .{ .plan9 = link.File.Plan9.DeclBlock.empty },
-                .c => .{ .c = link.File.C.DeclBlock.empty },
+                .c => .{ .c = {} },
                 .wasm => .{ .wasm = link.File.Wasm.DeclBlock.empty },
                 .spirv => .{ .spirv = {} },
             };
@@ -3798,7 +3798,7 @@ pub fn clearDecl(
                 .elf => .{ .elf = link.File.Elf.SrcFn.empty },
                 .macho => .{ .macho = link.File.MachO.SrcFn.empty },
                 .plan9 => .{ .plan9 = {} },
-                .c => .{ .c = link.File.C.FnBlock.empty },
+                .c => .{ .c = {} },
                 .wasm => .{ .wasm = link.File.Wasm.FnData.empty },
                 .spirv => .{ .spirv = .{} },
             };
@@ -3828,10 +3828,13 @@ pub fn deleteUnusedDecl(mod: *Module, decl: *Decl) void {
     // about the Decl in the first place.
     // Until then, we did call `allocateDeclIndexes` on this anonymous Decl and so we
     // must call `freeDecl` in the linker backend now.
-    if (decl.has_tv) {
-        if (decl.ty.hasCodeGenBits()) {
-            mod.comp.bin_file.freeDecl(decl);
-        }
+    switch (mod.comp.bin_file.tag) {
+        .c => {}, // this linker backend has already migrated to the new API
+        else => if (decl.has_tv) {
+            if (decl.ty.hasCodeGenBits()) {
+                mod.comp.bin_file.freeDecl(decl);
+            }
+        },
     }
 
     const dependants = decl.dependants.keys();
@@ -3893,22 +3896,16 @@ fn deleteDeclExports(mod: *Module, decl: *Decl) void {
     mod.gpa.free(kv.value);
 }
 
-pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn) SemaError!Air {
+pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn, arena: *Allocator) SemaError!Air {
     const tracy = trace(@src());
     defer tracy.end();
 
     const gpa = mod.gpa;
 
-    // Use the Decl's arena for function memory.
-    var arena = decl.value_arena.?.promote(gpa);
-    defer decl.value_arena.?.* = arena.state;
-
-    const fn_ty = decl.ty;
-
     var sema: Sema = .{
         .mod = mod,
         .gpa = gpa,
-        .arena = &arena.allocator,
+        .arena = arena,
         .code = decl.namespace.file_scope.zir,
         .owner_decl = decl,
         .namespace = decl.namespace,
@@ -3942,6 +3939,7 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn) SemaError!Air {
     // This could be a generic function instantiation, however, in which case we need to
     // map the comptime parameters to constant values and only emit arg AIR instructions
     // for the runtime ones.
+    const fn_ty = decl.ty;
     const runtime_params_len = @intCast(u32, fn_ty.fnParamLen());
     try inner_block.instructions.ensureTotalCapacity(gpa, runtime_params_len);
     try sema.air_instructions.ensureUnusedCapacity(gpa, fn_info.total_params_len * 2); // * 2 for the `addType`
@@ -4072,7 +4070,7 @@ pub fn allocateNewDecl(mod: *Module, namespace: *Scope.Namespace, src_node: Ast.
             .elf => .{ .elf = link.File.Elf.TextBlock.empty },
             .macho => .{ .macho = link.File.MachO.TextBlock.empty },
             .plan9 => .{ .plan9 = link.File.Plan9.DeclBlock.empty },
-            .c => .{ .c = link.File.C.DeclBlock.empty },
+            .c => .{ .c = {} },
             .wasm => .{ .wasm = link.File.Wasm.DeclBlock.empty },
             .spirv => .{ .spirv = {} },
         },
@@ -4081,7 +4079,7 @@ pub fn allocateNewDecl(mod: *Module, namespace: *Scope.Namespace, src_node: Ast.
             .elf => .{ .elf = link.File.Elf.SrcFn.empty },
             .macho => .{ .macho = link.File.MachO.SrcFn.empty },
             .plan9 => .{ .plan9 = {} },
-            .c => .{ .c = link.File.C.FnBlock.empty },
+            .c => .{ .c = {} },
             .wasm => .{ .wasm = link.File.Wasm.FnData.empty },
             .spirv => .{ .spirv = .{} },
         },

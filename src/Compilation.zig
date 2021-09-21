@@ -2145,7 +2145,11 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
                 const module = self.bin_file.options.module.?;
                 const decl = func.owner_decl;
 
-                var air = module.analyzeFnBody(decl, func) catch |err| switch (err) {
+                var tmp_arena = std.heap.ArenaAllocator.init(gpa);
+                defer tmp_arena.deinit();
+                const sema_arena = &tmp_arena.allocator;
+
+                var air = module.analyzeFnBody(decl, func, sema_arena) catch |err| switch (err) {
                     error.AnalysisFail => {
                         assert(func.state != .in_progress);
                         continue;
@@ -2207,16 +2211,20 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
                 const decl_emit_h = decl.getEmitH(module);
                 const fwd_decl = &decl_emit_h.fwd_decl;
                 fwd_decl.shrinkRetainingCapacity(0);
+                var typedefs_arena = std.heap.ArenaAllocator.init(gpa);
+                defer typedefs_arena.deinit();
 
                 var dg: c_codegen.DeclGen = .{
+                    .gpa = gpa,
                     .module = module,
                     .error_msg = null,
                     .decl = decl,
                     .fwd_decl = fwd_decl.toManaged(gpa),
-                    // we don't want to emit optionals and error unions to headers since they have no ABI
-                    .typedefs = undefined,
+                    .typedefs = c_codegen.TypedefMap.init(gpa),
+                    .typedefs_arena = &typedefs_arena.allocator,
                 };
                 defer dg.fwd_decl.deinit();
+                defer dg.typedefs.deinit();
 
                 c_codegen.genHeader(&dg) catch |err| switch (err) {
                     error.AnalysisFail => {

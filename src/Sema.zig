@@ -2999,6 +2999,8 @@ fn analyzeCall(
 
                 // TODO: check whether any external comptime memory was mutated by the
                 // comptime function call. If so, then do not memoize the call here.
+                // TODO: re-evaluate whether memoized_calls needs its own arena. I think
+                // it should be fine to use the Decl arena for the function.
                 {
                     var arena_allocator = std.heap.ArenaAllocator.init(gpa);
                     errdefer arena_allocator.deinit();
@@ -3009,7 +3011,7 @@ fn analyzeCall(
                     }
 
                     try mod.memoized_calls.put(gpa, memoized_call_key, .{
-                        .val = result_val,
+                        .val = try result_val.copy(arena),
                         .arena = arena_allocator.state,
                     });
                     delete_memoized_call_key = false;
@@ -5876,10 +5878,7 @@ fn zirArrayCat(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileEr
                 else
                     try Type.Tag.array.create(anon_decl.arena(), .{ .len = final_len, .elem_type = lhs_info.elem_type });
                 const val = try Value.Tag.array.create(anon_decl.arena(), buf);
-                return sema.analyzeDeclRef(try anon_decl.finish(
-                    ty,
-                    val,
-                ));
+                return sema.analyzeDeclRef(try anon_decl.finish(ty, val));
             }
             return sema.mod.fail(&block.base, lhs_src, "TODO array_cat more types of Values", .{});
         } else {
@@ -5941,10 +5940,7 @@ fn zirArrayMul(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileEr
                 }
             }
             const val = try Value.Tag.array.create(anon_decl.arena(), buf);
-            return sema.analyzeDeclRef(try anon_decl.finish(
-                final_ty,
-                val,
-            ));
+            return sema.analyzeDeclRef(try anon_decl.finish(final_ty, val));
         }
         return sema.mod.fail(&block.base, lhs_src, "TODO array_mul more types of Values", .{});
     }
@@ -9979,7 +9975,7 @@ fn analyzeRef(
         var anon_decl = try block.startAnonDecl();
         defer anon_decl.deinit();
         return sema.analyzeDeclRef(try anon_decl.finish(
-            operand_ty,
+            try operand_ty.copy(anon_decl.arena()),
             try val.copy(anon_decl.arena()),
         ));
     }
