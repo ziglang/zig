@@ -148,27 +148,43 @@ test "mem.Allocator basics" {
 }
 
 test "Allocator.resize" {
-
-    const primitiveIntTypes = .{i8, u8, i16, u16, i32, u32, i64, u64, i128, u128, isize, usize,};
+    const primitiveIntTypes = .{
+        i8,
+        u8,
+        i16,
+        u16,
+        i32,
+        u32,
+        i64,
+        u64,
+        i128,
+        u128,
+        isize,
+        usize,
+    };
     inline for (primitiveIntTypes) |T| {
-        var values = try testing.allocator.alloc(T,100);
+        var values = try testing.allocator.alloc(T, 100);
         defer testing.allocator.free(values);
-        
-        for (values) |*v,i| v.* = @intCast(T,i);
-        values = try testing.allocator.resize(values,values.len + 10);
-        try testing.expect(values.len==110);
+
+        for (values) |*v, i| v.* = @intCast(T, i);
+        values = try testing.allocator.resize(values, values.len + 10);
+        try testing.expect(values.len == 110);
     }
 
-    const primitiveFloatTypes = .{f16, f32, f64, f128,};
+    const primitiveFloatTypes = .{
+        f16,
+        f32,
+        f64,
+        f128,
+    };
     inline for (primitiveFloatTypes) |T| {
-        var values = try testing.allocator.alloc(T,100);
+        var values = try testing.allocator.alloc(T, 100);
         defer testing.allocator.free(values);
-        
-        for (values) |*v,i| v.* = @intToFloat(T,i);
-        values = try testing.allocator.resize(values,values.len + 10);
-        try testing.expect(values.len==110);
-    }
 
+        for (values) |*v, i| v.* = @intToFloat(T, i);
+        values = try testing.allocator.resize(values, values.len + 10);
+        try testing.expect(values.len == 110);
+    }
 }
 
 /// Copy all of source into dest at position 0.
@@ -2884,7 +2900,7 @@ pub fn alignForwardGeneric(comptime T: type, addr: T, alignment: T) T {
 pub fn doNotOptimizeAway(val: anytype) void {
     asm volatile (""
         :
-        : [val] "rm" (val),
+        : [val] "rm" (val)
         : "memory"
     );
 }
