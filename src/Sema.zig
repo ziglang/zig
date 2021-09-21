@@ -83,6 +83,7 @@ const Decl = Module.Decl;
 const LazySrcLoc = Module.LazySrcLoc;
 const RangeSet = @import("RangeSet.zig");
 const target_util = @import("target.zig");
+const Package = @import("Package.zig");
 
 pub const InstMap = std.AutoHashMapUnmanaged(Zir.Inst.Index, Air.Inst.Ref);
 
@@ -2167,23 +2168,26 @@ fn zirCImport(sema: *Sema, parent_block: *Scope.Block, inst: Zir.Inst.Index) Com
         return sema.mod.fail(&child_block.base, src, "C import failed: {s}", .{@errorName(err)});
 
     if (c_import_res.errors.len != 0) {
-        const msg = try sema.mod.errMsg(&child_block.base, src, "C import failed", .{});
-        errdefer msg.destroy(sema.gpa);
+        const msg = msg: {
+            const msg = try sema.mod.errMsg(&child_block.base, src, "C import failed", .{});
+            errdefer msg.destroy(sema.gpa);
 
-        if (!sema.mod.comp.bin_file.options.link_libc)
-            try sema.mod.errNote(&child_block.base, src, msg, "libc headers not available; compilation does not link against libc", .{});
+            if (!sema.mod.comp.bin_file.options.link_libc)
+                try sema.mod.errNote(&child_block.base, src, msg, "libc headers not available; compilation does not link against libc", .{});
 
-        for (c_import_res.errors) |_| {
-            // TODO integrate with LazySrcLoc
-            // try sema.mod.errNoteNonLazy(.{}, msg, "{s}", .{clang_err.msg_ptr[0..clang_err.msg_len]});
-            // if (clang_err.filename_ptr) |p| p[0..clang_err.filename_len] else "(no file)",
-            // clang_err.line + 1,
-            // clang_err.column + 1,
-        }
-        @import("clang.zig").Stage2ErrorMsg.delete(c_import_res.errors.ptr, c_import_res.errors.len);
+            for (c_import_res.errors) |_| {
+                // TODO integrate with LazySrcLoc
+                // try sema.mod.errNoteNonLazy(.{}, msg, "{s}", .{clang_err.msg_ptr[0..clang_err.msg_len]});
+                // if (clang_err.filename_ptr) |p| p[0..clang_err.filename_len] else "(no file)",
+                // clang_err.line + 1,
+                // clang_err.column + 1,
+            }
+            @import("clang.zig").Stage2ErrorMsg.delete(c_import_res.errors.ptr, c_import_res.errors.len);
+            break :msg msg;
+        };
         return sema.mod.failWithOwnedErrorMsg(&child_block.base, msg);
     }
-    const c_import_pkg = @import("Package.zig").create(
+    const c_import_pkg = Package.create(
         sema.gpa,
         null,
         c_import_res.out_zig_path,
