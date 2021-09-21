@@ -1869,7 +1869,7 @@ fn writeAtoms(self: *MachO) !void {
 pub fn createGotAtom(self: *MachO, key: GotIndirectionKey) !*Atom {
     const local_sym_index = @intCast(u32, self.locals.items.len);
     try self.locals.append(self.base.allocator, .{
-        .n_strx = try self.makeString("l_zld_got_entry"),
+        .n_strx = 0,
         .n_type = macho.N_SECT,
         .n_sect = 0,
         .n_desc = 0,
@@ -1907,7 +1907,7 @@ fn createDyldPrivateAtom(self: *MachO) !void {
     const local_sym_index = @intCast(u32, self.locals.items.len);
     const sym = try self.locals.addOne(self.base.allocator);
     sym.* = .{
-        .n_strx = try self.makeString("l_zld_dyld_private"),
+        .n_strx = 0,
         .n_type = macho.N_SECT,
         .n_sect = 0,
         .n_desc = 0,
@@ -1941,7 +1941,7 @@ fn createStubHelperPreambleAtom(self: *MachO) !void {
     const local_sym_index = @intCast(u32, self.locals.items.len);
     const sym = try self.locals.addOne(self.base.allocator);
     sym.* = .{
-        .n_strx = try self.makeString("l_zld_stub_preamble"),
+        .n_strx = 0,
         .n_type = macho.N_SECT,
         .n_sect = 0,
         .n_desc = 0,
@@ -2083,7 +2083,7 @@ pub fn createStubHelperAtom(self: *MachO) !*Atom {
     };
     const local_sym_index = @intCast(u32, self.locals.items.len);
     try self.locals.append(self.base.allocator, .{
-        .n_strx = try self.makeString("l_zld_stub_in_stub_helper"),
+        .n_strx = 0,
         .n_type = macho.N_SECT,
         .n_sect = 0,
         .n_desc = 0,
@@ -2138,7 +2138,7 @@ pub fn createStubHelperAtom(self: *MachO) !*Atom {
 pub fn createLazyPointerAtom(self: *MachO, stub_sym_index: u32, lazy_binding_sym_index: u32) !*Atom {
     const local_sym_index = @intCast(u32, self.locals.items.len);
     try self.locals.append(self.base.allocator, .{
-        .n_strx = try self.makeString("l_zld_lazy_ptr"),
+        .n_strx = 0,
         .n_type = macho.N_SECT,
         .n_sect = 0,
         .n_desc = 0,
@@ -2179,7 +2179,7 @@ pub fn createStubAtom(self: *MachO, laptr_sym_index: u32) !*Atom {
     };
     const local_sym_index = @intCast(u32, self.locals.items.len);
     try self.locals.append(self.base.allocator, .{
-        .n_strx = try self.makeString("l_zld_stub"),
+        .n_strx = 0,
         .n_type = macho.N_SECT,
         .n_sect = 0,
         .n_desc = 0,
@@ -4741,7 +4741,12 @@ fn writeSymbolTable(self: *MachO) !void {
 
     var locals = std.ArrayList(macho.nlist_64).init(self.base.allocator);
     defer locals.deinit();
-    try locals.appendSlice(self.locals.items);
+
+    for (self.locals.items) |sym| {
+        if (sym.n_strx == 0) continue;
+        if (symbolIsTemp(sym, self.getString(sym.n_strx))) continue;
+        try locals.append(sym);
+    }
 
     if (self.has_stabs) {
         for (self.objects.items) |object| {
