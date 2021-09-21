@@ -11,6 +11,8 @@ test {
     _ = @import("behavior/array.zig");
     _ = @import("behavior/usingnamespace.zig");
     _ = @import("behavior/atomics.zig");
+    _ = @import("behavior/sizeof_and_typeof.zig");
+    _ = @import("behavior/translate_c_macros.zig");
 
     if (builtin.zig_is_stage2) {
         // When all comptime_memory.zig tests pass, #9646 can be closed.
@@ -128,7 +130,7 @@ test {
         _ = @import("behavior/saturating_arithmetic.zig");
         _ = @import("behavior/shuffle.zig");
         _ = @import("behavior/select.zig");
-        _ = @import("behavior/sizeof_and_typeof.zig");
+        _ = @import("behavior/sizeof_and_typeof_stage1.zig");
         _ = @import("behavior/slice.zig");
         _ = @import("behavior/slice_sentinel_comptime.zig");
         _ = @import("behavior/struct.zig");
@@ -157,6 +159,6 @@ test {
         _ = @import("behavior/while.zig");
         _ = @import("behavior/widening.zig");
         _ = @import("behavior/src.zig");
-        _ = @import("behavior/translate_c_macros.zig");
+        _ = @import("behavior/translate_c_macros_stage1.zig");
     }
 }

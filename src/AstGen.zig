@@ -7082,7 +7082,7 @@ fn builtinCall(
         .bit_cast   => return bitCast(  gz, scope, rl, node, params[0], params[1]),
         .TypeOf     => return typeOf(   gz, scope, rl, node, params),
         .union_init => return unionInit(gz, scope, rl, node, params),
-        .c_import   => return cImport(  gz, scope, rl, node, params[0]),
+        .c_import   => return cImport(  gz, scope,     node, params[0]),
 
         .@"export" => {
             const node_tags = tree.nodes.items(.tag);
@@ -7269,6 +7269,7 @@ fn builtinCall(
             return rvalue(gz, rl, result, node);
         },
         .c_define => {
+            if (!gz.c_import) return gz.astgen.failNode(node, "C define valid only inside C import block", .{});
             const name = try comptimeExpr(gz, scope, .{ .ty = .const_slice_u8_type }, params[0]);
             const value = try comptimeExpr(gz, scope, .none, params[1]);
             const result = try gz.addExtendedPayload(.c_define, Zir.Inst.BinNode{
@@ -7641,6 +7642,8 @@ fn simpleCBuiltin(
     operand_node: Ast.Node.Index,
     tag: Zir.Inst.Extended,
 ) InnerError!Zir.Inst.Ref {
+    const name: []const u8 = if (tag == .c_undef) "C undef" else "C include";
+    if (!gz.c_import) return gz.astgen.failNode(node, "{s} valid only inside C import block", .{name});
     const operand = try comptimeExpr(gz, scope, .{ .ty = .const_slice_u8_type }, operand_node);
     _ = try gz.addExtendedPayload(tag, Zir.Inst.UnNode{
         .node = gz.nodeIndexToRelative(node),
@@ -7689,7 +7692,6 @@ fn shiftOp(
 fn cImport(
     gz: *GenZir,
     scope: *Scope,
-    rl: ResultLoc,
     node: Ast.Node.Index,
     body_node: Ast.Node.Index,
 ) InnerError!Zir.Inst.Ref {
@@ -7698,6 +7700,7 @@ fn cImport(
 
     var block_scope = gz.makeSubBlock(scope);
     block_scope.force_comptime = true;
+    block_scope.c_import = true;
     defer block_scope.instructions.deinit(gpa);
 
     const block_inst = try gz.addBlock(.c_import, node);
@@ -7708,7 +7711,7 @@ fn cImport(
     try block_scope.setBlockBody(block_inst);
     try gz.instructions.append(gpa, block_inst);
 
-    return rvalue(gz, rl, .void_value, node);
+    return indexToRef(block_inst);
 }
 
 fn overflowArithmetic(
@@ -9025,6 +9028,7 @@ const GenZir = struct {
     base: Scope = Scope{ .tag = base_tag },
     force_comptime: bool,
     in_defer: bool,
+    c_import: bool = false,
     /// How decls created in this scope should be named.
     anon_name_strategy: Zir.Inst.NameStrategy = .anon,
     /// The containing decl AST node.
@@ -9070,6 +9074,7 @@ const GenZir = struct {
         return .{
             .force_comptime = gz.force_comptime,
             .in_defer = gz.in_defer,
+            .c_import = gz.c_import,
             .decl_node_index = gz.decl_node_index,
             .decl_line = gz.decl_line,
             .parent = scope,

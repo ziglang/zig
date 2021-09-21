@@ -602,8 +602,8 @@ pub const Type = extern union {
                 }
                 return false;
             },
+            .Float => return a.tag() == b.tag(),
             .Opaque,
-            .Float,
             .BoundFn,
             .Frame,
             => std.debug.panic("TODO implement Type equality comparison of {} and {}", .{ a, b }),
