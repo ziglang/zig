@@ -20,6 +20,14 @@ const Allocator = std.mem.Allocator;
 const log = std.log.scoped(.link);
 const assert = std.debug.assert;
 
+const FnDeclOutput = struct {
+    code: []const u8,
+    /// this might have to be modified in the linker, so thats why its mutable
+    lineinfo: []u8,
+    start_line: u32,
+    end_line: u32,
+};
+
 base: link.File,
 sixtyfour_bit: bool,
 error_flags: File.ErrorFlags = File.ErrorFlags{},
@@ -27,16 +35,45 @@ bases: Bases,
 
 /// A symbol's value is just casted down when compiling
 /// for a 32 bit target.
+/// Does not represent the order or amount of symbols in the file
+/// it is just useful for storing symbols. Some other symbols are in
+/// file_segments.
 syms: std.ArrayListUnmanaged(aout.Sym) = .{},
 
-fn_decl_table: std.AutoArrayHashMapUnmanaged(*Module.Decl, []const u8) = .{},
+/// The plan9 a.out format requires segments of
+/// filenames to be deduplicated, so we use this map to
+/// de duplicate it. The value is the value of the path
+/// component
+file_segments: std.StringArrayHashMapUnmanaged(u16) = .{},
+/// The value of a 'f' symbol increments by 1 every time, so that no 2 'f'
+/// symbols have the same value.
+file_segments_i: u16 = 1,
+
+path_arena: std.heap.ArenaAllocator,
+
+/// maps a file scope to a hash map of decl to codegen output
+/// this is useful for line debuginfo, since it makes sense to sort by file
+/// The debugger looks for the first file (aout.Sym.Type.z) preceeding the text symbol
+/// of the function to know what file it came from.
+/// If we group the decls by file, it makes it really easy to do this (put the symbol in the correct place)
+fn_decl_table: std.AutoArrayHashMapUnmanaged(
+    *Module.Scope.File,
+    struct { sym_index: u32, functions: std.AutoArrayHashMapUnmanaged(*Module.Decl, FnDeclOutput) = .{} },
+) = .{},
 data_decl_table: std.AutoArrayHashMapUnmanaged(*Module.Decl, []const u8) = .{},
 
 hdr: aout.ExecHdr = undefined,
 
+magic: u32,
+
 entry_val: ?u64 = null,
 
 got_len: usize = 0,
+// A list of all the free got indexes, so when making a new decl
+// don't make a new one, just use one from here.
+got_index_free_list: std.ArrayListUnmanaged(u64) = .{},
+
+syms_index_free_list: std.ArrayListUnmanaged(u64) = .{},
 
 const Bases = struct {
     text: u64,
@@ -103,8 +140,12 @@ pub fn createEmpty(gpa: *Allocator, options: link.Options) !*Plan9 {
         33...64 => true,
         else => return error.UnsupportedP9Architecture,
     };
+
+    var arena_allocator = std.heap.ArenaAllocator.init(gpa);
+
     const self = try gpa.create(Plan9);
     self.* = .{
+        .path_arena = arena_allocator,
         .base = .{
             .tag = .plan9,
             .options = options,
@@ -113,8 +154,66 @@ pub fn createEmpty(gpa: *Allocator, options: link.Options) !*Plan9 {
         },
         .sixtyfour_bit = sixtyfour_bit,
         .bases = undefined,
+        .magic = try aout.magicFromArch(self.base.options.target.cpu.arch),
     };
+    // a / will always be in a file path
+    try self.file_segments.put(self.base.allocator, "/", 1);
     return self;
+}
+
+fn putFn(self: *Plan9, decl: *Module.Decl, out: FnDeclOutput) !void {
+    const gpa = self.base.allocator;
+    const fn_map_res = try self.fn_decl_table.getOrPut(gpa, decl.namespace.file_scope);
+    if (fn_map_res.found_existing) {
+        try fn_map_res.value_ptr.functions.put(gpa, decl, out);
+    } else {
+        const file = decl.namespace.file_scope;
+        const arena = &self.path_arena.allocator;
+        // each file gets a symbol
+        fn_map_res.value_ptr.* = .{
+            .sym_index = blk: {
+                try self.syms.append(gpa, undefined);
+                break :blk @intCast(u32, self.syms.items.len - 1);
+            },
+        };
+        try fn_map_res.value_ptr.functions.put(gpa, decl, out);
+
+        var a = std.ArrayList(u8).init(arena);
+        errdefer a.deinit();
+        // every 'z' starts with 0
+        try a.append(0);
+        // path component value of '/'
+        try a.writer().writeIntBig(u16, 1);
+
+        // getting the full file path
+        var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+        const dir = file.pkg.root_src_directory.path orelse try std.os.getcwd(&buf);
+        const sub_path = try std.fs.path.join(arena, &.{ dir, file.sub_file_path });
+        try self.addPathComponents(sub_path, &a);
+
+        // null terminate
+        try a.append(0);
+        const final = a.toOwnedSlice();
+        self.syms.items[fn_map_res.value_ptr.sym_index] = .{
+            .type = .z,
+            .value = 1,
+            .name = final,
+        };
+    }
+}
+
+fn addPathComponents(self: *Plan9, path: []const u8, a: *std.ArrayList(u8)) !void {
+    const sep = std.fs.path.sep;
+    var it = std.mem.tokenize(u8, path, &.{sep});
+    while (it.next()) |component| {
+        if (self.file_segments.get(component)) |num| {
+            try a.writer().writeIntBig(u16, num);
+        } else {
+            self.file_segments_i += 1;
+            try self.file_segments.put(self.base.allocator, component, self.file_segments_i);
+            try a.writer().writeIntBig(u16, self.file_segments_i);
+        }
+    }
 }
 
 pub fn updateFunc(self: *Plan9, module: *Module, func: *Module.Fn, air: Air, liveness: Liveness) !void {
@@ -123,11 +222,34 @@ pub fn updateFunc(self: *Plan9, module: *Module, func: *Module.Fn, air: Air, liv
     }
 
     const decl = func.owner_decl;
+
+    try self.seeDecl(decl);
     log.debug("codegen decl {*} ({s})", .{ decl, decl.name });
 
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
-    const res = try codegen.generateFunction(&self.base, decl.srcLoc(), func, air, liveness, &code_buffer, .{ .none = .{} });
+    var dbg_line_buffer = std.ArrayList(u8).init(self.base.allocator);
+    defer dbg_line_buffer.deinit();
+    var start_line: ?u32 = null;
+    var end_line: u32 = undefined;
+    var pcop_change_index: ?u32 = null;
+
+    const res = try codegen.generateFunction(
+        &self.base,
+        decl.srcLoc(),
+        func,
+        air,
+        liveness,
+        &code_buffer,
+        .{
+            .plan9 = .{
+                .dbg_line = &dbg_line_buffer,
+                .end_line = &end_line,
+                .start_line = &start_line,
+                .pcop_change_index = &pcop_change_index,
+            },
+        },
+    );
     const code = switch (res) {
         .appended => code_buffer.toOwnedSlice(),
         .fail => |em| {
@@ -136,7 +258,13 @@ pub fn updateFunc(self: *Plan9, module: *Module, func: *Module.Fn, air: Air, liv
             return;
         },
     };
-    try self.fn_decl_table.put(self.base.allocator, decl, code);
+    const out: FnDeclOutput = .{
+        .code = code,
+        .lineinfo = dbg_line_buffer.toOwnedSlice(),
+        .start_line = start_line.?,
+        .end_line = end_line,
+    };
+    try self.putFn(decl, out);
     return self.updateFinish(decl);
 }
 
@@ -150,6 +278,8 @@ pub fn updateDecl(self: *Plan9, module: *Module, decl: *Module.Decl) !void {
             return; // TODO Should we do more when front-end analyzed extern decl?
         }
     }
+
+    try self.seeDecl(decl);
 
     log.debug("codegen decl {*} ({s})", .{ decl, decl.name });
 
@@ -192,8 +322,12 @@ fn updateFinish(self: *Plan9, decl: *Module.Decl) !void {
     if (decl.link.plan9.sym_index) |s| {
         self.syms.items[s] = sym;
     } else {
-        try self.syms.append(self.base.allocator, sym);
-        decl.link.plan9.sym_index = self.syms.items.len - 1;
+        if (self.syms_index_free_list.popOrNull()) |i| {
+            decl.link.plan9.sym_index = i;
+        } else {
+            try self.syms.append(self.base.allocator, sym);
+            decl.link.plan9.sym_index = self.syms.items.len - 1;
+        }
     }
 }
 
@@ -207,6 +341,30 @@ pub fn flush(self: *Plan9, comp: *Compilation) !void {
         .Lib => return error.TODOImplementWritingLibFiles,
     }
     return self.flushModule(comp);
+}
+
+pub fn changeLine(l: *std.ArrayList(u8), delta_line: i32) !void {
+    if (delta_line > 0 and delta_line < 65) {
+        const toappend = @intCast(u8, delta_line);
+        try l.append(toappend);
+    } else if (delta_line < 0 and delta_line > -65) {
+        const toadd: u8 = @intCast(u8, -delta_line + 64);
+        try l.append(toadd);
+    } else if (delta_line != 0) {
+        try l.append(0);
+        try l.writer().writeIntBig(i32, delta_line);
+    }
+}
+
+fn declCount(self: *Plan9) u64 {
+    var fn_decl_count: u64 = 0;
+    var itf_files = self.fn_decl_table.iterator();
+    while (itf_files.next()) |ent| {
+        // get the submap
+        var submap = ent.value_ptr.functions;
+        fn_decl_count += submap.count();
+    }
+    return self.data_decl_table.count() + fn_decl_count;
 }
 
 pub fn flushModule(self: *Plan9, comp: *Compilation) !void {
@@ -224,15 +382,13 @@ pub fn flushModule(self: *Plan9, comp: *Compilation) !void {
 
     const mod = self.base.options.module orelse return error.LinkingWithoutZigSourceUnimplemented;
 
-    // TODO I changed this assert from == to >= but this code all needs to be audited; see
-    // the comment in `freeDecl`.
-    assert(self.got_len >= self.fn_decl_table.count() + self.data_decl_table.count());
+    assert(self.got_len == self.declCount() + self.got_index_free_list.items.len);
     const got_size = self.got_len * if (!self.sixtyfour_bit) @as(u32, 4) else 8;
     var got_table = try self.base.allocator.alloc(u8, got_size);
     defer self.base.allocator.free(got_table);
 
-    // + 2 for header, got, symbols
-    var iovecs = try self.base.allocator.alloc(std.os.iovec_const, self.fn_decl_table.count() + self.data_decl_table.count() + 3);
+    // + 4 for header, got, symbols, linecountinfo
+    var iovecs = try self.base.allocator.alloc(std.os.iovec_const, self.declCount() + 4);
     defer self.base.allocator.free(iovecs);
 
     const file = self.base.file.?;
@@ -245,29 +401,51 @@ pub fn flushModule(self: *Plan9, comp: *Compilation) !void {
     iovecs[0] = .{ .iov_base = hdr_slice.ptr, .iov_len = hdr_slice.len };
     var iovecs_i: usize = 1;
     var text_i: u64 = 0;
+
+    var linecountinfo = std.ArrayList(u8).init(self.base.allocator);
+    defer linecountinfo.deinit();
     // text
     {
-        var it = self.fn_decl_table.iterator();
-        while (it.next()) |entry| {
-            const decl = entry.key_ptr.*;
-            const code = entry.value_ptr.*;
-            log.debug("write text decl {*} ({s})", .{ decl, decl.name });
-            foff += code.len;
-            iovecs[iovecs_i] = .{ .iov_base = code.ptr, .iov_len = code.len };
-            iovecs_i += 1;
-            const off = self.getAddr(text_i, .t);
-            text_i += code.len;
-            decl.link.plan9.offset = off;
-            if (!self.sixtyfour_bit) {
-                mem.writeIntNative(u32, got_table[decl.link.plan9.got_index.? * 4 ..][0..4], @intCast(u32, off));
-                mem.writeInt(u32, got_table[decl.link.plan9.got_index.? * 4 ..][0..4], @intCast(u32, off), self.base.options.target.cpu.arch.endian());
-            } else {
-                mem.writeInt(u64, got_table[decl.link.plan9.got_index.? * 8 ..][0..8], off, self.base.options.target.cpu.arch.endian());
+        var linecount: u32 = 0;
+        var it_file = self.fn_decl_table.iterator();
+        while (it_file.next()) |fentry| {
+            var it = fentry.value_ptr.functions.iterator();
+            while (it.next()) |entry| {
+                const decl = entry.key_ptr.*;
+                const out = entry.value_ptr.*;
+                log.debug("write text decl {*} ({s}), lines {d} to {d}", .{ decl, decl.name, out.start_line, out.end_line });
+                {
+                    // connect the previous decl to the next
+                    const delta_line = @intCast(i32, out.start_line) - @intCast(i32, linecount);
+
+                    try changeLine(&linecountinfo, delta_line);
+                    // TODO change the pc too (maybe?)
+
+                    // write out the actual info that was generated in codegen now
+                    try linecountinfo.appendSlice(out.lineinfo);
+                    linecount = out.end_line;
+                }
+                foff += out.code.len;
+                iovecs[iovecs_i] = .{ .iov_base = out.code.ptr, .iov_len = out.code.len };
+                iovecs_i += 1;
+                const off = self.getAddr(text_i, .t);
+                text_i += out.code.len;
+                decl.link.plan9.offset = off;
+                if (!self.sixtyfour_bit) {
+                    mem.writeIntNative(u32, got_table[decl.link.plan9.got_index.? * 4 ..][0..4], @intCast(u32, off));
+                    mem.writeInt(u32, got_table[decl.link.plan9.got_index.? * 4 ..][0..4], @intCast(u32, off), self.base.options.target.cpu.arch.endian());
+                } else {
+                    mem.writeInt(u64, got_table[decl.link.plan9.got_index.? * 8 ..][0..8], off, self.base.options.target.cpu.arch.endian());
+                }
+                self.syms.items[decl.link.plan9.sym_index.?].value = off;
+                if (mod.decl_exports.get(decl)) |exports| {
+                    try self.addDeclExports(mod, decl, exports);
+                }
             }
-            self.syms.items[decl.link.plan9.sym_index.?].value = off;
-            if (mod.decl_exports.get(decl)) |exports| {
-                try self.addDeclExports(mod, decl, exports);
-            }
+        }
+        if (linecountinfo.items.len & 1 == 1) {
+            // just a nop to make it even, the plan9 linker does this
+            try linecountinfo.append(129);
         }
         // etext symbol
         self.syms.items[2].value = self.getAddr(text_i, .t);
@@ -306,20 +484,23 @@ pub fn flushModule(self: *Plan9, comp: *Compilation) !void {
     // edata
     self.syms.items[1].value = self.getAddr(0x0, .b);
     var sym_buf = std.ArrayList(u8).init(self.base.allocator);
-    defer sym_buf.deinit();
     try self.writeSyms(&sym_buf);
-    assert(2 + self.fn_decl_table.count() + self.data_decl_table.count() == iovecs_i); // we didn't write all the decls
-    iovecs[iovecs_i] = .{ .iov_base = sym_buf.items.ptr, .iov_len = sym_buf.items.len };
+    const syms = sym_buf.toOwnedSlice();
+    defer self.base.allocator.free(syms);
+    assert(2 + self.declCount() == iovecs_i); // we didn't write all the decls
+    iovecs[iovecs_i] = .{ .iov_base = syms.ptr, .iov_len = syms.len };
+    iovecs_i += 1;
+    iovecs[iovecs_i] = .{ .iov_base = linecountinfo.items.ptr, .iov_len = linecountinfo.items.len };
     iovecs_i += 1;
     // generate the header
     self.hdr = .{
-        .magic = try aout.magicFromArch(self.base.options.target.cpu.arch),
+        .magic = self.magic,
         .text = @intCast(u32, text_i),
         .data = @intCast(u32, data_i),
-        .syms = @intCast(u32, sym_buf.items.len),
+        .syms = @intCast(u32, syms.len),
         .bss = 0,
-        .pcsz = 0,
         .spsz = 0,
+        .pcsz = @intCast(u32, linecountinfo.items.len),
         .entry = @intCast(u32, self.entry_val.?),
     };
     std.mem.copy(u8, hdr_slice, self.hdr.toU8s()[0..hdr_size]);
@@ -360,17 +541,42 @@ fn addDeclExports(
 }
 
 pub fn freeDecl(self: *Plan9, decl: *Module.Decl) void {
-    // TODO this is not the correct check for being function body,
-    // it could just be a function pointer.
     // TODO audit the lifetimes of decls table entries. It's possible to get
     // allocateDeclIndexes and then freeDecl without any updateDecl in between.
     // However that is planned to change, see the TODO comment in Module.zig
     // in the deleteUnusedDecl function.
-    const is_fn = (decl.ty.zigTypeTag() == .Fn);
+    const is_fn = (decl.val.tag() == .function);
     if (is_fn) {
-        _ = self.fn_decl_table.swapRemove(decl);
+        var symidx_and_submap =
+            self.fn_decl_table.get(decl.namespace.file_scope).?;
+        var submap = symidx_and_submap.functions;
+        _ = submap.swapRemove(decl);
+        if (submap.count() == 0) {
+            self.syms.items[symidx_and_submap.sym_index] = aout.Sym.undefined_symbol;
+            self.syms_index_free_list.append(self.base.allocator, symidx_and_submap.sym_index) catch {};
+            submap.deinit(self.base.allocator);
+        }
     } else {
         _ = self.data_decl_table.swapRemove(decl);
+    }
+    if (decl.link.plan9.got_index) |i| {
+        // TODO: if this catch {} is triggered, an assertion in flushModule will be triggered, because got_index_free_list will have the wrong length
+        self.got_index_free_list.append(self.base.allocator, i) catch {};
+    }
+    if (decl.link.plan9.sym_index) |i| {
+        self.syms_index_free_list.append(self.base.allocator, i) catch {};
+        self.syms.items[i] = aout.Sym.undefined_symbol;
+    }
+}
+
+pub fn seeDecl(self: *Plan9, decl: *Module.Decl) !void {
+    if (decl.link.plan9.got_index == null) {
+        if (self.got_index_free_list.popOrNull()) |i| {
+            decl.link.plan9.got_index = i;
+        } else {
+            self.got_len += 1;
+            decl.link.plan9.got_index = self.got_len - 1;
+        }
     }
 }
 
@@ -380,6 +586,7 @@ pub fn updateDeclExports(
     decl: *Module.Decl,
     exports: []const *Module.Export,
 ) !void {
+    try self.seeDecl(decl);
     // we do all the things in flush
     _ = self;
     _ = module;
@@ -387,17 +594,29 @@ pub fn updateDeclExports(
     _ = exports;
 }
 pub fn deinit(self: *Plan9) void {
-    var itf = self.fn_decl_table.iterator();
-    while (itf.next()) |entry| {
-        self.base.allocator.free(entry.value_ptr.*);
+    const gpa = self.base.allocator;
+    var itf_files = self.fn_decl_table.iterator();
+    while (itf_files.next()) |ent| {
+        // get the submap
+        var submap = ent.value_ptr.functions;
+        defer submap.deinit(gpa);
+        var itf = submap.iterator();
+        while (itf.next()) |entry| {
+            gpa.free(entry.value_ptr.code);
+            gpa.free(entry.value_ptr.lineinfo);
+        }
     }
-    self.fn_decl_table.deinit(self.base.allocator);
+    self.fn_decl_table.deinit(gpa);
     var itd = self.data_decl_table.iterator();
     while (itd.next()) |entry| {
-        self.base.allocator.free(entry.value_ptr.*);
+        gpa.free(entry.value_ptr.*);
     }
-    self.data_decl_table.deinit(self.base.allocator);
-    self.syms.deinit(self.base.allocator);
+    self.data_decl_table.deinit(gpa);
+    self.syms.deinit(gpa);
+    self.got_index_free_list.deinit(gpa);
+    self.syms_index_free_list.deinit(gpa);
+    self.file_segments.deinit(gpa);
+    self.path_arena.deinit();
 }
 
 pub const Export = ?usize;
@@ -407,7 +626,6 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
         return error.LLVMBackendDoesNotSupportPlan9;
     assert(options.object_format == .plan9);
     const file = try options.emit.?.directory.handle.createFile(sub_path, .{
-        .truncate = false,
         .read = true,
         .mode = link.determineMode(options),
     });
@@ -441,27 +659,77 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
     return self;
 }
 
+pub fn writeSym(self: *Plan9, w: anytype, sym: aout.Sym) !void {
+    log.debug("write sym.name: {s}", .{sym.name});
+    log.debug("write sym.value: {x}", .{sym.value});
+    if (sym.type == .bad) return; // we don't want to write free'd symbols
+    if (!self.sixtyfour_bit) {
+        try w.writeIntBig(u32, @intCast(u32, sym.value));
+    } else {
+        try w.writeIntBig(u64, sym.value);
+    }
+    try w.writeByte(@enumToInt(sym.type));
+    try w.writeAll(sym.name);
+    try w.writeByte(0);
+}
 pub fn writeSyms(self: *Plan9, buf: *std.ArrayList(u8)) !void {
     const writer = buf.writer();
-    for (self.syms.items) |sym| {
-        log.debug("sym.name: {s}", .{sym.name});
-        log.debug("sym.value: {x}", .{sym.value});
-        if (mem.eql(u8, sym.name, "_start"))
-            self.entry_val = sym.value;
-        if (!self.sixtyfour_bit) {
-            try writer.writeIntBig(u32, @intCast(u32, sym.value));
-        } else {
-            try writer.writeIntBig(u64, sym.value);
+    // write the f symbols
+    {
+        var it = self.file_segments.iterator();
+        while (it.next()) |entry| {
+            try self.writeSym(writer, .{
+                .type = .f,
+                .value = entry.value_ptr.*,
+                .name = entry.key_ptr.*,
+            });
         }
-        try writer.writeByte(@enumToInt(sym.type));
-        try writer.writeAll(sym.name);
-        try writer.writeByte(0);
+    }
+    // write the data symbols
+    {
+        var it = self.data_decl_table.iterator();
+        while (it.next()) |entry| {
+            const decl = entry.key_ptr.*;
+            const sym = self.syms.items[decl.link.plan9.sym_index.?];
+            try self.writeSym(writer, sym);
+            if (self.base.options.module.?.decl_exports.get(decl)) |exports| {
+                for (exports) |e| {
+                    try self.writeSym(writer, self.syms.items[e.link.plan9.?]);
+                }
+            }
+        }
+    }
+    // text symbols are the hardest:
+    // the file of a text symbol is the .z symbol before it
+    // so we have to write everything in the right order
+    {
+        var it_file = self.fn_decl_table.iterator();
+        while (it_file.next()) |fentry| {
+            var symidx_and_submap = fentry.value_ptr;
+            // write the z symbol
+            try self.writeSym(writer, self.syms.items[symidx_and_submap.sym_index]);
+
+            // write all the decls come from the file of the z symbol
+            var submap_it = symidx_and_submap.functions.iterator();
+            while (submap_it.next()) |entry| {
+                const decl = entry.key_ptr.*;
+                const sym = self.syms.items[decl.link.plan9.sym_index.?];
+                try self.writeSym(writer, sym);
+                if (self.base.options.module.?.decl_exports.get(decl)) |exports| {
+                    for (exports) |e| {
+                        const s = self.syms.items[e.link.plan9.?];
+                        if (mem.eql(u8, s.name, "_start"))
+                            self.entry_val = s.value;
+                        try self.writeSym(writer, s);
+                    }
+                }
+            }
+        }
     }
 }
 
+/// this will be removed, moved to updateFinish
 pub fn allocateDeclIndexes(self: *Plan9, decl: *Module.Decl) !void {
-    if (decl.link.plan9.got_index == null) {
-        self.got_len += 1;
-        decl.link.plan9.got_index = self.got_len - 1;
-    }
+    _ = self;
+    _ = decl;
 }

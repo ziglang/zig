@@ -48,6 +48,28 @@ pub const DebugInfoOutput = union(enum) {
         dbg_info: *std.ArrayList(u8),
         dbg_info_type_relocs: *link.File.DbgInfoTypeRelocsTable,
     },
+    /// the plan9 debuginfo output is a bytecode with 4 opcodes
+    /// assume all numbers/variables are bytes
+    /// 0 w x y z -> interpret w x y z as a big-endian i32, and add it to the line offset
+    /// x when x < 65 -> add x to line offset
+    /// x when x < 129 -> subtract 64 from x and subtract it from the line offset
+    /// x -> subtract 129 from x, multiply it by the quanta of the instruction size
+    /// (1 on x86_64), and add it to the pc
+    /// after every opcode, add the quanta of the instruction size to the pc
+    plan9: struct {
+        /// the actual opcodes
+        dbg_line: *std.ArrayList(u8),
+        /// what line the debuginfo starts on
+        /// this helps because the linker might have to insert some opcodes to make sure that the line count starts at the right amount for the next decl
+        start_line: *?u32,
+        /// what the line count ends on after codegen
+        /// this helps because the linker might have to insert some opcodes to make sure that the line count starts at the right amount for the next decl
+        end_line: *u32,
+        /// the last pc change op
+        /// This is very useful for adding quanta
+        /// to it if its not actually the last one.
+        pcop_change_index: *?u32,
+    },
     none,
 };
 
@@ -915,6 +937,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     try dbg_out.dbg_line.append(DW.LNS.set_prologue_end);
                     try self.dbgAdvancePCAndLine(self.prev_di_line, self.prev_di_column);
                 },
+                .plan9 => {},
                 .none => {},
             }
         }
@@ -925,15 +948,16 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     try dbg_out.dbg_line.append(DW.LNS.set_epilogue_begin);
                     try self.dbgAdvancePCAndLine(self.prev_di_line, self.prev_di_column);
                 },
+                .plan9 => {},
                 .none => {},
             }
         }
 
         fn dbgAdvancePCAndLine(self: *Self, line: u32, column: u32) InnerError!void {
+            const delta_line = @intCast(i32, line) - @intCast(i32, self.prev_di_line);
+            const delta_pc: usize = self.code.items.len - self.prev_di_pc;
             switch (self.debug_output) {
                 .dwarf => |dbg_out| {
-                    const delta_line = @intCast(i32, line) - @intCast(i32, self.prev_di_line);
-                    const delta_pc = self.code.items.len - self.prev_di_pc;
                     // TODO Look into using the DWARF special opcodes to compress this data.
                     // It lets you emit single-byte opcodes that add different numbers to
                     // both the PC and the line number at the same time.
@@ -945,12 +969,39 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         leb128.writeILEB128(dbg_out.dbg_line.writer(), delta_line) catch unreachable;
                     }
                     dbg_out.dbg_line.appendAssumeCapacity(DW.LNS.copy);
+                    self.prev_di_pc = self.code.items.len;
+                    self.prev_di_line = line;
+                    self.prev_di_column = column;
+                    self.prev_di_pc = self.code.items.len;
+                },
+                .plan9 => |dbg_out| {
+                    if (delta_pc <= 0) return; // only do this when the pc changes
+                    // we have already checked the target in the linker to make sure it is compatable
+                    const quant = @import("link/Plan9/aout.zig").getPCQuant(self.target.cpu.arch) catch unreachable;
+
+                    // increasing the line number
+                    try @import("link/Plan9.zig").changeLine(dbg_out.dbg_line, delta_line);
+                    // increasing the pc
+                    const d_pc_p9 = @intCast(i64, delta_pc) - quant;
+                    if (d_pc_p9 > 0) {
+                        // minus one becaue if its the last one, we want to leave space to change the line which is one quanta
+                        try dbg_out.dbg_line.append(@intCast(u8, @divExact(d_pc_p9, quant) + 128) - quant);
+                        if (dbg_out.pcop_change_index.*) |pci|
+                            dbg_out.dbg_line.items[pci] += 1;
+                        dbg_out.pcop_change_index.* = @intCast(u32, dbg_out.dbg_line.items.len - 1);
+                    } else if (d_pc_p9 == 0) {
+                        // we don't need to do anything, because adding the quant does it for us
+                    } else unreachable;
+                    if (dbg_out.start_line.* == null)
+                        dbg_out.start_line.* = self.prev_di_line;
+                    dbg_out.end_line.* = line;
+                    // only do this if the pc changed
+                    self.prev_di_line = line;
+                    self.prev_di_column = column;
+                    self.prev_di_pc = self.code.items.len;
                 },
                 .none => {},
             }
-            self.prev_di_line = line;
-            self.prev_di_column = column;
-            self.prev_di_pc = self.code.items.len;
         }
 
         /// Asserts there is already capacity to insert into top branch inst_table.
@@ -1034,6 +1085,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     }
                     try gop.value_ptr.relocs.append(self.gpa, @intCast(u32, index));
                 },
+                .plan9 => {},
                 .none => {},
             }
         }
@@ -2459,6 +2511,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             try self.addDbgInfoTypeReloc(ty); // DW.AT.type,  DW.FORM.ref4
                             dbg_out.dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT.name, DW.FORM.string
                         },
+                        .plan9 => {},
                         .none => {},
                     }
                 },
@@ -2493,6 +2546,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 else => {},
                             }
                         },
+                        .plan9 => {},
                         .none => {},
                     }
                 },
@@ -2929,6 +2983,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         }
                         if (self.air.value(callee)) |func_value| {
                             if (func_value.castTag(.function)) |func_payload| {
+                                try p9.seeDecl(func_payload.data.owner_decl);
                                 const ptr_bits = self.target.cpu.arch.ptrBitWidth();
                                 const ptr_bytes: u64 = @divExact(ptr_bits, 8);
                                 const got_addr = p9.bases.data;
@@ -2976,6 +3031,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         }
                         if (self.air.value(callee)) |func_value| {
                             if (func_value.castTag(.function)) |func_payload| {
+                                try p9.seeDecl(func_payload.data.owner_decl);
                                 const ptr_bits = self.target.cpu.arch.ptrBitWidth();
                                 const ptr_bytes: u64 = @divExact(ptr_bits, 8);
                                 const got_addr = p9.bases.data;
@@ -4923,6 +4979,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 const got_addr = coff_file.offset_table_virtual_address + decl.link.coff.offset_table_index * ptr_bytes;
                                 return MCValue{ .memory = got_addr };
                             } else if (self.bin_file.cast(link.File.Plan9)) |p9| {
+                                try p9.seeDecl(decl);
                                 const got_addr = p9.bases.data + decl.link.plan9.got_index.? * ptr_bytes;
                                 return MCValue{ .memory = got_addr };
                             } else {

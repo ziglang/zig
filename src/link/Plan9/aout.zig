@@ -34,6 +34,12 @@ pub const Sym = struct {
     type: Type,
     name: []const u8,
 
+    pub const undefined_symbol: Sym = .{
+        .value = undefined,
+        .type = .bad,
+        .name = "undefined_symbol",
+    };
+
     /// The type field is one of the following characters with the
     /// high bit set:
     /// T    text segment symbol
@@ -65,6 +71,8 @@ pub const Sym = struct {
         z = 0x80 | 'z',
         Z = 0x80 | 'Z',
         m = 0x80 | 'm',
+        /// represents an undefined symbol, to be removed in flush
+        bad = 0,
 
         pub fn toGlobal(self: Type) Type {
             return switch (self) {
@@ -109,6 +117,15 @@ pub fn magicFromArch(arch: std.Target.Cpu.Arch) !u32 {
         .powerpc => Q_MAGIC,
         .powerpc64 => T_MAGIC,
         .x86_64 => S_MAGIC,
+        else => error.ArchNotSupportedByPlan9,
+    };
+}
+
+/// gets the quantization of pc for the arch
+pub fn getPCQuant(arch: std.Target.Cpu.Arch) !u8 {
+    return switch (arch) {
+        .i386, .x86_64 => 1,
+        .powerpc, .powerpc64, .mips, .sparc, .arm, .aarch64 => 4,
         else => error.ArchNotSupportedByPlan9,
     };
 }
