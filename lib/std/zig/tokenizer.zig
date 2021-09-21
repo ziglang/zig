@@ -772,6 +772,10 @@ pub const Tokenizer = struct {
                 },
 
                 .char_literal_unicode_escape_saw_u => switch (c) {
+                    0 => {
+                        result.tag = .invalid;
+                        break;
+                    },
                     '{' => {
                         state = .char_literal_unicode_escape;
                     },
@@ -782,6 +786,10 @@ pub const Tokenizer = struct {
                 },
 
                 .char_literal_unicode_escape => switch (c) {
+                    0 => {
+                        result.tag = .invalid;
+                        break;
+                    },
                     '0'...'9', 'a'...'f', 'A'...'F' => {},
                     '}' => {
                         state = .char_literal_end; // too many/few digits handled later
@@ -1922,8 +1930,10 @@ test "tokenizer - invalid builtin identifiers" {
     try testTokenize("@0()", &.{ .invalid, .integer_literal, .l_paren, .r_paren });
 }
 
-test "tokenizer - backslash before eof in string literal" {
+test "tokenizer - invalid token with unfinished escape right before eof" {
     try testTokenize("\"\\", &.{.invalid});
+    try testTokenize("'\\", &.{.invalid});
+    try testTokenize("'\\u", &.{.invalid});
 }
 
 fn testTokenize(source: [:0]const u8, expected_tokens: []const Token.Tag) !void {
