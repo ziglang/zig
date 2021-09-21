@@ -4085,6 +4085,70 @@ fn findFreeSpace(self: MachO, segment_id: u16, alignment: u64, start: ?u64) u64 
     return mem.alignForwardGeneric(u64, final_off, alignment);
 }
 
+fn growSegment(self: *MachO, seg_id: u16, new_size: u64) !void {
+    const seg = &self.load_commands.items[seg_id].Segment;
+    const new_seg_size = mem.alignForwardGeneric(u64, new_size, self.page_size);
+    assert(new_seg_size > seg.inner.filesize);
+    const offset_amt = new_seg_size - seg.inner.filesize;
+    log.debug("growing segment {s} from 0x{x} to 0x{x}", .{ seg.inner.segname, seg.inner.filesize, new_seg_size });
+    seg.inner.filesize = new_seg_size;
+    seg.inner.vmsize = new_seg_size;
+
+    log.debug("  (new segment file offsets from 0x{x} to 0x{x} (in memory 0x{x} to 0x{x}))", .{
+        seg.inner.fileoff,
+        seg.inner.fileoff + seg.inner.filesize,
+        seg.inner.vmaddr,
+        seg.inner.vmaddr + seg.inner.vmsize,
+    });
+
+    // TODO We should probably nop the expanded by distance, or put 0s.
+
+    // TODO copyRangeAll doesn't automatically extend the file on macOS.
+    const ledit_seg = &self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
+    const new_filesize = offset_amt + ledit_seg.inner.fileoff + ledit_seg.inner.filesize;
+    try self.base.file.?.pwriteAll(&[_]u8{0}, new_filesize - 1);
+
+    var next: usize = seg_id + 1;
+    while (next < self.linkedit_segment_cmd_index.? + 1) : (next += 1) {
+        const next_seg = &self.load_commands.items[next].Segment;
+        _ = try self.base.file.?.copyRangeAll(
+            next_seg.inner.fileoff,
+            self.base.file.?,
+            next_seg.inner.fileoff + offset_amt,
+            next_seg.inner.filesize,
+        );
+        next_seg.inner.fileoff += offset_amt;
+        next_seg.inner.vmaddr += offset_amt;
+
+        log.debug("  (new {s} segment file offsets from 0x{x} to 0x{x} (in memory 0x{x} to 0x{x}))", .{
+            next_seg.inner.segname,
+            next_seg.inner.fileoff,
+            next_seg.inner.fileoff + next_seg.inner.filesize,
+            next_seg.inner.vmaddr,
+            next_seg.inner.vmaddr + next_seg.inner.vmsize,
+        });
+
+        for (next_seg.sections.items) |*moved_sect, moved_sect_id| {
+            moved_sect.offset += @intCast(u32, offset_amt);
+            moved_sect.addr += offset_amt;
+
+            log.debug("  (new {s},{s} file offsets from 0x{x} to 0x{x} (in memory 0x{x} to 0x{x}))", .{
+                commands.segmentName(moved_sect.*),
+                commands.sectionName(moved_sect.*),
+                moved_sect.offset,
+                moved_sect.offset + moved_sect.size,
+                moved_sect.addr,
+                moved_sect.addr + moved_sect.size,
+            });
+
+            try self.allocateLocalSymbols(.{
+                .seg = @intCast(u16, next),
+                .sect = @intCast(u16, moved_sect_id),
+            }, @intCast(i64, offset_amt));
+        }
+    }
+}
+
 fn growSection(self: *MachO, match: MatchingSection, new_size: u32) !void {
     const tracy = trace(@src());
     defer tracy.end();
@@ -4098,7 +4162,14 @@ fn growSection(self: *MachO, match: MatchingSection, new_size: u32) !void {
     const needed_size = mem.alignForwardGeneric(u32, ideal_size, alignment);
 
     if (needed_size > max_size) blk: {
-        log.debug("  (need to grow!)", .{});
+        log.debug("  (need to grow! needed 0x{x}, max 0x{x})", .{ needed_size, max_size });
+
+        if (match.sect == seg.sections.items.len - 1) {
+            // Last section, just grow segments
+            try self.growSegment(match.seg, seg.inner.filesize + needed_size - max_size);
+            break :blk;
+        }
+
         // Need to move all sections below in file and address spaces.
         const offset_amt = offset: {
             const max_alignment = try self.getSectionMaxAlignment(match.seg, match.sect + 1);
@@ -4114,69 +4185,9 @@ fn growSection(self: *MachO, match: MatchingSection, new_size: u32) !void {
 
         if (last_sect_off + offset_amt > seg_off) {
             // Need to grow segment first.
-            log.debug("  (need to grow segment first)", .{});
             const spill_size = (last_sect_off + offset_amt) - seg_off;
-            const seg_offset_amt = mem.alignForwardGeneric(u64, spill_size, self.page_size);
-            seg.inner.filesize += seg_offset_amt;
-            seg.inner.vmsize += seg_offset_amt;
-
-            log.debug("  (new {s} segment file offsets from 0x{x} to 0x{x} (in memory 0x{x} to 0x{x}))", .{
-                seg.inner.segname,
-                seg.inner.fileoff,
-                seg.inner.fileoff + seg.inner.filesize,
-                seg.inner.vmaddr,
-                seg.inner.vmaddr + seg.inner.vmsize,
-            });
-
-            // TODO We should probably nop the expanded by distance, or put 0s.
-
-            // TODO copyRangeAll doesn't automatically extend the file on macOS.
-            const ledit_seg = &self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
-            const new_filesize = seg_offset_amt + ledit_seg.inner.fileoff + ledit_seg.inner.filesize;
-            try self.base.file.?.pwriteAll(&[_]u8{0}, new_filesize - 1);
-
-            var next: usize = match.seg + 1;
-            while (next < self.linkedit_segment_cmd_index.? + 1) : (next += 1) {
-                const next_seg = &self.load_commands.items[next].Segment;
-                _ = try self.base.file.?.copyRangeAll(
-                    next_seg.inner.fileoff,
-                    self.base.file.?,
-                    next_seg.inner.fileoff + seg_offset_amt,
-                    next_seg.inner.filesize,
-                );
-                next_seg.inner.fileoff += seg_offset_amt;
-                next_seg.inner.vmaddr += seg_offset_amt;
-
-                log.debug("  (new {s} segment file offsets from 0x{x} to 0x{x} (in memory 0x{x} to 0x{x}))", .{
-                    next_seg.inner.segname,
-                    next_seg.inner.fileoff,
-                    next_seg.inner.fileoff + next_seg.inner.filesize,
-                    next_seg.inner.vmaddr,
-                    next_seg.inner.vmaddr + next_seg.inner.vmsize,
-                });
-
-                for (next_seg.sections.items) |*moved_sect, moved_sect_id| {
-                    moved_sect.offset += @intCast(u32, seg_offset_amt);
-                    moved_sect.addr += seg_offset_amt;
-
-                    log.debug("  (new {s},{s} file offsets from 0x{x} to 0x{x} (in memory 0x{x} to 0x{x}))", .{
-                        commands.segmentName(moved_sect.*),
-                        commands.sectionName(moved_sect.*),
-                        moved_sect.offset,
-                        moved_sect.offset + moved_sect.size,
-                        moved_sect.addr,
-                        moved_sect.addr + moved_sect.size,
-                    });
-
-                    try self.allocateLocalSymbols(.{
-                        .seg = @intCast(u16, next),
-                        .sect = @intCast(u16, moved_sect_id),
-                    }, @intCast(i64, seg_offset_amt));
-                }
-            }
+            try self.growSegment(match.seg, seg.inner.filesize + spill_size);
         }
-
-        if (match.sect + 1 >= seg.sections.items.len) break :blk;
 
         // We have enough space to expand within the segment, so move all sections by
         // the required amount and update their header offsets.
