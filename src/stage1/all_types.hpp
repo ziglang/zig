@@ -86,6 +86,14 @@ enum CallingConvention {
     CallingConventionSysV
 };
 
+// Stage 1 supports only the generic address space
+enum AddressSpace {
+    AddressSpaceGeneric,
+    AddressSpaceGS,
+    AddressSpaceFS,
+    AddressSpaceSS,
+};
+
 // This one corresponds to the builtin.zig enum.
 enum BuiltinPtrSize {
     BuiltinPtrSizeOne,

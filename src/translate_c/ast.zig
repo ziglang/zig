@@ -2614,6 +2614,7 @@ fn renderVar(c: *Context, node: Node) !NodeIndex {
                     .type_node = type_node,
                     .align_node = align_node,
                     .section_node = section_node,
+                    .addrspace_node = 0,
                 }),
                 .rhs = init_node,
             },
@@ -2705,6 +2706,7 @@ fn renderFunc(c: *Context, node: Node) !NodeIndex {
                     .lhs = try c.addExtra(std.zig.Ast.Node.FnProtoOne{
                         .param = params.items[0],
                         .align_expr = align_expr,
+                        .addrspace_expr = 0, // TODO
                         .section_expr = section_expr,
                         .callconv_expr = callconv_expr,
                     }),
@@ -2720,6 +2722,7 @@ fn renderFunc(c: *Context, node: Node) !NodeIndex {
                         .params_start = span.start,
                         .params_end = span.end,
                         .align_expr = align_expr,
+                        .addrspace_expr = 0, // TODO
                         .section_expr = section_expr,
                         .callconv_expr = callconv_expr,
                     }),

@@ -242,6 +242,8 @@ Error get_primitive_type(CodeGen *g, Buf *name, ZigType **result);
 bool calling_convention_allows_zig_types(CallingConvention cc);
 const char *calling_convention_name(CallingConvention cc);
 
+const char *address_space_name(AddressSpace as);
+
 Error ATTRIBUTE_MUST_USE file_fetch(CodeGen *g, Buf *resolved_path, Buf *contents);
 
 void walk_function_params(CodeGen *g, ZigType *fn_type, FnWalk *fn_walk);

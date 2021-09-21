@@ -65,6 +65,9 @@ ZIG_EXTERN_C LLVMTargetMachineRef ZigLLVMCreateTargetMachine(LLVMTargetRef T, co
 
 ZIG_EXTERN_C LLVMTypeRef ZigLLVMTokenTypeInContext(LLVMContextRef context_ref);
 
+ZIG_EXTERN_C LLVMValueRef ZigLLVMAddFunctionInAddressSpace(LLVMModuleRef M, const char *Name,
+        LLVMTypeRef FunctionTy, unsigned AddressSpace);
+
 enum ZigLLVM_CallingConv {
     ZigLLVM_C = 0,
     ZigLLVM_Fast = 8,

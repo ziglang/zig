@@ -1807,4 +1807,16 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
         , "");
     }
+
+    {
+        var case = ctx.exe("setting an address space on a local variable", linux_x64);
+        case.addError(
+            \\export fn entry() i32 {
+            \\    var foo: i32 addrspace(".general") = 1234;
+            \\    return foo;
+            \\}
+        , &[_][]const u8{
+            ":2:28: error: cannot set address space of local variable 'foo'",
+        });
+    }
 }

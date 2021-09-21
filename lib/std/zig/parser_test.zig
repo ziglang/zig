@@ -404,6 +404,10 @@ test "zig fmt: trailing comma in fn parameter list" {
         \\pub fn f(
         \\    a: i32,
         \\    b: i32,
+        \\) addrspace(.generic) i32 {}
+        \\pub fn f(
+        \\    a: i32,
+        \\    b: i32,
         \\) linksection(".text") i32 {}
         \\pub fn f(
         \\    a: i32,
@@ -553,8 +557,8 @@ test "zig fmt: sentinel-terminated slice type" {
 test "zig fmt: pointer-to-one with modifiers" {
     try testCanonical(
         \\const x: *u32 = undefined;
-        \\const y: *allowzero align(8) const volatile u32 = undefined;
-        \\const z: *allowzero align(8:4:2) const volatile u32 = undefined;
+        \\const y: *allowzero align(8) addrspace(.generic) const volatile u32 = undefined;
+        \\const z: *allowzero align(8:4:2) addrspace(.generic) const volatile u32 = undefined;
         \\
     );
 }
@@ -562,8 +566,8 @@ test "zig fmt: pointer-to-one with modifiers" {
 test "zig fmt: pointer-to-many with modifiers" {
     try testCanonical(
         \\const x: [*]u32 = undefined;
-        \\const y: [*]allowzero align(8) const volatile u32 = undefined;
-        \\const z: [*]allowzero align(8:4:2) const volatile u32 = undefined;
+        \\const y: [*]allowzero align(8) addrspace(.generic) const volatile u32 = undefined;
+        \\const z: [*]allowzero align(8:4:2) addrspace(.generic) const volatile u32 = undefined;
         \\
     );
 }
@@ -571,8 +575,8 @@ test "zig fmt: pointer-to-many with modifiers" {
 test "zig fmt: sentinel pointer with modifiers" {
     try testCanonical(
         \\const x: [*:42]u32 = undefined;
-        \\const y: [*:42]allowzero align(8) const volatile u32 = undefined;
-        \\const y: [*:42]allowzero align(8:4:2) const volatile u32 = undefined;
+        \\const y: [*:42]allowzero align(8) addrspace(.generic) const volatile u32 = undefined;
+        \\const y: [*:42]allowzero align(8:4:2) addrspace(.generic) const volatile u32 = undefined;
         \\
     );
 }
@@ -580,8 +584,8 @@ test "zig fmt: sentinel pointer with modifiers" {
 test "zig fmt: c pointer with modifiers" {
     try testCanonical(
         \\const x: [*c]u32 = undefined;
-        \\const y: [*c]allowzero align(8) const volatile u32 = undefined;
-        \\const z: [*c]allowzero align(8:4:2) const volatile u32 = undefined;
+        \\const y: [*c]allowzero align(8) addrspace(.generic) const volatile u32 = undefined;
+        \\const z: [*c]allowzero align(8:4:2) addrspace(.generic) const volatile u32 = undefined;
         \\
     );
 }
@@ -589,7 +593,7 @@ test "zig fmt: c pointer with modifiers" {
 test "zig fmt: slice with modifiers" {
     try testCanonical(
         \\const x: []u32 = undefined;
-        \\const y: []allowzero align(8) const volatile u32 = undefined;
+        \\const y: []allowzero align(8) addrspace(.generic) const volatile u32 = undefined;
         \\
     );
 }
@@ -597,7 +601,7 @@ test "zig fmt: slice with modifiers" {
 test "zig fmt: sentinel slice with modifiers" {
     try testCanonical(
         \\const x: [:42]u32 = undefined;
-        \\const y: [:42]allowzero align(8) const volatile u32 = undefined;
+        \\const y: [:42]allowzero align(8) addrspace(.generic) const volatile u32 = undefined;
         \\
     );
 }
@@ -1125,6 +1129,16 @@ test "zig fmt: linksection" {
     try testCanonical(
         \\export var aoeu: u64 linksection(".text.derp") = 1234;
         \\export fn _start() linksection(".text.boot") callconv(.Naked) noreturn {}
+        \\
+    );
+}
+
+test "zig fmt: addrspace" {
+    try testCanonical(
+        \\export var python_length: u64 align(1) addrspace(.generic);
+        \\export var python_color: Color addrspace(.generic) = .green;
+        \\export var python_legs: u0 align(8) addrspace(.generic) linksection(".python") = 0;
+        \\export fn python_hiss() align(8) addrspace(.generic) linksection(".python") void;
         \\
     );
 }

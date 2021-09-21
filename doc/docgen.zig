@@ -901,6 +901,7 @@ fn tokenizeAndPrintRaw(
         switch (token.tag) {
             .eof => break,
 
+            .keyword_addrspace,
             .keyword_align,
             .keyword_and,
             .keyword_asm,

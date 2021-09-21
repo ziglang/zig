@@ -1373,7 +1373,13 @@ fn zirRetPtr(
         return sema.analyzeComptimeAlloc(block, sema.fn_ret_ty);
     }
 
-    const ptr_type = try Module.simplePtrType(sema.arena, sema.fn_ret_ty, true, .One);
+    const ptr_type = try Module.simplePtrType(
+        sema.arena,
+        sema.fn_ret_ty,
+        true,
+        .One,
+        target_util.defaultAddressSpace(sema.mod.getTarget(), .local),
+    );
     return block.addTy(.alloc, ptr_type);
 }
 
@@ -1521,7 +1527,13 @@ fn zirAlloc(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError
     const ty_src: LazySrcLoc = .{ .node_offset_var_decl_ty = inst_data.src_node };
     const var_decl_src = inst_data.src();
     const var_type = try sema.resolveType(block, ty_src, inst_data.operand);
-    const ptr_type = try Module.simplePtrType(sema.arena, var_type, true, .One);
+    const ptr_type = try Module.simplePtrType(
+        sema.arena,
+        var_type,
+        true,
+        .One,
+        target_util.defaultAddressSpace(sema.mod.getTarget(), .local),
+    );
     try sema.requireRuntimeBlock(block, var_decl_src);
     return block.addTy(.alloc, ptr_type);
 }
@@ -1538,7 +1550,13 @@ fn zirAllocMut(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileEr
         return sema.analyzeComptimeAlloc(block, var_type);
     }
     try sema.validateVarType(block, ty_src, var_type);
-    const ptr_type = try Module.simplePtrType(sema.arena, var_type, true, .One);
+    const ptr_type = try Module.simplePtrType(
+        sema.arena,
+        var_type,
+        true,
+        .One,
+        target_util.defaultAddressSpace(sema.mod.getTarget(), .local),
+    );
     try sema.requireRuntimeBlock(block, var_decl_src);
     return block.addTy(.alloc, ptr_type);
 }
@@ -1598,7 +1616,13 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Inde
         try sema.mod.declareDeclDependency(sema.owner_decl, decl);
 
         const final_elem_ty = try decl.ty.copy(sema.arena);
-        const final_ptr_ty = try Module.simplePtrType(sema.arena, final_elem_ty, true, .One);
+        const final_ptr_ty = try Module.simplePtrType(
+            sema.arena,
+            final_elem_ty,
+            true,
+            .One,
+            target_util.defaultAddressSpace(sema.mod.getTarget(), .local),
+        );
         const final_ptr_ty_inst = try sema.addType(final_ptr_ty);
         sema.air_instructions.items(.data)[ptr_inst].ty_pl.ty = final_ptr_ty_inst;
 
@@ -1620,7 +1644,13 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Inde
             try sema.validateVarType(block, ty_src, final_elem_ty);
         }
         // Change it to a normal alloc.
-        const final_ptr_ty = try Module.simplePtrType(sema.arena, final_elem_ty, true, .One);
+        const final_ptr_ty = try Module.simplePtrType(
+            sema.arena,
+            final_elem_ty,
+            true,
+            .One,
+            target_util.defaultAddressSpace(sema.mod.getTarget(), .local),
+        );
         sema.air_instructions.set(ptr_inst, .{
             .tag = .alloc,
             .data = .{ .ty = final_ptr_ty },
@@ -1774,7 +1804,14 @@ fn zirStoreToBlockPtr(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) Co
     }
     const ptr = sema.resolveInst(bin_inst.lhs);
     const value = sema.resolveInst(bin_inst.rhs);
-    const ptr_ty = try Module.simplePtrType(sema.arena, sema.typeOf(value), true, .One);
+    const ptr_ty = try Module.simplePtrType(
+        sema.arena,
+        sema.typeOf(value),
+        true,
+        .One,
+        // TODO figure out which address space is appropriate here
+        target_util.defaultAddressSpace(sema.mod.getTarget(), .local),
+    );
     // TODO detect when this store should be done at compile-time. For example,
     // if expressions should force it when the condition is compile-time known.
     const src: LazySrcLoc = .unneeded;
@@ -1821,7 +1858,14 @@ fn zirStoreToInferredPtr(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index)
         // for the inferred allocation.
         try inferred_alloc.data.stored_inst_list.append(sema.arena, operand);
         // Create a runtime bitcast instruction with exactly the type the pointer wants.
-        const ptr_ty = try Module.simplePtrType(sema.arena, operand_ty, true, .One);
+        const ptr_ty = try Module.simplePtrType(
+            sema.arena,
+            operand_ty,
+            true,
+            .One,
+            // TODO figure out which address space is appropriate here
+            target_util.defaultAddressSpace(sema.mod.getTarget(), .local),
+        );
         const bitcasted_ptr = try block.addTyOp(.bitcast, ptr_ty, ptr);
         return sema.storePtr(block, src, bitcasted_ptr, operand);
     }
@@ -3004,7 +3048,7 @@ fn analyzeCall(
             new_decl.is_pub = module_fn.owner_decl.is_pub;
             new_decl.is_exported = module_fn.owner_decl.is_exported;
             new_decl.has_align = module_fn.owner_decl.has_align;
-            new_decl.has_linksection = module_fn.owner_decl.has_linksection;
+            new_decl.has_linksection_or_addrspace = module_fn.owner_decl.has_linksection_or_addrspace;
             new_decl.zir_decl_index = module_fn.owner_decl.zir_decl_index;
             new_decl.alive = true; // This Decl is called at runtime.
             new_decl.has_tv = true;
@@ -3658,7 +3702,13 @@ fn zirOptionalPayloadPtr(
     }
 
     const child_type = try opt_type.optionalChildAlloc(sema.arena);
-    const child_pointer = try Module.simplePtrType(sema.arena, child_type, !optional_ptr_ty.isConstPtr(), .One);
+    const child_pointer = try Module.simplePtrType(
+        sema.arena,
+        child_type,
+        !optional_ptr_ty.isConstPtr(),
+        .One,
+        optional_ptr_ty.ptrAddressSpace(),
+    );
 
     if (try sema.resolveDefinedValue(block, src, optional_ptr)) |pointer_val| {
         if (try pointer_val.pointerDeref(sema.arena)) |val| {
@@ -3773,7 +3823,13 @@ fn zirErrUnionPayloadPtr(
         return sema.mod.fail(&block.base, src, "expected error union type, found {}", .{operand_ty.elemType()});
 
     const payload_ty = operand_ty.elemType().errorUnionPayload();
-    const operand_pointer_ty = try Module.simplePtrType(sema.arena, payload_ty, !operand_ty.isConstPtr(), .One);
+    const operand_pointer_ty = try Module.simplePtrType(
+        sema.arena,
+        payload_ty,
+        !operand_ty.isConstPtr(),
+        .One,
+        operand_ty.ptrAddressSpace(),
+    );
 
     if (try sema.resolveDefinedValue(block, src, operand)) |pointer_val| {
         if (try pointer_val.pointerDeref(sema.arena)) |val| {
@@ -6879,6 +6935,7 @@ fn zirPtrTypeSimple(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) Comp
         elem_type,
         null,
         0,
+        .generic,
         0,
         0,
         inst_data.is_mutable,
@@ -6911,6 +6968,12 @@ fn zirPtrType(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileErr
         break :blk try sema.resolveAlreadyCoercedInt(block, .unneeded, ref, u32);
     } else 0;
 
+    const address_space = if (inst_data.flags.has_addrspace) blk: {
+        const ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_i]);
+        extra_i += 1;
+        break :blk try sema.analyzeAddrspace(block, .unneeded, ref, .pointer);
+    } else .generic;
+
     const bit_start = if (inst_data.flags.has_bit_range) blk: {
         const ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_i]);
         extra_i += 1;
@@ -6933,6 +6996,7 @@ fn zirPtrType(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileErr
         elem_type,
         sentinel,
         abi_align,
+        address_space,
         bit_start,
         bit_end,
         inst_data.flags.is_mutable,
@@ -8339,7 +8403,13 @@ fn panicWithMsg(
     const panic_fn = try sema.getBuiltin(block, src, "panic");
     const unresolved_stack_trace_ty = try sema.getBuiltinType(block, src, "StackTrace");
     const stack_trace_ty = try sema.resolveTypeFields(block, src, unresolved_stack_trace_ty);
-    const ptr_stack_trace_ty = try Module.simplePtrType(arena, stack_trace_ty, true, .One);
+    const ptr_stack_trace_ty = try Module.simplePtrType(
+        arena,
+        stack_trace_ty,
+        true,
+        .One,
+        target_util.defaultAddressSpace(sema.mod.getTarget(), .global_constant), // TODO might need a place that is more dynamic
+    );
     const null_stack_trace = try sema.addConstant(
         try Module.optionalType(arena, ptr_stack_trace_ty),
         Value.initTag(.null_value),
@@ -8423,7 +8493,7 @@ fn fieldVal(
         .Pointer => switch (object_ty.ptrSize()) {
             .Slice => {
                 if (mem.eql(u8, field_name, "ptr")) {
-                    const buf = try arena.create(Type.Payload.ElemType);
+                    const buf = try arena.create(Type.SlicePtrFieldTypeBuffer);
                     const result_ty = object_ty.slicePtrFieldType(buf);
                     if (try sema.resolveMaybeUndefVal(block, object_src, object)) |val| {
                         if (val.isUndef()) return sema.addConstUndef(result_ty);
@@ -8457,21 +8527,32 @@ fn fieldVal(
                 }
             },
             .One => {
-                const elem_ty = object_ty.elemType();
-                if (elem_ty.zigTypeTag() == .Array) {
-                    if (mem.eql(u8, field_name, "len")) {
-                        return sema.addConstant(
-                            Type.initTag(.comptime_int),
-                            try Value.Tag.int_u64.create(arena, elem_ty.arrayLen()),
-                        );
-                    } else {
-                        return mod.fail(
-                            &block.base,
-                            field_name_src,
-                            "no member named '{s}' in '{}'",
-                            .{ field_name, object_ty },
-                        );
-                    }
+                const ptr_child = object_ty.elemType();
+                switch (ptr_child.zigTypeTag()) {
+                    .Array => {
+                        if (mem.eql(u8, field_name, "len")) {
+                            return sema.addConstant(
+                                Type.initTag(.comptime_int),
+                                try Value.Tag.int_u64.create(arena, ptr_child.arrayLen()),
+                            );
+                        } else {
+                            return mod.fail(
+                                &block.base,
+                                field_name_src,
+                                "no member named '{s}' in '{}'",
+                                .{ field_name, object_ty },
+                            );
+                        }
+                    },
+                    .Struct => {
+                        const struct_ptr_deref = try sema.analyzeLoad(block, src, object, object_src);
+                        return sema.unionFieldVal(block, src, struct_ptr_deref, field_name, field_name_src, ptr_child);
+                    },
+                    .Union => {
+                        const union_ptr_deref = try sema.analyzeLoad(block, src, object, object_src);
+                        return sema.unionFieldVal(block, src, union_ptr_deref, field_name, field_name_src, ptr_child);
+                    },
+                    else => {},
                 }
             },
             .Many, .C => {},
@@ -8595,9 +8676,8 @@ fn fieldPtr(
                 );
             }
         },
-        .Pointer => {
-            const ptr_child = object_ty.elemType();
-            if (ptr_child.isSlice()) {
+        .Pointer => switch (object_ty.ptrSize()) {
+            .Slice => {
                 // Here for the ptr and len fields what we need to do is the situation
                 // when a temporary has its address taken, e.g. `&a[c..d].len`.
                 // This value may be known at compile-time or runtime. In the former
@@ -8627,26 +8707,39 @@ fn fieldPtr(
                         .{ field_name, object_ty },
                     );
                 }
-            } else switch (ptr_child.zigTypeTag()) {
-                .Array => {
-                    if (mem.eql(u8, field_name, "len")) {
-                        var anon_decl = try block.startAnonDecl();
-                        defer anon_decl.deinit();
-                        return sema.analyzeDeclRef(try anon_decl.finish(
-                            Type.initTag(.comptime_int),
-                            try Value.Tag.int_u64.create(anon_decl.arena(), ptr_child.arrayLen()),
-                        ));
-                    } else {
-                        return mod.fail(
-                            &block.base,
-                            field_name_src,
-                            "no member named '{s}' in '{}'",
-                            .{ field_name, object_ty },
-                        );
-                    }
-                },
-                else => {},
-            }
+            },
+            .One => {
+                const ptr_child = object_ty.elemType();
+                switch (ptr_child.zigTypeTag()) {
+                    .Array => {
+                        if (mem.eql(u8, field_name, "len")) {
+                            var anon_decl = try block.startAnonDecl();
+                            defer anon_decl.deinit();
+                            return sema.analyzeDeclRef(try anon_decl.finish(
+                                Type.initTag(.comptime_int),
+                                try Value.Tag.int_u64.create(anon_decl.arena(), ptr_child.arrayLen()),
+                            ));
+                        } else {
+                            return mod.fail(
+                                &block.base,
+                                field_name_src,
+                                "no member named '{s}' in '{}'",
+                                .{ field_name, object_ty },
+                            );
+                        }
+                    },
+                    .Struct => {
+                        const struct_ptr_deref = try sema.analyzeLoad(block, src, object_ptr, object_ptr_src);
+                        return sema.structFieldPtr(block, src, struct_ptr_deref, field_name, field_name_src, ptr_child);
+                    },
+                    .Union => {
+                        const union_ptr_deref = try sema.analyzeLoad(block, src, object_ptr, object_ptr_src);
+                        return sema.unionFieldPtr(block, src, union_ptr_deref, field_name, field_name_src, ptr_child);
+                    },
+                    else => {},
+                }
+            },
+            .Many, .C => {},
         },
         .Type => {
             _ = try sema.resolveConstValue(block, object_ptr_src, object_ptr);
@@ -8788,13 +8881,20 @@ fn structFieldPtr(
     const arena = sema.arena;
     assert(unresolved_struct_ty.zigTypeTag() == .Struct);
 
+    const struct_ptr_ty = sema.typeOf(struct_ptr);
     const struct_ty = try sema.resolveTypeFields(block, src, unresolved_struct_ty);
     const struct_obj = struct_ty.castTag(.@"struct").?.data;
 
     const field_index = struct_obj.fields.getIndex(field_name) orelse
         return sema.failWithBadFieldAccess(block, struct_obj, field_name_src, field_name);
     const field = struct_obj.fields.values()[field_index];
-    const ptr_field_ty = try Module.simplePtrType(arena, field.ty, true, .One);
+    const ptr_field_ty = try Module.simplePtrType(
+        arena,
+        field.ty,
+        struct_ptr_ty.ptrIsMutable(),
+        .One,
+        struct_ptr_ty.ptrAddressSpace(),
+    );
 
     if (try sema.resolveDefinedValue(block, src, struct_ptr)) |struct_ptr_val| {
         return sema.addConstant(
@@ -8885,6 +8985,7 @@ fn unionFieldPtr(
     const arena = sema.arena;
     assert(unresolved_union_ty.zigTypeTag() == .Union);
 
+    const union_ptr_ty = sema.typeOf(union_ptr);
     const union_ty = try sema.resolveTypeFields(block, src, unresolved_union_ty);
     const union_obj = union_ty.cast(Type.Payload.Union).?.data;
 
@@ -8892,7 +8993,13 @@ fn unionFieldPtr(
         return sema.failWithBadUnionFieldAccess(block, union_obj, field_name_src, field_name);
 
     const field = union_obj.fields.values()[field_index];
-    const ptr_field_ty = try Module.simplePtrType(arena, field.ty, true, .One);
+    const ptr_field_ty = try Module.simplePtrType(
+        arena,
+        field.ty,
+        union_ptr_ty.ptrIsMutable(),
+        .One,
+        union_ptr_ty.ptrAddressSpace(),
+    );
 
     if (try sema.resolveDefinedValue(block, src, union_ptr)) |union_ptr_val| {
         // TODO detect inactive union field and emit compile error
@@ -9068,10 +9175,13 @@ fn elemPtrArray(
 ) CompileError!Air.Inst.Ref {
     const array_ptr_ty = sema.typeOf(array_ptr);
     const pointee_type = array_ptr_ty.elemType().elemType();
-    const result_ty = if (array_ptr_ty.ptrIsMutable())
-        try Type.Tag.single_mut_pointer.create(sema.arena, pointee_type)
-    else
-        try Type.Tag.single_const_pointer.create(sema.arena, pointee_type);
+    const result_ty = try Module.simplePtrType(
+        sema.arena,
+        pointee_type,
+        array_ptr_ty.ptrIsMutable(),
+        .One,
+        array_ptr_ty.ptrAddressSpace(),
+    );
 
     if (try sema.resolveDefinedValue(block, src, array_ptr)) |array_ptr_val| {
         if (try sema.resolveDefinedValue(block, elem_index_src, elem_index)) |index_val| {
@@ -9162,6 +9272,7 @@ fn coerce(
                 const dest_is_mut = !dest_type.isConstPtr();
                 if (inst_ty.isConstPtr() and dest_is_mut) break :src_array_ptr;
                 if (inst_ty.isVolatilePtr() and !dest_type.isVolatilePtr()) break :src_array_ptr;
+                if (inst_ty.ptrAddressSpace() != dest_type.ptrAddressSpace()) break :src_array_ptr;
 
                 const dst_elem_type = dest_type.elemType();
                 switch (coerceInMemoryAllowed(dst_elem_type, array_elem_type, dest_is_mut)) {
@@ -9295,6 +9406,10 @@ fn coerceInMemoryAllowed(dest_type: Type, src_type: Type, dest_is_mut: bool) InM
         const child = coerceInMemoryAllowed(dest_info.pointee_type, src_info.pointee_type, dest_info.mutable);
         if (child == .no_match) {
             return child;
+        }
+
+        if (dest_info.@"addrspace" != src_info.@"addrspace") {
+            return .no_match;
         }
 
         const ok_sent = dest_info.sentinel == null or src_info.size == .C or
@@ -9590,11 +9705,11 @@ fn analyzeDeclRef(sema: *Sema, decl: *Decl) CompileError!Air.Inst.Ref {
     const decl_tv = try decl.typedValue();
     if (decl_tv.val.castTag(.variable)) |payload| {
         const variable = payload.data;
-        const ty = try Module.simplePtrType(sema.arena, decl_tv.ty, variable.is_mutable, .One);
+        const ty = try Module.simplePtrType(sema.arena, decl_tv.ty, variable.is_mutable, .One, decl.@"addrspace");
         return sema.addConstant(ty, try Value.Tag.decl_ref.create(sema.arena, decl));
     }
     return sema.addConstant(
-        try Module.simplePtrType(sema.arena, decl_tv.ty, false, .One),
+        try Module.simplePtrType(sema.arena, decl_tv.ty, false, .One, decl.@"addrspace"),
         try Value.Tag.decl_ref.create(sema.arena, decl),
     );
 }
@@ -9617,8 +9732,9 @@ fn analyzeRef(
     }
 
     try sema.requireRuntimeBlock(block, src);
-    const ptr_type = try Module.simplePtrType(sema.arena, operand_ty, false, .One);
-    const mut_ptr_type = try Module.simplePtrType(sema.arena, operand_ty, true, .One);
+    const address_space = target_util.defaultAddressSpace(sema.mod.getTarget(), .local);
+    const ptr_type = try Module.simplePtrType(sema.arena, operand_ty, false, .One, address_space);
+    const mut_ptr_type = try Module.simplePtrType(sema.arena, operand_ty, true, .One, address_space);
     const alloc = try block.addTy(.alloc, mut_ptr_type);
     try sema.storePtr(block, src, alloc, operand);
 
@@ -9779,6 +9895,7 @@ fn analyzeSlice(
         return_elem_type,
         if (end_opt == .none) slice_sentinel else null,
         0, // TODO alignment
+        if (ptr_child.zigTypeTag() == .Pointer) ptr_child.ptrAddressSpace() else .generic,
         0,
         0,
         !ptr_child.isConstPtr(),
@@ -10286,6 +10403,7 @@ fn resolveTypeFields(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, ty: Type
         .atomic_order => return sema.resolveBuiltinTypeFields(block, src, "AtomicOrder"),
         .atomic_rmw_op => return sema.resolveBuiltinTypeFields(block, src, "AtomicRmwOp"),
         .calling_convention => return sema.resolveBuiltinTypeFields(block, src, "CallingConvention"),
+        .address_space => return sema.resolveBuiltinTypeFields(block, src, "AddressSpace"),
         .float_mode => return sema.resolveBuiltinTypeFields(block, src, "FloatMode"),
         .reduce_op => return sema.resolveBuiltinTypeFields(block, src, "ReduceOp"),
         .call_options => return sema.resolveBuiltinTypeFields(block, src, "CallOptions"),
@@ -10680,6 +10798,7 @@ fn typeHasOnePossibleValue(
         .atomic_order,
         .atomic_rmw_op,
         .calling_convention,
+        .address_space,
         .float_mode,
         .reduce_op,
         .call_options,
@@ -10865,6 +10984,7 @@ pub fn addType(sema: *Sema, ty: Type) !Air.Inst.Ref {
         .atomic_order => return .atomic_order_type,
         .atomic_rmw_op => return .atomic_rmw_op_type,
         .calling_convention => return .calling_convention_type,
+        .address_space => return .address_space_type,
         .float_mode => return .float_mode_type,
         .reduce_op => return .reduce_op_type,
         .call_options => return .call_options_type,
@@ -10960,7 +11080,13 @@ fn analyzeComptimeAlloc(
     block: *Scope.Block,
     var_type: Type,
 ) CompileError!Air.Inst.Ref {
-    const ptr_type = try Module.simplePtrType(sema.arena, var_type, true, .One);
+    const ptr_type = try Module.simplePtrType(
+        sema.arena,
+        var_type,
+        true,
+        .One,
+        target_util.defaultAddressSpace(sema.mod.getTarget(), .global_constant),
+    );
 
     var anon_decl = try block.startAnonDecl();
     defer anon_decl.deinit();
@@ -10975,4 +11101,59 @@ fn analyzeComptimeAlloc(
         .runtime_index = block.runtime_index,
         .decl = decl,
     }));
+}
+
+/// The places where a user can specify an address space attribute
+pub const AddressSpaceContext = enum {
+    /// A function is specificed to be placed in a certain address space.
+    function,
+
+    /// A (global) variable is specified to be placed in a certain address space.
+    /// In contrast to .constant, these values (and thus the address space they will be
+    /// placed in) are required to be mutable.
+    variable,
+
+    /// A (global) constant value is specified to be placed in a certain address space.
+    /// In contrast to .variable, values placed in this address space are not required to be mutable.
+    constant,
+
+    /// A pointer is ascripted to point into a certian address space.
+    pointer,
+};
+
+pub fn analyzeAddrspace(
+    sema: *Sema,
+    block: *Scope.Block,
+    src: LazySrcLoc,
+    zir_ref: Zir.Inst.Ref,
+    ctx: AddressSpaceContext,
+) !std.builtin.AddressSpace {
+    const addrspace_tv = try sema.resolveInstConst(block, src, zir_ref);
+    const address_space = addrspace_tv.val.toEnum(std.builtin.AddressSpace);
+    const target = sema.mod.getTarget();
+    const arch = target.cpu.arch;
+
+    const supported = switch (address_space) {
+        .generic => true,
+        .gs, .fs, .ss => (arch == .i386 or arch == .x86_64) and ctx == .pointer,
+    };
+
+    if (!supported) {
+        // TODO error messages could be made more elaborate here
+        const entity = switch (ctx) {
+            .function => "functions",
+            .variable => "mutable values",
+            .constant => "constant values",
+            .pointer => "pointers",
+        };
+
+        return sema.mod.fail(
+            &block.base,
+            src,
+            "{s} with address space '{s}' are not supported on {s}",
+            .{ entity, @tagName(address_space), arch.genericName() },
+        );
+    }
+
+    return address_space;
 }
