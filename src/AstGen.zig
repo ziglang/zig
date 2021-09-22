@@ -124,7 +124,7 @@ pub fn generate(gpa: *Allocator, tree: Ast) Allocator.Error!Zir {
         container_decl,
         .Auto,
     )) |struct_decl_ref| {
-        astgen.extra.items[@enumToInt(Zir.ExtraIndex.main_struct)] = @enumToInt(struct_decl_ref);
+        assert(refToIndex(struct_decl_ref).? == 0);
     } else |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         error.AnalysisFail => {}, // Handled via compile_errors below.
@@ -2054,9 +2054,6 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: Ast.Node.Index) Inner
             .union_init_ptr,
             .field_type,
             .field_type_ref,
-            .opaque_decl,
-            .opaque_decl_anon,
-            .opaque_decl_func,
             .error_set_decl,
             .error_set_decl_anon,
             .error_set_decl_func,
@@ -3510,8 +3507,9 @@ fn structDeclInner(
     container_decl: Ast.full.ContainerDecl,
     layout: std.builtin.TypeInfo.ContainerLayout,
 ) InnerError!Zir.Inst.Ref {
+    const decl_inst = try gz.reserveInstructionIndex();
+
     if (container_decl.ast.members.len == 0) {
-        const decl_inst = try gz.reserveInstructionIndex();
         try gz.setStruct(decl_inst, .{
             .src_node = node,
             .layout = layout,
@@ -3529,6 +3527,14 @@ fn structDeclInner(
     const node_tags = tree.nodes.items(.tag);
     const node_datas = tree.nodes.items(.data);
 
+    var namespace: Scope.Namespace = .{
+        .parent = scope,
+        .node = node,
+        .inst = decl_inst,
+        .declaring_gz = gz,
+    };
+    defer namespace.deinit(gpa);
+
     // The struct_decl instruction introduces a scope in which the decls of the struct
     // are in scope, so that field types, alignments, and default value expressions
     // can refer to decls within the struct itself.
@@ -3541,9 +3547,6 @@ fn structDeclInner(
         .in_defer = false,
     };
     defer block_scope.instructions.deinit(gpa);
-
-    var namespace: Scope.Namespace = .{ .parent = scope, .node = node };
-    defer namespace.decls.deinit(gpa);
 
     try astgen.scanDecls(&namespace, container_decl.ast.members);
 
@@ -3749,7 +3752,6 @@ fn structDeclInner(
         }
     }
 
-    const decl_inst = try gz.reserveInstructionIndex();
     if (block_scope.instructions.items.len != 0) {
         _ = try block_scope.addBreak(.break_inline, decl_inst, .void_value);
     }
@@ -3763,11 +3765,16 @@ fn structDeclInner(
         .known_has_bits = known_has_bits,
     });
 
-    try astgen.extra.ensureUnusedCapacity(gpa, bit_bag.items.len +
-        @boolToInt(field_index != 0) + fields_data.items.len +
+    try astgen.extra.ensureUnusedCapacity(gpa,
+        bit_bag.items.len +
+        @boolToInt(wip_decls.decl_index != 0) +
+        wip_decls.payload.items.len +
         block_scope.instructions.items.len +
-        wip_decls.bit_bag.items.len + @boolToInt(wip_decls.decl_index != 0) +
-        wip_decls.payload.items.len);
+        wip_decls.bit_bag.items.len +
+        @boolToInt(field_index != 0) +
+        fields_data.items.len
+    );
+
     astgen.extra.appendSliceAssumeCapacity(wip_decls.bit_bag.items); // Likely empty.
     if (wip_decls.decl_index != 0) {
         astgen.extra.appendAssumeCapacity(wip_decls.cur_bit_bag);
@@ -3794,11 +3801,21 @@ fn unionDeclInner(
     arg_node: Ast.Node.Index,
     have_auto_enum: bool,
 ) InnerError!Zir.Inst.Ref {
+    const decl_inst = try gz.reserveInstructionIndex();
+
     const astgen = gz.astgen;
     const gpa = astgen.gpa;
     const tree = astgen.tree;
     const node_tags = tree.nodes.items(.tag);
     const node_datas = tree.nodes.items(.data);
+
+    var namespace: Scope.Namespace = .{
+        .parent = scope,
+        .node = node,
+        .inst = decl_inst,
+        .declaring_gz = gz,
+    };
+    defer namespace.deinit(gpa);
 
     // The union_decl instruction introduces a scope in which the decls of the union
     // are in scope, so that field types, alignments, and default value expressions
@@ -3813,13 +3830,10 @@ fn unionDeclInner(
     };
     defer block_scope.instructions.deinit(gpa);
 
-    var namespace: Scope.Namespace = .{ .parent = scope, .node = node };
-    defer namespace.decls.deinit(gpa);
-
     try astgen.scanDecls(&namespace, members);
 
     const arg_inst: Zir.Inst.Ref = if (arg_node != 0)
-        try typeExpr(gz, &namespace.base, arg_node)
+        try typeExpr(&block_scope, &namespace.base, arg_node)
     else
         .none;
 
@@ -4032,7 +4046,6 @@ fn unionDeclInner(
         }
     }
 
-    const decl_inst = try gz.reserveInstructionIndex();
     if (block_scope.instructions.items.len != 0) {
         _ = try block_scope.addBreak(.break_inline, decl_inst, .void_value);
     }
@@ -4047,11 +4060,16 @@ fn unionDeclInner(
         .auto_enum_tag = have_auto_enum,
     });
 
-    try astgen.extra.ensureUnusedCapacity(gpa, bit_bag.items.len +
-        1 + fields_data.items.len +
+    try astgen.extra.ensureUnusedCapacity(gpa,
+        bit_bag.items.len +
+        @boolToInt(wip_decls.decl_index != 0) +
+        wip_decls.payload.items.len +
         block_scope.instructions.items.len +
-        wip_decls.bit_bag.items.len + @boolToInt(wip_decls.decl_index != 0) +
-        wip_decls.payload.items.len);
+        wip_decls.bit_bag.items.len +
+        1 + // cur_bit_bag
+        fields_data.items.len
+    );
+
     astgen.extra.appendSliceAssumeCapacity(wip_decls.bit_bag.items); // Likely empty.
     if (wip_decls.decl_index != 0) {
         astgen.extra.appendAssumeCapacity(wip_decls.cur_bit_bag);
@@ -4214,6 +4232,16 @@ fn containerDecl(
             // how structs are handled above.
             const nonexhaustive = counts.nonexhaustive_node != 0;
 
+            const decl_inst = try gz.reserveInstructionIndex();
+
+            var namespace: Scope.Namespace = .{
+                .parent = scope,
+                .node = node,
+                .inst = decl_inst,
+                .declaring_gz = gz,
+            };
+            defer namespace.deinit(gpa);
+
             // The enum_decl instruction introduces a scope in which the decls of the enum
             // are in scope, so that tag values can refer to decls within the enum itself.
             var block_scope: GenZir = .{
@@ -4226,13 +4254,10 @@ fn containerDecl(
             };
             defer block_scope.instructions.deinit(gpa);
 
-            var namespace: Scope.Namespace = .{ .parent = scope, .node = node };
-            defer namespace.decls.deinit(gpa);
-
             try astgen.scanDecls(&namespace, container_decl.ast.members);
 
             const arg_inst: Zir.Inst.Ref = if (container_decl.ast.arg != 0)
-                try comptimeExpr(gz, &namespace.base, .{ .ty = .type_type }, container_decl.ast.arg)
+                try comptimeExpr(&block_scope, &namespace.base, .{ .ty = .type_type }, container_decl.ast.arg)
             else
                 .none;
 
@@ -4427,7 +4452,6 @@ fn containerDecl(
                 }
             }
 
-            const decl_inst = try gz.reserveInstructionIndex();
             if (block_scope.instructions.items.len != 0) {
                 _ = try block_scope.addBreak(.break_inline, decl_inst, .void_value);
             }
@@ -4441,11 +4465,16 @@ fn containerDecl(
                 .decls_len = @intCast(u32, wip_decls.decl_index),
             });
 
-            try astgen.extra.ensureUnusedCapacity(gpa, bit_bag.items.len +
-                1 + fields_data.items.len +
+            try astgen.extra.ensureUnusedCapacity(gpa,
+                bit_bag.items.len +
+                @boolToInt(wip_decls.decl_index != 0) +
+                wip_decls.payload.items.len +
                 block_scope.instructions.items.len +
-                wip_decls.bit_bag.items.len + @boolToInt(wip_decls.decl_index != 0) +
-                wip_decls.payload.items.len);
+                wip_decls.bit_bag.items.len +
+                1 + // cur_bit_bag
+                fields_data.items.len
+            );
+
             astgen.extra.appendSliceAssumeCapacity(wip_decls.bit_bag.items); // Likely empty.
             if (wip_decls.decl_index != 0) {
                 astgen.extra.appendAssumeCapacity(wip_decls.cur_bit_bag);
@@ -4462,11 +4491,18 @@ fn containerDecl(
         .keyword_opaque => {
             assert(container_decl.ast.arg == 0);
 
-            var namespace: Scope.Namespace = .{ .parent = scope, .node = node };
-            defer namespace.decls.deinit(gpa);
+            const decl_inst = try gz.reserveInstructionIndex();
+
+            var namespace: Scope.Namespace = .{
+                .parent = scope,
+                .node = node,
+                .inst = decl_inst,
+                .declaring_gz = gz,
+            };
+            defer namespace.deinit(gpa);
 
             try astgen.scanDecls(&namespace, container_decl.ast.members);
-
+            
             var wip_decls: WipDecls = .{};
             defer wip_decls.deinit(gpa);
 
@@ -4601,21 +4637,18 @@ fn containerDecl(
                     wip_decls.cur_bit_bag >>= @intCast(u5, empty_slot_count * WipDecls.bits_per_field);
                 }
             }
-            const tag: Zir.Inst.Tag = switch (gz.anon_name_strategy) {
-                .parent => .opaque_decl,
-                .anon => .opaque_decl_anon,
-                .func => .opaque_decl_func,
-            };
-            const decl_inst = try gz.addBlock(tag, node);
-            try gz.instructions.append(gpa, decl_inst);
 
-            try astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.OpaqueDecl).Struct.fields.len +
-                wip_decls.bit_bag.items.len + @boolToInt(wip_decls.decl_index != 0) +
-                wip_decls.payload.items.len);
-            const zir_datas = astgen.instructions.items(.data);
-            zir_datas[decl_inst].pl_node.payload_index = astgen.addExtraAssumeCapacity(Zir.Inst.OpaqueDecl{
+            try gz.setOpaque(decl_inst, .{
+                .src_node = node,
                 .decls_len = @intCast(u32, wip_decls.decl_index),
             });
+
+            try astgen.extra.ensureUnusedCapacity(gpa,
+                wip_decls.bit_bag.items.len +
+                @boolToInt(wip_decls.decl_index != 0) +
+                wip_decls.payload.items.len
+            );
+
             astgen.extra.appendSliceAssumeCapacity(wip_decls.bit_bag.items); // Likely empty.
             if (wip_decls.decl_index != 0) {
                 astgen.extra.appendAssumeCapacity(wip_decls.cur_bit_bag);
@@ -9037,6 +9070,16 @@ const Scope = struct {
         /// for the purposes of reporting name shadowing compile errors.
         decls: std.AutoHashMapUnmanaged(u32, Ast.Node.Index) = .{},
         node: Ast.Node.Index,
+        inst: Zir.Inst.Index,
+
+        /// The astgen scope containing this namespace.
+        /// Only valid during astgen.
+        declaring_gz: ?*GenZir,
+
+        pub fn deinit(self: *Namespace, gpa: *Allocator) void {
+            self.decls.deinit(gpa);
+            self.* = undefined;
+        }
     };
 
     const Top = struct {
@@ -10057,6 +10100,37 @@ const GenZir = struct {
                     .has_decls_len = args.decls_len != 0,
                     .name_strategy = gz.anon_name_strategy,
                     .nonexhaustive = args.nonexhaustive,
+                }),
+                .operand = payload_index,
+            } },
+        });
+    }
+
+    fn setOpaque(gz: *GenZir, inst: Zir.Inst.Index, args: struct {
+        src_node: Ast.Node.Index,
+        decls_len: u32,
+    }) !void {
+        const astgen = gz.astgen;
+        const gpa = astgen.gpa;
+
+        try astgen.extra.ensureUnusedCapacity(gpa, 2);
+        const payload_index = @intCast(u32, astgen.extra.items.len);
+
+        if (args.src_node != 0) {
+            const node_offset = gz.nodeIndexToRelative(args.src_node);
+            astgen.extra.appendAssumeCapacity(@bitCast(u32, node_offset));
+        }
+        if (args.decls_len != 0) {
+            astgen.extra.appendAssumeCapacity(args.decls_len);
+        }
+        astgen.instructions.set(inst, .{
+            .tag = .extended,
+            .data = .{ .extended = .{
+                .opcode = .opaque_decl,
+                .small = @bitCast(u16, Zir.Inst.OpaqueDecl.Small{
+                    .has_src_node = args.src_node != 0,
+                    .has_decls_len = args.decls_len != 0,
+                    .name_strategy = gz.anon_name_strategy,
                 }),
                 .operand = payload_index,
             } },

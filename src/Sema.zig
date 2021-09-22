@@ -343,9 +343,6 @@ pub fn analyzeBody(
             .trunc => try sema.zirUnaryMath(block, inst),
             .round => try sema.zirUnaryMath(block, inst),
 
-            .opaque_decl         => try sema.zirOpaqueDecl(block, inst, .parent),
-            .opaque_decl_anon    => try sema.zirOpaqueDecl(block, inst, .anon),
-            .opaque_decl_func    => try sema.zirOpaqueDecl(block, inst, .func),
             .error_set_decl      => try sema.zirErrorSetDecl(block, inst, .parent),
             .error_set_decl_anon => try sema.zirErrorSetDecl(block, inst, .anon),
             .error_set_decl_func => try sema.zirErrorSetDecl(block, inst, .func),
@@ -626,6 +623,7 @@ fn zirExtended(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileEr
         .struct_decl        => return sema.zirStructDecl(        block, extended, inst),
         .enum_decl          => return sema.zirEnumDecl(          block, extended),
         .union_decl         => return sema.zirUnionDecl(         block, extended, inst),
+        .opaque_decl        => return sema.zirOpaqueDecl(        block, extended, inst),
         .ret_ptr            => return sema.zirRetPtr(            block, extended),
         .ret_type           => return sema.zirRetType(           block, extended),
         .this               => return sema.zirThis(              block, extended),
@@ -1083,17 +1081,6 @@ fn zirEnumDecl(
     var new_decl_arena = std.heap.ArenaAllocator.init(gpa);
     errdefer new_decl_arena.deinit();
 
-    const tag_ty = blk: {
-        if (tag_type_ref != .none) {
-            // TODO better source location
-            // TODO (needs AstGen fix too) move this eval to the block so it gets allocated
-            // in the new decl arena.
-            break :blk try sema.resolveType(block, src, tag_type_ref);
-        }
-        const bits = std.math.log2_int_ceil(usize, fields_len);
-        break :blk try Type.Tag.int_unsigned.create(&new_decl_arena.allocator, bits);
-    };
-
     const enum_obj = try new_decl_arena.allocator.create(Module.EnumFull);
     const enum_ty_payload = try new_decl_arena.allocator.create(Type.Payload.EnumFull);
     enum_ty_payload.* = .{
@@ -1112,7 +1099,7 @@ fn zirEnumDecl(
 
     enum_obj.* = .{
         .owner_decl = new_decl,
-        .tag_ty = tag_ty,
+        .tag_ty = Type.initTag(.@"null"),
         .fields = .{},
         .values = .{},
         .node_offset = src.node_offset,
@@ -1139,16 +1126,6 @@ fn zirEnumDecl(
     const bit_bags_count = std.math.divCeil(usize, fields_len, 32) catch unreachable;
     const body_end = extra_index;
     extra_index += bit_bags_count;
-
-    try enum_obj.fields.ensureTotalCapacity(&new_decl_arena.allocator, fields_len);
-    const any_values = for (sema.code.extra[body_end..][0..bit_bags_count]) |bag| {
-        if (bag != 0) break true;
-    } else false;
-    if (any_values) {
-        try enum_obj.values.ensureTotalCapacityContext(&new_decl_arena.allocator, fields_len, .{
-            .ty = tag_ty,
-        });
-    }
 
     {
         // We create a block for the field type instructions because they
@@ -1185,7 +1162,28 @@ fn zirEnumDecl(
         if (body.len != 0) {
             _ = try sema.analyzeBody(&enum_block, body);
         }
+
+        const tag_ty = blk: {
+            if (tag_type_ref != .none) {
+                // TODO better source location
+                break :blk try sema.resolveType(block, src, tag_type_ref);
+            }
+            const bits = std.math.log2_int_ceil(usize, fields_len);
+            break :blk try Type.Tag.int_unsigned.create(&new_decl_arena.allocator, bits);
+        };
+        enum_obj.tag_ty = tag_ty;
     }
+
+    try enum_obj.fields.ensureTotalCapacity(&new_decl_arena.allocator, fields_len);
+    const any_values = for (sema.code.extra[body_end..][0..bit_bags_count]) |bag| {
+        if (bag != 0) break true;
+    } else false;
+    if (any_values) {
+        try enum_obj.values.ensureTotalCapacityContext(&new_decl_arena.allocator, fields_len, .{
+            .ty = enum_obj.tag_ty,
+        });
+    }
+
     var bit_bag_index: usize = body_end;
     var cur_bit_bag: u32 = undefined;
     var field_i: u32 = 0;
@@ -1224,10 +1222,10 @@ fn zirEnumDecl(
             // that points to this default value expression rather than the struct.
             // But only resolve the source location if we need to emit a compile error.
             const tag_val = (try sema.resolveInstConst(block, src, tag_val_ref)).val;
-            enum_obj.values.putAssumeCapacityNoClobberContext(tag_val, {}, .{ .ty = tag_ty });
+            enum_obj.values.putAssumeCapacityNoClobberContext(tag_val, {}, .{ .ty = enum_obj.tag_ty });
         } else if (any_values) {
             const tag_val = try Value.Tag.int_u64.create(&new_decl_arena.allocator, field_i);
-            enum_obj.values.putAssumeCapacityNoClobberContext(tag_val, {}, .{ .ty = tag_ty });
+            enum_obj.values.putAssumeCapacityNoClobberContext(tag_val, {}, .{ .ty = enum_obj.tag_ty });
         }
     }
 
@@ -1305,20 +1303,14 @@ fn zirUnionDecl(
 fn zirOpaqueDecl(
     sema: *Sema,
     block: *Scope.Block,
+    extended: Zir.Inst.Extended.InstData,
     inst: Zir.Inst.Index,
-    name_strategy: Zir.Inst.NameStrategy,
 ) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    const src = inst_data.src();
-    const extra = sema.code.extraData(Zir.Inst.Block, inst_data.payload_index);
-
-    _ = name_strategy;
-    _ = inst_data;
-    _ = src;
-    _ = extra;
+    _ = extended;
+    _ = inst;
     return sema.mod.fail(&block.base, sema.src, "TODO implement zirOpaqueDecl", .{});
 }
 
@@ -8714,7 +8706,7 @@ fn safetyPanic(
     block: *Scope.Block,
     src: LazySrcLoc,
     panic_id: PanicId,
-) !Zir.Inst.Index {
+) CompileError!Zir.Inst.Index {
     const msg = switch (panic_id) {
         .unreach => "reached unreachable code",
         .unwrap_null => "attempt to use null value",
@@ -10885,9 +10877,11 @@ fn analyzeUnionFields(
     const src: LazySrcLoc = .{ .node_offset = union_obj.node_offset };
     extra_index += @boolToInt(small.has_src_node);
 
-    if (small.has_tag_type) {
+    const tag_type_ref: Zir.Inst.Ref = if (small.has_tag_type) blk: {
+        const ty_ref = @intToEnum(Zir.Inst.Ref, zir.extra[extra_index]);
         extra_index += 1;
-    }
+        break :blk ty_ref;
+    } else .none;
 
     const body_len = if (small.has_body_len) blk: {
         const body_len = zir.extra[extra_index];
@@ -10996,6 +10990,7 @@ fn analyzeUnionFields(
     }
 
     // TODO resolve the union tag_type_ref
+    _ = tag_type_ref;
 }
 
 fn getBuiltin(

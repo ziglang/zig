@@ -49,8 +49,6 @@ pub const Header = extern struct {
 };
 
 pub const ExtraIndex = enum(u32) {
-    /// Ref. The main struct decl for this file.
-    main_struct,
     /// If this is 0, no compile errors. Otherwise there is a `CompileErrors`
     /// payload at this index.
     compile_errors,
@@ -62,8 +60,8 @@ pub const ExtraIndex = enum(u32) {
 };
 
 pub fn getMainStruct(zir: Zir) Inst.Index {
-    return zir.extra[@enumToInt(ExtraIndex.main_struct)] -
-        @intCast(u32, Inst.Ref.typed_value_map.len);
+    _ = zir;
+    return 0;
 }
 
 /// Returns the requested data, as well as the new index which is at the start of the
@@ -267,11 +265,6 @@ pub const Inst = struct {
         /// only the taken branch is analyzed. The then block and else block must
         /// terminate with an "inline" variant of a noreturn instruction.
         condbr_inline,
-        /// An opaque type definition. Provides an AST node only.
-        /// Uses the `pl_node` union field. Payload is `OpaqueDecl`.
-        opaque_decl,
-        opaque_decl_anon,
-        opaque_decl_func,
         /// An error set type definition. Contains a list of field names.
         /// Uses the `pl_node` union field. Payload is `ErrorSetDecl`.
         error_set_decl,
@@ -996,9 +989,6 @@ pub const Inst = struct {
                 .cmp_gt,
                 .cmp_neq,
                 .coerce_result_ptr,
-                .opaque_decl,
-                .opaque_decl_anon,
-                .opaque_decl_func,
                 .error_set_decl,
                 .error_set_decl_anon,
                 .error_set_decl_func,
@@ -1258,9 +1248,6 @@ pub const Inst = struct {
                 .coerce_result_ptr = .bin,
                 .condbr = .pl_node,
                 .condbr_inline = .pl_node,
-                .opaque_decl = .pl_node,
-                .opaque_decl_anon = .pl_node,
-                .opaque_decl_func = .pl_node,
                 .error_set_decl = .pl_node,
                 .error_set_decl_anon = .pl_node,
                 .error_set_decl_func = .pl_node,
@@ -1510,6 +1497,10 @@ pub const Inst = struct {
         /// `operand` is payload index to `UnionDecl`.
         /// `small` is `UnionDecl.Small`.
         union_decl,
+        /// An opaque type definition. Contains references to decls and captures.
+        /// `operand` is payload index to `OpaqueDecl`.
+        /// `small` is `OpaqueDecl.Small`.
+        opaque_decl,
         /// Obtains a pointer to the return value.
         /// `operand` is `src_node: i32`.
         ret_ptr,
@@ -2658,13 +2649,15 @@ pub const Inst = struct {
     };
 
     /// Trailing:
-    /// 0. decl_bits: u32 // for every 8 decls
+    /// 0. src_node: i32, // if has_src_node
+    /// 1. decls_len: u32, // if has_decls_len
+    /// 2. decl_bits: u32 // for every 8 decls
     ///    - sets of 4 bits:
     ///      0b000X: whether corresponding decl is pub
     ///      0b00X0: whether corresponding decl is exported
     ///      0b0X00: whether corresponding decl has an align expression
     ///      0bX000: whether corresponding decl has a linksection or an address space expression
-    /// 1. decl: { // for every decls_len
+    /// 3. decl: { // for every decls_len
     ///        src_hash: [4]u32, // hash of source bytes
     ///        line: u32, // line number of decl, relative to parent
     ///        name: u32, // null terminated string index
@@ -2681,7 +2674,12 @@ pub const Inst = struct {
     ///        }
     ///    }
     pub const OpaqueDecl = struct {
-        decls_len: u32,
+        pub const Small = packed struct {
+            has_src_node: bool,
+            has_decls_len: bool,
+            name_strategy: NameStrategy,
+            _: u12 = undefined,
+        };
     };
 
     /// Trailing: field_name: u32 // for every field: null terminated string index
@@ -2933,15 +2931,6 @@ pub fn declIterator(zir: Zir, decl_inst: u32) DeclIterator {
     const tags = zir.instructions.items(.tag);
     const datas = zir.instructions.items(.data);
     switch (tags[decl_inst]) {
-        .opaque_decl,
-        .opaque_decl_anon,
-        .opaque_decl_func,
-        => {
-            const inst_data = datas[decl_inst].pl_node;
-            const extra = zir.extraData(Inst.OpaqueDecl, inst_data.payload_index);
-            return declIteratorInner(zir, extra.end, extra.data.decls_len);
-        },
-
         // Functions are allowed and yield no iterations.
         // There is one case matching this in the extended instruction set below.
         .func,
@@ -2996,6 +2985,18 @@ pub fn declIterator(zir: Zir, decl_inst: u32) DeclIterator {
 
                     return declIteratorInner(zir, extra_index, decls_len);
                 },
+                .opaque_decl => {
+                    const small = @bitCast(Inst.OpaqueDecl.Small, extended.small);
+                    var extra_index: usize = extended.operand;
+                    extra_index += @boolToInt(small.has_src_node);
+                    const decls_len = if (small.has_decls_len) decls_len: {
+                        const decls_len = zir.extra[extra_index];
+                        extra_index += 1;
+                        break :decls_len decls_len;
+                    } else 0;
+
+                    return declIteratorInner(zir, extra_index, decls_len);
+                },
                 else => unreachable,
             }
         },
@@ -3033,13 +3034,6 @@ fn findDeclsInner(
     const datas = zir.instructions.items(.data);
 
     switch (tags[inst]) {
-        // Decl instructions are interesting but have no body.
-        // TODO yes they do have a body actually. recurse over them just like block instructions.
-        .opaque_decl,
-        .opaque_decl_anon,
-        .opaque_decl_func,
-        => return list.append(inst),
-
         // Functions instructions are interesting and have a body.
         .func,
         .func_inferred,
@@ -3067,9 +3061,12 @@ fn findDeclsInner(
                     return zir.findDeclsBody(list, body);
                 },
 
+                // Decl instructions are interesting but have no body.
+                // TODO yes they do have a body actually. recurse over them just like block instructions.
                 .struct_decl,
                 .union_decl,
                 .enum_decl,
+                .opaque_decl,
                 => return list.append(inst),
 
                 else => return,
