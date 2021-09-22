@@ -937,7 +937,7 @@ pub const Value = extern union {
     /// Asserts that the value is a float or an integer.
     pub fn toFloat(self: Value, comptime T: type) T {
         return switch (self.tag()) {
-            .float_16 => @panic("TODO soft float"),
+            .float_16 => @floatCast(T, self.castTag(.float_16).?.data),
             .float_32 => @floatCast(T, self.castTag(.float_32).?.data),
             .float_64 => @floatCast(T, self.castTag(.float_64).?.data),
             .float_128 => @floatCast(T, self.castTag(.float_128).?.data),
@@ -1046,11 +1046,10 @@ pub const Value = extern union {
     pub fn floatCast(self: Value, allocator: *Allocator, dest_ty: Type) !Value {
         switch (dest_ty.tag()) {
             .f16 => {
-                @panic("TODO add __trunctfhf2 to compiler-rt");
-                //const res = try Value.Tag.float_16.create(allocator, self.toFloat(f16));
-                //if (!self.eql(res))
-                //    return error.Overflow;
-                //return res;
+                const res = try Value.Tag.float_16.create(allocator, self.toFloat(f16));
+                if (!self.eql(res, dest_ty))
+                    return error.Overflow;
+                return res;
             },
             .f32 => {
                 const res = try Value.Tag.float_32.create(allocator, self.toFloat(f32));
@@ -1901,10 +1900,9 @@ pub const Value = extern union {
     ) !Value {
         switch (float_type.tag()) {
             .f16 => {
-                @panic("TODO add __trunctfhf2 to compiler-rt");
-                //const lhs_val = lhs.toFloat(f16);
-                //const rhs_val = rhs.toFloat(f16);
-                //return Value.Tag.float_16.create(arena, lhs_val + rhs_val);
+                const lhs_val = lhs.toFloat(f16);
+                const rhs_val = rhs.toFloat(f16);
+                return Value.Tag.float_16.create(arena, lhs_val + rhs_val);
             },
             .f32 => {
                 const lhs_val = lhs.toFloat(f32);
@@ -1933,10 +1931,9 @@ pub const Value = extern union {
     ) !Value {
         switch (float_type.tag()) {
             .f16 => {
-                @panic("TODO add __trunctfhf2 to compiler-rt");
-                //const lhs_val = lhs.toFloat(f16);
-                //const rhs_val = rhs.toFloat(f16);
-                //return Value.Tag.float_16.create(arena, lhs_val - rhs_val);
+                const lhs_val = lhs.toFloat(f16);
+                const rhs_val = rhs.toFloat(f16);
+                return Value.Tag.float_16.create(arena, lhs_val - rhs_val);
             },
             .f32 => {
                 const lhs_val = lhs.toFloat(f32);
@@ -1965,10 +1962,9 @@ pub const Value = extern union {
     ) !Value {
         switch (float_type.tag()) {
             .f16 => {
-                @panic("TODO add __trunctfhf2 to compiler-rt");
-                //const lhs_val = lhs.toFloat(f16);
-                //const rhs_val = rhs.toFloat(f16);
-                //return Value.Tag.float_16.create(arena, lhs_val / rhs_val);
+                const lhs_val = lhs.toFloat(f16);
+                const rhs_val = rhs.toFloat(f16);
+                return Value.Tag.float_16.create(arena, lhs_val / rhs_val);
             },
             .f32 => {
                 const lhs_val = lhs.toFloat(f32);
@@ -1997,10 +1993,9 @@ pub const Value = extern union {
     ) !Value {
         switch (float_type.tag()) {
             .f16 => {
-                @panic("TODO add __trunctfhf2 to compiler-rt");
-                //const lhs_val = lhs.toFloat(f16);
-                //const rhs_val = rhs.toFloat(f16);
-                //return Value.Tag.float_16.create(arena, lhs_val * rhs_val);
+                const lhs_val = lhs.toFloat(f16);
+                const rhs_val = rhs.toFloat(f16);
+                return Value.Tag.float_16.create(arena, lhs_val * rhs_val);
             },
             .f32 => {
                 const lhs_val = lhs.toFloat(f32);

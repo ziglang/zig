@@ -13,6 +13,7 @@ test {
     _ = @import("behavior/atomics.zig");
     _ = @import("behavior/sizeof_and_typeof.zig");
     _ = @import("behavior/translate_c_macros.zig");
+    _ = @import("behavior/widening.zig");
 
     if (builtin.zig_is_stage2) {
         // When all comptime_memory.zig tests pass, #9646 can be closed.
@@ -157,7 +158,7 @@ test {
             _ = @import("behavior/wasm.zig");
         }
         _ = @import("behavior/while.zig");
-        _ = @import("behavior/widening.zig");
+        _ = @import("behavior/widening_stage1.zig");
         _ = @import("behavior/src.zig");
         _ = @import("behavior/translate_c_macros_stage1.zig");
     }
