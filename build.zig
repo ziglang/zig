@@ -115,6 +115,7 @@ pub fn build(b: *Builder) !void {
     if (target.isWindows() and target.getAbi() == .gnu) {
         // LTO is currently broken on mingw, this can be removed when it's fixed.
         exe.want_lto = false;
+        test_stage2.want_lto = false;
     }
 
     const exe_options = b.addOptions();
@@ -501,6 +502,7 @@ fn addStaticLlvmOptionsToExe(
     if (exe.target.getOs().tag == .windows) {
         exe.linkSystemLibrary("version");
         exe.linkSystemLibrary("uuid");
+        exe.linkSystemLibrary("ole32");
     }
 }
 
