@@ -2800,6 +2800,12 @@ pub fn cmdInit(
         error.FileNotFound => {},
         else => fatal("unable to test existence of build.zig: {s}\n", .{@errorName(err)}),
     }
+    if (fs.cwd().access("src" ++ s ++ "main.zig", .{})) |_| {
+        fatal("existing src" ++ s ++ "main.zig file would be overwritten", .{});
+    } else |err| switch (err) {
+        error.FileNotFound => {},
+        else => fatal("unable to test existence of src" ++ s ++ "main.zig: {s}\n", .{@errorName(err)}),
+    }
     var src_dir = try fs.cwd().makeOpenPath("src", .{});
     defer src_dir.close();
 
