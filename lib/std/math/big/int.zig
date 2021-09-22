@@ -584,19 +584,29 @@ pub const Mutable = struct {
         r.positive = a.positive and b.positive;
     }
 
-    /// r = a ^ b
+    /// r = a ^ b under 2s complement semantics.
     /// r may alias with a or b.
     ///
-    /// Asserts that r has enough limbs to store the result. Upper bound is `math.max(a.limbs.len, b.limbs.len)`.
+    /// Asserts that r has enough limbs to store the result. If a and b share the same signedness, the
+    /// upper bound is `math.max(a.limbs.len, b.limbs.len)`. Otherwise, if either a or b is negative
+    /// but not both, the upper bound is `math.max(a.limbs.len, b.limbs.len) + 1`.
     pub fn bitXor(r: *Mutable, a: Const, b: Const) void {
-        if (a.limbs.len > b.limbs.len) {
-            llxor(r.limbs[0..], a.limbs[0..a.limbs.len], b.limbs[0..b.limbs.len]);
-            r.normalize(a.limbs.len);
-        } else {
-            llxor(r.limbs[0..], b.limbs[0..b.limbs.len], a.limbs[0..a.limbs.len]);
-            r.normalize(b.limbs.len);
+        // Trivial cases, because llsignedxor does not support negative zero.
+        if (a.eqZero()) {
+            r.copy(b);
+            return;
+        } else if (b.eqZero()) {
+            r.copy(a);
+            return;
         }
-        r.positive = a.positive or b.positive;
+
+        if (a.limbs.len > b.limbs.len) {
+            r.positive = llsignedxor(r.limbs, a.limbs, a.positive, b.limbs, b.positive);
+            r.normalize(a.limbs.len + @boolToInt(a.positive != b.positive));
+        } else {
+            r.positive = llsignedxor(r.limbs, b.limbs, b.positive, a.limbs, a.positive);
+            r.normalize(b.limbs.len + @boolToInt(a.positive != b.positive));
+        }
     }
 
     /// rma may alias x or y.
@@ -1845,7 +1855,9 @@ pub const Managed = struct {
 
     /// r = a ^ b
     pub fn bitXor(r: *Managed, a: Managed, b: Managed) !void {
-        try r.ensureCapacity(math.max(a.len(), b.len()));
+        var cap = math.max(a.len(), b.len()) + @boolToInt(a.isPositive() != b.isPositive());
+        try r.ensureCapacity(cap);
+
         var m = r.toMutable();
         m.bitXor(a.toConst(), b.toConst());
         r.setMetadata(m.positive, m.len);
@@ -2249,17 +2261,59 @@ fn lland(r: []Limb, a: []const Limb, b: []const Limb) void {
     }
 }
 
-fn llxor(r: []Limb, a: []const Limb, b: []const Limb) void {
+// r = a ^ b with 2s complement semantics.
+// r may alias.
+// a and b must not be -0.
+// Returns `true` when the result is positive.
+fn llsignedxor(r: []Limb, a: []const Limb, a_positive: bool, b: []const Limb, b_positive: bool) bool {
+    @setRuntimeSafety(debug_safety);
+    assert(a.len != 0 and b.len != 0);
     assert(r.len >= a.len);
     assert(a.len >= b.len);
 
+    // If a and b are positive, the result is positive and r = a ^ b.
+    // If a negative, b positive, result is negative and we have
+    // r = --(--a ^ b)
+    //   = --(~(-a - 1) ^ b)
+    //   = -(~(~(-a - 1) ^ b) + 1)
+    //   = -(((-a - 1) ^ b) + 1)
+    // Same if a is positive and b is negative, sides switched.
+    // If both a and b are negative, the result is positive and we have
+    // r = (--a) ^ (--b)
+    //   = ~(-a - 1) ^ ~(-b - 1)
+    //   = (-a - 1) ^ (-b - 1)
+    // These operations can be made more generic as follows:
+    // - If a is negative, subtract 1 from |a| before the xor.
+    // - If b is negative, subtract 1 from |b| before the xor.
+    // - if the result is supposed to be negative, add 1.
+
     var i: usize = 0;
+    var a_borrow = @boolToInt(!a_positive);
+    var b_borrow = @boolToInt(!b_positive);
+    var r_carry = @boolToInt(a_positive != b_positive);
+
     while (i < b.len) : (i += 1) {
-        r[i] = a[i] ^ b[i];
+        var a_limb: Limb = undefined;
+        a_borrow = @boolToInt(@subWithOverflow(Limb, a[i], a_borrow, &a_limb));
+
+        var b_limb: Limb = undefined;
+        b_borrow = @boolToInt(@subWithOverflow(Limb, b[i], b_borrow, &b_limb));
+
+        r[i] = a_limb ^ b_limb;
+        r_carry = @boolToInt(@addWithOverflow(Limb, r[i], r_carry, &r[i]));
     }
+
     while (i < a.len) : (i += 1) {
-        r[i] = a[i];
+        a_borrow = @boolToInt(@subWithOverflow(Limb, a[i], a_borrow, &r[i]));
+        r_carry = @boolToInt(@addWithOverflow(Limb, r[i], r_carry, &r[i]));
     }
+
+    r[i] = r_carry;
+
+    assert(a_borrow == 0);
+    assert(b_borrow == 0);
+
+    return a_positive == b_positive;
 }
 
 /// r MUST NOT alias x.
