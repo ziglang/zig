@@ -2,12 +2,6 @@ const std = @import("std");
 const expect = std.testing.expect;
 const mem = std.mem;
 
-test "implicit unsigned integer to signed integer" {
-    var a: u8 = 250;
-    var b: i16 = a;
-    try expect(b == 250);
-}
-
 test "float widening" {
     var a: f16 = 12.34;
     var b: f32 = a;

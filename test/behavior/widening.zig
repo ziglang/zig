@@ -11,3 +11,9 @@ test "integer widening" {
     var f: u128 = e;
     try expect(f == a);
 }
+
+test "implicit unsigned integer to signed integer" {
+    var a: u8 = 250;
+    var b: i16 = a;
+    try expect(b == 250);
+}

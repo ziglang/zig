@@ -2032,14 +2032,22 @@ pub const FuncGen = struct {
         if (self.liveness.isUnused(inst))
             return null;
 
+        const target = self.dg.module.getTarget();
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const dest_ty = self.air.typeOfIndex(inst);
+        const dest_info = dest_ty.intInfo(target);
+        const dest_llvm_ty = try self.dg.llvmType(dest_ty);
         const operand = try self.resolveInst(ty_op.operand);
-        const inst_ty = self.air.typeOfIndex(inst);
+        const operand_ty = self.air.typeOf(ty_op.operand);
+        const operand_info = operand_ty.intInfo(target);
 
-        const signed = inst_ty.isSignedInt();
-        // TODO: Should we use intcast here or just a simple bitcast?
-        //       LLVM does truncation vs bitcast (+signed extension) in the intcast depending on the sizes
-        return self.builder.buildIntCast2(operand, try self.dg.llvmType(inst_ty), llvm.Bool.fromBool(signed), "");
+        if (operand_info.bits < dest_info.bits) {
+            switch (operand_info.signedness) {
+                .signed => return self.builder.buildSExt(operand, dest_llvm_ty, ""),
+                .unsigned => return self.builder.buildZExt(operand, dest_llvm_ty, ""),
+            }
+        }
+        return self.builder.buildTrunc(operand, dest_llvm_ty, "");
     }
 
     fn airTrunc(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
