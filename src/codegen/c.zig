@@ -1334,7 +1334,7 @@ fn airSatOp(
 
     // if it's an unsigned int with non-arbitrary bit size then we can just add
     if (bits > 64) {
-        return f.fail("TODO: C backend: airSatOp for large integers", .{});
+        return o.dg.fail("TODO: C backend: airSatOp for large integers", .{});
     }
 
     var min_buf: [80]u8 = undefined;
