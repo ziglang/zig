@@ -227,9 +227,12 @@ pub const Inst = struct {
         /// Indicates the program counter will never get to this instruction.
         /// Result type is always noreturn; no instructions in a block follow this one.
         unreach,
-        /// Convert from one float type to another.
+        /// Convert from a float type to a smaller one.
         /// Uses the `ty_op` field.
-        floatcast,
+        fptrunc,
+        /// Convert from a float type to a wider one.
+        /// Uses the `ty_op` field.
+        fpext,
         /// Returns an integer with a different type than the operand. The new type may have
         /// fewer, the same, or more bits than the operand type. However, the instruction
         /// guarantees that the same integer value fits in both types.
@@ -586,7 +589,8 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .not,
         .bitcast,
         .load,
-        .floatcast,
+        .fpext,
+        .fptrunc,
         .intcast,
         .trunc,
         .optional_payload,

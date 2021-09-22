@@ -458,6 +458,11 @@ pub fn analyzeBody(
                 i += 1;
                 continue;
             },
+            .export_value => {
+                try sema.zirExportValue(block, inst);
+                i += 1;
+                continue;
+            },
             .set_align_stack => {
                 try sema.zirSetAlignStack(block, inst);
                 i += 1;
@@ -2392,30 +2397,33 @@ fn zirExport(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileErro
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const extra = sema.code.extraData(Zir.Inst.Export, inst_data.payload_index).data;
     const src = inst_data.src();
-    const lhs_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
-    const rhs_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
+    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
+    const options_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
     const decl_name = sema.code.nullTerminatedString(extra.decl_name);
     if (extra.namespace != .none) {
         return sema.mod.fail(&block.base, src, "TODO: implement exporting with field access", .{});
     }
-    const decl = try sema.lookupIdentifier(block, lhs_src, decl_name);
-    const options = try sema.resolveInstConst(block, rhs_src, extra.options);
-    const struct_obj = options.ty.castTag(.@"struct").?.data;
-    const fields = options.val.castTag(.@"struct").?.data[0..struct_obj.fields.count()];
-    const name_index = struct_obj.fields.getIndex("name").?;
-    const linkage_index = struct_obj.fields.getIndex("linkage").?;
-    const section_index = struct_obj.fields.getIndex("section").?;
-    const export_name = try fields[name_index].toAllocatedBytes(sema.arena);
-    const linkage = fields[linkage_index].toEnum(std.builtin.GlobalLinkage);
+    const decl = try sema.lookupIdentifier(block, operand_src, decl_name);
+    const options = try sema.resolveExportOptions(block, options_src, extra.options);
+    try sema.mod.analyzeExport(&block.base, src, options, decl);
+}
 
-    if (linkage != .Strong) {
-        return sema.mod.fail(&block.base, src, "TODO: implement exporting with non-strong linkage", .{});
-    }
-    if (!fields[section_index].isNull()) {
-        return sema.mod.fail(&block.base, src, "TODO: implement exporting with linksection", .{});
-    }
+fn zirExportValue(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!void {
+    const tracy = trace(@src());
+    defer tracy.end();
 
-    try sema.mod.analyzeExport(&block.base, src, export_name, decl);
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const extra = sema.code.extraData(Zir.Inst.ExportValue, inst_data.payload_index).data;
+    const src = inst_data.src();
+    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
+    const options_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
+    const operand = try sema.resolveInstConst(block, operand_src, extra.operand);
+    const options = try sema.resolveExportOptions(block, options_src, extra.options);
+    const decl = switch (operand.val.tag()) {
+        .function => operand.val.castTag(.function).?.data.owner_decl,
+        else => return sema.mod.fail(&block.base, operand_src, "TODO implement exporting arbitrary Value objects", .{}), // TODO put this Value into an anonymous Decl and then export it.
+    };
+    try sema.mod.analyzeExport(&block.base, src, options, decl);
 }
 
 fn zirSetAlignStack(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!void {
@@ -4516,11 +4524,18 @@ fn zirFloatCast(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileE
 
     if (try sema.isComptimeKnown(block, operand_src, operand)) {
         return sema.coerce(block, dest_type, operand, operand_src);
-    } else if (dest_is_comptime_float) {
+    }
+    if (dest_is_comptime_float) {
         return sema.mod.fail(&block.base, src, "unable to cast runtime value to 'comptime_float'", .{});
     }
-
-    return sema.mod.fail(&block.base, src, "TODO implement analyze widen or shorten float", .{});
+    const target = sema.mod.getTarget();
+    const src_bits = operand_ty.floatBits(target);
+    const dst_bits = dest_type.floatBits(target);
+    if (dst_bits >= src_bits) {
+        return sema.coerce(block, dest_type, operand, operand_src);
+    }
+    try sema.requireRuntimeBlock(block, operand_src);
+    return block.addTyOp(.fptrunc, dest_type, operand);
 }
 
 fn zirElemVal(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -7936,6 +7951,31 @@ fn checkAtomicOperandType(
     }
 }
 
+fn resolveExportOptions(
+    sema: *Sema,
+    block: *Scope.Block,
+    src: LazySrcLoc,
+    zir_ref: Zir.Inst.Ref,
+) CompileError!std.builtin.ExportOptions {
+    const export_options_ty = try sema.getBuiltinType(block, src, "ExportOptions");
+    const air_ref = sema.resolveInst(zir_ref);
+    const coerced = try sema.coerce(block, export_options_ty, air_ref, src);
+    const val = try sema.resolveConstValue(block, src, coerced);
+    const fields = val.castTag(.@"struct").?.data;
+    const struct_obj = export_options_ty.castTag(.@"struct").?.data;
+    const name_index = struct_obj.fields.getIndex("name").?;
+    const linkage_index = struct_obj.fields.getIndex("linkage").?;
+    const section_index = struct_obj.fields.getIndex("section").?;
+    if (!fields[section_index].isNull()) {
+        return sema.mod.fail(&block.base, src, "TODO: implement exporting with linksection", .{});
+    }
+    return std.builtin.ExportOptions{
+        .name = try fields[name_index].toAllocatedBytes(sema.arena),
+        .linkage = fields[linkage_index].toEnum(std.builtin.GlobalLinkage),
+        .section = null, // TODO
+    };
+}
+
 fn resolveAtomicOrder(
     sema: *Sema,
     block: *Scope.Block,
@@ -9581,7 +9621,7 @@ fn coerce(
                 const dst_bits = dest_type.floatBits(target);
                 if (dst_bits >= src_bits) {
                     try sema.requireRuntimeBlock(block, inst_src);
-                    return block.addTyOp(.floatcast, dest_type, inst);
+                    return block.addTyOp(.fpext, dest_type, inst);
                 }
             }
         },
@@ -9729,35 +9769,53 @@ fn coerceNum(
     const target = sema.mod.getTarget();
 
     switch (dst_zig_tag) {
-        .ComptimeInt, .Int => {
-            if (src_zig_tag == .Float or src_zig_tag == .ComptimeFloat) {
+        .ComptimeInt, .Int => switch (src_zig_tag) {
+            .Float, .ComptimeFloat => {
                 if (val.floatHasFraction()) {
-                    return sema.mod.fail(&block.base, inst_src, "fractional component prevents float value {} from being casted to type '{}'", .{ val, inst_ty });
+                    return sema.mod.fail(&block.base, inst_src, "fractional component prevents float value {} from coercion to type '{}'", .{ val, dest_type });
                 }
                 return sema.mod.fail(&block.base, inst_src, "TODO float to int", .{});
-            } else if (src_zig_tag == .Int or src_zig_tag == .ComptimeInt) {
+            },
+            .Int, .ComptimeInt => {
                 if (!val.intFitsInType(dest_type, target)) {
                     return sema.mod.fail(&block.base, inst_src, "type {} cannot represent integer value {}", .{ dest_type, val });
                 }
                 return try sema.addConstant(dest_type, val);
-            }
+            },
+            else => {},
         },
-        .ComptimeFloat, .Float => {
-            if (src_zig_tag == .Float or src_zig_tag == .ComptimeFloat) {
-                const res = val.floatCast(sema.arena, dest_type) catch |err| switch (err) {
-                    error.Overflow => return sema.mod.fail(
+        .ComptimeFloat, .Float => switch (src_zig_tag) {
+            .ComptimeFloat => {
+                const result_val = try val.floatCast(sema.arena, dest_type);
+                return try sema.addConstant(dest_type, result_val);
+            },
+            .Float => {
+                const result_val = try val.floatCast(sema.arena, dest_type);
+                if (!val.eql(result_val, dest_type)) {
+                    return sema.mod.fail(
                         &block.base,
                         inst_src,
-                        "cast of value {} to type '{}' loses information",
-                        .{ val, dest_type },
-                    ),
-                    error.OutOfMemory => return error.OutOfMemory,
-                };
-                return try sema.addConstant(dest_type, res);
-            } else if (src_zig_tag == .Int or src_zig_tag == .ComptimeInt) {
-                const result_val = try val.intToFloat(sema.arena, dest_type, target);
+                        "type {} cannot represent float value {}",
+                        .{ dest_type, val },
+                    );
+                }
                 return try sema.addConstant(dest_type, result_val);
-            }
+            },
+            .Int, .ComptimeInt => {
+                const result_val = try val.intToFloat(sema.arena, dest_type, target);
+                // TODO implement this compile error
+                //const int_again_val = try result_val.floatToInt(sema.arena, inst_ty);
+                //if (!int_again_val.eql(val, inst_ty)) {
+                //    return sema.mod.fail(
+                //        &block.base,
+                //        inst_src,
+                //        "type {} cannot represent integer value {}",
+                //        .{ dest_type, val },
+                //    );
+                //}
+                return try sema.addConstant(dest_type, result_val);
+            },
+            else => {},
         },
         else => {},
     }

@@ -472,7 +472,18 @@ pub const Object = struct {
                 alias.setAliasee(llvm_fn);
             } else {
                 const alias = self.llvm_module.addAlias(llvm_fn.typeOf(), llvm_fn, exp_name_z);
-                _ = alias;
+                switch (exp.options.linkage) {
+                    .Internal => alias.setLinkage(.Internal),
+                    .Strong => alias.setLinkage(.External),
+                    .Weak => {
+                        if (is_extern) {
+                            alias.setLinkage(.ExternalWeak);
+                        } else {
+                            alias.setLinkage(.WeakODR);
+                        }
+                    },
+                    .LinkOnce => alias.setLinkage(.LinkOnceODR),
+                }
             }
         }
     }
@@ -1137,7 +1148,8 @@ pub const FuncGen = struct {
                 .cond_br        => try self.airCondBr(inst),
                 .intcast        => try self.airIntCast(inst),
                 .trunc          => try self.airTrunc(inst),
-                .floatcast      => try self.airFloatCast(inst),
+                .fptrunc        => try self.airFptrunc(inst),
+                .fpext          => try self.airFpext(inst),
                 .ptrtoint       => try self.airPtrToInt(inst),
                 .load           => try self.airLoad(inst),
                 .loop           => try self.airLoop(inst),
@@ -2060,12 +2072,26 @@ pub const FuncGen = struct {
         return self.builder.buildTrunc(operand, dest_llvm_ty, "");
     }
 
-    fn airFloatCast(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+    fn airFptrunc(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
         if (self.liveness.isUnused(inst))
             return null;
 
-        // TODO split floatcast AIR into float_widen and float_shorten
-        return self.todo("implement 'airFloatCast'", .{});
+        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const operand = try self.resolveInst(ty_op.operand);
+        const dest_llvm_ty = try self.dg.llvmType(self.air.typeOfIndex(inst));
+
+        return self.builder.buildFPTrunc(operand, dest_llvm_ty, "");
+    }
+
+    fn airFpext(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst))
+            return null;
+
+        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const operand = try self.resolveInst(ty_op.operand);
+        const dest_llvm_ty = try self.dg.llvmType(self.air.typeOfIndex(inst));
+
+        return self.builder.buildFPExt(operand, dest_llvm_ty, "");
     }
 
     fn airPtrToInt(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {

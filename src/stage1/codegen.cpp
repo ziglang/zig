@@ -9325,6 +9325,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
     buf_appendf(contents, "pub const single_threaded = %s;\n", bool_to_str(g->is_single_threaded));
     buf_appendf(contents, "pub const abi = std.Target.Abi.%s;\n", cur_abi);
     buf_appendf(contents, "pub const cpu = std.Target.Cpu.baseline(.%s);\n", cur_arch);
+    buf_appendf(contents, "pub const stage2_arch: std.Target.Cpu.Arch = .%s;\n", cur_arch);
     buf_appendf(contents, "pub const os = std.Target.Os.Tag.defaultVersionRange(.%s);\n", cur_os);
     buf_appendf(contents,
         "pub const target = std.Target{\n"

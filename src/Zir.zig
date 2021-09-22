@@ -319,9 +319,13 @@ pub const Inst = struct {
         /// `error.Foo` syntax. Uses the `str_tok` field of the Data union.
         error_value,
         /// Implements the `@export` builtin function, based on either an identifier to a Decl,
-        /// or field access of a Decl.
+        /// or field access of a Decl. The thing being exported is the Decl.
         /// Uses the `pl_node` union field. Payload is `Export`.
         @"export",
+        /// Implements the `@export` builtin function, based on a comptime-known value.
+        /// The thing being exported is the comptime-known value which is the operand.
+        /// Uses the `pl_node` union field. Payload is `ExportValue`.
+        export_value,
         /// Given a pointer to a struct or object that contains virtual fields, returns a pointer
         /// to the named field. The field name is stored in string_bytes. Used by a.b syntax.
         /// Uses `pl_node` field. The AST node is the a.b syntax. Payload is Field.
@@ -1010,6 +1014,7 @@ pub const Inst = struct {
                 .ensure_result_used,
                 .ensure_result_non_error,
                 .@"export",
+                .export_value,
                 .field_ptr,
                 .field_val,
                 .field_ptr_named,
@@ -1273,6 +1278,7 @@ pub const Inst = struct {
                 .error_union_type = .pl_node,
                 .error_value = .str_tok,
                 .@"export" = .pl_node,
+                .export_value = .pl_node,
                 .field_ptr = .pl_node,
                 .field_val = .pl_node,
                 .field_ptr_named = .pl_node,
@@ -2840,6 +2846,12 @@ pub const Inst = struct {
         namespace: Ref,
         /// Null-terminated string index.
         decl_name: u32,
+        options: Ref,
+    };
+
+    pub const ExportValue = struct {
+        /// The comptime value to export.
+        operand: Ref,
         options: Ref,
     };
 

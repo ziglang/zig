@@ -601,6 +601,22 @@ pub const Builder = opaque {
         DestTy: *const Type,
         Name: [*:0]const u8,
     ) *const Value;
+
+    pub const buildFPTrunc = LLVMBuildFPTrunc;
+    extern fn LLVMBuildFPTrunc(
+        *const Builder,
+        Val: *const Value,
+        DestTy: *const Type,
+        Name: [*:0]const u8,
+    ) *const Value;
+
+    pub const buildFPExt = LLVMBuildFPExt;
+    extern fn LLVMBuildFPExt(
+        *const Builder,
+        Val: *const Value,
+        DestTy: *const Type,
+        Name: [*:0]const u8,
+    ) *const Value;
 };
 
 pub const IntPredicate = enum(c_uint) {

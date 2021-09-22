@@ -1041,30 +1041,15 @@ pub const Value = extern union {
         }
     }
 
-    /// Converts an integer or a float to a float.
-    /// Returns `error.Overflow` if the value does not fit in the new type.
-    pub fn floatCast(self: Value, allocator: *Allocator, dest_ty: Type) !Value {
+    /// Converts an integer or a float to a float. May result in a loss of information.
+    /// Caller can find out by equality checking the result against the operand.
+    pub fn floatCast(self: Value, arena: *Allocator, dest_ty: Type) !Value {
         switch (dest_ty.tag()) {
-            .f16 => {
-                const res = try Value.Tag.float_16.create(allocator, self.toFloat(f16));
-                if (!self.eql(res, dest_ty))
-                    return error.Overflow;
-                return res;
-            },
-            .f32 => {
-                const res = try Value.Tag.float_32.create(allocator, self.toFloat(f32));
-                if (!self.eql(res, dest_ty))
-                    return error.Overflow;
-                return res;
-            },
-            .f64 => {
-                const res = try Value.Tag.float_64.create(allocator, self.toFloat(f64));
-                if (!self.eql(res, dest_ty))
-                    return error.Overflow;
-                return res;
-            },
+            .f16 => return Value.Tag.float_16.create(arena, self.toFloat(f16)),
+            .f32 => return Value.Tag.float_32.create(arena, self.toFloat(f32)),
+            .f64 => return Value.Tag.float_64.create(arena, self.toFloat(f64)),
             .f128, .comptime_float, .c_longdouble => {
-                return Value.Tag.float_128.create(allocator, self.toFloat(f128));
+                return Value.Tag.float_128.create(arena, self.toFloat(f128));
             },
             else => unreachable,
         }

@@ -285,6 +285,7 @@ const Writer = struct {
             => try self.writePlNodeBin(stream, inst),
 
             .@"export" => try self.writePlNodeExport(stream, inst),
+            .export_value => try self.writePlNodeExportValue(stream, inst),
 
             .call,
             .call_chkused,
@@ -606,6 +607,17 @@ const Writer = struct {
 
         try self.writeInstRef(stream, extra.namespace);
         try stream.print(", {}, ", .{std.zig.fmtId(decl_name)});
+        try self.writeInstRef(stream, extra.options);
+        try stream.writeAll(") ");
+        try self.writeSrc(stream, inst_data.src());
+    }
+
+    fn writePlNodeExportValue(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const extra = self.code.extraData(Zir.Inst.ExportValue, inst_data.payload_index).data;
+
+        try self.writeInstRef(stream, extra.operand);
+        try stream.writeAll(", ");
         try self.writeInstRef(stream, extra.options);
         try stream.writeAll(") ");
         try self.writeSrc(stream, inst_data.src());

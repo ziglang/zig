@@ -954,7 +954,12 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .atomic_rmw       => try airAtomicRmw(f, inst),
             .atomic_load      => try airAtomicLoad(f, inst),
 
-            .int_to_float, .float_to_int => try airSimpleCast(f, inst),
+            .int_to_float,
+            .float_to_int,
+            .fptrunc,
+            .fpext,
+            .ptrtoint,
+            => try airSimpleCast(f, inst),
 
             .atomic_store_unordered => try airAtomicStore(f, inst, toMemoryOrder(.Unordered)),
             .atomic_store_monotonic => try airAtomicStore(f, inst, toMemoryOrder(.Monotonic)),
@@ -982,9 +987,6 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .unwrap_errunion_err_ptr     => try airUnwrapErrUnionErr(f, inst),
             .wrap_errunion_payload       => try airWrapErrUnionPay(f, inst),
             .wrap_errunion_err           => try airWrapErrUnionErr(f, inst),
-
-            .ptrtoint  => return f.fail("TODO: C backend: implement codegen for ptrtoint", .{}),
-            .floatcast => return f.fail("TODO: C backend: implement codegen for floatcast", .{}),
             // zig fmt: on
         };
         switch (result_value) {

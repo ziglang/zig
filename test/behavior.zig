@@ -13,6 +13,7 @@ test {
     _ = @import("behavior/atomics.zig");
     _ = @import("behavior/sizeof_and_typeof.zig");
     _ = @import("behavior/translate_c_macros.zig");
+    _ = @import("behavior/union.zig");
     _ = @import("behavior/widening.zig");
 
     if (builtin.zig_is_stage2) {
@@ -149,7 +150,7 @@ test {
         _ = @import("behavior/typename.zig");
         _ = @import("behavior/undefined.zig");
         _ = @import("behavior/underscore.zig");
-        _ = @import("behavior/union.zig");
+        _ = @import("behavior/union_stage1.zig");
         _ = @import("behavior/usingnamespace_stage1.zig");
         _ = @import("behavior/var_args.zig");
         _ = @import("behavior/vector.zig");
@@ -158,7 +159,6 @@ test {
             _ = @import("behavior/wasm.zig");
         }
         _ = @import("behavior/while.zig");
-        _ = @import("behavior/widening_stage1.zig");
         _ = @import("behavior/src.zig");
         _ = @import("behavior/translate_c_macros_stage1.zig");
     }

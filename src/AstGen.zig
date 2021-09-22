@@ -2166,6 +2166,7 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: Ast.Node.Index) Inner
             .ensure_result_used,
             .ensure_result_non_error,
             .@"export",
+            .export_value,
             .set_eval_branch_quota,
             .ensure_err_payload_void,
             .atomic_store,
@@ -7095,32 +7096,55 @@ fn builtinCall(
                 .identifier => {
                     const ident_token = main_tokens[params[0]];
                     decl_name = try astgen.identAsString(ident_token);
-                    {
-                        var s = scope;
-                        while (true) switch (s.tag) {
-                            .local_val => {
-                                const local_val = s.cast(Scope.LocalVal).?;
-                                if (local_val.name == decl_name) {
-                                    local_val.used = true;
-                                    break;
+
+                    var s = scope;
+                    var found_already: ?Ast.Node.Index = null; // we have found a decl with the same name already
+                    while (true) switch (s.tag) {
+                        .local_val => {
+                            const local_val = s.cast(Scope.LocalVal).?;
+                            if (local_val.name == decl_name) {
+                                local_val.used = true;
+                                _ = try gz.addPlNode(.export_value, node, Zir.Inst.ExportValue{
+                                    .operand = local_val.inst,
+                                    .options = try comptimeExpr(gz, scope, .{ .coerced_ty = .export_options_type }, params[1]),
+                                });
+                                return rvalue(gz, rl, .void_value, node);
+                            }
+                            s = local_val.parent;
+                        },
+                        .local_ptr => {
+                            const local_ptr = s.cast(Scope.LocalPtr).?;
+                            if (local_ptr.name == decl_name) {
+                                if (!local_ptr.maybe_comptime)
+                                    return astgen.failNode(params[0], "unable to export runtime-known value", .{});
+                                local_ptr.used = true;
+                                const loaded = try gz.addUnNode(.load, local_ptr.ptr, node);
+                                _ = try gz.addPlNode(.export_value, node, Zir.Inst.ExportValue{
+                                    .operand = loaded,
+                                    .options = try comptimeExpr(gz, scope, .{ .coerced_ty = .export_options_type }, params[1]),
+                                });
+                                return rvalue(gz, rl, .void_value, node);
+                            }
+                            s = local_ptr.parent;
+                        },
+                        .gen_zir => s = s.cast(GenZir).?.parent,
+                        .defer_normal, .defer_error => s = s.cast(Scope.Defer).?.parent,
+                        .namespace => {
+                            const ns = s.cast(Scope.Namespace).?;
+                            if (ns.decls.get(decl_name)) |i| {
+                                if (found_already) |f| {
+                                    return astgen.failNodeNotes(node, "ambiguous reference", .{}, &.{
+                                        try astgen.errNoteNode(f, "declared here", .{}),
+                                        try astgen.errNoteNode(i, "also declared here", .{}),
+                                    });
                                 }
-                                s = local_val.parent;
-                            },
-                            .local_ptr => {
-                                const local_ptr = s.cast(Scope.LocalPtr).?;
-                                if (local_ptr.name == decl_name) {
-                                    if (!local_ptr.maybe_comptime)
-                                        return astgen.failNode(params[0], "unable to export runtime-known value", .{});
-                                    local_ptr.used = true;
-                                    break;
-                                }
-                                s = local_ptr.parent;
-                            },
-                            .gen_zir => s = s.cast(GenZir).?.parent,
-                            .defer_normal, .defer_error => s = s.cast(Scope.Defer).?.parent,
-                            .namespace, .top => break,
-                        };
-                    }
+                                // We found a match but must continue looking for ambiguous references to decls.
+                                found_already = i;
+                            }
+                            s = ns.parent;
+                        },
+                        .top => break,
+                    };
                 },
                 .field_access => {
                     const namespace_node = node_datas[params[0]].lhs;

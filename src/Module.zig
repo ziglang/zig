@@ -2389,6 +2389,7 @@ pub fn deinit(mod: *Module) void {
 fn freeExportList(gpa: *Allocator, export_list: []*Export) void {
     for (export_list) |exp| {
         gpa.free(exp.options.name);
+        if (exp.options.section) |s| gpa.free(s);
         gpa.destroy(exp);
     }
     gpa.free(export_list);
@@ -3317,7 +3318,8 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
                     return mod.fail(&block_scope.base, export_src, "export of inline function", .{});
                 }
                 // The scope needs to have the decl in it.
-                try mod.analyzeExport(&block_scope.base, export_src, mem.spanZ(decl.name), decl);
+                const options: std.builtin.ExportOptions = .{ .name = mem.spanZ(decl.name) };
+                try mod.analyzeExport(&block_scope.base, export_src, options, decl);
             }
             return type_changed or is_inline != prev_is_inline;
         }
@@ -3376,7 +3378,8 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
     if (decl.is_exported) {
         const export_src = src; // TODO point to the export token
         // The scope needs to have the decl in it.
-        try mod.analyzeExport(&block_scope.base, export_src, mem.spanZ(decl.name), decl);
+        const options: std.builtin.ExportOptions = .{ .name = mem.spanZ(decl.name) };
+        try mod.analyzeExport(&block_scope.base, export_src, options, decl);
     }
 
     return type_changed;
@@ -4119,7 +4122,7 @@ pub fn analyzeExport(
     mod: *Module,
     scope: *Scope,
     src: LazySrcLoc,
-    borrowed_symbol_name: []const u8,
+    borrowed_options: std.builtin.ExportOptions,
     exported_decl: *Decl,
 ) !void {
     try mod.ensureDeclAnalyzed(exported_decl);
@@ -4128,23 +4131,32 @@ pub fn analyzeExport(
         else => return mod.fail(scope, src, "unable to export type '{}'", .{exported_decl.ty}),
     }
 
-    try mod.decl_exports.ensureUnusedCapacity(mod.gpa, 1);
-    try mod.export_owners.ensureUnusedCapacity(mod.gpa, 1);
+    const gpa = mod.gpa;
 
-    const new_export = try mod.gpa.create(Export);
-    errdefer mod.gpa.destroy(new_export);
+    try mod.decl_exports.ensureUnusedCapacity(gpa, 1);
+    try mod.export_owners.ensureUnusedCapacity(gpa, 1);
 
-    const symbol_name = try mod.gpa.dupe(u8, borrowed_symbol_name);
-    errdefer mod.gpa.free(symbol_name);
+    const new_export = try gpa.create(Export);
+    errdefer gpa.destroy(new_export);
+
+    const symbol_name = try gpa.dupe(u8, borrowed_options.name);
+    errdefer gpa.free(symbol_name);
+
+    const section: ?[]const u8 = if (borrowed_options.section) |s| try gpa.dupe(u8, s) else null;
+    errdefer if (section) |s| gpa.free(s);
 
     const owner_decl = scope.ownerDecl().?;
 
     log.debug("exporting Decl '{s}' as symbol '{s}' from Decl '{s}'", .{
-        exported_decl.name, borrowed_symbol_name, owner_decl.name,
+        exported_decl.name, symbol_name, owner_decl.name,
     });
 
     new_export.* = .{
-        .options = .{ .name = symbol_name },
+        .options = .{
+            .name = symbol_name,
+            .linkage = borrowed_options.linkage,
+            .section = section,
+        },
         .src = src,
         .link = switch (mod.comp.bin_file.tag) {
             .coff => .{ .coff = {} },
@@ -4165,18 +4177,18 @@ pub fn analyzeExport(
     if (!eo_gop.found_existing) {
         eo_gop.value_ptr.* = &[0]*Export{};
     }
-    eo_gop.value_ptr.* = try mod.gpa.realloc(eo_gop.value_ptr.*, eo_gop.value_ptr.len + 1);
+    eo_gop.value_ptr.* = try gpa.realloc(eo_gop.value_ptr.*, eo_gop.value_ptr.len + 1);
     eo_gop.value_ptr.*[eo_gop.value_ptr.len - 1] = new_export;
-    errdefer eo_gop.value_ptr.* = mod.gpa.shrink(eo_gop.value_ptr.*, eo_gop.value_ptr.len - 1);
+    errdefer eo_gop.value_ptr.* = gpa.shrink(eo_gop.value_ptr.*, eo_gop.value_ptr.len - 1);
 
     // Add to exported_decl table.
     const de_gop = mod.decl_exports.getOrPutAssumeCapacity(exported_decl);
     if (!de_gop.found_existing) {
         de_gop.value_ptr.* = &[0]*Export{};
     }
-    de_gop.value_ptr.* = try mod.gpa.realloc(de_gop.value_ptr.*, de_gop.value_ptr.len + 1);
+    de_gop.value_ptr.* = try gpa.realloc(de_gop.value_ptr.*, de_gop.value_ptr.len + 1);
     de_gop.value_ptr.*[de_gop.value_ptr.len - 1] = new_export;
-    errdefer de_gop.value_ptr.* = mod.gpa.shrink(de_gop.value_ptr.*, de_gop.value_ptr.len - 1);
+    errdefer de_gop.value_ptr.* = gpa.shrink(de_gop.value_ptr.*, de_gop.value_ptr.len - 1);
 }
 
 /// Takes ownership of `name` even if it returns an error.

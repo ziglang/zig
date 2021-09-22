@@ -859,7 +859,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     .call            => try self.airCall(inst),
                     .cond_br         => try self.airCondBr(inst),
                     .dbg_stmt        => try self.airDbgStmt(inst),
-                    .floatcast       => try self.airFloatCast(inst),
+                    .fptrunc         => try self.airFptrunc(inst),
+                    .fpext           => try self.airFpext(inst),
                     .intcast         => try self.airIntCast(inst),
                     .trunc           => try self.airTrunc(inst),
                     .bool_to_int     => try self.airBoolToInt(inst),
@@ -1172,10 +1173,18 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             return self.finishAir(inst, .{ .ptr_stack_offset = stack_offset }, .{ .none, .none, .none });
         }
 
-        fn airFloatCast(self: *Self, inst: Air.Inst.Index) !void {
+        fn airFptrunc(self: *Self, inst: Air.Inst.Index) !void {
             const ty_op = self.air.instructions.items(.data)[inst].ty_op;
             const result: MCValue = if (self.liveness.isUnused(inst)) .dead else switch (arch) {
-                else => return self.fail("TODO implement floatCast for {}", .{self.target.cpu.arch}),
+                else => return self.fail("TODO implement airFptrunc for {}", .{self.target.cpu.arch}),
+            };
+            return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+        }
+
+        fn airFpext(self: *Self, inst: Air.Inst.Index) !void {
+            const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+            const result: MCValue = if (self.liveness.isUnused(inst)) .dead else switch (arch) {
+                else => return self.fail("TODO implement airFpext for {}", .{self.target.cpu.arch}),
             };
             return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
         }
