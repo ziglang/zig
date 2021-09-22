@@ -28,7 +28,7 @@ comptime {
                 if (@typeInfo(@TypeOf(root.main)).Fn.calling_convention != .C) {
                     @export(main2, .{ .name = "main" });
                 }
-            } else if (builtin.stage2_os == .windows) {
+            } else if (builtin.os.tag == .windows) {
                 @export(wWinMainCRTStartup2, .{ .name = "wWinMainCRTStartup" });
             } else {
                 if (!@hasDecl(root, "_start")) {
