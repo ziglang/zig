@@ -2761,16 +2761,12 @@ fn reportRetryableAstGenError(
         try Module.ErrorMsg.create(
             gpa,
             src_loc,
-            "unable to load '{'}" ++ std.fs.path.sep_str ++ "{'}': {s}",
-            .{
-                std.zig.fmtEscapes(dir_path),
-                std.zig.fmtEscapes(file.sub_file_path),
-                @errorName(err),
-            },
+            "unable to load '{s}" ++ std.fs.path.sep_str ++ "{s}': {s}",
+            .{ dir_path, file.sub_file_path, @errorName(err) },
         )
     else
-        try Module.ErrorMsg.create(gpa, src_loc, "unable to load '{'}': {s}", .{
-            std.zig.fmtEscapes(file.sub_file_path), @errorName(err),
+        try Module.ErrorMsg.create(gpa, src_loc, "unable to load '{s}': {s}", .{
+            file.sub_file_path, @errorName(err),
         });
     errdefer err_msg.destroy(gpa);
 
