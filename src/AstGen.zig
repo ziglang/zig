@@ -10444,11 +10444,11 @@ fn advanceSourceCursor(astgen: *AstGen, source: []const u8, end: usize) void {
 
 const ref_start_index: u32 = Zir.Inst.Ref.typed_value_map.len;
 
-pub fn indexToRef(inst: Zir.Inst.Index) Zir.Inst.Ref {
+fn indexToRef(inst: Zir.Inst.Index) Zir.Inst.Ref {
     return @intToEnum(Zir.Inst.Ref, ref_start_index + inst);
 }
 
-pub fn refToIndex(inst: Zir.Inst.Ref) ?Zir.Inst.Index {
+fn refToIndex(inst: Zir.Inst.Ref) ?Zir.Inst.Index {
     const ref_int = @enumToInt(inst);
     if (ref_int >= ref_start_index) {
         return ref_int - ref_start_index;
