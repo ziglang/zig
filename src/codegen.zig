@@ -21,7 +21,7 @@ const log = std.log.scoped(.codegen);
 const build_options = @import("build_options");
 const RegisterManager = @import("register_manager.zig").RegisterManager;
 
-const X8664Encoder = @import("codegen/x86_64.zig").Encoder;
+const X8664Encoder = @import("arch/x86_64/bits.zig").Encoder;
 
 pub const FnResult = union(enum) {
     /// The `code` parameter passed to `generateSymbol` has the value appended.
@@ -470,7 +470,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             /// A branch in the ARM instruction set
             arm_branch: struct {
                 pos: usize,
-                cond: @import("codegen/arm.zig").Condition,
+                cond: @import("arch/arm/bits.zig").Condition,
             },
         };
 
@@ -5336,11 +5336,11 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         }
 
         const Register = switch (arch) {
-            .i386 => @import("codegen/x86.zig").Register,
-            .x86_64 => @import("codegen/x86_64.zig").Register,
-            .riscv64 => @import("codegen/riscv64.zig").Register,
-            .arm, .armeb => @import("codegen/arm.zig").Register,
-            .aarch64, .aarch64_be, .aarch64_32 => @import("codegen/aarch64.zig").Register,
+            .i386 => @import("arch/x86/bits.zig").Register,
+            .x86_64 => @import("arch/x86_64/bits.zig").Register,
+            .riscv64 => @import("arch/riscv64/bits.zig").Register,
+            .arm, .armeb => @import("arch/arm/bits.zig").Register,
+            .aarch64, .aarch64_be, .aarch64_32 => @import("arch/aarch64/bits.zig").Register,
             else => enum {
                 dummy,
 
@@ -5352,39 +5352,39 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         };
 
         const Instruction = switch (arch) {
-            .riscv64 => @import("codegen/riscv64.zig").Instruction,
-            .arm, .armeb => @import("codegen/arm.zig").Instruction,
-            .aarch64, .aarch64_be, .aarch64_32 => @import("codegen/aarch64.zig").Instruction,
+            .riscv64 => @import("arch/riscv64/bits.zig").Instruction,
+            .arm, .armeb => @import("arch/arm/bits.zig").Instruction,
+            .aarch64, .aarch64_be, .aarch64_32 => @import("arch/aarch64/bits.zig").Instruction,
             else => void,
         };
 
         const Condition = switch (arch) {
-            .arm, .armeb => @import("codegen/arm.zig").Condition,
+            .arm, .armeb => @import("arch/arm/bits.zig").Condition,
             else => void,
         };
 
         const callee_preserved_regs = switch (arch) {
-            .i386 => @import("codegen/x86.zig").callee_preserved_regs,
-            .x86_64 => @import("codegen/x86_64.zig").callee_preserved_regs,
-            .riscv64 => @import("codegen/riscv64.zig").callee_preserved_regs,
-            .arm, .armeb => @import("codegen/arm.zig").callee_preserved_regs,
-            .aarch64, .aarch64_be, .aarch64_32 => @import("codegen/aarch64.zig").callee_preserved_regs,
+            .i386 => @import("arch/x86/bits.zig").callee_preserved_regs,
+            .x86_64 => @import("arch/x86_64/bits.zig").callee_preserved_regs,
+            .riscv64 => @import("arch/riscv64/bits.zig").callee_preserved_regs,
+            .arm, .armeb => @import("arch/arm/bits.zig").callee_preserved_regs,
+            .aarch64, .aarch64_be, .aarch64_32 => @import("arch/aarch64/bits.zig").callee_preserved_regs,
             else => [_]Register{},
         };
 
         const c_abi_int_param_regs = switch (arch) {
-            .i386 => @import("codegen/x86.zig").c_abi_int_param_regs,
-            .x86_64 => @import("codegen/x86_64.zig").c_abi_int_param_regs,
-            .arm, .armeb => @import("codegen/arm.zig").c_abi_int_param_regs,
-            .aarch64, .aarch64_be, .aarch64_32 => @import("codegen/aarch64.zig").c_abi_int_param_regs,
+            .i386 => @import("arch/x86/bits.zig").c_abi_int_param_regs,
+            .x86_64 => @import("arch/x86_64/bits.zig").c_abi_int_param_regs,
+            .arm, .armeb => @import("arch/arm/bits.zig").c_abi_int_param_regs,
+            .aarch64, .aarch64_be, .aarch64_32 => @import("arch/aarch64/bits.zig").c_abi_int_param_regs,
             else => [_]Register{},
         };
 
         const c_abi_int_return_regs = switch (arch) {
-            .i386 => @import("codegen/x86.zig").c_abi_int_return_regs,
-            .x86_64 => @import("codegen/x86_64.zig").c_abi_int_return_regs,
-            .arm, .armeb => @import("codegen/arm.zig").c_abi_int_return_regs,
-            .aarch64, .aarch64_be, .aarch64_32 => @import("codegen/aarch64.zig").c_abi_int_return_regs,
+            .i386 => @import("arch/x86/bits.zig").c_abi_int_return_regs,
+            .x86_64 => @import("arch/x86_64/bits.zig").c_abi_int_return_regs,
+            .arm, .armeb => @import("arch/arm/bits.zig").c_abi_int_return_regs,
+            .aarch64, .aarch64_be, .aarch64_32 => @import("arch/aarch64/bits.zig").c_abi_int_return_regs,
             else => [_]Register{},
         };
 

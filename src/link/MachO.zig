@@ -12,7 +12,7 @@ const math = std.math;
 const mem = std.mem;
 const meta = std.meta;
 
-const aarch64 = @import("../codegen/aarch64.zig");
+const aarch64 = @import("../arch/aarch64/bits.zig");
 const bind = @import("MachO/bind.zig");
 const codegen = @import("../codegen.zig");
 const commands = @import("MachO/commands.zig");
@@ -200,7 +200,7 @@ atoms: std.AutoHashMapUnmanaged(MatchingSection, *Atom) = .{},
 
 /// List of atoms that are owned directly by the linker.
 /// Currently these are only atoms that are the result of linking
-/// object files. Atoms which take part in incremental linking are 
+/// object files. Atoms which take part in incremental linking are
 /// at present owned by Module.Decl.
 /// TODO consolidate this.
 managed_atoms: std.ArrayListUnmanaged(*Atom) = .{},
