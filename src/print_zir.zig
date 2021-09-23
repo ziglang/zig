@@ -289,10 +289,6 @@ const Writer = struct {
             .export_value => try self.writePlNodeExportValue(stream, inst),
 
             .call,
-            .call_chkused,
-            .call_compile_time,
-            .call_nosuspend,
-            .call_async,
             => try self.writePlNodeCall(stream, inst),
 
             .block,
@@ -881,8 +877,12 @@ const Writer = struct {
     fn writePlNodeCall(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
         const inst_data = self.code.instructions.items(.data)[inst].pl_node;
         const extra = self.code.extraData(Zir.Inst.Call, inst_data.payload_index);
-        const args = self.code.refSlice(extra.end, extra.data.args_len);
+        const args = self.code.refSlice(extra.end, extra.data.flags.args_len);
 
+        if (extra.data.flags.ensure_result_used) {
+            try stream.writeAll("nodiscard ");
+        }
+        try stream.print(".{s}, ", .{@tagName(@intToEnum(std.builtin.CallOptions.Modifier, extra.data.flags.packed_modifier))});
         try self.writeInstRef(stream, extra.data.callee);
         try stream.writeAll(", [");
         for (args) |arg, i| {

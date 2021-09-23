@@ -70,6 +70,7 @@ pub fn extraData(code: Zir, comptime T: type, index: usize) struct { data: T, en
             u32 => code.extra[i],
             Inst.Ref => @intToEnum(Inst.Ref, code.extra[i]),
             i32 => @bitCast(i32, code.extra[i]),
+            Inst.Call.Flags => @bitCast(Inst.Call.Flags, code.extra[i]),
             else => @compileError("bad field type"),
         };
         i += 1;
@@ -222,17 +223,9 @@ pub const Inst = struct {
         break_inline,
         /// Uses the `node` union field.
         breakpoint,
-        /// Function call with modifier `.auto`.
+        /// Function call.
         /// Uses `pl_node`. AST node is the function call. Payload is `Call`.
         call,
-        /// Same as `call` but it also does `ensure_result_used` on the return value.
-        call_chkused,
-        /// Same as `call` but with modifier `.compile_time`.
-        call_compile_time,
-        /// Same as `call` but with modifier `.no_suspend`.
-        call_nosuspend,
-        /// Same as `call` but with modifier `.async_kw`.
-        call_async,
         /// `<`
         /// Uses the `pl_node` union field. Payload is `Bin`.
         cmp_lt,
@@ -988,10 +981,6 @@ pub const Inst = struct {
                 .breakpoint,
                 .fence,
                 .call,
-                .call_chkused,
-                .call_compile_time,
-                .call_nosuspend,
-                .call_async,
                 .cmp_lt,
                 .cmp_lte,
                 .cmp_eq,
@@ -1247,10 +1236,6 @@ pub const Inst = struct {
                 .break_inline = .@"break",
                 .breakpoint = .node,
                 .call = .pl_node,
-                .call_chkused = .pl_node,
-                .call_compile_time = .pl_node,
-                .call_nosuspend = .pl_node,
-                .call_async = .pl_node,
                 .cmp_lt = .pl_node,
                 .cmp_lte = .pl_node,
                 .cmp_eq = .pl_node,
@@ -2373,7 +2358,24 @@ pub const Inst = struct {
     /// Each argument is a `Ref`.
     pub const Call = struct {
         callee: Ref,
-        args_len: u32,
+        flags: Flags,
+
+        pub const Flags = packed struct {
+            /// std.builtin.CallOptions.Modifier in packed form
+            pub const PackedModifier = u3;
+            pub const PackedArgsLen = u28;
+
+            packed_modifier: PackedModifier,
+            ensure_result_used: bool = false,
+            args_len: PackedArgsLen,
+
+            comptime {
+                if (@sizeOf(Flags) != 4 or @bitSizeOf(Flags) != 32)
+                    @compileError("Layout of Call.Flags needs to be updated!");
+                if (@bitSizeOf(std.builtin.CallOptions.Modifier) != @bitSizeOf(PackedModifier))
+                    @compileError("Call.Flags.PackedModifier needs to be updated!");
+            }
+        };
     };
 
     pub const BuiltinCall = struct {

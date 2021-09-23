@@ -185,11 +185,7 @@ pub fn analyzeBody(
             .bool_br_and                  => try sema.zirBoolBr(block, inst, false),
             .bool_br_or                   => try sema.zirBoolBr(block, inst, true),
             .c_import                     => try sema.zirCImport(block, inst),
-            .call                         => try sema.zirCall(block, inst, .auto, false),
-            .call_chkused                 => try sema.zirCall(block, inst, .auto, true),
-            .call_compile_time            => try sema.zirCall(block, inst, .compile_time, false),
-            .call_nosuspend               => try sema.zirCall(block, inst, .no_async, false),
-            .call_async                   => try sema.zirCall(block, inst, .async_kw, false),
+            .call                         => try sema.zirCall(block, inst),
             .closure_get                  => try sema.zirClosureGet(block, inst),
             .cmp_lt                       => try sema.zirCmp(block, inst, .lt),
             .cmp_lte                      => try sema.zirCmp(block, inst, .lte),
@@ -2780,8 +2776,6 @@ fn zirCall(
     sema: *Sema,
     block: *Scope.Block,
     inst: Zir.Inst.Index,
-    modifier: std.builtin.CallOptions.Modifier,
-    ensure_result_used: bool,
 ) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
@@ -2790,7 +2784,10 @@ fn zirCall(
     const func_src: LazySrcLoc = .{ .node_offset_call_func = inst_data.src_node };
     const call_src = inst_data.src();
     const extra = sema.code.extraData(Zir.Inst.Call, inst_data.payload_index);
-    const args = sema.code.refSlice(extra.end, extra.data.args_len);
+    const args = sema.code.refSlice(extra.end, extra.data.flags.args_len);
+
+    const modifier = @intToEnum(std.builtin.CallOptions.Modifier, extra.data.flags.packed_modifier);
+    const ensure_result_used = extra.data.flags.ensure_result_used;
 
     const func = sema.resolveInst(extra.data.callee);
     // TODO handle function calls of generic functions

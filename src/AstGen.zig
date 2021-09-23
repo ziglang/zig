@@ -56,6 +56,7 @@ fn addExtraAssumeCapacity(astgen: *AstGen, extra: anytype) u32 {
             u32 => @field(extra, field.name),
             Zir.Inst.Ref => @enumToInt(@field(extra, field.name)),
             i32 => @bitCast(u32, @field(extra, field.name)),
+            Zir.Inst.Call.Flags => @bitCast(u32, @field(extra, field.name)),
             else => @compileError("bad field type"),
         });
     }
@@ -1934,11 +1935,12 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: Ast.Node.Index) Inner
         // in the above while loop.
         const zir_tags = gz.astgen.instructions.items(.tag);
         switch (zir_tags[inst]) {
-            // For some instructions, swap in a slightly different ZIR tag
+            // For some instructions, modify the zir data
             // so we can avoid a separate ensure_result_used instruction.
-            .call_chkused => unreachable,
             .call => {
-                zir_tags[inst] = .call_chkused;
+                const extra_index = gz.astgen.instructions.items(.data)[inst].pl_node.payload_index;
+                const extra = @ptrCast(*Zir.Inst.Call, &gz.astgen.extra.items[extra_index]);
+                extra.flags.ensure_result_used = true;
                 break :b true;
             },
 
@@ -1976,9 +1978,6 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: Ast.Node.Index) Inner
             .bool_br_and,
             .bool_br_or,
             .bool_not,
-            .call_compile_time,
-            .call_nosuspend,
-            .call_async,
             .cmp_lt,
             .cmp_lte,
             .cmp_eq,
@@ -7925,20 +7924,8 @@ fn callExpr(
         }
         break :blk .auto;
     };
-    const result: Zir.Inst.Ref = res: {
-        const tag: Zir.Inst.Tag = switch (modifier) {
-            .auto => .call,
-            .async_kw => .call_async,
-            .never_tail => unreachable,
-            .never_inline => unreachable,
-            .no_async => .call_nosuspend,
-            .always_tail => unreachable,
-            .always_inline => unreachable,
-            .compile_time => .call_compile_time,
-        };
-        break :res try gz.addCall(tag, lhs, args, node);
-    };
-    return rvalue(gz, rl, result, node); // TODO function call with result location
+    const call_inst = try gz.addCall(modifier, lhs, args, node);
+    return rvalue(gz, rl, call_inst, node); // TODO function call with result location
 }
 
 pub const simple_types = std.ComptimeStringMap(Zir.Inst.Ref, .{
@@ -9607,7 +9594,7 @@ const GenZir = struct {
 
     fn addCall(
         gz: *GenZir,
-        tag: Zir.Inst.Tag,
+        modifier: std.builtin.CallOptions.Modifier,
         callee: Zir.Inst.Ref,
         args: []const Zir.Inst.Ref,
         /// Absolute node index. This function does the conversion to offset from Decl.
@@ -9616,20 +9603,24 @@ const GenZir = struct {
         assert(callee != .none);
         assert(src_node != 0);
         const gpa = gz.astgen.gpa;
+        const Call = Zir.Inst.Call;
         try gz.instructions.ensureUnusedCapacity(gpa, 1);
         try gz.astgen.instructions.ensureUnusedCapacity(gpa, 1);
-        try gz.astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.Call).Struct.fields.len +
+        try gz.astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Call).Struct.fields.len +
             args.len);
 
-        const payload_index = gz.astgen.addExtraAssumeCapacity(Zir.Inst.Call{
+        const payload_index = gz.astgen.addExtraAssumeCapacity(Call{
             .callee = callee,
-            .args_len = @intCast(u32, args.len),
+            .flags = .{
+                .packed_modifier = @intCast(Call.Flags.PackedModifier, @enumToInt(modifier)),
+                .args_len = @intCast(Call.Flags.PackedArgsLen, args.len),
+            },
         });
         gz.astgen.appendRefsAssumeCapacity(args);
 
         const new_index = @intCast(Zir.Inst.Index, gz.astgen.instructions.len);
         gz.astgen.instructions.appendAssumeCapacity(.{
-            .tag = tag,
+            .tag = .call,
             .data = .{ .pl_node = .{
                 .src_node = gz.nodeIndexToRelative(src_node),
                 .payload_index = payload_index,
