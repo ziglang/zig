@@ -552,21 +552,29 @@ pub const Mutable = struct {
         r.positive = a.positive;
     }
 
-    /// r = a | b
+    /// r = a | b under 2s complement semantics.
     /// r may alias with a or b.
     ///
     /// a and b are zero-extended to the longer of a or b.
     ///
     /// Asserts that r has enough limbs to store the result. Upper bound is `math.max(a.limbs.len, b.limbs.len)`.
     pub fn bitOr(r: *Mutable, a: Const, b: Const) void {
-        if (a.limbs.len > b.limbs.len) {
-            llor(r.limbs[0..], a.limbs[0..a.limbs.len], b.limbs[0..b.limbs.len]);
-            r.len = a.limbs.len;
-        } else {
-            llor(r.limbs[0..], b.limbs[0..b.limbs.len], a.limbs[0..a.limbs.len]);
-            r.len = b.limbs.len;
+        // Trivial cases, llsignedor does not support zero.
+        if (a.eqZero()) {
+            r.copy(b);
+            return;
+        } else if (b.eqZero()) {
+            r.copy(a);
+            return;
         }
-        r.positive = a.positive or b.positive;
+
+        if (a.limbs.len >= b.limbs.len) {
+            r.positive = llsignedor(r.limbs, a.limbs, a.positive, b.limbs, b.positive);
+            r.normalize(a.limbs.len);
+        } else {
+            r.positive = llsignedor(r.limbs, b.limbs, b.positive, a.limbs, a.positive);
+            r.normalize(b.limbs.len);
+        }
     }
 
     /// r = a & b
@@ -2236,17 +2244,119 @@ fn llshr(r: []Limb, a: []const Limb, shift: usize) void {
     }
 }
 
-fn llor(r: []Limb, a: []const Limb, b: []const Limb) void {
+fn llsignedor(r: []Limb, a: []const Limb, a_positive: bool, b: []const Limb, b_positive: bool) bool {
     @setRuntimeSafety(debug_safety);
     assert(r.len >= a.len);
     assert(a.len >= b.len);
 
-    var i: usize = 0;
-    while (i < b.len) : (i += 1) {
-        r[i] = a[i] | b[i];
-    }
-    while (i < a.len) : (i += 1) {
-        r[i] = a[i];
+    if (a_positive and b_positive) {
+        // Trivial case, result is positive.,
+        var i: usize = 0;
+        while (i < b.len) : (i += 1) {
+            r[i] = a[i] | b[i];
+        }
+        while (i < a.len) : (i += 1) {
+            r[i] = a[i];
+        }
+
+        return true;
+    } else if (!a_positive and b_positive) {
+        // r = (--a) | b
+        //   = ~(-a - 1) | b
+        //   = ~(-a - 1) | ~~b
+        //   = ~((-a - 1) & ~b)
+        //   = -(((-a - 1) & ~b) + 1)
+        // result is negative.
+
+        var i: usize = 0;
+        var a_borrow: u1 = 1;
+        var r_carry: u1 = 1;
+
+        while (i < b.len) : (i += 1) {
+            var a_limb: Limb = undefined;
+            a_borrow = @boolToInt(@subWithOverflow(Limb, a[i], a_borrow, &a_limb));
+
+            r[i] = a_limb & ~b[i];
+            r_carry = @boolToInt(@addWithOverflow(Limb, r[i], r_carry, &r[i]));
+        }
+
+        // With b = 0, we get (-a - 1) & ~0 = -a - 1.
+        while (i < a.len) : (i += 1) {
+            a_borrow = @boolToInt(@subWithOverflow(Limb, a[i], a_borrow, &r[i]));
+            r_carry = @boolToInt(@addWithOverflow(Limb, r[i], r_carry, &r[i]));
+        }
+
+        assert(a_borrow == 0); // a was 0.
+
+        // Can never overflow because a_borrow would need to equal 1.
+        assert(r_carry == 0);
+
+        return false;
+    } else if (a_positive and !b_positive) {
+        // r = a | (--b)
+        //   = a | ~(-b - 1)
+        //   = ~~a | ~(-b - 1)
+        //   = ~(~a & (-b - 1))
+        //   = -((~a & (-b - 1)) + 1)
+        // result is negative.
+
+        var i: usize = 0;
+        var b_borrow: u1 = 1;
+        var r_carry: u1 = 1;
+
+        while (i < b.len) : (i += 1) {
+            var b_limb: Limb = undefined;
+            b_borrow = @boolToInt(@subWithOverflow(Limb, b[i], b_borrow, &b_limb));
+
+            r[i] = ~a[i] & b_limb;
+            r_carry = @boolToInt(@addWithOverflow(Limb, r[i], r_carry, &r[i]));
+        }
+
+        // b is at least 1, so this should never underflow.
+        assert(b_borrow == 0); // b was 0
+
+        // Can never overflow because in order for b_limb to be maxInt(Limb),
+        // b_borrow would need to equal 1.
+        assert(r_carry == 0);
+
+        // With b = 0 and b_borrow = 0, we get ~a & (-0 - 0) = ~a & 0 = 0.
+        mem.set(Limb, r[i..a.len], 0);
+
+        return false;
+    } else {
+        // r = (--a) | (--b)
+        //   = ~(-a - 1) | ~(-b - 1)
+        //   = ~((-a - 1) & (-b - 1))
+        //   = -(~(~((-a - 1) & (-b - 1))) + 1)
+        //   = -((-a - 1) & (-b - 1) + 1)
+        // result is negative.
+
+        var i: usize = 0;
+        var a_borrow: u1 = 1;
+        var b_borrow: u1 = 1;
+        var r_carry: u1 = 1;
+
+        while (i < b.len) : (i += 1) {
+            var a_limb: Limb = undefined;
+            a_borrow = @boolToInt(@subWithOverflow(Limb, a[i], a_borrow, &a_limb));
+
+            var b_limb: Limb = undefined;
+            b_borrow = @boolToInt(@subWithOverflow(Limb, b[i], b_borrow, &b_limb));
+
+            r[i] = a_limb & b_limb;
+            r_carry = @boolToInt(@addWithOverflow(Limb, r[i], r_carry, &r[i]));
+        }
+
+        // b is at least 1, so this should never underflow.
+        assert(b_borrow == 0); // b was 0
+
+        // Can never overflow because in order for b_limb to be maxInt(Limb),
+        // b_borrow would need to equal 1.
+        assert(r_carry == 0);
+
+        // With b = 0 and b_borrow = 0 we get (-a - 1) & (-0 - 0) = (-a - 1) & 0 = 0.
+        mem.set(Limb, r[i..a.len], 0);
+        return false;
     }
 }
 

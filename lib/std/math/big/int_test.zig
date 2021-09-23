@@ -1476,6 +1476,72 @@ test "big.int bitwise or multi-limb" {
     try testing.expect((try a.to(DoubleLimb)) == (maxInt(Limb) + 1) + maxInt(Limb));
 }
 
+test "big.int bitwise or negative-positive simple" {
+    var a = try Managed.initSet(testing.allocator, -0xffffffff11111111);
+    defer a.deinit();
+    var b = try Managed.initSet(testing.allocator, 0xeeeeeeee22222222);
+    defer b.deinit();
+
+    try a.bitOr(a, b);
+
+    try testing.expect((try a.to(i64)) == -0x1111111111111111);
+}
+
+test "big.int bitwise or negative-positive multi-limb" {
+    var a = try Managed.initSet(testing.allocator, -maxInt(Limb) - 1);
+    defer a.deinit();
+    var b = try Managed.initSet(testing.allocator, 1);
+    defer b.deinit();
+
+    try a.bitOr(a, b);
+
+    try testing.expect((try a.to(SignedDoubleLimb)) == -maxInt(Limb));
+}
+
+test "big.int bitwise or positive-negative simple" {
+    var a = try Managed.initSet(testing.allocator, 0xffffffff11111111);
+    defer a.deinit();
+    var b = try Managed.initSet(testing.allocator, -0xeeeeeeee22222222);
+    defer b.deinit();
+
+    try a.bitOr(a, b);
+
+    try testing.expect((try a.to(i64)) == -0x22222221);
+}
+
+test "big.int bitwise or positive-negative multi-limb" {
+    var a = try Managed.initSet(testing.allocator, maxInt(Limb) + 1);
+    defer a.deinit();
+    var b = try Managed.initSet(testing.allocator, -1);
+    defer b.deinit();
+
+    try a.bitOr(a, b);
+
+    try testing.expect((try a.to(SignedDoubleLimb)) == -1);
+}
+
+test "big.int bitwise or negative-negative simple" {
+    var a = try Managed.initSet(testing.allocator, -0x0fffffff11111111);
+    defer a.deinit();
+    var b = try Managed.initSet(testing.allocator, -0x0eeeeeee22222222);
+    defer b.deinit();
+
+    try a.bitOr(a, b);
+
+    try testing.expect((try a.to(i64)) == -0xeeeeeee00000001);
+}
+
+test "big.int bitwise or negative-negative multi-limb" {
+    var a = try Managed.initSet(testing.allocator, -maxInt(Limb) - 1);
+    defer a.deinit();
+    var b = try Managed.initSet(testing.allocator, -maxInt(Limb));
+    defer b.deinit();
+
+    try a.bitOr(a, b);
+
+    try testing.expect((try a.to(SignedDoubleLimb)) == -maxInt(Limb));
+}
+
 test "big.int var args" {
     var a = try Managed.initSet(testing.allocator, 5);
     defer a.deinit();
