@@ -166,7 +166,6 @@ const Writer = struct {
             .@"await",
             .await_nosuspend,
             .fence,
-            .closure_get,
             => try self.writeUnNode(stream, inst),
 
             .ref,
@@ -368,6 +367,8 @@ const Writer = struct {
             => try self.writeSwitchCapture(stream, inst),
 
             .dbg_stmt => try self.writeDbgStmt(stream, inst),
+
+            .closure_get => try self.writeInstNode(stream, inst),
 
             .extended => try self.writeExtended(stream, inst),
         }
@@ -742,6 +743,17 @@ const Writer = struct {
         }
         try stream.writeAll(")) ");
         try self.writeSrc(stream, src);
+    }
+
+    fn writeInstNode(
+        self: *Writer,
+        stream: anytype,
+        inst: Zir.Inst.Index,
+    ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
+        const inst_data = self.code.instructions.items(.data)[inst].inst_node;
+        try self.writeInstIndex(stream, inst_data.inst);
+        try stream.writeAll(") ");
+        try self.writeSrc(stream, inst_data.src());
     }
 
     fn writeAsm(self: *Writer, stream: anytype, extended: Zir.Inst.Extended.InstData) !void {

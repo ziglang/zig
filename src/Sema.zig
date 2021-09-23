@@ -6629,7 +6629,7 @@ fn zirClosureCapture(
     // TODO: Compile error when closed over values are modified
     const inst_data = sema.code.instructions.items(.data)[inst].un_tok;
     const tv = try sema.resolveInstConst(block, inst_data.src(), inst_data.operand);
-    try block.wip_capture_scope.captures.putNoClobber(sema.gpa, Zir.indexToRef(inst), .{
+    try block.wip_capture_scope.captures.putNoClobber(sema.gpa, inst, .{
         .ty = try tv.ty.copy(sema.perm_arena),
         .val = try tv.val.copy(sema.perm_arena),
     });
@@ -6641,14 +6641,14 @@ fn zirClosureGet(
     inst: Zir.Inst.Index,
 ) CompileError!Air.Inst.Ref {
     // TODO CLOSURE: Test this with inline functions
-    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const inst_data = sema.code.instructions.items(.data)[inst].inst_node;
     var scope: *CaptureScope = block.src_decl.src_scope.?;
     // Note: The target closure must be in this scope list.
     // If it's not here, the zir is invalid, or the list is broken.
     const tv = while (true) {
         // Note: We don't need to add a dependency here, because
         // decls always depend on their lexical parents.
-        if (scope.captures.getPtr(inst_data.operand)) |tv| {
+        if (scope.captures.getPtr(inst_data.inst)) |tv| {
             break tv;
         }
         scope = scope.parent.?;

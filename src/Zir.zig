@@ -940,7 +940,7 @@ pub const Inst = struct {
         /// instruction value to capture.
         closure_capture,
         /// The inner scope of a closure uses closure_get to retrieve the value
-        /// stored by the outer scope.  Uses `un_node` field.  Operand is the
+        /// stored by the outer scope.  Uses `inst_node` field.  Operand is the
         /// closure_capture instruction ref.
         closure_get,
 
@@ -1478,7 +1478,7 @@ pub const Inst = struct {
                 .await_nosuspend = .un_node,
 
                 .closure_capture = .un_tok,
-                .closure_get = .un_node,
+                .closure_get = .inst_node,
 
                 .extended = .extended,
             });
@@ -2200,6 +2200,19 @@ pub const Inst = struct {
             line: u32,
             column: u32,
         },
+        /// Used for unary operators which reference an inst,
+        /// with an AST node source location.
+        inst_node: struct {
+            /// Offset from Decl AST node index.
+            src_node: i32,
+            /// The meaning of this operand depends on the corresponding `Tag`.
+            inst: Index,
+
+            pub fn src(self: @This()) LazySrcLoc {
+                return .{ .node_offset = self.src_node };
+            }
+        },
+
 
         // Make sure we don't accidentally add a field to make this union
         // bigger than expected. Note that in Debug builds, Zig is allowed
@@ -2237,6 +2250,7 @@ pub const Inst = struct {
             @"break",
             switch_capture,
             dbg_stmt,
+            inst_node,
         };
     };
 
@@ -3312,19 +3326,4 @@ pub fn getFnInfo(zir: Zir, fn_inst: Inst.Index) FnInfo {
         .body = info.body,
         .total_params_len = total_params_len,
     };
-}
-
-const ref_start_index: u32 = Zir.Inst.Ref.typed_value_map.len;
-
-pub fn indexToRef(inst: Zir.Inst.Index) Zir.Inst.Ref {
-    return @intToEnum(Zir.Inst.Ref, ref_start_index + inst);
-}
-
-pub fn refToIndex(inst: Zir.Inst.Ref) ?Zir.Inst.Index {
-    const ref_int = @enumToInt(inst);
-    if (ref_int >= ref_start_index) {
-        return ref_int - ref_start_index;
-    } else {
-        return null;
-    }
 }

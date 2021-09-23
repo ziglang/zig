@@ -282,7 +282,7 @@ pub const CaptureScope = struct {
     /// child decls. Values stored in the value_arena of the linked decl.
     /// During sema, this map is backed by the gpa.  Once sema completes,
     /// it is reallocated using the value_arena.
-    captures: std.AutoHashMapUnmanaged(Zir.Inst.Ref, TypedValue) = .{},
+    captures: std.AutoHashMapUnmanaged(Zir.Inst.Index, TypedValue) = .{},
 };
 
 pub const WipCaptureScope = struct {

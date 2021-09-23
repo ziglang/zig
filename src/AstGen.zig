@@ -14,9 +14,6 @@ const Zir = @import("Zir.zig");
 const trace = @import("tracy.zig").trace;
 const BuiltinFn = @import("BuiltinFn.zig");
 
-const indexToRef = Zir.indexToRef;
-const refToIndex = Zir.refToIndex;
-
 gpa: *Allocator,
 tree: *const Ast,
 instructions: std.MultiArrayList(Zir.Inst) = .{},
@@ -6588,12 +6585,13 @@ fn tunnelThroughClosure(
     const gop = try ns.?.captures.getOrPut(gpa, refToIndex(value).?);
     if (!gop.found_existing) {
         // Make a new capture for this value
-        gop.value_ptr.* = try ns.?.declaring_gz.?.addUnTok(.closure_capture, value, token);
+        const capture_ref = try ns.?.declaring_gz.?.addUnTok(.closure_capture, value, token);
+        gop.value_ptr.* = refToIndex(capture_ref).?;
     }
 
     // Add an instruction to get the value from the closure into
     // our current context
-    return try gz.addUnNode(.closure_get, gop.value_ptr.*, inner_ref_node);
+    return try gz.addInstNode(.closure_get, gop.value_ptr.*, inner_ref_node);
 }
 
 fn stringLiteral(
@@ -9162,7 +9160,7 @@ const Scope = struct {
 
         /// Map from the raw captured value to the instruction
         /// ref of the capture for decls in this namespace
-        captures: std.AutoHashMapUnmanaged(Zir.Inst.Index, Zir.Inst.Ref) = .{},
+        captures: std.AutoHashMapUnmanaged(Zir.Inst.Index, Zir.Inst.Index) = .{},
 
         pub fn deinit(self: *Namespace, gpa: *Allocator) void {
             self.decls.deinit(gpa);
@@ -9947,6 +9945,23 @@ const GenZir = struct {
         });
     }
 
+    fn addInstNode(
+        gz: *GenZir,
+        tag: Zir.Inst.Tag,
+        inst: Zir.Inst.Index,
+        /// Absolute node index. This function does the conversion to offset from Decl.
+        src_node: Ast.Node.Index,
+    ) !Zir.Inst.Ref {
+        return gz.add(.{
+            .tag = tag,
+            .data = .{ .inst_node = .{
+                .inst = inst,
+                .src_node = gz.nodeIndexToRelative(src_node),
+            } },
+        });
+    }
+
+
     fn addNodeExtended(
         gz: *GenZir,
         opcode: Zir.Inst.Extended,
@@ -10426,6 +10441,21 @@ fn advanceSourceCursor(astgen: *AstGen, source: []const u8, end: usize) void {
     astgen.source_offset = i;
     astgen.source_line = line;
     astgen.source_column = column;
+}
+
+const ref_start_index: u32 = Zir.Inst.Ref.typed_value_map.len;
+
+pub fn indexToRef(inst: Zir.Inst.Index) Zir.Inst.Ref {
+    return @intToEnum(Zir.Inst.Ref, ref_start_index + inst);
+}
+
+pub fn refToIndex(inst: Zir.Inst.Ref) ?Zir.Inst.Index {
+    const ref_int = @enumToInt(inst);
+    if (ref_int >= ref_start_index) {
+        return ref_int - ref_start_index;
+    } else {
+        return null;
+    }
 }
 
 fn scanDecls(astgen: *AstGen, namespace: *Scope.Namespace, members: []const Ast.Node.Index) !void {
