@@ -288,8 +288,7 @@ const Writer = struct {
             .@"export" => try self.writePlNodeExport(stream, inst),
             .export_value => try self.writePlNodeExportValue(stream, inst),
 
-            .call,
-            => try self.writePlNodeCall(stream, inst),
+            .call => try self.writePlNodeCall(stream, inst),
 
             .block,
             .block_inline,
