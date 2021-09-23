@@ -527,7 +527,6 @@ pub fn analyzeBody(
                 continue;
             },
 
-
             // Special case instructions to handle comptime control flow.
             .@"break" => {
                 if (block.is_comptime) {

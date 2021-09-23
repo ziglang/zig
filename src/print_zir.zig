@@ -166,13 +166,13 @@ const Writer = struct {
             .@"await",
             .await_nosuspend,
             .fence,
-            .closure_get
+            .closure_get,
             => try self.writeUnNode(stream, inst),
 
             .ref,
             .ret_coerce,
             .ensure_err_payload_void,
-            .closure_capture
+            .closure_capture,
             => try self.writeUnTok(stream, inst),
 
             .bool_br_and,

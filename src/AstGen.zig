@@ -3794,6 +3794,7 @@ fn structDeclInner(
         .known_has_bits = known_has_bits,
     });
 
+    // zig fmt: off
     try astgen.extra.ensureUnusedCapacity(gpa,
         bit_bag.items.len +
         @boolToInt(wip_decls.decl_index != 0) +
@@ -3803,6 +3804,7 @@ fn structDeclInner(
         @boolToInt(field_index != 0) +
         fields_data.items.len
     );
+    // zig fmt: on
 
     astgen.extra.appendSliceAssumeCapacity(wip_decls.bit_bag.items); // Likely empty.
     if (wip_decls.decl_index != 0) {
@@ -4089,6 +4091,7 @@ fn unionDeclInner(
         .auto_enum_tag = have_auto_enum,
     });
 
+    // zig fmt: off
     try astgen.extra.ensureUnusedCapacity(gpa,
         bit_bag.items.len +
         @boolToInt(wip_decls.decl_index != 0) +
@@ -4098,6 +4101,7 @@ fn unionDeclInner(
         1 + // cur_bit_bag
         fields_data.items.len
     );
+    // zig fmt: on
 
     astgen.extra.appendSliceAssumeCapacity(wip_decls.bit_bag.items); // Likely empty.
     if (wip_decls.decl_index != 0) {
@@ -4494,6 +4498,7 @@ fn containerDecl(
                 .decls_len = @intCast(u32, wip_decls.decl_index),
             });
 
+            // zig fmt: off
             try astgen.extra.ensureUnusedCapacity(gpa,
                 bit_bag.items.len +
                 @boolToInt(wip_decls.decl_index != 0) +
@@ -4503,6 +4508,7 @@ fn containerDecl(
                 1 + // cur_bit_bag
                 fields_data.items.len
             );
+            // zig fmt: on
 
             astgen.extra.appendSliceAssumeCapacity(wip_decls.bit_bag.items); // Likely empty.
             if (wip_decls.decl_index != 0) {
@@ -4531,7 +4537,7 @@ fn containerDecl(
             defer namespace.deinit(gpa);
 
             try astgen.scanDecls(&namespace, container_decl.ast.members);
-            
+
             var wip_decls: WipDecls = .{};
             defer wip_decls.deinit(gpa);
 
@@ -4672,11 +4678,13 @@ fn containerDecl(
                 .decls_len = @intCast(u32, wip_decls.decl_index),
             });
 
+            // zig fmt: off
             try astgen.extra.ensureUnusedCapacity(gpa,
                 wip_decls.bit_bag.items.len +
                 @boolToInt(wip_decls.decl_index != 0) +
                 wip_decls.payload.items.len
             );
+            // zig fmt: on
 
             astgen.extra.appendSliceAssumeCapacity(wip_decls.bit_bag.items); // Likely empty.
             if (wip_decls.decl_index != 0) {
