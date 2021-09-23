@@ -9961,7 +9961,6 @@ const GenZir = struct {
         });
     }
 
-
     fn addNodeExtended(
         gz: *GenZir,
         opcode: Zir.Inst.Extended,
