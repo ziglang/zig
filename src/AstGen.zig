@@ -1357,7 +1357,14 @@ fn structInitExpr(
         const array_type: Ast.full.ArrayType = switch (node_tags[struct_init.ast.type_expr]) {
             .array_type => tree.arrayType(struct_init.ast.type_expr),
             .array_type_sentinel => tree.arrayTypeSentinel(struct_init.ast.type_expr),
-            else => break :array,
+            else => {
+                if (struct_init.ast.fields.len == 0) {
+                    const ty_inst = try typeExpr(gz, scope, struct_init.ast.type_expr);
+                    const result = try gz.addUnNode(.struct_init_empty, ty_inst, node);
+                    return rvalue(gz, rl, result, node);
+                }
+                break :array;
+            },
         };
         const is_inferred_array_len = node_tags[array_type.ast.elem_count] == .identifier and
             // This intentionally does not support `@"_"` syntax.
@@ -1419,8 +1426,8 @@ fn structInitExpr(
             const result = try structInitExprRlTy(gz, scope, node, struct_init, inner_ty_inst, .struct_init);
             return rvalue(gz, rl, result, node);
         },
-        .ptr, .inferred_ptr => |ptr_inst| return structInitExprRlPtr(gz, scope, node, struct_init, ptr_inst),
-        .block_ptr => |block_gz| return structInitExprRlPtr(gz, scope, node, struct_init, block_gz.rl_ptr),
+        .ptr, .inferred_ptr => |ptr_inst| return structInitExprRlPtr(gz, scope, rl, node, struct_init, ptr_inst),
+        .block_ptr => |block_gz| return structInitExprRlPtr(gz, scope, rl, node, struct_init, block_gz.rl_ptr),
     }
 }
 
@@ -1461,6 +1468,26 @@ fn structInitExprRlNone(
 fn structInitExprRlPtr(
     gz: *GenZir,
     scope: *Scope,
+    rl: ResultLoc,
+    node: Ast.Node.Index,
+    struct_init: Ast.full.StructInit,
+    result_ptr: Zir.Inst.Ref,
+) InnerError!Zir.Inst.Ref {
+    if (struct_init.ast.type_expr == 0) {
+        return structInitExprRlPtrInner(gz, scope, node, struct_init, result_ptr);
+    }
+    const ty_inst = try typeExpr(gz, scope, struct_init.ast.type_expr);
+
+    var as_scope = try gz.makeCoercionScope(scope, ty_inst, result_ptr);
+    defer as_scope.instructions.deinit(gz.astgen.gpa);
+
+    const result = try structInitExprRlPtrInner(&as_scope, scope, node, struct_init, as_scope.rl_ptr);
+    return as_scope.finishCoercion(gz, rl, node, result, ty_inst);
+}
+
+fn structInitExprRlPtrInner(
+    gz: *GenZir,
+    scope: *Scope,
     node: Ast.Node.Index,
     struct_init: Ast.full.StructInit,
     result_ptr: Zir.Inst.Ref,
@@ -1471,9 +1498,6 @@ fn structInitExprRlPtr(
 
     const field_ptr_list = try gpa.alloc(Zir.Inst.Index, struct_init.ast.fields.len);
     defer gpa.free(field_ptr_list);
-
-    if (struct_init.ast.type_expr != 0)
-        _ = try typeExpr(gz, scope, struct_init.ast.type_expr);
 
     for (struct_init.ast.fields) |field_init, i| {
         const name_token = tree.firstToken(field_init) - 2;
@@ -1489,7 +1513,7 @@ fn structInitExprRlPtr(
         .body_len = @intCast(u32, field_ptr_list.len),
     });
     try astgen.extra.appendSlice(gpa, field_ptr_list);
-    return .void_value;
+    return Zir.Inst.Ref.void_value;
 }
 
 fn structInitExprRlTy(
@@ -6902,35 +6926,13 @@ fn asRlPtr(
     operand_node: Ast.Node.Index,
     dest_type: Zir.Inst.Ref,
 ) InnerError!Zir.Inst.Ref {
-    // Detect whether this expr() call goes into rvalue() to store the result into the
-    // result location. If it does, elide the coerce_result_ptr instruction
-    // as well as the store instruction, instead passing the result as an rvalue.
     const astgen = parent_gz.astgen;
 
-    var as_scope = parent_gz.makeSubBlock(scope);
+    var as_scope = try parent_gz.makeCoercionScope(scope, dest_type, result_ptr);
     defer as_scope.instructions.deinit(astgen.gpa);
 
-    as_scope.rl_ptr = try as_scope.addBin(.coerce_result_ptr, dest_type, result_ptr);
     const result = try reachableExpr(&as_scope, &as_scope.base, .{ .block_ptr = &as_scope }, operand_node, src_node);
-    const parent_zir = &parent_gz.instructions;
-    if (as_scope.rvalue_rl_count == 1) {
-        // Busted! This expression didn't actually need a pointer.
-        const zir_tags = astgen.instructions.items(.tag);
-        const zir_datas = astgen.instructions.items(.data);
-        try parent_zir.ensureUnusedCapacity(astgen.gpa, as_scope.instructions.items.len);
-        for (as_scope.instructions.items) |src_inst| {
-            if (indexToRef(src_inst) == as_scope.rl_ptr) continue;
-            if (zir_tags[src_inst] == .store_to_block_ptr) {
-                if (zir_datas[src_inst].bin.lhs == as_scope.rl_ptr) continue;
-            }
-            parent_zir.appendAssumeCapacity(src_inst);
-        }
-        const casted_result = try parent_gz.addBin(.as, dest_type, result);
-        return rvalue(parent_gz, rl, casted_result, operand_node);
-    } else {
-        try parent_zir.appendSlice(astgen.gpa, as_scope.instructions.items);
-        return result;
-    }
+    return as_scope.finishCoercion(parent_gz, rl, operand_node, result, dest_type);
 }
 
 fn bitCast(
@@ -9106,6 +9108,52 @@ const GenZir = struct {
             .suspend_node = gz.suspend_node,
             .nosuspend_node = gz.nosuspend_node,
         };
+    }
+
+    fn makeCoercionScope(
+        parent_gz: *GenZir,
+        scope: *Scope,
+        dest_type: Zir.Inst.Ref,
+        result_ptr: Zir.Inst.Ref,
+    ) !GenZir {
+        // Detect whether this expr() call goes into rvalue() to store the result into the
+        // result location. If it does, elide the coerce_result_ptr instruction
+        // as well as the store instruction, instead passing the result as an rvalue.
+        var as_scope = parent_gz.makeSubBlock(scope);
+        errdefer as_scope.instructions.deinit(parent_gz.astgen.gpa);
+        as_scope.rl_ptr = try as_scope.addBin(.coerce_result_ptr, dest_type, result_ptr);
+
+        return as_scope;
+    }
+
+    fn finishCoercion(
+        as_scope: *GenZir,
+        parent_gz: *GenZir,
+        rl: ResultLoc,
+        src_node: Ast.Node.Index,
+        result: Zir.Inst.Ref,
+        dest_type: Zir.Inst.Ref,
+    ) !Zir.Inst.Ref {
+        const astgen = as_scope.astgen;
+        const parent_zir = &parent_gz.instructions;
+        if (as_scope.rvalue_rl_count == 1) {
+            // Busted! This expression didn't actually need a pointer.
+            const zir_tags = astgen.instructions.items(.tag);
+            const zir_datas = astgen.instructions.items(.data);
+            try parent_zir.ensureUnusedCapacity(astgen.gpa, as_scope.instructions.items.len);
+            for (as_scope.instructions.items) |src_inst| {
+                if (indexToRef(src_inst) == as_scope.rl_ptr) continue;
+                if (zir_tags[src_inst] == .store_to_block_ptr) {
+                    if (zir_datas[src_inst].bin.lhs == as_scope.rl_ptr) continue;
+                }
+                parent_zir.appendAssumeCapacity(src_inst);
+            }
+            const casted_result = try parent_gz.addBin(.as, dest_type, result);
+            return rvalue(parent_gz, rl, casted_result, src_node);
+        } else {
+            try parent_zir.appendSlice(astgen.gpa, as_scope.instructions.items);
+            return result;
+        }
     }
 
     const Label = struct {

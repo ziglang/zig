@@ -2650,8 +2650,12 @@ pub const Inst = struct {
             has_decls_len: bool,
             name_strategy: NameStrategy,
             layout: std.builtin.TypeInfo.ContainerLayout,
-            /// false: union(tag_type)
-            ///  true: union(enum(tag_type))
+            /// has_tag_type | auto_enum_tag | result
+            /// -------------------------------------
+            ///    false     | false         |  union { }
+            ///    false     | true          |  union(enum) { }
+            ///    true      | true          |  union(enum(T)) { }
+            ///    true      | false         |  union(T) { }
             auto_enum_tag: bool,
             _: u6 = undefined,
         };

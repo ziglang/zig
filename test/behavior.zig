@@ -13,6 +13,7 @@ test {
     _ = @import("behavior/atomics.zig");
     _ = @import("behavior/sizeof_and_typeof.zig");
     _ = @import("behavior/translate_c_macros.zig");
+    _ = @import("behavior/struct.zig");
     _ = @import("behavior/union.zig");
     _ = @import("behavior/widening.zig");
 
@@ -135,7 +136,7 @@ test {
         _ = @import("behavior/sizeof_and_typeof_stage1.zig");
         _ = @import("behavior/slice.zig");
         _ = @import("behavior/slice_sentinel_comptime.zig");
-        _ = @import("behavior/struct.zig");
+        _ = @import("behavior/struct_stage1.zig");
         _ = @import("behavior/struct_contains_null_ptr_itself.zig");
         _ = @import("behavior/struct_contains_slice_of_itself.zig");
         _ = @import("behavior/switch.zig");

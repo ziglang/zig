@@ -563,8 +563,13 @@ pub const DeclGen = struct {
             }
         }
 
+        const llvm_ret_ty = if (!return_type.hasCodeGenBits())
+            self.context.voidType()
+        else
+            try self.llvmType(return_type);
+
         const fn_type = llvm.functionType(
-            try self.llvmType(return_type),
+            llvm_ret_ty,
             llvm_param_buffer.ptr,
             llvm_params_len,
             .False,
