@@ -3,20 +3,20 @@ const builtin = @import("builtin");
 test {
     // Tests that pass for both.
     _ = @import("behavior/array.zig");
+    _ = @import("behavior/atomics.zig");
+    _ = @import("behavior/basic.zig");
     _ = @import("behavior/bool.zig");
     _ = @import("behavior/cast.zig");
-    _ = @import("behavior/basic.zig");
-    _ = @import("behavior/generics.zig");
     _ = @import("behavior/eval.zig");
-    _ = @import("behavior/pointers.zig");
+    _ = @import("behavior/generics.zig");
     _ = @import("behavior/if.zig");
-    _ = @import("behavior/this.zig");
-    _ = @import("behavior/usingnamespace.zig");
-    _ = @import("behavior/atomics.zig");
+    _ = @import("behavior/pointers.zig");
     _ = @import("behavior/sizeof_and_typeof.zig");
-    _ = @import("behavior/translate_c_macros.zig");
     _ = @import("behavior/struct.zig");
+    _ = @import("behavior/this.zig");
+    _ = @import("behavior/translate_c_macros.zig");
     _ = @import("behavior/union.zig");
+    _ = @import("behavior/usingnamespace.zig");
     _ = @import("behavior/widening.zig");
 
     if (builtin.zig_is_stage2) {
@@ -144,7 +144,6 @@ test {
         _ = @import("behavior/switch.zig");
         _ = @import("behavior/switch_prong_err_enum.zig");
         _ = @import("behavior/switch_prong_implicit_cast.zig");
-        _ = @import("behavior/this_stage1.zig");
         _ = @import("behavior/truncate.zig");
         _ = @import("behavior/try.zig");
         _ = @import("behavior/tuple.zig");

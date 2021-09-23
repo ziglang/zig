@@ -59,11 +59,6 @@ pub const ExtraIndex = enum(u32) {
     _,
 };
 
-pub fn getMainStruct(zir: Zir) Inst.Index {
-    _ = zir;
-    return 0;
-}
-
 /// Returns the requested data, as well as the new index which is at the start of the
 /// trailers for the object.
 pub fn extraData(code: Zir, comptime T: type, index: usize) struct { data: T, end: usize } {
@@ -109,6 +104,10 @@ pub fn deinit(code: *Zir, gpa: *Allocator) void {
     gpa.free(code.extra);
     code.* = undefined;
 }
+
+/// ZIR is structured so that the outermost "main" struct of any file
+/// is always at index 0.
+pub const main_struct_inst: Inst.Index = 0;
 
 /// These are untyped instructions generated from an Abstract Syntax Tree.
 /// The data here is immutable because it is possible to have multiple

@@ -11,8 +11,8 @@ gpa: *Allocator,
 /// Points to the temporary arena allocator of the Sema.
 /// This arena will be cleared when the sema is destroyed.
 arena: *Allocator,
-/// Points to the arena allocator for the Decl.  This arena
-/// will persist until the decl is invalidated.
+/// Points to the arena allocator for the owner_decl.
+/// This arena will persist until the decl is invalidated.
 perm_arena: *Allocator,
 code: Zir,
 air_instructions: std.MultiArrayList(Air.Inst) = .{},
@@ -3167,7 +3167,6 @@ fn analyzeCall(
 
             // Create a Decl for the new function.
             const src_decl = namespace.getDecl();
-            // TODO CLOSURE verify that depth+1 is correct here
             const new_decl = try mod.allocateNewDecl(namespace, module_fn.owner_decl.src_node, src_decl.src_scope);
             // TODO better names for generic function instantiations
             const name_index = mod.getNextAnonNameIndex();
@@ -6631,7 +6630,6 @@ fn zirClosureCapture(
     // TODO: Compile error when closed over values are modified
     const inst_data = sema.code.instructions.items(.data)[inst].un_tok;
     const tv = try sema.resolveInstConst(block, inst_data.src(), inst_data.operand);
-    //const arena = sema.perm_arena;
     try block.wip_capture_scope.captures.putNoClobber(sema.gpa, Zir.indexToRef(inst), .{
         .ty = try tv.ty.copy(sema.perm_arena),
         .val = try tv.val.copy(sema.perm_arena),

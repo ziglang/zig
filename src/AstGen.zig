@@ -9154,7 +9154,7 @@ const Scope = struct {
 
         /// Map from the raw captured value to the instruction
         /// ref of the capture for decls in this namespace
-        captures: std.AutoArrayHashMapUnmanaged(Zir.Inst.Index, Zir.Inst.Ref) = .{},
+        captures: std.AutoHashMapUnmanaged(Zir.Inst.Index, Zir.Inst.Ref) = .{},
 
         pub fn deinit(self: *Namespace, gpa: *Allocator) void {
             self.decls.deinit(gpa);
@@ -9223,7 +9223,7 @@ const GenZir = struct {
     /// any references to external instructions need to be treated specially.
     /// This list tracks those references.  See also .closure_capture and .closure_get.
     /// Keys are the raw instruction index, values are the closure_capture instruction.
-    captures: std.AutoArrayHashMapUnmanaged(Zir.Inst.Index, Zir.Inst.Index) = .{},
+    captures: std.AutoHashMapUnmanaged(Zir.Inst.Index, Zir.Inst.Index) = .{},
 
     fn makeSubBlock(gz: *GenZir, scope: *Scope) GenZir {
         return .{

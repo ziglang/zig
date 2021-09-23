@@ -282,7 +282,7 @@ pub const CaptureScope = struct {
     /// child decls. Values stored in the value_arena of the linked decl.
     /// During sema, this map is backed by the gpa.  Once sema completes,
     /// it is reallocated using the value_arena.
-    captures: std.AutoArrayHashMapUnmanaged(Zir.Inst.Ref, TypedValue) = .{},
+    captures: std.AutoHashMapUnmanaged(Zir.Inst.Ref, TypedValue) = .{},
 };
 
 pub const WipCaptureScope = struct {
@@ -2971,12 +2971,10 @@ pub fn mapOldZirToNew(
     var match_stack: std.ArrayListUnmanaged(MatchedZirDecl) = .{};
     defer match_stack.deinit(gpa);
 
-    const old_main_struct_inst = old_zir.getMainStruct();
-    const new_main_struct_inst = new_zir.getMainStruct();
-
+    // Main struct inst is always the same
     try match_stack.append(gpa, .{
-        .old_inst = old_main_struct_inst,
-        .new_inst = new_main_struct_inst,
+        .old_inst = Zir.main_struct_inst,
+        .new_inst = Zir.main_struct_inst,
     });
 
     var old_decls = std.ArrayList(Zir.Inst.Index).init(gpa);
@@ -3168,7 +3166,7 @@ pub fn semaFile(mod: *Module, file: *Scope.File) SemaError!void {
 
     if (file.status == .success_zir) {
         assert(file.zir_loaded);
-        const main_struct_inst = file.zir.getMainStruct();
+        const main_struct_inst = Zir.main_struct_inst;
         struct_obj.zir_index = main_struct_inst;
 
         var sema_arena = std.heap.ArenaAllocator.init(gpa);
@@ -3205,13 +3203,6 @@ pub fn semaFile(mod: *Module, file: *Scope.File) SemaError!void {
         if (sema.analyzeStructDecl(new_decl, main_struct_inst, struct_obj)) |_| {
             try wip_captures.finalize();
             new_decl.analysis = .complete;
-
-            // If an error happens resolving the fields of a struct, it will be marked
-            // invalid and a proper compile error set up. But we should still look at the
-            // other types pending resolution.
-            //const src: LazySrcLoc = .{ .node_offset = 0 };
-            //sema.resolveDeclFields(block, src, ty) catch continue;
-
         } else |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             error.AnalysisFail => {},
@@ -3263,7 +3254,7 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
 
     if (decl.isRoot()) {
         log.debug("semaDecl root {*} ({s})", .{ decl, decl.name });
-        const main_struct_inst = zir.getMainStruct();
+        const main_struct_inst = Zir.main_struct_inst;
         const struct_obj = decl.getStruct().?;
         // This might not have gotten set in `semaFile` if the first time had
         // a ZIR failure, so we set it here in case.

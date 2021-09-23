@@ -26,7 +26,7 @@ pub fn renderAsTextToFile(
         .parent_decl_node = 0,
     };
 
-    const main_struct_inst = scope_file.zir.getMainStruct();
+    const main_struct_inst = Zir.main_struct_inst;
     try fs_file.writer().print("%{d} ", .{main_struct_inst});
     try writer.writeInstToStream(fs_file.writer(), main_struct_inst);
     try fs_file.writeAll("\n");
