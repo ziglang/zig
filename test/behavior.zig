@@ -1,14 +1,16 @@
 const builtin = @import("builtin");
 
 test {
+    // Tests that pass for both.
+    _ = @import("behavior/array.zig");
     _ = @import("behavior/bool.zig");
+    _ = @import("behavior/cast.zig");
     _ = @import("behavior/basic.zig");
     _ = @import("behavior/generics.zig");
     _ = @import("behavior/eval.zig");
     _ = @import("behavior/pointers.zig");
     _ = @import("behavior/if.zig");
-    _ = @import("behavior/cast.zig");
-    _ = @import("behavior/array.zig");
+    _ = @import("behavior/this.zig");
     _ = @import("behavior/usingnamespace.zig");
     _ = @import("behavior/atomics.zig");
     _ = @import("behavior/sizeof_and_typeof.zig");
@@ -142,7 +144,7 @@ test {
         _ = @import("behavior/switch.zig");
         _ = @import("behavior/switch_prong_err_enum.zig");
         _ = @import("behavior/switch_prong_implicit_cast.zig");
-        _ = @import("behavior/this.zig");
+        _ = @import("behavior/this_stage1.zig");
         _ = @import("behavior/truncate.zig");
         _ = @import("behavior/try.zig");
         _ = @import("behavior/tuple.zig");
